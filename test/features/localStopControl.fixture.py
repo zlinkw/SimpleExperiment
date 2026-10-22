@@ -10,6 +10,9 @@ import tempfile
 import threading
 import types
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_helpers"))
+from closeFixtureTmuxWindows import close_fixture_tmux_windows
+
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
 names = {"local_stop_tmux_inventory", "stop_local_worker_task", "worker_task_tmux_location", "stop_scheduler_operation", "_execute_worker_command_unfenced",
          "retire_worker_state", "retirement_plan_file", "retired_operation_ids"}
@@ -19,7 +22,7 @@ assert len(functions) == len(names)
 m = types.ModuleType("isolated_stop")
 exec(compile(ast.Module(body=functions, type_ignores=[]), "isolated_stop", "exec"), m.__dict__)
 root = tempfile.mkdtemp(prefix="simple-stop-control-")
-socket = "simple-stop-probe-" + str(os.getpid())
+socket = Path(root).name
 events, files = [], {}
 
 class Tmux:
@@ -118,6 +121,4 @@ try:
     assert alive(protected["tmuxWindowId"])
     print(json.dumps({"ok":True, "realTmux":True, "cases":8, "pidSignals":0, "scientificProcesses":0}))
 finally:
-    # Only this fixture's exact windows; never a user tmux server or whole session.
-    for window_id in sorted({row["window"] for row in m.local_stop_tmux_inventory(root)}):
-        Tmux.run(["tmux", "kill-window", "-t", window_id], capture_output=True, text=True, timeout=3)
+    close_fixture_tmux_windows(lambda args: Tmux.run(["tmux", *args], capture_output=True, text=True, timeout=2), socket_name=socket)

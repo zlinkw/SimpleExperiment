@@ -118,6 +118,7 @@ function createHost(overrides = {}) {
     pendingPanelNavigation: { section: "overview", anchor: "overview" },
     localPlanMetadata: { plans: [] },
     calls,
+    runConfirmation: { replay(owner) { calls.confirmationReplay = owner; } },
     clearTimeout(timer) {
       if (timer && timer.id === "watchdog") calls.watchdogs += 1;
     },
@@ -171,6 +172,7 @@ test("webviewReady without clientActionId completes the real handshake", async (
   const host = createHost();
   await api.handleMessage.call(host, { command: "webviewReady", documentGeneration: 4 });
   assert.equal(host.webviewReady, true);
+  assert.equal(host.calls.confirmationReplay, host);
   assert.equal(host.calls.flushes, 1);
   assert.equal(host.calls.watchdogs, 1);
   assert.equal(host.panelReadyWatchdogTimer, undefined);

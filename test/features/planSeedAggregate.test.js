@@ -236,7 +236,7 @@ test("copy archive confirms exact targets and verifies the local Worker copy", a
     sha256File: async (file) => crypto.createHash("sha256").update(await fs.promises.readFile(file)).digest("hex"),
     UiCommandCancelled: class extends Error {},
   };
-  const method = vm.runInNewContext(`({${source.slice(start, end)}}).archivePlanCopyFromUi`, context);
+  const method = vm.runInNewContext(`${require("typescript").transpileModule("const methods = {" + require("../_helpers/legacyMethod")(source, "archivePlanCopyFromUi(") + "};", {compilerOptions:{target:99}}).outputText}; methods.archivePlanCopyFromUi`, context);
   const host = {
     client, planFileInput: planFile, selectedPlanId: planFile,
     resultsSummary: { aggregateStatus: "ready", availableWorkerIds: ["NWPU3"] },

@@ -1,3 +1,4 @@
+const legacyMethod = require('../_helpers/legacyMethod');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -14,8 +15,11 @@ const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'mode-project
 function method(start, end, scope = {}) {
   const from = source.indexOf(start), to = source.indexOf(end, from);
   assert.ok(from >= 0 && to > from);
-  return vm.runInNewContext('({' + source.slice(from, to) + '})', {
+  return vm.runInNewContext('({' + legacyMethod(source, start) + '})', {
+    vscode:{workspace:{getConfiguration:()=>({get:(_key,value)=>value})}},
     PlanExecutionMode, DistributedPlanQueue: Queue, PlanBuilder_1: PlanBuilder,
+    PlanCodeScopeHost: require("../../dist/extension/PlanCodeScopeHost"),
+    GpuQuotaScheduling: require("../../dist/features/GpuQuotaScheduling"), AgentTmuxPolicy_1:require("../../dist/tunnel/AgentTmuxPolicy"),
     WorkflowBinding: require('../../dist/features/WorkflowWorkspaceBinding'),
     PlanCleanupEvidence_1: require('../../dist/features/PlanCleanupEvidence'), path,
     fs: { readFile: async () => 'plan_id: stable-mode-plan\n' },
@@ -27,14 +31,14 @@ function method(start, end, scope = {}) {
   });
 }
 function host(queue = Queue.emptyDistributedQueue()) {
-  const owner = { queue, distributedQueueGeneration: 0, context: { globalStorageUri: { fsPath: 'C:/storage' } },
+  const owner = { queue, requests: [], lastWorkerTaskSnapshots: new Map([[root+"\u0000worker",{capabilities:{taskLifecycle:2}}]]), distributedQueueGeneration: 0, context: { globalStorageUri: { fsPath: 'C:/storage' } },
     lastCodeSyncState: { fingerprint: 'code', workerVersions: { worker: { codeSyncProofId: 'proof' } } },
-    lastWorkerProbes: { worker: { capabilities: { endpoints: { declaredJobPaths: true, formalJobIdentityEnv: 1, taskShellEnvironment: 1, projectManagedValidation: 1 }, actionEndpoints: { 'register-code-sync-proof': true } } } },
+    lastWorkerProbes: { worker: { capabilities: { endpoints: { gpuQuotaScheduling:1, declaredJobPaths: true, formalJobIdentityEnv: 1, taskShellEnvironment: 1, projectManagedValidation: 1 }, actionEndpoints: { 'register-code-sync-proof': true } } } },
     workerActionTargets: () => [{ id: 'worker', condaEnv: 'env' }], enabledWorkerConfigs: () => [],
     schedulerSettings: () => ({}), loadDistributedQueue: async () => owner.queue,
     saveDistributedQueue: async (_, value) => { owner.queue = value; }, postState() {},
     withRemoteActionResource: (_, __, ___, work) => work(),
-    client: { postWorkerAction: async (_, __, request) => request },
+    client: { postWorkerAction: async (_, __, request) => { owner.requests.push(request); return {lifecycleProtocol:2,status:"accepted"}; } },
   };
   return owner;
 }
@@ -49,12 +53,15 @@ for (const mode of ['train', 'test', 'train_test']) test('validated mode survive
   assert.equal(plan.stablePlanId, 'stable-mode-plan');
   assert.equal(plan.overwriteExisting, false, 'formal dispatch never forwards a delete/overwrite flag');
   const send = method('async sendDistributedJob(', 'async tickDistributedQueueCore(').sendDistributedJob;
-  const request = await send.call(owner, plan, job, 'worker', '0', 'command');
+  const ack = await send.call(owner, plan, job, 'worker', '0', 'command');
+  assert.equal(ack.status,'unknown','HTTP acknowledgement is not execution evidence');
+  const request=owner.requests.at(-1);
   assert.equal(request.mode, mode); assert.equal(request.executionMode, mode); assert.equal(request.options.mode, mode);
   job.status = 'failed';
   owner.queue = Queue.retryVerifiedJob(owner.queue, plan.id, 0, 'manual-attempt');
   plan = owner.queue.plans[0]; job = plan.jobs[0];
-  assert.equal((await send.call(owner, plan, job, 'worker', '0', 'retry-command')).mode, mode);
+  assert.equal((await send.call(owner, plan, job, 'worker', '0', 'retry-command')).status,'unknown');
+  assert.equal(owner.requests.at(-1).mode,mode);
   const task = { ...request, commandId: 'command', runKey: 'command', workerId: 'worker', status: 'completed' };
   const now = Date.now(), at = new Date(now).toISOString();
   const restored = Queue.mergeDurableWorkerSnapshots(Queue.emptyDistributedQueue(), [{ workerId: 'worker',
@@ -77,6 +84,7 @@ test('loading legacy queue restores matching mode without restarting or changing
   const queue = Queue.enqueuePlan(Queue.emptyDistributedQueue(), { planFile: 'experiments/plans/mode.yaml', revision,
     codeFingerprint: 'code', jobs: [{ index: 0, case: 'case', seed: 42, outputDir: 'work/job' }] }, 'run');
   delete queue.plans[0].resultPathPolicy;
+  delete queue.plans[0].jobs[0].lifecycleProtocol;
   Object.assign(queue.plans[0].jobs[0], {attempt:1,outputDir:'work/job/attempts/run'});
   Object.assign(queue.plans[0].jobs[0], { status: 'running', workerId: 'worker', commandId: 'active', actualExecutionMode: 'train_test' });
   const original = JSON.stringify(queue), owner = host(queue);
@@ -122,7 +130,8 @@ test('formal resource failure keeps validated train mode and blocks rerun over f
   queue = Queue.scheduleAutomaticJobRetries(queue, snapshot(now), projectId, { now, makeAttemptId: () => 'auto-attempt' });
   queue = Queue.scheduleAutomaticJobRetries(queue, snapshot(now + 30000), projectId, { now: now + 30000, makeAttemptId: () => 'auto-attempt' });
   assert.equal(queue.plans[0].executionMode, 'train'); assert.equal(queue.plans[0].jobs[0].attempt, 0);
-  assert.match(queue.plans[0].jobs[0].automaticRetry.blockedReason,/FORMAL_JOB_CONFLICT/);
+  assert.equal(queue.plans[0].jobs[0].automaticRetry,undefined);
+  assert.equal(queue.plans[0].jobs[0].commandId,"old","failed protocol-2 command must not be replayed");
   const reassigned = Queue.allocateAvailable(queue, [{ workerId: 'other', idleGpuIds: ['0'], online: true, codeFingerprint: 'code' }]);
   assert.equal(reassigned.dispatches.length, 0); assert.equal(reassigned.queue.plans[0].executionMode, 'train');
 });
@@ -131,6 +140,7 @@ test('confirmed training recovery survives a lost Host receipt, rejecting change
   const queue = Queue.enqueuePlan(Queue.emptyDistributedQueue(), { projectId, planFile: 'plans/train.yaml', revision: 'rev',
     executionMode: 'train', codeFingerprint: 'code', jobs: [{ index: 0, case: 'case', seed: 42, outputDir: 'work/job' }] }, 'run', at);
   delete queue.plans[0].resultPathPolicy;
+  delete queue.plans[0].jobs[0].lifecycleProtocol;
   Object.assign(queue.plans[0].jobs[0],{attempt:1,outputDir:'work/job/attempts/run'});
   const plan = queue.plans[0], job = plan.jobs[0];
   Object.assign(job, { status: 'failed', trustedTerminalStatus: 'failed', workerId: 'worker', commandId: 'command', runKey: 'command' });
@@ -157,6 +167,7 @@ test('training recovery requires confirmation for the unchanged job and current 
     const queue = Queue.enqueuePlan(Queue.emptyDistributedQueue(), { projectId: 'project', planFile: 'plans/train.yaml', revision: 'rev',
       executionMode: 'train', codeFingerprint: 'code', jobs: [{ index: 0, case: 'case', seed: 42, outputDir: 'work/job' }] }, 'run');
     delete queue.plans[0].resultPathPolicy;
+  delete queue.plans[0].jobs[0].lifecycleProtocol;
     Object.assign(queue.plans[0].jobs[0],{attempt:1,outputDir:'work/job/attempts/run'});
     const job = queue.plans[0].jobs[0];
     Object.assign(job, { status: 'failed', workerId: 'worker', commandId: 'command', runKey: 'command', actualExecutionMode: 'train_test',

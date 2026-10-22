@@ -120,9 +120,9 @@ function indexWorkerTasks(tasks) {
 }
 function liveStatusWarning(hubStatus, workerStatus) {
     if (terminalStatuses.has(hubStatus) && workerStatus === "pid_alive")
-        return "Hub completed, but Worker still detects a process; run self-check.";
+        return "Scheduler completed, but Worker still detects a process; run self-check.";
     if ((hubStatus === "running" || hubStatus === "testing") && workerStatus === "process_gone")
-        return "Hub running, but Worker does not detect the process.";
+        return "Scheduler running, but Worker does not detect the process.";
     return undefined;
 }
 function normalizeWorkerTask(value, fallbackWorkerId) {

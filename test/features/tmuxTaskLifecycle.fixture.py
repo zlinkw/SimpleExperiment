@@ -18,6 +18,7 @@ def task_tmux(args, timeout=5, **kwargs):
     return _modern_task_tmux(args, timeout=timeout, **kwargs)
 '''
 root = tempfile.mkdtemp(prefix="se-native-lifecycle-")
+os.environ.pop("TMUX", None)
 os.environ["TMUX_TMPDIR"] = root
 os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = "fixture"
 bootstrap = '''import base64, datetime, hashlib, json, os, pathlib, re, shlex, subprocess, sys, threading, time, urllib.request, uuid

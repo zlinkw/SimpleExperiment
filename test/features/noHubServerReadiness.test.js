@@ -45,14 +45,15 @@ test("worker-only bootstrap readiness ignores offline Hub and Hub dependency dat
   assert.equal(readiness.missing.length, 0);
 });
 
-test("frontend readiness derives Hub requirements from the selected topology", () => {
-  assert.match(panel, /const hubRequired = topology\.mode \? topology\.mode === "hub_worker" : true/);
-  assert.match(panel, /const hubReady = !hubRequired \|\| HUB_OPERATION_READY_STATUS_TOKENS/);
-  assert.match(panel, /const restartRequired = hubRequired && hubStatus === "agent_restart_required"/);
-  assert.match(panel, /let versionMismatch = hubRequired && hubStatus === "agent_version_mismatch"/);
-  assert.match(panel, /let projectMismatch = hubRequired && hubStatus === "agent_project_mismatch"/);
-  assert.match(panel, /const hubReady = !hubRequired \|\| syncStatusOk\(sync\.hub\)/);
-  assert.match(extension, /serverSetupMissingItems\(this\.setupConfig, hubRequired\)/);
-  assert.match(extension, /projectOnboardingCompletedFromCodeSync\(this\.lastCodeSyncState, topology\.hubAllowed\)/);
-  assert.match(extension, /const scopedRegistry = hubAllowed \? registry : \{[\s\S]*endpoints: registry\.endpoints\.filter\(\(endpoint\) => endpoint\.role !== "hub_control"\)/);
+test("rendered readiness cannot restore a Hub requirement from any old topology",()=>{
+  const panelFunction=require('../_helpers/panelFunction');
+  const sandbox={EMPTY_WORKER_TUNNELS_FOR_ALIAS:[],enabledWorkerTunnelsCacheSource:null,enabledWorkerTunnelsCacheValue:[],projectEndpointReadinessCacheState:null,projectEndpointReadinessCacheValue:null};
+  vm.runInNewContext(panelFunction('enabledWorkerTunnelsForState')+'\n'+panelFunction('projectEndpointReadiness')+'\nthis.check=projectEndpointReadiness;',sandbox);
+  for(const mode of ['hub_worker','worker_pool',undefined]) {
+    const setup={workerTunnels:[{id:'a',enabled:true}]};
+    const ready=sandbox.check({setup,topology:{mode},probe:{status:'offline'},workerProbes:{a:{status:'ok'}}});
+    assert.equal(ready.ready,true);assert.equal(ready.hubRequired,false);assert.equal(ready.missing.length,0);
+    const blocked=sandbox.check({setup,topology:{mode},probe:{status:'ok'},workerProbes:{a:{status:'offline'}}});
+    assert.equal(blocked.ready,false);assert.match(blocked.missing.join(','),/a/);
+  }
 });

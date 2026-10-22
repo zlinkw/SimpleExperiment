@@ -66,7 +66,7 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   assert.match(source, /needsWorker\s*\? await vscode\.window\.showInformationMessage\(message, "打开服务器设置", "打开配置说明", "不再提示"\)/);
   assert.match(source, /choice === "打开服务器设置"\)\s*await this\.openPanelAt\("settings", "settings-servers", \{ userInitiated: true \}\)/);
   assert.match(source, /const afterWorkerCount = this\.enabledWorkerConfigs\(\)\.length/);
-  assert.match(source, /workspaceRoot\(\) && initialServerSetupComplete\(this\.setupConfig, this\.projectTopologyAssessment\(\)\.hubAllowed\) && afterSftp\.ready && afterWorkerCount > 0/);
+  assert.match(source, /workspaceRoot\(\) && initialServerSetupComplete\(this\.setupConfig, false\) && afterSftp\.ready && afterWorkerCount > 0/);
   assert.match(source, /choice === "不再提示"[\s\S]{0,140}globalState\.update/);
   assert.match(source, /afterSftp = simpleSftpIntegrationReadiness\(\)/);
   assert.match(source, /async markProjectOnboardingComplete\(projectContext\)/);
@@ -83,8 +83,8 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   vm.createContext(sandbox);
   vm.runInContext(`${extractFunction("serverSetupMissingItems")}\n${extractFunction("initialServerSetupComplete")}\nthis.check = initialServerSetupComplete;\nthis.missing = serverSetupMissingItems;`, sandbox);
   const check = sandbox.check;
-  assert.equal(check({}), false);
-  assert.equal(check({ savedSessionPath: "hub.xsh", agentProjectDir: "/srv/projects" }), true);
+  assert.equal(check({}), true, "no enabled Worker fields to validate; onboarding separately requires enabledWorkerCount > 0");
+  assert.equal(check({ savedSessionPath: "hub.xsh", agentProjectDir: "/srv/projects" }), check({}), "retired Hub fields cannot change Worker setup readiness");
   assert.equal(check({ savedSessionPath: "hub.xsh", agentProjectDir: "/srv/projects", workerTunnels: [{ id: "w1", enabled: true }] }), false);
   assert.equal(check({ savedSessionPath: "hub.xsh", agentProjectDir: "/srv/projects", workerTunnels: [{ id: "w1", enabled: false }] }), true);
   assert.equal(check({ savedSessionPath: "hub.xsh", agentProjectDir: "/srv/projects", workerTunnels: [{ id: "w1", savedSessionPath: "w1.xsh", agentProjectDir: "/srv/worker", enabled: true }] }), true);

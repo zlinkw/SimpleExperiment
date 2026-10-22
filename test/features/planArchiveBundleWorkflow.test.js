@@ -62,7 +62,7 @@ test("plan archive creates a reusable bundle from archived-only effective result
   assert.match(archive, /"evidence\/result_selection\.json"/);
   assert.match(archive, /schemaVersion: 5/);
   assert.match(archive, /excludedResultsTotalCount: resultSelection\.notIncludedCount/);
-  assert.match(archive, /remoteProjectRetained: evidenceMode === "hub_download"/);
+  assert.match(archive, /remoteProjectRetained: false/);
   assert.match(archive, /await fs\.rename\(sourcePath, targetPath\)/);
   assert.match(archive, /await fs\.rename\(stagingDir, bundleDir\)/);
   assert.match(archive, /restoreMovedPlanArchiveFiles\(root, stagingDir, movedArchiveFiles\)/);
@@ -129,7 +129,7 @@ test("Plan archive synchronizes evidence only after modal confirmation and befor
   assert.doesNotMatch(extractFunction("nextAvailableDirectory"), /fs\.mkdir/);
 });
 
-test("Plan archive materializes local or Hub evidence inside the bundle", async () => {
+test("Plan archive copies exact local evidence and rejects retired Hub downloads", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-evidence-"));
   try {
     const relative = "simple_cluster/results/by_plan/smoke/results_effective_archived.csv";
@@ -168,14 +168,13 @@ test("Plan archive materializes local or Hub evidence inside the bundle", async 
         return { ok: true, fileCount: params.entries.length };
       },
     };
-    await sandbox.materialize(client, root, remoteBundle, [relative, "simple_cluster/results/by_plan/smoke/statistics.json"], "hub_download");
-    assert.equal(calls.length, 2, "unknown sizes are conservatively sent as one-file bounded batches");
-    assert.ok(calls.every((call) => call.method === "sync.downloadMappedPaths"));
-    assert.deepEqual(calls.map((call) => call.params.entries.length), [1, 1]);
-    assert.ok(calls.every((call) => call.params.maxFileBytes === 4 * 1024 * 1024));
-    assert.equal(fs.readFileSync(path.join(remoteBundle, "evidence", ...relative.split("/")), "utf8"), "metric,value\nAUC,0.95\n");
+    await assert.rejects(() => sandbox.materialize(client, root, remoteBundle,
+      [relative, "simple_cluster/results/by_plan/smoke/statistics.json"], "hub_download"), /HUB_REMOVED/);
+    assert.deepEqual(calls, [], 'retired remote archive cannot transfer files');
+    assert.equal(fs.existsSync(remoteBundle), false);
+
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    // Retain the exact private fixture for audit.
   }
 });
 
@@ -214,7 +213,7 @@ test("Plan archive rollback restores migrated Plan, configs, and local evidence"
     assert.equal(fs.readFileSync(path.join(root, config), "utf8"), "epochs: 3\n");
     assert.equal(fs.readFileSync(path.join(root, evidence), "utf8"), "metric,value\nAUC,0.9\n");
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    // Retain the exact private fixture for audit.
   }
 });
 
@@ -562,6 +561,6 @@ test("plan archive snapshot includes argparse declared in an imported module", a
     assert.equal(snapshot.entries.find((entry) => entry.file === "package/options.py").parameters[0].defaultValue, 12);
   }
   finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    // Retain the exact private fixture for audit.
   }
 });

@@ -97,7 +97,9 @@ test('actual cleanup Host uses current file observations without requiring retir
   const Host=vm.runInNewContext(ts.transpileModule(json.getText(ast)+'\n'+cls.getText(ast).replace(/^export /,'')+';PlanCleanupHost;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
     {fs,path,...C,...Q,...R,...ledger,collectPlanCleanupEvidence,AbortSignal,vscode:{workspace:{workspaceFolders:[{uri:{fsPath:f.root}}],textDocuments:[]}}});
   let saved;
-  const host={context:{globalStorageUri:{fsPath:storage}},setupConfig:{workerTunnels:[{id:'w'}]},
+  const rootMaps = require('../../src/features/ProjectRootMap.ts');
+  const guard = projectDir => rootMaps.machineStateGuard(rootMaps.resolveProjectRootMap({projectDir, installDir:'/private/plugin', stateDir:'/private/machine-state', machineStateDirs:['/private/worker-state']}));
+  const host={localMachineStateGuard: guard, targetRootGuard: target => guard(target.remotePath), context:{globalStorageUri:{fsPath:storage}},setupConfig:{workerTunnels:[{id:'w'}]},
     client:{getWorkerTasks:async id=>{assert.equal(id,'w');events.push('tasks');return f.snapshots[0];}},
     workerCodeSyncTarget:worker=>({id:worker.id,host:'configured-host',port:30022,user:'configured-user',remotePath:'/safe/project'}),
     buildPlanRuntimeEvidenceState:()=>({operations:{

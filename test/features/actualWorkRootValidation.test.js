@@ -1,3 +1,4 @@
+const legacyMethod = require('../_helpers/legacyMethod');
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -45,19 +46,19 @@ test("project parent roots reject reserved Agent directories and suggest the rea
 });
 
 test("setup saves and remote side effects share the same work-root gate", () => {
-  const hubSave = source.slice(source.indexOf("async saveHubConfigFromUi"), source.indexOf("async saveSchedulerConfigFromUi"));
-  const workerSave = source.slice(source.indexOf("async saveWorkerConfigFromUi"), source.indexOf("async addWorkerConfigFromUi"));
-  const sftpPrepare = source.slice(source.indexOf("async prepareSftpTargets"), source.indexOf("    sftpServerOptions"));
-  const agentWrite = source.slice(source.indexOf("async writeXshellAgentStartupCommands"), source.indexOf("async startAllXshellAgentSessions"));
+  const hubSave = legacyMethod(source,"saveHubConfigFromUi(");
+  const workerSave = legacyMethod(source,"saveWorkerConfigCore(");
+  const sftpPrepare = legacyMethod(source,"prepareSftpTargets(");
+  const agentWrite = legacyMethod(source,"writeXshellAgentStartupCommands(");
 
   assert.match(source, /async function inputActualWorkRoot[\s\S]{0,700}actualWorkRootValidationMessage/);
   assert.match(source, /inputActualWorkRoot[\s\S]{0,1500}"自动改为上一级"[\s\S]{0,180}"仍按当前目录使用"/);
-  assert.equal([...source.matchAll(/await inputActualWorkRoot\(/g)].length, 3);
-  assert.ok(hubSave.indexOf("assertActualWorkRoot") < hubSave.indexOf("applySetupDraft"));
-  assert.ok(hubSave.indexOf("confirmActualWorkRootAmbiguity") < hubSave.indexOf("applySetupDraft"));
+  assert.equal([...source.matchAll(/await inputActualWorkRoot\(/g)].length, 1);
+  assert.match(hubSave,/throw new Error\("HUB_REMOVED/);
+  assert.doesNotMatch(hubSave,/applySetupDraft/);
+  assert.match(legacyMethod(source,"saveWorkerConfigFromUi("),/this\.saveWorkerConfigCore\(message\)/);
   assert.ok(workerSave.indexOf("assertActualWorkRoot") < workerSave.indexOf("applySetupDraft"));
   assert.ok(workerSave.indexOf("confirmActualWorkRootAmbiguity") < workerSave.indexOf("applySetupDraft"));
-  assert.match(hubSave, /agentProjectDir = await confirmActualWorkRootAmbiguity/);
   assert.match(workerSave, /targetAgentProjectDir = await confirmActualWorkRootAmbiguity/);
   assert.match(sftpPrepare, /assertTopologyActualWorkRoots\("SFTP 上传或目录配置"\)/);
   assert.match(agentWrite, /assertTopologyActualWorkRoots\("写入 Agent 自启动路径"\)/);

@@ -12,7 +12,7 @@ function pythonDefinition(name) {
   const start = source.search(new RegExp(`^def ${name}\\(`, "m"));
   assert.notEqual(start, -1, `missing production definition: ${name}`);
   const tail = source.slice(start);
-  const next = tail.slice(1).search(/^(?:def |class |[A-Z][A-Z_]*\s*=)/m);
+  const next = tail.slice(1).search(/^(?:def |class |[A-Z][A-Z_]*\s*=|\$\{|`)/m);
   return next === -1 ? tail : tail.slice(0, next + 1);
 }
 
@@ -42,7 +42,7 @@ function makeFixtureScript(root) {
     "read_worker_recall_tombstones",
     "recalled_worker_command",
     "cancel_durable_plan_job",
-    "worker_task_matches_stop_identity",
+    "worker_task_matches_stop_identity", "worker_task_stop_identity_mismatches",
     "durable_plan_task_status",
     "record_durable_plan_task_terminal",
     "sync_durable_plan_task_rows",
@@ -56,7 +56,7 @@ function makeFixtureScript(root) {
     "retain_worker_task_snapshot",
     "append_worker_task",
     "api_worker_tasks",
-  ].map(pythonDefinition);
+  ];
   const identity = source.match(/^DURABLE_PLAN_IDENTITY_FIELDS\s*=\s*\([\s\S]*?^\)/m);
   assert.ok(identity, "missing production durable identity fields");
   const legacyIdentity = source.match(/^LEGACY_WORKER_STOP_IDENTITY_FIELDS\s*=.*$/m);
@@ -145,7 +145,14 @@ def idle_gpu(gpu_id):
 ${identity[0]}
 ${legacyIdentity[0]}
 
-${definitions.join("\n\n")}
+def verified_formal_job_command(root, command, structure_only=False):
+    assert command.get("resultPathPolicy") == "declared"
+    return command
+def verified_durable_execution_mode(root, command): return "train"
+import sys
+sys.path.insert(0, ${JSON.stringify(path.resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+extract_runtime_functions(${JSON.stringify(path.resolve(__dirname,"../../dist/runtime/cluster_agent.py"))}, ${JSON.stringify(definitions)}, globals())
 
 REAL_RESOLVE_DURABLE_CODE_SYNC_PROOF = resolve_durable_code_sync_proof
 def resolve_durable_code_sync_proof(root, row):
@@ -163,8 +170,8 @@ def make_job(index, command_id=None):
         "experimentIndex": index,
         "case": "case-a",
         "seed": 40 + index,
-        "attempt": 1,
-        "outputDir": "experiments/runs/job-" + str(index) + "/attempts/1",
+        "resultPathPolicy":"declared", "globalJobId":"workflow-1:"+str(index), "collectionResultCsv":"experiments/results/"+str(index)+".csv", "executionMode":"train",
+        "outputDir": "experiments/runs/job-" + str(index),
         "runKey": command_id or "command-" + str(index),
         "commandId": command_id or "command-" + str(index),
         "workerId": "worker-a",
@@ -259,7 +266,7 @@ runtime_busy = lambda: ([{"gpuId":"9","processes":[{}]}], "")
 assert not drain_durable_plan_queue_once(runtime_root, "worker-a", gpu_probe=runtime_busy, execute=lambda *args: runtime_calls.append(True))
 renewed_row = read_durable_plan_queue(runtime_root)["jobs"][0]
 assert renewed_row["status"] == "queued" and not runtime_calls
-assert renewed_row["codeSyncProofId"] != runtime_proof["proofId"]
+assert renewed_row["codeSyncProofId"] != runtime_proof["proofId"], repr((renewed_row, code_sync_proof_runtime_generation()))
 assert renewed_row["codeSyncProofRuntimeGeneration"] == code_sync_proof_runtime_generation()
 assert not renewed_row.get("codeBlocked") and not renewed_row.get("error"), "busy GPU must not retain an obsolete code error"
 assert durable_plan_same_identity(renewed_row, runtime_job), "runtime refresh must not create an attempt or change job provenance"
@@ -269,7 +276,7 @@ def runtime_execute(root, command, worker_id):
     runtime_calls.append((command["commandId"],command["attempt"],command["outputDir"]))
     return {"status":"running"}
 assert len(drain_durable_plan_queue_once(runtime_root, "worker-a", gpu_probe=lambda: ([idle_gpu("9")], ""), execute=runtime_execute)) == 1
-assert runtime_calls == [(runtime_job["commandId"],runtime_job["attempt"],runtime_job["outputDir"])]
+assert runtime_calls == [(runtime_job["commandId"],runtime_job.get("attempt", 0),runtime_job["outputDir"])]
 assert not drain_durable_plan_queue_once(runtime_root, "worker-a", gpu_probe=lambda: ([idle_gpu("9")], ""), execute=runtime_execute)
 assert len(runtime_calls) == 1, "repeated polling cannot start another copy"
 
@@ -362,7 +369,7 @@ test("server Agent durably accepts, drains, cancels, and fences Plan jobs", () =
     assert.equal(result.cancelled, "command-3");
     assert.equal(result.conflict, true);
   } finally {
-    fs.unlinkSync(scriptPath);
+    // Preserve the exact bounded Python probe.
   }
 });
 

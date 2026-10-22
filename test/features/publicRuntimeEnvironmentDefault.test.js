@@ -25,16 +25,17 @@ test("public setup defaults to system Python without changing explicit Conda env
   assert.equal(setup.workerTunnelToXshellSetupConfig({ ...setup.defaultXshellTunnelSetupConfig, condaEnv: "torch2" }, { id: "w1", condaEnv: "" }).condaEnv, "");
   assert.equal(setup.workerTunnelToXshellSetupConfig({ ...setup.defaultXshellTunnelSetupConfig, condaEnv: "torch2" }, { id: "w1" }).condaEnv, "torch2");
 
-  const blank = policy.agentTmuxStartupCommand({ role: "hub", port: 18765, installDir: "/srv/agent", workDir: "/srv/demo", condaEnv: "" });
+  assert.throws(() => policy.agentTmuxStartupCommand({role:"hub",port:33440,installDir:"/srv/agent",workDir:"/srv/demo"}), /HUB_REMOVED/);
+  const blank = policy.agentTmuxStartupCommand({ role: "worker", endpointId: "blank-worker", port: 18765, installDir: "/srv/agent", workDir: "/srv/demo", condaEnv: "" });
   assert.match(blank, /SIMPLE_EXPERIMENT_CONDA_ENV=''/);
   assert.match(blank, /SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV='0'/);
-  assert.match(blank, /SIMPLE_EXPERIMENT_AGENT_TMUX_V20=1/);
-  assert.match(blank, /if \[ -n "\$SIMPLE_EXPERIMENT_CONDA_ENV" \]; then :/);
+  assert.match(blank, /SIMPLE_EXPERIMENT_AGENT_TMUX_V21=1/);
+  assert.equal(JSON.parse(/--config '([^']+)'/.exec(blank)[1]).condaEnv, "");
 
   const explicit = policy.agentTmuxStartupCommand({ role: "worker", endpointId: "w1", port: 18766, installDir: "/srv/agent", workDir: "/srv/demo", condaEnv: "torch2" });
   assert.match(explicit, /SIMPLE_EXPERIMENT_CONDA_ENV='torch2'/);
   assert.match(explicit, /SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV='1'/);
-  assert.match(explicit, /conda activate "\$SIMPLE_EXPERIMENT_CONDA_ENV"/);
+  assert.equal(JSON.parse(/--config '([^']+)'/.exec(explicit)[1]).condaEnv, "torch2");
 });
 
 test("generated runtimes use system Python for blank environment and fail closed for explicit Conda", () => {
@@ -92,10 +93,10 @@ print(json.dumps({
 test("settings and confirmations explain the effective runtime environment", () => {
   assert.match(extension, /function condaEnvPatch\(patch, key, fallback = ""\)/);
   assert.match(extension, /return condaEnv \? `Conda \$\{condaEnv\}` : "系统 Python（未指定 Conda）"/);
-  assert.match(extension, /skipIfRemoteCommandIncludes: \[target\.command\]/);
-  assert.match(panel, /configInput\("hub", "remoteTmuxSessionPrefix", "tmux 会话前缀"/);
-  assert.match(panel, /if \(!hubParticipates\) cards\.push\([\s\S]{0,500}data-anchor="servers-session-defaults"[\s\S]{0,700}remoteTmuxSessionPrefix/);
-  assert.match(extension, /remoteTmuxSessionPrefix: preservedStringPatch\(patch, "remoteTmuxSessionPrefix"/);
+  assert.match(extension, /updateXshellSessionLoginCommand\)\(target\.filePath, target\.command/);
+  assert.match(panel, /configInput\("defaults", "remoteTmuxSessionPrefix", "tmux 会话前缀"/);
+  assert.match(panel, /cards\.push\([\s\S]{0,500}data-anchor="servers-session-defaults"[\s\S]{0,700}remoteTmuxSessionPrefix/);
+  assert.match(extension, /remoteTmuxSessionPrefix: String\(patch\.remoteTmuxSessionPrefix \|\| this\.setupConfig\.remoteTmuxSessionPrefix \|\| "simple"/);
   assert.match(agentSource, /conda_declared = any\(key in command/);
   assert.match(agentSource, /env\["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"\] = "1" if conda_env else "0"/);
   assert.match(panel, /Conda 环境绝对路径（可选，必填完整路径）/);

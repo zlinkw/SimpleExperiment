@@ -19,7 +19,7 @@ test("Agent enriches experiment traces with unambiguous Plan revision provenance
   for (const text of [source, built]) {
     assert.match(text, /def enrich_trace_plan_provenance\(root, rows, scheduler=None\):/);
     assert.match(text, /def collect_traces\(root, scheduler=None\):/);
-    assert.match(text, /traces = collect_traces\([^,]+, scheduler\)/);
+    assert.match(text, /data = enrich_trace_plan_provenance\(root, data, scheduler\)/);
   }
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-trace-plan-"));

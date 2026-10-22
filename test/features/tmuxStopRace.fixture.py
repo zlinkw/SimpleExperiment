@@ -10,12 +10,15 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_helpers"))
+from closeFixtureTmuxWindows import close_fixture_tmux_windows
+
 tree = ast.parse(Path(sys.argv[1]).read_text(encoding="utf-8"))
 names = {"task_tmux", "task_inventory", "task_read_job", "task_query", "task_public_observation", "local_stop_tmux_inventory"}
 nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
 assert len(nodes) == len(names)
 root = tempfile.mkdtemp(prefix="se-stop-race-")
-socket = "se-stop-race-" + str(os.getpid())
+socket = Path(root).name
 
 class Tmux:
     @staticmethod
@@ -53,5 +56,4 @@ try:
     assert result["tasks"][0]["observation"]["cancelled"] and "tmux" not in result["tasks"][0]["observation"]
     print(json.dumps({"ok": True, "realTmux": True, "stateFilesRead": 0}))
 finally:
-    for row in inventory(root):
-        tmux(["kill-window", "-t", row["window"]])
+    close_fixture_tmux_windows(lambda args: Tmux.run(["tmux", *args], capture_output=True, text=True, timeout=2), socket_name=socket)

@@ -1148,6 +1148,8 @@ def task_stop(root, command, worker_id):
     project = str(command.get("projectId") or "")
     if not target or not project:
         raise ValueError("TASK_STOP_IDENTITY_REQUIRED")
+    if command.get("workerId") and command["workerId"] != worker_id:
+        raise ValueError("TASK_OWNER_MISMATCH")
     rows = [row for row in task_inventory(root, execution_only=True) if row["commandId"] == target]
     legacy_tabs = [row for row in local_stop_tmux_inventory(root) if row["command"] == target] if "local_stop_tmux_inventory" in globals() else []
     if any(row["project"] != project for row in legacy_tabs):
@@ -1158,18 +1160,21 @@ def task_stop(root, command, worker_id):
         task_queue_rpc(root, worker_id, "cancel", {"targetCommandId": target, "projectId": project}, ensure=True)
     except Exception:
         # Exact tab closure remains possible even when its controller is unhealthy.
-        if not rows:
+        if not rows and not legacy_tabs:
             raise
         for row in rows:
             task_tmux(["kill-window", "-t", row["tmuxWindowId"]])
     for tab in legacy_tabs:
         # Reused/renamed windows are rechecked through stable markers immediately before closure.
         current = [row for row in local_stop_tmux_inventory(root) if row["window"] == tab["window"]]
-        if current and all(row["command"] == target and row["project"] == project for row in current):
+        if any(row["command"] != target or row["project"] != project for row in current):
+            raise ValueError("TASK_OWNER_MISMATCH")
+        if current:
             task_tmux(["kill-window", "-t", tab["window"]])
     remaining = [row for row in task_inventory(root, execution_only=True) if row["commandId"] == target and row["projectId"] == project]
     if remaining:
         raise RuntimeError("TASK_STOP_NOT_CONFIRMED")
     return {"status": "completed", "stoppedTasks": [{"commandId": target, "projectId": project, "workerId": worker_id,
-        "workflowId": command.get("workflowId"), "stopBoundary": "local_command", "paneClosed": True, "cacheRetired": True}], "stoppedPids": []}
+        "workflowId": command.get("workflowId"), "stopBoundary": "local_command", "paneClosed": True, "cacheRetired": True,
+        "closedWindowIds": sorted({row["tmuxWindowId"] for row in rows} | {row["window"] for row in legacy_tabs})}], "stoppedPids": []}
 `;

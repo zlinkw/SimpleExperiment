@@ -15,5 +15,4 @@ try:
     assert namespace['task_tmux'](['has-session', '-t', '=unrelated-user']) == ''
     print(json.dumps(dict(ok=True, configuredPrefix=True, unchangedOtherUser=True)))
 finally:
-    for window in namespace['task_tmux'](['list-windows', '-a', '-F', '#{window_id}']).splitlines():
-        namespace['task_tmux'](['kill-window', '-t', window])
+    close_fixture_tmux_windows(lambda args: subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=2), private_root=root)

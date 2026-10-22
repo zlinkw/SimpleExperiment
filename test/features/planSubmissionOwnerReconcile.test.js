@@ -111,6 +111,7 @@ function loadHost() {
     enabledWorkerConfigs: () => [{ id: "worker-a" }, { id: "worker-b" }],
     resolveWorkerEndpointId: (value) => (value === "worker-a" || value === "worker-b" ? value : ""),
     markLocalOperationsDirty() {},
+    beginSimpleSftpCapabilityLaunch() {},
     postState() { this.posts += 1; },
     buildPlanRuntimeEvidenceState() {
       return { operations: this.localOperations, schedulerStates: this.schedulerStates || [] };

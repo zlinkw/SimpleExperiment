@@ -531,19 +531,31 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       if (task && ["outputDir", "collectionResultCsv"].some(field => typeof (task as any)[field] === "string"
         && typeof (job as any)[field] === "string" && (task as any)[field] !== (job as any)[field]))
         observation.queryError = "任务产物路径与当前任务不符；请刷新核实";
+      // Narrow stop/read queries may omit historical metadata. When the Worker
+      // does return a binding, a contradictory declaration must never borrow
+      // this command's live pane or final result for another case/seed/PLAN.
+      // Historical source revision/hash are provenance, not live control identity.
+      const declaredIdentity: Array<[string, unknown]> = [["workflowId", plan.id], ["planFile", plan.planFile], ["experimentIndex", job.index],
+        ["globalJobId", job.globalJobId], ["case", job.case], ["seed", job.seed], ["workerId", job.workerId]];
+      if (task && declaredIdentity.some(([field, expected]) => expected !== undefined && (task as any)[field] !== undefined
+        && String((task as any)[field]) !== String(expected)))
+        observation.queryError = "任务声明身份与当前任务不符；请刷新核实";
+      if (task && job.gpuId !== undefined && String(job.gpuId) !== "" && (task as any).gpuId !== undefined
+        && String((task as any).gpuId) !== String(job.gpuId))
+        observation.queryError = "任务 GPU 归属与当前任务不符；请刷新核实";
       const state = taskLifecycle(observation);
       const verifiedCompletion = nextVerifiedCompletion(plan, job, observation, state, now);
       const fixed = verifiedCompletionProjection(plan, { ...job, verifiedCompletion });
       return { ...job, lifecycleProtocol: 2 as const, status: state.status, executionState: state.execution, resultState: state.result,
         runtimeDiagnostics: state.runtimeDiagnostics, completionState: state.completionState, exitCode: state.exitCode,
         startIntent: !observation.queryError && !observation.executionQueryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,
-        ...( ["train", "test", "train_test"].includes(String(task?.actualExecutionMode)) ? { actualExecutionMode: task!.actualExecutionMode as PlanExecutionMode } : {}),
+        ...( !observation.queryError && ["train", "test", "train_test"].includes(String(task?.actualExecutionMode)) ? { actualExecutionMode: task!.actualExecutionMode as PlanExecutionMode } : {}),
         recoveryConflict: undefined, trustedTerminalStatus: undefined,
         statusQueryError: observation.queryError || observation.executionQueryError, lastObservedAt: snapshot.fetchedAt || observation.observedAt,
         error: state.status === "failed" ? String(task?.error || `任务退出码 ${task?.exitCode ?? "未知"}`) : undefined,
         blockReason: state.message, verifiedCompletion,
         verificationQueryError: verifiedCompletion ? observation.queryError || observation.executionQueryError || observation.resultQueryError || observation.runtimeQueryError : undefined,
-        ...fixed, ...(task ? { gpuId: String(task.gpuId ?? job.gpuId ?? ""),
+        ...fixed, ...(task && !observation.queryError ? { gpuId: String(task.gpuId ?? job.gpuId ?? ""),
           tmuxPane: String(task.tmuxPane || ""), tmuxWindowId: String(task.tmuxWindowId || ""), tmuxSession: String(task.tmuxSession || "") } : {}) };
     }) })) };
     snapshots = snapshots.filter(snapshot => (snapshot.capabilities as any)?.taskLifecycle !== 2);

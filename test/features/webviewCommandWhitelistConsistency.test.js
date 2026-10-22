@@ -135,15 +135,16 @@ test("extension safety whitelist stays covered by webview declarations (reverse)
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
     "copyPanelDiagnostics", "reloadPanelLowEffects", "webviewBootstrapPhase",
     "webviewLayoutEvidence", "webviewRuntimeIncident", "webviewSectionInterest",
-    "webviewSectionTelemetry", "webviewStateRendered",
+    "webviewSectionTelemetry", "webviewStateRendered", "answerRunConfirmation",
   ]);
-  // Pre-existing gaps (follow-up, not this change): declared in SAFE whitelist and
-  // sent by webview buttons, but missing from webviewHandledCommands. Any NEW gap fails.
-  const KNOWN_GAPS_TODO = new Set([
-    "startTensorBoard", "runDraftDebug", "promoteDraft", "rejectDraft",
-    "reviewDraft", "cleanupDrafts", "resetPptPathConfirmations",
-  ]);
-  const uncovered = [...safeOnly].filter((command) => !webview.has(command) && !KNOWN_EXTENSION_ONLY.has(command) && !KNOWN_GAPS_TODO.has(command)).sort();
+  const retired = new Map([['startHub', 'startHubTunnel'], ['uploadProjectToHub', 'uploadProjectToHub']]);
+  const compiled = fs.readFileSync(path.join(root, 'dist/extension/legacy.js'), 'utf8');
+  for (const method of retired.values()) {
+    const body = require('../_helpers/legacyMethod')(compiled, method + '(');
+    assert.match(body, /throw new Error\("HUB_REMOVED/);
+  }
+  assert.match(fs.readFileSync(path.join(root, 'dist/ui/RunConfirmation.js'), 'utf8'), /command:\s*'answerRunConfirmation'/);
+  const uncovered = [...safeOnly].filter((command) => !webview.has(command) && !KNOWN_EXTENSION_ONLY.has(command) && !retired.has(command)).sort();
   assert.deepEqual(uncovered, []);
   for (const command of ["runCheckStatic", "openLastCheckStaticReport", "copyLastCheckStaticReport"]) {
     assert.ok(webview.has(command), `webview must declare ${command}`);

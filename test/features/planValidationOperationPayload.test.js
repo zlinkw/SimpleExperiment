@@ -43,6 +43,7 @@ function hostFor(operation, accepted = true, outputChoice) {
   const notices = [];
   const dialogs = [];
   const context = {
+    PlanRunHost: require("../../dist/extension/PlanRunHost").PlanRunHost,
     DistributedPlanQueue, DistributedSchedulingPolicy: { schedulingMode: (value) => value || "all" }, ProgressInactivity, Date, Set, Map,
     OPERATION_TERMINAL_STATUSES: new Set(["completed", "operation_completed", "completed_with_errors", "failed", "operation_failed", "cancelled", "canceled", "stalled", "unsupported", "error"]),
     REMOTE_ACTION_PENDING_STATUSES: new Set(["accepted", "submitted", "queued", "pending", "running", "progress", "in_progress", "operation_started"]),
@@ -81,6 +82,8 @@ function hostFor(operation, accepted = true, outputChoice) {
   new vm.Script(emitted).runInContext(context);
   const host = Object.create(context.production);
   Object.assign(host, {
+    captureProjectContext: () => ({root,generation:1}), projectContextIsCurrent: () => true,
+    effectiveConnectionMode: () => "realtime",
     localOperations: {}, queue: DistributedPlanQueue.emptyDistributedQueue(),
     lastWorkerProbes: { nwpu3: { status: "ok", capabilities: {endpoints: {declaredJobPaths:true, formalJobIdentityEnv:1, taskShellEnvironment:1, projectManagedValidation:1}} } },
     lastCodeSyncState: { fingerprint: "verified-code", workerVersions: { nwpu3: { fingerprint: "verified-code" } } },
@@ -98,14 +101,29 @@ function hostFor(operation, accepted = true, outputChoice) {
     clearOperationStatusProbe: () => {}, clearOperationWatchdog: () => {}, markLocalOperationsDirty: () => {}, postState: () => {},
     distributedPlanEligible: () => true,
     workerActionTargets: () => [{id:"nwpu3"}],
-    planCleanupHost: () => ({service:{},replacementGroups: (queue,file,jobs,project,stable) => context.replacementJobGroups(queue,file,jobs,project,stable)}),
+    planCleanupHost: () => ({service:{
+      preview: async request => {
+        const job=request.job.manifest.declarations[0];
+        const exists=host.queue.plans.some(p=>p.jobs.some(j=>j.outputDir===job.output_dir)) || (operation.payload?.validation?.existing || []).some(j=>j.index===job.index);
+        return {token:"private-preview-"+job.index,digest:"private-digest",action:"isolate",blockers:[],rows:exists?[{disposition:"isolate",absolutePath:"/private/worker/"+job.output_dir,type:"directory",node:{id:"nwpu3",kind:"remote",host:"fixture.invalid",user:"test",port:22}}]:[]};
+      }, confirm: async request => {host.actions.push("confirm-isolation");assert.equal(request.phase,1);},
+      preflightConfirmed: async () => {},assertIsolatedSourcesAbsent:async()=>{},status:async()=>({state:"completed"})},
+      execute:async()=>{host.actions.push("private-isolation");return {state:"completed"};}}),
     apiTaskPreflight: async params => { host.actions.push("completed-hash-preflight"); return {params}; },
     waitForCompleted: true,
     planValidationCacheKey: () => "",
     cachedPlanValidation: () => undefined,
     rememberPlanValidation: () => {},
     loadDistributedQueue: async () => host.queue,
-    saveDistributedQueue: async (_root, queue) => { host.queue = queue; },
+    saveDistributedQueue: async (_root, queue, options) => { host.queue = options?.mutateLatest ? options.mutateLatest(host.queue) : queue; },
+    refreshLocalPlanMetadataForAction: async () => {}, stampPlanRevision: body => {body.planRevision=revision;},
+    localDistributedCodeFingerprint: async () => "verified-code", assertPlanSubmissionWorkers: async () => {},
+    readWorkerTaskSnapshot: async (workerId, options) => {
+      host.actions.push("fresh-declared-inventory");
+      return {workerId,queryComplete:true,tasks:[],declaredResults:options.declarations.map(job => ({index:job.index,outputDir:job.output_dir,collectionResultCsv:job.result_csv,
+        completed:host.queue.plans.some(p=>p.revision===revision && p.jobs.some(j=>j.index===job.index && j.status==="completed")),runId:"fresh-"+job.index}))};
+    },
+    askRunConfirmation: async payload => {dialogs.push(payload);return outputChoice===null ? "cancel" : payload.phase===2 ? "isolate_and_run" : outputChoice==="仅补跑缺失任务" ? "rerun_missing" : outputChoice==="保留已有产物，不运行" ? "cancel" : "rerun_all";},
     availabilityPushTtlSeconds: () => 60, schedulerSettings: () => ({}),
     localWorkerAvailabilityRows: () => [{ workerId: "nwpu3", availableGpuIds: [0, 1, 2, 3, 4, 5], capacityLimit: 6 }],
     recordActionError: (error) => host.errors.push(error),
@@ -147,33 +165,30 @@ test("missing-only with wrapped remote validation requires live completed hashes
   const body={planFile,planRevision:revision,options:{}}, checked=await host.runPlanPreflight(body,"当前计划");
   await host.confirmDistributedPlanExistingOutputs({},body,checked);
   assert.deepEqual(Array.from(body.distributedSkipJobIndices),[0,1,2,3]);
-  assert.equal(host.actions.filter(action=>action==="completed-hash-preflight").length,4);
+  assert.equal(host.actions.filter(action=>action==="fresh-declared-inventory").length,1);
+  assert.equal(host.actions.filter(action=>action==="completed-hash-preflight").length,0);
   await host.enqueueDistributedPlan(body,checked,true);
   assert.deepEqual(Array.from(host.queue.plans[1].jobs,job=>job.index),[4,5]);
   assert.equal(host.queue.plans[1].overwriteExisting,false);
 });
-test("old revision is visible but cannot be adopted as current completion",async()=>{
+test("old queue revision cannot supply completion when fresh inventory does not confirm it",async()=>{
   const {host}=hostFor(completedOperation(),true,"仅补跑缺失任务"); historical(host,jobs.slice(0,4),false);
   const body={planFile,planRevision:revision}, checked=await host.runPlanPreflight(body,"当前计划");
-  await assert.rejects(host.confirmDistributedPlanExistingOutputs({},body,checked),/未被核实/);
+  await assert.rejects(host.confirmDistributedPlanExistingOutputs({},body,checked),/HOLD_TARGET_NOT_FOUND/);
   assert.equal(host.queue.plans.length,1);
 });
 test("keep and cancel preserve all historical records without new submission",async()=>{
   for (const choice of ["保留已有产物，不运行",null]){
     const {host}=hostFor(completedOperation(),true,choice); historical(host);
     const before=JSON.stringify(host.queue), body={planFile,planRevision:revision}, checked=await host.runPlanPreflight(body,"当前计划");
-    if(choice===null) await assert.rejects(host.confirmDistributedPlanExistingOutputs({},body,checked),/已取消/);
-    else {
-      await host.confirmDistributedPlanExistingOutputs({},body,checked);
-      assert.equal((await host.enqueueDistributedPlan(body,checked,true)).keptExisting,true);
-    }
+    await assert.rejects(host.confirmDistributedPlanExistingOutputs({},body,checked),/已取消/);
     assert.equal(JSON.stringify(host.queue),before);
   }
 });
 test("unowned outputs cannot authorize overwrite or an attempt fallback",async()=>{
   const {host}=hostFor(completedOperation("payload",{existing:[{index:0,output_dir:jobs[0].output_dir}]}),true,"覆盖并重跑");
   const body={planFile,planRevision:revision,overwrite:true}, checked=await host.runPlanPreflight(body,"当前计划");
-  await assert.rejects(host.confirmDistributedPlanExistingOutputs({},body,checked),/登记/);
+  await assert.rejects(host.confirmDistributedPlanExistingOutputs({},body,checked),/HOLD_TARGET_NOT_FOUND/);
   assert.equal(host.queue.plans.length,0);
   assert.equal(body.overwrite,false);
 });

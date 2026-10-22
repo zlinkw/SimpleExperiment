@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.401",
-  "buildId": "79d99912deac042452fcf99ae9529864e778befb3f0c0824b189d04b59b1370f",
+  "buildId": "6ae8137fbc6abb16637f136d0cfff6a4f00f27e24629dd071ba6b2a09187f600",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "4fcb8ef52793de9c7ee05a60d2273ad78e7835cbc4e8996ef77473dda6745f11"
+      "sha256": "049d34f79d948beb3d94088ad91db73ca707c6cad588db0527f18b1815f114af"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -217,7 +217,7 @@
     },
     {
       "path": "dist/extension/PlanRunHost.js",
-      "sha256": "dca84b3852fe9b85d88762f79c2659fb64c1e0e3709140bb5a827fc43c565f43"
+      "sha256": "e100b02a7fb9fa70b3f7ec259ca502ac051b551b939780b145d04485497bb579"
     },
     {
       "path": "dist/extension/PlanStopClearBatchHost.js",
@@ -317,7 +317,7 @@
     },
     {
       "path": "dist/features/DistributedPlanQueue.js",
-      "sha256": "dc1acd6704f8796bc2bd36e01a39d96b93dd45287cd9e35f19b624591f970622"
+      "sha256": "de6f9dcf58d348503d2a700a1acee9c7c9aff6bf0520538530cce013bea14cea"
     },
     {
       "path": "dist/features/DistributedProjectContract.js",
@@ -793,7 +793,7 @@
     },
     {
       "path": "dist/tunnel/AuthorityMergePolicy.legacy.js",
-      "sha256": "6bbb66d58cf4a1ffee2c69406b0f906e1a30e52f9a371f95a852b596a57b4c16"
+      "sha256": "cec54ac85dd6e1c095859db6cc31c7e271d3e50b37c4a07e62f75237415a1141"
     },
     {
       "path": "dist/tunnel/BoundedResponse.js",
@@ -829,7 +829,7 @@
     },
     {
       "path": "dist/tunnel/MultiEndpointRealtimeClient.legacy.js",
-      "sha256": "40339ae99b373f82e84839d09899175c4a65094426de1bdfbf3946ce77f15150"
+      "sha256": "f5ca22a843ba60314d41fc92c924fc0b6fd6a34a203a9917e845db561ee90b22"
     },
     {
       "path": "dist/tunnel/OfflineImport.js",
@@ -957,7 +957,7 @@
     },
     {
       "path": "dist/tunnel/XshellTunnelSetup.legacy.js",
-      "sha256": "c2c5bba4dac73a5b650ee1b30068716858e38784866f4806025e4755840e8149"
+      "sha256": "dc76791f2bbfe524058c82a1481e2f97fa7cbec0fea830f5dd935f25b8a20d87"
     },
     {
       "path": "dist/ui/OperationPayload.js",
@@ -973,7 +973,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "1cbcf487b0e1ae9369a3fdcaf242bf0e5a0fe599d97b3bc59d3655c878aaff1b"
+      "sha256": "c5928f9e57cef2b6a402e3d81a79b55e014928299b5cdc77b96922cdeb45fbef"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",

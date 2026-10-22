@@ -50,7 +50,7 @@ function loadSubject() {
       agentRuntimeDirs(root) {
         return root ? { workRoot: root, installDir: root + "/simple_agent", workDir: root + "/demo", projectName: "demo" } : { projectName: "demo" };
       }
-      agentStartupTargets() { this.startupCalls += 1; return this.setupConfig.savedSessionPath ? [{ id: "hub" }] : []; }
+      agentStartupTargets() { this.startupCalls += 1; return this.setupConfig.workerTunnels.filter(worker=>worker.enabled!==false && worker.savedSessionPath); }
       currentAgentPreparationBlockers() { this.blockerCalls += 1; return this.blockers || []; }
       hubDisplayName() { return this.setupConfig.hubDisplayName || "Hub"; }
       ${cleaned}
@@ -86,7 +86,8 @@ test("Agent session state reuses stable local derivation sources", () => {
   assert.strictEqual(subject.agentSessionState(), first);
   assert.equal(subject.startupCalls, 1);
   assert.equal(subject.blockerCalls, 1);
-  assert.equal(first.hub.workDir, "/srv/projects/demo");
+  assert.equal(first.hub, undefined, "legacy top-level configuration cannot create a Hub Agent");
+  assert.deepEqual(Array.from(first.workers,row=>row.id),["worker-a"]);
   assert.equal(first.workers[0].workDir, "/srv/workers/demo");
 });
 

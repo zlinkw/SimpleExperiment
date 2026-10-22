@@ -41,7 +41,7 @@ threads = [threading.Thread(target=worker, args=(index,)) for index in range(THR
 for thread in threads:
     thread.start()
 for thread in threads:
-    thread.join(60)
+    thread.join(1)
 
 journal = agent.path_for(root, "events.jsonl")
 lines = [line for line in open(journal, "r", encoding="utf-8").read().split("\n") if line.strip()]
@@ -77,7 +77,7 @@ test("concurrent event appends keep sequence numbers unique and lines intact", (
     assert.equal(result.payloadsIntact, result.expected, "journal lines must not interleave");
     assert.equal(result.threadsSeen, 8, "every appender must be represented");
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    console.log("kept concurrency fixture at " + root);
   }
 });
 
@@ -111,7 +111,7 @@ threads = [threading.Thread(target=writer, args=(index,)) for index in range(8)]
 for thread in threads:
     thread.start()
 for thread in threads:
-    thread.join(60)
+    thread.join(1)
 
 directory = os.path.dirname(target)
 leftovers = [name for name in os.listdir(directory) if ".tmp." in name]
@@ -131,7 +131,7 @@ print(json.dumps({
     assert.deepEqual(result.leftovers, [], "no temp file may survive a completed write");
     assert.equal(result.finalHasWriter, true, "the target must hold one writer's complete payload");
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    console.log("kept concurrency fixture at " + root);
   }
 });
 
@@ -143,5 +143,5 @@ test("event and worker command appends share one reentrant critical section", ()
   assert.match(source, /with EVENT_APPEND_LOCK:\r?\n {8}with open\(worker_command_path\(root, worker_id\)/);
   // The completion pipeline can re-enter append_event, so it must stay outside the lock.
   assert.match(source, /\r?\n {4}prune_agent_state\(root\)\r?\n {4}maybe_auto_run_completion_pipeline\(root, original_event\)/);
-  assert.match(source, /temporary = path \+ "\.writing"/);
+  assert.match(source, /temporary = path \+ "\.writing\." \+ str\(os\.getpid\(\)\) \+ "\." \+ str\(threading\.get_ident\(\)\)/);
 });

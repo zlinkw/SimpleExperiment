@@ -3797,6 +3797,34 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
                     append_event(root, {"type": "distributed_plan_code_wait", "workerId": worker_id,
                                         "operationId": row.get("commandId"), "payload": {"error": message}})
             continue
+        # Persist renewal on the same queued command before admission. A busy GPU
+        # must not leave an obsolete code error or require another submission.
+        with WORKER_TASK_SNAPSHOT_LOCK:
+            latest = read_durable_plan_queue(root)
+            current = next((item for item in latest["jobs"] if isinstance(item, dict)
+                            and item.get("commandId") == row.get("commandId")), None)
+            if not current or current.get("status") != "queued" or not durable_plan_same_identity(current, row):
+                continue
+            changed = False
+            # Only unstarted queued commands can be migrated. Running processes and
+            # terminal audit records retain their original actual mode and exit status.
+            requested_mode = "test" if current.get("checkpointTestOnly") is True and execution_mode == "train_test" else execution_mode
+            if current.get("executionMode") != execution_mode or current.get("mode") != requested_mode:
+                current.update({"legacyRequestedMode": current.get("mode"), "mode": requested_mode,
+                                "executionMode": execution_mode, "executionModeSource": "matching_plan_revision"})
+                current["options"] = {**(current.get("options") or {}), "mode": requested_mode, "executionMode": execution_mode}
+                changed = True
+            if isinstance(proof, dict) and proof.get("proofId") and proof["proofId"] != current.get("codeSyncProofId"):
+                current.update({"codeSyncProofId": proof["proofId"],
+                                "manifestDigest": proof["manifestDigest"],
+                                "codeSyncProofRuntimeGeneration": proof["runtimeGeneration"]})
+                changed = True
+            if current.pop("codeBlocked", False):
+                current.pop("error", None)
+                changed = True
+            if changed:
+                write_durable_plan_queue(root, latest)
+            row = current
         try:
             # A shared hint can defer idle, untouched directories without starting
             # one Scheduler (and nvidia-smi) per queued job. It NEVER authorizes a
@@ -3848,34 +3876,6 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
                     append_worker_task(root, durable_plan_public_task(current))
                     dispatched.append(durable_plan_public_task(current))
             continue
-        # Persist renewal on the same queued command before admission. A busy GPU
-        # must not leave an obsolete code error or require another submission.
-        with WORKER_TASK_SNAPSHOT_LOCK:
-            latest = read_durable_plan_queue(root)
-            current = next((item for item in latest["jobs"] if isinstance(item, dict)
-                            and item.get("commandId") == row.get("commandId")), None)
-            if not current or current.get("status") != "queued" or not durable_plan_same_identity(current, row):
-                continue
-            changed = False
-            # Only unstarted queued commands can be migrated. Running processes and
-            # terminal audit records retain their original actual mode and exit status.
-            requested_mode = "test" if current.get("checkpointTestOnly") is True and execution_mode == "train_test" else execution_mode
-            if current.get("executionMode") != execution_mode or current.get("mode") != requested_mode:
-                current.update({"legacyRequestedMode": current.get("mode"), "mode": requested_mode,
-                                "executionMode": execution_mode, "executionModeSource": "matching_plan_revision"})
-                current["options"] = {**(current.get("options") or {}), "mode": requested_mode, "executionMode": execution_mode}
-                changed = True
-            if isinstance(proof, dict) and proof.get("proofId") and proof["proofId"] != current.get("codeSyncProofId"):
-                current.update({"codeSyncProofId": proof["proofId"],
-                                "manifestDigest": proof["manifestDigest"],
-                                "codeSyncProofRuntimeGeneration": proof["runtimeGeneration"]})
-                changed = True
-            if current.pop("codeBlocked", False):
-                current.pop("error", None)
-                changed = True
-            if changed:
-                write_durable_plan_queue(root, latest)
-            row = current
         gpus, error = gpu_probe()
         if error:
             if row.get("requireIdleGpu") is True:
@@ -6084,7 +6084,8 @@ def _execute_worker_command_unfenced(root, command, worker_id):
 
 def execute_worker_command(root, command, worker_id):
     action = str(command.get("action") or "").strip()
-    if globals().get("TASK_LIFECYCLE_PROTOCOL") == 2 and command.get("resultPathPolicy") == "declared" and action in ("start-worker-task", "retry-worker-task", "stop-worker-task"):
+    if globals().get("TASK_LIFECYCLE_PROTOCOL") == 2 and (action == "stop-worker-task"
+            or command.get("resultPathPolicy") == "declared" and action in ("start-worker-task", "retry-worker-task")):
         command = {**command, "lifecycleProtocol": 2}
     if command.get("lifecycleProtocol") == 2:
         if action == "stop-worker-task":
@@ -12617,11 +12618,37 @@ def tb_discover_launch(root, logdir_hint, port, explicit_script):
     return ["tensorboard", "--logdir", logdir, "--port", str(port), "--host", "127.0.0.1", "--path_prefix", TENSORBOARD_BROWSER_PREFIX, "--load_fast=false"], "tensorboard", logdir
 
 
+def close_tensorboard_window(root, session):
+    """Resolve the configured service to one immutable window; preserve other tabs."""
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", session):
+        raise ValueError("TENSORBOARD_WINDOW_IDENTITY_REQUIRED")
+    listed = subprocess.run(["tmux", "list-windows", "-t", "=" + session, "-F",
+                             "#{session_name}|#{window_index}|#{window_id}|#{window_name}"],
+                            cwd=root, capture_output=True, text=True, timeout=5)
+    if listed.returncode:
+        error = (listed.stderr or "").lower()
+        if any(value in error for value in ("can't find session", "no such session", "no server running", "no sessions")):
+            return []
+        raise RuntimeError("TENSORBOARD_WINDOW_QUERY_FAILED: " + error[-500:])
+    rows = [line.split("|", 3) for line in (listed.stdout or "").splitlines()]
+    if len(rows) != 1 or len(rows[0]) != 4 or rows[0][0] != session or not re.fullmatch(r"@\d+", rows[0][2]):
+        raise ValueError("TENSORBOARD_WINDOW_AMBIGUOUS: select the exact service window; other tabs were preserved")
+    row = rows[0]
+    panes = subprocess.run(["tmux", "list-panes", "-t", row[2], "-F", "#{pane_id}"],
+                           cwd=root, capture_output=True, text=True, timeout=5)
+    pane_ids = (panes.stdout or "").splitlines()
+    if panes.returncode or not pane_ids or any(not re.fullmatch(r"%\d+", pane) for pane in pane_ids):
+        raise ValueError("TENSORBOARD_PANE_IDENTITY_REQUIRED")
+    result, status = kill_tmux_window_response({"target": session + ":" + row[1], "session": session,
+        "windowId": row[2], "windowName": row[3], "paneIds": pane_ids}, "worker_telemetry")
+    if status != 200 or result.get("ok") is not True or result.get("verified") is not True:
+        raise RuntimeError("TENSORBOARD_WINDOW_CLOSE_FAILED: " + str(result.get("error") or status))
+    return [row[2]]
+
+
 def tensorboard_action(root, action, payload, operation_id, op_id):
-    # Restart (or report status of) the standalone TensorBoard tmux session. The launch command is
-    # discovered adaptively by the agent (see tb_discover_launch) so it survives project changes and
-    # needs no server-specific path in settings. Session named <prefix>_tb; it is NOT managed by the
-    # agent control loop. Each open kills the old session and recreates a fresh one (low cost).
+    # The configured service owns one window. Never destroy a containing session
+    # or silently replace an ambiguous window set.
     prefix = str(payload.get("sessionPrefix") or payload.get("session_prefix")
                 or _resolve_tmux_prefix(None, None, None))
     # 统一归一：不再信任 payload tmuxSession 原值（避免 ZLK_tb 与 zlk_tb 快照不一致），与 write_snapshots 完全一致
@@ -12647,24 +12674,18 @@ def tensorboard_action(root, action, payload, operation_id, op_id):
             {"tmuxSession": tb_session, "port": port, "running": alive, "listening": listening, "logPath": log_rel},
         )
 
-    if action == "stop-tensorboard":
-        TENSORBOARD_PROXY_PORTS.pop(tb_session, None)
-        if tmux_session_alive(tb_session, root, None):
-            stopped = subprocess.run(["tmux", "kill-session", "-t", tb_session], cwd=root,
-                                     capture_output=True, text=True, timeout=5)
-            if stopped.returncode != 0:
-                return terminal_action(root, action, operation_id, op_id, "failed",
-                                       f"关闭 TensorBoard 会话失败：{stopped.stderr.strip()}",
-                                       {"tmuxSession": tb_session, "running": True, "listening": False})
-        return terminal_action(root, action, operation_id, op_id, "completed",
-                               f"TensorBoard 会话 {tb_session} 已关闭",
-                               {"tmuxSession": tb_session, "running": False, "listening": False})
-
-    # start-tensorboard: kill any previous session (cost ~0) then recreate a fresh one.
     try:
-        subprocess.run(["tmux", "kill-session", "-t", tb_session], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-    except Exception:
-        pass
+        closed_windows = close_tensorboard_window(root, tb_session)
+    except Exception as exc:
+        return terminal_action(root, action, operation_id, op_id, "failed", str(exc),
+                               {"tmuxSession": tb_session, "running": True, "listening": False})
+    TENSORBOARD_PROXY_PORTS.pop(tb_session, None)
+    if action == "stop-tensorboard":
+        return terminal_action(root, action, operation_id, op_id, "completed",
+                               f"TensorBoard 窗口已关闭：{tb_session}",
+                               {"tmuxSession": tb_session, "closedWindowIds": closed_windows,
+                                "running": False, "listening": False})
+
     launch_args, launch_source, resolved_logdir = tb_discover_launch(root, logdir_hint, port, explicit_script)
     env = simple_runtime_env(os.environ.copy())
     if conda_env:
@@ -12876,60 +12897,13 @@ def process_start_identity(pid):
 
 
 def _reap_zombie_scheduler_sessions(root, known_op_ids, target_session=""):
-    # Reap only the exact scheduler session already validated for this stop request.
-    # Scanning every unregistered prefix session races a scheduler between tmux
-    # creation and registry publication, and can kill a different live operation.
-    if not tmux_available():
-        return []
-    name = str(target_session or "").strip()
-    prefix = _tmux_prefix() + "-sch-"
-    if not name.startswith(prefix):
-        return []
-    op = name[len(prefix):]
-    if not op or op in set(str(value) for value in (known_op_ids or [])):
-        return []
-    try:
-        present = subprocess.run(["tmux", "has-session", "-t", name], stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL, timeout=5, cwd=root)
-        if present.returncode != 0 or _tmux_pane_python_running(name, None):
-            return []
-        killed = subprocess.run(["tmux", "kill-session", "-t", name], stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, timeout=5, cwd=root)
-        return [name] if killed.returncode == 0 else []
-    except Exception:
-        return []
+    # Historical registry absence is not authorization to close a terminal.
+    return []
+
 
 def _reap_orphan_gpu_sessions(root, force_all=False):
-    # GPU 窗口与调度窗口同生命周期：调度销毁时回收关联 GPU 窗口，避免孤儿 long-lived 会话
-    if not tmux_available():
-        return []
-    prefix = _tmux_prefix()
-    reaped = []
-    try:
-        out = subprocess.run(["tmux", "ls"], text=True, capture_output=True, timeout=5).stdout or ""
-        for line in out.splitlines():
-            name = line.split(":", 1)[0].strip()
-            # 匹配 prefix-gpu-<id> 或兼容历史 simple-gpu-*/zlk-gpu-*
-            is_gpu = False
-            if name.startswith(prefix + "-gpu-"):
-                is_gpu = True
-            elif name.startswith("simple-gpu-"):
-                is_gpu = True
-            elif name.startswith("zlk-gpu-"):
-                is_gpu = True
-            elif re.match(r"^gpu-\d+$", name):
-                is_gpu = True
-            if not is_gpu:
-                continue
-            # 若 force_all 或无活跃 scheduler，则直接回收
-            try:
-                subprocess.run(["tmux", "kill-session", "-t", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-                reaped.append(name)
-            except Exception:
-                pass
-    except Exception:
-        pass
-    return reaped
+    # Preserve task consoles; only an explicit identity-bound stop may close one.
+    return []
 
 
 def fence_stale_run_plans(root, new_op_id, new_worker_ids, new_owner):
@@ -15388,197 +15362,31 @@ def scheduler_stop_record_identity(wanted, requested_plan, event):
 
 
 def stop_scheduler_operation(root, payload):
-    wanted = str(payload.get("targetOperationId") or payload.get("remoteOperationId") or payload.get("operationId") or payload.get("opId") or "").strip()
+    wanted = str(payload.get("targetCommandId") or payload.get("targetOperationId") or payload.get("remoteOperationId") or "").strip()
     plan = action_plan_file(payload)
-    if payload.get("stopBoundary") == "local_command":
-        worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or payload.get("workerId") or "")
-        result = stop_local_worker_task(root, {**payload, "targetCommandId": wanted,
-            "projectId": payload.get("projectId") or os.path.realpath(root), "workerId": worker}, worker)
-        ok = result.get("status") == "completed"
-        if ok:
-            cancel_inactivity_action(root, wanted, plan)
-            deregister_active_run_plan(root, wanted)
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""),
-            "completed" if ok else "failed", result.get("message") or "停止未完成", {"matchedOperations": [wanted] if ok else [],
-            "planFile": plan, "stopBoundary": "local_command", "terminatedWindowIds": [window for row in result.get("stoppedTasks", []) for window in row.get("closedWindowIds", [])],
-            "cacheRetired": ok, "stateRetired": result.get("stateRetired", False), "retiredOperationIds": result.get("retiredOperationIds", []), "remainingActiveEvidence": [] if ok else [result.get("errorCode")]}, request=payload)
-    if wanted and plan and cancel_inactivity_action(root, wanted, plan):
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "completed", "已取消处理中操作", {"matchedOperations": [wanted], "planFile": plan}, request=payload)
-    if not wanted or not plan:
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "缺少明确的调度记录或 Plan，未执行停止。", {"matchedOperations": [], "planFile": plan}, request=payload)
-    events = read_operation_events(root, wanted, 100) if wanted else []
-    latest_event = next((event for event in reversed(events) if isinstance(event.get("payload"), dict)), {})
-    latest_payload = latest_event.get("payload") if isinstance(latest_event.get("payload"), dict) else {}
-    requested_plan = re.sub(r"^\./", "", str(plan).replace("\\", "/"))
-    try:
-        stop_identity = scheduler_stop_record_identity(wanted, requested_plan, latest_event)
-    except ValueError as exc:
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", f"{exc}，未执行停止。", {"matchedOperations": [], "planFile": plan}, request=payload)
-    recorded_plan = stop_identity["planFile"]
-    target_pid = 0
-    registry_entry = next((entry for entry in _read_run_plan_registry(root) if isinstance(entry, dict) and str(entry.get("opId") or "") == wanted), None)
-    registry_pid = int(registry_entry.get("pid") or 0) if registry_entry else 0
-    event_pid = int(stop_identity.get("pid") or 0) if str(stop_identity.get("pid") or "").strip().lstrip("-").isdigit() else 0
-    pid_candidate = registry_pid if registry_pid > 0 and (not event_pid or event_pid == registry_pid) else 0
-    expected_pid_start = str((registry_entry or {}).get("pidStartIdentity") or stop_identity.get("pidStartIdentity") or "").strip()
-    actual_pid_start = process_start_identity(pid_candidate) if pid_candidate else ""
-    pid_identity_lost = False
-    if pid_candidate > 0 and expected_pid_start and actual_pid_start and expected_pid_start == actual_pid_start:
-        target_pid = pid_candidate
-    recorded_session = str(stop_identity.get("tmuxSession") or "").strip()
-    registry_session = str((registry_entry or {}).get("tmuxSession") or "").strip()
-    if recorded_session and registry_session and recorded_session != registry_session:
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "调度事件与运行登记中的 tmux 身份不一致，未执行停止。", {"matchedOperations": [], "planFile": plan}, request=payload)
-    target_session = recorded_session or registry_session
-    if not target_session and wanted:
-        # The run-plan scheduler session is named deterministically from the op id; fall back to
-        # deriving it so a stop still works even if the operation events lack the session field.
-        target_session = simple_tmux_name(f"sch-{wanted}")
-    before = scheduler_process_evidence(root, target_pid, target_session)
-    terminated_sessions, terminated_pids = [], []
-    errors = []
-    # 用原始会话存活（tmuxShellAlive）决定 kill：即便 pane 内只是空 shell（无 python 进程），
-    # 也应 kill 掉，避免中止后 tmux 仍残留把面板判活。
-    if before["tmuxShellAlive"]:
-        result = subprocess.run(["tmux", "kill-session", "-t", str(before["checkedTmuxSession"])], cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=5, check=False)
-        if result.returncode == 0:
-            terminated_sessions.append(before["checkedTmuxSession"])
-        else:
-            errors.append((result.stderr or b"tmux kill failed").decode("utf-8", errors="replace").strip())
-    if before["pidAlive"]:
-        if process_start_identity(before["checkedPid"]) != expected_pid_start:
-            pid_identity_lost = True
-        else:
-            try:
-                os.kill(int(before["checkedPid"]), signal.SIGTERM)
-                terminated_pids.append(before["checkedPid"])
-            except Exception as exc:
-                errors.append(str(exc))
-    time.sleep(0.2)
-    after = scheduler_process_evidence(root, target_pid, target_session)
-    if after["pidAlive"] and before["pidAlive"] and int(before["checkedPid"]) == int(after["checkedPid"]):
-        if process_start_identity(after["checkedPid"]) != expected_pid_start:
-            pid_identity_lost = True
-        else:
-            try:
-                os.kill(int(after["checkedPid"]), signal.SIGKILL)
-                time.sleep(0.1)
-            except Exception:
-                pass
-            after = scheduler_process_evidence(root, target_pid, target_session)
-    remaining_active = []
-    if after["pidAlive"]: remaining_active.append({"kind": "pid", "value": after["checkedPid"]})
-    if pid_identity_lost:
-        remaining_active.append({"kind": "pidIdentityUnknown", "value": pid_candidate})
-    unverified_pids = {value for value in (event_pid, registry_pid) if value > 0 and value != target_pid and _is_pid_alive(value)}
-    for value in sorted(unverified_pids):
-        remaining_active.append({"kind": "pidIdentityUnknown", "value": value})
-    # P1: 双活判定需同时检查 shellAlive，避免空壳（has-session 但无 python）被误判为已清理
-    if after["tmuxSessionAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})
-    elif after["tmuxShellAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})
-    if unverified_pids or pid_identity_lost:
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "调度器 PID 启动身份无法验证，未终止该 PID、未删除运行登记，也未继续清理 Worker 任务。", {
-            "matchedOperations": [], "planFile": plan, "remainingActiveEvidence": remaining_active,
-        }, request=payload)
-    matched_scheduler = bool(terminated_sessions or terminated_pids or before["pidAlive"] or before["tmuxSessionAlive"] or before["tmuxShellAlive"])
-    # A previous stop can have removed the scheduler while leaving its Worker records behind.
-    # Repair that Plan only when its journal identifies it and no newer scheduler is live.
-    if not matched_scheduler and recorded_plan != requested_plan:
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "未找到目标 Plan 的活动调度进程，未清理 GPU 任务。", {"matchedOperations": [], "planFile": plan, "checkedPid": after["checkedPid"], "checkedTmuxSession": after["checkedTmuxSession"]}, request=payload)
-    if not matched_scheduler:
-        for entry in _read_run_plan_registry(root):
-            if not isinstance(entry, dict) or str(entry.get("opId") or "") == wanted:
-                continue
-            if _is_pid_alive(entry.get("pid")) or tmux_session_alive(str(entry.get("tmuxSession") or ""), cwd=root):
-                return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "另一个调度器仍在运行，不能按旧记录清理 Worker 任务。", {"matchedOperations": [], "planFile": plan}, request=payload)
-    try:
-        if wanted:
-            deregister_active_run_plan(root, wanted)
-        # also reap any leftover zombie sch-* sessions from this stop
-        remaining = set(str(e.get("opId") or "") for e in _read_run_plan_registry(root) if isinstance(e, dict) and str(e.get("opId") or "").strip())
-        _reap_zombie_scheduler_sessions(root, remaining, target_session)
-    except Exception:
-        pass
-    # A Worker task's pid can be a tmux pane id such as %97. Stop that exact pane;
-    # fixed GPU sessions can contain a newer or unrelated task and must be preserved.
-    stopped_task_count = 0
-    try:
-        data = read_json(path_for(root, "worker_task_snapshot.json"), {})
-        tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
-        for task in tasks:
-            if not isinstance(task, dict):
-                continue
-            if str(task.get("status") or "").lower() != "running":
-                continue
-            task_plan = re.sub(r"^\./", "", str(task.get("planFile") or task.get("plan") or "").replace("\\", "/"))
-            if task_plan != requested_plan:
-                continue
-            task_run_id = str(task.get("workflowId") or task.get("workflow_id") or task.get("runId") or task.get("run_id") or "").strip()
-            if task_run_id != wanted:
-                # A same-Plan task is not necessarily owned by this scheduler.
-                # Never stop it by Plan name alone. Missing identity remains an
-                # explicit unresolved outcome so callers cannot assume the whole
-                # requested run has settled.
-                if not task_run_id:
-                    remaining_active.append({"kind": "workerTaskIdentityUnknown",
-                                             "commandId": str(task.get("commandId") or task.get("operationId") or "")[:160],
-                                             "workerId": str(task.get("workerId") or "")[:120],
-                                             "planFile": requested_plan})
-                continue
-            sess = str(task.get("tmuxSession") or "").strip()
-            task_pid = str(task.get("pid") or "").strip()
-            pane_id = task_pid if re.fullmatch(r"%[0-9]+", task_pid) else ""
-            task_error = False
-            if pane_id and sess:
-                try:
-                    owner = subprocess.run(["tmux", "display-message", "-p", "-t", pane_id, "#{session_name}"], capture_output=True, text=True, timeout=3, cwd=root)
-                    if owner.returncode == 0 and owner.stdout.strip() == sess:
-                        killed = subprocess.run(["tmux", "kill-pane", "-t", pane_id], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=5, cwd=root)
-                        if killed.returncode == 0:
-                            terminated_sessions.append(pane_id)
-                        else:
-                            errors.append((killed.stderr or b"tmux kill-pane failed").decode("utf-8", errors="replace").strip())
-                            task_error = True
-                except Exception as exc:
-                    errors.append(str(exc))
-                    task_error = True
-            pid = int(task_pid) if task_pid.isdecimal() else 0
-            if pid > 0 and _is_pid_alive(pid):
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                    if pid not in terminated_pids:
-                        terminated_pids.append(pid)
-                except Exception as exc:
-                    errors.append(str(exc))
-                    task_error = True
-            if task_error:
-                continue
-            with WORKER_TASK_SNAPSHOT_LOCK:
-                current = current_worker_task(root, task)
-                if str(current.get("status") or "").lower() == "running":
-                    append_worker_task(root, {**current, "status": "stopped", "finishedAt": now_iso(), "stopReason": "scheduler_aborted", "manualStopType": "scheduler_aborted"})
-                    stopped_task_count += 1
-        if stopped_task_count:
-            try:
-                append_event(root, {"type": "worker_task_stopped", "payload": {"reason": "scheduler_aborted", "terminatedSessions": terminated_sessions}})
-            except Exception:
-                pass
-    except Exception as exc:
-        errors.append(f"Worker 任务清理失败：{exc}")
-    matched = matched_scheduler or stopped_task_count > 0
-    message = "已中止调度并清理当前 Plan 任务" if matched_scheduler else ("已清理当前 Plan 的残留任务" if stopped_task_count else "未找到活动调度或 Worker 任务")
-    status = "completed" if matched and not remaining_active and not errors else "failed"
-    return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or f"stop-{int(time.time() * 1000)}"), str(payload.get("opId") or payload.get("operationId") or f"stop-{int(time.time() * 1000)}"), status, message, {
-        "matchedOperations": [wanted] if wanted else [],
-        "terminatedSessions": terminated_sessions,
-        "terminatedPids": terminated_pids,
-        "stoppedTaskCount": stopped_task_count,
-        "remainingActiveEvidence": remaining_active,
-        "checkedPid": after["checkedPid"],
-        "checkedTmuxSession": after["checkedTmuxSession"],
-        "planFile": plan,
-        **({"errors": errors} if errors else {}),
-    }, request=payload)
+    worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or payload.get("workerId") or "").strip()
+    stop_id = str(payload.get("operationId") or payload.get("opId") or "").strip()
+    project = str(payload.get("projectId") or os.path.realpath(root)).strip()
+    result = {"status": "failed", "errorCode": "TASK_STOP_IDENTITY_REQUIRED",
+              "message": "停止需要原 commandId、当前 Worker 与独立停止请求身份；未知旧窗口请在 TMUX 中选择精确标签页。"}
+    if wanted and worker and stop_id and wanted != stop_id and str(payload.get("workerId") or worker) == worker:
+        command = {"targetCommandId": wanted, "operationId": stop_id, "opId": str(payload.get("opId") or stop_id),
+                   "workerId": worker, "projectId": project, "workflowId": payload.get("workflowId"),
+                   "stopBoundary": "local_command", "stopReason": payload.get("stopReason"), "stopSource": "user"}
+        try:
+            # The independent Scheduler receives the cancellation fence before any
+            # window is closed. Never stop by PID, session name or a journal row.
+            result = task_stop(root, command, worker) if globals().get("TASK_LIFECYCLE_PROTOCOL") == 2 else stop_local_worker_task(root, command, worker)
+        except Exception as exc:
+            result = {"status": "failed", "errorCode": "TASK_STOP_NOT_CONFIRMED", "message": str(exc)}
+    ok = result.get("status") == "completed"
+    return terminal_action(root, "stop-scheduler-operation", stop_id, str(payload.get("opId") or stop_id),
+        "completed" if ok else "failed", result.get("message") or ("已核实原任务停止" if ok else "停止未完成"), {
+            "matchedOperations": [wanted] if ok else [], "planFile": plan, "stopBoundary": "local_command",
+            "terminatedWindowIds": [window for row in result.get("stoppedTasks", []) for window in row.get("closedWindowIds", [])],
+            "terminatedPids": [], "cacheRetired": ok, "stateRetired": result.get("stateRetired", False),
+            "retiredOperationIds": result.get("retiredOperationIds", []), "errorCode": result.get("errorCode"),
+            "remainingActiveEvidence": [] if ok else [result.get("errorCode") or "TASK_STOP_NOT_CONFIRMED"]}, request=payload)
 
 
 def recent_operations(root, limit=100):
@@ -15796,7 +15604,15 @@ def manage_tmux_session_response(payload):
         if inventory("=" + session) != rows:
             raise ValueError("session changed during inspection")
         if action == "close":
-            run(["kill-session", "-t", session_id])
+            for row in rows:
+                if inventory(session_id) != [entry for entry in rows if entry[1] not in closed]:
+                    raise ValueError("window set changed during closing")
+                item = next(item for item in expected if item.get("windowId") == row[1])
+                panes = run(["list-panes", "-t", row[1], "-F", "#{pane_id}"]).splitlines()
+                if sorted(item.get("paneIds") or []) != sorted(panes):
+                    raise ValueError("pane identities changed during closing")
+                run(["kill-window", "-t", row[1]])
+                closed.add(row[1])
             after = subprocess.run(["tmux", "has-session", "-t", session_id], capture_output=True, text=True, timeout=5)
             if after.returncode == 0:
                 raise ValueError("session still present")

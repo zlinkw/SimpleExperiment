@@ -4,6 +4,8 @@ const vm = require("node:vm");
 const fs = require("node:fs");
 const path = require("node:path");
 const Module = require("node:module");
+require("../_helpers/registerTsRequire");
+const legacyMethod = require("../_helpers/legacyMethod");
 const ts = require("typescript");
 const { readSource } = require("../_helpers/sourceReader");
 
@@ -157,10 +159,10 @@ test("manual refresh re-probes Workers and retries artifact sync without waiting
   const first = compiled.indexOf("async manualSnapshot() {");
   const last = compiled.indexOf("async manualGpuSnapshot() {", first);
   assert.ok(first >= 0 && last > first);
-  const context = { workspaceRoot: () => "C:/project", errorMessage: String,
+  const context = { NativeResultManifest_1: require("../../dist/results/NativeResultManifest.js"), workspaceRoot: () => "C:/project", errorMessage: String,
     vscode: { window: { showInformationMessage: () => undefined } } };
   vm.createContext(context);
-  vm.runInContext(compiled.slice(first, last).replace("async manualSnapshot()", "async function manualSnapshot()")
+  vm.runInContext(legacyMethod(compiled, "manualSnapshot(").replace("async manualSnapshot()", "async function manualSnapshot()")
     + "\nthis.refresh = manualSnapshot;", context);
   const events = [];
   const client = { getSnapshot: async () => { events.push("snapshot"); return {}; },
@@ -188,13 +190,13 @@ test("successful artifact pass clears an old disconnected warning", async () => 
   const first = compiled.indexOf("async syncDistributedJobArtifacts(");
   const last = compiled.indexOf("async distributedOutputHashes(", first);
   assert.ok(first >= 0 && last > first);
-  const context = { workspaceRoot: () => "C:/project", Date, Set, Map, Object, errorMessage: String,
+  const context = { NativeResultManifest_1: require("../../dist/results/NativeResultManifest.js"), workspaceRoot: () => "C:/project", Date, Set, Map, Object, errorMessage: String,
     PlanOutputRetention: require("../../dist/features/PlanOutputRetention.js") };
   vm.createContext(context);
-  vm.runInContext(compiled.slice(first, last).replace("async syncDistributedJobArtifacts(", "async function syncJobArtifacts(")
+  vm.runInContext(legacyMethod(compiled, "syncDistributedJobArtifacts(").replace("async syncDistributedJobArtifacts(", "async function syncJobArtifacts(")
     + "\nthis.sync = syncJobArtifacts;", context);
-  const job = { index: 0, attempt: 1, status: "completed", workerId: "worker-b", outputDir: "runs/a",
-    artifacts: { "runs/a/formal_job_owner.json": "a".repeat(64) }, fragmentWorkerIds: ["worker-a"], mirroredWorkerIds: ["worker-a"], artifactError: "old disconnect" };
+  const job = { index: 0, attempt: 0, lifecycleProtocol: 2, status: "completed", workerId: "worker-b", outputDir: "runs/a",
+    artifacts: { "runs/a/artifact_manifest.json": "a".repeat(64) }, fragmentWorkerIds: ["worker-a"], mirroredWorkerIds: ["worker-a"], artifactError: "old disconnect" };
   const patched = [];
   const provider = {
     distributedLaunchInFlight: new Set(),
@@ -204,9 +206,10 @@ test("successful artifact pass clears an old disconnected warning", async () => 
     lastWorkerProbes: { "worker-a": { status: "ok" } },
     sftpServerOptions: () => ({}),
     patchDistributedJob: async (_root, _plan, _index, _attempt, fields) => patched.push(fields),
+    recordActionError: e => { throw new Error(e.message); },
   };
   await context.sync.call(provider, "C:/project", { plans: [{ id: "plan-1", resultPathPolicy: "declared", planFile: "plans/p.yaml", jobs: [job] }] }, "bulk");
-  assert.equal(job.artifactError, undefined);
+  assert.equal(job.artifactError, "old disconnect", "query-local clones are patched back through the queue writer");
   assert.ok(patched.some((row) => Object.hasOwn(row, "artifactError") && row.artifactError === undefined));
 });
 
@@ -215,9 +218,9 @@ test("automatic completion invokes only the Worker mirror, never preview or fina
   const first = compiled.indexOf("scheduleDistributedPostprocess(root, rerunIfBusy = false) {");
   const last = compiled.indexOf("async syncCompletedPlanArtifacts(", first);
   assert.ok(first >= 0 && last > first);
-  const context = { workspaceRoot: () => "C:/project", errorMessage: String };
+  const context = { NativeResultManifest_1: require("../../dist/results/NativeResultManifest.js"), workspaceRoot: () => "C:/project", errorMessage: String };
   vm.createContext(context);
-  vm.runInContext(compiled.slice(first, last).replace("scheduleDistributedPostprocess(root, rerunIfBusy = false)",
+  vm.runInContext(legacyMethod(compiled, "scheduleDistributedPostprocess(").replace("scheduleDistributedPostprocess(root, rerunIfBusy = false)",
     "function scheduleDistributedPostprocess(root, rerunIfBusy = false)")
     + "\nthis.schedule = scheduleDistributedPostprocess;", context);
   const calls = [];
@@ -245,13 +248,13 @@ test("formal mirror drift remains blocked rather than overwriting a conflicting 
   const compiled = compiledSource;
   const first = compiled.indexOf("async syncDistributedJobArtifacts(");
   const last = compiled.indexOf("async distributedOutputHashes(", first);
-  const context = { workspaceRoot: () => "C:/project", Date, Set, Map, Object, errorMessage: String,
+  const context = { NativeResultManifest_1: require("../../dist/results/NativeResultManifest.js"), workspaceRoot: () => "C:/project", Date, Set, Map, Object, errorMessage: String,
     PlanOutputRetention: require("../../dist/features/PlanOutputRetention.js"),
     mapLimited: async (items, _limit, fn) => Promise.all(items.map((item) => fn(item))),
     DistributedJobArtifacts_1: { collectDistributedJobArtifacts: (_dir, inventory) => Object.fromEntries(Object.entries(inventory || {}).map(([name, row]) => [name, row.sha256])) },
     PlanArtifactTransfer_1: { workerFpsyncTaskLabel: (input) => [input.action, input.sourceId, input.destinationId].filter(Boolean).join(" ") } };
   vm.createContext(context);
-  vm.runInContext(compiled.slice(first, last).replace("async syncDistributedJobArtifacts(",
+  vm.runInContext(legacyMethod(compiled, "syncDistributedJobArtifacts(").replace("async syncDistributedJobArtifacts(",
     "async function syncJobArtifacts(")
     + "\nthis.sync = syncJobArtifacts;", context);
   const file = "runs/a/result.csv";
@@ -280,82 +283,16 @@ test("formal mirror drift remains blocked rather than overwriting a conflicting 
   assert.deepEqual(Array.from(job.mirroredWorkerIds), ["w2", "w3"]);
 });
 
-test("legacy explicit rebuilding can repair a stale shared preview without automatic invocation", async () => {
-  const compiled = compiledSource;
-  const first = compiled.indexOf("async rebuildDistributedResults(");
-  const last = compiled.indexOf("planOutputRetentionMode(root)", first);
-  const context = {
-    PlanOutputRetention: require("../../dist/features/PlanOutputRetention.js"),
-    DistributedPlanQueue: require("../../dist/features/DistributedPlanQueue.js"),
-    workspaceRoot: () => "C:/project", Map, Set, Object, errorMessage: String,
-    uniqueStrings: (values) => [...new Set(values)],
-    PlanRunFreshness: { selectLatestCompletePlanRun(queue, planFile) {
-      const plan = (queue.plans || []).find((row) => row.planFile === planFile && row.jobs.every((job) => job.status === "completed"));
-      return plan ? { plan } : undefined;
-    } },
-    crypto: { createHash: () => ({ update: () => ({ digest: () => "signature" }) }) },
-    PlanArtifactTransfer_1: { workerFpsyncTaskLabel: (input) => [input.action, input.sourceId, input.destinationId].filter(Boolean).join(" ") },
-  };
-  vm.createContext(context);
-  vm.runInContext(compiled.slice(first, last).replace("async rebuildDistributedResults(root, queue, previewOnly, verifyAll = false)",
-    "async function rebuildDistributedResults(root, queue, previewOnly, verifyAll = false)")
-    + "\nthis.rebuild = rebuildDistributedResults;", context);
-  const file = "simple_cluster/results/distributed_preview.json";
-  const queue = { plans: [{ planFile: "p.yaml", revision: "r", jobs: [{
-    case: "a", seed: 1, attempt: 1, status: "completed", workerId: "w3", outputDir: "runs/a",
-    artifacts: {}, fragmentWorkerIds: ["w3", "w2"], mirroredWorkerIds: ["w3", "w2"],
-  }] }], previewSignature: "signature", previewWorkerId: "w3", previewWorkerIds: ["w3", "w2"], previewPaths: [file] };
-  let copied = false;
-  const patches = [];
-  const provider = {
-    distributedLaunchInFlight: new Set(),
-    distributedProjectContract: () => ({ fragmentPaths: [], requiredPaths: [], configPath: "cfg", checkpointPath: "chk",
-      resultRowsPath: "rows", fourStatePath: "four" }),
-    workerCodeSyncTargets: () => [{ id: "w3" }, { id: "w2" }],
-    lastWorkerProbes: { w3: { status: "ok" }, w2: { status: "ok" } },
-    sftpServerOptions: (row) => ({ id: row.id }),
-    distributedOutputHashes: async (source) => ({ [file]: source.id === "w3" || copied ? "good" : "old" }),
-    patchDistributedPublication: async (_root, fields) => patches.push(fields),
-    assertSshTransportIdentities: async () => undefined,
-    simpleSftpApiCall: async () => { copied = true; },
-    recordActionError: (error) => { throw new Error(error.message); },
-  };
-  await context.rebuild.call(provider, "C:/project", queue, true, true);
-  assert.equal(copied, true);
-  assert.ok(patches.some((fields) => fields.previewWorkerIds && !fields.previewWorkerIds.includes("w2")));
-  assert.deepEqual(Array.from(queue.previewWorkerIds), ["w3", "w2"]);
-});
-
-test("legacy rebuild retries use fresh operation identities and cache only successful manifests", async () => {
-  const first = compiledSource.indexOf("async rebuildDistributedResults(");
-  const last = compiledSource.indexOf("planOutputRetentionMode(root)", first);
-  let sequence = 0;
-  const context = { PlanOutputRetention: require("../../dist/features/PlanOutputRetention.js"),
-    DistributedPlanQueue: require("../../dist/features/DistributedPlanQueue.js"),
-    PlanRunFreshness: { selectLatestCompletePlanRun: queue => ({ plan: queue.plans[0] }) },
-    crypto: require("node:crypto"), workspaceRoot: () => "C:/project",
-    uniqueStrings: values => [...new Set(values)], makeOpId: prefix => `${prefix}-new-${++sequence}`,
-    resultStatus: value => value.status, remoteActionPendingStatus: () => false };
-  vm.createContext(context);
-  vm.runInContext(compiledSource.slice(first, last).replace("async rebuildDistributedResults(root, queue, previewOnly, verifyAll = false)",
-    "async function rebuildDistributedResults(root, queue, previewOnly, verifyAll = false)") + "\nthis.rebuild = rebuildDistributedResults;", context);
-  const queue = { plans: [{ id: "run-b", planFile: "p.yaml", revision: "r", jobs: [{ status: "completed", case: "a", seed: 1,
-    outputDir: "work_dirs/a/attempts/run-b", artifacts: {}, fragmentWorkerIds: ["w1"] }] }] };
-  const submitted = [];
-  const host = { lastWorkerProbes: { w1: { status: "ok" } }, workerCodeSyncTargets: () => [{ id: "w1" }],
-    sftpServerOptions: target => target,
-    distributedProjectContract: () => ({ fragmentPaths: [], requiredPaths: [] }),
-    patchDistributedPublication: async (_root, fields) => Object.assign(queue, fields), client: { postWorkerAction: async (_worker, _action, body) => {
-      submitted.push(body); return submitted.length === 1 ? { status: "failed", message: "old failure" } : { status: "completed", outputPaths: ["result.csv"] };
-    } } };
-  await assert.rejects(context.rebuild.call(host, "C:/project", queue, true), /old failure/);
-  assert.equal(queue.previewSignature, undefined);
-  await context.rebuild.call(host, "C:/project", queue, true);
-  await context.rebuild.call(host, "C:/project", queue, true);
-  assert.equal(submitted.length, 2); assert.notEqual(submitted[0].operationId, submitted[1].operationId);
-  assert.equal(submitted[1].operationId, submitted[1].opId);
-  assert.equal(submitted[1].manifest.plans[0].runId, "run-b");
-  assert.ok(queue.previewSignature);
+// Remote publication was retired. Old cached signatures and a changed run must
+// never invoke the old writer; explicit local collection has separate coverage.
+for (const previewOnly of [true, false]) test(`retired remote rebuilding ignores old publication cache (preview=${previewOnly})`, async () => {
+  const context = {}; vm.createContext(context);
+  vm.runInContext(legacyMethod(compiledSource, "rebuildDistributedResults(").replace("async rebuildDistributedResults(", "async function rebuild(") + "\nthis.rebuild = rebuild;", context);
+  const queue = { previewSignature: "old", previewPaths: ["result.csv"], plans: [{id:"new-run", jobs:[{status:"completed"}]}] };
+  const before = JSON.stringify(queue);
+  const host = new Proxy({}, { get(_target, key) { throw new Error("retired rebuild accessed " + String(key)); } });
+  await context.rebuild.call(host, "C:/project", queue, previewOnly, true);
+  assert.equal(JSON.stringify(queue), before);
 });
 
 test("durable local admission requires a fresh capable ledger and an explicit idle GPU", () => {
@@ -424,7 +361,7 @@ test("a failed job retains its Agent error in the durable Plan queue", async () 
   const end = compiled.indexOf("async syncDistributedJobArtifacts(", start);
   const queueMethod = compiled.slice(start, end).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function tickQueue($1) { this.readWorkerTaskSnapshotBatch ||= async ids => Promise.all(ids.map(id => this.readWorkerTaskSnapshot(id))); this.queuePlanArtifactSyncStatusCheck ||= () => undefined;");
   const DistributedPlanQueue = loadSourceModule("src/features/DistributedPlanQueue.ts");
-  const context = { workspaceRoot: () => "C:/project", DistributedPlanQueue,
+  const context = { NativeResultManifest_1: require("../../dist/results/NativeResultManifest.js"), workspaceRoot: () => "C:/project", DistributedPlanQueue,
     mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)),
     compactSensitiveText: String, Object, Set, Date, setInterval, clearInterval };
   vm.createContext(context);
@@ -457,7 +394,7 @@ test("idle queue recovery checks are spaced while a newly completed job still ch
   const compiled = compiledSource;
   const start = compiled.indexOf("async tickDistributedQueueCore(");
   const end = compiled.indexOf("async syncDistributedJobArtifacts(", start);
-  const context = { workspaceRoot: () => "C:/project", DistributedPlanQueue: loadSourceModule("src/features/DistributedPlanQueue.ts"),
+  const context = { NativeResultManifest_1: require("../../dist/results/NativeResultManifest.js"), workspaceRoot: () => "C:/project", DistributedPlanQueue: loadSourceModule("src/features/DistributedPlanQueue.ts"),
     mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)), Object, Set, Date, setInterval, clearInterval };
   vm.createContext(context);
   vm.runInContext(compiled.slice(start, end).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function tickQueue($1) { this.readWorkerTaskSnapshotBatch ||= async ids => Promise.all(ids.map(id => this.readWorkerTaskSnapshot(id))); this.queuePlanArtifactSyncStatusCheck ||= () => undefined;")
@@ -497,6 +434,8 @@ function loadTickQueue() {
   assert.ok(start >= 0 && end > start);
   const context = {
     workspaceRoot: () => "C:/project", DistributedPlanQueue: loadSourceModule("src/features/DistributedPlanQueue.ts"),
+    PlanCodeScopeHost: require("../../dist/extension/PlanCodeScopeHost"),
+    GpuQuotaScheduling: require("../../dist/features/GpuQuotaScheduling.js"),
     GpuJobOwnership: require("../../dist/features/GpuJobOwnership.js"),
     DistributedSchedulingPolicy: require("../../dist/features/DistributedSchedulingPolicy.js"),
     mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)),

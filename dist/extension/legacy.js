@@ -13657,7 +13657,7 @@ class RealtimeTunnelPanelProvider {
             if (issues.length || item.metricDiscoveryError || item.downloadFailed || !item.summary.workerResultTables?.length)
                 throw new Error(issues[0] || item.metricDiscoveryError || "该版本原始 wrapper 文件缺失或尚未核验。");
             const summary = await this.summaryFromLocalMetricFiles(root, run.planFile, item.summary, { memoryMetricFiles: memory,
-                downloadedSources: new Set(downloads.filter(verifiedDownload).map(download => download.sourceId)), completedRunId: run.runId });
+                downloadedSources: new Set(downloads.filter(verifiedDownload).map(download => download.sourceId)), completedRunId: run.runId, temporaryResultReview: true });
             if (!isCurrent())
                 throw new UiCommandCancelled("临时审核已关闭。");
             return PlanVersionComparison.comparisonFromSummary(run, summary, pluginProjectAdapterRules(root));
@@ -14689,11 +14689,13 @@ class RealtimeTunnelPanelProvider {
     async postTunnelAction(action, body, options = {}) {
         this.assertActionAuthorityCurrent(options);
         this.assertPlanTopologyReady(options.title || action);
-        const workerId = this.resolveWorkerEndpointId(body?.workerId || body?.options?.workerId || body?.schedulerOwnerWorkerId || body?.options?.schedulerOwnerWorkerId || "")
-            || (this.enabledWorkerConfigs().length === 1 ? this.enabledWorkerConfigs()[0].id : "");
-        if (!workerId)
-            throw Error("请选择执行此操作的 Worker。");
-        return this.postWorkerTunnelAction(workerId, action, this.workerScopedActionBody(body, workerId), options);
+        const workers = this.enabledWorkerConfigs();
+        const requested = String(body?.workerId || body?.options?.workerId || body?.schedulerOwnerWorkerId || body?.options?.schedulerOwnerWorkerId || "").trim();
+        const resolved = requested ? this.resolveWorkerEndpointId(requested) : "";
+        const worker = requested ? workers.find(item => item.id === resolved) : workers.length === 1 ? workers[0] : undefined;
+        if (!worker)
+            throw new Error(requested ? `请求的 Worker 未配置或未启用：${requested}` : "请选择执行此操作的 Worker。");
+        return this.postWorkerTunnelAction(worker.id, action, this.workerScopedActionBody(body, worker.id), options);
     }
     async postWorkerTunnelAction(workerId, action, body, options = {}) {
         if (options.requiresCapability?.includes("endpoints.projectManagedValidation")
@@ -19126,6 +19128,13 @@ class RealtimeTunnelPanelProvider {
             throw new Error("请先打开当前实验项目。");
         const generation = this.projectContextGeneration;
         const client = this.client;
+        const workers = this.enabledWorkerConfigs();
+        const requestedWorker = stringField(message, "workerId");
+        const resolvedWorker = requestedWorker ? this.resolveWorkerEndpointId(requestedWorker) : "";
+        const worker = requestedWorker ? workers.find(item => item.id === resolvedWorker) : workers.length === 1 ? workers[0] : undefined;
+        if (!worker)
+            throw new Error(requestedWorker ? `请求的 Worker 未配置或未启用：${requestedWorker}` : "请选择结果文件所属的 Worker。");
+        const workerId = worker.id;
         const planFile = this.resolveSelectedPlanFile(stringField(message, "planFile") || this.planFileInput || this.selectedPlanId || "");
         if (!planFile)
             throw new Error("无法确认结果文件所属 Plan，已阻止下载。");
@@ -19136,7 +19145,7 @@ class RealtimeTunnelPanelProvider {
         if (!remotePath)
             throw new Error("只允许查看当前项目内的 CSV、JSON、TXT、LOG 或 OUT 轻量结果文件。");
         const version = this.planVersionForFile(planFile);
-        const allowed = remoteResultInspectionCandidates([this.localOperations, this.lastRealtimeState?.operations], planFile, version.revision, version.updatedAt);
+        const allowed = remoteResultInspectionCandidates([this.localOperations, this.lastRealtimeState?.operations], planFile, version.revision, version.updatedAt, workerId);
         if (!allowed.includes(remotePath))
             throw new Error("该文件不属于当前 Plan 最近输出契约检查返回的不可解析文件，已阻止下载。");
         const localRelative = remoteResultInspectionLocalRelativePath(remotePath, planFile);
@@ -19148,13 +19157,13 @@ class RealtimeTunnelPanelProvider {
             "仅临时读取到内存，关闭查看后不保留原始文件。",
             "大小上限：4 MB",
             "",
-            "通过当前 Hub 的 SimpleSFTP 只读读取，不修改远端文件。",
+            `通过 Worker ${workerId} 的 SimpleSFTP 只读读取，不修改远端文件。`,
         ].join("\n"), { modal: true }, "临时读取并查看");
         if (answer !== "临时读取并查看")
             throw new UiCommandCancelled("远端结果查看已取消，未下载文件。");
         if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
             return;
-        const inspectionResult = await this.downloadMetricMemoryBatch({ ...this.captureProjectContext(), resultInspection: true }, client, { sourceId: "hub", entries: [{ remotePath, localRelativePath: localRelative }] }, "临时查看远端结果", undefined);
+        const inspectionResult = await this.downloadMetricMemoryBatch({ ...this.captureProjectContext(), resultInspection: true }, client, { sourceId: workerId, workerId, entries: [{ remotePath, localRelativePath: localRelative }] }, "临时查看远端结果", undefined);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
             return;
         const doc = await vscode.workspace.openTextDocument({ language: "plaintext", content: this.resultInspectionContent(inspectionResult.metricFiles[0]) });
@@ -20227,9 +20236,11 @@ class RealtimeTunnelPanelProvider {
         if (wrapperJobs.length) {
             const publication = WrapperResultBundle.prepareWrapperPublication(String(summary.runId || options.completedRunId || ""), summary.expectedMetricJobs || tables.map(table => ({ case: table.completedJob.case, seed: table.completedJob.seed })), wrapperJobs, summary.metricPreviewOnly === true);
             WrapperResultBundle.assertWrapperSourceHistory(summary.wrapperEvidence, publication);
-            const views = WrapperResultBundle.wrapperSummaryFiles(this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, planFile, publication, wrapperJobs);
+            const views = options.temporaryResultReview === true
+                ? WrapperResultBundle.wrapperMergedFiles(this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, planFile, publication, wrapperJobs)
+                : WrapperResultBundle.wrapperSummaryFiles(this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, planFile, publication, wrapperJobs);
             wrapperEvidence = { runId: publication.runId, status: publication.status, expectedJobs: publication.expectedJobs, jobs: WrapperResultBundle.wrapperSummaryJobs(publication),
-                storage: "summary-only", views: views.map(file => file.relativePath) };
+                storage: options.temporaryResultReview === true ? "temporary-memory" : "summary-only", views: views.map(file => file.relativePath) };
             wrapperFiles = views;
         }
         return {
@@ -27579,13 +27590,11 @@ const resultsSummaryArrayLimits = {
 const RESULTS_SUMMARY_WEBVIEW_VARIANT_CACHE_LIMIT = 8;
 const resultsSummaryForWebviewCache = new WeakMap();
 function compactResultsSummaryForPlanForWebview(summary, selectedPlan, planRevision = "", planUpdatedAt = "") {
-    if (selectedPlan)
-        summary = ResultOwnershipScope.scopeResultSummary(summary, selectedPlan);
     const cacheable = Boolean(summary) && typeof summary === "object" && !Array.isArray(summary);
     if (!cacheable)
         return compactResultsSummaryForWebview(filterResultsSummaryForSelectedPlan(summary, selectedPlan, planRevision, planUpdatedAt));
-    const plan = usableSelectionKey(String(selectedPlan || "").trim().replace(/\\/g, "/"));
-    const cacheKey = [plan, String(planRevision || "").trim(), String(planUpdatedAt || "")].join("|");
+    const plan = ResultOwnershipScope.resultPlanPath(String(selectedPlan || "").trim());
+    const cacheKey = JSON.stringify([Boolean(selectedPlan), plan, String(planRevision || "").trim(), String(planUpdatedAt || "")]);
     let variants = resultsSummaryForWebviewCache.get(summary);
     if (variants?.has(cacheKey)) {
         const cached = variants.get(cacheKey);
@@ -27593,7 +27602,10 @@ function compactResultsSummaryForPlanForWebview(summary, selectedPlan, planRevis
         variants.set(cacheKey, cached);
         return cached;
     }
-    const compacted = compactResultsSummaryForWebview(filterResultsSummaryForSelectedPlan(summary, plan, planRevision, planUpdatedAt));
+    // Scope can allocate a projection. Cache by the original immutable snapshot,
+    // with PLAN/version in the variant key, so repeated renders reuse the result.
+    const scoped = selectedPlan ? ResultOwnershipScope.scopeResultSummary(summary, plan) : summary;
+    const compacted = compactResultsSummaryForWebview(filterResultsSummaryForSelectedPlan(scoped, plan, planRevision, planUpdatedAt));
     if (!variants) {
         variants = new Map();
         resultsSummaryForWebviewCache.set(summary, variants);
@@ -34352,7 +34364,7 @@ function methodResultArtifactLocalRelativePath(remotePath, planFile, summary, re
     const filename = safePlanToken(path.posix.basename(normalized, extension)) + "__" + crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 8) + extension;
     return path.posix.join(base, ProjectResultTables.planArtifactPath(datasetKey, planFile, kind, filename, workerId));
 }
-function remoteResultInspectionCandidates(operationGroups, planFile, planRevision = "", planUpdatedAt = "") {
+function remoteResultInspectionCandidates(operationGroups, planFile, planRevision = "", planUpdatedAt = "", workerId = "") {
     const selectedPlan = normalizePlanSelectionKey(planFile);
     if (!selectedPlan)
         return [];
@@ -34364,6 +34376,11 @@ function remoteResultInspectionCandidates(operationGroups, planFile, planRevisio
                 continue;
             const scopedReceipt = ResultOwnershipScope.scopeResultOperation(row, selectedPlan);
             const payloads = scopedReceipt.payloads;
+            if (workerId) {
+                const owners = [row, ...payloads].map(item => String(item?.workerId || item?.worker_id || "").trim()).filter(Boolean);
+                if (owners.some(owner => owner !== workerId))
+                    continue;
+            }
             const rowPlan = payloads.map((item) => operationResultPlanFile(item)).find(Boolean);
             if (!rowPlan || !samePlanSelection(rowPlan, selectedPlan))
                 continue;

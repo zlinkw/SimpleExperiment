@@ -426,9 +426,9 @@ function normalizePortConfig(
   hubRemoteHost: unknown,
 ): XshellTunnelSetupConfig["ports"] {
   const range = normalizePortRange(input?.workerLocalPortRange, defaultTunnelPorts.workerLocalPortRange);
-  const validIds = new Set(["hub", ...workers.map((worker) => worker.id)]);
+  const validIds = new Set(workers.map((worker) => worker.id));
   const assignments = Array.isArray(input?.assignments)
-    ? input.assignments.filter((assignment) => validIds.has(assignment.endpointId) && String(assignment.localForwardHost || "").trim() && String(assignment.remoteBindHost || "").trim())
+    ? input.assignments.filter((assignment) => assignment.role === "worker_telemetry" && validIds.has(assignment.endpointId) && String(assignment.localForwardHost || "").trim() && String(assignment.remoteBindHost || "").trim())
     : [];
   const assignedAt = new Date(0).toISOString();
   for (const worker of workers) {

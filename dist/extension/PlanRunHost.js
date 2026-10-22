@@ -109,6 +109,14 @@ class PlanRunHost {
         return { queue: next, missing: [...wanted].filter(key => !matched.has(key) && !cleared.has(key)) };
     }
     async replace(plan, body, validation) {
+        // Old direct-overwrite inputs never survive a failed or cancelled isolation review.
+        // The only launch authorization is the completed exact-path replacement flow.
+        body.overwrite = false;
+        body.overwriteExisting = false;
+        if (body.options) {
+            body.options.overwrite = false;
+            body.options.overwriteExisting = false;
+        }
         const h = this.host, cleanup = h.planCleanupHost(), jobs = validation.jobs, context = h.captureProjectContext();
         const currentNodes = () => h.workerActionTargets().map((row) => [row.id, row.host, row.port, row.user, row.project_dir]);
         // Health checks rebuild the client even when its physical targets stay the

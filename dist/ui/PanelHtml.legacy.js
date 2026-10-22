@@ -3288,6 +3288,8 @@ function renderPanelHtml() {
     const explicitPlanFileCommands = new Set(["openPlan", "archivePlan", "restoreArchivedPlan"]);
     const explicitSavePlanCommands = new Set(["savePlan"]);
     const webviewHandledCommands = new Set([
+      "startTensorBoard", "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts", "resetPptPathConfirmations",
+      "retryPlanSubmission", "cancelPlanSubmission", "dispatchJobs", "queueRemainingJobs", "refreshJobArtifacts", "retryJobArtifactSync",
       "analyzeRuntimeLog",
       "retryDistributedJob",
       "recallFailedJob",
@@ -6047,6 +6049,7 @@ function renderPanelHtml() {
     function pendingKeyFromButtonDataset(button) {
       const payload = {};
       ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "attempt", "commandId", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "session", "window"].forEach((key) => {
+        if (key === "attempt" && button.dataset.command === "recallFailedJob") return;
         if (button.dataset[key]) payload[key] = button.dataset[key];
       });
       if (button.dataset.batchSelected === "true") payload.batchSelected = "true";
@@ -9942,6 +9945,8 @@ function renderPanelHtml() {
         sessionCheckMinSeconds: "全局会话检测最小间隔（秒，默认 5）"
       };
       const workerHelp = {
+        gpuJobsPerCard: "这台服务器每张显卡允许同时运行的 job 数；留空继承全局设置，0 暂停该服务器的新任务，不停止现有任务。",
+        gpuMinFreeMemoryGb: "这台服务器显卡继续派发所需的总剩余显存 GiB；留空继承全局设置，显存不足时保留排队任务。",
         gpuMemoryPerJobGb: "仅设置这台服务器每个 job 按多少 G 显存计算；不填时使用上面的统一设置。例如填 24，96G 显卡可同时运行 4 个 job。",
         displayName: "仅用于界面展示和识别该 Worker，不用于网络连接。",
         workerHost: "填写该 Worker 的 IP 地址或可直接解析的域名，例如 compute.example.org；SSH 登录和 SFTP 文件传输共用此地址。这里不是文件路径，也不读取其他 SSH 配置文件。",
@@ -15434,7 +15439,7 @@ function renderPanelHtml() {
       const errorLine = operationErrorLine(row, message);
       const runningWarn = operationRunningEvidenceWarning(row);
       const details = renderOperationDetailPills(row);
-      const fileActions = renderRemoteResultInspectionActions(row.unparseableFileList, row.planFile, 3, row.unparseableDetails);
+      const fileActions = renderRemoteResultInspectionActions(row.unparseableFileList, row.planFile, 3, row.unparseableDetails, row.workerId);
       const rawType = row.type || row.action || "operation";
       const itemTitle = operationTypeLabel(rawType) + "（原始：" + rawType + "）：" + operationStatusLabel(row.status);
       const timestamp = operationTimestampView(row);
@@ -15855,7 +15860,7 @@ function renderPanelHtml() {
       } catch (e) { return '<div class="operationLogsWindowed" style="margin-top:6px;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看该任务的完整日志（已脱敏）&#10;默认显示末尾 50 行">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开该任务的完整日志文件&#10;内容已脱敏处理">打开完整日志</button></div>'; }
     }
 
-    function renderRemoteResultInspectionActions(files, planFile, limit, details) {
+    function renderRemoteResultInspectionActions(files, planFile, limit, details, workerId) {
       const rows = uniqueText(asArray(files).map((file) => String(file || "").trim()).filter((file) => /\\.(csv|json|txt|log|out)$/i.test(file)));
       if (!rows.length || !meaningfulValue(planFile)) return "";
       const detailMap = new Map(asArray(details).map((item) => [String((item || {}).path || "").trim(), String((item || {}).error || "").trim()]));
@@ -15863,7 +15868,7 @@ function renderPanelHtml() {
       const entries = visible.map((file) => {
         const name = file.replace(/\\\\/g, "/").split("/").pop() || "结果文件";
         const error = detailMap?.get(file) || "未返回具体解析原因；可下载原文件检查内容。";
-        return '<div class="operationFileEntry"><div class="operationFileReason" title="' + escAttr(file + "：" + error) + '"><b>' + esc(compactText(name, 44)) + '</b><span>' + esc(compactText(error, 120)) + '</span></div><button class="mini secondary" data-command="downloadRemoteResult" data-remote-path="' + escAttr(file) + '" data-plan-file="' + escAttr(planFile) + '" title="' + escAttr("下载只读副本并打开：" + file) + '">查看文件</button></div>';
+        return '<div class="operationFileEntry"><div class="operationFileReason" title="' + escAttr(file + "：" + error) + '"><b>' + esc(compactText(name, 44)) + '</b><span>' + esc(compactText(error, 120)) + '</span></div><button class="mini secondary" data-command="downloadRemoteResult" data-worker-id="' + escAttr(workerId || "") + '" data-remote-path="' + escAttr(file) + '" data-plan-file="' + escAttr(planFile) + '" title="' + escAttr("下载只读副本并打开：" + file) + '">查看文件</button></div>';
       }).join("");
       const omitted = rows.length - visible.length;
       return '<div class="operationFileActions"><span>不可解析的远端原文件</span>' + entries + (omitted ? '<span>其余 ' + esc(String(omitted)) + ' 个见操作详情</span>' : "") + '</div>';

@@ -20,13 +20,13 @@ test("fresh durable snapshots reconstruct a cold empty local queue across config
 });
 
 test("new admission carries project identity and expected count, and requires a durable receipt", () => {
-  assert.match(extension, /durablePlanQueue: true, schedulingMode: DistributedSchedulingPolicy\.schedulingMode\(\s*job\.localQueueOnly === true \|\| plan\.localDispatchOverride === true \? "local_idle" : plan\.schedulingMode\)/);
-  assert.match(extension, /requireIdleGpu: gpuId !== undefined, \.\.\.codeProofFields, projectId: plan\.projectId/);
+  assert.match(extension, /durablePlanQueue: true, requireIdleGpu: !job\.manualDispatch && gpuId !== undefined/);
+  assert.match(extension, /requireIdleGpu: !job\.manualDispatch && gpuId !== undefined, dispatchPolicy: job\.manualDispatch \? "manual" : "automatic", projectId: plan\.projectId/);
   assert.match(extension, /register-code-sync-proof/);
   assert.match(extension, /planJobCount: Number\(plan\.planJobCount/);
   assert.match(extension, /receipt\?\.durableAccepted !== true/);
   assert.match(extension, /receipt\.commandId \|\| ""\) !== job\.commandId/);
-  assert.match(extension, /持久队列接收回执未确认，保留原 Worker、GPU 和 commandId/);
+  assert.match(extension, /Worker 未返回 durableAccepted 及匹配完整身份的状态回执/);
   assert.match(queue, /export function durableCommandId/);
   assert.match(queue, /export function mergeDurableWorkerSnapshots/);
 });
@@ -45,7 +45,14 @@ test("proof-capable Worker receives compact dispatch identity; legacy Agent keep
 
 test("cold recovery cannot infer a complete Plan from the returned task subset", () => {
   assert.match(queue, /planJobCount\?: number/);
-  assert.match(queue, /remoteAcceptedJobCount = currentAcceptedIndices\.size/);
+  assert.match(queue, /remoteAcceptedJobCount = remoteAcceptedIndices\.size/);
   assert.match(queue, /recoveryMissingCount = distributedPlanRecoveryMissingCount\(plan, currentAcceptedIndices\)/);
-  assert.match(extension, /!plan\.recoveryMissingCount/);
+  const api = require('../../dist/features/DistributedPlanQueue.js'), now = Date.now(), stamp = new Date(now).toISOString();
+  const projectId = api.canonicalProjectId('/private/fixture');
+  const task = {projectId,workflowId:'partial',planFile:'plans/p.yaml',planRevision:'r',codeFingerprint:'code',planJobCount:6,
+    experimentIndex:0,case:'a',seed:1,attempt:1,outputDir:'runs/a',workerId:'w',commandId:'original',runKey:'original',enqueuedAt:stamp,status:'queued'};
+  const result = api.mergeDurableWorkerSnapshots(api.emptyDistributedQueue(),[{workerId:'w',generatedAt:stamp,fetchedAt:stamp,
+    capabilities:{durablePlanQueue:true,schemaVersion:1},tasks:[task]}],projectId,now);
+  assert.equal(result.plans[0].remoteAcceptedJobCount,1);
+  assert.equal(result.plans[0].planJobCount,6); assert.equal(result.plans[0].recoveryMissingCount,5);
 });

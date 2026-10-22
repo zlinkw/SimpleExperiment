@@ -1,145 +1,49 @@
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const Module = require("node:module");
-const os = require("node:os");
-const path = require("node:path");
-const test = require("node:test");
-const ts = require("typescript");
-Module._extensions[".ts"] = (mod, file) => mod._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
-
-const root = path.join(__dirname, "..", "..");
-const tablesSource = path.join(root, "src", "results", "ProjectResultTables.ts");
-const tablesModule = new Module(tablesSource, module);
-tablesModule.filename = tablesSource;
-tablesModule.paths = Module._nodeModulePaths(path.dirname(tablesSource));
-tablesModule._compile(ts.transpileModule(fs.readFileSync(tablesSource, "utf8"), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true },
-}).outputText, tablesSource);
-
-const vscode = {
-  commands: { executeCommand: async () => ({ ok: true }) },
-  workspace: { workspaceFolders: [], getConfiguration: () => ({ get: (_key, fallback) => fallback }) },
-  window: {
-    withProgress: async (_options, task) => task({ report() {} }, { isCancellationRequested: false }),
-    showInformationMessage: async () => {}, showWarningMessage: async () => {},
-  },
-  Uri: { file: (fsPath) => ({ fsPath }) },
-  ProgressLocation: { Notification: 1 },
-};
-const originalLoad = Module._load;
-const originalTsLoader = Module._extensions[".ts"];
-const tsLoader = (loadedModule, filename) => {
-  const compiled = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
-  }).outputText;
-  loadedModule._compile(compiled, filename);
-};
-Module._extensions[".ts"] = tsLoader;
-Module._load = function (request, parent, isMain) {
-  if (request === "vscode") return vscode;
-  if (request === "../results/ProjectResultTables" && parent?.filename.endsWith(path.join("src", "extension", "legacy.ts"))) return tablesModule.exports;
-  return originalLoad.call(this, request, parent, isMain);
-};
-const { __rebuildProjectResultTablesForTest } = require("../../dist/extension/legacy.js");
-Module._load = originalLoad;
-if (originalTsLoader) Module._extensions[".ts"] = originalTsLoader;
-else delete Module._extensions[".ts"];
-
-const planFile = "experiments/plans/demo.yaml";
-const rawPath = "simple_cluster/results/w1/raw.csv";
-function resultSummary(metrics) {
-  return {
-    planFile, planRevision: "r1", completedRunId: "run-1", rawResultCsvPath: rawPath, resultOwnerWorkerId: "w1",
-    workerResultTables: [{ workerId: "w1", rawResultCsvPath: rawPath, aggregateStatus: "ready" }],
-    results: [42, 43].map((seed, index) => ({
-      planFile, workerId: "w1", runId: "run-1", attempt: "1", planRevision: "r1",
-      dimensions: { case: "alpha", seed: String(seed), method: "demo", dataset: "set", rate_percent: "30", eval_protocol: "clean" },
-      metrics: metrics(index), sourceFiles: [{ path: rawPath }],
-    })),
-  };
+const assert=require('node:assert/strict'),test=require('node:test'),fs=require('node:fs'),path=require('node:path'),ts=require('typescript');
+require('../_helpers/registerTsRequire');
+const {fixture,planFile,planText}=require('../_helpers/freshResultHost');
+const Tables=require('../../src/results/ProjectResultTables.ts');
+const {resultDigest}=require('../../src/results/FreshResults.ts');
+const source=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
+const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);
+const parser=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='parseDownloadedMetricCsv').getText(ast);
+const parse=new Function('ProjectResultTables',parser+';return parseDownloadedMetricCsv;')(Tables);
+function setup(){
+  const f=fixture(),declarations=[42,43].map((seed,index)=>({index,case:'alpha',seed,output_dir:'work_dirs/alpha'+seed,result_csv:'work_dirs/alpha'+seed+'/metrics.csv',planHash:resultDigest(planText)}));
+  for(const job of declarations)f.raw[job.output_dir+'/artifact_manifest.json']=JSON.stringify({simpleExperiment:{runId:'command-'+job.index,status:'completed',mode:'test',job:{index:job.index,case:job.case,seed:job.seed},outputDir:job.output_dir,resultCsv:job.result_csv,weights:[]}});
+  f.host.client.getWorkerTasks=async(_id,options)=>options.discovery?{queryComplete:true,capabilities:{resultCollection:1},declaredJobs:declarations}:
+    {queryComplete:true,capabilities:{resultCollection:1},tasks:[],declaredResults:declarations.map(job=>({index:job.index,outputDir:job.output_dir,completed:true,runId:'command-'+job.index,
+      runtimeDiagnostics:{schemaVersion:1,commandId:'command-'+job.index,runId:'command-'+job.index,state:'clear',count:0,scanComplete:true},
+      files:[job.output_dir+'/artifact_manifest.json',job.result_csv].map(remotePath=>({remotePath,bytes:Buffer.byteLength(f.raw[remotePath]),sha256:resultDigest(f.raw[remotePath])}))}))};
+  f.host.parseFreshResultMetric=(text,job)=>parse(text,{},job);
+  function values(conflict=false){for(const job of declarations){const first=job.index===0;
+    f.raw[job.result_csv]=Tables.writeCsv(['case','seed','method','dataset','metric','value'],(first?[['AUC',.6],['roc_auc',conflict ? .7 : .6],['ECE',.1],['ece',.1]]:[['auc',.8],['ECE',.3]])
+      .map(([metric,value])=>[job.case,job.seed,'demo','set',metric,value]));}}
+  values();return {...f,values};
 }
-function providerFor(workspace, previousRegistry, summary) {
-  const csv = tablesModule.exports.writeCsv(['case','seed','method','dataset','rate_percent','eval_protocol','metric','value'],
-    summary.results.flatMap(row => Object.entries(row.metrics).map(([metric, payload]) => [row.dimensions.case, row.dimensions.seed,
-      row.dimensions.method, row.dimensions.dataset, row.dimensions.rate_percent, row.dimensions.eval_protocol, metric, payload.value])));
-  const sha = require('node:crypto').createHash('sha256').update(csv).digest('hex');
-  return {
-    context: { globalStorageUri: { fsPath: workspace } },
-    client: { getResultsSummary: async () => summary },
-    setupConfig: { workerTunnels: [], agentProjectDir: "", condaEnv: "" },
-    localPlanMetadata: { plans: [{ planFile, revision: "r1", seeds: [42, 43] }] },
-    selectedRunKeys: new Set(), selectedExperimentIds: new Set(), selectedArchiveKeys: new Set(), selectedTaskUiKeys: new Set(),
-    planFileInput: "", selectedPlanId: "", selectedRunKey: "",
-    captureProjectContext: () => ({ root: workspace, generation: 1 }),
-    projectContextIsCurrent: () => true,
-    effectiveConnectionMode: () => "tunnel",
-    refreshLocalPlanMetadataForAction: async () => {},
-    loadPlanSyncLedger: async () => ({ schemaVersion: 2, entries: { demo: { planFile, revision: "r1", runId: "run-1" } } }),
-    loadProjectTableRegistry: async () => previousRegistry,
-    loadDistributedQueue: async () => ({ schemaVersion: 1, plans: [] }),
-    distributedProjectContract: () => ({ resultRowsPath: "test_results/formal_result_rows.csv", fourStatePath: "test_results/four_state_metrics.csv" }),
-    simpleSftpCapability: async () => ({ methodOptions: { 'sync.downloadMappedPaths': { memoryOnly: true } } }),
-    mappedDownloadServerForSource: id => ({ id, host: 'configured.example', remotePath: '/project' }),
-    simpleSftpApiCall: async (method, params) => method === 'sync.projectInventory'
-      ? { files: { [rawPath]: { size: Buffer.byteLength(csv), sha256: sha } } }
-      : { ok: true, memoryOnly: true, entries: params.entries.map(entry => ({ remotePath: entry.remotePath, bytes: Buffer.byteLength(csv), sha256: sha, dataBase64: Buffer.from(csv).toString('base64') })) },
-    schedulerSettings: () => ({ gpuIdleUtilThreshold: 5, gpuIdleMemThresholdMb: 200, sessionCheckMinSeconds: 30, workerStatusTtlSeconds: 180 }),
-    workerCodeSyncTargets: () => [],
-    resolveSelectedPlanFile: () => "",
-    enabledWorkerConfigs: () => [{ id: "w1" }],
-    postState() {},
-  };
-}
-
-test("the production rebuild publishes canonical seed means, sample SD, Markdown, and raw provenance", async () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "metric-alias-rebuild-"));
-  try {
-    const summary = resultSummary((index) => index === 0
-      ? { AUC: { value: 0.6 }, roc_auc: { value: 0.6 }, ECE: { value: 0.1 }, ece: { value: 0.1 } }
-      : { auc: { value: 0.8 }, ECE: { value: 0.3 } });
-    await __rebuildProjectResultTablesForTest(providerFor(workspace, { schemaVersion: 1, plans: {} }, summary));
-    const outputRoot = path.join(workspace, "experiments", "results", "set", "final");
-    const csv = fs.readFileSync(path.join(outputRoot, "final.csv"), "utf8");
-    const markdown = fs.readFileSync(path.join(outputRoot, "final.md"), "utf8");
-    const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster", "results", "project_table_registry.json"), "utf8"));
-    const parsed = tablesModule.exports.readCsv(csv);
-    assert.equal(parsed.header.filter((column) => column === "roc_auc_mean").length, 1);
-    assert.equal(parsed.header.filter((column) => column === "ece_mean").length, 1);
-    assert.equal(parsed.rows[0][parsed.header.indexOf("roc_auc_mean")], "0.7");
-    assert.ok(Math.abs(Number(parsed.rows[0][parsed.header.indexOf("roc_auc_sd")]) - Math.sqrt(0.02)) < 1e-12);
-    assert.equal(parsed.rows[0][parsed.header.indexOf("ece_mean")], "0.2");
-    assert.ok(Math.abs(Number(parsed.rows[0][parsed.header.indexOf("ece_sd")]) - Math.sqrt(0.02)) < 1e-12);
-    assert.match(markdown, /0\.7000 ± 0\.1414/);
-    assert.deepEqual(Object.keys(registry.plans[planFile].records[0].metrics).sort(), ["AUC", "ECE", "ece", "roc_auc"].sort());
-  } finally {
-    vscode.workspace.workspaceFolders = [];
-  }
+test('active collection publishes canonical seed means, sample SD and Markdown without raw cache files',async()=>{
+  const f=setup(),report=await f.service.update();assert.equal(report.completed,2);
+  const output=path.join(f.root,'experiments/results/set/final');
+  const csv=fs.readFileSync(path.join(output,'final.csv'),'utf8'),markdown=fs.readFileSync(path.join(output,'final.md'),'utf8');
+  const parsed=Tables.readCsv(csv);
+  for(const name of ['roc_auc_mean','ece_mean'])assert.equal(parsed.header.filter(column=>column===name).length,1);
+  assert.equal(parsed.rows[0][parsed.header.indexOf('roc_auc_mean')],'0.7');
+  assert.equal(parsed.rows[0][parsed.header.indexOf('ece_mean')],'0.2');
+  for(const name of ['roc_auc_sd','ece_sd'])assert.ok(Math.abs(Number(parsed.rows[0][parsed.header.indexOf(name)])-Math.sqrt(.02))<1e-12);
+  assert.match(markdown,/0\.7000 ± 0\.1414/);
+  assert.equal(fs.existsSync(path.join(f.root,'simple_cluster/results/project_table_registry.json')),false);
+  assert.ok(report.results.every(row=>row.runId&&row.workerId&&row.planFile===planFile));
+  const aliases=new Set(report.results.flatMap(row=>Object.keys(row.metrics)));
+  for(const name of ['AUC','roc_auc','ECE','ece'])assert.ok(aliases.has(name),'original metric alias retained in memory: '+name);
 });
-
-test("the production rebuild retains prior CSV and Markdown when same-seed aliases conflict", async () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "metric-alias-conflict-"));
-  try {
-    const oldRegistry = tablesModule.exports.updateRegistry(tablesModule.exports.emptyTableRegistry(), {
-      planFile, planRevision: "r1", completedRunId: "run-old", rawResultCsvPath: rawPath,
-      workerResultTables: [{ workerId: "w1", rawResultCsvPath: rawPath, aggregateStatus: "ready" }],
-      results: [{ workerId: "w1", runId: "run-old", attempt: "1", planRevision: "r1",
-        dimensions: { case: "alpha", seed: "42", method: "demo", dataset: "set" },
-        metrics: { AUC: { value: 0.5 } }, sourceFiles: [{ path: rawPath }] }],
-    }, planFile, 1);
-    const table = tablesModule.exports.buildTables(oldRegistry)["set/final"];
-    const outputRoot = path.join(workspace, "experiments", "results", "set", "final");
-    fs.mkdirSync(outputRoot, { recursive: true });
-    fs.writeFileSync(path.join(outputRoot, "final.csv"), tablesModule.exports.writeCsv(table.header, table.rows), "utf8");
-    fs.writeFileSync(path.join(outputRoot, "final.md"), table.markdown, "utf8");
-    const beforeCsv = fs.readFileSync(path.join(outputRoot, "final.csv"), "utf8");
-    const beforeMarkdown = fs.readFileSync(path.join(outputRoot, "final.md"), "utf8");
-    const conflict = resultSummary((index) => index === 0
-      ? { AUC: { value: 0.6 }, roc_auc: { value: 0.7 } }
-      : { AUC: { value: 0.8 } });
-    await __rebuildProjectResultTablesForTest(providerFor(workspace, oldRegistry, conflict));
-    assert.equal(fs.readFileSync(path.join(outputRoot, "final.csv"), "utf8"), beforeCsv);
-    assert.equal(fs.readFileSync(path.join(outputRoot, "final.md"), "utf8"), beforeMarkdown);
-  } finally {
-    vscode.workspace.workspaceFolders = [];
-  }
+test('same-seed alias conflict stays explicit and excludes that seed from the current partial export',async()=>{
+  const f=setup();await f.service.update();f.values(true);
+  const report=await f.service.update();
+  assert.equal(report.completed,1);assert.equal(report.expected,2);
+  assert.equal(report.jobs[0].state,'unknown');assert.match(report.jobs[0].error,/冲突/);
+  assert.ok(report.results.every(row=>String(row.dimensions.seed)==='43'),'conflicting seed must never enter a published mean');
+  const parsed=Tables.readCsv(fs.readFileSync(path.join(f.root,'experiments/results/set/final/final.csv'),'utf8'));
+  assert.equal(parsed.rows[0][parsed.header.indexOf('roc_auc_mean')],'0.8','the prior cached 0.7 mean cannot represent this query');
+  const saved=JSON.parse(fs.readFileSync(path.join(f.root,'experiments/results/latest-results.json'),'utf8'));
+  assert.equal(saved.source,'active_query');assert.equal(saved.jobs[0].state,'unknown');
+  assert.ok(saved.jobs[0].error.includes('冲突'));
 });

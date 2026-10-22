@@ -24,7 +24,7 @@ function fixture(root) {
     "durable_plan_same_identity", "accept_durable_plan_job", "cancel_durable_plan_job",
     "durable_plan_queue_processor_key", "durable_plan_queue_wake_event", "signal_durable_plan_queue_processor",
     "start_durable_plan_queue_processor",
-  ].map(pythonDefinition);
+  ];
   const identity = source.match(/^DURABLE_PLAN_IDENTITY_FIELDS\s*=\s*\([\s\S]*?^\)/m);
   assert.ok(identity, "missing durable identity contract");
   return String.raw`
@@ -54,12 +54,19 @@ def append_worker_task(root, task): pass
 def signal_durable_plan_queue_processor(root, worker_id): pass
 def recalled_worker_command(root, identity): return None
 ${identity[0]}
-${definitions.join("\n\n")}
+def verified_formal_job_command(root, command, structure_only=False):
+    assert command.get("resultPathPolicy") == "declared"
+    return command
+def verified_durable_execution_mode(root, command): return "train"
+import sys
+sys.path.insert(0, ${JSON.stringify(path.resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+extract_runtime_functions(${JSON.stringify(path.resolve(__dirname,"../../dist/runtime/cluster_agent.py"))}, ${JSON.stringify(definitions)}, globals())
 
 def make_job(index, command_id):
     return {"projectId":"project-a", "workflowId":"workflow-a", "planFile":"experiments/plans/a.yaml",
         "planRevision":"revision-a", "codeFingerprint":"sha-a", "experimentIndex":index, "case":"case-a",
-        "seed":40+index, "attempt":1, "outputDir":"experiments/runs/job-"+str(index)+"/attempts/1",
+        "seed":40+index, "resultPathPolicy":"declared", "globalJobId":"workflow-a:"+str(index), "collectionResultCsv":"experiments/results/"+str(index)+".csv", "executionMode":"train", "outputDir":"experiments/runs/job-"+str(index),
         "runKey":command_id, "commandId":command_id, "workerId":"worker-a", "planJobCount":3,
         "action":"start-worker-task", "durablePlanQueue":True}
 

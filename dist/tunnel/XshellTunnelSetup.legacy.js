@@ -305,9 +305,9 @@ function normalizeWorkerTtlSeconds(value) {
 }
 function normalizePortConfig(input, workers, hubLocalPort, hubRemotePort, hubDisplayName, hubLocalHost, hubRemoteHost) {
     const range = (0, TunnelPortConflict_1.normalizePortRange)(input?.workerLocalPortRange, TunnelPortConflict_1.defaultTunnelPorts.workerLocalPortRange);
-    const validIds = new Set(["hub", ...workers.map((worker) => worker.id)]);
+    const validIds = new Set(workers.map((worker) => worker.id));
     const assignments = Array.isArray(input?.assignments)
-        ? input.assignments.filter((assignment) => validIds.has(assignment.endpointId) && String(assignment.localForwardHost || "").trim() && String(assignment.remoteBindHost || "").trim())
+        ? input.assignments.filter((assignment) => assignment.role === "worker_telemetry" && validIds.has(assignment.endpointId) && String(assignment.localForwardHost || "").trim() && String(assignment.remoteBindHost || "").trim())
         : [];
     const assignedAt = new Date(0).toISOString();
     for (const worker of workers) {

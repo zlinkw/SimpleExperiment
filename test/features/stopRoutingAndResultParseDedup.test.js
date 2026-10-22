@@ -37,6 +37,9 @@ function extractMethod(source, signature) {
 
 function createContext(extra = {}) {
   const context = {
+    require: require("node:module").createRequire(path.join(__dirname,"../../dist/extension/legacy.js")),
+    DistributedPlanQueue: require("../../dist/features/DistributedPlanQueue"),
+    workspaceRoot: () => "C:/project",
     Error,
     Set,
     String,
@@ -211,6 +214,7 @@ async function contextStop(provider, body) {
   });
   const method = extractMethod(extensionSource, "async stopExperimentRouted(body)");
   vm.runInContext(`const methods = { ${method} };\nthis.stopExperimentRouted = methods.stopExperimentRouted;`, context);
+  provider.client = { postWorkerAction: (...args) => provider.postWorkerTunnelAction(...args) };
   return context.stopExperimentRouted.call(provider, body);
 }
 
@@ -258,45 +262,22 @@ test("result parse idempotency keys include workspace, Plan version, and owner",
   }));
 });
 
-test("concurrent result parses merge into one active operation", async () => {
-  assert.match(extensionSource, /resultParseInFlight = new Map\(\)/);
-  const context = createContext({
-    RESULT_PARSE_COMMANDS: new Set(["parseResults", "refreshResults"]),
-    PLAN_SUBMISSION_COMMANDS: new Set(["runPlan", "reproducePlan"]),
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    HostOperationLeaseConflictError: class HostOperationLeaseConflictError extends Error {},
-    HostOperationLease_1: { HostOperationLeaseConflictError: class HostOperationLeaseConflictError extends Error {} },
-  });
+test("concurrent result parses share actual collection and do not create operation receipts", async () => {
+  require('../_helpers/registerTsRequire');
+  const f = require('../_helpers/freshResultHost').fixture();
+  const context = createContext({ RESULT_PARSE_COMMANDS: new Set(["parseResults", "refreshResults"]), PLAN_SUBMISSION_COMMANDS: new Set() });
   const method = extractMethod(extensionSource, "async runActionCommand(command, message)");
-  vm.runInContext(`const methods = { ${method} };\nthis.runActionCommand = methods.runActionCommand;`, context);
-  const provider = {
-    resultParseInFlight: new Map(),
-    localOperations: {},
-    resultParseIdempotencyKey: () => "parse-key",
-    activeResultParseOperation(keyValue) {
-      return Object.values(this.localOperations).find((row) => row.resultParseKey === keyValue && !operationTerminal(row));
-    },
-    async runActionCommandLeased() {
-      calls += 1;
-      this.localOperations.operation = { operationId: "operation", status: "running", resultParseKey: "parse-key" };
-      await wait(30);
-      return this.localOperations.operation;
-    },
-    async loadProjectLocalOperationsState() {},
-  };
-  let calls = 0;
-  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-  const first = context.runActionCommand.call(provider, "parseResults", {});
-  await new Promise((resolve) => setTimeout(resolve, 5));
-  const second = await context.runActionCommand.call(provider, "parseResults", {});
-  const firstResult = await first;
-
-  assert.equal(calls, 1);
-  assert.equal(firstResult.merged, undefined);
-  assert.equal(second.merged, true);
-  assert.equal(firstResult.operationId, "operation");
-  assert.equal(second.operationId, "operation");
+  vm.runInContext(`const methods = { ${method} }; this.run = methods.runActionCommand;`, context);
+  let release; const pending = new Promise(resolve => release = resolve); f.block(pending);
+  f.host.rebuildProjectResultTablesFromUi = () => f.service.update();
+  f.host.localOperations = {};
+  const first = context.run.call(f.host, "parseResults", {});
+  const second = context.run.call(f.host, "refreshResults", {});
+  release(); const [one,two] = await Promise.all([first,second]);
+  assert.strictEqual(one,two);
+  assert.equal(f.calls.filter(row => row[0] === "tasks").length,2, "one discovery and one declaration query");
+  assert.equal(f.calls.filter(row => row[0] === "sync.downloadMappedPaths").length,1);
+  assert.deepEqual(f.host.localOperations,{});
 });
 
 test("runActionCommand executes the default action branch and returns its result", async () => {

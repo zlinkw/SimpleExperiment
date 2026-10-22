@@ -15,8 +15,9 @@ import contextlib, importlib.util, io, json, pathlib, sys, tempfile, types
 import sys
 sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
 from extractRuntimeFunctions import extract_runtime_functions
-scheduler = extract_runtime_functions(pathlib.Path(${JSON.stringify(runtime)}), ["Job", "render_command", "run_command", "run_job", "surface_original_error", "wrap_command"])
-with tempfile.TemporaryDirectory() as tmp:
+scheduler = extract_runtime_functions(pathlib.Path(${JSON.stringify(runtime)}), ["Job", "render_command", "run_command", "run_job_unlocked", "surface_original_error", "wrap_command"])
+if True:
+    tmp = tempfile.mkdtemp(prefix="scheduler-stderr-input-")
     base = pathlib.Path(tmp)
     (base / "stderr.log").write_text("torch.OutOfMemoryError: CUDA out of memory\\n", encoding="utf-8")
     (base / "stdout.log").write_text("checkpoint: huge parameter dump\\n", encoding="utf-8")
@@ -44,7 +45,7 @@ test("handled child failure exits nonzero without re-raising CalledProcessError"
   assert.doesNotMatch(block, /surface_original_error\(job, "(?:train|test)"\)\s+raise\r?\n/);
 });
 
-test("retraining the same output directory reports only the current failed attempt", () => {
+test("execution error reporting reads only bytes from the current failed execution", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "scheduler-original-error-"));
   const scriptPath = path.join(tempRoot, "failure-report.py");
   const script = `
@@ -52,8 +53,9 @@ import contextlib, importlib.util, io, pathlib, subprocess, sys, tempfile, types
 import sys
 sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
 from extractRuntimeFunctions import extract_runtime_functions
-scheduler = extract_runtime_functions(pathlib.Path(${JSON.stringify(runtime)}), ["Job", "render_command", "run_command", "run_job", "surface_original_error", "wrap_command"])
-with tempfile.TemporaryDirectory() as tmp:
+scheduler = extract_runtime_functions(pathlib.Path(${JSON.stringify(runtime)}), ["Job", "render_command", "run_command", "run_job_unlocked", "surface_original_error", "wrap_command"])
+if True:
+    tmp = tempfile.mkdtemp(prefix="scheduler-stderr-input-")
     base = pathlib.Path(tmp)
     (base / "stderr.log").write_text("OLD CUDA out of memory\\n", encoding="utf-8")
     (base / "stdout.log").write_text("OLD training output\\n", encoding="utf-8")
@@ -69,7 +71,7 @@ with tempfile.TemporaryDirectory() as tmp:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         try:
-            scheduler.run_job(job, args)
+            scheduler.run_job_unlocked(job, args)
         except SystemExit as exc:
             assert exc.code == 1
     text = out.getvalue()
@@ -83,7 +85,7 @@ with tempfile.TemporaryDirectory() as tmp:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         try:
-            scheduler.run_job(job, args)
+            scheduler.run_job_unlocked(job, args)
         except SystemExit as exc:
             assert exc.code == 1
     text = out.getvalue()
@@ -98,6 +100,6 @@ print("ok")
     const result = spawnSync("python", ["-X", "utf8", scriptPath], { encoding: "utf8", cwd: root, timeout: 10000, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
     assert.equal(result.status, 0, result.stderr || result.stdout || result.error?.message);
   } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    console.log("kept failure probe at " + tempRoot);
   }
 });
