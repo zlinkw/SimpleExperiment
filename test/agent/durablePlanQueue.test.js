@@ -164,11 +164,7 @@ test("durable Plan queue preserves legacy acceptance, cancellation, and restart 
   const scriptPath = path.join(os.tmpdir(), `durable-plan-queue-${process.pid}-${Date.now()}.py`);
   fs.writeFileSync(scriptPath, fixture(root), "utf8");
   try {
-    const run = spawnSync(process.env.PYTHON || "python", ["-X", "utf8", scriptPath], {
-      encoding: "utf8",
-      timeout: 10000,
-      windowsHide: true,
-    });
+    const run = spawnSync(process.env.PYTHON || "python", ["-X", "utf8", scriptPath], { encoding: "utf8", timeout: 10000, windowsHide: true });
     assert.equal(run.status, 0, run.stderr || run.error?.message);
     assert.deepEqual(JSON.parse(run.stdout.trim()), { legacyAccept: true, legacyCancel: true, restartFence: true });
   } finally {

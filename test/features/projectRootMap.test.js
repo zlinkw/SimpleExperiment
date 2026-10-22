@@ -184,7 +184,7 @@ test("cleanup fails closed for a node whose state config cannot be canonicalized
 test("canonicalization folds in-bounds traversals and rejects relative, escaping and empty roots", () => {
   assert.deepEqual(canonicalRemotePath("/srv/proj/../other"), { ok: true, path: "/srv/other" });
   assert.deepEqual(canonicalRemotePath("/srv/./a//b/"), { ok: true, path: "/srv/a/b" });
-  assert.deepEqual(canonicalRemotePath("D:\\Lab\\Proj"), { ok: true, path: "d:/Lab/Proj" });
+  assert.deepEqual(canonicalRemotePath("D:\\Lab\\Proj"), { ok: true, path: "d:/lab/proj" });
   assert.deepEqual(canonicalRemotePath("/"), { ok: true, path: "/" });
   assert.deepEqual(canonicalRemotePath("srv/proj"), { ok: false, reason: "relative" });
   assert.deepEqual(canonicalRemotePath("/srv/../../etc"), { ok: false, reason: "escaping" });
@@ -219,4 +219,79 @@ test("identity and mapping survive separator/spelling drift but never merge dist
   assert.deepEqual(machineStateRelativePrefixes(win), [".state"]);
   assert.ok(isMachineStateAbsolute(win, "D:/lab/.state/projects/ns/gpu_frame.json"));
   assert.ok(!isMachineStateAbsolute(win, "/srv/lab/.state/x.json"));
+});
+
+test("all machine roots and ancestors are protected, including code nested inside state", () => {
+  const map = resolveProjectRootMap({ projectDir: "/srv/project", installDir: "/opt/runtime",
+    stateDir: "/srv/project/agent", machineStateDirs: ["/srv/project/run/collector", "/other/state"] });
+  assert.deepEqual(machineStateGuard(map), { prefixes: ["agent", "run/collector"], unknown: false });
+  assert.ok(isMachineStateAbsolute(map, "/srv/project/run/collector/gpu_frame.json"));
+  assert.ok(isUnderMachineStatePrefixes("run", machineStateRelativePrefixes(map), true));
+  assert.ok(isUnderMachineStatePrefixes("RUN/Collector/frame.json", machineStateRelativePrefixes(map), true));
+  assert.ok(!isUnderMachineStatePrefixes("work_dirs/run", machineStateRelativePrefixes(map), true));
+  assert.deepEqual(machineStateRelativePrefixes(resolveProjectRootMap({ projectDir: "/srv/state/project", stateDir: "/srv/state" })), [""]);
+  assert.deepEqual(machineStateRelativePrefixes(resolveProjectRootMap({ projectDir: "D:/Lab", stateDir: "d:/" })), [""]);
+  assert.ok(isMachineStateAbsolute(resolveProjectRootMap({ projectDir: "D:/lab", stateDir: "d:/" }), "D:/LAB/a"));
+  assert.equal(resolveProjectRootMap({ projectDir: "/srv/project", machineStateDirs: ["relative"] }).mapping, "unknown");
+  assert.equal(canonicalRemotePath("/srv/\u0000bad").ok, false);
+  assert.equal(canonicalRemotePath("\\\\server\\share").ok, false);
+});
+
+test("host maps configured roots and the bound worker probe using the actual code root", () => {
+  const ts = require("typescript"), vm = require("node:vm");
+  const source = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
+  const ast = ts.createSourceFile("legacy.ts", source, ts.ScriptTarget.Latest, true);
+  let member;
+  function visit(node) { if (ts.isMethodDeclaration(node) && node.name.getText(ast) === "targetRootGuard") member = node; ts.forEachChild(node, visit); }
+  visit(ast);
+  const method = vm.runInNewContext(ts.transpileModule("class Host{" + member.getText(ast) + "};Host.prototype.targetRootGuard",
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText,
+    { resolveProjectRootMap, machineStateGuard, remotePathKey: value => canonicalRemotePath(String(value || "")).path });
+  const host = { setupConfig: { workerTunnels: [{ id: "w", agentProjectDir: "/srv", agentInstallDir: "/opt/runtime",
+    agentStateDir: "/srv/project/control", workerStateDir: "/srv/project/run/collector", remoteAgentPort: 23457, localForwardPort: 23456 }] },
+    agentRuntimeDirs: () => ({ workDir: "/srv/project", installDir: "/opt/runtime" }), lastWorkerProbes: {} };
+  const target = { id: "w", remotePath: "/srv/project", localForwardPort: 23456, remoteAgentPort: 23457 };
+  assert.deepEqual(JSON.parse(JSON.stringify(method.call(host, target))), { prefixes: ["control", "run/collector"], unknown: false });
+  host.lastWorkerProbes.w = { status: "ok", workerId: "w", projectRoot: "/srv/project", localForwardHost: "127.0.0.1",
+    remoteAgentHost: "127.0.0.1", remoteTelemetryPort: 23457, localForwardPort: 23456,
+    agentStateDir: "/srv/project/actual-agent", workerStateDir: "/srv/project/actual-collector", gpuCollectorProtocol: 1 };
+  assert.deepEqual(JSON.parse(JSON.stringify(method.call(host, target))), { prefixes: ["actual-agent", "actual-collector", "control", "run/collector"], unknown: false });
+  host.lastWorkerProbes.w.localForwardHost = "another-host";
+  assert.deepEqual(JSON.parse(JSON.stringify(method.call(host, target))), { prefixes: ["control", "run/collector"], unknown: false });
+  host.lastWorkerProbes.w.localForwardHost = "127.0.0.1";
+  host.lastWorkerProbes.w.remoteTelemetryPort = 23458;
+  assert.deepEqual(JSON.parse(JSON.stringify(method.call(host, target))), { prefixes: ["control", "run/collector"], unknown: false });
+  host.lastWorkerProbes.w.remoteTelemetryPort = 23457;
+  host.lastWorkerProbes.w.workerId = "foreign";
+  assert.deepEqual(JSON.parse(JSON.stringify(method.call(host, target))), { prefixes: ["control", "run/collector"], unknown: false });
+  delete host.setupConfig.workerTunnels[0].workerStateDir;
+  assert.equal(method.call(host, target).unknown, true);
+});
+
+
+test("shared transfer boundary protects both endpoints, mapped downloads and unknown scopes", () => {
+  const ts = require("typescript"), vm = require("node:vm");
+  const source = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
+  const ast = ts.createSourceFile("legacy.ts", source, ts.ScriptTarget.Latest, true);
+  let member;
+  function visit(node) { if (ts.isMethodDeclaration(node) && node.name.getText(ast) === "assertTransferRootSafety") member = node; ts.forEachChild(node, visit); }
+  visit(ast);
+  const method = vm.runInNewContext(ts.transpileModule("class Host{" + member.getText(ast) + "};Host.prototype.assertTransferRootSafety",
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
+      isUnderMachineStatePrefixes, fileOperationIndexPaths: require("../../dist/features/ProjectFileIndex.js").fileOperationIndexPaths,
+      workspaceRoot: () => "/local/project"
+    });
+  const host = { targetRootGuard: node => node && ({prefixes: node.id === "a" ? ["work_dirs/state"] : [], unknown: false}),
+    localMachineStateGuard: () => ({prefixes: ["control"], unknown: false}) };
+  const request = {source:{id:"a"}, destination:{id:"b"}, relativePaths:["work_dirs/state/frame.json"]};
+  assert.throws(() => method.call(host, "sync.serverToServerFpsync", request), /MACHINE_STATE/);
+  request.relativePaths = ["work_dirs"];
+  assert.throws(() => method.call(host, "sync.serverToServerFpsync", request), /MACHINE_STATE/);
+  request.relativePaths = ["tmp/result/metrics.csv", "work_dir/job/model.pt"];
+  assert.doesNotThrow(() => method.call(host, "sync.serverToServerFpsync", request));
+  request.destination = null;
+  assert.throws(() => method.call(host, "sync.serverToServerFpsync", request), /MACHINE_STATE/);
+  assert.throws(() => method.call(host, "sync.downloadMappedPaths", {server:{id:"b"}, entries:[{remotePath:"tmp/result/metrics.csv",localRelativePath:"control/result.csv"}]}), /MACHINE_STATE/);
+  assert.throws(() => method.call(host, "upload.workspace", {server:{id:"a"}}), /MACHINE_STATE/);
+  assert.doesNotThrow(() => method.call(host, "sync.projectInventory", {}));
 });

@@ -353,11 +353,7 @@ test("server Agent durably accepts, drains, cancels, and fences Plan jobs", () =
   const scriptPath = path.join(os.tmpdir(), `server-plan-queue-${process.pid}-${Date.now()}.py`);
   fs.writeFileSync(scriptPath, makeFixtureScript(root), "utf8");
   try {
-    const run = spawnSync("python", [scriptPath], {
-      encoding: "utf8",
-      timeout: 10000,
-      windowsHide: true,
-    });
+    const run = spawnSync("python", [scriptPath], { encoding: "utf8", timeout: 10000, windowsHide: true });
     assert.equal(run.status, 0, run.stderr || run.error?.message);
     const result = JSON.parse(run.stdout.trim());
     assert.equal(result.accepted, true);

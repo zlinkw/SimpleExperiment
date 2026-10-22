@@ -5,9 +5,7 @@ const { spawnSync } = require("node:child_process");
 
 test("cold and stale Agent health stays responsive and shares one dependency check", () => {
   const run = spawnSync("python", ["-X", "utf8", path.join(__dirname, "agentHealthLatency.fixture.py"),
-    path.join(__dirname, "../../dist/runtime/cluster_agent.py")], {
-    encoding: "utf8", timeout: 10000, windowsHide: true,
-  });
+    path.join(__dirname, "../../dist/runtime/cluster_agent.py")], { encoding: "utf8", timeout: 10000, windowsHide: true });
   assert.equal(run.status, 0, run.stderr);
   const measured = JSON.parse(run.stdout.trim());
   assert.ok(measured.coldMs < 150, JSON.stringify(measured));

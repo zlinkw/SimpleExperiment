@@ -13,7 +13,7 @@ const agentPath = path.join(root, "dist", "runtime", "cluster_agent.py");
 
 test("agent upload respects overwrite policies and protects existing project files", async (t) => {
   const python = process.env.PYTHON || "python";
-  const probe = spawnSync(python, ["--version"], { encoding: "utf8" });
+  const probe = spawnSync(python, ["--version"], { encoding: "utf8", timeout: 10000, windowsHide: true });
   if (probe.error || probe.status !== 0) {
     t.skip("python unavailable");
     return;

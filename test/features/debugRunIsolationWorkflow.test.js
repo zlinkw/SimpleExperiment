@@ -87,7 +87,7 @@ test("Debug worker execution is rejected before any output is written", () => {
     "",
   ].join("\n"), "utf8");
 
-  const result = spawnSync("python", [schedulerRuntime, "--run-job", "--plan", plan, "--only-index", "0", "--debug-mode", "--debug-run-id", "debug-1"], { cwd: project, encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+  const result = spawnSync("python", [schedulerRuntime, "--run-job", "--plan", plan, "--only-index", "0", "--debug-mode", "--debug-run-id", "debug-1"], { cwd: project, encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" }, timeout: 10000, windowsHide: true });
   assert.notEqual(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stderr || result.stdout, /Debug 运行模式已移除/);
   const debugRoot = path.join(project, "simple_cluster", "debug_runs");
@@ -104,9 +104,9 @@ test("Debug requests cannot enter formal result, archive, delete, or PPT actions
   fs.writeFileSync(path.join(project, "work_dirs", "keep", "result.csv"), "metric,value\nAUC,0.9\n", "utf8");
   const script = [
     "import importlib.util, json",
-    `spec = importlib.util.spec_from_file_location('agent', r'${agentRuntime.replace(/\\/g, "/")}')`,
-    "agent = importlib.util.module_from_spec(spec)",
-    "spec.loader.exec_module(agent)",
+    `spec = (lambda _name, _file: __import__("runpy").run_path(${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers/extractRuntimeFunctions.py"))})["extract_runtime_functions"](_file, ["discover_result_files", "handle_action"]))('agent', r'${agentRuntime.replace(/\\/g, "/")}')`,
+    "agent = spec",
+    "pass",
     `root = r'${project.replace(/\\/g, "/")}'`,
     "actions = ['archive-artifacts', 'delete-artifacts', 'parse-results', 'run-statistics', 'export-plotting-contract']",
     "out = {}",
@@ -115,7 +115,7 @@ test("Debug requests cannot enter formal result, archive, delete, or PPT actions
     "    out[action] = agent.handle_action(root, action, payload, 'op-' + action, 'op-' + action)",
     "print(json.dumps(out, ensure_ascii=False))",
   ].join("\n");
-  const result = spawnSync("python", ["-c", script], { encoding: "utf8" });
+  const result = spawnSync("python", ["-B", (() => { const f = require("node:fs"), p = require("node:path"); const d = f.mkdtempSync(p.join(require("node:os").tmpdir(), "se-python-fixture-")); const file = p.join(d, "probe.py"); f.writeFileSync(file, script, "utf8"); console.log("kept Python fixture at " + d); return file; })()], { encoding: "utf8", timeout: 10000, windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
   for (const action of Object.keys(payload)) {
@@ -157,12 +157,12 @@ test("Formal result discovery excludes debug_runs files", () => {
   fs.writeFileSync(path.join(project, "simple_cluster", "debug_runs", "plan", "run", "artifacts", "results.csv"), "metric,value\nAUC,0.1\n", "utf8");
   const script = [
     "import importlib.util, json",
-    `spec = importlib.util.spec_from_file_location('agent', r'${agentRuntime.replace(/\\/g, "/")}')`,
-    "agent = importlib.util.module_from_spec(spec)",
-    "spec.loader.exec_module(agent)",
+    `spec = (lambda _name, _file: __import__("runpy").run_path(${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers/extractRuntimeFunctions.py"))})["extract_runtime_functions"](_file, ["discover_result_files", "handle_action"]))('agent', r'${agentRuntime.replace(/\\/g, "/")}')`,
+    "agent = spec",
+    "pass",
     `print(json.dumps(agent.discover_result_files(r'${project.replace(/\\/g, "/")}')))`
   ].join("\n");
-  const result = spawnSync("python", ["-c", script], { encoding: "utf8" });
+  const result = spawnSync("python", ["-B", (() => { const f = require("node:fs"), p = require("node:path"); const d = f.mkdtempSync(p.join(require("node:os").tmpdir(), "se-python-fixture-")); const file = p.join(d, "probe.py"); f.writeFileSync(file, script, "utf8"); console.log("kept Python fixture at " + d); return file; })()], { encoding: "utf8", timeout: 10000, windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const files = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
   assert.equal(files.includes("results/formal.csv"), true);

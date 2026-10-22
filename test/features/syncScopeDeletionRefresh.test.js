@@ -289,10 +289,10 @@ test('only the sync-scope view reuses its freshly requested Agent generation for
 });
 
 test('real single/batch deletion call chain never enters the legacy transfer-receipt API',async()=>{
- const remote=method('deleteSyncScopeRemoteCopy',{deleteConfirmedScopeCopy:async(rpc,node,relative,directory)=>{
+ const remote=method('deleteSyncScopeRemoteCopy',{isUnderMachineStatePrefixes:require('../../dist/features/ProjectRootMap').isUnderMachineStatePrefixes,deleteConfirmedScopeCopy:async(rpc,node,relative,directory)=>{
    assert.equal(node.host,'worker.example');assert.equal(node.root,'/project');assert.equal(relative,'work_dirs/job');assert.equal(directory,true);
  }}),calls=[];
- const host={localMachineStateGuard:()=>({prefixes:[],unknown:false}),targetRootGuard:()=>null,simpleSftpCapability:async()=>({methodOptions:{'files.cleanup.preview':{confirmedPathMetadata:1,confirmedPathNestedRepositories:1}}}),sftpServerOptions:row=>({host:'worker.example',remotePath:'/project',user:'user',port:22}),
+ const host={localMachineStateGuard:()=>({prefixes:[],unknown:false}),targetRootGuard:()=>({prefixes:[],unknown:false}),simpleSftpCapability:async()=>({methodOptions:{'files.cleanup.preview':{confirmedPathMetadata:1,confirmedPathNestedRepositories:1}}}),sftpServerOptions:row=>({host:'worker.example',remotePath:'/project',user:'user',port:22}),
    deleteSyncScopeRemoteCopy:async(...args)=>{calls.push(args);await remote.call(host,...args);},
    simpleSftpApiCall:async(name)=>{assert.equal(name,'sync.projectTree');return {ok:true,entries:[{path:'work_dirs/job',directory:true}]};}};
  const remove=method('removeSyncScopeCopies',{safeSyncPath:()=>{},scopeInventoryPathAllowed:()=>true,path,errorMessage:e=>e.message});

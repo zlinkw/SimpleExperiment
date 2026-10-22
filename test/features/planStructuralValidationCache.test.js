@@ -20,9 +20,7 @@ function method(name) {
 
 test("verified Agent content cache refreshes outputs, invalidates changed inputs, and stays bounded", () => {
   const agent = require("../../dist/clusterAgentRuntime.legacy.js").CLUSTER_AGENT_RUNTIME;
-  const result = spawnSync("python", ["-X", "utf8", path.join(root, "test/fixtures/plan_preflight_cache_probe.py")], {
-    input: JSON.stringify({ agent }), encoding: "utf8", timeout: 10000, windowsHide: true,
-  });
+  const result = spawnSync("python", ["-X", "utf8", path.join(root, "test/fixtures/plan_preflight_cache_probe.py")], { input: JSON.stringify({ agent }), encoding: "utf8", timeout: 10000, windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.deepEqual(JSON.parse(result.stdout), { ok: true, cacheEntries: 32, warmSchedulerCalls: 0 });
 });

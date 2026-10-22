@@ -10,14 +10,7 @@ const fixturePath = path.join(__dirname, "stop_scheduler_identity_fixture.py");
 const source = fs.readFileSync(agentPath, "utf8");
 
 test("stop target requires an exact recorded operation and Plan identity", () => {
-  const result = spawnSync("python", ["-X", "utf8", fixturePath], {
-    input: source,
-    encoding: "utf8",
-    timeout: 10000,
-    windowsHide: true,
-    cwd: root,
-    env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-  });
+  const result = spawnSync("python", ["-X", "utf8", fixturePath], { input: source, encoding: "utf8", timeout: 10000, windowsHide: true, cwd: root, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
   assert.equal(result.status, 0, result.stderr || result.stdout || result.error?.message);
   assert.match(result.stdout, /stop identity ok/);
 });

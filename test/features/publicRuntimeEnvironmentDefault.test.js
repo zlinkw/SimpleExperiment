@@ -43,10 +43,10 @@ test("generated runtimes use system Python for blank environment and fail closed
   const script = `
 import importlib.util, json, os, sys
 def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
+    import sys
+    sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+    from extractRuntimeFunctions import extract_runtime_functions
+    module = extract_runtime_functions(path, ["runtime_python_command", "simple_conda_activation_script", "simple_conda_env_name", "simple_runtime_env", "simple_runtime_python", "simple_tmux_name"])
     return module
 agent = load("simple_experiment_agent", ${JSON.stringify(agentPath)})
 os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = "zlk"
@@ -72,7 +72,7 @@ print(json.dumps({
     "scheduler_explicit_activation": scheduler.simple_conda_activation_script({"SIMPLE_EXPERIMENT_CONDA_ENV": "/path/to/conda_envs/torch2", "SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV": "1"}),
 }))
 `;
-  const result = spawnSync("python", ["-c", script], { encoding: "utf8" });
+  const result = spawnSync("python", ["-B", (() => { const f = require("node:fs"), p = require("node:path"); const d = f.mkdtempSync(p.join(require("node:os").tmpdir(), "se-python-fixture-")); const file = p.join(d, "probe.py"); f.writeFileSync(file, script, "utf8"); console.log("kept Python fixture at " + d); return file; })()], { encoding: "utf8", timeout: 10000, windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const value = JSON.parse(result.stdout.trim());
   assert.equal(value.blank.SIMPLE_EXPERIMENT_CONDA_ENV, "");

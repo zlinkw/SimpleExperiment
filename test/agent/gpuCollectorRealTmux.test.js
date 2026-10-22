@@ -12,7 +12,7 @@ const { spawnSync } = require("node:child_process");
 // windowsHide, status asserted), the private per-run tmux server on its own
 // socket makes every other session unreachable, the dead-pane is produced by
 // the collector's own natural process exit (no PID signals, no kill-session of
-// anything), and teardown kills ONLY this run's private server. Fixtures are
+// anything), and teardown verifies and closes only recorded window IDs. Fixtures are
 // KEPT on disk and their path printed.
 const FIXTURE = path.join(__dirname, "gpuCollectorRealTmux.fixture.py");
 const DIST = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
@@ -70,10 +70,10 @@ test("real tmux: a naturally-exited collector pane (own binding) respawns a NEW 
   assert.ok(Number(report.detail.newSeq) >= 1, report.detail);
 });
 
-test("real tmux: only this run's private server is torn down; fixtures kept", () => {
+test("real tmux: teardown verifies and closes only two recorded windows; fixtures kept", () => {
   const report = runPhase("phase-t");
   assert.equal(report.ok, true);
-  assert.equal(report.detail.killed, true);
+  assert.equal(report.detail.closedWindows.length, 2);
   assert.equal(report.detail.serverGone, true, report.detail);
   console.log("kept fixtures at " + ROOT + " (private socket " + SOCKET + ")");
 });

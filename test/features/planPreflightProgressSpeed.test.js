@@ -33,7 +33,7 @@ const manifestEnd = distSource.indexOf("function isLocalCodeOwnedPath(", manifes
 const manifestFactory = new Function("fs", "fsNode", "path", "crypto", "LocalCodeManifestCache_1", "PlanCodeScopeHost", distSource.slice(manifestStart, manifestEnd) + "\nreturn { buildLocalCodeManifest };");
 const manifestApi = manifestFactory(require("node:fs").promises, require("node:fs"), path, crypto, require("../../dist/features/LocalCodeManifestCache.js"), require("../../dist/extension/PlanCodeScopeHost.js"));
 
-const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest", "vscode_1", "LocalCodeManifestCache_1", "SafeRequestRetry_1", "DistributedPlanQueue", "workspaceRoot", "PlanCodeScopeHost", `
+const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest", "vscode_1", "LocalCodeManifestCache_1", "SafeRequestRetry_1", "DistributedPlanQueue", "workspaceRoot", "PlanCodeScopeHost", "ProjectRootMap_1", `
   function stringField(message, key) { return String((message && message[key]) || ""); }
   function operationResultPlanFile(body) { return String((body && (body.planFile || body.selectedPlanId || (body.options && body.options.planFile))) || ""); }
   function errorMessage(error) { return error && error.message ? error.message : String(error || ""); }
@@ -65,7 +65,7 @@ const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpri
   ${compiled("trimPlanSubmissionEpochs")}
   return { syncCodeTargets, safeWorkerCodeSyncTargets, syncManualWorkerCode, uploadProjectToWorkers, distributeCodeToWorkers, publishToGitHub, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs };
 `);
-function apiFactory(...args) { while(args.length<9)args.push(undefined);return createApi(...args,require("../../dist/extension/PlanCodeScopeHost.js")); }
+function apiFactory(...args) { while(args.length<9)args.push(undefined);return createApi(...args,require("../../dist/extension/PlanCodeScopeHost.js"),require("../../dist/features/ProjectRootMap.js")); }
 
 function sha(char) { return char.repeat(64); }
 
@@ -93,6 +93,8 @@ function syncHost(remote) {
     confirmations: [],
     profiles: [],
     builds: 0,
+    localMachineStateGuard: () => ({ prefixes: [], unknown: false }),
+    targetRootGuard: () => ({ prefixes: [], unknown: false }),
   };
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "plan-sync-root-"));
   fs.mkdirSync(path.join(project, "src"), { recursive: true });
@@ -661,4 +663,29 @@ test("rendered plan phase stays locked after 45 seconds and after the backend li
   sandbox.pendingActionsById.click.status = "completed";
   sandbox.ticks.at(-1)();
   assert.equal(sandbox.pendingActionTimeouts.click, undefined);
+});
+
+test("code upload independently protects local and destination machine roots before transfer", async () => {
+  const host = syncHost({ files: {} });
+  host.targetRootGuard = () => ({ prefixes: ["src"], unknown: false });
+  await assert.rejects(host.syncCodeTargets([host.target], "plan-check", { hashCompare: true }), /机器状态/);
+  assert.equal(host.uploads.length, 0);
+  host.targetRootGuard = () => ({ prefixes: [], unknown: true });
+  await assert.rejects(host.syncCodeTargets([host.target], "plan-check", { hashCompare: true }), /机器状态/);
+  assert.equal(host.uploads.length, 0);
+  host.targetRootGuard = () => ({ prefixes: [], unknown: false });
+  host.localMachineStateGuard = () => ({ prefixes: [], unknown: true });
+  await assert.rejects(host.syncCodeTargets([host.target], "plan-check", { hashCompare: true }), /机器状态/);
+  assert.equal(host.uploads.length, 0);
+});
+
+test("local custom state is excluded before hashing while explicit work_dir configuration remains", async () => {
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "code-state-boundary-"));
+  for (const file of ["control/collector/frame.json", "work_dir/config.yaml", "train.py"]) {
+    fs.mkdirSync(path.dirname(path.join(tree, file)), { recursive: true });
+    fs.writeFileSync(path.join(tree, file), file);
+  }
+  const manifest = await manifestApi.buildLocalCodeManifest(tree, [], ["control", "work_dir", "train.py"],
+    { machineStateGuard: { prefixes: ["CONTROL/collector"], unknown: false } });
+  assert.deepEqual(Object.keys(manifest).sort(), ["train.py", "work_dir/config.yaml"]);
 });

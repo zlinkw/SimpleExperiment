@@ -26,8 +26,10 @@ function runPython(script) {
 test("Worker task snapshot preserves output and config paths", () => {
   const script = `
 import importlib.util, pathlib, tempfile, os
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 with tempfile.TemporaryDirectory() as root:
     agent.AGENT_STATE_DIR = os.path.join(root, "state")
     scheduler = os.path.join(root, "cluster_scheduler.py")
@@ -65,8 +67,8 @@ print("worker config paths persisted")
 test("legacy Worker task recovers config from its own persisted launch log", () => {
   const script = [
     'import importlib.util, pathlib, tempfile, os, json',
-    'spec = importlib.util.spec_from_file_location("agent", pathlib.Path(' + JSON.stringify(agentPath) + '))',
-    'agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)',
+    ("spec = (lambda _name, _file: __import__(\"runpy\").run_path(" + JSON.stringify(require("node:path").resolve(__dirname, "../_helpers/extractRuntimeFunctions.py")) + ")[\"extract_runtime_functions\"](_file, [\"AGENT_STATE_DIR\",\"AGENT_VERSION\",\"TENSORBOARD_PROXY_PORTS\",\"ThreadingHTTPServer\",\"_is_pid_alive\",\"_read_run_plan_registry\",\"_reap_zombie_scheduler_sessions\",\"_run_plan_registry_path\",\"_safe_kill_pane\",\"_tmux_pane_python_running\",\"_tmux_prefix\",\"api_health\",\"api_worker_tasks\",\"append_event\",\"atomic_write\",\"execute_worker_command\",\"exit_code_ready\",\"fence_stale_run_plans\",\"inspect_agent\",\"now_iso\",\"os\",\"path_for\",\"read_json\",\"read_operation_events\",\"read_task_exit_code\",\"reconcile_worker_task_exit_codes\",\"reconcile_worker_tasks_after_restart\",\"recover_worker_task_launch_paths\",\"register_active_run_plan\",\"require_scheduler_dependencies\",\"scheduler_process_evidence\",\"serve_http\",\"session\",\"sha256_file\",\"simple_runtime_python\",\"simple_tmux_name\",\"start_gpu_log_tail_sampler\",\"start_job_in_gpu_pane\",\"start_worker_hub_uplink\",\"start_worker_local_command_processor\",\"start_worker_telemetry_sampler\",\"stop_scheduler_operation\",\"subprocess\",\"tb_discover_launch\",\"tb_find_events_dir\",\"tb_tmux_session_name\",\"tensorboard_action\",\"terminal_action\",\"threading\",\"tmux_available\",\"tmux_session_alive\",\"worker_task_log_updated_at\",\"worker_tmux_session_name\"]))(\"agent\", pathlib.Path(") + JSON.stringify(agentPath) + '))',
+    "agent = spec; pass",
     'with tempfile.TemporaryDirectory() as root:',
     '    agent.AGENT_STATE_DIR = os.path.join(root, "state")',
     '    plan = pathlib.Path(root, "experiments/plans/old.yaml")',
@@ -115,9 +117,10 @@ test("tb_tmux_session_name normalizes prefix to <normalized>_tb", () => {
   // TS side normalizeRemoteTmuxSessionPrefix lowercases, replaces [^a-z0-9._-] with "-", trims, slices 32
   const py = `
 import importlib.util, pathlib
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 cases = [
   ("Simple", "simple_tb"),
   ("ZLK_Test", "zlk_test_tb"),
@@ -139,9 +142,10 @@ print("ok")
 test("tb_discover_launch: explicit script hit / relative discovery / logdir fallback / events dir / root fallback", () => {
   const script = `
 import importlib.util, pathlib, os, tempfile, json, sys
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 
 def assert_discover(root, logdir_hint, port, explicit, expected_source_contains, expected_logdir_checker):
     args, source, logdir = agent.tb_discover_launch(root, logdir_hint, port, explicit)
@@ -266,9 +270,10 @@ test("tensorboard actions are worker controls with no result ownership requireme
 test("stop-tensorboard only kills the configured TensorBoard session", () => {
   const script = `
 import importlib.util, pathlib, tempfile, types
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 calls = []
 agent.tmux_session_alive = lambda session, root, env: session == 'owner_tb'
 agent.subprocess.run = lambda args, **kwargs: (calls.append(args) or types.SimpleNamespace(returncode=0, stderr=''))
@@ -287,9 +292,10 @@ test("worker Agent proxies TensorBoard pages only for an active session and vali
   const script = `
 import importlib.util, pathlib, tempfile, threading, types, urllib.request, urllib.error, json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 class TensorBoard(BaseHTTPRequestHandler):
     def log_message(self, *args): pass
     def do_GET(self):
@@ -392,9 +398,10 @@ test("fence_stale_run_plans: overlapping live scheduler blocks replacement witho
   const script = `
 import importlib.util, pathlib, os, tempfile, json, time, subprocess, sys
 agent_path = pathlib.Path(${JSON.stringify(agentPath)})
-spec = importlib.util.spec_from_file_location("agent", agent_path)
-agent = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(agent_path, ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 
 def registry_path(root):
     return agent._run_plan_registry_path(root)
@@ -541,8 +548,10 @@ test("stop-scheduler-operation deregisters and reaps with remaining registry, no
 test("stop-scheduler-operation leaves every GPU task intact when target scheduler is absent", () => {
   const script = `
 import importlib.util, pathlib, tempfile, os, json
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 with tempfile.TemporaryDirectory() as tmp:
     agent.AGENT_STATE_DIR = os.path.join(tmp, "state")
     root = os.path.join(tmp, "project"); os.makedirs(root)
@@ -567,8 +576,10 @@ print("unmatched stop preserved GPU tasks")
 test("stop-scheduler-operation terminates only tasks from the selected Plan", () => {
   const script = `
 import importlib.util, pathlib, tempfile, os
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 with tempfile.TemporaryDirectory() as tmp:
     agent.AGENT_STATE_DIR = os.path.join(tmp, "state")
     root = os.path.join(tmp, "project"); os.makedirs(root)
@@ -609,8 +620,10 @@ print("scoped stop preserved other Plan")
 test("stop-scheduler-operation handles tmux pane ids and persists every matching task", () => {
   const script = `
 import importlib.util, pathlib, tempfile, os, types
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 with tempfile.TemporaryDirectory() as tmp:
     agent.AGENT_STATE_DIR = os.path.join(tmp, "state")
     root = os.path.join(tmp, "project"); os.makedirs(root)
@@ -653,8 +666,10 @@ print("pane-scoped stop persisted all tasks")
 test("stop-scheduler-operation can finish stale Plan cleanup after its scheduler exited", () => {
   const script = `
 import importlib.util, pathlib, tempfile, os, types
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 with tempfile.TemporaryDirectory() as tmp:
     agent.AGENT_STATE_DIR = os.path.join(tmp, "state")
     root = os.path.join(tmp, "project"); os.makedirs(root)
@@ -684,8 +699,10 @@ print("stale Plan cleanup completed")
 test("Worker restart reconciles finished and missing tmux panes", () => {
   const script = `
 import importlib.util, pathlib, tempfile, os, types
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 with tempfile.TemporaryDirectory() as root:
     agent.AGENT_STATE_DIR = os.path.join(root, "state")
     done_path = pathlib.Path(root) / "simple_cluster" / "tmux_logs" / "done.exit_code"
@@ -714,8 +731,10 @@ print("worker restart reconciliation ok")
 test("worker task API self-heals an exit code produced after Agent restart", () => {
   const script = `
 import importlib.util, pathlib, tempfile, os, types
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 with tempfile.TemporaryDirectory() as root:
     agent.AGENT_STATE_DIR = os.path.join(root, "state")
     exit_path = pathlib.Path(root) / "simple_cluster" / "tmux_logs" / "late-done.exit_code"
@@ -746,8 +765,10 @@ print("post-restart task read repair ok")
 test("worker task log activity uses file mtime without hashing", () => {
   const script = `
 import calendar, importlib.util, os, pathlib, tempfile
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 with tempfile.TemporaryDirectory() as root:
     log_rel = "simple_cluster/tmp/cluster_scheduler/logs/worker.log"
     path = pathlib.Path(root) / log_rel
@@ -770,8 +791,10 @@ print("worker log activity mtime ok")
 test("worker exit-code reconciliation handles failure and preserves manual stop", () => {
   const script = `
 import importlib.util, pathlib, tempfile, os
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 with tempfile.TemporaryDirectory() as root:
     agent.AGENT_STATE_DIR = os.path.join(root, "state")
     log_dir = pathlib.Path(root) / "simple_cluster" / "tmux_logs"
@@ -801,8 +824,10 @@ print("worker exit-code reconciliation ok")
 test("worker telemetry health reports its serving session and fresh GPU snapshot", () => {
   const script = `
 import importlib.util, pathlib, tempfile, os
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 with tempfile.TemporaryDirectory() as tmp:
     agent.AGENT_STATE_DIR = os.path.join(tmp, "state")
     root = os.path.join(tmp, "project"); os.makedirs(root)
@@ -841,9 +866,10 @@ test("worker_tmux_session_name: single-machine degenerates to gpu-<gpu>, multi-m
   assert.match(agentSource, /def worker_tmux_session_name\(worker_id, gpu_id, local_worker_id=None\)/);
   const py = `
 import importlib.util, pathlib, os
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
-agent = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["AGENT_STATE_DIR", "AGENT_VERSION", "TENSORBOARD_PROXY_PORTS", "ThreadingHTTPServer", "_is_pid_alive", "_read_run_plan_registry", "_reap_zombie_scheduler_sessions", "_run_plan_registry_path", "_safe_kill_pane", "_tmux_pane_python_running", "_tmux_prefix", "api_health", "api_worker_tasks", "append_event", "atomic_write", "execute_worker_command", "exit_code_ready", "fence_stale_run_plans", "inspect_agent", "now_iso", "os", "path_for", "read_json", "read_operation_events", "read_task_exit_code", "reconcile_worker_task_exit_codes", "reconcile_worker_tasks_after_restart", "recover_worker_task_launch_paths", "register_active_run_plan", "require_scheduler_dependencies", "scheduler_process_evidence", "serve_http", "session", "sha256_file", "simple_runtime_python", "simple_tmux_name", "start_gpu_log_tail_sampler", "start_job_in_gpu_pane", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "stop_scheduler_operation", "subprocess", "tb_discover_launch", "tb_find_events_dir", "tb_tmux_session_name", "tensorboard_action", "terminal_action", "threading", "tmux_available", "tmux_session_alive", "worker_task_log_updated_at", "worker_tmux_session_name"])
 
 def check(worker_id, gpu_id, local, expected):
     got = agent.worker_tmux_session_name(worker_id, gpu_id, local_worker_id=local)

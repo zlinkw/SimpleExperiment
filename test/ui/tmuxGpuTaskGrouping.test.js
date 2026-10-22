@@ -20,8 +20,10 @@ test("Agent tmux list associates a retained pane with case seed and physical GPU
   const script = String.raw`
 import importlib.util, json, pathlib, tempfile, threading, types, urllib.request
 from http.server import ThreadingHTTPServer
-spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(runtime)}))
-agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(runtime)}), ["ThreadingHTTPServer", "atomic_write", "path_for", "serve_http", "start_gpu_log_tail_sampler", "start_worker_hub_uplink", "start_worker_local_command_processor", "start_worker_telemetry_sampler", "subprocess", "tmux_available"])
 agent.start_worker_telemetry_sampler = lambda *a, **k: None
 agent.start_gpu_log_tail_sampler = lambda *a, **k: None
 agent.start_worker_hub_uplink = lambda *a, **k: None
@@ -52,7 +54,7 @@ task = result["sessions"][0]["windows"][0]["task"]
 assert task["case"] == "bus_p30" and task["seed"] == 43 and task["status"] == "failed", task
 print("ok")
 `;
-  const result = spawnSync("python", ["-X", "utf8", "-c", script], { encoding: "utf8", cwd: path.join(__dirname, "../..") });
+  const result = spawnSync("python", ["-X", "utf8", "-B", (() => { const f = require("node:fs"), p = require("node:path"); const d = f.mkdtempSync(p.join(require("node:os").tmpdir(), "se-python-fixture-")); const file = p.join(d, "probe.py"); f.writeFileSync(file, script, "utf8"); console.log("kept Python fixture at " + d); return file; })()], { encoding: "utf8", cwd: path.join(__dirname, "../.."), timeout: 10000, windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 

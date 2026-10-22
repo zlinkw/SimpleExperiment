@@ -55,13 +55,7 @@ print(json.dumps({
 `, "utf8");
   let result;
   try {
-    result = spawnSync("python", [scriptPath], {
-      cwd: root,
-      encoding: "utf8",
-      env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-      timeout: 10000,
-      windowsHide: true,
-    });
+    result = spawnSync("python", [scriptPath], { cwd: root, encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" }, timeout: 10000, windowsHide: true });
   } finally {
     fs.rmSync(scriptPath, { force: true });
   }

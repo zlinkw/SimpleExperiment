@@ -6,9 +6,7 @@ const test = require('node:test');
 const { spawnSync } = require('node:child_process');
 
 test('portable formal PLAN + tmp/result isolates concurrent jobs and rejects inconsistent command targets', () => {
-  const proc = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-B', '-X', 'utf8', path.join(__dirname, 'planResultPathContract.fixture.py'), '--generic'], {
-    cwd: path.join(__dirname, '../..'), encoding: 'utf8', timeout: 10000, windowsHide: true,
-  });
+  const proc = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-B', '-X', 'utf8', path.join(__dirname, 'planResultPathContract.fixture.py'), '--generic'], { cwd: path.join(__dirname, '../..'), encoding: 'utf8', timeout: 10000, windowsHide: true });
   assert.equal(proc.status, 0, proc.stderr || proc.stdout);
   assert.equal(JSON.parse(proc.stdout.trim()).ok, true);
 });
@@ -16,9 +14,7 @@ test('portable formal PLAN + tmp/result isolates concurrent jobs and rejects inc
 test('actual MultiModal path guard, config snapshot and result collector agree; no training or writes', t => {
   const project = process.env.MULTIMODAL_PATH_CONTRACT_ROOT || 'D:/GitRepo/MultiModal';
   if (!fs.existsSync(path.join(project, 'experiments/quality_composition.py'))) { t.skip('set MULTIMODAL_PATH_CONTRACT_ROOT to the actual research checkout'); return; }
-  const proc = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-B', '-X', 'utf8', path.join(__dirname, 'planResultPathContract.fixture.py'), project], {
-    cwd: path.join(__dirname, '../..'), encoding: 'utf8', timeout: 10000, windowsHide: true,
-  });
+  const proc = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-B', '-X', 'utf8', path.join(__dirname, 'planResultPathContract.fixture.py'), project], { cwd: path.join(__dirname, '../..'), encoding: 'utf8', timeout: 10000, windowsHide: true });
   assert.equal(proc.status, 0, proc.stderr || proc.stdout);
   const result = JSON.parse(proc.stdout.trim());
   assert.equal(result.path_error, '', JSON.stringify(result));

@@ -5,11 +5,13 @@ const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
 const { readSource } = require("../_helpers/sourceReader");
+const toRuntimePath = value => process.platform === "win32"
+  ? value.replace(/\\/g, "/").replace(/^([A-Za-z]):/, (_, drive) => "/mnt/" + drive.toLowerCase()) : value;
 
 test("agent telemetry APIs cache snapshots while task reads check persisted exit codes", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
   const script = String.raw`
-import importlib.util, json, os, tempfile, time, types
+import json, os, sys, tempfile, time, types
 
 # The shared collector frame replaced the gpu_snapshot.json read path, so the
 # state root is pointed at a real per-run directory BEFORE the module loads and
@@ -18,9 +20,11 @@ import importlib.util, json, os, tempfile, time, types
 # red instead of silently counting.
 state_root = tempfile.mkdtemp(prefix="rt-cache-state-")
 os.environ["SIMPLE_EXPERIMENT_WORKER_STATE_DIR"] = state_root
-spec = importlib.util.spec_from_file_location("cluster_agent", ${JSON.stringify(agentPath)})
-agent = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(agent)
+sys.path.insert(0, ${JSON.stringify(toRuntimePath(path.join(__dirname, "../_helpers")))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(${JSON.stringify(toRuntimePath(agentPath))}, [
+    "api_worker_gpu", "api_worker_tasks", "TASK_LIFECYCLE_PROTOCOL", "task_execution_inventory", "read_availability_cache",
+    "gpu_collector_binding", "gpu_collector_frame_path", "gpu_collector_register_path", "atomic_write"])
 
 root = "/project"
 agent.AGENT_STATE_DIR = "/state"
@@ -98,14 +102,15 @@ print(json.dumps({
 }))
 `;
 
-  const scriptPath = path.join(os.tmpdir(), `agent-runtime-json-cache-${process.pid}.py`);
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-runtime-json-cache-"));
+  const scriptPath = path.join(fixtureRoot, "probe.py");
   fs.writeFileSync(scriptPath, script, "utf8");
-  let run;
-  try {
-    run = spawnSync("python", [scriptPath], { encoding: "utf8", timeout: 10000, windowsHide: true });
-  } finally {
-    fs.rmSync(scriptPath, { force: true });
-  }
+  const args = process.platform === "win32"
+    ? ["--distribution", process.env.SIMPLE_TEST_WSL_DISTRO || "Ubuntu-Codex", "--exec", "/usr/bin/python3", "-B", toRuntimePath(scriptPath)]
+    : ["-B", scriptPath];
+  const run = spawnSync(process.platform === "win32" ? "wsl.exe" : "python", args,
+    { encoding: "utf8", timeout: 10000, windowsHide: true });
+  console.log("kept runtime JSON cache fixture at " + fixtureRoot);
   assert.equal(run.status, 0, run.stderr);
   const result = JSON.parse(run.stdout.trim());
   // GPU telemetry answers from the shared collector frame + its 1s sample cache:

@@ -33,7 +33,7 @@ agent.__file__ = COLLECTOR_AGENT
 # Private tmux server (existing convention): every tmux call — including the
 # ones inside the extracted production functions and inside the pane's collector
 # child — resolves through this wrapper, so the run can neither see nor damage
-# any pre-existing session; teardown kills only this private server. The socket
+# any pre-existing session; teardown closes only verified recorded windows. The socket
 # name is shared across this run's phases by the driver (embedded in its own
 # unique temp-dir name), never a foreign or default server.
 WRAPPER_DIR = ROOT / "bin"
@@ -151,7 +151,8 @@ def main():
         windows = tmux("list-windows", "-t", "=" + name, "-F", "#{window_id}").stdout.split()
         assert len(windows) == 1, windows
         assert second["paneId"], second
-        save_state({"session": name, "epoch": reg["registration"]["epoch"], "seq": int(frame["frame"]["seq"])})
+        save_state({"session": name, "epoch": reg["registration"]["epoch"], "seq": int(frame["frame"]["seq"]),
+                    "windows": [{"worker": worker, "windowId": second["windowId"], "paneId": second["paneId"]}]})
         finish({"ensure": report["status"], "session": name, "epoch": reg["registration"]["epoch"],
                 "windows": len(windows)})
     elif MODE == "phase-b":
@@ -175,6 +176,9 @@ def main():
         agent.gpu_collector_command = lambda worker_id, root="": fixture_collector_command(worker_id, limit="1")
         first = agent.gpu_collector_ensure(worker, root)
         assert first["status"] == "started", first
+        state = load_state()
+        state["windows"].append({"worker": worker, "windowId": first["windowId"], "paneId": first["paneId"]})
+        save_state(state)
         reg1, _frame1 = wait_registered_frame(worker, root, 8.0, seq_gt=0)
         session = agent.gpu_collector_session(worker, root)
         # Read-only pane lookup on THIS exact window: a second ensure could race
@@ -213,13 +217,24 @@ def main():
         finish({"oldEpoch": reg1["registration"]["epoch"], "newEpoch": reg2["registration"]["epoch"],
                 "newSeq": int(frame2["frame"]["seq"]), "respawn": report["status"]})
     elif MODE == "phase-t":
-        # Teardown kills ONLY this run's private server (formalIdentityTmux
-        # precedent): the socket name is this run's, never a shared one.
-        result = tmux("kill-server", timeout=5)
-        assert result.returncode == 0, result.stderr
+        # Verify and close only the exact windows recorded by new-session.
+        # A private socket does not authorize killing a session or server.
+        closed = []
+        for expected in load_state()["windows"]:
+            result = tmux("display-message", "-p", "-t", expected["windowId"],
+                          "#{window_id}\t#{pane_id}\t#{@se_gpu_collector}")
+            assert result.returncode == 0, result.stderr
+            window, pane, raw = result.stdout.rstrip("\r\n").split("\t")
+            assert window == expected["windowId"] and pane == expected["paneId"]
+            assert agent._gpu_binding_verdict(json.loads(raw), expected["worker"],
+                       agent.gpu_collector_frame_path(expected["worker"], root)) == "own"
+            result = tmux("kill-window", "-t", window)
+            assert result.returncode == 0, result.stderr
+            closed.append(window)
         listing = subprocess.run(["/usr/bin/tmux", "-L", SOCKET, "list-sessions"],
                                  capture_output=True, text=True, timeout=5)
-        finish({"killed": True, "serverGone": listing.returncode != 0})
+        assert len(closed) == 2 and len(set(closed)) == 2, closed
+        finish({"closedWindows": closed, "serverGone": listing.returncode != 0})
     else:
         raise SystemExit("unknown mode " + MODE)
 

@@ -287,11 +287,7 @@ test("Agent atomically admits explicit idle GPUs and proves queued-only release"
   const scriptPath = path.join(os.tmpdir(), `idle-gpu-admission-${process.pid}-${Date.now()}.py`);
   fs.writeFileSync(scriptPath, fixture(root), "utf8");
   try {
-    const run = spawnSync(process.env.PYTHON || "python", ["-X", "utf8", scriptPath], {
-      encoding: "utf8",
-      timeout: 10000,
-      windowsHide: true,
-    });
+    const run = spawnSync(process.env.PYTHON || "python", ["-X", "utf8", scriptPath], { encoding: "utf8", timeout: 10000, windowsHide: true });
     assert.equal(run.status, 0, run.stderr || run.error?.message);
     assert.deepEqual(JSON.parse(run.stdout.trim()), { admission: true, release: true, fences: true });
   } finally {

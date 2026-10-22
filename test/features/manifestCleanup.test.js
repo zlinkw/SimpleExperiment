@@ -13,7 +13,7 @@ async function fixture({retiredWithoutCsv=false}={}){
   const declarations=retiredWithoutCsv?[{index:5,case:'concatenation_pad_p100',seed:44,output_dir:output,result_csv:output+'/test_results/job_metrics.csv'}]
     :[0,1].map(index=>({index,case:index?'b':'a',seed:42,output_dir:'work/job'+index,result_csv:'tmp/result/job'+index+'.csv'}));
   const sources=new Set(declarations.flatMap(row=>[row.output_dir,row.result_csv])),calls=[],backends=new Map();let mutations=0,queryFail=false,changed=false;
-  const host={taskLifecycleProtocol:2,context:{globalStorageUri:{fsPath:path.join(root,'plugin')}},setupConfig:{workerTunnels:[{id:'worker'}],agentProjectDir:'/old/hub',savedSessionPath:'old.xsh'},
+  const host={localMachineStateGuard:()=>({prefixes:[],unknown:false}),targetRootGuard:()=>({prefixes:[],unknown:false}),taskLifecycleProtocol:2,context:{globalStorageUri:{fsPath:path.join(root,'plugin')}},setupConfig:{workerTunnels:[{id:'worker'}],agentProjectDir:'/old/hub',savedSessionPath:'old.xsh'},
     hubCodeSyncTarget:()=>assert.fail('old Hub fields must not create an operation target'),
     workerCodeSyncTarget:()=>({host:'fixture',port:2222,user:'fixture',remotePath:'/fixture/project'}),
     client:{getWorkerTasks:async(_id,options)=>{assert.equal(options.discovery.planFile,file);return {declaredJobs:declarations}}},
@@ -234,4 +234,19 @@ test('stale conflicting manifest result paths cannot hide an explicitly reviewed
     assert.ok(!p.rows.some(row=>row.relativePath==='tmp/result/old-other-result.csv'||row.relativePath==='../outside.csv'));
     await f.confirm(p);assert.equal(f.mutations,0);
   }
+});
+
+
+test('protocol 2 confirmed cleanup protects custom state and ancestors and rechecks after preview',async()=>{
+ const f=await fixture();
+ f.host.targetRootGuard=()=>({prefixes:['work/job0/state'],unknown:false});
+ let p=await f.preview('delete',true,true);
+ assert.ok(p.rows.some(row=>row.node.id==='worker'&&row.relativePath==='work/job0'&&row.disposition==='protected'));
+ assert.ok(p.rows.some(row=>row.relativePath==='work/job1'&&row.disposition==='delete'));
+ f.host.targetRootGuard=()=>({prefixes:[],unknown:false});
+ p=await f.preview('delete',true,true);
+ await f.confirm(p);
+ f.host.targetRootGuard=()=>({prefixes:['work'],unknown:false});
+ await assert.rejects(f.adapter.execute(p.token),error=>error.apiData?.code==='MACHINE_STATE_PATH_PROTECTED');
+ assert.equal(f.mutations,0);
 });

@@ -47,9 +47,7 @@ test('foreground terminal polling does not add broad tmux reconciliation between
 
 test('real admission, busy queue, Worker and Scheduler retain structural gates without project science', () => {
   const proc = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-B', '-X', 'utf8',
-    path.join(__dirname, 'formalJobPreflightProgress.fixture.py'), 'staged'], {
-    cwd: path.join(__dirname, '../..'), encoding: 'utf8', timeout: 10000, windowsHide: true,
-  });
+    path.join(__dirname, 'formalJobPreflightProgress.fixture.py'), 'staged'], { cwd: path.join(__dirname, '../..'), encoding: 'utf8', timeout: 10000, windowsHide: true });
   assert.equal(proc.status, 0, proc.stderr || proc.stdout || String(proc.error));
   const result = JSON.parse(proc.stdout.trim());
     assert.deepEqual(result.callbacks, []);
@@ -62,9 +60,7 @@ test('real admission, busy queue, Worker and Scheduler retain structural gates w
 
 test('original SHA diagnostic distinguishes metadata from content without renewing an execution proof', () => {
   const proc = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-B', '-X', 'utf8',
-    path.join(__dirname, 'codeProofDiagnostic.fixture.py')], {
-    cwd: path.join(__dirname, '../..'), encoding: 'utf8', timeout: 10000, windowsHide: true,
-  });
+    path.join(__dirname, 'codeProofDiagnostic.fixture.py')], { cwd: path.join(__dirname, '../..'), encoding: 'utf8', timeout: 10000, windowsHide: true });
   assert.equal(proc.status, 0, proc.stderr || proc.stdout || String(proc.error));
   assert.deepEqual(JSON.parse(proc.stdout.trim()), {
     readonly: true, metadataOnlyAcceptedByDiagnostic: true, executionStillRejects: true, contentChangedRejected: true,

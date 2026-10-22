@@ -43,6 +43,11 @@ test("frame reads: generation consistency, ENOTDIR/oversize unreadable, unregist
     .includes(report.detail.permissionSemantics), report.detail);
 });
 
+test("machine writer lock rejects a second collector before publishing or sampling", () => {
+  const report = runCase("writer_lock");
+  assert.equal(report.detail.samplerCalls, 0);
+});
+
 test("gpu_collector_main really loops and publishes its own generation", () => {
   const report = runCase("main_loop");
   assert.equal(report.ok, true);
@@ -69,10 +74,10 @@ test("evidence binds command/root/gpus with no defaults; every tamper fails clos
   }
 });
 
-test("legacy direct needs ENOENT-confirmed absence; unregistered/unknown/stale never resample", () => {
+test("collector-capable runtime never infers legacy from absent files; broken states never resample", () => {
   const report = runCase("capability");
   assert.equal(report.ok, true);
-  assert.equal(report.detail.samplerCalls, 1);
+  assert.equal(report.detail.samplerCalls, 0);
 });
 
 test("ensure verifies exact identity in every branch; respawn is a single-writer transaction", () => {
@@ -82,7 +87,7 @@ test("ensure verifies exact identity in every branch; respawn is a single-writer
 
 test("inventory carries fresh frames lock-free and reports broken shared states honestly", () => {
   const report = runCase("inventory");
-  assert.deepEqual(report.detail.states, ["ready", "stale", "unregistered", "ready"]);
+  assert.deepEqual(report.detail.states, ["ready", "stale", "unregistered", "stalled"]);
 });
 
 test("concurrent consumers only ever see whole frames with per-reader monotonic seq", () => {

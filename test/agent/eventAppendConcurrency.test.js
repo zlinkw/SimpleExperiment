@@ -11,9 +11,10 @@ const { readSource } = require("../_helpers/sourceReader");
 const CONCURRENCY_SCRIPT = (agentPath, root) => String.raw`
 import importlib.util, json, threading, time
 
-spec = importlib.util.spec_from_file_location("cluster_agent", ${JSON.stringify(agentPath)})
-agent = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(${JSON.stringify(agentPath)}, ["append_event", "atomic_write", "json", "maybe_auto_run_completion_pipeline", "path_for", "prune_agent_state", "read_seq"])
 
 root = ${JSON.stringify(root)}
 agent.maybe_auto_run_completion_pipeline = lambda *args, **kwargs: None
@@ -64,7 +65,7 @@ test("concurrent event appends keep sequence numbers unique and lines intact", (
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-event-append-"));
   try {
-    const run = spawnSync("python", ["-c", CONCURRENCY_SCRIPT(agentPath, root.replace(/\\/g, "/"))], { encoding: "utf8", timeout: 120000 });
+    const run = spawnSync("python", ["-B", (() => { const f = require("node:fs"), p = require("node:path"); const d = f.mkdtempSync(p.join(require("node:os").tmpdir(), "se-python-fixture-")); const file = p.join(d, "probe.py"); f.writeFileSync(file, CONCURRENCY_SCRIPT(agentPath, root.replace(/\\/g, "/")), "utf8"); console.log("kept Python fixture at " + d); return file; })()], { encoding: "utf8", timeout: 10000, windowsHide: true });
     assert.equal(run.status, 0, run.stderr);
     const result = JSON.parse(run.stdout.trim());
     assert.deepEqual(result.errors, []);
@@ -86,9 +87,10 @@ test("concurrent atomic writes to one target do not clobber each other", () => {
   const script = String.raw`
 import importlib.util, json, os, threading, time
 
-spec = importlib.util.spec_from_file_location("cluster_agent", ${JSON.stringify(agentPath)})
-agent = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(${JSON.stringify(agentPath)}, ["append_event", "atomic_write", "json", "maybe_auto_run_completion_pipeline", "path_for", "prune_agent_state", "read_seq"])
 
 target = os.path.join(${JSON.stringify(root.replace(/\\/g, "/"))}, "state", "shared.json")
 real_dump = json.dump
@@ -122,7 +124,7 @@ print(json.dumps({
 }))
 `;
   try {
-    const run = spawnSync("python", ["-c", script], { encoding: "utf8", timeout: 120000 });
+    const run = spawnSync("python", ["-B", (() => { const f = require("node:fs"), p = require("node:path"); const d = f.mkdtempSync(p.join(require("node:os").tmpdir(), "se-python-fixture-")); const file = p.join(d, "probe.py"); f.writeFileSync(file, script, "utf8"); console.log("kept Python fixture at " + d); return file; })()], { encoding: "utf8", timeout: 10000, windowsHide: true });
     assert.equal(run.status, 0, run.stderr);
     const result = JSON.parse(run.stdout.trim());
     assert.deepEqual(result.errors, [], "concurrent writers must not collide on the temp path");

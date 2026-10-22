@@ -12,10 +12,10 @@ const runtime = path.join(root, "dist/runtime/cluster_scheduler.py");
 test("failure output prints stderr only and omits wrapper metadata and stdout noise", () => {
   const script = `
 import contextlib, importlib.util, io, json, pathlib, sys, tempfile, types
-spec = importlib.util.spec_from_file_location("scheduler", pathlib.Path(${JSON.stringify(runtime)}))
-scheduler = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = scheduler
-spec.loader.exec_module(scheduler)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+scheduler = extract_runtime_functions(pathlib.Path(${JSON.stringify(runtime)}), ["Job", "render_command", "run_command", "run_job", "surface_original_error", "wrap_command"])
 with tempfile.TemporaryDirectory() as tmp:
     base = pathlib.Path(tmp)
     (base / "stderr.log").write_text("torch.OutOfMemoryError: CUDA out of memory\\n", encoding="utf-8")
@@ -32,11 +32,7 @@ assert "secret context-json parameter dump" not in text, text
 assert text.rstrip().endswith("========== end stderr.log =========="), text
 print("ok")
 `;
-  const result = spawnSync("python", ["-X", "utf8", "-c", script], {
-    encoding: "utf8",
-    cwd: root,
-    env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-  });
+  const result = spawnSync("python", ["-X", "utf8", "-B", (() => { const f = require("node:fs"), p = require("node:path"); const d = f.mkdtempSync(p.join(require("node:os").tmpdir(), "se-python-fixture-")); const file = p.join(d, "probe.py"); f.writeFileSync(file, script, "utf8"); console.log("kept Python fixture at " + d); return file; })()], { encoding: "utf8", cwd: root, env: { ...process.env, PYTHONIOENCODING: "utf-8" }, timeout: 10000, windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
@@ -53,10 +49,10 @@ test("retraining the same output directory reports only the current failed attem
   const scriptPath = path.join(tempRoot, "failure-report.py");
   const script = `
 import contextlib, importlib.util, io, pathlib, subprocess, sys, tempfile, types
-spec = importlib.util.spec_from_file_location("scheduler", pathlib.Path(${JSON.stringify(runtime)}))
-scheduler = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = scheduler
-spec.loader.exec_module(scheduler)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+scheduler = extract_runtime_functions(pathlib.Path(${JSON.stringify(runtime)}), ["Job", "render_command", "run_command", "run_job", "surface_original_error", "wrap_command"])
 with tempfile.TemporaryDirectory() as tmp:
     base = pathlib.Path(tmp)
     (base / "stderr.log").write_text("OLD CUDA out of memory\\n", encoding="utf-8")
@@ -99,10 +95,7 @@ print("ok")
 `;
   fs.writeFileSync(scriptPath, script, "utf8");
   try {
-    const result = spawnSync("python", ["-X", "utf8", scriptPath], {
-      encoding: "utf8", cwd: root, timeout: 10000, windowsHide: true,
-      env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-    });
+    const result = spawnSync("python", ["-X", "utf8", scriptPath], { encoding: "utf8", cwd: root, timeout: 10000, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
     assert.equal(result.status, 0, result.stderr || result.stdout || result.error?.message);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });

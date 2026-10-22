@@ -60,7 +60,7 @@ test('real SFTP entry shares only an explicit read round, strips internal hints 
  const run=vm.runInNewContext(ts.transpileModule('class Host{'+method.getText(ast)+'};Host.prototype.simpleSftpApiCall',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
   {workspaceRoot:()=>identity.workspace,assertRetryRequestCurrent(){},sftpFileIndexQuery,fileOperationIndexPaths,vscode:{workspace:{getConfiguration:()=>({get:()=> 'simple'})}},AgentTmuxPolicy_1:require('../../src/tunnel/AgentTmuxPolicy.ts'),
    callSftpWithProgress:async(name,params,discover)=>{calls++;await discover(name);assert.equal(params.fileIndexRound,undefined);return payload();}});
- const h={simpleSftpCapability:async()=>({}),projectFileObservationIndex:()=>index,invalidateProjectFileIndexes:async reason=>{invalidations.push(reason);await index.invalidate(reason);}};
+ const h={assertTransferRootSafety(){},simpleSftpCapability:async()=>({}),projectFileObservationIndex:()=>index,invalidateProjectFileIndexes:async reason=>{invalidations.push(reason);await index.invalidate(reason);}};
  const params={source:{id:'worker',remotePath:'/project'},metadataOnly:true,recursive:true,fileIndexRound:'one'};
  await run.call(h,'sync.projectInventory',params);await run.call(h,'sync.projectInventory',params);assert.equal(calls,1);
  await run.call(h,'sync.serverToServerFpsync',{});assert.equal(invalidations.length,2);
@@ -162,7 +162,7 @@ test('actual mutation wrapper refreshes exact scopes before and after the write 
  const Host=vm.runInNewContext(ts.transpileModule('class Host{'+members.join('\n')+'};Host',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
  {workspaceRoot:()=>storage,path,fileOperationIndexPaths,readLocalFileIndexPaths,sftpFileIndexQuery,assertRetryRequestCurrent(){},
   callSftpWithProgress:async(method,request)=>{calls.push({method,paths:request.scopePaths});if(method==='sync.serverToServerFpsync'){assert.equal(index.snapshot().entries['data/a'].presence,'present');present=false;return {ok:true};}return {ok:true,files:present?{'data/a':{size:3,modifiedAtMs:1}}:{}};}});
- const h=new Host();h.projectFileObservationIndex=node=>node?index:undefined;
+ const h=new Host();h.assertTransferRootSafety=()=>{};h.projectFileObservationIndex=node=>node?index:undefined;
  h.simpleSftpCapability=async()=>({methodOptions:{'sync.projectInventory':{metadataOnly:1}}});
  h.invalidateProjectFileIndexes=async(reason,paths)=>{assert.deepEqual([...paths],['data/a']);await index.invalidate(reason,paths);};
  await h.simpleSftpApiCall('sync.serverToServerFpsync',{source:{id:'worker'},relativePaths:['data/a']});
@@ -180,6 +180,7 @@ test('real tree cleanup invalidates only its Worker and exact subtree, leaving a
   assertRetryRequestCurrent(){},sftpFileIndexQuery,fileOperationIndexPaths,safeSyncPath:require('../../src/features/SyncResolution.ts').safeSyncPath,
   workspaceRoot:()=>storage,projectFileIndex:require('../../src/features/ProjectFileIndex.ts').projectFileIndex,crypto:require('node:crypto'),process,
   deleteConfirmedScopeCopy:require('../../src/features/SyncScopeDelete.ts').deleteConfirmedScopeCopy,
+  isUnderMachineStatePrefixes:require('../../src/features/ProjectRootMap.ts').isUnderMachineStatePrefixes,
   vscode:{workspace:{getConfiguration:()=>({get:()=> 'simple'})}},AgentTmuxPolicy_1:require('../../src/tunnel/AgentTmuxPolicy.ts'),
   callSftpWithProgress:async(method,params)=>{
    requests.push({method,params});if(method.endsWith('.inspect'))return {ok:true,executorsChecked:true,executors:[],target:{relativePath:params.target.relativePath,type:'directory',missing:starts===1}};
@@ -187,8 +188,9 @@ test('real tree cleanup invalidates only its Worker and exact subtree, leaving a
    if(method.endsWith('.execute')){starts++;return {ok:true};}return {ok:true,state:'completed'};
   },
  });
- const host=new Host();host.simpleSftpCapability=async()=>({methodOptions:{'files.cleanup.preview':{confirmedPathMetadata:1,confirmedPathNestedRepositories:1}}});
+ const host=new Host();host.assertTransferRootSafety=()=>{};host.simpleSftpCapability=async()=>({methodOptions:{'files.cleanup.preview':{confirmedPathMetadata:1,confirmedPathNestedRepositories:1}}});
  host.context={globalStorageUri:{fsPath:storage}};host.client={};
+ host.targetRootGuard=target=>require('../../src/features/ProjectRootMap.ts').machineStateGuard(require('../../src/features/ProjectRootMap.ts').resolveProjectRootMap({projectDir:target.remotePath,installDir:'/runtime',machineStateDirs:['/machine-state']}));
  const server={id:'w1',remotePath:'/project',host:'configured-alias',networkHost:'10.0.0.1',user:'user',port:22};
  const a=host.projectFileObservationIndex(server),b=host.projectFileObservationIndex({...server,id:'w2',host:'other-alias',networkHost:'10.0.0.2'}),pending=[];
  for(const [index,relative]of [[b,'work_dirs/job'],[a,'work_dirs/sibling'],[a,'work_dirs/job']]){

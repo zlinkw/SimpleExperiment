@@ -71,6 +71,14 @@ test("JS classifier matches the full pass/reject matrix (case-insensitive, order
 // 统一解释器选择：仅当解释器本身缺失（spawn ENOENT）才尝试下一个候选；
 // 解释器存在但执行失败必须原样返回失败，不得换解释器掩盖。
 function runPython(args, input) {
+  const scriptIndex = args.indexOf("-c");
+  if (scriptIndex >= 0) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "package-policy-python-"));
+    const file = path.join(dir, "probe.py");
+    fs.writeFileSync(file, args[scriptIndex + 1], "utf8");
+    args = [...args.slice(0, scriptIndex), file, ...args.slice(scriptIndex + 2)];
+    console.log("kept Python fixture at " + dir);
+  }
   let last = null;
   const executables = process.platform === "win32" ? ["python", "python3"] : ["python3", "python"];
   for (const exe of executables) {

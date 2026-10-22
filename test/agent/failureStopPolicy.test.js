@@ -10,17 +10,17 @@ const agent = path.join(root, "dist/runtime/cluster_agent.py");
 
 test("scheduler ignores log wording and stops only for recorded task failure", () => {
   const script = `import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location("scheduler", sys.argv[1])
-module = importlib.util.module_from_spec(spec)
-sys.modules["scheduler"] = module
-spec.loader.exec_module(module)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+module = extract_runtime_functions(sys.argv[1], ["scheduler_should_fail_fast"])
 out = [
   module.scheduler_should_fail_fast([], {"gpu": {"console_tail": "ERROR recoverable", "exit_code": None}}, {}),
   module.scheduler_should_fail_fast([], {"gpu": {"console_tail": "ordinary output"}}, {}),
   module.scheduler_should_fail_fast([{"experiment_index": 1, "error": "exit_code=1"}], {}, {}),
 ]
 print(json.dumps(out))`;
-  const result = spawnSync("python", ["-c", script, scheduler], { encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+  const result = spawnSync("python", ["-B", (() => { const f = require("node:fs"), p = require("node:path"); const d = f.mkdtempSync(p.join(require("node:os").tmpdir(), "se-python-fixture-")); const file = p.join(d, "probe.py"); f.writeFileSync(file, script, "utf8"); console.log("kept Python fixture at " + d); return file; })(), scheduler], { encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" }, timeout: 10000, windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.deepEqual(JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1)), [false, false, true]);
 });

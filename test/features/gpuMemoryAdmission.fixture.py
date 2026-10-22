@@ -62,4 +62,4 @@ try:
     for i in range(5):pathlib.Path(root,'release-command-'+str(i)).touch()
     print(json.dumps(dict(ok=True,sharedJobs=4,queuedJobs=1,restartRecovered=True)))
 finally:
-    subprocess.run(['tmux','kill-server'],capture_output=True,timeout=2)
+    close_fixture_tmux_windows(lambda args: subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=2), private_root=root)

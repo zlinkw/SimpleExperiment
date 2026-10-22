@@ -78,17 +78,11 @@ with tempfile.TemporaryDirectory() as tmp:
 `;
   fs.writeFileSync(scriptPath, script, "utf8");
   try {
-    const result = spawnSync(process.env.PYTHON || "python", ["-X", "utf8", scriptPath], {
-      cwd: root,
-      env: {
+    const result = spawnSync(process.env.PYTHON || "python", ["-X", "utf8", scriptPath], { cwd: root, env: {
         ...process.env,
         PYTHONIOENCODING: "utf-8",
         TEST_SCHEDULER_PATH: path.join(root, "dist", "runtime", "cluster_scheduler.py"),
-      },
-      encoding: "utf8",
-      timeout: 10000,
-      windowsHide: true,
-    });
+      }, encoding: "utf8", timeout: 10000, windowsHide: true });
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr || result.stdout);
   } finally {

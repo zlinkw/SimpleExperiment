@@ -21,7 +21,7 @@ agent = extract_runtime_functions(
     str(pathlib.Path(__file__).resolve().parents[2] / "dist" / "runtime" / "cluster_agent.py"),
     ["gpu_admission_recheck_evidence", "gpu_admission_probe", "read_gpu_collector_frame",
      "gpu_collector_self_heal", "gpu_collector_main", "gpu_collector_ensure",
-     "gpu_collector_read_registration", "gpu_collector_command", "task_execution_inventory"])
+     "gpu_collector_read_registration", "gpu_collector_command", "task_execution_inventory", "task_queue_command"])
 
 # The isolated module namespace has no __file__; production gpu_collector_command
 # resolves the runtime script through it — bind it to the real generated file.
@@ -114,6 +114,8 @@ def main():
         # The command carries the RESOLVED authoritative root (parent A): both
         # sides must resolve the identical anchor even with unset environments.
         assert "SIMPLE_EXPERIMENT_WORKER_STATE_DIR=" + state_root() in cmd, cmd
+        queue_cmd = agent.task_queue_command(root, "worker-a")
+        assert "SIMPLE_EXPERIMENT_WORKER_STATE_DIR=" + state_root() in queue_cmd, queue_cmd
         assert "SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX=" in cmd, cmd
         # Zero-config: no env var at all → managed per-USER anchor, identical on
         # every consumer and on the launched collector; NEVER a per-project root.
@@ -127,6 +129,22 @@ def main():
         os.environ["SIMPLE_EXPERIMENT_WORKER_STATE_DIR"] = state_root()
         assert agent.gpu_collector_state_root(root) == state_root()
         finish({"session": s1, "anchor": anchor})
+    elif MODE == "writer_lock":
+        import fcntl
+        root = os.path.join(ROOT, "project")
+        worker = "worker-a"
+        target = frame_path(worker, root)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target + ".writer.lock", "a+") as owner:
+            fcntl.flock(owner.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                agent.gpu_collector_main(root, worker)
+                raise AssertionError("second writer acquired the machine source")
+            except RuntimeError as exc:
+                assert str(exc) == "GPU_COLLECTOR_WRITER_BUSY", str(exc)
+        assert CALLS == []
+        assert not os.path.exists(register_path(worker, root))
+        finish({"samplerCalls": len(CALLS)})
     elif MODE == "reads":
         root = os.path.join(ROOT, "proj1")
         worker = "worker-a"
@@ -194,8 +212,18 @@ def main():
         assert agent.gpu_collector_read_registration(bad, root)["mode"] == "invalid"
         publish_generation(bad, root, "gen-1", genStartedMonotonicMs=float("nan"))
         assert agent.gpu_collector_read_registration(bad, root)["mode"] == "invalid"
+        publish_generation(bad, root, "gen-1", genStartedMonotonicMs=-1)
+        assert agent.gpu_collector_read_registration(bad, root)["mode"] == "invalid"
         publish_generation(bad, root, "gen-1", framePath="relative/path")
         assert agent.gpu_collector_read_registration(bad, root)["mode"] == "invalid"
+        # Well-typed foreign roots and UID values are not this reader's source.
+        for changes in ({"framePath": os.path.join(ROOT, "foreign", "gpu_frame.json")},
+                        {"uid": os.getuid() + 1}, {"uid": -1}):
+            publish_generation(bad, root, "gen-1", **changes)
+            write_frame(bad, root, "gen-1", 1)
+            assert agent.gpu_collector_read_registration(bad, root)["mode"] == "foreign"
+            assert agent.read_gpu_collector_frame(bad, root)["mode"] != "fresh"
+            assert agent.gpu_admission_probe_bound(root, bad, {"commandId": "foreign"})[2] is None
         # Permission semantics probe: honest about the mount's capability. If the
         # filesystem enforces mode 000, a permission denial must be unreadable.
         perm = "worker-perm"
@@ -314,6 +342,8 @@ def main():
             assert evidence.get(field), field
         same, err = agent.gpu_admission_recheck_evidence(root, worker, evidence, {"commandId": "cmd-1"})
         assert err == "" and same[0]["memoryUsedMb"] == 111, (same, err)
+        late_request = dict(evidence, requestStartedMonotonicMs=evidence["collectedMonotonicMs"] + 1)
+        assert agent.gpu_admission_recheck_evidence(root, worker, late_request, {"commandId": "cmd-1"})[1] == "gpu_admission_evidence_request_fence"
         # Same Worker, DIFFERENT command: credential is worthless (parent D).
         _, err_cmd = agent.gpu_admission_recheck_evidence(root, worker, evidence, {"commandId": "cmd-OTHER"})
         assert err_cmd == "gpu_admission_evidence_command_mismatch", err_cmd
@@ -327,15 +357,17 @@ def main():
         assert err_missing.startswith("gpu_admission_evidence_missing"), err_missing
         _, err_missing2 = agent.gpu_admission_recheck_evidence(root, "", stripped, {"commandId": "cmd-1"})
         assert err_missing2.startswith("gpu_admission_evidence_missing"), err_missing2
-        # Frame advanced: identity no longer matches.
-        write_frame(worker, root, "gen-9", 5)
-        _, err2 = agent.gpu_admission_recheck_evidence(root, worker, evidence, {"commandId": "cmd-1"})
-        assert err2 == "gpu_admission_evidence_changed", err2
         # Same seq/epoch/mono but tampered VALUES: fingerprint catches it.
         write_frame(worker, root, "gen-9", 4, mono=evidence["collectedMonotonicMs"],
                     gpus=[{"index": 0, "memoryUsedMb": 999999}])
         _, err_fp = agent.gpu_admission_recheck_evidence(root, worker, evidence, {"commandId": "cmd-1"})
         assert err_fp == "gpu_admission_evidence_changed", err_fp
+        # A later frame invalidates the credential, and a rollback cannot become fresh.
+        write_frame(worker, root, "gen-9", 5)
+        _, err2 = agent.gpu_admission_recheck_evidence(root, worker, evidence, {"commandId": "cmd-1"})
+        assert err2 == "gpu_admission_evidence_changed", err2
+        write_frame(worker, root, "gen-9", 4, mono=evidence["collectedMonotonicMs"])
+        assert agent.read_gpu_collector_frame(worker, root)["reason"] == "ordering"
         # Exact frame back, but the published generation moved: the SHARED reader
         # now refuses the old-epoch frame as not-fresh BEFORE recheck's own
         # generation guard (which stays as the race-window backstop) — either way
@@ -353,22 +385,21 @@ def main():
         worker = "worker-a"
         GPU_PROBES.append(([{"index": 0, "direct": True}], ""))
         gpus, error, evidence = agent.gpu_admission_probe_bound(root, worker, {"commandId": "cmd-l"})
-        assert error == "" and gpus[0]["direct"] is True and evidence is None
-        assert EVENTS and EVENTS[-1]["payload"]["mode"] == "direct_unoptimized"
-        assert len(CALLS) == 1, CALLS  # exactly ONE sampler run so far
+        assert "gpu_collector_stalled" in error and gpus == [] and evidence is None
+        assert len(CALLS) == 0, CALLS
         # Frame without ANY registration (needs update): error, NO direct sample.
         orphan = os.path.join(ROOT, "proj-orphan")
         write_frame(worker, orphan, "gen-old", 3, mono=int(time.monotonic() * 1000) - 500)
         gpus2, error2, _ = agent.gpu_admission_probe_bound(orphan, worker, {"commandId": "cmd-o"})
         assert gpus2 == [] and error2 == "gpu_collector_needs_update", (gpus2, error2)
-        assert len(CALLS) == 1, "frame-only state must never trigger direct sampling: %r" % CALLS
+        assert len(CALLS) == 0, "frame-only state must never trigger direct sampling: %r" % CALLS
         # Registered + stale: waits, errors, never samples.
         stale_root = os.path.join(ROOT, "proj-stale")
         publish_generation(worker, stale_root, "gen-1")
         write_frame(worker, stale_root, "gen-1", 3, mono=int(time.monotonic() * 1000) - 60000)
         gpus3, error3, _ = agent.gpu_admission_probe_bound(stale_root, worker, {"commandId": "cmd-s"})
         assert gpus3 == [] and "gpu_collector_stalled" in error3, (gpus3, error3)
-        assert len(CALLS) == 1, CALLS
+        assert len(CALLS) == 0, CALLS
         # Corrupt registration → unknown → error, no sampling.
         bad_root = os.path.join(ROOT, "proj-bad")
         os.makedirs(os.path.dirname(register_path(worker, bad_root)), exist_ok=True)
@@ -376,7 +407,7 @@ def main():
             handle.write("nope")
         gpus4, error4, _ = agent.gpu_admission_probe_bound(bad_root, worker, {"commandId": "cmd-b"})
         assert gpus4 == [] and error4 == "gpu_collector_identity_unverified", (gpus4, error4)
-        assert len(CALLS) == 1, CALLS
+        assert len(CALLS) == 0, CALLS
         finish({"samplerCalls": len(CALLS)})
     elif MODE == "ensure":
         root = os.path.join(ROOT, "proj1")
@@ -387,7 +418,8 @@ def main():
         agent.subprocess = FakeProc()
         # Fresh start: no annotation write (the collector publishes its own).
         TMUX_CALLS.clear()
-        TMUX_SCRIPT[:] = [FakeCompleted(1, "", "no session"), FakeCompleted(0, "", ""), FakeCompleted(0, "", "")]
+        TMUX_SCRIPT[:] = [FakeCompleted(1, "", "no session"), FakeCompleted(0, "@9\t%12", ""),
+                          FakeCompleted(0, "@9\t%12\t0\t", ""), FakeCompleted(0, "", "")]
         report = agent.gpu_collector_ensure(worker, root)
         assert report["status"] == "started", report
         assert not any("set-option" in " ".join(c) and "@se_gpu_collector" in " ".join(c) for c in TMUX_CALLS)
@@ -397,6 +429,10 @@ def main():
         report = agent.gpu_collector_ensure(worker, root)
         assert report["status"] == "running" and report["epoch"] == "gen-live", report
         assert not any("respawn" in " ".join(c) or "set-option" in " ".join(c) or "new-session" in " ".join(c) for c in TMUX_CALLS)
+        TMUX_CALLS.clear()
+        TMUX_SCRIPT[:] = [FakeCompleted(0, "", ""), FakeCompleted(0, "@9\t%12\tunknown\t" + json.dumps(own), "")]
+        assert agent.gpu_collector_ensure(worker, root)["status"] == "unverified"
+        assert len(TMUX_CALLS) == 2
         # Dead pane + OWN binding: respawn inside the exclusive transaction, lock
         # removed afterwards, exact pane target, no annotation write.
         # Script covers BOTH inspects: pre-transaction and inside-transaction
@@ -408,7 +444,8 @@ def main():
         assert report["status"] == "respawned" and report["paneId"] == "%12", report
         respawns = [c for c in TMUX_CALLS if "respawn-pane" in c]
         assert len(respawns) == 1 and respawns[0][respawns[0].index("-t") + 1] == "%12", respawns
-        assert not os.path.exists(register_path(worker, root) + ".respawn.lock"), "transaction lock leaked"
+        assert os.path.isfile(register_path(worker, root) + ".respawn.lock"), "stable lock inode must be retained"
+        assert "-k" not in respawns[0], respawns
         # Dead pane + EMPTY binding (foreign or unpublished): unknown, zero mutation.
         TMUX_CALLS.clear()
         TMUX_SCRIPT[:] = [FakeCompleted(0, "", ""), FakeCompleted(0, "@9\t%12\t1\t", "")]
@@ -419,12 +456,13 @@ def main():
         TMUX_CALLS.clear()
         TMUX_SCRIPT[:] = [FakeCompleted(0, "", ""), FakeCompleted(0, "@9\t%12\t1\t" + json.dumps(own), "")]
         os.makedirs(os.path.dirname(register_path(worker, root)), exist_ok=True)
-        with open(register_path(worker, root) + ".respawn.lock", "w", encoding="utf-8") as handle:
-            handle.write("99999999 1")  # fresh mtime: not stale
+        import fcntl
+        held = os.open(register_path(worker, root) + ".respawn.lock", os.O_RDWR)
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
         report = agent.gpu_collector_ensure(worker, root)
         assert report["status"] == "unknown" and report.get("reason") == "respawn_in_progress", report
         assert not any("respawn" in " ".join(c) for c in TMUX_CALLS), TMUX_CALLS
-        os.remove(register_path(worker, root) + ".respawn.lock")
+        os.close(held)
         # Transaction re-verify: pane came alive inside the window → no respawn-k.
         TMUX_CALLS.clear()
         TMUX_SCRIPT[:] = [FakeCompleted(0, "", ""), FakeCompleted(0, "@9\t%12\t1\t" + json.dumps(own), ""),
@@ -436,6 +474,7 @@ def main():
         for mutator, expected in (({"framePath": "/elsewhere/gpu_frame.json"}, "mismatch"),
                                   ({"uid": (os.getuid() if hasattr(os, "getuid") else 0) + 1000}, "foreign_uid"),
                                   ({"uid": "root"}, "mismatch"),
+                                  ({"uid": -1}, "foreign_uid"),
                                   ({"frameSource": "other"}, "mismatch")):
             forged = dict(own)
             forged.update(mutator)
@@ -512,8 +551,8 @@ def main():
         # Confirmed legacy (both ENOENT): the marked cache path stays (1 acquire).
         os.environ["SIMPLE_EXPERIMENT_WORKER_ID"] = "worker-never"
         inv4 = agent.task_execution_inventory(root)
-        assert inv4["gpuSampleState"] == "ready" and inv4["gpuSample"]["gpus"][0]["index"] == 9
-        assert len(acquires) == 1, acquires
+        assert inv4["gpuSampleState"] == "stalled" and inv4["gpuSample"] is None
+        assert len(acquires) == 0, acquires
         finish({"states": [inv["gpuSampleState"], inv2["gpuSampleState"], inv3["gpuSampleState"], inv4["gpuSampleState"]]})
     elif MODE == "concurrency":
         root = os.path.join(ROOT, "proj1")

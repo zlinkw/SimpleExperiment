@@ -15,11 +15,7 @@ function runPythonScript(script) {
   const scriptPath = path.join(directory, "run.py");
   fs.writeFileSync(scriptPath, script, "utf8");
   try {
-    return spawnSync("python", [scriptPath], {
-      encoding: "utf8", cwd: root,
-      env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-      timeout: 10000, windowsHide: true,
-    });
+    return spawnSync("python", [scriptPath], { encoding: "utf8", cwd: root, env: { ...process.env, PYTHONIOENCODING: "utf-8" }, timeout: 10000, windowsHide: true });
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -29,10 +25,10 @@ function runPython(expression) {
   const script = `
 import importlib.util, json, sys
 module_name = "scheduler_runtime_under_test"
-spec = importlib.util.spec_from_file_location(module_name, ${JSON.stringify(runtimePath)})
-module = importlib.util.module_from_spec(spec)
-sys.modules[module_name] = module
-spec.loader.exec_module(module)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+module = extract_runtime_functions(${JSON.stringify(runtimePath)}, ["WORKER_AVAILABILITY_CLOCK_SKEW_SECONDS", "availability_is_fresh", "enqueue_worker_command", "ensure_worker_runtime", "has_running_plan", "launch_experiment", "note_availability_receipt", "now", "probe_idle_gpus", "random", "refresh_missing_worker_availability", "refresh_worker_availability_for_signal", "should_check_finished_session", "time", "urllib", "wait_for_worker_gpu_sample", "worker_gpu_sample_delay"])
 ${expression}
 `;
   const result = runPythonScript(script);
@@ -118,10 +114,10 @@ test("worker telemetry samples GPU occupancy within six seconds during a plan", 
   const agentPath = path.join(root, "dist/runtime/cluster_agent.py");
   const script = `
 import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location("agent_runtime_under_test", ${JSON.stringify(agentPath)})
-module = importlib.util.module_from_spec(spec)
-sys.modules["agent_runtime_under_test"] = module
-spec.loader.exec_module(module)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+module = extract_runtime_functions(${JSON.stringify(agentPath)}, ["WORKER_AVAILABILITY_CLOCK_SKEW_SECONDS", "availability_is_fresh", "enqueue_worker_command", "ensure_worker_runtime", "has_running_plan", "launch_experiment", "note_availability_receipt", "now", "probe_idle_gpus", "random", "refresh_missing_worker_availability", "refresh_worker_availability_for_signal", "should_check_finished_session", "time", "urllib", "wait_for_worker_gpu_sample", "worker_gpu_sample_delay"])
 module.random.random = lambda: 1.0
 print(json.dumps({"running": module.worker_gpu_sample_delay(60, 30, True),
                   "idle": module.worker_gpu_sample_delay(60, 30, False)}))
@@ -137,10 +133,10 @@ test("worker sampler wakes within five seconds when a plan starts during idle wa
   const agentPath = path.join(root, "dist/runtime/cluster_agent.py");
   const script = `
 import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location("agent_runtime_under_test", ${JSON.stringify(agentPath)})
-module = importlib.util.module_from_spec(spec)
-sys.modules["agent_runtime_under_test"] = module
-spec.loader.exec_module(module)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+module = extract_runtime_functions(${JSON.stringify(agentPath)}, ["WORKER_AVAILABILITY_CLOCK_SKEW_SECONDS", "availability_is_fresh", "enqueue_worker_command", "ensure_worker_runtime", "has_running_plan", "launch_experiment", "note_availability_receipt", "now", "probe_idle_gpus", "random", "refresh_missing_worker_availability", "refresh_worker_availability_for_signal", "should_check_finished_session", "time", "urllib", "wait_for_worker_gpu_sample", "worker_gpu_sample_delay"])
 module.random.random = lambda: 1.0
 slept = []
 module.time.sleep = lambda duration: slept.append(duration)
@@ -238,10 +234,10 @@ test("scheduler rejects an unconfigured placeholder conda environment before lau
 import importlib.util
 import sys
 module_name = "scheduler_runtime_under_test"
-spec = importlib.util.spec_from_file_location(module_name, ${JSON.stringify(runtimePath)})
-module = importlib.util.module_from_spec(spec)
-sys.modules[module_name] = module
-spec.loader.exec_module(module)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+module = extract_runtime_functions(${JSON.stringify(runtimePath)}, ["WORKER_AVAILABILITY_CLOCK_SKEW_SECONDS", "availability_is_fresh", "enqueue_worker_command", "ensure_worker_runtime", "has_running_plan", "launch_experiment", "note_availability_receipt", "now", "probe_idle_gpus", "random", "refresh_missing_worker_availability", "refresh_worker_availability_for_signal", "should_check_finished_session", "time", "urllib", "wait_for_worker_gpu_sample", "worker_gpu_sample_delay"])
 try:
     module.launch_experiment({"id": "nwpu3", "conda_env": "-", "project_dir": "/tmp/project"}, "plan.yaml", 0, "0", None)
 except RuntimeError as error:
