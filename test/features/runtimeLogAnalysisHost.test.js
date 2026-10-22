@@ -23,8 +23,11 @@ test('changed original source becomes a scope warning before remote queries or s
  const retry=hostMethod('retryPulledJob',{fs:require('node:fs/promises'),path,crypto,PlanCodeScopeHost:scope,
   PulledTaskControl:{queryTask:()=>assert.fail('must choose first'),stopPulledTask:()=>assert.fail('must not cancel')},
   });
- const result=await retry.call({client:{},retryChangedSourceJobs:async(p,j,r,current,reason)=>{warnings++;assert.match(reason,/PLAN_SOURCE_CHANGED/);return {status:'cancelled'};},saveDistributedQueue:()=>assert.fail('must not requeue')},plan,{},root,()=>true);
- assert.equal(result.status,'cancelled');assert.equal(warnings,1);
+ // 语义迁移（2026-10-21 返修 P0）：源码变化时单 job「删除并重新排队」不得绕道新卡流程——
+ // 在任何远端查询/停止/预览/写队列之前显式阻断，等协议决定。原「先选择、不得停止」意图保留。
+ const result=await retry.call({client:{},retryChangedSourceJobs:()=>assert.fail('单 job 删除重排队不得绕道新建卡片流程'),saveDistributedQueue:()=>assert.fail('must not requeue')},plan,{},root,()=>true);
+ assert.equal(result.status,'blocked');assert.equal(result.code,'SOURCE_CHANGED_UNSUPPORTED');
+ assert.match(result.message,/只支持原绑定源码的单 job 同卡重新排队/);assert.equal(warnings,0);
 });
 function fixture(){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'se-explicit-log-review-')),context={root};let calls=0,ids=[];
@@ -102,27 +105,49 @@ test('automatic refresh follows current completed jobs until logs settle, ignori
   assert.deepEqual(progressRefreshWorkerIds(queue,['w','old'],snapshots),[]);
  }
 });
-test('native anomaly rerun checks fresh evidence, honors cancelled or skipped replacement and changes only one job',async()=>{
+// 语义迁移（2026-10-21 返修 #2）：单 job 重跑不再有“跳过替换/rename 隔离”选项——
+// 唯一路径是两次带路径确认永久删除并核实 path_absence 后原卡入队；旧“skip”对话在新 UI 中不存在，
+// 对应用例删除，改由 missing（产物已核实缺失→零对话零执行直接入队）覆盖零重复删除。
+// 原意图保留：运行中拒绝、异常证据核实、取消零变更、只改所选 job。
+test('native anomaly rerun checks fresh evidence, honors cancelled permanent delete and changes only one job',async()=>{
  const crypto=require('node:crypto'),P=require('../../src/features/PulledTaskControl.ts'),events=[];
  const job={index:0,lifecycleProtocol:2,status:'completed',workerId:'w',commandId:'c',outputDir:'work/job',case:'a',seed:42};
  const other={...job,index:1,commandId:'other',status:'running',outputDir:'work/other'};
- const plan={id:'wf',planFile:'plans/p.yaml',revision:crypto.createHash('sha256').update('plan').digest('hex'),executionMode:'train_test',jobs:[job,other]};
- let selected=true,cancel=false,state={execution:'exited',status:'completed',completionState:'review_required'},stored;
+ const plan={id:'wf',projectId:'project',planFile:'plans/p.yaml',revision:crypto.createHash('sha256').update('plan').digest('hex'),codeFingerprint:'fp',executionMode:'train_test',jobs:[job,other]};
+ let cancel=false,missing=false,deleted=false,state={execution:'exited',status:'completed',completionState:'review_required'},stored,executes=0,dialogs=0;
  const retry=hostMethod('retryPulledJob',{fs:{readFile:async()=> 'plan'},path,crypto,
-  PulledTaskControl:{queryTask:async()=>({state}),stopPulledTask:async(_c,p,j)=>{assert.equal(j.commandId,'c');events.push('fence');},returnPulledJobToLocal:P.returnPulledJobToLocal},
-  PlanRunHost:class {async replace(p,body,validation){events.push('confirm');assert.equal(validation.jobs.length,1);assert.equal(validation.jobs[0].output_dir,'work/job');if(cancel)throw Error('REPLACEMENT_CANCELLED');body.assignedExperimentIndices=selected?[0]:[];}},makeOpId:()=> 'rerun'});
- const h={client:{},assertPlanSubmissionWorkers:async()=>events.push('query'),loadDistributedQueue:async()=>({plans:[plan]}),
-  saveDistributedQueue:async(_r,q,options)=>{stored=options?.mutateLatest?options.mutateLatest(structuredClone({plans:[plan]})):q;events.push('save');},tickDistributedQueue:async()=>events.push('tick')};
- for(const variant of ['running','clear','cancel','skip','success','missing']){
-  events.length=0;stored=undefined;cancel=variant==='cancel';selected=variant!=='skip';
-  state={execution:variant==='running'?'running':variant==='missing'?'missing':'exited',status:variant==='missing'?'unknown':'completed',completionState:variant==='clear'?'verified':'review_required'};
-  if(['running','clear','cancel'].includes(variant))await assert.rejects(retry.call(h,plan,job,'/fixture',()=>true,true),/运行|异常|CANCELLED/);
+  vscode:{window:{showWarningMessage:async msg=>{dialogs++;return cancel?'取消':(String(msg).includes('第 1/2 次确认')?'确认删除（1/2）':'永久删除（2/2）');}}},UiCommandCancelled:class extends Error{},errorMessage:e=>e.message,
+  PulledTaskControl:{queryTask:async()=>({state,task:{observation:{cancelled:true,tmux:null,result:null}}}),stopPulledTask:async(_c,p,j)=>{assert.equal(j.commandId,'c');events.push('fence');},returnPulledJobToLocal:P.returnPulledJobToLocal},
+  makeOpId:()=>'rerun'});
+ const h={client:{},manualDispatchInFlight:new Set(),assertPlanSubmissionWorkers:async()=>events.push('query'),
+  loadDistributedQueue:async()=>({plans:[structuredClone(plan)]}),
+  planCleanupHost:()=>({service:{preview:async p=>{assert.equal(p.action,'delete');assert.equal(p.job.commandId,'c');events.push('preview');
+    const gone=missing||deleted;// 真实服务形态：本轮 stat 缺失 → disposition absent
+    return {token:'t',digest:'d',action:'delete',scope:{nodes:[{id:'w'}]},rows:[
+     {id:'r0',disposition:gone?'absent':'delete',missing:gone,type:'directory',relativePath:'work/job',node:{id:'w',host:'h'},absolutePath:'/srv/work/job'},
+     {id:'r1',disposition:gone?'absent':'delete',missing:gone,type:'file',relativePath:'work/job/m.csv',node:{id:'w',host:'h'},absolutePath:'/srv/work/job/m.csv'}]};},
+   confirm:async p=>events.push('confirm'+p.phase)},
+   execute:async()=>{events.push('execute');executes++;deleted=true;return {state:'completed',preview:{token:'t',action:'delete',digest:'d',scope:{nodes:[{id:'w'}]},
+    rows:[{id:'r0',disposition:'delete',type:'directory',relativePath:'work/job',node:{id:'w',host:'h'}},{id:'r1',disposition:'delete',type:'file',relativePath:'work/job/m.csv',node:{id:'w',host:'h'}}]},
+    targets:{r0:{state:'completed',receipt:{verifiedBy:'path_absence'}},r1:{state:'completed',receipt:{verifiedBy:'path_absence'}}}};}}),
+  saveDistributedQueue:async(_r,q,options)=>{stored=options?.mutateLatest?options.mutateLatest(structuredClone({plans:[structuredClone(plan)]})):q;events.push('save');},tickDistributedQueue:async()=>events.push('tick')};
+ for(const variant of ['running','clear','cancel','success','missing']){
+  events.length=0;stored=undefined;executes=0;dialogs=0;deleted=false;cancel=variant==='cancel';missing=variant==='missing';
+  state={execution:variant==='running'?'running':'exited',status:variant==='missing'?'unknown':'completed',completionState:variant==='clear'?'verified':'review_required'};
+  if(['running','clear','cancel'].includes(variant))await assert.rejects(retry.call(h,plan,job,'/fixture',()=>true,true),/运行|异常|已取消/);
   else await retry.call(h,plan,job,'/fixture',()=>true,variant!=='missing');
   if(variant==='success'||variant==='missing'){
-   assert.deepEqual(events,['fence','query','confirm','save','tick']);assert.equal(stored.plans[0].jobs[0].status,'pending');
+   // 返修 P0 新增：删除后入队前必须由服务再走一遍逐目标预览（源被重建/新建在入队前拒绝）。
+   assert.deepEqual(events,variant==='success'?['fence','query','preview','preview','confirm1','preview','confirm2','preview','execute','preview','save','tick']:['fence','query','preview','save','tick'],
+    '永久删除每次确认与执行前都按冻结快照复核预览（真实协议：复核不换会话，双确认/执行仍回原 token），入队前复查逐目标不存在；产物已核实缺失则零确认直接入队');
+   assert.equal(stored.plans[0].jobs[0].status,'pending');
    assert.equal(stored.plans[0].jobs[0].runtimeDiagnostics,undefined);assert.deepEqual(stored.plans[0].jobs[1],other);
-  }else{assert.equal(stored,undefined);assert.ok(!events.includes('tick'));
-   assert.equal(events.includes('fence'),variant==='cancel'||variant==='skip');}
+   assert.equal(executes,variant==='success'?1:0);assert.equal(dialogs,variant==='success'?2:0);
+   assert.equal(stored.plans[0].jobs[0].commandId,undefined,'新执行不得复用旧 commandId');
+   assert.ok(stored.plans[0].jobs[0].nextCommandId&&stored.plans[0].jobs[0].nextCommandId!=='c','新执行使用新 commandId，旧回执不能覆盖');
+  }else{assert.equal(stored,undefined);assert.ok(!events.includes('tick')&&!events.includes('save')&&!events.includes('execute'),'拒绝/取消路径零入队零删除');
+   // 运行中/无异常证据在停止围栏之前就拒绝；取消发生在停止+预览之后、任何确认/执行/入队之前。
+   assert.equal(events.includes('fence'),variant==='cancel');}
  }
 });
 test('actual analysis button returns a visible command message without opening any document',async()=>{
@@ -139,30 +164,40 @@ test('actual analysis button returns a visible command message without opening a
 });
 test('native rerun commits against the latest queue without losing unrelated progress or replacing a new command',async()=>{
  const crypto=require('node:crypto'),P=require('../../src/features/PulledTaskControl.ts');
- const plan={id:'p',planFile:'plans/p.yaml',revision:crypto.createHash('sha256').update('plan').digest('hex'),codeFingerprint:'original',executionMode:'train_test',jobs:[
+ const plan={id:'p',projectId:'project',planFile:'plans/p.yaml',revision:crypto.createHash('sha256').update('plan').digest('hex'),codeFingerprint:'original',executionMode:'train_test',jobs:[
   {index:0,commandId:'original-command',workerId:'w',status:'completed',outputDir:'work/a'},
   {index:1,commandId:'other',workerId:'w',status:'running',outputDir:'work/b'}]};
  let latest,starts=0;
+ // 产物声明为「已核实缺失」：聚焦提交语义——零对话、零执行、按最新队列提交；旧代际迟到必须在删除前被拒。
  const retry=hostMethod('retryPulledJob',{fs:{readFile:async()=> 'plan'},path,crypto,PulledTaskControl:{
-  queryTask:async()=>({state:{execution:'exited',status:'completed',completionState:'review_required'}}),stopPulledTask:async()=>{},returnPulledJobToLocal:P.returnPulledJobToLocal},
-  PlanRunHost:class{async replace(_p,body){body.assignedExperimentIndices=[0];}},makeOpId:()=> 'rerun'});
- const h={client:{},assertPlanSubmissionWorkers:async()=>{},saveDistributedQueue:async(_root,q,options)=>{assert.equal(q,undefined);latest=options.mutateLatest(latest);},tickDistributedQueue:async()=>{starts++;}};
+  queryTask:async()=>({state:{execution:'exited',status:'completed',completionState:'review_required'},task:{observation:{cancelled:true,tmux:null,result:null}}}),stopPulledTask:async()=>{},returnPulledJobToLocal:P.returnPulledJobToLocal},
+  vscode:{window:{showWarningMessage:async()=>{throw Error('MUST_NOT_ASK_WHEN_ARTIFACTS_ABSENT');}}},UiCommandCancelled:class extends Error{},errorMessage:e=>e.message,makeOpId:()=> 'rerun'});
+ const h={client:{},manualDispatchInFlight:new Set(),assertPlanSubmissionWorkers:async()=>{},
+  planCleanupHost:()=>({service:{preview:async()=>({token:'t',digest:'d',action:'delete',scope:{nodes:[{id:'w'}]},rows:[{id:'r0',disposition:'absent',missing:true,type:'directory',relativePath:'work/a',node:{id:'w',host:'h'},absolutePath:'/srv/work/a'}]}),confirm:()=>assert.fail('缺失产物不得发起确认')},
+   execute:()=>assert.fail('缺失产物不得发起删除执行')}),
+  loadDistributedQueue:async()=>structuredClone(latest),
+  saveDistributedQueue:async(_root,q,options)=>{assert.equal(q,undefined);latest=options.mutateLatest(latest);},tickDistributedQueue:async()=>{starts++;},recordActionError(){}};
  latest={plans:[structuredClone(plan)]};latest.plans[0].jobs[1].status='completed';
  await retry.call(h,plan,plan.jobs[0],'/fixture',()=>true,true);
  assert.equal(latest.plans[0].jobs[0].status,'pending');assert.equal(latest.plans[0].jobs[1].status,'completed');assert.equal(starts,1);
  latest={plans:[structuredClone(plan)]};latest.plans[0].jobs[0].commandId='new-command';
- await assert.rejects(retry.call(h,plan,plan.jobs[0],'/fixture',()=>true,true),/身份已变化/);assert.equal(starts,1);assert.equal(latest.plans[0].jobs[0].commandId,'new-command');
+ await assert.rejects(retry.call(h,plan,plan.jobs[0],'/fixture',()=>true,true),/任务身份或声明产物路径已变化/);assert.equal(starts,1);assert.equal(latest.plans[0].jobs[0].commandId,'new-command');
 });
 
 test('a committed one-job rerun remains queued when the next scheduler tick fails',async()=>{
  const crypto=require('node:crypto'),P=require('../../src/features/PulledTaskControl.ts');
  const job={index:0,workerId:'w',commandId:'old',status:'unknown',lifecycleProtocol:2,outputDir:'work/a'},
   plan={id:'p',planFile:'p.yaml',revision:crypto.createHash('sha256').update('plan').digest('hex'),codeFingerprint:'code',jobs:[job]};
- let latest={plans:[plan]},optionsSeen,errors=[];
+ let latest={plans:[structuredClone(plan)]},optionsSeen,errors=[];
+ // 产物「已核实缺失」形态：迁移到删除+重排队语义后仍聚焦原意图——提交已成功时后续 tick 失败不得翻转为失败。
  const retry=hostMethod('retryPulledJob',{fs:{readFile:async()=> 'plan'},path,crypto,PulledTaskControl:{
-  queryTask:async()=>({state:{execution:'missing',status:'unknown'}}),stopPulledTask:async()=>{},returnPulledJobToLocal:P.returnPulledJobToLocal},
-  PlanRunHost:class{async replace(_p,body){body.assignedExperimentIndices=[0];}},makeOpId:()=> 'rerun',errorMessage:e=>e.message});
- const h={client:{},assertPlanSubmissionWorkers:async()=>{},saveDistributedQueue:async(_root,_queue,options)=>{optionsSeen=options;latest=options.mutateLatest(latest);},
+  queryTask:async()=>({state:{execution:'missing',status:'unknown'},task:{observation:{cancelled:true,tmux:null,result:null}}}),stopPulledTask:async()=>{},returnPulledJobToLocal:P.returnPulledJobToLocal},
+  vscode:{window:{showWarningMessage:async()=>{throw Error('MUST_NOT_ASK_WHEN_ARTIFACTS_ABSENT');}}},UiCommandCancelled:class extends Error{},makeOpId:()=> 'rerun',errorMessage:e=>e.message});
+ const h={client:{},manualDispatchInFlight:new Set(),assertPlanSubmissionWorkers:async()=>{},
+  planCleanupHost:()=>({service:{preview:async()=>({token:'t',digest:'d',action:'delete',scope:{nodes:[{id:'w'}]},rows:[{id:'r0',disposition:'absent',missing:true,type:'directory',relativePath:'work/a',node:{id:'w',host:'h'},absolutePath:'/srv/work/a'}]}),confirm:()=>assert.fail('缺失产物不得发起确认')},
+   execute:()=>assert.fail('缺失产物不得发起删除执行')}),
+  loadDistributedQueue:async()=>structuredClone(latest),
+  saveDistributedQueue:async(_root,_queue,options)=>{optionsSeen=options;latest=options.mutateLatest(latest);},
   tickDistributedQueue:async()=>{throw Error('另一窗口已更新该项目队列');},postState(){},recordActionError:e=>errors.push(e)};
  const result=await retry.call(h,plan,job,'/fixture',()=>true);
  await new Promise(resolve=>setImmediate(resolve));

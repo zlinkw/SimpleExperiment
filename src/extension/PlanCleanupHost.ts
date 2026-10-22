@@ -10,6 +10,8 @@ import { atomicWriteText } from "../state/StateStore";
 import { openPlanCleanupPanel } from "./PlanCleanupPanel";
 import { assertFastDeletePreviewSafety, fastDeleteUpgradeError, isFastDeleteUpgradeCode } from "../features/FastDeleteContract";
 import { discoverManifestCandidates, recordedDeclarations, type ManifestDeclaration } from "../features/ManifestCleanup";
+import { loadIsolatedBatchLedger, eligibleIsolatedReviews, type ReviewedIsolatedBatch, type IsolatedReviewEvent } from "../features/PlanIsolatedBatchLedger";
+import { resolveIsolatedBatchReview, recordIsolatedReviewEvent, assertLiveIsolatedBoundary } from "../features/PlanIsolatedReview";
 
 async function json(file: string, fallback: any): Promise<any> {
   const text = await fs.readFile(file, "utf8").catch((error: any) => { if (error.code === "ENOENT") return ""; throw error; });
@@ -20,6 +22,8 @@ async function json(file: string, fallback: any): Promise<any> {
 export class PlanCleanupHost {
   readonly service: PlanCleanup;
   executing = false;
+  private independentExecuting = false;
+  get blocksTaskScheduling() { return this.executing && !this.independentExecuting; }
   constructor(private readonly host: any, readonly root: string) {
     const storage = host.context.globalStorageUri.fsPath;
     this.service = new PlanCleanup({ storageRoot: path.join(storage, "plan-cleanup", cleanupDigest(root)),
@@ -68,6 +72,7 @@ export class PlanCleanupHost {
             || proof.expectedSha256 !== config.expectedSha256) cleanupError("CONFIG_SCOPE_CHANGED", config.relativePath + "：配置已变化或已被其他 PLAN 引用，请重新审核");
         }
       },
+      validateIsolationReview: async id => { await this.assertIsolatedReview(id); },
       updateIndexes: (operation, restore) => this.updateIndexes(operation, restore) });
   }
   private assertWorkspace() {
@@ -85,6 +90,40 @@ export class PlanCleanupHost {
   /** Retired compatibility hook. File review is explicitly requested, never triggered by a connection. */
   observeConnections(_endpoints: Array<{ id: string; streamStatus: string; reconnectCount?: number }>): Promise<void> {
     return Promise.resolve();
+  }
+  /**
+   * 返修（2026-10-21）P0：单 job「删除并重新排队」的逐目标不存在核验。
+   * 缺失的声明目录不会进候选（ManifestCleanup 只报告存在的产物）——「候选缺失」不等于「已删除」。
+   * 本方法是唯一被允许的 absence 证据来源：对原预览冻结的物理节点集合 × 完整声明路径逐一
+   * files.cleanup.inspect（只读），节点身份必须先与当前配置一致（endpoint/安全根漂移即 error）；
+   * 后端必须回 target.missing===true 才算 absent；任何异常/含糊应答都是 error，绝不推断不存在。
+   * 它不产生删除候选、不改变审核范围，也不替代预览。
+   */
+  async verifyDeclaredTargets(params: { job: CleanupJobSelection; declared: Array<{ relativePath: string; type: string }>; nodes: any[] }) {
+    this.assertWorkspace();
+    const verdicts: Array<{ nodeId: string; relativePath: string; type: string; state: "absent" | "present" | "error"; rootIdentity?: unknown; error?: string }> = [];
+    const blockers: Array<{ code: string; nodeId: string; detail: string }> = [];
+    for (const frozen of params.nodes) {
+      if (frozen.error) { blockers.push({ code: "OFFLINE_NODE", nodeId: String(frozen.id), detail: String(frozen.error) }); continue; }
+      let live: any;
+      try { live = this.currentNode(String(frozen.id)); }
+      catch (error: any) { blockers.push({ code: "SERVER_IDENTITY_UNVERIFIED", nodeId: String(frozen.id), detail: String(error?.message || error) }); continue; }
+      if (cleanupDigest({ ...live, error: undefined }) !== cleanupDigest({ ...frozen, error: undefined }))
+        blockers.push({ code: "SERVER_IDENTITY_CHANGED", nodeId: String(frozen.id), detail: "节点身份或安全根与预览时不一致；重新预览前不作任何存在性结论" });
+      for (const target of params.declared) {
+        if (frozen.error || blockers.some(row => row.nodeId === String(frozen.id))) continue;
+        try {
+          const info: any = await this.host.simpleSftpApiCall("files.cleanup.inspect", { node: live,
+            target: { relativePath: target.relativePath, type: target.type }, allowMissing: true, manifestOnly: true, presenceOnly: true });
+          if (info?.target?.missing === true) verdicts.push({ nodeId: live.id, relativePath: target.relativePath, type: target.type, state: "absent", rootIdentity: info.rootIdentity });
+          else if (info?.target && (info.target.missing === false || typeof info.target.absolutePath === "string")) verdicts.push({ nodeId: live.id, relativePath: target.relativePath, type: target.type, state: "present", rootIdentity: info.rootIdentity });
+          else verdicts.push({ nodeId: live.id, relativePath: target.relativePath, type: target.type, state: "error", error: "UNVERIFIED_RESPONSE" });
+        } catch (error: any) {
+          verdicts.push({ nodeId: live.id, relativePath: target.relativePath, type: target.type, state: "error", error: String(error?.message || error) });
+        }
+      }
+    }
+    return { verdicts, blockers };
   }
   async replacementGroups(queue: DistributedQueue, file: string, declarations: any[], projectId: string, stablePlanId: string) {
     this.assertWorkspace();
@@ -264,6 +303,8 @@ export class PlanCleanupHost {
   }
   private async updateIndexes(operation: CleanupOperation, restore: boolean) {
     this.assertWorkspace();
+    // An old registered isolation tree has no authority to retire, clear or rewrite the new PLAN/job.
+    if (operation.preview.registeredIsolationOperationId) return;
     const originalId = operation.preview.originalOperationId || operation.id;
     const restoreChain = restore ? await this.service.history(originalId) : [];
     const restoreIds = new Set(restoreChain.map(row => row.id));
@@ -335,6 +376,30 @@ export class PlanCleanupHost {
     if (this.executing) cleanupError("OPERATION_BUSY");
     this.executing = true;
     try {
+      const registered = await this.service.registeredIsolationSource(id);
+      this.independentExecuting = Boolean(registered);
+      const initial = await this.service.status(id);
+      const independent = initial.preview.registeredIsolationOperationId;
+      if (independent !== registered) cleanupError("ISOLATED_OPERATION_IDENTITY_CHANGED");
+      if (independent) {
+        await this.assertIsolatedReview(independent);
+        if (initial.state === "completed") { await this.verifyIsolatedAbsence(independent); await this.isolatedReviewEvent(independent, "completed", id); return initial; }
+        if (initial.state === "paused") cleanupError("ISOLATED_DELETE_RECONFIRM_REQUIRED", "该审核已取消；请重新预览并两次确认，不沿用旧授权执行。");
+        if (initial.executionRequestedAt) cleanupError("ISOLATED_DELETE_QUERY_REQUIRED", "该删除请求已经发出；本次只允许刷新核实，不重复发送。重新审核仍须两次确认。");
+        this.host.assertArtifactSyncPathsIdle?.(this.root, initial.preview.rows.filter(row => row.disposition === "delete").map(row => row.relativePath));
+        await this.isolatedReviewEvent(independent, "executing", id);
+        try {
+          const result = await this.service.execute(id);
+          if (result.state === "completed") await this.verifyIsolatedAbsence(independent);
+          await this.isolatedReviewEvent(independent, result.state === "completed" ? "completed" : result.state === "paused" ? "cancelled"
+            : /BUSY/.test(result.error || "") ? "busy" : result.state === "blocked" ? "failed" : "unknown", id, result.error);
+          return result;
+        } catch (error: any) {
+          await this.isolatedReviewEvent(independent, /BUSY/.test(String(error?.apiData?.code || error.message)) ? "busy" : "failed", id,
+            String(error.message || error)).catch(() => undefined);
+          throw error;
+        }
+      }
       const pending = this.host.distributedQueueTickPromise;
       if (pending) await pending;
       const operation = await this.service.status(id);
@@ -358,8 +423,75 @@ export class PlanCleanupHost {
         { resources: [{ server: "local", project: this.root, target: this.root }] });
       if (operation.preview.action === "delete") return await this.service.status(id);
       return result;
-    } finally { this.executing = false; }
+    } finally { this.executing = false; this.independentExecuting = false; }
   }
-  open(file: string, operationId?: string, job?: CleanupJobSelection) { return openPlanCleanupPanel(this, file, operationId, job); }
+  async assertIsolatedReview(id: string) {
+    this.assertWorkspace();
+    const file = this.host.isolatedReplacementLedgerFileLocal?.();
+    if (!file) cleanupError("ISOLATED_BATCH_LEDGER_UNAVAILABLE");
+    const queue = await this.host.loadDistributedQueue(this.root);
+    const binding = await resolveIsolatedBatchReview(file, this.root, id, queue, operationId => this.service.status(operationId));
+    const original: CleanupOperation = binding?.operation || await this.service.status(id);
+    if (original.preview.action !== "isolate" || !original.preview.rows.some(row => row.disposition === "isolate")) cleanupError("NOT_ISOLATED_OPERATION");
+    for (const row of original.preview.rows.filter(row => row.disposition === "isolate")) {
+      const current = this.currentNode(row.node.id);
+      if (cleanupDigest({ ...current, error: undefined }) !== cleanupDigest({ ...row.node, error: undefined })) cleanupError("SERVER_IDENTITY_CHANGED");
+    }
+    this.assertWorkspace();
+    return binding;
+  }
+  async isolatedReviewEvent(originalId: string, kind: IsolatedReviewEvent["kind"], reviewId?: string, detail?: string) {
+    const file = this.host.isolatedReplacementLedgerFileLocal?.();
+    if (!file) cleanupError("ISOLATED_BATCH_LEDGER_UNAVAILABLE");
+    const batches = await loadIsolatedBatchLedger(file);
+    const matches = batches.filter(batch => batch.projectRoot === this.root && batch.plans.some(plan => plan.cleanup.some(record => record.cleanupOperationId === originalId)));
+    if (!matches.length) return; // Standalone isolation keeps its ordinary operation history.
+    if (matches.length !== 1) cleanupError("ISOLATED_OPERATION_BATCH_CONFLICT");
+    await recordIsolatedReviewEvent(file, matches[0].batchId, originalId, { kind, reviewOperationId: reviewId, detail });
+  }
+  async verifyIsolatedAbsence(originalId: string) {
+    const binding = await this.assertIsolatedReview(originalId);
+    const original: CleanupOperation = binding?.operation || await this.service.status(originalId);
+    for (const row of original.preview.rows.filter(row => row.disposition === "isolate")) {
+      const proof = await this.host.simpleSftpApiCall("files.cleanup.inspect", { node: row.node,
+        target: { relativePath: row.destination, type: row.type }, allowMissing: true, presenceOnly: true, observeExecutors: true });
+      if (proof?.ok !== true || proof.executorsChecked !== true || !Array.isArray(proof.executors) || proof.executors.length
+        || proof.target?.missing !== true || !row.rootIdentity || !proof.rootIdentity || cleanupDigest(proof.rootIdentity) !== cleanupDigest(row.rootIdentity))
+        cleanupError("ISOLATED_DELETE_UNVERIFIED", "隔离目标仍存在、执行窗口未退出或身份未知；保留记录，不自动重发。");
+    }
+  }
+  async openIsolatedBatchReviews() {
+    this.assertWorkspace();
+    const file = this.host.isolatedReplacementLedgerFileLocal?.();
+    if (!file) cleanupError("ISOLATED_BATCH_LEDGER_UNAVAILABLE");
+    const batches = await loadIsolatedBatchLedger(file) as ReviewedIsolatedBatch[];
+    const queue = await this.host.loadDistributedQueue(this.root);
+    const items: Array<{ label: string; description: string; detail: string; operationId: string; initialId: string; planFile: string }> = [];
+    for (const batch of eligibleIsolatedReviews(batches, this.root) as ReviewedIsolatedBatch[]) {
+      try { assertLiveIsolatedBoundary(batch, this.root, queue); } catch { continue; }
+      for (const plan of batch.plans) for (const record of plan.cleanup) {
+        const events = batch.reviews?.filter(event => event.cleanupOperationId === record.cleanupOperationId) || [];
+        const last = events.at(-1);
+        if (events.some(event => event.kind === "completed")) continue;
+        // Explicitly opening this review queries only the registered destinations.
+        // External removal has no delete receipt; fresh per-target absence still consumes it.
+        let absent = false;
+        try { await this.verifyIsolatedAbsence(record.cleanupOperationId); absent = true; } catch { /* Present or unknown: retain for review. */ }
+        if (absent) { await this.isolatedReviewEvent(record.cleanupOperationId, "completed"); continue; }
+        const labels: Record<string, string> = { opened: "已打开", preview: "待确认", confirmed1: "等待第二次确认", confirmed2: "已确认待执行",
+          executing: "执行结果待核实", busy: "服务器忙，未自动重试", failed: "审核失败", cancelled: "已取消", unknown: "结果待核实" };
+        items.push({ label: plan.planFile, description: `${record.targets.length} 项隔离产物 · ${last ? labels[last.kind] || "待审核" : "待审核"}`,
+          detail: record.targets.map(target => target.nodeId + ":" + target.isolationRelativePath).join("；"),
+          operationId: record.cleanupOperationId, initialId: [...events].reverse().find(event => event.reviewOperationId)?.reviewOperationId || record.cleanupOperationId, planFile: plan.planFile });
+      }
+    }
+    if (!items.length) { await vscode.window.showInformationMessage("暂无已核实全部初始 PLAN 启动且仍待审核的隔离产物；未删除任何文件。"); return; }
+    const selected = await vscode.window.showQuickPick(items, { title: "隔离产物独立永久删除审核", placeHolder: "选择已登记隔离操作；下一页显示精确节点与完整路径，删除须另行两次确认" });
+    if (!selected) return;
+    await this.assertIsolatedReview(selected.operationId);
+    await this.isolatedReviewEvent(selected.operationId, "opened");
+    return this.open(selected.planFile, selected.initialId, undefined, selected.operationId);
+  }
+  open(file: string, operationId?: string, job?: CleanupJobSelection, isolatedOperationId?: string) { return openPlanCleanupPanel(this, file, operationId, job, isolatedOperationId); }
   openJob(file: string, job: CleanupJobSelection) { return this.open(file, undefined, job); }
 }

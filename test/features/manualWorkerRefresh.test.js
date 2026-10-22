@@ -41,11 +41,14 @@ test('foreground inactivity never cancels a remote check or posts a replacement 
  assert.equal(posts,0);assert.equal(h.localOperations.check.status,'outcome_pending');
 });
 test('inventory invalidation repeats only the read, never mutations or changed connections',async()=>{
- const p=proto(['simpleSftpApiCall','invalidateSimpleSftpCapabilityAfterFailure','invalidateSimpleSftpCapability'],{assertRetryRequestCurrent(){},sftpFileIndexQuery:()=>({paths:['output']}),callSftpWithProgress:async()=>({files:{}})});
+ const p=proto(['simpleSftpApiCall','invalidateSimpleSftpCapabilityAfterFailure','invalidateSimpleSftpCapability'],{...require('../_helpers/nativeHostScope'),assertRetryRequestCurrent(){},sftpFileIndexQuery:()=>({paths:['output']}),callSftpWithProgress:async()=>({files:{}})});
  let reads=0;const h={client:{},projectFileObservationIndex:()=>({read:async(q,load)=>{if(++reads<3)throw Error('FILE_INDEX_INVALIDATED_DURING_READ');return load();}})};
  h.invalidateSimpleSftpCapabilityAfterFailure=p.invalidateSimpleSftpCapabilityAfterFailure;h.invalidateSimpleSftpCapability=p.invalidateSimpleSftpCapability;
  const value=await p.simpleSftpApiCall.call(h,'sync.projectInventory',{source:{id:'w'}});assert.equal(reads,3);assert.ok(value.files);
- reads=0;await assert.rejects(p.simpleSftpApiCall.call(h,'files.cleanup.inspect',{}),/FILE_INDEX_INVALIDATED/);assert.equal(reads,1);
+ reads=0;assert.ok((await p.simpleSftpApiCall.call(h,'files.cleanup.inspect',{})).files);assert.equal(reads,3);
+ for(const method of ['files.cleanup.preview','files.cleanup.execute']){
+  reads=0;await assert.rejects(p.simpleSftpApiCall.call(h,method,{}),/FILE_INDEX_INVALIDATED/);assert.equal(reads,1);
+ }
  reads=0;h.projectFileObservationIndex=()=>({read:async()=>{reads++;h.client={};throw Error('FILE_INDEX_INVALIDATED_DURING_READ');}});
  await assert.rejects(p.simpleSftpApiCall.call(h,'sync.projectInventory',{}),/FILE_INDEX_INVALIDATED/);assert.equal(reads,1);
 });

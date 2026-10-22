@@ -11,7 +11,7 @@ async function bounded(promise){let timer;try{return await Promise.race([promise
 function fixture(count=8){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'se-parallel-plans-')),context={root};fs.mkdirSync(path.join(root,'plans'));
  const plans=Array.from({length:count},(_,i)=>{const text='mode: train_test\ncase: '+i+'\n',planFile='plans/'+i+'.yaml';fs.writeFileSync(path.join(root,planFile),text,'utf8');return {planFile,revision:crypto.createHash('sha256').update(text).digest('hex')};});
- const calls={sync:0,adapter:0,sftp:0,git:0,validate:[],outputs:[],enqueue:[],metadata:[],ticks:0,active:0,max:0,outputActive:0,outputMax:0};
+ const calls={sync:0,adapter:0,sftp:0,git:0,validate:[],outputs:[],enqueue:[],metadata:[],ticks:0,active:0,max:0,outputActive:0,outputMax:0,enterActive:0,enterMax:0};
  let release;const firstWave=new Promise(resolve=>release=resolve);
  const h={context:{globalStorageUri:{fsPath:root}},client:{},projectContextGeneration:1,localPlanMetadata:{plans,detectedProject:{}},localOperations:{},code:'same-code',
   captureProjectContext:()=>context,projectContextIsCurrent:value=>value===context&&!h.changed,effectiveConnectionMode:()=> 'worker_pool',
@@ -32,7 +32,12 @@ function fixture(count=8){
   runPlanPreflight:async body=>{calls.validate.push(body.planFile);calls.active++;calls.max=Math.max(calls.max,calls.active);if(calls.validate.length===Math.min(4,count))release();
    try{await bounded(firstWave);if(h.badPlan===body.planFile)throw Error('invalid PLAN '+body.planFile);return {validation:{jobs:[{index:0,case:body.planFile,seed:42,output_dir:h.overlap?'work/shared':'work/'+body.planFile.split('/')[1]}],existing:[],execution_mode:'train_test'}}}finally{calls.active--}},
   assertPlanSubmissionWorkers:async(body,value)=>{assert.equal(value.validation.jobs[0].case,body.planFile)},
-  confirmDistributedPlanExistingOutputs:async(_,body)=>{calls.outputActive++;calls.outputMax=Math.max(calls.outputMax,calls.outputActive);calls.outputs.push(body.planFile);await turn();calls.outputActive--;if(h.beforeEnqueue)await h.beforeEnqueue(body)},
+  // 新契约的忠实 stub：历史/队列读取等机械段在道外并发；对话段必须经 legacy 注入的批次对话道，
+  // 这里对 body.confirmGateLocal 的真实存在与串行效果做端到端校验（经真实 runAllPlans/runSelectedPlans 路径，不只是源码钉）。
+  confirmDistributedPlanExistingOutputs:async(_,body)=>{calls.enterActive++;calls.enterMax=Math.max(calls.enterMax,calls.enterActive);calls.outputs.push(body.planFile);await turn();
+   assert.equal(typeof body.confirmGateLocal,'function','批路径必须经 confirmGateLocal 注入批次对话道');
+   await body.confirmGateLocal(async()=>{calls.outputActive++;calls.outputMax=Math.max(calls.outputMax,calls.outputActive);await turn();calls.outputActive--;});
+   calls.enterActive--;if(h.beforeEnqueue)await h.beforeEnqueue(body)},
   assertExecutionCondaEnvReady(){},reportPlanStage(){},legacySourceFreezeWorkerNames(){return [];},recordPlanSubmissionTiming(){},recordPlanSubmissionTimingByOperation(){},
   finishPlanSubmissionProgress:(message,status,detail)=>{h.localOperations[h.planSubmissionOperationId(message)]={status,message:detail}},
   tickDistributedQueue:async()=>{calls.ticks++;if(h.tickError)throw Error('dispatch query unavailable')},queue:Queue.emptyDistributedQueue()};
@@ -60,7 +65,10 @@ test('both batch entries overlap real per-PLAN submissions, sync once and keep e
  for(const all of [false,true]){
   const {h,plans,calls,root}=fixture();const result=await(all?runAllPlans(h,{}):runSelectedPlans(h,{planFiles:plans.map(plan=>plan.planFile)}));
   assert.equal(result.status,'completed',result.message);assert.equal(calls.max,4);assert.equal(calls.sync,1);assert.equal(calls.adapter,1);assert.equal(calls.sftp,1);assert.equal(calls.git,1);
-  assert.equal(calls.validate.length,8);assert.equal(new Set(calls.validate).size,8);assert.equal(calls.outputMax,1);assert.ok(calls.ticks>=1&&calls.ticks<=8);assert.equal(h.queue.plans.length,8);
+  assert.equal(calls.validate.length,8);assert.equal(new Set(calls.validate).size,8);
+  assert.equal(calls.outputMax,1,'对话段同一时刻至多一个（审核语义不变）');
+  assert.ok(calls.enterMax>1,'历史确认的机械段必须能并发（慢批次根因修复）');
+  assert.ok(calls.ticks>=1&&calls.ticks<=8);assert.equal(h.queue.plans.length,8);
   assert.deepEqual(new Set(h.queue.plans.map(plan=>plan.jobs[0].case)),new Set(plans.map(plan=>plan.planFile)));
   assert.equal(calls.metadata.filter(value=>value==='all').length,1);for(const plan of plans)assert.equal(calls.metadata.filter(value=>value===plan.planFile).length,1);
   const dir=path.join(root,'simple_cluster/runs/git_provenance',new Date().toISOString().slice(0,10)),files=fs.readdirSync(dir);assert.equal(files.length,8);

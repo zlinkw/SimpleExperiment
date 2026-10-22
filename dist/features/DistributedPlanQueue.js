@@ -492,7 +492,12 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                     if (task && ["outputDir", "collectionResultCsv"].some(field => typeof task[field] === "string"
                         && typeof job[field] === "string" && task[field] !== job[field]))
                         observation.queryError = "任务产物路径与当前任务不符；请刷新核实";
+                    // 原生启动证明（账本消费）：身份匹配任务 + 物理窗口存在 + 四类查询错误全空才置位；一旦置位粘性保留，
+                    // 后续取消/终态不抹掉已发生过的启动事实；终态/取消标记本身绝不反推启动。
+                    const cleanNativeErrors = [observation.queryError, observation.executionQueryError, observation.resultQueryError, observation.runtimeQueryError]
+                        .filter(Boolean);
                     const state = (0, TaskLifecycle_1.taskLifecycle)(observation);
+                    const nativeWindowSeen = observation.tmux?.dead === false && ["starting", "running"].includes(state.execution);
                     const verifiedCompletion = (0, VerifiedCompletion_1.nextVerifiedCompletion)(plan, job, observation, state, now);
                     const fixed = (0, VerifiedCompletion_1.verifiedCompletionProjection)(plan, { ...job, verifiedCompletion });
                     return { ...job, lifecycleProtocol: 2, status: state.status, executionState: state.execution, resultState: state.result,
@@ -501,6 +506,13 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                         ...(["train", "test", "train_test"].includes(String(task?.actualExecutionMode)) ? { actualExecutionMode: task.actualExecutionMode } : {}),
                         recoveryConflict: undefined, trustedTerminalStatus: undefined,
                         statusQueryError: observation.queryError || observation.executionQueryError, lastObservedAt: snapshot.fetchedAt || observation.observedAt,
+                        observationErrors: cleanNativeErrors,
+                        nativeStartProof: job.nativeStartProof && job.nativeStartProof.commandId === job.commandId
+                            && job.nativeStartProof.workerId === job.workerId ? job.nativeStartProof
+                            : (cleanNativeErrors.length === 0 && nativeWindowSeen)
+                                ? { source: "worker_snapshot_task_l2", commandId: String(observation.commandId), workerId: String(observation.workerId),
+                                    observedAt: String(snapshot.fetchedAt || observation.observedAt), windowSeen: true }
+                                : undefined,
                         error: state.status === "failed" ? String(task?.error || `任务退出码 ${task?.exitCode ?? "未知"}`) : undefined,
                         blockReason: state.message, verifiedCompletion,
                         verificationQueryError: verifiedCompletion ? observation.queryError || observation.executionQueryError || observation.resultQueryError || observation.runtimeQueryError : undefined,

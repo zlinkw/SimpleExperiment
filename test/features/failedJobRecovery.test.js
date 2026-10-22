@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const Module = require("node:module");
 const ts = require("typescript");
+require('../_helpers/registerTsRequire');
 function load(name, imports = {}) {
   const file = path.resolve(__dirname, "../../src/features/" + name + ".ts");
   const mod = new Module(file, module);
@@ -54,77 +55,69 @@ function fixture(mode = "train") {
     capability: value => capability = value, reply: value => reply = value, snapshotStatus: value => snapshotStatus = value,
   };
 }
-test("offline recall creates just one local attempt and preserves all execution modes and successful siblings", async () => {
+
+test("offline historical recall preserves the original card, mode and every sibling without new attempts", async () => {
   for (const mode of ["train", "test", "train_test"]) {
-    const f = fixture(mode); f.offline(); let confirmation;
-    const result = await R.recallFailedJobFromUi(f.host, f.message, async text => (confirmation = text, true), f.id);
-    assert.equal(result.status, "completed");
-    const plan = f.queue.plans[0], job = plan.jobs[0];
-    assert.equal(plan.executionMode, mode); assert.equal(plan.schedulingMode, "server_prequeue");
-    assert.deepEqual(plan.jobs.slice(1), f.original.jobs.slice(1));
-    assert.equal(job.status, "pending"); assert.equal(job.attempt, 2); assert.equal(job.localQueueOnly, true);
-    assert.equal(job.workerId, undefined); assert.equal(job.commandId, undefined);
-    assert.equal(job.history[0].outputDir, f.original.jobs[0].outputDir);
-    assert.equal(f.queue.failedAttemptRecoveries[0].job.commandId, "command-0");
-    assert.match(confirmation, /researcher@example-worker:22/); assert.ok(confirmation.includes("/srv/project/clean_dir/"));
-    assert.equal(f.actions.length, 0);
-    const allocated = Q.allocateAvailable(f.queue, [
-      { workerId: "old-worker", online: false, idleGpuIds: ["0"], codeFingerprint: "code", idleGpuAdmission: true },
-      { workerId: "healthy-worker", online: true, idleGpuIds: ["0"], codeFingerprint: "code", idleGpuAdmission: true },
-    ], { localIdleOnly: true, requireIdleGpuAdmission: true });
-    assert.equal(allocated.dispatches.length, 1); assert.equal(allocated.dispatches[0].workerId, "healthy-worker");
-    await assert.rejects(R.recallFailedJobFromUi(f.host, f.message, async () => true, f.id), /目标失败 job 已变化/);
-    assert.equal(f.queue.failedAttemptRecoveries.length, 1);
+    const f=fixture(mode),before=structuredClone(f.queue);f.offline();let confirmations=0;
+    await assert.rejects(R.recallFailedJobFromUi(f.host,f.message,async()=>{confirmations++;return true;},f.id),/HISTORICAL_ATTEMPT_READ_ONLY/);
+    assert.deepEqual(f.queue,before);assert.equal(f.queue.plans[0].executionMode,mode);
+    assert.equal(f.queue.plans[0].schedulingMode,"server_prequeue");
+    assert.deepEqual(f.queue.plans[0].jobs.slice(1),f.original.jobs.slice(1));
+    assert.equal(f.queue.plans[0].jobs[0].attempt,1);assert.equal(f.queue.plans[0].jobs[0].commandId,"command-0");
+    assert.equal(f.queue.failedAttemptRecoveries,undefined);assert.equal(confirmations,0);
+    assert.equal(f.actions.length,0);assert.equal(f.stops,0);
   }
 });
-test("confirmation cancellation, project changes and concurrent job changes cannot queue a new attempt", async () => {
-  let f = fixture(); const before = structuredClone(f.queue);
-  await R.recallFailedJobFromUi(f.host, f.message, async () => false, f.id); assert.deepEqual(f.queue, before);
-  f = fixture(); await R.recallFailedJobFromUi(f.host, f.message, async () => { f.setActive(false); return true; }, f.id);
-  assert.equal(f.queue.plans[0].jobs[0].attempt, 1);
-  f = fixture(); const save = f.host.saveDistributedQueue;
-  f.host.saveDistributedQueue = async (...args) => { f.queue.plans[0].jobs[0].status = "running"; return save(...args); };
-  await assert.rejects(R.recallFailedJobFromUi(f.host, f.message, async () => true, f.id), /身份、状态/);
-});
-test("remote obligations survive restart, back off offline, and never block or overwrite the new job", async () => {
-  const f = fixture(); await R.recallFailedJobFromUi(f.host, f.message, async () => true, f.id);
-  const pendingJob = structuredClone(f.queue.plans[0].jobs[0]); f.offline();
-  await R.processFailedAttemptRecoveries(f.host, root, f.id, 1000);
-  let row = f.queue.failedAttemptRecoveries[0]; assert.equal(row.tries, 1); assert.equal(Date.parse(row.retryAt), 31000);
-  await R.processFailedAttemptRecoveries(f.host, root, f.id, 2000); assert.equal(row.tries, 1); assert.equal(f.actions.length, 0);
-  f.online(); f.capability(false);
-  await R.processFailedAttemptRecoveries(f.host, root, f.id, 32000); assert.equal(f.actions.length, 0);
-  f.capability(true);
-  await R.processFailedAttemptRecoveries(f.host, root, f.id, 100000);
-  row = f.queue.failedAttemptRecoveries[0]; assert.equal(row.status, "completed"); assert.equal(f.waitCount, 1);
-  assert.equal(f.actions[0].action, "archive-worker-artifacts"); assert.equal(f.actions[0].request.targetCommandId, "command-0");
-  assert.deepEqual(f.queue.plans[0].jobs[0], pendingJob);
-  await R.processFailedAttemptRecoveries(f.host, root, f.id, 200000); assert.equal(f.actions.length, 1);
-});
-test("a restored active original attempt is stopped by its full identity; completed originals are retained", async () => {
-  const f = fixture(); await R.recallFailedJobFromUi(f.host, f.message, async () => true, f.id); f.snapshotStatus("running");
-  await R.processFailedAttemptRecoveries(f.host, root, f.id, 1000); assert.equal(f.stops, 1);
-  const g = fixture(); await R.recallFailedJobFromUi(g.host, g.message, async () => true, g.id); g.snapshotStatus("completed");
-  await R.processFailedAttemptRecoveries(g.host, root, g.id, 1000);
-  assert.equal(g.actions.length, 0); assert.equal(g.stops, 0); assert.equal(g.queue.failedAttemptRecoveries[0].status, "blocked");
-});
-test("wrong identity, failed receipt and changed server authorization never confirm cleanup", async () => {
-  for (const patch of [{ seed: 43 }, { commandId: "another-job" }, { status: "failed" }]) {
-    const f = fixture(); await R.recallFailedJobFromUi(f.host, f.message, async () => true, f.id);
-    const row = f.queue.failedAttemptRecoveries[0];
-    f.reply({ ...f.proof(), status: "completed", quarantined: true, recoveryId: row.id, absolutePath: row.absolutePath, destination: row.destination, ...patch });
-    await R.processFailedAttemptRecoveries(f.host, root, f.id, 1000);
-    assert.equal(f.queue.failedAttemptRecoveries[0].status, "pending");
+test("project changes and historical input cannot reach a confirmation, stop, cleanup or queue write", async () => {
+  for (const changed of [false,true]) {
+    const f=fixture(),before=structuredClone(f.queue);if(changed)f.setActive(false);
+    f.host.saveDistributedQueue=async()=>{throw Error("unexpected queue write");};
+    await assert.rejects(R.recallFailedJobFromUi(f.host,f.message,async()=>{throw Error("unexpected confirmation");},f.id),
+      changed?/Plan context changed/:/HISTORICAL_ATTEMPT_READ_ONLY/);
+    assert.deepEqual(f.queue,before);assert.equal(f.actions.length,0);assert.equal(f.stops,0);
   }
-  const f = fixture(); await R.recallFailedJobFromUi(f.host, f.message, async () => true, f.id);
-  f.host.sftpServerOptions = () => ({ ...server, user: "other-user" });
-  await R.processFailedAttemptRecoveries(f.host, root, f.id, 1000); assert.equal(f.actions.length, 0);
-  assert.throws(() => R.failedAttemptPaths("/srv/project", "work_dirs/a/attempts/../escape"));
 });
-test("late original receipts cannot restore the failed attempt over its replacement", async () => {
-  const f = fixture(); await R.recallFailedJobFromUi(f.host, f.message, async () => true, f.id);
-  const restarted = JSON.parse(JSON.stringify(f.queue));
-  const merged = Q.mergeDurableWorkerSnapshots(restarted, [{ workerId: "old-worker", capabilities: { durablePlanQueue: true },
-    fetchedAt: new Date().toISOString(), generatedAt: new Date().toISOString(), tasks: [{ ...f.proof(), status: "failed" }] }], Q.canonicalProjectId(root));
-  assert.equal(merged.plans[0].jobs[0].attempt, 2); assert.equal(merged.failedAttemptRecoveries.length, 1);
+test("persisted historical cleanup obligations survive restart as manual review, never automatic recovery", async () => {
+  const f=fixture();f.queue.failedAttemptRecoveries=[{id:"legacy-obligation",status:"pending",tries:0,job:f.proof()}];
+  const before=structuredClone(f.queue);f.offline();
+  for(const now of [1000,2000,32000,100000,200000]){
+    const state=await R.processFailedAttemptRecoveries(f.host,root,f.id,now);
+    assert.deepEqual(state,{status:"manual_review_required",automaticExecution:false});
+  }
+  assert.deepEqual(f.queue,before);assert.equal(f.actions.length,0);assert.equal(f.waitCount,0);assert.equal(f.stops,0);
+});
+test("background historical recovery never stops active originals or moves completed originals", async () => {
+  for(const status of ["running","completed"]){
+    const f=fixture();f.snapshotStatus(status);const before=structuredClone(f.queue);
+    const state=await R.processFailedAttemptRecoveries(f.host,root,f.id,1000);
+    assert.equal(state.automaticExecution,false);assert.deepEqual(f.queue,before);
+    assert.equal(f.stops,0);assert.equal(f.actions.length,0);
+  }
+});
+test("wrong receipts and changed server authorization never authorize historical cleanup", async () => {
+  for(const patch of [{seed:43},{commandId:"another-job"},{status:"failed"}]){
+    const f=fixture();f.reply({...f.proof(),status:"completed",quarantined:true,...patch});
+    f.host.sftpServerOptions=()=>({...server,user:"other-user"});const before=structuredClone(f.queue);
+    await R.processFailedAttemptRecoveries(f.host,root,f.id,1000);
+    assert.deepEqual(f.queue,before);assert.equal(f.actions.length,0);assert.equal(f.waitCount,0);
+  }
+  assert.throws(()=>R.failedAttemptPaths("/srv/project","work_dirs/a/attempts/../escape"));
+  assert.throws(()=>R.failedAttemptPaths("/srv/project","../escape"));
+});
+test("late historical receipts cannot replace a current declared job generation", async () => {
+  const f=fixture(),current=JSON.parse(JSON.stringify(f.queue));current.plans[0].resultPathPolicy="declared";
+  const job=current.plans[0].jobs[0];Object.assign(job,{attempt:0,outputDir:"work_dirs/cpsc/0",collectionResultCsv:"tmp/result/0.csv",lifecycleProtocol:2,status:"pending"});
+  delete job.commandId;delete job.workerId;delete job.runKey;
+  const before=structuredClone(job),at=new Date().toISOString();
+  const merged=Q.mergeDurableWorkerSnapshots(current,[{workerId:"old-worker",capabilities:{durablePlanQueue:true},
+    fetchedAt:at,generatedAt:at,tasks:[{...f.proof(),status:"failed"}]}],Q.canonicalProjectId(root));
+  assert.equal(merged.plans.length,1);assert.deepEqual(merged.plans[0].jobs[0],before);
+  assert.equal(merged.failedAttemptRecoveries,undefined);
+});
+test("declared recall delegates the exact original job message to the reviewed single-job host flow", async () => {
+  const f=fixture();f.queue.plans[0].resultPathPolicy="declared";const before=structuredClone(f.queue),calls=[];
+  const result={status:"blocked",code:"SOURCE_CHANGED_UNSUPPORTED"};
+  f.host.retryDistributedJobFromUi=async message=>{calls.push(message);return result;};
+  assert.equal(await R.recallFailedJobFromUi(f.host,f.message,async()=>{throw Error("duplicate confirmation");},f.id),result);
+  assert.deepEqual(calls,[f.message]);assert.deepEqual(f.queue,before);assert.equal(f.actions.length,0);assert.equal(f.stops,0);
 });

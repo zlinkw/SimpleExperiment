@@ -45,7 +45,7 @@ test('replacement fence persists before deletion and prevents re-mirroring after
   const instance = new Host(); instance.root = 'fixture'; instance.drainReconnects = async () => {};
   instance.host = { loadDistributedQueue: async () => structuredClone(queue), saveDistributedQueue: async (_, data) => { saved = structuredClone(data); },
     withHostOperationLease: async (_, __, work) => work() };
-  instance.service = { status: async () => ({ preview: { scope: { job: { purpose: 'replace_outputs', workflowId: 'run', index: 0, commandId: 'c' }, nodes: [{ id: 'w' }] } } }),
+  instance.service = { registeredIsolationSource: async () => undefined, status: async () => ({ preview: { scope: { job: { purpose: 'replace_outputs', workflowId: 'run', index: 0, commandId: 'c' }, nodes: [{ id: 'w' }] } } }),
     history: async () => [], preflightConfirmed: async () => {}, execute: async () => { assert.ok(saved.plans[0].jobs[0].outputRetiredAt); throw Error('NETWORK_DISCONNECT'); } };
   await assert.rejects(instance.execute('op'), /NETWORK_DISCONNECT/);
   assert.equal(saved.plans[0].jobs[0].cleanup.operationId, 'op'); assert.equal(saved.plans[0].jobs[0].cleanup.state, 'partial');

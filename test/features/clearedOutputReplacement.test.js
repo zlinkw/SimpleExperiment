@@ -130,7 +130,7 @@ test('actual cleanup Host uses current file observations without requiring retir
   const rows=scope.candidates.map((row,index)=>({...row,id:String(index),node:{id:'w'},absolutePath:'/safe/project/'+row.relativePath}));
   const operation={id:'confirmed-operation',pendingNodes:[],preview:{action:'delete',scope,rows},targets:Object.fromEntries(rows.map(row=>[row.id,{state:'completed'}]))};
   let applied=false;
-  cleanup.service={status:async()=>{
+  cleanup.service={registeredIsolationSource:async()=>undefined,status:async()=>{
       if(applied&&!operation.indexed){
         events.push('active-query');operation.state='completed';operation.retirementPendingNodes=[];
         for(const row of rows)operation.targets[row.id]={state:'completed',receipt:{source:'active_query',verifiedBy:'path_absence'}};

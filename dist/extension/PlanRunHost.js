@@ -205,6 +205,8 @@ class PlanRunHost {
                 await h.assertPlanSubmissionWorkers(body, { validation });
             },
             progress: (text) => body.reportPlanStageLocal?.(text),
+            // 批路径注入批次对话道；单 PLAN 提交没有批次道，保持原语义直接执行。
+            interactive: work => (body.confirmGateLocal || ((fn) => fn()))(work),
             hold: async (selected) => {
                 // 归一化匹配后核实每个已确认目标都在队列声明中；真实不匹配显式失败且不写队列，禁止静默漏 retired。
                 await h.saveDistributedQueue(this.root, undefined, { artifactMutation: true, mutateLatest: (queue) => {

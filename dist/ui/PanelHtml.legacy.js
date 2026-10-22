@@ -1454,6 +1454,7 @@ function renderPanelHtml() {
           <button type="button" data-command="runAllPlans" data-plan-batch-run="selected" class="secondary" disabled title="所选 PLAN 每批最多 4 个并发校验与入队；同版本代码统一同步，无需指定服务器；保留逐 Plan 预演与覆盖确认；失败后不启动下一批">运行所选计划</button>
           <button data-command="runAllPlans" data-confirm="true" class="secondary" title="全部 PLAN 每批最多 4 个并发校验与入队；同版本代码统一同步，无需指定服务器&#10;每批入队后自动派发，保留逐 Plan 预演与覆盖确认；失败后不启动下一批">运行全部计划</button>
           <button data-command="cleanupPlan" class="secondary" title="只读预览选中 PLAN 的本机及历史关联服务器产物，再核对精确路径">清除 PLAN 及关联产物</button>
+          <button data-command="reviewIsolatedPlanBatches" class="secondary" title="本批全部初始 PLAN 已核实启动后，独立审核已登记隔离产物；永久删除须另行两次确认">审核隔离产物永久删除</button>
           </div>
         </div>
         <div id="planCommandPhaseLine" class="commandPhaseLine muted" role="status" aria-live="polite"></div>

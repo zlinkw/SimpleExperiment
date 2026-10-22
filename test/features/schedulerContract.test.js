@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const vm = require("node:vm");
 const { readSource } = require("../_helpers/sourceReader");
+require('../_helpers/registerTsRequire');
 
 const source = readSource("src/extension.ts");
 function method(name, next) {
@@ -16,6 +17,8 @@ function harness(config = {}) {
   const sandbox = {
     vscode: { workspace: { getConfiguration: () => ({ get: (key, fallback) => config[key] ?? fallback }) } },
     DistributedSchedulingPolicy: { schedulingMode: value => value },
+    GpuQuotaScheduling: require('../../src/features/GpuQuotaScheduling.ts'),
+    GpuMemoryScheduling: require('../../src/features/GpuMemoryScheduling.ts'),
     setTimeout: (_callback, delay) => { delays.push(delay); return { unref() {} }; },
     clearTimeout() {},
   };
@@ -48,12 +51,12 @@ test("scheduler settings enforce the documented bounds and honor configured push
   assert.equal(defaults.sessionCheckMinSeconds, 5);
 });
 
-test("availability push uses configured cadence without delaying the distributed queue tick", () => {
+test("retired availability push cannot start network timers; active queue polling remains registered", () => {
   const { p, delays } = harness({ "scheduler.localAvailabilityPushSeconds": 27 });
   p.startAvailabilityPushLoop();
-  assert.deepEqual(delays, [27000]);
+  assert.deepEqual(delays, [], 'native Worker pulls do not revive the retired availability publisher');
   p.longRunningPlanRunOperations = () => [];
   p.startAvailabilityPushLoop();
-  assert.deepEqual(delays, [27000]);
+  assert.deepEqual(delays, []);
   assert.match(source, /setInterval\(\(\) => \{ void this\.tickDistributedQueue\(\)[^\n]+, 500\)/);
 });

@@ -33,12 +33,13 @@ export type CleanupRow = CleanupCandidate & { id: string; node: CleanupNode; des
   disposition: "move" | "delete" | "restore" | "isolate" | "protected" | "unverified" | "absent" | "completed"; error?: string };
 export type CleanupPreview = { token: string; digest: string; action: "move" | "delete" | "restore" | "isolate"; scope: CleanupScope;
   rows: CleanupRow[]; blockers: CleanupScope["blockers"]; verifiedOnly: boolean; expiresAt: number; confirmations: number;
-  originalOperationId?: string; continuationOf?: string };
+  originalOperationId?: string; continuationOf?: string; registeredIsolationOperationId?: string };
 export type CleanupNodeCheck = { operationId: string; nodeId: string; checkedAt: string;
   state: "confirmation_required" | "settlement_required" | "blocked";
   targets: Array<{ id: string; absolutePath: string; state: string; code?: string }> };
 export type CleanupOperation = { id: string; preview: CleanupPreview; state: "ready" | "running" | "paused" | "partial" | "completed" | "blocked";
   executionRequestedAt?: string;
+  executionRequestError?: string;
   targets: Record<string, { state: "pending" | "executing" | "completed"; receipt?: any; error?: string }>;
   pendingNodes: string[]; error?: string; updatedAt: string; indexed?: boolean; restoredBy?: string; continuedBy?: string;
   nodeChecks?: Record<string, CleanupNodeCheck>; retirementPendingNodes?: string[] };
@@ -49,6 +50,7 @@ export type CleanupPorts = {
   restoreGate(preview: CleanupPreview, operation?: CleanupOperation): Promise<void>;
   currentNode?(id: string): Promise<CleanupNode>;
   validateScope?(scope: CleanupScope): Promise<void>;
+  validateIsolationReview?(operationId: string): Promise<void>;
   storageRoot: string;
 };
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -185,6 +187,11 @@ export class PlanCleanup {
   private observing = new Map<string, Promise<CleanupOperation>>();
   constructor(private readonly ports: CleanupPorts) {}
   private file(id: string) { if (!/^[a-f0-9]{48}$/.test(id)) cleanupError("INVALID_OPERATION_ID"); return path.join(this.ports.storageRoot, id + ".json"); }
+  async registeredIsolationSource(id: string): Promise<string | undefined> {
+    const record = JSON.parse(await fs.readFile(this.file(id), "utf8"));
+    const source = record?.preview?.registeredIsolationOperationId;
+    return record?.id === id && record?.preview?.action === "delete" && typeof source === "string" && /^[a-f0-9]{48}$/.test(source) ? source : undefined;
+  }
   private async save(operation: CleanupOperation) {
     operation.updatedAt = new Date().toISOString();
     const record = clone(operation);
@@ -198,7 +205,7 @@ export class PlanCleanup {
       record.preview.blockers = []; record.preview.scope.blockers = []; record.preview.scope.notices = [];
       delete record.preview.scope.associationBlockers;
       record.preview.digest = ""; record.preview.expiresAt = 0;
-      delete record.error; delete record.executionRequestedAt;
+      delete record.error; delete record.executionRequestedAt; delete record.executionRequestError;
     }
     await atomicWriteText(this.file(operation.id), JSON.stringify(record, null, 2));
   }
@@ -418,7 +425,8 @@ export class PlanCleanup {
           operation.error = "清理查询失败，可重新查询：" + String(error.message || error); }
       }
       if (unresolved && !operation.error)
-        operation.error = "部分目标回执未核实（隔离名残留或状态未知）；不会自动重发，可刷新实际状态后由你决定是否继续。";
+        operation.error = "部分目标回执未核实（隔离名残留或状态未知）；不会自动重发，可刷新实际状态后由你决定是否继续。"
+          + (operation.executionRequestError ? " 执行请求未确认：" + operation.executionRequestError : "");
     } else
     await this.queryRows(operation.preview.rows.filter(row => operation.targets[row.id]), async row => {
       if (operation.preview.action === "delete" && operation.targets[row.id]?.receipt?.verifiedBy === "path_absence") return;
@@ -478,14 +486,17 @@ export class PlanCleanup {
       await this.save(operation);
       if (!pending().length) continue;
       if (this.cancelled.has(operation.id)) { operation.state = "paused"; await this.save(operation); return; }
+      let sendError = "";
       if (!snapshot?.batchExecuting) {
         // 取消只在执行请求发出之前生效；服务器对已接收批次整批串行执行，本端不并发第二个请求。
         group.filter(row => operation.targets[row.id]?.state !== "completed").forEach(row => { operation.targets[row.id] = { state: "executing" }; });
         await this.save(operation);
         const anchor = pending()[0];
-        let sendError = "";
         try { await this.ports.sftp("files.cleanup.execute", { token: backendToken, digest: anchor.backendDigest, index: anchor.backendIndex }); }
-        catch (error: any) { sendError = String(error?.message || error); }
+        catch (error: any) {
+          sendError = String(error?.apiData?.code || error?.code || "") + " " + String(error?.message || error);
+          operation.executionRequestError = sendError.trim();
+        }
       }
       // 执行回执只是传输证据；一轮批量主动查询解析整批事实。batchExecuting 期间继续等待，不重发。
       for (let poll = 0; poll < 240; poll++) {
@@ -496,7 +507,8 @@ export class PlanCleanup {
       }
       const unresolved = pending();
       if (unresolved.length)
-        unresolvedNote = "本批 " + unresolved.length + " 个目标回执未核实（隔离名残留、状态未知或服务器仍在处理）；不会自动重发，可刷新实际状态后由你决定是否继续。";
+        unresolvedNote = "本批 " + unresolved.length + " 个目标回执未核实（隔离名残留、状态未知或服务器仍在处理）；不会自动重发，可刷新实际状态后由你决定是否继续。"
+          + (sendError ? " 执行请求未确认：" + sendError : "");
     }
     if (unresolvedNote) operation.error = unresolvedNote;
   }
@@ -970,7 +982,8 @@ export class PlanCleanup {
   }
   private async revalidate(preview: CleanupPreview, operation?: CleanupOperation) {
     if (preview.action === "restore") { await this.ports.restoreGate(preview, operation); return; }
-    if (!operation?.executionRequestedAt) await this.ports.validateScope?.(preview.scope);
+    if (preview.registeredIsolationOperationId) await this.ports.validateIsolationReview?.(preview.registeredIsolationOperationId);
+    else if (!operation?.executionRequestedAt) await this.ports.validateScope?.(preview.scope);
     if (preview.scope.authorizationMode === "confirmed_paths") {
       // The user authorizes these frozen paths, not a historical PLAN/task revision.
       // One batched active query per frozen backend batch re-checks every entry identity;
@@ -1123,6 +1136,7 @@ export class PlanCleanup {
   }
   /** 隔离目标的永久删除预览：只接受已完成隔离操作冻结的目的路径；对外仍是 delete/confirmed_paths 双确认受管流程。 */
   async isolatedDeletePreview(id: string, verifiedOnly = false): Promise<CleanupPreview> {
+    await this.ports.validateIsolationReview?.(id);
     const original = await this.status(id);
     if (original.preview.action !== "isolate" || original.continuedBy || original.restoredBy) cleanupError("NOT_ISOLATED_OPERATION");
     if (this.busy.has(id)) cleanupError("OPERATION_BUSY");
@@ -1130,7 +1144,9 @@ export class PlanCleanup {
     if (!sources.length) cleanupError("NO_VERIFIED_TARGETS");
     const token = randomBytes(24).toString("hex");
     const preview: CleanupPreview = { token, digest: "", action: "delete", scope: clone(original.preview.scope), rows: [],
-      blockers: [], verifiedOnly, expiresAt: Date.now() + 30 * 60 * 1000, confirmations: 0 };
+      registeredIsolationOperationId: id, blockers: [], verifiedOnly, expiresAt: Date.now() + 30 * 60 * 1000, confirmations: 0 };
+    preview.scope.authorizationMode = "confirmed_paths";
+    preview.scope.observationMode = "managed_tmux";
     for (const source of sources) {
       const row: CleanupRow = { ...clone(source), id: cleanupDigest([source.node.id, source.node.root, source.destination, source.type, id]),
         relativePath: source.destination, destination: source.destination, disposition: "delete", archiveBatch: undefined,
@@ -1146,8 +1162,10 @@ export class PlanCleanup {
       try {
         const backend = await this.ports.sftp("files.cleanup.preview", { node: source.node, action: "delete", observationMode: "managed_tmux",
           authorizationMode: "confirmed_paths", targets: [{ relativePath: source.destination, destination: source.destination, type: source.type }] });
-        if (Number(backend.safety?.registeredIsolationDeletion) !== 1)
+        if (Number(backend.safety?.registeredIsolationDeletion) !== 1 || Number(backend.safety?.subtreeSingleWriter) !== 1)
           cleanupError("SFTP_ISOLATE_DELETE_UPGRADE_REQUIRED", "当前 SimpleSFTP 不支持注册隔离目标的受管永久删除；请更新配套插件后重试，未执行任何删除。");
+        if (!source.rootIdentity || !backend.rootIdentity || cleanupDigest(source.rootIdentity) !== cleanupDigest(backend.rootIdentity))
+          cleanupError("ISOLATED_ROOT_IDENTITY_CHANGED", "隔离操作的物理根身份已变化或无法核实；未准入删除。");
         const info = backend.targets[0];
         if (info.missing) row.disposition = "absent";
         else Object.assign(row, { fingerprint: info.fingerprint, size: info.size, backendToken: backend.token, backendDigest: backend.digest,
@@ -1163,7 +1181,10 @@ export class PlanCleanup {
       }
       preview.rows.push(row);
     }
-    if (!preview.rows.some(row => row.disposition === "delete")) cleanupError("NO_VERIFIED_TARGETS");
+    if (!preview.rows.some(row => row.disposition === "delete")) {
+      const blocker = preview.blockers[0];
+      cleanupError(blocker?.code || "NO_VERIFIED_TARGETS", blocker?.detail);
+    }
     preview.digest = cleanupDigest({ action: preview.action, scope: preview.scope, rows: preview.rows, verifiedOnly });
     this.previews.set(token, clone(preview));
     return clone(preview);
