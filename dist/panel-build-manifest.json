@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.401",
-  "buildId": "53a0c134471773f22ff04d00509286111bc4187bbec6893632f07a5e033dd27b",
+  "buildId": "79d99912deac042452fcf99ae9529864e778befb3f0c0824b189d04b59b1370f",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "18e60a55de75e1858daae0d9266bb414be622d67da181d6703327b0cd3f05520"
+      "sha256": "4fcb8ef52793de9c7ee05a60d2273ad78e7835cbc4e8996ef77473dda6745f11"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -205,7 +205,7 @@
     },
     {
       "path": "dist/extension/PlanCleanupHost.js",
-      "sha256": "e0d0f2797337cd86514acef0f434aba6326c3f32d121d6fd036fce1a6dcb0dd3"
+      "sha256": "22183d260fabc7e1b48d766efc52a818dd59b8872d128b4d82b78b6544640f3b"
     },
     {
       "path": "dist/extension/PlanCleanupPanel.js",
@@ -501,7 +501,7 @@
     },
     {
       "path": "dist/features/PlanCleanup.js",
-      "sha256": "360dd3c76ceaf52dc96df4e505f6452fd8e818bb0ff03e24ed2fe71e9e788487"
+      "sha256": "a72591382161015390ce3b5b696b28b014d1a03fa03ff6dfd88c6ba38b881ed4"
     },
     {
       "path": "dist/features/PlanCleanupEvidence.js",
@@ -550,6 +550,10 @@
     {
       "path": "dist/features/ProjectMirror.js",
       "sha256": "d1a2f21409d330e8d4dfad0aef3dbc850fe6b1107053a6ad3cddc0378b5bfbc9"
+    },
+    {
+      "path": "dist/features/ProjectRootMap.js",
+      "sha256": "ce7eaf1476724b742d48042fa2b2c6b945173030d1becb6ad7c616fc69a1005a"
     },
     {
       "path": "dist/features/ProjectStaticCheck.js",
@@ -637,7 +641,7 @@
     },
     {
       "path": "dist/features/SyncScopeStatus.js",
-      "sha256": "0630a1bba8d89d5c0fd719ee7fe534a41a61b5c3548b398769ad448f972473ca"
+      "sha256": "c18494b9c7db2e29f48af9f40d79059c518d601e5c6789f17151d40620ac9db5"
     },
     {
       "path": "dist/features/SyncScopeTransferBatch.js",
@@ -781,7 +785,7 @@
     },
     {
       "path": "dist/tunnel/AgentTmuxPolicy.js",
-      "sha256": "fa17aab16a59d91a3b1af9dbca641cbcb95eea11648bf86b6a8c0533da6106cf"
+      "sha256": "c03b899fc64f4b991cd944262dbebdb4faedddeeb50366f833c7bb851511d8b7"
     },
     {
       "path": "dist/tunnel/AuthorityMergePolicy.js",
@@ -945,7 +949,7 @@
     },
     {
       "path": "dist/tunnel/XshellTunnelPortProbe.legacy.js",
-      "sha256": "650078a616b0016b804a6a8a21952e4a0e0cd67af8164bc1439d08d87b27939e"
+      "sha256": "cde44e91fb776fa797f1bfe2953267ee7ac1f276a7d293f068205bfc39faf59e"
     },
     {
       "path": "dist/tunnel/XshellTunnelSetup.js",
@@ -953,7 +957,7 @@
     },
     {
       "path": "dist/tunnel/XshellTunnelSetup.legacy.js",
-      "sha256": "b65a8cdc9eb027126d9bcf332a53eee05654b0e05e741257d98d4f3cdc97c9e9"
+      "sha256": "c2c5bba4dac73a5b650ee1b30068716858e38784866f4806025e4755840e8149"
     },
     {
       "path": "dist/ui/OperationPayload.js",
@@ -1093,7 +1097,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "24d12a3ad323cdea436c88dee2b81eb146e7d12df40079a7adfb0645f02ccc62"
+      "sha256": "a148f7806f51c47818497a61a0eb596b74aae20e09bb62ec63961df9043ef470"
     },
     {
       "path": "scripts/check-static.js",

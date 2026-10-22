@@ -45,8 +45,8 @@ const PlanArtifactSync_1 = require("../features/PlanArtifactSync");
 const StateStore_1 = require("../state/StateStore");
 const PlanCleanupPanel_1 = require("./PlanCleanupPanel");
 const FastDeleteContract_1 = require("../features/FastDeleteContract");
-const ManifestCleanup_1 = require("../features/ManifestCleanup");
 const ProjectRootMap_1 = require("../features/ProjectRootMap");
+const ManifestCleanup_1 = require("../features/ManifestCleanup");
 async function json(file, fallback) {
     const text = await fs.readFile(file, "utf8").catch((error) => { if (error.code === "ENOENT")
         return ""; throw error; });
@@ -101,6 +101,12 @@ class PlanCleanupHost {
                 this.assertWorkspace();
                 if (scope.candidates.some(row => row.category === "PLAN 文件" && !row.scopeProtectedReason))
                     (0, PlanCleanup_1.cleanupError)("PLAN_CLEANUP_SCOPE_CHANGED", "旧审核包含 PLAN 文件，请重新审核；本次不会处理 PLAN 或共享配置。");
+                for (const row of scope.candidates.filter(row => !row.scopeProtectedReason && row.nodeId !== "pluginState")) {
+                    const node = scope.nodes.find(node => node.id === row.nodeId);
+                    const guard = this.machineStateForNode(node);
+                    if (guard.unknown || (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(row.relativePath, guard.prefixes, true))
+                        (0, PlanCleanup_1.cleanupError)("MACHINE_STATE_PATH_PROTECTED", row.relativePath);
+                }
                 const configs = scope.candidates.filter(row => !row.scopeProtectedReason && ["专用配置", "远端配置同步副本"].includes(row.category));
                 if (!configs.length)
                     return;
@@ -217,27 +223,25 @@ class PlanCleanupHost {
         const evidenceQueue = job?.purpose === "replace_outputs" ? (0, PlanOutputReplacement_1.replacementEvidenceQueue)(queue, snapshots, (0, DistributedPlanQueue_1.canonicalProjectId)(this.root)) : queue;
         const scope = await (0, PlanCleanupEvidence_1.collectPlanCleanupEvidence)({ root: this.root, planFile: file, queue: evidenceQueue, ledger, registry,
             resultDir: this.host.resultCsvDirectory || "experiments/results", nodes, snapshots: snapshots.map(PlanOutputReplacement_1.cleanupTaskEvidence), operations, allowMissing, archivedFiles, removedMetadata, job });
-        // Four-root cleanup guard bound to EACH node's identity (never a union:
-        // one Worker's nested state root must not protect or expose another node's
-        // same-spelled artifact). Each node resolves through the same four-root map
-        // as the sync gates (workDir + installDir → machine state root); candidates
-        // under that node's mapped prefix AND its ancestors become scope-protected,
-        // so deleting an ancestor directory can never reach machine state. A node
-        // whose explicit config cannot be canonicalized reports unknown and is
-        // protected fail-closed; a merely unmapped (neutral) node keeps the previous
-        // evidence-based protection untouched. Nothing is migrated or moved.
+        // Bind protection to each node, including ancestors of its state roots.
+        // Unknown mappings protect that node; another Worker's paths stay independent.
         const machineStateByNode = {};
         for (const node of nodes) {
             try {
-                const dirs = typeof this.host.agentRuntimeDirs === "function" ? this.host.agentRuntimeDirs(node.root, undefined) : null;
-                const map = (0, ProjectRootMap_1.resolveProjectRootMap)({ projectDir: node.root, installDir: String(dirs?.installDir || "") });
-                const guard = (0, ProjectRootMap_1.machineStateGuard)(map);
+                const target = targets.find(target => target.id === node.id);
+                const guard = node.kind === "local" ? this.host.localMachineStateGuard?.(node.root)
+                    : this.host.targetRootGuard?.(target);
+                if (!guard)
+                    throw new Error("MACHINE_STATE_MAPPING_UNRESOLVED");
                 machineStateByNode[String(node.id)] = guard;
                 if (guard.unknown)
                     scope.blockers.push({ code: "MACHINE_STATE_MAPPING_UNRESOLVED", nodeId: String(node.id),
                         detail: "该节点的状态根配置无法规范化（相对/越界路径），本轮清理已整体禁用该节点；请修正配置后重试。" });
             }
-            catch { /* an unmapped node keeps only the previous evidence-based protection */ }
+            catch {
+                machineStateByNode[String(node.id)] = { prefixes: [], unknown: true };
+                scope.blockers.push({ code: "MACHINE_STATE_MAPPING_UNRESOLVED", nodeId: String(node.id), detail: "机器状态映射不可用，请重新核对节点配置。" });
+            }
         }
         scope.machineStateByNode = machineStateByNode;
         if (job?.purpose === "replace_outputs") {
@@ -337,6 +341,7 @@ class PlanCleanupHost {
             scope.notices.push(...scope.blockers.filter(row => !pathErrors.has(row.code)));
             scope.blockers = scope.blockers.filter(row => pathErrors.has(row.code));
         }
+        scope.machineStateByNode = Object.fromEntries(nodes.map(node => [String(node.id), this.machineStateForNode(node)]));
         scope.runIds = queue.plans.filter((plan) => plan.planFile === file).map((plan) => plan.id);
         scope.observationMode = "managed_tmux";
         scope.nativeDeclarations = discovered.declarations;
@@ -353,6 +358,18 @@ class PlanCleanupHost {
         scope.revision = (0, PlanCleanup_1.cleanupDigest)([file, scope.planHash, configuration, discovered.declarations,
             nodes.map(({ error, ...node }) => node)]);
         return scope;
+    }
+    machineStateForNode(node) {
+        try {
+            if (node.kind === "local")
+                return this.host.localMachineStateGuard?.(node.root) || { prefixes: [], unknown: true };
+            const worker = (this.host.setupConfig?.workerTunnels || []).find((row) => row.id === node.id);
+            const target = worker && this.host.workerCodeSyncTarget(worker);
+            return this.host.targetRootGuard?.(target) || { prefixes: [], unknown: true };
+        }
+        catch {
+            return { prefixes: [], unknown: true };
+        }
     }
     async restoreGate(preview, operation) {
         const archivedFiles = Object.fromEntries(preview.rows.filter(row => row.node.kind === "local" && ["PLAN 文件", "专用配置"].includes(row.category)

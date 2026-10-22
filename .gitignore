@@ -22,6 +22,8 @@ simple-experiment-0.1.5*.vsix
 dist/runtime/__pycache__/
 
 # Temp / scratch
+/.audit/
+**/__pycache__/
 .tmp/
 tmp/
 *.tmp

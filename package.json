@@ -934,7 +934,7 @@
     "test:mac-parity": "node --test --test-force-exit --test-timeout 20000 test/features/workflowWorkspaceBinding.test.js && node --test --test-force-exit --test-timeout 20000 test/features/localApiClientContract.test.js && node --test --test-force-exit --test-timeout 20000 test/features/windowsWorkflowContract.test.js && node --test --test-force-exit --test-timeout 20000 test/features/resultOwnershipScope.test.js && node --test --test-force-exit --test-timeout 20000 test/features/remoteResultInspectionWorkflow.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planSafeRetry.test.js && node --test --test-force-exit --test-timeout 20000 --test-name-pattern \"project root uses|experiment run --dry-run\" test/cli/simpleCli.test.js",
     "test:execution-shell": "node --test --test-force-exit --test-timeout 20000 test/features/executionShellPreflight.test.js && node --test --test-force-exit --test-timeout 20000 test/features/executionShellEnvironment.test.js && node --test --test-force-exit --test-timeout 20000 test/features/executionShellReap.test.js && node --test --test-force-exit --test-timeout 20000 test/features/nvJitLinkShell.test.js",
     "watch": "tsc -watch -p .",
-    "typecheck": "tsc -p . --pretty false",
+    "typecheck": "node node_modules/typescript/bin/tsc -p . --pretty false",
     "lint": "node scripts/lint-smoke.js",
     "cleanup": "node scripts/compact-target-mode-plan.js && node scripts/clean-generated-dirs.js",
     "test": "npm run build && node --test test/*.test.js test/**/*.test.js",

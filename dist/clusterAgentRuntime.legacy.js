@@ -2372,8 +2372,8 @@ def api_worker_gpu(root):
     # stale/partial/foreign/unreadable returns an honest degraded payload (empty
     # gpus + error + collectorMode) — this consumer never revives a second sampler
     # or switches the Agent-side epoch once a collector is registered; only a
-    # confirmed-legacy Worker (no registration AND no frame) keeps the historical
-    # direct sample, visibly marked frameSource=worker_agent_direct_unoptimized.
+    # legacy runtime without the collector functions keeps the historical direct
+    # sample, visibly marked frameSource=worker_agent_direct_unoptimized.
     worker_id = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
     with WORKER_GPU_SAMPLE_LOCK:
         cached = WORKER_GPU_SAMPLE_CACHE.get("sample")
@@ -2396,7 +2396,7 @@ def api_worker_gpu(root):
         # (stalled/unregistered/unknown/unreadable/foreign/partial/stale) is a
         # registered Worker in a failed state — reported as-is with gpus empty so
         # no consumer can mistake it for a fresh sample.
-        if observed.get("mode") != "absent":
+        if "read_gpu_collector_frame" in globals():
             mode = str(observed.get("mode") or "unknown")
             payload = {"schemaVersion": SCHEMA_VERSION, "generatedAt": now_iso(),
                        "source": "worker_telemetry", "frameSource": GPU_COLLECTOR_SOURCE, "collectorMode": mode,
@@ -4081,9 +4081,7 @@ def reserve_distributed_gpu(root, gpu_id, command_id, util_threshold=None, mem_t
                 capability = str(read_gpu_collector_frame(worker_now, root).get("mode") or "unknown")
             except Exception:
                 capability = "unreadable"
-            if capability == "absent":
-                gpus, error = collect_local_gpu()
-            elif capability == "unconfigured":
+            if capability == "unconfigured":
                 gpus, error = [], "gpu_collector_state_unconfigured"
             else:
                 gpus, error = [], "gpu_admission_evidence_missing" if capability == "stalled" or capability == "fresh" \
@@ -5935,18 +5933,10 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         admission_evidence = None
         if "gpu_admission_probe_bound" in globals() and "read_gpu_collector_frame" in globals():
             _probe_worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
-            try:
-                # The SHARED reader's capability: only the ENOENT-confirmed legacy
-                # state skips the credential flow; everything else must produce a
-                # request-bound sample or the job stays queued.
-                _registered = str(read_gpu_collector_frame(_probe_worker, root).get("mode") or "absent") != "absent"
-            except Exception:
-                _registered = True  # unknown state: route through the probe, which fails closed
-            if _registered:
-                _bound_gpus, _bound_error, admission_evidence = gpu_admission_probe_bound(
-                    root, _probe_worker, {"commandId": str(command_id)})
-                if _bound_error:
-                    raise RuntimeError(f"GPU 实时检测失败：{_bound_error}")
+            _bound_gpus, _bound_error, admission_evidence = gpu_admission_probe_bound(
+                root, _probe_worker, {"commandId": str(command_id)})
+            if _bound_error:
+                raise RuntimeError(f"GPU 实时检测失败：{_bound_error}")
         existing_task = reserve_distributed_gpu(root, gpu_id, command_id, gpu_util_threshold, gpu_mem_threshold,
                                                 command.get("requireIdleGpu") is True, max_concurrent_gpus,
                                                 admission_evidence=admission_evidence)
@@ -6786,6 +6776,9 @@ def api_health(root, mode="realtime"):
         "schedulerUpdateError": TASK_SCHEDULER_UPDATE_ERROR,
         "agentInstallDir": agent_install_dir(root),
         "agentStateDir": agent_dir(root),
+        "workerStateDir": gpu_collector_state_root(root),
+        "workerId": str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"),
+        "gpuCollectorProtocol": 1,
         "status": "ok" if serving or health.get("running") is not False else "degraded",
         "snapshotAge": age if age is not None else 999999,
         "workerCount": (1 if snapshot.get("gpu") or snapshot.get("gpus") else 0) if mode == "worker_telemetry" else len(snapshot.get("workers") or []),
@@ -15867,7 +15860,7 @@ def serve_http(args):
             gpu_collector_ensure(os.environ["SIMPLE_EXPERIMENT_WORKER_ID"], root)
         except Exception as gpu_collector_exc:
             # The Agent must stay diagnosable even when the collector window cannot start;
-            # consumers fall back to the marked direct sample meanwhile.
+            # consumers report unknown meanwhile; no second sampler is started.
             print("[gpu-collector] " + str(gpu_collector_exc), file=sys.stderr, flush=True)
         start_worker_telemetry_sampler(root, getattr(args, "gpu_poll_seconds", 1), 0)
         # P0: worker_telemetry 与 hub_control 均启动 gpu_log_tail 采样，与 GPU 采样同频 60s，写入 live_output/{gid}.json + append_event log_tail

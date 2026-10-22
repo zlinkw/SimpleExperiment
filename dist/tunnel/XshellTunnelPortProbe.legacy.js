@@ -78,6 +78,8 @@ async function probeLocalTunnel(config, options = {}) {
     const host = resolveProbeHost(config);
     const base = resolveProbeBase(config);
     const baseResult = {
+        localForwardHost: host,
+        remoteAgentHost: String(config.remoteAgentHost || "127.0.0.1"),
         localForwardPort: config.localForwardPort,
         remoteAgentPort: config.remoteAgentPort,
         tcpOpen: false,
@@ -254,6 +256,10 @@ async function probeLocalTunnel(config, options = {}) {
             projectRoot,
             agentInstallDir,
             schedulerDependencies: health.schedulerDependencies,
+            agentStateDir: String(health.agentStateDir || ""),
+            workerStateDir: String(health.workerStateDir || ""),
+            workerId: String(health.workerId || ""),
+            gpuCollectorProtocol: Number(health.gpuCollectorProtocol || 0),
             capabilities,
             fileCapabilities,
             message: "Xshell 隧道和 Worker Agent API 可用。",
@@ -277,6 +283,8 @@ async function probeWorkerTelemetryTunnel(config, options = {}) {
     const host = resolveProbeHost(config);
     const base = resolveProbeBase(config);
     const baseResult = {
+        localForwardHost: host,
+        remoteAgentHost: String(config.remoteAgentHost || "127.0.0.1"),
         localForwardPort: config.localForwardPort,
         remoteTelemetryPort: config.remoteAgentPort,
         tcpOpen: false,
@@ -342,6 +350,10 @@ async function probeWorkerTelemetryTunnel(config, options = {}) {
             schedulerDependencies: health.schedulerDependencies,
             capabilities,
             warnings: validation.warnings,
+            agentStateDir: String(health.agentStateDir || ""),
+            workerStateDir: String(health.workerStateDir || ""),
+            workerId: String(health.workerId || ""),
+            gpuCollectorProtocol: Number(health.gpuCollectorProtocol || 0),
             message: ok ? "Worker Telemetry API 可用。" : "Worker Telemetry API 不完整。",
             suggestion: ok ? undefined : modeSuggestion,
         };

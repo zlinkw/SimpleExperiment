@@ -8216,12 +8216,18 @@ class RealtimeTunnelPanelProvider {
         const config = target.id === "hub" ? this.setupConfig : this.setupConfig.workerTunnels.find(row => row.id === target.id);
         if (!config)
             throw new Error(`AGENT_CONFIG_MISSING: ${target.id}`);
+        if (config.agentStateDir || config.workerStateDir) {
+            const capability = await this.simpleSftpCapability("agents.lifecycle");
+            if (capability.methodOptions?.["agents.lifecycle"]?.rootMapping !== 1)
+                throw new Error("AGENT_ROOT_MAPPING_CAPABILITY_REQUIRED: 配套 SimpleSFTP 尚不支持自定义状态根，未修改远端。");
+        }
         const dirs = this.agentRuntimeDirs(config.agentProjectDir, config.agentInstallDir);
         const result = await (async () => {
             await this.invalidateProjectFileIndexes?.("文件操作开始：simpleSftp.agentLifecycle");
             try {
                 return await vscode.commands.executeCommand("simpleSftp.agentLifecycle", {
                     action, server: await this.agentLifecycleServer(target), projectDir: dirs.workDir, installDir: dirs.installDir,
+                    stateDir: config.agentStateDir, workerStateDir: config.workerStateDir,
                     mode: "worker_telemetry", workerId: target.id,
                     condaEnv: target.id === "hub" ? config.condaEnv : effectiveWorkerCondaEnv(config, this.setupConfig.condaEnv),
                     host: config.remoteAgentHost, port: config.remoteTelemetryPort || config.remoteAgentPort,
@@ -9113,17 +9119,35 @@ class RealtimeTunnelPanelProvider {
      */
     targetRootGuard(target) {
         try {
-            const remoteRoot = String(target?.remoteRoot || "").trim();
-            if (!remoteRoot)
+            const config = this.setupConfig?.workerTunnels?.find(row => row.id === target?.id);
+            const remoteRoot = String(target?.remoteRoot || config?.agentProjectDir || "").trim();
+            if (!remoteRoot && !target?.remotePath)
                 return null;
-            const dirs = this.agentRuntimeDirs ? this.agentRuntimeDirs(remoteRoot, target?.agentInstallDir) : null;
+            const dirs = this.agentRuntimeDirs ? this.agentRuntimeDirs(remoteRoot, target?.agentInstallDir || config?.agentInstallDir) : null;
+            const codeRoot = String(target?.remotePath || target?.agentProjectDir || dirs?.workDir || remoteRoot);
+            const probe = this.lastWorkerProbes?.[target?.id];
+            const observed = probe?.status === "ok" && (probe.workerId === target?.id || !probe.workerId && !probe.gpuCollectorProtocol)
+                && remotePathKey(probe.projectRoot) === remotePathKey(codeRoot)
+                && String(probe.localForwardHost || "").toLowerCase() === String(target?.localForwardHost || config?.localForwardHost || "127.0.0.1").toLowerCase()
+                && String(probe.remoteAgentHost || "").toLowerCase() === String(target?.remoteAgentHost || config?.remoteAgentHost || "127.0.0.1").toLowerCase()
+                && Number(probe.remoteTelemetryPort || probe.remoteAgentPort) === Number(target?.remoteAgentPort || config?.remoteTelemetryPort || config?.remoteAgentPort)
+                && Number(probe.localForwardPort) === Number(target?.localForwardPort || config?.localForwardPort) ? probe : null;
             const map = (0, ProjectRootMap_1.resolveProjectRootMap)({
                 projectId: String(target?.id || ""),
-                projectDir: String(dirs?.workDir || remoteRoot),
+                projectDir: codeRoot,
                 installDir: String(dirs?.installDir || ""),
-                stateDir: String(target?.agentStateDir || "").trim(),
+                stateDir: String(observed?.agentStateDir || target?.agentStateDir || config?.agentStateDir || "").trim(),
+                // Keep explicit roots protected while an older observation is
+                // still cached across an Agent restart or configuration change.
+                machineStateDirs: [observed?.workerStateDir, target?.agentStateDir, config?.agentStateDir,
+                    target?.workerStateDir, config?.workerStateDir].filter(Boolean),
             });
-            return (0, ProjectRootMap_1.machineStateGuard)(map);
+            const guard = (0, ProjectRootMap_1.machineStateGuard)(map);
+            if (observed?.gpuCollectorProtocol === 1 && (!observed.workerStateDir || !observed.agentStateDir))
+                guard.unknown = true;
+            if (this.lastWorkerProbes && !observed && !target?.workerStateDir && !config?.workerStateDir)
+                guard.unknown = true;
+            return guard;
         }
         catch {
             return null;
@@ -9140,7 +9164,8 @@ class RealtimeTunnelPanelProvider {
      * no local install/state contract configured the guard stays neutral (no
      * exclusion invented), but an invalid explicit config reports unknown. */
     localMachineStateGuard(root) {
-        return (0, ProjectRootMap_1.machineStateGuard)((0, ProjectRootMap_1.resolveProjectRootMap)({ projectDir: String(root || "") }));
+        return (0, ProjectRootMap_1.machineStateGuard)((0, ProjectRootMap_1.resolveProjectRootMap)({ projectDir: String(root || ""), machineStateDirs: [process.env.SIMPLE_EXPERIMENT_AGENT_STATE_DIR, process.env.SIMPLE_EXPERIMENT_WORKER_STATE_DIR,
+                path.join(require("node:os").homedir(), ".simple-cluster", "worker-state"), this.context?.globalStorageUri?.fsPath].filter(Boolean) }));
     }
     async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".", signal, report = (_stage) => { }) {
         signal?.throwIfAborted();
@@ -9775,6 +9800,9 @@ class RealtimeTunnelPanelProvider {
         return work.map((item) => item.path);
     }
     async deleteSyncScopeRemoteCopy(id, server, relative, directory, report = (_stage) => { }) {
+        const guard = this.targetRootGuard({ ...server, id });
+        if (!guard || guard.unknown || (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(relative, guard.prefixes, directory))
+            throw new Error("远端机器状态路径或其祖先不可删除；请核对节点状态根。");
         const capability = await this.simpleSftpCapability("files.cleanup.preview");
         if (capability.methodOptions?.["files.cleanup.preview"]?.confirmedPathMetadata !== 1)
             throw new Error("请先更新配套 SimpleSFTP 并重载窗口：当前版本不支持按路径读取元数据的删除流程。");
@@ -9786,12 +9814,15 @@ class RealtimeTunnelPanelProvider {
     async removeSyncScopeCopies(root, targets, relative, endpointIds, directory, report = (_stage) => { }) {
         this.assertArtifactSyncPathsIdle?.(root, [relative]);
         (0, SyncResolution_1.safeSyncPath)(relative);
+        if (!Array.isArray(endpointIds) || !endpointIds.length)
+            throw new Error("删除目标为空。");
+        if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory) || directory && relative === "simple_cluster")
+            throw new Error("机器状态路径不可删除。");
         // An invalid local mapping must not read as "nothing is machine state"
         // at a delete point (fail closed).
-        if (this.localMachineStateGuard(root).unknown)
-            throw new Error("本机机器状态映射不可用（配置无效），禁止删除。");
-        if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory, this.localMachineStateGuard(root).prefixes) || directory && relative === "simple_cluster")
-            throw new Error("机器状态路径不可删除。");
+        if (endpointIds.includes("local") && (this.localMachineStateGuard(root).unknown
+            || (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(relative, this.localMachineStateGuard(root).prefixes, directory)))
+            throw new Error("本机机器状态路径或其祖先不可删除。");
         if (!Array.isArray(endpointIds) || !endpointIds.length)
             throw new Error("删除目标为空。");
         const copies = endpointIds.map((id) => {
@@ -9853,13 +9884,14 @@ class RealtimeTunnelPanelProvider {
     }
     async removeSyncScopePath(root, targets, relative, endpointId, directory, report = (_stage) => { }, batchApproved = false) {
         (0, SyncResolution_1.safeSyncPath)(relative);
+        if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory) || directory && relative === "simple_cluster")
+            throw new Error("机器状态路径不可删除。");
         this.assertArtifactSyncPathsIdle?.(root, [relative]);
         // An invalid local mapping must not read as "nothing is machine state"
         // at a delete point (fail closed).
-        if (this.localMachineStateGuard(root).unknown)
-            throw new Error("本机机器状态映射不可用（配置无效），禁止删除。");
-        if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory, this.localMachineStateGuard(root).prefixes) || directory && relative === "simple_cluster")
-            throw new Error("机器状态路径不可删除。");
+        if (endpointId === "local" && (this.localMachineStateGuard(root).unknown
+            || (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(relative, this.localMachineStateGuard(root).prefixes, directory)))
+            throw new Error("本机机器状态路径或其祖先不可删除。");
         if ((!batchApproved && this.syncScopeMutationInFlight) || this.planSyncInFlight || this.codeSyncInFlight)
             throw new Error("同步或文件树操作进行中，请完成后重试删除。");
         if (!batchApproved) {
@@ -9900,9 +9932,7 @@ class RealtimeTunnelPanelProvider {
         (0, SyncResolution_1.safeSyncPath)(relative);
         // An invalid local mapping must not read as "nothing is machine state"
         // at a delete point (fail closed).
-        if (this.localMachineStateGuard(root).unknown)
-            throw new Error("本机机器状态映射不可用（配置无效），禁止删除。");
-        if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory, this.localMachineStateGuard(root).prefixes) || directory && relative === "simple_cluster")
+        if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory) || directory && relative === "simple_cluster")
             throw new Error("机器状态路径不可删除。");
         if (this.syncScopeMutationInFlight || this.planSyncInFlight || this.codeSyncInFlight)
             throw new Error("同步或文件树操作进行中，请完成后重试删除。");
@@ -10013,7 +10043,8 @@ class RealtimeTunnelPanelProvider {
                 const destinationGuard = this.targetRootGuard(row);
                 if (destinationGuard?.unknown)
                     throw new Error(`目标 ${row.id} 机器状态映射不可用（配置无效），已中止同步。`);
-                if (destinationGuard && !(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory, destinationGuard.prefixes))
+                if (!destinationGuard || !(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory, destinationGuard.prefixes)
+                    || (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(relative, destinationGuard.prefixes, directory))
                     throw new Error(`目标 ${row.id} 的机器状态路径不可写入。`);
                 if (endpointId === "local") {
                     if (directory) {
@@ -10061,7 +10092,8 @@ class RealtimeTunnelPanelProvider {
                 const mirrorGuard = this.localMachineStateGuard(root);
                 if (mirrorGuard.unknown)
                     throw new Error("本机机器状态映射不可用（配置无效），已中止本机镜像同步。");
-                if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory, mirrorGuard.prefixes))
+                if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory, mirrorGuard.prefixes)
+                    || (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(relative, mirrorGuard.prefixes, directory))
                     throw new Error("本机机器状态路径不可作为镜像目标。");
                 report("正在同步到本机对应路径");
                 await (0, SyncScopeLocalMirror_1.mirrorChosenWorkerVersionToLocal)(relative, directory, sourceInventory, () => this.simpleSftpApiCall("sync.downloadPaths", { localPath: root, server: this.sftpServerOptions(sourceRow), paths: [relative], confirm: true, pathConfirmed: true }), () => (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root), this.localMachineStateGuard(root).prefixes), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report, undefined, async (files) => {
@@ -10115,7 +10147,8 @@ class RealtimeTunnelPanelProvider {
                 const targetGuard = this.targetRootGuard(target);
                 if (targetGuard?.unknown)
                     throw new Error(`目标 ${target.id} 机器状态映射不可用（配置无效），已中止目录恢复。`);
-                if (targetGuard && !(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(directory, true, targetGuard.prefixes))
+                if (!targetGuard || !(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(directory, true, targetGuard.prefixes)
+                    || (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(directory, targetGuard.prefixes, true))
                     throw new Error(`目标 ${target.id} 的机器状态路径不可写入。`);
                 const destination = this.sftpServerOptions(target);
                 const absolute = path.posix.join(destination.remotePath, directory);
@@ -10259,6 +10292,7 @@ class RealtimeTunnelPanelProvider {
                 && submissionManifest.key === submissionManifestKey);
             const built = reuseSubmissionManifest ? { manifest: submissionManifest.manifest, stats: submissionManifest.stats }
                 : await buildLocalCodeManifest(root, includePaths, scopePaths, {
+                    machineStateGuard: this.localMachineStateGuard(root),
                     executionOnly: ["run", "plan-check"].includes(scope),
                     cacheFile: this.localCodeManifestCacheFile(root),
                     onProgress: (stats) => {
@@ -10273,6 +10307,16 @@ class RealtimeTunnelPanelProvider {
             const manifest = ["run", "plan-check"].includes(scope) ? PlanCodeScopeHost.runSourceManifest(transferManifest) : transferManifest;
             if (progressReport)
                 progressReport(`本地清单完成：${Object.keys(manifest).length} 个文件，哈希沿用 ${built.stats?.reused || 0}，重算 ${built.stats?.hashed || 0}（本段 ${Date.now() - localStarted} ms）`);
+            // Validate each endpoint independently; another Worker's legitimate
+            // artifact spelling must never be unioned into this endpoint's state map.
+            const localGuard = this.localMachineStateGuard(root);
+            if (localGuard.unknown || Object.keys(manifest).some(file => (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, localGuard.prefixes, true)))
+                throw new Error("代码清单包含本机机器状态或其祖先，未上传。");
+            for (const target of enabledTargets) {
+                const guard = this.targetRootGuard(target);
+                if (!guard || guard.unknown || Object.keys(manifest).some(file => (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, guard.prefixes, true)))
+                    throw new Error(`${target.id} 机器状态映射未知或代码清单覆盖状态路径，未上传。`);
+            }
             const inventoryScopePaths = [...new Set(Object.keys(manifest).map((file) => file.split("/")[0]))].sort();
             assertCurrent();
             const fingerprint = fingerprintFromManifest(manifest);
@@ -10824,6 +10868,8 @@ class RealtimeTunnelPanelProvider {
             savedSessionPath: worker.savedSessionPath,
             remotePath,
             agentInstallDir: worker.agentInstallDir,
+            agentStateDir: worker.agentStateDir,
+            workerStateDir: worker.workerStateDir,
             localForwardHost: worker.localForwardHost || config.localForwardHost || "127.0.0.1",
             localForwardPort: Number(worker.localForwardPort || config.localForwardPort || 18765),
             remoteAgentPort: Number(worker.remoteAgentPort || worker.remoteTelemetryPort || config.remoteAgentPort || 18765),
@@ -11015,7 +11061,7 @@ class RealtimeTunnelPanelProvider {
         const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
         const includePaths = config.get("codeSync.includePaths", []);
         const scopePaths = config.get("codeSync.scopePaths");
-        const built = await buildLocalCodeManifest(root, includePaths, scopePaths, { cacheFile: this.localCodeManifestCacheFile(root), signal, executionOnly: true });
+        const built = await buildLocalCodeManifest(root, includePaths, scopePaths, { machineStateGuard: this.localMachineStateGuard(root), cacheFile: this.localCodeManifestCacheFile(root), signal, executionOnly: true });
         const manifest = PlanCodeScopeHost.runSourceManifest((0, SyncResolution_1.filterHeldFiles)(built, holds));
         const fingerprint = fingerprintFromManifest(manifest);
         this.pendingPlanSubmissionManifest = { key: this.planSubmissionManifestKey(root, includePaths, scopePaths, holds),
@@ -12272,7 +12318,7 @@ class RealtimeTunnelPanelProvider {
     async buildDistributedJobCodeManifest(root) {
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
-        return PlanCodeScopeHost.runSourceManifest((0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"), { cacheFile: this.localCodeManifestCacheFile(root), executionOnly: true }), holds));
+        return PlanCodeScopeHost.runSourceManifest((0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"), { machineStateGuard: this.localMachineStateGuard(root), cacheFile: this.localCodeManifestCacheFile(root), executionOnly: true }), holds));
     }
     async sendDistributedJob(plan, job, workerId, gpuId, commandId, sharedCodeManifest) {
         let transmissionStarted = false;
@@ -19783,6 +19829,10 @@ class RealtimeTunnelPanelProvider {
             assertCurrent();
             return await this.withHostOperationLease("publishMappedResult", actionLabel, async () => {
                 assertCurrent();
+                const guard = this.localMachineStateGuard(root);
+                const paths = mappedResultPublicationResources(root, entries, transfers).map(resource => path.relative(root, resource.target).replace(/\\/g, "/"));
+                if (guard.unknown || paths.some(file => (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, guard.prefixes, true)))
+                    throw new Error("MACHINE_STATE_PATH_PROTECTED：本机状态路径不可发布指标文件。");
                 return distributeMappedDownloads(root, entries, transfers, overwrite, { assertCurrent });
             }, { resources, waitForConflict: true, signal });
         }
@@ -20389,6 +20439,24 @@ class RealtimeTunnelPanelProvider {
             throw new Error(`SimpleSFTP 不支持 ${method}。`);
         return { endpoint: shared.endpoint, headers: shared.headers, instanceId: shared.instanceId, features: shared.features, methodOptions: shared.methodOptions };
     }
+    assertTransferRootSafety(method, params) {
+        if (!["upload.workspace", "sync.serverToServerFpsync", "sync.downloadPaths", "sync.downloadMappedPaths"].includes(method))
+            return;
+        const request = params || {};
+        const assertPaths = (guard, paths) => {
+            if (!guard || guard.unknown || (paths.length ? paths : ["."]).some(file => (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, guard.prefixes, true)))
+                throw new Error("MACHINE_STATE_PATH_PROTECTED：状态根或其祖先不可作为传输范围；请核对该端点映射。");
+        };
+        const remotePaths = (0, ProjectFileIndex_1.fileOperationIndexPaths)(request);
+        if (method === "sync.serverToServerFpsync") {
+            assertPaths(this.targetRootGuard(request.source), remotePaths);
+            assertPaths(this.targetRootGuard(request.destination), remotePaths);
+        }
+        else {
+            assertPaths(this.targetRootGuard(request.server), remotePaths);
+            assertPaths(this.localMachineStateGuard(request.localPath || workspaceRoot()), (0, ProjectFileIndex_1.fileOperationIndexPaths)(request, true));
+        }
+    }
     async simpleSftpApiCall(method, params, timeoutMs = 0, onProgress, cleanupObservation) {
         (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
         if (method === "files.cleanup.preview" || method === "files.cleanup.execute") {
@@ -20430,6 +20498,8 @@ class RealtimeTunnelPanelProvider {
         }
         const mutation = /^(sync\.(?:serverToServerFpsync|download|upload)|upload\.|files\.cleanup\.execute|files\.(?:delete|move|write|mkdir|rename))/.test(method)
             && !(method === "sync.downloadMappedPaths" && request.memoryOnly === true);
+        if (mutation)
+            this.assertTransferRootSafety(method, request);
         if (mutation)
             await this.refreshProjectFileIndexesBeforeOperation?.(method, request);
         // Cleanup's transport request is token-only. Keep its known endpoint/path
@@ -20661,12 +20731,16 @@ class RealtimeTunnelPanelProvider {
         const includePaths = config.get("codeSync.includePaths", []);
         const scopePaths = config.get("codeSync.scopePaths");
         const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
-        const codeManifest = (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, includePaths, scopePaths, { cacheFile: this.localCodeManifestCacheFile(root) }), holds);
+        const codeManifest = (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, includePaths, scopePaths, { machineStateGuard: this.localMachineStateGuard(root), cacheFile: this.localCodeManifestCacheFile(root) }), holds);
         const mirrorPaths = (0, ProjectMirror_1.normalizeMirrorScopePaths)(config.get("serverSync.paths", ["."]));
         const inventories = {};
         for (const target of targets) {
             const result = await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(target) });
-            inventories[target.id] = (0, ProjectMirror_1.filterInventoryByScope)(result.files, mirrorPaths);
+            const guard = this.targetRootGuard(target);
+            if (!guard || guard.unknown)
+                throw new Error(`${target.id} 机器状态映射未知，未补齐项目文件。`);
+            inventories[target.id] = Object.fromEntries(Object.entries((0, ProjectMirror_1.filterInventoryByScope)(result.files, mirrorPaths))
+                .filter(([file]) => !(0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, guard.prefixes, true)));
         }
         const ledger = await this.loadPlanSyncLedger(root);
         await this.reconcileChosenDirectories(root, targets, holds, inventories, mirrorPaths);
@@ -20686,6 +20760,11 @@ class RealtimeTunnelPanelProvider {
                 const answer = await vscode.window.showWarningMessage(`补齐项目文件：${source.user}@${source.host}:${source.port}${source.remotePath} → ${destination.user}@${destination.host}:${destination.port}${destination.remotePath}\n文件（${paths.length}）：\n${paths.join("\n")}`, { modal: true }, "确认同步");
                 if (answer !== "确认同步")
                     return;
+                for (const endpoint of [group.source, group.destination]) {
+                    const guard = this.targetRootGuard(endpoint);
+                    if (!guard || guard.unknown || paths.some(file => (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, guard.prefixes, true)))
+                        throw new Error(`${endpoint.id} 状态路径受到保护，未补齐项目文件。`);
+                }
                 await this.assertSshTransportIdentities([group.source, group.destination]);
                 const batch = start / 5000 + 1;
                 const batchCount = Math.ceil(group.paths.length / 5000);
@@ -20704,7 +20783,11 @@ class RealtimeTunnelPanelProvider {
         const checked = {};
         for (const target of targets) {
             const result = await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(target) });
-            checked[target.id] = (0, ProjectMirror_1.filterInventoryByScope)(result.files, mirrorPaths);
+            const guard = this.targetRootGuard(target);
+            if (!guard || guard.unknown)
+                throw new Error(`${target.id} 机器状态映射未知，未确认项目补齐。`);
+            checked[target.id] = Object.fromEntries(Object.entries((0, ProjectMirror_1.filterInventoryByScope)(result.files, mirrorPaths))
+                .filter(([file]) => !(0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, guard.prefixes, true)));
         }
         const verified = (0, ProjectMirror_1.planProjectMirror)(checked, (0, ProjectMirror_1.filterInventoryByScope)(codeManifest, mirrorPaths), ledger, holds);
         const configured = this.enabledWorkerConfigs().map((worker) => worker.id).filter(Boolean);
@@ -23274,7 +23357,7 @@ class RealtimeTunnelPanelProvider {
             if (!filePath)
                 continue;
             const dirs = this.agentRuntimeDirs(worker.agentProjectDir, worker.agentInstallDir);
-            const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix });
+            const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, stateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix });
             targets.push({
                 id: worker.id,
                 filePath,
@@ -23333,7 +23416,7 @@ class RealtimeTunnelPanelProvider {
                     workDir: dirs.workDir,
                     projectName: dirs.projectName,
                     condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv),
-                    startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
+                    startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, stateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
                 };
             }),
             note: "Agent 是独立辅助服务，由 SimpleSFTP 核验归属后准备、复用或升级；Xshell 只负责登录与隧道。所列 tmux 名称保留用于旧版 Agent 历史会话。",
@@ -35653,7 +35736,15 @@ function samePath(a, b) {
     return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 }
 async function buildLocalCodeManifest(root, includePaths = [], scopePaths, options = {}) {
-    const listed = await listLocalCodePaths(root, includePaths, scopePaths);
+    if (options.machineStateGuard?.unknown)
+        throw new Error("本机机器状态映射未知，未读取或上传代码。");
+    const listed = (await listLocalCodePaths(root, includePaths, scopePaths)).filter(file => {
+        const parts = file.replace(/\\/g, "/").toLowerCase().split("/");
+        return !(options.machineStateGuard?.prefixes || []).some(prefix => {
+            const protectedParts = prefix.replace(/\\/g, "/").toLowerCase().split("/").filter(Boolean);
+            return protectedParts.every((part, index) => parts[index] === part);
+        });
+    });
     const files = options.executionOnly ? Object.keys(PlanCodeScopeHost.runSourceManifest(Object.fromEntries(listed.map(file => [file, true])))) : listed;
     const { manifest, stats } = await (0, LocalCodeManifestCache_1.hashLocalCodeFiles)(root, files, options.cacheFile, options.onProgress, options.signal);
     console.log(`[SimpleExperiment] local code manifest: listed=${stats.listed} reused=${stats.reused} hashed=${stats.hashed} pruned=${stats.pruned} cacheWriteSkipped=${stats.cacheWriteSkipped ? 1 : 0}`);

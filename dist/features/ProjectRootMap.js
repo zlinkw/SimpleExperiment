@@ -18,7 +18,10 @@ const POSIX_SEPARATOR = /[\\/]+/;
  * in the existing validation layer; this function only fixes spelling, never
  * resolves symlinks. */
 function canonicalRemotePath(value) {
-    const text = String(value || "").trim().replace(/\\/g, "/").replace(/\/{2,}/g, "/");
+    const raw = String(value || "");
+    if (/[\x00-\x1f]/.test(raw) || /^[\\/]{2}/.test(raw))
+        return { ok: false, reason: "relative" };
+    const text = raw.trim().replace(/\\/g, "/").replace(/\/{2,}/g, "/");
     if (!text)
         return { ok: false, reason: "empty" };
     let rootPrefix = "";
@@ -43,7 +46,8 @@ function canonicalRemotePath(value) {
         }
         stack.push(part);
     }
-    return { ok: true, path: rootPrefix + stack.join("/") };
+    const result = rootPrefix + stack.join("/");
+    return { ok: true, path: rootPrefix === "/" ? result : result.toLowerCase() };
 }
 function normalizeRemotePath(value) {
     const canonical = canonicalRemotePath(value);
@@ -97,21 +101,18 @@ function resolveProjectRootMap(input) {
             acc.push(canonical.path);
             return acc;
         }, []))];
-    return { identity: projectIdentityKey(input), programRoot, stateRoot, codeRoot, artifactRoots,
+    const stateRoots = [...new Set([stateRoot, ...(input.machineStateDirs || []).map(value => read("machineStateDirs", value, true))].filter(Boolean))];
+    return { identity: projectIdentityKey(input), programRoot, stateRoot, stateRoots, codeRoot, artifactRoots,
         mapping: unknownFields.length ? "unknown" : "resolved", unknownFields };
 }
 /** True when an absolute path lives under the mapped machine state root. */
 function isMachineStateAbsolute(roots, target) {
-    const stateRoot = roots.stateRoot;
-    if (!stateRoot)
-        return false;
     const canonical = canonicalRemotePath(target);
     if (!canonical.ok)
         return false; // invalid absolute targets are not "inside"; callers must not guess
     const text = canonical.path;
-    if (!sameRootSpace(text, stateRoot))
-        return false;
-    return text === stateRoot || stateRoot === "/" || text.startsWith(stateRoot + "/");
+    return (roots.stateRoots || [roots.stateRoot]).some(stateRoot => stateRoot && sameRootSpace(text, stateRoot)
+        && (text === stateRoot || text.startsWith(stateRoot.endsWith("/") ? stateRoot : stateRoot + "/")));
 }
 function posixRelative(fromRoot, target) {
     // Returns the code-root-relative form of an absolute state root, or null when
@@ -159,14 +160,17 @@ function sameRootSpace(left, right) {
  * prefix list as "nothing is machine state here". */
 function machineStateGuard(map) {
     const unknown = map.mapping === "unknown";
-    if (!map.stateRoot || !map.codeRoot)
-        return { prefixes: [], unknown };
-    if (!sameRootSpace(map.stateRoot, map.codeRoot))
-        return { prefixes: [], unknown };
-    const rel = posixRelative(map.codeRoot, map.stateRoot);
-    if (rel === null)
-        return { prefixes: [], unknown };
-    return { prefixes: [rel], unknown };
+    const prefixes = [];
+    for (const state of map.stateRoots || [map.stateRoot]) {
+        if (!state || !map.codeRoot || !sameRootSpace(state, map.codeRoot))
+            continue;
+        // A code root nested in machine state is entirely protected too.
+        const ancestor = posixRelative(state, map.codeRoot);
+        const rel = ancestor !== null ? "" : posixRelative(map.codeRoot, state);
+        if (rel !== null)
+            prefixes.push(rel);
+    }
+    return { prefixes: [...new Set(prefixes)], unknown };
 }
 function machineStateRelativePrefixes(map) {
     return machineStateGuard(map).prefixes;
@@ -180,11 +184,14 @@ function machineStateRelativePrefixes(map) {
  * only ever sees mapped absolute state roots, not path substrings.
  */
 function isUnderMachineStatePrefixes(relative, prefixes, includeAncestors = false) {
-    const rel = String(relative || "").replace(/\\/g, "/").split("/").filter(part => part.length > 0 && part !== ".");
+    // Relative callers include Windows aliases. Conservatively protect case
+    // aliases on every endpoint instead of allowing a host-side casing change to
+    // bypass a machine-state boundary (POSIX aliases may be over-protected).
+    const rel = String(relative || "").replace(/\\/g, "/").split("/").filter(part => part.length > 0 && part !== ".").map(part => part.toLowerCase());
     if (rel.some(part => part === ".."))
         return includeAncestors; // unresolvable: fail closed for cleanup
     for (const raw of prefixes) {
-        const prefix = String(raw || "").replace(/\\/g, "/").split("/").filter(part => part.length > 0 && part !== ".");
+        const prefix = String(raw || "").replace(/\\/g, "/").split("/").filter(part => part.length > 0 && part !== ".").map(part => part.toLowerCase());
         if (prefix.length === 0)
             return true; // the whole code root is the mapped state root
         const under = rel.length >= prefix.length && prefix.every((part, index) => rel[index] === part);

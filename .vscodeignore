@@ -56,6 +56,7 @@ docs/[m][o][b][a][X][t][e][r][m]-tunnel-full-feature-acceptance.md
 
 # 发行包文档排除（2026-10-21 用户裁决：发行包只含运行闭包/必要资源/法律通知；docs/、tests/、备份与说明文档仅源码仓库保留）
 docs/**
+.audit/**
 tests/**
 CHANGELOG.md
 **/*.patched

@@ -166,7 +166,7 @@ def task_execution_inventory(root, queries=()):
             shared_mode = str(shared.get("mode") or "absent")
             # The SHARED reader already fused registration + frame capability:
             # "absent" is only returned when BOTH files are ENOENT-proven.
-            collector_registered = shared_mode != "absent"
+            collector_registered = True
             shared_frame = shared.get("frame")
             if shared_mode == "fresh" and shared_frame:
                 gpu_sample = {"schemaVersion": 1, "generatedAt": str(shared_frame.get("collectedAt") or now_iso()),
@@ -681,7 +681,10 @@ def task_queue_command(root, worker_id):
         argv.extend(["--state-dir", agent_dir(root)])
     # tmux children inherit the server's initial environment, not the Agent's.
     # Carry the configured prefix explicitly for both startup and replacement.
-    return "exec env " + shlex.join(["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX=" + task_session_prefix(), *argv])
+    carry = ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX=" + task_session_prefix()]
+    if "gpu_collector_state_root" in globals():
+        carry.append("SIMPLE_EXPERIMENT_WORKER_STATE_DIR=" + gpu_collector_state_root(root))
+    return "exec env " + shlex.join([*carry, *argv])
 
 
 def task_update_scheduler_runtime(root, worker_id):
