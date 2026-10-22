@@ -6,6 +6,7 @@ import { constants as fsConstants } from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { SyncHolds, chosenSyncHash, isSyncHeld, safeSyncPath } from "./SyncResolution";
+import { isMachineStateRelativePath } from "./ProjectRootMap";
 import { HostOperationLeaseManager } from "../core/HostOperationLease";
 import { atomicWriteText } from "../state/StateStore";
 
@@ -144,6 +145,10 @@ export type ScopeInventories = {
   unverified?: Record<string, Record<string, string>>;
 };
 export function scopeInventoryPathAllowed(relative: string, directory = false): boolean {
+  // Machine state (agent project state and the shared per-Worker GPU collector
+  // frames under state/workers/<namespace>) is never a scientific sync subject,
+  // even when an older deployment nests the state dir inside the project tree.
+  if (isMachineStateRelativePath(relative)) return false;
   const parts = relative.toLowerCase().split("/");
   const basename = parts.at(-1) || "";
   if (!directory && (basename.endsWith(".writing") || basename.endsWith(".pending") || /\.tmp(?:\.|$)/.test(basename) || basename.includes(".upload."))) return false;

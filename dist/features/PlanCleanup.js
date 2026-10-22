@@ -45,6 +45,7 @@ const path = __importStar(require("node:path"));
 const StateStore_1 = require("../state/StateStore");
 const FastDeleteContract_1 = require("./FastDeleteContract");
 const ObservationRound_1 = require("./ObservationRound");
+const ProjectRootMap_1 = require("./ProjectRootMap");
 const clone = (value) => JSON.parse(JSON.stringify(value));
 // SimpleSFTP bounds each local/SSH cleanup read at 60 seconds. Let that
 // transport finish instead of racing it with a shorter independent deadline.
@@ -168,6 +169,12 @@ const under = (base, file) => file === base || file.startsWith(base + "/");
 function classifyCleanupCandidates(scope) {
     return scope.candidates.map(input => {
         const row = clone(input), rel = cleanupRelative(row.relativePath);
+        // Machine state (agent project state, shared per-Worker GPU collector frames)
+        // is never a cleanup subject — not even under confirmed exact paths: it is
+        // runtime state, not a scientific artifact. Single source of truth lives in
+        // ProjectRootMap so sync and cleanup can never diverge on this boundary.
+        if ((0, ProjectRootMap_1.isMachineStateRelativePath)(rel))
+            row.scopeProtectedReason ||= "机器状态（运行时状态根，非科研产物，不可清理）";
         // A PLAN review cannot expand into shared configuration or the PLAN itself.
         // This restriction is separate from ownership warnings on exact artifact paths.
         if (row.scopeProtectedReason) {

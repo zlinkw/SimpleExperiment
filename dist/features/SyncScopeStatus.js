@@ -47,6 +47,7 @@ const node_fs_1 = require("node:fs");
 const path = __importStar(require("node:path"));
 const crypto = __importStar(require("node:crypto"));
 const SyncResolution_1 = require("./SyncResolution");
+const ProjectRootMap_1 = require("./ProjectRootMap");
 const HostOperationLease_1 = require("../core/HostOperationLease");
 const StateStore_1 = require("../state/StateStore");
 const SCOPE_HASH_SCHEMA_VERSION = 1;
@@ -182,6 +183,11 @@ function requireCompleteScopeInventory(result, location = "") {
     return result;
 }
 function scopeInventoryPathAllowed(relative, directory = false) {
+    // Machine state (agent project state and the shared per-Worker GPU collector
+    // frames under state/workers/<namespace>) is never a scientific sync subject,
+    // even when an older deployment nests the state dir inside the project tree.
+    if ((0, ProjectRootMap_1.isMachineStateRelativePath)(relative))
+        return false;
     const parts = relative.toLowerCase().split("/");
     const basename = parts.at(-1) || "";
     if (!directory && (basename.endsWith(".writing") || basename.endsWith(".pending") || /\.tmp(?:\.|$)/.test(basename) || basename.includes(".upload.")))

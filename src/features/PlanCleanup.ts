@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { atomicWriteText } from "../state/StateStore";
 import { FAST_CONFIRMED_BATCH_CAP, assertFastDeletePreviewSafety, chunkFastDeleteTargets, fastDeleteVerifiedBy, isFastDeleteUpgradeCode } from "./FastDeleteContract";
 import { BATCH_OBSERVATION_UPGRADE_CODE, BATCH_OBSERVATION_UPGRADE_MESSAGE, createObservationRound, observeRound, type ObservationEntry, type ObservationRound, type ObserveTarget } from "./ObservationRound";
+import { isMachineStateRelativePath } from "./ProjectRootMap";
 
 export type CleanupNode = { id: string; kind: "local" | "remote"; root: string; host?: string; port?: number; user?: string; error?: string };
 export type CleanupJobSelection = { workflowId: string; index: number; commandId: string; purpose?: "replace_outputs";
@@ -161,6 +162,11 @@ const under = (base: string, file: string) => file === base || file.startsWith(b
 export function classifyCleanupCandidates(scope: CleanupScope): CleanupCandidate[] {
   return scope.candidates.map(input => {
     const row = clone(input), rel = cleanupRelative(row.relativePath);
+    // Machine state (agent project state, shared per-Worker GPU collector frames)
+    // is never a cleanup subject — not even under confirmed exact paths: it is
+    // runtime state, not a scientific artifact. Single source of truth lives in
+    // ProjectRootMap so sync and cleanup can never diverge on this boundary.
+    if (isMachineStateRelativePath(rel)) row.scopeProtectedReason ||= "机器状态（运行时状态根，非科研产物，不可清理）";
     // A PLAN review cannot expand into shared configuration or the PLAN itself.
     // This restriction is separate from ownership warnings on exact artifact paths.
     if (row.scopeProtectedReason) { row.protectedReason = row.scopeProtectedReason; return row; }
