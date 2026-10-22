@@ -169,11 +169,12 @@ const under = (base, file) => file === base || file.startsWith(base + "/");
 function classifyCleanupCandidates(scope) {
     return scope.candidates.map(input => {
         const row = clone(input), rel = cleanupRelative(row.relativePath);
-        // Machine state (agent project state, shared per-Worker GPU collector frames)
-        // is never a cleanup subject — not even under confirmed exact paths: it is
-        // runtime state, not a scientific artifact. Single source of truth lives in
-        // ProjectRootMap so sync and cleanup can never diverge on this boundary.
-        if ((0, ProjectRootMap_1.isMachineStateRelativePath)(rel))
+        // Machine state is excluded ONLY through the verified four-root mapping:
+        // prefixes come from the resolved absolute state root of this project/Worker
+        // (ProjectRootMap), so a legitimate work_dirs/... tree or an unmapped
+        // directory called "state" is never touched. Ancestors are protected too:
+        // deleting a parent directory of the state root would destroy machine state.
+        if ((0, ProjectRootMap_1.isUnderMachineStatePrefixes)(rel, scope.machineStatePrefixes || [], true))
             row.scopeProtectedReason ||= "机器状态（运行时状态根，非科研产物，不可清理）";
         // A PLAN review cannot expand into shared configuration or the PLAN itself.
         // This restriction is separate from ownership warnings on exact artifact paths.

@@ -151,6 +151,7 @@ const SyncScopeTransferBatch_1 = require("../features/SyncScopeTransferBatch");
 const SyncLatestMerge_1 = require("../features/SyncLatestMerge");
 const SyncScopeLocalMirror_1 = require("../features/SyncScopeLocalMirror");
 const SyncScopeStatus_2 = require("../features/SyncScopeStatus");
+const ProjectRootMap_1 = require("../features/ProjectRootMap");
 const SyncResolution_1 = require("../features/SyncResolution");
 const SyncResolution = __importStar(require("../features/SyncResolution"));
 const { renderPanelHtml } = PanelHtml_1;
@@ -9082,7 +9083,7 @@ class RealtimeTunnelPanelProvider {
                     const unverifiedFiles = {};
                     const files = await (0, SyncScopeStatus_2.hashLocalScopeNames)(root, paths, (name, reason) => { unverifiedFiles[name] = reason; accept(name, undefined, reason); }, this.localScopeHashCacheFile(root), {
                         signal: contentSignal, concurrency: 2, onFile: (name, file) => accept(name, { ...file, modifiedAtMs: Number(file.modifiedAtMs) }),
-                    });
+                    }, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []));
                     return { files: files, unverifiedFiles };
                 } });
         const build = value => {
@@ -9100,12 +9101,41 @@ class RealtimeTunnelPanelProvider {
         const value = await automatic.verify(contentEndpoints, inventories, unavailable, signal, value => publish(build(value)), report);
         return build(value);
     }
+    /**
+     * Machine-state relative prefixes for the sync/cleanup gates, resolved from
+     * the real per-Worker configuration through the four-root map (workDir +
+     * installDir → stateRoot; the default equals the Agent's actual layout
+     * <install>/state). A prefix mapped by any endpoint of the batch excludes
+     * conservatively; targets without a resolvable mapping contribute nothing and
+     * keep the previous gate semantics untouched.
+     */
+    machineStatePrefixes(targets) {
+        const prefixes = new Set();
+        for (const target of targets || []) {
+            try {
+                const remoteRoot = String(target?.remoteRoot || "").trim();
+                if (!remoteRoot)
+                    continue;
+                const dirs = this.agentRuntimeDirs ? this.agentRuntimeDirs(remoteRoot, target?.agentInstallDir) : null;
+                const map = (0, ProjectRootMap_1.resolveProjectRootMap)({
+                    projectId: String(target?.id || ""),
+                    projectDir: String(dirs?.workDir || remoteRoot),
+                    installDir: String(dirs?.installDir || ""),
+                    stateDir: String(target?.agentStateDir || "").trim(),
+                });
+                for (const prefix of (0, ProjectRootMap_1.machineStateRelativePrefixes)(map))
+                    prefixes.add(prefix);
+            }
+            catch { /* an unmapped target contributes no machine-state prefixes */ }
+        }
+        return [...prefixes];
+    }
     async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".", signal, report = (_stage) => { }) {
         signal?.throwIfAborted();
         const unverified = {};
         const localUnverified = {};
         const localRead = mode === "local-server"
-            ? (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, relative, true, (file, reason) => { localUnverified[file] = reason; }, this.localScopeHashCacheFile(root)) : Promise.resolve({});
+            ? (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, relative, true, (file, reason) => { localUnverified[file] = reason; }, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])) : Promise.resolve({});
         const workers = {};
         const configured = this.enabledWorkerConfigs().map((worker) => worker.id).filter(Boolean);
         const offline = new Set(configured.filter((id) => !targets.some((target) => target.id === id)));
@@ -9217,7 +9247,7 @@ class RealtimeTunnelPanelProvider {
             const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
             const skipped = [...planned.skipped];
             const work = planned.items.filter((item) => {
-                if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(item.path, false) || /(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(item.path)))
+                if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(item.path, false, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])) || /(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(item.path)))
                     return false;
                 if (options.completedJob && (holds[item.path]?.codeOwned || isLocalCodeOwnedPath(item.path, false, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths")))) {
                     skipped.push(`${item.path}：代码以本机为准`);
@@ -9228,7 +9258,7 @@ class RealtimeTunnelPanelProvider {
             if (options.completedJob) {
                 const sourceId = options.completedJob.sourceId;
                 const files = Object.fromEntries(Object.entries(scoped).filter(([file, value]) => !value.copies && value.versions?.[sourceId]?.sha256
-                    && (0, SyncScopeStatus_2.scopeInventoryPathAllowed)(file, false) && !/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(file))).map(([file, value]) => [file, value.versions[sourceId].sha256]));
+                    && (0, SyncScopeStatus_2.scopeInventoryPathAllowed)(file, false, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])) && !/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(file))).map(([file, value]) => [file, value.versions[sourceId].sha256]));
                 if (skipped.length)
                     throw new Error(skipped.join("；"));
                 const groups = new Map();
@@ -9551,7 +9581,7 @@ class RealtimeTunnelPanelProvider {
         if (endpointId === "local") {
             if (this.syncScopeBatchLocalInventory)
                 return this.syncScopeBatchLocalInventory(root, work);
-            return (0, SyncScopeStatus_2.collectSelectedLocalScopeFiles)(root, work, this.localScopeHashCacheFile(root));
+            return (0, SyncScopeStatus_2.collectSelectedLocalScopeFiles)(root, work, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []));
         }
         const sourceRow = targets.find((row) => row.id === endpointId);
         if (!sourceRow)
@@ -9564,7 +9594,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error("批量同步必须使用同一个来源。");
         for (const item of work) {
             (0, SyncResolution_1.safeSyncPath)(item.path);
-            if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(item.path, item.directory) || item.directory && item.path === "simple_cluster")
+            if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(item.path, item.directory, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])) || item.directory && item.path === "simple_cluster")
                 throw new Error("机器状态路径不可选为保留版本。");
         }
         const sourceRow = endpointId === "local" ? undefined : targets.find((row) => row.id === endpointId);
@@ -9600,7 +9630,7 @@ class RealtimeTunnelPanelProvider {
         const reviewedLocalStaleHashes = new Map();
         if (mirrorLocal && plan.directoryDeletes.length) {
             for (const directory of plan.directoryDeletes) {
-                const localFiles = await (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, directory, true, undefined, this.localScopeHashCacheFile(root));
+                const localFiles = await (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, directory, true, undefined, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []));
                 for (const [file, info] of Object.entries(localFiles))
                     if (!plan.files[file])
                         reviewedLocalStaleHashes.set(file, String(info.sha256 || "").toLowerCase());
@@ -9675,13 +9705,13 @@ class RealtimeTunnelPanelProvider {
                 localPath: root, server: this.sftpServerOptions(sourceRow),
                 paths: [...plan.directoryDeletes, ...work.filter((item) => !item.directory).map((item) => item.path)],
                 confirm: true, pathConfirmed: true,
-            }), () => (0, SyncScopeStatus_2.hashLocalScopeNames)(root, selectedFiles, undefined, this.localScopeHashCacheFile(root)), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report, selectedFiles, async (files) => {
+            }), () => (0, SyncScopeStatus_2.hashLocalScopeNames)(root, selectedFiles, undefined, this.localScopeHashCacheFile(root), {}, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report, selectedFiles, async (files) => {
                 const accepted = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("清理本机同步目录旧文件", `以下 ${files.length} 个本机文件不在所选来源版本中，将在下载并校验新版本后永久删除。逐项核对完整路径；取消会停止本次同步。`, files.map((file) => ({ label: "本机旧文件（将永久删除）", path: path.resolve(root, ...file.split("/")) })), `永久删除 ${files.length} 个本机旧文件`);
                 if (!accepted)
                     throw new UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
             });
             for (const directory of plan.directoryDeletes) {
-                const actual = await (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, directory, true, undefined, this.localScopeHashCacheFile(root));
+                const actual = await (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, directory, true, undefined, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []));
                 const stale = Object.keys(actual).filter((file) => !plan.files[file]);
                 const unreviewed = stale.filter((file) => !reviewedLocalStaleHashes.has(file));
                 if (unreviewed.length)
@@ -9696,7 +9726,7 @@ class RealtimeTunnelPanelProvider {
                 }
             }
             if (plan.directoryDeletes.length) {
-                const localFiles = await (0, SyncScopeStatus_2.hashLocalScopeNames)(root, selectedFiles, undefined, this.localScopeHashCacheFile(root));
+                const localFiles = await (0, SyncScopeStatus_2.hashLocalScopeNames)(root, selectedFiles, undefined, this.localScopeHashCacheFile(root), {}, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []));
                 if ((0, SyncScopeTransferBatch_1.scopeInventorySnapshot)(localFiles, selectedFiles) !== (0, SyncScopeTransferBatch_1.scopeInventorySnapshot)(plan.files, selectedFiles))
                     throw new Error("本机目录内容校验不一致；保留待同步状态。");
             }
@@ -9731,7 +9761,7 @@ class RealtimeTunnelPanelProvider {
     async removeSyncScopeCopies(root, targets, relative, endpointIds, directory, report = (_stage) => { }) {
         this.assertArtifactSyncPathsIdle?.(root, [relative]);
         (0, SyncResolution_1.safeSyncPath)(relative);
-        if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory) || directory && relative === "simple_cluster")
+        if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])) || directory && relative === "simple_cluster")
             throw new Error("机器状态路径不可删除。");
         if (!Array.isArray(endpointIds) || !endpointIds.length)
             throw new Error("删除目标为空。");
@@ -9795,7 +9825,7 @@ class RealtimeTunnelPanelProvider {
     async removeSyncScopePath(root, targets, relative, endpointId, directory, report = (_stage) => { }, batchApproved = false) {
         (0, SyncResolution_1.safeSyncPath)(relative);
         this.assertArtifactSyncPathsIdle?.(root, [relative]);
-        if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory) || directory && relative === "simple_cluster")
+        if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])) || directory && relative === "simple_cluster")
             throw new Error("机器状态路径不可删除。");
         if ((!batchApproved && this.syncScopeMutationInFlight) || this.planSyncInFlight || this.codeSyncInFlight)
             throw new Error("同步或文件树操作进行中，请完成后重试删除。");
@@ -9835,7 +9865,7 @@ class RealtimeTunnelPanelProvider {
     }
     async removeSyncScopePathFromAllWorkers(root, targets, relative, directory, report = (_stage) => { }) {
         (0, SyncResolution_1.safeSyncPath)(relative);
-        if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory) || directory && relative === "simple_cluster")
+        if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(relative, directory, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])) || directory && relative === "simple_cluster")
             throw new Error("机器状态路径不可删除。");
         if (this.syncScopeMutationInFlight || this.planSyncInFlight || this.codeSyncInFlight)
             throw new Error("同步或文件树操作进行中，请完成后重试删除。");
@@ -9919,7 +9949,7 @@ class RealtimeTunnelPanelProvider {
                 }
             }
             const inventoryPath = relative;
-            const sourceInventory = endpointId === "local" ? await (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root))
+            const sourceInventory = endpointId === "local" ? await (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []))
                 : (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(sourceRow), relativePath: inventoryPath, recursive: directory })).files;
             const expected = directory ? "目录内所有文件逐项 SHA256 校验" : sourceInventory[relative]?.sha256;
             if (!expected)
@@ -9933,7 +9963,7 @@ class RealtimeTunnelPanelProvider {
                 ...(mirrorLocal ? [{ label: "目标 本机", path: path.resolve(root, ...relative.split("/")) }] : []),
             ], "确认同步到其他位置"))
                 return false;
-            const currentSource = batchApproved ? sourceInventory : endpointId === "local" ? await (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root))
+            const currentSource = batchApproved ? sourceInventory : endpointId === "local" ? await (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []))
                 : (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(sourceRow), relativePath: inventoryPath, recursive: directory })).files;
             const sourceSnapshot = (files) => JSON.stringify((directory ? Object.entries(files) : [[relative, files[relative]]]).map(([file, info]) => [file, info?.sha256 || ""]).sort());
             if (sourceSnapshot(currentSource) !== sourceSnapshot(sourceInventory))
@@ -9982,7 +10012,7 @@ class RealtimeTunnelPanelProvider {
             }
             if (mirrorLocal) {
                 report("正在同步到本机对应路径");
-                await (0, SyncScopeLocalMirror_1.mirrorChosenWorkerVersionToLocal)(relative, directory, sourceInventory, () => this.simpleSftpApiCall("sync.downloadPaths", { localPath: root, server: this.sftpServerOptions(sourceRow), paths: [relative], confirm: true, pathConfirmed: true }), () => (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root)), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report, undefined, async (files) => {
+                await (0, SyncScopeLocalMirror_1.mirrorChosenWorkerVersionToLocal)(relative, directory, sourceInventory, () => this.simpleSftpApiCall("sync.downloadPaths", { localPath: root, server: this.sftpServerOptions(sourceRow), paths: [relative], confirm: true, pathConfirmed: true }), () => (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report, undefined, async (files) => {
                     const accepted = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("清理本机同步目录旧文件", `以下 ${files.length} 个本机文件不在所选来源版本中，将在下载并校验新版本后永久删除。逐项核对完整路径；取消会停止本次同步。`, files.map((file) => ({ label: "本机旧文件（将永久删除）", path: path.resolve(root, ...file.split("/")) })), `永久删除 ${files.length} 个本机旧文件`);
                     if (!accepted)
                         throw new UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
@@ -10018,7 +10048,7 @@ class RealtimeTunnelPanelProvider {
             let sourceRow = choice.endpointId === "local" ? undefined : targets.find((row) => row.id === choice.endpointId);
             let sourceFiles = expected;
             if (choice.endpointId === "local") {
-                sourceFiles = await (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, directory, true, undefined, this.localScopeHashCacheFile(root));
+                sourceFiles = await (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, directory, true, undefined, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []));
             }
             else if (!sourceRow || hashes(subtree(inventories[sourceRow.id] || {}, directory)) !== hashes(expected)) {
                 sourceRow = targets.find((row) => hashes(subtree(inventories[row.id] || {}, directory)) === hashes(expected));

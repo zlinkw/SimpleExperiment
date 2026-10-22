@@ -158,12 +158,18 @@ def task_execution_inventory(root, queries=()):
     # A fresh shared collector frame is a plain validated file read: it carries
     # without touching the sampler lock or nvidia-smi, so inventory stays fast
     # even between Agent sampler ticks and across an Agent restart.
+    collector_registered = False
     if "read_gpu_collector_frame" in globals():
         try:
             shared_worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
             shared = read_gpu_collector_frame(shared_worker, root)
+            shared_mode = str(shared.get("mode") or "absent")
+            registration_mode = "absent"
+            if "gpu_collector_read_registration" in globals():
+                registration_mode = str(gpu_collector_read_registration(shared_worker, root).get("mode") or "absent")
+            collector_registered = shared_mode != "absent" or registration_mode != "absent"
             shared_frame = shared.get("frame")
-            if shared.get("mode") == "fresh" and shared_frame:
+            if shared_mode == "fresh" and shared_frame:
                 gpu_sample = {"schemaVersion": 1, "generatedAt": str(shared_frame.get("collectedAt") or now_iso()),
                               "source": "worker_telemetry", "frameSource": GPU_COLLECTOR_SOURCE, "collectorMode": "fresh",
                               "collectorAgeMs": round(float(shared.get("ageMs") or 0.0), 1),
@@ -172,9 +178,20 @@ def task_execution_inventory(root, queries=()):
                               "completeness": str(shared_frame.get("completeness") or "full"),
                               "seq": int(shared_frame["seq"]), "epoch": str(shared_frame["epoch"])}
                 gpu_sample_state = "ready"
+            elif collector_registered:
+                # A registered collector in a failed state is reported honestly
+                # (stale/partial/foreign/unreadable/stalled): the inventory must
+                # not dress an old sampler cache as "ready" while the shared
+                # source is broken.
+                gpu_sample = None
+                gpu_sample_state = shared_mode if shared_mode != "absent" else "stalled"
         except Exception:
+            # Unknown is not absent and certainly not ready.
+            collector_registered = True
             gpu_sample = None
-    if gpu_sample is None and "WORKER_GPU_SAMPLE_CACHE" in globals() and "WORKER_GPU_SAMPLE_LOCK" in globals():
+            gpu_sample_state = "unreadable"
+    if gpu_sample is None and not collector_registered \
+            and "WORKER_GPU_SAMPLE_CACHE" in globals() and "WORKER_GPU_SAMPLE_LOCK" in globals():
         if WORKER_GPU_SAMPLE_LOCK.acquire(False):
             try:
                 cached_gpu = WORKER_GPU_SAMPLE_CACHE.get("sample")

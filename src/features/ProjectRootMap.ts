@@ -72,22 +72,57 @@ export function isMachineStateAbsolute(roots: ProjectRootMap, target: string): b
   return text === stateRoot || text.startsWith(stateRoot + "/");
 }
 
+function posixRelative(fromRoot: string, target: string): string | null {
+  // Returns the code-root-relative form of an absolute state root, or null when
+  // the state root lives OUTSIDE the code root (then no relative enumeration can
+  // ever reach it and no relative exclusion is needed), or "" when they are equal
+  // (a pathological mapping that covers the whole project; callers must treat
+  // that as "everything under the code root is machine state").
+  const base = normalizeRemotePath(fromRoot).split("/").filter(Boolean);
+  const goal = normalizeRemotePath(target).split("/").filter(Boolean);
+  if (!goal.length) return null;
+  let shared = 0;
+  while (shared < base.length && shared < goal.length && base[shared] === goal[shared]) shared += 1;
+  if (!shared) return null;
+  const up = base.length - shared;
+  const rest = goal.slice(shared);
+  if (up > 0) return null; // outside the code root on a different branch
+  return rest.join("/");
+}
+
 /**
- * Single source of truth for relative machine-state paths: the Agent writes
- * project state under <state>/projects/<namespace>/... and the shared GPU
- * collector writes worker state under <state>/workers/<namespace>/... . When an
- * older deployment nests the state dir inside the project directory these show
- * up as project-relative paths, so both the sync scope gate and the cleanup
- * classifier must treat them as machine state. The check is intentionally
- * conservative in the safe direction: a false positive only excludes a path
- * from sync/cleanup selection with an explicit reason; it never deletes or
- * rewrites anything. tmp/result, work_dirs/work_dir and the simple_cluster
- * allowlist keep their existing independent semantics untouched.
+ * Machine-state relative prefixes derived from the VERIFIED absolute mapping —
+ * never from directory-name guessing. A project legitimately containing
+ * work_dirs/run/state/projects/x keeps syncing (it is not under the mapped state
+ * root), while a custom stateDir nested anywhere inside the code directory is
+ * excluded exactly by its mapped prefix. An empty list means the state root is
+ * outside the code root and relative enumeration cannot reach it.
  */
-export function isMachineStateRelativePath(relative: string): boolean {
-  const parts = String(relative || "").replace(/\\/g, "/").split("/").filter(part => part.length > 0);
-  for (let index = 0; index + 2 < parts.length; index += 1) {
-    if (parts[index] === "state" && (parts[index + 1] === "projects" || parts[index + 1] === "workers")) return true;
+export function machineStateRelativePrefixes(map: ProjectRootMap): string[] {
+  if (!map.stateRoot || !map.codeRoot) return [];
+  const rel = posixRelative(map.codeRoot, map.stateRoot);
+  if (rel === null) return [];
+  return [rel];
+}
+
+/**
+ * True when `relative` lies under one of the mapped machine-state prefixes.
+ * With includeAncestors the reverse direction also matches: deleting an ANCESTOR
+ * directory of the state root would destroy machine state, so cleanup must treat
+ * it as protected too. tmp/result, work_dirs/work_dir and the simple_cluster
+ * allowlist keep their existing independent semantics untouched: this predicate
+ * only ever sees mapped absolute state roots, not path substrings.
+ */
+export function isUnderMachineStatePrefixes(relative: string, prefixes: readonly string[],
+  includeAncestors = false): boolean {
+  const rel = String(relative || "").replace(/\\/g, "/").split("/").filter(part => part.length > 0 && part !== ".");
+  if (rel.some(part => part === "..")) return includeAncestors; // unresolvable: fail closed for cleanup
+  for (const raw of prefixes) {
+    const prefix = String(raw || "").replace(/\\/g, "/").split("/").filter(part => part.length > 0 && part !== ".");
+    if (prefix.length === 0) return true; // the whole code root is the mapped state root
+    const under = rel.length >= prefix.length && prefix.every((part, index) => rel[index] === part);
+    if (under) return true;
+    if (includeAncestors && rel.length < prefix.length && rel.every((part, index) => prefix[index] === part)) return true;
   }
   return false;
 }

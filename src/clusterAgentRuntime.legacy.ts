@@ -2365,10 +2365,12 @@ def query_gpu_history(root, server_id="", gpu_id="", start=None, end=None, max_p
 def api_worker_gpu(root):
     # One device sample per second, shared by HTTP and the stream sampler.
     # When the independent collector publishes a fresh frame this consumer reads
-    # the frame instead of re-running nvidia-smi; the frame's own epoch/seq are
-    # the generation authority, so an Agent restart never resets the sequence.
-    # Without any collector the historical direct sample remains, marked
-    # frameSource=worker_agent_direct_unoptimized (never silently "shared").
+    # the frame instead of re-running nvidia-smi. A REGISTERED collector that is
+    # stale/partial/foreign/unreadable returns an honest degraded payload (empty
+    # gpus + error + collectorMode) — this consumer never revives a second sampler
+    # or switches the Agent-side epoch once a collector is registered; only a
+    # confirmed-legacy Worker (no registration AND no frame) keeps the historical
+    # direct sample, visibly marked frameSource=worker_agent_direct_unoptimized.
     worker_id = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
     with WORKER_GPU_SAMPLE_LOCK:
         cached = WORKER_GPU_SAMPLE_CACHE.get("sample")
@@ -2384,6 +2386,24 @@ def api_worker_gpu(root):
                        "status": str(frame.get("status") or "ok"), "error": str(frame.get("error") or ""),
                        "completeness": str(frame.get("completeness") or "full"),
                        "seq": int(frame["seq"]), "epoch": str(frame["epoch"])}
+            WORKER_GPU_SAMPLE_CACHE["sample"] = (time.monotonic(), payload)
+            return copy.deepcopy(payload)
+        registration_mode = "absent"
+        if "gpu_collector_read_registration" in globals():
+            try:
+                registration_mode = str(gpu_collector_read_registration(worker_id, root).get("mode") or "absent")
+            except Exception:
+                registration_mode = "unreadable"
+        registered = registration_mode != "absent" or observed.get("mode") != "absent"
+        if registered:
+            # Registered collector: unknown/partial/stale/foreign is reported as-is.
+            # gpus stays empty so no consumer can mistake this for a fresh sample.
+            mode = str(observed.get("mode") or "absent")
+            payload = {"schemaVersion": SCHEMA_VERSION, "generatedAt": now_iso(),
+                       "source": "worker_telemetry", "frameSource": GPU_COLLECTOR_SOURCE, "collectorMode": mode,
+                       "gpu": [], "gpus": [], "status": "degraded",
+                       "error": "gpu_collector_" + mode, "completeness": "partial",
+                       "seq": int(frame["seq"]) if frame else 0, "epoch": str((frame or {}).get("epoch") or registration_mode)}
             WORKER_GPU_SAMPLE_CACHE["sample"] = (time.monotonic(), payload)
             return copy.deepcopy(payload)
         gpus, err = collect_local_gpu()
@@ -3106,9 +3126,10 @@ def _durable_gpu_busy_reason(root, gpu_id, command_id, gpus=None, util_threshold
     except (TypeError, ValueError):
         raise ValueError("GPU idle thresholds must be finite nonnegative numbers")
     if gpus is None:
-        gpus, error = gpu_admission_probe(root) if "gpu_admission_probe" in globals() else collect_local_gpu()
-        if error:
-            return "gpu_busy"
+        # Fail closed: a busy-reason check that arrives without a sample must not
+        # secretly run a (possibly waiting) admission probe here — callers decide
+        # where the bounded wait happens, never a lock-holding helper.
+        return "gpu_busy"
     if DISTRIBUTED_GPU_RESERVATIONS.get(gpu_id) not in (None, command_id):
         return "gpu_busy"
     tasks = read_json(path_for(root, "worker_task_snapshot.json"), {})
@@ -4016,7 +4037,7 @@ def start_durable_plan_queue_processor(root, worker_id, poll_seconds=5, stop_eve
     return processor
 
 def reserve_distributed_gpu(root, gpu_id, command_id, util_threshold=None, mem_threshold=None,
-                            require_idle_gpu=False, max_concurrent_gpus=None):
+                            require_idle_gpu=False, max_concurrent_gpus=None, admission_evidence=None):
     """Reserve one physical GPU before starting a distributed job; never infer ownership from username."""
     with WORKER_TASK_SNAPSHOT_LOCK:
         if any(row.get("commandId") == command_id and row.get("stateRetiredAt") for row in read_worker_recall_tombstones(root)):
@@ -4032,7 +4053,31 @@ def reserve_distributed_gpu(root, gpu_id, command_id, util_threshold=None, mem_t
         if any(isinstance(row, dict) and str(row.get("gpuId") or "") == str(gpu_id)
                and str(row.get("status") or "").lower() in ("running", "dispatching") for row in tasks):
             raise RuntimeError(f"GPU {gpu_id} 已有插件任务运行")
-        gpus, error = gpu_admission_probe(root, wait_seconds=0) if "gpu_admission_probe" in globals() else collect_local_gpu()
+        # The causality-bound evidence is captured OUTSIDE this lock by the
+        # dispatcher (gpu_admission_probe_bound). Inside the lock only a pure file
+        # revalidation runs: the frame on disk must still be the exact accepted
+        # sample (same epoch+seq+sampling start, still fresh, same published
+        # generation) plus the real occupancy checks below. Without credentials
+        # there is no zero-wait path; confirmed-legacy workers keep the historical
+        # under-lock direct sample (marked unoptimized) exactly as before.
+        if admission_evidence is not None and "gpu_admission_recheck_evidence" in globals():
+            gpus, error = gpu_admission_recheck_evidence(
+                root, str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"), admission_evidence)
+        elif "gpu_admission_probe_bound" in globals() and "gpu_collector_read_registration" in globals():
+            reg_mode = "absent"
+            try:
+                reg_mode = str(gpu_collector_read_registration(
+                    str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"), root).get("mode") or "absent")
+            except Exception:
+                reg_mode = "unreadable"
+            if reg_mode != "absent":
+                # Registered collector but the dispatcher carried no credentials:
+                # fail closed (job stays queued) instead of an uncoupled sample.
+                gpus, error = [], "gpu_admission_evidence_missing"
+            else:
+                gpus, error = collect_local_gpu()
+        else:
+            gpus, error = collect_local_gpu()
         if error:
             raise RuntimeError(f"GPU 实时检测失败：{error}")
         row = next((item for item in gpus if gpu_row_id(item) == str(gpu_id)), None)
@@ -5871,8 +5916,26 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         gpu_util_threshold = command.get("gpuIdleUtilThreshold", options.get("gpuIdleUtilThreshold", options.get("gpu_idle_util_threshold")))
         gpu_mem_threshold = command.get("gpuIdleMemThresholdMb", options.get("gpuIdleMemThresholdMb", options.get("gpu_idle_mem_threshold")))
         max_concurrent_gpus = command.get("maxConcurrentGpus", options.get("maxConcurrentGpus"))
+        # Capture the causality-bound frame evidence BEFORE the reservation lock
+        # (bounded wait happens here, never under WORKER_TASK_SNAPSHOT_LOCK). A
+        # registered collector that cannot produce a request-after sample raises
+        # here, so the job stays queued instead of dispatching on a stale frame.
+        admission_evidence = None
+        if "gpu_admission_probe_bound" in globals() and "gpu_collector_read_registration" in globals() \
+                and "read_gpu_collector_frame" in globals():
+            _probe_worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
+            try:
+                _registered = str(gpu_collector_read_registration(_probe_worker, root).get("mode") or "") == "registered" \
+                    or str(read_gpu_collector_frame(_probe_worker, root).get("mode") or "absent") != "absent"
+            except Exception:
+                _registered = True  # unknown state: route through the probe, which fails closed
+            if _registered:
+                _bound_gpus, _bound_error, admission_evidence = gpu_admission_probe_bound(root, _probe_worker)
+                if _bound_error:
+                    raise RuntimeError(f"GPU 实时检测失败：{_bound_error}")
         existing_task = reserve_distributed_gpu(root, gpu_id, command_id, gpu_util_threshold, gpu_mem_threshold,
-                                                command.get("requireIdleGpu") is True, max_concurrent_gpus)
+                                                command.get("requireIdleGpu") is True, max_concurrent_gpus,
+                                                admission_evidence=admission_evidence)
         if existing_task:
             return {"commandId": command_id, "status": str(existing_task.get("status") or "unknown"),
                     "message": "相同 job 指令已存在，未重复启动", "gpuId": gpu_id}

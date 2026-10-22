@@ -46,6 +46,7 @@ const StateStore_1 = require("../state/StateStore");
 const PlanCleanupPanel_1 = require("./PlanCleanupPanel");
 const FastDeleteContract_1 = require("../features/FastDeleteContract");
 const ManifestCleanup_1 = require("../features/ManifestCleanup");
+const ProjectRootMap_1 = require("../features/ProjectRootMap");
 async function json(file, fallback) {
     const text = await fs.readFile(file, "utf8").catch((error) => { if (error.code === "ENOENT")
         return ""; throw error; });
@@ -216,6 +217,25 @@ class PlanCleanupHost {
         const evidenceQueue = job?.purpose === "replace_outputs" ? (0, PlanOutputReplacement_1.replacementEvidenceQueue)(queue, snapshots, (0, DistributedPlanQueue_1.canonicalProjectId)(this.root)) : queue;
         const scope = await (0, PlanCleanupEvidence_1.collectPlanCleanupEvidence)({ root: this.root, planFile: file, queue: evidenceQueue, ledger, registry,
             resultDir: this.host.resultCsvDirectory || "experiments/results", nodes, snapshots: snapshots.map(PlanOutputReplacement_1.cleanupTaskEvidence), operations, allowMissing, archivedFiles, removedMetadata, job });
+        // Four-root cleanup guard from real Worker configuration: each remote node
+        // resolves through the same four-root map as the sync gates (workDir +
+        // installDir → machine state root); candidates under a mapped prefix AND its
+        // ancestors become scope-protected, so deleting an ancestor directory can
+        // never reach machine state. Unmapped nodes keep the previous evidence-based
+        // protection untouched; nothing is migrated or moved.
+        const machineStatePrefixes = new Set();
+        for (const node of nodes) {
+            if (node.kind === "local")
+                continue;
+            try {
+                const dirs = typeof this.host.agentRuntimeDirs === "function" ? this.host.agentRuntimeDirs(node.root, undefined) : null;
+                const map = (0, ProjectRootMap_1.resolveProjectRootMap)({ projectDir: node.root, installDir: String(dirs?.installDir || "") });
+                for (const prefix of (0, ProjectRootMap_1.machineStateRelativePrefixes)(map))
+                    machineStatePrefixes.add(prefix);
+            }
+            catch { /* an unmapped node keeps only the previous evidence-based protection */ }
+        }
+        scope.machineStatePrefixes = [...machineStatePrefixes];
         if (job?.purpose === "replace_outputs") {
             const owner = evidenceQueue.plans.find((plan) => plan.id === job.workflowId)?.jobs.find((row) => row.commandId === job.commandId);
             const snapshot = snapshots.find(row => row.workerId === owner?.workerId);

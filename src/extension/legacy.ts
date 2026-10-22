@@ -111,6 +111,7 @@ import { batchSyncScopeInventoryPaths, planSyncScopeTransferGroups, scopeInvento
 import { planLatestWorkerMerge } from "../features/SyncLatestMerge";
 import { mirrorChosenWorkerVersionToLocal } from "../features/SyncScopeLocalMirror";
 import { buildScopeStatuses, collectLocalScopeInventory, collectSelectedLocalScopeFiles, hashLocalScopeNames, localScopeHashCachePath, scopeInventoryPathAllowed, requireCompleteScopeInventory } from "../features/SyncScopeStatus";
+import { machineStateRelativePrefixes, resolveProjectRootMap } from "../features/ProjectRootMap";
 import { deleteLocalSyncPath, filterHeldFiles, isSyncHeld, loadSyncHolds, safeSyncPath, saveSyncHolds } from "../features/SyncResolution";
 import * as SyncResolution from "../features/SyncResolution";
 const { renderPanelHtml } = PanelHtml_1;
@@ -8725,7 +8726,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const unverifiedFiles = {};
             const files = await hashLocalScopeNames(root, paths, (name, reason) => { unverifiedFiles[name] = reason; accept(name, undefined, reason); }, this.localScopeHashCacheFile(root), {
                 signal: contentSignal, concurrency: 2, onFile: (name, file) => accept(name, { ...file, modifiedAtMs: Number(file.modifiedAtMs) }),
-            });
+            }, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []));
             return { files: files as any, unverifiedFiles };
         } });
         const build = value => {
@@ -8740,12 +8741,38 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const value = await automatic.verify(contentEndpoints, inventories, unavailable, signal, value => publish(build(value)), report);
         return build(value);
     }
+    /**
+     * Machine-state relative prefixes for the sync/cleanup gates, resolved from
+     * the real per-Worker configuration through the four-root map (workDir +
+     * installDir → stateRoot; the default equals the Agent's actual layout
+     * <install>/state). A prefix mapped by any endpoint of the batch excludes
+     * conservatively; targets without a resolvable mapping contribute nothing and
+     * keep the previous gate semantics untouched.
+     */
+    machineStatePrefixes(targets) {
+        const prefixes = new Set();
+        for (const target of targets || []) {
+            try {
+                const remoteRoot = String(target?.remoteRoot || "").trim();
+                if (!remoteRoot) continue;
+                const dirs = (this as any).agentRuntimeDirs ? (this as any).agentRuntimeDirs(remoteRoot, target?.agentInstallDir) : null;
+                const map = resolveProjectRootMap({
+                    projectId: String(target?.id || ""),
+                    projectDir: String(dirs?.workDir || remoteRoot),
+                    installDir: String(dirs?.installDir || ""),
+                    stateDir: String(target?.agentStateDir || "").trim(),
+                });
+                for (const prefix of machineStateRelativePrefixes(map)) prefixes.add(prefix);
+            } catch { /* an unmapped target contributes no machine-state prefixes */ }
+        }
+        return [...prefixes];
+    }
     async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".", signal?: AbortSignal, report = (_stage: string) => {}) {
         signal?.throwIfAborted();
         const unverified = {};
         const localUnverified = {};
         const localRead = mode === "local-server"
-            ? collectLocalScopeInventory(root, relative, true, (file, reason) => { localUnverified[file] = reason; }, this.localScopeHashCacheFile(root)) : Promise.resolve({});
+            ? collectLocalScopeInventory(root, relative, true, (file, reason) => { localUnverified[file] = reason; }, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])) : Promise.resolve({});
         const workers = {};
         const configured = this.enabledWorkerConfigs().map((worker) => worker.id).filter(Boolean);
         const offline = new Set(configured.filter((id) => !targets.some((target) => target.id === id)));
@@ -8840,7 +8867,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
             const skipped = [...planned.skipped];
             const work = planned.items.filter((item) => {
-                if (!scopeInventoryPathAllowed(item.path, false) || /(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(item.path))) return false;
+                if (!scopeInventoryPathAllowed(item.path, false, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])) || /(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(item.path))) return false;
                 if (options.completedJob && (holds[item.path]?.codeOwned || isLocalCodeOwnedPath(item.path, false,
                     config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths")))) {
                     skipped.push(`${item.path}：代码以本机为准`);
@@ -8851,7 +8878,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (options.completedJob) {
                 const sourceId = options.completedJob.sourceId;
                 const files = Object.fromEntries(Object.entries(scoped).filter(([file, value]: [string, any]) => !value.copies && value.versions?.[sourceId]?.sha256
-                    && scopeInventoryPathAllowed(file, false) && !/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(file))).map(([file, value]: [string, any]) => [file, value.versions[sourceId].sha256]));
+                    && scopeInventoryPathAllowed(file, false, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])) && !/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(file))).map(([file, value]: [string, any]) => [file, value.versions[sourceId].sha256]));
                 if (skipped.length) throw new Error(skipped.join("；"));
                 const groups = new Map<string, string[]>();
                 for (const item of work) for (const id of item.destinationIds) {
@@ -9121,7 +9148,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async loadSyncScopeBatchSourceFiles(root, targets, endpointId, work) {
         if (endpointId === "local") {
             if (this.syncScopeBatchLocalInventory) return this.syncScopeBatchLocalInventory(root, work);
-            return collectSelectedLocalScopeFiles(root, work, this.localScopeHashCacheFile(root));
+            return collectSelectedLocalScopeFiles(root, work, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []));
         }
         const sourceRow = targets.find((row) => row.id === endpointId);
         if (!sourceRow) throw new Error("来源 Worker 未连接或未启用。");
@@ -9132,7 +9159,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (!endpointId || work.some((item) => item.endpointId !== endpointId)) throw new Error("批量同步必须使用同一个来源。");
         for (const item of work) {
             safeSyncPath(item.path);
-            if (!scopeInventoryPathAllowed(item.path, item.directory) || item.directory && item.path === "simple_cluster") throw new Error("机器状态路径不可选为保留版本。");
+            if (!scopeInventoryPathAllowed(item.path, item.directory, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])) || item.directory && item.path === "simple_cluster") throw new Error("机器状态路径不可选为保留版本。");
         }
         const sourceRow = endpointId === "local" ? undefined : targets.find((row) => row.id === endpointId);
         if (endpointId !== "local" && !sourceRow) throw new Error("来源 Worker 未连接或未启用。");
@@ -9162,7 +9189,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const reviewedLocalStaleHashes = new Map<string, string>();
         if (mirrorLocal && plan.directoryDeletes.length) {
             for (const directory of plan.directoryDeletes) {
-                const localFiles = await collectLocalScopeInventory(root, directory, true, undefined, this.localScopeHashCacheFile(root));
+                const localFiles = await collectLocalScopeInventory(root, directory, true, undefined, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []));
                 for (const [file, info] of Object.entries(localFiles)) if (!plan.files[file]) reviewedLocalStaleHashes.set(file, String(info.sha256 || "").toLowerCase());
             }
             if (reviewedLocalStaleHashes.size > SYNC_SCOPE_REVIEWED_STALE_FILE_LIMIT)
@@ -9235,7 +9262,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     paths: [...plan.directoryDeletes, ...work.filter((item) => !item.directory).map((item) => item.path)],
                     confirm: true, pathConfirmed: true,
                 }),
-                () => hashLocalScopeNames(root, selectedFiles, undefined, this.localScopeHashCacheFile(root)),
+                () => hashLocalScopeNames(root, selectedFiles, undefined, this.localScopeHashCacheFile(root), {}, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])),
                 (file) => deleteLocalSyncPath(root, file), report, selectedFiles, async (files) => {
                     const accepted = await confirmSyncScopePaths("清理本机同步目录旧文件",
                         `以下 ${files.length} 个本机文件不在所选来源版本中，将在下载并校验新版本后永久删除。逐项核对完整路径；取消会停止本次同步。`,
@@ -9244,7 +9271,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     if (!accepted) throw new UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
                 });
             for (const directory of plan.directoryDeletes) {
-                const actual = await collectLocalScopeInventory(root, directory, true, undefined, this.localScopeHashCacheFile(root));
+                const actual = await collectLocalScopeInventory(root, directory, true, undefined, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []));
                 const stale = Object.keys(actual).filter((file) => !plan.files[file]);
                 const unreviewed = stale.filter((file) => !reviewedLocalStaleHashes.has(file));
                 if (unreviewed.length) throw new Error(`同步期间出现未审核的本机旧文件；未删除：${unreviewed.slice(0, 20).join("、")}`);
@@ -9256,7 +9283,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 }
             }
             if (plan.directoryDeletes.length) {
-                const localFiles = await hashLocalScopeNames(root, selectedFiles, undefined, this.localScopeHashCacheFile(root));
+                const localFiles = await hashLocalScopeNames(root, selectedFiles, undefined, this.localScopeHashCacheFile(root), {}, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []));
                 if (scopeInventorySnapshot(localFiles, selectedFiles) !== scopeInventorySnapshot(plan.files, selectedFiles))
                     throw new Error("本机目录内容校验不一致；保留待同步状态。");
             }
@@ -9292,7 +9319,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async removeSyncScopeCopies(root, targets, relative, endpointIds, directory, report = (_stage: string) => {}) {
         this.assertArtifactSyncPathsIdle?.(root, [relative]);
         safeSyncPath(relative);
-        if (!scopeInventoryPathAllowed(relative, directory) || directory && relative === "simple_cluster") throw new Error("机器状态路径不可删除。");
+        if (!scopeInventoryPathAllowed(relative, directory, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])) || directory && relative === "simple_cluster") throw new Error("机器状态路径不可删除。");
         if (!Array.isArray(endpointIds) || !endpointIds.length) throw new Error("删除目标为空。");
         const copies = endpointIds.map((id) => {
             const target = id === "local" ? undefined : targets.find((row) => row.id === id);
@@ -9338,7 +9365,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async removeSyncScopePath(root, targets, relative, endpointId, directory, report = (_stage: string) => {}, batchApproved = false) {
         safeSyncPath(relative);
         this.assertArtifactSyncPathsIdle?.(root, [relative]);
-        if (!scopeInventoryPathAllowed(relative, directory) || directory && relative === "simple_cluster") throw new Error("机器状态路径不可删除。");
+        if (!scopeInventoryPathAllowed(relative, directory, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])) || directory && relative === "simple_cluster") throw new Error("机器状态路径不可删除。");
         if ((!batchApproved && this.syncScopeMutationInFlight) || this.planSyncInFlight || this.codeSyncInFlight) throw new Error("同步或文件树操作进行中，请完成后重试删除。");
         if (!batchApproved) { this.codeSyncWarmProofs?.clear(); this.syncScopeMutationInFlight = true; }
         try {
@@ -9366,7 +9393,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
     async removeSyncScopePathFromAllWorkers(root, targets, relative, directory, report = (_stage: string) => {}) {
         safeSyncPath(relative);
-        if (!scopeInventoryPathAllowed(relative, directory) || directory && relative === "simple_cluster") throw new Error("机器状态路径不可删除。");
+        if (!scopeInventoryPathAllowed(relative, directory, (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])) || directory && relative === "simple_cluster") throw new Error("机器状态路径不可删除。");
         if (this.syncScopeMutationInFlight || this.planSyncInFlight || this.codeSyncInFlight) throw new Error("同步或文件树操作进行中，请完成后重试删除。");
         this.codeSyncWarmProofs?.clear();
         this.syncScopeMutationInFlight = true;
@@ -9424,7 +9451,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             }
         }
         const inventoryPath = relative;
-        const sourceInventory = endpointId === "local" ? await collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root))
+        const sourceInventory = endpointId === "local" ? await collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []))
             : (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(sourceRow), relativePath: inventoryPath, recursive: directory })).files;
         const expected = directory ? "目录内所有文件逐项 SHA256 校验" : sourceInventory[relative]?.sha256;
         if (!expected) throw new Error("来源文件不存在或尚未完成 SHA256 校验。");
@@ -9436,7 +9463,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             ...destinationRows.map((row) => ({ label: `目标 ${row.id}`, path: path.posix.join(this.sftpServerOptions(row).remotePath, relative) })),
             ...(mirrorLocal ? [{ label: "目标 本机", path: path.resolve(root, ...relative.split("/")) }] : []),
         ], "确认同步到其他位置")) return false;
-        const currentSource = batchApproved ? sourceInventory : endpointId === "local" ? await collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root))
+        const currentSource = batchApproved ? sourceInventory : endpointId === "local" ? await collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []))
             : (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(sourceRow), relativePath: inventoryPath, recursive: directory })).files;
         const sourceSnapshot = (files) => JSON.stringify((directory ? Object.entries(files) : [[relative, files[relative]]]).map(([file, info]: [string, any]) => [file, info?.sha256 || ""]).sort());
         if (sourceSnapshot(currentSource) !== sourceSnapshot(sourceInventory))
@@ -9482,7 +9509,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             report("正在同步到本机对应路径");
             await mirrorChosenWorkerVersionToLocal(relative, directory, sourceInventory,
                 () => this.simpleSftpApiCall("sync.downloadPaths", { localPath: root, server: this.sftpServerOptions(sourceRow), paths: [relative], confirm: true, pathConfirmed: true }),
-                () => collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root)),
+                () => collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : [])),
                 (file) => deleteLocalSyncPath(root, file), report, undefined, async (files) => {
                     const accepted = await confirmSyncScopePaths("清理本机同步目录旧文件",
                         `以下 ${files.length} 个本机文件不在所选来源版本中，将在下载并校验新版本后永久删除。逐项核对完整路径；取消会停止本次同步。`,
@@ -9513,7 +9540,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             let sourceRow = choice.endpointId === "local" ? undefined : targets.find((row) => row.id === choice.endpointId);
             let sourceFiles = expected;
             if (choice.endpointId === "local") {
-                sourceFiles = await collectLocalScopeInventory(root, directory, true, undefined, this.localScopeHashCacheFile(root));
+                sourceFiles = await collectLocalScopeInventory(root, directory, true, undefined, this.localScopeHashCacheFile(root), (typeof this.machineStatePrefixes === "function" ? this.machineStatePrefixes(targets) : []));
             } else if (!sourceRow || hashes(subtree(inventories[sourceRow.id] || {}, directory)) !== hashes(expected)) {
                 sourceRow = targets.find((row) => hashes(subtree(inventories[row.id] || {}, directory)) === hashes(expected));
                 if (!sourceRow) throw new Error(`手动保留的目录 ${directory} 无可验证来源；等待来源 Worker 重连。`);
