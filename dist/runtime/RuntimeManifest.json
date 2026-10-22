@@ -6,9 +6,9 @@
   "components": {
     "hub_agent": {
       "version": "0.5.401",
-      "sha256": "f63400607b89b531ba64c17fe70984bc695b6533bfc5d39ba13d9d22e09bee2d",
+      "sha256": "8e61cb441e924e8d982a5e35ece1fd33bb103eba38a5012358c159b90431e945",
       "remotePath": "simple_cluster/runtime/cluster_agent.py",
-      "installedAt": "2026-10-21T17:47:16.070Z"
+      "installedAt": "2026-10-22T03:43:06.718Z"
     },
     "cluster_scheduler": {
       "version": "0.5.401",

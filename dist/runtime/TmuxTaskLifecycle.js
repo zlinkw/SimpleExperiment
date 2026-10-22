@@ -158,7 +158,26 @@ def task_execution_inventory(root, queries=()):
     # reported as-is so the Host cannot mistake absence for a fresh frame.
     gpu_sample = None
     gpu_sample_state = "missing"
-    if "WORKER_GPU_SAMPLE_CACHE" in globals() and "WORKER_GPU_SAMPLE_LOCK" in globals():
+    # A fresh shared collector frame is a plain validated file read: it carries
+    # without touching the sampler lock or nvidia-smi, so inventory stays fast
+    # even between Agent sampler ticks and across an Agent restart.
+    if "read_gpu_collector_frame" in globals():
+        try:
+            shared_worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
+            shared = read_gpu_collector_frame(shared_worker, root)
+            shared_frame = shared.get("frame")
+            if shared.get("mode") == "fresh" and shared_frame:
+                gpu_sample = {"schemaVersion": 1, "generatedAt": str(shared_frame.get("collectedAt") or now_iso()),
+                              "source": "worker_telemetry", "frameSource": GPU_COLLECTOR_SOURCE, "collectorMode": "fresh",
+                              "collectorAgeMs": round(float(shared.get("ageMs") or 0.0), 1),
+                              "gpu": shared_frame["gpus"], "gpus": shared_frame["gpus"],
+                              "status": str(shared_frame.get("status") or "ok"), "error": str(shared_frame.get("error") or ""),
+                              "completeness": str(shared_frame.get("completeness") or "full"),
+                              "seq": int(shared_frame["seq"]), "epoch": str(shared_frame["epoch"])}
+                gpu_sample_state = "ready"
+        except Exception:
+            gpu_sample = None
+    if gpu_sample is None and "WORKER_GPU_SAMPLE_CACHE" in globals() and "WORKER_GPU_SAMPLE_LOCK" in globals():
         if WORKER_GPU_SAMPLE_LOCK.acquire(False):
             try:
                 cached_gpu = WORKER_GPU_SAMPLE_CACHE.get("sample")
@@ -175,7 +194,11 @@ def task_execution_inventory(root, queries=()):
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
                 "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1,
                 "runtimeDiagnostics": 1, "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1,
-                "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1}, "tasks": tasks}
+                "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1,
+                # This runtime carries the shared independent-collector frames; the
+                # carried sample's frameSource says honestly whether the current
+                # frame is collector-shared or a marked direct sample.
+                "gpuCollector": 1}, "tasks": tasks}
 
 def task_manifest_observation(root, job):
     import stat as statmod
@@ -546,7 +569,7 @@ def task_query(root, queries=(), selected_only=False, observation_only=False):
             "activeOperations": active_cleanup_operations(root) if "active_cleanup_operations" in globals() else [],
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
                              "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1, "runtimeDiagnostics": 1,
-                             "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1}}
+                             "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1, "gpuCollector": 1}}
 
 def task_session_prefix():
     prefix = re.sub(r"[^a-z0-9._-]+", "-", str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower()).strip("-")[:32]
@@ -1028,7 +1051,7 @@ def task_queue_serve(root, worker_id):
                         occupied[live["gpuId"]] = occupied.get(live["gpuId"], 0) + 1
                 queued = sorted([row for row in rows if not row["dead"] and row["phase"] == "queued"], key=lambda row: row.get("dispatchPolicy") != "manual")
                 if queued:
-                    gpus, error = collect_local_gpu()
+                    gpus, error = gpu_admission_probe(root, worker_id) if "gpu_admission_probe" in globals() else collect_local_gpu()
                     if gpus or not error:
                         for row in queued:
                             # Occupancy and cancellation need only live headers;

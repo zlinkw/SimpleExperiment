@@ -12,7 +12,11 @@ function pythonDefinition(name) {
   const start = source.search(new RegExp(`^def ${name}\\(`, "m"));
   assert.notEqual(start, -1, `missing production definition: ${name}`);
   const tail = source.slice(start);
-  const next = tail.slice(1).search(/^(?:def |class |[A-Z][A-Z_]*\\s*=)/m);
+  // Stop at the next top-level def/class/module constant, at an interpolation
+  // placeholder line, or at the String.raw terminator. The previous pattern's
+  // `\\s` matched a literal backslash, so constants never stopped the slice and
+  // `${...}` placeholder lines leaked into the fixture (SyntaxError).
+  const next = tail.slice(1).search(/^(?:def |class |[A-Z][A-Z_]*\s*=|\$\{|`)/m);
   return next === -1 ? tail : tail.slice(0, next + 1);
 }
 

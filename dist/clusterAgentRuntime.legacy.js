@@ -6,6 +6,7 @@ const PlanExistingArtifacts_1 = require("./runtime/PlanExistingArtifacts");
 const TaskShellEnvironment_1 = require("./runtime/TaskShellEnvironment");
 const AgentLifecycle_1 = require("./runtime/AgentLifecycle");
 const TmuxTaskLifecycle_1 = require("./runtime/TmuxTaskLifecycle");
+const GpuCollector_1 = require("./runtime/GpuCollector");
 const RuntimeLogDiagnostics_1 = require("./runtime/RuntimeLogDiagnostics");
 const PlanCodeScope_1 = require("./runtime/PlanCodeScope");
 const SyncScopeIndex_1 = require("./runtime/SyncScopeIndex");
@@ -2366,16 +2367,34 @@ def query_gpu_history(root, server_id="", gpu_id="", start=None, end=None, max_p
 
 def api_worker_gpu(root):
     # One device sample per second, shared by HTTP and the stream sampler.
-    # Disk snapshots and old PLAN/task registrations never determine freshness.
+    # When the independent collector publishes a fresh frame this consumer reads
+    # the frame instead of re-running nvidia-smi; the frame's own epoch/seq are
+    # the generation authority, so an Agent restart never resets the sequence.
+    # Without any collector the historical direct sample remains, marked
+    # frameSource=worker_agent_direct_unoptimized (never silently "shared").
+    worker_id = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
     with WORKER_GPU_SAMPLE_LOCK:
         cached = WORKER_GPU_SAMPLE_CACHE.get("sample")
         if cached and 0 <= time.monotonic() - cached[0] < 1.0:
             return copy.deepcopy(cached[1])
+        observed = read_gpu_collector_frame(worker_id, root) if "read_gpu_collector_frame" in globals() else {"mode": "absent", "frame": None}
+        frame = observed.get("frame")
+        if observed.get("mode") == "fresh" and frame:
+            payload = {"schemaVersion": SCHEMA_VERSION, "generatedAt": str(frame.get("collectedAt") or now_iso()),
+                       "source": "worker_telemetry", "frameSource": GPU_COLLECTOR_SOURCE, "collectorMode": "fresh",
+                       "collectorAgeMs": round(float(observed.get("ageMs") or 0.0), 1),
+                       "gpu": frame["gpus"], "gpus": frame["gpus"],
+                       "status": str(frame.get("status") or "ok"), "error": str(frame.get("error") or ""),
+                       "completeness": str(frame.get("completeness") or "full"),
+                       "seq": int(frame["seq"]), "epoch": str(frame["epoch"])}
+            WORKER_GPU_SAMPLE_CACHE["sample"] = (time.monotonic(), payload)
+            return copy.deepcopy(payload)
         gpus, err = collect_local_gpu()
         global WORKER_GPU_SAMPLE_SEQ
         WORKER_GPU_SAMPLE_SEQ += 1
         payload = {"schemaVersion": SCHEMA_VERSION, "generatedAt": now_iso(),
-                   "source": "worker_telemetry", "gpu": gpus, "gpus": gpus,
+                   "source": "worker_telemetry", "frameSource": "worker_agent_direct_unoptimized",
+                   "collectorMode": observed.get("mode") or "absent", "gpu": gpus, "gpus": gpus,
                    "status": "ok" if not err else "degraded", "error": err,
                    "seq": WORKER_GPU_SAMPLE_SEQ, "epoch": WORKER_GPU_SAMPLE_EPOCH}
         WORKER_GPU_SAMPLE_CACHE["sample"] = (time.monotonic(), payload)
@@ -3090,7 +3109,7 @@ def _durable_gpu_busy_reason(root, gpu_id, command_id, gpus=None, util_threshold
     except (TypeError, ValueError):
         raise ValueError("GPU idle thresholds must be finite nonnegative numbers")
     if gpus is None:
-        gpus, error = collect_local_gpu()
+        gpus, error = gpu_admission_probe(root) if "gpu_admission_probe" in globals() else collect_local_gpu()
         if error:
             return "gpu_busy"
     if DISTRIBUTED_GPU_RESERVATIONS.get(gpu_id) not in (None, command_id):
@@ -3268,7 +3287,7 @@ def accept_durable_plan_job(root, command, worker_id):
             return durable_plan_public_task(row)
         if require_idle_gpu:
             try:
-                gpus, gpu_error = collect_local_gpu()
+                gpus, gpu_error = gpu_admission_probe(root) if "gpu_admission_probe" in globals() else collect_local_gpu()
             except Exception:
                 gpus, gpu_error = [], "unavailable"
             util_threshold = command.get("gpuIdleUtilThreshold", options.get("gpuIdleUtilThreshold", options.get("gpu_idle_util_threshold")))
@@ -3732,7 +3751,7 @@ def fence_queued_idle_gpu_admission(root, row, reason):
 
 def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None, target_command_id=None):
     worker_id = str(worker_id or "worker").strip() or "worker"
-    gpu_probe = gpu_probe or collect_local_gpu
+    gpu_probe = gpu_probe or (lambda: gpu_admission_probe(root, worker_id) if "gpu_admission_probe" in globals() else collect_local_gpu())
     execute = execute or execute_worker_command
     reconcile_worker_task_exit_codes(root)
     data = sync_durable_plan_task_rows(root)
@@ -4016,7 +4035,7 @@ def reserve_distributed_gpu(root, gpu_id, command_id, util_threshold=None, mem_t
         if any(isinstance(row, dict) and str(row.get("gpuId") or "") == str(gpu_id)
                and str(row.get("status") or "").lower() in ("running", "dispatching") for row in tasks):
             raise RuntimeError(f"GPU {gpu_id} 已有插件任务运行")
-        gpus, error = collect_local_gpu()
+        gpus, error = gpu_admission_probe(root, wait_seconds=0) if "gpu_admission_probe" in globals() else collect_local_gpu()
         if error:
             raise RuntimeError(f"GPU 实时检测失败：{error}")
         row = next((item for item in gpus if gpu_row_id(item) == str(gpu_id)), None)
@@ -6538,6 +6557,10 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=0):
         last_heartbeat = 0.0
         while True:
             try:
+                try:
+                    gpu_collector_self_heal(worker_id_local, root)
+                except Exception:
+                    pass
                 payload = write_worker_gpu_snapshot(root)
                 # 单机 worker_telemetry 模式自刷新 worker_availability.json 避免调度停滞
                 try:
@@ -15766,6 +15789,12 @@ def serve_http(args):
     # Scheduler, which rebuilds from actual windows rather than replaying history.
     atomic_write(path_for(root, "agent.session.json"), {"tokenConfigured": bool(token), "startedAt": now_iso(), "agentVersion": AGENT_VERSION, "agentInstallDir": agent_install_dir(root), "agentStateDir": agent_dir(root), "stateRetentionSeconds": STATE_RETENTION_SECONDS, "maxAgentStateBytes": MAX_AGENT_STATE_BYTES})
     if mode == "worker_telemetry":
+        try:
+            gpu_collector_ensure(os.environ["SIMPLE_EXPERIMENT_WORKER_ID"], root)
+        except Exception as gpu_collector_exc:
+            # The Agent must stay diagnosable even when the collector window cannot start;
+            # consumers fall back to the marked direct sample meanwhile.
+            print("[gpu-collector] " + str(gpu_collector_exc), file=sys.stderr, flush=True)
         start_worker_telemetry_sampler(root, getattr(args, "gpu_poll_seconds", 1), 0)
         # P0: worker_telemetry 与 hub_control 均启动 gpu_log_tail 采样，与 GPU 采样同频 60s，写入 live_output/{gid}.json + append_event log_tail
         try:
@@ -17002,6 +17031,16 @@ def main():
         args = parser.parse_args()
         AGENT_STATE_DIR = args.state_dir
         return task_queue_serve(args.project_dir, args.worker_id) if args.cmd == "task-queue" else task_runner(args.project_dir, args.worker_id)
+    if len(sys.argv) > 1 and sys.argv[1] == "gpu-collector":
+        parser = argparse.ArgumentParser()
+        parser.add_argument("cmd")
+        parser.add_argument("--project-dir", required=True)
+        parser.add_argument("--worker-id", required=True)
+        parser.add_argument("--state-dir", default="")
+        parser.add_argument("--poll-seconds", type=float, default=1.0)
+        args = parser.parse_args()
+        AGENT_STATE_DIR = args.state_dir
+        return gpu_collector_main(args.project_dir, args.worker_id, args.poll_seconds)
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="cmd", required=True)
     for name in ("run", "snapshot", "health", "inspect", "stop"):
@@ -17068,6 +17107,7 @@ def main():
 
 ${RuntimeLogDiagnostics_1.RUNTIME_LOG_DIAGNOSTICS_PYTHON}
 ${PlanCodeScope_1.PLAN_CODE_SCOPE_PYTHON}
+${GpuCollector_1.GPU_COLLECTOR_PYTHON}
 ${TmuxTaskLifecycle_1.TMUX_TASK_LIFECYCLE_PYTHON}
 
 if __name__ == "__main__":

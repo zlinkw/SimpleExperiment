@@ -3360,16 +3360,34 @@ def query_gpu_history(root, server_id="", gpu_id="", start=None, end=None, max_p
 
 def api_worker_gpu(root):
     # One device sample per second, shared by HTTP and the stream sampler.
-    # Disk snapshots and old PLAN/task registrations never determine freshness.
+    # When the independent collector publishes a fresh frame this consumer reads
+    # the frame instead of re-running nvidia-smi; the frame's own epoch/seq are
+    # the generation authority, so an Agent restart never resets the sequence.
+    # Without any collector the historical direct sample remains, marked
+    # frameSource=worker_agent_direct_unoptimized (never silently "shared").
+    worker_id = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
     with WORKER_GPU_SAMPLE_LOCK:
         cached = WORKER_GPU_SAMPLE_CACHE.get("sample")
         if cached and 0 <= time.monotonic() - cached[0] < 1.0:
             return copy.deepcopy(cached[1])
+        observed = read_gpu_collector_frame(worker_id, root) if "read_gpu_collector_frame" in globals() else {"mode": "absent", "frame": None}
+        frame = observed.get("frame")
+        if observed.get("mode") == "fresh" and frame:
+            payload = {"schemaVersion": SCHEMA_VERSION, "generatedAt": str(frame.get("collectedAt") or now_iso()),
+                       "source": "worker_telemetry", "frameSource": GPU_COLLECTOR_SOURCE, "collectorMode": "fresh",
+                       "collectorAgeMs": round(float(observed.get("ageMs") or 0.0), 1),
+                       "gpu": frame["gpus"], "gpus": frame["gpus"],
+                       "status": str(frame.get("status") or "ok"), "error": str(frame.get("error") or ""),
+                       "completeness": str(frame.get("completeness") or "full"),
+                       "seq": int(frame["seq"]), "epoch": str(frame["epoch"])}
+            WORKER_GPU_SAMPLE_CACHE["sample"] = (time.monotonic(), payload)
+            return copy.deepcopy(payload)
         gpus, err = collect_local_gpu()
         global WORKER_GPU_SAMPLE_SEQ
         WORKER_GPU_SAMPLE_SEQ += 1
         payload = {"schemaVersion": SCHEMA_VERSION, "generatedAt": now_iso(),
-                   "source": "worker_telemetry", "gpu": gpus, "gpus": gpus,
+                   "source": "worker_telemetry", "frameSource": "worker_agent_direct_unoptimized",
+                   "collectorMode": observed.get("mode") or "absent", "gpu": gpus, "gpus": gpus,
                    "status": "ok" if not err else "degraded", "error": err,
                    "seq": WORKER_GPU_SAMPLE_SEQ, "epoch": WORKER_GPU_SAMPLE_EPOCH}
         WORKER_GPU_SAMPLE_CACHE["sample"] = (time.monotonic(), payload)
@@ -4084,7 +4102,7 @@ def _durable_gpu_busy_reason(root, gpu_id, command_id, gpus=None, util_threshold
     except (TypeError, ValueError):
         raise ValueError("GPU idle thresholds must be finite nonnegative numbers")
     if gpus is None:
-        gpus, error = collect_local_gpu()
+        gpus, error = gpu_admission_probe(root) if "gpu_admission_probe" in globals() else collect_local_gpu()
         if error:
             return "gpu_busy"
     if DISTRIBUTED_GPU_RESERVATIONS.get(gpu_id) not in (None, command_id):
@@ -4262,7 +4280,7 @@ def accept_durable_plan_job(root, command, worker_id):
             return durable_plan_public_task(row)
         if require_idle_gpu:
             try:
-                gpus, gpu_error = collect_local_gpu()
+                gpus, gpu_error = gpu_admission_probe(root) if "gpu_admission_probe" in globals() else collect_local_gpu()
             except Exception:
                 gpus, gpu_error = [], "unavailable"
             util_threshold = command.get("gpuIdleUtilThreshold", options.get("gpuIdleUtilThreshold", options.get("gpu_idle_util_threshold")))
@@ -4726,7 +4744,7 @@ def fence_queued_idle_gpu_admission(root, row, reason):
 
 def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None, target_command_id=None):
     worker_id = str(worker_id or "worker").strip() or "worker"
-    gpu_probe = gpu_probe or collect_local_gpu
+    gpu_probe = gpu_probe or (lambda: gpu_admission_probe(root, worker_id) if "gpu_admission_probe" in globals() else collect_local_gpu())
     execute = execute or execute_worker_command
     reconcile_worker_task_exit_codes(root)
     data = sync_durable_plan_task_rows(root)
@@ -5010,7 +5028,7 @@ def reserve_distributed_gpu(root, gpu_id, command_id, util_threshold=None, mem_t
         if any(isinstance(row, dict) and str(row.get("gpuId") or "") == str(gpu_id)
                and str(row.get("status") or "").lower() in ("running", "dispatching") for row in tasks):
             raise RuntimeError(f"GPU {gpu_id} 已有插件任务运行")
-        gpus, error = collect_local_gpu()
+        gpus, error = gpu_admission_probe(root, wait_seconds=0) if "gpu_admission_probe" in globals() else collect_local_gpu()
         if error:
             raise RuntimeError(f"GPU 实时检测失败：{error}")
         row = next((item for item in gpus if gpu_row_id(item) == str(gpu_id)), None)
@@ -7604,6 +7622,10 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=0):
         last_heartbeat = 0.0
         while True:
             try:
+                try:
+                    gpu_collector_self_heal(worker_id_local, root)
+                except Exception:
+                    pass
                 payload = write_worker_gpu_snapshot(root)
                 # 单机 worker_telemetry 模式自刷新 worker_availability.json 避免调度停滞
                 try:
@@ -16832,6 +16854,12 @@ def serve_http(args):
     # Scheduler, which rebuilds from actual windows rather than replaying history.
     atomic_write(path_for(root, "agent.session.json"), {"tokenConfigured": bool(token), "startedAt": now_iso(), "agentVersion": AGENT_VERSION, "agentInstallDir": agent_install_dir(root), "agentStateDir": agent_dir(root), "stateRetentionSeconds": STATE_RETENTION_SECONDS, "maxAgentStateBytes": MAX_AGENT_STATE_BYTES})
     if mode == "worker_telemetry":
+        try:
+            gpu_collector_ensure(os.environ["SIMPLE_EXPERIMENT_WORKER_ID"], root)
+        except Exception as gpu_collector_exc:
+            # The Agent must stay diagnosable even when the collector window cannot start;
+            # consumers fall back to the marked direct sample meanwhile.
+            print("[gpu-collector] " + str(gpu_collector_exc), file=sys.stderr, flush=True)
         start_worker_telemetry_sampler(root, getattr(args, "gpu_poll_seconds", 1), 0)
         # P0: worker_telemetry 与 hub_control 均启动 gpu_log_tail 采样，与 GPU 采样同频 60s，写入 live_output/{gid}.json + append_event log_tail
         try:
@@ -18068,6 +18096,16 @@ def main():
         args = parser.parse_args()
         AGENT_STATE_DIR = args.state_dir
         return task_queue_serve(args.project_dir, args.worker_id) if args.cmd == "task-queue" else task_runner(args.project_dir, args.worker_id)
+    if len(sys.argv) > 1 and sys.argv[1] == "gpu-collector":
+        parser = argparse.ArgumentParser()
+        parser.add_argument("cmd")
+        parser.add_argument("--project-dir", required=True)
+        parser.add_argument("--worker-id", required=True)
+        parser.add_argument("--state-dir", default="")
+        parser.add_argument("--poll-seconds", type=float, default=1.0)
+        args = parser.parse_args()
+        AGENT_STATE_DIR = args.state_dir
+        return gpu_collector_main(args.project_dir, args.worker_id, args.poll_seconds)
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="cmd", required=True)
     for name in ("run", "snapshot", "health", "inspect", "stop"):
@@ -18537,6 +18575,249 @@ def inspect_plan_code_scope(root, request):
             "fileCount": checked["fileCount"], "conservative": checked["conservative"], "queriedAt": now_iso()}
 
 
+GPU_COLLECTOR_FRESH_MS = max(2000.0, float(os.environ.get("SIMPLE_GPU_COLLECTOR_FRESH_MS") or 5000))
+GPU_ADMISSION_WAIT_SECONDS = max(0.0, float(os.environ.get("SIMPLE_GPU_ADMISSION_WAIT_SECONDS") or 2.0))
+GPU_COLLECTOR_SOURCE = "worker_gpu_collector"
+_GPU_SOURCE_MODE_LAST = {}
+
+def gpu_collector_worker_ns(worker_id):
+    return hashlib.sha256(str(worker_id or "worker").encode("utf-8")).hexdigest()[:16]
+
+def gpu_collector_state_root(root=""):
+    # Worker-scoped machine state: a sibling of the per-project state namespaces so
+    # every project on this Worker shares one collector without sharing project state.
+    configured = AGENT_STATE_DIR or os.environ.get("SIMPLE_EXPERIMENT_AGENT_STATE_DIR", "")
+    if configured:
+        anchor = resolve_agent_state_dir(root, configured) if root else os.path.abspath(os.path.expanduser(configured))
+    elif root:
+        anchor = agent_dir(root)
+    else:
+        return ""
+    parent = os.path.dirname(os.path.abspath(anchor))
+    if os.path.basename(os.path.normcase(parent)) == "projects":
+        parent = os.path.dirname(parent)
+    return os.path.join(parent, "workers")
+
+def gpu_collector_frame_path(worker_id, root=""):
+    base = gpu_collector_state_root(root)
+    if not base:
+        return ""
+    return os.path.join(base, gpu_collector_worker_ns(worker_id), "gpu_frame.json")
+
+def gpu_collector_session(worker_id, root=""):
+    key = hashlib.sha256((str(worker_id or "worker") + "\0" + gpu_collector_frame_path(worker_id, root)).encode("utf-8")).hexdigest()[:16]
+    return task_session_prefix() + "-gpu-collector-" + key
+
+def gpu_collector_command(worker_id, root=""):
+    argv = [sys.executable, "-B", os.path.abspath(__file__), "gpu-collector",
+            "--worker-id", str(worker_id or "worker"), "--project-dir", os.path.realpath(root or os.getcwd())]
+    if AGENT_STATE_DIR or os.environ.get("SIMPLE_EXPERIMENT_AGENT_STATE_DIR", ""):
+        argv.extend(["--state-dir", AGENT_STATE_DIR or os.environ.get("SIMPLE_EXPERIMENT_AGENT_STATE_DIR", "")])
+    # tmux children inherit the server environment, not the Agent's; carry the prefix.
+    return "exec env " + shlex.join(["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX=" + task_session_prefix(), *argv])
+
+def gpu_collector_tmux(args, timeout=5):
+    proc = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout)
+    if proc.returncode:
+        raise RuntimeError("GPU_COLLECTOR_TMUX_FAILED: " + ((proc.stderr or proc.stdout or "").strip()[-400:]))
+    return (proc.stdout or "").strip()
+
+def gpu_collector_binding(worker_id, frame_path):
+    return {"frameSource": GPU_COLLECTOR_SOURCE, "workerId": str(worker_id or "worker"), "framePath": frame_path,
+            "epoch": "%d-%d" % (int(time.monotonic() * 1000), os.getpid()), "runningVersion": RUNTIME_VERSION,
+            "uid": os.getuid() if hasattr(os, "getuid") else -1}
+
+def gpu_collector_ensure(worker_id, root=""):
+    """Idempotent startup on the exact deterministic session; a dead pane is respawned
+    with -k on its own pane only. Never touches task, GPU or Scheduler windows."""
+    worker_id = str(worker_id or "worker").strip() or "worker"
+    frame_path = gpu_collector_frame_path(worker_id, root)
+    session = gpu_collector_session(worker_id, root)
+    if not frame_path:
+        return {"status": "unconfigured", "workerId": worker_id}
+    has = subprocess.run(["tmux", "has-session", "-t", "=" + session], capture_output=True, timeout=3).returncode == 0
+    if has:
+        try:
+            fields = gpu_collector_tmux(["display-message", "-p", "-t", session + ":collector",
+                "#{window_id}\t#{pane_id}\t#{pane_dead}\t#{@se_gpu_collector}"]).split("\t")
+        except RuntimeError:
+            return {"status": "unverified", "workerId": worker_id, "session": session}
+        if len(fields) != 4 or not re.fullmatch(r"@\d+", fields[0] or "") or not re.fullmatch(r"%\d+", fields[1] or ""):
+            return {"status": "unverified", "workerId": worker_id, "session": session}
+        binding = {}
+        try:
+            binding = json.loads(fields[3]) if fields[3] else {}
+        except ValueError:
+            binding = {}
+        if binding.get("framePath") != frame_path or binding.get("workerId") != worker_id:
+            # Same name, foreign binding: never take over an unverified window.
+            return {"status": "mismatch", "workerId": worker_id, "session": session, "windowId": fields[0]}
+        if fields[2] == "1":
+            gpu_collector_tmux(["respawn-pane", "-k", "-t", fields[1], gpu_collector_command(worker_id, root)])
+            return {"status": "respawned", "workerId": worker_id, "session": session, "windowId": fields[0], "paneId": fields[1]}
+        return {"status": "running", "workerId": worker_id, "session": session, "windowId": fields[0],
+                "paneId": fields[1], "epoch": str(binding.get("epoch") or "")}
+    os.makedirs(os.path.dirname(frame_path), exist_ok=True)
+    gpu_collector_tmux(["new-session", "-d", "-s", session, "-n", "collector", gpu_collector_command(worker_id, root)])
+    gpu_collector_tmux(["set-option", "-w", "-t", session + ":collector", "remain-on-exit", "on"])
+    try:
+        binding = gpu_collector_binding(worker_id, frame_path)
+        window_id = gpu_collector_tmux(["display-message", "-p", "-t", session + ":collector", "#{window_id}"])
+        gpu_collector_tmux(["set-option", "-w", "-t", window_id, "@se_gpu_collector", json.dumps(binding, ensure_ascii=False)])
+    except RuntimeError as exc:
+        return {"status": "starting", "workerId": worker_id, "session": session, "bindingError": str(exc)[-300:]}
+    return {"status": "started", "workerId": worker_id, "session": session, "windowId": window_id, "epoch": binding["epoch"]}
+
+def gpu_collector_note_mode(worker_id, mode, root=""):
+    # One machine-journal note per mode transition: consumers never silently switch
+    # between the shared frame and the legacy direct sample.
+    key = str(worker_id or "")
+    if _GPU_SOURCE_MODE_LAST.get(key) == mode:
+        return
+    _GPU_SOURCE_MODE_LAST[key] = mode
+    try:
+        if root and "append_event" in globals():
+            append_event(root, {"type": "gpu_source_mode", "workerId": key, "payload": {"mode": mode, "generatedAt": now_iso()}})
+    except Exception:
+        pass
+    return mode
+
+def gpu_collector_main(root, worker_id, poll_seconds=1.0):
+    """Single writer for the shared frame. Epoch is this collector's generation;
+    the sequence advances monotonically for its lifetime and is never reset by an
+    Agent restart. Sampling cadence equals the previous core frequency (1s)."""
+    worker_id = str(worker_id or "worker").strip() or "worker"
+    frame_path = gpu_collector_frame_path(worker_id, root)
+    if not frame_path:
+        raise RuntimeError("GPU_COLLECTOR_STATE_ROOT_UNCONFIGURED")
+    os.makedirs(os.path.dirname(frame_path), exist_ok=True)
+    epoch = "%d-%d" % (int(time.monotonic() * 1000), os.getpid())
+    binding = gpu_collector_binding(worker_id, frame_path)
+    binding["epoch"] = epoch
+    try:
+        gpu_collector_tmux(["set-option", "-w", "-t", gpu_collector_session(worker_id, root) + ":collector",
+                            "@se_gpu_collector", json.dumps(binding, ensure_ascii=False)])
+    except Exception as exc:
+        print("[gpu-collector] binding annotation failed: " + str(exc), file=sys.stderr, flush=True)
+    seq = 0
+    interval = max(0.5, float(poll_seconds or 1.0))
+    while True:
+        started = time.monotonic()
+        try:
+            gpus, err = collect_local_gpu()
+        except Exception as exc:  # A sampler crash must not fake freshness downstream.
+            gpus, err = [], str(exc)
+        seq += 1
+        frame = {"schemaVersion": 1, "frameSource": GPU_COLLECTOR_SOURCE, "workerId": worker_id,
+                 "epoch": epoch, "seq": seq, "collectedAt": now_iso(),
+                 "collectedMonotonicMs": int(started * 1000.0),
+                 "status": "ok" if not err else "degraded", "error": str(err or ""),
+                 "completeness": "full" if gpus and not err else "partial",
+                 "runtimeVersion": RUNTIME_VERSION, "gpu": gpus, "gpus": gpus}
+        try:
+            atomic_write(frame_path, frame)
+        except Exception as exc:
+            print("[gpu-collector] frame write failed: " + str(exc), file=sys.stderr, flush=True)
+        delay = interval - (time.monotonic() - started)
+        if delay > 0:
+            time.sleep(delay)
+
+_GPU_COLLECTOR_HEAL_AT = {}
+
+def gpu_collector_self_heal(worker_id, root=""):
+    # Bounded watchdog from the Agent sampler only: if the shared frame is not
+    # fresh and the collector window itself is dead, respawn that one exact pane
+    # (or start the deterministic session when it is gone). Cadence-limited; never
+    # scans processes and never touches any other window.
+    worker_id = str(worker_id or "worker").strip() or "worker"
+    now = time.monotonic()
+    if now - float(_GPU_COLLECTOR_HEAL_AT.get(worker_id) or 0.0) < 15.0:
+        return None
+    _GPU_COLLECTOR_HEAL_AT[worker_id] = now
+    if read_gpu_collector_frame(worker_id, root).get("mode") == "fresh":
+        return None
+    report = gpu_collector_ensure(worker_id, root)
+    if report.get("status") in ("started", "respawned"):
+        gpu_collector_note_mode(worker_id, "collector_" + str(report.get("status")), root)
+    return report
+
+def read_gpu_collector_frame(worker_id, root=""):
+    """Validate identity, generation and monotonic freshness of one frame.
+    A wall-clock that moved backwards relative to this process can only make a
+    frame look stale (negative monotonic age), never fresh."""
+    worker_id = str(worker_id or "worker").strip() or "worker"
+    frame_path = gpu_collector_frame_path(worker_id, root)
+    try:
+        exists = bool(frame_path) and os.path.isfile(frame_path)
+    except Exception:
+        # A stat failure (permissions, path weirdness) can only mean "no shared
+        # frame here" — the consumer falls back to the marked direct sample and
+        # never manufactures freshness from an unreadable location.
+        return {"mode": "absent", "frame": None}
+    if not exists:
+        return {"mode": "absent", "frame": None}
+    try:
+        frame = read_json(frame_path, None)
+    except Exception:
+        return {"mode": "partial", "frame": None}
+    if not isinstance(frame, dict) or frame.get("frameSource") != GPU_COLLECTOR_SOURCE \
+            or str(frame.get("workerId") or "") != worker_id:
+        return {"mode": "foreign", "frame": None}
+    seq = frame.get("seq")
+    epoch = str(frame.get("epoch") or "")
+    mono = frame.get("collectedMonotonicMs")
+    gpus = frame.get("gpus")
+    if type(seq) is not int or seq <= 0 or not epoch or not isinstance(mono, (int, float)) or not isinstance(gpus, list):
+        return {"mode": "partial", "frame": None}
+    age_ms = time.monotonic() * 1000.0 - float(mono)
+    if age_ms < 0.0 or age_ms > GPU_COLLECTOR_FRESH_MS:
+        return {"mode": "stale", "frame": frame, "ageMs": age_ms}
+    if frame.get("completeness") != "full":
+        return {"mode": "partial", "frame": frame, "ageMs": age_ms}
+    return {"mode": "fresh", "frame": frame, "ageMs": age_ms}
+
+def gpu_admission_probe(root, worker_id="", wait_seconds=None):
+    """(gpus, error) source for every admission/dispatch decision.
+    Causality: capture the seq BEFORE the decision window opens, then accept only
+    a frame whose seq advanced past that watermark; request attribution alone does
+    not prove the sample was taken after the request. A registered collector that
+    stays behind the watermark returns an error so the job remains queued.
+    A worker without any collector keeps the legacy direct sample, honestly
+    recorded as direct_unoptimized. wait_seconds=0 is for lock-holding rechecks
+    (accept the current fresh frame without waiting; never extend a lock hold)."""
+    worker_id = str(worker_id or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
+    opening = read_gpu_collector_frame(worker_id, root)
+    if opening["mode"] == "absent":
+        gpu_collector_note_mode(worker_id, "direct_unoptimized", root)
+        return collect_local_gpu()
+    watermark = int(opening["frame"]["seq"]) if opening.get("frame") else 0
+    if wait_seconds is not None and float(wait_seconds) <= 0:
+        # A watermark cannot advance inside a zero-wait window; accept a strictly
+        # fresh frame only when the opening read was not itself usable.
+        if opening["mode"] == "fresh" and opening.get("frame"):
+            gpu_collector_note_mode(worker_id, "collector", root)
+            return list(opening["frame"]["gpus"]), ""
+        return [], "gpu_collector_no_fresh_frame"
+    deadline = time.monotonic() + (GPU_ADMISSION_WAIT_SECONDS if wait_seconds is None else max(0.0, float(wait_seconds)))
+    latest = opening
+    while True:
+        latest = read_gpu_collector_frame(worker_id, root)
+        frame = latest.get("frame")
+        if latest["mode"] == "fresh" and frame and int(frame["seq"]) > watermark:
+            gpu_collector_note_mode(worker_id, "collector", root)
+            return list(frame["gpus"]), ""
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.1)
+    if watermark == 0 and latest["mode"] in ("partial", "foreign"):
+        # Never a usable shared frame here (for example a corrupt first write):
+        # keep the old safe direct sample, marked.
+        gpu_collector_note_mode(worker_id, "direct_unoptimized", root)
+        return collect_local_gpu()
+    gpu_collector_note_mode(worker_id, "collector_stalled", root)
+    return [], "gpu_collector_stalled: no frame newer than seq " + str(watermark) + " within " + format(GPU_ADMISSION_WAIT_SECONDS, ".1f") + "s"
+
+
 TASK_LIFECYCLE_PROTOCOL = 2
 NATIVE_TASK_RUNNER_CONTEXT = None
 TASK_SCHEDULER_UPDATE_ERROR = ""
@@ -18692,7 +18973,26 @@ def task_execution_inventory(root, queries=()):
     # reported as-is so the Host cannot mistake absence for a fresh frame.
     gpu_sample = None
     gpu_sample_state = "missing"
-    if "WORKER_GPU_SAMPLE_CACHE" in globals() and "WORKER_GPU_SAMPLE_LOCK" in globals():
+    # A fresh shared collector frame is a plain validated file read: it carries
+    # without touching the sampler lock or nvidia-smi, so inventory stays fast
+    # even between Agent sampler ticks and across an Agent restart.
+    if "read_gpu_collector_frame" in globals():
+        try:
+            shared_worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
+            shared = read_gpu_collector_frame(shared_worker, root)
+            shared_frame = shared.get("frame")
+            if shared.get("mode") == "fresh" and shared_frame:
+                gpu_sample = {"schemaVersion": 1, "generatedAt": str(shared_frame.get("collectedAt") or now_iso()),
+                              "source": "worker_telemetry", "frameSource": GPU_COLLECTOR_SOURCE, "collectorMode": "fresh",
+                              "collectorAgeMs": round(float(shared.get("ageMs") or 0.0), 1),
+                              "gpu": shared_frame["gpus"], "gpus": shared_frame["gpus"],
+                              "status": str(shared_frame.get("status") or "ok"), "error": str(shared_frame.get("error") or ""),
+                              "completeness": str(shared_frame.get("completeness") or "full"),
+                              "seq": int(shared_frame["seq"]), "epoch": str(shared_frame["epoch"])}
+                gpu_sample_state = "ready"
+        except Exception:
+            gpu_sample = None
+    if gpu_sample is None and "WORKER_GPU_SAMPLE_CACHE" in globals() and "WORKER_GPU_SAMPLE_LOCK" in globals():
         if WORKER_GPU_SAMPLE_LOCK.acquire(False):
             try:
                 cached_gpu = WORKER_GPU_SAMPLE_CACHE.get("sample")
@@ -18709,7 +19009,11 @@ def task_execution_inventory(root, queries=()):
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
                 "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1,
                 "runtimeDiagnostics": 1, "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1,
-                "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1}, "tasks": tasks}
+                "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1,
+                # This runtime carries the shared independent-collector frames; the
+                # carried sample's frameSource says honestly whether the current
+                # frame is collector-shared or a marked direct sample.
+                "gpuCollector": 1}, "tasks": tasks}
 
 def task_manifest_observation(root, job):
     import stat as statmod
@@ -19080,7 +19384,7 @@ def task_query(root, queries=(), selected_only=False, observation_only=False):
             "activeOperations": active_cleanup_operations(root) if "active_cleanup_operations" in globals() else [],
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
                              "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1, "runtimeDiagnostics": 1,
-                             "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1}}
+                             "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1, "gpuCollector": 1}}
 
 def task_session_prefix():
     prefix = re.sub(r"[^a-z0-9._-]+", "-", str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower()).strip("-")[:32]
@@ -19562,7 +19866,7 @@ def task_queue_serve(root, worker_id):
                         occupied[live["gpuId"]] = occupied.get(live["gpuId"], 0) + 1
                 queued = sorted([row for row in rows if not row["dead"] and row["phase"] == "queued"], key=lambda row: row.get("dispatchPolicy") != "manual")
                 if queued:
-                    gpus, error = collect_local_gpu()
+                    gpus, error = gpu_admission_probe(root, worker_id) if "gpu_admission_probe" in globals() else collect_local_gpu()
                     if gpus or not error:
                         for row in queued:
                             # Occupancy and cancellation need only live headers;
