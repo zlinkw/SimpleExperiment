@@ -82,7 +82,8 @@ test("sync inventory excludes exactly the mapped state tree and keeps look-alike
     "work_dirs/run/state/projects/x/keep.txt": "science\n",
     "state/projects/legacy.txt": "unmapped dir named state\n",
   });
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  // Fixture KEPT for audit (no recursive deletion of absolute paths from tests).
+  console.log("kept root-map fixture at " + root);
   const map = resolveProjectRootMap({ projectId: "p", projectDir: root,
     installDir: path.join(root, "runtime"), stateDir: path.join(root, "run", "state") });
   const prefixes = machineStateRelativePrefixes(map);
@@ -113,7 +114,8 @@ test("default install-internal mapping excludes the state namespace inside the c
     "state/agent/register.json": "{}",
     "work_dirs/exp1/result.json": "{}",
   });
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  // Fixture KEPT for audit (no recursive deletion of absolute paths from tests).
+  console.log("kept root-map fixture at " + root);
   // No custom stateDir: the default <install>/state with install == code root is
   // exactly the Agent's real layout, so state/projects/<ns>/... is machine state.
   const map = resolveProjectRootMap({ projectId: "p", projectDir: root, installDir: root });

@@ -500,9 +500,17 @@ def lifecycle_control(params):
         python = lifecycle_python(contract)
         script = os.path.join(contract["installDir"], "simple_cluster", "runtime", "cluster_agent.py")
         nonce = uuid.uuid4().hex
+        # The Worker machine-state root is part of the launch contract (parent A):
+        # the template carries the SAME resolved authoritative value the collector
+        # and every consumer use (deployment injection wins, else the managed
+        # per-USER anchor), so a template-started Agent never falls back to a
+        # per-project root and never forks a second collector source.
+        worker_state_root = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_STATE_DIR") or "").strip() \
+            or os.path.join(os.path.expanduser("~"), ".simple-cluster", "worker-state")
         env = {"SIMPLE_EXPERIMENT_AGENT_INSTALL_DIR": contract["installDir"], "SIMPLE_EXPERIMENT_CONDA_ENV": contract["condaEnv"],
                "SIMPLE_EXPERIMENT_AGENT_NONCE": nonce, "SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX": str(params.get("sessionPrefix") or "simple"),
-               "SIMPLE_EXPERIMENT_AGENT_TOKEN": str(params.get("agentToken") or "")}
+               "SIMPLE_EXPERIMENT_AGENT_TOKEN": str(params.get("agentToken") or ""),
+               "SIMPLE_EXPERIMENT_WORKER_STATE_DIR": worker_state_root}
         # Do not inherit a previous tmux server shell's GPU/container binding.
         # Preserve only this controller's binding in this one Agent command.
         for key in ("CUDA_VISIBLE_DEVICES", "NVIDIA_VISIBLE_DEVICES", "TMUX_TMPDIR"):

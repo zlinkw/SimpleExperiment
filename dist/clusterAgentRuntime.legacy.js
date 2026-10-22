@@ -2391,22 +2391,18 @@ def api_worker_gpu(root):
                        "seq": int(frame["seq"]), "epoch": str(frame["epoch"])}
             WORKER_GPU_SAMPLE_CACHE["sample"] = (time.monotonic(), payload)
             return copy.deepcopy(payload)
-        registration_mode = "absent"
-        if "gpu_collector_read_registration" in globals():
-            try:
-                registration_mode = str(gpu_collector_read_registration(worker_id, root).get("mode") or "absent")
-            except Exception:
-                registration_mode = "unreadable"
-        registered = registration_mode != "absent" or observed.get("mode") != "absent"
-        if registered:
-            # Registered collector: unknown/partial/stale/foreign is reported as-is.
-            # gpus stays empty so no consumer can mistake this for a fresh sample.
-            mode = str(observed.get("mode") or "absent")
+        # The SHARED reader is the capability authority (parent C): "absent" only
+        # when registration AND frame are both ENOENT-confirmed. Every other mode
+        # (stalled/unregistered/unknown/unreadable/foreign/partial/stale) is a
+        # registered Worker in a failed state — reported as-is with gpus empty so
+        # no consumer can mistake it for a fresh sample.
+        if observed.get("mode") != "absent":
+            mode = str(observed.get("mode") or "unknown")
             payload = {"schemaVersion": SCHEMA_VERSION, "generatedAt": now_iso(),
                        "source": "worker_telemetry", "frameSource": GPU_COLLECTOR_SOURCE, "collectorMode": mode,
                        "gpu": [], "gpus": [], "status": "degraded",
                        "error": "gpu_collector_" + mode, "completeness": "partial",
-                       "seq": int(frame["seq"]) if frame else 0, "epoch": str((frame or {}).get("epoch") or registration_mode)}
+                       "seq": int(frame["seq"]) if frame else 0, "epoch": str((frame or {}).get("epoch") or "")}
             WORKER_GPU_SAMPLE_CACHE["sample"] = (time.monotonic(), payload)
             return copy.deepcopy(payload)
         gpus, err = collect_local_gpu()
@@ -4063,22 +4059,35 @@ def reserve_distributed_gpu(root, gpu_id, command_id, util_threshold=None, mem_t
         # generation) plus the real occupancy checks below. Without credentials
         # there is no zero-wait path; confirmed-legacy workers keep the historical
         # under-lock direct sample (marked unoptimized) exactly as before.
+        worker_now = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
         if admission_evidence is not None and "gpu_admission_recheck_evidence" in globals():
+            # The credential is revalidated against THIS request: worker, absolute
+            # root and commandId must all match, every binding field must be
+            # present (parent D — no defaults, no cross-project/cross-command
+            # reuse). The occupancy checks below this block run against the live
+            # snapshot + reservations INSIDE the lock, so two dispatchers that
+            # both probed the same GPU outside the lock cannot both reserve it.
             gpus, error = gpu_admission_recheck_evidence(
-                root, str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"), admission_evidence)
-        elif "gpu_admission_probe_bound" in globals() and "gpu_collector_read_registration" in globals():
-            reg_mode = "absent"
+                root, worker_now, admission_evidence, {"commandId": str(command_id)})
+            if not error and str(gpu_id) not in [str(item) for item in ((admission_evidence or {}).get("gpuIds") or [])]:
+                gpus, error = [], "gpu_admission_evidence_gpu_not_admitted"
+        elif "read_gpu_collector_frame" in globals():
+            # No credentials: the SHARED reader decides capability. Only the
+            # confirmed-legacy state (registration AND frame ENOENT-proven absent)
+            # may sample directly; a frame with a missing/invalid registration,
+            # or any unreadable/unknown state, fails closed — the job stays
+            # queued and NO second sampler runs (parent D).
             try:
-                reg_mode = str(gpu_collector_read_registration(
-                    str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"), root).get("mode") or "absent")
+                capability = str(read_gpu_collector_frame(worker_now, root).get("mode") or "unknown")
             except Exception:
-                reg_mode = "unreadable"
-            if reg_mode != "absent":
-                # Registered collector but the dispatcher carried no credentials:
-                # fail closed (job stays queued) instead of an uncoupled sample.
-                gpus, error = [], "gpu_admission_evidence_missing"
-            else:
+                capability = "unreadable"
+            if capability == "absent":
                 gpus, error = collect_local_gpu()
+            elif capability == "unconfigured":
+                gpus, error = [], "gpu_collector_state_unconfigured"
+            else:
+                gpus, error = [], "gpu_admission_evidence_missing" if capability == "stalled" or capability == "fresh" \
+                    else "gpu_admission_capability_not_legacy_" + capability
         else:
             gpus, error = collect_local_gpu()
         if error:
@@ -5924,16 +5933,18 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         # registered collector that cannot produce a request-after sample raises
         # here, so the job stays queued instead of dispatching on a stale frame.
         admission_evidence = None
-        if "gpu_admission_probe_bound" in globals() and "gpu_collector_read_registration" in globals() \
-                and "read_gpu_collector_frame" in globals():
+        if "gpu_admission_probe_bound" in globals() and "read_gpu_collector_frame" in globals():
             _probe_worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
             try:
-                _registered = str(gpu_collector_read_registration(_probe_worker, root).get("mode") or "") == "registered" \
-                    or str(read_gpu_collector_frame(_probe_worker, root).get("mode") or "absent") != "absent"
+                # The SHARED reader's capability: only the ENOENT-confirmed legacy
+                # state skips the credential flow; everything else must produce a
+                # request-bound sample or the job stays queued.
+                _registered = str(read_gpu_collector_frame(_probe_worker, root).get("mode") or "absent") != "absent"
             except Exception:
                 _registered = True  # unknown state: route through the probe, which fails closed
             if _registered:
-                _bound_gpus, _bound_error, admission_evidence = gpu_admission_probe_bound(root, _probe_worker)
+                _bound_gpus, _bound_error, admission_evidence = gpu_admission_probe_bound(
+                    root, _probe_worker, {"commandId": str(command_id)})
                 if _bound_error:
                     raise RuntimeError(f"GPU 实时检测失败：{_bound_error}")
         existing_task = reserve_distributed_gpu(root, gpu_id, command_id, gpu_util_threshold, gpu_mem_threshold,

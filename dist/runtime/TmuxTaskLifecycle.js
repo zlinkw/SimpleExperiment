@@ -167,10 +167,9 @@ def task_execution_inventory(root, queries=()):
             shared_worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
             shared = read_gpu_collector_frame(shared_worker, root)
             shared_mode = str(shared.get("mode") or "absent")
-            registration_mode = "absent"
-            if "gpu_collector_read_registration" in globals():
-                registration_mode = str(gpu_collector_read_registration(shared_worker, root).get("mode") or "absent")
-            collector_registered = shared_mode != "absent" or registration_mode != "absent"
+            # The SHARED reader already fused registration + frame capability:
+            # "absent" is only returned when BOTH files are ENOENT-proven.
+            collector_registered = shared_mode != "absent"
             shared_frame = shared.get("frame")
             if shared_mode == "fresh" and shared_frame:
                 gpu_sample = {"schemaVersion": 1, "generatedAt": str(shared_frame.get("collectedAt") or now_iso()),
