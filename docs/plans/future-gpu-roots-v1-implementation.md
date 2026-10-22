@@ -35,3 +35,7 @@
 - 开发：编译生成（tsc + write-agent-runtime.js）+ 影响域单文件测试；最终候选跑 package.json 规定完整门禁集（Linux 可跑部分），Windows 专属链交父（准确树/SHA/命令清单）。
 - 显式测试走 pi-test-evidence.py SPEC.json（/host/d/OpenChamber-AgentConfig/OpenChamberProjectSandbox/pi-test-evidence.py），唯一证据目录+原始日志+真实退出码。
 - 不 bump 版本、不 package/install（避免与另一会话发行冲突）；提交仅本新分支，不合并。
+
+## 阶段 3 结论（2026-10-22 实测取证，条件未成立）
+- 有界本机合成样本（/tmp，2000 文件小文件树，WSL ext4，事后已删）：冷遍历 6ms、热遍历 5ms、rsync -ain 无变更 dry-run 54ms。仅本机数字，不含真实远端通道/网络，不冒充远端吞吐。
+- 无任何获批的真实 Worker 通道证据；文档与既有原型记录（v1.7/v1.8 已关闭）也无实测重复工作证明。按门禁契约判定：条件未成立——保持 rsync 与既有 ProjectFileIndex，不复活 v1.7/v1.8，不为"全部实现"强行接线。真实远端取证须父另行只读宿主步骤。
