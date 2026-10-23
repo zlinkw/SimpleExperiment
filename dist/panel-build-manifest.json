@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.404",
-  "buildId": "96b4b146aa11f374c3c24315abba1545257fe6e29b5ca7902eaa3e83865837ec",
+  "version": "0.5.405",
+  "buildId": "4ee085d7e91172cd3dc8c2fc896255d5c3a7f24855afcbf480352798725a7360",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -105,7 +105,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "4c678a5a8fed8657af57b25b2a7e024861b679c47ff3fd279f4b41d1f2c09e5a"
+      "sha256": "8775a82a4d6c5133a032acd2b4860a2160dd868bf8687e8186e0869dfcd90a1d"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -473,7 +473,7 @@
     },
     {
       "path": "dist/features/ProjectRootMap.js",
-      "sha256": "ce7eaf1476724b742d48042fa2b2c6b945173030d1becb6ad7c616fc69a1005a"
+      "sha256": "c1a3c90c9631bada3aaa904fd71efc104cbbf27163a70c4c49a70f0df58aabf6"
     },
     {
       "path": "dist/features/ProjectStaticCheck.js",
@@ -669,7 +669,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "2da7d8849a5e569e3645c6df82e48499d3168ace8ab679706d8df899d2417205"
+      "sha256": "c9d58a19323c708ecf053a9193f1a68fea81e57d14b2b356799b5fec3a14ceac"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1017,7 +1017,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "8522439c332e668de9246e4bf75b2a69e828ed97628b9e948266b302c2c9517e"
+      "sha256": "3c49393fb358a0a149a27fb21a556a3cdf26b1253081f04d0a42b9c1c7a4bb9c"
     },
     {
       "path": "scripts/check-static.js",
