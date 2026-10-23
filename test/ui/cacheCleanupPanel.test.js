@@ -337,3 +337,108 @@ test("local scan deletes only exact-path facts and previews ambiguous console na
   assert.match(ambiguous.purpose, /仅预览|不会删除/);
   panel.close();
 });
+
+test("production blocked provider exposes local-only leaving logs and releases admission after two confirmations", async () => {
+  const fsp = require("node:fs/promises"), crypto = require("node:crypto"), os = require("node:os");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "se-local-retention-admission-"));
+  const oldPath = "simple_cluster/console_logs/old.log", newPath = "simple_cluster/console_logs/new.log";
+  const shared = "simple_cluster/tmp/cluster_scheduler/p_yaml.log";
+  for (const name of [oldPath, newPath, shared]) {
+    fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
+    fs.writeFileSync(path.join(root, name), name);
+  }
+  const queue = { schemaVersion: 1, plans: [oldPath, newPath].map((logPath, index) => ({
+    id: "run-" + index, planFile: "p.yaml", enqueuedAt: `2026-10-0${index + 1}T10:00:00Z`,
+    jobs: [{ index: 0, case: "c", seed: 1, attempt: 0, status: "completed", workerId: "w1", logPath }],
+  })) };
+  // Extract the actual production provider and admission methods, not a hand-written blocked list.
+  const legacy = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
+  const helpers = legacy.slice(legacy.indexOf("const RETENTION_ADMISSION_LEAF"), legacy.indexOf("function workspaceWriteStatusText"));
+  const methods = legacy.slice(legacy.indexOf("async evaluateRetentionWindow(planKey)"), legacy.indexOf("async runActionCommandCore("));
+  const provider = legacy.slice(legacy.indexOf("async clearCacheFromUi()"), legacy.indexOf("async observeRetentionPaths(workerId, paths)"));
+  let context;
+  const realm = { fs: fsp, path, crypto, process, PluginLogRetention: retentionModule,
+    workspaceRoot: () => root, uniqueStrings: rows => [...new Set(rows)], pluginCopyBlockedSlots: new Set(),
+    openCacheCleanupPanel: getContext => { context = getContext(); } };
+  vm.createContext(realm);
+  vm.runInContext(ts.transpileModule(helpers + "\nclass Host {\n" + methods + provider + "\n}\nthis.Host=Host;",
+    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, realm);
+  const host = new realm.Host();
+  host.retentionBlockedWindows = new Map([["p.yaml", []]]);
+  host.loadPlanOutputRetentionQueue = async () => queue;
+  host.enabledWorkerConfigs = () => [{ id: "w1" }];
+  host.projectContextGeneration = 1;
+  host.cacheCleanupContextChanged = { event() {} };
+  host.hostOperationLease = { acquire: async () => ({ assertHeld: async () => {}, release: async () => {} }) };
+  host.client = { postWorkerAction: async () => ({ status: "completed", candidates: [] }) };
+  let remoteFailed = false;
+  host.observeRetentionPaths = async (_worker, paths) => {
+    if (remoteFailed) throw new Error("Worker disconnected");
+    return { status: "completed", observations: paths.map(p => ({ path: p, state: "absent" })) };
+  };
+  await host.clearCacheFromUi();
+  const decision = await host.evaluateRetentionWindow("p.yaml");
+  assert.equal(decision.allowed, false);
+  assert.deepEqual(Array.from(decision.pending[0].paths), [oldPath]);
+  const blocked = await context.retentionBlocked();
+  assert.deepEqual(Array.from(blocked[0].workers), ["w1", "local"]);
+  assert.equal(blocked.some(row => row.path === shared), false, "retained shared references never exit");
+  remoteFailed = true;
+  assert.equal((await context.retentionBlocked()).length, 0, "unknown Worker state cannot authorize local cleanup");
+  remoteFailed = false;
+  queue.plans[0].jobs[0].status = "running";
+  assert.equal((await context.retentionBlocked()).length, 0, "active leaving generation stays protected");
+  queue.plans[0].jobs[0].status = "completed";
+  let spawns = 0;
+  context.childProcessStub = { spawn(...args) {
+    spawns++;
+    if (process.platform === "win32") return require("node:child_process").spawn(...args);
+    // Linux has no PowerShell. Preserve exact fixture files outside the active path; Windows
+    // acceptance executes the real production PowerShell program against the same test.
+    const child = new (require("node:events").EventEmitter)();
+    child.stdout = new (require("node:stream").PassThrough)();
+    child.stderr = new (require("node:stream").PassThrough)();
+    let input = "";
+    child.stdin = new (require("node:stream").Writable)({ write(chunk, _encoding, done) { input += chunk; done(); } });
+    child.stdin.on("finish", () => setImmediate(() => {
+      try {
+        const batch = JSON.parse(input);
+        const preserved = path.join(root, "clean_dir");
+        fs.mkdirSync(preserved);
+        for (const row of batch.items) {
+          assert.equal(fs.realpathSync(row.parent), path.dirname(path.join(root, oldPath)));
+          assert.equal(row.leaf, "old.log");
+          fs.renameSync(path.join(row.parent, row.leaf), path.join(preserved, row.leaf));
+          child.stdout.write(`OK:${row.i}\n`);
+        }
+        child.emit("exit", 0);
+      } catch (error) { child.stderr.write(error.stack); child.emit("exit", 1); }
+    }));
+    return child;
+  } };
+  const panel = loadPanel(context), keys = ["local|" + oldPath];
+  try {
+    const claims = path.join(root, "simple_cluster/.simple-retention-admission.json");
+    fs.writeFileSync(claims, JSON.stringify({ claims: [{ planFile: "p.yaml", incomingRun: "held",
+      taskKeys: [decision.pending[0].taskKey], pid: process.pid, hostNonce: "foreign-window" }] }));
+    await panel.message({ type: "refresh" });
+    const heldRows = panel.messages.filter(m => m.type === "data").at(-1).rows;
+    assert.equal(heldRows.some(row => row.path === oldPath && !row.previewOnly), false, "live claims prevent selection");
+    fs.writeFileSync(claims, JSON.stringify({ claims: [] }));
+    await panel.message({ type: "refresh" });
+    const rows = panel.messages.filter(m => m.type === "data").at(-1).rows;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].path, oldPath);
+    assert.equal(rows[0].workerId, "local");
+    assert.equal(rows[0].previewOnly, undefined);
+    await panel.message({ type: "review", keys });
+    await panel.message({ type: "confirmFirst", keys });
+    assert.equal(fs.existsSync(path.join(root, oldPath)), true);
+    assert.equal(spawns, 0);
+    await panel.message({ type: "confirmSecond", keys });
+    assert.equal(fs.existsSync(path.join(root, oldPath)), false);
+    assert.equal(spawns, 1);
+    assert.equal((await host.evaluateRetentionWindow("p.yaml")).allowed, true);
+    for (const name of [newPath, shared]) assert.equal(fs.readFileSync(path.join(root, name), "utf8"), name);
+  } finally { panel.close(); }
+});

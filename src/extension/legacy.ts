@@ -17804,13 +17804,30 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             },
             retentionBlocked: async () => {
                 const rows = [];
+                const admissionRoot = workspaceRoot();
                 for (const planFile of this.retentionBlockedWindows.keys()) {
                     const decision = await this.evaluateRetentionWindow(planFile);
                     if (!decision) throw new Error("无法重新核实待退出代际。");
                     if (!decision.allowed) for (const row of decision.pending) {
                         if (row.reason !== "old-generation-still-present") continue;
-                        for (const item of row.paths) rows.push({ path: item, reason: row.reason,
-                            workers: row.workers, planFile });
+                        for (const item of row.paths) {
+                            // Name the presence source EXACTLY: the admission counted this path as
+                            // present from the local mirror (retentionObservationFor lstats the local
+                            // workspace for every path) as well as from the dispatch Workers. Only a
+                            // machine where the file is physically present may offer the confirmed
+                            // deletion, so "local" joins the sources ONLY while a local regular file
+                            // proves presence — never guessed, never for active/unknown/failed checks.
+                            const sources = [...row.workers];
+                            if (admissionRoot && !sources.includes("local")) {
+                                try {
+                                    const info = await fs.lstat(path.join(admissionRoot, item));
+                                    if (info.isFile() && !info.isSymbolicLink())
+                                        sources.push("local");
+                                }
+                                catch { /* absent or unreadable locally: presence not proven here */ }
+                            }
+                            rows.push({ path: item, reason: row.reason, workers: sources, planFile });
+                        }
                     }
                 }
                 const root = workspaceRoot();
