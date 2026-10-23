@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.404",
-  "buildId": "1fa0bdbdb0aa15c3549a8713aaae224cbd6703c18721ec6251ab49e8aa68a996",
+  "buildId": "96b4b146aa11f374c3c24315abba1545257fe6e29b5ca7902eaa3e83865837ec",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -81,7 +81,7 @@
     },
     {
       "path": "dist/extension/CacheCleanupPanel.js",
-      "sha256": "b8cbb227f92035a667e6876a83f7de582c86fe240007f75910718e989680ec49"
+      "sha256": "6c8faba65d21d212d5e5e04b41091703673c15caf5c2dd2a10a8e64fb27e9e95"
     },
     {
       "path": "dist/extension/CompletedJobSyncHost.js",
@@ -105,7 +105,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "90c5e79f752099b77f8a59c7db13ab69f71df02183817bbba0b54c61186f8bab"
+      "sha256": "4c678a5a8fed8657af57b25b2a7e024861b679c47ff3fd279f4b41d1f2c09e5a"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -237,7 +237,7 @@
     },
     {
       "path": "dist/features/DistributedPlanQueue.js",
-      "sha256": "7c7c894fb96d7c7e48d10a2d77e9e9293ede00b4da7310c7595bfc1935925ebb"
+      "sha256": "a0223506f8cbc435cc88a7685eaa05db3e96627c544a58d69ff481f9db6dc6d6"
     },
     {
       "path": "dist/features/DistributedProjectContract.js",
@@ -393,7 +393,7 @@
     },
     {
       "path": "dist/features/PlanArtifactTransfer.js",
-      "sha256": "ed65b6a859b684018b8fdf5da4033ba13cba11d0e0541e4d723720269c321489"
+      "sha256": "2d0c48cfc5a1e8e028fd78de9f5c462c804df5d96fb6669c3d06a0d1d226da41"
     },
     {
       "path": "dist/features/PlanBuilder.js",
@@ -458,6 +458,10 @@
     {
       "path": "dist/features/PlottingContract.js",
       "sha256": "e1a009ff8c0bb2db8ae2c14b90332620bfc955e9a3cf977882592cf63fbbc5f6"
+    },
+    {
+      "path": "dist/features/PluginLogRetention.js",
+      "sha256": "96acf7fba536ccd76334fcf6eb599bd5db4469e4f809f95bc5147a7971e8b891"
     },
     {
       "path": "dist/features/ProjectFileIndex.js",
@@ -1013,7 +1017,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "2ac2cb19c9a01ce50616bc813f58b3088d93f17754119fcc154e3d0a49de2acb"
+      "sha256": "8522439c332e668de9246e4bf75b2a69e828ed97628b9e948266b302c2c9517e"
     },
     {
       "path": "scripts/check-static.js",
