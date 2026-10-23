@@ -95,6 +95,15 @@ function syncHost(remote) {
     builds: 0,
     localMachineStateGuard: () => ({ prefixes: [], unknown: false }),
     targetRootGuard: () => ({ prefixes: [], unknown: false }),
+    // Fixture double for the new preparation step of syncCodeTargets: it
+    // consumes THIS fixture's already-resolved guard stub for every target and
+    // performs no probing (this file's domain is upload scope/progress; the
+    // real helper's semantics are covered by planSubmissionStateGuard.test.js).
+    prepareCodeSyncRootGuards: async targets => {
+      const guards = new Map();
+      for (const target of targets) guards.set(target, host.targetRootGuard(target));
+      return { guards, assertBindingsCurrent: () => {} };
+    },
   };
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "plan-sync-root-"));
   fs.mkdirSync(path.join(project, "src"), { recursive: true });

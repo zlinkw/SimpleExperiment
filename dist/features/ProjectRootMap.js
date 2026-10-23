@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.canonicalRemotePath = canonicalRemotePath;
 exports.projectIdentityKey = projectIdentityKey;
 exports.resolveProjectRootMap = resolveProjectRootMap;
+exports.remoteRootsEqual = remoteRootsEqual;
 exports.isMachineStateAbsolute = isMachineStateAbsolute;
 exports.machineStateGuard = machineStateGuard;
 exports.machineStateRelativePrefixes = machineStateRelativePrefixes;
@@ -104,6 +105,15 @@ function resolveProjectRootMap(input) {
     const stateRoots = [...new Set([stateRoot, ...(input.machineStateDirs || []).map(value => read("machineStateDirs", value, true))].filter(Boolean))];
     return { identity: projectIdentityKey(input), programRoot, stateRoot, stateRoots, codeRoot, artifactRoots,
         mapping: unknownFields.length ? "unknown" : "resolved", unknownFields };
+}
+/** True only when both spellings canonicalize to the SAME absolute root. An
+ * uncanonicalizable side NEVER matches: this equality binds endpoint identity
+ * (a probe's projectRoot against the code root), so "invalid == invalid" must
+ * not read as "same root" and fail an identity check open. */
+function remoteRootsEqual(left, right) {
+    const a = canonicalRemotePath(left);
+    const b = canonicalRemotePath(right);
+    return a.ok && b.ok && a.path === b.path;
 }
 /** True when an absolute path lives under the mapped machine state root. */
 function isMachineStateAbsolute(roots, target) {

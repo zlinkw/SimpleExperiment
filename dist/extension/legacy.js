@@ -9266,7 +9266,67 @@ class RealtimeTunnelPanelProvider {
      * invalid reports `unknown` (mapping unavailable) instead of a safe-looking
      * empty list; write/delete call sites must fail closed on it.
      */
-    targetRootGuard(target) {
+    /**
+     * Effective read-only probe configuration for THIS code-sync endpoint.
+     * Frozen target fields win, then the current enabled Worker row with the
+     * same id, then the pre-existing legal defaults (127.0.0.1 / 18765 — the
+     * same defaults workerActualWorkRootTarget already applies, never a new
+     * fixed tunnel constant). The guard's expectations AND the bounded probe's
+     * assembly read their host/port from THIS single helper, so a worker-level
+     * host override can never be compared against a base-level value recorded
+     * by the global tunnel mapper (evidence E14a). The code root stays the
+     * synced workDir; the parent agentProjectDir is never passed off as the
+     * code root. Returns null when the endpoint has no valid identity/enabled
+     * row/positive ports — callers then keep the mapping unknown (fail closed)
+     * instead of guessing an address to probe.
+     */
+    codeSyncRootProbeConfig(target) {
+        const workerId = String(target?.id || "").trim();
+        if (!workerId)
+            return null;
+        const config = this.setupConfig?.workerTunnels?.find(row => row.id === workerId);
+        if (config && config.enabled === false)
+            return null;
+        const remoteRoot = String(target?.remoteRoot || config?.agentProjectDir || "").trim();
+        if (!remoteRoot && !target?.remotePath)
+            return null;
+        const dirs = this.agentRuntimeDirs(remoteRoot, target?.agentInstallDir || config?.agentInstallDir);
+        const codeRoot = String(target?.remotePath || target?.agentProjectDir || dirs?.workDir || remoteRoot || "").trim();
+        // STRICT port selection: a field a layer DECLARES (not undefined/null/
+        // empty) must be an integer in 1..65535; a declared invalid value (0,
+        // 18765.5, 70000, …) rejects the whole endpoint config — it must never
+        // step down to the base layer or the default. Only UNDECLARED fields
+        // step to the next layer, and the default applies when nothing declares.
+        const positivePort = (...values) => {
+            for (const value of values) {
+                // R41: a whitespace-only string trims to the same UNDECLARED
+                // marker as "" — it must never be read as the number 0.
+                const raw = typeof value === "string" ? value.trim() : value;
+                if (raw === undefined || raw === null || raw === "")
+                    continue;
+                const n = Number(raw);
+                if (!Number.isInteger(n) || n < 1 || n > 65535)
+                    return 0;
+                return n;
+            }
+            return 0;
+        };
+        // Same precedence as workerActualWorkRootTarget's effective values.
+        const localForwardHost = String(target?.localForwardHost || config?.localForwardHost
+            || this.setupConfig?.localForwardHost || "127.0.0.1").trim();
+        // The synced target object never carries remoteAgentHost, so the Worker
+        // row is the first real source (the old mapper dropped it); base config
+        // only as the pre-existing fallback.
+        const remoteAgentHost = String(target?.remoteAgentHost || config?.remoteAgentHost
+            || this.setupConfig?.remoteAgentHost || "127.0.0.1").trim();
+        const localForwardPort = positivePort(target?.localForwardPort, config?.localForwardPort, this.setupConfig?.localForwardPort, 18765);
+        const remoteAgentPort = positivePort(target?.remoteAgentPort, config?.remoteTelemetryPort, config?.remoteAgentPort, this.setupConfig?.remoteTelemetryPort, this.setupConfig?.remoteAgentPort, 18765);
+        if (!codeRoot || !localForwardHost || !remoteAgentHost || !localForwardPort || !remoteAgentPort)
+            return null;
+        return { workerId, codeRoot, localForwardHost, remoteAgentHost, localForwardPort, remoteAgentPort,
+            realtimeEnabled: this.setupConfig?.realtimeEnabled !== false };
+    }
+    targetRootGuard(target, probeOverride) {
         try {
             const config = this.setupConfig?.workerTunnels?.find(row => row.id === target?.id);
             const remoteRoot = String(target?.remoteRoot || config?.agentProjectDir || "").trim();
@@ -9274,13 +9334,33 @@ class RealtimeTunnelPanelProvider {
                 return null;
             const dirs = this.agentRuntimeDirs ? this.agentRuntimeDirs(remoteRoot, target?.agentInstallDir || config?.agentInstallDir) : null;
             const codeRoot = String(target?.remotePath || target?.agentProjectDir || dirs?.workDir || remoteRoot);
-            const probe = this.lastWorkerProbes?.[target?.id];
-            const observed = probe?.status === "ok" && (probe.workerId === target?.id || !probe.workerId && !probe.gpuCollectorProtocol)
-                && remotePathKey(probe.projectRoot) === remotePathKey(codeRoot)
-                && String(probe.localForwardHost || "").toLowerCase() === String(target?.localForwardHost || config?.localForwardHost || "127.0.0.1").toLowerCase()
-                && String(probe.remoteAgentHost || "").toLowerCase() === String(target?.remoteAgentHost || config?.remoteAgentHost || "127.0.0.1").toLowerCase()
-                && Number(probe.remoteTelemetryPort || probe.remoteAgentPort) === Number(target?.remoteAgentPort || config?.remoteTelemetryPort || config?.remoteAgentPort)
-                && Number(probe.localForwardPort) === Number(target?.localForwardPort || config?.localForwardPort) ? probe : null;
+            const probe = probeOverride !== undefined ? probeOverride : this.lastWorkerProbes?.[target?.id];
+            // STRICT endpoint binding. A cached probe binds this endpoint only when
+            // EVERY transport field it would have to vouch for equals the endpoint's
+            // effective config (single source: codeSyncRootProbeConfig) and its
+            // projectRoot canonically equals the code root. A field a legacy cached
+            // probe never recorded makes the equality fail — such a probe NEVER
+            // binds directly; the code-sync preparation path may re-probe it once,
+            // read-only (prepareCodeSyncRootGuards). Worker identity: a recorded
+            // non-default id must equal the endpoint id EXACTLY (case-sensitive);
+            // the Agent-contract default literal "worker" carries no cross-endpoint
+            // identity and is accepted only alongside full transport+project
+            // binding. The baseline empty-id-without-protocol compatibility is kept
+            // ONLY under the same full transport binding.
+            const effective = this.codeSyncRootProbeConfig(target);
+            const transportOk = Boolean(effective) && probe?.status === "ok"
+                && (0, ProjectRootMap_1.remoteRootsEqual)(String(probe.projectRoot ?? ""), codeRoot)
+                && String(probe.localForwardHost ?? "").trim().toLowerCase() === String(effective?.localForwardHost).toLowerCase()
+                && String(probe.remoteAgentHost ?? "").trim().toLowerCase() === String(effective?.remoteAgentHost).toLowerCase()
+                && Number(probe.localForwardPort) === effective?.localForwardPort
+                && Number(probe.remoteTelemetryPort || probe.remoteAgentPort) === effective?.remoteAgentPort;
+            const observedWorkerId = String(probe?.workerId ?? "").trim();
+            const identityOk = observedWorkerId === "worker"
+                ? transportOk
+                : observedWorkerId
+                    ? observedWorkerId === String(target?.id || "")
+                    : !probe?.gpuCollectorProtocol;
+            const observed = transportOk && identityOk ? probe : null;
             const map = (0, ProjectRootMap_1.resolveProjectRootMap)({
                 projectId: String(target?.id || ""),
                 projectDir: codeRoot,
@@ -9301,6 +9381,140 @@ class RealtimeTunnelPanelProvider {
         catch {
             return null;
         }
+    }
+    /**
+     * Read-only machine-state preparation for ONE code-sync operation.
+     * Endpoints whose cached observation cannot bind (null/unknown guard) get
+     * AT MOST ONE bounded GET probe here — never a retry, never testTunnel /
+     * prepareAgents / any deploy, write-proof POST or upload path. Resolved
+     * guards are consumed as-is (a manifest that touches state paths can never
+     * be laundered through a refresh, and endpoints already resolvable from
+     * explicit legal config gain no new network requirement) — but they are
+     * still SNAPSHOTED and fenced like probing targets (R31): only the
+     * unresolved subset enters the probe pass, and every target's binding is
+     * re-checked before confirm/write. Around every
+     * await the operation re-checks project root, client, generation, the
+     * endpoint's effective probe config, the Worker-row/target field VALUES
+     * (a changed-in-place object must not slip through a reference compare)
+     * and the in-memory tunnel token value. A changed/removed/disabled
+     * endpoint or a workspace switch cancels BEFORE the observation is
+     * registered or anything is written. Guards are frozen PER TARGET OBJECT
+     * (a Map keyed by the target, never mixed by id across different target
+     * objects) so a later background cache merge cannot rewrite what this
+     * operation validated. Probes run serially; the outer boundedPromise caps
+     * the whole multi-GET budget for one endpoint.
+     */
+    async prepareCodeSyncRootGuards(targets, root, assertCurrent, report) {
+        const guards = new Map();
+        const observations = [];
+        assertCurrent?.();
+        // R31: EVERY target gets a frozen binding snapshot — targets already
+        // resolved from a bound cache probe or explicit legal machine-state
+        // config included — so a Worker/target/config change during ANY later
+        // await cancels through assertBindingsCurrent instead of silently
+        // bypassing the fence (those targets perform zero probes themselves).
+        // A target whose Worker config row is missing/removed, or explicitly
+        // disabled (enabled===false on either the config row or the sync-target
+        // row — R41: the project convention is `enabled !== false` means
+        // enabled, an undeclared field stays legitimate), is rejected up-front
+        // — never skipped because "the old code would not probe it".
+        for (const target of targets) {
+            const worker = this.setupConfig?.workerTunnels?.find(row => row.id === target?.id);
+            if (!worker || worker.enabled === false || target?.enabled === false)
+                throw new Error(`${target?.id} 缺少启用中的 Worker 端点配置（缺失、已禁用或已移除），代码同步未上传。`);
+            const effective = this.codeSyncRootProbeConfig(target);
+            // R41: EVERY target — resolved explicit-state-root ones included —
+            // must have a valid effective endpoint config BEFORE any guard is
+            // frozen or the loop continues, so a declared-invalid port can
+            // never ride a resolved mapping past R33 with zero checks.
+            if (!effective)
+                throw new Error(`${target?.id} 机器状态映射未知（端点配置无效或已移除/禁用），未上传。`);
+            observations.push({ target, snapshot: {
+                    target, root, client: this.client, generation: this.projectContextGeneration,
+                    token: String(this.tunnelConfig?.token || ""),
+                    effective,
+                    targetFields: JSON.stringify({ id: target?.id, enabled: target?.enabled, remotePath: target?.remotePath, remoteRoot: target?.remoteRoot,
+                        agentInstallDir: target?.agentInstallDir, agentStateDir: target?.agentStateDir, workerStateDir: target?.workerStateDir,
+                        localForwardHost: target?.localForwardHost, localForwardPort: target?.localForwardPort,
+                        remoteAgentPort: target?.remoteAgentPort, remoteAgentHost: target?.remoteAgentHost }),
+                    workerFields: JSON.stringify(worker ? { id: worker.id, enabled: worker.enabled, agentProjectDir: worker.agentProjectDir,
+                        agentInstallDir: worker.agentInstallDir, agentStateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir,
+                        localForwardHost: worker.localForwardHost, localForwardPort: worker.localForwardPort,
+                        remoteAgentHost: worker.remoteAgentHost, remoteAgentPort: worker.remoteAgentPort, remoteTelemetryPort: worker.remoteTelemetryPort } : null),
+                } });
+            const guard = this.targetRootGuard(target);
+            // needsProbe = the frozen slot stays null here and is refreshed in
+            // the probe pass below; resolved guards freeze immediately. The
+            // KEY always exists so consumers can never mistake "not probed"
+            // for "no entry" and fall back to the live shared cache.
+            guards.set(target, guard && !guard.unknown ? guard : null);
+        }
+        for (const { target, snapshot } of observations) {
+            if (guards.get(target))
+                continue;
+            assertCurrent?.();
+            if (report)
+                report(`${target.id}：缓存探测无法绑定当前映射，只读复核机器状态映射…`);
+            let rawProbe;
+            try {
+                rawProbe = await this.boundedPromise(() => (0, XshellTunnelPortProbe_1.probeWorkerTelemetryTunnel)({ localForwardHost: snapshot.effective.localForwardHost, localForwardPort: snapshot.effective.localForwardPort,
+                    remoteAgentHost: snapshot.effective.remoteAgentHost, remoteAgentPort: snapshot.effective.remoteAgentPort,
+                    realtimeEnabled: snapshot.effective.realtimeEnabled, token: snapshot.token }, { timeoutMs: 8000 }), 20_000, new Error(`${target.id} 机器状态映射只读复核超时，未上传。`));
+            }
+            catch (error) {
+                // Keep the target/stage explicit; a refresh failure never gets
+                // dressed up as a pass and never continues without an observation.
+                throw new Error(`${target.id} 机器状态映射只读复核失败：${errorMessage(error)}，未上传。`, { cause: error });
+            }
+            const probe = enforceExpectedAgentProjectRoot(rawProbe, snapshot.effective.codeRoot, target.label || target.id);
+            assertCurrent?.();
+            this.assertCodeSyncProbeBindingCurrent(snapshot);
+            // R41: accept the receipt as SUCCESS only on an explicit ok
+            // status, checked separately BEFORE any frozen guard or cache
+            // registration — a future explicit-mapping branch must not be able
+            // to treat a non-ok answer (or a silent undefined) as success.
+            if (probe?.status !== "ok")
+                throw new Error(`${target.id} 机器状态映射未知或代码清单覆盖状态路径，未上传。（只读复核：${String(probe?.status || "unreachable")}·${String(probe?.message || "无响应")}）`);
+            const frozen = this.targetRootGuard(target, probe);
+            if (!frozen || frozen.unknown)
+                throw new Error(`${target.id} 机器状态映射未知或代码清单覆盖状态路径，未上传。（只读复核：${String(probe?.status || "unreachable")}·${String(probe?.message || "无响应")}）`);
+            // All fences passed for this frozen observation; only now may it
+            // enter the shared cache. This operation keeps consuming the
+            // frozen snapshot map, so later background merges are irrelevant.
+            this.lastWorkerProbes = { ...(this.lastWorkerProbes || {}), [target.id]: this.stampWorkerProbeGeneration(target.id, probe) };
+            guards.set(target, frozen);
+        }
+        const assertBindingsCurrent = () => {
+            for (const { snapshot } of observations)
+                this.assertCodeSyncProbeBindingCurrent(snapshot);
+        };
+        return { guards, assertBindingsCurrent };
+    }
+    assertCodeSyncProbeBindingCurrent(snapshot) {
+        if (workspaceRoot() !== snapshot.root || this.client !== snapshot.client || this.projectContextGeneration !== snapshot.generation)
+            throw new UiCommandCancelled("工作区或连接已切换，代码同步未写入。");
+        if (String(this.tunnelConfig?.token || "") !== snapshot.token)
+            throw new UiCommandCancelled("隧道凭据已变化，代码同步未写入。");
+        const worker = this.setupConfig?.workerTunnels?.find(row => row.id === snapshot.target?.id);
+        const workerFields = JSON.stringify(worker ? { id: worker.id, enabled: worker.enabled, agentProjectDir: worker.agentProjectDir,
+            agentInstallDir: worker.agentInstallDir, agentStateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir,
+            localForwardHost: worker.localForwardHost, localForwardPort: worker.localForwardPort,
+            remoteAgentHost: worker.remoteAgentHost, remoteAgentPort: worker.remoteAgentPort, remoteTelemetryPort: worker.remoteTelemetryPort } : null);
+        if (workerFields !== snapshot.workerFields)
+            throw new UiCommandCancelled(`${snapshot.target.id} Worker 配置已变化，代码同步未写入。`);
+        // R41: the sync-target row's `enabled` participates in the same value
+        // snapshot, and a current enabled===false is rejected explicitly —
+        // mid-flight disabling must cancel, not freeze-and-continue.
+        if (snapshot.target?.enabled === false)
+            throw new UiCommandCancelled(`${snapshot.target.id} 同步目标已禁用，代码同步未写入。`);
+        const targetFields = JSON.stringify({ id: snapshot.target?.id, enabled: snapshot.target?.enabled, remotePath: snapshot.target?.remotePath, remoteRoot: snapshot.target?.remoteRoot,
+            agentInstallDir: snapshot.target?.agentInstallDir, agentStateDir: snapshot.target?.agentStateDir, workerStateDir: snapshot.target?.workerStateDir,
+            localForwardHost: snapshot.target?.localForwardHost, localForwardPort: snapshot.target?.localForwardPort,
+            remoteAgentPort: snapshot.target?.remoteAgentPort, remoteAgentHost: snapshot.target?.remoteAgentHost });
+        if (targetFields !== snapshot.targetFields)
+            throw new UiCommandCancelled(`${snapshot.target.id} 同步目标已变化，代码同步未写入。`);
+        if (JSON.stringify(this.codeSyncRootProbeConfig(snapshot.target)) !== JSON.stringify(snapshot.effective))
+            throw new UiCommandCancelled(`${snapshot.target.id} 连接配置已变化，代码同步未写入。`);
     }
     /** Prefixes for reads/selections performed ON this endpoint only. */
     machineStatePrefixesForTarget(target) {
@@ -10413,10 +10627,20 @@ class RealtimeTunnelPanelProvider {
             if (dispatchInFlight)
                 await this.boundedPromise(() => dispatchInFlight, 10_000, new Error("原派发尚未确认结束，代码同步未写入；请刷新任务状态后重试。"));
             const projectContext = options.projectContext;
-            const assertCurrent = () => {
+            // Set by prepareCodeSyncRootGuards once this operation's frozen binding
+            // exists; every later await boundary in this function re-checks it
+            // before any remote confirmation or write. The helper receives the
+            // UNWRAPPED fence, so its own assertBindingsCurrent can never recurse
+            // back through this wrapper.
+            let assertMachineStateBindingsCurrent = () => { };
+            const assertCurrentInner = () => {
                 (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
                 if (projectContext && !this.projectContextIsCurrent(projectContext))
                     throw new UiCommandCancelled("工作区已切换，代码同步已取消。");
+            };
+            const assertCurrent = () => {
+                assertCurrentInner();
+                assertMachineStateBindingsCurrent();
             };
             assertCurrent();
             await this.ensureSftpManagerCommand("simpleSftp.uploadWorkspace");
@@ -10432,6 +10656,14 @@ class RealtimeTunnelPanelProvider {
             const scopePaths = codeSyncConfig.get("codeSync.scopePaths");
             const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
             const progressReport = typeof options.progressReport === "function" ? options.progressReport : undefined;
+            // Machine-state preparation (bounded read-only re-probe for endpoints
+            // whose cached observation cannot bind) runs BEFORE the manifest is
+            // built and long before any remote confirmation/write. It consumes the
+            // unwrapped fence; its assertBindingsCurrent then joins every later
+            // assertCurrent in this function.
+            const rootGuards = await this.prepareCodeSyncRootGuards(enabledTargets, root, assertCurrentInner, progressReport);
+            assertMachineStateBindingsCurrent = rootGuards.assertBindingsCurrent;
+            assertCurrent();
             if (progressReport)
                 progressReport("正在建立本地代码清单并核对文件哈希…");
             const localStarted = Date.now();
@@ -10462,7 +10694,16 @@ class RealtimeTunnelPanelProvider {
             if (localGuard.unknown || Object.keys(manifest).some(file => (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, localGuard.prefixes, true)))
                 throw new Error("代码清单包含本机机器状态或其祖先，未上传。");
             for (const target of enabledTargets) {
-                const guard = this.targetRootGuard(target);
+                // Consume THIS operation's frozen guard snapshot and NOTHING else:
+                // no shared-cache `|| targetRootGuard(target)` fallback (a live
+                // re-read could launder a degraded/timeout observation or dodge
+                // the binding fence), and a missing map key is a hard error —
+                // never "continue because no entry was found". null (unresolvable)
+                // and an unknown guard fail closed here, before any confirmation
+                // or write, exactly like the remote-side path.
+                if (!rootGuards.guards.has(target))
+                    throw new Error(`${target.id} 缺少本次同步的机器状态绑定快照，未上传。`);
+                const guard = rootGuards.guards.get(target);
                 if (!guard || guard.unknown || Object.keys(manifest).some(file => (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, guard.prefixes, true)))
                     throw new Error(`${target.id} 机器状态映射未知或代码清单覆盖状态路径，未上传。`);
             }
