@@ -16,7 +16,10 @@ function loadPanel(context) {
   const module = { exports: {} };
   const source = fs.readFileSync(path.join(__dirname, "../../src/extension/CacheCleanupPanel.ts"), "utf8");
   const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
-  vm.runInNewContext(compiled, { require: id => id === "vscode" ? vscode : require(id), module, exports: module.exports, Buffer, process, console, AbortController });
+  vm.runInNewContext(compiled, { require: id => id === "vscode" ? vscode
+    : id === "../features/PluginLogRetention" ? require("../../dist/features/PluginLogRetention.js")
+    : id === "node:child_process" && context.childProcessStub ? context.childProcessStub
+    : require(id), module, exports: module.exports, Buffer, process, console, AbortController });
   module.exports.openCacheCleanupPanel(() => context, callback => { contextChanged = callback; return { dispose() { contextChanged = undefined; } }; });
   return { messages, actions, source, get html() { return html; }, message: m => handler(m), change: () => contextChanged?.(), close: () => dispose?.() };
 }
@@ -168,5 +171,127 @@ test("invalid candidate paths and interrupted deletions never become successful 
   assert.ok(panel.messages.some(m => m.type === "error" && /尚未确认完成/.test(m.message)));
   await panel.message({ type: "confirmSecond", keys });
   assert.equal(deletes, 1);
+  panel.close();
+});
+
+test("unowned managed files stay preview-only and protection is recomputed before deletion", async () => {
+  const os = require("node:os");
+  const retention = require("../../dist/features/PluginLogRetention.js");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "se-panel-protect-"));
+  const logDir = path.join(root, "simple_cluster", "tmp", "tmux_logs");
+  fs.mkdirSync(logDir, { recursive: true });
+  fs.writeFileSync(path.join(logDir, "stale.log"), "stale");
+  fs.writeFileSync(path.join(logDir, "orphan.log"), "unowned managed file");
+  fs.writeFileSync(path.join(logDir, "kept.log"), "retained");
+  const job = (logPath) => ({ index: 0, case: "c", seed: 1, attempt: 0, logPath });
+  const queueStale = { schemaVersion: 1, plans: [
+    { ...{ id: "g1", planFile: "p.yaml" }, enqueuedAt: "2026-10-01T10:00:00Z", jobs: [{ ...job("simple_cluster/tmp/tmux_logs/stale.log"), status: "failed" }] },
+    { ...{ id: "g2", planFile: "p.yaml" }, enqueuedAt: "2026-10-02T10:00:00Z", jobs: [{ ...job("simple_cluster/tmp/tmux_logs/mid.log"), status: "completed" }] },
+    { ...{ id: "g3", planFile: "p.yaml" }, enqueuedAt: "2026-10-03T10:00:00Z", jobs: [{ ...job("simple_cluster/tmp/tmux_logs/kept.log"), status: "completed" }] },
+  ] };
+  // Same facts, but the stale generation is now the NEWEST run: it becomes protected.
+  const queueNewest = { schemaVersion: 1, plans: [
+    { ...queueStale.plans[0], enqueuedAt: "2026-10-05T10:00:00Z" }, queueStale.plans[1], queueStale.plans[2],
+  ] };
+  let currentIndex = retention.retentionIndex(queueStale, { caseInsensitive: true });
+  // Faithful stand-in for the Windows pinned deletion executor: decode the -EncodedCommand script,
+  // verify it performs the guarded Remove-Item, then delete only the requested leaf. On Linux the
+  // real pwsh.exe is absent and the panel correctly fails closed (covered by the skip assertions
+  // before this stub is installed); the real executor runs under Windows acceptance.
+  const deletions = [];
+  const childProcessStub = { spawn(command, args) {
+    const listeners = { exit: [] };
+    const child = { stderr: { on() {} }, on(event, callback) { if (event === "exit") listeners.exit.push(callback); } };
+    setImmediate(() => {
+      try {
+        if (command !== "pwsh.exe") throw new Error("unexpected executor");
+        const script = Buffer.from(String(args[args.indexOf("-EncodedCommand") + 1]), "base64").toString("utf16le");
+        if (!/\$ErrorActionPreference='Stop'/.test(script) || !/Remove-Item -LiteralPath/.test(script)) throw new Error("unexpected script");
+        const [parent, leaf] = [...script.matchAll(/FromBase64String\('([^']+)'\)/g)].map(m => Buffer.from(m[1], "base64").toString("utf8"));
+        if (!parent || !leaf || leaf.includes("/") || leaf.includes("\\")) throw new Error("unsafe leaf");
+        fs.unlinkSync(path.join(parent, leaf));
+        deletions.push(path.join(parent, leaf));
+        listeners.exit.forEach(callback => callback(0));
+      }
+      catch { listeners.exit.forEach(callback => callback(1)); }
+    });
+    return child;
+  } };
+  const context = { generation: 1, endpoints: [], client: {}, localRoot: root, retentionIndex: async () => currentIndex, childProcessStub };
+  const panel = loadPanel(context);
+  await panel.message({ type: "refresh" });
+  const data = panel.messages.filter(m => m.type === "data").at(-1);
+  const byPath = new Map(data.rows.map(row => [String(row.path), row]));
+  assert.equal(byPath.get("simple_cluster/tmp/tmux_logs/stale.log")?.previewOnly, undefined);
+  assert.equal(byPath.get("simple_cluster/tmp/tmux_logs/orphan.log")?.previewOnly, true);
+  assert.match(String(byPath.get("simple_cluster/tmp/tmux_logs/orphan.log")?.purpose || ""), /仅预览|不会删除/);
+  // Protected generations are never listed, and a read-only scan never writes.
+  assert.equal(byPath.has("simple_cluster/tmp/tmux_logs/kept.log"), false);
+  assert.equal(fs.readFileSync(path.join(logDir, "orphan.log"), "utf8"), "unowned managed file");
+  // The delete guard refuses an unowned preview-only row on all three stages.
+  const orphanKeys = ["local|simple_cluster/tmp/tmux_logs/orphan.log"];
+  await panel.message({ type: "review", keys: orphanKeys });
+  await panel.message({ type: "confirmFirst", keys: orphanKeys });
+  await panel.message({ type: "confirmSecond", keys: orphanKeys });
+  assert.equal(fs.existsSync(path.join(logDir, "orphan.log")), true);
+  assert.ok(panel.messages.some(m => m.type === "error" && /仅预览项不允许删除/.test(m.message)));
+  // New reference AFTER the preview: recomputed protection skips the row at execution time.
+  currentIndex = retention.retentionIndex(queueNewest, { caseInsensitive: true });
+  const staleKeys = ["local|simple_cluster/tmp/tmux_logs/stale.log"];
+  await panel.message({ type: "review", keys: staleKeys });
+  await panel.message({ type: "confirmFirst", keys: staleKeys });
+  await panel.message({ type: "confirmSecond", keys: staleKeys });
+  assert.equal(fs.existsSync(path.join(logDir, "stale.log")), true);
+  assert.ok(panel.messages.some(m => m.type === "error" && /已跳过/.test(m.message)));
+  // Genuinely stale rows still delete through the confirmed two-step flow.
+  currentIndex = retention.retentionIndex(queueStale, { caseInsensitive: true });
+  await panel.message({ type: "refresh" });
+  await panel.message({ type: "review", keys: staleKeys });
+  await panel.message({ type: "confirmFirst", keys: staleKeys });
+  await panel.message({ type: "confirmSecond", keys: staleKeys });
+  assert.equal(fs.existsSync(path.join(logDir, "stale.log")), false);
+  assert.deepEqual(deletions, [path.join(logDir, "stale.log")]);
+  assert.equal(fs.existsSync(path.join(logDir, "kept.log")), true);
+  assert.equal(fs.existsSync(path.join(logDir, "orphan.log")), true);
+  panel.close();
+});
+
+test("local scan proposes exact-path and console-session retention rows regardless of the 7-day cutoff", async () => {
+  const os = require("node:os");
+  const retention = require("../../dist/features/PluginLogRetention.js");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "se-panel-retention-"));
+  const logDir = path.join(root, "simple_cluster", "tmp", "tmux_logs");
+  const consoleDir = path.join(root, "simple_cluster", "console_logs", "p");
+  fs.mkdirSync(logDir, { recursive: true });
+  fs.mkdirSync(consoleDir, { recursive: true });
+  fs.writeFileSync(path.join(logDir, "command-old1.log"), "oldest generation");
+  fs.writeFileSync(path.join(logDir, "command-new.log"), "current generation");
+  fs.writeFileSync(path.join(consoleDir, "exp-0__case-c__seed-1__worker-w__gpu-0__status-done__session-sess-old.log"), "old console");
+  fs.writeFileSync(path.join(consoleDir, "exp-0__case-c__seed-1__worker-w__gpu-0__status-done__session-sess-c.log"), "retained console");
+  // Everything is 30 days old: the removed 7-day cutoff must not hide stale rows, and retained
+  // generations must stay protected by ownership, not by age.
+  const old = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+  for (const file of [path.join(logDir, "command-old1.log"), path.join(logDir, "command-new.log"),
+    path.join(consoleDir, "exp-0__case-c__seed-1__worker-w__gpu-0__status-done__session-sess-old.log"),
+    path.join(consoleDir, "exp-0__case-c__seed-1__worker-w__gpu-0__status-done__session-sess-c.log")])
+    fs.utimesSync(file, old, old);
+  const queue = { schemaVersion: 1, plans: [
+    { id: "c1", planFile: "p.yaml", enqueuedAt: "2026-10-01T10:00:00Z", jobs: [{ index: 0, case: "c", seed: 1, attempt: 0, status: "completed", logPath: "simple_cluster/tmp/tmux_logs/command-old1.log", tmuxSession: "sess-old" }] },
+    { id: "c2", planFile: "p.yaml", enqueuedAt: "2026-10-02T10:00:00Z", jobs: [{ index: 0, case: "c", seed: 1, attempt: 0, status: "completed", logPath: "simple_cluster/tmp/tmux_logs/command-b.log", tmuxSession: "sess-b" }] },
+    { id: "c3", planFile: "p.yaml", enqueuedAt: "2026-10-03T10:00:00Z", jobs: [{ index: 0, case: "c", seed: 1, attempt: 0, status: "completed", logPath: "simple_cluster/tmp/tmux_logs/command-c.log", tmuxSession: "sess-c" }] },
+    { id: "c4", planFile: "p.yaml", enqueuedAt: "2026-10-04T10:00:00Z", jobs: [{ index: 0, case: "c", seed: 1, attempt: 0, status: "completed", logPath: "simple_cluster/tmp/tmux_logs/command-new.log", tmuxSession: "sess-live" }] },
+  ] };
+  const index = retention.retentionIndex(queue, { caseInsensitive: true });
+  const context = { generation: 1, endpoints: [], client: {}, localRoot: root, retentionIndex: async () => index };
+  const panel = loadPanel(context);
+  await panel.message({ type: "refresh" });
+  const data = panel.messages.filter(m => m.type === "data").at(-1);
+  const paths = data.rows.map(row => String(row.path)).sort().join(",");
+  // The shared per-plan scheduler log stays reference-counted (c3/c4 are retained), so only the two
+  // owned stale files surface from this fixture.
+  assert.equal(paths, "simple_cluster/console_logs/p/exp-0__case-c__seed-1__worker-w__gpu-0__status-done__session-sess-old.log,simple_cluster/tmp/tmux_logs/command-old1.log");
+  assert.ok(data.rows.every(row => row.retentionStale === true));
+  assert.match(data.rows[0].purpose, /两代保留窗口|会话字段精确归属/);
+  assert.match(data.rows[1].purpose, /两代保留窗口|会话字段精确归属/);
   panel.close();
 });

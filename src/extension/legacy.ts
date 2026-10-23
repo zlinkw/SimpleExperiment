@@ -82,6 +82,7 @@ import * as PlanRunFreshness from "../results/PlanRunFreshness";
 import { selectRerunWorkflowInstance } from "../results/plan-run-intent-selector";
 import * as PlanArtifactSyncStatus from "../features/PlanArtifactSyncStatus";
 import * as PlanOutputRetention from "../features/PlanOutputRetention";
+import * as PluginLogRetention from "../features/PluginLogRetention";
 import { resolvePlanWorkerAffinity } from "../features/PlanWorkerAffinity";
 import * as PlanArtifactSync from "../features/PlanArtifactSync";
 import * as DistributedPlanQueue from "../features/DistributedPlanQueue";
@@ -6196,6 +6197,97 @@ return this.testTunnel(true);
         if (actionCommandMap[command]) return this.runActionCommandCore(command, message);
         return this.runActionCommandCore(command, message);
     }
+    /** Third-generation admission for the two-generation log retention window. The preview joins
+     * the INCOMING generation virtually: leaving generations hold admission while active/unknown
+     * (even with files already gone) or while any owned path probes present/error — a failed
+     * existence check is never treated as absent. Hosts without the persisted queue store stay
+     * untouched. Placed before runActionCommandCore so fixture extraction spans stay intact. */
+    async evaluateRetentionWindow(planKey) {
+        if (typeof this.loadPlanOutputRetentionQueue !== "function") return null;
+        const retentionRoot = workspaceRoot();
+        if (!retentionRoot || !planKey || planKey === "-") return null;
+        const retentionQueue = await this.loadPlanOutputRetentionQueue(retentionRoot);
+        if (!retentionQueue || workspaceRoot() !== retentionRoot) return null;
+        return await PluginLogRetention.admissionPreview(retentionQueue, planKey, {
+            caseInsensitive: process.platform === "win32",
+            probe: retentionProbeFor(retentionRoot),
+        });
+    }
+    retentionHeldError(decision, failPreflight) {
+        const labels = {
+            "old-generation-still-present": "旧代日志仍未确认清理",
+            "old-generation-active": "旧代仍活跃或被占用（文件缺失也不放行）",
+            "existence-check-failed": "旧代存在性核对失败（按存在处理）",
+        };
+        const text = decision.pending.slice(0, 3).map(row => `${row.taskKey}（${labels[row.reason] || row.reason}${row.paths.length ? `，${row.paths.length} 个路径` : ""}）`).join("；");
+        return failPreflight("预检(两代保留)", `任务 ${text}，未满足两代保留窗口，禁止第三代落盘；请在“缓存清理”预览并确认删除，文件缺失被主动验证后重试`, decision.pending.map(row => `${row.taskKey}:${row.reason}`).join("；"));
+    }
+    async assertRetentionWindow(planKey, failPreflight) {
+        const decision = await this.evaluateRetentionWindow(planKey);
+        if (!decision || decision.allowed === true) return;
+        throw this.retentionHeldError(decision, failPreflight);
+    }
+    /** Fenced reservation taken at the end of a successful preflight, just before the submission
+     * opens scheduling: lock + preview + claim are atomic across processes, and the claim pins the
+     * queue identity the preview was evaluated against. Same-process claims are superseded by the
+     * newer attempt; a live foreign-pid claim on the same plan file holds the submission pending. */
+    async claimRetentionWindow(planKey, body, failPreflight, authority = {}) {
+        if (typeof this.loadPlanOutputRetentionQueue !== "function") return;
+        const retentionRoot = workspaceRoot();
+        if (!retentionRoot || !planKey || planKey === "-") return;
+        // Stable submission identity: body-stamped id → resume-local id → authority id → command
+        // ids → stamped once into the submission body, so validate and execute stages of the SAME
+        // submission reuse one claim idempotently and a resumed submission carries its original id
+        // in saved.input.
+        let incomingRun = String(body?.retentionSubmissionId || body?.submissionOperationIdLocal
+            || authority?.submissionOperationId || authority?.operationId
+            || body?.commandId || body?.nextCommandId || "");
+        if (!incomingRun && body && typeof body === "object") {
+            incomingRun = `retention-${crypto.randomUUID()}`;
+            try {
+                body.retentionSubmissionId = incomingRun;
+            }
+            catch { /* frozen body: claim still uses the run id, resume stages fall back to command ids */ }
+        }
+        if (!incomingRun) return;
+        await withRetentionAdmissionLock(retentionRoot, async () => {
+            const retentionQueue = await this.loadPlanOutputRetentionQueue(retentionRoot);
+            if (!retentionQueue || workspaceRoot() !== retentionRoot) return;
+            const identity = retentionQueueIdentity(retentionQueue);
+            const claims = await readRetentionClaims(retentionRoot);
+            this.activeRetentionClaims = this.activeRetentionClaims instanceof Set ? this.activeRetentionClaims : new Set<string>();
+            const live = claims.filter(row => row.queueIdentity === identity && retentionPidAlive(Number(row.pid)));
+            // Same-flow continuation (validate→execute, resume): the reservation is already ours.
+            if (live.some(row => row.planFile === planKey && String(row.incomingRun || "") === incomingRun)) {
+                this.activeRetentionClaims.add(incomingRun);
+                return;
+            }
+            // A live claim blocks admission unless it belongs to THIS host instance AND that
+            // submission flow has already terminated (finished, cancelled or failed before enqueue).
+            // Same pid with a different boot nonce is a different window and always blocks; claims
+            // without a nonce (older build) block conservatively.
+            const ownTerminated = (row) => String(row.hostNonce || "") === EXTENSION_HOST_BOOT_NONCE
+                && !this.activeRetentionClaims.has(String(row.incomingRun || ""));
+            const blocking = live.find(row => row.planFile === planKey && !ownTerminated(row));
+            if (blocking) {
+                const foreignHost = String(blocking.hostNonce || "") !== EXTENSION_HOST_BOOT_NONCE;
+                throw failPreflight("预检(两代保留)", foreignHost
+                    ? `另一扩展主机实例（pid ${blocking.pid}）正持有本 PLAN 的两代保留槽，本次提交暂缓；请在对应窗口完成或取消该提交后重试`
+                    : `本实例正在进行中的提交（${blocking.incomingRun}）已保留两代窗口，并发提交暂缓，避免第三代同时落盘`, String(blocking.incomingRun || ""));
+            }
+            const decision = await PluginLogRetention.admissionPreview(retentionQueue, planKey, {
+                caseInsensitive: process.platform === "win32",
+                probe: retentionProbeFor(retentionRoot),
+            });
+            if (decision.allowed !== true)
+                throw this.retentionHeldError(decision, failPreflight);
+            await writeRetentionClaims(retentionRoot, [
+                ...claims.filter(row => !(row.planFile === planKey && ownTerminated(row))),
+                { planFile: planKey, incomingRun, taskKeys: decision.taskKeys, queueIdentity: identity, pid: process.pid, hostNonce: EXTENSION_HOST_BOOT_NONCE },
+            ]);
+            this.activeRetentionClaims.add(incomingRun);
+        });
+    }
     async runActionCommandCore(command, message) {
         const batch = this.planSubmissionBatchFor?.(message);
         if (command === "parseResults" || command === "refreshResults") return resultCollectionHost(this).update();
@@ -6716,6 +6808,9 @@ return this.testTunnel(true);
             failure.planPreflightReported = true;
             return failure;
         };
+        // Two-generation retention admission: while a task's older generations still exist on disk
+        // unconfirmed (or an old generation is still active), a third generation must not land.
+        await this.assertRetentionWindow?.(planKey, failPreflight);
         let check = "校验(validate-plan)";
         try {
             let validated;
@@ -6815,6 +6910,7 @@ return this.testTunnel(true);
             if (!planCheckAccepted(previewed)) {
                 throw failPreflight(check, String(previewed?.error || previewed?.message || resultStatus(previewed) || "预演未通过"), previewed?.output || previewed?.message);
             }
+            await this.claimRetentionWindow?.(planKey, body, failPreflight, authority);
             return previewed ? validated : false;
         }
         catch (error) {
@@ -6962,6 +7058,8 @@ return this.testTunnel(true);
         saved.recovery.cancelled = true;
         await store.save({ ...saved.input, submissionOperationIdLocal: id, runRecovery: saved.recovery, runReplacement: saved.replacement });
         this.distributedSubmissionAborts.get(id)?.abort(new UiCommandCancelled("本次提交已取消。"));
+        if (this.activeRetentionClaims instanceof Set) this.activeRetentionClaims.delete(String(saved.input?.retentionSubmissionId || ""));
+        void releaseRetentionClaim(workspaceRoot(), String(saved.input?.retentionSubmissionId || ""));
         this.runConfirmation.cancel(id);
         this.finishPlanSubmissionProgress({ clientActionId: id.slice("plan-submit-".length) }, "cancelled", "本次提交已取消；已完成的文件处理不回滚，未发送的任务不再提交。");
         return { status: "cancelled", operationId: id };
@@ -10685,6 +10783,10 @@ this.assertPlanTopologyReady("Plan 调度");
             body.runRecovery.lastError = errorMessage(error);
             body.runRecovery.cancelled = isUiCommandCancelled(error) || error.apiData?.code === "REPLACEMENT_CANCELLED";
             await recoveryStore.save(body);
+            if (body.runRecovery.cancelled) {
+                if (this.activeRetentionClaims instanceof Set) this.activeRetentionClaims.delete(String(body.retentionSubmissionId || ""));
+                void releaseRetentionClaim(submissionRoot || workspaceRoot(), String(body.retentionSubmissionId || ""));
+            }
             if (this.localOperations[operationId]) this.localOperations[operationId].retryableSubmission = !body.runRecovery.cancelled;
             this.finishPlanSubmissionProgress(message, body.runRecovery.cancelled ? "cancelled" : error?.name === "UiCommandRemotePending" ? "queued" : "failed", errorMessage(error));
             throw error;
@@ -17648,6 +17750,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             endpoints: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, role: "worker" })),
             localRoot: workspaceRoot(),
             generation: this.projectContextGeneration,
+            retentionIndex: async () => {
+                const empty = { rows: [], byPath: new Map(), staleSessions: new Set(), protectedSessions: new Set(), ownedPaths: new Set(), caseInsensitive: process.platform === "win32" };
+                const root = workspaceRoot();
+                if (!root) return empty;
+                const queue = await this.loadPlanOutputRetentionQueue(root);
+                if (workspaceRoot() !== root) return empty;
+                return PluginLogRetention.retentionIndex(queue, { caseInsensitive: process.platform === "win32" });
+            },
             reviewPlanOutputs: async () => {
                 const root = workspaceRoot();
                 if (!root) throw new Error("请先打开当前实验项目。");
@@ -18421,27 +18531,38 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 sourceWorker = selected.workerId;
             }
             const server = this.mappedDownloadServerForSource(sourceWorker);
-            const stagingRelative = path.posix.join("simple_cluster", "downloads", "debug_bundle", "latest.zip");
-            const stagingPath = safeWorkspaceChildPath(root, stagingRelative);
-            const existing = await fs.stat(stagingPath).catch(() => undefined);
-            if (existing && !existing.isFile())
-                throw new Error(`调试包暂存位置不是文件：${stagingRelative}`);
             const remoteBundle = String(pathFromOps).replace(/\\/g, "/").replace(/^\.\//, "");
             if (!remoteBundle || remoteBundle.split("/").some((part) => !part || part === "." || part === ".."))
                 throw new Error("调试包远端路径不安全，已停止下载。");
-            const result = await this.simpleSftpApiCall("sync.downloadMappedPaths", {
-                localPath: root,
-                server,
-                entries: [{ remotePath: remoteBundle, localRelativePath: stagingRelative }],
-                maxFileBytes: RESULT_ARTIFACT_MAX_BYTES,
-                overwrite: true,
-                confirm: true,
-                pathConfirmed: true,
+            // One two-generation slot per logical source (Worker + bundle name): debug bundles from
+            // different sources never share or evict each other's retained copies.
+            const sourceKey = crypto.createHash("sha256").update(`${sourceWorker} ${bundleName}`).digest("hex").slice(0, 16);
+            const stagingRelative = path.posix.join("simple_cluster", "tmp", "downloads", "debug_bundle", sourceKey, "latest.zip");
+            const stagingPath = safeWorkspaceChildPath(root, stagingRelative);
+            const incomingRelative = pluginCopyIncomingRelative(stagingRelative);
+            const incomingPath = safeWorkspaceChildPath(root, incomingRelative);
+            await withPluginCopySlotLock(stagingPath, async () => {
+                await admitPluginCopySlot(stagingPath);
+                try {
+                    const result = await this.simpleSftpApiCall("sync.downloadMappedPaths", {
+                        localPath: root,
+                        server,
+                        entries: [{ remotePath: remoteBundle, localRelativePath: incomingRelative }],
+                        maxFileBytes: RESULT_ARTIFACT_MAX_BYTES,
+                        overwrite: true,
+                        confirm: true,
+                        pathConfirmed: true,
+                    });
+                    if (Number(result?.fileCount ?? result?.completedFiles ?? 0) !== 1)
+                        throw new Error(`调试包映射下载未写入预期文件。请核对 Worker ${sourceWorker} 的连接和文件路径。`);
+                    await publishPluginCopySlot(incomingPath, stagingPath);
+                }
+                finally {
+                    await fs.rm(incomingPath, { force: true }).catch(() => undefined);
+                }
+                await fs.mkdir(path.dirname(picked.fsPath), { recursive: true });
+                await fs.copyFile(stagingPath, picked.fsPath);
             });
-            if (Number(result?.fileCount ?? result?.completedFiles ?? 0) !== 1)
-                throw new Error(`调试包映射下载未写入预期文件。请核对 Worker ${sourceWorker} 的连接和文件路径。`);
-            await fs.mkdir(path.dirname(picked.fsPath), { recursive: true });
-            await fs.copyFile(stagingPath, picked.fsPath);
             if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
                 return;
             this.lastError = undefined;
@@ -18495,6 +18616,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             throw new UiCommandCancelled("远端结果查看已取消，未下载文件。");
         if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
             return;
+        // memoryOnly read: bytes are verified in memory and no local generation is landed, so this
+        // flow must NOT rotate or delete anything — retained copies (including legacy leftovers at
+        // this deterministic path) can only leave through the confirmed cache-cleanup executor.
         const inspectionResult = await this.downloadMetricMemoryBatch({ ...this.captureProjectContext(), resultInspection: true }, client,
             { sourceId: workerId, workerId, entries: [{ remotePath, localRelativePath: localRelative }] }, "临时查看远端结果", undefined);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
@@ -32733,24 +32857,145 @@ async function writeWorkspaceTextWithBackup(fullPath, text) {
         return { fullPath, relative, status: "unchanged" };
     let backupPath;
     if (previous !== undefined) {
-        backupPath = await nextWorkspaceBackupPath(fullPath);
+        backupPath = await nextWorkspaceBackupSlot(fullPath);
         await atomicWriteText(backupPath, previous);
     }
     await atomicWriteText(fullPath, text);
     return { fullPath, relative, status: previous === undefined ? "created" : "updated", backupPath };
 }
-async function nextWorkspaceBackupPath(fullPath) {
-    const first = `${fullPath}.bak`;
-    if (!await existsAt(first))
-        return first;
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    let candidate = `${fullPath}.${stamp}.bak`;
-    let index = 2;
-    while (await existsAt(candidate)) {
-        candidate = `${fullPath}.${stamp}.${index}.bak`;
-        index += 1;
+// Backups are plugin-owned copies: contained in the managed tmp area and bounded to "current + one
+// previous" per source file — the single fixed .bak slot is overwritten in place on every rotation,
+// so the previous history generation is permanently replaced without any unlink path and never a third copy.
+async function nextWorkspaceBackupSlot(fullPath) {
+    const root = workspaceRoot();
+    if (!root)
+        throw new Error("需要先打开工作区。");
+    const relative = path.relative(root, path.resolve(fullPath)).replace(/\\/g, "/").toLowerCase();
+    const key = crypto.createHash("sha256").update(relative).digest("hex").slice(0, 16);
+    const safeName = path.basename(relative).replace(/[^\w.-]+/g, "_").slice(0, 64) || "file";
+    const directory = path.join(root, "simple_cluster", "tmp", "backups", key);
+    await fs.mkdir(directory, { recursive: true });
+    const current = path.join(directory, `${safeName}.bak`);
+    try {
+        const info = await fs.lstat(current);
+        if (info.isSymbolicLink() || !info.isFile())
+            throw new Error(`备份槽不是独占普通文件：${safeName}.bak`);
     }
-    return candidate;
+    catch (error) {
+        if (error && error.code !== "ENOENT")
+            throw error;
+    }
+    return current;
+}
+// Two-generation retention admission fence. Evaluation + reservation happen under an exclusive
+// lock file, so two processes can never both see a free generation slot. Claims are records of
+// deterministic facts only: a claim is live while the queue identity is unchanged AND the owner
+// pid exists. Same-process stale claims are superseded by the newer submission attempt (the
+// in-process PLAN submission scope already serialises same-process double submissions).
+const RETENTION_ADMISSION_LEAF = "simple_cluster/.simple-retention-admission.json";
+// Distinguishes extension-host instances that may share a pid (container image clones,
+// parent namespace reuse): same pid + different boot nonce = two independent windows.
+const EXTENSION_HOST_BOOT_NONCE = crypto.randomUUID();
+function retentionPidAlive(pid) {
+    if (!Number.isInteger(pid) || pid <= 0)
+        return false;
+    try {
+        process.kill(pid, 0);
+        return true;
+    }
+    catch (error) {
+        return !!error && error.code === "EPERM";
+    }
+}
+function retentionQueueIdentity(queue) {
+    return crypto.createHash("sha256").update(JSON.stringify(queue)).digest("hex");
+}
+async function readRetentionClaims(root) {
+    try {
+        const value = JSON.parse(await fs.readFile(path.join(root, RETENTION_ADMISSION_LEAF), "utf8"));
+        return Array.isArray(value?.claims) ? value.claims.filter(row => row && typeof row.planFile === "string") : [];
+    }
+    catch (error) {
+        if ((error && error.code === "ENOENT") || error instanceof SyntaxError)
+            return [];
+        throw error;
+    }
+}
+async function writeRetentionClaims(root, claims) {
+    const target = path.join(root, RETENTION_ADMISSION_LEAF);
+    const temp = `${target}.writing`;
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(temp, JSON.stringify({ schemaVersion: 1, claims }));
+    await fs.rename(temp, target);
+}
+async function releaseRetentionClaim(root, incomingRun) {
+    if (!root || !incomingRun)
+        return;
+    try {
+        await withRetentionAdmissionLock(root, async () => {
+            const claims = await readRetentionClaims(root);
+            const rest = claims.filter(row => row.incomingRun !== incomingRun);
+            if (rest.length !== claims.length)
+                await writeRetentionClaims(root, rest);
+        });
+    }
+    catch { /* 竞争或存储不可用：声明生命周期仍受队列身份与属主进程存活性约束，不会无限期 */ }
+}
+function retentionProbeFor(root) {
+    return async (relative) => {
+        try {
+            await fs.stat(path.join(root, String(relative).replace(/^\.\//, "")));
+            return "present";
+        }
+        catch (error) {
+            return error && (error.code === "ENOENT" || error.code === "ENOTDIR") ? "absent" : "error";
+        }
+    };
+}
+async function withRetentionAdmissionLock(root, run) {
+    const lockPath = path.join(root, `${RETENTION_ADMISSION_LEAF}.lock`);
+    await fs.mkdir(path.dirname(lockPath), { recursive: true });
+    const deadline = Date.now() + 4000;
+    for (;;) {
+        try {
+            const handle = await fs.open(lockPath, "wx");
+            try {
+                await handle.writeFile(JSON.stringify({ pid: process.pid }));
+            }
+            finally {
+                await handle.close();
+            }
+            break;
+        }
+        catch (error) {
+            if (!error || error.code !== "EEXIST")
+                throw error;
+            let owner = 0;
+            try {
+                owner = Number(JSON.parse(await fs.readFile(lockPath, "utf8")).pid) || 0;
+            }
+            catch {
+                owner = 0;
+            }
+            if (!retentionPidAlive(owner)) {
+                try {
+                    await fs.unlink(lockPath);
+                }
+                catch { /* raced */ }
+                continue;
+            }
+            if (Date.now() >= deadline) {
+                throw Object.assign(new Error("两代保留准入正被另一进程核对，请稍后重试。"), { retentionAdmissionContended: true });
+            }
+            await new Promise(resolve => setTimeout(resolve, 25));
+        }
+    }
+    try {
+        return await run();
+    }
+    finally {
+        await fs.unlink(lockPath).catch(() => {});
+    }
 }
 function workspaceWriteStatusText(status) {
     if (status === "created")
@@ -33091,15 +33336,100 @@ function normalizeRemoteResultInspectionPath(value) {
         return "";
     return WrapperResultBundle.isWrapperResultFile(normalized) ? normalized : "";
 }
-function remoteResultInspectionLocalRelativePath(remotePath, planFile, timestamp = new Date().toISOString()) {
+// Bounded two-generation retention for plugin-owned single-slot download copies, per logical
+// source. A new download is ADMITTED before any byte moves (read-only slot checks), lands into a
+// flow-private incoming file, and is only PUBLISHED after the transfer verified successfully —
+// a failed or held download leaves the retained current/previous copies intact. The third
+// generation never renames over the previous slot: when both slots are occupied admission fails
+// closed, and the history slot can only be vacated through the confirmed cache-cleanup executor.
+function pluginCopySlotPaths(slotPath) {
+    const directory = path.dirname(slotPath);
+    const extension = path.extname(slotPath);
+    const base = path.basename(slotPath, extension);
+    const escapeRe = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return {
+        directory, base, extension, current: slotPath,
+        previous: path.join(directory, `${base}.prev${extension}`),
+        incomingPattern: new RegExp(`^${escapeRe(base)}\\.incoming-\\d+\\.[A-Za-z0-9-]+${escapeRe(extension)}$`),
+    };
+}
+function pluginCopyIncomingRelative(slotRelative) {
+    const directory = path.posix.dirname(slotRelative);
+    const extension = path.posix.extname(slotRelative);
+    const base = path.posix.basename(slotRelative, extension);
+    return path.posix.join(directory, `${base}.incoming-${process.pid}-${String(EXTENSION_HOST_BOOT_NONCE).slice(0, 8)}${extension}`);
+}
+const pluginCopySlotFullError = "该下载来源的两代保留已满（当前＋上一历史代）。本流程不会覆盖或轮换掉历史代，也不会自动删除任何文件：请先在缓存清理中预览并确认删除上一历史代，再重新发起下载。";
+async function statPluginCopyFile(filePath, label) {
+    try {
+        const info = await fs.lstat(filePath);
+        if (info.isSymbolicLink())
+            throw new Error(`${label}被符号链接占用，已拒绝下载发布。`);
+        if (!info.isFile())
+            throw new Error(`${label}不是普通文件，已拒绝下载发布。`);
+        return info;
+    }
+    catch (error) {
+        if (error && error.code === "ENOENT")
+            return undefined;
+        throw error;
+    }
+}
+// Read-only admission before a download starts. Both slots occupied ⇒ hold admission (nothing is
+// renamed or deleted); the only removal here is a stale incoming file whose owning process is dead.
+async function admitPluginCopySlot(slotPath) {
+    const slot = pluginCopySlotPaths(slotPath);
+    await statPluginCopyFile(slot.current, "当前代下载槽位");
+    if (await statPluginCopyFile(slot.previous, "历史代下载槽位"))
+        throw new Error(pluginCopySlotFullError);
+    let names = [];
+    try {
+        names = await fs.readdir(slot.directory);
+    }
+    catch (error) {
+        if (!(error && error.code === "ENOENT"))
+            throw error;
+    }
+    for (const name of names.filter(row => slot.incomingPattern.test(row))) {
+        const pid = Number(/\.incoming-(\d+)\./.exec(name)?.[1] || 0);
+        if (pid && pid !== process.pid && !retentionPidAlive(pid))
+            await fs.rm(path.join(slot.directory, name), { force: true }).catch(() => undefined);
+    }
+}
+// Publication happens only after the transfer completed and verified. The old current is promoted
+// onto the admission-proven-absent previous slot; if a reader blocks that rename the publication
+// aborts with both retained generations untouched.
+async function publishPluginCopySlot(incomingPath, slotPath) {
+    const slot = pluginCopySlotPaths(slotPath);
+    if (!await statPluginCopyFile(incomingPath, "新下载暂存文件"))
+        throw new Error("新下载暂存文件缺失或不完整，未发布；保留现有当前代与历史代副本。");
+    if (await statPluginCopyFile(slot.previous, "历史代下载槽位"))
+        throw new Error(pluginCopySlotFullError);
+    const current = await statPluginCopyFile(slot.current, "当前代下载槽位");
+    if (current)
+        await fs.rename(slot.current, slot.previous);
+    await fs.rename(incomingPath, slot.current);
+}
+const pluginCopySlotChains = new Map();
+// Serialises same-slot requests inside this extension host; other extension hosts stay
+// fail-closed because admission and publication both re-check the previous slot and never
+// rename over an occupied one.
+async function withPluginCopySlotLock(slotPath, run) {
+    const previous = pluginCopySlotChains.get(slotPath) || Promise.resolve();
+    const current = previous.then(run, run);
+    pluginCopySlotChains.set(slotPath, current.then(() => undefined, () => undefined));
+    return current;
+}
+// Inspection downloads are view copies of one stable remote source: the local name is deterministic
+// (no per-request timestamp), so repeated views rotate through two bounded slots instead of piling up.
+function remoteResultInspectionLocalRelativePath(remotePath, planFile) {
     const normalized = normalizeRemoteResultInspectionPath(remotePath);
     if (!normalized)
         throw new Error("不支持的远端结果文件。");
     const extension = path.posix.extname(normalized).toLowerCase();
     const name = path.posix.basename(normalized, extension).replace(/[^\w.-]+/g, "_").slice(0, 64) || "result";
     const remoteKey = crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 10);
-    const stamp = String(timestamp || "").replace(/[^0-9]/g, "").slice(0, 14) || String(Date.now());
-    return path.posix.join("simple_cluster", "downloads", "result_inspection", safePlanToken(planFile), `${name}__${remoteKey}__${stamp}${extension}`);
+    return path.posix.join("simple_cluster", "tmp", "downloads", "result_inspection", safePlanToken(planFile), `${name}__${remoteKey}${extension}`);
 }
 function methodResultArtifactLocalRelativePath(remotePath, planFile, summary, resultDir = DEFAULT_RESULT_CSV_DIR, workerId = "") {
     const normalized = normalizeRemoteResultInspectionPath(remotePath);
@@ -33304,6 +33634,16 @@ async function streamCopyFile(source, destination, maxBytes, outputHandle) {
     }
 }
 async function openReusableMappedTemp(root, relative) {
+    for (const guard of ["simple_cluster", "simple_cluster/tmp", "simple_cluster/tmp/mapped-staging"]) {
+        const guardPath = path.join(root, ...guard.split("/"));
+        const info = await fs.lstat(guardPath).catch((error) => {
+            if (error?.code === "ENOENT") return undefined;
+            throw error;
+        });
+        if (info && (info.isSymbolicLink() || !info.isDirectory()))
+            throw new Error(`本机映射暂存容器不是普通目录：${guard}`);
+    }
+    await fs.mkdir(path.dirname(path.join(root, ...String(relative).split("/"))), { recursive: true });
     const checked = await assertRealChildFile(root, relative, "optional");
     const before = checked.exists ? await fs.lstat(checked.full) : undefined;
     if (before && (before.isSymbolicLink() || !before.isFile()))
@@ -33323,9 +33663,11 @@ async function openReusableMappedTemp(root, relative) {
         throw error;
     }
 }
+// Mapping temp slots are contained under the managed tmp area with deterministic per-destination names,
+// so a failed publish leaves at most one reusable slot per destination instead of littering next to it.
 function mappedResultTemporaryRelativePath(relative) {
     const token = crypto.createHash("sha256").update(String(relative).toLowerCase()).digest("hex").slice(0, 24);
-    return path.posix.join(path.posix.dirname(relative), `.simple-mapped-${token}.tmp`);
+    return path.posix.join("simple_cluster", "tmp", "mapped-staging", `.simple-mapped-${token}.tmp`);
 }
 function mappedResultPublicationResources(root, entries, transfers) {
     const targets = new Map();

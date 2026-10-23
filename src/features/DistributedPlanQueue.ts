@@ -91,7 +91,7 @@ export type QueuedJob = {
   stopReason?: string;
   stopIntent?: { commandId: string; workerId: string; requestedAt: string; state: "pending" };
   automaticRetry?: AutomaticJobRetry;
-  history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string; stopReason?: string; error?: string; outputRetiredAt?: string; admissionRejection?: QueuedJob["admissionRejection"]; cleanupOperationId?: string }>;
+  history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; logPath?: string; tmuxSession?: string; finishedAt?: string; stopReason?: string; error?: string; outputRetiredAt?: string; admissionRejection?: QueuedJob["admissionRejection"]; cleanupOperationId?: string }>;
 };
 export type QueuedPlan = {
   executionSource?: { digest: string; manifest: Record<string, { size: number; sha256: string }> };
@@ -744,6 +744,9 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       if (!history.length) return job;
       const entries = [...(job.history || []), ...history.map((row) => ({ attempt: Number(row.task.attempt), status: row.status,
         workerId: row.workerId, commandId: String(row.task.commandId), outputDir: String(row.task.outputDir),
+        ...(terminalHistoryLogBinding(plan, { status: row.status, outputDir: String(row.task.outputDir), commandId: String(row.task.commandId) })?.logPath
+          ? { logPath: terminalHistoryLogBinding(plan, { status: row.status, outputDir: String(row.task.outputDir), commandId: String(row.task.commandId) })!.logPath } : {}),
+        ...(typeof row.task.tmuxSession === "string" && /^[A-Za-z0-9._-]+$/.test(String(row.task.tmuxSession)) ? { tmuxSession: String(row.task.tmuxSession) } : {}),
         ...(typeof row.task.error === "string" ? { error: String(row.task.error) } : {}),
         ...(typeof row.task.finishedAt === "string" ? { finishedAt: String(row.task.finishedAt) } : {}),
         ...(typeof row.task.stopReason === "string" ? { stopReason: String(row.task.stopReason) } : {}) }))];
@@ -795,6 +798,9 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
           history: historicalRows.filter((row) => Number(row.task.experimentIndex) === index).map((row) => ({
             attempt: Number(row.task.attempt), status: row.status, workerId: row.workerId,
             commandId: String(row.task.commandId), outputDir: String(row.task.outputDir),
+            ...(terminalHistoryLogBinding(plan, { status: row.status, outputDir: String(row.task.outputDir), commandId: String(row.task.commandId) })?.logPath
+              ? { logPath: terminalHistoryLogBinding(plan, { status: row.status, outputDir: String(row.task.outputDir), commandId: String(row.task.commandId) })!.logPath } : {}),
+            ...(typeof row.task.tmuxSession === "string" && /^[A-Za-z0-9._-]+$/.test(String(row.task.tmuxSession)) ? { tmuxSession: String(row.task.tmuxSession) } : {}),
             ...(typeof row.task.error === "string" ? { error: String(row.task.error) } : {}),
             ...(typeof row.task.stopReason === "string" ? { stopReason: String(row.task.stopReason) } : {}),
             ...(typeof row.task.finishedAt === "string" ? { finishedAt: row.task.finishedAt } : {}),
@@ -1252,6 +1258,8 @@ export function releaseQueuedForReassignment(queue: DistributedQueue, planId: st
       automaticRetry: item.automaticRetry,
       history: [...(item.history || []), { attempt: item.attempt,
         status: "cancelled" as const, workerId: item.workerId, commandId: item.commandId, outputDir: item.outputDir,
+        ...(item.logPath ? { logPath: String(item.logPath) } : {}),
+        ...(item.tmuxSession && /^[A-Za-z0-9._-]+$/.test(String(item.tmuxSession)) ? { tmuxSession: String(item.tmuxSession) } : {}),
         finishedAt: typeof receipt.finishedAt === "string" ? receipt.finishedAt : item.finishedAt, stopReason: "requeue" }],
     }) }) };
 }

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.403",
-  "buildId": "fc1aaba0f50d6e61e2005103ff0bc0b1e46fb602555e432623fc94ceea54ca93",
+  "buildId": "0ab9c80eb0832bee422706f8dd348f54953cec1d7e6812dd1ea69c3bcce44ee9",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -173,7 +173,7 @@
     },
     {
       "path": "dist/extension/CacheCleanupPanel.js",
-      "sha256": "b8cbb227f92035a667e6876a83f7de582c86fe240007f75910718e989680ec49"
+      "sha256": "b1a9c27e2c84fee4603eb03c11bb82945880cd2145ad9895611f980ad276410c"
     },
     {
       "path": "dist/extension/CompletedJobSyncHost.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "90c5e79f752099b77f8a59c7db13ab69f71df02183817bbba0b54c61186f8bab"
+      "sha256": "a363715171b2fc6f177015418fcd5ab01ad123882078c552db0b18fe2428fa06"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -333,7 +333,7 @@
     },
     {
       "path": "dist/features/DistributedPlanQueue.js",
-      "sha256": "7c7c894fb96d7c7e48d10a2d77e9e9293ede00b4da7310c7595bfc1935925ebb"
+      "sha256": "a0223506f8cbc435cc88a7685eaa05db3e96627c544a58d69ff481f9db6dc6d6"
     },
     {
       "path": "dist/features/DistributedProjectContract.js",
@@ -566,6 +566,10 @@
     {
       "path": "dist/features/PlottingContract.js",
       "sha256": "e1a009ff8c0bb2db8ae2c14b90332620bfc955e9a3cf977882592cf63fbbc5f6"
+    },
+    {
+      "path": "dist/features/PluginLogRetention.js",
+      "sha256": "f79cdc78b9f1f5fc840bcc5fab09620cdd9c9c27b28bf1ef04688d47c5d2461a"
     },
     {
       "path": "dist/features/ProjectFileIndex.js",
@@ -1121,7 +1125,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "b797c96f7f7d8b6ab993449862db982db1fb574a810a370a30a10f8efd8670e5"
+      "sha256": "3cdf3d1b58baf665c3a342041e023b0356883df4dcc801a967cebed3cc77e4ff"
     },
     {
       "path": "scripts/check-static.js",
