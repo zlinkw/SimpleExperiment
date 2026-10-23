@@ -11,9 +11,10 @@ const binding = require('../../dist/features/WorkflowWorkspaceBinding');
 async function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'Win PLAN 中文 ')), other = path.join(root, 'other'); fs.mkdirSync(other);
   const planFile = 'experiments/plans/计划 A.yaml'; fs.mkdirSync(path.dirname(path.join(root, planFile)), { recursive: true }); fs.writeFileSync(path.join(root, planFile), 'name: fixture\n', 'utf8');
+  const version = require('../../package.json').version, startedAt = new Date().toISOString(), pid = process.pid;
   const calls = [], state = { workspace: root, blocked: false, wrongPlan: false, switch: false, runBlocked: false };
   const server = http.createServer((req, res) => {
-    if (req.url === '/api/v1/capabilities') { res.end(JSON.stringify({ schemaVersion: 1, rpc: 'json-rpc-2.0', methods: ['status', 'workflow.plan', 'workflow.run'],
+    if (req.url === '/api/v1/capabilities') { res.end(JSON.stringify({ name: 'SimpleExperiment', version, instanceId: `${pid}:${startedAt}`, schemaVersion: 1, rpc: 'json-rpc-2.0', methods: ['status', 'workflow.plan', 'workflow.run'],
       methodOptions: { 'workflow.plan': { workspaceIdentityRechecked: true }, 'workflow.run': { workspaceIdentityRechecked: true } } })); return; }
     const chunks = []; req.on('data', c => chunks.push(c)); req.on('end', () => {
       const body = JSON.parse(Buffer.concat(chunks)); calls.push(body); let result;
@@ -28,7 +29,7 @@ async function fixture(t) {
     });
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const file = path.join(root, 'api.json'); fs.writeFileSync(file, JSON.stringify({ baseUrl: 'http://127.0.0.1:' + server.address().port, token: 'fixture' }), 'utf8');
+  const file = path.join(root, 'api.json'); fs.writeFileSync(file, JSON.stringify({ name: 'SimpleExperiment', version, pid, startedAt, baseUrl: 'http://127.0.0.1:' + server.address().port, token: 'fixture' }), 'utf8');
   const previous = process.env.SIMPLE_EXPERIMENT_API_FILE; process.env.SIMPLE_EXPERIMENT_API_FILE = file;
   t.after(() => { if (previous === undefined) delete process.env.SIMPLE_EXPERIMENT_API_FILE; else process.env.SIMPLE_EXPERIMENT_API_FILE = previous; server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); });
   return { root, other, planFile, calls, state };

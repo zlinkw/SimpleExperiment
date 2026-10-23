@@ -738,13 +738,7 @@ async function experimentStop(id, flags) {
     return 0;
 }
 async function experimentPause(id, flags) {
-    const match = await findExperiment(id);
-    const payload = { id: match.id, status: "unsupported", message: "experiment pause is not supported by the current scheduler" };
-    if (flags.json)
-        (0, format_1.writeJson)(payload, flags.compactJson);
-    else
-        (0, format_1.writeText)((0, format_1.block)("Experiment pause", payload));
-    return 0;
+    throw (0, errors_1.businessError)("EXPERIMENT_PAUSE_UNSUPPORTED: the scheduler has no pause operation; use experiment stop or monitor.");
 }
 async function experimentRetry(id, flags, action = "retry") {
     const rows = await loadExperiments();

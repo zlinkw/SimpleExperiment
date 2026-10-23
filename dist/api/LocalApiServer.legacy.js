@@ -687,6 +687,7 @@ class LocalApiServer {
             schemaVersion: 1,
             name: this.name,
             version: this.version,
+            instanceId: `${process.pid}:${this.startedAt}`,
             transport: ["http", "cli"],
             rpc: "json-rpc-2.0",
             execution: { resultPathPolicy: "declared", formalJobPathProtocol: 1, formalJobIdentityEnvProtocol: 1, formalJobStopIdentityProtocol: 2, formalJobStopUsesAttempts: false, historicalAttempts: "readOnly", draftPromotion: "retired",

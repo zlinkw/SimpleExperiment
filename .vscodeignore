@@ -60,6 +60,10 @@ docs/**
 tests/**
 CHANGELOG.md
 **/*.patched
+**/*.pyc
+**/__pycache__/**
+# Retained historical orphan without a source module or runtime reference.
+dist/ui/sections/OverviewSection.js
 # 注意：README.md 无法在此排除——vsce 4.0.0 collectFiles 恒加否定式 '!README.md'
 # （node_modules/@vscode/vsce/out/package.js:1343-1345，ReadmeProcessor 重命名为 extension/readme.md）。
 # extension/readme.md 属工具链强制的最小发布元数据例外，不得用空壳或改名规避。

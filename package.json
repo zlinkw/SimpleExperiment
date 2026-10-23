@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.403",
+  "version": "0.5.404",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -62,7 +62,7 @@
   ],
   "main": "./dist/updates/Bootstrap.js",
   "bin": {
-    "simpleex": "./dist/cli.js"
+    "simpleex": "./bin/simpleex.cjs"
   },
   "contributes": {
     "commands": [

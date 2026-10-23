@@ -216,49 +216,71 @@ test("simpleex CLI reads the discovery file", () => {
     assert.equal(discovery.token, "test-token");
   } finally {
     delete process.env.SIMPLE_EXPERIMENT_API_FILE;
-    fs.rmSync(dir, { recursive: true, force: true });
+    // FIXTURE POLICY: zero cleanup — retained for audit instead of rmSync (2026-10-23 rework).
+    console.log(`[fixtures retained, no cleanup] ${dir}`);
   }
 });
 
-test("simpleex CLI forwards the api subcommand", async () => {
-  const f = await startServer({ status: async () => ({ ok: true, mode: "cli" }) });
+// The revoked `simpleex api` passthrough and `simpleex self-check` are replaced by named
+// commands plus `simpleex doctor` (user decision 2026-10-23). These migrated tests keep the
+// same intent: a named command must reach the live listener through the unified transport,
+// and doctor must report missing discovery honestly instead of faking success.
+test("simpleex named command reaches the live listener through the unified transport", async () => {
+  const f = await startServer(
+    { status: async () => ({ ok: true, mode: "cli" }), "tasks.dispatch": async (params) => ({ ok: true, echo: params }) },
+    { name: "SimpleExperiment" },
+  );
   try {
-    const { stdout } = await execFileAsync(process.execPath, [path.join(root, "dist", "cli.js"), "api", "status"], {
+    const { stdout } = await execFileAsync(process.execPath, [
+      path.join(root, "dist", "cli.js"), "task", "dispatch",
+      "--workflow", "wf-1", "--jobs", "0,2", "--worker", "w-a", "--gpu", "0", "--confirm", "--json",
+    ], {
       encoding: "utf8",
       env: { ...process.env, SIMPLE_EXPERIMENT_API_FILE: path.join(f.root, "api.json") },
     });
     const parsed = JSON.parse(stdout);
     assert.equal(parsed.ok, true);
-    assert.equal(parsed.result.ok, true);
-    assert.equal(parsed.result.mode, "cli");
+    assert.equal(parsed.echo.confirm, true, "the confirm flag must reach the server-side handler");
+    assert.deepEqual(parsed.echo.indices, [0, 2]);
+    assert.equal(parsed.echo.workflowId, "wf-1");
   } finally {
     await f.cleanup();
   }
 });
 
-test("simpleex self-check reports missing discovery and listener", async () => {
-  const missing = path.join(os.tmpdir(), `simple-experiment-self-check-${process.pid}-${Date.now()}.json`);
-  const result = await runCli([path.join(root, "dist", "cli.js"), "self-check"], {
+test("simpleex doctor reports missing discovery and listener", async () => {
+  const missing = path.join(os.tmpdir(), `simple-experiment-doctor-${process.pid}-${Date.now()}.json`);
+  const result = await runCli([path.join(root, "dist", "cli.js"), "doctor", "--json"], {
     SIMPLE_EXPERIMENT_API_FILE: missing,
+    SIMPLE_SFTP_API_FILE: `${missing}.sftp`,
   });
-  assert.equal(result.code, 1, result.stderr || "");
+  assert.equal(result.code, 2, result.stderr || "");
   const parsed = JSON.parse(result.stdout);
   assert.equal(parsed.ok, false);
-  assert.equal(parsed.status, "missing");
-  assert.ok(parsed.checks.some((item) => item.name === "discovery" && !item.ok && item.detail.includes("missing discovery")));
-  assert.ok(parsed.checks.some((item) => item.name === "listener" && !item.ok && item.detail.includes("missing listener")));
+  const experiment = parsed.plugins.find((row) => row.discoveryPath === missing);
+  assert.ok(experiment, "doctor must report the experiment plugin row");
+  assert.equal(experiment.ok, false);
+  assert.equal(experiment.instanceId, null);
+  assert.ok(experiment.checks.some((item) => item.name === "discovery" && !item.ok && /discovery not found/i.test(item.detail)));
 });
 
-test("simpleex self-check passes with live listener", async () => {
-  const f = await startServer({ status: async () => ({ ok: true }) });
+test("simpleex doctor passes with live listener", async () => {
+  const f = await startServer({ status: async () => ({ ok: true }) }, { name: "SimpleExperiment" });
   try {
-    const result = await runCli([path.join(root, "dist", "cli.js"), "self-check"], {
+    const result = await runCli([path.join(root, "dist", "cli.js"), "doctor", "--json"], {
       SIMPLE_EXPERIMENT_API_FILE: path.join(f.root, "api.json"),
+      SIMPLE_SFTP_API_FILE: path.join(f.root, "absent-sftp-api.json"),
     });
-    assert.equal(result.code, 0, result.stderr || "");
     const parsed = JSON.parse(result.stdout);
-    assert.equal(parsed.ok, true);
-    assert.ok(parsed.checks.every((item) => item.ok));
+    const experiment = parsed.plugins.find((row) => row.discoveryPath === path.join(f.root, "api.json"));
+    assert.ok(experiment, "doctor must report the experiment plugin row");
+    assert.equal(experiment.ok, true, `live experiment plugin must pass: ${JSON.stringify(experiment)}`);
+    assert.ok(experiment.checks.every((item) => item.ok));
+    assert.equal(experiment.version, "0.3.0-test");
+    // The SFTP plugin is deliberately not running here: doctor must not claim overall success
+    // on a partial handshake, so the aggregate exit stays ENV(2).
+    assert.equal(parsed.ok, false);
+    assert.equal(result.code, 2, result.stderr || "");
   } finally {
     await f.cleanup();
   }

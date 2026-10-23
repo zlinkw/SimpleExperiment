@@ -15,14 +15,13 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-/** CLI entry; legacy commands remain available through cli.legacy.ts. */
+/** Single-entry CLI; the legacy dispatcher is revoked from the public surface (kernels stay importable in cli.legacy.ts). */
 __exportStar(require("./cli.legacy"), exports);
-const cli_legacy_1 = require("./cli.legacy");
 const index_1 = require("./cli/index");
 if (require.main === module) {
     const argv = process.argv.slice(2);
     const json = argv.includes("--json");
-    const run = (0, index_1.isSimpleCommand)(argv) ? (0, index_1.runSimpleCli)(argv) : (0, cli_legacy_1.main)(argv);
+    const run = (0, index_1.runSimpleCli)(argv);
     run
         .then((code) => { process.exitCode = code; })
         .catch((error) => {

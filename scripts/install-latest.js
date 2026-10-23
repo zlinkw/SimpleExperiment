@@ -37,6 +37,10 @@ async function main() {
   if (outcome.status === "dry-run") console.log(JSON.stringify({ installed: outcome.installedVersion || "", target: outcome.targetVersion, decision: outcome.decision, vsixPath: outcome.vsixPath }, null, 2));
   else if (outcome.status === "skip") console.log(`${outcome.version} 已安装，跳过重复安装。`);
   else console.log(`[install-latest] installed ${outcome.version} successfully`);
+  if (!dryRun) {
+    const { installCliShim, commandDirectory } = require("./install-cli-shim");
+    console.log(JSON.stringify(installCliShim(commandDirectory())));
+  }
 }
 
 if (require.main === module) {
