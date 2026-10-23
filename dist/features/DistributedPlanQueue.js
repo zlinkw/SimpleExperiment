@@ -727,6 +727,9 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                 return job;
             const entries = [...(job.history || []), ...history.map((row) => ({ attempt: Number(row.task.attempt), status: row.status,
                     workerId: row.workerId, commandId: String(row.task.commandId), outputDir: String(row.task.outputDir),
+                    ...(terminalHistoryLogBinding(plan, { status: row.status, outputDir: String(row.task.outputDir), commandId: String(row.task.commandId) })?.logPath
+                        ? { logPath: terminalHistoryLogBinding(plan, { status: row.status, outputDir: String(row.task.outputDir), commandId: String(row.task.commandId) }).logPath } : {}),
+                    ...(typeof row.task.tmuxSession === "string" && /^[A-Za-z0-9._-]+$/.test(String(row.task.tmuxSession)) ? { tmuxSession: String(row.task.tmuxSession) } : {}),
                     ...(typeof row.task.error === "string" ? { error: String(row.task.error) } : {}),
                     ...(typeof row.task.finishedAt === "string" ? { finishedAt: String(row.task.finishedAt) } : {}),
                     ...(typeof row.task.stopReason === "string" ? { stopReason: String(row.task.stopReason) } : {}) }))];
@@ -780,6 +783,9 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                     history: historicalRows.filter((row) => Number(row.task.experimentIndex) === index).map((row) => ({
                         attempt: Number(row.task.attempt), status: row.status, workerId: row.workerId,
                         commandId: String(row.task.commandId), outputDir: String(row.task.outputDir),
+                        ...(terminalHistoryLogBinding(plan, { status: row.status, outputDir: String(row.task.outputDir), commandId: String(row.task.commandId) })?.logPath
+                            ? { logPath: terminalHistoryLogBinding(plan, { status: row.status, outputDir: String(row.task.outputDir), commandId: String(row.task.commandId) }).logPath } : {}),
+                        ...(typeof row.task.tmuxSession === "string" && /^[A-Za-z0-9._-]+$/.test(String(row.task.tmuxSession)) ? { tmuxSession: String(row.task.tmuxSession) } : {}),
                         ...(typeof row.task.error === "string" ? { error: String(row.task.error) } : {}),
                         ...(typeof row.task.stopReason === "string" ? { stopReason: String(row.task.stopReason) } : {}),
                         ...(typeof row.task.finishedAt === "string" ? { finishedAt: row.task.finishedAt } : {}),
@@ -1263,6 +1269,8 @@ function releaseQueuedForReassignment(queue, planId, jobIndex, receipt, nextRunI
                 automaticRetry: item.automaticRetry,
                 history: [...(item.history || []), { attempt: item.attempt,
                         status: "cancelled", workerId: item.workerId, commandId: item.commandId, outputDir: item.outputDir,
+                        ...(item.logPath ? { logPath: String(item.logPath) } : {}),
+                        ...(item.tmuxSession && /^[A-Za-z0-9._-]+$/.test(String(item.tmuxSession)) ? { tmuxSession: String(item.tmuxSession) } : {}),
                         finishedAt: typeof receipt.finishedAt === "string" ? receipt.finishedAt : item.finishedAt, stopReason: "requeue" }],
             }) }) };
 }
