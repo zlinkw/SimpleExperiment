@@ -5,7 +5,17 @@ const path = require("node:path");
 const vm = require("node:vm");
 const ts = require("typescript");
 
-const candidate = { path: "simple_cluster/tmp/old.log", fullPath: "/project/simple_cluster/tmp/old.log", type: "file", bytes: 12, modifiedAt: 1, purpose: "运行日志", token: "stable" };
+const candidate = { path: "simple_cluster/tmp/tmux_logs/old.log", fullPath: "/project/simple_cluster/tmp/tmux_logs/old.log", type: "file", bytes: 12, modifiedAt: 1, purpose: "运行日志", token: "stable" };
+const retentionModule = require("../../dist/features/PluginLogRetention.js");
+// The production panel context always carries the recomputable two-generation manifest plus the
+// live admission holds/blocked rows; without them every managed row is fail-closed preview-only.
+const staleIndexFor = logPath => retentionModule.retentionIndex({ schemaVersion: 1, plans: [
+  { id: "r1", planFile: "p.yaml", enqueuedAt: "2026-10-01T10:00:00Z", jobs: [{ index: 0, case: "c", seed: 1, attempt: 0, status: "completed", logPath }] },
+  { id: "r2", planFile: "p.yaml", enqueuedAt: "2026-10-02T10:00:00Z", jobs: [{ index: 0, case: "c", seed: 1, attempt: 0, status: "completed", logPath: "simple_cluster/tmp/kept-mid.log" }] },
+  { id: "r3", planFile: "p.yaml", enqueuedAt: "2026-10-03T10:00:00Z", jobs: [{ index: 0, case: "c", seed: 1, attempt: 0, status: "completed", logPath: "simple_cluster/tmp/kept-new.log" }] },
+] }, { caseInsensitive: true });
+const openAdmission = { retentionHolds: async () => [], retentionBlocked: async () => [],
+  withRetentionLease: async work => work({ assertHeld: async () => undefined }) };
 function deferred() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
 function loadPanel(context) {
   let handler, dispose, contextChanged, html = "";
@@ -27,7 +37,8 @@ function loadPanel(context) {
 test("cache review requires two path confirmations before sending a delete action", async () => {
   const actions = [];
   const client = { async postWorkerAction(workerId, action) { actions.push(action); return action === "preview-cache-cleanup" ? { status: "completed", candidates: [candidate] } : { status: "completed", deletedCount: 1 }; } };
-  const panel = loadPanel({ client, endpoints: [{ id: "worker-a", role: "worker" }], generation: 1 });
+  const panel = loadPanel({ client, endpoints: [{ id: "worker-a", role: "worker" }], generation: 1,
+    retentionIndex: async () => staleIndexFor(candidate.path), ...openAdmission });
   const { source, messages } = panel;
   const handler = panel.message;
   const ownerStart = source.indexOf("function schedulerStateCleanupOwnerMatches(");
@@ -44,7 +55,7 @@ test("cache review requires two path confirmations before sending a delete actio
   assert.doesNotThrow(() => new vm.Script(script[1]));
   await handler({ type: "refresh" });
   assert.equal(messages.filter(item => item.type === "data").at(-1).rows.length, 1);
-  const keys = ["worker-a|simple_cluster/tmp/old.log"];
+  const keys = ["worker-a|simple_cluster/tmp/tmux_logs/old.log"];
   await handler({ type: "confirmSecond", keys });
   await handler({ type: "review", keys });
   await handler({ type: "confirmSecond", keys });
@@ -132,7 +143,7 @@ test("project changes invalidate approved paths and closing the panel cancels pr
   } };
   const panel = loadPanel(context);
   await panel.message({ type: "refresh" });
-  const keys = ["worker-a|simple_cluster/tmp/old.log"];
+  const keys = ["worker-a|simple_cluster/tmp/tmux_logs/old.log"];
   await panel.message({ type: "review", keys });
   await panel.message({ type: "confirmFirst", keys });
   context.generation++;
@@ -151,7 +162,8 @@ test("project changes invalidate approved paths and closing the panel cancels pr
 test("invalid candidate paths and interrupted deletions never become successful empty cleanup", async () => {
   let deletes = 0;
   let invalid = true;
-  const panel = loadPanel({ generation: 1, endpoints: [{ id: "worker-a", role: "worker" }], client: {
+  const panel = loadPanel({ generation: 1, endpoints: [{ id: "worker-a", role: "worker" }],
+    retentionIndex: async () => staleIndexFor(candidate.path), ...openAdmission, client: {
     async postWorkerAction(_id, action) {
       if (action === "delete-cache-candidates") { deletes++; return { status: "pending" }; }
       return { status: "completed", candidates: [{ ...candidate, path: invalid ? "tmp/../protected.log" : candidate.path }] };
@@ -163,7 +175,7 @@ test("invalid candidate paths and interrupted deletions never become successful 
   assert.equal(invalidResult.scans[0].status, "unavailable");
   invalid = false;
   await panel.message({ type: "refresh" });
-  const keys = ["worker-a|simple_cluster/tmp/old.log"];
+  const keys = ["worker-a|simple_cluster/tmp/tmux_logs/old.log"];
   await panel.message({ type: "review", keys });
   await panel.message({ type: "confirmFirst", keys });
   await panel.message({ type: "confirmSecond", keys });
@@ -194,30 +206,55 @@ test("unowned managed files stay preview-only and protection is recomputed befor
     { ...queueStale.plans[0], enqueuedAt: "2026-10-05T10:00:00Z" }, queueStale.plans[1], queueStale.plans[2],
   ] };
   let currentIndex = retention.retentionIndex(queueStale, { caseInsensitive: true });
-  // Faithful stand-in for the Windows pinned deletion executor: decode the -EncodedCommand script,
-  // verify it performs the guarded Remove-Item, then delete only the requested leaf. On Linux the
-  // real pwsh.exe is absent and the panel correctly fails closed (covered by the skip assertions
-  // before this stub is installed); the real executor runs under Windows acceptance.
+  // Faithful stand-in for the Windows batched deletion executor: ONE spawn per confirmed batch,
+  // decoding the -EncodedCommand script, verifying the guarded per-entry protocol (Set-Location to
+  // the verified parent, "./"+leaf, Remove-Item) and the size binding, emitting OK:/ERR: lines.
+  // On Linux the real pwsh.exe is absent and the panel correctly fails closed; the real executor
+  // runs under Windows acceptance.
+  let spawns = 0;
   const deletions = [];
   const childProcessStub = { spawn(command, args) {
-    const listeners = { exit: [] };
-    const child = { stderr: { on() {} }, on(event, callback) { if (event === "exit") listeners.exit.push(callback); } };
+    spawns += 1;
+    const listeners = { exit: [], data: [] };
+    let input = "";
+    const child = { stdin: { on() {}, end(value) { input = value; } }, stdout: { on(event, callback) { if (event === "data") listeners.data.push(callback); } },
+      stderr: { on() {} }, on(event, callback) { if (event === "exit") listeners.exit.push(callback); } };
     setImmediate(() => {
+      const lines = [];
+      let code = 1;
       try {
         if (command !== "pwsh.exe") throw new Error("unexpected executor");
         const script = Buffer.from(String(args[args.indexOf("-EncodedCommand") + 1]), "base64").toString("utf16le");
-        if (!/\$ErrorActionPreference='Stop'/.test(script) || !/Remove-Item -LiteralPath/.test(script)) throw new Error("unexpected script");
-        const [parent, leaf] = [...script.matchAll(/FromBase64String\('([^']+)'\)/g)].map(m => Buffer.from(m[1], "base64").toString("utf8"));
-        if (!parent || !leaf || leaf.includes("/") || leaf.includes("\\")) throw new Error("unsafe leaf");
-        fs.unlinkSync(path.join(parent, leaf));
-        deletions.push(path.join(parent, leaf));
-        listeners.exit.forEach(callback => callback(0));
+        if (!/Set-Location -LiteralPath \$it\.parent/.test(script)
+          || !/Remove-Item -LiteralPath \('\.\/'\+\$it\.leaf\)/.test(script)
+          || !/\$target\.Length -ne \[long\]\$it\.size/.test(script)) throw new Error("unexpected script");
+        assert.match(script, /\[Console\]::In\.ReadToEnd\(\)/);
+        const entries = JSON.parse(input).items;
+        for (const entry of entries) {
+          try {
+            if (!entry.leaf || entry.leaf.includes("/") || entry.leaf.includes("\\")) throw new Error("unsafe leaf");
+            const full = path.join(entry.parent, entry.leaf);
+            if (fs.statSync(full).size !== Number(entry.size)) throw new Error("size changed");
+            fs.unlinkSync(full);
+            deletions.push(full);
+            lines.push(`OK:${entry.i}`);
+          }
+          catch { lines.push(`ERR:${entry.i}`); }
+        }
+        code = 0;
       }
-      catch { listeners.exit.forEach(callback => callback(1)); }
+      catch { /* nonzero exit without output ⇒ the panel must fail closed, never report success */ }
+      if (code === 0) listeners.data.forEach(callback => callback(lines.join("\n") + "\n"));
+      listeners.exit.forEach(callback => callback(code));
     });
     return child;
   } };
-  const context = { generation: 1, endpoints: [], client: {}, localRoot: root, retentionIndex: async () => currentIndex, childProcessStub };
+  const executor = process.platform === "win32" ? { spawn(...args) {
+    spawns++;
+    return require("node:child_process").spawn(...args);
+  } } : childProcessStub;
+  const context = { generation: 1, endpoints: [], client: {}, localRoot: root, retentionIndex: async () => currentIndex,
+    ...openAdmission, childProcessStub: executor };
   const panel = loadPanel(context);
   await panel.message({ type: "refresh" });
   const data = panel.messages.filter(m => m.type === "data").at(-1);
@@ -234,7 +271,7 @@ test("unowned managed files stay preview-only and protection is recomputed befor
   await panel.message({ type: "confirmFirst", keys: orphanKeys });
   await panel.message({ type: "confirmSecond", keys: orphanKeys });
   assert.equal(fs.existsSync(path.join(logDir, "orphan.log")), true);
-  assert.ok(panel.messages.some(m => m.type === "error" && /仅预览项不允许删除/.test(m.message)));
+  assert.ok(panel.messages.some(m => m.type === "error" && /已跳过/.test(m.message) && /仅预览归属/.test(m.message)));
   // New reference AFTER the preview: recomputed protection skips the row at execution time.
   currentIndex = retention.retentionIndex(queueNewest, { caseInsensitive: true });
   const staleKeys = ["local|simple_cluster/tmp/tmux_logs/stale.log"];
@@ -250,13 +287,15 @@ test("unowned managed files stay preview-only and protection is recomputed befor
   await panel.message({ type: "confirmFirst", keys: staleKeys });
   await panel.message({ type: "confirmSecond", keys: staleKeys });
   assert.equal(fs.existsSync(path.join(logDir, "stale.log")), false);
-  assert.deepEqual(deletions, [path.join(logDir, "stale.log")]);
+  if (process.platform !== "win32") assert.deepEqual(deletions, [path.join(logDir, "stale.log")]);
+  // One confirmed batch is ONE executor invocation — never one spawn per file.
+  assert.equal(spawns, 1);
   assert.equal(fs.existsSync(path.join(logDir, "kept.log")), true);
   assert.equal(fs.existsSync(path.join(logDir, "orphan.log")), true);
   panel.close();
 });
 
-test("local scan proposes exact-path and console-session retention rows regardless of the 7-day cutoff", async () => {
+test("local scan deletes only exact-path facts and previews ambiguous console names regardless of age", async () => {
   const os = require("node:os");
   const retention = require("../../dist/features/PluginLogRetention.js");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "se-panel-retention-"));
@@ -282,7 +321,7 @@ test("local scan proposes exact-path and console-session retention rows regardle
     { id: "c4", planFile: "p.yaml", enqueuedAt: "2026-10-04T10:00:00Z", jobs: [{ index: 0, case: "c", seed: 1, attempt: 0, status: "completed", logPath: "simple_cluster/tmp/tmux_logs/command-new.log", tmuxSession: "sess-live" }] },
   ] };
   const index = retention.retentionIndex(queue, { caseInsensitive: true });
-  const context = { generation: 1, endpoints: [], client: {}, localRoot: root, retentionIndex: async () => index };
+  const context = { generation: 1, endpoints: [], client: {}, localRoot: root, retentionIndex: async () => index, ...openAdmission };
   const panel = loadPanel(context);
   await panel.message({ type: "refresh" });
   const data = panel.messages.filter(m => m.type === "data").at(-1);
@@ -290,8 +329,11 @@ test("local scan proposes exact-path and console-session retention rows regardle
   // The shared per-plan scheduler log stays reference-counted (c3/c4 are retained), so only the two
   // owned stale files surface from this fixture.
   assert.equal(paths, "simple_cluster/console_logs/p/exp-0__case-c__seed-1__worker-w__gpu-0__status-done__session-sess-old.log,simple_cluster/tmp/tmux_logs/command-old1.log");
-  assert.ok(data.rows.every(row => row.retentionStale === true));
-  assert.match(data.rows[0].purpose, /两代保留窗口|会话字段精确归属/);
-  assert.match(data.rows[1].purpose, /两代保留窗口|会话字段精确归属/);
+  const exact = data.rows.find(row => row.path.endsWith("command-old1.log"));
+  const ambiguous = data.rows.find(row => row.path.includes("console_logs/"));
+  assert.equal(exact.retentionStale, true);
+  assert.equal(ambiguous.previewOnly, true);
+  assert.match(exact.purpose, /两代保留窗口/);
+  assert.match(ambiguous.purpose, /仅预览|不会删除/);
   panel.close();
 });

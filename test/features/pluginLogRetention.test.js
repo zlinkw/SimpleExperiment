@@ -153,7 +153,7 @@ test("matching is exact-path, not substring, and directory-scoped", () => {
   assert.equal(PluginLogRetention.retentionIndex(queue, { caseInsensitive: false }).byPath.has("simple_cluster/tmp/tmux_logs/COMMAND-ABCDEF12.log"), false);
 });
 
-test("console log files join by exact parsed session field", () => {
+test("console filenames cannot authorize deletion without an exact persisted path", () => {
   const queue = queueOf([
     plan("c1", "2026-10-01T10:00:00Z", "p.yaml", [job(0, 0, "completed", { tmuxSession: "sess-old" })]),
     plan("c2", "2026-10-02T10:00:00Z", "p.yaml", [job(0, 0, "completed", { tmuxSession: "sess-b" })]),
@@ -162,8 +162,8 @@ test("console log files join by exact parsed session field", () => {
   ]);
   const index = PluginLogRetention.retentionIndex(queue);
   const name = session => `simple_cluster/console_logs/p/exp-0__case-c__seed-1__worker-w__gpu-0__status-done__session-${session}.log`;
-  assert.ok(PluginLogRetention.isStaleRetentionRow(index, name("sess-old")));
-  assert.ok(PluginLogRetention.isStaleRetentionRow(index, name("sess-b")));
+  assert.equal(PluginLogRetention.isStaleRetentionRow(index, name("sess-old")), undefined);
+  assert.equal(PluginLogRetention.isStaleRetentionRow(index, name("sess-b")), undefined);
   assert.equal(PluginLogRetention.isStaleRetentionRow(index, name("sess-c")), undefined);
   assert.equal(PluginLogRetention.isStaleRetentionRow(index, name("sess-live")), undefined);
   // Unknown session ownership is never proposed (conservative).
@@ -180,37 +180,52 @@ test("console log files join by exact parsed session field", () => {
 
 test("admission preview virtual-joins the incoming generation and holds until deletion is verified", async () => {
   const queue = queueOf([
-    plan("t1", "2026-10-01T10:00:00Z", "plans/a.yaml", [job(0, 0, "failed", { logPath: "simple_cluster/tmp/tmux_logs/genA.log" })]),
-    plan("t2", "2026-10-02T10:00:00Z", "plans/a.yaml", [job(0, 0, "failed", { logPath: "simple_cluster/tmp/tmux_logs/genB.log" })]),
-    plan("t3", "2026-10-03T10:00:00Z", "plans/a.yaml", [job(0, 0, "failed", { logPath: "simple_cluster/tmp/tmux_logs/genC.log" })]),
-    plan("t4", "2026-10-04T10:00:00Z", "plans/a.yaml", [job(0, 0, "failed", { logPath: "simple_cluster/tmp/tmux_logs/genD.log" })]),
+    plan("t1", "2026-10-01T10:00:00Z", "plans/a.yaml", [job(0, 0, "failed", { logPath: "simple_cluster/tmp/tmux_logs/genA.log", workerId: "node-a" })]),
+    plan("t2", "2026-10-02T10:00:00Z", "plans/a.yaml", [job(0, 0, "failed", { logPath: "simple_cluster/tmp/tmux_logs/genB.log", workerId: "node-b" })]),
+    plan("t3", "2026-10-03T10:00:00Z", "plans/a.yaml", [job(0, 0, "failed", { logPath: "simple_cluster/tmp/tmux_logs/genC.log", workerId: "node-b" })]),
+    plan("t4", "2026-10-04T10:00:00Z", "plans/a.yaml", [job(0, 0, "failed", { logPath: "simple_cluster/tmp/tmux_logs/genD.log", workerId: "node-c" })]),
   ]);
+  // Batched observation per leaving generation: the callback receives the exact paths AND the
+  // persisted dispatch facts (workers) so the caller can stat them on the right machine.
+  const observed = [];
+  const outcome = state => async (paths, context) => {
+    observed.push({ paths, workers: context.workers.slice().sort() });
+    return new Map(paths.map(row => [row, state]));
+  };
   // Virtual join: retained window becomes {incoming, t4}; t1–t3 leave the window and must be gone.
-  const blocked = await PluginLogRetention.admissionPreview(queue, "plans/a.yaml", { probe: async () => "present" });
+  const blocked = await PluginLogRetention.admissionPreview(queue, "plans/a.yaml", { observe: outcome("present") });
   assert.equal(blocked.allowed, false);
   assert.equal(blocked.pending.length >= 1, true);
   assert.match(blocked.pending[0].taskKey, /plans\/a\.yaml/);
   assert.equal(blocked.pending.some(row => row.reason === "old-generation-still-present"), true);
   // The retained newest generation sits next to the incoming one: its own log is never a leaving path.
   assert.equal(blocked.pending.every(row => !row.paths.includes("simple_cluster/tmp/tmux_logs/genD.log")), true);
+  // Every leaving generation's observation carries the worker ids that physically ran it.
+  assert.equal(observed.length >= 3, true);
+  assert.equal(observed.every(row => row.workers.length >= 1), true);
+  assert.equal(observed.some(row => row.workers.includes("node-a")), true);
   // Landing is allowed only once every leaving path is ACTIVELY VERIFIED absent (confirmed cleanup).
-  const cleared = await PluginLogRetention.admissionPreview(queue, "plans/a.yaml", { probe: async () => "absent" });
+  const cleared = await PluginLogRetention.admissionPreview(queue, "plans/a.yaml", { observe: outcome("absent") });
   assert.equal(cleared.allowed, true);
   assert.equal(Array.isArray(cleared.taskKeys) && cleared.taskKeys.length >= 1, true);
   // A failed existence check is never treated as "absent" (fail-closed).
-  const errored = await PluginLogRetention.admissionPreview(queue, "plans/a.yaml", { probe: async () => "error" });
+  const errored = await PluginLogRetention.admissionPreview(queue, "plans/a.yaml", { observe: outcome("error") });
   assert.equal(errored.allowed, false);
   assert.equal(errored.pending.some(row => row.reason === "existence-check-failed"), true);
+  // A path the observation batch never answered is ALSO a failed check, never "absent".
+  const silent = await PluginLogRetention.admissionPreview(queue, "plans/a.yaml", { observe: async () => new Map() });
+  assert.equal(silent.allowed, false);
+  assert.equal(silent.pending.some(row => row.reason === "existence-check-failed"), true);
   // Active or unknown old generations hold admission even when every file is verified absent.
   const activeQueue = queueOf([
     plan("a1", "2026-10-01T10:00:00Z", "plans/a.yaml", [job(0, 0, "running", { logPath: "simple_cluster/tmp/tmux_logs/live.log" })]),
     plan("a2", "2026-10-04T10:00:00Z", "plans/a.yaml", [job(0, 0, "completed", { logPath: "simple_cluster/tmp/tmux_logs/new.log" })]),
   ]);
-  const held = await PluginLogRetention.admissionPreview(activeQueue, "plans/a.yaml", { probe: async () => "absent" });
+  const held = await PluginLogRetention.admissionPreview(activeQueue, "plans/a.yaml", { observe: outcome("absent") });
   assert.equal(held.allowed, false);
   assert.equal(held.pending.some(row => row.reason === "old-generation-active"), true);
   // Independent plan files never hold each other's admission.
-  const other = await PluginLogRetention.admissionPreview(queue, "plans/other.yaml", { probe: async () => "present" });
+  const other = await PluginLogRetention.admissionPreview(queue, "plans/other.yaml", { observe: outcome("present") });
   assert.equal(other.allowed, true);
 });
 
@@ -224,7 +239,7 @@ test("preflight wires the preview early and the fenced claim last", () => {
   assert.ok(start > 0 && end > start, "retention methods must live outside the runActionCommandCore→runPlanPreflight fixture span");
 });
 
-test("fenced retention claim: stable id, same-flow reuse, foreign host nonce blocks, verified-absent gate", async () => {
+test("fenced retention claim: host lease, stable id, same-flow reuse, foreign host nonce blocks, verified-absent gate", async () => {
   const legacy = readSource("src/extension/legacy.ts");
   const helpersStart = legacy.indexOf("const RETENTION_ADMISSION_LEAF");
   const helpersEnd = legacy.indexOf("function workspaceWriteStatusText", helpersStart);
@@ -235,23 +250,53 @@ test("fenced retention claim: stable id, same-flow reuse, foreign host nonce blo
   const moduleCode = transpile(legacy.slice(helpersStart, helpersEnd));
   const classCode = transpile("class RetentionHost {\n" + legacy.slice(methodsStart, methodsEnd) + "\n}");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "se-claim-fence-"));
+  const claimsPath = path.join(root, "simple_cluster/.simple-retention-admission.json");
   const processStub = { platform: "linux", pid: process.pid, kill: (pid, signal) => process.kill(pid, signal) };
+  // The production fence runs inside the plugin's cross-process operation lease. The stub models
+  // that EXCLUSION with one shared mutex across both hosts: contention must then be decided by
+  // the persisted claims facts, and lease.assertHeld must be re-proven right before publishing.
+  let gate = Promise.resolve();
+  const leaseCalls = { asserts: 0 };
+  const makeLeaseManager = () => ({
+    acquire: async () => {
+      const waiting = gate;
+      let releaseGate;
+      gate = new Promise(resolve => { releaseGate = resolve; });
+      await waiting;
+      return { assertHeld: async () => { leaseCalls.asserts += 1; }, release: async () => releaseGate() };
+    },
+  });
   const makeContext = nonce => {
     let uuidCount = 0;
     const sandbox = { fs: fsp, path, PluginLogRetention, process: processStub, workspaceRoot: () => root,
+      uniqueStrings: rows => [...new Set(rows)],
+      atomicWriteText: async (file, text) => {
+        await fsp.mkdir(path.dirname(file), { recursive: true });
+        const tmp = `${file}.tmp-${crypto.randomUUID()}`;
+        await fsp.writeFile(tmp, text, "utf8");
+        await fsp.rename(tmp, file);
+      },
       crypto: { createHash: crypto.createHash.bind(crypto), randomUUID: () => `${nonce}-${++uuidCount}` } };
     vm.createContext(sandbox);
-    vm.runInContext(moduleCode + "\n" + classCode + "\nthis.nonce = EXTENSION_HOST_BOOT_NONCE;\nthis.Host = RetentionHost;\nthis.newSet = () => new Set();\nthis.readClaims = () => readRetentionClaims(workspaceRoot());", sandbox);
+    vm.runInContext(moduleCode + "\n" + classCode + "\nthis.nonce = EXTENSION_HOST_BOOT_NONCE;\nthis.Host = RetentionHost;\nthis.newSet = () => new Set();\nthis.readClaims = () => readRetentionClaims(workspaceRoot());\nthis.releaseClaim = (incoming, manager) => releaseRetentionClaim(workspaceRoot(), incoming, manager);", sandbox);
     return sandbox;
   };
   const hostA = makeContext("aaaaaaaa-1111");
   const hostB = makeContext("bbbbbbbb-2222");
   const failPreflight = (check, message, detail) => Object.assign(new Error(`${check}:${message}|${detail}`), { planPreflightReported: true });
-  const makeHost = (ctx, queue) => {
+  const makeHost = (ctx, queue, options = {}) => {
     // activeRetentionClaims must be created INSIDE the vm realm: the fence checks instanceof Set.
     const host = new ctx.Host();
     host.loadPlanOutputRetentionQueue = async () => queue;
     host.activeRetentionClaims = ctx.newSet();
+    host.retentionBlockedWindows = new Map();
+    host.hostOperationLease = options.leaseManager || makeLeaseManager();
+    const seenWorkers = options.seenWorkers || [];
+    host.observeRetentionPaths = options.observeWorker || (async (workerId, paths) => {
+      seenWorkers.push(workerId);
+      return { status: "completed", observations: paths.map(row => ({ path: row, state: fs.existsSync(path.join(root, row)) ? "present" : "absent" })) };
+    });
+    host.seenWorkers = seenWorkers;
     return host;
   };
   const empty = queueOf([]);
@@ -265,6 +310,14 @@ test("fenced retention claim: stable id, same-flow reuse, foreign host nonce blo
   assert.equal(claims[0].incomingRun, body1.retentionSubmissionId);
   assert.equal(claims[0].hostNonce, hostA.nonce);
   assert.equal(claims[0].pid, process.pid);
+  // A recovered identifier never authorizes a different host window to release its owner.
+  await hostB.releaseClaim(body1.retentionSubmissionId, makeLeaseManager());
+  assert.equal((await hostA.readClaims()).length, 1);
+  // Claims carry deterministic facts only: no whole-queue digest (unrelated queue edits must not
+  // silently free a live reservation) and the lease WAS re-proved right before the claim write.
+  assert.equal(Array.isArray(claims[0].taskKeys), true);
+  assert.equal("queueIdentity" in claims[0], false);
+  assert.equal(leaseCalls.asserts >= 1, true);
   await makeHost(hostA, empty).claimRetentionWindow("plans/a.yaml", body1, failPreflight);
   claims = await hostA.readClaims();
   assert.equal(claims.length, 1);
@@ -286,18 +339,51 @@ test("fenced retention claim: stable id, same-flow reuse, foreign host nonce blo
   claims = await hostA.readClaims();
   assert.equal(claims.length, 1);
   assert.equal(claims[0].incomingRun, body2.retentionSubmissionId);
-  // Verified-absent gate on real disk: files present → held; deleted (absence verified) → allowed.
+  // Verified-absent gate via WORKER OBSERVATION (a local stat proves nothing about remote logs):
+  // observed present → held AND the blocked window is recorded for the cleanup review; observed
+  // absent → allowed and the blocked record clears.
   const twoGens = queueOf([
-    plan("g1", "2026-10-01T10:00:00Z", "plans/b.yaml", [job(0, 0, "failed", { logPath: "simple_cluster/tmp/tmux_logs/leaving.log" })]),
-    plan("g2", "2026-10-02T10:00:00Z", "plans/b.yaml", [job(0, 0, "completed", { logPath: "simple_cluster/tmp/tmux_logs/kept.log" })]),
+    plan("g1", "2026-10-01T10:00:00Z", "plans/b.yaml", [job(0, 0, "failed", { logPath: "simple_cluster/tmp/tmux_logs/leaving.log", workerId: "node-w" })]),
+    plan("g2", "2026-10-02T10:00:00Z", "plans/b.yaml", [job(0, 0, "completed", { logPath: "simple_cluster/tmp/tmux_logs/kept.log", workerId: "node-w" })]),
   ]);
   await fsp.mkdir(path.join(root, "simple_cluster/tmp/tmux_logs"), { recursive: true });
   await fsp.writeFile(path.join(root, "simple_cluster/tmp/tmux_logs/leaving.log"), "old");
-  await assert.rejects(makeHost(hostA, twoGens).claimRetentionWindow("plans/b.yaml", { planFile: "plans/b.yaml", commandId: "cmd-c" }, failPreflight),
+  const heldHost = makeHost(hostA, twoGens);
+  await assert.rejects(heldHost.claimRetentionWindow("plans/b.yaml", { planFile: "plans/b.yaml", commandId: "cmd-c" }, failPreflight),
     error => error.planPreflightReported === true && /old-generation-still-present/.test(error.message));
+  assert.deepEqual(heldHost.seenWorkers, ["node-w"]);
+  const blockedRows = hostA.Host && heldHost.retentionBlockedWindows.get("plans/b.yaml");
+  assert.equal(Array.isArray(blockedRows) && blockedRows.some(row => row.path === "simple_cluster/tmp/tmux_logs/leaving.log"
+    && row.reason === "old-generation-still-present" && row.workers.includes("node-w")), true);
+  // A transport failure in the observation is a FAILED check, resolved as "still present", absent never.
+  await assert.rejects(makeHost(hostA, twoGens, {
+    observeWorker: async () => { throw new Error("tunnel down"); },
+  }).claimRetentionWindow("plans/b.yaml", { planFile: "plans/b.yaml", commandId: "cmd-c2" }, failPreflight),
+  error => error.planPreflightReported === true && /存在性核对失败/.test(error.message));
   await fsp.rm(path.join(root, "simple_cluster/tmp/tmux_logs/leaving.log"));
-  await makeHost(hostA, twoGens).claimRetentionWindow("plans/b.yaml", { planFile: "plans/b.yaml", commandId: "cmd-d" }, failPreflight);
-  // Concurrent submissions for one plan: the lock+claim fence lets exactly one through.
+  const allowedHost = makeHost(hostA, twoGens);
+  await allowedHost.claimRetentionWindow("plans/b.yaml", { planFile: "plans/b.yaml", commandId: "cmd-d" }, failPreflight);
+  assert.equal(allowedHost.retentionBlockedWindows.has("plans/b.yaml"), false);
+  // A lease lost while previewing can NEVER publish a claim: assertHeld throws and the store is untouched.
+  const lostLeaseHost = makeHost(hostA, empty, {
+    leaseManager: { acquire: async () => ({ assertHeld: async () => { throw new Error("租约已失效"); }, release: async () => undefined }) },
+  });
+  await assert.rejects(lostLeaseHost.claimRetentionWindow("plans/e.yaml", { planFile: "plans/e.yaml", commandId: "cmd-lost" }, failPreflight),
+    /租约已失效/);
+  claims = await hostA.readClaims();
+  assert.equal(claims.some(row => row.planFile === "plans/e.yaml"), false);
+  // Damaged claims fail CLOSED (admission refuses) and the record is preserved byte-exact.
+  const intact = fs.readFileSync(claimsPath, "utf8");
+  await fsp.writeFile(claimsPath, "{not-json");
+  await assert.rejects(makeHost(hostA, empty).claimRetentionWindow("plans/f.yaml", { planFile: "plans/f.yaml" }, failPreflight),
+    error => error.retentionClaimsUnreadable === true);
+  await assert.rejects(hostA.readClaims(), error => error.retentionClaimsUnreadable === true);
+  await fsp.writeFile(claimsPath, JSON.stringify({ schemaVersion: 2, claims: [{ planFile: 7 }] }));
+  await assert.rejects(makeHost(hostA, empty).claimRetentionWindow("plans/f.yaml", { planFile: "plans/f.yaml" }, failPreflight),
+    error => error.retentionClaimsUnreadable === true);
+  assert.equal(fs.readFileSync(claimsPath, "utf8"), JSON.stringify({ schemaVersion: 2, claims: [{ planFile: 7 }] }));
+  await fsp.writeFile(claimsPath, intact);
+  // Concurrent submissions for one plan: the lease+claim fence lets exactly one through.
   const raced = await Promise.allSettled([
     makeHost(hostA, empty).claimRetentionWindow("plans/c.yaml", { planFile: "plans/c.yaml", commandId: "cmd-e" }, failPreflight),
     makeHost(hostB, empty).claimRetentionWindow("plans/c.yaml", { planFile: "plans/c.yaml", commandId: "cmd-f" }, failPreflight),
@@ -310,7 +396,7 @@ test("fenced retention claim: stable id, same-flow reuse, foreign host nonce blo
   await bare.assertRetentionWindow("plans/a.yaml", failPreflight);
 });
 
-test("workspace backups keep exactly one history generation in a single fixed slot", async () => {
+test("workspace backups keep exactly one history generation and refuse a third with zero new files", async () => {
   const extension = readSource("src/extension/legacy.ts");
   const start = extension.indexOf("async function writeWorkspaceTextWithBackup");
   const slotStart = extension.indexOf("async function nextWorkspaceBackupSlot", start);
@@ -323,6 +409,7 @@ test("workspace backups keep exactly one history generation in a single fixed sl
     fs: fsp,
     path,
     crypto,
+    process: { platform: "linux" },
     atomicWriteText: async (file, text) => { await fsp.mkdir(path.dirname(file), { recursive: true }); await fsp.writeFile(file, text, "utf8"); },
   };
   vm.createContext(sandbox);
@@ -330,84 +417,80 @@ test("workspace backups keep exactly one history generation in a single fixed sl
   const code = ts.transpileModule(region, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
   vm.runInContext(code + "\nthis.api = { writeWorkspaceTextWithBackup };", sandbox);
   const writer = sandbox.api.writeWorkspaceTextWithBackup;
-  await writer(target, "v1");
-  await writer(target, "v2");
-  await writer(target, "v3");
   const backups = path.join(root, "simple_cluster", "tmp", "backups");
+  const first = await writer(target, "v1");
+  assert.equal(first.status, "created");
+  assert.equal(first.backupPath, undefined);
+  // Second generation: the ORIGINAL becomes the single history copy in the fixed slot.
+  await writer(target, "v2");
   const keys = fs.readdirSync(backups);
   assert.equal(keys.length, 1);
-  const files = fs.readdirSync(path.join(backups, keys[0]));
-  // "current + one previous" ONLY: exactly one .bak history slot, no .prev chain, no third copy.
-  assert.deepEqual(files, ["a.yaml.bak"]);
-  assert.equal(fs.readFileSync(path.join(backups, keys[0], "a.yaml.bak"), "utf8"), "v2");
-  // No .bak chain may remain next to the source file.
-  assert.deepEqual(fs.readdirSync(path.dirname(target)), ["a.yaml"]);
-  await writer(target, "v4");
   assert.deepEqual(fs.readdirSync(path.join(backups, keys[0])), ["a.yaml.bak"]);
-  assert.equal(fs.readFileSync(path.join(backups, keys[0], "a.yaml.bak"), "utf8"), "v3");
+  assert.equal(fs.readFileSync(path.join(backups, keys[0], "a.yaml.bak"), "utf8"), "v1");
+  // Identical re-save is "unchanged" and consumes NOTHING: no backup churn for no-op saves.
+  const again = await writer(target, "v2");
+  assert.equal(again.status, "unchanged");
+  assert.equal(fs.readFileSync(path.join(backups, keys[0], "a.yaml.bak"), "utf8"), "v1");
+  // Third generation while the history slot is occupied: the exiting copy has NOT passed the
+  // confirmed cleanup review, so the write is REFUSED and zero files change (no overwrite of
+  // the previous copy, no unbounded timestamped slots, no third copy anywhere).
+  const before = { source: fs.readFileSync(target, "utf8"), backup: fs.readFileSync(path.join(backups, keys[0], "a.yaml.bak"), "utf8") };
+  await assert.rejects(writer(target, "v3"), /尚未经缓存清理审核确认删除/);
+  assert.equal(fs.readFileSync(target, "utf8"), before.source);
+  assert.equal(fs.readFileSync(path.join(backups, keys[0], "a.yaml.bak"), "utf8"), before.backup);
+  assert.deepEqual(fs.readdirSync(path.join(backups, keys[0])), ["a.yaml.bak"]);
+  assert.deepEqual(fs.readdirSync(path.dirname(target)), ["a.yaml"]);
+  // Only the confirmed cleanup executor vacates the slot; the next write then rotates cleanly.
+  await fsp.rm(path.join(backups, keys[0], "a.yaml.bak"));
+  await writer(target, "v3");
+  assert.deepEqual(fs.readdirSync(path.join(backups, keys[0])), ["a.yaml.bak"]);
+  assert.equal(fs.readFileSync(path.join(backups, keys[0], "a.yaml.bak"), "utf8"), "v2");
+  assert.equal(fs.readFileSync(target, "utf8"), "v3");
+  // No .bak chain may ever appear next to the source file.
+  assert.deepEqual(fs.readdirSync(path.dirname(target)), ["a.yaml"]);
 });
 
-test("download slots admit before publishing and keep both retained generations on failure", async () => {
+test("download slots use one deterministic incoming and never land a third generation", async () => {
   const extension = readSource("src/extension/legacy.ts");
   const start = extension.indexOf("function pluginCopySlotPaths");
   const end = extension.indexOf("function remoteResultInspectionLocalRelativePath", start);
-  assert.ok(start > 0 && end > start);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "se-copy-slot-"));
   const slot = path.join(root, "latest.zip");
-  const sandbox = { fs: fsp, path, process, EXTENSION_HOST_BOOT_NONCE: "fixturenonce",
-    retentionPidAlive: pid => fs.existsSync(path.join("/proc", String(pid))) };
+  const sandbox = { fs: fsp, path, process };
   vm.createContext(sandbox);
-  const code = ts.transpileModule(extension.slice(start, end), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
+  const code = ts.transpileModule(extension.slice(start, end),
+    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
   vm.runInContext(code + "\nthis.api = { pluginCopySlotPaths, pluginCopyIncomingRelative, admitPluginCopySlot, publishPluginCopySlot, withPluginCopySlotLock };", sandbox);
-  const api = sandbox.api;
-  const incoming = path.join(root, "latest.incoming-9.fixturenonce.zip");
-  // Empty slot admits; publishing lands the first generation and consumes the incoming file.
+  const api = sandbox.api, lease = { assertHeld: async () => undefined };
+  const incoming = path.join(root, "latest.incoming.zip");
+  assert.equal(api.pluginCopyIncomingRelative("simple_cluster/tmp/downloads/latest.zip"),
+    "simple_cluster/tmp/downloads/latest.incoming.zip");
   await api.admitPluginCopySlot(slot);
   await fsp.writeFile(incoming, "gen1");
-  await api.publishPluginCopySlot(incoming, slot);
+  await api.publishPluginCopySlot(incoming, slot, lease);
   assert.equal(fs.readFileSync(slot, "utf8"), "gen1");
   assert.equal(fs.existsSync(incoming), false);
-  // Second generation: current is promoted to previous; exactly two copies remain.
   await api.admitPluginCopySlot(slot);
   await fsp.writeFile(incoming, "gen2");
-  await api.publishPluginCopySlot(incoming, slot);
+  await api.publishPluginCopySlot(incoming, slot, lease);
   assert.deepEqual(fs.readdirSync(root).sort(), ["latest.prev.zip", "latest.zip"]);
   assert.equal(fs.readFileSync(slot, "utf8"), "gen2");
   assert.equal(fs.readFileSync(path.join(root, "latest.prev.zip"), "utf8"), "gen1");
-  // Third generation: a fully downloaded incoming file is STILL held — admission fails closed and
-  // publication refuses, so both retained copies stay byte-identical; the history slot is only
-  // vacated through the confirmed cleanup executor, never by renaming over it.
-  const nextIncoming = path.join(root, "latest.incoming-999999.fixturenonce.zip");
-  await fsp.writeFile(nextIncoming, "gen3");
+  const before = fs.readdirSync(root).sort();
   await assert.rejects(api.admitPluginCopySlot(slot), /两代保留已满/);
-  await assert.rejects(api.publishPluginCopySlot(nextIncoming, slot), /两代保留已满/);
-  assert.deepEqual(fs.readdirSync(root).sort(), ["latest.incoming-999999.fixturenonce.zip", "latest.prev.zip", "latest.zip"]);
-  assert.equal(fs.readFileSync(slot, "utf8"), "gen2");
-  assert.equal(fs.readFileSync(path.join(root, "latest.prev.zip"), "utf8"), "gen1");
-  assert.equal(fs.readFileSync(nextIncoming, "utf8"), "gen3");
-  // A failed transfer publishes nothing: even after a granted admission, a missing incoming file
-  // leaves the current generation exactly where it was (admission also reaps the dead-flow file).
-  await fsp.rm(path.join(root, "latest.prev.zip"));
-  await api.admitPluginCopySlot(slot);
-  assert.equal(fs.existsSync(nextIncoming), false);
-  await assert.rejects(api.publishPluginCopySlot(path.join(root, "latest.incoming-999998.fixturenonce.zip"), slot), /未发布/);
-  assert.deepEqual(fs.readdirSync(root).sort(), ["latest.zip"]);
-  assert.equal(fs.readFileSync(slot, "utf8"), "gen2");
-  // Stale incoming files of dead flows are cleaned at admission; live flows' files are untouched.
-  const dead = path.join(root, "latest.incoming-999999.fixturenonce.zip");
-  const mine = path.join(root, `latest.incoming-${process.pid}.fixturenonce.zip`);
-  await fsp.writeFile(dead, "stale");
-  await fsp.writeFile(mine, "in-flight");
-  await api.admitPluginCopySlot(slot);
-  assert.equal(fs.existsSync(dead), false);
-  assert.equal(fs.existsSync(mine), true);
-  // Same-slot requests serialise: a second flow cannot overlap a running one.
-  const order = [];
-  await Promise.all([
-    api.withPluginCopySlotLock(slot, async () => { order.push("a:start"); await new Promise(resolve => setTimeout(resolve, 10)); order.push("a:end"); }),
-    api.withPluginCopySlotLock(slot, async () => { order.push("b:start"); }),
-  ]);
-  assert.deepEqual(order, ["a:start", "a:end", "b:start"]);
+  assert.deepEqual(fs.readdirSync(root).sort(), before);
+  // A failed second run occupies the ONE deterministic incoming slot. Every retry stays held;
+  // no per-pid/nonce file, unlink or sixth-file allowance can create additional generations.
+  const failed = path.join(root, "failed.zip"), partial = path.join(root, "failed.incoming.zip");
+  await fsp.writeFile(failed, "retained");
+  await fsp.writeFile(partial, "interrupted");
+  await assert.rejects(api.admitPluginCopySlot(failed), /两代保留已满/);
+  assert.equal(fs.readFileSync(partial, "utf8"), "interrupted");
+  await assert.rejects(api.publishPluginCopySlot(partial, failed,
+    { assertHeld: async () => { throw new Error("lost"); } }), /lost/);
+  assert.equal(fs.readFileSync(failed, "utf8"), "retained");
+  assert.equal(fs.readFileSync(partial, "utf8"), "interrupted");
+  await assert.rejects(api.withPluginCopySlotLock(slot, async () => undefined), /跨窗口租约/);
 });
 
 test("inspection download slots are deterministic per stable remote source", () => {

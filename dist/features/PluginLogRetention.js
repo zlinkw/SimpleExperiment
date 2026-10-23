@@ -27,7 +27,8 @@ exports.MANAGED_LOG_PREFIXES = [
 const terminalStates = new Set(["completed", "failed", "cancelled"]);
 exports.RETAINED_GENERATIONS = 2;
 const normalizeLogPath = (value) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "");
-const isManagedLogPath = (relative) => exports.MANAGED_LOG_PREFIXES.some(prefix => relative.startsWith(prefix));
+const isManagedLogPath = (relative) => !relative.split("/").some(part => !part || part === "." || part === "..")
+    && exports.MANAGED_LOG_PREFIXES.some(prefix => relative.startsWith(prefix));
 // Mirrors cluster_scheduler.slug(): console-log filenames embed slug()ed identity fields.
 function slug(value, fallback, limit) {
     const raw = String(value ?? "").trim();
@@ -70,13 +71,14 @@ function collectGenerations(queue, fold) {
             tasks.set(taskKey, generations);
             // One generation per STABLE RUN (plan.id): retries and extra batches of the same run merge
             // into that run's single generation instead of adding generations of their own.
-            const add = (id, status, attempt, logPath, tmuxSession) => {
+            const add = (id, status, attempt, logPath, tmuxSession, workerId) => {
                 const liveStatus = String(status || "unknown");
                 const terminal = terminalStates.has(liveStatus);
                 const generation = {
                     id, taskKey, planFile, at, attempt: Number.isFinite(Number(attempt)) ? Number(attempt) : 0,
                     terminal, active: !terminal,
                     sessions: new Set(), paths: new Set([sharedSchedulerLog]),
+                    workers: new Set(),
                 };
                 const relative = normalizeLogPath(String(logPath || ""));
                 if (relative && !/^[A-Za-z]:/.test(relative) && !relative.startsWith("/") && isManagedLogPath(fold(relative)))
@@ -86,12 +88,16 @@ function collectGenerations(queue, fold) {
                     generation.sessions.add(fold(session));
                     generation.paths.add(`simple_cluster/tmux_logs/${session}.log`);
                 }
+                const worker = String(workerId || "").trim();
+                if (worker)
+                    generation.workers.add(worker);
                 const existing = generations.get(id);
                 if (!existing)
                     generations.set(id, generation);
                 else {
                     existing.sessions = new Set([...existing.sessions, ...generation.sessions]);
                     existing.paths = new Set([...existing.paths, ...generation.paths]);
+                    existing.workers = new Set([...existing.workers, ...generation.workers]);
                     existing.attempt = Math.max(existing.attempt, generation.attempt);
                     // A generation is terminal only while every merged observation is terminal; any live or
                     // unknown sibling keeps the whole generation protected regardless of trusted facts.
@@ -102,8 +108,8 @@ function collectGenerations(queue, fold) {
                 }
             };
             for (const record of job.history || [])
-                add(String(plan.id), record.status, record.attempt, record.logPath, record.tmuxSession);
-            add(String(plan.id), job.status, job.attempt, job.logPath, job.tmuxSession);
+                add(String(plan.id), record.status, record.attempt, record.logPath, record.tmuxSession, record.workerId);
+            add(String(plan.id), job.status, job.attempt, job.logPath, job.tmuxSession, job.workerId);
         }
     }
     return tasks;
@@ -175,8 +181,6 @@ function retentionOwnership(index, relativePath) {
             const session = fold(parsed.session);
             if (index.protectedSessions.has(session))
                 return "protected";
-            if (index.staleSessions.has(session))
-                return "stale";
         }
     }
     return "unowned";
@@ -191,17 +195,8 @@ function isStaleRetentionRow(index, relativePath) {
     const row = index.byPath.get(fold(normalized));
     if (row)
         return row;
-    // Console logs join by EXACT parsed session field, never by loose basename substring.
-    if (fold(normalized).startsWith("simple_cluster/console_logs/")) {
-        const parsed = parseConsoleLogName(normalized.slice(normalized.lastIndexOf("/") + 1));
-        if (!parsed)
-            return undefined;
-        const session = fold(parsed.session);
-        if (index.protectedSessions.has(session) || !index.staleSessions.has(session))
-            return undefined;
-        return { path: normalized, planFile: "", taskKey: `console|session:${parsed.session}`,
-            reason: "该控制台日志的执行会话已超出两代保留窗口（会话字段精确归属）" };
-    }
+    // Only the persisted exact path manifest may authorize deletion. Console filenames
+    // contain no run/project identity; parsing a session string cannot prove ownership.
     return undefined;
 }
 /**
@@ -211,8 +206,9 @@ function isStaleRetentionRow(index, relativePath) {
  * allowed once every leaving generation satisfies BOTH rules:
  *  - it is terminal: active, paused or unknown generations hold admission even when their files
  *    are already gone (reads/transfers in flight are covered by the deletion executor's recheck);
- *  - every path it owns (and that no retained generation still references) is PROBED ABSENT by the
- *    caller. A probe that errors holds admission — a failed existence check is never "absent".
+ *  - every path it owns (and that no retained generation still references) is OBSERVED ABSENT on
+ *    the Worker that physically ran that generation. The caller observes exact paths in batches
+ *    per leaving generation; a missing, errored or unanswered observation is NEVER "absent".
  * Independent plan files never hold each other: only taskKeys derived from the target plan file
  * are evaluated, and shared paths (per-plan scheduler log) stay reference-counted.
  */
@@ -245,25 +241,31 @@ async function admissionPreview(queue, planFile, options) {
         const leaving = (orderedByTask.get(taskKey) || []).slice(1);
         for (const generation of leaving) {
             if (!generation.terminal || generation.active) {
-                pending.push({ taskKey, planFile, reason: "old-generation-active", paths: [] });
+                pending.push({ taskKey, planFile, reason: "old-generation-active", paths: [], workers: [...generation.workers] });
                 continue;
             }
             const present = [];
             const failed = [];
+            const checked = [];
             for (const path of generation.paths) {
                 const key = fold(normalizeLogPath(path));
-                if (retainedPaths.has(key))
-                    continue;
-                const outcome = await options.probe(path);
-                if (outcome === "present")
-                    present.push(path);
-                else if (outcome !== "absent")
-                    failed.push(path);
+                if (!retainedPaths.has(key))
+                    checked.push(path);
+            }
+            if (checked.length) {
+                const outcomes = await options.observe(checked, { workers: [...generation.workers] });
+                for (const path of checked) {
+                    const outcome = outcomes.get(path);
+                    if (outcome === "present")
+                        present.push(path);
+                    else if (outcome !== "absent")
+                        failed.push(path);
+                }
             }
             if (failed.length)
-                pending.push({ taskKey, planFile, reason: "existence-check-failed", paths: failed });
+                pending.push({ taskKey, planFile, reason: "existence-check-failed", paths: failed, workers: [...generation.workers] });
             else if (present.length)
-                pending.push({ taskKey, planFile, reason: "old-generation-still-present", paths: present });
+                pending.push({ taskKey, planFile, reason: "old-generation-still-present", paths: present, workers: [...generation.workers] });
         }
     }
     if (!pending.length)
