@@ -10,8 +10,8 @@ const extensionSource = readSource("src/extension.ts");
 test("extension exposes tunnel-only connection UI", () => {
   assert.match(extensionSource, /检查服务器配置/);
   assert.match(extensionSource, /启动全部隧道/);
-  assert.match(extensionSource, /手动刷新/);
-  assert.match(extensionSource, /暂停全部网络/);
+  assert.match(extensionSource, /registerCommand\("simpleExperiment\.manualRefresh", \(\) => provider\?\.manualSnapshot\(\)\)/);
+  assert.match(extensionSource, /暂停网络活动/);
   assert.match(extensionSource, /导入离线/);
   assert.match(extensionSource, /127\.0\.0\.1/);
 });

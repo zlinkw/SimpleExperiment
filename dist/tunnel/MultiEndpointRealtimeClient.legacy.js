@@ -601,6 +601,7 @@ function mergeRealtimeStates(entries, endpoints = entries.map((entry) => entry.e
     })), { protectedLogKeys });
 }
 function mergeClusterSnapshots(entries) {
+    entries = entries.filter(entry => entry.endpoint.role === "worker");
     const generatedAt = latest(entries.map((entry) => entry.snapshot.generatedAt));
     const gpu = entries.reduce((out, entry) => Object.assign(out, snapshotGpu(entry.snapshot, entry.endpoint)), {});
     const schedulerStates = mergeRows([], entries.flatMap((entry) => entry.snapshot.schedulerStates || []));

@@ -7,7 +7,8 @@ const {spawnSync}=require('node:child_process');
 test('real assigned tmux Agent starts, reuses and restarts without pidfd/PID signals or closing sibling/GPU windows',()=>{
   const fixture=path.join(__dirname,'agentLifecycle.fixture.py');
   const mounted=fixture.replace(/\\/g,'/').replace(/^([A-Za-z]):/,(_,d)=>'/mnt/'+d.toLowerCase());
-  const proc=spawnSync(process.platform==='win32'?'wsl.exe':'python3',process.platform==='win32'?['--distribution',process.env.SIMPLE_TEST_WSL_DISTRO||'Ubuntu-Codex','--exec','/usr/bin/python3','-B',mounted]:['-B',fixture],{encoding:'utf8',windowsHide:true,timeout:10000});
+  const vendor=vendorRepoRoot(),vendorMounted=vendor.replace(/\\/g,'/').replace(/^([A-Za-z]):/,(_,d)=>'/mnt/'+d.toLowerCase());
+  const proc=spawnSync(process.platform==='win32'?'wsl.exe':'python3',process.platform==='win32'?['--distribution',process.env.SIMPLE_TEST_WSL_DISTRO||'Ubuntu-Codex','--exec','/usr/bin/python3','-B',mounted,vendorMounted]:['-B',fixture,vendor],{encoding:'utf8',windowsHide:true,timeout:10000});
   assert.equal(proc.status,0,proc.stderr||proc.stdout||String(proc.error));
   const report=JSON.parse(proc.stdout.trim());
   assert.ok(Object.values(report).every(value=>value===true));

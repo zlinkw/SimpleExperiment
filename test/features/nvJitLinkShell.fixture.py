@@ -1,6 +1,8 @@
 """Real ELF loader and isolated tmux; synthetic libraries, imports and CPU only."""
 import concurrent.futures, hashlib, json, os, pathlib, shlex, subprocess, sys, tempfile, time, venv
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "_helpers"))
+from closeFixtureTmuxWindows import close_fixture_tmux_windows
 repo = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(repo / "test/_helpers"))
 from extractRuntimeFunctions import extract_runtime_functions
@@ -47,7 +49,7 @@ profile.write_text("export LD_LIBRARY_PATH=" + shlex.quote(str(old.parent)) + "\
 shell = root / "login-shell"
 shell.write_text("#!/bin/sh\n. " + shlex.quote(str(profile)) + '\nexec /bin/bash --noprofile --norc "$@"\n', encoding="utf-8")
 shell.chmod(0o700)
-socket = "simple-nvjitlink-" + str(os.getpid())
+socket = "simple-nvjitlink-" + root.name
 tmux = root / "tmux"
 tmux.write_text("#!/bin/sh\nexec /usr/bin/tmux -L " + shlex.quote(socket) + ' -f /dev/null "$@"\n', encoding="utf-8")
 tmux.chmod(0o700)
@@ -104,5 +106,5 @@ try:
         reports = list(pool.map(launch, [0, 1]))
     print(json.dumps(dict(oldLibraryRejected=True, reports=reports)))
 finally:
-    # This private fixture server owns no user sessions. Retain files for diagnosis.
-    subprocess.run([str(tmux), "kill-server"], capture_output=True, timeout=2)
+    # Close only verified window IDs on the private socket; retain files.
+    close_fixture_tmux_windows(lambda args: subprocess.run([str(tmux), *args], capture_output=True, text=True, timeout=2), socket_name=socket)

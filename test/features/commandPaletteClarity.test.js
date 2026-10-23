@@ -15,9 +15,7 @@ const guide = fs.readFileSync(path.join(root, "docs/simple-experiment-setup.md")
 const advancedCommands = [
   "simpleExperiment.writeXshellAgentStartupCommands",
   "simpleExperiment.configureXshellRealtimeTunnel",
-  "simpleExperiment.startHubTunnel",
   "simpleExperiment.startWorkerTunnel",
-  "simpleExperiment.startXshellRealtimeTunnel",
   "simpleExperiment.startAllXshellRealtimeTunnels",
   "simpleExperiment.showTunnelEndpointRegistry",
   "simpleExperiment.testXshellTunnel",
@@ -57,6 +55,10 @@ test("command palette defaults to the new-project main workflow without removing
     assert.ok(commands.has(command), `${command} must remain contributed`);
     assert.equal(hiddenByDefault.get(command), "config.simpleExperiment.showAdvancedCommands");
     assert.match(extension, new RegExp(`(?:registerCommand|hostCommand)\\("${command.replaceAll(".", "\\.")}"`));
+  }
+
+  for (const command of ["simpleExperiment.startHubTunnel", "simpleExperiment.startXshellRealtimeTunnel"]) {
+    assert.equal(commands.has(command), false, command + " is retired");
   }
 
   for (const command of primaryCommands) {

@@ -4,6 +4,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const ts = require("typescript");
+require('../_helpers/registerTsRequire');
+const {resultCollectionHost}=require('../../src/extension/ResultCollectionHost.ts');
+const {fixture}=require('../_helpers/freshResultHost');
 
 const root = path.resolve(__dirname, "../..");
 
@@ -37,6 +40,7 @@ function selectedMethods(names, globals = {}) {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const sandbox = {
+    resultCollectionHost,
     workspaceRoot: () => "/project",
     errorMessage: (error) => String(error?.message || error),
     assertRetryRequestCurrent: () => undefined,
@@ -106,7 +110,7 @@ test("background Worker mirroring keeps local result parsing and publication man
 test("manual result sync directly downloads metrics and publishes local tables without remote rebuild or full mirroring", async () => {
   const provider = distributedHost();
   const result = await provider.syncPendingResultMetricsFromUi({ planFiles: ["experiments/plans/a.yaml"] });
-  assert.equal(result.title, "同步服务器结果并更新总表");
+  assert.equal(result.title, undefined, "the current result entry forwards user options without injecting a retired workflow");
   assert.deepEqual(Array.from(result.planFiles), ["experiments/plans/a.yaml"]);
   assert.deepEqual(provider.calls, ["local-tables"]);
 });
@@ -121,70 +125,33 @@ test("explicit full artifact sync mirrors fragments, checkpoints and logs withou
   ]);
 });
 
-test("background metrics requests cannot enter the manual result path", async () => {
-  const provider = distributedHost();
-  const result = await provider.syncPendingResultMetricsFromUi({ background: true });
-  assert.equal(result.reason, "manual-only");
-  assert.deepEqual(provider.calls, []);
+test("background metrics collection reads verified artifacts in memory without the manual full-transfer route", async () => {
+  const f=fixture(),provider=Object.assign(selectedMethods(["syncPendingResultMetricsFromUi"]),f.host);
+  provider.rebuildProjectResultTablesFromUi=()=>assert.fail("background query must not enter the manual full-transfer UI");
+  const report=await provider.syncPendingResultMetricsFromUi({background:true});
+  assert.equal(report.source,"active_query");assert.equal(report.completed,1);
+  const transfers=f.calls.filter(row=>row[0]==="sync.downloadMappedPaths");assert.equal(transfers.length,1);
+  assert.equal(transfers[0][1].memoryOnly,true);assert.equal(transfers[0][1].metricsOnly,true);
+  assert.equal(fs.existsSync(path.join(f.root,"work_dirs")),false,"raw artifacts cannot be downloaded to the local project");
 });
 
-test("two concurrent manual summary requests share at most three direct manual retries", async () => {
-  const timer = clock();
-  const provider = selectedMethods(["refreshResultsSummary", "scheduleResultsSummaryTimer"], {
-    ...timer,
-    usableSelectionKey: (value) => String(value || ""),
-  });
-  Object.assign(provider, {
-    resultsSummaryRefreshInFlight: true,
-    resultsSummaryRefreshRetryCount: 0,
-    resultsSummaryRefreshTimerGeneration: 0,
-    projectContextGeneration: 1,
-    client: {},
-    selectedPlanId: "experiments/plans/a.yaml",
-    planFileInput: "experiments/plans/a.yaml",
-    lastResultsSummaryRefreshedDirtyKey: "",
-    pendingResultsSummaryDirtyKey: "",
-    pendingResultsSummaryDirtyPlanFile: "",
-    effectiveConnectionMode: () => "tunnel",
-    shouldRefreshResultsSummaryForDirtyPlan: () => true,
-    hasResultsSummaryEndpointCapability: () => true,
-  });
-  await provider.refreshResultsSummary("experiments/plans/a.yaml");
-  await provider.refreshResultsSummary("experiments/plans/a.yaml");
-  assert.equal(timer.timers.size, 1, "the concurrent manual clicks coalesce to one timer");
-  timer.advance(2_000);
-  assert.equal(provider.resultsSummaryRefreshRetryCount, 3);
-  assert.equal(timer.timers.size, 0, "manual retry count is bounded");
+test("concurrent manual summary refreshes share one active collection without a duplicate transfer", async () => {
+  const f=fixture();let release;f.block(new Promise(resolve=>release=resolve));
+  const provider=Object.assign(selectedMethods(["refreshResultsSummary"]),f.host,{
+    effectiveConnectionMode:()=>"tunnel",recordActionError:error=>assert.fail(error.message)});
+  const first=provider.refreshResultsSummary(),second=provider.refreshResultsSummary();
+  await new Promise(setImmediate);assert.equal(f.calls.filter(row=>row[0]==="tasks").length,1);
+  release();await Promise.all([first,second]);
+  assert.equal(f.calls.filter(row=>row[0]==="tasks").length,2,"one discovery plus one fresh declared-result query");
+  assert.equal(f.calls.filter(row=>row[0]==="sync.downloadMappedPaths").length,1);
+  assert.equal(provider.resultsSummary.completed,1);
 });
 
-test("a queued manual summary retry returns to the manual fetch after the active fetch ends", async () => {
-  const timer = clock();
-  const provider = selectedMethods(["refreshResultsSummary", "scheduleResultsSummaryTimer"], {
-    ...timer,
-    usableSelectionKey: (value) => String(value || ""),
-  });
-  let fetches = 0;
-  Object.assign(provider, {
-    resultsSummaryRefreshInFlight: true,
-    resultsSummaryRefreshRetryCount: 0,
-    resultsSummaryRefreshTimerGeneration: 0,
-    projectContextGeneration: 1,
-    client: { getResultsSummary: async () => { fetches++; return {}; } },
-    selectedPlanId: "experiments/plans/a.yaml",
-    planFileInput: "experiments/plans/a.yaml",
-    localPlanMetadata: { plans: [{ planFile: "experiments/plans/a.yaml" }] },
-    lastResultsSummaryRefreshedDirtyKey: "",
-    pendingResultsSummaryDirtyKey: "",
-    pendingResultsSummaryDirtyPlanFile: "",
-    effectiveConnectionMode: () => "tunnel",
-    shouldRefreshResultsSummaryForDirtyPlan: () => true,
-    hasResultsSummaryEndpointCapability: () => true,
-    resolveSelectedPlanFile: (value) => value,
-    postState() {},
-  });
-  await provider.refreshResultsSummary("experiments/plans/a.yaml");
-  provider.resultsSummaryRefreshInFlight = false;
-  timer.advance(500);
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(fetches, 1);
+test("an explicit refresh after a failed query starts a fresh collection and cannot reuse cached metrics", async () => {
+  const f=fixture(),provider=Object.assign(selectedMethods(["refreshResultsSummary"]),f.host,{effectiveConnectionMode:()=>"tunnel"});
+  f.offline(true);await provider.refreshResultsSummary();
+  assert.equal(provider.resultsSummary.results.length,0);assert.ok(provider.resultsSummary.skipped.length>0);
+  const before=f.calls.length;f.offline(false);await provider.refreshResultsSummary();
+  assert.equal(provider.resultsSummary.completed,1);assert.equal(provider.resultsSummary.results.length,1);
+  assert.ok(f.calls.length>before);assert.equal(f.calls.filter(row=>row[0]==="sync.downloadMappedPaths").length,1);
 });

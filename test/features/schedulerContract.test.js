@@ -4,6 +4,7 @@ const vm = require("node:vm");
 const { readSource } = require("../_helpers/sourceReader");
 require('../_helpers/registerTsRequire');
 
+require('../_helpers/registerTsRequire');
 const source = readSource("src/extension.ts");
 function method(name, next) {
   const start = source.indexOf(`    ${name}(`);
@@ -13,14 +14,16 @@ function method(name, next) {
   return source.slice(start, end).trim();
 }
 function harness(config = {}) {
-  const delays = [];
+  const delays = [], cleared=[];
   const sandbox = {
     vscode: { workspace: { getConfiguration: () => ({ get: (key, fallback) => config[key] ?? fallback }) } },
+    GpuMemoryScheduling: require("../../src/features/GpuMemoryScheduling.ts"),
+    GpuQuotaScheduling: require("../../src/features/GpuQuotaScheduling.ts"),
     DistributedSchedulingPolicy: { schedulingMode: value => value },
     GpuQuotaScheduling: require('../../src/features/GpuQuotaScheduling.ts'),
     GpuMemoryScheduling: require('../../src/features/GpuMemoryScheduling.ts'),
     setTimeout: (_callback, delay) => { delays.push(delay); return { unref() {} }; },
-    clearTimeout() {},
+    clearTimeout(timer) {cleared.push(timer);},
   };
   vm.createContext(sandbox);
   vm.runInContext(`class Harness {
@@ -33,7 +36,7 @@ function harness(config = {}) {
   p.isRealtimeMode = () => true;
   p.projectTopologyAssessment = () => ({ hubAllowed: true });
   p.longRunningPlanRunOperations = () => [{}];
-  return { p, delays };
+  return { p, delays, cleared };
 }
 
 test("scheduler settings enforce the documented bounds and honor configured push intervals", () => {
@@ -59,4 +62,13 @@ test("retired availability push cannot start network timers; active queue pollin
   p.startAvailabilityPushLoop();
   assert.deepEqual(delays, []);
   assert.match(source, /setInterval\(\(\) => \{ void this\.tickDistributedQueue\(\)[^\n]+, 500\)/);
+});
+
+test("retired availability push clears its owned timer and cannot restart while tasks run", () => {
+  const {p,delays,cleared}=harness({"scheduler.localAvailabilityPushSeconds":27});
+  const originalTimer={id:'owned-push-timer'};p.availabilityPushTimer=originalTimer;
+  p.startAvailabilityPushLoop();assert.deepEqual(delays,[]);assert.deepEqual(cleared,[originalTimer]);assert.equal(p.availabilityPushTimer,undefined);
+  assert.equal(p.availabilityPushLoopGeneration,1);p.longRunningPlanRunOperations=()=>[];p.startAvailabilityPushLoop();
+  assert.deepEqual(delays,[]);assert.deepEqual(cleared,[originalTimer]);assert.equal(p.availabilityPushLoopGeneration,2);
+  assert.match(source,/setInterval\(\(\) => \{ void this\.tickDistributedQueue\(\)[^\n]+, 500\)/);
 });

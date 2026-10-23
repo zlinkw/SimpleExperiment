@@ -42,4 +42,4 @@ def task_admission_gpu(row, gpus, occupied):
     pathlib.Path(root, 'release-command-2').touch()
     print(json.dumps(dict(ok=True, concurrentCards=1, jobsOnCard=2, pausedWithoutStopping=True)))
 finally:
-    subprocess.run(['tmux', 'kill-server'], capture_output=True, timeout=2)
+    close_fixture_tmux_windows(lambda args: subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=2), private_root=root)

@@ -161,7 +161,8 @@ test("state-only readiness invalidates when setup, Worker, or blocker sources ar
   const nextWorker = sandbox.workerReadiness(nextState);
   const nextBlockers = sandbox.preparationBlockers(nextState);
   assert.notEqual(nextServer, firstServer);
-  assert.equal(nextServer.ready, false);
+  assert.equal(nextServer.ready, true); // no configured Worker fields to validate; executionWorkerReadiness separately requires an enabled Worker
+  assert.equal(nextWorker.ready, false);
   assert.notEqual(nextWorker, firstWorker);
   assert.equal(nextWorker.ready, false);
   assert.notEqual(nextBlockers, firstBlockers);

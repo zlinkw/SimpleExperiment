@@ -16,7 +16,7 @@ function loadSnapshotBatchReader() {
   const code = `class Provider { ${method.getText(ast)} }; Provider;`;
   return vm.runInNewContext(ts.transpileModule(code, {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
-  }).outputText, { ...require('../_helpers/nativeHostScope'),workspaceRoot:()=>'/fixture/project', Promise, Map, Set, Number, String, ReturnType: undefined, setTimeout, clearTimeout });
+  }).outputText, { ...require('../_helpers/nativeHostScope'), workspaceRoot: () => '/fixture/project', Date, DistributedPlanQueue: require("../../dist/features/DistributedPlanQueue"), DistributedSchedulingPolicy: require("../../dist/features/DistributedSchedulingPolicy"), Promise, Map, Set, Number, String, ReturnType: undefined, setTimeout, clearTimeout });
 }
 
 test('a batch reads each configured worker once and returns healthy results without waiting for an offline worker', async () => {

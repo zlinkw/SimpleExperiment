@@ -21,9 +21,9 @@ test("preview CSV keeps all parsed records while effective CSV keeps archived re
   const script = path.join(tmp, "check.py");
   fs.writeFileSync(script, [
     "import importlib.util, json, os, csv",
-    "spec = importlib.util.spec_from_file_location('agent', " + JSON.stringify(agentPath) + ")",
-    "agent = importlib.util.module_from_spec(spec)",
-    "spec.loader.exec_module(agent)",
+    ("spec = (lambda _name, _file: __import__(\"runpy\").run_path(" + JSON.stringify(require("node:path").resolve(__dirname, "../_helpers/extractRuntimeFunctions.py")) + ")[\"extract_runtime_functions\"](_file, [\"archive_state_relpath\",\"atomic_write\",\"compute_statistics_action\",\"export_paper_table_action\",\"parse_results_action\",\"read_results_summary\",\"result_final_evidence_decision\",\"run_quality_gate_action\",\"safe_project_path\"]))('agent', ") + JSON.stringify(agentPath) + ")",
+    "agent = spec",
+    "pass",
     "root = " + JSON.stringify(root),
     "plan = 'experiments/plans/smoke.yaml'",
     "initial = agent.parse_results_action(root, None, plan)",
@@ -44,7 +44,7 @@ test("preview CSV keeps all parsed records while effective CSV keeps archived re
     "effective = agent.safe_project_path(root, summary['effectiveResultsCsvPath'])",
     "print(json.dumps({'previewRows': len(list(csv.DictReader(open(preview, encoding='utf-8')))), 'effectiveRows': len(list(csv.DictReader(open(effective, encoding='utf-8')))), 'manualEligible': manual.get('eligibleForFinalAnalysis'), 'policy': summary.get('inclusionPolicy'), 'previewPath': summary.get('previewCsvPath'), 'effectivePath': summary.get('effectiveResultsCsvPath'), 'qualitySource': quality.get('source'), 'qualityRows': quality.get('resultCount'), 'qualityPending': quality.get('pendingReviewCount'), 'emptyStatisticsError': emptyStatisticsError, 'paperRows': paper.get('resultCount'), 'paperSummaryRows': final_summary.get('paperTableResultCount')}))",
   ].join("\n"), "utf8");
-  const result = spawnSync("python", [script], { encoding: "utf8" });
+  const result = spawnSync("python", [script], { encoding: "utf8", timeout: 10000, windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse((result.stdout || "").trim().split(/\r?\n/).pop());
   assert.equal(payload.previewRows, 2);

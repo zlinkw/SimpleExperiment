@@ -174,6 +174,11 @@ function world(options={}){
   }
   function buildPlanHostPorts(h){
     return {taskLifecycleProtocol:2,context:{globalStorageUri:{fsPath:storage}},
+      // 合流接线（2026-10-23）：feature 侧 PlanCleanupHost 以机器状态映射守卫做 fail-closed 保护——
+      // 端口缺失即 unknown → 全部 protected。与 manifestCleanup.test.js 同款夹具口径：
+      // 映射已解析且状态根不与 work_dirs 声明产物相交，本轮清理按真实语义放行。
+      localMachineStateGuard:()=>({prefixes:[],unknown:false}),
+      targetRootGuard:()=>({prefixes:[],unknown:false}),
       setupConfig:{workerTunnels:[{id:'w1'}]},
       workerCodeSyncTarget:()=>({host:'h1.example',port:22,user:'u',remotePath:remoteRoot}),
       simpleSftpApiCall:sftp,client,h,

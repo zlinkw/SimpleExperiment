@@ -14,7 +14,7 @@ nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in {'app
 lines=[]
 class Journal(io.StringIO):
  def __exit__(self,*args): lines.append(self.getvalue()); self.close()
-ns={'json':json,'os':type('OS',(),{'makedirs':lambda *args,**kwargs:None})(),
+ns={'json':json,'os':type('OS',(),{'makedirs':lambda *args,**kwargs:None,'environ':{}})(),
  'EVENT_APPEND_LOCK':threading.RLock(),'SCHEMA_VERSION':1,'MAX_AGENT_EVENT_RECORD_BYTES':192*1024,
  'prune_runtime_memory_state':lambda:None,'agent_dir':lambda root:root,'read_seq':lambda root:0,
  'write_seq':lambda *args:None,'path_for':lambda *args:'journal','now_iso':lambda:'2026-10-06',

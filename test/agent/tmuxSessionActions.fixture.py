@@ -11,6 +11,8 @@ import sys
 import tempfile
 import uuid
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "_helpers"))
+from closeFixtureTmuxWindows import close_fixture_tmux_windows
 source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 nodes = [node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef) and
          (node.name in ("kill_tmux_window_response", "manage_tmux_session_response", "task_inventory", "task_tmux", "task_read_job"))]
@@ -70,4 +72,4 @@ try:
     assert not scope['task_inventory']('/other-project')
     print('ok: real session actions, native tasks, no snapshots')
 finally:
-    isolated(['tmux','kill-server'],capture_output=True,timeout=2)
+    close_fixture_tmux_windows(lambda args: isolated(["tmux", *args], capture_output=True, text=True, timeout=2), socket_name=socket)

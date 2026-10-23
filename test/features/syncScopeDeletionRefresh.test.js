@@ -289,10 +289,10 @@ test('only the sync-scope view reuses its freshly requested Agent generation for
 });
 
 test('real single/batch deletion call chain never enters the legacy transfer-receipt API',async()=>{
- const remote=method('deleteSyncScopeRemoteCopy',{deleteConfirmedScopeCopy:async(rpc,node,relative,directory)=>{
+ const remote=method('deleteSyncScopeRemoteCopy',{isUnderMachineStatePrefixes:require('../../dist/features/ProjectRootMap').isUnderMachineStatePrefixes,deleteConfirmedScopeCopy:async(rpc,node,relative,directory)=>{
    assert.equal(node.host,'worker.example');assert.equal(node.root,'/project');assert.equal(relative,'work_dirs/job');assert.equal(directory,true);
  }}),calls=[];
- const host={simpleSftpCapability:async()=>({methodOptions:{'files.cleanup.preview':{confirmedPathMetadata:1,confirmedPathNestedRepositories:1}}}),sftpServerOptions:row=>({host:'worker.example',remotePath:'/project',user:'user',port:22}),
+ const host={localMachineStateGuard:()=>({prefixes:[],unknown:false}),targetRootGuard:()=>({prefixes:[],unknown:false}),simpleSftpCapability:async()=>({methodOptions:{'files.cleanup.preview':{confirmedPathMetadata:1,confirmedPathNestedRepositories:1}}}),sftpServerOptions:row=>({host:'worker.example',remotePath:'/project',user:'user',port:22}),
    deleteSyncScopeRemoteCopy:async(...args)=>{calls.push(args);await remote.call(host,...args);},
    simpleSftpApiCall:async(name)=>{assert.equal(name,'sync.projectTree');return {ok:true,entries:[{path:'work_dirs/job',directory:true}]};}};
  const remove=method('removeSyncScopeCopies',{safeSyncPath:()=>{},scopeInventoryPathAllowed:()=>true,path,errorMessage:e=>e.message});
@@ -400,7 +400,7 @@ test('local hashing and complete Worker inventory start together; partial failur
    assert.equal(data.local['file'].sha256,'local');assert.equal(data.workers.w1.file.sha256,'remote');assert.ok(offline.has('w2'));
    return {'.':{state:'unknown',detail:'w2 未核实'}};
   }});
- const host={localScopeHashCacheFile:()=>'',enabledWorkerConfigs:()=>[{id:'w1'},{id:'w2'}],sftpServerOptions:t=>t,
+ const host={localScopeHashCacheFile:()=>'',localMachineStateGuard:()=>({prefixes:[],unknown:false}),enabledWorkerConfigs:()=>[{id:'w1'},{id:'w2'}],sftpServerOptions:t=>t,
   simpleSftpApiCall:async(name,p)=>{started++;assert.equal(name,'sync.projectInventory');assert.equal(p.recursive,true);assert.deepEqual([...p.scopePaths],['.']);if(p.source.id==='w2')return {ok:false,error:'network failed',files:{}};return {files:{file:{sha256:'remote'}}};},
   loadPlanSyncLedger:async()=>({}),context:{globalStorageUri:{fsPath:'fixture'}}};
  const pending=refresh.call(host,'fixture',[{id:'w1'},{id:'w2'}],'local-server',['.']);

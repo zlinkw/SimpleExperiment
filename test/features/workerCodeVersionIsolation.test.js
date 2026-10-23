@@ -3,6 +3,13 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 const ts = require("typescript");
+require('../_helpers/registerTsRequire');
+const PlanExecutionMode=require('../../dist/features/PlanExecutionMode');
+const GpuQuotaScheduling=require('../../dist/features/GpuQuotaScheduling');
+const PlanCodeScopeHost=require('../../dist/extension/PlanCodeScopeHost');
+const AgentTmuxPolicy_1=require('../../dist/tunnel/AgentTmuxPolicy');
+const endpoints={declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,projectManagedValidation:1,gpuQuotaScheduling:1};
+const vscode={workspace:{getConfiguration:()=>({get:()=>undefined})}};
 const queue = require("../../dist/features/DistributedPlanQueue.js");
 const source = fs.readFileSync(require.resolve("../../src/extension/legacy.ts"), "utf8");
 const ast = ts.createSourceFile("legacy.ts", source, ts.ScriptTarget.Latest, true);
@@ -61,7 +68,7 @@ test("live remote task absent from the local queue still protects its Worker roo
 });
 
 test("missing/stale snapshots and uncertain remote tasks never authorize overwrite", async () => {
-  for (const change of [{ error: "offline" }, { workerId: "another-worker" }, { generatedAt: "2000-01-01T00:00:00Z" }, { tasks: [{ status: "unknown" }] }]) {
+  for (const change of [{ error: "offline" }, { workerId: "another-worker" }, { fetchedAt: "2000-01-01T00:00:00Z" }, { tasks: [{ status: "unknown" }] }]) {
     const f = fixture();
     Object.assign(f.snapshots["worker-free"], change);
     await assert.rejects(f.host.safeWorkerCodeSyncTargets(f.workers, f.root, "new-code", "run"), /未覆盖运行中代码/);

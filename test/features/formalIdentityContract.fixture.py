@@ -1,4 +1,4 @@
-"""Extracted admission/diagnostic contracts and real seven-PLAN launch messages, no execution."""
+"""Function-only admission/diagnostics and seven synthetic PLAN messages, no research checkout."""
 import argparse
 import copy
 import hashlib
@@ -76,9 +76,22 @@ assert "missing=workflowId,commandId" in report["error"]
 assert not agent.worker_task_failure_diagnostic(str(root), {**task, "commandId": "foreign"})
 assert not agent.worker_task_failure_diagnostic(str(root), {**task, "logPath": "tmp/tmux_logs/gpu-0.log"})
 
-project = pathlib.Path(sys.argv[1]).resolve()
+# The deleted consumer experiment is not part of plugin acceptance. Exercise the
+# same 20 dispatch identities with independent, retained portable PLAN inputs.
+project = root / "portable-project"
+folder = project / "plans"
+folder.mkdir(parents=True)
+for index in range(7):
+    count = 3 if index < 6 else 2
+    config = {"fixture": {"variant": index < 6}}
+    plan = {"suite": "portable_" + str(index), "mode": ["train", "test", "train_test"][index % 3],
+        "base_config": config, "seeds": [42],
+        "runner": {"train_command": "python train.py", "test_command": "python test.py --result-csv {result_csv}"},
+        "paper": {"result_csv": "tmp/result/{suite}/{case}/seed{seed}/metrics.csv"},
+        "cases": [{"case": "case_" + str(item)} for item in range(count)]}
+    (folder / (str(index) + ".yaml")).write_text(json.dumps(plan), encoding="utf-8")
 os.chdir(project)
-files = sorted((project / "experiments/plans/quality_composition").rglob("*.yaml"))
+files = sorted(folder.glob("*.yaml"))
 assert len(files) == 7
 pressure = reference = 0
 messages = []
@@ -93,10 +106,9 @@ with patch.object(scheduler, "scheduler_agent_state_dir", lambda: root / "messag
         loaded = scheduler.load_plan(plan_file)
         _, jobs = scheduler.build_jobs(loaded)
         for job in jobs:
-            assert job.seed == 42 and job.config["data"]["dataset"] == "pad_ufes_20"
-            if job.config["data"].get("protocol", {}).get("pressure_matrix"):
+            assert job.seed == 42 and job.config["fixture"]["variant"] == (filename.stem != "6")
+            if job.config["fixture"]["variant"]:
                 pressure += 1
-                assert job.config["data"]["protocol"]["development"]["fold"] == 0
             else:
                 reference += 1
             workflow = "contract-" + str(len(messages))

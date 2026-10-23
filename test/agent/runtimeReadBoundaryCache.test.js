@@ -10,9 +10,10 @@ test("read-only result summary and diagnostics reads reuse the runtime JSON cach
   const script = String.raw`
 import importlib.util, json, os, types
 
-spec = importlib.util.spec_from_file_location("cluster_agent", ${JSON.stringify(agentPath)})
-agent = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(agent)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(${JSON.stringify(agentPath)}, ["AGENT_STATE_DIR", "api_diagnostics", "inspect_agent", "normalize_result_candidate", "os", "path_for", "plan_results_summary_relpath", "read_json", "read_results_summary", "scheduler_dependency_health", "session"])
 
 root = "/project"
 agent.AGENT_STATE_DIR = "/state"
@@ -67,7 +68,7 @@ print(json.dumps({
 }))
 `;
 
-  const run = spawnSync("python", ["-c", script], { encoding: "utf8" });
+  const run = spawnSync("python", ["-B", (() => { const f = require("node:fs"), p = require("node:path"); const d = f.mkdtempSync(p.join(require("node:os").tmpdir(), "se-python-fixture-")); const file = p.join(d, "probe.py"); f.writeFileSync(file, script, "utf8"); console.log("kept Python fixture at " + d); return file; })()], { encoding: "utf8", timeout: 10000, windowsHide: true });
   assert.equal(run.status, 0, run.stderr);
   const result = JSON.parse(run.stdout.trim());
   assert.equal(result.cachedReads, 1);

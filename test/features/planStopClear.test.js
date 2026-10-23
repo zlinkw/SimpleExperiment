@@ -1876,12 +1876,7 @@ test("the full formal stop-clear chain accepts no attempt field and never recrea
 test("serialized Agent stop receipts pass the production project-scoped clear chain", async () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
   const file = path.join(__dirname, "fixtures/exactPaneStop.py");
-  const result = spawnSync("python", [file], {
-    encoding: "utf8",
-    timeout: 10000,
-    windowsHide: true,
-    env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1", TEST_AGENT_PATH: agentPath },
-  });
+  const result = spawnSync("python", [file], { encoding: "utf8", timeout: 10000, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1", TEST_AGENT_PATH: agentPath } });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const fixture = JSON.parse(result.stdout);
   const { modernTask: task, modernResult: receipt } = fixture;

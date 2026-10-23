@@ -162,7 +162,10 @@ test('isolated delete preview rejects targets of an isolation batch that never f
   const preview=await f.service.preview({planFile:f.scope.planFile,action:'isolate',authorizationMode:'confirmed_paths',job:f.job(1)});
   assert.ok(preview.rows.length);
   const op=await f.service.confirm({token:preview.token,digest:preview.digest,phase:1,confirm:true,exactTargets:exactOf(preview)});
-  await assert.rejects(f.service.isolatedDeletePreview(op.id),/NO_VERIFIED_TARGETS/);
+  // 新主线精确契约：isolatedDeletePreview 对未落定隔离批次先记 ISOLATE_NOT_SETTLED blocker（PlanCleanup.ts:1174），
+  // 无 delete 行时以 blocker.code 抛出（:1201）；cleanupError 把 code 放在 apiData.code、detail 放 message
+  // （PlanCleanup.ts:119-121），故按契约字段断言精确 code 并要求 detail 保留，拒绝与零变更语义不变。
+  await assert.rejects(f.service.isolatedDeletePreview(op.id),error=>error.apiData?.code==='ISOLATE_NOT_SETTLED'&&/隔离未完成确认，请先刷新实际状态/.test(String(error.message)));
 });
 test('the real isolate preview payload carries normalized requiredInputs from the PLAN checkpoint declaration',async()=>{
   const f=await backendFixture();

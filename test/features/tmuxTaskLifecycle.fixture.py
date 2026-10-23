@@ -2,6 +2,8 @@
 import ast, base64, datetime, hashlib, json, os, pathlib, re, shlex, subprocess, sys, tempfile, threading, time, urllib.request, urllib.parse, uuid, textwrap
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "_helpers"))
+from closeFixtureTmuxWindows import close_fixture_tmux_windows
 runtime = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 tree = ast.parse(runtime)
 nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name.startswith("task_")]
@@ -16,6 +18,7 @@ def task_tmux(args, timeout=5, **kwargs):
     return _modern_task_tmux(args, timeout=timeout, **kwargs)
 '''
 root = tempfile.mkdtemp(prefix="se-native-lifecycle-")
+os.environ.pop("TMUX", None)
 os.environ["TMUX_TMPDIR"] = root
 os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = "fixture"
 bootstrap = '''import base64, datetime, hashlib, json, os, pathlib, re, shlex, subprocess, sys, threading, time, urllib.request, uuid
@@ -262,4 +265,4 @@ try:
     print(json.dumps(dict(ok=True,realTmux=True,callbacks=0,stateFilesRead=0)))
 finally:
     # This is the fixture's newly created server under its private TMUX_TMPDIR only.
-    subprocess.run(["tmux","kill-server"],capture_output=True,timeout=2)
+    close_fixture_tmux_windows(lambda args: subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=2), private_root=root)

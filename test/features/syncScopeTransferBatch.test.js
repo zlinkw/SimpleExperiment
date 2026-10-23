@@ -98,7 +98,9 @@ test("three confirmed files use one source inventory, one destination inventory,
   const names = ["artifacts/a.txt", "artifacts/b.txt", "artifacts/pack/c.bin", "artifacts/pack/d.bin", "artifacts/outside.txt"];
   const files = Object.fromEntries(names.map((name) => [name, record(name)]));
   const provider = {
-    context: { globalStorageUri: { fsPath: ROOT } },
+    context: { globalStorageUri: { fsPath: ROOT + "-plugin-state" } },
+    localMachineStateGuard: () => ({ prefixes: [], unknown: false }),
+    targetRootGuard: () => ({ prefixes: [], unknown: false }),
     simpleSftpCapability: async () => {},
     simpleSftpApiCall: async (method, params) => {
       calls.push({ method, params });
@@ -150,7 +152,9 @@ test("three confirmed files use one source inventory, one destination inventory,
 test("local files share one upload manifest and a destination hash mismatch does not save holds", async () => {
   const calls = [];
   const provider = {
-    context: { globalStorageUri: { fsPath: ROOT } },
+    context: { globalStorageUri: { fsPath: ROOT + "-plugin-state" } },
+    localMachineStateGuard: () => ({ prefixes: [], unknown: false }),
+    targetRootGuard: () => ({ prefixes: [], unknown: false }),
     simpleSftpCapability: async () => {},
     simpleSftpApiCall: async (method) => { calls.push(method); throw new Error(`unexpected ${method}`); },
     assertSshTransportIdentities: async () => {},

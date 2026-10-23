@@ -13,6 +13,8 @@ from concurrent.futures import ThreadPoolExecutor
 # 独立 worktree lane 中层级更深。按祖先链发现含 agent-lifecycle.py 的兄弟 simple-sftp，
 # 主 checkout 解析结果与原 ../../../simple-sftp 完全一致，可用 SIMPLE_SFTP_REPO 显式覆盖。
 def _vendor_repo_root():
+    if len(sys.argv) > 1:
+        return pathlib.Path(sys.argv[1])
     env = os.environ.get('SIMPLE_SFTP_REPO')
     if env:
         return pathlib.Path(env)
@@ -41,6 +43,7 @@ def forbidden_environment_probe(*args):
 health_scope = dict(scheduler_dependency_health=forbidden_environment_probe,
     read_runtime_json_cached=lambda *args: {}, path_for=lambda *args:'fixture', inspect_agent=lambda root:{'running':True},
     iso_age_seconds=lambda value:0, now_iso=lambda:'fixture-time', agent_install_dir=lambda root:'runtime', agent_dir=lambda root:'state',
+    gpu_collector_state_root=lambda root:'/fixture/worker-state',
     SCHEMA_VERSION=1, AGENT_VERSION='fixture', API_VERSION='1', RUNTIME_VERSION='fixture', PLUGIN_VERSION='fixture',
     AGENT_LIFECYCLE_IDENTITY={}, TASK_SCHEDULER_UPDATE_ERROR='',
     task_scheduler_runtime_report=lambda root, worker: {'protocol': 1, 'status': 'absent', 'workerId': worker}, os=os)
@@ -61,6 +64,7 @@ spec=importlib.util.spec_from_file_location("lifecycle",%r)
 l=importlib.util.module_from_spec(spec);spec.loader.exec_module(l)
 p=argparse.ArgumentParser();p.add_argument("serve");p.add_argument("--project-dir");p.add_argument("--host");p.add_argument("--port",type=int);p.add_argument("--mode");p.add_argument("--worker-id");a=p.parse_args()
 lock,identity=l.lifecycle_service_guard(a,"fixture-v1")
+identity["workerStateDir"]=os.environ.get("SIMPLE_EXPERIMENT_WORKER_STATE_DIR")
 class H(BaseHTTPRequestHandler):
  def do_GET(self):
   if self.headers.get("X-Simple-Agent-Token","")!=os.environ.get("SIMPLE_EXPERIMENT_AGENT_TOKEN",""):self.send_response(403);self.end_headers();return
@@ -97,6 +101,8 @@ assert before_legacy == sorted((str(p),p.read_bytes()) for p in legacy_state.rgl
 project = root / 'fresh-project'
 project.mkdir()
 params['projectDir'] = str(project)
+params['stateDir'] = str(root / 'custom-agent-state')
+params['workerStateDir'] = str(root / 'custom-worker-state')
 platform = subprocess.Popen(['sleep','60'])
 research = subprocess.Popen(['sleep','60'])
 agent = None
@@ -125,6 +131,8 @@ try:
     assert len({row['identity']['pid'] for row in receipts if row})==1
     agent = first['identity']['pid']
     assert first['reused'] is False
+    assert first['identity']['stateDir'] == params['stateDir']
+    assert first['identity']['workerStateDir'] == params['workerStateDir']
     again = module.lifecycle_control(dict(params,action='ensure'))
     assert again['reused'] is True and again['identity']['pid']==agent
     assert again['schedulerRuntime']=={'protocol':1,'status':'absent','workerId':'container-gpu'}

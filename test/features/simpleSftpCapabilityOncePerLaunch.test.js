@@ -92,6 +92,7 @@ function fixture() {
   vm.runInContext(methodsSource, sandbox);
   const posts = [];
   const host = Object.assign({
+    assertTransferRootSafety: () => {}, // transfer boundary is exercised by projectRootMap tests
     simpleSftpCapLaunch: 0, simpleSftpCapShared: undefined,
     projectFileObservationIndex: undefined,
     postUiCommandStatus: (...args) => posts.push(args), localOperations: {}, planSubmissionOperationId: () => "op-current",

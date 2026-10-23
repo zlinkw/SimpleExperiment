@@ -23,7 +23,7 @@ test("public UI uses SimpleExperiment and SimpleSFTP names", () => {
   assert.match(extension, /hostCommand\("simpleExperiment\.quickSetup", "quick-setup", "检查服务器配置"/);
   assert.match(extension, /# 由 SimpleExperiment 生成/);
   assert.match(panel, /<title>SimpleExperiment<\/title>/);
-  assert.match(panel, /topologyNode\("sftp", "SimpleSFTP", "显式文件传输"\)/);
+  assert.match(panel, /通过 SimpleSFTP 按配置范围同步/);
   assert.doesNotMatch(panel, /ZLK SFTP Manager/);
 });
 

@@ -67,10 +67,15 @@ test('results have a stable live outlet outside the rerendered summary and actua
   assert.match(section, /id="resultCommandPhaseLine"[^>]*role="status"[^>]*aria-live="polite"/);
   assert.equal((html.match(/id="resultCommandPhaseLine"/g) || []).length, 1);
   assert.ok(section.indexOf('id="resultCommandPhaseLine"') < section.indexOf('id="resultSummary"'));
-  for (const command of ['refreshLocalResults', 'syncPendingPlanArtifacts', 'rebuildProjectResultTables'])
+  for (const command of ['refreshLocalResults', 'syncPendingPlanArtifacts'])
     assert.ok(script.includes('data-command="' + command + '" data-action-section="results"'), command + ' button missing result association');
+  // The legacy rebuild alias remains routable; the toolbar uses the current refresh/sync actions.
+  for (const command of ['refreshLocalResults', 'syncPendingPlanArtifacts', 'rebuildProjectResultTables']) {
+    const f = fixture();
+    assert.equal(f.sandbox.commandInspectorSection(command), 'results');
+  }
   const f = fixture();
-  const button = { dataset: { command: 'rebuildProjectResultTables', actionSection: 'results' }, textContent: '下载指标并重新汇总',
+  const button = { dataset: { command: 'syncPendingPlanArtifacts', actionSection: 'results' }, textContent: '下载指标并重新汇总',
     disabled: false, closest: () => null, getAttribute: () => null };
   f.sandbox.click({ preventDefault() {}, stopPropagation() {}, target: { closest: selector => selector === 'button[data-command]' ? button : null } });
   const item = Object.values(f.sandbox.pendingActionsById)[0]; assert.equal(item.actionSection, 'results');

@@ -163,8 +163,8 @@ test("successful artifact pass clears an old disconnected warning", async () => 
   vm.createContext(context);
   vm.runInContext(methodAt(compiled, first).replace("async syncDistributedJobArtifacts(", "async function syncJobArtifacts(")
     + "\nthis.sync = syncJobArtifacts;", context);
-  const job = { index: 0, attempt: 1, status: "completed", workerId: "worker-b", outputDir: "runs/a",
-    artifacts: { "runs/a/formal_job_owner.json": "a".repeat(64) }, fragmentWorkerIds: ["worker-a"], mirroredWorkerIds: ["worker-a"], artifactError: "old disconnect" };
+  const job = { index: 0, attempt: 0, lifecycleProtocol: 2, status: "completed", workerId: "worker-b", outputDir: "runs/a",
+    artifacts: { "runs/a/artifact_manifest.json": "a".repeat(64) }, fragmentWorkerIds: ["worker-a"], mirroredWorkerIds: ["worker-a"], artifactError: "old disconnect" };
   const patched = [];
   const provider = {
     distributedLaunchInFlight: new Set(), recordActionError:()=>{},

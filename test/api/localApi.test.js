@@ -14,7 +14,7 @@ const execFileAsync = promisify(execFile);
 function runCli(args, extraEnv = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, {
-      env: { ...process.env, ...extraEnv },
+      env: { ...process.env, ...extraEnv }, timeout:10000, windowsHide:true,
     });
     let stdout = "";
     let stderr = "";
@@ -66,7 +66,7 @@ async function startServer(methods = {}, options = {}) {
     token: discovery.token,
     cleanup: async () => {
       await server.dispose();
-      fs.rmSync(dir, { recursive: true, force: true });
+      // Keep the private API fixture directory for audit.
     },
   };
 }
@@ -317,9 +317,9 @@ test("live output Local API returns the direct Worker response before cached log
 });
 
 test("SimpleExperiment accepts topology aliases and keeps configured remote roots authoritative", () => {
-  assert.equal(topologyMode.normalizeTopologyMode("standalone"), "single_worker");
+  assert.equal(topologyMode.normalizeTopologyMode("standalone"), "worker_pool");
   assert.equal(topologyMode.normalizeTopologyMode("worker_only"), "worker_pool");
-  assert.equal(topologyMode.normalizeTopologyMode("hub_available"), "hub_worker");
+  assert.equal(topologyMode.normalizeTopologyMode("hub_available"), "worker_pool");
   assert.equal(workflow.resolveApiRemoteRoot("/data/qgking/zlk", { id: "nwpu3" }), "/data/qgking/zlk");
   assert.equal(workflow.resolveApiRemoteRoot("/data/custom", { id: "nwpu3" }), "/data/custom");
   assert.equal(workflow.resolveApiRemoteRoot("/data/other", { host: "10.0.0.2" }), "/data/other");
@@ -491,7 +491,7 @@ test("SimpleExperiment uses one configured root across workflow, runtime and SFT
   const targetStart = extensionSource.indexOf("apiPrepareServerTargets(topology, serverIds, workerTunnels, setup = this.setupConfig)");
   const targetEnd = extensionSource.indexOf("apiMergedWorkerConfigs(workerTunnels, setup = this.setupConfig)", targetStart);
   const targetBody = extensionSource.slice(targetStart, targetEnd);
-  assert.match(targetBody, /resolveApiRemoteRootWithPolicy\(hub\.remotePath/);
+  assert.doesNotMatch(targetBody, /resolveApiRemoteRootWithPolicy\(hub\.remotePath/);
   assert.match(targetBody, /resolveApiRemoteRootWithPolicy\(target\.remotePath, worker/);
   assert.match(targetBody, /workDir: this\.agentRuntimeDirs\(remoteRoot\)\.workDir \|\| ""/);
 
@@ -554,12 +554,12 @@ test("one-shot workflow can auto prepare only after explicit confirmation", () =
   assert.match(extensionSource, /await this\.apiProjectPrepare\(\{ \.\.\.params, confirm: true \}\)/);
 });
 
-test("SimpleExperiment exposes a modal-confirmed standard experiment runner", () => {
+test("SimpleExperiment exposes a standard runner with explicit output confirmation in the main panel", () => {
   assert.match(extensionSource, /"workflow\.plan": async \(params\) => this\.apiWorkflowPlan\(params\)/);
   assert.match(extensionSource, /"workflow\.run": async \(params\) => this\.apiWorkflowRun\(params\)/);
-  assert.match(extensionSource, /confirmation: "vscode_modal"/);
+  assert.match(extensionSource, /confirmation: "main_panel_if_outputs_exist"/);
   assert.match(extensionSource, /await this\.runActionCommand\("runPlan", route\.calls\[0\]\.params\)/);
-  assert.match(extensionSource, /status: "waiting_confirmation"/);
+  assert.match(extensionSource, /status: "checking_workers"/);
 });
 
 test("SimpleExperiment uses manual SFTP addresses and scopes runtime deployment", () => {
@@ -568,12 +568,12 @@ test("SimpleExperiment uses manual SFTP addresses and scopes runtime deployment"
   assert.match(extensionSource, /sshConfigAlias: identity\.sshConfigAlias/);
   assert.match(extensionSource, /networkHost: identity\.networkHost/);
   assert.doesNotMatch(extensionSource, /inspectOpenSshAlias\(identity\.sshConfigAlias\)/);
-  assert.match(extensionSource, /async deployLatestAgentRuntime\(showMessage = true, pathConfirmed = false, serverIds = \[\], deferVerification = false\)/);
+  assert.match(extensionSource, /async deployLatestAgentRuntime\(showMessage = true, pathConfirmed = false, serverIds = \[\], deferVerification = false, migrationOptions: any = \{\}\)/);
   assert.match(extensionSource, /AgentRuntimeScope_1\.selectAgentRuntimeTargets\(this\.agentRuntimeUploadTargets\(\), serverIds\)/);
   const prepareStart = extensionSource.indexOf("async apiProjectPrepare");
   const prepareEnd = extensionSource.indexOf("apiMergedSetupConfig(params = {})", prepareStart);
   const prepareBody = extensionSource.slice(prepareStart, prepareEnd);
-  assert.match(prepareBody, /deployLatestAgentRuntime\(false, true, serverIds\)/);
+  assert.match(prepareBody, /deployLatestAgentRuntime\(false, true, serverIds, true, \{ migrationDigests: params\.legacyMigrationDigests \}\)/);
 });
 
 test("SimpleExperiment server test rows always expose the AI contract", () => {
@@ -624,7 +624,7 @@ test("SimpleExperiment parameterized onboarding uses one structured confirmation
   assert.match(extensionSource, /API_PARAMETERIZED_CONNECTION_COMMANDS\??\.has\(command\)/);
   assert.match(extensionSource, /if \(command === "prepareAgents"\)/);
   assert.match(extensionSource, /PROJECT_FLOW_STATE_PATH = "simple_cluster\/ui\/flow_state\.json"/);
-  assert.match(extensionSource, /savedSessionPath: "",\s*agentProjectDir: "",/);
+  assert.match(extensionSource, /agentProjectDir: String\(row\.agentProjectDir \|\| row\.remoteRoot \|\| row\.remotePath \|\| ""\)/);
 
   const start = extensionSource.indexOf("async runApiBootstrapOperation");
   const end = extensionSource.indexOf("async apiProjectBootstrapOperation", start);

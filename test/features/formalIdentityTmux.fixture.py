@@ -11,11 +11,13 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "_helpers"))
 from extractRuntimeFunctions import extract_runtime_functions
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "_helpers"))
+from closeFixtureTmuxWindows import close_fixture_tmux_windows
 repo = pathlib.Path(__file__).resolve().parents[2]
 agent = extract_runtime_functions(str(repo / "dist/runtime/cluster_agent.py"), ["start_job_in_gpu_pane", "start_simple_tmux_command", "worker_task_tmux_location"])
 mode = sys.argv[1]
 root = pathlib.Path(tempfile.mkdtemp(prefix="simple-identity-tmux-")).resolve()
-socket = "simple-identity-probe-" + str(os.getpid())
+socket = "simple-identity-probe-" + root.name
 wrapper = root / "tmux"
 wrapper.write_text("#!/bin/sh\nexec /usr/bin/tmux -L " + shlex.quote(socket) + " -f /dev/null \"$@\"\n", encoding="utf-8")
 wrapper.chmod(0o700)
@@ -82,5 +84,5 @@ try:
         reports = list(pool.map(launch, [0, 1]))
     print(json.dumps({"ok": True, "mode": mode, "reports": reports, "tmux": subprocess.run(["/usr/bin/tmux", "-V"], capture_output=True, text=True).stdout.strip()}, ensure_ascii=False))
 finally:
-    # Stop only the server created by this fixture. Retain all files and failure evidence.
-    subprocess.run([str(wrapper), "kill-server"], env=base, capture_output=True, timeout=3)
+    # Close only verified window IDs on this fixture socket; retain evidence.
+    close_fixture_tmux_windows(lambda args: subprocess.run([str(wrapper), *args], env=base, capture_output=True, text=True, timeout=2), socket_name=socket)

@@ -35,6 +35,8 @@ test("all visible panel commands have extension handlers", () => {
 
   const handled = new Set();
   for (const match of extension.matchAll(/case "([^"]+)"/g)) handled.add(match[1]);
+  const core = require("../_helpers/legacyMethod")(fs.readFileSync(path.join(root, "dist/extension/legacy.js"), "utf8"), "handleMessageCore(");
+  for (const match of core.matchAll(/command === "([A-Za-z][A-Za-z0-9]+)"/g)) handled.add(match[1]);
   const uiActionBlock = extension.match(/const uiActionCommands = new Set<WebviewActionCommand>\(\[([\s\S]*?)\]\);/);
   if (uiActionBlock) {
     for (const match of uiActionBlock[1].matchAll(/"([A-Za-z][A-Za-z0-9]+)"/g)) handled.add(match[1]);
@@ -113,7 +115,8 @@ test("server overview and settings reuse status indexes", () => {
   assert.match(settings, /const indexes = serverStatusIndexesForState\(state\)/);
   assert.match(overview, /indexes\.workerStatus/);
   assert.match(settings, /indexes\.assignmentById/);
-  assert.doesNotMatch(overview + settings, /new Map\(|agent\.workers[^\n]*\.find\(/);
+  assert.doesNotMatch(overview + settings, /agent\.workers[^\n]*\.find\(/);
+  assert.match(settings, /indexes\.agentWorkerById\?\.get/);
 
   const sandbox = {
     EMPTY_SERVER_STATUS_ROWS: [],

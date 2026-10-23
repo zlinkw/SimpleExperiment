@@ -15,13 +15,9 @@ function runPythonScript(script) {
   const scriptPath = path.join(directory, "run.py");
   fs.writeFileSync(scriptPath, script, "utf8");
   try {
-    return spawnSync("python", [scriptPath], {
-      encoding: "utf8", cwd: root,
-      env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-      timeout: 10000, windowsHide: true,
-    });
+    return spawnSync("python", [scriptPath], { encoding: "utf8", cwd: root, env: { ...process.env, PYTHONIOENCODING: "utf-8" }, timeout: 10000, windowsHide: true });
   } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
+    // Keep the probe and its inputs for failure review.
   }
 }
 
@@ -29,10 +25,10 @@ function runPython(expression) {
   const script = `
 import importlib.util, json, sys
 module_name = "scheduler_runtime_under_test"
-spec = importlib.util.spec_from_file_location(module_name, ${JSON.stringify(runtimePath)})
-module = importlib.util.module_from_spec(spec)
-sys.modules[module_name] = module
-spec.loader.exec_module(module)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+module = extract_runtime_functions(${JSON.stringify(runtimePath)}, ["WORKER_AVAILABILITY_CLOCK_SKEW_SECONDS", "availability_is_fresh", "enqueue_worker_command", "ensure_worker_runtime", "has_running_plan", "launch_experiment", "note_availability_receipt", "now", "probe_idle_gpus", "random", "refresh_missing_worker_availability", "refresh_worker_availability_for_signal", "should_check_finished_session", "time", "urllib", "wait_for_worker_gpu_sample", "worker_gpu_sample_delay"])
 ${expression}
 `;
   const result = runPythonScript(script);
@@ -94,9 +90,14 @@ print(json.dumps({"before": before, "after": after}))
   assert.deepEqual(value.before, []);
   assert.deepEqual(value.after, ["1"]);
   const source = readSource("src/clusterSchedulerRuntime.ts");
-  assert.match(source, /_force_refresh = _pending_signal_type in \(SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END\)/);
-  assert.match(source, /_pending_signal_type = SCHEDULER_SIGNAL_TASK_END/);
-  assert.match(source, /read_availability_cache\(args\.availability_path, workers, worker_status_ttl_seconds\)\s+_busy_for_probe/);
+  const signals = runPython(`
+module = extract_runtime_functions(${JSON.stringify(runtimePath)}, ["scheduler_signal_requires_refresh"])
+print(json.dumps([module.scheduler_signal_requires_refresh(signal) for signal in ("first_run", "task_end", "poll_tick")]))
+`);
+  assert.deepEqual(signals, [true, true, false]);
+  // The old global event-driven dispatcher is explicitly retired. Actual protocol-2
+  // admission is exercised by idleGpuDurableAdmission and dispatch integration.
+  assert.match(source, /GLOBAL_SCHEDULER_REMOVED: use the Worker native tmux task queue/);
 });
 
 test("terminal Worker events bypass the periodic session check interval", () => {
@@ -110,18 +111,17 @@ print(json.dumps({
 `);
   assert.deepEqual(value, { finished: true, waiting: false, elapsed: true });
   const source = readSource("src/clusterSchedulerRuntime.ts");
-  assert.equal((source.match(/should_check_finished_session\(sess, finished_events, last_session_check/g) || []).length, 2);
-  assert.match(source, /session_check_min_seconds = max\(0\.5, float\(args\.session_check_min_seconds/);
+  assert.match(source, /GLOBAL_SCHEDULER_REMOVED: use the Worker native tmux task queue/);
 });
 
-test("worker telemetry samples GPU occupancy within six seconds during a plan", () => {
+test("Worker consumers refresh the shared GPU frame every second in active and idle states", () => {
   const agentPath = path.join(root, "dist/runtime/cluster_agent.py");
   const script = `
 import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location("agent_runtime_under_test", ${JSON.stringify(agentPath)})
-module = importlib.util.module_from_spec(spec)
-sys.modules["agent_runtime_under_test"] = module
-spec.loader.exec_module(module)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+module = extract_runtime_functions(${JSON.stringify(agentPath)}, ["WORKER_AVAILABILITY_CLOCK_SKEW_SECONDS", "availability_is_fresh", "enqueue_worker_command", "ensure_worker_runtime", "has_running_plan", "launch_experiment", "note_availability_receipt", "now", "probe_idle_gpus", "random", "refresh_missing_worker_availability", "refresh_worker_availability_for_signal", "should_check_finished_session", "time", "urllib", "wait_for_worker_gpu_sample", "worker_gpu_sample_delay"])
 module.random.random = lambda: 1.0
 print(json.dumps({"running": module.worker_gpu_sample_delay(60, 30, True),
                   "idle": module.worker_gpu_sample_delay(60, 30, False)}))
@@ -129,18 +129,18 @@ print(json.dumps({"running": module.worker_gpu_sample_delay(60, 30, True),
   const result = runPythonScript(script);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const value = JSON.parse(result.stdout);
-  assert.ok(value.running <= 6, JSON.stringify(value));
-  assert.equal(value.idle, 90);
+  assert.equal(value.running, 1);
+  assert.equal(value.idle, 1);
 });
 
-test("worker sampler wakes within five seconds when a plan starts during idle wait", () => {
+test("Worker shared-frame refresh wait stays bounded to one second", () => {
   const agentPath = path.join(root, "dist/runtime/cluster_agent.py");
   const script = `
 import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location("agent_runtime_under_test", ${JSON.stringify(agentPath)})
-module = importlib.util.module_from_spec(spec)
-sys.modules["agent_runtime_under_test"] = module
-spec.loader.exec_module(module)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+module = extract_runtime_functions(${JSON.stringify(agentPath)}, ["WORKER_AVAILABILITY_CLOCK_SKEW_SECONDS", "availability_is_fresh", "enqueue_worker_command", "ensure_worker_runtime", "has_running_plan", "launch_experiment", "note_availability_receipt", "now", "probe_idle_gpus", "random", "refresh_missing_worker_availability", "refresh_worker_availability_for_signal", "should_check_finished_session", "time", "urllib", "wait_for_worker_gpu_sample", "worker_gpu_sample_delay"])
 module.random.random = lambda: 1.0
 slept = []
 module.time.sleep = lambda duration: slept.append(duration)
@@ -150,7 +150,7 @@ print(json.dumps(slept))
 `;
   const result = runPythonScript(script);
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.deepEqual(JSON.parse(result.stdout), [5]);
+  assert.deepEqual(JSON.parse(result.stdout), [1]);
 });
 
 test("scheduler recomputes raw GPU rows when cached available flag is stale", () => {
@@ -238,10 +238,10 @@ test("scheduler rejects an unconfigured placeholder conda environment before lau
 import importlib.util
 import sys
 module_name = "scheduler_runtime_under_test"
-spec = importlib.util.spec_from_file_location(module_name, ${JSON.stringify(runtimePath)})
-module = importlib.util.module_from_spec(spec)
-sys.modules[module_name] = module
-spec.loader.exec_module(module)
+import sys
+sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
+from extractRuntimeFunctions import extract_runtime_functions
+module = extract_runtime_functions(${JSON.stringify(runtimePath)}, ["WORKER_AVAILABILITY_CLOCK_SKEW_SECONDS", "availability_is_fresh", "enqueue_worker_command", "ensure_worker_runtime", "has_running_plan", "launch_experiment", "note_availability_receipt", "now", "probe_idle_gpus", "random", "refresh_missing_worker_availability", "refresh_worker_availability_for_signal", "should_check_finished_session", "time", "urllib", "wait_for_worker_gpu_sample", "worker_gpu_sample_delay"])
 try:
     module.launch_experiment({"id": "nwpu3", "conda_env": "-", "project_dir": "/tmp/project"}, "plan.yaml", 0, "0", None)
 except RuntimeError as error:
@@ -255,15 +255,29 @@ else:
 
 test("scheduler propagates the run-plan operation ID to Worker task commands", () => {
   const value = runPython(`
-import pathlib
+import pathlib, tempfile, os
 commands = []
 module.ensure_worker_runtime = lambda worker: "simple_cluster/runtime/cluster_scheduler.py"
 module.enqueue_worker_command = lambda worker, command: commands.append(command)
-worker = {"id": "worker-a", "project_dir": "/tmp/project", "conda_env": "research"}
-session = module.launch_experiment(worker, "experiments/plans/demo.yaml", 0, "0", pathlib.Path("/tmp"), workflow_id="run-plan-parent", output_dir="work_dirs/demo/0_baseline_seed42")
+fixture = pathlib.Path(tempfile.mkdtemp(prefix="scheduler-dispatch-declaration-"))
+os.chdir(fixture)
+plan = pathlib.Path("plan.yaml")
+plan.write_text(json.dumps({"suite": "demo", "mode": "train", "seeds": [42],
+    "runner": {"train_command": "python train.py"},
+    "paper": {"result_csv": "tmp/result/{case}/seed{seed}/metrics.csv"},
+    "naming": {"sweep_dir": "work_dirs/{suite}", "job_name": "{index}_{case}_seed{seed}"},
+    "cases": [{"case": "baseline"}, {"case": "second"}]}), encoding="utf-8")
+worker = {"id": "worker-a", "project_dir": str(fixture), "conda_env": "research"}
+session = module.launch_experiment(worker, str(plan), 0, "0", fixture, workflow_id="run-plan-parent", output_dir="work_dirs/demo/0_baseline_seed42")
 command = commands[0]
-module.launch_experiment(worker, "experiments/plans/demo.yaml", 1, "0", pathlib.Path("/tmp"), workflow_id="run-plan-parent")
-print(json.dumps({"workflowId": command.get("workflowId"), "commandId": command["commandId"], "runKey": command["runKey"], "session": session, "outputDir": command.get("outputDir"), "configPath": command.get("configPath"), "legacyHasPath": "configPath" in commands[1]}))
+try:
+    module.launch_experiment(worker, str(plan), 1, "0", fixture, workflow_id="run-plan-parent")
+except ValueError as exc:
+    missing_path_error = str(exc)
+else:
+    raise AssertionError("missing declared output must reject before enqueue")
+assert len(commands) == 1, commands
+print(json.dumps({"workflowId": command.get("workflowId"), "commandId": command["commandId"], "runKey": command["runKey"], "session": session, "outputDir": command.get("outputDir"), "configPath": command.get("configPath"), "missingPathError": missing_path_error, "policy": command["resultPathPolicy"], "globalJobId": command["globalJobId"]}))
 `);
   assert.equal(value.workflowId, "run-plan-parent");
   assert.equal(value.commandId, value.session);
@@ -271,5 +285,7 @@ print(json.dumps({"workflowId": command.get("workflowId"), "commandId": command[
   assert.notEqual(value.commandId, value.workflowId);
   assert.equal(value.outputDir, "work_dirs/demo/0_baseline_seed42");
   assert.equal(value.configPath, "work_dirs/demo/0_baseline_seed42/job_config.yaml");
-  assert.equal(value.legacyHasPath, false);
+  assert.match(value.missingPathError, /FORMAL_JOB_DECLARATION_CHANGED/);
+  assert.equal(value.policy, "declared");
+  assert.equal(value.globalJobId, "run-plan-parent:0");
 });

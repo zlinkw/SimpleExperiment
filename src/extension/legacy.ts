@@ -112,6 +112,7 @@ import { batchSyncScopeInventoryPaths, planSyncScopeTransferGroups, scopeInvento
 import { planLatestWorkerMerge } from "../features/SyncLatestMerge";
 import { mirrorChosenWorkerVersionToLocal } from "../features/SyncScopeLocalMirror";
 import { buildScopeStatuses, collectLocalScopeInventory, collectSelectedLocalScopeFiles, hashLocalScopeNames, localScopeHashCachePath, scopeInventoryPathAllowed, requireCompleteScopeInventory } from "../features/SyncScopeStatus";
+import { machineStateGuard, resolveProjectRootMap, isUnderMachineStatePrefixes } from "../features/ProjectRootMap";
 import { deleteLocalSyncPath, filterHeldFiles, isSyncHeld, loadSyncHolds, safeSyncPath, saveSyncHolds } from "../features/SyncResolution";
 import * as SyncResolution from "../features/SyncResolution";
 const { renderPanelHtml } = PanelHtml_1;
@@ -8011,11 +8012,17 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             throw new Error("AGENT_LIFECYCLE_CAPABILITY_REQUIRED: 需要 SimpleSFTP 0.2.78，未修改远端或自定义登录命令。");
         const config = target.id === "hub" ? this.setupConfig : this.setupConfig.workerTunnels.find(row => row.id === target.id);
         if (!config) throw new Error(`AGENT_CONFIG_MISSING: ${target.id}`);
+        if (config.agentStateDir || config.workerStateDir) {
+            const capability = await this.simpleSftpCapability("agents.lifecycle");
+            if ((capability.methodOptions?.["agents.lifecycle"] as any)?.rootMapping !== 1)
+                throw new Error("AGENT_ROOT_MAPPING_CAPABILITY_REQUIRED: 配套 SimpleSFTP 尚不支持自定义状态根，未修改远端。");
+        }
         const dirs = this.agentRuntimeDirs(config.agentProjectDir, config.agentInstallDir);
         const result: any = await (async () => {
                 await this.invalidateProjectFileIndexes?.("文件操作开始：simpleSftp.agentLifecycle");
                 try { return await vscode.commands.executeCommand("simpleSftp.agentLifecycle", {
             action, server: await this.agentLifecycleServer(target), projectDir: dirs.workDir, installDir: dirs.installDir,
+            stateDir: config.agentStateDir, workerStateDir: config.workerStateDir,
             mode: "worker_telemetry", workerId: target.id,
             condaEnv: target.id === "hub" ? config.condaEnv : effectiveWorkerCondaEnv(config, this.setupConfig.condaEnv),
             host: config.remoteAgentHost, port: config.remoteTelemetryPort || config.remoteAgentPort,
@@ -8738,7 +8745,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const unverifiedFiles = {};
             const files = await hashLocalScopeNames(root, paths, (name, reason) => { unverifiedFiles[name] = reason; accept(name, undefined, reason); }, this.localScopeHashCacheFile(root), {
                 signal: contentSignal, concurrency: 2, onFile: (name, file) => accept(name, { ...file, modifiedAtMs: Number(file.modifiedAtMs) }),
-            });
+            }, this.localMachineStateGuard(root).prefixes);
             return { files: files as any, unverifiedFiles };
         } });
         const build = value => {
@@ -8753,12 +8760,68 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const value = await automatic.verify(contentEndpoints, inventories, unavailable, signal, value => publish(build(value)), report);
         return build(value);
     }
+    /**
+     * Machine-state prefixes are bound to ONE endpoint identity — never unioned
+     * across the batch: WorkerA mapping state under run/state must not forbid
+     * WorkerB's (or the local project's) legitimate research artifact that
+     * happens to share that spelling. Each endpoint resolves through the
+     * four-root map (workDir + installDir → stateRoot; the default equals the
+     * Agent's actual layout <install>/state). A target whose EXPLICIT config is
+     * invalid reports `unknown` (mapping unavailable) instead of a safe-looking
+     * empty list; write/delete call sites must fail closed on it.
+     */
+    targetRootGuard(target): { prefixes: string[]; unknown: boolean } | null {
+        try {
+            const config = this.setupConfig?.workerTunnels?.find(row => row.id === target?.id);
+            const remoteRoot = String(target?.remoteRoot || config?.agentProjectDir || "").trim();
+            if (!remoteRoot && !target?.remotePath) return null;
+            const dirs = (this as any).agentRuntimeDirs ? (this as any).agentRuntimeDirs(remoteRoot, target?.agentInstallDir || config?.agentInstallDir) : null;
+            const codeRoot = String(target?.remotePath || target?.agentProjectDir || dirs?.workDir || remoteRoot);
+            const probe = this.lastWorkerProbes?.[target?.id];
+            const observed = probe?.status === "ok" && (probe.workerId === target?.id || !probe.workerId && !probe.gpuCollectorProtocol)
+                && remotePathKey(probe.projectRoot) === remotePathKey(codeRoot)
+                && String(probe.localForwardHost || "").toLowerCase() === String(target?.localForwardHost || config?.localForwardHost || "127.0.0.1").toLowerCase()
+                && String(probe.remoteAgentHost || "").toLowerCase() === String(target?.remoteAgentHost || config?.remoteAgentHost || "127.0.0.1").toLowerCase()
+                && Number(probe.remoteTelemetryPort || probe.remoteAgentPort) === Number(target?.remoteAgentPort || config?.remoteTelemetryPort || config?.remoteAgentPort)
+                && Number(probe.localForwardPort) === Number(target?.localForwardPort || config?.localForwardPort) ? probe : null;
+            const map = resolveProjectRootMap({
+                projectId: String(target?.id || ""),
+                projectDir: codeRoot,
+                installDir: String(dirs?.installDir || ""),
+                stateDir: String(observed?.agentStateDir || target?.agentStateDir || config?.agentStateDir || "").trim(),
+                // Keep explicit roots protected while an older observation is
+                // still cached across an Agent restart or configuration change.
+                machineStateDirs: [observed?.workerStateDir, target?.agentStateDir, config?.agentStateDir,
+                    target?.workerStateDir, config?.workerStateDir].filter(Boolean),
+            });
+            const guard = machineStateGuard(map);
+            if (observed?.gpuCollectorProtocol === 1 && (!observed.workerStateDir || !observed.agentStateDir)) guard.unknown = true;
+            if (this.lastWorkerProbes && !observed && !target?.workerStateDir && !config?.workerStateDir)
+                guard.unknown = true;
+            return guard;
+        } catch { return null; }
+    }
+    /** Prefixes for reads/selections performed ON this endpoint only. */
+    machineStatePrefixesForTarget(target): string[] {
+        return this.targetRootGuard(target)?.prefixes || [];
+    }
+    machineStatePrefixesById(targets, id): string[] {
+        return this.machineStatePrefixesForTarget((targets || []).find((row) => row?.id === id));
+    }
+    /** The local project's own machine-state view: root = this workspace. With
+     * no local install/state contract configured the guard stays neutral (no
+     * exclusion invented), but an invalid explicit config reports unknown. */
+    localMachineStateGuard(root): { prefixes: string[]; unknown: boolean } {
+        return machineStateGuard(resolveProjectRootMap({ projectDir: String(root || ""), machineStateDirs:
+            [process.env.SIMPLE_EXPERIMENT_AGENT_STATE_DIR, process.env.SIMPLE_EXPERIMENT_WORKER_STATE_DIR,
+                path.join(require("node:os").homedir(), ".simple-cluster", "worker-state"), this.context?.globalStorageUri?.fsPath].filter(Boolean) }));
+    }
     async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".", signal?: AbortSignal, report = (_stage: string) => {}) {
         signal?.throwIfAborted();
         const unverified = {};
         const localUnverified = {};
         const localRead = mode === "local-server"
-            ? collectLocalScopeInventory(root, relative, true, (file, reason) => { localUnverified[file] = reason; }, this.localScopeHashCacheFile(root)) : Promise.resolve({});
+            ? collectLocalScopeInventory(root, relative, true, (file, reason) => { localUnverified[file] = reason; }, this.localScopeHashCacheFile(root), this.localMachineStateGuard(root).prefixes) : Promise.resolve({});
         const workers = {};
         const configured = this.enabledWorkerConfigs().map((worker) => worker.id).filter(Boolean);
         const offline = new Set(configured.filter((id) => !targets.some((target) => target.id === id)));
@@ -8853,7 +8916,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
             const skipped = [...planned.skipped];
             const work = planned.items.filter((item) => {
-                if (!scopeInventoryPathAllowed(item.path, false) || /(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(item.path))) return false;
+                // Bound per DESTINATION: a path is only machine state for the
+                // endpoint whose verified mapping says so; drop the item only
+                // when no destination may receive it at all.
+                const destinations = item.destinationIds || [];
+                const reachable = !destinations.length
+                    || destinations.some((id) => scopeInventoryPathAllowed(item.path, false, this.machineStatePrefixesById(targets, id)));
+                if (!reachable || /(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(item.path))) return false;
                 if (options.completedJob && (holds[item.path]?.codeOwned || isLocalCodeOwnedPath(item.path, false,
                     config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths")))) {
                     skipped.push(`${item.path}：代码以本机为准`);
@@ -8864,7 +8933,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (options.completedJob) {
                 const sourceId = options.completedJob.sourceId;
                 const files = Object.fromEntries(Object.entries(scoped).filter(([file, value]: [string, any]) => !value.copies && value.versions?.[sourceId]?.sha256
-                    && scopeInventoryPathAllowed(file, false) && !/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(file))).map(([file, value]: [string, any]) => [file, value.versions[sourceId].sha256]));
+                    // Source state (never read it back) AND local state (never
+                    // record/land it here) are both excluded — each by its OWN
+                    // endpoint's verified mapping.
+                    && scopeInventoryPathAllowed(file, false, [...this.machineStatePrefixesById(targets, sourceId), ...this.localMachineStateGuard(root).prefixes]) && !/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(file))).map(([file, value]: [string, any]) => [file, value.versions[sourceId].sha256]));
                 if (skipped.length) throw new Error(skipped.join("；"));
                 const groups = new Map<string, string[]>();
                 for (const item of work) for (const id of item.destinationIds) {
@@ -9134,7 +9206,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async loadSyncScopeBatchSourceFiles(root, targets, endpointId, work) {
         if (endpointId === "local") {
             if (this.syncScopeBatchLocalInventory) return this.syncScopeBatchLocalInventory(root, work);
-            return collectSelectedLocalScopeFiles(root, work, this.localScopeHashCacheFile(root));
+            return collectSelectedLocalScopeFiles(root, work, this.localScopeHashCacheFile(root), this.localMachineStateGuard(root).prefixes);
         }
         const sourceRow = targets.find((row) => row.id === endpointId);
         if (!sourceRow) throw new Error("来源 Worker 未连接或未启用。");
@@ -9145,7 +9217,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (!endpointId || work.some((item) => item.endpointId !== endpointId)) throw new Error("批量同步必须使用同一个来源。");
         for (const item of work) {
             safeSyncPath(item.path);
-            if (!scopeInventoryPathAllowed(item.path, item.directory) || item.directory && item.path === "simple_cluster") throw new Error("机器状态路径不可选为保留版本。");
+            // An invalid local mapping must not read as "nothing is machine
+            // state" at a write-adjacent selection point (fail closed).
+            if (this.localMachineStateGuard(root).unknown) throw new Error("本机机器状态映射不可用（配置无效），禁止选为保留版本。");
+            if (!scopeInventoryPathAllowed(item.path, item.directory, this.localMachineStateGuard(root).prefixes) || item.directory && item.path === "simple_cluster") throw new Error("机器状态路径不可选为保留版本。");
         }
         const sourceRow = endpointId === "local" ? undefined : targets.find((row) => row.id === endpointId);
         if (endpointId !== "local" && !sourceRow) throw new Error("来源 Worker 未连接或未启用。");
@@ -9175,7 +9250,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const reviewedLocalStaleHashes = new Map<string, string>();
         if (mirrorLocal && plan.directoryDeletes.length) {
             for (const directory of plan.directoryDeletes) {
-                const localFiles = await collectLocalScopeInventory(root, directory, true, undefined, this.localScopeHashCacheFile(root));
+                const localFiles = await collectLocalScopeInventory(root, directory, true, undefined, this.localScopeHashCacheFile(root), this.localMachineStateGuard(root).prefixes);
                 for (const [file, info] of Object.entries(localFiles)) if (!plan.files[file]) reviewedLocalStaleHashes.set(file, String(info.sha256 || "").toLowerCase());
             }
             if (reviewedLocalStaleHashes.size > SYNC_SCOPE_REVIEWED_STALE_FILE_LIMIT)
@@ -9248,7 +9323,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     paths: [...plan.directoryDeletes, ...work.filter((item) => !item.directory).map((item) => item.path)],
                     confirm: true, pathConfirmed: true,
                 }),
-                () => hashLocalScopeNames(root, selectedFiles, undefined, this.localScopeHashCacheFile(root)),
+                () => hashLocalScopeNames(root, selectedFiles, undefined, this.localScopeHashCacheFile(root), {}, this.localMachineStateGuard(root).prefixes),
                 (file) => deleteLocalSyncPath(root, file), report, selectedFiles, async (files) => {
                     const accepted = await confirmSyncScopePaths("清理本机同步目录旧文件",
                         `以下 ${files.length} 个本机文件不在所选来源版本中，将在下载并校验新版本后永久删除。逐项核对完整路径；取消会停止本次同步。`,
@@ -9257,7 +9332,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     if (!accepted) throw new UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
                 });
             for (const directory of plan.directoryDeletes) {
-                const actual = await collectLocalScopeInventory(root, directory, true, undefined, this.localScopeHashCacheFile(root));
+                const actual = await collectLocalScopeInventory(root, directory, true, undefined, this.localScopeHashCacheFile(root), this.localMachineStateGuard(root).prefixes);
                 const stale = Object.keys(actual).filter((file) => !plan.files[file]);
                 const unreviewed = stale.filter((file) => !reviewedLocalStaleHashes.has(file));
                 if (unreviewed.length) throw new Error(`同步期间出现未审核的本机旧文件；未删除：${unreviewed.slice(0, 20).join("、")}`);
@@ -9269,7 +9344,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 }
             }
             if (plan.directoryDeletes.length) {
-                const localFiles = await hashLocalScopeNames(root, selectedFiles, undefined, this.localScopeHashCacheFile(root));
+                const localFiles = await hashLocalScopeNames(root, selectedFiles, undefined, this.localScopeHashCacheFile(root), {}, this.localMachineStateGuard(root).prefixes);
                 if (scopeInventorySnapshot(localFiles, selectedFiles) !== scopeInventorySnapshot(plan.files, selectedFiles))
                     throw new Error("本机目录内容校验不一致；保留待同步状态。");
             }
@@ -9291,6 +9366,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         return work.map((item) => item.path);
     }
     async deleteSyncScopeRemoteCopy(id, server, relative, directory, report = (_stage: string) => {}) {
+        const guard = this.targetRootGuard({ ...server, id });
+        if (!guard || guard.unknown || isUnderMachineStatePrefixes(relative, guard.prefixes, directory))
+            throw new Error("远端机器状态路径或其祖先不可删除；请核对节点状态根。");
         const capability = await this.simpleSftpCapability("files.cleanup.preview");
         if (capability.methodOptions?.["files.cleanup.preview"]?.confirmedPathMetadata !== 1)
             throw new Error("请先更新配套 SimpleSFTP 并重载窗口：当前版本不支持按路径读取元数据的删除流程。");
@@ -9305,7 +9383,12 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async removeSyncScopeCopies(root, targets, relative, endpointIds, directory, report = (_stage: string) => {}) {
         this.assertArtifactSyncPathsIdle?.(root, [relative]);
         safeSyncPath(relative);
+        if (!Array.isArray(endpointIds) || !endpointIds.length) throw new Error("删除目标为空。");
         if (!scopeInventoryPathAllowed(relative, directory) || directory && relative === "simple_cluster") throw new Error("机器状态路径不可删除。");
+        // An invalid local mapping must not read as "nothing is machine state"
+        // at a delete point (fail closed).
+        if (endpointIds.includes("local") && (this.localMachineStateGuard(root).unknown
+            || isUnderMachineStatePrefixes(relative, this.localMachineStateGuard(root).prefixes, directory))) throw new Error("本机机器状态路径或其祖先不可删除。");
         if (!Array.isArray(endpointIds) || !endpointIds.length) throw new Error("删除目标为空。");
         const copies = endpointIds.map((id) => {
             const target = id === "local" ? undefined : targets.find((row) => row.id === id);
@@ -9350,8 +9433,12 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
     async removeSyncScopePath(root, targets, relative, endpointId, directory, report = (_stage: string) => {}, batchApproved = false) {
         safeSyncPath(relative);
-        this.assertArtifactSyncPathsIdle?.(root, [relative]);
         if (!scopeInventoryPathAllowed(relative, directory) || directory && relative === "simple_cluster") throw new Error("机器状态路径不可删除。");
+        this.assertArtifactSyncPathsIdle?.(root, [relative]);
+        // An invalid local mapping must not read as "nothing is machine state"
+        // at a delete point (fail closed).
+        if (endpointId === "local" && (this.localMachineStateGuard(root).unknown
+            || isUnderMachineStatePrefixes(relative, this.localMachineStateGuard(root).prefixes, directory))) throw new Error("本机机器状态路径或其祖先不可删除。");
         if ((!batchApproved && this.syncScopeMutationInFlight) || this.planSyncInFlight || this.codeSyncInFlight) throw new Error("同步或文件树操作进行中，请完成后重试删除。");
         if (!batchApproved) { this.codeSyncWarmProofs?.clear(); this.syncScopeMutationInFlight = true; }
         try {
@@ -9379,6 +9466,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
     async removeSyncScopePathFromAllWorkers(root, targets, relative, directory, report = (_stage: string) => {}) {
         safeSyncPath(relative);
+        // An invalid local mapping must not read as "nothing is machine state"
+        // at a delete point (fail closed).
         if (!scopeInventoryPathAllowed(relative, directory) || directory && relative === "simple_cluster") throw new Error("机器状态路径不可删除。");
         if (this.syncScopeMutationInFlight || this.planSyncInFlight || this.codeSyncInFlight) throw new Error("同步或文件树操作进行中，请完成后重试删除。");
         this.codeSyncWarmProofs?.clear();
@@ -9437,7 +9526,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             }
         }
         const inventoryPath = relative;
-        const sourceInventory = endpointId === "local" ? await collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root))
+        const sourceInventory = endpointId === "local" ? await collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root), this.localMachineStateGuard(root).prefixes)
             : (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(sourceRow), relativePath: inventoryPath, recursive: directory })).files;
         const expected = directory ? "目录内所有文件逐项 SHA256 校验" : sourceInventory[relative]?.sha256;
         if (!expected) throw new Error("来源文件不存在或尚未完成 SHA256 校验。");
@@ -9449,13 +9538,21 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             ...destinationRows.map((row) => ({ label: `目标 ${row.id}`, path: path.posix.join(this.sftpServerOptions(row).remotePath, relative) })),
             ...(mirrorLocal ? [{ label: "目标 本机", path: path.resolve(root, ...relative.split("/")) }] : []),
         ], "确认同步到其他位置")) return false;
-        const currentSource = batchApproved ? sourceInventory : endpointId === "local" ? await collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root))
+        const currentSource = batchApproved ? sourceInventory : endpointId === "local" ? await collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root), this.localMachineStateGuard(root).prefixes)
             : (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(sourceRow), relativePath: inventoryPath, recursive: directory })).files;
         const sourceSnapshot = (files) => JSON.stringify((directory ? Object.entries(files) : [[relative, files[relative]]]).map(([file, info]: [string, any]) => [file, info?.sha256 || ""]).sort());
         if (sourceSnapshot(currentSource) !== sourceSnapshot(sourceInventory))
             throw new Error("来源版本在确认期间已变化，请刷新状态后重试。");
         for (const [index, row] of destinationRows.entries()) {
             report(`正在同步 ${index + 1}/${destinationRows.length}：${row.id}`);
+            // This loop DELETES then rewrites at the destination: the exact
+            // destination endpoint's verified mapping gates it, and an invalid
+            // mapping fails closed instead of looking safe-empty.
+            const destinationGuard = this.targetRootGuard(row);
+            if (destinationGuard?.unknown) throw new Error(`目标 ${row.id} 机器状态映射不可用（配置无效），已中止同步。`);
+            if (!destinationGuard || !scopeInventoryPathAllowed(relative, directory, destinationGuard.prefixes)
+                || isUnderMachineStatePrefixes(relative, destinationGuard.prefixes, directory))
+                throw new Error(`目标 ${row.id} 的机器状态路径不可写入。`);
             if (endpointId === "local") {
                 if (directory) {
                     const destination = this.sftpServerOptions(row);
@@ -9492,10 +9589,17 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 : checked[relative]?.sha256?.toLowerCase() !== expected.toLowerCase()) throw new Error(`${row.id} 内容校验不一致；保留待同步状态。`);
         }
         if (mirrorLocal) {
+            // Mirroring deletes and lands files on THIS machine: the local
+            // project's own verified mapping gates it, unknown fails closed.
+            const mirrorGuard = this.localMachineStateGuard(root);
+            if (mirrorGuard.unknown) throw new Error("本机机器状态映射不可用（配置无效），已中止本机镜像同步。");
+            if (!scopeInventoryPathAllowed(relative, directory, mirrorGuard.prefixes)
+                || isUnderMachineStatePrefixes(relative, mirrorGuard.prefixes, directory))
+                throw new Error("本机机器状态路径不可作为镜像目标。");
             report("正在同步到本机对应路径");
             await mirrorChosenWorkerVersionToLocal(relative, directory, sourceInventory,
                 () => this.simpleSftpApiCall("sync.downloadPaths", { localPath: root, server: this.sftpServerOptions(sourceRow), paths: [relative], confirm: true, pathConfirmed: true }),
-                () => collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root)),
+                () => collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root), this.localMachineStateGuard(root).prefixes),
                 (file) => deleteLocalSyncPath(root, file), report, undefined, async (files) => {
                     const accepted = await confirmSyncScopePaths("清理本机同步目录旧文件",
                         `以下 ${files.length} 个本机文件不在所选来源版本中，将在下载并校验新版本后永久删除。逐项核对完整路径；取消会停止本次同步。`,
@@ -9526,13 +9630,20 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             let sourceRow = choice.endpointId === "local" ? undefined : targets.find((row) => row.id === choice.endpointId);
             let sourceFiles = expected;
             if (choice.endpointId === "local") {
-                sourceFiles = await collectLocalScopeInventory(root, directory, true, undefined, this.localScopeHashCacheFile(root));
+                sourceFiles = await collectLocalScopeInventory(root, directory, true, undefined, this.localScopeHashCacheFile(root), this.localMachineStateGuard(root).prefixes);
             } else if (!sourceRow || hashes(subtree(inventories[sourceRow.id] || {}, directory)) !== hashes(expected)) {
                 sourceRow = targets.find((row) => hashes(subtree(inventories[row.id] || {}, directory)) === hashes(expected));
                 if (!sourceRow) throw new Error(`手动保留的目录 ${directory} 无可验证来源；等待来源 Worker 重连。`);
             }
             for (const target of targets) {
                 if (target.id === sourceRow?.id || hashes(subtree(inventories[target.id] || {}, directory)) === hashes(sourceFiles)) continue;
+                // Directory restore deletes old remote files: gated by THIS
+                // target's own mapping; invalid config fails closed.
+                const targetGuard = this.targetRootGuard(target);
+                if (targetGuard?.unknown) throw new Error(`目标 ${target.id} 机器状态映射不可用（配置无效），已中止目录恢复。`);
+                if (!targetGuard || !scopeInventoryPathAllowed(directory, true, targetGuard.prefixes)
+                    || isUnderMachineStatePrefixes(directory, targetGuard.prefixes, true))
+                    throw new Error(`目标 ${target.id} 的机器状态路径不可写入。`);
                 const destination = this.sftpServerOptions(target);
                 const absolute = path.posix.join(destination.remotePath, directory);
                 const sourceLabel = sourceRow ? sourceRow.id : "本机";
@@ -9659,6 +9770,7 @@ reportStage("正在准备校验所需代码…");
             && submissionManifest.key === submissionManifestKey);
         const built = reuseSubmissionManifest ? { manifest: submissionManifest.manifest, stats: submissionManifest.stats }
             : await buildLocalCodeManifest(root, includePaths, scopePaths, {
+                machineStateGuard: this.localMachineStateGuard(root),
                 executionOnly: ["run", "plan-check"].includes(scope),
                 cacheFile: this.localCodeManifestCacheFile(root),
                 onProgress: (stats) => {
@@ -9670,6 +9782,16 @@ reportStage("正在准备校验所需代码…");
         const transferManifest = reuseSubmissionManifest ? built.manifest : filterHeldFiles(built, holds);
         const manifest = ["run", "plan-check"].includes(scope) ? PlanCodeScopeHost.runSourceManifest(transferManifest) : transferManifest;
         if (progressReport) progressReport(`本地清单完成：${Object.keys(manifest).length} 个文件，哈希沿用 ${built.stats?.reused || 0}，重算 ${built.stats?.hashed || 0}（本段 ${Date.now() - localStarted} ms）`);
+        // Validate each endpoint independently; another Worker's legitimate
+        // artifact spelling must never be unioned into this endpoint's state map.
+        const localGuard = this.localMachineStateGuard(root);
+        if (localGuard.unknown || Object.keys(manifest).some(file => isUnderMachineStatePrefixes(file, localGuard.prefixes, true)))
+            throw new Error("代码清单包含本机机器状态或其祖先，未上传。");
+        for (const target of enabledTargets) {
+            const guard = this.targetRootGuard(target);
+            if (!guard || guard.unknown || Object.keys(manifest).some(file => isUnderMachineStatePrefixes(file, guard.prefixes, true)))
+                throw new Error(`${target.id} 机器状态映射未知或代码清单覆盖状态路径，未上传。`);
+        }
         const inventoryScopePaths = [...new Set(Object.keys(manifest).map((file) => file.split("/")[0]))].sort();
         assertCurrent();
         const fingerprint = fingerprintFromManifest(manifest);
@@ -10167,6 +10289,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             savedSessionPath: worker.savedSessionPath,
             remotePath,
             agentInstallDir: worker.agentInstallDir,
+            agentStateDir: worker.agentStateDir,
+            workerStateDir: worker.workerStateDir,
             localForwardHost: (worker as any).localForwardHost || (config as any).localForwardHost || "127.0.0.1",
             localForwardPort: Number((worker as any).localForwardPort || (config as any).localForwardPort || 18765),
             remoteAgentPort: Number((worker as any).remoteAgentPort || (worker as any).remoteTelemetryPort || (config as any).remoteAgentPort || 18765),
@@ -10352,7 +10476,7 @@ this.assertPlanTopologyReady("Plan 调度");
         const includePaths = config.get<string[]>("codeSync.includePaths", []);
         const scopePaths = config.get<string[]>("codeSync.scopePaths");
         const built = await buildLocalCodeManifest(root, includePaths, scopePaths,
-            { cacheFile: this.localCodeManifestCacheFile(root), signal, executionOnly: true });
+            { machineStateGuard: this.localMachineStateGuard(root), cacheFile: this.localCodeManifestCacheFile(root), signal, executionOnly: true });
         const manifest = PlanCodeScopeHost.runSourceManifest(filterHeldFiles(built, holds));
         const fingerprint = fingerprintFromManifest(manifest);
         this.pendingPlanSubmissionManifest = { key: this.planSubmissionManifestKey(root, includePaths, scopePaths, holds),
@@ -11543,7 +11667,7 @@ this.assertPlanTopologyReady("Plan 调度");
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
         return PlanCodeScopeHost.runSourceManifest(filterHeldFiles(await buildLocalCodeManifest(root,
             config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths"),
-            { cacheFile: this.localCodeManifestCacheFile(root), executionOnly: true }), holds));
+            { machineStateGuard: this.localMachineStateGuard(root), cacheFile: this.localCodeManifestCacheFile(root), executionOnly: true }), holds));
     }
     async sendDistributedJob(plan, job, workerId, gpuId, commandId, sharedCodeManifest?) {
         let transmissionStarted = false;
@@ -12729,7 +12853,7 @@ this.assertPlanTopologyReady("Plan 调度");
             if (issues.length || item.metricDiscoveryError || item.downloadFailed || !item.summary.workerResultTables?.length)
                 throw new Error(issues[0] || item.metricDiscoveryError || "该版本原始 wrapper 文件缺失或尚未核验。");
             const summary = await this.summaryFromLocalMetricFiles(root, run.planFile, item.summary, { memoryMetricFiles: memory,
-                downloadedSources: new Set(downloads.filter(verifiedDownload).map(download => download.sourceId)), completedRunId: run.runId });
+                downloadedSources: new Set(downloads.filter(verifiedDownload).map(download => download.sourceId)), completedRunId: run.runId, temporaryResultReview: true });
             if (!isCurrent()) throw new UiCommandCancelled("临时审核已关闭。");
             return PlanVersionComparison.comparisonFromSummary(run, summary, pluginProjectAdapterRules(root));
         } finally {
@@ -14002,12 +14126,15 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             hostProjectPath: project, actionType: action, actionLabel: action, resources }, work);
     }
     async postTunnelAction(action, body, options = {}) {
-this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.title||action);
- const workerId=this.resolveWorkerEndpointId(body?.workerId||body?.options?.workerId||body?.schedulerOwnerWorkerId||body?.options?.schedulerOwnerWorkerId||"")
- ||(this.enabledWorkerConfigs().length===1?this.enabledWorkerConfigs()[0].id:"");
- if(!workerId)throw Error("请选择执行此操作的 Worker。");
- return this.postWorkerTunnelAction(workerId,action,this.workerScopedActionBody(body,workerId),options);
-}
+        this.assertActionAuthorityCurrent(options);
+        this.assertPlanTopologyReady(options.title || action);
+        const workers = this.enabledWorkerConfigs();
+        const requested = String(body?.workerId || body?.options?.workerId || body?.schedulerOwnerWorkerId || body?.options?.schedulerOwnerWorkerId || "").trim();
+        const resolved = requested ? this.resolveWorkerEndpointId(requested) : "";
+        const worker = requested ? workers.find(item => item.id === resolved) : workers.length === 1 ? workers[0] : undefined;
+        if (!worker) throw new Error(requested ? `请求的 Worker 未配置或未启用：${requested}` : "请选择执行此操作的 Worker。");
+        return this.postWorkerTunnelAction(worker.id, action, this.workerScopedActionBody(body, worker.id), options);
+    }
     async postWorkerTunnelAction(workerId, action, body, options = {}) {
         if (options.requiresCapability?.includes("endpoints.projectManagedValidation")
             && !this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.projectManagedValidation)
@@ -18334,6 +18461,12 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
             throw new Error("请先打开当前实验项目。");
         const generation = this.projectContextGeneration;
         const client = this.client;
+        const workers = this.enabledWorkerConfigs();
+        const requestedWorker = stringField(message, "workerId");
+        const resolvedWorker = requestedWorker ? this.resolveWorkerEndpointId(requestedWorker) : "";
+        const worker = requestedWorker ? workers.find(item => item.id === resolvedWorker) : workers.length === 1 ? workers[0] : undefined;
+        if (!worker) throw new Error(requestedWorker ? `请求的 Worker 未配置或未启用：${requestedWorker}` : "请选择结果文件所属的 Worker。");
+        const workerId = worker.id;
         const planFile = this.resolveSelectedPlanFile(stringField(message, "planFile") || this.planFileInput || this.selectedPlanId || "");
         if (!planFile)
             throw new Error("无法确认结果文件所属 Plan，已阻止下载。");
@@ -18344,7 +18477,7 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
         if (!remotePath)
             throw new Error("只允许查看当前项目内的 CSV、JSON、TXT、LOG 或 OUT 轻量结果文件。");
         const version = this.planVersionForFile(planFile);
-        const allowed = remoteResultInspectionCandidates([this.localOperations, this.lastRealtimeState?.operations], planFile, version.revision, version.updatedAt);
+        const allowed = remoteResultInspectionCandidates([this.localOperations, this.lastRealtimeState?.operations], planFile, version.revision, version.updatedAt, workerId);
         if (!allowed.includes(remotePath))
             throw new Error("该文件不属于当前 Plan 最近输出契约检查返回的不可解析文件，已阻止下载。");
         const localRelative = remoteResultInspectionLocalRelativePath(remotePath, planFile);
@@ -18356,14 +18489,14 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
             "仅临时读取到内存，关闭查看后不保留原始文件。",
             "大小上限：4 MB",
             "",
-            "通过当前 Hub 的 SimpleSFTP 只读读取，不修改远端文件。",
+            `通过 Worker ${workerId} 的 SimpleSFTP 只读读取，不修改远端文件。`,
         ].join("\n"), { modal: true }, "临时读取并查看");
         if (answer !== "临时读取并查看")
             throw new UiCommandCancelled("远端结果查看已取消，未下载文件。");
         if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
             return;
         const inspectionResult = await this.downloadMetricMemoryBatch({ ...this.captureProjectContext(), resultInspection: true }, client,
-            { sourceId: "hub", entries: [{ remotePath, localRelativePath: localRelative }] }, "临时查看远端结果", undefined);
+            { sourceId: workerId, workerId, entries: [{ remotePath, localRelativePath: localRelative }] }, "临时查看远端结果", undefined);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
             return;
         const doc = await vscode.workspace.openTextDocument({ language: "plaintext", content: this.resultInspectionContent(inspectionResult.metricFiles[0]) });
@@ -18942,6 +19075,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             assertCurrent();
             return await this.withHostOperationLease("publishMappedResult", actionLabel, async () => {
                 assertCurrent();
+                const guard = this.localMachineStateGuard(root);
+                const paths = mappedResultPublicationResources(root, entries, transfers).map(resource => path.relative(root, resource.target).replace(/\\/g, "/"));
+                if (guard.unknown || paths.some(file => isUnderMachineStatePrefixes(file, guard.prefixes, true)))
+                    throw new Error("MACHINE_STATE_PATH_PROTECTED：本机状态路径不可发布指标文件。");
                 return distributeMappedDownloads(root, entries, transfers, overwrite, { assertCurrent });
             }, { resources, waitForConflict: true, signal });
         } finally { cancellation?.dispose(); }
@@ -19212,7 +19349,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         this.postState();
         return { included, missing, skipped };
     }
-    async summaryFromLocalMetricFiles(root, planFile, summary, options: { authoritativeLocal?: boolean, downloadedSources?: Set<string>, completedRunId?: string, memoryMetricFiles?: Map<string, any> } = {}) {
+    async summaryFromLocalMetricFiles(root, planFile, summary, options: { authoritativeLocal?: boolean, downloadedSources?: Set<string>, completedRunId?: string, memoryMetricFiles?: Map<string, any>, temporaryResultReview?: boolean } = {}) {
         if (options.authoritativeLocal && !options.memoryMetricFiles && summary?.wrapperEvidence?.storage === "summary-only") {
             const registered = ProjectResultTables.registeredPlanSummary(await this.loadProjectTableRegistry(root), planFile);
             if (!registered || registered.wrapperEvidence?.runId !== summary.wrapperEvidence.runId
@@ -19296,9 +19433,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const publication = WrapperResultBundle.prepareWrapperPublication(String(summary.runId || options.completedRunId || ""),
                 summary.expectedMetricJobs || tables.map(table => ({ case: table.completedJob.case, seed: table.completedJob.seed })), wrapperJobs, summary.metricPreviewOnly === true);
             WrapperResultBundle.assertWrapperSourceHistory(summary.wrapperEvidence, publication);
-            const views = WrapperResultBundle.wrapperSummaryFiles(this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, planFile, publication, wrapperJobs);
+            const views = options.temporaryResultReview === true
+                ? WrapperResultBundle.wrapperMergedFiles(this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, planFile, publication, wrapperJobs)
+                : WrapperResultBundle.wrapperSummaryFiles(this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, planFile, publication, wrapperJobs);
             wrapperEvidence = { runId: publication.runId, status: publication.status, expectedJobs: publication.expectedJobs, jobs: WrapperResultBundle.wrapperSummaryJobs(publication),
-                storage: "summary-only", views: views.map(file => file.relativePath) };
+                storage: options.temporaryResultReview === true ? "temporary-memory" : "summary-only", views: views.map(file => file.relativePath) };
             wrapperFiles = views;
         }
         return {
@@ -19490,6 +19629,22 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (!Array.isArray(shared.methods) || !shared.methods.includes(method)) throw new Error(`SimpleSFTP 不支持 ${method}。`);
         return { endpoint: shared.endpoint, headers: shared.headers, instanceId: shared.instanceId, features: shared.features, methodOptions: shared.methodOptions };
     }
+    assertTransferRootSafety(method, params) {
+        if (!["upload.workspace", "sync.serverToServerFpsync", "sync.downloadPaths", "sync.downloadMappedPaths"].includes(method)) return;
+        const request = params || {};
+        const assertPaths = (guard, paths) => {
+            if (!guard || guard.unknown || (paths.length ? paths : ["."]).some(file => isUnderMachineStatePrefixes(file, guard.prefixes, true)))
+                throw new Error("MACHINE_STATE_PATH_PROTECTED：状态根或其祖先不可作为传输范围；请核对该端点映射。");
+        };
+        const remotePaths = fileOperationIndexPaths(request);
+        if (method === "sync.serverToServerFpsync") {
+            assertPaths(this.targetRootGuard(request.source), remotePaths);
+            assertPaths(this.targetRootGuard(request.destination), remotePaths);
+        } else {
+            assertPaths(this.targetRootGuard(request.server), remotePaths);
+            assertPaths(this.localMachineStateGuard(request.localPath || workspaceRoot()), fileOperationIndexPaths(request, true));
+        }
+    }
     async simpleSftpApiCall(method, params, timeoutMs = 0, onProgress?, cleanupObservation?: { source: any; relativePath: string }) {
         assertRetryRequestCurrent();
         if (method === "files.cleanup.preview" || method === "files.cleanup.execute") {
@@ -19531,6 +19686,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         }
         const mutation = /^(sync\.(?:serverToServerFpsync|download|upload)|upload\.|files\.cleanup\.execute|files\.(?:delete|move|write|mkdir|rename))/.test(method)
             && !(method === "sync.downloadMappedPaths" && request.memoryOnly === true);
+        if (mutation) this.assertTransferRootSafety(method, request);
         if (mutation) await this.refreshProjectFileIndexesBeforeOperation?.(method, request);
         // Cleanup's transport request is token-only. Keep its known endpoint/path
         // here, outside the RPC, rather than invalidating every Worker and subtree.
@@ -19724,12 +19880,15 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const scopePaths = config.get<string[]>("codeSync.scopePaths");
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
         const codeManifest = filterHeldFiles(await buildLocalCodeManifest(root, includePaths, scopePaths,
-            { cacheFile: this.localCodeManifestCacheFile(root) }), holds);
+            { machineStateGuard: this.localMachineStateGuard(root), cacheFile: this.localCodeManifestCacheFile(root) }), holds);
         const mirrorPaths = normalizeMirrorScopePaths(config.get<string[]>("serverSync.paths", ["."]));
         const inventories = {};
         for (const target of targets) {
             const result = await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(target) });
-            inventories[target.id] = filterInventoryByScope(result.files, mirrorPaths);
+            const guard = this.targetRootGuard(target);
+            if (!guard || guard.unknown) throw new Error(`${target.id} 机器状态映射未知，未补齐项目文件。`);
+            inventories[target.id] = Object.fromEntries(Object.entries(filterInventoryByScope(result.files, mirrorPaths))
+                .filter(([file]) => !isUnderMachineStatePrefixes(file, guard.prefixes, true)));
         }
         const ledger = await this.loadPlanSyncLedger(root);
         await this.reconcileChosenDirectories(root, targets, holds, inventories, mirrorPaths);
@@ -19749,6 +19908,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     `补齐项目文件：${source.user}@${source.host}:${source.port}${source.remotePath} → ${destination.user}@${destination.host}:${destination.port}${destination.remotePath}\n文件（${paths.length}）：\n${paths.join("\n")}`,
                     { modal: true }, "确认同步");
                 if (answer !== "确认同步") return;
+                for (const endpoint of [group.source, group.destination]) {
+                    const guard = this.targetRootGuard(endpoint);
+                    if (!guard || guard.unknown || paths.some(file => isUnderMachineStatePrefixes(file, guard.prefixes, true)))
+                        throw new Error(`${endpoint.id} 状态路径受到保护，未补齐项目文件。`);
+                }
                 await this.assertSshTransportIdentities([group.source, group.destination]);
                 const batch = start / 5000 + 1;
                 const batchCount = Math.ceil(group.paths.length / 5000);
@@ -19767,7 +19931,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const checked = {};
         for (const target of targets) {
             const result = await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(target) });
-            checked[target.id] = filterInventoryByScope(result.files, mirrorPaths);
+            const guard = this.targetRootGuard(target);
+            if (!guard || guard.unknown) throw new Error(`${target.id} 机器状态映射未知，未确认项目补齐。`);
+            checked[target.id] = Object.fromEntries(Object.entries(filterInventoryByScope(result.files, mirrorPaths))
+                .filter(([file]) => !isUnderMachineStatePrefixes(file, guard.prefixes, true)));
         }
         const verified = planProjectMirror(checked, filterInventoryByScope(codeManifest, mirrorPaths), ledger, holds);
         const configured = this.enabledWorkerConfigs().map((worker) => worker.id).filter(Boolean);
@@ -22144,7 +22311,7 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
             if (!filePath)
                 continue;
             const dirs = this.agentRuntimeDirs(worker.agentProjectDir, worker.agentInstallDir);
-            const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix });
+            const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, stateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix });
             targets.push({
                 id: worker.id,
                 filePath,
@@ -22203,7 +22370,7 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
                     workDir: dirs.workDir,
                     projectName: dirs.projectName,
                     condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv),
-                    startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
+                    startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, stateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
                 };
             }),
             note: "Agent 是独立辅助服务，由 SimpleSFTP 核验归属后准备、复用或升级；Xshell 只负责登录与隧道。所列 tmux 名称保留用于旧版 Agent 历史会话。",
@@ -26265,12 +26432,11 @@ const resultsSummaryArrayLimits = {
 const RESULTS_SUMMARY_WEBVIEW_VARIANT_CACHE_LIMIT = 8;
 const resultsSummaryForWebviewCache = new WeakMap();
 function compactResultsSummaryForPlanForWebview(summary, selectedPlan, planRevision = "", planUpdatedAt = "") {
-    if (selectedPlan) summary = ResultOwnershipScope.scopeResultSummary(summary, selectedPlan);
     const cacheable = Boolean(summary) && typeof summary === "object" && !Array.isArray(summary);
     if (!cacheable)
         return compactResultsSummaryForWebview(filterResultsSummaryForSelectedPlan(summary, selectedPlan, planRevision, planUpdatedAt));
-    const plan = usableSelectionKey(String(selectedPlan || "").trim().replace(/\\/g, "/"));
-    const cacheKey = [plan, String(planRevision || "").trim(), String(planUpdatedAt || "")].join("|");
+    const plan = ResultOwnershipScope.resultPlanPath(String(selectedPlan || "").trim());
+    const cacheKey = JSON.stringify([Boolean(selectedPlan), plan, String(planRevision || "").trim(), String(planUpdatedAt || "")]);
     let variants = resultsSummaryForWebviewCache.get(summary);
     if (variants?.has(cacheKey)) {
         const cached = variants.get(cacheKey);
@@ -26278,7 +26444,10 @@ function compactResultsSummaryForPlanForWebview(summary, selectedPlan, planRevis
         variants.set(cacheKey, cached);
         return cached;
     }
-    const compacted = compactResultsSummaryForWebview(filterResultsSummaryForSelectedPlan(summary, plan, planRevision, planUpdatedAt));
+    // Scope can allocate a projection. Cache by the original immutable snapshot,
+    // with PLAN/version in the variant key, so repeated renders reuse the result.
+    const scoped = selectedPlan ? ResultOwnershipScope.scopeResultSummary(summary, plan) : summary;
+    const compacted = compactResultsSummaryForWebview(filterResultsSummaryForSelectedPlan(scoped, plan, planRevision, planUpdatedAt));
     if (!variants) {
         variants = new Map();
         resultsSummaryForWebviewCache.set(summary, variants);
@@ -32959,7 +33128,7 @@ function methodResultArtifactLocalRelativePath(remotePath, planFile, summary, re
     const filename = safePlanToken(path.posix.basename(normalized, extension)) + "__" + crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 8) + extension;
     return path.posix.join(base, ProjectResultTables.planArtifactPath(datasetKey, planFile, kind, filename, workerId));
 }
-function remoteResultInspectionCandidates(operationGroups, planFile, planRevision = "", planUpdatedAt = "") {
+function remoteResultInspectionCandidates(operationGroups, planFile, planRevision = "", planUpdatedAt = "", workerId = "") {
     const selectedPlan = normalizePlanSelectionKey(planFile);
     if (!selectedPlan)
         return [];
@@ -32971,6 +33140,10 @@ function remoteResultInspectionCandidates(operationGroups, planFile, planRevisio
                 continue;
             const scopedReceipt = ResultOwnershipScope.scopeResultOperation(row, selectedPlan);
             const payloads = scopedReceipt.payloads;
+            if (workerId) {
+                const owners = [row, ...payloads].map(item => String(item?.workerId || item?.worker_id || "").trim()).filter(Boolean);
+                if (owners.some(owner => owner !== workerId)) continue;
+            }
             const rowPlan = payloads.map((item) => operationResultPlanFile(item)).find(Boolean);
             if (!rowPlan || !samePlanSelection(rowPlan, selectedPlan))
                 continue;
@@ -34313,8 +34486,15 @@ function samePath(a, b) {
         return false;
     return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 }
-async function buildLocalCodeManifest(root, includePaths: string[] = [], scopePaths?: string[], options: { cacheFile?: string; signal?: AbortSignal; executionOnly?: boolean; onProgress?: (stats: { listed: number; reused: number; hashed: number; pruned: number; cacheWriteSkipped?: number }) => void } = {}) {
-    const listed = await listLocalCodePaths(root, includePaths, scopePaths);
+async function buildLocalCodeManifest(root, includePaths: string[] = [], scopePaths?: string[], options: { machineStateGuard?: { prefixes: string[]; unknown: boolean }; cacheFile?: string; signal?: AbortSignal; executionOnly?: boolean; onProgress?: (stats: { listed: number; reused: number; hashed: number; pruned: number; cacheWriteSkipped?: number }) => void } = {}) {
+    if (options.machineStateGuard?.unknown) throw new Error("本机机器状态映射未知，未读取或上传代码。");
+    const listed = (await listLocalCodePaths(root, includePaths, scopePaths)).filter(file => {
+        const parts = file.replace(/\\/g, "/").toLowerCase().split("/");
+        return !(options.machineStateGuard?.prefixes || []).some(prefix => {
+            const protectedParts = prefix.replace(/\\/g, "/").toLowerCase().split("/").filter(Boolean);
+            return protectedParts.every((part, index) => parts[index] === part);
+        });
+    });
     const files = options.executionOnly ? Object.keys(PlanCodeScopeHost.runSourceManifest(Object.fromEntries(listed.map(file=>[file,true])))) : listed;
     const { manifest, stats } = await hashLocalCodeFiles(root, files, options.cacheFile, options.onProgress, options.signal);
     console.log(`[SimpleExperiment] local code manifest: listed=${stats.listed} reused=${stats.reused} hashed=${stats.hashed} pruned=${stats.pruned} cacheWriteSkipped=${stats.cacheWriteSkipped ? 1 : 0}`);

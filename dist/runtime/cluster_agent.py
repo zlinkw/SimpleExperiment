@@ -556,7 +556,7 @@ def lifecycle_contract(params):
     root = lifecycle_canonical(params["projectDir"])
     install = lifecycle_canonical(params["installDir"], exists=False)
     namespace = os.path.basename(root) + "." + hashlib.sha256(root.encode()).hexdigest()[:16]
-    state = lifecycle_canonical(os.path.join(install, "state", "projects", namespace), exists=False)
+    state = lifecycle_canonical(params.get("stateDir") or os.path.join(install, "state", "projects", namespace), exists=False)
     mode = params.get("mode")
     worker = str(params.get("workerId") or "")
     if mode != "worker_telemetry" or not worker:
@@ -862,8 +862,9 @@ def lifecycle_service_guard(args, version):
     params = {"projectDir": args.project_dir, "installDir": os.environ.get("SIMPLE_EXPERIMENT_AGENT_INSTALL_DIR") or os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
               "mode": args.mode, "workerId": args.worker_id, "host": args.host, "port": args.port,
               "condaEnv": os.environ.get("SIMPLE_EXPERIMENT_CONDA_ENV", ""), "agentToken": getattr(args, "token", "") or os.environ.get("SIMPLE_EXPERIMENT_AGENT_TOKEN", "")}
-    contract = lifecycle_contract(params)
     alternate_state = getattr(args, "state_dir", "") or os.environ.get("SIMPLE_EXPERIMENT_AGENT_STATE_DIR", "")
+    params["stateDir"] = alternate_state
+    contract = lifecycle_contract(params)
     if alternate_state and lifecycle_canonical(alternate_state, exists=False) != contract["stateDir"]:
         raise AgentLifecycleError("AGENT_STATE_DIR_UNMANAGED")
     lifecycle_check_owner(contract)
@@ -975,9 +976,19 @@ def lifecycle_control(params):
         python = lifecycle_python(contract)
         script = os.path.join(contract["installDir"], "simple_cluster", "runtime", "cluster_agent.py")
         nonce = uuid.uuid4().hex
+        # The Worker machine-state root is part of the launch contract (parent A):
+        # the template carries the SAME resolved authoritative value the collector
+        # and every consumer use (deployment injection wins, else the managed
+        # per-USER anchor), so a template-started Agent never falls back to a
+        # per-project root and never forks a second collector source.
+        worker_state_root = str(params.get("workerStateDir") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_STATE_DIR") or "").strip() \
+            or os.path.join(os.path.expanduser("~"), ".simple-cluster", "worker-state")
+        worker_state_root = lifecycle_canonical(worker_state_root, exists=False)
         env = {"SIMPLE_EXPERIMENT_AGENT_INSTALL_DIR": contract["installDir"], "SIMPLE_EXPERIMENT_CONDA_ENV": contract["condaEnv"],
                "SIMPLE_EXPERIMENT_AGENT_NONCE": nonce, "SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX": str(params.get("sessionPrefix") or "simple"),
-               "SIMPLE_EXPERIMENT_AGENT_TOKEN": str(params.get("agentToken") or "")}
+               "SIMPLE_EXPERIMENT_AGENT_TOKEN": str(params.get("agentToken") or ""),
+               "SIMPLE_EXPERIMENT_WORKER_STATE_DIR": worker_state_root,
+               "SIMPLE_EXPERIMENT_AGENT_STATE_DIR": contract["stateDir"]}
         # Do not inherit a previous tmux server shell's GPU/container binding.
         # Preserve only this controller's binding in this one Agent command.
         for key in ("CUDA_VISIBLE_DEVICES", "NVIDIA_VISIBLE_DEVICES", "TMUX_TMPDIR"):
@@ -3360,16 +3371,50 @@ def query_gpu_history(root, server_id="", gpu_id="", start=None, end=None, max_p
 
 def api_worker_gpu(root):
     # One device sample per second, shared by HTTP and the stream sampler.
-    # Disk snapshots and old PLAN/task registrations never determine freshness.
+    # When the independent collector publishes a fresh frame this consumer reads
+    # the frame instead of re-running nvidia-smi. A REGISTERED collector that is
+    # stale/partial/foreign/unreadable returns an honest degraded payload (empty
+    # gpus + error + collectorMode) — this consumer never revives a second sampler
+    # or switches the Agent-side epoch once a collector is registered; only a
+    # legacy runtime without the collector functions keeps the historical direct
+    # sample, visibly marked frameSource=worker_agent_direct_unoptimized.
+    worker_id = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
     with WORKER_GPU_SAMPLE_LOCK:
         cached = WORKER_GPU_SAMPLE_CACHE.get("sample")
         if cached and 0 <= time.monotonic() - cached[0] < 1.0:
             return copy.deepcopy(cached[1])
+        observed = read_gpu_collector_frame(worker_id, root) if "read_gpu_collector_frame" in globals() else {"mode": "absent", "frame": None}
+        frame = observed.get("frame")
+        if observed.get("mode") == "fresh" and frame:
+            payload = {"schemaVersion": SCHEMA_VERSION, "generatedAt": str(frame.get("collectedAt") or now_iso()),
+                       "source": "worker_telemetry", "frameSource": GPU_COLLECTOR_SOURCE, "collectorMode": "fresh",
+                       "collectorAgeMs": round(float(observed.get("ageMs") or 0.0), 1),
+                       "gpu": frame["gpus"], "gpus": frame["gpus"],
+                       "status": str(frame.get("status") or "ok"), "error": str(frame.get("error") or ""),
+                       "completeness": str(frame.get("completeness") or "full"),
+                       "seq": int(frame["seq"]), "epoch": str(frame["epoch"])}
+            WORKER_GPU_SAMPLE_CACHE["sample"] = (time.monotonic(), payload)
+            return copy.deepcopy(payload)
+        # The SHARED reader is the capability authority (parent C): "absent" only
+        # when registration AND frame are both ENOENT-confirmed. Every other mode
+        # (stalled/unregistered/unknown/unreadable/foreign/partial/stale) is a
+        # registered Worker in a failed state — reported as-is with gpus empty so
+        # no consumer can mistake it for a fresh sample.
+        if "read_gpu_collector_frame" in globals():
+            mode = str(observed.get("mode") or "unknown")
+            payload = {"schemaVersion": SCHEMA_VERSION, "generatedAt": now_iso(),
+                       "source": "worker_telemetry", "frameSource": GPU_COLLECTOR_SOURCE, "collectorMode": mode,
+                       "gpu": [], "gpus": [], "status": "degraded",
+                       "error": "gpu_collector_" + mode, "completeness": "partial",
+                       "seq": int(frame["seq"]) if frame else 0, "epoch": str((frame or {}).get("epoch") or "")}
+            WORKER_GPU_SAMPLE_CACHE["sample"] = (time.monotonic(), payload)
+            return copy.deepcopy(payload)
         gpus, err = collect_local_gpu()
         global WORKER_GPU_SAMPLE_SEQ
         WORKER_GPU_SAMPLE_SEQ += 1
         payload = {"schemaVersion": SCHEMA_VERSION, "generatedAt": now_iso(),
-                   "source": "worker_telemetry", "gpu": gpus, "gpus": gpus,
+                   "source": "worker_telemetry", "frameSource": "worker_agent_direct_unoptimized",
+                   "collectorMode": observed.get("mode") or "absent", "gpu": gpus, "gpus": gpus,
                    "status": "ok" if not err else "degraded", "error": err,
                    "seq": WORKER_GPU_SAMPLE_SEQ, "epoch": WORKER_GPU_SAMPLE_EPOCH}
         WORKER_GPU_SAMPLE_CACHE["sample"] = (time.monotonic(), payload)
@@ -4084,9 +4129,10 @@ def _durable_gpu_busy_reason(root, gpu_id, command_id, gpus=None, util_threshold
     except (TypeError, ValueError):
         raise ValueError("GPU idle thresholds must be finite nonnegative numbers")
     if gpus is None:
-        gpus, error = collect_local_gpu()
-        if error:
-            return "gpu_busy"
+        # Fail closed: a busy-reason check that arrives without a sample must not
+        # secretly run a (possibly waiting) admission probe here — callers decide
+        # where the bounded wait happens, never a lock-holding helper.
+        return "gpu_busy"
     if DISTRIBUTED_GPU_RESERVATIONS.get(gpu_id) not in (None, command_id):
         return "gpu_busy"
     tasks = read_json(path_for(root, "worker_task_snapshot.json"), {})
@@ -4262,7 +4308,7 @@ def accept_durable_plan_job(root, command, worker_id):
             return durable_plan_public_task(row)
         if require_idle_gpu:
             try:
-                gpus, gpu_error = collect_local_gpu()
+                gpus, gpu_error = gpu_admission_probe(root) if "gpu_admission_probe" in globals() else collect_local_gpu()
             except Exception:
                 gpus, gpu_error = [], "unavailable"
             util_threshold = command.get("gpuIdleUtilThreshold", options.get("gpuIdleUtilThreshold", options.get("gpu_idle_util_threshold")))
@@ -4726,7 +4772,7 @@ def fence_queued_idle_gpu_admission(root, row, reason):
 
 def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None, target_command_id=None):
     worker_id = str(worker_id or "worker").strip() or "worker"
-    gpu_probe = gpu_probe or collect_local_gpu
+    gpu_probe = gpu_probe or (lambda: gpu_admission_probe(root, worker_id) if "gpu_admission_probe" in globals() else collect_local_gpu())
     execute = execute or execute_worker_command
     reconcile_worker_task_exit_codes(root)
     data = sync_durable_plan_task_rows(root)
@@ -4755,6 +4801,34 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
                     append_event(root, {"type": "distributed_plan_code_wait", "workerId": worker_id,
                                         "operationId": row.get("commandId"), "payload": {"error": message}})
             continue
+        # Persist renewal on the same queued command before admission. A busy GPU
+        # must not leave an obsolete code error or require another submission.
+        with WORKER_TASK_SNAPSHOT_LOCK:
+            latest = read_durable_plan_queue(root)
+            current = next((item for item in latest["jobs"] if isinstance(item, dict)
+                            and item.get("commandId") == row.get("commandId")), None)
+            if not current or current.get("status") != "queued" or not durable_plan_same_identity(current, row):
+                continue
+            changed = False
+            # Only unstarted queued commands can be migrated. Running processes and
+            # terminal audit records retain their original actual mode and exit status.
+            requested_mode = "test" if current.get("checkpointTestOnly") is True and execution_mode == "train_test" else execution_mode
+            if current.get("executionMode") != execution_mode or current.get("mode") != requested_mode:
+                current.update({"legacyRequestedMode": current.get("mode"), "mode": requested_mode,
+                                "executionMode": execution_mode, "executionModeSource": "matching_plan_revision"})
+                current["options"] = {**(current.get("options") or {}), "mode": requested_mode, "executionMode": execution_mode}
+                changed = True
+            if isinstance(proof, dict) and proof.get("proofId") and proof["proofId"] != current.get("codeSyncProofId"):
+                current.update({"codeSyncProofId": proof["proofId"],
+                                "manifestDigest": proof["manifestDigest"],
+                                "codeSyncProofRuntimeGeneration": proof["runtimeGeneration"]})
+                changed = True
+            if current.pop("codeBlocked", False):
+                current.pop("error", None)
+                changed = True
+            if changed:
+                write_durable_plan_queue(root, latest)
+            row = current
         try:
             # A shared hint can defer idle, untouched directories without starting
             # one Scheduler (and nvidia-smi) per queued job. It NEVER authorizes a
@@ -4806,34 +4880,6 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
                     append_worker_task(root, durable_plan_public_task(current))
                     dispatched.append(durable_plan_public_task(current))
             continue
-        # Persist renewal on the same queued command before admission. A busy GPU
-        # must not leave an obsolete code error or require another submission.
-        with WORKER_TASK_SNAPSHOT_LOCK:
-            latest = read_durable_plan_queue(root)
-            current = next((item for item in latest["jobs"] if isinstance(item, dict)
-                            and item.get("commandId") == row.get("commandId")), None)
-            if not current or current.get("status") != "queued" or not durable_plan_same_identity(current, row):
-                continue
-            changed = False
-            # Only unstarted queued commands can be migrated. Running processes and
-            # terminal audit records retain their original actual mode and exit status.
-            requested_mode = "test" if current.get("checkpointTestOnly") is True and execution_mode == "train_test" else execution_mode
-            if current.get("executionMode") != execution_mode or current.get("mode") != requested_mode:
-                current.update({"legacyRequestedMode": current.get("mode"), "mode": requested_mode,
-                                "executionMode": execution_mode, "executionModeSource": "matching_plan_revision"})
-                current["options"] = {**(current.get("options") or {}), "mode": requested_mode, "executionMode": execution_mode}
-                changed = True
-            if isinstance(proof, dict) and proof.get("proofId") and proof["proofId"] != current.get("codeSyncProofId"):
-                current.update({"codeSyncProofId": proof["proofId"],
-                                "manifestDigest": proof["manifestDigest"],
-                                "codeSyncProofRuntimeGeneration": proof["runtimeGeneration"]})
-                changed = True
-            if current.pop("codeBlocked", False):
-                current.pop("error", None)
-                changed = True
-            if changed:
-                write_durable_plan_queue(root, latest)
-            row = current
         gpus, error = gpu_probe()
         if error:
             if row.get("requireIdleGpu") is True:
@@ -4994,7 +5040,7 @@ def start_durable_plan_queue_processor(root, worker_id, poll_seconds=5, stop_eve
     return processor
 
 def reserve_distributed_gpu(root, gpu_id, command_id, util_threshold=None, mem_threshold=None,
-                            require_idle_gpu=False, max_concurrent_gpus=None):
+                            require_idle_gpu=False, max_concurrent_gpus=None, admission_evidence=None):
     """Reserve one physical GPU before starting a distributed job; never infer ownership from username."""
     with WORKER_TASK_SNAPSHOT_LOCK:
         if any(row.get("commandId") == command_id and row.get("stateRetiredAt") for row in read_worker_recall_tombstones(root)):
@@ -5010,7 +5056,42 @@ def reserve_distributed_gpu(root, gpu_id, command_id, util_threshold=None, mem_t
         if any(isinstance(row, dict) and str(row.get("gpuId") or "") == str(gpu_id)
                and str(row.get("status") or "").lower() in ("running", "dispatching") for row in tasks):
             raise RuntimeError(f"GPU {gpu_id} 已有插件任务运行")
-        gpus, error = collect_local_gpu()
+        # The causality-bound evidence is captured OUTSIDE this lock by the
+        # dispatcher (gpu_admission_probe_bound). Inside the lock only a pure file
+        # revalidation runs: the frame on disk must still be the exact accepted
+        # sample (same epoch+seq+sampling start, still fresh, same published
+        # generation) plus the real occupancy checks below. Without credentials
+        # there is no zero-wait path; confirmed-legacy workers keep the historical
+        # under-lock direct sample (marked unoptimized) exactly as before.
+        worker_now = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
+        if admission_evidence is not None and "gpu_admission_recheck_evidence" in globals():
+            # The credential is revalidated against THIS request: worker, absolute
+            # root and commandId must all match, every binding field must be
+            # present (parent D — no defaults, no cross-project/cross-command
+            # reuse). The occupancy checks below this block run against the live
+            # snapshot + reservations INSIDE the lock, so two dispatchers that
+            # both probed the same GPU outside the lock cannot both reserve it.
+            gpus, error = gpu_admission_recheck_evidence(
+                root, worker_now, admission_evidence, {"commandId": str(command_id)})
+            if not error and str(gpu_id) not in [str(item) for item in ((admission_evidence or {}).get("gpuIds") or [])]:
+                gpus, error = [], "gpu_admission_evidence_gpu_not_admitted"
+        elif "read_gpu_collector_frame" in globals():
+            # No credentials: the SHARED reader decides capability. Only the
+            # confirmed-legacy state (registration AND frame ENOENT-proven absent)
+            # may sample directly; a frame with a missing/invalid registration,
+            # or any unreadable/unknown state, fails closed — the job stays
+            # queued and NO second sampler runs (parent D).
+            try:
+                capability = str(read_gpu_collector_frame(worker_now, root).get("mode") or "unknown")
+            except Exception:
+                capability = "unreadable"
+            if capability == "unconfigured":
+                gpus, error = [], "gpu_collector_state_unconfigured"
+            else:
+                gpus, error = [], "gpu_admission_evidence_missing" if capability == "stalled" or capability == "fresh" \
+                    else "gpu_admission_capability_not_legacy_" + capability
+        else:
+            gpus, error = collect_local_gpu()
         if error:
             raise RuntimeError(f"GPU 实时检测失败：{error}")
         row = next((item for item in gpus if gpu_row_id(item) == str(gpu_id)), None)
@@ -6921,8 +7002,20 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         gpu_util_threshold = command.get("gpuIdleUtilThreshold", options.get("gpuIdleUtilThreshold", options.get("gpu_idle_util_threshold")))
         gpu_mem_threshold = command.get("gpuIdleMemThresholdMb", options.get("gpuIdleMemThresholdMb", options.get("gpu_idle_mem_threshold")))
         max_concurrent_gpus = command.get("maxConcurrentGpus", options.get("maxConcurrentGpus"))
+        # Capture the causality-bound frame evidence BEFORE the reservation lock
+        # (bounded wait happens here, never under WORKER_TASK_SNAPSHOT_LOCK). A
+        # registered collector that cannot produce a request-after sample raises
+        # here, so the job stays queued instead of dispatching on a stale frame.
+        admission_evidence = None
+        if "gpu_admission_probe_bound" in globals() and "read_gpu_collector_frame" in globals():
+            _probe_worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
+            _bound_gpus, _bound_error, admission_evidence = gpu_admission_probe_bound(
+                root, _probe_worker, {"commandId": str(command_id)})
+            if _bound_error:
+                raise RuntimeError(f"GPU 实时检测失败：{_bound_error}")
         existing_task = reserve_distributed_gpu(root, gpu_id, command_id, gpu_util_threshold, gpu_mem_threshold,
-                                                command.get("requireIdleGpu") is True, max_concurrent_gpus)
+                                                command.get("requireIdleGpu") is True, max_concurrent_gpus,
+                                                admission_evidence=admission_evidence)
         if existing_task:
             return {"commandId": command_id, "status": str(existing_task.get("status") or "unknown"),
                     "message": "相同 job 指令已存在，未重复启动", "gpuId": gpu_id}
@@ -7067,7 +7160,8 @@ def _execute_worker_command_unfenced(root, command, worker_id):
 
 def execute_worker_command(root, command, worker_id):
     action = str(command.get("action") or "").strip()
-    if globals().get("TASK_LIFECYCLE_PROTOCOL") == 2 and command.get("resultPathPolicy") == "declared" and action in ("start-worker-task", "retry-worker-task", "stop-worker-task"):
+    if globals().get("TASK_LIFECYCLE_PROTOCOL") == 2 and (action == "stop-worker-task"
+            or command.get("resultPathPolicy") == "declared" and action in ("start-worker-task", "retry-worker-task")):
         command = {**command, "lifecycleProtocol": 2}
     if command.get("lifecycleProtocol") == 2:
         if action == "stop-worker-task":
@@ -7604,6 +7698,10 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=0):
         last_heartbeat = 0.0
         while True:
             try:
+                try:
+                    gpu_collector_self_heal(worker_id_local, root)
+                except Exception:
+                    pass
                 payload = write_worker_gpu_snapshot(root)
                 # 单机 worker_telemetry 模式自刷新 worker_availability.json 避免调度停滞
                 try:
@@ -7755,6 +7853,9 @@ def api_health(root, mode="realtime"):
         "schedulerUpdateError": TASK_SCHEDULER_UPDATE_ERROR,
         "agentInstallDir": agent_install_dir(root),
         "agentStateDir": agent_dir(root),
+        "workerStateDir": gpu_collector_state_root(root),
+        "workerId": str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"),
+        "gpuCollectorProtocol": 1,
         "status": "ok" if serving or health.get("running") is not False else "degraded",
         "snapshotAge": age if age is not None else 999999,
         "workerCount": (1 if snapshot.get("gpu") or snapshot.get("gpus") else 0) if mode == "worker_telemetry" else len(snapshot.get("workers") or []),
@@ -13593,11 +13694,37 @@ def tb_discover_launch(root, logdir_hint, port, explicit_script):
     return ["tensorboard", "--logdir", logdir, "--port", str(port), "--host", "127.0.0.1", "--path_prefix", TENSORBOARD_BROWSER_PREFIX, "--load_fast=false"], "tensorboard", logdir
 
 
+def close_tensorboard_window(root, session):
+    """Resolve the configured service to one immutable window; preserve other tabs."""
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", session):
+        raise ValueError("TENSORBOARD_WINDOW_IDENTITY_REQUIRED")
+    listed = subprocess.run(["tmux", "list-windows", "-t", "=" + session, "-F",
+                             "#{session_name}|#{window_index}|#{window_id}|#{window_name}"],
+                            cwd=root, capture_output=True, text=True, timeout=5)
+    if listed.returncode:
+        error = (listed.stderr or "").lower()
+        if any(value in error for value in ("can't find session", "no such session", "no server running", "no sessions")):
+            return []
+        raise RuntimeError("TENSORBOARD_WINDOW_QUERY_FAILED: " + error[-500:])
+    rows = [line.split("|", 3) for line in (listed.stdout or "").splitlines()]
+    if len(rows) != 1 or len(rows[0]) != 4 or rows[0][0] != session or not re.fullmatch(r"@\d+", rows[0][2]):
+        raise ValueError("TENSORBOARD_WINDOW_AMBIGUOUS: select the exact service window; other tabs were preserved")
+    row = rows[0]
+    panes = subprocess.run(["tmux", "list-panes", "-t", row[2], "-F", "#{pane_id}"],
+                           cwd=root, capture_output=True, text=True, timeout=5)
+    pane_ids = (panes.stdout or "").splitlines()
+    if panes.returncode or not pane_ids or any(not re.fullmatch(r"%\d+", pane) for pane in pane_ids):
+        raise ValueError("TENSORBOARD_PANE_IDENTITY_REQUIRED")
+    result, status = kill_tmux_window_response({"target": session + ":" + row[1], "session": session,
+        "windowId": row[2], "windowName": row[3], "paneIds": pane_ids}, "worker_telemetry")
+    if status != 200 or result.get("ok") is not True or result.get("verified") is not True:
+        raise RuntimeError("TENSORBOARD_WINDOW_CLOSE_FAILED: " + str(result.get("error") or status))
+    return [row[2]]
+
+
 def tensorboard_action(root, action, payload, operation_id, op_id):
-    # Restart (or report status of) the standalone TensorBoard tmux session. The launch command is
-    # discovered adaptively by the agent (see tb_discover_launch) so it survives project changes and
-    # needs no server-specific path in settings. Session named <prefix>_tb; it is NOT managed by the
-    # agent control loop. Each open kills the old session and recreates a fresh one (low cost).
+    # The configured service owns one window. Never destroy a containing session
+    # or silently replace an ambiguous window set.
     prefix = str(payload.get("sessionPrefix") or payload.get("session_prefix")
                 or _resolve_tmux_prefix(None, None, None))
     # 统一归一：不再信任 payload tmuxSession 原值（避免 ZLK_tb 与 zlk_tb 快照不一致），与 write_snapshots 完全一致
@@ -13623,24 +13750,18 @@ def tensorboard_action(root, action, payload, operation_id, op_id):
             {"tmuxSession": tb_session, "port": port, "running": alive, "listening": listening, "logPath": log_rel},
         )
 
-    if action == "stop-tensorboard":
-        TENSORBOARD_PROXY_PORTS.pop(tb_session, None)
-        if tmux_session_alive(tb_session, root, None):
-            stopped = subprocess.run(["tmux", "kill-session", "-t", tb_session], cwd=root,
-                                     capture_output=True, text=True, timeout=5)
-            if stopped.returncode != 0:
-                return terminal_action(root, action, operation_id, op_id, "failed",
-                                       f"关闭 TensorBoard 会话失败：{stopped.stderr.strip()}",
-                                       {"tmuxSession": tb_session, "running": True, "listening": False})
-        return terminal_action(root, action, operation_id, op_id, "completed",
-                               f"TensorBoard 会话 {tb_session} 已关闭",
-                               {"tmuxSession": tb_session, "running": False, "listening": False})
-
-    # start-tensorboard: kill any previous session (cost ~0) then recreate a fresh one.
     try:
-        subprocess.run(["tmux", "kill-session", "-t", tb_session], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-    except Exception:
-        pass
+        closed_windows = close_tensorboard_window(root, tb_session)
+    except Exception as exc:
+        return terminal_action(root, action, operation_id, op_id, "failed", str(exc),
+                               {"tmuxSession": tb_session, "running": True, "listening": False})
+    TENSORBOARD_PROXY_PORTS.pop(tb_session, None)
+    if action == "stop-tensorboard":
+        return terminal_action(root, action, operation_id, op_id, "completed",
+                               f"TensorBoard 窗口已关闭：{tb_session}",
+                               {"tmuxSession": tb_session, "closedWindowIds": closed_windows,
+                                "running": False, "listening": False})
+
     launch_args, launch_source, resolved_logdir = tb_discover_launch(root, logdir_hint, port, explicit_script)
     env = simple_runtime_env(os.environ.copy())
     if conda_env:
@@ -13852,60 +13973,13 @@ def process_start_identity(pid):
 
 
 def _reap_zombie_scheduler_sessions(root, known_op_ids, target_session=""):
-    # Reap only the exact scheduler session already validated for this stop request.
-    # Scanning every unregistered prefix session races a scheduler between tmux
-    # creation and registry publication, and can kill a different live operation.
-    if not tmux_available():
-        return []
-    name = str(target_session or "").strip()
-    prefix = _tmux_prefix() + "-sch-"
-    if not name.startswith(prefix):
-        return []
-    op = name[len(prefix):]
-    if not op or op in set(str(value) for value in (known_op_ids or [])):
-        return []
-    try:
-        present = subprocess.run(["tmux", "has-session", "-t", name], stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL, timeout=5, cwd=root)
-        if present.returncode != 0 or _tmux_pane_python_running(name, None):
-            return []
-        killed = subprocess.run(["tmux", "kill-session", "-t", name], stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, timeout=5, cwd=root)
-        return [name] if killed.returncode == 0 else []
-    except Exception:
-        return []
+    # Historical registry absence is not authorization to close a terminal.
+    return []
+
 
 def _reap_orphan_gpu_sessions(root, force_all=False):
-    # GPU 窗口与调度窗口同生命周期：调度销毁时回收关联 GPU 窗口，避免孤儿 long-lived 会话
-    if not tmux_available():
-        return []
-    prefix = _tmux_prefix()
-    reaped = []
-    try:
-        out = subprocess.run(["tmux", "ls"], text=True, capture_output=True, timeout=5).stdout or ""
-        for line in out.splitlines():
-            name = line.split(":", 1)[0].strip()
-            # 匹配 prefix-gpu-<id> 或兼容历史 simple-gpu-*/zlk-gpu-*
-            is_gpu = False
-            if name.startswith(prefix + "-gpu-"):
-                is_gpu = True
-            elif name.startswith("simple-gpu-"):
-                is_gpu = True
-            elif name.startswith("zlk-gpu-"):
-                is_gpu = True
-            elif re.match(r"^gpu-\d+$", name):
-                is_gpu = True
-            if not is_gpu:
-                continue
-            # 若 force_all 或无活跃 scheduler，则直接回收
-            try:
-                subprocess.run(["tmux", "kill-session", "-t", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-                reaped.append(name)
-            except Exception:
-                pass
-    except Exception:
-        pass
-    return reaped
+    # Preserve task consoles; only an explicit identity-bound stop may close one.
+    return []
 
 
 def fence_stale_run_plans(root, new_op_id, new_worker_ids, new_owner):
@@ -16364,197 +16438,31 @@ def scheduler_stop_record_identity(wanted, requested_plan, event):
 
 
 def stop_scheduler_operation(root, payload):
-    wanted = str(payload.get("targetOperationId") or payload.get("remoteOperationId") or payload.get("operationId") or payload.get("opId") or "").strip()
+    wanted = str(payload.get("targetCommandId") or payload.get("targetOperationId") or payload.get("remoteOperationId") or "").strip()
     plan = action_plan_file(payload)
-    if payload.get("stopBoundary") == "local_command":
-        worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or payload.get("workerId") or "")
-        result = stop_local_worker_task(root, {**payload, "targetCommandId": wanted,
-            "projectId": payload.get("projectId") or os.path.realpath(root), "workerId": worker}, worker)
-        ok = result.get("status") == "completed"
-        if ok:
-            cancel_inactivity_action(root, wanted, plan)
-            deregister_active_run_plan(root, wanted)
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""),
-            "completed" if ok else "failed", result.get("message") or "停止未完成", {"matchedOperations": [wanted] if ok else [],
-            "planFile": plan, "stopBoundary": "local_command", "terminatedWindowIds": [window for row in result.get("stoppedTasks", []) for window in row.get("closedWindowIds", [])],
-            "cacheRetired": ok, "stateRetired": result.get("stateRetired", False), "retiredOperationIds": result.get("retiredOperationIds", []), "remainingActiveEvidence": [] if ok else [result.get("errorCode")]}, request=payload)
-    if wanted and plan and cancel_inactivity_action(root, wanted, plan):
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "completed", "已取消处理中操作", {"matchedOperations": [wanted], "planFile": plan}, request=payload)
-    if not wanted or not plan:
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "缺少明确的调度记录或 Plan，未执行停止。", {"matchedOperations": [], "planFile": plan}, request=payload)
-    events = read_operation_events(root, wanted, 100) if wanted else []
-    latest_event = next((event for event in reversed(events) if isinstance(event.get("payload"), dict)), {})
-    latest_payload = latest_event.get("payload") if isinstance(latest_event.get("payload"), dict) else {}
-    requested_plan = re.sub(r"^\./", "", str(plan).replace("\\", "/"))
-    try:
-        stop_identity = scheduler_stop_record_identity(wanted, requested_plan, latest_event)
-    except ValueError as exc:
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", f"{exc}，未执行停止。", {"matchedOperations": [], "planFile": plan}, request=payload)
-    recorded_plan = stop_identity["planFile"]
-    target_pid = 0
-    registry_entry = next((entry for entry in _read_run_plan_registry(root) if isinstance(entry, dict) and str(entry.get("opId") or "") == wanted), None)
-    registry_pid = int(registry_entry.get("pid") or 0) if registry_entry else 0
-    event_pid = int(stop_identity.get("pid") or 0) if str(stop_identity.get("pid") or "").strip().lstrip("-").isdigit() else 0
-    pid_candidate = registry_pid if registry_pid > 0 and (not event_pid or event_pid == registry_pid) else 0
-    expected_pid_start = str((registry_entry or {}).get("pidStartIdentity") or stop_identity.get("pidStartIdentity") or "").strip()
-    actual_pid_start = process_start_identity(pid_candidate) if pid_candidate else ""
-    pid_identity_lost = False
-    if pid_candidate > 0 and expected_pid_start and actual_pid_start and expected_pid_start == actual_pid_start:
-        target_pid = pid_candidate
-    recorded_session = str(stop_identity.get("tmuxSession") or "").strip()
-    registry_session = str((registry_entry or {}).get("tmuxSession") or "").strip()
-    if recorded_session and registry_session and recorded_session != registry_session:
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "调度事件与运行登记中的 tmux 身份不一致，未执行停止。", {"matchedOperations": [], "planFile": plan}, request=payload)
-    target_session = recorded_session or registry_session
-    if not target_session and wanted:
-        # The run-plan scheduler session is named deterministically from the op id; fall back to
-        # deriving it so a stop still works even if the operation events lack the session field.
-        target_session = simple_tmux_name(f"sch-{wanted}")
-    before = scheduler_process_evidence(root, target_pid, target_session)
-    terminated_sessions, terminated_pids = [], []
-    errors = []
-    # 用原始会话存活（tmuxShellAlive）决定 kill：即便 pane 内只是空 shell（无 python 进程），
-    # 也应 kill 掉，避免中止后 tmux 仍残留把面板判活。
-    if before["tmuxShellAlive"]:
-        result = subprocess.run(["tmux", "kill-session", "-t", str(before["checkedTmuxSession"])], cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=5, check=False)
-        if result.returncode == 0:
-            terminated_sessions.append(before["checkedTmuxSession"])
-        else:
-            errors.append((result.stderr or b"tmux kill failed").decode("utf-8", errors="replace").strip())
-    if before["pidAlive"]:
-        if process_start_identity(before["checkedPid"]) != expected_pid_start:
-            pid_identity_lost = True
-        else:
-            try:
-                os.kill(int(before["checkedPid"]), signal.SIGTERM)
-                terminated_pids.append(before["checkedPid"])
-            except Exception as exc:
-                errors.append(str(exc))
-    time.sleep(0.2)
-    after = scheduler_process_evidence(root, target_pid, target_session)
-    if after["pidAlive"] and before["pidAlive"] and int(before["checkedPid"]) == int(after["checkedPid"]):
-        if process_start_identity(after["checkedPid"]) != expected_pid_start:
-            pid_identity_lost = True
-        else:
-            try:
-                os.kill(int(after["checkedPid"]), signal.SIGKILL)
-                time.sleep(0.1)
-            except Exception:
-                pass
-            after = scheduler_process_evidence(root, target_pid, target_session)
-    remaining_active = []
-    if after["pidAlive"]: remaining_active.append({"kind": "pid", "value": after["checkedPid"]})
-    if pid_identity_lost:
-        remaining_active.append({"kind": "pidIdentityUnknown", "value": pid_candidate})
-    unverified_pids = {value for value in (event_pid, registry_pid) if value > 0 and value != target_pid and _is_pid_alive(value)}
-    for value in sorted(unverified_pids):
-        remaining_active.append({"kind": "pidIdentityUnknown", "value": value})
-    # P1: 双活判定需同时检查 shellAlive，避免空壳（has-session 但无 python）被误判为已清理
-    if after["tmuxSessionAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})
-    elif after["tmuxShellAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})
-    if unverified_pids or pid_identity_lost:
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "调度器 PID 启动身份无法验证，未终止该 PID、未删除运行登记，也未继续清理 Worker 任务。", {
-            "matchedOperations": [], "planFile": plan, "remainingActiveEvidence": remaining_active,
-        }, request=payload)
-    matched_scheduler = bool(terminated_sessions or terminated_pids or before["pidAlive"] or before["tmuxSessionAlive"] or before["tmuxShellAlive"])
-    # A previous stop can have removed the scheduler while leaving its Worker records behind.
-    # Repair that Plan only when its journal identifies it and no newer scheduler is live.
-    if not matched_scheduler and recorded_plan != requested_plan:
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "未找到目标 Plan 的活动调度进程，未清理 GPU 任务。", {"matchedOperations": [], "planFile": plan, "checkedPid": after["checkedPid"], "checkedTmuxSession": after["checkedTmuxSession"]}, request=payload)
-    if not matched_scheduler:
-        for entry in _read_run_plan_registry(root):
-            if not isinstance(entry, dict) or str(entry.get("opId") or "") == wanted:
-                continue
-            if _is_pid_alive(entry.get("pid")) or tmux_session_alive(str(entry.get("tmuxSession") or ""), cwd=root):
-                return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "另一个调度器仍在运行，不能按旧记录清理 Worker 任务。", {"matchedOperations": [], "planFile": plan}, request=payload)
-    try:
-        if wanted:
-            deregister_active_run_plan(root, wanted)
-        # also reap any leftover zombie sch-* sessions from this stop
-        remaining = set(str(e.get("opId") or "") for e in _read_run_plan_registry(root) if isinstance(e, dict) and str(e.get("opId") or "").strip())
-        _reap_zombie_scheduler_sessions(root, remaining, target_session)
-    except Exception:
-        pass
-    # A Worker task's pid can be a tmux pane id such as %97. Stop that exact pane;
-    # fixed GPU sessions can contain a newer or unrelated task and must be preserved.
-    stopped_task_count = 0
-    try:
-        data = read_json(path_for(root, "worker_task_snapshot.json"), {})
-        tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
-        for task in tasks:
-            if not isinstance(task, dict):
-                continue
-            if str(task.get("status") or "").lower() != "running":
-                continue
-            task_plan = re.sub(r"^\./", "", str(task.get("planFile") or task.get("plan") or "").replace("\\", "/"))
-            if task_plan != requested_plan:
-                continue
-            task_run_id = str(task.get("workflowId") or task.get("workflow_id") or task.get("runId") or task.get("run_id") or "").strip()
-            if task_run_id != wanted:
-                # A same-Plan task is not necessarily owned by this scheduler.
-                # Never stop it by Plan name alone. Missing identity remains an
-                # explicit unresolved outcome so callers cannot assume the whole
-                # requested run has settled.
-                if not task_run_id:
-                    remaining_active.append({"kind": "workerTaskIdentityUnknown",
-                                             "commandId": str(task.get("commandId") or task.get("operationId") or "")[:160],
-                                             "workerId": str(task.get("workerId") or "")[:120],
-                                             "planFile": requested_plan})
-                continue
-            sess = str(task.get("tmuxSession") or "").strip()
-            task_pid = str(task.get("pid") or "").strip()
-            pane_id = task_pid if re.fullmatch(r"%[0-9]+", task_pid) else ""
-            task_error = False
-            if pane_id and sess:
-                try:
-                    owner = subprocess.run(["tmux", "display-message", "-p", "-t", pane_id, "#{session_name}"], capture_output=True, text=True, timeout=3, cwd=root)
-                    if owner.returncode == 0 and owner.stdout.strip() == sess:
-                        killed = subprocess.run(["tmux", "kill-pane", "-t", pane_id], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=5, cwd=root)
-                        if killed.returncode == 0:
-                            terminated_sessions.append(pane_id)
-                        else:
-                            errors.append((killed.stderr or b"tmux kill-pane failed").decode("utf-8", errors="replace").strip())
-                            task_error = True
-                except Exception as exc:
-                    errors.append(str(exc))
-                    task_error = True
-            pid = int(task_pid) if task_pid.isdecimal() else 0
-            if pid > 0 and _is_pid_alive(pid):
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                    if pid not in terminated_pids:
-                        terminated_pids.append(pid)
-                except Exception as exc:
-                    errors.append(str(exc))
-                    task_error = True
-            if task_error:
-                continue
-            with WORKER_TASK_SNAPSHOT_LOCK:
-                current = current_worker_task(root, task)
-                if str(current.get("status") or "").lower() == "running":
-                    append_worker_task(root, {**current, "status": "stopped", "finishedAt": now_iso(), "stopReason": "scheduler_aborted", "manualStopType": "scheduler_aborted"})
-                    stopped_task_count += 1
-        if stopped_task_count:
-            try:
-                append_event(root, {"type": "worker_task_stopped", "payload": {"reason": "scheduler_aborted", "terminatedSessions": terminated_sessions}})
-            except Exception:
-                pass
-    except Exception as exc:
-        errors.append(f"Worker 任务清理失败：{exc}")
-    matched = matched_scheduler or stopped_task_count > 0
-    message = "已中止调度并清理当前 Plan 任务" if matched_scheduler else ("已清理当前 Plan 的残留任务" if stopped_task_count else "未找到活动调度或 Worker 任务")
-    status = "completed" if matched and not remaining_active and not errors else "failed"
-    return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or f"stop-{int(time.time() * 1000)}"), str(payload.get("opId") or payload.get("operationId") or f"stop-{int(time.time() * 1000)}"), status, message, {
-        "matchedOperations": [wanted] if wanted else [],
-        "terminatedSessions": terminated_sessions,
-        "terminatedPids": terminated_pids,
-        "stoppedTaskCount": stopped_task_count,
-        "remainingActiveEvidence": remaining_active,
-        "checkedPid": after["checkedPid"],
-        "checkedTmuxSession": after["checkedTmuxSession"],
-        "planFile": plan,
-        **({"errors": errors} if errors else {}),
-    }, request=payload)
+    worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or payload.get("workerId") or "").strip()
+    stop_id = str(payload.get("operationId") or payload.get("opId") or "").strip()
+    project = str(payload.get("projectId") or os.path.realpath(root)).strip()
+    result = {"status": "failed", "errorCode": "TASK_STOP_IDENTITY_REQUIRED",
+              "message": "停止需要原 commandId、当前 Worker 与独立停止请求身份；未知旧窗口请在 TMUX 中选择精确标签页。"}
+    if wanted and worker and stop_id and wanted != stop_id and str(payload.get("workerId") or worker) == worker:
+        command = {"targetCommandId": wanted, "operationId": stop_id, "opId": str(payload.get("opId") or stop_id),
+                   "workerId": worker, "projectId": project, "workflowId": payload.get("workflowId"),
+                   "stopBoundary": "local_command", "stopReason": payload.get("stopReason"), "stopSource": "user"}
+        try:
+            # The independent Scheduler receives the cancellation fence before any
+            # window is closed. Never stop by PID, session name or a journal row.
+            result = task_stop(root, command, worker) if globals().get("TASK_LIFECYCLE_PROTOCOL") == 2 else stop_local_worker_task(root, command, worker)
+        except Exception as exc:
+            result = {"status": "failed", "errorCode": "TASK_STOP_NOT_CONFIRMED", "message": str(exc)}
+    ok = result.get("status") == "completed"
+    return terminal_action(root, "stop-scheduler-operation", stop_id, str(payload.get("opId") or stop_id),
+        "completed" if ok else "failed", result.get("message") or ("已核实原任务停止" if ok else "停止未完成"), {
+            "matchedOperations": [wanted] if ok else [], "planFile": plan, "stopBoundary": "local_command",
+            "terminatedWindowIds": [window for row in result.get("stoppedTasks", []) for window in row.get("closedWindowIds", [])],
+            "terminatedPids": [], "cacheRetired": ok, "stateRetired": result.get("stateRetired", False),
+            "retiredOperationIds": result.get("retiredOperationIds", []), "errorCode": result.get("errorCode"),
+            "remainingActiveEvidence": [] if ok else [result.get("errorCode") or "TASK_STOP_NOT_CONFIRMED"]}, request=payload)
 
 
 def recent_operations(root, limit=100):
@@ -16772,7 +16680,15 @@ def manage_tmux_session_response(payload):
         if inventory("=" + session) != rows:
             raise ValueError("session changed during inspection")
         if action == "close":
-            run(["kill-session", "-t", session_id])
+            for row in rows:
+                if inventory(session_id) != [entry for entry in rows if entry[1] not in closed]:
+                    raise ValueError("window set changed during closing")
+                item = next(item for item in expected if item.get("windowId") == row[1])
+                panes = run(["list-panes", "-t", row[1], "-F", "#{pane_id}"]).splitlines()
+                if sorted(item.get("paneIds") or []) != sorted(panes):
+                    raise ValueError("pane identities changed during closing")
+                run(["kill-window", "-t", row[1]])
+                closed.add(row[1])
             after = subprocess.run(["tmux", "has-session", "-t", session_id], capture_output=True, text=True, timeout=5)
             if after.returncode == 0:
                 raise ValueError("session still present")
@@ -16832,6 +16748,12 @@ def serve_http(args):
     # Scheduler, which rebuilds from actual windows rather than replaying history.
     atomic_write(path_for(root, "agent.session.json"), {"tokenConfigured": bool(token), "startedAt": now_iso(), "agentVersion": AGENT_VERSION, "agentInstallDir": agent_install_dir(root), "agentStateDir": agent_dir(root), "stateRetentionSeconds": STATE_RETENTION_SECONDS, "maxAgentStateBytes": MAX_AGENT_STATE_BYTES})
     if mode == "worker_telemetry":
+        try:
+            gpu_collector_ensure(os.environ["SIMPLE_EXPERIMENT_WORKER_ID"], root)
+        except Exception as gpu_collector_exc:
+            # The Agent must stay diagnosable even when the collector window cannot start;
+            # consumers report unknown meanwhile; no second sampler is started.
+            print("[gpu-collector] " + str(gpu_collector_exc), file=sys.stderr, flush=True)
         start_worker_telemetry_sampler(root, getattr(args, "gpu_poll_seconds", 1), 0)
         # P0: worker_telemetry 与 hub_control 均启动 gpu_log_tail 采样，与 GPU 采样同频 60s，写入 live_output/{gid}.json + append_event log_tail
         try:
@@ -18068,6 +17990,16 @@ def main():
         args = parser.parse_args()
         AGENT_STATE_DIR = args.state_dir
         return task_queue_serve(args.project_dir, args.worker_id) if args.cmd == "task-queue" else task_runner(args.project_dir, args.worker_id)
+    if len(sys.argv) > 1 and sys.argv[1] == "gpu-collector":
+        parser = argparse.ArgumentParser()
+        parser.add_argument("cmd")
+        parser.add_argument("--project-dir", required=True)
+        parser.add_argument("--worker-id", required=True)
+        parser.add_argument("--state-dir", default="")
+        parser.add_argument("--poll-seconds", type=float, default=1.0)
+        args = parser.parse_args()
+        AGENT_STATE_DIR = args.state_dir
+        return gpu_collector_main(args.project_dir, args.worker_id, args.poll_seconds)
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="cmd", required=True)
     for name in ("run", "snapshot", "health", "inspect", "stop"):
@@ -18537,6 +18469,605 @@ def inspect_plan_code_scope(root, request):
             "fileCount": checked["fileCount"], "conservative": checked["conservative"], "queriedAt": now_iso()}
 
 
+GPU_COLLECTOR_FRESH_MS = max(2000.0, float(os.environ.get("SIMPLE_GPU_COLLECTOR_FRESH_MS") or 5000))
+GPU_ADMISSION_WAIT_SECONDS = max(0.0, float(os.environ.get("SIMPLE_GPU_ADMISSION_WAIT_SECONDS") or 2.0))
+GPU_COLLECTOR_SOURCE = "worker_gpu_collector"
+GPU_WORKER_STATE_ENV = "SIMPLE_EXPERIMENT_WORKER_STATE_DIR"
+GPU_COLLECTOR_MAX_STATE_BYTES = 65536
+GPU_COLLECTOR_RESPAWN_LOCK_STALE_S = 30.0
+_GPU_SOURCE_MODE_LAST = {}
+_GPU_FRAME_WATERMARKS = {}
+
+def gpu_collector_worker_ns(worker_id):
+    return hashlib.sha256(str(worker_id or "worker").encode("utf-8")).hexdigest()[:16]
+
+def gpu_collector_state_root(root=""):
+    # Parent ruling A: the Worker machine-state root is EITHER the deployment-
+    # injected authoritative value OR the managed per-USER anchor. The root
+    # parameter is kept for call-site compatibility and DELIBERATELY IGNORED:
+    # any per-project derivation would fork one collector source per project,
+    # which is exactly what the single-source contract forbids. The anchor is
+    # unrelated to the program root and to research code, stable for the UID's
+    # tmux scope, and requires no configuration to work.
+    configured = str(os.environ.get(GPU_WORKER_STATE_ENV) or "").strip()
+    if configured:
+        return os.path.abspath(os.path.expanduser(configured))
+    return os.path.abspath(os.path.join(os.path.expanduser("~"), ".simple-cluster", "worker-state"))
+
+def gpu_collector_frame_path(worker_id, root=""):
+    base = gpu_collector_state_root(root)
+    if not base:
+        return ""
+    return os.path.join(base, gpu_collector_worker_ns(worker_id), "gpu_frame.json")
+
+def gpu_collector_register_path(worker_id, root=""):
+    frame_path = gpu_collector_frame_path(worker_id, root)
+    if not frame_path:
+        return ""
+    return os.path.join(os.path.dirname(frame_path), "gpu_collector.register")
+
+def gpu_collector_session(worker_id, root=""):
+    # Canonical single-source identity: ONLY the Worker id (same UID + tmux server
+    # context). Never the project-derived frame path or the per-project session
+    # prefix, so different projects cannot each open a collector source.
+    key = hashlib.sha256((str(worker_id or "worker")).encode("utf-8")).hexdigest()[:16]
+    return "se-gpu-collector-" + key
+
+def gpu_collector_command(worker_id, root=""):
+    argv = [sys.executable, "-B", os.path.abspath(__file__), "gpu-collector",
+            "--worker-id", str(worker_id or "worker"), "--project-dir", os.path.realpath(root or os.getcwd())]
+    if AGENT_STATE_DIR or os.environ.get("SIMPLE_EXPERIMENT_AGENT_STATE_DIR", ""):
+        argv.extend(["--state-dir", AGENT_STATE_DIR or os.environ.get("SIMPLE_EXPERIMENT_AGENT_STATE_DIR", "")])
+    # tmux children inherit the server environment, not the Agent's. Carry the
+    # RESOLVED authoritative Worker state root (not the raw env var), so even an
+    # unset environment makes the collector write exactly the frame path every
+    # consumer reads — an identity split would stall admission forever.
+    carry = ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX=" + task_session_prefix(),
+             GPU_WORKER_STATE_ENV + "=" + gpu_collector_state_root(root)]
+    return "exec env " + shlex.join([*carry, *argv])
+
+def gpu_collector_tmux(args, timeout=5, keep_trailing=False):
+    proc = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout)
+    if proc.returncode:
+        raise RuntimeError("GPU_COLLECTOR_TMUX_FAILED: " + ((proc.stderr or proc.stdout or "").strip()[-400:]))
+    # keep_trailing preserves a TRAILING EMPTY field ("...\t" when @option is
+    # unset): stripping it would collapse 4 real fields into 3 and turn an
+    # honestly-unbound window into an unparsable one.
+    return (proc.stdout or "").rstrip("\r\n") if keep_trailing else (proc.stdout or "").strip()
+
+def gpu_collector_binding(worker_id, frame_path, epoch):
+    # Only the RUNNING collector publishes a binding (gpu_collector_main); ensure
+    # never invents an epoch, so no second generation can exist on the window.
+    return {"frameSource": GPU_COLLECTOR_SOURCE, "workerId": str(worker_id or "worker"), "framePath": frame_path,
+            "epoch": str(epoch or ""), "runningVersion": RUNTIME_VERSION,
+            "uid": os.getuid() if hasattr(os, "getuid") else -1}
+
+def _gpu_number_finite(value):
+    # bool is a subclass of int; a real sampling clock value must be a finite
+    # number, never True/NaN/Infinity smuggled through a corrupt file.
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return float(value) == float(value) and abs(float(value)) != float("inf")
+
+def _gpu_uid_sane(value):
+    # Published uid is an int uid (>= -1: -1 documents "platform without getuid").
+    # Missing, bool, string or below-range values fail validation (parent B).
+    return isinstance(value, int) and not isinstance(value, bool) and value >= -1
+
+def gpu_collector_publish_generation(worker_id, root, epoch):
+    # The collector publishes its own generation: the registration file is the
+    # authority admission binds to, the window annotation is the human/tmux-visible
+    # mirror of the same object.
+    frame_path = gpu_collector_frame_path(worker_id, root)
+    binding = gpu_collector_binding(worker_id, frame_path, epoch)
+    register_path = gpu_collector_register_path(worker_id, root)
+    if register_path:
+        registration = dict(binding)
+        registration["genStartedMonotonicMs"] = int(time.monotonic() * 1000)
+        atomic_write(register_path, registration)
+    try:
+        gpu_collector_tmux(["set-option", "-w", "-t", os.environ.get("TMUX_PANE") or "=" + gpu_collector_session(worker_id, root) + ":=collector",
+                            "@se_gpu_collector", json.dumps(binding, ensure_ascii=False)])
+    except Exception as exc:
+        print("[gpu-collector] binding annotation failed: " + str(exc), file=sys.stderr, flush=True)
+    return binding
+
+def _gpu_stat_state(path):
+    # os.path.isfile SILENTLY swallows PermissionError/ENOTDIR/ELOOP and returns
+    # False (parent C): absence must be proven by a real ENOENT from an explicit
+    # stat, and every other OSError or non-regular file type is unknown.
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return "absent"
+    except OSError:
+        return "unreadable"
+    return "present" if stat.S_ISREG(st.st_mode) else "unreadable"
+
+def _gpu_read_bounded_json(path):
+    # Bounded read: a huge or pathological state file can never pin the fast
+    # inventory loop. One read past the cap proves "oversized" without ingesting.
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise ValueError("not_regular")
+        blob = handle.read(GPU_COLLECTOR_MAX_STATE_BYTES + 1)
+    if len(blob) > GPU_COLLECTOR_MAX_STATE_BYTES:
+        raise ValueError("oversized")
+    return json.loads(blob.decode("utf-8"))
+
+def gpu_collector_read_registration(worker_id, root=""):
+    """Registration validity is the capability authority (shared by probe, API,
+    inventory and reserve). Absence is proven only by ENOENT; unreadable, invalid
+    or foreign states are never "absent" and can never authorize a second sampler.
+    Every identity field (source/worker/framePath/epoch/uid/genStart) is verified,
+    not just a subset (parent B)."""
+    worker_id = str(worker_id or "worker").strip() or "worker"
+    register_path = gpu_collector_register_path(worker_id, root)
+    if not register_path:
+        return {"mode": "unconfigured", "registration": None}
+    state = _gpu_stat_state(register_path)
+    if state == "absent":
+        return {"mode": "absent", "registration": None}
+    if state != "present":
+        return {"mode": "unreadable", "registration": None}
+    try:
+        registration = _gpu_read_bounded_json(register_path)
+    except FileNotFoundError:
+        return {"mode": "absent", "registration": None}
+    except (OSError, ValueError):
+        return {"mode": "unreadable", "registration": None}
+    if not isinstance(registration, dict) or registration.get("frameSource") != GPU_COLLECTOR_SOURCE \
+            or str(registration.get("workerId") or "") != worker_id \
+            or not str(registration.get("epoch") or "") \
+            or not str(registration.get("framePath") or "").startswith(("/", "\\")) \
+            or not _gpu_uid_sane(registration.get("uid")) \
+            or not _gpu_number_finite(registration.get("genStartedMonotonicMs")) \
+            or registration["genStartedMonotonicMs"] < 0:
+        return {"mode": "invalid", "registration": None}
+    # Registration is the reader's authority, so apply the same complete
+    # identity check used by ensure; valid field types alone prove no ownership.
+    if _gpu_binding_verdict(registration, worker_id, gpu_collector_frame_path(worker_id, root)) != "own":
+        return {"mode": "foreign", "registration": None}
+    return {"mode": "registered", "registration": registration}
+
+def _gpu_binding_verdict(binding, worker_id, frame_path):
+    # One verdict for EVERY ensure branch (has-session, respawn, startup race):
+    # "own" only after full identity verification; empty binding is reported
+    # separately so callers can choose starting/unknown — never a mutation.
+    if not isinstance(binding, dict) or not binding:
+        return "empty"
+    if str(binding.get("frameSource") or "") != GPU_COLLECTOR_SOURCE:
+        return "mismatch"
+    if str(binding.get("workerId") or "") != worker_id:
+        return "mismatch"
+    if str(binding.get("framePath") or "") != frame_path:
+        return "mismatch"
+    if not str(binding.get("epoch") or ""):
+        return "mismatch"
+    if not _gpu_uid_sane(binding.get("uid")):
+        # Missing/forged UID: cannot prove the publisher's scope — treat as
+        # foreign identity, never takeover (parent B).
+        return "mismatch"
+    our_uid = os.getuid() if hasattr(os, "getuid") else -1
+    if int(binding["uid"]) != our_uid:
+        return "foreign_uid"
+    return "own"
+
+def gpu_collector_ensure(worker_id, root=""):
+    """Idempotent startup on the exact deterministic session. Only the running
+    collector publishes the binding epoch. EVERY branch verifies exact identity
+    before ANY mutation: a dead pane is respawned only when its binding fully
+    validates as ours, inside an exclusive respawn transaction that re-verifies
+    after taking the lock, so two concurrent ensures can never respawn-k each
+    other's just-started collector. An empty binding (foreign window, collector
+    that died before publishing) is reported starting/unknown and never mutated;
+    a losing startup race re-verifies the winner's FULL identity."""
+    worker_id = str(worker_id or "worker").strip() or "worker"
+    frame_path = gpu_collector_frame_path(worker_id, root)
+    session = gpu_collector_session(worker_id, root)
+    if not frame_path:
+        return {"status": "unconfigured", "workerId": worker_id}
+    def _inspect():
+        fields = gpu_collector_tmux(["display-message", "-p", "-t", "=" + session + ":=collector",
+            "#{window_id}\t#{pane_id}\t#{pane_dead}\t#{@se_gpu_collector}"], keep_trailing=True).split("\t")
+        if len(fields) != 4 or fields[2] not in ("0", "1") or not re.fullmatch(r"@\d+", fields[0] or "") or not re.fullmatch(r"%\d+", fields[1] or ""):
+            return None
+        binding = {}
+        try:
+            binding = json.loads(fields[3]) if fields[3] else {}
+        except ValueError:
+            binding = {}
+        return {"windowId": fields[0], "paneId": fields[1], "dead": fields[2] == "1", "binding": binding}
+    def _verdict_report(verdict, observed):
+        status = {"mismatch": "mismatch", "foreign_uid": "foreign_uid"}.get(verdict, "unknown")
+        return {"status": status, "workerId": worker_id, "session": session, "windowId": observed["windowId"]}
+    def _respawn_transaction(observed):
+        # Single-writer transaction: persistent no-follow flock inode, then
+        # RE-VERIFY inside the lock. A concurrent ensure either waits it out and
+        # sees a live pane ("starting") or reports the other's verdict — never a
+        # second respawn-k over the just-started collector.
+        lock_path = gpu_collector_register_path(worker_id, root) + ".respawn.lock"
+        try:
+            os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+        except OSError:
+            return {"status": "unverified", "workerId": worker_id, "session": session, "reason": "respawn_lock_uncreatable"}
+        import fcntl
+        fd = -1
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            if fd >= 0:
+                os.close(fd)
+            return {"status": "unknown", "workerId": worker_id, "session": session, "reason": "respawn_in_progress"}
+        try:
+            os.write(fd, ("%d %d" % (os.getpid(), int(time.monotonic() * 1000))).encode("utf-8"))
+            recheck = _inspect()
+            if recheck is None:
+                return {"status": "unverified", "workerId": worker_id, "session": session}
+            if (recheck["windowId"], recheck["paneId"]) != (observed["windowId"], observed["paneId"]):
+                return {"status": "unverified", "workerId": worker_id, "session": session, "reason": "window_changed"}
+            if not recheck["dead"]:
+                # Another ensure (or a supervisor) already restarted it INSIDE our
+                # transaction window: never respawn-k a live collector.
+                verdict = _gpu_binding_verdict(recheck["binding"], worker_id, frame_path)
+                if verdict == "own":
+                    return {"status": "starting", "workerId": worker_id, "session": session,
+                            "windowId": recheck["windowId"], "paneId": recheck["paneId"]}
+                return _verdict_report(verdict if verdict != "empty" else "unknown", recheck)
+            verdict = _gpu_binding_verdict(recheck["binding"], worker_id, frame_path)
+            if verdict != "own":
+                return _verdict_report(verdict if verdict != "empty" else "unknown", recheck)
+            # Without -k tmux itself refuses to replace a live pane, closing the
+            # race between the last observation and the actual respawn command.
+            gpu_collector_tmux(["respawn-pane", "-t", recheck["paneId"], gpu_collector_command(worker_id, root)])
+            # The respawned collector publishes its own NEW generation; ensure adds none.
+            return {"status": "respawned", "workerId": worker_id, "session": session,
+                    "windowId": recheck["windowId"], "paneId": recheck["paneId"]}
+        except RuntimeError:
+            return {"status": "unverified", "workerId": worker_id, "session": session, "reason": "respawn_command_failed"}
+        finally:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            # Keep the inode: unlinking a lock lets another caller lock a new
+            # inode concurrently. flock releases automatically on process exit.
+    has = subprocess.run(["tmux", "has-session", "-t", "=" + session], capture_output=True, timeout=3).returncode == 0
+    if has:
+        try:
+            observed = _inspect()
+        except RuntimeError:
+            return {"status": "unverified", "workerId": worker_id, "session": session}
+        if observed is None:
+            return {"status": "unverified", "workerId": worker_id, "session": session}
+        verdict = _gpu_binding_verdict(observed["binding"], worker_id, frame_path)
+        if verdict == "own":
+            if observed["dead"]:
+                return _respawn_transaction(observed)
+            return {"status": "running", "workerId": worker_id, "session": session, "windowId": observed["windowId"],
+                    "paneId": observed["paneId"], "epoch": str(observed["binding"].get("epoch") or ""),
+                    "collectorVersion": str(observed["binding"].get("runningVersion") or ""),
+                    "versionCurrent": str(observed["binding"].get("runningVersion") or "") == str(RUNTIME_VERSION)}
+        if verdict == "empty":
+            if observed["dead"]:
+                # A dead window with NO verifiable identity may be foreign or may
+                # be ours from before the first publish — indistinguishable, so
+                # report honestly and mutate nothing (parent B).
+                return {"status": "unknown", "workerId": worker_id, "session": session,
+                        "windowId": observed["windowId"], "reason": "unbound_dead_window"}
+            return {"status": "starting", "workerId": worker_id, "session": session,
+                    "windowId": observed["windowId"], "paneId": observed["paneId"]}
+        return _verdict_report(verdict, observed)
+    os.makedirs(os.path.dirname(frame_path), exist_ok=True)
+    try:
+        created = gpu_collector_tmux(["new-session", "-d", "-P", "-F", "#{window_id}\t#{pane_id}", "-s", session, "-n", "collector", gpu_collector_command(worker_id, root)])
+    except RuntimeError:
+        # Startup race: another process may have won new-session. Re-verify the
+        # winner with the SAME full identity check; never overwrite its state and
+        # never accept a merely-nonempty binding as "the other" (parent B).
+        try:
+            if subprocess.run(["tmux", "has-session", "-t", "=" + session], capture_output=True, timeout=3).returncode == 0:
+                observed = _inspect()
+                if observed is not None:
+                    verdict = _gpu_binding_verdict(observed["binding"], worker_id, frame_path)
+                    if verdict == "own":
+                        return {"status": "race_won_by_other", "workerId": worker_id, "session": session,
+                                "windowId": observed["windowId"], "paneId": observed["paneId"]}
+                    if verdict == "empty":
+                        return {"status": "starting", "workerId": worker_id, "session": session,
+                                "windowId": observed["windowId"]}
+                    return _verdict_report(verdict, observed)
+        except RuntimeError:
+            pass
+        return {"status": "unverified", "workerId": worker_id, "session": session}
+    observed = _inspect()
+    if observed is None or created != observed["windowId"] + "\t" + observed["paneId"]:
+        return {"status": "unverified", "workerId": worker_id, "session": session}
+    verdict = _gpu_binding_verdict(observed["binding"], worker_id, frame_path)
+    if verdict not in ("own", "empty"):
+        return _verdict_report(verdict, observed)
+    gpu_collector_tmux(["set-option", "-w", "-t", observed["windowId"], "remain-on-exit", "on"])
+    return {"status": "started", "workerId": worker_id, "session": session,
+            "windowId": observed["windowId"], "paneId": observed["paneId"]}
+
+def gpu_collector_note_mode(worker_id, mode, root=""):
+    # One machine-journal note per mode transition: consumers never silently switch
+    # between the shared frame and the legacy direct sample. The visible truth for
+    # API/UI consumers is the frameSource/collectorMode fields on every payload.
+    key = str(worker_id or "")
+    if _GPU_SOURCE_MODE_LAST.get(key) == mode:
+        return
+    _GPU_SOURCE_MODE_LAST[key] = mode
+    try:
+        if root and "append_event" in globals():
+            append_event(root, {"type": "gpu_source_mode", "workerId": key, "payload": {"mode": mode, "generatedAt": now_iso()}})
+    except Exception:
+        pass
+    return mode
+
+def gpu_collector_main(root, worker_id, poll_seconds=1.0):
+    # The machine lock also covers callers in another tmux server and accidental
+    # direct launches: no second publisher may reset the epoch or sample GPUs.
+    import fcntl
+    frame_path = gpu_collector_frame_path(worker_id, root)
+    os.makedirs(os.path.dirname(frame_path), exist_ok=True)
+    fd = os.open(frame_path + ".writer.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "r+") as writer:
+        try:
+            fcntl.flock(writer.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise RuntimeError("GPU_COLLECTOR_WRITER_BUSY") from exc
+        return gpu_collector_loop(root, worker_id, poll_seconds)
+
+def gpu_collector_loop(root, worker_id, poll_seconds=1.0):
+    """Single writer for the shared frame. The epoch is this collector's own
+    generation and is published here (registration + window annotation) — nowhere
+    else. The sequence advances monotonically for the collector's lifetime and is
+    never reset by an Agent restart. Cadence matches the previous core frequency."""
+    worker_id = str(worker_id or "worker").strip() or "worker"
+    frame_path = gpu_collector_frame_path(worker_id, root)
+    if not frame_path:
+        raise RuntimeError("GPU_COLLECTOR_STATE_ROOT_UNCONFIGURED")
+    os.makedirs(os.path.dirname(frame_path), exist_ok=True)
+    epoch = "%d-%d" % (int(time.monotonic() * 1000), os.getpid())
+    gpu_collector_publish_generation(worker_id, root, epoch)
+    seq = 0
+    interval = max(0.5, float(poll_seconds or 1.0))
+    while True:
+        started = time.monotonic()
+        try:
+            gpus, err = collect_local_gpu()
+        except Exception as exc:  # A sampler crash must not fake freshness downstream.
+            gpus, err = [], str(exc)
+        seq += 1
+        frame = {"schemaVersion": 1, "frameSource": GPU_COLLECTOR_SOURCE, "workerId": worker_id,
+                 "epoch": epoch, "seq": seq, "collectedAt": now_iso(),
+                 "collectedMonotonicMs": int(started * 1000.0),
+                 "status": "ok" if not err else "degraded", "error": str(err or ""),
+                 "completeness": "full" if gpus and not err else "partial",
+                 "runtimeVersion": RUNTIME_VERSION, "gpu": gpus, "gpus": gpus}
+        try:
+            atomic_write(frame_path, frame)
+        except Exception as exc:
+            print("[gpu-collector] frame write failed: " + str(exc), file=sys.stderr, flush=True)
+        delay = interval - (time.monotonic() - started)
+        if delay > 0:
+            time.sleep(delay)
+
+_GPU_COLLECTOR_HEAL_AT = {}
+
+def gpu_collector_self_heal(worker_id, root=""):
+    # Bounded watchdog from the Agent sampler only: if the shared frame is not
+    # fresh, run the SAME verified ensure (which mutates nothing it cannot prove
+    # is ours). Cadence-limited; never scans processes, never touches any other
+    # window, never respawns an unbound dead window.
+    worker_id = str(worker_id or "worker").strip() or "worker"
+    now = time.monotonic()
+    if now - float(_GPU_COLLECTOR_HEAL_AT.get(worker_id) or 0.0) < 15.0:
+        return None
+    _GPU_COLLECTOR_HEAL_AT[worker_id] = now
+    if read_gpu_collector_frame(worker_id, root).get("mode") == "fresh":
+        return None
+    report = gpu_collector_ensure(worker_id, root)
+    if report.get("status") in ("started", "respawned"):
+        gpu_collector_note_mode(worker_id, "collector_" + str(report.get("status")), root)
+    return report
+
+def read_gpu_collector_frame(worker_id, root=""):
+    """Shared BOUNDED reader with generation consistency (parent C). Absence is
+    proven only by ENOENT; permission/type/link/oversized are unreadable. When a
+    valid registration exists the frame is fresh ONLY if it carries the CURRENT
+    published epoch — a late old-generation frame is "stale" at any seq. A frame
+    with no valid registration is "unregistered"/"unknown" (needs update): never
+    consumable, never a legacy door. Modes: absent (registration AND frame both
+    ENOENT-confirmed → starting/lost state), stalled, unregistered, unknown, unreadable,
+    foreign, partial, stale, fresh, unconfigured."""
+    worker_id = str(worker_id or "worker").strip() or "worker"
+    frame_path = gpu_collector_frame_path(worker_id, root)
+    if not frame_path:
+        return {"mode": "unconfigured", "frame": None}
+    state = _gpu_stat_state(frame_path)
+    registration = gpu_collector_read_registration(worker_id, root)
+    if state == "unreadable":
+        return {"mode": "unreadable", "frame": None}
+    if state == "absent":
+        if registration["mode"] == "registered":
+            return {"mode": "stalled", "frame": None}
+        if registration["mode"] == "absent":
+            return {"mode": "absent", "frame": None}
+        # Frame gone/never written while the registration is unreadable/invalid:
+        # capability cannot be proven legacy — stay unknown.
+        return {"mode": "unknown", "frame": None}
+    try:
+        frame = _gpu_read_bounded_json(frame_path)
+    except FileNotFoundError:
+        if registration["mode"] == "registered":
+            return {"mode": "stalled", "frame": None}
+        return {"mode": "absent" if registration["mode"] == "absent" else "unknown", "frame": None}
+    except (OSError, ValueError):
+        return {"mode": "unreadable", "frame": None}
+    if not isinstance(frame, dict) or frame.get("frameSource") != GPU_COLLECTOR_SOURCE \
+            or str(frame.get("workerId") or "") != worker_id:
+        return {"mode": "foreign", "frame": None}
+    seq = frame.get("seq")
+    epoch = str(frame.get("epoch") or "")
+    mono = frame.get("collectedMonotonicMs")
+    gpus = frame.get("gpus")
+    if type(seq) is not int or seq <= 0 or not epoch or not _gpu_number_finite(mono) or not isinstance(gpus, list):
+        return {"mode": "partial", "frame": None}
+    if registration["mode"] == "absent":
+        # Frame present without any registration: this collector family was never
+        # released without the register file, so this is a corrupted/partial state
+        # of a NEW deployment — unknown, needs update, never consumed (parent A).
+        return {"mode": "unregistered", "frame": frame}
+    if registration["mode"] != "registered":
+        return {"mode": "unknown", "frame": None}
+    published = str((registration.get("registration") or {}).get("epoch") or "")
+    if epoch != published:
+        # Late old-generation sample: never fresh regardless of seq (parent C).
+        return {"mode": "stale", "frame": frame, "ageMs": None, "reason": "generation"}
+    gen_start = float(registration["registration"]["genStartedMonotonicMs"])
+    previous = _GPU_FRAME_WATERMARKS.get(frame_path)
+    if float(mono) < gen_start or previous and (
+            epoch == previous[0] and (seq < previous[2] or float(mono) < previous[3])
+            or epoch != previous[0] and gen_start <= previous[1]):
+        return {"mode": "stale", "frame": frame, "ageMs": None, "reason": "ordering"}
+    _GPU_FRAME_WATERMARKS[frame_path] = (epoch, gen_start, seq, float(mono))
+    age_ms = time.monotonic() * 1000.0 - float(mono)
+    if age_ms < 0.0 or age_ms > GPU_COLLECTOR_FRESH_MS:
+        return {"mode": "stale", "frame": frame, "ageMs": age_ms}
+    if frame.get("completeness") != "full" or frame.get("status") != "ok" or not gpus:
+        return {"mode": "partial", "frame": frame, "ageMs": age_ms}
+    return {"mode": "fresh", "frame": frame, "ageMs": age_ms}
+
+def _gpu_evidence_fingerprint(gpus):
+    return hashlib.sha256(json.dumps(gpus, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+def _gpu_evidence_gpu_ids(gpus):
+    try:
+        return sorted(str(gpu_row_id(row)) for row in gpus if isinstance(row, dict))
+    except Exception:
+        return []
+
+def gpu_admission_probe_bound(root, worker_id="", intent=None):
+    """(gpus, error, evidence) source for every admission/dispatch decision.
+    Capability is supplied by this runtime's protocol, never inferred from file
+    absence. Missing state waits for startup; "unregistered",
+    "unknown", "unreadable", "invalid" or "foreign" return errors — a frame whose
+    registration is missing/invalid never degrades to a second sampler (parent D).
+    Causality fence (all required): the frame's sampling START is at or after this
+    request's monotonic boundary T0 and after the published generation start; the
+    shared reader already verified epoch equality with the published generation
+    before returning "fresh"; per-probe monotonic ordering blocks replays.
+    Evidence binds worker + root + command/request + sample identity + GPU
+    fingerprint, with NO defaults: a credential cannot cross project, command or
+    GPU set even for the same Worker."""
+    worker_id = str(worker_id or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
+    intent = intent if isinstance(intent, dict) else {}
+    command_id = str(intent.get("commandId") or "")
+    opening_frame = read_gpu_collector_frame(worker_id, root)
+    if opening_frame["mode"] == "unconfigured":
+        return [], "gpu_collector_state_unconfigured", None
+    if opening_frame["mode"] == "absent":
+        # This runtime implements the collector protocol. Missing files may be
+        # startup or loss of state; they never prove that this is an old runtime.
+        gpu_collector_note_mode(worker_id, "collector_starting", root)
+    if opening_frame["mode"] in ("foreign", "unreadable", "unknown", "unregistered"):
+        gpu_collector_note_mode(worker_id, "collector_" + str(opening_frame["mode"]), root)
+        reason = "gpu_collector_needs_update" if opening_frame["mode"] == "unregistered" else "gpu_collector_identity_unverified"
+        return [], reason, None
+    t0 = time.monotonic() * 1000.0
+    deadline = t0 + max(0.0, GPU_ADMISSION_WAIT_SECONDS) * 1000.0
+    last_accepted_epoch, last_accepted_seq = "", 0
+    latest = opening_frame
+    max_mono_seen = -1.0
+    while True:
+        reg_now = gpu_collector_read_registration(worker_id, root)
+        generation = (reg_now.get("registration") or {}) if reg_now["mode"] == "registered" else {}
+        latest = read_gpu_collector_frame(worker_id, root)
+        frame = latest.get("frame")
+        # "fresh" from the shared reader already implies current-generation; the
+        # explicit comparison below keeps the fence auditable at this site too.
+        if latest["mode"] == "fresh" and frame and generation:
+            epoch = str(frame["epoch"])
+            seq = int(frame["seq"])
+            mono = float(frame["collectedMonotonicMs"])
+            gen_start = float(generation.get("genStartedMonotonicMs") or 0.0)
+            current_generation = epoch == str(generation.get("epoch") or "")
+            request_after_start = mono >= t0 and mono >= gen_start
+            ordered = mono > max_mono_seen and (epoch != last_accepted_epoch or seq > last_accepted_seq)
+            if current_generation and request_after_start and ordered:
+                max_mono_seen = mono
+                last_accepted_epoch, last_accepted_seq = epoch, seq
+                gpu_collector_note_mode(worker_id, "collector", root)
+                evidence = {"workerId": worker_id, "root": str(os.path.abspath(root) if root else ""),
+                            "commandId": command_id,
+                            "requestStartedMonotonicMs": t0,
+                            "epoch": epoch, "seq": seq, "collectedMonotonicMs": mono,
+                            "gpuIds": _gpu_evidence_gpu_ids(frame["gpus"]),
+                            "fingerprint": _gpu_evidence_fingerprint(frame["gpus"])}
+                return list(frame["gpus"]), "", evidence
+        if time.monotonic() * 1000.0 >= deadline:
+            break
+        time.sleep(0.1)
+    gpu_collector_note_mode(worker_id, "collector_stalled", root)
+    return [], "gpu_collector_stalled: no request-bound sample from the current generation within " \
+        + format(GPU_ADMISSION_WAIT_SECONDS, ".1f") + "s (last frame mode " + str(latest.get("mode")) + ")", None
+
+def gpu_admission_probe(root, worker_id=""):
+    # (gpus, error) convenience wrapper for lock-free decision loops (drain,
+    # scheduler, accept). The bounded wait replaces the historical direct
+    # nvidia-smi call at the SAME call sites; fast inventory and stop paths never
+    # call this and never wait.
+    gpus, error, _evidence = gpu_admission_probe_bound(root, worker_id)
+    return gpus, error
+
+GPU_ADMISSION_EVIDENCE_FIELDS = ("workerId", "root", "commandId", "epoch", "seq",
+                                 "requestStartedMonotonicMs", "collectedMonotonicMs", "gpuIds", "fingerprint")
+
+def gpu_admission_recheck_evidence(root, worker_id, evidence, intent=None):
+    """In-lock revalidation for the GPU reserve (parent D): the credential must
+    be COMPLETE and bound to THIS caller — worker, absolute root, command/request
+    — with every field present (no silent defaults, so two projects of the same
+    Worker can never reuse one credential). The frame on disk must still be the
+    exact accepted sample (same epoch+seq+start+fingerprint), still fresh, and
+    still the published generation. The caller keeps its own in-lock occupancy
+    checks; this function never re-samples and never defaults the Worker."""
+    if not isinstance(evidence, dict):
+        return [], "gpu_admission_evidence_missing"
+    missing = [field for field in GPU_ADMISSION_EVIDENCE_FIELDS
+               if field not in evidence or evidence.get(field) in (None, "", [])]
+    if missing:
+        return [], "gpu_admission_evidence_missing:" + ",".join(missing)
+    if not _gpu_number_finite(evidence["requestStartedMonotonicMs"]) \
+            or not _gpu_number_finite(evidence["collectedMonotonicMs"]) \
+            or evidence["requestStartedMonotonicMs"] > evidence["collectedMonotonicMs"]:
+        return [], "gpu_admission_evidence_request_fence"
+    if str(worker_id or "") != str(evidence["workerId"]):
+        return [], "gpu_admission_evidence_worker_mismatch"
+    if str(os.path.abspath(root) if root else "") != str(evidence["root"]):
+        return [], "gpu_admission_evidence_root_mismatch"
+    if isinstance(intent, dict):
+        if str(intent.get("commandId") or "") != str(evidence["commandId"]):
+            return [], "gpu_admission_evidence_command_mismatch"
+    frame_obs = read_gpu_collector_frame(worker_id, root)
+    frame = frame_obs.get("frame")
+    if frame_obs["mode"] != "fresh" or not frame:
+        return [], "gpu_admission_evidence_frame_not_fresh"
+    if str(frame.get("epoch")) != str(evidence["epoch"]) \
+            or int(frame.get("seq")) != int(evidence["seq"]) \
+            or float(frame.get("collectedMonotonicMs")) != float(evidence["collectedMonotonicMs"]) \
+            or _gpu_evidence_fingerprint(frame["gpus"]) != str(evidence["fingerprint"]) \
+            or _gpu_evidence_gpu_ids(frame["gpus"]) != sorted(str(item) for item in (evidence.get("gpuIds") or [])):
+        return [], "gpu_admission_evidence_changed"
+    reg = gpu_collector_read_registration(worker_id, root)
+    if reg["mode"] != "registered" or str((reg.get("registration") or {}).get("epoch") or "") != str(frame.get("epoch")):
+        return [], "gpu_admission_evidence_generation_changed"
+    return list(frame["gpus"]), ""
+
+
 TASK_LIFECYCLE_PROTOCOL = 2
 NATIVE_TASK_RUNNER_CONTEXT = None
 TASK_SCHEDULER_UPDATE_ERROR = ""
@@ -18692,7 +19223,42 @@ def task_execution_inventory(root, queries=()):
     # reported as-is so the Host cannot mistake absence for a fresh frame.
     gpu_sample = None
     gpu_sample_state = "missing"
-    if "WORKER_GPU_SAMPLE_CACHE" in globals() and "WORKER_GPU_SAMPLE_LOCK" in globals():
+    # A fresh shared collector frame is a plain validated file read: it carries
+    # without touching the sampler lock or nvidia-smi, so inventory stays fast
+    # even between Agent sampler ticks and across an Agent restart.
+    collector_registered = False
+    if "read_gpu_collector_frame" in globals():
+        try:
+            shared_worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
+            shared = read_gpu_collector_frame(shared_worker, root)
+            shared_mode = str(shared.get("mode") or "absent")
+            # The SHARED reader already fused registration + frame capability:
+            # "absent" is only returned when BOTH files are ENOENT-proven.
+            collector_registered = True
+            shared_frame = shared.get("frame")
+            if shared_mode == "fresh" and shared_frame:
+                gpu_sample = {"schemaVersion": 1, "generatedAt": str(shared_frame.get("collectedAt") or now_iso()),
+                              "source": "worker_telemetry", "frameSource": GPU_COLLECTOR_SOURCE, "collectorMode": "fresh",
+                              "collectorAgeMs": round(float(shared.get("ageMs") or 0.0), 1),
+                              "gpu": shared_frame["gpus"], "gpus": shared_frame["gpus"],
+                              "status": str(shared_frame.get("status") or "ok"), "error": str(shared_frame.get("error") or ""),
+                              "completeness": str(shared_frame.get("completeness") or "full"),
+                              "seq": int(shared_frame["seq"]), "epoch": str(shared_frame["epoch"])}
+                gpu_sample_state = "ready"
+            elif collector_registered:
+                # A registered collector in a failed state is reported honestly
+                # (stale/partial/foreign/unreadable/stalled): the inventory must
+                # not dress an old sampler cache as "ready" while the shared
+                # source is broken.
+                gpu_sample = None
+                gpu_sample_state = shared_mode if shared_mode != "absent" else "stalled"
+        except Exception:
+            # Unknown is not absent and certainly not ready.
+            collector_registered = True
+            gpu_sample = None
+            gpu_sample_state = "unreadable"
+    if gpu_sample is None and not collector_registered \
+            and "WORKER_GPU_SAMPLE_CACHE" in globals() and "WORKER_GPU_SAMPLE_LOCK" in globals():
         if WORKER_GPU_SAMPLE_LOCK.acquire(False):
             try:
                 cached_gpu = WORKER_GPU_SAMPLE_CACHE.get("sample")
@@ -18709,7 +19275,11 @@ def task_execution_inventory(root, queries=()):
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
                 "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1,
                 "runtimeDiagnostics": 1, "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1,
-                "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1}, "tasks": tasks}
+                "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1,
+                # This runtime carries the shared independent-collector frames; the
+                # carried sample's frameSource says honestly whether the current
+                # frame is collector-shared or a marked direct sample.
+                "gpuCollector": 1}, "tasks": tasks}
 
 def task_manifest_observation(root, job):
     import stat as statmod
@@ -19080,7 +19650,7 @@ def task_query(root, queries=(), selected_only=False, observation_only=False):
             "activeOperations": active_cleanup_operations(root) if "active_cleanup_operations" in globals() else [],
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
                              "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1, "runtimeDiagnostics": 1,
-                             "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1}}
+                             "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1, "gpuCollector": 1}}
 
 def task_session_prefix():
     prefix = re.sub(r"[^a-z0-9._-]+", "-", str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower()).strip("-")[:32]
@@ -19179,7 +19749,10 @@ def task_queue_command(root, worker_id):
         argv.extend(["--state-dir", agent_dir(root)])
     # tmux children inherit the server's initial environment, not the Agent's.
     # Carry the configured prefix explicitly for both startup and replacement.
-    return "exec env " + shlex.join(["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX=" + task_session_prefix(), *argv])
+    carry = ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX=" + task_session_prefix()]
+    if "gpu_collector_state_root" in globals():
+        carry.append("SIMPLE_EXPERIMENT_WORKER_STATE_DIR=" + gpu_collector_state_root(root))
+    return "exec env " + shlex.join([*carry, *argv])
 
 
 def task_update_scheduler_runtime(root, worker_id):
@@ -19562,7 +20135,7 @@ def task_queue_serve(root, worker_id):
                         occupied[live["gpuId"]] = occupied.get(live["gpuId"], 0) + 1
                 queued = sorted([row for row in rows if not row["dead"] and row["phase"] == "queued"], key=lambda row: row.get("dispatchPolicy") != "manual")
                 if queued:
-                    gpus, error = collect_local_gpu()
+                    gpus, error = gpu_admission_probe(root, worker_id) if "gpu_admission_probe" in globals() else collect_local_gpu()
                     if gpus or not error:
                         for row in queued:
                             # Occupancy and cancellation need only live headers;
@@ -19643,6 +20216,8 @@ def task_stop(root, command, worker_id):
     project = str(command.get("projectId") or "")
     if not target or not project:
         raise ValueError("TASK_STOP_IDENTITY_REQUIRED")
+    if command.get("workerId") and command["workerId"] != worker_id:
+        raise ValueError("TASK_OWNER_MISMATCH")
     rows = [row for row in task_inventory(root, execution_only=True) if row["commandId"] == target]
     legacy_tabs = [row for row in local_stop_tmux_inventory(root) if row["command"] == target] if "local_stop_tmux_inventory" in globals() else []
     if any(row["project"] != project for row in legacy_tabs):
@@ -19653,20 +20228,23 @@ def task_stop(root, command, worker_id):
         task_queue_rpc(root, worker_id, "cancel", {"targetCommandId": target, "projectId": project}, ensure=True)
     except Exception:
         # Exact tab closure remains possible even when its controller is unhealthy.
-        if not rows:
+        if not rows and not legacy_tabs:
             raise
         for row in rows:
             task_tmux(["kill-window", "-t", row["tmuxWindowId"]])
     for tab in legacy_tabs:
         # Reused/renamed windows are rechecked through stable markers immediately before closure.
         current = [row for row in local_stop_tmux_inventory(root) if row["window"] == tab["window"]]
-        if current and all(row["command"] == target and row["project"] == project for row in current):
+        if any(row["command"] != target or row["project"] != project for row in current):
+            raise ValueError("TASK_OWNER_MISMATCH")
+        if current:
             task_tmux(["kill-window", "-t", tab["window"]])
     remaining = [row for row in task_inventory(root, execution_only=True) if row["commandId"] == target and row["projectId"] == project]
     if remaining:
         raise RuntimeError("TASK_STOP_NOT_CONFIRMED")
     return {"status": "completed", "stoppedTasks": [{"commandId": target, "projectId": project, "workerId": worker_id,
-        "workflowId": command.get("workflowId"), "stopBoundary": "local_command", "paneClosed": True, "cacheRetired": True}], "stoppedPids": []}
+        "workflowId": command.get("workflowId"), "stopBoundary": "local_command", "paneClosed": True, "cacheRetired": True,
+        "closedWindowIds": sorted({row["tmuxWindowId"] for row in rows} | {row["window"] for row in legacy_tabs})}], "stoppedPids": []}
 
 
 if __name__ == "__main__":

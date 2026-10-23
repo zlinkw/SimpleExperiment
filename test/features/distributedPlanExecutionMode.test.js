@@ -1,3 +1,4 @@
+const legacyMethod = require('../_helpers/legacyMethod');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -25,6 +26,8 @@ function method(start, end, scope = {}) {
   return vm.runInNewContext('({' + members.join(',\n') + '})', {
     ...require('../_helpers/nativeHostScope'),
     PlanExecutionMode, DistributedPlanQueue: Queue, PlanBuilder_1: PlanBuilder,
+    PlanCodeScopeHost: require("../../dist/extension/PlanCodeScopeHost"),
+    GpuQuotaScheduling: require("../../dist/features/GpuQuotaScheduling"), AgentTmuxPolicy_1:require("../../dist/tunnel/AgentTmuxPolicy"),
     WorkflowBinding: require('../../dist/features/WorkflowWorkspaceBinding'),
     PlanCleanupEvidence_1: require('../../dist/features/PlanCleanupEvidence'), path,
     fs: { readFile: async () => 'plan_id: stable-mode-plan\n' },
@@ -96,6 +99,7 @@ test('loading legacy queue restores matching mode without restarting or changing
   const queue = Queue.enqueuePlan(Queue.emptyDistributedQueue(), { planFile: 'experiments/plans/mode.yaml', revision,
     codeFingerprint: 'code', jobs: [{ index: 0, case: 'case', seed: 42, outputDir: 'work/job' }] }, 'run');
   delete queue.plans[0].resultPathPolicy;
+  delete queue.plans[0].jobs[0].lifecycleProtocol;
   Object.assign(queue.plans[0].jobs[0], {attempt:1,outputDir:'work/job/attempts/run'});
   Object.assign(queue.plans[0].jobs[0], { status: 'running', workerId: 'worker', commandId: 'active', actualExecutionMode: 'train_test' });
   const original = JSON.stringify(queue), owner = host(queue);
@@ -143,6 +147,7 @@ test('formal resource failure keeps validated train mode and blocks rerun over f
   assert.equal(queue.plans[0].executionMode, 'train'); assert.equal(queue.plans[0].jobs[0].attempt, 0);
   assert.equal(queue.plans[0].jobs[0].automaticRetry,undefined,'native jobs never create automatic attempts or implicit cleanup');
   assert.equal(queue.plans[0].jobs[0].status,'failed');
+  assert.equal(queue.plans[0].jobs[0].commandId,"old","failed protocol-2 command must not be replayed");
   const reassigned = Queue.allocateAvailable(queue, [{ workerId: 'other', idleGpuIds: ['0'], online: true, codeFingerprint: 'code' }]);
   assert.equal(reassigned.dispatches.length, 0); assert.equal(reassigned.queue.plans[0].executionMode, 'train');
 });
@@ -172,11 +177,40 @@ test('historical training recovery receipts and changed proof identities cannot 
     assert.notEqual(merge({ ...task, trainingRecovery: { ...task.trainingRecovery, ...changed } }).plans[0].jobs[0].status, 'completed');
   assert.equal(queue.plans[0].jobs[0].status, 'failed');
 });
+test('confirmed training recovery survives a lost Host receipt on a legacy queue, rejecting changed proof identity', () => {
+  const now = Date.now(), at = new Date(now).toISOString(), projectId = 'project';
+  const queue = Queue.enqueuePlan(Queue.emptyDistributedQueue(), { projectId, planFile: 'plans/train.yaml', revision: 'rev',
+    executionMode: 'train', codeFingerprint: 'code', jobs: [{ index: 0, case: 'case', seed: 42, outputDir: 'work/job' }] }, 'run', at);
+  delete queue.plans[0].resultPathPolicy;
+  delete queue.plans[0].jobs[0].lifecycleProtocol;
+  Object.assign(queue.plans[0].jobs[0],{attempt:1,outputDir:'work/job/attempts/run'});
+  const plan = queue.plans[0], job = plan.jobs[0];
+  Object.assign(job, { status: 'failed', trustedTerminalStatus: 'failed', workerId: 'worker', commandId: 'command', runKey: 'command' });
+  const task = { projectId, planFile: plan.planFile, planRevision: 'rev', codeFingerprint: 'code', workflowId: 'run',
+    experimentIndex: 0, case: 'case', seed: 42, attempt: 1, outputDir: job.outputDir, commandId: 'command', runKey: 'command',
+    workerId: 'worker', planJobCount: 1, enqueuedAt: at, status: 'completed', executionMode: 'train', mode: 'train', finishedAt: at, error: '',
+    originalExecution: { status: 'failed', exitCode: 1, mode: 'train_test', error: 'Validation-only tuning cannot access test patients' },
+    trainingRecovery: { kind: 'validation_adapter_checkpoint', projectId, planFile: plan.planFile, planRevision: 'rev', codeFingerprint: 'code',
+      workflowId: 'run', experimentIndex: 0, case: 'case', seed: 42, attempt: 1, outputDir: job.outputDir, commandId: 'command',
+      workerId: 'worker', confirmedAt: at, metricSplit: 'val', checkpointPath: job.outputDir + '/best_model.pth',
+      sha256: Object.fromEntries(['best_model.pth', 'config.yaml', 'config_snapshot.yaml', 'metrics_summary.csv', 'artifact_manifest.json',
+        'checkpoint_manifest.json'].map(name => [job.outputDir + '/' + name, 'a'.repeat(64)])) } };
+  const merge = receipt => Queue.mergeDurableWorkerSnapshots(queue, [{ workerId: 'worker', generatedAt: at, fetchedAt: at,
+    capabilities: { durablePlanQueue: true, schemaVersion: 1 }, tasks: [receipt] }], projectId, now);
+  const recovered = merge(task).plans[0].jobs[0];
+  assert.equal(recovered.status, 'completed'); assert.equal(recovered.trustedTerminalStatus, 'completed');
+  assert.equal(recovered.actualExecutionMode, 'train_test'); assert.equal(recovered.originalExecution.exitCode, 1);
+  assert.equal(recovered.commandId,'command');assert.equal(recovered.attempt,1);assert.equal(recovered.outputDir,job.outputDir);
+  for (const changed of [{ seed: 44 }, { outputDir: 'other/attempt' }, { confirmedAt: undefined }, { metricSplit: 'test' }])
+    assert.notEqual(merge({ ...task, trainingRecovery: { ...task.trainingRecovery, ...changed } }).plans[0].jobs[0].status, 'completed');
+  assert.equal(queue.plans[0].jobs[0].status, 'failed');
+});
 test('training recovery requires confirmation for the unchanged job and current project', async () => {
   for (const scenario of ['confirm', 'cancel', 'project-switch', 'new-attempt']) {
     const queue = Queue.enqueuePlan(Queue.emptyDistributedQueue(), { projectId: 'project', planFile: 'plans/train.yaml', revision: 'rev',
       executionMode: 'train', codeFingerprint: 'code', jobs: [{ index: 0, case: 'case', seed: 42, outputDir: 'work/job' }] }, 'run');
     delete queue.plans[0].resultPathPolicy;
+  delete queue.plans[0].jobs[0].lifecycleProtocol;
     Object.assign(queue.plans[0].jobs[0],{attempt:1,outputDir:'work/job/attempts/run'});
     const job = queue.plans[0].jobs[0];
     Object.assign(job, { status: 'failed', workerId: 'worker', commandId: 'command', runKey: 'command', actualExecutionMode: 'train_test',

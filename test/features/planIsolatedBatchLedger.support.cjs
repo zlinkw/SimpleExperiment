@@ -51,8 +51,8 @@ const observed=(when,extra={})=>({queuePlanId:'card',projectId:'cp-1',jobIndex:0
   status:'running',lastObservedAt:new Date(when).toISOString(),statusQueryError:'',...extra});
 
 
-function spawnChild(distFile,file,mode){
-  const p=fork(path.resolve(__dirname,'planIsolatedBatchLedger.lockChild.cjs'),[distFile,file,mode],{execArgv:[],stdio:['ignore','pipe','pipe','ipc']});
+function spawnChild(distFile,file,mode,eventsFile){
+  const p=fork(path.resolve(__dirname,'planIsolatedBatchLedger.lockChild.cjs'),[distFile,file,mode,eventsFile||''],{execArgv:[],stdio:['ignore','pipe','pipe','ipc']});
   p.on('error',()=>{/* 断连竞态的异步 EPIPE 由 close/exit 判定兜底 */});
   const events=[];const waiters=new Map();
   p.on('message',m=>{events.push(m);for(const f of waiters.get(m.event)||[])f(m);});

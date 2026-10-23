@@ -87,7 +87,7 @@ test('both cleanup paths forward the configured prefix without changing target a
     vscode:{workspace:{getConfiguration:()=>({get:()=> 'global'})}},
     AgentTmuxPolicy_1:require('../../src/tunnel/AgentTmuxPolicy.ts'),
     callSftpWithProgress:async(name,params,capability)=>{await capability(name);calls.push({name,params});return {ok:true};}});
-  const host={setupConfig:{sessionPrefix:'Research'},simpleSftpCapability:async()=>({})};
+  const host={assertTransferRootSafety:method('assertTransferRootSafety'),setupConfig:{sessionPrefix:'Research'},simpleSftpCapability:async()=>({})};
   const input={token:'original',index:0,confirm:false};
   for(const name of ['files.cleanup.preview','files.cleanup.execute','files.cleanup.check'])await run.call(host,name,input);
   assert.equal(calls[0].params.tmuxSessionPrefix,'research'); assert.equal(calls[1].params.tmuxSessionPrefix,'research');

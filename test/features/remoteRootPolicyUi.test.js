@@ -21,7 +21,9 @@ test("remote root policies are exposed in the plugin settings page", () => {
   assert.match(panel, /data-key="deniedRoots"/);
   assert.match(panel, /<button class="secondary" data-command="saveRemoteRootPolicy"[^>]*>保存<\/button>/);
   assert.match(panel, /textarea\.remoteRootPolicyInput \{ width: 100%; height: 100%; min-height: 0;/);
-  assert.match(extension, /remoteRootPolicy: remoteRootPolicyConfig\(\)/);
+  assert.match(extension, /const remoteRootPolicy = remoteRootPolicyConfig\(\)/);
+  assert.match(extension, /remoteRootPolicyRevision = sha256Text\(JSON\.stringify\(remoteRootPolicy\)\)/);
+  assert.match(extension, /\n\s+remoteRootPolicy,/);
 });
 
 test("saving remote root policies writes the workspace configuration", () => {

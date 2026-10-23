@@ -1,30 +1,37 @@
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const os = require('node:os');
-const vm = require('node:vm');
-const ts = require('typescript');
-const { spawnSync } = require('node:child_process');
-const root = path.resolve(__dirname,'../..');
-const original = require.extensions['.ts'];
-require.extensions['.ts'] = (loaded, filename) => loaded._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'), {
-  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true},
-}).outputText,filename);
-const DistributedPlanQueue = require('../../src/features/DistributedPlanQueue.ts');
-const DistributedSchedulingPolicy = require('../../src/features/DistributedSchedulingPolicy.ts');
-const GpuJobOwnership = require('../../src/features/GpuJobOwnership.ts');
-const PlanExecutionMode = require('../../src/features/PlanExecutionMode.ts');
-require.extensions['.ts'] = original;
-const source = fs.readFileSync(path.join(root,'src/extension/legacy.ts'),'utf8');
-const proofHelperSource = source.match(/^function durableCodeProofRequestFields\([\s\S]*?^\}/m)?.[0];
-assert.ok(proofHelperSource, 'missing production durable code proof request helper');
-const durableCodeProofRequestFields = new Function(`${proofHelperSource}\nreturn durableCodeProofRequestFields;`)();
-function provider(names, extra={}) {
-  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);
-  const cls=ast.statements.find(node=>ts.isClassDeclaration(node)&&node.name?.text==='RealtimeTunnelPanelProvider');
-  const code='class Provider {'+cls.members.filter(node=>names.includes(node.name?.getText(ast))).map(node=>node.getText(ast)).join('\n')+'}; Provider;';
-  return vm.runInNewContext(ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
+const {test}=require('node:test');
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),vm=require('node:vm');
+const ts=require('typescript'),{spawnSync}=require('node:child_process');
+require('../_helpers/registerTsRequire');
+const root=path.resolve(__dirname,'../..');
+const DistributedPlanQueue=require('../../src/features/DistributedPlanQueue.ts');
+const DistributedSchedulingPolicy=require('../../src/features/DistributedSchedulingPolicy.ts');
+const GpuQuotaScheduling=require('../../src/features/GpuQuotaScheduling.ts');
+const GpuJobOwnership=require('../../src/features/GpuJobOwnership.ts');
+const PlanExecutionMode=require('../../src/features/PlanExecutionMode.ts');
+const PlanCodeScopeHost=require('../../src/extension/PlanCodeScopeHost.ts');
+const AgentTmuxPolicy_1=require('../../src/tunnel/AgentTmuxPolicy.ts');
+const source=fs.readFileSync(path.join(root,'src/extension/legacy.ts'),'utf8');
+const helper=source.match(/^function durableCodeProofRequestFields\([\s\S]*?^\}/m)?.[0];assert.ok(helper);
+const durableCodeProofRequestFields=new Function(`${helper}\nreturn durableCodeProofRequestFields;`)();
+// 2026-10-23 Windows 整文件 20s 门禁返修：本文件 21 案例约 23 次调用 provider()，每次都对 2.18MB legacy.ts
+// 重新 createSourceFile+transpile——重复解析是已证实的可消除成本（Linux 等价基线 duration_ms 5329→1486）；
+// Windows 原全文件 20s 超时是否由此触发尚未证实：单案例 Windows 诊断 299ms/exit0 仅说明单案例不必挂起，
+// 原超时证据保留，最终余量以最终原 20s 门禁为准。修复＝fixture 编译缓存：AST 解析提升到模块级只解析一次，编译产物按 names 集合缓存；
+// 同一 names 集合的源码切片、成员数量断言与编译输出逐字节一致，vm 沙箱仍每次新建（extra 上下文可异），
+// 案例名/参数/断言零删减，语义完全等价。
+const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);
+const providerCompiled=new Map();
+function provider(names,extra={}) {
+  const key=JSON.stringify(names);
+  let code=providerCompiled.get(key);
+  if(code===undefined) {
+    const cls=ast.statements.find(n=>ts.isClassDeclaration(n)&&n.name?.text==='RealtimeTunnelPanelProvider');
+    const members=cls.members.filter(n=>names.includes(n.name?.getText(ast)));
+    assert.equal(members.length,names.length);
+    code=ts.transpileModule('class Provider {'+members.map(n=>n.getText(ast)).join('\n')+'};Provider;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+    providerCompiled.set(key,code);
+  }
+  return vm.runInNewContext(code,
     {...require('../_helpers/nativeHostScope'),DistributedPlanQueue,DistributedSchedulingPolicy,GpuJobOwnership,PlanExecutionMode,durableCodeProofRequestFields,workspaceRoot:()=>root,setInterval,clearInterval,
       mapLimited:async(rows,_limit,callback)=>Promise.all(rows.map(callback)),errorMessage:error=>error.message,...extra});
 }
@@ -199,12 +206,16 @@ test('G1 actual native RPC preserves mode, quota and explicit GPU admission whil
 const agentSource=fs.readFileSync(path.join(root,'src/clusterAgentRuntime.legacy.ts'),'utf8');
 function definition(name){const start=agentSource.indexOf(`\ndef ${name}(`)+1;assert.ok(start>0,name);
   const end=agentSource.indexOf('\ndef ',start+1);return agentSource.slice(start,end<0?undefined:end);}
+// 2026-10-23 G2/G3 交付返修（父矩阵证据：同字节 -c 55.5/58.2ms vs 文件入口 484.8/426.1ms，stdout 逐字节等价；
+// Windows 原 10s 超时未稳定复现，不宣称根因，本改动仅消除已实测的文件入口开销）：
+// 执行交付改 python -X utf8 -c <script>，原 .py 仍写出保留取证；解释器/环境/10s/windowsHide/真实 status
+// 与全部 21 案例断言原样，不 import/exec 完整 runtime。
 function python(script){const file=path.join(os.tmpdir(),`simpleex-lifecycle-${process.pid}-${Date.now()}.py`);fs.writeFileSync(file,script,'utf8');
-  try {const run=spawnSync(process.env.PYTHON||'python',['-X','utf8',file],{encoding:'utf8',timeout:10000,windowsHide:true});
+  try {const run=spawnSync(process.env.PYTHON||'python',['-X','utf8','-c',script],{encoding:'utf8',timeout:10000,windowsHide:true});
     assert.equal(run.status,0,run.stderr||run.error?.message);return JSON.parse(run.stdout.trim());}
-  finally {fs.unlinkSync(file);}}
+  finally { /* Preserve bounded probe. */ }}
 test('G2 real Agent idle admission guard rejects a competing process and untrusted telemetry',()=>{
-  const result=python(`import json, math\nGPU_IDLE_UTIL_THRESHOLD=5\nGPU_IDLE_MEM_THRESHOLD_MB=200\nDISTRIBUTED_GPU_RESERVATIONS={}\ndef read_json(*args): return {}\ndef path_for(*args): return ''\ndef read_durable_plan_queue(*args): return {'jobs':[]}\ndef gpu_row_id(row): return str(row['gpuId'])\ndef gpu_row_busy(*args,**kwargs): return False\n${definition('_durable_gpu_busy_reason')}\nrow={'gpuId':'0','utilizationPercent':0,'memoryUsedMb':7,'processes':[{'pid':7}]}\nprint(json.dumps([_durable_gpu_busy_reason('', '0', 'c', [row]),_durable_gpu_busy_reason('', '0', 'c', [{'gpuId':'0'}])]))\n`);
+  const result=python(`import json, math\nGPU_IDLE_UTIL_THRESHOLD=5\nGPU_IDLE_MEM_THRESHOLD_MB=200\nDISTRIBUTED_GPU_RESERVATIONS={}\ndef read_json(*args): return {}\ndef active_cleanup_operations(root): return []\ndef formal_job_path_capable(root): return True\ndef path_for(*args): return ''\ndef read_durable_plan_queue(*args): return {'jobs':[]}\ndef gpu_row_id(row): return str(row['gpuId'])\ndef gpu_row_busy(*args,**kwargs): return False\n${definition('_durable_gpu_busy_reason')}\nrow={'gpuId':'0','utilizationPercent':0,'memoryUsedMb':7,'processes':[{'pid':7}]}\nprint(json.dumps([_durable_gpu_busy_reason('', '0', 'c', [row]),_durable_gpu_busy_reason('', '0', 'c', [{'gpuId':'0'}])]))\n`);
   assert.deepEqual(result,['gpu_busy','gpu_busy'],'G2 admission must reject occupied or unknown GPU');
 });
 test('G3 actual task API syncs exit evidence into durable ledger immediately, with mode and terminal metadata',()=>{
@@ -224,4 +235,55 @@ test('G4 automatic postprocess schedules only Worker mirroring and package/lock/
   const version=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).version;
   assert.match(version,/^\d+\.\d+\.\d+$/);assert.equal(JSON.parse(fs.readFileSync(path.join(root,'package-lock.json'),'utf8')).version,version);
   assert.match(fs.readFileSync(path.join(root,'src/runtime/RuntimeManifest.ts'),'utf8'),new RegExp(`CURRENT_RUNTIME_VERSION = "${version.replaceAll('.','\\.')}"`));
+});
+
+// Merged 2026-10-23 (integration-latest): feature 侧两个独立新契约（GPU 读取与任务快照并行、server_prequeue 设置本地派发）与 native 套件互补，连同其所需 fixture 保留；其余 feature 重命名案例与 latest native 套件一一对应，语义由 native 套件承载（映射见 .audit/integration-latest/report.md）。
+const capabilities={taskLifecycle:2,durablePlanQueue:true,idleGpuAdmission:true,schemaVersion:1};
+function snapshot(workerId,tasks=[]) {const time=new Date().toISOString();return {workerId,capabilities,queryComplete:true,generatedAt:time,fetchedAt:time,tasks};}
+function fixture() {
+  const Provider=provider(['tickDistributedQueueCore']);const p=new Provider();
+  Object.assign(p,{taskLifecycleProtocol:2,distributedQueueGeneration:0,distributedPlanStopEpoch:0,distributedNextFailureDetailAt:Infinity,
+    distributedNextPostprocessAt:Infinity,distributedLaunchInFlight:new Set()});
+  p.isRealtimeMode=()=>true;p.projectTopologyAssessment=()=>({mode:'worker_pool'});p.workerCodeSyncTargets=()=>[];
+  p.workerActionTargets=()=>[{id:'a'},{id:'b'}];p.enabledWorkerConfigs=()=>[{id:'a'},{id:'b'}];
+  p.lastWorkerProbes={a:{status:'ok',capabilities:{endpoints}},b:{status:'ok',capabilities:{endpoints}}};
+  p.lastCodeSyncState={workerVersions:{a:{fingerprint:'f'},b:{fingerprint:'f'}}};p.schedulerSettings=()=>({});p.gpuOwnerConfig=()=>({});
+  const errors=[],calls=[],observed=new Map();let saves=0,posts=0,manifests=0;
+  p.recordActionError=e=>errors.push(e);p.postState=()=>posts++;p.scheduleDistributedPostprocess=()=>{};p.queuePlanArtifactSyncStatusCheck=()=>{};
+  p.buildDistributedJobCodeManifest=async()=>{manifests++;return {};};
+  p.readWorkerTaskSnapshotBatch=async ids=>ids.map(id=>snapshot(id,observed.get(id)||[]));
+  p.client={getGpu:async()=>({a:[{index:'0',utilizationPercent:0,memoryTotalMb:24576,memoryUsedMb:7,processes:[]}],
+    b:[{index:'0',utilizationPercent:99,memoryTotalMb:24576,memoryUsedMb:5000,processes:[{username:'foreign'}]}]})};
+  const input=id=>({projectId:DistributedPlanQueue.canonicalProjectId(root),executionMode:'train',planFile:id+'.yaml',revision:'r',codeFingerprint:'f',
+    jobs:[0,1].map(index=>({index,case:'bus',seed:index,outputDir:`runs/${id}/${index}`,collectionResultCsv:`results/${id}-${index}.csv`}))});
+  let stored=DistributedPlanQueue.enqueuePlan(DistributedPlanQueue.emptyDistributedQueue(),input('p'),'p');
+  p.loadDistributedQueue=async()=>structuredClone(stored);p.saveDistributedQueue=async(_r,value)=>{saves++;stored=structuredClone(value);};
+  p.sendDistributedJob=async(plan,job,workerId,gpuId,commandId)=>{
+    assert.equal(stored.plans.find(x=>x.id===plan.id).jobs[job.index].commandId,commandId,'persist exact identity before RPC');
+    calls.push({plan:plan.id,index:job.index,workerId,gpuId,commandId});return {lifecycleProtocol:2,commandId,status:'accepted'};
+  };
+  function task(job,status='running',plan=stored.plans[0]) {
+    const observation={lifecycleProtocol:2,projectId:plan.projectId,workerId:job.workerId,commandId:job.commandId,observedAt:new Date().toISOString(),result:null,
+      tmux:{windowId:'@'+(job.index+1),paneId:'%'+(job.index+1),dead:['failed','completed'].includes(status),
+        ...(['failed','completed'].includes(status)?{exitCode:status==='failed'?1:0}:{phase:status==='queued'?'bound':'running'})}};
+    if(status==='completed')observation.result={runId:job.commandId,status:'completed',present:true,verified:true,identityMatches:true,artifactsComplete:true,exitCode:0};
+    return {...job,lifecycleProtocol:2,workflowId:plan.id,projectId:plan.projectId,experimentIndex:job.index,planFile:plan.planFile,
+      planRevision:plan.revision,codeFingerprint:plan.codeFingerprint,planJobCount:plan.planJobCount,status,observation};
+  }
+  function bind(index=0,status='unknown') {const job=stored.plans[0].jobs[index];Object.assign(job,{status,workerId:'a',gpuId:'0',commandId:'original-'+index,runKey:'original-'+index});return job;}
+  function retireOther() {const job=stored.plans[0].jobs[1];Object.assign(job,{status:'cancelled',commandId:'cancelled-1',workerId:'a'});observed.set('a',[{...task(job),observation:{...task(job).observation,tmux:undefined,cancelled:true}}]);}
+  return {p,calls,errors,observed,input,task,bind,retireOther,stored:()=>stored,counts:()=>({saves,posts,manifests})};
+}
+
+
+test('GPU read starts while task snapshots are still pending',async()=>{
+  const f=fixture();let release,started=false;const gate=new Promise(r=>release=r),read=f.p.readWorkerTaskSnapshotBatch;
+  f.p.readWorkerTaskSnapshotBatch=async ids=>{await gate;return read(ids);};const gpu=f.p.client.getGpu;
+  f.p.client.getGpu=async()=>{started=true;return gpu();};const tick=f.p.tickDistributedQueueCore();
+  try{for(let i=0;i<50&&!started;i++)await new Promise(setImmediate);assert.equal(started,true);}finally{release();await tick;}
+});
+
+test('saved server_prequeue settings keep new unassigned jobs local',async()=>{
+  const f=fixture();f.stored().plans[0].schedulingMode='server_prequeue';await f.p.tickDistributedQueueCore();
+  assert.equal(f.calls.length,1);assert.equal(f.calls[0].gpuId,'0');assert.equal(f.stored().plans[0].localDispatchOverride,true);
 });

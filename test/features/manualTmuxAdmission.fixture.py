@@ -65,4 +65,4 @@ try:
     print(json.dumps(dict(ok=True, realTmux=True, manualConcurrent=True, autoWithManual=True, exactStopIsolated=True, unknownRequestFenced=True)))
 finally:
     # Fixture-owned server under this newly created private TMUX_TMPDIR only.
-    subprocess.run(['tmux', 'kill-server'], capture_output=True, timeout=2)
+    close_fixture_tmux_windows(lambda args: subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=2), private_root=root)

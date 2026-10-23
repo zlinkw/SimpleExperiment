@@ -18,11 +18,11 @@ function methods(start, end) {
 
 function fixture({ emptyOriginal = false, cold = false, allMissing = false, retry = false, respectDepth = false, inventoryStdin = false } = {}) {
   const outputDir = "work_dirs/ebmc/job/run-b";
-  const files = Object.fromEntries([...required, "stdout.log", "formal_job_owner.json"].map(name => [`${outputDir}/${name}`, { sha256: hash }]));
+  const files = Object.fromEntries([...required, "stdout.log", "artifact_manifest.json"].map(name => [`${outputDir}/${name}`, { sha256: hash }]));
   let state = { schemaVersion: 1, plans: ["run-a", "run-b"].map((id, index) => ({
     id, planFile: "experiments/plans/ebmc.yaml", revision: "r", codeFingerprint: "fp", fullPlanJobCount: 1, resultPathPolicy: "declared",
     enqueuedAt: new Date(1700000000000 + index).toISOString(), jobs: [{
-      index: 0, case: "bus", seed: 42, attempt: 0, resultPathPolicy: "declared", globalJobId: `${id}:0`, status: "completed", commandId: id, workerId: "w1",
+      index: 0, case: "bus", seed: 42, attempt: 0, lifecycleProtocol: 2, resultPathPolicy: "declared", globalJobId: `${id}:0`, status: "completed", commandId: id, workerId: "w1",
       outputDir: outputDir.replace("run-b", id), artifacts: Object.fromEntries(Object.keys(files).map(file => [file.replace("run-b", id), hash])),
       mirroredWorkerIds: ["w1", "w2", "w3"], fragmentWorkerIds: ["w1", "w2", "w3"],
       ...(retry ? { artifactRetryAfter: new Date(Date.now() + 30000).toISOString() } : {}),
@@ -32,6 +32,7 @@ function fixture({ emptyOriginal = false, cold = false, allMissing = false, retr
   const transfers = [], errors = [], events = [], inventoryCalls = [];
   const sandbox = {
     Buffer,
+    NativeResultManifest_1: require("../../dist/results/NativeResultManifest.js"),
     SafeRequestRetry_1: require("../../dist/core/SafeRequestRetry.js"),
     PlanOutputRetention: retention, PlanRunFreshness: require("../../dist/results/PlanRunFreshness.js"),
     workspaceRoot: () => root, errorMessage: value => value.message,
@@ -116,7 +117,7 @@ test("108 completed jobs batch verification by Worker and recheck copied destina
     job.outputDir = `work_dirs/model-${index}/job/${plan.id}`;
     job.globalJobId = `${plan.id}:0`;
     job.commandId = `command-${index}`;
-    job.artifacts = Object.fromEntries([...required, "formal_job_owner.json"].map(name => [`${job.outputDir}/${name}`, hash]));
+    job.artifacts = Object.fromEntries([...required, "artifact_manifest.json"].map(name => [`${job.outputDir}/${name}`, hash]));
     for (const id of ["w1", "w3"]) for (const file of Object.keys(job.artifacts)) f.inventory[id][file] = { sha256: hash };
     f.state.plans.push(plan);
   }
@@ -342,7 +343,7 @@ test("missing bulk inventories share bounded Worker scope queries instead of per
     job.outputDir = `work_dirs/complete-${index}/job/${plan.id}`;
     job.globalJobId = `${plan.id}:0`;
     job.artifacts = Object.fromEntries(fragments.map(name => [`${job.outputDir}/${name}`, hash]));
-    for (const worker of ["w1", "w3"]) for (const name of [...required, "stdout.log", "formal_job_owner.json"]) {
+    for (const worker of ["w1", "w3"]) for (const name of [...required, "stdout.log", "artifact_manifest.json"]) {
       f.inventory[worker][`${job.outputDir}/${name}`] = { sha256: hash };
     }
     f.state.plans.push(plan);

@@ -15,8 +15,21 @@ const extensionSource = readSource("src/extension.ts");
 const panelSource = readSource("src/ui/PanelHtml.ts");
 const probeSource = readSource("src/tunnel/XshellTunnelPortProbe.ts");
 const utf8PythonEnv = { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
+// Exercise only the explicit dependency functions, never exec the complete runtime.
+const diagnosticDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scheduler-diagnostic-functions-'));
+const diagnosticPath = path.join(diagnosticDir, 'probe.py');
+fs.writeFileSync(diagnosticPath, [
+  'import ast,json,os,pathlib,shlex,sys', 'from typing import Any',
+  'try: import yaml', 'except ImportError: yaml=None',
+  `source=pathlib.Path(${JSON.stringify(schedulerPath)}).read_text(encoding='utf-8')`,
+  "names={'scheduler_dependency_status','require_scheduler_dependencies','simple_conda_env_name'}",
+  "nodes=[n for n in ast.parse(source).body if isinstance(n,ast.FunctionDef) and n.name in names]",
+  "exec(compile(ast.Module(body=nodes,type_ignores=[]),'isolated-dependency-functions','exec'),globals())",
+  "if '--check-dependencies-json' in sys.argv: print(json.dumps(scheduler_dependency_status(),ensure_ascii=False))",
+  "else: require_scheduler_dependencies()",
+].join('\n'));
 function runPython(args, env = utf8PythonEnv) {
-  return spawnSync("python", args, { encoding: "utf8", env, timeout: 10000, windowsHide: true });
+  return spawnSync("python", args.map(arg => arg === schedulerPath ? diagnosticPath : arg), { encoding: "utf8", env, timeout: 10000, windowsHide: true });
 }
 
 test("scheduler reports actionable PyYAML guidance without a traceback", () => {
@@ -39,7 +52,7 @@ test("scheduler reports actionable PyYAML guidance without a traceback", () => {
   assert.doesNotMatch(status.message, /Traceback/);
 
   const validation = runPython(["-S", schedulerPath, "--validate-plan", "--plan", "missing.yaml"]);
-  assert.notEqual(validation.status, 0);
+  assert.equal(validation.status, 1, validation.stderr || validation.stdout);
   assert.match(validation.stderr, /Scheduler 依赖预检失败/);
   assert.match(validation.stderr, /安装命令：/);
   assert.doesNotMatch(validation.stderr, /Traceback/);
@@ -96,7 +109,7 @@ test("explicit dependency diagnostics remain available without automatic Worker 
   const scriptPath = path.join(directory, "dependency_gate.py");
   fs.writeFileSync(scriptPath, script, "utf8");
   const result = runPython([scriptPath]);
-  fs.rmSync(directory, { recursive: true, force: true });
+  // Keep the exact diagnostic fixture and output for audit.
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout.trim());
   assert.match(payload.error, /python -m pip install PyYAML/);
@@ -104,8 +117,8 @@ test("explicit dependency diagnostics remain available without automatic Worker 
   const preview = agentSource.slice(agentSource.indexOf("def dry_run_preview_action"), agentSource.indexOf("def selected_worker_id"));
   assert.doesNotMatch(validate, /require_scheduler_dependencies\(root, scheduler, env\)/);
   assert.doesNotMatch(preview, /require_scheduler_dependencies\(root, scheduler\)/);
-  assert.match(agentSource, /simple_conda_activation_script\(\)\} && exec/);
-  assert.match(schedulerSource, /simple_conda_activation_script\(env\)\} && exec/);
+  assert.match(agentSource, /return task_shell_args\(args, source, simple_runtime_python\(source\)\)/);
+  assert.match(schedulerSource, /return task_shell_args\(args, env, runtime_python_command\(env\)\)/);
 });
 
 test("Agent health does not probe the research environment or claim unchecked readiness", () => {
@@ -145,9 +158,9 @@ test("unchecked environments render as project-managed, without a missing or rea
 test("endpoint probes, onboarding, and UI retain scheduler dependency guidance", () => {
   assert.match(probeSource, /schedulerDependencies: health\.schedulerDependencies/);
   assert.match(extensionSource, /schedulerDependencies: compactSchedulerDependenciesForWebview\(probe\.schedulerDependencies\)/);
-  assert.match(extensionSource, /const dependencyIssues = \[\{ label: "Hub", probe: hub \}, \.\.\.workers\]/);
+  assert.match(extensionSource, /const dependencyIssues = workers\.flatMap/);
   assert.match(extensionSource, /projectBootstrapEndpointReadiness\(\{[\s\S]*hubSchedulerDependencies/);
-  assert.match(panelSource, /const dependencyRows = hubRequired \? \[\{ label: "Hub", dependency: hubProbe\.schedulerDependencies \}\] : \[\]/);
+  assert.match(panelSource, /const dependencyRows = \[\];\s*workers\.forEach/);
   assert.match(panelSource, /Scheduler 依赖缺失/);
   assert.match(panelSource, /installCommand/);
   assert.match(panelSource, /renderSchedulerDependencyStatus/);

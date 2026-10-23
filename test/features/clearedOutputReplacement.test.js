@@ -90,14 +90,19 @@ test('actual cleanup Host uses current file observations without requiring retir
   const ast=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true);
   const cls=ast.statements.find(node=>ts.isClassDeclaration(node)&&node.name?.text==='PlanCleanupHost');
   const C=require('../../src/features/PlanCleanup.ts'),ledger=require('../../src/features/PlanArtifactSync.ts');
+  // 2026-10-23 行数门禁提取：collect() 的节点枚举/机器状态绑定来自 PlanCleanupNodeGuards 兄弟模块；
+  // vm 只注入类文本无 import，须显式提供这些标识符（真实模块，非桩）。
+  const G=require('../../src/extension/PlanCleanupNodeGuards.ts');
   const queuePath=Q.distributedQueuePath(storage,f.root);
   await fs.mkdir(path.dirname(queuePath),{recursive:true});await fs.writeFile(queuePath,JSON.stringify(f.queue),'utf8');
   const bytes=await fs.readFile(queuePath,'utf8'),events=[];
   const json=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='json');
   const Host=vm.runInNewContext(ts.transpileModule(json.getText(ast)+'\n'+cls.getText(ast).replace(/^export /,'')+';PlanCleanupHost;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
-    {fs,path,...C,...Q,...R,...ledger,collectPlanCleanupEvidence,AbortSignal,vscode:{workspace:{workspaceFolders:[{uri:{fsPath:f.root}}],textDocuments:[]}}});
+    {fs,path,...C,...Q,...R,...ledger,...G,managedNodesOf:G.managedNodes,machineStateForNodeOf:G.machineStateForNode,collectPlanCleanupEvidence,AbortSignal,vscode:{workspace:{workspaceFolders:[{uri:{fsPath:f.root}}],textDocuments:[]}}});
   let saved;
-  const host={context:{globalStorageUri:{fsPath:storage}},setupConfig:{workerTunnels:[{id:'w'}]},
+  const rootMaps = require('../../src/features/ProjectRootMap.ts');
+  const guard = projectDir => rootMaps.machineStateGuard(rootMaps.resolveProjectRootMap({projectDir, installDir:'/private/plugin', stateDir:'/private/machine-state', machineStateDirs:['/private/worker-state']}));
+  const host={localMachineStateGuard: guard, targetRootGuard: target => guard(target.remotePath), context:{globalStorageUri:{fsPath:storage}},setupConfig:{workerTunnels:[{id:'w'}]},
     client:{getWorkerTasks:async id=>{assert.equal(id,'w');events.push('tasks');return f.snapshots[0];}},
     workerCodeSyncTarget:worker=>({id:worker.id,host:'configured-host',port:30022,user:'configured-user',remotePath:'/safe/project'}),
     buildPlanRuntimeEvidenceState:()=>({operations:{

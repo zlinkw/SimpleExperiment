@@ -9,7 +9,9 @@ async function fixture(onRead){
  const storage=await fs.mkdtemp(path.join(os.tmpdir(),'cleanup-index-main-'));
  const identity={workspace:storage,endpointId:'synthetic-worker',projectRoot:'/synthetic/project',connection:'one'};
  const index=new ProjectFileIndex(identity,storage),calls=[];
- const h={client:{},simpleSftpCapability:async()=>({}),projectFileObservationIndex:()=>index,
+ // 合流接线：真实 simpleSftpApiCall 在 mutation 路由先过 assertTransferRootSafety（feature 根守卫）；
+ // 本切片只提取 simpleSftpApiCall 本体，守卫真身由 projectRootMap.test.js 独立提取验证（同 projectFileIndex.test.js 口径）。
+ const h={client:{},assertTransferRootSafety(){},simpleSftpCapability:async()=>({}),projectFileObservationIndex:()=>index,
   invalidateSimpleSftpCapabilityAfterFailure(){},invalidateProjectFileIndexes:async()=>{},refreshProjectFileIndexesBeforeOperation:async()=>{}};
  const run=vm.runInNewContext(ts.transpileModule('class Host{'+method+'};Host.prototype.simpleSftpApiCall',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
   {workspaceRoot:()=>storage,assertRetryRequestCurrent(){},errorMessage:e=>e.message,sftpFileIndexQuery,fileOperationIndexPaths,

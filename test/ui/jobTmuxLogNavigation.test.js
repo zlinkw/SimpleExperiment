@@ -68,7 +68,7 @@ function fixture(options = {}) {
   }
   vm.createContext(sandbox);
   if (options.realToast) vm.runInContext(fn("showToast"), sandbox);
-  vm.runInContext(["normalizeTmuxWindowFilter", "classifyTmuxWindow", "tmuxGpuIdFromSession", "tmuxTaskStatusLabel", "tmuxTaskWindowLabel", "tmuxWindowCloseButton", "getTmuxWindowCandidates",
+  vm.runInContext(["tmuxCurrentGpuIdFromSession", "normalizeTmuxWindowFilter", "classifyTmuxWindow", "tmuxGpuIdFromSession", "tmuxTaskStatusLabel", "tmuxTaskWindowLabel", "tmuxWindowCloseButton", "getTmuxWindowCandidates",
     "renderTmuxFilterBar", "renderTmuxOverview", "renderTmuxWorkersOverview", "refreshTmuxList", "scheduleTmuxInitialRetry", "finishTmuxListRequest",
     "resolveJobTmuxWindow", "cancelJobTmuxLogJump", "failJobTmuxLogJump", "jumpToJobTmuxLog", "handleJobTmuxLogList", "tmuxResolveCaptureTarget", "refreshTmuxCapture"].map(fn).join("\n"), sandbox);
   const clickStart = script.indexOf('const jobTmuxLogButton = event.target.closest("button[data-job-tmux-log]")');
@@ -102,13 +102,13 @@ test("missing real tmux windows report a bounded toast without a showToast Refer
   assert.equal(f.elements.simpleExperimentToast.hidden, true);
 });
 
-test("failed recall click payload and pending state retain the exact attempt and command identity", () => {
+test("manual recall keeps the exact command identity and cannot forward a historical attempt override", () => {
   const sandbox = { RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS: new Set(), ARTIFACT_SCOPE_COMMANDS: new Set(), el: () => null };
   vm.createContext(sandbox);
   vm.runInContext(["payloadFromButton", "pendingKeyForAction", "pendingKeyFromButtonDataset"].map(fn).join("\n"), sandbox);
   const button = { dataset: { command: "recallFailedJob", planFile: "plans/cpsc.yaml", planId: "workflow", jobIndex: "0", attempt: "1", commandId: "old-command" } };
   const payload = sandbox.payloadFromButton(button);
-  assert.equal(payload.attempt, 1); assert.equal(payload.jobIndex, 0); assert.equal(payload.commandId, "old-command");
+  assert.equal(Object.hasOwn(payload,"attempt"), false); assert.equal(payload.jobIndex, 0); assert.equal(payload.commandId, "old-command");
   const key = sandbox.pendingKeyForAction(button.dataset.command, payload);
   assert.equal(sandbox.pendingKeyFromButtonDataset(button), key);
   const next = { ...payload, attempt: 2, commandId: "new-command" };

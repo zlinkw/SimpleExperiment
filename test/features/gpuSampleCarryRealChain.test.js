@@ -92,10 +92,7 @@ const scenario = {
 };
 
 function run(mode) {
-  const result = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-B', '-X', 'utf8', script, mode], {
-    encoding: 'utf8', timeout: 10000, windowsHide: true,
-    env: { ...process.env, ZZ_SCENARIO: JSON.stringify(scenario) },
-  });
+  const result = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-B', '-X', 'utf8', script, mode], { encoding: 'utf8', timeout: 10000, windowsHide: true, env: { ...process.env, ZZ_SCENARIO: JSON.stringify(scenario) } });
   assert.equal(result.status, 0, 'python chain exit 0, stderr: ' + String(result.stderr || '').slice(0, 600));
   return JSON.parse(result.stdout.trim().split(/\r?\n/).pop());
 }
