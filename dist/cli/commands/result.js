@@ -34,6 +34,8 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resultCommand = resultCommand;
+exports.resultParse = resultParse;
+exports.resultPaperTable = resultPaperTable;
 exports.resultList = resultList;
 exports.resultShow = resultShow;
 exports.resultExport = resultExport;
@@ -55,7 +57,68 @@ async function resultCommand(action, rest, flags) {
         return resultShow((0, parse_1.requirePositional)(rest, 0, "result id"), flags);
     if (action === "export")
         return resultExport((0, parse_1.requirePositional)(rest, 0, "result id"), flags);
+    if (action === "parse")
+        return resultParse(flags);
+    if (action === "paper-table")
+        return resultPaperTable(flags);
     throw (0, errors_1.usageError)(`unknown result action: ${action || "(missing)"}`);
+}
+/** First-class local result parsing (replaces the revoked `simpleex results parse`). */
+function resultParse(flags) {
+    if (!flags.file)
+        throw (0, errors_1.usageError)("result parse needs --file <result file>");
+    if (!fs.existsSync(flags.file))
+        throw (0, errors_1.businessError)(`result file not found: ${flags.file}`);
+    const preset = Results_1.builtInResultPresets.find((item) => item.id === flags.preset) || Results_1.builtInResultPresets[0];
+    const records = (0, Results_1.parseResultFile)(fs.readFileSync(flags.file, "utf8"), { path: flags.file, type: flags.file.endsWith(".json") ? "json" : "csv", endpoint: "local" }, preset);
+    (0, format_1.writeJson)(records, flags.compactJson);
+    return 0;
+}
+function finalPaperTableRecords(input) {
+    if (Array.isArray(input))
+        return (0, Results_1.filterByInclusionPolicy)(input, [], Results_1.finalResultInclusionPolicy);
+    const record = input && typeof input === "object" ? input : {};
+    if (Array.isArray(record.finalResults))
+        return (0, Results_1.filterByInclusionPolicy)(record.finalResults, [], Results_1.finalResultInclusionPolicy);
+    if (Array.isArray(record.records)) {
+        const rows = record.records;
+        if (String(record.inclusionPolicy || "").includes("archived") || String(record.path || "").includes("result_registry")) {
+            const archivedRows = rows.map((row) => ({ ...row, finalEvidenceState: row.finalEvidenceState || "archived", eligibleForFinalAnalysis: row.eligibleForFinalAnalysis ?? true }));
+            return (0, Results_1.filterByInclusionPolicy)(archivedRows, [], Results_1.finalResultInclusionPolicy);
+        }
+        return (0, Results_1.filterByInclusionPolicy)(rows, [], Results_1.finalResultInclusionPolicy);
+    }
+    return [];
+}
+/** First-class local paper table (replaces the revoked `simpleex results paper-table`). */
+function resultPaperTable(flags) {
+    if (!flags.file)
+        throw (0, errors_1.usageError)("result paper-table needs --file <registry.json>");
+    if (!fs.existsSync(flags.file))
+        throw (0, errors_1.businessError)(`registry file not found: ${flags.file}`);
+    const records = finalPaperTableRecords(JSON.parse(fs.readFileSync(flags.file, "utf8")));
+    const metrics = (flags.metrics || "AUC,accuracy,F1,AUPRC").split(",").filter(Boolean);
+    const config = {
+        id: "cli",
+        name: "CLI",
+        filter: { includeWarnings: true },
+        groupBy: ["suite", "dataset"],
+        metrics: metrics.map((key) => ({ key, higherIsBetter: !["ASD", "HD95", "loss"].includes(key), decimals: 4 })),
+        aggregate: "mean_std",
+        primarySortMetric: metrics[0],
+    };
+    const rows = (0, Results_1.buildResultLeaderboard)(records, config, []);
+    if (flags.json) {
+        if (flags.format === "csv" || flags.format === "latex")
+            throw (0, errors_1.usageError)("result paper-table --json cannot be combined with --format csv|latex; drop --format for JSON rows");
+        (0, format_1.writeJson)({ config: { metrics, groupBy: config.groupBy, aggregate: config.aggregate }, rows }, flags.compactJson);
+        return 0;
+    }
+    if (flags.format === "csv")
+        (0, format_1.writeText)((0, Results_1.leaderboardToCsv)(rows, config));
+    else
+        (0, format_1.writeText)((0, Results_1.exportPaperTable)(rows, config, { id: "cli", title: "Results", leaderboardId: "cli", rowDimension: "suite", metrics, boldBest: true, showMeanStd: true, decimals: {}, metricDisplayNames: {} }, flags.format === "latex" ? "latex_booktabs" : "markdown"));
+    return 0;
 }
 async function resultList(flags) {
     const rows = await loadResults();

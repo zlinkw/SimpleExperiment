@@ -34,25 +34,43 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.planCommand = planCommand;
+exports.planBuild = planBuild;
 exports.planList = planList;
 exports.planValidate = planValidate;
 exports.planMatrix = planMatrix;
 const path = __importStar(require("path"));
 const api_1 = require("../api");
+const control_1 = require("./control");
 const data_1 = require("../data");
 const errors_1 = require("../errors");
 const format_1 = require("../format");
 const parse_1 = require("../parse");
 const PlanBuilder_1 = require("../../features/PlanBuilder");
-const PlanValidator_1 = require("../../features/PlanBuilder/PlanValidator");
+const planCleanup_1 = require("./planCleanup");
 async function planCommand(action, rest, flags) {
+    if (action === "cleanup")
+        return (0, planCleanup_1.planCleanupCommand)(rest[0] || "", rest.slice(1), flags);
     if (action === "list")
         return planList(flags);
     if (action === "validate")
         return planValidate((0, parse_1.requirePositional)(rest, 0, "plan file"), flags);
     if (action === "matrix")
         return planMatrix((0, parse_1.requirePositional)(rest, 0, "plan file"), flags);
+    if (action === "build")
+        return planBuild(flags);
     throw (0, errors_1.usageError)(`unknown plan action: ${action || "(missing)"}`);
+}
+/** First-class plan matrix builder (replaces the revoked `simpleex plan build` legacy fallthrough). */
+function planBuild(flags) {
+    const suite = flags.suite || "suite";
+    const baseConfig = flags.base || "config.yaml";
+    const seeds = (flags.seeds || "1").split(",");
+    const result = (0, PlanBuilder_1.buildExperimentMatrix)({ suite, baseConfig, seeds, variables: [] });
+    if (flags.json)
+        (0, format_1.writeJson)({ suite, baseConfig, seeds, yaml: result.yaml }, flags.compactJson);
+    else
+        (0, format_1.writeText)(result.yaml);
+    return 0;
 }
 async function planList(flags) {
     const rows = await loadPlans();
@@ -64,18 +82,9 @@ async function planList(flags) {
     return 0;
 }
 async function planValidate(fileArg, flags) {
-    const file = resolveExisting(fileArg);
-    const yaml = (0, data_1.readTextFile)(file);
-    const contract = (0, PlanBuilder_1.validateDeepLearningPlanContract)(yaml);
-    const validator = (0, PlanValidator_1.validatePlan)(yaml);
-    const errors = [
-        ...(contract.issues || []).map((issue) => String(issue.message || issue.field || issue.label || "")),
-        ...(validator.errors || []).map((issue) => issue.message),
-    ].filter(Boolean);
-    const valid = Boolean(contract.ok) && validator.status !== "failed";
-    const payload = valid ? { valid: true } : { valid: false, errors };
-    (0, format_1.writeJson)(payload, flags.compactJson);
-    return valid ? 0 : 3;
+    if (!fileArg.trim())
+        throw (0, errors_1.usageError)("plan validate requires a plan file");
+    return (0, control_1.emitRpc)("plan.validate", { planFile: fileArg, ...(flags.workspace ? { workspace: flags.workspace } : {}) });
 }
 async function planMatrix(fileArg, flags) {
     const file = resolveExisting(fileArg);

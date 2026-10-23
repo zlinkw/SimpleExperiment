@@ -51,7 +51,7 @@ test("scheduler worker run remains listed and inspectable after runtime disappea
   const server = http.createServer((req, res) => {
     if(req.url==='/api/v1/capabilities') {
       res.writeHead(200,{'content-type':'application/json'});
-      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:['status','tasks.list','operations.list','state.get','live.output']}));return;
+      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',name:'SimpleExperiment',version:'0.0.0-fake',instanceId:'4242:2026-01-01T00:00:00.000Z',methods:['status','invoke','tasks.list','operations.list','state.get','live.output']}));return;
     }
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
@@ -70,7 +70,7 @@ test("scheduler worker run remains listed and inspectable after runtime disappea
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => {server.closeAllConnections();return new Promise(resolve=>server.close(resolve));});
   const apiFile = path.join(root, "api.json");
-  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test" }), "utf8");
+  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test", name: "SimpleExperiment", version: "0.0.0-fake", pid: 4242, startedAt: "2026-01-01T00:00:00.000Z" }), "utf8");
 
   const active = await callCli(root, apiFile, ["list"]);
   assert.equal(active.code, 0);
@@ -138,7 +138,7 @@ test("Worker Agent task snapshot survives after scheduler and runtime rows disap
   const server = http.createServer((req, res) => {
     if(req.url==='/api/v1/capabilities') {
       res.writeHead(200,{'content-type':'application/json'});
-      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:['status','tasks.list','operations.list','state.get','live.output']}));return;
+      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',name:'SimpleExperiment',version:'0.0.0-fake',instanceId:'4242:2026-01-01T00:00:00.000Z',methods:['status','invoke','tasks.list','operations.list','state.get','live.output']}));return;
     }
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
@@ -161,7 +161,7 @@ test("Worker Agent task snapshot survives after scheduler and runtime rows disap
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => {server.closeAllConnections();return new Promise(resolve=>server.close(resolve));});
   const apiFile = path.join(root, "api.json");
-  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test" }), "utf8");
+  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test", name: "SimpleExperiment", version: "0.0.0-fake", pid: 4242, startedAt: "2026-01-01T00:00:00.000Z" }), "utf8");
 
   const listed = await callCli(root, apiFile, ["list", "--type", "worker_run"]);
   assert.equal(listed.code, 0);
@@ -195,7 +195,7 @@ test("Worker Agent task snapshot survives after scheduler and runtime rows disap
   assert.equal(config.body.batch_size, "64");
   assert.equal(config.body.epoch, "300");
   const results = await callCli(root, apiFile, ["results", runId]);
-  assert.equal(results.code, 0);
+  assert.equal(results.code, 0, `results exit; body=${JSON.stringify(results.body).slice(0, 2000)}`);
   assert.equal(results.body.experiment_id, runId);
   assert.deepEqual(results.body.result_ids, ["worker-result-clean"]);
   assert.equal(results.body.metrics["worker-result-clean"].accuracy, 0.91);
@@ -266,7 +266,7 @@ test("historical launch config text survives a missing job config and terminal p
   const server = http.createServer((req, res) => {
     if(req.url==='/api/v1/capabilities') {
       res.writeHead(200,{'content-type':'application/json'});
-      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:['status','tasks.list','operations.list','state.get','live.output']}));return;
+      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',name:'SimpleExperiment',version:'0.0.0-fake',instanceId:'4242:2026-01-01T00:00:00.000Z',methods:['status','invoke','tasks.list','operations.list','state.get','live.output']}));return;
     }
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
@@ -284,7 +284,7 @@ test("historical launch config text survives a missing job config and terminal p
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => {server.closeAllConnections();return new Promise(resolve=>server.close(resolve));});
   const apiFile = path.join(root, "api.json");
-  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test" }), "utf8");
+  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test", name: "SimpleExperiment", version: "0.0.0-fake", pid: 4242, startedAt: "2026-01-01T00:00:00.000Z" }), "utf8");
   const config = await callCli(root, apiFile, ["config", workerRunId]);
   assert.equal(config.code, 0);
   assert.equal(config.body.config_path, configPath);
@@ -314,7 +314,7 @@ test("failed Worker task retrieves its remote log without persisting logPath", a
   const server = http.createServer((req, res) => {
     if(req.url==='/api/v1/capabilities') {
       res.writeHead(200,{'content-type':'application/json'});
-      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:['status','tasks.list','operations.list','state.get','live.output']}));return;
+      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',name:'SimpleExperiment',version:'0.0.0-fake',instanceId:'4242:2026-01-01T00:00:00.000Z',methods:['status','invoke','tasks.list','operations.list','state.get','live.output']}));return;
     }
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
@@ -333,7 +333,7 @@ test("failed Worker task retrieves its remote log without persisting logPath", a
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => {server.closeAllConnections();return new Promise(resolve=>server.close(resolve));});
   const apiFile = path.join(root, "api.json");
-  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test" }), "utf8");
+  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test", name: "SimpleExperiment", version: "0.0.0-fake", pid: 4242, startedAt: "2026-01-01T00:00:00.000Z" }), "utf8");
 
   const inspected = await callCli(root, apiFile, ["inspect", workerRunId]);
   assert.equal(inspected.code, 0);
@@ -385,7 +385,7 @@ test("rate-limited snapshots keep the last run while classification stays stable
   const server = http.createServer((req, res) => {
     if(req.url==='/api/v1/capabilities') {
       res.writeHead(200,{'content-type':'application/json'});
-      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:['status','tasks.list','operations.list','state.get','live.output']}));return;
+      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',name:'SimpleExperiment',version:'0.0.0-fake',instanceId:'4242:2026-01-01T00:00:00.000Z',methods:['status','invoke','tasks.list','operations.list','state.get','live.output']}));return;
     }
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
@@ -404,7 +404,7 @@ test("rate-limited snapshots keep the last run while classification stays stable
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => {server.closeAllConnections();return new Promise(resolve=>server.close(resolve));});
   const apiFile = path.join(root, "api.json");
-  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test" }), "utf8");
+  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test", name: "SimpleExperiment", version: "0.0.0-fake", pid: 4242, startedAt: "2026-01-01T00:00:00.000Z" }), "utf8");
 
   const first = await callCli(root, apiFile, ["list"]);
   assert.equal(first.body.find((row) => row.id === runId).type, "worker_run");
@@ -449,7 +449,7 @@ test("Scheduler operation provenance overrides stale experiment index", async (t
   const server = http.createServer((req, res) => {
     if(req.url==='/api/v1/capabilities') {
       res.writeHead(200,{'content-type':'application/json'});
-      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:['status','tasks.list','operations.list','state.get','live.output']}));return;
+      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',name:'SimpleExperiment',version:'0.0.0-fake',instanceId:'4242:2026-01-01T00:00:00.000Z',methods:['status','invoke','tasks.list','operations.list','state.get','live.output']}));return;
     }
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
@@ -475,7 +475,7 @@ test("Scheduler operation provenance overrides stale experiment index", async (t
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => {server.closeAllConnections();return new Promise(resolve=>server.close(resolve));});
   const apiFile = path.join(root, "api.json");
-  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test" }), "utf8");
+  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test", name: "SimpleExperiment", version: "0.0.0-fake", pid: 4242, startedAt: "2026-01-01T00:00:00.000Z" }), "utf8");
 
   const listed = await callCli(root, apiFile, ["list", "--full"]);
   assert.equal(listed.code, 0);
@@ -513,7 +513,7 @@ test("historical Worker task gains and retains a unique workflow parent", async 
   const server = http.createServer((req, res) => {
     if(req.url==='/api/v1/capabilities') {
       res.writeHead(200,{'content-type':'application/json'});
-      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:['status','tasks.list','operations.list','state.get','live.output']}));return;
+      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',name:'SimpleExperiment',version:'0.0.0-fake',instanceId:'4242:2026-01-01T00:00:00.000Z',methods:['status','invoke','tasks.list','operations.list','state.get','live.output']}));return;
     }
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
@@ -533,7 +533,7 @@ test("historical Worker task gains and retains a unique workflow parent", async 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => {server.closeAllConnections();return new Promise(resolve=>server.close(resolve));});
   const apiFile = path.join(root, "api.json");
-  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test" }), "utf8");
+  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test", name: "SimpleExperiment", version: "0.0.0-fake", pid: 4242, startedAt: "2026-01-01T00:00:00.000Z" }), "utf8");
 
   const listed = await callCli(root, apiFile, ["list", "--full"]);
   assert.equal(listed.code, 0);

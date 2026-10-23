@@ -53,6 +53,16 @@ async function fixture() {
   return {root,scope,storageRoot,service,ports,sources,calls,confirm,get mutations(){return mutations},get indexed(){return indexed},disconnect(){failOnce=true},collision(){restoreCollision=true}};
 }
 
+test('two valid cleanup targets cannot be confirmed in a reordered echo',async()=>{
+  const f=await fixture(),p=await f.service.preview({planFile:f.scope.planFile});
+  const exact=p.rows.filter(r=>r.disposition===p.action).map(r=>r.node.id+':'+r.absolutePath);
+  assert.equal(exact.length,2,'both targets must be executable, not a vacuous blocked preview');
+  await assert.rejects(f.service.confirm({token:p.token,digest:p.digest,phase:1,confirm:true,exactTargets:[...exact].reverse()}),/CONFIRM_REQUIRED/);
+  assert.equal(f.mutations,0);
+  const operation=await f.service.confirm({token:p.token,digest:p.digest,phase:1,confirm:true,exactTargets:exact});
+  assert.equal(operation.preview.confirmations,1);
+  assert.equal(f.mutations,0);
+});
 test('preview performs no journal writes, no mutation, keeps exact evidence and immutable returned records',async()=>{
   const f=await fixture(),p=await f.service.preview({planFile:f.scope.planFile});
   assert.equal(f.mutations,0);await assert.rejects(fs.stat(f.storageRoot),{code:'ENOENT'});

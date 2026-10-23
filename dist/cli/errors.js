@@ -67,7 +67,7 @@ function asCliError(error, fallback = exports.EXIT_BUSINESS) {
     if (["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN"].includes(code) || /timed out|ECONNREFUSED/i.test(message)) {
         return networkError(message, code);
     }
-    if (/discovery not found|discovery is invalid|Open VS Code/i.test(message)) {
+    if (/discovery not found|discovery is invalid|Open VS Code|instance identity|lacks instanceId|discovery changed during preflight|plugin slot mismatch|version mismatch|identity mismatch/i.test(message)) {
         return envError(message, code);
     }
     return new CliError(fallback, code || "ERROR", message, code);
