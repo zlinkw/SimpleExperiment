@@ -1,0 +1,36 @@
+{
+  "task": "plan-run-single-batch 407 frozen candidate",
+  "at": "2026-10-24T09:15Z",
+  "branch": "fix-plan-run-single-batch-20261024",
+  "baseFrozenAncestor": "b65d9b36d8795fd9695459d581c2f7f627df6232",
+  "version": "0.5.407",
+  "defect": "legacy.ts finishDistributedPlanSubmission 两处对象简写 planFile 无绑定(TS18004)→运行期 ReferenceError；修复=两处显式 planFile: body.planFile",
+  "canonicalEvidenceLogs": {
+    "red": "/tmp/pi-test-0bu8h572/000.raw.log exit1(恰2缺陷路 planFile is not defined)",
+    "redFirstAttempt": "/tmp/pi-test-cnopqa77/000.raw.log(夹具缺桩噪音,保留)",
+    "green": "/tmp/pi-test-erybfqmy/000.raw.log 5/5 exit0",
+    "affectedExisting": "/tmp/pi-test-gifhsn2n/000.raw.log 10文件82/82 exit0(审计注记:SPEC未填testFileArgs,inventory空,仅现行为证据)",
+    "compile": "/tmp/plan-state-guard-logs/planrun-compile-407-1.log exit0 + new worktree simple_cluster/reports/test-workflow/2026-10-24T09-11-08-809Z-894098-compile/run.json",
+    "planList": "dry-run check:full jobs=219 unique=219 dedup removed 201/420 (/tmp/plan-state-guard-logs/planrun-dryrun-full-4.log); 唯一清单源 scripts/test-workflow.json(test:plan-run 追加1条,项目参数 --test-force-exit --test-timeout 20000)",
+    "hashlist": "/tmp/plan-state-guard-logs/planrun-407-hashlist-1.txt"
+  },
+  "windowsVerification": {
+    "command": "npm run package（权威完整清单 219 文件+compile+post+assemble；Windows 侧新建仅验证 worktree/隔离依赖与输出，不覆写旧 a7 Native 冻结副本）",
+    "preconditions": "干净 checkout 冻结 commit；node_modules 独立安装(package-lock 未改依赖)；不复用 Linux receipts",
+    "expected": "compile gates ok; fullCheck 全文件(含 test/features/planRunSharedSubmission.test.js); 冻结 VSIX 交回 Linux 校验生成物一致性"
+  },
+  "protections": "SimpleSFTP 未触碰；79排除/255保留闭包沿用既有证据；依赖/协议未变；原Root detached@b65 index 3dc91c6e… 未动；旧副本/旧分支/clean_dir 未动",
+  "plannedWindowsBudget": "Windows 全量 package 实测 448595ms≈7.5 分钟（早前'数小时级'估时作废）；最终轮同量级",
+  "windowsFullPackageFirstRun": {
+    "commit": "34b66f32cc60bd4e65c93a5fac2e6d1d11ea27f9",
+    "result": "218/219,唯一失败=testWorkflowRunner 数量契约过期(已返修)",
+    "exit": 1,
+    "wallMs": 448595,
+    "artifacts419ByteIdenticalToLinux": true,
+    "sourceInputs2052NoDrift": true,
+    "receipt": "/repos/MCP/zlk-planrun407-win/simple_cluster/reports/test-workflow/2026-10-24T09-19-08-573Z-69372-package/run.json",
+    "evidence": "/host/c/Users/ZLK/AppData/Local/Temp/plan-run-407-tgiHLs/"
+  },
+  "releaseAuthorization": "407 发行/安装已获用户原始授权；前提=本分支合入 master 后执行；当前只差最终完整 package 验收，无额外审批",
+  "finalRoundInstruction": "主控原生验证树 D:/GitRepo/MCP/zlk-planrun407-win(ff,依赖 junction 不变) ff 到分支 HEAD 追加 commit → 唯一一次 npm run package；不重建树/重装依赖/不覆写旧 a7"
+}
