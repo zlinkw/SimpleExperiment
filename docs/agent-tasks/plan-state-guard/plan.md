@@ -341,3 +341,9 @@ planIsolatedLedgerLock IPC timeout按r24生命周期只给真实对照/参数/�
 
 ## W-补（主控 2026-10-24 审核口径补正，仅资料）
 - 1325 冻结快照=1323 应交付源/资源+2 非交付 cp311 pycache 缓存快照（正确未提交，禁搬运/删除/重建）；e889 blob 核 1742=1323+419 全等。原 SHA 表/历史原样；whitespace 如实=仅 5 个归档 diff 内部保真告警，其余 0。以文档最小补正+普通追加 commit 记录，保留 e889，不 amend/不重测/不改业务或生成物。合并后 Linux ff 同步归本负责人，远程归主控。
+
+## R-捆绑退役（GPT 批准最小实施 2026-10-24，用户长期裁决；chore/retire-bundled-sftp-20261024@2cd9ecb7）
+- 目标：未来主线版本永不携带旧嵌套 SimpleSFTP 捆绑副本（extensions/simple-sftp）。非目标：不改运行代码/不重发行/不动 406/不删除目录（删除待主控最后确认+宿主执行）；仅点名路径，其他 extensions 不受影响；独立安装配套 SimpleSFTP（公开 Release）不属捆绑。
+- 变更（4 文件）：.gitignore+/extensions/simple-sftp/；.vscodeignore+extensions/simple-sftp/**（标记块外）；policy JSON forbidden_ordered 首位 bundled-sftp(path_prefixes=["extensions/simple-sftp/"])；policy 测试 CASES+3（相对+extension/ 归档前缀命中、extensions/other 反向不误伤；JS/Py 双端随矩阵自动覆盖）。
+- 验收（真实退出码）：policy 套件 10/10 exit0（/tmp/pi-test-78j9prbf，executor exit0）；vsixRuntimeClosure 2/2 exit0（/tmp/pi-test-rwcq_pbs，第二消费者 verify-vsix-runtime 加载同一策略）；冻结 5258 VSIX 新规则下 verify-vsix-manifest --vsix 显式=340 条目/leakHits=0/missingRequired=0/exit0 不误拒；git check-ignore 命中 gitignore:45 精确规则。testWorkflowRunner 对策略的用法=复制文件+REQUIRED（486/488 行），新类不可能命中其夹具条目（无 extensions 路径），分析性判定不受影响，未重跑。hook 记录目录不存在⇒不声称原驻留进程已加载；两次自然调用 native Bash exit0 仅正向证据，失败语义待自然样本。
+- 边界：未触碰 /repos/MCP/zlk-cluster-orchestrator 代码/索引/子仓；不 push/PR（远程归主控）；旧 fix 指针 36aebb 与历史保留；普通追加 commit，无 stash/reset/repair。

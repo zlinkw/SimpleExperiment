@@ -63,6 +63,10 @@ const CASES = [
   ["tsconfig.tsbuildinfo", "compile-metadata"],
   ["dist/tsconfig.tsbuildinfo", "compile-metadata"],
   ["dist/panel-build-manifest.json", undefined],
+  // 用户长期裁决 2026-10-24：旧嵌套 SimpleSFTP 捆绑副本必拒（相对+vsix 归档前缀两形态）；仅限点名路径，其他 extensions 不误伤
+  ["extensions/simple-sftp/package.json", "bundled-sftp"],
+  ["extension/extensions/simple-sftp/agent-lifecycle.js", "bundled-sftp"],
+  ["extensions/other-tool/index.js", undefined],
   // 统一规范化语义：反复 ./、大小写、单次 extension/ 前缀
   ["././DOCS/g.md", "docs"],
   ["Extension/Docs/g.md", "docs"],

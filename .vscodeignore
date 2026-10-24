@@ -151,3 +151,5 @@ dist/ui/styles/layout.css.js
 # <<< unused-compiled
 # r25-A: runner 同根批开发锁绝不入包（实际泄漏过一次，回归+清单门禁双防）
 .test-workflow-batch.lock/**
+# 用户长期裁决 2026-10-24：旧嵌套 SimpleSFTP 捆绑副本永不入包；独立安装的配套 SimpleSFTP 不受影响
+extensions/simple-sftp/**
