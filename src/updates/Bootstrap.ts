@@ -1,6 +1,6 @@
 import { ComponentUpdate, PluginUpdatePlan, planPairedUpdates, componentUpdateForInstalledVersion,
   EXPERIMENT_EXTENSION_ID, SFTP_EXTENSION_ID, EXPERIMENT_UPDATE_REPO, SFTP_UPDATE_REPO, normalizeReleaseVersion, compareSemanticVersions } from "../features/ExtensionUpdates";
-import { ReleaseClient, assertUpdateUrl } from "./ReleaseClient";
+import { ReleaseClient, RateLimitedError, assertUpdateUrl } from "./ReleaseClient";
 import { PackageStore } from "./VerifiedPackage";
 import { UpdateGate } from "./UpdateGate";
 import { UpdateJournal, UpdateTransaction, TRANSACTION_KEY } from "./UpdateTransaction";
@@ -11,6 +11,7 @@ import { defaultHostOperationLeasePath } from "../core/HostOperationLease";
 export const CHECK_COMMAND = "simpleExperiment.checkPluginUpdates";
 export const INSTALL_COMMAND = "simpleExperiment.installPluginUpdates";
 const STATUS_KEY = "simpleExperiment.pluginUpdateStatus";
+const RETRY_KEY = "simpleExperiment.pluginUpdateRetryAt";
 let service: ReturnType<typeof registerUpdater> | undefined;
 let status: PluginUpdatePlan = { status: "unknown", message: "尚未检查配套更新。", checkedAt: "" };
 let business: any;
@@ -39,8 +40,15 @@ export function validateUpdateComponents(components: ComponentUpdate[]): void {
 }
 
 /** Independent update entry: no project, tunnel or business panel is needed. */
-export function registerUpdater(context: any, vscode: any, client = new ReleaseClient(), options: any = {}) {
+export function registerUpdater(context: any, vscode: any, client?: ReleaseClient, options: any = {}) {
   const current = (id: string) => String(vscode.extensions.getExtension(id)?.packageJSON?.version || "0.0.0");
+  // Proven rate-limit backoff lives in globalState so a window reload cannot immediately
+  // re-hammer the GitHub API; the store's async save is awaited inside the client.
+  const retryStore = {
+    load: async () => Number(context.globalState.get(RETRY_KEY, 0)) || 0,
+    save: async (at: number) => { await context.globalState.update(RETRY_KEY, at); },
+  };
+  const releaseClient = client || new ReleaseClient(fetch, Date.now, retryStore);
   const bar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 20);
   bar.command = CHECK_COMMAND; bar.show();
   status = { status: "unknown", message: "尚未检查配套更新。", checkedAt: "" };
@@ -50,7 +58,7 @@ export function registerUpdater(context: any, vscode: any, client = new ReleaseC
   let checking: Promise<PluginUpdatePlan> | undefined, installing: Promise<any> | undefined;
   const notices = new Set<string>();
   const gate = options.gate || new UpdateGate();
-  const store = options.store || new PackageStore(path.join(context.globalStorageUri.fsPath, "updates", "verified"), client, vscode.version);
+  const store = options.store || new PackageStore(path.join(context.globalStorageUri.fsPath, "updates", "verified"), releaseClient, vscode.version);
   async function acquireGate() {
     if (compareSemanticVersions(current(SFTP_EXTENSION_ID), "0.2.69") < 0) throw new Error("配套更新需要 SimpleSFTP 0.2.69 的传输等待协议；请先安装配套包并重载，不能中断旧版传输。");
     await gate.begin(context.globalStorageUri.fsPath); gateActive = true; blocked = true;
@@ -98,7 +106,7 @@ export function registerUpdater(context: any, vscode: any, client = new ReleaseC
         await context.globalState.update(TRANSACTION_KEY, undefined);
         blocked = false;
       }
-      lastPlan = await client.check(current, manual); await publish(lastPlan);
+      lastPlan = await releaseClient.check(current, manual); await publish(lastPlan);
       const key = `simpleExperiment.update.notified.${lastPlan.sftp?.latestVersion}:${lastPlan.experiment?.latestVersion}`;
       if (lastPlan.status === "update_available" && !notices.has(key) && !context.globalState.get(key, false)) {
         notices.add(key); await context.globalState.update(key, true);
@@ -107,6 +115,18 @@ export function registerUpdater(context: any, vscode: any, client = new ReleaseC
       } else if (manual) void vscode.window.showInformationMessage(lastPlan.message);
       return status;
     } catch (error: any) {
+      if (error instanceof RateLimitedError) {
+        // A proven quota window is a deferral, not a check failure. Publish the existing
+        // unknown state with an explicit deferred message (never leave the API/panel/
+        // globalState stuck on "checking", never relabel stale data as latest).
+        const when = new Date(error.retryAt).toLocaleString();
+        const deferred = `GitHub API 限流中；更新检查已延后，${when} 后自动重试；此前的检查结果不能视为最新。`;
+        await publish({ ...status, status: "unknown", message: deferred });
+        bar.text = "$(cloud) 配套更新：限流中";
+        bar.tooltip = deferred;
+        if (manual) void vscode.window.showWarningMessage(deferred);
+        return status;
+      }
       await publish({ ...status, status: "error", message: `检查失败：${error.message}` });
       if (manual) void vscode.window.showErrorMessage(status.message);
       throw error;

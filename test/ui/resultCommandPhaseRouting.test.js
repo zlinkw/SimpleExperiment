@@ -39,11 +39,14 @@ function fixture() {
   return { sandbox, outlets, add };
 }
 
-test('result progress stays in the results section while concurrent Plan and execution feedback stays separate', () => {
+// Requirement change (task ui-plan-gpu-progress-20261024 item 5): runPlan progress
+// now lives only in its per-operation VS Code Notification, so it must be absent
+// from every card grey line; results/execution routing coverage is unchanged.
+test('result progress stays in the results section while Plan progress moves to its Notification', () => {
   for (const command of ['refreshLocalResults', 'syncPendingPlanArtifacts', 'rebuildProjectResultTables', 'syncAllResultArtifacts']) {
     const f = fixture(); f.add(command, command, 'sync'); f.add('runPlan'); f.add('stopAndClearPlan'); f.sandbox.renderCommandPhaseLine();
     assert.match(f.outlets.resultCommandPhaseLine.textContent, new RegExp(command));
-    assert.match(f.outlets.planCommandPhaseLine.textContent, /runPlan/);
+    assert.equal(f.outlets.planCommandPhaseLine.textContent, '', 'runPlan stage must not repeat as card grey text');
     assert.match(f.outlets.commandPhaseLine.textContent, /stopAndClearPlan/);
     assert.doesNotMatch(f.outlets.commandPhaseLine.textContent, new RegExp(command + '|runPlan'));
   }

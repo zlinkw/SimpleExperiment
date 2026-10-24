@@ -666,6 +666,15 @@ const WORKER_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", ...WORKER_ARTI
 const NO_HUB_RESULT_CONFIRM_COMMANDS = new Set(["archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay"]);
 const PLAN_PREFLIGHT_COMMANDS = new Set(["validatePlan", "dryRunPlan"]);
 const PLAN_SUBMISSION_COMMANDS = new Set(["runPlan", "reproducePlan"]);
+// Operations whose progress/log surface is ONE VS Code Notification per operation
+// (task ui-plan-gpu-progress-20261024 item 5). runAllPlans is wrapped separately
+// because its per-plan submisions route into the batch session via
+// parentClientActionId instead of opening their own notifications.
+const OPERATION_NOTICE_COMMANDS = new Set(["runPlan", "reproducePlan", "validatePlan", "dryRunPlan"]);
+const OPERATION_NOTICE_TITLES = {
+    runPlan: "运行 Plan", reproducePlan: "复现 Plan", validatePlan: "校验 Plan（实验准备）",
+    dryRunPlan: "预演 Plan（实验准备）", runAllPlans: "批量运行 PLAN",
+};
 const PLAN_SCHEDULER_COMMANDS = new Set([...PLAN_PREFLIGHT_COMMANDS, ...PLAN_SUBMISSION_COMMANDS]);
 const RESULT_PARSE_COMMANDS = new Set(["parseResults", "refreshResults"]);
 const IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS = new Set([
@@ -737,7 +746,7 @@ async function activateExtension(context) {
     provider = new RealtimeTunnelPanelProvider(context);
     const retainPanelContext = provider.retainPanelContextWhenHidden;
     const hostCommand = (commandId, actionType, actionLabel, operation) => vscode.commands.registerCommand(commandId, (...args) => provider?.withHostOperationLease(actionType, actionLabel, () => operation(...args)));
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: retainPanelContext } }), vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)), vscode.commands.registerCommand("simpleExperiment.copyPanelDiagnostics", () => provider?.copyPanelDiagnosticsFromUi()), vscode.commands.registerCommand("simpleExperiment.restorePanel", () => provider?.restorePanelFromUi()), hostCommand("simpleExperiment.quickSetup", "quick-setup", "检查服务器配置", () => provider?.quickSetup()), hostCommand("simpleExperiment.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()), hostCommand("simpleExperiment.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()), hostCommand("simpleExperiment.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()), hostCommand("simpleExperiment.configureWorkerTunnels", "configure-worker-tunnels", "配置 Worker 隧道", () => provider?.configureWorkerTunnels()), hostCommand("simpleExperiment.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()), hostCommand("simpleExperiment.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()), hostCommand("simpleExperiment.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()), hostCommand("simpleExperiment.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动 Xshell 隧道", () => provider?.startXshellRealtimeTunnel()), hostCommand("simpleExperiment.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部 Xshell 隧道", () => provider?.startAllXshellRealtimeTunnels()), hostCommand("simpleExperiment.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()), hostCommand("simpleExperiment.startAllXshellConnections", "start-all-connections", "启动全部 Xshell 连接", () => provider?.startAllXshellConnections()), vscode.commands.registerCommand("simpleExperiment.testAllTunnels", () => provider?.testTunnel(true)), vscode.commands.registerCommand("simpleExperiment.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()), vscode.commands.registerCommand("simpleExperiment.testXshellTunnel", () => provider?.testTunnel(true)), hostCommand("simpleExperiment.restartRealtimeStream", "restart-realtime-stream", "重启实时流", () => provider?.restartRealtimeStream()), hostCommand("simpleExperiment.pauseRealtimeStream", "pause-realtime-stream", "暂停实时流", () => provider?.pauseRealtimeStream()), hostCommand("simpleExperiment.resumeRealtimeStream", "resume-realtime-stream", "恢复实时流", () => provider?.resumeRealtimeStream()), hostCommand("simpleExperiment.pauseAllNetworkActivity", "pause-network", "暂停网络活动", () => provider?.pauseAllNetworkActivity()), hostCommand("simpleExperiment.generateXshellTunnelScript", "write-tunnel-script", "生成 Xshell 启动脚本", () => provider?.generateTunnelScript()), vscode.commands.registerCommand("simpleExperiment.openTunnelStatus", () => provider?.openTunnelStatus()), vscode.commands.registerCommand("simpleExperiment.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()), vscode.commands.registerCommand("simpleExperiment.manualRefresh", () => provider?.manualSnapshot()), hostCommand("simpleExperiment.importOfflineBundle", "import-offline-bundle", "导入离线包", () => provider?.importOffline()), vscode.commands.registerCommand("simpleExperiment.clearCache", () => provider?.clearCacheFromUi()), vscode.commands.registerCommand("simpleExperiment.openLastCheckStaticReport", () => provider?.openLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.copyLastCheckStaticReport", () => provider?.copyLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.runCheckStatic", () => provider?.runCheckStaticFromUi()));
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: retainPanelContext } }), vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)), vscode.commands.registerCommand("simpleExperiment.copyPanelDiagnostics", () => provider?.copyPanelDiagnosticsFromUi()), vscode.commands.registerCommand("simpleExperiment.showOperationLog", () => provider?.showOperationLogFromUi()), vscode.commands.registerCommand("simpleExperiment.restorePanel", () => provider?.restorePanelFromUi()), hostCommand("simpleExperiment.quickSetup", "quick-setup", "检查服务器配置", () => provider?.quickSetup()), hostCommand("simpleExperiment.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()), hostCommand("simpleExperiment.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()), hostCommand("simpleExperiment.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()), hostCommand("simpleExperiment.configureWorkerTunnels", "configure-worker-tunnels", "配置 Worker 隧道", () => provider?.configureWorkerTunnels()), hostCommand("simpleExperiment.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()), hostCommand("simpleExperiment.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()), hostCommand("simpleExperiment.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()), hostCommand("simpleExperiment.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动 Xshell 隧道", () => provider?.startXshellRealtimeTunnel()), hostCommand("simpleExperiment.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部 Xshell 隧道", () => provider?.startAllXshellRealtimeTunnels()), hostCommand("simpleExperiment.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()), hostCommand("simpleExperiment.startAllXshellConnections", "start-all-connections", "启动全部 Xshell 连接", () => provider?.startAllXshellConnections()), vscode.commands.registerCommand("simpleExperiment.testAllTunnels", () => provider?.testTunnel(true)), vscode.commands.registerCommand("simpleExperiment.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()), vscode.commands.registerCommand("simpleExperiment.testXshellTunnel", () => provider?.testTunnel(true)), hostCommand("simpleExperiment.restartRealtimeStream", "restart-realtime-stream", "重启实时流", () => provider?.restartRealtimeStream()), hostCommand("simpleExperiment.pauseRealtimeStream", "pause-realtime-stream", "暂停实时流", () => provider?.pauseRealtimeStream()), hostCommand("simpleExperiment.resumeRealtimeStream", "resume-realtime-stream", "恢复实时流", () => provider?.resumeRealtimeStream()), hostCommand("simpleExperiment.pauseAllNetworkActivity", "pause-network", "暂停网络活动", () => provider?.pauseAllNetworkActivity()), hostCommand("simpleExperiment.generateXshellTunnelScript", "write-tunnel-script", "生成 Xshell 启动脚本", () => provider?.generateTunnelScript()), vscode.commands.registerCommand("simpleExperiment.openTunnelStatus", () => provider?.openTunnelStatus()), vscode.commands.registerCommand("simpleExperiment.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()), vscode.commands.registerCommand("simpleExperiment.manualRefresh", () => provider?.manualSnapshot()), hostCommand("simpleExperiment.importOfflineBundle", "import-offline-bundle", "导入离线包", () => provider?.importOffline()), vscode.commands.registerCommand("simpleExperiment.clearCache", () => provider?.clearCacheFromUi()), vscode.commands.registerCommand("simpleExperiment.openLastCheckStaticReport", () => provider?.openLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.copyLastCheckStaticReport", () => provider?.copyLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.runCheckStatic", () => provider?.runCheckStaticFromUi()));
     context.subscriptions.push(hostCommand("simpleExperiment.bootstrapProject", "bootstrap-project", "识别工作区", () => provider?.bootstrapProjectFromUi()), hostCommand("simpleExperiment.prepareAgents", "prepare-agents", "准备 Agent 并启动", () => provider?.prepareAgentsForFirstRun()), hostCommand("simpleExperiment.verifyAgentVersion", "verify-agent-version", "校验 Agent 版本", () => provider?.verifyAgentVersionManually()));
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => void provider?.handleConfigurationChanged(event)));
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
@@ -872,6 +881,9 @@ class RealtimeTunnelPanelProvider {
     manualResultSyncCounts = new Map();
     safeTransferRetries = new SafeRequestRetry_1.SafeRequestRetry();
     planRetryInFlight = new Set();
+    operationNoticeSessions = new Map();
+    operationLogChannel = undefined;
+    legacySourceFreezeNoticeKey = "";
     projectStaticCheckPromise;
     projectStaticCheckAbort;
     distributedQueueStorageDiagnostics = { status: "ready" };
@@ -6215,6 +6227,19 @@ class RealtimeTunnelPanelProvider {
         return 0;
     }
     postUiCommandStatus(clientActionId, status, command, message, extra = undefined) {
+        // Full per-operation feedback (validation/dry-run replies included, not only
+        // reportPlanStage stages) lands in the same operation log channel that the
+        // notification's 查看日志 button and the SimpleExperiment：查看操作完整日志 command
+        // open, so the notification deferral never hides facts. Stage lines may appear
+        // once here and once from reportPlanStage; duplication of a full audit log is safe.
+        if (OPERATION_NOTICE_COMMANDS.has(command)) {
+            this.logOperationFact(`[${clientActionId}] ${command} ${status}：${String(message || "")}`);
+            // Validation/dry-run feedback never passes through reportPlanStage, so route
+            // it into the same live Notification (truncation is display-only; the log
+            // above keeps the full text). Submission stages already report themselves.
+            if (command === "validatePlan" || command === "dryRunPlan")
+                this.reportOperationNotice(clientActionId, `${status}：${String(message || "")}`);
+        }
         if (!this.view || !clientActionId)
             return;
         void this.view.webview.postMessage({
@@ -6276,25 +6301,51 @@ class RealtimeTunnelPanelProvider {
     planSubmissionBatchFor(message) { return (0, PlanSubmissionBatch_1.planSubmissionBatchFor)(message); }
     async runActionCommand(command, message) {
         require("../updates/Bootstrap").assertBusinessAllowed();
-        if (PLAN_SUBMISSION_COMMANDS.has(command)) {
-            this.planRunStageStartedAt = Date.now();
-            this.beginPlanSubmissionProgress(message, this.actionBody(message));
-            this.reportPlanStage(message, "已收到校验并提交运行，正在准备计划与插件接入规则…");
-            await new Promise((resolve) => setTimeout(resolve, 0));
-        }
         if (RESULT_PARSE_COMMANDS.has(command))
             return this.rebuildProjectResultTablesFromUi({ title: "更新结果汇总" });
-        if (!PLAN_SUBMISSION_COMMANDS.has(command))
-            return await this.runActionCommandLeased(command, message);
-        const key = `${workspaceRoot()}\0${normalizePlanSelectionKey(operationResultPlanFile(this.actionBody(message))).toLowerCase()}`;
-        if (this.planRetryInFlight.has(key))
-            throw new UiCommandCancelled("同一 Plan 正在确认或提交，请等待当前请求。");
-        this.planRetryInFlight.add(key);
+        // One VS Code Notification per operation for the plan-running / experiment
+        // preparation surface; batch submisions defer to their parent session.
+        // A single method keeps the fixture-extraction markers on runActionCommand /
+        // runActionCommandCore exactly where the existing test spans expect them.
+        // The session opens inside the protected try BEFORE the first stage so the
+        // first reportPlanStage line is visible in the notification, not only in the log.
+        const noticeKey = OPERATION_NOTICE_COMMANDS.has(command) && !stringField(message, "parentClientActionId")
+            ? this.operationNoticeKey(message) : "";
         try {
-            return await this.runActionCommandLeased(command, message);
+            if (noticeKey)
+                this.beginOperationProgressNotice(command, message);
+            if (PLAN_SUBMISSION_COMMANDS.has(command)) {
+                this.planRunStageStartedAt = Date.now();
+                this.beginPlanSubmissionProgress(message, this.actionBody(message));
+                this.reportPlanStage(message, "已收到校验并提交运行，正在准备计划与插件接入规则…");
+                await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+            let result;
+            if (!PLAN_SUBMISSION_COMMANDS.has(command)) {
+                result = await this.runActionCommandLeased(command, message);
+            }
+            else {
+                const key = `${workspaceRoot()}\0${normalizePlanSelectionKey(operationResultPlanFile(this.actionBody(message))).toLowerCase()}`;
+                if (this.planRetryInFlight.has(key))
+                    throw new UiCommandCancelled("同一 Plan 正在确认或提交，请等待当前请求。");
+                this.planRetryInFlight.add(key);
+                try {
+                    result = await this.runActionCommandLeased(command, message);
+                }
+                finally {
+                    this.planRetryInFlight.delete(key);
+                }
+            }
+            if (noticeKey)
+                this.finishOperationProgressNotice(noticeKey, this.submissionNoticeTone(message, result), this.submissionNoticeText(message, result));
+            return result;
         }
-        finally {
-            this.planRetryInFlight.delete(key);
+        catch (error) {
+            if (noticeKey) {
+                const cancelled = error instanceof UiCommandCancelled;
+                this.finishOperationProgressNotice(noticeKey, cancelled ? "cancelled" : "failed", error instanceof Error ? error.message : String(error));
+            }
+            throw error;
         }
     }
     async runActionCommandLeased(command, message, options = {}) {
@@ -6692,6 +6743,138 @@ class RealtimeTunnelPanelProvider {
         }
         this.throwIfTerminalActionFailure(command, action, resultStatus(finalResult), finalResult);
     }
+    operationNoticeKey(message) {
+        // A batch submisison routes into its parent operation's notification; the
+        // owner key never changes once the session opened.
+        return stringField(message, "parentClientActionId") || stringField(message, "clientActionId") || "";
+    }
+    ensureOperationLogChannel() {
+        if (!this.operationLogChannel) {
+            this.operationLogChannel = vscode.window.createOutputChannel("SimpleExperiment 操作日志");
+            this.context.subscriptions.push(this.operationLogChannel);
+        }
+        return this.operationLogChannel;
+    }
+    logOperationFact(text) {
+        try {
+            this.ensureOperationLogChannel().appendLine(`[${new Date().toISOString()}] ${text}`);
+        }
+        catch {
+            // Log channel absence must never fail the operation itself.
+        }
+    }
+    showOperationLogFromUi() {
+        this.ensureOperationLogChannel().show(true);
+    }
+    beginOperationProgressNotice(command, message) {
+        const key = this.operationNoticeKey(message);
+        if (!key || this.operationNoticeSessions.has(key))
+            return;
+        const planFile = String(message?.planFile || message?.planId || message?.selectedPlanId || "").trim();
+        const title = `${OPERATION_NOTICE_TITLES[command] || command}${planFile ? `：${planFile}` : ""}`;
+        let resolveDone;
+        const done = new Promise((resolve) => { resolveDone = resolve; });
+        const session = { title, progress: undefined, reports: [], closed: false, done, finishResolve: resolveDone };
+        this.operationNoticeSessions.set(key, session);
+        // One notification for the whole operation. The completion promise and the
+        // bounded stage buffer exist BEFORE the host may invoke the withProgress callback:
+        // a late callback replays every buffered stage in order and converges immediately
+        // when the operation already finished, so no stage is lost and nothing dangles.
+        void vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title, cancellable: false }, async (progress) => {
+            session.progress = progress;
+            for (const line of session.reports.splice(0))
+                progress.report({ message: line });
+            if (session.closed)
+                return;
+            await session.done;
+        }).catch(() => {
+            // A host-side withProgress rejection after convergence must not surface
+            // as an unhandled rejection; the operation result is already delivered.
+        });
+    }
+    reportOperationNotice(key, text) {
+        const session = this.operationNoticeSessions && this.operationNoticeSessions.get(key);
+        if (!session || !text)
+            return;
+        const line = String(text).slice(0, 200);
+        if (session.progress)
+            session.progress.report({ message: line });
+        else {
+            if (session.reports[session.reports.length - 1] !== line)
+                session.reports.push(line);
+            // Rolling window: the newest stages (and any terminal line) always stay in the
+            // replay buffer; the full history is in the operation log channel.
+            while (session.reports.length > 8)
+                session.reports.shift();
+        }
+    }
+    finishOperationProgressNotice(key, tone, text) {
+        const session = this.operationNoticeSessions.get(key);
+        if (!session)
+            return;
+        this.operationNoticeSessions.delete(key);
+        if (text) {
+            const line = String(text).slice(0, 200);
+            if (session.progress)
+                session.progress.report({ message: line });
+            else if (session.reports[session.reports.length - 1] !== line)
+                session.reports.push(line);
+            while (session.reports.length > 8)
+                session.reports.shift();
+        }
+        session.closed = true;
+        try {
+            session.finishResolve(undefined);
+        }
+        catch {
+            // A host-released progress promise must not fail the operation exit.
+        }
+        const label = `SimpleExperiment ${session.title}${text ? `：${text}` : "已完成。"}`;
+        this.logOperationFact(label);
+        const viewLog = "查看日志";
+        const prompt = tone === "succeeded" ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
+        void Promise.resolve(prompt.call(vscode.window, label, viewLog))
+            .then((choice) => { if (choice === viewLog)
+            this.showOperationLogFromUi(); });
+    }
+    submissionNoticeTone(message, result) {
+        const row = this.localOperations?.[this.planSubmissionOperationId(message)];
+        const rowStatus = String(row?.status || "").toLowerCase();
+        if (rowStatus === "failed")
+            return "failed";
+        if (rowStatus === "cancelled" || rowStatus === "canceled")
+            return "cancelled";
+        if (!row) {
+            // validate/dry-run create no plan-submit row: follow the real result facts
+            // (resultStatus/error/ok) instead of defaulting a failed reply to succeeded.
+            if (result && typeof result === "object" && (result.error || result.ok === false))
+                return "failed";
+            const status = String(resultStatus(result) || "").toLowerCase();
+            if (/fail|error|失败/.test(status))
+                return "failed";
+            if (/cancel/.test(status))
+                return "cancelled";
+        }
+        return "succeeded";
+    }
+    submissionNoticeText(message, result) {
+        const row = this.localOperations?.[this.planSubmissionOperationId(message)];
+        const rowText = String(row?.message || "").trim();
+        const resultText = result && typeof result === "object" ? String(result.message || result.error || "").trim() : "";
+        return rowText || resultText;
+    }
+    recordLegacySourceFreezeFact(message, workerNames, fact) {
+        // The fact stays honest and stays in the full log on EVERY operation; the
+        // notification repeats it only on first appearance / set change (item 2).
+        const key = [...workerNames].sort().join(",");
+        if (key !== this.legacySourceFreezeNoticeKey) {
+            this.legacySourceFreezeNoticeKey = key;
+            this.reportPlanStage(message, fact);
+        }
+        else {
+            this.logOperationFact(`[旧 runtime] ${fact}`);
+        }
+    }
     reportPlanStage(message, text) {
         const started = Number(this.planRunStageStartedAt || Date.now());
         const elapsed = Math.max(0, Date.now() - started);
@@ -6704,7 +6887,10 @@ class RealtimeTunnelPanelProvider {
         if (clientActionId)
             this.postUiCommandStatus(clientActionId, "running", stringField(message, "command") || "runPlan", line);
         this.patchPlanSubmissionProgress(message, "running", text);
-        void vscode.window.setStatusBarMessage(`SimpleExperiment：${line}`, 8000);
+        // Progress moved from the bottom status bar to the per-operation VS Code
+        // Notification plus the full log channel (task ui-plan-gpu-progress-20261024).
+        this.reportOperationNotice(this.operationNoticeKey(message), text);
+        this.logOperationFact(`[${this.operationNoticeKey(message) || stringField(message, "command") || "operation"}] ${line}`);
     }
     planSubmissionOperationId(message) {
         const clientActionId = stringField(message, "clientActionId");
@@ -11559,7 +11745,7 @@ class RealtimeTunnelPanelProvider {
         // 尚未更新语义的旧 Worker 必须收到明确提示，不能伪称源码变更执行已在其上生效；提示与本机队列是否占用无关。
         const legacyWorkers = this.legacySourceFreezeWorkerNames();
         if (legacyWorkers.length)
-            this.reportPlanStage(message, `提示：${legacyWorkers.join("、")} 的 Worker runtime 仍是旧源码冻结语义；源码更新后这些服务器仍会以旧源码不变校验拒绝 test/续跑任务，请先更新 Worker runtime。`);
+            this.recordLegacySourceFreezeFact(message, legacyWorkers, `提示：${legacyWorkers.join("、")} 的 Worker runtime 仍是旧源码冻结语义；源码更新后这些服务器仍会以旧源码不变校验拒绝 test/续跑任务，请先更新 Worker runtime。`);
         try {
             const codeSyncStarted = Date.now();
             const batch = body.submissionBatchLocal;
@@ -17838,7 +18024,22 @@ class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`Plan 已恢复为独立版本 v${planVersion}：${restoredFile}；输出使用 ${outputNamespace} 命名空间，结果写入独立 Plan 范围。已恢复配置 ${restoredConfigs} 个、环境清单 ${restoredEnvironmentFiles.length} 个、参数资料 ${restoredParameterFiles.length} 个；缺失配置 ${missingConfigs} 个、环境清单 ${missingEnvironmentFiles} 个、参数资料 ${missingParameterFiles} 个。已自动切换到 Plan 工作台，可先检查恢复内容，再执行“校验并提交运行”。`);
     }
     async runAllPlansFromUi(message = {}) {
-        return (0, SelectedPlanBatchHost_1.runAllPlans)(this, message);
+        // One Notification for the whole batch; per-plan submisions route into it
+        // through parentClientActionId instead of opening their own.
+        const parentKey = this.operationNoticeKey(message) || `run-all-${Date.now()}`;
+        const noticeMessage = { ...message, parentClientActionId: parentKey };
+        this.beginOperationProgressNotice("runAllPlans", noticeMessage);
+        try {
+            const result = await (0, SelectedPlanBatchHost_1.runAllPlans)(this, noticeMessage);
+            const status = String(result?.status || "").toLowerCase();
+            const tone = status === "cancelled" ? "cancelled" : status === "failed" ? "failed" : "succeeded";
+            this.finishOperationProgressNotice(parentKey, tone, String(result?.message || ""));
+            return result;
+        }
+        catch (error) {
+            this.finishOperationProgressNotice(parentKey, error instanceof UiCommandCancelled ? "cancelled" : "failed", error instanceof Error ? error.message : String(error));
+            throw error;
+        }
     }
     async generatePlanGuideFromUi(openAfterCreate = true) {
         const projectContext = this.captureProjectContext();

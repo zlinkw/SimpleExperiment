@@ -63,7 +63,11 @@ const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpri
   ${compiled("patchPlanSubmissionProgress")}
   ${compiled("finishPlanSubmissionProgress")}
   ${compiled("trimPlanSubmissionEpochs")}
-  return { syncCodeTargets, safeWorkerCodeSyncTargets, syncManualWorkerCode, uploadProjectToWorkers, distributeCodeToWorkers, publishToGitHub, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs };
+  ${compiled("operationNoticeKey")}
+  ${compiled("reportOperationNotice")}
+  ${compiled("logOperationFact")}
+  ${compiled("ensureOperationLogChannel")}
+  return { syncCodeTargets, safeWorkerCodeSyncTargets, syncManualWorkerCode, uploadProjectToWorkers, distributeCodeToWorkers, publishToGitHub, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs, operationNoticeKey, reportOperationNotice, logOperationFact, ensureOperationLogChannel };
 `);
 function apiFactory(...args) { while(args.length<9)args.push(undefined);return createApi(...args,require("../../dist/extension/PlanCodeScopeHost.js"),require("../../dist/features/ProjectRootMap.js")); }
 

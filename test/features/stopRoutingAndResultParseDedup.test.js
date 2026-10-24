@@ -64,6 +64,10 @@ function createContext(extra = {}) {
     resultStatus: (record) => String(record?.status || ""),
     stringFromRecord: (record, keys) => keys.map((key) => String(record?.[key] || "")).find(Boolean) || "",
     LONG_RUNNING_OPERATION_ACTIONS: new Set(["run-plan", "reproduce-plan"]),
+    // Task ui-plan-gpu-progress-20261024: runActionCommand now opens one VS Code
+    // Notification per in-scope operation; stopExperiment is out of that set, so
+    // the routing assertions below are unchanged and only need the constant bound.
+    OPERATION_NOTICE_COMMANDS: new Set(["runPlan", "reproducePlan", "validatePlan", "dryRunPlan", "runAllPlans"]),
     sanitizeAllowedGpuIds: (ids) => {
       const raw = Array.isArray(ids) ? ids : typeof ids === "string" ? String(ids).split(/[,\s]+/) : [];
       const trimmed = raw.map((item) => String(item || "").trim()).filter(Boolean);

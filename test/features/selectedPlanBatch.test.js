@@ -164,6 +164,8 @@ test('the real run-all handler routes explicit subsets, including empty arrays, 
  const block=clause.statements.filter(n=>!ts.isBreakStatement(n)).map(n=>n.getText(ast)).join('\n');
  const handler=vm.runInNewContext(ts.transpileModule('async function run(message){'+block+'};run;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{runSelectedPlans});
  const f=fixture();let all=0;f.host.runAllPlansFromUi=async()=>all++;
+ // 0.5.408 T3: the real handler opens one batch Notification; route its lifecycle to no-ops here.
+ Object.assign(f.host,{operationNoticeKey:()=>'',beginOperationProgressNotice(){},finishOperationProgressNotice(){}});
  await assert.rejects(handler.call(f.host,{planFiles:[]}));assert.equal(all,0);
  await handler.call(f.host,{planFiles:['plans/b.yaml']});assert.deepEqual(f.calls.map(x=>x.planFile),['plans/b.yaml']);assert.equal(all,0);
  await handler.call(f.host,{});assert.equal(all,1);

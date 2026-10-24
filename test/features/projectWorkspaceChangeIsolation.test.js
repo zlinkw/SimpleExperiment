@@ -239,7 +239,10 @@ test("batch Plan execution keeps project, SFTP root, and Agent client authority"
   const scheduler = methodBody("async postPlanSchedulerAction", "workerPoolActionBody");
   const workerAction = methodBody("async postWorkerTunnelAction", "activeWorkerActionOperation");
   const wait = methodBody("async waitForOperationTerminalResult", "async finishOperationWatchdog");
-  assert.match(runAll, /return runAllPlans\(this, message\)/);
+  // 0.5.408 T3: the batch forwards the message plus the shared parentClientActionId through noticeMessage.
+  assert.match(runAll, /const noticeMessage = \{ \.\.\.message, parentClientActionId: parentKey \};/);
+  assert.match(runAll, /const result = await runAllPlans\(this, noticeMessage\);/);
+  assert.match(runAll, /return result;/);
   const batch = fs.readFileSync(path.join(__dirname, "../../src/extension/SelectedPlanBatchHost.ts"), "utf8");
   assert.match(batch, /const context = host\.captureProjectContext\(\)/);
   assert.match(batch, /!host\.projectContextIsCurrent\(context\) \|\| targetKey\(\) !== targets/);

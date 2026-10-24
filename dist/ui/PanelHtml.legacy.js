@@ -6021,7 +6021,10 @@ function renderPanelHtml() {
         const shown = full.length > 160 ? full.slice(0, 157) + "..." : full;
         return { shown, full };
       };
-      const pending = Object.values(pendingActionsById || {});
+      // 运行plan/实验准备的进行中进度改由每次操作的 VS Code Notification 展示
+      // （任务 ui-plan-gpu-progress-20261024），此处不再重复微小灰字；其它命令面
+      // （如执行/结果区的 tmux 等操作）保持原样，卡片历史行与按钮终态不受影响。
+      const pending = Object.values(pendingActionsById || {}).filter((row) => !(row && planPhaseCommand(row.command)));
       const hosts = [["commandPhaseLine", "execution"], ["planCommandPhaseLine", "plans"], ["resultCommandPhaseLine", "results"]];
       for (const pair of hosts) {
         const host = el(pair[0]);
@@ -11441,6 +11444,44 @@ function renderPanelHtml() {
     function requestGpuHistoryRemote(payload) {
       vscode.postMessage(Object.assign({ command: "loadGpuHistory" }, payload));
     }
+    // Gap decisions are materialized per segment at that segment's OWN granularity
+    // before coarse and fine runs are concatenated, so a merged fine-run median
+    // can never re-judge a coarse gap (and vice versa). Explicit booleans stay
+    // authoritative; holes beyond a segment's own limit are marked, never bridged,
+    // and no values are synthesized.
+    function gpuHistorySegmentGapLimit(expectedStep) {
+      return Math.max(Number(gpuHistoryMeta.bucketSeconds) || 0, Number(expectedStep) || 0) * GPU_HISTORY_GAP_FACTOR;
+    }
+    function mergeGpuHistorySegments(coarseRows, fineRows) {
+      const kept = asArray(coarseRows);
+      if (kept.length > 1) {
+        const coarseLimit = gpuHistorySegmentGapLimit(historyExpectedStepFromSortedTimes(
+          kept.map(function(row) { return Number(row && row.bucketEpoch); })));
+        for (let index = 1; index < kept.length; index += 1) {
+          const row = kept[index];
+          if (typeof row.gapBefore === "boolean") continue; // remote-declared stays authoritative
+          const step = Number(row.bucketEpoch) - Number(kept[index - 1].bucketEpoch);
+          row.gapBefore = !Number.isFinite(step) || step > coarseLimit;
+        }
+      }
+      const fine = asArray(fineRows);
+      if (fine.length > 1) {
+        const fineLimit = gpuHistorySegmentGapLimit(historyExpectedStepFromSortedTimes(
+          fine.map(function(row) { return Number(row && row.bucketEpoch); })));
+        for (let index = 1; index < fine.length; index += 1) {
+          const step = Number(fine[index].bucketEpoch) - Number(fine[index - 1].bucketEpoch);
+          if (!Number.isFinite(step) || step > fineLimit) fine[index].gapBefore = true;
+        }
+      }
+      if (kept.length && fine.length) {
+        const coarseStep = historyExpectedStepFromSortedTimes(kept.map(function(row) { return Number(row && row.bucketEpoch); }));
+        const fineStep = historyExpectedStepFromSortedTimes(fine.map(function(row) { return Number(row && row.bucketEpoch); }));
+        const boundaryLimit = gpuHistorySegmentGapLimit(Math.max(coarseStep, fineStep));
+        const boundary = Number(fine[0].bucketEpoch) - Number(kept[kept.length - 1].bucketEpoch);
+        fine[0].gapBefore = fine[0].gapBefore === true || !Number.isFinite(boundary) || boundary > boundaryLimit;
+      }
+      return kept.concat(fine);
+    }
     function applyGpuWindowSamples(message) {
       // Consume only the exact request this answer belongs to: unknown, duplicate,
       // late-after-timeout or post-reload answers are dropped instead of cancelling
@@ -11471,7 +11512,9 @@ function renderPanelHtml() {
           if (!byGpu.has(gpuId)) byGpu.set(gpuId, []);
           const used = Number(raw.memoryUsedMb !== undefined ? raw.memoryUsedMb : raw.memory_used_mb);
           const total = Number(raw.memoryTotalMb !== undefined ? raw.memoryTotalMb : raw.memory_total_mb);
-          byGpu.get(gpuId).push({ timestamp: new Date(collectedAt).toISOString(), bucketEpoch: collectedAt,
+          // The history pipeline (remote buckets, time range, canvas) is on the
+          // epoch-SECONDS scale; GpuSampleRing.collectedAt is epoch milliseconds.
+          byGpu.get(gpuId).push({ timestamp: new Date(collectedAt).toISOString(), bucketEpoch: Math.round(collectedAt / 1000),
             gpuUtilPercent: Number(raw.utilizationPercent !== undefined ? raw.utilizationPercent : raw.utilization),
             memoryUtilPercent: Number.isFinite(used) && Number.isFinite(total) && total > 0 ? Math.round(used / total * 1000) / 10 : null,
             memoryUsedMb: Number.isFinite(used) ? used : null, memoryTotalMb: Number.isFinite(total) ? total : null,
@@ -11488,7 +11531,7 @@ function renderPanelHtml() {
         const kept = existing && Array.isArray(existing.points)
           ? existing.points.filter(function(row) { return Number(row && row.bucketEpoch) < points[0].bucketEpoch; }) : [];
         gpuHistorySeriesCache.delete(key);
-        gpuHistorySeriesCache.set(key, { serverId: workerId, gpuId: gpuId, points: kept.concat(points) });
+        gpuHistorySeriesCache.set(key, { serverId: workerId, gpuId: gpuId, points: mergeGpuHistorySegments(kept, points) });
         applied += points.length;
       });
       if (applied) {
@@ -14459,12 +14502,27 @@ function renderPanelHtml() {
     }
 
 
+    // Human-readable progress from the SAME operation row the card already shows
+    // (patchPlanSubmissionProgress writes the stage sentence into message/stage);
+    // machine tokens fall back to the existing phase label meanings. The label
+    // never claims more than the row states: submitted stays 提交中, never 运行中.
+    function executionSubmissionProgressText(row) {
+      // normalizeOperationRows fills messageless rows with the display placeholder "-";
+      // a placeholder is not real stage progress and must never surface in the label.
+      const message = String((row && row.message) || "").trim();
+      if (message && message !== "-") return message;
+      const stage = String((row && row.stage) || "").trim();
+      if (!stage || stage === "-") return "";
+      return PLAN_EXECUTION_PHASE_LABELS[stage] || stage;
+    }
     function executionSubmissionLabel(row) {
       if (row && row.localSubmissionProgress === true && String(row.status || "").toLowerCase() === "queued") return "等待继续提交";
       const action = String((row && (row.type || row.action)) || "").toLowerCase();
-      if (action.indexOf("validate") >= 0 || action.indexOf("dry-run") >= 0 || action.indexOf("dryrun") >= 0) return "校验中";
-      if (action.indexOf("run-plan") >= 0 || action.indexOf("reproduce") >= 0 || action.indexOf("workflow") >= 0) return "提交中";
-      return "处理中";
+      let base = "处理中";
+      if (action.indexOf("validate") >= 0 || action.indexOf("dry-run") >= 0 || action.indexOf("dryrun") >= 0) base = "校验中";
+      else if (action.indexOf("run-plan") >= 0 || action.indexOf("reproduce") >= 0 || action.indexOf("workflow") >= 0) base = "提交中";
+      const progress = executionSubmissionProgressText(row);
+      return progress && progress !== base ? base + " · " + progress : base;
     }
 
     function executionOperationWorkflowId(row) {
@@ -14952,7 +15010,11 @@ function renderPanelHtml() {
           localSubmissionProgress: row.localSubmissionProgress,
           workflowId: executionOperationWorkflowId(row),
           error: row.error,
-          message: active ? "" : row.message,
+          // The group label now displays an ACTIVE submission's stage/message
+          // (same-source progress), so the key must carry exactly that displayed
+          // text; timestamps stay excluded to avoid per-frame rerenders.
+          message: active ? String(row.message || "") : row.message,
+          stage: active ? String(row.stage || "") : "",
           reconcileEvidenceActive: row.reconcileEvidenceActive,
         };
       });

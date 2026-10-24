@@ -1321,6 +1321,11 @@ test("handleMessage posts the real stop-clear outcome for failed, cancelled, and
     hostOperationLeaseActionLabel: () => "终止并清理",
     commandNeedsUiStatus: () => true,
     PLAN_SUBMISSION_COMMANDS: new Set(["runPlan", "reproducePlan"]),
+    // Task ui-plan-gpu-progress-20261024 review item 5: postUiCommandStatus now forwards
+    // in-scope command feedback to the operation log channel; stopAndClearPlan is out of
+    // that set, so outcome posting below is unchanged and only needs the bindings present.
+    OPERATION_NOTICE_COMMANDS: new Set(["runPlan", "reproducePlan", "validatePlan", "dryRunPlan", "runAllPlans"]),
+    logOperationFact: () => undefined,
     withSafeTransferRetry: (_command, _message, work) => work(),
     extensionRuntimeVersionState: () => ({ reloadRequired: false }),
     localCommandReleasesAfterTrigger: () => false,

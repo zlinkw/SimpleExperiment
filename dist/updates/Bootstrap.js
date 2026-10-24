@@ -53,6 +53,7 @@ const HostOperationLease_1 = require("../core/HostOperationLease");
 exports.CHECK_COMMAND = "simpleExperiment.checkPluginUpdates";
 exports.INSTALL_COMMAND = "simpleExperiment.installPluginUpdates";
 const STATUS_KEY = "simpleExperiment.pluginUpdateStatus";
+const RETRY_KEY = "simpleExperiment.pluginUpdateRetryAt";
 let service;
 let status = { status: "unknown", message: "尚未检查配套更新。", checkedAt: "" };
 let business;
@@ -88,8 +89,15 @@ function validateUpdateComponents(components) {
     }
 }
 /** Independent update entry: no project, tunnel or business panel is needed. */
-function registerUpdater(context, vscode, client = new ReleaseClient_1.ReleaseClient(), options = {}) {
+function registerUpdater(context, vscode, client, options = {}) {
     const current = (id) => String(vscode.extensions.getExtension(id)?.packageJSON?.version || "0.0.0");
+    // Proven rate-limit backoff lives in globalState so a window reload cannot immediately
+    // re-hammer the GitHub API; the store's async save is awaited inside the client.
+    const retryStore = {
+        load: async () => Number(context.globalState.get(RETRY_KEY, 0)) || 0,
+        save: async (at) => { await context.globalState.update(RETRY_KEY, at); },
+    };
+    const releaseClient = client || new ReleaseClient_1.ReleaseClient(fetch, Date.now, retryStore);
     const bar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 20);
     bar.command = exports.CHECK_COMMAND;
     bar.show();
@@ -100,7 +108,7 @@ function registerUpdater(context, vscode, client = new ReleaseClient_1.ReleaseCl
     let checking, installing;
     const notices = new Set();
     const gate = options.gate || new UpdateGate_1.UpdateGate();
-    const store = options.store || new VerifiedPackage_1.PackageStore(path.join(context.globalStorageUri.fsPath, "updates", "verified"), client, vscode.version);
+    const store = options.store || new VerifiedPackage_1.PackageStore(path.join(context.globalStorageUri.fsPath, "updates", "verified"), releaseClient, vscode.version);
     async function acquireGate() {
         if ((0, ExtensionUpdates_1.compareSemanticVersions)(current(ExtensionUpdates_1.SFTP_EXTENSION_ID), "0.2.69") < 0)
             throw new Error("配套更新需要 SimpleSFTP 0.2.69 的传输等待协议；请先安装配套包并重载，不能中断旧版传输。");
@@ -159,7 +167,7 @@ function registerUpdater(context, vscode, client = new ReleaseClient_1.ReleaseCl
                 await context.globalState.update(UpdateTransaction_1.TRANSACTION_KEY, undefined);
                 blocked = false;
             }
-            lastPlan = await client.check(current, manual);
+            lastPlan = await releaseClient.check(current, manual);
             await publish(lastPlan);
             const key = `simpleExperiment.update.notified.${lastPlan.sftp?.latestVersion}:${lastPlan.experiment?.latestVersion}`;
             if (lastPlan.status === "update_available" && !notices.has(key) && !context.globalState.get(key, false)) {
@@ -174,6 +182,19 @@ function registerUpdater(context, vscode, client = new ReleaseClient_1.ReleaseCl
             return status;
         }
         catch (error) {
+            if (error instanceof ReleaseClient_1.RateLimitedError) {
+                // A proven quota window is a deferral, not a check failure. Publish the existing
+                // unknown state with an explicit deferred message (never leave the API/panel/
+                // globalState stuck on "checking", never relabel stale data as latest).
+                const when = new Date(error.retryAt).toLocaleString();
+                const deferred = `GitHub API 限流中；更新检查已延后，${when} 后自动重试；此前的检查结果不能视为最新。`;
+                await publish({ ...status, status: "unknown", message: deferred });
+                bar.text = "$(cloud) 配套更新：限流中";
+                bar.tooltip = deferred;
+                if (manual)
+                    void vscode.window.showWarningMessage(deferred);
+                return status;
+            }
             await publish({ ...status, status: "error", message: `检查失败：${error.message}` });
             if (manual)
                 void vscode.window.showErrorMessage(status.message);

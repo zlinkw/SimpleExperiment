@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.407",
-  "buildId": "83a1e2bf4ca1c182722406dd378aa77fa38be007e404157ca56946c5c4ac6485",
+  "version": "0.5.408",
+  "buildId": "77bc1ee8621f15aa5be82bf176fd463ac2974916d4c3eff7b8a4cc03ab792a3e",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -105,7 +105,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "e5eab0bb1ba66a49465d3da1433215a497ee074b0f2355f6e5b9462eae80c4ee"
+      "sha256": "7950b7d0cb4b977de9ea1ed7b47aedebc6edf6432e236cf2176c163cc75187d3"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -165,7 +165,7 @@
     },
     {
       "path": "dist/extension/SelectedPlanBatchHost.js",
-      "sha256": "18d5c66d79725c0aac5251678a981a34bd2c0073bbca41855e1f1436e6b3582e"
+      "sha256": "391d69797d3432c370e45d53793ae42f4dabda942ccbbb1198e7dca0bd2e4d0a"
     },
     {
       "path": "dist/extension/ServerQueueHost.js",
@@ -669,7 +669,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "3f44fe5443d75846e2ecea3d57677f829dc131ce6f140f0539dcdbe5247a2270"
+      "sha256": "4494d74ecff7ab58d9bddb867d44212457e9d5cace1f82344e0a5f37b5708fb6"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -893,7 +893,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "df4c2acfc7daee74e8e3f059464853ad45f2fe773a311566dc1560acd4143d2c"
+      "sha256": "91a2babd0716c0a839c1e4e8d7df133b30631d7cf4470b098fff684cfa6354e5"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -913,11 +913,11 @@
     },
     {
       "path": "dist/updates/Bootstrap.js",
-      "sha256": "d7966984f6a6697910e85dc50a12bc86359a04c32096ff46f0f85e5f944c1c7e"
+      "sha256": "0173e5c34e86204519440e409718b7a51730be3cb09b89251374416b96ae46d3"
     },
     {
       "path": "dist/updates/ReleaseClient.js",
-      "sha256": "c7e22f82305f79b32b0bd2f8923a9af55b2c4d94b80a8150f25b59ba429786d0"
+      "sha256": "2d7bbe05d284be4cada586515fbbbac4d7493bf972ab3a2d9be790ea8c4c9b78"
     },
     {
       "path": "dist/updates/UpdateGate.js",
@@ -1017,7 +1017,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "b98abc232ae21a032500d29cf3b28960981a014d096fcd5d6d1a567fd8c6f617"
+      "sha256": "ea7250d74b1ceb487940920ff325b9da67f62de6a3bd37cab9dcad3fa7c2972e"
     },
     {
       "path": "scripts/check-static.js",
