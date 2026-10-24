@@ -786,7 +786,7 @@ test("runner: real-repo plan reconciles with an independently expanded manifest 
   assert.equal(pkg.dedup.duplicatesRemoved, pkgExp.requestedSlots - pkgExp.map.size, "package duplicatesRemoved = canonical duplicate count");
   // 新缺陷回归必须按规范身份在 package/build/check:full 权威清单各仅出现一次（Windows 407 首跑登记后的绑定断言）
   for (const entry of ["package", "build", "check:full"]) {
-    const occ = planOf(entry).jobs.filter(job => String(job.identity || "").endsWith("/test/features/planRunSharedSubmission.test.js")).length;
+    const occ = planOf(entry).jobs.filter(job => job.identity === canonicalIdentity("test/features/planRunSharedSubmission.test.js")).length; // 完整规范身份相等（win32 下 actual identity 已小写，后缀字面量会 0!==1）
     assert.equal(occ, 1, `planRunSharedSubmission must appear exactly once in ${entry}`);
   }
   assert.equal(pkg.hooksVerified.hooksVerified, "zero", "package.json hook graph must stay provable");
