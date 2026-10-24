@@ -71,6 +71,7 @@ const production = new Function("DistributedPlanQueue", "fs", "path", "crypto", 
     planSubmissionQueueDetail: ${method("planSubmissionQueueDetail").replace("planSubmissionQueueDetail", "function")},
     distributedCodeVersionHold: ${method("distributedCodeVersionHold").replace("async distributedCodeVersionHold", "async function")},
     legacySourceFreezeWorkerNames: ${method("legacySourceFreezeWorkerNames").replace("legacySourceFreezeWorkerNames", "function")},
+    recordLegacySourceFreezeFact: ${method("recordLegacySourceFreezeFact").replace("recordLegacySourceFreezeFact", "function")},
     beginSimpleSftpCapabilityLaunch: ${method("beginSimpleSftpCapabilityLaunch").replace("beginSimpleSftpCapabilityLaunch", "function")},
     assertPlanSubmissionNotDuringResultSync: ${method("assertPlanSubmissionNotDuringResultSync").replace("assertPlanSubmissionNotDuringResultSync", "function")},
     deferDistributedPlan: ${method("deferDistributedPlan").replace("async deferDistributedPlan", "async function")},
@@ -106,6 +107,7 @@ function provider() {
   host.postState = () => host.posts.push(JSON.parse(JSON.stringify(host.localOperations)));
   host.markLocalOperationsDirty = () => {};
   host.reportPlanStage = (_message, text) => host.stages.push(text);
+  host.logOperationFact = () => {};
   host.openPanelAt = async () => {};
   host.loadDistributedQueue = async () => host.distributedQueueCache;
   host.saveDistributedQueue = async (_root, queue) => {
@@ -622,7 +624,7 @@ function progressState(host) {
 }
 
 function renderExecution(state) {
-  return renderPanel(["distributedPlanRecoveryView", "executionPlanGroupKey", "executionCurrentDistributedJobs", "executionSubmissionLabel", "executionOperationWorkflowId", "executionNewerSubmission", "executionDeferredView", "operationIsActive", "operationIsFailureLike", "operationHasDeadEvidence", "renderPlanTaskCards", "renderTaskCards", "renderExecutionPlanList"], state, ["executionPlanList"]);
+  return renderPanel(["distributedPlanRecoveryView", "executionPlanGroupKey", "executionCurrentDistributedJobs", "executionSubmissionProgressText", "executionSubmissionLabel", "executionOperationWorkflowId", "executionNewerSubmission", "executionDeferredView", "operationIsActive", "operationIsFailureLike", "operationHasDeadEvidence", "renderPlanTaskCards", "renderTaskCards", "renderExecutionPlanList"], state, ["executionPlanList"]);
 }
 
 
@@ -673,6 +675,7 @@ function renderPanel(names, state, ids) {
     TASK_QUEUED_STATUSES: new Set(["queued", "pending"]),
     TASK_TERMINAL_STATUSES: new Set(["completed", "done", "archived", "deleted"]),
     taskRowsViewModel: () => ({ counts: {}, selectedRows: [], visibleRows: [], detailRow: undefined }),
+    PLAN_EXECUTION_PHASE_LABELS: {},
     OPERATION_ACTIVE_MATCH_TOKENS: ["running", "queued", "pending"],
     OPERATION_FAILURE_MATCH_TOKENS: ["failed"],
     operationIsActive: (status) => ["running", "queued", "pending"].includes(String(status)),

@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.407",
+  "version": "0.5.408",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -26,6 +26,7 @@
     "onView:simpleExperiment.panel",
     "onCommand:simpleExperiment.openPanel",
     "onCommand:simpleExperiment.copyPanelDiagnostics",
+    "onCommand:simpleExperiment.showOperationLog",
     "onCommand:simpleExperiment.restorePanel",
     "onCommand:simpleExperiment.quickSetup",
     "onCommand:simpleExperiment.bootstrapProject",
@@ -108,6 +109,11 @@
         "command": "simpleExperiment.copyPanelDiagnostics",
         "title": "SimpleExperiment：复制 Panel 诊断",
         "icon": "$(copy)"
+      },
+      {
+        "command": "simpleExperiment.showOperationLog",
+        "title": "SimpleExperiment：查看操作完整日志",
+        "icon": "$(output)"
       },
       {
         "command": "simpleExperiment.restorePanel",
