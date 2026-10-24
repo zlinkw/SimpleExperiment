@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "revision": "r23-completed-summary-20261024",
+  "createdAt": "2026-10-24T01:25:19.989701+00:00",
+  "files": [
+    {
+      "path": "evidence.md",
+      "bytes": 167628,
+      "sha256": "caa14956e7101310d33fc233cc9f27017b2c26895549269b7ba6cd498b87826a"
+    },
+    {
+      "path": "plan.md",
+      "bytes": 59643,
+      "sha256": "5cdc8900a9132ec4dd8f7a1b9ddf14e58ef5400c48ebe861f3ca00fe1748e37a"
+    }
+  ],
+  "currentDocumentsChanged": false,
+  "semanticCompletionVerified": false
+}

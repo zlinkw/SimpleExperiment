@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
-const { UpdateGate, parseProcessStartMs, parseStartTimesOutput, startTimesCommand } = require('../../dist/updates/UpdateGate');
+const { UpdateGate, parseProcessStartMs, parseStartTimesOutput, parseProcessSnapshot, observationsFromSnapshot, enumerationCommand } = require('../../dist/updates/UpdateGate');
 
 // F15 回归安全矩阵（plan r13/r14 + r15 R51–R57，证据 E16g/E16h/F17/F18）：
 // 旧 v2 根缺 processId（1b8acce2~ac3b9836 writer，宿主 79 条）与 PID 复用（宿主根缺PID 79 条 + 显式PID
@@ -15,6 +15,8 @@ const { UpdateGate, parseProcessStartMs, parseStartTimesOutput, startTimesComman
 // 为 /Date(1792803730983)/，Date.parse=NaN，日志 985ce89f-65e7-4af9-b95d-1f97d5ad555a-stdout.log）。
 // 夹具字段取自宿主真实快照；全程只写临时目录，绝不改宿主路径。Linux 上原生 Windows 执行项按平台明确不跑，
 // 但 R51 用真实 Node 进程 PID + 真实解析函数 parseStartTimesOutput 做正向放行（非纯 Map 注入）。
+// R63（plan r20/F22）：默认 Windows provider=一次完整 GetProcesses 枚举信封（自PID在场才可信任全集）；
+// exited 仅由完整成功全集缺席生成（同ESRCH），EPERM/缺行/失败/截断/伪完整一律 unknown 保守等待。
 
 const T0 = Date.parse('2026-09-28T17:58:56.694Z'); // 宿主非空旧根 3dda869b 的真实 mtime
 function makeWorld(testObject) {
@@ -223,12 +225,15 @@ test('R54 复用证明5s余量边界：恰好+5000等待、+5001放行', async t
   assert.equal(result.state, 'resolved', 'start=bound+5001 严格大于边界即复用证明成立');
 });
 
-test('R51 默认provider命令显式输出epoch毫秒；真实格式解析边界（含宿主/Date(…)实证形）', () => {
-  const command = startTimesCommand([35152, 31337]);
+test('R51/R63 默认provider为完整枚举命令显式epoch毫秒；真实格式解析边界（含宿主/Date(…)实证形）', () => {
+  const command = enumerationCommand();
+  assert.match(command, /\[System\.Diagnostics\.Process\]::GetProcesses\(\)/, 'R63：一次完整枚举快照（旧Get-Process -Id任一PID缺失即exit1整批被吞——宿主F22实证）');
   assert.match(command, /ToUnixTimeMilliseconds/, '命令必须显式输出epoch毫秒而非裸StartTime（宿主实证裸StartTime= /Date(1792803730983)/）');
-  assert.match(command, /Get-Process -Id 35152,31337/, 'PID必须原样进入 -Id 列表');
+  assert.match(command, /queryPid=\$PID/, '信封必须携带查询自PID（r20 #2：自在场是全集可信前提）');
+  assert.equal(/\bforeach\s*\(\s*\$PID\b/.test(command), false, 'r20 #1：$PID是PowerShell只读自动变量，foreach不得使用');
+  assert.match(command, /\$ErrorActionPreference='Stop'/, '枚举步骤异常必须整体失败，防止伪完整');
   const now = Date.parse('2026-10-24T01:02:11.283Z');
-  assert.deepEqual([...parseStartTimesOutput('[{"Id":35152,"StartMs":1792803730983}]', now)], [[35152, 1792803730983]], '新格式epoch毫秒必须解析');
+  assert.deepEqual([...parseStartTimesOutput('[{"Id":35152,"StartMs":1792803730983}]', now)], [[35152, 1792803730983]], '旧数组格式仅作时间序列：epoch毫秒必须解析（R63：绝不能凭其缺行断死）');
   assert.equal(parseProcessStartMs('/Date(1792803730983)/', now), 1792803730983, '/Date(ms)/显式识别（Date.parse对它是NaN——宿主实证）');
   assert.equal(Number.isFinite(Date.parse('/Date(1792803730983)/')), false, '反证：Date.parse确实无法读旧JSON形');
   assert.equal(parseProcessStartMs(new Date(now - 1000).toISOString(), now), now - 1000, '显式ISO可信');
@@ -236,23 +241,22 @@ test('R51 默认provider命令显式输出epoch毫秒；真实格式解析边界
   assert.equal(parseProcessStartMs(1e21, now), undefined, '超安全整数范围数值不可信（R56/R54 helper安全整数）');
   assert.equal(parseProcessStartMs('99999999999999999999', now), undefined, '超安全整数字符串不可信');
   assert.equal(parseProcessStartMs('not-a-date', now), undefined);
-  assert.deepEqual([...parseStartTimesOutput('{"Id":7,"StartMs":' + (now - 5000) + '}', now)], [[7, now - 5000]], '单对象（非数组）JSON也要处理');
+  assert.deepEqual([...parseStartTimesOutput('{"Id":7,"StartMs":' + (now - 5000) + '}', now)], [[7, now - 5000]], '单对象（非数组）JSON也要处理（同样仅作时间序列）');
   assert.equal(parseStartTimesOutput('', now).size, 0, '空输出=无信息，绝不冒充退出证明');
 });
 
-test('R51/R60 注入捕获JSON+真实解析函数判定链正向（非原生执行，R60如实改名；原生win32另见下例）', async t => {
+test('R51/R63 注入捕获枚举信封+真实解析/观察函数判定链正向（非原生执行；原生win32见下两例）', async t => {
   const world = makeWorld(t);
   writeRegistry(world, legacyRoot({ windowId: os.hostname() + ':' + process.pid + ':11111111-2222-3333-4444-555555555555' }));
-  // 旧足够空闲（mtime=T0）+ 本测试Node进程PID活着；提供程序=真实 startTimesCommand 文本 + 真实 parseStartTimesOutput
-  // （原生 powershell 执行在 Linux 明确不跑；win32 上同一命令/解析函数直接生效）
-  const captured = JSON.stringify([{ Id: process.pid, StartMs: Date.now() - 3600000 }]);
+  // 旧足够空闲（mtime=T0）+ 本测试Node进程PID在可信全集内且有时间；注入生产枚举命令文本检查+真实 parseProcessSnapshot/observationsFromSnapshot
+  const envelope = JSON.stringify({ schemaVersion: 1, complete: true, queryPid: 56524, processIds: [0, 56524, process.pid], rows: [{ Id: process.pid, StartMs: Date.now() - 3600000 }] });
   const gate = new UpdateGate(world.leasePath, undefined, { processStartTimes: async pids => {
     assert.deepEqual(pids, [process.pid], '待证PID必须恰为本进程');
-    assert.ok(startTimesCommand(pids).includes('Get-Process -Id ' + process.pid));
-    return parseStartTimesOutput(captured, Date.now());
+    assert.ok(enumerationCommand().includes('GetProcesses()'), '生产默认命令必须是完整枚举（F22语义）');
+    return observationsFromSnapshot(parseProcessSnapshot(envelope, Date.now()), pids);
   } });
   const result = await settleWithin(gate.wait(), 1500);
-  assert.equal(result.state, 'resolved', '活着的真实PID + 旧快照 + 真实epoch解析 → 必须真实放行');
+  assert.equal(result.state, 'resolved', '可信枚举信封内真实PID+旧快照+真实epoch解析 → 必须真实放行');
 });
 
 test('R60 win32 原生正向：无provider的 new UpdateGate(leasePath)，当前Node PID + 足够旧快照必须真实放行', { skip: process.platform === 'win32' ? false : '原生Get-Process探测仅在Windows执行；Linux明确跳过，不以fake PID赌语义' }, async t => {
@@ -260,6 +264,88 @@ test('R60 win32 原生正向：无provider的 new UpdateGate(leasePath)，当前
   writeRegistry(world, legacyRoot({ windowId: os.hostname() + ':' + process.pid + ':11111111-2222-3333-4444-555555555555' }));
   const result = await settleWithin(new UpdateGate(world.leasePath).wait(), 12000); // 生产默认：一次原生批量探测（8s帽）+ 保守轮询
   assert.equal(result.state, 'resolved', 'win32原生StartMs证明本进程晚于旧快照 → 必须放行');
+});
+
+// R63（plan r20/F22）：完整枚举信封可信语义——退出证明只在"完整成功全集（含自PID在场）"成立；
+// EPERM/缺行/失败/截断/伪完整一律 unknown 保守等待。F22 宿主实证：旧批量 Get-Process -Id exit1 吞掉3条有效epoch，
+// 25244/42872 Node报EPERM但完整枚举540PID（自56524在场）确认缺席。
+test('R63 信封真实解析：自在场+全集合法(允许PID0)+rows时间；在场无时间=unknown、缺席=exited、外集rows忽略', () => {
+  const now = Date.parse('2026-10-24T02:00:00.000Z');
+  const snap = parseProcessSnapshot(JSON.stringify({ schemaVersion: 1, complete: true, queryPid: 56524, processIds: [0, 56524, 25244, 31337], rows: [{ Id: 31337, StartMs: now - 1000 }, { Id: 25244, StartMs: '/Date(1792803730983)/' }, { Id: 777, StartMs: now - 2000 }] }), now);
+  assert.ok(snap, '完整信封必须可信');
+  assert.equal(snap.present.size, 4); assert.equal(snap.present.has(0), true, '系统PID0是合法全集成员（r20 #2）');
+  assert.equal(snap.times.get(31337), now - 1000);
+  assert.equal(snap.times.get(25244), 1792803730983, 'rows沿用parseProcessStartMs，/Date(ms)/同样识别');
+  assert.equal(snap.times.has(777), false, '全集外PID的rows时间必须忽略（信封自洽性）');
+  const obs = observationsFromSnapshot(snap, [56524, 25244, 31337, 42872]);
+  assert.equal(obs.get(56524), 'unknown', '在场但无StartTime必须unknown，绝不顺带放行');
+  assert.equal(obs.get(25244), 1792803730983);
+  assert.equal(obs.get(31337), now - 1000);
+  assert.equal(obs.get(42872), 'exited', '完整成功全集缺席=退出证明（F22 25244/42872实际形态）');
+  assert.equal(observationsFromSnapshot(undefined, [9]).get(9), 'unknown', '无可信信封=绝不exited');
+});
+
+test('R63 伪完整/结构疑点一律不可信：空/截断/旧格式/坏schema/缺自PID/坏ID → undefined', () => {
+  const now = Date.parse('2026-10-24T02:00:00.000Z');
+  const bad = [
+    ['空输出', ''],
+    ['截断JSON', '{"schemaVersion":1,"compl'],
+    ['旧数组格式（只可时间序列，不能凭缺行断死）', '[{"Id":14764,"StartMs":1792801976672}]'],
+    ['旧单对象格式', '{"Id":7,"StartMs":' + (now - 5000) + '}'],
+    ['schemaVersion不符', '{"schemaVersion":2,"complete":true,"queryPid":5,"processIds":[5],"rows":[]}'],
+    ['complete非true（伪完整）', '{"schemaVersion":1,"complete":false,"queryPid":5,"processIds":[5],"rows":[]}'],
+    ['queryPid非法', '{"schemaVersion":1,"complete":true,"queryPid":0,"processIds":[0],"rows":[]}'],
+    ['自PID不在全集（视图不可信）', '{"schemaVersion":1,"complete":true,"queryPid":5,"processIds":[6,7],"rows":[]}'],
+    ['全集含负数', '{"schemaVersion":1,"complete":true,"queryPid":5,"processIds":[5,-1],"rows":[]}'],
+    ['全集含非整数', '{"schemaVersion":1,"complete":true,"queryPid":5,"processIds":[5,1.5],"rows":[]}'],
+    ['全集含字符串', '{"schemaVersion":1,"complete":true,"queryPid":5,"processIds":["5"],"rows":[]}'],
+    ['全集成员超OS合法PID域(2^31)', '{"schemaVersion":1,"complete":true,"queryPid":5,"processIds":[5,2147483648],"rows":[]}'],
+    ['全集成员非安全整数(1e20)', '{"schemaVersion":1,"complete":true,"queryPid":5,"processIds":[5,1e20],"rows":[]}'],
+    ['queryPid超OS合法PID域', '{"schemaVersion":1,"complete":true,"queryPid":2147483648,"processIds":[2147483648],"rows":[]}'],
+    ['processIds非数组', '{"schemaVersion":1,"complete":true,"queryPid":5,"processIds":5,"rows":[]}'],
+  ];
+  for (const [label, stdout] of bad) assert.equal(parseProcessSnapshot(stdout, now), undefined, 'R63：' + label + ' 绝不能产生可信快照/exited');
+});
+
+test('R63 批量（F22实景5候选）：3时间证复用+2枚举缺席exited → 一轮放行且批次数恰1', async t => {
+  const world = makeWorld(t);
+  const w1 = '宿舍:14764:11111111-1111-4111-8111-111111111111';
+  writeRegistry(world, { schemaVersion: 2, windowId: w1, choosing: false, ticket: 0, admissionExpiresAt: 0, leases: [legacyLease(14764, w1, T0)] });
+  writeRegistry(world, { schemaVersion: 2, windowId: '宿舍:20936:22222222-2222-4222-8222-222222222222', choosing: false, ticket: 1, admissionExpiresAt: 1790781896574, leases: [] });
+  writeRegistry(world, { schemaVersion: 2, windowId: '宿舍:35152:33333333-3333-4333-8333-333333333333', processId: 35152, choosing: false, ticket: 1, admissionExpiresAt: 1791735083580, leases: [] });
+  writeRegistry(world, { schemaVersion: 2, windowId: '宿舍:25244:44444444-4444-4444-8444-444444444444', choosing: true, ticket: 0, admissionExpiresAt: 0, leases: [] });
+  writeRegistry(world, { schemaVersion: 2, windowId: '宿舍:42872:55555555-5555-4555-8555-555555555555', choosing: false, ticket: 1, admissionExpiresAt: 0, leases: [] });
+  let calls = 0; let seen = null;
+  const gate = new UpdateGate(world.leasePath, LIVE, { processStartTimes: async pids => {
+    calls++; seen = pids.slice();
+    return new Map([[14764, 1792801976672], [20936, 1792558114484], [35152, 1792738129915], [25244, 'exited'], [42872, 'exited']]); // 宿主真实StartMs（real-lease-unresolved.json，各自晚于本行bound+5s）
+  } });
+  const result = await settleWithin(gate.wait(), 1500);
+  assert.equal(result.state, 'resolved', '实景5候选（3时间复用证明+2枚举缺席）必须同时放行；任一仍unknown则必须继续等');
+  assert.equal(calls, 1, '一次wait全程只允许一次批量查询（R55/R63）');
+  assert.deepEqual(seen, [14764, 20936, 25244, 35152, 42872], '数值排序去重必须覆盖全部候选（R57语义保持）');
+});
+
+test('R63 在场无时间（EPERM形态）与整批unknown：保守等待，绝不把缺行当放行', async t => {
+  const world = makeWorld(t);
+  writeRegistry(world, legacyRoot({ windowId: '宿舍:25244:66666666-6666-4666-8666-666666666666' }));
+  const latch = pollLatch(), controller = newAbort();
+  const gate = new UpdateGate(world.leasePath, LIVE, { processStartTimes: async pids => new Map(pids.map(p => [p, 'unknown'])), onPoll: latch.onPoll });
+  await assertWaitsThenCancel(gate.wait(controller.signal), latch, controller, '在场无StartTime/枚举异常/伪完整后的unknown必须继续等（F22保守侧保护）');
+});
+
+test('R63 win32 原生exited证明：短命Node已退+ownerAlive=true（模拟EPERM活/未知）+无provider默认完整枚举必须真实放行', { skip: process.platform === 'win32' ? false : '原生枚举仅Windows执行；Linux明确跳过，不以fake PID赌语义' }, async t => {
+  const { spawn } = require('node:child_process');
+  const child = spawn(process.execPath, ['-e', 'void 0']);
+  const shortLivedPid = child.pid;
+  assert.ok(Number.isInteger(shortLivedPid) && shortLivedPid > 0, '短命子进程必须有真实PID');
+  const code = await new Promise((resolve, reject) => { child.once('exit', resolve); child.once('error', reject); }); // 秒级自然退出（<<10s）
+  assert.equal(code, 0, '短命子进程status必须为0，否则本例无效');
+  const world = makeWorld(t);
+  writeRegistry(world, legacyRoot({ windowId: os.hostname() + ':' + shortLivedPid + ':77777777-7777-4777-8777-777777777777' }));
+  // ownerAlive=true 模拟实景EPERM"活/未知"；不注入provider——走默认原生完整枚举（8s帽）。若PID已被复用，新StartMs晚于旧界限+5s同样真实放行（r20 #4）。
+  const result = await settleWithin(new UpdateGate(world.leasePath, () => true).wait(), 12000);
+  assert.equal(result.state, 'resolved', '已退PID在可信全集缺席（或已复用时新StartMs晚于界限）必须真实放行');
 });
 
 test('R59 内层PID合法但与根PID不等：有根(显式)与缺根(windowId段)双反例都必须拒绝', async t => {

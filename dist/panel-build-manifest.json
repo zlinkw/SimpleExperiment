@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.406",
-  "buildId": "1e17ade1237099820eda81791e9a4236265ab28bb5b94a6f22f715f720935ec3",
+  "buildId": "c73dcc944013be4426682434b440bb5d8eec6bb0603a2ff4b43eee093d46080a",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -921,7 +921,7 @@
     },
     {
       "path": "dist/updates/UpdateGate.js",
-      "sha256": "9fbe46e4755fb0ddaaaa18f593609b35a20cd07ed244c2b04431c70a36b13a7c"
+      "sha256": "d059975d6f5332e58030784f325b1db7011175407653596644595e97996c334f"
     },
     {
       "path": "dist/updates/UpdateTransaction.js",
@@ -1017,7 +1017,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "564fc9d458109ddb4e45a9d2b789059b5af38d8f8cc26f209167fda634d07074"
+      "sha256": "378beb8d007916eb8c87ec77722d3e3c21ca6751864fe799c697235392534f6d"
     },
     {
       "path": "scripts/check-static.js",

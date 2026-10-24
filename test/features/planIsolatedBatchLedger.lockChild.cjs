@@ -13,8 +13,25 @@ if (mode === 'stale-reader') {
     return rename(a, b);
   };
 }
+if (mode === 'contender') {
+  // r28-U1（主控批准）：只观测真实 fsp.open 对活锁的 EEXIST——首次命中发一次 contended 事件后原样 rethrow，
+  // 生产锁等待逻辑（20ms 重试/600ms 上限）原样继续；不伪造 EEXIST，不干预任何期限。
+  const open = fsp.open.bind(fsp); let announced = false;
+  fsp.open = async (a, b, ...rest) => {
+    try { return await open(a, b, ...rest); }
+    catch (e) {
+      if (!announced && e && e.code === 'EEXIST' && String(a) === file + '.lock') { announced = true; process.send({ event: 'contended', pid: process.pid }); }
+      throw e;
+    }
+  };
+}
 const ledger = require(distFile);
-(async () => {
+if (mode === 'boom') {
+  // r28-U1 反例夹具：子进程即时报告真实错误——helper 必须即时拒绝 pending wait 并附诊断，而非伪装 3000ms 超时。
+  process.send({ event: 'error', message: 'fixture-boom' });
+  process.exitCode = 1;
+  process.disconnect();
+} else (async () => {
   await ledger.withIsolatedBatchLedger(file, async () => {
     // 锁内物理事件账本（2026-10-23 等强串行证明返修）：ENTER/LEAVE 均在生产锁持有期内
     // 由持锁进程自身追加 —— 锁保证任意时刻只有一个写者，文件行序即真实临界区串行序，

@@ -36,7 +36,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.UpdateGate = exports.UPDATE_ACTION = void 0;
 exports.parseProcessStartMs = parseProcessStartMs;
 exports.parseStartTimesOutput = parseStartTimesOutput;
-exports.startTimesCommand = startTimesCommand;
+exports.enumerationCommand = enumerationCommand;
+exports.parseProcessSnapshot = parseProcessSnapshot;
+exports.observationsFromSnapshot = observationsFromSnapshot;
 const fs = __importStar(require("node:fs/promises"));
 const node_child_process_1 = require("node:child_process");
 const node_os_1 = require("node:os");
@@ -100,27 +102,84 @@ function parseStartTimesOutput(stdout, nowMs) {
     }
     return out;
 }
-function startTimesCommand(pids) {
-    // Explicit epoch ms: plain StartTime would serialize as /Date(ms)/ which Date.parse cannot read (R51 host proof).
-    return `Get-Process -Id ${pids.join(",")} -ErrorAction SilentlyContinue | ` +
-        "Select-Object Id,@{n='StartMs';e={([DateTimeOffset]$_.StartTime).ToUnixTimeMilliseconds()}} | ConvertTo-Json -Compress";
+/** R63 (plan r20/F22): ONE bounded full-enumeration snapshot per wait() run. The old per-PID `Get-Process -Id a,b`
+ * exits 1 when ANY pid is missing and swallowed every valid row in the batch (host F22: 3 valid epochs lost).
+ * $PID is a read-only PowerShell automatic variable — the foreach loop variable is $proc, never $PID.
+ * Explicit epoch ms via DateTimeOffset (R51 host proof: bare StartTime serializes as /Date(ms)/, Date.parse=NaN). */
+function enumerationCommand() {
+    return "$ErrorActionPreference='Stop'; $ids=New-Object System.Collections.Generic.List[int]; $rows=@(); " +
+        "foreach ($proc in [System.Diagnostics.Process]::GetProcesses()) { $ids.Add($proc.Id); " +
+        "try { $rows += [pscustomobject]@{ Id = $proc.Id; StartMs = ([DateTimeOffset]$proc.StartTime).ToUnixTimeMilliseconds() } } catch { } }; " +
+        "ConvertTo-Json -Compress -InputObject ([pscustomobject]@{ schemaVersion=1; complete=$true; queryPid=$PID; processIds=$ids; rows=$rows })";
 }
-/** Default Windows provider: exactly ONE bounded async batch per wait() run (never per file, never host snapshots).
- * pids re-validated + sorted + deduplicated; timeout bounded by caller; failure/timeout/abort ⇒ unknown, never an exit proof. */
+/** Trustworthy envelope ONLY (r20 #2): exit-0 is enforced by the caller's execFile throw; here every structural
+ * doubt — bad JSON, legacy array/object shape, wrong schemaVersion, complete!==true, invalid queryPid, any invalid
+ * member ID (system PID 0 legal), or the querying process itself absent from the full set — yields undefined,
+ * which can never produce an exit proof. Rows for PIDs outside the full set are ignored. */
+function parseProcessSnapshot(stdout, nowMs) {
+    let parsed;
+    try {
+        parsed = JSON.parse(String(stdout).trim());
+    }
+    catch {
+        return undefined;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        return undefined;
+    if (parsed.schemaVersion !== 1 || parsed.complete !== true)
+        return undefined;
+    if (validPid(parsed.queryPid) === undefined)
+        return undefined; // plan r21 #5: query PID in the declared OS-valid domain
+    if (!Array.isArray(parsed.processIds))
+        return undefined;
+    const present = new Set();
+    for (const value of parsed.processIds) {
+        // Members allow PID 0 only; every other member must be a validPid (r21 #5: 1e20/2^31 are NOT legal OS PIDs).
+        if (!(value === 0 || validPid(value) !== undefined))
+            return undefined; // one bad member ID invalidates the whole set
+        present.add(value);
+    }
+    if (!present.has(parsed.queryPid))
+        return undefined; // self absent ⇒ the snapshot cannot vouch for its own view
+    const times = new Map();
+    for (const row of Array.isArray(parsed.rows) ? parsed.rows : []) {
+        const id = Number.isInteger(row?.Id) ? row.Id : Number(row?.Id);
+        const start = parseProcessStartMs(row?.StartMs, nowMs);
+        if (Number.isInteger(id) && id >= 0 && present.has(id) && start !== undefined)
+            times.set(id, start);
+    }
+    return { present, times };
+}
+/** Requested PIDs → observations: trusted time when present with a readable start; "exited" ONLY when the
+ * trustworthy full set omits the PID; present-but-unreadable-start (EPERM-style) stays unknown (waits). */
+function observationsFromSnapshot(snapshot, requested) {
+    const out = new Map(requested.map((pid) => [pid, "unknown"]));
+    if (!snapshot)
+        return out; // no trustworthy envelope: never an exit proof
+    for (const pid of requested) {
+        const start = snapshot.times.get(pid);
+        if (start !== undefined)
+            out.set(pid, start);
+        else if (!snapshot.present.has(pid))
+            out.set(pid, "exited");
+    }
+    return out;
+}
+/** Default Windows provider: exactly ONE bounded async full enumeration per wait() run (never per file, never host
+ * snapshots); timeout bounded by caller; failure/timeout/abort/truncated-or-oversized output ⇒ all unknown, never an exit proof. */
 async function defaultStartTimes(pids, signal, timeoutMs) {
     const batch = [...new Set(pids.filter(pid => Number.isInteger(pid) && pid > 0))].sort((a, b) => a - b).slice(0, START_TIMES_MAX_PIDS);
-    const result = new Map(batch.map((pid) => [pid, "unknown"]));
     if (!batch.length || timeoutMs <= 0)
-        return result;
+        return observationsFromSnapshot(undefined, batch);
     if (process.platform !== "win32")
-        return result; // No trustworthy native time source here: stay unknown/wait.
+        return observationsFromSnapshot(undefined, batch); // No trustworthy time source here: stay unknown/wait.
     try {
-        const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", startTimesCommand(batch)], { timeout: timeoutMs, maxBuffer: START_TIMES_MAX_BUFFER, signal, windowsHide: true });
-        for (const [pid, start] of parseStartTimesOutput(stdout, Date.now()))
-            result.set(pid, start);
+        const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", enumerationCommand()], { timeout: timeoutMs, maxBuffer: START_TIMES_MAX_BUFFER, signal, windowsHide: true });
+        return observationsFromSnapshot(parseProcessSnapshot(stdout, Date.now()), batch);
     }
-    catch { /* failure, timeout, abort or oversized output keeps every pid unknown */ }
-    return result;
+    catch {
+        return observationsFromSnapshot(undefined, batch);
+    } // failure, timeout, abort or oversized output keeps every pid unknown
 }
 /** Upper bound the old owner could not have started after; undefined (no proof possible) if ANY referenced
  * time is missing/invalid (R54: never fabricate a bound with ||0). admissionExpiresAt absent means 0. */
@@ -260,14 +319,17 @@ class UpdateGate {
                     checkBudget();
                     await this.held?.assertHeld(); // R55/R62: probe completion cannot bypass cancel, budget, or the holding proof
                     for (const { pid, boundMs } of unresolved) {
-                        const start = parseProcessStartMs(proof.get(pid) ?? undefined, Date.now());
+                        const observation = proof.get(pid) ?? "unknown";
+                        if (observation === "exited")
+                            continue; // R63: trustworthy complete enumeration omitting the PID is the SAME exit proof as ESRCH — no bound needed
+                        const start = parseProcessStartMs(observation === "unknown" ? undefined : observation, Date.now());
                         if (boundMs === undefined) {
                             active = true;
                             continue;
                         } // Incomplete bound: no exit proof from partial times.
                         if (start !== undefined && start > boundMs + REUSE_PROOF_MARGIN_MS)
                             continue; // Provably a different process.
-                        active = true; // Unknown/untrusted time, probe failure, or plausible original owner keeps waiting.
+                        active = true; // Unknown/untrusted time (incl. present-without-StartTime), probe failure, or plausible original owner keeps waiting.
                     }
                 }
             }

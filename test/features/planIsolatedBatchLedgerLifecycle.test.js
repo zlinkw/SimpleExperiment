@@ -31,9 +31,12 @@ test('真实进程互斥：竞争者不能摘走活锁；原 owner 释放后才�
     for(const w of [a,b].filter(Boolean))if(w.p.exitCode===null){w.p.kill('SIGKILL');}};
   try{
     const bEntered=await b.wait('entered');
-    const originalLock=fs.readFileSync(file+'.lock','utf8');a=spawnChild(distFile,file,'ordinary',eventsFile);
-    await new Promise(r=>setTimeout(r,400));
-    assert.ok(!a.events.some(m=>m.event==='entered'),'旧回收者用过期观察 rename 掉 B 活锁后不得进入临界区');
+    const originalLock=fs.readFileSync(file+'.lock','utf8');a=spawnChild(distFile,file,'contender',eventsFile);
+    // r28-U1（主控明确技术批准——验收时序变化：固定 400ms 睡眠→真实争锁握手；旧/新/依据已记 plan）：
+    // A 在 B 活锁上真实得到 fsp.open EEXIST 并报 contended 后，「A 未进入」才是真实竞争下的强证明；
+    // 旧 400ms 小于实测 fork→entered 486ms 的窗口，既窄又不能证明 A 已实际尝试锁。生产 20ms/600ms 与 helper 3000ms 均未动。
+    await a.wait('contended');
+    assert.ok(!a.events.some(m=>m.event==='entered'),'A 竞争遇 B 活锁（真实 EEXIST）时不得进入临界区');
     const live=JSON.parse(fs.readFileSync(file+'.lock','utf8'));
     assert.equal(JSON.stringify(live),originalLock,'B 活锁始终在位，不能先摘走再还原');
     try{a.p.send('release');}catch{/* 已结束 */}
@@ -53,6 +56,19 @@ test('真实进程互斥：竞争者不能摘走活锁；原 owner 释放后才�
     assert.equal(fs.existsSync(file+'.lock'),false,'两进程收尾后锁已释放');
     assert.deepEqual(fs.readdirSync(path.dirname(file)).filter(name=>name.includes('.stolen.')||name.includes('.released.')),[],'CAS 回收与还原不留残片');
   }finally{await cleanup();}
+});
+
+test('helper 反例（r28-U1）：子进程真实 IPC error 即时拒绝 done 等待并附完整诊断，不伪装 3000ms IPC 超时',async()=>{
+  const distFile=path.resolve(__dirname,'../../dist/features/PlanIsolatedBatchLedger.js');
+  assert.ok(fs.existsSync(distFile),'双进程夹具消费编译产物；请先 npm run typecheck');
+  const c=spawnChild(distFile,tmpFile('ledger-boom.json'),'boom','');
+  await assert.rejects(c.wait('done'),err=>{
+    assert.match(err.message,/fixture-boom/,'真实错误消息必须原样上报');
+    assert.doesNotMatch(err.message,/IPC timeout/,'即时拒绝不得伪装成超时（job-107 首因伪装层）');
+    assert.match(err.message,/events=/,'诊断必须含实际 IPC 事件清单');
+    assert.match(err.message,/stdout=|stderr=/,'诊断必须含已 drain 的子进程 stdio');
+    return true;});
+  await assert.rejects(c.wait('entered'),/fixture-boom/,'后续 wait 同样即时拒绝，不再吊满预算');
 });
 
 test('真实 producer 链：真 enqueuePlan→真 commit 方法→真 mergeDurableWorkerSnapshots 投影→真 promote 方法；取消+resultQueryError 非证明、窗口观察才是、粘性不丢',async()=>{
