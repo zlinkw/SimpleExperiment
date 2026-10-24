@@ -9,5 +9,7 @@
 ## 现行阶段（GPT 批准）
 5. [进行中] 0.5.407 冻结候选：根 version+lock/packages[''].version+RuntimeManifest 生成输入同步→纯 compile 入口（tsc-cached）→权威 package 清单发现核验（新测试文件收录，数量由 planner 实算）→精确 stage/commit；不跑 Linux 全量/组装包。
 
+6. [完成，待最终验收] Windows 全量首跑 218/219：唯一失败=本 runner 数量契约过期，已按批准最小返修（计数同步+唯一身份绑定断言，单文件原 argv 复验 26/26 exit0）。Windows 最终候选将 ff 到本追加 commit 后唯一一次完整 package。407 发行/安装已获用户原始授权，但必须先合 master 再发行；当前仅是验收未完成，无需新增任何额外审批环节。
+
 ## 停止条件
 - 不清理、不动外部服务器；补丁块已完成并过审；宿主安装目录只读哈希；若证据指向 SimpleSFTP 导出面或工作区适配代码，交回主控扩权后再查。

@@ -650,15 +650,21 @@ test("runner: real-repo plan reconciles with the pre-r22 expansion baseline", ()
   const diskSet = new Set(disk);
   const features = disk.filter(p => p.startsWith("test/features/")).length;
   const pkg = inPackage;
-  assert.equal(pkg.jobs, 218, "package = 217 baseline files + this runner regression file, each once");
-  assert.equal(pkg.dedup.duplicatesRemoved, pkg.dedup.requestedSlots - 218);
+  assert.equal(pkg.jobs, 219, "package = 217 baseline + this runner regression + planRunSharedSubmission.test.js (2026-10-24 defect regression), each once");
+  assert.equal(pkg.dedup.duplicatesRemoved, pkg.dedup.requestedSlots - 219);
+  // 新缺陷回归必须按规范身份在 package/build/check:full 权威清单各仅出现一次（Windows 407 首跑登记后计数同步的绑定断言）
+  for (const entry of ["package", "build", "check:full"]) {
+    const occ = runner.planEntry(manifestFile, manifest, REPO, entry, { only: [], domains: [], root: REPO })
+      .jobs.filter(job => String(job.file || "").endsWith("test/features/planRunSharedSubmission.test.js")).length;
+    assert.equal(occ, 1, `planRunSharedSubmission must appear exactly once in ${entry}`);
+  }
   assert.equal(pkg.hooksVerified.hooksVerified, "zero", "package.json hook graph must stay provable");
   assert.equal(pkg.final, true);
-  assert.equal(inMem("build").jobs, 208);
-  assert.equal(inMem("test").jobs, 208 + disk.length, "npm test glob covers every disk test file (never shrunk) + argv matrix");
-  assert.equal(inMem("test:features").jobs, 208 + features);
+  assert.equal(inMem("build").jobs, 209);
+  assert.equal(inMem("test").jobs, 209 + disk.length, "npm test glob covers every disk test file (never shrunk) + argv matrix");
+  assert.equal(inMem("test:features").jobs, 209 + features);
   assert.ok(disk.length >= 798, "disk coverage grew since the 798 baseline (ratchet)");
-  assert.equal(pkg.independent + pkg.exclusive, 218);
+  assert.equal(pkg.independent + pkg.exclusive, 219);
   for (const [name, script] of Object.entries(JSON.parse(fs.readFileSync(path.join(REPO, "package.json"), "utf8")).scripts)) {
     const m = /^node scripts\/test-workflow\.js ([a-zA-Z0-9:_-]+)$/.exec(script);
     if (m) assert.ok(manifest.entries[m[1]], `npm entry ${name} targets a missing manifest entry`);

@@ -20,5 +20,17 @@
     "expected": "compile gates ok; fullCheck 全文件(含 test/features/planRunSharedSubmission.test.js); 冻结 VSIX 交回 Linux 校验生成物一致性"
   },
   "protections": "SimpleSFTP 未触碰；79排除/255保留闭包沿用既有证据；依赖/协议未变；原Root detached@b65 index 3dc91c6e… 未动；旧副本/旧分支/clean_dir 未动",
-  "plannedWindowsBudget": "compile~25s+fullCheck 219文件(历史全量墙钟参考 r-series 1750 用例数小时级)+assemble/package；实际以宿主 runner run.json 为准"
+  "plannedWindowsBudget": "Windows 全量 package 实测 448595ms≈7.5 分钟（早前'数小时级'估时作废）；最终轮同量级",
+  "windowsFullPackageFirstRun": {
+    "commit": "34b66f32cc60bd4e65c93a5fac2e6d1d11ea27f9",
+    "result": "218/219,唯一失败=testWorkflowRunner 数量契约过期(已返修)",
+    "exit": 1,
+    "wallMs": 448595,
+    "artifacts419ByteIdenticalToLinux": true,
+    "sourceInputs2052NoDrift": true,
+    "receipt": "/repos/MCP/zlk-planrun407-win/simple_cluster/reports/test-workflow/2026-10-24T09-19-08-573Z-69372-package/run.json",
+    "evidence": "/host/c/Users/ZLK/AppData/Local/Temp/plan-run-407-tgiHLs/"
+  },
+  "releaseAuthorization": "407 发行/安装已获用户原始授权；前提=本分支合入 master 后执行；当前只差最终完整 package 验收，无额外审批",
+  "finalRoundInstruction": "主控原生验证树 D:/GitRepo/MCP/z-planrun407-win(ff,依赖 junction 不变) ff 到分支 HEAD 追加 commit → 唯一一次 npm run package；不重建树/重装依赖/不覆写旧 a7"
 }

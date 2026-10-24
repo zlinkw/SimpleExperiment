@@ -55,3 +55,10 @@ if (batch && body.existingOutputCount && ["rerun_all", "rerun_missing"].includes
 
 ## 过程更正（如实）
 407 阶段上一轮汇报曾把未执行落盘的版本/登记/编译描述为进行中——实际当时仅文档更新持久化；本轮已逐项真实执行并留证（版本落盘 grep、manifest 单行 diff、compile exit0 门日志、dry-run 219）。该失误为本会话汇报纪律问题，非代码/测试问题；RED/GREEN/82 套证据不受影响。
+
+## Windows 407 全量 package（第一轮冻结 34b66f32）与本项返修
+- 原生 runner receipt：/repos/MCP/zlk-planrun407-win/simple_cluster/reports/test-workflow/2026-10-24T09-19-08-573Z-69372-package/run.json；exit 1，448595ms（≈7.5 分钟；本文件早前"数小时级"估时作废=未知/实测约 7.5 分）。
+- 结果：218/219 通过；唯一失败 job-219 testWorkflowRunner.test.js（本 runner 数量契约断言未随登记同步，非新缺陷——Linux 侧 5/26 断言组过期）。2052 源输入零漂移；419 生成物与 Linux 逐字节一致；新测试 planRunSharedSubmission 在 Windows 已真实 pass；未组装/未发行。
+- 返修（GPT 批准最小测试维护）：同测试内整组计数一次同步 218→219（jobs/dedup/independent+exclusive）、build 208→209、test/test:features 基座 208→209，并新增 package/build/check:full 中 planRunSharedSubmission 按规范身份各仅一次的绑定断言；磁盘棘轮/argv 矩阵/hooks/npm 映射/分类路径全部原样保留，无 >= 放宽、未动 runner 生产脚本与 manifest。
+- 本项复验：manifest 原 extraFiles argv（--test-force-exit --test-timeout 20000）单文件 26/26 exit 0，/tmp/pi-test-xpmng04h/000.raw.log（SPEC 已填 testFileArgs=[5]+requiredFiles）。
+- 原失败证据保留：Windows full-package-run.json/stdout/stderr + job-219 out.log（/host/c/Users/ZLK/AppData/Local/Temp/plan-run-407-tgiHLs/）。
