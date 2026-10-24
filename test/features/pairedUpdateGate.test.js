@@ -21,7 +21,9 @@ test('update closes admission while existing Experiment transfers retain ownersh
 });
 test('cancelling update wait does not cancel transfers and expired live receipts still block', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paired-update-wait-')), leasePath = path.join(root, 'lease.json'), directory = leasePath + '.resources-v2';
-  fs.mkdirSync(directory); fs.writeFileSync(path.join(directory, 'a'.repeat(64) + '.json'), JSON.stringify({ schemaVersion: 2, processId: process.pid, leases: [{ expiresAt: '2000-01-01' }] }), 'utf8');
+  fs.mkdirSync(directory); // plan r13 §5：夹具补齐真实 schema（windowId/完整 lease 形状），断言原样保留
+  fs.writeFileSync(path.join(directory, 'a'.repeat(64) + '.json'), JSON.stringify({ schemaVersion: 2, windowId: os.hostname() + ':' + process.pid + ':fixture', processId: process.pid, ticket: 0, choosing: false, admissionExpiresAt: 0,
+    leases: [{ pluginId: 'simple-local.simple-experiment', workspaceUri: 'file://' + root, hostProjectPath: root, actionType: 'transfer', actionLabel: '传输', resources: [{ server: 'local', project: root, target: root }], schemaVersion: 1, leaseId: 'fixture-1', windowId: os.hostname() + ':' + process.pid + ':fixture', processId: process.pid, resourceFile: 'a'.repeat(64) + '.json', createdAt: '2000-01-01T00:00:00.000Z', heartbeatAt: '2000-01-01T00:00:00.000Z', expiresAt: '2000-01-01T00:00:30.000Z' }] }), 'utf8');
   const gate = new UpdateGate(leasePath, () => true), cancel = new AbortController();
   await gate.begin(root);
   try { const wait = gate.wait(cancel.signal); setTimeout(() => cancel.abort(Error('cancel')), 30); await assert.rejects(wait, /cancel/); assert.ok(fs.existsSync(path.join(directory, 'a'.repeat(64) + '.json'))); }

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.405",
-  "buildId": "4ee085d7e91172cd3dc8c2fc896255d5c3a7f24855afcbf480352798725a7360",
+  "version": "0.5.406",
+  "buildId": "1e17ade1237099820eda81791e9a4236265ab28bb5b94a6f22f715f720935ec3",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -53,7 +53,7 @@
     },
     {
       "path": "dist/core/ResourceOperationLease.js",
-      "sha256": "c7438649a67bbc519dd0ff7216588af0b8da8dc579652d9a95c6ddde57286aee"
+      "sha256": "fa77df46bebfa767429ee6ca5b2016ce2e289249cd7f9fa50071c9a116dddb0b"
     },
     {
       "path": "dist/core/SafeRequestRetry.js",
@@ -669,7 +669,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "c9d58a19323c708ecf053a9193f1a68fea81e57d14b2b356799b5fec3a14ceac"
+      "sha256": "8fcbb6a48ba1f02be1cdee4cc140926f5b6836a755f92344c412d115a105f9fd"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -921,7 +921,7 @@
     },
     {
       "path": "dist/updates/UpdateGate.js",
-      "sha256": "0bb6be305f2385eaaa2b12de41b0ff6a3d3c16dc2654bd7f7071e55cc1211220"
+      "sha256": "9fbe46e4755fb0ddaaaa18f593609b35a20cd07ed244c2b04431c70a36b13a7c"
     },
     {
       "path": "dist/updates/UpdateTransaction.js",
@@ -1017,7 +1017,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "3c49393fb358a0a149a27fb21a556a3cdf26b1253081f04d0a42b9c1c7a4bb9c"
+      "sha256": "564fc9d458109ddb4e45a9d2b789059b5af38d8f8cc26f209167fda634d07074"
     },
     {
       "path": "scripts/check-static.js",
