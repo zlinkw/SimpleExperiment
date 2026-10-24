@@ -1,0 +1,1463 @@
+diff --git a/dist/core/ResourceOperationLease.js b/dist/core/ResourceOperationLease.js
+index f882a6b7..60c928c8 100644
+--- a/dist/core/ResourceOperationLease.js
++++ b/dist/core/ResourceOperationLease.js
+@@ -36,6 +36,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.ResourceOperationLeaseManager = void 0;
+ exports.normalizeResourceTarget = normalizeResourceTarget;
+ exports.resourceTargetsConflict = resourceTargetsConflict;
++exports.readResourceLeaseRegistrySecure = readResourceLeaseRegistrySecure;
++exports.readResourceLeaseRegistryWithOwnership = readResourceLeaseRegistryWithOwnership;
+ const fs = __importStar(require("fs/promises"));
+ const path = __importStar(require("path"));
+ const crypto = __importStar(require("crypto"));
+@@ -120,6 +122,57 @@ async function canonicalResourceTarget(value) {
+     }
+     return normalizeResourceTarget({ server: "local", project: await physical(normalized.project), target: await physical(normalized.target) });
+ }
++/** Shared secure reader (plan r13 §2 / r14): exact delegation of the manager's private readRegistry.
++ * Returns the record with its captured mtimeMs so the update gate can prove snapshot bounds.
++ * The manager keeps identical semantics by delegating here; admission/TTL/conflict/recovery protocols are unchanged.
++ */
++async function readResourceLeaseRegistrySecure(file) {
++    const handle = await fs.open(file, fs_1.constants.O_RDONLY | (fs_1.constants.O_NOFOLLOW || 0));
++    try {
++        const before = await handle.stat();
++        const current = await fs.lstat(file);
++        if (current.isSymbolicLink() || current.dev !== before.dev || current.ino !== before.ino)
++            throw new Error("资源锁路径身份无效。");
++        if (!before.isFile() || before.nlink > 1 || before.size > 8 * 1024 * 1024)
++            throw new Error("资源锁文件身份或大小无效。");
++        const bytes = Buffer.alloc(before.size);
++        let offset = 0;
++        while (offset < bytes.length) {
++            const result = await handle.read(bytes, offset, bytes.length - offset, offset);
++            if (!result.bytesRead)
++                throw new Error("资源锁读取未前进。");
++            offset += result.bytesRead;
++        }
++        const after = await handle.stat();
++        if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs)
++            throw new Error("资源锁读取期间发生变化。");
++        const row = JSON.parse(bytes.toString("utf8"));
++        if (row.schemaVersion !== 2 || !Array.isArray(row.leases) || !row.windowId || row.leases.some((lease) => !Array.isArray(lease.resources) || !lease.resources.length))
++            throw new Error("资源锁记录损坏。");
++        return { record: row, mtimeMs: before.mtimeMs };
++    }
++    finally {
++        await handle.close();
++    }
++}
++/** Ownership-recovery traversal identical to the manager's rows(): trusted sidecar fallback, atomically consumed
++ * empty slots skipped (undefined), and unknown records block with RESOURCE_LEASE_OWNER_UNKNOWN. Orphan ownership
++ * sidecars are included, never ignored. */
++async function readResourceLeaseRegistryWithOwnership(file) {
++    try {
++        return await readResourceLeaseRegistrySecure(file);
++    }
++    catch (error) {
++        try {
++            return await readResourceLeaseRegistrySecure(file + ".ownership");
++        }
++        catch (fallback) {
++            if (error.code === "ENOENT" && fallback.code === "ENOENT")
++                return undefined; // Atomically consumed idle slot.
++            throw Object.assign(new Error("资源锁归属无法核实，记录已保留；请检查持有窗口，不能忽略未知活动锁。"), { code: "RESOURCE_LEASE_OWNER_UNKNOWN" });
++        }
++    }
++}
+ /** Per-window bakery admission protects only registry writes, never business operations.
+  * Registry release and crash recovery are logical: no filesystem cleanup is required.
+  */
+@@ -202,54 +255,14 @@ class ResourceOperationLeaseManager {
+         }
+     }
+     async readRegistry(file) {
+-        const handle = await fs.open(file, fs_1.constants.O_RDONLY | (fs_1.constants.O_NOFOLLOW || 0));
+-        try {
+-            const before = await handle.stat();
+-            const current = await fs.lstat(file);
+-            if (current.isSymbolicLink() || current.dev !== before.dev || current.ino !== before.ino)
+-                throw new Error("资源锁路径身份无效。");
+-            if (!before.isFile() || before.nlink > 1 || before.size > 8 * 1024 * 1024)
+-                throw new Error("资源锁文件身份或大小无效。");
+-            const bytes = Buffer.alloc(before.size);
+-            let offset = 0;
+-            while (offset < bytes.length) {
+-                const result = await handle.read(bytes, offset, bytes.length - offset, offset);
+-                if (!result.bytesRead)
+-                    throw new Error("资源锁读取未前进。");
+-                offset += result.bytesRead;
+-            }
+-            const after = await handle.stat();
+-            if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs)
+-                throw new Error("资源锁读取期间发生变化。");
+-            const row = JSON.parse(bytes.toString("utf8"));
+-            if (row.schemaVersion !== 2 || !Array.isArray(row.leases) || !row.windowId || row.leases.some((lease) => !Array.isArray(lease.resources) || !lease.resources.length))
+-                throw new Error("资源锁记录损坏。");
+-            return row;
+-        }
+-        finally {
+-            await handle.close();
+-        }
++        const { record } = await readResourceLeaseRegistrySecure(file);
++        return record;
+     }
+     async rows() {
+         await fs.mkdir(this.directory, { recursive: true });
+         const names = (await fs.readdir(this.directory)).filter(name => /^[a-f0-9]{64}[.]json$/.test(name));
+-        const rows = await Promise.all(names.map(async (name) => {
+-            const file = path.join(this.directory, name);
+-            try {
+-                return await this.readRegistry(file);
+-            }
+-            catch (error) {
+-                try {
+-                    return await this.readRegistry(file + ".ownership");
+-                }
+-                catch (fallback) {
+-                    if (error.code === "ENOENT" && fallback.code === "ENOENT")
+-                        return undefined; // Atomically consumed idle slot.
+-                    throw Object.assign(new Error("资源锁归属无法核实，记录已保留；请检查持有窗口，不能忽略未知活动锁。"), { code: "RESOURCE_LEASE_OWNER_UNKNOWN" });
+-                }
+-            }
+-        }));
+-        return rows.filter((row) => row !== undefined);
++        const rows = await Promise.all(names.map(name => readResourceLeaseRegistryWithOwnership(path.join(this.directory, name))));
++        return rows.filter((entry) => entry !== undefined).map(entry => entry.record);
+     }
+     async legacyGuard(existingOperation = false) {
+         try {
+diff --git a/dist/panel-build-manifest.json b/dist/panel-build-manifest.json
+index e6958a73..95b6db34 100644
+--- a/dist/panel-build-manifest.json
++++ b/dist/panel-build-manifest.json
+@@ -1,7 +1,7 @@
+ {
+   "schemaVersion": 1,
+-  "version": "0.5.405",
+-  "buildId": "4ee085d7e91172cd3dc8c2fc896255d5c3a7f24855afcbf480352798725a7360",
++  "version": "0.5.406",
++  "buildId": "e325064696cc3f60ca5456d5ae7ccc8167d1495cefb304371d9ea086c408935b",
+   "files": [
+     {
+       "path": "bin/simpleex.cjs",
+@@ -53,7 +53,7 @@
+     },
+     {
+       "path": "dist/core/ResourceOperationLease.js",
+-      "sha256": "c7438649a67bbc519dd0ff7216588af0b8da8dc579652d9a95c6ddde57286aee"
++      "sha256": "fa77df46bebfa767429ee6ca5b2016ce2e289249cd7f9fa50071c9a116dddb0b"
+     },
+     {
+       "path": "dist/core/SafeRequestRetry.js",
+@@ -669,7 +669,7 @@
+     },
+     {
+       "path": "dist/runtime/RuntimeManifest.js",
+-      "sha256": "c9d58a19323c708ecf053a9193f1a68fea81e57d14b2b356799b5fec3a14ceac"
++      "sha256": "8fcbb6a48ba1f02be1cdee4cc140926f5b6836a755f92344c412d115a105f9fd"
+     },
+     {
+       "path": "dist/security/RemotePathPolicy.js",
+@@ -921,7 +921,7 @@
+     },
+     {
+       "path": "dist/updates/UpdateGate.js",
+-      "sha256": "0bb6be305f2385eaaa2b12de41b0ff6a3d3c16dc2654bd7f7071e55cc1211220"
++      "sha256": "faf6d0b847c23943eb4c89f0bf7533d6219e8b934ce9c9f6c16f142e05ef6e26"
+     },
+     {
+       "path": "dist/updates/UpdateTransaction.js",
+@@ -1017,7 +1017,7 @@
+     },
+     {
+       "path": "package.json",
+-      "sha256": "3c49393fb358a0a149a27fb21a556a3cdf26b1253081f04d0a42b9c1c7a4bb9c"
++      "sha256": "564fc9d458109ddb4e45a9d2b789059b5af38d8f8cc26f209167fda634d07074"
+     },
+     {
+       "path": "scripts/check-static.js",
+diff --git a/dist/runtime/RuntimeManifest.js b/dist/runtime/RuntimeManifest.js
+index ebf950b5..95f47813 100644
+--- a/dist/runtime/RuntimeManifest.js
++++ b/dist/runtime/RuntimeManifest.js
+@@ -10,7 +10,7 @@ exports.verifyRuntimeHashes = verifyRuntimeHashes;
+ const crypto_1 = require("crypto");
+ // 单源：CURRENT_RUNTIME_VERSION 为 runtime 真值（远端 py 的 AGENT/RUNTIME/SCHEDULER_VERSION 由 build 动态注入，禁止手改）；pluginVersion 真值来自 package.json#version，自动同步
+ exports.RUNTIME_MANIFEST_SCHEMA_VERSION = 1;
+-exports.CURRENT_RUNTIME_VERSION = "0.5.405";
++exports.CURRENT_RUNTIME_VERSION = "0.5.406";
+ function sha256Text(text) {
+     return (0, crypto_1.createHash)("sha256").update(text, "utf8").digest("hex");
+ }
+diff --git a/dist/runtime/RuntimeManifest.json b/dist/runtime/RuntimeManifest.json
+index 18968515..ed5157b9 100644
+--- a/dist/runtime/RuntimeManifest.json
++++ b/dist/runtime/RuntimeManifest.json
+@@ -1,20 +1,20 @@
+ {
+   "schemaVersion": 1,
+-  "pluginVersion": "0.5.405",
+-  "runtimeVersion": "0.5.405",
+-  "unifiedVersion": "0.5.405",
++  "pluginVersion": "0.5.406",
++  "runtimeVersion": "0.5.406",
++  "unifiedVersion": "0.5.406",
+   "components": {
+     "hub_agent": {
+-      "version": "0.5.405",
+-      "sha256": "d736be070a84b945a2f1dec5cd0cd60ccaca64eac14984db8f46a9b85486aea8",
++      "version": "0.5.406",
++      "sha256": "d1a7eb048b66620a0ed5661fce8a9f8d967f46a68620db797dfa9848b0646691",
+       "remotePath": "simple_cluster/runtime/cluster_agent.py",
+-      "installedAt": "2026-10-23T20:41:55.682Z"
++      "installedAt": "2026-10-24T00:57:59.979Z"
+     },
+     "cluster_scheduler": {
+-      "version": "0.5.405",
+-      "sha256": "fa46052414f0aededa41d9f25bcf0daa7d9a974628fbde358b5c04b3b817e526",
++      "version": "0.5.406",
++      "sha256": "0fb841604bf9c1fd0b3f04a6e85e7279e71e229eb15533b09f5b9e0cd58f854a",
+       "remotePath": "simple_cluster/runtime/cluster_scheduler.py",
+-      "installedAt": "2026-10-23T20:41:55.683Z"
++      "installedAt": "2026-10-24T00:57:59.979Z"
+     }
+   }
+ }
+diff --git a/dist/runtime/cluster_agent.py b/dist/runtime/cluster_agent.py
+index 130ad995..00896ff9 100644
+--- a/dist/runtime/cluster_agent.py
++++ b/dist/runtime/cluster_agent.py
+@@ -474,9 +474,9 @@ class SyncScopeIndex:
+ 
+ # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
+ SCHEMA_VERSION = 1
+-AGENT_VERSION = "0.5.405"
+-RUNTIME_VERSION = "0.5.405"
+-PLUGIN_VERSION = "0.5.405"
++AGENT_VERSION = "0.5.406"
++RUNTIME_VERSION = "0.5.406"
++PLUGIN_VERSION = "0.5.406"
+ """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
+ import contextlib
+ import hashlib
+diff --git a/dist/runtime/cluster_agent.py.sha256 b/dist/runtime/cluster_agent.py.sha256
+index 04f8f636..27f30ae2 100644
+--- a/dist/runtime/cluster_agent.py.sha256
++++ b/dist/runtime/cluster_agent.py.sha256
+@@ -1 +1 @@
+-d736be070a84b945a2f1dec5cd0cd60ccaca64eac14984db8f46a9b85486aea8  cluster_agent.py
++d1a7eb048b66620a0ed5661fce8a9f8d967f46a68620db797dfa9848b0646691  cluster_agent.py
+diff --git a/dist/runtime/cluster_scheduler.py b/dist/runtime/cluster_scheduler.py
+index cbab19f4..0ecdae6e 100644
+--- a/dist/runtime/cluster_scheduler.py
++++ b/dist/runtime/cluster_scheduler.py
+@@ -37,9 +37,9 @@ except ModuleNotFoundError as exc:
+     yaml = None
+ 
+ # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
+-SCHEDULER_VERSION = "0.5.405"
+-RUNTIME_VERSION = "0.5.405"
+-PLUGIN_VERSION = "0.5.405"
++SCHEDULER_VERSION = "0.5.406"
++RUNTIME_VERSION = "0.5.406"
++PLUGIN_VERSION = "0.5.406"
+ FORMAL_JOB_PATH_PROTOCOL = 1
+ FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1
+ EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1
+diff --git a/dist/runtime/cluster_scheduler.py.sha256 b/dist/runtime/cluster_scheduler.py.sha256
+index 9bb2d070..1e2d42bf 100644
+--- a/dist/runtime/cluster_scheduler.py.sha256
++++ b/dist/runtime/cluster_scheduler.py.sha256
+@@ -1 +1 @@
+-fa46052414f0aededa41d9f25bcf0daa7d9a974628fbde358b5c04b3b817e526  cluster_scheduler.py
++0fb841604bf9c1fd0b3f04a6e85e7279e71e229eb15533b09f5b9e0cd58f854a  cluster_scheduler.py
+diff --git a/dist/updates/UpdateGate.js b/dist/updates/UpdateGate.js
+index cfb2809b..133bb8fc 100644
+--- a/dist/updates/UpdateGate.js
++++ b/dist/updates/UpdateGate.js
+@@ -34,15 +34,118 @@ var __importStar = (this && this.__importStar) || (function () {
+ })();
+ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.UpdateGate = exports.UPDATE_ACTION = void 0;
++exports.parseProcessStartMs = parseProcessStartMs;
++exports.parseStartTimesOutput = parseStartTimesOutput;
++exports.startTimesCommand = startTimesCommand;
+ const fs = __importStar(require("node:fs/promises"));
+-const path = __importStar(require("node:path"));
+-const node_crypto_1 = require("node:crypto");
++const node_child_process_1 = require("node:child_process");
+ const node_os_1 = require("node:os");
++const node_crypto_1 = require("node:crypto");
++const node_util_1 = require("node:util");
+ const HostOperationLease_1 = require("../core/HostOperationLease");
++const ResourceOperationLease_1 = require("../core/ResourceOperationLease");
++const execFileAsync = (0, node_util_1.promisify)(node_child_process_1.execFile);
+ exports.UPDATE_ACTION = "paired-plugin-update";
++// Reuse proof requires a trusted, non-future start time later than every known bound by more than this margin.
++const REUSE_PROOF_MARGIN_MS = 5_000;
++// One bounded batch per wait() run; the probe never extends the 300s budget (R55: timeout = min(cap, remaining)).
++const PROBE_TIMEOUT_CAP_MS = 8_000;
++const WAIT_BUDGET_MS = 300_000;
++const START_TIMES_MAX_BUFFER = 1 << 20;
++const START_TIMES_MAX_PIDS = 256;
++const MAX_VALID_PID = 2 ** 31 - 1;
++function validPid(value) {
++    return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= MAX_VALID_PID ? value : undefined;
++}
++function windowIdPid(windowId) {
++    if (typeof windowId !== "string")
++        return undefined;
++    const segment = windowId.split(":")[1] ?? "";
++    if (!/^[0-9]+$/.test(segment))
++        return undefined;
++    return validPid(Number(segment));
++}
++/** Only a trusted in-range non-future epoch ms counts (R51/R54). Understands explicit epoch numbers/strings,
++ * legacy PowerShell "/Date(ms)/" JSON, and explicit ISO; anything else (including Date.parse of /Date/) is untrusted. */
++function parseProcessStartMs(value, nowMs) {
++    let ms;
++    if (typeof value === "number" && Number.isFinite(value))
++        ms = value;
++    else if (typeof value === "string") {
++        const trimmed = value.trim();
++        const dated = /^\/Date\((-?[0-9]+)\)\/$/.exec(trimmed); // host-verified shape "/Date(ms)/" — closing ")" then "/" (r19 fix approved in r16)
++        if (/^-?[0-9]+$/.test(trimmed))
++            ms = Number(trimmed);
++        else if (dated)
++            ms = Number(dated[1]);
++        else {
++            const parsed = Date.parse(trimmed);
++            if (Number.isFinite(parsed))
++                ms = parsed;
++        }
++    }
++    if (ms === undefined || !Number.isSafeInteger(ms) || ms <= 0 || ms > nowMs)
++        return undefined; // non-safe-integer/out-of-range/future never trusted
++    return ms;
++}
++/** Parses the default provider's JSON: [{Id,StartMs}] with StartMs as explicit Unix milliseconds (R51). */
++function parseStartTimesOutput(stdout, nowMs) {
++    const out = new Map();
++    const parsed = JSON.parse(String(stdout).trim() || "[]");
++    for (const row of Array.isArray(parsed) ? parsed : [parsed]) {
++        const pid = Number.isInteger(row?.Id) ? validPid(row.Id) : validPid(Number(row?.Id));
++        const start = parseProcessStartMs(row?.StartMs ?? row?.StartTime, nowMs);
++        if (pid !== undefined && start !== undefined)
++            out.set(pid, start);
++    }
++    return out;
++}
++function startTimesCommand(pids) {
++    // Explicit epoch ms: plain StartTime would serialize as /Date(ms)/ which Date.parse cannot read (R51 host proof).
++    return `Get-Process -Id ${pids.join(",")} -ErrorAction SilentlyContinue | ` +
++        "Select-Object Id,@{n='StartMs';e={([DateTimeOffset]$_.StartTime).ToUnixTimeMilliseconds()}} | ConvertTo-Json -Compress";
++}
++/** Default Windows provider: exactly ONE bounded async batch per wait() run (never per file, never host snapshots).
++ * pids re-validated + sorted + deduplicated; timeout bounded by caller; failure/timeout/abort ⇒ unknown, never an exit proof. */
++async function defaultStartTimes(pids, signal, timeoutMs) {
++    const batch = [...new Set(pids.filter(pid => Number.isInteger(pid) && pid > 0))].sort((a, b) => a - b).slice(0, START_TIMES_MAX_PIDS);
++    const result = new Map(batch.map((pid) => [pid, "unknown"]));
++    if (!batch.length || timeoutMs <= 0)
++        return result;
++    if (process.platform !== "win32")
++        return result; // No trustworthy native time source here: stay unknown/wait.
++    try {
++        const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", startTimesCommand(batch)], { timeout: timeoutMs, maxBuffer: START_TIMES_MAX_BUFFER, signal, windowsHide: true });
++        for (const [pid, start] of parseStartTimesOutput(stdout, Date.now()))
++            result.set(pid, start);
++    }
++    catch { /* failure, timeout, abort or oversized output keeps every pid unknown */ }
++    return result;
++}
++/** Upper bound the old owner could not have started after; undefined (no proof possible) if ANY referenced
++ * time is missing/invalid (R54: never fabricate a bound with ||0). admissionExpiresAt absent means 0. */
++function proofBoundMs(record, mtimeMs) {
++    let bound = mtimeMs;
++    { // R61 (plan r16): a MISSING admissionExpiresAt is not 0 — an incomplete record can never yield an exit proof.
++        const admission = record.admissionExpiresAt;
++        const value = typeof admission === "number" && Number.isFinite(admission) ? admission : Date.parse(String(admission ?? ""));
++        if (!Number.isFinite(value))
++            return undefined;
++        bound = Math.max(bound, value);
++    }
++    for (const lease of record.leases)
++        for (const key of ["createdAt", "heartbeatAt", "expiresAt"]) {
++            const value = Date.parse(String(lease?.[key] ?? ""));
++            if (!Number.isFinite(value))
++                return undefined;
++            bound = Math.max(bound, value);
++        }
++    return bound;
++}
+ class UpdateGate {
+     leasePath;
+     ownerAlive;
++    deps;
+     held;
+     constructor(leasePath = (0, HostOperationLease_1.defaultHostOperationLeasePath)(), ownerAlive = pid => {
+         try {
+@@ -52,9 +155,10 @@ class UpdateGate {
+         catch (error) {
+             return error.code !== "ESRCH";
+         }
+-    }) {
++    }, deps = {}) {
+         this.leasePath = leasePath;
+         this.ownerAlive = ownerAlive;
++        this.deps = deps;
+     }
+     async begin(storagePath) {
+         if (this.held) {
+@@ -68,26 +172,109 @@ class UpdateGate {
+     async end() { const lease = this.held; this.held = undefined; await lease?.release(); }
+     async wait(signal) {
+         const directory = this.leasePath + ".resources-v2", started = Date.now();
++        let proofRun; // at most one batch probe per wait() run
++        const remaining = () => WAIT_BUDGET_MS - (Date.now() - started);
++        const checkBudget = () => { if (remaining() <= 0)
++            throw new Error("本地操作尚未结束；停止更新等待，现有传输继续运行。请稍后重试。"); };
+         for (;;) {
+             signal?.throwIfAborted();
+-            await this.held?.assertHeld();
++            checkBudget();
++            await this.held?.assertHeld(); // R62 (plan r16): every round re-proves the v1 batch lease
+             const names = await fs.readdir(directory).catch(error => error.code === "ENOENT" ? [] : Promise.reject(error));
++            signal?.throwIfAborted();
++            checkBudget();
++            await this.held?.assertHeld();
++            // R53: deduplicated union of main slots AND legal ownership sidecars; orphan sidecars are never ignored.
++            const slots = [...new Set(names.filter(name => /^[0-9a-f]{64}\.json(|\.ownership)$/.test(name)).map(name => name.replace(/\.ownership$/, "")))].sort();
+             let active = false;
+-            for (const name of names.filter(n => /^[0-9a-f]{64}\.json$/.test(n))) {
+-                const file = path.join(directory, name), stat = await fs.lstat(file);
+-                if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 8 * 1024 * 1024)
+-                    throw new Error("本地传输租约身份无效，已阻止安装。");
+-                const row = JSON.parse(await fs.readFile(file, "utf8"));
+-                if (row.schemaVersion !== 2 || !Array.isArray(row.leases) || !Number.isInteger(row.processId) || row.processId <= 0)
++            const proofs = [];
++            for (const slot of slots) {
++                const entry = await (0, ResourceOperationLease_1.readResourceLeaseRegistryWithOwnership)(directory + "/" + slot); // secure reader + ownership recovery; corrupt ⇒ throw 无法核实
++                signal?.throwIfAborted();
++                if (!entry)
++                    continue; // Atomically consumed empty slot (main and sidecar both gone).
++                const { record, mtimeMs } = entry;
++                if (record.schemaVersion !== 2 || !Array.isArray(record.leases))
+                     throw new Error("本地传输租约损坏，已阻止安装。");
+-                // Expired heartbeat of a live/unknown owner is not an exit proof.
+-                if ((row.leases.length || row.choosing || row.ticket) && this.ownerAlive(row.processId))
++                // R54: an explicit key (including null/string/negative/zero/huge) is explicit — only a truly absent key is legacy.
++                const hasExplicit = Object.prototype.hasOwnProperty.call(record, "processId");
++                let rootPid;
++                if (hasExplicit) {
++                    rootPid = validPid(record.processId);
++                    if (rootPid === undefined)
++                        throw new Error("本地传输租约字段无效（进程号非法），已阻止安装。");
++                }
++                else
++                    rootPid = windowIdPid(record.windowId); // legacy writers (1b8acce2..ac3b9836): strict PID segment only
++                // R54: inner identity must be fully trustworthy — missing/invalid/contradictory ⇒ reject, never best-effort.
++                for (const lease of record.leases) {
++                    if (!lease || typeof lease !== "object" || Array.isArray(lease))
++                        throw new Error("本地传输租约记录损坏，已阻止安装。");
++                    const leasePid = validPid(lease.processId);
++                    if (leasePid === undefined)
++                        throw new Error("本地传输租约字段无效（内层进程号缺失或非法），已阻止安装。");
++                    // R59 (plan r16): the inner PID itself must equal the root PID (explicit or recovered), not just be valid.
++                    if (rootPid !== undefined && leasePid !== rootPid)
++                        throw new Error("本地传输租约身份字段矛盾，已阻止安装。");
++                    if (typeof lease.windowId !== "string" || lease.windowId !== record.windowId)
++                        throw new Error("本地传输租约身份字段矛盾，已阻止安装。");
++                    const leaseWindowPid = windowIdPid(lease.windowId);
++                    if (leaseWindowPid !== undefined && rootPid !== undefined && leaseWindowPid !== rootPid)
++                        throw new Error("本地传输租约身份字段矛盾，已阻止安装。");
++                }
++                const heldFlags = Boolean(record.leases.length || record.choosing || record.ticket);
++                // R52/R61: only a COMPLETE normal shape may be treated as a released explicit-idle registry;
++                // a record missing required keys (e.g. admissionExpiresAt) never gets the idle fast path.
++                const completeShape = ["windowId", "ticket", "choosing", "admissionExpiresAt"].every(key => Object.prototype.hasOwnProperty.call(record, key));
++                if (hasExplicit && !heldFlags && completeShape)
++                    continue; // Normal released explicit-idle registry never blocks.
++                if (rootPid === undefined) {
+                     active = true;
++                    continue;
++                } // Owner not derivable: conservative wait, even when idle.
++                if (!this.ownerAlive(rootPid))
++                    continue; // Only ESRCH proves disappearance (permission failures keep waiting).
++                // R52: unified StartTime exit proof for EVERY trustworthy root with a live/unknown owner — explicit modern
++                // roots hit PID reuse on the host too (6397137…: PID 35152 reused by Edge identity_helper). Legacy idle
++                // without a proven release still waits unless the proof says otherwise (r14 conservative rule).
++                proofs.push({ pid: rootPid, boundMs: proofBoundMs(record, mtimeMs) });
++            }
++            if (proofs.length) {
++                const unresolved = [];
++                for (const candidate of proofs) {
++                    const sync = this.deps.processStartedAt ? this.deps.processStartedAt(candidate.pid) : undefined;
++                    const trusted = parseProcessStartMs(sync ?? undefined, Date.now()); // future/invalid sync values are untrusted
++                    if (trusted !== undefined) {
++                        if (!(candidate.boundMs !== undefined && trusted > candidate.boundMs + REUSE_PROOF_MARGIN_MS))
++                            active = true;
++                    }
++                    else
++                        unresolved.push(candidate);
++                }
++                if (unresolved.length) {
++                    proofRun ??= this.collectStartTimes([...new Set(unresolved.map(row => row.pid))].sort((a, b) => a - b), signal, Math.min(PROBE_TIMEOUT_CAP_MS, remaining()));
++                    const proof = await proofRun;
++                    signal?.throwIfAborted();
++                    checkBudget();
++                    await this.held?.assertHeld(); // R55/R62: probe completion cannot bypass cancel, budget, or the holding proof
++                    for (const { pid, boundMs } of unresolved) {
++                        const start = parseProcessStartMs(proof.get(pid) ?? undefined, Date.now());
++                        if (boundMs === undefined) {
++                            active = true;
++                            continue;
++                        } // Incomplete bound: no exit proof from partial times.
++                        if (start !== undefined && start > boundMs + REUSE_PROOF_MARGIN_MS)
++                            continue; // Provably a different process.
++                        active = true; // Unknown/untrusted time, probe failure, or plausible original owner keeps waiting.
++                    }
++                }
+             }
++            signal?.throwIfAborted();
++            checkBudget();
++            await this.held?.assertHeld(); // R55/R62: re-check cancel, budget, and holding proof immediately before returning
+             if (!active)
+                 return;
+-            if (Date.now() - started >= 300000)
+-                throw new Error("本地操作尚未结束；停止更新等待，现有传输继续运行。请稍后重试。");
++            this.deps.onPoll?.({ probing: proofs.length });
+             await new Promise((resolve, reject) => {
+                 const abort = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); reject(signal?.reason); };
+                 const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, 250);
+@@ -95,5 +282,13 @@ class UpdateGate {
+             });
+         }
+     }
++    async collectStartTimes(pids, signal, timeoutMs) {
++        try {
++            return await (this.deps.processStartTimes ? this.deps.processStartTimes(pids, signal, timeoutMs) : defaultStartTimes(pids, signal, timeoutMs));
++        }
++        catch {
++            return new Map(pids.map(pid => [pid, "unknown"]));
++        } // A failed batch is never an exit proof; abort re-checked by caller.
++    }
+ }
+ exports.UpdateGate = UpdateGate;
+diff --git a/package-lock.json b/package-lock.json
+index 5ed6857f..74040362 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "simple-experiment",
+-  "version": "0.5.405",
++  "version": "0.5.406",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "simple-experiment",
+-      "version": "0.5.405",
++      "version": "0.5.406",
+       "license": "MIT",
+       "dependencies": {
+         "semver": "7.7.3"
+diff --git a/package.json b/package.json
+index 28bd3368..76be929b 100644
+--- a/package.json
++++ b/package.json
+@@ -2,7 +2,7 @@
+   "name": "simple-experiment",
+   "displayName": "SimpleExperiment",
+   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
+-  "version": "0.5.405",
++  "version": "0.5.406",
+   "publisher": "simple-local",
+   "extensionKind": [
+     "ui"
+@@ -930,7 +930,7 @@
+     "test:tmux-lifecycle": "node --test --test-force-exit --test-timeout 20000 test/features/taskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tmuxTaskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pulledTaskControl.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planJobDeleteRequeue.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planJobDeleteRequeueCoverage.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planJobDeleteRequeueProduction.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manifestCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/nativeResultManifest.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobExecution.test.js && node --test --test-force-exit --test-timeout 20000 test/features/codeSyncProofWaiter.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tmuxGpuSessionClose.test.js && node --test --test-force-exit --test-timeout 20000 test/ui/tmuxOtherSessionsDisclosure.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxCloseRuntime.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxCloseHttp.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxSessionActions.test.js && node --test --test-force-exit --test-timeout 20000 test/features/gpuMemoryScheduling.test.js && node --test --test-force-exit --test-timeout 20000 test/features/gpuMemoryAdmission.test.js && node --test --test-force-exit --test-timeout 20000 test/features/schedulerRuntimeUpdate.test.js && node --test --test-force-exit --test-timeout 20000 test/features/gpuQuotaScheduling.test.js",
+     "test:preflight-stages": "node --test --test-force-exit --test-timeout 20000 test/features/refreshOperationRecordExpiry.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/requestBudget.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manualWorkerRefresh.test.js && node --test --test-force-exit --test-timeout 20000 test/features/preflightStages.test.js && node --test --test-force-exit --test-timeout 20000 test/features/preflightDispatchRejection.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planStructuralValidationCache.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planPreflightProgressSpeed.test.js",
+     "test:failed-job-review": "node --test --test-force-exit --test-timeout 20000 test/features/failedJobCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupReconnect.test.js && node --test --test-force-exit --test-timeout 20000 test/features/cleanupMissingTargets.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pluginLogRetention.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pluginLogRetentionProcesses.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/cacheRetentionBatch.test.js && node --test --test-force-exit --test-timeout 20000 test/ui/cacheCleanupPanel.test.js && npm run test:paired-update",
+-    "test:paired-update": "node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateTransaction.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateClient.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdatePackage.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateGate.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateBootstrap.test.js && node --test --test-force-exit --test-timeout 20000 test/features/extensionUpdates.test.js && npm run test:mac-parity && node --test --test-force-exit --test-timeout 20000 test/features/packageContentPolicy.test.js",
++    "test:paired-update": "node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateTransaction.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateClient.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdatePackage.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateGate.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateLegacyLease.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateBootstrap.test.js && node --test --test-force-exit --test-timeout 20000 test/features/extensionUpdates.test.js && npm run test:mac-parity && node --test --test-force-exit --test-timeout 20000 test/features/packageContentPolicy.test.js",
+     "test:mac-parity": "node --test --test-force-exit --test-timeout 20000 test/features/workflowWorkspaceBinding.test.js && node --test --test-force-exit --test-timeout 20000 test/features/localApiClientContract.test.js && node --test --test-force-exit --test-timeout 20000 test/features/windowsWorkflowContract.test.js && node --test --test-force-exit --test-timeout 20000 test/features/resultOwnershipScope.test.js && node --test --test-force-exit --test-timeout 20000 test/features/remoteResultInspectionWorkflow.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planSafeRetry.test.js && npm run test:cli-contract",
+     "test:cli-contract": "node --test --test-force-exit --test-timeout 20000 test/cli/simpleCli.test.js && node --test --test-force-exit --test-timeout 20000 test/cli/simpleCliTrainingProgress.test.js && node --test --test-force-exit --test-timeout 20000 test/cli/simpleCliRuntimeCapture.test.js && node --test --test-force-exit --test-timeout 20000 test/cli/simpleCliLifecycleCommands.test.js && node --test --test-force-exit --test-timeout 20000 test/cli/simpleCliHistoryViews.test.js && node --test --test-force-exit --test-timeout 20000 test/cli/simpleCliHealthEvidence.test.js && node --test --test-force-exit --test-timeout 20000 test/cli/simpleCliFailureAlerts.test.js && node --test --test-force-exit --test-timeout 20000 test/cli/simpleCliActiveSnapshot.test.js && node --test --test-force-exit --test-timeout 20000 test/cli/simpleCliInspectSchema.test.js && node --test --test-force-exit --test-timeout 20000 test/cli/simpleCliQuerySchema.test.js && node --test --test-force-exit --test-timeout 20000 test/cli/simpleCliRuntimeIdentity.test.js && node --test --test-force-exit --test-timeout 20000 test/cli/simpleCliTerminalIdentity.test.js && node --test --test-force-exit --test-timeout 20000 test/cli/simpleCliPersistedHistory.test.js",
+     "test:execution-shell": "node --test --test-force-exit --test-timeout 20000 test/features/executionShellPreflight.test.js && node --test --test-force-exit --test-timeout 20000 test/features/executionShellEnvironment.test.js && node --test --test-force-exit --test-timeout 20000 test/features/executionShellReap.test.js && node --test --test-force-exit --test-timeout 20000 test/features/nvJitLinkShell.test.js",
+diff --git a/src/core/ResourceOperationLease.ts b/src/core/ResourceOperationLease.ts
+index 8b69d0f7..a56500d7 100644
+--- a/src/core/ResourceOperationLease.ts
++++ b/src/core/ResourceOperationLease.ts
+@@ -73,6 +73,45 @@ async function canonicalResourceTarget(value: ResourceTarget): Promise<ResourceT
+   return normalizeResourceTarget({ server: "local", project: await physical(normalized.project), target: await physical(normalized.target!) });
+ }
+ 
++/** Shared secure reader (plan r13 §2 / r14): exact delegation of the manager's private readRegistry.
++ * Returns the record with its captured mtimeMs so the update gate can prove snapshot bounds.
++ * The manager keeps identical semantics by delegating here; admission/TTL/conflict/recovery protocols are unchanged.
++ */
++export async function readResourceLeaseRegistrySecure(file: string): Promise<{ record: Registry; mtimeMs: number }> {
++  const handle = await fs.open(file, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
++  try {
++    const before = await handle.stat();
++    const current = await fs.lstat(file);
++    if (current.isSymbolicLink() || current.dev !== before.dev || current.ino !== before.ino) throw new Error("资源锁路径身份无效。");
++    if (!before.isFile() || before.nlink > 1 || before.size > 8 * 1024 * 1024) throw new Error("资源锁文件身份或大小无效。");
++    const bytes = Buffer.alloc(before.size);
++    let offset = 0;
++    while (offset < bytes.length) {
++      const result = await handle.read(bytes, offset, bytes.length - offset, offset);
++      if (!result.bytesRead) throw new Error("资源锁读取未前进。");
++      offset += result.bytesRead;
++    }
++    const after = await handle.stat();
++    if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) throw new Error("资源锁读取期间发生变化。");
++    const row = JSON.parse(bytes.toString("utf8"));
++    if (row.schemaVersion !== 2 || !Array.isArray(row.leases) || !row.windowId || row.leases.some((lease: any) => !Array.isArray(lease.resources) || !lease.resources.length)) throw new Error("资源锁记录损坏。");
++    return { record: row, mtimeMs: before.mtimeMs };
++  } finally { await handle.close(); }
++}
++/** Ownership-recovery traversal identical to the manager's rows(): trusted sidecar fallback, atomically consumed
++ * empty slots skipped (undefined), and unknown records block with RESOURCE_LEASE_OWNER_UNKNOWN. Orphan ownership
++ * sidecars are included, never ignored. */
++export async function readResourceLeaseRegistryWithOwnership(file: string): Promise<{ record: Registry; mtimeMs: number } | undefined> {
++  try { return await readResourceLeaseRegistrySecure(file); }
++  catch (error: any) {
++    try { return await readResourceLeaseRegistrySecure(file + ".ownership"); }
++    catch (fallback: any) {
++      if (error.code === "ENOENT" && fallback.code === "ENOENT") return undefined; // Atomically consumed idle slot.
++      throw Object.assign(new Error("资源锁归属无法核实，记录已保留；请检查持有窗口，不能忽略未知活动锁。"), { code: "RESOURCE_LEASE_OWNER_UNKNOWN" });
++    }
++  }
++}
++
+ /** Per-window bakery admission protects only registry writes, never business operations.
+  * Registry release and crash recovery are logical: no filesystem cleanup is required.
+  */
+@@ -142,41 +181,14 @@ export class ResourceOperationLeaseManager {
+     }
+   }
+   private async readRegistry(file: string): Promise<Registry> {
+-    const handle = await fs.open(file, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+-    try {
+-      const before = await handle.stat();
+-      const current = await fs.lstat(file);
+-      if (current.isSymbolicLink() || current.dev !== before.dev || current.ino !== before.ino) throw new Error("资源锁路径身份无效。");
+-      if (!before.isFile() || before.nlink > 1 || before.size > 8 * 1024 * 1024) throw new Error("资源锁文件身份或大小无效。");
+-      const bytes = Buffer.alloc(before.size);
+-      let offset = 0;
+-      while (offset < bytes.length) {
+-        const result = await handle.read(bytes, offset, bytes.length - offset, offset);
+-        if (!result.bytesRead) throw new Error("资源锁读取未前进。");
+-        offset += result.bytesRead;
+-      }
+-      const after = await handle.stat();
+-      if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) throw new Error("资源锁读取期间发生变化。");
+-      const row = JSON.parse(bytes.toString("utf8"));
+-      if (row.schemaVersion !== 2 || !Array.isArray(row.leases) || !row.windowId || row.leases.some((lease: any) => !Array.isArray(lease.resources) || !lease.resources.length)) throw new Error("资源锁记录损坏。");
+-      return row;
+-    } finally { await handle.close(); }
++    const { record } = await readResourceLeaseRegistrySecure(file);
++    return record;
+   }
+   private async rows(): Promise<Registry[]> {
+     await fs.mkdir(this.directory, { recursive: true });
+     const names = (await fs.readdir(this.directory)).filter(name => /^[a-f0-9]{64}[.]json$/.test(name));
+-    const rows = await Promise.all(names.map(async name => {
+-      const file = path.join(this.directory, name);
+-      try { return await this.readRegistry(file); }
+-      catch (error: any) {
+-        try { return await this.readRegistry(file + ".ownership"); }
+-        catch (fallback: any) {
+-          if (error.code === "ENOENT" && fallback.code === "ENOENT") return undefined; // Atomically consumed idle slot.
+-          throw Object.assign(new Error("资源锁归属无法核实，记录已保留；请检查持有窗口，不能忽略未知活动锁。"), { code: "RESOURCE_LEASE_OWNER_UNKNOWN" });
+-        }
+-      }
+-    }));
+-    return rows.filter((row): row is Registry => row !== undefined);
++    const rows = await Promise.all(names.map(name => readResourceLeaseRegistryWithOwnership(path.join(this.directory, name))));
++    return rows.filter((entry): entry is { record: Registry; mtimeMs: number } => entry !== undefined).map(entry => entry.record);
+   }
+   private async legacyGuard(existingOperation = false): Promise<void> {
+     try {
+diff --git a/src/runtime/RuntimeManifest.ts b/src/runtime/RuntimeManifest.ts
+index ddb49dca..30132dc0 100644
+--- a/src/runtime/RuntimeManifest.ts
++++ b/src/runtime/RuntimeManifest.ts
+@@ -48,7 +48,7 @@ export interface RuntimeVerifyResult {
+ 
+ // 单源：CURRENT_RUNTIME_VERSION 为 runtime 真值（远端 py 的 AGENT/RUNTIME/SCHEDULER_VERSION 由 build 动态注入，禁止手改）；pluginVersion 真值来自 package.json#version，自动同步
+ export const RUNTIME_MANIFEST_SCHEMA_VERSION = 1;
+-export const CURRENT_RUNTIME_VERSION = "0.5.405";
++export const CURRENT_RUNTIME_VERSION = "0.5.406";
+ 
+ export function sha256Text(text: string): string {
+   return createHash("sha256").update(text, "utf8").digest("hex");
+diff --git a/src/updates/UpdateGate.ts b/src/updates/UpdateGate.ts
+index 0f420bca..0a6eda77 100644
+--- a/src/updates/UpdateGate.ts
++++ b/src/updates/UpdateGate.ts
+@@ -1,15 +1,112 @@
+ import * as fs from "node:fs/promises";
+-import * as path from "node:path";
+-import { randomUUID } from "node:crypto";
++import { execFile } from "node:child_process";
+ import { hostname } from "node:os";
++import { randomUUID } from "node:crypto";
++import { promisify } from "node:util";
+ import { LegacyHostOperationLeaseManager, defaultHostOperationLeasePath } from "../core/HostOperationLease";
++import { readResourceLeaseRegistryWithOwnership } from "../core/ResourceOperationLease";
++
++const execFileAsync = promisify(execFile);
+ 
+ export const UPDATE_ACTION = "paired-plugin-update";
++// Reuse proof requires a trusted, non-future start time later than every known bound by more than this margin.
++const REUSE_PROOF_MARGIN_MS = 5_000;
++// One bounded batch per wait() run; the probe never extends the 300s budget (R55: timeout = min(cap, remaining)).
++const PROBE_TIMEOUT_CAP_MS = 8_000;
++const WAIT_BUDGET_MS = 300_000;
++const START_TIMES_MAX_BUFFER = 1 << 20;
++const START_TIMES_MAX_PIDS = 256;
++const MAX_VALID_PID = 2 ** 31 - 1;
++
++export type UpdateGateDependencies = {
++  /** Test seam (plan r13 §4): synchronous start time in epoch ms; untrusted values are treated as no time source. */
++  processStartedAt?: (pid: number) => number | undefined;
++  /** Batch provider override (plan r14/R55): one bounded async query; timeoutMs is already min(cap, remaining budget). */
++  processStartTimes?: (pids: number[], signal?: AbortSignal, timeoutMs?: number) => Promise<Map<number, number | "unknown">>;
++  /** Read-only observation latch (plan r15 R56): fired once per completed poll pass that is about to sleep. */
++  onPoll?: (info: { probing: number }) => void;
++};
++
++function validPid(value: unknown): number | undefined {
++  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= MAX_VALID_PID ? value : undefined;
++}
++function windowIdPid(windowId: unknown): number | undefined {
++  if (typeof windowId !== "string") return undefined;
++  const segment = windowId.split(":")[1] ?? "";
++  if (!/^[0-9]+$/.test(segment)) return undefined;
++  return validPid(Number(segment));
++}
++/** Only a trusted in-range non-future epoch ms counts (R51/R54). Understands explicit epoch numbers/strings,
++ * legacy PowerShell "/Date(ms)/" JSON, and explicit ISO; anything else (including Date.parse of /Date/) is untrusted. */
++export function parseProcessStartMs(value: unknown, nowMs: number): number | undefined {
++  let ms: number | undefined;
++  if (typeof value === "number" && Number.isFinite(value)) ms = value;
++  else if (typeof value === "string") {
++    const trimmed = value.trim();
++    const dated = /^\/Date\((-?[0-9]+)\)\/$/.exec(trimmed); // host-verified shape "/Date(ms)/" — closing ")" then "/" (r19 fix approved in r16)
++    if (/^-?[0-9]+$/.test(trimmed)) ms = Number(trimmed);
++    else if (dated) ms = Number(dated[1]);
++    else { const parsed = Date.parse(trimmed); if (Number.isFinite(parsed)) ms = parsed; }
++  }
++  if (ms === undefined || !Number.isSafeInteger(ms) || ms <= 0 || ms > nowMs) return undefined; // non-safe-integer/out-of-range/future never trusted
++  return ms;
++}
++/** Parses the default provider's JSON: [{Id,StartMs}] with StartMs as explicit Unix milliseconds (R51). */
++export function parseStartTimesOutput(stdout: string, nowMs: number): Map<number, number> {
++  const out = new Map<number, number>();
++  const parsed = JSON.parse(String(stdout).trim() || "[]");
++  for (const row of Array.isArray(parsed) ? parsed : [parsed]) {
++    const pid = Number.isInteger(row?.Id) ? validPid(row.Id) : validPid(Number(row?.Id));
++    const start = parseProcessStartMs(row?.StartMs ?? row?.StartTime, nowMs);
++    if (pid !== undefined && start !== undefined) out.set(pid, start);
++  }
++  return out;
++}
++export function startTimesCommand(pids: number[]): string {
++  // Explicit epoch ms: plain StartTime would serialize as /Date(ms)/ which Date.parse cannot read (R51 host proof).
++  return `Get-Process -Id ${pids.join(",")} -ErrorAction SilentlyContinue | ` +
++    "Select-Object Id,@{n='StartMs';e={([DateTimeOffset]$_.StartTime).ToUnixTimeMilliseconds()}} | ConvertTo-Json -Compress";
++}
++/** Default Windows provider: exactly ONE bounded async batch per wait() run (never per file, never host snapshots).
++ * pids re-validated + sorted + deduplicated; timeout bounded by caller; failure/timeout/abort ⇒ unknown, never an exit proof. */
++async function defaultStartTimes(pids: number[], signal: AbortSignal | undefined, timeoutMs: number): Promise<Map<number, number | "unknown">> {
++  const batch = [...new Set(pids.filter(pid => Number.isInteger(pid) && pid > 0))].sort((a, b) => a - b).slice(0, START_TIMES_MAX_PIDS);
++  const result = new Map<number, number | "unknown">(batch.map((pid): [number, number | "unknown"] => [pid, "unknown"]));
++  if (!batch.length || timeoutMs <= 0) return result;
++  if (process.platform !== "win32") return result; // No trustworthy native time source here: stay unknown/wait.
++  try {
++    const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", startTimesCommand(batch)],
++      { timeout: timeoutMs, maxBuffer: START_TIMES_MAX_BUFFER, signal, windowsHide: true });
++    for (const [pid, start] of parseStartTimesOutput(stdout, Date.now())) result.set(pid, start);
++  } catch { /* failure, timeout, abort or oversized output keeps every pid unknown */ }
++  return result;
++}
++
++type ProofCandidate = { pid: number; boundMs: number | undefined };
++
++/** Upper bound the old owner could not have started after; undefined (no proof possible) if ANY referenced
++ * time is missing/invalid (R54: never fabricate a bound with ||0). admissionExpiresAt absent means 0. */
++function proofBoundMs(record: any, mtimeMs: number): number | undefined {
++  let bound = mtimeMs;
++  { // R61 (plan r16): a MISSING admissionExpiresAt is not 0 — an incomplete record can never yield an exit proof.
++    const admission = record.admissionExpiresAt;
++    const value = typeof admission === "number" && Number.isFinite(admission) ? admission : Date.parse(String(admission ?? ""));
++    if (!Number.isFinite(value)) return undefined;
++    bound = Math.max(bound, value);
++  }
++  for (const lease of record.leases) for (const key of ["createdAt", "heartbeatAt", "expiresAt"]) {
++    const value = Date.parse(String(lease?.[key] ?? ""));
++    if (!Number.isFinite(value)) return undefined;
++    bound = Math.max(bound, value);
++  }
++  return bound;
++}
++
+ export class UpdateGate {
+   private held: any;
+   constructor(private leasePath = defaultHostOperationLeasePath(), private ownerAlive: (pid: number) => boolean = pid => {
+     try { process.kill(pid, 0); return true; } catch (error: any) { return error.code !== "ESRCH"; }
+-  }) {}
++  }, private deps: UpdateGateDependencies = {}) {}
+   async begin(storagePath: string): Promise<void> {
+     if (this.held) { await this.held.assertHeld(); return; }
+     const manager = new LegacyHostOperationLeaseManager({ leasePath: this.leasePath, windowId: `${hostname()}:${process.pid}:${UPDATE_ACTION}:${randomUUID()}` });
+@@ -19,20 +116,77 @@ export class UpdateGate {
+   async end(): Promise<void> { const lease = this.held; this.held = undefined; await lease?.release(); }
+   async wait(signal?: AbortSignal): Promise<void> {
+     const directory = this.leasePath + ".resources-v2", started = Date.now();
++    let proofRun: Promise<Map<number, number | "unknown">> | undefined; // at most one batch probe per wait() run
++    const remaining = () => WAIT_BUDGET_MS - (Date.now() - started);
++    const checkBudget = () => { if (remaining() <= 0) throw new Error("本地操作尚未结束；停止更新等待，现有传输继续运行。请稍后重试。"); };
+     for (;;) {
+-      signal?.throwIfAborted(); await this.held?.assertHeld();
++      signal?.throwIfAborted(); checkBudget();
++      await this.held?.assertHeld(); // R62 (plan r16): every round re-proves the v1 batch lease
+       const names = await fs.readdir(directory).catch(error => error.code === "ENOENT" ? [] : Promise.reject(error));
++      signal?.throwIfAborted(); checkBudget(); await this.held?.assertHeld();
++      // R53: deduplicated union of main slots AND legal ownership sidecars; orphan sidecars are never ignored.
++      const slots = [...new Set(names.filter(name => /^[0-9a-f]{64}\.json(|\.ownership)$/.test(name)).map(name => name.replace(/\.ownership$/, "")))].sort();
+       let active = false;
+-      for (const name of names.filter(n => /^[0-9a-f]{64}\.json$/.test(n))) {
+-        const file = path.join(directory, name), stat = await fs.lstat(file);
+-        if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 8 * 1024 * 1024) throw new Error("本地传输租约身份无效，已阻止安装。");
+-        const row = JSON.parse(await fs.readFile(file, "utf8"));
+-        if (row.schemaVersion !== 2 || !Array.isArray(row.leases) || !Number.isInteger(row.processId) || row.processId <= 0) throw new Error("本地传输租约损坏，已阻止安装。");
+-        // Expired heartbeat of a live/unknown owner is not an exit proof.
+-        if ((row.leases.length || row.choosing || row.ticket) && this.ownerAlive(row.processId)) active = true;
++      const proofs: ProofCandidate[] = [];
++      for (const slot of slots) {
++        const entry = await readResourceLeaseRegistryWithOwnership(directory + "/" + slot); // secure reader + ownership recovery; corrupt ⇒ throw 无法核实
++        signal?.throwIfAborted();
++        if (!entry) continue; // Atomically consumed empty slot (main and sidecar both gone).
++        const { record, mtimeMs } = entry;
++        if (record.schemaVersion !== 2 || !Array.isArray(record.leases)) throw new Error("本地传输租约损坏，已阻止安装。");
++        // R54: an explicit key (including null/string/negative/zero/huge) is explicit — only a truly absent key is legacy.
++        const hasExplicit = Object.prototype.hasOwnProperty.call(record, "processId");
++        let rootPid: number | undefined;
++        if (hasExplicit) {
++          rootPid = validPid(record.processId);
++          if (rootPid === undefined) throw new Error("本地传输租约字段无效（进程号非法），已阻止安装。");
++        } else rootPid = windowIdPid(record.windowId); // legacy writers (1b8acce2..ac3b9836): strict PID segment only
++        // R54: inner identity must be fully trustworthy — missing/invalid/contradictory ⇒ reject, never best-effort.
++        for (const lease of record.leases) {
++          if (!lease || typeof lease !== "object" || Array.isArray(lease)) throw new Error("本地传输租约记录损坏，已阻止安装。");
++          const leasePid = validPid(lease.processId);
++          if (leasePid === undefined) throw new Error("本地传输租约字段无效（内层进程号缺失或非法），已阻止安装。");
++          // R59 (plan r16): the inner PID itself must equal the root PID (explicit or recovered), not just be valid.
++          if (rootPid !== undefined && leasePid !== rootPid) throw new Error("本地传输租约身份字段矛盾，已阻止安装。");
++          if (typeof lease.windowId !== "string" || lease.windowId !== record.windowId) throw new Error("本地传输租约身份字段矛盾，已阻止安装。");
++          const leaseWindowPid = windowIdPid(lease.windowId);
++          if (leaseWindowPid !== undefined && rootPid !== undefined && leaseWindowPid !== rootPid) throw new Error("本地传输租约身份字段矛盾，已阻止安装。");
++        }
++        const heldFlags = Boolean(record.leases.length || record.choosing || record.ticket);
++        // R52/R61: only a COMPLETE normal shape may be treated as a released explicit-idle registry;
++        // a record missing required keys (e.g. admissionExpiresAt) never gets the idle fast path.
++        const completeShape = ["windowId", "ticket", "choosing", "admissionExpiresAt"].every(key => Object.prototype.hasOwnProperty.call(record, key));
++        if (hasExplicit && !heldFlags && completeShape) continue; // Normal released explicit-idle registry never blocks.
++        if (rootPid === undefined) { active = true; continue; } // Owner not derivable: conservative wait, even when idle.
++        if (!this.ownerAlive(rootPid)) continue; // Only ESRCH proves disappearance (permission failures keep waiting).
++        // R52: unified StartTime exit proof for EVERY trustworthy root with a live/unknown owner — explicit modern
++        // roots hit PID reuse on the host too (6397137…: PID 35152 reused by Edge identity_helper). Legacy idle
++        // without a proven release still waits unless the proof says otherwise (r14 conservative rule).
++        proofs.push({ pid: rootPid, boundMs: proofBoundMs(record, mtimeMs) });
+       }
++      if (proofs.length) {
++        const unresolved: ProofCandidate[] = [];
++        for (const candidate of proofs) {
++          const sync = this.deps.processStartedAt ? this.deps.processStartedAt(candidate.pid) : undefined;
++          const trusted = parseProcessStartMs(sync ?? undefined, Date.now()); // future/invalid sync values are untrusted
++          if (trusted !== undefined) { if (!(candidate.boundMs !== undefined && trusted > candidate.boundMs + REUSE_PROOF_MARGIN_MS)) active = true; }
++          else unresolved.push(candidate);
++        }
++        if (unresolved.length) {
++          proofRun ??= this.collectStartTimes([...new Set(unresolved.map(row => row.pid))].sort((a, b) => a - b), signal, Math.min(PROBE_TIMEOUT_CAP_MS, remaining()));
++          const proof = await proofRun;
++          signal?.throwIfAborted(); checkBudget(); await this.held?.assertHeld(); // R55/R62: probe completion cannot bypass cancel, budget, or the holding proof
++          for (const { pid, boundMs } of unresolved) {
++            const start = parseProcessStartMs(proof.get(pid) ?? undefined, Date.now());
++            if (boundMs === undefined) { active = true; continue; } // Incomplete bound: no exit proof from partial times.
++            if (start !== undefined && start > boundMs + REUSE_PROOF_MARGIN_MS) continue; // Provably a different process.
++            active = true; // Unknown/untrusted time, probe failure, or plausible original owner keeps waiting.
++          }
++        }
++      }
++      signal?.throwIfAborted(); checkBudget(); await this.held?.assertHeld(); // R55/R62: re-check cancel, budget, and holding proof immediately before returning
+       if (!active) return;
+-      if (Date.now() - started >= 300000) throw new Error("本地操作尚未结束；停止更新等待，现有传输继续运行。请稍后重试。");
++      this.deps.onPoll?.({ probing: proofs.length });
+       await new Promise<void>((resolve, reject) => {
+         const abort = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); reject(signal?.reason); };
+         const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, 250);
+@@ -40,4 +194,8 @@ export class UpdateGate {
+       });
+     }
+   }
++  private async collectStartTimes(pids: number[], signal: AbortSignal | undefined, timeoutMs: number): Promise<Map<number, number | "unknown">> {
++    try { return await (this.deps.processStartTimes ? this.deps.processStartTimes(pids, signal, timeoutMs) : defaultStartTimes(pids, signal, timeoutMs)); }
++    catch { return new Map(pids.map(pid => [pid, "unknown" as const])); } // A failed batch is never an exit proof; abort re-checked by caller.
++  }
+ }
+diff --git a/test/features/pairedUpdateGate.test.js b/test/features/pairedUpdateGate.test.js
+index 47f2c2ed..adbcd311 100644
+--- a/test/features/pairedUpdateGate.test.js
++++ b/test/features/pairedUpdateGate.test.js
+@@ -21,7 +21,9 @@ test('update closes admission while existing Experiment transfers retain ownersh
+ });
+ test('cancelling update wait does not cancel transfers and expired live receipts still block', async () => {
+   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paired-update-wait-')), leasePath = path.join(root, 'lease.json'), directory = leasePath + '.resources-v2';
+-  fs.mkdirSync(directory); fs.writeFileSync(path.join(directory, 'a'.repeat(64) + '.json'), JSON.stringify({ schemaVersion: 2, processId: process.pid, leases: [{ expiresAt: '2000-01-01' }] }), 'utf8');
++  fs.mkdirSync(directory); // plan r13 §5：夹具补齐真实 schema（windowId/完整 lease 形状），断言原样保留
++  fs.writeFileSync(path.join(directory, 'a'.repeat(64) + '.json'), JSON.stringify({ schemaVersion: 2, windowId: os.hostname() + ':' + process.pid + ':fixture', processId: process.pid, ticket: 0, choosing: false, admissionExpiresAt: 0,
++    leases: [{ pluginId: 'simple-local.simple-experiment', workspaceUri: 'file://' + root, hostProjectPath: root, actionType: 'transfer', actionLabel: '传输', resources: [{ server: 'local', project: root, target: root }], schemaVersion: 1, leaseId: 'fixture-1', windowId: os.hostname() + ':' + process.pid + ':fixture', processId: process.pid, resourceFile: 'a'.repeat(64) + '.json', createdAt: '2000-01-01T00:00:00.000Z', heartbeatAt: '2000-01-01T00:00:00.000Z', expiresAt: '2000-01-01T00:00:30.000Z' }] }), 'utf8');
+   const gate = new UpdateGate(leasePath, () => true), cancel = new AbortController();
+   await gate.begin(root);
+   try { const wait = gate.wait(cancel.signal); setTimeout(() => cancel.abort(Error('cancel')), 30); await assert.rejects(wait, /cancel/); assert.ok(fs.existsSync(path.join(directory, 'a'.repeat(64) + '.json'))); }
+diff --git a/test/features/pairedUpdateTransaction.test.js b/test/features/pairedUpdateTransaction.test.js
+index e433b31b..388e4ce9 100644
+--- a/test/features/pairedUpdateTransaction.test.js
++++ b/test/features/pairedUpdateTransaction.test.js
+@@ -58,3 +58,27 @@ test('installer failure before its receipt stays gated and retains an uncertain
+   const retry = setup({ journal: f.journal(), downloadFailure: 'sftp' }); await assert.rejects(retry.engine.install(retry.components));
+   assert.ok(!retry.events.includes('ungate'));
+ });
++// F15（plan r13 §5）：宿主journal为 status=failed、completed=[experiment]（磁盘405元数据自动判完成）、
++// 等待传输阶段抛"本地传输租约损坏"。修复语义：重试仅补SFTP；任何失败都不回滚已确认组件、不重复安装、不换批。
++test('F15 wait-stage failure keeps installed Experiment, retry only backfills SFTP without rollback or re-install', async () => {
++  const first = setup({ versions: { experiment: '1.1.0' }, wait: () => { throw Error('本地传输租约损坏，已阻止安装。'); } });
++  await assert.rejects(first.engine.install(first.components), /本地传输租约损坏/);
++  assert.deepEqual(first.journal().completed, ['experiment']); assert.equal(first.journal().status, 'failed');
++  assert.ok(!first.events.some(e => e.startsWith('install:')), '等待阶段失败不得开始任何安装，更不得回滚已装组件');
++  assert.ok(first.events.includes('ungate'), '未请求安装的失败必须释放准入，不能锁死后续补装');
++  const retry = setup({ journal: first.journal(), versions: { experiment: '1.1.0' } });
++  await retry.engine.install(retry.components);
++  assert.ok(!retry.events.includes('download:experiment') && !retry.events.includes('install:experiment'), '已装Experiment不得重复下载或安装');
++  assert.ok(retry.events.includes('install:sftp')); assert.deepEqual(retry.journal().completed, ['experiment', 'sftp']);
++});
++test('F15 retry download failure retains journal without rollback and a mismatched batch is refused', async () => {
++  const first = setup({ versions: { experiment: '1.1.0' }, wait: () => { throw Error('本地传输租约损坏，已阻止安装。'); } });
++  await assert.rejects(first.engine.install(first.components));
++  const retry = setup({ journal: first.journal(), versions: { experiment: '1.1.0' }, downloadFailure: 'sftp' });
++  await assert.rejects(retry.engine.install(retry.components), /hash mismatch/);
++  assert.deepEqual(retry.journal().completed, ['experiment']); assert.equal(retry.journal().installationRequested, false);
++  assert.ok(!retry.events.some(e => e.startsWith('install:')) && !retry.events.includes('ungate'), '补装批次中途失败保持准入关闭且不动已完成组件');
++  const swapped = setup({ journal: first.journal(), versions: { experiment: '1.1.0' } });
++  await assert.rejects(swapped.engine.install(swapped.components.map(c => ({ ...c, latestVersion: '1.2.0' }))), /不能替换已确认的更新批次/);
++  assert.equal(swapped.events.length, 0, '指纹不符的更新必须在任何下载/安装/放行之前被拒绝');
++});
+=== NEW FILE: test/features/pairedUpdateLegacyLease.test.js ===
+diff --git a/test/features/pairedUpdateLegacyLease.test.js b/test/features/pairedUpdateLegacyLease.test.js
+new file mode 100644
+index 00000000..8d51dcf6
+--- /dev/null
++++ b/test/features/pairedUpdateLegacyLease.test.js
+@@ -0,0 +1,496 @@
++const test = require('node:test');
++const assert = require('node:assert/strict');
++const fs = require('node:fs');
++const path = require('node:path');
++const os = require('node:os');
++const crypto = require('node:crypto');
++const { UpdateGate, parseProcessStartMs, parseStartTimesOutput, startTimesCommand } = require('../../dist/updates/UpdateGate');
++
++// F15 回归安全矩阵（plan r13/r14 + r15 R51–R57，证据 E16g/E16h/F17/F18）：
++// 旧 v2 根缺 processId（1b8acce2~ac3b9836 writer，宿主 79 条）与 PID 复用（宿主根缺PID 79 条 + 显式PID
++// 6397137…:PID35152 被 Edge identity_helper 复用，R52）两类记录的兼容语义 + 保守等待/探测异常/侧车并集安全矩阵。
++// 接缝=构造注入 { processStartedAt, processStartTimes(pids,signal,timeoutMs), onPoll }。
++// R56 纪律：pending 用例先等 onPoll 进入点闩（首轮判定完成）再短时观察，finally abort+await 原 wait 结算；
++// 只读守卫直接 await 不吞错。R51：Windows 默认 provider 输出显式 epoch 毫秒（宿主实证旧 StartTime JSON
++// 为 /Date(1792803730983)/，Date.parse=NaN，日志 985ce89f-65e7-4af9-b95d-1f97d5ad555a-stdout.log）。
++// 夹具字段取自宿主真实快照；全程只写临时目录，绝不改宿主路径。Linux 上原生 Windows 执行项按平台明确不跑，
++// 但 R51 用真实 Node 进程 PID + 真实解析函数 parseStartTimesOutput 做正向放行（非纯 Map 注入）。
++
++const T0 = Date.parse('2026-09-28T17:58:56.694Z'); // 宿主非空旧根 3dda869b 的真实 mtime
++function makeWorld(testObject) {
++  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paired-legacy-lease-'));
++  testObject.after(() => fs.rmSync(root, { recursive: true, force: true }));
++  const leasePath = path.join(root, 'lease.json');
++  return { leasePath, dir: leasePath + '.resources-v2' };
++}
++function registryFile(world, record) {
++  fs.mkdirSync(world.dir, { recursive: true });
++  return path.join(world.dir, crypto.createHash('sha256').update(String(record.windowId) + Math.random()).digest('hex') + '.json');
++}
++function writeRegistry(world, record, mtimeMs = T0) {
++  const file = registryFile(world, record);
++  fs.writeFileSync(file, JSON.stringify(record), 'utf8');
++  fs.utimesSync(file, new Date(mtimeMs), new Date(mtimeMs));
++  return file;
++}
++function writeRaw(world, file, text, mtimeMs = T0) { // 损坏/孤槽夹具：任意原始字节，含非JSON
++  fs.mkdirSync(world.dir, { recursive: true });
++  fs.writeFileSync(file, text, 'utf8');
++  fs.utimesSync(file, new Date(mtimeMs), new Date(mtimeMs));
++  return file;
++}
++function legacyRoot(overrides) { return Object.assign({ schemaVersion: 2, windowId: 'testhost:31337:11111111-2222-3333-4444-555555555555', ticket: 0, choosing: false, admissionExpiresAt: 0, leases: [] }, overrides); }
++function legacyLease(pid, windowId, atMs, omit) {
++  const lease = { pluginId: 'simple-local.simple-experiment', workspaceUri: 'file:///w', hostProjectPath: 'C:/proj', actionType: 'queue-write', actionLabel: '队列写入',
++    resources: [{ server: 'local', project: 'C:/proj', target: 'C:/proj' }], schemaVersion: 1, leaseId: 'lease-1', windowId, processId: pid, resourceFile: 'x.json',
++    createdAt: new Date(atMs).toISOString(), heartbeatAt: new Date(atMs).toISOString(), expiresAt: new Date(atMs + 30000).toISOString() };
++  if (omit) delete lease[omit];
++  return lease;
++}
++async function settleWithin(promise, ms) {
++  return await Promise.race([promise.then(() => ({ state: 'resolved' }), error => ({ state: 'rejected', error })),
++    new Promise(resolve => setTimeout(() => resolve({ state: 'pending' }), ms))]);
++}
++function pollLatch() { let fire; const first = new Promise(resolve => { fire = resolve; }); return { first, onPoll: () => fire() }; }
++// R56：先等进入点闩（首轮判定完成、正在睡眠）再短时观察；R14：取消后必须 await 原 wait 结算，禁止悬空任务。
++async function assertWaitsThenCancel(wait, latch, controller, why) {
++  try {
++    const latched = await settleWithin(latch.first, 4000);
++    assert.equal(latched.state, 'resolved', 'gate 必须在 4s 内完成首轮判定进入等待；未进入即失败');
++    assert.equal((await settleWithin(wait, 30)).state, 'pending', why);
++    controller.abort(Error('test-window-end'));
++    const settled = await settleWithin(wait, 3000);
++    assert.equal(settled.state, 'rejected', '取消后原wait必须以中止错误结算，禁止悬空任务结束测试');
++    if (settled.state === 'pending') throw Error('取消后wait仍未结算');
++    assert.match(String(settled.error && settled.error.message), /test-window-end/);
++  } catch (error) { controller.abort(error); throw error; }
++}
++function newAbort() { return new AbortController(); }
++function snapshot(dir) { return Object.fromEntries(fs.readdirSync(dir).sort().map(name => [name, crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, name))).digest('hex')])); }
++
++const DEAD = () => false;
++const LIVE = () => true;
++
++test('旧v2空闲根（根缺PID、windowId含PID段）：死主证明后放行，不得报损坏', async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, legacyRoot());
++  const result = await settleWithin(new UpdateGate(world.leasePath, DEAD).wait(), 1500);
++  assert.equal(result.state, 'resolved', '空闲旧记录+确定死主必须放行；修复前生产抛"损坏"即此断言红');
++});
++
++test('旧v2崩在admission中段（choosing=true、admission早已过期、leases空）：确定死主放行', async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, legacyRoot({ choosing: true, admissionExpiresAt: T0 + 30000 }));
++  const result = await settleWithin(new UpdateGate(world.leasePath, DEAD).wait(), 1500);
++  assert.equal(result.state, 'resolved', 'admission 30秒窗口早已过期且窗主确定退出不构成持有');
++});
++
++test('旧v2含过期lease（内层PID与windowId一致）：确定死主退出证明后放行', async t => {
++  const world = makeWorld(t);
++  const row = legacyRoot(); row.leases = [legacyLease(31337, row.windowId, T0)];
++  writeRegistry(world, row);
++  const result = await settleWithin(new UpdateGate(world.leasePath, DEAD).wait(), 1500);
++  assert.equal(result.state, 'resolved', '对应宿主3dda869b/5fe9c397/a6fec7cc三例');
++});
++
++test('旧v2 PID复用（StartTime晚于全部界限+5s余量）：不可能是旧主，放行', async t => {
++  const world = makeWorld(t);
++  const row = legacyRoot(); row.leases = [legacyLease(31337, row.windowId, T0)];
++  writeRegistry(world, row);
++  const startedAt = new Map([[31337, T0 + 10 * 60000]]); // 晚于 mtime/expiresAt/admission 全部界限
++  const result = await settleWithin(new UpdateGate(world.leasePath, LIVE, { processStartedAt: pid => startedAt.get(pid) }).wait(), 1500);
++  assert.equal(result.state, 'resolved', '有界StartTime复用证明成立必须放行');
++});
++
++test('R52 现代显式PID根（ticket=1、PID被新进程复用、宿主6397137…形状）：批量StartMs证明后放行', async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, { schemaVersion: 2, windowId: '宿舍:35152:9c22a918-4a3e-4f6b-8e2d-1f0e5d6c7b8a', processId: 35152, ticket: 1, choosing: false, admissionExpiresAt: 0, leases: [] });
++  let seenPids = null;
++  const result = await settleWithin(new UpdateGate(world.leasePath, LIVE, { processStartTimes: async pids => { seenPids = pids.slice(); return new Map([[35152, T0 + 10 * 60000]]); } }).wait(), 1500);
++  assert.equal(result.state, 'resolved', '显式根同样必须走统一复用证明（Edge复用PID不再把更新卡死300s）；修复R52前explicit分支直接ownerAlive即卡');
++  assert.deepEqual(seenPids, [35152], '显式根PID必须进入批量探测');
++});
++
++test('R52 现代显式PID根原主仍活（StartTime早于界限）：继续阻断', async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, { schemaVersion: 2, windowId: 'testhost:35152:9c22a918-4a3e-4f6b-8e2d-1f0e5d6c7b8a', processId: 35152, ticket: 1, choosing: false, admissionExpiresAt: 0, leases: [] });
++  const latch = pollLatch(), controller = newAbort();
++  const gate = new UpdateGate(world.leasePath, LIVE, { processStartTimes: async pids => new Map([[pids[0], T0 - 3600000]]), onPoll: latch.onPoll });
++  await assertWaitsThenCancel(gate.wait(controller.signal), latch, controller, '证明不成立的原主必须继续等待，绝不按ticket过期偷放');
++});
++
++test('PID复用证明不成立（旧记录StartTime早于界限）：继续阻断，绝不按过期偷放', async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, legacyRoot({ choosing: true, admissionExpiresAt: T0 + 30000 }));
++  const latch = pollLatch(), controller = newAbort();
++  const gate = new UpdateGate(world.leasePath, LIVE, { processStartedAt: () => T0 - 3600000, onPoll: latch.onPoll });
++  await assertWaitsThenCancel(gate.wait(controller.signal), latch, controller, '活主即使admission/心跳过期仍须等待（宿主pid14764场景的反面保护）');
++});
++
++test('StartTime缺失：unknown不得冒充退出证明，继续等待', async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, legacyRoot());
++  const latch = pollLatch(), controller = newAbort();
++  const gate = new UpdateGate(world.leasePath, LIVE, { processStartedAt: () => undefined, processStartTimes: async pids => new Map(pids.map(p => [p, 'unknown'])), onPoll: latch.onPoll });
++  await assertWaitsThenCancel(gate.wait(controller.signal), latch, controller, '无时间来源必须保守等待');
++});
++
++test('无注入探测时非win32默认不得spawn冒充：缺PID活主保守等待', { skip: process.platform === 'win32' ? '本例验证非win32默认不spawn语义；win32下fake PID可能被真进程复用，原生正向另见R60专用例' : false }, async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, legacyRoot());
++  const latch = pollLatch(), controller = newAbort();
++  const gate = new UpdateGate(world.leasePath, LIVE, { onPoll: latch.onPoll }); // 默认依赖：win32=一次有界Get-Process，其他平台一律unknown
++  await assertWaitsThenCancel(gate.wait(controller.signal), latch, controller, '非Windows无可靠时间来源时必须unknown→等待');
++});
++
++test('缺PID且windowId无PID段：归属不可导出，即使空闲也保守等待（r14保守规则）', async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, legacyRoot({ windowId: 'testhost:legacyWindow:00000000-0000-4000-8000-000000000001' }));
++  const latch = pollLatch(), controller = newAbort();
++  const gate = new UpdateGate(world.leasePath, LIVE, { onPoll: latch.onPoll });
++  await assertWaitsThenCancel(gate.wait(controller.signal), latch, controller, '进程归属完全不可导出时禁止按空闲/过期放行');
++});
++
++test('非ASCII主机名windowId（宿主"宿舍:PID:UUID"形状）：PID段严格解析后死主放行', async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, legacyRoot({ windowId: '宿舍:31337:11111111-2222-3333-4444-555555555555' }));
++  const result = await settleWithin(new UpdateGate(world.leasePath, DEAD).wait(), 1500);
++  assert.equal(result.state, 'resolved', '非ASCII主机名不得破坏PID段恢复');
++});
++
++test('R54 显式非法根PID一律显式拒绝且不回退windowId：null/字符串/负数/零/超范围', async t => {
++  for (const bad of [null, '31337', -1, 0, 2 ** 31, 5000000000]) {
++    const world = makeWorld(t);
++    writeRegistry(world, legacyRoot({ processId: bad }));
++    const result = await settleWithin(new UpdateGate(world.leasePath, DEAD).wait(), 1500);
++    assert.equal(result.state, 'rejected', '显式 processId=' + JSON.stringify(bad) + '（含null=显式键存在）必须拒绝');
++    assert.match(String(result.error && result.error.message), /无效/, '显式非法PID必须显式拒绝');
++    assert.doesNotMatch(String(result.error && result.error.message), /损坏/, '非法显式字段与历史缺字段必须区分文案');
++  }
++});
++
++test('R54 内层身份不完备即拒绝：缺PID/非法PID/内层windowId缺失或与根不一致', async t => {
++  const world = makeWorld(t);
++  const missing = legacyRoot(); missing.leases = [legacyLease(31337, missing.windowId, T0, 'processId')];
++  writeRegistry(world, missing);
++  const result = await settleWithin(new UpdateGate(world.leasePath, DEAD).wait(), 1500);
++  assert.equal(result.state, 'rejected', '内层缺PID不是best-effort忽略');
++  assert.match(String(result.error && result.error.message), /内层进程号|无效/);
++  const world2 = makeWorld(t);
++  const mismatch = legacyRoot(); mismatch.leases = [legacyLease(31337, 'testhost:31337:other-window', T0)];
++  writeRegistry(world2, mismatch);
++  const result2 = await settleWithin(new UpdateGate(world2.leasePath, DEAD).wait(), 1500);
++  assert.equal(result2.state, 'rejected');
++  assert.match(String(result2.error && result2.error.message), /矛盾/);
++});
++
++test('根PID与内层lease PID矛盾：拒绝，不任选一边', async t => {
++  const world = makeWorld(t);
++  const row = legacyRoot({ processId: 41000 });
++  row.leases = [legacyLease(31337, row.windowId, T0)];
++  writeRegistry(world, row);
++  const result = await settleWithin(new UpdateGate(world.leasePath, DEAD).wait(), 1500);
++  assert.equal(result.state, 'rejected', '矛盾身份字段必须拒绝');
++  assert.match(String(result.error && result.error.message), /无效|无法核实|矛盾/);
++});
++
++test('R54 时间界限不完整的记录不得被造出退出证明：lease缺时间→等待', async t => {
++  const world = makeWorld(t);
++  const row = legacyRoot(); row.leases = [legacyLease(31337, row.windowId, T0, 'heartbeatAt')];
++  writeRegistry(world, row);
++  const latch = pollLatch(), controller = newAbort();
++  const gate = new UpdateGate(world.leasePath, LIVE, { processStartedAt: () => T0 + 10 * 60000, processStartTimes: async pids => new Map(pids.map(p => [p, 'unknown'])), onPoll: latch.onPoll });
++  await assertWaitsThenCancel(gate.wait(controller.signal), latch, controller, 'heartbeatAt缺失→上界不完整→即使sync时间"足够晚"也必须等待');
++});
++
++test('R54 未来StartTime不可信：晚于now的证明不得放行', async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, legacyRoot());
++  const latch = pollLatch(), controller = newAbort();
++  const gate = new UpdateGate(world.leasePath, LIVE, { processStartedAt: () => Date.now() + 600000, processStartTimes: async pids => new Map(pids.map(p => [p, 'unknown'])), onPoll: latch.onPoll });
++  await assertWaitsThenCancel(gate.wait(controller.signal), latch, controller, '未来时间一律unknown→等待（时钟异常/伪造不得变退出证明）');
++});
++
++test('R54 复用证明5s余量边界：恰好+5000等待、+5001放行', async t => {
++  const worldA = makeWorld(t);
++  writeRegistry(worldA, legacyRoot()); // bound=mtime=T0（admission 0、无lease）
++  const latch = pollLatch(), controller = newAbort();
++  const gateA = new UpdateGate(worldA.leasePath, LIVE, { processStartedAt: () => T0 + 5000, processStartTimes: async pids => new Map(pids.map(p => [p, 'unknown'])), onPoll: latch.onPoll });
++  await assertWaitsThenCancel(gateA.wait(controller.signal), latch, controller, 'start=bound+5000 不严格大于边界，必须等待');
++  const worldB = makeWorld(t);
++  writeRegistry(worldB, legacyRoot());
++  const result = await settleWithin(new UpdateGate(worldB.leasePath, LIVE, { processStartedAt: () => T0 + 5001 }).wait(), 1500);
++  assert.equal(result.state, 'resolved', 'start=bound+5001 严格大于边界即复用证明成立');
++});
++
++test('R51 默认provider命令显式输出epoch毫秒；真实格式解析边界（含宿主/Date(…)实证形）', () => {
++  const command = startTimesCommand([35152, 31337]);
++  assert.match(command, /ToUnixTimeMilliseconds/, '命令必须显式输出epoch毫秒而非裸StartTime（宿主实证裸StartTime= /Date(1792803730983)/）');
++  assert.match(command, /Get-Process -Id 35152,31337/, 'PID必须原样进入 -Id 列表');
++  const now = Date.parse('2026-10-24T01:02:11.283Z');
++  assert.deepEqual([...parseStartTimesOutput('[{"Id":35152,"StartMs":1792803730983}]', now)], [[35152, 1792803730983]], '新格式epoch毫秒必须解析');
++  assert.equal(parseProcessStartMs('/Date(1792803730983)/', now), 1792803730983, '/Date(ms)/显式识别（Date.parse对它是NaN——宿主实证）');
++  assert.equal(Number.isFinite(Date.parse('/Date(1792803730983)/')), false, '反证：Date.parse确实无法读旧JSON形');
++  assert.equal(parseProcessStartMs(new Date(now - 1000).toISOString(), now), now - 1000, '显式ISO可信');
++  assert.equal(parseProcessStartMs(now + 10, now), undefined, '未来不可信');
++  assert.equal(parseProcessStartMs(1e21, now), undefined, '超安全整数范围数值不可信（R56/R54 helper安全整数）');
++  assert.equal(parseProcessStartMs('99999999999999999999', now), undefined, '超安全整数字符串不可信');
++  assert.equal(parseProcessStartMs('not-a-date', now), undefined);
++  assert.deepEqual([...parseStartTimesOutput('{"Id":7,"StartMs":' + (now - 5000) + '}', now)], [[7, now - 5000]], '单对象（非数组）JSON也要处理');
++  assert.equal(parseStartTimesOutput('', now).size, 0, '空输出=无信息，绝不冒充退出证明');
++});
++
++test('R51/R60 注入捕获JSON+真实解析函数判定链正向（非原生执行，R60如实改名；原生win32另见下例）', async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, legacyRoot({ windowId: os.hostname() + ':' + process.pid + ':11111111-2222-3333-4444-555555555555' }));
++  // 旧足够空闲（mtime=T0）+ 本测试Node进程PID活着；提供程序=真实 startTimesCommand 文本 + 真实 parseStartTimesOutput
++  // （原生 powershell 执行在 Linux 明确不跑；win32 上同一命令/解析函数直接生效）
++  const captured = JSON.stringify([{ Id: process.pid, StartMs: Date.now() - 3600000 }]);
++  const gate = new UpdateGate(world.leasePath, undefined, { processStartTimes: async pids => {
++    assert.deepEqual(pids, [process.pid], '待证PID必须恰为本进程');
++    assert.ok(startTimesCommand(pids).includes('Get-Process -Id ' + process.pid));
++    return parseStartTimesOutput(captured, Date.now());
++  } });
++  const result = await settleWithin(gate.wait(), 1500);
++  assert.equal(result.state, 'resolved', '活着的真实PID + 旧快照 + 真实epoch解析 → 必须真实放行');
++});
++
++test('R60 win32 原生正向：无provider的 new UpdateGate(leasePath)，当前Node PID + 足够旧快照必须真实放行', { skip: process.platform === 'win32' ? false : '原生Get-Process探测仅在Windows执行；Linux明确跳过，不以fake PID赌语义' }, async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, legacyRoot({ windowId: os.hostname() + ':' + process.pid + ':11111111-2222-3333-4444-555555555555' }));
++  const result = await settleWithin(new UpdateGate(world.leasePath).wait(), 12000); // 生产默认：一次原生批量探测（8s帽）+ 保守轮询
++  assert.equal(result.state, 'resolved', 'win32原生StartMs证明本进程晚于旧快照 → 必须放行');
++});
++
++test('R59 内层PID合法但与根PID不等：有根(显式)与缺根(windowId段)双反例都必须拒绝', async t => {
++  const worldA = makeWorld(t); // 显式根 31337 + 内层 41000
++  const rowA = legacyRoot({ processId: 31337 }); rowA.leases = [legacyLease(41000, rowA.windowId, T0)];
++  writeRegistry(worldA, rowA);
++  const resultA = await settleWithin(new UpdateGate(worldA.leasePath, DEAD).wait(), 1500);
++  assert.equal(resultA.state, 'rejected', '内层PID只校合法不比对根是R59缺口：显式根31337 vs 内层41000 必须拒');
++  assert.match(String(resultA.error && resultA.error.message), /矛盾/);
++  const worldB = makeWorld(t); // 缺根PID，windowId段31337 + 内层 41000
++  const rowB = legacyRoot(); rowB.leases = [legacyLease(41000, rowB.windowId, T0)];
++  writeRegistry(worldB, rowB);
++  const resultB = await settleWithin(new UpdateGate(worldB.leasePath, DEAD).wait(), 1500);
++  assert.equal(resultB.state, 'rejected', '缺根时按windowId段恢复31337，与内层41000矛盾同样必须拒');
++  assert.match(String(resultB.error && resultB.error.message), /矛盾/);
++});
++
++test('R61 缺admissionExpiresAt的显式空闲记录不得走idle快道：等待而非放行', async t => {
++  const world = makeWorld(t);
++  const row = legacyRoot({ processId: 31337 }); delete row.admissionExpiresAt; // 显式PID+全空持有，但shape不完整
++  writeRegistry(world, row);
++  const latch = pollLatch(), controller = newAbort();
++  const gate = new UpdateGate(world.leasePath, LIVE, { processStartTimes: async pids => new Map(pids.map(p => [p, 'unknown'])), onPoll: latch.onPoll });
++  await assertWaitsThenCancel(gate.wait(controller.signal), latch, controller, '不完整shape不得当"正常已释放空闲"，缺admission也不能当0造bound');
++});
++
++test('R61 完整shape的显式空闲记录正常不阻断（即使ownerAlive=活）', async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, legacyRoot({ processId: 31337 })); // 全键齐备、leases空、ticket0、choosing false
++  const result = await settleWithin(new UpdateGate(world.leasePath, LIVE).wait(), 1500); // 不经任何provider：idle快道无需探测
++  assert.equal(result.state, 'resolved', 'R52/R61：完整正常shape的显式已释放空闲根永不阻断');
++});
++
++test('R61 secure reader 读取中真实变更：读后handle.stat见新mtime → 拒绝', async () => {
++  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'psg-reader-mutation-'));
++  const file = path.join(root, 'registry.json');
++  fs.writeFileSync(file, JSON.stringify(legacyRoot()), 'utf8');
++  try {
++    const core = require('../../dist/core/ResourceOperationLease');
++    const fsPromise = require('fs/promises');
++    const realOpen = fsPromise.open;
++    let statCalls = 0;
++    fsPromise.open = async (...args) => {
++      const handle = await realOpen(...args);
++      const realStat = handle.stat.bind(handle);
++      handle.stat = async (...statArgs) => {
++        const stat = await realStat(...statArgs);
++        statCalls++;
++        if (statCalls === 2) { // before/after 对比之间注入真实变化
++          const changed = Object.assign(Object.create(Object.getPrototypeOf(stat)), stat);
++          changed.mtimeMs = stat.mtimeMs + 50;
++          return changed;
++        }
++        return stat;
++      };
++      return handle;
++    };
++    try {
++      await assert.rejects(core.readResourceLeaseRegistrySecure(file), /变化/);
++      assert.ok(statCalls >= 2, '读取前后两次stat必须都发生（变更发生在读取中）');
++    } finally { fsPromise.open = realOpen; }
++  } finally { fs.rmSync(root, { recursive: true, force: true }); }
++});
++
++test('R62 v1批次锁等待期间被其他窗口接管：每轮持有证明必须拒绝，不按取消或损坏文案', async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, legacyRoot()); // LIVE+unknown → gate 持续轮询等待
++  const latch = pollLatch(), controller = newAbort();
++  const gate = new UpdateGate(world.leasePath, LIVE, { processStartTimes: async pids => new Map(pids.map(p => [p, 'unknown'])), onPoll: latch.onPoll });
++  await gate.begin(world.dir);
++  const wait = gate.wait(controller.signal);
++  try {
++    await latch.first;
++    fs.writeFileSync(world.leasePath, JSON.stringify({ windowId: 'other-host:99999:takeover', expiresAt: new Date(Date.now() + 600000).toISOString() }), 'utf8');
++    const settled = await settleWithin(wait, 3000);
++    assert.equal(settled.state, 'rejected', '锁被接管后必须在下一持有证明轮拒绝（r19曾删掉每轮assertHeld，R62恢复）');
++    assert.doesNotMatch(String(settled.error && settled.error.message), /test-window-end|损坏|无效/);
++  } finally { controller.abort(Error('cleanup')); await settleWithin(wait, 1000); await gate.end().catch(() => undefined); }
++});
++
++test('R57 批量探测去重+数值排序且一次覆盖全部候选（与目录随机顺序无关）', async t => {
++  const world = makeWorld(t);
++  for (const pid of [31338, 31337, 31338]) writeRegistry(world, legacyRoot({ windowId: 'testhost:' + pid + ':aaaaaaaa-0000-0000-0000-00000000000' + String(pid).slice(-1) }));
++  let calls = 0; const seen = [];
++  const latch = pollLatch(), controller = newAbort();
++  const gate = new UpdateGate(world.leasePath, LIVE, { processStartTimes: async (pids, signal, timeoutMs) => {
++    calls++; seen.push({ pids: pids.slice(), signal, timeoutMs });
++    return new Map(pids.map(pid => [pid, 'unknown']));
++  }, onPoll: latch.onPoll });
++  await assertWaitsThenCancel(gate.wait(controller.signal), latch, controller, 'unknown时间必须等待');
++  assert.equal(calls, 1, '一次wait全程至多一次有界批量探测');
++  assert.deepEqual(seen[0].pids, [31337, 31338], '必须去重并按数值升序，与随机文件名顺序无关');
++  assert.equal(seen[0].signal && seen[0].signal.aborted, true, '取消必须传播到探测信号');
++});
++
++test('R55 探测超时=min(8s,剩余预算)且不扩张总预算；外按原reason及时结算', async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, legacyRoot());
++  const controller = newAbort();
++  let probed = null;
++  let markEntered; const probeEntered = new Promise(resolve => { markEntered = resolve; }); // R56：probeEntered闩，不定时盲等
++  const gate = new UpdateGate(world.leasePath, LIVE, { processStartTimes: (pids, signal, timeoutMs) => new Promise((resolve, reject) => {
++    probed = { pids: pids.slice(), timeoutMs }; markEntered();
++    const abort = () => reject(signal.reason); // 模拟随外中止的探测
++    signal.addEventListener('abort', abort, { once: true });
++  }) });
++  const wait = gate.wait(controller.signal);
++  try {
++    assert.equal((await settleWithin(probeEntered, 4000)).state, 'resolved', '探测进入闩必须触发');
++    assert.ok(probed.timeoutMs > 0 && probed.timeoutMs <= 8000, '探测超时必须为正且不超过8s预算帽（且≤剩余300s预算）: ' + probed.timeoutMs);
++    controller.abort(Error('late-cancel'));
++    const settled = await settleWithin(wait, 3000);
++    assert.equal(settled.state, 'rejected', '取消必须让挂起探测路径及时结算');
++    assert.match(String(settled.error && settled.error.message), /late-cancel/, '必须按原reason结算，不得被catch吞成unknown后再拖250ms');
++  } finally { controller.abort(Error('cleanup')); await settleWithin(wait, 1000); }
++});
++
++test('批量探测抛异常：按unknown继续等待，异常不吞放行也不外溢掩盖中止', async t => {
++  const world = makeWorld(t);
++  writeRegistry(world, legacyRoot());
++  const latch = pollLatch(), controller = newAbort();
++  let probeErrorVisible = false;
++  const gate = new UpdateGate(world.leasePath, LIVE, { processStartTimes: async () => { throw Error('probe exploded'); }, onPoll: latch.onPoll });
++  const wait = gate.wait(controller.signal);
++  try {
++    await latch.first;
++    const early = await settleWithin(wait, 30);
++    assert.equal(early.state, 'pending', '探测异常=unknown，必须继续等待');
++    if (early.state === 'rejected') { probeErrorVisible = true; }
++    controller.abort(Error('test-window-end'));
++    const settled = await settleWithin(wait, 3000);
++    assert.equal(settled.state, 'rejected');
++    assert.match(String(settled.error && settled.error.message), /test-window-end/, '探测内部异常不得冒充wait失败');
++  } finally { if (probeErrorVisible) throw Error('探测异常外溢成了wait失败'); }
++});
++
++test('R53 孤ownership侧车并入扫描（与manager不同，gate只读更保守）：活跃活主必须等待', async t => {
++  const world = makeWorld(t);
++  const row = legacyRoot(); row.leases = [legacyLease(31337, row.windowId, T0)];
++  const file = registryFile(world, row);
++  writeRaw(world, file + '.ownership', JSON.stringify(row)); // 主槽缺失，仅剩活跃孤侧车
++  const latch = pollLatch(), controller = newAbort();
++  const gate = new UpdateGate(world.leasePath, LIVE, { processStartTimes: async pids => new Map(pids.map(p => [p, 'unknown'])), onPoll: latch.onPoll });
++  await assertWaitsThenCancel(gate.wait(controller.signal), latch, controller, '活跃/未知孤侧车必须等待——r17修正此前"忽略孤侧车"的错误断言');
++});
++
++test('R53 孤侧车其余安全语义：死主可信可过、损坏孤侧车必须拒绝、writing与无关名仍忽略', async t => {
++  const worldA = makeWorld(t);
++  const idle = legacyRoot();
++  const fileA = registryFile(worldA, idle);
++  writeRaw(worldA, fileA + '.ownership', JSON.stringify(idle));
++  writeRaw(worldA, path.join(worldA.dir, 'notaregistry.json'), '{"schemaVersion":2,');
++  writeRaw(worldA, path.join(worldA.dir, 'f'.repeat(64) + '.json.writing'), 'partial');
++  const deadResult = await settleWithin(new UpdateGate(worldA.leasePath, DEAD).wait(), 1500);
++  assert.equal(deadResult.state, 'resolved', '死主可信孤侧车可过；.writing与无关名不构成声明');
++  const worldB = makeWorld(t);
++  const fileB = registryFile(worldB, legacyRoot());
++  writeRaw(worldB, fileB + '.ownership', 'garbage-orphan');
++  const corrupt = await settleWithin(new UpdateGate(worldB.leasePath, DEAD).wait(), 1500);
++  assert.equal(corrupt.state, 'rejected', '损坏孤侧车必须拒绝');
++  assert.match(String(corrupt.error && corrupt.error.message), /无法核实/);
++});
++
++test('主记录损坏+侧车可用：按可信侧车判定，死主放行', async t => {
++  const world = makeWorld(t);
++  const row = legacyRoot();
++  const file = registryFile(world, row);
++  writeRaw(world, file, '{truncated');
++  writeRaw(world, file + '.ownership', JSON.stringify(row));
++  const result = await settleWithin(new UpdateGate(world.leasePath, DEAD).wait(), 1500);
++  assert.equal(result.state, 'resolved', '与manager rows()等价的侧车恢复语义');
++});
++
++test('主记录损坏+无侧车：显式拒绝"无法核实"，绝不静默跳过', async t => {
++  const world = makeWorld(t);
++  const file = registryFile(world, legacyRoot());
++  writeRaw(world, file, '{"schemaVersion":2,');
++  const result = await settleWithin(new UpdateGate(world.leasePath, DEAD).wait(), 1500);
++  assert.equal(result.state, 'rejected');
++  assert.match(String(result.error && result.error.message), /无法核实/);
++});
++
++test('主+侧车双损坏：拒绝且记录原样保留', async t => {
++  const world = makeWorld(t);
++  const file = registryFile(world, legacyRoot());
++  writeRaw(world, file, 'garbage-main'); writeRaw(world, file + '.ownership', 'garbage-side');
++  const before = snapshot(world.dir);
++  const result = await settleWithin(new UpdateGate(world.leasePath, DEAD).wait(), 1500);
++  assert.equal(result.state, 'rejected');
++  assert.match(String(result.error && result.error.message), /无法核实/);
++  assert.deepEqual(snapshot(world.dir), before, '拒绝路径不得改写或删除任何记录');
++});
++
++test('R56 安全reader边界经gate真实断言：symlink/多硬链/超8MiB全部拒绝且不动原文件', async t => {
++  const world = makeWorld(t);
++  const real = writeRegistry(world, legacyRoot());
++  fs.renameSync(real, real + '.real');
++  // R61 平台说明：无提权 Windows 禁止创建 file symlink（EPERM）。junction 只作用于目录、对文件槽
++  // （O_NOFOLLOW 仅约束最终组件）不产生同语义，故 Windows 退级为"非正规文件槽"夹具（目录），
++  // 安全 reader 对 open(EISDIR/EPERM) 同样必须拒绝——拒绝语义等价，如实注明。
++  let slotFixture = 'symlink';
++  try { fs.symlinkSync(real + '.real', real); }
++  catch (error) {
++    if (process.platform === 'win32' && (error.code === 'EPERM' || error.code === 'ENOTDIR')) { slotFixture = 'directory-slot'; fs.mkdirSync(real); }
++    else throw error;
++  }
++  let result = await settleWithin(new UpdateGate(world.leasePath, DEAD).wait(), 1500);
++  assert.equal(result.state, 'rejected', (slotFixture === 'symlink' ? '符号链接' : '目录占位槽') + '主槽必须拒绝（无法核实）');
++  assert.match(String(result.error && result.error.message), /无法核实/);
++  if (slotFixture === 'symlink') fs.rmSync(real); else fs.rmSync(real, { recursive: true });
++  writeRegistry(world, legacyRoot()); // 覆盖为普通文件后再加硬链
++  const plain = fs.readdirSync(world.dir).find(n => /^[0-9a-f]{64}\.json$/.test(n));
++  fs.linkSync(path.join(world.dir, plain), path.join(world.dir, 'side-not-scanned')); // 硬链对侧名不被扫描，主槽 nlink=2 必须被拒
++  result = await settleWithin(new UpdateGate(world.leasePath, DEAD).wait(), 1500);
++  assert.equal(result.state, 'rejected', 'nlink>1 记录必须拒绝');
++  fs.rmSync(path.join(world.dir, 'side-not-scanned'));
++  const big = registryFile(world, legacyRoot());
++  const row = JSON.stringify(legacyRoot());
++  fs.writeFileSync(big, row + ' '.repeat(8 * 1024 * 1024 - Buffer.byteLength(row) + 16), 'utf8'); // 前缀合法但超8MiB
++  result = await settleWithin(new UpdateGate(world.leasePath, DEAD).wait(), 1500);
++  assert.equal(result.state, 'rejected', '超过8MiB上限必须拒绝');
++  // 读取中真实变更由本文件"R61 secure reader 读取中真实变更"专例直测覆盖（r20，纠正 r17 误称的 ReadOnlyView 覆盖）。
++});
++
++test('兼容判定全程只读：目录内所有租约文件字节不变（直接await，不吞错）', async t => {
++  const world = makeWorld(t);
++  const idle = legacyRoot(); const crashed = legacyRoot({ windowId: 'testhost:31338:aaaaaaaa-0000-0000-0000-000000000001', choosing: true, admissionExpiresAt: T0 + 30000 });
++  const withLease = legacyRoot({ windowId: 'testhost:31339:aaaaaaaa-0000-0000-0000-000000000002' });
++  withLease.leases = [legacyLease(31339, withLease.windowId, T0)];
++  writeRegistry(world, idle); writeRegistry(world, crashed); writeRegistry(world, withLease);
++  const before = snapshot(world.dir);
++  await new UpdateGate(world.leasePath, DEAD).wait(); // 守卫直接await：任何抛错都让测试真红
++  assert.deepEqual(snapshot(world.dir), before, '更新gate任何兼容/等待路径都不得改写、删除或触碰用户租约文件');
++});

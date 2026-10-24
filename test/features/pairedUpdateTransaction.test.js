@@ -58,3 +58,27 @@ test('installer failure before its receipt stays gated and retains an uncertain 
   const retry = setup({ journal: f.journal(), downloadFailure: 'sftp' }); await assert.rejects(retry.engine.install(retry.components));
   assert.ok(!retry.events.includes('ungate'));
 });
+// F15（plan r13 §5）：宿主journal为 status=failed、completed=[experiment]（磁盘405元数据自动判完成）、
+// 等待传输阶段抛"本地传输租约损坏"。修复语义：重试仅补SFTP；任何失败都不回滚已确认组件、不重复安装、不换批。
+test('F15 wait-stage failure keeps installed Experiment, retry only backfills SFTP without rollback or re-install', async () => {
+  const first = setup({ versions: { experiment: '1.1.0' }, wait: () => { throw Error('本地传输租约损坏，已阻止安装。'); } });
+  await assert.rejects(first.engine.install(first.components), /本地传输租约损坏/);
+  assert.deepEqual(first.journal().completed, ['experiment']); assert.equal(first.journal().status, 'failed');
+  assert.ok(!first.events.some(e => e.startsWith('install:')), '等待阶段失败不得开始任何安装，更不得回滚已装组件');
+  assert.ok(first.events.includes('ungate'), '未请求安装的失败必须释放准入，不能锁死后续补装');
+  const retry = setup({ journal: first.journal(), versions: { experiment: '1.1.0' } });
+  await retry.engine.install(retry.components);
+  assert.ok(!retry.events.includes('download:experiment') && !retry.events.includes('install:experiment'), '已装Experiment不得重复下载或安装');
+  assert.ok(retry.events.includes('install:sftp')); assert.deepEqual(retry.journal().completed, ['experiment', 'sftp']);
+});
+test('F15 retry download failure retains journal without rollback and a mismatched batch is refused', async () => {
+  const first = setup({ versions: { experiment: '1.1.0' }, wait: () => { throw Error('本地传输租约损坏，已阻止安装。'); } });
+  await assert.rejects(first.engine.install(first.components));
+  const retry = setup({ journal: first.journal(), versions: { experiment: '1.1.0' }, downloadFailure: 'sftp' });
+  await assert.rejects(retry.engine.install(retry.components), /hash mismatch/);
+  assert.deepEqual(retry.journal().completed, ['experiment']); assert.equal(retry.journal().installationRequested, false);
+  assert.ok(!retry.events.some(e => e.startsWith('install:')) && !retry.events.includes('ungate'), '补装批次中途失败保持准入关闭且不动已完成组件');
+  const swapped = setup({ journal: first.journal(), versions: { experiment: '1.1.0' } });
+  await assert.rejects(swapped.engine.install(swapped.components.map(c => ({ ...c, latestVersion: '1.2.0' }))), /不能替换已确认的更新批次/);
+  assert.equal(swapped.events.length, 0, '指纹不符的更新必须在任何下载/安装/放行之前被拒绝');
+});
