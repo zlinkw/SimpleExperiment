@@ -338,3 +338,6 @@ planIsolatedLedgerLock IPC timeout按r24生命周期只给真实对照/参数/�
 ## W — 最终 Windows 验收通过与 Linux 收尾（主控 2026-10-24）
 - 记录：Windows 最终完整 package exit0/399115ms 与实际归档通过（细节 inventory.finalWindowsAcceptance；419 生成物 changedVersusLinux=[]；首次 A error 未追回、max1 串行等如实项保持如实）。
 - 收尾状态：evidence W 节+inventory final 块+handoff final 键已写；Linux 本地 Git=以 8b47a6c3 为父的普通追加 commit（精确暂存授权源码/生成物/文档，排除日志/cache/VSIX/node_modules），不 amend/rebase/reset/强推；提交后交回主控做 GitHub/PR/审核合并；4 项待审清单不转 TODO；不发行安装。最终完整交付由主控在 PR 整合后确认。
+
+## W-补（主控 2026-10-24 审核口径补正，仅资料）
+- 1325 冻结快照=1323 应交付源/资源+2 非交付 cp311 pycache 缓存快照（正确未提交，禁搬运/删除/重建）；e889 blob 核 1742=1323+419 全等。原 SHA 表/历史原样；whitespace 如实=仅 5 个归档 diff 内部保真告警，其余 0。以文档最小补正+普通追加 commit 记录，保留 e889，不 amend/不重测/不改业务或生成物。合并后 Linux ff 同步归本负责人，远程归主控。

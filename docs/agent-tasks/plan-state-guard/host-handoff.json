@@ -674,5 +674,9 @@
   "summary": "Windows 最终完整验收+实际归档通过：U1 三文件原参数 3/3 outer0/13086ms；1325 冻结一致+337 槽实时门禁 0/410ms；npm run package exit0 外层399115ms（218/218、去重200、13 gates 0、1746pass/4skip/0fail、maxObserved1 如实）；VSIX 52589290…/2501678B/340条目/闭包255-2/泄漏0；归档在 paired-update-win-AKjxiJ；419 生成物与 Linux 全等 changedVersusLinux=[]。详细字段见 windows-input-inventory.finalWindowsAcceptance。",
   "linuxOwnerNext": "Linux 文档增量收尾+本地 Git 普通追加 commit（父 8b47a6c3），随后交主控 GitHub/PR；不发行安装",
   "honestyLedger": "首次 job-107 A 具体 error 未追回；124 parallel attest-drift⇒exclusive 仍为当前事实；Linux 全量结果不可替代 Windows 验收"
+ },
+ "r28BlobAuditScopeCorrection": {
+  "at": "2026-10-24T06:47:16.071Z",
+  "summary": "e889 blob 审核口径补正：交付字节身份=1323 源/资源+419 生成物=1742 全等；1325 冻结快照另 2 项为非交付 cp311 pycache 缓存快照（正确未提交，禁搬运/删除/重建）。明细/SHA/审计日志引用见 windows-input-inventory.frozenSnapshot1325Classification。业务码/生成物/测试零改动，e889 保留，不 amend。"
  }
 }

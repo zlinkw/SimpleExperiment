@@ -2018,5 +2018,23 @@
    "changedVersusLinux": [],
    "verdict": "Native 419 生成物与当前 Linux 逐个 SHA 全等，无需复制生成物/重编译"
   }
+ },
+ "frozenSnapshot1325Classification": {
+  "at": "2026-10-24T06:47:16.071Z",
+  "kind": "口径补正（仅资料，非源码/验收失败，不触发任何重测/全量）",
+  "rule": "原始冻结快照 1325 = 应交付源码/资源输入 1323 + 非交付缓存快照 2；原 1325/1323 SHA 表与全部历史段原样保留，不删不改。",
+  "committedBlobAudit": "e889ae7f Git blob 逐项核对：1323 已提交源/资源 + 419 生成物 = 1742 均与 Native 已验字节全等。",
+  "nonDeliveryCacheEntries": [
+   {
+    "path": "test/_helpers/__pycache__/closeFixtureTmuxWindows.cpython-311.pyc",
+    "sha256": "6cfc294ee2c9f52b833627d5444d6797e0468b5de7474ef0e3613b69f0738535"
+   },
+   {
+    "path": "test/_helpers/__pycache__/extractRuntimeFunctions.cpython-311.pyc",
+    "sha256": "4546c9d5486fb92b07b5788b4376e7f22e57a172c50ed0f6886cd44a5e59d480"
+   }
+  ],
+  "facts": "两项为 ignored/untracked Python3.11 字节码快照：未提交是正确状态；Windows 实际 Python3.14 不加载 cp311 缓存；runner inputFingerprint 本就排除 __pycache__/*.pyc；最终 Zip 不含。禁止 stage/搬运/删除/重建。",
+  "auditTrail": "主控首次 blob 核因把快照 cache 也当 Git 输入而 exit1——已证为审核口径而非测试失败；日志 host c162c88d-425d-46e8-bc1d-fb4bfb62a226 完整保留。"
  }
 }
