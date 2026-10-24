@@ -77,3 +77,11 @@ if (batch && body.existingOutputCount && ["rerun_all", "rerun_missing"].includes
 - 性能：对账用例 10.7s→36.5s（新增 5 入口独立展开+盘 glob 扫盘；加 planEntry/canonicalGlob 同进程等价 memo 后由 41.9s 降至 36.5s）。该用例在 --test-timeout 20000 下实测两次未超时（Node 24 该超时为活动型检测，非总时长截断；本机与 Windows 407 轮同 argv 历史通过）。
 - 最终单文件验收（manifest 原 extraFiles argv）：26/26 pass，exit 0，/tmp/pi-test-c76016el/000.raw.log（inventory explicit-file-args-only argIndex=5，sha 87d70185…）；语法预检 exit 0 /tmp/pi-test-k9q_rywv。开发检查序列全部经 pi-test-evidence 单独执行，失败/未知未被覆盖。
 - hook 实测：普通 Bash 产生 not-test v2 事件；node --check/测试均被前置 hook 强制路由 pi-test-evidence（direct-executor）；一次混写（编辑+node --check）被执行前拒绝且未执行，未重放已完成写入。
+
+### GPT 返修清单落地（b3b1090 后同实例追加，仍未 Windows 全量批准前）
+1) Windows 大小写折叠：canonicalIdentity 独立补齐 realpath→win32 lowercase→slash（对应生产 jobIdentity 语义但零 import）。Linux 分支等价（小写仅 win32 生效），该分支 Linux 不触发，由最终 Windows 全量实际覆盖；Native 根 D:/GitRepo 大写即必败点。
+2) argv 窄白名单实装（原注释声称的拒绝此前并未实现）：取值选项（--test-timeout/--test-name-pattern/--test-reporter）值必须存在、非空、不以 - 开头；裸 flag 仅 --test-force-exit（当前获准 manifest 实际形态），未知 --flag/含 = 引号 shell 元字符 token 一律抛错。gate 注释改为"node/npm 前缀 step=规范非 job 产出门，不解析内容、不宣称任意 node/npm 已安全"。
+3) 盘覆盖注释去夸大：本轮"原覆盖无丢失"=精确 diff（仅测试/文档，manifest 18 域定义与既有文件未删）+ 双向集合对账共同证明；动态集合本身不单独防未来删文件，删测仍走既有必须用户批准流程。未新增 baseline 列表。
+4) hook 统计修订：早前"43=29+11+5"混合了全文件与同 session 计数，作废。单一采集截止下同 session（7ad89ea3）事件共 50：not-test 34 / direct-executor 13 / deny 3（文件 /home/node/.local/share/pi-claude/config/runtime/test-evidence-hooks/24e7242c…jsonl，行 17/18/33=本会话 3 次执行前拒绝且未重放）。direct-executor 按 append 顺序与我的执行器调用对应：第3条 toolUseId chatcmpl-tool-869726aec323b1eb=语义契约首跑失败(/tmp/pi-test-_16bze39)，第7条 chatcmpl-tool-af8c96f6987735b3=cycle 失败(/tmp/pi-test-u8qiknvy)；第13条(chatcmpl-tool-af3ccaa554ad1472, 行49)映射未确认，留主控读原事件核对（事件无命令/时间字段，匹配以 append 顺序+主控侧为准）。
+5) 启动确定快照已核（Linux 侧）：pi-claude-skill-bridge.resolve_settings 每次启动写 CLAUDE_CONFIG_DIR/runtime/path-settings/<sha256>.json（O_EXCL，重启动内容不一致即抛 hash mismatch）；现文件 1330b87a810f441b…61aab57e.json 文件名=内容 sha256（实测一致），最新 runtime 进程 PID 898762 --settings 即指向它，env PI_SANDBOX_HOST_ROOT=d:\GitRepo / REMOTE=/repos。runtime 实例 id 6f379d58 与该 PID 的对应关系沙箱内无证据——标未知，如需由主控交宿主启动记录核对。
+- 受影响复验（tokenizer 白名单 Linux 生效故不可免）：语法 exit 0 /tmp/pi-test-kf7d8cx7；单文件原 argv 26/26 exit 0 /tmp/pi-test-li5oiowv（inventory argIndex=5，sha 2d2d2804…）。win32 分支改动依据上文由 Windows 全量覆盖，不为此重复 Linux 已过内容之外的旧例。

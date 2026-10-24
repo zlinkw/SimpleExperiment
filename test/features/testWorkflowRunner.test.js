@@ -640,14 +640,26 @@ test("runner: vsce resolves through installed bin metadata, never a guessed shim
  *  --test-timeout/--test-name-pattern/--test-reporter 带值、其余 --* 为裸 flag、非 -- token 为文件；
  *  含 * 的文件按窄 glob 展开（仅双星号目录段与段内单星）；prereq hoist 与其余 step 不产 job。 */
 function canonicalTokenize(rest) {
-  // 窄语法：--test-timeout/--test-name-pattern/--test-reporter 各带一个值（进 argv），其余 --* 为裸 flag（argv），
-  // 非 -- token 为文件。任何其他取值形态（= 赋值、引号）由上游 step 形态检查拒绝。
+  // 窄 argv 白名单 = 当前实际获准的 manifest 形态（2026-10-24 统计：取值选项仅 --test-timeout 在用，
+  // 裸 flag 仅 --test-force-exit 在用）；其余任何形态 fail closed：
+  //   取值选项（--test-timeout/--test-name-pattern/--test-reporter）的值必须存在、非空且不以 - 开头；
+  //   未知 --flag 拒绝（不静默入 argv）；文件 token 不得含引号/=/shell 元字符（与生产 assertSafeShell 同族但独立实现）。
+  const VALUE_FLAGS = ["--test-timeout", "--test-name-pattern", "--test-reporter"];
+  const BARE_FLAGS = ["--test-force-exit"];
   const argv = [], files = [];
   const tokens = rest.trim().split(/\s+/);
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
-    if (["--test-timeout", "--test-name-pattern", "--test-reporter"].includes(tok)) { argv.push(tok, tokens[++i]); continue; }
-    if (tok.startsWith("--")) { argv.push(tok); continue; }
+    if (VALUE_FLAGS.includes(tok)) {
+      const val = tokens[++i];
+      if (!val || val.startsWith("-")) throw new Error(`canonical argv: ${tok} requires a non-empty plain value, got ${JSON.stringify(val ?? null)}`);
+      argv.push(tok, val); continue;
+    }
+    if (tok.startsWith("--")) {
+      if (!BARE_FLAGS.includes(tok)) throw new Error(`canonical argv: unknown bare flag ${JSON.stringify(tok)} (not in the approved manifest form)`);
+      argv.push(tok); continue;
+    }
+    if (/[="'`;|<>()$&]/.test(tok)) throw new Error(`canonical argv: unsafe file token ${JSON.stringify(tok)}`);
     files.push(tok);
   }
   return { argv, files };
@@ -683,6 +695,9 @@ const canonicalIdentity = file => {
   const abs = path.resolve(REPO, file);
   let real = abs;
   try { real = fs.realpathSync(abs); } catch { /* missing file 由 existsSync 对账拒绝 */ }
+  // Windows 大小写折叠（独立规范语义：realpath→win32 统一小写→slash；不 import 被测 jobIdentity 实现）——
+  // Native 根 D:/GitRepo… 含大写，planner actual 侧小写，expected 必须同规则否则全量 missing/extra。
+  if (process.platform === "win32") real = real.toLowerCase();
   return real.split(path.sep).join("/");
 };
 function canonicalPlan(manifest, entryName) {
@@ -708,7 +723,7 @@ function canonicalPlan(manifest, entryName) {
         }
         continue;
       }
-      if (/^(node|npm) /.test(step)) continue; // 静态 gate / prereq hoist：不产 job
+      if (/^(node|npm) /.test(step)) continue; // manifest 定义的 node/npm 前缀 step = 规范的非 job 产出门（gate/prereq hoist）；此处不解析其内容、不宣称任意 node/npm 已安全
       throw new Error(`canonicalPlan: unrecognized step shape in ${name}: ${step}`);
     }
   };
@@ -776,8 +791,9 @@ test("runner: real-repo plan reconciles with an independently expanded manifest 
   }
   assert.equal(pkg.hooksVerified.hooksVerified, "zero", "package.json hook graph must stay provable");
   assert.equal(pkg.final, true);
-  // 盘上覆盖棘轮（替代 >=798 固定数）：每一个盘上 *.test.js 都被 test 入口规范覆盖（遗漏即失败），
-  // 且 test 入口规划的每个文件真实在盘上（幽灵即失败）——“覆盖只增不减”由集合包含本身保证。
+  // 盘上覆盖对账（替代 >=798 固定数）：每一个盘上 *.test.js 都被 test 入口规范覆盖（遗漏即失败），
+  // 且 test 入口规划的每个文件真实在盘上（幽灵即失败）。本轮“原覆盖无丢失”由精确 diff（仅测试/文档，manifest 定义与旧文件未删）
+  // + 本节独立集合对账共同证明；动态相等关系本身不单独防未来删文件——删除测试仍受既有“必须用户批准”流程约束。
   const testJobs = planOf("test").jobs;
   const testFileSet = new Set(testJobs.map(j => j.file));
   for (const f of disk) assert.ok(testFileSet.has(f), `disk test file dropped from test-entry coverage: ${f}`);
