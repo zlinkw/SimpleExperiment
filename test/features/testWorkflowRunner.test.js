@@ -9,7 +9,9 @@
  *     测试子进程环境隔离（HOME/USERPROFILE/TMPDIR 沙箱 + 六项 Git 定位变量清除，门禁不受影响）；
  *     运行中输入漂移 ⇒ invalidated；run receipt wx 不可覆盖；
  *  5) assemble 逐项对账：缺 job/空 jobs/缺 gate/过期指纹一律拒绝；check:full 凭据正向可用；
- *  6) vsce 经已安装 bin 元数据解析（R29 #6）；真实仓库对账（218/208/盘上 ratchet/入口映射/白名单路径在盘）。
+ *  6) vsce 经已安装 bin 元数据解析（R29 #6）；真实仓库对账 = manifest 窄语法独立展开 ⇄ planEntry 双向集合
+ *     对账（遗漏/多余/重复/空集失败 + 盘上覆盖集合棘轮/入口映射/白名单路径在盘；2026-10-24 用户契约：
+ *     无业务依据的固定总数门禁禁止，见 canonicalPlan 注释）。
  */
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -629,11 +631,107 @@ test("runner: vsce resolves through installed bin metadata, never a guessed shim
   assert.equal(real.viaPackageBin, "@vscode/vsce", "real repo @vscode/vsce bin metadata resolves");
 });
 
-test("runner: real-repo plan reconciles with the pre-r22 expansion baseline", () => {
+/* 2026-10-24 用户契约：真实仓库对账禁止无业务依据的固定清单总数门禁（禁止 218/219、>=798 这类数字，
+ * 也禁止放宽成 >= 或用 actual.length 自证）。expected 只从受审 manifest 的 sourceScript/extraFiles/globs
+ * 定义独立展开（下方 canonical* 按 manifest 文档化窄语法自实现，不 import 被测 planner 的展开代码，
+ * 不从 planEntry/dry-run 输出反造）；再与 planEntry 实际输出双向对账：遗漏、多余、重复、空集一律失败。
+ * 窄语法依据（与 manifest notes 同源，仅覆盖当前受审形态，出现任何未知形态 fail closed 抛错）：
+ *  step = body.split(" && ")；`npm run X` X∈domains 则递归否则是 gate；`node --test …` argv 仅
+ *  --test-timeout/--test-name-pattern/--test-reporter 带值、其余 --* 为裸 flag、非 -- token 为文件；
+ *  含 * 的文件按窄 glob 展开（仅双星号目录段与段内单星）；prereq hoist 与其余 step 不产 job。 */
+function canonicalTokenize(rest) {
+  // 窄语法：--test-timeout/--test-name-pattern/--test-reporter 各带一个值（进 argv），其余 --* 为裸 flag（argv），
+  // 非 -- token 为文件。任何其他取值形态（= 赋值、引号）由上游 step 形态检查拒绝。
+  const argv = [], files = [];
+  const tokens = rest.trim().split(/\s+/);
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if (["--test-timeout", "--test-name-pattern", "--test-reporter"].includes(tok)) { argv.push(tok, tokens[++i]); continue; }
+    if (tok.startsWith("--")) { argv.push(tok); continue; }
+    files.push(tok);
+  }
+  return { argv, files };
+}
+const canonicalGlobCache = new Map(); // pattern→hits：同进程盘上只读阶段的等价 memoization（多入口重复展开去重扫盘）
+function canonicalGlob(pattern) {
+  // 窄 glob：仅 **/ 与段内 *（当前 manifest 出现 test/**/*.test.js、test/*.test.js、test/features/*.test.js、
+  // test/fileTransfer/*.test.js、test/tunnel/realtime*.test.js）；其他通配语义 ⇒ fail closed。
+  if (canonicalGlobCache.has(pattern)) return canonicalGlobCache.get(pattern);
+  if (/[?[\]{}]/.test(pattern)) throw new Error(`unsupported glob semantics: ${pattern}`);
+  const segs = pattern.split("/");
+  let source = "";
+  for (let i = 0; i < segs.length; i++) {
+    const seg = segs[i];
+    if (seg === "**") { if (i !== segs.length - 2) throw new Error(`unsupported ** position: ${pattern}`); source += "(?:[^/]*/)*"; continue; }
+    source += seg.split("*").map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*") + (i < segs.length - 1 ? "/" : "");
+  }
+  const re = new RegExp("^" + source + "$");
+  const out = [];
+  (function walk(dir) {
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (fs.statSync(full).isDirectory()) { walk(full); continue; }
+      const rel = path.relative(REPO, full).split(path.sep).join("/");
+      if (re.test(rel)) out.push(rel);
+    }
+  })(path.join(REPO, segs[0]));
+  const hits = out.sort();
+  canonicalGlobCache.set(pattern, hits);
+  return hits;
+}
+const canonicalIdentity = file => {
+  const abs = path.resolve(REPO, file);
+  let real = abs;
+  try { real = fs.realpathSync(abs); } catch { /* missing file 由 existsSync 对账拒绝 */ }
+  return real.split(path.sep).join("/");
+};
+function canonicalPlan(manifest, entryName) {
+  const entry = manifest.entries[entryName];
+  if (!entry || entry.aliasOf) throw new Error(`canonicalPlan: entry missing/alias: ${entryName}`);
+  const full = (entry.phases || {}).fullCheck;
+  const requested = [];
+  const expandDomain = (name, chain) => {
+    if (chain.slice(1, -1).includes(name)) throw new Error(`script cycle: ${chain.join(" -> ")} -> ${name}`); // 真循环 fail closed；合法菱形复用允许（与受审契约一致）
+    const body = (manifest.domains[name] || {}).sourceScript;
+    if (typeof body !== "string") throw new Error(`canonicalPlan: domain missing: ${name}`);
+    for (const raw of body.split(" && ")) {
+      const step = raw.trim();
+      if (!step) continue;
+      const npm = /^npm run ([a-zA-Z0-9:_-]+)$/.exec(step);
+      if (npm) { if (manifest.domains[npm[1]]) expandDomain(npm[1], [...chain, name]); continue; } // 非 domain 引用 = gate，不产 job
+      const t = /^node --test (.+)$/.exec(step);
+      if (t) {
+        const { argv, files } = canonicalTokenize(t[1]);
+        for (const f of files) {
+          if (f.includes("*")) for (const hit of canonicalGlob(f)) requested.push({ file: hit, argv: [...argv] });
+          else requested.push({ file: f, argv: [...argv] });
+        }
+        continue;
+      }
+      if (/^(node|npm) /.test(step)) continue; // 静态 gate / prereq hoist：不产 job
+      throw new Error(`canonicalPlan: unrecognized step shape in ${name}: ${step}`);
+    }
+  };
+  if (full) {
+    for (const d of full.domains || []) expandDomain(d, [entryName]);
+    for (const x of full.extraFiles || []) requested.push({ file: x.file, argv: [...x.argv] });
+    for (const g of full.globs || []) for (const p of g.patterns) for (const hit of canonicalGlob(p)) requested.push({ file: hit, argv: [...g.argv] });
+  }
+  const map = new Map();
+  for (const j of requested) map.set(canonicalIdentity(j.file) + "\u0000" + j.argv.join("\u0000"), j);
+  return { requestedSlots: requested.length, map };
+}
+
+test("runner: real-repo plan reconciles with an independently expanded manifest contract", () => {
   const manifestFile = path.join(REPO, "scripts", "test-workflow.json");
   const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+  const planCache = new Map(); // 同进程同输入 memo：planEntry 对同一 (manifest,entry,opts) 是确定函数，只算一次
+  const planOf = entry => {
+    if (!planCache.has(entry)) planCache.set(entry, runner.planEntry(manifestFile, manifest, REPO, entry, { only: [], domains: [], root: REPO }));
+    return planCache.get(entry);
+  };
   const inMem = entry => {
-    const plan = runner.planEntry(manifestFile, manifest, REPO, entry, { only: [], domains: [], root: REPO });
+    const plan = planOf(entry);
     return { jobs: plan.jobs.length, independent: plan.jobs.filter(j => !j.classification.exclusive).length, exclusive: plan.jobs.filter(j => j.classification.exclusive).length, dedup: plan.dedup, final: plan.final, hooksVerified: plan.hookProof };
   };
   // CLI 表面保留一次真实进程 dry-run（参数面/输出面完整），其余入口用同进程 planEntry（glob/sha 缓存共享，计划语义同一函数）
@@ -648,23 +746,44 @@ test("runner: real-repo plan reconciles with the pre-r22 expansion baseline", ()
   const disk = [];
   (function walk(d) { for (const n of fs.readdirSync(d)) { const f = path.join(d, n); if (fs.statSync(f).isDirectory()) walk(f); else if (n.endsWith(".test.js")) disk.push(path.relative(REPO, f).split(path.sep).join("/")); } })(path.join(REPO, "test"));
   const diskSet = new Set(disk);
-  const features = disk.filter(p => p.startsWith("test/features/")).length;
   const pkg = inPackage;
-  assert.equal(pkg.jobs, 219, "package = 217 baseline + this runner regression + planRunSharedSubmission.test.js (2026-10-24 defect regression), each once");
-  assert.equal(pkg.dedup.duplicatesRemoved, pkg.dedup.requestedSlots - 219);
-  // 新缺陷回归必须按规范身份在 package/build/check:full 权威清单各仅出现一次（Windows 407 首跑登记后计数同步的绑定断言）
+  // —— 语义对账：五个权威入口的 (canonical identity + argv) 集合与独立展开完全一致（不多、不少、不重、非空）。
+  // argv 参与 identity ⇒ 同文件多 argv 行（矩阵）必须与 manifest 定义逐条相等；单一总数不再是门禁。
+  const expectedByEntry = {};
+  for (const entry of ["package", "build", "check:full", "test", "test:features"]) {
+    const exp = canonicalPlan(manifest, entry);
+    assert.ok(exp.map.size > 0, `canonical expansion of ${entry} must never be empty`);
+    expectedByEntry[entry] = exp;
+    const map = new Map();
+    for (const j of planOf(entry).jobs) {
+      const key = j.identity + "\u0000" + j.argv.join("\u0000");
+      assert.ok(!map.has(key), `${entry}: planner emitted duplicate identity+argv for ${j.file}`);
+      map.set(key, j);
+    }
+    const missing = [...exp.map.keys()].filter(k => !map.has(k)).map(k => exp.map.get(k).file);
+    const extra = [...map.keys()].filter(k => !exp.map.has(k)).map(k => map.get(k).file);
+    assert.deepEqual(missing, [], `${entry}: manifest-defined jobs missing from the plan`);
+    assert.deepEqual(extra, [], `${entry}: planned jobs not defined by the manifest contract`);
+  }
+  // dedup 语义：请求槽位数与去重数直接绑定独立展开（requestedSlots=展开条目数，removed=重复条目数）。
+  const pkgExp = expectedByEntry.package;
+  assert.equal(pkg.dedup.requestedSlots, pkgExp.requestedSlots, "package requestedSlots = canonical expansion entries (with repeats)");
+  assert.equal(pkg.dedup.duplicatesRemoved, pkgExp.requestedSlots - pkgExp.map.size, "package duplicatesRemoved = canonical duplicate count");
+  // 新缺陷回归必须按规范身份在 package/build/check:full 权威清单各仅出现一次（Windows 407 首跑登记后的绑定断言）
   for (const entry of ["package", "build", "check:full"]) {
-    const occ = runner.planEntry(manifestFile, manifest, REPO, entry, { only: [], domains: [], root: REPO })
-      .jobs.filter(job => String(job.file || "").endsWith("test/features/planRunSharedSubmission.test.js")).length;
+    const occ = planOf(entry).jobs.filter(job => String(job.identity || "").endsWith("/test/features/planRunSharedSubmission.test.js")).length;
     assert.equal(occ, 1, `planRunSharedSubmission must appear exactly once in ${entry}`);
   }
   assert.equal(pkg.hooksVerified.hooksVerified, "zero", "package.json hook graph must stay provable");
   assert.equal(pkg.final, true);
-  assert.equal(inMem("build").jobs, 209);
-  assert.equal(inMem("test").jobs, 209 + disk.length, "npm test glob covers every disk test file (never shrunk) + argv matrix");
-  assert.equal(inMem("test:features").jobs, 209 + features);
-  assert.ok(disk.length >= 798, "disk coverage grew since the 798 baseline (ratchet)");
-  assert.equal(pkg.independent + pkg.exclusive, 219);
+  // 盘上覆盖棘轮（替代 >=798 固定数）：每一个盘上 *.test.js 都被 test 入口规范覆盖（遗漏即失败），
+  // 且 test 入口规划的每个文件真实在盘上（幽灵即失败）——“覆盖只增不减”由集合包含本身保证。
+  const testJobs = planOf("test").jobs;
+  const testFileSet = new Set(testJobs.map(j => j.file));
+  for (const f of disk) assert.ok(testFileSet.has(f), `disk test file dropped from test-entry coverage: ${f}`);
+  for (const j of testJobs) assert.ok(fs.existsSync(path.join(REPO, j.file)), `planned file not on disk: ${j.file}`);
+  // 分类分区守恒（每个 job 恰属 independent/exclusive 之一侧；总数已由上方集合对账绑定规范展开）。
+  assert.equal(pkg.independent + pkg.exclusive, pkg.jobs, "independent+exclusive must partition the planned jobs exactly");
   for (const [name, script] of Object.entries(JSON.parse(fs.readFileSync(path.join(REPO, "package.json"), "utf8")).scripts)) {
     const m = /^node scripts\/test-workflow\.js ([a-zA-Z0-9:_-]+)$/.exec(script);
     if (m) assert.ok(manifest.entries[m[1]], `npm entry ${name} targets a missing manifest entry`);
