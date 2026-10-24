@@ -10995,7 +10995,7 @@ this.assertPlanTopologyReady("Plan 调度");
             // 记录“本批有旧产物已按确认移入隔离区”，仅供整批派发准入完成后提示独立删除审核；绝不自动删除。
             if (batch && body.existingOutputCount && ["rerun_all", "rerun_missing"].includes(body.existingOutputChoice)) {
                 this.planIsolatedReplacementsLocal ||= new Map();
-                this.planIsolatedReplacementsLocal.set(operationId, { planFile, count: body.existingOutputCount });
+                this.planIsolatedReplacementsLocal.set(operationId, { planFile: body.planFile, count: body.existingOutputCount });
                 // 挂接隔离事实到入口已冻结的初始集合条目：只记本批已完成核实的隔离 operation（completed token）
                 // 与登记目标（节点+隔离相对路径 destination；源 absolutePath 不进入删除授权）。
                 // 账本失败绝不阻断提交，也绝不浮出审核入口（失败关闭）；独立永久删除只允许这些冻结操作。
@@ -11003,7 +11003,7 @@ this.assertPlanTopologyReady("Plan 调度");
                 const isolatedLedgerFile = this.isolatedReplacementLedgerFileLocal?.();
                 if (isolatedBatchInfo && isolatedLedgerFile) {
                     try { await attachIsolatedCleanup(isolatedLedgerFile, isolatedBatchInfo, { submissionOperationId: operationId,
-                        planFile, revision: body.planRevision || "", codeFingerprint: this.lastCodeSyncState?.fingerprint || body.codeFingerprint || "",
+                        planFile: body.planFile, revision: body.planRevision || "", codeFingerprint: this.lastCodeSyncState?.fingerprint || body.codeFingerprint || "",
                         runReplacement: body.runReplacement }); }
                     catch { /* 账本写入失败：无冻结即无审核提示；隔离区原样保留，删除仍需清理入口两次确认。 */ }
                 }
