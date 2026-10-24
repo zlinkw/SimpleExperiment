@@ -40,3 +40,6 @@ simple_cluster/
 
 # Ad-hoc backups
 *.bak
+
+# 用户长期裁决 2026-10-24：旧嵌套 SimpleSFTP 捆绑副本不回流仓库状态
+/extensions/simple-sftp/

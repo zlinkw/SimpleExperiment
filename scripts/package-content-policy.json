@@ -23,6 +23,13 @@
   "markdown_runtime_allow_evidence": "仅这3个已证运行时模板文件豁免 doc-markdown 文档分类；forensics/backup/scratch/log 等安全规则对该目录照常生效。引用证据：src/extension/legacy.ts 与 scripts/write-agent-runtime.js。",
   "forbidden_ordered": [
     {
+      "category": "bundled-sftp",
+      "path_prefixes": [
+        "extensions/simple-sftp/"
+      ],
+      "comment": "用户长期裁决 2026-10-24：旧嵌套 SimpleSFTP 捆绑副本未来版本一律不携带；仅点名的这一路径，其他 extensions 不受影响；独立安装的配套 SimpleSFTP 公开 Release 不属捆绑"
+    },
+    {
       "category": "compile-metadata",
       "suffixes": [
         ".tsbuildinfo"
