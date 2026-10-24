@@ -32,5 +32,5 @@
     "evidence": "/host/c/Users/ZLK/AppData/Local/Temp/plan-run-407-tgiHLs/"
   },
   "releaseAuthorization": "407 发行/安装已获用户原始授权；前提=本分支合入 master 后执行；当前只差最终完整 package 验收，无额外审批",
-  "finalRoundInstruction": "主控原生验证树 D:/GitRepo/MCP/z-planrun407-win(ff,依赖 junction 不变) ff 到分支 HEAD 追加 commit → 唯一一次 npm run package；不重建树/重装依赖/不覆写旧 a7"
+  "finalRoundInstruction": "主控原生验证树 D:/GitRepo/MCP/zlk-planrun407-win(ff,依赖 junction 不变) ff 到分支 HEAD 追加 commit → 唯一一次 npm run package；不重建树/重装依赖/不覆写旧 a7"
 }
