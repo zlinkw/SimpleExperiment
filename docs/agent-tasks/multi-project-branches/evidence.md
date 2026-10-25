@@ -152,3 +152,14 @@
 - R4 契约缺口（宿主审核）：预览原只看 fetch URL，`git push <remote>` 实际可被 remote.origin.pushurl/pushInsteadOf 改写→确认 A 写 B。现在 resolveConfirmedPushTargets 用 Git 现成只读 `remote get-url --push --all <remote>` 展开有效写目标：任何目标不可规范化/含凭据/非 GitHub→拒绝；多目标→拒绝（不保证单目标原子语义，不改写用户配置）；异仓→拒绝。预览摘要与 digest 绑定 pushRepo，create 在真正 push 前再核一次，确认后目标变化＝零写入。真实临时 Git 配置（pushurl 异仓/同仓大小写 scp/pushInsteadOf 存在）仅以 get-url 只读证明，不联网不真的 push。
 - 凭证/端口细化（同一凭据边界）：任何协议显式 URL.password 一律拒绝（含 ssh://git:password@），https 用户名（token 形态）沿用拒绝；github.com 非默认/未知端口（ssh:7999、https:8443）拒绝，不再忽略后冒称标准端点；显式 ssh 22/隐式 443 默认仍通过（原默认 22 正例保留）。
 - reader 第三版证据已归档（§E 与 plan.id 更正轮）。
+
+## 2026-10-25 84 Windows 轮后已证测试返修（8 败 → 7 已修 + 1 待重验取证）
+- 交接更正：82ac 只读实测 Native 始终为 84aa1bd3（tree ae815915…，无源码 dirty/无活动写者）；此前"宿主已 ff 5caf"系本人误报——5caf210b/ee4b30c2 只是共享对象库中的对象，Native 从未指向它们；本宿主实例从未 ff/checkout/改 index。另：主控澄清从未发过"archive 31 项 saveLease/failUncertainRequest"指令，也不属本任务，已撤销该回报项，未做任何扫描/修改。
+- 1) commitFile helper 写前 mkdir 父目录 recursive（前序 git rm 移除整目录导致 ENOENT）；删除/缺提交/dirty→commit 原断言全部保留。
+- 2) C4 分类段 8 处直调 classifyPrRows 的用例改为原始 GH 对象 stub → 真实 parsePrList(JSON) → classify（生产契约参数是 toPrRow 规范化行；owner/repo 大小写正例此前假过的风险一并消除），不放宽生产分类器。
+- 3) C4 create 各独立场景改独立 memoryLedger（view 身份不符场景保留并断言其 unknown 收据；HEAD 漂移/updates-existing 场景全新 ledger），杜绝 unknown 泄漏导致的"未对账拒绝"顶替目标断言；PR_VIEW 补真实 number 且 url 同源构造（缺 number 会被 verifyPrIdentity 正当拒绝）。
+- 4) C5 updates-existing 拒绝用例就地构造 rows21 fixture，不跨测试借局部变量；原"unknown 不得假结清"断言不变。
+- 5) C5 ff second no-op：**根因未证，不改生产**。82ac 对原保留夹具只读取证：HEAD=origin/main=裸仓 main=5339b2ce…、branch main、完全干净、ORIG_HEAD=4c77520c…，符合 first ff 成功后现场；second 真实返回因原 assert 无 reason 未知。已给断言附 JSON.stringify(ff)，本项记"待新轮真实返回定位"，不据 after-state 判产品 bug、不补跑 fetch/merge 覆盖原证据。
+- 6) unified 文件脚本 spawn 子进程 argv：slice(1)→slice(2)（spawn 首参为脚本路径，参数整体错一位才 require interleave.log）。
+- 7) 主进程四处 makeHost 显式映射 typescript/legacySource 两键（与子进程模板一致）；子进程模板与主进程三处送 save 的裸队列读取改为先读原 raw 文本再 setDistributedQueueBaseSignature(restoreFormalJobQueue(JSON.parse(raw)), distributedQueueDiskSignature(raw))，与生产 CAS 完全同式，不引入额外闭包、mutateLatest 不加。
+- 8) 零登记用例把子进程 out/err/退出码移入等待循环可见范围：早退（如 CAS 早拒）立即以真实 code+完整 stderr+RESULT 行断言失败；仅仍运行才用原 15s 超时；事件顺序/双批拒绝断言全部保留。withQueueWriteResource 尾部接线经 reader 核实正确，未动生产锁/时限。

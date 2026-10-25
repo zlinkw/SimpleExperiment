@@ -208,7 +208,7 @@ test("真实两进程：同一固定统一派发资源目标上的保存临界�
   fs.writeFileSync(childScript, [
     "const fs = require('node:fs');",
     "const os = require('node:os');",
-    "const [leasePath, apiDir, id, holdMs, logFile, leaseMod, admissionMod] = process.argv.slice(1);",
+    "const [leasePath, apiDir, id, holdMs, logFile, leaseMod, admissionMod] = process.argv.slice(2);",
     "const { ResourceOperationLeaseManager } = require(leaseMod);",
     "const { unifiedDispatchResource } = require(admissionMod);",
     "(async () => {",
@@ -389,7 +389,8 @@ const UNIFIED_CHILD_SOURCE = [
   '  const h=makeHost({typescript:C.ts,legacySource:C.legacy,dist:C.dist,apiDir:C.apiDir,storage:C.storage,root:C.root,roots:C.roots,',
   '    rootsFile:C.rootsFile,writeDelayMs:C.writeDelayMs,eventLog:C.eventLog,leasePath:C.leasePath,windowId:C.windowId});',
   '  const file=DPQ.distributedQueuePath(C.storage,C.root);',
-  '  const disk=DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(file,"utf8")));',
+  '  const rawText=fs.readFileSync(file,"utf8");',
+  '  const disk=DPQ.setDistributedQueueBaseSignature(DPQ.restoreFormalJobQueue(JSON.parse(rawText)),DPQ.distributedQueueDiskSignature(rawText));',
   '  const plan=disk.plans.find(p=>p.id===C.planId),job=plan.jobs.find(j=>j.index===C.jobIndex);',
   '  const guard=async()=>{try{await h.assertUnifiedDispatchConsentPersisted(plan,job,"w",C.gpuId,C.commandId);return true;}catch(e){return false;}};',
   '  const guardBeforeSave=await guard();',
@@ -450,8 +451,9 @@ test("P0-1/P0-2/P1-3 两个独立项目窗口真实进程：生产同意事务�
   const readDiskJob = (root, planId, index) => DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(fileFor(root), "utf8")))
     .plans.find(p => p.id === planId).jobs.find(j => j.index === index);
   // —— 窗口 A（进程内生产法身）：手动首发过统一同意事务，事实落盘。
-  const hostA = require(harnessPath)({ ...base, root: rootA });
-  const diskA = DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(fileFor(rootA), "utf8")));
+  const hostA = require(harnessPath)({ ...base, typescript: base.ts, legacySource: base.legacy, root: rootA });
+  const rawA = fs.readFileSync(fileFor(rootA), "utf8");
+  const diskA = DPQ.setDistributedQueueBaseSignature(DPQ.restoreFormalJobQueue(JSON.parse(rawA)), DPQ.distributedQueueDiskSignature(rawA));
   const planA = diskA.plans[0], jobA = planA.jobs[0];
   Object.assign(jobA, { status: "dispatching", workerId: "w", gpuId: "0", commandId: "cmd-a1", lifecycleProtocol: 2,
     manualDispatch: { workerId: "w", gpuId: "0", stage: "sent" } });
@@ -515,10 +517,11 @@ test("P0-1/P0-2/P1-3 两个独立项目窗口真实进程：生产同意事务�
   assert.equal(admission.jobOccupiesUnifiedSlot({ ...JSON.parse(fs.readFileSync(fileFor(rootA), "utf8")).plans[0] }, releasedA), false);
   // —— P0-2：登记表存在但域未成立（仅本根）——带新意图保存仍先持统一资源（消除登记切换窗口），
   // 域未成立时不产生同意、队列按既有单项目路径写入。
-  const hostSolo = require(harnessPath)({ ...base, root: rootA, roots: [rootA] });
+  const hostSolo = require(harnessPath)({ ...base, typescript: base.ts, legacySource: base.legacy, root: rootA, roots: [rootA] });
   const leaseResources = [];
   hostSolo.hostOperationLease = { run: async (options, work) => { leaseResources.push(options.resources.map(r => r.target)); return work(); } };
-  const soloDisk = DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(fileFor(rootA), "utf8")));
+  const rawSolo = fs.readFileSync(fileFor(rootA), "utf8");
+  const soloDisk = DPQ.setDistributedQueueBaseSignature(DPQ.restoreFormalJobQueue(JSON.parse(rawSolo)), DPQ.distributedQueueDiskSignature(rawSolo));
   const soloPlan = soloDisk.plans[0], soloJob = soloPlan.jobs[0];
   Object.assign(soloJob, { status: "dispatching", workerId: "w", gpuId: "1", commandId: "cmd-a2", lifecycleProtocol: 2 });
   const soloReceipt = await hostSolo.saveDistributedQueue(rootA, soloDisk, { dispatchAdmission: true });
@@ -527,7 +530,7 @@ test("P0-1/P0-2/P1-3 两个独立项目窗口真实进程：生产同意事务�
     "登记表存在时带新意图保存必须已持统一派发资源（事务内复核在持有之后）");
   assert.equal(readDiskJob(rootA, "plan-a", 0).dispatchConsent, undefined, "未成立域不写同意事实，也不阻断");
   // —— 登记表损坏：带新派发意图的保存被拒绝，绝不按“未登记”静默放行。
-  const hostBroken = require(harnessPath)({ ...base, root: rootA, roots: [rootA, rootB], brokenRegistry: true });
+  const hostBroken = require(harnessPath)({ ...base, typescript: base.ts, legacySource: base.legacy, root: rootA, roots: [rootA, rootB], brokenRegistry: true });
   const beforeBroken = fs.readFileSync(fileFor(rootA), "utf8");
   await assert.rejects(() => hostBroken.saveDistributedQueue(rootA, soloDisk, { dispatchAdmission: true }),
     /登记表不可读\/已损坏.*已拒绝本次带新派发意图的队列写入/s);
@@ -634,24 +637,32 @@ test("P0-2 返修交错窗口：开始零登记的真实子进程保存持统一
     dist: distDir, storage, apiDir, rootsFile, leasePath };
   const readEvents = () => fs.readFileSync(eventLog, "utf8").split(/\r?\n/).filter(Boolean).map(line => line.split(" ")[0]);
   // —— 窗口 B（真实子进程）：登记表为空时带新意图保存；真实跨进程资源锁 + 700ms 延迟写制造交错窗口。
+  let childOut = "", childErr = "", childExit = null;
   const childPromise = new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [childPath, JSON.stringify({ ...base, root: rootB, planId: "plan-b", jobIndex: 0, commandId: "cmd-r1",
       gpuId: "0", manual: false, eventLog, writeDelayMs: 700, windowId: "child" })], { stdio: ["ignore", "pipe", "pipe"], env: process.env });
-    let out = "", err = "";
-    child.stdout.on("data", chunk => { out += chunk; });
-    child.stderr.on("data", chunk => { err += chunk; });
+    child.stdout.on("data", chunk => { childOut += chunk; });
+    child.stderr.on("data", chunk => { childErr += chunk; });
     child.on("error", reject);
     child.on("close", code => {
-      const line = out.split("\n").find(row => row.startsWith("RESULT"));
-      if (!line) return reject(new Error(`子进程窗口无结果输出（code=${code}）：${err}`));
+      childExit = code;
+      const line = childOut.split("\n").find(row => row.startsWith("RESULT"));
+      if (!line) return reject(new Error(`子进程窗口无结果输出（code=${code}）：${childErr}`));
       resolve(JSON.parse(line.slice("RESULT".length)));
     });
   });
+  childPromise.catch(() => { /* 防早退断言路径上的未处理拒绝；下方 await 仍按真实结果失败 */ });
   // 等子进程已进入 atomicWrite（判定与计算都已完成、正处于写入中）——返修前登记正好能从这里挤进来。
   const startedAt = Date.now();
-  while (!readEvents().includes("write-enter") && Date.now() - startedAt < 15000) await new Promise(resolve => setTimeout(resolve, 20));
-  assert.ok(readEvents().includes("write-enter"), "15s 内子进程未进入延迟写入");
-  const hostParent = require(harnessPath)({ ...base, root: rootA, windowId: "parent" });
+  while (!readEvents().includes("write-enter") && Date.now() - startedAt < 15000) {
+    if (childExit !== null) {
+      const line = childOut.split("\n").find(row => row.startsWith("RESULT"));
+      assert.fail(`子进程在进入 write-enter 前已退出（code=${childExit}）——早退真实结果 RESULT=${line || "无"} 事件=${readEvents().join(",")} stderr=${childErr}`);
+    }
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.ok(readEvents().includes("write-enter"), `15s 内子进程未进入延迟写入（exit=${childExit}）事件=${readEvents().join(",")} RESULT=${childOut.split("\n").find(row => row.startsWith("RESULT")) || "无"} stderr=${childErr}`);
+  const hostParent = require(harnessPath)({ ...base, typescript: base.ts, legacySource: base.legacy, root: rootA, windowId: "parent" });
   await hostParent.withUnifiedAdmissionLease("首次登记两根", async () => {
     fs.appendFileSync(eventLog, "parent-registration-enter\n");
     fs.writeFileSync(rootsFile, JSON.stringify([rootA, rootB]), "utf8");
@@ -668,7 +679,8 @@ test("P0-2 返修交错窗口：开始零登记的真实子进程保存持统一
   assert.equal(childJob.dispatchConsent, undefined, "零登记窗口不写同意事实");
   assert.equal(childJob.status, "unknown");
   // —— 主窗口登记完成后申请同卡：B 的完整身份未知项已先落盘保守占位，A 被拒——两窗口合计不双批。
-  const diskA = DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(fileFor(rootA), "utf8")));
+  const rawParentA = fs.readFileSync(fileFor(rootA), "utf8");
+  const diskA = DPQ.setDistributedQueueBaseSignature(DPQ.restoreFormalJobQueue(JSON.parse(rawParentA)), DPQ.distributedQueueDiskSignature(rawParentA));
   Object.assign(diskA.plans[0].jobs[0], { status: "dispatching", workerId: "w", gpuId: "0", commandId: "cmd-p1", lifecycleProtocol: 2 });
   const receiptP = await hostParent.saveDistributedQueue(rootA, diskA, { dispatchAdmission: true });
   assert.ok(receiptP, "登记完成后统一域成立，返回真实回执");
