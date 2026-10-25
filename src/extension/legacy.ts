@@ -619,7 +619,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "stopAndClearPlan",
     "stopAndClearPlans",
     "refreshLocalResults",
-    "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveAgentDefaults", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
+    "webviewNotice", "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveAgentDefaults", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "gpuWindowSamples", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
@@ -628,7 +628,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
-    "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow",
+    "webviewNotice", "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow",
 ]);
 const SAFE_TRANSFER_RETRY_COMMANDS = new Set([
     "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts",
@@ -639,7 +639,7 @@ const API_EXECUTABLE_COMMANDS = new Set([
     ...uiActionCommands,
     ...SAFE_WEBVIEW_COMMANDS,
 ].filter((command) => !API_INTERNAL_COMMANDS.has(command)));
-const COMMANDS_WITHOUT_UI_STATUS = new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]);
+const COMMANDS_WITHOUT_UI_STATUS = new Set(["webviewNotice", "selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]);
 const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER = new Set(["startAllConnections", "testAll", "snapshot"]);
 const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
     "runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions",
@@ -981,6 +981,7 @@ export class RealtimeTunnelPanelProvider {
     private readonly safeTransferRetries = new SafeRequestRetry();
     private readonly planRetryInFlight = new Set<string>();
     private readonly operationNoticeSessions = new Map();
+    private readonly webviewNoticeLastAt = new Map<string, number>();
     private operationLogChannel = undefined;
     private legacySourceFreezeNoticeKey = "";
     private projectStaticCheckPromise?: Promise<void>;
@@ -5510,7 +5511,7 @@ return this.testTunnel(true);
         if (command === "answerRunConfirmation") { this.runConfirmation.answer(message); return; }
         if (command === "retryPlanSubmission") return this.resumePlanSubmission(String(message.operationId || ""));
         if (command === "cancelPlanSubmission") return this.cancelPlanRunSubmission(String(message.operationId || ""));
-        if (["webviewReady", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewVisibility"].includes(command)
+        if (["webviewNotice", "webviewReady", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewVisibility"].includes(command)
             && !this.isCurrentPanelDocumentMessage(message, command)) return;
         if (this.extensionRuntimeVersionState().reloadRequired && command !== "reloadWindow") {
             this.showPanelReloadRequired();
@@ -5521,6 +5522,9 @@ return this.testTunnel(true);
         if (booleanField(message, "debugMode") && debugModeBlockedUiCommand(command))
             throw new Error("Debug 模式仅用于隔离运行和实时日志，禁止归档、删除、结果、统计、论文或 PPT 操作。请切回正式运行后再执行。");
         switch (command) {
+            case "webviewNotice":
+                this.showNativePanelMessage(message);
+                break;
             case "webviewReady":
                 if (this.panelLifecycleState === "maintenance" || this.panelLifecycleState === "reload_required") return;
                 this.webviewReady = true;
@@ -6122,8 +6126,10 @@ return this.testTunnel(true);
                 this.finishPlanSubmissionProgress(message, "cancelled", result.message || "已取消，未提交运行。");
                 const supersededResultRequest = /^(syncPendingPlanArtifacts|syncAllResultArtifacts|rebuildProjectResultTables)$/.test(command)
                     && String(result.message || "").includes("旧请求已被重新执行替代");
-                if (!supersededResultRequest) {
-                    try { vscode.window.showInformationMessage(result.message || "已取消"); } catch {}
+                if (!supersededResultRequest && !artifactNoticeKey && !PLAN_SUBMISSION_COMMANDS.has(command)
+                    && !["validatePlan", "dryRunPlan", "runAllPlans"].includes(command)) {
+                    try { void vscode.window.showInformationMessage(result.message || "已取消", "查看日志")
+                        .then(choice => { if (choice === "查看日志") this.showOperationLogFromUi(); }).catch(() => undefined); } catch {}
                 }
                 const alreadyExplained = String(result.message || "").includes("未提交");
                 if (!alreadyExplained) {
@@ -6140,8 +6146,13 @@ return this.testTunnel(true);
                 statusPosted = true;
                 if (result.resultSync) {
                     if (!result.notificationShown) void vscode.window.showWarningMessage(result.message).catch(() => undefined);
-                } else void vscode.window.showErrorMessage(`${hostOperationLeaseActionLabel(command) || command}未完成`,
-                    { modal: true, detail: compactSensitiveText(result.message || "操作失败，请检查连接与产物校验记录。", 4000) }, "知道了").catch(() => undefined);
+                } else if (!artifactNoticeKey && !PLAN_SUBMISSION_COMMANDS.has(command)
+                    && !["validatePlan", "dryRunPlan", "runAllPlans"].includes(command)) {
+                    // Failure feedback is not a destructive-action confirmation.
+                    // Plan/artifact operations already close their own native notice.
+                    void vscode.window.showErrorMessage(`${hostOperationLeaseActionLabel(command) || command}未完成：${compactSensitiveText(result.message || "操作失败，请检查连接与产物校验记录。", 4000)}`, "查看日志")
+                        .then(choice => { if (choice === "查看日志") this.showOperationLogFromUi(); }).catch(() => undefined);
+                }
             }
             if (result.status === "completed" && result.resultSync?.partial && !result.notificationShown)
                 void vscode.window.showWarningMessage(result.message).catch(() => undefined);
@@ -6641,6 +6652,26 @@ return this.testTunnel(true);
         }
         this.throwIfTerminalActionFailure(command, action, resultStatus(finalResult), finalResult);
     }
+    showNativePanelMessage(message) {
+        const text = String(message?.message || "").trim();
+        if (!text) return;
+        const tone = ["warning", "error"].includes(String(message?.tone)) ? String(message.tone) : "info";
+        this.logOperationFact(`[原生通知/${tone}] ${text}`);
+        const key = `${this.panelDocumentGeneration}:${tone}:${text}`;
+        const now = Date.now(), previous = this.webviewNoticeLastAt.get(key);
+        if (previous !== undefined && now - previous < 5000) return;
+        this.webviewNoticeLastAt.delete(key);
+        this.webviewNoticeLastAt.set(key, now);
+        while (this.webviewNoticeLastAt.size > 32) this.webviewNoticeLastAt.delete(this.webviewNoticeLastAt.keys().next().value!);
+        const prompt = tone === "error" ? vscode.window.showErrorMessage
+            : tone === "warning" ? vscode.window.showWarningMessage : vscode.window.showInformationMessage;
+        const viewLog = "查看日志", openPanel = "打开面板";
+        void Promise.resolve(prompt.call(vscode.window, `SimpleExperiment：${text}`, viewLog, openPanel))
+            .then((choice) => {
+                if (choice === viewLog) this.showOperationLogFromUi();
+                else if (choice === openPanel) return this.openPanelAt("execution");
+            }).catch(error => this.logOperationFact(`原生通知操作失败：${String(error?.message || error)}`));
+    }
     operationNoticeKey(message) {
         // A batch submisison routes into its parent operation's notification; the
         // owner key never changes once the session opened.
@@ -6717,10 +6748,13 @@ return this.testTunnel(true);
         }
         const label = `SimpleExperiment ${session.title}${text ? `：${text}` : "已完成。"}`;
         this.logOperationFact(label);
-        const viewLog = "查看日志";
+        const viewLog = "查看日志", openPanel = "打开面板";
         const prompt = tone === "succeeded" ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
-        void Promise.resolve(prompt.call(vscode.window, label, viewLog))
-            .then((choice) => { if (choice === viewLog) this.showOperationLogFromUi(); });
+        void Promise.resolve(prompt.call(vscode.window, label, viewLog, openPanel))
+            .then((choice) => {
+                if (choice === viewLog) this.showOperationLogFromUi();
+                else if (choice === openPanel) return this.openPanelAt("execution");
+            }).catch(error => this.logOperationFact(`原生通知操作失败：${String(error?.message || error)}`));
     }
     submissionNoticeTone(message, result) {
         const row = this.localOperations?.[this.planSubmissionOperationId(message)];
@@ -6981,8 +7015,13 @@ return this.testTunnel(true);
     legacySourceFreezeWorkerNames() {
         // 29：旧端未具备源码变更执行语义时必须如实提示需要更新，不伪称已生效；只读探活能力，不阻断。
         const workers = this.enabledWorkerConfigs?.() || [];
-        return workers.filter((worker: any) => !this.lastWorkerProbes?.[worker.id]?.capabilities?.sourceDecouple)
-            .map((worker: any) => String(worker.label || worker.id || "")).filter(Boolean);
+        return workers.filter((worker: any) => {
+            const probe = this.lastWorkerProbes?.[worker.id];
+            // Missing/failed probes are unknown, not evidence of an old runtime.
+            // The telemetry capabilities document declares this under endpoints.
+            return probe?.status === "ok" && !!probe.capabilities
+                && probe.capabilities.endpoints?.sourceDecouple !== 1;
+        }).map((worker: any) => String(worker.label || worker.id || "")).filter(Boolean);
     }
     planValidationCacheKey(body, workerId) {
         const root = workspaceRoot();
@@ -9535,6 +9574,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const foreignOnlySet = new Set(foreignOnly);
             const skipped = planned.skipped.filter((_reason, index) => !foreignOnlySet.has(planned.skippedPaths[index]?.path));
             const work = planned.items.filter((item) => {
+                // Temporary/non-artifact exclusions are endpoint-independent. They
+                // are not evidence that a frozen machine-state mapping protected
+                // the path, and must not block otherwise valid job artifacts.
+                if (artifactCopy && !scopeInventoryPathAllowed(item.path, false, [])) return false;
                 // Bound per DESTINATION: a path is only machine state for the
                 // endpoint whose verified mapping says so; drop the item only
                 // when no destination may receive it at all.

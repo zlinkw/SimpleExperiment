@@ -192,3 +192,34 @@ test("r10: all-targets-already-consistent succeeds via the source file set, and 
   assert.equal(manual.completed.length, 0);
   assert.ok(manual.errors.some(t => t.includes(F) && t.includes("没有可靠的最新版")), JSON.stringify(manual.errors));
 });
+
+
+test("r38: source temporary publication files do not become machine-state failures or artifact receipts", async () => {
+  const temporary = [
+    `${OUT}/test_results/.job_metrics.csv.0ac809074e1a49a0829d79136a5146a9.pending`,
+    `${OUT}/test_results/metrics.csv.writing`,
+    `${OUT}/test_results/metrics.tmp.123`,
+    `${OUT}/test_results/metrics.upload.123`,
+  ];
+  const files = { ...V1, ...Object.fromEntries(temporary.map(file => [file, { sha256: H.alpha, content: "alpha" }])) };
+  for (const verifyOnly of [false, true]) {
+    const entry = completedJobEntry(files, verifyOnly ? { mirrorFiles: Object.keys(V1) } : {});
+    const { report, transfers, jobs, inventory } = await entry.runWithReport([OUT], { force: true, verifyOnly });
+    assert.deepEqual([...report.errors], [], `verifyOnly=${verifyOnly}: temporary exclusions are not machine-state protection`);
+    assert.equal(report.synced, 1);
+    assert.equal(jobs[0].status, "completed", "artifact filtering cannot reinterpret job execution state");
+    assert.equal(jobs[0].latestArtifactSync.state, "synced");
+    assert.deepEqual(Object.keys(jobs[0].artifacts || {}).sort(), Object.keys(V1).sort());
+    assert.ok(!Object.values(jobs[0].latestArtifactSync).some(value => String(value).includes("机器状态映射均保护")));
+    for (const file of temporary) {
+      assert.equal(inventory.a[file].sha256, H.alpha, "source temporary files remain untouched");
+      assert.equal(inventory.b[file], undefined, "temporary files are never transmitted");
+    }
+    if (verifyOnly) assert.equal(transfers.length, 0, "refresh-only does not transfer");
+    else {
+      assert.deepEqual([...new Set(transfers.flatMap(t => t.relativePaths))].sort(), Object.keys(V1).sort());
+      assert.equal(transfers[0].generation, jobArtifactRunGeneration("plan", "command0",
+        Object.fromEntries(Object.entries(V1).map(([file, item]) => [file, item.sha256]))));
+    }
+  }
+});

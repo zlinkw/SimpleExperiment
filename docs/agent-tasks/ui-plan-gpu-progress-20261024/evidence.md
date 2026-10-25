@@ -921,3 +921,56 @@ rm EISDIR 透出 inner 保留；POSIX 真实 chmod 0o777 拒绝且拒在写入�
 - 正式启动前执行器曾误取env普通对象ComSpec而实际键是COMSPEC，走cmd入口报The syntax of the command is incorrect，未进入npm/编译/测试；b09c9661-6115-496f-b0d6-b4b111b7a348首败完整保留。只读查明同一Node24.18/npm11.16真实入口（ed032223-455d-46c2-98bd-275cf3d9ab13）后改Node直接调用同一npm-cli.js run package，项目命令、超时/覆盖/钩子未变，且没有活动验收重放。一次只读归档对比脚本误要求ZIP顺序一致的AssertionError也保留c82241d3-6ebd-4280-adc1-f57d2a69bb8c，未据此改产品/测试；原生按成员身份及实际内容核对正确。
 - 正式验收后再次对照SE2071/SFTP146冻结输入：当前源树与通过验收Native树的源码/测试/脚本/依赖配置及所有生成物相同，仅归档计划/证据两Markdown不同。新加测试默认进入原有套件，不新建测试进程，不删旧案。无新产品源码差异需要再编译。
 - 主控最终代码审核：原批准功能块及新增调度-同步连接处正常路径通过；当前没有已证代码必须返修项，可精确提交/PR。现场4unknown缺本轮可信事实和13旧版partial保持§67结论，不能宣称实际所有Plan已完成，不能通过改状态/收旧结果/重跑来掩盖；实际科研重提/输出处置不在本次自动交付授权内。Mac原生仍未验证。合并/发行/安装仍按原审核授权流程，不以本条冒充已发布或已安装。
+
+
+## 69. r38 409现场回归：临时文件排除被误报为机器状态保护
+- 当前实际版本 SE409/SFTP109，PID20924；精确当前日志 Code/logs/20261025T133446/window1/exthost/output_logging_20261025T133449/4-SimpleExperiment 操作日志.log，宿主脱敏完整快照 b04c36fd-4ba2-42b5-98db-f879d55c30f1。05:36:57Z summation job0 commandId7632e028c00ac590c54c75a5f77739db、05:37:53Z text_only job4 commandIdd1fc79a15a30db70f720b2ac1eafdfa1，均因 .job_metrics.csv.<hex>.pending 失败。它们不是此前4个unknown任务，不能混同。
+- Windows最小复现使用完整既有Native树/现有fixture，真实CompletedJobSyncHost、真实merge和真实scope过滤；正式V1文件+来源pending文件、所有prefixes空。scopeInventoryPathAllowed=false但isUnderMachineStatePrefixes=false，报告所有目标机器状态保护，synced0/transfers0；断言预期1实际0，原进程exit1/无超时。完整日志 host-windows/b94b0404-cf1a-49da-bf78-9a78ff9f035c-{stdout,stderr}.log。
+- 当前 SyncScopeStatus.ts 的一般过滤已排除 pending/writing/tmp/upload；legacy.ts 先用合并的一般过滤+映射过滤计算reachable，再不加区别地报机器状态保护，实际临时文件的源清单过滤位于更后方而未阻止误报。先在现有适用套件增加真实source临时文件与verifyOnly模式断言，不新增进程/不删旧断言。只复现了同步分类错误，不能由此证明或否定本轮job实际执行。
+- 用户正在UI运行新unimix_ad计划，日志已到用户确认后隔离旧输出阶段；主控未发起、重复、取消或介入该操作。现场状态取证须绑定明确commandId与采集时刻，不将新旧运行混为一谈。
+
+- 正式修复前红灯：Windows同现有 completedJobForeignSourceClassify.test.js（源码SHA9b43401a007085b7a9bf96df31923fb93cc7fa93ced8860aa032759fbfb1e3af），6项原用例通过、新r38用例失败，4种既有临时排除(pending/writing/tmp/upload)均误报机器保护；真实exit1、无skip/超时，完整日志3b50f630-79c7-4b75-86dd-5c5910c7d843。工具intent误写“原7项”，以真实原6+新1输出为准，不以固定数量作为门禁。
+- 最小修复仅在artifactCopy的work项、计算endpoint reachable之前使用既有scopeInventoryPathAllowed(path,false,[])排除普通非产物；通用手动merge不改，后续真实冻结映射检查/两个禁止后缀正则/必要产物/SHA/guard unknown/双代staging均原样。未新增mtime规则、未更改job执行状态、未动远端。
+
+
+## 70. r39 Worker误报与用户通知要求
+- r38目标套件Windows7/7通过、exit0、skip0；新增场景增量同步与verifyOnly两模式均执行，完整日志1754ba9f-a7d5-4fce-a652-b6f46f9048b9；源legacy.ts SHA76db67cb19726cc6c9aa35d8ca8e9fadaa2abbdcc7a3afb1b5099495e47e704d。尚非最终候选或完整验收。
+- 当前四Worker及Scheduler均409：实际本机SE409 live capabilities确认agents.lifecycle后，仅action inspect（无确认、零远端写）核nwpu3/nwpu2/nwpu5/jqg_zlk，全部runningVersion0.5.409。完整宿主日志d4686972-b44f-42e4-bc50-22116a0b8b3b。读到源码能力字段顶层/嵌套错位和假测试形状，既有旧Runtime提示不能据此解释为用户更新失败。
+- 用户截图2f31c04a-d2bd-4e8b-9f69-04b647d2a9f0.png明确所指为VS Code原生Notifications中心（识别工作区/打开面板交互按钮）。不再按自建列表解释。
+- 精确隔离账本只读元数据：globalStorage/simple-local.simple-experiment/se-plan-isolated-batches.json，version2、6批、14448字节、mtime2026-10-24T12:24:09.042Z、SHA1d109eb1a6da249dc47dee137af1c215793c22fc075d23924ffa7851b16d5534；前三项均MultiModal。完整日志5cc32a37-9143-4e53-9563-a155f92dd3e1。此为元数据，未据此断言坏结构或陈旧锁。
+
+- r39修复前Windows可见提交套件：20通过、2项真实误报复现失败，另1项夹具版本不一致失败，exit1，完整日志c4fcf9c0-05cb-4840-9002-9bba3dd18044。新增真实cap.agentVersion后，原cache测试只改顶层agentVersion而不改cap.agentVersion；生产优先读后者（legacy planValidationCacheKey）已证明，执行一次机械自修：两个版本字段同步变更/恢复，保留全部cache身份差异断言，不改生产缓存语义。
+- 生产误报最小修复：只在status=ok且有实际capabilities文档时，读取endpoints.sourceDecouple!==1决定旧语义；未知/失败探测不伪称旧runtime。部署、健康、源码proof、调度、确认链不改。顶层sourceDecouple不是已知telemetry协议，不添加为假测试兼容。
+
+
+## 71. r40 原生交互通知与当前证据
+- 能力块Windows23/23通过，exit0、skip0，真实Source能力嵌套与unknown分类/原cache全部身份断言保持；完整日志3a3b93d4-d6c6-496c-95c1-614b3bd90840。
+- UI契约修复前红灯：既有jobTmuxLogNavigation 9项通过、用户变更契约的1项失败（期待1个native消息、实际0），exit1、skip0，完整日志0f893cec-7f14-40ea-b4b1-ab9d21291109；保留原窗口身份/不猜任务/计时器等断言，旧DOM浮条断言随用户明确要求改成native桥、无DOM/无自动消失计时器。
+- 生产最小UI桥：showToast名保留以覆盖既有20处调用，实际仅post webviewNotice+当前document代际，Host白名单和API internal拒外部调用、代际拒旧文档；信息/警告/错误走原生通知+查看日志/打开面板，完整文本全量日志，既有5秒显示周期转为重复抑制，无新持久存储。runAllPlans原本已有全量原生终态，删除网页重复的480字截断；其它有用结果转Native桥不再截断。操作失败说明改非modal；真实确认及双确认未动。
+- 账本真因：生产loadIsolatedBatchLedger读取该旧文件成功、6批；但其固定.lock存在为空的普通非链接文件，mtime2026-10-24T12:33:58.131Z。acquireLedgerLock源明确wx唯一所有权、EEXIST600ms后ISOLATED_BATCH_LEDGER_LOCKED，禁止自动摘遗留/未知身份锁。完整宿主只读日志7d0d18e2-f6e3-41ed-9ca8-a4b20ce4c657。未获取/清除锁、未改账本/隔离区，禁删准入保留；此项不是科研执行状态证据。
+
+- 用户收紧范围后取消尚未实施的远端tick通知hook/新增进度投影；当前未改tick、任务生命周期、调度、产物身份、删除/覆盖确认或账本。计划r41为后续有效边界。三只读实例只写私有证据，未实施/测试/改Git；实现与原生验证均主控。最终候选补丁定为410，不覆盖409包/tag。
+
+## 72. r41 410候选验收/中断证据（2026-10-25，文档维护块）
+
+- 410三处已证修复：①临时非产物误报保护（r38方向）；②endpoints.sourceDecouple/unknown能力误判最小修复（r39方向）；③既有Webview通知转原生按钮通知+重复抑制（r40方向）。用户收紧边界保持：未加tick通知hook、未加新进度投影/轮询，账本/科研未动（承接§71取消声明）。
+- 编译门禁：Pi diagnostics se410-compile-ZvOPbP/result.json+inputs.json —— 7编译门禁exit0、10输入冻结；编译run.json路径见 /host/d/OpenChamber-AgentConfig/Pi/host-sandbox/diagnostics/host-windows/48891e37-d4ff-4d9d-8406-19389e42293b-stdout.log。
+- 开发正式check:dev：D:/GitRepo/MCP/.win-se-delivery-scpfFp/simple_cluster/reports/test-workflow/2026-10-25T06-06-11-886Z-70284-check_dev/run.json exit0；12物理测试文件、22参数行，其中10文件重复展开为无参和 --test-force-exit --test-timeout 20000 两行——流程重复已留证，不把22当唯一覆盖，未改构建脚本扩范围。
+- package planner物理路径审计：se410-final-D6d0BK/identity-audit.json —— 234行=234唯一物理路径、无重复；数量不作未来固定门禁。
+- 首次410 package中断：cancelled=true、exit1，run.json/外层result缺失，停于job092附近；中断日志不作通过。完整只读恢复证据 se410-package-recovery-Q7xK3m/receipt.json。
+- 用户已批准『同意移走保留锁，并重新验收』：原Windows负责人1dc056d6-09be-4717-ac93-882cd01fcc50接续，安全根 D:/GitRepo/MCP/.win-se-delivery-scpfFp/simple_cluster/ 内唯一 locks/simple-experiment/test-workflow/batch.lock → clean_dir/locks/simple-experiment/test-workflow/batch.lock 保留式移动，随后完整原生 npm run package。截至本节尚无最终通过、无410 VSIX、无发布/安装事实；Mac仍未实机验证。
+- 剩余阶段（归Windows负责人/主控）：完整原生package重跑 → 最终候选完整验收 → 发布决策。
+- 维护边界：本段后父不再写本文件；仅追加，旧证据与有效r41计划未重写。本块写入范围仅此文件，零运行源码/测试/版本/生成物写入、零Git写入。本worktree身份复核：HEAD a9fc3d36629eeeb6bb71b183d59731e209ccac5a、分支fix-ui-plan-gpu-progress-20261024、r38-r41未提交项在场。事实观察（未触碰）：原cwd主仓当前实际为 feat-multi-project-branches-20261025 @ a9fc3d36，与早期描述"detached b65"不符，交主控辨识。
+
+## 73. r42 410正式package首败与resultSyncFailureVisibility测试契约返修（2026-10-25）
+
+- 首败保留（不是通过）：D:/GitRepo/MCP/.win-se-delivery-scpfFp/simple_cluster/reports/test-workflow/2026-10-25T06-25-09-265Z-42260-package/run.json overall=failed/exit1；234唯一文件全跑、233 exit0，仅job214 exit1。job-214-resultSyncFailureVisibility.test.out.log：14 tests/13 pass/1 fail，test:155 在 :162 assert.equal(f.alerts[0][1].modal,true) 得 actual undefined。编译/前置全过、输入无漂移、自持锁正常释放、未assemble、无410 VSIX。
+- 根因（父逐行核源，本侧复核）：r40 起 legacy.ts:6149-6154 catch failed 且无 resultSync、非 artifactNoticeKey 时按用户要求改非 modal showErrorMessage(`${action}未完成：${完整原因}`,"查看日志")，选"查看日志"才调 this.showOperationLogFromUi()；失败反馈非破坏性确认，真正删除/覆盖/运行范围/停止确认与双确认未动。测试旧 modal:true 预期失效。
+- 返修（仅 test/features/resultSyncFailureVisibility.test.js，产品/其它测试/版本/生成物/Git 零写入）：fixture({errorChoice}) 忠实模拟 Native showErrorMessage Thenable（记录 args 后 resolve 选项或 undefined）；host 增最小可观察 showOperationLogFromUi 计数（不伪造被测 callback，按钮分支由产品真实 .then 驱动）；test:155 内循环两选择 case，断言：statuses 终态 failed、terminal 终态 failed 且 resultSync undefined（绝不转 partial 成功）、恰好 1 条原生 error、publication transaction failed 同现于消息与终态记录、slice(1) 深等于 ["查看日志"]（唯一按钮且无 modal/options 对象）、点击才调用日志宿主而 dismiss 不调用、warnings/information 均 0。其余 13 项断言/取消/partial/SHA/source 语义逐字未动。改后 SHA256 dce1b40166cd697cd5f26cd92604336164cd7592cdd7da9c3cdd7c52cae9817c，diff +28/-11。
+- Linux 侧限制如实：本沙箱 dist/extension/legacy.js 为旧编译形（:6237 仍 modal+知道了），本套件本地运行无效且被禁；node --check 亦被 PI_NATIVE_PLATFORM_REQUIRED hook 拒绝（未执行，未重试等价工具）。验证唯一路径=父把该单文件同步入 .win-se-delivery-scpfFp Native 完整树（新编译 dist 为 6149-6154 新形），先跑 job214 目标回归，再最终完整 package（约9分钟，234 全量），不缓存跳过原 233 绿。Mac 仍未实机验证。
+
+## 74. r43 最终 Windows package 全绿事实与生成物回拷（2026-10-25）
+
+- 最终全绿（父核原始 run.json，本侧转录）：D:/GitRepo/MCP/.win-se-delivery-scpfFp/simple_cluster/reports/test-workflow/2026-10-25T06-38-05-260Z-68864-package run.json overall=passed、final=true；234行=234唯一身份全真实exit0；13 gates全0；inputFingerprint==endFingerprint；candidate.state=validated；packaged VSIX=0.5.410，SHA256 0bde3f45ebf24c1f72ad1e671a98f62ea97ac31936e5543b18ea2f69774eaedd，2529967字节。完整证据 /host/d/OpenChamber-AgentConfig/Pi/host-sandbox/diagnostics/se410-package-final2-T5nQ2r/final-receipt.json。§73首败（42260）、此前取消、保留锁处置与Mac未实机验证事实均保留不变。
+- 生成物回拷（r37 惯例复用，Linux node 身份，无 Git 写）：git ls-files dist 共421个已跟踪文件，与完整冻结 Native 同相对路径 sha 全量比对仅9个差异，全部对应本轮输入：legacy.js←legacy.ts(r38-42)；PanelHtml.legacy.js←PanelHtml.legacy.ts(r40)；RuntimeManifest.js/.json←RuntimeManifest.ts+版本410；panel-build-manifest.json←面板构建410；cluster_agent.py/cluster_scheduler.py 及各自 .sha256←版本烙入（内容级唯一差异=AGENT/RUNTIME/PLUGIN_VERSION 三行 0.5.409→0.5.410，字节数两侧一致，两侧 .sha256 各自自描述一致）。Native 编译输入归属证明：src/extension/legacy.ts、src/ui/PanelHtml.legacy.ts、src/runtime/RuntimeManifest.ts、package.json、package-lock.json、test/features/resultSyncFailureVisibility.test.js 六个关键输入 Native↔本worktree SHA 逐一相同；Native package.json=0.5.410。
+- 回拷程序证：旧字节先存 .review-ui-plan-gpu-20261024/r43-dist-backup-precopy/（备份 sha 与拷前 worktree 逐一相等=BACKUP_VERIFIED）；cp Native→worktree 后 worktree 与 Native 9文件 SHA 逐一相等=COPYBACK_SHA_MATCH；status 由13 M变22 M（恰+9 dist），其余稳定测试/源码输入未动。maps 不在已跟踪惯例（421中0个 .map）故不回拷；dist/runtime/cluster_agent.py.patched 无差异未动；VSIX/node_modules/cache/reports/clean_dir/整个工作树均未拷回。
