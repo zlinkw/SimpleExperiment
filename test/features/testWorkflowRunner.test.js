@@ -468,8 +468,9 @@ test("runner: assemble refuses empty/short receipts item-by-item, accepts fresh 
  * 本批 vsce 成功输出确切路径（name-version 绑定），不得目录泛扫；解析/绑定失败明确非零。 */
 function makeStoredZip(file, names) {
   const chunks = [], central = []; let off = 0;
-  for (const n of names) {
-    const nb = Buffer.from(n, "utf8"), data = Buffer.from("{}", "utf8");
+  for (const item of names) { // 字符串条目：正文 "{}"；{name,data} 条目：写入指定正文（r77 正文门）
+    const n = typeof item === "string" ? item : item.name;
+    const nb = Buffer.from(n, "utf8"), data = Buffer.from(typeof item === "string" ? "{}" : item.data, "utf8");
     const lh = Buffer.alloc(30); lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(data.length, 22); lh.writeUInt16LE(nb.length, 26);
     chunks.push(lh, nb, data);
     const ch = Buffer.alloc(46); ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(20, 4); ch.writeUInt16LE(20, 6); ch.writeUInt32LE(data.length, 20); ch.writeUInt32LE(data.length, 24); ch.writeUInt16LE(nb.length, 28); ch.writeUInt32LE(off, 42);
@@ -485,12 +486,16 @@ test("r27 assemble verify gate consumes the exact vsce-packaged path; never dire
   const ws = makeWorkspace(t);
   fs.writeFileSync(path.join(ws, "package.json"), JSON.stringify({ name: "fixture-pkg", version: "9.9.9", scripts: {} }));
   fs.mkdirSync(path.join(ws, "scripts"), { recursive: true });
-  for (const f of ["verify-vsix-manifest.js", "package-content-policy.js", "package-content-policy.json"]) fs.copyFileSync(path.join(REPO, "scripts", f), path.join(ws, "scripts", f));
+  for (const f of ["verify-vsix-manifest.js", "package-content-policy.js", "package-content-policy.json", "package-minimal-readme.js"]) fs.copyFileSync(path.join(REPO, "scripts", f), path.join(ws, "scripts", f));
   fs.writeFileSync(path.join(ws, "vsce-mock.js"), 'console.log(process.env.MOCK_VSCE_OUT || "Packaged: fixture-pkg-9.9.9.vsix");\n');
   const { REQUIRED } = require(path.join(REPO, "scripts", "package-content-policy.js"));
-  makeStoredZip(path.join(ws, "fixture-pkg-9.9.9.vsix"), [...REQUIRED]); // 当前包：合规
-  makeStoredZip(path.join(ws, "fixture-pkg-9.9.8.vsix"), [...REQUIRED, ".test-workflow-batch.lock/owner.json"]); // 历史旧包：带泄漏，泛扫必误报
-  makeStoredZip(path.join(ws, "legacy-other.vsix"), [...REQUIRED]); // 反例1用：实存但 name-version 不符的"错误当前包"
+  // r77 正文门：合规包必须含唯一 extension/readme.md，正文与 verify 门按夹具根 package.json 生成的最小文本逐字节一致（单源复用，不手抄）。
+  const { generateMinimalReadmeText } = require(path.join(REPO, "scripts", "package-minimal-readme.js"));
+  const readmeEntry = { name: "extension/readme.md", data: generateMinimalReadmeText(JSON.parse(fs.readFileSync(path.join(ws, "package.json"), "utf8"))) };
+  const compliant = () => [...REQUIRED, readmeEntry];
+  makeStoredZip(path.join(ws, "fixture-pkg-9.9.9.vsix"), compliant()); // 当前包：合规（含单条与生成文本一致的 extension/readme.md）
+  makeStoredZip(path.join(ws, "fixture-pkg-9.9.8.vsix"), [...compliant(), ".test-workflow-batch.lock/owner.json"]); // 历史旧包：带泄漏，泛扫必误报
+  makeStoredZip(path.join(ws, "legacy-other.vsix"), compliant()); // 反例1用：实存但 name-version 不符的"错误当前包"
   const manifest = writeManifest(ws, {
     schemaVersion: 1, compileGates: [], domains: {}, batchDefaults: { maxParallel: 2, killGraceMs: 2000 },
     entries: { inj: { phases: { assemble: { gates: ["node vsce-mock.js", "node scripts/verify-vsix-manifest.js"] } } } },
@@ -517,6 +522,34 @@ test("r27 assemble verify gate consumes the exact vsce-packaged path; never dire
   assert.notEqual(bad2.status, 0);
   const vgC = receipt(ws, "inj").gates.find(g => g.cmd.includes("verify-vsix-manifest"));
   assert.match(vgC.refusal || "", /unresolvable|no passed vsce/);
+
+  /* r77 打包合规正文门：包内 extension/readme.md 必须恰为一条且与同源最小生成文本逐字节一致；
+   * 旧完整指南正文/缺失/readme 名多条（含大小写变体并存）一律拒绝，恢复合规后同门复绿（非粘滞）。
+   * 诊断只输出路径与判定名，绝不输出正文。 */
+  const guideSecret = "COMPLETE-GUIDE-BODY-SECRET-DO-NOT-LEAK";
+  makeStoredZip(path.join(ws, "fixture-pkg-9.9.9.vsix"), [...REQUIRED, { name: "extension/readme.md", data: `# 完整用户指南\n${guideSecret}\n` }]);
+  const badGuide = runRunner(ws, manifest, "inj");
+  assert.notEqual(badGuide.status, 0, "stale full-guide readme body must refuse");
+  const vgGuide = receipt(ws, "inj").gates.find(g => g.cmd.includes("verify-vsix-manifest"));
+  assert.equal(vgGuide.passed, false);
+  const guideLog = fs.readFileSync(vgGuide.outLog, "utf8");
+  assert.match(guideLog, /README-CONTENT-MISMATCH extension\/readme\.md/);
+  assert.ok(!guideLog.includes(guideSecret), "diagnostics must print path only, never readme body");
+  makeStoredZip(path.join(ws, "fixture-pkg-9.9.9.vsix"), [...REQUIRED]); // 无任何 readme 条目
+  const badMissing = runRunner(ws, manifest, "inj");
+  assert.notEqual(badMissing.status, 0, "missing package readme entry must refuse");
+  const vgMissing = receipt(ws, "inj").gates.find(g => g.cmd.includes("verify-vsix-manifest"));
+  assert.equal(vgMissing.passed, false);
+  assert.match(fs.readFileSync(vgMissing.outLog, "utf8"), /MISSING-README extension\/readme\.md/);
+  makeStoredZip(path.join(ws, "fixture-pkg-9.9.9.vsix"), [...REQUIRED, { name: "extension/README.md", data: readmeEntry.data }, readmeEntry]); // 旧指南副本位+生成副本：大小写变体并存
+  const badDup = runRunner(ws, manifest, "inj");
+  assert.notEqual(badDup.status, 0, "duplicate root readme entries (case-variant) must refuse");
+  const vgDup = receipt(ws, "inj").gates.find(g => g.cmd.includes("verify-vsix-manifest"));
+  assert.equal(vgDup.passed, false);
+  assert.match(fs.readFileSync(vgDup.outLog, "utf8"), /DUPLICATE-README 2 root readme entries/);
+  makeStoredZip(path.join(ws, "fixture-pkg-9.9.9.vsix"), compliant()); // 恢复合规：同门复绿，判定非粘滞
+  const okAgain = runRunner(ws, manifest, "inj");
+  assert.equal(okAgain.status, 0, okAgain.stdout + okAgain.stderr);
 });
 
 test("r24 compile cache: cold→hit, input/config/toolchain drift, missing/tampered outputs force rebuild (R24 #2/#5)", async t => {

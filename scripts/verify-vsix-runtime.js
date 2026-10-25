@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { collectLocalRuntimeClosure } = require("./runtime-closure");
+const { GENERATED_README_REL_PATH, generateMinimalReadmeText, ensureGeneratedReadme } = require("./package-minimal-readme.js");
 
 const root = path.resolve(__dirname, "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -10,9 +11,13 @@ if (compiledRuntimeVersion !== packageJson.version) {
   process.stderr.write(`Compiled runtime version ${compiledRuntimeVersion} differs from package ${packageJson.version}.\n`);
   process.exit(1);
 }
+// r77 打包合规：最小 README 必须先于任何消费它的 vsce ls 存在。生成是幂等确定性的（同输入逐字节一致），
+// workflow 的 post 门也显式先跑同一脚本；此处自保证使单独直调本验证器同样成立（vsixRuntimeClosure 契约）。
+ensureGeneratedReadme(root);
 // Use the lockfile-pinned local tool. Validation must never fetch packages or wait for npm consent.
+// --readme-path 与 assemble 的真实 vsce package 门保持同一所选路径（vsce 4.0.0 官方选项）。
 const vsceCli = require.resolve("@vscode/vsce/vsce");
-const result = spawnSync(process.execPath, [vsceCli, "ls", "--no-dependencies"], {
+const result = spawnSync(process.execPath, [vsceCli, "ls", "--no-dependencies", "--readme-path", GENERATED_README_REL_PATH], {
   cwd: root,
   encoding: "utf8",
   // VSCE enumerates package metadata; keep this bounded separately from the
@@ -31,6 +36,20 @@ const packaged = new Set(
     .map((line) => line.trim().replace(/^\.\//, "").replace(/\\/g, "/"))
     .filter((line) => line && !line.startsWith("INFO ") && !line.startsWith("WARNING ")),
 );
+// r77：vsce ls 输出的是加工前路径 —— --readme-path 所选的生成文件会以生成路径出现，而 ReadmeProcessor
+// 在打包时将其重命名为 extension/readme.md。仅允许把这唯一一个、且磁盘内容与 package.json 生成文本逐字节
+// 一致（CRLF→LF 归一后）的声明路径映射为政策核验用的 root readme 名；生成目录其它条目照常被政策拒绝。
+if (packaged.has(GENERATED_README_REL_PATH)) {
+  const generatedText = fs
+    .readFileSync(path.join(root, ...GENERATED_README_REL_PATH.split("/")), "utf8")
+    .replace(/\r\n/g, "\n");
+  if (generatedText !== generateMinimalReadmeText(packageJson)) {
+    process.stderr.write(`Generated readme ${GENERATED_README_REL_PATH} differs from the package.json-derived minimal text.\n`);
+    process.exit(1);
+  }
+  packaged.delete(GENERATED_README_REL_PATH);
+  packaged.add("readme.md");
+}
 const entrypoints = [packageJson.main, ...Object.values(packageJson.bin || {})]
   .filter(Boolean)
   .map((entry) => String(entry).replace(/^\.\//, "").replace(/\\/g, "/"));
