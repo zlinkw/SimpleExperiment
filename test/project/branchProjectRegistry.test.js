@@ -512,10 +512,13 @@ async function previewOf(script, ghRows) {
 test("C4 normalizeGithubTarget：只剥 .git 后缀、仅 GitHub 两段仓库、ssh 端口解析、凭证/异平台拒绝", () => {
   assert.deepEqual(pr.normalizeGithubTarget("https://github.com/org/repo.git"), { host: "github.com", owner: "org", repo: "repo", repoSelector: "github.com/org/repo", displayUrl: "https://github.com/org/repo" });
   assert.equal(pr.normalizeGithubTarget("git@github.com:org/repo.git").repo, "repo", "scp 式 .git 只剥后缀，整段不能被吞掉");
-  assert.equal(pr.normalizeGithubTarget("ssh://git@github.com:7999/org/repo.git").repoSelector, SELECTOR, "ssh:// 端口不属于仓库身份");
+  assert.equal(pr.normalizeGithubTarget("ssh://git@github.com:7999/org/repo.git"), undefined, "非默认/未知端口不得忽略后冒称标准 GitHub 端点");
+  assert.equal(pr.normalizeGithubTarget("ssh://git:password@github.com/org/repo.git"), undefined, "ssh URL 显式 password 同样拒绝；登录名 git 本身没问题");
+  assert.equal(pr.normalizeGithubTarget("https://ghp_tokenUser@github.com/org/repo.git"), undefined, "https 用户名（token 形态）拒绝");
   assert.equal(pr.normalizeGithubTarget("ssh://git@github.com/org/repo.git").repoSelector, SELECTOR, "默认 22 端口 ssh 登录名是正常形态");
   assert.equal(pr.normalizeGithubTarget("https://github.com/org/repo").displayUrl, "https://github.com/org/repo");
   assert.equal(pr.normalizeGithubTarget("https://tok:pw@github.com/org/repo"), undefined, "含凭证 https：拒绝");
+  assert.equal(pr.normalizeGithubTarget("https://github.com:8443/org/repo"), undefined, "https 非默认端口拒绝");
   assert.equal(pr.normalizeGithubTarget("https://gitlab.internal/team/sub/project"), undefined, "非 GitHub 托管：明确拒绝，不重定向");
   assert.equal(pr.normalizeGithubTarget("https://github.com/team/sub/project"), undefined, "GitHub 仓库是 owner/repo 两段，不冒充多层组");
   assert.equal(pr.normalizeGithubTarget("https://github.com/org"), undefined);
@@ -530,6 +533,25 @@ test("C4 preview：gh 必须带完整 --repo 选择器与 state=all；漂移/登
   assert.ok(listArgs.includes("--repo " + SELECTOR), "必须显式 host 选择器，防 GH_HOST 默认重定向: " + listArgs);
   assert.ok(listArgs.includes("--state all"), "必须覆盖 open/merged（网页已合并的恢复依赖）");
   assert.equal(preview.existing.kind, "none");
+  // 有效推送目标：fetch 同仓但 push 异仓/多目标/未知形态全部拒绝（pushurl/pushInsteadOf 契约缺口反例）
+  let pPush = await pr.previewBranchPullRequest({ git: recordingGit([
+    { match: /^remote get-url --push/, stdout: "https://github.com/org/other.git\n" },
+    ...baseScript(),
+  ]).runner, gh: gh.runner, ...PR_OPTS });
+  assert.equal(pPush.ok, false, "fetch A 而 push B：确认后写 B 的契约缺口必须拒绝");
+  assert.match(pPush.reason, /与已确认仓库不一致/);
+  pPush = await pr.previewBranchPullRequest({ git: recordingGit([
+    { match: /^remote get-url --push/, stdout: "https://github.com/org/repo.git\nhttps://github.com/org/second.git\n" },
+    ...baseScript(),
+  ]).runner, gh: gh.runner, ...PR_OPTS });
+  assert.equal(pPush.ok, false);
+  assert.match(pPush.reason, /个不同仓库/);
+  pPush = await pr.previewBranchPullRequest({ git: recordingGit([
+    { match: /^remote get-url --push/, stdout: "https://tok-secret@github.com/org/repo.git\n" },
+    ...baseScript(),
+  ]).runner, gh: gh.runner, ...PR_OPTS });
+  assert.equal(pPush.ok, false);
+  assert.ok(!pPush.reason.includes("tok-secret"), "未知推送目标的错误绝不回显 raw URI: " + pPush.reason);
   // 登记 URL 不可规范化：不允许跳过漂移校验
   let p2 = await pr.previewBranchPullRequest({ git: recordingGit(baseScript()).runner, gh: gh.runner, ...PR_OPTS, registeredRemoteUrl: "https://gitlab.internal/org/repo.git" });
   assert.equal(p2.ok, false);
@@ -631,6 +653,39 @@ test("C4 create：真实 gh 2.93 argv（pr create 无 --json）、写前本地 H
   result = await pr.createBranchPullRequest({ git: git6.runner, gh: gh6.runner, ledger, ...PR_OPTS, title: "t", body: "b", previewDigest: preview6.digest });
   assert.equal(result.status, "reused", JSON.stringify(result));
   assert.equal(gh6.calls.filter(call => call.args.startsWith("pr create")).length, 0, "同 source/base 已确证开放 PR 不得盲 create");
+});
+
+test("C4/R4 写前推送目标在确认后变化 → 零写入；真实 Git 配置（pushurl/pushInsteadOf）由 get-url --push --all 只读展开", async () => {
+  const previewScript = [{ match: /^remote get-url --push/, stdout: "https://github.com/org/repo.git\n", uses: 1 }, { match: /^remote get-url --push/, stdout: "https://github.com/org/other.git\n" }, ...baseScript()];
+  const preview = await pr.previewBranchPullRequest({ git: recordingGit([{ match: /^remote get-url --push/, stdout: "https://github.com/org/repo.git\n" }, ...baseScript()]).runner,
+    gh: recordingGit([{ match: /^pr list/, stdout: jsonBuf([]) }]).runner, ...PR_OPTS });
+  assert.equal(preview.ok, true);
+  const gitX = recordingGit([
+    { match: /^rev-parse --verify refs\/heads\/exp\/m1/, stdout: FULL_SHA + "\n" },
+    { match: /^push/, stdout: "MUST NOT PUSH" },
+    ...previewScript,
+  ]);
+  const result = await pr.createBranchPullRequest({ git: gitX.runner, gh: recordingGit([{ match: /^pr list/, stdout: jsonBuf([]) }]).runner, ledger: memoryLedger(), ...PR_OPTS, title: "t", body: "b", previewDigest: preview.digest });
+  assert.equal(result.status, "blocked-unknown", JSON.stringify(result));
+  assert.match(result.reason, /推送目标/);
+  assert.equal(gitX.calls.filter(call => call.args.startsWith("push")).length, 0);
+  // —— 真实临时 Git 配置：只读 get-url 证明解析，绝不联网、绝不真的 push ——
+  const cfg = makeRepo("pushurl");
+  git(["remote", "add", "origin", "https://github.com/org/repo.git"], cfg);
+  const confirmed = pr.normalizeGithubTarget("https://github.com/org/repo.git");
+  let resolved = await pr.resolveConfirmedPushTargets(pr.runGitPullRequest, cfg, "origin", confirmed);
+  assert.equal(resolved.ok, true, "默认无 pushurl 时写目标=已确认仓");
+  git(["config", "remote.origin.pushurl", "https://github.com/org/other.git"], cfg);
+  resolved = await pr.resolveConfirmedPushTargets(pr.runGitPullRequest, cfg, "origin", confirmed);
+  assert.equal(resolved.ok, false, "pushurl 指向异仓必须被展开发现");
+  assert.match(resolved.reason, /与已确认仓库不一致/);
+  git(["config", "remote.origin.pushurl", "git@github.com:ORG/REPO.git"], cfg);
+  resolved = await pr.resolveConfirmedPushTargets(pr.runGitPullRequest, cfg, "origin", confirmed);
+  assert.equal(resolved.ok, true, "同仓大小写差异的 scp pushurl 是正常形态");
+  git(["config", "remote.origin.pushurl", "https://github.com/org/other.git"], cfg);
+  git(["config", "url.https://evil.example/org/repo.git.pushInsteadOf", "https://github.com/org/other.git"], cfg);
+  resolved = await pr.resolveConfirmedPushTargets(pr.runGitPullRequest, cfg, "origin", confirmed);
+  assert.equal(resolved.ok, false, "无论该 Git 版本是否在 get-url 阶段应用 pushInsteadOf，异写目标（异仓或异主机）都必须拒绝");
 });
 
 test("C5 未知结果不可重放：每动作独立收据、unknown 只读对账、MERGED 只读恢复、账本不吞未对账", async () => {
@@ -941,4 +996,109 @@ test("C4-R3 revalidate 钩子：push 前失败零写入；push 后失败不创�
   // revalidate 抛异常＝拒绝（异常不得当成通过）
   result = await pr.createBranchPullRequest({ git: recordingGit(baseScript()).runner, gh: recordingGit([{ match: /^pr list/, stdout: jsonBuf([]) }]).runner, ledger: memoryLedger(), ...PR_OPTS, title: "t", body: "b", previewDigest: previewA.digest, revalidate: async () => { throw new Error("boom"); } });
   assert.equal(result.status, "blocked-verification");
+});
+
+test("C5 R5a/b/c：跨 cwd/大小写语义身份拒绝与精确结算；专用租约包裹；merge 前最终复核与 raw URL 脱敏", async () => {
+  // —— R5a：语义身份＝仓库(规范化)+动作+分支+SHA+base，与 cwd 拼写/大小写/时间戳新旧无关 ——
+  assert.equal(pr.receiptKey(["/repo", "exp/m1", FULL_SHA, "main"], "push", SELECTOR),
+    pr.receiptKey(["D:\\Elsewhere\\", "exp/m1", FULL_SHA.toUpperCase(), "main"], "push", "github.com/ORG/REPO"));
+  const gitA = recordingGit(baseScript());
+  const ghA = recordingGit([{ match: /^pr list/, stdout: jsonBuf([]) }]);
+  const ledgerA = memoryLedger([{ key: pr.receiptKey(["D:/elsewhere", "exp/m1", FULL_SHA, "main"], "push", "github.com/Org/Repo"),
+    root: "D:/elsewhere", branch: "exp/m1", sourceSha: FULL_SHA.toLowerCase(), base: "main", repoSelector: "github.com/Org/Repo",
+    action: "push", attemptAt: "2026-10-24T23:00:00Z", outcome: "unknown" }]);
+  const previewA = await previewOf(baseScript());
+  let result = await pr.createBranchPullRequest({ git: gitA.runner, gh: ghA.runner, ledger: ledgerA, ...PR_OPTS, title: "t", body: "b", previewDigest: previewA.digest });
+  assert.equal(result.status, "blocked-unknown", "另一窗口以别的工作目录拼写留下的同身份 push unknown（更旧时间戳）也必须先只读对账");
+  assert.equal(gitA.calls.filter(call => call.args.startsWith("push")).length, 0);
+  // —— R5a：MERGED 恢复精确结算两条同键尝试， unrelated unknown 原样保留 ——
+  const mKey = pr.mergeReceiptKey(SELECTOR, 21, FULL_SHA);
+  const ledgerB = memoryLedger([
+    { key: mKey, root: "/repo", branch: "pr#21", sourceSha: FULL_SHA, base: "main", repoSelector: SELECTOR, action: "merge", attemptAt: "2026-10-25T00:00:00Z", outcome: "unknown", attemptId: "m1" },
+    { key: mKey, root: "/repo", branch: "pr#21", sourceSha: FULL_SHA, base: "main", repoSelector: SELECTOR, action: "merge", attemptAt: "2026-10-25T00:00:01Z", outcome: "unknown", attemptId: "m2" },
+    { key: pr.receiptKey(["/repo", "exp/m1", FULL_SHA, "main"], "push", SELECTOR), root: "/repo", branch: "exp/m1", sourceSha: FULL_SHA, base: "main", repoSelector: SELECTOR, action: "push", attemptAt: "2026-10-25T00:00:02Z", outcome: "unknown", attemptId: "p1" },
+  ]);
+  const ghB = recordingGit([
+    { match: /^pr merge/, stdout: "MUST NOT MERGE" },
+    { match: /^pr view 21/, stdout: jsonBuf(PR_VIEW({ state: "MERGED", mergedAt: "x", mergeCommit: { oid: MERGE_SHA } })) },
+  ]);
+  const mergedRes = await pr.mergeBranchPullRequest({ gh: ghB.runner, ledger: ledgerB, cwd: "/repo", repoSelector: SELECTOR, prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1" });
+  assert.equal(mergedRes.status, "merged", JSON.stringify(mergedRes));
+  const rowsB = ledgerB.rows();
+  assert.equal(rowsB.filter(row => row.key === mKey && row.outcome === "unknown").length, 0);
+  assert.equal(rowsB.filter(row => row.key === mKey && row.outcome === "ok").length, 2, "两条尝试各自精确结清，不塌成一条");
+  assert.ok(rowsB.some(row => row.attemptId === "p1" && row.outcome === "unknown"), "其它操作的 unknown 收据绝不顺带清掉");
+  // —— R5b：create/merge 全程包在 C4 专用租约内（id 正确、fn 在租约内执行） ——
+  const leasesC = [];
+  const gitC = recordingGit([
+    { match: /^push/, stdout: "" },
+    { match: /^ls-remote --heads origin exp\//, stdout: "", uses: 1 },
+    { match: /^ls-remote --heads origin exp\//, stdout: FULL_SHA + "\trefs/heads/exp/m1\n" },
+    { match: /^rev-parse --verify refs\/heads\/exp\/m1/, stdout: FULL_SHA + "\n" },
+    ...baseScript(),
+  ]);
+  const ghC = recordingGit([
+    { match: /^pr list/, stdout: jsonBuf([]) },
+    { match: /^pr create/, stdout: "https://github.com/org/repo/pull/31\n" },
+    { match: /^pr view 31/, stdout: jsonBuf(PR_VIEW({ number: 31 })) },
+  ]);
+  result = await pr.createBranchPullRequest({ git: gitC.runner, gh: ghC.runner, ledger: memoryLedger(), ...PR_OPTS, title: "t", body: "b", previewDigest: previewA.digest,
+    withRepoLease: async (leaseId, fn) => { leasesC.push(leaseId); return fn(); } });
+  assert.equal(result.status, "created", JSON.stringify(result));
+  assert.equal(leasesC.length, 1);
+  assert.ok(leasesC[0].startsWith("branch-pr-op:") && leasesC[0].includes("/repo") && leasesC[0].includes("exp/m1"), leasesC[0]);
+  const leasesM = [];
+  const ghM = recordingGit([
+    { match: /^pr view 21/, stdout: jsonBuf(PR_VIEW()), uses: 1 },
+    { match: /^pr merge/, stdout: "merged" },
+    { match: /^pr view 21/, stdout: jsonBuf(PR_VIEW({ state: "MERGED", mergedAt: "x", mergeCommit: { oid: MERGE_SHA } })) },
+  ]);
+  const mergeLeased = await pr.mergeBranchPullRequest({ gh: ghM.runner, ledger: memoryLedger(), cwd: "/repo", repoSelector: SELECTOR, prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1",
+    withRepoLease: async (leaseId, fn) => { leasesM.push(leaseId); return fn(); } });
+  assert.equal(mergeLeased.status, "merged");
+  assert.equal(leasesM[0], "branch-pr-op:merge:github.com/org/repo:pr#21");
+  // —— R5c：真实仓 fetch 之后 origin 才漂移 → merge 前停止，且错误绝不回显 raw URL ——
+  const originDir = tempDir("se-r5-origin-");
+  git(["init", "-q", "--bare", "-b", "main", originDir], originDir);
+  const seed = tempDir("se-r5-seed-");
+  const dirA = tempDir("se-r5-A-"); const dirD = tempDir("se-r5-D-");
+  git(["clone", "-q", originDir, dirA], seed);
+  commitFile(dirA, "tracked.txt", "seed\n", "seed");
+  git(["push", "-q", "origin", "refs/heads/main:refs/heads/main"], dirA);
+  git(["clone", "-q", originDir, dirD], seed);
+  commitFile(dirD, "tracked.txt", "merged-remote\n", "remote advance");
+  git(["push", "-q", "origin", "refs/heads/main:refs/heads/main"], dirD);
+  const mergeSha = git(["rev-parse", "HEAD"], dirD).trim();
+  const expectedUrl = git(["remote", "get-url", "origin"], dirA).trim();
+  const identityOfDir = (dir) => ({ branch: git(["rev-parse", "--abbrev-ref", "HEAD"], dir).trim(), headCommit: git(["rev-parse", "HEAD"], dir).trim(),
+    dirty: git(["--no-optional-locks", "status", "--porcelain=v1"], dir).trim() !== "", error: "" });
+  const seen = [];
+  const hijackFetch = async (args, cwd, stdin) => {
+    const out = await pr.runGitPullRequest(args, cwd, stdin);
+    seen.push(args.join(" "));
+    if (args[0] === "fetch" && out.code === 0)
+      git(["remote", "set-url", "origin", "https://tok-secret@github.com/org/other.git"], dirA);
+    return out;
+  };
+  let ff = await pr.fastForwardAncestorRoot({ git: hijackFetch, cwd: dirA, remoteName: "origin", base: "main", expectedMergeCommit: mergeSha, expectedRemoteUrl: expectedUrl, readIdentity: () => identityOfDir(dirA) });
+  assert.equal(ff.status, "blocked", JSON.stringify(ff));
+  assert.match(ff.reason, /不一致/);
+  assert.ok(!ff.reason.includes("tok-secret") && !ff.reason.includes("tok-secret@github.com"), "错误信息绝不携带含凭据的 raw URL: " + ff.reason);
+  assert.ok(!seen.some(line => line.startsWith("merge ")), "漂移后绝不执行 merge");
+  git(["remote", "set-url", "origin", expectedUrl], dirA);
+  // —— R5c：祖先检查通过之后、merge 之前本机 HEAD 又移动 → 按初始确认停止 ——
+  const beforeHead = git(["rev-parse", "HEAD"], dirA).trim().toLowerCase();
+  const seen2 = [];
+  const hijackLateCommit = async (args, cwd, stdin) => {
+    const out = await pr.runGitPullRequest(args, cwd, stdin);
+    seen2.push(args.join(" "));
+    if (args[0] === "merge-base" && args[1] === "--is-ancestor" && String(args[2]).toLowerCase() === beforeHead && out.code === 0)
+      commitFile(dirA, "late.txt", "late\n", "late local move");
+    return out;
+  };
+  ff = await pr.fastForwardAncestorRoot({ git: hijackLateCommit, cwd: dirA, remoteName: "origin", base: "main", expectedMergeCommit: mergeSha, expectedRemoteUrl: expectedUrl, readIdentity: () => identityOfDir(dirA) });
+  assert.equal(ff.status, "blocked", JSON.stringify(ff));
+  assert.match(ff.reason, /merge 前本机 HEAD/);
+  assert.ok(!seen2.some(line => line.startsWith("merge ")), "HEAD 漂移后绝不执行 merge");
+  assert.equal(git(["rev-list", "--merges", "HEAD"], dirA).trim(), "", "本机未被写入任何合并提交");
 });

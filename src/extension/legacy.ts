@@ -2213,6 +2213,16 @@ export class RealtimeTunnelPanelProvider {
             return { ok: true };
         };
     }
+    /** R5b：C4 专用“仓/引用操作租约”——跨窗等待型互斥，覆盖确认后复核→网络写入→结清（可跨网络）；
+     * 账本短锁保留各自原子读改写，不使用 B 的全局调度锁包住 GitHub 调用；不同仓/分支互不牵连。 */
+    branchPrRepoLease() {
+        if (typeof this.withPluginStateFileLease !== "function") return undefined;
+        return (leaseId, fn) => {
+            const hash = crypto.createHash("sha256").update(String(leaseId)).digest("hex").slice(0, 24);
+            const file = path.join(API_DISCOVERY_DIR, `branch-pr-op-${hash}.lease.json`);
+            return this.withPluginStateFileLease(API_DISCOVERY_DIR, file, "branch-pr-operation", "科研仓 PR 操作（复核→写入→结清）", fn);
+        };
+    }
     /** PR 操作共同前置：分支项目身份＝登记分支的正常 HEAD；祖先登记提供真实 origin 与目标分支。 */
     async branchPrContext(message) {
         const picked = message?.branchProjectId ? { id: String(message.branchProjectId) } : await this.pickBranchProject("branch", "选择在哪个分支项目上操作科研仓 PR");
@@ -2249,6 +2259,7 @@ export class RealtimeTunnelPanelProvider {
             `合并目标分支：${ancestor.targetBranch}（远端头 ${String(preview.baseSha || "").slice(0, 10) || "未知"}）`,
             `推送来源：${identity.branch} @ ${identity.headCommit.slice(0, 10)}`,
             `既有 PR：${preview.existing.note}`,
+            "有效推送目标：已把该远端的全部实际写目标（含 pushurl/insteadOf 改写）逐一核对为同一已确认仓库（单目标）；任何异仓/多目标/未知形态都会被拒绝。",
             `相对基线：${preview.divergence === "unknown" ? "未知（本机没有该远端基线引用，不做猜测）" : `领先 ${preview.divergence.ahead}、落后 ${preview.divergence.behind}`}`,
             "工作树干净（候选门禁已核 dirty=false）。",
             `科研候选摘要（绑定不可变事实）：根 ${gate.candidate.root} · Git 公共目录 ${gate.candidate.commonDir}`,
@@ -2267,7 +2278,7 @@ export class RealtimeTunnelPanelProvider {
             branch: identity.branch, base: ancestor.targetBranch, sourceSha: identity.headCommit,
             title: `创新分支 ${identity.branch}${branchRow.record.label ? "（" + branchRow.record.label + "）" : ""}`,
             body: `由 SimpleExperiment 插件登记分支创建。\n- 分支：${identity.branch}\n- 源提交：${identity.headCommit}\n- 目标：${ancestor.targetBranch} @ ${preview.target.displayUrl}\n\n注意：代码运行验证由集群验证流程负责；本 PR 本身不代表科研结论已复核。`,
-            previewDigest: preview.digest, revalidate,
+            previewDigest: preview.digest, revalidate, withRepoLease: this.branchPrRepoLease(),
         });
         this.branchPrState = { at: new Date().toISOString(), action: "create", root: branchRow.record.workspaceRoot, branch: identity.branch, base: ancestor.targetBranch, sourceSha: identity.headCommit, targetUrl: preview.target.displayUrl, ...result };
         this.postState();
@@ -2304,7 +2315,7 @@ export class RealtimeTunnelPanelProvider {
         const revalidate = this.branchResearchRevalidate(branchRow.record.workspaceRoot, gate.selectedPlanIds, gate.candidate, identity.headCommit);
         const recheck = await revalidate();
         if (!recheck.ok) throw new Error(`合并写指令前科研确证复核未通过：${recheck.reason}；未发送任何写指令。`);
-        const merge = await BranchPullRequest.mergeBranchPullRequest({ gh: BranchPullRequest.runGh, ledger: this.branchPrReceiptLedger(), cwd: branchRow.record.workspaceRoot, repoSelector: preview.target.repoSelector, prNumber: pr.number, verifiedHeadSha: identity.headCommit, base: ancestor.targetBranch, branch: identity.branch, revalidate });
+        const merge = await BranchPullRequest.mergeBranchPullRequest({ gh: BranchPullRequest.runGh, ledger: this.branchPrReceiptLedger(), cwd: branchRow.record.workspaceRoot, repoSelector: preview.target.repoSelector, prNumber: pr.number, verifiedHeadSha: identity.headCommit, base: ancestor.targetBranch, branch: identity.branch, revalidate, withRepoLease: this.branchPrRepoLease() });
         if (merge.status !== "merged") {
             this.branchPrState = { at: new Date().toISOString(), action: "merge", root: branchRow.record.workspaceRoot, prNumber: pr.number, merged: false, status: merge.status, reason: merge.reason };
             this.postState();

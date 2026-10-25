@@ -144,3 +144,11 @@
 - 读侧对比：完整 revision＋codeFingerprint＋jobsConfirmed，删除死 githubCommit 展示；provenance 存储未扩展。
 - reader 第三版证据（295 行/30374B，sha256 81f09ea969405d12ddcd0a8d13561ea8c18159aa7787e8e1b317376d2a9f839e，含 §E）已归档；其上一稿"retryPulledJob 写回 executionSource"说法已被主控以 92 原文排除（14868 分支非真实清单写回；rerun 走新 rerunWorkflowId＋新 plan.id），不改生命周期、不清死码。
 - 勘误：本会话此前对 distributedPlanQueue.test.js "945-962 行已有冲突测试"的读取属中断轮幻影输出，实际文件 550 行且从无 FORMAL_JOB_IDENTITY_CONFLICT 覆盖——已按当前 grep 实况新增该测试。
+
+## 2026-10-25 块C4-R4/R5：语义身份收据、专用操作租约、ff 最终复核、有效推送目标与凭证细化
+- R5a：收据 key＝远端操作语义身份（repoSelector 规范化＋动作＋分支原值＋SHA 不敏感＋base 原值，刻意不含 cwd）——不同工作目录拼写/仓库大小写不能绕过未对账拒绝；openReceipt 对同键任何时间戳的未对账尝试原子拒绝（不再只挡“更新者”）；settle 按 attemptId 精确落自己行，同键其它尝试与其它操作 unknown 原样保留（merge 恢复逐条精确结清两条同键尝试的反例）；root 仍作展示字段。旧格式历史收据键不再匹配＝只作惰性遗留行保留，不迁移不冒充。
+- R5b：create/merge 全程包进 C4 专用“仓/引用操作租约”（withRepoLease 注入；legacy 用 withPluginStateFileLease 等待型跨窗互斥，lease 文件按 leaseId sha256 分散，不同仓/分支互不牵连），覆盖确认后复核→网络写入→结清；账本短锁保留各自原子读改写；不使用 B 全局调度锁包网络。第二进入者拿到租约后完整重跑复核（digest/HEAD/revalidate/语义 key 全量重读）。
+- R5c：fastForwardAncestorRoot 在真正 merge 前最后复核——分支/干净/无 error、HEAD 仍等于初始确认值、origin 二次核对、远端跟踪头未再移动；rejectRepoDrift 与新增复核错误只输出剥凭据的规范化目标或类别，绝不回显 raw URL（真实仓注入反例：fetch 后 origin 改为带凭据异仓 URL→blocked 且 reason 不含凭据、零 merge；祖先检查通过后本机 HEAD 又移动→blocked，本机无合并提交）。
+- R4 契约缺口（宿主审核）：预览原只看 fetch URL，`git push <remote>` 实际可被 remote.origin.pushurl/pushInsteadOf 改写→确认 A 写 B。现在 resolveConfirmedPushTargets 用 Git 现成只读 `remote get-url --push --all <remote>` 展开有效写目标：任何目标不可规范化/含凭据/非 GitHub→拒绝；多目标→拒绝（不保证单目标原子语义，不改写用户配置）；异仓→拒绝。预览摘要与 digest 绑定 pushRepo，create 在真正 push 前再核一次，确认后目标变化＝零写入。真实临时 Git 配置（pushurl 异仓/同仓大小写 scp/pushInsteadOf 存在）仅以 get-url 只读证明，不联网不真的 push。
+- 凭证/端口细化（同一凭据边界）：任何协议显式 URL.password 一律拒绝（含 ssh://git:password@），https 用户名（token 形态）沿用拒绝；github.com 非默认/未知端口（ssh:7999、https:8443）拒绝，不再忽略后冒称标准端点；显式 ssh 22/隐式 443 默认仍通过（原默认 22 正例保留）。
+- reader 第三版证据已归档（§E 与 plan.id 更正轮）。

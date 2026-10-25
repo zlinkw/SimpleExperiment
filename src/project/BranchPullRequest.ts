@@ -65,8 +65,10 @@ export function normalizeGithubTarget(rawUrl: string): GithubTarget | undefined 
   if (/^(https?|ssh):\/\//i.test(raw)) {
     let url; try { url = new URL(raw); } catch { return undefined; }
     if (!/^https?:$/.test(url.protocol) && !/^ssh:$/.test(url.protocol)) return undefined;
-    if (/^https?:$/.test(url.protocol) && (url.username || url.password)) return undefined; // 仅 https 带凭证拒绝；ssh 登录名（git@）是正常形态
-    host = url.hostname.toLowerCase(); pathPart = url.pathname; // ssh:// 的端口不属于仓库身份，忽略
+    if (url.password) return undefined; // 任何协议的显式 URL.password 一律拒绝（含 ssh://user:password@）；SSH 正常登录名（git@）仍可用
+    if (/^https?:$/.test(url.protocol) && url.username) return undefined; // https 的用户名（含 token 形态）沿用既有拒绝契约
+    if (url.port && url.port !== (url.protocol === "ssh:" ? "22" : "")) return undefined; // github.com 非默认/未知端口不得忽略后冒称标准端点（显式 22/隐式 443 仍是默认）
+    host = url.hostname.toLowerCase(); pathPart = url.pathname;
   } else {
     const match = /^(?:[^@/\s]+@)?([^:/\s]+)[:/](.+)$/.exec(raw);
     if (!match) return undefined;
@@ -85,6 +87,25 @@ export function normalizeGithubTarget(rawUrl: string): GithubTarget | undefined 
 
 /** GitHub 仓库/分支比较口径：owner/repo 大小写保留原样但身份比较不敏感；分支引用名大小写敏感。 */
 const sameRepo = (a?: GithubTarget, b?: GithubTarget) => Boolean(a && b && a.displayUrl.toLowerCase() === b.displayUrl.toLowerCase());
+
+/**
+ * R4：确认“有效推送目标”集合——`git push <remote>` 实际可能走 remote.origin.pushurl 或
+ * pushInsteadOf 改写后的地址；用 Git 现成只读命令 `remote get-url --push --all <remote>` 展开真实写目标，
+ * 要求每个目标都能规范化为已确认仓库。多目标（无法保证单目标原子语义）、未知/含凭据、或与确认仓不同——
+ * 一律拒绝且不改动用户配置。错误只给剥凭据的规范化目标或类别，绝不回显 raw URI。
+ */
+export async function resolveConfirmedPushTargets(git: PullRequestRunner, cwd: string, remoteName: string, confirmed: GithubTarget): Promise<{ ok: boolean; reason?: string; target?: GithubTarget; selector?: string }> {
+  const query = await git(["remote", "get-url", "--push", "--all", remoteName], cwd);
+  if (query.code !== 0) return { ok: false, reason: `无法读取 ${remoteName} 的有效推送目标（remote get-url --push --all exit ${query.code}），按未知拒绝写入。` };
+  const urls = query.stdout.toString("utf8").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  if (!urls.length) return { ok: false, reason: `${remoteName} 的有效推送目标为空（配置异常），按未知拒绝写入。` };
+  const targets = urls.map(normalizeGithubTarget);
+  if (targets.some(row => !row)) return { ok: false, reason: "有效推送目标包含无法规范化/含凭据/非 GitHub 的地址（不显示原文），拒绝写入。" };
+  const selectors = [...new Set(targets.map(row => row!.repoSelector.toLowerCase()))];
+  if (selectors.length > 1) return { ok: false, reason: `${remoteName} 的有效推送目标展开为 ${selectors.length} 个不同仓库，无法保证单目标确认语义，拒绝写入（不会替你改写 Git 配置）。` };
+  if (!sameRepo(targets[0], confirmed)) return { ok: false, reason: `有效推送目标（${targets[0]!.displayUrl}）与已确认仓库不一致（如 pushurl/insteadOf 改写），拒绝写入。` };
+  return { ok: true, target: targets[0], selector: selectors[0] };
+}
 
 /** stderr 分类：仅命中已知“写请求确定未执行/被拒”特征才算 definite-failed，其余非零一律 unknown（保守，不重放）。 */
 const DEFINITE_REJECT_PATTERNS = [/\((?:non-fast-forward|fetch first|stale info)\)/i, /rejected/i, /already exists/i, /must be reviewed/i, /could not (?:read from remote repository|find repository|resolve)/i, /invalid argument|unknown flag|unknown argument/i, /protected branch/i, /permission denied \(/i];
@@ -162,6 +183,8 @@ export type PrPreview = {
   ok: boolean; reason?: string;
   target?: GithubTarget;
   remoteName?: string; base?: string; branch?: string; sourceSha?: string; baseSha?: string;
+  /** 已确证的唯一有效推送目标（规范化 selector）；确认后变化＝写前复核失败。 */
+  pushRepo?: string;
   baseState?: "found" | "missing" | "unknown";
   branchRemoteSha?: string;
   existing?: PrClassification;
@@ -186,6 +209,9 @@ export async function previewBranchPullRequest(options: {
   if (!live) return fail("当前 origin URL 无法规范化为 GitHub 仓库目标（非 github.com、含凭证或形态异常），按未知停止，不猜测。");
   if (!registered) return fail("登记祖先的 origin 无法规范化（非 github.com 或含凭证）：无法执行漂移校验，拒绝操作。请重新登记祖项目标。");
   if (!sameRepo(live, registered)) return fail(`实际 origin（${live.displayUrl}）与登记祖先（${registered.displayUrl}）不是同一已确认仓库——目标漂移，请重新登记祖先后再操作。`);
+  // fetch 地址一致不代表 push 地址一致：pushurl/pushInsteadOf 可指向另一仓，任何不可确证的写目标都拒绝。
+  const pushTargets = await resolveConfirmedPushTargets(git, cwd, remoteName, live);
+  if (!pushTargets.ok) return fail(pushTargets.reason || "有效推送目标无法确证。");
   const baseQuery = await git(["ls-remote", "--heads", remoteName, base], cwd);
   if (baseQuery.code !== 0) return fail(`目标分支查询失败（${baseQuery.stderr.slice(0, 160) || `exit ${baseQuery.code}`}），按未知停止。`);
   const baseLine = baseQuery.stdout.toString("utf8").split(/\r?\n/).map(line => line.split("\t")).filter(parts => parts[1] === `refs/heads/${base}`)[0];
@@ -201,7 +227,7 @@ export async function previewBranchPullRequest(options: {
     }
   } catch { /* 保持 unknown */ }
   const preview: PrPreview = {
-    ok: true, target: live, remoteName, base, branch, sourceSha: sourceSha.toLowerCase(),
+    ok: true, target: live, remoteName, base, branch, sourceSha: sourceSha.toLowerCase(), pushRepo: pushTargets.selector,
     baseSha: baseLine ? baseLine[0].toLowerCase() : undefined, baseState: baseLine ? "found" : (baseQuery.stdout.toString("utf8").trim() ? "unknown" : "missing"),
     branchRemoteSha: branchLine ? branchLine[0].toLowerCase() : "",
     divergence, existing: { kind: "unknown", note: "未配置 gh，无法确认既有 PR" },
@@ -222,11 +248,13 @@ export async function previewBranchPullRequest(options: {
 
 function digestPreview(preview: PrPreview): string {
   return JSON.stringify([preview.target?.displayUrl.toLowerCase() || "", preview.remoteName, preview.base, preview.branch, preview.sourceSha,
-    preview.baseState, preview.baseSha || "", preview.branchRemoteSha || "", preview.existing?.kind, preview.existing?.pr?.number ?? null, String(preview.divergence)]);
+    preview.pushRepo || "", preview.baseState, preview.baseSha || "", preview.branchRemoteSha || "", preview.existing?.kind, preview.existing?.pr?.number ?? null, String(preview.divergence)]);
 }
 
 export type Receipt = { key: string; root: string; branch: string; sourceSha: string; base: string; repoSelector: string;
-  action: "push" | "pr-create" | "merge"; attemptAt: string; outcome: "ok" | "definite-failed" | "unknown"; detail?: string; prNumber?: number };
+  action: "push" | "pr-create" | "merge"; attemptAt: string; outcome: "ok" | "definite-failed" | "unknown"; detail?: string; prNumber?: number;
+  /** 本次尝试的独立身份：settle 只更新自己的行，绝不 filter(key) 吞掉同键其它尝试或旧 unknown。 */
+  attemptId?: string };
 /** 账本契约：load/save 原子对；withLock（若提供）把一次读-改-写放进同一短资源事务，防多窗口互相丢写。key 必含 action。 */
 export type ReceiptLedger = { load(): Promise<Receipt[]>; save(rows: Receipt[]): Promise<void>; withLock?<T>(fn: () => Promise<T>): Promise<T> };
 
@@ -237,23 +265,36 @@ export function pruneReceipts(rows: Receipt[]): Receipt[] {
   return [...unresolved, ...settled];
 }
 
+/** 租约/收据用的工作目录规范形（大小写与分隔符不敏感、去尾分隔符）；仅用于身份键，不改展示字段。 */
+export function normalizeReceiptRoot(root: string): string {
+  return String(root || "").trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
 function inLedger<T>(ledger: ReceiptLedger, fn: () => Promise<T>): Promise<T> {
   return ledger.withLock ? ledger.withLock(fn) : fn();
 }
 
-/** 写前落 unknown 收据；只有执行器或只读对账确定结局时才更新；账本读失败＝拒绝任何写入。 */
+/**
+ * R5a 写前落 unknown 收据：同一远端操作语义身份（key＝repoSelector 规范化＋动作＋分支＋SHA＋base，
+ * 与 cwd 拼写无关）下只要存在任何未对账尝试就原子拒绝（不再只挡“更新的时间戳”）；不同动作/仓库不受牵连。
+ * settle 按 attemptId 精确结算自己的行；同键其它尝试与其它键的 unknown 一律原样保留。
+ */
 async function openReceipt(ledger: ReceiptLedger, fields: Omit<Receipt, "outcome" | "attemptAt">): Promise<{ row: Receipt; settle(outcome: Receipt["outcome"], detail?: string, prNumber?: number): Promise<void> }> {
-  const row: Receipt = { ...fields, attemptAt: new Date().toISOString(), outcome: "unknown" };
+  const row: Receipt = { ...fields, attemptAt: new Date().toISOString(), outcome: "unknown", attemptId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}` };
   await inLedger(ledger, async () => {
     const rows = await ledger.load();
-    if (rows.some(item => item.key === row.key && item.outcome === "unknown" && item.attemptAt > row.attemptAt)) throw new Error("收据竞态：保留先前未知尝试");
-    await ledger.save(pruneReceipts([...rows.filter(item => item.key !== row.key || item.outcome === "unknown"), row]));
+    if (rows.some(item => item.key === row.key && item.outcome === "unknown")) throw new Error("同一远端操作已有未对账尝试（任何时间戳），拒绝再次落盘；先只读对账。");
+    await ledger.save(pruneReceipts([...rows, row]));
   });
   return { row, settle: async (outcome, detail, prNumber) => {
     try {
       await inLedger(ledger, async () => {
         const latest = await ledger.load();
-        await ledger.save(pruneReceipts([...latest.filter(item => item.key !== row.key), { ...row, outcome, detail: String(detail || "").slice(0, 400), prNumber }]));
+        const settled = { ...row, outcome, detail: String(detail || "").slice(0, 400), prNumber };
+        const owned = latest.some(item => item.attemptId && item.attemptId === row.attemptId);
+        await ledger.save(pruneReceipts(owned
+          ? latest.map(item => item.attemptId === row.attemptId ? settled : item)
+          : [...latest.filter(item => item.key !== row.key || item.outcome === "unknown"), settled]));
       });
     } catch { /* 保留先前 unknown 收据：宁可多一次人工对账，不制造可重放假象 */ }
   } };
@@ -310,18 +351,27 @@ async function verifyPrIdentity(gh: PullRequestRunner, cwd: string, target: Gith
  * 创建/复用 PR（调用方已完成 modal 确认）。步骤＝unknown 收据只读对账 → 写前复核（digest+本地 HEAD 未变）→
  * 普通推送（immutable SHA，仅当远端缺该 SHA）→ gh pr create（真实 CLI 形态）→ 只读核验。任何未确证＝blocked，不重发。
  */
-export async function createBranchPullRequest(options: {
+export type CreateBranchPullRequestOptions = {
   git: PullRequestRunner; gh: PullRequestRunner; ledger: ReceiptLedger;
   cwd: string; remoteName: string; registeredRemoteUrl: string; branch: string; base: string; sourceSha: string;
   title: string; body: string; previewDigest: string;
   /** R3：每次不可逆写入前由调用方用同一校验器重读身份＋队列（撤证/命令/版本变化、manifest 缺失＝拒绝）。 */
   revalidate?: () => Promise<{ ok: boolean; reason?: string }>;
-}): Promise<CreateResult> {
+  /** R5b：C4 专用“仓/引用操作租约”，覆盖确认后复核→网络写入→结清全程；等待型互斥，第二进入者拿到租约后完整重读。 */
+  withRepoLease?: <T>(leaseId: string, fn: () => Promise<T>) => Promise<T>;
+};
+export async function createBranchPullRequest(options: CreateBranchPullRequestOptions): Promise<CreateResult> {
+  if (options.withRepoLease)
+    return options.withRepoLease(`branch-pr-op:${normalizeReceiptRoot(options.cwd)}:${options.branch}:${options.base}`, () => createBranchPullRequestLeased(options));
+  return createBranchPullRequestLeased(options);
+}
+async function createBranchPullRequestLeased(options: CreateBranchPullRequestOptions): Promise<CreateResult> {
   const { git, gh, ledger, cwd, remoteName, branch, base, sourceSha, title, body, previewDigest } = options;
   const targetKey = [cwd, branch, sourceSha.toLowerCase(), base];
   let unknowns: Receipt[];
-  try { unknowns = (await loadUnknownReceipts(ledger)).filter(row => row.root === targetKey[0] && row.branch === branch
-    && row.sourceSha === sourceSha.toLowerCase() && row.base === base); }
+  // 语义身份与 cwd 无关：任何未对账的同操作收据（哪怕登记在别的工作目录拼写/大小写下）都进入对账视野。
+  try { unknowns = (await loadUnknownReceipts(ledger)).filter(row => row.branch === branch
+    && String(row.sourceSha).toLowerCase() === sourceSha.toLowerCase() && row.base === base); }
   catch (error) { return { status: "blocked-unknown", reason: `收据账本不可读/已损坏（${String((error as Error)?.message || error).slice(0, 160)}），无法确认是否存在未对账写入，拒绝任何写入。` }; }
   const preview = await previewBranchPullRequest({ git, gh, cwd, remoteName, registeredRemoteUrl: options.registeredRemoteUrl, branch, base, sourceSha });
   if (!preview.ok) return { status: "blocked-unknown", reason: `写前复核未通过：${preview.reason}`, note: unknowns.length ? "存在未对账的写操作收据，未重试任何写入。" : "" };
@@ -329,13 +379,13 @@ export async function createBranchPullRequest(options: {
   const target = preview.target!;
   if (preview.baseState !== "found") return { status: "blocked-unknown", reason: "目标基线在写前复核时不可确定，未写入。" };
   // R5：unknown 收据先只读对账——只有精确证明已落地才继续，且每种动作只补做“确证未发生”的后继步骤。
-  const pushUnknown = unknowns.find(row => row.action === "push");
+  const pushUnknown = unknowns.find(row => row.key === receiptKey(targetKey, "push", target.repoSelector));
   if (pushUnknown && pushUnknown.outcome === "unknown") {
     if ((preview.branchRemoteSha || "") !== preview.sourceSha)
       return { status: "blocked-unknown", reason: `存在未对账的 push 收据且远端 ${branch} 当前头无法精确证明该次推送已落地/未落地；不重发，请稍后重新预览对账（若已在网页处理，可用“合并PR”只读恢复）。` };
     await (await openReceiptResolved(ledger, pushUnknown)).settle("ok", "只读对账：远端分支头恰等于该收据的源 SHA");
   }
-  const prUnknown = unknowns.find(row => row.action === "pr-create" && row.sourceSha === sourceSha.toLowerCase());
+  const prUnknown = unknowns.find(row => row.key === receiptKey(targetKey, "pr-create", target.repoSelector));
   if (prUnknown && prUnknown.outcome === "unknown") {
     if (preview.existing?.kind === "none") return { status: "blocked-unknown", reason: "存在未对账的 pr-create 收据，只读核对未能精确证明其已建/未建；不重发。可稍后重试（仅只读对账）或在网页确认后再操作。" };
     if (preview.existing?.kind === "merged" && preview.existing.pr) {
@@ -370,6 +420,10 @@ export async function createBranchPullRequest(options: {
     if (!gate.ok) return { status: "blocked-verification", reason: `写前科研确证复核未通过：${gate.reason || "候选摘要不再成立"}。本次零写入。` };
   }
   if (preview.branchRemoteSha !== preview.sourceSha) {
+    // R4：真正 push 前再核一次有效推送目标（pushurl/pushInsteadOf 在确认后可能被改动）；变化＝零写入。
+    const pushNow = await resolveConfirmedPushTargets(git, cwd, remoteName, target);
+    if (!pushNow.ok || pushNow.selector !== preview.pushRepo)
+      return { status: "blocked-unknown", reason: `写前推送目标复核未通过：${pushNow.reason || "有效推送目标在确认后发生变化"}。本次零写入。` };
     let receipt;
     try { receipt = await openReceipt(ledger, { key: receiptKey(targetKey, "push", target.repoSelector), root: cwd, branch, sourceSha: sourceSha.toLowerCase(), base, repoSelector: target.repoSelector, action: "push" }); }
     catch (error) { return { status: "blocked-unknown", reason: `写入前无法落收据（${String((error as Error)?.message || error).slice(0, 160)}）——没有收据就没有“不重放”保证，本次未写入。` }; }
@@ -443,12 +497,21 @@ export async function createBranchPullRequest(options: {
   return { status: "created", prNumber: number, url: verified.url };
 }
 
+/** 只读对账后的结清：只落这一条确证尝试（attemptId 优先，旧记录退回“同键+unknown”单条），其它行原样保留。 */
 async function openReceiptResolved(ledger: ReceiptLedger, prior: Receipt): Promise<{ settle(outcome: Receipt["outcome"], detail?: string, prNumber?: number): Promise<void> }> {
   return { settle: async (outcome, detail, prNumber) => {
     try {
       await inLedger(ledger, async () => {
         const rows = await ledger.load();
-        await ledger.save(pruneReceipts([...rows.filter(item => item.key !== prior.key), { ...prior, outcome, detail: String(detail || "").slice(0, 400), prNumber }]));
+        const settled = { ...prior, outcome, detail: String(detail || "").slice(0, 400), prNumber };
+        let hit = false;
+        const next = rows.map(item => {
+          const match = prior.attemptId ? item.attemptId === prior.attemptId : item.key === prior.key && item.outcome === "unknown";
+          if (!match || hit) return item;
+          hit = true;
+          return settled;
+        });
+        await ledger.save(pruneReceipts(hit ? next : [...rows, settled]));
       });
     } catch { /* 保留原 unknown */ }
   } };
@@ -471,11 +534,19 @@ async function viewPrState(gh: PullRequestRunner, cwd: string, repoSelector: str
  * unknown merge 收据只读对账不重发；仅 --merge + --match-head-commit；退出码不作结论，
  * 必须再 view 到 MERGED+mergeCommit。
  */
-export async function mergeBranchPullRequest(options: {
+export type MergeBranchPullRequestOptions = {
   gh: PullRequestRunner; ledger: ReceiptLedger; cwd: string; repoSelector: string; prNumber: number; verifiedHeadSha: string; base: string; branch: string;
   /** R3：合并写指令发出前由调用方用同一校验器重读身份＋队列。 */
   revalidate?: () => Promise<{ ok: boolean; reason?: string }>;
-}): Promise<MergeResult> {
+  /** R5b：同 create——覆盖只读重查→合并指令→复核结清全程的专用租约。 */
+  withRepoLease?: <T>(leaseId: string, fn: () => Promise<T>) => Promise<T>;
+};
+export async function mergeBranchPullRequest(options: MergeBranchPullRequestOptions): Promise<MergeResult> {
+  if (options.withRepoLease)
+    return options.withRepoLease(`branch-pr-op:merge:${String(options.repoSelector).toLowerCase()}:pr#${options.prNumber}`, () => mergeBranchPullRequestLeased(options));
+  return mergeBranchPullRequestLeased(options);
+}
+async function mergeBranchPullRequestLeased(options: MergeBranchPullRequestOptions): Promise<MergeResult> {
   const { gh, ledger, cwd, repoSelector, prNumber, verifiedHeadSha, base, branch } = options;
   if (!Number.isInteger(prNumber) || prNumber <= 0) return { status: "blocked-unknown", reason: "PR 编号无效。" };
   if (!/^[0-9a-f]{40}$/i.test(String(verifiedHeadSha || ""))) return { status: "blocked-unknown", reason: "缺少已确认候选 SHA（本机 HEAD），拒绝合并（不允许无 match-head 合并）。" };
@@ -537,12 +608,17 @@ export async function mergeBranchPullRequest(options: {
 
 export type FastForwardResult = { status: "fast-forwarded" | "already-current" | "blocked" | "failed"; from?: string; to?: string; reason?: string };
 
-/** 收据 key（动作/目标/SHA 维度）：push/pr-create 各自独立，互不覆盖。 */
+/**
+ * 收据 key＝远端操作语义身份：GitHub 仓库（大小写不敏感规范化）＋动作＋分支（大小写敏感引用原值）＋SHA（不敏感）＋base 原值。
+ * 刻意不含 cwd——同一远端操作换个工作目录拼写不能绕过未对账拒绝；root 仍作展示字段保留在行里。
+ * push/pr-create/merge 各自动作互不覆盖。
+ */
 export function receiptKey(targetKey: string[], action: Receipt["action"], repoSelector: string): string {
-  return JSON.stringify([...targetKey, action, repoSelector]);
+  const [, branch, sourceSha, base] = targetKey;
+  return JSON.stringify([String(repoSelector).toLowerCase(), action, String(branch), String(sourceSha).toLowerCase(), String(base)]);
 }
 export function mergeReceiptKey(repoSelector: string, prNumber: number, verifiedHeadSha: string): string {
-  return JSON.stringify([repoSelector, prNumber, verifiedHeadSha.toLowerCase(), "merge"]);
+  return JSON.stringify([String(repoSelector).toLowerCase(), "merge", prNumber, String(verifiedHeadSha).toLowerCase()]);
 }
 
 /**
@@ -560,8 +636,10 @@ export async function fastForwardAncestorRoot(options: {
     const liveRaw = String(url || "").trim(); const expectedRaw = String(expectedRemoteUrl || "").trim();
     if (liveRaw && liveRaw === expectedRaw) return "";
     const live = normalizeGithubTarget(liveRaw); const expected = normalizeGithubTarget(expectedRaw);
-    return sameRepo(live, expected) ? ""
-      : `真实 origin（${liveRaw.slice(0, 120)}）与已确认祖先 origin（${expectedRaw.slice(0, 120)}）不一致，停止（未 fetch、未改动）。`;
+    if (sameRepo(live, expected)) return "";
+    // UI/收据错误只展示剥凭据后的规范化目标或类别，绝不回显 raw URL（其中可能带确认后新出现的凭证）。
+    const show = (target: ReturnType<typeof normalizeGithubTarget>, raw: string) => target ? target.displayUrl : (raw ? "无法规范化的地址（凭据已剥离，不显示原文）" : "空");
+    return `真实 origin（${show(live, liveRaw)}）与已确认祖先 origin（${show(expected, expectedRaw)}）不一致，停止（未 fetch、未改动）。`;
   };
   const check = (): FastForwardResult | undefined => {
     const identity = readIdentity();
@@ -597,6 +675,16 @@ export async function fastForwardAncestorRoot(options: {
   if (to === beforeHead) return { status: "already-current", from: beforeHead, to };
   const ancestor = await git(["merge-base", "--is-ancestor", beforeHead, to], cwd);
   if (ancestor.code !== 0) return { status: "blocked", reason: `本机 ${beforeHead.slice(0, 10)} 不是远端 ${to.slice(0, 10)} 的祖先（已分叉），跳过快进，绝不合并提交/reset。` };
+  // R5c：真正 merge 前的最后复核——身份/干净/分支、HEAD 仍是初始确认值、origin 仍匹配、跟踪头未再移动。
+  const preMerge = check(); if (preMerge) return preMerge;
+  const preHead = readIdentity().headCommit.toLowerCase();
+  if (preHead !== beforeHead) return { status: "blocked", reason: `merge 前本机 HEAD 已从 ${beforeHead.slice(0, 10)} 变为 ${preHead.slice(0, 10)}，按初始确认停止，不追新。` };
+  const liveUrl2 = await git(["remote", "get-url", remoteName], cwd);
+  const drift2 = liveUrl2.code !== 0 ? "本地远端在复核期间消失" : rejectRepoDrift(liveUrl2.stdout.toString("utf8"));
+  if (drift2) return { status: "blocked", reason: drift2.replace("，停止（未 fetch、未改动）。", "，merge 前停止（本机未改动）。") };
+  const remoteHeadNow = await git(["rev-parse", `refs/remotes/${remoteName}/${base}`], cwd);
+  const toNow = remoteHeadNow.code === 0 ? remoteHeadNow.stdout.toString("utf8").trim().toLowerCase() : "";
+  if (toNow !== to) return { status: "blocked", reason: "merge 前远端跟踪头已再次变化，停止；请重新预览确认后再快进。" };
   const ff = await git(["merge", "--ff-only", to], cwd); // 已核完整 SHA，不用可漂移符号 ref
   if (ff.code !== 0) return { status: "blocked", reason: `ff-only 未生效：${(ff.stderr || ff.stdout.toString("utf8") || "").slice(0, 240)}。未做任何合并提交/reset。` };
   return { status: "fast-forwarded", from: beforeHead, to };
