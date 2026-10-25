@@ -387,11 +387,23 @@ test("C3 当前提交树逐文件 blob 字节核对：忽略/未跟踪依赖=无
   result = await binding.bindPlanSourceToCommit({ runner: binding.runGitBinary, cwd: repo, headCommit: head3,
     executionSource: renewed, planFile, revision: revisionOf(renewed) });
   assert.equal(result.ok, true, JSON.stringify(result.failures));
-  // ⑥ 不存在的提交/篡改摘要/revision 漂移/非法路径：全部失败关闭
-  result = await binding.bindPlanSourceToCommit({ runner: binding.runGitBinary, cwd: repo, headCommit: head3 + "00000000",
+  // ⑥ 非完整 SHA/不存在的提交/篡改摘要/revision 漂移/非法路径：全部失败关闭
+  // Git 对“有效 40SHA+8 零”的 48 位串可能 exit0 解析回原提交（宿主 274 只读实证）——精确身份必须
+  // 自己把关：绑定入口先拒格式，拒之前不得发起任何 Git 调用；不存在的对象经 ^{commit} 解引用真实拦停。
+  const callsOf = [];
+  const recordingRunner = async (args, cwdArg, stdin) => { callsOf.push(args.join(" ")); return binding.runGitBinary(args, cwdArg, stdin); };
+  result = await binding.bindPlanSourceToCommit({ runner: recordingRunner, cwd: repo, headCommit: head3 + "00000000",
     executionSource: renewed, planFile, revision: revisionOf(renewed) });
   assert.equal(result.ok, false);
+  assert.match(result.failures[0].reason, /完整 40 位/);
+  assert.deepEqual(callsOf, [], "格式拒绝之前零子进程：不得借 Git 的宽容解析蒙混");
+  callsOf.length = 0;
+  result = await binding.bindPlanSourceToCommit({ runner: recordingRunner, cwd: repo, headCommit: "0".repeat(40),
+    executionSource: renewed, planFile, revision: revisionOf(renewed) });
+  assert.equal(result.ok, false, "40 个零＝格式合法但对象真实不存在，必须按不存在/不可读失败");
   assert.match(result.failures[0].reason, /不存在或不可读/);
+  assert.ok(callsOf.some(line => line === `rev-parse --verify --quiet ${"0".repeat(40)}^{commit}`), JSON.stringify(callsOf));
+  callsOf.length = 0;
   result = await binding.bindPlanSourceToCommit({ runner: binding.runGitBinary, cwd: repo, headCommit: head3,
     executionSource: { ...renewed, digest: "0".repeat(64) }, planFile, revision: revisionOf(renewed) });
   assert.equal(result.ok, false);
@@ -430,13 +442,15 @@ test("C3 假执行器：ls-tree 符号链接/缺路径与 cat-file 帧缺失/非
     Buffer.from(treeOid + " tree 0\n\n"),
   ]);
   const requested = [];
+  const revRequests = [];
   const runner = async (args, _cwd, stdin) => {
-    if (args[0] === "rev-parse") return { code: 0, stdout: Buffer.from("tree\n"), stderr: "" };
+    if (args[0] === "rev-parse") { revRequests.push(args.join(" ")); return { code: 0, stdout: Buffer.from("c".repeat(40) + "\n"), stderr: "" }; } // 已知完整 commit 常量：满足解析往返
     if (args[0] === "ls-tree") return { code: 0, stdout: Buffer.from(listing, "utf8"), stderr: "" };
     if (args[0] === "cat-file") { requested.push(String(stdin)); return { code: 0, stdout: batch, stderr: "" }; }
     throw new Error("unexpected " + args.join(" "));
   };
   const result = await binding.verifyCommitTreeAgainstManifest({ runner, cwd: "/fixture", commit: "c".repeat(40), manifest });
+  assert.deepEqual(revRequests, ["rev-parse --verify --quiet " + "c".repeat(40) + "^{commit}"], "唯一一次提交核验＝规范化完整 SHA 的 ^{commit} 精确请求");
   assert.equal(result.ok, false);
   assert.equal(result.coveredFiles, 1, "唯一逐字节一致的文件");
   assert.equal(requested.length, 1, "≤300 个对象单批读取");
@@ -449,7 +463,7 @@ test("C3 假执行器：ls-tree 符号链接/缺路径与 cat-file 帧缺失/非
   assert.ok(!serialized.includes(JSON.stringify("x\n")), "失败信息不得携带 blob 内容");
   // 截断帧：声明大小但字节不足 → 全部剩余帧按未知处理，不得判为一致
   const truncRunner = async (args) => {
-    if (args[0] === "rev-parse") return { code: 0, stdout: Buffer.from("t\n"), stderr: "" };
+    if (args[0] === "rev-parse") return { code: 0, stdout: Buffer.from("c".repeat(40) + "\n"), stderr: "" };
     if (args[0] === "ls-tree") return { code: 0, stdout: Buffer.from("100644 blob " + okOid + "\ta.py\0", "utf8"), stderr: "" };
     return { code: 0, stdout: Buffer.from(okOid + " blob 9\nx\n"), stderr: "" };
   };
@@ -819,12 +833,10 @@ test("C5 祖先 ff：真实仓包含合并提交的后续头可安全快进；�
   git(["push", "-q", "origin", "refs/heads/main:refs/heads/main"], dirA);
   git(["clone", "-q", originDir, dirC], seed); // 在 seed 落地后克隆：与 dirA 共享历史，避免无关根推送被拒
   const expectedRemoteUrl = git(["remote", "get-url", "origin"], dirA).trim();
-  const identityOf = (dir) => {
-    const branch = git(["rev-parse", "--abbrev-ref", "HEAD"], dir).trim();
-    const headCommit = git(["rev-parse", "HEAD"], dir).trim();
-    const dirty = git(["--no-optional-locks", "status", "--porcelain=v1"], dir).trim() !== "";
-    return { branch, headCommit, dirty, error: "" };
-  };
+  // 身份观测面＝产品同一真实探针（宿主 274 轮只读证实：旧手写 identity 走 gitGitEnv 强加
+  // GIT_CONFIG_NOSYSTEM/GIT_ATTR_NOSYSTEM，把系统 core.autocrlf 环境里 ff 正确写出的 CRLF 工作树
+  // 误判为脏；产品注入的是 readGitIdentity，与 runGitPullRequest 同 sanitize/process 环境）。
+  const identityOf = (dir) => probe.readGitIdentity(dir);
   const ffOptions = (identity, expectedMergeCommit) => ({ git: pr.runGitPullRequest, cwd: dirA, remoteName: "origin", base: "main", expectedMergeCommit, expectedRemoteUrl, readIdentity: identity });
   // 合并提交落地后远端又前进（包含 merge 的后续头）→ 允许 ff 到已核完整 SHA
   commitFile(dirC, "tracked.txt", "merge-landed\n", "merge landed");
@@ -1086,8 +1098,7 @@ test("C5 R5a/b/c：跨 cwd/大小写语义身份拒绝与精确结算；专用�
   git(["push", "-q", "origin", "refs/heads/main:refs/heads/main"], dirD);
   const mergeSha = git(["rev-parse", "HEAD"], dirD).trim();
   const expectedUrl = git(["remote", "get-url", "origin"], dirA).trim();
-  const identityOfDir = (dir) => ({ branch: git(["rev-parse", "--abbrev-ref", "HEAD"], dir).trim(), headCommit: git(["rev-parse", "HEAD"], dir).trim(),
-    dirty: git(["--no-optional-locks", "status", "--porcelain=v1"], dir).trim() !== "", error: "" });
+  const identityOfDir = (dir) => probe.readGitIdentity(dir); // 同 C5 ff：观测面必须与产品注入的探针一致（NoSystem env 会失真 autocrlf）
   const seen = [];
   const hijackFetch = async (args, cwd, stdin) => {
     const out = await pr.runGitPullRequest(args, cwd, stdin);

@@ -94,15 +94,24 @@ export type ManifestBindingResult = {
 export async function verifyCommitTreeAgainstManifest(options: {
   runner: HeadBindingRunner; cwd: string; commit: string; manifest: Record<string, { size: number; sha256: string }>;
 }): Promise<ManifestBindingResult> {
-  const { runner, cwd, commit, manifest } = options;
+  const { runner, cwd, manifest } = options;
+  // 精确提交合同（主控 2026-10-25，宿主 274 轮实证）：Git 对“有效 40SHA+后缀”这类宽容输入可能
+  // exit0 解析回原提交，宽容接受≠已确认身份。绑定前自己要求完整 40 位十六进制，并在既有的一次
+  // rev-parse 上做解析往返核对（^{commit} 解引用不存在对象即失败；返回值必须逐值等于规范化输入）。
+  const commit = String(options.commit || "").trim().toLowerCase();
   const keys = Object.keys(manifest || {});
   const failures: Array<{ path: string; reason: string }> = [];
+  if (!/^[0-9a-f]{40}$/.test(commit))
+    return { ok: false, coveredFiles: 0, coveredBytes: 0, failures: [{ path: "(commit)", reason: "不是完整 40 位十六进制提交 SHA：Git 的宽容前缀/后缀解析不能当作已确认身份，拒绝解析与读取（未发起任何 Git 调用）" }], note: "" };
   if (!keys.length || keys.length > MANIFEST_MAX_FILES)
     return { ok: false, coveredFiles: 0, coveredBytes: 0, failures: [{ path: "(manifest)", reason: keys.length ? `清单文件数 ${keys.length} 超出 ${MANIFEST_MAX_FILES} 上限` : "已验清单为空" }], note: "" };
   for (const relative of keys) if (!planManifestPathSafe(relative)) failures.push({ path: relative.slice(0, 200), reason: "路径不符合已验清单的相对路径规则" });
   if (failures.length) return { ok: false, coveredFiles: 0, coveredBytes: 0, failures, note: "" };
-  const verify = await runner(["rev-parse", "--verify", "--quiet", `${commit}^{tree}`], cwd);
-  if (verify.code !== 0) return { ok: false, coveredFiles: 0, coveredBytes: 0, failures: [{ path: "(commit)", reason: "该提交在此仓库中不存在或不可读" }], note: "" };
+  const verify = await runner(["rev-parse", "--verify", "--quiet", `${commit}^{commit}`], cwd);
+  if (verify.code !== 0) return { ok: false, coveredFiles: 0, coveredBytes: 0, failures: [{ path: "(commit)", reason: "该提交在此仓库中不存在或不可读（^{commit} 解引用失败）" }], note: "" };
+  const resolved = verify.stdout.toString("utf8").trim().toLowerCase();
+  if (resolved !== commit)
+    return { ok: false, coveredFiles: 0, coveredBytes: 0, failures: [{ path: "(commit)", reason: `rev-parse 解析结果（${resolved ? resolved.slice(0, 12) + "…" : "空"}）不等于已确认的完整提交 SHA，不按该身份绑定（未读取任何树）` }], note: "" };
   const listing = await runner(["ls-tree", "-r", "-z", "--full-tree", commit], cwd);
   if (listing.code !== 0)
     return { ok: false, coveredFiles: 0, coveredBytes: 0, failures: [{ path: "(commit)", reason: `提交树读取失败：${(listing.stderr || "").slice(0, 200) || `exit ${listing.code}`}` }], note: "" };
