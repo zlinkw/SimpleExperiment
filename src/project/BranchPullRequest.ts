@@ -64,8 +64,8 @@ export function normalizeGithubTarget(rawUrl: string): GithubTarget | undefined 
   let host = ""; let pathPart = "";
   if (/^(https?|ssh):\/\//i.test(raw)) {
     let url; try { url = new URL(raw); } catch { return undefined; }
-    if (!/^https?:$/.test(url.protocol) && (url.username || url.password)) return undefined; // https 带凭证：拒绝
     if (!/^https?:$/.test(url.protocol) && !/^ssh:$/.test(url.protocol)) return undefined;
+    if (/^https?:$/.test(url.protocol) && (url.username || url.password)) return undefined; // 仅 https 带凭证拒绝；ssh 登录名（git@）是正常形态
     host = url.hostname.toLowerCase(); pathPart = url.pathname; // ssh:// 的端口不属于仓库身份，忽略
   } else {
     const match = /^(?:[^@/\s]+@)?([^:/\s]+)[:/](.+)$/.exec(raw);
@@ -94,19 +94,33 @@ export function classifyWriteFailure(stderr: string, exception?: unknown): "defi
   return DEFINITE_REJECT_PATTERNS.some(pattern => pattern.test(text)) ? "definite-failed" : "unknown";
 }
 
-export type PrListRow = { number: number; state?: string; isDraft?: boolean; headRefOid?: string; headRefName?: string; headRepositoryOwner?: string; baseRefOid?: string; baseRefName?: string; url?: string };
-const PR_JSON_FIELDS = "number,state,isDraft,headRefOid,headRefName,headRepositoryOwner,baseRefOid,baseRefName,url";
+/** gh 2.93 真实形状：headRepositoryOwner={id,login}、headRepository={id,name,nameWithOwner}；解析为 login 与 nameWithOwner。 */
+export type PrListRow = { number: number; state?: string; isDraft?: boolean; headRefOid?: string; headRefName?: string; headRepositoryOwner?: string; headRepository?: string; baseRefOid?: string; baseRefName?: string; url?: string };
+const PR_JSON_FIELDS = "number,state,isDraft,headRefOid,headRefName,headRepository,headRepositoryOwner,baseRefOid,baseRefName,url";
+
+function ownerLoginOf(value: any): string | undefined {
+  const login = value?.headRepositoryOwner?.login;
+  return login ? String(login) : undefined;
+}
+function headRepoOf(value: any): string | undefined {
+  const nameWithOwner = value?.headRepository?.nameWithOwner;
+  return nameWithOwner ? String(nameWithOwner) : undefined;
+}
+
+function toPrRow(row: any): PrListRow {
+  return {
+    number: Number(row?.number), state: row?.state ? String(row.state) : undefined, isDraft: Boolean(row?.isDraft),
+    headRefOid: row?.headRefOid ? String(row.headRefOid) : undefined, headRefName: row?.headRefName ? String(row.headRefName) : undefined,
+    headRepositoryOwner: ownerLoginOf(row), headRepository: headRepoOf(row),
+    baseRefOid: row?.baseRefOid ? String(row.baseRefOid) : undefined, baseRefName: row?.baseRefName ? String(row.baseRefName) : undefined,
+    url: row?.url ? String(row.url) : undefined,
+  };
+}
 
 export function parsePrList(stdoutText: string): PrListRow[] {
   const parsed = JSON.parse(String(stdoutText || "").trim());
   if (!Array.isArray(parsed)) throw new Error("gh pr list 返回不是数组");
-  return parsed.map(row => ({
-    number: Number(row?.number), state: row?.state ? String(row.state) : undefined, isDraft: Boolean(row?.isDraft),
-    headRefOid: row?.headRefOid ? String(row.headRefOid) : undefined, headRefName: row?.headRefName ? String(row.headRefName) : undefined,
-    headRepositoryOwner: row?.headRepositoryOwner ? String(row.headRepositoryOwner) : undefined,
-    baseRefOid: row?.baseRefOid ? String(row.baseRefOid) : undefined, baseRefName: row?.baseRefName ? String(row.baseRefName) : undefined,
-    url: row?.url ? String(row.url) : undefined,
-  })).filter(row => Number.isInteger(row.number) && row.number > 0);
+  return parsed.map(toPrRow).filter(row => Number.isInteger(row.number) && row.number > 0);
 }
 
 export type PrClassification = { kind: "none" | "reuse" | "updates-existing" | "merged" | "unknown"; pr?: PrListRow; note: string };
@@ -116,30 +130,32 @@ export type PrClassification = { kind: "none" | "reuse" | "updates-existing" | "
  * fork 的 PR 属“其它创新 PR”不算本分支）∧baseRefName===base 为准；同 base 其它分支/同 SHA 其它分支只记注不匹配；
  * 截断或解析失败＝unknown（不得假唯一/不存在）。
  */
-export function classifyPrRows(rows: PrListRow[], truncated: boolean, options: { owner: string; branch: string; base: string; sourceSha: string }): PrClassification {
+export function classifyPrRows(rows: PrListRow[], truncated: boolean, options: { owner: string; repo: string; branch: string; base: string; sourceSha: string }): PrClassification {
   if (truncated) return { kind: "unknown", note: `PR 列表达到 ${PR_LIST_LIMIT} 上限可能被截断，无法确证该分支的 PR 状态` };
   const open = (row: PrListRow) => (row.state || "OPEN").toUpperCase() === "OPEN";
-  const merged = (row: PrListRow) => (row.state || "").toUpperCase() === "MERGED";
+  const mergedState = (row: PrListRow) => (row.state || "").toUpperCase() === "MERGED";
+  // 引用名（branch/base）严格按原值大小写敏感；GitHub owner/repo 与 SHA 身份比较不敏感；head 仓库必须来自真实对象身份。
   const ours = (row: PrListRow) => (row.headRefName || "") === options.branch
     && String(row.headRepositoryOwner || "").toLowerCase() === options.owner.toLowerCase()
-    && (row.baseRefName || "").toLowerCase() === options.base.toLowerCase();
+    && String(row.headRepository || "").toLowerCase() === `${options.owner}/${options.repo}`.toLowerCase()
+    && (row.baseRefName || "") === options.base;
   const exactSha = (row: PrListRow) => (row.headRefOid || "").toLowerCase() === options.sourceSha.toLowerCase();
   const exactOpen = rows.filter(row => open(row) && ours(row)).sort((a, b) => b.number - a.number);
-  const exactMerged = rows.filter(row => merged(row) && ours(row));
-  const otherOpenSameBase = rows.filter(row => open(row) && !ours(row) && (row.baseRefName || "").toLowerCase() === options.base.toLowerCase()
+  const exactMerged = rows.filter(row => mergedState(row) && ours(row));
+  const otherOpenSameBase = rows.filter(row => open(row) && !ours(row) && (row.baseRefName || "") === options.base
     && (row.headRefOid || "").toLowerCase() === options.sourceSha.toLowerCase());
   const identityHit = exactOpen.find(exactSha);
-  if (identityHit) return { kind: "reuse", pr: identityHit, note: `开放 PR #${identityHit.number} 的 head 分支/base/SHA 与本候选一致${identityHit.isDraft ? "（草稿）" : ""}，按身份复用即可` };
-  if (exactOpen.length === 0 && exactMerged.length) {
-    const proven = exactMerged.find(exactSha) || exactMerged[0];
-    return { kind: "merged", pr: proven, note: exactSha(proven) ? `本分支/base 上已有 MERGED PR #${proven.number}（head 与本候选一致）：无需再推送/创建/合并，只做祖先处理` : `本分支相对 ${options.base} 的最新 PR #${proven.number} 已 MERGED（head 与本候选不同）：如需以新候选再走 PR，请明确知悉这是新一轮` };
-  }
+  if (identityHit) return { kind: "reuse", pr: identityHit, note: `开放 PR #${identityHit.number} 的 head 仓库/分支/base/SHA 与本候选一致${identityHit.isDraft ? "（草稿）" : ""}，按身份复用即可` };
+  const mergedExact = exactMerged.find(exactSha);
+  if (exactOpen.length === 0 && mergedExact) return { kind: "merged", pr: mergedExact, note: `本候选（head SHA 全匹配）在 ${options.branch} → ${options.base} 上已有 MERGED PR #${mergedExact.number}：无需再推送/创建/合并，只做祖先处理` };
   if (exactOpen.length) {
     const row = exactOpen[0];
     return { kind: "updates-existing", pr: row, note: `本分支相对 ${options.base} 已有开放 PR #${row.number}（head ${String(row.headRefOid).slice(0, 10)} ≠ 本候选 ${options.sourceSha.slice(0, 10)}）：确认后普通推送将更新该 PR，随后重查按身份复用，绝不盲目 pr create` };
   }
-  const note = otherOpenSameBase.length ? `存在指向 ${options.base} 的其它创新 PR（#${otherOpenSameBase.map(row => row.number).join(", ")}，分支不同），非本分支 PR` : "该分支相对目标分支没有任何 PR（open/merged 全量核对）";
-  return { kind: "none", note };
+  const historyNotes: string[] = [];
+  if (exactMerged.length) historyNotes.push(`历史 MERGED PR（另一候选）：#${exactMerged.map(row => `${row.number}(${String(row.headRefOid).slice(0, 8)})`).join(", ")}——SHA 与本候选不同，不构成当前候选已合并`);
+  if (otherOpenSameBase.length) historyNotes.push(`存在指向 ${options.base} 的其它创新 PR（#${otherOpenSameBase.map(row => row.number).join(", ")}，分支不同），非本分支 PR`);
+  return { kind: "none", note: historyNotes.length ? historyNotes.join("；") : `该分支相对 ${options.base} 没有任何 PR（open/merged 全量核对）` };
 }
 
 export type PrPreview = {
@@ -196,7 +212,7 @@ export async function previewBranchPullRequest(options: {
   if (listed.code !== 0) { preview.existing = { kind: "unknown", note: `PR 列表查询失败：${(listed.stderr || "").slice(0, 160) || `exit ${listed.code}`}` }; preview.digest = digestPreview(preview); return preview; }
   try {
     const rows = parsePrList(listed.stdout.toString("utf8"));
-    preview.existing = classifyPrRows(rows, rows.length >= PR_LIST_LIMIT, { owner: live.owner, branch, base, sourceSha: preview.sourceSha });
+    preview.existing = classifyPrRows(rows, rows.length >= PR_LIST_LIMIT, { owner: live.owner, repo: live.repo, branch, base, sourceSha: preview.sourceSha });
   } catch (error) {
     preview.existing = { kind: "unknown", note: `PR 列表不可解析，按未知停止：${String((error as Error)?.message || error).slice(0, 160)}` };
   }
@@ -272,10 +288,10 @@ async function verifyPrIdentity(gh: PullRequestRunner, cwd: string, target: Gith
     const view = await gh(["pr", "view", String(number), "--repo", target.repoSelector, "--json", PR_JSON_FIELDS], cwd);
     if (view.code === 0) {
       const value = JSON.parse(view.stdout.toString("utf8"));
-      const row: PrListRow = { number: Number(value?.number), state: value?.state, isDraft: Boolean(value?.isDraft), headRefOid: value?.headRefOid, headRefName: value?.headRefName,
-        headRepositoryOwner: value?.headRepositoryOwner, baseRefOid: value?.baseRefOid, baseRefName: value?.baseRefName, url: value?.url };
-      if (row.number === number && (row.headRefOid || "").toLowerCase() === sourceSha.toLowerCase() && (row.baseRefName || "").toLowerCase() === base.toLowerCase()
-        && (row.headRefName || "") === branch && String(row.headRepositoryOwner || "").toLowerCase() === target.owner.toLowerCase()) return row;
+      const row = toPrRow(value);
+      if (row.number === number && (row.headRefOid || "").toLowerCase() === sourceSha.toLowerCase() && (row.baseRefName || "") === base
+        && (row.headRefName || "") === branch && String(row.headRepositoryOwner || "").toLowerCase() === target.owner.toLowerCase()
+        && String(row.headRepository || "").toLowerCase() === `${target.owner}/${target.repo}`.toLowerCase()) return row;
     }
   } catch { /* 继续 list 对账 */ }
   try {
@@ -284,8 +300,9 @@ async function verifyPrIdentity(gh: PullRequestRunner, cwd: string, target: Gith
     const rows = parsePrList(listed.stdout.toString("utf8"));
     if (rows.length >= PR_LIST_LIMIT) return undefined;
     return rows.find(row => row.number === number && (row.headRefOid || "").toLowerCase() === sourceSha.toLowerCase()
-      && (row.baseRefName || "").toLowerCase() === base.toLowerCase() && (row.headRefName || "") === branch
-      && String(row.headRepositoryOwner || "").toLowerCase() === target.owner.toLowerCase());
+      && (row.baseRefName || "") === base && (row.headRefName || "") === branch
+      && String(row.headRepositoryOwner || "").toLowerCase() === target.owner.toLowerCase()
+      && String(row.headRepository || "").toLowerCase() === `${target.owner}/${target.repo}`.toLowerCase());
   } catch { return undefined; }
 }
 
@@ -324,10 +341,14 @@ export async function createBranchPullRequest(options: {
       return { status: "already-merged", prNumber: preview.existing.pr.number, url: preview.existing.pr.url, note: "只读对账确认该 PR 已 MERGED：不重发任何写入，仅需（经独立确认后）做祖先快进。" };
     }
     const found = preview.existing?.pr;
-    if (found && preview.existing && preview.existing.kind !== "none") {
-      await (await openReceiptResolved(ledger, prUnknown)).settle("ok", "只读对账：精确身份 PR 存在", found.number);
-      return { status: "reused", prNumber: found.number, url: found.url, note: "只读对账确认精确身份 PR 存在，按身份复用；未重发。" };
+    const exactHit = preview.existing?.kind === "reuse" && found
+      && (found.headRefOid || "").toLowerCase() === sourceSha.toLowerCase()
+      && (found.baseRefName || "") === base && (found.headRefName || "") === branch;
+    if (exactHit && found) {
+      await (await openReceiptResolved(ledger, prUnknown)).settle("ok", "只读对账：精确身份+源SHA PR 存在", found.number);
+      return { status: "reused", prNumber: found.number, url: found.url, note: "只读对账确认精确身份且 head SHA 等于源 SHA 的 PR 存在，按身份复用；未重发。" };
     }
+    return { status: "blocked-unknown", reason: "存在未对账的 pr-create 收据，且只读核对未能证明“精确身份＋源 SHA”的 PR 存在（updates-existing 等其它形态不能视为本收据已落地）；不重发、不假复用。" };
   }
   if (preview.existing?.kind === "unknown")
     return { status: "blocked-unknown", reason: `既有 PR/远端状态未能确定（${preview.existing.note}），本次未写入任何内容。${unknowns.length ? "存在未对账写操作收据：只有只读对账能确定动作时才会继续。" : ""}` };
@@ -394,8 +415,9 @@ export async function createBranchPullRequest(options: {
     if (viaList && viaList.code === 0) {
       try {
         const rows = parsePrList(viaList.stdout.toString("utf8"));
-        found = rows.length < PR_LIST_LIMIT ? rows.find(row => (row.headRefOid || "").toLowerCase() === preview.sourceSha && (row.baseRefName || "").toLowerCase() === base.toLowerCase()
-          && (row.headRefName || "") === branch && String(row.headRepositoryOwner || "").toLowerCase() === target.owner.toLowerCase()) : undefined;
+        found = rows.length < PR_LIST_LIMIT ? rows.find(row => (row.headRefOid || "").toLowerCase() === preview.sourceSha && (row.baseRefName || "") === base
+          && (row.headRefName || "") === branch && String(row.headRepositoryOwner || "").toLowerCase() === target.owner.toLowerCase()
+          && String(row.headRepository || "").toLowerCase() === `${target.owner}/${target.repo}`.toLowerCase()) : undefined;
       } catch { /* 未知 */ }
     }
     if (found) { await prReceipt.settle("ok", "输出非 URL 行但只读对账确认已建", found.number); return { status: "reused", prNumber: found.number, url: found.url, note: "gh 输出异常，但只读对账确认 PR 已存在，按身份复用。" }; }
@@ -424,13 +446,13 @@ async function openReceiptResolved(ledger: ReceiptLedger, prior: Receipt): Promi
 
 export type MergeResult = { status: "merged" | "not-merged" | "blocked-unknown"; mergeCommit?: string; state?: string; reason?: string };
 
-async function viewPrState(gh: PullRequestRunner, cwd: string, repoSelector: string, prNumber: number): Promise<{ state: string; mergeCommit: string; headRefOid: string; headRefName: string; baseRefName: string; url: string } | undefined> {
+type PrView = { row: PrListRow; mergeCommit: string };
+async function viewPrState(gh: PullRequestRunner, cwd: string, repoSelector: string, prNumber: number): Promise<PrView | undefined> {
   try {
-    const view = await gh(["pr", "view", String(prNumber), "--repo", repoSelector, "--json", "state,mergedAt,mergeCommit,headRefOid,headRefName,baseRefName,url"], cwd);
+    const view = await gh(["pr", "view", String(prNumber), "--repo", repoSelector, "--json", `state,mergedAt,mergeCommit,${PR_JSON_FIELDS}`], cwd);
     if (view.code !== 0) return undefined;
     const value = JSON.parse(view.stdout.toString("utf8"));
-    return { state: String(value?.state || ""), mergeCommit: String(value?.mergeCommit?.oid || ""), headRefOid: String(value?.headRefOid || ""),
-      headRefName: String(value?.headRefName || ""), baseRefName: String(value?.baseRefName || ""), url: String(value?.url || "") };
+    return { row: toPrRow(value), mergeCommit: String(value?.mergeCommit?.oid || "") };
   } catch { return undefined; }
 }
 
@@ -447,17 +469,25 @@ export async function mergeBranchPullRequest(options: {
   if (!/^[0-9a-f]{40}$/i.test(String(verifiedHeadSha || ""))) return { status: "blocked-unknown", reason: "缺少已确认候选 SHA（本机 HEAD），拒绝合并（不允许无 match-head 合并）。" };
   const key = mergeReceiptKey(repoSelector, prNumber, verifiedHeadSha);
   const before = await viewPrState(gh, cwd, repoSelector, prNumber);
-  if (before?.state === "MERGED" && /^[0-9a-f]{40}$/i.test(before.mergeCommit)) {
+  const selectorParts = repoSelector.split("/"); const selOwner = selectorParts[1] || ""; const selRepo = selectorParts[2] || "";
+  // MERGED 快捷路径与写前重查共用同一套完整身份判断：head 仓库/分支/base 严格、owner/repo 与 SHA 不敏感。
+  const sameIdentity = (row: PrListRow | undefined) => Boolean(row
+    && (row.headRefName || "") === branch && (row.baseRefName || "") === base
+    && String(row.headRepositoryOwner || "").toLowerCase() === selOwner.toLowerCase()
+    && String(row.headRepository || "").toLowerCase() === `${selOwner}/${selRepo}`.toLowerCase()
+    && (row.headRefOid || "").toLowerCase() === verifiedHeadSha.toLowerCase());
+  if (before?.row.state === "MERGED" && /^[0-9a-f]{40}$/i.test(before.mergeCommit)) {
+    if (!sameIdentity(before.row))
+      return { status: "blocked-unknown", state: before.row.state, reason: `该 PR 已 MERGED 但 head 仓库/分支/SHA/base 与本候选不一致——属于另一候选的合并事实，不能当作本候选已合并。` };
     try {
       const unknowns = (await loadUnknownReceipts(ledger)).filter(row => row.key === key);
       for (const prior of unknowns) await (await openReceiptResolved(ledger, prior)).settle("ok", `只读对账：PR 已 MERGED（mergeCommit ${before.mergeCommit.slice(0, 12)}）`);
     } catch { /* 账本不可写时仍如实返回读到的事实 */ }
-    return { status: "merged", mergeCommit: before.mergeCommit, state: before.state, reason: "只读重查：PR 已是 MERGED（可能经网页或先前未知操作完成），未重发合并指令。" };
+    return { status: "merged", mergeCommit: before.mergeCommit, state: before.row.state, reason: "只读重查：本候选的 PR 已是 MERGED（可能经网页或先前未知操作完成），未重发合并指令。" };
   }
   if (!before) return { status: "blocked-unknown", reason: "无法只读读取该 PR 当前状态，未发送任何写指令。" };
-  if (before.headRefOid.toLowerCase() !== verifiedHeadSha.toLowerCase() || (before.baseRefName || "").toLowerCase() !== base.toLowerCase()
-    || before.headRefName !== branch)
-    return { status: "blocked-unknown", reason: `写前重查 PR 身份不一致（head ${before.headRefOid.slice(0, 10)}/${before.headRefName || "?"} base ${before.baseRefName || "?"}），零写入停止。`, state: before.state };
+  if (!sameIdentity(before.row))
+    return { status: "blocked-unknown", reason: `写前重查 PR 身份不一致（head ${String(before.row.headRefOid).slice(0, 10)}/${before.row.headRefName || "?"} base ${before.row.baseRefName || "?"}），零写入停止。`, state: before.row.state };
   let unknownMerge: Receipt | undefined;
   try { unknownMerge = (await loadUnknownReceipts(ledger)).find(row => row.key === key); }
   catch (error) { return { status: "blocked-unknown", reason: `收据账本不可读（${String((error as Error)?.message || error).slice(0, 160)}），无法保证不重放，未发送合并。` }; }
@@ -472,17 +502,21 @@ export async function mergeBranchPullRequest(options: {
     return { status: "blocked-unknown", reason: "合并指令结果未知（gh 中断/超时）。必须稍后只读重查 PR 状态，不自动重放。" };
   }
   const after = await viewPrState(gh, cwd, repoSelector, prNumber);
-  if (after?.state === "MERGED" && /^[0-9a-f]{40}$/i.test(after.mergeCommit)) {
+  if (after?.row.state === "MERGED" && /^[0-9a-f]{40}$/i.test(after.mergeCommit)) {
+    if (!sameIdentity(after.row)) {
+      await receipt.settle("unknown", "MERGED 但身份与本候选不一致（可能是他人改动），按未知停止");
+      return { status: "blocked-unknown", reason: "PR 显示 MERGED 但完整身份与本候选不一致，不按本候选已合并处理。", state: after.row.state };
+    }
     await receipt.settle("ok", `MERGED mergeCommit=${after.mergeCommit.slice(0, 12)}`);
-    return { status: "merged", mergeCommit: after.mergeCommit, state: after.state };
+    return { status: "merged", mergeCommit: after.mergeCommit, state: after.row.state };
   }
   const kind = merged.code === 0 ? "unknown" : classifyWriteFailure(merged.stderr);
-  await receipt.settle(after?.state ? "unknown" : kind, `exit=${merged.code} state=${after?.state || "?"} ${(merged.stderr || "").slice(0, 160)}`);
-  return after?.state === "MERGED"
-    ? { status: "blocked-unknown", reason: "PR 显示 MERGED 但读不到 mergeCommit，祖先更新暂缓。", state: after.state }
-    : after?.state && after.state !== "MERGED" && merged.code === 0
-      ? { status: "not-merged", reason: `合并未生效（PR 状态 ${after.state}）：${(merged.stderr || "").slice(0, 200)}`, state: after.state }
-      : { status: "blocked-unknown", reason: `合并结果未知（exit ${merged.code}，重查状态${after?.state ? " " + after.state : "失败"}），不重放。`, state: after?.state };
+  await receipt.settle(after?.row.state ? "unknown" : kind, `exit=${merged.code} state=${after?.row.state || "?"} ${(merged.stderr || "").slice(0, 160)}`);
+  return after?.row.state === "MERGED"
+    ? { status: "blocked-unknown", reason: "PR 显示 MERGED 但读不到 mergeCommit，祖先更新暂缓。", state: after.row.state }
+    : after?.row.state && after.row.state !== "MERGED" && merged.code === 0
+      ? { status: "not-merged", reason: `合并未生效（PR 状态 ${after.row.state}）：${(merged.stderr || "").slice(0, 200)}`, state: after.row.state }
+      : { status: "blocked-unknown", reason: `合并结果未知（exit ${merged.code}，重查状态${after?.row.state ? " " + after.row.state : "失败"}），不重放。`, state: after?.row.state };
 }
 
 export type FastForwardResult = { status: "fast-forwarded" | "already-current" | "blocked" | "failed"; from?: string; to?: string; reason?: string };

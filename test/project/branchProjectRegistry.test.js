@@ -483,7 +483,13 @@ const OTHER_SHA = "e".repeat(40);
 const MERGE_SHA = "c".repeat(40);
 const SELECTOR = "github.com/org/repo";
 const PR_OPTS = { cwd: "/repo", remoteName: "origin", registeredRemoteUrl: "https://github.com/org/repo.git", branch: "exp/m1", base: "main", sourceSha: FULL_SHA };
-const PR_OPEN = (over = {}) => ({ number: 21, state: "OPEN", headRefOid: FULL_SHA, headRefName: "exp/m1", headRepositoryOwner: "org", baseRefName: "main", url: "https://github.com/org/repo/pull/21", ...over });
+// gh 2.93 真实对象形状（主控实读本插件 PR#12 exit0 输出）：headRepositoryOwner/headRepository 是对象。
+const PR_OPEN = (over = {}) => ({ number: 21, state: "OPEN", headRefOid: FULL_SHA, headRefName: "exp/m1",
+  headRepository: { id: "R_kgDOT", name: "repo", nameWithOwner: "org/repo" }, headRepositoryOwner: { id: "U_kgDOB", login: "org" },
+  baseRefOid: BASE_SHA, baseRefName: "main", url: "https://github.com/org/repo/pull/21", ...over });
+const PR_VIEW = (over = {}) => ({ state: "OPEN", mergedAt: null, mergeCommit: null, headRefOid: FULL_SHA, headRefName: "exp/m1",
+  headRepository: { id: "R_kgDOT", name: "repo", nameWithOwner: "org/repo" }, headRepositoryOwner: { id: "U_kgDOB", login: "org" },
+  baseRefOid: BASE_SHA, baseRefName: "main", url: "https://github.com/org/repo/pull/21", ...over });
 // 只读预览标准脚本：远端 main 存在、exp/m1 不存在、无基线引用、gh 列表为空。
 function baseScript(listRows) {
   return [
@@ -495,13 +501,19 @@ function baseScript(listRows) {
   ];
 }
 async function previewOf(script, ghRows) {
-  return pr.previewBranchPullRequest({ git: recordingGit(script).runner, gh: recordingGit([{ match: /^pr list/, stdout: jsonBuf(ghRows ?? []) }]).runner, ...PR_OPTS });
+  // 预览的 pr list 走 gh 执行器；未显式给 ghRows 时取脚本里的 pr list 行，保证与 create 内部预览一致
+  if (ghRows === undefined) {
+    const row = script.find(r => r.match.source.startsWith("^pr list"));
+    ghRows = row ? JSON.parse(String(row.stdout)) : [];
+  }
+  return pr.previewBranchPullRequest({ git: recordingGit(script).runner, gh: recordingGit([{ match: /^pr list/, stdout: jsonBuf(ghRows) }]).runner, ...PR_OPTS });
 }
 
 test("C4 normalizeGithubTarget：只剥 .git 后缀、仅 GitHub 两段仓库、ssh 端口解析、凭证/异平台拒绝", () => {
   assert.deepEqual(pr.normalizeGithubTarget("https://github.com/org/repo.git"), { host: "github.com", owner: "org", repo: "repo", repoSelector: "github.com/org/repo", displayUrl: "https://github.com/org/repo" });
   assert.equal(pr.normalizeGithubTarget("git@github.com:org/repo.git").repo, "repo", "scp 式 .git 只剥后缀，整段不能被吞掉");
   assert.equal(pr.normalizeGithubTarget("ssh://git@github.com:7999/org/repo.git").repoSelector, SELECTOR, "ssh:// 端口不属于仓库身份");
+  assert.equal(pr.normalizeGithubTarget("ssh://git@github.com/org/repo.git").repoSelector, SELECTOR, "默认 22 端口 ssh 登录名是正常形态");
   assert.equal(pr.normalizeGithubTarget("https://github.com/org/repo").displayUrl, "https://github.com/org/repo");
   assert.equal(pr.normalizeGithubTarget("https://tok:pw@github.com/org/repo"), undefined, "含凭证 https：拒绝");
   assert.equal(pr.normalizeGithubTarget("https://gitlab.internal/team/sub/project"), undefined, "非 GitHub 托管：明确拒绝，不重定向");
@@ -528,21 +540,29 @@ test("C4 preview：gh 必须带完整 --repo 选择器与 state=all；漂移/登
   assert.match(p2.reason, /不是同一已确认仓库/);
   // 截断＝unknown，不得假唯一/不存在
   const many = Array.from({ length: 200 }, (_, i) => PR_OPEN({ number: 1000 + i, headRefOid: OTHER_SHA }));
-  let classified = pr.classifyPrRows(many, true, { owner: "org", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
+  let classified = pr.classifyPrRows(many, true, { owner: "org", repo: "repo", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
   assert.equal(classified.kind, "unknown");
   // 同 base 他分支的“其它创新 PR”/fork PR/同 SHA 他分支：都不得当本分支 PR
-  classified = pr.classifyPrRows([PR_OPEN({ headRefName: "exp/other" })], false, { owner: "org", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
+  classified = pr.classifyPrRows([PR_OPEN({ headRefName: "exp/other" })], false, { owner: "org", repo: "repo", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
   assert.equal(classified.kind, "none");
   assert.match(classified.note, /其它创新 PR|没有任何 PR/);
-  classified = pr.classifyPrRows([PR_OPEN({ headRepositoryOwner: "forker" })], false, { owner: "org", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
+  classified = pr.classifyPrRows([PR_OPEN({ headRepositoryOwner: { id: "U_x", login: "forker" }, headRepository: { nameWithOwner: "forker/repo" } })], false, { owner: "org", repo: "repo", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
   assert.equal(classified.kind, "none", "fork 的 headRefName 相同也不属于本仓分支");
-  classified = pr.classifyPrRows([PR_OPEN({ headRefName: "exp/other" })], false, { owner: "org", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
+  classified = pr.classifyPrRows([PR_OPEN({ headRefName: "exp/other" })], false, { owner: "org", repo: "repo", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
   assert.notEqual(classified.kind, "reuse");
-  // head 分支大小写敏感、base 不敏感
-  classified = pr.classifyPrRows([PR_OPEN({ headRefName: "Exp/M1" })], false, { owner: "org", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
-  assert.equal(classified.kind, "none", "Git 引用名大小写敏感");
-  classified = pr.classifyPrRows([PR_OPEN({ baseRefName: "Main" })], false, { owner: "org", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
-  assert.equal(classified.kind, "reuse", "仓库/base 身份比较不敏感");
+  // Git 引用（head 分支与 base）大小写一律敏感；仅 owner/repo 与 SHA 不敏感
+  classified = pr.classifyPrRows([PR_OPEN({ headRefName: "Exp/M1" })], false, { owner: "org", repo: "repo", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
+  assert.equal(classified.kind, "none", "head 引用名大小写敏感");
+  classified = pr.classifyPrRows([PR_OPEN({ baseRefName: "Main" })], false, { owner: "org", repo: "repo", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
+  assert.equal(classified.kind, "none", "base 引用名同样大小写敏感");
+  classified = pr.classifyPrRows([PR_OPEN({ headRepository: { nameWithOwner: "ORG/REPO" }, headRepositoryOwner: { login: "ORG" } })], false, { owner: "org", repo: "repo", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
+  assert.equal(classified.kind, "reuse", "GitHub owner/repo 身份不敏感");
+  // 同分支旧 MERGED 但 SHA 不同：只是历史提示，当前新 SHA 仍可开新 PR
+  classified = pr.classifyPrRows([PR_OPEN({ state: "MERGED", number: 9, headRefOid: OTHER_SHA })], false, { owner: "org", repo: "repo", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
+  assert.equal(classified.kind, "none");
+  assert.match(classified.note, /历史 MERGED PR（另一候选）/);
+  classified = pr.classifyPrRows([PR_OPEN({ state: "MERGED", number: 9 })], false, { owner: "org", repo: "repo", branch: "exp/m1", base: "main", sourceSha: FULL_SHA });
+  assert.equal(classified.kind, "merged", "完整候选身份全匹配的 MERGED 才是已合");
 });
 
 test("C4 create：真实 gh 2.93 argv（pr create 无 --json）、写前本地 HEAD 复核、身份 view 核验", async () => {
@@ -573,7 +593,7 @@ test("C4 create：真实 gh 2.93 argv（pr create 无 --json）、写前本地 H
   const gh4 = recordingGit([
     { match: /^pr list/, stdout: jsonBuf([]) },
     { match: /^pr create/, stdout: "https://github.com/org/repo/pull/13\n" },
-    { match: /^pr view 13/, stdout: jsonBuf(PR_OPEN({ number: 13, headRefOid: OTHER_SHA })) },
+    { match: /^pr view 13/, stdout: jsonBuf(PR_VIEW({ number: 13, headRefOid: OTHER_SHA })) },
   ]);
   result = await pr.createBranchPullRequest({ git: recordingGit([
     { match: /^push/, stdout: "" },
@@ -606,7 +626,7 @@ test("C4 create：真实 gh 2.93 argv（pr create 无 --json）、写前本地 H
   ]);
   const gh6 = recordingGit([
     { match: /^pr list/, stdout: jsonBuf(rows21) },
-    { match: /^pr view 21/, stdout: jsonBuf(PR_OPEN({ number: 21 })) },
+    { match: /^pr view 21/, stdout: jsonBuf(PR_VIEW({ number: 21 })) },
   ]);
   result = await pr.createBranchPullRequest({ git: git6.runner, gh: gh6.runner, ledger, ...PR_OPTS, title: "t", body: "b", previewDigest: preview6.digest });
   assert.equal(result.status, "reused", JSON.stringify(result));
@@ -635,7 +655,7 @@ test("C5 未知结果不可重放：每动作独立收据、unknown 只读对账
   const ghB = recordingGit([
     { match: /^pr list/, stdout: jsonBuf([]), uses: 2 },
     { match: /^pr create/, stdout: "https://github.com/org/repo/pull/31\n" },
-    { match: /^pr view 31/, stdout: jsonBuf(PR_OPEN({ number: 31 })) },
+    { match: /^pr view 31/, stdout: jsonBuf(PR_VIEW({ number: 31 })) },
   ]);
   const ledgerB = memoryLedger([unknown(keyPush, "push")]);
   const previewB = await pr.previewBranchPullRequest({ git: recordingGit(gitBScript()).runner, gh: recordingGit([{ match: /^pr list/, stdout: jsonBuf([]) }]).runner, ...PR_OPTS });
@@ -657,14 +677,14 @@ test("C5 未知结果不可重放：每动作独立收据、unknown 只读对账
   const ledgerD = memoryLedger([unknown(keyMerge, "merge")]);
   const ghD = recordingGit([
     { match: /^pr merge/, stdout: "SHOULD NOT MERGE" },
-    { match: /^pr view 21/, stdout: jsonBuf({ state: "OPEN", mergeCommit: null, headRefOid: FULL_SHA, headRefName: "exp/m1", baseRefName: "main", url: "" }) },
+    { match: /^pr view 21/, stdout: jsonBuf(PR_VIEW()) },
   ]);
   result = await pr.mergeBranchPullRequest({ gh: ghD.runner, ledger: ledgerD, cwd: "/repo", repoSelector: SELECTOR, prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1" });
   assert.equal(result.status, "blocked-unknown");
   assert.equal(ghD.calls.filter(call => call.args.startsWith("pr merge")).length, 0, "merge 有未对账收据时绝不重发");
   const ghE = recordingGit([
     { match: /^pr merge/, stdout: "SHOULD NOT MERGE" },
-    { match: /^pr view 21/, stdout: jsonBuf({ state: "MERGED", mergedAt: "x", mergeCommit: { oid: MERGE_SHA }, headRefOid: FULL_SHA, headRefName: "exp/m1", baseRefName: "main", url: "" }) },
+    { match: /^pr view 21/, stdout: jsonBuf(PR_VIEW({ state: "MERGED", mergedAt: "x", mergeCommit: { oid: MERGE_SHA } })) },
   ]);
   const ledgerE = memoryLedger([unknown(keyMerge, "merge")]);
   result = await pr.mergeBranchPullRequest({ gh: ghE.runner, ledger: ledgerE, cwd: "/repo", repoSelector: SELECTOR, prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1" });
@@ -673,19 +693,35 @@ test("C5 未知结果不可重放：每动作独立收据、unknown 只读对账
   assert.ok(ledgerE.rows().find(row => row.key === keyMerge && row.outcome === "ok"));
   // 正常 merge：写前重查完整身份；--merge+--match-head；退出码不作结论
   const ghF = recordingGit([
-    { match: /^pr view 21/, stdout: jsonBuf({ state: "OPEN", mergeCommit: null, headRefOid: FULL_SHA, headRefName: "exp/m1", baseRefName: "main", url: "" }), uses: 1 },
+    { match: /^pr view 21/, stdout: jsonBuf(PR_VIEW()), uses: 1 },
     { match: /^pr merge/, code: 1, stderr: "post-merge hook failed" },
-    { match: /^pr view 21/, stdout: jsonBuf({ state: "MERGED", mergedAt: "x", mergeCommit: { oid: MERGE_SHA }, headRefOid: FULL_SHA, headRefName: "exp/m1", baseRefName: "main", url: "" }) },
+    { match: /^pr view 21/, stdout: jsonBuf(PR_VIEW({ state: "MERGED", mergedAt: "x", mergeCommit: { oid: MERGE_SHA } })) },
   ]);
   result = await pr.mergeBranchPullRequest({ gh: ghF.runner, ledger: memoryLedger(), cwd: "/repo", repoSelector: SELECTOR, prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1" });
   assert.equal(result.status, "merged");
   assert.equal(result.mergeCommit, MERGE_SHA);
   assert.ok(ghF.calls.find(call => call.args.startsWith("pr merge")).args.includes("--match-head-commit " + FULL_SHA));
   // 身份漂移（head 分支不同/网页改了 base）→ 零写
-  const ghG = recordingGit([{ match: /^pr view 21/, stdout: jsonBuf({ state: "OPEN", mergeCommit: null, headRefOid: FULL_SHA, headRefName: "exp/renamed", baseRefName: "main", url: "" }) }]);
+  const ghG = recordingGit([{ match: /^pr view 21/, stdout: jsonBuf(PR_VIEW({ headRefName: "exp/renamed" })) }]);
   result = await pr.mergeBranchPullRequest({ gh: ghG.runner, ledger: memoryLedger(), cwd: "/repo", repoSelector: SELECTOR, prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1" });
   assert.equal(result.status, "blocked-unknown");
   assert.equal(ghG.calls.filter(call => call.args.startsWith("pr merge")).length, 0);
+  // pr-create unknown + updates-existing（同分支不同 SHA 的开放 PR）：拒绝，不 settle 不假复用
+  const ledgerH = memoryLedger([unknown(keyPr, "pr-create")]);
+  const gitH = recordingGit(baseScript(rows21));
+  const ghH1 = recordingGit([{ match: /^pr list/, stdout: jsonBuf(rows21) }]);
+  result = await pr.createBranchPullRequest({ git: gitH.runner, gh: ghH1.runner, ledger: ledgerH, ...PR_OPTS, title: "t", body: "b", previewDigest: (await previewOf(baseScript(rows21))).digest });
+  assert.equal(result.status, "blocked-unknown", "updates-existing 不能被视为 pr-create 收据已落地");
+  assert.match(result.reason, /不重发、不假复用/, "必须走 prUnknown 拒绝路径而非 digest 不符");
+  assert.ok(ledgerH.rows().some(row => row.key === keyPr && row.outcome === "unknown"), "拒绝时保留未对账收据");
+  // merge：MERGED 但身份属另一候选 → 不得当作本候选已合并
+  const ghH2 = recordingGit([
+    { match: /^pr merge/, stdout: "SHOULD NOT MERGE" },
+    { match: /^pr view 21/, stdout: jsonBuf(PR_VIEW({ state: "MERGED", mergedAt: "x", mergeCommit: { oid: MERGE_SHA }, headRefOid: OTHER_SHA })) },
+  ]);
+  result = await pr.mergeBranchPullRequest({ gh: ghH2.runner, ledger: memoryLedger(), cwd: "/repo", repoSelector: SELECTOR, prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1" });
+  assert.equal(result.status, "blocked-unknown", "另一个候选的 MERGED 事实不能冒充本候选");
+  assert.equal(ghH2.calls.filter(call => call.args.startsWith("pr merge")).length, 0);
   // 修剪策略：未对账 unknown 永不清除，已结只留最近 200
   const flooded = pr.pruneReceipts([
     ...Array.from({ length: 250 }, (_, i) => ({ key: "k" + i, outcome: "ok", action: "push" })),

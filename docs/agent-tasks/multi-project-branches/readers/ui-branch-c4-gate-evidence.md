@@ -196,3 +196,55 @@ manifest 的真实语义 = **已冻结/已核的源码闭包清单（指纹）**
 - 未改权限、未写源码/测试/Git/公共 plan；不编译、不跑产品测试、不联网、不嵌套代理。
 - 跨项目统一 GPU 派发属 B；本片段只覆盖"选优证据 → 写前门禁"的读侧证据。
 - 结论仅到"哪些现成函数/字段可复用 + 缺口在哪"，不声明任何阶段已完成；剩余实现决策归原 GPT 与 A 写入者。
+
+---
+
+# 追加（定向版本归属）：三字段写路径实测 —— 同 plan.id 能否换源码版本而旧确证仍有效
+
+同一冻结源 `92fcd8e8…`（`git show/grep` 读对象）。只回答版本归属这一问。
+
+## A. 三字段的全部生产写路径
+| 路径 | 锚点 | 是否改 `plan.id / revision / codeFingerprint / executionSource` |
+|---|---|---|
+| 正式入队（唯一创建口） | `legacy.ts:13072-13076`（`id = body.submissionWorkflowId ||= makeOpId("distributed-plan")`；`revision = body.planRevision`；`codeFingerprint = lastCodeSyncState?.fingerprint`；`executionSource = body.executionSource`）→ `DistributedPlanQueue.enqueuePlan(current, {...}, id)` `:13096-13107` | 新建：四个值一次性写入；**每次用户提交流程得新 id** |
+| **不可变契约（核心）** | `DistributedPlanQueue.ts:1003-1013`：`:1004` 要求 `revision && codeFingerprint && planFile && id`；`:1005-1012` 同 id 已注册时，`planFile \| revision \| codeFingerprint \| executionMode \| jobs.length \| 逐 job(index/case/seed/outputDir/collectionResultCsv/checkpointSource)` 任一不同 → `throw "FORMAL_JOB_IDENTITY_CONFLICT: duplicate workflow has different declarations."`；全同才 `return queue`（`:1013`） | **同 plan.id 不可能换 revision/codeFingerprint/planFile/mode/job 声明** |
+| 提交前源码冻结 | `PlanRunHost.ts:133-137`（`sourcePlan{projectId, planFile, revision: body.planRevision, codeFingerprint}` → `executionSource = body.executionSource \|\| resolvePlanExecutionSource()` → `verifyLocalPlanSource()` → `body.executionSource = executionSource`） | 只冻结进 body，再由入队一次性写 plan |
+| 恢复/还原 | `restoreFormalJobQueue:192-201` → `clearNativeProjection:203-210` | **不改**三字段；`:207-208` 仅身份重算通过才重贴投影，否则 `delete job.verifiedCompletion` |
+| 队列内就地重导 executionSource（①） | `PlanCodeScopeHost.ts:139`（`inspectPlanCodeSlots` 筛 `p.jobs.some(j => j.status === "pending" && !j.commandId)` 的队列 plan） | 只改 `executionSource`；`revision/codeFingerprint` 不动，值由 Worker 以 `{projectId, planFile, planRevision, codeFingerprint}` 为键强制：`PlanCodeScope.ts:189-206` `PLAN_SOURCE_BASELINE_INVALID / PLAN_SOURCE_REVISION_MISMATCH / PLAN_SOURCE_DEPENDENCIES_CHANGED / PLAN_SOURCE_ORIGINAL_HASH_INVALID` + 逐文件 `PLAN_SOURCE_CHANGED` |
+| 重跑/重排队临界区写 executionSource（②） | `legacy.ts:14858-14869`：写盘事务内先 `selectedIdentityDrift(current, job)`（`:14862-14866`，字段含 `commandId/revision/codeFingerprint/outputDir/collectionResultCsv/planFile/projectId/worker/index`）漂移即抛；再 `if (body.executionSource) current.executionSource = body.executionSource`；其值来自派生对象 `sourcePlan = {...plan, revision: body.planRevision, codeFingerprint: lastCodeSyncState?.fingerprint, executionSource: undefined}`（`:14952`）+ `resolvePlanExecutionSource` `:14953` + 前后两次 `verifyLocalPlanSource` `:14954/:14958` + `lastCodeSyncState.fingerprint !== sourcePlan.codeFingerprint` 即抛 `:14959-14960` | 只改 `executionSource`；`revision/codeFingerprint` 漂移在临界区被拒 |
+| 追加式写盘 append | `legacy.ts:12473-12497`（`appendPlanId` 由 `:13115` 用**刚入队的新 id** 传入；仅做产物路径重叠防重，随后 `:12499+` 用 `old.commandId !== job.commandId \|\| old.attempt !== job.attempt` 守卫保留运行态） | 不改三字段 |
+
+## B. 直接回答：旧 verifiedCompletion 会不会被"错挂到新源码版本"
+**不会通过"同 commandId 换版本"这条路发生**，因为所有重跑/重排路径都强制换掉 job 运行身份：
+`PulledTaskControl.returnPulledJobToLocal:59-75` —— 先核 `current.commandId === commandId`（`:61`，否则"任务身份已变化；未重新派发。"），随后
+`commandId: undefined, nextCommandId: randomUUID(), workerId/gpuId/runKey: undefined, status: "pending"`（`:66-67`）并把旧 commandId 追加进 `history(stopReason:"requeue")`（`:74-75`）。
+`completionIdentity` 含 `commandId` 与 `workerId` ⇒ 旧确证立刻不成立，并在下次序列化被 `clearNativeProjection:208` 删除。
+同一形态（清 commandId + 新 nextCommandId）另见 `DistributedPlanQueue.ts:1200、1217、1285、1592`、`ManualJobDispatch.ts:80`、`UnifiedDispatchAdmission.ts:204`。
+派发时另有版本闸：`workerCanRunPlan:296-299` 要求 `compatiblePlans` 含该 plan 或 `worker.codeFingerprint === plan.codeFingerprint` 且 `workerCodeVersionAvailable:968-977` 无其它指纹活体冲突。
+
+**因此正确的运行归属锚点**＝`{projectId, planFile, revision, codeFingerprint}`（plan 级，受 enqueuePlan 冲突拒绝保护）
+× `{commandId, workerId, outputDir, collectionResultCsv, job.index, plan.id}`（job 级，受 completionIdentity 保护）。
+`executionSource` 是**可重新导出的投影**：它的自校验只保证"与该 plan 的 `{planFile, revision, codeFingerprint}` 三元组一致"，
+不保证它就是"当初那条确证 job 运行时的清单对象"。
+⇒ **C4' 不要把 `executionSource.digest` 当运行归属证据**；它只用于"该提交内容与冻结清单一致"（即 bindPlanSourceToCommit 的用途）。
+"队列自己与自己相等"确实不构成归属证明——真正的跨落盘交叉证据是：Worker 侧 code-sync proof 按 `projectId + codeFingerprint` 取原始清单
+（`PlanCodeScope.ts:193-196`），以及队列快照/清理记录同时携带 `planRevision + codeFingerprint + commandId`
+（`DistributedPlanQueue.ts:135-143 ClearedDistributedJob`；`:477-487 reviewedTrainingCompletion` 的 `expected` 含三者）——
+可据此核对"该 commandId 属于该 codeFingerprint"，**无需新协议**。
+
+## C. 最窄缺口（数据足够，缺的是回归网与交付字段）
+1. **契约无测试**：全 test 树 grep `FORMAL_JOB_IDENTITY_CONFLICT` / `duplicate workflow has different declarations` 只命中源码
+   `DistributedPlanQueue.ts:1012`，无任何断言。落点 `test/features/distributedPlanQueue.test.js`（已直接用 `enqueuePlan`）：
+   同 id 下分别换 `codeFingerprint / revision / planFile / executionMode / 逐 job 声明` 各拒一次；全同则不重复入队且不新增 job。
+2. **选优视图缺 codeFingerprint 与确证归属**：`legacy.ts:2062-2064` 只给截断 24 字符的 `revision` + `hasExecutionSource`。
+   在既有读盘投影里附带 `plan.codeFingerprint` 全值 + 逐 job `{commandId, hasVerifiedCompletion}`（全是现成字段）即可闭环，不新增结构。
+3. **已可依赖的既有测试**（无需新建文件即能守该边界）：
+   `test/features/workerCodeVersionIsolation.test.js:108`「old pending job uses the original Worker's durable proof after the local code changes」、
+   `:131`「…uses a verified matching manifest and preserves the pending command」、
+   `test/features/distributedPlanQueue.test.js:73`（不同身份不被 clear 抑制）、`:169`（换 command 不改声明路径）、
+   `:267/:289/:302`（不同指纹的 plan/Worker 隔离）、`:382`（冷恢复用全身份服务端行）、
+   `test/features/formalIdentityContract.test.js:8/:15`、`test/features/planCodeScope.test.js`（PLAN_SOURCE_* 闸）。
+
+## D. 本追加的范围声明
+只答版本归属一问；未新增 Worker 协议/服务/科学哈希；未写实现/测试/Git/公共 plan；未编译未跑测试未联网。
+冻结 92 的只读需求到此结束，可释放。
