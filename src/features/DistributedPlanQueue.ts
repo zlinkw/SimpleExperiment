@@ -69,6 +69,14 @@ export type QueuedJob = {
    * 绝不参与 completionIdentity 或 Worker 协议。
    */
   dispatchConsent?: { commandId: string; workerId: string; gpuId: string; agreedAt: string };
+  /**
+   * 块B返修：本机统一派发准入对该 job 当前命令身份的紧凑追踪事实（仅本机，非同意、非第二账本）。
+   * 每次 dispatchAdmission 保存对"盘上基线→即将写入"的真新意图同事务写入（域未成立/零登记同样写）；
+   * 获批保留并清 reason，被拒保留并记本次拒绝原因。守卫绝不因它开绿灯，名额计算不读它；
+   * 缺失＝升级前从未经过准入的旧任务（其合法在飞兼容按既有语义）。
+   * 绝不参与 completionIdentity 或 Worker 协议。
+   */
+  dispatchAdmissionTrace?: { schemaVersion: 1; commandId: string; workerId: string; gpuId: string; reason?: string };
   nextCommandId?: string;
   reassignmentPending?: boolean;
   /** The verified migration destination must survive the release RPC and a restart. */

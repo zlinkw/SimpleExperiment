@@ -26,6 +26,12 @@
  *     （真实 mergeDurableWorkerSnapshots→清洗→重读→再申请可批）；仅本地取消、未知/查询错误不释放。
  * 13) P0-2 返修交错窗口：开始零登记的真实子进程保存持有统一资源直到 atomicWrite 完成，主窗口
  *     “首次登记两根”只能在其写完后进入；随后同卡新意图按盘上保守占位被拒——不双批。
+ * 14) 块B返修：真新意图同事务写本机追踪事实 dispatchAdmissionTrace（非同意、非第二账本，含零登记；
+ *     获批清旧原因、被拒记本次原因；序列化/投影清洗免疫）。发送守卫与重试去重同收紧：legacy 状态形态
+ *     救援只保留给无 trace 的升级前旧任务，trace＋无真实同意→守卫 false（闭合零登记在飞旁路）；
+ *     同一精确身份的再申请只占自己一个名额（逐意图临时自扣：获批计数保持原值、被拒恢复），
+ *     换 worker/GPU/命令绝不按旧重试、不可借旧身份名额；盘上完整身份被拒＝只记原因不剥回；
+ *     跨项目监控从持久 trace 读“上次准入未通过原因，待再判定”，不谎称当前配额仍满。
  *
  * 需要真实 git 子进程与多 node 进程（互斥/隔离语义本身是被测行为），因此作为新功能域新建本文件；
  * 手动通道对回执的响应扩在 test/features/manualJobDispatch.test.js。Linux 端不运行本套件。
@@ -344,12 +350,13 @@ const UNIFIED_HOST_HARNESS = [
   '  const source=fs.readFileSync(env.legacySource,"utf8");',
   '  const ast=ts.createSourceFile("legacy.ts",source,ts.ScriptTarget.Latest,true);',
   '  let cls=null;const visit=n=>{if(ts.isClassDeclaration(n)&&n.name&&n.name.text==="RealtimeTunnelPanelProvider")cls=n;ts.forEachChild(n,visit);};visit(ast);',
-  '  const names=["saveDistributedQueue","withQueueWriteResource","computeUnifiedDispatchAdmission","assertUnifiedDispatchConsentPersisted","unifiedDomainState","registryHasEntries","withUnifiedAdmissionLease","readUnifiedSnapshotText","unifiedWorkerSetup","unifiedServerKey","unifiedCurrentAliasMap"];',
+  '  const names=["saveDistributedQueue","withQueueWriteResource","computeUnifiedDispatchAdmission","assertUnifiedDispatchConsentPersisted","unifiedDomainState","registryHasEntries","withUnifiedAdmissionLease","readUnifiedSnapshotText","unifiedWorkerSetup","unifiedServerKey","unifiedCurrentAliasMap","unifiedDispatchProjection"];',
   '  const members=cls.members.filter(n=>n.name&&names.includes(n.name.getText(ast)));',
   '  if(members.length!==names.length)throw new Error("统一域宿主法身闭包不齐："+names.join(","));',
   '  const Host=vm.runInNewContext(ts.transpileModule("class Host{"+members.map(m=>m.getText(ast)).join("\\n")+"};Host",{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{',
   '    AbortController,workspaceRoot:()=>env.root,errorMessage:e=>String((e&&e.message)||e),compactSensitiveText:s=>String(s).slice(0,240),',
   '    require:()=>({getUpdater:()=>undefined}),syncGpuQuotaPolicies:async()=>({}),',
+  '    listPluginInstances:()=>({rows:[],truncated:false}),preflightPluginAt:async()=>({capabilities:{}}),',
   '    DistributedPlanQueue:require(env.dist+"/features/DistributedPlanQueue.js"),',
   '    UnifiedDispatchAdmission:require(env.dist+"/project/UnifiedDispatchAdmission.js"),',
   '    GpuQuotaScheduling:require(env.dist+"/features/GpuQuotaScheduling.js"),',
@@ -400,8 +407,9 @@ const UNIFIED_CHILD_SOURCE = [
   '  if(C.eventLog)fs.appendFileSync(C.eventLog,"child-save-return "+process.pid+"\\n");',
   '  const after=DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(file,"utf8")));',
   '  const diskJob=after.plans.find(p=>p.id===C.planId).jobs.find(j=>j.index===C.jobIndex);',
+  '  const memoryJob=JSON.parse(JSON.stringify(job));',
   '  const guardAfterSave=await guard();',
-  '  process.stdout.write("RESULT"+JSON.stringify({guardBeforeSave,guardAfterSave,receipt,diskJob})+"\\n");',
+  '  process.stdout.write("RESULT"+JSON.stringify({guardBeforeSave,guardAfterSave,receipt,diskJob,memoryJob})+"\\n");',
   '})().catch(error=>{process.stdout.write("RESULT"+JSON.stringify({error:String((error&&error.message)||error)})+"\\n");process.exitCode=1;});',
   ''].join("\n");
 
@@ -468,6 +476,8 @@ test("P0-1/P0-2/P1-3 两个独立项目窗口真实进程：生产同意事务�
   assert.equal(onDiskA.startIntent, undefined);
   assert.equal(onDiskA.dispatchConsent.commandId, "cmd-a1");
   assert.equal(onDiskA.dispatchConsent.gpuId, "0");
+  assert.equal(onDiskA.dispatchAdmissionTrace.commandId, "cmd-a1", "获批新意图的追踪事实同事务落盘（trace≠同意，守卫不因它开绿灯）");
+  assert.equal(onDiskA.dispatchAdmissionTrace.reason, undefined, "获批清旧原因：追踪不冒称未发生过的拒绝");
   // 生产发送守卫读真实磁盘文件：清洗后的 manual 首发身份通过（修复前在此被自己拒绝）。
   await hostA.assertUnifiedDispatchConsentPersisted(planA, jobA, "w", "0", "cmd-a1");
   // —— 窗口 B（真实子进程 #1）：同卡申请必须被拒并剥回；剥回身份守卫永不开绿灯。
@@ -480,7 +490,10 @@ test("P0-1/P0-2/P1-3 两个独立项目窗口真实进程：生产同意事务�
   assert.equal(r1.diskJob.status, "pending");
   assert.equal(r1.diskJob.nextCommandId, "cmd-b1", "剥回保留同命令重试身份");
   assert.equal(r1.diskJob.dispatchConsent, undefined);
-  assert.match(String(r1.diskJob.blockReason), /统一派发等待配额/);
+  assert.match(String(r1.memoryJob.blockReason), /统一派发等待配额/, "单窗口原生观测面：等待原因在工作内存队列同一对象上（原地同步）");
+  assert.equal(r1.diskJob.blockReason, undefined, "blockReason 属 native 洗投影易失类，磁盘不持久");
+  assert.equal(r1.diskJob.dispatchAdmissionTrace.commandId, "cmd-b1", "被拒原因随本机追踪事实持久，跨项目监控从此读真相");
+  assert.match(String(r1.diskJob.dispatchAdmissionTrace.reason), /配额已满（1\/1）/, "追踪存的是本次拒绝的真实配额事实");
   assert.equal(r1.guardAfterSave, false, "剥回身份绝不获得发送许可");
   // P1-3：B 根首次派发在事务内自登记本根 Worker 别名（A 的条目保留）。
   const mapAfterB = JSON.parse(fs.readFileSync(mapPath, "utf8"));
@@ -674,10 +687,13 @@ test("P0-2 返修交错窗口：开始零登记的真实子进程保存持统一
   const rChild = await childPromise;
   assert.equal(rChild.error, undefined, "子进程异常：" + rChild.error);
   assert.equal(rChild.receipt, undefined, "开始时零登记：同意不启用，保持原分配行为");
-  assert.equal(rChild.guardAfterSave, false, "未同意不落发送绿灯");
+  assert.equal(rChild.guardAfterSave, false, "未同意不落发送绿灯：p2 未知在飞形态此前被 legacy 状态救援放行（旁路），现由同事务追踪事实如实拒绝");
   const childJob = DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(fileFor(rootB), "utf8"))).plans[0].jobs[0];
   assert.equal(childJob.dispatchConsent, undefined, "零登记窗口不写同意事实");
   assert.equal(childJob.status, "unknown");
+  assert.equal(childJob.dispatchAdmissionTrace.commandId, "cmd-r1", "零登记保存同事务写追踪事实——守卫从此如实区分升级前旧任务与从未过准入的新意图（此前旁路 guard=true 即因状态形态救援）");
+  assert.equal(childJob.dispatchAdmissionTrace.reason, undefined, "零登记不做准入判定，不伪造原因");
+  assert.equal(childJob.startIntent.commandId, "cmd-r1", "零登记保持原派发行为：身份/占位/startIntent 原样");
   // —— 主窗口登记完成后申请同卡：B 的完整身份未知项已先落盘保守占位，A 被拒——两窗口合计不双批。
   const rawParentA = fs.readFileSync(fileFor(rootA), "utf8");
   const diskA = DPQ.setDistributedQueueBaseSignature(DPQ.restoreFormalJobQueue(JSON.parse(rawParentA)), DPQ.distributedQueueDiskSignature(rawParentA));
@@ -690,4 +706,120 @@ test("P0-2 返修交错窗口：开始零登记的真实子进程保存持统一
   assert.equal(parentJob.status, "pending", "被拒意图剥回本地等待");
   assert.equal(parentJob.dispatchConsent, undefined);
   assert.equal(parentJob.nextCommandId, "cmd-p1", "剥回保留同命令重试身份");
+  assert.equal(parentJob.dispatchAdmissionTrace.commandId, "cmd-p1", "真新意图即使被别的项目占位拦停，追踪事实也已同事务落盘");
+  assert.match(String(parentJob.dispatchAdmissionTrace.reason), /配额已满（1\/1）/, "拒绝原因跨窗口可读，不依赖落盘即被洗掉的 blockReason");
+  // —— §B4 监控可见性：跨项目投影从持久事实读"上次准入未通过原因，待再判定"，不谎称当前仍满。
+  const projection = await hostParent.unifiedDispatchProjection();
+  assert.equal(projection.active, true, "登记完成后投影为统一域");
+  const projectedA = projection.roots.find(row => row.root === rootA);
+  assert.ok(projectedA, "投影含两个登记根：" + JSON.stringify(projection.roots.map(row => row.root)));
+  assert.ok(projectedA.blockReasons.some(reason => /上次准入未通过原因，待再判定/.test(reason) && /配额已满/.test(reason)),
+    "投影从 trace 持久事实读出等待原因：" + JSON.stringify(projectedA.blockReasons));
+  // —— F2 返修：B 的原命令再申请——盘上未知占位是它自己的一个名额：守卫先如实拒绝（旁路已闭），
+  //    受控保存内临时自扣后按真实余量获批，同意落盘后才开绿灯。
+  const runChild2 = cfg => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [childPath, JSON.stringify({ ...base, eventLog, ...cfg })], { stdio: ["ignore", "pipe", "pipe"], env: process.env });
+    let out = "", err = "";
+    child.stdout.on("data", c => { out += c; });
+    child.stderr.on("data", c => { err += c; });
+    child.on("error", reject);
+    child.on("close", code => {
+      const line = out.split("\n").find(row => row.startsWith("RESULT"));
+      if (!line) return reject(new Error(`再申请子进程无结果输出（code=${code}）：${err}`));
+      resolve(JSON.parse(line.slice("RESULT".length)));
+    });
+  });
+  const rRe = await runChild2({ root: rootB, planId: "plan-b", jobIndex: 0, commandId: "cmd-r1", gpuId: "0", manual: false, windowId: "child-re" });
+  assert.equal(rRe.error, undefined, "再申请子进程异常：" + rRe.error);
+  assert.equal(rRe.guardBeforeSave, false, "trace＋无同意：发送守卫如实拒绝（返修前的 legacy 形态旁路已闭合）");
+  assert.equal(rRe.receipt.approved.length, 1, "原命令再申请只占自己一个名额：临时自扣后如实可批，不双计也绝不永占又永发不出");
+  assert.equal(rRe.receipt.denied.length, 0, JSON.stringify(rRe.receipt.denied));
+  assert.equal(rRe.guardAfterSave, true, "再申请把同意事实落盘后守卫开绿灯");
+  const reJob = DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(fileFor(rootB), "utf8"))).plans[0].jobs[0];
+  assert.equal(reJob.dispatchConsent.commandId, "cmd-r1", "同意事实随再申请落盘");
+  assert.equal(reJob.dispatchAdmissionTrace.commandId, "cmd-r1", "再申请保留同一追踪身份");
+  assert.equal(reJob.dispatchAdmissionTrace.reason, undefined, "获批清除旧未通过原因");
+  assert.equal(reJob.status, "unknown", "磁盘状态照旧被投影清洗，守卫只认持久事实");
+  // —— 临时腾出的名额不泄漏：B 合法同意在占后，A 换命令的新意图不能借走该卡（换命令绝不按旧重试）。
+  const rawA2 = fs.readFileSync(fileFor(rootA), "utf8");
+  const diskA2 = DPQ.setDistributedQueueBaseSignature(DPQ.restoreFormalJobQueue(JSON.parse(rawA2)), DPQ.distributedQueueDiskSignature(rawA2));
+  Object.assign(diskA2.plans[0].jobs[0], { status: "dispatching", workerId: "w", gpuId: "0", commandId: "cmd-p2", lifecycleProtocol: 2 });
+  const receiptP2 = await hostParent.saveDistributedQueue(rootA, diskA2, { dispatchAdmission: true });
+  assert.equal(receiptP2.approved.length, 0, "A 的新命令不得借走/绕过 B 已占的名额");
+  assert.match(receiptP2.denied[0].reason, /配额已满（1\/1）/);
+});
+
+// ————— 块B返修：追踪事实、守卫收紧、自名额与拒绝分型（纯函数面，同文件同进程，无新测试进程） —————
+test("块B返修：trace 同事务落盘且跨清洗免疫；trace≠同意；legacy 状态救援只留给无 trace 旧任务", () => {
+  const disk = queueWith([{ status: "pending" }]);
+  const outgoing = queueWith([dispatched()]);
+  const intents = admission.diffNewDispatchIntents(disk, outgoing);
+  const traced = admission.attachAdmissionTraces(outgoing, intents);
+  assert.deepEqual(traced.plans[0].jobs[0].dispatchAdmissionTrace, { schemaVersion: 1, commandId: "cmd-0", workerId: "w1", gpuId: "0" });
+  assert.equal(admission.attachAdmissionTraces(traced, intents).plans[0].jobs[0].dispatchAdmissionTrace,
+    traced.plans[0].jobs[0].dispatchAdmissionTrace, "同身份幂等：不重写、不伪造 reason");
+  const text = DPQ.serializeDistributedQueue(traced);
+  assert.match(text, /"dispatchAdmissionTrace"/, "追踪事实随队列落盘（不在 native 投影清洗清单内）");
+  assert.equal(JSON.parse(text).plans[0].jobs[0].blockReason, undefined, "blockReason 仍按易失类被洗——两者职责不互换");
+  const restored = DPQ.restoreFormalJobQueue(JSON.parse(text));
+  assert.deepEqual(restored.plans[0].jobs[0].dispatchAdmissionTrace, { schemaVersion: 1, commandId: "cmd-0", workerId: "w1", gpuId: "0" });
+  assert.equal(admission.consentPersistedOnDisk(restored.plans[0].jobs[0], "cmd-0", "w1", "0"), false,
+    "unknown+startIntent+trace＋无真实同意 → 守卫 false（F2 零登记在飞旁路就此闭合）");
+  const legacyInFlight = queueWith([{ status: "unknown", workerId: "w1", gpuId: "0", commandId: "cmd-old", lifecycleProtocol: 2,
+    startIntent: { commandId: "cmd-old", workerId: "w1", gpuId: "0" } }]).plans[0].jobs[0];
+  assert.equal(admission.consentPersistedOnDisk(legacyInFlight, "cmd-old", "w1", "0"), true, "升级前无 trace 的合法在飞旧任务：兼容保留");
+  assert.deepEqual(admission.diffNewDispatchIntents(queueWith([legacyInFlight]), DPQ.cloneDistributedQueue(queueWith([legacyInFlight]), "s")), [],
+    "无 trace 旧任务同命令重试仍零新意图（不双计数）");
+  const live = queueWith([dispatched()]);
+  admission.syncAdmissionTracesInPlace(live, admission.diffNewDispatchIntents(disk, live));
+  assert.equal(live.plans[0].jobs[0].dispatchAdmissionTrace.commandId, "cmd-0", "内存观测面与落盘同一来源");
+});
+
+test("块B返修：自占用再申请临时自扣——获批计数保持原值、被拒恢复；拒绝分型保身份；换身份不可借槽；显存不足不被自扣打开", () => {
+  const base = { serverOf: () => "srv:22", settingsForServer: () => ({ settings: settings(1), rows: gpuRows([0, 1]) }), blockers: [] };
+  const diskTraced = queueWith([{ status: "unknown", workerId: "w1", gpuId: "0", commandId: "cmd-0", lifecycleProtocol: 2,
+    startIntent: { commandId: "cmd-0", workerId: "w1", gpuId: "0" },
+    dispatchAdmissionTrace: { schemaVersion: 1, commandId: "cmd-0", workerId: "w1", gpuId: "0", reason: "上次该卡已满" } }]);
+  const outgoing = queueWith([dispatched()]);
+  const intents = admission.diffNewDispatchIntents(diskTraced, outgoing);
+  assert.equal(intents.length, 1, "trace＋无同意不再按旧重试静默去重，必须重新受控准入");
+  assert.equal(intents[0].selfReserved, true, "盘上同根同 plan/job/attempt/command/worker/GPU 且实际计占＝只标自名额再申请");
+  const occupancy = admission.computeServerOccupancy([{ label: "own", queue: diskTraced }], () => "srv:22").occupancy;
+  assert.equal(occupancy.get("srv:22").get("0"), 1, "其占位保守计占不因 trace/无同意被放宽");
+  let receipt = admission.admitDispatchIntents({ ...base, occupancy, intents });
+  assert.equal(receipt.approved.length, 1, "临时自扣自己 1 后如实可批：不双计，也绝不永占又永发不出");
+  const approvedQueue = admission.attachApprovedDispatchConsent(admission.attachAdmissionTraces(outgoing, intents), receipt.approved);
+  const aj = approvedQueue.plans[0].jobs[0];
+  assert.equal(aj.dispatchConsent.commandId, "cmd-0");
+  assert.deepEqual(aj.dispatchAdmissionTrace, { schemaVersion: 1, commandId: "cmd-0", workerId: "w1", gpuId: "0" }, "获批保留追踪身份并清除旧原因");
+  assert.equal(admission.consentPersistedOnDisk(DPQ.restoreFormalJobQueue(JSON.parse(DPQ.serializeDistributedQueue(approvedQueue))).plans[0].jobs[0],
+    "cmd-0", "w1", "0"), true, "获批落盘后守卫凭持久同意开绿灯");
+  receipt = admission.admitDispatchIntents({ ...base, occupancy, intents: [intents[0], intent({ planId: "plan-b", jobIndex: 5, commandId: "cmd-z" })] });
+  assert.equal(receipt.approved.length, 1);
+  assert.equal(receipt.approved[0].selfReserved, true);
+  assert.match(receipt.denied[0].reason, /配额已满（1\/1）/, "自扣逐意图、裁定即恢复：同批其它意图看到的是原占用，不借被临时腾出的卡");
+  const twoOccupied = new Map([["srv:22", new Map([["0", 2]])]]);
+  receipt = admission.admitDispatchIntents({ ...base, occupancy: twoOccupied, intents: [intents[0], intent({ planId: "plan-b", jobIndex: 5, commandId: "cmd-z" })] });
+  assert.equal(receipt.approved.length, 0, "他人还占着一格时再申请如实被拒，自扣不制造第二名额");
+  assert.equal(receipt.denied[0].selfReserved, true);
+  const deniedSelf = admission.applyDeniedIntents(outgoing, receipt.denied.filter(row => row.selfReserved));
+  const dj = deniedSelf.plans[0].jobs[0];
+  assert.equal(dj.status, "dispatching", "E 分型：盘上完整身份的再申请被拒绝不剥回 pending");
+  assert.equal(dj.commandId, "cmd-0");
+  assert.equal(dj.startIntent.commandId, "cmd-0", "命令/startIntent/worker/GPU 与名额原样保留");
+  assert.match(dj.blockReason, /统一派发等待配额/, "内存观测面同步可见本次拒绝原因");
+  assert.equal(dj.dispatchAdmissionTrace.reason, receipt.denied[0].reason, "本次拒绝原因写入持久 trace");
+  for (const [label, swapped] of [["GPU", dispatched({ gpuId: "1" })], ["worker", dispatched({ workerId: "w2" })], ["命令", dispatched({ commandId: "cmd-new" })]]) {
+    const swappedIntents = admission.diffNewDispatchIntents(diskTraced, queueWith([swapped]));
+    assert.equal(swappedIntents.length, 1, "换 " + label + "＝新意图，绝不按旧重试静默去重");
+    assert.equal(swappedIntents[0].selfReserved, undefined, "换 " + label + " 不可借旧身份的自名额");
+  }
+  const lowMem = [{ index: "0", memoryTotalMb: 40960, memoryUsedMb: 40000 }, { index: "1", memoryTotalMb: 40960, memoryUsedMb: 1024 }];
+  const memBase = { serverOf: () => "srv:22", blockers: [],
+    settingsForServer: () => ({ settings: quotaSettings({ gpuJobsPerCard: 2 }, { gpuQuotaConfigured: true, gpuJobsPerCard: 2 }, lowMem), rows: lowMem }) };
+  const memReceipt = admission.admitDispatchIntents({ ...memBase, occupancy: new Map([["srv:22", new Map([["0", 1]])]]),
+    intents: [intents[0], intent({ planId: "plan-b", jobIndex: 5, commandId: "cmd-z", gpuId: "1" })] });
+  assert.ok(memReceipt.denied.some(row => row.gpuId === "0" && /并发用卡上限或该卡暂不满足最低空闲显存/.test(row.reason)),
+    "GPU0 显存不足：自扣不把它伪造成可发槽位（如实等待）");
+  assert.ok(memReceipt.approved.some(row => row.gpuId === "1"), "GPU1 充足照常获批，与自扣判定互不干扰");
 });

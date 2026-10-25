@@ -13,7 +13,9 @@ import { DistributedQueue, QueuedJob, QueuedPlan, jobHasLiveExecution } from "..
 import { hasTrustedTerminalProof, hasVerifiedCompletion } from "../features/VerifiedCompletion";
 import { GpuQuotaSettings, quotaPlacement } from "../features/GpuQuotaScheduling";
 
-export type DispatchIntent = { planId: string; jobIndex: number; attempt: number; commandId: string; workerId: string; gpuId: string; manual: boolean };
+export type DispatchIntent = { planId: string; jobIndex: number; attempt: number; commandId: string; workerId: string; gpuId: string; manual: boolean;
+  /** 块B返修：该精确身份已在盘上实际计占自己一个名额（再申请）；仅逐意图临时自扣，获批/被拒后计数不变。 */
+  selfReserved?: boolean };
 export type DeniedIntent = DispatchIntent & { reason: string };
 export type UnifiedAdmissionReceipt = { dispatchAdmission: true; intents: number; approved: DispatchIntent[]; denied: DeniedIntent[]; blockers: string[] };
 
@@ -52,16 +54,73 @@ export function dispatchConsentMatches(job: QueuedJob): boolean {
     && String(consent.gpuId ?? "") === String(job.gpuId ?? ""));
 }
 
-/** 发送守卫用：盘上 job 是否已持有该精确命令身份的本机同意（legacy 状态语义或持久事实）。 */
+export type DispatchAdmissionTrace = NonNullable<QueuedJob["dispatchAdmissionTrace"]>;
+
+function traceOf(job: QueuedJob): DispatchAdmissionTrace | undefined {
+  return job.dispatchAdmissionTrace && job.dispatchAdmissionTrace.schemaVersion === 1 ? job.dispatchAdmissionTrace : undefined;
+}
+
+const traceIdentityEquals = (trace: DispatchAdmissionTrace, commandId: string, workerId: string, gpuId: string) =>
+  trace.commandId === commandId && String(trace.workerId || "") === String(workerId || "") && String(trace.gpuId ?? "") === String(gpuId ?? "");
+
+/**
+ * 块B返修：对"盘上基线→即将写入"的真新意图，在同一保存事务内写本机追踪事实（含域未成立/零登记）。
+ * trace 不是同意、不是第二账本：守卫绝不因它开绿灯，名额计算不读它；它唯一的作用是让后续保存能把
+ * "无 trace 的升级前旧任务（合法在飞重试照旧）"与"有 trace 却从未获批的新身份"如实分开。
+ * 幂等：同身份已存在则原样保留（reason 只由批准/拒绝路径改写，绝不在此伪造）；身份变化＝本次新事实覆盖。
+ */
+export function attachAdmissionTraces(queue: DistributedQueue, intents: DispatchIntent[]): DistributedQueue {
+  if (!intents.length) return queue;
+  return { ...queue, plans: queue.plans.map((plan) => {
+    const rows = intents.filter((row) => row.planId === plan.id);
+    if (!rows.length) return plan;
+    return { ...plan, jobs: plan.jobs.map((job) => {
+      const hit = rows.find((row) => job.index === row.jobIndex && job.attempt === row.attempt && job.commandId === row.commandId
+        && job.workerId === row.workerId && String(job.gpuId ?? "") === row.gpuId && job.status === "dispatching");
+      if (!hit) return job;
+      const prior = traceOf(job);
+      if (prior && traceIdentityEquals(prior, hit.commandId, hit.workerId, hit.gpuId)) return job;
+      return { ...job, dispatchAdmissionTrace: { schemaVersion: 1, commandId: hit.commandId, workerId: hit.workerId, gpuId: hit.gpuId } };
+    }) };
+  }) };
+}
+
+/** 原地版本：同一追踪事实同步回调用方内存队列（观测面与落盘同一来源，无第二真值）。 */
+export function syncAdmissionTracesInPlace(liveQueue: DistributedQueue | undefined, intents: DispatchIntent[]): void {
+  if (!liveQueue || !intents.length) return;
+  for (const plan of liveQueue.plans) {
+    const rows = intents.filter((row) => row.planId === plan.id);
+    if (!rows.length) continue;
+    for (const job of plan.jobs) {
+      const hit = rows.find((row) => job.index === row.jobIndex && job.attempt === row.attempt && job.commandId === row.commandId
+        && job.workerId === row.workerId && String(job.gpuId ?? "") === row.gpuId && job.status === "dispatching");
+      if (!hit) continue;
+      const prior = traceOf(job);
+      if (prior && traceIdentityEquals(prior, hit.commandId, hit.workerId, hit.gpuId)) continue;
+      job.dispatchAdmissionTrace = { schemaVersion: 1, commandId: hit.commandId, workerId: hit.workerId, gpuId: hit.gpuId };
+    }
+  }
+}
+
+/**
+ * 发送守卫用：盘上 job 是否已持有该精确命令身份的本机同意。
+ * 块B返修（两半与 diskConsentMatches 同收紧）：
+ * - 持久 dispatchConsent 必须同时等于盘上当前 job 与请求身份（命令/worker/GPU 逐项，防借用他身份）；
+ * - legacy 状态形态救援（dispatching / p2 unknown+startIntent）只属于从未过准入的升级前旧任务：
+ *   有本机 trace 的 job＝升级后派发过的新身份，无真实同意一律 false，绝不因状态形态开绿灯。
+ */
 export function consentPersistedOnDisk(diskJob: QueuedJob | undefined, commandId: string, workerId: string, gpuId: string | undefined): boolean {
   if (!diskJob || !commandId) return false;
   const gpuMatches = gpuId === undefined || String(diskJob.gpuId ?? "") === String(gpuId);
   const legacy = gpuMatches && String(diskJob.commandId || "") === commandId && String(diskJob.workerId || "") === workerId
     && (diskJob.status === "dispatching"
-      || diskJob.lifecycleProtocol === 2 && diskJob.status === "unknown" && diskJob.startIntent?.commandId === commandId);
+      || diskJob.lifecycleProtocol === 2 && diskJob.status === "unknown" && diskJob.startIntent?.commandId === commandId)
+    && !traceOf(diskJob);
   const consent = diskJob.dispatchConsent;
-  const persisted = Boolean(consent && consent.commandId === commandId && consent.workerId === workerId
-    && (gpuId === undefined || String(consent.gpuId ?? "") === String(gpuId)));
+  const persisted = Boolean(consent && consent.commandId === commandId && String(consent.workerId || "") === String(workerId)
+    && (gpuId === undefined || String(consent.gpuId ?? "") === String(gpuId))
+    && String(diskJob.commandId || "") === commandId && String(diskJob.workerId || "") === workerId
+    && (gpuId === undefined || String(diskJob.gpuId ?? "") === String(gpuId)));
   return legacy || persisted;
 }
 
@@ -70,8 +129,13 @@ function diskConsentMatches(diskJob: QueuedJob | undefined, job: QueuedJob): boo
   // 不消费新槽位；未知接收不重派/不释放的既有围栏负责其生命周期。
   if (!diskJob || !job.commandId) return false;
   if (diskJob.commandId !== job.commandId || diskJob.attempt !== job.attempt) return false;
+  // 块B返修：重试去重同样要求 worker/GPU 与命令身份逐项一致——换 worker/GPU/命令绝不是"旧重试"。
+  if (String(diskJob.workerId || "") !== String(job.workerId || "") || String(diskJob.gpuId ?? "") !== String(job.gpuId ?? "")) return false;
   // P0-1：盘上已有该精确身份的持久同意事实＝同样按重试处理（序列化把状态洗成 unknown 也不双计数）。
-  if (dispatchConsentMatches(diskJob) && String(diskJob.workerId || "") === String(job.workerId || "")) return true;
+  if (dispatchConsentMatches(diskJob)) return true;
+  // 块B返修：有 trace 的 job 不再享受状态形态救援——trace+无同意＝必须重新受控准入的新意图
+  // （其自身占位由 selfReserved 走"只占自己一个名额"路径，绝不静默双计也绝不永占又永发不出）。
+  if (traceOf(diskJob)) return false;
   return diskJob.status === "dispatching"
     || job.lifecycleProtocol === 2 && diskJob.status === "unknown" && diskJob.startIntent?.commandId === job.commandId;
 }
@@ -86,8 +150,13 @@ export function diffNewDispatchIntents(diskQueue: DistributedQueue, outgoingQueu
       if (job.status !== "dispatching" || !job.commandId || !job.workerId) continue;
       const diskJob = diskPlan?.jobs.find((row) => row.index === job.index && row.attempt === job.attempt);
       if (diskConsentMatches(diskJob, job)) continue;
+      // 块B返修（D）：盘上已存在同一精确身份（同根 plan/job/attempt/command/worker/GPU）且按统一口径
+      // 实际计占的预留＝该意图已占自己一个名额；仅此情形自扣，其它根/命令/worker/GPU 一律不可借用。
+      const selfReserved = Boolean(diskPlan && diskJob && diskJob.commandId === job.commandId && diskJob.attempt === job.attempt
+        && String(diskJob.workerId || "") === String(job.workerId || "") && String(diskJob.gpuId ?? "") === String(job.gpuId ?? "")
+        && jobOccupiesUnifiedSlot(diskPlan, diskJob));
       intents.push({ planId: plan.id, jobIndex: job.index, attempt: job.attempt, commandId: job.commandId,
-        workerId: job.workerId, gpuId: String(job.gpuId ?? ""), manual: Boolean(job.manualDispatch) });
+        workerId: job.workerId, gpuId: String(job.gpuId ?? ""), manual: Boolean(job.manualDispatch), ...(selfReserved ? { selfReserved: true } : {}) });
     }
   }
   return intents;
@@ -179,12 +248,18 @@ export function admitDispatchIntents(input: AdmitInput): UnifiedAdmissionReceipt
     const placement = input.settingsForServer(serverKey);
     if (!placement) { denied.push({ ...intent, reason: `服务器 ${serverKey} 缺少已登记的统一配额策略；请先刷新统一策略。` }); continue; }
     const counts = countsFor(serverKey);
+    // 块B返修（D）：自占用身份的再申请只借自己那 1 个名额——检查前临时自扣、裁定后立刻恢复：
+    // 获批＝计数保持原值（其盘上预留本就该计 1，不额外 +1），被拒＝恢复原值。逐意图、不整批预扣，
+    // 同批其它意图与后续申请看到的占用永不含"被临时腾出的卡"。
+    const selfSlot = intent.selfReserved === true && (counts.get(intent.gpuId) || 0) > 0;
+    if (selfSlot) counts.set(intent.gpuId, (counts.get(intent.gpuId) || 0) - 1);
     const { slots, limits } = quotaPlacement(placement.rows, counts, placement.settings);
     if (slots.includes(intent.gpuId)) {
       counts.set(intent.gpuId, (counts.get(intent.gpuId) || 0) + 1);
       approved.push(intent);
       continue;
     }
+    if (selfSlot) counts.set(intent.gpuId, (counts.get(intent.gpuId) || 0) + 1);
     const limit = limits[intent.gpuId];
     const inUse = counts.get(intent.gpuId) || 0;
     const reason = limit === undefined
@@ -220,10 +295,20 @@ export function attachApprovedDispatchConsent(queue: DistributedQueue, approved:
     return { ...plan, jobs: plan.jobs.map((job) => {
       const hit = rows.find((row) => job.index === row.jobIndex && job.attempt === row.attempt && job.commandId === row.commandId
         && job.workerId === row.workerId && String(job.gpuId ?? "") === row.gpuId);
-      if (!hit || job.dispatchConsent?.commandId === hit.commandId) return job;
-      return { ...job, dispatchConsent: { commandId: hit.commandId, workerId: hit.workerId, gpuId: hit.gpuId, agreedAt: now } };
+      if (!hit) return job;
+      // 块B返修：获批身份保留 trace、清除旧的"上次未通过"原因（不伪造同意——同意只来自 dispatchConsent）。
+      const nextTrace = approvedTrace(job, hit);
+      if (job.dispatchConsent?.commandId === hit.commandId)
+        return traceOf(job) && !traceOf(job)!.reason ? job : { ...job, dispatchAdmissionTrace: nextTrace };
+      return { ...job, dispatchConsent: { commandId: hit.commandId, workerId: hit.workerId, gpuId: hit.gpuId, agreedAt: now }, dispatchAdmissionTrace: nextTrace };
     }) };
   }) };
+}
+
+function approvedTrace(job: QueuedJob, hit: DispatchIntent): DispatchAdmissionTrace {
+  const prior = traceOf(job);
+  if (prior && traceIdentityEquals(prior, hit.commandId, hit.workerId, hit.gpuId) && !prior.reason) return prior;
+  return { schemaVersion: 1, commandId: hit.commandId, workerId: hit.workerId, gpuId: hit.gpuId };
 }
 
 /** 原地版本：把同意事实同步回调用方内存队列（与落盘对象保持同一份事实）。 */
@@ -235,15 +320,30 @@ export function syncApprovedConsentInPlace(liveQueue: DistributedQueue | undefin
     for (const job of plan.jobs) {
       const hit = rows.find((row) => job.index === row.jobIndex && job.attempt === row.attempt && job.commandId === row.commandId
         && job.workerId === row.workerId && String(job.gpuId ?? "") === row.gpuId);
-      if (hit) job.dispatchConsent = { commandId: hit.commandId, workerId: hit.workerId, gpuId: hit.gpuId, agreedAt: now };
+      if (hit) {
+        job.dispatchConsent = { commandId: hit.commandId, workerId: hit.workerId, gpuId: hit.gpuId, agreedAt: now };
+        // 块B返修：内存观测面与落盘同一事务——获批即清"上次未通过"原因，保留追踪身份。
+        job.dispatchAdmissionTrace = approvedTrace(job, hit);
+      }
     }
   }
+}
+
+function deniedTrace(job: QueuedJob, denied: DeniedIntent): DispatchAdmissionTrace {
+  const prior = traceOf(job);
+  if (prior && traceIdentityEquals(prior, denied.commandId, denied.workerId, denied.gpuId)) return { ...prior, reason: denied.reason };
+  return { schemaVersion: 1, commandId: denied.commandId, workerId: denied.workerId, gpuId: denied.gpuId, reason: denied.reason };
 }
 
 function applyDeniedToJob(job: QueuedJob, plan: QueuedPlan, denied: DeniedIntent): QueuedJob | undefined {
   if (job.index !== denied.jobIndex || job.attempt !== denied.attempt || job.commandId !== denied.commandId) return undefined;
   if (job.status !== "dispatching") return undefined;
-  const fields: Partial<QueuedJob> = { ...deniedResetFields(denied) };
+  if (denied.selfReserved) {
+    // 块B返修（E）：盘上已持该精确完整身份并实占自己一个名额的再申请被拒＝只记本次原因
+    // （trace 持久 + 内存观察），命令/worker/GPU/startIntent/放置与名额一律原样保留，绝不剥回 pending。
+    return { ...job, blockReason: "统一派发等待配额：" + denied.reason, dispatchAdmissionTrace: deniedTrace(job, denied) };
+  }
+  const fields: Partial<QueuedJob> = { ...deniedResetFields(denied), dispatchAdmissionTrace: deniedTrace(job, denied) };
   if (denied.manual) {
     // 手动/服务器队列：保留用户选定的 worker/GPU 放置，回到 stage=ready 等下一次统一准入。
     const placement = job.manualDispatch;

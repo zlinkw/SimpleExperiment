@@ -1517,11 +1517,20 @@ export class RealtimeTunnelPanelProvider {
                     item.queueState = "ok";
                     const reasons = new Set();
                     for (const plan of parsed.plans) for (const job of plan.jobs) {
+                        // 块B返修：跨项目监控读等待原因必须用可跨投影清洗的持久事实——blockReason 是
+                        // native 易失观察类（p2 落盘即洗），持久 dispatchAdmissionTrace.reason 才是
+                        // "上次准入未通过、待再判定"的真相来源，绝不冒称当前配额仍满。
+                        const traceReason = job.dispatchAdmissionTrace?.schemaVersion === 1 && job.dispatchAdmissionTrace.reason
+                            ? String(job.dispatchAdmissionTrace.reason) : "";
                         if (DistributedPlanQueue.jobHasLiveExecution(job)) item.running += 1;
-                        else if (job.status === "unknown") item.unknown += 1;
+                        else if (job.status === "unknown") {
+                            item.unknown += 1;
+                            if (traceReason && !job.blockReason && reasons.size < 4) reasons.add(("上次准入未通过原因，待再判定：" + traceReason).slice(0, 160));
+                        }
                         else if (job.status === "pending") {
                             item.waiting += 1;
                             if (job.blockReason && reasons.size < 4) reasons.add(String(job.blockReason).slice(0, 160));
+                            else if (traceReason && reasons.size < 4) reasons.add(("上次准入未通过原因，待再判定：" + traceReason).slice(0, 160));
                         }
                     }
                     item.blockReasons = [...reasons];
@@ -1700,6 +1709,10 @@ export class RealtimeTunnelPanelProvider {
     async computeUnifiedDispatchAdmission(root, diskCurrent, outgoingQueue, workingQueue) {
         const intents = UnifiedDispatchAdmission.diffNewDispatchIntents(diskCurrent, outgoingQueue);
         if (!intents.length) return { receipt: undefined, queue: outgoingQueue };
+        // 块B返修：准入判定前就把追踪事实写进同一份即将落盘的队列与内存观测——之后无论获批/被拒/
+        // 阻断，该身份都不再是"无 trace 的旧任务"；被拒路径只在 trace 上补本次原因，不另造字段。
+        outgoingQueue = UnifiedDispatchAdmission.attachAdmissionTraces(outgoingQueue, intents);
+        UnifiedDispatchAdmission.syncAdmissionTracesInPlace(workingQueue || outgoingQueue, intents);
         const blockers = [];
         const policyPath = path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_POLICY_FILE_NAME);
         const serversPath = path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_SERVER_MAP_FILE_NAME);
@@ -12769,7 +12782,17 @@ this.assertPlanTopologyReady("Plan 调度");
                     const domainNow = this.unifiedDomainState();
                     if (domainNow.blocked)
                         throw new Error(`统一派发准入：事务内登记表变化：${domainNow.blocked}；已拒绝本次带新派发意图的队列写入，任务留在本地。`);
-                    if (!domainNow.active) return undefined;
+                    if (!domainNow.active) {
+                        // 块B返修：域未成立/零登记不启用同意、receipt 仍 undefined、单项目发送行为不变，
+                        // 但真新意图的同事务本机追踪事实必须落盘——这是域成立后守卫如实区分
+                        // "升级前无 trace 旧任务（兼容照旧）"与"升级后从未过准入新意图"的唯一持久依据。
+                        const newIntents = UnifiedDispatchAdmission.diffNewDispatchIntents(current, admissionQueue);
+                        if (newIntents.length) {
+                            admissionQueue = UnifiedDispatchAdmission.attachAdmissionTraces(admissionQueue, newIntents);
+                            UnifiedDispatchAdmission.syncAdmissionTracesInPlace(workingQueue || admissionQueue, newIntents);
+                        }
+                        return undefined;
+                    }
                     const admission = await this.computeUnifiedDispatchAdmission(root, current, admissionQueue, workingQueue);
                     admissionQueue = admission.queue;
                     return admission.receipt;
