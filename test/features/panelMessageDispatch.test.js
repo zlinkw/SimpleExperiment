@@ -143,6 +143,7 @@ function createHost(overrides = {}) {
     reportOperationNotice() {},
     finishOperationProgressNotice() {},
     logOperationFact() {},
+    showNativePanelMessage(message) { (calls.nativeNotices ||= []).push(message); },
     extensionRuntimeVersionState() { return { reloadRequired: false }; },
     isCurrentPanelDocumentMessage(message, command) { return command === "webviewReady" || Number(message?.documentGeneration) === this.panelDocumentGeneration; },
     handlePanelWebviewVisibility(message) { calls.visibility.push(message); },
@@ -327,3 +328,16 @@ for (const command of ["syncPendingPlanArtifacts", "rebuildProjectResultTables",
     assert.match(terminal.message, /seed mismatch/);
   });
 }
+
+
+test("webview notices use the native host route only for the current panel document", async () => {
+  const host = createHost();
+  const notice = { command: "webviewNotice", documentGeneration: 4, tone: "warning", message: "隔离区删除审核账本本次不可用；隔离区保留。" };
+  await api.handleMessage.call(host, { ...notice, documentGeneration: 3 });
+  assert.deepEqual(host.calls.nativeNotices || [], []);
+  await api.handleMessage.call(host, notice);
+  assert.deepEqual(host.calls.nativeNotices, [notice]);
+  assert.deepEqual(host.calls.lease, []);
+  assert.deepEqual(host.calls.statuses, []);
+  assert.deepEqual(host.calls.errors, []);
+});

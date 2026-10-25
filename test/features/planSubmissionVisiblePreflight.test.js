@@ -95,7 +95,7 @@ function provider() {
   host.distributedQueueCache = { schemaVersion: 1, plans: [], deferred: [] };
   host.distributedQueueRoot = root;
   host.lastCodeSyncState = { fingerprint: "new-code", workerVersions: { w1: { fingerprint: "old-code" } } };
-  host.lastWorkerProbes = { w1: { status: "ok", agentVersion: "agent-1" } };
+  host.lastWorkerProbes = { w1: { status: "ok", agentVersion: "agent-1", capabilities: { agentVersion: "agent-1", endpoints: {} } } };
   host.planValidationCache = new Map();
   host.planValidationCacheMaxEntries = 32;
   host.projectTopologyAssessment = () => ({ mode: "worker_pool", hubAllowed: false });
@@ -244,10 +244,21 @@ test("29 source change no longer freezes submission and legacy workers get an ho
 test("29 updated runtimes receive no legacy freeze notice", async () => {
   const host = commandHost();
   mountOldPlan(host);
-  host.lastWorkerProbes.w1 = { status: "ok", agentVersion: "agent-2", capabilities: { sourceDecouple: 1 } };
+  host.lastWorkerProbes.w1 = { status: "ok", agentVersion: "agent-2", capabilities: { agentVersion: "agent-2", endpoints: { sourceDecouple: 1 } } };
   await submit(host, message());
   assert.deepEqual(host.calls, ["sync", "preflight", "confirm", "enqueue:[0]"]);
   assert.equal(host.stages.some((text) => /更新 Worker runtime/.test(text)), false);
+});
+
+test("r39 only a successfully probed legacy endpoint is called old; missing/failed probes stay unknown", () => {
+  const host = commandHost();
+  host.enabledWorkerConfigs = () => [{ id: "current" }, { id: "old" }, { id: "missing" }, { id: "failed" }];
+  host.lastWorkerProbes = {
+    current: { status: "ok", capabilities: { runtimeVersion: "0.5.409", endpoints: { sourceDecouple: 1 } } },
+    old: { status: "ok", capabilities: { endpoints: {} } },
+    failed: { status: "timeout", message: "query failed" },
+  };
+  assert.deepEqual(host.legacySourceFreezeWorkerNames(), ["old"]);
 });
 
 test("29 old persisted deferred stays untouched while a source-changed plan still submits", async () => {
@@ -512,8 +523,10 @@ test("successful Plan validation cache is bounded, cloned, and keyed by all exec
   assert.notEqual(host.planValidationCacheKey(body, "w1"), key);
   host.setupConfig = {};
   host.lastWorkerProbes.w1.agentVersion = "agent-next";
+  host.lastWorkerProbes.w1.capabilities.agentVersion = "agent-next";
   assert.notEqual(host.planValidationCacheKey(body, "w1"), key);
   host.lastWorkerProbes.w1.agentVersion = "agent-1";
+  host.lastWorkerProbes.w1.capabilities.agentVersion = "agent-1";
   host.lastCodeSyncState.fingerprint = "other-code";
   assert.notEqual(host.planValidationCacheKey(body, "w1"), key);
   host.planValidationCacheMaxEntries = 1;

@@ -306,3 +306,34 @@ Linux目标通过：以原node(uid1000)运行pi-test-evidence直接argv，9/9 ex
 ## 主控 r37：原生最终链通过，代码进入PR，历史现场仍不冒充完成
 
 §68正式完整结果已补齐r36新增组合覆盖，源码与原生树对应重新核实。仅解除代码提交/发起PR的暂停；原版4个unknown与13个partial事实写入交付限制，科研重提、覆盖/隔离旧输出、真实同步/Worker部署依然不执行。当前确定SE包改用§68的1e43da82…，SFTP包5d20dfc2…不变。PR审核/合并/发行/安装按既有授权与SKILL处理，尚未执行不能称已交付。后续只执行必要收尾，不再派新写入者、不自动删测试、不中断或重复已完成的原生验收。
+
+
+## r38：409 现场返修（主控实现，仅并行只读）
+- 冻结基线：GitHub 新鲜 origin/master a9fc3d36629eeeb6bb71b183d59731e209ccac5a；原任务副本/修复分支只快进到该已合并版本，保护原目录、e979 祖先和旧包。
+- 已证故障：SE409/SFTP109 已实际运行。两次操作分别为 summation job0 / text_only job4，真实报错路径均为 test_results/.job_metrics.csv.<hex>.pending；Windows 真实 CompletedJobSyncHost→merge 现有完整夹具在所有机器状态 prefixes=[] 时复现相同错误，actualMachineStateProtected=false、synced=0、transfers=0、exit1。首败宿主日志 b94b0404-cf1a-49da-bf78-9a78ff9f035c。
+- 就绪块：legacy.ts mergeLatestWorkerVersions 的 work 项先做既有通用临时/禁止后缀过滤，再计算逐目标机器状态可达性；保留真实映射未知/保护/来源身份/必要产物/SHA/两代staging所有阻断，不允许把临时排除误报为机器状态保护；不改 Job 执行状态。
+- 回归默认扩展现有 completedJobForeignSourceClassify.test.js，复用真实host→merge夹具，不新增独立测试进程。断言 source pending/writing/tmp/upload临时文件不传输、不进入generation或queue.artifacts、源文件原样保留；同步正式文件与仅刷新已有镜像两模式均通过；现有保护/不可靠来源/必要项/SHA断言全部保留。先加回归在Windows复现红灯，再最小修改，同一完整原生树受影响回归。
+- 独立未决块：旧产物与执行状态身份/时间关系、用户手动更新后四Worker旧源码冻结提示。只读证据收集完成后由主控补具体计划，不凭猜测加mtime覆盖/重排、不静默删警告、不升级服务。
+- 最终：必要编译与反向VM夹具/本域回归通过后冻结最终候选，Windows正式 npm run package 全量，不跳既有覆盖；当前不发布409同名资产或重复安装。若需运行版本交付用新的patch；Mac仍未原生验证。真实同步/覆盖/重跑/清理/Worker升级需精确授权，不因本次返修执行。
+
+
+## r39：实际Worker能力与原生交互通知（用户增量）
+- 用户允许子代理仅快并行读，所有源码/测试修改、验证与Git由主控完成。原只读证据分别 .job-status-evidence-7_k16nsj/fragment.md、.worker-runtime-evidence-4011oq0j/fragment.md；不得拿片段摘要替代关键条件。
+- 就绪能力块：legacySourceFreezeWorkerNames读错探测capabilities顶层，真实/api/capabilities仅endpoints.sourceDecouple=1；当前四服务器经本机实际agents.lifecycle inspect已确认agent+scheduler均409运行。修复只按成功探测的真实嵌套能力判是否旧语义；缺失/失败探测不伪称旧runtime，仍由既有准备/就绪检查报真实错误。无已证顶层协议，不为假测试添加兼容。既有planSubmissionVisiblePreflight测试改真实producer形状，增加current/old/missing/failed混合条件，先Windows红后改生产，保留真正旧Worker提示与全部就绪/源码proof约束。
+- 通知范围已由用户截图澄清：右上角为VS Code原生Notifications中心、带按钮，不是自建网页列表；禁止新造通知中心/持久store。把现有Webview右下角showToast五秒消息送Host原生交互通知，保留日志/详情动作；SFTP既有showXXX已为原生无需机械重写。Native ProgressLocation.Notification、必要modal确认/双确认/取消全部保留，不改VSCode系统/其它扩展通知。待原生消息桥和测试闭包证据就绪再写精确指导。
+- 账本新提示：源码存在SelectedPlanBatchHost的隔离区删除审核账本不可用提示，影响删除审核准入，不授权清空、覆盖或删除账本；正在精确只读核对实际旧文件与锁，未证实具体错误前不改账本格式/生命周期/迁移协议。
+- 旧产物推断：本轮runId/commandId不匹配不能标completed，也不能凭缺记录回queued；mtime不是运行身份，不以它覆盖或自动重派。提交期用户显式rerun_missing复用旧完整产物为现有契约，不在此改成强制重跑。
+
+
+## r40：用户确认的原生交互通知落实
+- 所有20处Webview showToast复用一个原生桥：webviewNotice携带当前panel documentGeneration、完整文本和info/warning/error tone，经当前代际白名单校验进入Host。消息只显示VS Code原生showXXX+查看日志/打开面板；同内容5秒内（原浮条时长）抑制重复弹出，全部文本每次留原操作日志，32项LRU界限复用既有通知先例。不新建消息列表/持久store，不调用远端。桥不可达时只在现有静态meta和console保留错误，不创建任何5秒消失的DOM浮条。
+- runAllPlans已有原生终态，去掉其Webview重复浮条；analyzeRuntimeLog/清理任务页等未有原生终态的showToast保留桥接但去掉400/240截断。失败说明不是确认：withUiCommandStatus非确认错误改为非modal原生错误+查看日志，已有原生操作通知不重复报。删除/覆盖/运行范围/停止等真正确认门及双确认不改。
+- 校验/提交/批父子阶段继续既有ProgressLocation.Notification漏斗、全量日志、真实成功/失败/取消状态；原生终态加打开面板动作，所有进度去掉网页短暂浮条；远端终态通知仅复用tick已计算的新终态事实，不新增轮询/状态机，不把queued/submitted或unknown冒充运行完成。具体tick hook待按原文确认。
+- 默认扩展现有jobTmuxLogNavigation、panelMessageDispatch、planOperationNoticeLifecycle套件：验证真实rendered脚本桥接、原生类型/动作/全量日志/5秒去重与边界、旧document无副作用；保留原取消/父子进度/失败闭环与确认断言。不新增单函数独立测试文件。先在旧原生渲染树复现网页浮条不符新契约，再实施最小消息路由。
+
+
+## r41：用户明确收紧边界（覆盖r40未实施余项）
+- 只交付3个已证问题：临时文件被误报保护、Worker能力字段错位及unknown误判、既有通知按用户截图统一VS Code原生交互通知。所有修改/验证主控完成；只读调查均已结束。
+- r40提出但未实施的tick远端运行终态hook/进度计数投影不做：不新增原来不存在的进度机制、通知事件、轮询或状态机。已有Plan校验/提交/运行准备/批父子阶段继续原生withProgress及原生带按钮终态，网页重复浮条去除；内联状态数据供面板继续显示，不再拿它冒充通知渠道。
+- 不增加mtime驱动覆盖/自动重排/强制重跑、不改账本生命周期/结构、不清历史锁、不触碰科研/Worker进程。账本写入不可用时删除审核仍安全关闭，原文件/锁/隔离区保留；此处只修通知可见性。
+- 运行补丁号确定为SE0.5.410（manifest/lock/runtime一致），SFTP109不变；编译仅Windows既有原生compile入口和已安装依赖/持久缓存，开发回归当前改动域，最终Windows npm run package完整验收（不复用旧绿跳文件），再核最终包/真实diff/规定PR。旧409发行资产不覆盖、不重复安装409。Mac仍用户暂缓。

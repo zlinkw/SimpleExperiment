@@ -10,8 +10,8 @@ function method(first, next) {
   return source.slice(start, end).replace(/}\r?\n {4}(?=(?:async )?[a-zA-Z_$][\w$]*\()/g, "},\n    ");
 }
 
-function fixture() {
-  const alerts = [], warnings = [], statuses = [], terminal = [], progress = [], information = [];
+function fixture({ errorChoice } = {}) {
+  const alerts = [], warnings = [], statuses = [], terminal = [], progress = [], information = [], logCalls = [];
   const sandbox = {
     workspaceRoot: () => "C:/project",
     OperationOutcome_1,
@@ -35,7 +35,9 @@ function fixture() {
     vscode: {
       ProgressLocation: { Notification: 15 },
       window: {
-        showErrorMessage: async (...args) => alerts.push(args), showWarningMessage: async (...args) => warnings.push(args), showInformationMessage: (...args) => information.push(args),
+        // r42: Native showErrorMessage resolves the clicked button item (undefined on dismiss);
+        // 记录调用后返回 errorChoice，被测 callback 仍由产品真实 .then 分支驱动。
+        showErrorMessage: async (...args) => { alerts.push(args); return errorChoice; }, showWarningMessage: async (...args) => warnings.push(args), showInformationMessage: (...args) => information.push(args),
         withProgress: (_options, callback) => Promise.resolve(callback({ report() {} })).catch(() => undefined),
         createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }),
       },
@@ -61,8 +63,10 @@ function fixture() {
     finishPlanSubmissionProgress(_message, status, detail) { progress.push({ status, detail }); },
     postState() {}, recordActionError() {}, queuePlanArtifactSyncStatusCheck() {},
     beginSimpleSftpCapabilityLaunch() {}, legacySourceFreezeWorkerNames() { return []; },
+    // r42: 最小可观察日志宿主——仅计数真实产品 .then 分支的调用，不伪造被测 callback。
+    showOperationLogFromUi() { logCalls.push(1); },
   };
-  return { host, alerts, warnings, statuses, terminal, progress, information };
+  return { host, alerts, warnings, statuses, terminal, progress, information, logCalls };
 }
 
 test("replaced result requests finish silently while ordinary cancellations stay visible", async () => {
@@ -153,13 +157,26 @@ for (const command of ["syncPendingPlanArtifacts", "rebuildProjectResultTables",
 }
 
 test("a result operation exception still fails visibly and is never converted into partial success", async () => {
-  const f = fixture();
-  await f.host.withUiCommandStatus("click", "rebuildProjectResultTables", {}, async () => {
-    throw new Error("publication transaction failed");
-  });
-  assert.equal(f.statuses.at(-1), "failed");
-  assert.equal(f.alerts.length, 1);
-  assert.equal(f.alerts[0][1].modal, true);
+  // r42: 失败反馈按用户 r40 要求为非 modal 原生错误通知 + "查看日志"按钮（legacy.ts
+  // withUiCommandStatus catch→failed 分支），旧 modal:true 预期失效。两个必要选择 case
+  // 在本测试内循环，完整保留失败可见性与终态语义断言。
+  for (const errorChoice of ["查看日志", undefined]) {
+    const f = fixture({ errorChoice });
+    await f.host.withUiCommandStatus("click", "rebuildProjectResultTables", {}, async () => {
+      throw new Error("publication transaction failed");
+    });
+    await new Promise(resolve => setImmediate(resolve)); // flush 产品通知按钮 .then
+    assert.equal(f.statuses.at(-1), "failed");
+    assert.equal(f.terminal.at(-1).status, "failed");
+    assert.equal(f.terminal.at(-1).resultSync, undefined, "异常失败绝不被转成 partial 结果同步成功");
+    assert.equal(f.alerts.length, 1, "恰好一条原生错误通知");
+    assert.match(f.alerts[0][0], /publication transaction failed/, "完整异常原因进入原生错误通知");
+    assert.match(f.terminal.at(-1).message, /publication transaction failed/, "终态记录保留完整异常原因");
+    assert.deepEqual(f.alerts[0].slice(1), ["查看日志"], "唯一按钮为查看日志，无 modal/options 对象");
+    assert.equal(f.warnings.length, 0);
+    assert.equal(f.information.length, 0, "不增加重复 info/warning");
+    assert.equal(f.logCalls.length, errorChoice === "查看日志" ? 1 : 0, "仅点击\"查看日志\"才实际调用日志宿主，dismiss 不调用");
+  }
 });
 
 test("completed old-revision history and an artifact sync do not masquerade as a live training blocker", async () => {
