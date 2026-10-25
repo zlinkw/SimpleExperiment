@@ -1433,6 +1433,7 @@ export function renderPanelHtml(): string {
               <button type="button" data-command="createBranchFromAncestor" class="secondary" title="在祖先仓库上创建新分支并生成独立 worktree 目录&#10;创建前展示精确分支/基点/目录并需确认；不覆盖已有分支或目录">从祖先创建分支</button>
               <button type="button" data-command="refreshBranchProjects" class="secondary" title="重新读取所有登记的真实 Git 状态（只读）">刷新状态</button>
               <button type="button" data-command="refreshUnifiedDispatchPolicy" class="secondary" title="把当前用户配额设置保存为统一派发策略快照，并登记本机 Worker 别名（不修改任何项目文件）&#10;所有纳入管理的分支共用这一份策略做统一派发判定">刷新统一策略</button>
+              <button type="button" data-command="refreshBranchRuns" class="secondary" title="逐个已登记项目做真实实例握手并拉取其最近操作记录（只读）">刷新运行状态</button>
             </div>
           </div>
           <div id="branchProjectsList" data-anchor="branch-projects"></div>
@@ -2999,7 +3000,7 @@ export function renderPanelHtml(): string {
       endpointId: "endpoint-id", planFile: "plan-file", planRevision: "plan-revision", planId: "plan-id", file: "file", runKey: "run-key", taskUiKey: "task-ui-key", experimentId: "experiment-id",
       archiveKey: "archive-key", experimentIndex: "experiment-index", gpuId: "gpu-id", workerId: "worker-id", remotePath: "remote-path", confirmationPath: "confirmation-path",
       artifactPath: "artifact-path", resultPath: "result-path", logPath: "log-path", savePlan: "save-plan", deferredPlanId: "deferred-plan-id", sourcePath: "source-path", sourceLabel: "source-label",
-      presentationPath: "presentation-path", chartType: "chart-type", styleMode: "style-mode", branchProjectId: "branch-project-id"
+      presentationPath: "presentation-path", chartType: "chart-type", styleMode: "style-mode", branchProjectId: "branch-project-id", branchRoot: "branch-root"
     });
     const BUTTON_PAYLOAD_ATTRIBUTE_KEYS = Object.freeze(Object.keys(BUTTON_PAYLOAD_ATTRIBUTE_NAMES));
     const PENDING_SCOPE_KEYS = Object.freeze(["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "workerId", "configScope", "savePlan", "batchSelected"]);
@@ -3312,6 +3313,7 @@ export function renderPanelHtml(): string {
       "publishGithub", "syncGithub", "overwriteGithub",  "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "refreshLocalResults", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
       "selectPlan", "selectExperiment",
       "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject", "refreshUnifiedDispatchPolicy",
+      "submitBranchPlanRun", "refreshBranchRuns",
       "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow", "clearTmuxTaskTabs",
       ...Object.keys(uiCapabilityMap)
     ]);
@@ -4712,11 +4714,30 @@ export function renderPanelHtml(): string {
           uParts.push('<div style="font-size:11px;margin:2px 0 2px 16px;word-break:break-all;">' + esc(String(row.label || "")) + flags +
             ' 待派发 ' + esc(String(row.waiting == null ? "?" : row.waiting)) + ' · 运行中 ' + esc(String(row.running == null ? "?" : row.running)) +
             ' · 待核实 ' + esc(String(row.unknown == null ? "?" : row.unknown)) +
-            ((row.blockReasons || []).length ? ' · <span class="status-warn">' + esc(String((row.blockReasons || []).join("；")).slice(0, 300)) + '</span>' : '') + '</div>');
+            ((row.blockReasons || []).length ? ' · <span class="status-warn">' + esc(String((row.blockReasons || []).join("；")).slice(0, 300)) + '</span>' : '') +
+            '<button class="mini secondary" type="button" data-command="submitBranchPlanRun" data-branch-root="' + escAttr(String(row.root || "")) + '" title="经该分支实例的已验证 workflow 入口选择并提交 PLAN（产物冲突等确认仍在该窗口进行）">提交运行</button>' +
+            '</div>');
         }
         uParts.push('<div class="muted" style="font-size:11px;">策略状态：' + esc(POLICY_LABELS[String(unified.policyState || "")] || String(unified.policyState || "")) +
           (asArray(unified.servers).length ? ' · 服务器：' + esc(asArray(unified.servers).join("，")) : '') + '</div>');
         parts.push('<div class="branchProjectsUnified" style="margin-top:6px;border-top:1px dashed var(--border);padding-top:4px;">' + uParts.join("") + '</div>');
+      }
+      const runs = projection.runs;
+      if (runs && typeof runs === "object") {
+        const rParts = ['<div class="muted" style="margin:6px 0 2px;font-size:11px;">分支运行状态（每次点「刷新运行状态」按真实握手逐个拉取操作记录；未刷新的不猜测）</div>'];
+        if (runs.error) rParts.push('<div class="status-warn" style="font-size:11px;">' + esc(String(runs.error).slice(0, 300)) + '</div>');
+        if (!asArray(runs.roots).length) rParts.push('<div class="muted" style="font-size:11px;">尚无已登记项目。</div>');
+        for (const row of asArray(runs.roots)) {
+          const ops = asArray(row.operations);
+          rParts.push('<div style="font-size:11px;margin:2px 0 2px 16px;word-break:break-all;"><b>' + esc(String(row.label || "")) + '</b>' +
+            (row.error ? ' <span class="status-warn">' + esc(String(row.error).slice(0, 300)) + '</span>' : ops.length ? "" : ' <span class="muted">无操作记录</span>') + '</div>');
+          for (const op of ops.slice(0, 8))
+            rParts.push('<div class="muted" style="font-size:11px;margin-left:24px;word-break:break-all;">[' + esc(String(op.type || "?") + " · " + String(op.status || "?")) + '] ' +
+              esc(String(op.planFile || op.operationId || "").slice(0, 120)) + (op.message ? ' · ' + esc(String(op.message).slice(0, 160)) : '') +
+              (op.startedAt ? ' · ' + esc(String(op.startedAt)) : '') + (op.finishedAt ? ' → ' + esc(String(op.finishedAt)) : '') + '</div>');
+        }
+        if (runs.refreshedAt) rParts.push('<div class="muted" style="font-size:11px;">刷新时间：' + esc(String(runs.refreshedAt)) + '</div>');
+        parts.push('<div class="branchProjectsRuns" style="margin-top:6px;border-top:1px dashed var(--border);padding-top:4px;">' + rParts.join("") + '</div>');
       }
       setHtmlIfChanged(target, parts.join(""));
     }

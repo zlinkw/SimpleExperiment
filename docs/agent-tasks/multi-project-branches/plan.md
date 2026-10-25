@@ -68,3 +68,5 @@
 
 ## 块B实现状态（沙箱负责人更新，批准方案原文未改）
 - 块B已按批准方案实现并进入稳定候选（与 A-R3 握手预算小修合并；A-R3 为主控静态核对的截断返修下一层，不单开 A 验证轮次）。核心：saveDistributedQueue 持久化新意图边界=唯一同意点（双资源单临界区、成员只读、只写自己队列、回执过滤发送集合、sendDistributedJob 盘上身份防旁路）；未登记单项目路径保留；registry 损坏=blocked 拒绝而非静默兜底。测试与 final 覆盖按上方案；待原生按变更域重算+一次 test 入口验证（不再同候选重复 compile 前置）。
+- 2f33cdcd Native 失败（TS2345）+ 主控静态核对 P0-1/P0-2/P1-3 后，已按批准方向合成新的稳定 B 返修块（详见 evidence 同日段：持久 dispatchConsent 事实与保守占位/双路守卫、登记表存在即锁+持锁内复核+登记/移除同资源事务、显式刷新预览确认+digest 写前重核+新分支自登记别名、const 化申请身份机械修）。批准断言清单已入 test/project/unifiedDispatchAdmission.test.js（serialize→restore 守卫/占位、同卡拒/异卡多槽批、未知与重启保留、确证释放后再批、生产法身两窗口含真实子进程全链），真实加载 legacy save/tick 的旧夹具闭包按求值路径逐一核对补齐（原断言/参数零删减）。
+- 块C状态：C1 路由模块+面板入口+真实实例路由测试完成；C2 队列窄溯源/dirty 三态完成（与 B 同文件交织，随本稳定块一并交验，分界见 evidence）。C3（选优/manifest 绑定）与 C4/C5（PR/合并 gh 适配，仅 Windows 临时仓+gh stub）未动；本轮无真实科研仓 push/PR/merge、无宿主 GitHub 调用（C6 约束保持）。

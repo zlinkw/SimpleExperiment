@@ -821,3 +821,88 @@ test("实例握手预算：候选超过16条整体先拒，绝不部分握手后
     console.log(`[fixtures retained, no cleanup] ${dir}`);
   }
 });
+
+test("块C1 分支派发路由：经真实实例握手通道调 plans.list/workflow.plan/workflow.run/operations.list，参数取契约形状、业务拒绝如实复述、传输未知绝不重发", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-branch-dispatch-"));
+  const discoveryPath = path.join(dir, "api.json");
+  const workspace = path.join(dir, "wsBranch");
+  process.env.SIMPLE_EXPERIMENT_API_FILE = discoveryPath;
+  const seen = [];
+  let runBehaviour = "started";
+  try {
+    const branch = require("../../dist/project/BranchPlanDispatch.js");
+    const server = new LocalApiServer({
+      name: "SimpleExperiment", version: "0.5.409-test", preferredPort: await freePort(), discoveryPath, workspace,
+      methods: {
+        "plans.list": async () => { seen.push({ method: "plans.list" }); return { plans: [
+          { planFile: "plans/a.yaml", planId: "pid-a", updatedAt: "2026-10-25T00:00:00.000Z" },
+          { file: "plans/b.yaml" },
+          { planFile: "plans/a.yaml", planId: "duplicate-must-be-ignored" },
+          null, { planFile: "" },
+          { planFile: "plans/c.yaml", planId: "pid-c", metadataTruncated: true }] }; },
+        "workflow.plan": async params => { seen.push({ method: "workflow.plan", params });
+          if (params.planFile === "plans/validate.yaml") return { ok: false, blocker: { code: "VALIDATION_REQUIRED", recommendedAction: "请先完成 PLAN 校验" } };
+          if (params.planFile === "plans/infra.yaml") return { ok: false, blocker: { code: "INFRASTRUCTURE_NOT_READY", recommendedAction: "缺少 conda 环境" } };
+          return { ok: true, nextAction: "workflow.run" }; },
+        "workflow.run": async params => { seen.push({ method: "workflow.run", params });
+          if (runBehaviour === "business") throw new Error("该 PLAN 已有运行中的操作");
+          return { ok: true, started: true, operationId: "op-branch-1" }; },
+        "operations.list": async () => { seen.push({ method: "operations.list" }); return { records: Array.from({ length: 60 },
+          (_unused, index) => ({ operationId: `op-${index}`, type: "workflow-run", state: index ? "running" : "completed", message: "m".repeat(400),
+            planFile: "plans/a.yaml", startedAt: "s", finishedAt: "" })) }; },
+      },
+    });
+    const disc = await server.start();
+    try {
+      const route = await branch.resolveBranchRoute(workspace);
+      assert.equal(route.instanceId, `${disc.pid}:${disc.startedAt}`, "路由必须来自 A 块实例握手通道，不是按时间猜记录");
+      assert.equal(route.workspace, workspace);
+      await assert.rejects(() => branch.resolveBranchRoute(path.join(dir, "wsNone")), /未找到.*可达实例/, "未存活实例的工作区如实拒绝");
+      const rpc = branch.branchRpc(route);
+      const plans = await branch.listBranchPlans(rpc);
+      assert.deepEqual(plans.map(row => row.planFile), ["plans/a.yaml", "plans/b.yaml", "plans/c.yaml"], "planFile 兼容 file 字段、按文件去重、跳过空行");
+      assert.deepEqual(plans.map(row => row.planId), ["pid-a", "plans/b.yaml", "pid-c"], "planId 缺失回退文件名");
+      assert.equal(plans[2].metadataTruncated, true, "元数据截断必须如实上抛给 UI");
+      // 预览：只读形状——参数不得携带 autoPrepare/confirm（绝不代为准备/确认）。
+      const okPreview = await branch.previewBranchRun(rpc, workspace, plans[0]);
+      assert.equal(okPreview.ready, true);
+      assert.deepEqual(seen.at(-1).params, { workspace, planFile: "plans/a.yaml", planId: "pid-a" }, "workflow.plan 参数为已验证契约形状");
+      const needValidation = await branch.previewBranchRun(rpc, workspace, { planFile: "plans/validate.yaml", planId: "v", updatedAt: "", metadataTruncated: false });
+      assert.equal(needValidation.ready, true, "VALIDATION_REQUIRED 放行提交（run 走 forRun 路径），但必须如实提示校验");
+      assert.equal(needValidation.needsValidation, true);
+      assert.match(needValidation.guidance, /校验/);
+      const blocked = await branch.previewBranchRun(rpc, workspace, { planFile: "plans/infra.yaml", planId: "i", updatedAt: "", metadataTruncated: false });
+      assert.equal(blocked.ready, false);
+      assert.equal(blocked.guidance, "缺少 conda 环境", "阻断原因原文展示，不粉饰");
+      // 提交启动：started 才回执 operationId。
+      const started = await branch.submitBranchRun(rpc, workspace, plans[0]);
+      assert.equal(started.kind, "started");
+      assert.equal(started.operationId, "op-branch-1");
+      assert.deepEqual(seen.at(-1).params, { workspace, planFile: "plans/a.yaml", planId: "pid-a", debugMode: false }, "workflow.run 参数为已验证契约形状");
+      // 业务拒绝（JSON-RPC 错误带 apiCode）＝确定未启动，可复述原因；每次调用只发一条 run（不自动重发）。
+      runBehaviour = "business";
+      const before = seen.filter(row => row.method === "workflow.run").length;
+      const rejected = await branch.submitBranchRun(rpc, workspace, plans[1]);
+      assert.equal(rejected.kind, "notStarted");
+      assert.match(rejected.reason, /已有运行中的操作/);
+      assert.equal(seen.filter(row => row.method === "workflow.run").length, before + 1, "业务拒绝也只发一次，不重试");
+      // 进度：有界映射，message 截断、state 兼容 status。
+      const progress = await branch.branchRunProgress(rpc, 8);
+      assert.equal(progress.length, 8, "只取有界前若干条");
+      assert.equal(progress[0].status, "completed");
+      assert.equal(progress[0].message.length, 200);
+      assert.equal(progress[1].status, "running", "operations.list 的 state 字段兼容");
+      // 传输层失败（实例已停止=连接被拒）＝结果未知：kind=unknown，调用方不得据此重发。
+      await server.dispose();
+      const lost = await branch.submitBranchRun(rpc, workspace, plans[2]);
+      assert.equal(lost.kind, "unknown");
+      assert.ok(lost.error.length > 0);
+      assert.equal(seen.filter(row => row.method === "workflow.run").length, before + 1, "服务器已停时不可能有第二次提交抵达；unknown 语义即不得自动重发");
+    } finally {
+      await server.dispose().catch(() => undefined);
+    }
+  } finally {
+    delete process.env.SIMPLE_EXPERIMENT_API_FILE;
+    console.log(`[fixtures retained, no cleanup] ${dir}`);
+  }
+});

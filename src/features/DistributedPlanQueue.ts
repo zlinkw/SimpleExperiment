@@ -61,6 +61,13 @@ export type QueuedJob = {
   commandId?: string;
   /** Local unresolved start input, never proof that the remote command is running. */
   startIntent?: { commandId: string; workerId: string; gpuId: string };
+  /**
+   * 块B返修P0-1：本机已同意该精确 job 身份（command/worker/GPU）占用统一派发名额的紧凑持久事实。
+   * 它只表示本机占名额，不冒充 Worker 运行态：native 投影清空、窗口重开、查询未知都不释放它；
+   * 释放只来自既有证据（确证未发送、准入拒绝剥回、终态/停止证明、已核实完成）。
+   * 绝不参与 completionIdentity 或 Worker 协议。
+   */
+  dispatchConsent?: { commandId: string; workerId: string; gpuId: string; agreedAt: string };
   nextCommandId?: string;
   reassignmentPending?: boolean;
   /** The verified migration destination must survive the release RPC and a restart. */
@@ -98,6 +105,9 @@ export type QueuedJob = {
 };
 export type QueuedPlan = {
   executionSource?: { digest: string; manifest: Record<string, { size: number; sha256: string }> };
+  /** 提交时的本机 Git 溯源（分支/HEAD/脏状态/时间；origin 已剥离凭证）。纯本机展示与绑定用，
+   * 绝不参与 completionIdentity、job 身份或 Worker 协议。dirty 缺失=当时未知。 */
+  gitProvenance?: { schemaVersion?: number; recordedAt?: string; planFile?: string; branch?: string; localCommit?: string; dirty?: boolean; originUrl?: string };
   id: string;
   /** Explicit top-level PLAN identity, retained across a recorded rename. */
   stablePlanId?: string;

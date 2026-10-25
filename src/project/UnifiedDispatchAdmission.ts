@@ -9,7 +9,7 @@
  * 新意图的判定以“盘上基线 vs 即将写入”为唯一渠道，因此自动/旧兼容/pinned 同命令重试/
  * ready-manual/服务器队列共用同一入口且同命令重试天然不双计数（同 commandId 已在盘上=非新意图）。
  */
-import { DistributedQueue, QueuedJob, QueuedPlan, jobHasLiveExecution } from "../features/DistributedPlanQueue";
+import { DistributedQueue, QueuedJob, QueuedPlan, hasVerifiedCompletion, jobHasLiveExecution } from "../features/DistributedPlanQueue";
 import { GpuQuotaSettings, quotaPlacement } from "../features/GpuQuotaScheduling";
 
 export type DispatchIntent = { planId: string; jobIndex: number; attempt: number; commandId: string; workerId: string; gpuId: string; manual: boolean };
@@ -44,11 +44,33 @@ export function dispatchAdmissionDenied(receipt: unknown, planId: string, jobInd
   return entry.denied.some((row) => dispatchKey(row) === dispatchKey({ planId, jobIndex, commandId }));
 }
 
+/** 持久同意事实与该 job 当前身份精确一致（P0-1：落盘/重读/投影清空后仍是同一份名额事实）。 */
+export function dispatchConsentMatches(job: QueuedJob): boolean {
+  const consent = job.dispatchConsent;
+  return Boolean(consent && job.commandId && consent.commandId === job.commandId && consent.workerId === job.workerId
+    && String(consent.gpuId ?? "") === String(job.gpuId ?? ""));
+}
+
+/** 发送守卫用：盘上 job 是否已持有该精确命令身份的本机同意（legacy 状态语义或持久事实）。 */
+export function consentPersistedOnDisk(diskJob: QueuedJob | undefined, commandId: string, workerId: string, gpuId: string | undefined): boolean {
+  if (!diskJob || !commandId) return false;
+  const gpuMatches = gpuId === undefined || String(diskJob.gpuId ?? "") === String(gpuId);
+  const legacy = gpuMatches && String(diskJob.commandId || "") === commandId && String(diskJob.workerId || "") === workerId
+    && (diskJob.status === "dispatching"
+      || diskJob.lifecycleProtocol === 2 && diskJob.status === "unknown" && diskJob.startIntent?.commandId === commandId);
+  const consent = diskJob.dispatchConsent;
+  const persisted = Boolean(consent && consent.commandId === commandId && consent.workerId === workerId
+    && (gpuId === undefined || String(consent.gpuId ?? "") === String(gpuId)));
+  return legacy || persisted;
+}
+
 function diskConsentMatches(diskJob: QueuedJob | undefined, job: QueuedJob): boolean {
   // 同 commandId 已在盘上处于 dispatching（或 p2 已核实未决的 unknown+startIntent）＝ 同命令重试，
   // 不消费新槽位；未知接收不重派/不释放的既有围栏负责其生命周期。
   if (!diskJob || !job.commandId) return false;
   if (diskJob.commandId !== job.commandId || diskJob.attempt !== job.attempt) return false;
+  // P0-1：盘上已有该精确身份的持久同意事实＝同样按重试处理（序列化把状态洗成 unknown 也不双计数）。
+  if (dispatchConsentMatches(diskJob) && String(diskJob.workerId || "") === String(job.workerId || "")) return true;
   return diskJob.status === "dispatching"
     || job.lifecycleProtocol === 2 && diskJob.status === "unknown" && diskJob.startIntent?.commandId === job.commandId;
 }
@@ -74,9 +96,28 @@ export type OccupancyResult = { occupancy: Map<string, Map<string, number>>;
   unmapped: Array<{ label: string; workerId: string; planId: string; jobIndex: number }> };
 
 /**
+ * P0-1 统一名额占用判定（跨落盘/重读稳定）：
+ * - 释放证据 = 既有终态/取消（trustedTerminalStatus 或终态 status）、已核实完成、确证未发送/准入拒绝
+ *   剥回（这些路径把身份洗回 pending/清 commandId）——到此不再占名额；
+ * - jobHasLiveExecution（内存态或新鲜观测的运行/排队事实）或持久同意事实精确一致 → 占名额；
+ * - 其余带完整身份（command/worker/GPU）的未知项按"无法确认保留"保守计占，绝不直接当零占位；
+ *   下一次确证（终态/未发送/拒绝）才释放。
+ * 手动 stage=ready（尚无 commandId）尚未消费槽位，不计。
+ */
+export function jobOccupiesUnifiedSlot(plan: QueuedPlan, job: QueuedJob): boolean {
+  if (!job.workerId || job.gpuId === undefined || !job.commandId) return false;
+  if (job.trustedTerminalStatus) return false;
+  if (["completed", "failed", "cancelled"].includes(String(job.status || ""))) return false;
+  if (hasVerifiedCompletion(plan, job)) return false;
+  if (jobHasLiveExecution(job)) return true;
+  if (dispatchConsentMatches(job)) return true;
+  return job.status === "unknown" || job.status === "dispatching";
+}
+
+/**
  * 跨成员队列按逻辑服务器统计每卡占用。计入一切仍可能启动/运行/未核实的 job（含 Worker 可自启的
- * queued 与手动已同意 stage=sent 的未核实项）——不得照抄 memoryCounts 排除 queued 的口径，
- * 否则同一物理名额会被重复许给另一分支。手动 stage=ready（尚无 commandId）尚未消费槽位，不计。
+ * queued 与手动已同意 stage=sent 的未核实项，以及经 serialize/restore 洗成 unknown 的持久同意项）
+ * ——不得照抄 memoryCounts 排除 queued 的口径，否则同一物理名额会被重复许给另一分支。
  */
 export function computeServerOccupancy(queues: Array<{ label: string; queue: DistributedQueue }>,
   aliasOf: (label: string, workerId: string) => string | undefined): OccupancyResult {
@@ -84,10 +125,9 @@ export function computeServerOccupancy(queues: Array<{ label: string; queue: Dis
   const unmapped: OccupancyResult["unmapped"] = [];
   for (const entry of queues) {
     for (const plan of entry.queue.plans) for (const job of plan.jobs) {
-      if (!job.workerId || job.gpuId === undefined) continue;
-      if (!jobHasLiveExecution(job)) continue;
-      const server = aliasOf(entry.label, job.workerId);
-      if (!server) { unmapped.push({ label: entry.label, workerId: job.workerId, planId: plan.id, jobIndex: job.index }); continue; }
+      if (!jobOccupiesUnifiedSlot(plan, job)) continue;
+      const server = aliasOf(entry.label, job.workerId!);
+      if (!server) { unmapped.push({ label: entry.label, workerId: job.workerId!, planId: plan.id, jobIndex: job.index }); continue; }
       const perCard = occupancy.get(server) || new Map<string, number>();
       perCard.set(String(job.gpuId), (perCard.get(String(job.gpuId)) || 0) + 1);
       occupancy.set(server, perCard);
@@ -155,10 +195,45 @@ export function admitDispatchIntents(input: AdmitInput): UnifiedAdmissionReceipt
 
 function deniedResetFields(denied: DeniedIntent): Partial<QueuedJob> {
   // 与 resetUnsentDispatch 同形：pending + 保留 commandId 为 nextCommandId（同命令重试不换新身份），
-  // 并清掉所有会伪装“已启动”的观察字段；绝不伪造发送或释放。
+  // 并清掉所有会伪装“已启动”的观察字段；绝不伪造发送或释放。准入拒绝＝该身份从未获得名额，
+  // 同命令重试将来可重新申请，故持久同意事实（若存在同身份残留）一并剥除。
   return { status: "pending", workerId: undefined, gpuId: undefined, commandId: undefined, startIntent: undefined,
+    dispatchConsent: undefined,
     runKey: undefined, lastDispatchAttemptAt: undefined, executionState: undefined, statusQueryError: undefined,
     lastObservedAt: undefined, nextCommandId: denied.commandId, blockReason: "统一派发等待配额：" + denied.reason };
+}
+
+/**
+ * P0-1：获批意图在即将落盘的队列上写入紧凑持久事实（plan/job/attempt/command/worker/GPU 精确一致）。
+ * 只写仍处该申请身份的 job；发送守卫、同命令去重与跨项目占位从此共用同一份落盘事实，
+ * native 投影清空/窗口重开/查询未知都无法把它洗成零占位。
+ */
+export function attachApprovedDispatchConsent(queue: DistributedQueue, approved: DispatchIntent[], now = new Date().toISOString()): DistributedQueue {
+  if (!approved.length) return queue;
+  return { ...queue, plans: queue.plans.map((plan) => {
+    const rows = approved.filter((row) => row.planId === plan.id);
+    if (!rows.length) return plan;
+    return { ...plan, jobs: plan.jobs.map((job) => {
+      const hit = rows.find((row) => job.index === row.jobIndex && job.attempt === row.attempt && job.commandId === row.commandId
+        && job.workerId === row.workerId && String(job.gpuId ?? "") === row.gpuId);
+      if (!hit || job.dispatchConsent?.commandId === hit.commandId) return job;
+      return { ...job, dispatchConsent: { commandId: hit.commandId, workerId: hit.workerId, gpuId: hit.gpuId, agreedAt: now } };
+    }) };
+  }) };
+}
+
+/** 原地版本：把同意事实同步回调用方内存队列（与落盘对象保持同一份事实）。 */
+export function syncApprovedConsentInPlace(liveQueue: DistributedQueue | undefined, approved: DispatchIntent[], now = new Date().toISOString()): void {
+  if (!liveQueue || !approved.length) return;
+  for (const plan of liveQueue.plans) {
+    const rows = approved.filter((row) => row.planId === plan.id);
+    if (!rows.length) continue;
+    for (const job of plan.jobs) {
+      const hit = rows.find((row) => job.index === row.jobIndex && job.attempt === row.attempt && job.commandId === row.commandId
+        && job.workerId === row.workerId && String(job.gpuId ?? "") === row.gpuId);
+      if (hit) job.dispatchConsent = { commandId: hit.commandId, workerId: hit.workerId, gpuId: hit.gpuId, agreedAt: now };
+    }
+  }
 }
 
 function applyDeniedToJob(job: QueuedJob, plan: QueuedPlan, denied: DeniedIntent): QueuedJob | undefined {
@@ -240,16 +315,26 @@ export function policyInputsDrift(existing: UnifiedPolicyInputs | undefined, cur
 
 export type PolicyMergeResult = { policy: UnifiedPolicy; conflicts: string[] };
 
-/** 登记/刷新时的合并：已有服务器条目输入不同即记冲突并保留原条目（漂移会在准入时如实阻断）。 */
-export function mergePolicyServers(existing: UnifiedPolicy | null, incoming: UnifiedPolicy): PolicyMergeResult {
+/**
+ * 登记/刷新时的合并。默认（自动登记）：已有服务器条目输入不同即记冲突并保留原条目
+ * （漂移会在准入时如实阻断）。P1-3：replaceKeys=用户在预览确认后显式核实的服务器——
+ * 这些条目按当前配置替换（只替换核实目标，绝不暗改其它窗口登记的条目）。
+ */
+export function mergePolicyServers(existing: UnifiedPolicy | null, incoming: UnifiedPolicy, replaceKeys: string[] = []): PolicyMergeResult {
   const servers: UnifiedPolicy["servers"] = { ...(existing?.servers || {}) };
   const conflicts: string[] = [];
+  const replace = new Set(replaceKeys);
   for (const [key, row] of Object.entries(incoming.servers)) {
     const prior = servers[key];
-    if (!prior) { servers[key] = row; continue; }
+    if (!prior || replace.has(key)) { servers[key] = row; continue; }
     if (policyInputsDrift(prior.inputs, row.inputs)) conflicts.push(`服务器 ${key} 已有策略快照与当前配置不同（保留原快照；如需换策略请显式刷新统一策略）`);
   }
   return { policy: { schemaVersion: 1, savedAt: existing?.savedAt || incoming.savedAt, savedFromRoot: existing?.savedFromRoot || incoming.savedFromRoot, servers }, conflicts };
+}
+
+/** 快照条目的稳定指纹：用于“写前再核”（预览时看到的条目必须仍然未被并发修改）。 */
+export function policyEntryDigest(entry: unknown): string {
+  return stableStringify(entry ?? null);
 }
 
 export function mergeServerMapRoots(existing: UnifiedServerMap | null, rootKey: string, aliases: Record<string, string>, now: string): UnifiedServerMap {

@@ -16,8 +16,14 @@
  * 6) 策略快照：损坏拒绝解析；合并不覆盖已有服务器条目并报告冲突；漂移按原始输入判定。
  * 7) 真实两进程对固定“统一派发”资源目标的互斥（各自独立进程，同临时登记目录，不写科研内容）。
  * 8) 登记表库存（registryInventory）在真实临时 Git 夹具上工作且不动任何提交。
+ * 9) P0-1 持久同意事实跨真实 serialize→restore：手动首发守卫/占位免疫投影清洗；自动 startIntent
+ *    被观测清除后仍占位；查询未知/重启不丢；只的确证终态（verifiedCompletion）/被拒剥回才释放；
+ *    旧版无该字段的未知项按既有证据保守占位，绝不当零。
+ * 10) P0-1/P1-3 两个独立项目窗口的真实进程跑生产提取法身（save 同意事务+跨队列占位+发送守卫）：
+ *    同意→落盘→第二项目同卡拒/异卡批→B 根首次派发自登记别名→A 确证完成后同卡再批。
+ * 11) P0-2 登记表存在（哪怕域未成立）的带新意图保存先持统一资源；登记表损坏拒绝而非静默放行。
  *
- * 需要真实 git 子进程与两 node 进程（互斥/隔离语义本身是被测行为），因此作为新功能域新建本文件；
+ * 需要真实 git 子进程与多 node 进程（互斥/隔离语义本身是被测行为），因此作为新功能域新建本文件；
  * 手动通道对回执的响应扩在 test/features/manualJobDispatch.test.js。Linux 端不运行本套件。
  */
 const assert = require("node:assert/strict");
@@ -33,6 +39,7 @@ const { ResourceOperationLeaseManager } = require("../../dist/core/ResourceOpera
 const { BranchProjectStore } = require("../../dist/project/BranchProjectStore.js");
 const { BranchProjectService } = require("../../dist/project/BranchProjectService.js");
 const DPQ = require("../../dist/features/DistributedPlanQueue.js");
+const VC = require("../../dist/features/VerifiedCompletion.js");
 
 const tempDirs = [];
 function tempDir(prefix) {
@@ -253,4 +260,256 @@ test("登记表库存在真实临时 Git 夹具上工作：两个登记根=统�
   const inventory = service.registryInventory();
   assert.equal(inventory.ancestors.length + inventory.branches.length, 2, "两登记根=≥2 的统一域基数");
   assert.equal(git(["rev-parse", "HEAD"], ancestor).trim(), beforeHead, "库存读取绝不动提交");
+});
+
+test("P0-1 持久同意事实跨真实 serialize→restore：守卫/占位免疫投影清洗；确证终态/被拒剥回才释放；旧未知项不当零", () => {
+  // 变更前缺失：同意只活在 dispatching/startIntent 内存状态里，serialize 投影一洗守卫就自拒、
+  // 跨项目名额被清零——本机首发被自己拒绝、同卡被另一分支重复领取。
+  const manualQueue = admission.attachApprovedDispatchConsent(
+    queueWith([dispatched({ manualDispatch: { workerId: "w1", gpuId: "0", stage: "sent" }, startIntent: undefined })]),
+    [intent({ manual: true })]);
+  assert.equal(manualQueue.plans[0].jobs[0].dispatchConsent.commandId, "cmd-0");
+  assert.equal(admission.attachApprovedDispatchConsent(manualQueue, [intent({ manual: true })]).plans[0].jobs[0].dispatchConsent,
+    manualQueue.plans[0].jobs[0].dispatchConsent, "同身份重复批准不重写事实");
+  const serialized = DPQ.serializeDistributedQueue(manualQueue);
+  assert.match(serialized, /"dispatchConsent"/, "同意事实随队列落盘（不在投影清洗清单内）");
+  const washed = JSON.parse(serialized).plans[0].jobs[0];
+  assert.equal(washed.status, "unknown", "native 投影清洗：磁盘 status 从不被当运行真值");
+  assert.equal(washed.startIntent, undefined);
+  const restored = DPQ.restoreFormalJobQueue(JSON.parse(serialized));
+  const rplan = restored.plans[0], rjob = rplan.jobs[0];
+  // manual 首发守卫（清洗后）通过且占槽——靠同一份落盘事实，不靠被洗的状态。
+  assert.equal(admission.consentPersistedOnDisk(rjob, "cmd-0", "w1", "0"), true);
+  assert.equal(admission.jobOccupiesUnifiedSlot(rplan, rjob), true);
+  assert.deepEqual(admission.diffNewDispatchIntents(restored, DPQ.cloneDistributedQueue(restored, "sig")), [], "清洗后同命令重试仍零新意图（不双计数）");
+  // 自动项：观测确证执行清掉 startIntent，再 serialize→restore 仍占位。
+  const autoQueue = admission.attachApprovedDispatchConsent(queueWith([dispatched()]), [intent()]);
+  autoQueue.plans[0].jobs[0].startIntent = undefined;
+  const autoRestored = DPQ.restoreFormalJobQueue(JSON.parse(DPQ.serializeDistributedQueue(autoQueue)));
+  assert.equal(admission.jobOccupiesUnifiedSlot(autoRestored.plans[0], autoRestored.plans[0].jobs[0]), true, "startIntent 被清后仍靠持久事实占位");
+  // 查询未知/重启：反复 serialize→restore 事实不丢。
+  const againRestored = DPQ.restoreFormalJobQueue(JSON.parse(DPQ.serializeDistributedQueue(autoRestored)));
+  assert.equal(againRestored.plans[0].jobs[0].dispatchConsent.commandId, "cmd-0");
+  assert.equal(admission.consentPersistedOnDisk(againRestored.plans[0].jobs[0], "cmd-0", "w1", "0"), true);
+  // 旧版无新字段的未知项：守卫按既有证据不伪造，占位按“无法确认保留”保守计占，绝不直接当零。
+  const legacyUnknown = queueWith([{ status: "unknown", workerId: "w1", gpuId: "0", commandId: "cmd-old", lifecycleProtocol: 2 }]);
+  assert.equal(admission.jobOccupiesUnifiedSlot(legacyUnknown.plans[0], legacyUnknown.plans[0].jobs[0]), true, "无法确认的旧未知项保留占位");
+  assert.equal(admission.consentPersistedOnDisk(legacyUnknown.plans[0].jobs[0], "cmd-old", "w1", "0"), false, "守卫不替旧条目伪造同意");
+  // 第二项目同 GPU 不获批、不同 GPU/多槽可批——占用全部来自 restore 之后的队列。
+  const occupancy = admission.computeServerOccupancy([{ label: "own", queue: restored }], () => "srv:22").occupancy;
+  const base = { serverOf: () => "srv:22", settingsForServer: () => ({ settings: settings(1), rows: gpuRows([0, 1]) }), blockers: [] };
+  let receipt = admission.admitDispatchIntents({ ...base, occupancy, intents: [intent({ planId: "plan-b", commandId: "cmd-b" })] });
+  assert.equal(receipt.approved.length, 0);
+  assert.match(receipt.denied[0].reason, /配额已满（1\/1）/);
+  receipt = admission.admitDispatchIntents({ ...base, occupancy, intents: [intent({ planId: "plan-b", jobIndex: 1, commandId: "cmd-b1", gpuId: "1" })] });
+  assert.equal(receipt.approved.length, 1, "不同 GPU 可并行批准");
+  const twoSlot = admission.admitDispatchIntents({ ...base, occupancy, settingsForServer: () => ({ settings: settings(2), rows: gpuRows([0, 1]) }),
+    intents: [intent({ planId: "plan-b", commandId: "cmd-b" })] });
+  assert.equal(twoSlot.approved.length, 1, "每卡多槽时第二个可批");
+  // 确证完成＝跨清洗存活的 durable verifiedCompletion；释放后同卡才再批。
+  const completed = queueWith([{ status: "completed", trustedTerminalStatus: "completed", workerId: "w1", gpuId: "0", commandId: "cmd-0", lifecycleProtocol: 2 }]);
+  completed.plans[0].projectId = "proj-verified";
+  const cjob = completed.plans[0].jobs[0];
+  cjob.verifiedCompletion = { schemaVersion: 1, identity: VC.completionIdentity(completed.plans[0], cjob), verifiedAt: new Date().toISOString(), exitCode: 0 };
+  const completedOnDisk = DPQ.restoreFormalJobQueue(JSON.parse(DPQ.serializeDistributedQueue(completed)));
+  assert.equal(completedOnDisk.plans[0].jobs[0].status, "completed", "确证完成在 restore 后仍呈现 completed（proof 恢复投影）");
+  assert.equal(admission.jobOccupiesUnifiedSlot(completedOnDisk.plans[0], completedOnDisk.plans[0].jobs[0]), false, "确证完成即释放名额");
+  receipt = admission.admitDispatchIntents({ ...base, occupancy: admission.computeServerOccupancy([{ label: "own", queue: completedOnDisk }], () => "srv:22").occupancy,
+    intents: [intent({ planId: "plan-b", commandId: "cmd-b" })] });
+  assert.equal(receipt.approved.length, 1, "释放确证后才再批");
+  // 被拒剥回：同意事实随身份一并剥除（该身份从未获得名额），同命令重试将来重新申请。
+  const deniedRow = admission.applyDeniedIntents(manualQueue, [{ ...intent({ manual: true }), reason: "配额已满" }]);
+  assert.equal(deniedRow.plans[0].jobs[0].dispatchConsent, undefined, "拒绝剥回清除持久事实");
+  assert.equal(admission.jobOccupiesUnifiedSlot(deniedRow.plans[0], deniedRow.plans[0].jobs[0]), false);
+  // 原地同步：批准事实写回调用方内存队列（同一来源，无第二真值）。
+  const live = queueWith([dispatched()]);
+  admission.syncApprovedConsentInPlace(live, [intent()]);
+  assert.equal(live.plans[0].jobs[0].dispatchConsent.commandId, "cmd-0");
+});
+
+// —— 生产法身两窗口夹具：把 legacy 真实“保存同意事务 + 跨队列占位 + 发送守卫”方法体提取进隔离
+// vm 沙箱（同 staleQueueRoundBehavior 口径），登记表库存是唯一注入点（薄可测试接口）；
+// 第二窗口跑真实 node 子进程，证明占位事实经磁盘跨进程可见——不是只纯函数+锁日志。
+const UNIFIED_HOST_HARNESS = [
+  '"use strict";',
+  'const fs=require("node:fs"),vm=require("node:vm"),path=require("node:path");',
+  'module.exports=function makeHost(env){',
+  '  const ts=require(env.typescript);',
+  '  const source=fs.readFileSync(env.legacySource,"utf8");',
+  '  const ast=ts.createSourceFile("legacy.ts",source,ts.ScriptTarget.Latest,true);',
+  '  let cls=null;const visit=n=>{if(ts.isClassDeclaration(n)&&n.name&&n.name.text==="RealtimeTunnelPanelProvider")cls=n;ts.forEachChild(n,visit);};visit(ast);',
+  '  const names=["saveDistributedQueue","withQueueWriteResource","computeUnifiedDispatchAdmission","assertUnifiedDispatchConsentPersisted","unifiedDomainState","registryHasEntries","withUnifiedAdmissionLease","readUnifiedSnapshotText","unifiedWorkerSetup","unifiedServerKey","unifiedCurrentAliasMap"];',
+  '  const members=cls.members.filter(n=>n.name&&names.includes(n.name.getText(ast)));',
+  '  if(members.length!==names.length)throw new Error("统一域宿主法身闭包不齐："+names.join(","));',
+  '  const Host=vm.runInNewContext(ts.transpileModule("class Host{"+members.map(m=>m.getText(ast)).join("\\n")+"};Host",{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{',
+  '    AbortController,workspaceRoot:()=>env.root,errorMessage:e=>String((e&&e.message)||e),compactSensitiveText:s=>String(s).slice(0,240),',
+  '    require:()=>({getUpdater:()=>undefined}),syncGpuQuotaPolicies:async()=>({}),',
+  '    DistributedPlanQueue:require(env.dist+"/features/DistributedPlanQueue.js"),',
+  '    UnifiedDispatchAdmission:require(env.dist+"/project/UnifiedDispatchAdmission.js"),',
+  '    GpuQuotaScheduling:require(env.dist+"/features/GpuQuotaScheduling.js"),',
+  '    canonicalComparablePath:require(env.dist+"/project/BranchProjectStore.js").canonicalComparablePath,',
+  '    atomicWriteText:require(env.dist+"/state/StateStore.js").atomicWriteText,',
+  '    path,fs:require("node:fs/promises"),API_DISCOVERY_DIR:env.apiDir});',
+  '  const h=new Host();',
+  '  Object.assign(h,{',
+  '    context:{globalStorageUri:{fsPath:env.storage}},manualDispatchInFlight:new Set(),planCleanupHosts:new Map(),',
+  '    captureProjectContext:()=>({root:env.root}),projectContextIsCurrent:()=>true,',
+  '    distributedQueueGeneration:0,distributedPlanStopEpoch:0,planStopClearBatchLease:undefined,distributedTickAbort:undefined,distributedQueueTickPromise:undefined,',
+  '    distributedSubmissionEpochs:new Map(),distributedQueueWritePromise:Promise.resolve(),hostOperationLease:undefined,',
+  '    distributedQueueCache:null,distributedQueueRoot:"",distributedQueueDiskSignature:"",distributedQueueStorageDiagnostics:{status:"ready"},',
+  '    distributedQueueMetadataWrites:[],detachStaleDistributedTick(){},postState(){},recordActionError(){},',
+  '    setupConfig:{sessionPrefix:"T",workerTunnels:[{id:"w",workerHost:"gpu-host",workerSshPort:22}]},',
+  '    enabledWorkerConfigs:()=>[{id:"w",gpuQuotaConfigured:true,gpuJobsPerCard:1}],schedulerSettings:()=>({gpuJobsPerCard:1}),',
+  '    lastRealtimeState:{gpu:{w:[{index:"0",memoryTotalMb:40960,memoryUsedMb:1024},{index:"1",memoryTotalMb:40960,memoryUsedMb:1024}]}},',
+  '    branchProjectService:()=>env.brokenRegistry?{registryInventory:()=>{throw new Error("模拟登记表损坏");}}:{registryInventory:()=>({ancestors:env.roots,branches:[]})},',
+  '  });',
+  '  return h;',
+  '};',
+  ''].join("\n");
+
+const UNIFIED_CHILD_SOURCE = [
+  'const fs=require("node:fs");',
+  'const C=JSON.parse(process.argv[2]);',
+  'const makeHost=require(C.harness);',
+  'const DPQ=require(C.dist+"/features/DistributedPlanQueue.js");',
+  '(async()=>{',
+  '  const h=makeHost({typescript:C.ts,legacySource:C.legacy,dist:C.dist,apiDir:C.apiDir,storage:C.storage,root:C.root,roots:C.roots});',
+  '  const file=DPQ.distributedQueuePath(C.storage,C.root);',
+  '  const disk=DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(file,"utf8")));',
+  '  const plan=disk.plans.find(p=>p.id===C.planId),job=plan.jobs.find(j=>j.index===C.jobIndex);',
+  '  const guard=async()=>{try{await h.assertUnifiedDispatchConsentPersisted(plan,job,"w",C.gpuId,C.commandId);return true;}catch(e){return false;}};',
+  '  const guardBeforeSave=await guard();',
+  '  Object.assign(job,{status:"dispatching",workerId:"w",gpuId:C.gpuId,commandId:C.commandId,lifecycleProtocol:2},' +
+    'C.manual?{manualDispatch:{workerId:"w",gpuId:C.gpuId,stage:"sent"}}:{startIntent:{commandId:C.commandId,workerId:"w",gpuId:C.gpuId}});',
+  '  const receipt=await h.saveDistributedQueue(C.root,disk,{dispatchAdmission:true});',
+  '  const after=DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(file,"utf8")));',
+  '  const diskJob=after.plans.find(p=>p.id===C.planId).jobs.find(j=>j.index===C.jobIndex);',
+  '  const guardAfterSave=await guard();',
+  '  process.stdout.write("RESULT"+JSON.stringify({guardBeforeSave,guardAfterSave,receipt,diskJob})+"\\n");',
+  '})().catch(error=>{process.stdout.write("RESULT"+JSON.stringify({error:String((error&&error.message)||error)})+"\\n");process.exitCode=1;});',
+  ''].join("\n");
+
+test("P0-1/P0-2/P1-3 两个独立项目窗口真实进程：生产同意事务落盘→跨窗口同卡拒→自登记别名→确证释放后再批；登记表损坏拒绝", async () => {
+  const dir = tempDir("se-unified-prod-");
+  const storage = path.join(dir, "storage"), apiDir = path.join(dir, "api");
+  fs.mkdirSync(apiDir, { recursive: true });
+  const rootA = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "se-unified-rootA-")));
+  const rootB = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "se-unified-rootB-")));
+  const canonical = require("../../dist/project/BranchProjectStore.js").canonicalComparablePath;
+  const harnessPath = path.join(dir, "unified-host.js");
+  fs.writeFileSync(harnessPath, UNIFIED_HOST_HARNESS, "utf8");
+  const childPath = path.join(dir, "unified-child.js");
+  fs.writeFileSync(childPath, UNIFIED_CHILD_SOURCE, "utf8");
+  const distDir = path.join(__dirname, "..", "..", "dist");
+  // 共享快照：单逻辑服务器 gpu-host:22、每卡 1 槽；别名表初始只含 rootA（B 靠首次派发自登记）。
+  const inputs = admission.buildPolicyInputs({ gpuJobsPerCard: 1 }, { gpuQuotaConfigured: true, gpuJobsPerCard: 1 });
+  const now = () => new Date().toISOString();
+  fs.writeFileSync(path.join(apiDir, admission.UNIFIED_POLICY_FILE_NAME), JSON.stringify({ schemaVersion: 1, savedAt: now(), savedFromRoot: rootA,
+    servers: { "gpu-host:22": { workerId: "w", inputs } } }));
+  const mapPath = path.join(apiDir, admission.UNIFIED_SERVER_MAP_FILE_NAME);
+  fs.writeFileSync(mapPath, JSON.stringify(admission.mergeServerMapRoots(null, canonical(rootA), { w: "gpu-host:22" }, now())));
+  const fileFor = root => DPQ.distributedQueuePath(storage, root);
+  const seed = (root, planId, jobCount) => {
+    const q = DPQ.enqueuePlan(DPQ.emptyDistributedQueue(), { projectId: DPQ.canonicalProjectId(root), executionMode: "train", planFile: planId + ".yaml",
+      revision: "r", codeFingerprint: "f", resultPathPolicy: "declared",
+      jobs: Array.from({ length: jobCount }, (_unused, index) => ({ index, case: "a", seed: index + 1, outputDir: "work/" + index })) }, planId);
+    fs.mkdirSync(path.dirname(fileFor(root)), { recursive: true });
+    fs.writeFileSync(fileFor(root), DPQ.serializeDistributedQueue(q), "utf8");
+  };
+  seed(rootA, "plan-a", 1);
+  seed(rootB, "plan-b", 2);
+  const base = { harness: harnessPath, ts: require.resolve("typescript"), legacy: path.join(__dirname, "..", "..", "src", "extension", "legacy.ts"),
+    dist: distDir, storage, apiDir, roots: [rootA, rootB] };
+  const runChild = cfg => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [childPath, JSON.stringify({ ...base, ...cfg })], { stdio: ["ignore", "pipe", "pipe"], env: process.env });
+    let out = "", err = "";
+    child.stdout.on("data", chunk => { out += chunk; });
+    child.stderr.on("data", chunk => { err += chunk; });
+    child.on("error", reject);
+    child.on("close", code => {
+      const line = out.split("\n").find(row => row.startsWith("RESULT"));
+      if (!line) return reject(new Error(`子进程窗口无结果输出（code=${code}）：${err}`));
+      resolve(JSON.parse(line.slice("RESULT".length)));
+    });
+  });
+  const readDiskJob = (root, planId, index) => DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(fileFor(root), "utf8")))
+    .plans.find(p => p.id === planId).jobs.find(j => j.index === index);
+  // —— 窗口 A（进程内生产法身）：手动首发过统一同意事务，事实落盘。
+  const hostA = require(harnessPath)({ ...base, root: rootA });
+  const diskA = DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(fileFor(rootA), "utf8")));
+  const planA = diskA.plans[0], jobA = planA.jobs[0];
+  Object.assign(jobA, { status: "dispatching", workerId: "w", gpuId: "0", commandId: "cmd-a1", lifecycleProtocol: 2,
+    manualDispatch: { workerId: "w", gpuId: "0", stage: "sent" } });
+  const receiptA = await hostA.saveDistributedQueue(rootA, diskA, { dispatchAdmission: true });
+  assert.equal(receiptA.dispatchAdmission, true);
+  assert.deepEqual(receiptA.approved.map(r => ({ planId: r.planId, commandId: r.commandId, gpuId: r.gpuId, manual: r.manual })),
+    [{ planId: "plan-a", commandId: "cmd-a1", gpuId: "0", manual: true }]);
+  assert.deepEqual(receiptA.denied, []);
+  assert.equal(receiptA.blockers.length, 0, "夹具快照齐备不应有阻断项");
+  const onDiskA = JSON.parse(fs.readFileSync(fileFor(rootA), "utf8")).plans[0].jobs[0];
+  assert.equal(onDiskA.status, "unknown", "落盘即被投影清洗：守卫与占位必须靠持久事实而非磁盘状态");
+  assert.equal(onDiskA.startIntent, undefined);
+  assert.equal(onDiskA.dispatchConsent.commandId, "cmd-a1");
+  assert.equal(onDiskA.dispatchConsent.gpuId, "0");
+  // 生产发送守卫读真实磁盘文件：清洗后的 manual 首发身份通过（修复前在此被自己拒绝）。
+  await hostA.assertUnifiedDispatchConsentPersisted(planA, jobA, "w", "0", "cmd-a1");
+  // —— 窗口 B（真实子进程 #1）：同卡申请必须被拒并剥回；剥回身份守卫永不开绿灯。
+  const r1 = await runChild({ root: rootB, planId: "plan-b", jobIndex: 0, commandId: "cmd-b1", gpuId: "0", manual: true });
+  assert.equal(r1.error, undefined, "子进程异常：" + r1.error);
+  assert.equal(r1.guardBeforeSave, false, "未同意前守卫如实拒绝");
+  assert.equal(r1.receipt.approved.length, 0);
+  assert.equal(r1.receipt.denied.length, 1);
+  assert.match(r1.receipt.denied[0].reason, /配额已满（1\/1）/, "占用必须来自跨窗口读到磁盘上的 A 占位");
+  assert.equal(r1.diskJob.status, "pending");
+  assert.equal(r1.diskJob.nextCommandId, "cmd-b1", "剥回保留同命令重试身份");
+  assert.equal(r1.diskJob.dispatchConsent, undefined);
+  assert.match(String(r1.diskJob.blockReason), /统一派发等待配额/);
+  assert.equal(r1.guardAfterSave, false, "剥回身份绝不获得发送许可");
+  // P1-3：B 根首次派发在事务内自登记本根 Worker 别名（A 的条目保留）。
+  const mapAfterB = JSON.parse(fs.readFileSync(mapPath, "utf8"));
+  assert.deepEqual(mapAfterB.roots[canonical(rootB)].aliases, { w: "gpu-host:22" }, "分支根首次派发前自登记别名");
+  assert.deepEqual(mapAfterB.roots[canonical(rootA)].aliases, { w: "gpu-host:22" }, "自登记只写自身根，不碰其它根");
+  // —— 窗口 B（真实子进程 #2）：异卡自动意图获批并落盘，保存后守卫开绿灯。
+  const r2 = await runChild({ root: rootB, planId: "plan-b", jobIndex: 1, commandId: "cmd-b2", gpuId: "1", manual: false });
+  assert.equal(r2.error, undefined, "子进程异常：" + r2.error);
+  assert.equal(r2.receipt.approved.length, 1, "不同 GPU/多槽可批");
+  assert.equal(readDiskJob(rootB, "plan-b", 1).dispatchConsent.commandId, "cmd-b2");
+  assert.equal(r2.guardAfterSave, true, "同意落盘后生产守卫通过（发送标记的既有 save→send 顺序自然放行）");
+  // —— A 确证完成（durable verifiedCompletion 经生产保存事务落盘）→ 同卡名额释放。
+  await hostA.saveDistributedQueue(rootA, undefined, { controlMutation: true, mutateLatest: latest => ({ ...latest,
+    plans: latest.plans.map(p => p.id !== "plan-a" ? p : { ...p, jobs: p.jobs.map(j => ({ ...j, status: "completed", trustedTerminalStatus: "completed",
+      executionState: "exited", verifiedCompletion: { schemaVersion: 1, identity: VC.completionIdentity(p, j), verifiedAt: now(), exitCode: 0 } })) })) }) });
+  const releasedA = readDiskJob(rootA, "plan-a", 0);
+  assert.equal(releasedA.status, "completed", "确证完成的 proof 跨清洗保留");
+  // —— 窗口 B（真实子进程 #3）：释放确证之后，同卡新命令才再批。
+  const r3 = await runChild({ root: rootB, planId: "plan-b", jobIndex: 0, commandId: "cmd-b3", gpuId: "0", manual: false });
+  assert.equal(r3.error, undefined, "子进程异常：" + r3.error);
+  assert.equal(r3.receipt.denied.length, 0, "确证释放后才再批：" + JSON.stringify(r3.receipt.denied));
+  assert.equal(r3.receipt.approved.length, 1);
+  assert.equal(r3.guardAfterSave, true);
+  // 双根磁盘占位终态：A 释放、B 两卡各 1——全部由另一窗口的磁盘读重算。
+  const queueB = DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(fileFor(rootB), "utf8")));
+  const occ = admission.computeServerOccupancy([{ label: "b", queue: queueB }], () => "gpu-host:22").occupancy;
+  assert.equal(occ.get("gpu-host:22").get("0"), 1);
+  assert.equal(occ.get("gpu-host:22").get("1"), 1);
+  assert.equal(admission.jobOccupiesUnifiedSlot({ ...JSON.parse(fs.readFileSync(fileFor(rootA), "utf8")).plans[0] }, releasedA), false);
+  // —— P0-2：登记表存在但域未成立（仅本根）——带新意图保存仍先持统一资源（消除登记切换窗口），
+  // 域未成立时不产生同意、队列按既有单项目路径写入。
+  const hostSolo = require(harnessPath)({ ...base, root: rootA, roots: [rootA] });
+  const leaseResources = [];
+  hostSolo.hostOperationLease = { run: async (options, work) => { leaseResources.push(options.resources.map(r => r.target)); return work(); } };
+  const soloDisk = DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(fileFor(rootA), "utf8")));
+  const soloPlan = soloDisk.plans[0], soloJob = soloPlan.jobs[0];
+  Object.assign(soloJob, { status: "dispatching", workerId: "w", gpuId: "1", commandId: "cmd-a2", lifecycleProtocol: 2 });
+  const soloReceipt = await hostSolo.saveDistributedQueue(rootA, soloDisk, { dispatchAdmission: true });
+  assert.equal(soloReceipt, undefined, "未成立统一域=同意不启用（旧行为保留）");
+  assert.ok(leaseResources.flat().some(target => /unified-dispatch$/.test(String(target))),
+    "登记表存在时带新意图保存必须已持统一派发资源（事务内复核在持有之后）");
+  assert.equal(readDiskJob(rootA, "plan-a", 0).dispatchConsent, undefined, "未成立域不写同意事实，也不阻断");
+  // —— 登记表损坏：带新派发意图的保存被拒绝，绝不按“未登记”静默放行。
+  const hostBroken = require(harnessPath)({ ...base, root: rootA, roots: [rootA, rootB], brokenRegistry: true });
+  const beforeBroken = fs.readFileSync(fileFor(rootA), "utf8");
+  await assert.rejects(() => hostBroken.saveDistributedQueue(rootA, soloDisk, { dispatchAdmission: true }),
+    /登记表不可读\/已损坏.*已拒绝本次带新派发意图的队列写入/s);
+  assert.equal(fs.readFileSync(fileFor(rootA), "utf8"), beforeBroken, "拒绝即零写入");
 });
