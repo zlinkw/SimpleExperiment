@@ -264,7 +264,7 @@ export async function loadUnknownReceipts(ledger: ReceiptLedger): Promise<Receip
   return rows.filter(row => row.outcome === "unknown");
 }
 
-export type CreateResult = { status: "created" | "reused" | "already-merged" | "blocked-unknown" | "failed"; prNumber?: number; url?: string; reason?: string; note?: string };
+export type CreateResult = { status: "created" | "reused" | "already-merged" | "blocked-unknown" | "blocked-verification" | "failed"; prNumber?: number; url?: string; reason?: string; note?: string };
 
 function remoteHeadOf(stdout: Buffer, branch: string): string {
   const line = stdout.toString("utf8").split(/\r?\n/).map(row => row.split("\t")).filter(parts => parts[1] === `refs/heads/${branch}`)[0];
@@ -314,6 +314,8 @@ export async function createBranchPullRequest(options: {
   git: PullRequestRunner; gh: PullRequestRunner; ledger: ReceiptLedger;
   cwd: string; remoteName: string; registeredRemoteUrl: string; branch: string; base: string; sourceSha: string;
   title: string; body: string; previewDigest: string;
+  /** R3：每次不可逆写入前由调用方用同一校验器重读身份＋队列（撤证/命令/版本变化、manifest 缺失＝拒绝）。 */
+  revalidate?: () => Promise<{ ok: boolean; reason?: string }>;
 }): Promise<CreateResult> {
   const { git, gh, ledger, cwd, remoteName, branch, base, sourceSha, title, body, previewDigest } = options;
   const targetKey = [cwd, branch, sourceSha.toLowerCase(), base];
@@ -363,6 +365,10 @@ export async function createBranchPullRequest(options: {
   const localSha = localHead.code === 0 ? localHead.stdout.toString("utf8").trim().toLowerCase() : "";
   if (localSha !== preview.sourceSha)
     return { status: "blocked-unknown", reason: `本地分支 ${branch} 当前头（${localSha ? localSha.slice(0, 10) : "?"}）与确认时的候选（${String(preview.sourceSha).slice(0, 10)}）不一致——确认后本地已变化，零写入停止，不推新提交。` };
+  if (options.revalidate) {
+    const gate = await Promise.resolve(options.revalidate()).catch(error => ({ ok: false, reason: `复核执行异常：${String((error as Error)?.message || error).slice(0, 160)}` }));
+    if (!gate.ok) return { status: "blocked-verification", reason: `写前科研确证复核未通过：${gate.reason || "候选摘要不再成立"}。本次零写入。` };
+  }
   if (preview.branchRemoteSha !== preview.sourceSha) {
     let receipt;
     try { receipt = await openReceipt(ledger, { key: receiptKey(targetKey, "push", target.repoSelector), root: cwd, branch, sourceSha: sourceSha.toLowerCase(), base, repoSelector: target.repoSelector, action: "push" }); }
@@ -391,6 +397,10 @@ export async function createBranchPullRequest(options: {
     const row = await verifyPrIdentity(gh, cwd, target, preview.existing.pr.number, preview.sourceSha!, base, branch);
     if (!row) return { status: "blocked-unknown", reason: `已普通推送更新分支，但只读重查未能确认 PR #${preview.existing.pr.number} 的 head 已等于该 SHA；不重发创建，请稍后重试对账。`, prNumber: preview.existing.pr.number };
     return { status: "reused", prNumber: row.number, url: row.url, note: "确认后普通推送更新既有开放 PR，随后只读重查按身份复用（未新建 PR）。" };
+  }
+  if (options.revalidate) {
+    const gate = await Promise.resolve(options.revalidate()).catch(error => ({ ok: false, reason: `复核执行异常：${String((error as Error)?.message || error).slice(0, 160)}` }));
+    if (!gate.ok) return { status: "blocked-verification", reason: `推送后、创建 PR 前科研确证复核未通过：${gate.reason || "候选摘要不再成立"}。已确证落地的推送保持原样（收据已记），未创建 PR，不重发任何写入。` };
   }
   let prReceipt;
   try { prReceipt = await openReceipt(ledger, { key: receiptKey(targetKey, "pr-create", target.repoSelector), root: cwd, branch, sourceSha: sourceSha.toLowerCase(), base, repoSelector: target.repoSelector, action: "pr-create" }); }
@@ -444,7 +454,7 @@ async function openReceiptResolved(ledger: ReceiptLedger, prior: Receipt): Promi
   } };
 }
 
-export type MergeResult = { status: "merged" | "not-merged" | "blocked-unknown"; mergeCommit?: string; state?: string; reason?: string };
+export type MergeResult = { status: "merged" | "not-merged" | "blocked-unknown" | "blocked-verification"; mergeCommit?: string; state?: string; reason?: string };
 
 type PrView = { row: PrListRow; mergeCommit: string };
 async function viewPrState(gh: PullRequestRunner, cwd: string, repoSelector: string, prNumber: number): Promise<PrView | undefined> {
@@ -463,6 +473,8 @@ async function viewPrState(gh: PullRequestRunner, cwd: string, repoSelector: str
  */
 export async function mergeBranchPullRequest(options: {
   gh: PullRequestRunner; ledger: ReceiptLedger; cwd: string; repoSelector: string; prNumber: number; verifiedHeadSha: string; base: string; branch: string;
+  /** R3：合并写指令发出前由调用方用同一校验器重读身份＋队列。 */
+  revalidate?: () => Promise<{ ok: boolean; reason?: string }>;
 }): Promise<MergeResult> {
   const { gh, ledger, cwd, repoSelector, prNumber, verifiedHeadSha, base, branch } = options;
   if (!Number.isInteger(prNumber) || prNumber <= 0) return { status: "blocked-unknown", reason: "PR 编号无效。" };
@@ -492,6 +504,10 @@ export async function mergeBranchPullRequest(options: {
   try { unknownMerge = (await loadUnknownReceipts(ledger)).find(row => row.key === key); }
   catch (error) { return { status: "blocked-unknown", reason: `收据账本不可读（${String((error as Error)?.message || error).slice(0, 160)}），无法保证不重放，未发送合并。` }; }
   if (unknownMerge) return { status: "blocked-unknown", reason: "存在未对账的 merge 收据且当前 view 仍非 MERGED：不重发合并指令；请稍后重试本操作（仅只读对账）或在网页处理后由“合并PR”恢复。", state: before.row.state };
+  if (options.revalidate) {
+    const gate = await Promise.resolve(options.revalidate()).catch(error => ({ ok: false, reason: `复核执行异常：${String((error as Error)?.message || error).slice(0, 160)}` }));
+    if (!gate.ok) return { status: "blocked-verification", reason: `合并写指令前科研确证复核未通过：${gate.reason || "候选摘要不再成立"}。未发送任何写指令。`, state: before.row.state };
+  }
   let receipt;
   try { receipt = await openReceipt(ledger, { key, root: cwd, branch: `pr#${prNumber}`, sourceSha: verifiedHeadSha.toLowerCase(), base, repoSelector, action: "merge" }); }
   catch (error) { return { status: "blocked-unknown", reason: `合并前无法落收据（${String((error as Error)?.message || error).slice(0, 160)}），未执行合并。` }; }

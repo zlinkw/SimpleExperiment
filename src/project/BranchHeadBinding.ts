@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { sanitizeGitEnv } from "./GitIdentityProbe";
 import { planExecutionSourceDigest, planManifestPathSafe } from "../extension/PlanCodeScopeHost";
+import { completionIdentity, hasVerifiedCompletion } from "../features/VerifiedCompletion";
 
 export type HeadBindingRunner = (args: string[], cwd: string, stdin?: string) => Promise<{ code: number; stdout: Buffer; stderr: string }>;
 
@@ -161,4 +162,69 @@ export async function bindPlanSourceToCommit(options: {
     return { ...empty, ok: false, reason: "清单内 PLAN 文件哈希与 plan.revision 不一致，提交身份不可信。" };
   const result = await verifyCommitTreeAgainstManifest({ runner, cwd, commit: headCommit, manifest: source.manifest });
   return { ...result, headCommit, reason: result.ok ? "" : "无法证明此 HEAD：存在与已验清单不一致或缺失的路径（见逐项原因；系统不会代为 stage/commit）。" };
+}
+
+/* ————————————— 块C4-R3：科研候选构建/复核（最窄方案，无 schema/Worker 协议变化） —————————————
+ * 不可变契约锚点（DPQ enqueuePlan:1003-1013）：同 plan.id 下 planFile/revision/codeFingerprint/
+ * executionMode/jobs 声明任何不同都属 FORMAL_JOB_IDENTITY_CONFLICT，重跑会换 commandId/worker 使
+ * 完成确证按既有 identity 契约自动失效；恢复不改版本字段。故本模块只从队列原始值（不是截 24 位、
+ * 无 codeFingerprint 的对比投影）读取完整身份，逐 job 只认 hasVerifiedCompletion（TrustedTerminalProof
+ * 仅证终止/配额释放，不是科研完成；不判优、不加 TTL、不自动打分），并用既有 bindPlanSourceToCommit
+ * 证明同一已确认 HEAD 的提交树逐 blob 等于冻结清单。dirty 运行留下的确证不因 provenance
+ * localCommit≠HEAD 被一票否决——同字节再提交后 blob 绑定依旧成立，这正是可复用性的来源。
+ * digest 只绑定不可变事实（root/common-dir/分支/完整 40 位 SHA/完整版本元组/每 job completionIdentity/
+ * manifest digest/当前 dirty），绝不掺轮询时间戳；确认后任何撤证、命令变化、版本变化、manifest
+ * 缺失都会令重算 digest 不同或校验失败 → 调用方必须零后续写入。 */
+export type CandidatePlanEntry = {
+  planId: string; projectId: string; planFile: string; revision: string; codeFingerprint: string; executionMode: string;
+  manifestDigest: string; jobCount: number; jobIdentities: string[];
+};
+export type ResearchCandidate = {
+  ok: boolean; reason?: string;
+  root?: string; commonDir?: string; branch?: string; headCommit?: string; dirty?: boolean;
+  plans?: CandidatePlanEntry[]; digest?: string;
+};
+export type ResearchCandidateInput = {
+  runner: HeadBindingRunner; root: string; commonDir: string; branch: string; headCommit: string; dirty: boolean;
+  queueState: "ok" | "missing" | "corrupt"; queueError?: string;
+  plans: Array<any> | undefined; selectedPlanIds: string[];
+};
+
+/** 构建（或复核）科研候选：任何一步不满足都如实 ok:false＋可执行原因；绝不部分通过。 */
+export async function buildResearchCandidate(input: ResearchCandidateInput): Promise<ResearchCandidate> {
+  const fail = (reason: string): ResearchCandidate => ({ ok: false, reason });
+  if (input.queueState !== "ok" || !Array.isArray(input.plans))
+    return fail(`该分支项目队列${input.queueState === "corrupt" ? "不可读/已损坏（" + String(input.queueError || "").slice(0, 160) + "）" : "缺失"}：没有任何可核实的科研记录，拒绝把未知当确证。`);
+  const selected = [...new Set(input.selectedPlanIds.map(String))];
+  if (!selected.length) return fail("必须至少选择一个 PLAN 作为推送候选；不自动判优、不默认全选。");
+  if (!/^[0-9a-f]{40}$/i.test(String(input.headCommit || "")) || !input.branch)
+    return fail("分支/完整 HEAD SHA 身份不可用，无法绑定候选。");
+  const entries: CandidatePlanEntry[] = [];
+  for (const planId of selected) {
+    const plan = input.plans.find(row => String(row?.id) === planId);
+    if (!plan) return fail(`队列中已找不到 PLAN ${planId}（撤证/清理/队列变化）：候选失效，零写入停止。`);
+    const missing = ["projectId", "id", "planFile", "revision", "codeFingerprint"].filter(field => !String(plan[field] || "").trim());
+    if (missing.length) return fail(`PLAN ${plan.planFile || planId} 缺少完整不可变身份字段（${missing.join("/")}），不能作为候选。`);
+    if (!Array.isArray(plan.jobs) || !plan.jobs.length) return fail(`PLAN ${plan.planFile} 没有任何 job，无完成确证可言。`);
+    const jobIdentities: string[] = [];
+    for (const job of plan.jobs) {
+      if (!hasVerifiedCompletion(plan, job))
+        return fail(`PLAN ${plan.planFile} 第 ${String(job?.index)} 个 job 没有完成确证（verifiedCompletion：exit0＋身份全等）；TrustedTerminalProof/状态文字/已终止都不算科研完成，拒绝。`);
+      jobIdentities.push(completionIdentity(plan, job));
+    }
+    const source = plan.executionSource;
+    if (!source?.manifest || !Object.keys(source.manifest).length)
+      return fail(`PLAN ${plan.planFile} 缺少已验 executionSource 清单：无法证明 HEAD 来自已验源码（manifest 缺失即候选不成立）。`);
+    const binding = await bindPlanSourceToCommit({ runner: input.runner, cwd: input.root, headCommit: input.headCommit, executionSource: source, planFile: plan.planFile, revision: plan.revision });
+    if (!binding.ok)
+      return fail(`PLAN ${plan.planFile}：当前 HEAD 无法逐 blob 等于冻结清单——${binding.reason}首个差异：${binding.failures[0] ? binding.failures[0].path + "（" + binding.failures[0].reason + "）" : "无"}`);
+    entries.push({ planId: String(plan.id), projectId: String(plan.projectId), planFile: String(plan.planFile), revision: String(plan.revision),
+      codeFingerprint: String(plan.codeFingerprint), executionMode: String(plan.executionMode || ""), manifestDigest: String(source.digest),
+      jobCount: plan.jobs.length, jobIdentities: jobIdentities.sort() });
+  }
+  entries.sort((a, b) => a.planId.localeCompare(b.planId));
+  const digest = createHash("sha256").update(JSON.stringify({ root: input.root, commonDir: input.commonDir, branch: input.branch,
+    headCommit: input.headCommit.toLowerCase(), dirty: input.dirty === true, plans: entries })).digest("hex");
+  return { ok: true, root: input.root, commonDir: input.commonDir, branch: input.branch, headCommit: input.headCommit,
+    dirty: input.dirty === true, plans: entries, digest };
 }

@@ -135,3 +135,12 @@
 - 测试基础设施修正：previewOf 的 pr list 实际走 gh 执行器，原实现忽略脚本行导致 rows21/rows32 场景预览为 none、digest 必然不符——改为未显式传参时从脚本 pr list 行派生 gh 行。三文件正则感知括号平衡审计 OK。
 - reader 第二份证据（250 行/24643B，sha256 617a0b6b338af8950cd97509b21553387bac2297d0c4757863fab5430c0ef569，含原 198 行逐字未动）已更新归档 readers/ui-branch-c4-gate-evidence.md。
 - 交接口径更正：73fc39a0 的真实父提交是 4e118a2f（上一轮误报 9ed8cd33；4e 本身即 9ed 之后的正常后继，历史未改写）。交接一律给 40 位完整 SHA，8 位仅作显示缩写。
+
+## 2026-10-25 块C4-R3：科研候选门禁（最窄方案，plan.id 键控）＋宿主两处类型错微修
+- 宿主 3c 编译门禁两处确定性错误（run 2026-10-25T08-50-52-115Z-25324-test/gates/gate-02.out.log）：TS2322 BranchPullRequest.ts:215（classifyPrRows 传可选 preview.sourceSha）与 TS2339 :494（before.state）。微提交 84aa1bd3b048fadcaf2d8eff2dcfd24b4bc2ff08（tree ae815915178e12b7e88f21b2cd52831369a039ad，父 3c1501af…）仅改这两行：215 传本函数已验必填局部 sourceSha.toLowerCase()（与 preview 构造同源），494 改 before.row.state；plumbing 自 3c 已提交 blob 生成，工作树 R3 未完成改动零触碰；Native 已核（无锁、非 dist 零脏、diff 仅该文件）后正常 ff。
+- R3 校验器 BranchHeadBinding.buildResearchCandidate：原始队列完整值（projectId/id/planFile/revision/codeFingerprint 必填非空）；jobs 非空且逐 job hasVerifiedCompletion（TrustedTerminalProof/状态文字明确不算，测试反例）；bindPlanSourceToCommit 证同一已确认 HEAD 逐 blob＝冻结清单；dirty 如实透出并由 UI 门禁要求 dirty===false 才能新 push/create/merge；dirty 运行→同字节再提交后 blob 绑定仍成立（不以 provenance localCommit===HEAD 为门槛）。摘要 digest 只绑 root/common-dir/分支/完整 40 位 SHA/dirty/完整版本元组/每 job completionIdentity/manifest digest，无易变时间戳；撤证/命令/版本变化/manifest 缺失→ok:false。
+- plan.id 键控（不可变契约=DPQ enqueuePlan 同 id 全字段核，测试补齐 revision/指纹/planFile/mode/job 数量/job 声明内容六类冲突＋全等纯 no-op）：同 planFile 的 A/B 两轮各半确证绝不拼凑；选择按精确 id，UI 同名 PLAN 显示确证数/指纹/入队时间/revision 短值区分轮次（显示短值不进摘要）。
+- 写前复核接线：createBranchPullRequest/mergeBranchPullRequest 增加注入 revalidate；create 在 push 前与 push 落地后、创建 PR 前各调一次（新状态 blocked-verification，push 后失败保留 push ok 收据、不留 pr-create 收据、绝不创建）；merge 在写指令前调用。legacy 确认后先重跑同一校验器再进模块，模块内每次写入前再调（撤证/变化＝零后续写入）。只读 MERGED 恢复不受门禁、不重发、文案明示不蕴含未确证新候选已验。
+- 读侧对比：完整 revision＋codeFingerprint＋jobsConfirmed，删除死 githubCommit 展示；provenance 存储未扩展。
+- reader 第三版证据（295 行/30374B，sha256 81f09ea969405d12ddcd0a8d13561ea8c18159aa7787e8e1b317376d2a9f839e，含 §E）已归档；其上一稿"retryPulledJob 写回 executionSource"说法已被主控以 92 原文排除（14868 分支非真实清单写回；rerun 走新 rerunWorkflowId＋新 plan.id），不改生命周期、不清死码。
+- 勘误：本会话此前对 distributedPlanQueue.test.js "945-962 行已有冲突测试"的读取属中断轮幻影输出，实际文件 550 行且从无 FORMAL_JOB_IDENTITY_CONFLICT 覆盖——已按当前 grep 实况新增该测试。

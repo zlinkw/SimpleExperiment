@@ -804,3 +804,141 @@ test("C5 祖先 ff：真实仓包含合并提交的后续头可安全快进；�
   assert.equal(ff.status, "blocked");
   assert.match(ff.reason, /不一致/);
 });
+
+// —— 块C4-R3：科研候选校验器（原始队列完整值、逐 job proof、plan.id 键控、HEAD 逐 blob 绑定、每次写入前可重算） ——
+const verifiedCompletion = require("../../dist/features/VerifiedCompletion.js");
+function proofedJob(plan, index, commandId, workerId, outputDir) {
+  const job = { index, case: "case-" + index, seed: index, commandId, workerId, outputDir, status: "completed" };
+  job.verifiedCompletion = { schemaVersion: 1, identity: verifiedCompletion.completionIdentity(plan, job), verifiedAt: "2026-10-25T00:00:00.000Z", exitCode: 0 };
+  return job;
+}
+function unproofedJob(index, outputDir) {
+  return { index, case: "case-" + index, seed: index, commandId: "cmd-u" + index, workerId: "w1", outputDir, status: "completed" };
+}
+function headSha(repo) { return git(["rev-parse", "HEAD"], repo).trim(); }
+async function candidateOf(repo, plans, selected, extra = {}) {
+  const identity = probe.readGitIdentityProbe(repo);
+  return binding.buildResearchCandidate({
+    runner: binding.runGitBinary, root: repo, commonDir: identity.commonDir || path.join(repo, ".git"),
+    branch: identity.branch, headCommit: identity.headCommit, dirty: identity.dirty,
+    queueState: "ok", plans, selectedPlanIds: selected, ...extra,
+  });
+}
+
+test("C4-R3 候选：plan.id 键控，同 planFile 两轮各半确证绝不拼凑；版本/HEAD/撤证/命令/清单缺失全部零通过", async () => {
+  const repo = makeRepo("r3ab");
+  fs.mkdirSync(path.join(repo, "experiments"), { recursive: true });
+  fs.mkdirSync(path.join(repo, "pkg"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "experiments", "a.yaml"), "run: v1\n", "utf8");
+  fs.writeFileSync(path.join(repo, "pkg", "model.py"), "w = 1\n", "utf8");
+  git(["add", "-A"], repo);
+  git(["-c", "user.email=test@example.invalid", "-c", "user.name=Branch Test", "commit", "-q", "-m", "v1 tree"], repo);
+  const manifest = manifestFor(repo, ["experiments/a.yaml", "pkg/model.py", "tracked.txt"]);
+  const rev = manifest.manifest["experiments/a.yaml"].sha256;
+  const planA = { id: "plan-A", projectId: "proj", planFile: "experiments/a.yaml", revision: rev, codeFingerprint: "fingerprint-A", executionMode: "train", executionSource: manifest, jobs: [proofedJob({ id: "plan-A", projectId: "proj" }, 0, "cmdA0", "w1", "out/a0"), unproofedJob(1, "out/a1")] };
+  const planB = { id: "plan-B", projectId: "proj", planFile: "experiments/a.yaml", revision: rev, codeFingerprint: "fingerprint-B", executionMode: "train", executionSource: manifest, jobs: [unproofedJob(0, "out/b0"), proofedJob({ id: "plan-B", projectId: "proj" }, 1, "cmdB1", "w1", "out/b1")] };
+  // proof 必须按各自 plan 计算 identity（上面 proofedJob 用了最小 plan 字段——补全为完整 plan 后重算）
+  planA.jobs[0].verifiedCompletion.identity = verifiedCompletion.completionIdentity(planA, planA.jobs[0]);
+  planB.jobs[1].verifiedCompletion.identity = verifiedCompletion.completionIdentity(planB, planB.jobs[1]);
+  // A/B 各只有部分确证：任何选择都不许通过；B 不得借 A 的 job0 确证过关
+  let cand = await candidateOf(repo, [planA, planB], ["plan-B"]);
+  assert.equal(cand.ok, false, "B 的 job0 无确证绝不能借同 planFile 的 A 拼凑成“全验”");
+  assert.match(cand.reason, /PLAN experiments\/a\.yaml 第 0 个 job 没有完成确证/);
+  cand = await candidateOf(repo, [planA, planB], ["plan-A"]);
+  assert.equal(cand.ok, false);
+  assert.match(cand.reason, /第 1 个 job 没有完成确证/);
+  cand = await candidateOf(repo, [planA, planB], ["plan-A", "plan-B"]);
+  assert.equal(cand.ok, false, "两轮合并选择仍逐 plan 逐 job 核，缺口不掩盖");
+  // 空选择/队列缺失/损坏：全部拒绝，不自动判优
+  assert.equal((await candidateOf(repo, [planA, planB], [])).ok, false, "空选择必须拒绝");
+  assert.equal((await candidateOf(repo, undefined, ["plan-A"], { queueState: "missing" })).ok, false);
+  assert.equal((await candidateOf(repo, undefined, ["plan-A"], { queueState: "corrupt", queueError: "boom" })).ok, false);
+  assert.equal((await candidateOf(repo, [], ["plan-Gone"])).ok, false, "队列里找不到的 id＝撤证/变化");
+  // 补全确证后：按原 id 只核本轮；A/B 各自成候选且摘要互不相同
+  planA.jobs[1] = proofedJob(planA, 1, "cmdA1", "w1", "out/a1");
+  planB.jobs[0] = proofedJob(planB, 0, "cmdB0", "w1", "out/b0");
+  const candB = await candidateOf(repo, [planA, planB], ["plan-B"]);
+  assert.equal(candB.ok, true, JSON.stringify(candB.reason));
+  assert.equal(candB.plans.length, 1);
+  assert.equal(candB.plans[0].planId, "plan-B");
+  assert.equal(candB.headCommit, headSha(repo).toLowerCase(), "候选绑定完整 40 位 HEAD");
+  const candA = await candidateOf(repo, [planA, planB], ["plan-A"]);
+  assert.notEqual(candA.digest, candB.digest, "同 blob 不同轮次（id/指纹）摘要必须不同——选择按 plan.id 键控");
+  const candBoth = await candidateOf(repo, [planA, planB], ["plan-A", "plan-B"]);
+  assert.equal(candBoth.plans.length, 2);
+  // 版本对应所选：a.yaml 提交 v2 后，旧轮 A 的清单不再等于 HEAD（绝不借旧确证冒充新版本）
+  commitFile(repo, "experiments/a.yaml", "run: v2\n", "v2 tree");
+  const candAfterV2 = await candidateOf(repo, [planA, planB], ["plan-A"]);
+  assert.equal(candAfterV2.ok, false, "HEAD 已前进到 v2：v1 轮清单 blob 不再匹配");
+  assert.match(candAfterV2.reason, /无法逐 blob 等于冻结清单/);
+  // 撤证/命令变化/版本字段变化/清单缺失：确认后任何破坏 → ok:false（调用方据此零写入）
+  commitFile(repo, "experiments/a.yaml", "run: v1\n", "back to v1 bytes");
+  assert.equal((await candidateOf(repo, [planA, planB], ["plan-A"])).ok, true, "同字节再提交后 blob 绑定依旧成立");
+  const savedProof = planA.jobs[0].verifiedCompletion;
+  delete planA.jobs[0].verifiedCompletion;
+  assert.equal((await candidateOf(repo, [planA, planB], ["plan-A"])).ok, false, "撤证必须立即可见");
+  planA.jobs[0].verifiedCompletion = savedProof;
+  planA.jobs[0].commandId = "cmdA0-changed";
+  assert.equal((await candidateOf(repo, [planA, planB], ["plan-A"])).ok, false, "命令变化使 proof 身份不再全等");
+  planA.jobs[0].commandId = "cmdA0";
+  planA.revision = "f".repeat(64);
+  assert.equal((await candidateOf(repo, [planA, planB], ["plan-A"])).ok, false, "版本字段变化＝不同候选");
+  planA.revision = rev;
+  const savedSource = planA.executionSource;
+  delete planA.executionSource;
+  assert.equal((await candidateOf(repo, [planA, planB], ["plan-A"])).ok, false, "manifest 缺失＝候选不成立");
+  planA.executionSource = savedSource;
+  // TrustedTerminalProof/状态文字不是科研完成确证
+  const terminalOnly = { ...planB, id: "plan-T", jobs: [unproofedJob(0, "out/t0")] };
+  terminalOnly.jobs[0].trustedTerminalProof = { schemaVersion: 1, identity: verifiedCompletion.completionIdentity(terminalOnly, terminalOnly.jobs[0]), provenAt: "2026-10-25T00:00:00.000Z", outcome: "completed" };
+  terminalOnly.jobs[0].status = "completed";
+  terminalOnly.jobs.forEach(job => { job.verifiedCompletion = undefined; });
+  assert.equal((await candidateOf(repo, [terminalOnly], ["plan-T"])).ok, false, "TrustedTerminalProof 只证终止，不是科研完成");
+  // dirty 如实透出（新的写入由调用方要求 dirty===false；同 HEAD 下重算必须稳定）
+  const bClean = await candidateOf(repo, [planB], ["plan-B"]);
+  assert.equal(bClean.ok, true, JSON.stringify(bClean.reason));
+  fs.writeFileSync(path.join(repo, "scratch.txt"), "dirty\n", "utf8");
+  const dirtyCand = await candidateOf(repo, [planB], ["plan-B"]);
+  assert.equal(dirtyCand.ok, true, "dirty 只如实透出，由写入门禁拒绝新的远端写入");
+  assert.equal(dirtyCand.dirty, true);
+  assert.notEqual(dirtyCand.digest, bClean.digest, "dirty 变化进入摘要：确认后再脏即复核失败");
+  fs.rmSync(path.join(repo, "scratch.txt"));
+  const cleanAgain = await candidateOf(repo, [planB], ["plan-B"]);
+  assert.equal(cleanAgain.digest, bClean.digest, "同输入重算摘要稳定（无易变时间戳）");
+});
+
+test("C4-R3 revalidate 钩子：push 前失败零写入；push 后失败不创建 PR；merge 写指令前失败零发送", async () => {
+  const gateFail = { ok: false, reason: "候选摘要已变化（测试）" };
+  // push 前失败 → 零 git 写入、零 gh 调用
+  const gitA = recordingGit(baseScript());
+  const ghA = recordingGit([{ match: /^pr list/, stdout: jsonBuf([]) }]);
+  const previewA = await previewOf(baseScript());
+  let result = await pr.createBranchPullRequest({ git: gitA.runner, gh: ghA.runner, ledger: memoryLedger(), ...PR_OPTS, title: "t", body: "b", previewDigest: previewA.digest, revalidate: async () => gateFail });
+  assert.equal(result.status, "blocked-verification", JSON.stringify(result));
+  assert.equal(gitA.calls.filter(call => call.args.startsWith("push")).length, 0);
+  assert.equal(ghA.calls.filter(call => call.args.startsWith("pr create")).length, 0);
+  // push 成功落地后、创建 PR 前失败 → push 收据 ok、绝不 pr create
+  const ledgerB = memoryLedger();
+  const gitB2 = recordingGit([
+    { match: /^push/, stdout: "" },
+    { match: /^ls-remote --heads origin exp\//, stdout: "", uses: 1 },
+    { match: /^ls-remote --heads origin exp\//, stdout: FULL_SHA + "\trefs/heads/exp/m1\n" },
+    { match: /^rev-parse --verify refs\/heads\/exp\/m1/, stdout: FULL_SHA + "\n" },
+    ...baseScript(),
+  ]);
+  const ghB2 = recordingGit([{ match: /^pr list/, stdout: jsonBuf([]) }, { match: /^pr create/, stdout: "MUST NOT CREATE" }]);
+  let calls = 0;
+  result = await pr.createBranchPullRequest({ git: gitB2.runner, gh: ghB2.runner, ledger: ledgerB, ...PR_OPTS, title: "t", body: "b", previewDigest: previewA.digest, revalidate: async () => (++calls === 1 ? { ok: true } : gateFail) });
+  assert.equal(result.status, "blocked-verification", JSON.stringify(result));
+  assert.equal(ghB2.calls.filter(call => call.args.startsWith("pr create")).length, 0, "复核失败后不得创建 PR");
+  assert.ok(ledgerB.rows().some(row => row.action === "push" && row.outcome === "ok"), "已确证落地的 push 保留 ok 收据");
+  assert.ok(!ledgerB.rows().some(row => row.action === "pr-create"), "未发生的创建不留收据");
+  // merge：写指令前失败 → 零 pr merge 调用、unknown 视图不发送
+  const ghM = recordingGit([{ match: /^pr view 21/, stdout: jsonBuf(PR_VIEW()) }, { match: /^pr merge/, stdout: "MUST NOT MERGE" }]);
+  const mergeResult = await pr.mergeBranchPullRequest({ gh: ghM.runner, ledger: memoryLedger(), cwd: "/repo", repoSelector: SELECTOR, prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1", revalidate: async () => gateFail });
+  assert.equal(mergeResult.status, "blocked-verification");
+  assert.equal(ghM.calls.filter(call => call.args.startsWith("pr merge")).length, 0);
+  // revalidate 抛异常＝拒绝（异常不得当成通过）
+  result = await pr.createBranchPullRequest({ git: recordingGit(baseScript()).runner, gh: recordingGit([{ match: /^pr list/, stdout: jsonBuf([]) }]).runner, ledger: memoryLedger(), ...PR_OPTS, title: "t", body: "b", previewDigest: previewA.digest, revalidate: async () => { throw new Error("boom"); } });
+  assert.equal(result.status, "blocked-verification");
+});

@@ -90,6 +90,21 @@ function plan(name, fingerprint = "code-a") {
     jobs: ["bus", "pad"].flatMap((caseName, c) => [42, 43, 44].map((seed, s) => ({ index: c * 3 + s, case: caseName, seed, collectionResultCsv: `tmp/result/${name}/${caseName}_${seed}.csv`, outputDir: `work_dirs/${name}/${caseName}_${seed}` }))) };
 }
 
+test("enqueuePlan 不可变身份契约：同 id 下 planFile/revision/指纹/mode/job 声明任一不同＝冲突；全等＝纯 no-op", () => {
+  // R3 候选按 plan.id 键控的底层依据：同 id 一律全字段核，任何版本/声明差异都不允许静默复用旧轮次。
+  const base = queue.enqueuePlan(queue.emptyDistributedQueue(), { ...plan("a"), executionMode: "train_test" }, "run-a");
+  const sameExcept = over => ({ ...plan("a"), executionMode: "train_test", ...over });
+  assert.throws(() => queue.enqueuePlan(base, sameExcept({ revision: "rev-a2" }), "run-a"), /FORMAL_JOB_IDENTITY_CONFLICT/, "revision 不同");
+  assert.throws(() => queue.enqueuePlan(base, sameExcept({ codeFingerprint: "code-x" }), "run-a"), /FORMAL_JOB_IDENTITY_CONFLICT/, "代码指纹不同");
+  assert.throws(() => queue.enqueuePlan(base, sameExcept({ planFile: "experiments/plans/comparison/a-renamed.yaml" }), "run-a"), /FORMAL_JOB_IDENTITY_CONFLICT/, "planFile 不同");
+  assert.throws(() => queue.enqueuePlan(base, sameExcept({ executionMode: "test" }), "run-a"), /FORMAL_JOB_IDENTITY_CONFLICT/, "executionMode 不同");
+  const fewer = sameExcept({}); fewer.jobs = fewer.jobs.slice(0, 5);
+  assert.throws(() => queue.enqueuePlan(base, fewer, "run-a"), /FORMAL_JOB_IDENTITY_CONFLICT/, "job 数量不同");
+  const moved = JSON.parse(JSON.stringify(sameExcept({}))); moved.jobs[0].outputDir = "work_dirs/a/bus_999";
+  assert.throws(() => queue.enqueuePlan(base, moved, "run-a"), /FORMAL_JOB_IDENTITY_CONFLICT/, "同数量但 job 声明（outputDir）不同");
+  assert.equal(queue.enqueuePlan(base, sameExcept({}), "run-a"), base, "全字段相等重入＝纯 no-op（恢复/重放不改版本字段）");
+});
+
 test("one Worker takes a Plan when it has enough idle GPU slots", () => {
   const input = queue.enqueuePlan(queue.emptyDistributedQueue(), plan("a"), "run-a");
   const result = queue.allocateAvailable(input, [{ workerId: "nwpu2", idleGpuIds: ["0", "1", "2", "3", "4", "5"], declaredJobPaths: true, online: true }, { workerId: "nwpu3", idleGpuIds: ["0"], declaredJobPaths: true, online: true }]);

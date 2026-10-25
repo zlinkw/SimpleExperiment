@@ -247,4 +247,49 @@ manifest 的真实语义 = **已冻结/已核的源码闭包清单（指纹）**
 
 ## D. 本追加的范围声明
 只答版本归属一问；未新增 Worker 协议/服务/科学哈希；未写实现/测试/Git/公共 plan；未编译未跑测试未联网。
-冻结 92 的只读需求到此结束，可释放。
+
+## E. 第六轮追加：B 的 executionSource 能否写回仍标 A 指纹的原 plan（只读 92 Git 对象）
+
+问题原文要点：Worker 侧 `inspect_plan_code_scope`（`runtime/PlanCodeScope.ts:169-217`）仅在**未传** executionSource 时按 `projectId+codeFingerprint` 查 proof；传了 source 时 `verify_plan_execution_source` 只核 digest 自洽、`manifest[planFile].sha256===revision`、依赖集合与各文件字节，**不核该 manifest 来自队列 plan 标注的 codeFingerprint**。而 `legacy.ts:14952` 的 `sourcePlan.codeFingerprint` 来自 `lastCodeSyncState`（本机当前=B），`:14959-14961` 只复核这个临时新指纹没再变（B vs B）。疑点：同 PLAN 多 jobs、一旧 job 已确证 A、另一 job 重跑时本机依赖已变 B 而 PLAN 文件 revision 未变，是否会把 B 的 executionSource 写回仍标 A 的原 plan，旧 job 留 A proof，使 C4 把整个 plan 误判为 B 下已验。
+
+### E1. 结论：该写回路径在 92 上不存在，但原因不是有 A vs B 比较，而是重跑根本不落在原 plan.id 上
+
+逐段原文（全部 `git show 92fcd8e8…:src/extension/legacy.ts`）：
+
+1. **`retryPulledJob`（函数头 :14528，止于 :14879）内的唯一 executionSource 读写**：
+   ```ts
+   // :14637（该函数唯一构造 body 处，全文再无 body.executionSource 赋值）
+   const body: any = { planFile: plan.planFile, planRevision: plan.revision, options: {},
+     workerSubmissionSnapshots: [], runReplacement: {} };
+   // :14863
+   const drift = selectedIdentityDrift(current, current?.jobs.find(row => row.index === job.index));
+   // :14868  —— 14528-14879 全段 executionSource 仅此一处出现
+   if (body.executionSource) current.executionSource = body.executionSource;
+   ```
+   `body` 从 :14637 起从未被赋 `executionSource`，故 :14868 的 `if` 恒假——**这是死代码，不是写回通道**。全文件 14600-15000 内唯一给 `body.executionSource` 赋值的是 :14953（属另一函数）。
+
+2. **`selectedIdentityDrift`（:14593-14605）确系队列 vs 队列（A vs A）**：
+   ```ts
+   if (cardNow?.revision !== plan.revision) drift.push("revision");
+   if (cardNow?.codeFingerprint !== plan.codeFingerprint) drift.push("codeFingerprint");
+   ```
+   `cardNow` 来自 `fenceOriginalIdentity`(:14606) 重新 `loadDistributedQueue`。本机依赖变成 B 不改队列里 A 的标注，所以整段漂移检查**不会**发现 A→B；`assertOriginalCommands`（:14904-14911）同样只把 `latest.revision/codeFingerprint` 与捕获的 `plan`（都是 A）比。:`14940-14942` 与 :14960-14961 全部是 `acceptedFingerprint`/`lastCodeSyncState` 即 B vs B。**整条路径不存在任何"新指纹 B == 原队列 plan.codeFingerprint A"的比较，也没有以 A 为基准拒绝 B 的显式拒绝点**——这是事实，不是我的推断。
+
+3. **真正的防线是落点换了 plan.id + `enqueuePlan` 同 id 冲突**：
+   ```ts
+   // :14883  acceptedFingerprint = await this.localDistributedCodeFingerprint(root);   // = 当前本机 = B
+   // :14896-14897 rerunScopeKey = sha256([plan.id, selectedOld…, all, acceptedRevision, acceptedFingerprint]);
+   // :14900-14903 rerunDecision = selectRerunWorkflowInstance(…, rerunScopeKey); rerunWorkflowId = rerunDecision.workflowId;
+   // :14922
+   const body: any = { planFile: plan.planFile, options: {}, runReplacement: {}, submissionWorkflowId: rerunWorkflowId };
+   ```
+   `plan-run-intent-selector.ts:14-15`：`rerunWorkflowBaseId = "distributed-plan-rerun-" + scopeKey`；`:23-48` 同族已有活跃批次时给 `-rN`。即 B 轮次入队目标是 `distributed-plan-rerun-<hash>[-rN]`，**不等于原 `plan.id`**。且即便有人想同 id 覆盖，`DistributedPlanQueue.enqueuePlan:1005-1012` 会对 `registered.codeFingerprint !== plan.codeFingerprint` 抛 `FORMAL_JOB_IDENTITY_CONFLICT`。:14953 解析出的 B manifest 与 :14955/:14960 的 `verifyLocalPlanSource` 全部作用于 `sourcePlan`(:14952)（一个 `{...plan, revision: acceptedRevision, codeFingerprint: lastCodeSyncState, executionSource: undefined}` 的临时副本），再经 :14957 `new PlanRunHost(…).replace(sourcePlan, body, scoped)` 走新 instance。
+   未被重跑的旧 job **留在原 A plan 里且 A proof 原样有效**——这是 :14885-14887 弹窗文案明示的设计（「仅重跑当前 job 会保留其他 job 的旧版本结果」）。
+
+### E2. 对 C4 的实际含义（不修码，仅证据）
+- 「B 写回 A plan → C4 对全 plan 误过」这条具体链路**不成立**：A plan 恒标 A、B 轮次恒在新 id。
+- 真实暴露面是**同 planFile 双条目并存**：A plan（含未动 job 的 A proof）与 `-rN` plan（重跑 job、B 指纹）长期共存。C4' 若按 `planFile` 聚合/取"该文件全部 job 已验"，会把 A proof 记到 B 轮次头上——等价于误过。门禁必须**只按 plan.id 取其自身 `{revision, codeFingerprint, executionSource}`** 与该项 job 的 proof 闭合，禁止 planFile 级聚合（`legacy.ts:12488` 一带存在 `sameDistributedPlanFile` 型匹配先例，C4 选路不得沿用）。
+- 附带事实（非本轮问题、不展开）：`hasVerifiedCompletion`（VerifiedCompletion.ts）的条件不含 `outputRetiredAt`；`retainExistingOutputs` 为真时 proof 判否（`!job.retainExistingOutputs` 条件 + `DistributedPlanQueue.ts:204` 将其置 cancelled）。输出退役与 proof 存续的交界未在本轮范围内验证，仅记录字段事实。
+
+### E3. 范围
+只读 92 显式 Git 对象（legacy.ts、plan-run-intent-selector.ts、DistributedPlanQueue.ts、VerifiedCompletion.ts），未读变动工作树；未测试/未联网/未写入业务源/Git/公共 plan；未修任何代码。冻结 92 的只读需求到此结束，可释放。
