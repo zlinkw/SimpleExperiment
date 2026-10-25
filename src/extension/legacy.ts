@@ -11847,7 +11847,16 @@ this.assertPlanTopologyReady("Plan 调度");
             const previousStatus = this.completedPlanMirrorDiagnostics?.status === "failed" ? this.completedPlanMirrorDiagnostics : undefined;
             const previous = previousStatus ? Number(previousStatus.consecutiveFailures) || 0 : 0;
             const reason = errorMessage(error);
-            this.completedPlanMirrorDiagnostics = { status: "failed", reason, failedAt: new Date().toISOString(), consecutiveFailures: previous + 1 };
+            // r53: "same reason already surfaced" is scoped to the notification context that ACTUALLY received
+            // the notice — captured root+generation scalars only (never signal/client objects). A stale round the
+            // guard silently failed, or a failure in a different project, must never suppress THIS project's
+            // first notice for the same reason. The list survives only while the reason stays identical, and the
+            // ready-reset below drops it, so a later failure always gets a fresh notice.
+            const noticeScope = JSON.stringify([context.root, context.generation]);
+            const previousNotified: string[] | undefined = Array.isArray((previousStatus as any)?.notifiedScopes) ? (previousStatus as any).notifiedScopes : undefined;
+            const alreadyNotified = previousStatus?.reason === reason && Array.isArray(previousNotified) && previousNotified.includes(noticeScope);
+            this.completedPlanMirrorDiagnostics = { status: "failed", reason, failedAt: new Date().toISOString(), consecutiveFailures: previous + 1,
+                ...(previousStatus?.reason === reason && previousNotified ? { notifiedScopes: previousNotified } : {}) };
             // r47 B: an outer auto-round rejection (before the per-job catch) surfaces through the same native
             // notice. Typed cancellations/stale rounds are filtered — never by Chinese message strings — and a
             // repeated same-reason failure keeps ONE notice (the notice itself also carries 5s/32-key dedupe).
@@ -11856,8 +11865,13 @@ this.assertPlanTopologyReady("Plan 调度");
             // NEW project's panel. Same gate as the finally block below; diagnostics above stay untouched.
             if (!this.projectContextIsCurrent(context) || this.panelDisposed) return;
             if (!(error instanceof UiCommandCancelled) && (error as any)?.code !== "STALE_QUEUE_ROUND" && (error as any)?.code !== "REQUEST_REPLACED"
-                && (!previousStatus || previousStatus.reason !== reason))
+                && !alreadyNotified) {
                 this.showNativePanelMessage({ tone: "error", message: `自动产物同步未完成：${reason}。运行完成状态不变，可在对应 Job 行重新同步。` });
+                // mark ONLY when the native notice really went out — a filtered or stale failure never
+                // pretends to have been shown, so the same reason still notifies in the proper scope.
+                const scopes: string[] = Array.isArray((this.completedPlanMirrorDiagnostics as any).notifiedScopes) ? (this.completedPlanMirrorDiagnostics as any).notifiedScopes : [];
+                if (!scopes.includes(noticeScope)) (this.completedPlanMirrorDiagnostics as any).notifiedScopes = [...scopes, noticeScope];
+            }
         }).finally(() => {
             if (this.distributedPostprocessPromise !== work) return;
             this.distributedPostprocessPromise = undefined;

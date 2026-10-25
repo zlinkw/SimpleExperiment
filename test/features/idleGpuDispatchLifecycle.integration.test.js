@@ -409,29 +409,57 @@ test('a pending automatic sync keeps completed queue state separate and its real
   assert.equal(f.stored().plans[0].jobs[0].status,'completed','同步失败绝不改写运行完成状态（完成态分离）');
 });
 
-// r50 已证源码分支：外层失败回调发通知前必须核捕获上下文仍当前/未 disposed——工作区切走后旧 copy
-// 在 current 失效处抛的普通 Error 不得弹进新项目的原生面板；诊断记录不受影响（同 finally 既有守卫）。
-test('a stale-context sync rejection never pops a native notice into the switched-to project',async()=>{
+// r50 已证源码分支 + r53 去重上下文隔离（父审核 r53-main-review-blocked.json）：外层失败回调既不把旧
+// scope 的普通 Error 弹进切换后的新项目，也不能让"从未提示过/属另一 scope"的同 reason 失败压掉当前
+// 项目首条真提示。capture/match 用生产同事实 {root,generation}（仅标量，不存 signal/client）。
+// 双场景矩阵：A 未提示（原 r50 断言全保留）与 A 已实际提示 → 切 B → B 首条同 reason 必恰 1 条
+// → B 同 scope 连续再失败（第二、三轮）总提示不追加、key 在被抑制轮中保留 → 成功 ready 后同错可再提示。
+// 旧码（全局 reason 去重、无 scope）在"B 首错"一步必红：Native 先用旧生产 0e6ea0e4 跑本 suite 留真实红。
+test('notice suppression is scoped to the context that actually received it across a workspace switch',async()=>{
+ for(const aNoticedBeforeSwitch of [false,true]){
   const f=nativeFixture({methods:['tickDistributedQueueCore','scheduleDistributedPostprocess'],context:{
     UiCommandCancelled:class UiCommandCancelled extends Error{constructor(message='操作已取消。',code='USER_CANCELLED'){super(message);this.name='UiCommandCancelled';this.code=code;}},
   }});
   delete f.p.scheduleDistributedPostprocess;
-  const notes=[];let contextCurrent=true,started,releaseSync;
-  const pending=new Promise((_resolve,reject)=>{releaseSync=()=>reject(Error('同步已停止：项目、连接或清理操作已变化。'));});
-  const startedSignal=new Promise(r=>started=r);
-  Object.assign(f.p,{captureProjectContext:()=>({}),projectContextIsCurrent:()=>contextCurrent,
+  const notes=[];const ctx={root:'projectA',generation:1};const REASON='同步已停止：项目、连接或清理操作已变化。';
+  let mode=aNoticedBeforeSwitch?'fail':'pending',releaseSync,started,startedSignal=new Promise(r=>{started=r;});
+  Object.assign(f.p,{captureProjectContext:()=>({root:ctx.root,generation:ctx.generation}),
+    projectContextIsCurrent:c=>c.root===ctx.root&&c.generation===ctx.generation,
     showNativePanelMessage:m=>notes.push(structuredClone(m)),
-    syncCompletedPlanArtifacts:async()=>{started();await pending;}});
+    syncCompletedPlanArtifacts:async()=>{if(mode==='pending'){started();await new Promise(r=>{releaseSync=r;});throw Error(REASON);}if(mode==='fail')throw Error(REASON);}});
   f.own(0,'running');f.publish(0,'completed');f.own(1,'running');
   await f.p.tickDistributedQueueCore();
-  assert.ok(f.p.distributedPostprocessPromise,'旧项目后台同步已真实开始');
+  const settle=async p=>{await p.catch(()=>{});await new Promise(setImmediate);};
+  if(aNoticedBeforeSwitch){
+    await settle(f.p.distributedPostprocessPromise);
+    assert.equal(notes.length,1,'A scope 首条真实故障恰一次原生提示');
+    mode='pending';startedSignal=new Promise(r=>{started=r;});
+    f.p.scheduleDistributedPostprocess(root,true); // A 第二轮同 reason 失败：已提示过，切走前也不再刷屏
+  }
+  const stalePromise=f.p.distributedPostprocessPromise;assert.ok(stalePromise,'旧项目后台同步已真实开始');
   await startedSignal;
-  contextCurrent=false; // 工作区切换：捕获上下文不再当前
-  const promise=f.p.distributedPostprocessPromise;
+  ctx.generation++; // 工作区切换：A 捕获的 generation 不再匹配
+  const promise=stalePromise;
   releaseSync();
-  await assert.rejects(promise,/项目、连接或清理操作已变化/,'旧轮在 current 失效处真实失败');
-  assert.equal(notes.length,0,'旧项目错误绝不弹进切换后的新项目原生面板（B 契约：仅当前项目真故障才弹）');
+  await settle(promise);
+  assert.equal(notes.length,aNoticedBeforeSwitch?1:0,'旧 scope 的错误（无论此前是否提示过）绝不向切换后的新项目追加原生提示（B 契约：仅当前项目真故障才弹）');
   assert.equal(f.p.completedPlanMirrorDiagnostics?.status,'failed','诊断记录不受上下文守卫影响，照常保留');
-  assert.match(f.p.completedPlanMirrorDiagnostics.reason,/项目、连接或清理操作已变化/);
+  assert.equal(f.p.completedPlanMirrorDiagnostics.reason,REASON,'原因原样保留');
   assert.equal(f.p.distributedPostprocessPromise,undefined,'在途 promise 照常清空');
+  const baseline=aNoticedBeforeSwitch?1:0;
+  mode='fail'; // B scope（新 generation）首条同 reason 失败：旧码在此被全局去重吞掉 ⇒ 旧码反证必红
+  f.p.scheduleDistributedPostprocess(root,true);await settle(f.p.distributedPostprocessPromise);
+  assert.equal(notes.length,baseline+1,'B scope 首条同 reason 真失败必恰一次提示（旧 scope 未提示/已提示都绝不压制新项目）');
+  assert.match(notes.at(-1).message,/自动产物同步未完成/);
+  f.p.scheduleDistributedPostprocess(root,true);await settle(f.p.distributedPostprocessPromise);
+  f.p.scheduleDistributedPostprocess(root,true);await settle(f.p.distributedPostprocessPromise);
+  assert.equal(notes.length,baseline+1,'B scope 同 reason 连续第二、三轮失败总提示仍不追加');
+  const scopeKey=JSON.stringify([ctx.root,ctx.generation]);
+  assert.ok((f.p.completedPlanMirrorDiagnostics.notifiedScopes||[]).some(s=>s===scopeKey),
+    '去重标记只登记真实弹过的捕获 scope（root+generation 标量），且在被抑制的后续轮中保留');
+  mode='ok';f.p.scheduleDistributedPostprocess(root,true);await settle(f.p.distributedPostprocessPromise);
+  assert.equal(f.p.completedPlanMirrorDiagnostics.status,'ready','成功复位保留');
+  mode='fail';f.p.scheduleDistributedPostprocess(root,true);await settle(f.p.distributedPostprocessPromise);
+  assert.equal(notes.length,baseline+2,'ready 复位后同 reason 再失败可再次提示');
+ }
 });

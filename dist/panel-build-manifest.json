@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.411",
-  "buildId": "13eaa03a5200267c79e0a158a4a5c34e0430f9fc3eb37be368fcf6f80e72fee2",
+  "buildId": "8e51d9cf2c5fb2f22998ae39f62bd2d7978cda078c0d0451858c5838e475a103",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -109,7 +109,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "f6ed3604bbceb225cfe357125c6a909eba96178538ccd80af660caf86a1c882f"
+      "sha256": "42ad98ceabc8769c68a3027ef7fbab5eab04cbc0c483e1a565275f83b9aa9920"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
