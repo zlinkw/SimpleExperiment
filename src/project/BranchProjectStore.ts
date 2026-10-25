@@ -68,8 +68,8 @@ export function sameComparablePath(a: string, b: string, platform: NodeJS.Platfo
   return left.length > 0 && left === right;
 }
 
-function assertSafeId(value: string, field: string): string {
-  if (!/^[a-f0-9]{16,64}$/.test(String(value || ""))) throw new Error(`${field} 标识不合法。`);
+function assertSafeId(value: unknown, field: string): string {
+  if (typeof value !== "string" || !/^[a-f0-9]{16,64}$/.test(value)) throw new Error(`${field} 标识不合法。`);
   return value;
 }
 
