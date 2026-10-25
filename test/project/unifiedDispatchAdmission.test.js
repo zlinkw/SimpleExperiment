@@ -60,8 +60,10 @@ const gpuRows = (ids) => ids.map((id) => ({ index: String(id), memoryTotalMb: 40
 const settings = (jobsPerCard, extra = {}) => quotaSettings({ gpuJobsPerCard: jobsPerCard }, { gpuQuotaConfigured: true, gpuJobsPerCard: jobsPerCard, ...extra }, gpuRows([0, 1]));
 
 const intent = (over = {}) => ({ planId: "plan-a", jobIndex: 0, attempt: 0, commandId: "cmd-0", workerId: "w1", gpuId: "0", manual: false, ...over });
-const queueWith = (jobs) => ({ schemaVersion: 1, plans: [{ id: "plan-a", planFile: "experiments/plans/a.yaml", revision: "r", codeFingerprint: "f",
-  resultPathPolicy: "declared", jobs: jobs.map((job, index) => ({ index, attempt: 0, status: "pending", case: "c", seed: 1, outputDir: "work/j" + index, ...job }))] });
+const queueWith = (jobs) => ({ schemaVersion: 1, plans: [{
+  id: "plan-a", planFile: "experiments/plans/a.yaml", revision: "r", codeFingerprint: "f", resultPathPolicy: "declared",
+  jobs: jobs.map((job, index) => ({ index, attempt: 0, status: "pending", case: "c", seed: 1, outputDir: "work/j" + index, ...job })),
+}] });
 const dispatched = (over = {}) => ({ status: "dispatching", workerId: "w1", gpuId: "0", commandId: "cmd-0", lifecycleProtocol: 2, startIntent: { commandId: "cmd-0", workerId: "w1", gpuId: "0" }, ...over });
 
 test("逻辑服务器身份：不同别名同机同端口=同一服务器；端口/主机不同则不同；大小写无关", () => {
