@@ -180,6 +180,9 @@ function sameWorkspacePath(a: string, b: string): boolean {
   return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
+/** Bounded per-resolve handshake budget; exceeding it refuses instead of probing a prefix. */
+const CANDIDATE_HANDSHAKE_BUDGET = 16;
+
 /**
  * Resolve exactly one LIVE instance for a workspace via real handshakes. Disk status is only a
  * candidate hint: a crashed instance's stale "running" record is probed and excluded (kept on disk,
@@ -187,12 +190,15 @@ function sameWorkspacePath(a: string, b: string): boolean {
  * listeners are still refused — then the pin must be explicit (expectedInstanceId/--instance or
  * SIMPLE_CLI_INSTANCE_ID); the pin filters before probing and is never auto-substituted. Nothing is
  * guessed by recency. The returned row's discoveryPath is still re-handshaked by callPluginRpc.
+ * More candidates than the handshake budget is a refusal BEFORE any probe ("incomplete verification,
+ * cannot confirm uniqueness", pointing at an explicit discoveryPath) — a prefix handshake must never
+ * pretend the remainder is absent or that the first live hit is unique.
  */
 export async function resolveInstanceByWorkspace(plugin: UnifiedPlugin, workspace: string, expectedInstanceId?: string): Promise<PluginInstanceRow> {
   if (!workspace || !String(workspace).trim()) throw new Error("按工作区路由必须提供明确的 workspace。");
   const listing = listPluginInstances(plugin);
   if (listing.truncated)
-    throw new Error(`实例记录目录超过单次枚举上限（256 条且仍有更多记录），无法安全枚举 ${workspace} 的存活实例；请用 --instance 或 discoveryPath 明确指定，不自动清理历史记录。`);
+    throw new Error(`实例记录目录超过单次枚举上限（256 条且仍有更多记录），无法安全枚举 ${workspace} 的存活实例；截断不当作完整，--instance 也不可靠（目标记录可能不在已枚举前 256 条内），请用已知的 discoveryPath 明确指定，不自动清理历史记录。`);
   const pin = String(expectedInstanceId ?? process.env.SIMPLE_CLI_INSTANCE_ID ?? "").trim();
   let candidates = listing.rows.filter((row) => !row.error && !!(row.instanceId || row.pid > 0) && sameWorkspacePath(row.workspace, workspace));
   if (pin) {
@@ -200,9 +206,13 @@ export async function resolveInstanceByWorkspace(plugin: UnifiedPlugin, workspac
     if (candidates.length === 0)
       throw new Error(`--instance ${pin} 在工作区 ${workspace} 的实例记录中不存在；已保留全部历史记录，不做替换或猜测。`);
   }
+  // 握手预算在 pin 筛选之后、任何握手之前整体判定：绝不做部分握手后再宣称唯一或不存在
+  // （17 条候选里第 1 与第 17 条同时存活时，截半握手会把歧义伪装成唯一）。
+  if (candidates.length > CANDIDATE_HANDSHAKE_BUDGET)
+    throw new Error(`工作区 ${workspace} 有 ${candidates.length} 条候选实例记录，超过单次 ${CANDIDATE_HANDSHAKE_BUDGET} 条握手预算；未完整核验，不能确认唯一。请用已知的 discoveryPath 明确指定目标实例，不做部分握手、不扩大探测。`);
   const live: PluginInstanceRow[] = [];
   const unreachable: PluginInstanceRow[] = [];
-  for (const row of candidates.slice(0, 16)) {
+  for (const row of candidates) {
     try { await preflightPluginAt(plugin, row.discoveryPath, workspace); live.push(row); }
     catch { unreachable.push(row); }
   }

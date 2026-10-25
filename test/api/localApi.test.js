@@ -781,3 +781,43 @@ test("instance enumeration: over-cap directory is reported truncated, never sile
     console.log(`[fixtures retained, no cleanup] ${dir}`);
   }
 });
+
+test("实例握手预算：候选超过16条整体先拒，绝不部分握手后声称唯一或不存在；显式 discoveryPath 照常", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-instances-budget-"));
+  const discoveryPath = path.join(dir, "api.json");
+  const workspace = path.join(dir, "ws");
+  process.env.SIMPLE_EXPERIMENT_API_FILE = discoveryPath;
+  try {
+    const client = require("../../dist/cli/LocalApiClient.js");
+    const instDir = path.join(dir, "instances");
+    fs.mkdirSync(instDir, { recursive: true });
+    for (let i = 0; i < 17; i++) {
+      fs.writeFileSync(path.join(instDir, `${String(i).padStart(4, "0")}_budget.json`), JSON.stringify({
+        schemaVersion: 1, name: "SimpleExperiment", version: "0.5.409-test",
+        baseUrl: "http://127.0.0.1:1", host: "127.0.0.1", port: 1, token: "y".repeat(16),
+        pid: 1, startedAt: `2026-01-01T00:00:0${i}.000Z`, instanceId: `1:2026-01-01T00:00:0${i}.000Z`,
+        workspace, status: "running",
+      }), "utf8");
+    }
+    const listing = client.listPluginInstances("experiment");
+    assert.equal(listing.truncated, false, "17 条不触发 256 枚举上限；这是握手预算层");
+    // 候选全部指向不可达端口：若先对前 16 条做半截握手，会把“还有未核验候选”谎报成不存在。
+    await assert.rejects(() => client.resolveInstanceByWorkspace("experiment", workspace), /未完整核验|握手预算/);
+    // 显式已知 discoveryPath 不受该拒绝影响：真实实例照常握手。
+    const server = new LocalApiServer({ name: "SimpleExperiment", version: "0.5.409-test", preferredPort: await freePort(),
+      discoveryPath, workspace: path.join(dir, "other-ws"), methods: { status: async () => ({ ok: true }) } });
+    await server.start();
+    try {
+      const rows = client.listPluginInstances("experiment").rows;
+      const target = rows.find((row) => row.workspace === path.join(dir, "other-ws"));
+      assert.ok(target, "新窗口照常写入实例记录");
+      const preflight = await client.preflightPluginAt("experiment", target.discoveryPath, path.join(dir, "other-ws"));
+      assert.equal(preflight.instanceId, target.instanceId, "显式 discoveryPath 路由正常");
+    } finally {
+      await server.dispose();
+    }
+  } finally {
+    delete process.env.SIMPLE_EXPERIMENT_API_FILE;
+    console.log(`[fixtures retained, no cleanup] ${dir}`);
+  }
+});

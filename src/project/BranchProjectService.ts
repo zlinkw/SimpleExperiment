@@ -107,6 +107,15 @@ export class BranchProjectService {
 
   fileDigest(): string { return branchProjectFileDigest(this.store.load()); }
 
+  /**
+   * Lightweight registered-roots list (no git probing) for the unified dispatch domain check and
+   * member queue reads; roots keep the recorded casing so per-project queue paths derive exactly.
+   */
+  registryInventory(): { ancestors: string[]; branches: string[] } {
+    const file = this.store.load();
+    return { ancestors: file.ancestors.map((row) => row.gitRoot), branches: file.branches.map((row) => row.workspaceRoot) };
+  }
+
   /** Read-only verification of every registered record. Never writes to any registered directory. */
   verifyAll(): RegistryProjection {
     const file = this.store.load();

@@ -1432,6 +1432,7 @@ export function renderPanelHtml(): string {
               <button type="button" data-command="registerBranchProject" class="secondary" title="把已有独立副本（worktree 或 clone）登记为某祖先的创新分支&#10;只登记归属，不合并、不移动提交">登记分支副本</button>
               <button type="button" data-command="createBranchFromAncestor" class="secondary" title="在祖先仓库上创建新分支并生成独立 worktree 目录&#10;创建前展示精确分支/基点/目录并需确认；不覆盖已有分支或目录">从祖先创建分支</button>
               <button type="button" data-command="refreshBranchProjects" class="secondary" title="重新读取所有登记的真实 Git 状态（只读）">刷新状态</button>
+              <button type="button" data-command="refreshUnifiedDispatchPolicy" class="secondary" title="把当前用户配额设置保存为统一派发策略快照，并登记本机 Worker 别名（不修改任何项目文件）&#10;所有纳入管理的分支共用这一份策略做统一派发判定">刷新统一策略</button>
             </div>
           </div>
           <div id="branchProjectsList" data-anchor="branch-projects"></div>
@@ -3310,7 +3311,7 @@ export function renderPanelHtml(): string {
       "cleanupPlan", "reviewIsolatedPlanBatches",
       "publishGithub", "syncGithub", "overwriteGithub",  "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "refreshLocalResults", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
       "selectPlan", "selectExperiment",
-      "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject",
+      "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject", "refreshUnifiedDispatchPolicy",
       "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow", "clearTmuxTaskTabs",
       ...Object.keys(uiCapabilityMap)
     ]);
@@ -4696,6 +4697,26 @@ export function renderPanelHtml(): string {
             '<div class="muted" style="font-size:11px;">科研验证状态：未在本卡自动执行，需在该分支窗口另行计划/运行与质量门禁。</div>' +
             '</div>');
         }
+      }
+      const unified = projection.unified || {};
+      if (unified.active) {
+        const POLICY_LABELS = { ok: "策略已就绪", missing: "尚未登记统一策略（点“刷新统一策略”）", corrupt: "快照损坏", unknown: "未知" };
+        const uParts = ['<div class="muted" style="margin:6px 0 2px;font-size:11px;">统一派发队列（同一逻辑队列；实例活性只认本机真实握手，陈旧记录不算打开）</div>'];
+        if ((unified.blockers || []).length)
+          uParts.push('<div class="status-warn" style="font-size:11px;">' + esc(String((unified.blockers || []).join("；")).slice(0, 500)) + '</div>');
+        if (unified.truncated)
+          uParts.push('<div class="status-warn" style="font-size:11px;">实例记录目录超过单次枚举上限，“已打开”判定不完整，请先清理发现目录。</div>');
+        for (const row of asArray(unified.roots)) {
+          const flags = [row.isCurrent ? chip("当前窗口") : "", row.live ? chip("已打开(握手确认)") : chip("未确认打开"),
+            row.queueState === "corrupt" ? chip("队列读取失败") : row.queueState === "missing" ? chip("队列为空") : ""].join("");
+          uParts.push('<div style="font-size:11px;margin:2px 0 2px 16px;word-break:break-all;">' + esc(String(row.label || "")) + flags +
+            ' 待派发 ' + esc(String(row.waiting == null ? "?" : row.waiting)) + ' · 运行中 ' + esc(String(row.running == null ? "?" : row.running)) +
+            ' · 待核实 ' + esc(String(row.unknown == null ? "?" : row.unknown)) +
+            ((row.blockReasons || []).length ? ' · <span class="status-warn">' + esc(String((row.blockReasons || []).join("；")).slice(0, 300)) + '</span>' : '') + '</div>');
+        }
+        uParts.push('<div class="muted" style="font-size:11px;">策略状态：' + esc(POLICY_LABELS[String(unified.policyState || "")] || String(unified.policyState || "")) +
+          (asArray(unified.servers).length ? ' · 服务器：' + esc(asArray(unified.servers).join("，")) : '') + '</div>');
+        parts.push('<div class="branchProjectsUnified" style="margin-top:6px;border-top:1px dashed var(--border);padding-top:4px;">' + uParts.join("") + '</div>');
       }
       setHtmlIfChanged(target, parts.join(""));
     }

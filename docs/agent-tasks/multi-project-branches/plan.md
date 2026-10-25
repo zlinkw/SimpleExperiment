@@ -65,3 +65,6 @@
 - 块A源码+测试已在 impl 分支完成并提交（详见 evidence.md“块A实施记录”：文件/blob/断言/风险）：登记模型与本机存储、只读 Git 探针（清继承 GIT_*）、worktree 预览-digest-确认创建、面板 plans 卡内“项目与分支”可见区域、每实例发现记录与工作区路由及 projects.registry/projects.instances 窄接口。未新建资源树 section，未动调度/GPU/科研仓/GitHub 远端。
 - 待主控：Windows 原生 compile+受影响测试（新 test/project/branchProjectRegistry.test.js、扩展的 test/api/localApi.test.js、面板白名单/内联脚本类既有套件）；失败原始证据回本负责人返修。块B实施仍等主控基于补查的明确指导；块C接口已具备（登记身份/活实例/准确根），未执行任何真实 PR/ff。
 - 2026-10-25 进展：首轮 Native compile 因 BranchProjectStore assertSafeId 三条 TS2345 失败，已按批准机械返修（990dafb0）；final 覆盖缺口按批准补齐四个无 glob final 入口 extraFiles（85c08610）；Native 冻结树已核实无活动后 ff 至 85c08610（见 evidence 同日子段）。B 已获批准进入实现（上方案），C 获准在 B 稳定块就绪后实施（上指导）。
+
+## 块B实现状态（沙箱负责人更新，批准方案原文未改）
+- 块B已按批准方案实现并进入稳定候选（与 A-R3 握手预算小修合并；A-R3 为主控静态核对的截断返修下一层，不单开 A 验证轮次）。核心：saveDistributedQueue 持久化新意图边界=唯一同意点（双资源单临界区、成员只读、只写自己队列、回执过滤发送集合、sendDistributedJob 盘上身份防旁路）；未登记单项目路径保留；registry 损坏=blocked 拒绝而非静默兜底。测试与 final 覆盖按上方案；待原生按变更域重算+一次 test 入口验证（不再同候选重复 compile 前置）。

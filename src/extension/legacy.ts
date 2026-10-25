@@ -160,10 +160,11 @@ import RunOperations_1 = require("../features/RunOperations");
 import { withoutRetiredOperations, endedPlanOperationIds } from "../features/OperationRetirement";
 import LocalApiServer_1 = require("../api/LocalApiServer");
 const { LocalApiError, LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
-import { BranchProjectStore, sameComparablePath as sameComparablePathProbe } from "../project/BranchProjectStore";
+import { BranchProjectStore, canonicalComparablePath, sameComparablePath as sameComparablePathProbe } from "../project/BranchProjectStore";
 import { BranchProjectService } from "../project/BranchProjectService";
+import * as UnifiedDispatchAdmission from "../project/UnifiedDispatchAdmission";
 import { readGitIdentity as readGitIdentityProbe } from "../project/GitIdentityProbe";
-import { listPluginInstances } from "../cli/LocalApiClient";
+import { listPluginInstances, preflightPluginAt } from "../cli/LocalApiClient";
 import RenamedExtensionStateMigration_1 = require("../config/RenamedExtensionStateMigration");
 import RemoteRootPolicyPrefill_1 = require("../config/RemoteRootPolicyPrefill");
 import PanelBuildIdentity_1 = require("../features/PanelBuildIdentity");
@@ -629,7 +630,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
-    "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject",
+    "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject", "refreshUnifiedDispatchPolicy",
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
@@ -671,7 +672,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
     "downloadDebugBundle", "downloadRemoteResult", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "openAuditTail", "selectPlan", "selectExperiment",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
-    "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject",
+    "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject", "refreshUnifiedDispatchPolicy",
 ]);
 const UI_BUTTON_PAYLOAD_KEYS = new Set([
     "branchProjectId",
@@ -1433,6 +1434,106 @@ export class RealtimeTunnelPanelProvider {
     branchProjectsProjection() {
         return this.branchProjectsProjectionState || { currentWorkspaceRoot: String(workspaceRoot() || ""), fileDigest: "", storagePath: this.branchProjectService().storagePath, ancestors: [], branches: [], verifiedAt: "", pending: true };
     }
+    /** 面板 payload：登记核验投影 + 最近一次统一派发只读投影（异步计算，绝不在 buildState 里做 IO）。 */
+    branchProjectsProjectionWithUnified() {
+        const projection = this.branchProjectsProjection();
+        if (!projection || typeof projection !== "object") return projection;
+        return Object.assign({}, projection, { unified: this.branchProjectsUnifiedCache || { active: false } });
+    }
+    /**
+     * 块B UI 投影（批准方案§7）：同一逻辑队列按来源分支可见；实例活性只认真实握手，
+     * 陈旧 running 记录不算打开；损坏/缺失/漂移如实呈现，不做任何静默兜底。
+     */
+    async unifiedDispatchProjection() {
+        const root = String(workspaceRoot() || "");
+        const out = { active: false, currentRoot: root, policyState: "missing", blockers: [], roots: [], truncated: false, checkedAt: new Date().toISOString() };
+        const domain = this.unifiedDomainState();
+        if (domain.blocked) {
+            // 损坏也要可见（不静默）：仍渲染为统一域区块，如实展示阻断原因。
+            out.active = true;
+            out.policyState = "corrupt";
+            out.blockers.push(`登记表不可用：${domain.blocked}`);
+            return out;
+        }
+        if (!domain.active) return out;
+        out.active = true;
+        const ownKey = canonicalComparablePath(root);
+        let policy = null, serverMap = null;
+        try {
+            const [policyText, mapText] = await Promise.all([
+                this.readUnifiedSnapshotText(path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_POLICY_FILE_NAME)),
+                this.readUnifiedSnapshotText(path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_SERVER_MAP_FILE_NAME))]);
+            policy = UnifiedDispatchAdmission.parseUnifiedPolicy(policyText);
+            serverMap = UnifiedDispatchAdmission.parseUnifiedServerMap(mapText);
+        } catch (error) { policy = "corrupt"; out.blockers.push(`统一派发快照不可读：${errorMessage(error)}`); }
+        if (policy === "corrupt" || serverMap === "corrupt") out.policyState = "corrupt";
+        else if (!policy || !Object.keys(policy.servers || {}).length || !serverMap) out.policyState = "missing";
+        else {
+            out.policyState = "ok";
+            const scheduler = this.schedulerSettings() || {};
+            for (const [serverKey, entry] of Object.entries(policy.servers)) {
+                const ownRow = (this.enabledWorkerConfigs() || []).find((row) => row.id === entry.workerId);
+                if (ownRow && UnifiedDispatchAdmission.policyInputsDrift(entry.inputs, UnifiedDispatchAdmission.buildPolicyInputs(scheduler, ownRow)))
+                    out.blockers.push(`服务器 ${serverKey} 的配额策略与当前配置已变化；请点“刷新统一策略”。`);
+            }
+            out.servers = Object.keys(policy.servers);
+        }
+        let inventory = { ancestors: [], branches: [] };
+        try { inventory = this.branchProjectService().registryInventory(); }
+        catch (error) { out.blockers.push(`登记表不可读：${errorMessage(error)}`); }
+        const liveWorkspaces = new Set();
+        let instances;
+        try { instances = listPluginInstances("experiment"); }
+        catch { instances = { rows: [], truncated: true }; }
+        out.truncated = Boolean(instances.truncated);
+        for (const row of (instances.rows || []).slice(0, 16)) {
+            try {
+                const handshake = await preflightPluginAt("experiment", row.discoveryPath);
+                const ws = String(handshake?.capabilities?.workspace || "");
+                if (ws) liveWorkspaces.add(canonicalComparablePath(ws));
+            } catch { /* 握手失败=疑似崩溃遗留记录；按未打开呈现，不按记录时间猜活性 */ }
+        }
+        const entries = new Map();
+        for (const row of [...(inventory.ancestors || []), ...(inventory.branches || [])]) {
+            const key = canonicalComparablePath(row);
+            if (!entries.has(key)) entries.set(key, { root: row, label: path.basename(String(row).replace(/[\\/]+$/, "")) });
+        }
+        for (const [key, entry] of entries) {
+            const item = { root: entry.root, label: entry.label, isCurrent: key === ownKey, live: liveWorkspaces.has(key),
+                waiting: 0, running: 0, unknown: 0, queueState: "missing", blockReasons: [] };
+            const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, entry.root);
+            try {
+                const text = await this.readUnifiedSnapshotText(file);
+                if (text.trim()) {
+                    const parsed = DistributedPlanQueue.restoreFormalJobQueue(JSON.parse(text));
+                    if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.plans)) throw new Error("队列格式无效");
+                    item.queueState = "ok";
+                    const reasons = new Set();
+                    for (const plan of parsed.plans) for (const job of plan.jobs) {
+                        if (DistributedPlanQueue.jobHasLiveExecution(job)) item.running += 1;
+                        else if (job.status === "unknown") item.unknown += 1;
+                        else if (job.status === "pending") {
+                            item.waiting += 1;
+                            if (job.blockReason && reasons.size < 4) reasons.add(String(job.blockReason).slice(0, 160));
+                        }
+                    }
+                    item.blockReasons = [...reasons];
+                }
+            } catch (error) { item.queueState = "corrupt"; item.blockReasons = [errorMessage(error).slice(0, 160)]; }
+            out.roots.push(item);
+        }
+        return out;
+    }
+    refreshBranchProjectsUnifiedCache() {
+        void this.unifiedDispatchProjection().then((projection) => {
+            this.branchProjectsUnifiedCache = projection;
+            this.postState();
+        }).catch((error) => {
+            this.branchProjectsUnifiedCache = { active: true, currentRoot: String(workspaceRoot() || ""), policyState: "corrupt",
+                blockers: [`统一派发投影读取失败：${errorMessage(error)}`], roots: [], truncated: false, checkedAt: new Date().toISOString() };
+            this.postState();
+        });
+    }
     scheduleBranchProjectsVerify(reason) {
         if (this.branchProjectsVerifyScheduled) return;
         this.branchProjectsVerifyScheduled = true;
@@ -1445,7 +1546,197 @@ export class RealtimeTunnelPanelProvider {
                 this.branchProjectsProjectionState = { currentWorkspaceRoot: String(workspaceRoot() || ""), fileDigest: "", storagePath: this.branchProjectService().storagePath, ancestors: [], branches: [], verifiedAt: "", pending: false, error: text };
             }
             this.postState();
+            this.refreshBranchProjectsUnifiedCache();
         }, 0);
+    }
+    /* —— 块B：本机统一派发准入适配层（纯判定在 src/project/UnifiedDispatchAdmission；本层只做有界读取与接线） —— */
+    /**
+     * 三态域判定：不在管理域（未登记/单项目）→ inactive；登记表损坏/不可读 → blocked。
+     * 批准方案§7：registry 损坏绝不静默按未登记兜底放行派发。
+     */
+    unifiedDomainState() {
+        const root = String(workspaceRoot() || "");
+        if (!root) return { active: false, blocked: "" };
+        let inventory;
+        try { inventory = this.branchProjectService().registryInventory(); }
+        catch (error) { return { active: false, blocked: `登记表不可读/已损坏：${errorMessage(error)}` }; }
+        const all = [...new Set([...(inventory.ancestors || []), ...(inventory.branches || [])].map((row) => canonicalComparablePath(row)))];
+        return all.length >= 2 && all.includes(canonicalComparablePath(root)) ? { active: true, blocked: "" } : { active: false, blocked: "" };
+    }
+    unifiedDomainActive() {
+        return this.unifiedDomainState().active === true;
+    }
+    unifiedWorkerSetup(workerId) {
+        return workerId ? (this.setupConfig?.workerTunnels || []).find((row) => row.id === workerId) : this.setupConfig;
+    }
+    unifiedServerKey(workerId) {
+        return UnifiedDispatchAdmission.logicalServerKey(this.unifiedWorkerSetup(workerId), workerId);
+    }
+    unifiedCurrentAliasMap() {
+        const aliases = {};
+        for (const worker of this.enabledWorkerConfigs() || []) {
+            try { aliases[worker.id] = this.unifiedServerKey(worker.id); } catch { /* 别名映射不出来=不登记，准入处如实拒绝 */ }
+        }
+        return aliases;
+    }
+    async withUnifiedAdmissionLease(actionLabel, work) {
+        if (!this.hostOperationLease) return work();
+        return this.hostOperationLease.run({ pluginId: "simple-local.simple-experiment", workspaceUri: String(workspaceRoot() || API_DISCOVERY_DIR),
+            hostProjectPath: API_DISCOVERY_DIR, actionType: "unified-dispatch", actionLabel, waitForConflict: true,
+            resources: [UnifiedDispatchAdmission.unifiedDispatchResource(API_DISCOVERY_DIR)] }, work);
+    }
+    async readUnifiedSnapshotText(file) {
+        const text = await fs.readFile(file, "utf8").catch((error) => { if (error?.code === "ENOENT") return ""; throw error; });
+        if (text.length > UnifiedDispatchAdmission.UNIFIED_SNAPSHOT_MAX_BYTES) throw new Error("统一派发快照超出大小上限，按损坏处理。");
+        return text;
+    }
+    /** 登记/刷新时保存共享配额策略（原始输入，不改任何项目 .vscode）并自我登记 worker 别名表。 */
+    async refreshUnifiedDispatchPolicy(savedFromRoot) {
+        const root = String(savedFromRoot || workspaceRoot() || "");
+        if (!root) throw new Error("缺少当前项目根，未刷新统一派发策略。");
+        const policyPath = path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_POLICY_FILE_NAME);
+        const serversPath = path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_SERVER_MAP_FILE_NAME);
+        return this.withUnifiedAdmissionLease("刷新统一派发策略", async () => {
+            const now = new Date().toISOString();
+            const aliasMap = this.unifiedCurrentAliasMap();
+            const scheduler = this.schedulerSettings() || {};
+            const servers = {};
+            for (const [workerId, serverKey] of Object.entries(aliasMap)) {
+                if (servers[serverKey]) continue;
+                const workerConfig = (this.enabledWorkerConfigs() || []).find((row) => row.id === workerId) || {};
+                servers[serverKey] = { workerId, inputs: UnifiedDispatchAdmission.buildPolicyInputs(scheduler, workerConfig) };
+            }
+            const incoming = { schemaVersion: 1, savedAt: now, savedFromRoot: root, servers };
+            const [policyText, mapText] = await Promise.all([this.readUnifiedSnapshotText(policyPath), this.readUnifiedSnapshotText(serversPath)]);
+            const existingPolicy = UnifiedDispatchAdmission.parseUnifiedPolicy(policyText);
+            const existingMap = UnifiedDispatchAdmission.parseUnifiedServerMap(mapText);
+            if (existingPolicy === "corrupt" || existingMap === "corrupt")
+                throw new Error("统一派发登记文件已损坏，拒绝盲目覆盖；请人工核对登记目录内的 unified-dispatch-*.json。");
+            const merged = UnifiedDispatchAdmission.mergePolicyServers(existingPolicy, incoming);
+            const map = UnifiedDispatchAdmission.mergeServerMapRoots(existingMap, canonicalComparablePath(root), aliasMap, now);
+            await fs.mkdir(API_DISCOVERY_DIR, { recursive: true });
+            await atomicWriteText(policyPath, JSON.stringify(merged.policy, null, 1));
+            await atomicWriteText(serversPath, JSON.stringify(map, null, 1));
+            return { servers: Object.keys(merged.policy.servers), conflicts: merged.conflicts };
+        });
+    }
+    async refreshUnifiedDispatchPolicyFromUi() {
+        const result = await this.refreshUnifiedDispatchPolicy(String(workspaceRoot() || ""));
+        this.scheduleBranchProjectsVerify("refresh-unified-policy");
+        void vscode.window.showInformationMessage(`统一派发策略已保存：${result.servers.length} 台服务器${result.conflicts.length ? `；${result.conflicts.length} 项冲突保留原快照` : ""}`);
+        return result;
+    }
+    /** 登记/移除项目后尽力刷新共享快照；失败绝不吞掉登记结果，只在投影与日志中如实反映。 */
+    refreshUnifiedDispatchPolicyAfterRegistryChange(reason) {
+        void this.refreshUnifiedDispatchPolicy(String(workspaceRoot() || "")).then((result) => {
+            for (const conflict of result.conflicts || [])
+                this.recordActionError({ command: "unifiedDispatchPolicy", message: `${reason}：${conflict}` });
+        }).catch((error) => {
+            this.recordActionError({ command: "unifiedDispatchPolicy", message: `${reason}：统一策略快照刷新失败——${errorMessage(error)}` });
+        });
+    }
+    /**
+     * saveDistributedQueue 的 dispatchAdmission 分支：在同时持有本项目队列资源与统一派发资源的临界区内，
+     * 以“盘上基线 vs 即将写入”的差异为新意图唯一来源，跨成员真实队列计算占用后逐服务器发放现有配额槽位。
+     * 只写本项目队列；成员队列/快照损坏、策略缺失或漂移一律如实阻断，绝不静默当零占用放行。
+     */
+    async computeUnifiedDispatchAdmission(root, diskCurrent, outgoingQueue, workingQueue) {
+        const intents = UnifiedDispatchAdmission.diffNewDispatchIntents(diskCurrent, outgoingQueue);
+        if (!intents.length) return { receipt: undefined, queue: outgoingQueue };
+        const blockers = [];
+        const policyPath = path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_POLICY_FILE_NAME);
+        const serversPath = path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_SERVER_MAP_FILE_NAME);
+        let policy = null, serverMap = null;
+        try {
+            const [policyText, mapText] = await Promise.all([this.readUnifiedSnapshotText(policyPath), this.readUnifiedSnapshotText(serversPath)]);
+            policy = UnifiedDispatchAdmission.parseUnifiedPolicy(policyText);
+            serverMap = UnifiedDispatchAdmission.parseUnifiedServerMap(mapText);
+            if (policy === "corrupt") blockers.push("统一配额策略快照损坏，已停止相关派发；请核对登记目录。");
+            else if (!policy || !Object.keys(policy.servers || {}).length) blockers.push("统一配额策略快照缺失；请先在「项目与分支」卡刷新统一策略。");
+            if (serverMap === "corrupt") blockers.push("Worker 别名登记损坏，已停止相关派发；请核对登记目录。");
+            else if (!serverMap) blockers.push("Worker 别名登记缺失；请先刷新统一策略。");
+        } catch (error) { blockers.push(`统一派发快照不可读：${errorMessage(error)}`); }
+        const ownKey = canonicalComparablePath(root);
+        let memberRoots = [];
+        try {
+            const inventory = this.branchProjectService().registryInventory();
+            const byKey = new Map();
+            for (const row of [...(inventory.ancestors || []), ...(inventory.branches || [])]) byKey.set(canonicalComparablePath(row), row);
+            byKey.delete(ownKey);
+            memberRoots = [...byKey.values()];
+        } catch (error) { blockers.push(`登记表不可读，统一准入按未就绪处理：${errorMessage(error)}`); }
+        const ownAlias = this.unifiedCurrentAliasMap();
+        const aliasOf = (label, workerId) => label === ownKey ? ownAlias[workerId] : serverMap?.roots?.[label]?.aliases?.[workerId];
+        const queues = [{ label: ownKey, queue: diskCurrent }];
+        for (const memberRoot of memberRoots) {
+            const label = canonicalComparablePath(memberRoot);
+            const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, memberRoot);
+            try {
+                const text = await this.readUnifiedSnapshotText(file);
+                if (!text.trim()) { queues.push({ label, queue: DistributedPlanQueue.emptyDistributedQueue() }); continue; }
+                const parsed = DistributedPlanQueue.restoreFormalJobQueue(JSON.parse(text));
+                if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.plans)) throw new Error("队列格式无效");
+                queues.push({ label, queue: parsed });
+            } catch (error) {
+                // 损坏成员绝不当零占用（批准方案§3）；缺失的新空队列才是诚实的零。
+                blockers.push(`成员队列不可读/已损坏（${path.basename(memberRoot)}）：${errorMessage(error)}；相关派发已拒绝。`);
+            }
+        }
+        const occupancy = UnifiedDispatchAdmission.computeServerOccupancy(queues, aliasOf);
+        for (const row of occupancy.unmapped.slice(0, 4))
+            blockers.push(`无法把 Worker「${row.workerId}」映射为已配置服务器身份（${row.label}）；不猜测、不探测。`);
+        if (occupancy.unmapped.length > 4) blockers.push(`另有 ${occupancy.unmapped.length - 4} 个 Worker 别名无法映射。`);
+        const scheduler = this.schedulerSettings() || {};
+        const policyServers = (policy && policy !== "corrupt" && policy.servers) || {};
+        const driftCache = new Map();
+        const serverDrifted = (serverKey) => {
+            if (!driftCache.has(serverKey)) {
+                const entry = policyServers[serverKey];
+                // 漂移只对“本窗口确实配置了该策略条目 worker 别名”的服务器可判定；其它窗口的条目由其
+                // 自己在派发时检漂移，本窗口配置不是该条目的输入源，不得据此伪造漂移阻断。
+                const ownRow = entry && (this.enabledWorkerConfigs() || []).find((row) => row.id === entry.workerId);
+                driftCache.set(serverKey, Boolean(ownRow) && UnifiedDispatchAdmission.policyInputsDrift(entry.inputs,
+                    UnifiedDispatchAdmission.buildPolicyInputs(scheduler, ownRow)));
+            }
+            return driftCache.get(serverKey);
+        };
+        if (policy && policy !== "corrupt")
+            for (const serverKey of Object.keys(policyServers))
+                if (serverDrifted(serverKey)) blockers.push(`服务器 ${serverKey} 的配额策略与当前配置已变化；请刷新统一策略后继续。`);
+        const receipt = UnifiedDispatchAdmission.admitDispatchIntents({ intents, occupancy: occupancy.occupancy,
+            serverOf: (intent) => ownAlias[intent.workerId],
+            settingsForServer: (serverKey) => {
+                const entry = policyServers[serverKey];
+                if (!entry || serverDrifted(serverKey)) return undefined;
+                // 遥测行取本窗口映射到同一物理服务器的别名视图；没有本机观测时 slots 为空=如实等待。
+                const ownAliasId = Object.keys(ownAlias).find((id) => ownAlias[id] === serverKey);
+                const rows = ownAliasId ? this.lastRealtimeState?.gpu?.[ownAliasId] : undefined;
+                return { settings: GpuQuotaScheduling.quotaSettings(entry.inputs?.global || {}, entry.inputs?.worker || {}, Array.isArray(rows) ? rows : []),
+                    rows: Array.isArray(rows) ? rows : [] };
+            },
+            blockers });
+        if (receipt.denied.length) {
+            const stripped = UnifiedDispatchAdmission.applyDeniedIntents(outgoingQueue, receipt.denied);
+            UnifiedDispatchAdmission.syncDeniedIntentsInPlace(workingQueue && workingQueue !== outgoingQueue ? workingQueue : outgoingQueue, receipt.denied);
+            return { receipt, queue: stripped };
+        }
+        return { receipt, queue: outgoingQueue };
+    }
+    /** 防未来旁路：统一域内只有已在自己队列持久化同意的精确命令身份才允许发送。 */
+    async assertUnifiedDispatchConsentPersisted(plan, job, workerId, gpuId, commandId) {
+        const root = String(workspaceRoot() || "");
+        const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
+        let source;
+        try { source = await this.readUnifiedSnapshotText(file); }
+        catch (error) { throw new Error(`统一派发准入：本机队列不可读（${errorMessage(error)}），未发送任务。`); }
+        let disk;
+        try { disk = DistributedPlanQueue.restoreFormalJobQueue(JSON.parse(source)); }
+        catch { throw new Error("统一派发准入：本机队列不可解析，未发送任务。"); }
+        const row = disk?.plans?.find((row) => row.id === plan.id)?.jobs?.find((row) => row.index === job.index && row.attempt === job.attempt);
+        const gpuMatches = gpuId === undefined || String(row?.gpuId ?? "") === String(gpuId);
+        const consented = Boolean(row && String(row.commandId || "") === String(commandId) && String(row.workerId || "") === String(workerId) && gpuMatches
+            && (row.status === "dispatching" || row.lifecycleProtocol === 2 && row.status === "unknown" && row.startIntent?.commandId === commandId));
+        if (!consented) throw new Error("统一派发准入：该命令身份未在本机队列持久化为已同意（或已剥回等待配额），未发送任务。");
     }
     async pickBranchProjectDirectory(title) {
         const picked = await vscode.window.showOpenDialog({ canSelectFiles: false, canSelectFolders: true, canSelectMany: false, title, openLabel: "选择目录" });
@@ -1482,6 +1773,7 @@ export class RealtimeTunnelPanelProvider {
         if (!confirmed) throw new UiCommandCancelled("已取消登记。");
         await this.branchProjectService().registerAncestor({ label: "", gitRoot: identity.toplevel });
         this.scheduleBranchProjectsVerify("register-ancestor");
+        this.refreshUnifiedDispatchPolicyAfterRegistryChange("登记祖先");
         void vscode.window.showInformationMessage(`已登记祖先项目：${identity.toplevel}`);
     }
     async registerBranchProjectFromUi() {
@@ -1496,6 +1788,7 @@ export class RealtimeTunnelPanelProvider {
         if (!confirmed) throw new UiCommandCancelled("已取消登记。");
         await this.branchProjectService().registerBranch({ ancestorId: ancestorPick.id, label: "", workspaceRoot: identity.toplevel });
         this.scheduleBranchProjectsVerify("register-branch");
+        this.refreshUnifiedDispatchPolicyAfterRegistryChange("登记分支");
         void vscode.window.showInformationMessage(`已登记创新分支副本：${identity.toplevel}`);
     }
     async createBranchFromAncestorFromUi() {
@@ -1517,11 +1810,13 @@ export class RealtimeTunnelPanelProvider {
         if (!confirmed) throw new UiCommandCancelled("已取消创建分支。");
         const result = await this.branchProjectService().confirmCreateBranch({ ancestorId: ancestorPick.id, branch: branch.trim(), targetParentDir: parentDir, confirmDigest: preview.digest });
         this.scheduleBranchProjectsVerify("create-branch");
+        this.refreshUnifiedDispatchPolicyAfterRegistryChange("创建分支");
         void vscode.window.showInformationMessage(result.message);
     }
     async refreshBranchProjectsFromUi() {
         this.branchProjectsProjectionState = this.branchProjectService().verifyAll();
         this.postState();
+        this.refreshBranchProjectsUnifiedCache();
     }
     async openBranchProjectFromUi(message) {
         const id = stringField(message, "branchProjectId");
@@ -1559,6 +1854,7 @@ export class RealtimeTunnelPanelProvider {
         if (!confirmed) throw new UiCommandCancelled("已取消移除。");
         await this.branchProjectService().forget(kind, targetId);
         this.scheduleBranchProjectsVerify("forget-" + kind);
+        this.refreshUnifiedDispatchPolicyAfterRegistryChange("移除登记");
         void vscode.window.showInformationMessage("已移除登记（目录与 Git 内容未做任何修改）。");
     }
     createLocalApiMethods() {
@@ -6028,6 +6324,9 @@ return this.testTunnel(true);
                 break;
             case "refreshBranchProjects":
                 await this.refreshBranchProjectsFromUi();
+                break;
+            case "refreshUnifiedDispatchPolicy":
+                await this.refreshUnifiedDispatchPolicyFromUi();
                 break;
             case "openBranchProject":
                 await this.openBranchProjectFromUi(message);
@@ -11748,15 +12047,26 @@ this.assertPlanTopologyReady("Plan 调度");
         if (this.distributedQueueStorageDiagnostics?.status === "stale") this.distributedQueueStorageDiagnostics = { status: "ready" };
         return DistributedPlanQueue.cloneDistributedQueue(this.distributedQueueCache, signature);
     }
-    async withQueueWriteResource(root, work) {
+    async withQueueWriteResource(root, work, options = {}) {
         if (!this.hostOperationLease) return work();
         const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
+        const resources = [{ server: "local", project: path.dirname(file), target: file }];
+        // 块B：写新派发意图时在同一临界区同时持有共享“统一派发”逻辑资源，与管理域内其它项目的
+        // 准入互斥（锁序：本项目队列 → 统一资源；持锁后绝不再调其它窗口的 save/RPC）。
+        if (options.unifiedDispatch) resources.push(UnifiedDispatchAdmission.unifiedDispatchResource(API_DISCOVERY_DIR));
         return this.hostOperationLease.run({ pluginId: "simple-local.simple-experiment", workspaceUri: String(root),
             hostProjectPath: path.dirname(file), actionType: "queue-write", actionLabel: "写入调度队列", waitForConflict: true,
-            resources: [{ server: "local", project: path.dirname(file), target: file }] }, work);
+            resources }, work);
     }
     async saveDistributedQueue(root, queue, options = {}) {
         const workingQueue = queue;
+        // 块B：只有携带新派发意图的保存（dispatchAdmission）且当前根在统一域内才进入共同同意临界区；
+        // 未登记单项目的行为逐路径保留。判定必须在取锁前完成（锁内不再问登记表之外的世界）。
+        // 登记表损坏/不可读时拒绝带新派发意图的写入——绝不按“未登记”静默兜底放行（批准方案§7）。
+        const unifiedDomain = options.dispatchAdmission === true ? this.unifiedDomainState() : { active: false, blocked: "" };
+        if (unifiedDomain.blocked)
+            throw new Error(`统一派发准入：${unifiedDomain.blocked}；已拒绝本次带新派发意图的队列写入，任务留在本地。`);
+        const unifiedActive = unifiedDomain.active === true;
         const work = this.distributedQueueWritePromise.catch(() => undefined).then(async () => this.withQueueWriteResource(root, async () => {
             const assertStopBatch = () => {
                 if (options.stopBatchEpoch !== undefined && (this.distributedPlanStopEpoch !== options.stopBatchEpoch
@@ -11889,6 +12199,14 @@ this.assertPlanTopologyReady("Plan 调度");
                     previewWorkerId: current.previewWorkerId, previewWorkerIds: current.previewWorkerIds,
                     previewPaths: current.previewPaths };
             }
+            // 块B：新意图在此（合并完成后、序列化前）过统一同意；被剥回的意图不写盘也不发送，
+            // 保留 pending/ready 与真实等待原因；批准方案§4“同意必须先于任何远端 await 落盘”。
+            let dispatchReceipt;
+            if (unifiedActive) {
+                const admission = await this.computeUnifiedDispatchAdmission(root, current, queue, workingQueue);
+                queue = admission.queue;
+                dispatchReceipt = admission.receipt;
+            }
             await fs.mkdir(path.dirname(file), { recursive: true });
             const serialized = DistributedPlanQueue.serializeDistributedQueue(queue);
             let publicationConflict = false;
@@ -11932,9 +12250,10 @@ this.assertPlanTopologyReady("Plan 调度");
                 this.distributedTickAbort?.abort();
                 this.detachStaleDistributedTick(this.distributedQueueTickPromise);
             }
-        }));
+            return dispatchReceipt;
+        }, unifiedActive ? { unifiedDispatch: true } : {}));
         this.distributedQueueWritePromise = work;
-        await work;
+        return await work;
     }
     async patchDistributedJob(root, planId, index, attempt, fields) {
         let fileFactsChanged = false;
@@ -12593,6 +12912,13 @@ this.assertPlanTopologyReady("Plan 调度");
     async sendDistributedJob(plan, job, workerId, gpuId, commandId, sharedCodeManifest?) {
         let transmissionStarted = false;
         try {
+        // 块B防旁路（批准方案§4）：统一域内只允许发送已在本机队列持久化同意的精确身份。
+        // 发送前的普适 save→send 顺序使所有既有通道自然通过；任何未来旁路在此被硬拒。
+        const unifiedSendDomain = this.unifiedDomainState();
+        if (unifiedSendDomain.blocked)
+            throw new Error(`统一派发准入：${unifiedSendDomain.blocked}；未发送任务。`);
+        if (unifiedSendDomain.active)
+            await this.assertUnifiedDispatchConsentPersisted(plan, job, workerId, gpuId, commandId);
         if (plan.resultPathPolicy !== "declared" || job.outputDir.split("/").includes("attempts"))
             throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：旧队列仅供查看，不会重启既有任务。");
         const root = workspaceRoot(), client = this.client, generation = this.distributedQueueGeneration;
@@ -13119,14 +13445,22 @@ this.assertPlanTopologyReady("Plan 调度");
                     && String(this.lastCodeSyncState?.workerVersions?.[job.workerId]?.fingerprint || "") === plan.codeFingerprint
                     && !snapshotsByWorker.get(job.workerId)?.tasks?.some((row) => String(row.commandId || "") === job.commandId))
                     .map((job) => ({ planId: plan.id, jobIndex: job.index, workerId: job.workerId!, commandId: job.commandId!, attempt: job.attempt })));
-            const dispatches = [...allocation.dispatches, ...hosted.dispatches, ...hostedRetries.filter((retry) =>
+            let dispatches = [...allocation.dispatches, ...hosted.dispatches, ...hostedRetries.filter((retry) =>
                 !hosted.dispatches.some((item) => item.commandId === retry.commandId))];
             for (const dispatch of dispatches) {
                 const job = queue.plans.find((plan) => plan.id === dispatch.planId)?.jobs.find((job) =>
                     job.index === dispatch.jobIndex && job.attempt === dispatch.attempt && job.commandId === dispatch.commandId);
                 if (job) job.lastDispatchAttemptAt = new Date().toISOString();
             }
-            if (dispatches.length) await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            // 块B：save 返回统一准入回执；被拒意图已随 save 剥回本地等待，绝不进入发送集合。
+            let durableAdmissionReceipt;
+            if (dispatches.length) durableAdmissionReceipt = await this.saveDistributedQueue(root, queue, { queueGeneration: generation, dispatchAdmission: true });
+            if (durableAdmissionReceipt?.dispatchAdmission && dispatches.some((item) =>
+                UnifiedDispatchAdmission.dispatchAdmissionDenied(durableAdmissionReceipt, item.planId, item.jobIndex, item.commandId))) {
+                dispatches = dispatches.filter((item) =>
+                    !UnifiedDispatchAdmission.dispatchAdmissionDenied(durableAdmissionReceipt, item.planId, item.jobIndex, item.commandId));
+                this.postState();
+            }
             const dispatchPlans = [...new Map(dispatches.map((dispatch) => {
                 const plan = queue.plans.find((item) => item.id === dispatch.planId);
                 return plan ? [plan.id, plan] : ["", undefined];
@@ -13298,12 +13632,20 @@ this.assertPlanTopologyReady("Plan 调度");
             this.postState();
             return;
         }
-        if (allocation.dispatches.length) await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+        // 块B：旧兼容路径同样必须过统一准入；这里的 job 查找不核 commandId，
+        // 所以被拒意图只能靠回执过滤排除（不得依赖队列状态）。
+        let legacyAdmissionReceipt;
+        if (allocation.dispatches.length) legacyAdmissionReceipt = await this.saveDistributedQueue(root, queue, { queueGeneration: generation, dispatchAdmission: true });
         if (!queueWriteCurrent()) {
             this.postState();
             return;
         }
-        const launches = await Promise.all(allocation.dispatches.map(async (dispatch) => {
+        const sendableDispatches = legacyAdmissionReceipt?.dispatchAdmission
+            ? allocation.dispatches.filter((item) =>
+                !UnifiedDispatchAdmission.dispatchAdmissionDenied(legacyAdmissionReceipt, item.planId, item.jobIndex, item.commandId))
+            : allocation.dispatches;
+        if (sendableDispatches.length !== allocation.dispatches.length) this.postState();
+        const launches = await Promise.all(sendableDispatches.map(async (dispatch) => {
             const plan = queue.plans.find((item) => item.id === dispatch.planId);
             const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex);
             if (!plan || !job || !queueWriteCurrent()) return { dispatch, plan, job };
@@ -24249,7 +24591,7 @@ return "历史服务器";
             pptAutomation: this.pptAutomationReadiness,
             integrations,
             projectOnboarding,
-            branchProjects: this.branchProjectsProjection(),
+            branchProjects: this.branchProjectsProjectionWithUnified(),
             health: webviewHealth,
             realtime: webviewRealtime,
             gpuOwnerConfig: this.gpuOwnerConfig(),
@@ -24992,7 +25334,7 @@ return "历史服务器";
             pptAutomation: {},
             integrations: { simpleSftp },
             projectOnboarding,
-            branchProjects: this.branchProjectsProjection(),
+            branchProjects: this.branchProjectsProjectionWithUnified(),
             health: { state: "unknown", status: "unknown", message: "面板状态暂不可用。" },
             realtime: { status: "disconnected", endpoints: [], lastSeq: 0 },
             gpuOwnerConfig: {},

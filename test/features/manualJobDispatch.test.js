@@ -81,3 +81,37 @@ test('missing original command or server identity cannot authorize a replacement
   assert.equal(f.sends,0);assert.equal(f.stops,0);assert.equal(f.preparations,0);
  }
 });
+
+test('block B: unified admission denial rewinds the ready job at save and consumes no POST',async()=>{
+ const f=fixture(),q0=await f.ports.load();
+ Object.assign(q0.plans[0].jobs[0],{localQueueOnly:true,nextCommandId:'ready-command',
+  manualDispatch:{workerId:'worker',gpuId:'0',stage:'ready',origin:'server_queue',batchId:'b1'}});
+ await f.ports.save(q0);
+ const saveOptions=[];
+ f.ports.save=async(value,options)=>{saveOptions.push(options||null);
+  // 模拟保存端统一准入：先在调用方队列上原地剥回（与 syncDeniedIntentsInPlace 一致），再落盘并回传回执。
+  const job=value.plans[0].jobs.find(j=>j.commandId==='ready-command');
+  if(job&&options&&options.dispatchAdmission){Object.assign(job,{status:'pending',workerId:undefined,gpuId:undefined,commandId:undefined,
+   runKey:undefined,startIntent:undefined,nextCommandId:'ready-command',manualDispatch:{...job.manualDispatch,stage:'ready'},
+   blockReason:'统一派发等待配额：GPU 0 配额已满（1/1）'});
+   q=structuredClone(value);
+   return {dispatchAdmission:true,intents:1,approved:[],denied:[{planId:'p',jobIndex:0,attempt:0,commandId:'ready-command',
+    workerId:'worker',gpuId:'0',manual:true,reason:'服务器 worker:22 GPU 0 的每卡配额已满（1/1）；留在本地队列等待。'}],blockers:[]};}
+  q=structuredClone(value);
+  return undefined;};
+ await dispatchReadyManualJobs(f.ports);
+ assert.equal(f.sends,0,'被统一准入拒绝的手动意图绝不 POST');
+ assert.ok(saveOptions.some(o=>o&&o.dispatchAdmission===true),'ready→sent 的身份持久化必须经由统一准入保存');
+ const job=f.q.plans[0].jobs[0];
+ assert.equal(job.status,'pending');assert.equal(job.manualDispatch.stage,'ready');
+ assert.equal(job.manualDispatch.gpuId,'0','保留用户所选服务器/GPU');
+ assert.equal(job.nextCommandId,'ready-command','同命令重试不换新身份');
+ assert.match(job.blockReason,/统一派发等待配额/);
+ // 无回执（旧宿主 fake）时行为不变：正常发送。
+ const g=fixture(),qg=await g.ports.load();
+ Object.assign(qg.plans[0].jobs[0],{localQueueOnly:true,nextCommandId:'plain-command',manualDispatch:{workerId:'worker',gpuId:'0',stage:'ready'}});
+ await g.ports.save(qg);
+ await dispatchReadyManualJobs(g.ports);
+ assert.equal(g.sends,1);
+ assert.equal(g.q.plans[0].jobs[0].manualDispatch.stage,'sent');
+});

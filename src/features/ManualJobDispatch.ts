@@ -1,9 +1,13 @@
 import { DistributedQueue, QueuedJob, QueuedPlan } from "./DistributedPlanQueue";
+import { dispatchAdmissionDenied } from "../project/UnifiedDispatchAdmission";
 
 export type ManualDispatchRequest = { workflowId: string; indices: number[]; workerId: string; gpuId: string;
   expectedCommands?: Record<string, string>; stopRunning?: boolean };
 export type ManualDispatchPorts = {
-  load(): Promise<DistributedQueue>; save(queue: DistributedQueue): Promise<void>; assertCurrent(): void;
+  load(): Promise<DistributedQueue>;
+  /** save 可携带 dispatchAdmission 并回传统一准入回执（旧宿主不返回回执=行为不变）。 */
+  save(queue: DistributedQueue, options?: { dispatchAdmission?: boolean }): Promise<unknown>;
+  assertCurrent(): void;
   online(workerId: string): boolean; supports(workerId: string): boolean; newCommandId(): string;
   prepare(plan: QueuedPlan): Promise<void>; stop(plan: QueuedPlan, job: QueuedJob): Promise<void>;
   review(plan: QueuedPlan, jobs: QueuedJob[]): Promise<boolean | number[]>;
@@ -117,7 +121,11 @@ export async function dispatchReadyManualJobs(ports: ManualDispatchPorts) {
     Object.assign(job, { workerId: placement.workerId, gpuId: placement.gpuId, commandId: job.nextCommandId || ports.newCommandId(),
       status: "dispatching", manualDispatch: { ...placement, stage: "sent" } });
     job.runKey = job.commandId; job.nextCommandId = undefined;
-    await ports.save(queue); // Persist exact identity before the one and only POST.
+    const placedCommandId = job.commandId;
+    // Persist exact identity before the one and only POST — in the managed domain this same save
+    // is the unified consent point; a denied intent is rewound to stage=ready by the save itself.
+    const admission = await ports.save(queue, { dispatchAdmission: true });
+    if (dispatchAdmissionDenied(admission, plan.id, job.index, placedCommandId)) continue;
     try { await ports.send(plan, job); }
     catch (error: any) { job.blockReason = "派发请求状态待查询：" + String(error.message || error); }
     await ports.save(queue);
