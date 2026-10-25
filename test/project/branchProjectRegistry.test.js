@@ -1135,7 +1135,6 @@ test("C5 R5a/b/c：跨 cwd/大小写语义身份拒绝与精确结算；专用�
  * 回归必须跑真实 legacy 入口。按 unifiedDispatchAdmission 的既有 AST 法身口径，从当前完整 legacy.ts
  * 提取实际方法体进隔离 vm，外部 git/gh 一律注入 stub（不联网）；真实仓/真实租约/真实模块另各占用例。 */
 const DPQ = require("../../dist/features/DistributedPlanQueue.js");
-const { pathToFileURL } = require("node:url");
 
 function makeLegacyUiHost(env) {
   const ts = require("typescript");
@@ -1198,6 +1197,21 @@ function seedProofedQueue(storage, root, planId, planFile, revision, manifest, j
   const file = DPQ.distributedQueuePath(storage, root);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, DPQ.serializeDistributedQueue(q), "utf8");
+  // 正常项目运行状态忽略边界（宿主 2026-10-25 现场证实：该测试仓 dirty 的唯一来源就是这个项目内运行时队列文件）：
+  // 只给本测试临时仓的 .git/info/exclude 添加由实际写入路径 path.relative(root, file) 派生的精确文件规则——
+  // 不写死 digest、不忽略源码/整目录树、不触碰仓库全局或用户 exclude、不改 HEAD/产品 dirty 判定。
+  const relative = path.relative(root, file).split(path.sep).join("/");
+  if (relative && !relative.startsWith("../") && !path.isAbsolute(relative)) {
+    const excludeFile = path.join(root, ".git", "info", "exclude");
+    fs.mkdirSync(path.dirname(excludeFile), { recursive: true });
+    const prior = fs.existsSync(excludeFile) ? fs.readFileSync(excludeFile, "utf8") : "";
+    if (!prior.split(/\r?\n/).some(row => row.trim() === "/" + relative))
+      fs.appendFileSync(excludeFile, (prior === "" || prior.endsWith("\n") ? "" : "\n") + "/" + relative + "\n", "utf8");
+  }
+  // 用产品同款真实探针断言真实 status 干净（与产品 dirty 判定同一观测面），不伪造 dirty=false。
+  const identity = probe.readGitIdentity(root);
+  assert.equal(identity.error, "");
+  assert.equal(identity.dirty, false, "运行时队列写入并按准确路径排除后，真实 Git status 必须干净：" + JSON.stringify({ file, relative, status: identity.dirty }));
   return file;
 }
 function uiBranchFixture(name) {
@@ -1251,7 +1265,7 @@ test("C4-R6 统一租约身份：已确认仓＋head ref 定锁；cwd/大小写�
 
 test("C4-R6 真实互斥：两个独立 cwd 同仓/同引用并发创建只有一个不可逆临界段；第二窗被预览不一致拦停后重预览按身份复用", async () => {
   const remote = { heads: { main: BASE_SHA }, prs: [], pushCount: 0, createCount: 0 };
-  const makeFakeGit = (delayMs) => {
+  const makeFakeGit = (options = {}) => {
     const calls = [];
     const runner = async (args) => {
       const line = args.join(" "); calls.push(line);
@@ -1260,7 +1274,11 @@ test("C4-R6 真实互斥：两个独立 cwd 同仓/同引用并发创建只有�
       if (line === "ls-remote --heads origin exp/m1") { const sha = remote.heads["exp/m1"]; return { code: 0, stdout: buf(sha ? sha + "\trefs/heads/exp/m1\n" : ""), stderr: "" }; }
       if (line.startsWith("rev-list")) return { code: 128, stdout: buf(""), stderr: "unknown revision" };
       if (line === "rev-parse --verify refs/heads/exp/m1^{commit}") return { code: 0, stdout: buf(FULL_SHA + "\n"), stderr: "" };
-      if (line.startsWith("push origin")) { if (delayMs) await new Promise(resolve => setTimeout(resolve, delayMs)); remote.heads["exp/m1"] = FULL_SHA; remote.pushCount++; return { code: 0, stdout: buf(""), stderr: "" }; }
+      if (line.startsWith("push origin")) {
+        if (options.onPushEnter) options.onPushEnter();
+        if (options.pushGate) await options.pushGate; // 确定性持锁边界：W1 真的停在临界段内的 push，直到受控放行（不再用 40ms 猜）
+        remote.heads["exp/m1"] = FULL_SHA; remote.pushCount++; return { code: 0, stdout: buf(""), stderr: "" };
+      }
       throw new Error("unexpected fake git: " + line);
     };
     return { runner, calls };
@@ -1279,22 +1297,33 @@ test("C4-R6 真实互斥：两个独立 cwd 同仓/同引用并发创建只有�
   const srcRepo = makeRepo("r6-src");
   const w1 = fs.realpathSync(tempDir("se-r6-w1-")); git(["clone", "-q", srcRepo, w1], os.tmpdir());
   const w2 = fs.realpathSync(tempDir("se-r6-w2-")); git(["clone", "-q", srcRepo, w2], os.tmpdir());
-  const previewT0 = await pr.previewBranchPullRequest({ git: makeFakeGit(0).runner, gh: makeFakeGh().runner, ...PR_OPTS, cwd: w1 });
+  const previewT0 = await pr.previewBranchPullRequest({ git: makeFakeGit().runner, gh: makeFakeGh().runner, ...PR_OPTS, cwd: w1 });
   assert.ok(previewT0.ok, JSON.stringify(previewT0.reason));
   const leaseDir = tempDir("se-r6-lease-"); const leaseFile = path.join(leaseDir, "branch-pr-op.lease.json");
   const { ResourceOperationLeaseManager } = require("../../dist/core/ResourceOperationLease.js");
-  const manager = new ResourceOperationLeaseManager({ leasePath: leaseFile, windowId: "r6", ttlMs: 30000, heartbeatMs: 1000 });
+  // 两个真实 manager、独立 windowId：贴近两个独立窗口竞争同一租约文件；锁/ALS/生产代码不动。
+  const managerW1 = new ResourceOperationLeaseManager({ leasePath: leaseFile, windowId: "r6-w1", ttlMs: 30000, heartbeatMs: 1000 });
+  const managerW2 = new ResourceOperationLeaseManager({ leasePath: leaseFile, windowId: "r6-w2", ttlMs: 30000, heartbeatMs: 1000 });
   const events = [];
-  const withLease = (label) => async (leaseId, fn) => {
-    events.push(label + ":key:" + leaseId); events.push(label + ":enter");
+  const withLease = (label, manager) => async (leaseId, fn) => {
+    events.push(label + ":key:" + leaseId); // 键计算/请求发生在锁外
     return manager.run({ pluginId: "simple-local.simple-experiment", workspaceUri: leaseDir, hostProjectPath: leaseDir,
       actionType: "branch-pr-operation", actionLabel: "R6 租约回归", waitForConflict: true,
       resources: [{ server: "local", project: leaseDir, target: leaseFile }] },
-    async () => { try { return await fn(); } finally { events.push(label + ":exit"); } });
+    // enter 必须在真正获锁回调内：此前在 run 之前记 enter＝把"请求租约"误记成"已获临界区"。
+    async () => { events.push(label + ":enter"); try { return await fn(); } finally { events.push(label + ":exit"); } });
   };
-  const pA = pr.createBranchPullRequest({ git: makeFakeGit(250).runner, gh: makeFakeGh().runner, ledger: memoryLedger(), ...PR_OPTS, cwd: w1, title: "t", body: "b", previewDigest: previewT0.digest, withRepoLease: withLease("W1") });
-  await new Promise(resolve => setTimeout(resolve, 40)); // W1 持租约且在 push 中，W2 此刻排队
-  const pB = pr.createBranchPullRequest({ git: makeFakeGit(0).runner, gh: makeFakeGh().runner, ledger: memoryLedger(), ...PR_OPTS, cwd: w2, title: "t", body: "b", previewDigest: previewT0.digest, withRepoLease: withLease("W2") });
+  // 不用 sleep 猜 W1 是否持锁：以 W1 真实进入 push（临界段内）为边界再启动 W2，随后受控放行。
+  let w1PushEntered = null;
+  const w1PushEnter = new Promise(resolve => { w1PushEntered = resolve; });
+  let releaseW1Push = null;
+  const w1PushGate = new Promise(resolve => { releaseW1Push = resolve; });
+  const pA = pr.createBranchPullRequest({ git: makeFakeGit({ onPushEnter: () => { events.push("W1:push-enter"); w1PushEntered(); }, pushGate: w1PushGate }).runner, gh: makeFakeGh().runner, ledger: memoryLedger(), ...PR_OPTS, cwd: w1, title: "t", body: "b", previewDigest: previewT0.digest, withRepoLease: withLease("W1", managerW1) });
+  const early = await Promise.race([w1PushEnter.then(() => null), pA.then(result => ({ earlyResult: result }))]);
+  assert.equal(early, null, "W1 未到达 push 就提前结束（不再放行，直接报告真实结果）events=" + events.join(",") + "：" + JSON.stringify(early));
+  const pB = pr.createBranchPullRequest({ git: makeFakeGit().runner, gh: makeFakeGh().runner, ledger: memoryLedger(), ...PR_OPTS, cwd: w2, title: "t", body: "b", previewDigest: previewT0.digest, withRepoLease: withLease("W2", managerW2) });
+  assert.ok(events.some(row => row.startsWith("W2:key:")), "W2 的请求已在 W1 持锁期间发出（真实重叠，非事后串行）");
+  releaseW1Push(); // 受控放行 W1 的 push 临界段
   const resA = await pA; const resB = await pB;
   assert.equal(resA.status, "created", JSON.stringify(resA));
   assert.equal(resB.status, "blocked-unknown", JSON.stringify(resB));
@@ -1305,10 +1334,11 @@ test("C4-R6 真实互斥：两个独立 cwd 同仓/同引用并发创建只有�
   const keyB = events.find(row => row.startsWith("W2:key:")).slice("W2:key:".length);
   assert.equal(keyA, "branch-pr-op:github.com/org/repo:exp/m1");
   assert.equal(keyB, keyA, "不同完整 clone 的同一 repo/ref 必须落同一把锁");
+  assert.ok(events.indexOf("W1:enter") < events.indexOf("W1:push-enter"), "enter 记录的是真正获锁后的临界段（push 在其后）");
   assert.ok(events.indexOf("W2:key:" + keyB) < events.indexOf("W1:exit"), "W2 确实在 W1 持有期间请求过（真实重叠，非事后串行）");
   assert.ok(events.indexOf("W1:exit") < events.indexOf("W2:enter"), "W2 的临界段确在 W1 释放后才进入（等待型互斥）");
-  const previewB2 = await pr.previewBranchPullRequest({ git: makeFakeGit(0).runner, gh: makeFakeGh().runner, ...PR_OPTS, cwd: w2 });
-  const resB2 = await pr.createBranchPullRequest({ git: makeFakeGit(0).runner, gh: makeFakeGh().runner, ledger: memoryLedger(), ...PR_OPTS, cwd: w2, title: "t", body: "b", previewDigest: previewB2.digest, withRepoLease: withLease("W2b") });
+  const previewB2 = await pr.previewBranchPullRequest({ git: makeFakeGit().runner, gh: makeFakeGh().runner, ...PR_OPTS, cwd: w2 });
+  const resB2 = await pr.createBranchPullRequest({ git: makeFakeGit().runner, gh: makeFakeGh().runner, ledger: memoryLedger(), ...PR_OPTS, cwd: w2, title: "t", body: "b", previewDigest: previewB2.digest, withRepoLease: withLease("W2b", managerW2) });
   assert.equal(resB2.status, "reused", JSON.stringify(resB2));
   assert.equal(resB2.prNumber, 31);
   assert.match(resB2.note, /按身份复用/);
@@ -1437,10 +1467,9 @@ test("C4-R6 UI 真实入口祖先 ff：确认后 origin 被改到共享历史的
   const ancRoot = fs.realpathSync(makeRepo("r6-drift"));
   const aBare = tempDir("se-r6-A-"); git(["init", "-q", "--bare", "-b", "main"], aBare);
   const url = "https://github.com/org/repo.git";
-  git(["remote", "add", "origin", url], ancRoot);
-  git(["config", "url." + pathToFileURL(aBare).href + ".insteadOf", "https://github.com/org/repo"], ancRoot); // 离线“GitHub 仓”：fetch/push 真实走本地裸仓
+  git(["remote", "add", "origin", url], ancRoot); // origin 只保留正常 GitHub 元数据；不为 fixture 改写全局/仓库 insteadOf
   commitFile(ancRoot, "mainline.txt", "m1\n", "mainline c1");
-  git(["push", "-q", "origin", "main"], ancRoot);
+  git(["push", "-q", aBare, "main"], ancRoot); // 直接写本地裸仓，不经 origin；GitHub 地址零接触（此前 url.<bare>.insteadOf=https://github.com/org/repo 因缺 .git 不匹配，push exit128）
   const bBare = tempDir("se-r6-B-");
   git(["clone", "-q", "--bare", aBare, bBare], os.tmpdir());
   const bHeadBefore = git(["rev-parse", "refs/heads/main"], bBare).trim();
@@ -1454,7 +1483,15 @@ test("C4-R6 UI 真实入口祖先 ff：确认后 origin 被改到共享历史的
     return "知道了";
   };
   const seen = [];
-  env.branchPullRequest = { ...pr, runGitPullRequest: async (args, cwd, stdin) => { seen.push(args.join(" ")); return pr.runGitPullRequest(args, cwd, stdin); }, runGh: recordingGit([]).runner };
+  const networkish = /^(fetch|push|pull|ls-remote|clone|archive|submodule)\b/;
+  // 离线边界只替换“产品会发出的那一个 fetch origin <精确 refspec>”的外部传输目标为真实本地裸仓（同 refspec），
+  // 其余命令继续真实 Git（get-url/rev-parse/merge/status 都不触网）；其它网络类命令一律拒绝，绝不接触 GitHub。
+  env.branchPullRequest = { ...pr, runGitPullRequest: async (args, cwd, stdin) => {
+    const line = args.join(" "); seen.push(line);
+    if (args[0] === "fetch" && args[1] === "origin") return pr.runGitPullRequest(["fetch", aBare, ...args.slice(2)], cwd, stdin);
+    if (networkish.test(line)) throw new Error("离线夹具拒绝其它网络传输命令：git " + line);
+    return pr.runGitPullRequest(args, cwd, stdin);
+  }, runGh: recordingGit([]).runner };
   const host = makeLegacyUiHost(env);
   const ancestor = { gitRoot: ancRoot, remoteName: "origin", targetBranch: "main" };
   const frozenTarget = pr.normalizeGithubTarget(url);
