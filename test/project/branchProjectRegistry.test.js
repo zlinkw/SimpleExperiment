@@ -16,6 +16,9 @@
  * 4) 服务：登记拒绝非仓库/detached/祖先自身；preview/confirm 摘要一致才创建 worktree；
  *    目标目录或分支已存在拒绝；确认阶段漂移拒绝；forget 只移除登记，不删目录/分支；
  *    验证与创建全程不改祖先 HEAD、分支集合与工作区内容。
+ * 5) 块C3 HEAD↔已验 manifest 绑定：真实提交树 blob 字节逐文件核对；Git 忽略/未跟踪的磁盘依赖
+ *    ＝无法证明此 HEAD（绝不 stage/commit）；size/SHA/类型/路径/摘要/revision 规则；
+ *    dirty→clean 同 blob 复用；假执行器覆盖 cat-file 缺帧/非 blob/截断等如实失败类别。
  *
  * 需要真实 git 子进程与临时仓库夹具，无法用纯内存 fake 替代（隔离/环境清理语义本身是被测行为），
  * 因此作为新功能域新建本文件；其余面板/路由断言扩在既有套件中。
@@ -302,4 +305,148 @@ test("Git 状态读取失败（受控损坏索引夹具）：验证/登记/预�
   // 读取失败路径不得触碰仓库：损坏索引后 rev-parse/branch 仍可读且与登记前一致。
   assert.equal(git(["rev-parse", "HEAD"], repo).trim(), before.head, "读取失败路径不得移动任何提交");
   assert.equal(git(["branch", "--list", "--format=%(refname:short)"], repo).trim(), before.branches);
+});
+
+// —— 块C3：HEAD↔已验 manifest 精确绑定（真实提交树 blob 字节比较；执行器另以假帧覆盖失败类别）——
+const binding = require("../../dist/project/BranchHeadBinding.js");
+const scopeHost = require("../../dist/extension/PlanCodeScopeHost.js");
+const crypto = require("node:crypto");
+
+function manifestFor(repo, files, overrides = {}) {
+  const manifest = {};
+  for (const rel of files) {
+    const bytes = overrides[rel] !== undefined ? (Buffer.isBuffer(overrides[rel]) ? overrides[rel] : Buffer.from(overrides[rel], "utf8"))
+      : fs.readFileSync(path.join(repo, ...rel.split("/")));
+    manifest[rel] = { size: bytes.length, sha256: crypto.createHash("sha256").update(bytes).digest("hex") };
+  }
+  return { digest: scopeHost.planExecutionSourceDigest(manifest), manifest };
+}
+
+test("C3 当前提交树逐文件 blob 字节核对：忽略/未跟踪依赖=无法证明此 HEAD；改动/删除如实分类；dirty→clean 可复用", async () => {
+  const repo = makeRepo("bind");
+  fs.mkdirSync(path.join(repo, "pkg"), { recursive: true });
+  fs.mkdirSync(path.join(repo, "experiments"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "experiments", "a.yaml"), "jobs: 1\n", "utf8");
+  fs.writeFileSync(path.join(repo, "pkg", "model.py"), "w = 1\n", "utf8");
+  commitFile(repo, "pkg/model.py", "w = 1\n", "add plan and model"); // git add -A 一并提交 experiments/a.yaml
+  fs.writeFileSync(path.join(repo, ".gitignore"), "vendor/\n", "utf8");
+  commitFile(repo, ".gitignore", "vendor/\n", "ignore vendor");
+  fs.mkdirSync(path.join(repo, "vendor"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "vendor", "dep.bin"), Buffer.from([0, 1, 2, 253, 254, 255]));
+  const head = git(["rev-parse", "HEAD"], repo).trim();
+  const planFile = "experiments/a.yaml";
+  const revisionOf = source => source.manifest[planFile]?.sha256;
+  // ① 提交内文件逐一一致 → ok（含 .gitignore 也是提交树内普通文件）
+  const good = manifestFor(repo, [planFile, "pkg/model.py", "tracked.txt"]);
+  let result = await binding.bindPlanSourceToCommit({ runner: binding.runGitBinary, cwd: repo, headCommit: head,
+    executionSource: good, planFile, revision: revisionOf(good) });
+  assert.equal(result.ok, true, JSON.stringify(result.failures));
+  assert.equal(result.coveredFiles, 3);
+  assert.match(result.note, /不构成整仓或科研结论等价/, "覆盖范围必须如实声明");
+  // ② manifest 含被忽略的磁盘依赖：不在提交树 → 无法证明；不产生任何写入
+  const stateBefore = snapshotRepoState(repo);
+  const withIgnored = manifestFor(repo, [planFile, "pkg/model.py", "vendor/dep.bin"]);
+  result = await binding.bindPlanSourceToCommit({ runner: binding.runGitBinary, cwd: repo, headCommit: head,
+    executionSource: withIgnored, planFile, revision: revisionOf(withIgnored) });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /无法证明此 HEAD/);
+  assert.equal(result.failures.length, 1);
+  assert.equal(result.failures[0].path, "vendor/dep.bin");
+  assert.match(result.failures[0].reason, /不在当前提交树中/);
+  assert.deepEqual(snapshotRepoState(repo), stateBefore, "绑定核对纯只读：不 stage、不 commit、不动工作树");
+  // ③ 已验 manifest 的字节与提交 blob 不一致（验证后又改了代码）→ 内容 SHA 不一致
+  fs.writeFileSync(path.join(repo, "pkg", "model.py"), "w = 2\n", "utf8");
+  result = await binding.bindPlanSourceToCommit({ runner: binding.runGitBinary, cwd: repo, headCommit: head,
+    executionSource: good, planFile, revision: revisionOf(good) });
+  assert.equal(result.ok, true, "工作树改动不影响“提交树=已验清单”的证明（dirty 注记由调用方按身份探针补）");
+  const staleManifest = manifestFor(repo, [planFile, "pkg/model.py"], { "pkg/model.py": "w = 3\n" });
+  result = await binding.bindPlanSourceToCommit({ runner: binding.runGitBinary, cwd: repo, headCommit: head,
+    executionSource: staleManifest, planFile, revision: revisionOf(staleManifest) });
+  assert.equal(result.ok, false);
+  assert.equal(result.failures[0].reason, "内容 SHA 与已验清单不一致");
+  // ④ 提交里删除 manifest 内文件 → 不在当前提交树
+  git(["rm", "-q", "-f", "pkg/model.py"], repo); // 工作树仍是 ③ 的未提交改动，必须 -f 才能移除
+  git(["-c", "user.email=test@example.invalid", "-c", "user.name=Branch Test", "commit", "-q", "-m", "drop model"], repo);
+  const head2 = git(["rev-parse", "HEAD"], repo).trim();
+  result = await binding.bindPlanSourceToCommit({ runner: binding.runGitBinary, cwd: repo, headCommit: head2,
+    executionSource: good, planFile, revision: revisionOf(good) });
+  assert.equal(result.ok, false);
+  assert.equal(result.failures[0].path, "pkg/model.py");
+  assert.match(result.failures[0].reason, /不在当前提交树中/);
+  // ⑤ dirty→clean：把新内容提交后，用“新字节”的 manifest 在新 HEAD 上仍成立（同 blob＝可复用，不重跑科研）
+  commitFile(repo, "pkg/model.py", "w = 2\n", "restore model new content");
+  const head3 = git(["rev-parse", "HEAD"], repo).trim();
+  const renewed = manifestFor(repo, [planFile, "pkg/model.py", "tracked.txt"]);
+  result = await binding.bindPlanSourceToCommit({ runner: binding.runGitBinary, cwd: repo, headCommit: head3,
+    executionSource: renewed, planFile, revision: revisionOf(renewed) });
+  assert.equal(result.ok, true, JSON.stringify(result.failures));
+  // ⑥ 不存在的提交/篡改摘要/revision 漂移/非法路径：全部失败关闭
+  result = await binding.bindPlanSourceToCommit({ runner: binding.runGitBinary, cwd: repo, headCommit: head3 + "00000000",
+    executionSource: renewed, planFile, revision: revisionOf(renewed) });
+  assert.equal(result.ok, false);
+  assert.match(result.failures[0].reason, /不存在或不可读/);
+  result = await binding.bindPlanSourceToCommit({ runner: binding.runGitBinary, cwd: repo, headCommit: head3,
+    executionSource: { ...renewed, digest: "0".repeat(64) }, planFile, revision: revisionOf(renewed) });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /摘要自校验失败/);
+  result = await binding.bindPlanSourceToCommit({ runner: binding.runGitBinary, cwd: repo, headCommit: head3,
+    executionSource: renewed, planFile, revision: "f".repeat(64) });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /revision 不一致/);
+  const badPath = manifestFor(repo, [planFile]);
+  badPath.manifest["../escape.py"] = { size: 1, sha256: "0".repeat(64) };
+  badPath.digest = scopeHost.planExecutionSourceDigest(badPath.manifest);
+  result = await binding.bindPlanSourceToCommit({ runner: binding.runGitBinary, cwd: repo, headCommit: head3,
+    executionSource: badPath, planFile, revision: revisionOf(badPath) });
+  assert.equal(result.ok, false);
+  assert.match(result.failures[0].reason, /相对路径规则/);
+});
+
+test("C3 假执行器：ls-tree 符号链接/缺路径与 cat-file 帧缺失/非 blob 均如实归类，绝不打印 blob 内容", async () => {
+  const sha = text => crypto.createHash("sha256").update(text).digest("hex");
+  const manifest = { "a.py": { size: 2, sha256: sha("x\n") },
+    "link.py": { size: 1, sha256: sha("l") },
+    "gone.py": { size: 1, sha256: sha("g") },
+    "sub/dir.py": { size: 1, sha256: sha("s") },
+    "treeish.py": { size: 1, sha256: sha("t") } };
+  const okOid = "1111111111111111111111111111111111111111";
+  const linkOid = "2222222222222222222222222222222222222222";
+  const goneOid = "3333333333333333333333333333333333333333";
+  const treeOid = "4444444444444444444444444444444444444444";
+  const listing = ["100644 blob " + okOid + "\ta.py", "120000 blob " + linkOid + "\tlink.py",
+    "100644 blob " + goneOid + "\tgone.py", "160000 commit " + treeOid + "\tsub",
+    "100644 blob " + treeOid + "\ttreeish.py"].join("\0") + "\0";
+  // cat-file --batch 帧按请求顺序返回（请求顺序＝manifest 键序过滤后的 a, gone, treeish）
+  const batch = Buffer.concat([
+    Buffer.from(okOid + " blob 2\n"), Buffer.from("x\n"), Buffer.from("\n"),
+    Buffer.from(goneOid + " missing\n"),
+    Buffer.from(treeOid + " tree 0\n\n"),
+  ]);
+  const requested = [];
+  const runner = async (args, _cwd, stdin) => {
+    if (args[0] === "rev-parse") return { code: 0, stdout: Buffer.from("tree\n"), stderr: "" };
+    if (args[0] === "ls-tree") return { code: 0, stdout: Buffer.from(listing, "utf8"), stderr: "" };
+    if (args[0] === "cat-file") { requested.push(String(stdin)); return { code: 0, stdout: batch, stderr: "" }; }
+    throw new Error("unexpected " + args.join(" "));
+  };
+  const result = await binding.verifyCommitTreeAgainstManifest({ runner, cwd: "/fixture", commit: "c".repeat(40), manifest });
+  assert.equal(result.ok, false);
+  assert.equal(result.coveredFiles, 1, "唯一逐字节一致的文件");
+  assert.equal(requested.length, 1, "≤300 个对象单批读取");
+  const byPath = new Map(result.failures.map(row => [row.path, row.reason]));
+  assert.match(byPath.get("link.py"), /符号链接/);
+  assert.match(byPath.get("gone.py"), /对象库中缺失/);
+  assert.match(byPath.get("treeish.py"), /不是 blob/);
+  assert.match(byPath.get("sub/dir.py"), /不在当前提交树中/);
+  const serialized = JSON.stringify(result);
+  assert.ok(!serialized.includes(JSON.stringify("x\n")), "失败信息不得携带 blob 内容");
+  // 截断帧：声明大小但字节不足 → 全部剩余帧按未知处理，不得判为一致
+  const truncRunner = async (args) => {
+    if (args[0] === "rev-parse") return { code: 0, stdout: Buffer.from("t\n"), stderr: "" };
+    if (args[0] === "ls-tree") return { code: 0, stdout: Buffer.from("100644 blob " + okOid + "\ta.py\0", "utf8"), stderr: "" };
+    return { code: 0, stdout: Buffer.from(okOid + " blob 9\nx\n"), stderr: "" };
+  };
+  const truncated = await binding.verifyCommitTreeAgainstManifest({ runner: truncRunner, cwd: "/fixture", commit: "c".repeat(40), manifest: { "a.py": manifest["a.py"] } });
+  assert.equal(truncated.ok, false);
+  assert.match(truncated.failures[0].reason, /帧解析失败/);
 });

@@ -163,6 +163,7 @@ const { LocalApiError, LocalApiServer: LocalApiServerClass, confirmationRequired
 import { BranchProjectStore, canonicalComparablePath, sameComparablePath as sameComparablePathProbe } from "../project/BranchProjectStore";
 import { BranchProjectService } from "../project/BranchProjectService";
 import * as BranchPlanDispatch from "../project/BranchPlanDispatch";
+import * as BranchHeadBinding from "../project/BranchHeadBinding";
 import * as UnifiedDispatchAdmission from "../project/UnifiedDispatchAdmission";
 import { readGitIdentity as readGitIdentityProbe } from "../project/GitIdentityProbe";
 import { listPluginInstances, preflightPluginAt } from "../cli/LocalApiClient";
@@ -632,7 +633,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
     "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject", "refreshUnifiedDispatchPolicy",
-    "submitBranchPlanRun", "refreshBranchRuns",
+    "submitBranchPlanRun", "refreshBranchRuns", "compareBranchResults", "verifyBranchHeadBinding",
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
@@ -675,7 +676,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "downloadDebugBundle", "downloadRemoteResult", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "openAuditTail", "selectPlan", "selectExperiment",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
     "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject", "refreshUnifiedDispatchPolicy",
-    "submitBranchPlanRun", "refreshBranchRuns",
+    "submitBranchPlanRun", "refreshBranchRuns", "compareBranchResults", "verifyBranchHeadBinding",
 ]);
 const UI_BUTTON_PAYLOAD_KEYS = new Set([
     "branchProjectId",
@@ -1442,7 +1443,8 @@ export class RealtimeTunnelPanelProvider {
     branchProjectsProjectionWithUnified() {
         const projection = this.branchProjectsProjection();
         if (!projection || typeof projection !== "object") return projection;
-        return Object.assign({}, projection, { unified: this.branchProjectsUnifiedCache || { active: false }, runs: this.branchRunsState || null });
+        return Object.assign({}, projection, { unified: this.branchProjectsUnifiedCache || { active: false }, runs: this.branchRunsState || null,
+            results: this.branchResultsState || null, headVerify: this.branchHeadVerifyState || null });
     }
     /**
      * 块B UI 投影（批准方案§7）：同一逻辑队列按来源分支可见；实例活性只认真实握手，
@@ -2014,6 +2016,127 @@ export class RealtimeTunnelPanelProvider {
     async refreshBranchRunsFromUi() {
         const state = await this.refreshBranchRuns("ui");
         if (!state.roots.length) void vscode.window.showInformationMessage("尚未登记任何项目，没有运行状态可刷新。");
+    }
+    /* —— 块C3：结果对比（本机队列磁盘窄读）＋ 用户选优后的精确 HEAD↔manifest 绑定核对（纯只读） —— */
+    /** 只读队列磁盘投影：与统一准入的成员直读同一渠道；缺失=诚实空，损坏如实。 */
+    async branchQueueSnapshotFor(root) {
+        const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
+        try {
+            const text = await fs.readFile(file, "utf8").catch((error) => { if (error?.code === "ENOENT") return ""; throw error; });
+            if (!text.trim()) return { state: "missing", queue: DistributedPlanQueue.emptyDistributedQueue() };
+            const queue = DistributedPlanQueue.restoreFormalJobQueue(JSON.parse(text));
+            if (queue.schemaVersion !== 1 || !Array.isArray(queue.plans)) throw new Error("队列格式无效");
+            return { state: "ok", queue };
+        } catch (error) { return { state: "corrupt", queue: undefined, error: errorMessage(error).slice(0, 240) }; }
+    }
+    /** 选优的事实基础：逐登记根从磁盘队列汇总确证完成/待核实/等待与运行溯源；不判科学优劣、不新造排行。 */
+    async compareBranchResults(reason) {
+        const state = { refreshedAt: new Date().toISOString(), reason: String(reason || ""), roots: [] };
+        let rootsList = [];
+        try {
+            const inventory = this.branchProjectService().registryInventory();
+            const byKey = new Map();
+            for (const row of [...(inventory.ancestors || []), ...(inventory.branches || [])]) byKey.set(canonicalComparablePath(row), row);
+            rootsList = [...byKey.values()];
+        } catch (error) {
+            state.error = `登记表不可读：${errorMessage(error)}`;
+            this.branchResultsState = state;
+            this.postState();
+            return state;
+        }
+        for (const root of rootsList) {
+            const item = { root, label: path.basename(String(root).replace(/[\\/]+$/, "")), queueState: "missing", plans: [] };
+            const snapshot = await this.branchQueueSnapshotFor(root);
+            item.queueState = snapshot.state;
+            if (snapshot.error) item.error = snapshot.error;
+            for (const plan of snapshot.queue?.plans || []) {
+                const counts = { jobs: plan.jobs.length, verified: 0, running: 0, waiting: 0, unknown: 0, failed: 0, cancelled: 0 };
+                for (const job of plan.jobs) {
+                    if (hasVerifiedCompletion(plan, job)) counts.verified++;
+                    if (["queued", "running", "dispatching"].includes(String(job.status || ""))) counts.running++;
+                    else if (job.status === "pending") counts.waiting++;
+                    else if (job.status === "unknown") counts.unknown++;
+                    else if (job.status === "failed") counts.failed++;
+                    else if (job.status === "cancelled") counts.cancelled++;
+                }
+                item.plans.push({
+                    planId: plan.id, planFile: plan.planFile, revision: String(plan.revision || "").slice(0, 24),
+                    hasExecutionSource: Boolean(plan.executionSource?.manifest && Object.keys(plan.executionSource.manifest).length),
+                    gitProvenance: plan.gitProvenance ? {
+                        branch: String(plan.gitProvenance.branch || ""), localCommit: String(plan.gitProvenance.localCommit || ""),
+                        githubCommit: plan.gitProvenance.githubCommit || "", dirty: plan.gitProvenance.dirty ?? null,
+                        recordedAt: String(plan.gitProvenance.recordedAt || ""),
+                    } : undefined,
+                    ...counts,
+                });
+            }
+            state.roots.push(item);
+        }
+        this.branchResultsState = state;
+        this.postState();
+        return state;
+    }
+    async compareBranchResultsFromUi() {
+        const state = await this.compareBranchResults("ui");
+        if (!state.roots.length) void vscode.window.showInformationMessage("尚未登记任何项目，没有可比对的结果。");
+    }
+    /** 用户选优的“核对”：当前提交树必须逐文件（类型/大小/blob 字节 SHA）等于已验清单；只读，绝不 stage/commit。 */
+    async verifyBranchHeadBindingFromUi(message) {
+        const root = this.assertBranchDispatchRoot(stringField(message, "branchRoot"));
+        const labelName = path.basename(String(root).replace(/[\\/]+$/, ""));
+        const snapshot = await this.branchQueueSnapshotFor(root);
+        if (snapshot.state === "corrupt") throw new Error(`该分支队列不可读/已损坏：${snapshot.error}；未做核对。`);
+        const candidates = (snapshot.queue?.plans || []).filter((plan) => plan.executionSource?.manifest && Object.keys(plan.executionSource.manifest).length);
+        if (!candidates.length) {
+            await vscode.window.showWarningMessage(`该分支队列内没有带已验源码清单（executionSource）的 PLAN，无法证明任何 HEAD。`,
+                { modal: true, detail: `项目：${root}\n请先在该分支窗口经 workflow 入口完成 PLAN 源码核实（静态校验不产生已验清单）。` }, "知道了");
+            return;
+        }
+        const picked = candidates.length === 1 ? candidates[0] : await vscode.window.showQuickPick(candidates.map((plan) => ({
+            label: plan.planFile,
+            description: [plan.gitProvenance?.branch ? "分支 " + plan.gitProvenance.branch : "",
+                plan.gitProvenance?.localCommit ? "运行自 " + String(plan.gitProvenance.localCommit).slice(0, 8) : "无运行溯源记录",
+                `${Object.keys(plan.executionSource.manifest).length} 个已验文件`].filter(Boolean).join(" · "),
+            plan,
+        })), { title: `选择要核对 HEAD 绑定的 PLAN（${labelName}）`, placeHolder: "只读核对：当前提交树 vs 已验清单；不会 stage、commit 或改动任何文件", ignoreFocusOut: true });
+        if (!picked) throw new UiCommandCancelled("已取消 HEAD 核对。");
+        const plan = picked.plan || picked;
+        const identity = readGitIdentityProbe(root);
+        if (identity.error || !identity.headCommit || !identity.toplevel || canonicalComparablePath(identity.toplevel) !== canonicalComparablePath(root))
+            throw new Error(`Git 身份读取失败或与登记根不一致（${identity.error || "无 HEAD"}）；未做绑定结论。`);
+        const binding = await BranchHeadBinding.bindPlanSourceToCommit({
+            runner: BranchHeadBinding.runGitBinary, cwd: identity.toplevel, headCommit: identity.headCommit,
+            executionSource: plan.executionSource, planFile: plan.planFile, revision: plan.revision,
+        });
+        const provenanceCommit = String(plan.gitProvenance?.localCommit || "");
+        const sameCommit = !provenanceCommit || provenanceCommit.toLowerCase() === identity.headCommit.toLowerCase();
+        this.branchHeadVerifyState = {
+            root, planId: plan.id, planFile: plan.planFile, checkedAt: new Date().toISOString(),
+            ok: binding.ok, headCommit: identity.headCommit, branch: identity.branch, dirty: identity.dirty,
+            provenanceCommit, sameRunCommit: sameCommit, coveredFiles: binding.coveredFiles, coveredBytes: binding.coveredBytes,
+            failures: binding.failures.slice(0, 10), reason: binding.reason || "", note: binding.note,
+        };
+        this.postState();
+        const headShort = identity.headCommit.slice(0, 10);
+        const detailLines = [
+            `项目：${root}`, `PLAN：${plan.planFile}`,
+            `当前 HEAD：${identity.detached ? "(detached) " : ""}${identity.branch || "?"} @ ${headShort}${identity.dirty ? "（工作区有未提交修改）" : "（工作树干净）"}`,
+            provenanceCommit ? `队列运行溯源：${provenanceCommit.slice(0, 10)}${sameCommit ? "（同一提交）" : "（与当前 HEAD 不同）"}` : "队列内无运行溯源记录（旧条目）：只能证明提交树与已验清单一致。",
+            "",
+        ];
+        if (binding.ok) {
+            detailLines.push(`✔ 当前提交树的 ${binding.coveredFiles} 个文件与已验清单逐一一致（blob 原始字节 SHA 比较，共约 ${(binding.coveredBytes / 1024).toFixed(0)} KiB）。`);
+            if (!sameCommit) detailLines.push(`已提交内容与验证时字节一致：运行来自 ${provenanceCommit.slice(0, 10)}，现 HEAD ${headShort}——按契约验证可复用，不需要重跑科研；这不是重新验证，只是绑定证明。`);
+            if (identity.dirty) detailLines.push("注意：工作区存在未提交修改——已提交内容可证明，但工作树当前文件不等于该 HEAD；如需以工作树状态运行请先自行处理。");
+            detailLines.push("", binding.note);
+            await vscode.window.showInformationMessage(`此 HEAD 可由已验清单证明（${plan.planFile}）`, { modal: true, detail: detailLines.join("\n") }, "知道了");
+        } else {
+            for (const failure of binding.failures.slice(0, 8)) detailLines.push(`✘ ${failure.path}：${failure.reason}`);
+            if (binding.failures.length > 8) detailLines.push(`… 其余 ${binding.failures.length - 8} 项略`);
+            detailLines.push("", binding.reason, binding.note, "系统不会代为 stage/commit 来“凑证明”；如需绑定请先在该项目内按常规流程提交所需依赖。");
+            await vscode.window.showWarningMessage(`无法证明此 HEAD 等于已验源码（${plan.planFile}）`, { modal: true, detail: detailLines.join("\n") }, "知道了");
+        }
+        return this.branchHeadVerifyState;
     }
     createLocalApiMethods() {
         return {
@@ -6488,6 +6611,12 @@ return this.testTunnel(true);
                 break;
             case "submitBranchPlanRun":
                 await this.submitBranchPlanRunFromUi(message);
+                break;
+            case "compareBranchResults":
+                await this.compareBranchResultsFromUi();
+                break;
+            case "verifyBranchHeadBinding":
+                await this.verifyBranchHeadBindingFromUi(message);
                 break;
             case "refreshBranchRuns":
                 await this.refreshBranchRunsFromUi();

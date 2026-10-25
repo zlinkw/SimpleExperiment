@@ -1434,6 +1434,7 @@ export function renderPanelHtml(): string {
               <button type="button" data-command="refreshBranchProjects" class="secondary" title="重新读取所有登记的真实 Git 状态（只读）">刷新状态</button>
               <button type="button" data-command="refreshUnifiedDispatchPolicy" class="secondary" title="把当前用户配额设置保存为统一派发策略快照，并登记本机 Worker 别名（不修改任何项目文件）&#10;所有纳入管理的分支共用这一份策略做统一派发判定">刷新统一策略</button>
               <button type="button" data-command="refreshBranchRuns" class="secondary" title="逐个已登记项目做真实实例握手并拉取其最近操作记录（只读）">刷新运行状态</button>
+              <button type="button" data-command="compareBranchResults" class="secondary" title="读本机各登记项目的队列磁盘投影，对比已确证完成数与运行溯源（只读；不替用户做科研优劣判断）">结果对比与选优</button>
             </div>
           </div>
           <div id="branchProjectsList" data-anchor="branch-projects"></div>
@@ -3313,7 +3314,7 @@ export function renderPanelHtml(): string {
       "publishGithub", "syncGithub", "overwriteGithub",  "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "refreshLocalResults", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
       "selectPlan", "selectExperiment",
       "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject", "refreshUnifiedDispatchPolicy",
-      "submitBranchPlanRun", "refreshBranchRuns",
+      "submitBranchPlanRun", "refreshBranchRuns", "compareBranchResults", "verifyBranchHeadBinding",
       "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow", "clearTmuxTaskTabs",
       ...Object.keys(uiCapabilityMap)
     ]);
@@ -4738,6 +4739,44 @@ export function renderPanelHtml(): string {
         }
         if (runs.refreshedAt) rParts.push('<div class="muted" style="font-size:11px;">刷新时间：' + esc(String(runs.refreshedAt)) + '</div>');
         parts.push('<div class="branchProjectsRuns" style="margin-top:6px;border-top:1px dashed var(--border);padding-top:4px;">' + rParts.join("") + '</div>');
+      }
+      const results = projection.results;
+      if (results && typeof results === "object") {
+        const resParts = ['<div class="muted" style="margin:6px 0 2px;font-size:11px;">结果对比（读本机各项目队列磁盘投影；“已确证”=身份绑定的完成证明，不等于科研结论通过；优劣由用户判断）</div>'];
+        if (results.error) resParts.push('<div class="status-warn" style="font-size:11px;">' + esc(String(results.error).slice(0, 300)) + '</div>');
+        if (!asArray(results.roots).length) resParts.push('<div class="muted" style="font-size:11px;">尚无已登记项目。</div>');
+        for (const row of asArray(results.roots)) {
+          resParts.push('<div style="font-size:11px;margin:2px 0 2px 16px;word-break:break-all;"><b>' + esc(String(row.label || "")) + '</b>' +
+            (row.queueState === "corrupt" ? chip("队列读取失败") : row.queueState === "missing" ? chip("队列为空") : "") +
+            (row.error ? ' <span class="status-warn">' + esc(String(row.error).slice(0, 200)) + '</span>' : '') + '</div>');
+          if (!asArray(row.plans).length && row.queueState === "ok") resParts.push('<div class="muted" style="font-size:11px;margin-left:24px;">队列内暂无 PLAN。</div>');
+          for (const plan of asArray(row.plans)) {
+            const gp = plan.gitProvenance;
+            resParts.push('<div class="muted" style="font-size:11px;margin-left:24px;word-break:break-all;">' + esc(String(plan.planFile || "").slice(0, 120)) +
+              ' · 已确证 ' + esc(String(plan.verified ?? "?")) + '/' + esc(String(plan.jobs ?? "?")) +
+              ' · 运行 ' + esc(String(plan.running ?? "?")) + ' · 未知 ' + esc(String(plan.unknown ?? "?")) + ' · 等待 ' + esc(String(plan.waiting ?? "?")) +
+              (Number(plan.failed) ? ' · 失败 ' + esc(String(plan.failed)) : '') + (Number(plan.cancelled) ? ' · 中止 ' + esc(String(plan.cancelled)) : '') +
+              (gp ? ' · 来源 ' + esc(String(gp.branch || "?")) + '@' + esc(String(gp.localCommit || "").slice(0, 8)) +
+                (gp.dirty === true ? '（当时有未提交修改）' : gp.dirty === null ? '（当时脏状态未知）' : '') : ' · 无运行溯源') +
+              (plan.hasExecutionSource ?
+                ' <button class="mini secondary" type="button" data-command="verifyBranchHeadBinding" data-branch-root="' + escAttr(String(row.root || "")) + '" title="只读核对：当前提交树逐文件（类型/大小/blob 字节 SHA）对比已验源码清单；不 stage、不 commit">核对HEAD</button>'
+                : ' · 无已验清单') + '</div>');
+          }
+        }
+        if (results.refreshedAt) resParts.push('<div class="muted" style="font-size:11px;">刷新时间：' + esc(String(results.refreshedAt)) + '</div>');
+        parts.push('<div class="branchProjectsResults" style="margin-top:6px;border-top:1px dashed var(--border);padding-top:4px;">' + resParts.join("") + '</div>');
+      }
+      const headVerify = projection.headVerify;
+      if (headVerify && typeof headVerify === "object") {
+        const hvOk = headVerify.ok === true;
+        parts.push('<div class="' + (hvOk ? 'muted' : 'status-warn') + '" style="margin-top:4px;font-size:11px;word-break:break-all;">HEAD 核对 ' +
+          esc(String(headVerify.planFile || "").slice(0, 90)) + '：' +
+          (hvOk ? chip("提交树与已验清单一致") + ' 覆盖 ' + esc(String(headVerify.coveredFiles ?? "?")) + ' 个文件' +
+            (headVerify.sameRunCommit ? '（与原运行同一提交）' : headVerify.provenanceCommit ? '（原运行 ' + esc(String(headVerify.provenanceCommit).slice(0, 8)) + ' → 现 ' + esc(String(headVerify.headCommit || "").slice(0, 8)) + '，已提交内容一致，可复用不重跑）' : '（无运行溯源可比对）')
+            : chip("无法证明此 HEAD") + ' ' + esc(String(headVerify.reason || "").slice(0, 200))) +
+          (headVerify.dirty ? chip("工作区有未提交修改") : '') + ' · ' + esc(String(headVerify.checkedAt || "")) + '</div>');
+        for (const failure of asArray(headVerify.failures).slice(0, 3))
+          parts.push('<div class="status-warn" style="font-size:11px;word-break:break-all;">✘ ' + esc(String(failure.path || "").slice(0, 120)) + '：' + esc(String(failure.reason || "").slice(0, 160)) + '</div>');
       }
       setHtmlIfChanged(target, parts.join(""));
     }
