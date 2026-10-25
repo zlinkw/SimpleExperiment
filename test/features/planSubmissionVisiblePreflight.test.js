@@ -599,6 +599,7 @@ test("missing explicit historical-output choice cannot skip every job or close a
   `)(() => root, (body) => body.planFile, () => "new-plan", DistributedPlanQueue,
     { window: { showInformationMessage: () => Promise.resolve() } }, (error) => String(error));
   const previous = { id: "deferred-drf", planFile: drf, revision: "rev-drf", codeFingerprint: "new-code", status: "blocked", confirmedOutputChoice: false };
+  // 块C：真实 enqueue 含队列窄溯源收敛（纯法身注入，无副作用）。
   const host = {
     distributedQueueTickPromise: undefined,
     lastCodeSyncState: { fingerprint: "new-code" },
@@ -607,6 +608,7 @@ test("missing explicit historical-output choice cannot skip every job or close a
     async loadDistributedQueue() { return this.queue; },
     async saveDistributedQueue(_root, next) { this.queue = next; },
     postState() {},
+    ...new Function(`return { ${method("queueGitProvenance")}, ${method("stripGitUrlCredentials")} };`)(),
   };
   await assert.rejects(() => enqueue.call(host, { planFile: drf, planRevision: "rev-drf", existingOutputCount: 1, distributedSkipJobIndices: [0], options: {} },
     validation(), false, previous.id), /历史产物处理方式未确认/);

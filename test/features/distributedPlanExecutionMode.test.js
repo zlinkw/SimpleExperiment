@@ -50,6 +50,9 @@ function host(queue = Queue.emptyDistributedQueue()) {
     client: { postWorkerAction: async (_, __, request) => {owner.sent.push(request);return request;} },
   };
   owner.commitIsolatedEnqueueLocal = method('async commitIsolatedEnqueueLocal(', 'async promoteIsolatedDispatchLocal(').commitIsolatedEnqueueLocal;
+  // 块C：真实 enqueue 落盘窄溯源；纯法身提取（同 commitIsolatedEnqueueLocal 口径），无副作用。
+  Object.assign(owner, method('stripGitUrlCredentials(', 'async confirmPlanBatchRunSubmission('));
+  owner.unifiedDomainState = () => ({ active: false, blocked: "" }); // 块B：夹具根未登记 → 既有单机发送路径
   return owner;
 }
 for (const mode of ['train', 'test', 'train_test']) test('validated mode survives persistence, native dispatch and reviewed requeue: ' + mode, async () => {

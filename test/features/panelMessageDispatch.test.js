@@ -103,6 +103,7 @@ function createHost(overrides = {}) {
     performance: [],
     interests: [],
     lifecycleFailures: [],
+    branchProjects: [],
   };
   const host = {
     view: { webview: { postMessage(payload) { calls.statuses.push(payload); return Promise.resolve(true); } } },
@@ -153,6 +154,9 @@ function createHost(overrides = {}) {
     recordPanelLifecycleDiagnostic(reason) { calls.lifecycleFailures.push(reason); },
     recordPanelIncident() {},
     refreshPptAutomationReadiness() { return Promise.resolve(); },
+    // 块A新增依赖：webviewReady 握手后真实 host 会调度“项目与分支”只读校验（内部自判域是否激活）。
+    // harness 记录调用原因；握手调用断言在 webviewReady 用例中，生产调用保持无条件、不吞异常。
+    scheduleBranchProjectsVerify(reason) { calls.branchProjects.push(String(reason)); },
     recordActionError(error) { calls.errors.push(error); },
     showPanelRecovery(message) { calls.recovery = message; },
     reloadPanelHtml() { calls.reloads += 1; },
@@ -192,6 +196,7 @@ test("webviewReady without clientActionId completes the real handshake", async (
   assert.deepEqual(host.calls.states, [true]);
   assert.deepEqual(host.calls.lease, []);
   assert.deepEqual(host.calls.statuses, []);
+  assert.deepEqual(host.calls.branchProjects, ["webview-ready"], "握手完成后必须调度一次项目与分支只读校验");
 });
 
 test("webviewVisibility without clientActionId reaches the generation-scoped host handler", async () => {

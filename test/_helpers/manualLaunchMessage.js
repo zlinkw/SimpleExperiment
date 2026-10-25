@@ -8,6 +8,8 @@ module.exports=async function launchMessages(memory,workerOverride={}){
   workspaceRoot:()=>root,PlanExecutionMode:require('../../dist/features/PlanExecutionMode'),DistributedSchedulingPolicy:require('../../dist/features/DistributedSchedulingPolicy'),
   GpuQuotaScheduling:require('../../dist/features/GpuQuotaScheduling'),GpuMemoryScheduling:require('../../dist/features/GpuMemoryScheduling'),PlanCodeScopeHost:require('../../dist/extension/PlanCodeScopeHost'),vscode:{workspace:{getConfiguration:()=>({get:()=>undefined})}},AgentTmuxPolicy_1:require('../../dist/tunnel/AgentTmuxPolicy')});
  const p=new Provider(),messages=[];Object.assign(p,{distributedQueueGeneration:0,distributedPlanStopEpoch:0,setupConfig:{sessionPrefix:'My-Tasks',remoteTmuxSessionPrefix:'obsolete'},
+  // 块B发送守卫：夹具根不在统一登记域（登记表空）→ active:false，即既有单机发送路径。
+  unifiedDomainState:()=>({active:false,blocked:""}),
   client:{postWorkerAction:async(_worker,action,body)=>messages.push({...JSON.parse(JSON.stringify(body)),action})},
   enabledWorkerConfigs:()=>[{id:'worker',maxConcurrentGpus:1,...workerOverride}],workerActionTargets:()=>[{id:'worker',condaEnv:'/fixture/env'}],schedulerSettings:()=>memory||{},
   lastWorkerProbes:{worker:{capabilities:{endpoints:{gpuQuotaScheduling:1,gpuCardQuotaScheduling:1,gpuCardLimitScheduling:1,gpuMemoryRatioScheduling:memory?1:undefined,declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,projectManagedValidation:1},actionEndpoints:{'register-code-sync-proof':true}}}},

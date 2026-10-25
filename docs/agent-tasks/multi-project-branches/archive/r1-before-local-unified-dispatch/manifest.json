@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "revision": "r1-before-local-unified-dispatch",
+  "createdAt": "2026-10-25T06:19:26.058828+00:00",
+  "files": [
+    {
+      "path": "evidence.md",
+      "bytes": 1929,
+      "sha256": "c313440b658809ca605dbce7f6256e2d2d1bbac3490393abde322ebcff8ed732"
+    },
+    {
+      "path": "plan.md",
+      "bytes": 3800,
+      "sha256": "8d22e2fcc5953a31ec77ca236b6243e8ec08a411da60395f4935b4143d17d907"
+    }
+  ],
+  "currentDocumentsChanged": false,
+  "semanticCompletionVerified": false
+}

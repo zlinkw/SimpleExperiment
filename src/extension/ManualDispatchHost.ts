@@ -14,7 +14,7 @@ export class ManualDispatchHost {
       [w.id,w.host,w.port,w.user,w.project_dir,w.local_agent_url,w.agent_runtime_dir,w.conda_env])]);
     const targetKey=targets();
     return {
-      load:()=>h.loadDistributedQueue(this.root), save:async q=>{await h.saveDistributedQueue(this.root,q);h.postState();},
+      load:()=>h.loadDistributedQueue(this.root), save:async(q,options)=>{const receipt=await h.saveDistributedQueue(this.root,q,options||{});h.postState();return receipt;},
       assertCurrent:()=>{if(targets()!==targetKey||vscode.workspace.workspaceFolders?.[0]?.uri.fsPath!==this.root||h.distributedPlanStopEpoch!==stopEpoch)throw Error("项目、连接或停止请求已变化，未继续派发。");},
       online:id=>h.enabledWorkerConfigs().some((w:any)=>w.id===id)&&h.lastWorkerProbes?.[id]?.status==="ok",
       supports:id=>h.lastWorkerProbes?.[id]?.capabilities?.endpoints?.manualDispatch===1,
@@ -72,7 +72,7 @@ export class ManualDispatchHost {
       const rows=Array.isArray(snapshot[workerId])?snapshot[workerId]:[];
       const tasks=h.lastWorkerTaskSnapshots?.get(this.root+"\u0000"+workerId)?.tasks||[];
       const picked=await vscode.window.showQuickPick<any>(rows.map((r:any)=>({label:"GPU "+String(r.index??r.gpu_id??r.gpuId??r.id),id:String(r.index??r.gpu_id??r.gpuId??r.id),
-        description:String(r.name||"")+" · 显存 "+String(r.memoryUsedMb??r.memoryUsed??r.memory_used_mb??"?")+"/"+String(r.memoryTotalMb??r.memoryTotal??r.memory_total_mb??"?")+" MB · 利用率 "+String(r.utilizationPercent??r.utilization??r.utilization_gpu??"?")+"% · 任务 "+tasks.filter((t:any)=>!['completed','failed','cancelled'].includes(t.status)&&String(t.gpuId??t.observation?.tmux?.gpuId??"")===String(r.index??r.gpu_id??r.gpuId??r.id)).length})),{title:"选择 GPU（忙卡可用，允许多个 job 同时运行）",ignoreFocusOut:true});
+        description:String(r.name||"")+" · 显存 "+String(r.memoryUsedMb??r.memoryUsed??r.memory_used_mb??"?")+"/"+String(r.memoryTotalMb??r.memoryTotal??r.memory_total_mb??"?")+" MB · 利用率 "+String(r.utilizationPercent??r.utilization??r.utilization_gpu??"?")+"% · 任务 "+tasks.filter((t:any)=>!['completed','failed','cancelled'].includes(t.status)&&String(t.gpuId??t.observation?.tmux?.gpuId??"")===String(r.index??r.gpu_id??r.gpuId??r.id)).length})),{title:"选择 GPU（忙卡可选；纳入管理的分支会在统一派发队列中等配额，不会无限绕过）",ignoreFocusOut:true});
       if(!picked)return {status:"cancelled"};gpuId=picked.id;
     }
     return await dispatchManualJobs(this.ports(),{workflowId,indices,workerId,gpuId,expectedCommands:params.expectedCommands,stopRunning:fromUi||params.stopRunning===true} as ManualDispatchRequest);
