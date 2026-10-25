@@ -38,7 +38,7 @@ test("latest Worker merge uses distributed publication source for a conflicting 
   const statuses = buildScopeStatuses(inventory, "server-server", ["."], new Set(),
     { schemaVersion: 2, entries: {} }, new Set(), {}, { [file]: "w3" });
   assert.deepEqual(planLatestWorkerMerge(statuses, ["w2", "w3", "w5"]), {
-    items: [{ path: file, sourceId: "w3", destinationIds: ["w2", "w5"] }], skipped: [],
+    items: [{ path: file, sourceId: "w3", destinationIds: ["w2", "w5"] }], skipped: [], skippedPaths: [],
   });
 });
 test('a freshly verified completed job supersedes an obsolete chosen hash without bypassing real unreadable files',()=>{

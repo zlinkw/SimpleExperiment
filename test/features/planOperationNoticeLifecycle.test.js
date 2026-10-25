@@ -181,3 +181,165 @@ test('more than eight buffered stages roll: the newest stages and the terminal l
   assert.ok(replayed.includes('阶段 12') && replayed.includes('阶段 6'), 'the newest window of stages survives');
   assert.ok(!replayed.includes('阶段 1') && !replayed.includes('阶段 5'), 'older rolled stages rely on the full log channel instead');
 });
+
+// r4 (task ui-plan-gpu-progress-20261024 返修): the four artifact-sync commands bypass
+// runActionCommand (handleMessageCore → withManualResultSync → artifactSyncFromUi), so
+// their Notification must open/close inside the real withUiCommandStatus funnel. These
+// cases drive that extracted method and assert one notification per operation, the real
+// result-based tone (partial/failed/cancelled/remote-pending never claim success), full
+// logging, and no dangling session on any exit.
+function functionSource(name) {
+  const start = source.indexOf('function ' + name + '(');
+  assert.ok(start >= 0, name);
+  let depth = 0;
+  for (let index = source.indexOf('{', start); index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] === '}') depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error('unterminated function ' + name);
+}
+function funnelFixture() {
+  const progressEntries = [], notices = [], warnings = [], errors = [], logLines = [], posts = [], launches = [];
+  const vscode = {
+    ProgressLocation: { Notification: 15 },
+    window: {
+      withProgress(options, callback) {
+        const entry = { options, callback, reports: [], started: false };
+        entry.promise = new Promise((resolve, reject) => { entry.resolve = resolve; entry.reject = reject; });
+        entry.run = async () => { entry.started = true; await callback({ report: (value) => entry.reports.push(value.message) }); entry.resolve(); };
+        progressEntries.push(entry);
+        return entry.promise;
+      },
+      showInformationMessage: async (...args) => { notices.push(args); },
+      showWarningMessage: async (...args) => { warnings.push(args); },
+      showErrorMessage: async (...args) => { errors.push(args); },
+      createOutputChannel: (name) => ({ name, appendLine: (line) => logLines.push(line), show() {}, dispose() {} }),
+    },
+  };
+  const sandbox = {
+    vscode, console, setTimeout,
+    stringField: (record, key) => String((record && record[key]) || ''),
+    // Keep this map aligned with OPERATION_NOTICE_TITLES in the source; the source
+    // registration itself is asserted below, the runtime title proves the wiring.
+    OPERATION_NOTICE_TITLES: {
+      runPlan: '运行 Plan', reproducePlan: '复现 Plan', validatePlan: '校验 Plan（实验准备）',
+      dryRunPlan: '预演 Plan（实验准备）', runAllPlans: '批量运行 PLAN',
+      retryJobArtifactSync: '重试产物同步', refreshJobArtifacts: '刷新产物状态',
+      syncPendingPlanArtifacts: '同步待同步产物', syncAllResultArtifacts: '同步全部结果文件',
+    },
+    OPERATION_NOTICE_COMMANDS: new Set(['runPlan', 'reproducePlan', 'validatePlan', 'dryRunPlan']),
+    PLAN_SUBMISSION_COMMANDS: new Set(['runPlan', 'reproducePlan']),
+    localCommandReleasesAfterTrigger: () => false,
+    resultSyncCommandOutcome: null, formatResultSyncReport: null,
+    OperationOutcome_1: { operationOutcomeFor: () => ({}) },
+    isUiCommandRemotePending: (error) => Boolean(error && error.__remotePending),
+    isUiCommandCancelled: (error) => Boolean(error && error.__cancelled),
+    errorMessage: (error) => String((error && error.message) || error),
+    hostOperationLeaseActionLabel: (command) => command,
+    actionErrorSuggestion: () => '',
+    compactSensitiveText: (text) => String(text),
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(functionSource('resultSyncCommandOutcome') + '\n' + functionSource('formatResultSyncReport'), sandbox);
+  vm.runInContext(`this.methods = { ${[
+    method('async withUiCommandStatus(clientActionId', 'uiCommandWatchdogMs(command)'),
+    method('postUiCommandStatus(clientActionId', 'notifyLocalActionStarted('),
+    method('operationNoticeKey(message)', 'ensureOperationLogChannel('),
+    method('ensureOperationLogChannel()', 'logOperationFact('),
+    method('logOperationFact(text)', 'showOperationLogFromUi('),
+    method('showOperationLogFromUi()', 'beginOperationProgressNotice('),
+    method('beginOperationProgressNotice(command, message)', 'reportOperationNotice(key, text)'),
+    method('reportOperationNotice(key, text)', 'finishOperationProgressNotice(key, tone, text)'),
+    method('finishOperationProgressNotice(key, tone, text)', 'submissionNoticeTone(message, result)'),
+  ].join(',')} };`, sandbox);
+  const host = { ...sandbox.methods, operationNoticeSessions: new Map(), context: { subscriptions: [] },
+    localOperations: {}, planSubmissionOperationId: () => '', view: { webview: { postMessage: (row) => posts.push(row) } },
+    beginSimpleSftpCapabilityLaunch() { if (host.throwOnLaunch) throw new Error('能力读取异常'); launches.push(1); },
+    finishPlanSubmissionProgress() {}, recordActionError() {}, postState() {} };
+  return { host, progressEntries, notices, warnings, errors, logLines, posts, launches };
+}
+
+test('the four artifact-sync commands open exactly one notification through the real funnel with their titles', async () => {
+  const cases = [
+    ['retryJobArtifactSync', '重试产物同步', { status: 'completed', message: '产物增量同步：3 个 job 已一致，0 个不在勾选范围，0 个未完成。' }],
+    ['refreshJobArtifacts', '刷新产物状态', { status: 'completed', message: '产物状态核对：5 个 job 已一致。' }],
+    ['syncPendingPlanArtifacts', '同步待同步产物', { included: ['plans/a.yaml'], skipped: [], missing: [], pending: [], previews: [] }],
+    ['syncAllResultArtifacts', '同步全部结果文件', { status: 'completed', message: '结果文件同步完成：4/4，跳过已有 1 个。' }],
+  ];
+  for (const [command, title, value] of cases) {
+    const f = funnelFixture();
+    await f.host.withUiCommandStatus('ca-' + command, command, { clientActionId: 'ca-' + command }, async () => value);
+    assert.equal(f.progressEntries.length, 1, command + ': exactly one notification per operation');
+    assert.equal(f.progressEntries[0].options.title, title, command + ': Chinese title registered for the notification');
+    await f.progressEntries[0].run();
+    await f.progressEntries[0].promise;
+    assert.ok(f.notices.some((args) => String(args[0]).includes(title)), command + ': success prompt carries the real title');
+    assert.equal(f.warnings.length, 0, command + ': a verified sync must not warn');
+    assert.equal(f.host.operationNoticeSessions.size, 0, command + ': no dangling session');
+    assert.ok(f.logLines.some((line) => line.includes(`[ca-${command}] ${command} running：正在执行...（按钮已转圈）`)),
+      command + ': the in-flight line lands in the full operation log');
+    assert.ok(f.logLines.some((line) => line.includes(`[ca-${command}] ${command} completed：`)),
+      command + ': the terminal line lands in the full operation log');
+  }
+});
+
+test('a partial result sync closes its notification as a warning and never claims success', async () => {
+  const f = funnelFixture();
+  await f.host.withUiCommandStatus('ca-p', 'syncPendingPlanArtifacts', { clientActionId: 'ca-p' },
+    async () => ({ included: ['plans/a.yaml'], skipped: [], missing: ['plans/b.yaml：Worker 不可用'], pending: [], previews: [] }));
+  assert.equal(f.progressEntries.length, 1);
+  await f.progressEntries[0].run();
+  await f.progressEntries[0].promise;
+  assert.equal(f.notices.length, 0, 'a partial outcome must not open the success prompt');
+  assert.ok(f.warnings.some((args) => String(args[0]).includes('部分结果已更新')), 'the warning prompt reports the partial facts');
+  assert.equal(f.host.operationNoticeSessions.size, 0, 'the notification closes on the partial exit');
+});
+
+test('failed, cancelled and remote-pending artifact exits close the notification with the real outcome', async () => {
+  const throws = [
+    [new Error('同步失败：Worker 不可用'), 'failed', '同步失败：Worker 不可用'],
+    [Object.assign(new Error('已取消，未重试产物同步'), { __cancelled: true }), 'cancelled', '已取消，未重试产物同步'],
+    [Object.assign(new Error('请求已发出，远端仍在处理'), { __remotePending: true }), 'submitted', '请求已发出，远端仍在处理'],
+  ];
+  for (const [error, status, text] of throws) {
+    const f = funnelFixture();
+    await f.host.withUiCommandStatus('ca-x', 'retryJobArtifactSync', { clientActionId: 'ca-x' }, async () => { throw error; });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(f.progressEntries.length, 1, status + ': one notification');
+    await f.progressEntries[0].run();
+    assert.ok(f.warnings.some((args) => String(args[0]).includes(text)), status + ': the terminal prompt carries the real message');
+    assert.ok(!f.notices.some((args) => String(args[0]).includes(text) && String(args[0]).startsWith('SimpleExperiment ')),
+      status + ': the notification never claims success');
+    assert.equal(f.host.operationNoticeSessions.size, 0, status + ': no dangling session');
+    assert.ok(f.logLines.some((line) => line.includes(`[ca-x] retryJobArtifactSync ${status}：`)), status + ': full terminal line logged');
+  }
+});
+
+test('a funnel throw before the work result still closes the opened notification', async () => {
+  const f = funnelFixture();
+  f.host.throwOnLaunch = true;
+  await assert.rejects(f.host.withUiCommandStatus('ca-t', 'refreshJobArtifacts', { clientActionId: 'ca-t' },
+    async () => ({ status: 'completed', message: '不应到达' })));
+  assert.equal(f.progressEntries.length, 1, 'the notification was opened before the throw');
+  await f.progressEntries[0].run();
+  assert.ok(f.warnings.some((args) => String(args[0]).includes('产物同步操作异常结束')), 'the fallback terminal line closes it');
+  assert.equal(f.host.operationNoticeSessions.size, 0, 'no dangling session after an unexpected throw');
+});
+
+test('out-of-scope commands keep the grey-line routing and open no notification', async () => {
+  const f = funnelFixture();
+  await f.host.withUiCommandStatus('ca-o', 'fetchTmuxList', { clientActionId: 'ca-o' }, async () => 'sessions ok');
+  assert.equal(f.progressEntries.length, 0, 'no notification for out-of-scope commands');
+  assert.equal(f.host.operationNoticeSessions.size, 0);
+  assert.ok(!f.logLines.some((line) => line.includes('fetchTmuxList')), 'out-of-scope commands stay out of the operation log');
+  assert.equal(f.posts.length, 2, 'the webview still receives running and completed states');
+  assert.equal(f.posts[1].status, 'completed');
+});
+
+test('the four Chinese titles are registered next to the plan titles in the source', () => {
+  assert.match(source, /retryJobArtifactSync: "重试产物同步"/);
+  assert.match(source, /refreshJobArtifacts: "刷新产物状态"/);
+  assert.match(source, /syncPendingPlanArtifacts: "同步待同步产物"/);
+  assert.match(source, /syncAllResultArtifacts: "同步全部结果文件"/);
+});

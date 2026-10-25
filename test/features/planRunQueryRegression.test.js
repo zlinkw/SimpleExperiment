@@ -1,5 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript');
 require('../_helpers/registerTsRequire');
+if(!process.env.LOCALAPPDATA)process.env.LOCALAPPDATA=fs.mkdtempSync(path.join(fs.realpathSync(require('node:os').tmpdir()),'run-query-regression-lease-')); // r17 约定：租约注册表落隔离目录（沙箱 homedir/AppData 只读，产品路径不变）——切片含真实回执释放链
 const source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
 const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);
 function method(name,globals={}){let found;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)===name)found=n;ts.forEachChild(n,visit);}visit(ast);assert.ok(found,name);

@@ -20,6 +20,8 @@ function fixture(){
  const h={context:{globalStorageUri:{fsPath:root}},workerCodeSyncTargets:()=>targets,enabledWorkerConfigs:()=>targets,loadDistributedQueue:async()=>structuredClone(queue),
   // Endpoint machine-state guards: fixture endpoints carry no state mapping.
   localMachineStateGuard:()=>({prefixes:[],unknown:false}),targetRootGuard:()=>null,machineStatePrefixesById:()=>[],machineStatePrefixesForTarget:()=>[],
+  // r8 最小依赖补全：本夹具端点无状态映射，prepare 呈现"已可绑定、零 GET"冻结形态。
+  prepareCodeSyncRootGuards:async(rows)=>({guards:new Map(rows.map(t=>[t,{prefixes:[],unknown:false}])),assertBindingsCurrent:()=>{}}),
  client:{getWorkerTasks:async()=>{reads.sync++;throw Error('产物同步不得查询 job 状态');}},
  sftpServerOptions:row=>row,recordActionError:r=>errors.push(r),assertSshTransportIdentities:async()=>{},
  refreshSyncScopeStatus:async(_root,_targets,_mode,scopes)=>{reads.inventory++;return buildScopeStatuses({local:{},workers:Object.fromEntries(Object.entries(inventory).map(([id,files])=>[id,Object.fromEntries(Object.entries(files).filter(([file])=>scopes.some(scope=>file===scope||file.startsWith(scope+'/'))))]))},'server-server',scopes,new Set(),{entries:{}});},
@@ -27,7 +29,7 @@ function fixture(){
  simpleSftpApiCall:async(method,p)=>{assert.equal(method,'sync.serverToServerFpsync');assert.equal(p.directory,undefined);assert.equal(p.manualRetain,undefined);assert.equal(p.destination.id==='local',false);transfers.push(p);for(const file of p.relativePaths)inventory[p.destination.id][file]=structuredClone(inventory[p.source.id][file]);if(lost){lost=false;throw Error('transport response lost');}},
  patchDistributedJob:async(_root,_id,index,_attempt,patch)=>{const j=jobs[index];if(j.commandId!==patch.expectedCommandId)return;const {expectedCommandId,replaceMirroredWorkerIds,...fields}=patch;Object.assign(j,fields);}};
  h.mergeLatestWorkerVersions=vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(ast)+'};Host.prototype.mergeLatestWorkerVersions',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
- {vscode:{workspace:{getConfiguration:()=>config},Uri:{file:x=>x}},scopeInventoryPathAllowed,planLatestWorkerMerge,runSyncScopeBatch,loadSyncHolds:async()=>({}),isLocalCodeOwnedPath:()=>false,safeSyncPath:require('../../src/features/SyncResolution.ts').safeSyncPath,path,workerFpsyncTaskLabel:()=>'',UiCommandCancelled:Error});
+ {vscode:{workspace:{getConfiguration:()=>config},Uri:{file:x=>x}},scopeInventoryPathAllowed,planLatestWorkerMerge,runSyncScopeBatch,loadSyncHolds:async()=>({}),isLocalCodeOwnedPath:()=>false,safeSyncPath:require('../../src/features/SyncResolution.ts').safeSyncPath,path,workerFpsyncTaskLabel:()=>'',UiCommandCancelled:Error,jobArtifactRunGeneration:require('../../src/features/JobArtifactSyncIdentity.ts').jobArtifactRunGeneration,isUnderMachineStatePrefixes:require('../../src/features/ProjectRootMap.ts').isUnderMachineStatePrefixes});
  return {h,root,queue,jobs,inventory,transfers,reads,errors,setLost:()=>lost=true,run:(scope=['.'])=>new CompletedJobSyncHost(h,root,()=>true).run(scope)};
 }
 test('first completed job merges latest files to every Worker while its sibling is running; old timestamps never win',async()=>{
@@ -154,4 +156,36 @@ test('duplicate manual retries share the current job transfer instead of copying
  const options={force:true,jobs:[{planId:'plan',index:0,commandId:'command0'}]},a=new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],options);
  await started;const b=new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],options);release();await Promise.all([a,b]);
  assert.equal(calls,1);assert.equal(f.transfers.length,2);assert.equal(f.h.completedJobSyncRuns.size,0);
+});
+// r5 P2 身份块：completedJob 链的 fpsync 必须携带真实 job 身份（既有 job-artifacts 五元组）与
+// 绑定冻结源清单的稳定运行代；错误链此前落在 root 级 project-files 身份且不传 generation。
+test("completed-job fpsync carries the real job identity: five-tuple retentionKey plus a run-bound stable generation", async () => {
+ const f=fixture();await f.run();
+ const expectedKey=JSON.stringify(["job-artifacts","plans/p.yaml",0,"case0",42]);
+ assert.equal(f.transfers.length,2);
+ assert.ok(f.transfers.every(p=>p.retentionKey===expectedKey),"每个批次共用该 job 的五元组身份，而不是 root 级 project-files");
+ const generations=[...new Set(f.transfers.map(p=>p.generation))];
+ assert.equal(generations.length,1,"同一冻结源清单的全部目标批次复用一个 generation");
+ assert.match(generations[0],/^[0-9a-f]{64}$/);
+ f.inventory.b["work_dirs/p/job0/model.pth"]={sha256:"b".repeat(64),size:3,modifiedAtMs:999};
+ await new CompletedJobSyncHost(f.h,f.root,()=>true).run(["."],{force:true});
+ assert.equal(f.transfers.length,3,"同输入轮对滞后目标发生真实传输");
+ assert.equal([...new Set(f.transfers.map(p=>p.generation))].length,1,"相同输入的重试/重载复用自己的 generation");
+ // 先造真实 delta（内容一致时 delta-only 同步不传输，属既有正确行为），再验证新派发身份开新代。
+ f.inventory.b["work_dirs/p/job0/model.pth"]={sha256:"b".repeat(64),size:3,modifiedAtMs:999};
+ f.jobs[0].commandId="command0-retry";
+ await new CompletedJobSyncHost(f.h,f.root,()=>true).run(["."],{force:true,jobs:[{planId:"plan",index:0,commandId:"command0-retry"}]});
+ const after=[...new Set(f.transfers.map(p=>p.generation))];
+ assert.equal(after.length,2,"新的派发身份开启新 generation");
+ assert.equal(after.includes(generations[0]),true,"旧代保持记录");
+ assert.ok(after.find(g=>g!==generations[0]),"新代与旧代不同");
+});
+test("a changed source hash under the same command opens a new generation instead of reusing the frozen manifest", async () => {
+ const f=fixture();await f.run();
+ const before=f.transfers[0].generation;
+ f.inventory.a["work_dirs/p/job0/model.pth"]={sha256:"c".repeat(64),size:3,modifiedAtMs:2};
+ await new CompletedJobSyncHost(f.h,f.root,()=>true).run(["."],{force:true});
+ const latest=f.transfers.at(-1);
+ assert.notEqual(latest.generation,before,"源清单 SHA 变化必须开新代（即便 commandId 未变）");
+ assert.ok(f.transfers.slice(2).every(p=>p.generation===latest.generation),"本轮源清单的全部批次共用新代");
 });

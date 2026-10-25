@@ -47,6 +47,7 @@ export interface CliFlags {
   action?: string;
   token?: string;
   digest?: string;
+  "consumer-root"?: string;
   target?: string;
   targets?: string;
   phase?: string;
@@ -139,7 +140,7 @@ export interface ParsedCli {
   flags: CliFlags;
 }
 
-const VALUE_FLAGS = new Set(["--scope", "--status", "--limit", "--lines", "--experiment", "--format", "--seed", "--from", "--out", "--output", "--file", "--type", "--workflow", "--jobs", "--worker", "--gpu", "--operation", "--index", "--command", "--key", "--value", "--path", "--suite", "--base", "--seeds", "--primary", "--preset", "--metrics", "--instance", "--paths", "--state-path", "--plan-file", "--confirmed-absolute", "--remote-path", "--transfer-id", "--operation-id", "--operation-instance-id", "--retry-method", "--retry-params", "--request-key", "--reason", "--plugin", "--instance-experiment", "--instance-sftp", "--destination", "--entries", "--files", "--manifest", "--extensions", "--max-file-bytes", "--max-batch-bytes", "--max-file-size-mb", "--compression", "--action", "--token", "--digest", "--target", "--targets", "--phase", "--observation-id", "--read-concurrency", "--tmux-session-prefix", "--observation-mode", "--root-identity", "--project-dir", "--install-dir", "--state-dir", "--worker-state-dir", "--worker-id", "--host", "--port", "--conda-env", "--expected-version", "--session-prefix", "--tmux-session", "--tmux-window", "--migration-digest", "--agent-token", "--reviewed-by", "--confirmed-paths-file", "--continuation-of", "--reuse-token", "--job", "--exact-paths", "--node-id", "--workspace", "--mode", "--hub", "--workers", "--plan-id", "--server-ids", "--legacy-migration-digests", "--migration-digests"]);
+const VALUE_FLAGS = new Set(["--scope", "--status", "--limit", "--lines", "--experiment", "--format", "--seed", "--from", "--out", "--output", "--file", "--type", "--workflow", "--jobs", "--worker", "--gpu", "--operation", "--index", "--command", "--key", "--value", "--path", "--suite", "--base", "--seeds", "--primary", "--preset", "--metrics", "--instance", "--paths", "--state-path", "--plan-file", "--confirmed-absolute", "--remote-path", "--transfer-id", "--operation-id", "--operation-instance-id", "--retry-method", "--retry-params", "--request-key", "--reason", "--plugin", "--instance-experiment", "--instance-sftp", "--destination", "--entries", "--files", "--manifest", "--extensions", "--max-file-bytes", "--max-batch-bytes", "--max-file-size-mb", "--compression", "--action", "--token", "--digest", "--consumer-root", "--target", "--targets", "--phase", "--observation-id", "--read-concurrency", "--tmux-session-prefix", "--observation-mode", "--root-identity", "--project-dir", "--install-dir", "--state-dir", "--worker-state-dir", "--worker-id", "--host", "--port", "--conda-env", "--expected-version", "--session-prefix", "--tmux-session", "--tmux-window", "--migration-digest", "--agent-token", "--reviewed-by", "--confirmed-paths-file", "--continuation-of", "--reuse-token", "--job", "--exact-paths", "--node-id", "--workspace", "--mode", "--hub", "--workers", "--plan-id", "--server-ids", "--legacy-migration-digests", "--migration-digests"]);
 
 export function parseArgv(argv: string[]): ParsedCli {
   const positionals: string[] = [];
@@ -272,6 +273,7 @@ function applyFlag(flags: CliFlags, name: string, value: string): void {
   else if (name === "--action") flags.action = value;
   else if (name === "--token") flags.token = value;
   else if (name === "--digest") flags.digest = value;
+  else if (name === "--consumer-root") flags["consumer-root"] = value;
   else if (name === "--target") flags.target = value;
   else if (name === "--targets") flags.targets = value;
   else if (name === "--phase") flags.phase = value;

@@ -7,6 +7,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..", "..");
+if (!process.env.LOCALAPPDATA) process.env.LOCALAPPDATA = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "preflight-speed-lease-")); // r17 约定：租约注册表落隔离目录（沙箱 homedir/AppData 只读，产品路径不变）——切片含真实回执释放链
 const legacySource = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
 const distSource = fs.readFileSync(path.join(root, "dist/extension/legacy.js"), "utf8");
 

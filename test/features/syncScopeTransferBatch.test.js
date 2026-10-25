@@ -16,7 +16,7 @@ const originalLoad = Module._load;
 Module._load = function (request, ...args) {
   return request === "vscode" ? vscodeStub : originalLoad.call(this, request, ...args);
 };
-const ROOT = "C:\\sync-scope-batch-fixture";
+const ROOT = process.platform === "win32" ? "C:\\sync-scope-batch-fixture" : "/fixture/sync-scope-batch"; // r17：项目根按平台为已解析绝对路径（holds 只读派生，不落真实盘）
 
 function record(name) {
   return { sha256: digest(name), size: name.length };

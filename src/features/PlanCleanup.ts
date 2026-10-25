@@ -255,7 +255,10 @@ export class PlanCleanup {
   /** Build one contract observe target from a frozen row; tokens only travel with their own index. */
   private observeTargetOf(row: CleanupRow): ObserveTarget {
     const target: ObserveTarget = { key: row.id, relativePath: row.relativePath, type: row.type };
-    if (row.backendToken && Number.isInteger(row.backendIndex)) { target.backendToken = row.backendToken; target.backendIndex = row.backendIndex; }
+    if (row.backendToken && Number.isInteger(row.backendIndex)) { target.backendToken = row.backendToken; target.backendIndex = row.backendIndex;
+      // r17-D: the frozen backend digest is this project's precise reference to the backend row;
+      // it rides along so the backend can restore a cold token ONLY from exact legacy evidence.
+      if (typeof row.backendDigest === "string") target.backendDigest = row.backendDigest; }
     if (row.device !== undefined) target.device = row.device;
     if (row.inode !== undefined) target.inode = row.inode;
     const isolationName = (row as { isolationName?: unknown }).isolationName;
@@ -407,7 +410,8 @@ export class PlanCleanup {
     return operation;
   }
   private async managedCheck(row: CleanupRow): Promise<any> {
-    return this.query(row, "files.cleanup.check", { token: row.backendToken, index: row.backendIndex });
+    return this.query(row, "files.cleanup.check", { token: row.backendToken, index: row.backendIndex,
+      ...(typeof row.backendDigest === "string" ? { backendDigest: row.backendDigest } : {}) });
   }
   private async observeManaged(operation: CleanupOperation): Promise<CleanupOperation> {
     let running = false, unresolved = false;
@@ -424,7 +428,8 @@ export class PlanCleanup {
       }
       for (const [backendToken, group] of groups) {
         try {
-          const snapshot = await this.ports.sftp("files.cleanup.status", { token: backendToken });
+          const snapshot = await this.ports.sftp("files.cleanup.status", { token: backendToken,
+            ...(typeof group[0]?.backendDigest === "string" ? { backendDigest: group[0].backendDigest } : {}) });
           if (snapshot?.statusQueryError) { unresolved = true; operation.error = "清理批量查询未完全成功，可重新查询：" + String(snapshot.statusQueryError); }
           for (const row of group) {
             if (operation.targets[row.id]?.state === "completed" && operation.targets[row.id]?.receipt?.source === "active_query") continue;
@@ -496,7 +501,8 @@ export class PlanCleanup {
     for (const [backendToken, group] of groups) {
       const pending = () => group.filter(row => operation.targets[row.id]?.state !== "completed");
       if (this.cancelled.has(operation.id)) { operation.state = "paused"; await this.save(operation); return; }
-      let snapshot: any = await this.ports.sftp("files.cleanup.status", { token: backendToken });
+      let snapshot: any = await this.ports.sftp("files.cleanup.status", { token: backendToken,
+        ...(typeof group[0]?.backendDigest === "string" ? { backendDigest: group[0].backendDigest } : {}) });
       this.applyBatchObservations(operation, group, snapshot);
       await this.save(operation);
       if (!pending().length) continue;

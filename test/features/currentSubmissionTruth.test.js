@@ -1,5 +1,6 @@
 const test = require('node:test'), assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm'), ts = require('typescript');
 require('../_helpers/registerTsRequire');
+if (!process.env.LOCALAPPDATA) process.env.LOCALAPPDATA = fs.mkdtempSync(require('node:path').join(fs.realpathSync(require('node:os').tmpdir()), 'submission-truth-lease-')); // r17 约定：租约注册表落隔离目录（沙箱 homedir/AppData 只读，产品路径不变）——切片含真实回执释放链
 const source = fs.readFileSync('src/extension/legacy.ts', 'utf8');
 const tree = ts.createSourceFile('host.ts', source, ts.ScriptTarget.Latest, true);
 const cls = tree.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === 'RealtimeTunnelPanelProvider');

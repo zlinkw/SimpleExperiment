@@ -39,6 +39,8 @@ function fixture({ emptyOriginal = false, cold = false, allMissing = false, retr
     collectDistributedJobArtifacts: require("../../dist/features/DistributedJobArtifacts.js").collectDistributedJobArtifacts,
     DistributedJobArtifacts_1: require("../../dist/features/DistributedJobArtifacts.js"),
     workerFpsyncTaskLabel: () => "sync", PlanArtifactTransfer_1: { workerFpsyncTaskLabel: () => "sync" },
+    // r6：专用链 generation 改用共享纯函数后，dist 抽取方法按命名空间引用它。
+    JobArtifactSyncIdentity_1: require("../../dist/features/JobArtifactSyncIdentity.js"),
     mapLimited: async (items, _count, fn) => Promise.all(items.map(fn)),
     vscode: { ProgressLocation: { Notification: 15 }, window: { withProgress: async (_options, work) => work({ report: value => events.push(value.message) }) } },
   };

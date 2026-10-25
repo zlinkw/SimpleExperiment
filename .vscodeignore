@@ -18,6 +18,8 @@ CONTEXT.md
 scripts/**
 !scripts/check-static.js
 test/**
+# r9 平台归属：Linux 专属验证套件（verification/linux/，POSIX receiver 显式注入必验）仅源码仓保留
+verification/**
 scenarios/**
 *.vsix
 *.vsix.sha256
@@ -149,6 +151,8 @@ dist/ui/styles/base.css.js
 dist/ui/styles/components.css.js
 dist/ui/styles/layout.css.js
 # <<< unused-compiled
+# r11 发行闭包核对：任务审阅/取证产物（diff、哈希清单、metadata 请求快照）仅源码仓保留，绝不入包
+.review-*/**
 # r25-A: runner 同根批开发锁绝不入包（实际泄漏过一次，回归+清单门禁双防）
 .test-workflow-batch.lock/**
 # 用户长期裁决 2026-10-24：旧嵌套 SimpleSFTP 捆绑副本永不入包；独立安装的配套 SimpleSFTP 不受影响

@@ -40,9 +40,14 @@ function identityOf(value) {
 }
 function sftpRequestKey(method, params) {
     const localPath = String(params.localPath || params.localBase || params.workspacePath || "").trim().replace(/[\\/]+/g, "/");
+    // r17-D: a cleanup request is owned by its LOCAL consuming project; the same remote operation
+    // issued from two projects is two requests and recovery must never hand one project's
+    // in-flight cleanup to the other. Recovery/forward keeps params verbatim, so the key survives.
+    const consumerRoot = String(params.consumerRoot || "").trim().replace(/[\\/]+/g, "/");
     const identity = {
         method,
         localPath: process.platform === "win32" ? localPath.toLowerCase() : localPath,
+        consumerRoot: process.platform === "win32" ? consumerRoot.toLowerCase() : consumerRoot,
         remotePath: String(params.remotePath || "").trim(),
         targetId: params.targetId || params.serverId || "",
         host: params.host || "",

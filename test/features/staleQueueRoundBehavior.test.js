@@ -22,11 +22,11 @@ function hostMethods(names,globals={}){let cls;function visit(n){if(ts.isClassDe
 
 function queueFixture(){
   const storage=fs.mkdtempSync(path.join(os.tmpdir(),'se-stale-'));
-  const root='project',project=Q.canonicalProjectId(root);
+  const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'se-stale-root-'))),project=Q.canonicalProjectId(root); // r17：项目根恒为已解析绝对路径（真实队列文件在项目内受管子树）
   const queue=Q.emptyDistributedQueue();
   const queued=Q.enqueuePlan(queue,{projectId:project,executionMode:'train',planFile:'p.yaml',revision:'r',codeFingerprint:'code',
     jobs:[{index:0,case:'a',seed:1,outputDir:'work/0'},{index:1,case:'b',seed:2,outputDir:'work/1'}]},'p');
-  const Host=hostMethods(['saveDistributedQueue','withQueueWriteResource','tickDistributedQueue','requestDistributedQueueRefresh','scheduleDistributedPostprocess']);
+  const Host=hostMethods(['saveDistributedQueue','withQueueWriteResource','tickDistributedQueue','requestDistributedQueueRefresh','scheduleDistributedPostprocess'],{workspaceRoot:()=>root});
   const h=new Host();
   const actionErrors=[],states=[];
   Object.assign(h,{context:{globalStorageUri:{fsPath:storage}},manualDispatchInFlight:new Set(),planCleanupHosts:new Map(),
@@ -60,11 +60,11 @@ function hBump(f){f.h.distributedQueueGeneration=1;} // 新一轮已在别处赢
 
 test('检查-变更不原子：预检通过、rename 前 generation 变化同样必须拒绝且零写入（真实 atomicWriteText 顺序）',async()=>{
   const storage=fs.mkdtempSync(path.join(os.tmpdir(),'se-stale-race-'));
-  const root='project',project=Q.canonicalProjectId(root);
+  const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'se-stale-root-'))),project=Q.canonicalProjectId(root); // r17：项目根恒为已解析绝对路径（真实队列文件在项目内受管子树）
   const queued=Q.enqueuePlan(Q.emptyDistributedQueue(),{projectId:project,executionMode:'train',planFile:'p.yaml',revision:'r',codeFingerprint:'code',
     jobs:[{index:0,case:'a',seed:1,outputDir:'work/0'}]},'p');
   const races=[];
-  const Host=hostMethods(['saveDistributedQueue','withQueueWriteResource'],{atomicWriteText:(file,text,options)=>{
+  const Host=hostMethods(['saveDistributedQueue','withQueueWriteResource'],{workspaceRoot:()=>root,atomicWriteText:(file,text,options)=>{
     races.push('pre-rename');if(options?.beforeRename)options.beforeRename=wrapBefore(options.beforeRename);return atomicWriteText(file,text,options);}});
   function wrapBefore(inner){return async()=>{races.push('generation-moved');h.distributedQueueGeneration=1;await inner();};}
   const h=new Host();
@@ -144,24 +144,24 @@ test('completedPlanWorkerMirror：自动镜像失败进独立诊断并保留连�
   const f=queueFixture();const h=f.h;let mode='fail';
   h.syncCompletedPlanArtifacts=async()=>{if(mode==='fail')throw Error('镜像停止：远端传输忙');};
   const settle=async()=>{for(let i=0;i<50&&h.distributedPostprocessPromise;i+=1)await new Promise(resolve=>setTimeout(resolve,2));await h.distributedPostprocessPromise;};
-  h.scheduleDistributedPostprocess('project');await settle();
+  h.scheduleDistributedPostprocess(f.root);await settle();
   assert.equal(f.actionErrors.length,0,'自动镜像失败不得进动作错误');
   assert.equal(h.completedPlanMirrorDiagnostics.status,'failed');
   assert.equal(h.completedPlanMirrorDiagnostics.reason,'镜像停止：远端传输忙','原因必须原样保留');
   assert.equal(h.completedPlanMirrorDiagnostics.consecutiveFailures,1);
-  h.scheduleDistributedPostprocess('project');await settle();
+  h.scheduleDistributedPostprocess(f.root);await settle();
   assert.equal(h.completedPlanMirrorDiagnostics.consecutiveFailures,2,'持续饥饿计数必须累积可见，不得静默清零');
-  mode='ok';h.scheduleDistributedPostprocess('project');await settle();
+  mode='ok';h.scheduleDistributedPostprocess(f.root);await settle();
   assert.equal(h.completedPlanMirrorDiagnostics.status,'ready','成功复位只允许来自真实成功');
   assert.equal(f.actionErrors.length,0);
 });
 test('镜像在途时新请求记重扫，完成后恰重扫一次（原语义保留）',async()=>{
   const f=queueFixture();const h=f.h;let runs=0,release,running=new Promise(resolve=>{release=resolve;});
   h.syncCompletedPlanArtifacts=async()=>{runs++;await running;};
-  h.scheduleDistributedPostprocess('project');
+  h.scheduleDistributedPostprocess(f.root);
   await new Promise(resolve=>setImmediate(resolve));
-  h.scheduleDistributedPostprocess('project',true);
-  h.scheduleDistributedPostprocess('project',false);
+  h.scheduleDistributedPostprocess(f.root,true);
+  h.scheduleDistributedPostprocess(f.root,false);
   release();await settleAll(h);
   assert.equal(runs,2,'在途期间仅排队一次重扫，完成后恰执行一次');
   async function settleAll(host){for(let i=0;i<50&&host.distributedPostprocessPromise;i+=1)await new Promise(resolve=>setTimeout(resolve,2));await host.distributedPostprocessPromise;}

@@ -70,6 +70,7 @@ exports.activeGpuReservations = activeGpuReservations;
 exports.workerCodeVersionAvailable = workerCodeVersionAvailable;
 exports.completedJobOutputs = completedJobOutputs;
 exports.distributedQueuePath = distributedQueuePath;
+exports.legacyDistributedQueuePath = legacyDistributedQueuePath;
 exports.enqueuePlan = enqueuePlan;
 exports.pinnedRetryPlanAllowed = pinnedRetryPlanAllowed;
 exports.hostedRetryCandidates = hostedRetryCandidates;
@@ -106,6 +107,7 @@ const path = __importStar(require("node:path"));
 const TaskLifecycle_1 = require("./TaskLifecycle");
 const WorkerProgressEvidence_1 = require("./WorkerProgressEvidence");
 const VerifiedCompletion_1 = require("./VerifiedCompletion");
+const ProjectStatePaths_1 = require("./ProjectStatePaths");
 const QUEUE_BASE_DISK_SIGNATURE = Symbol("distributedQueueBaseDiskSignature");
 function distributedQueueDiskSignature(source) {
     return (0, node_crypto_1.createHash)("sha256").update(source, "utf8").digest("hex");
@@ -961,7 +963,15 @@ function completedJobOutputs(queue, planFile, jobs) {
     // Current declared outputs are inspected by the Worker validation/admission path.
     return [];
 }
+/** r17-A: the live queue lives inside the CONSUMED project (simple_cluster/state/…), one per
+ * projectRoot; storageRoot is retained only to locate the known legacy snapshot for a
+ * one-time migration read. Two windows share one queue per project, and projects never
+ * share queue files. */
 function distributedQueuePath(storageRoot, projectRoot) {
+    return (0, ProjectStatePaths_1.projectStateFile)(projectRoot, "simple-experiment", "distributed-plan-queues", (0, ProjectStatePaths_1.projectStateId)(projectRoot) + ".json");
+}
+/** Exact legacy location (globalStorage) — read-only migration source, never written again. */
+function legacyDistributedQueuePath(storageRoot, projectRoot) {
     const root = path.resolve(projectRoot);
     const key = (0, node_crypto_1.createHash)("sha256").update(process.platform === "win32" ? root.toLowerCase() : root).digest("hex");
     return path.join(storageRoot, "distributed-plan-queues", key + ".json");

@@ -133,6 +133,16 @@ function createHost(overrides = {}) {
     transitionPanelLifecycle(next) { this.panelLifecycleState = next; return true; },
     schedulePanelHeartbeat() { calls.heartbeats = (calls.heartbeats || 0) + 1; },
     postState(immediate = false) { calls.states.push(immediate); },
+    // r4 (task ui-plan-gpu-progress-20261024 返修): the four artifact-sync commands now open a
+    // per-operation Notification inside the real withUiCommandStatus funnel. This dispatch
+    // fixture stubs the notification surface with the same minimal contract as the other
+    // operation stubs here; the button dispatch and terminal-status assertions below are
+    // unchanged, and planOperationNoticeLifecycle covers the notification behavior itself.
+    operationNoticeKey(message) { return String((message && (message.parentClientActionId || message.clientActionId)) || ""); },
+    beginOperationProgressNotice() {},
+    reportOperationNotice() {},
+    finishOperationProgressNotice() {},
+    logOperationFact() {},
     extensionRuntimeVersionState() { return { reloadRequired: false }; },
     isCurrentPanelDocumentMessage(message, command) { return command === "webviewReady" || Number(message?.documentGeneration) === this.panelDocumentGeneration; },
     handlePanelWebviewVisibility(message) { calls.visibility.push(message); },

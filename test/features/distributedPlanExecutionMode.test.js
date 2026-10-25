@@ -29,7 +29,7 @@ function method(start, end, scope = {}) {
     PlanCodeScopeHost: require("../../dist/extension/PlanCodeScopeHost"),
     GpuQuotaScheduling: require("../../dist/features/GpuQuotaScheduling"), AgentTmuxPolicy_1:require("../../dist/tunnel/AgentTmuxPolicy"),
     WorkflowBinding: require('../../dist/features/WorkflowWorkspaceBinding'),
-    PlanCleanupEvidence_1: require('../../dist/features/PlanCleanupEvidence'), path,
+    PlanCleanupEvidence_1: require('../../dist/features/PlanCleanupEvidence'), ProjectStatePaths_1: require('../../dist/features/ProjectStatePaths'), path,
     fs: { readFile: async () => 'plan_id: stable-mode-plan\n' },
     workspaceRoot: () => root, makeOpId: () => 'distributed-plan-mode',
     operationResultPlanFile: body => body.planFile, planValidationFromResult: result => result.validation,

@@ -44,6 +44,13 @@
       "comment": "r25-A 运行缓存/报告/receipt/env 沙箱"
     },
     {
+      "category": "linux-verification",
+      "path_prefixes": [
+        "verification/"
+      ],
+      "comment": "r9 平台归属：Linux 专属验证套件（POSIX receiver 显式注入必验），仅源码仓/任务清单保留，发行包不携带开发验证目录"
+    },
+    {
       "category": "dev-lock",
       "path_prefixes": [
         ".test-workflow-batch.lock/"

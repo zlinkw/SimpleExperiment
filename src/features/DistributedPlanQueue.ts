@@ -5,6 +5,7 @@ import { observationMatches, taskLifecycle, TaskObservation } from "./TaskLifecy
 import type { RuntimeDiagnostics, CompletionState } from "./RuntimeDiagnostics";
 import { freshTaskObservation } from "./WorkerProgressEvidence";
 import { hasVerifiedCompletion, nextVerifiedCompletion, verifiedCompletionProjection, type VerifiedCompletion } from "./VerifiedCompletion";
+import { projectStateFile, projectStateId } from "./ProjectStatePaths";
 
 export type JobState = "pending" | "dispatching" | "queued" | "running" | "completed" | "failed" | "cancelled" | "unknown";
 export type JobFailureClass = "deterministic" | "resource" | "transient" | "unknown";
@@ -83,7 +84,9 @@ export type QueuedJob = {
   artifactError?: string;
   artifactRetryAfter?: string;
   latestArtifactSync?: { key: string; state: "synced" | "partial" | "excluded"; scopes: string[]; checkedAt: string;
-    workerIds?: string[]; error?: string; retryAfter?: string; artifactDigest?: string };
+    workerIds?: string[]; error?: string; retryAfter?: string; artifactDigest?: string;
+    /** r10：仅 completedJob 同步成功且分类出"只存在于其它端点的历史保留副本"时写入（路径+原因）。 */
+    skipped?: string[] };
   outputRetiredAt?: string;
   reconciliationAttempts?: number;
   lastReconciliationAt?: string;
@@ -962,7 +965,16 @@ export function completedJobOutputs(queue: DistributedQueue, planFile: string, j
   return [] as Array<{ index: number; case: string; seed: number; output_dir: string }>;
 }
 
+/** r17-A: the live queue lives inside the CONSUMED project (simple_cluster/state/…), one per
+ * projectRoot; storageRoot is retained only to locate the known legacy snapshot for a
+ * one-time migration read. Two windows share one queue per project, and projects never
+ * share queue files. */
 export function distributedQueuePath(storageRoot: string, projectRoot: string): string {
+  return projectStateFile(projectRoot, "simple-experiment", "distributed-plan-queues", projectStateId(projectRoot) + ".json");
+}
+
+/** Exact legacy location (globalStorage) — read-only migration source, never written again. */
+export function legacyDistributedQueuePath(storageRoot: string, projectRoot: string): string {
   const root = path.resolve(projectRoot);
   const key = createHash("sha256").update(process.platform === "win32" ? root.toLowerCase() : root).digest("hex");
   return path.join(storageRoot, "distributed-plan-queues", key + ".json");

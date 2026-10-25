@@ -21,6 +21,8 @@ function fixture(native = false) {
     PlanOutputRetention: require('../../dist/features/PlanOutputRetention.js'),
     collectDistributedJobArtifacts: require('../../dist/features/DistributedJobArtifacts.js').collectDistributedJobArtifacts,
     workerFpsyncTaskLabel: () => 'Plan 完成产物同步', workspaceRoot: () => root,
+    // r6：方法从 TS 源码抽取，编译后保留裸标识符。
+    jobArtifactRunGeneration: require('../../dist/features/JobArtifactSyncIdentity.js').jobArtifactRunGeneration,
     errorMessage: error => String(error.message || error),
     ...require('../../dist/results/NativeResultManifest.js'),
     loadSyncHolds: async () => f.holds, isSyncHeld: require('../../dist/features/SyncResolution.js').isSyncHeld,

@@ -44,6 +44,7 @@ const fs = __importStar(require("fs/promises"));
 const fsNode = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const ProjectFileIndex_1 = require("./ProjectFileIndex");
+const ProjectStatePaths_1 = require("./ProjectStatePaths");
 const CACHE_SCHEMA_VERSION = 1;
 const cacheWrites = new Map();
 function bigintString(value) {
@@ -76,10 +77,14 @@ function sameIdentity(row, identity) {
         && row.birthtimeMs === identity.birthtimeMs
         && /^[a-f0-9]{64}$/i.test(String(row.sha256 || "")));
 }
-function localCodeManifestCachePath(storageRoot, projectRoot) {
+/** r18#5: the recomputable code-manifest cache belongs to the CONSUMED project
+ * (simple_cluster/cache/simple-experiment/code-manifest-cache). Same identity formula, same
+ * rows/schema/reuse semantics; only the owner moved. Old globalStorage caches stay in place —
+ * never migrated, scanned, or deleted; a missing cache only forces a rehash. */
+function localCodeManifestCachePath(projectRoot) {
     const resolved = path.resolve(projectRoot);
     const id = crypto.createHash("sha256").update(process.platform === "win32" ? resolved.toLowerCase() : resolved).digest("hex");
-    return path.join(storageRoot, "code-manifest-cache", `${id}.json`);
+    return path.join((0, ProjectStatePaths_1.projectCacheDir)(projectRoot, "simple-experiment"), "code-manifest-cache", `${id}.json`);
 }
 async function readCache(file) {
     try {
@@ -191,6 +196,7 @@ async function hashLocalCodeFiles(root, files, cacheFile, onProgress, signal) {
             }
             else {
                 try {
+                    await (0, ProjectStatePaths_1.ensureProjectManagedCacheFileDirectory)(root, cacheFile); // 受管树内缓存写入前逐层守卫（symlink 即拒）
                     await writeCache(cacheFile, { schemaVersion: CACHE_SCHEMA_VERSION, files: nextFiles });
                 }
                 catch (error) {

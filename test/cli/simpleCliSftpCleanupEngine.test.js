@@ -110,20 +110,20 @@ test("real engine refuses an unarchived plain delete and caps move at one confir
   try {
     // cleanup-file-api.js:355-358: a plain (non confirmed-path) delete must name its archive destination.
     const plainDelete = writeJson(dir, "plain.json", [{ relativePath: "tmp/exec.csv", type: "file" }]);
-    const refused = await runCli(["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "delete", "--targets", plainDelete, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const refused = await runCli(["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "delete", "--targets", plainDelete, "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(refused.code, 3, refused.stdout + refused.stderr);
     assert.match(refused.stdout, /UNSAFE_DESTINATION/);
     assert.equal(backend.state.deleteFastCalls, 0);
 
     const moved = writeJson(dir, "move.json", [{ relativePath: "tmp/m.csv", type: "file", destination: `clean_dir/${BATCH}/tmp/m.csv`, archiveBatch: BATCH }]);
-    const preview = await runCli(["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "move", "--targets", moved, "--observation-mode", "managed_tmux", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const preview = await runCli(["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "move", "--targets", moved, "--observation-mode", "managed_tmux", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(preview.code, 0, preview.stdout + preview.stderr);
     const row = JSON.parse(preview.stdout);
     assert.equal(row.observationMode, "tmux", "managed_tmux on a remote node derives the tmux observation mode (cleanup-file-api.js:331)");
     const abs = writeJson(dir, "abs.json", row.targets.map((t) => t.absolutePath));
-    const phase1 = await runCli(["sftp", "cleanup", "confirm", "--token", row.token, "--digest", row.digest, "--phase", "1", "--targets", abs, "--confirm", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const phase1 = await runCli(["sftp", "cleanup", "confirm", "--token", row.token, "--digest", row.digest, "--phase", "1", "--targets", abs, "--confirm", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(phase1.code, 0, phase1.stdout + phase1.stderr);
-    const phase2 = await runCli(["sftp", "cleanup", "confirm", "--token", row.token, "--digest", row.digest, "--phase", "2", "--targets", abs, "--confirm", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const phase2 = await runCli(["sftp", "cleanup", "confirm", "--token", row.token, "--digest", row.digest, "--phase", "2", "--targets", abs, "--confirm", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(phase2.code, 2); // move confirms once; only delete reaches phase 2
     assert.match(phase2.stdout, /CONFIRM_REQUIRED/);
   } finally { await backend.close(); }
@@ -138,29 +138,29 @@ test("confirmed-path delete: two confirmations, one batch execution, replay answ
   const archived = `clean_dir/${BATCH}/old-run`;
   const targets = writeJson(dir, "targets.json", [{ relativePath: archived, type: "directory", destination: archived }, { relativePath: "data/drop.csv", type: "file" }]);
   try {
-    const preview = await runCli(["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "delete", "--targets", targets, "--confirmed-paths", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const preview = await runCli(["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "delete", "--targets", targets, "--confirmed-paths", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(preview.code, 0, preview.stdout + preview.stderr);
     const row = JSON.parse(preview.stdout);
     assert.equal(row.authorizationMode, "confirmed_paths");
     const abs = writeJson(dir, "abs.json", row.targets.map((t) => t.absolutePath));
     const drifted = writeJson(dir, "drift.json", [row.targets[0].absolutePath, "/data/research/proj/data/renamed.csv"]);
-    const drift = await runCli(["sftp", "cleanup", "confirm", "--token", row.token, "--digest", row.digest, "--phase", "1", "--targets", drifted, "--confirm", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const drift = await runCli(["sftp", "cleanup", "confirm", "--token", row.token, "--digest", row.digest, "--phase", "1", "--targets", drifted, "--confirm", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(drift.code, 2, drift.stdout + drift.stderr); // exact-path echo mismatch → fresh preview required
     assert.match(drift.stdout, /CONFIRM_REQUIRED/);
     for (const phase of ["1", "2"]) {
-      const done = await runCli(["sftp", "cleanup", "confirm", "--token", row.token, "--digest", row.digest, "--phase", phase, "--targets", abs, "--confirm", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+      const done = await runCli(["sftp", "cleanup", "confirm", "--token", row.token, "--digest", row.digest, "--phase", phase, "--targets", abs, "--confirm", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
       assert.equal(done.code, 0, done.stdout + done.stderr);
       assert.equal(JSON.parse(done.stdout).confirmations, Number(phase));
     }
-    const executed = await runCli(["sftp", "cleanup", "execute", "--token", row.token, "--digest", row.digest, "--index", "0", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const executed = await runCli(["sftp", "cleanup", "execute", "--token", row.token, "--digest", row.digest, "--index", "0", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(executed.code, 0, executed.stdout + executed.stderr);
     assert.equal(backend.state.deleteFastCalls, 1, "the whole confirmed batch runs as one delete-fast call");
     assert.deepEqual(backend.state.gone, new Set([archived, "data/drop.csv"]));
-    const replay = await runCli(["sftp", "cleanup", "execute", "--token", row.token, "--digest", row.digest, "--index", "1", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const replay = await runCli(["sftp", "cleanup", "execute", "--token", row.token, "--digest", row.digest, "--index", "1", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(replay.code, 0);
     assert.equal(JSON.parse(replay.stdout).alreadyCompleted, true);
     assert.equal(backend.state.deleteFastCalls, 1, "a completed batch is answered from the stored receipt, never re-executed");
-    const status = await runCli(["sftp", "cleanup", "status", "--token", row.token, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const status = await runCli(["sftp", "cleanup", "status", "--token", row.token, "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(status.code, 0);
     assert.deepEqual(JSON.parse(status.stdout).states, ["completed", "completed"]);
   } finally { await backend.close(); }
@@ -172,22 +172,22 @@ test("uncertain receipt: partial mutation never reports completion until verify 
   const nodeFile = writeJson(dir, "node.json", NODE);
   const targets = writeJson(dir, "targets.json", [{ relativePath: "data/a.csv", type: "file" }, { relativePath: "data/b.csv", type: "file" }]);
   try {
-    const row = JSON.parse((await runCli(["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "delete", "--targets", targets, "--confirmed-paths", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } })).stdout);
+    const row = JSON.parse((await runCli(["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "delete", "--targets", targets, "--confirmed-paths", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } })).stdout);
     const abs = writeJson(dir, "abs.json", row.targets.map((t) => t.absolutePath));
     for (const phase of ["1", "2"]) {
-      const done = await runCli(["sftp", "cleanup", "confirm", "--token", row.token, "--digest", row.digest, "--phase", phase, "--targets", abs, "--confirm", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+      const done = await runCli(["sftp", "cleanup", "confirm", "--token", row.token, "--digest", row.digest, "--phase", phase, "--targets", abs, "--confirm", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
       assert.equal(done.code, 0, done.stdout + done.stderr);
     }
     // The engine refuses to call a mid-walk failure retryable: mutationStarted stays truthy.
     backend.state.deleteFastFail = Object.assign(new Error("ENTRY_IDENTITY_CHANGED"), { code: "ENTRY_IDENTITY_CHANGED", mutationStarted: true });
-    const failed = await runCli(["sftp", "cleanup", "execute", "--token", row.token, "--digest", row.digest, "--index", "0", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const failed = await runCli(["sftp", "cleanup", "execute", "--token", row.token, "--digest", row.digest, "--index", "0", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(failed.code, 3, failed.stdout + failed.stderr);
     assert.match(failed.stdout, /ENTRY_IDENTITY_CHANGED/);
     assert.equal(backend.state.deleteFastCalls, 0);
-    const again = await runCli(["sftp", "cleanup", "execute", "--token", row.token, "--digest", row.digest, "--index", "0", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const again = await runCli(["sftp", "cleanup", "execute", "--token", row.token, "--digest", row.digest, "--index", "0", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(again.code, 3);
     assert.match(again.stdout, /DELETE_RECEIPT_UNCERTAIN/); // no blind resend (cleanup-file-api.js:732)
-    const verified = await runCli(["sftp", "cleanup", "verify", "--token", row.token, "--index", "0", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const verified = await runCli(["sftp", "cleanup", "verify", "--token", row.token, "--index", "0", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(verified.code, 3, verified.stdout + verified.stderr);
     assert.match(verified.stdout, /CLEANUP_NOT_VERIFIED/); // fast-chain verify answers by live facts, not the frozen row
   } finally { await backend.close(); }
@@ -201,16 +201,16 @@ test("observe-batch binds frozen backend tokens per target; drift and cross-root
   const identityFile = writeJson(dir, "identity.json", ROOT_ID);
   const wrongIdentity = writeJson(dir, "wrong-identity.json", { dev: "99:9", ino: "1" });
   try {
-    const row = JSON.parse((await runCli(["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "delete", "--targets", targets, "--confirmed-paths", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } })).stdout);
+    const row = JSON.parse((await runCli(["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "delete", "--targets", targets, "--confirmed-paths", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } })).stdout);
     const bound = writeJson(dir, "bound.json", [{ key: "k1", relativePath: "data/x.csv", type: "file", backendToken: row.token, backendIndex: 0 }]);
-    const ok = await runCli(["sftp", "cleanup", "observe-batch", "--file", nodeFile, "--observation-id", "obs-1", "--targets", bound, "--root-identity", identityFile, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const ok = await runCli(["sftp", "cleanup", "observe-batch", "--file", nodeFile, "--observation-id", "obs-1", "--targets", bound, "--root-identity", identityFile, "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(ok.code, 0, ok.stdout + ok.stderr);
     assert.ok(!ok.stdout.includes("TOKEN_"), "a frozen token+index that matches the row must observe cleanly");
     const drifted = writeJson(dir, "drift.json", [{ key: "k1", relativePath: "data/other.csv", type: "file", backendToken: row.token, backendIndex: 0 }]);
-    const mismatch = await runCli(["sftp", "cleanup", "observe-batch", "--file", nodeFile, "--observation-id", "obs-2", "--targets", drifted, "--root-identity", identityFile, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const mismatch = await runCli(["sftp", "cleanup", "observe-batch", "--file", nodeFile, "--observation-id", "obs-2", "--targets", drifted, "--root-identity", identityFile, "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(mismatch.code, 0);
     assert.match(mismatch.stdout, /TOKEN_TARGET_MISMATCH/);
-    const crossRoot = await runCli(["sftp", "cleanup", "observe-batch", "--file", nodeFile, "--observation-id", "obs-3", "--targets", bound, "--root-identity", wrongIdentity, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const crossRoot = await runCli(["sftp", "cleanup", "observe-batch", "--file", nodeFile, "--observation-id", "obs-3", "--targets", bound, "--root-identity", wrongIdentity, "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(crossRoot.code, 0);
     assert.match(crossRoot.stdout, /TOKEN_NODE_MISMATCH/);
   } finally { await backend.close(); }
