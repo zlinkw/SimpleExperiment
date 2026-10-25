@@ -22,7 +22,13 @@
 
 ## 块A实施记录（沙箱唯一源负责人，impl 分支，基线 a9fc3d36 未变）
 
-提交链：c1433dc4（功能+测试）→ 0b4411d5（任务文档）→ 49847c30（严格模式返修：save 返回校验后文件供 mutate 返回；实例记录读取改确定赋值安全的有界读取函数）。验证候选 HEAD=49847c30；下列 blob 为当前工作区内容。
+提交链：c1433dc4（功能+测试）→ 0b4411d5（任务文档）→ 49847c30（严格模式返修：save 返回校验后文件供 mutate 返回；实例记录读取改确定赋值安全的有界读取函数）→ e5bb5c30（文档哈希）。验证候选 HEAD=e5bb5c30；下列 blob 为冻结树文件内容（已按 HEAD:path 逐一核对一致）。
+
+冻结验证树（Linux 本地 Git，由源负责人以 node 身份创建，detached，供宿主经既有映射只读使用）：
+- 路径 /repos/MCP/zlk-multi-project-branches-win-20261025（创建前核实路径不存在、worktree 列表无同名条目，未覆盖任何内容）。
+- HEAD=e5bb5c30e7d993063decfc08bd18404e41734c58，detached（symbolic-ref 无）；tree=26c740393ac8f06937440a2ee6397b0dfdbbda7c。
+- gitdir=/repos/MCP/zlk-cluster-orchestrator/.git/worktrees/zlk-multi-project-branches-win-20261025；common-dir=/repos/MCP/zlk-cluster-orchestrator/.git；私有索引 <gitdir>/index 已存在且与 HEAD 一致：status --porcelain 为空、无 staged（dirty=0，staged=0）。
+- 九个工作文件 blob 逐一等于本记录所列哈希（GitIdentityProbe d0389ecd…、BranchProjectStore ca221b30…、BranchProjectService 5b41a4be…、LocalApiServer.legacy 6361b43b…、LocalApiClient ece21005…、legacy.ts d87b2167…、PanelHtml.legacy 1fbdf7d7…、branchProjectRegistry.test 8ed37b93…、localApi.test 698167db…）。
 
 ### 变更文件（blob sha，工作区内容）
 - src/project/GitIdentityProbe.ts（新，d0389ecd60abb6acdf7749c6af9cf698150354a3）：sanitizeGitEnv 清除 GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR/GIT_INDEX_FILE/GIT_OBJECT_DIRECTORY/GIT_ALTERNATE_OBJECT_DIRECTORIES/GIT_PREFIX/GIT_NAMESPACE/GIT_CONFIG(_GLOBAL/_SYSTEM)（大小写不敏感）；readGitIdentity（rev-parse --show-toplevel/common-dir、symbolic-ref、rev-parse HEAD、--no-optional-locks status --porcelain、config remote url）全只读；listWorktrees --porcelain；compareAncestorRelation（equal/ahead/diverged/独立仓库如实区分，merge-base 仅在同 common-dir 即 worktree 情形使用，不对独立 clone 猜测）；checkBranchNameFree；唯一写路径 createWorktreeBranch=`git worktree add <path> -b <branch> <base>`，分支占用/路径非法即拒绝，无 reset/rebase/force/stash/删除。
