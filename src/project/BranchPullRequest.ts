@@ -212,7 +212,7 @@ export async function previewBranchPullRequest(options: {
   if (listed.code !== 0) { preview.existing = { kind: "unknown", note: `PR 列表查询失败：${(listed.stderr || "").slice(0, 160) || `exit ${listed.code}`}` }; preview.digest = digestPreview(preview); return preview; }
   try {
     const rows = parsePrList(listed.stdout.toString("utf8"));
-    preview.existing = classifyPrRows(rows, rows.length >= PR_LIST_LIMIT, { owner: live.owner, repo: live.repo, branch, base, sourceSha: preview.sourceSha });
+    preview.existing = classifyPrRows(rows, rows.length >= PR_LIST_LIMIT, { owner: live.owner, repo: live.repo, branch, base, sourceSha: sourceSha.toLowerCase() });
   } catch (error) {
     preview.existing = { kind: "unknown", note: `PR 列表不可解析，按未知停止：${String((error as Error)?.message || error).slice(0, 160)}` };
   }
@@ -491,7 +491,7 @@ export async function mergeBranchPullRequest(options: {
   let unknownMerge: Receipt | undefined;
   try { unknownMerge = (await loadUnknownReceipts(ledger)).find(row => row.key === key); }
   catch (error) { return { status: "blocked-unknown", reason: `收据账本不可读（${String((error as Error)?.message || error).slice(0, 160)}），无法保证不重放，未发送合并。` }; }
-  if (unknownMerge) return { status: "blocked-unknown", reason: "存在未对账的 merge 收据且当前 view 仍非 MERGED：不重发合并指令；请稍后重试本操作（仅只读对账）或在网页处理后由“合并PR”恢复。", state: before.state };
+  if (unknownMerge) return { status: "blocked-unknown", reason: "存在未对账的 merge 收据且当前 view 仍非 MERGED：不重发合并指令；请稍后重试本操作（仅只读对账）或在网页处理后由“合并PR”恢复。", state: before.row.state };
   let receipt;
   try { receipt = await openReceipt(ledger, { key, root: cwd, branch: `pr#${prNumber}`, sourceSha: verifiedHeadSha.toLowerCase(), base, repoSelector, action: "merge" }); }
   catch (error) { return { status: "blocked-unknown", reason: `合并前无法落收据（${String((error as Error)?.message || error).slice(0, 160)}），未执行合并。` }; }
