@@ -369,3 +369,69 @@ test('native completion ticks mirror every interleaved job across plans once wit
   assert.equal(f.sent.length,0,'observing and syncing completed jobs never restarts their training');
   assert.deepEqual(f.errors,[]);
 });
+
+// r49 返修 3：完成态与后台同步失败必须分离——真实 tick 触发生产 scheduleDistributedPostprocess，
+// 同步体（syncCompletedPlanArtifacts 入口）可控地保持真实 pending；队列完成状态照常发布且不被后续
+// tick 阻塞；释放为真实失败后，仅 diagnostics/原生通知记录错误，绝不改写运行完成状态。
+test('a pending automatic sync keeps completed queue state separate and its real failure lands only in diagnostics plus one native notice',async()=>{
+  const f=nativeFixture({methods:['tickDistributedQueueCore','scheduleDistributedPostprocess'],context:{
+    UiCommandCancelled:class UiCommandCancelled extends Error{constructor(message='操作已取消。',code='USER_CANCELLED'){super(message);this.name='UiCommandCancelled';this.code=code;}},
+  }});
+  delete f.p.scheduleDistributedPostprocess; // 与 G4 同一配方：去掉 own-property no-op，走生产调度成员
+  const notes=[];let startedCalls=0,releaseSync;
+  const pending=new Promise((_resolve,reject)=>{releaseSync=()=>reject(Error('mirror storage write failed'));});
+  let started;const startedSignal=new Promise(r=>started=r);
+  Object.assign(f.p,{captureProjectContext:()=>({}),projectContextIsCurrent:()=>true,
+    showNativePanelMessage:m=>notes.push(structuredClone(m)),
+    syncCompletedPlanArtifacts:async()=>{startedCalls++;started();await pending;}});
+  // :170 同配方让 tick 真实"观察"到完成事件（开场即 completed 无 newTerminal，生产不会调度）
+  f.own(0,'running');f.publish(0,'completed');f.own(1,'running');
+  await f.p.tickDistributedQueueCore();
+  assert.equal(f.stored().plans[0].jobs[0].status,'completed','真实完成事件经 tick 落盘后队列完成状态照常发布');
+  assert.ok(f.p.distributedPostprocessPromise,'真实生产 schedule 登记了后台同步 promise，不是 no-op');
+  await startedSignal;
+  assert.equal(startedCalls,1,'后台同步体真实启动且恰好一次');
+  assert.equal(f.stored().plans[0].jobs[0].status,'completed','完成状态不等待后台同步');
+  assert.equal(notes.length,0,'pending 期间零通知');
+  await f.p.tickDistributedQueueCore(); // 同步在途期间再次 tick：不阻塞、不重复派发
+  assert.equal(startedCalls,1,'在途 promise 未被重复派发（生产 single-promise 守卫生效）');
+  assert.equal(f.stored().plans[0].jobs[0].status,'completed');
+  const promise=f.p.distributedPostprocessPromise;
+  releaseSync();
+  await assert.rejects(promise,/mirror storage write failed/,'释放为生产 distributedPostprocessPromise 的真实失败');
+  assert.equal(f.p.distributedPostprocessPromise,undefined,'在途 promise 照常清空');
+  assert.equal(f.p.completedPlanMirrorDiagnostics?.status,'failed','失败仅落 diagnostics');
+  assert.equal(f.p.completedPlanMirrorDiagnostics.consecutiveFailures,1);
+  assert.match(f.p.completedPlanMirrorDiagnostics.reason,/mirror storage write failed/);
+  assert.equal(notes.length,1,'真实外层失败恰一条原生通知');
+  assert.match(notes[0].message,/自动产物同步未完成：mirror storage write failed/);
+  assert.match(notes[0].message,/运行完成状态不变，可在对应 Job 行重新同步/);
+  assert.equal(f.stored().plans[0].jobs[0].status,'completed','同步失败绝不改写运行完成状态（完成态分离）');
+});
+
+// r50 已证源码分支：外层失败回调发通知前必须核捕获上下文仍当前/未 disposed——工作区切走后旧 copy
+// 在 current 失效处抛的普通 Error 不得弹进新项目的原生面板；诊断记录不受影响（同 finally 既有守卫）。
+test('a stale-context sync rejection never pops a native notice into the switched-to project',async()=>{
+  const f=nativeFixture({methods:['tickDistributedQueueCore','scheduleDistributedPostprocess'],context:{
+    UiCommandCancelled:class UiCommandCancelled extends Error{constructor(message='操作已取消。',code='USER_CANCELLED'){super(message);this.name='UiCommandCancelled';this.code=code;}},
+  }});
+  delete f.p.scheduleDistributedPostprocess;
+  const notes=[];let contextCurrent=true,started,releaseSync;
+  const pending=new Promise((_resolve,reject)=>{releaseSync=()=>reject(Error('同步已停止：项目、连接或清理操作已变化。'));});
+  const startedSignal=new Promise(r=>started=r);
+  Object.assign(f.p,{captureProjectContext:()=>({}),projectContextIsCurrent:()=>contextCurrent,
+    showNativePanelMessage:m=>notes.push(structuredClone(m)),
+    syncCompletedPlanArtifacts:async()=>{started();await pending;}});
+  f.own(0,'running');f.publish(0,'completed');f.own(1,'running');
+  await f.p.tickDistributedQueueCore();
+  assert.ok(f.p.distributedPostprocessPromise,'旧项目后台同步已真实开始');
+  await startedSignal;
+  contextCurrent=false; // 工作区切换：捕获上下文不再当前
+  const promise=f.p.distributedPostprocessPromise;
+  releaseSync();
+  await assert.rejects(promise,/项目、连接或清理操作已变化/,'旧轮在 current 失效处真实失败');
+  assert.equal(notes.length,0,'旧项目错误绝不弹进切换后的新项目原生面板（B 契约：仅当前项目真故障才弹）');
+  assert.equal(f.p.completedPlanMirrorDiagnostics?.status,'failed','诊断记录不受上下文守卫影响，照常保留');
+  assert.match(f.p.completedPlanMirrorDiagnostics.reason,/项目、连接或清理操作已变化/);
+  assert.equal(f.p.distributedPostprocessPromise,undefined,'在途 promise 照常清空');
+});

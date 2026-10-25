@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.410",
-  "buildId": "153bbcc8d65e107154d4503fc67ca51978a47d5b0d6b2bc46074dad1eca67401",
+  "version": "0.5.411",
+  "buildId": "13eaa03a5200267c79e0a158a4a5c34e0430f9fc3eb37be368fcf6f80e72fee2",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -68,6 +68,10 @@
       "sha256": "f60af13a5630daf00e1f5b34e6436705461f1a21f02a5b2199f11f628aec29cc"
     },
     {
+      "path": "dist/core/UiCommandCancelled.js",
+      "sha256": "c20605673bd1d47a0e7c694b858c5ea177ed1d795c6d3b5207eb211544e0d5be"
+    },
+    {
       "path": "dist/core/WorkspacePathMapper.js",
       "sha256": "d16e126fda2735e373e186f3a34b367ee5af5ca8b4dcbe0b66e22e136285cceb"
     },
@@ -85,7 +89,7 @@
     },
     {
       "path": "dist/extension/CompletedJobSyncHost.js",
-      "sha256": "ebf81ba52c1d8ed93d3b7416e6aa5b0b838fb19264b0e04cc5362a4aefbe3ed9"
+      "sha256": "5660d2503d57dacbf3ffbf9318121e8e18fa1e9f5c728e7ad9fa5806dcd97539"
     },
     {
       "path": "dist/extension/ExtensionContext.js",
@@ -105,7 +109,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "853d1c3c405acf977140c4c522c71ecefa83465dff35408d31c9cb54ce7de378"
+      "sha256": "f6ed3604bbceb225cfe357125c6a909eba96178538ccd80af660caf86a1c882f"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -677,7 +681,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "29d46b32ebea177b9caa4dbbf249d2e2ec3b70897699d81210283c167a89633a"
+      "sha256": "eec2bf778c0c86f8325da4c6c29a0da8cff2ebfa2261976be019361ddcb5659c"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1025,7 +1029,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "a1059f9f475f371bda975e0170c42a02ddb8d20cd437947b59bcd17dd61d9d24"
+      "sha256": "70535345b30d9c79d0fac23210e71e7942152905f3b414535a3706b214169eea"
     },
     {
       "path": "scripts/check-static.js",

@@ -16,8 +16,9 @@ function fixture(){
  const plan={id:'plan',projectId:canonicalProjectId(root),planFile:'plans/p.yaml',enqueuedAt:'2026-10-14T00:00:00Z',executionMode:'train_test',jobs},queue={plans:[plan]},inventory={a:{},b:{},c:{}},transfers=[],reads={sync:0,inventory:0},errors=[];
  for(const file of ['work_dirs/p/job0/model.pth','work_dirs/p/job0/artifact_manifest.json','tmp/result/job0.csv'])inventory.a[file]={sha256:'a'.repeat(64),size:3,modifiedAtMs:1};
  inventory.b['work_dirs/p/job0/model.pth']={sha256:'b'.repeat(64),size:3,modifiedAtMs:999};
- const config={get:(_k,fallback)=>fallback};let lost=false;
+ const config={get:(_k,fallback)=>fallback};let lost=false;const nativeNotes=[];
  const h={context:{globalStorageUri:{fsPath:root}},workerCodeSyncTargets:()=>targets,enabledWorkerConfigs:()=>targets,loadDistributedQueue:async()=>structuredClone(queue),
+  showNativePanelMessage:m=>nativeNotes.push(structuredClone(m)),
   // Endpoint machine-state guards: fixture endpoints carry no state mapping.
   localMachineStateGuard:()=>({prefixes:[],unknown:false}),targetRootGuard:()=>null,machineStatePrefixesById:()=>[],machineStatePrefixesForTarget:()=>[],
   // r8 最小依赖补全：本夹具端点无状态映射，prepare 呈现"已可绑定、零 GET"冻结形态。
@@ -30,7 +31,12 @@ function fixture(){
  patchDistributedJob:async(_root,_id,index,_attempt,patch)=>{const j=jobs[index];if(j.commandId!==patch.expectedCommandId)return;const {expectedCommandId,replaceMirroredWorkerIds,...fields}=patch;Object.assign(j,fields);}};
  h.mergeLatestWorkerVersions=vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(ast)+'};Host.prototype.mergeLatestWorkerVersions',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
  {vscode:{workspace:{getConfiguration:()=>config},Uri:{file:x=>x}},scopeInventoryPathAllowed,planLatestWorkerMerge,runSyncScopeBatch,loadSyncHolds:async()=>({}),isLocalCodeOwnedPath:()=>false,safeSyncPath:require('../../src/features/SyncResolution.ts').safeSyncPath,path,workerFpsyncTaskLabel:()=>'',UiCommandCancelled:Error,jobArtifactRunGeneration:require('../../src/features/JobArtifactSyncIdentity.ts').jobArtifactRunGeneration,isUnderMachineStatePrefixes:require('../../src/features/ProjectRootMap.ts').isUnderMachineStatePrefixes});
- return {h,root,queue,jobs,inventory,transfers,reads,errors,setLost:()=>lost=true,run:(scope=['.'])=>new CompletedJobSyncHost(h,root,()=>true).run(scope)};
+ // r46 A：最小队列提交成功尾复刻——真实 save 只在提交成功时发布最新 cache 并在锁外同步通知订阅者；
+ // 失败/围栏路径不发布不通知（观察者绝不在提交内 await 载入，避免重入写锁）。
+ const observers=new Set();
+ h.distributedQueueCommitObservers=observers;
+ const commit=()=>{h.distributedQueueCache=structuredClone(queue);for(const o of [...observers]){try{o(root);}catch{/* 观察者失败不影响提交 */}}};
+ return {h,root,queue,jobs,inventory,transfers,reads,errors,nativeNotes,setLost:()=>lost=true,commit,run:(scope=['.'])=>new CompletedJobSyncHost(h,root,()=>true).run(scope)};
 }
 test('first completed job merges latest files to every Worker while its sibling is running; old timestamps never win',async()=>{
  const f=fixture();await f.run();assert.equal(f.transfers.length,2);assert.ok(f.transfers.every(p=>p.relativePaths.every(file=>file.includes('job0'))));
@@ -53,6 +59,7 @@ test('sync permission reuses the confirmed queue fact with zero job-state querie
  assert.equal(g.transfers.length,1,'退役行不进入下一个传输分组');
  assert.equal(g.jobs[0].latestArtifactSync.state,'partial');assert.match(g.jobs[0].latestArtifactSync.error,/替代/);assert.equal(g.reads.sync,0);
  g.jobs[0].latestArtifactSync.retryAfter='';await g.run();assert.equal(g.errors.length,1,'同一同步身份的相同错误不逐轮追加');
+ assert.equal(g.nativeNotes.length,0,'r49：已证在途替换（outputRetiredAt 清退）经复核确认静默，不弹失败通知');
 });
 test('a local stop during the copy halts remaining transfers without writing a completion proof',async()=>{
  const f=fixture();let allow=true;const transfer=f.h.simpleSftpApiCall;let flipped=false;
@@ -104,6 +111,21 @@ test('checkbox scope limits transfers; excluded jobs do not expand scope, a chan
 test('lost transfer response keeps training completed and retries only remaining content after an active query',async()=>{
  const f=fixture();f.setLost();await f.run();assert.equal(f.jobs[0].status,'completed');assert.equal(f.jobs[0].latestArtifactSync.state,'partial');
  f.jobs[0].latestArtifactSync.retryAfter='';await f.run();assert.equal(f.jobs[0].latestArtifactSync.state,'synced');assert.equal(f.transfers.length,2,'the already copied destination needs no repeated transfer');
+});
+
+// r47 B：自动轮真实同步失败按既有同签名去重经原生通知恰一次；后台重试同故障、手动轮与正常轮全部静默。
+test('automatic round surfaces a real sync failure once through the native notice; same-failure retries, manual runs and normal rounds stay quiet',async()=>{
+ const f=fixture();f.setLost();await f.run();
+ assert.equal(f.nativeNotes.length,1,'自动轮真实失败恰好一条原生错误通知');
+ assert.equal(f.nativeNotes[0].tone,'error');
+ assert.match(f.nativeNotes[0].message,/产物同步 plans\/p\.yaml job 0 未完成：transport response lost/,'完整真实原因+plan/job 标识');
+ assert.match(f.nativeNotes[0].message,/运行完成状态不变，可在该 Job 行重新同步/,'明示完成状态不变并指向手动重试');
+ f.setLost();f.jobs[0].latestArtifactSync.retryAfter='';await f.run();
+ assert.equal(f.nativeNotes.length,1,'相同故障的后台重试不重复刷屏（同 key 同 error 签名去重）');
+ assert.equal(f.jobs[0].latestArtifactSync.state,'partial');assert.ok(f.jobs[0].latestArtifactSync.retryAfter,'30s 自动恢复保留，未被通知改动');
+ f.setLost();await new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],{force:true,jobs:[{planId:'plan',index:0,commandId:'command0'}]});
+ assert.equal(f.nativeNotes.length,1,'手动 force 轮走 withUiCommandStatus 唯一通知漏斗，Host 不再弹第二次');
+ const g=fixture();await g.run();assert.deepEqual(g.nativeNotes,[],'正常自动轮全程静默');
 });
 
 test('artifact transfer and code upload have independent activity while exact artifact paths remain protected',async()=>{
@@ -188,4 +210,151 @@ test("a changed source hash under the same command opens a new generation instea
  const latest=f.transfers.at(-1);
  assert.notEqual(latest.generation,before,"源清单 SHA 变化必须开新代（即便 commandId 未变）");
  assert.ok(f.transfers.slice(2).every(p=>p.generation===latest.generation),"本轮源清单的全部批次共用新代");
+});
+
+// r46 A 红灯：排队等待期间自己的 Job 被本地清退/身份替换，必须及时结束等待者自身（UiCommandCancelled 既有取消通路），
+// 不等无关 Job 的在途复制结束；不清/不动他人 active 传输、不写任何同步结果。当前 Host.run:23 无伴跑退出 ⇒ 本用例现为红。
+test('a queued refresh/retry ends promptly when its own job is cleared or replaced during the wait, leaving the unrelated copy untouched', async () => {
+ const Q=require('../../src/features/DistributedPlanQueue.ts');
+ for(const scenario of ['cleared','replaced']){
+  const f=fixture();
+  f.inventory.a['work_dirs/p/job1/model.pth']={sha256:'f'.repeat(64),size:3,modifiedAtMs:1};
+  f.inventory.a['work_dirs/p/job1/artifact_manifest.json']={sha256:'f'.repeat(64),size:3,modifiedAtMs:1};
+  f.inventory.a['tmp/result/job1.csv']={sha256:'f'.repeat(64),size:3,modifiedAtMs:1};
+  f.jobs[1].status='completed';
+  let releaseGate,entered;const started=new Promise(r=>entered=r);
+  const merge=f.h.mergeLatestWorkerVersions;
+  f.h.mergeLatestWorkerVersions=async(...args)=>{entered();await new Promise(r=>releaseGate=r);return merge.call(f.h,...args);};
+  // 无关 Job1 的正常复制挂住在传输阶段
+  const active=new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],{jobs:[{planId:'plan',index:1,commandId:'command1'}]});
+  await started;
+  const transfersAtEntry=f.transfers.length;
+  // 同一目标 Job 的 retry 与 refresh 两个排队者（force 异 key，都在 active 后排队）
+  const results=[];
+  const retry=new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],{force:true,jobs:[{planId:'plan',index:0,commandId:'command0'}]}).then(()=>results.push('retry:done'),e=>results.push(e));
+  const refresh=new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],{force:true,verifyOnly:true,jobs:[{planId:'plan',index:0,commandId:'command0'}]}).then(()=>results.push('refresh:done'),e=>results.push(e));
+  await new Promise(r=>setImmediate(r));await new Promise(r=>setImmediate(r));
+  try{
+   // 真实清退/身份替换经队列提交成功边界：removeConfirmedDistributedPlan 为生产纯函数；
+   // commit() 复刻 save 成功尾——先发布最新 cache，再同步通知订阅者（锁外，观察者不 await 载入）。
+   if(scenario==='cleared'){
+    const plan=f.queue.plans[0];
+    const next=Q.removeConfirmedDistributedPlan(f.queue,plan.planFile,{jobKeys:new Set([Q.distributedJobControlKey(plan,f.jobs[0])]),deferredIds:new Set(),projectId:Q.canonicalProjectId(f.root)});
+    Object.assign(f.queue,next);
+   }else f.jobs[0].commandId='command0-replaced';
+   f.commit();
+   await new Promise(r=>setTimeout(r,5));await new Promise(r=>setTimeout(r,5));
+   assert.equal(results.length,2,scenario+'：两个等待者在无关复制放行前即结束');
+   const {UiCommandCancelled}=require('../../src/core/UiCommandCancelled.ts');
+   for(const outcome of results){
+    assert.ok(outcome instanceof UiCommandCancelled,scenario+'：等待者以生产真实取消类型结束，不是普通失败');
+    assert.equal(outcome.code,'SELECTED_JOB_CLEARED','精确身份失效标记，供 cancelled 静默收拢按类型识别');
+    assert.match(outcome.message,/清退|替代/);assert.doesNotMatch(outcome.message,/任务未完成/,'不用宽泛"任务未完成"误导');
+   }
+   assert.equal(f.nativeNotes.length,0,'清退取消不得产生原生失败通知');
+   assert.equal(f.transfers.length,transfersAtEntry,'排队等待期间对目标 Job 零 SFTP 派发');
+   assert.equal(f.jobs[0].latestArtifactSync,undefined,'结束的清退等待不写任何同步结果');
+   assert.deepEqual(f.errors,[],'取消结束不产生 partial 失败记录');
+  }finally{
+   releaseGate();await active.catch(()=>{});
+   await Promise.all([retry,refresh]).catch(()=>{});
+  }
+  assert.equal(f.jobs[1].latestArtifactSync.state,'synced','无关复制不被清退取消打断，正常完成');
+  assert.equal(f.inventory.b['work_dirs/p/job1/model.pth'].sha256,'f'.repeat(64),'无关复制字节与来源 SHA 一致');
+  assert.equal(f.h.completedJobSyncRuns.size,0,'单飞登记最终清空');
+  assert.equal(f.h.distributedQueueCommitObservers.size,0,'等待结束后观察订阅全部释放');
+ }
+});
+
+// r49 返修 1：等待注册必须先接好 abort 拒绝通路，再订阅提交观察者与项目上下文中止，最后立即基于
+// 已提交快照与当前上下文复核一次——预检 await 结束后、订阅挂上前的清退/中止不能丢唤醒；
+// 上下文取消保留真实原因（工作区切换不谎称清退）；空选择请求时本地拒绝，不无界排在活动轮后。
+function gateMerge(f){let release;const started=new Promise(r=>{const enter=f.h.mergeLatestWorkerVersions;
+ f.h.mergeLatestWorkerVersions=async(...args)=>{r();await new Promise(res=>release=res);return enter.apply(f.h,args);};});
+ return {started,release:()=>release()};}
+// 与清退用例同一 job1 来源配方：无关复制轮的前提必须真实成立（缺来源会按既有保护如实 partial）。
+function giveJob1Source(f){f.inventory.a['work_dirs/p/job1/model.pth']={sha256:'f'.repeat(64),size:3,modifiedAtMs:1};
+ f.inventory.a['work_dirs/p/job1/artifact_manifest.json']={sha256:'f'.repeat(64),size:3,modifiedAtMs:1};
+ f.inventory.a['tmp/result/job1.csv']={sha256:'f'.repeat(64),size:3,modifiedAtMs:1};}
+
+test('a queue clear committed between the pre-check await and wait registration still ends the waiter promptly as a proven cancellation', async () => {
+ const {UiCommandCancelled}=require('../../src/core/UiCommandCancelled.ts');
+ const Q=require('../../src/features/DistributedPlanQueue.ts');
+ const f=fixture();f.jobs[1].status='completed';giveJob1Source(f);
+ const gate=gateMerge(f);
+ const active=new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],{jobs:[{planId:'plan',index:1,commandId:'command1'}]});
+ await gate.started;
+ // 复现载入/提交竞态窗口：等待者预检拿到旧快照（仍合格），返回前清退已真实提交并先发布新 cache。
+ let armed=false,fired=false;const realLoad=f.h.loadDistributedQueue;
+ f.h.loadDistributedQueue=async(...args)=>{const snapshot=await realLoad(...args);
+  if(armed&&!fired){fired=true;const plan=f.queue.plans[0];
+   Object.assign(f.queue,Q.removeConfirmedDistributedPlan(f.queue,plan.planFile,{jobKeys:new Set([Q.distributedJobControlKey(plan,f.jobs[0])]),deferredIds:new Set(),projectId:Q.canonicalProjectId(f.root)}));
+   f.commit();}
+  return snapshot;};
+ armed=true;
+ const waiter=new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],{force:true,jobs:[{planId:'plan',index:0,commandId:'command0'}]}).catch(e=>e);
+ try{
+  const outcome=await Promise.race([waiter,new Promise(r=>setTimeout(()=>r('仍在排队等待'),20))]);
+  assert.notEqual(outcome,'仍在排队等待','注册前已提交的清退绝不能丢唤醒、空等到在途轮结束');
+  assert.ok(outcome instanceof UiCommandCancelled,'以生产真实取消类型结束');
+  assert.equal(outcome.code,'SELECTED_JOB_CLEARED');
+  assert.equal(f.nativeNotes.length,0,'清退取消不产生原生失败通知');
+ }finally{gate.release();await active.catch(()=>{});await waiter;}
+ assert.equal(f.h.distributedQueueCommitObservers.size,0);
+ assert.equal(f.h.completedJobSyncRuns.size,0);
+});
+
+test('an aborted project context ends the waiter with its real reason, both when aborting during the wait and when already aborted at registration', async () => {
+ const {UiCommandCancelled}=require('../../src/core/UiCommandCancelled.ts');
+ for(const when of ['during','before']){
+  const f=fixture();f.jobs[1].status='completed';giveJob1Source(f);
+  const gate=gateMerge(f);
+  const active=new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],{jobs:[{planId:'plan',index:1,commandId:'command1'}]});
+  await gate.started;
+  f.h.projectContextAbortController=new AbortController();
+  const reason=new UiCommandCancelled('工作区已切换，旧项目请求已取消。','WORKSPACE_SWITCHED');
+  if(when==='before')f.h.projectContextAbortController.abort(reason);
+  const waiter=new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],{force:true,jobs:[{planId:'plan',index:0,commandId:'command0'}]}).catch(e=>e);
+  if(when==='during'){await new Promise(r=>setImmediate(r));f.h.projectContextAbortController.abort(reason);}
+  const outcome=await Promise.race([waiter,new Promise(r=>setTimeout(()=>r('仍在排队等待'),20))]);
+  assert.notEqual(outcome,'仍在排队等待',when+'：项目上下文中止必须能结束等待');
+  assert.ok(outcome instanceof UiCommandCancelled,when+'：以上下文真实取消原因结束');
+  assert.equal(outcome.code,'WORKSPACE_SWITCHED',when+'：保留真实上下文取消原因');
+  assert.match(outcome.message,/工作区已切换/);
+  assert.doesNotMatch(outcome.message,/清退/,'工作区切换不得谎称任务被清退');
+  assert.equal(f.nativeNotes.length,0);
+  gate.release();await active.catch(()=>{});await waiter;
+  assert.equal(f.h.distributedQueueCommitObservers.size,0,'等待结束后全部订阅释放');
+  assert.equal(f.h.completedJobSyncRuns.size,0);
+ }
+});
+
+test('an empty selection is rejected at request time and never queues behind the active round', async () => {
+ const f=fixture();f.jobs[1].status='completed';giveJob1Source(f);
+ const gate=gateMerge(f);
+ const active=new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],{jobs:[{planId:'plan',index:1,commandId:'command1'}]});
+ await gate.started;
+ const outcome=await Promise.race([new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],{force:true,jobs:[]}).catch(e=>e),
+  new Promise(r=>setTimeout(()=>r('仍在排队等待'),20))]);
+ assert.notEqual(outcome,'仍在排队等待','空选择必须请求时本地拒绝，绝不无界排在在途轮后');
+ assert.match(String(outcome.message),/所选任务未完成或身份已变化/);
+ assert.equal(f.h.distributedQueueCommitObservers.size,0,'未进入等待通路，自然无残留订阅');
+ gate.release();await active;
+ assert.equal(f.jobs[1].latestArtifactSync.state,'synced','在途无关轮照常完成（来源真实，复制实际成功）');
+ assert.equal(f.jobs[1].commandId,'command1');assert.equal(f.nativeNotes.length,0,'无关轮成功与空选择拒绝均零通知');
+ assert.deepEqual(f.errors,[],'全程零失败记录');
+});
+
+// r49 返修 2：身份复核读不到队列＝"无法确认"，绝非已证清退——真实失败仍恰一次弹出，并如实附带复核失败原因。
+test('a real automatic sync failure is still surfaced once when the identity re-check cannot read the queue, without rewriting completion state', async () => {
+ const f=fixture();f.setLost();
+ const realLoad=f.h.loadDistributedQueue,transfer=f.h.simpleSftpApiCall;let transferSeen=false;
+ f.h.simpleSftpApiCall=async(...args)=>{transferSeen=true;return transfer(...args);};
+ f.h.loadDistributedQueue=async(...args)=>{if(transferSeen)throw Error('queue storage unreachable');return realLoad(...args);};
+ await f.run();
+ assert.equal(f.nativeNotes.length,1,'复核不可用是未知而非已证清退，绝不吞掉真实失败通知');
+ assert.match(f.nativeNotes[0].message,/transport response lost/,'完整真实故障原因保留');
+ assert.match(f.nativeNotes[0].message,/队列复核暂不可用：queue storage unreachable/,'如实附带复核失败原因');
+ assert.equal(f.jobs[0].status,'completed','执行完成状态不被改写');
+ assert.equal(f.jobs[0].latestArtifactSync.state,'partial','partial 重试记录与 30s 自动恢复保留');
 });

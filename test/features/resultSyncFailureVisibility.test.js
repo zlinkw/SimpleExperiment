@@ -10,8 +10,8 @@ function method(first, next) {
   return source.slice(start, end).replace(/}\r?\n {4}(?=(?:async )?[a-zA-Z_$][\w$]*\()/g, "},\n    ");
 }
 
-function fixture({ errorChoice } = {}) {
-  const alerts = [], warnings = [], statuses = [], terminal = [], progress = [], information = [], logCalls = [];
+function fixture({ errorChoice, finishChoice } = {}) {
+  const alerts = [], warnings = [], statuses = [], terminal = [], progress = [], information = [], logCalls = [], facts = [], openedPanels = [];
   const sandbox = {
     workspaceRoot: () => "C:/project",
     OperationOutcome_1,
@@ -21,6 +21,10 @@ function fixture({ errorChoice } = {}) {
     hostOperationLeaseActionLabel: command => command,
     errorMessage: error => error.message, compactSensitiveText: text => text,
     isUiCommandRemotePending: () => false, isUiCommandCancelled: error => error.name === "UiCommandCancelled",
+    // r49 迁类：runActionCommandCore/distributedCodeVersionHold 的编译切片经 UiCommandCancelled_1
+    // 命名空间引用共享取消类；沙箱按 core 同一构造语义供给，分支一旦执行不再 ReferenceError。
+    UiCommandCancelled_1: { UiCommandCancelled: class UiCommandCancelled extends Error {
+      constructor(message = "操作已取消。", code = "USER_CANCELLED") { super(message); this.name = "UiCommandCancelled"; this.code = code; } } },
     actionErrorSuggestion: () => "inspect",
     // r4 (task ui-plan-gpu-progress-20261024 返修): the four artifact-sync commands now run
     // their per-operation Notification through the real withUiCommandStatus funnel, so this
@@ -37,7 +41,7 @@ function fixture({ errorChoice } = {}) {
       window: {
         // r42: Native showErrorMessage resolves the clicked button item (undefined on dismiss);
         // 记录调用后返回 errorChoice，被测 callback 仍由产品真实 .then 分支驱动。
-        showErrorMessage: async (...args) => { alerts.push(args); return errorChoice; }, showWarningMessage: async (...args) => warnings.push(args), showInformationMessage: (...args) => information.push(args),
+        showErrorMessage: async (...args) => { alerts.push(args); return errorChoice; }, showWarningMessage: async (...args) => { warnings.push(args); return finishChoice; }, showInformationMessage: (...args) => information.push(args),
         withProgress: (_options, callback) => Promise.resolve(callback({ report() {} })).catch(() => undefined),
         createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }),
       },
@@ -54,6 +58,7 @@ function fixture({ errorChoice } = {}) {
     method("\n    assertPlanSubmissionNotDuringResultSync(", "\n    async finishDistributedPlanSubmission("),
     method("async finishDistributedPlanSubmission(", "async activeDeferredForSubmission("),
     method("async distributedCodeVersionHold(", "legacySourceFreezeWorkerNames("),
+    method("\n    finishOperationProgressNotice(", " submissionNoticeTone("),
   ].join(",")} };`, sandbox);
   const host = {
     ...sandbox.methods, localOperations: {}, manualResultSyncCounts: new Map(),
@@ -65,8 +70,10 @@ function fixture({ errorChoice } = {}) {
     beginSimpleSftpCapabilityLaunch() {}, legacySourceFreezeWorkerNames() { return []; },
     // r42: 最小可观察日志宿主——仅计数真实产品 .then 分支的调用，不伪造被测 callback。
     showOperationLogFromUi() { logCalls.push(1); },
+    // r47 A：finishOperationProgressNotice 的被测宿主——完整日志通道与面板导航均为真实方法调用点。
+    logOperationFact(line) { facts.push(line); }, openPanelAt(panel) { openedPanels.push(panel); },
   };
-  return { host, alerts, warnings, statuses, terminal, progress, information, logCalls };
+  return { host, alerts, warnings, statuses, terminal, progress, information, logCalls, facts, openedPanels };
 }
 
 test("replaced result requests finish silently while ordinary cancellations stay visible", async () => {
@@ -177,6 +184,34 @@ test("a result operation exception still fails visibly and is never converted in
     assert.equal(f.information.length, 0, "不增加重复 info/warning");
     assert.equal(f.logCalls.length, errorChoice === "查看日志" ? 1 : 0, "仅点击\"查看日志\"才实际调用日志宿主，dismiss 不调用");
   }
+});
+
+test("A cleared-selection wait closes its native progress session silently while ordinary cancellation keeps its warning feedback", async () => {
+  for (const silent of [false, true]) {
+    const f = fixture({ finishChoice: silent ? undefined : "查看日志" });
+    let finished = 0;
+    f.host.operationNoticeSessions.set("artifact-key", { title: "重试产物同步", reports: [], closed: false, finishResolve: () => { finished++; } });
+    f.host.finishOperationProgressNotice("artifact-key", "cancelled", "所选任务已被本地清退或被新的运行替代，本次等待已结束。", silent ? { silent: true } : undefined);
+    await new Promise(resolve => setImmediate(resolve)); // flush 按钮 .then
+    assert.equal(finished, 1, "session 的 done 释放照旧（silent 不吞释放）");
+    assert.equal(f.host.operationNoticeSessions.size, 0, "session 删除照旧");
+    assert.ok(f.facts.some(line => /SimpleExperiment 重试产物同步：所选任务已被本地清退/.test(line)), "完整终态日志照旧");
+    assert.equal(f.warnings.length, silent ? 0 : 1, "仅 A 身份失效清退静默收拢；普通取消的既有可见 warning 反馈保留");
+    assert.equal(f.alerts.length, 0);
+    assert.equal(f.information.length, 0);
+    assert.equal(f.logCalls.length, silent ? 0 : 1, "非静默且点击\"查看日志\"仍真实调用日志宿主");
+  }
+});
+
+test("a non-silent progress finish keeps the native button routing to the execution panel", async () => {
+  const f = fixture({ finishChoice: "打开面板" });
+  let finished = 0;
+  f.host.operationNoticeSessions.set("k", { title: "t", reports: [], closed: false, finishResolve: () => { finished++; } });
+  f.host.finishOperationProgressNotice("k", "cancelled", "普通取消原因。", undefined);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(finished, 1);
+  assert.equal(f.warnings.length, 1);
+  assert.deepEqual(f.openedPanels, ["execution"], "点击\"打开面板\"真实调用既有 execution 面板宿主（Job 行手动重新同步所在处）");
 });
 
 test("completed old-revision history and an artifact sync do not masquerade as a live training blocker", async () => {

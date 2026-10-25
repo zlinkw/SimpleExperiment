@@ -63,9 +63,12 @@ const moduleFunctions = ["remoteProjectName", "normalizeRemoteWorkRoot", "normal
   "enforceExpectedAgentProjectRoot", "errorMessage", "fingerprintFromManifest"]
   .map(moduleFunction).join("\n");
 const readyStatusLine = /^const ENDPOINT_READY_PROBE_STATUSES = .*$/m.exec(distSource)[0];
-const uiCancelledStart = distSource.indexOf("class UiCommandCancelled extends Error {");
-const uiCancelledClass = distSource.slice(uiCancelledStart, distSource.indexOf("\n}", uiCancelledStart) + 2);
-assert.ok(uiCancelledStart > 0 && /USER_CANCELLED/.test(uiCancelledClass), "real UiCommandCancelled class not found");
+// r49 迁类：UiCommandCancelled 已由 core 共享模块提供，编译产物改经 UiCommandCancelled_1 命名空间
+// （下方 legacyNamespaces 正则按编译清单自动注入真实模块）。裸标识符仅是同一真实类的别名。
+const uiCancelledModule = require("../../dist/core/UiCommandCancelled.js");
+assert.ok(typeof uiCancelledModule.UiCommandCancelled === "function"
+  && new uiCancelledModule.UiCommandCancelled("x").code === "USER_CANCELLED", "real UiCommandCancelled class not found");
+const uiCancelledClass = "const UiCommandCancelled = UiCommandCancelled_1.UiCommandCancelled;";
 
 // Real module namespaces exactly as the compiled module requires them (both
 // plain require and __importStar shapes; vscode resolves to {} and is stubbed).
