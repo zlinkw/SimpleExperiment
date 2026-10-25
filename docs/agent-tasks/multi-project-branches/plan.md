@@ -40,6 +40,17 @@
 - Runtime编译/产品测试/打包只在Windows/macOS；Linux限读取、编辑、轻量语法、单个源码负责人本地Git。候选最终Windows完整验收与high集中审核保留。
 - 原开发目录本机分支feat-multi-project-branches-20261025仍在a9；本副本impl分支提交通过后由宿主在原目录仅ff整合同一提交，再正常push本机保留分支提新PR，未获本次合并批准不合master/发行/安装。
 
+## 块B已批准方案（2026-10-25 GPT精读readers/backend-block-b.md后批准，原文要点照录）
+读者片段已归档 readers/backend-block-b.md（77700324c3bdaa74a89a566abd25d8dc4bd110a1）与 readers/ui-block-c.md（7377df60c5f237ab74aa58821a974ef184b7756a），基本调查不重做；读者§4-5是建议而非已批准方案，其中“只抑制本窗口、其他窗口照常兜底”不批准（绕过统一同意）；只改现代allocator会漏手动/旧兼容/pinned重试。
+1. 一个本机资源同意入口：A共享本机登记域内，祖先/创新分支队列仍各在自己project state目录（DPQ distributedQueuePath，不搬AppData、不混项目root）；新增窄统一准入模块/host适配器，供所有已登记管理项目的自动、旧兼容、ready-manual/serverQueue及pinned通道共用；未登记旧单项目行为保留；不同窗口可提出候选，但只有共同原子入口能同意新command；非UI聚合各自抢卡，不整分支串行。
+2. 复用ResourceOperationLeaseManager共享全局资源租约：同一本机API登记目录下固定“统一派发”逻辑resource target（server=local，所有管理项目同一规范路径）+本项目队列file resource；短本地read→算→save临界区，内部禁RPC/探GPU/文件同步/用户确认；优先在withQueueWriteResource/saveDistributedQueue的持久化新start意图边界集成而非重写tick；ALS允许同manager/同window/子资源重入，跨窗口RPC不继承，严禁持锁再调他窗口save。
+3. 临界区从登记快照读所有成员真实队列，只写自己项目队列；saveDistributedQueue内CAS/baseSignature/mutateLatest/beforeRename/stop epoch/generation保留；读他项目仅为占用，不借当前Provider load/save他root污染cache/globalRoot；薄纯读复用既有restore/路径身份保护；本轮新意图与盘上已占位不双计数（先确认盘上既有same command再算新请求）；registry登记/forget与准入同域串行或真CAS；缺失新空队列与损坏/身份不明区别处理，损坏成员不得当零占用。
+4. 新start同意必须在远端await前把稳定project/plan/job/worker/GPU/command身份（可复用startIntent）提交自己原队列；save成功才send；配额不足留本地pending/ready，不生成会发送的假dispatching，不丢选定GPU/任务/用户意图，显示等待原因；allocator已暂改多job内存快照时准入拒绝要明确不POST并安全刷新重算/保留pending；sendDistributedJob防未来旁路：仅精确已持久同意身份可发送；同command重试不新消费槽，未核实接收不重派/不释放，已证not-sent/gpu_busy/terminal按现有证据释放；新本机同意最多作已有job intent附加身份/标志，不建第二GPU预留账本。
+5. 配额=现有gpuJobsPerCard/card override/gpuMaxConcurrentCards，不改科学/调度参数本义；已同意未核实、starting/running及可由Worker自启的queued在管理域占其已同意本机槽，不得抄memoryCounts排除queued后把同一名额重复许给别分支；手动activeGpuReservations故意排除不得遗漏；管理模式手动/服务器队列选择目标仍留本地统一队列等配额，不得“忙卡可用”无限绕过；原未登记模式保持兼容；不同GPU或同GPU已有多槽明确允许并行；迁移前旧身份释放证据及新目标本机占位仍核；Worker既有已准入drain不改协议/不宣称控制域外用户。
+6. 资源key不能天真只workerId：跨项目同物理服务器worker别名可能不同，先复用已配置server身份（withRemoteActionResource的host小写+SSH port，优先已有机器/GPU稳定ID映射），不把跨项目project worker根当不同物理卡；无法确定映射则该分支提示未就绪不猜、不探外服/新增服务；统一域用一份现有用户配额策略；登记管理时保存可见统一策略快照/管理来源并显示复用，不暗改各项目.vscode；缺正确信息先阻止相关派发并说明。
+7. 自动/旧分配可继续用原allocateAvailable提候选，最终共同准入以跨项目已占位+待分配剩余槽为准；若只改save边界无法保证合规且保持原快照身份，先交具体冲突代码与窄替代，不自做Worker协议；各窗口遵守同一决策不留未受控兜底；UI同一逻辑待运行/进行中队列与来源分支可见；项目窗口没开/实例不匹配不假称可执行，提示打开对应分支；registry身份变化/损坏不静默兜底。
+断言与阶段：在现有手动/队列/配额/lease适合suite扩断言；新多窗口统一域无home允许一个域测试文件；同GPU单槽两项目同时异步申请只一同意且未POST前已持久；不同GPU、多槽允许并行；同command重入不双记、未知占位、确证拒绝才释放；ready-manual/ServerQueue/旧allocator无旁路；不同别名同机仍冲突；策略/实例/root变化拒绝；真实两进程临时Git/registry隔离不写科研；预先确认helper/VM抽取闭包与final test-workflow对新test/project入口覆盖，不改固定总数。Linux不产品测试/编译；A frozen=e5bb5c30已交同qwen-host（只写自身dist/cache），原impl继续B，两边无source/output重叠；B就绪即report_stage，不等C。
+
 ## 块A实施状态（沙箱负责人更新，指导原文未改）
 - 块A源码+测试已在 impl 分支完成并提交（详见 evidence.md“块A实施记录”：文件/blob/断言/风险）：登记模型与本机存储、只读 Git 探针（清继承 GIT_*）、worktree 预览-digest-确认创建、面板 plans 卡内“项目与分支”可见区域、每实例发现记录与工作区路由及 projects.registry/projects.instances 窄接口。未新建资源树 section，未动调度/GPU/科研仓/GitHub 远端。
 - 待主控：Windows 原生 compile+受影响测试（新 test/project/branchProjectRegistry.test.js、扩展的 test/api/localApi.test.js、面板白名单/内联脚本类既有套件）；失败原始证据回本负责人返修。块B实施仍等主控基于补查的明确指导；块C接口已具备（登记身份/活实例/准确根），未执行任何真实 PR/ff。
