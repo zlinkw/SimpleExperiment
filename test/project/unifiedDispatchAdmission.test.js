@@ -542,12 +542,24 @@ test("P0-1/P0-2/P1-3 两个独立项目窗口真实进程：生产同意事务�
   const rawSolo = fs.readFileSync(fileFor(rootA), "utf8");
   const soloDisk = DPQ.setDistributedQueueBaseSignature(DPQ.restoreFormalJobQueue(JSON.parse(rawSolo)), DPQ.distributedQueueDiskSignature(rawSolo));
   const soloPlan = soloDisk.plans[0], soloJob = soloPlan.jobs[0];
+  // 本场景不是"从未获批"：r0 已给该 job 以 cmd-a1/w/GPU0 真实批准并落盘（completed 后许可仍是历史事实）。
+  // "未成立域不新授权"的契约是不写新同意，而不是把盘上历史许可抹掉——先绑定原许可逐值。
+  const historicalConsent = soloJob.dispatchConsent && { ...soloJob.dispatchConsent };
+  assert.ok(historicalConsent, "场景前提：盘上持 r0 获批的历史同意事实");
+  assert.equal(historicalConsent.commandId, "cmd-a1", "历史许可属于旧身份 cmd-a1");
+  assert.equal(String(historicalConsent.gpuId ?? ""), "0", "历史许可属于旧 GPU0，与本次 GPU1 新意图不同");
   Object.assign(soloJob, { status: "dispatching", workerId: "w", gpuId: "1", commandId: "cmd-a2", lifecycleProtocol: 2 });
   const soloReceipt = await hostSolo.saveDistributedQueue(rootA, soloDisk, { dispatchAdmission: true });
   assert.equal(soloReceipt, undefined, "未成立统一域=同意不启用（旧行为保留）");
   assert.ok(leaseResources.flat().some(target => /unified-dispatch$/.test(String(target))),
     "登记表存在时带新意图保存必须已持统一派发资源（事务内复核在持有之后）");
-  assert.equal(readDiskJob(rootA, "plan-a", 0).dispatchConsent, undefined, "未成立域不写同意事实，也不阻断");
+  const afterSolo = readDiskJob(rootA, "plan-a", 0);
+  assert.deepEqual(afterSolo.dispatchConsent, historicalConsent,
+    "未成立域不新授权，也不删除/改写历史许可：命令/worker/GPU/agreedAt 逐值不变");
+  assert.equal(admission.consentPersistedOnDisk(afterSolo, "cmd-a2", "w", "1"), false,
+    "历史许可不匹配新 job/新身份即不可借用：守卫对新身份如实 false（R8 收紧）");
+  assert.equal(afterSolo.dispatchAdmissionTrace.commandId, "cmd-a2",
+    "零登记同事务 trace 绑定的是新身份——trace 不是同意，守卫不因它开绿灯");
   // —— 登记表损坏：带新派发意图的保存被拒绝，绝不按“未登记”静默放行。
   const hostBroken = require(harnessPath)({ ...base, typescript: base.ts, legacySource: base.legacy, root: rootA, roots: [rootA, rootB], brokenRegistry: true });
   const beforeBroken = fs.readFileSync(fileFor(rootA), "utf8");
