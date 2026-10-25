@@ -4,7 +4,7 @@ import { PlanExecutionMode } from "./PlanExecutionMode";
 import { observationMatches, taskLifecycle, TaskObservation } from "./TaskLifecycle";
 import type { RuntimeDiagnostics, CompletionState } from "./RuntimeDiagnostics";
 import { freshTaskObservation } from "./WorkerProgressEvidence";
-import { hasVerifiedCompletion, nextVerifiedCompletion, verifiedCompletionProjection, type VerifiedCompletion } from "./VerifiedCompletion";
+import { hasVerifiedCompletion, nextVerifiedCompletion, verifiedCompletionProjection, trustedTerminalProofFor, type TrustedTerminalProof, type VerifiedCompletion } from "./VerifiedCompletion";
 import { projectStateFile, projectStateId } from "./ProjectStatePaths";
 
 export type JobState = "pending" | "dispatching" | "queued" | "running" | "completed" | "failed" | "cancelled" | "unknown";
@@ -32,6 +32,7 @@ export type QueuedJob = {
   runtimeDiagnostics?: RuntimeDiagnostics;
   completionState?: CompletionState;
   verifiedCompletion?: VerifiedCompletion;
+  trustedTerminalProof?: TrustedTerminalProof;
   verificationQueryError?: string;
   exitCode?: number | null;
   statusQueryError?: string;
@@ -61,6 +62,21 @@ export type QueuedJob = {
   commandId?: string;
   /** Local unresolved start input, never proof that the remote command is running. */
   startIntent?: { commandId: string; workerId: string; gpuId: string };
+  /**
+   * 块B返修P0-1：本机已同意该精确 job 身份（command/worker/GPU）占用统一派发名额的紧凑持久事实。
+   * 它只表示本机占名额，不冒充 Worker 运行态：native 投影清空、窗口重开、查询未知都不释放它；
+   * 释放只来自既有证据（确证未发送、准入拒绝剥回、终态/停止证明、已核实完成）。
+   * 绝不参与 completionIdentity 或 Worker 协议。
+   */
+  dispatchConsent?: { commandId: string; workerId: string; gpuId: string; agreedAt: string };
+  /**
+   * 块B返修：本机统一派发准入对该 job 当前命令身份的紧凑追踪事实（仅本机，非同意、非第二账本）。
+   * 每次 dispatchAdmission 保存对"盘上基线→即将写入"的真新意图同事务写入（域未成立/零登记同样写）；
+   * 获批保留并清 reason，被拒保留并记本次拒绝原因。守卫绝不因它开绿灯，名额计算不读它；
+   * 缺失＝升级前从未经过准入的旧任务（其合法在飞兼容按既有语义）。
+   * 绝不参与 completionIdentity 或 Worker 协议。
+   */
+  dispatchAdmissionTrace?: { schemaVersion: 1; commandId: string; workerId: string; gpuId: string; reason?: string };
   nextCommandId?: string;
   reassignmentPending?: boolean;
   /** The verified migration destination must survive the release RPC and a restart. */
@@ -98,6 +114,9 @@ export type QueuedJob = {
 };
 export type QueuedPlan = {
   executionSource?: { digest: string; manifest: Record<string, { size: number; sha256: string }> };
+  /** 提交时的本机 Git 溯源（分支/HEAD/脏状态/时间；origin 已剥离凭证）。纯本机展示与绑定用，
+   * 绝不参与 completionIdentity、job 身份或 Worker 协议。dirty 缺失=当时未知。 */
+  gitProvenance?: { schemaVersion?: number; recordedAt?: string; planFile?: string; branch?: string; localCommit?: string; dirty?: boolean; originUrl?: string };
   id: string;
   /** Explicit top-level PLAN identity, retained across a recorded rename. */
   stablePlanId?: string;
@@ -351,7 +370,9 @@ export function markJobUnavailable(queue: DistributedQueue, planId: string, inde
       unavailable: { identity: expectedIdentity, reason: text, markedAt, previousStatus: item.status,
         previousFinishedAt: item.finishedAt, previousTrustedTerminalStatus: item.trustedTerminalStatus },
       finishedAt: item.finishedAt || markedAt, automaticRetry: undefined, blockReason: undefined,
-      ...(terminal ? { trustedTerminalStatus: terminal as "failed" | "cancelled" } : {}) }) };
+      // P0-R：terminalReceipt 已在上方按身份/状态/finishedAt|exitCode 核验；随之持久紧凑证明（未派发 unsent 无 commandId，本就不占名额）。
+      ...(terminal ? { trustedTerminalStatus: terminal as "failed" | "cancelled",
+        trustedTerminalProof: trustedTerminalProofFor(plan, item, terminal as "failed" | "cancelled", Date.parse(markedAt)) } : {}) }) };
   nextPlan.recoveryMissingCount = distributedPlanRecoveryMissingCount(nextPlan);
   return { ...queue, plans: queue.plans.map(row => row.id !== planId ? row : nextPlan) };
 }
@@ -560,6 +581,10 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       const nativeWindowSeen = observation.tmux?.dead === false && ["starting", "running"].includes(state.execution);
       const verifiedCompletion = nextVerifiedCompletion(plan, job, observation, state, now);
       const fixed = verifiedCompletionProjection(plan, { ...job, verifiedCompletion });
+      // P0-R：四类查询全净且身份核对通过的终态＝远端证实的物理退出/确证停止；持久化紧凑证明，
+      // 使确证释放跨 clearNativeProjection 落盘/重读仍存在（未知或任一查询错误不产生证明）。
+      const terminalProof = cleanNativeErrors.length === 0 && ["completed", "failed", "cancelled"].includes(state.status)
+        ? trustedTerminalProofFor(plan, job, state.status as "completed" | "failed" | "cancelled", now) : undefined;
       return { ...job, lifecycleProtocol: 2 as const, status: state.status, executionState: state.execution, resultState: state.result,
         runtimeDiagnostics: state.runtimeDiagnostics, completionState: state.completionState, exitCode: state.exitCode,
         startIntent: !observation.queryError && !observation.executionQueryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,
@@ -575,6 +600,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
             : undefined,
         error: state.status === "failed" ? String(task?.error || `任务退出码 ${task?.exitCode ?? "未知"}`) : undefined,
         blockReason: state.message, verifiedCompletion,
+        ...(terminalProof ? { trustedTerminalProof: terminalProof } : {}),
         verificationQueryError: verifiedCompletion ? observation.queryError || observation.executionQueryError || observation.resultQueryError || observation.runtimeQueryError : undefined,
         ...fixed, ...(task && !observation.queryError ? { gpuId: String(task.gpuId ?? job.gpuId ?? ""),
           tmuxPane: String(task.tmuxPane || ""), tmuxWindowId: String(task.tmuxWindowId || ""), tmuxSession: String(task.tmuxSession || "") } : {}) };
@@ -812,6 +838,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
         ...(conflict ? { recoveryConflict: true } : {}),
         ...(conflict ? { blockReason: "Conflicting fresh server summaries for the same durable job identity." } : {}),
       };
+      // P0-R：无冲突的服务端持久终态记录同样是远端确证；持久紧凑证明供统一名额跨落盘释放（未知/冲突不产生）。
+      if (terminalStatus) merged.trustedTerminalProof = trustedTerminalProofFor(plan, merged, terminalStatus, now);
       const trainingAdopted = reviewedTrainingCompletion(plan, merged, task);
       if (trainingAdopted) Object.assign(merged, { trainingRecovery: task.trainingRecovery, originalExecution: task.originalExecution });
       if (existing >= 0) {

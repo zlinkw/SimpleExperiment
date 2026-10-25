@@ -21,13 +21,13 @@ function hostMethods(names,globals={}){let cls;function visit(n){if(ts.isClassDe
      UiCommandCancelled:require('../../src/core/UiCommandCancelled.ts').UiCommandCancelled, // r50：忠实绑定生产取消类，schedule 失败回调 instanceof 用，不造假类型
      DistributedPlanQueue:Q,fs:fsPromises,path,atomicWriteText,...globals});}
 
-function queueFixture(){
+function queueFixture(hostGlobals={},hostNames=['saveDistributedQueue','withQueueWriteResource','tickDistributedQueue','requestDistributedQueueRefresh','scheduleDistributedPostprocess']){
   const storage=fs.mkdtempSync(path.join(os.tmpdir(),'se-stale-'));
   const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'se-stale-root-'))),project=Q.canonicalProjectId(root); // r17：项目根恒为已解析绝对路径（真实队列文件在项目内受管子树）
   const queue=Q.emptyDistributedQueue();
   const queued=Q.enqueuePlan(queue,{projectId:project,executionMode:'train',planFile:'p.yaml',revision:'r',codeFingerprint:'code',
     jobs:[{index:0,case:'a',seed:1,outputDir:'work/0'},{index:1,case:'b',seed:2,outputDir:'work/1'}]},'p');
-  const Host=hostMethods(['saveDistributedQueue','withQueueWriteResource','tickDistributedQueue','requestDistributedQueueRefresh','scheduleDistributedPostprocess'],{workspaceRoot:()=>root});
+  const Host=hostMethods(hostNames,{workspaceRoot:()=>root,...hostGlobals});
   const h=new Host();
   const actionErrors=[],states=[],notes=[];
   Object.assign(h,{context:{globalStorageUri:{fsPath:storage}},manualDispatchInFlight:new Set(),planCleanupHosts:new Map(),
@@ -274,4 +274,59 @@ test('真实清退保存成功尾必须及时结束排队等待；围栏拒绝�
   for(const id of ['b','c'])assert.equal(sha(path.join(dirs[id],'work/1/model.pth')),sha(path.join(dirs.a,'work/1/model.pth')),'无关复制目标实际文件 SHA 与来源一致');
   assert.ok(!transfers.some(p=>p.relativePaths.some(rel=>rel.startsWith('work/0'))),'排队等待期间对已清退 job0 零 SFTP 派发');
   assert.equal(h.completedJobSyncRuns.size,0,'单飞登记清空');
+});
+
+// SE-412 合并组合接口（本任务提交成功尾 × 上游块B统一派发准入——合并后唯一方法级交叉，
+// unifiedDispatchAdmission.test.js 覆盖真实两进程准入互斥，此处不重复进程，只证明融合结构）：
+// dispatchAdmission 保存仍穿过"包裹→committed→observer"结构——回执经 committed 原样传出（旧结构会吞为
+// undefined）、同一临界区持项目队列+统一双资源；无 admission 的保存返回值与资源列表和旧语义完全一致；
+// blocked 域锁前拒绝、STALE 围栏锁内拒绝——都不叫醒观察者、盘上字节零变化。UnifiedDispatchAdmission
+// 为真实生产模块；lease 用记录 stub（资源组装由真实 withQueueWriteResource 完成）。
+test('combined dispatchAdmission save propagates the receipt through the commit tail, holds both resources, and never wakes observers on rejection',async()=>{
+  const UDA=require('../../src/project/UnifiedDispatchAdmission.ts');
+  const discovery=fs.mkdtempSync(path.join(os.tmpdir(),'se-412-disc-'));
+  const f=queueFixture({UnifiedDispatchAdmission:UDA,API_DISCOVERY_DIR:discovery},['saveDistributedQueue','withQueueWriteResource']);
+  await f.seed(f.queued);
+  const specs=[],leases=[],woke=[];let domain={active:false,blocked:''};
+  const receipt={dispatchAdmission:true,intents:1,approved:[],denied:[],blockers:[]};
+  Object.assign(f.h,{hostOperationLease:{run:async(spec,work)=>{specs.push(spec);return work();}},
+    distributedQueueCommitObservers:new Set([r=>woke.push(r)]),
+    unifiedDomainState:()=>domain,
+    withUnifiedAdmissionLease:async(label,fn)=>{leases.push(label);return fn();},
+    computeUnifiedDispatchAdmission:async(_r,_current,q)=>({queue:q,receipt})});
+  // a) 无 admission：旧保存语义逐项不变（返回值 undefined、仅队列 file 资源、成功尾恰一次叫醒）
+  const before=fs.readFileSync(f.file,'utf8');
+  const plain=await f.h.saveDistributedQueue(f.root,undefined,{controlMutation:true,mutateLatest:latest=>({...latest,marker:'a'})});
+  assert.equal(plain,undefined,'不带 dispatchAdmission 的保存返回值与旧语义一致（undefined）');
+  assert.equal(specs.length,1);
+  assert.equal(specs[0].resources.length,1,'不带新派发意图只持本项目队列 file 资源（与合并前逐项一致）');
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.file,'utf8')).marker,'a');
+  assert.deepEqual(woke,[f.root],'成功提交尾恰一次叫醒观察者（root 实参）');
+  assert.deepEqual(leases,[],'无 admission 不触碰统一事务');
+  // b) 域未成立（真实 diffNewDispatchIntents 无新意图）：receipt 保持 undefined、双资源仍全程持有
+  let disk=fs.readFileSync(f.file,'utf8');
+  const quiet=await f.h.saveDistributedQueue(f.root,undefined,{dispatchAdmission:true,controlMutation:true,mutateLatest:latest=>({...latest,marker:'b'})});
+  assert.equal(quiet,undefined,'域未成立时 receipt 仍 undefined、单项目保存行为不变（上游契约）');
+  assert.equal(specs[1].resources.length,2,'带新派发意图在同一临界区追加统一派发资源（P0-2 全程覆盖）');
+  assert.deepEqual(specs[1].resources[1],UDA.unifiedDispatchResource(discovery),'统一资源目标由真实 unifiedDispatchResource(discovery) 组装');
+  assert.deepEqual(leases,['统一派发准入'],'同意事务经真实事务通路进入');
+  assert.equal(woke.length,2);
+  // c) 域成立：准入回执必须经 committed 结构原样传出（合并关键点：旧包裹若吞返回值此断言即红）
+  domain={active:true,blocked:''};
+  disk=fs.readFileSync(f.file,'utf8');
+  const got=await f.h.saveDistributedQueue(f.root,undefined,{dispatchAdmission:true,controlMutation:true,mutateLatest:latest=>({...latest,marker:'c'})});
+  assert.deepEqual(got,receipt,'dispatchAdmission 保存仍返回真实准入回执（ManualDispatchHost/tick 回执过滤依赖）');
+  assert.equal(woke.length,3,'回执传播不改变成功尾通知时序（锁外、cache 发布后恰一次）');
+  // d) 拒绝路径零副作用：STALE 围栏在锁内拒绝（统一资源已持=全程覆盖），blocked 域锁前拒绝
+  const pinned=fs.readFileSync(f.file,'utf8');
+  f.h.distributedQueueGeneration=99; // 别处已推进轮次：本请求立刻过期
+  const stale=await f.h.saveDistributedQueue(f.root,undefined,{dispatchAdmission:true,controlMutation:true,queueGeneration:1,mutateLatest:latest=>({...latest,marker:'stale'})}).then(()=>null,e=>e);
+  assert.equal(stale?.code,'STALE_QUEUE_ROUND','带 admission 的旧轮次仍先过 STALE 围栏');
+  assert.equal(specs[specs.length-1].resources.length,2,'统一资源自进入临界区即持有，覆盖拒绝路径');
+  domain={active:false,blocked:'登记表不可读'};
+  const blocked=await f.h.saveDistributedQueue(f.root,undefined,{dispatchAdmission:true,controlMutation:true,mutateLatest:latest=>({...latest,marker:'blocked'})}).then(()=>null,e=>e);
+  assert.match(blocked?.message,/统一派发准入.*登记表不可读/,'损坏域必须拒绝写入，绝不静默兜底放行');
+  await new Promise(r=>setImmediate(r));
+  assert.equal(fs.readFileSync(f.file,'utf8'),pinned,'STALE/blocked 两笔拒绝盘上字节零变化');
+  assert.equal(woke.length,3,'围栏/准入拒绝路径绝不叫醒等待者');
 });

@@ -46,6 +46,7 @@ function nativeFixture(options={}){
     jobs:[0,1].map(index=>({index,case:'bus',seed:index,outputDir:'runs/'+index,collectionResultCsv:'tmp/result/'+index+'.csv'}))},'p');
   let builds=0,gpus={a:[gpu(0)],b:[gpu(0)]};
   Object.assign(p,{taskLifecycleProtocol:2,distributedQueueGeneration:0,distributedPlanStopEpoch:0,distributedNextFailureDetailAt:Infinity,
+    unifiedDomainState:()=>({active:false,blocked:""}), // 块B：夹具根未登记 → 既有单机派发/发送路径（含真实 send 法身用例）
     distributedNextPostprocessAt:Infinity,distributedLaunchInFlight:new Set(),distributedNextProbeAt:0,lastWorkerProbes:{a:{status:'ok',capabilities:{endpoints}},b:{status:'ok',capabilities:{endpoints}}},
     lastCodeSyncState:{workerVersions:{a:{fingerprint:'f'},b:{fingerprint:'f'}}},workerActionTargets:()=>[{id:'a'},{id:'b'}],workerCodeSyncTargets:()=>[],
     enabledWorkerConfigs:()=>[{id:'a'},{id:'b'}],schedulerSettings:()=>({}),gpuOwnerConfig:()=>({}),isRealtimeMode:()=>true,
@@ -194,7 +195,7 @@ test('late native receipt after a generation change cannot save or publish the o
 });
 test('G1 actual native RPC preserves mode, quota and explicit GPU admission while returning only unknown',async()=>{
   const Provider=provider(['sendDistributedJob']),p=new Provider(),F='f'.repeat(64);const sent=[];
-  Object.assign(p,{distributedQueueGeneration:0,distributedPlanStopEpoch:0,workerActionTargets:()=>[{id:'w',condaEnv:'env'}],enabledWorkerConfigs:()=>[{id:'w'}],
+  Object.assign(p,{distributedQueueGeneration:0,distributedPlanStopEpoch:0,unifiedDomainState:()=>({active:false,blocked:""}),workerActionTargets:()=>[{id:'w',condaEnv:'env'}],enabledWorkerConfigs:()=>[{id:'w'}],
     schedulerSettings:()=>({}),lastWorkerProbes:{w:{capabilities:{endpoints,actionEndpoints:{'register-code-sync-proof':true}}}},
     lastWorkerTaskSnapshots:new Map([[root+'\u0000w',{capabilities:{taskLifecycle:2}}]]),
     lastCodeSyncState:{workerVersions:{w:{fingerprint:F,manifestDigest:F,codeSyncProofId:'a'.repeat(64)}}},

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.411",
-  "buildId": "8e51d9cf2c5fb2f22998ae39f62bd2d7978cda078c0d0451858c5838e475a103",
+  "version": "0.5.412",
+  "buildId": "1df1ea46783cf84f2fa0b37fc50b41177413a2016a542d8b413826d1e09a361d",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -13,7 +13,15 @@
     },
     {
       "path": "dist/api/LocalApiServer.legacy.js",
-      "sha256": "40f80241c114f19a402d37f99c574ffdc5a30460fe7f70b0704c7a760c96645d"
+      "sha256": "3bbe1db5faf994bd6e34819c6b1e98d299ca2e0a2a43f9190699eeea55366425"
+    },
+    {
+      "path": "dist/cli/errors.js",
+      "sha256": "5b19b14d8854208f8cdf42420ad2f5cfab30451185a84b7f011a5b8091f26057"
+    },
+    {
+      "path": "dist/cli/LocalApiClient.js",
+      "sha256": "5092eb6b1c8d6477a2eb9198a953d4a3168788f9a774fd457f1f20c4e8bfe1f5"
     },
     {
       "path": "dist/config/RemoteRootPolicyPrefill.js",
@@ -109,11 +117,11 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "42ad98ceabc8769c68a3027ef7fbab5eab04cbc0c483e1a565275f83b9aa9920"
+      "sha256": "e032aa01ee4d28aac485958c35d607d3d1268649bd47c0a25c20f1533921cb4f"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
-      "sha256": "7ec471120c545f6fea854f349ff8c40c5911663954ec5fe992df74924baeda29"
+      "sha256": "c1787dd9a74d3a99adde3889edd89f92a3116e2a1dbd2f08ad4ca2c8251be310"
     },
     {
       "path": "dist/extension/PlanCleanupHost.js",
@@ -141,7 +149,7 @@
     },
     {
       "path": "dist/extension/PlanCodeScopeHost.js",
-      "sha256": "5ddf4fcc95b01a2874c63830da88d437ceb047a337d3a4454da1ed3264732996"
+      "sha256": "dd14f7cc3fdc3143fb024d51cd76d44c9a45176aed922fd3b5603bf82baca381"
     },
     {
       "path": "dist/extension/PlanRunHost.js",
@@ -241,7 +249,7 @@
     },
     {
       "path": "dist/features/DistributedPlanQueue.js",
-      "sha256": "c880d8134d892ff0c6755d26360cb5841a9c72a362315af91d4a434c274db734"
+      "sha256": "9ad48047a4ba42bc29a7f6e6e2d74527898f25dbf423b2a36f12ecd02d208b21"
     },
     {
       "path": "dist/features/DistributedProjectContract.js",
@@ -333,7 +341,7 @@
     },
     {
       "path": "dist/features/ManualJobDispatch.js",
-      "sha256": "55ab2389934eff9c79b25f77e3379fd85f3ac319b6fb7adb35ec50c32c0f5dbf"
+      "sha256": "7b2bb211888bb5b1128e3f10ad56a1a45409730c2c0007cf9fe97fdb81383cc4"
     },
     {
       "path": "dist/features/NativePlanRetry.js",
@@ -597,7 +605,7 @@
     },
     {
       "path": "dist/features/VerifiedCompletion.js",
-      "sha256": "d2c37028213036590c16287616b38d93107b528f9fc9506106295dfb7d66d4df"
+      "sha256": "24781cce83e33d0d124afe327affed84c673d64210bbbee10c23103977a372ee"
     },
     {
       "path": "dist/features/WorkerPlanSharding.js",
@@ -634,6 +642,34 @@
     {
       "path": "dist/PptPlotBridge.legacy.js",
       "sha256": "0c54eaab98f0c0108c0a1ac651e3fbc042e25ee1bbe51c02cbc2dfc722064860"
+    },
+    {
+      "path": "dist/project/BranchHeadBinding.js",
+      "sha256": "3e65cf11ea9015c0e0ba1e2cc15ace6efe20d0313dffeef4b6f75dffdd26420b"
+    },
+    {
+      "path": "dist/project/BranchPlanDispatch.js",
+      "sha256": "0b87e6ef4c5b3db1c0f443acb0edd56f1621a1afdd2c392caa09c38b37d2f428"
+    },
+    {
+      "path": "dist/project/BranchProjectService.js",
+      "sha256": "483abdfc021bb08370e7407930545e92a961801d145d2f74ee06fd3328cd6fc3"
+    },
+    {
+      "path": "dist/project/BranchProjectStore.js",
+      "sha256": "e88c029a3df3d20b516cca9c3ea07e34e11bfacbe7437c0ddf258fd682adcf22"
+    },
+    {
+      "path": "dist/project/BranchPullRequest.js",
+      "sha256": "40ae0ca86612e135103abae179f5fab1127de5d9303d05737bb68792df0637c1"
+    },
+    {
+      "path": "dist/project/GitIdentityProbe.js",
+      "sha256": "3df38d6e61e1dcf81f5d8a4afde4fc21126eeff7a92e6ddb14947db93ff17d56"
+    },
+    {
+      "path": "dist/project/UnifiedDispatchAdmission.js",
+      "sha256": "7b2aaabaa31d1ff90c9165b32371ae58ed97d47a41e75bfb0b87e3993666a979"
     },
     {
       "path": "dist/results/FourStateMetricBundle.js",
@@ -681,7 +717,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "eec2bf778c0c86f8325da4c6c29a0da8cff2ebfa2261976be019361ddcb5659c"
+      "sha256": "ae263fcfed715a0831c573bd7e43847a9eb7b4c8f197425dbcdfb2f774417dc4"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -905,7 +941,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "e72f495ce87023b9546f96c73b1d64e9de006e9b08d94419999e12c666085656"
+      "sha256": "d8a57e5b58fbb89a598606e1d3a0fa0da9cc7155481f8d92bc09c2cdf39c449e"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1029,7 +1065,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "70535345b30d9c79d0fac23210e71e7942152905f3b414535a3706b214169eea"
+      "sha256": "b96049ecf679df9493c7dfd434392b169640c9fc4edf7bc81f1079a9e9bc3a12"
     },
     {
       "path": "scripts/check-static.js",

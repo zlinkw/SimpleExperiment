@@ -23,7 +23,7 @@ test('only a provably unsent native preparation can release its original intent,
   const job={index:0,attempt:0,outputDir:'work/a',lifecycleProtocol:2,status:'dispatching',workerId:'w',gpuId:'0',commandId:'original',
     startIntent:{commandId:'original',workerId:'w',gpuId:'0'}};plan.jobs=[job];
   let posts=0, stored={plans:[structuredClone(plan)]}, controls=0;
-  Object.assign(h,{client:{postWorkerAction:async()=>{posts++;}},taskLifecycleProtocol:2,distributedQueueGeneration:0,
+  Object.assign(h,{client:{postWorkerAction:async()=>{posts++;}},taskLifecycleProtocol:2,distributedQueueGeneration:0,unifiedDomainState:()=>({active:false,blocked:""}),
     lastWorkerProbes:{w:{capabilities:{endpoints:{declaredJobPaths:true,formalJobIdentityEnv:1,gpuQuotaScheduling:1,taskShellEnvironment:1,projectManagedValidation:1}}}},
     submissionWorkerProbes:async()=>h.lastWorkerProbes,workerActionTargets:()=>[{id:'w'}],enabledWorkerConfigs:()=>[],schedulerSettings:()=>({}),
     saveDistributedQueue:async(_,unused,options)=>{assert.equal(options.controlMutation,true);controls++;stored=options.mutateLatest(stored);},postState(){}});
@@ -59,6 +59,7 @@ test('the real scheduling tick commits a preparation timeout back to local pendi
   jobs:[{index:0,case:'bus',seed:42,outputDir:'work/a',collectionResultCsv:'work/a/metrics.csv'}]},'p'),posts=0;
  const endpoints={declaredJobPaths:true,formalJobIdentityEnv:1,gpuQuotaScheduling:1,taskShellEnvironment:1,projectManagedValidation:1};
  Object.assign(h,{taskLifecycleProtocol:2,distributedQueueGeneration:0,distributedPlanStopEpoch:0,distributedLaunchInFlight:new Set(),
+  unifiedDomainState:()=>({active:false,blocked:""}), // 块B：夹具根未登记→既有单机派发路径（真实发送法身含守卫）
   distributedNextPostprocessAt:Infinity,distributedNextFailureDetailAt:Infinity,isRealtimeMode:()=>true,workerCodeSyncTargets:()=>[],
   workerActionTargets:()=>[{id:'w',project_dir:'/remote'}],lastWorkerProbes:{w:{status:'ok',capabilities:{endpoints}}},
   lastCodeSyncState:{workerVersions:{w:{fingerprint:'code'}}},enabledWorkerConfigs:()=>[{id:'w'}],schedulerSettings:()=>({}),gpuOwnerConfig:()=>({}),

@@ -39,6 +39,7 @@ exports.parseRemoteAddress = parseRemoteAddress;
 exports.loopbackRequest = loopbackRequest;
 const crypto = __importStar(require("crypto"));
 const http = __importStar(require("http"));
+const path = __importStar(require("path"));
 const StateStore_1 = require("../state/StateStore");
 const OperationOutcome_1 = require("../core/OperationOutcome");
 const LOOPBACK_REMOTE_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
@@ -171,6 +172,7 @@ class LocalApiServer {
     token;
     methods;
     discoveryPath;
+    workspace;
     sseTimeoutMs;
     maxEvents;
     maxEventBufferBytes;
@@ -202,6 +204,7 @@ class LocalApiServer {
                 : crypto.randomBytes(32).toString("base64url").replace(/[^a-zA-Z0-9]/g, "");
         this.methods = options.methods && typeof options.methods === "object" ? options.methods : {};
         this.discoveryPath = options.discoveryPath || "";
+        this.workspace = String(options.workspace || "");
         this.sseTimeoutMs = positiveNumber(options.sseTimeoutMs, DEFAULT_SSE_TIMEOUT_MS);
         this.maxEvents = Math.max(1, Math.min(1024, positiveNumber(options.maxEvents, DEFAULT_MAX_EVENTS)));
         this.maxEventBufferBytes = Math.max(1024, positiveNumber(options.maxEventBufferBytes, DEFAULT_EVENT_BUFFER_BYTES));
@@ -688,6 +691,7 @@ class LocalApiServer {
             name: this.name,
             version: this.version,
             instanceId: `${process.pid}:${this.startedAt}`,
+            ...(this.workspace ? { workspace: this.workspace } : {}),
             transport: ["http", "cli"],
             rpc: "json-rpc-2.0",
             execution: { resultPathPolicy: "declared", formalJobPathProtocol: 1, formalJobIdentityEnvProtocol: 1, formalJobStopIdentityProtocol: 2, formalJobStopUsesAttempts: false, historicalAttempts: "readOnly", draftPromotion: "retired",
@@ -795,14 +799,33 @@ class LocalApiServer {
             token: this.token,
             pid: process.pid,
             startedAt: this.startedAt,
+            instanceId: `${process.pid}:${this.startedAt}`,
+            ...(this.workspace ? { workspace: this.workspace } : {}),
             status: this.disposed ? "stopped" : "running",
             ...(this.stoppedAt ? { stoppedAt: this.stoppedAt } : {}),
         };
     }
+    /**
+     * Per-instance discovery records live next to the legacy default file so multiple windows of the
+     * same plugin stop overwriting each other's slot: the default api.json keeps its historical
+     * last-writer semantics for CLI compatibility, while every window also persists its own record
+     * (identity pid:startedAt + workspace) under <discoveryDir>/instances/. dispose() only ever
+     * rewrites this instance's own record; other windows' records are never touched or cleaned.
+     */
+    instanceRecordPath() {
+        if (!this.discoveryPath || !this.startedAt)
+            return "";
+        const safeStamp = this.startedAt.replace(/[^A-Za-z0-9.-]/g, "-");
+        return path.join(path.dirname(this.discoveryPath), "instances", `${process.pid}_${safeStamp}.json`);
+    }
     async writeDiscovery() {
         if (!this.discoveryPath)
             return;
-        await (0, StateStore_1.atomicWriteText)(this.discoveryPath, `${JSON.stringify(this.discovery(), null, 2)}\n`);
+        const text = `${JSON.stringify(this.discovery(), null, 2)}\n`;
+        await (0, StateStore_1.atomicWriteText)(this.discoveryPath, text);
+        const instancePath = this.instanceRecordPath();
+        if (instancePath)
+            await (0, StateStore_1.atomicWriteText)(instancePath, text);
     }
     async dispose() {
         if (this.disposed)

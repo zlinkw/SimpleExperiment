@@ -300,7 +300,9 @@ function markJobUnavailable(queue, planId, index, expectedIdentity, reason, mark
             unavailable: { identity: expectedIdentity, reason: text, markedAt, previousStatus: item.status,
                 previousFinishedAt: item.finishedAt, previousTrustedTerminalStatus: item.trustedTerminalStatus },
             finishedAt: item.finishedAt || markedAt, automaticRetry: undefined, blockReason: undefined,
-            ...(terminal ? { trustedTerminalStatus: terminal } : {}) }) };
+            // P0-R：terminalReceipt 已在上方按身份/状态/finishedAt|exitCode 核验；随之持久紧凑证明（未派发 unsent 无 commandId，本就不占名额）。
+            ...(terminal ? { trustedTerminalStatus: terminal,
+                trustedTerminalProof: (0, VerifiedCompletion_1.trustedTerminalProofFor)(plan, item, terminal, Date.parse(markedAt)) } : {}) }) };
     nextPlan.recoveryMissingCount = distributedPlanRecoveryMissingCount(nextPlan);
     return { ...queue, plans: queue.plans.map(row => row.id !== planId ? row : nextPlan) };
 }
@@ -515,6 +517,10 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                     const nativeWindowSeen = observation.tmux?.dead === false && ["starting", "running"].includes(state.execution);
                     const verifiedCompletion = (0, VerifiedCompletion_1.nextVerifiedCompletion)(plan, job, observation, state, now);
                     const fixed = (0, VerifiedCompletion_1.verifiedCompletionProjection)(plan, { ...job, verifiedCompletion });
+                    // P0-R：四类查询全净且身份核对通过的终态＝远端证实的物理退出/确证停止；持久化紧凑证明，
+                    // 使确证释放跨 clearNativeProjection 落盘/重读仍存在（未知或任一查询错误不产生证明）。
+                    const terminalProof = cleanNativeErrors.length === 0 && ["completed", "failed", "cancelled"].includes(state.status)
+                        ? (0, VerifiedCompletion_1.trustedTerminalProofFor)(plan, job, state.status, now) : undefined;
                     return { ...job, lifecycleProtocol: 2, status: state.status, executionState: state.execution, resultState: state.result,
                         runtimeDiagnostics: state.runtimeDiagnostics, completionState: state.completionState, exitCode: state.exitCode,
                         startIntent: !observation.queryError && !observation.executionQueryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,
@@ -530,6 +536,7 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                                 : undefined,
                         error: state.status === "failed" ? String(task?.error || `任务退出码 ${task?.exitCode ?? "未知"}`) : undefined,
                         blockReason: state.message, verifiedCompletion,
+                        ...(terminalProof ? { trustedTerminalProof: terminalProof } : {}),
                         verificationQueryError: verifiedCompletion ? observation.queryError || observation.executionQueryError || observation.resultQueryError || observation.runtimeQueryError : undefined,
                         ...fixed, ...(task && !observation.queryError ? { gpuId: String(task.gpuId ?? job.gpuId ?? ""),
                             tmuxPane: String(task.tmuxPane || ""), tmuxWindowId: String(task.tmuxWindowId || ""), tmuxSession: String(task.tmuxSession || "") } : {}) };
@@ -796,6 +803,9 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                 ...(conflict ? { recoveryConflict: true } : {}),
                 ...(conflict ? { blockReason: "Conflicting fresh server summaries for the same durable job identity." } : {}),
             };
+            // P0-R：无冲突的服务端持久终态记录同样是远端确证；持久紧凑证明供统一名额跨落盘释放（未知/冲突不产生）。
+            if (terminalStatus)
+                merged.trustedTerminalProof = (0, VerifiedCompletion_1.trustedTerminalProofFor)(plan, merged, terminalStatus, now);
             const trainingAdopted = reviewedTrainingCompletion(plan, merged, task);
             if (trainingAdopted)
                 Object.assign(merged, { trainingRecovery: task.trainingRecovery, originalExecution: task.originalExecution });

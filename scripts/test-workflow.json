@@ -163,6 +163,23 @@
       "test:runtime-diagnostics",
       "test:plan-code-scope",
       "test:host-lease"
+     ],
+      "extraFiles": [
+      {
+       "file": "test/project/branchProjectRegistry.test.js",
+       "argv": [],
+       "source": "block-a-project-registry-domain-final"
+      },
+      {
+       "file": "test/api/localApi.test.js",
+       "argv": [],
+       "source": "block-a-api-instances-domain-final"
+      },
+      {
+       "file": "test/project/unifiedDispatchAdmission.test.js",
+       "argv": [],
+       "source": "block-b-unified-dispatch-domain-final"
+      }
      ]
     }
    },
@@ -207,7 +224,22 @@
         "60000"
        ],
        "source": "r22-new-runner-regression"
-      }
+      },
+       {
+        "file": "test/project/branchProjectRegistry.test.js",
+        "argv": [],
+        "source": "block-a-project-registry-domain-final"
+       },
+       {
+        "file": "test/api/localApi.test.js",
+        "argv": [],
+        "source": "block-a-api-instances-domain-final"
+       },
+       {
+        "file": "test/project/unifiedDispatchAdmission.test.js",
+        "argv": [],
+        "source": "block-b-unified-dispatch-domain-final"
+       }
      ]
     }
    }
@@ -249,7 +281,22 @@
         "60000"
        ],
        "source": "r22-new-runner-regression"
-      }
+      },
+       {
+        "file": "test/project/branchProjectRegistry.test.js",
+        "argv": [],
+        "source": "block-a-project-registry-domain-final"
+       },
+       {
+        "file": "test/api/localApi.test.js",
+        "argv": [],
+        "source": "block-a-api-instances-domain-final"
+       },
+       {
+        "file": "test/project/unifiedDispatchAdmission.test.js",
+        "argv": [],
+        "source": "block-b-unified-dispatch-domain-final"
+       }
      ]
     },
     "post": {
@@ -495,7 +542,22 @@
         "60000"
        ],
        "source": "r22-new-runner-regression"
-      }
+      },
+       {
+        "file": "test/project/branchProjectRegistry.test.js",
+        "argv": [],
+        "source": "block-a-project-registry-domain-final"
+       },
+       {
+        "file": "test/api/localApi.test.js",
+        "argv": [],
+        "source": "block-a-api-instances-domain-final"
+       },
+       {
+        "file": "test/project/unifiedDispatchAdmission.test.js",
+        "argv": [],
+        "source": "block-b-unified-dispatch-domain-final"
+       }
      ]
     },
     "post": {

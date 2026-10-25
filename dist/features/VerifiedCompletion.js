@@ -3,6 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.completionIdentity = completionIdentity;
 exports.hasVerifiedCompletion = hasVerifiedCompletion;
 exports.verifiedCompletionProjection = verifiedCompletionProjection;
+exports.trustedTerminalProofFor = trustedTerminalProofFor;
+exports.hasTrustedTerminalProof = hasTrustedTerminalProof;
 exports.nextVerifiedCompletion = nextVerifiedCompletion;
 function completionIdentity(plan, job) {
     return JSON.stringify([plan.projectId, plan.id, job.index, job.workerId, job.commandId, job.outputDir, job.collectionResultCsv || ""]);
@@ -20,6 +22,15 @@ function verifiedCompletionProjection(plan, job) {
         exitCode: 0, statusQueryError: undefined, error: undefined, blockReason: undefined,
         runtimeDiagnostics: { schemaVersion: 1, commandId: job.commandId, runId: job.commandId,
             state: "clear", count: 0, scanComplete: true } };
+}
+function trustedTerminalProofFor(plan, job, outcome, now) {
+    return { schemaVersion: 1, identity: completionIdentity(plan, job), provenAt: new Date(now).toISOString(), outcome };
+}
+function hasTrustedTerminalProof(plan, job) {
+    const proof = job.trustedTerminalProof;
+    return Boolean(proof?.schemaVersion === 1 && ["completed", "failed", "cancelled"].includes(proof.outcome)
+        && Number.isFinite(Date.parse(proof.provenAt)) && job.commandId && plan.projectId && job.workerId
+        && proof.identity === completionIdentity(plan, job));
 }
 function nextVerifiedCompletion(plan, job, observation, state, now) {
     const exact = !observation.queryError;
