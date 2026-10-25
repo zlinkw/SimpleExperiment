@@ -160,6 +160,10 @@ import RunOperations_1 = require("../features/RunOperations");
 import { withoutRetiredOperations, endedPlanOperationIds } from "../features/OperationRetirement";
 import LocalApiServer_1 = require("../api/LocalApiServer");
 const { LocalApiError, LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
+import { BranchProjectStore, sameComparablePath as sameComparablePathProbe } from "../project/BranchProjectStore";
+import { BranchProjectService } from "../project/BranchProjectService";
+import { readGitIdentity as readGitIdentityProbe } from "../project/GitIdentityProbe";
+import { listPluginInstances } from "../cli/LocalApiClient";
 import RenamedExtensionStateMigration_1 = require("../config/RenamedExtensionStateMigration");
 import RemoteRootPolicyPrefill_1 = require("../config/RemoteRootPolicyPrefill");
 import PanelBuildIdentity_1 = require("../features/PanelBuildIdentity");
@@ -625,6 +629,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
+    "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject",
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
@@ -666,8 +671,10 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
     "downloadDebugBundle", "downloadRemoteResult", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "openAuditTail", "selectPlan", "selectExperiment",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
+    "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject",
 ]);
 const UI_BUTTON_PAYLOAD_KEYS = new Set([
+    "branchProjectId",
     "jobIndex",
     "endpointId", "planFile", "planId", "file", "runKey", "taskUiKey", "experimentId",
     "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "savePlan", "batchSelected",
@@ -1383,6 +1390,7 @@ export class RealtimeTunnelPanelProvider {
                 preferredPort,
                 preferredPortRetryMs: 3000,
                 discoveryPath: API_DISCOVERY_PATH,
+                workspace: scope,
                 methods: this.createLocalApiMethods(),
                 viewerSessionKey: signingKey,
                 viewerSessionScope: scope,
@@ -1411,6 +1419,146 @@ export class RealtimeTunnelPanelProvider {
         try { return await pending; }
         finally { if (this.localApiServerPromise === pending) this.localApiServerPromise = undefined; }
     }
+    // ── 项目与分支登记（块A：祖先项目/创新分支本机管理）──────────────────────────────
+    // 只读优先：验证只跑只读 git 探针；唯一的写操作 previewCreateBranch/confirmCreateBranch 必须
+    // 先向用户展示精确预览（分支/基点 commit/目标目录）并回传一致 digest 后执行；任何身份漂移、
+    // 目录占用或分支占用都拒绝而不是覆盖。移除登记不动任何文件、分支或提交。
+    branchProjectService() {
+        if (!this.branchProjectServiceInstance)
+            this.branchProjectServiceInstance = new BranchProjectService(
+                new BranchProjectStore(path.join(API_DISCOVERY_DIR, "branch-projects.json")),
+                () => String(workspaceRoot() || ""));
+        return this.branchProjectServiceInstance;
+    }
+    branchProjectsProjection() {
+        return this.branchProjectsProjectionState || { currentWorkspaceRoot: String(workspaceRoot() || ""), fileDigest: "", storagePath: this.branchProjectService().storagePath, ancestors: [], branches: [], verifiedAt: "", pending: true };
+    }
+    scheduleBranchProjectsVerify(reason) {
+        if (this.branchProjectsVerifyScheduled) return;
+        this.branchProjectsVerifyScheduled = true;
+        setTimeout(() => {
+            this.branchProjectsVerifyScheduled = false;
+            try {
+                this.branchProjectsProjectionState = this.branchProjectService().verifyAll();
+            } catch (error) {
+                const text = error instanceof Error ? error.message : String(error);
+                this.branchProjectsProjectionState = { currentWorkspaceRoot: String(workspaceRoot() || ""), fileDigest: "", storagePath: this.branchProjectService().storagePath, ancestors: [], branches: [], verifiedAt: "", pending: false, error: text };
+            }
+            this.postState();
+        }, 0);
+    }
+    async pickBranchProjectDirectory(title) {
+        const picked = await vscode.window.showOpenDialog({ canSelectFiles: false, canSelectFolders: true, canSelectMany: false, title, openLabel: "选择目录" });
+        const folder = Array.isArray(picked) ? picked[0] : undefined;
+        if (!folder) throw new UiCommandCancelled("已取消目录选择。");
+        return folder.fsPath;
+    }
+    branchProjectPickItems(projection, kind) {
+        const items = [];
+        if (kind === "ancestor" || kind === "both")
+            for (const row of projection.ancestors || [])
+                items.push({ id: row.record.id, kind: "ancestor", label: `祖先 $(repo) ${row.record.label}`, detail: `${row.record.gitRoot} · ${row.record.targetBranch} · ${String(row.git.headCommit || "").slice(0, 8)} · ${row.state}` });
+        if (kind === "branch" || kind === "both")
+            for (const row of projection.branches || [])
+                items.push({ id: row.record.id, kind: "branch", label: `分支 $(git-branch) ${row.record.label}`, detail: `${row.record.workspaceRoot} · ${row.git.branch || row.record.branch} · ${String(row.git.headCommit || "").slice(0, 8)} · ${row.state}${row.relation ? " · " + row.relation : ""}` });
+        return items;
+    }
+    async pickBranchProject(kind, placeHolder) {
+        const projection = this.branchProjectsProjection();
+        const items = this.branchProjectPickItems(projection, kind);
+        if (items.length === 0) throw new Error("尚未登记任何项目；请先在「项目与分支」卡登记祖先项目。");
+        const picked = await vscode.window.showQuickPick(items.map((item) => ({ label: item.label, description: item.detail, id: item.id, kind: item.kind })), { placeHolder, ignoreFocusOut: true });
+        if (!picked) throw new UiCommandCancelled("已取消选择。");
+        return picked;
+    }
+    async registerAncestorProjectFromUi() {
+        const root = await this.pickBranchProjectDirectory("选择祖先项目目录（含 .git 的仓库根）");
+        const identity = readGitIdentityProbe(root);
+        if (!identity.toplevel) throw new Error(identity.notARepository ? "所选目录不是 Git 仓库，不能登记为祖先项目。" : (identity.error || "无法读取该目录的 Git 身份。"));
+        const branch = identity.detached ? "（detached）" : (identity.branch || "（无分支）");
+        const detail = `目录：${identity.toplevel}\n当前分支：${branch}\nHEAD：${String(identity.headCommit).slice(0, 12) || "（空仓库）"}\n未提交修改：${identity.dirty ? "有" : "无"}\n将记录为本机祖先项目（只登记，不修改任何文件）。`;
+        const confirmed = await vscode.window.showInformationMessage(detail, { modal: true, detail }, "确认登记") === "确认登记" ? true : false;
+        if (!confirmed) throw new UiCommandCancelled("已取消登记。");
+        await this.branchProjectService().registerAncestor({ label: "", gitRoot: identity.toplevel });
+        this.scheduleBranchProjectsVerify("register-ancestor");
+        void vscode.window.showInformationMessage(`已登记祖先项目：${identity.toplevel}`);
+    }
+    async registerBranchProjectFromUi() {
+        const ancestorPick = await this.pickBranchProject("ancestor", "选择该副本所属的祖先项目");
+        const root = await this.pickBranchProjectDirectory("选择创新分支副本目录（独立 worktree 或 clone）");
+        const identity = readGitIdentityProbe(root);
+        if (!identity.toplevel) throw new Error(identity.notARepository ? "所选目录不是 Git 仓库。" : (identity.error || "无法读取该目录的 Git 身份。"));
+        const branch = identity.detached ? "（detached，将被拒绝）" : (identity.branch || "（无分支）");
+        const detail = `目录：${identity.toplevel}\n分支：${branch}\nHEAD：${String(identity.headCommit).slice(0, 12) || "（空）"}\n所属祖先：${ancestorPick.label}\n只登记归属，不合并、不移动任何提交。`;
+        const confirmed = await vscode.window.showInformationMessage(detail, { modal: true, detail }, "确认登记") === "确认登记" ? true : false;
+        if (!confirmed) throw new UiCommandCancelled("已取消登记。");
+        await this.branchProjectService().registerBranch({ ancestorId: ancestorPick.id, label: "", workspaceRoot: identity.toplevel });
+        this.scheduleBranchProjectsVerify("register-branch");
+        void vscode.window.showInformationMessage(`已登记创新分支副本：${identity.toplevel}`);
+    }
+    async createBranchFromAncestorFromUi() {
+        const ancestorPick = await this.pickBranchProject("ancestor", "选择在哪个祖先项目上创建创新分支");
+        const branch = await vscode.window.showInputBox({ prompt: "新分支名（例如 innovation/lr-sweep-01）", validateInput: (value) => /^[A-Za-z0-9][A-Za-z0-9._\-/]*$/.test(String(value || "").trim()) && !String(value || "").includes("..") ? null : "分支名只能使用字母数字与 . _ - /，不能以 - 或 . 开头，不能含 .." });
+        if (!branch) throw new UiCommandCancelled("已取消创建分支。");
+        const parentDir = await this.pickBranchProjectDirectory("选择新分支副本的存放父目录（将在其中新建独立目录）");
+        const preview = this.branchProjectService().previewCreateBranch({ ancestorId: ancestorPick.id, branch: branch.trim(), targetParentDir: parentDir });
+        const detail = [
+            `祖先项目：${preview.ancestorLabel}（${preview.ancestorRoot}）`,
+            `新分支：${preview.branch}`,
+            `基点：${preview.baseRef} @ ${String(preview.baseCommit).slice(0, 12) || "（空）"}`,
+            `新目录（必须尚不存在）：${preview.targetPath}`,
+            "执行命令：git worktree add <新目录> -b <新分支> <基点>",
+            ...preview.warnings,
+            "除新建 worktree 外不会做任何 Git 修改；不 reset/rebase/stash/删除。",
+        ].join("\n");
+        const confirmed = await vscode.window.showWarningMessage(detail, { modal: true, detail }, "确认创建") === "确认创建" ? true : false;
+        if (!confirmed) throw new UiCommandCancelled("已取消创建分支。");
+        const result = await this.branchProjectService().confirmCreateBranch({ ancestorId: ancestorPick.id, branch: branch.trim(), targetParentDir: parentDir, confirmDigest: preview.digest });
+        this.scheduleBranchProjectsVerify("create-branch");
+        void vscode.window.showInformationMessage(result.message);
+    }
+    async refreshBranchProjectsFromUi() {
+        this.branchProjectsProjectionState = this.branchProjectService().verifyAll();
+        this.postState();
+    }
+    async openBranchProjectFromUi(message) {
+        const id = stringField(message, "branchProjectId");
+        let target = null;
+        if (id) {
+            const projection = this.branchProjectsProjection();
+            target = this.branchProjectPickItems(projection, "both").find((item) => item.id === id) || null;
+        }
+        if (!target) target = await this.pickBranchProject("both", "选择在哪个窗口打开项目");
+        const projection = this.branchProjectService().verifyAll();
+        const row = [...(projection.ancestors || []), ...(projection.branches || [])]
+            .map((item) => ("record" in item ? item.record : null)).find((record) => record && record.id === target.id);
+        if (!row) throw new Error("该登记项已不存在；请刷新后重试。");
+        const root = "gitRoot" in row ? row.gitRoot : row.workspaceRoot;
+        const current = String(workspaceRoot() || "");
+        if (current && sameComparablePathProbe(current, root)) {
+            void vscode.window.showInformationMessage("当前窗口已经打开了这个项目。");
+            return;
+        }
+        const confirmed = await vscode.window.showInformationMessage(`将在新窗口打开：${root}\n（新窗口启动该项目的独立插件实例，不改变当前窗口工作区。）`, { modal: true }, "打开") === "打开" ? true : false;
+        if (!confirmed) throw new UiCommandCancelled("已取消打开。");
+        await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(root), { forceNewWindow: true });
+    }
+    async forgetBranchProjectRegistrationFromUi(message, kind) {
+        const id = stringField(message, "branchProjectId");
+        let targetId = id;
+        if (!targetId) {
+            const picked = await this.pickBranchProject(kind, kind === "ancestor" ? "选择要移除登记的祖先项目" : "选择要移除登记的分支项目");
+            targetId = picked.id;
+        }
+        const projection = this.branchProjectsProjection();
+        const found = [...(projection.ancestors || []), ...(projection.branches || [])].find((item) => item.record.id === targetId);
+        const label = found ? ("gitRoot" in found.record ? found.record.gitRoot : found.record.workspaceRoot) : targetId;
+        const confirmed = await vscode.window.showWarningMessage(`仅移除插件内的登记：${label}\n不会删除目录、分支、worktree 或任何提交；之后可重新登记。`, { modal: true }, "移除登记") === "移除登记" ? true : false;
+        if (!confirmed) throw new UiCommandCancelled("已取消移除。");
+        await this.branchProjectService().forget(kind, targetId);
+        this.scheduleBranchProjectsVerify("forget-" + kind);
+        void vscode.window.showInformationMessage("已移除登记（目录与 Git 内容未做任何修改）。");
+    }
     createLocalApiMethods() {
         return {
             "plans.cleanup.preview": params => this.planCleanupHost().service.preview(params),
@@ -1434,6 +1582,21 @@ export class RealtimeTunnelPanelProvider {
                 timestamp: new Date().toISOString(),
             }),
             state: async () => this.buildState(),
+            // 块A窄接口：登记的项目/分支与本机活实例。只读投影；实例记录不含 token。
+            "projects.registry": async () => this.branchProjectService().verifyAll(),
+            "projects.instances": async () => ({
+                schemaVersion: 1,
+                instances: listPluginInstances("experiment").map((row) => ({
+                    instanceId: row.instanceId,
+                    workspace: row.workspace,
+                    version: row.version,
+                    pid: row.pid,
+                    startedAt: row.startedAt,
+                    status: row.status,
+                    error: row.error,
+                })),
+                note: "文件登记的实例记录；调用方仍需 preflightPluginAt 实时握手确认存活与工作区。",
+            }),
             "panel.diagnostics": async () => this.panelDiagnosticsApi(),
             "actions.list": async () => {
                 const rows = [...API_EXECUTABLE_COMMANDS].sort();
@@ -5537,6 +5700,7 @@ return this.testTunnel(true);
                 this.schedulePanelHeartbeat();
                 this.postState(true, true);
                 void this.refreshPptAutomationReadiness(false).catch(() => undefined);
+                this.scheduleBranchProjectsVerify("webview-ready");
                 break;
             case "webviewHeartbeatAck":
                 this.handlePanelHeartbeatAck(message);
@@ -5846,6 +6010,27 @@ return this.testTunnel(true);
                 break;
             case "bootstrapProject":
                 await this.bootstrapProjectFromUi();
+                break;
+            case "registerAncestorProject":
+                await this.registerAncestorProjectFromUi();
+                break;
+            case "registerBranchProject":
+                await this.registerBranchProjectFromUi();
+                break;
+            case "createBranchFromAncestor":
+                await this.createBranchFromAncestorFromUi();
+                break;
+            case "refreshBranchProjects":
+                await this.refreshBranchProjectsFromUi();
+                break;
+            case "openBranchProject":
+                await this.openBranchProjectFromUi(message);
+                break;
+            case "forgetBranchProject":
+                await this.forgetBranchProjectRegistrationFromUi(message, "branch");
+                break;
+            case "forgetAncestorProject":
+                await this.forgetBranchProjectRegistrationFromUi(message, "ancestor");
                 break;
             case "generateOutputAdapter":
                 await this.generateOutputAdapterFromUi();
@@ -24058,6 +24243,7 @@ return "历史服务器";
             pptAutomation: this.pptAutomationReadiness,
             integrations,
             projectOnboarding,
+            branchProjects: this.branchProjectsProjection(),
             health: webviewHealth,
             realtime: webviewRealtime,
             gpuOwnerConfig: this.gpuOwnerConfig(),
@@ -24800,6 +24986,7 @@ return "历史服务器";
             pptAutomation: {},
             integrations: { simpleSftp },
             projectOnboarding,
+            branchProjects: this.branchProjectsProjection(),
             health: { state: "unknown", status: "unknown", message: "面板状态暂不可用。" },
             realtime: { status: "disconnected", endpoints: [], lastSeq: 0 },
             gpuOwnerConfig: {},

@@ -654,3 +654,80 @@ test("SimpleExperiment parameterized onboarding uses one structured confirmation
   const bootstrapBody = extensionSource.slice(start, end);
   assert.ok(bootstrapBody.indexOf("await this.apiProjectPrepare") < bootstrapBody.indexOf("const missing = await this.apiPlanValidate"));
 });
+
+test("multi-window: per-instance discovery records coexist and workspace routing refuses ambiguity without leaking tokens", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-instances-"));
+  const discoveryPath = path.join(dir, "api.json");
+  const workspaceA = path.join(dir, "wsA");
+  const workspaceB = path.join(dir, "wsB");
+  process.env.SIMPLE_EXPERIMENT_API_FILE = discoveryPath;
+  try {
+    const client = require("../../dist/cli/LocalApiClient.js");
+    const serverA = new LocalApiServer({
+      name: "SimpleExperiment", version: "0.5.409-test", preferredPort: await freePort(),
+      discoveryPath, workspace: workspaceA, methods: { status: async () => ({ ok: true }) },
+    });
+    const discA = await serverA.start();
+    // startedAt 以毫秒计时：留出间隔避免同进程内两条实例记录身份相同。
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    const serverB = new LocalApiServer({
+      name: "SimpleExperiment", version: "0.5.409-test", preferredPort: await freePort(),
+      discoveryPath, workspace: workspaceB, methods: { status: async () => ({ ok: true }) },
+    });
+    const discB = await serverB.start();
+    try {
+      const instDir = path.join(dir, "instances");
+      const names = fs.readdirSync(instDir).filter((name) => name.endsWith(".json"));
+      assert.equal(names.length, 2, "两个窗口各自写入一条实例记录，互不覆盖");
+
+      // 兼容合同：默认 api.json 仍被写入且可解析（last-writer 语义保持）。
+      const legacy = JSON.parse(fs.readFileSync(discoveryPath, "utf8"));
+      assert.ok(typeof legacy.baseUrl === "string" && typeof legacy.token === "string");
+
+      const rows = client.listPluginInstances("experiment");
+      assert.equal(rows.length, 2);
+      for (const row of rows) {
+        assert.equal(row.status, "running");
+        assert.ok(!("token" in row), "枚举结果不得携带 token");
+        const serialized = JSON.stringify(row);
+        assert.ok(!serialized.includes(discA.token) && !serialized.includes(discB.token), "序列化行中不得出现任一 token");
+      }
+      const rowA = rows.find((row) => row.workspace === workspaceA);
+      const rowB = rows.find((row) => row.workspace === workspaceB);
+      assert.ok(rowA && rowB, "实例记录必须携带各自工作区");
+      assert.equal(rowA.instanceId, `${discA.pid}:${discA.startedAt}`);
+      assert.equal(rowB.instanceId, `${discB.pid}:${discB.startedAt}`);
+
+      const resolved = client.resolveInstanceByWorkspace("experiment", workspaceA);
+      assert.equal(resolved.instanceId, rowA.instanceId);
+      assert.throws(() => client.resolveInstanceByWorkspace("experiment", path.join(dir, "wsUnknown")), /未找到/);
+
+      const preflightA = await client.preflightPluginAt("experiment", rowA.discoveryPath, workspaceA);
+      assert.equal(preflightA.capabilities.workspace, workspaceA);
+      await assert.rejects(() => client.preflightPluginAt("experiment", rowA.discoveryPath, workspaceB), /工作区核对失败/);
+
+      // 歧义：同一工作区出现两条 running 记录时拒绝猜测。
+      fs.writeFileSync(path.join(instDir, "999999_injected.json"), `${JSON.stringify({
+        schemaVersion: 1, name: "SimpleExperiment", version: "0.5.409-test",
+        baseUrl: "http://127.0.0.1:19999", host: "127.0.0.1", port: 19999, token: "injected-token-aaaaaaaa",
+        pid: 999999, startedAt: "2026-01-01T00:00:00.000Z", instanceId: "999999:2026-01-01T00:00:00.000Z",
+        workspace: workspaceA, status: "running",
+      })}\n`, "utf8");
+      assert.throws(() => client.resolveInstanceByWorkspace("experiment", workspaceA), /匹配到 2 个/);
+
+      // 停止只写自身记录：B 的记录逐字节不变。
+      const bBytes = fs.readFileSync(rowB.discoveryPath);
+      await serverA.dispose();
+      const stoppedA = JSON.parse(fs.readFileSync(rowA.discoveryPath, "utf8"));
+      assert.equal(stoppedA.status, "stopped");
+      assert.deepEqual(fs.readFileSync(rowB.discoveryPath), bBytes, "dispose 不得改写其它窗口的记录");
+    } finally {
+      await serverA.dispose().catch(() => undefined);
+      await serverB.dispose();
+    }
+  } finally {
+    delete process.env.SIMPLE_EXPERIMENT_API_FILE;
+    // FIXTURE POLICY: zero cleanup — retained for audit instead of rmSync (2026-10-23 rework).
+    console.log(`[fixtures retained, no cleanup] ${dir}`);
+  }
+});

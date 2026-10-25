@@ -1421,6 +1421,21 @@ export function renderPanelHtml(): string {
             <button data-command="snapshot" class="secondary" title="刷新识别：重新扫描工作区&#10;更新实验计划列表与项目接入状态&#10;不会修改任何文件">刷新识别</button>
           </div>
         </div>
+        <div class="branchProjectsCard" data-branch-projects-card="true" style="margin:0 0 10px 0;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--subtle-bg);">
+          <div class="section-head" style="margin-bottom:6px;">
+            <div class="section-title">
+              <h3 style="margin:0;font-size:13px;">项目与分支</h3>
+              <div class="section-desc">本机祖先项目与创新分支登记；副本目录独立，状态按真实 Git 读取，科研验证另计</div>
+            </div>
+            <div class="toolbar">
+              <button type="button" data-command="registerAncestorProject" class="secondary" title="登记一个本机已有的祖先项目仓库根&#10;只记录目录、目标分支与 remote，不修改任何文件">登记祖先项目</button>
+              <button type="button" data-command="registerBranchProject" class="secondary" title="把已有独立副本（worktree 或 clone）登记为某祖先的创新分支&#10;只登记归属，不合并、不移动提交">登记分支副本</button>
+              <button type="button" data-command="createBranchFromAncestor" class="secondary" title="在祖先仓库上创建新分支并生成独立 worktree 目录&#10;创建前展示精确分支/基点/目录并需确认；不覆盖已有分支或目录">从祖先创建分支</button>
+              <button type="button" data-command="refreshBranchProjects" class="secondary" title="重新读取所有登记的真实 Git 状态（只读）">刷新状态</button>
+            </div>
+          </div>
+          <div id="branchProjectsList" data-anchor="branch-projects"></div>
+        </div>
         <div id="planDetectedProject" data-anchor="plans-detected"></div>
         <div id="planQuickGrid" class="planQuickGrid" data-anchor="plans-actions">
           <div class="planSelectorControls" aria-label="计划筛选与排序">
@@ -2983,7 +2998,7 @@ export function renderPanelHtml(): string {
       endpointId: "endpoint-id", planFile: "plan-file", planRevision: "plan-revision", planId: "plan-id", file: "file", runKey: "run-key", taskUiKey: "task-ui-key", experimentId: "experiment-id",
       archiveKey: "archive-key", experimentIndex: "experiment-index", gpuId: "gpu-id", workerId: "worker-id", remotePath: "remote-path", confirmationPath: "confirmation-path",
       artifactPath: "artifact-path", resultPath: "result-path", logPath: "log-path", savePlan: "save-plan", deferredPlanId: "deferred-plan-id", sourcePath: "source-path", sourceLabel: "source-label",
-      presentationPath: "presentation-path", chartType: "chart-type", styleMode: "style-mode"
+      presentationPath: "presentation-path", chartType: "chart-type", styleMode: "style-mode", branchProjectId: "branch-project-id"
     });
     const BUTTON_PAYLOAD_ATTRIBUTE_KEYS = Object.freeze(Object.keys(BUTTON_PAYLOAD_ATTRIBUTE_NAMES));
     const PENDING_SCOPE_KEYS = Object.freeze(["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "workerId", "configScope", "savePlan", "batchSelected"]);
@@ -3295,6 +3310,7 @@ export function renderPanelHtml(): string {
       "cleanupPlan", "reviewIsolatedPlanBatches",
       "publishGithub", "syncGithub", "overwriteGithub",  "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "refreshLocalResults", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
       "selectPlan", "selectExperiment",
+      "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject",
       "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow", "clearTmuxTaskTabs",
       ...Object.keys(uiCapabilityMap)
     ]);
@@ -4537,6 +4553,7 @@ export function renderPanelHtml(): string {
         renderWorkbenchInspector(state);
         updateResourceTreeActiveSection(activeResourceSection, activeResourceAnchor);
         renderVisibleSections(state);
+        try { renderBranchProjectsCard(state); } catch (e) {}
         try { renderTmuxOverview(tmuxListCache.sessions || []); } catch (e) {}
         applyLayoutColumns();
         schedulePostRenderMaintenance();
@@ -4632,6 +4649,55 @@ export function renderPanelHtml(): string {
         '<div class="projectOnboardingNoticeBody"><b>当前项目待接入</b><span>' + esc(detail) + '</span></div>' +
         '<button type="button" data-command="bootstrapProject" title="扫描工作区，识别 experiments/plans 下的实验计划与项目配置&#10;同时检查服务器与 Agent 等前置条件&#10;已有的计划与接入配置不会重复写入">识别工作区</button>'
       );
+    }
+
+    function renderBranchProjectsCard(state) {
+      const target = el("branchProjectsList");
+      if (!target) return;
+      const projection = (state && state.branchProjects) || {};
+      const ancestors = asArray(projection.ancestors);
+      const branches = asArray(projection.branches);
+      const currentRoot = String(projection.currentWorkspaceRoot || "");
+      const STATE_LABELS = { verified: "已验证", missing: "目录缺失", "not-a-repository": "不是Git仓库", "identity-drift": "身份漂移", dirty: "有未提交修改", detached: "detached HEAD", error: "读取失败" };
+      const RELATION_LABELS = { "ancestor-equal": "与祖先同点", "ancestor-ahead": "领先祖先", diverged: "已分叉", "separate-repository": "独立仓库（关系未证明）", unavailable: "关系未知" };
+      if (projection.error) { setHtmlIfChanged(target, '<div class="status-failed">项目与分支登记读取失败：' + esc(String(projection.error).slice(0, 300)) + '（为避免覆盖登记数据，未做任何写入；请处理后可重新登记。）</div>'); return; }
+      if (projection.pending !== false && ancestors.length === 0 && branches.length === 0 && !projection.verifiedAt) {
+        setHtmlIfChanged(target, '<div class="muted">尚未登记本机项目/分支，或正在首次读取。点上方按钮登记，或「刷新状态」立即重读真实 Git 状态。</div>');
+        return;
+      }
+      if (ancestors.length === 0 && branches.length === 0) { setHtmlIfChanged(target, '<div class="muted">尚未登记本机项目/分支。点上方「登记祖先项目」开始。</div>'); return; }
+      const chip = (label) => '<span class="status-chip">' + esc(label) + '</span>';
+      const shortSha = (value) => String(value || "").slice(0, 8) || "（空）";
+      const rowStatus = (value) => chip(STATE_LABELS[String(value || "")] || String(value || "未知"));
+      const isCurrent = (root) => currentRoot && String(root || "").replace(/[\\/]+$/, "").toLowerCase() === currentRoot.replace(/[\\/]+$/, "").toLowerCase();
+      const parts = [];
+      if (projection.verifiedAt) parts.push('<div class="muted" style="margin-bottom:4px;">上次核验：' + esc(String(projection.verifiedAt)) + '</div>');
+      for (const ancestorRow of ancestors) {
+        const record = (ancestorRow && ancestorRow.record) || {};
+        const git = (ancestorRow && ancestorRow.git) || {};
+        const kids = branches.filter((row) => String(((row && row.record) || {}).ancestorId || "") === String(record.id || ""));
+        parts.push('<div class="branchProjectAncestor" style="border-left:3px solid var(--border);padding:4px 8px;margin:6px 0;">' +
+          '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><b>祖先 ' + esc(String(record.label || "")) + '</b>' + rowStatus(ancestorRow.state) + (isCurrent(record.gitRoot) ? chip("当前窗口") : "") +
+          '<button class="mini secondary" type="button" data-command="openBranchProject" data-branch-project-id="' + escAttr(String(record.id || "")) + '" title="在新窗口打开该项目（独立实例）">打开</button>' +
+          '<button class="mini secondary" type="button" data-command="forgetAncestorProject" data-branch-project-id="' + escAttr(String(record.id || "")) + '" title="仅移除插件内登记，不删除目录与 Git 内容">移除登记</button></div>' +
+          '<div class="muted" style="font-size:11px;word-break:break-all;">' + esc(String(record.gitRoot || "")) + ' · ' + esc(String(record.targetBranch || "")) + ' @ ' + esc(shortSha(git.headCommit)) + (git.dirty ? ' · 未提交修改' : '') + (record.remoteUrl ? ' · remote: ' + esc(String(record.remoteUrl)) : '') + '</div>' +
+          ((ancestorRow.errors || []).length ? '<div class="status-warn" style="font-size:11px;">' + esc(String((ancestorRow.errors || []).join("；")).slice(0, 400)) + '</div>' : '') +
+          (kids.length ? '' : '<div class="muted" style="font-size:11px;">该祖先下暂无分支登记。</div>') +
+          '</div>');
+        for (const branchRow of kids) {
+          const b = (branchRow && branchRow.record) || {};
+          const bgit = (branchRow && branchRow.git) || {};
+          parts.push('<div class="branchProjectBranch" style="margin:2px 0 6px 16px;padding:4px 8px;border:1px dashed var(--border);border-radius:6px;">' +
+            '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><b>分支 ' + esc(String(b.label || "")) + '</b>' + rowStatus(branchRow.state) + chip("关系：" + (RELATION_LABELS[String(branchRow.relation || "")] || "未知")) + (bgit.dirty ? chip("有未提交修改") : "") + (isCurrent(b.workspaceRoot) ? chip("当前窗口") : "") +
+            '<button class="mini secondary" type="button" data-command="openBranchProject" data-branch-project-id="' + escAttr(String(b.id || "")) + '" title="在新窗口打开该分支项目（独立实例）">打开</button>' +
+            '<button class="mini secondary" type="button" data-command="forgetBranchProject" data-branch-project-id="' + escAttr(String(b.id || "")) + '" title="仅移除插件内登记，不删除目录、分支或 worktree">移除登记</button></div>' +
+            '<div class="muted" style="font-size:11px;word-break:break-all;">' + esc(String(b.workspaceRoot || "")) + ' · ' + esc(String(bgit.branch || b.branch || "")) + ' @ ' + esc(shortSha(bgit.headCommit)) + ' · 登记来源：' + esc(String(b.source === "created-worktree" ? "本机创建 worktree" : "登记已有副本")) + '</div>' +
+            ((branchRow.errors || []).length ? '<div class="status-warn" style="font-size:11px;">' + esc(String((branchRow.errors || []).join("；")).slice(0, 400)) + '</div>' : '') +
+            '<div class="muted" style="font-size:11px;">科研验证状态：未在本卡自动执行，需在该分支窗口另行计划/运行与质量门禁。</div>' +
+            '</div>');
+        }
+      }
+      setHtmlIfChanged(target, parts.join(""));
     }
 
     function schedulePostRenderMaintenance(force) {
@@ -6053,7 +6119,7 @@ export function renderPanelHtml(): string {
 
     function pendingKeyFromButtonDataset(button) {
       const payload = {};
-      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "attempt", "commandId", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "session", "window"].forEach((key) => {
+      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "attempt", "commandId", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "session", "window", "branchProjectId"].forEach((key) => {
         if (key === "attempt" && button.dataset.command === "recallFailedJob") return;
         if (button.dataset[key]) payload[key] = button.dataset[key];
       });
@@ -6063,7 +6129,7 @@ export function renderPanelHtml(): string {
 
     function pendingKeyForAction(command, payload) {
       const parts = [command];
-      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "attempt", "commandId", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "batchSelected"].forEach((key) => {
+      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "attempt", "commandId", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "batchSelected", "branchProjectId"].forEach((key) => {
         const value = payload && payload[key];
         if (value || (key === "jobIndex" && value === 0)) parts.push(key + "=" + String(value));
       });
@@ -17760,6 +17826,7 @@ export function renderPanelHtml(): string {
       }
       if (button.dataset.report) { payload.report = button.dataset.report; payload.file = payload.file || button.dataset.report; payload.name = payload.name || button.dataset.report; }
       if (button.dataset.name && (command === "openLastCheckStaticReport")) { payload.report = payload.report || button.dataset.name; payload.file = payload.file || button.dataset.name; payload.name = button.dataset.name; }
+      if (button.dataset.branchProjectId) payload.branchProjectId = button.dataset.branchProjectId;
       if (button.dataset.runKey) payload.runKey = button.dataset.runKey;
       if (button.dataset.taskUiKey) payload.taskUiKey = button.dataset.taskUiKey;
       if (button.dataset.experimentId) payload.experimentId = button.dataset.experimentId;

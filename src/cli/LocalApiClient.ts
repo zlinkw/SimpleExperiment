@@ -94,6 +94,100 @@ export interface PluginPreflight {
   instanceId: string;
 }
 
+/**
+ * Multi-window instance discovery. Every live LocalApiServer persists its own record under
+ * <discoveryDir>/instances/<pid>_<startedAt>.json next to the legacy default api.json slot. This
+ * enumeration is read-only, bounded per file, and NEVER returns tokens: routing is done by reading
+ * the record file itself and performing the standard live handshake against that instance.
+ */
+export interface PluginInstanceRow {
+  discoveryPath: string;
+  instanceId: string;
+  name: string;
+  version: string;
+  pid: number;
+  startedAt: string;
+  status: string;
+  workspace: string;
+  /** Set when the record file could not be understood; the row then carries no live facts. */
+  error: string;
+}
+
+export function pluginInstancesDir(pluginOrPath: UnifiedPlugin | string): string {
+  const base = typeof pluginOrPath === "string" && (pluginOrPath === "experiment" || pluginOrPath === "sftp")
+    ? path.dirname(pluginDiscoveryPath(pluginOrPath as UnifiedPlugin))
+    : path.dirname(String(pluginOrPath));
+  return path.join(base, "instances");
+}
+
+function readInstanceRecord(file: string): PluginInstanceRow {
+  const row: PluginInstanceRow = { discoveryPath: file, instanceId: "", name: "", version: "", pid: 0, startedAt: "", status: "", workspace: "", error: "" };
+  try {
+    const fd = fs.openSync(file, "r");
+    let value: Record<string, unknown>;
+    try {
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.size > DISCOVERY_LIMIT) throw new Error("record exceeds size limit");
+      const bytes = Buffer.alloc(DISCOVERY_LIMIT + 1);
+      const size = fs.readSync(fd, bytes, 0, bytes.length, 0);
+      if (size > DISCOVERY_LIMIT) throw new Error("record exceeds size limit");
+      value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, size)));
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("record is not an object");
+    } finally { fs.closeSync(fd); }
+    row.name = typeof value.name === "string" ? value.name : "";
+    row.version = typeof value.version === "string" ? value.version : "";
+    row.pid = Number.isInteger(value.pid) ? Number(value.pid) : 0;
+    row.startedAt = typeof value.startedAt === "string" ? value.startedAt : "";
+    row.status = typeof value.status === "string" ? value.status : "";
+    row.workspace = typeof value.workspace === "string" ? value.workspace : "";
+    row.instanceId = typeof value.instanceId === "string" && value.instanceId
+      ? value.instanceId
+      : (row.pid > 0 && row.startedAt ? `${row.pid}:${row.startedAt}` : "");
+    // A record whose live transport fields are unusable is still listed (marked), never guessed.
+    try { validateDiscovery(value); } catch (error) { row.error = error instanceof Error ? error.message : String(error); }
+  } catch (error) {
+    row.error = error instanceof Error ? error.message : String(error);
+  }
+  return row;
+}
+
+export function listPluginInstances(plugin: UnifiedPlugin): PluginInstanceRow[] {
+  const dir = pluginInstancesDir(plugin);
+  let names: string[];
+  try { names = fs.readdirSync(dir).filter((name) => name.toLowerCase().endsWith(".json")).sort(); }
+  catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (code === "ENOENT") return [];
+    throw error;
+  }
+  return names.slice(0, 256).map((name) => readInstanceRecord(path.join(dir, name)));
+}
+
+function sameWorkspacePath(a: string, b: string): boolean {
+  const normalize = (value: string) => String(value || "").trim().replace(/[\\/]+$/, "").replace(/\\/g, "/");
+  const left = normalize(a), right = normalize(b);
+  if (!left || !right) return false;
+  return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+
+/**
+ * Resolve exactly one instance record for a workspace. Ambiguity (two live records for one root),
+ * a missing workspace field or a stopped record are refusals, never a best-effort guess. The
+ * returned row still requires preflightPluginAt's live handshake before anything is trusted.
+ */
+export function resolveInstanceByWorkspace(plugin: UnifiedPlugin, workspace: string): PluginInstanceRow {
+  if (!workspace || !String(workspace).trim()) throw new Error("按工作区路由必须提供明确的 workspace。");
+  const rows = listPluginInstances(plugin);
+  const matches = rows.filter((row) => !row.error && row.status === "running" && sameWorkspacePath(row.workspace, workspace));
+  if (matches.length === 0) {
+    const known = rows.filter((row) => row.workspace).map((row) => `${row.workspace}(${row.status || "?"})`).join(", ");
+    throw new Error(`未找到工作区 ${workspace} 的运行中实例记录。已知实例：${known || "无"}。请先在该项目窗口打开插件面板。`);
+  }
+  if (matches.length > 1)
+    throw new Error(`工作区 ${workspace} 匹配到 ${matches.length} 个实例（${matches.map((row) => row.instanceId).join(", ")}）；请改用 --instance 明确指定。`);
+  return matches[0];
+}
+
 function expectedInstanceId(discovery: Discovery): string {
   return `${String(discovery.pid)}:${String(discovery.startedAt)}`;
 }
@@ -108,11 +202,31 @@ function expectedInstanceId(discovery: Discovery): string {
  */
 export async function preflightPlugin(plugin: UnifiedPlugin): Promise<PluginPreflight> {
   try {
-    return await preflightHandshake(plugin);
+    return await preflightHandshake(plugin, pluginDiscoveryPath(plugin));
   } catch (error) {
     // Preflight failures happen before any request body is sent: they are environment facts
     // (missing/invalid discovery, wrong slot, identity/version mismatch) and exit ENV(2), except
     // genuine transport failures which keep NETWORK(4). Never let them degrade to BUSINESS(3).
+    if (error instanceof CliError) throw error;
+    throw asCliError(error, 2);
+  }
+}
+
+/**
+ * Same live handshake against an explicit instance record (from listPluginInstances /
+ * resolveInstanceByWorkspace). When expectedWorkspace is given, the live capabilities must carry a
+ * matching workspace — an older listener without the field is refused, never assumed.
+ */
+export async function preflightPluginAt(plugin: UnifiedPlugin, discoveryPath: string, expectedWorkspace?: string): Promise<PluginPreflight> {
+  try {
+    const preflight = await preflightHandshake(plugin, discoveryPath);
+    if (expectedWorkspace !== undefined && String(expectedWorkspace).trim()) {
+      const live = String(preflight.capabilities.workspace || "");
+      if (!live || !sameWorkspacePath(live, expectedWorkspace))
+        throw new Error(`工作区核对失败：实例 ${preflight.instanceId} 的实际工作区为 ${live || "（旧版实例未声明）"}，与目标 ${expectedWorkspace} 不一致；拒绝路由。`);
+    }
+    return preflight;
+  } catch (error) {
     if (error instanceof CliError) throw error;
     throw asCliError(error, 2);
   }
@@ -127,9 +241,8 @@ export function assertInstancePin(expected: string | undefined, preflight: Plugi
   }
 }
 
-async function preflightHandshake(plugin: UnifiedPlugin): Promise<PluginPreflight> {
+async function preflightHandshake(plugin: UnifiedPlugin, discoveryPath: string): Promise<PluginPreflight> {
   const spec = PLUGIN_ENDPOINTS[plugin];
-  const discoveryPath = pluginDiscoveryPath(plugin);
   if (!fs.existsSync(discoveryPath)) {
     throw new Error(`${spec.label} API discovery not found: ${discoveryPath}. Open VS Code once to start the extension host.`);
   }
@@ -194,10 +307,23 @@ export function rpcTimeoutMs(plugin: UnifiedPlugin, method: string): number {
   return unbounded ? 0 : 15_000;
 }
 
-/** Preflighted RPC: retired and undeclared methods are refused client-side; confirmations surface as preview data. */
-export async function callPluginRpc(plugin: UnifiedPlugin, method: string, params: Record<string, unknown>, expectedInstanceId?: string): Promise<unknown> {
+/**
+ * Preflighted RPC: retired and undeclared methods are refused client-side; confirmations surface as preview data.
+ * Optional target routes to a specific instance record or the unique running instance of a workspace;
+ * the legacy single-slot behavior is unchanged when no target is given.
+ */
+export async function callPluginRpc(plugin: UnifiedPlugin, method: string, params: Record<string, unknown>, expectedInstanceId?: string,
+  target?: { discoveryPath?: string; workspace?: string }): Promise<unknown> {
   if (typeof method !== "string" || !method || !params || typeof params !== "object" || Array.isArray(params)) throw new Error("API method and object params required");
-  const preflight = await preflightPlugin(plugin);
+  let preflight: PluginPreflight;
+  if (target && (target.discoveryPath || target.workspace)) {
+    const workspace = String(target.workspace || "").trim();
+    const discoveryPath = target.discoveryPath
+      || resolveInstanceByWorkspace(plugin, workspace).discoveryPath;
+    preflight = await preflightPluginAt(plugin, discoveryPath, workspace || undefined);
+  } else {
+    preflight = await preflightPlugin(plugin);
+  }
   assertInstancePin(expectedInstanceId, preflight);
   const retired = preflight.capabilities.retiredMethods as Record<string, unknown> | undefined;
   if (retired && typeof retired[method] === "string") {
