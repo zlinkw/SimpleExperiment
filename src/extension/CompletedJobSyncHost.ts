@@ -2,6 +2,7 @@ import { newestJobOutputs, jobArtifactScopes, latestJobSyncKey } from "../featur
 import { canonicalProjectId } from "../features/DistributedPlanQueue";
 import { loadSyncHolds } from "../features/SyncResolution";
 import { jobArtifactSyncDigest } from "../features/PlanArtifactSyncStatus";
+import { jobArtifactRetentionKey } from "../features/JobArtifactSyncIdentity";
 
 /**
  * Per-job completion publication reuses the file tree's newest-version merge, never the whole PLAN gate.
@@ -66,13 +67,30 @@ export class CompletedJobSyncHost {
       if (!scopes.length) { await patch({ latestArtifactSync: { key, state: "excluded", scopes, checkedAt: new Date().toISOString() }, artifactError: undefined, artifactRetryAfter: undefined }); report.excluded++; continue; }
       try {
         await assertCurrent();
-        const result = await h.mergeLatestWorkerVersions(this.root, targets, scopes, ".", () => {}, {
-          completedJob: { sourceId: job.workerId }, assertCurrent, verifyOnly: options.verifyOnly,
+        // r10：本次已记录且落在选定 scope 内的 job.artifacts 必要项进入强校验（其它 scope 条目不强加）；
+        // 旧记录在此核"必要路径存在"：merge 侧要求当前来源有已校验版本，foreign-only/缺失仍 partial；
+        // 来源以本次明确的当前最新版为准（主控 r11 复审确认既有契约）——冻结后来源漂移照常开新代重传，
+        // 复制落地 SHA 与本次冻结清单不符仍逐文件阻断；专用链正式镜像冲突的原规则不受影响。
+        const samePath = (a: string, b: string) => a === b || a.startsWith(b + "/") || b.startsWith(a + "/");
+        const requiredArtifacts = Object.fromEntries(Object.entries<string>(job.artifacts || {}).filter(([file]) => scopes.some(scope => samePath(file, scope))));
+        // r10：merge 的阶段与 foreign-only 分类完整路径/原因进入既有操作日志通道（缺通道不影响操作）。
+        const result = await h.mergeLatestWorkerVersions(this.root, targets, scopes, ".",
+          (stage: string) => h.logOperationFact?.(`产物同步 ${plan.planFile} job ${job.index}：${stage}`), {
+          // r5 P2 身份块：从真实队列行透传五元组身份（与专用链逐字同构）与 plan.id/commandId；
+          // 队列行缺失身份时根本进不了 pending（L40 过滤），此处不臆造。
+          completedJob: {
+            sourceId: job.workerId, planId: plan.id, commandId: job.commandId,
+            retentionKey: jobArtifactRetentionKey(plan.planFile, job.index, job.case, job.seed),
+            requiredArtifacts,
+          }, assertCurrent, verifyOnly: options.verifyOnly,
         });
         if (!result || result.errors.length) throw Error(result?.errors?.join("；") || "同步未完成");
         await assertCurrent();
         await patch({ latestArtifactSync: { key, state: "synced", scopes, workerIds: targets.map((row: any) => row.id), checkedAt: new Date().toISOString(),
-          artifactDigest: jobArtifactSyncDigest({ artifacts: { ...job.artifacts, ...result.files } }) },
+          // r10：仅当本次确实分类出他端历史保留副本时写入最小可选字段（完整日志已含路径与原因）；
+          // 成功含义只限本次当前 job 已验证来源域，不声称其它 Worker 历史副本已合并或清除。
+          artifactDigest: jobArtifactSyncDigest({ artifacts: { ...job.artifacts, ...result.files } }),
+          ...(result.foreignOnly?.length ? { skipped: result.foreignOnly } : {}) },
           artifactError: undefined, artifactRetryAfter: undefined, artifacts: { ...job.artifacts, ...result.files },
           ...(scopes.includes(job.outputDir) && (!job.collectionResultCsv || job.actualExecutionMode === "train" || scopes.includes(job.collectionResultCsv))
             ? { mirroredWorkerIds: targets.map((row: any) => row.id), replaceMirroredWorkerIds: true } : {}) });

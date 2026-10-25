@@ -5,7 +5,15 @@ exports.guardCleanupSftpCall = guardCleanupSftpCall;
 // sftp 闭包逐行原样提取；每条应答门禁、升级错误与零确认零执行语义保持原样）。
 const PlanCleanup_1 = require("../features/PlanCleanup");
 const FastDeleteContract_1 = require("../features/FastDeleteContract");
-async function guardCleanupSftpCall(host, method, params) {
+/** r17-D consumerRoot: 每个 files.cleanup.* 请求都携带本主机的冻结消费项目绝对 root（令牌台账的
+ * 归属就写在这个项目内）。remote 的 node.root 绝不参与归属；调用方传入的同名字段一律被冻结 root
+ * 覆盖——服务端只认这份原主会话上下文携带的身份，缺它后端会明确拒绝而不是猜 cwd。 */
+async function guardCleanupSftpCall(host, consumerRoot, method, params) {
+    if (typeof method === "string" && method.startsWith("files.cleanup.")) {
+        if (!consumerRoot)
+            (0, PlanCleanup_1.cleanupError)("WORKSPACE_CHANGED", "消费项目根未冻结，未发送任何清理请求。");
+        params = { ...params, consumerRoot };
+    }
     let result;
     try {
         result = await host.simpleSftpApiCall(method, params);

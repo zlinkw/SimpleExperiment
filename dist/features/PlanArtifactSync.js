@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.emptyPlanSyncLedger = void 0;
 exports.planSyncLedgerStoragePath = planSyncLedgerStoragePath;
+exports.legacyPlanSyncLedgerStoragePath = legacyPlanSyncLedgerStoragePath;
 exports.projectMirrorStateStoragePath = projectMirrorStateStoragePath;
 exports.latestPlanSyncEntry = latestPlanSyncEntry;
 exports.migratePlanSyncLedger = migratePlanSyncLedger;
@@ -47,17 +48,23 @@ exports.markPlanSyncComplete = markPlanSyncComplete;
 exports.pendingPlanSyncs = pendingPlanSyncs;
 const crypto = __importStar(require("node:crypto"));
 const path = __importStar(require("node:path"));
+const ProjectStatePaths_1 = require("./ProjectStatePaths");
 const emptyPlanSyncLedger = () => ({ schemaVersion: 2, entries: {} });
 exports.emptyPlanSyncLedger = emptyPlanSyncLedger;
 function projectStorageId(projectRoot) {
     const resolved = path.resolve(projectRoot);
     return crypto.createHash("sha256").update(process.platform === "win32" ? resolved.toLowerCase() : resolved).digest("hex");
 }
+/** r17-A: ledger + mirror state live inside the CONSUMED project (per projectRoot).
+ * storageRoot keeps only the known legacy locations for one-time migration reads. */
 function planSyncLedgerStoragePath(storageRoot, projectRoot) {
+    return (0, ProjectStatePaths_1.projectStateFile)(projectRoot, "simple-experiment", "plan-sync-ledgers", `${projectStorageId(projectRoot)}.json`);
+}
+function legacyPlanSyncLedgerStoragePath(storageRoot, projectRoot) {
     return path.join(storageRoot, "plan-sync-ledgers", `${projectStorageId(projectRoot)}.json`);
 }
 function projectMirrorStateStoragePath(storageRoot, projectRoot) {
-    return path.join(storageRoot, "plan-sync-ledgers", `${projectStorageId(projectRoot)}.mirror.json`);
+    return (0, ProjectStatePaths_1.projectStateFile)(projectRoot, "simple-experiment", "plan-sync-ledgers", `${projectStorageId(projectRoot)}.mirror.json`);
 }
 function canonicalPlan(value) { return String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase(); }
 function latestPlanSyncEntry(ledger, planFile) {

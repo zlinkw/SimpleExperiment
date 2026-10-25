@@ -38,9 +38,10 @@ function provider(names,extra={}) {
 
 const endpoints={declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,projectManagedValidation:1,gpuQuotaScheduling:1};
 function gpu(id,free=24){return {index:String(id),memoryTotalMb:32768,memoryFreeMb:free*1024,memoryUsedMb:(32-free)*1024,utilizationPercent:free<22?99:0,processes:[]};}
-function nativeFixture(){
-  const Provider=provider(['tickDistributedQueueCore']),p=new Provider(),remote={a:[],b:[]},sent=[],errors=[];
-  let queue=DistributedPlanQueue.enqueuePlan(DistributedPlanQueue.emptyDistributedQueue(),{projectId:DistributedPlanQueue.canonicalProjectId(root),
+function nativeFixture(options={}){
+  const projectRoot=options.projectRoot||root;
+  const Provider=provider(options.methods||['tickDistributedQueueCore'],options.context||{}),p=new Provider(),remote={a:[],b:[]},sent=[],errors=[];
+  let queue=DistributedPlanQueue.enqueuePlan(DistributedPlanQueue.emptyDistributedQueue(),{projectId:DistributedPlanQueue.canonicalProjectId(projectRoot),
     schedulingMode:'local_idle',planFile:'p.yaml',revision:'r',codeFingerprint:'f',executionMode:'train',
     jobs:[0,1].map(index=>({index,case:'bus',seed:index,outputDir:'runs/'+index,collectionResultCsv:'tmp/result/'+index+'.csv'}))},'p');
   let builds=0,gpus={a:[gpu(0)],b:[gpu(0)]};
@@ -50,7 +51,10 @@ function nativeFixture(){
     enabledWorkerConfigs:()=>[{id:'a'},{id:'b'}],schedulerSettings:()=>({}),gpuOwnerConfig:()=>({}),isRealtimeMode:()=>true,
     projectTopologyAssessment:()=>({mode:'worker_pool'}),recordActionError:e=>errors.push(e),postState(){},scheduleDistributedPostprocess(){},
     queuePlanArtifactSyncStatusCheck(){},detachStaleDistributedTick(){},buildDistributedJobCodeManifest:async()=>{builds++;return {};},
-    loadDistributedQueue:async()=>structuredClone(queue),saveDistributedQueue:async(_root,value)=>{queue=structuredClone(value);},
+    loadDistributedQueue:async()=>structuredClone(queue),saveDistributedQueue:async(_root,value,options)=>{
+      if(options?.mutateLatest) queue=options.mutateLatest(structuredClone(queue));
+      else { assert.ok(value,'fixture requires an explicit queue or mutateLatest');queue=structuredClone(value); }
+    },
     client:{getGpu:async()=>gpus,postWorkerAction:async()=>{throw Error('unexpected stop/post');}},
   });
   p.readWorkerTaskSnapshotBatch=async ids=>ids.map(workerId=>({workerId,queryComplete:true,generatedAt:new Date().toISOString(),fetchedAt:new Date().toISOString(),
@@ -286,4 +290,82 @@ test('GPU read starts while task snapshots are still pending',async()=>{
 test('saved server_prequeue settings keep new unassigned jobs local',async()=>{
   const f=fixture();f.stored().plans[0].schedulingMode='server_prequeue';await f.p.tickDistributedQueueCore();
   assert.equal(f.calls.length,1);assert.equal(f.calls[0].gpuId,'0');assert.equal(f.stored().plans[0].localDispatchOverride,true);
+});
+
+// The normal native-tick fixture used to replace scheduleDistributedPostprocess with a no-op.
+// Keep production tick -> completion scheduler -> per-job merge -> SHA receipt connected here;
+// only Worker execution and the network transport are synthetic, inside a private project.
+test('native completion ticks mirror every interleaved job across plans once with real file SHA and no training replay',async()=>{
+  const projectRoot=fs.mkdtempSync(path.join(os.tmpdir(),'se-plan-job-chain-'));
+  const {CompletedJobSyncHost}=require('../../src/extension/CompletedJobSyncHost.ts');
+  const {buildScopeStatuses,scopeInventoryPathAllowed}=require('../../src/features/SyncScopeStatus.ts');
+  const {planLatestWorkerMerge}=require('../../src/features/SyncLatestMerge.ts');
+  const {runSyncScopeBatch}=require('../../src/features/SyncScopeBatch.ts');
+  const {loadSyncHolds,safeSyncPath}=require('../../src/features/SyncResolution.ts');
+  const {jobArtifactRunGeneration}=require('../../src/features/JobArtifactSyncIdentity.ts');
+  const {isUnderMachineStatePrefixes}=require('../../src/features/ProjectRootMap.ts');
+  const {normalizeMirrorScopePaths}=require('../../src/features/ProjectMirror.ts');
+  const f=nativeFixture({projectRoot,methods:['tickDistributedQueueCore','scheduleDistributedPostprocess',
+    'syncCompletedPlanArtifacts','mergeLatestWorkerVersions','patchDistributedJob'],context:{
+    workspaceRoot:()=>projectRoot,CompletedJobSyncHost,scopeInventoryPathAllowed,planLatestWorkerMerge,runSyncScopeBatch,
+    loadSyncHolds,safeSyncPath,path,jobArtifactRunGeneration,isUnderMachineStatePrefixes,normalizeMirrorScopePaths,
+    vscode:{workspace:{getConfiguration:()=>({get:(_key,fallback)=>fallback})},Uri:{file:value=>value}},
+    isLocalCodeOwnedPath:()=>false,workerFpsyncTaskLabel:()=>'',UiCommandCancelled:class extends Error{},
+  }});
+  const p=f.p,targets=['a','b','c'].map(id=>({id,host:id+'.invalid',port:2222,user:'synthetic',remotePath:'/synthetic/'+id}));
+  const locations=Object.fromEntries(targets.map(t=>[t.id,path.join(projectRoot,'synthetic-workers',t.id)]));
+  for(const dir of Object.values(locations))fs.mkdirSync(dir,{recursive:true});
+  const crypto=require('node:crypto'),sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  function inventory(id){const result={};function walk(dir,rel=''){
+    for(const entry of fs.readdirSync(dir,{withFileTypes:true})){
+      const file=path.join(dir,entry.name),key=rel?rel+'/'+entry.name:entry.name;
+      if(entry.isDirectory())walk(file,key);else {const st=fs.statSync(file);result[key]={sha256:sha(file),size:st.size,modifiedAtMs:st.mtimeMs};}
+    }
+  }walk(locations[id]);return result;}
+  // Remove the old own-property no-op so this case actually exercises the production scheduler.
+  delete p.scheduleDistributedPostprocess;
+  Object.assign(p,{context:{globalStorageUri:{fsPath:path.join(projectRoot,'synthetic-old-storage')}},
+    captureProjectContext:()=>({root:projectRoot}),projectContextIsCurrent:ctx=>ctx.root===projectRoot,
+    workerCodeSyncTargets:()=>targets,enabledWorkerConfigs:()=>targets,sftpServerOptions:row=>row,
+    localMachineStateGuard:()=>({prefixes:[],unknown:false}),targetRootGuard:()=>null,
+    machineStatePrefixesById:()=>[],machineStatePrefixesForTarget:()=>[],assertSshTransportIdentities:async()=>{},
+    prepareCodeSyncRootGuards:async rows=>({guards:new Map(rows.map(t=>[t,{prefixes:[],unknown:false}])),assertBindingsCurrent:()=>{}}),
+    refreshSyncScopeStatus:async()=>buildScopeStatuses({local:{},workers:Object.fromEntries(targets.map(t=>[t.id,inventory(t.id)]))},'server-server',['.'],new Set(),{entries:{}}),
+    verifiedSftpProjectInventory:async({source})=>({files:inventory(source.id)}),
+  });
+  p.lastWorkerProbes.c={status:'ok',capabilities:{endpoints}};
+  const transfers=[];
+  p.simpleSftpApiCall=async(method,request)=>{
+    assert.equal(method,'sync.serverToServerFpsync');assert.ok(request.retentionKey);assert.ok(request.generation);
+    transfers.push(structuredClone(request));
+    for(const rel of request.relativePaths){const dest=path.join(locations[request.destination.id],rel);
+      fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(path.join(locations[request.source.id],rel),dest);}
+    return {ok:true};
+  };
+  const second=DistributedPlanQueue.enqueuePlan(f.stored(),{projectId:DistributedPlanQueue.canonicalProjectId(projectRoot),
+    schedulingMode:'local_idle',planFile:'q.yaml',revision:'r',codeFingerprint:'f',executionMode:'train',
+    jobs:[0,1].map(index=>({index,case:'bus',seed:index,outputDir:'runs/q/'+index,collectionResultCsv:'tmp/q/'+index+'.csv'}))},'q');
+  Object.assign(f.stored(),second);
+  f.own(0,'running');f.own(1,'queued');
+  for(const job of f.stored().plans.find(row=>row.id==='q').jobs){Object.assign(job,{status:'queued',workerId:'b',gpuId:String(job.index),commandId:'q-'+job.index,runKey:'q-'+job.index});f.publish(job.index,'queued','q');}
+  const expected=[];
+  function complete(planId,index){const job=f.stored().plans.find(row=>row.id===planId).jobs.find(row=>row.index===index);
+    const rel=job.outputDir+'/model.pth',bytes=planId+'-'+index+'-real-artifact';
+    fs.mkdirSync(path.dirname(path.join(locations[job.workerId],rel)),{recursive:true});fs.writeFileSync(path.join(locations[job.workerId],rel),bytes);
+    expected.push({planId,index,rel,bytes});f.publish(index,'completed',planId);
+  }
+  async function tick(){await p.tickDistributedQueueCore();if(p.distributedPostprocessPromise)await p.distributedPostprocessPromise;await new Promise(setImmediate);}
+  complete('p',0);await tick();assert.equal(transfers.length,2,'the first job syncs while other jobs are not complete');
+  f.publish(1,'running','p');complete('q',0);await tick();assert.equal(transfers.length,4,'another plan completion is not lost');
+  complete('p',1);complete('q',1);await tick();
+  assert.equal(transfers.length,8,'each of four jobs has exactly two other Worker destinations');
+  for(const item of expected){const job=f.stored().plans.find(row=>row.id===item.planId).jobs.find(row=>row.index===item.index);
+    assert.equal(job.status,'completed');assert.equal(job.latestArtifactSync.state,'synced');
+    for(const t of targets)assert.equal(fs.readFileSync(path.join(locations[t.id],item.rel),'utf8'),item.bytes);
+    assert.equal(new Set(targets.map(t=>sha(path.join(locations[t.id],item.rel)))).size,1);
+    assert.equal(transfers.filter(t=>t.relativePaths.includes(item.rel)).length,2);
+  }
+  await tick();assert.equal(transfers.length,8,'repeated completion observations never copy the same content again');
+  assert.equal(f.sent.length,0,'observing and syncing completed jobs never restarts their training');
+  assert.deepEqual(f.errors,[]);
 });

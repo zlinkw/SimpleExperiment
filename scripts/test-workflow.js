@@ -563,7 +563,13 @@ async function runJobsScheduled(state) {
 /* ---------------- same-root batch lock (r29 #7: never auto-reclaim unknown ownership) ---------------- */
 
 async function acquireLock(state) {
-  state.lockDir = path.join(state.root, ".test-workflow-batch.lock");
+  // r17-C: the batch lock lives inside the consumed project's managed tree (git-ignored and
+  // package-ignored by the existing simple_cluster rules). Admission/release semantics are
+  // byte-identical to before; a crash-residual lock at the OLD repo-root location is neither
+  // scanned nor reclaimed — same unknown-ownership rule (r29 #7) applies wherever it sits.
+  const parent = path.join(state.root, "simple_cluster", "locks", "simple-experiment", "test-workflow");
+  await fsp.mkdir(parent, { recursive: true });
+  state.lockDir = path.join(parent, "batch.lock");
   const meta = { pid: process.pid, entry: state.plan.entry, batchId: state.batchId, startedAt: new Date().toISOString(), root: state.root };
   try {
     await fsp.mkdir(state.lockDir);

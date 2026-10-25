@@ -5993,6 +5993,16 @@ export function renderPanelHtml(): string {
       return value === "runAllPlans" || value === "runPlan" || value === "reproducePlan" || value === "validatePlan" || value === "dryRunPlan";
     }
 
+    // r4 (task ui-plan-gpu-progress-20261024 返修): these four artifact-sync operations report
+    // through their per-operation VS Code Notification + full log, so the card no longer
+    // repeats them as grey phase text. Their pending rows stay registered, so button
+    // loading, dedupe and terminal-state handling are unchanged; rebuildProjectResultTables
+    // and every other command keep their original routing.
+    function artifactSyncNoticeCommand(command) {
+      const value = String(command || "");
+      return value === "retryJobArtifactSync" || value === "refreshJobArtifacts" || value === "syncPendingPlanArtifacts" || value === "syncAllResultArtifacts";
+    }
+
     function formatWaited(ms) {
       const seconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));
       const minutes = Math.floor(seconds / 60);
@@ -6015,7 +6025,7 @@ export function renderPanelHtml(): string {
       // 运行plan/实验准备的进行中进度改由每次操作的 VS Code Notification 展示
       // （任务 ui-plan-gpu-progress-20261024），此处不再重复微小灰字；其它命令面
       // （如执行/结果区的 tmux 等操作）保持原样，卡片历史行与按钮终态不受影响。
-      const pending = Object.values(pendingActionsById || {}).filter((row) => !(row && planPhaseCommand(row.command)));
+      const pending = Object.values(pendingActionsById || {}).filter((row) => !(row && (planPhaseCommand(row.command) || artifactSyncNoticeCommand(row.command))));
       const hosts = [["commandPhaseLine", "execution"], ["planCommandPhaseLine", "plans"], ["resultCommandPhaseLine", "results"]];
       for (const pair of hosts) {
         const host = el(pair[0]);

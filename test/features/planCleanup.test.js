@@ -9,6 +9,7 @@ const { collectPlanCleanupEvidence } = require('../../dist/features/PlanCleanupE
 const { canonicalProjectId } = require('../../dist/features/DistributedPlanQueue');
 const { pendingPlanSyncs } = require('../../dist/features/PlanArtifactSync');
 const { plansForOutputSync } = require('../../dist/features/PlanOutputRetention');
+if(!process.env.LOCALAPPDATA)process.env.LOCALAPPDATA=require('node:fs').mkdtempSync(path.join(require('node:os').tmpdir(),'r17-lease-')); // 与 r3 isolatedTestEnv 同约定：租约注册表落隔离目录（沙箱 homedir/AppData 只读，产品路径不变）
 const clone = value => JSON.parse(JSON.stringify(value));
 
 async function fixture() {
@@ -316,7 +317,8 @@ test('partial restore discovery skips metadata files already restored and rechec
 test('Host refuses a backend without the required Git ancestor safety capability before approvals',async()=>{
   const modulePath=require.resolve('../../dist/extension/PlanCleanupHost'),from=require('node:module').createRequire(modulePath),exports={};
   vm.runInNewContext(await fs.readFile(modulePath,'utf8'),{exports,require:name=>['vscode','./PlanCleanupPanel'].includes(name)?{}:from(name)});
-  let safe=false,formal=false;const host=new exports.PlanCleanupHost({context:{globalStorageUri:{fsPath:os.tmpdir()}},simpleSftpApiCall:async()=>({safety:{gitRepositoryAncestors:safe,readOnlyReceiptCheck:safe,formalJobOwner:formal,immutableArchiveBatch:formal}})},'C:/fixture');
+  // 能力门与 root 形状无关；root 必须是跨平台绝对路径（r17 返修#1：派生入口拒绝相对/伪绝对根）。
+  let safe=false,formal=false;const host=new exports.PlanCleanupHost({context:{globalStorageUri:{fsPath:os.tmpdir()}},simpleSftpApiCall:async()=>({safety:{gitRepositoryAncestors:safe,readOnlyReceiptCheck:safe,formalJobOwner:formal,immutableArchiveBatch:formal}})},path.resolve(os.tmpdir(),'cleanup-capability-fixture'));
   await assert.rejects(host.service.ports.sftp('files.cleanup.preview',{}),error=>error.apiData.code==='SFTP_SAFE_CLEANUP_UPGRADE_REQUIRED');
   safe=true;assert.equal((await host.service.ports.sftp('files.cleanup.preview',{})).safety.gitRepositoryAncestors,true);
   const params={targets:[{expectedOwner:{resultPathPolicy:'declared'},archiveBatch:'job-'+'a'.repeat(48)}]};

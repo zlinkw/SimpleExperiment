@@ -38,6 +38,7 @@ exports.isSyncHeld = isSyncHeld;
 exports.chosenSyncHash = chosenSyncHash;
 exports.filterHeldFiles = filterHeldFiles;
 exports.syncHoldsStoragePath = syncHoldsStoragePath;
+exports.legacySyncHoldsStoragePath = legacySyncHoldsStoragePath;
 exports.loadSyncHolds = loadSyncHolds;
 exports.saveSyncHolds = saveSyncHolds;
 exports.localDeleteScript = localDeleteScript;
@@ -48,6 +49,7 @@ const path = __importStar(require("node:path"));
 const node_child_process_1 = require("node:child_process");
 const node_util_1 = require("node:util");
 const StateStore_1 = require("../state/StateStore");
+const ProjectStatePaths_1 = require("./ProjectStatePaths");
 function safeSyncPath(relative) {
     const value = String(relative || "").replace(/\\/g, "/");
     if (!value || value.startsWith("/") || /^[a-z]:/i.test(value) || value.split("/").some((part) => !part || part === "." || part === ".."))
@@ -69,18 +71,30 @@ function chosenSyncHash(relative, holds) {
 function filterHeldFiles(files, holds) {
     return Object.fromEntries(Object.entries(files).filter(([relative]) => !isSyncHeld(relative, holds)));
 }
+/** r17-A: holds live inside the CONSUMED project; storageRoot only locates the known legacy
+ * snapshot for one read-only migration. A corrupt legacy file keeps its original error
+ * semantics via "invalid-legacy" — it is never silently replaced by an empty holds set. */
 function syncHoldsStoragePath(storageRoot, projectRoot) {
+    return (0, ProjectStatePaths_1.projectStateFile)(projectRoot, "simple-experiment", "sync-holds", `${(0, ProjectStatePaths_1.projectStateId)(projectRoot)}.json`);
+}
+function legacySyncHoldsStoragePath(storageRoot, projectRoot) {
     const resolved = path.resolve(projectRoot);
     const id = crypto.createHash("sha256").update(process.platform === "win32" ? resolved.toLowerCase() : resolved).digest("hex");
     return path.join(storageRoot, "sync-holds", `${id}.json`);
 }
+function validSyncHoldsShape(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+}
 async function loadSyncHolds(storageRoot, projectRoot) {
     const file = syncHoldsStoragePath(storageRoot, projectRoot);
+    const migration = await (0, ProjectStatePaths_1.ensureProjectSnapshotMigrated)(projectRoot, legacySyncHoldsStoragePath(storageRoot, projectRoot), file, validSyncHoldsShape);
     const content = await fs.readFile(file, "utf8").catch((error) => {
         if (error.code === "ENOENT")
-            return "{}";
+            return migration === "invalid-legacy" ? undefined : "{}";
         throw error;
     });
+    if (content === undefined)
+        throw new Error("同步暂停记录格式无效。");
     const value = JSON.parse(content);
     if (!value || typeof value !== "object" || Array.isArray(value))
         throw new Error("同步暂停记录格式无效。");

@@ -49,6 +49,7 @@ const crypto = __importStar(require("node:crypto"));
 const SyncResolution_1 = require("./SyncResolution");
 const ProjectRootMap_1 = require("./ProjectRootMap");
 const HostOperationLease_1 = require("../core/HostOperationLease");
+const ProjectStatePaths_1 = require("./ProjectStatePaths");
 const StateStore_1 = require("../state/StateStore");
 const SCOPE_HASH_SCHEMA_VERSION = 1;
 const LOCAL_SCOPE_MAX_DIRECTORIES = 10_000;
@@ -66,10 +67,14 @@ function rememberLocalScopeHash(full, identity, file) {
     while (localHashCache.size > LOCAL_HASH_CACHE_LIMIT)
         localHashCache.delete(localHashCache.keys().next().value);
 }
-function localScopeHashCachePath(storageRoot, projectRoot) {
+/** r18#5: recomputable scope-hash cache now lives inside the consumed project's cache bucket
+ * (simple_cluster/cache/simple-experiment/scope-hash-cache). Identity formula, rows, limits and
+ * lock semantics unchanged; old globalStorage caches are left in place untouched (never
+ * migrated/scanned/deleted — a missing cache only forces a rehash). */
+function localScopeHashCachePath(projectRoot) {
     const resolved = path.resolve(projectRoot);
     const id = crypto.createHash("sha256").update(process.platform === "win32" ? resolved.toLowerCase() : resolved).digest("hex");
-    return path.join(storageRoot, "scope-hash-cache", `${id}.json`);
+    return path.join((0, ProjectStatePaths_1.projectCacheDir)(projectRoot, "simple-experiment"), "scope-hash-cache", `${id}.json`);
 }
 function bigintString(value) {
     if (typeof value === "bigint")
@@ -527,6 +532,7 @@ async function hashLocalScopeNames(root, names, onUnverified, cacheFile, options
     options.signal?.throwIfAborted();
     if (cacheFile && !failed) {
         try {
+            await (0, ProjectStatePaths_1.ensureProjectManagedCacheFileDirectory)(root, cacheFile); // 受管树内缓存写入前逐层守卫（symlink 即拒）
             await writeScopeHashCache(cacheFile, { schemaVersion: SCOPE_HASH_SCHEMA_VERSION, files: boundedScopeHashRows(activeRows, persisted.files, requestedNames) });
         }
         catch (error) {

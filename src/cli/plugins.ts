@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import { assertInstancePin, callPluginRpc, preflightPlugin, pluginDiscoveryPath, type PluginPreflight, type UnifiedPlugin } from "./LocalApiClient";
 import { asCliError, businessError, envError, EXIT_BUSINESS, EXIT_OK, EXIT_ENV, usageError } from "./errors";
 import { block, table, writeJson, writeText } from "./format";
@@ -382,6 +383,13 @@ export async function sftpCommand(action: string, rest: string[], flags: CliFlag
       if (!flags.digest) throw usageError(`sftp cleanup ${sub} needs --digest <preview digest>`);
       return flags.digest;
     };
+    // r17-D: the cleanup ledger lives inside the CONSUMING local project; the CLI never falls
+    // back to cwd or the remote node root — a missing/relative consumer root is a usage error.
+    const needConsumerRoot = () => {
+      if (!flags["consumer-root"]) throw usageError(`sftp cleanup ${sub} needs --consumer-root <absolute local project root that owns this token>`);
+      if (!path.isAbsolute(flags["consumer-root"])) throw usageError("--consumer-root must be an absolute local project path (the backend refuses anything else; it never guesses cwd)");
+      return flags["consumer-root"];
+    };
     const readNode = () => {
       if (!flags.file) throw usageError(`sftp cleanup ${sub} needs --file <node.json> (root required; host/port for remote nodes)`);
       const node = readJsonObjectFile(flags.file, "node");
@@ -398,6 +406,9 @@ export async function sftpCommand(action: string, rest: string[], flags: CliFlag
       if (flags["presence-only"] === true) params.presenceOnly = true;
       if (flags["allow-missing"] === true) params.allowMissing = true;
       if (flags["observe-executors"] === true) params.observeExecutors = true;
+      // Optional ownership filter: when given, another project's in-flight preview never
+      // answers as an executor for this call.
+      if (flags["consumer-root"] !== undefined) params.consumerRoot = needConsumerRoot();
       return sftpRpc("files.cleanup.inspect", params, flags);
     }
     if (sub === "observe-batch") {
@@ -409,6 +420,9 @@ export async function sftpCommand(action: string, rest: string[], flags: CliFlag
       const concurrency = flags["read-concurrency"] === undefined ? 1 : Number(flags["read-concurrency"]);
       if (concurrency !== 1 && concurrency !== 2) throw usageError("--read-concurrency must be 1 or 2 (declared capability range)");
       const params: Record<string, unknown> = { node, observationId: flags["observation-id"], targets, readConcurrency: concurrency };
+      // r17-D: backend-token targets make this round read project-owned ledgers — the consumer
+      // root is then required (pure token-free observation stays owner-less, like inspect).
+      if (targets.some((target: any) => target?.backendToken !== undefined || target?.backendIndex !== undefined)) params.consumerRoot = needConsumerRoot();
       // cleanup-file-api.js:577: a top-level rootIdentity pins the round; backendToken/backendIndex/
       // isolationRelativePath ride inside each target and are forwarded verbatim from the targets file.
       if (flags["root-identity"]) params.rootIdentity = readJsonValueFile(flags["root-identity"], "root identity");
@@ -428,7 +442,7 @@ export async function sftpCommand(action: string, rest: string[], flags: CliFlag
       // engine then derives tmux/filesystem from the node kind. Anything else would be silently
       // dropped by the backend, so the CLI refuses it instead of pretending it took effect.
       if (flags["observation-mode"] !== undefined && flags["observation-mode"] !== "managed_tmux") throw usageError(`invalid --observation-mode: ${flags["observation-mode"]} (the backend schema knows only 'managed_tmux'; anything else falls back to the legacy activity gate)`);
-      const params: Record<string, unknown> = { node, action: flags.action, targets };
+      const params: Record<string, unknown> = { node, action: flags.action, targets, consumerRoot: needConsumerRoot() };
       if (flags["confirmed-paths"] === true) params.authorizationMode = "confirmed_paths";
       if (flags["observation-mode"] !== undefined) params.observationMode = flags["observation-mode"];
       if (flags["tmux-session-prefix"] !== undefined) params.tmuxSessionPrefix = flags["tmux-session-prefix"];
@@ -443,18 +457,18 @@ export async function sftpCommand(action: string, rest: string[], flags: CliFlag
       const exactTargets = readJsonArrayFile(flags.targets, "exact absolute paths");
       const phase = Number(flags.phase);
       if (flags.phase === undefined || !Number.isInteger(phase) || phase < 1) throw usageError("sftp cleanup confirm needs --phase <1|2> (delete confirms twice: phase 1 then phase 2)") ;
-      return sftpRpc("files.cleanup.confirm", { token: needToken(), confirm: true, digest: needDigest(), exactTargets, phase }, flags);
+      return sftpRpc("files.cleanup.confirm", { token: needToken(), confirm: true, digest: needDigest(), exactTargets, phase, consumerRoot: needConsumerRoot() }, flags);
     }
     if (sub === "execute") {
       // Protected journaled path only: the engine re-checks every entry identity before its first
       // mutation and refuses while a receipt is uncertain (DELETE_RECEIPT_UNCERTAIN is resolved by
       // verify, never by a blind resend). No unprotected delete route is exposed by this CLI.
-      return sftpRpc("files.cleanup.execute", { token: needToken(), digest: needDigest(), index: needIndex() }, flags);
+      return sftpRpc("files.cleanup.execute", { token: needToken(), digest: needDigest(), index: needIndex(), consumerRoot: needConsumerRoot() }, flags);
     }
-    if (sub === "status") return sftpRpc("files.cleanup.status", { token: needToken() }, flags);
-    if (sub === "check") return sftpRpc("files.cleanup.check", { token: needToken(), index: needIndex() }, flags);
-    if (sub === "verify") return sftpRpc("files.cleanup.verify", { token: needToken(), index: needIndex() }, flags);
-    if (sub === "settle") return sftpRpc("files.cleanup.settle", { token: needToken(), digest: needDigest(), index: needIndex() }, flags);
+    if (sub === "status") return sftpRpc("files.cleanup.status", { token: needToken(), consumerRoot: needConsumerRoot() }, flags);
+    if (sub === "check") return sftpRpc("files.cleanup.check", { token: needToken(), index: needIndex(), consumerRoot: needConsumerRoot() }, flags);
+    if (sub === "verify") return sftpRpc("files.cleanup.verify", { token: needToken(), index: needIndex(), consumerRoot: needConsumerRoot() }, flags);
+    if (sub === "settle") return sftpRpc("files.cleanup.settle", { token: needToken(), digest: needDigest(), index: needIndex(), consumerRoot: needConsumerRoot() }, flags);
     throw usageError(`unknown sftp cleanup action: ${sub} (inspect|observe-batch|preview|confirm|execute|status|check|verify|settle)`);
   }
   if (action === "agents") {

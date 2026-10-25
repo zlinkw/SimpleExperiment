@@ -106,23 +106,25 @@ test("cleanup pass-through: observationMode, rootIdentity, and per-target backen
   const targetsFile = writeJson(dir, "targets.json", [{ key: "k1", relativePath: "work_dirs/run1/out", type: "directory", backendToken: "b".repeat(48), backendIndex: 3, isolationRelativePath: "work_dirs/run1/.isolated-out" }]);
   const identityFile = writeJson(dir, "identity.json", { dev: "42:1", ino: "9" });
   try {
-    const preview = await runCli(["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "move", "--targets", targetsFile, "--observation-mode", "managed_tmux", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const preview = await runCli(["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "move", "--targets", targetsFile, "--observation-mode", "managed_tmux", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(preview.code, 0, preview.stdout + preview.stderr);
     assert.equal(backend.state.lastParams.observationMode, "managed_tmux", "cleanup-file-api.js:331 managed_tmux must reach the engine or the batch silently falls to the legacy activity gate");
+    assert.equal(backend.state.lastParams.consumerRoot, dir, "r17-D: the consuming project root travels verbatim with every cleanup request");
     assert.equal(JSON.parse(preview.stdout).observationMode, "tmux", "engine derives tmux from the remote node kind");
 
-    const badMode = await runCli(["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "move", "--targets", targetsFile, "--observation-mode", "tmux", "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const badMode = await runCli(["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "move", "--targets", targetsFile, "--observation-mode", "tmux", "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(badMode.code, 1);
     assert.match(badMode.stdout + badMode.stderr, /knows only 'managed_tmux'/);
 
-    const observe = await runCli(["sftp", "cleanup", "observe-batch", "--file", nodeFile, "--observation-id", "obs-9", "--targets", targetsFile, "--root-identity", identityFile, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const observe = await runCli(["sftp", "cleanup", "observe-batch", "--file", nodeFile, "--observation-id", "obs-9", "--targets", targetsFile, "--root-identity", identityFile, "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(observe.code, 0, observe.stdout + observe.stderr);
     assert.deepEqual(backend.state.lastParams.rootIdentity, { dev: "42:1", ino: "9" });
+    assert.equal(backend.state.lastParams.consumerRoot, dir, "r17-D: token-bearing observation rounds carry the owner root");
     assert.deepEqual(backend.state.lastParams.targets[0], { key: "k1", relativePath: "work_dirs/run1/out", type: "directory", backendToken: "b".repeat(48), backendIndex: 3, isolationRelativePath: "work_dirs/run1/.isolated-out" });
 
     const badIdentityFile = path.join(dir, "broken.json");
     fs.writeFileSync(badIdentityFile, "{oops", "utf8");
-    const malformed = await runCli(["sftp", "cleanup", "observe-batch", "--file", nodeFile, "--observation-id", "obs-9", "--targets", targetsFile, "--root-identity", badIdentityFile, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const malformed = await runCli(["sftp", "cleanup", "observe-batch", "--file", nodeFile, "--observation-id", "obs-9", "--targets", targetsFile, "--root-identity", badIdentityFile, "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(malformed.code, 1);
     assert.match(malformed.stdout + malformed.stderr, /root identity must be valid JSON/);
   } finally { await backend.close(); }
@@ -210,12 +212,21 @@ test("cleanup usage refusals never open the API path and unknown tokens answer w
       ["sftp", "cleanup", "nuke"],
     ];
     for (const args of cases) {
+      const result = await runCli([...args, "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+      assert.equal(result.code, 1, `${args.join(" ")}: ${result.stdout}${result.stderr}`);
+    }
+    // r17-D: every token-consuming subcommand refuses a missing --consumer-root at the CLI gate, still without opening the API path.
+    for (const args of [["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "move", "--targets", writeJson(dir, "cr.json", [{ relativePath: "x", type: "file", destination: "clean_dir/x" }])],
+      ["sftp", "cleanup", "status", "--token", "a".repeat(48)],
+      ["sftp", "cleanup", "execute", "--token", "a".repeat(48), "--digest", "d", "--index", "0"],
+      ["sftp", "cleanup", "preview", "--file", nodeFile, "--action", "move", "--targets", writeJson(dir, "cr2.json", [{ relativePath: "y", type: "file", destination: "clean_dir/y" }]), "--consumer-root", "relative/root"]]) {
       const result = await runCli([...args, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
       assert.equal(result.code, 1, `${args.join(" ")}: ${result.stdout}${result.stderr}`);
+      assert.match(result.stdout + result.stderr, /--consumer-root/, `${args.join(" ")} must refuse a missing/relative consumer root at the CLI`);
     }
     assert.equal(backend.state.capabilitiesCalls, 0, "usage refusals must not open the API path");
     assert.equal(backend.state.rpcCalls, 0);
-    const stale = await runCli(["sftp", "cleanup", "status", "--token", "z".repeat(48), "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
+    const stale = await runCli(["sftp", "cleanup", "status", "--token", "z".repeat(48), "--consumer-root", dir, "--json"], { env: { SIMPLE_SFTP_API_FILE: backend.file } });
     assert.equal(stale.code, 3, stale.stdout + stale.stderr);
     assert.match(stale.stdout, /INVALID_TOKEN/);
   } finally { await backend.close(); }

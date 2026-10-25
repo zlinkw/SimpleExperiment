@@ -120,7 +120,7 @@ function sourceIdentity(digest, node, rootIdentity) {
 }
 function targetFacts(digest, target) {
     return digest({ key: target.key, relativePath: target.relativePath, type: target.type,
-        backendToken: target.backendToken ?? null, backendIndex: target.backendIndex ?? null,
+        backendToken: target.backendToken ?? null, backendIndex: target.backendIndex ?? null, backendDigest: target.backendDigest ?? null,
         device: target.device === undefined ? null : String(target.device), inode: target.inode === undefined ? null : String(target.inode),
         isolationRelativePath: target.isolationRelativePath ?? null });
 }

@@ -241,7 +241,7 @@ test("runner: second batch on the same working copy is refused (caps never multi
   const manifest = writeManifest(ws, baseManifest(ws, { one: { phases: { fullCheck: { extraFiles: [{ file: slow, argv: [], source: "f" }] } } } }, [slow]));
   const first = spawn(process.execPath, [RUNNER, "one", "--root", ws, "--manifest", manifest], { stdio: "pipe", windowsHide: true });
   t.after(() => { try { first.kill(); } catch { /* settled */ } });
-  const lockDir = path.join(ws, ".test-workflow-batch.lock");
+  const lockDir = path.join(ws, "simple_cluster", "locks", "simple-experiment", "test-workflow", "batch.lock");
   const deadline = Date.now() + 8000;
   while (!fs.existsSync(lockDir) && Date.now() < deadline) await new Promise(r => setTimeout(r, 50));
   assert.ok(fs.existsSync(lockDir), "batch lock exists while first batch runs");
@@ -258,14 +258,14 @@ test("runner: lock is released only by its owner and release is recorded (R29 #7
   const job = makeJob(ws, "q", {});
   const manifest = writeManifest(ws, baseManifest(ws, { one: { phases: { fullCheck: { extraFiles: [{ file: job, argv: [], source: "f" }] } } } }, [job]));
   assert.equal(runRunner(ws, manifest, "one").status, 0);
-  assert.ok(!fs.existsSync(path.join(ws, ".test-workflow-batch.lock")), "own lock released after the batch");
+  assert.ok(!fs.existsSync(path.join(ws, "simple_cluster", "locks", "simple-experiment", "test-workflow", "batch.lock")), "own lock released after the batch");
   const rec = receipt(ws, "one");
   assert.ok(fs.existsSync(path.join(rec.logDir, "lock-release.json")), "release record retained");
-  fs.mkdirSync(path.join(ws, ".test-workflow-batch.lock"));
-  fs.writeFileSync(path.join(ws, ".test-workflow-batch.lock", "owner.json"), "{\"pid\":99999999}");
+  fs.mkdirSync(path.join(ws, "simple_cluster", "locks", "simple-experiment", "test-workflow", "batch.lock"));
+  fs.writeFileSync(path.join(ws, "simple_cluster", "locks", "simple-experiment", "test-workflow", "batch.lock", "owner.json"), "{\"pid\":99999999}");
   const blocked = runRunner(ws, manifest, "one");
   assert.equal(blocked.status, 3, "unknown/foreign owner is NEVER auto-reclaimed");
-  assert.ok(fs.existsSync(path.join(ws, ".test-workflow-batch.lock")), "foreign lock left untouched");
+  assert.ok(fs.existsSync(path.join(ws, "simple_cluster", "locks", "simple-experiment", "test-workflow", "batch.lock")), "foreign lock left untouched");
 });
 
 test("runner: inner failure keeps real non-zero exit and complete exclusive logs", async t => {

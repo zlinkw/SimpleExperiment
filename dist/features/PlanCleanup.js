@@ -291,6 +291,10 @@ class PlanCleanup {
         if (row.backendToken && Number.isInteger(row.backendIndex)) {
             target.backendToken = row.backendToken;
             target.backendIndex = row.backendIndex;
+            // r17-D: the frozen backend digest is this project's precise reference to the backend row;
+            // it rides along so the backend can restore a cold token ONLY from exact legacy evidence.
+            if (typeof row.backendDigest === "string")
+                target.backendDigest = row.backendDigest;
         }
         if (row.device !== undefined)
             target.device = row.device;
@@ -518,7 +522,8 @@ class PlanCleanup {
         return operation;
     }
     async managedCheck(row) {
-        return this.query(row, "files.cleanup.check", { token: row.backendToken, index: row.backendIndex });
+        return this.query(row, "files.cleanup.check", { token: row.backendToken, index: row.backendIndex,
+            ...(typeof row.backendDigest === "string" ? { backendDigest: row.backendDigest } : {}) });
     }
     async observeManaged(operation) {
         let running = false, unresolved = false;
@@ -540,7 +545,8 @@ class PlanCleanup {
             }
             for (const [backendToken, group] of groups) {
                 try {
-                    const snapshot = await this.ports.sftp("files.cleanup.status", { token: backendToken });
+                    const snapshot = await this.ports.sftp("files.cleanup.status", { token: backendToken,
+                        ...(typeof group[0]?.backendDigest === "string" ? { backendDigest: group[0].backendDigest } : {}) });
                     if (snapshot?.statusQueryError) {
                         unresolved = true;
                         operation.error = "清理批量查询未完全成功，可重新查询：" + String(snapshot.statusQueryError);
@@ -645,7 +651,8 @@ class PlanCleanup {
                 await this.save(operation);
                 return;
             }
-            let snapshot = await this.ports.sftp("files.cleanup.status", { token: backendToken });
+            let snapshot = await this.ports.sftp("files.cleanup.status", { token: backendToken,
+                ...(typeof group[0]?.backendDigest === "string" ? { backendDigest: group[0].backendDigest } : {}) });
             this.applyBatchObservations(operation, group, snapshot);
             await this.save(operation);
             if (!pending().length)

@@ -28,7 +28,7 @@ test('actual equal bytes at different times become identical after hashing; equa
  const metadata=buildScopeMetadataStatuses(Object.keys(roots),inventories,new Map());assert.equal(metadata['dir/a'].state,'unknown');assert.match(metadata.dir.detail,/差异 0/);
  const contents={};for(const [id,dir]of Object.entries(roots))contents[id]=await collectLocalScopeInventory(dir,'.');
  const input={local:contents.local,workers:{w1:contents.w1,w2:contents.w2}},ledger={schemaVersion:2,entries:{}};
- for(const mode of ['local-server','server-server']){const statuses=buildScopeStatuses(input,mode,['.'],new Set(),ledger);assert.equal(statuses['dir/a'].state,'same');assert.equal(statuses.dir.state,'same');assert.equal(statuses.dir.copies.w2.needsSync,0);if(mode==='server-server')assert.deepEqual(planLatestWorkerMerge(statuses,['w1','w2']),{items:[],skipped:[]});}
+ for(const mode of ['local-server','server-server']){const statuses=buildScopeStatuses(input,mode,['.'],new Set(),ledger);assert.equal(statuses['dir/a'].state,'same');assert.equal(statuses.dir.state,'same');assert.equal(statuses.dir.copies.w2.needsSync,0);if(mode==='server-server')assert.deepEqual(planLatestWorkerMerge(statuses,['w1','w2']),{items:[],skipped:[],skippedPaths:[]});}
  await fs.writeFile(path.join(roots.w2,'dir','a'),'diff','utf8');await fs.utimes(path.join(roots.w2,'dir','a'),1700001000,1700001000);input.workers.w2=await collectLocalScopeInventory(roots.w2,'.');
  for(const mode of ['local-server','server-server']){const statuses=buildScopeStatuses(input,mode,['.'],new Set(),ledger);assert.equal(statuses['dir/a'].state,'different');assert.equal(statuses.dir.state,'different');}
 });

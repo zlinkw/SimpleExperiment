@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.408",
-  "buildId": "77bc1ee8621f15aa5be82bf176fd463ac2974916d4c3eff7b8a4cc03ab792a3e",
+  "version": "0.5.409",
+  "buildId": "10be478ad687c551a7bcb630bd2945070a1a21b5fb7e3089a5d7c407e8da5be6",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -65,7 +65,7 @@
     },
     {
       "path": "dist/core/SimpleSftpProgressWait.js",
-      "sha256": "d16ddecadc164ba729e73e7a4502315eab62e68f619a28814b9e958f63d7f6ee"
+      "sha256": "f60af13a5630daf00e1f5b34e6436705461f1a21f02a5b2199f11f628aec29cc"
     },
     {
       "path": "dist/core/WorkspacePathMapper.js",
@@ -85,7 +85,7 @@
     },
     {
       "path": "dist/extension/CompletedJobSyncHost.js",
-      "sha256": "8091751b7a73782aedf80c8fdb941c2a053ac78a13b80012a5b0ceeed9d23a2c"
+      "sha256": "ebf81ba52c1d8ed93d3b7416e6aa5b0b838fb19264b0e04cc5362a4aefbe3ed9"
     },
     {
       "path": "dist/extension/ExtensionContext.js",
@@ -105,7 +105,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "7950b7d0cb4b977de9ea1ed7b47aedebc6edf6432e236cf2176c163cc75187d3"
+      "sha256": "91080a39f6a707f96d4d39518c8020426257e17fdb7dd9b07bf54aa93ca1e93f"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -113,7 +113,7 @@
     },
     {
       "path": "dist/extension/PlanCleanupHost.js",
-      "sha256": "48e1950cbceca5e26d19c41357a996b5115f05149edca3bb2b7af9a60979b097"
+      "sha256": "ab36efe190dd3f0b9b08efd11587c871e8a8102b64e1d6815aa07a51b336e221"
     },
     {
       "path": "dist/extension/PlanCleanupIsolatedReviews.js",
@@ -129,7 +129,7 @@
     },
     {
       "path": "dist/extension/PlanCleanupSftpGuard.js",
-      "sha256": "26adde42b5412a11aecbcf32a8ae483b4b5885542bdc06648397519f0518d1eb"
+      "sha256": "5c7e99fb976f2e8b07c07a001464bb7defce33ba3f7efd0a677a28a29a1ebf13"
     },
     {
       "path": "dist/extension/PlanCleanupTargetVerification.js",
@@ -141,7 +141,7 @@
     },
     {
       "path": "dist/extension/PlanRunHost.js",
-      "sha256": "cfdd0d299dadd8e19a5ae95a5bf2576d01be41576ed3c02ddb0be2f1d1a98e5c"
+      "sha256": "8fa09b7d6d99863e02ffdb270923243c2da84b8fa7b3a5228f6853de84d6298c"
     },
     {
       "path": "dist/extension/PlanStopClearBatchHost.js",
@@ -237,7 +237,7 @@
     },
     {
       "path": "dist/features/DistributedPlanQueue.js",
-      "sha256": "a0223506f8cbc435cc88a7685eaa05db3e96627c544a58d69ff481f9db6dc6d6"
+      "sha256": "c880d8134d892ff0c6755d26360cb5841a9c72a362315af91d4a434c274db734"
     },
     {
       "path": "dist/features/DistributedProjectContract.js",
@@ -300,6 +300,10 @@
       "sha256": "402d1c4f2e2c3271b6c2d3793cbe8323eabfb0183266b608038a0ef1a3a7278b"
     },
     {
+      "path": "dist/features/JobArtifactSyncIdentity.js",
+      "sha256": "a9e83cacdd0854d41aaafe6bd67ce4522aeb878e2b3808b109ed56dc1800bef8"
+    },
+    {
       "path": "dist/features/JobAvailability.js",
       "sha256": "7c60c7a2dac52a5b446e0c9a1fc44cbcda7099c1e1afb59d5b1327b9904f9b35"
     },
@@ -309,7 +313,7 @@
     },
     {
       "path": "dist/features/LocalCodeManifestCache.js",
-      "sha256": "ee74321ea43a0bd9a134969a7cab581a338cb2b0f450de43d527c4ef0ea22e06"
+      "sha256": "b2661a3fee3be8987f63f5e4b7b0c1b3ffb2869072b788fb5d809bef64d249d0"
     },
     {
       "path": "dist/features/LocalMetadataChanges.js",
@@ -333,7 +337,7 @@
     },
     {
       "path": "dist/features/ObservationRound.js",
-      "sha256": "21f9c9db90d94711eceade560d6a3dd28377a82a8b3f79855e7000a514cb47b6"
+      "sha256": "28214ee69636afd7a8196ff1277ecc82d53efac5dc0506735fd3ad16c1d09b34"
     },
     {
       "path": "dist/features/OperationRetirement.js",
@@ -385,7 +389,7 @@
     },
     {
       "path": "dist/features/PlanArtifactSync.js",
-      "sha256": "f81d75c28da079ed0c678a41a290f55ddaee48c699a19d7553ab0b9542f273a0"
+      "sha256": "738f24b8e49eabd517fe8d3d2590c835138f29287f517b38f2e1c06b93237b80"
     },
     {
       "path": "dist/features/PlanArtifactSyncStatus.js",
@@ -409,7 +413,7 @@
     },
     {
       "path": "dist/features/PlanCleanup.js",
-      "sha256": "f0d451a3144f9441741e27aba6a704b630ac2bf36ad45d78162356fe4f276627"
+      "sha256": "bbfbe4abbab183879487633cdd7b4f7dc3ad443c489b4f1dd1f490ef4b5e50bb"
     },
     {
       "path": "dist/features/PlanCleanupEvidence.js",
@@ -476,6 +480,10 @@
       "sha256": "c1a3c90c9631bada3aaa904fd71efc104cbbf27163a70c4c49a70f0df58aabf6"
     },
     {
+      "path": "dist/features/ProjectStatePaths.js",
+      "sha256": "c58f26cd50ed8a898d420da35d9d10efb3bac0fb927d8ce9e4c4bfbb4f8e6ebe"
+    },
+    {
       "path": "dist/features/ProjectStaticCheck.js",
       "sha256": "c19ce1c1e8606a43ac23a819adf75cdce7a8706d9c463dcb05b39c0226e2385b"
     },
@@ -525,11 +533,11 @@
     },
     {
       "path": "dist/features/SyncLatestMerge.js",
-      "sha256": "ca688bc6027f7a0a5e598c1125d6aa8127904668a0ad3e32ec688d16ec338936"
+      "sha256": "5a316af1f3812399b8c33ae6011d651e237e497795c3376152fb57ee4bed691a"
     },
     {
       "path": "dist/features/SyncResolution.js",
-      "sha256": "ac1067a64ddcd12a474a41e0ab533870e48439745e286eed86a7bbbaa305ae74"
+      "sha256": "293e108a0e496e721c22d1de9232e1841f70d65e2370bd0af9420910b1970c40"
     },
     {
       "path": "dist/features/SyncScopeAgentIndex.js",
@@ -561,7 +569,7 @@
     },
     {
       "path": "dist/features/SyncScopeStatus.js",
-      "sha256": "c18494b9c7db2e29f48af9f40d79059c518d601e5c6789f17151d40620ac9db5"
+      "sha256": "3aa4cf2657d00c491679c4bb2112096f115363449af36ece5eb278428080fe54"
     },
     {
       "path": "dist/features/SyncScopeTransferBatch.js",
@@ -633,7 +641,7 @@
     },
     {
       "path": "dist/results/LatestResultExport.js",
-      "sha256": "17afe09232a48764da212a170f255b6c1c7d66cb779e4daec4ae9272b1b867ac"
+      "sha256": "fd6d24efa4035a5549496a97097edf55d93a3267a9247f754e877bf2d353269f"
     },
     {
       "path": "dist/results/NativeResultManifest.js",
@@ -669,7 +677,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "4494d74ecff7ab58d9bddb867d44212457e9d5cace1f82344e0a5f37b5708fb6"
+      "sha256": "cdb8071ca50ae97136b150d8a0782be684cb7da816f8c30616910c5203a22f81"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -893,7 +901,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "91a2babd0716c0a839c1e4e8d7df133b30631d7cf4470b098fff684cfa6354e5"
+      "sha256": "fecf53c024106718b114d799c0066b741c132ec0d517df5a094603022077437a"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1017,7 +1025,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "ea7250d74b1ceb487940920ff325b9da67f62de6a3bd37cab9dcad3fa7c2972e"
+      "sha256": "f29ee75f519592150d310111e99e9358acd094d16dbd69635e7e652c0affbc30"
     },
     {
       "path": "scripts/check-static.js",

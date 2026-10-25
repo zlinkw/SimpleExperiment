@@ -68,6 +68,7 @@ const GpuQuotaPolicyHost_1 = require("./GpuQuotaPolicyHost");
 const GpuTmuxClose_1 = require("./GpuTmuxClose");
 const SimpleSftpProgressWait_1 = require("../core/SimpleSftpProgressWait");
 const SyncScopeDelete_1 = require("../features/SyncScopeDelete");
+const JobArtifactSyncIdentity_1 = require("../features/JobArtifactSyncIdentity");
 const SafeRequestRetry_1 = require("../core/SafeRequestRetry");
 const PlanSafeRetry_1 = require("../features/PlanSafeRetry");
 const StaticEntrypointProbe_1 = require("../features/StaticEntrypointProbe");
@@ -126,6 +127,7 @@ const PluginLogRetention = __importStar(require("../features/PluginLogRetention"
 const PlanWorkerAffinity_1 = require("../features/PlanWorkerAffinity");
 const PlanArtifactSync = __importStar(require("../features/PlanArtifactSync"));
 const DistributedPlanQueue = __importStar(require("../features/DistributedPlanQueue"));
+const ProjectStatePaths_1 = require("../features/ProjectStatePaths");
 const PlanExecutionMode = __importStar(require("../features/PlanExecutionMode"));
 const DistributedSchedulingPolicy = __importStar(require("../features/DistributedSchedulingPolicy"));
 const GpuJobOwnership = __importStar(require("../features/GpuJobOwnership"));
@@ -674,6 +676,10 @@ const OPERATION_NOTICE_COMMANDS = new Set(["runPlan", "reproducePlan", "validate
 const OPERATION_NOTICE_TITLES = {
     runPlan: "运行 Plan", reproducePlan: "复现 Plan", validatePlan: "校验 Plan（实验准备）",
     dryRunPlan: "预演 Plan（实验准备）", runAllPlans: "批量运行 PLAN",
+    // r4 (task ui-plan-gpu-progress-20261024 返修): the artifact-sync operations report
+    // through the withUiCommandStatus funnel instead of repeating as card grey text.
+    retryJobArtifactSync: "重试产物同步", refreshJobArtifacts: "刷新产物状态",
+    syncPendingPlanArtifacts: "同步待同步产物", syncAllResultArtifacts: "同步全部结果文件",
 };
 const PLAN_SCHEDULER_COMMANDS = new Set([...PLAN_PREFLIGHT_COMMANDS, ...PLAN_SUBMISSION_COMMANDS]);
 const RESULT_PARSE_COMMANDS = new Set(["parseResults", "refreshResults"]);
@@ -6124,103 +6130,125 @@ class RealtimeTunnelPanelProvider {
         }
     }
     async withUiCommandStatus(clientActionId, command, message, work) {
-        this.postUiCommandStatus(clientActionId, "running", command, "正在执行...（按钮已转圈）");
-        // 31：每个独立 UI 操作建立新的能力上下文；监听器重启/换端口的源更换在下一独立操作必须重新发现。
-        // 提交与恢复入口自带上下文（beginPlanSubmissionProgress/resumePlanSubmission），此处跳过避免同一操作重复读取。
-        if (!PLAN_SUBMISSION_COMMANDS.has(command) && command !== "retryPlanSubmission")
-            this.beginSimpleSftpCapabilityLaunch();
-        const isLocalTrigger = localCommandReleasesAfterTrigger(command);
-        const guardedWork = work()
-            .then(async (value) => {
-            if (["syncPendingPlanArtifacts", "rebuildProjectResultTables", "syncAllResultArtifacts"].includes(command)) {
-                const outcome = resultSyncCommandOutcome(value);
-                if (outcome)
-                    return outcome;
-            }
-            if (command === "syncAllResultArtifacts" && value && (value.failures?.length || value.cancelled)) {
-                const detail = Array.isArray(value.failures) ? value.failures.slice(0, 5).join("；") : "";
-                return { status: value.cancelled && !detail ? "cancelled" : "failed",
-                    message: `结果文件同步 ${value.cancelled ? "已取消后续批次" : "未完整完成"}：成功 ${Number(value.completed || 0)}/${Number(value.selected || 0)}，失败 ${Array.isArray(value.failures) ? value.failures.length : 0}${detail ? `。${detail}` : ""}` };
-            }
-            const submission = PLAN_SUBMISSION_COMMANDS.has(command)
-                ? this.localOperations?.[this.planSubmissionOperationId(message)] : undefined;
-            if (submission?.status === "failed")
-                return { status: "failed", message: submission.message || "计划未提交。" };
-            if (["recallFailedJob", "retryDistributedJob"].includes(command) && value?.status === "blocked")
-                return { status: "cancelled", message: String(value.message || "未提交重新排队；请先审核该 job 的遗留文件。") };
-            if (command === "retryDistributedJob" && value?.status === "queued" && value.source === "local")
-                return { status: "completed", message: String(value.message) };
-            if (command === "runAllPlans" && typeof value?.selectionOnly === "boolean" && ["completed", "submitted", "failed", "cancelled"].includes(value.status))
-                return { status: value.status, message: String(value.message) };
-            if (["queueRemainingJobs", "refreshJobArtifacts", "retryJobArtifactSync"].includes(command) && value && ["completed", "submitted", "failed", "cancelled"].includes(value.status))
-                return { status: value.status, message: String(value.message || value.status) };
-            if (["stopAndClearPlan", "stopAndClearPlans", "stopAllPlans", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
-                const outcome = value.status === "partial" ? "failed" : value.status;
-                return { status: outcome, message: String(value.message || outcome), planStopClear: value.planStopClear };
-            }
-            const completedMessage = command === "syncAllResultArtifacts" && value && typeof value === "object"
-                ? `结果文件同步完成：${Number(value.completed || 0)}/${Number(value.selected || 0)}，跳过已有 ${Number(value.skippedExisting || 0)} 个。`
-                : (command === "clearTmuxTaskTabs" || command === "killTmuxWindow" || command === "analyzeRuntimeLog") && typeof value === "string" && value.trim()
-                    ? value.trim()
-                    : (isLocalTrigger ? "已触发本地 VS Code 操作" : "completed");
-            return {
-                status: "completed",
-                message: completedMessage,
-            };
-        })
-            .catch((error) => {
-            if (isUiCommandRemotePending(error))
-                return { status: "submitted", message: errorMessage(error), remotePending: true, error };
-            if (isUiCommandCancelled(error))
-                return { status: "cancelled", message: errorMessage(error), error };
-            return { status: "failed", message: errorMessage(error), error };
-        });
-        const result = await guardedWork;
-        const operationOutcome = OperationOutcome_1.operationOutcomeFor(result.error, result.status);
-        const resultDetails = result.resultSync ? { resultSync: result.resultSync } : {};
-        let statusPosted = false;
-        if (result.status === "cancelled") {
-            this.finishPlanSubmissionProgress(message, "cancelled", result.message || "已取消，未提交运行。");
-            const supersededResultRequest = /^(syncPendingPlanArtifacts|syncAllResultArtifacts|rebuildProjectResultTables)$/.test(command)
-                && String(result.message || "").includes("旧请求已被重新执行替代");
-            if (!supersededResultRequest) {
-                try {
-                    vscode.window.showInformationMessage(result.message || "已取消");
+        // r4 (task ui-plan-gpu-progress-20261024 返修): the four artifact-sync operations bypass
+        // runActionCommand entirely (handleMessageCore → withManualResultSync → artifactSyncFromUi),
+        // so their ONE Notification per operation opens/closes in this real funnel. The tone and
+        // text come from the classified result (partial/submitted never count as synced success);
+        // begin sits inside the try and try/finally closes every exit — normal/failed/cancelled/
+        // remote-pending/unexpected throw — so nothing dangles.
+        const artifactNoticeKey = ["retryJobArtifactSync", "refreshJobArtifacts", "syncPendingPlanArtifacts", "syncAllResultArtifacts"].includes(command)
+            ? this.operationNoticeKey(message) : "";
+        let noticeOutcome;
+        try {
+            if (artifactNoticeKey)
+                this.beginOperationProgressNotice(command, message);
+            this.postUiCommandStatus(clientActionId, "running", command, "正在执行...（按钮已转圈）");
+            // 31：每个独立 UI 操作建立新的能力上下文；监听器重启/换端口的源更换在下一独立操作必须重新发现。
+            // 提交与恢复入口自带上下文（beginPlanSubmissionProgress/resumePlanSubmission），此处跳过避免同一操作重复读取。
+            if (!PLAN_SUBMISSION_COMMANDS.has(command) && command !== "retryPlanSubmission")
+                this.beginSimpleSftpCapabilityLaunch();
+            const isLocalTrigger = localCommandReleasesAfterTrigger(command);
+            const guardedWork = work()
+                .then(async (value) => {
+                if (["syncPendingPlanArtifacts", "rebuildProjectResultTables", "syncAllResultArtifacts"].includes(command)) {
+                    const outcome = resultSyncCommandOutcome(value);
+                    if (outcome)
+                        return outcome;
                 }
-                catch { }
-            }
-            const alreadyExplained = String(result.message || "").includes("未提交");
-            if (!alreadyExplained) {
-                try {
-                    this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message), operationOutcome });
-                    this.postState();
+                if (command === "syncAllResultArtifacts" && value && (value.failures?.length || value.cancelled)) {
+                    const detail = Array.isArray(value.failures) ? value.failures.slice(0, 5).join("；") : "";
+                    return { status: value.cancelled && !detail ? "cancelled" : "failed",
+                        message: `结果文件同步 ${value.cancelled ? "已取消后续批次" : "未完整完成"}：成功 ${Number(value.completed || 0)}/${Number(value.selected || 0)}，失败 ${Array.isArray(value.failures) ? value.failures.length : 0}${detail ? `。${detail}` : ""}` };
                 }
-                catch { }
-            }
-            else {
-                try {
-                    this.postState();
+                const submission = PLAN_SUBMISSION_COMMANDS.has(command)
+                    ? this.localOperations?.[this.planSubmissionOperationId(message)] : undefined;
+                if (submission?.status === "failed")
+                    return { status: "failed", message: submission.message || "计划未提交。" };
+                if (["recallFailedJob", "retryDistributedJob"].includes(command) && value?.status === "blocked")
+                    return { status: "cancelled", message: String(value.message || "未提交重新排队；请先审核该 job 的遗留文件。") };
+                if (command === "retryDistributedJob" && value?.status === "queued" && value.source === "local")
+                    return { status: "completed", message: String(value.message) };
+                if (command === "runAllPlans" && typeof value?.selectionOnly === "boolean" && ["completed", "submitted", "failed", "cancelled"].includes(value.status))
+                    return { status: value.status, message: String(value.message) };
+                if (["queueRemainingJobs", "refreshJobArtifacts", "retryJobArtifactSync"].includes(command) && value && ["completed", "submitted", "failed", "cancelled"].includes(value.status))
+                    return { status: value.status, message: String(value.message || value.status) };
+                if (["stopAndClearPlan", "stopAndClearPlans", "stopAllPlans", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
+                    const outcome = value.status === "partial" ? "failed" : value.status;
+                    return { status: outcome, message: String(value.message || outcome), planStopClear: value.planStopClear };
                 }
-                catch { }
+                const completedMessage = command === "syncAllResultArtifacts" && value && typeof value === "object"
+                    ? `结果文件同步完成：${Number(value.completed || 0)}/${Number(value.selected || 0)}，跳过已有 ${Number(value.skippedExisting || 0)} 个。`
+                    : (command === "clearTmuxTaskTabs" || command === "killTmuxWindow" || command === "analyzeRuntimeLog") && typeof value === "string" && value.trim()
+                        ? value.trim()
+                        : (isLocalTrigger ? "已触发本地 VS Code 操作" : "completed");
+                return {
+                    status: "completed",
+                    message: completedMessage,
+                };
+            })
+                .catch((error) => {
+                if (isUiCommandRemotePending(error))
+                    return { status: "submitted", message: errorMessage(error), remotePending: true, error };
+                if (isUiCommandCancelled(error))
+                    return { status: "cancelled", message: errorMessage(error), error };
+                return { status: "failed", message: errorMessage(error), error };
+            });
+            const result = await guardedWork;
+            noticeOutcome = result;
+            const operationOutcome = OperationOutcome_1.operationOutcomeFor(result.error, result.status);
+            const resultDetails = result.resultSync ? { resultSync: result.resultSync } : {};
+            let statusPosted = false;
+            if (result.status === "cancelled") {
+                this.finishPlanSubmissionProgress(message, "cancelled", result.message || "已取消，未提交运行。");
+                const supersededResultRequest = /^(syncPendingPlanArtifacts|syncAllResultArtifacts|rebuildProjectResultTables)$/.test(command)
+                    && String(result.message || "").includes("旧请求已被重新执行替代");
+                if (!supersededResultRequest) {
+                    try {
+                        vscode.window.showInformationMessage(result.message || "已取消");
+                    }
+                    catch { }
+                }
+                const alreadyExplained = String(result.message || "").includes("未提交");
+                if (!alreadyExplained) {
+                    try {
+                        this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message), operationOutcome });
+                        this.postState();
+                    }
+                    catch { }
+                }
+                else {
+                    try {
+                        this.postState();
+                    }
+                    catch { }
+                }
+            }
+            else if (result.status === "failed") {
+                this.finishPlanSubmissionProgress(message, "failed", result.message || "提交失败。");
+                this.recordActionError({ command, message: result.message, suggestion: result.planStopClear?.nextStep || actionErrorSuggestion(result.message), operationOutcome });
+                this.postState();
+                this.postUiCommandStatus(clientActionId, result.status, command, result.message, { operationOutcome, ...resultDetails, ...(result.planStopClear ? { planFile: result.planStopClear.planFile, planStopClear: result.planStopClear } : {}) });
+                statusPosted = true;
+                if (result.resultSync) {
+                    if (!result.notificationShown)
+                        void vscode.window.showWarningMessage(result.message).catch(() => undefined);
+                }
+                else
+                    void vscode.window.showErrorMessage(`${hostOperationLeaseActionLabel(command) || command}未完成`, { modal: true, detail: compactSensitiveText(result.message || "操作失败，请检查连接与产物校验记录。", 4000) }, "知道了").catch(() => undefined);
+            }
+            if (result.status === "completed" && result.resultSync?.partial && !result.notificationShown)
+                void vscode.window.showWarningMessage(result.message).catch(() => undefined);
+            if (!statusPosted)
+                this.postUiCommandStatus(clientActionId, result.status, command, result.message, { operationOutcome, ...resultDetails, ...(result.planStopClear ? { planFile: result.planStopClear.planFile, planStopClear: result.planStopClear } : {}) });
+        }
+        finally {
+            if (artifactNoticeKey) {
+                const outcome = noticeOutcome || { status: "failed", message: "产物同步操作异常结束，请检查连接与产物校验记录。" };
+                const tone = outcome.status === "completed" && !outcome.resultSync?.partial ? "succeeded"
+                    : outcome.status === "cancelled" ? "cancelled" : "failed";
+                this.finishOperationProgressNotice(artifactNoticeKey, tone, String(outcome.message || "") || "产物同步已结束。");
             }
         }
-        else if (result.status === "failed") {
-            this.finishPlanSubmissionProgress(message, "failed", result.message || "提交失败。");
-            this.recordActionError({ command, message: result.message, suggestion: result.planStopClear?.nextStep || actionErrorSuggestion(result.message), operationOutcome });
-            this.postState();
-            this.postUiCommandStatus(clientActionId, result.status, command, result.message, { operationOutcome, ...resultDetails, ...(result.planStopClear ? { planFile: result.planStopClear.planFile, planStopClear: result.planStopClear } : {}) });
-            statusPosted = true;
-            if (result.resultSync) {
-                if (!result.notificationShown)
-                    void vscode.window.showWarningMessage(result.message).catch(() => undefined);
-            }
-            else
-                void vscode.window.showErrorMessage(`${hostOperationLeaseActionLabel(command) || command}未完成`, { modal: true, detail: compactSensitiveText(result.message || "操作失败，请检查连接与产物校验记录。", 4000) }, "知道了").catch(() => undefined);
-        }
-        if (result.status === "completed" && result.resultSync?.partial && !result.notificationShown)
-            void vscode.window.showWarningMessage(result.message).catch(() => undefined);
-        if (!statusPosted)
-            this.postUiCommandStatus(clientActionId, result.status, command, result.message, { operationOutcome, ...resultDetails, ...(result.planStopClear ? { planFile: result.planStopClear.planFile, planStopClear: result.planStopClear } : {}) });
     }
     uiCommandWatchdogMs(command) {
         // Each underlying request owns inactivity and cancellation. No total UI deadline.
@@ -6239,6 +6267,13 @@ class RealtimeTunnelPanelProvider {
             // above keeps the full text). Submission stages already report themselves.
             if (command === "validatePlan" || command === "dryRunPlan")
                 this.reportOperationNotice(clientActionId, `${status}：${String(message || "")}`);
+        }
+        // r4: artifact-sync commands keep the full text in the same log channel and advance
+        // their funnel notification (display truncation stays display-only); other commands
+        // keep their existing routing and the card grey line untouched.
+        if (["retryJobArtifactSync", "refreshJobArtifacts", "syncPendingPlanArtifacts", "syncAllResultArtifacts"].includes(command)) {
+            this.logOperationFact(`[${clientActionId}] ${command} ${status}：${String(message || "")}`);
+            this.reportOperationNotice(clientActionId, `${status}：${String(message || "")}`);
         }
         if (!this.view || !clientActionId)
             return;
@@ -7073,8 +7108,34 @@ class RealtimeTunnelPanelProvider {
             this.distributedSubmissionAborts?.delete(operationId);
             this.trimPlanSubmissionEpochs();
         }
+        // r17-C / r20 接线：提交成功终态是恢复记录的最后一个用途（队列已是事实），释放该 operationId 的
+        // 精确回执；failed/cancelled/queued 保留——恢复/取消入口依赖其明确语义。成功分支的三个来源
+        // （正常 durable enqueue、durable 短恢复、keep_existing 正常完成）都汇经此处，success 事实由
+        // 唯一入口的 status==="succeeded" 提供，不接受任意显示文本。frozen root 取提交时持久化的
+        // receiptRoot，绝不在终态取当前 workspaceRoot；缺 root/坏记录/foreign/未落定一律保留并如实
+        // 记日志（helper 内），释放失败只多留一条记录，不静默、不猜测。
+        if (status === "succeeded")
+            void this.releaseSettledPlanSubmissionReceipt?.(operationId, current.receiptRoot);
         this.markLocalOperationsDirty();
         this.postState();
+    }
+    async releaseSettledPlanSubmissionReceipt(operationId, frozenRoot) {
+        // r18 根漂移修正：释放必须用操作提交时冻结的绝对 root（begin/submit 持久化的 receiptRoot）；
+        // 用户中途切换项目时终态清理仍归原项目。缺原归属 → 保留记录并留日志，绝不猜测删除。
+        const root = String(frozenRoot || "");
+        if (!operationId || !path.isAbsolute(root)) {
+            console.warn("[SimpleExperiment] 提交恢复记录缺少冻结归属，保留不释放：", operationId || "(空)");
+            return;
+        }
+        try {
+            // r20：成功事实由本方法唯一来源（finish 的 status==="succeeded" 分支）携带；本方法不做显示文本判断。
+            const outcome = await new PlanRunHost_1.PlanRunHost(this, root).releaseSettled(operationId, "submission-succeeded");
+            if (outcome !== "released" && outcome !== "not-found")
+                console.warn("[SimpleExperiment] 提交恢复记录本轮未释放（保留，不猜测）：", operationId, outcome);
+        }
+        catch (error) {
+            console.warn("[SimpleExperiment] 提交恢复记录释放失败，保留：", operationId, String(error?.message || error));
+        }
     }
     planSubmissionQueueDetail(body, blocker, confirmed = true) {
         const planFile = String(operationResultPlanFile(body) || body?.planFile || "当前计划");
@@ -9713,8 +9774,12 @@ class RealtimeTunnelPanelProvider {
      * no local install/state contract configured the guard stays neutral (no
      * exclusion invented), but an invalid explicit config reports unknown. */
     localMachineStateGuard(root) {
+        // r17-A: the project-managed state/cache/logs/tmp/locks subtrees inside THIS projectRoot
+        // are registered machine state, so scope inventories never treat them as ordinary local
+        // differences (upload exclusion additionally pins simple_cluster at the code-sync top level).
         return (0, ProjectRootMap_1.machineStateGuard)((0, ProjectRootMap_1.resolveProjectRootMap)({ projectDir: String(root || ""), machineStateDirs: [process.env.SIMPLE_EXPERIMENT_AGENT_STATE_DIR, process.env.SIMPLE_EXPERIMENT_WORKER_STATE_DIR,
-                path.join(require("node:os").homedir(), ".simple-cluster", "worker-state"), this.context?.globalStorageUri?.fsPath].filter(Boolean) }));
+                path.join(require("node:os").homedir(), ".simple-cluster", "worker-state"), this.context?.globalStorageUri?.fsPath,
+                ...(0, ProjectStatePaths_1.projectManagedDirs)(String(root || ""))].filter(Boolean) }));
     }
     async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".", signal, report = (_stage) => { }) {
         signal?.throwIfAborted();
@@ -9819,6 +9884,22 @@ class RealtimeTunnelPanelProvider {
             this.syncScopeMutationInFlight = true;
         }
         try {
+            // r8 错误1准备缺口：产物复制与代码同步共用同一只读根绑定准备——缓存观测无法绑定的
+            // 端点在此至多一次 bounded 只读 GET（prepareCodeSyncRootGuards 契约原样：不重试、不
+            // testTunnel/prepareAgents、真实状态覆盖仍拒绝），仅本操作 targets；verifyOnly 不传输、
+            // 不触发写前准备。guard 冻结在本操作（后台缓存替换不得改写已验证快照），而
+            // simpleSftpApiCall 内 assertTransferRootSafety 的实时复核原样保留——双重检查不替代。
+            let assertArtifactBindingsCurrent = () => { };
+            let artifactGuards;
+            if (artifactCopy && !options.verifyOnly) {
+                await options.assertCurrent?.();
+                // 同步契约：prepare 的 assertCurrent 同步调用，只承担同步可证的 current 条件
+                // （取消信号+本操作 binding fence），异步队列核实仍由显式 await options.assertCurrent。
+                const rootGuards = await this.prepareCodeSyncRootGuards(targets, root, () => { checkCancelled(); assertArtifactBindingsCurrent(); }, report);
+                assertArtifactBindingsCurrent = rootGuards.assertBindingsCurrent;
+                artifactGuards = rootGuards;
+                await options.assertCurrent?.();
+            }
             report(`正在校验 ${targets.length} 台 Worker 的 ${mergePaths.length} 条结果或目录路径`);
             const statuses = await this.refreshSyncScopeStatus(root, targets, "server-server", mergePaths, relative, options.signal);
             checkCancelled();
@@ -9829,16 +9910,69 @@ class RealtimeTunnelPanelProvider {
                 ? statuses
                 : Object.fromEntries(Object.entries(statuses).filter(([file]) => mergePaths.some((scope) => file === scope || file.startsWith(`${scope}/`)) || file === relative));
             const planned = (0, SyncLatestMerge_1.planLatestWorkerMerge)(scoped, targets.map((target) => target.id), options.completedJob?.sourceId);
+            // r8：产物复制的本次实际路径验证消费本操作冻结的 guard 快照——无共享缓存
+            // `|| machineStatePrefixesById` 回退（后续后台缓存替换不得改写已验证内容）；缺键与
+            // unknown 一律 fail-closed。非产物复制路径保持原实时 mapping 语义不变。
+            const machinePrefixesFor = (id) => {
+                if (!artifactGuards)
+                    return this.machineStatePrefixesById(targets, id);
+                const row = targets.find((target) => target.id === id);
+                if (!artifactGuards.guards.has(row))
+                    throw new Error(`${id} 缺少本次产物同步的机器状态绑定快照，未同步。`);
+                const guard = artifactGuards.guards.get(row);
+                if (!guard || guard.unknown)
+                    throw new Error(`${id} 机器状态映射未知，产物同步未传输。`);
+                return guard.prefixes;
+            };
             const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
             const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
-            const skipped = [...planned.skipped];
+            // r10（错误3）：completedJob 局部来源归属分类——只依据本次已校验的 scoped 真实状态，
+            // 不靠中文错误字符串反解析、不靠文件名/备份目录规则猜测。本次全量清单已证 ok（任一端点
+            // 清单失败/未知/未校验仍走"清单校验失败"/"版本未校验"阻断），路径在当前来源没有版本、
+            // 其它端点存在且内容一致 → 判为仅存在于他端的历史保留副本：不选其它版本、不传输、不覆盖、
+            // 不删除、不再仅因它们缺 source 版本阻断当前 job 已验证产物。他端内容冲突（无法判定版本）、
+            // 本操作冻结机器状态映射（来源/本机）命中、codeOwned 或本次已记录必要项一律不在此放行；
+            // 通用手动合并（非 completedJob）语义原样不变。
+            const foreignOnly = [];
+            if (options.completedJob) {
+                const foreignSourceId = options.completedJob.sourceId;
+                const foreignOtherIds = targets.map((target) => target.id).filter((id) => id !== foreignSourceId);
+                const foreignRequired = options.completedJob.requiredArtifacts || {};
+                const foreignLocalPrefixes = this.localMachineStateGuard(root).prefixes;
+                const foreignSourcePrefixes = machinePrefixesFor(foreignSourceId);
+                for (const [file, value] of Object.entries(scoped)) {
+                    if (file === relative || value.copies || value.unverified || value.state === "unknown")
+                        continue;
+                    if (value.detail === "当前同步范围外")
+                        continue;
+                    if (value.versions?.[foreignSourceId]?.sha256)
+                        continue;
+                    const foreignHashes = new Set(foreignOtherIds.map((id) => String(value.versions?.[id]?.sha256 || "").toLowerCase()).filter(Boolean));
+                    if (foreignHashes.size !== 1)
+                        continue;
+                    if (foreignRequired[file])
+                        continue;
+                    if ((0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, foreignSourcePrefixes) || (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, foreignLocalPrefixes))
+                        continue;
+                    if (holds[file]?.codeOwned || isLocalCodeOwnedPath(file, false, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths")))
+                        continue;
+                    foreignOnly.push(file);
+                }
+                foreignOnly.sort();
+            }
+            const foreignOnlySet = new Set(foreignOnly);
+            const skipped = planned.skipped.filter((_reason, index) => !foreignOnlySet.has(planned.skippedPaths[index]?.path));
             const work = planned.items.filter((item) => {
                 // Bound per DESTINATION: a path is only machine state for the
                 // endpoint whose verified mapping says so; drop the item only
                 // when no destination may receive it at all.
                 const destinations = item.destinationIds || [];
                 const reachable = !destinations.length
-                    || destinations.some((id) => (0, SyncScopeStatus_2.scopeInventoryPathAllowed)(item.path, false, this.machineStatePrefixesById(targets, id)));
+                    || destinations.some((id) => (0, SyncScopeStatus_2.scopeInventoryPathAllowed)(item.path, false, machinePrefixesFor(id)));
+                // r9：产物复制路径的冻结保护命中必须显式失败——禁止把受保护文件静默过滤后
+                // 以空 errors 让 CompletedJobSyncHost 写 synced/全 mirrored；非产物复制语义不变。
+                if (!reachable && artifactCopy && destinations.length)
+                    skipped.push(`${item.path}：所有目标端点的本次冻结机器状态映射均保护该路径，未同步。`);
                 if (!reachable || /(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(item.path)))
                     return false;
                 if (options.completedJob && (holds[item.path]?.codeOwned || isLocalCodeOwnedPath(item.path, false, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths")))) {
@@ -9849,22 +9983,66 @@ class RealtimeTunnelPanelProvider {
             });
             if (options.completedJob) {
                 const sourceId = options.completedJob.sourceId;
-                const files = Object.fromEntries(Object.entries(scoped).filter(([file, value]) => !value.copies && value.versions?.[sourceId]?.sha256
-                    // Source state (never read it back) AND local state (never
-                    // record/land it here) are both excluded — each by its OWN
-                    // endpoint's verified mapping.
-                    && (0, SyncScopeStatus_2.scopeInventoryPathAllowed)(file, false, [...this.machineStatePrefixesById(targets, sourceId), ...this.localMachineStateGuard(root).prefixes]) && !/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(file))).map(([file, value]) => [file, value.versions[sourceId].sha256]));
+                // Source state (never read it back) AND local state (never
+                // record/land it here) are both excluded — each by its OWN
+                // endpoint's verified mapping. r9：任何冻结保护命中都显式入 skipped
+                // （L9501 既有整体 fail-closed 漏斗），禁止过滤成空 files/空 errors 的假成功。
+                const localPrefixes = this.localMachineStateGuard(root).prefixes;
+                const sourcePrefixes = machinePrefixesFor(sourceId);
+                const fileEntries = [];
+                for (const [file, value] of Object.entries(scoped)) {
+                    if (value.copies || !value.versions?.[sourceId]?.sha256)
+                        continue;
+                    // r9 返修：旧 filter 的显式禁止后缀原样保留（scopeInventoryPathAllowed
+                    // 仅排部分 lock，不等价）——三者不得进入源清单/generation 输入/传输/queue.artifacts。
+                    if (/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(file)))
+                        continue;
+                    // 通用临时/排除规则（与端点无关）维持原静默排除语义；只有本操作冻结的
+                    // 机器状态映射命中才升级为显式保护拒绝，两类不混淆。
+                    if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(file, false, []))
+                        continue;
+                    if ((0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, sourcePrefixes))
+                        skipped.push(`${file}：来源 ${sourceId} 的本次冻结机器状态映射保护该路径，未同步。`);
+                    else if ((0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, localPrefixes))
+                        skipped.push(`${file}：本机状态映射保护该路径，未同步。`);
+                    else
+                        fileEntries.push([file, value.versions[sourceId].sha256]);
+                }
+                const files = Object.fromEntries(fileEntries);
+                // r10：本次已记录且落在选定 scope 的 job.artifacts 必要项（host 侧已按 selectedScopes
+                // 过滤，其它 scope 条目不强加）必须由当前来源已校验版本覆盖——foreign-only 或缺失一律
+                // fail-closed，不得被上面的分类放行。当前来源存在已校验版本但内容较旧记录已更新时，
+                // 维持 r5 既有源漂移重同步语义（开新代重传并由 patch 合并更新记录）；本轮传输仍受
+                // 本次冻结清单+复制后逐文件 SHA 复核约束（不符即抛错，见下方 verifiedSftpProjectInventory）。
+                for (const file of Object.keys(options.completedJob.requiredArtifacts || {}))
+                    if (!files[file])
+                        skipped.push(`${file}：本次已记录必要产物在当前来源没有已校验版本，未同步。`);
+                // r10：空来源不是"没有必需产物"的证明——每个选定 scope 都必须有当前来源已校验文件覆盖，
+                // 使用源文件全集（files，含目标已全部一致的项）而非 work delta；选定文件/CSV 只在他端
+                // 存在时不得用同目录其它文件冒充，选定目录没有任何当前来源文件则保持 partial。
+                for (const scope of mergePaths)
+                    if (scope !== "." && !fileEntries.some(([file]) => file === scope || file.startsWith(`${scope}/`)))
+                        skipped.push(`${scope}：当前来源在该选定范围内没有已校验产物文件，未完成同步。`);
                 if (skipped.length)
                     throw new Error(skipped.join("；"));
+                // r9：groups 按目标各自的冻结 guard 构组——work 过滤的 destinations.some 只保证
+                // "至少一个目标可达"，混合形态（B 保护/C 允许）下 B 绝不能入组收文件；命中即显式拒绝。
                 const groups = new Map();
                 for (const item of work)
                     for (const id of item.destinationIds) {
+                        if ((0, ProjectRootMap_1.isUnderMachineStatePrefixes)(item.path, machinePrefixesFor(id)))
+                            throw new Error(`${id} 的本次冻结机器状态映射保护 ${item.path}，产物未向该端点上传。`);
                         if (!groups.has(id))
                             groups.set(id, []);
                         groups.get(id).push(item.path);
                     }
+                // r10：分类结果只作观测——完整路径与原因进入本操作日志（report），并作为
+                // latestArtifactSync.skipped 最小可选字段由 host 持久化；不混回 errors，避免 30 秒永久重试。
+                const foreignCopies = foreignOnly.map((file) => `${file}：仅存在于其它端点的历史副本（来源 ${sourceId} 没有该版本），未同步、未修改、未删除。`);
+                if (foreignCopies.length)
+                    report(`保留 ${foreignCopies.length} 个仅存在于其它端点的历史副本：${foreignCopies.join(" ")}`);
                 if (options.verifyOnly)
-                    return { completed: [], files, errors: work.length ? [`仍有 ${work.length} 个文件待同步；请点“重试产物同步”。`] : [] };
+                    return { completed: [], files, errors: work.length ? [`仍有 ${work.length} 个文件待同步；请点“重试产物同步”。`] : [], foreignOnly: foreignCopies };
                 const source = targets.find(row => row.id === sourceId);
                 const completed = [];
                 for (const [id, paths] of groups) {
@@ -9873,10 +10051,26 @@ class RealtimeTunnelPanelProvider {
                     await this.assertSshTransportIdentities([source, destination]);
                     for (let offset = 0; offset < paths.length; offset += 500) {
                         await options.assertCurrent?.();
+                        // r8：每个传输批次调用前，冻结 proof 的绑定证明必须同步立即通过。
+                        assertArtifactBindingsCurrent();
                         const batch = paths.slice(offset, offset + 500);
+                        // r9：本批真正发送前，对本次冻结 guard 逐一复核来源与该目标的全部批次路径
+                        // （含祖先覆盖，includeAncestors 失败关闭）；simpleSftpApiCall 内的
+                        // assertTransferRootSafety 实时复核原样保留，双重检查不替代、不放松。
+                        const destinationPrefixes = machinePrefixesFor(id);
+                        for (const file of batch) {
+                            if ((0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, sourcePrefixes, true))
+                                throw new Error(`${sourceId} 的本次冻结机器状态映射（含祖先覆盖）与批次路径冲突：${file}，未上传。`);
+                            if ((0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, destinationPrefixes, true))
+                                throw new Error(`${id} 的本次冻结机器状态映射（含祖先覆盖）与批次路径冲突：${file}，未上传。`);
+                        }
                         await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: this.sftpServerOptions(source),
                             destination: { ...this.sftpServerOptions(destination), host: this.sftpServerOptions(destination).networkHost || this.sftpServerOptions(destination).host },
                             relativePaths: batch, confirm: true, pathConfirmed: true,
+                            // r5 P2 身份块：真实 job 五元组身份 + 绑定冻结源清单（files）与运行身份的
+                            // 稳定代；相同输入重试/重载复用自己的代，command/内容变化开新代。
+                            retentionKey: options.completedJob.retentionKey,
+                            generation: (0, JobArtifactSyncIdentity_1.jobArtifactRunGeneration)(options.completedJob.planId, options.completedJob.commandId, files),
                             taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({ action: "同步任务最新产物", sourceId, destinationId: id, detail: String(batch.length) + " 个文件" }) });
                         const checked = (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(destination), relativePath: ".", scopePaths: batch })).files;
                         for (const file of batch)
@@ -9885,7 +10079,7 @@ class RealtimeTunnelPanelProvider {
                         completed.push(...batch);
                     }
                 }
-                return { completed: [...new Set(completed)], errors: [], files };
+                return { completed: [...new Set(completed)], errors: [], files, foreignOnly: foreignCopies };
             }
             if (!work.length)
                 return { completed: [], errors: skipped };
@@ -11454,12 +11648,13 @@ class RealtimeTunnelPanelProvider {
         };
     }
     localCodeManifestCacheFile(root) {
-        const storageRoot = this.context?.globalStorageUri?.fsPath;
-        return storageRoot ? (0, LocalCodeManifestCache_1.localCodeManifestCachePath)(storageRoot, root) : undefined;
+        // r18#5: recomputable caches follow the CONSUMED project (simple_cluster/cache); the old
+        // globalStorage copies are left untouched and simply stop being consulted — never
+        // migrated, scanned or deleted. Non-absolute/empty roots keep the old no-cache degradation.
+        return String(root || "") && path.isAbsolute(String(root)) ? (0, LocalCodeManifestCache_1.localCodeManifestCachePath)(String(root)) : undefined;
     }
     localScopeHashCacheFile(root) {
-        const storageRoot = this.context?.globalStorageUri?.fsPath;
-        return storageRoot ? (0, SyncScopeStatus_2.localScopeHashCachePath)(storageRoot, root) : undefined;
+        return String(root || "") && path.isAbsolute(String(root)) ? (0, SyncScopeStatus_2.localScopeHashCachePath)(String(root)) : undefined;
     }
     async primaryGitRepository() {
         const extension = vscode.extensions.getExtension("vscode.git");
@@ -11717,6 +11912,8 @@ class RealtimeTunnelPanelProvider {
         body.runRecovery ||= {};
         body.reportPlanStageLocal = text => this.reportPlanStage(message, text);
         await recoveryStore.save(body);
+        if (operationId && this.localOperations?.[operationId])
+            this.localOperations[operationId] = { ...this.localOperations[operationId], receiptRoot: submissionRoot };
         if (body.submissionWorkflowId && (await this.loadDistributedQueue(submissionRoot)).plans.some(row => row.id === body.submissionWorkflowId)) {
             this.finishPlanSubmissionProgress(message, "succeeded", "已恢复原提交，未启动新批次；继续主动查询原任务。");
             return;
@@ -12004,11 +12201,19 @@ class RealtimeTunnelPanelProvider {
     }
     async loadDistributedQueue(root) {
         const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
+        // r17-A: one-time race-safe migration of the known legacy snapshot into the project
+        // location; a corrupt legacy file keeps its original corrupt-queue semantics (the raw
+        // bytes are read through instead of silently becoming an empty queue).
+        const legacyFile = DistributedPlanQueue.legacyDistributedQueuePath(this.context.globalStorageUri.fsPath, root);
+        // r24: 迁移前置必须与读盘同受 last-known-good/stale 回退保护——ensureProjectSnapshotMigrated 对
+        // 非 ENOENT 磁盘错误照实上抛，若置于 try 之外，真实磁盘故障会绕过下方批准的陈旧队列回退。
+        let migration;
         const hasSameRootSnapshot = this.distributedQueueRoot === root && this.distributedQueueCache;
         let source;
         try {
-            source = await fs.readFile(file, "utf8").catch((error) => { if (error?.code === "ENOENT")
-                return ""; throw error; });
+            migration = await (0, ProjectStatePaths_1.ensureProjectSnapshotMigrated)(String(root || ""), legacyFile, file);
+            source = await fs.readFile(file, "utf8").catch(async (error) => { if (error?.code === "ENOENT")
+                return migration === "invalid-legacy" ? await fs.readFile(legacyFile, "utf8") : ""; throw error; });
         }
         catch (error) {
             if (!hasSameRootSnapshot)
@@ -14093,7 +14298,9 @@ class RealtimeTunnelPanelProvider {
                         destination: { ...first.destination, host: first.destination.networkHost || first.destination.host },
                         relativePaths: paths.slice(offset, offset + 5000), compression: "auto", singleStream: true,
                         retentionKey: JSON.stringify(["job-artifacts", first.plan.planFile, first.job.index, first.job.case, first.job.seed]),
-                        generation: String(first.plan.id),
+                        // r6：与完成任务链复用同一纯函数——真实 plan.id/commandId 加分批前完整冻结
+                        // 清单（paths 全集，不取当前批次）。同输入跨入口同代，同 command 内容变化开新代。
+                        generation: (0, JobArtifactSyncIdentity_1.jobArtifactRunGeneration)(first.plan.id, first.job.commandId, Object.fromEntries(paths.map((file) => [file, String(first.job.artifacts?.[file] || "").toLowerCase()]))),
                         confirm: true, pathConfirmed: true,
                         taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({ action: automatic ? "自动同步已完成 Plan 产物" : "压缩同步最新版 Plan 产物",
                             sourceId: first.sourceId, destinationId: first.workerId,

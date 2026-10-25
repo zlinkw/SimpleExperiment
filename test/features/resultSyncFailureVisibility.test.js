@@ -22,7 +22,24 @@ function fixture() {
     errorMessage: error => error.message, compactSensitiveText: text => text,
     isUiCommandRemotePending: () => false, isUiCommandCancelled: error => error.name === "UiCommandCancelled",
     actionErrorSuggestion: () => "inspect",
-    vscode: { window: { showErrorMessage: async (...args) => alerts.push(args), showWarningMessage: async (...args) => warnings.push(args), showInformationMessage: (...args) => information.push(args) } },
+    // r4 (task ui-plan-gpu-progress-20261024 返修): the four artifact-sync commands now run
+    // their per-operation Notification through the real withUiCommandStatus funnel, so this
+    // fixture supplies the same lifecycle dependencies planOperationNoticeLifecycle uses —
+    // real methods below, mock host surfaces only. Failure/partial/cancelled semantics
+    // asserted here are unchanged.
+    stringField: (record, key) => String((record && record[key]) || ""),
+    OPERATION_NOTICE_TITLES: {
+      retryJobArtifactSync: "重试产物同步", refreshJobArtifacts: "刷新产物状态",
+      syncPendingPlanArtifacts: "同步待同步产物", syncAllResultArtifacts: "同步全部结果文件",
+    },
+    vscode: {
+      ProgressLocation: { Notification: 15 },
+      window: {
+        showErrorMessage: async (...args) => alerts.push(args), showWarningMessage: async (...args) => warnings.push(args), showInformationMessage: (...args) => information.push(args),
+        withProgress: (_options, callback) => Promise.resolve(callback({ report() {} })).catch(() => undefined),
+        createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }),
+      },
+    },
   };
   vm.createContext(sandbox);
   const helperStart = source.indexOf("function resultSyncCommandOutcome(");
@@ -30,6 +47,7 @@ function fixture() {
   vm.runInContext(source.slice(helperStart, source.indexOf("function resultMetricMergeScopePaths(", helperStart)), sandbox);
   vm.runInContext(`this.methods = { ${[
     method("async withUiCommandStatus(", "uiCommandWatchdogMs("),
+    method("\n    operationNoticeKey(message)", "\n    submissionNoticeTone(message, result)"),
     method("async runActionCommandCore(", "async runPlanPreflight("),
     method("\n    assertPlanSubmissionNotDuringResultSync(", "\n    async finishDistributedPlanSubmission("),
     method("async finishDistributedPlanSubmission(", "async activeDeferredForSubmission("),
@@ -37,6 +55,7 @@ function fixture() {
   ].join(",")} };`, sandbox);
   const host = {
     ...sandbox.methods, localOperations: {}, manualResultSyncCounts: new Map(),
+    operationNoticeSessions: new Map(), context: { subscriptions: [] },
     postUiCommandStatus(_id, status, command, message, extra) { statuses.push(status); terminal.push({ status, command, message, ...extra }); },
     planSubmissionOperationId: () => "op", submissionStillCurrent: () => true,
     finishPlanSubmissionProgress(_message, status, detail) { progress.push({ status, detail }); },
