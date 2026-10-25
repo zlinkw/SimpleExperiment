@@ -21,6 +21,10 @@
  *    dirty→clean 同 blob 复用；假执行器覆盖 cat-file 缺帧/非 blob/截断等如实失败类别。
  * 6) 块C4/C5 PR 适配：origin 规范化剥凭证、漂移/基线缺失/PR 未知一律不写；
  *    普通快推 argv、未知收据不重放、身份复用、merge 必须重查 MERGED、祖先 ff-only 真实仓验证。
+ * 7) 块C4-R6（主控 2026-10-25 四处必须返修）：MERGED 只读恢复经模块 readOnly 真实取 mergeCommit 后才快进；
+ *    祖先 ff 的 expected 只来自已确认 target（冻结），live 重读不得洗白确认后漂移；统一操作租约身份＝
+ *    已确认仓＋head ref（与 cwd/拼写/base 无关，未知 target 先拒）；合并最终确认前必须展示所选科研证据。
+ *    接线故障在真实 legacy 入口才暴露（helper 全绿也会漏），故用既有 AST 法身夹具提取实际方法体回归。
  *
  * 需要真实 git 子进程与临时仓库夹具，无法用纯内存 fake 替代（隔离/环境清理语义本身是被测行为），
  * 因此作为新功能域新建本文件；其余面板/路由断言扩在既有套件中。
@@ -881,7 +885,7 @@ function unproofedJob(index, outputDir) {
 }
 function headSha(repo) { return git(["rev-parse", "HEAD"], repo).trim(); }
 async function candidateOf(repo, plans, selected, extra = {}) {
-  const identity = probe.readGitIdentityProbe(repo);
+  const identity = probe.readGitIdentity(repo); // dist 实际导出名是 readGitIdentity（legacy.ts 以别名导入）；原名会 TypeError
   return binding.buildResearchCandidate({
     runner: binding.runGitBinary, root: repo, commonDir: identity.commonDir || path.join(repo, ".git"),
     branch: identity.branch, headCommit: identity.headCommit, dirty: identity.dirty,
@@ -973,8 +977,9 @@ test("C4-R3 候选：plan.id 键控，同 planFile 两轮各半确证绝不拼�
 
 test("C4-R3 revalidate 钩子：push 前失败零写入；push 后失败不创建 PR；merge 写指令前失败零发送", async () => {
   const gateFail = { ok: false, reason: "候选摘要已变化（测试）" };
-  // push 前失败 → 零 git 写入、零 gh 调用
-  const gitA = recordingGit(baseScript());
+  // push 前失败 → 零 git 写入、零 gh 调用（产品先核本地头再科研回调是正确次序：fixture 必须应答 rev-parse 查询）
+  const localHeadRow = { match: /^rev-parse --verify refs\/heads\/exp\/m1/, stdout: FULL_SHA + "\n" };
+  const gitA = recordingGit([localHeadRow, ...baseScript()]);
   const ghA = recordingGit([{ match: /^pr list/, stdout: jsonBuf([]) }]);
   const previewA = await previewOf(baseScript());
   let result = await pr.createBranchPullRequest({ git: gitA.runner, gh: ghA.runner, ledger: memoryLedger(), ...PR_OPTS, title: "t", body: "b", previewDigest: previewA.digest, revalidate: async () => gateFail });
@@ -1002,8 +1007,8 @@ test("C4-R3 revalidate 钩子：push 前失败零写入；push 后失败不创�
   const mergeResult = await pr.mergeBranchPullRequest({ gh: ghM.runner, ledger: memoryLedger(), cwd: "/repo", repoSelector: SELECTOR, prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1", revalidate: async () => gateFail });
   assert.equal(mergeResult.status, "blocked-verification");
   assert.equal(ghM.calls.filter(call => call.args.startsWith("pr merge")).length, 0);
-  // revalidate 抛异常＝拒绝（异常不得当成通过）
-  result = await pr.createBranchPullRequest({ git: recordingGit(baseScript()).runner, gh: recordingGit([{ match: /^pr list/, stdout: jsonBuf([]) }]).runner, ledger: memoryLedger(), ...PR_OPTS, title: "t", body: "b", previewDigest: previewA.digest, revalidate: async () => { throw new Error("boom"); } });
+  // revalidate 抛异常＝拒绝（异常不得当成通过；同样先应答产品对本地头的确认查询）
+  result = await pr.createBranchPullRequest({ git: recordingGit([localHeadRow, ...baseScript()]).runner, gh: recordingGit([{ match: /^pr list/, stdout: jsonBuf([]) }]).runner, ledger: memoryLedger(), ...PR_OPTS, title: "t", body: "b", previewDigest: previewA.digest, revalidate: async () => { throw new Error("boom"); } });
   assert.equal(result.status, "blocked-verification");
 });
 
@@ -1055,7 +1060,8 @@ test("C5 R5a/b/c：跨 cwd/大小写语义身份拒绝与精确结算；专用�
     withRepoLease: async (leaseId, fn) => { leasesC.push(leaseId); return fn(); } });
   assert.equal(result.status, "created", JSON.stringify(result));
   assert.equal(leasesC.length, 1);
-  assert.ok(leasesC[0].startsWith("branch-pr-op:") && leasesC[0].includes("/repo") && leasesC[0].includes("exp/m1"), leasesC[0]);
+  // R5 统一身份（返修3）：键＝规范化已确认仓＋实际 head 引用，绝不含 cwd/base；与 merge 同一条规则。
+  assert.equal(leasesC[0], "branch-pr-op:github.com/org/repo:exp/m1", leasesC[0]);
   const leasesM = [];
   const ghM = recordingGit([
     { match: /^pr view 21/, stdout: jsonBuf(PR_VIEW()), uses: 1 },
@@ -1065,7 +1071,8 @@ test("C5 R5a/b/c：跨 cwd/大小写语义身份拒绝与精确结算；专用�
   const mergeLeased = await pr.mergeBranchPullRequest({ gh: ghM.runner, ledger: memoryLedger(), cwd: "/repo", repoSelector: SELECTOR, prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1",
     withRepoLease: async (leaseId, fn) => { leasesM.push(leaseId); return fn(); } });
   assert.equal(mergeLeased.status, "merged");
-  assert.equal(leasesM[0], "branch-pr-op:merge:github.com/org/repo:pr#21");
+  assert.equal(leasesM[0], "branch-pr-op:github.com/org/repo:exp/m1", leasesM[0]);
+  assert.equal(leasesM[0], leasesC[0], "create 与 merge 共用同一仓/引用身份规则：同 repo+head ref 落同一把锁");
   // —— R5c：真实仓 fetch 之后 origin 才漂移 → merge 前停止，且错误绝不回显 raw URL ——
   const originDir = tempDir("se-r5-origin-");
   git(["init", "-q", "--bare", "-b", "main", originDir], originDir);
@@ -1110,4 +1117,346 @@ test("C5 R5a/b/c：跨 cwd/大小写语义身份拒绝与精确结算；专用�
   assert.match(ff.reason, /merge 前本机 HEAD/);
   assert.ok(!seen2.some(line => line.startsWith("merge ")), "HEAD 漂移后绝不执行 merge");
   assert.equal(git(["rev-list", "--merges", "HEAD"], dirA).trim(), "", "本机未被写入任何合并提交");
+});
+
+/* ————————————— 块C4-R6（主控 2026-10-25 精读后的四处必须返修）———————————————
+ * 本轮接线故障（alreadyMerged 恢复把空 mergeSHA 交给祖先确认）正是“helper 全绿也发现不了”一类：
+ * 回归必须跑真实 legacy 入口。按 unifiedDispatchAdmission 的既有 AST 法身口径，从当前完整 legacy.ts
+ * 提取实际方法体进隔离 vm，外部 git/gh 一律注入 stub（不联网）；真实仓/真实租约/真实模块另各占用例。 */
+const DPQ = require("../../dist/features/DistributedPlanQueue.js");
+const { pathToFileURL } = require("node:url");
+
+function makeLegacyUiHost(env) {
+  const ts = require("typescript");
+  const vm = require("node:vm");
+  const source = fs.readFileSync(path.join(__dirname, "..", "..", "src", "extension", "legacy.ts"), "utf8");
+  const ast = ts.createSourceFile("legacy.ts", source, ts.ScriptTarget.Latest, true);
+  let cls = null;
+  const visit = n => { if (ts.isClassDeclaration(n) && n.name && n.name.text === "RealtimeTunnelPanelProvider") cls = n; ts.forEachChild(n, visit); };
+  visit(ast);
+  if (!cls) throw new Error("legacy.ts 中未找到 RealtimeTunnelPanelProvider 类");
+  const names = ["branchQueueSnapshotFor", "branchPrContext", "branchPrReceiptLedger", "branchPrRepoLease",
+    "buildBranchResearchCandidate", "branchResearchCandidateFlow", "branchResearchRevalidate", "mergeBranchPrFromUi", "confirmAndFastForwardAncestor"];
+  const members = cls.members.filter(n => n.name && names.includes(n.name.getText(ast)));
+  if (members.length !== names.length) throw new Error("C4 UI 法身闭包不齐：" + names.join(","));
+  const Host = vm.runInNewContext(ts.transpileModule("class Host{" + members.map(m => m.getText(ast)).join("\n") + "};Host",
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
+    vscode: {
+      window: {
+        showQuickPick: async (items, options) => { env.events.push({ kind: "pick", title: String(options && options.title || ""), items: items.map(row => row.label + "§" + (row.description || "") + "§" + (row.detail || "")) }); return env.pickItems ? env.pickItems(items) : items.slice(); },
+        showInformationMessage: async (title, options) => { env.events.push({ kind: "info", title: String(title), detail: String((options && options.detail) || "") }); return "知道了"; },
+        showWarningMessage: async (title, options, ...actions) => { env.events.push({ kind: "warn", title: String(title), detail: String((options && options.detail) || "") }); return env.answer ? env.answer(String(title), actions) : actions[0]; },
+      },
+    },
+    UiCommandCancelled: class UiCommandCancelled extends Error {},
+    readGitIdentityProbe: probe.readGitIdentity,
+    BranchPullRequest: env.branchPullRequest,
+    BranchHeadBinding: binding,
+    DistributedPlanQueue: DPQ,
+    canonicalComparablePath: store.canonicalComparablePath,
+    hasVerifiedCompletion: verifiedCompletion.hasVerifiedCompletion,
+    atomicWriteText: require("../../dist/state/StateStore.js").atomicWriteText,
+    errorMessage: e => String((e && e.message) || e),
+    path, fs: fs.promises, crypto, API_DISCOVERY_DIR: env.apiDir,
+  });
+  const h = new Host();
+  Object.assign(h, {
+    context: { globalStorageUri: { fsPath: env.storage } },
+    postState() {}, scheduleBranchProjectsVerify(reason) { env.events.push({ kind: "verify", reason: String(reason) }); },
+    pickBranchProject: async () => { throw new Error("测试必须显式给 branchProjectId，不应触发人工选择"); },
+    withPluginStateFileLease: async (root, file, actionType, label, work) => work(),
+    branchProjectsProjection: () => env.projection,
+  });
+  return h;
+}
+function uiEnv(overrides) {
+  const dir = tempDir("se-r6-ui-");
+  const apiDir = path.join(dir, "api"); const storage = path.join(dir, "storage");
+  fs.mkdirSync(apiDir, { recursive: true }); fs.mkdirSync(storage, { recursive: true });
+  return { events: [], apiDir, storage, answer: undefined, pickItems: undefined, projection: { branches: [], ancestors: [] }, ...overrides };
+}
+function seedProofedQueue(storage, root, planId, planFile, revision, manifest, jobCount) {
+  const q = DPQ.enqueuePlan(DPQ.emptyDistributedQueue(), { projectId: "proj-ui", executionMode: "train", planFile, revision,
+    codeFingerprint: "fp-" + planId, resultPathPolicy: "declared", executionSource: manifest,
+    jobs: Array.from({ length: jobCount }, (_unused, index) => ({ index, case: "c" + index, seed: index + 1, outputDir: "out/" + index })) }, planId);
+  const plan = q.plans.find(row => row.id === planId);
+  plan.jobs.forEach((job, index) => {
+    job.commandId = "cmd-" + planId + "-" + index; job.workerId = "w1"; job.status = "completed";
+    job.verifiedCompletion = { schemaVersion: 1, identity: verifiedCompletion.completionIdentity(plan, job), verifiedAt: "2026-10-25T00:00:00.000Z", exitCode: 0 };
+  });
+  const file = DPQ.distributedQueuePath(storage, root);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, DPQ.serializeDistributedQueue(q), "utf8");
+  return file;
+}
+function uiBranchFixture(name) {
+  const root = fs.realpathSync(makeRepo(name));
+  fs.mkdirSync(path.join(root, "experiments"), { recursive: true });
+  fs.mkdirSync(path.join(root, "pkg"), { recursive: true });
+  fs.writeFileSync(path.join(root, "experiments", "a.yaml"), "run: v1\n", "utf8");
+  fs.writeFileSync(path.join(root, "pkg", "model.py"), "w = 1\n", "utf8");
+  git(["add", "-A"], root);
+  git(["-c", "user.email=test@example.invalid", "-c", "user.name=Branch Test", "commit", "-q", "-m", "plan tree"], root);
+  git(["checkout", "-q", "-B", "exp/m1"], root);
+  const ancRoot = fs.realpathSync(makeRepo(name + "-anc"));
+  git(["remote", "add", "origin", "https://github.com/org/repo.git"], ancRoot);
+  return { root, ancRoot, head: git(["rev-parse", "HEAD"], root).trim().toLowerCase() };
+}
+function uiProjection(root, ancRoot) {
+  return { branches: [{ record: { id: "b1", workspaceRoot: root, branch: "exp/m1", ancestorId: "a1", label: "" } }],
+    ancestors: [{ record: { id: "a1", gitRoot: ancRoot, remoteName: "origin", targetBranch: "main", remoteUrl: "https://github.com/org/repo.git" } }] };
+}
+
+test("C4-R6 统一租约身份：已确认仓＋head ref 定锁；cwd/大小写拼写/不同 base 不绕锁；未知 target 先拒不借用", async () => {
+  const captured = [];
+  const withRepoLease = async (leaseId) => { captured.push(leaseId); return { status: "reused", prNumber: 0 }; }; // 只验键形成，不进入临界段
+  const mk = (over = {}) => pr.createBranchPullRequest({ git: recordingGit([]).runner, gh: recordingGit([]).runner, ledger: memoryLedger(),
+    title: "t", body: "b", previewDigest: "x", withRepoLease, ...PR_OPTS, ...over });
+  await mk();
+  await mk({ cwd: "C:\\Other\\Clone\\Path" });
+  await mk({ registeredRemoteUrl: "git@github.com:Org/Repo.git" });
+  await mk({ registeredRemoteUrl: "https://github.com/Org/Repo" });
+  await mk({ base: "master" });
+  assert.equal(captured.length, 5);
+  assert.ok(captured.every(key => key === "branch-pr-op:github.com/org/repo:exp/m1"), JSON.stringify(captured));
+  const before = captured.length;
+  const denied = await mk({ registeredRemoteUrl: "https://gitlab.com/org/repo.git" });
+  assert.equal(denied.status, "blocked-unknown", JSON.stringify(denied));
+  assert.match(denied.reason, /无法规范化/);
+  const deniedCred = await mk({ registeredRemoteUrl: "https://tok-secret@github.com/org/repo.git" });
+  assert.equal(deniedCred.status, "blocked-unknown", JSON.stringify(deniedCred));
+  assert.ok(!JSON.stringify(deniedCred).includes("tok-secret"), "未知 target 拒绝原因也不回显凭据");
+  assert.equal(captured.length, before, "未知 target 既不加锁也绝不无锁放行");
+  await mk({ registeredRemoteUrl: "https://github.com/org/other.git" });
+  await mk({ branch: "Exp/M1" });
+  assert.equal(new Set(captured.slice(before)).size, 2, "不同仓/不同 head 引用（refs 大小写敏感）不误并同一把锁");
+  await pr.mergeBranchPullRequest({ gh: recordingGit([]).runner, ledger: memoryLedger(), cwd: "/any", repoSelector: "github.com/Org/Repo",
+    prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1", withRepoLease });
+  assert.equal(captured[captured.length - 1], "branch-pr-op:github.com/org/repo:exp/m1", "merge 与 create 共用同一身份规则");
+  await pr.mergeBranchPullRequest({ gh: recordingGit([]).runner, ledger: memoryLedger(), cwd: "/any", repoSelector: "github.com/org/repo",
+    prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m2", withRepoLease });
+  assert.equal(captured[captured.length - 1], "branch-pr-op:github.com/org/repo:exp/m2");
+});
+
+test("C4-R6 真实互斥：两个独立 cwd 同仓/同引用并发创建只有一个不可逆临界段；第二窗被预览不一致拦停后重预览按身份复用", async () => {
+  const remote = { heads: { main: BASE_SHA }, prs: [], pushCount: 0, createCount: 0 };
+  const makeFakeGit = (delayMs) => {
+    const calls = [];
+    const runner = async (args) => {
+      const line = args.join(" "); calls.push(line);
+      if (line === "remote get-url origin" || line.startsWith("remote get-url --push --all origin")) return { code: 0, stdout: buf("https://github.com/org/repo.git\n"), stderr: "" };
+      if (line === "ls-remote --heads origin main") return { code: 0, stdout: buf(BASE_SHA + "\trefs/heads/main\n"), stderr: "" };
+      if (line === "ls-remote --heads origin exp/m1") { const sha = remote.heads["exp/m1"]; return { code: 0, stdout: buf(sha ? sha + "\trefs/heads/exp/m1\n" : ""), stderr: "" }; }
+      if (line.startsWith("rev-list")) return { code: 128, stdout: buf(""), stderr: "unknown revision" };
+      if (line === "rev-parse --verify refs/heads/exp/m1^{commit}") return { code: 0, stdout: buf(FULL_SHA + "\n"), stderr: "" };
+      if (line.startsWith("push origin")) { if (delayMs) await new Promise(resolve => setTimeout(resolve, delayMs)); remote.heads["exp/m1"] = FULL_SHA; remote.pushCount++; return { code: 0, stdout: buf(""), stderr: "" }; }
+      throw new Error("unexpected fake git: " + line);
+    };
+    return { runner, calls };
+  };
+  const makeFakeGh = () => {
+    const calls = [];
+    const runner = async (args) => {
+      const line = args.join(" "); calls.push(line);
+      if (line.startsWith("pr list")) return { code: 0, stdout: jsonBuf(remote.prs), stderr: "" };
+      if (line.startsWith("pr create")) { remote.createCount++; remote.prs.push(PR_OPEN({ number: 31, url: "https://github.com/org/repo/pull/31" })); return { code: 0, stdout: buf("https://github.com/org/repo/pull/31\n"), stderr: "" }; }
+      if (line.startsWith("pr view 31")) return { code: 0, stdout: jsonBuf(PR_VIEW({ number: 31 })), stderr: "" };
+      throw new Error("unexpected fake gh: " + line);
+    };
+    return { runner, calls };
+  };
+  const srcRepo = makeRepo("r6-src");
+  const w1 = fs.realpathSync(tempDir("se-r6-w1-")); git(["clone", "-q", srcRepo, w1], os.tmpdir());
+  const w2 = fs.realpathSync(tempDir("se-r6-w2-")); git(["clone", "-q", srcRepo, w2], os.tmpdir());
+  const previewT0 = await pr.previewBranchPullRequest({ git: makeFakeGit(0).runner, gh: makeFakeGh().runner, ...PR_OPTS, cwd: w1 });
+  assert.ok(previewT0.ok, JSON.stringify(previewT0.reason));
+  const leaseDir = tempDir("se-r6-lease-"); const leaseFile = path.join(leaseDir, "branch-pr-op.lease.json");
+  const { ResourceOperationLeaseManager } = require("../../dist/core/ResourceOperationLease.js");
+  const manager = new ResourceOperationLeaseManager({ leasePath: leaseFile, windowId: "r6", ttlMs: 30000, heartbeatMs: 1000 });
+  const events = [];
+  const withLease = (label) => async (leaseId, fn) => {
+    events.push(label + ":key:" + leaseId); events.push(label + ":enter");
+    return manager.run({ pluginId: "simple-local.simple-experiment", workspaceUri: leaseDir, hostProjectPath: leaseDir,
+      actionType: "branch-pr-operation", actionLabel: "R6 租约回归", waitForConflict: true,
+      resources: [{ server: "local", project: leaseDir, target: leaseFile }] },
+    async () => { try { return await fn(); } finally { events.push(label + ":exit"); } });
+  };
+  const pA = pr.createBranchPullRequest({ git: makeFakeGit(250).runner, gh: makeFakeGh().runner, ledger: memoryLedger(), ...PR_OPTS, cwd: w1, title: "t", body: "b", previewDigest: previewT0.digest, withRepoLease: withLease("W1") });
+  await new Promise(resolve => setTimeout(resolve, 40)); // W1 持租约且在 push 中，W2 此刻排队
+  const pB = pr.createBranchPullRequest({ git: makeFakeGit(0).runner, gh: makeFakeGh().runner, ledger: memoryLedger(), ...PR_OPTS, cwd: w2, title: "t", body: "b", previewDigest: previewT0.digest, withRepoLease: withLease("W2") });
+  const resA = await pA; const resB = await pB;
+  assert.equal(resA.status, "created", JSON.stringify(resA));
+  assert.equal(resB.status, "blocked-unknown", JSON.stringify(resB));
+  assert.match(resB.reason, /预览不一致/, JSON.stringify(resB));
+  assert.equal(remote.createCount, 1, "两窗并发同仓/同引用：不可逆临界段只有一个");
+  assert.equal(remote.pushCount, 1);
+  const keyA = events.find(row => row.startsWith("W1:key:")).slice("W1:key:".length);
+  const keyB = events.find(row => row.startsWith("W2:key:")).slice("W2:key:".length);
+  assert.equal(keyA, "branch-pr-op:github.com/org/repo:exp/m1");
+  assert.equal(keyB, keyA, "不同完整 clone 的同一 repo/ref 必须落同一把锁");
+  assert.ok(events.indexOf("W2:key:" + keyB) < events.indexOf("W1:exit"), "W2 确实在 W1 持有期间请求过（真实重叠，非事后串行）");
+  assert.ok(events.indexOf("W1:exit") < events.indexOf("W2:enter"), "W2 的临界段确在 W1 释放后才进入（等待型互斥）");
+  const previewB2 = await pr.previewBranchPullRequest({ git: makeFakeGit(0).runner, gh: makeFakeGh().runner, ...PR_OPTS, cwd: w2 });
+  const resB2 = await pr.createBranchPullRequest({ git: makeFakeGit(0).runner, gh: makeFakeGh().runner, ledger: memoryLedger(), ...PR_OPTS, cwd: w2, title: "t", body: "b", previewDigest: previewB2.digest, withRepoLease: withLease("W2b") });
+  assert.equal(resB2.status, "reused", JSON.stringify(resB2));
+  assert.equal(resB2.prNumber, 31);
+  assert.match(resB2.note, /按身份复用/);
+  assert.equal(remote.createCount, 1); assert.equal(remote.pushCount, 1, "复用路径零推送零创建");
+});
+
+test("C5-R6 readOnly 只读恢复模式：OPEN/读不到/身份不符一律 blocked 且代码路径绝不进 gh pr merge；MERGED 全等则 merged 并按真实事实结清同键 unknown", async () => {
+  const ghA = recordingGit([{ match: /^pr view 21/, stdout: jsonBuf(PR_VIEW()) }, { match: /^pr merge/, stdout: "MUST NOT MERGE" }]);
+  let res = await pr.mergeBranchPullRequest({ gh: ghA.runner, ledger: memoryLedger(), cwd: "/repo", repoSelector: SELECTOR, prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1", readOnly: true });
+  assert.equal(res.status, "blocked-unknown", JSON.stringify(res));
+  assert.match(res.reason, /只读恢复/);
+  assert.equal(ghA.calls.filter(row => row.args.startsWith("pr merge")).length, 0);
+  const ghB = recordingGit([{ match: /^pr view 21/, code: 1, stderr: "gh down" }]);
+  res = await pr.mergeBranchPullRequest({ gh: ghB.runner, ledger: memoryLedger(), cwd: "/repo", repoSelector: SELECTOR, prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1", readOnly: true });
+  assert.equal(res.status, "blocked-unknown", JSON.stringify(res));
+  const key = pr.mergeReceiptKey(SELECTOR, 21, FULL_SHA);
+  const ledgerC = memoryLedger([
+    { key, root: "/repo", branch: "pr#21", sourceSha: FULL_SHA, base: "main", repoSelector: SELECTOR, action: "merge", attemptAt: "2026-10-25T00:00:00Z", outcome: "unknown", attemptId: "m1" },
+    { key: "unrelated-key", root: "/repo", branch: "exp/other", sourceSha: OTHER_SHA, base: "main", repoSelector: SELECTOR, action: "merge", attemptAt: "2026-10-25T00:00:01Z", outcome: "unknown", attemptId: "u1" },
+  ]);
+  const ghC = recordingGit([{ match: /^pr view 21/, stdout: jsonBuf(PR_VIEW({ state: "MERGED", mergedAt: "x", mergeCommit: { oid: MERGE_SHA } })) }, { match: /^pr merge/, stdout: "MUST NOT MERGE" }]);
+  res = await pr.mergeBranchPullRequest({ gh: ghC.runner, ledger: ledgerC, cwd: "/repo", repoSelector: SELECTOR, prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1", readOnly: true });
+  assert.equal(res.status, "merged", JSON.stringify(res));
+  assert.equal(res.mergeCommit, MERGE_SHA);
+  assert.equal(ledgerC.rows().filter(row => row.key === key && row.outcome === "unknown").length, 0, "同键 unknown 按真实 MERGED 事实结清");
+  assert.ok(ledgerC.rows().some(row => row.attemptId === "m1" && row.outcome === "ok"));
+  assert.ok(ledgerC.rows().some(row => row.key === "unrelated-key" && row.outcome === "unknown"), "无关 unknown 收据不动");
+  const ghD = recordingGit([{ match: /^pr view 21/, stdout: jsonBuf(PR_VIEW({ state: "MERGED", mergedAt: "x", mergeCommit: { oid: MERGE_SHA }, headRefName: "exp/other" })) }, { match: /^pr merge/, stdout: "MUST NOT MERGE" }]);
+  res = await pr.mergeBranchPullRequest({ gh: ghD.runner, ledger: memoryLedger(), cwd: "/repo", repoSelector: SELECTOR, prNumber: 21, verifiedHeadSha: FULL_SHA, base: "main", branch: "exp/m1", readOnly: true });
+  assert.equal(res.status, "blocked-unknown", JSON.stringify(res));
+  assert.equal(ghD.calls.filter(row => row.args.startsWith("pr merge")).length, 0);
+});
+
+test("C4-R6 UI 真实入口 alreadyMerged 恢复：只读 view 取得 mergeCommit 后经独立确认传给 ff；view 变 OPEN 则零 merge 零 ff", async () => {
+  const fx = uiBranchFixture("r6-merged");
+  const runRecovery = async (viewRow) => {
+    const env = uiEnv({ projection: uiProjection(fx.root, fx.ancRoot) });
+    const gh = recordingGit([
+      { match: /^pr list/, stdout: jsonBuf([PR_OPEN({ state: "MERGED", mergedAt: "2026-10-25T00:00:00Z", headRefOid: fx.head })]), uses: 1 },
+      { match: /^pr view 21/, stdout: jsonBuf(viewRow) },
+      { match: /^pr merge/, stdout: "MUST NOT MERGE" },
+    ]);
+    const ffCalls = [];
+    const host = makeLegacyUiHost({ ...env, answer: title => title.startsWith("更新本机祖先主线") ? "确认快进" : undefined,
+      branchPullRequest: { ...pr, runGh: gh.runner, runGitPullRequest: recordingGit(baseScript()).runner,
+        fastForwardAncestorRoot: async (opts) => { ffCalls.push(opts); env.events.push({ kind: "ff" }); return { status: "fast-forwarded", from: BASE_SHA, to: MERGE_SHA }; } } });
+    const state = await host.mergeBranchPrFromUi({ branchProjectId: "b1" });
+    return { env, gh, ffCalls, state };
+  };
+  const ok = await runRecovery(PR_VIEW({ state: "MERGED", mergedAt: "2026-10-25T00:00:00Z", mergeCommit: { oid: MERGE_SHA }, headRefOid: fx.head }));
+  assert.equal(ok.ffCalls.length, 1, JSON.stringify(ok.env.events.map(row => row.kind)));
+  assert.equal(ok.ffCalls[0].expectedMergeCommit, MERGE_SHA, "恢复必须把只读核验到的完整 merge SHA 传给祖先确认");
+  assert.equal(ok.ffCalls[0].cwd, fs.realpathSync(fx.ancRoot));
+  assert.equal(ok.ffCalls[0].expectedRemoteUrl, "https://github.com/org/repo", "ff 的 expected 只能是本次确认展示过的冻结 target");
+  const kinds = ok.env.events.map(row => row.kind);
+  assert.ok(kinds.indexOf("info") < kinds.indexOf("warn") && kinds.indexOf("warn") < kinds.indexOf("ff"), "先告知 MERGED 只读重查，再独立确认快进，然后才 ff");
+  assert.equal(ok.state.action, "merge-recover"); assert.equal(ok.state.merged, true);
+  assert.equal(ok.gh.calls.filter(row => row.args.startsWith("pr merge")).length, 0, "只读恢复绝不发送合并指令");
+  const lost = await runRecovery(PR_VIEW({ headRefOid: fx.head })); // view 已变回 OPEN：上次 MERGED 事实不再成立
+  assert.equal(lost.ffCalls.length, 0, "view OPEN＝绝不快进");
+  assert.equal(lost.state.merged, false);
+  assert.ok(lost.env.events.some(row => row.kind === "warn" && row.title.startsWith("只读恢复未通过")), JSON.stringify(lost.env.events));
+  assert.ok(!lost.env.events.some(row => row.kind === "warn" && row.title.startsWith("更新本机祖先主线")));
+  assert.equal(lost.gh.calls.filter(row => row.args.startsWith("pr merge")).length, 0, "OPEN/未知绝不落入 gh pr merge");
+});
+
+test("C4-R6 UI 真实入口合并顺序：非空选择＋候选证据先于最终确认展示；确认后撤证零 merge；取消选择/取消确认零写入", async () => {
+  const fx = uiBranchFixture("r6-order");
+  const manifest = manifestFor(fx.root, ["experiments/a.yaml", "pkg/model.py", "tracked.txt"]);
+  const rev = manifest.manifest["experiments/a.yaml"].sha256;
+  const mergeUiScript = () => recordingGit([
+    { match: /^pr list/, stdout: jsonBuf([PR_OPEN({ headRefOid: fx.head })]), uses: 1 },
+    { match: /^pr view 21/, stdout: jsonBuf(PR_VIEW({ headRefOid: fx.head })) },
+    { match: /^pr merge/, stdout: "MUST NOT MERGE" },
+  ]);
+  const mergeUiGit = () => recordingGit(baseScript());
+  const build = (over) => {
+    const env = uiEnv({ projection: uiProjection(fx.root, fx.ancRoot), ...over });
+    const queueFile = seedProofedQueue(env.storage, fx.root, "plan-A", "experiments/a.yaml", rev, manifest, 2);
+    env.queueFile = queueFile;
+    const gh = mergeUiScript();
+    env.branchPullRequest = { ...pr, runGh: gh.runner, runGitPullRequest: mergeUiGit().runner };
+    return { env, gh, host: makeLegacyUiHost(env), queueFile };
+  };
+  // 1) 确认后（实际写之前）撤证 → 复核必拦停，零 pr view/pr merge（模块根本未被调用）
+  const case1 = build({ answer: (title) => {
+    if (title.startsWith("合并 PR #")) {
+      const raw = JSON.parse(fs.readFileSync(case1.queueFile, "utf8"));
+      delete raw.plans[0].jobs[0].verifiedCompletion;
+      fs.writeFileSync(case1.queueFile, JSON.stringify(raw), "utf8");
+      return "确认合并";
+    } return "确认合并";
+  } });
+  let thrown = null;
+  try { await case1.host.mergeBranchPrFromUi({ branchProjectId: "b1" }); } catch (error) { thrown = error; }
+  assert.ok(thrown && /科研确证复核未通过/.test(String(thrown.message)), String(thrown && thrown.message));
+  const kinds = case1.env.events.map(row => row.kind);
+  assert.ok(kinds.indexOf("pick") >= 0 && kinds.indexOf("pick") < kinds.indexOf("warn"), "先有 PLAN 选择，后有最终确认弹窗");
+  const pickEvent = case1.env.events.find(row => row.kind === "pick");
+  assert.equal(pickEvent.items.length, 1);
+  assert.match(pickEvent.items[0], /2\/2 job 完成确证/);
+  assert.match(pickEvent.items[0], /id plan-A/);
+  const modal = case1.env.events.find(row => row.kind === "warn" && row.title.startsWith("合并 PR #"));
+  assert.ok(modal, JSON.stringify(case1.env.events));
+  assert.match(modal.detail, /plan-A/, "确认前必须展示所选 plan.id 与确证证据");
+  assert.ok(modal.detail.includes(fx.head), "确认前展示完整 40 位源 SHA：" + modal.detail.slice(0, 200));
+  assert.match(modal.detail, /全部完成确证/); assert.match(modal.detail, /清单摘要/); assert.match(modal.detail, /覆盖限制/);
+  assert.equal(case1.gh.calls.filter(row => row.args.startsWith("pr view") || row.args.startsWith("pr merge")).length, 0, "复核拦停后模块未被调用：零合并视图查询、零 merge");
+  // 2) 空选择＝拒绝：证据弹窗都不出现
+  const case2 = build({ pickItems: () => [] });
+  let thrown2 = null;
+  try { await case2.host.mergeBranchPrFromUi({ branchProjectId: "b1" }); } catch (error) { thrown2 = error; }
+  assert.ok(thrown2 && /未选择任何 PLAN/.test(String(thrown2.message)), String(thrown2 && thrown2.message));
+  assert.ok(!case2.env.events.some(row => row.kind === "warn" && row.title.startsWith("合并 PR #")));
+  assert.equal(case2.gh.calls.filter(row => row.args.startsWith("pr merge")).length, 0);
+  // 3) 看到证据后取消确认＝零写入
+  const case3 = build({ answer: (title) => title.startsWith("合并 PR #") ? "" : "确认合并" });
+  let thrown3 = null;
+  try { await case3.host.mergeBranchPrFromUi({ branchProjectId: "b1" }); } catch (error) { thrown3 = error; }
+  assert.ok(thrown3 && /已取消合并/.test(String(thrown3.message)), String(thrown3 && thrown3.message));
+  assert.ok(case3.env.events.some(row => row.kind === "warn" && row.title.startsWith("合并 PR #") && /plan-A/.test(row.detail)));
+  assert.equal(case3.gh.calls.filter(row => row.args.startsWith("pr merge")).length, 0);
+});
+
+test("C4-R6 UI 真实入口祖先 ff：确认后 origin 被改到共享历史的 fork B 不被 live 重读洗白，fetch/merge 前即拦停；冻结 expected 不误伤正常路径", async () => {
+  const ancRoot = fs.realpathSync(makeRepo("r6-drift"));
+  const aBare = tempDir("se-r6-A-"); git(["init", "-q", "--bare", "-b", "main"], aBare);
+  const url = "https://github.com/org/repo.git";
+  git(["remote", "add", "origin", url], ancRoot);
+  git(["config", "url." + pathToFileURL(aBare).href + ".insteadOf", "https://github.com/org/repo"], ancRoot); // 离线“GitHub 仓”：fetch/push 真实走本地裸仓
+  commitFile(ancRoot, "mainline.txt", "m1\n", "mainline c1");
+  git(["push", "-q", "origin", "main"], ancRoot);
+  const bBare = tempDir("se-r6-B-");
+  git(["clone", "-q", "--bare", aBare, bBare], os.tmpdir());
+  const bHeadBefore = git(["rev-parse", "refs/heads/main"], bBare).trim();
+  const env = uiEnv({});
+  let flipped = false;
+  env.answer = (title) => {
+    if (title.startsWith("更新本机祖先主线")) {
+      if (!flipped) { flipped = true; git(["remote", "set-url", "origin", bBare], ancRoot); } // 用户确认期间 origin 被改到 fork B（含同一合并提交）
+      return "确认快进";
+    }
+    return "知道了";
+  };
+  const seen = [];
+  env.branchPullRequest = { ...pr, runGitPullRequest: async (args, cwd, stdin) => { seen.push(args.join(" ")); return pr.runGitPullRequest(args, cwd, stdin); }, runGh: recordingGit([]).runner };
+  const host = makeLegacyUiHost(env);
+  const ancestor = { gitRoot: ancRoot, remoteName: "origin", targetBranch: "main" };
+  const frozenTarget = pr.normalizeGithubTarget(url);
+  const mergeSha = git(["rev-parse", "HEAD"], ancRoot).trim();
+  const drifted = await host.confirmAndFastForwardAncestor(ancestor, frozenTarget, mergeSha);
+  assert.equal(drifted.status, "blocked", JSON.stringify(drifted));
+  assert.match(drifted.reason, /不一致/, JSON.stringify(drifted));
+  assert.ok(!drifted.reason.includes(bBare), "原因不回显确认后新出现的 raw 地址：" + drifted.reason);
+  assert.ok(!seen.some(line => line.startsWith("fetch")), "漂移在 fetch 前即拦停：" + JSON.stringify(seen));
+  assert.ok(!seen.some(line => line.startsWith("merge ")), "绝不代合并");
+  assert.equal(git(["rev-parse", "refs/heads/main"], bBare).trim(), bHeadBefore, "B 仓零接触");
+  git(["remote", "set-url", "origin", url], ancRoot); // 正常路径：expected 仍是冻结 target，origin 未变
+  const clean = await host.confirmAndFastForwardAncestor(ancestor, frozenTarget, mergeSha);
+  assert.equal(clean.status, "already-current", JSON.stringify(clean));
+  assert.ok(seen.some(line => line.startsWith("fetch origin")), "冻结 expected（displayUrl）与登记 origin（带 .git）规范化同仓：真实 fetch 正常放行");
 });

@@ -361,8 +361,15 @@ export type CreateBranchPullRequestOptions = {
   withRepoLease?: <T>(leaseId: string, fn: () => Promise<T>) => Promise<T>;
 };
 export async function createBranchPullRequest(options: CreateBranchPullRequestOptions): Promise<CreateResult> {
-  if (options.withRepoLease)
-    return options.withRepoLease(`branch-pr-op:${normalizeReceiptRoot(options.cwd)}:${options.branch}:${options.base}`, () => createBranchPullRequestLeased(options));
+  if (options.withRepoLease) {
+    // R5 统一操作身份：租约资源＝规范化已确认仓（GitHub owner/repo 大小写不敏感）＋实际 head 引用（refs 严格大小写原值）。
+    // 绝不含 cwd/base——不同完整 clone、大小写或路径拼写、不同 base 的同一 repo/ref 必须落在同一把锁上；不同仓/不同 head ref 仍可并行。
+    // 已确认地址无法规范化＝未知 target，先拒（不拿 cwd 当“临时替代”，也不无锁放行）。create 与 merge 同一条规则。
+    const leaseRepo = normalizeGithubTarget(options.registeredRemoteUrl);
+    if (!leaseRepo)
+      return { status: "blocked-unknown", reason: "已确认仓库地址无法规范化：无法建立安全的仓/引用操作互斥身份，拒绝执行（不以工作目录代替，零写入）。" };
+    return options.withRepoLease(`branch-pr-op:${leaseRepo.repoSelector.toLowerCase()}:${options.branch}`, () => createBranchPullRequestLeased(options));
+  }
   return createBranchPullRequestLeased(options);
 }
 async function createBranchPullRequestLeased(options: CreateBranchPullRequestOptions): Promise<CreateResult> {
@@ -538,12 +545,16 @@ export type MergeBranchPullRequestOptions = {
   gh: PullRequestRunner; ledger: ReceiptLedger; cwd: string; repoSelector: string; prNumber: number; verifiedHeadSha: string; base: string; branch: string;
   /** R3：合并写指令发出前由调用方用同一校验器重读身份＋队列。 */
   revalidate?: () => Promise<{ ok: boolean; reason?: string }>;
-  /** R5b：同 create——覆盖只读重查→合并指令→复核结清全程的专用租约。 */
+  /** R5b：同 create——覆盖只读重查→合并指令→复核结清全程的专用租约；身份规则与 create 完全一致：
+   * 规范化已确认仓（大小写不敏感）＋实际 head 引用（严格大小写原值），不含 cwd/PR 号之外可漂移成分。 */
   withRepoLease?: <T>(leaseId: string, fn: () => Promise<T>) => Promise<T>;
+  /** MERGED 只读恢复模式：仅允许“view 已 MERGED 且完整身份与本候选全等（含 40 位 mergeCommit.oid）”的对账捷径；
+   * OPEN/CLOSED/未知/身份不符/读不到一律如实 blocked——代码路径上绝不进入 gh pr merge。 */
+  readOnly?: boolean;
 };
 export async function mergeBranchPullRequest(options: MergeBranchPullRequestOptions): Promise<MergeResult> {
   if (options.withRepoLease)
-    return options.withRepoLease(`branch-pr-op:merge:${String(options.repoSelector).toLowerCase()}:pr#${options.prNumber}`, () => mergeBranchPullRequestLeased(options));
+    return options.withRepoLease(`branch-pr-op:${String(options.repoSelector).toLowerCase()}:${options.branch}`, () => mergeBranchPullRequestLeased(options));
   return mergeBranchPullRequestLeased(options);
 }
 async function mergeBranchPullRequestLeased(options: MergeBranchPullRequestOptions): Promise<MergeResult> {
@@ -568,6 +579,10 @@ async function mergeBranchPullRequestLeased(options: MergeBranchPullRequestOptio
     } catch { /* 账本不可写时仍如实返回读到的事实 */ }
     return { status: "merged", mergeCommit: before.mergeCommit, state: before.row.state, reason: "只读重查：本候选的 PR 已是 MERGED（可能经网页或先前未知操作完成），未重发合并指令。" };
   }
+  if (options.readOnly)
+    return { status: "blocked-unknown", state: before?.row.state, reason: before
+      ? `只读恢复：该 PR 当前状态（${before.row.state || "未知"}）未构成本候选已 MERGED 的完整确证（身份须逐项等于精确 repo/PR 号/head 仓/分支/SHA/base 且可读 40 位 mergeCommit），不快进祖先、不发送任何合并指令。`
+      : "只读恢复：无法只读读取该 PR 当前状态，不快进祖先、不发送任何合并指令。" };
   if (!before) return { status: "blocked-unknown", reason: "无法只读读取该 PR 当前状态，未发送任何写指令。" };
   if (!sameIdentity(before.row))
     return { status: "blocked-unknown", reason: `写前重查 PR 身份不一致（head ${String(before.row.headRefOid).slice(0, 10)}/${before.row.headRefName || "?"} base ${before.row.baseRefName || "?"}），零写入停止。`, state: before.row.state };
