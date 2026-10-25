@@ -66,9 +66,14 @@ CHANGELOG.md
 **/__pycache__/**
 # Retained historical orphan without a source module or runtime reference.
 dist/ui/sections/OverviewSection.js
-# 注意：README.md 无法在此排除——vsce 4.0.0 collectFiles 恒加否定式 '!README.md'
-# （node_modules/@vscode/vsce/out/package.js:1343-1345，ReadmeProcessor 重命名为 extension/readme.md）。
-# extension/readme.md 属工具链强制的最小发布元数据例外，不得用空壳或改名规避。
+# r77 打包合规：assemble 的 vsce package/ls 已统一带官方 --readme-path，指向
+# simple_cluster/packaging/minimal-readme.md —— scripts/package-minimal-readme.js 按 package.json
+# 既有元数据确定性生成的最小发布元数据（项目名/简述/官方在线指南链接；非空壳、非改名规避）。
+# 换所选路径后 vsce 的 '!README.md' 强制否定式消失（@vscode/vsce/out/package.js:1343-1345），
+# 源根完整用户指南 README.md 在此实际排除，仅源码仓保留（2026-10-21 用户裁决）。
+# 包内 extension/readme.md 正文由 scripts/verify-vsix-manifest.js 与同源生成文本逐字节比对，
+# 缺失/重复（含大小写变体副本）/不匹配一律拒绝。
+README.md
 
 # >>> unused-compiled (generated from scripts/package-content-policy.json; consistency enforced by test/features/packageContentPolicy.test.js)
 dist/agent/AgentEvent.js

@@ -18,7 +18,7 @@
       "readme.md",
       "readme"
     ],
-    "evidence": "vsce 4.0.0 collectFiles 恒加否定式 '!README.md'（@vscode/vsce/out/package.js:1343-1345），VSIX 内重命名为 extension/readme.md；非本仓自愿保留。"
+    "evidence": "vsce 4.0.0 collectFiles 恒加否定式强制纳入所选 README（@vscode/vsce/out/package.js:1343-1345），ReadmeProcessor 在 VSIX 内重命名为 extension/readme.md；非本仓自愿保留。r77 起 assemble 用官方 --readme-path 指向 scripts/package-minimal-readme.js 依 package.json 元数据确定性生成的最小发布元数据（项目名/简述/官方在线指南链接，无指南正文），源根完整指南 README.md 由 .vscodeignore 实际排除；包内 extension/readme.md 由 scripts/verify-vsix-manifest.js 与同源生成文本逐字节比对（缺失/重复/不匹配 ⇒ 非零），路径核验仅映射该唯一声明生成文件（scripts/verify-vsix-runtime.js），不泛豁免生成目录。"
   },
   "markdown_runtime_allow_evidence": "仅这3个已证运行时模板文件豁免 doc-markdown 文档分类；forensics/backup/scratch/log 等安全规则对该目录照常生效。引用证据：src/extension/legacy.ts 与 scripts/write-agent-runtime.js。",
   "forbidden_ordered": [

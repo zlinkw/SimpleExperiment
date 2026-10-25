@@ -18,6 +18,9 @@ export type RunReplacementPorts = {
   // 批次接线注入：只把“对话确认+精确路径确认”送进全局对话道（同一时刻至多一个确认页）；
   // 预览、rename 隔离、核验与 hold 等机械链不进这条道，绝不能占住别的 PLAN 的提交。
   interactive?(work: () => Promise<void>): Promise<void>;
+  // 批次接线注入：同批隔离机械 I/O 读写协调（read=预检观察链可并发；write=SFTP 计忙段互斥，
+  // 批内 FIFO）。未注入（单 PLAN/非批次）时直接执行、零新语义；绝不用它包裹人工确认或对话道。
+  isolation?<T>(kind: "read" | "write", work: () => Promise<T>): Promise<T>;
 };
 const targets = (previews: Array<{ index: number; preview: CleanupPreview }>) => previews.flatMap(({ preview }) =>
   preview.rows.filter(row => row.disposition === "isolate").map(row => ({ server: row.node.id,
@@ -71,6 +74,7 @@ export async function replaceRunOutputs(ports: RunReplacementPorts, state: RunRe
   if (state.key && state.key !== key) cleanupError("RUN_DECLARATION_CHANGED", "本次任务或服务器配置已变化，请重新提交并确认路径。");
   state.key = key;
   const gate = ports.interactive || (async (work: () => Promise<void>) => work());
+  const lane = <T>(kind: "read" | "write", work: () => Promise<T>): Promise<T> => ports.isolation ? ports.isolation(kind, work) : work();
   // 旧“先删除再重跑”意图不迁移到隔离流程；未完成的旧状态按新流程重新预览（旧令牌未执行过任何移动）。
   if (state.previews && state.flow !== "isolate" && !state.done) {
     delete state.previews; delete state.choice; delete state.selectedIndices; delete state.completed; state.phase = 0;
@@ -86,7 +90,8 @@ export async function replaceRunOutputs(ports: RunReplacementPorts, state: RunRe
       try {
         ports.assertCurrent();
         ports.progress("正在定位任务 " + job.index + " 的已有文件…");
-        const preview = await ports.preview(job);
+        // 预检观察链整体是只读读者：批内并发，只排在同批他 Plan 的写段之后（FIFO），不与其冲撞。
+        const preview = await lane("read", () => ports.preview(job));
         if (preview.blockers.length || preview.rows.some(row => !["isolate", "absent"].includes(row.disposition))) {
           const anomalies = preview.rows.filter(row => !["isolate", "absent"].includes(row.disposition));
           const reason = [...preview.blockers.map(row => (row.nodeId || "") + "：" + row.code + " " + row.detail),
@@ -171,36 +176,46 @@ export async function replaceRunOutputs(ports: RunReplacementPorts, state: RunRe
   });
   ports.assertCurrent();
   if (selected.length) {
+    // beforeDelete（worker 准备/身份/源指纹/精确路径复核）无 SFTP 计忙证据，保持在写临界段之外。
+    // 写段粒度（r74 父裁定）：保留"全部 confirmed 目标先 preflight 再移动"的既有安全顺序，前置预检
+    // 独占一个必要写段；此后每个 token 各占一次必要写段（execute→必要 status 兜底 / verify），相邻
+    // token 之间允许已排队的读者按 FIFO 前进。SFTP 每次 execute 仍自核最新身份/hash，跨段不削弱保护；
+    // 本地回执 save 与失败明细登记都在段外，绝不持写锁跨与当前资源无关的等待。
     await ports.beforeDelete();
-    for (const { preview } of selected) await ports.service.preflightConfirmed(preview.token);
+    await lane("write", async () => { for (const { preview } of selected) await ports.service.preflightConfirmed(preview.token); });
     state.completed ||= []; state.blocked ||= [];
     for (const { index, preview } of selected) {
       ports.assertCurrent();
       if (blockedIndexes.has(index)) continue;
       if (state.completed.includes(preview.token)) {
-        try {
-          if ((await ports.service.status(preview.token)).state !== "completed") throw new Error("已记录的隔离批次未确认完成");
-          await ports.verify(preview);
-        } catch (error: any) {
-          blockedIndexes.add(index); state.blocked.push({ index, reason: String(error.message || error) }); await ports.save();
-        }
+        // 已完成记录的复核：status 非 observer 计忙，与 verify 同段；失败明细登记落盘在段外。
+        let recheckFailure: unknown; let recheckFailed = false;
+        await lane("write", async () => {
+          try {
+            if ((await ports.service.status(preview.token)).state !== "completed") throw new Error("已记录的隔离批次未确认完成");
+            await ports.verify(preview);
+          } catch (error) { recheckFailed = true; recheckFailure = error; }
+        });
+        if (recheckFailed) { blockedIndexes.add(index); state.blocked.push({ index, reason: String((recheckFailure as any)?.message || recheckFailure) }); await ports.save(); }
         continue;
       }
       ports.progress("正在把已确认旧输出移入 clean 隔离区；已完成 " + state.completed.length + "/" + selected.length + " 批…");
-      let result;
-      try { result = await ports.execute(preview.token); }
-      catch (error) {
-        try { result = await ports.service.status(preview.token); } catch {}
-        if (result?.state !== "completed") {
-          blockedIndexes.add(index); state.blocked.push({ index, reason: String((error as any)?.message || error) }); await ports.save(); continue;
+      let moved = false; let blockReason = "";
+      await lane("write", async () => {
+        let result;
+        try { result = await ports.execute(preview.token); }
+        catch (error) {
+          try { result = await ports.service.status(preview.token); } catch {}
+          if (result?.state !== "completed") { blockReason = String((error as any)?.message || error); return; }
         }
-      }
-      if (result.state !== "completed" || result.pendingNodes?.length) {
-        blockedIndexes.add(index); state.blocked.push({ index, reason: String(result.error || "部分目标尚未确认隔离完成，可重试失败步骤") }); await ports.save(); continue;
-      }
-      state.completed.push(preview.token); await ports.save();
-      try { await ports.verify(preview); }
-      catch (error: any) { blockedIndexes.add(index); state.blocked.push({ index, reason: String(error.message || error) }); await ports.save(); }
+        if (result.state !== "completed" || result.pendingNodes?.length) { blockReason = String(result.error || "部分目标尚未确认隔离完成，可重试失败步骤"); return; }
+        moved = true;
+      });
+      if (!moved) { blockedIndexes.add(index); state.blocked.push({ index, reason: blockReason }); await ports.save(); continue; }
+      state.completed.push(preview.token); await ports.save(); // 完成事实先落盘（verify 之前），落盘等待不持写锁——与原顺序一致
+      let verifyFailed = false; let verifyReason = "";
+      await lane("write", async () => { try { await ports.verify(preview); } catch (error: any) { verifyFailed = true; verifyReason = String(error?.message || error); } });
+      if (verifyFailed) { blockedIndexes.add(index); state.blocked.push({ index, reason: verifyReason }); await ports.save(); }
     }
   }
   const accepted = (state.selectedIndices || []).filter(index => !blockedIndexes.has(index));

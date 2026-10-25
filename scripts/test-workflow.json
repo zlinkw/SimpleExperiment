@@ -301,13 +301,14 @@
     },
     "post": {
      "gates": [
+      "node scripts/package-minimal-readme.js",
       "node scripts/compact-target-mode-plan.js",
       "npm run verify:package-runtime"
      ]
     },
     "assemble": {
      "gates": [
-      "vsce package --no-dependencies --allow-missing-repository",
+      "vsce package --no-dependencies --allow-missing-repository --readme-path simple_cluster/packaging/minimal-readme.md",
       "node scripts/verify-vsix-manifest.js"
      ]
     }
@@ -325,13 +326,14 @@
    "phases": {
     "post": {
      "gates": [
+      "node scripts/package-minimal-readme.js",
       "node scripts/compact-target-mode-plan.js",
       "npm run verify:package-runtime"
      ]
     },
     "assemble": {
      "gates": [
-      "vsce package --no-dependencies --allow-missing-repository",
+      "vsce package --no-dependencies --allow-missing-repository --readme-path simple_cluster/packaging/minimal-readme.md",
       "node scripts/verify-vsix-manifest.js"
      ]
     }
@@ -564,13 +566,14 @@
      "gates": [
       "node -c dist/extension.js",
       "node -c dist/panel.js",
+      "node scripts/package-minimal-readme.js",
       "node scripts/compact-target-mode-plan.js",
       "npm run verify:package-runtime"
      ]
     },
     "assemble": {
      "gates": [
-      "vsce package --no-dependencies --allow-missing-repository",
+      "vsce package --no-dependencies --allow-missing-repository --readme-path simple_cluster/packaging/minimal-readme.md",
       "node scripts/verify-vsix-manifest.js"
      ]
     }

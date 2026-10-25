@@ -12443,6 +12443,12 @@ this.assertPlanTopologyReady("Plan 调度");
             // 预览、rename 隔离、核验与 hold 的机械链在各 PLAN 自己的并发链上执行，
             // 不得把别的 PLAN 的确认与提交排在一次慢隔离之后（2026-10-21 18:13–18:20 批次慢的根因）。
             if (batch) body.confirmGateLocal = work => batch.serial("outputs", work);
+            // 同批隔离机械 I/O 读写协调：预检为读者并发、SFTP 计忙写段互斥（批内 FIFO）；只排本批
+            // 自有临界段，不占对话道、不等待任意外部传输（外部忙仍由配套即时拒绝）。排队可能等待
+            // 他 Plan 的写段——获准后、段体前先过既有 batch.verify(body)（PLAN/代码最新声明核对，r75
+            // 契约窗口），等待期间声明已变化绝不带旧动作继续；verify 在隔离生命周期 finally 覆盖内，
+            // 抛错必释放名额。不长准备入锁、不 memo 预检、不放宽 verify。
+            if (batch) body.isolationGateLocal = (kind: "read" | "write", work: () => Promise<any>) => batch.isolation(kind, async () => { await batch.verify(body); return work(); });
             await this.waitForPlanSubmission(message, () => confirmOutputs());
             // 记录“本批有旧产物已按确认移入隔离区”，仅供整批派发准入完成后提示独立删除审核；绝不自动删除。
             if (batch && body.existingOutputCount && ["rerun_all", "rerun_missing"].includes(body.existingOutputChoice)) {
