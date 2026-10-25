@@ -38,7 +38,11 @@ exports.readLocalDiscovery = readLocalDiscovery;
 exports.requestLocalJson = requestLocalJson;
 exports.callLocalRpc = callLocalRpc;
 exports.pluginDiscoveryPath = pluginDiscoveryPath;
+exports.pluginInstancesDir = pluginInstancesDir;
+exports.listPluginInstances = listPluginInstances;
+exports.resolveInstanceByWorkspace = resolveInstanceByWorkspace;
 exports.preflightPlugin = preflightPlugin;
+exports.preflightPluginAt = preflightPluginAt;
 exports.assertInstancePin = assertInstancePin;
 exports.rpcTimeoutMs = rpcTimeoutMs;
 exports.callPluginRpc = callPluginRpc;
@@ -161,6 +165,132 @@ function pluginDiscoveryPath(plugin) {
     const appData = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
     return path.join(appData, spec.dir, "api.json");
 }
+function pluginInstancesDir(pluginOrPath) {
+    const base = typeof pluginOrPath === "string" && (pluginOrPath === "experiment" || pluginOrPath === "sftp")
+        ? path.dirname(pluginDiscoveryPath(pluginOrPath))
+        : path.dirname(String(pluginOrPath));
+    return path.join(base, "instances");
+}
+function readBoundedJson(file) {
+    const fd = fs.openSync(file, "r");
+    try {
+        const stat = fs.fstatSync(fd);
+        if (!stat.isFile() || stat.size > DISCOVERY_LIMIT)
+            throw new Error("record exceeds size limit");
+        const bytes = Buffer.alloc(DISCOVERY_LIMIT + 1);
+        const size = fs.readSync(fd, bytes, 0, bytes.length, 0);
+        if (size > DISCOVERY_LIMIT)
+            throw new Error("record exceeds size limit");
+        const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, size)));
+        if (!value || typeof value !== "object" || Array.isArray(value))
+            throw new Error("record is not an object");
+        return value;
+    }
+    finally {
+        fs.closeSync(fd);
+    }
+}
+function readInstanceRecord(file) {
+    const row = { discoveryPath: file, instanceId: "", name: "", version: "", pid: 0, startedAt: "", status: "", workspace: "", error: "" };
+    try {
+        const value = readBoundedJson(file);
+        row.name = typeof value.name === "string" ? value.name : "";
+        row.version = typeof value.version === "string" ? value.version : "";
+        row.pid = Number.isInteger(value.pid) ? Number(value.pid) : 0;
+        row.startedAt = typeof value.startedAt === "string" ? value.startedAt : "";
+        row.status = typeof value.status === "string" ? value.status : "";
+        row.workspace = typeof value.workspace === "string" ? value.workspace : "";
+        row.instanceId = typeof value.instanceId === "string" && value.instanceId
+            ? value.instanceId
+            : (row.pid > 0 && row.startedAt ? `${row.pid}:${row.startedAt}` : "");
+        // A record whose live transport fields are unusable is still listed (marked), never guessed.
+        try {
+            validateDiscovery(value);
+        }
+        catch (error) {
+            row.error = error instanceof Error ? error.message : String(error);
+        }
+    }
+    catch (error) {
+        row.error = error instanceof Error ? error.message : String(error);
+    }
+    return row;
+}
+/**
+ * Enumeration is bounded; `truncated` means MORE records exist beyond the cap, so callers must not
+ * claim an unseen instance does not exist. Nothing is ever cleaned up here.
+ */
+function listPluginInstances(plugin) {
+    const dir = pluginInstancesDir(plugin);
+    let names;
+    try {
+        names = fs.readdirSync(dir).filter((name) => name.toLowerCase().endsWith(".json")).sort();
+    }
+    catch (error) {
+        const code = error?.code;
+        if (code === "ENOENT")
+            return { rows: [], truncated: false };
+        throw error;
+    }
+    return { rows: names.slice(0, 256).map((name) => readInstanceRecord(path.join(dir, name))), truncated: names.length > 256 };
+}
+function sameWorkspacePath(a, b) {
+    const normalize = (value) => String(value || "").trim().replace(/[\\/]+$/, "").replace(/\\/g, "/");
+    const left = normalize(a), right = normalize(b);
+    if (!left || !right)
+        return false;
+    return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+/** Bounded per-resolve handshake budget; exceeding it refuses instead of probing a prefix. */
+const CANDIDATE_HANDSHAKE_BUDGET = 16;
+/**
+ * Resolve exactly one LIVE instance for a workspace via real handshakes. Disk status is only a
+ * candidate hint: a crashed instance's stale "running" record is probed and excluded (kept on disk,
+ * never deleted), so it can never block the one genuinely live instance. Two genuinely live
+ * listeners are still refused — then the pin must be explicit (expectedInstanceId/--instance or
+ * SIMPLE_CLI_INSTANCE_ID); the pin filters before probing and is never auto-substituted. Nothing is
+ * guessed by recency. The returned row's discoveryPath is still re-handshaked by callPluginRpc.
+ * More candidates than the handshake budget is a refusal BEFORE any probe ("incomplete verification,
+ * cannot confirm uniqueness", pointing at an explicit discoveryPath) — a prefix handshake must never
+ * pretend the remainder is absent or that the first live hit is unique.
+ */
+async function resolveInstanceByWorkspace(plugin, workspace, expectedInstanceId) {
+    if (!workspace || !String(workspace).trim())
+        throw new Error("按工作区路由必须提供明确的 workspace。");
+    const listing = listPluginInstances(plugin);
+    if (listing.truncated)
+        throw new Error(`实例记录目录超过单次枚举上限（256 条且仍有更多记录），无法安全枚举 ${workspace} 的存活实例；截断不当作完整，--instance 也不可靠（目标记录可能不在已枚举前 256 条内），请用已知的 discoveryPath 明确指定，不自动清理历史记录。`);
+    const pin = String(expectedInstanceId ?? process.env.SIMPLE_CLI_INSTANCE_ID ?? "").trim();
+    let candidates = listing.rows.filter((row) => !row.error && !!(row.instanceId || row.pid > 0) && sameWorkspacePath(row.workspace, workspace));
+    if (pin) {
+        candidates = candidates.filter((row) => row.instanceId === pin);
+        if (candidates.length === 0)
+            throw new Error(`--instance ${pin} 在工作区 ${workspace} 的实例记录中不存在；已保留全部历史记录，不做替换或猜测。`);
+    }
+    // 握手预算在 pin 筛选之后、任何握手之前整体判定：绝不做部分握手后再宣称唯一或不存在
+    // （17 条候选里第 1 与第 17 条同时存活时，截半握手会把歧义伪装成唯一）。
+    if (candidates.length > CANDIDATE_HANDSHAKE_BUDGET)
+        throw new Error(`工作区 ${workspace} 有 ${candidates.length} 条候选实例记录，超过单次 ${CANDIDATE_HANDSHAKE_BUDGET} 条握手预算；未完整核验，不能确认唯一。请用已知的 discoveryPath 明确指定目标实例，不做部分握手、不扩大探测。`);
+    const live = [];
+    const unreachable = [];
+    for (const row of candidates) {
+        try {
+            await preflightPluginAt(plugin, row.discoveryPath, workspace);
+            live.push(row);
+        }
+        catch {
+            unreachable.push(row);
+        }
+    }
+    if (live.length === 0) {
+        const known = listing.rows.filter((row) => row.workspace)
+            .map((row) => `${row.workspace}(${row.status || "?"}${row.status === "running" ? "，记录称运行中但握手失败=疑似崩溃遗留，记录保留" : ""})`).join(", ");
+        throw new Error(`未找到工作区 ${workspace} 的可达实例（已对 ${candidates.length} 条候选记录做实际握手）。已知记录：${known || "无"}。请先在该项目窗口打开插件面板。`);
+    }
+    if (live.length > 1)
+        throw new Error(`工作区 ${workspace} 实际存在 ${live.length} 个存活实例（${live.map((row) => row.instanceId).join(", ")}）；请用 --instance <pid:startedAt> 明确指定，不按时间猜测。`);
+    return live[0];
+}
 function expectedInstanceId(discovery) {
     return `${String(discovery.pid)}:${String(discovery.startedAt)}`;
 }
@@ -174,12 +304,33 @@ function expectedInstanceId(discovery) {
  */
 async function preflightPlugin(plugin) {
     try {
-        return await preflightHandshake(plugin);
+        return await preflightHandshake(plugin, pluginDiscoveryPath(plugin));
     }
     catch (error) {
         // Preflight failures happen before any request body is sent: they are environment facts
         // (missing/invalid discovery, wrong slot, identity/version mismatch) and exit ENV(2), except
         // genuine transport failures which keep NETWORK(4). Never let them degrade to BUSINESS(3).
+        if (error instanceof errors_1.CliError)
+            throw error;
+        throw (0, errors_1.asCliError)(error, 2);
+    }
+}
+/**
+ * Same live handshake against an explicit instance record (from listPluginInstances /
+ * resolveInstanceByWorkspace). When expectedWorkspace is given, the live capabilities must carry a
+ * matching workspace — an older listener without the field is refused, never assumed.
+ */
+async function preflightPluginAt(plugin, discoveryPath, expectedWorkspace) {
+    try {
+        const preflight = await preflightHandshake(plugin, discoveryPath);
+        if (expectedWorkspace !== undefined && String(expectedWorkspace).trim()) {
+            const live = String(preflight.capabilities.workspace || "");
+            if (!live || !sameWorkspacePath(live, expectedWorkspace))
+                throw new Error(`工作区核对失败：实例 ${preflight.instanceId} 的实际工作区为 ${live || "（旧版实例未声明）"}，与目标 ${expectedWorkspace} 不一致；拒绝路由。`);
+        }
+        return preflight;
+    }
+    catch (error) {
         if (error instanceof errors_1.CliError)
             throw error;
         throw (0, errors_1.asCliError)(error, 2);
@@ -194,9 +345,8 @@ function assertInstancePin(expected, preflight) {
         throw new errors_1.CliError(2, "ENV", `Instance pin mismatch: this command was pinned to instance ${pin}, but the live listener is ${preflight.instanceId} (${String(preflight.capabilities.name)}). Refusing to run against a different window; remove or fix --instance.`, "");
     }
 }
-async function preflightHandshake(plugin) {
+async function preflightHandshake(plugin, discoveryPath) {
     const spec = PLUGIN_ENDPOINTS[plugin];
-    const discoveryPath = pluginDiscoveryPath(plugin);
     if (!fs.existsSync(discoveryPath)) {
         throw new Error(`${spec.label} API discovery not found: ${discoveryPath}. Open VS Code once to start the extension host.`);
     }
@@ -256,11 +406,27 @@ function rpcTimeoutMs(plugin, method) {
         || ["project.create", "handoff.markReady", "downloadScope.configure", "agents.lifecycle"].includes(method);
     return unbounded ? 0 : 15_000;
 }
-/** Preflighted RPC: retired and undeclared methods are refused client-side; confirmations surface as preview data. */
-async function callPluginRpc(plugin, method, params, expectedInstanceId) {
+/**
+ * Preflighted RPC: retired and undeclared methods are refused client-side; confirmations surface as preview data.
+ * Optional target routes to a specific instance record or the unique running instance of a workspace;
+ * the legacy single-slot behavior is unchanged when no target is given.
+ */
+async function callPluginRpc(plugin, method, params, expectedInstanceId, target) {
     if (typeof method !== "string" || !method || !params || typeof params !== "object" || Array.isArray(params))
         throw new Error("API method and object params required");
-    const preflight = await preflightPlugin(plugin);
+    let preflight;
+    if (target && (target.discoveryPath || target.workspace)) {
+        const workspace = String(target.workspace || "").trim();
+        // The pin must resolve the ambiguity itself: filter by the exact pinned instance BEFORE any
+        // workspace-wide probing, so `--instance` is a real disambiguation, not a post-hoc mismatch check.
+        const pin = String(expectedInstanceId ?? process.env.SIMPLE_CLI_INSTANCE_ID ?? "").trim();
+        const discoveryPath = target.discoveryPath
+            || (await resolveInstanceByWorkspace(plugin, workspace, pin || undefined)).discoveryPath;
+        preflight = await preflightPluginAt(plugin, discoveryPath, workspace || undefined);
+    }
+    else {
+        preflight = await preflightPlugin(plugin);
+    }
     assertInstancePin(expectedInstanceId, preflight);
     const retired = preflight.capabilities.retiredMethods;
     if (retired && typeof retired[method] === "string") {

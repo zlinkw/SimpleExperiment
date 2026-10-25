@@ -70,6 +70,7 @@ const SimpleSftpProgressWait_1 = require("../core/SimpleSftpProgressWait");
 const SyncScopeDelete_1 = require("../features/SyncScopeDelete");
 const JobArtifactSyncIdentity_1 = require("../features/JobArtifactSyncIdentity");
 const SafeRequestRetry_1 = require("../core/SafeRequestRetry");
+const UiCommandCancelled_1 = require("../core/UiCommandCancelled");
 const PlanSafeRetry_1 = require("../features/PlanSafeRetry");
 const StaticEntrypointProbe_1 = require("../features/StaticEntrypointProbe");
 const SetupGuideSource_1 = require("../features/SetupGuideSource");
@@ -200,6 +201,14 @@ const RunOperations_1 = require("../features/RunOperations");
 const OperationRetirement_1 = require("../features/OperationRetirement");
 const LocalApiServer_1 = require("../api/LocalApiServer");
 const { LocalApiError, LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
+const BranchProjectStore_1 = require("../project/BranchProjectStore");
+const BranchProjectService_1 = require("../project/BranchProjectService");
+const BranchPlanDispatch = __importStar(require("../project/BranchPlanDispatch"));
+const BranchHeadBinding = __importStar(require("../project/BranchHeadBinding"));
+const BranchPullRequest = __importStar(require("../project/BranchPullRequest"));
+const UnifiedDispatchAdmission = __importStar(require("../project/UnifiedDispatchAdmission"));
+const GitIdentityProbe_1 = require("../project/GitIdentityProbe");
+const LocalApiClient_1 = require("../cli/LocalApiClient");
 const RenamedExtensionStateMigration_1 = require("../config/RenamedExtensionStateMigration");
 const RemoteRootPolicyPrefill_1 = require("../config/RemoteRootPolicyPrefill");
 const PanelBuildIdentity_1 = require("../features/PanelBuildIdentity");
@@ -485,13 +494,7 @@ const XSHELL_BATCH_LAUNCH_DELAY_MS = 1500;
 const SCHEDULER_STATE_CONTAINER_LIMIT = 24;
 const EXPERIMENT_TRACE_RECORD_LIMIT = 240;
 const EXPERIMENT_TRACE_ATTENTION_LIMIT = 120;
-class UiCommandCancelled extends Error {
-    constructor(message = "用户取消操作。") {
-        super(message);
-        this.name = "UiCommandCancelled";
-        this.code = "USER_CANCELLED";
-    }
-}
+// UiCommandCancelled 现由 core 共享（r47）：协作者模块抛出同一实例类型，isUiCommandCancelled 的 instanceof 判定不变。
 class UiCommandRemotePending extends Error {
     constructor(message = "远端操作已提交，等待 Agent operation 终态。") {
         super(message);
@@ -572,6 +575,8 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
+    "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject", "refreshUnifiedDispatchPolicy",
+    "submitBranchPlanRun", "refreshBranchRuns", "compareBranchResults", "verifyBranchHeadBinding", "createBranchPr", "mergeBranchPr",
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
@@ -613,8 +618,12 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
     "downloadDebugBundle", "downloadRemoteResult", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "openAuditTail", "selectPlan", "selectExperiment",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
+    "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject", "refreshUnifiedDispatchPolicy",
+    "submitBranchPlanRun", "refreshBranchRuns", "compareBranchResults", "verifyBranchHeadBinding", "createBranchPr", "mergeBranchPr",
 ]);
 const UI_BUTTON_PAYLOAD_KEYS = new Set([
+    "branchProjectId",
+    "branchRoot",
     "jobIndex",
     "endpointId", "planFile", "planId", "file", "runKey", "taskUiKey", "experimentId",
     "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "savePlan", "batchSelected",
@@ -1139,6 +1148,8 @@ class RealtimeTunnelPanelProvider {
     distributedSubmissionEpochs = new Map();
     distributedSubmissionAborts = new Map();
     distributedQueueWritePromise = Promise.resolve();
+    // r46 A：根级内存提交订阅——仅在队列保存成功尾（锁外、cache 已发布）同步通知；失败/围栏路径不通知。
+    distributedQueueCommitObservers;
     distributedPostprocessPromise;
     distributedPostprocessScope;
     completedPlanMirrorRescan = false;
@@ -1295,6 +1306,7 @@ class RealtimeTunnelPanelProvider {
                 preferredPort,
                 preferredPortRetryMs: 3000,
                 discoveryPath: API_DISCOVERY_PATH,
+                workspace: scope,
                 methods: this.createLocalApiMethods(),
                 viewerSessionKey: signingKey,
                 viewerSessionScope: scope,
@@ -1329,6 +1341,1136 @@ class RealtimeTunnelPanelProvider {
                 this.localApiServerPromise = undefined;
         }
     }
+    // ── 项目与分支登记（块A：祖先项目/创新分支本机管理）──────────────────────────────
+    // 只读优先：验证只跑只读 git 探针；唯一的写操作 previewCreateBranch/confirmCreateBranch 必须
+    // 先向用户展示精确预览（分支/基点 commit/目标目录）并回传一致 digest 后执行；任何身份漂移、
+    // 目录占用或分支占用都拒绝而不是覆盖。移除登记不动任何文件、分支或提交。
+    branchProjectService() {
+        if (!this.branchProjectServiceInstance)
+            this.branchProjectServiceInstance = new BranchProjectService_1.BranchProjectService(new BranchProjectStore_1.BranchProjectStore(path.join(API_DISCOVERY_DIR, "branch-projects.json")), () => String(workspaceRoot() || ""));
+        return this.branchProjectServiceInstance;
+    }
+    branchProjectsProjection() {
+        return this.branchProjectsProjectionState || { currentWorkspaceRoot: String(workspaceRoot() || ""), fileDigest: "", storagePath: this.branchProjectService().storagePath, ancestors: [], branches: [], verifiedAt: "", pending: true };
+    }
+    /** 面板 payload：登记核验投影 + 最近一次统一派发只读投影（异步计算，绝不在 buildState 里做 IO）。 */
+    branchProjectsProjectionWithUnified() {
+        const projection = this.branchProjectsProjection();
+        if (!projection || typeof projection !== "object")
+            return projection;
+        return Object.assign({}, projection, { unified: this.branchProjectsUnifiedCache || { active: false }, runs: this.branchRunsState || null,
+            results: this.branchResultsState || null, headVerify: this.branchHeadVerifyState || null });
+    }
+    /**
+     * 块B UI 投影（批准方案§7）：同一逻辑队列按来源分支可见；实例活性只认真实握手，
+     * 陈旧 running 记录不算打开；损坏/缺失/漂移如实呈现，不做任何静默兜底。
+     */
+    async unifiedDispatchProjection() {
+        const root = String(workspaceRoot() || "");
+        const out = { active: false, currentRoot: root, policyState: "missing", blockers: [], roots: [], truncated: false, checkedAt: new Date().toISOString() };
+        const domain = this.unifiedDomainState();
+        if (domain.blocked) {
+            // 损坏也要可见（不静默）：仍渲染为统一域区块，如实展示阻断原因。
+            out.active = true;
+            out.policyState = "corrupt";
+            out.blockers.push(`登记表不可用：${domain.blocked}`);
+            return out;
+        }
+        if (!domain.active)
+            return out;
+        out.active = true;
+        const ownKey = (0, BranchProjectStore_1.canonicalComparablePath)(root);
+        let policy = null, serverMap = null;
+        try {
+            const [policyText, mapText] = await Promise.all([
+                this.readUnifiedSnapshotText(path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_POLICY_FILE_NAME)),
+                this.readUnifiedSnapshotText(path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_SERVER_MAP_FILE_NAME))
+            ]);
+            policy = UnifiedDispatchAdmission.parseUnifiedPolicy(policyText);
+            serverMap = UnifiedDispatchAdmission.parseUnifiedServerMap(mapText);
+        }
+        catch (error) {
+            policy = "corrupt";
+            out.blockers.push(`统一派发快照不可读：${errorMessage(error)}`);
+        }
+        if (policy === "corrupt" || serverMap === "corrupt")
+            out.policyState = "corrupt";
+        else if (!policy || !Object.keys(policy.servers || {}).length || !serverMap)
+            out.policyState = "missing";
+        else {
+            out.policyState = "ok";
+            const scheduler = this.schedulerSettings() || {};
+            for (const [serverKey, entry] of Object.entries(policy.servers)) {
+                const ownRow = (this.enabledWorkerConfigs() || []).find((row) => row.id === entry.workerId);
+                if (ownRow && UnifiedDispatchAdmission.policyInputsDrift(entry.inputs, UnifiedDispatchAdmission.buildPolicyInputs(scheduler, ownRow)))
+                    out.blockers.push(`服务器 ${serverKey} 的配额策略与当前配置已变化；请点“刷新统一策略”。`);
+            }
+            out.servers = Object.keys(policy.servers);
+        }
+        let inventory = { ancestors: [], branches: [] };
+        try {
+            inventory = this.branchProjectService().registryInventory();
+        }
+        catch (error) {
+            out.blockers.push(`登记表不可读：${errorMessage(error)}`);
+        }
+        const liveWorkspaces = new Set();
+        let instances;
+        try {
+            instances = (0, LocalApiClient_1.listPluginInstances)("experiment");
+        }
+        catch {
+            instances = { rows: [], truncated: true };
+        }
+        out.truncated = Boolean(instances.truncated);
+        for (const row of (instances.rows || []).slice(0, 16)) {
+            try {
+                const handshake = await (0, LocalApiClient_1.preflightPluginAt)("experiment", row.discoveryPath);
+                const ws = String(handshake?.capabilities?.workspace || "");
+                if (ws)
+                    liveWorkspaces.add((0, BranchProjectStore_1.canonicalComparablePath)(ws));
+            }
+            catch { /* 握手失败=疑似崩溃遗留记录；按未打开呈现，不按记录时间猜活性 */ }
+        }
+        const entries = new Map();
+        for (const row of [...(inventory.ancestors || []), ...(inventory.branches || [])]) {
+            const key = (0, BranchProjectStore_1.canonicalComparablePath)(row);
+            if (!entries.has(key))
+                entries.set(key, { root: row, label: path.basename(String(row).replace(/[\\/]+$/, "")) });
+        }
+        for (const [key, entry] of entries) {
+            const item = { root: entry.root, label: entry.label, isCurrent: key === ownKey, live: liveWorkspaces.has(key),
+                waiting: 0, running: 0, unknown: 0, queueState: "missing", blockReasons: [] };
+            const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, entry.root);
+            try {
+                const text = await this.readUnifiedSnapshotText(file);
+                if (text.trim()) {
+                    const parsed = DistributedPlanQueue.restoreFormalJobQueue(JSON.parse(text));
+                    if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.plans))
+                        throw new Error("队列格式无效");
+                    item.queueState = "ok";
+                    const reasons = new Set();
+                    for (const plan of parsed.plans)
+                        for (const job of plan.jobs) {
+                            // 块B返修：跨项目监控读等待原因必须用可跨投影清洗的持久事实——blockReason 是
+                            // native 易失观察类（p2 落盘即洗），持久 dispatchAdmissionTrace.reason 才是
+                            // "上次准入未通过、待再判定"的真相来源，绝不冒称当前配额仍满。
+                            const traceReason = job.dispatchAdmissionTrace?.schemaVersion === 1 && job.dispatchAdmissionTrace.reason
+                                ? String(job.dispatchAdmissionTrace.reason) : "";
+                            if (DistributedPlanQueue.jobHasLiveExecution(job))
+                                item.running += 1;
+                            else if (job.status === "unknown") {
+                                item.unknown += 1;
+                                if (traceReason && !job.blockReason && reasons.size < 4)
+                                    reasons.add(("上次准入未通过原因，待再判定：" + traceReason).slice(0, 160));
+                            }
+                            else if (job.status === "pending") {
+                                item.waiting += 1;
+                                if (job.blockReason && reasons.size < 4)
+                                    reasons.add(String(job.blockReason).slice(0, 160));
+                                else if (traceReason && reasons.size < 4)
+                                    reasons.add(("上次准入未通过原因，待再判定：" + traceReason).slice(0, 160));
+                            }
+                        }
+                    item.blockReasons = [...reasons];
+                }
+            }
+            catch (error) {
+                item.queueState = "corrupt";
+                item.blockReasons = [errorMessage(error).slice(0, 160)];
+            }
+            out.roots.push(item);
+        }
+        return out;
+    }
+    refreshBranchProjectsUnifiedCache() {
+        void this.unifiedDispatchProjection().then((projection) => {
+            this.branchProjectsUnifiedCache = projection;
+            this.postState();
+        }).catch((error) => {
+            this.branchProjectsUnifiedCache = { active: true, currentRoot: String(workspaceRoot() || ""), policyState: "corrupt",
+                blockers: [`统一派发投影读取失败：${errorMessage(error)}`], roots: [], truncated: false, checkedAt: new Date().toISOString() };
+            this.postState();
+        });
+    }
+    scheduleBranchProjectsVerify(reason) {
+        if (this.branchProjectsVerifyScheduled)
+            return;
+        this.branchProjectsVerifyScheduled = true;
+        setTimeout(() => {
+            this.branchProjectsVerifyScheduled = false;
+            try {
+                this.branchProjectsProjectionState = this.branchProjectService().verifyAll();
+            }
+            catch (error) {
+                const text = error instanceof Error ? error.message : String(error);
+                this.branchProjectsProjectionState = { currentWorkspaceRoot: String(workspaceRoot() || ""), fileDigest: "", storagePath: this.branchProjectService().storagePath, ancestors: [], branches: [], verifiedAt: "", pending: false, error: text };
+            }
+            this.postState();
+            this.refreshBranchProjectsUnifiedCache();
+        }, 0);
+    }
+    /* —— 块B：本机统一派发准入适配层（纯判定在 src/project/UnifiedDispatchAdmission；本层只做有界读取与接线） —— */
+    /**
+     * 三态域判定：不在管理域（未登记/单项目）→ inactive；登记表损坏/不可读 → blocked。
+     * 批准方案§7：registry 损坏绝不静默按未登记兜底放行派发。
+     */
+    unifiedDomainState() {
+        const root = String(workspaceRoot() || "");
+        if (!root)
+            return { active: false, blocked: "" };
+        let inventory;
+        try {
+            inventory = this.branchProjectService().registryInventory();
+        }
+        catch (error) {
+            return { active: false, blocked: `登记表不可读/已损坏：${errorMessage(error)}` };
+        }
+        const all = [...new Set([...(inventory.ancestors || []), ...(inventory.branches || [])].map((row) => (0, BranchProjectStore_1.canonicalComparablePath)(row)))];
+        return all.length >= 2 && all.includes((0, BranchProjectStore_1.canonicalComparablePath)(root)) ? { active: true, blocked: "" } : { active: false, blocked: "" };
+    }
+    unifiedDomainActive() {
+        return this.unifiedDomainState().active === true;
+    }
+    /** P0-2：登记表是否存在任何条目（决定新意图保存是否要预先锁统一资源）；损坏由域判定单独呈现。 */
+    registryHasEntries() {
+        try {
+            const inventory = this.branchProjectService().registryInventory();
+            return (inventory.ancestors || []).length + (inventory.branches || []).length > 0;
+        }
+        catch {
+            return false;
+        }
+    }
+    unifiedWorkerSetup(workerId) {
+        return workerId ? (this.setupConfig?.workerTunnels || []).find((row) => row.id === workerId) : this.setupConfig;
+    }
+    unifiedServerKey(workerId) {
+        return UnifiedDispatchAdmission.logicalServerKey(this.unifiedWorkerSetup(workerId), workerId);
+    }
+    unifiedCurrentAliasMap() {
+        const aliases = {};
+        for (const worker of this.enabledWorkerConfigs() || []) {
+            try {
+                aliases[worker.id] = this.unifiedServerKey(worker.id);
+            }
+            catch { /* 别名映射不出来=不登记，准入处如实拒绝 */ }
+        }
+        return aliases;
+    }
+    async withUnifiedAdmissionLease(actionLabel, work) {
+        if (!this.hostOperationLease)
+            return work();
+        return this.hostOperationLease.run({ pluginId: "simple-local.simple-experiment", workspaceUri: String(workspaceRoot() || API_DISCOVERY_DIR),
+            hostProjectPath: API_DISCOVERY_DIR, actionType: "unified-dispatch", actionLabel, waitForConflict: true,
+            resources: [UnifiedDispatchAdmission.unifiedDispatchResource(API_DISCOVERY_DIR)] }, work);
+    }
+    async readUnifiedSnapshotText(file) {
+        const text = await fs.readFile(file, "utf8").catch((error) => { if (error?.code === "ENOENT")
+            return ""; throw error; });
+        if (text.length > UnifiedDispatchAdmission.UNIFIED_SNAPSHOT_MAX_BYTES)
+            throw new Error("统一派发快照超出大小上限，按损坏处理。");
+        return text;
+    }
+    /** 本窗口能核实（有别名映射且 worker 配置在本地）的服务器策略条目。 */
+    unifiedVerifiablePolicyServers() {
+        const aliasMap = this.unifiedCurrentAliasMap();
+        const scheduler = this.schedulerSettings() || {};
+        const servers = {};
+        for (const [workerId, serverKey] of Object.entries(aliasMap)) {
+            if (servers[serverKey])
+                continue;
+            const workerConfig = (this.enabledWorkerConfigs() || []).find((row) => row.id === workerId) || {};
+            servers[serverKey] = { workerId, inputs: UnifiedDispatchAdmission.buildPolicyInputs(scheduler, workerConfig) };
+        }
+        return servers;
+    }
+    /**
+     * 登记/自动合并保存共享配额策略（原始输入，不改任何项目 .vscode）并自我登记 worker 别名表。
+     * P1-3：explicitReplaceKeys=用户在预览确认后核实过的服务器——锁内先按“写前再核”指纹验证这些
+     * 条目仍未被并发修改，再只替换这些目标；其它窗口登记的条目保持冲突保留语义。
+     */
+    async refreshUnifiedDispatchPolicy(savedFromRoot, options = {}) {
+        const root = String(savedFromRoot || workspaceRoot() || "");
+        if (!root)
+            throw new Error("缺少当前项目根，未刷新统一派发策略。");
+        const policyPath = path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_POLICY_FILE_NAME);
+        const serversPath = path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_SERVER_MAP_FILE_NAME);
+        return this.withUnifiedAdmissionLease("刷新统一派发策略", async () => {
+            const now = new Date().toISOString();
+            const aliasMap = this.unifiedCurrentAliasMap();
+            const servers = this.unifiedVerifiablePolicyServers();
+            const incoming = { schemaVersion: 1, savedAt: now, savedFromRoot: root, servers };
+            const [policyText, mapText] = await Promise.all([this.readUnifiedSnapshotText(policyPath), this.readUnifiedSnapshotText(serversPath)]);
+            const existingPolicy = UnifiedDispatchAdmission.parseUnifiedPolicy(policyText);
+            const existingMap = UnifiedDispatchAdmission.parseUnifiedServerMap(mapText);
+            if (existingPolicy === "corrupt" || existingMap === "corrupt")
+                throw new Error("统一派发登记文件已损坏，拒绝盲目覆盖；请人工核对登记目录内的 unified-dispatch-*.json。");
+            const replaceKeys = (options.explicitReplaceKeys || []).filter((key) => servers[key]);
+            const expected = options.expectedDigests || {};
+            for (const key of replaceKeys) {
+                const digest = UnifiedDispatchAdmission.policyEntryDigest(existingPolicy?.servers?.[key] ?? null);
+                if (expected[key] !== undefined && expected[key] !== digest)
+                    throw new Error(`服务器 ${key} 的策略条目在预览之后已被并发修改；本次未写入，请重新打开刷新预览。`);
+            }
+            const merged = UnifiedDispatchAdmission.mergePolicyServers(existingPolicy, incoming, replaceKeys);
+            const map = UnifiedDispatchAdmission.mergeServerMapRoots(existingMap, (0, BranchProjectStore_1.canonicalComparablePath)(root), aliasMap, now);
+            await fs.mkdir(API_DISCOVERY_DIR, { recursive: true });
+            await (0, StateStore_1.atomicWriteText)(policyPath, JSON.stringify(merged.policy, null, 1));
+            await (0, StateStore_1.atomicWriteText)(serversPath, JSON.stringify(map, null, 1));
+            return { servers: Object.keys(merged.policy.servers), conflicts: merged.conflicts, replaced: replaceKeys };
+        });
+    }
+    async refreshUnifiedDispatchPolicyFromUi() {
+        const root = String(workspaceRoot() || "");
+        const incoming = this.unifiedVerifiablePolicyServers();
+        let existingPolicy = null;
+        try {
+            const text = await this.readUnifiedSnapshotText(path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_POLICY_FILE_NAME));
+            const parsed = UnifiedDispatchAdmission.parseUnifiedPolicy(text);
+            if (parsed === "corrupt")
+                throw new Error("统一策略快照已损坏，拒绝盲目覆盖；请人工核对登记目录内的 unified-dispatch-policy.json。");
+            existingPolicy = parsed;
+        }
+        catch (error) {
+            void vscode.window.showWarningMessage(`无法预览统一策略：${errorMessage(error)}`);
+            return;
+        }
+        const lines = [];
+        const replaceKeys = [];
+        const expectedDigests = {};
+        for (const [key, row] of Object.entries(incoming)) {
+            const prior = existingPolicy?.servers?.[key];
+            const label = (inputs) => `每卡 ${String(inputs.worker?.gpuJobsPerCard ?? inputs.global?.gpuJobsPerCard ?? "默认")} · 最低空闲 ${String(inputs.worker?.gpuMinFreeMemoryGb ?? inputs.global?.gpuMinFreeMemoryGb ?? "默认")} · 上限 ${String(inputs.worker?.gpuMaxConcurrentCards ?? "默认")}`;
+            if (!prior) {
+                lines.push(`新增 ${key}：${label(row.inputs)}`);
+                replaceKeys.push(key);
+            }
+            else if (UnifiedDispatchAdmission.policyInputsDrift(prior.inputs, row.inputs)) {
+                lines.push(`更新 ${key}：${label(prior.inputs)} → ${label(row.inputs)}`);
+                replaceKeys.push(key);
+            }
+            else
+                lines.push(`保持 ${key}（与当前配置一致）`);
+            expectedDigests[key] = UnifiedDispatchAdmission.policyEntryDigest(prior ?? null);
+        }
+        for (const key of Object.keys(existingPolicy?.servers || {}))
+            if (!incoming[key])
+                lines.push(`保留 ${key}（由其它窗口登记，本窗口不核实、不改动）`);
+        if (!lines.length) {
+            void vscode.window.showInformationMessage("没有可登记的服务器策略：请先在设置中配置 Worker。");
+            return;
+        }
+        const confirmed = await vscode.window.showWarningMessage("显式刷新统一派发策略", { modal: true,
+            detail: `只替换本窗口核实的目标服务器策略，不暗改各项目配置，也不覆盖其它窗口登记且冲突的条目。\n${lines.join("\n")}` }, "确认刷新") === "确认刷新" ? true : false;
+        if (!confirmed)
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消刷新统一策略。");
+        const result = await this.refreshUnifiedDispatchPolicy(root, { explicitReplaceKeys: replaceKeys, expectedDigests });
+        this.scheduleBranchProjectsVerify("refresh-unified-policy");
+        void vscode.window.showInformationMessage(`统一派发策略已保存：替换/新增 ${result.replaced.length} 台${result.conflicts.length ? `；${result.conflicts.length} 项冲突保留原快照` : ""}`);
+        return result;
+    }
+    /** 登记/移除项目后尽力刷新共享快照；失败绝不吞掉登记结果，只在投影与日志中如实反映。 */
+    refreshUnifiedDispatchPolicyAfterRegistryChange(reason) {
+        void this.refreshUnifiedDispatchPolicy(String(workspaceRoot() || "")).then((result) => {
+            for (const conflict of result.conflicts || [])
+                this.recordActionError({ command: "unifiedDispatchPolicy", message: `${reason}：${conflict}` });
+        }).catch((error) => {
+            this.recordActionError({ command: "unifiedDispatchPolicy", message: `${reason}：统一策略快照刷新失败——${errorMessage(error)}` });
+        });
+    }
+    /**
+     * saveDistributedQueue 的 dispatchAdmission 分支：在同时持有本项目队列资源与统一派发资源的临界区内，
+     * 以“盘上基线 vs 即将写入”的差异为新意图唯一来源，跨成员真实队列计算占用后逐服务器发放现有配额槽位。
+     * 只写本项目队列；成员队列/快照损坏、策略缺失或漂移一律如实阻断，绝不静默当零占用放行。
+     */
+    async computeUnifiedDispatchAdmission(root, diskCurrent, outgoingQueue, workingQueue) {
+        const intents = UnifiedDispatchAdmission.diffNewDispatchIntents(diskCurrent, outgoingQueue);
+        if (!intents.length)
+            return { receipt: undefined, queue: outgoingQueue };
+        // 块B返修：准入判定前就把追踪事实写进同一份即将落盘的队列与内存观测——之后无论获批/被拒/
+        // 阻断，该身份都不再是"无 trace 的旧任务"；被拒路径只在 trace 上补本次原因，不另造字段。
+        outgoingQueue = UnifiedDispatchAdmission.attachAdmissionTraces(outgoingQueue, intents);
+        UnifiedDispatchAdmission.syncAdmissionTracesInPlace(workingQueue || outgoingQueue, intents);
+        const blockers = [];
+        const policyPath = path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_POLICY_FILE_NAME);
+        const serversPath = path.join(API_DISCOVERY_DIR, UnifiedDispatchAdmission.UNIFIED_SERVER_MAP_FILE_NAME);
+        let policy = null, serverMap = null;
+        try {
+            const [policyText, mapText] = await Promise.all([this.readUnifiedSnapshotText(policyPath), this.readUnifiedSnapshotText(serversPath)]);
+            policy = UnifiedDispatchAdmission.parseUnifiedPolicy(policyText);
+            serverMap = UnifiedDispatchAdmission.parseUnifiedServerMap(mapText);
+            if (policy === "corrupt")
+                blockers.push("统一配额策略快照损坏，已停止相关派发；请核对登记目录。");
+            else if (!policy || !Object.keys(policy.servers || {}).length)
+                blockers.push("统一配额策略快照缺失；请先在「项目与分支」卡刷新统一策略。");
+            if (serverMap === "corrupt")
+                blockers.push("Worker 别名登记损坏，已停止相关派发；请核对登记目录。");
+            else if (!serverMap)
+                blockers.push("Worker 别名登记缺失；请先刷新统一策略。");
+        }
+        catch (error) {
+            blockers.push(`统一派发快照不可读：${errorMessage(error)}`);
+        }
+        const ownKey = (0, BranchProjectStore_1.canonicalComparablePath)(root);
+        let memberRoots = [];
+        try {
+            const inventory = this.branchProjectService().registryInventory();
+            const byKey = new Map();
+            for (const row of [...(inventory.ancestors || []), ...(inventory.branches || [])])
+                byKey.set((0, BranchProjectStore_1.canonicalComparablePath)(row), row);
+            byKey.delete(ownKey);
+            memberRoots = [...byKey.values()];
+        }
+        catch (error) {
+            blockers.push(`登记表不可读，统一准入按未就绪处理：${errorMessage(error)}`);
+        }
+        const ownAlias = this.unifiedCurrentAliasMap();
+        // P1-3：纳入管理的分支在首次派发前，于统一锁内自登记本根的 Worker 别名（本窗口对自身根别名
+        // 是唯一权威来源）；缺失会让其它窗口把本根占位判为不可映射而全域卡死。用已配置身份，不猜主机。
+        if (serverMap !== "corrupt" && policy && policy !== "corrupt") {
+            const ownEntry = serverMap?.roots?.[ownKey];
+            const canonicalAliases = (row) => JSON.stringify(Object.entries(row || {}).sort());
+            if (!ownEntry || canonicalAliases(ownEntry.aliases) !== canonicalAliases(ownAlias)) {
+                try {
+                    const nextMap = UnifiedDispatchAdmission.mergeServerMapRoots(serverMap && serverMap !== "corrupt" ? serverMap : null, ownKey, ownAlias, new Date().toISOString());
+                    await (0, StateStore_1.atomicWriteText)(serversPath, JSON.stringify(nextMap, null, 1));
+                    serverMap = nextMap;
+                }
+                catch (error) {
+                    blockers.push(`无法自登记本项目 Worker 别名，相关占位将如实按不可映射处理：${errorMessage(error)}`);
+                }
+            }
+        }
+        const aliasOf = (label, workerId) => label === ownKey ? ownAlias[workerId] : serverMap?.roots?.[label]?.aliases?.[workerId];
+        const queues = [{ label: ownKey, queue: diskCurrent }];
+        for (const memberRoot of memberRoots) {
+            const label = (0, BranchProjectStore_1.canonicalComparablePath)(memberRoot);
+            const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, memberRoot);
+            try {
+                const text = await this.readUnifiedSnapshotText(file);
+                if (!text.trim()) {
+                    queues.push({ label, queue: DistributedPlanQueue.emptyDistributedQueue() });
+                    continue;
+                }
+                const parsed = DistributedPlanQueue.restoreFormalJobQueue(JSON.parse(text));
+                if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.plans))
+                    throw new Error("队列格式无效");
+                queues.push({ label, queue: parsed });
+            }
+            catch (error) {
+                // 损坏成员绝不当零占用（批准方案§3）；缺失的新空队列才是诚实的零。
+                blockers.push(`成员队列不可读/已损坏（${path.basename(memberRoot)}）：${errorMessage(error)}；相关派发已拒绝。`);
+            }
+        }
+        const occupancy = UnifiedDispatchAdmission.computeServerOccupancy(queues, aliasOf);
+        for (const row of occupancy.unmapped.slice(0, 4))
+            blockers.push(`无法把 Worker「${row.workerId}」映射为已配置服务器身份（${row.label}）；不猜测、不探测。`);
+        if (occupancy.unmapped.length > 4)
+            blockers.push(`另有 ${occupancy.unmapped.length - 4} 个 Worker 别名无法映射。`);
+        const scheduler = this.schedulerSettings() || {};
+        const policyServers = (policy && policy !== "corrupt" && policy.servers) || {};
+        const driftCache = new Map();
+        const serverDrifted = (serverKey) => {
+            if (!driftCache.has(serverKey)) {
+                const entry = policyServers[serverKey];
+                // 漂移只对“本窗口确实配置了该策略条目 worker 别名”的服务器可判定；其它窗口的条目由其
+                // 自己在派发时检漂移，本窗口配置不是该条目的输入源，不得据此伪造漂移阻断。
+                const ownRow = entry && (this.enabledWorkerConfigs() || []).find((row) => row.id === entry.workerId);
+                driftCache.set(serverKey, Boolean(ownRow) && UnifiedDispatchAdmission.policyInputsDrift(entry.inputs, UnifiedDispatchAdmission.buildPolicyInputs(scheduler, ownRow)));
+            }
+            return driftCache.get(serverKey);
+        };
+        if (policy && policy !== "corrupt")
+            for (const serverKey of Object.keys(policyServers))
+                if (serverDrifted(serverKey))
+                    blockers.push(`服务器 ${serverKey} 的配额策略与当前配置已变化；请刷新统一策略后继续。`);
+        const receipt = UnifiedDispatchAdmission.admitDispatchIntents({ intents, occupancy: occupancy.occupancy,
+            serverOf: (intent) => ownAlias[intent.workerId],
+            settingsForServer: (serverKey) => {
+                const entry = policyServers[serverKey];
+                if (!entry || serverDrifted(serverKey))
+                    return undefined;
+                // 遥测行取本窗口映射到同一物理服务器的别名视图；没有本机观测时 slots 为空=如实等待。
+                const ownAliasId = Object.keys(ownAlias).find((id) => ownAlias[id] === serverKey);
+                const rows = ownAliasId ? this.lastRealtimeState?.gpu?.[ownAliasId] : undefined;
+                return { settings: GpuQuotaScheduling.quotaSettings(entry.inputs?.global || {}, entry.inputs?.worker || {}, Array.isArray(rows) ? rows : []),
+                    rows: Array.isArray(rows) ? rows : [] };
+            },
+            blockers });
+        let queue = outgoingQueue;
+        if (receipt.denied.length) {
+            // 块B返修（E）：自占用再申请被拒按本事务已持有的盘上基线恢复原快照（不重读盘、不另造账本）。
+            queue = UnifiedDispatchAdmission.applyDeniedIntents(queue, receipt.denied, diskCurrent);
+            UnifiedDispatchAdmission.syncDeniedIntentsInPlace(workingQueue || outgoingQueue, receipt.denied, diskCurrent);
+        }
+        if (receipt.approved.length) {
+            // P0-1：获批身份与剥回结果一起进入同一份序列化——占位事实自此落盘，投影清空不再洗掉名额。
+            queue = UnifiedDispatchAdmission.attachApprovedDispatchConsent(queue, receipt.approved);
+            if (workingQueue && workingQueue !== queue)
+                UnifiedDispatchAdmission.syncApprovedConsentInPlace(workingQueue, receipt.approved);
+        }
+        return { receipt, queue };
+    }
+    /** 防未来旁路：统一域内只有已在自己队列持久化同意的精确命令身份才允许发送。 */
+    async assertUnifiedDispatchConsentPersisted(plan, job, workerId, gpuId, commandId) {
+        const root = String(workspaceRoot() || "");
+        const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
+        let source;
+        try {
+            source = await this.readUnifiedSnapshotText(file);
+        }
+        catch (error) {
+            throw new Error(`统一派发准入：本机队列不可读（${errorMessage(error)}），未发送任务。`);
+        }
+        let disk;
+        try {
+            disk = DistributedPlanQueue.restoreFormalJobQueue(JSON.parse(source));
+        }
+        catch {
+            throw new Error("统一派发准入：本机队列不可解析，未发送任务。");
+        }
+        const row = disk?.plans?.find((row) => row.id === plan.id)?.jobs?.find((row) => row.index === job.index && row.attempt === job.attempt);
+        // P0-1：守卫认同一份落盘事实——legacy 状态语义（dispatching/unknown+startIntent）或
+        // 该精确身份的持久同意事实（序列化把状态洗成 unknown 后依然有效，manual 首发不再被自己拒绝）。
+        const consented = UnifiedDispatchAdmission.consentPersistedOnDisk(row, String(commandId), String(workerId), gpuId === undefined ? undefined : String(gpuId));
+        if (!consented)
+            throw new Error("统一派发准入：该命令身份未在本机队列持久化为已同意（或已剥回等待配额），未发送任务。");
+    }
+    async pickBranchProjectDirectory(title) {
+        const picked = await vscode.window.showOpenDialog({ canSelectFiles: false, canSelectFolders: true, canSelectMany: false, title, openLabel: "选择目录" });
+        const folder = Array.isArray(picked) ? picked[0] : undefined;
+        if (!folder)
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消目录选择。");
+        return folder.fsPath;
+    }
+    branchProjectPickItems(projection, kind) {
+        const items = [];
+        if (kind === "ancestor" || kind === "both")
+            for (const row of projection.ancestors || [])
+                items.push({ id: row.record.id, kind: "ancestor", label: `祖先 $(repo) ${row.record.label}`, detail: `${row.record.gitRoot} · ${row.record.targetBranch} · ${String(row.git.headCommit || "").slice(0, 8)} · ${row.state}` });
+        if (kind === "branch" || kind === "both")
+            for (const row of projection.branches || [])
+                items.push({ id: row.record.id, kind: "branch", label: `分支 $(git-branch) ${row.record.label}`, detail: `${row.record.workspaceRoot} · ${row.git.branch || row.record.branch} · ${String(row.git.headCommit || "").slice(0, 8)} · ${row.state}${row.relation ? " · " + row.relation : ""}` });
+        return items;
+    }
+    async pickBranchProject(kind, placeHolder) {
+        const projection = this.branchProjectsProjection();
+        const items = this.branchProjectPickItems(projection, kind);
+        if (items.length === 0)
+            throw new Error("尚未登记任何项目；请先在「项目与分支」卡登记祖先项目。");
+        const picked = await vscode.window.showQuickPick(items.map((item) => ({ label: item.label, description: item.detail, id: item.id, kind: item.kind })), { placeHolder, ignoreFocusOut: true });
+        if (!picked)
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消选择。");
+        return picked;
+    }
+    async registerAncestorProjectFromUi() {
+        const root = await this.pickBranchProjectDirectory("选择祖先项目目录（含 .git 的仓库根）");
+        const identity = (0, GitIdentityProbe_1.readGitIdentity)(root);
+        if (!identity.toplevel)
+            throw new Error(identity.notARepository ? "所选目录不是 Git 仓库，不能登记为祖先项目。" : (identity.error || "无法读取该目录的 Git 身份。"));
+        if (identity.error)
+            throw new Error(`Git 状态读取失败，无法核实干净状态与身份：${identity.error}`);
+        const branch = identity.detached ? "（detached）" : (identity.branch || "（无分支）");
+        const detail = `目录：${identity.toplevel}\n当前分支：${branch}\nHEAD：${String(identity.headCommit).slice(0, 12) || "（空仓库）"}\n未提交修改：${identity.dirty ? "有" : "无"}\n将记录为本机祖先项目（只登记，不修改任何文件）。`;
+        const confirmed = await vscode.window.showInformationMessage(detail, { modal: true, detail }, "确认登记") === "确认登记" ? true : false;
+        if (!confirmed)
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消登记。");
+        // P0-2：登记/移除的读-改-写与所有 start 同意持同一共享资源；确认 modal 已在锁外完成。
+        await this.withUnifiedAdmissionLease("登记祖先项目", () => this.branchProjectService().registerAncestor({ label: "", gitRoot: identity.toplevel }));
+        this.scheduleBranchProjectsVerify("register-ancestor");
+        this.refreshUnifiedDispatchPolicyAfterRegistryChange("登记祖先");
+        void vscode.window.showInformationMessage(`已登记祖先项目：${identity.toplevel}`);
+    }
+    async registerBranchProjectFromUi() {
+        const ancestorPick = await this.pickBranchProject("ancestor", "选择该副本所属的祖先项目");
+        const root = await this.pickBranchProjectDirectory("选择创新分支副本目录（独立 worktree 或 clone）");
+        const identity = (0, GitIdentityProbe_1.readGitIdentity)(root);
+        if (!identity.toplevel)
+            throw new Error(identity.notARepository ? "所选目录不是 Git 仓库。" : (identity.error || "无法读取该目录的 Git 身份。"));
+        if (identity.error)
+            throw new Error(`Git 状态读取失败，无法核实身份：${identity.error}`);
+        const branch = identity.detached ? "（detached，将被拒绝）" : (identity.branch || "（无分支）");
+        const detail = `目录：${identity.toplevel}\n分支：${branch}\nHEAD：${String(identity.headCommit).slice(0, 12) || "（空）"}\n所属祖先：${ancestorPick.label}\n只登记归属，不合并、不移动任何提交。`;
+        const confirmed = await vscode.window.showInformationMessage(detail, { modal: true, detail }, "确认登记") === "确认登记" ? true : false;
+        if (!confirmed)
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消登记。");
+        await this.withUnifiedAdmissionLease("登记分支副本", () => this.branchProjectService().registerBranch({ ancestorId: ancestorPick.id, label: "", workspaceRoot: identity.toplevel }));
+        this.scheduleBranchProjectsVerify("register-branch");
+        this.refreshUnifiedDispatchPolicyAfterRegistryChange("登记分支");
+        void vscode.window.showInformationMessage(`已登记创新分支副本：${identity.toplevel}`);
+    }
+    async createBranchFromAncestorFromUi() {
+        const ancestorPick = await this.pickBranchProject("ancestor", "选择在哪个祖先项目上创建创新分支");
+        const branch = await vscode.window.showInputBox({ prompt: "新分支名（例如 innovation/lr-sweep-01）", validateInput: (value) => /^[A-Za-z0-9][A-Za-z0-9._\-/]*$/.test(String(value || "").trim()) && !String(value || "").includes("..") ? null : "分支名只能使用字母数字与 . _ - /，不能以 - 或 . 开头，不能含 .." });
+        if (!branch)
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消创建分支。");
+        const parentDir = await this.pickBranchProjectDirectory("选择新分支副本的存放父目录（将在其中新建独立目录）");
+        const preview = this.branchProjectService().previewCreateBranch({ ancestorId: ancestorPick.id, branch: branch.trim(), targetParentDir: parentDir });
+        const detail = [
+            `祖先项目：${preview.ancestorLabel}（${preview.ancestorRoot}）`,
+            `新分支：${preview.branch}`,
+            `基点：${preview.baseRef} @ ${String(preview.baseCommit).slice(0, 12) || "（空）"}`,
+            `新目录（必须尚不存在）：${preview.targetPath}`,
+            "执行命令：git worktree add <新目录> -b <新分支> <基点>",
+            ...preview.warnings,
+            "除新建 worktree 外不会做任何 Git 修改；不 reset/rebase/stash/删除。",
+        ].join("\n");
+        const confirmed = await vscode.window.showWarningMessage(detail, { modal: true, detail }, "确认创建") === "确认创建" ? true : false;
+        if (!confirmed)
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消创建分支。");
+        // 确认（digest）已在锁外完成；worktree 创建+登记在统一资源内执行（P0-2）。
+        const result = await this.withUnifiedAdmissionLease("创建分支 worktree", () => this.branchProjectService().confirmCreateBranch({ ancestorId: ancestorPick.id, branch: branch.trim(), targetParentDir: parentDir, confirmDigest: preview.digest }));
+        this.scheduleBranchProjectsVerify("create-branch");
+        this.refreshUnifiedDispatchPolicyAfterRegistryChange("创建分支");
+        void vscode.window.showInformationMessage(result.message);
+    }
+    async refreshBranchProjectsFromUi() {
+        this.branchProjectsProjectionState = this.branchProjectService().verifyAll();
+        this.postState();
+        this.refreshBranchProjectsUnifiedCache();
+    }
+    async openBranchProjectFromUi(message) {
+        const id = stringField(message, "branchProjectId");
+        let target = null;
+        if (id) {
+            const projection = this.branchProjectsProjection();
+            target = this.branchProjectPickItems(projection, "both").find((item) => item.id === id) || null;
+        }
+        if (!target)
+            target = await this.pickBranchProject("both", "选择在哪个窗口打开项目");
+        const projection = this.branchProjectService().verifyAll();
+        const row = [...(projection.ancestors || []), ...(projection.branches || [])]
+            .map((item) => ("record" in item ? item.record : null)).find((record) => record && record.id === target.id);
+        if (!row)
+            throw new Error("该登记项已不存在；请刷新后重试。");
+        const root = "gitRoot" in row ? row.gitRoot : row.workspaceRoot;
+        const current = String(workspaceRoot() || "");
+        if (current && (0, BranchProjectStore_1.sameComparablePath)(current, root)) {
+            void vscode.window.showInformationMessage("当前窗口已经打开了这个项目。");
+            return;
+        }
+        const confirmed = await vscode.window.showInformationMessage(`将在新窗口打开：${root}\n（新窗口启动该项目的独立插件实例，不改变当前窗口工作区。）`, { modal: true }, "打开") === "打开" ? true : false;
+        if (!confirmed)
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消打开。");
+        await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(root), { forceNewWindow: true });
+    }
+    async forgetBranchProjectRegistrationFromUi(message, kind) {
+        const id = stringField(message, "branchProjectId");
+        let targetId = id;
+        if (!targetId) {
+            const picked = await this.pickBranchProject(kind, kind === "ancestor" ? "选择要移除登记的祖先项目" : "选择要移除登记的分支项目");
+            targetId = picked.id;
+        }
+        const projection = this.branchProjectsProjection();
+        const found = [...(projection.ancestors || []), ...(projection.branches || [])].find((item) => item.record.id === targetId);
+        const label = found ? ("gitRoot" in found.record ? found.record.gitRoot : found.record.workspaceRoot) : targetId;
+        const confirmed = await vscode.window.showWarningMessage(`仅移除插件内的登记：${label}\n不会删除目录、分支、worktree 或任何提交；之后可重新登记。`, { modal: true }, "移除登记") === "移除登记" ? true : false;
+        if (!confirmed)
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消移除。");
+        await this.withUnifiedAdmissionLease("移除登记", () => this.branchProjectService().forget(kind, targetId));
+        this.scheduleBranchProjectsVerify("forget-" + kind);
+        this.refreshUnifiedDispatchPolicyAfterRegistryChange("移除登记");
+        void vscode.window.showInformationMessage("已移除登记（目录与 Git 内容未做任何修改）。");
+    }
+    /* —— 块C：管理窗口→分支实例的 PLAN 提交/进度（路由=块A实例握手；判定在 src/project/BranchPlanDispatch） —— */
+    /** 提交目标只接受已登记项目根；登记表损坏一律拒绝，绝不按面板传来的路径猜。 */
+    assertBranchDispatchRoot(rawRoot) {
+        const root = String(rawRoot || "");
+        if (!root)
+            throw new Error("未指定目标分支项目，未提交。");
+        let inventory;
+        try {
+            inventory = this.branchProjectService().registryInventory();
+        }
+        catch (error) {
+            throw new Error(`登记表不可读/已损坏：${errorMessage(error)}；拒绝向任何项目提交。`);
+        }
+        const key = (0, BranchProjectStore_1.canonicalComparablePath)(root);
+        if (![...(inventory.ancestors || []), ...(inventory.branches || [])].some((row) => (0, BranchProjectStore_1.canonicalComparablePath)(row) === key))
+            throw new Error("该目录不在「项目与分支」登记内；提交只接受已登记项目，不做路径猜测。");
+        return root;
+    }
+    async branchDispatchRouteFor(root) {
+        try {
+            return await BranchPlanDispatch.resolveBranchRoute(root);
+        }
+        catch (error) {
+            throw new Error(`分支项目未打开或实例不可达（${path.basename(String(root).replace(/[\\/]+$/, ""))}）：${errorMessage(error)}；未提交任何任务。`);
+        }
+    }
+    async submitBranchPlanRunFromUi(message) {
+        const root = this.assertBranchDispatchRoot(stringField(message, "branchRoot"));
+        const labelName = path.basename(String(root).replace(/[\\/]+$/, ""));
+        const route = await this.branchDispatchRouteFor(root);
+        const rpc = BranchPlanDispatch.branchRpc(route);
+        const plans = await BranchPlanDispatch.listBranchPlans(rpc);
+        if (!plans.length) {
+            void vscode.window.showInformationMessage(`该分支项目（${labelName}）未发现可用 PLAN；请在该分支窗口确认 PLAN 目录后重试。`);
+            return;
+        }
+        const picked = await vscode.window.showQuickPick(plans.map((plan) => ({
+            label: plan.planFile,
+            description: [plan.updatedAt ? "更新 " + plan.updatedAt : "", plan.metadataTruncated ? "元数据被截断" : ""].filter(Boolean).join(" · "),
+            plan,
+        })), { title: `选择要提交的 PLAN（${labelName}）`, placeHolder: "经分支窗口自身的已验证 workflow 入口提交；产物冲突等确认仍在该窗口进行", ignoreFocusOut: true });
+        if (!picked)
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消提交 PLAN。");
+        const preview = await BranchPlanDispatch.previewBranchRun(rpc, root, picked.plan);
+        if (!preview.ready) {
+            await vscode.window.showWarningMessage(`分支窗口判定当前不可直接提交：${preview.guidance}`, { modal: true, detail: `项目：${root}\nPLAN：${picked.plan.planFile}` }, "知道了");
+            return;
+        }
+        const detail = `项目：${root}\nPLAN：${picked.plan.planFile}\n提交将使用该分支项目自身的服务器/队列设置，进入它自己的持久队列；产物冲突等确认仍会在该分支窗口弹出。\n${preview.guidance ? preview.guidance + "\n" : ""}本窗口不会代为 prepare，也不做任何 Git 写操作。`;
+        if (await vscode.window.showWarningMessage("向该分支实例提交运行此 PLAN？", { modal: true, detail }, "确认提交") !== "确认提交")
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消提交。");
+        const outcome = await BranchPlanDispatch.submitBranchRun(rpc, root, picked.plan);
+        if (outcome.kind === "started") {
+            void this.refreshBranchRuns("submit-" + labelName);
+            void vscode.window.showInformationMessage(`已请求分支实例启动（操作 ${outcome.operationId}）；进度可在「项目与分支 → 刷新运行状态」或该分支窗口查看。`);
+            return;
+        }
+        if (outcome.kind === "notStarted") {
+            this.recordActionError({ command: "submitBranchPlanRun", message: `分支窗口未启动（${root}）：${outcome.reason}` });
+            void vscode.window.showWarningMessage(`分支窗口未启动该 PLAN：${outcome.reason}`);
+            return;
+        }
+        this.recordActionError({ command: "submitBranchPlanRun", message: `提交结果未知（${root}）：${outcome.error}` });
+        await vscode.window.showWarningMessage("提交结果未知：工作流可能已在分支窗口继续。", { modal: true, detail: `${outcome.error}\n请在该分支窗口或用「刷新运行状态」核实；系统不会自动重发，避免重复提交。` }, "知道了");
+    }
+    /** 有界刷新：逐个已登记根做真实握手 + operations.list；单点失败只如实标记该根。 */
+    async refreshBranchRuns(reason) {
+        const state = { refreshedAt: new Date().toISOString(), reason: String(reason || ""), roots: [] };
+        let rootsList = [];
+        try {
+            const inventory = this.branchProjectService().registryInventory();
+            const byKey = new Map();
+            for (const row of [...(inventory.ancestors || []), ...(inventory.branches || [])])
+                byKey.set((0, BranchProjectStore_1.canonicalComparablePath)(row), row);
+            rootsList = [...byKey.values()];
+        }
+        catch (error) {
+            state.error = `登记表不可读：${errorMessage(error)}`;
+            this.branchRunsState = state;
+            this.postState();
+            return state;
+        }
+        for (const root of rootsList) {
+            const item = { root, label: path.basename(String(root).replace(/[\\/]+$/, "")), operations: [] };
+            try {
+                const route = await BranchPlanDispatch.resolveBranchRoute(root);
+                item.operations = await BranchPlanDispatch.branchRunProgress(BranchPlanDispatch.branchRpc(route));
+            }
+            catch (error) {
+                item.error = errorMessage(error).slice(0, 300);
+            }
+            state.roots.push(item);
+        }
+        this.branchRunsState = state;
+        this.postState();
+        return state;
+    }
+    async refreshBranchRunsFromUi() {
+        const state = await this.refreshBranchRuns("ui");
+        if (!state.roots.length)
+            void vscode.window.showInformationMessage("尚未登记任何项目，没有运行状态可刷新。");
+    }
+    /* —— 块C3：结果对比（本机队列磁盘窄读）＋ 用户选优后的精确 HEAD↔manifest 绑定核对（纯只读） —— */
+    /** 只读队列磁盘投影：与统一准入的成员直读同一渠道；缺失=诚实空，损坏如实。 */
+    async branchQueueSnapshotFor(root) {
+        const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
+        try {
+            const text = await fs.readFile(file, "utf8").catch((error) => { if (error?.code === "ENOENT")
+                return ""; throw error; });
+            if (!text.trim())
+                return { state: "missing", queue: DistributedPlanQueue.emptyDistributedQueue() };
+            const queue = DistributedPlanQueue.restoreFormalJobQueue(JSON.parse(text));
+            if (queue.schemaVersion !== 1 || !Array.isArray(queue.plans))
+                throw new Error("队列格式无效");
+            return { state: "ok", queue };
+        }
+        catch (error) {
+            return { state: "corrupt", queue: undefined, error: errorMessage(error).slice(0, 240) };
+        }
+    }
+    /** 选优的事实基础：逐登记根从磁盘队列汇总确证完成/待核实/等待与运行溯源；不判科学优劣、不新造排行。 */
+    async compareBranchResults(reason) {
+        const state = { refreshedAt: new Date().toISOString(), reason: String(reason || ""), roots: [] };
+        let rootsList = [];
+        try {
+            const inventory = this.branchProjectService().registryInventory();
+            const byKey = new Map();
+            for (const row of [...(inventory.ancestors || []), ...(inventory.branches || [])])
+                byKey.set((0, BranchProjectStore_1.canonicalComparablePath)(row), row);
+            rootsList = [...byKey.values()];
+        }
+        catch (error) {
+            state.error = `登记表不可读：${errorMessage(error)}`;
+            this.branchResultsState = state;
+            this.postState();
+            return state;
+        }
+        for (const root of rootsList) {
+            const item = { root, label: path.basename(String(root).replace(/[\\/]+$/, "")), queueState: "missing", plans: [] };
+            const snapshot = await this.branchQueueSnapshotFor(root);
+            item.queueState = snapshot.state;
+            if (snapshot.error)
+                item.error = snapshot.error;
+            for (const plan of snapshot.queue?.plans || []) {
+                const counts = { jobs: plan.jobs.length, verified: 0, running: 0, waiting: 0, unknown: 0, failed: 0, cancelled: 0 };
+                for (const job of plan.jobs) {
+                    if ((0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job))
+                        counts.verified++;
+                    if (["queued", "running", "dispatching"].includes(String(job.status || "")))
+                        counts.running++;
+                    else if (job.status === "pending")
+                        counts.waiting++;
+                    else if (job.status === "unknown")
+                        counts.unknown++;
+                    else if (job.status === "failed")
+                        counts.failed++;
+                    else if (job.status === "cancelled")
+                        counts.cancelled++;
+                }
+                item.plans.push({
+                    // R3：读侧展示完整版本身份（不是 24 位截断投影），并给出确证 job 数；身份判定一律另走原始队列校验器。
+                    planId: plan.id, planFile: plan.planFile, revision: String(plan.revision || ""), codeFingerprint: String(plan.codeFingerprint || ""),
+                    jobsConfirmed: plan.jobs.filter((job) => (0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job)).length,
+                    hasExecutionSource: Boolean(plan.executionSource?.manifest && Object.keys(plan.executionSource.manifest).length),
+                    gitProvenance: plan.gitProvenance ? {
+                        branch: String(plan.gitProvenance.branch || ""), localCommit: String(plan.gitProvenance.localCommit || ""),
+                        dirty: plan.gitProvenance.dirty ?? null,
+                        recordedAt: String(plan.gitProvenance.recordedAt || ""),
+                    } : undefined,
+                    ...counts,
+                });
+            }
+            state.roots.push(item);
+        }
+        this.branchResultsState = state;
+        this.postState();
+        return state;
+    }
+    async compareBranchResultsFromUi() {
+        const state = await this.compareBranchResults("ui");
+        if (!state.roots.length)
+            void vscode.window.showInformationMessage("尚未登记任何项目，没有可比对的结果。");
+    }
+    /** 用户选优的“核对”：当前提交树必须逐文件（类型/大小/blob 字节 SHA）等于已验清单；只读，绝不 stage/commit。 */
+    async verifyBranchHeadBindingFromUi(message) {
+        const root = this.assertBranchDispatchRoot(stringField(message, "branchRoot"));
+        const labelName = path.basename(String(root).replace(/[\\/]+$/, ""));
+        const snapshot = await this.branchQueueSnapshotFor(root);
+        if (snapshot.state === "corrupt")
+            throw new Error(`该分支队列不可读/已损坏：${snapshot.error}；未做核对。`);
+        const candidates = (snapshot.queue?.plans || []).filter((plan) => plan.executionSource?.manifest && Object.keys(plan.executionSource.manifest).length);
+        if (!candidates.length) {
+            await vscode.window.showWarningMessage(`该分支队列内没有带已验源码清单（executionSource）的 PLAN，无法证明任何 HEAD。`, { modal: true, detail: `项目：${root}\n请先在该分支窗口经 workflow 入口完成 PLAN 源码核实（静态校验不产生已验清单）。` }, "知道了");
+            return;
+        }
+        const picked = candidates.length === 1 ? candidates[0] : await vscode.window.showQuickPick(candidates.map((plan) => ({
+            label: plan.planFile,
+            description: [plan.gitProvenance?.branch ? "分支 " + plan.gitProvenance.branch : "",
+                plan.gitProvenance?.localCommit ? "运行自 " + String(plan.gitProvenance.localCommit).slice(0, 8) : "无运行溯源记录",
+                `${Object.keys(plan.executionSource.manifest).length} 个已验文件`].filter(Boolean).join(" · "),
+            plan,
+        })), { title: `选择要核对 HEAD 绑定的 PLAN（${labelName}）`, placeHolder: "只读核对：当前提交树 vs 已验清单；不会 stage、commit 或改动任何文件", ignoreFocusOut: true });
+        if (!picked)
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消 HEAD 核对。");
+        const plan = picked.plan || picked;
+        const identity = (0, GitIdentityProbe_1.readGitIdentity)(root);
+        if (identity.error || !identity.headCommit || !identity.toplevel || (0, BranchProjectStore_1.canonicalComparablePath)(identity.toplevel) !== (0, BranchProjectStore_1.canonicalComparablePath)(root))
+            throw new Error(`Git 身份读取失败或与登记根不一致（${identity.error || "无 HEAD"}）；未做绑定结论。`);
+        const binding = await BranchHeadBinding.bindPlanSourceToCommit({
+            runner: BranchHeadBinding.runGitBinary, cwd: identity.toplevel, headCommit: identity.headCommit,
+            executionSource: plan.executionSource, planFile: plan.planFile, revision: plan.revision,
+        });
+        const provenanceCommit = String(plan.gitProvenance?.localCommit || "");
+        const sameCommit = !provenanceCommit || provenanceCommit.toLowerCase() === identity.headCommit.toLowerCase();
+        this.branchHeadVerifyState = {
+            root, planId: plan.id, planFile: plan.planFile, checkedAt: new Date().toISOString(),
+            ok: binding.ok, headCommit: identity.headCommit, branch: identity.branch, dirty: identity.dirty,
+            provenanceCommit, sameRunCommit: sameCommit, coveredFiles: binding.coveredFiles, coveredBytes: binding.coveredBytes,
+            failures: binding.failures.slice(0, 10), reason: binding.reason || "", note: binding.note,
+        };
+        this.postState();
+        const headShort = identity.headCommit.slice(0, 10);
+        const detailLines = [
+            `项目：${root}`, `PLAN：${plan.planFile}`,
+            `当前 HEAD：${identity.detached ? "(detached) " : ""}${identity.branch || "?"} @ ${headShort}${identity.dirty ? "（工作区有未提交修改）" : "（工作树干净）"}`,
+            provenanceCommit ? `队列运行溯源：${provenanceCommit.slice(0, 10)}${sameCommit ? "（同一提交）" : "（与当前 HEAD 不同）"}` : "队列内无运行溯源记录（旧条目）：只能证明提交树与已验清单一致。",
+            "",
+        ];
+        if (binding.ok) {
+            detailLines.push(`✔ 冻结源码清单内容核对：当前提交树的 ${binding.coveredFiles} 个文件与已验清单逐一一致（blob 原始字节 SHA 比较，共约 ${(binding.coveredBytes / 1024).toFixed(0)} KiB）。清单存在/核对一致本身不代表科研运行完成。`);
+            if (!sameCommit)
+                detailLines.push(`这是“冻结源码清单内容核对”：已提交 blob 与清单逐字节一致（运行来自 ${provenanceCommit.slice(0, 10)}，现 HEAD ${headShort}）。仅当队列内存在该 job 的真实完成确证（verifiedCompletion）时，完成事实才按既有契约不因重跑科研而失效；本核对本身不宣称科研验证可复用。`);
+            if (identity.dirty)
+                detailLines.push("注意：工作区存在未提交修改——已提交内容可证明，但工作树当前文件不等于该 HEAD；如需以工作树状态运行请先自行处理。");
+            detailLines.push("", binding.note);
+            await vscode.window.showInformationMessage(`此 HEAD 可由已验清单证明（${plan.planFile}）`, { modal: true, detail: detailLines.join("\n") }, "知道了");
+        }
+        else {
+            for (const failure of binding.failures.slice(0, 8))
+                detailLines.push(`✘ ${failure.path}：${failure.reason}`);
+            if (binding.failures.length > 8)
+                detailLines.push(`… 其余 ${binding.failures.length - 8} 项略`);
+            detailLines.push("", binding.reason, binding.note, "系统不会代为 stage/commit 来“凑证明”；如需绑定请先在该项目内按常规流程提交所需依赖。");
+            await vscode.window.showWarningMessage(`无法证明此 HEAD 等于已验源码（${plan.planFile}）`, { modal: true, detail: detailLines.join("\n") }, "知道了");
+        }
+        return this.branchHeadVerifyState;
+    }
+    /* —— 块C4/C5：科研仓 PR 创建/合并 + 祖先快进。写操作只在 modal 确认后执行；结果未知的收据绝不自动重放。 —— */
+    /** PR 写操作收据账本（API_DISCOVERY_DIR）：读失败＝拒绝写入；未知收据驱动只读对账而非重放。 */
+    branchPrReceiptLedger() {
+        const file = path.join(API_DISCOVERY_DIR, "branch-pr-receipts.json");
+        const ledger = {
+            load: async () => {
+                const text = await fs.readFile(file, "utf8").catch((error) => { if (error?.code === "ENOENT")
+                    return "[]"; throw error; });
+                const parsed = JSON.parse(text);
+                if (!Array.isArray(parsed))
+                    throw new Error("收据账本格式无效");
+                return parsed;
+            },
+            save: async (rows) => { await (0, StateStore_1.atomicWriteText)(file, JSON.stringify(rows, null, 2)); },
+        };
+        // 多窗口共享账本：一次读-改-写放进同一短资源事务（不是 B 的调度锁，更不包 GitHub 网络调用），防并发 load/save 互相丢写。
+        if (typeof this.withPluginStateFileLease === "function")
+            ledger.withLock = (fn) => this.withPluginStateFileLease(API_DISCOVERY_DIR, file, "branch-pr-receipts", "PR 收据账本原子读改写", fn);
+        return ledger;
+    }
+    /** R3 候选校验（每次写入前都重跑同一函数）：原始队列完整值＋逐 job verifiedCompletion＋HEAD 逐 blob 绑定；不判优、不加 TTL。 */
+    async buildBranchResearchCandidate(root, selectedPlanIds) {
+        const snapshot = await this.branchQueueSnapshotFor(root);
+        const identity = (0, GitIdentityProbe_1.readGitIdentity)(root);
+        if (identity.error || !identity.headCommit || !identity.toplevel || (0, BranchProjectStore_1.canonicalComparablePath)(identity.toplevel) !== (0, BranchProjectStore_1.canonicalComparablePath)(root))
+            return { ok: false, reason: `Git 身份读取失败或与登记根不一致（${identity.error || "无 HEAD"}）；候选不成立。` };
+        return BranchHeadBinding.buildResearchCandidate({
+            runner: BranchHeadBinding.runGitBinary, root: identity.toplevel, commonDir: identity.commonDir,
+            branch: identity.branch, headCommit: identity.headCommit, dirty: identity.dirty,
+            queueState: snapshot.state, queueError: snapshot.error, plans: snapshot.queue?.plans, selectedPlanIds,
+        });
+    }
+    /** 用户选择非空 PLAN 集合（不自动判优）→ 构建候选；返回所选 id 供后续每次写入前重算 digest 对比。 */
+    async branchResearchCandidateFlow(root) {
+        const snapshot = await this.branchQueueSnapshotFor(root);
+        if (snapshot.state === "corrupt")
+            throw new Error(`该分支项目队列不可读/已损坏：${snapshot.error}；拒绝推送/PR 操作，不把未知当确证。`);
+        const plans = snapshot.queue?.plans || [];
+        if (!plans.length)
+            throw new Error("该分支项目队列内没有任何 PLAN：无法证明任何已验科研候选，拒绝推送/创建 PR/合并。");
+        // 同 planFile 可能有多轮（不同 plan.id/指纹）：标签必须携带可区分轮次信息，选择按精确 plan.id 键控，绝不按文件名凑“全验”。
+        const picked = await vscode.window.showQuickPick(plans.map((plan) => {
+            const verified = (plan.jobs || []).filter((job) => (0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job)).length;
+            return {
+                label: String(plan.planFile || plan.id),
+                description: [`${verified}/${(plan.jobs || []).length} job 完成确证`,
+                    plan.executionSource?.manifest ? `${Object.keys(plan.executionSource.manifest).length} 个已验文件` : "无已验清单",
+                    `指纹 ${String(plan.codeFingerprint || "无").slice(0, 10)}`,
+                    plan.gitProvenance?.branch ? "运行分支 " + plan.gitProvenance.branch : "",
+                    plan.gitProvenance?.dirty === true ? "运行时工作区脏（同字节提交后仍可复用）" : ""].filter(Boolean).join(" · "),
+                detail: `id ${String(plan.id)} · 入队 ${String(plan.enqueuedAt || "?")} · revision ${String(plan.revision || "").slice(0, 10)}`,
+                plan,
+            };
+        }), {
+            title: `选择作为推送/PR 科研候选的 PLAN（${path.basename(String(root).replace(/[\\/]+$/, ""))}，必选非空；不自动判优）`,
+            canPickMany: true, ignoreFocusOut: true,
+            placeHolder: "只有“逐 job 全部完成确证＋当前 HEAD 逐 blob 等于冻结清单＋工作树干净”的候选才能触发新的远端写入",
+        });
+        if (!picked || !picked.length)
+            throw new UiCommandCancelled_1.UiCommandCancelled("未选择任何 PLAN，视为放弃；未执行任何操作。");
+        const selectedPlanIds = picked.map((row) => String(row.plan.id));
+        const candidate = await this.buildBranchResearchCandidate(root, selectedPlanIds);
+        if (!candidate.ok)
+            throw new Error(`${candidate.reason}零写入停止。`);
+        if (candidate.dirty)
+            throw new Error("工作区有未提交修改：新的推送/创建/合并要求干净工作树（dirty=false）。请先自行提交/处理；系统不会代为 stage/commit。若未跟踪内容是本机运行状态 simple_cluster/state/（本扩展的队列/状态目录），请先用本仓库 Git 排除规则排除该状态目录再提交科研代码；该目录可能含科研源码，请勿忽略整个 simple_cluster/，本插件不代改 Git 配置，也不应提交这些状态文件。");
+        return { candidate, selectedPlanIds };
+    }
+    /** 确认后的每次不可逆写入前重读身份＋队列并调用同一校验器：撤证/命令/版本变化、manifest 缺失＝立即停。 */
+    branchResearchRevalidate(root, selectedPlanIds, candidate, expectedHead) {
+        return async () => {
+            const again = await this.buildBranchResearchCandidate(root, selectedPlanIds);
+            if (!again.ok)
+                return { ok: false, reason: again.reason };
+            if (again.dirty)
+                return { ok: false, reason: "工作区已出现未提交修改。" };
+            if (String(again.headCommit) !== String(expectedHead))
+                return { ok: false, reason: `本地 HEAD 已从 ${String(expectedHead).slice(0, 10)} 变为 ${String(again.headCommit).slice(0, 10)}。` };
+            if (again.digest !== candidate.digest)
+                return { ok: false, reason: "候选摘要已变化（撤证/命令/版本/队列内容变化）。" };
+            return { ok: true };
+        };
+    }
+    /** R5b：C4 专用“仓/引用操作租约”——跨窗等待型互斥，覆盖确认后复核→网络写入→结清（可跨网络）；
+     * 账本短锁保留各自原子读改写，不使用 B 的全局调度锁包住 GitHub 调用；不同仓/分支互不牵连。 */
+    branchPrRepoLease() {
+        if (typeof this.withPluginStateFileLease !== "function")
+            return undefined;
+        return (leaseId, fn) => {
+            const hash = crypto.createHash("sha256").update(String(leaseId)).digest("hex").slice(0, 24);
+            const file = path.join(API_DISCOVERY_DIR, `branch-pr-op-${hash}.lease.json`);
+            return this.withPluginStateFileLease(API_DISCOVERY_DIR, file, "branch-pr-operation", "科研仓 PR 操作（复核→写入→结清）", fn);
+        };
+    }
+    /** PR 操作共同前置：分支项目身份＝登记分支的正常 HEAD；祖先登记提供真实 origin 与目标分支。 */
+    async branchPrContext(message) {
+        const picked = message?.branchProjectId ? { id: String(message.branchProjectId) } : await this.pickBranchProject("branch", "选择在哪个分支项目上操作科研仓 PR");
+        const projection = this.branchProjectsProjection();
+        const branchRow = (projection.branches || []).find((row) => row.record.id === picked.id);
+        if (!branchRow)
+            throw new Error("所选分支项目登记已变化或不存在，请重试；未执行任何操作。");
+        const ancestorRow = (projection.ancestors || []).find((row) => row.record.id === branchRow.record.ancestorId);
+        if (!ancestorRow)
+            throw new Error("该分支所属祖先登记缺失，无法确定真实 origin；未执行任何操作。");
+        // 漂移校验必须拿真实祖先 origin（当场探针），登记文本只作缺失回退；两者都核不进 preview 的规范化即拒绝。
+        const ancestorIdentity = (0, GitIdentityProbe_1.readGitIdentity)(ancestorRow.record.gitRoot);
+        const ancestorRemote = (ancestorIdentity.remotes || []).find((row) => row.name === ancestorRow.record.remoteName);
+        const registeredRemoteUrl = ancestorRemote?.url || ancestorRow.record.remoteUrl || "";
+        if (ancestorIdentity.error || !ancestorRemote)
+            throw new Error(`无法读取祖先真实 origin（${ancestorIdentity.error || "远端 " + ancestorRow.record.remoteName + " 不存在"}）；拒绝 PR 操作。`);
+        const identity = (0, GitIdentityProbe_1.readGitIdentity)(branchRow.record.workspaceRoot);
+        if (identity.error || !identity.headCommit || identity.detached || !identity.branch)
+            throw new Error(`分支项目 Git 身份不可用（${identity.error || (identity.detached ? "detached" : "无提交")}）；PR 操作需在登记分支的正常 HEAD 上进行。`);
+        if (identity.branch !== branchRow.record.branch)
+            throw new Error(`当前分支 ${identity.branch || "?"} 与登记分支 ${branchRow.record.branch} 不一致（身份漂移），未执行任何操作。`);
+        return { branchRow, ancestor: ancestorRow.record, identity, registeredRemoteUrl };
+    }
+    async createBranchPrFromUi(message) {
+        const { branchRow, ancestor, identity, registeredRemoteUrl } = await this.branchPrContext(message);
+        // R3：新的远端写入必须先经用户选定＋逐 job 确证＋HEAD 逐 blob 绑定的科研候选门禁。
+        const gate = await this.branchResearchCandidateFlow(branchRow.record.workspaceRoot);
+        const preview = await BranchPullRequest.previewBranchPullRequest({
+            git: BranchPullRequest.runGitPullRequest, gh: BranchPullRequest.runGh,
+            cwd: branchRow.record.workspaceRoot, remoteName: ancestor.remoteName, registeredRemoteUrl,
+            branch: identity.branch, base: ancestor.targetBranch, sourceSha: identity.headCommit,
+        });
+        if (!preview.ok)
+            throw new Error(preview.reason || "PR 预览失败，未执行任何操作。");
+        const detailLines = [
+            `目标（登记祖先真实 origin，凭证已剥离）：${preview.target.displayUrl}`,
+            `合并目标分支：${ancestor.targetBranch}（远端头 ${String(preview.baseSha || "").slice(0, 10) || "未知"}）`,
+            `推送来源：${identity.branch} @ ${identity.headCommit.slice(0, 10)}`,
+            `既有 PR：${preview.existing.note}`,
+            "有效推送目标：已把该远端的全部实际写目标（含 pushurl/insteadOf 改写）逐一核对为同一已确认仓库（单目标）；任何异仓/多目标/未知形态都会被拒绝。",
+            `相对基线：${preview.divergence === "unknown" ? "未知（本机没有该远端基线引用，不做猜测）" : `领先 ${preview.divergence.ahead}、落后 ${preview.divergence.behind}`}`,
+            "工作树干净（候选门禁已核 dirty=false）。",
+            `科研候选摘要（绑定不可变事实）：根 ${gate.candidate.root} · Git 公共目录 ${gate.candidate.commonDir}`,
+            `分支 ${gate.candidate.branch} @ ${gate.candidate.headCommit}（完整 40 位 SHA）`,
+            ...gate.candidate.plans.map(row => `PLAN ${row.planFile}：revision ${row.revision} · 指纹 ${row.codeFingerprint} · 模式 ${row.executionMode || "?"} · ${row.jobCount} 个 job 全部完成确证 · 清单摘要 ${row.manifestDigest}`),
+            "", "推送只允许普通快推（不 force）；确认后每次写入前还会重读队列/身份重跑同一校验器，撤证/版本/命令变化即零写入停止；gh 未安装/未登录时如实失败，系统不代为安装或登录。",
+        ];
+        const confirmed = await vscode.window.showWarningMessage(`推送并创建 PR？${preview.target.displayUrl} ← ${identity.branch}`, { modal: true, detail: detailLines.join("\n") }, "确认推送并创建") === "确认推送并创建" ? true : false;
+        if (!confirmed)
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消，未推送、未创建。");
+        const revalidate = this.branchResearchRevalidate(branchRow.record.workspaceRoot, gate.selectedPlanIds, gate.candidate, identity.headCommit);
+        const recheck = await revalidate();
+        if (!recheck.ok)
+            throw new Error(`确认后科研确证复核未通过：${recheck.reason}；零写入停止。`);
+        const result = await BranchPullRequest.createBranchPullRequest({
+            git: BranchPullRequest.runGitPullRequest, gh: BranchPullRequest.runGh, ledger: this.branchPrReceiptLedger(),
+            cwd: branchRow.record.workspaceRoot, remoteName: ancestor.remoteName, registeredRemoteUrl,
+            branch: identity.branch, base: ancestor.targetBranch, sourceSha: identity.headCommit,
+            title: `创新分支 ${identity.branch}${branchRow.record.label ? "（" + branchRow.record.label + "）" : ""}`,
+            body: `由 SimpleExperiment 插件登记分支创建。\n- 分支：${identity.branch}\n- 源提交：${identity.headCommit}\n- 目标：${ancestor.targetBranch} @ ${preview.target.displayUrl}\n\n注意：代码运行验证由集群验证流程负责；本 PR 本身不代表科研结论已复核。`,
+            previewDigest: preview.digest, revalidate, withRepoLease: this.branchPrRepoLease(),
+        });
+        this.branchPrState = { at: new Date().toISOString(), action: "create", root: branchRow.record.workspaceRoot, branch: identity.branch, base: ancestor.targetBranch, sourceSha: identity.headCommit, targetUrl: preview.target.displayUrl, ...result };
+        this.postState();
+        if (result.status === "created")
+            await vscode.window.showInformationMessage(`已创建 PR #${result.prNumber}`, { modal: true, detail: String(result.url || "") }, "知道了");
+        else if (result.status === "reused")
+            await vscode.window.showInformationMessage(`按身份复用既有 PR #${result.prNumber}（未推送、未新建）。${result.note || ""}`, { modal: true }, "知道了");
+        else
+            await vscode.window.showWarningMessage(`PR 操作未完成（${result.status === "failed" ? "被远端拒绝" : result.status === "blocked-verification" ? "科研确证复核未通过" : "结果未知"}）：${result.reason || ""}`, { modal: true, detail: "结果未知时系统绝不自动重放；可稍后再次预览，将先只读对账。复核未通过时零写入/不重发。" }, "知道了");
+        return this.branchPrState;
+    }
+    async mergeBranchPrFromUi(message) {
+        const { branchRow, ancestor, identity, registeredRemoteUrl } = await this.branchPrContext(message);
+        const preview = await BranchPullRequest.previewBranchPullRequest({
+            git: BranchPullRequest.runGitPullRequest, gh: BranchPullRequest.runGh,
+            cwd: branchRow.record.workspaceRoot, remoteName: ancestor.remoteName, registeredRemoteUrl,
+            branch: identity.branch, base: ancestor.targetBranch, sourceSha: identity.headCommit,
+        });
+        if (!preview.ok)
+            throw new Error(preview.reason || "PR 预览失败。");
+        const pr = preview.existing?.pr;
+        const alreadyMerged = preview.existing?.kind === "merged";
+        if (preview.existing?.kind !== "reuse" && !alreadyMerged)
+            throw new Error(`该分支相对 ${ancestor.targetBranch} 没有身份确定的可合并开放 PR（${preview.existing?.note || "状态未知"}）。已 MERGED 的候选会走只读恢复；其它状态一律不动。`);
+        if (alreadyMerged && pr) {
+            // 只读恢复：PR 已 MERGED（可能网页操作或上次未知指令）——绝不重发合并，仅需独立确认后处理祖先快进。
+            await vscode.window.showInformationMessage(`PR #${pr.number} 已是 MERGED（只读重查）`, { modal: true, detail: "不会重发合并指令。\n该 MERGED 事实只证明 GitHub 已把该 SHA 合入目标分支，不蕴含队列里任何未经确证的新候选已通过科研验证。\n下面先按精确 repo/PR 号/head 仓/分支/SHA/base 做只读核验；只有核实为 MERGED 且读到完整合并提交 SHA，才会（经你单独确认）尝试更新本机祖先主线：只有干净、在目标分支且远端确含该合并提交时才 ff-only。" }, "知道了");
+            // 断路修复：恢复必须经模块只读模式真实核验该精确 PR 的 MERGED 与 mergeCommit.oid，再把完整 SHA 交给祖先确认；
+            // view 变为 OPEN/非 MERGED/身份不符/读不到＝blocked——不落入 gh pr merge、不快进、不伪成功。
+            const recovered = await BranchPullRequest.mergeBranchPullRequest({ gh: BranchPullRequest.runGh, ledger: this.branchPrReceiptLedger(), cwd: branchRow.record.workspaceRoot, repoSelector: preview.target.repoSelector, prNumber: pr.number, verifiedHeadSha: identity.headCommit, base: ancestor.targetBranch, branch: identity.branch, readOnly: true, withRepoLease: this.branchPrRepoLease() });
+            if (recovered.status !== "merged" || !/^[0-9a-f]{40}$/i.test(String(recovered.mergeCommit || ""))) {
+                this.branchPrState = { at: new Date().toISOString(), action: "merge-recover", root: branchRow.record.workspaceRoot, prNumber: pr.number, merged: false, status: recovered.status, reason: recovered.reason };
+                this.postState();
+                await vscode.window.showWarningMessage(`只读恢复未通过：${recovered.reason || recovered.status}。未发送任何合并指令，也未快进祖先。`, { modal: true }, "知道了");
+                return this.branchPrState;
+            }
+            const mergedView = await this.confirmAndFastForwardAncestor(ancestor, preview.target, String(recovered.mergeCommit));
+            this.branchPrState = { at: new Date().toISOString(), action: "merge-recover", root: branchRow.record.workspaceRoot, prNumber: pr.number, merged: true, fastForward: mergedView };
+            this.postState();
+            this.scheduleBranchProjectsVerify("after-pr-merge");
+            return this.branchPrState;
+        }
+        // R3/R4 顺序修正：合并同样是远端不可逆写入——先让用户做出非空 PLAN 选择并构建确证候选（同 planFile 不同轮次仍按精确
+        // plan.id，绝不凑“全验”），把仓库/base/源 SHA 与所选候选证据完整展示之后，才征求最终确认；确认之后、实际写之前再复核一次。
+        const gate = await this.branchResearchCandidateFlow(branchRow.record.workspaceRoot);
+        const revalidate = this.branchResearchRevalidate(branchRow.record.workspaceRoot, gate.selectedPlanIds, gate.candidate, identity.headCommit);
+        const detailLines = [
+            `仓库：${preview.target.displayUrl}`,
+            `PR：#${pr.number} → 合并进 ${ancestor.targetBranch}（base 远端头 ${String(preview.baseSha || "").slice(0, 10) || "未知"}）`,
+            `合并来源（--match-head-commit）：${identity.branch} @ ${identity.headCommit}（完整 40 位 SHA；发送前模块还会只读重查完整 PR 身份：repo/head 分支/head SHA/base）`,
+            "仅 --merge 且带 match-head：远端头一旦变化 GitHub 将拒绝，不会盲合；不使用 admin/force。",
+            `科研候选摘要（在你确认之前展示，绑定不可变事实）：根 ${gate.candidate.root} · 分支 ${gate.candidate.branch} @ ${gate.candidate.headCommit}`,
+            ...gate.candidate.plans.map(row => `PLAN ${row.planFile}（id ${row.planId}）：revision ${row.revision} · 指纹 ${row.codeFingerprint} · 模式 ${row.executionMode || "?"} · ${row.jobCount} 个 job 全部完成确证 · 清单摘要 ${row.manifestDigest}`),
+            "覆盖限制：仅上述 PLAN 已验清单内源码与配置；数据、权重与仓外输入不在其内，不因此构成科研结论等价。",
+            "确认后、实际写之前还会重读队列/身份重跑同一校验器；撤证/版本/命令变化即零写入停止。",
+        ];
+        const confirmed = await vscode.window.showWarningMessage(`合并 PR #${pr.number} 到 ${ancestor.targetBranch}？`, { modal: true, detail: detailLines.join("\n") }, "确认合并") === "确认合并" ? true : false;
+        if (!confirmed)
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消合并。");
+        const recheck = await revalidate();
+        if (!recheck.ok)
+            throw new Error(`合并确认后科研确证复核未通过：${recheck.reason}；未发送任何写指令。`);
+        const merge = await BranchPullRequest.mergeBranchPullRequest({ gh: BranchPullRequest.runGh, ledger: this.branchPrReceiptLedger(), cwd: branchRow.record.workspaceRoot, repoSelector: preview.target.repoSelector, prNumber: pr.number, verifiedHeadSha: identity.headCommit, base: ancestor.targetBranch, branch: identity.branch, revalidate, withRepoLease: this.branchPrRepoLease() });
+        if (merge.status !== "merged") {
+            this.branchPrState = { at: new Date().toISOString(), action: "merge", root: branchRow.record.workspaceRoot, prNumber: pr.number, merged: false, status: merge.status, reason: merge.reason };
+            this.postState();
+            await vscode.window.showWarningMessage(`合并未确认成功（${merge.status === "not-merged" ? "未合并" : "结果未知"}）：${merge.reason || ""}`, { modal: true, detail: "未知状态下绝不重放合并指令；再次执行本操作只会先做只读对账（含在网页已合并的恢复）。" }, "知道了");
+            return this.branchPrState;
+        }
+        const ff = await this.confirmAndFastForwardAncestor(ancestor, preview.target, merge.mergeCommit);
+        this.branchPrState = { at: new Date().toISOString(), action: "merge", root: branchRow.record.workspaceRoot, prNumber: pr.number, merged: true, mergeCommit: merge.mergeCommit, fastForward: ff };
+        this.postState();
+        await vscode.window.showInformationMessage("科研仓 PR 已合并", { modal: true, detail: [
+                `PR #${pr.number} 已真实合并（mergeCommit ${String(merge.mergeCommit).slice(0, 10)}）。`,
+                ff?.status === "fast-forwarded" ? `本机祖先已快进 ${String(ff.from).slice(0, 10)}→${String(ff.to).slice(0, 10)}（ff-only，未产生合并提交）。` : ff?.status === "already-current" ? "本机祖先已在该主线，无需更新。" : `本机祖先未更新：${ff?.reason || ff?.status || "未确认快进"}`,
+                "注意：此前的运行/验证针对该候选提交，不自动等于合并后主线的验证；如需主线验证请按流程重新验证。",
+            ].join("\n") }, "知道了");
+        this.scheduleBranchProjectsVerify("after-pr-merge");
+        return this.branchPrState;
+    }
+    /** 祖先更新是独立确认（R4）：合并/恢复成功后单独征求同意；快进目标以已核完整 SHA + 包含合并提交 + 本机 HEAD 为祖先为前提。 */
+    async confirmAndFastForwardAncestor(ancestor, target, expectedMergeCommit) {
+        if (!expectedMergeCommit) {
+            await vscode.window.showWarningMessage("缺少已确认的合并提交 SHA，暂缓祖先更新（可稍后重查 PR 后恢复）。", { modal: true }, "知道了");
+            return { status: "blocked", reason: "缺少已确认合并提交 SHA" };
+        }
+        const confirmed = await vscode.window.showWarningMessage(`更新本机祖先主线到已合并提交？`, { modal: true, detail: `项目：${ancestor.gitRoot}\n目标分支：${ancestor.targetBranch} → ${String(expectedMergeCommit).slice(0, 10)}\n前提（逐条真实核对，任一不满足即停）：工作区干净、当前就在该目标分支、真实 origin 仍是 ${target.displayUrl}、远端确含该合并提交、本机 HEAD 是其祖先；仅 ff-only，绝不 reset/stash/切分支。` }, "确认快进") === "确认快进" ? true : false;
+        if (!confirmed)
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消祖先快进（合并结果不受影响）。");
+        // expected 必须来自本次已展示并确认的 target（冻结 A，凭据已剥离的规范化地址）；绝不在确认之后重读 live 值当 expected——
+        // 那会把确认后新出现的漂移（如 origin 被改到 fork B）洗成“预期”，令漂移守卫自我失效。live 重读与比较归 fastForwardAncestorRoot。
+        return BranchPullRequest.fastForwardAncestorRoot({
+            git: BranchPullRequest.runGitPullRequest, cwd: ancestor.gitRoot, remoteName: ancestor.remoteName, base: ancestor.targetBranch,
+            expectedMergeCommit, expectedRemoteUrl: target.displayUrl, readIdentity: () => (0, GitIdentityProbe_1.readGitIdentity)(ancestor.gitRoot),
+        });
+    }
     createLocalApiMethods() {
         return {
             "plans.cleanup.preview": params => this.planCleanupHost().service.preview(params),
@@ -1352,6 +2494,25 @@ class RealtimeTunnelPanelProvider {
                 timestamp: new Date().toISOString(),
             }),
             state: async () => this.buildState(),
+            // 块A窄接口：登记的项目/分支与本机活实例。只读投影；实例记录不含 token。
+            "projects.registry": async () => this.branchProjectService().verifyAll(),
+            "projects.instances": async () => {
+                const listing = (0, LocalApiClient_1.listPluginInstances)("experiment");
+                return {
+                    schemaVersion: 1,
+                    instances: listing.rows.map((row) => ({
+                        instanceId: row.instanceId,
+                        workspace: row.workspace,
+                        version: row.version,
+                        pid: row.pid,
+                        startedAt: row.startedAt,
+                        status: row.status,
+                        error: row.error,
+                    })),
+                    truncated: listing.truncated,
+                    note: "文件登记的实例记录（truncated=true 表示目录未完整枚举）；调用方仍需 preflightPluginAt 实时握手确认存活与工作区。",
+                };
+            },
             "panel.diagnostics": async () => this.panelDiagnosticsApi(),
             "actions.list": async () => {
                 const rows = [...API_EXECUTABLE_COMMANDS].sort();
@@ -3409,7 +4570,7 @@ class RealtimeTunnelPanelProvider {
             }
         }
         catch (error) {
-            if (error instanceof UiCommandCancelled)
+            if (error instanceof UiCommandCancelled_1.UiCommandCancelled)
                 return false;
             const message = errorMessage(error);
             this.lastError = message;
@@ -3457,7 +4618,7 @@ class RealtimeTunnelPanelProvider {
         this.postState(true);
     }
     resetProjectContextInMemory() {
-        this.projectContextAbortController.abort(new UiCommandCancelled("工作区已切换，旧项目请求已取消。"));
+        this.projectContextAbortController.abort(new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，旧项目请求已取消。"));
         this.projectContextAbortController = new AbortController();
         this.projectStaticCheckAbort?.abort();
         this.projectStaticCheckAbort = undefined;
@@ -4354,7 +5515,7 @@ class RealtimeTunnelPanelProvider {
         this.panelHostEventLoopHistogram = undefined;
         this.projectStaticCheckAbort?.abort();
         this.activationAbortController.abort();
-        this.projectContextAbortController.abort(new UiCommandCancelled("扩展正在停用，项目请求已取消。"));
+        this.projectContextAbortController.abort(new UiCommandCancelled_1.UiCommandCancelled("扩展正在停用，项目请求已取消。"));
         this.distributedTickAbort?.abort();
         for (const request of this.progressRefreshRequests.values())
             request.controller.abort();
@@ -4589,7 +5750,7 @@ class RealtimeTunnelPanelProvider {
     async markProjectOnboardingComplete(projectContext) {
         const assertCurrent = () => {
             if (projectContext && !this.projectContextIsCurrent(projectContext))
-                throw new UiCommandCancelled("工作区已切换，识别完成标记已取消。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，识别完成标记已取消。");
         };
         assertCurrent();
         if (projectContext?.root || workspaceRoot()) {
@@ -4792,12 +5953,12 @@ class RealtimeTunnelPanelProvider {
     async prepareAgentsForFirstRun(showMessage = true) {
         if (!await this.ensureSimpleSftpReadyForSetup("准备 Agent")) {
             console.warn("[diag] prepareAgents blocked: SimpleSFTP not ready");
-            throw new UiCommandCancelled("SimpleSFTP 未就绪，已取消准备 Agent。请先安装并重载窗口。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("SimpleSFTP 未就绪，已取消准备 Agent。请先安装并重载窗口。");
         }
         if (!workspaceRoot()) {
             console.warn("[diag] prepareAgents blocked: no workspaceRoot");
             await this.openWorkspaceFolderForContinuation("准备 Agent", "prepareAgents");
-            throw new UiCommandCancelled("未选择项目，已取消准备 Agent。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("未选择项目，已取消准备 Agent。");
         }
         assertSingleProjectWorkspace("准备 Agent");
         await this.syncXshellConfigBeforeNetwork("prepare agents for first run", { postState: false });
@@ -4820,7 +5981,7 @@ class RealtimeTunnelPanelProvider {
         await this.confirmRemoteWriteTargets("准备 Agent 并上传 runtime", runtimeTargets);
         const answer = await vscode.window.showWarningMessage(agentStartupWriteConfirmationDetail(targets, runtimeTargets, true), { modal: true }, "确认准备并启动");
         if (answer !== "确认准备并启动")
-            throw new UiCommandCancelled("Agent 准备已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("Agent 准备已取消。");
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "准备 Agent", cancellable: false }, async (progress) => {
             progress.report({ message: "配置 SimpleSFTP 目标" });
             const profileResult = await this.writeSftpManagerServerProfiles(targets.map((target) => target.id));
@@ -5617,6 +6778,7 @@ class RealtimeTunnelPanelProvider {
                 this.schedulePanelHeartbeat();
                 this.postState(true, true);
                 void this.refreshPptAutomationReadiness(false).catch(() => undefined);
+                this.scheduleBranchProjectsVerify("webview-ready");
                 break;
             case "webviewHeartbeatAck":
                 this.handlePanelHeartbeatAck(message);
@@ -5927,6 +7089,48 @@ class RealtimeTunnelPanelProvider {
             case "bootstrapProject":
                 await this.bootstrapProjectFromUi();
                 break;
+            case "registerAncestorProject":
+                await this.registerAncestorProjectFromUi();
+                break;
+            case "registerBranchProject":
+                await this.registerBranchProjectFromUi();
+                break;
+            case "createBranchFromAncestor":
+                await this.createBranchFromAncestorFromUi();
+                break;
+            case "refreshBranchProjects":
+                await this.refreshBranchProjectsFromUi();
+                break;
+            case "refreshUnifiedDispatchPolicy":
+                await this.refreshUnifiedDispatchPolicyFromUi();
+                break;
+            case "submitBranchPlanRun":
+                await this.submitBranchPlanRunFromUi(message);
+                break;
+            case "compareBranchResults":
+                await this.compareBranchResultsFromUi();
+                break;
+            case "verifyBranchHeadBinding":
+                await this.verifyBranchHeadBindingFromUi(message);
+                break;
+            case "refreshBranchRuns":
+                await this.refreshBranchRunsFromUi();
+                break;
+            case "openBranchProject":
+                await this.openBranchProjectFromUi(message);
+                break;
+            case "forgetBranchProject":
+                await this.forgetBranchProjectRegistrationFromUi(message, "branch");
+                break;
+            case "forgetAncestorProject":
+                await this.forgetBranchProjectRegistrationFromUi(message, "ancestor");
+                break;
+            case "createBranchPr":
+                await this.createBranchPrFromUi(message);
+                break;
+            case "mergeBranchPr":
+                await this.mergeBranchPrFromUi(message);
+                break;
             case "generateOutputAdapter":
                 await this.generateOutputAdapterFromUi();
                 break;
@@ -6206,7 +7410,9 @@ class RealtimeTunnelPanelProvider {
                 this.finishPlanSubmissionProgress(message, "cancelled", result.message || "已取消，未提交运行。");
                 const supersededResultRequest = /^(syncPendingPlanArtifacts|syncAllResultArtifacts|rebuildProjectResultTables)$/.test(command)
                     && String(result.message || "").includes("旧请求已被重新执行替代");
-                if (!supersededResultRequest && !artifactNoticeKey && !PLAN_SUBMISSION_COMMANDS.has(command)
+                // r46 A：身份失效清退的等待结束按类型码收拢（不弹信息、不记动作错误、finish 静默），普通用户取消的既有可见反馈不变。
+                const clearedSelectionWait = result.error?.code === "SELECTED_JOB_CLEARED";
+                if (!supersededResultRequest && !clearedSelectionWait && !artifactNoticeKey && !PLAN_SUBMISSION_COMMANDS.has(command)
                     && !["validatePlan", "dryRunPlan", "runAllPlans"].includes(command)) {
                     try {
                         void vscode.window.showInformationMessage(result.message || "已取消", "查看日志")
@@ -6216,7 +7422,7 @@ class RealtimeTunnelPanelProvider {
                     catch { }
                 }
                 const alreadyExplained = String(result.message || "").includes("未提交");
-                if (!alreadyExplained) {
+                if (!alreadyExplained && !clearedSelectionWait) {
                     try {
                         this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message), operationOutcome });
                         this.postState();
@@ -6259,7 +7465,7 @@ class RealtimeTunnelPanelProvider {
                 const outcome = noticeOutcome || { status: "failed", message: "产物同步操作异常结束，请检查连接与产物校验记录。" };
                 const tone = outcome.status === "completed" && !outcome.resultSync?.partial ? "succeeded"
                     : outcome.status === "cancelled" ? "cancelled" : "failed";
-                this.finishOperationProgressNotice(artifactNoticeKey, tone, String(outcome.message || "") || "产物同步已结束。");
+                this.finishOperationProgressNotice(artifactNoticeKey, tone, String(outcome.message || "") || "产物同步已结束。", outcome.error?.code === "SELECTED_JOB_CLEARED" ? { silent: true } : undefined);
             }
         }
     }
@@ -6375,7 +7581,7 @@ class RealtimeTunnelPanelProvider {
             else {
                 const key = `${workspaceRoot()}\0${normalizePlanSelectionKey(operationResultPlanFile(this.actionBody(message))).toLowerCase()}`;
                 if (this.planRetryInFlight.has(key))
-                    throw new UiCommandCancelled("同一 Plan 正在确认或提交，请等待当前请求。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("同一 Plan 正在确认或提交，请等待当前请求。");
                 this.planRetryInFlight.add(key);
                 try {
                     result = await this.runActionCommandLeased(command, message);
@@ -6390,7 +7596,7 @@ class RealtimeTunnelPanelProvider {
         }
         catch (error) {
             if (noticeKey) {
-                const cancelled = error instanceof UiCommandCancelled;
+                const cancelled = error instanceof UiCommandCancelled_1.UiCommandCancelled;
                 this.finishOperationProgressNotice(noticeKey, cancelled ? "cancelled" : "failed", error instanceof Error ? error.message : String(error));
             }
             throw error;
@@ -6674,7 +7880,7 @@ class RealtimeTunnelPanelProvider {
                 this.assertExecutionAgentProjectsReady(body);
             }
             const retryPlanFile = operationResultPlanFile(body) || plan?.planFile || plan?.file || plan?.planId || "";
-            const prepareRetry = () => (0, PlanSafeRetry_1.preparePlanSafeRetry)(this, retryPlanFile, async (detail) => await vscode.window.showWarningMessage("停止当前 Plan 并重新运行？", { modal: true, detail }, "停止并重新运行") === "停止并重新运行", () => new UiCommandCancelled("已取消重新运行，旧运行保持原状态。"));
+            const prepareRetry = () => (0, PlanSafeRetry_1.preparePlanSafeRetry)(this, retryPlanFile, async (detail) => await vscode.window.showWarningMessage("停止当前 Plan 并重新运行？", { modal: true, detail }, "停止并重新运行") === "停止并重新运行", () => new UiCommandCancelled_1.UiCommandCancelled("已取消重新运行，旧运行保持原状态。"));
             const restarted = await (batch ? batch.serial("retry", prepareRetry) : prepareRetry());
             assertWorkflowCurrent();
             if (restarted) {
@@ -6881,7 +8087,7 @@ class RealtimeTunnelPanelProvider {
                 session.reports.shift();
         }
     }
-    finishOperationProgressNotice(key, tone, text) {
+    finishOperationProgressNotice(key, tone, text, options = undefined) {
         const session = this.operationNoticeSessions.get(key);
         if (!session)
             return;
@@ -6904,6 +8110,9 @@ class RealtimeTunnelPanelProvider {
         }
         const label = `SimpleExperiment ${session.title}${text ? `：${text}` : "已完成。"}`;
         this.logOperationFact(label);
+        // r46 A：仅跳过终态弹窗（session 删除、done 释放与完整日志照旧）；只由身份失效清退等待这一条通路使用。
+        if (options?.silent)
+            return;
         const viewLog = "查看日志", openPanel = "打开面板";
         const prompt = tone === "succeeded" ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
         void Promise.resolve(prompt.call(vscode.window, label, viewLog, openPanel))
@@ -7504,10 +8713,10 @@ class RealtimeTunnelPanelProvider {
             return;
         }
         if (!pick || pick === "取消")
-            throw new UiCommandCancelled("已取消：未选择当前 Plan 历史产物处理方式。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消：未选择当前 Plan 历史产物处理方式。");
         const overwrite = pick === rerunLabel || pick === `强制${rerunLabel}`;
         if (!overwrite && pick !== skipLabel)
-            throw new UiCommandCancelled("已取消：未选择当前 Plan 历史产物处理方式。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消：未选择当前 Plan 历史产物处理方式。");
         body.existingOutputChoice = overwrite ? "rerun_all" : "rerun_missing";
         body.options = { ...(body.options || {}), overwriteExisting: overwrite, overwrite };
         body.overwriteExisting = overwrite;
@@ -7565,7 +8774,7 @@ class RealtimeTunnelPanelProvider {
         const store = new PlanRunHost_1.PlanRunHost(this, workspaceRoot()), saved = await store.load(id);
         saved.recovery.cancelled = true;
         await store.save({ ...saved.input, submissionOperationIdLocal: id, runRecovery: saved.recovery, runReplacement: saved.replacement });
-        this.distributedSubmissionAborts.get(id)?.abort(new UiCommandCancelled("本次提交已取消。"));
+        this.distributedSubmissionAborts.get(id)?.abort(new UiCommandCancelled_1.UiCommandCancelled("本次提交已取消。"));
         if (this.activeRetentionClaims instanceof Set)
             this.activeRetentionClaims.delete(String(saved.input?.retentionSubmissionId || ""));
         void releaseRetentionClaim(workspaceRoot(), String(saved.input?.retentionSubmissionId || ""), this.hostOperationLease);
@@ -7581,7 +8790,7 @@ class RealtimeTunnelPanelProvider {
         const answer = await vscode.window.showWarningMessage(planRunConfirmationDetail(command, { ...(plan || {}), debugMode, schedulerOwnerWorkerId: this.planSchedulerWorkerId(body), confirmationOutputCandidates: projectOutputCandidates }, remoteTargets), { modal: true }, label);
         console.log("[diag] confirmPlanRunSubmission first dialog after", { command, answer });
         if (answer !== label)
-            throw new UiCommandCancelled(command === "reproducePlan" ? "复现实验已取消。" : "运行计划已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled(command === "reproducePlan" ? "复现实验已取消。" : "运行计划已取消。");
     }
     async collectRunGitProvenance(root) {
         const repo = await this.primaryGitRepository();
@@ -7601,12 +8810,16 @@ class RealtimeTunnelPanelProvider {
         catch {
             githubCommit = "";
         }
+        // 块C：工作区脏状态与登记卡同一来源（readGitIdentityProbe 的 status 探测）。探测致命失败时
+        // 如实记 null（未知），不因此阻断既有提交，但绑定/合并核验只接受 dirty===false。
+        const identity = (0, GitIdentityProbe_1.readGitIdentity)(repo.rootUri.fsPath);
         return {
             repositoryRoot: repo.rootUri.fsPath,
             branch,
             localCommit,
             githubCommit,
             originUrl: String(remote?.pushUrl || remote?.fetchUrl || ""),
+            dirty: identity.error ? null : identity.dirty,
         };
     }
     async recordRunGitProvenance(planFile, planRevision = "", operationId = "", batch) {
@@ -7625,6 +8838,7 @@ class RealtimeTunnelPanelProvider {
             localCommit: git.localCommit,
             githubCommit: git.githubCommit,
             originUrl: git.originUrl,
+            ...(git.dirty === null ? { dirty: null } : { dirty: git.dirty === true }),
         };
         const shortCommit = String(provenance.localCommit || "").slice(0, 12) || "unknown";
         const relativeDir = `simple_cluster/runs/git_provenance/${new Date().toISOString().slice(0, 10)}`;
@@ -7633,6 +8847,29 @@ class RealtimeTunnelPanelProvider {
         return {
             ...provenance,
             provenancePath: relativeDir + "/" + path.basename(targetPath),
+        };
+    }
+    /** 块C：写进队列的溯源一律剥离 URL 凭证（token 绝不进队列文件）；原始 origin 记录行为不变。 */
+    stripGitUrlCredentials(url) {
+        const text = String(url || "");
+        return text.replace(/^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)([^/@]+)@/, "$1");
+    }
+    /** 把提交时已记录的 Git 溯源收敛成本机队列的窄字段（缺失=undefined，绝不编造）。 */
+    queueGitProvenance(value) {
+        if (!value || typeof value !== "object")
+            return undefined;
+        const dirty = value.dirty === true ? true : value.dirty === false ? false : undefined;
+        const recordedAt = String(value.recordedAt || "");
+        if (!recordedAt && !value.branch && !value.localCommit)
+            return undefined;
+        return {
+            schemaVersion: 1,
+            recordedAt,
+            planFile: String(value.planFile || ""),
+            branch: String(value.branch || ""),
+            localCommit: String(value.localCommit || ""),
+            ...(dirty === undefined ? {} : { dirty }),
+            originUrl: this.stripGitUrlCredentials(value.originUrl),
         };
     }
     async confirmPlanBatchRunSubmission(candidates) {
@@ -7649,7 +8886,7 @@ class RealtimeTunnelPanelProvider {
         const label = "确认批量运行";
         const answer = await vscode.window.showWarningMessage(planBatchRunConfirmationDetail(confirmationPlans, remoteTargets), { modal: true }, label);
         if (answer !== label)
-            throw new UiCommandCancelled("运行全部计划已取消，未上传代码或提交任务。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("运行全部计划已取消，未上传代码或提交任务。");
     }
     planRunRemoteTargets(body) {
         const topology = this.assertTopologyReady("显示 Plan 运行目标");
@@ -7885,7 +9122,7 @@ class RealtimeTunnelPanelProvider {
             ignoreFocusOut: true,
         });
         if (!picked)
-            throw new UiCommandCancelled("停止任务已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("停止任务已取消。");
         body.manualStopType = picked.value;
         body.stopReason = picked.value;
         body.options = { ...(body.options || {}), manualStopType: picked.value, stopReason: picked.value, stopSource: "user" };
@@ -7924,7 +9161,7 @@ class RealtimeTunnelPanelProvider {
                 const label = options.danger ? "确认危险操作" : "确认执行";
                 const answer = await vscode.window.showWarningMessage(workerRemoteActionConfirmationDetail(options.title, action, body, ids), { modal: true }, label);
                 if (answer !== label)
-                    throw new UiCommandCancelled(`${options.title} 已取消。`);
+                    throw new UiCommandCancelled_1.UiCommandCancelled(`${options.title} 已取消。`);
             }
         }
         const failures = [];
@@ -8455,7 +9692,7 @@ class RealtimeTunnelPanelProvider {
                 const detail = preview.map(row => `${row.serverId}: ${row.user}@${row.host}:${row.port}\n项目: ${row.contract.projectDir}\nRuntime: ${row.contract.installDir}\n状态: ${row.contract.stateDir}\nAgent 窗口: ${row.tmuxWindow?.session || "无运行窗口"}:${row.tmuxWindow?.windowName || ""} ${row.tmuxWindow?.windowId || ""}; 版本: ${row.runningVersion || "旧状态"}\n预览指纹: ${row.digest}`).join("\n\n");
                 const answer = await vscode.window.showWarningMessage(`核对旧 Agent 归属迁移\n${detail}\n\n仅绑定此状态的当前容器归属，关闭指定 Agent 窗口；保留所有任务、日志和结果，不关闭其他窗口或平台进程。`, { modal: true }, "确认上述归属迁移");
                 if (answer !== "确认上述归属迁移")
-                    throw new UiCommandCancelled("旧 Agent 归属迁移已取消，未上传 runtime。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("旧 Agent 归属迁移已取消，未上传 runtime。");
                 approvals = Object.fromEntries(preview.map(row => [row.serverId, row.digest]));
             }
             if (!approvals || preview.some(row => approvals[row.serverId] !== row.digest))
@@ -9786,29 +11023,29 @@ class RealtimeTunnelPanelProvider {
     }
     assertCodeSyncProbeBindingCurrent(snapshot) {
         if (workspaceRoot() !== snapshot.root || this.client !== snapshot.client || this.projectContextGeneration !== snapshot.generation)
-            throw new UiCommandCancelled("工作区或连接已切换，代码同步未写入。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("工作区或连接已切换，代码同步未写入。");
         if (String(this.tunnelConfig?.token || "") !== snapshot.token)
-            throw new UiCommandCancelled("隧道凭据已变化，代码同步未写入。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("隧道凭据已变化，代码同步未写入。");
         const worker = this.setupConfig?.workerTunnels?.find(row => row.id === snapshot.target?.id);
         const workerFields = JSON.stringify(worker ? { id: worker.id, enabled: worker.enabled, agentProjectDir: worker.agentProjectDir,
             agentInstallDir: worker.agentInstallDir, agentStateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir,
             localForwardHost: worker.localForwardHost, localForwardPort: worker.localForwardPort,
             remoteAgentHost: worker.remoteAgentHost, remoteAgentPort: worker.remoteAgentPort, remoteTelemetryPort: worker.remoteTelemetryPort } : null);
         if (workerFields !== snapshot.workerFields)
-            throw new UiCommandCancelled(`${snapshot.target.id} Worker 配置已变化，代码同步未写入。`);
+            throw new UiCommandCancelled_1.UiCommandCancelled(`${snapshot.target.id} Worker 配置已变化，代码同步未写入。`);
         // R41: the sync-target row's `enabled` participates in the same value
         // snapshot, and a current enabled===false is rejected explicitly —
         // mid-flight disabling must cancel, not freeze-and-continue.
         if (snapshot.target?.enabled === false)
-            throw new UiCommandCancelled(`${snapshot.target.id} 同步目标已禁用，代码同步未写入。`);
+            throw new UiCommandCancelled_1.UiCommandCancelled(`${snapshot.target.id} 同步目标已禁用，代码同步未写入。`);
         const targetFields = JSON.stringify({ id: snapshot.target?.id, enabled: snapshot.target?.enabled, remotePath: snapshot.target?.remotePath, remoteRoot: snapshot.target?.remoteRoot,
             agentInstallDir: snapshot.target?.agentInstallDir, agentStateDir: snapshot.target?.agentStateDir, workerStateDir: snapshot.target?.workerStateDir,
             localForwardHost: snapshot.target?.localForwardHost, localForwardPort: snapshot.target?.localForwardPort,
             remoteAgentPort: snapshot.target?.remoteAgentPort, remoteAgentHost: snapshot.target?.remoteAgentHost });
         if (targetFields !== snapshot.targetFields)
-            throw new UiCommandCancelled(`${snapshot.target.id} 同步目标已变化，代码同步未写入。`);
+            throw new UiCommandCancelled_1.UiCommandCancelled(`${snapshot.target.id} 同步目标已变化，代码同步未写入。`);
         if (JSON.stringify(this.codeSyncRootProbeConfig(snapshot.target)) !== JSON.stringify(snapshot.effective))
-            throw new UiCommandCancelled(`${snapshot.target.id} 连接配置已变化，代码同步未写入。`);
+            throw new UiCommandCancelled_1.UiCommandCancelled(`${snapshot.target.id} 连接配置已变化，代码同步未写入。`);
     }
     /** Prefixes for reads/selections performed ON this endpoint only. */
     machineStatePrefixesForTarget(target) {
@@ -9855,7 +11092,7 @@ class RealtimeTunnelPanelProvider {
         if (mode === "local-server" && Object.keys(localUnverified).length)
             unverified.local = localUnverified;
         if (signal?.aborted)
-            throw new UiCommandCancelled("同步服务器结果已取消，未下载指标文件。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("同步服务器结果已取消，未下载指标文件。");
         const errors = [];
         for (let index = 0; index < targets.length; index++) {
             const target = targets[index];
@@ -9895,7 +11132,7 @@ class RealtimeTunnelPanelProvider {
     }
     async mergeLatestWorkerVersions(root, targets, selectedPaths, relative, report = (_stage) => { }, options = {}) {
         const checkCancelled = () => { if (options.signal?.aborted)
-            throw new UiCommandCancelled("同步服务器结果已取消，未下载指标文件。"); };
+            throw new UiCommandCancelled_1.UiCommandCancelled("同步服务器结果已取消，未下载指标文件。"); };
         checkCancelled();
         if (options.metricsOnly && !selectedPaths.length)
             return { completed: [], errors: [] };
@@ -10488,7 +11725,7 @@ class RealtimeTunnelPanelProvider {
                     throw new Error("本机部分旧文件缺少 SHA256，无法安全审核删除目标。");
                 const accepted = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("清理本机同步目录旧文件", `以下 ${staleFiles.length} 个本机文件不在所选来源版本中，将在全部下载并校验后永久删除。逐项核对完整路径；取消会停止本次同步。`, staleFiles.map((file) => ({ label: "本机旧文件（将永久删除）", path: path.resolve(root, ...file.split("/")) })), `永久删除 ${staleFiles.length} 个本机旧文件`);
                 if (!accepted)
-                    throw new UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
             }
         }
         const destinationRows = targets.filter((row) => destinationIds.includes(row.id) && row.id !== endpointId);
@@ -10553,7 +11790,7 @@ class RealtimeTunnelPanelProvider {
             }), () => (0, SyncScopeStatus_2.hashLocalScopeNames)(root, selectedFiles, undefined, this.localScopeHashCacheFile(root), {}, this.localMachineStateGuard(root).prefixes), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report, selectedFiles, async (files) => {
                 const accepted = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("清理本机同步目录旧文件", `以下 ${files.length} 个本机文件不在所选来源版本中，将在下载并校验新版本后永久删除。逐项核对完整路径；取消会停止本次同步。`, files.map((file) => ({ label: "本机旧文件（将永久删除）", path: path.resolve(root, ...file.split("/")) })), `永久删除 ${files.length} 个本机旧文件`);
                 if (!accepted)
-                    throw new UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
             });
             for (const directory of plan.directoryDeletes) {
                 const actual = await (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, directory, true, undefined, this.localScopeHashCacheFile(root), this.localMachineStateGuard(root).prefixes);
@@ -10894,7 +12131,7 @@ class RealtimeTunnelPanelProvider {
                 await (0, SyncScopeLocalMirror_1.mirrorChosenWorkerVersionToLocal)(relative, directory, sourceInventory, () => this.simpleSftpApiCall("sync.downloadPaths", { localPath: root, server: this.sftpServerOptions(sourceRow), paths: [relative], confirm: true, pathConfirmed: true }), () => (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root), this.localMachineStateGuard(root).prefixes), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report, undefined, async (files) => {
                     const accepted = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("清理本机同步目录旧文件", `以下 ${files.length} 个本机文件不在所选来源版本中，将在下载并校验新版本后永久删除。逐项核对完整路径；取消会停止本次同步。`, files.map((file) => ({ label: "本机旧文件（将永久删除）", path: path.resolve(root, ...file.split("/")) })), `永久删除 ${files.length} 个本机旧文件`);
                     if (!accepted)
-                        throw new UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
+                        throw new UiCommandCancelled_1.UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
                 });
                 report("本机文件内容校验通过");
             }
@@ -11007,7 +12244,7 @@ class RealtimeTunnelPanelProvider {
         reportStage("正在准备运行前代码同步…");
         await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
         if (!this.projectContextIsCurrent(projectContext))
-            throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
         const topology = this.assertPlanTopologyReady("运行前代码同步");
         const selectedWorkerIds = uniqueStrings((Array.isArray(bodies) ? bodies : []).flatMap((body) => [this.planSchedulerWorkerId(body), ...(Array.isArray(body?.selectedWorkerIds) ? body.selectedWorkerIds : [])]).filter(Boolean));
         const targets = this.workerCodeSyncTargets();
@@ -11017,7 +12254,7 @@ class RealtimeTunnelPanelProvider {
         const targetReady = typeof onTargetReady === "function" ? async (...args) => {
             await versionsReady;
             if (!this.projectContextIsCurrent(projectContext))
-                throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
             return onTargetReady(...args);
         } : undefined;
         reportStage("正在同步运行所需代码…");
@@ -11031,7 +12268,7 @@ class RealtimeTunnelPanelProvider {
                     this.stampWorkerPoolManualTarget(body, syncedTargets[0].id);
             }
         if (!this.projectContextIsCurrent(projectContext))
-            throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
     }
     planSubmissionManifestKey(root, includePaths, scopePaths, holds) {
         const inputs = JSON.stringify({ root: path.resolve(root).toLowerCase(), includePaths: [...(includePaths || [])].map(String).sort(),
@@ -11068,7 +12305,7 @@ class RealtimeTunnelPanelProvider {
             const assertCurrentInner = () => {
                 (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
                 if (projectContext && !this.projectContextIsCurrent(projectContext))
-                    throw new UiCommandCancelled("工作区已切换，代码同步已取消。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，代码同步已取消。");
             };
             const assertCurrent = () => {
                 assertCurrentInner();
@@ -11373,7 +12610,7 @@ class RealtimeTunnelPanelProvider {
             }
         });
         if (workspaceRoot() !== root || this.client !== client)
-            throw new UiCommandCancelled("项目或连接已切换，代码同步已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("项目或连接已切换，代码同步已取消。");
         const queue = await this.loadDistributedQueue(root);
         const merged = DistributedPlanQueue.mergeDurableWorkerSnapshots(queue, snapshots, DistributedPlanQueue.canonicalProjectId(root));
         const safe = new Set();
@@ -11437,10 +12674,10 @@ class RealtimeTunnelPanelProvider {
             submit: () => client.postWorkerAction(target.id, "register-code-sync-proof", request),
             query: () => client.getWorkerOperation(target.id, operationId), progress: progressReport,
             assertCurrent: () => { if (workspaceRoot() !== root || this.client !== client)
-                throw new UiCommandCancelled("项目或连接已切换，同步登记查询已停止。"); },
+                throw new UiCommandCancelled_1.UiCommandCancelled("项目或连接已切换，同步登记查询已停止。"); },
         }) : await client.postWorkerAction(target.id, "register-code-sync-proof", request);
         if (workspaceRoot() !== root || this.client !== client)
-            throw new UiCommandCancelled("工作区或连接已切换，Worker 代码 proof 注册已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("工作区或连接已切换，Worker 代码 proof 注册已取消。");
         const proofId = String(result?.proofId || "").trim();
         const runtimeGeneration = String(result?.runtimeGeneration || "").trim();
         const fileCount = Number(result?.fileCount);
@@ -11501,7 +12738,7 @@ class RealtimeTunnelPanelProvider {
     async confirmRemoteWriteTargets(operation, targets, projectContext) {
         const assertCurrent = () => {
             if (projectContext && !this.projectContextIsCurrent(projectContext))
-                throw new UiCommandCancelled("工作区已切换，远端路径确认已取消。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，远端路径确认已取消。");
         };
         assertCurrent();
         const localProjectRoot = projectContext?.root || assertSingleProjectWorkspace(operation);
@@ -11516,7 +12753,7 @@ class RealtimeTunnelPanelProvider {
         const answer = await vscode.window.showWarningMessage(remoteWriteConfirmationDetail(operation, normalized, localProjectRoot), { modal: true }, "确认位置并继续", rememberLabel);
         assertCurrent();
         if (!["确认位置并继续", rememberLabel].includes(String(answer || "")))
-            throw new UiCommandCancelled(`${operation}已取消，未写入任何远端文件。`);
+            throw new UiCommandCancelled_1.UiCommandCancelled(`${operation}已取消，未写入任何远端文件。`);
         if (answer === rememberLabel) {
             const confirmedAt = new Date().toISOString();
             this.confirmedRemotePaths = mergeRemotePathConfirmations(this.confirmedRemotePaths, normalized.map((item) => ({ ...item, confirmedAt })));
@@ -11527,7 +12764,7 @@ class RealtimeTunnelPanelProvider {
     async prepareSftpTargets(reason, requiredCommand, serverIds = []) {
         assertSingleProjectWorkspace("SFTP 上传或目录配置");
         if (!await this.ensureSimpleSftpReadyForSetup("文件传输"))
-            throw new UiCommandCancelled("文件传输已取消，SimpleSFTP 未就绪。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("文件传输已取消，SimpleSFTP 未就绪。");
         if (requiredCommand)
             await this.ensureSftpManagerCommand(requiredCommand);
         this.assertTopologyActualWorkRoots("SFTP 上传或目录配置");
@@ -11852,7 +13089,7 @@ class RealtimeTunnelPanelProvider {
             ignoreFocusOut: true,
         });
         if (!picked)
-            throw new UiCommandCancelled(`${label} 未选择运行 Worker。`);
+            throw new UiCommandCancelled_1.UiCommandCancelled(`${label} 未选择运行 Worker。`);
         if (!picked.selectable)
             throw new Error(`Worker ${picked.workerId} 当前不可用，请先检测并启动其 Agent。`);
         this.stampWorkerPoolManualTarget(body, picked.workerId);
@@ -11942,13 +13179,13 @@ class RealtimeTunnelPanelProvider {
         try {
             return await this.safeTransferRetries.run(key, () => {
                 if (!this.projectContextIsCurrent(projectContext))
-                    throw new UiCommandCancelled("项目已切换，未重新执行旧项目的同步请求。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("项目已切换，未重新执行旧项目的同步请求。");
                 return work();
             });
         }
         catch (error) {
             if (error instanceof SafeRequestRetry_1.RequestReplacedError)
-                throw new UiCommandCancelled(error.message);
+                throw new UiCommandCancelled_1.UiCommandCancelled(error.message);
             throw error;
         }
     }
@@ -12317,205 +13554,261 @@ class RealtimeTunnelPanelProvider {
             this.distributedQueueStorageDiagnostics = { status: "ready" };
         return DistributedPlanQueue.cloneDistributedQueue(this.distributedQueueCache, signature);
     }
-    async withQueueWriteResource(root, work) {
+    async withQueueWriteResource(root, work, options = {}) {
         if (!this.hostOperationLease)
             return work();
         const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
+        const resources = [{ server: "local", project: path.dirname(file), target: file }];
+        // 块B：写新派发意图时在同一临界区同时持有共享“统一派发”逻辑资源，与管理域内其它项目的
+        // 准入互斥（锁序：本项目队列 → 统一资源；持锁后绝不再调其它窗口的 save/RPC）。
+        if (options.unifiedDispatch)
+            resources.push(UnifiedDispatchAdmission.unifiedDispatchResource(API_DISCOVERY_DIR));
         return this.hostOperationLease.run({ pluginId: "simple-local.simple-experiment", workspaceUri: String(root),
             hostProjectPath: path.dirname(file), actionType: "queue-write", actionLabel: "写入调度队列", waitForConflict: true,
-            resources: [{ server: "local", project: path.dirname(file), target: file }] }, work);
+            resources }, work);
     }
     async saveDistributedQueue(root, queue, options = {}) {
         const workingQueue = queue;
-        const work = this.distributedQueueWritePromise.catch(() => undefined).then(async () => this.withQueueWriteResource(root, async () => {
-            const assertStopBatch = () => {
-                if (options.stopBatchEpoch !== undefined && (this.distributedPlanStopEpoch !== options.stopBatchEpoch
-                    || this.planStopClearBatchLease !== options.stopBatchLease || !options.stopBatchCurrent?.()))
-                    throw new Error("中止清理批次已变化，未写入队列。");
-            };
-            assertStopBatch();
-            if (!options.appendPlanId && options.queueGeneration !== undefined && options.queueGeneration !== this.distributedQueueGeneration) {
-                // 过期调度轮次是高频调度下的正常竞态围栏：旧轮次在写入前就被拒绝（派发先写队列再发送，
-                // 不存在孤儿派发），500ms tick 会以最新队列为基自然重驱；围栏语义保持不变，
-                // 但这类拒绝不得冒充需要人工复核的动作错误刷屏（2026-10-21 18:17–18:24 观测到 6 条同类噪声）。
-                const stale = new Error("过期调度轮次，已拒绝写入队列");
-                stale.code = "STALE_QUEUE_ROUND";
-                throw stale;
-            }
-            if (options.submissionOperationId && ((this.distributedSubmissionEpochs?.get(options.submissionOperationId) || 0) !== options.submissionEpoch || workspaceRoot() !== root)) {
-                throw new Error("提交已取消，已拒绝写入队列");
-            }
-            const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
-            const readDisk = async () => fs.readFile(file, "utf8").catch((error) => { if (error?.code === "ENOENT")
-                return ""; throw error; });
-            const parseDisk = (source) => {
-                const disk = DistributedPlanQueue.restoreFormalJobQueue(source ? JSON.parse(source) : DistributedPlanQueue.emptyDistributedQueue());
-                if (disk.schemaVersion !== 1 || !Array.isArray(disk.plans))
-                    throw new Error("分布式 Plan 队列格式无效，已停止自动派发。");
-                if (Array.isArray(disk.deferred))
-                    disk.deferred = disk.deferred.map((row) => row.status === "processing" ? { ...row, status: "pending" } : row);
-                return disk;
-            };
-            const publishDiskSnapshot = (source, signature, status, reason, error) => {
-                try {
-                    const disk = parseDisk(source);
-                    this.distributedQueueCache = DistributedPlanQueue.keepCurrentObservations(JSON.parse(JSON.stringify(disk)), (options.artifactMutation || options.publicationMutation || options.controlMutation) && this.distributedQueueRoot === root ? this.distributedQueueCache : undefined);
-                    this.distributedQueueRoot = root;
-                    this.distributedQueueDiskSignature = signature;
-                    this.distributedQueueStorageDiagnostics = { status, updatedAt: new Date().toISOString(), reason,
-                        ...(error ? { message: compactSensitiveText(errorMessage(error), 240) } : {}) };
-                    return true;
+        // 块B：携带新派发意图的保存（dispatchAdmission）先做登记表损坏围栏（锁前一次即可：
+        // 持锁后的域身份复核在事务内另行完成）。损坏/不可读时拒绝写入——绝不按“未登记”静默兜底放行（批准方案§7）。
+        const unifiedDomain = options.dispatchAdmission === true ? this.unifiedDomainState() : { active: false, blocked: "" };
+        if (unifiedDomain.blocked)
+            throw new Error(`统一派发准入：${unifiedDomain.blocked}；已拒绝本次带新派发意图的队列写入，任务留在本地。`);
+        // P0-2 返修：所有携带新派发意图的保存一律在同一临界区持有共享“统一派发”资源——
+        // 从锁内域复核、成员队列读、准入计算直到 atomicWrite 成功/失败全程覆盖，
+        // 消除“开始时无登记→计算后释放→另一窗口完成初始登记并准入→本窗口再写盘”的双批交错；
+        // 首个登记之前也不例外。未登记项目的同意结果不变（不批新同意），仅不再保留不锁快路径（主控明确）。
+        const unifiedEngage = options.dispatchAdmission === true;
+        const work = this.distributedQueueWritePromise.catch(() => undefined).then(async () => {
+            const committed = await this.withQueueWriteResource(root, async () => {
+                const assertStopBatch = () => {
+                    if (options.stopBatchEpoch !== undefined && (this.distributedPlanStopEpoch !== options.stopBatchEpoch
+                        || this.planStopClearBatchLease !== options.stopBatchLease || !options.stopBatchCurrent?.()))
+                        throw new Error("中止清理批次已变化，未写入队列。");
+                };
+                assertStopBatch();
+                if (!options.appendPlanId && options.queueGeneration !== undefined && options.queueGeneration !== this.distributedQueueGeneration) {
+                    // 过期调度轮次是高频调度下的正常竞态围栏：旧轮次在写入前就被拒绝（派发先写队列再发送，
+                    // 不存在孤儿派发），500ms tick 会以最新队列为基自然重驱；围栏语义保持不变，
+                    // 但这类拒绝不得冒充需要人工复核的动作错误刷屏（2026-10-21 18:17–18:24 观测到 6 条同类噪声）。
+                    const stale = new Error("过期调度轮次，已拒绝写入队列");
+                    stale.code = "STALE_QUEUE_ROUND";
+                    throw stale;
                 }
-                catch (reloadError) {
-                    this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(), reason,
-                        message: compactSensitiveText(errorMessage(error || reloadError), 240) };
-                    return false;
+                if (options.submissionOperationId && ((this.distributedSubmissionEpochs?.get(options.submissionOperationId) || 0) !== options.submissionEpoch || workspaceRoot() !== root)) {
+                    throw new Error("提交已取消，已拒绝写入队列");
                 }
-            };
-            const conflict = async (source, signature) => {
-                publishDiskSnapshot(source, signature, "conflict", "queue-disk-version-changed");
-                this.postState?.();
-                throw new Error("另一窗口已更新该项目队列，本次旧快照未写入。已保留并刷新最近可信队列状态，请重试。");
-            };
-            const readDiskForSave = async () => {
+                const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
+                const readDisk = async () => fs.readFile(file, "utf8").catch((error) => { if (error?.code === "ENOENT")
+                    return ""; throw error; });
+                const parseDisk = (source) => {
+                    const disk = DistributedPlanQueue.restoreFormalJobQueue(source ? JSON.parse(source) : DistributedPlanQueue.emptyDistributedQueue());
+                    if (disk.schemaVersion !== 1 || !Array.isArray(disk.plans))
+                        throw new Error("分布式 Plan 队列格式无效，已停止自动派发。");
+                    if (Array.isArray(disk.deferred))
+                        disk.deferred = disk.deferred.map((row) => row.status === "processing" ? { ...row, status: "pending" } : row);
+                    return disk;
+                };
+                const publishDiskSnapshot = (source, signature, status, reason, error) => {
+                    try {
+                        const disk = parseDisk(source);
+                        this.distributedQueueCache = DistributedPlanQueue.keepCurrentObservations(JSON.parse(JSON.stringify(disk)), (options.artifactMutation || options.publicationMutation || options.controlMutation) && this.distributedQueueRoot === root ? this.distributedQueueCache : undefined);
+                        this.distributedQueueRoot = root;
+                        this.distributedQueueDiskSignature = signature;
+                        this.distributedQueueStorageDiagnostics = { status, updatedAt: new Date().toISOString(), reason,
+                            ...(error ? { message: compactSensitiveText(errorMessage(error), 240) } : {}) };
+                        return true;
+                    }
+                    catch (reloadError) {
+                        this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(), reason,
+                            message: compactSensitiveText(errorMessage(error || reloadError), 240) };
+                        return false;
+                    }
+                };
+                const conflict = async (source, signature) => {
+                    publishDiskSnapshot(source, signature, "conflict", "queue-disk-version-changed");
+                    this.postState?.();
+                    throw new Error("另一窗口已更新该项目队列，本次旧快照未写入。已保留并刷新最近可信队列状态，请重试。");
+                };
+                const readDiskForSave = async () => {
+                    try {
+                        return await readDisk();
+                    }
+                    catch (error) {
+                        this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(),
+                            reason: "queue-version-check-failed", message: compactSensitiveText(errorMessage(error), 240) };
+                        this.postState?.();
+                        throw error;
+                    }
+                };
+                let diskSource = await readDiskForSave();
+                let diskSignature = DistributedPlanQueue.distributedQueueDiskSignature(diskSource);
+                let current;
                 try {
-                    return await readDisk();
+                    current = parseDisk(diskSource);
                 }
                 catch (error) {
-                    this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(),
-                        reason: "queue-version-check-failed", message: compactSensitiveText(errorMessage(error), 240) };
+                    publishDiskSnapshot(diskSource, diskSignature, "stale", "queue-disk-parse-failed", error);
                     this.postState?.();
                     throw error;
                 }
-            };
-            let diskSource = await readDiskForSave();
-            let diskSignature = DistributedPlanQueue.distributedQueueDiskSignature(diskSource);
-            let current;
-            try {
-                current = parseDisk(diskSource);
-            }
-            catch (error) {
-                publishDiskSnapshot(diskSource, diskSignature, "stale", "queue-disk-parse-failed", error);
-                this.postState?.();
-                throw error;
-            }
-            const baseSignature = DistributedPlanQueue.distributedQueueBaseSignature(queue)
-                || DistributedPlanQueue.distributedQueueDiskSignature("");
-            if (options.mutateLatest) {
-                // Delta patches read and mutate inside the same serialized/leased storage transaction.
-                const latest = DistributedPlanQueue.cloneDistributedQueue(current, diskSignature);
-                queue = options.mutateLatest(latest);
-                if (queue === latest) {
-                    // An unchanged confirmation still refreshes display from the leased disk read.
-                    // Do not create another multi-MiB staging write for every verified job.
-                    publishDiskSnapshot(diskSource, diskSignature, "ready", undefined);
-                    return;
+                const baseSignature = DistributedPlanQueue.distributedQueueBaseSignature(queue)
+                    || DistributedPlanQueue.distributedQueueDiskSignature("");
+                if (options.mutateLatest) {
+                    // Delta patches read and mutate inside the same serialized/leased storage transaction.
+                    const latest = DistributedPlanQueue.cloneDistributedQueue(current, diskSignature);
+                    queue = options.mutateLatest(latest);
+                    if (queue === latest) {
+                        // An unchanged confirmation still refreshes display from the leased disk read.
+                        // Do not create another multi-MiB staging write for every verified job.
+                        publishDiskSnapshot(diskSource, diskSignature, "ready", undefined);
+                        return;
+                    }
                 }
-            }
-            else if (!options.appendPlanId && diskSignature !== baseSignature
-                && !DistributedPlanQueue.queueMetadataAdvanceRecorded(this.distributedQueueMetadataWrites || [], root, baseSignature, diskSignature)) {
-                await conflict(diskSource, diskSignature);
-            }
-            if (options.appendPlanId && current) {
-                const appended = queue.plans.find((plan) => plan.id === options.appendPlanId);
-                if (!appended)
-                    throw new Error("提交缺少待入队 Plan，未写入队列");
-                const declaredPaths = job => [job.outputDir, job.collectionResultCsv].filter(value => typeof value === "string" && value)
-                    .map(value => value.replace(/\\/g, "/").replace(/\/+$/, "")).filter(Boolean);
-                const overlapsSelected = job => {
-                    const existing = declaredPaths(job);
-                    return appended.jobs.some(selected => {
-                        const incoming = declaredPaths(selected);
-                        return !existing.length || !incoming.length || existing.some(a => incoming.some(b => a === b || a.startsWith(b + "/") || b.startsWith(a + "/")));
+                else if (!options.appendPlanId && diskSignature !== baseSignature
+                    && !DistributedPlanQueue.queueMetadataAdvanceRecorded(this.distributedQueueMetadataWrites || [], root, baseSignature, diskSignature)) {
+                    await conflict(diskSource, diskSignature);
+                }
+                if (options.appendPlanId && current) {
+                    const appended = queue.plans.find((plan) => plan.id === options.appendPlanId);
+                    if (!appended)
+                        throw new Error("提交缺少待入队 Plan，未写入队列");
+                    const declaredPaths = job => [job.outputDir, job.collectionResultCsv].filter(value => typeof value === "string" && value)
+                        .map(value => value.replace(/\\/g, "/").replace(/\/+$/, "")).filter(Boolean);
+                    const overlapsSelected = job => {
+                        const existing = declaredPaths(job);
+                        return appended.jobs.some(selected => {
+                            const incoming = declaredPaths(selected);
+                            return !existing.length || !incoming.length || existing.some(a => incoming.some(b => a === b || a.startsWith(b + "/") || b.startsWith(a + "/")));
+                        });
+                    };
+                    // Native disk status is deliberately unknown after reload. An
+                    // older run of this PLAN cannot reserve unrelated job paths.
+                    if (current.plans.some(plan => plan.id !== appended.id && DistributedPlanQueue.sameDistributedPlanFile(plan.planFile, appended.planFile) &&
+                        plan.jobs.some(job => !["completed", "failed", "cancelled"].includes(job.status) && overlapsSelected(job)))) {
+                        throw new UiCommandRemotePending("该 Plan 的所选 job 已由其他提交入队，已阻止重复提交。请刷新核对对应 job；其他 job 和产物保持不变。");
+                    }
+                    queue = { ...current, plans: [...current.plans.filter((plan) => plan.id !== appended.id), appended],
+                        deferred: (current.deferred || []).map((row) => row.id === options.supersededDeferredId
+                            ? { ...row, status: "superseded", error: "已被继续提交接续，不再自动派发。", supersededBy: appended.id } : row) };
+                }
+                if (current) {
+                    if (!options.artifactMutation) {
+                        const oldPlans = new Map(current.plans.map((plan) => [plan.id, plan]));
+                        queue = { ...queue, plans: queue.plans.map((plan) => {
+                                const oldJobs = new Map((oldPlans.get(plan.id)?.jobs || []).map((job) => [job.index, job]));
+                                return { ...plan, jobs: plan.jobs.map((job) => {
+                                        const old = oldJobs.get(job.index);
+                                        if (!old || old.attempt !== job.attempt || old.commandId !== job.commandId || old.nextCommandId !== job.nextCommandId)
+                                            return job;
+                                        const terminal = ["completed", "failed", "cancelled"].includes(job.status);
+                                        const terminalLog = DistributedPlanQueue.terminalHistoryLogBinding(plan, job);
+                                        return { ...job, artifacts: old.artifacts, fragmentWorkerIds: old.fragmentWorkerIds,
+                                            mirroredWorkerIds: old.mirroredWorkerIds,
+                                            outputRetiredAt: old.outputRetiredAt,
+                                            artifactError: old.artifactError, artifactRetryAfter: old.artifactRetryAfter, latestArtifactSync: old.latestArtifactSync,
+                                            error: job.error || old.error,
+                                            logPath: terminal ? (terminalLog?.logPath || "") : (job.logPath || old.logPath),
+                                            ...(terminalLog ? { historyLogIdentity: terminalLog.historyLogIdentity }
+                                                : terminal ? { historyLogIdentity: undefined } : old.historyLogIdentity ? { historyLogIdentity: old.historyLogIdentity } : {}),
+                                            finishedAt: job.finishedAt || old.finishedAt };
+                                    }) };
+                            }) };
+                    }
+                    if (!options.publicationMutation)
+                        queue = { ...queue, publishedSignature: current.publishedSignature,
+                            publishedWorkerId: current.publishedWorkerId, publishedWorkerIds: current.publishedWorkerIds,
+                            publishedPaths: current.publishedPaths, previewSignature: current.previewSignature,
+                            previewWorkerId: current.previewWorkerId, previewWorkerIds: current.previewWorkerIds,
+                            previewPaths: current.previewPaths };
+                }
+                // 块B：新意图在此（合并完成后、序列化前）过统一同意；被剥回的意图不写盘也不发送，
+                // 保留 pending/ready 与真实等待原因；批准方案§4“同意必须先于任何远端 await 落盘”。
+                // P0-2：锁内复核登记集合/域身份（登记 mutate 同持统一资源）；同意段始终在统一资源内执行，
+                // 管理下绝不静默 unlocked 同意。
+                let dispatchReceipt;
+                if (options.dispatchAdmission === true) {
+                    let admissionQueue = queue;
+                    dispatchReceipt = await this.withUnifiedAdmissionLease("统一派发准入", async () => {
+                        // 复核必须在持有统一资源之后：登记/移除的读-改-写持同一资源，这里读到的一定是稳定态。
+                        const domainNow = this.unifiedDomainState();
+                        if (domainNow.blocked)
+                            throw new Error(`统一派发准入：事务内登记表变化：${domainNow.blocked}；已拒绝本次带新派发意图的队列写入，任务留在本地。`);
+                        if (!domainNow.active) {
+                            // 块B返修：域未成立/零登记不启用同意、receipt 仍 undefined、单项目发送行为不变，
+                            // 但真新意图的同事务本机追踪事实必须落盘——这是域成立后守卫如实区分
+                            // "升级前无 trace 旧任务（兼容照旧）"与"升级后从未过准入新意图"的唯一持久依据。
+                            const newIntents = UnifiedDispatchAdmission.diffNewDispatchIntents(current, admissionQueue);
+                            if (newIntents.length) {
+                                admissionQueue = UnifiedDispatchAdmission.attachAdmissionTraces(admissionQueue, newIntents);
+                                UnifiedDispatchAdmission.syncAdmissionTracesInPlace(workingQueue || admissionQueue, newIntents);
+                            }
+                            return undefined;
+                        }
+                        const admission = await this.computeUnifiedDispatchAdmission(root, current, admissionQueue, workingQueue);
+                        admissionQueue = admission.queue;
+                        return admission.receipt;
                     });
-                };
-                // Native disk status is deliberately unknown after reload. An
-                // older run of this PLAN cannot reserve unrelated job paths.
-                if (current.plans.some(plan => plan.id !== appended.id && DistributedPlanQueue.sameDistributedPlanFile(plan.planFile, appended.planFile) &&
-                    plan.jobs.some(job => !["completed", "failed", "cancelled"].includes(job.status) && overlapsSelected(job)))) {
-                    throw new UiCommandRemotePending("该 Plan 的所选 job 已由其他提交入队，已阻止重复提交。请刷新核对对应 job；其他 job 和产物保持不变。");
+                    queue = admissionQueue;
                 }
-                queue = { ...current, plans: [...current.plans.filter((plan) => plan.id !== appended.id), appended],
-                    deferred: (current.deferred || []).map((row) => row.id === options.supersededDeferredId
-                        ? { ...row, status: "superseded", error: "已被继续提交接续，不再自动派发。", supersededBy: appended.id } : row) };
-            }
-            if (current) {
-                if (!options.artifactMutation) {
-                    const oldPlans = new Map(current.plans.map((plan) => [plan.id, plan]));
-                    queue = { ...queue, plans: queue.plans.map((plan) => {
-                            const oldJobs = new Map((oldPlans.get(plan.id)?.jobs || []).map((job) => [job.index, job]));
-                            return { ...plan, jobs: plan.jobs.map((job) => {
-                                    const old = oldJobs.get(job.index);
-                                    if (!old || old.attempt !== job.attempt || old.commandId !== job.commandId || old.nextCommandId !== job.nextCommandId)
-                                        return job;
-                                    const terminal = ["completed", "failed", "cancelled"].includes(job.status);
-                                    const terminalLog = DistributedPlanQueue.terminalHistoryLogBinding(plan, job);
-                                    return { ...job, artifacts: old.artifacts, fragmentWorkerIds: old.fragmentWorkerIds,
-                                        mirroredWorkerIds: old.mirroredWorkerIds,
-                                        outputRetiredAt: old.outputRetiredAt,
-                                        artifactError: old.artifactError, artifactRetryAfter: old.artifactRetryAfter, latestArtifactSync: old.latestArtifactSync,
-                                        error: job.error || old.error,
-                                        logPath: terminal ? (terminalLog?.logPath || "") : (job.logPath || old.logPath),
-                                        ...(terminalLog ? { historyLogIdentity: terminalLog.historyLogIdentity }
-                                            : terminal ? { historyLogIdentity: undefined } : old.historyLogIdentity ? { historyLogIdentity: old.historyLogIdentity } : {}),
-                                        finishedAt: job.finishedAt || old.finishedAt };
-                                }) };
-                        }) };
+                await fs.mkdir(path.dirname(file), { recursive: true });
+                const serialized = DistributedPlanQueue.serializeDistributedQueue(queue);
+                let publicationConflict = false;
+                try {
+                    await (0, StateStore_1.atomicWriteText)(file, serialized, { beforeRename: async () => {
+                            assertStopBatch();
+                            if (!options.appendPlanId && options.queueGeneration !== undefined && options.queueGeneration !== this.distributedQueueGeneration) {
+                                const stale = new Error("过期调度轮次，已拒绝写入队列");
+                                stale.code = "STALE_QUEUE_ROUND";
+                                throw stale;
+                            }
+                            if (options.submissionOperationId && ((this.distributedSubmissionEpochs?.get(options.submissionOperationId) || 0) !== options.submissionEpoch || workspaceRoot() !== root))
+                                throw new Error("提交已取消，已拒绝写入队列");
+                            const latestSource = await readDiskForSave();
+                            const latestSignature = DistributedPlanQueue.distributedQueueDiskSignature(latestSource);
+                            if (latestSignature !== diskSignature) {
+                                publicationConflict = true;
+                                await conflict(latestSource, latestSignature);
+                            }
+                        } });
                 }
-                if (!options.publicationMutation)
-                    queue = { ...queue, publishedSignature: current.publishedSignature,
-                        publishedWorkerId: current.publishedWorkerId, publishedWorkerIds: current.publishedWorkerIds,
-                        publishedPaths: current.publishedPaths, previewSignature: current.previewSignature,
-                        previewWorkerId: current.previewWorkerId, previewWorkerIds: current.previewWorkerIds,
-                        previewPaths: current.previewPaths };
+                catch (error) {
+                    if (!publicationConflict)
+                        this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(),
+                            reason: "queue-commit-failed", message: compactSensitiveText(errorMessage(error), 240) };
+                    this.postState?.();
+                    throw error;
+                }
+                this.distributedQueueRoot = root;
+                this.distributedQueueCache = DistributedPlanQueue.keepCurrentObservations(JSON.parse(JSON.stringify(queue)), (options.artifactMutation || options.publicationMutation || options.controlMutation) && this.distributedQueueRoot === root ? this.distributedQueueCache : undefined);
+                this.distributedQueueDiskSignature = DistributedPlanQueue.distributedQueueDiskSignature(serialized);
+                if (options.artifactMutation || options.publicationMutation) {
+                    this.distributedQueueMetadataWrites = [...(this.distributedQueueMetadataWrites || []),
+                        { root, from: diskSignature, to: this.distributedQueueDiskSignature }].slice(-64);
+                }
+                DistributedPlanQueue.setDistributedQueueBaseSignature(queue, this.distributedQueueDiskSignature);
+                if (workingQueue && workingQueue !== queue)
+                    DistributedPlanQueue.setDistributedQueueBaseSignature(workingQueue, this.distributedQueueDiskSignature);
+                this.distributedQueueStorageDiagnostics = { status: "ready" };
+                if (options.appendPlanId || options.controlMutation && options.stopBatchEpoch === undefined) {
+                    this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
+                    this.distributedTickAbort?.abort();
+                    this.detachStaleDistributedTick(this.distributedQueueTickPromise);
+                }
+                return dispatchReceipt;
+            }, unifiedEngage ? { unifiedDispatch: true } : {});
+            // r46 A 提交成功尾：写锁已释放、最新 cache/签名已发布，同步通知根级订阅者复核自己的等待；
+            // throw/围栏（STALE/冲突/取消/receipt 拒绝）路径均不到达此处。观察者不得在此 await 载入（会重入写锁），通知失败不影响提交。
+            for (const observer of [...(this.distributedQueueCommitObservers || [])]) {
+                try {
+                    observer(root);
+                }
+                catch { /* 观察失败不影响队列提交 */ }
             }
-            await fs.mkdir(path.dirname(file), { recursive: true });
-            const serialized = DistributedPlanQueue.serializeDistributedQueue(queue);
-            let publicationConflict = false;
-            try {
-                await (0, StateStore_1.atomicWriteText)(file, serialized, { beforeRename: async () => {
-                        assertStopBatch();
-                        if (!options.appendPlanId && options.queueGeneration !== undefined && options.queueGeneration !== this.distributedQueueGeneration) {
-                            const stale = new Error("过期调度轮次，已拒绝写入队列");
-                            stale.code = "STALE_QUEUE_ROUND";
-                            throw stale;
-                        }
-                        if (options.submissionOperationId && ((this.distributedSubmissionEpochs?.get(options.submissionOperationId) || 0) !== options.submissionEpoch || workspaceRoot() !== root))
-                            throw new Error("提交已取消，已拒绝写入队列");
-                        const latestSource = await readDiskForSave();
-                        const latestSignature = DistributedPlanQueue.distributedQueueDiskSignature(latestSource);
-                        if (latestSignature !== diskSignature) {
-                            publicationConflict = true;
-                            await conflict(latestSource, latestSignature);
-                        }
-                    } });
-            }
-            catch (error) {
-                if (!publicationConflict)
-                    this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(),
-                        reason: "queue-commit-failed", message: compactSensitiveText(errorMessage(error), 240) };
-                this.postState?.();
-                throw error;
-            }
-            this.distributedQueueRoot = root;
-            this.distributedQueueCache = DistributedPlanQueue.keepCurrentObservations(JSON.parse(JSON.stringify(queue)), (options.artifactMutation || options.publicationMutation || options.controlMutation) && this.distributedQueueRoot === root ? this.distributedQueueCache : undefined);
-            this.distributedQueueDiskSignature = DistributedPlanQueue.distributedQueueDiskSignature(serialized);
-            if (options.artifactMutation || options.publicationMutation) {
-                this.distributedQueueMetadataWrites = [...(this.distributedQueueMetadataWrites || []),
-                    { root, from: diskSignature, to: this.distributedQueueDiskSignature }].slice(-64);
-            }
-            DistributedPlanQueue.setDistributedQueueBaseSignature(queue, this.distributedQueueDiskSignature);
-            if (workingQueue && workingQueue !== queue)
-                DistributedPlanQueue.setDistributedQueueBaseSignature(workingQueue, this.distributedQueueDiskSignature);
-            this.distributedQueueStorageDiagnostics = { status: "ready" };
-            if (options.appendPlanId || options.controlMutation && options.stopBatchEpoch === undefined) {
-                this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
-                this.distributedTickAbort?.abort();
-                this.detachStaleDistributedTick(this.distributedQueueTickPromise);
-            }
-        }));
+            return committed;
+        });
         this.distributedQueueWritePromise = work;
-        await work;
+        return await work;
     }
     async patchDistributedJob(root, planId, index, attempt, fields) {
         let fileFactsChanged = false;
@@ -12572,8 +13865,36 @@ class RealtimeTunnelPanelProvider {
         void work.then(() => {
             this.completedPlanMirrorDiagnostics = { status: "ready", updatedAt: new Date().toISOString() };
         }, error => {
-            const previous = this.completedPlanMirrorDiagnostics?.status === "failed" ? Number(this.completedPlanMirrorDiagnostics.consecutiveFailures) || 0 : 0;
-            this.completedPlanMirrorDiagnostics = { status: "failed", reason: errorMessage(error), failedAt: new Date().toISOString(), consecutiveFailures: previous + 1 };
+            const previousStatus = this.completedPlanMirrorDiagnostics?.status === "failed" ? this.completedPlanMirrorDiagnostics : undefined;
+            const previous = previousStatus ? Number(previousStatus.consecutiveFailures) || 0 : 0;
+            const reason = errorMessage(error);
+            // r53: "same reason already surfaced" is scoped to the notification context that ACTUALLY received
+            // the notice — captured root+generation scalars only (never signal/client objects). A stale round the
+            // guard silently failed, or a failure in a different project, must never suppress THIS project's
+            // first notice for the same reason. The list survives only while the reason stays identical, and the
+            // ready-reset below drops it, so a later failure always gets a fresh notice.
+            const noticeScope = JSON.stringify([context.root, context.generation]);
+            const previousNotified = Array.isArray(previousStatus?.notifiedScopes) ? previousStatus.notifiedScopes : undefined;
+            const alreadyNotified = previousStatus?.reason === reason && Array.isArray(previousNotified) && previousNotified.includes(noticeScope);
+            this.completedPlanMirrorDiagnostics = { status: "failed", reason, failedAt: new Date().toISOString(), consecutiveFailures: previous + 1,
+                ...(previousStatus?.reason === reason && previousNotified ? { notifiedScopes: previousNotified } : {}) };
+            // r47 B: an outer auto-round rejection (before the per-job catch) surfaces through the same native
+            // notice. Typed cancellations/stale rounds are filtered — never by Chinese message strings — and a
+            // repeated same-reason failure keeps ONE notice (the notice itself also carries 5s/32-key dedupe).
+            // r50: only the project that CAPTURED this context may be notified — after a workspace switch the
+            // old round legitimately rejects in the sync body, and that stale failure must not pop into the
+            // NEW project's panel. Same gate as the finally block below; diagnostics above stay untouched.
+            if (!this.projectContextIsCurrent(context) || this.panelDisposed)
+                return;
+            if (!(error instanceof UiCommandCancelled_1.UiCommandCancelled) && error?.code !== "STALE_QUEUE_ROUND" && error?.code !== "REQUEST_REPLACED"
+                && !alreadyNotified) {
+                this.showNativePanelMessage({ tone: "error", message: `自动产物同步未完成：${reason}。运行完成状态不变，可在对应 Job 行重新同步。` });
+                // mark ONLY when the native notice really went out — a filtered or stale failure never
+                // pretends to have been shown, so the same reason still notifies in the proper scope.
+                const scopes = Array.isArray(this.completedPlanMirrorDiagnostics.notifiedScopes) ? this.completedPlanMirrorDiagnostics.notifiedScopes : [];
+                if (!scopes.includes(noticeScope))
+                    this.completedPlanMirrorDiagnostics.notifiedScopes = [...scopes, noticeScope];
+            }
         }).finally(() => {
             if (this.distributedPostprocessPromise !== work)
                 return;
@@ -13099,6 +14420,8 @@ class RealtimeTunnelPanelProvider {
             executionMode, executionModeSource: "validation",
             schedulingMode: DistributedSchedulingPolicy.schedulingMode("local_idle"),
             planJobCount: selectedJobs.length, fullPlanJobCount: validation.fullPlanJobCount || validation.jobs.length, planFile, revision, codeFingerprint,
+            // 块C：同一提交身份上追加 branch/HEAD/dirty/时间溯源（本机队列字段，不进 job/completion 身份、不改 Worker 协议）。
+            gitProvenance: this.queueGitProvenance(body.gitProvenance),
             executionSource: body.executionSource, overwriteExisting, jobs: selectedJobs.map((job) => ({
                 index: Number(job.index), case: String(job.case), seed: Number(job.seed),
                 outputDir: String(job.output_dir || "").replace(/\\/g, "/").replace(/\/$/, ""),
@@ -13270,6 +14593,13 @@ class RealtimeTunnelPanelProvider {
     async sendDistributedJob(plan, job, workerId, gpuId, commandId, sharedCodeManifest) {
         let transmissionStarted = false;
         try {
+            // 块B防旁路（批准方案§4）：统一域内只允许发送已在本机队列持久化同意的精确身份。
+            // 发送前的普适 save→send 顺序使所有既有通道自然通过；任何未来旁路在此被硬拒。
+            const unifiedSendDomain = this.unifiedDomainState();
+            if (unifiedSendDomain.blocked)
+                throw new Error(`统一派发准入：${unifiedSendDomain.blocked}；未发送任务。`);
+            if (unifiedSendDomain.active)
+                await this.assertUnifiedDispatchConsentPersisted(plan, job, workerId, gpuId, commandId);
             if (plan.resultPathPolicy !== "declared" || job.outputDir.split("/").includes("attempts"))
                 throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：旧队列仅供查看，不会重启既有任务。");
             const root = workspaceRoot(), client = this.client, generation = this.distributedQueueGeneration;
@@ -13861,14 +15191,20 @@ class RealtimeTunnelPanelProvider {
                 && String(this.lastCodeSyncState?.workerVersions?.[job.workerId]?.fingerprint || "") === plan.codeFingerprint
                 && !snapshotsByWorker.get(job.workerId)?.tasks?.some((row) => String(row.commandId || "") === job.commandId))
                 .map((job) => ({ planId: plan.id, jobIndex: job.index, workerId: job.workerId, commandId: job.commandId, attempt: job.attempt })));
-            const dispatches = [...allocation.dispatches, ...hosted.dispatches, ...hostedRetries.filter((retry) => !hosted.dispatches.some((item) => item.commandId === retry.commandId))];
+            let dispatches = [...allocation.dispatches, ...hosted.dispatches, ...hostedRetries.filter((retry) => !hosted.dispatches.some((item) => item.commandId === retry.commandId))];
             for (const dispatch of dispatches) {
                 const job = queue.plans.find((plan) => plan.id === dispatch.planId)?.jobs.find((job) => job.index === dispatch.jobIndex && job.attempt === dispatch.attempt && job.commandId === dispatch.commandId);
                 if (job)
                     job.lastDispatchAttemptAt = new Date().toISOString();
             }
+            // 块B：save 返回统一准入回执；被拒意图已随 save 剥回本地等待，绝不进入发送集合。
+            let durableAdmissionReceipt;
             if (dispatches.length)
-                await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+                durableAdmissionReceipt = await this.saveDistributedQueue(root, queue, { queueGeneration: generation, dispatchAdmission: true });
+            if (durableAdmissionReceipt?.dispatchAdmission && dispatches.some((item) => UnifiedDispatchAdmission.dispatchAdmissionDenied(durableAdmissionReceipt, item.planId, item.jobIndex, item.commandId))) {
+                dispatches = dispatches.filter((item) => !UnifiedDispatchAdmission.dispatchAdmissionDenied(durableAdmissionReceipt, item.planId, item.jobIndex, item.commandId));
+                this.postState();
+            }
             const dispatchPlans = [...new Map(dispatches.map((dispatch) => {
                     const plan = queue.plans.find((item) => item.id === dispatch.planId);
                     return plan ? [plan.id, plan] : ["", undefined];
@@ -14070,13 +15406,21 @@ class RealtimeTunnelPanelProvider {
             this.postState();
             return;
         }
+        // 块B：旧兼容路径同样必须过统一准入；这里的 job 查找不核 commandId，
+        // 所以被拒意图只能靠回执过滤排除（不得依赖队列状态）。
+        let legacyAdmissionReceipt;
         if (allocation.dispatches.length)
-            await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            legacyAdmissionReceipt = await this.saveDistributedQueue(root, queue, { queueGeneration: generation, dispatchAdmission: true });
         if (!queueWriteCurrent()) {
             this.postState();
             return;
         }
-        const launches = await Promise.all(allocation.dispatches.map(async (dispatch) => {
+        const sendableDispatches = legacyAdmissionReceipt?.dispatchAdmission
+            ? allocation.dispatches.filter((item) => !UnifiedDispatchAdmission.dispatchAdmissionDenied(legacyAdmissionReceipt, item.planId, item.jobIndex, item.commandId))
+            : allocation.dispatches;
+        if (sendableDispatches.length !== allocation.dispatches.length)
+            this.postState();
+        const launches = await Promise.all(sendableDispatches.map(async (dispatch) => {
             const plan = queue.plans.find((item) => item.id === dispatch.planId);
             const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex);
             if (!plan || !job || !queueWriteCurrent())
@@ -14583,7 +15927,7 @@ class RealtimeTunnelPanelProvider {
         const client = this.client;
         const isCurrent = () => !context.signal.aborted && this.projectContextIsCurrent(context) && client === this.client;
         if (context.root !== root || !isCurrent())
-            throw new UiCommandCancelled("审核项目已变化。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("审核项目已变化。");
         const fresh = await this.loadPlanOutputRetentionQueue(root);
         if (PlanVersionComparison.comparisonQueueIdentity(fresh) !== PlanVersionComparison.comparisonQueueIdentity(queue))
             throw new Error("运行状态已变化，请关闭后重新审核。");
@@ -14598,20 +15942,20 @@ class RealtimeTunnelPanelProvider {
             previewOnly: run.completed !== run.expected, summary: PlanRunFreshness.summaryForRunRecovery({}, run.planFile, run.authority) };
         await this.recoverCompletedJobMetricFiles(context, [item], isCurrent, token);
         if (!isCurrent())
-            throw new UiCommandCancelled("临时审核已关闭。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("临时审核已关闭。");
         item.candidates = resultMetricDownloadCandidates(item.summary, item.planFile);
         const issues = [];
         const downloads = await this.downloadMetricPlanItems(context, client, [item], isCurrent, token, "临时版本结果审核", issues, { report() { } });
         const memory = new Map(downloads.flatMap(download => (download.metricFiles || []).map(file => [download.sourceId + "\0" + file.remotePath, file])));
         try {
             if (!isCurrent())
-                throw new UiCommandCancelled("临时审核已关闭。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("临时审核已关闭。");
             if (issues.length || item.metricDiscoveryError || item.downloadFailed || !item.summary.workerResultTables?.length)
                 throw new Error(issues[0] || item.metricDiscoveryError || "该版本原始 wrapper 文件缺失或尚未核验。");
             const summary = await this.summaryFromLocalMetricFiles(root, run.planFile, item.summary, { memoryMetricFiles: memory,
                 downloadedSources: new Set(downloads.filter(verifiedDownload).map(download => download.sourceId)), completedRunId: run.runId, temporaryResultReview: true });
             if (!isCurrent())
-                throw new UiCommandCancelled("临时审核已关闭。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("临时审核已关闭。");
             return PlanVersionComparison.comparisonFromSummary(run, summary, pluginProjectAdapterRules(root));
         }
         finally {
@@ -14977,9 +16321,9 @@ class RealtimeTunnelPanelProvider {
                     return fresh;
                 };
                 if (await vscode.window.showWarningMessage(`永久删除该 job 的旧产物（第 1/2 次确认）\n${detail}\n仅影响这一个 job 的声明产物；PLAN、其他 job 与这张卡片本身保留。取消不删除任何文件，也不排队。`, { modal: true }, "确认删除（1/2）", "取消") !== "确认删除（1/2）" || !isCurrent())
-                    throw new UiCommandCancelled("已取消：未删除文件，未重新排队。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("已取消：未删除文件，未重新排队。");
                 if (await vscode.window.showWarningMessage(`不可恢复：永久删除以上全部路径（第 2/2 次确认）\n${detail}`, { modal: true }, "永久删除（2/2）", "取消") !== "永久删除（2/2）" || !isCurrent())
-                    throw new UiCommandCancelled("已取消：未删除文件，未重新排队。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("已取消：未删除文件，未重新排队。");
                 const exactTargets = deletable.map((row) => rowNode(row) + ":" + row.absolutePath);
                 await fenceOriginalIdentity("第 1 次确认前");
                 // confirm 前的重新预览只用于复核现状（身份、范围、目标内容未漂移）；比对通过后
@@ -14991,7 +16335,7 @@ class RealtimeTunnelPanelProvider {
                 await assertFreshSession("第 2 次确认前");
                 await cleanup.service.confirm({ token: listed.token, digest: listed.digest, phase: 2, confirm: true, exactTargets });
                 if (!isCurrent())
-                    throw new UiCommandCancelled("已取消：未删除文件，未重新排队。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("已取消：未删除文件，未重新排队。");
                 // 执行前同样按冻结快照复核当前身份与精确目标（每次确认/执行都复核），
                 // 复核只读现状；execute 仍绑定原 listed.token 会话与同一 exactTargets，不因复核换会话。
                 await fenceOriginalIdentity("执行前");
@@ -15110,7 +16454,7 @@ class RealtimeTunnelPanelProvider {
         this.manualDispatchInFlight.add(guardKey);
         try {
             const assertCurrent = () => { if (!isCurrent())
-                throw new UiCommandCancelled("工作区或服务器配置已变化，未继续重跑。"); };
+                throw new UiCommandCancelled_1.UiCommandCancelled("工作区或服务器配置已变化，未继续重跑。"); };
             const all = answer === "重跑全部 job";
             const selectedOld = all ? plan.jobs : [job];
             const rerunScopeKey = crypto.createHash("sha256").update(JSON.stringify([
@@ -15378,9 +16722,11 @@ class RealtimeTunnelPanelProvider {
                 const terminal = remoteStatus === "completed" ? "completed" : ["failed", "stopped"].includes(remoteStatus) ? "failed"
                     : ["cancelled", "canceled"].includes(remoteStatus) ? "cancelled" : undefined;
                 if (remoteStatus === "running" || remoteStatus === "starting" || terminal) {
+                    // P0-R：远端查询/停止回执核实的终态随之持久紧凑证明，跨投影清洗仍能释放统一名额。
                     Object.assign(job, { status: terminal || "running", recallRequested: undefined, recallOperationId: undefined,
                         reassignmentPending: undefined, blockReason: undefined,
-                        ...(terminal ? { trustedTerminalStatus: terminal } : {}) });
+                        ...(terminal ? { trustedTerminalStatus: terminal,
+                            trustedTerminalProof: (0, VerifiedCompletion_1.trustedTerminalProofFor)(plan, job, terminal, Date.now()) } : {}) });
                 }
                 else {
                     job.status = "unknown";
@@ -15494,7 +16840,7 @@ class RealtimeTunnelPanelProvider {
             ignoreFocusOut: true,
         });
         if (!picked)
-            throw new UiCommandCancelled(`${label} 未选择调度 Worker。`);
+            throw new UiCommandCancelled_1.UiCommandCancelled(`${label} 未选择调度 Worker。`);
         this.stampWorkerPoolManualTarget(body, picked.workerId);
         return picked.workerId;
     }
@@ -15558,7 +16904,7 @@ class RealtimeTunnelPanelProvider {
     }
     assertActionAuthorityCurrent(options = {}, message = "工作区或连接已切换，远端操作已取消。") {
         if (!this.actionAuthorityIsCurrent(options))
-            throw new UiCommandCancelled(message);
+            throw new UiCommandCancelled_1.UiCommandCancelled(message);
     }
     async postPlanSchedulerAction(action, body, options = {}) {
         this.assertActionAuthorityCurrent(options);
@@ -15678,7 +17024,7 @@ class RealtimeTunnelPanelProvider {
             const label = options.danger ? "确认危险操作" : "确认执行";
             const answer = await vscode.window.showWarningMessage(workerRemoteActionConfirmationDetail(command, action, body, workerIds), { modal: true }, label);
             if (answer !== label)
-                throw new UiCommandCancelled(`${command} 已取消。`);
+                throw new UiCommandCancelled_1.UiCommandCancelled(`${command} 已取消。`);
         }
         const submissions = [];
         for (const workerId of workerIds) {
@@ -15734,7 +17080,7 @@ class RealtimeTunnelPanelProvider {
             "模式切换不会迁移、覆盖或删除已有任务与结果。" + issueText,
         ].join("\n"), { modal: true }, "保存拓扑");
         if (answer !== "保存拓扑")
-            throw new UiCommandCancelled("拓扑模式修改已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("拓扑模式修改已取消。");
         const config = vscode.workspace.getConfiguration("simpleExperiment", folder.uri);
         await config.update("topologyMode", requestedMode, vscode.ConfigurationTarget.WorkspaceFolder);
         await this.applyTopologyRuntimeMode(requestedMode, "topology saved from UI");
@@ -15784,7 +17130,7 @@ class RealtimeTunnelPanelProvider {
         ].join("\n");
         const answer = await vscode.window.showWarningMessage(detail, { modal: true }, "确认手动转移");
         if (answer !== "确认手动转移")
-            throw new UiCommandCancelled("手动转移已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("手动转移已取消。");
         const nextMessage = { ...message, workerId: picked.workerId, selectedWorkerIds: [picked.workerId], planFile, runKey: reassignmentRunKey };
         const body = this.actionBody(nextMessage);
         await this.refreshLocalPlanMetadataForAction(body);
@@ -16037,7 +17383,7 @@ class RealtimeTunnelPanelProvider {
         const releaseWorkerAction = await this.enterWorkerActionSlot(workerId);
         if (!this.actionAuthorityIsCurrent(options)) {
             releaseWorkerAction();
-            throw new UiCommandCancelled("工作区或连接已切换，Worker 操作已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("工作区或连接已切换，Worker 操作已取消。");
         }
         const workerActionKey = workerActionDedupKey(action, workerId, body);
         let active = this.activeWorkerActionOperation(workerActionKey);
@@ -16047,7 +17393,7 @@ class RealtimeTunnelPanelProvider {
             await this.refreshOperationStatus(active.operationId, action, workerId, 0, this.client).catch(() => false);
             if (generation !== this.projectContextGeneration || client !== this.client) {
                 releaseWorkerAction();
-                throw new UiCommandCancelled("项目或连接已切换，未重新提交旧请求。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("项目或连接已切换，未重新提交旧请求。");
             }
             active = this.activeWorkerActionOperation(workerActionKey);
         }
@@ -16065,12 +17411,12 @@ class RealtimeTunnelPanelProvider {
                 const answer = await vscode.window.showWarningMessage(workerRemoteActionConfirmationDetail(command, action, body, [workerId]), { modal: true }, label);
                 if (answer !== label) {
                     releaseWorkerAction();
-                    throw new UiCommandCancelled(`${command} 已取消。`);
+                    throw new UiCommandCancelled_1.UiCommandCancelled(`${command} 已取消。`);
                 }
             }
             if (!this.actionAuthorityIsCurrent(options)) {
                 releaseWorkerAction();
-                throw new UiCommandCancelled("工作区或连接已切换，Worker 操作已取消。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("工作区或连接已切换，Worker 操作已取消。");
             }
         }
         const generation = options.projectContext?.generation ?? this.projectContextGeneration;
@@ -17719,7 +19065,7 @@ class RealtimeTunnelPanelProvider {
             destination: path.resolve(root, "clean_dir", ...item.path.split("/")),
         }));
         if (!await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("移入 clean_dir", "将把以下精确文件原子移动到项目 clean_dir，保留文件内容并记录 SHA256 清单；不会永久删除。", paths.map((item) => ({ label: `${item.label} → ${item.destination}`, path: item.path })), `移动 ${selected.length} 个文件`))
-            throw new UiCommandCancelled("草稿清理已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("草稿清理已取消。");
         const result = await this.withHostOperationLease("cleanupDrafts", "将草稿移入 clean_dir", () => DraftPlans_1.cleanupApprovedDrafts(root, this.draftPlanState.drafts || [], selected.map((item) => item.path)), {
             resources: [{ server: "local", project: root, target: path.join(root, "clean_dir") }],
         });
@@ -17748,7 +19094,7 @@ class RealtimeTunnelPanelProvider {
             return;
         const assertCurrent = () => {
             if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-                throw new UiCommandCancelled("工作区已切换，Plan 保存已取消。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，Plan 保存已取消。");
         };
         await writeWorkspaceTextWithBackup(fullPath, ensurePlanPurposeHeader(text, path.basename(file)), assertCurrent);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
@@ -17809,9 +19155,9 @@ class RealtimeTunnelPanelProvider {
             "单文件上限 4 MB；总量上限 128 MB；原文件保持不变。",
         ].join("\n"), { modal: true }, "确认复制归档");
         if (confirmation !== "确认复制归档")
-            throw new UiCommandCancelled("轻量归档已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("轻量归档已取消。");
         if (!this.projectContextIsCurrent(context) || client !== this.client)
-            throw new UiCommandCancelled("工作区或连接已切换，轻量归档已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("工作区或连接已切换，轻量归档已取消。");
         const completed = [];
         for (const workerId of workers) {
             const opId = makeOpId("archive-plan-copy");
@@ -17821,7 +19167,7 @@ class RealtimeTunnelPanelProvider {
                 for (let attempt = 0; attempt < 45 && remoteActionPendingStatus(resultStatus(result)); attempt += 1) {
                     await sleep(1000);
                     if (!this.projectContextIsCurrent(context) || client !== this.client)
-                        throw new UiCommandCancelled("连接已切换；远端归档状态可在操作进度查看。");
+                        throw new UiCommandCancelled_1.UiCommandCancelled("连接已切换；远端归档状态可在操作进度查看。");
                     result = await client.getWorkerOperation(workerId, opId);
                 }
             }
@@ -17864,7 +19210,7 @@ class RealtimeTunnelPanelProvider {
                 if (Number(result?.fileCount ?? result?.completedFiles ?? 0) !== chunk.length)
                     throw new Error(`${workerId} 归档映射下载数量与清单不一致。`);
                 if (!this.projectContextIsCurrent(context) || client !== this.client)
-                    throw new UiCommandCancelled("连接已切换；远端副本已保留，本地下载未完成。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("连接已切换；远端副本已保留，本地下载未完成。");
             }
             const manifest = JSON.parse(await fs.readFile(path.join(workerLocal, "manifest.json"), "utf8"));
             if (manifest.planFile !== planFile || !Array.isArray(manifest.files))
@@ -17903,7 +19249,7 @@ class RealtimeTunnelPanelProvider {
         const isCurrent = () => this.projectContextIsCurrent(projectContext) && client === this.client;
         const assertCurrent = () => {
             if (!isCurrent())
-                throw new UiCommandCancelled("工作区或连接已切换，Plan 归档已取消。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("工作区或连接已切换，Plan 归档已取消。");
         };
         const file = stringField(message, "file") || stringField(message, "planFile") || this.planFileInput || this.selectedPlanId;
         if (!file)
@@ -17986,7 +19332,7 @@ class RealtimeTunnelPanelProvider {
         ].join("\n"), { modal: true }, confirmLabel);
         assertCurrent();
         if (answer !== confirmLabel)
-            throw new UiCommandCancelled("Plan 归档已取消，未创建归档包或迁移文件。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("Plan 归档已取消，未创建归档包或迁移文件。");
         const stagingDir = `${bundleDir}.staging`;
         let bundlePublished = false;
         let stagingCreated = false;
@@ -18114,7 +19460,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error("需要先打开工作区。");
         const assertCurrent = () => {
             if (!this.projectContextIsCurrent(projectContext))
-                throw new UiCommandCancelled("工作区已切换，归档 Plan 恢复已取消。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，归档 Plan 恢复已取消。");
         };
         const file = stringField(message, "file") || stringField(message, "planFile");
         if (!file)
@@ -18171,7 +19517,7 @@ class RealtimeTunnelPanelProvider {
         ].join("\n"), { modal: true }, confirmLabel);
         assertCurrent();
         if (answer !== confirmLabel)
-            throw new UiCommandCancelled("恢复归档 Plan 已取消，未写入新版本或恢复资产。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("恢复归档 Plan 已取消，未写入新版本或恢复资产。");
         let restoredConfigs = 0;
         let missingConfigs = 0;
         const configPathMap = new Map();
@@ -18296,7 +19642,7 @@ class RealtimeTunnelPanelProvider {
             return result;
         }
         catch (error) {
-            this.finishOperationProgressNotice(parentKey, error instanceof UiCommandCancelled ? "cancelled" : "failed", error instanceof Error ? error.message : String(error));
+            this.finishOperationProgressNotice(parentKey, error instanceof UiCommandCancelled_1.UiCommandCancelled ? "cancelled" : "failed", error instanceof Error ? error.message : String(error));
             throw error;
         }
     }
@@ -18340,7 +19686,7 @@ class RealtimeTunnelPanelProvider {
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             if (value === undefined)
-                throw new UiCommandCancelled("生成 Plan 已取消。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("生成 Plan 已取消。");
             trainCommand = value;
         }
         let testEntry = "";
@@ -18357,7 +19703,7 @@ class RealtimeTunnelPanelProvider {
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             if (value === undefined)
-                throw new UiCommandCancelled("生成 Plan 已取消。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("生成 Plan 已取消。");
             testCommand = value;
         }
         const resultStage = mode === "train" ? "train" : "test";
@@ -18368,7 +19714,7 @@ class RealtimeTunnelPanelProvider {
         if (!this.projectContextIsCurrent(projectContext))
             return;
         if (resultPath === undefined)
-            throw new UiCommandCancelled("生成 Plan 已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("生成 Plan 已取消。");
         const requiresConfig = guidedPlanCommandUsesConfig(trainCommand) || guidedPlanCommandUsesConfig(testCommand);
         const baseConfig = await this.pickPlanBaseConfig(configs, { root, suite, requiresConfig });
         if (!this.projectContextIsCurrent(projectContext))
@@ -18440,7 +19786,7 @@ class RealtimeTunnelPanelProvider {
             ignoreFocusOut: true,
         });
         if (!picked)
-            throw new UiCommandCancelled("生成 Plan 已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("生成 Plan 已取消。");
         return picked.label;
     }
     async pickPlanBaseConfig(configs, options = {}) {
@@ -18450,7 +19796,7 @@ class RealtimeTunnelPanelProvider {
                 return guidedPlanFallbackConfigPath(options.suite);
             const selected = await inputExistingWorkspaceConfig(options.root);
             if (selected === undefined)
-                throw new UiCommandCancelled("生成 Plan 已取消。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("生成 Plan 已取消。");
             return selected;
         }
         const recommended = guidedPlanRecommendedConfig(list);
@@ -18463,7 +19809,7 @@ class RealtimeTunnelPanelProvider {
             ignoreFocusOut: true,
         });
         if (!picked)
-            throw new UiCommandCancelled("生成 Plan 已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("生成 Plan 已取消。");
         return picked.label;
     }
     async pickProjectBootstrapPlan(plans) {
@@ -18486,7 +19832,7 @@ class RealtimeTunnelPanelProvider {
             ignoreFocusOut: true,
         });
         if (!picked)
-            throw new UiCommandCancelled("工作区识别已取消，未选择 Plan。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("工作区识别已取消，未选择 Plan。");
         return picked.plan;
     }
     async bootstrapProjectFromUi() {
@@ -18946,7 +20292,7 @@ class RealtimeTunnelPanelProvider {
             filters: { "PowerPoint": ["pptx", "pptm", "ppt"], "所有文件": ["*"] },
         });
         if (!picked)
-            throw new UiCommandCancelled("选择 PPT 路径已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("选择 PPT 路径已取消。");
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
         await this.updatePptPresentationPath(picked[0]?.fsPath || "");
@@ -18962,7 +20308,7 @@ class RealtimeTunnelPanelProvider {
             filters: { "PowerPoint": ["pptx", "pptm", "ppt"], "所有文件": ["*"] },
         });
         if (!picked)
-            throw new UiCommandCancelled("选择新 PPT 路径已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("选择新 PPT 路径已取消。");
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
         await this.updatePptPresentationPath(picked.fsPath);
@@ -18970,7 +20316,7 @@ class RealtimeTunnelPanelProvider {
     async updatePptPresentationPath(presentationPath) {
         const projectContext = this.captureProjectContext();
         if (!presentationPath)
-            throw new UiCommandCancelled("选择 PPT 路径已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("选择 PPT 路径已取消。");
         if (!this.projectContextIsCurrent(projectContext))
             return;
         this.projectPptPlotConfig = normalizePptPlotConfig({ ...this.pptPlotConfig(), presentationPath });
@@ -19051,7 +20397,7 @@ class RealtimeTunnelPanelProvider {
         const generation = this.projectContextGeneration;
         await this.loadProjectPptPathConfirmationsState();
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-            throw new UiCommandCancelled("工作区已切换，PPT 绘图确认已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，PPT 绘图确认已取消。");
         const target = normalizePptPathConfirmationTarget(input.presentationPath, root);
         if (target.presentationPath)
             input.presentationPath = target.presentationPath;
@@ -19060,9 +20406,9 @@ class RealtimeTunnelPanelProvider {
         const rememberLabel = target.presentationPath ? "确认，此后不再提醒该路径" : "确认，此后不再提醒新建 PPT";
         const answer = await vscode.window.showWarningMessage(pptPlotConfirmationDetail(input, target), { modal: true }, "确认位置并绘图", rememberLabel);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-            throw new UiCommandCancelled("工作区已切换，PPT 绘图确认已取消。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，PPT 绘图确认已取消。");
         if (!["确认位置并绘图", rememberLabel].includes(String(answer || "")))
-            throw new UiCommandCancelled("PPT 绘图已取消，未调用 PPT 插件，也未写入绘图请求审计。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("PPT 绘图已取消，未调用 PPT 插件，也未写入绘图请求审计。");
         if (answer === rememberLabel) {
             this.confirmedPptPaths = mergePptPathConfirmations(this.confirmedPptPaths, [{ ...target, confirmedAt: new Date().toISOString() }]);
             await this.persistProjectPptPathConfirmationsState();
@@ -19642,7 +20988,7 @@ class RealtimeTunnelPanelProvider {
                     throw new Error("请先打开当前实验项目。");
                 const queue = await this.loadPlanOutputRetentionQueue(root);
                 if (workspaceRoot() !== root)
-                    throw new UiCommandCancelled("项目已切换，未审核旧项目的产物。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("项目已切换，未审核旧项目的产物。");
                 const runIds = PlanArtifactSyncStatus.latestCompletePlansForSyncCheck(queue, this.localPlanMetadata?.plans || []).map(plan => plan.id);
                 const olderIds = PlanOutputRetention.outputVersionReview(queue).flatMap(row => row.olderRunIds);
                 await this.retainLatestDistributedPlanOutputs(root, runIds, olderIds, true);
@@ -20478,7 +21824,7 @@ class RealtimeTunnelPanelProvider {
             if (!sourceWorker) {
                 const selected = await vscode.window.showQuickPick(targets.map(target => ({ label: target.id, workerId: target.id })), { title: "选择调试包所在的 Worker", ignoreFocusOut: true });
                 if (!selected)
-                    throw new UiCommandCancelled("已取消调试包下载。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("已取消调试包下载。");
                 sourceWorker = selected.workerId;
             }
             const server = this.mappedDownloadServerForSource(sourceWorker);
@@ -20564,7 +21910,7 @@ class RealtimeTunnelPanelProvider {
             `通过 Worker ${workerId} 的 SimpleSFTP 只读读取，不修改远端文件。`,
         ].join("\n"), { modal: true }, "临时读取并查看");
         if (answer !== "临时读取并查看")
-            throw new UiCommandCancelled("远端结果查看已取消，未下载文件。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("远端结果查看已取消，未下载文件。");
         if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
             return;
         // memoryOnly read: bytes are verified in memory and no local generation is landed, so this
@@ -20654,7 +22000,7 @@ class RealtimeTunnelPanelProvider {
             return;
         }
         if (answer !== downloadLabel)
-            throw new UiCommandCancelled("结果文件打开已取消，未下载文件，也未切换当前 Plan。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("结果文件打开已取消，未下载文件，也未切换当前 Plan。");
         const result = await this.downloadMetricMemoryBatch({ ...projectContext, resultInspection: true }, client, { sourceId: useWorker ? workerId : "hub", workerId: useWorker ? workerId : undefined,
             entries: [{ remotePath: artifactPath, localRelativePath: localRelative }] }, "临时查看结果", undefined);
         if (!isCurrent())
@@ -20736,9 +22082,9 @@ class RealtimeTunnelPanelProvider {
         const readInventories = async (requested) => {
             for (const [workerId, scopePaths] of requested) {
                 if (!isCurrent() || token?.isCancellationRequested)
-                    throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("指标下载已取消，保留现有表格。");
                 const abort = new AbortController();
-                const cancel = () => abort.abort(new UiCommandCancelled("指标校验已取消，保留现有表格。"));
+                const cancel = () => abort.abort(new UiCommandCancelled_1.UiCommandCancelled("指标校验已取消，保留现有表格。"));
                 const listener = token?.onCancellationRequested?.(cancel);
                 try {
                     const source = this.mappedDownloadServerForSource(workerId);
@@ -20751,7 +22097,7 @@ class RealtimeTunnelPanelProvider {
                         unverifiedFiles: { ...previous?.unverifiedFiles, ...inventory.unverifiedFiles } });
                 }
                 catch (error) {
-                    if (error instanceof UiCommandCancelled || !isCurrent() || token?.isCancellationRequested)
+                    if (error instanceof UiCommandCancelled_1.UiCommandCancelled || !isCurrent() || token?.isCancellationRequested)
                         throw error;
                     unavailable.add(workerId);
                     for (const recovery of recoveries.filter((row) => row.files.some((file) => file.job.workerId === workerId)))
@@ -20806,7 +22152,7 @@ class RealtimeTunnelPanelProvider {
                     await readInventories(additional);
             }
             catch (error) {
-                if (error instanceof UiCommandCancelled || !isCurrent() || token?.isCancellationRequested)
+                if (error instanceof UiCommandCancelled_1.UiCommandCancelled || !isCurrent() || token?.isCancellationRequested)
                     throw error;
                 for (const file of manifestFiles)
                     file.discoveryError = errorMessage(error);
@@ -20922,12 +22268,12 @@ class RealtimeTunnelPanelProvider {
             }).filter((batch) => batch.entries.length));
         }
         if (!isCurrent() || token?.isCancellationRequested)
-            throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("指标下载已取消，保留现有表格。");
         const cachedManifests = new Map(items.flatMap(item => [...(item.manifestMemory || new Map())]));
         const downloads = [];
         for (const batch of merged) {
             if (!isCurrent() || token?.isCancellationRequested)
-                throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("指标下载已取消，保留现有表格。");
             let download;
             try {
                 const cached = uniqueMappedTransfers(batch.entries).map(file => cachedManifests.get(batch.sourceId + "\0" + file.remotePath)).filter(Boolean);
@@ -20942,13 +22288,13 @@ class RealtimeTunnelPanelProvider {
                 download.networkBytes += cached.filter(file => !file.reused).reduce((total, file) => total + file.bytes, 0);
             }
             catch (error) {
-                if (error instanceof UiCommandCancelled || !isCurrent() || token?.isCancellationRequested)
+                if (error instanceof UiCommandCancelled_1.UiCommandCancelled || !isCurrent() || token?.isCancellationRequested)
                     throw error;
                 download = { sourceId: batch.sourceId, memoryOnly: true, completed: 0, selected: batch.entries.length,
                     failures: [errorMessage(error)], cancelled: false, metricFiles: [] };
             }
             if (download?.cancelled)
-                throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("指标下载已取消，保留现有表格。");
             downloads.push(download);
             if (download?.failures?.length)
                 issues.push("来源 " + batch.sourceId + " 指标下载失败：" + download.failures.slice(0, 3).join("；") + "，保留旧表。");
@@ -20958,7 +22304,7 @@ class RealtimeTunnelPanelProvider {
     async downloadMetricMemoryBatch(context, client, batch, title, token, suppliedProgress) {
         const isCurrent = () => !context.signal?.aborted && !(0, SafeRequestRetry_1.retryRequestSignal)()?.aborted && this.projectContextIsCurrent(context) && client === this.client;
         const check = () => { if (!isCurrent() || token?.isCancellationRequested)
-            throw new UiCommandCancelled("指标下载已取消，保留现有表格。"); };
+            throw new UiCommandCancelled_1.UiCommandCancelled("指标下载已取消，保留现有表格。"); };
         check();
         const capability = await this.simpleSftpCapability("sync.downloadMappedPaths");
         if (capability.methodOptions?.["sync.downloadMappedPaths"]?.memoryOnly !== true)
@@ -20968,7 +22314,7 @@ class RealtimeTunnelPanelProvider {
         const server = this.mappedDownloadServerForSource(batch.workerId || batch.sourceId);
         const request = async (method, params, extraToken = token) => {
             const abort = new AbortController();
-            const cancel = () => abort.abort(new UiCommandCancelled("指标下载已取消，保留现有表格。"));
+            const cancel = () => abort.abort(new UiCommandCancelled_1.UiCommandCancelled("指标下载已取消，保留现有表格。"));
             const listeners = [...new Set([token, extraToken])].map(value => value?.onCancellationRequested?.(cancel));
             if (token?.isCancellationRequested || extraToken?.isCancellationRequested)
                 cancel();
@@ -21002,7 +22348,7 @@ class RealtimeTunnelPanelProvider {
             for (const [index, chunk] of chunks.entries()) {
                 check();
                 if (innerToken.isCancellationRequested)
-                    throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("指标下载已取消，保留现有表格。");
                 const pending = [];
                 for (const file of chunk) {
                     check();
@@ -21023,7 +22369,7 @@ class RealtimeTunnelPanelProvider {
                     memoryOnly: true, metricsOnly: true, wrapperResults: true, maxFileBytes: 4 * 1024 * 1024, maxBatchBytes: 4 * 1024 * 1024, compression: "auto", confirm: true, pathConfirmed: true }, innerToken);
                 check();
                 if (innerToken.isCancellationRequested)
-                    throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
+                    throw new UiCommandCancelled_1.UiCommandCancelled("指标下载已取消，保留现有表格。");
                 if (response?.memoryOnly !== true || response.ok === false || response.entries?.length !== memoryChunk.length)
                     throw new Error("内存指标下载未返回完整文件清单");
                 networkFiles += memoryChunk.length;
@@ -21090,7 +22436,7 @@ class RealtimeTunnelPanelProvider {
         const deadline = Date.now() + delay;
         while (Date.now() < deadline) {
             if (token?.isCancellationRequested || !isCurrent())
-                throw new UiCommandCancelled("同步服务器结果已取消，未发布总表。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("同步服务器结果已取消，未发布总表。");
             void vscode.window.setStatusBarMessage("同步服务器结果：第 " + label + "，正在等待 " + Math.ceil((deadline - Date.now()) / 1000) + " 秒", 2000);
             await sleep(Math.min(1000, deadline - Date.now()));
         }
@@ -21193,7 +22539,7 @@ class RealtimeTunnelPanelProvider {
             if (!isCurrent())
                 return { cancelled: true, rejected: false, overwrite: false, batches: [], skippedExisting: 0 };
             if (answer !== "覆盖已有文件并同步" && answer !== "只同步缺失文件")
-                throw new UiCommandCancelled(metricsOnly ? "指标文件下载已取消。" : "批量同步已取消。");
+                throw new UiCommandCancelled_1.UiCommandCancelled(metricsOnly ? "指标文件下载已取消。" : "批量同步已取消。");
             overwrite = answer === "覆盖已有文件并同步";
         }
         const selectedBatches = batches.map((batch) => {
@@ -21230,7 +22576,7 @@ class RealtimeTunnelPanelProvider {
         if (!resources.length)
             return 0;
         const abort = new AbortController();
-        const cancel = () => abort.abort(new UiCommandCancelled("指标分发已取消，未发布后续文件。"));
+        const cancel = () => abort.abort(new UiCommandCancelled_1.UiCommandCancelled("指标分发已取消，未发布后续文件。"));
         const cancellation = token.onCancellationRequested?.(cancel);
         if (token.isCancellationRequested)
             cancel();
@@ -21239,7 +22585,7 @@ class RealtimeTunnelPanelProvider {
         const assertCurrent = () => {
             signal.throwIfAborted();
             if (!this.projectContextIsCurrent(projectContext) || client !== this.client)
-                throw new UiCommandCancelled("工作区已切换，未发布后续指标文件。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，未发布后续指标文件。");
         };
         try {
             assertCurrent();
@@ -22302,7 +23648,7 @@ class RealtimeTunnelPanelProvider {
         if (existing) {
             const answer = await vscode.window.showWarningMessage("将生成 " + targets.length + " 张子表，其中 " + existing + " 张已有同名文件。目标目录：" + path.posix.join(path.posix.dirname(table.path), "by_" + folder), { modal: true }, "覆盖已有子表");
             if (answer !== "覆盖已有子表")
-                throw new UiCommandCancelled("拆表已取消，文件未改变。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("拆表已取消，文件未改变。");
         }
         if (!this.projectContextIsCurrent(context))
             return;
@@ -23094,7 +24440,7 @@ class RealtimeTunnelPanelProvider {
         const identities = verified.targets.map((target) => TmuxWindowIdentity.resolveTmuxWindowIdentity(listed, target));
         const answer = await vscode.window.showWarningMessage(`确定关闭 ${workerId} 的 GPU 会话 ${session} 中 ${verified.targets.length} 个任务标签？只关闭这些任务窗口，不会关闭 GPU 会话本身。`, { modal: true }, "关闭任务标签");
         if (answer !== "关闭任务标签")
-            throw new UiCommandCancelled("已取消清理任务标签。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消清理任务标签。");
         const closed = [];
         const failed = [];
         try {
@@ -23174,7 +24520,7 @@ class RealtimeTunnelPanelProvider {
                         confirm: async (description) => {
                             const label = message.sessionAction === "clear" ? "清空标签页" : "关闭会话";
                             if (await vscode.window.showWarningMessage(description, { modal: true }, label) !== label)
-                                throw new UiCommandCancelled("已取消操作。");
+                                throw new UiCommandCancelled_1.UiCommandCancelled("已取消操作。");
                         } }, { workerId, session: String(message.closeSession || message.gpuSession), identities: message.identities, action: message.sessionAction });
                 }
                 const close = message.gpuSession ? GpuTmuxClose_1.closeGpuTmuxSession : GpuTmuxClose_1.closeTmuxSession;
@@ -23184,7 +24530,7 @@ class RealtimeTunnelPanelProvider {
                         const label = message.gpuSession ? "关闭上述 GPU 窗口" : "关闭上述全部窗口";
                         const answer = await vscode.window.showWarningMessage(description, { modal: true }, label);
                         if (answer !== label)
-                            throw new UiCommandCancelled("已取消关闭窗口。");
+                            throw new UiCommandCancelled_1.UiCommandCancelled("已取消关闭窗口。");
                     }, progress: work => vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
                         title: `关闭 ${workerId} · ${message.gpuSession || message.closeSession}`, cancellable: false }, progress => work(message => progress.report({ message }))),
                 }, { workerId, gpuSession: String(message.gpuSession || ""), session: String(message.closeSession || ""), identities: message.identities });
@@ -23201,7 +24547,7 @@ class RealtimeTunnelPanelProvider {
         const identity = TmuxWindowIdentity.resolveTmuxWindowIdentity(await this.readTmuxListAfterKill(workerId), target, message?.identity);
         const answer = await vscode.window.showWarningMessage(`确定关闭 ${workerId} 的 tmux 窗口 ${identity.target}（${identity.windowName}，${identity.windowId || identity.paneIds.join(", ")}）？窗口内的进程会终止。`, { modal: true }, "关闭窗口");
         if (answer !== "关闭窗口")
-            throw new UiCommandCancelled("已取消关闭 tmux 窗口。");
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消关闭 tmux 窗口。");
         let closed = false;
         try {
             await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `关闭 tmux 窗口 ${target}`, cancellable: false }, async (progress) => {
@@ -23513,7 +24859,7 @@ class RealtimeTunnelPanelProvider {
             return;
         const message = stringFromRecord(result && typeof result === "object" ? result : {}, ["message", "detail", "error"]) || status;
         if (operationCancelledTerminalStatus(status))
-            throw new UiCommandCancelled(message);
+            throw new UiCommandCancelled_1.UiCommandCancelled(message);
         if (operationFailureTerminalStatus(status))
             throw new Error(message);
     }
@@ -25080,7 +26426,7 @@ class RealtimeTunnelPanelProvider {
         try {
             const catalog = await this.readProjectResultCatalog(context.root, mappings, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, { worker: true });
             if (!this.projectContextIsCurrent(context) || this.resultCatalogKey(context.root, pluginProjectAdapterRules(context.root).planDatasetMapping || {}) !== key)
-                throw new UiCommandCancelled("项目或结果配置已变化，未显示过期的本地结果。");
+                throw new UiCommandCancelled_1.UiCommandCancelled("项目或结果配置已变化，未显示过期的本地结果。");
             this.resultCatalogCache = { key, expiresAt: Date.now() + (this.resultCatalogTtlMs || 5000),
                 catalog, tables: this.compactResultTablesFromCatalog(catalog) };
             this.resultCatalogStatus = "ready";
@@ -25714,6 +27060,7 @@ class RealtimeTunnelPanelProvider {
             pptAutomation: this.pptAutomationReadiness,
             integrations,
             projectOnboarding,
+            branchProjects: this.branchProjectsProjectionWithUnified(),
             health: webviewHealth,
             realtime: webviewRealtime,
             gpuOwnerConfig: this.gpuOwnerConfig(),
@@ -26499,6 +27846,7 @@ class RealtimeTunnelPanelProvider {
             pptAutomation: {},
             integrations: { simpleSftp },
             projectOnboarding,
+            branchProjects: this.branchProjectsProjectionWithUnified(),
             health: { state: "unknown", status: "unknown", message: "面板状态暂不可用。" },
             realtime: { status: "disconnected", endpoints: [], lastSeq: 0 },
             gpuOwnerConfig: {},
@@ -34022,7 +35370,7 @@ async function confirmArtifactDeletionFromUi(command, action, body, routeDetail 
         pathText,
     ].filter(Boolean).join("\n\n"), { modal: true }, firstLabel);
     if (first !== firstLabel)
-        throw new UiCommandCancelled(`${command} 已取消，未删除文件。`);
+        throw new UiCommandCancelled_1.UiCommandCancelled(`${command} 已取消，未删除文件。`);
     const secondLabel = "永久删除以上目标";
     const second = await vscode.window.showWarningMessage([
         `【第二次确认】永久删除以上 ${paths.length} 个完整路径。`,
@@ -34030,7 +35378,7 @@ async function confirmArtifactDeletionFromUi(command, action, body, routeDetail 
         pathText,
     ].join("\n\n"), { modal: true }, secondLabel);
     if (second !== secondLabel)
-        throw new UiCommandCancelled(`${command} 已取消，未删除文件。`);
+        throw new UiCommandCancelled_1.UiCommandCancelled(`${command} 已取消，未删除文件。`);
     return { ...(body && typeof body === "object" ? body : {}), confirm: true, pathConfirmed: true };
 }
 function guidedPlanModeLabel(mode) {
@@ -34314,7 +35662,7 @@ async function pickGuidedPlanMode(entries) {
         ignoreFocusOut: true,
     });
     if (!picked)
-        throw new UiCommandCancelled("生成 Plan 已取消。");
+        throw new UiCommandCancelled_1.UiCommandCancelled("生成 Plan 已取消。");
     return picked.value;
 }
 async function confirmGuidedPlanCreation(context) {
@@ -34337,7 +35685,7 @@ async function confirmGuidedPlanCreation(context) {
         ? await vscode.window.showWarningMessage(detail, { modal: true }, label)
         : await vscode.window.showInformationMessage(detail, { modal: true }, label);
     if (answer !== label)
-        throw new UiCommandCancelled("生成 Plan 已取消。");
+        throw new UiCommandCancelled_1.UiCommandCancelled("生成 Plan 已取消。");
 }
 function guidedPlanCommandUsesConfig(command) {
     return /\{(?:config|config_path|base_config|base_config_path)\}/i.test(String(command || ""));
@@ -35614,7 +36962,7 @@ async function previewAndConfirmWorkspaceWrites(root, writes, title) {
     await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside });
     const answer = await vscode.window.showWarningMessage(`${title} 将写入 ${changed.length} 个文件。请先查看刚打开的预览，再确认是否继续。`, { modal: false }, "写入模板");
     if (answer !== "写入模板")
-        throw new UiCommandCancelled(`${title} 已取消，未写入文件。`);
+        throw new UiCommandCancelled_1.UiCommandCancelled(`${title} 已取消，未写入文件。`);
     return entries;
 }
 async function openWorkspaceFile(file) {
@@ -38007,7 +39355,7 @@ async function confirmActualWorkRootAmbiguity(value, label, confirmLabel) {
         return suggestedRoot;
     if (answer === confirmLabel)
         return normalizeRemoteWorkRoot(value);
-    throw new UiCommandCancelled(`${label || "服务器"} 项目父目录保存已取消。`);
+    throw new UiCommandCancelled_1.UiCommandCancelled(`${label || "服务器"} 项目父目录保存已取消。`);
 }
 function assertActualWorkRoot(value, label, server = {}) {
     const issue = actualWorkRootValidationMessage(value, remoteProjectName(), label, server, remoteRootPolicyConfig());
@@ -38083,7 +39431,7 @@ function xshellLoginCommandUpdateLabel(skippedReason, changed) {
     }
 }
 function isUiCommandCancelled(error) {
-    return error instanceof UiCommandCancelled;
+    return error instanceof UiCommandCancelled_1.UiCommandCancelled;
 }
 function isUiCommandRemotePending(error) {
     return error instanceof UiCommandRemotePending;
@@ -38092,7 +39440,7 @@ async function confirmUiCommand(title, detail, danger) {
     const label = danger ? "确认危险操作" : "确认执行";
     const answer = await vscode.window.showWarningMessage(`${title}\n\n${detail}`, { modal: danger }, label);
     if (answer !== label)
-        throw new UiCommandCancelled(`${title} 已取消。`);
+        throw new UiCommandCancelled_1.UiCommandCancelled(`${title} 已取消。`);
 }
 // test rebuild 2026-08-29T02:25:09.1082977+08:00
 // 确保 CJS 兼容

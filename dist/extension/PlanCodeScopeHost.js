@@ -33,7 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.supportsPlanCodeScope = void 0;
+exports.supportsPlanCodeScope = exports.planExecutionSourceDigest = void 0;
+exports.planManifestPathSafe = planManifestPathSafe;
 exports.runSourceManifest = runSourceManifest;
 exports.codeInventoryBatches = codeInventoryBatches;
 exports.resolvePlanExecutionSource = resolvePlanExecutionSource;
@@ -45,6 +46,12 @@ const fs = __importStar(require("node:fs/promises"));
 const path = __importStar(require("node:path"));
 const resolving = new WeakMap();
 const digest = (manifest) => (0, node_crypto_1.createHash)("sha256").update(JSON.stringify(Object.keys(manifest).sort().map(key => [key, { size: manifest[key].size, sha256: manifest[key].sha256 }]))).digest("hex");
+/** Single source of truth for manifest self-verification (also consumed by the C3 HEAD binding). */
+exports.planExecutionSourceDigest = digest;
+/** Same relative-path safety rules verifyLocalPlanSource enforces before touching the filesystem. */
+function planManifestPathSafe(relative) {
+    return Boolean(relative) && !relative.startsWith("/") && !/[:\\\x00-\x1f]/.test(relative) && !relative.split("/").some(p => !p || p === "." || p === "..");
+}
 const supportsPlanCodeScope = (h, workerId) => h.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.planCodeScope === 1;
 exports.supportsPlanCodeScope = supportsPlanCodeScope;
 /** This filter is for automatic execution preparation; manual transfer scopes keep their own semantics. */
@@ -146,7 +153,7 @@ async function verifyLocalPlanSource(root, source, index) {
     const load = async () => {
         const canonical = await fs.realpath(root);
         for (const [relative, expected] of Object.entries(source.manifest)) {
-            if (!relative || relative.startsWith("/") || /[:\\\x00-\x1f]/.test(relative) || relative.split("/").some(p => !p || p === "." || p === ".."))
+            if (!planManifestPathSafe(relative))
                 throw Error("PLAN_SOURCE_PATH_INVALID");
             let file = canonical;
             for (const part of relative.split("/")) {

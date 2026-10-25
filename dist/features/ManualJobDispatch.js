@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.dispatchManualJobs = dispatchManualJobs;
 exports.dispatchReadyManualJobs = dispatchReadyManualJobs;
+const UnifiedDispatchAdmission_1 = require("../project/UnifiedDispatchAdmission");
 /** One placement intent; transport responses never prove acceptance or permit a second launch. */
 async function dispatchManualJobs(ports, request) {
     ports.assertCurrent();
@@ -130,11 +131,17 @@ async function dispatchReadyManualJobs(ports) {
                 await ports.save(queue);
                 continue;
             }
-            Object.assign(job, { workerId: placement.workerId, gpuId: placement.gpuId, commandId: job.nextCommandId || ports.newCommandId(),
+            // 申请身份先落 const（返回契约 string）：保存可能原地剥回 job 对象，回执过滤必须持有原申请ID。
+            const placedCommandId = job.nextCommandId || ports.newCommandId();
+            Object.assign(job, { workerId: placement.workerId, gpuId: placement.gpuId, commandId: placedCommandId,
                 status: "dispatching", manualDispatch: { ...placement, stage: "sent" } });
             job.runKey = job.commandId;
             job.nextCommandId = undefined;
-            await ports.save(queue); // Persist exact identity before the one and only POST.
+            // Persist exact identity before the one and only POST — in the managed domain this same save
+            // is the unified consent point; a denied intent is rewound to stage=ready by the save itself.
+            const admission = await ports.save(queue, { dispatchAdmission: true });
+            if ((0, UnifiedDispatchAdmission_1.dispatchAdmissionDenied)(admission, plan.id, job.index, placedCommandId))
+                continue;
             try {
                 await ports.send(plan, job);
             }

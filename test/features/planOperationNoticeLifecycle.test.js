@@ -43,8 +43,8 @@ function fixture() {
     method('logOperationFact(text)', 'showOperationLogFromUi('),
     method('showOperationLogFromUi()', 'beginOperationProgressNotice('),
     method('beginOperationProgressNotice(command, message)', 'reportOperationNotice(key, text)'),
-    method('reportOperationNotice(key, text)', 'finishOperationProgressNotice(key, tone, text)'),
-    method('finishOperationProgressNotice(key, tone, text)', 'submissionNoticeTone(message, result)'),
+    method('reportOperationNotice(key, text)', 'finishOperationProgressNotice('),
+    method('finishOperationProgressNotice(', 'submissionNoticeTone(message, result)'),
     method('submissionNoticeTone(message, result)', 'submissionNoticeText(message, result)'),
     method('postUiCommandStatus(clientActionId', 'notifyLocalActionStarted('),
   ].join(',')} };`, sandbox);
@@ -250,8 +250,8 @@ function funnelFixture() {
     method('logOperationFact(text)', 'showOperationLogFromUi('),
     method('showOperationLogFromUi()', 'beginOperationProgressNotice('),
     method('beginOperationProgressNotice(command, message)', 'reportOperationNotice(key, text)'),
-    method('reportOperationNotice(key, text)', 'finishOperationProgressNotice(key, tone, text)'),
-    method('finishOperationProgressNotice(key, tone, text)', 'submissionNoticeTone(message, result)'),
+    method('reportOperationNotice(key, text)', 'finishOperationProgressNotice('),
+    method('finishOperationProgressNotice(', 'submissionNoticeTone(message, result)'),
   ].join(',')} };`, sandbox);
   const host = { ...sandbox.methods, operationNoticeSessions: new Map(), context: { subscriptions: [] },
     localOperations: {}, planSubmissionOperationId: () => '', view: { webview: { postMessage: (row) => posts.push(row) } },

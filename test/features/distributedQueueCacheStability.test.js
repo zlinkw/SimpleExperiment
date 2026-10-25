@@ -110,6 +110,10 @@ const sandbox = {
   compactSensitiveText: (value) => String(value || "").slice(0, 240),
   workerTaskSnapshotPayload: (snapshot) => snapshot,
   UiCommandRemotePending: class extends Error {},
+  // r49 迁类：scheduleDistributedPostprocess 的取消类型改由 core 共享模块经 UiCommandCancelled_1
+  // 命名空间引用；夹具与生产同一构造语义（name/code 一致），不依赖测试装载时序。
+  UiCommandCancelled_1: { UiCommandCancelled: class UiCommandCancelled extends Error {
+    constructor(message = "操作已取消。", code = "USER_CANCELLED") { super(message); this.name = "UiCommandCancelled"; this.code = code; } } },
   StateStore_1: stateModule.exports,
   // r17：loadDistributedQueue 锚点经项目内快照迁移助手；夹具的全部字节都在 memoryFs 虚拟盘上，
   // 故按生产同一语义（legacy 缺→absent；目标缺→字节复制 migrated；否则 present）在内存上实现，

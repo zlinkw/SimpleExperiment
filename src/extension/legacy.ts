@@ -27,6 +27,7 @@ import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
 import { deleteConfirmedScopeCopy, previewConfirmedScopeDeletion, completeConfirmedScopeDeletion, type ConfirmedScopeBatch, type ConfirmedScopeOutcome } from "../features/SyncScopeDelete";
 import { jobArtifactRunGeneration } from "../features/JobArtifactSyncIdentity";
 import { SafeRequestRetry, RequestReplacedError, assertRetryRequestCurrent, retryRequestSignal } from "../core/SafeRequestRetry";
+import { UiCommandCancelled } from "../core/UiCommandCancelled";
 import { preparePlanSafeRetry } from "../features/PlanSafeRetry";
 import { staticEntrypointProbe } from "../features/StaticEntrypointProbe";
 import { resolveSetupGuideSource, extensionRepositoryUrl } from "../features/SetupGuideSource";
@@ -546,13 +547,7 @@ const XSHELL_BATCH_LAUNCH_DELAY_MS = 1500;
 const SCHEDULER_STATE_CONTAINER_LIMIT = 24;
 const EXPERIMENT_TRACE_RECORD_LIMIT = 240;
 const EXPERIMENT_TRACE_ATTENTION_LIMIT = 120;
-class UiCommandCancelled extends Error {
-    constructor(message = "用户取消操作。") {
-        super(message);
-        this.name = "UiCommandCancelled";
-        this.code = "USER_CANCELLED";
-    }
-}
+// UiCommandCancelled 现由 core 共享（r47）：协作者模块抛出同一实例类型，isUiCommandCancelled 的 instanceof 判定不变。
 class UiCommandRemotePending extends Error {
     constructor(message = "远端操作已提交，等待 Agent operation 终态。") {
         super(message);
@@ -1247,6 +1242,8 @@ export class RealtimeTunnelPanelProvider {
     private distributedSubmissionEpochs = new Map<string, number>();
     private distributedSubmissionAborts = new Map<string, AbortController>();
     distributedQueueWritePromise = Promise.resolve();
+    // r46 A：根级内存提交订阅——仅在队列保存成功尾（锁外、cache 已发布）同步通知；失败/围栏路径不通知。
+    distributedQueueCommitObservers?: Set<(root: string) => void>;
     distributedPostprocessPromise;
     distributedPostprocessScope;
     private completedPlanMirrorRescan = false;
@@ -7159,13 +7156,15 @@ return this.testTunnel(true);
                 this.finishPlanSubmissionProgress(message, "cancelled", result.message || "已取消，未提交运行。");
                 const supersededResultRequest = /^(syncPendingPlanArtifacts|syncAllResultArtifacts|rebuildProjectResultTables)$/.test(command)
                     && String(result.message || "").includes("旧请求已被重新执行替代");
-                if (!supersededResultRequest && !artifactNoticeKey && !PLAN_SUBMISSION_COMMANDS.has(command)
+                // r46 A：身份失效清退的等待结束按类型码收拢（不弹信息、不记动作错误、finish 静默），普通用户取消的既有可见反馈不变。
+                const clearedSelectionWait = result.error?.code === "SELECTED_JOB_CLEARED";
+                if (!supersededResultRequest && !clearedSelectionWait && !artifactNoticeKey && !PLAN_SUBMISSION_COMMANDS.has(command)
                     && !["validatePlan", "dryRunPlan", "runAllPlans"].includes(command)) {
                     try { void vscode.window.showInformationMessage(result.message || "已取消", "查看日志")
                         .then(choice => { if (choice === "查看日志") this.showOperationLogFromUi(); }).catch(() => undefined); } catch {}
                 }
                 const alreadyExplained = String(result.message || "").includes("未提交");
-                if (!alreadyExplained) {
+                if (!alreadyExplained && !clearedSelectionWait) {
                     try { this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message), operationOutcome }); this.postState(); } catch {}
                 } else {
                     try { this.postState(); } catch {}
@@ -7196,7 +7195,8 @@ return this.testTunnel(true);
                 const outcome = noticeOutcome || { status: "failed", message: "产物同步操作异常结束，请检查连接与产物校验记录。" };
                 const tone = outcome.status === "completed" && !outcome.resultSync?.partial ? "succeeded"
                     : outcome.status === "cancelled" ? "cancelled" : "failed";
-                this.finishOperationProgressNotice(artifactNoticeKey, tone, String(outcome.message || "") || "产物同步已结束。");
+                this.finishOperationProgressNotice(artifactNoticeKey, tone, String(outcome.message || "") || "产物同步已结束。",
+                    outcome.error?.code === "SELECTED_JOB_CLEARED" ? { silent: true } : undefined);
             }
         }
     }
@@ -7763,7 +7763,7 @@ return this.testTunnel(true);
             while (session.reports.length > 8) session.reports.shift();
         }
     }
-    finishOperationProgressNotice(key, tone, text) {
+    finishOperationProgressNotice(key, tone, text, options = undefined) {
         const session = this.operationNoticeSessions.get(key);
         if (!session) return;
         this.operationNoticeSessions.delete(key);
@@ -7781,6 +7781,8 @@ return this.testTunnel(true);
         }
         const label = `SimpleExperiment ${session.title}${text ? `：${text}` : "已完成。"}`;
         this.logOperationFact(label);
+        // r46 A：仅跳过终态弹窗（session 删除、done 释放与完整日志照旧）；只由身份失效清退等待这一条通路使用。
+        if (options?.silent) return;
         const viewLog = "查看日志", openPanel = "打开面板";
         const prompt = tone === "succeeded" ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
         void Promise.resolve(prompt.call(vscode.window, label, viewLog, openPanel))
@@ -12682,7 +12684,8 @@ this.assertPlanTopologyReady("Plan 调度");
         // 消除“开始时无登记→计算后释放→另一窗口完成初始登记并准入→本窗口再写盘”的双批交错；
         // 首个登记之前也不例外。未登记项目的同意结果不变（不批新同意），仅不再保留不锁快路径（主控明确）。
         const unifiedEngage = options.dispatchAdmission === true;
-        const work = this.distributedQueueWritePromise.catch(() => undefined).then(async () => this.withQueueWriteResource(root, async () => {
+        const work = this.distributedQueueWritePromise.catch(() => undefined).then(async () => {
+            const committed = await this.withQueueWriteResource(root, async () => {
             const assertStopBatch = () => {
                 if (options.stopBatchEpoch !== undefined && (this.distributedPlanStopEpoch !== options.stopBatchEpoch
                     || this.planStopClearBatchLease !== options.stopBatchLease || !options.stopBatchCurrent?.()))
@@ -12886,8 +12889,12 @@ this.assertPlanTopologyReady("Plan 调度");
                 this.distributedTickAbort?.abort();
                 this.detachStaleDistributedTick(this.distributedQueueTickPromise);
             }
-            return dispatchReceipt;
-        }, unifiedEngage ? { unifiedDispatch: true } : {}));
+            return dispatchReceipt; }, unifiedEngage ? { unifiedDispatch: true } : {});
+            // r46 A 提交成功尾：写锁已释放、最新 cache/签名已发布，同步通知根级订阅者复核自己的等待；
+            // throw/围栏（STALE/冲突/取消/receipt 拒绝）路径均不到达此处。观察者不得在此 await 载入（会重入写锁），通知失败不影响提交。
+            for (const observer of [...(this.distributedQueueCommitObservers || [])]) { try { observer(root); } catch { /* 观察失败不影响队列提交 */ } }
+            return committed;
+        });
         this.distributedQueueWritePromise = work;
         return await work;
     }
@@ -12939,8 +12946,34 @@ this.assertPlanTopologyReady("Plan 调度");
         void work.then(() => {
             this.completedPlanMirrorDiagnostics = { status: "ready", updatedAt: new Date().toISOString() };
         }, error => {
-            const previous = this.completedPlanMirrorDiagnostics?.status === "failed" ? Number(this.completedPlanMirrorDiagnostics.consecutiveFailures) || 0 : 0;
-            this.completedPlanMirrorDiagnostics = { status: "failed", reason: errorMessage(error), failedAt: new Date().toISOString(), consecutiveFailures: previous + 1 };
+            const previousStatus = this.completedPlanMirrorDiagnostics?.status === "failed" ? this.completedPlanMirrorDiagnostics : undefined;
+            const previous = previousStatus ? Number(previousStatus.consecutiveFailures) || 0 : 0;
+            const reason = errorMessage(error);
+            // r53: "same reason already surfaced" is scoped to the notification context that ACTUALLY received
+            // the notice — captured root+generation scalars only (never signal/client objects). A stale round the
+            // guard silently failed, or a failure in a different project, must never suppress THIS project's
+            // first notice for the same reason. The list survives only while the reason stays identical, and the
+            // ready-reset below drops it, so a later failure always gets a fresh notice.
+            const noticeScope = JSON.stringify([context.root, context.generation]);
+            const previousNotified: string[] | undefined = Array.isArray((previousStatus as any)?.notifiedScopes) ? (previousStatus as any).notifiedScopes : undefined;
+            const alreadyNotified = previousStatus?.reason === reason && Array.isArray(previousNotified) && previousNotified.includes(noticeScope);
+            this.completedPlanMirrorDiagnostics = { status: "failed", reason, failedAt: new Date().toISOString(), consecutiveFailures: previous + 1,
+                ...(previousStatus?.reason === reason && previousNotified ? { notifiedScopes: previousNotified } : {}) };
+            // r47 B: an outer auto-round rejection (before the per-job catch) surfaces through the same native
+            // notice. Typed cancellations/stale rounds are filtered — never by Chinese message strings — and a
+            // repeated same-reason failure keeps ONE notice (the notice itself also carries 5s/32-key dedupe).
+            // r50: only the project that CAPTURED this context may be notified — after a workspace switch the
+            // old round legitimately rejects in the sync body, and that stale failure must not pop into the
+            // NEW project's panel. Same gate as the finally block below; diagnostics above stay untouched.
+            if (!this.projectContextIsCurrent(context) || this.panelDisposed) return;
+            if (!(error instanceof UiCommandCancelled) && (error as any)?.code !== "STALE_QUEUE_ROUND" && (error as any)?.code !== "REQUEST_REPLACED"
+                && !alreadyNotified) {
+                this.showNativePanelMessage({ tone: "error", message: `自动产物同步未完成：${reason}。运行完成状态不变，可在对应 Job 行重新同步。` });
+                // mark ONLY when the native notice really went out — a filtered or stale failure never
+                // pretends to have been shown, so the same reason still notifies in the proper scope.
+                const scopes: string[] = Array.isArray((this.completedPlanMirrorDiagnostics as any).notifiedScopes) ? (this.completedPlanMirrorDiagnostics as any).notifiedScopes : [];
+                if (!scopes.includes(noticeScope)) (this.completedPlanMirrorDiagnostics as any).notifiedScopes = [...scopes, noticeScope];
+            }
         }).finally(() => {
             if (this.distributedPostprocessPromise !== work) return;
             this.distributedPostprocessPromise = undefined;

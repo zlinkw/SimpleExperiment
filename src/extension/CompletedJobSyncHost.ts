@@ -3,6 +3,27 @@ import { canonicalProjectId } from "../features/DistributedPlanQueue";
 import { loadSyncHolds } from "../features/SyncResolution";
 import { jobArtifactSyncDigest } from "../features/PlanArtifactSyncStatus";
 import { jobArtifactRetentionKey } from "../features/JobArtifactSyncIdentity";
+import { UiCommandCancelled } from "../core/UiCommandCancelled";
+
+type JobSelection = { planId: string; index: number; commandId: string };
+
+/**
+ * r46 A: one local eligibility check for the SELECTED jobs, shared by the pre-queue validation and the
+ * runCore re-validation. Identical conditions to the historical runCore filter — projectId, protocol-2
+ * completed status, worker/command identity, and the newest-output/cleanup/retired exclusions of
+ * newestJobOutputs. It never widens to other jobs and never queries Worker job state.
+ */
+function selectedJobsEligible(queue: any, root: string, jobs: JobSelection[]): boolean {
+  const pending = newestJobOutputs(queue).filter(({ plan, job }: any) => plan.projectId === canonicalProjectId(root)
+    && job.lifecycleProtocol === 2 && job.status === "completed" && !job.unavailable && !!job.workerId && !!job.commandId);
+  return jobs.every(selection => pending.some(({ plan, job }: any) => plan.id === selection.planId
+    && job.index === selection.index && job.commandId === selection.commandId));
+}
+
+/** A cleared/replaced selection is a cancellation, not a sync failure: it ends only this waiter. */
+function clearedSelectionCancellation(): UiCommandCancelled {
+  return new UiCommandCancelled("所选任务已被本地清退或被新的运行替代，本次等待已结束，未开始新的传输；已有产物保持不变。", "SELECTED_JOB_CLEARED");
+}
 
 /**
  * Per-job completion publication reuses the file tree's newest-version merge, never the whole PLAN gate.
@@ -14,13 +35,62 @@ import { jobArtifactRetentionKey } from "../features/JobArtifactSyncIdentity";
  */
 export class CompletedJobSyncHost {
   constructor(private readonly h: any, private readonly root: string, private readonly current: () => boolean) {}
-  async run(selected: string[], options: { force?: boolean; verifyOnly?: boolean; jobs?: { planId: string; index: number; commandId: string }[] } = {}): Promise<{ synced: number; excluded: number; errors: string[] }> {
-    const runs = this.h.completedJobSyncRuns ||= new Map();
+  async run(selected: string[], options: { force?: boolean; verifyOnly?: boolean; jobs?: JobSelection[] } = {}): Promise<{ synced: number; excluded: number; errors: string[] }> {
+    const h = this.h;
+    const runs = h.completedJobSyncRuns ||= new Map();
     const key = JSON.stringify([selected, options.verifyOnly === true, options.jobs || null]);
     const active = runs.get(this.root);
     if (active) {
       if (active.key === key || !options.force) return active.promise;
-      await active.promise;
+      // r46 A: validate the selected jobs once BEFORE queueing (same local check as runCore's re-validation;
+      // a stale or empty selection at request time keeps the historical failure wording — an empty
+      // selection must never fall back to an unbounded wait behind the active round).
+      if (options.jobs && (!options.jobs.length
+        || !selectedJobsEligible(await h.loadDistributedQueue(this.root), this.root, options.jobs)))
+        throw Error("所选任务未完成或身份已变化，未同步其他任务。");
+      // The wait must end when this request's OWN selection is cleared/replaced by a committed queue
+      // write, or when the surrounding project context is gone. It never cancels, resolves or removes
+      // another owner's active run, never resets the single-flight map and never cancels SFTP work.
+      const observers: Set<(root: string) => void> = h.distributedQueueCommitObservers ||= new Set();
+      const controller = new AbortController();
+      // Real context-cancellation reasons are preserved verbatim (a workspace switch is reported as
+      // such; only a proven selection clear/replacement carries SELECTED_JOB_CLEARED).
+      const contextSignal: AbortSignal | undefined = h.projectContextAbortController?.signal;
+      const abortForContext = () => {
+        if (controller.signal.aborted) return;
+        const reason = contextSignal?.reason instanceof UiCommandCancelled ? contextSignal.reason
+          : new UiCommandCancelled("项目或连接已变化，未继续产物操作。");
+        controller.abort(reason);
+      };
+      const wake = (changedRoot: string) => {
+        if (changedRoot !== this.root || controller.signal.aborted) return;
+        if (!this.current()) abortForContext();
+        else if (options.jobs?.length && h.distributedQueueCache
+          && !selectedJobsEligible(h.distributedQueueCache, this.root, options.jobs))
+          controller.abort(clearedSelectionCancellation());
+      };
+      // Wire the rejectable abort path FIRST, then every subscription, then re-check the already
+      // committed snapshot — a clear/abort that happened before registration can never be lost.
+      const cancelled = new Promise<never>((_resolve, reject) => {
+        controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true });
+      });
+      observers.add(wake);
+      let detachContext: (() => void) | undefined;
+      if (contextSignal) {
+        if (contextSignal.aborted) abortForContext();
+        else {
+          const onContextAbort = () => abortForContext();
+          contextSignal.addEventListener("abort", onContextAbort, { once: true });
+          detachContext = () => contextSignal.removeEventListener("abort", onContextAbort);
+        }
+      }
+      try {
+        wake(this.root); // immediate re-check against the CURRENT committed snapshot and context
+        await Promise.race([active.promise, cancelled]);
+      } finally {
+        observers.delete(wake);
+        detachContext?.(); // release on completion, rejection AND cancellation
+      }
       if (!this.current()) throw Error("项目或连接已变化，未继续产物操作。");
       return this.run(selected, options);
     }
@@ -40,8 +110,8 @@ export class CompletedJobSyncHost {
     let pending = newestJobOutputs(queue).filter(({ plan, job }) => plan.projectId === canonicalProjectId(this.root)
       && job.lifecycleProtocol === 2 && job.status === "completed" && !job.unavailable && !!job.workerId && !!job.commandId);
     if (options.jobs) {
-      if (!options.jobs.length || options.jobs.some(selection => !pending.some(({ plan, job }) => plan.id === selection.planId
-        && job.index === selection.index && job.commandId === selection.commandId))) throw Error("所选任务未完成或身份已变化，未同步其他任务。");
+      // r46 A: start-time re-validation through the same shared local check as the pre-queue validation.
+      if (!options.jobs.length || !selectedJobsEligible(queue, this.root, options.jobs)) throw Error("所选任务未完成或身份已变化，未同步其他任务。");
       pending = pending.filter(({ plan, job }) => options.jobs!.some(selection => plan.id === selection.planId
         && job.index === selection.index && job.commandId === selection.commandId));
     }
@@ -101,8 +171,27 @@ export class CompletedJobSyncHost {
         report.errors.push(plan.planFile + " job " + job.index + "：" + detail);
         await patch({ latestArtifactSync: { key, state: "partial", scopes, error: detail, retryAfter, checkedAt: new Date().toISOString() },
           artifactError: "最新产物同步未完成：" + detail, artifactRetryAfter: retryAfter });
-        if (previous?.key !== key || previous.error !== detail)
+        const isNewFailureSignature = previous?.key !== key || previous.error !== detail;
+        if (isNewFailureSignature)
           h.recordActionError({ command: "completedJobLatestSync", message: plan.planFile + " job " + job.index + "：" + detail });
+        // r47 B: an automatic round's REAL sync failure is surfaced once through the existing native
+        // notice (5s/32-key dedupe inside it) within the same-signature dedupe. Cancellations (typed,
+        // never message-string guesses) are not failures; manual force runs keep the single
+        // withUiCommandStatus notice funnel and get no second popup here. The 30s auto-retry and
+        // same-generation reconcile remain: this asks the user to act only after those kept working.
+        const isCancellation = error instanceof UiCommandCancelled || error?.code === "SELECTED_JOB_CLEARED" || error?.code === "REQUEST_REPLACED";
+        if (!options.force && isNewFailureSignature && !isCancellation) {
+          // A PROVEN local clear/replacement silences this notice; a re-check that cannot read the
+          // queue is an unknown, never a proven retirement — the real failure still gets surfaced,
+          // with the re-check error attached so the user sees why identity could not be confirmed.
+          let stillThisRun = true, recheckFailure: string | undefined;
+          try { stillThisRun = newestJobOutputs(await h.loadDistributedQueue(this.root)).some(row => row.plan.id === plan.id
+            && row.job.index === job.index && row.job.commandId === job.commandId); }
+          catch (recheckError: any) { stillThisRun = true; recheckFailure = String(recheckError?.message || recheckError); }
+          if (stillThisRun && this.current())
+            h.showNativePanelMessage?.({ tone: "error", message: `产物同步 ${plan.planFile} job ${job.index} 未完成：${detail}。运行完成状态不变，可在该 Job 行重新同步。`
+              + (recheckFailure ? `（队列复核暂不可用：${recheckFailure}）` : "") });
+        }
       }
     }
     return report;

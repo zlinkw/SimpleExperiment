@@ -50,8 +50,12 @@ const protectedTopStart = distSource.indexOf("const protectedCodeSyncTopLevelDir
 const protectedTop = distSource.slice(protectedTopStart, distSource.indexOf("]);", protectedTopStart) + 3);
 const protectedData = /^const protectedDataAssetDirs = .*$/m.exec(distSource)[0];
 assert.ok(protectedTopStart > 0 && protectedData, "protected-dir constants not found");
-const uiCancelledStart = distSource.indexOf("class UiCommandCancelled extends Error {");
-const uiCancelledClass = distSource.slice(uiCancelledStart, distSource.indexOf("\n}", uiCancelledStart) + 2);
+// r49 迁类：同 planSubmissionStateGuard —— 真实 core 模块断言 + 裸标识符最小别名，
+// UiCommandCancelled_1 由下方 legacyNamespaces 正则按编译清单自动注入。
+const uiCancelledModule = require("../../dist/core/UiCommandCancelled.js");
+assert.ok(typeof uiCancelledModule.UiCommandCancelled === "function"
+  && new uiCancelledModule.UiCommandCancelled("x").code === "USER_CANCELLED", "real UiCommandCancelled class not found");
+const uiCancelledClass = "const UiCommandCancelled = UiCommandCancelled_1.UiCommandCancelled;";
 const legacyRequire = id => {
   try { return require(require.resolve(id, { paths: [path.join(__dirname, "../../dist/extension")] })); }
   catch { return {}; }

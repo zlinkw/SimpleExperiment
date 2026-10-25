@@ -40,6 +40,10 @@ function createContext(extra = {}) {
     require: require("node:module").createRequire(path.join(__dirname,"../../dist/extension/legacy.js")),
     DistributedPlanQueue: require("../../dist/features/DistributedPlanQueue"),
     workspaceRoot: () => "C:/project",
+    // r49 迁类：ensureManualStopReason/runActionCommand 的 legacy.ts 源切片直接使用裸标识符，
+    // 此处提供与 core 共享类同一构造语义（name/code 一致），不再依赖 legacy 本地类。
+    UiCommandCancelled: class UiCommandCancelled extends Error {
+      constructor(message = "操作已取消。", code = "USER_CANCELLED") { super(message); this.name = "UiCommandCancelled"; this.code = code; } },
     Error,
     Set,
     String,
