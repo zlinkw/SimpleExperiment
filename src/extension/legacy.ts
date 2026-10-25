@@ -2126,8 +2126,8 @@ export class RealtimeTunnelPanelProvider {
             "",
         ];
         if (binding.ok) {
-            detailLines.push(`✔ 当前提交树的 ${binding.coveredFiles} 个文件与已验清单逐一一致（blob 原始字节 SHA 比较，共约 ${(binding.coveredBytes / 1024).toFixed(0)} KiB）。`);
-            if (!sameCommit) detailLines.push(`已提交内容与验证时字节一致：运行来自 ${provenanceCommit.slice(0, 10)}，现 HEAD ${headShort}——按契约验证可复用，不需要重跑科研；这不是重新验证，只是绑定证明。`);
+            detailLines.push(`✔ 冻结源码清单内容核对：当前提交树的 ${binding.coveredFiles} 个文件与已验清单逐一一致（blob 原始字节 SHA 比较，共约 ${(binding.coveredBytes / 1024).toFixed(0)} KiB）。清单存在/核对一致本身不代表科研运行完成。`);
+            if (!sameCommit) detailLines.push(`这是“冻结源码清单内容核对”：已提交 blob 与清单逐字节一致（运行来自 ${provenanceCommit.slice(0, 10)}，现 HEAD ${headShort}）。仅当队列内存在该 job 的真实完成确证（verifiedCompletion）时，完成事实才按既有契约不因重跑科研而失效；本核对本身不宣称科研验证可复用。`);
             if (identity.dirty) detailLines.push("注意：工作区存在未提交修改——已提交内容可证明，但工作树当前文件不等于该 HEAD；如需以工作树状态运行请先自行处理。");
             detailLines.push("", binding.note);
             await vscode.window.showInformationMessage(`此 HEAD 可由已验清单证明（${plan.planFile}）`, { modal: true, detail: detailLines.join("\n") }, "知道了");
@@ -2143,15 +2143,19 @@ export class RealtimeTunnelPanelProvider {
     /** PR 写操作收据账本（API_DISCOVERY_DIR）：读失败＝拒绝写入；未知收据驱动只读对账而非重放。 */
     branchPrReceiptLedger() {
         const file = path.join(API_DISCOVERY_DIR, "branch-pr-receipts.json");
-        return {
+        const ledger = {
             load: async () => {
                 const text = await fs.readFile(file, "utf8").catch((error) => { if (error?.code === "ENOENT") return "[]"; throw error; });
                 const parsed = JSON.parse(text);
                 if (!Array.isArray(parsed)) throw new Error("收据账本格式无效");
                 return parsed;
             },
-            save: async (rows) => { await atomicWriteText(file, JSON.stringify(rows.slice(-200), null, 2)); },
+            save: async (rows) => { await atomicWriteText(file, JSON.stringify(rows, null, 2)); },
         };
+        // 多窗口共享账本：一次读-改-写放进同一短资源事务（不是 B 的调度锁，更不包 GitHub 网络调用），防并发 load/save 互相丢写。
+        if (typeof this.withPluginStateFileLease === "function")
+            ledger.withLock = (fn) => this.withPluginStateFileLease(API_DISCOVERY_DIR, file, "branch-pr-receipts", "PR 收据账本原子读改写", fn);
+        return ledger;
     }
     /** PR 操作共同前置：分支项目身份＝登记分支的正常 HEAD；祖先登记提供真实 origin 与目标分支。 */
     async branchPrContext(message) {
@@ -2161,18 +2165,24 @@ export class RealtimeTunnelPanelProvider {
         if (!branchRow) throw new Error("所选分支项目登记已变化或不存在，请重试；未执行任何操作。");
         const ancestorRow = (projection.ancestors || []).find((row) => row.record.id === branchRow.record.ancestorId);
         if (!ancestorRow) throw new Error("该分支所属祖先登记缺失，无法确定真实 origin；未执行任何操作。");
+        // 漂移校验必须拿真实祖先 origin（当场探针），登记文本只作缺失回退；两者都核不进 preview 的规范化即拒绝。
+        const ancestorIdentity = readGitIdentityProbe(ancestorRow.record.gitRoot);
+        const ancestorRemote = (ancestorIdentity.remotes || []).find((row) => row.name === ancestorRow.record.remoteName);
+        const registeredRemoteUrl = ancestorRemote?.url || ancestorRow.record.remoteUrl || "";
+        if (ancestorIdentity.error || !ancestorRemote)
+            throw new Error(`无法读取祖先真实 origin（${ancestorIdentity.error || "远端 " + ancestorRow.record.remoteName + " 不存在"}）；拒绝 PR 操作。`);
         const identity = readGitIdentityProbe(branchRow.record.workspaceRoot);
         if (identity.error || !identity.headCommit || identity.detached || !identity.branch)
             throw new Error(`分支项目 Git 身份不可用（${identity.error || (identity.detached ? "detached" : "无提交")}）；PR 操作需在登记分支的正常 HEAD 上进行。`);
         if (identity.branch !== branchRow.record.branch)
             throw new Error(`当前分支 ${identity.branch || "?"} 与登记分支 ${branchRow.record.branch} 不一致（身份漂移），未执行任何操作。`);
-        return { branchRow, ancestor: ancestorRow.record, identity };
+        return { branchRow, ancestor: ancestorRow.record, identity, registeredRemoteUrl };
     }
     async createBranchPrFromUi(message) {
-        const { branchRow, ancestor, identity } = await this.branchPrContext(message);
+        const { branchRow, ancestor, identity, registeredRemoteUrl } = await this.branchPrContext(message);
         const preview = await BranchPullRequest.previewBranchPullRequest({
             git: BranchPullRequest.runGitPullRequest, gh: BranchPullRequest.runGh,
-            cwd: branchRow.record.workspaceRoot, remoteName: ancestor.remoteName, registeredRemoteUrl: ancestor.remoteUrl,
+            cwd: branchRow.record.workspaceRoot, remoteName: ancestor.remoteName, registeredRemoteUrl,
             branch: identity.branch, base: ancestor.targetBranch, sourceSha: identity.headCommit,
         });
         if (!preview.ok) throw new Error(preview.reason || "PR 预览失败，未执行任何操作。");
@@ -2189,7 +2199,7 @@ export class RealtimeTunnelPanelProvider {
         if (!confirmed) throw new UiCommandCancelled("已取消，未推送、未创建。");
         const result = await BranchPullRequest.createBranchPullRequest({
             git: BranchPullRequest.runGitPullRequest, gh: BranchPullRequest.runGh, ledger: this.branchPrReceiptLedger(),
-            cwd: branchRow.record.workspaceRoot, remoteName: ancestor.remoteName, registeredRemoteUrl: ancestor.remoteUrl,
+            cwd: branchRow.record.workspaceRoot, remoteName: ancestor.remoteName, registeredRemoteUrl,
             branch: identity.branch, base: ancestor.targetBranch, sourceSha: identity.headCommit,
             title: `创新分支 ${identity.branch}${branchRow.record.label ? "（" + branchRow.record.label + "）" : ""}`,
             body: `由 SimpleExperiment 插件登记分支创建。\n- 分支：${identity.branch}\n- 源提交：${identity.headCommit}\n- 目标：${ancestor.targetBranch} @ ${preview.target.displayUrl}\n\n注意：代码运行验证由集群验证流程负责；本 PR 本身不代表科研结论已复核。`,
@@ -2203,36 +2213,66 @@ export class RealtimeTunnelPanelProvider {
         return this.branchPrState;
     }
     async mergeBranchPrFromUi(message) {
-        const { branchRow, ancestor, identity } = await this.branchPrContext(message);
+        const { branchRow, ancestor, identity, registeredRemoteUrl } = await this.branchPrContext(message);
         const preview = await BranchPullRequest.previewBranchPullRequest({
             git: BranchPullRequest.runGitPullRequest, gh: BranchPullRequest.runGh,
-            cwd: branchRow.record.workspaceRoot, remoteName: ancestor.remoteName, registeredRemoteUrl: ancestor.remoteUrl,
+            cwd: branchRow.record.workspaceRoot, remoteName: ancestor.remoteName, registeredRemoteUrl,
             branch: identity.branch, base: ancestor.targetBranch, sourceSha: identity.headCommit,
         });
         if (!preview.ok) throw new Error(preview.reason || "PR 预览失败。");
         const pr = preview.existing?.pr;
-        if (preview.existing?.kind !== "reuse" || !pr || String(pr.headRefOid || "").toLowerCase() !== identity.headCommit.toLowerCase())
-            throw new Error(`该分支相对 ${ancestor.targetBranch} 没有“远端头＝本机已验 HEAD”的开放 PR（${preview.existing?.note || "状态未知"}），拒绝合并：match-head 只允许已验候选 SHA。`);
-        const confirmed = await vscode.window.showWarningMessage(`合并 PR #${pr.number} 到 ${ancestor.targetBranch}？`, { modal: true, detail: `仓库：${preview.target.displayUrl}\n仅 --merge 且 --match-head-commit=${identity.headCommit.slice(0, 10)}…（远端头一旦变化 GitHub 将拒绝，不会盲合）；不使用 admin/force。\n合并成功后：本机祖先若干净且正处目标分支，将先核对远端头恰为本合并提交，再做 ff-only 更新。` }, "确认合并") === "确认合并" ? true : false;
+        const alreadyMerged = preview.existing?.kind === "merged";
+        if (preview.existing?.kind !== "reuse" && !alreadyMerged)
+            throw new Error(`该分支相对 ${ancestor.targetBranch} 没有身份确定的可合并开放 PR（${preview.existing?.note || "状态未知"}）。已 MERGED 的候选会走只读恢复；其它状态一律不动。`);
+        if (alreadyMerged && pr) {
+            // 只读恢复：PR 已 MERGED（可能网页操作或上次未知指令）——绝不重发合并，仅需独立确认后处理祖先快进。
+            await vscode.window.showInformationMessage(`PR #${pr.number} 已是 MERGED（只读重查）`, { modal: true, detail: "不会重发合并指令。\n下面将尝试（经你单独确认）更新本机祖先主线：只有干净、在目标分支且远端确含该合并提交时才 ff-only。" }, "知道了");
+            const mergedView = await this.confirmAndFastForwardAncestor(ancestor, preview.target, "");
+            this.branchPrState = { at: new Date().toISOString(), action: "merge-recover", root: branchRow.record.workspaceRoot, prNumber: pr.number, merged: true, fastForward: mergedView };
+            this.postState();
+            this.scheduleBranchProjectsVerify("after-pr-merge");
+            return this.branchPrState;
+        }
+        const confirmed = await vscode.window.showWarningMessage(`合并 PR #${pr.number} 到 ${ancestor.targetBranch}？`, { modal: true, detail: `仓库：${preview.target.displayUrl}\n仅 --merge 且 --match-head-commit=${identity.headCommit.slice(0, 10)}…（发送前模块还会只读重查完整 PR 身份：repo/head 分支/head SHA/base；远端头一旦变化 GitHub 将拒绝，不会盲合）；不使用 admin/force。` }, "确认合并") === "确认合并" ? true : false;
         if (!confirmed) throw new UiCommandCancelled("已取消合并。");
-        const merge = await BranchPullRequest.mergeBranchPullRequest({ gh: BranchPullRequest.runGh, ledger: this.branchPrReceiptLedger(), cwd: branchRow.record.workspaceRoot, repoSlug: preview.target.repoSlug, prNumber: pr.number, verifiedHeadSha: identity.headCommit });
+        const merge = await BranchPullRequest.mergeBranchPullRequest({ gh: BranchPullRequest.runGh, ledger: this.branchPrReceiptLedger(), cwd: branchRow.record.workspaceRoot, repoSelector: preview.target.repoSelector, prNumber: pr.number, verifiedHeadSha: identity.headCommit, base: ancestor.targetBranch, branch: identity.branch });
         if (merge.status !== "merged") {
             this.branchPrState = { at: new Date().toISOString(), action: "merge", root: branchRow.record.workspaceRoot, prNumber: pr.number, merged: false, status: merge.status, reason: merge.reason };
             this.postState();
-            await vscode.window.showWarningMessage(`合并未确认成功（${merge.status === "not-merged" ? "未合并" : "结果未知"}）：${merge.reason || ""}`, { modal: true, detail: "未知状态下绝不重放合并指令；请稍后重试本操作，将先只读重查 PR 状态。" }, "知道了");
+            await vscode.window.showWarningMessage(`合并未确认成功（${merge.status === "not-merged" ? "未合并" : "结果未知"}）：${merge.reason || ""}`, { modal: true, detail: "未知状态下绝不重放合并指令；再次执行本操作只会先做只读对账（含在网页已合并的恢复）。" }, "知道了");
             return this.branchPrState;
         }
-        const ancestorIdentity = readGitIdentityProbe(ancestor.gitRoot);
-        const ff = await BranchPullRequest.fastForwardAncestorRoot({ git: BranchPullRequest.runGitPullRequest, cwd: ancestor.gitRoot, remoteName: ancestor.remoteName, base: ancestor.targetBranch, expectedMergeCommit: merge.mergeCommit || "", identity: ancestorIdentity });
+        const ff = await this.confirmAndFastForwardAncestor(ancestor, preview.target, merge.mergeCommit);
         this.branchPrState = { at: new Date().toISOString(), action: "merge", root: branchRow.record.workspaceRoot, prNumber: pr.number, merged: true, mergeCommit: merge.mergeCommit, fastForward: ff };
         this.postState();
         await vscode.window.showInformationMessage("科研仓 PR 已合并", { modal: true, detail: [
             `PR #${pr.number} 已真实合并（mergeCommit ${String(merge.mergeCommit).slice(0, 10)}）。`,
-            ff.status === "fast-forwarded" ? `本机祖先已快进 ${String(ff.from).slice(0, 10)}→${String(ff.to).slice(0, 10)}（ff-only，未产生合并提交）。` : `本机祖先未更新：${ff.reason || ff.status}`,
-            "注意：此前的运行/验证针对候选 SHA（已合并的候选），不自动等于合并后主线的验证；如需主线验证请按流程重新验证。",
+            ff?.status === "fast-forwarded" ? `本机祖先已快进 ${String(ff.from).slice(0, 10)}→${String(ff.to).slice(0, 10)}（ff-only，未产生合并提交）。` : ff?.status === "already-current" ? "本机祖先已在该主线，无需更新。" : `本机祖先未更新：${ff?.reason || ff?.status || "未确认快进"}`,
+            "注意：此前的运行/验证针对该候选提交，不自动等于合并后主线的验证；如需主线验证请按流程重新验证。",
         ].join("\n") }, "知道了");
         this.scheduleBranchProjectsVerify("after-pr-merge");
         return this.branchPrState;
+    }
+    /** 祖先真实 origin（当场探针优先，登记文本由调用方兜底）：ff 仓库身份核对基准。 */
+    ancestorLiveRemoteUrl(ancestor) {
+        try {
+            const identity = readGitIdentityProbe(ancestor.gitRoot);
+            const row = (identity.remotes || []).find((item) => item.name === ancestor.remoteName);
+            return row?.url || "";
+        } catch { return ""; }
+    }
+    /** 祖先更新是独立确认（R4）：合并/恢复成功后单独征求同意；快进目标以已核完整 SHA + 包含合并提交 + 本机 HEAD 为祖先为前提。 */
+    async confirmAndFastForwardAncestor(ancestor, target, expectedMergeCommit) {
+        if (!expectedMergeCommit) {
+            await vscode.window.showWarningMessage("缺少已确认的合并提交 SHA，暂缓祖先更新（可稍后重查 PR 后恢复）。", { modal: true }, "知道了");
+            return { status: "blocked", reason: "缺少已确认合并提交 SHA" };
+        }
+        const confirmed = await vscode.window.showWarningMessage(`更新本机祖先主线到已合并提交？`, { modal: true, detail: `项目：${ancestor.gitRoot}\n目标分支：${ancestor.targetBranch} → ${String(expectedMergeCommit).slice(0, 10)}\n前提（逐条真实核对，任一不满足即停）：工作区干净、当前就在该目标分支、真实 origin 仍是 ${target.displayUrl}、远端确含该合并提交、本机 HEAD 是其祖先；仅 ff-only，绝不 reset/stash/切分支。` }, "确认快进") === "确认快进" ? true : false;
+        if (!confirmed) throw new UiCommandCancelled("已取消祖先快进（合并结果不受影响）。");
+        return BranchPullRequest.fastForwardAncestorRoot({
+            git: BranchPullRequest.runGitPullRequest, cwd: ancestor.gitRoot, remoteName: ancestor.remoteName, base: ancestor.targetBranch,
+            expectedMergeCommit, expectedRemoteUrl: this.ancestorLiveRemoteUrl(ancestor) || ancestor.remoteUrl, readIdentity: () => readGitIdentityProbe(ancestor.gitRoot),
+        });
     }
     createLocalApiMethods() {
         return {

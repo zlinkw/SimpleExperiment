@@ -24,7 +24,7 @@ const MANIFEST_MAX_FILES = 4096;
 
 /** 真实执行器：clean-env spawn（继承的 GIT_DIR 等一律剪除，同 GitIdentityProbe 口径），无 shell，
  * 输出为原始 Buffer（blob 字节比较不许经过字符串编码），超上限/超时即失败关闭。 */
-export function runGitBinary(cwd: string, args: string[], stdin?: string): Promise<{ code: number; stdout: Buffer; stderr: string }> {
+export const runGitBinary: HeadBindingRunner = (args, cwd, stdin) => {
   return new Promise((resolve, reject) => {
     const child = spawn("git", args, { cwd, env: sanitizeGitEnv(process.env), windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     const chunks: Buffer[] = [];
@@ -42,7 +42,7 @@ export function runGitBinary(cwd: string, args: string[], stdin?: string): Promi
     if (stdin === undefined) child.stdin.end();
     else child.stdin.end(stdin);
   });
-}
+};
 
 /** `git ls-tree -r -z --full-tree <commit>`：NUL 分隔记录 `<mode> <type> <oid>\t<path>`（-z 免引号/编码歧义）。 */
 export function parseLsTreeZ(output: string): Map<string, { mode: string; oid: string }> {

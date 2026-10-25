@@ -491,9 +491,14 @@ test("P0-1/P0-2/P1-3 两个独立项目窗口真实进程：生产同意事务�
   assert.equal(readDiskJob(rootB, "plan-b", 1).dispatchConsent.commandId, "cmd-b2");
   assert.equal(r2.guardAfterSave, true, "同意落盘后生产守卫通过（发送标记的既有 save→send 顺序自然放行）");
   // —— A 确证完成（durable verifiedCompletion 经生产保存事务落盘）→ 同卡名额释放。
-  await hostA.saveDistributedQueue(rootA, undefined, { controlMutation: true, mutateLatest: latest => ({ ...latest,
-    plans: latest.plans.map(p => p.id !== "plan-a" ? p : { ...p, jobs: p.jobs.map(j => ({ ...j, status: "completed", trustedTerminalStatus: "completed",
-      executionState: "exited", verifiedCompletion: { schemaVersion: 1, identity: VC.completionIdentity(p, j), verifiedAt: now(), exitCode: 0 } })) })) }) });
+  await hostA.saveDistributedQueue(rootA, undefined, { controlMutation: true, mutateLatest: latest => ({
+    ...latest,
+    plans: latest.plans.map(p => p.id !== "plan-a" ? p : {
+      ...p,
+      jobs: p.jobs.map(j => ({ ...j, status: "completed", trustedTerminalStatus: "completed", executionState: "exited",
+        verifiedCompletion: { schemaVersion: 1, identity: VC.completionIdentity(p, j), verifiedAt: now(), exitCode: 0 } })),
+    }),
+  }) });
   const releasedA = readDiskJob(rootA, "plan-a", 0);
   assert.equal(releasedA.status, "completed", "确证完成的 proof 跨清洗保留");
   // —— 窗口 B（真实子进程 #3）：释放确证之后，同卡新命令才再批。

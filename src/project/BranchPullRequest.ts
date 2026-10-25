@@ -1,19 +1,22 @@
 /**
  * src/project/BranchPullRequest.ts - 块C4/C5：科研仓 PR 预览/创建与合并后祖先快进（gh/git 执行器注入）。
  *
- * 契约（主控 2026-10-25 批准的 C4/C5 指导）：
- * - 目标必须来自登记祖先“真实 origin”的规范化结果（host/owner/repo），凭证一律剥离，任何输出
- *   只含无凭证 displayUrl；漂移（登记 remoteUrl 与当前实际 remote 规范化后不等）即停，不猜测。
- * - 创建前 preview → 调用方 modal 确认 → 写前复核（identity/remote/PR 列表重查，digest 一致才写）。
- * - 写操作先记 attempt 收据再执行；结果未知（超时/传输错/无法证实的退出）的收据永不自动重放：
- *   下一次必须先只读对账（ls-remote / gh pr list），只有对账能确定动作时才继续，且仍写新收据。
- * - push 只允许普通快推 refs/heads/<b>:refs/heads/<b>，绝不 force；已存在 PR 仅在
- *   headRefOid===源SHA 且 baseRefName===目标分支 时按身份复用，不重复创建。
- * - 合并只允许 gh pr merge --merge --match-head-commit=<已验SHA>；无 admin、无 force；
- *   命令退出码不是结论——必须 gh pr view 重查 state===MERGED 且有 mergeCommit 才算合并成功。
- * - 祖先 ff 仅在真实 MERGED 之后：干净、就在目标分支的登记根，fetch 精确 origin 目标分支，
- *   merge --ff-only；脏/分叉即停。合并后由调用方标注“原验证来自候选SHA”。
- * - 本开发轮次不对任何真实科研仓 push/PR/merge：测试全部经注入执行器（Windows 临时 Git 仓 + gh stub）。
+ * 契约（主控 2026-10-25 R2/R4/R5 更正后）：
+ * - 目标=登记祖先真实 origin 规范化：仅支持 GitHub（host 必须 github.com，owner/repo 恰两段，不冒充
+ *   GitLab 多层组、不新增平台）；`.git` 只剥后缀不吞整段；含凭证 https 拒绝；登记 URL 无法规范化＝拒绝，
+ *   不允许跳过漂移校验；真实祖先 origin 与真实分支 origin 必须核成同一已确认 repo。
+ * - gh 一律带完整 `--repo github.com/owner/repo` 选择器，防 GH_HOST 默认重定向到别的托管实例。
+ * - gh 2.93 事实：pr create 不支持 --json，成功仅输出 PR URL；创建后必须 gh pr view 只读重查
+ *   精确 repo/head SHA/head 分支/base/PR 号才算成功，URL 子串与 stub 伪 JSON 不作数。
+ * - 写前复核（R4）：确认后的本地 HEAD 必须仍未变化；push 用 immutable `<已确认SHA>:refs/heads/<branch>`，
+ *   绝不 force；gh pr merge 同样 modal 后重查完整 PR 身份并保留 --match-head-commit。
+ * - 未知结果不可重放（R5）：每个动作/目标/SHA 的尝试先落 unknown 收据；同 key 不复用不同动作，
+ *   未对账收据不覆盖、不清除；unknown 重入只做只读对账——精确证明 push 已落才继续 PR、精确 PR 存在即复用、
+ *   精确 MERGED 只走祖先处理；未能确证保持 blocked，绝不重发。账本经注入的短资源事务原子读改写。
+ * - 祖先 ff（R4）：独立确认后，真实 root/common-dir/origin repo/目标分支/干净 HEAD 在 fetch 前后各核一次；
+ *   ff 目标用已核完整 SHA；要求 目标包含已确认合并提交 且 本机 HEAD 是目标祖先（含 merge 的后续头可安全 ff）；
+ *   脏/分叉/身份变化一律停；绝不 reset/stash/切分支。
+ * - 本开发轮次不对任何真实科研仓 push/PR/merge：测试全部经注入执行器（Windows 临时 Git 仓 + gh argv 桩）。
  */
 import { spawn } from "node:child_process";
 import { sanitizeGitEnv } from "./GitIdentityProbe";
@@ -23,8 +26,11 @@ export type PullRequestRunner = (args: string[], cwd: string, stdin?: string) =>
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 120_000;
 const GH_TIMEOUT_MS = 120_000;
+const PR_LIST_LIMIT = 200;
+/** 唯一受支持托管平台（新增平台须由主控批准，不在本任务内）。 */
+const SUPPORTED_HOST = "github.com";
 
-/** 真实执行器（git 复用 clean-env 口径；gh 同走无 shell spawn，输出上限/超时失败关闭）。 */
+/** 真实执行器：clean-env 无 shell spawn，原始 Buffer 输出，上限/超时失败关闭。 */
 export function makeRunner(binary: "git" | "gh", timeoutMs: number): PullRequestRunner {
   return (args, cwd, stdin) => new Promise((resolve, reject) => {
     let child;
@@ -46,33 +52,41 @@ export function makeRunner(binary: "git" | "gh", timeoutMs: number): PullRequest
     if (stdin === undefined) child.stdin.end(); else child.stdin.end(stdin);
   });
 }
-export const runGitPullRequest = makeRunner("git", GIT_TIMEOUT_MS);
-export const runGh = makeRunner("gh", GH_TIMEOUT_MS);
+export const runGitPullRequest: PullRequestRunner = makeRunner("git", GIT_TIMEOUT_MS);
+export const runGh: PullRequestRunner = makeRunner("gh", GH_TIMEOUT_MS);
 
-/** 无凭证目标：支持 https 与 ssh 常见形态；owner/repo 规则为两段路径（允许多段仓库组）。 */
-export function normalizeGithubTarget(rawUrl: string): { host: string; owner: string; repo: string; repoSlug: string; displayUrl: string } | undefined {
+export type GithubTarget = { host: string; owner: string; repo: string; repoSelector: string; displayUrl: string };
+
+/** 仅规范化 GitHub 两段仓库；只剥 `.git` 后缀；ssh:// 端口与登录名解析忽略；其它平台/异常形态一律拒绝。 */
+export function normalizeGithubTarget(rawUrl: string): GithubTarget | undefined {
   const raw = String(rawUrl || "").trim();
   if (!raw || /[\s\x00-\x1f]/.test(raw)) return undefined;
   let host = ""; let pathPart = "";
-  if (/^https?:\/\//i.test(raw)) {
+  if (/^(https?|ssh):\/\//i.test(raw)) {
     let url; try { url = new URL(raw); } catch { return undefined; }
-    if (!/^https?:$/.test(url.protocol) || url.username || url.password) return undefined;
-    host = url.hostname.toLowerCase(); pathPart = url.pathname;
+    if (!/^https?:$/.test(url.protocol) && (url.username || url.password)) return undefined; // https 带凭证：拒绝
+    if (!/^https?:$/.test(url.protocol) && !/^ssh:$/.test(url.protocol)) return undefined;
+    host = url.hostname.toLowerCase(); pathPart = url.pathname; // ssh:// 的端口不属于仓库身份，忽略
   } else {
-    const match = /^(?:ssh:\/\/)?(?:[^@/\s]+@)?([^:/\s]+)[:/](.+)$/i.exec(raw);
+    const match = /^(?:[^@/\s]+@)?([^:/\s]+)[:/](.+)$/.exec(raw);
     if (!match) return undefined;
     host = match[1].toLowerCase(); pathPart = "/" + match[2];
   }
+  if (host !== SUPPORTED_HOST) return undefined; // 不支持的托管平台：明确拒绝（不重定向、不猜测）
   const segments = pathPart.split("/").filter(Boolean);
-  if (segments.length < 2) return undefined;
-  if (segments[segments.length - 1].toLowerCase().endsWith(".git")) segments.pop();
-  if (segments.length < 2) return undefined;
-  if (segments.some(segment => !/^[A-Za-z0-9._-]+$/.test(segment))) return undefined;
-  const repo = segments[segments.length - 1]; const owner = segments[segments.length - 2];
-  return { host, owner, repo, repoSlug: segments.join("/"), displayUrl: `https://${host}/${segments.join("/")}` };
+  if (segments.length !== 2) return undefined; // GitHub 仓库恰为 owner/repo 两段
+  const last = segments[1];
+  if (last.toLowerCase().endsWith(".git")) segments[1] = last.slice(0, -4);
+  if (segments.some(segment => !/^[A-Za-z0-9._-]+$/.test(segment) || segment === "." || segment === "..")) return undefined;
+  const owner = segments[0]; const repo = segments[1];
+  if (!owner || !repo) return undefined;
+  return { host: SUPPORTED_HOST, owner, repo, repoSelector: `${SUPPORTED_HOST}/${owner}/${repo}`, displayUrl: `${"https"}://${SUPPORTED_HOST}/${owner}/${repo}` };
 }
 
-/** stderr 分类：只有命中已知“写请求确定未执行/被拒”的特征才算 definite-failed，其余非零一律 unknown（保守，不重放）。 */
+/** GitHub 仓库/分支比较口径：owner/repo 大小写保留原样但身份比较不敏感；分支引用名大小写敏感。 */
+const sameRepo = (a?: GithubTarget, b?: GithubTarget) => Boolean(a && b && a.displayUrl.toLowerCase() === b.displayUrl.toLowerCase());
+
+/** stderr 分类：仅命中已知“写请求确定未执行/被拒”特征才算 definite-failed，其余非零一律 unknown（保守，不重放）。 */
 const DEFINITE_REJECT_PATTERNS = [/\((?:non-fast-forward|fetch first|stale info)\)/i, /rejected/i, /already exists/i, /must be reviewed/i, /could not (?:read from remote repository|find repository|resolve)/i, /invalid argument|unknown flag|unknown argument/i, /protected branch/i, /permission denied \(/i];
 export function classifyWriteFailure(stderr: string, exception?: unknown): "definite-failed" | "unknown" {
   if (exception) return "unknown";
@@ -80,32 +94,66 @@ export function classifyWriteFailure(stderr: string, exception?: unknown): "defi
   return DEFINITE_REJECT_PATTERNS.some(pattern => pattern.test(text)) ? "definite-failed" : "unknown";
 }
 
-export type PrListRow = { number: number; state?: string; isDraft?: boolean; headRefOid?: string; baseRefOid?: string; baseRefName?: string; url?: string };
+export type PrListRow = { number: number; state?: string; isDraft?: boolean; headRefOid?: string; headRefName?: string; headRepositoryOwner?: string; baseRefOid?: string; baseRefName?: string; url?: string };
+const PR_JSON_FIELDS = "number,state,isDraft,headRefOid,headRefName,headRepositoryOwner,baseRefOid,baseRefName,url";
 
-/** gh pr list 输出解析：非 JSON/解析失败如实 throw（调用方按未知处理，不猜测列表为空）。 */
 export function parsePrList(stdoutText: string): PrListRow[] {
   const parsed = JSON.parse(String(stdoutText || "").trim());
   if (!Array.isArray(parsed)) throw new Error("gh pr list 返回不是数组");
   return parsed.map(row => ({
     number: Number(row?.number), state: row?.state ? String(row.state) : undefined, isDraft: Boolean(row?.isDraft),
-    headRefOid: row?.headRefOid ? String(row.headRefOid) : undefined, baseRefOid: row?.baseRefOid ? String(row.baseRefOid) : undefined,
-    baseRefName: row?.baseRefName ? String(row.baseRefName) : undefined, url: row?.url ? String(row.url) : undefined,
+    headRefOid: row?.headRefOid ? String(row.headRefOid) : undefined, headRefName: row?.headRefName ? String(row.headRefName) : undefined,
+    headRepositoryOwner: row?.headRepositoryOwner ? String(row.headRepositoryOwner) : undefined,
+    baseRefOid: row?.baseRefOid ? String(row.baseRefOid) : undefined, baseRefName: row?.baseRefName ? String(row.baseRefName) : undefined,
+    url: row?.url ? String(row.url) : undefined,
   })).filter(row => Number.isInteger(row.number) && row.number > 0);
+}
+
+export type PrClassification = { kind: "none" | "reuse" | "updates-existing" | "merged" | "unknown"; pr?: PrListRow; note: string };
+
+/**
+ * 列表 → 分类（R2 精确身份）：以 headRefName===分支（大小写敏感）∧headRepositoryOwner===owner（不敏感，
+ * fork 的 PR 属“其它创新 PR”不算本分支）∧baseRefName===base 为准；同 base 其它分支/同 SHA 其它分支只记注不匹配；
+ * 截断或解析失败＝unknown（不得假唯一/不存在）。
+ */
+export function classifyPrRows(rows: PrListRow[], truncated: boolean, options: { owner: string; branch: string; base: string; sourceSha: string }): PrClassification {
+  if (truncated) return { kind: "unknown", note: `PR 列表达到 ${PR_LIST_LIMIT} 上限可能被截断，无法确证该分支的 PR 状态` };
+  const open = (row: PrListRow) => (row.state || "OPEN").toUpperCase() === "OPEN";
+  const merged = (row: PrListRow) => (row.state || "").toUpperCase() === "MERGED";
+  const ours = (row: PrListRow) => (row.headRefName || "") === options.branch
+    && String(row.headRepositoryOwner || "").toLowerCase() === options.owner.toLowerCase()
+    && (row.baseRefName || "").toLowerCase() === options.base.toLowerCase();
+  const exactSha = (row: PrListRow) => (row.headRefOid || "").toLowerCase() === options.sourceSha.toLowerCase();
+  const exactOpen = rows.filter(row => open(row) && ours(row)).sort((a, b) => b.number - a.number);
+  const exactMerged = rows.filter(row => merged(row) && ours(row));
+  const otherOpenSameBase = rows.filter(row => open(row) && !ours(row) && (row.baseRefName || "").toLowerCase() === options.base.toLowerCase()
+    && (row.headRefOid || "").toLowerCase() === options.sourceSha.toLowerCase());
+  const identityHit = exactOpen.find(exactSha);
+  if (identityHit) return { kind: "reuse", pr: identityHit, note: `开放 PR #${identityHit.number} 的 head 分支/base/SHA 与本候选一致${identityHit.isDraft ? "（草稿）" : ""}，按身份复用即可` };
+  if (exactOpen.length === 0 && exactMerged.length) {
+    const proven = exactMerged.find(exactSha) || exactMerged[0];
+    return { kind: "merged", pr: proven, note: exactSha(proven) ? `本分支/base 上已有 MERGED PR #${proven.number}（head 与本候选一致）：无需再推送/创建/合并，只做祖先处理` : `本分支相对 ${options.base} 的最新 PR #${proven.number} 已 MERGED（head 与本候选不同）：如需以新候选再走 PR，请明确知悉这是新一轮` };
+  }
+  if (exactOpen.length) {
+    const row = exactOpen[0];
+    return { kind: "updates-existing", pr: row, note: `本分支相对 ${options.base} 已有开放 PR #${row.number}（head ${String(row.headRefOid).slice(0, 10)} ≠ 本候选 ${options.sourceSha.slice(0, 10)}）：确认后普通推送将更新该 PR，随后重查按身份复用，绝不盲目 pr create` };
+  }
+  const note = otherOpenSameBase.length ? `存在指向 ${options.base} 的其它创新 PR（#${otherOpenSameBase.map(row => row.number).join(", ")}，分支不同），非本分支 PR` : "该分支相对目标分支没有任何 PR（open/merged 全量核对）";
+  return { kind: "none", note };
 }
 
 export type PrPreview = {
   ok: boolean; reason?: string;
-  target?: { host: string; owner: string; repo: string; repoSlug: string; displayUrl: string };
+  target?: GithubTarget;
   remoteName?: string; base?: string; branch?: string; sourceSha?: string; baseSha?: string;
   baseState?: "found" | "missing" | "unknown";
-  /** 远端该分支当前头（""=远端还没有此分支）：写前复核必须连它一起核对。 */
   branchRemoteSha?: string;
-  existing?: { kind: "none" | "reuse" | "updates-existing" | "unknown"; pr?: PrListRow; note: string };
+  existing?: PrClassification;
   divergence?: { ahead: number; behind: number } | "unknown";
   digest?: string;
 };
 
-/** 只读预览：真实 origin 规范化 → ls-remote 目标分支与分支头 → 本地 ahead/behind（无基线则如实 unknown）→ gh pr list 身份。 */
+/** 只读预览：真实 origin 规范化+登记核对 → ls-remote 基线/分支头 → 本地 ahead/behind（无基线如实 unknown）→ gh pr list（state all）精确分类。 */
 export async function previewBranchPullRequest(options: {
   git: PullRequestRunner; gh?: PullRequestRunner;
   cwd: string; remoteName: string; registeredRemoteUrl: string; branch: string; base: string; sourceSha: string;
@@ -119,9 +167,9 @@ export async function previewBranchPullRequest(options: {
   if (remoteShow.code !== 0) return fail(`本地不存在远端 ${remoteName}（登记祖先可能已改动 remote），未查询。`);
   const live = normalizeGithubTarget(remoteShow.stdout.toString("utf8"));
   const registered = normalizeGithubTarget(registeredRemoteUrl);
-  if (!live) return fail("当前 origin URL 无法规范化为无凭证 https/github 目标（可能含凭证或非 http/ssh 协议），按未知停止。");
-  if (registered && live.displayUrl !== registered.displayUrl)
-    return fail(`实际 origin（${live.displayUrl}）与登记时（${registered.displayUrl}）不一致——目标漂移，请重新登记祖先后再操作。`);
+  if (!live) return fail("当前 origin URL 无法规范化为 GitHub 仓库目标（非 github.com、含凭证或形态异常），按未知停止，不猜测。");
+  if (!registered) return fail("登记祖先的 origin 无法规范化（非 github.com 或含凭证）：无法执行漂移校验，拒绝操作。请重新登记祖项目标。");
+  if (!sameRepo(live, registered)) return fail(`实际 origin（${live.displayUrl}）与登记祖先（${registered.displayUrl}）不是同一已确认仓库——目标漂移，请重新登记祖先后再操作。`);
   const baseQuery = await git(["ls-remote", "--heads", remoteName, base], cwd);
   if (baseQuery.code !== 0) return fail(`目标分支查询失败（${baseQuery.stderr.slice(0, 160) || `exit ${baseQuery.code}`}），按未知停止。`);
   const baseLine = baseQuery.stdout.toString("utf8").split(/\r?\n/).map(line => line.split("\t")).filter(parts => parts[1] === `refs/heads/${base}`)[0];
@@ -144,17 +192,11 @@ export async function previewBranchPullRequest(options: {
   };
   if (preview.baseState === "missing") preview.existing = { kind: "unknown", note: `目标分支 ${base} 在远端不存在，不能创建 PR` };
   if (!gh || preview.baseState !== "found") { preview.digest = digestPreview(preview); return preview; }
+  const listed = await gh(["pr", "list", "--repo", live.repoSelector, "--state", "all", "--json", PR_JSON_FIELDS, "--limit", String(PR_LIST_LIMIT)], cwd);
+  if (listed.code !== 0) { preview.existing = { kind: "unknown", note: `PR 列表查询失败：${(listed.stderr || "").slice(0, 160) || `exit ${listed.code}`}` }; preview.digest = digestPreview(preview); return preview; }
   try {
-    const listed = await gh(["pr", "list", "--repo", live.repoSlug, "--state", "open", "--json", "number,state,isDraft,headRefOid,baseRefOid,baseRefName,url", "--limit", "200"], cwd);
-    if (listed.code !== 0) { preview.existing = { kind: "unknown", note: `PR 列表查询失败：${(listed.stderr || "").slice(0, 160) || `exit ${listed.code}`}` }; preview.digest = digestPreview(preview); return preview; }
-    const rows = parsePrList(listed.stdout.toString("utf8")).filter(row => (row.baseRefName || "").toLowerCase() === base.toLowerCase()
-      || (row.headRefOid || "").toLowerCase() === preview.sourceSha!.toLowerCase());
-    const exact = rows.find(row => (row.headRefOid || "").toLowerCase() === preview.sourceSha!.toLowerCase()
-      && (row.baseRefName || "").toLowerCase() === base.toLowerCase());
-    const sameBranch = rows.find(row => (row.baseRefName || "").toLowerCase() === base.toLowerCase());
-    preview.existing = exact ? { kind: "reuse", pr: exact, note: `已有 PR #${exact.number} 头提交与源 SHA 一致${exact.isDraft ? "（草稿）" : ""}，复用即可，无需新建` }
-      : sameBranch ? { kind: "updates-existing", pr: sameBranch, note: `该分支相对 ${base} 已有 PR #${sameBranch.number}（头 ${String(sameBranch.headRefOid).slice(0, 10)} 与本次源 SHA 不同）——再推送会更新该 PR，需要你明确确认` }
-        : { kind: "none", note: branchLine ? `远端已有该分支（${branchLine[0].slice(0, 10)}），但相对 ${base} 没有开放 PR，需要新建` : "远端无该分支、无 PR：将推送分支并新建 PR" };
+    const rows = parsePrList(listed.stdout.toString("utf8"));
+    preview.existing = classifyPrRows(rows, rows.length >= PR_LIST_LIMIT, { owner: live.owner, branch, base, sourceSha: preview.sourceSha });
   } catch (error) {
     preview.existing = { kind: "unknown", note: `PR 列表不可解析，按未知停止：${String((error as Error)?.message || error).slice(0, 160)}` };
   }
@@ -163,37 +205,93 @@ export async function previewBranchPullRequest(options: {
 }
 
 function digestPreview(preview: PrPreview): string {
-  return JSON.stringify([preview.target?.displayUrl || "", preview.remoteName, preview.base, preview.branch, preview.sourceSha,
+  return JSON.stringify([preview.target?.displayUrl.toLowerCase() || "", preview.remoteName, preview.base, preview.branch, preview.sourceSha,
     preview.baseState, preview.baseSha || "", preview.branchRemoteSha || "", preview.existing?.kind, preview.existing?.pr?.number ?? null, String(preview.divergence)]);
 }
 
-export type Receipt = { key: string; root: string; branch: string; sourceSha: string; base: string; action: "push" | "pr-create" | "merge"; attemptAt: string; outcome: "ok" | "definite-failed" | "unknown"; detail?: string; prNumber?: number };
-export type ReceiptLedger = { load(): Promise<Receipt[]>; save(rows: Receipt[]): Promise<void> };
+export type Receipt = { key: string; root: string; branch: string; sourceSha: string; base: string; repoSelector: string;
+  action: "push" | "pr-create" | "merge"; attemptAt: string; outcome: "ok" | "definite-failed" | "unknown"; detail?: string; prNumber?: number };
+/** 账本契约：load/save 原子对；withLock（若提供）把一次读-改-写放进同一短资源事务，防多窗口互相丢写。key 必含 action。 */
+export type ReceiptLedger = { load(): Promise<Receipt[]>; save(rows: Receipt[]): Promise<void>; withLock?<T>(fn: () => Promise<T>): Promise<T> };
 
-/** 写前落收据（outcome=unknown），返回收讫句柄；只有执行器确定回传结局时才更新。未知收据由 loadUnknownReceipts 驱动对账，绝不自动重放。
- * 账本读失败＝拒绝任何写入（绝不能因读不到旧收据就当作没有）；settle 读失败则保留原收据不覆盖（保守未知）。 */
+/** 修剪策略（R5）：未对账 unknown 收据永不修剪；已结收据只留最近 200 条。 */
+export function pruneReceipts(rows: Receipt[]): Receipt[] {
+  const unresolved = rows.filter(row => row.outcome === "unknown");
+  const settled = rows.filter(row => row.outcome !== "unknown").slice(-200);
+  return [...unresolved, ...settled];
+}
+
+function inLedger<T>(ledger: ReceiptLedger, fn: () => Promise<T>): Promise<T> {
+  return ledger.withLock ? ledger.withLock(fn) : fn();
+}
+
+/** 写前落 unknown 收据；只有执行器或只读对账确定结局时才更新；账本读失败＝拒绝任何写入。 */
 async function openReceipt(ledger: ReceiptLedger, fields: Omit<Receipt, "outcome" | "attemptAt">): Promise<{ row: Receipt; settle(outcome: Receipt["outcome"], detail?: string, prNumber?: number): Promise<void> }> {
-  const rows = await ledger.load();
   const row: Receipt = { ...fields, attemptAt: new Date().toISOString(), outcome: "unknown" };
-  await ledger.save([...rows.filter(item => item.key !== row.key), row]);
+  await inLedger(ledger, async () => {
+    const rows = await ledger.load();
+    if (rows.some(item => item.key === row.key && item.outcome === "unknown" && item.attemptAt > row.attemptAt)) throw new Error("收据竞态：保留先前未知尝试");
+    await ledger.save(pruneReceipts([...rows.filter(item => item.key !== row.key || item.outcome === "unknown"), row]));
+  });
   return { row, settle: async (outcome, detail, prNumber) => {
     try {
-      const latest = await ledger.load();
-      await ledger.save([...latest.filter(item => item.key !== row.key), { ...row, outcome, detail: String(detail || "").slice(0, 400), prNumber }]);
+      await inLedger(ledger, async () => {
+        const latest = await ledger.load();
+        await ledger.save(pruneReceipts([...latest.filter(item => item.key !== row.key), { ...row, outcome, detail: String(detail || "").slice(0, 400), prNumber }]));
+      });
     } catch { /* 保留先前 unknown 收据：宁可多一次人工对账，不制造可重放假象 */ }
   } };
 }
+
 export async function loadUnknownReceipts(ledger: ReceiptLedger): Promise<Receipt[]> {
-  const rows = await ledger.load();
+  const rows = await inLedger(ledger, () => ledger.load());
   return rows.filter(row => row.outcome === "unknown");
 }
 
-export type CreateResult = { status: "created" | "reused" | "blocked-unknown" | "failed"; prNumber?: number; url?: string; reason?: string; note?: string };
+export type CreateResult = { status: "created" | "reused" | "already-merged" | "blocked-unknown" | "failed"; prNumber?: number; url?: string; reason?: string; note?: string };
+
+function remoteHeadOf(stdout: Buffer, branch: string): string {
+  const line = stdout.toString("utf8").split(/\r?\n/).map(row => row.split("\t")).filter(parts => parts[1] === `refs/heads/${branch}`)[0];
+  return line ? line[0].toLowerCase() : "";
+}
+
+/** gh 2.93：pr create 无 --json，成功仅输出 URL 行；只接受整行精确匹配。 */
+function parseCreatedPrUrl(stdoutText: string, target: GithubTarget): number | undefined {
+  for (const line of String(stdoutText || "").split(/\r?\n/)) {
+    const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)\/?$/i.exec(line.trim());
+    if (!match) continue;
+    if (match[1].toLowerCase() !== target.owner.toLowerCase() || match[2].toLowerCase() !== target.repo.toLowerCase()) continue;
+    return Number(match[3]);
+  }
+  return undefined;
+}
+
+/** 只读核验 PR 身份（view；失败回退 list 对账）。 */
+async function verifyPrIdentity(gh: PullRequestRunner, cwd: string, target: GithubTarget, number: number, sourceSha: string, base: string, branch: string): Promise<PrListRow | undefined> {
+  try {
+    const view = await gh(["pr", "view", String(number), "--repo", target.repoSelector, "--json", PR_JSON_FIELDS], cwd);
+    if (view.code === 0) {
+      const value = JSON.parse(view.stdout.toString("utf8"));
+      const row: PrListRow = { number: Number(value?.number), state: value?.state, isDraft: Boolean(value?.isDraft), headRefOid: value?.headRefOid, headRefName: value?.headRefName,
+        headRepositoryOwner: value?.headRepositoryOwner, baseRefOid: value?.baseRefOid, baseRefName: value?.baseRefName, url: value?.url };
+      if (row.number === number && (row.headRefOid || "").toLowerCase() === sourceSha.toLowerCase() && (row.baseRefName || "").toLowerCase() === base.toLowerCase()
+        && (row.headRefName || "") === branch && String(row.headRepositoryOwner || "").toLowerCase() === target.owner.toLowerCase()) return row;
+    }
+  } catch { /* 继续 list 对账 */ }
+  try {
+    const listed = await gh(["pr", "list", "--repo", target.repoSelector, "--state", "all", "--json", PR_JSON_FIELDS, "--limit", String(PR_LIST_LIMIT)], cwd);
+    if (listed.code !== 0) return undefined;
+    const rows = parsePrList(listed.stdout.toString("utf8"));
+    if (rows.length >= PR_LIST_LIMIT) return undefined;
+    return rows.find(row => row.number === number && (row.headRefOid || "").toLowerCase() === sourceSha.toLowerCase()
+      && (row.baseRefName || "").toLowerCase() === base.toLowerCase() && (row.headRefName || "") === branch
+      && String(row.headRepositoryOwner || "").toLowerCase() === target.owner.toLowerCase());
+  } catch { return undefined; }
+}
 
 /**
- * 创建 PR（调用方必须已完成 modal 确认并传入与 preview 一致的 sourceSha/base/digest）。
- * 步骤：写前复核 → 普通 push（如远端缺该 SHA）→ gh pr create → 重查身份。
- * 任何“未知”先落收据并停止；带未知收据的再次调用必须先只读对账，对账确定才继续——不会盲目重发。
+ * 创建/复用 PR（调用方已完成 modal 确认）。步骤＝unknown 收据只读对账 → 写前复核（digest+本地 HEAD 未变）→
+ * 普通推送（immutable SHA，仅当远端缺该 SHA）→ gh pr create（真实 CLI 形态）→ 只读核验。任何未确证＝blocked，不重发。
  */
 export async function createBranchPullRequest(options: {
   git: PullRequestRunner; gh: PullRequestRunner; ledger: ReceiptLedger;
@@ -201,28 +299,55 @@ export async function createBranchPullRequest(options: {
   title: string; body: string; previewDigest: string;
 }): Promise<CreateResult> {
   const { git, gh, ledger, cwd, remoteName, branch, base, sourceSha, title, body, previewDigest } = options;
-  const key = JSON.stringify([cwd, branch, sourceSha.toLowerCase(), base]);
+  const targetKey = [cwd, branch, sourceSha.toLowerCase(), base];
   let unknowns: Receipt[];
-  try { unknowns = (await loadUnknownReceipts(ledger)).filter(row => row.key === key); }
+  try { unknowns = (await loadUnknownReceipts(ledger)).filter(row => row.root === targetKey[0] && row.branch === branch
+    && row.sourceSha === sourceSha.toLowerCase() && row.base === base); }
   catch (error) { return { status: "blocked-unknown", reason: `收据账本不可读/已损坏（${String((error as Error)?.message || error).slice(0, 160)}），无法确认是否存在未对账写入，拒绝任何写入。` }; }
   const preview = await previewBranchPullRequest({ git, gh, cwd, remoteName, registeredRemoteUrl: options.registeredRemoteUrl, branch, base, sourceSha });
   if (!preview.ok) return { status: "blocked-unknown", reason: `写前复核未通过：${preview.reason}`, note: unknowns.length ? "存在未对账的写操作收据，未重试任何写入。" : "" };
   if (preview.digest !== previewDigest) return { status: "blocked-unknown", reason: "写前复核与确认时的预览不一致（远端或本地状态已变化），本次未写入任何内容。请重新预览并确认。" };
-  if (preview.target === undefined || preview.baseState !== "found") return { status: "blocked-unknown", reason: "目标/基线在写前复核时不可确定，未写入。" };
+  const target = preview.target!;
+  if (preview.baseState !== "found") return { status: "blocked-unknown", reason: "目标基线在写前复核时不可确定，未写入。" };
+  // R5：unknown 收据先只读对账——只有精确证明已落地才继续，且每种动作只补做“确证未发生”的后继步骤。
+  const pushUnknown = unknowns.find(row => row.action === "push");
+  if (pushUnknown && pushUnknown.outcome === "unknown") {
+    if ((preview.branchRemoteSha || "") !== preview.sourceSha)
+      return { status: "blocked-unknown", reason: `存在未对账的 push 收据且远端 ${branch} 当前头无法精确证明该次推送已落地/未落地；不重发，请稍后重新预览对账（若已在网页处理，可用“合并PR”只读恢复）。` };
+    await (await openReceiptResolved(ledger, pushUnknown)).settle("ok", "只读对账：远端分支头恰等于该收据的源 SHA");
+  }
+  const prUnknown = unknowns.find(row => row.action === "pr-create" && row.sourceSha === sourceSha.toLowerCase());
+  if (prUnknown && prUnknown.outcome === "unknown") {
+    if (preview.existing?.kind === "none") return { status: "blocked-unknown", reason: "存在未对账的 pr-create 收据，只读核对未能精确证明其已建/未建；不重发。可稍后重试（仅只读对账）或在网页确认后再操作。" };
+    if (preview.existing?.kind === "merged" && preview.existing.pr) {
+      await (await openReceiptResolved(ledger, prUnknown)).settle("ok", "只读对账：PR 已 MERGED", preview.existing.pr.number);
+      return { status: "already-merged", prNumber: preview.existing.pr.number, url: preview.existing.pr.url, note: "只读对账确认该 PR 已 MERGED：不重发任何写入，仅需（经独立确认后）做祖先快进。" };
+    }
+    const found = preview.existing?.pr;
+    if (found && preview.existing && preview.existing.kind !== "none") {
+      await (await openReceiptResolved(ledger, prUnknown)).settle("ok", "只读对账：精确身份 PR 存在", found.number);
+      return { status: "reused", prNumber: found.number, url: found.url, note: "只读对账确认精确身份 PR 存在，按身份复用；未重发。" };
+    }
+  }
+  if (preview.existing?.kind === "unknown")
+    return { status: "blocked-unknown", reason: `既有 PR/远端状态未能确定（${preview.existing.note}），本次未写入任何内容。${unknowns.length ? "存在未对账写操作收据：只有只读对账能确定动作时才会继续。" : ""}` };
   if (preview.existing?.kind === "reuse" && preview.existing.pr)
-    return { status: "reused", prNumber: preview.existing.pr.number, url: preview.existing.pr.url, note: "按身份复用既有 PR（head SHA 与目标分支一致），未推送、未新建。" };
-  const target = preview.target;
-  // 只有预览把“既有 PR/远端分支”事实确定为 none/updates-existing 才允许写入；unknown 一律不写（避免重复创建或意外更新他人 PR）。
-  if (!["none", "updates-existing"].includes(String(preview.existing?.kind)))
-    return { status: "blocked-unknown", reason: `既有 PR/远端状态未能确定（${preview.existing?.note || preview.existing?.kind || "?"}），本次未写入任何内容。${unknowns.length ? "存在未对账写操作收据：只有只读对账能确定动作时才会继续。" : ""}` };
-  // 远端分支头已是源 SHA（上次未知写入其实落地了/重复操作）→ 不再推送，只走 PR 步骤。
-  const needsPush = (preview.branchRemoteSha || "") !== preview.sourceSha && (preview.existing?.kind === "none" || preview.existing?.kind === "updates-existing");
-  if (needsPush) {
+    return { status: "reused", prNumber: preview.existing.pr.number, url: preview.existing.pr.url, note: "按身份复用既有 PR（head 分支/base/SHA 一致），未推送、未新建。" };
+  if (preview.existing?.kind === "merged" && preview.existing.pr) {
+    const mergedRow = preview.existing.pr;
+    return { status: "already-merged", prNumber: mergedRow.number, url: mergedRow.url, note: "该候选在本分支/base 上已有 MERGED PR：不新建；如需更新祖先请走“合并PR”的只读恢复＋独立确认快进。" };
+  }
+  // R4：本地 HEAD 在确认后不得变化——push 用已确认 immutable SHA。
+  const localHead = await git(["rev-parse", "--verify", `refs/heads/${branch}^{commit}`], cwd);
+  const localSha = localHead.code === 0 ? localHead.stdout.toString("utf8").trim().toLowerCase() : "";
+  if (localSha !== preview.sourceSha)
+    return { status: "blocked-unknown", reason: `本地分支 ${branch} 当前头（${localSha ? localSha.slice(0, 10) : "?"}）与确认时的候选（${String(preview.sourceSha).slice(0, 10)}）不一致——确认后本地已变化，零写入停止，不推新提交。` };
+  if (preview.branchRemoteSha !== preview.sourceSha) {
     let receipt;
-    try { receipt = await openReceipt(ledger, { key, root: cwd, branch, sourceSha: sourceSha.toLowerCase(), base, action: "push" }); }
+    try { receipt = await openReceipt(ledger, { key: receiptKey(targetKey, "push", target.repoSelector), root: cwd, branch, sourceSha: sourceSha.toLowerCase(), base, repoSelector: target.repoSelector, action: "push" }); }
     catch (error) { return { status: "blocked-unknown", reason: `写入前无法落收据（${String((error as Error)?.message || error).slice(0, 160)}）——没有收据就没有“不重放”保证，本次未写入。` }; }
     let push;
-    try { push = await git(["push", remoteName, `refs/heads/${branch}:refs/heads/${branch}`], cwd); }
+    try { push = await git(["push", remoteName, `${preview.sourceSha}:refs/heads/${branch}`], cwd); }
     catch (error) {
       await receipt.settle("unknown", `push 传输异常：${String((error as Error)?.message || error).slice(0, 200)}`);
       return { status: "blocked-unknown", reason: "推送结果未知（连接中断/超时）。收据已记录，系统不会自动重放；请重新预览对账后再决定。" };
@@ -235,15 +360,22 @@ export async function createBranchPullRequest(options: {
         : { status: "blocked-unknown", reason: `推送退出码 ${push.code} 且无法确定是否已写入远端，按未知停止；收据已记录，不自动重放。` };
     }
     const verify = await git(["ls-remote", "--heads", remoteName, branch], cwd);
-    const landed = verify.code === 0 && verify.stdout.toString("utf8").split(/\r?\n/).some(line => { const parts = line.split("\t"); return parts[1] === `refs/heads/${branch}` && parts[0].toLowerCase() === sourceSha.toLowerCase(); });
-    if (!landed) { await receipt.settle("unknown", "push exit 0 但远端分支头与源 SHA 不符"); return { status: "blocked-unknown", reason: "推送声称成功但远端分支头与源 SHA 不一致，按未知停止（不重放、不创建 PR）。" }; }
+    if (verify.code !== 0 || remoteHeadOf(verify.stdout, branch) !== preview.sourceSha) {
+      await receipt.settle("unknown", "push exit 0 但远端分支头与源 SHA 不符");
+      return { status: "blocked-unknown", reason: "推送声称成功但远端分支头与源 SHA 不一致，按未知停止（不重放、不创建 PR）。" };
+    }
     await receipt.settle("ok", "远端分支头已核等于源 SHA");
   }
+  if (preview.existing?.kind === "updates-existing" && preview.existing.pr) {
+    const row = await verifyPrIdentity(gh, cwd, target, preview.existing.pr.number, preview.sourceSha!, base, branch);
+    if (!row) return { status: "blocked-unknown", reason: `已普通推送更新分支，但只读重查未能确认 PR #${preview.existing.pr.number} 的 head 已等于该 SHA；不重发创建，请稍后重试对账。`, prNumber: preview.existing.pr.number };
+    return { status: "reused", prNumber: row.number, url: row.url, note: "确认后普通推送更新既有开放 PR，随后只读重查按身份复用（未新建 PR）。" };
+  }
   let prReceipt;
-  try { prReceipt = await openReceipt(ledger, { key, root: cwd, branch, sourceSha: sourceSha.toLowerCase(), base, action: "pr-create" }); }
+  try { prReceipt = await openReceipt(ledger, { key: receiptKey(targetKey, "pr-create", target.repoSelector), root: cwd, branch, sourceSha: sourceSha.toLowerCase(), base, repoSelector: target.repoSelector, action: "pr-create" }); }
   catch (error) { return { status: "blocked-unknown", reason: `创建 PR 前无法落收据（${String((error as Error)?.message || error).slice(0, 160)}），未执行任何写入。` }; }
   let created;
-  try { created = await gh(["pr", "create", "--repo", target.repoSlug, "--head", branch, "--base", base, "--title", title, "--body", body, "--json", "number,url,baseRefName,headRefOid"], cwd); }
+  try { created = await gh(["pr", "create", "--repo", target.repoSelector, "--head", branch, "--base", base, "--title", title, "--body", body], cwd); }
   catch (error) {
     await prReceipt.settle("unknown", `gh 传输异常：${String((error as Error)?.message || error).slice(0, 200)}`);
     return { status: "blocked-unknown", reason: "创建 PR 结果未知（gh 连接中断/超时）。收据已记录，不自动重放；再次操作将先只读对账。" };
@@ -255,87 +387,167 @@ export async function createBranchPullRequest(options: {
       ? { status: "failed", reason: `gh 确定拒绝创建 PR：${created.stderr.slice(0, 240)}` }
       : { status: "blocked-unknown", reason: `创建 PR 退出码 ${created.code} 无法判定是否已建，按未知停止（不重放）。` };
   }
-  let value: { number?: unknown; url?: unknown; baseRefName?: unknown; headRefOid?: unknown } = {};
-  try { value = JSON.parse(created.stdout.toString("utf8")); } catch { /* 下面按未知 */ }
-  const number = Number(value.number);
-  const identityOk = Number.isInteger(number) && number > 0 && String(value.baseRefName || "").toLowerCase() === base.toLowerCase()
-    && String(value.headRefOid || "").toLowerCase() === sourceSha.toLowerCase() && String(value.url || "").includes(target.repoSlug);
-  if (!identityOk) {
-    // gh 非 JSON/身份不符：不能确认，也不能确定没建——按未知，并顺手 list 对账一次（只读）。
-    const listed = await gh(["pr", "list", "--repo", target.repoSlug, "--state", "open", "--json", "number,state,headRefOid,baseRefOid,baseRefName,url", "--limit", "200"], cwd).catch(() => undefined);
+  const number = parseCreatedPrUrl(created.stdout.toString("utf8"), target);
+  if (!number) {
+    const viaList = await gh(["pr", "list", "--repo", target.repoSelector, "--state", "open", "--json", PR_JSON_FIELDS, "--limit", String(PR_LIST_LIMIT)], cwd).catch(() => undefined);
     let found: PrListRow | undefined;
-    if (listed && listed.code === 0) { try { found = parsePrList(listed.stdout.toString("utf8")).find(row => (row.headRefOid || "").toLowerCase() === sourceSha.toLowerCase() && (row.baseRefName || "").toLowerCase() === base.toLowerCase()); } catch { /* 未知 */ } }
-    if (found) { await prReceipt.settle("ok", "输出不可解析但 list 对账确认已建", found.number); return { status: "reused", prNumber: found.number, url: found.url, note: "gh 输出异常，但只读对账确认 PR 已存在，按身份复用。" }; }
-    await prReceipt.settle("unknown", "gh 输出不可解析且对账未见对应 PR");
+    if (viaList && viaList.code === 0) {
+      try {
+        const rows = parsePrList(viaList.stdout.toString("utf8"));
+        found = rows.length < PR_LIST_LIMIT ? rows.find(row => (row.headRefOid || "").toLowerCase() === preview.sourceSha && (row.baseRefName || "").toLowerCase() === base.toLowerCase()
+          && (row.headRefName || "") === branch && String(row.headRepositoryOwner || "").toLowerCase() === target.owner.toLowerCase()) : undefined;
+      } catch { /* 未知 */ }
+    }
+    if (found) { await prReceipt.settle("ok", "输出非 URL 行但只读对账确认已建", found.number); return { status: "reused", prNumber: found.number, url: found.url, note: "gh 输出异常，但只读对账确认 PR 已存在，按身份复用。" }; }
+    await prReceipt.settle("unknown", "gh 成功退出但输出无精确 PR URL 且对账未见对应 PR");
     return { status: "blocked-unknown", reason: "创建 PR 返回无法核验身份且对账未见对应 PR，按未知停止；收据已记录，不自动重放。" };
   }
-  await prReceipt.settle("ok", "gh 返回身份与源 SHA/目标分支一致", number);
-  return { status: "created", prNumber: number, url: String(value.url) };
+  const verified = await verifyPrIdentity(gh, cwd, target, number, preview.sourceSha!, base, branch);
+  if (!verified) {
+    await prReceipt.settle("unknown", `URL 显示 #${number} 但只读核验身份不一致/不可读`);
+    return { status: "blocked-unknown", reason: `gh 输出指向 PR #${number}，但只读核验其 repo/head SHA/head 分支/base 未全部一致；按未知停止，不宣称成功。` };
+  }
+  await prReceipt.settle("ok", "gh 输出 URL 且只读核验 repo/head 分支/SHA/base 全部一致", number);
+  return { status: "created", prNumber: number, url: verified.url };
+}
+
+async function openReceiptResolved(ledger: ReceiptLedger, prior: Receipt): Promise<{ settle(outcome: Receipt["outcome"], detail?: string, prNumber?: number): Promise<void> }> {
+  return { settle: async (outcome, detail, prNumber) => {
+    try {
+      await inLedger(ledger, async () => {
+        const rows = await ledger.load();
+        await ledger.save(pruneReceipts([...rows.filter(item => item.key !== prior.key), { ...prior, outcome, detail: String(detail || "").slice(0, 400), prNumber }]));
+      });
+    } catch { /* 保留原 unknown */ }
+  } };
 }
 
 export type MergeResult = { status: "merged" | "not-merged" | "blocked-unknown"; mergeCommit?: string; state?: string; reason?: string };
 
-/** C5 合并：仅 --merge + --match-head-commit；退出码不作结论，必须重查 MERGED+mergeCommit。 */
-export async function mergeBranchPullRequest(options: {
-  gh: PullRequestRunner; ledger?: ReceiptLedger; cwd: string; repoSlug: string; prNumber: number; verifiedHeadSha: string;
-}): Promise<MergeResult> {
-  const { gh, ledger, cwd, repoSlug, prNumber, verifiedHeadSha } = options;
-  if (!Number.isInteger(prNumber) || prNumber <= 0) return { status: "blocked-unknown", reason: "PR 编号无效。" };
-  if (!/^[0-9a-f]{40}$/i.test(String(verifiedHeadSha || ""))) return { status: "blocked-unknown", reason: "缺少已验候选 SHA，拒绝合并（不允许无 match-head 合并）。" };
-  const key = JSON.stringify([repoSlug, prNumber, verifiedHeadSha.toLowerCase(), "merge"]);
-  let receipt;
-  if (ledger) {
-    try { receipt = await openReceipt(ledger, { key, root: cwd, branch: `pr#${prNumber}`, sourceSha: verifiedHeadSha.toLowerCase(), base: "", action: "merge" }); }
-    catch (error) { return { status: "blocked-unknown", reason: `合并前无法落收据（${String((error as Error)?.message || error).slice(0, 160)}），未执行合并。` }; }
-  }
-  let merged;
-  try { merged = await gh(["pr", "merge", String(prNumber), "--repo", repoSlug, "--merge", "--match-head-commit", verifiedHeadSha], cwd); }
-  catch (error) {
-    if (receipt) await receipt.settle("unknown", `merge 传输异常：${String((error as Error)?.message || error).slice(0, 200)}`);
-    return { status: "blocked-unknown", reason: "合并指令结果未知（gh 中断/超时）。必须稍后只读重查 PR 状态，不自动重放。" };
-  }
-  const view = await gh(["pr", "view", String(prNumber), "--repo", repoSlug, "--json", "state,mergedAt,mergeCommit"], cwd).catch(() => undefined);
-  let state = ""; let mergeCommit = "";
-  if (view && view.code === 0) {
-    try {
-      const value = JSON.parse(view.stdout.toString("utf8"));
-      state = String(value?.state || "");
-      mergeCommit = String(value?.mergeCommit?.oid || "");
-    } catch { /* 未知 */ }
-  }
-  if (state === "MERGED" && /^[0-9a-f]{40}$/i.test(mergeCommit)) {
-    if (receipt) await receipt.settle("ok", `MERGED mergeCommit=${mergeCommit.slice(0, 12)}`);
-    return { status: "merged", mergeCommit, state };
-  }
-  const kind = merged.code === 0 ? "unknown" : classifyWriteFailure(merged.stderr);
-  if (receipt) await receipt.settle(state ? "unknown" : kind, `exit=${merged.code} state=${state || "?"} ${(merged.stderr || "").slice(0, 160)}`);
-  return state === "MERGED"
-    ? { status: "blocked-unknown", reason: "PR 显示 MERGED 但读不到 mergeCommit，祖先更新暂缓。", state }
-    : state && state !== "MERGED" && merged.code === 0
-      ? { status: "not-merged", reason: `合并未生效（PR 状态 ${state}）：${(merged.stderr || "").slice(0, 200)}`, state }
-      : { status: "blocked-unknown", reason: `合并结果未知（exit ${merged.code}，重查状态${state ? " " + state : "失败"}），不重放。`, state: state || undefined };
+async function viewPrState(gh: PullRequestRunner, cwd: string, repoSelector: string, prNumber: number): Promise<{ state: string; mergeCommit: string; headRefOid: string; headRefName: string; baseRefName: string; url: string } | undefined> {
+  try {
+    const view = await gh(["pr", "view", String(prNumber), "--repo", repoSelector, "--json", "state,mergedAt,mergeCommit,headRefOid,headRefName,baseRefName,url"], cwd);
+    if (view.code !== 0) return undefined;
+    const value = JSON.parse(view.stdout.toString("utf8"));
+    return { state: String(value?.state || ""), mergeCommit: String(value?.mergeCommit?.oid || ""), headRefOid: String(value?.headRefOid || ""),
+      headRefName: String(value?.headRefName || ""), baseRefName: String(value?.baseRefName || ""), url: String(value?.url || "") };
+  } catch { return undefined; }
 }
 
-export type FastForwardResult = { status: "fast-forwarded" | "blocked" | "failed"; from?: string; to?: string; reason?: string };
+/**
+ * C5 合并（调用方 modal 确认后）：先只读重查完整 PR 身份（含已在网页 MERGED 的恢复路径）；
+ * unknown merge 收据只读对账不重发；仅 --merge + --match-head-commit；退出码不作结论，
+ * 必须再 view 到 MERGED+mergeCommit。
+ */
+export async function mergeBranchPullRequest(options: {
+  gh: PullRequestRunner; ledger: ReceiptLedger; cwd: string; repoSelector: string; prNumber: number; verifiedHeadSha: string; base: string; branch: string;
+}): Promise<MergeResult> {
+  const { gh, ledger, cwd, repoSelector, prNumber, verifiedHeadSha, base, branch } = options;
+  if (!Number.isInteger(prNumber) || prNumber <= 0) return { status: "blocked-unknown", reason: "PR 编号无效。" };
+  if (!/^[0-9a-f]{40}$/i.test(String(verifiedHeadSha || ""))) return { status: "blocked-unknown", reason: "缺少已确认候选 SHA（本机 HEAD），拒绝合并（不允许无 match-head 合并）。" };
+  const key = mergeReceiptKey(repoSelector, prNumber, verifiedHeadSha);
+  const before = await viewPrState(gh, cwd, repoSelector, prNumber);
+  if (before?.state === "MERGED" && /^[0-9a-f]{40}$/i.test(before.mergeCommit)) {
+    try {
+      const unknowns = (await loadUnknownReceipts(ledger)).filter(row => row.key === key);
+      for (const prior of unknowns) await (await openReceiptResolved(ledger, prior)).settle("ok", `只读对账：PR 已 MERGED（mergeCommit ${before.mergeCommit.slice(0, 12)}）`);
+    } catch { /* 账本不可写时仍如实返回读到的事实 */ }
+    return { status: "merged", mergeCommit: before.mergeCommit, state: before.state, reason: "只读重查：PR 已是 MERGED（可能经网页或先前未知操作完成），未重发合并指令。" };
+  }
+  if (!before) return { status: "blocked-unknown", reason: "无法只读读取该 PR 当前状态，未发送任何写指令。" };
+  if (before.headRefOid.toLowerCase() !== verifiedHeadSha.toLowerCase() || (before.baseRefName || "").toLowerCase() !== base.toLowerCase()
+    || before.headRefName !== branch)
+    return { status: "blocked-unknown", reason: `写前重查 PR 身份不一致（head ${before.headRefOid.slice(0, 10)}/${before.headRefName || "?"} base ${before.baseRefName || "?"}），零写入停止。`, state: before.state };
+  let unknownMerge: Receipt | undefined;
+  try { unknownMerge = (await loadUnknownReceipts(ledger)).find(row => row.key === key); }
+  catch (error) { return { status: "blocked-unknown", reason: `收据账本不可读（${String((error as Error)?.message || error).slice(0, 160)}），无法保证不重放，未发送合并。` }; }
+  if (unknownMerge) return { status: "blocked-unknown", reason: "存在未对账的 merge 收据且当前 view 仍非 MERGED：不重发合并指令；请稍后重试本操作（仅只读对账）或在网页处理后由“合并PR”恢复。", state: before.state };
+  let receipt;
+  try { receipt = await openReceipt(ledger, { key, root: cwd, branch: `pr#${prNumber}`, sourceSha: verifiedHeadSha.toLowerCase(), base, repoSelector, action: "merge" }); }
+  catch (error) { return { status: "blocked-unknown", reason: `合并前无法落收据（${String((error as Error)?.message || error).slice(0, 160)}），未执行合并。` }; }
+  let merged;
+  try { merged = await gh(["pr", "merge", String(prNumber), "--repo", repoSelector, "--merge", "--match-head-commit", verifiedHeadSha], cwd); }
+  catch (error) {
+    await receipt.settle("unknown", `merge 传输异常：${String((error as Error)?.message || error).slice(0, 200)}`);
+    return { status: "blocked-unknown", reason: "合并指令结果未知（gh 中断/超时）。必须稍后只读重查 PR 状态，不自动重放。" };
+  }
+  const after = await viewPrState(gh, cwd, repoSelector, prNumber);
+  if (after?.state === "MERGED" && /^[0-9a-f]{40}$/i.test(after.mergeCommit)) {
+    await receipt.settle("ok", `MERGED mergeCommit=${after.mergeCommit.slice(0, 12)}`);
+    return { status: "merged", mergeCommit: after.mergeCommit, state: after.state };
+  }
+  const kind = merged.code === 0 ? "unknown" : classifyWriteFailure(merged.stderr);
+  await receipt.settle(after?.state ? "unknown" : kind, `exit=${merged.code} state=${after?.state || "?"} ${(merged.stderr || "").slice(0, 160)}`);
+  return after?.state === "MERGED"
+    ? { status: "blocked-unknown", reason: "PR 显示 MERGED 但读不到 mergeCommit，祖先更新暂缓。", state: after.state }
+    : after?.state && after.state !== "MERGED" && merged.code === 0
+      ? { status: "not-merged", reason: `合并未生效（PR 状态 ${after.state}）：${(merged.stderr || "").slice(0, 200)}`, state: after.state }
+      : { status: "blocked-unknown", reason: `合并结果未知（exit ${merged.code}，重查状态${after?.state ? " " + after.state : "失败"}），不重放。`, state: after?.state };
+}
 
-/** 祖先 ff：仅真实 MERGED 之后；干净、在目标分支的登记根本机快进；脏/分叉/非目标分支一律停，绝不 reset/merge 提交。 */
+export type FastForwardResult = { status: "fast-forwarded" | "already-current" | "blocked" | "failed"; from?: string; to?: string; reason?: string };
+
+/** 收据 key（动作/目标/SHA 维度）：push/pr-create 各自独立，互不覆盖。 */
+export function receiptKey(targetKey: string[], action: Receipt["action"], repoSelector: string): string {
+  return JSON.stringify([...targetKey, action, repoSelector]);
+}
+export function mergeReceiptKey(repoSelector: string, prNumber: number, verifiedHeadSha: string): string {
+  return JSON.stringify([repoSelector, prNumber, verifiedHeadSha.toLowerCase(), "merge"]);
+}
+
+/**
+ * 祖先 ff（R4）：readIdentity 由宿主注入（每次真实探针）；真实 root/common-dir/origin repo 核对，fetch 前后各核一次
+ * 干净 HEAD/分支；ff 用已核完整目标 SHA；要求 目标包含已确认合并提交 ∧ 本机 HEAD 是目标祖先（merge 之后的后续头
+ * 也可安全 ff）；绝不 reset/stash/切分支。
+ */
 export async function fastForwardAncestorRoot(options: {
   git: PullRequestRunner; cwd: string; remoteName: string; base: string; expectedMergeCommit: string;
-  identity: { branch: string; headCommit: string; dirty: boolean; error?: string };
+  expectedRemoteUrl: string; readIdentity: () => { branch: string; headCommit: string; dirty: boolean; error?: string };
 }): Promise<FastForwardResult> {
-  const { git, cwd, remoteName, base, expectedMergeCommit, identity } = options;
-  if (identity.error) return { status: "blocked", reason: `Git 身份读取失败：${identity.error}` };
-  if (identity.dirty) return { status: "blocked", reason: "祖先工作区不干净，跳过快进（不 stash、不覆盖任何文件）。" };
-  if (identity.branch !== base) return { status: "blocked", reason: `祖先当前分支是 ${identity.branch || "(detached)"}，不是目标分支 ${base}，跳过快进。` };
+  const { git, cwd, remoteName, base, expectedMergeCommit, expectedRemoteUrl, readIdentity } = options;
+  // 真实 origin 必须仍是已确认的祖先 origin：原始串一致，或两者都能规范化且指向同一 GitHub 仓库。
+  const rejectRepoDrift = (url: string) => {
+    const liveRaw = String(url || "").trim(); const expectedRaw = String(expectedRemoteUrl || "").trim();
+    if (liveRaw && liveRaw === expectedRaw) return "";
+    const live = normalizeGithubTarget(liveRaw); const expected = normalizeGithubTarget(expectedRaw);
+    return sameRepo(live, expected) ? ""
+      : `真实 origin（${liveRaw.slice(0, 120)}）与已确认祖先 origin（${expectedRaw.slice(0, 120)}）不一致，停止（未 fetch、未改动）。`;
+  };
+  const check = (): FastForwardResult | undefined => {
+    const identity = readIdentity();
+    if (identity.error) return { status: "blocked", reason: `Git 身份读取失败：${identity.error}` };
+    if (identity.dirty) return { status: "blocked", reason: "祖先工作区不干净，跳过快进（不 stash、不覆盖任何文件）。" };
+    if (identity.branch !== base) return { status: "blocked", reason: `祖先当前分支是 ${identity.branch || "(detached)"}，不是目标分支 ${base}，跳过快进。` };
+    return undefined;
+  };
+  const first = check(); if (first) return first;
+  const paths = await git(["rev-parse", "--show-toplevel", "--git-common-dir"], cwd);
+  if (paths.code !== 0) return { status: "blocked", reason: "无法读取仓库根/common-dir，停止。" };
+  const [toplevelRaw, commonRaw] = paths.stdout.toString("utf8").split(/\r?\n/);
+  const norm = (value: string) => String(value || "").trim().replace(/[\\/]+$/, "").toLowerCase().replace(/\\/g, "/");
+  if (!toplevelRaw || norm(toplevelRaw) !== norm(cwd)) return { status: "blocked", reason: `当前目录（${String(cwd).slice(0, 120)}）不是已确认根 ${String(toplevelRaw || "").slice(0, 120)}，停止。` };
+  if (!commonRaw) return { status: "blocked", reason: "无法解析 common-dir，停止。" };
+  const liveUrl = await git(["remote", "get-url", remoteName], cwd);
+  if (liveUrl.code !== 0) return { status: "blocked", reason: `本地不存在远端 ${remoteName}，停止。` };
+  const drift = rejectRepoDrift(liveUrl.stdout.toString("utf8"));
+  if (drift) return { status: "blocked", reason: drift };
+  const beforeHead = readIdentity().headCommit.toLowerCase();
   const fetched = await git(["fetch", remoteName, `+refs/heads/${base}:refs/remotes/${remoteName}/${base}`], cwd);
   if (fetched.code !== 0) return { status: "failed", reason: `fetch ${remoteName}/${base} 失败：${(fetched.stderr || "").slice(0, 200) || `exit ${fetched.code}`}` };
+  const afterFetch = check(); if (afterFetch) return afterFetch; // fetch 期间身份/干净状态变化 → 停
+  const nowHead = readIdentity().headCommit.toLowerCase();
+  if (nowHead !== beforeHead) return { status: "blocked", reason: `fetch 期间本机 HEAD 从 ${beforeHead.slice(0, 10)} 变为 ${nowHead.slice(0, 10)}，身份变化，停止。` };
   const remoteHead = await git(["rev-parse", `refs/remotes/${remoteName}/${base}`], cwd);
   const to = remoteHead.code === 0 ? remoteHead.stdout.toString("utf8").trim().toLowerCase() : "";
   if (!/^[0-9a-f]{40}$/.test(to)) return { status: "failed", reason: "读取远端目标分支头失败，未改动本机。" };
-  if (to !== expectedMergeCommit.toLowerCase()) return { status: "blocked", reason: `远端 ${base} 当前头（${to.slice(0, 10)}）不是刚确认的合并提交（${expectedMergeCommit.slice(0, 10)}），暂缓快进。` };
-  const from = identity.headCommit.toLowerCase();
-  if (to === from) return { status: "fast-forwarded", from, to };
-  const ff = await git(["merge", "--ff-only", `refs/remotes/${remoteName}/${base}`], cwd);
-  if (ff.code !== 0) return { status: "blocked", reason: `不能快进（本机 ${from.slice(0, 10)} 与远端 ${to.slice(0, 10)} 已分叉或历史不满足 ff-only）：${(ff.stderr || ff.stdout.toString("utf8") || "").slice(0, 240)}。未做任何合并提交/reset。` };
-  return { status: "fast-forwarded", from, to };
+  const merge = expectedMergeCommit.toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(merge)) return { status: "blocked", reason: "缺少完整的已确认合并提交 SHA，暂缓快进。" };
+  const contains = await git(["merge-base", "--is-ancestor", merge, to], cwd);
+  if (contains.code !== 0) return { status: "blocked", reason: `远端 ${base} 当前头（${to.slice(0, 10)}）尚未包含已确认合并提交（${merge.slice(0, 10)}），暂缓快进。` };
+  if (to === beforeHead) return { status: "already-current", from: beforeHead, to };
+  const ancestor = await git(["merge-base", "--is-ancestor", beforeHead, to], cwd);
+  if (ancestor.code !== 0) return { status: "blocked", reason: `本机 ${beforeHead.slice(0, 10)} 不是远端 ${to.slice(0, 10)} 的祖先（已分叉），跳过快进，绝不合并提交/reset。` };
+  const ff = await git(["merge", "--ff-only", to], cwd); // 已核完整 SHA，不用可漂移符号 ref
+  if (ff.code !== 0) return { status: "blocked", reason: `ff-only 未生效：${(ff.stderr || ff.stdout.toString("utf8") || "").slice(0, 240)}。未做任何合并提交/reset。` };
+  return { status: "fast-forwarded", from: beforeHead, to };
 }
