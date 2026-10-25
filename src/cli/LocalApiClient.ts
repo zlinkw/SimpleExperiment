@@ -155,16 +155,22 @@ function readInstanceRecord(file: string): PluginInstanceRow {
   return row;
 }
 
-export function listPluginInstances(plugin: UnifiedPlugin): PluginInstanceRow[] {
+export interface PluginInstanceListing { rows: PluginInstanceRow[]; truncated: boolean; }
+
+/**
+ * Enumeration is bounded; `truncated` means MORE records exist beyond the cap, so callers must not
+ * claim an unseen instance does not exist. Nothing is ever cleaned up here.
+ */
+export function listPluginInstances(plugin: UnifiedPlugin): PluginInstanceListing {
   const dir = pluginInstancesDir(plugin);
   let names: string[];
   try { names = fs.readdirSync(dir).filter((name) => name.toLowerCase().endsWith(".json")).sort(); }
   catch (error) {
     const code = (error as { code?: string })?.code;
-    if (code === "ENOENT") return [];
+    if (code === "ENOENT") return { rows: [], truncated: false };
     throw error;
   }
-  return names.slice(0, 256).map((name) => readInstanceRecord(path.join(dir, name)));
+  return { rows: names.slice(0, 256).map((name) => readInstanceRecord(path.join(dir, name))), truncated: names.length > 256 };
 }
 
 function sameWorkspacePath(a: string, b: string): boolean {
@@ -175,21 +181,39 @@ function sameWorkspacePath(a: string, b: string): boolean {
 }
 
 /**
- * Resolve exactly one instance record for a workspace. Ambiguity (two live records for one root),
- * a missing workspace field or a stopped record are refusals, never a best-effort guess. The
- * returned row still requires preflightPluginAt's live handshake before anything is trusted.
+ * Resolve exactly one LIVE instance for a workspace via real handshakes. Disk status is only a
+ * candidate hint: a crashed instance's stale "running" record is probed and excluded (kept on disk,
+ * never deleted), so it can never block the one genuinely live instance. Two genuinely live
+ * listeners are still refused — then the pin must be explicit (expectedInstanceId/--instance or
+ * SIMPLE_CLI_INSTANCE_ID); the pin filters before probing and is never auto-substituted. Nothing is
+ * guessed by recency. The returned row's discoveryPath is still re-handshaked by callPluginRpc.
  */
-export function resolveInstanceByWorkspace(plugin: UnifiedPlugin, workspace: string): PluginInstanceRow {
+export async function resolveInstanceByWorkspace(plugin: UnifiedPlugin, workspace: string, expectedInstanceId?: string): Promise<PluginInstanceRow> {
   if (!workspace || !String(workspace).trim()) throw new Error("按工作区路由必须提供明确的 workspace。");
-  const rows = listPluginInstances(plugin);
-  const matches = rows.filter((row) => !row.error && row.status === "running" && sameWorkspacePath(row.workspace, workspace));
-  if (matches.length === 0) {
-    const known = rows.filter((row) => row.workspace).map((row) => `${row.workspace}(${row.status || "?"})`).join(", ");
-    throw new Error(`未找到工作区 ${workspace} 的运行中实例记录。已知实例：${known || "无"}。请先在该项目窗口打开插件面板。`);
+  const listing = listPluginInstances(plugin);
+  if (listing.truncated)
+    throw new Error(`实例记录目录超过单次枚举上限（256 条且仍有更多记录），无法安全枚举 ${workspace} 的存活实例；请用 --instance 或 discoveryPath 明确指定，不自动清理历史记录。`);
+  const pin = String(expectedInstanceId ?? process.env.SIMPLE_CLI_INSTANCE_ID ?? "").trim();
+  let candidates = listing.rows.filter((row) => !row.error && !!(row.instanceId || row.pid > 0) && sameWorkspacePath(row.workspace, workspace));
+  if (pin) {
+    candidates = candidates.filter((row) => row.instanceId === pin);
+    if (candidates.length === 0)
+      throw new Error(`--instance ${pin} 在工作区 ${workspace} 的实例记录中不存在；已保留全部历史记录，不做替换或猜测。`);
   }
-  if (matches.length > 1)
-    throw new Error(`工作区 ${workspace} 匹配到 ${matches.length} 个实例（${matches.map((row) => row.instanceId).join(", ")}）；请改用 --instance 明确指定。`);
-  return matches[0];
+  const live: PluginInstanceRow[] = [];
+  const unreachable: PluginInstanceRow[] = [];
+  for (const row of candidates.slice(0, 16)) {
+    try { await preflightPluginAt(plugin, row.discoveryPath, workspace); live.push(row); }
+    catch { unreachable.push(row); }
+  }
+  if (live.length === 0) {
+    const known = listing.rows.filter((row) => row.workspace)
+      .map((row) => `${row.workspace}(${row.status || "?"}${row.status === "running" ? "，记录称运行中但握手失败=疑似崩溃遗留，记录保留" : ""})`).join(", ");
+    throw new Error(`未找到工作区 ${workspace} 的可达实例（已对 ${candidates.length} 条候选记录做实际握手）。已知记录：${known || "无"}。请先在该项目窗口打开插件面板。`);
+  }
+  if (live.length > 1)
+    throw new Error(`工作区 ${workspace} 实际存在 ${live.length} 个存活实例（${live.map((row) => row.instanceId).join(", ")}）；请用 --instance <pid:startedAt> 明确指定，不按时间猜测。`);
+  return live[0];
 }
 
 function expectedInstanceId(discovery: Discovery): string {
@@ -322,8 +346,11 @@ export async function callPluginRpc(plugin: UnifiedPlugin, method: string, param
   let preflight: PluginPreflight;
   if (target && (target.discoveryPath || target.workspace)) {
     const workspace = String(target.workspace || "").trim();
+    // The pin must resolve the ambiguity itself: filter by the exact pinned instance BEFORE any
+    // workspace-wide probing, so `--instance` is a real disambiguation, not a post-hoc mismatch check.
+    const pin = String(expectedInstanceId ?? process.env.SIMPLE_CLI_INSTANCE_ID ?? "").trim();
     const discoveryPath = target.discoveryPath
-      || resolveInstanceByWorkspace(plugin, workspace).discoveryPath;
+      || (await resolveInstanceByWorkspace(plugin, workspace, pin || undefined)).discoveryPath;
     preflight = await preflightPluginAt(plugin, discoveryPath, workspace || undefined);
   } else {
     preflight = await preflightPlugin(plugin);

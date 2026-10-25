@@ -1475,6 +1475,7 @@ export class RealtimeTunnelPanelProvider {
         const root = await this.pickBranchProjectDirectory("选择祖先项目目录（含 .git 的仓库根）");
         const identity = readGitIdentityProbe(root);
         if (!identity.toplevel) throw new Error(identity.notARepository ? "所选目录不是 Git 仓库，不能登记为祖先项目。" : (identity.error || "无法读取该目录的 Git 身份。"));
+        if (identity.error) throw new Error(`Git 状态读取失败，无法核实干净状态与身份：${identity.error}`);
         const branch = identity.detached ? "（detached）" : (identity.branch || "（无分支）");
         const detail = `目录：${identity.toplevel}\n当前分支：${branch}\nHEAD：${String(identity.headCommit).slice(0, 12) || "（空仓库）"}\n未提交修改：${identity.dirty ? "有" : "无"}\n将记录为本机祖先项目（只登记，不修改任何文件）。`;
         const confirmed = await vscode.window.showInformationMessage(detail, { modal: true, detail }, "确认登记") === "确认登记" ? true : false;
@@ -1488,6 +1489,7 @@ export class RealtimeTunnelPanelProvider {
         const root = await this.pickBranchProjectDirectory("选择创新分支副本目录（独立 worktree 或 clone）");
         const identity = readGitIdentityProbe(root);
         if (!identity.toplevel) throw new Error(identity.notARepository ? "所选目录不是 Git 仓库。" : (identity.error || "无法读取该目录的 Git 身份。"));
+        if (identity.error) throw new Error(`Git 状态读取失败，无法核实身份：${identity.error}`);
         const branch = identity.detached ? "（detached，将被拒绝）" : (identity.branch || "（无分支）");
         const detail = `目录：${identity.toplevel}\n分支：${branch}\nHEAD：${String(identity.headCommit).slice(0, 12) || "（空）"}\n所属祖先：${ancestorPick.label}\n只登记归属，不合并、不移动任何提交。`;
         const confirmed = await vscode.window.showInformationMessage(detail, { modal: true, detail }, "确认登记") === "确认登记" ? true : false;
@@ -1584,19 +1586,23 @@ export class RealtimeTunnelPanelProvider {
             state: async () => this.buildState(),
             // 块A窄接口：登记的项目/分支与本机活实例。只读投影；实例记录不含 token。
             "projects.registry": async () => this.branchProjectService().verifyAll(),
-            "projects.instances": async () => ({
-                schemaVersion: 1,
-                instances: listPluginInstances("experiment").map((row) => ({
-                    instanceId: row.instanceId,
-                    workspace: row.workspace,
-                    version: row.version,
-                    pid: row.pid,
-                    startedAt: row.startedAt,
-                    status: row.status,
-                    error: row.error,
-                })),
-                note: "文件登记的实例记录；调用方仍需 preflightPluginAt 实时握手确认存活与工作区。",
-            }),
+            "projects.instances": async () => {
+                const listing = listPluginInstances("experiment");
+                return {
+                    schemaVersion: 1,
+                    instances: listing.rows.map((row) => ({
+                        instanceId: row.instanceId,
+                        workspace: row.workspace,
+                        version: row.version,
+                        pid: row.pid,
+                        startedAt: row.startedAt,
+                        status: row.status,
+                        error: row.error,
+                    })),
+                    truncated: listing.truncated,
+                    note: "文件登记的实例记录（truncated=true 表示目录未完整枚举）；调用方仍需 preflightPluginAt 实时握手确认存活与工作区。",
+                };
+            },
             "panel.diagnostics": async () => this.panelDiagnosticsApi(),
             "actions.list": async () => {
                 const rows = [...API_EXECUTABLE_COMMANDS].sort();

@@ -684,7 +684,9 @@ test("multi-window: per-instance discovery records coexist and workspace routing
       const legacy = JSON.parse(fs.readFileSync(discoveryPath, "utf8"));
       assert.ok(typeof legacy.baseUrl === "string" && typeof legacy.token === "string");
 
-      const rows = client.listPluginInstances("experiment");
+      const listing = client.listPluginInstances("experiment");
+      assert.equal(listing.truncated, false);
+      const rows = listing.rows;
       assert.equal(rows.length, 2);
       for (const row of rows) {
         assert.equal(row.status, "running");
@@ -698,22 +700,44 @@ test("multi-window: per-instance discovery records coexist and workspace routing
       assert.equal(rowA.instanceId, `${discA.pid}:${discA.startedAt}`);
       assert.equal(rowB.instanceId, `${discB.pid}:${discB.startedAt}`);
 
-      const resolved = client.resolveInstanceByWorkspace("experiment", workspaceA);
+      const resolved = await client.resolveInstanceByWorkspace("experiment", workspaceA);
       assert.equal(resolved.instanceId, rowA.instanceId);
-      assert.throws(() => client.resolveInstanceByWorkspace("experiment", path.join(dir, "wsUnknown")), /未找到/);
+      await assert.rejects(() => client.resolveInstanceByWorkspace("experiment", path.join(dir, "wsUnknown")), /未找到.*可达实例/);
 
       const preflightA = await client.preflightPluginAt("experiment", rowA.discoveryPath, workspaceA);
       assert.equal(preflightA.capabilities.workspace, workspaceA);
       await assert.rejects(() => client.preflightPluginAt("experiment", rowA.discoveryPath, workspaceB), /工作区核对失败/);
 
-      // 歧义：同一工作区出现两条 running 记录时拒绝猜测。
-      fs.writeFileSync(path.join(instDir, "999999_injected.json"), `${JSON.stringify({
+      // 崩溃遗留的旧 running 记录（端口无人监听）不得挡住当前唯一有效实例：实际握手后照常路由，记录保留。
+      const staleFile = path.join(instDir, "999999_injected.json");
+      fs.writeFileSync(staleFile, `${JSON.stringify({
         schemaVersion: 1, name: "SimpleExperiment", version: "0.5.409-test",
         baseUrl: "http://127.0.0.1:19999", host: "127.0.0.1", port: 19999, token: "injected-token-aaaaaaaa",
         pid: 999999, startedAt: "2026-01-01T00:00:00.000Z", instanceId: "999999:2026-01-01T00:00:00.000Z",
         workspace: workspaceA, status: "running",
       })}\n`, "utf8");
-      assert.throws(() => client.resolveInstanceByWorkspace("experiment", workspaceA), /匹配到 2 个/);
+      const staleBytes = fs.readFileSync(staleFile);
+      const resolvedPastStale = await client.resolveInstanceByWorkspace("experiment", workspaceA);
+      assert.equal(resolvedPastStale.instanceId, rowA.instanceId, "旧 running 遗留记录经实际握手被排除，不永久误判双活");
+      assert.deepEqual(fs.readFileSync(staleFile), staleBytes, "排除的遗留记录必须原样保留，不自动清理");
+      // 已支持 pin 的精确指向也照常工作（pin 先筛后核）。
+      const pinned = await client.resolveInstanceByWorkspace("experiment", workspaceA, rowA.instanceId);
+      assert.equal(pinned.instanceId, rowA.instanceId);
+      await assert.rejects(() => client.resolveInstanceByWorkspace("experiment", workspaceA, "999999:2026-01-01T00:00:00.000Z"), /握手|不可达|存活/);
+
+      // 真双活：同一工作区第二个实际存活实例出现时仍拒绝，不按时间猜测；pin 精确消歧。
+      const serverC = new LocalApiServer({
+        name: "SimpleExperiment", version: "0.5.409-test", preferredPort: await freePort(),
+        discoveryPath, workspace: workspaceA, methods: { status: async () => ({ ok: true }) },
+      });
+      const discC = await serverC.start();
+      try {
+        await assert.rejects(() => client.resolveInstanceByWorkspace("experiment", workspaceA), /存活实例.*请用 --instance|实际存在 2 个存活实例/);
+        const pinnedC = await client.resolveInstanceByWorkspace("experiment", workspaceA, `${discC.pid}:${discC.startedAt}`);
+        assert.equal(pinnedC.instanceId, `${discC.pid}:${discC.startedAt}`, "pin 必须先按精确实例筛选再存活核对");
+      } finally {
+        await serverC.dispose();
+      }
 
       // 停止只写自身记录：B 的记录逐字节不变。
       const bBytes = fs.readFileSync(rowB.discoveryPath);
@@ -728,6 +752,32 @@ test("multi-window: per-instance discovery records coexist and workspace routing
   } finally {
     delete process.env.SIMPLE_EXPERIMENT_API_FILE;
     // FIXTURE POLICY: zero cleanup — retained for audit instead of rmSync (2026-10-23 rework).
+    console.log(`[fixtures retained, no cleanup] ${dir}`);
+  }
+});
+
+test("instance enumeration: over-cap directory is reported truncated, never silently partial", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-instances-trunc-"));
+  const discoveryPath = path.join(dir, "api.json");
+  process.env.SIMPLE_EXPERIMENT_API_FILE = discoveryPath;
+  try {
+    const client = require("../../dist/cli/LocalApiClient.js");
+    const instDir = path.join(dir, "instances");
+    fs.mkdirSync(instDir, { recursive: true });
+    for (let i = 0; i < 257; i++) {
+      fs.writeFileSync(path.join(instDir, `${String(i).padStart(4, "0")}_trunc.json`), JSON.stringify({
+        schemaVersion: 1, name: "SimpleExperiment", version: "0.5.409-test",
+        baseUrl: "http://127.0.0.1:1", host: "127.0.0.1", port: 1, token: "x".repeat(16),
+        pid: 1, startedAt: "2026-01-01T00:00:00.000Z", instanceId: `1:2026-01-01T00:00:0${String(i).padStart(1, "0")}.000Z`,
+        workspace: path.join(dir, "ws"), status: "stopped",
+      }), "utf8");
+    }
+    const listing = client.listPluginInstances("experiment");
+    assert.equal(listing.rows.length, 256);
+    assert.equal(listing.truncated, true, "超出 256 条上限必须显式报告未完整枚举，不得静默省略");
+    await assert.rejects(() => client.resolveInstanceByWorkspace("experiment", path.join(dir, "ws")), /未完整枚举|枚举上限/);
+  } finally {
+    delete process.env.SIMPLE_EXPERIMENT_API_FILE;
     console.log(`[fixtures retained, no cleanup] ${dir}`);
   }
 });

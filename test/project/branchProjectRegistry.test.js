@@ -217,7 +217,8 @@ test("创建分支：预览/摘要一致才写，目标或分支占用拒绝，�
   const ancestor = await service.registerAncestor({ label: "", gitRoot: repo });
   const before = snapshotRepoState(repo);
 
-  await assert.rejects(() => service.previewCreateBranch({ ancestorId: ancestor.id, branch: "main", targetParentDir: parent }), /已存在/);
+  // previewCreateBranch 是同步函数：同步抛出必须用 assert.throws 捕获（rejects 只处理 Promise）。
+  assert.throws(() => service.previewCreateBranch({ ancestorId: ancestor.id, branch: "main", targetParentDir: parent }), /已存在/);
   const takenDir = path.join(parent, "taken");
   fs.mkdirSync(takenDir);
   const previewTaken = service.previewCreateBranch({ ancestorId: ancestor.id, branch: "innovation/taken", targetParentDir: parent });
@@ -268,4 +269,37 @@ test("登记已有副本：worktree 记录来源，独立 clone 保持 separate-
   const projection = service.verifyAll();
   assert.equal(projection.branches[0].relation, "separate-repository");
   assert.equal(git(["rev-parse", "HEAD"], path.join(cloneDir, "copy")).trim(), record.createdFromCommit, "登记与验证不得移动副本提交");
+});
+
+test("Git 状态读取失败（受控损坏索引夹具）：验证/登记/预览确认全链拒绝，绝不标 verified", async () => {
+  const dir = tempDir("se-branch-statusfail-");
+  const repo = makeRepo("statusfail-ancestor");
+  const before = snapshotRepoState(repo);
+  const service = newService(dir);
+  const ancestor = await service.registerAncestor({ label: "", gitRoot: repo });
+  // 受控夹具：破坏 .git/index —— rev-parse/symbolic-ref 仍可读（toplevel 有值），但 git status 致命失败。
+  fs.writeFileSync(path.join(repo, ".git", "index"), "corrupt-index-fixture-payload-not-a-git-index");
+  const projection = service.verifyAll();
+  const row = projection.ancestors.find((item) => item.record.id === ancestor.id);
+  assert.equal(row.state, "error", "status 读取失败绝不能标 verified/dirty=false=干净");
+  assert.ok(row.errors.some((text) => /读取失败/.test(text)), "必须保留真实失败原因");
+  const targetParent = tempDir("se-statusfail-target-");
+  assert.throws(() => service.previewCreateBranch({ ancestorId: ancestor.id, branch: "innovation/x1", targetParentDir: targetParent }), /读取失败|error/);
+  await assert.rejects(() => service.confirmCreateBranch({ ancestorId: ancestor.id, branch: "innovation/x1", targetParentDir: targetParent, confirmDigest: "0".repeat(32) }), /读取失败|error|摘要/);
+  // 同一损坏目录用全新登记表再登记：同样拒绝，不把无法读当作干净可登记。
+  const service2 = newService(tempDir("se-branch-statusfail2-"));
+  await assert.rejects(() => service2.registerAncestor({ label: "", gitRoot: repo }), /读取失败/);
+  // 分支副本同一规则：独立 clone 损坏索引后拒绝登记。
+  const cloneDir = tempDir("se-statusfail-clone-");
+  git(["clone", "-q", "-b", "main", repo, path.join(cloneDir, "copy")], cloneDir);
+  git(["checkout", "-q", "-b", "innovation/statusfail"], path.join(cloneDir, "copy"));
+  fs.writeFileSync(path.join(cloneDir, "copy", ".git", "index"), "corrupt-index-fixture-payload-not-a-git-index");
+  // 祖先用健康新仓（损坏索引的 repo 自己此时已不可登记，正是上面断言的行为）。
+  const healthyAncestor = makeRepo("statusfail-healthy-ancestor");
+  const service3 = newService(tempDir("se-branch-statusfail3-"));
+  const ancestor3 = await service3.registerAncestor({ label: "", gitRoot: healthyAncestor });
+  await assert.rejects(() => service3.registerBranch({ ancestorId: ancestor3.id, label: "", workspaceRoot: path.join(cloneDir, "copy") }), /读取失败/);
+  // 读取失败路径不得触碰仓库：损坏索引后 rev-parse/branch 仍可读且与登记前一致。
+  assert.equal(git(["rev-parse", "HEAD"], repo).trim(), before.head, "读取失败路径不得移动任何提交");
+  assert.equal(git(["branch", "--list", "--format=%(refname:short)"], repo).trim(), before.branches);
 });

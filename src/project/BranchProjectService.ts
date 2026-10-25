@@ -138,6 +138,9 @@ export class BranchProjectService {
     const identity = readGitIdentity(record.gitRoot);
     base.git = gitSnapshot(identity);
     if (!identity.toplevel) { base.state = identity.notARepository ? "not-a-repository" : "error"; base.errors.push(identity.error || "无法读取 Git 身份。"); return base; }
+    // A fatal probe step (common-dir/status) after a successful toplevel still carries identity.error;
+    // dirty=false then only means "unreadable", never "clean". Such a repository is never verified.
+    if (identity.error) { base.state = "error"; base.errors.push(`Git 状态读取失败，身份与干净状态未核实：${identity.error}`); return base; }
     if (!sameComparablePath(identity.toplevel, record.gitRoot)) { base.state = "identity-drift"; base.errors.push(`目录实际 Git 根为 ${identity.toplevel}，与登记不一致。`); return base; }
     if (identity.detached) { base.state = "detached"; base.errors.push("祖先当前处于 detached HEAD；请在干净分支状态下继续。"); return base; }
     if (identity.branch !== record.targetBranch) { base.state = "identity-drift"; base.errors.push(`当前分支 ${identity.branch || "?"} 与登记目标分支 ${record.targetBranch} 不一致。`); return base; }
@@ -153,6 +156,8 @@ export class BranchProjectService {
     const identity = readGitIdentity(record.workspaceRoot);
     base.git = gitSnapshot(identity);
     if (!identity.toplevel) { base.state = identity.notARepository ? "not-a-repository" : "error"; base.errors.push(identity.error || "无法读取 Git 身份。"); return base; }
+    // Same rule as ancestors: a failed status/common-dir read is never presented as verified-clean.
+    if (identity.error) { base.state = "error"; base.errors.push(`Git 状态读取失败，身份与干净状态未核实：${identity.error}`); return base; }
     if (!sameComparablePath(identity.toplevel, record.workspaceRoot)) { base.state = "identity-drift"; base.errors.push(`目录实际 Git 根为 ${identity.toplevel}，与登记不一致。`); return base; }
     if (identity.detached) { base.state = "detached"; base.errors.push("分支副本当前处于 detached HEAD。"); return base; }
     if (identity.branch !== record.branch) { base.state = "identity-drift"; base.errors.push(`当前分支 ${identity.branch || "?"} 与登记分支 ${record.branch} 不一致。`); return base; }
@@ -171,6 +176,7 @@ export class BranchProjectService {
     if (!fs.existsSync(gitRoot)) throw new Error("所选目录不存在。");
     const identity = readGitIdentity(gitRoot);
     if (!identity.toplevel) throw new Error(identity.notARepository ? "所选目录不是 Git 仓库，不能登记为祖先项目。" : (identity.error || "无法读取 Git 身份。"));
+    if (identity.error) throw new Error(`Git 状态读取失败，无法核实干净状态与身份，不能登记为祖先项目：${identity.error}`);
     if (!sameComparablePath(identity.toplevel, gitRoot)) throw new Error(`所选目录的实际 Git 根为 ${identity.toplevel}；请打开该根目录再登记。`);
     if (identity.detached || !identity.branch) throw new Error("祖先项目当前处于 detached HEAD 或无当前分支；请先切换到目标分支后再登记。");
     const file = this.store.load();
@@ -198,6 +204,7 @@ export class BranchProjectService {
     if (!fs.existsSync(workspaceRoot)) throw new Error("所选目录不存在。");
     const identity = readGitIdentity(workspaceRoot);
     if (!identity.toplevel) throw new Error(identity.notARepository ? "所选目录不是 Git 仓库；创新分支必须是带分支的仓库副本。" : (identity.error || "无法读取 Git 身份。"));
+    if (identity.error) throw new Error(`Git 状态读取失败，无法核实身份，不能登记为创新分支：${identity.error}`);
     if (!sameComparablePath(identity.toplevel, workspaceRoot)) throw new Error(`所选目录的实际 Git 根为 ${identity.toplevel}；请打开该根目录再登记。`);
     if (identity.detached || !identity.branch) throw new Error("该副本处于 detached HEAD；创新分支必须停留在自己的分支上。");
     if (sameComparablePath(identity.toplevel, ancestor.gitRoot)) throw new Error("该目录就是祖先项目本身；创新分支需要独立副本。");
