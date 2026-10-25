@@ -343,3 +343,36 @@ test('the four Chinese titles are registered next to the plan titles in the sour
   assert.match(source, /syncPendingPlanArtifacts: "同步待同步产物"/);
   assert.match(source, /syncAllResultArtifacts: "同步全部结果文件"/);
 });
+
+
+test('webpage messages become native info/warning/error actions with full logs and bounded repeat suppression', async () => {
+  const native = [], logs = [], opened = [];
+  let now = 10000;
+  const sandbox = { Date: { now: () => now }, vscode: { window: Object.fromEntries(
+    ['showInformationMessage', 'showWarningMessage', 'showErrorMessage'].map(name => [name, async (...args) => {
+      native.push({ name, args }); return args[1];
+    }])) } };
+  vm.createContext(sandbox);
+  vm.runInContext('this.notify = ({' + method('showNativePanelMessage(message)', 'operationNoticeKey(message)') + '}).showNativePanelMessage;', sandbox);
+  const host = { webviewNoticeLastAt: new Map(), panelDocumentGeneration: 4,
+    logOperationFact: text => logs.push(text), showOperationLogFromUi: () => opened.push('log'),
+    openPanelAt: async section => opened.push(section) };
+  const full = '隔离区删除审核账本不可用：' + '完整说明；'.repeat(130);
+  sandbox.notify.call(host, { tone: 'warning', message: full });
+  sandbox.notify.call(host, { tone: 'warning', message: full });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(native.length, 1, 'rapid repeated messages do not flood native notifications');
+  assert.equal(native[0].name, 'showWarningMessage');
+  assert.ok(native[0].args[0].includes(full), 'no 480-character webview truncation');
+  assert.deepEqual(Array.from(native[0].args).slice(1), ['查看日志', '打开面板']);
+  assert.deepEqual(opened, ['log']);
+  assert.equal(logs.filter(text => text.includes(full)).length, 2, 'even suppressed repeats keep full evidence');
+  now += 5001;
+  sandbox.notify.call(host, { tone: 'warning', message: full });
+  sandbox.notify.call(host, { tone: 'info', message: '信息' });
+  sandbox.notify.call(host, { tone: 'error', message: '错误' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(native.map(row => row.name), ['showWarningMessage', 'showWarningMessage', 'showInformationMessage', 'showErrorMessage']);
+  for (let index = 0; index < 40; index++) sandbox.notify.call(host, { message: 'message-' + index });
+  assert.ok(host.webviewNoticeLastAt.size <= 32);
+});

@@ -2346,20 +2346,17 @@ export function renderPanelHtml(): string {
       tmuxJobLogSelection = null;
     }
     function showToast(message, tone) {
-      let toast = el("simpleExperimentToast");
-      if (!toast && document.body && document.createElement) {
-        toast = document.createElement("div");
-        toast.id = "simpleExperimentToast";
-        toast.setAttribute("role", "status");
-        toast.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:10000;max-width:480px;padding:10px 14px;border:1px solid var(--vscode-panel-border);border-radius:6px;background:var(--vscode-editorWidget-background);color:var(--vscode-editorWidget-foreground);box-shadow:0 3px 12px #0003;";
-        document.body.appendChild(toast);
+      const text = String(message || "").trim();
+      if (!text) return;
+      try {
+        const posted = vscode.postMessage({ command: "webviewNotice", documentGeneration: panelDocumentGeneration,
+          message: text, tone: String(tone || "info") });
+        if (posted === false) throw new Error("VS Code 原生通知通道不可用");
+      } catch (error) {
+        const meta = el("tmuxCaptureMeta");
+        if (meta) meta.textContent = text;
+        console.error("VS Code 原生通知发送失败", error, text);
       }
-      if (!toast) { const meta = el("tmuxCaptureMeta"); if (meta) meta.textContent = String(message || ""); return; }
-      toast.textContent = String(message || "");
-      toast.dataset.tone = String(tone || "info");
-      toast.hidden = false;
-      clearTimeout(showToast.hideTimer);
-      showToast.hideTimer = setTimeout(() => { toast.hidden = true; }, 5000);
     }
     function failJobTmuxLogJump(message) {
       if (!tmuxJobLogSelection) return;
@@ -6337,17 +6334,14 @@ export function renderPanelHtml(): string {
         renderCommandPhaseLine();
         try {
           if (String(data.command || "") === "analyzeRuntimeLog" && data.message) {
-            showToast(String(data.message).slice(0, 400), String(data.status).toLowerCase() === "completed" ? "info" : "warning");
-          }
-          if (String(data.command || "") === "runAllPlans" && data.message && data.message !== "completed") {
-            showToast(String(data.message).slice(0, 480), String(data.status).toLowerCase() === "completed" ? "info" : "warning");
+            showToast(String(data.message), String(data.status).toLowerCase() === "completed" ? "info" : "warning");
           }
           if (String(data.command || "") === "killTmuxWindow" || String(data.command || "") === "clearTmuxTaskTabs") {
             if (String(data.command || "") === "clearTmuxTaskTabs" || String(data.command || "") === "killTmuxWindow") {
               if (String(data.command || "") === "clearTmuxTaskTabs") tmuxClearTaskTabsBusy = false;
               const clearText = String(data.message || "");
               if (clearText && clearText !== "completed") {
-                try { if (typeof showToast === "function") showToast(clearText.slice(0, 240), String(data.status || "").toLowerCase() === "completed" ? "info" : "warning"); } catch (e) {}
+                try { if (typeof showToast === "function") showToast(clearText, String(data.status || "").toLowerCase() === "completed" ? "info" : "warning"); } catch (e) {}
               }
             }
             refreshTmuxList();
