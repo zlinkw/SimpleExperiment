@@ -120,20 +120,24 @@ export function pluginInstancesDir(pluginOrPath: UnifiedPlugin | string): string
   return path.join(base, "instances");
 }
 
+function readBoundedJson(file: string): Record<string, unknown> {
+  const fd = fs.openSync(file, "r");
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.size > DISCOVERY_LIMIT) throw new Error("record exceeds size limit");
+    const bytes = Buffer.alloc(DISCOVERY_LIMIT + 1);
+    const size = fs.readSync(fd, bytes, 0, bytes.length, 0);
+    if (size > DISCOVERY_LIMIT) throw new Error("record exceeds size limit");
+    const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, size)));
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("record is not an object");
+    return value as Record<string, unknown>;
+  } finally { fs.closeSync(fd); }
+}
+
 function readInstanceRecord(file: string): PluginInstanceRow {
   const row: PluginInstanceRow = { discoveryPath: file, instanceId: "", name: "", version: "", pid: 0, startedAt: "", status: "", workspace: "", error: "" };
   try {
-    const fd = fs.openSync(file, "r");
-    let value: Record<string, unknown>;
-    try {
-      const stat = fs.fstatSync(fd);
-      if (!stat.isFile() || stat.size > DISCOVERY_LIMIT) throw new Error("record exceeds size limit");
-      const bytes = Buffer.alloc(DISCOVERY_LIMIT + 1);
-      const size = fs.readSync(fd, bytes, 0, bytes.length, 0);
-      if (size > DISCOVERY_LIMIT) throw new Error("record exceeds size limit");
-      value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, size)));
-      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("record is not an object");
-    } finally { fs.closeSync(fd); }
+    const value = readBoundedJson(file);
     row.name = typeof value.name === "string" ? value.name : "";
     row.version = typeof value.version === "string" ? value.version : "";
     row.pid = Number.isInteger(value.pid) ? Number(value.pid) : 0;

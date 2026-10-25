@@ -197,12 +197,13 @@ export class BranchProjectStore {
   }
 
   /** Atomic whole-file write after full validation; readers of other schema versions refuse to load. */
-  async save(file: BranchProjectFile): Promise<void> {
+  async save(file: BranchProjectFile): Promise<BranchProjectFile> {
     const validated = parseBranchProjectFile(serializeBranchProjectFile(file));
     await fs.promises.mkdir(path.dirname(this.file), { recursive: true });
     await atomicWriteText(this.file, serializeBranchProjectFile(validated));
     this.cached = validated;
     try { this.cachedMtimeMs = fs.statSync(this.file).mtimeMs; } catch { this.cachedMtimeMs = -1; }
+    return validated;
   }
 
   /**
