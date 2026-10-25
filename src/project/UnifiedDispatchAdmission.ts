@@ -9,7 +9,8 @@
  * 新意图的判定以“盘上基线 vs 即将写入”为唯一渠道，因此自动/旧兼容/pinned 同命令重试/
  * ready-manual/服务器队列共用同一入口且同命令重试天然不双计数（同 commandId 已在盘上=非新意图）。
  */
-import { DistributedQueue, QueuedJob, QueuedPlan, hasVerifiedCompletion, jobHasLiveExecution } from "../features/DistributedPlanQueue";
+import { DistributedQueue, QueuedJob, QueuedPlan, jobHasLiveExecution } from "../features/DistributedPlanQueue";
+import { hasTrustedTerminalProof, hasVerifiedCompletion } from "../features/VerifiedCompletion";
 import { GpuQuotaSettings, quotaPlacement } from "../features/GpuQuotaScheduling";
 
 export type DispatchIntent = { planId: string; jobIndex: number; attempt: number; commandId: string; workerId: string; gpuId: string; manual: boolean };
@@ -96,12 +97,14 @@ export type OccupancyResult = { occupancy: Map<string, Map<string, number>>;
   unmapped: Array<{ label: string; workerId: string; planId: string; jobIndex: number }> };
 
 /**
- * P0-1 统一名额占用判定（跨落盘/重读稳定）：
- * - 释放证据 = 既有终态/取消（trustedTerminalStatus 或终态 status）、已核实完成、确证未发送/准入拒绝
- *   剥回（这些路径把身份洗回 pending/清 commandId）——到此不再占名额；
- * - jobHasLiveExecution（内存态或新鲜观测的运行/排队事实）或持久同意事实精确一致 → 占名额；
- * - 其余带完整身份（command/worker/GPU）的未知项按"无法确认保留"保守计占，绝不直接当零占位；
- *   下一次确证（终态/未发送/拒绝）才释放。
+ * P0-1/P0-R 统一名额占用判定（跨落盘/重读稳定）：
+ * - 释放证据必须能跨 clearNativeProjection 落盘清洗仍然成立：身份绑定的 verifiedCompletion（成功，exit 0）
+ *   或 trustedTerminalProof（远端确证的物理退出/确证停止/服务端终态记录，含非 0 退出）。
+ *   仅内存里的 status=failed/cancelled 或 trustedTerminalStatus 不足以作证——它们落盘即被洗成
+ *   unknown，若不当持久事实处理，下一窗口读盘会永久保守计占该 GPU；未知/查询错误路径从不产生证明；
+ * - 确证未发送/准入拒绝剥回（这些路径把身份洗回 pending/清 commandId）同样不再占名额；
+ * - jobHasLiveExecution（内存态或新鲜观测的运行/排队事实）→ 占名额（与终态证明矛盾时保守计占）；
+ * - 其余带完整身份（command/worker/GPU）的未知项按"无法确认保留"保守计占，绝不直接当零占位。
  * 手动 stage=ready（尚无 commandId）尚未消费槽位，不计。
  */
 export function jobOccupiesUnifiedSlot(plan: QueuedPlan, job: QueuedJob): boolean {
@@ -110,6 +113,7 @@ export function jobOccupiesUnifiedSlot(plan: QueuedPlan, job: QueuedJob): boolea
   if (["completed", "failed", "cancelled"].includes(String(job.status || ""))) return false;
   if (hasVerifiedCompletion(plan, job)) return false;
   if (jobHasLiveExecution(job)) return true;
+  if (hasTrustedTerminalProof(plan, job)) return false;
   if (dispatchConsentMatches(job)) return true;
   return job.status === "unknown" || job.status === "dispatching";
 }

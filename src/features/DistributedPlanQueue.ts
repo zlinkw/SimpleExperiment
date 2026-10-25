@@ -4,7 +4,7 @@ import { PlanExecutionMode } from "./PlanExecutionMode";
 import { observationMatches, taskLifecycle, TaskObservation } from "./TaskLifecycle";
 import type { RuntimeDiagnostics, CompletionState } from "./RuntimeDiagnostics";
 import { freshTaskObservation } from "./WorkerProgressEvidence";
-import { hasVerifiedCompletion, nextVerifiedCompletion, verifiedCompletionProjection, type VerifiedCompletion } from "./VerifiedCompletion";
+import { hasVerifiedCompletion, nextVerifiedCompletion, verifiedCompletionProjection, trustedTerminalProofFor, type TrustedTerminalProof, type VerifiedCompletion } from "./VerifiedCompletion";
 import { projectStateFile, projectStateId } from "./ProjectStatePaths";
 
 export type JobState = "pending" | "dispatching" | "queued" | "running" | "completed" | "failed" | "cancelled" | "unknown";
@@ -32,6 +32,7 @@ export type QueuedJob = {
   runtimeDiagnostics?: RuntimeDiagnostics;
   completionState?: CompletionState;
   verifiedCompletion?: VerifiedCompletion;
+  trustedTerminalProof?: TrustedTerminalProof;
   verificationQueryError?: string;
   exitCode?: number | null;
   statusQueryError?: string;
@@ -361,7 +362,9 @@ export function markJobUnavailable(queue: DistributedQueue, planId: string, inde
       unavailable: { identity: expectedIdentity, reason: text, markedAt, previousStatus: item.status,
         previousFinishedAt: item.finishedAt, previousTrustedTerminalStatus: item.trustedTerminalStatus },
       finishedAt: item.finishedAt || markedAt, automaticRetry: undefined, blockReason: undefined,
-      ...(terminal ? { trustedTerminalStatus: terminal as "failed" | "cancelled" } : {}) }) };
+      // P0-R：terminalReceipt 已在上方按身份/状态/finishedAt|exitCode 核验；随之持久紧凑证明（未派发 unsent 无 commandId，本就不占名额）。
+      ...(terminal ? { trustedTerminalStatus: terminal as "failed" | "cancelled",
+        trustedTerminalProof: trustedTerminalProofFor(plan, item, terminal as "failed" | "cancelled", Date.parse(markedAt)) } : {}) }) };
   nextPlan.recoveryMissingCount = distributedPlanRecoveryMissingCount(nextPlan);
   return { ...queue, plans: queue.plans.map(row => row.id !== planId ? row : nextPlan) };
 }
@@ -570,6 +573,10 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       const nativeWindowSeen = observation.tmux?.dead === false && ["starting", "running"].includes(state.execution);
       const verifiedCompletion = nextVerifiedCompletion(plan, job, observation, state, now);
       const fixed = verifiedCompletionProjection(plan, { ...job, verifiedCompletion });
+      // P0-R：四类查询全净且身份核对通过的终态＝远端证实的物理退出/确证停止；持久化紧凑证明，
+      // 使确证释放跨 clearNativeProjection 落盘/重读仍存在（未知或任一查询错误不产生证明）。
+      const terminalProof = cleanNativeErrors.length === 0 && ["completed", "failed", "cancelled"].includes(state.status)
+        ? trustedTerminalProofFor(plan, job, state.status as "completed" | "failed" | "cancelled", now) : undefined;
       return { ...job, lifecycleProtocol: 2 as const, status: state.status, executionState: state.execution, resultState: state.result,
         runtimeDiagnostics: state.runtimeDiagnostics, completionState: state.completionState, exitCode: state.exitCode,
         startIntent: !observation.queryError && !observation.executionQueryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,
@@ -585,6 +592,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
             : undefined,
         error: state.status === "failed" ? String(task?.error || `任务退出码 ${task?.exitCode ?? "未知"}`) : undefined,
         blockReason: state.message, verifiedCompletion,
+        ...(terminalProof ? { trustedTerminalProof: terminalProof } : {}),
         verificationQueryError: verifiedCompletion ? observation.queryError || observation.executionQueryError || observation.resultQueryError || observation.runtimeQueryError : undefined,
         ...fixed, ...(task && !observation.queryError ? { gpuId: String(task.gpuId ?? job.gpuId ?? ""),
           tmuxPane: String(task.tmuxPane || ""), tmuxWindowId: String(task.tmuxWindowId || ""), tmuxSession: String(task.tmuxSession || "") } : {}) };
@@ -822,6 +830,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
         ...(conflict ? { recoveryConflict: true } : {}),
         ...(conflict ? { blockReason: "Conflicting fresh server summaries for the same durable job identity." } : {}),
       };
+      // P0-R：无冲突的服务端持久终态记录同样是远端确证；持久紧凑证明供统一名额跨落盘释放（未知/冲突不产生）。
+      if (terminalStatus) merged.trustedTerminalProof = trustedTerminalProofFor(plan, merged, terminalStatus, now);
       const trainingAdopted = reviewedTrainingCompletion(plan, merged, task);
       if (trainingAdopted) Object.assign(merged, { trainingRecovery: task.trainingRecovery, originalExecution: task.originalExecution });
       if (existing >= 0) {

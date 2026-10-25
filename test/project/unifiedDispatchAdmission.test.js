@@ -22,6 +22,10 @@
  * 10) P0-1/P1-3 两个独立项目窗口的真实进程跑生产提取法身（save 同意事务+跨队列占位+发送守卫）：
  *    同意→落盘→第二项目同卡拒/异卡批→B 根首次派发自登记别名→A 确证完成后同卡再批。
  * 11) P0-2 登记表存在（哪怕域未成立）的带新意图保存先持统一资源；登记表损坏拒绝而非静默放行。
+ * 12) P0-R 确证失败退出/确证停止产生身份绑定 trustedTerminalProof，跨 serialize→restore 仍释放名额
+ *     （真实 mergeDurableWorkerSnapshots→清洗→重读→再申请可批）；仅本地取消、未知/查询错误不释放。
+ * 13) P0-2 返修交错窗口：开始零登记的真实子进程保存持有统一资源直到 atomicWrite 完成，主窗口
+ *     “首次登记两根”只能在其写完后进入；随后同卡新意图按盘上保守占位被拒——不双批。
  *
  * 需要真实 git 子进程与多 node 进程（互斥/隔离语义本身是被测行为），因此作为新功能域新建本文件；
  * 手动通道对回执的响应扩在 test/features/manualJobDispatch.test.js。Linux 端不运行本套件。
@@ -348,20 +352,27 @@ const UNIFIED_HOST_HARNESS = [
   '    UnifiedDispatchAdmission:require(env.dist+"/project/UnifiedDispatchAdmission.js"),',
   '    GpuQuotaScheduling:require(env.dist+"/features/GpuQuotaScheduling.js"),',
   '    canonicalComparablePath:require(env.dist+"/project/BranchProjectStore.js").canonicalComparablePath,',
-  '    atomicWriteText:require(env.dist+"/state/StateStore.js").atomicWriteText,',
+  '    atomicWriteText:(()=>{const real=require(env.dist+"/state/StateStore.js").atomicWriteText;',
+  '      return async(...a)=>{if(!env.writeDelayMs)return real(...a);',
+  '        if(env.eventLog)fs.appendFileSync(env.eventLog,"write-enter "+process.pid+"\\n");',
+  '        await new Promise(resolve=>setTimeout(resolve,env.writeDelayMs));',
+  '        const outcome=await real(...a);if(env.eventLog)fs.appendFileSync(env.eventLog,"write-done "+process.pid+"\\n");return outcome;};})(),',
   '    path,fs:require("node:fs/promises"),API_DISCOVERY_DIR:env.apiDir});',
   '  const h=new Host();',
   '  Object.assign(h,{',
   '    context:{globalStorageUri:{fsPath:env.storage}},manualDispatchInFlight:new Set(),planCleanupHosts:new Map(),',
   '    captureProjectContext:()=>({root:env.root}),projectContextIsCurrent:()=>true,',
   '    distributedQueueGeneration:0,distributedPlanStopEpoch:0,planStopClearBatchLease:undefined,distributedTickAbort:undefined,distributedQueueTickPromise:undefined,',
-  '    distributedSubmissionEpochs:new Map(),distributedQueueWritePromise:Promise.resolve(),hostOperationLease:undefined,',
+  '    distributedSubmissionEpochs:new Map(),distributedQueueWritePromise:Promise.resolve(),',
+  '    hostOperationLease:env.leasePath?new(require(env.dist+"/core/ResourceOperationLease.js").ResourceOperationLeaseManager)',
+  '      ({leasePath:env.leasePath,windowId:(env.windowId||"host")+"-"+process.pid,ttlMs:30000,heartbeatMs:1000}):undefined,',
   '    distributedQueueCache:null,distributedQueueRoot:"",distributedQueueDiskSignature:"",distributedQueueStorageDiagnostics:{status:"ready"},',
   '    distributedQueueMetadataWrites:[],detachStaleDistributedTick(){},postState(){},recordActionError(){},',
   '    setupConfig:{sessionPrefix:"T",workerTunnels:[{id:"w",workerHost:"gpu-host",workerSshPort:22}]},',
   '    enabledWorkerConfigs:()=>[{id:"w",gpuQuotaConfigured:true,gpuJobsPerCard:1}],schedulerSettings:()=>({gpuJobsPerCard:1}),',
   '    lastRealtimeState:{gpu:{w:[{index:"0",memoryTotalMb:40960,memoryUsedMb:1024},{index:"1",memoryTotalMb:40960,memoryUsedMb:1024}]}},',
-  '    branchProjectService:()=>env.brokenRegistry?{registryInventory:()=>{throw new Error("模拟登记表损坏");}}:{registryInventory:()=>({ancestors:env.roots,branches:[]})},',
+  '    branchProjectService:()=>env.brokenRegistry?{registryInventory:()=>{throw new Error("模拟登记表损坏");}}',
+  '      :{registryInventory:()=>({ancestors:env.rootsFile?JSON.parse(fs.readFileSync(env.rootsFile,"utf8")):(env.roots||[]),branches:[]})},',
   '  });',
   '  return h;',
   '};',
@@ -373,7 +384,8 @@ const UNIFIED_CHILD_SOURCE = [
   'const makeHost=require(C.harness);',
   'const DPQ=require(C.dist+"/features/DistributedPlanQueue.js");',
   '(async()=>{',
-  '  const h=makeHost({typescript:C.ts,legacySource:C.legacy,dist:C.dist,apiDir:C.apiDir,storage:C.storage,root:C.root,roots:C.roots});',
+  '  const h=makeHost({typescript:C.ts,legacySource:C.legacy,dist:C.dist,apiDir:C.apiDir,storage:C.storage,root:C.root,roots:C.roots,',
+  '    rootsFile:C.rootsFile,writeDelayMs:C.writeDelayMs,eventLog:C.eventLog,leasePath:C.leasePath,windowId:C.windowId});',
   '  const file=DPQ.distributedQueuePath(C.storage,C.root);',
   '  const disk=DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(file,"utf8")));',
   '  const plan=disk.plans.find(p=>p.id===C.planId),job=plan.jobs.find(j=>j.index===C.jobIndex);',
@@ -382,6 +394,7 @@ const UNIFIED_CHILD_SOURCE = [
   '  Object.assign(job,{status:"dispatching",workerId:"w",gpuId:C.gpuId,commandId:C.commandId,lifecycleProtocol:2},' +
     'C.manual?{manualDispatch:{workerId:"w",gpuId:C.gpuId,stage:"sent"}}:{startIntent:{commandId:C.commandId,workerId:"w",gpuId:C.gpuId}});',
   '  const receipt=await h.saveDistributedQueue(C.root,disk,{dispatchAdmission:true});',
+  '  if(C.eventLog)fs.appendFileSync(C.eventLog,"child-save-return "+process.pid+"\\n");',
   '  const after=DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(file,"utf8")));',
   '  const diskJob=after.plans.find(p=>p.id===C.planId).jobs.find(j=>j.index===C.jobIndex);',
   '  const guardAfterSave=await guard();',
@@ -512,4 +525,150 @@ test("P0-1/P0-2/P1-3 两个独立项目窗口真实进程：生产同意事务�
   await assert.rejects(() => hostBroken.saveDistributedQueue(rootA, soloDisk, { dispatchAdmission: true }),
     /登记表不可读\/已损坏.*已拒绝本次带新派发意图的队列写入/s);
   assert.equal(fs.readFileSync(fileFor(rootA), "utf8"), beforeBroken, "拒绝即零写入");
+});
+
+test("P0-R 确证失败退出/确证停止持久身份绑定终态证明：真实 merge→清洗→重读后可再批；本地取消与查询错误不释放", () => {
+  // 变更前缺失：status=failed/cancelled 与 trustedTerminalStatus 只活在内存投影里，落盘被洗成
+  // unknown 而持久同意仍在——非 0 退出/确证停止的 GPU 名额被永久占用，再也不能派发。
+  const projectId = "proj-p0r";
+  const build = () => {
+    const q = admission.attachApprovedDispatchConsent(queueWith([dispatched()]), [intent()]);
+    q.plans[0].projectId = projectId;
+    return q;
+  };
+  const iso = new Date().toISOString();
+  const runtime = { schemaVersion: 1, runId: "cmd-0", commandId: "cmd-0", state: "clear", count: 0, scanComplete: true };
+  const snapshot = observation => ({ workerId: "w1", queryComplete: true, generatedAt: iso, fetchedAt: iso,
+    capabilities: { taskLifecycle: 2 }, tasks: [{ commandId: "cmd-0", projectId, workerId: "w1", outputDir: "work/j0",
+      observation: { lifecycleProtocol: 2, commandId: "cmd-0", projectId, workerId: "w1", observedAt: iso, runtimeDiagnostics: runtime, ...observation } }] });
+  const base = { serverOf: () => "srv:22", settingsForServer: () => ({ settings: settings(1), rows: gpuRows([0, 1]) }), blockers: [] };
+  const sameSlotReceipt = queue => admission.admitDispatchIntents({ ...base,
+    occupancy: admission.computeServerOccupancy([{ label: "own", queue }], () => "srv:22").occupancy,
+    intents: [intent({ planId: "plan-b", commandId: "cmd-b" })] });
+  const washedRelease = merged => {
+    const text = DPQ.serializeDistributedQueue(merged);
+    assert.match(text, /"trustedTerminalProof"/, "确证终态证明随队列落盘（不在投影清洗清单内）");
+    assert.equal(JSON.parse(text).plans[0].jobs[0].status, "unknown", "磁盘 status 照旧被清洗——释放只认证明，不信任盘上状态");
+    const restored = DPQ.restoreFormalJobQueue(JSON.parse(text));
+    assert.equal(VC.hasTrustedTerminalProof(restored.plans[0], restored.plans[0].jobs[0]), true);
+    return restored;
+  };
+  // ① 物理退出非 0（整数 exitCode=3，四类查询全净）：真实生产合并路径产出终态证明。
+  const failed = DPQ.mergeDurableWorkerSnapshots(build(), [snapshot({ tmux: { dead: true, phase: "running", windowId: "@0", paneId: "%0", exitCode: 3 },
+    result: { runId: "cmd-0", status: "failed", present: true, verified: true, identityMatches: true, artifactsComplete: false, exitCode: 3 } })], projectId, Date.now());
+  assert.equal(failed.plans[0].jobs[0].status, "failed");
+  assert.equal(VC.hasTrustedTerminalProof(failed.plans[0], failed.plans[0].jobs[0]), true, "非 0 退出即持久化确证终态证明");
+  const failedRestored = washedRelease(failed);
+  assert.equal(admission.jobOccupiesUnifiedSlot(failedRestored.plans[0], failedRestored.plans[0].jobs[0]), false, "失败确证跨落盘释放名额");
+  assert.equal(sameSlotReceipt(failedRestored).approved.length, 1, "失败确证 serialize→restore→再申请可批");
+  // 二次落盘/重读：身份未变，证明仍有效。
+  const failedAgain = DPQ.restoreFormalJobQueue(JSON.parse(DPQ.serializeDistributedQueue(failedRestored)));
+  assert.equal(admission.jobOccupiesUnifiedSlot(failedAgain.plans[0], failedAgain.plans[0].jobs[0]), false);
+  // ② 确证停止（cancelled===true 且窗口已释放）：同样跨落盘释放。
+  const stopped = DPQ.mergeDurableWorkerSnapshots(build(), [snapshot({ tmux: null, cancelled: true, result: null })], projectId, Date.now());
+  assert.equal(stopped.plans[0].jobs[0].status, "cancelled");
+  assert.equal(VC.hasTrustedTerminalProof(stopped.plans[0], stopped.plans[0].jobs[0]), true, "确证停止即持久化终态证明");
+  const stoppedRestored = washedRelease(stopped);
+  assert.equal(admission.jobOccupiesUnifiedSlot(stoppedRestored.plans[0], stoppedRestored.plans[0].jobs[0]), false);
+  assert.equal(sameSlotReceipt(stoppedRestored).approved.length, 1, "确证停止 serialize→restore→再申请可批");
+  // ③ 仅本地取消（无远端确证）：落盘即洗回 unknown，无证明则继续保守占位，不得再批。
+  const localCancel = build();
+  localCancel.plans[0].jobs[0].status = "cancelled";
+  const localText = DPQ.serializeDistributedQueue(localCancel);
+  assert.doesNotMatch(localText, /"trustedTerminalProof"/, "本地取消文本不产生任何确证");
+  assert.equal(JSON.parse(localText).plans[0].jobs[0].status, "unknown", "本地取消落盘同样被清洗");
+  const localRestored = DPQ.restoreFormalJobQueue(JSON.parse(localText));
+  assert.equal(admission.jobOccupiesUnifiedSlot(localRestored.plans[0], localRestored.plans[0].jobs[0]), true, "远端未证实停止不得释放");
+  const localReceipt = sameSlotReceipt(localRestored);
+  assert.equal(localReceipt.approved.length, 0);
+  assert.match(localReceipt.denied[0].reason, /配额已满（1\/1）/);
+  // ④ 查询错误：不产生证明也不释放；先前确证不因后来的未知被伪造出来。
+  const errored = DPQ.mergeDurableWorkerSnapshots(build(), [snapshot({ executionQueryError: "查询超时" })], projectId, Date.now());
+  assert.equal(VC.hasTrustedTerminalProof(errored.plans[0], errored.plans[0].jobs[0]), false, "查询错误不得产生确证");
+  const erroredRestored = DPQ.restoreFormalJobQueue(JSON.parse(DPQ.serializeDistributedQueue(errored)));
+  assert.equal(admission.jobOccupiesUnifiedSlot(erroredRestored.plans[0], erroredRestored.plans[0].jobs[0]), true, "未知/查询错仍占位");
+  assert.equal(sameSlotReceipt(erroredRestored).approved.length, 0, "未知状态不得再批同卡");
+});
+
+test("P0-2 返修交错窗口：开始零登记的真实子进程保存持统一资源到 atomicWrite 完成，首次登记两根不得在其间滑入；随后同卡拒双批", async () => {
+  const dir = tempDir("se-unified-race-");
+  const storage = path.join(dir, "storage"), apiDir = path.join(dir, "api");
+  fs.mkdirSync(apiDir, { recursive: true });
+  const rootA = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "se-unified-raceA-")));
+  const rootB = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "se-unified-raceB-")));
+  const canonical = require("../../dist/project/BranchProjectStore.js").canonicalComparablePath;
+  const harnessPath = path.join(dir, "unified-host.js");
+  fs.writeFileSync(harnessPath, UNIFIED_HOST_HARNESS, "utf8");
+  const childPath = path.join(dir, "unified-child.js");
+  fs.writeFileSync(childPath, UNIFIED_CHILD_SOURCE, "utf8");
+  const distDir = path.join(__dirname, "..", "..", "dist");
+  const rootsFile = path.join(dir, "registry-roots.json");
+  fs.writeFileSync(rootsFile, "[]", "utf8");
+  const eventLog = path.join(dir, "events.log");
+  fs.writeFileSync(eventLog, "", "utf8");
+  const leasePath = path.join(dir, "host-operation-lease.json");
+  const inputs = admission.buildPolicyInputs({ gpuJobsPerCard: 1 }, { gpuQuotaConfigured: true, gpuJobsPerCard: 1 });
+  const now = () => new Date().toISOString();
+  fs.writeFileSync(path.join(apiDir, admission.UNIFIED_POLICY_FILE_NAME), JSON.stringify({ schemaVersion: 1, savedAt: now(), savedFromRoot: rootA,
+    servers: { "gpu-host:22": { workerId: "w", inputs } } }));
+  const mapPath = path.join(apiDir, admission.UNIFIED_SERVER_MAP_FILE_NAME);
+  fs.writeFileSync(mapPath, JSON.stringify(admission.mergeServerMapRoots(
+    admission.mergeServerMapRoots(null, canonical(rootA), { w: "gpu-host:22" }, now()), canonical(rootB), { w: "gpu-host:22" }, now())));
+  const fileFor = root => DPQ.distributedQueuePath(storage, root);
+  const seed = (root, planId) => {
+    const q = DPQ.enqueuePlan(DPQ.emptyDistributedQueue(), { projectId: DPQ.canonicalProjectId(root), executionMode: "train", planFile: planId + ".yaml",
+      revision: "r", codeFingerprint: "f", resultPathPolicy: "declared", jobs: [{ index: 0, case: "a", seed: 1, outputDir: "work/0" }] }, planId);
+    fs.mkdirSync(path.dirname(fileFor(root)), { recursive: true });
+    fs.writeFileSync(fileFor(root), DPQ.serializeDistributedQueue(q), "utf8");
+  };
+  seed(rootA, "plan-a");
+  seed(rootB, "plan-b");
+  const base = { harness: harnessPath, ts: require.resolve("typescript"), legacy: path.join(__dirname, "..", "..", "src", "extension", "legacy.ts"),
+    dist: distDir, storage, apiDir, rootsFile, leasePath };
+  const readEvents = () => fs.readFileSync(eventLog, "utf8").split(/\r?\n/).filter(Boolean).map(line => line.split(" ")[0]);
+  // —— 窗口 B（真实子进程）：登记表为空时带新意图保存；真实跨进程资源锁 + 700ms 延迟写制造交错窗口。
+  const childPromise = new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [childPath, JSON.stringify({ ...base, root: rootB, planId: "plan-b", jobIndex: 0, commandId: "cmd-r1",
+      gpuId: "0", manual: false, eventLog, writeDelayMs: 700, windowId: "child" })], { stdio: ["ignore", "pipe", "pipe"], env: process.env });
+    let out = "", err = "";
+    child.stdout.on("data", chunk => { out += chunk; });
+    child.stderr.on("data", chunk => { err += chunk; });
+    child.on("error", reject);
+    child.on("close", code => {
+      const line = out.split("\n").find(row => row.startsWith("RESULT"));
+      if (!line) return reject(new Error(`子进程窗口无结果输出（code=${code}）：${err}`));
+      resolve(JSON.parse(line.slice("RESULT".length)));
+    });
+  });
+  // 等子进程已进入 atomicWrite（判定与计算都已完成、正处于写入中）——返修前登记正好能从这里挤进来。
+  const startedAt = Date.now();
+  while (!readEvents().includes("write-enter") && Date.now() - startedAt < 15000) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.ok(readEvents().includes("write-enter"), "15s 内子进程未进入延迟写入");
+  const hostParent = require(harnessPath)({ ...base, root: rootA, windowId: "parent" });
+  await hostParent.withUnifiedAdmissionLease("首次登记两根", async () => {
+    fs.appendFileSync(eventLog, "parent-registration-enter\n");
+    fs.writeFileSync(rootsFile, JSON.stringify([rootA, rootB]), "utf8");
+  });
+  const events = readEvents();
+  assert.ok(events.includes("write-done") && events.includes("parent-registration-enter"), "事件不齐：" + events.join(","));
+  assert.ok(events.indexOf("write-done") < events.indexOf("parent-registration-enter"),
+    "带新意图保存必须持统一资源直到 atomicWrite 完成，登记不得插进计算与写入之间：" + events.join(","));
+  const rChild = await childPromise;
+  assert.equal(rChild.error, undefined, "子进程异常：" + rChild.error);
+  assert.equal(rChild.receipt, undefined, "开始时零登记：同意不启用，保持原分配行为");
+  assert.equal(rChild.guardAfterSave, false, "未同意不落发送绿灯");
+  const childJob = DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(fileFor(rootB), "utf8"))).plans[0].jobs[0];
+  assert.equal(childJob.dispatchConsent, undefined, "零登记窗口不写同意事实");
+  assert.equal(childJob.status, "unknown");
+  // —— 主窗口登记完成后申请同卡：B 的完整身份未知项已先落盘保守占位，A 被拒——两窗口合计不双批。
+  const diskA = DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(fileFor(rootA), "utf8")));
+  Object.assign(diskA.plans[0].jobs[0], { status: "dispatching", workerId: "w", gpuId: "0", commandId: "cmd-p1", lifecycleProtocol: 2 });
+  const receiptP = await hostParent.saveDistributedQueue(rootA, diskA, { dispatchAdmission: true });
+  assert.ok(receiptP, "登记完成后统一域成立，返回真实回执");
+  assert.equal(receiptP.approved.length, 0, "不得双批：B 的未确证完整身份意图已占位");
+  assert.match(receiptP.denied[0].reason, /配额已满（1\/1）/);
+  const parentJob = DPQ.restoreFormalJobQueue(JSON.parse(fs.readFileSync(fileFor(rootA), "utf8"))).plans[0].jobs[0];
+  assert.equal(parentJob.status, "pending", "被拒意图剥回本地等待");
+  assert.equal(parentJob.dispatchConsent, undefined);
+  assert.equal(parentJob.nextCommandId, "cmd-p1", "剥回保留同命令重试身份");
 });

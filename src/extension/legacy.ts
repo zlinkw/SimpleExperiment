@@ -35,7 +35,7 @@ import * as FailedJobRecovery from "../features/FailedJobRecovery";
 import * as PulledTaskControl from "../features/PulledTaskControl";
 import * as WorkerTaskQuery from "../features/WorkerTaskQuery";
 import * as WorkerProgressQuery from "../features/WorkerProgressQuery";
-import { hasVerifiedCompletion } from "../features/VerifiedCompletion";
+import { hasVerifiedCompletion, trustedTerminalProofFor } from "../features/VerifiedCompletion";
 import { PlanRunHost } from "./PlanRunHost";
 import { WorkerPreparation } from "../features/WorkerPreparation";
 import { CompletedJobSyncHost } from "./CompletedJobSyncHost";
@@ -12250,17 +12250,16 @@ this.assertPlanTopologyReady("Plan 调度");
     }
     async saveDistributedQueue(root, queue, options = {}) {
         const workingQueue = queue;
-        // 块B：只有携带新派发意图的保存（dispatchAdmission）且当前根在统一域内才进入共同同意临界区；
-        // 未登记单项目的行为逐路径保留。判定必须在取锁前完成（锁内不再问登记表之外的世界）。
-        // 登记表损坏/不可读时拒绝带新派发意图的写入——绝不按“未登记”静默兜底放行（批准方案§7）。
+        // 块B：携带新派发意图的保存（dispatchAdmission）先做登记表损坏围栏（锁前一次即可：
+        // 持锁后的域身份复核在事务内另行完成）。损坏/不可读时拒绝写入——绝不按“未登记”静默兜底放行（批准方案§7）。
         const unifiedDomain = options.dispatchAdmission === true ? this.unifiedDomainState() : { active: false, blocked: "" };
         if (unifiedDomain.blocked)
             throw new Error(`统一派发准入：${unifiedDomain.blocked}；已拒绝本次带新派发意图的队列写入，任务留在本地。`);
-        const unifiedActive = unifiedDomain.active === true;
-        // P0-2：只要登记表存在（哪怕处于首次/二次登记中间态），带新意图的保存也一并锁统一资源，
-        // 并在事务内复核域身份——消除“判定刚好早于另一窗口完成登记”的切换窗口；
-        // 完全无登记的单项目保持原不锁快路径（批准方案“未登记单项目行为保留”）。
-        const unifiedEngage = unifiedActive || options.dispatchAdmission === true && this.registryHasEntries();
+        // P0-2 返修：所有携带新派发意图的保存一律在同一临界区持有共享“统一派发”资源——
+        // 从锁内域复核、成员队列读、准入计算直到 atomicWrite 成功/失败全程覆盖，
+        // 消除“开始时无登记→计算后释放→另一窗口完成初始登记并准入→本窗口再写盘”的双批交错；
+        // 首个登记之前也不例外。未登记项目的同意结果不变（不批新同意），仅不再保留不锁快路径（主控明确）。
+        const unifiedEngage = options.dispatchAdmission === true;
         const work = this.distributedQueueWritePromise.catch(() => undefined).then(async () => this.withQueueWriteResource(root, async () => {
             const assertStopBatch = () => {
                 if (options.stopBatchEpoch !== undefined && (this.distributedPlanStopEpoch !== options.stopBatchEpoch
@@ -15004,9 +15003,11 @@ this.assertPlanTopologyReady("Plan 调度");
                 const terminal = remoteStatus === "completed" ? "completed" : ["failed", "stopped"].includes(remoteStatus) ? "failed"
                     : ["cancelled", "canceled"].includes(remoteStatus) ? "cancelled" : undefined;
                 if (remoteStatus === "running" || remoteStatus === "starting" || terminal) {
+                    // P0-R：远端查询/停止回执核实的终态随之持久紧凑证明，跨投影清洗仍能释放统一名额。
                     Object.assign(job, { status: terminal || "running", recallRequested: undefined, recallOperationId: undefined,
                         reassignmentPending: undefined, blockReason: undefined,
-                        ...(terminal ? { trustedTerminalStatus: terminal } : {}) });
+                        ...(terminal ? { trustedTerminalStatus: terminal,
+                            trustedTerminalProof: trustedTerminalProofFor(plan, job, terminal, Date.now()) } : {}) });
                 } else {
                     job.status = "unknown";
                     job.blockReason = `Worker 返回 ${remoteStatus || "未知"} 状态；召回保留原 Worker 与 commandId，等待再次核实。`;
