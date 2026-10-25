@@ -110,3 +110,10 @@
 - legacy 接线：branchPrReceiptLedger/branchPrContext（分支项目登记分支正常 HEAD＋祖先真实 origin/目标分支前置）/createBranchPrFromUi（preview→modal 明示目标/基线/既有PR/基线差距/dirty 不入 PR/不代装 gh→确认后写）/mergeBranchPrFromUi（reuse-only→modal→merge→祖先 ff→modal）；路由两个 case、两处白名单、面板分支行“创建PR/合并PR”按钮（data-branch-project-id 经既有 payload 通道）。
 - 测试（继续扩既有 test/project/branchProjectRegistry.test.js，注入执行器为主、祖先 ff 用真实 bare origin+两 clone）：规范化 8 组（凭证拒绝/多段组/scp/ssh://）；预览漂移/基线缺失/gh 失败分类且 argv 零写入；create 未知 push 后 unknown 收据在案、gh 状态未知时二次调用 push 调用数＝0（不重放）、成功路径断言精确 argv "push origin refs/heads/exp/m1:refs/heads/exp/m1" 无 force、gh 输出不可解析经对账 reused 且远端头已等源SHA 时零 push、digest 漂移零写入；merge 三态+无SHA拒绝+unknown merge 收据落账；ff 真实仓四态（成功/脏停/分叉停/合并提交不符暂缓）。
 - 本轮未对任何真实科研仓 push/PR/merge、未调用宿主 GitHub（C6 约束保持）；gh 在 Windows 临时仓上仅以注入假执行器测试，真实 gh 行为未验证属原生阶段事实。
+
+### 234（2348e608）Native 失败 → 两处测试自身机械修（92fcd8e8，保留原始日志）
+- Native 事实：run 2026-10-25T07-54-17-555Z-18212-test（overall failed，input=end37cf42c0…，dist 9532974e…，lockReleased，compile 七门禁全 0；108 规范参数行 105 过/3 败）。宿主完整日志 job-106-unifiedDispatchAdmission.test.err.log（SyntaxError line 64，out.log 空——整个套件从未运行）、job-013/071-manualJobDispatch.test.out.log（block B 用例 blockReason undefined，期望 /统一派发等待配额/）。
+- 主控读原测试与生产函数更正宿主猜测后给出的两处根因与修法（均测试自身，生产未动一笔）：
+  1) unifiedDispatchAdmission.test.js queueWith：缺的是关闭 plan 对象的 `}`（不是宿主猜测的 map 少括号）。按主控建议展开为平衡多行 `({schemaVersion:1,plans:[{...,jobs:jobs.map(...)}]})`，断言/参数/期限全未动。该文件此前被 compile 前置阻断从未实际运行，修后 B 完整链将首次真实执行。
+  2) manualJobDispatch.test.js block B 用例：覆盖 f.ports.save 的两个分支写 `q=structuredClone(value)`——fixture 的 q 是闭包私有（f 仅有 get q()），本 case 无 q 绑定，赋值只写了隐式 global，f.q 停在初始队列 ⇒ blockReason 读到 undefined。生产 syncDeniedIntentsInPlace 本就设置"统一派发等待配额：…"理由（UnifiedDispatchAdmission.ts:207），无任何生产改动依据。最窄修法：`const originalSave=f.ports.save` 后覆盖函数两分支均 `await originalSave(value)` 落盘（拒绝分支先原地剥回再落），并补 `assert.equal(typeof globalThis.q,'undefined')` 防隐式 global 泄漏。sends=0、pending/ready/保留GPU/nextCommandId/blockReason、无回执旧宿主正常 send 断言全保留。
+- 候选组装：修在 2b6a92bd（C3 稳定块）之上成 92fcd8e8，未混入 C4；Native 核对目标文件无本地改动、上轮 lockReleased 后已 ff 至 92fcd8e8 并 report_stage。impl 线经普通 merge（9ed8cd33）保留已提交的 C4/C5（eed9071e），不改写任何已交验历史；C4/C5 为独立源文件+独立新测试+接线，待下一候选随实际集合验证。
