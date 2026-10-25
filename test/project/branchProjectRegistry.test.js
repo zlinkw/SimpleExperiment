@@ -279,6 +279,13 @@ test("登记已有副本：worktree 记录来源，独立 clone 保持 separate-
   const projection = service.verifyAll();
   assert.equal(projection.branches[0].relation, "separate-repository");
   assert.equal(git(["rev-parse", "HEAD"], path.join(cloneDir, "copy")).trim(), record.createdFromCommit, "登记与验证不得移动副本提交");
+  // 项目卡准备提示（锚点：BranchProjectService 分支副本 dirty 展示行）：本机运行状态 simple_cluster/state/
+  // 也会报未跟踪，提示用户以本机 Git 排除规则排除该状态目录，并明确勿忽略整个目录、插件不代改 Git 配置。
+  fs.writeFileSync(path.join(cloneDir, "copy", "scratch-untracked.txt"), "s\n", "utf8");
+  const dirtyRow = service.verifyAll().branches[0];
+  assert.ok(dirtyRow.errors.some(row => /分支副本存在未提交修改/.test(row) && /simple_cluster\/state\//.test(row)
+    && /请勿忽略整个 simple_cluster\//.test(row) && /不代改 Git 配置/.test(row)), JSON.stringify(dirtyRow.errors));
+  assert.equal(git(["rev-parse", "HEAD"], path.join(cloneDir, "copy")).trim(), record.createdFromCommit, "验证提示为只读，不改仓库状态");
 });
 
 test("Git 状态读取失败（受控损坏索引夹具）：验证/登记/预览确认全链拒绝，绝不标 verified", async () => {
@@ -1461,6 +1468,16 @@ test("C4-R6 UI 真实入口合并顺序：非空选择＋候选证据先于最�
   assert.ok(thrown3 && /已取消合并/.test(String(thrown3.message)), String(thrown3 && thrown3.message));
   assert.ok(case3.env.events.some(row => row.kind === "warn" && row.title.startsWith("合并 PR #") && /plan-A/.test(row.detail)));
   assert.equal(case3.gh.calls.filter(row => row.args.startsWith("pr merge")).length, 0);
+  // 4) dirty 门拒绝文案带本机运行状态准备提示（锚点：branchResearchCandidateFlow 的 dirty 门；仅该门，不泛加）
+  const case4 = build({ answer: () => "确认合并" });
+  fs.writeFileSync(path.join(fx.root, "scratch-untracked.txt"), "dirty\n", "utf8"); // 模拟未跟踪内容使 dirty=true（队列夹具已在 build 时按真实路径排除并核过 clean）
+  let thrown4 = null;
+  try { await case4.host.mergeBranchPrFromUi({ branchProjectId: "b1" }); } catch (error) { thrown4 = error; }
+  assert.ok(thrown4 && /要求干净工作树/.test(String(thrown4.message)), String(thrown4 && thrown4.message));
+  assert.match(String(thrown4.message), /simple_cluster\/state\/（本扩展的队列\/状态目录）/, "拒绝须提示运行状态目录可用本机 Git 排除规则处理");
+  assert.match(String(thrown4.message), /请勿忽略整个 simple_cluster\//, "明确不得忽略可能含科研源码的整个目录");
+  assert.match(String(thrown4.message), /不代改 Git 配置/);
+  assert.equal(case4.gh.calls.filter(row => row.args.startsWith("pr view") || row.args.startsWith("pr merge")).length, 0, "dirty 拦停＝零写入零查询");
 });
 
 test("C4-R6 UI 真实入口祖先 ff：确认后 origin 被改到共享历史的 fork B 不被 live 重读洗白，fetch/merge 前即拦停；冻结 expected 不误伤正常路径", async () => {

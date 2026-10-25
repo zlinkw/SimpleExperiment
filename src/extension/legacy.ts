@@ -1800,8 +1800,9 @@ export class RealtimeTunnelPanelProvider {
             blockers });
         let queue = outgoingQueue;
         if (receipt.denied.length) {
-            queue = UnifiedDispatchAdmission.applyDeniedIntents(queue, receipt.denied);
-            UnifiedDispatchAdmission.syncDeniedIntentsInPlace(workingQueue || outgoingQueue, receipt.denied);
+            // 块B返修（E）：自占用再申请被拒按本事务已持有的盘上基线恢复原快照（不重读盘、不另造账本）。
+            queue = UnifiedDispatchAdmission.applyDeniedIntents(queue, receipt.denied, diskCurrent);
+            UnifiedDispatchAdmission.syncDeniedIntentsInPlace(workingQueue || outgoingQueue, receipt.denied, diskCurrent);
         }
         if (receipt.approved.length) {
             // P0-1：获批身份与剥回结果一起进入同一份序列化——占位事实自此落盘，投影清空不再洗掉名额。
@@ -2212,7 +2213,7 @@ export class RealtimeTunnelPanelProvider {
         const selectedPlanIds = picked.map((row) => String(row.plan.id));
         const candidate = await this.buildBranchResearchCandidate(root, selectedPlanIds);
         if (!candidate.ok) throw new Error(`${candidate.reason}零写入停止。`);
-        if (candidate.dirty) throw new Error("工作区有未提交修改：新的推送/创建/合并要求干净工作树（dirty=false）。请先自行提交/处理；系统不会代为 stage/commit。");
+        if (candidate.dirty) throw new Error("工作区有未提交修改：新的推送/创建/合并要求干净工作树（dirty=false）。请先自行提交/处理；系统不会代为 stage/commit。若未跟踪内容是本机运行状态 simple_cluster/state/（本扩展的队列/状态目录），请先用本仓库 Git 排除规则排除该状态目录再提交科研代码；该目录可能含科研源码，请勿忽略整个 simple_cluster/，本插件不代改 Git 配置，也不应提交这些状态文件。");
         return { candidate, selectedPlanIds };
     }
     /** 确认后的每次不可逆写入前重读身份＋队列并调用同一校验器：撤证/命令/版本变化、manifest 缺失＝立即停。 */

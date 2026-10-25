@@ -32,6 +32,12 @@
  *     同一精确身份的再申请只占自己一个名额（逐意图临时自扣：获批计数保持原值、被拒恢复），
  *     换 worker/GPU/命令绝不按旧重试、不可借旧身份名额；盘上完整身份被拒＝只记原因不剥回；
  *     跨项目监控从持久 trace 读“上次准入未通过原因，待再判定”，不谎称当前配额仍满。
+ * 15) 块B主控审核轮：获批遇同命令换 worker/GPU 的旧同意按本次完整身份替换（磁盘与内存同一份事实，
+ *     新身份守卫 true、旧身份 false；完全等价的旧同意保留原 agreedAt；盘上 job GPU 与 consent 冲突时
+ *     即使请求省略 gpu 也 false）；“缺失才 legacy”按原字段真正缺失判定——无法解码的未知痕迹既不走状态
+ *     形态救援、也不被当同意，被拒写回不剥 startIntent；E 类被拒恢复盘上原快照（unknown/原 startIntent/
+ *     原放置元数据，本次副本字段不存活；无可信基线＝拒写不猜）；显存矩阵覆盖并发卡上限 1（自扣被拒不
+ *     把已被占的卡错放给新意图）。
  *
  * 需要真实 git 子进程与多 node 进程（互斥/隔离语义本身是被测行为），因此作为新功能域新建本文件；
  * 手动通道对回执的响应扩在 test/features/manualJobDispatch.test.js。Linux 端不运行本套件。
@@ -778,9 +784,9 @@ test("块B返修：trace 同事务落盘且跨清洗免疫；trace≠同意；le
 test("块B返修：自占用再申请临时自扣——获批计数保持原值、被拒恢复；拒绝分型保身份；换身份不可借槽；显存不足不被自扣打开", () => {
   const base = { serverOf: () => "srv:22", settingsForServer: () => ({ settings: settings(1), rows: gpuRows([0, 1]) }), blockers: [] };
   const diskTraced = queueWith([{ status: "unknown", workerId: "w1", gpuId: "0", commandId: "cmd-0", lifecycleProtocol: 2,
-    startIntent: { commandId: "cmd-0", workerId: "w1", gpuId: "0" },
+    startIntent: { commandId: "cmd-0", workerId: "w1", gpuId: "0" }, lastDispatchAttemptAt: "2026-01-01T00:00:00.000Z",
     dispatchAdmissionTrace: { schemaVersion: 1, commandId: "cmd-0", workerId: "w1", gpuId: "0", reason: "上次该卡已满" } }]);
-  const outgoing = queueWith([dispatched()]);
+  const outgoing = queueWith([dispatched({ lastDispatchAttemptAt: "2026-10-25T09:00:00.000Z" })]);
   const intents = admission.diffNewDispatchIntents(diskTraced, outgoing);
   assert.equal(intents.length, 1, "trace＋无同意不再按旧重试静默去重，必须重新受控准入");
   assert.equal(intents[0].selfReserved, true, "盘上同根同 plan/job/attempt/command/worker/GPU 且实际计占＝只标自名额再申请");
@@ -802,13 +808,30 @@ test("块B返修：自占用再申请临时自扣——获批计数保持原值�
   receipt = admission.admitDispatchIntents({ ...base, occupancy: twoOccupied, intents: [intents[0], intent({ planId: "plan-b", jobIndex: 5, commandId: "cmd-z" })] });
   assert.equal(receipt.approved.length, 0, "他人还占着一格时再申请如实被拒，自扣不制造第二名额");
   assert.equal(receipt.denied[0].selfReserved, true);
-  const deniedSelf = admission.applyDeniedIntents(outgoing, receipt.denied.filter(row => row.selfReserved));
+  const selfDeniedRows = receipt.denied.filter(row => row.selfReserved);
+  // E 分型：恢复的是盘上原快照（unknown/原 startIntent/原放置元数据），不是本次待发送副本——
+  // UI 绝不把"未知且本次未获批"说成"正在派发"，本次副本的时间戳也不得覆盖原不确定事实。
+  const deniedSelf = admission.applyDeniedIntents(outgoing, selfDeniedRows, diskTraced);
   const dj = deniedSelf.plans[0].jobs[0];
-  assert.equal(dj.status, "dispatching", "E 分型：盘上完整身份的再申请被拒绝不剥回 pending");
+  assert.equal(dj.status, "unknown", "被拒再申请恢复盘上 unknown，绝不用 outgoing 的 dispatching 冒充");
   assert.equal(dj.commandId, "cmd-0");
-  assert.equal(dj.startIntent.commandId, "cmd-0", "命令/startIntent/worker/GPU 与名额原样保留");
-  assert.match(dj.blockReason, /统一派发等待配额/, "内存观测面同步可见本次拒绝原因");
+  assert.deepEqual(dj.startIntent, { commandId: "cmd-0", workerId: "w1", gpuId: "0" }, "原 startIntent 原样保留");
+  assert.equal(dj.lastDispatchAttemptAt, "2026-01-01T00:00:00.000Z", "盘上原放置元数据胜出，本次副本时间戳被恢复掉");
+  assert.match(dj.blockReason, /统一派发等待配额/, "仅补记本次原因（内存观测面）");
   assert.equal(dj.dispatchAdmissionTrace.reason, receipt.denied[0].reason, "本次拒绝原因写入持久 trace");
+  const deniedWashed = DPQ.restoreFormalJobQueue(JSON.parse(DPQ.serializeDistributedQueue(deniedSelf)));
+  assert.equal(admission.computeServerOccupancy([{ label: "own", queue: deniedWashed }], () => "srv:22").occupancy.get("srv:22").get("0"), 1,
+    "serialize→restore 后其占位仍恰为 1：拒绝不释放名额");
+  assert.equal(admission.consentPersistedOnDisk(deniedWashed.plans[0].jobs[0], "cmd-0", "w1", "0"), false, "被拒后守卫仍如实拒绝");
+  // 无可信基线快照＝拒绝写入，不猜。
+  assert.throws(() => admission.applyDeniedIntents(queueWith([dispatched()]), selfDeniedRows), /缺少该身份的可信盘上基线快照，拒绝写入/);
+  // 原地同步：保留对象身份、字段集合等于恢复结果（本次副本新增字段不得存活）。
+  const live = queueWith([dispatched({ lastDispatchAttemptAt: "2026-10-25T09:00:00.000Z" })]);
+  const liveJob = live.plans[0].jobs[0];
+  admission.syncDeniedIntentsInPlace(live, selfDeniedRows, diskTraced);
+  assert.equal(live.plans[0].jobs[0], liveJob, "原地同步保留对象引用");
+  assert.equal(liveJob.status, "unknown");
+  assert.equal(liveJob.lastDispatchAttemptAt, "2026-01-01T00:00:00.000Z", "内存观测面同样恢复盘上快照，不留在'正在派发'假象");
   for (const [label, swapped] of [["GPU", dispatched({ gpuId: "1" })], ["worker", dispatched({ workerId: "w2" })], ["命令", dispatched({ commandId: "cmd-new" })]]) {
     const swappedIntents = admission.diffNewDispatchIntents(diskTraced, queueWith([swapped]));
     assert.equal(swappedIntents.length, 1, "换 " + label + "＝新意图，绝不按旧重试静默去重");
@@ -822,4 +845,66 @@ test("块B返修：自占用再申请临时自扣——获批计数保持原值�
   assert.ok(memReceipt.denied.some(row => row.gpuId === "0" && /并发用卡上限或该卡暂不满足最低空闲显存/.test(row.reason)),
     "GPU0 显存不足：自扣不把它伪造成可发槽位（如实等待）");
   assert.ok(memReceipt.approved.some(row => row.gpuId === "1"), "GPU1 充足照常获批，与自扣判定互不干扰");
+});
+
+test("块B主控审核轮：旧同意按本次完整身份替换；未知痕迹不按无痕迹救援；并发卡上限1不被自扣错放", () => {
+  const now = "2026-10-25T00:00:00.000Z";
+  // —— Fix 1：旧同意＝同命令换 worker/GPU。本次完整批准必须替换磁盘＋内存两套事实为新身份。
+  const stale = queueWith([dispatched({ dispatchConsent: { commandId: "cmd-0", workerId: "w9", gpuId: "1", agreedAt: "2026-01-01T00:00:00.000Z" } })]);
+  const approvedNew = admission.attachApprovedDispatchConsent(stale, [intent()], now);
+  assert.deepEqual(approvedNew.plans[0].jobs[0].dispatchConsent, { commandId: "cmd-0", workerId: "w1", gpuId: "0", agreedAt: now },
+    "旧同意与当前身份不完整一致＝用本次获批完整身份替换");
+  admission.syncApprovedConsentInPlace(stale, [intent()], now);
+  assert.deepEqual(stale.plans[0].jobs[0].dispatchConsent, { commandId: "cmd-0", workerId: "w1", gpuId: "0", agreedAt: now },
+    "内存观测面同一规则同一事实");
+  const washed = DPQ.restoreFormalJobQueue(JSON.parse(DPQ.serializeDistributedQueue(approvedNew))).plans[0].jobs[0];
+  assert.deepEqual(washed.dispatchConsent, { commandId: "cmd-0", workerId: "w1", gpuId: "0", agreedAt: now }, "serialize→restore 磁盘仍持新身份");
+  assert.equal(admission.consentPersistedOnDisk(washed, "cmd-0", "w1", "0"), true, "新身份守卫 true");
+  assert.equal(admission.consentPersistedOnDisk(washed, "cmd-0", "w9", "1"), false, "旧 worker/GPU 身份绝不借用新同意");
+  assert.equal(admission.consentPersistedOnDisk(washed, "cmd-x", "w1", "0"), false, "未获批命令不因旧同意借用");
+  // 完全等价的旧同意：保留原 agreedAt（批准轮不重写等价事实）。
+  const exact = queueWith([dispatched({ dispatchConsent: { commandId: "cmd-0", workerId: "w1", gpuId: "0", agreedAt: "2026-01-01T00:00:00.000Z" },
+    dispatchAdmissionTrace: { schemaVersion: 1, commandId: "cmd-0", workerId: "w1", gpuId: "0" } })]);
+  assert.equal(admission.attachApprovedDispatchConsent(exact, [intent()], now).plans[0].jobs[0].dispatchConsent.agreedAt,
+    "2026-01-01T00:00:00.000Z", "已有同意与 job/hit 完整相等时才保留原 agreedAt");
+  // 盘上 job GPU 与 consent GPU 冲突：无论请求是否省略 gpu 参数，绝不借用该同意。
+  const conflict = queueWith([{ status: "unknown", workerId: "w1", gpuId: "0", commandId: "cmd-0",
+    dispatchConsent: { commandId: "cmd-0", workerId: "w1", gpuId: "1", agreedAt: "2026-01-01T00:00:00.000Z" } }]).plans[0].jobs[0];
+  assert.equal(admission.consentPersistedOnDisk(conflict, "cmd-0", "w1", undefined), false, "consent 与盘上 job GPU 冲突＋请求省略 gpu 仍 false");
+  assert.equal(admission.consentPersistedOnDisk(conflict, "cmd-0", "w1", "0"), false, "同上：显式 gpu 参数同样 false");
+  assert.equal(admission.consentPersistedOnDisk(conflict, "cmd-0", "w1", "1"), false, "同上：按 consent GPU 请求也 false（盘上 job 并非该卡）");
+  // —— Fix 2："缺失才 legacy"按原字段真正缺失判定，不由 traceOf 解码结果反推。
+  const weirdJob = queueWith([{ status: "unknown", workerId: "w1", gpuId: "0", commandId: "cmd-0", lifecycleProtocol: 2,
+    startIntent: { commandId: "cmd-0", workerId: "w1", gpuId: "0" }, lastDispatchAttemptAt: "2026-01-01T00:00:00.000Z",
+    dispatchAdmissionTrace: { schemaVersion: 99, commandId: "cmd-0" } }]).plans[0].jobs[0];
+  assert.equal(admission.consentPersistedOnDisk(weirdJob, "cmd-0", "w1", "0"), false, "存在但无法解码的痕迹≠无痕迹：状态形态救援不适用");
+  const missingTraceJob = queueWith([{ status: "unknown", workerId: "w1", gpuId: "0", commandId: "cmd-0", lifecycleProtocol: 2,
+    startIntent: { commandId: "cmd-0", workerId: "w1", gpuId: "0" } }]).plans[0].jobs[0];
+  assert.equal(admission.consentPersistedOnDisk(missingTraceJob, "cmd-0", "w1", "0"), true, "字段真正缺失：升级前旧任务兼容保留");
+  const weirdQueue = queueWith([weirdJob]);
+  const weirdIntents = admission.diffNewDispatchIntents(weirdQueue, queueWith([dispatched()]));
+  assert.equal(weirdIntents.length, 1, "未知痕迹绝不自动当同意：同身份再申请必须重新受控准入");
+  assert.equal(weirdIntents[0].selfReserved, true, "其盘上完整身份仍保守计占：只占自己一个名额");
+  const weirdDenied = admission.applyDeniedIntents(queueWith([dispatched({ lastDispatchAttemptAt: "2026-10-25T09:00:00.000Z" })]),
+    [{ ...weirdIntents[0], reason: "配额已满（1/1）" }], weirdQueue);
+  const wj = weirdDenied.plans[0].jobs[0];
+  assert.equal(wj.status, "unknown", "未知痕迹的盘上未知项被拒：恢复盘上形态，不剥 pending、不冒充在派发");
+  assert.deepEqual(wj.startIntent, { commandId: "cmd-0", workerId: "w1", gpuId: "0" }, "未知痕迹绝不触发 startIntent 剥离");
+  assert.equal(wj.lastDispatchAttemptAt, "2026-01-01T00:00:00.000Z", "盘上原放置元数据胜出");
+  // —— Fix 4：并发卡上限 1 与自扣叠加：自扣被拒不得把已被旧占位的卡错放给同批新意图。
+  const lowMem = [{ index: "0", memoryTotalMb: 40960, memoryUsedMb: 40000 }, { index: "1", memoryTotalMb: 40960, memoryUsedMb: 1024 }];
+  const capSettings = quotaSettings({ gpuJobsPerCard: 2 }, { gpuQuotaConfigured: true, gpuJobsPerCard: 2, gpuMaxConcurrentCards: 1 }, lowMem);
+  assert.equal(capSettings.gpuMaxConcurrentCards, 1, "并发卡上限走真实 quotaSettings 字段与完整遥测输入");
+  const capBase = { serverOf: () => "srv:22", blockers: [], settingsForServer: () => ({ settings: capSettings, rows: lowMem }) };
+  const capIntents = [{ ...intent(), selfReserved: true }, intent({ planId: "plan-b", jobIndex: 5, commandId: "cmd-z", gpuId: "1" })];
+  const capOccupancy = () => new Map([["srv:22", new Map([["0", 1]])]]);
+  const capReceipt = admission.admitDispatchIntents({ ...capBase, occupancy: capOccupancy(), intents: capIntents });
+  assert.equal(capReceipt.approved.length, 0, "上限1＋GPU0 已被自己占位：GPU0 显存不足再申请与 GPU1 新意图都不得放行");
+  const capGpu0 = capReceipt.denied.find(row => row.gpuId === "0");
+  const capGpu1 = capReceipt.denied.find(row => row.gpuId === "1");
+  assert.equal(capGpu0.selfReserved, true, "GPU0 是自己那一个名额的再申请");
+  assert.match(capGpu0.reason, /并发用卡上限或该卡暂不满足最低空闲显存/, "GPU0 显存不足：自扣不把它伪造成可发槽位");
+  assert.match(capGpu1.reason, /并发用卡上限或该卡暂不满足最低空闲显存/, "GPU1 显存充足也被旧 GPU0 占住的并发卡上限阻止：自扣被拒不错放已占的卡");
+  const capAgain = admission.admitDispatchIntents({ ...capBase, occupancy: capOccupancy(), intents: capIntents });
+  assert.deepEqual(capAgain.denied.map(row => row.gpuId).sort(), ["0", "1"], "自扣逐意图即恢复：裁定不泄漏计数，重复裁定结果一致");
 });

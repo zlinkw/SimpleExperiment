@@ -175,7 +175,7 @@ export class BranchProjectService {
       base.relation = compareAncestorRelation(ancestorIdentity, identity);
     }
     base.state = "verified";
-    if (identity.dirty) base.errors.push("分支副本存在未提交修改（照常显示，不影响读取）。");
+    if (identity.dirty) base.errors.push("分支副本存在未提交修改（照常显示，不影响读取）。准备提示：本机运行状态 simple_cluster/state/（本扩展的队列/状态目录）也会让 Git 报未跟踪——请先用本机 Git 排除规则排除该状态目录再提交科研代码；该目录可能含科研源码，请勿忽略整个 simple_cluster/，本插件不代改 Git 配置，这些状态文件也不应提交。");
     return base;
   }
 

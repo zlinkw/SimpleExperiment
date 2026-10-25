@@ -115,12 +115,15 @@ export function consentPersistedOnDisk(diskJob: QueuedJob | undefined, commandId
   const legacy = gpuMatches && String(diskJob.commandId || "") === commandId && String(diskJob.workerId || "") === workerId
     && (diskJob.status === "dispatching"
       || diskJob.lifecycleProtocol === 2 && diskJob.status === "unknown" && diskJob.startIntent?.commandId === commandId)
-    && !traceOf(diskJob);
+    // "缺失才 legacy"按原字段确实缺失判定：存在但无法解码的痕迹（未知 schema/null 等）同样不得被当成无痕迹。
+    && diskJob.dispatchAdmissionTrace === undefined;
   const consent = diskJob.dispatchConsent;
-  const persisted = Boolean(consent && consent.commandId === commandId && String(consent.workerId || "") === String(workerId)
-    && (gpuId === undefined || String(consent.gpuId ?? "") === String(gpuId))
-    && String(diskJob.commandId || "") === commandId && String(diskJob.workerId || "") === workerId
-    && (gpuId === undefined || String(diskJob.gpuId ?? "") === String(gpuId)));
+  // 持久同意必须先与"盘上当前 job"完整一致（命令/worker/GPU 逐项，不受调用方省略 GPU 参数影响）——
+  // 盘上 job GPU 与 consent GPU 冲突时绝不借用该同意；之后才按请求身份匹配（GPU 参数可选为既有 API 规则）。
+  const consentMatchesDisk = Boolean(consent && String(diskJob.commandId || "") === String(consent.commandId)
+    && String(diskJob.workerId || "") === String(consent.workerId) && String(diskJob.gpuId ?? "") === String(consent.gpuId ?? ""));
+  const persisted = consentMatchesDisk && Boolean(consent && consent.commandId === commandId && String(consent.workerId || "") === String(workerId)
+    && (gpuId === undefined || String(consent.gpuId ?? "") === String(gpuId)));
   return legacy || persisted;
 }
 
@@ -133,9 +136,10 @@ function diskConsentMatches(diskJob: QueuedJob | undefined, job: QueuedJob): boo
   if (String(diskJob.workerId || "") !== String(job.workerId || "") || String(diskJob.gpuId ?? "") !== String(job.gpuId ?? "")) return false;
   // P0-1：盘上已有该精确身份的持久同意事实＝同样按重试处理（序列化把状态洗成 unknown 也不双计数）。
   if (dispatchConsentMatches(diskJob)) return true;
-  // 块B返修：有 trace 的 job 不再享受状态形态救援——trace+无同意＝必须重新受控准入的新意图
-  // （其自身占位由 selfReserved 走"只占自己一个名额"路径，绝不静默双计也绝不永占又永发不出）。
-  if (traceOf(diskJob)) return false;
+  // 块B返修：盘上存在任何 trace 字段（含无法解码的未知 schema）都不再享受状态形态救援——
+  // trace+无同意＝必须重新受控准入的新意图（其自身占位由 selfReserved 走"只占自己一个名额"路径，
+  // 绝不静默双计也绝不永占又永发不出）；"缺失才 legacy"以字段真正缺失为准，不由解码结果反推。
+  if (diskJob.dispatchAdmissionTrace !== undefined) return false;
   return diskJob.status === "dispatching"
     || job.lifecycleProtocol === 2 && diskJob.status === "unknown" && diskJob.startIntent?.commandId === job.commandId;
 }
@@ -298,7 +302,9 @@ export function attachApprovedDispatchConsent(queue: DistributedQueue, approved:
       if (!hit) return job;
       // 块B返修：获批身份保留 trace、清除旧的"上次未通过"原因（不伪造同意——同意只来自 dispatchConsent）。
       const nextTrace = approvedTrace(job, hit);
-      if (job.dispatchConsent?.commandId === hit.commandId)
+      // 旧同意只有与该 job（＝hit）命令+worker+GPU 完整一致时保留原 agreedAt；
+      // 同 command 换 worker/GPU 的新批准必须用本次完整身份替换磁盘同意，否则内存/磁盘两套事实、守卫永拒。
+      if (job.dispatchConsent && dispatchConsentMatches(job) && job.dispatchConsent.commandId === hit.commandId)
         return traceOf(job) && !traceOf(job)!.reason ? job : { ...job, dispatchAdmissionTrace: nextTrace };
       return { ...job, dispatchConsent: { commandId: hit.commandId, workerId: hit.workerId, gpuId: hit.gpuId, agreedAt: now }, dispatchAdmissionTrace: nextTrace };
     }) };
@@ -321,7 +327,9 @@ export function syncApprovedConsentInPlace(liveQueue: DistributedQueue | undefin
       const hit = rows.find((row) => job.index === row.jobIndex && job.attempt === row.attempt && job.commandId === row.commandId
         && job.workerId === row.workerId && String(job.gpuId ?? "") === row.gpuId);
       if (hit) {
-        job.dispatchConsent = { commandId: hit.commandId, workerId: hit.workerId, gpuId: hit.gpuId, agreedAt: now };
+        // 与磁盘副本同一规则：旧同意与该 job（＝hit）完整一致才保留原 agreedAt；否则按本次获批完整身份替换。
+        if (!(job.dispatchConsent && dispatchConsentMatches(job) && job.dispatchConsent.commandId === hit.commandId))
+          job.dispatchConsent = { commandId: hit.commandId, workerId: hit.workerId, gpuId: hit.gpuId, agreedAt: now };
         // 块B返修：内存观测面与落盘同一事务——获批即清"上次未通过"原因，保留追踪身份。
         job.dispatchAdmissionTrace = approvedTrace(job, hit);
       }
@@ -335,13 +343,29 @@ function deniedTrace(job: QueuedJob, denied: DeniedIntent): DispatchAdmissionTra
   return { schemaVersion: 1, commandId: denied.commandId, workerId: denied.workerId, gpuId: denied.gpuId, reason: denied.reason };
 }
 
-function applyDeniedToJob(job: QueuedJob, plan: QueuedPlan, denied: DeniedIntent): QueuedJob | undefined {
+/** 自占用拒绝所需的基线快照：同一事务已持有的盘上队列里精确匹配（plan/job/attempt/command/worker/GPU）的原 job。 */
+function deniedBaselineJob(baseline: DistributedQueue | undefined, denied: DeniedIntent): QueuedJob | undefined {
+  if (!baseline) return undefined;
+  const basePlan = baseline.plans.find((row) => row.id === denied.planId);
+  const baseJob = basePlan?.jobs.find((row) => row.index === denied.jobIndex && row.attempt === denied.attempt);
+  if (!baseJob || String(baseJob.commandId || "") !== denied.commandId || String(baseJob.workerId || "") !== denied.workerId
+    || String(baseJob.gpuId ?? "") !== denied.gpuId) return undefined;
+  return baseJob;
+}
+
+function applyDeniedToJob(job: QueuedJob, plan: QueuedPlan, denied: DeniedIntent, baseline: DistributedQueue | undefined): QueuedJob | undefined {
   if (job.index !== denied.jobIndex || job.attempt !== denied.attempt || job.commandId !== denied.commandId) return undefined;
   if (job.status !== "dispatching") return undefined;
   if (denied.selfReserved) {
-    // 块B返修（E）：盘上已持该精确完整身份并实占自己一个名额的再申请被拒＝只记本次原因
-    // （trace 持久 + 内存观察），命令/worker/GPU/startIntent/放置与名额一律原样保留，绝不剥回 pending。
-    return { ...job, blockReason: "统一派发等待配额：" + denied.reason, dispatchAdmissionTrace: deniedTrace(job, denied) };
+    // 块B返修（E）：盘上已持该精确完整身份并实占自己一个名额的再申请被拒＝恢复盘上原快照
+    // （unknown/命令/worker/GPU/startIntent/放置原样，绝不用本次待发送副本冒充"正在派发"），
+    // 只补记本次原因（trace 持久 + 内存观察）；无可信基线快照即拒绝写入，不猜。
+    const snapshot = deniedBaselineJob(baseline, denied);
+    if (!snapshot) throw new Error("统一派发准入：自占用再申请被拒但本事务缺少该身份的可信盘上基线快照，拒绝写入（不猜测、不发送）。");
+    const restored = JSON.parse(JSON.stringify(snapshot)) as QueuedJob;
+    restored.blockReason = "统一派发等待配额：" + denied.reason;
+    restored.dispatchAdmissionTrace = deniedTrace(snapshot, denied);
+    return restored;
   }
   const fields: Partial<QueuedJob> = { ...deniedResetFields(denied), dispatchAdmissionTrace: deniedTrace(job, denied) };
   if (denied.manual) {
@@ -353,15 +377,19 @@ function applyDeniedToJob(job: QueuedJob, plan: QueuedPlan, denied: DeniedIntent
   return { ...job, ...fields };
 }
 
-/** 把被拒意图从队列里剥回本地等待态（纯函数；用于即将序列化的最终队列对象）。 */
-export function applyDeniedIntents(queue: DistributedQueue, denied: DeniedIntent[]): DistributedQueue {
+/**
+ * 把被拒意图从队列里剥回本地等待态（纯函数；用于即将序列化的最终队列对象）。
+ * baseline＝本事务已持有的盘上基线队列（同一 diskCurrent）：自占用再申请被拒时据此恢复原快照，
+ * 不重新读盘、不另造账本；非自占用拒绝不需要基线。
+ */
+export function applyDeniedIntents(queue: DistributedQueue, denied: DeniedIntent[], baseline?: DistributedQueue): DistributedQueue {
   if (!denied.length) return queue;
   return { ...queue, plans: queue.plans.map((plan) => {
     const rows = denied.filter((row) => row.planId === plan.id);
     if (!rows.length) return plan;
     return { ...plan, jobs: plan.jobs.map((job) => {
       for (const deniedRow of rows) {
-        const reset = applyDeniedToJob(job, plan, deniedRow);
+        const reset = applyDeniedToJob(job, plan, deniedRow, baseline);
         if (reset) return reset;
       }
       return job;
@@ -373,15 +401,19 @@ export function applyDeniedIntents(queue: DistributedQueue, denied: DeniedIntent
  * 同一拒绝同步回调用方在内存里持有的队列对象（调用方发送循环与后续 save 继续用它）。
  * 逐对象定位后原地改写，避免“盘上已剥回、内存还写着 dispatching”的分裂状态。
  */
-export function syncDeniedIntentsInPlace(liveQueue: DistributedQueue | undefined, denied: DeniedIntent[]): void {
+export function syncDeniedIntentsInPlace(liveQueue: DistributedQueue | undefined, denied: DeniedIntent[], baseline?: DistributedQueue): void {
   if (!liveQueue || !denied.length) return;
   for (const plan of liveQueue.plans) {
     const rows = denied.filter((row) => row.planId === plan.id);
     if (!rows.length) continue;
     for (const job of plan.jobs) for (const deniedRow of rows) {
       if (job.index !== deniedRow.jobIndex || job.attempt !== deniedRow.attempt || job.commandId !== deniedRow.commandId || job.status !== "dispatching") continue;
-      const reset = applyDeniedToJob(job, plan, deniedRow);
-      if (reset) Object.assign(job, reset);
+      const reset = applyDeniedToJob(job, plan, deniedRow, baseline);
+      if (!reset) continue;
+      // 原地保留对象身份（发送循环/后续 save 继续持引用），但字段集合必须等于恢复结果：
+      // 自占用拒绝＝盘上快照＋本次原因，本次副本新增的字段（如新 startIntent 时间戳）不得存活。
+      for (const key of Object.keys(job)) if (!Object.prototype.hasOwnProperty.call(reset, key)) delete (job as unknown as Record<string, unknown>)[key];
+      Object.assign(job, reset);
     }
   }
 }
