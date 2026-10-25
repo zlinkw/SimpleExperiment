@@ -164,6 +164,7 @@ import { BranchProjectStore, canonicalComparablePath, sameComparablePath as same
 import { BranchProjectService } from "../project/BranchProjectService";
 import * as BranchPlanDispatch from "../project/BranchPlanDispatch";
 import * as BranchHeadBinding from "../project/BranchHeadBinding";
+import * as BranchPullRequest from "../project/BranchPullRequest";
 import * as UnifiedDispatchAdmission from "../project/UnifiedDispatchAdmission";
 import { readGitIdentity as readGitIdentityProbe } from "../project/GitIdentityProbe";
 import { listPluginInstances, preflightPluginAt } from "../cli/LocalApiClient";
@@ -633,7 +634,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
     "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject", "refreshUnifiedDispatchPolicy",
-    "submitBranchPlanRun", "refreshBranchRuns", "compareBranchResults", "verifyBranchHeadBinding",
+    "submitBranchPlanRun", "refreshBranchRuns", "compareBranchResults", "verifyBranchHeadBinding", "createBranchPr", "mergeBranchPr",
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
@@ -676,7 +677,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "downloadDebugBundle", "downloadRemoteResult", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "openAuditTail", "selectPlan", "selectExperiment",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
     "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject", "refreshUnifiedDispatchPolicy",
-    "submitBranchPlanRun", "refreshBranchRuns", "compareBranchResults", "verifyBranchHeadBinding",
+    "submitBranchPlanRun", "refreshBranchRuns", "compareBranchResults", "verifyBranchHeadBinding", "createBranchPr", "mergeBranchPr",
 ]);
 const UI_BUTTON_PAYLOAD_KEYS = new Set([
     "branchProjectId",
@@ -2137,6 +2138,101 @@ export class RealtimeTunnelPanelProvider {
             await vscode.window.showWarningMessage(`无法证明此 HEAD 等于已验源码（${plan.planFile}）`, { modal: true, detail: detailLines.join("\n") }, "知道了");
         }
         return this.branchHeadVerifyState;
+    }
+    /* —— 块C4/C5：科研仓 PR 创建/合并 + 祖先快进。写操作只在 modal 确认后执行；结果未知的收据绝不自动重放。 —— */
+    /** PR 写操作收据账本（API_DISCOVERY_DIR）：读失败＝拒绝写入；未知收据驱动只读对账而非重放。 */
+    branchPrReceiptLedger() {
+        const file = path.join(API_DISCOVERY_DIR, "branch-pr-receipts.json");
+        return {
+            load: async () => {
+                const text = await fs.readFile(file, "utf8").catch((error) => { if (error?.code === "ENOENT") return "[]"; throw error; });
+                const parsed = JSON.parse(text);
+                if (!Array.isArray(parsed)) throw new Error("收据账本格式无效");
+                return parsed;
+            },
+            save: async (rows) => { await atomicWriteText(file, JSON.stringify(rows.slice(-200), null, 2)); },
+        };
+    }
+    /** PR 操作共同前置：分支项目身份＝登记分支的正常 HEAD；祖先登记提供真实 origin 与目标分支。 */
+    async branchPrContext(message) {
+        const picked = message?.branchProjectId ? { id: String(message.branchProjectId) } : await this.pickBranchProject("branch", "选择在哪个分支项目上操作科研仓 PR");
+        const projection = this.branchProjectsProjection();
+        const branchRow = (projection.branches || []).find((row) => row.record.id === picked.id);
+        if (!branchRow) throw new Error("所选分支项目登记已变化或不存在，请重试；未执行任何操作。");
+        const ancestorRow = (projection.ancestors || []).find((row) => row.record.id === branchRow.record.ancestorId);
+        if (!ancestorRow) throw new Error("该分支所属祖先登记缺失，无法确定真实 origin；未执行任何操作。");
+        const identity = readGitIdentityProbe(branchRow.record.workspaceRoot);
+        if (identity.error || !identity.headCommit || identity.detached || !identity.branch)
+            throw new Error(`分支项目 Git 身份不可用（${identity.error || (identity.detached ? "detached" : "无提交")}）；PR 操作需在登记分支的正常 HEAD 上进行。`);
+        if (identity.branch !== branchRow.record.branch)
+            throw new Error(`当前分支 ${identity.branch || "?"} 与登记分支 ${branchRow.record.branch} 不一致（身份漂移），未执行任何操作。`);
+        return { branchRow, ancestor: ancestorRow.record, identity };
+    }
+    async createBranchPrFromUi(message) {
+        const { branchRow, ancestor, identity } = await this.branchPrContext(message);
+        const preview = await BranchPullRequest.previewBranchPullRequest({
+            git: BranchPullRequest.runGitPullRequest, gh: BranchPullRequest.runGh,
+            cwd: branchRow.record.workspaceRoot, remoteName: ancestor.remoteName, registeredRemoteUrl: ancestor.remoteUrl,
+            branch: identity.branch, base: ancestor.targetBranch, sourceSha: identity.headCommit,
+        });
+        if (!preview.ok) throw new Error(preview.reason || "PR 预览失败，未执行任何操作。");
+        const detailLines = [
+            `目标（登记祖先真实 origin，凭证已剥离）：${preview.target.displayUrl}`,
+            `合并目标分支：${ancestor.targetBranch}（远端头 ${String(preview.baseSha || "").slice(0, 10) || "未知"}）`,
+            `推送来源：${identity.branch} @ ${identity.headCommit.slice(0, 10)}`,
+            `既有 PR：${preview.existing.note}`,
+            `相对基线：${preview.divergence === "unknown" ? "未知（本机没有该远端基线引用，不做猜测）" : `领先 ${preview.divergence.ahead}、落后 ${preview.divergence.behind}`}`,
+            identity.dirty ? "注意：工作区有未提交修改——未提交内容不会进入 PR（PR 只包含已提交历史）。" : "工作树干净。",
+            "", "推送只允许普通快推（不 force）；gh 未安装/未登录时如实失败，系统不代为安装或登录。",
+        ];
+        const confirmed = await vscode.window.showWarningMessage(`推送并创建 PR？${preview.target.displayUrl} ← ${identity.branch}`, { modal: true, detail: detailLines.join("\n") }, "确认推送并创建") === "确认推送并创建" ? true : false;
+        if (!confirmed) throw new UiCommandCancelled("已取消，未推送、未创建。");
+        const result = await BranchPullRequest.createBranchPullRequest({
+            git: BranchPullRequest.runGitPullRequest, gh: BranchPullRequest.runGh, ledger: this.branchPrReceiptLedger(),
+            cwd: branchRow.record.workspaceRoot, remoteName: ancestor.remoteName, registeredRemoteUrl: ancestor.remoteUrl,
+            branch: identity.branch, base: ancestor.targetBranch, sourceSha: identity.headCommit,
+            title: `创新分支 ${identity.branch}${branchRow.record.label ? "（" + branchRow.record.label + "）" : ""}`,
+            body: `由 SimpleExperiment 插件登记分支创建。\n- 分支：${identity.branch}\n- 源提交：${identity.headCommit}\n- 目标：${ancestor.targetBranch} @ ${preview.target.displayUrl}\n\n注意：代码运行验证由集群验证流程负责；本 PR 本身不代表科研结论已复核。`,
+            previewDigest: preview.digest,
+        });
+        this.branchPrState = { at: new Date().toISOString(), action: "create", root: branchRow.record.workspaceRoot, branch: identity.branch, base: ancestor.targetBranch, sourceSha: identity.headCommit, targetUrl: preview.target.displayUrl, ...result };
+        this.postState();
+        if (result.status === "created") await vscode.window.showInformationMessage(`已创建 PR #${result.prNumber}`, { modal: true, detail: String(result.url || "") }, "知道了");
+        else if (result.status === "reused") await vscode.window.showInformationMessage(`按身份复用既有 PR #${result.prNumber}（未推送、未新建）。${result.note || ""}`, { modal: true }, "知道了");
+        else await vscode.window.showWarningMessage(`PR 操作未完成（${result.status === "failed" ? "被远端拒绝" : "结果未知"}）：${result.reason || ""}`, { modal: true, detail: "结果未知时系统绝不自动重放；可稍后再次预览，将先只读对账。" }, "知道了");
+        return this.branchPrState;
+    }
+    async mergeBranchPrFromUi(message) {
+        const { branchRow, ancestor, identity } = await this.branchPrContext(message);
+        const preview = await BranchPullRequest.previewBranchPullRequest({
+            git: BranchPullRequest.runGitPullRequest, gh: BranchPullRequest.runGh,
+            cwd: branchRow.record.workspaceRoot, remoteName: ancestor.remoteName, registeredRemoteUrl: ancestor.remoteUrl,
+            branch: identity.branch, base: ancestor.targetBranch, sourceSha: identity.headCommit,
+        });
+        if (!preview.ok) throw new Error(preview.reason || "PR 预览失败。");
+        const pr = preview.existing?.pr;
+        if (preview.existing?.kind !== "reuse" || !pr || String(pr.headRefOid || "").toLowerCase() !== identity.headCommit.toLowerCase())
+            throw new Error(`该分支相对 ${ancestor.targetBranch} 没有“远端头＝本机已验 HEAD”的开放 PR（${preview.existing?.note || "状态未知"}），拒绝合并：match-head 只允许已验候选 SHA。`);
+        const confirmed = await vscode.window.showWarningMessage(`合并 PR #${pr.number} 到 ${ancestor.targetBranch}？`, { modal: true, detail: `仓库：${preview.target.displayUrl}\n仅 --merge 且 --match-head-commit=${identity.headCommit.slice(0, 10)}…（远端头一旦变化 GitHub 将拒绝，不会盲合）；不使用 admin/force。\n合并成功后：本机祖先若干净且正处目标分支，将先核对远端头恰为本合并提交，再做 ff-only 更新。` }, "确认合并") === "确认合并" ? true : false;
+        if (!confirmed) throw new UiCommandCancelled("已取消合并。");
+        const merge = await BranchPullRequest.mergeBranchPullRequest({ gh: BranchPullRequest.runGh, ledger: this.branchPrReceiptLedger(), cwd: branchRow.record.workspaceRoot, repoSlug: preview.target.repoSlug, prNumber: pr.number, verifiedHeadSha: identity.headCommit });
+        if (merge.status !== "merged") {
+            this.branchPrState = { at: new Date().toISOString(), action: "merge", root: branchRow.record.workspaceRoot, prNumber: pr.number, merged: false, status: merge.status, reason: merge.reason };
+            this.postState();
+            await vscode.window.showWarningMessage(`合并未确认成功（${merge.status === "not-merged" ? "未合并" : "结果未知"}）：${merge.reason || ""}`, { modal: true, detail: "未知状态下绝不重放合并指令；请稍后重试本操作，将先只读重查 PR 状态。" }, "知道了");
+            return this.branchPrState;
+        }
+        const ancestorIdentity = readGitIdentityProbe(ancestor.gitRoot);
+        const ff = await BranchPullRequest.fastForwardAncestorRoot({ git: BranchPullRequest.runGitPullRequest, cwd: ancestor.gitRoot, remoteName: ancestor.remoteName, base: ancestor.targetBranch, expectedMergeCommit: merge.mergeCommit || "", identity: ancestorIdentity });
+        this.branchPrState = { at: new Date().toISOString(), action: "merge", root: branchRow.record.workspaceRoot, prNumber: pr.number, merged: true, mergeCommit: merge.mergeCommit, fastForward: ff };
+        this.postState();
+        await vscode.window.showInformationMessage("科研仓 PR 已合并", { modal: true, detail: [
+            `PR #${pr.number} 已真实合并（mergeCommit ${String(merge.mergeCommit).slice(0, 10)}）。`,
+            ff.status === "fast-forwarded" ? `本机祖先已快进 ${String(ff.from).slice(0, 10)}→${String(ff.to).slice(0, 10)}（ff-only，未产生合并提交）。` : `本机祖先未更新：${ff.reason || ff.status}`,
+            "注意：此前的运行/验证针对候选 SHA（已合并的候选），不自动等于合并后主线的验证；如需主线验证请按流程重新验证。",
+        ].join("\n") }, "知道了");
+        this.scheduleBranchProjectsVerify("after-pr-merge");
+        return this.branchPrState;
     }
     createLocalApiMethods() {
         return {
@@ -6629,6 +6725,12 @@ return this.testTunnel(true);
                 break;
             case "forgetAncestorProject":
                 await this.forgetBranchProjectRegistrationFromUi(message, "ancestor");
+                break;
+            case "createBranchPr":
+                await this.createBranchPrFromUi(message);
+                break;
+            case "mergeBranchPr":
+                await this.mergeBranchPrFromUi(message);
                 break;
             case "generateOutputAdapter":
                 await this.generateOutputAdapterFromUi();

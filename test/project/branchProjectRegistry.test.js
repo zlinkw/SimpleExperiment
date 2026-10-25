@@ -19,6 +19,8 @@
  * 5) 块C3 HEAD↔已验 manifest 绑定：真实提交树 blob 字节逐文件核对；Git 忽略/未跟踪的磁盘依赖
  *    ＝无法证明此 HEAD（绝不 stage/commit）；size/SHA/类型/路径/摘要/revision 规则；
  *    dirty→clean 同 blob 复用；假执行器覆盖 cat-file 缺帧/非 blob/截断等如实失败类别。
+ * 6) 块C4/C5 PR 适配：origin 规范化剥凭证、漂移/基线缺失/PR 未知一律不写；
+ *    普通快推 argv、未知收据不重放、身份复用、merge 必须重查 MERGED、祖先 ff-only 真实仓验证。
  *
  * 需要真实 git 子进程与临时仓库夹具，无法用纯内存 fake 替代（隔离/环境清理语义本身是被测行为），
  * 因此作为新功能域新建本文件；其余面板/路由断言扩在既有套件中。
@@ -449,4 +451,189 @@ test("C3 假执行器：ls-tree 符号链接/缺路径与 cat-file 帧缺失/非
   const truncated = await binding.verifyCommitTreeAgainstManifest({ runner: truncRunner, cwd: "/fixture", commit: "c".repeat(40), manifest: { "a.py": manifest["a.py"] } });
   assert.equal(truncated.ok, false);
   assert.match(truncated.failures[0].reason, /帧解析失败/);
+});
+
+// —— 块C4/C5：科研仓 PR 适配（git/gh 注入执行器；祖先快进用真实临时仓）——
+const pr = require("../../dist/project/BranchPullRequest.js");
+
+function buf(text) { return Buffer.from(String(text), "utf8"); }
+function jsonBuf(value) { return buf(JSON.stringify(value)); }
+function recordingGit(script) {
+  const calls = [];
+  const runner = async (args, cwd, stdin) => {
+    calls.push({ args: args.join(" "), cwd, stdin });
+    for (const row of script) {
+      if (!row.match.test(args.join(" "))) continue;
+      if (row.uses !== undefined) { row.used = (row.used || 0) + 1; if (row.used > row.uses) continue; }
+      if (row.throw) throw new Error(row.throw);
+      return { code: row.code ?? 0, stdout: buf(row.stdout ?? ""), stderr: row.stderr ?? "" };
+    }
+    throw new Error("unexpected git args: " + args.join(" "));
+  };
+  return { runner, calls };
+}
+function memoryLedger(initial = []) {
+  let rows = [...initial];
+  return { load: async () => rows.map(row => ({ ...row })), save: async next => { rows = next; }, rows: () => rows };
+}
+const FULL_SHA = "a".repeat(40);
+const BASE_SHA = "b".repeat(40);
+const PR_SCRIPT_COMMON = [
+  { match: /^remote get-url/, stdout: "https://github.com/org/repo.git\n" },
+  { match: /^ls-remote --heads origin main$/, stdout: BASE_SHA + "\trefs/heads/main\n" },
+  { match: /^ls-remote --heads origin exp\//, stdout: "" },
+  { match: /^rev-list/, code: 128, stderr: "unknown revision" },
+];
+const PR_OPTS = { cwd: "/repo", remoteName: "origin", registeredRemoteUrl: "https://x:y@example.com/org/repo.git", branch: "exp/m1", base: "main", sourceSha: FULL_SHA };
+
+test("C4 normalizeGithubTarget：https/ssh/多段组规范化并剥离凭证；异常输入拒绝", () => {
+  assert.deepEqual(pr.normalizeGithubTarget("https://github.com/org/repo.git"), { host: "github.com", owner: "org", repo: "repo", repoSlug: "org/repo", displayUrl: "https://github.com/org/repo" });
+  assert.equal(pr.normalizeGithubTarget("https://tok:pw@github.com/org/repo"), undefined, "含凭证 https：拒绝而非剥离后继续");
+  assert.equal(pr.normalizeGithubTarget("git@github.com:org/repo.git").displayUrl, "https://github.com/org/repo");
+  assert.equal(pr.normalizeGithubTarget("ssh://git@github.com/org/repo").displayUrl, "https://github.com/org/repo");
+  assert.equal(pr.normalizeGithubTarget("https://gitlab.internal/team/sub/project").repoSlug, "team/sub/project");
+  assert.equal(pr.normalizeGithubTarget("not a url"), undefined);
+  assert.equal(pr.normalizeGithubTarget("https://github.com/org"), undefined);
+  assert.equal(pr.normalizeGithubTarget(""), undefined);
+});
+
+test("C4 preview：漂移/基线缺失/PR 列表失败全部如实分类，任何路径都不发生写入调用", async () => {
+  const ok = recordingGit(PR_SCRIPT_COMMON);
+  const gh = recordingGit([{ match: /^pr list/, stdout: jsonBuf([]) }]);
+  let preview = await pr.previewBranchPullRequest({ git: ok.runner, gh: gh.runner, ...PR_OPTS });
+  assert.equal(preview.ok, true);
+  assert.equal(preview.target.displayUrl, "https://github.com/org/repo", "目标取自实际 remote get-url，非登记文本");
+  assert.equal(preview.existing.kind, "none");
+  assert.equal(preview.divergence, "unknown");
+  assert.ok(ok.calls.every(call => !/push|commit|merge/.test(call.args)), "预览绝不写入");
+  const drift = recordingGit([{ match: /^remote get-url/, stdout: "https://github.com/org/other.git\n" }]);
+  preview = await pr.previewBranchPullRequest({ git: drift.runner, gh: gh.runner, ...PR_OPTS });
+  assert.equal(preview.ok, false);
+  assert.match(preview.reason, /目标漂移/);
+  const noBase = recordingGit(PR_SCRIPT_COMMON.map(row => row.match.source.includes("main") ? { ...row, stdout: "" } : row));
+  preview = await pr.previewBranchPullRequest({ git: noBase.runner, gh: gh.runner, ...PR_OPTS });
+  assert.equal(preview.baseState, "missing");
+  const badGh = recordingGit([{ match: /^pr list/, code: 1, stderr: "graphql: Something went wrong" }]);
+  preview = await pr.previewBranchPullRequest({ git: ok.runner, gh: badGh.runner, ...PR_OPTS });
+  assert.equal(preview.existing.kind, "unknown");
+  assert.match(preview.existing.note, /PR 列表查询失败/);
+});
+
+test("C4 create：普通快推 argv、未知收据绝不自动重放、gh 输出异常经只读对账复用", async () => {
+  const ledger = memoryLedger();
+  const ghEmpty = recordingGit([{ match: /^pr list/, stdout: jsonBuf([]) }]);
+  const git1 = recordingGit([
+    { match: /^push/, throw: "connect timeout" },
+    ...PR_SCRIPT_COMMON,
+  ]);
+  const preview0 = await pr.previewBranchPullRequest({ git: recordingGit(PR_SCRIPT_COMMON).runner, gh: ghEmpty.runner, ...PR_OPTS });
+  let result = await pr.createBranchPullRequest({ git: git1.runner, gh: ghEmpty.runner, ledger, ...PR_OPTS, title: "t", body: "b", previewDigest: preview0.digest });
+  assert.equal(result.status, "blocked-unknown");
+  assert.equal(ledger.rows().filter(row => row.outcome === "unknown" && row.action === "push").length, 1, "未知写入必须先落 unknown 收据");
+  // 第二次：gh 列表失败 → PR 状态未知 → 拒绝写入，push 不得再次发生（不重放）
+  const git2 = recordingGit([
+    { match: /^push/, stdout: "" },
+    ...PR_SCRIPT_COMMON,
+  ]);
+  const ghBad = recordingGit([{ match: /^pr list/, code: 1, stderr: "api down" }]);
+  const previewB = await pr.previewBranchPullRequest({ git: recordingGit(PR_SCRIPT_COMMON).runner, gh: ghBad.runner, ...PR_OPTS });
+  result = await pr.createBranchPullRequest({ git: git2.runner, gh: ghBad.runner, ledger, ...PR_OPTS, title: "t", body: "b", previewDigest: previewB.digest });
+  assert.equal(result.status, "blocked-unknown");
+  assert.match(result.reason, /既有 PR\/远端状态未能确定/);
+  assert.equal(git2.calls.filter(call => call.args.startsWith("push")).length, 0, "PR 状态未知时绝不重推");
+  // 完整成功路径：none → 普通快推（无 force）→ gh pr create 身份一致
+  const git3 = recordingGit([
+    { match: /^push/, stdout: "" },
+    { match: /^ls-remote --heads origin exp\//, stdout: "", uses: 1 },
+    { match: /^ls-remote --heads origin exp\//, stdout: FULL_SHA + "\trefs/heads/exp/m1\n" },
+    ...PR_SCRIPT_COMMON,
+  ]);
+  const gh3 = recordingGit([
+    { match: /^pr create/, stdout: jsonBuf({ number: 12, url: "https://github.com/org/repo/pull/12", baseRefName: "main", headRefOid: FULL_SHA }) },
+    { match: /^pr list/, stdout: jsonBuf([]) },
+  ]);
+  const preview3 = await pr.previewBranchPullRequest({ git: recordingGit(PR_SCRIPT_COMMON).runner, gh: recordingGit([{ match: /^pr list/, stdout: jsonBuf([]) }]).runner, ...PR_OPTS });
+  result = await pr.createBranchPullRequest({ git: git3.runner, gh: gh3.runner, ledger, ...PR_OPTS, title: "t", body: "b", previewDigest: preview3.digest });
+  assert.equal(result.status, "created", JSON.stringify(result));
+  assert.equal(result.prNumber, 12);
+  const pushCall = git3.calls.find(call => call.args.startsWith("push"));
+  assert.equal(pushCall.args, "push origin refs/heads/exp/m1:refs/heads/exp/m1", "只允许普通快推 refspec");
+  // gh 输出不可解析 → 只读对账确认已建 → reused；此前远端已有该分支头＝无需 push
+  const git4 = recordingGit([
+    ...PR_SCRIPT_COMMON.map(row => row.match.source.includes("exp") ? { ...row, stdout: FULL_SHA + "\trefs/heads/exp/m1\n" } : row),
+  ]);
+  const gh4 = recordingGit([
+    { match: /^pr list/, stdout: jsonBuf([]), uses: 1 },
+    { match: /^pr create/, stdout: "creating pull request\nnot json" },
+    { match: /^pr list/, stdout: jsonBuf([{ number: 13, state: "OPEN", headRefOid: FULL_SHA, baseRefName: "main", url: "https://github.com/org/repo/pull/13" }]) },
+  ]);
+  const preview4 = await pr.previewBranchPullRequest({ git: recordingGit(PR_SCRIPT_COMMON.map(row => row.match.source.includes("exp") ? { ...row, stdout: FULL_SHA + "\trefs/heads/exp/m1\n" } : row)).runner, gh: gh4.runner, ...PR_OPTS });
+  result = await pr.createBranchPullRequest({ git: git4.runner, gh: gh4.runner, ledger, ...PR_OPTS, title: "t", body: "b", previewDigest: preview4.digest });
+  assert.equal(result.status, "reused", JSON.stringify(result));
+  assert.equal(result.prNumber, 13);
+  assert.equal(git4.calls.filter(call => call.args.startsWith("push")).length, 0);
+  // 预览漂移（digest 不一致）→ 零写入
+  const git5 = recordingGit([{ match: /^push/, stdout: "" }, ...PR_SCRIPT_COMMON]);
+  result = await pr.createBranchPullRequest({ git: git5.runner, gh: gh3.runner, ledger, ...PR_OPTS, title: "t", body: "b", previewDigest: "STALE" });
+  assert.equal(result.status, "blocked-unknown");
+  assert.match(result.reason, /与确认时的预览不一致/);
+  assert.equal(git5.calls.filter(call => call.args.startsWith("push")).length, 0);
+});
+
+test("C5 merge：退出码不作结论，仅重查 MERGED+mergeCommit 算成功；祖先更新严格 ff-only", async () => {
+  const ghMerged = recordingGit([
+    { match: /^pr merge/, code: 1, stderr: "post-merge hook failed" },
+    { match: /^pr view/, stdout: jsonBuf({ state: "MERGED", mergedAt: "2026-10-25T00:00:00Z", mergeCommit: { oid: "c".repeat(40) } }) },
+  ]);
+  let result = await pr.mergeBranchPullRequest({ gh: ghMerged.runner, cwd: "/repo", repoSlug: "org/repo", prNumber: 12, verifiedHeadSha: FULL_SHA });
+  assert.equal(result.status, "merged", "读回事实优先：退出码非 0 但已 MERGED");
+  const ghSilent = recordingGit([
+    { match: /^pr merge/, code: 0, stdout: "" },
+    { match: /^pr view/, stdout: jsonBuf({ state: "OPEN", mergeCommit: null }) },
+  ]);
+  result = await pr.mergeBranchPullRequest({ gh: ghSilent.runner, cwd: "/repo", repoSlug: "org/repo", prNumber: 12, verifiedHeadSha: FULL_SHA });
+  assert.equal(result.status, "not-merged");
+  const ghDown = recordingGit([{ match: /^pr merge/, throw: "timeout" }]);
+  const ledger = memoryLedger();
+  result = await pr.mergeBranchPullRequest({ gh: ghDown.runner, ledger, cwd: "/repo", repoSlug: "org/repo", prNumber: 12, verifiedHeadSha: FULL_SHA });
+  assert.equal(result.status, "blocked-unknown");
+  assert.equal(ledger.rows().filter(row => row.action === "merge" && row.outcome === "unknown").length, 1);
+  result = await pr.mergeBranchPullRequest({ gh: ghMerged.runner, cwd: "/repo", repoSlug: "org/repo", prNumber: 12, verifiedHeadSha: "nope" });
+  assert.equal(result.status, "blocked-unknown", "无有效已验 SHA 拒绝合并");
+  // 真实临时仓：祖先快进四态
+  const originDir = tempDir("se-pr-origin-");
+  git(["init", "-q", "--bare", "-b", "main", originDir], originDir);
+  const seed = tempDir("se-pr-seed-");
+  const dirA = tempDir("se-pr-A-"); const dirC = tempDir("se-pr-C-");
+  git(["clone", "-q", originDir, dirA], seed);
+  git(["clone", "-q", originDir, dirC], seed);
+  commitFile(dirA, "tracked.txt", "seed\n", "seed");
+  git(["push", "-q", "origin", "refs/heads/main:refs/heads/main"], dirA);
+  const ancestorIdentity = () => {
+    const out = git(["rev-parse", "--abbrev-ref", "HEAD"], dirA).trim();
+    const head = git(["rev-parse", "HEAD"], dirA).trim();
+    const dirty = git(["--no-optional-locks", "status", "--porcelain=v1"], dirA).trim() !== "";
+    return { branch: out, headCommit: head, dirty, error: "" };
+  };
+  commitFile(dirC, "tracked.txt", "base-line\n", "land on base");
+  git(["push", "-q", "origin", "refs/heads/main:refs/heads/main"], dirC);
+  const landedSha = git(["rev-parse", "HEAD"], dirC).trim();
+  let ff = await pr.fastForwardAncestorRoot({ git: pr.runGitPullRequest, cwd: dirA, remoteName: "origin", base: "main", expectedMergeCommit: landedSha, identity: ancestorIdentity() });
+  assert.equal(ff.status, "fast-forwarded", JSON.stringify(ff));
+  assert.equal(ff.to, landedSha.toLowerCase());
+  fs.writeFileSync(path.join(dirA, "dirt.txt"), "x\n", "utf8");
+  ff = await pr.fastForwardAncestorRoot({ git: pr.runGitPullRequest, cwd: dirA, remoteName: "origin", base: "main", expectedMergeCommit: landedSha, identity: ancestorIdentity() });
+  assert.equal(ff.status, "blocked");
+  assert.match(ff.reason, /不干净/);
+  fs.rmSync(path.join(dirA, "dirt.txt"));
+  commitFile(dirA, "tracked.txt", "local-divergence\n", "local commit");
+  commitFile(dirC, "tracked.txt", "remote-again\n", "remote commit");
+  git(["push", "-q", "origin", "refs/heads/main:refs/heads/main"], dirC);
+  const remote2 = git(["rev-parse", "HEAD"], dirC).trim();
+  ff = await pr.fastForwardAncestorRoot({ git: pr.runGitPullRequest, cwd: dirA, remoteName: "origin", base: "main", expectedMergeCommit: remote2, identity: ancestorIdentity() });
+  assert.equal(ff.status, "blocked");
+  assert.match(ff.reason, /ff-only/);
+  ff = await pr.fastForwardAncestorRoot({ git: pr.runGitPullRequest, cwd: dirA, remoteName: "origin", base: "main", expectedMergeCommit: "d".repeat(40), identity: ancestorIdentity() });
+  assert.equal(ff.status, "blocked");
+  assert.match(ff.reason, /不是刚确认的合并提交/);
 });
