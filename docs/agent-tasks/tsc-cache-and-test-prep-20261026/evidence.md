@@ -27,6 +27,12 @@
 | :1483 | C4-R6 UI 真实入口祖先 ff：fork B 漂移拦停 | 否 | blocked 状态、原因不回显 raw 地址、fetch 前拦停、B 仓零接触——全部隐藏拒绝/零写入类 |
 无空列掩盖缺口：无安全退役项，也不新写无法机器复现的手测项。testWorkflowRunner.test.js（45,653ms）无可安全复用点——耗时即被测行为（真实进程编排：重叠窗口/最大并行/互斥/锁所有权/取消树/树漂移/超时非通过），保留原样。
 
+## 片 5 旧测试按需选择（用户核准 2026-10-26；候选=本分支包含本文件的最新一笔提交，回报含实测 SHA）
+- 单一实现：`scripts/test-selection.js`（唯一规则集 R1-R4，STRATEGY_VERSION=ondemand-old-tests-v1）；test-workflow.js 十处接线全部经同一 buildSelection（planEntry/dry-run/receipt/组装核对/验收报告/恢复入口 `--include-ondemand`），无第二份规则拷贝；每轮流程开始现算，无缓存。
+- **只读推算数字（一次性 /tmp 脚本按同规则推算；权威以宿主 `--dry-run` 单命令产出为准）**：check:full 原总文件槽 902、去重文件 238、组数 N=28（含 4 个无 domain 归属的保护伪组 + build 组时间 unknown⇒默认执行）、cap=floor(28×0.6)=16、旧候选内关键类保护恢复 6（test:local-stop-control、test:terminal-history、test:host-lease、test:sync-gpu、test:isolated-ledger-lock、test:rerun-scheduler-contract，均 R2 命中）、干净基线实际按需 10 组/62 文件（mac-parity、execution-shell、worker-mode、runtime-diagnostics、plan-code-scope、agent-lifecycle、preflight-stages、windows-flow-incremental、cli-contract、local-dispatch）。**当前性能切片树本身 scripts/** 有改动⇒R3 scope-unknown⇒全保护、实际按需 0（保守路径按设计工作）。**生效边界**：本模块宿主实跑前不得称已生效；合并后合并前的历史 receipt 因无 selection 字段一律不可用于组装（需重跑完整验收）。
+- **同包复用实测结论（读源码核得，无需补齐）**：`npm run package`＝单入口顺序链 compile→fullCheck→post→assemble，测试失败在 test-workflow.js:842 早退绝不触组装；组装仅一次 vsce；最终 .vsix 由 verify-vsix-manifest.js 实际解包核 entries/leak/required（单一规则源 package-content-policy.json，脚本 :4-5、:98）+README 唯一性与内容一致（:76-93）；包 SHA/字节 candidate.packaged 现算绑定 receipt（test-workflow.js:734）；package:assemble 只核对（逐项+指纹+planHash+新增决策 hash），不重复测试/组装。测试通过不替代组装完整性检查——后者独立对最终归档内容执行。
+- **Linux 静态自查（本片，真实记录）**：`node --check scripts/test-selection.js`、`node --check scripts/test-workflow.js`、`node scripts/test-workflow.js check:full --dry-run` 三次均被 PreToolUse 钩子前置拒绝（PI_NATIVE_PLATFORM_REQUIRED，未执行；未换形态重试）⇒ 语法与决策数字由宿主首跑/dry-run 兜底；test-workflow.js 十处接线 grep 回读＋编辑区人工回审通过（作用域/括号完整）。tsc：两文件均在类型程序外（include=src/**/*.ts），同前口径。
+
 ## 片 4 定向回归（等待主控排 Windows 宿主；未开始，不得预写结果）
 ①跨真实源码变更复用（冷→改一 src 文件→incremental+inputDrift+dist 更新+真实退出码）；②诊断非零传播（注入类型错误 exit≠0+state-failed→复原 rebuild）；③输出缺失/篡改（.stale 封存；verify-only output-drift 非零）；④配置/工具链失效（argv 变/@types 变→新分区）；⑤worktree 隔离（两副本 cacheDir 分离）。三态（冷/无改/有改）完整日志+退出码回填本文件。分区公式变化后的首编译为**一次性冷编译**，如实记录，不写成“缓存失效已修”。
 

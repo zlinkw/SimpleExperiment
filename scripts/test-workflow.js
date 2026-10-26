@@ -24,6 +24,7 @@ const os = require("node:os");
 const crypto = require("node:crypto");
 const { spawn, spawnSync } = require("node:child_process");
 const { npmCommand } = require("./npm-command");
+const testSelection = require("./test-selection"); // 旧测试按需选择：唯一实现，所有入口共用同一决策
 
 const ROOT_DEFAULT = path.resolve(__dirname, "..");
 const GIT_LOCATOR_VARS = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"];
@@ -39,7 +40,7 @@ function fail(message, code = 1) {
 }
 
 function parseArgs(argv) {
-  const out = { entry: null, root: ROOT_DEFAULT, manifest: null, maxParallel: null, domains: [], only: [], dryRun: false, reuseRequested: false, receipt: null, receiptOut: null, logDir: null, cancelStdin: false };
+  const out = { entry: null, root: ROOT_DEFAULT, manifest: null, maxParallel: null, domains: [], only: [], dryRun: false, reuseRequested: false, receipt: null, receiptOut: null, logDir: null, cancelStdin: false, includeOndemand: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--root") out.root = path.resolve(argv[++i]);
@@ -53,6 +54,7 @@ function parseArgs(argv) {
     else if (a === "--receipt-out") out.receiptOut = path.resolve(argv[++i]);
     else if (a === "--log-dir") out.logDir = path.resolve(argv[++i]);
     else if (a === "--cancel-stdin") out.cancelStdin = true; // r28 U2（主控批准）：opt-in 合作取消；默认绝不读取/抢占 stdin
+    else if (a === "--include-ondemand") out.includeOndemand.push(argv[++i]); // 按需恢复入口：all | 组名 | 文件子串（逗号可分多项）
     else if (a.startsWith("--")) fail(`unknown option: ${a}`);
     else if (!out.entry) out.entry = a;
     else fail(`unexpected argument: ${a}`);
@@ -255,9 +257,13 @@ function planEntry(manifestFile, manifest, root, entryName, opts) {
     byKey.get(key).sources.push(j.source);
   }
   let jobs = [...byKey.values()];
+  const plannedUniqueBeforeSelection = jobs.length;
   if (opts.only.length) jobs = jobs.filter(j => opts.only.some(o => j.file === o || j.identity === o || j.file.endsWith("/" + o)));
   const missing = jobs.filter(j => !fs.existsSync(path.join(root, j.file)));
   if (missing.length) fail(`planned test file missing on disk: ${missing.map(m => m.file).join(", ")}`);
+  // 按需选择（每次流程开始现算；决策=本轮唯一，开发/交付/package/组装核对全部消费同一 summary——见 scripts/test-selection.js 单一规则集）。
+  const selection = testSelection.buildSelection(manifest, root, jobs, opts.includeOndemand || []);
+  jobs = selection.executedJobs;
   const requiredGates = [...(phases.compile?.gates || []), ...(phases.lint?.gates || []), ...(phases.fullCheck?.domainGates || [])].map(g => g.cmd);
   return {
     entry: name,
@@ -268,7 +274,9 @@ function planEntry(manifestFile, manifest, root, entryName, opts) {
     phases, jobs,
     hookProof,
     requiredGates,
-    dedup: { requestedSlots: acc.jobs.length, uniqueRuns: jobs.length, duplicatesRemoved: acc.jobs.length - jobs.length },
+    selection: selection.summary,
+    onDemandJobs: selection.onDemandJobs.map(j => ({ file: j.file, argv: j.argv, status: "on_demand_not_run" })),
+    dedup: { requestedSlots: acc.jobs.length, uniqueRuns: plannedUniqueBeforeSelection, duplicatesRemoved: acc.jobs.length - plannedUniqueBeforeSelection },
   };
 }
 
@@ -621,6 +629,12 @@ function validateReceiptForAssemble(priorPath, entryName, currentPlan, currentFi
   }
   const gateOk = new Set(r.gates.filter(g => g.passed).map(g => g.cmd));
   for (const cmd of currentPlan.requiredGates) if (!gateOk.has(cmd)) problems.push(`missing-gate:${cmd}`);
+  const selProblem = testSelection.decisionMatchesReceipt(r.selection, currentPlan.selection); // 同一按需策略与决策，开发/交付/package/组装同源核对（禁止组装环节隐式扩跑/缩跑）
+  if (selProblem) problems.push(selProblem);
+  if (r.selection && Array.isArray(r.selection.onDemand)) {
+    const onDemandFiles = new Set(r.selection.onDemand.flatMap(g => g.files));
+    for (const job of currentPlan.jobs) if (onDemandFiles.has(job.file)) problems.push(`selection-inconsistent:当前计划包含按需文件 ${job.file}`);
+  }
   if (problems.length) return { ok: false, reason: "逐项对账失败: " + problems.slice(0, 8).join(", ") + (problems.length > 8 ? ` …共${problems.length}项` : "") };
   return { ok: true, batchId: r.batchId, jobs: r.jobs.length, gates: r.gates.length };
 }
@@ -646,11 +660,12 @@ async function main() {
   };
   state.receipt.maxParallel = state.maxParallel;
   state.receipt.fullCheckPlanHash = planHash(plan);
+  state.receipt.selectionDedupFiles = new Set(plan.jobs.map(j => j.file)).size + plan.onDemandJobs.length;
 
   if (opts.dryRun) {
     const byGroup = { independent: 0, exclusive: 0 };
     for (const j of plan.jobs) byGroup[j.classification.exclusive ? "exclusive" : "independent"]++;
-    console.log(JSON.stringify({ entry: plan.entry, final: plan.final, jobs: plan.jobs.length, independent: byGroup.independent, exclusive: byGroup.exclusive, dedup: plan.dedup, prereq: plan.prereq, phases: Object.keys(plan.phases), hooksVerified: plan.hookProof }, null, 1));
+    console.log(JSON.stringify({ entry: plan.entry, final: plan.final, jobs: plan.jobs.length, independent: byGroup.independent, exclusive: byGroup.exclusive, dedup: plan.dedup, prereq: plan.prereq, phases: Object.keys(plan.phases), hooksVerified: plan.hookProof, selection: plan.selection, onDemandJobs: plan.onDemandJobs }, null, 1));
     return 0;
   }
 
@@ -721,6 +736,8 @@ async function main() {
       } catch (e) { candidate.packaged = { error: e.message }; }
     }
     state.receipt.candidate = candidate;
+    state.receipt.selection = plan.selection;
+    state.receipt.onDemandJobs = plan.onDemandJobs;
     const runPath = opts.receiptOut || path.join(state.logDir, "run.json");
     try { await fsp.mkdir(path.dirname(runPath), { recursive: true }); } catch { /* fallthrough to write attempt */ }
     try { // exclusive wx: never overwrite a prior credential or evidence
@@ -744,6 +761,9 @@ async function main() {
       } catch { /* attestation recording never invalidates a passed run */ }
     }
     process.stdout.write(`[test-workflow] entry=${plan.entry} overall=${state.receipt.overall} files=${state.receipt.jobs.length} maxParallel=${state.maxParallel} maxObservedConcurrent=${state.maxConcurrent || 0} dedupRemoved=${plan.dedup.duplicatesRemoved} logDir=${state.logDir}\n`);
+    const sel = plan.selection;
+    process.stdout.write(`[test-selection] strategy=${sel.strategyVersion} decision=${sel.selectionHash.slice(0, 16)} 原总文件槽=${plan.dedup.requestedSlots} 去重后文件=${state.receipt.selectionDedupFiles} 组数=${sel.groupCount} 旧候选cap=${sel.oldCandidateCap} 保护恢复=${sel.protectedRestoredCount}${sel.restoredByUserCount ? `+用户恢复${sel.restoredByUserCount}` : ""} 按需静默文件=${sel.onDemandFileCount} 实际执行作业=${sel.executedJobCount}（按需≠通过：${sel.onDemandFileCount} 个文件未运行、不计入结果）\n`);
+    if (sel.onDemand.length) process.stdout.write(`[test-selection] 按需清单: ${sel.onDemand.map(g => g.key + "(" + g.files.length + ")").join(", ")} —— 恢复入口: --include-ondemand all 或 组名/文件子串\n`);
     for (const p of state.phaseTimes) process.stdout.write(`[test-workflow] phase ${p.phase} wall=${p.wallMs}ms${p.note ? " " + p.note : ""}\n`);
     process.stdout.write(`[test-workflow] TOTAL wall=${totalMs}ms (monotonic; run.json=${runPath} lockReleased=${state.lockReleased})\n`);
     if (state.receipt.overall !== "passed") return code || 1;
@@ -780,7 +800,7 @@ async function main() {
         const wanted = Array.isArray(plan.requiresReceiptForEntry) ? plan.requiresReceiptForEntry : [plan.requiresReceiptForEntry];
         const sourceEntryName = wanted.find(e => prior.entry === e);
         if (!sourceEntryName) { verdict = { ok: false, reason: `receipt ${priorPath} entry=${prior.entry} not in [${wanted}]` }; continue; }
-        const sourcePlan = planEntry(manifestFile.file, manifest, opts.root, sourceEntryName, { domains: [], only: [], root: opts.root });
+        const sourcePlan = planEntry(manifestFile.file, manifest, opts.root, sourceEntryName, { domains: [], only: [], root: opts.root, includeOndemand: opts.includeOndemand }); // 恢复入口必须端到端一致：验收时 --include-ondemand all，组装核对同参重算同一决策
         verdict = validateReceiptForAssemble(priorPath, sourceEntryName, sourcePlan, currentFingerprint, currentArtifact);
         verdict.receiptPath = priorPath;
         if (verdict.ok) break;
@@ -849,7 +869,10 @@ function writeAcceptanceReport(root, receipt) {
   fs.mkdirSync(dir, { recursive: true });
   const summary = { generatedAt: receipt.endedAt, overall: receipt.overall, batchId: receipt.batchId, logDir: receipt.logDir, runReceipt: path.join(receipt.logDir, "run.json"), totalWallMs: receipt.totalWallMs, phaseWalls: receipt.phaseWalls, files: receipt.jobs.length, maxParallel: receipt.maxParallel, gates: receipt.gates.map(g => ({ cmd: g.cmd, phase: g.phase, passed: g.passed, exitCode: g.exitCode, log: g.outLog })), failedJobs: receipt.jobs.filter(j => j.status !== "passed").map(j => ({ file: j.file, status: j.status, exitCode: j.exitCode, log: j.outLog })) };
   fs.writeFileSync(path.join(dir, "latest.json"), JSON.stringify(summary, null, 2) + "\n");
-  const md = ["# SimpleExperiment Acceptance", "", `overall=${receipt.overall}`, `generatedAt=${receipt.endedAt}`, `totalWallMs=${receipt.totalWallMs} files=${receipt.jobs.length} maxParallel=${receipt.maxParallel}`, `full logs: ${receipt.logDir}`, "", "| Step | Status | Exit |", "| --- | --- | --- |",
+  const sel = receipt.selection || null;
+  const md = ["# SimpleExperiment Acceptance", "", `overall=${receipt.overall}`, `generatedAt=${receipt.endedAt}`, `totalWallMs=${receipt.totalWallMs} files=${receipt.jobs.length} maxParallel=${receipt.maxParallel}`, `full logs: ${receipt.logDir}`,
+    ...(sel ? ["", `按需选择(${sel.strategyVersion} decision=${sel.selectionHash.slice(0, 16)}): 组=${sel.groupCount} cap=${sel.oldCandidateCap} 保护恢复=${sel.protectedRestoredCount} 按需静默文件=${sel.onDemandFileCount}（**未运行，不是通过**；恢复: --include-ondemand all）`, ...(sel.onDemand.length ? ["", "按需（未运行）清单:", ...sel.onDemand.flatMap(g => g.files.map(f => `- ${f} [${g.key}]`))] : [])] : []),
+    "", "| Step | Status | Exit |", "| --- | --- | --- |",
     ...receipt.gates.map(g => `| gate ${g.cmd} | ${g.passed ? "passed" : "failed"} | ${g.exitCode} |`),
     ...receipt.jobs.filter(j => j.status !== "passed").map(j => `| job ${j.file} | ${j.status} | ${j.exitCode} |`)].join("\n");
   fs.writeFileSync(path.join(dir, "latest.md"), md + "\n");

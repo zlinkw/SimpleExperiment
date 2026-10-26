@@ -35,5 +35,15 @@
 ## 片 4 定向回归（全部宿主 Windows 执行；Linux 不跑产品编译/测试）
 ①真实源码变更跨编译复用：冷编译→改一个 src 文件→再编译：mode=incremental、state.previousInputHash/inputDrift 在位、dist 更新、真实退出码；②诊断非零：注入类型错误→exit≠0+state-failed 证据→复原→mode=rebuild；③输出完整性：删一个 dist 文件→.stale 封存+冷编译；verify-only 同场景 output-drift 非零；④配置/工具链失效：passthrough 参数变→新分区目录；@types marker 变→新分区（临时改哈希输入复验）；⑤worktree 隔离：两 worktree 各编译→cacheDir 分离（realpath 键）。三态（冷/无改/有改）完整日志+退出码入 evidence.md。不新增性能阈值断言，不重跑无影响全量。
 
+## 片 5（用户核准 2026-10-26）：旧测试最多 60% 按需
+单一实现收口：`scripts/test-selection.js`＝唯一选择实现＋唯一规则集（STRATEGY_VERSION=ondemand-old-tests-v1）；开发/交付清单、package、package:assemble 的 receipt 核对全部经 test-workflow.js 调用同一 buildSelection，每轮流程开始现算、生成【本轮唯一决策】（selectionHash 绑定 HEAD+组清单+候选+保护+用户恢复），无第二份规则拷贝。
+- **单位与分组**：单位=当前真实测试文件；组=manifest 既有 domain（唯一分组依据；绝不按 helper/import 连组；参数矩阵 job 同组但逐个保留）。extraFiles/glob 等无 domain 归属文件⇒各自保护伪组，永不按需（R1）。
+- **组时间**：max(成员首次进入 Git 时间)（`git log --reverse --diff-filter=A` 一次批量；未命中者逐文件 `git log --follow --diff-filter=A` 追认重命名原加入记录）；任一成员历史不可得⇒组 unknown⇒永不判旧。
+- **每轮重算与选择**：N=本轮计划全部组数；cap=floor(N×0.6)；known 组按组时间升序（同时间按组名字典序）取最旧 cap 为旧候选。
+- **保护规则（判据来源=脚本内规则集 R1-R4）**：关键类正则命中（锁/互斥/隔离/权限/删除/恢复/取消/停止/租约/完整性/直连 SSH 禁令/孤儿/提交真相）⇒保护；本轮改动直接命中组成员⇒保护该组；改动含 src/**、scripts/**、package.json、tsconfig 等无法证明与域无关者⇒全保护（scope-unknown 保守）；保护项恢复执行、不向后补齐⇒实际按需≤60%。git 历史/变更范围不可得⇒全保护。
+- **按需=不默认启动**：文件、断言、恢复入口全保留；决策/receipt 中按需项状态 on_demand_not_run，验收报告显式列“按需（未运行）清单：**未运行，不是通过**”。恢复入口：`node scripts/test-workflow.js <entry> --include-ondemand all`（或组名/文件子串，可重复）；组装核对端到端同参重算，决策 hash 不一致即拒（禁止组装环节隐式扩跑/缩跑）。
+- **绑定与核对**：receipt 记录 selection 全量＋onDemandJobs；validateReceiptForAssemble 增决策 hash 一致性＋按需文件不得出现在当前执行计划。**生效边界（如实）**：本改动合并后，合并前产生的历史 receipt 因无 selection 字段一律不可再用于组装（decision missing 拒绝），需按新策略重跑完整验收；本模块未在宿主实跑通过前不得称已生效。
+- **同包复用实测结论（不补齐，已满足）**：`npm run package`（package.json:961）单入口按 compile→fullCheck→post→assemble 顺序执行，任一测试失败即止（test-workflow.js:842 早退，不触组装）；组装仅一次 vsce，随后 verify-vsix-manifest.js 打开最终 .vsix 实测 entries/leak/required（单一规则源 package-content-policy.json，:4-5、:98）＋README 唯一性与内容一致（:76-93）；包 SHA+字节绑定 receipt candidate.packaged（test-workflow.js:734，sha256Fresh 现算）；后续 package:assemble 只凭 receipt 逐项+指纹+planHash+决策核对，不再重复测试/组装。测试通过不替代组装完整性——后者由最终归档实际内容检查独立承担。
+
 ## 明确不做
 不采用全局 TS7（项目 moduleResolution:Node 与 tsc-cached require TS API 兼容阻塞）、不装项目本地 TS7、不改业务模块/tsconfig/锁文件/模块语义、不清理旧缓存、不跨 worktree 共享可写状态、不为凑数量做无价值拆分。
