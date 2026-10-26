@@ -43,11 +43,20 @@ function discoverSharedTsc7() {
   const bins = [];
   if (process.env.PSG_TSC7_DISABLE === "1") return { kind: "ts5-project", bin: projectTscBin, version: ts.version, source: "disabled", fallbackReasons: ["PSG_TSC7_DISABLE=1（显式回退开关）"] };
   if (process.env.PSG_TSC7_BIN) bins.push(["env PSG_TSC7_BIN", path.resolve(process.env.PSG_TSC7_BIN)]);
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  let probe = null;
-  try { probe = spawnSync(npm, ["root", "-g"], { encoding: "utf8", windowsHide: true }); } catch { probe = null; }
-  if (probe && probe.status === 0 && probe.stdout.trim()) bins.push(["npm root -g", path.join(probe.stdout.trim(), "typescript", "bin", "tsc")]);
-  else reasons.push("npm root -g unavailable: " + (probe ? String(probe.stderr || probe.error?.message || "exit " + probe.status).trim() : "spawn failed"));
+  // 全局根查询用 process.execPath 直跑实际 npm-cli.js（Windows 上 shell:false 无法 spawn .cmd——宿主日志 9cd487db spawnSync npm.cmd EINVAL 实证）；
+  // 来源仅两种且均无硬编码用户路径：npm 注入的 npm_execpath，或 node 同布局推导；绝不 shell 拼接、绝不 npx/下载。
+  let npmCli = process.env.npm_execpath && fs.existsSync(process.env.npm_execpath) ? process.env.npm_execpath : null;
+  if (!npmCli) {
+    const nodeDir = path.dirname(process.execPath);
+    npmCli = [path.join(nodeDir, "node_modules", "npm", "bin", "npm-cli.js"), path.join(nodeDir, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"), path.join(nodeDir, "..", "node_modules", "npm", "bin", "npm-cli.js")].find(g => fs.existsSync(g)) || null;
+  }
+  if (!npmCli) reasons.push("npm-cli.js not found (npm_execpath unset and no npm layout beside node)");
+  else {
+    let probe = null;
+    try { probe = spawnSync(process.execPath, [npmCli, "root", "-g"], { encoding: "utf8", windowsHide: true }); } catch { probe = null; }
+    if (probe && probe.status === 0 && probe.stdout.trim()) bins.push(["npm root -g via npm-cli.js", path.join(probe.stdout.trim(), "typescript", "bin", "tsc")]);
+    else reasons.push("npm root -g unavailable: " + (probe ? String(probe.stderr || probe.error?.message || "exit " + probe.status).trim() : "spawn failed") + " (npm-cli.js=" + npmCli + ")");
+  }
   for (const [source, bin] of bins) {
     if (!fs.existsSync(bin)) { reasons.push(`${source}: bin missing at ${bin}`); continue; }
     let meta = null;

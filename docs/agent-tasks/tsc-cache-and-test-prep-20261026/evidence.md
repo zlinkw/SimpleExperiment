@@ -1,8 +1,8 @@
 # evidence —— tsc-cache-and-test-prep-20261026（2026-10-26，全部为实测记录）
 ## 冻结声明（用户收口指令 2026-10-26）
-**frozen candidate = `d7f00adcf6b6481daacb26d065616848224ca30b`**（分支 perf-tsc-cache-and-test-prep-20261026）。已证的路径解析修复（d7f5c711）与 TS7 实际启动接入（d7f00adc）均含于其中；自冻结起不再追加任何功能/建议性改动（后续想法只入 plan.md「后续候选」段），不再触碰 tsc-cached/test-selection 的任何键（COMPAT_VERSION、分区键、发现逻辑）。
+**frozen candidate = 本文件所在提交（`git log -1`，紧接 d7f00adc 的唯一一笔前置修复：Windows npm 发现 EINVAL；报告含实际 SHA）**（分支 perf-tsc-cache-and-test-prep-20261026）。已证的路径解析修复（d7f5c711）与 TS7 实际启动接入（d7f00adc）均含于其中；自冻结起不再追加任何功能/建议性改动（后续想法只入 plan.md「后续候选」段），不再触碰 tsc-cached/test-selection 的任何键（COMPAT_VERSION、分区键、发现逻辑）。
 冻结身份（sha256 实测；**验证期间这些输入文件不变**）：
-- scripts/tsc-cached.js `682ab82830ce4f38f1c605d515017078318460767c91e2c6ae0fdbc796179025`
+- scripts/tsc-cached.js `4f2c5b7983c2a184b666b45cb63082bf7c561b7970519990adc81684e3457d61`（冻结前唯一修复：npm 发现 EINVAL，见下；旧值 682ab828…179025 属 d7f00adc）
 - scripts/test-selection.js `59980c0d69b0bab91466cd0d1280800450c33dd8bbd00ef44a0c7f0650bbe86f`
 - scripts/test-workflow.json `0151bdb3f126e35b691ba8426722d99bd9195e0ccdfe9159d068af56d1ba3847`
 - scripts/test-workflow.js `618b528060333bb80bb9ad42e03a9b32f435df3d9f3fb8655087e027d5ae19ab`
@@ -56,6 +56,12 @@
 - **耗时口径更正**：最新真实 compile 总 **16.9 秒**（2026-10-26 15:01:39 批次），此前“十几分钟/12 分钟”表述作废（那类数字是历史整轮 package 口径，与 compile 无关，不再引用）。
 - **TS7 共享 CLI**：仅获“可继续核兼容切换”授权；本轮未动模块语义/锁文件，等待同一代码在 TS7 CLI 与 5.9.3 API 下的诊断集+产物差异真实证据，无证据不切换。
 - **本树非我写入项（如实报备，未提交未回滚）**：2026-10-26 15:30 本 worktree dist/** 12 文件被重新编译修改 + 未跟踪 node_modules 目录出现（宿主侧行为痕迹）；本切片提交严格显式路径，node_modules 已加入变更判定的执行无关排除表。
+
+## 冻结前唯一修复：Windows TS7 发现失败（宿主日志 9cd487db：spawnSync npm.cmd EINVAL）
+根因：Windows 不能以 shell:false 直接 spawn `.cmd`。最小修法（discoverSharedTsc7 内仅 npm 发现分支）：以 `process.execPath` 直跑**实际 npm-cli.js** 查 `root -g`——优先 npm 注入的 `npm_execpath`，其次由 node 同布局推导三种既有布局；无 shell 拼接、无 .cmd、无 npx/下载；失败仍按原方式打印逐条原因并回退 5.9.3。分区键/COMPAT_VERSION/其余逻辑零改动。
+- 离线核（Linux，函数体提取注入执行；tsc-cached 顶层无守卫不可 require）：a) 注入 `npm_execpath=`/usr/local/lib/node_modules/npm-cli.js ⇒ **全局根解析成功**，输出原因仅为容器事实 `npm root -g via npm-cli.js: bin missing at /usr/local/lib/node_modules/typescript/bin/tsc`（非 spawn 失败）；b) 不设 npm_execpath 走布局推导同样解析成功；c) 均不可用 ⇒ 回退原因如实打印。静态：去注释后代码无 `npm.cmd`/`shell:true`/`"npx"`；全部 spawnSync 走 process.execPath。node --check exit 0。
+- **验收硬条件（宿主）**：修后运行日志必须实际出现 `compiler=ts7-global@7.0.2`；若仍 fallback，宿主回报原始原因，不得口头声称 7 已启用。
+- **定性口径更正（主控采纳，防止复发）**：legacy.js 已由 TS5 扫描器**去 trivia token 比较**证实完全相同（证据 `repos/.pi-build-cache-followup-20261026-225840/ts7-output-token-comparison.json`；本会话独立 tokenizer 300,274=300,274 一致＋双方 vm 解析互证），差异仅换行 ⇒ 等价；**把 SourceFile.text 纳入哈希的粗 AST 比较不得当作语义差异结论**，以 token 比较＋既有真实回归为准。XshellSessionPatcher 的 `await import("fs")` 保留是**真实输出变化**，验证复用既有 `test/tunnel/xshellSessionPatcher.test.js`＋`test/tunnel/independentAgent.test.js`，不新建测试。
 
 ## TS7 共享 CLI 接入（用户核准"继续加速编译"，证据先行；tsc-cached.js 改动见本切片提交）
 - 既有证据（主控 .pi-build-cache-followup-20261026-225840/，一对隔离 emit，非中位数非端到端）：5.9.3=13,787ms vs 7.0.2=2,879ms，双方 exit 0、源码前后 SHA 相同（c5585c07…）、各 387 文件、385 逐字节相同；候选配置仅隔离覆盖 module=Node16/moduleResolution=Node16，源码未动、无 type:module（CJS 目标不变）。
