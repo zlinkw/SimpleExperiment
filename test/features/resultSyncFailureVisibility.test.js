@@ -307,14 +307,24 @@ test("release chain freezes the live candidate, shows one exact confirmation and
   assert.match(shown, /主机 nwpu3\.invalid（profile work） · 范围 job-artifacts-scope · 通道 0/);
   assert.equal(f.warnings[0][1].modal, true);
   const confirm = f.cleanupCalls[2].params;
+  // 夹具内产品在 vm 上下文执行，其容器对象原型属另一 realm；本套件用 assert/strict
+  // （deepEqual 即 deepStrictEqual），跨 realm 同结构值判不等。真实扩展单 realm 运行，
+  // 产品形态本身正确——在测试侧对同一字段集合做宿主 realm 归一化后仍逐字段严格比对，
+  // 不放宽语义、不减字段（JSON 往返对全字段纯数据等价）。
+  const normalize = value => JSON.parse(JSON.stringify(value));
   assert.deepEqual([confirm.token, confirm.digest, confirm.phase, confirm.confirm], ["tok-1", "dig-1", 1, true]);
-  assert.deepEqual(confirm.exactTargets, [STAGE_ABSOLUTE], "确认绑定精确 token/digest/绝对路径");
+  assert.deepEqual(normalize(confirm.exactTargets), [STAGE_ABSOLUTE], "确认绑定精确 token/digest/绝对路径");
   const execute = f.cleanupCalls[3].params;
   assert.equal(execute.token, "tok-1"); assert.equal(execute.index, 0);
   const deletion = f.cleanupCalls[5].params;
   assert.equal(deletion.token, "tok-1"); assert.equal(deletion.digest, "dig-1", "删除集合只从冻结 token/digest 派生");
-  assert.deepEqual(deletion.targets, [{ index: 0, relativePath: STAGE_RELATIVE, destination: preview.targets[0].destination }]);
-  assert.deepEqual(f.syncRetries, [{ planId: "plan", jobIndex: 0, commandId: "command0" }], "成功后只重试这一条原同步");
+  const deletionTargets = normalize(deletion.targets);
+  assert.equal(deletionTargets.length, 1, "删除集合恰一个冻结目标");
+  assert.equal(deletionTargets[0].index, 0);
+  assert.equal(deletionTargets[0].relativePath, STAGE_RELATIVE);
+  assert.equal(deletionTargets[0].destination, preview.targets[0].destination);
+  assert.deepEqual(deletionTargets, [{ index: 0, relativePath: STAGE_RELATIVE, destination: preview.targets[0].destination }]);
+  assert.deepEqual(normalize(f.syncRetries), [{ planId: "plan", jobIndex: 0, commandId: "command0" }], "成功后只重试这一条原同步");
   assert.deepEqual(f.patches, [], "释放链自身不改 Job/产物字段；完成状态由既有同步链管理");
 });
 
@@ -345,7 +355,8 @@ test("a locked, mismatched or non-candidate live slot is protected: no preview f
   assert.equal(moved.cleanupCalls.length, 1);
   const notReleasable = releaseFixture({ releaseCandidate: false });
   assert.equal((await notReleasable.run()).status, "failed");
-  assert.match((await notReleasable.run()).message, /无可释放候选/);
+  assert.match((await notReleasable.run()).message, /当前卡点没有可释放候选（槽被占用、非终态或时间不明），未执行任何修改。/,
+    "文案契约：产品原句逐字匹配，不缩短面向用户的提示");
   assert.deepEqual(notReleasable.cleanupCalls, [], "卡点无候选时连盘点都不发起");
 });
 
