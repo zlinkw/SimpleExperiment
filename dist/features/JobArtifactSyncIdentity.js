@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.jobArtifactRetentionKey = jobArtifactRetentionKey;
 exports.jobArtifactRunGeneration = jobArtifactRunGeneration;
+exports.syncScopeStagingIdentity = syncScopeStagingIdentity;
 const crypto_1 = require("crypto");
 /**
  * Staging identity of one completed job's artifact sync (task ui-plan-gpu-progress-20261024 r5).
@@ -24,4 +25,26 @@ function jobArtifactRetentionKey(planFile, index, caseName, seed) {
 function jobArtifactRunGeneration(planId, commandId, sourceFiles) {
     const manifest = Object.keys(sourceFiles).sort().map(file => [file, String(sourceFiles[file]).toLowerCase()]);
     return (0, crypto_1.createHash)("sha256").update(JSON.stringify(["job-artifact-run", planId, commandId, manifest])).digest("hex");
+}
+/**
+ * Staging identity of the shared version-retain/merge lanes (task ui-plan-gpu-progress-20261024 r112).
+ * These lanes previously sent no retentionKey/generation, so every attempt fell back to the shared
+ * "project-files"/"directory:*" scope with a fresh per-transfer generation (simple-sftp
+ * stagedLogicalKey/claim), which jams the two-generation window with TRANSFER_STAGE_PENDING once the
+ * first committed pair occupies it — proven live on nwpu3 (d-47be3d71… = sha256(["project-files",0])
+ * and d-008f3730… lane both held fully by this same source's committed generations).
+ * The same-input rule mirrors jobArtifactRunGeneration: an identical batch path set with an identical
+ * frozen source manifest reuses ONE generation, so a retry resumes its own slot (receiver
+ * own-generation resume) instead of forcing a third generation; any changed path or SHA opens a new
+ * one. The retentionKey carries no source/worker/node identity — it is the sorted deduplicated batch
+ * path list, making one logical batch one logical source. Job artifact chain parameters are untouched.
+ */
+function syncScopeStagingIdentity(scopePaths, sourceFiles) {
+    const scope = [...new Set(scopePaths.map(file => String(file)))].sort();
+    const manifest = scope.map(file => {
+        const value = sourceFiles[file];
+        return [file, typeof value === "string" ? value.toLowerCase() : String(value?.sha256 ?? "").toLowerCase()];
+    });
+    return { retentionKey: "sync-scope-retain:" + JSON.stringify(scope),
+        generation: (0, crypto_1.createHash)("sha256").update(JSON.stringify(["sync-scope-retain", scope, manifest])).digest("hex") };
 }

@@ -11767,6 +11767,10 @@ class RealtimeTunnelPanelProvider {
                         source: this.sftpServerOptions(sourceRow),
                         destination: { ...destination, host: destination.networkHost || destination.host },
                         relativePaths: group.files,
+                        // r112 依据：现场被占死的正是共享 project-files 槽（d-47be3d71…=sha256(["project-files",0])、lane1 d-008f3730…），
+                        // 本处漏传身份即回退共享 scope＋每发新代，两代 committed 后该链路必撞 TRANSFER_STAGE_PENDING。
+                        // 身份取本次冻结 plan.files（发送前已算好、发送后用于校验），同批同内容重试复用同代走 receiver resume。
+                        ...(0, JobArtifactSyncIdentity_1.syncScopeStagingIdentity)(group.files, plan.files),
                         confirm: true, pathConfirmed: true,
                         taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({
                             action: "批量保留文件版本",
@@ -12107,6 +12111,10 @@ class RealtimeTunnelPanelProvider {
                     await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: this.sftpServerOptions(sourceRow),
                         destination: { ...this.sftpServerOptions(row), host: this.sftpServerOptions(row).networkHost || this.sftpServerOptions(row).host },
                         ...(directory ? { relativePath: relative, directory: true, manualRetain: true } : { relativePaths: [relative] }),
+                        // r112 依据：本处（含"合并最新版"逐文件扇入 :10758）漏传身份回退共享 project-files scope＋每操作新代，
+                        // 即 nwpu3 双槽（d-47be3d71…/d-008f3730…）被同源自家 committed 代占满的直接来源；身份取校验前已冻结、
+                        // 校验后逐字节复核的 sourceInventory，重试同内容复用同代；来源在确认期间变化本就被"来源版本已变化"检查拒绝。
+                        ...(0, JobArtifactSyncIdentity_1.syncScopeStagingIdentity)([relative], sourceInventory),
                         confirm: true, pathConfirmed: true,
                         taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({
                             action: directory ? "手动保留目录版本" : "手动保留文件版本",
@@ -12196,6 +12204,9 @@ class RealtimeTunnelPanelProvider {
                     await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: this.sftpServerOptions(sourceRow),
                         destination: { ...destination, host: destination.networkHost || destination.host },
                         relativePath: directory, directory: true, manualRetain: true, confirm: true, pathConfirmed: true,
+                        // r112 依据：目录恢复与保留同走 directory:/project-files 共享槽，漏传即每轮新代；身份取本轮
+                        // 已按清单哈希核对过的 sourceFiles（holds 记录＋来源实盘），恢复重试复用同代。
+                        ...(0, JobArtifactSyncIdentity_1.syncScopeStagingIdentity)([directory], sourceFiles),
                         taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({
                             action: "恢复手动保留目录",
                             sourceId: sourceRow.id, destinationId: target.id, detail: directory,
@@ -23611,6 +23622,9 @@ class RealtimeTunnelPanelProvider {
                 const span = paths.length === 1 ? paths[0] : `${paths[0]} … ${paths[paths.length - 1]}（${paths.length} 个文件）`;
                 await this.simpleSftpApiCall("sync.serverToServerFpsync", {
                     source, destination: { ...destination, host: destination.networkHost || destination.host }, relativePaths: paths,
+                    // r112 依据：跨机对账补齐与批量同步共用同一共享 scope，漏传即每次对账新代、挤占同一对槽；
+                    // 身份取本轮 verified 清单 inventories[来源]（补齐决策与事后复核同源），同输入重跑复用同代。
+                    ...(0, JobArtifactSyncIdentity_1.syncScopeStagingIdentity)(paths, inventories[group.source.id]),
                     confirm: true, pathConfirmed: true,
                     taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({
                         action: "项目文件补齐",
