@@ -23,6 +23,9 @@ function fixture(native = false) {
     workerFpsyncTaskLabel: () => 'Plan 完成产物同步', workspaceRoot: () => root,
     // r6：方法从 TS 源码抽取，编译后保留裸标识符。
     jobArtifactRunGeneration: require('../../dist/features/JobArtifactSyncIdentity.js').jobArtifactRunGeneration,
+    // 0.5.416 配套：failJob 现从错误提取结构化卡点（裸标识符，TS 源切片保留裸名），
+    // 复用同一真实生产模块，不造假替身；无卡点故障不会触达能力门探测。
+    artifactStageBlockFromError: require('../../dist/features/JobArtifactSyncIdentity.js').artifactStageBlockFromError,
     errorMessage: error => String(error.message || error),
     // r51：schedule 失败回调的 typed 过滤需要真实生产取消类（TS 源切片保留裸标识符；
     // 与其余 dist 依赖一致复用已编译 core 模块，不造假 name 类）。
@@ -35,6 +38,9 @@ function fixture(native = false) {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText, sandbox);
   const p = new sandbox.Host();
+  // 0.5.416 配套：抽取成员集合外的宿主方法在切片外定义；此处仅保证 failJob 对
+  // 卡点的能力门探测可解析（本夹具错误无结构化卡点，实际不会触达）。
+  p.ensureStagedSlotReleaseCapabilities = () => {};
   const plan = { id: 'run', projectId: queueApi.canonicalProjectId(root), planFile: 'experiments/plans/formal.yaml',
     revision: 'revision', codeFingerprint: 'code', resultPathPolicy: 'declared', fullPlanJobCount: 2,
     enqueuedAt: '2026-10-12T00:00:00Z', executionMode: 'train_test', jobs: [0, 1].map(index => ({

@@ -153,7 +153,7 @@ class CompletedJobSyncHost {
             };
             const patch = (fields) => h.patchDistributedJob(this.root, plan.id, job.index, job.attempt, { expectedCommandId: job.commandId, ...fields });
             if (!scopes.length) {
-                await patch({ latestArtifactSync: { key, state: "excluded", scopes, checkedAt: new Date().toISOString() }, artifactError: undefined, artifactRetryAfter: undefined });
+                await patch({ latestArtifactSync: { key, state: "excluded", scopes, checkedAt: new Date().toISOString() }, artifactError: undefined, artifactRetryAfter: undefined, artifactStageBlock: undefined });
                 report.excluded++;
                 continue;
             }
@@ -183,7 +183,7 @@ class CompletedJobSyncHost {
                         // 成功含义只限本次当前 job 已验证来源域，不声称其它 Worker 历史副本已合并或清除。
                         artifactDigest: (0, PlanArtifactSyncStatus_1.jobArtifactSyncDigest)({ artifacts: { ...job.artifacts, ...result.files } }),
                         ...(result.foreignOnly?.length ? { skipped: result.foreignOnly } : {}) },
-                    artifactError: undefined, artifactRetryAfter: undefined, artifacts: { ...job.artifacts, ...result.files },
+                    artifactError: undefined, artifactRetryAfter: undefined, artifactStageBlock: undefined, artifacts: { ...job.artifacts, ...result.files },
                     ...(scopes.includes(job.outputDir) && (!job.collectionResultCsv || job.actualExecutionMode === "train" || scopes.includes(job.collectionResultCsv))
                         ? { mirroredWorkerIds: targets.map((row) => row.id), replaceMirroredWorkerIds: true } : {}) });
                 report.synced++;
@@ -193,8 +193,14 @@ class CompletedJobSyncHost {
                     throw error;
                 const detail = String(error.message || error), retryAfter = new Date(Date.now() + 30000).toISOString();
                 report.errors.push(plan.planFile + " job " + job.index + "：" + detail);
+                // 0.2.113 配套：错误原文逐字保留在 detail/artifactError；结构化卡点仅当错误携带
+                // schemaVersion-1 stageBlock 时白名单净化后随同一 patch 持久化（无结构化字段=只有文本，
+                // 不猜路径）。同一次写也把上轮的旧卡点冲掉，失败原因变化后不留过期释放入口。
                 await patch({ latestArtifactSync: { key, state: "partial", scopes, error: detail, retryAfter, checkedAt: new Date().toISOString() },
-                    artifactError: "最新产物同步未完成：" + detail, artifactRetryAfter: retryAfter });
+                    artifactError: "最新产物同步未完成：" + detail, artifactRetryAfter: retryAfter,
+                    artifactStageBlock: (0, JobArtifactSyncIdentity_1.artifactStageBlockFromError)(error) });
+                if ((0, JobArtifactSyncIdentity_1.artifactStageBlockFromError)(error))
+                    h.ensureStagedSlotReleaseCapabilities?.();
                 const isNewFailureSignature = previous?.key !== key || previous.error !== detail;
                 if (isNewFailureSignature)
                     h.recordActionError({ command: "completedJobLatestSync", message: plan.planFile + " job " + job.index + "：" + detail });

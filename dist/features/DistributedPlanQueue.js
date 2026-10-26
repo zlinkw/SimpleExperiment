@@ -1641,7 +1641,7 @@ function retryVerifiedJob(queue, planId, jobIndex, runId) {
                 failureDiagnostic: undefined, formalConflictEvidence: undefined, blockReason: undefined, recoveryConflict: undefined,
                 stopReason: undefined, automaticRetry: undefined, dispatchAcknowledgedAt: undefined, lastDispatchAttemptAt: undefined,
                 cleanup: undefined,
-                artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, latestArtifactSync: undefined, outputRetiredAt: undefined,
+                artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, artifactStageBlock: undefined, latestArtifactSync: undefined, outputRetiredAt: undefined,
                 historyLogIdentity: undefined, logPath: undefined,
                 status: "pending", history: [...(item.history || []), { attempt: item.attempt,
                         status: item.status, workerId: item.workerId, commandId: item.commandId, outputDir: item.outputDir,

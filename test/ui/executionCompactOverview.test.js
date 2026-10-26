@@ -91,7 +91,9 @@ test('native cards display readable execution and result states independently', 
 });
 test('production panel projection preserves independent states and redraws result-only changes', () => {
   const source=readSource('src/extension/legacy.ts');
-  const start=source.indexOf('const distributedPlans = visibleDistributedPlanProgress.map(');
+  // 0.5.416 配套：投影块开头新增能力门判定（if+const stageBlockReleaseCapable），
+  // 切片起点必须取真实语句边界（if 行），否则 map 内引用的裸 const 在 VM 里未定义。
+  const start=source.indexOf('if (visibleDistributedPlanProgress.some(plan =>');
   const end=source.indexOf('const summaryInputs =',start);
   assert.ok(start>0&&end>start);
   const rows=[{id:'wf',planFile:'plans/states.yaml',jobs:[{index:0,case:'a',seed:42,status:'failed',lifecycleProtocol:2,
@@ -114,7 +116,8 @@ test('real panel projection and rendered PLAN/job labels share the current synch
   workerId:'a',commandId:'command',globalJobId:'wf:0',outputDir:'work/job',collectionResultCsv:'work/job/metrics.csv'};
  plan.jobs=[job];job.verifiedCompletion={schemaVersion:1,exitCode:0,verifiedAt:'2026-10-15T00:00:00Z',identity:completionIdentity(plan,job)};
  job.latestArtifactSync={state:'synced',scopes:[job.outputDir],workerIds:targets.map(t=>t.id),checkedAt:'2026-10-15T01:00:00Z',key:latestJobSyncKey(plan,job,[job.outputDir],targets)};
- const source=readSource('src/extension/legacy.ts'),start=source.indexOf('const distributedPlans = visibleDistributedPlanProgress.map('),end=source.indexOf('const summaryInputs =',start);
+ // 0.5.416 配套：同上一用例，切片起点取投影块真实语句边界（if 行），保证块内裸 const 有定义。
+ const source=readSource('src/extension/legacy.ts'),start=source.indexOf('if (visibleDistributedPlanProgress.some(plan =>'),end=source.indexOf('const summaryInputs =',start);
  for(const changed of [false,true]){
   const configured=structuredClone(targets);if(changed)configured[0].host='replacement-server';
   const projected=vm.runInNewContext(source.slice(start,end)+'distributedPlans;',{

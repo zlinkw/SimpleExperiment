@@ -249,7 +249,10 @@ function releaseFixture(options = {}) {
     vscode: { window: { showWarningMessage: async (...args) => { warnings.push(args); return warningChoice; } } } };
   vm.createContext(sandbox);
   const start = source.indexOf("async releaseJobStageBlockSlotsFromUi(");
-  const end = source.indexOf("syncCompletedPlanArtifacts(context)", start);
+  // 终点落在下一成员声明之前的真实边界（release 方法闭合大括号处截断）：
+  // 直接用声明名做终点会把 "private async " 残段留在对象字面量尾部，切片自身即非法语法。
+  const nextMember = source.indexOf("async syncCompletedPlanArtifacts(context)", start);
+  const end = nextMember > start ? source.lastIndexOf("}", nextMember) + 1 : nextMember;
   assert.ok(start >= 0 && end > start, "compiled release method slice");
   vm.runInContext(`this.methods = { ${source.slice(start, end).replace(/}\r?\n {4}(?=(?:async )?[a-zA-Z_$][\w$]*\()/g, "},\n    ")} };`, sandbox);
   let stagedSlotsReads = 0;
