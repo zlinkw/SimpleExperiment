@@ -40,7 +40,7 @@
 - **单位与分组**：单位=当前真实测试文件；组=manifest 既有 domain（唯一分组依据；绝不按 helper/import 连组；参数矩阵 job 同组但逐个保留）。extraFiles/glob 等无 domain 归属文件⇒各自保护伪组，永不按需（R1）。
 - **组时间**：max(成员首次进入 Git 时间)（`git log --reverse --diff-filter=A` 一次批量；未命中者逐文件 `git log --follow --diff-filter=A` 追认重命名原加入记录）；任一成员历史不可得⇒组 unknown⇒永不判旧。
 - **每轮重算与选择**：N=本轮计划全部组数；cap=floor(N×0.6)；known 组按组时间升序（同时间按组名字典序）取最旧 cap 为旧候选。
-- **保护规则（判据来源=脚本内规则集 R1-R4）**：关键类正则命中（锁/互斥/隔离/权限/删除/恢复/取消/停止/租约/完整性/直连 SSH 禁令/孤儿/提交真相）⇒保护；本轮改动直接命中组成员⇒保护该组；改动含 src/**、scripts/**、package.json、tsconfig 等无法证明与域无关者⇒全保护（scope-unknown 保守）；保护项恢复执行、不向后补齐⇒实际按需≤60%。git 历史/变更范围不可得⇒全保护。
+- **保护规则 v2（判据来源=脚本内规则集 R1-R4，主控返修裁定版）**：非关键判定必须有可检查依据＝manifest 既有 domain 归属（R1，无归属⇒保护伪组）；关键类正向判据（R2 正则命中组键/成员路径⇒保护）；本轮改动定域（R3）复用**项目里实际存在**的映射——`test-workflow.json classification.parallel[].basis.closure`（124 个 attested 测试文件→408 条非测试路径，含 src/**.ts 与 dist/**.js）：改动命中组成员⇒护组（changed-this-round）；命中成员 closure⇒护组（changed-mapped-closure）；runner/清单自身（RUNNER_OWN_FILES）或 git 不可用⇒全保护；其余组**全成员 attested**⇒可证实无关、保留候选；有成员未 attested⇒保守护（unattested-members）。不建全仓代码图；任意 src 变更不再一律全保护。保护项恢复执行、不向后补齐⇒实际按需≤60%。变更解析全程 `-z` NUL（空格/中文安全；status 含未跟踪新增；diff rename 新旧路径都记）+ `core.quotePath=false`；浅克隆边界提交的 A 记录不算可靠首加入（unknown⇒不判旧；unknownMembers/shallowRepo 字段如实输出）。
 - **按需=不默认启动**：文件、断言、恢复入口全保留；决策/receipt 中按需项状态 on_demand_not_run，验收报告显式列“按需（未运行）清单：**未运行，不是通过**”。恢复入口：`node scripts/test-workflow.js <entry> --include-ondemand all`（或组名/文件子串，可重复）；组装核对端到端同参重算，决策 hash 不一致即拒（禁止组装环节隐式扩跑/缩跑）。
 - **绑定与核对**：receipt 记录 selection 全量＋onDemandJobs；validateReceiptForAssemble 增决策 hash 一致性＋按需文件不得出现在当前执行计划。**生效边界（如实）**：本改动合并后，合并前产生的历史 receipt 因无 selection 字段一律不可再用于组装（decision missing 拒绝），需按新策略重跑完整验收；本模块未在宿主实跑通过前不得称已生效。
 - **同包复用实测结论（不补齐，已满足）**：`npm run package`（package.json:961）单入口按 compile→fullCheck→post→assemble 顺序执行，任一测试失败即止（test-workflow.js:842 早退，不触组装）；组装仅一次 vsce，随后 verify-vsix-manifest.js 打开最终 .vsix 实测 entries/leak/required（单一规则源 package-content-policy.json，:4-5、:98）＋README 唯一性与内容一致（:76-93）；包 SHA+字节绑定 receipt candidate.packaged（test-workflow.js:734，sha256Fresh 现算）；后续 package:assemble 只凭 receipt 逐项+指纹+planHash+决策核对，不再重复测试/组装。测试通过不替代组装完整性——后者由最终归档实际内容检查独立承担。
@@ -48,9 +48,10 @@
 ## 默认流程（用户 2026-10-26 覆盖裁定，立即生效）
 默认入口 `npm run package`（package.json:961）＝恰好三段：**① 必要编译（compile gates）→ ② 本轮规定测试（fullCheck：分组/按需/保护策略，片5）→ ③ 组装包（post/assemble 工具门 + 一次 vsce）**。完成即报告包路径与 receipt candidate.packaged 真实状态（test-workflow.js:734 SHA 绑定）。
 - 默认**不做**：独立 acceptance 阶段（acceptance/check:full 为另设入口）、归档内容审计、包后冒烟/安装验收；缺这些 receipt **不拦打包**，也不得以任何别名（“交付检查”“包完整性核对”等）插回默认链。**用户要验收时另行明确触发。**
-- 打包器自带必需 manifest 检查照常执行且不掩盖工具错误——这属工具门禁非独立验收：vsce package、verify-vsix-manifest.js（实际解包核 entries/leak/required，单一规则源 package-content-policy.json）、verify:package-runtime（=verify-vsix-runtime.js：版本一致 + vsce ls 清单预览 + 运行时闭包，组装前工具门，无安装/冒烟/部署审计——定性为“打包器自带”，保留默认链合规）。
+- **自制归档审计已移出默认链（主控 2026-10-26 更正裁定）**：`node scripts/verify-vsix-manifest.js`（解包 entries/leak/required/README＝自制归档审计）与 `npm run verify:package-runtime`（自制包内容闭包/扫描门）从 package 与 package:assemble 的 post/assemble 链删除；仅保留在显式验收入口 acceptance（post 追加）与显式冒烟入口 smoke。vsce 自身必需的 manifest 处理与真实报错照常、包路径/版本/SHA 记录保留（candidate.packaged）。
+- **新默认步骤清单（package 入口，逐段）**：①prereq prepare-wsl-tests（夹具准备）→ ②compile gates（含 tsc-cached）→ ③fullCheck：domainGates + 按需选择后的测试作业（保护/按需照旧）→ ④post：package-minimal-readme（vsce 输入准备）+ compact-target-mode-plan → ⑤assemble：一次 vsce package → 报告 vsix 路径+SHA256+字节+真实状态。独立验收/归档审计由用户另行明确触发（acceptance/smoke 入口）。
 - 测试是核心不删不减：按需仅不默认启动，保护照旧；真实失败/退出码/完整日志保留（fullCheck 失败 :842 早退非零）。
-- 新策略验证口径：现有清单上的计算结果（dry-run）＋受影响套件即可，不为证明策略重跑整轮约 12 分钟包验收；区分“原任务已做的测试”与“新改动的受影响回归”。
+- 新策略验证口径：现有清单上的计算结果（dry-run）＋受影响套件即可，不为证明策略重跑整轮整轮 package 全验收；区分“原任务已做的测试”与“新改动的受影响回归”。
 
 ## 明确不做
 不采用全局 TS7（项目 moduleResolution:Node 与 tsc-cached require TS API 兼容阻塞）、不装项目本地 TS7、不改业务模块/tsconfig/锁文件/模块语义、不清理旧缓存、不跨 worktree 共享可写状态、不为凑数量做无价值拆分。

@@ -36,6 +36,17 @@
 ## 默认流程与验证口径（用户 2026-10-26 覆盖裁定）
 默认链＝必要编译→本轮规定测试（含按需/保护策略）→组装包，完成即报包路径+真实状态；独立 acceptance/归档审计/包后冒烟安装**不默认**、缺 receipt 不拦打包、不换名插回，用户另行触发。vsce/verify-vsix-manifest/verify:package-runtime（组装前 vsce ls+版本+闭包工具门）属打包器自带，照常。新策略验证=dry-run 数字+受影响套件（branchProjectRegistry、testWorkflowRunner 属受影响回归——selection 改动所在 runner 的既有回归套件），**不需重跑整轮约 12 分钟 package 全验收**；原任务已做的 7 套件结果（415 线，另一树同一 runner 基线）与新切片受影响回归分开记，不混成新一轮全量。
 
+## 主控返修记录（2026-10-26 源码审阅，STRATEGY_VERSION→ondemand-old-tests-v2）
+- **changedFiles 路径 bug 修复**：原实现把 status 与 diff 输出统一 `line.slice(3)`，diff --name-only 无 XY 前缀⇒`src/extension.ts` 被截成 `/extension.ts`（主控离线复现证实）。v2 两种输出分开解析并全程 `-z`：status --porcelain=v1 -z（含未跟踪，R/C 条目消费后随原路径字段）+ diff --name-status -z（R/C 取 old,new 双路径）；`-c core.quotePath=false`（非 ASCII 不被引号+八进制转义——-z 不隐含该设置，离线复现第二条发现）。行号：test-selection.js :34 版本、:47-72 firstAddedTimes（浅克隆边界排除 :52-53/:60/:68）、:73-99 changedFiles、:36-38 RUNNER_OWN/排除表。
+- **浅历史**：depth 1 浅根提交的 A 记录＝浅抓取假象，v2 以 rev-list --max-parents=0 边界集排除（批量与 --follow 两路），拿不到可靠首加入⇒成员计入组 unknownMembers⇒组不判旧；summary 输出 unknownMembers/shallowRepo/changedFilesCount。
+- **离线复现结果（node /tmp/se-selection-verify.cjs，4/4 PASS exit 0）**：①注入 diff 输出 `src/extension.ts` ⇒ changedFiles 返回完整路径（旧 bug 截断路径已消失）；②-z 解析：空格/中文路径、status+diff rename 新旧双记、未跟踪新增计入、docs 排除；③真实临时 git 仓：CJK/空格名 status -z 原样、未跟踪新增、depth-1 浅克隆对浅边界文件不再给出伪首加入时间；④buildSelection 端到端：closure 定域保护（changed-mapped-closure）/干净基线按需/`--include-ondemand all` 恢复/无 domain 伪组保护/unattested 成员保护。
+- **保护分类改依据制**：非关键候选组要求**全成员**在 manifest 既有 attested whitelist（classification.parallel[].basis.closure，124 文件→408 条非测试映射）且改动未命中其 closure；有未 attested 成员⇒保护（unattested-members）。src 变更经 closure 定域（命中⇒护组；不命中且全 attested⇒可证实无关），不再"任意 src 变更永远全保护"；runner/清单自身改动⇒全保护。判定依据表＝summary.protectedRestored[].reason ∈ {runner-or-manifest-change, change-scope-unprovable(git), critical-class, changed-this-round, changed-mapped-closure, unattested-members}。
+- **真实现数字（唯一实现 planEntry 计算，替代旧推算；权威仍=宿主 dry-run）**：check:full N=28、cap=16；当前树（scripts/** 在提交差内）保护恢复 16（全部 runner-or-manifest-change）、实际按需 0、执行作业 237；干净基线模拟（status/diff 置空 mock、其余真实 git）保护恢复 15（unattested-members 9 + critical-class 6）、**实际按需 1 组/6 文件（test:local-dispatch）**、执行 231。v1 推算的 10 组/62 文件作废——v1 未强制成员 attested；60% 为上限非目标，可静默面随 whitelist 覆盖（124/238）扩大。
+- **默认链审计移出**：test-workflow.json package :306/:312、package:assemble :331/:337 删除 verify:package-runtime 与 verify-vsix-manifest 两门；acceptance post :496 后追加为显式验收入口保留；smoke（显式冒烟）原样保留。新默认步骤：prereq→compile→fullCheck(按需)→post(readme+plan 压缩)→assemble(一次 vsce)→报包路径+SHA+状态。
+- **耗时口径更正**：最新真实 compile 总 **16.9 秒**（2026-10-26 15:01:39 批次），此前“十几分钟/12 分钟”表述作废（那类数字是历史整轮 package 口径，与 compile 无关，不再引用）。
+- **TS7 共享 CLI**：仅获“可继续核兼容切换”授权；本轮未动模块语义/锁文件，等待同一代码在 TS7 CLI 与 5.9.3 API 下的诊断集+产物差异真实证据，无证据不切换。
+- **本树非我写入项（如实报备，未提交未回滚）**：2026-10-26 15:30 本 worktree dist/** 12 文件被重新编译修改 + 未跟踪 node_modules 目录出现（宿主侧行为痕迹）；本切片提交严格显式路径，node_modules 已加入变更判定的执行无关排除表。
+
 ## 片 4 定向回归（等待主控排 Windows 宿主；未开始，不得预写结果）
 ①跨真实源码变更复用（冷→改一 src 文件→incremental+inputDrift+dist 更新+真实退出码）；②诊断非零传播（注入类型错误 exit≠0+state-failed→复原 rebuild）；③输出缺失/篡改（.stale 封存；verify-only output-drift 非零）；④配置/工具链失效（argv 变/@types 变→新分区）；⑤worktree 隔离（两副本 cacheDir 分离）。三态（冷/无改/有改）完整日志+退出码回填本文件。分区公式变化后的首编译为**一次性冷编译**，如实记录，不写成“缓存失效已修”。
 
