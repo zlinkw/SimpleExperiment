@@ -3306,6 +3306,7 @@ function renderPanelHtml() {
     const webviewHandledCommands = new Set([
       "startTensorBoard", "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts", "resetPptPathConfirmations",
       "retryPlanSubmission", "cancelPlanSubmission", "dispatchJobs", "queueRemainingJobs", "refreshJobArtifacts", "retryJobArtifactSync",
+      "releaseJobStageBlockSlots",
       "analyzeRuntimeLog",
       "retryDistributedJob",
       "recallFailedJob",
@@ -14946,6 +14947,25 @@ function renderPanelHtml() {
           const analyzeButton = job.commandId && job.workerId ? '<button type="button" class="mini secondary" data-command="analyzeRuntimeLog" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '">重新分析运行日志</button>' : '';
           const artifactButtons = status === "completed" && job.lifecycleProtocol === 2 && job.workerId && job.commandId && !unavailable
             ? ['refreshJobArtifacts', 'retryJobArtifactSync'].map((command, index) => '<button type="button" class="mini secondary" data-command="' + command + '" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="只核对或增量同步此 job 当前勾选范围的产物，保留训练完成状态。">' + (index ? '重试产物同步' : '刷新产物状态') + '</button>').join('') : '';
+          // 暂存槽卡点（SimpleSFTP 0.2.113 结构化证据）：显示「卡在哪台/哪个范围/通道/身份＋两槽」。
+          // 释放按钮仅当结构化候选 releaseCandidate 且 SE 实时能力门成立（stageBlockReleaseCapable，由扩展端
+          // 读 capabilities 得出，绝不按版本号推断）才出现；显示可缩写代/身份，后台释放只绑定持久化完整值。
+          const stageSlotAge = (ms) => Number.isInteger(ms) && ms >= 0
+            ? (ms >= 86400000 ? Math.floor(ms / 86400000) + ' 天' : Math.max(1, Math.floor(ms / 3600000)) + ' 小时') : '未知';
+          const stageBlock = job.artifactStageBlock && job.artifactStageBlock.schemaVersion === 1 && job.artifactStageBlock.code === 'TRANSFER_STAGE_PENDING'
+            ? job.artifactStageBlock : null;
+          const stageBlockHtml = !stageBlock ? '' : '<div class="executionDistributedJobError">暂存槽卡点：主机 '
+            + esc(String(stageBlock.destination && stageBlock.destination.host || '未知'))
+            + (stageBlock.destination && stageBlock.destination.profile ? '（profile ' + esc(String(stageBlock.destination.profile)) + '）' : '')
+            + ' · 范围 ' + esc(String(stageBlock.scope || '未声明')) + ' · 通道 ' + esc(String(stageBlock.lane === 1 ? 1 : 0))
+            + ' · 身份 ' + esc(String(stageBlock.identity || '').slice(0, 12)) + '… · 待进入代 ' + esc(String(stageBlock.incomingGeneration || '').slice(0, 12)) + '…'
+            + asArray(stageBlock.slots).map((slot) => '<div>槽 ' + esc(String(slot.slot || '?')) + ' · 代 ' + esc(String(slot.generation || '').slice(0, 12))
+              + '… · 状态 ' + esc(String(slot.status || '未知')) + (slot.locked === true ? ' · 正在被占用' : '')
+              + (slot.protectedReason ? ' · 受保护：' + esc(String(slot.protectedReason)) : '') + ' · 已存在 ' + esc(stageSlotAge(slot.ageMs)) + '</div>').join('')
+            + (stageBlock.releaseCandidate === true && job.stageBlockReleaseCapable === true && job.commandId
+              ? '<button type="button" class="mini secondary" data-command="releaseJobStageBlockSlots" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="实时复核后展示精确绝对/相对路径，经一次确认隔离并登记删除这条最旧 committed 暂存槽；不改变训练完成状态，只自动重试这条同步。">释放旧文件占用</button>'
+              : '<div class="muted">' + (stageBlock.releaseCandidate === true ? '配套 SimpleSFTP 未提供受控释放能力或实时能力未确认；仅显示卡点，不会猜测路径。' : '该卡点当前无可释放候选（被占用、非终态或时间不明），不会提供释放入口。') + '</div>')
+            + '</div>';
           const anomalyRerunButton = status === "completed" && job.completionState === "review_required" && job.lifecycleProtocol === 2 && job.workerId && job.commandId
             ? '<button type="button" class="mini secondary" data-command="retryDistributedJob" data-runtime-anomaly-rerun="true" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="仅重跑此 job；已有产物沿用完整路径双确认，保留其他任务。">覆盖产物并重跑此 job</button>' : '';
           const blockText = job.lifecycleProtocol === 2 ? String(job.statusQueryError || job.blockReason || "") : job.outputIsolationBlocked || blocked ? String(job.blockReason || "") : "";
@@ -14971,7 +14991,7 @@ function renderPanelHtml() {
             + (job.manualDispatchNotice ? '<div class="muted">' + esc(job.manualDispatchNotice) + '</div>' : '')
             + (job.latestArtifactSync ? '<div class="muted">最新产物同步：' + esc(job.latestArtifactSync.state === "synced" ? "已同步到全部启用服务器" : job.latestArtifactSync.state === "excluded" ? "不在当前勾选范围内" : "未完成，可刷新重试") + '</div>' : '')
             + (blockText ? '<div class="executionDistributedJobError">' + esc(blockText) + (blockAdvice ? '<div>下一步：' + esc(blockAdvice.replace(/^下一步：/, "")) + '</div>' : '') + '</div>' : '')
-            + (errorText ? '<div class="executionDistributedJobError">' + esc(executionJobErrorSummary(errorText)) + (job.artifactError && artifactButtons ? '<div class="muted">点“刷新产物状态”核对；需要补传时点“重试产物同步”，无需重跑训练。</div>' : preflightRejected || codeProofBlocked ? jobNext : '<div class="muted">点击“查看窗口日志”查看完整输出。</div>') + '</div>' : '') + '</div>';
+            + (errorText ? '<div class="executionDistributedJobError">' + esc(executionJobErrorSummary(errorText)) + (job.artifactError && artifactButtons ? '<div class="muted">点“刷新产物状态”核对；需要补传时点“重试产物同步”，无需重跑训练。</div>' : preflightRejected || codeProofBlocked ? jobNext : '<div class="muted">点击“查看窗口日志”查看完整输出。</div>') + '</div>' : '') + stageBlockHtml + '</div>';
         }).join("") + '</div>' : '';
         const opHtml = opRows.length ? '<h3>最近操作</h3><div class="operationTimeline">' + opRows.map(renderOperationItem).join("") + '</div>' : "";
         const taskHtml = taskRows.length ? '<h3>任务与日志</h3>' + renderPlanTaskCards(state, sortedTasks, selected, group.key) : "";
@@ -15212,6 +15232,8 @@ function renderPanelHtml() {
             trainLogPath: job.trainLogPath,
             error: job.error,
             artifactError: job.artifactError,
+            artifactStageBlock: job.artifactStageBlock,
+            stageBlockReleaseCapable: job.stageBlockReleaseCapable === true,
             latestArtifactSync: job.latestArtifactSync,
             retainExistingOutputs: job.retainExistingOutputs,
             automaticRetry: job.automaticRetry,
@@ -17895,7 +17917,7 @@ function renderPanelHtml() {
       else if (planCommand && el("planFileInput")) payload.planFile = el("planFileInput").value;
       if (!payload.planFile && command === "archivePlan" && el("planFileInput")) payload.planFile = el("planFileInput").value;
       if (button.dataset.planId) payload.planId = button.dataset.planId;
-      if (["refreshJobArtifacts", "retryJobArtifactSync"].includes(command)) {
+      if (["refreshJobArtifacts", "retryJobArtifactSync", "releaseJobStageBlockSlots"].includes(command)) {
         if (button.dataset.planIds) { try { payload.planIds = JSON.parse(button.dataset.planIds); } catch {} }
         if (button.dataset.commandId) payload.commandId = button.dataset.commandId;
       }

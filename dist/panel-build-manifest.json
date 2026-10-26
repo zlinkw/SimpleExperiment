@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.415",
-  "buildId": "afc2999a59004e42e4c27049d09b6536360058d621ca26b5eb8f05125fdac066",
+  "version": "0.5.416",
+  "buildId": "5d967cbfec049e1d66bc2033573fa8725ce6e0b11a8da72ce319203d7fa32ba0",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -97,7 +97,7 @@
     },
     {
       "path": "dist/extension/CompletedJobSyncHost.js",
-      "sha256": "5660d2503d57dacbf3ffbf9318121e8e18fa1e9f5c728e7ad9fa5806dcd97539"
+      "sha256": "9e43120b42b892a91f88593d7a590a27f4757f70d2fafef2771cc4a9376f6e72"
     },
     {
       "path": "dist/extension/ExtensionContext.js",
@@ -117,7 +117,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "c403a7cfefe49515f5828608296423a4202bced80af8c5ddf538132d4090d108"
+      "sha256": "e689dceac2ceab0c54b7a4b8e99ed2e2fbe990ac6189aa6f26cdd29501398ec1"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -249,7 +249,7 @@
     },
     {
       "path": "dist/features/DistributedPlanQueue.js",
-      "sha256": "0376ff1fc8b2a7522a16528bd3523199d7f9cdb52d08629bd799f000fd32f480"
+      "sha256": "5ee16a00d27d30b4e1b3ecce21e7583c563d3b9620b13df05b1ddd81085a698c"
     },
     {
       "path": "dist/features/DistributedProjectContract.js",
@@ -313,7 +313,7 @@
     },
     {
       "path": "dist/features/JobArtifactSyncIdentity.js",
-      "sha256": "783c8dff4948d2ef7d63bf956dd02a260133b1adff9183bbdfb87ca062f5fad6"
+      "sha256": "c96e41bbee0a14c5f9b2d4872ef873419d0526c4ad5e3d6488931b8bf0d6a93d"
     },
     {
       "path": "dist/features/JobAvailability.js",
@@ -341,7 +341,7 @@
     },
     {
       "path": "dist/features/ManualJobDispatch.js",
-      "sha256": "16356ea9e4c41831d46cb02368b48a34271cd8db3407a31300e1a20cd47a91e2"
+      "sha256": "d18a4bedbd10f048bb8cd6b58ce901f17f089e4a4f5fd83ef3bd50a1a6785c30"
     },
     {
       "path": "dist/features/NativePlanRetry.js",
@@ -717,7 +717,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "90b59cc2d17af4e711b9258568049d88226ae32fd7965c0bda125dda5f358af9"
+      "sha256": "7afa4619a7cb60aae756955d3908d6acdeab6095748d842c3648be25c4acce9e"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -941,7 +941,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "02a60d8a1fc425ab2a968cdb836a77795bec84fdcaaf2d09b12c5a26aca27550"
+      "sha256": "3184860192f8f895049874b2a04eec270314b1e2ddcfc38f2861fc4e8c106200"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1065,7 +1065,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "af606d5c6c2d310c56050c624ae75b8044bb1a3aa3656deb826b1c5dd50dc6b3"
+      "sha256": "f76771d10ba432fdd0dbc9ea981e648fb34e3c11f96843342215f4ff2fc563fd"
     },
     {
       "path": "scripts/check-static.js",

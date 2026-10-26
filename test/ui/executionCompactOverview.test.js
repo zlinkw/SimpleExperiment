@@ -91,7 +91,9 @@ test('native cards display readable execution and result states independently', 
 });
 test('production panel projection preserves independent states and redraws result-only changes', () => {
   const source=readSource('src/extension/legacy.ts');
-  const start=source.indexOf('const distributedPlans = visibleDistributedPlanProgress.map(');
+  // 0.5.416 配套：投影块开头新增能力门判定（if+const stageBlockReleaseCapable），
+  // 切片起点必须取真实语句边界（if 行），否则 map 内引用的裸 const 在 VM 里未定义。
+  const start=source.indexOf('if (visibleDistributedPlanProgress.some(plan =>');
   const end=source.indexOf('const summaryInputs =',start);
   assert.ok(start>0&&end>start);
   const rows=[{id:'wf',planFile:'plans/states.yaml',jobs:[{index:0,case:'a',seed:42,status:'failed',lifecycleProtocol:2,
@@ -114,7 +116,8 @@ test('real panel projection and rendered PLAN/job labels share the current synch
   workerId:'a',commandId:'command',globalJobId:'wf:0',outputDir:'work/job',collectionResultCsv:'work/job/metrics.csv'};
  plan.jobs=[job];job.verifiedCompletion={schemaVersion:1,exitCode:0,verifiedAt:'2026-10-15T00:00:00Z',identity:completionIdentity(plan,job)};
  job.latestArtifactSync={state:'synced',scopes:[job.outputDir],workerIds:targets.map(t=>t.id),checkedAt:'2026-10-15T01:00:00Z',key:latestJobSyncKey(plan,job,[job.outputDir],targets)};
- const source=readSource('src/extension/legacy.ts'),start=source.indexOf('const distributedPlans = visibleDistributedPlanProgress.map('),end=source.indexOf('const summaryInputs =',start);
+ // 0.5.416 配套：同上一用例，切片起点取投影块真实语句边界（if 行），保证块内裸 const 有定义。
+ const source=readSource('src/extension/legacy.ts'),start=source.indexOf('if (visibleDistributedPlanProgress.some(plan =>'),end=source.indexOf('const summaryInputs =',start);
  for(const changed of [false,true]){
   const configured=structuredClone(targets);if(changed)configured[0].host='replacement-server';
   const projected=vm.runInNewContext(source.slice(start,end)+'distributedPlans;',{
@@ -965,4 +968,52 @@ test("queried absent historical windows reserve no active slot and never count a
   assert.match(sandbox.html,/未发现执行窗口 1/);
   assert.match(sandbox.html,/待核实 1/);
   assert.doesNotMatch(sandbox.html,/已完成 Plan 历史|· 派发 1|· 排队 1|· 运行 1/);
+});
+
+// 0.5.416 配套（se-stage-block-visibility-release）：暂存槽卡点在 Job 错误区的显示矩阵。
+// 「卡在哪台/哪个范围/通道/身份＋两槽」始终按结构化字段显示；「释放旧文件占用」按钮仅当
+// 结构化 releaseCandidate 与扩展端实时能力门（stageBlockReleaseCapable）同时成立才出现。
+const stageBlockFixture = (overrides = {}) => ({ schemaVersion: 1, code: "TRANSFER_STAGE_PENDING",
+  destination: { id: "nwpu3", profile: "work", host: "nwpu3.invalid" }, scope: '["job-artifacts","plans/p.yaml",0,"c0",42]',
+  lane: 1, identity: "a".repeat(64), incomingGeneration: "b".repeat(64),
+  slots: [{ slot: "slot-0", path: ".staged-slots/aaa/slot-0", generation: "c".repeat(64), status: "committed",
+      createdAt: 1, terminalAt: 2, updatedAt: 3, timeSource: "journal-terminalAt", ageMs: 172800000, locked: false, protectedReason: null },
+    { slot: "slot-1", path: ".staged-slots/aaa/slot-1", generation: "d".repeat(64), status: "running", createdAt: 4, terminalAt: 0,
+      updatedAt: 5, timeSource: null, ageMs: null, locked: true, protectedReason: "lock-held" }],
+  releaseCandidate: true, ...overrides });
+const stageBlockJob = (extra = {}) => ({ index: 0, case: "done", seed: 42, status: "completed", completionState: "verified",
+  lifecycleProtocol: 2, workerId: "nwpu3", commandId: "cmd-a",
+  artifactError: "最新产物同步未完成：TRANSFER_STAGE_PENDING: 两代暂存槽均被同一来源的已提交代占用 · 暂存槽卡点：主机 nwpu3.invalid",
+  ...extra });
+
+test("stage block shows host/profile/scope/lane/identity and both slots in the job error area while keeping the readable error line", () => {
+  const sandbox = clickSandbox();
+  sandbox.render({ distributedPlans: [{ id: "wf", planFile: "plans/p.yaml", jobs: [stageBlockJob({
+    artifactStageBlock: stageBlockFixture(), stageBlockReleaseCapable: true })] }] });
+  assert.match(sandbox.html, /最新产物同步未完成：TRANSFER_STAGE_PENDING/, "文本兼容：原错误行原样保留");
+  assert.match(sandbox.html, /暂存槽卡点：主机 nwpu3\.invalid（profile work）/);
+  assert.match(sandbox.html, /通道 1/);
+  assert.match(sandbox.html, /身份 aaaaaaaaaaaa…/);
+  assert.match(sandbox.html, /待进入代 bbbbbbbbbbbb…/);
+  assert.match(sandbox.html, /槽 slot-0[^<]*状态 committed[^<]*已存在 2 天/, "槽 0：committed＋两天年龄");
+  assert.match(sandbox.html, /槽 slot-1[^<]*正在被占用[^<]*受保护：lock-held/, "槽 1：占用与保护原因可见");
+  assert.match(sandbox.html, /data-command="releaseJobStageBlockSlots" data-plan-id="wf" data-job-index="0" data-command-id="cmd-a"/, "能力齐备＋候选=释放按钮");
+});
+
+test("no release button without live capability, without a release candidate, or without structured block; the old SFTP plain-text line still shows", () => {
+  const oldSftp = clickSandbox();
+  oldSftp.render({ distributedPlans: [{ id: "wf", planFile: "plans/p.yaml", jobs: [stageBlockJob({ stageBlockReleaseCapable: true })] }] });
+  assert.doesNotMatch(oldSftp.html, /data-command="releaseJobStageBlockSlots"/, "无结构化卡点（旧 SFTP）：只有原文本行，不猜卡点");
+  assert.match(oldSftp.html, /TRANSFER_STAGE_PENDING/);
+  const capabilityMissing = clickSandbox();
+  capabilityMissing.render({ distributedPlans: [{ id: "wf", planFile: "plans/p.yaml", jobs: [stageBlockJob({
+    artifactStageBlock: stageBlockFixture(), stageBlockReleaseCapable: false })] }] });
+  assert.doesNotMatch(capabilityMissing.html, /data-command="releaseJobStageBlockSlots"/, "新 SE＋旧 SFTP（能力不齐备）不出现按钮、不猜路径");
+  assert.match(capabilityMissing.html, /暂存槽卡点：主机 nwpu3\.invalid/, "但卡点仍要显示");
+  assert.match(capabilityMissing.html, /不会猜测路径/);
+  const protectedOnly = clickSandbox();
+  protectedOnly.render({ distributedPlans: [{ id: "wf", planFile: "plans/p.yaml", jobs: [stageBlockJob({
+    artifactStageBlock: stageBlockFixture({ releaseCandidate: false }), stageBlockReleaseCapable: true })] }] });
+  assert.doesNotMatch(protectedOnly.html, /data-command="releaseJobStageBlockSlots"/, "locked/非终态/时间未知=无候选，不提供释放入口");
+  assert.match(protectedOnly.html, /无可释放候选/);
 });

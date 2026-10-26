@@ -110,7 +110,7 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
         outputIsolationBlocked: undefined,
         trustedTerminalStatus: undefined, admissionRejection: undefined, formalConflictEvidence: undefined, originalExecution: undefined,
         statusQueryError: undefined, lastObservedAt: undefined, tmuxWindowId: undefined, tmuxPane: undefined, tmuxSession: undefined,
-        artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, latestArtifactSync: undefined, mirroredWorkerIds: undefined, fragmentWorkerIds: undefined,
+        artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, artifactStageBlock: undefined, latestArtifactSync: undefined, mirroredWorkerIds: undefined, fragmentWorkerIds: undefined,
         manualDispatchNotice: online ? undefined : "目标服务器未连接，已回到自动派发队列。",
         checkpointTestOnly: undefined, localQueueOnly: true, blockReason: online ? undefined : "目标服务器未连接，已回到自动派发队列。",
         manualDispatch: online ? { workerId: request.workerId, gpuId: String(request.gpuId), stage: "ready" } : undefined });

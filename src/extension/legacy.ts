@@ -25,7 +25,7 @@ import { syncGpuQuotaPolicies } from "./GpuQuotaPolicyHost";
 import { closeGpuTmuxSession, closeTmuxSession, manageTmuxSession } from "./GpuTmuxClose";
 import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
 import { deleteConfirmedScopeCopy, previewConfirmedScopeDeletion, completeConfirmedScopeDeletion, type ConfirmedScopeBatch, type ConfirmedScopeOutcome } from "../features/SyncScopeDelete";
-import { jobArtifactRunGeneration, syncScopeStagingIdentity } from "../features/JobArtifactSyncIdentity";
+import { artifactStageBlockFromError, jobArtifactRunGeneration, stagedSlotReleaseEvidenceReady, syncScopeStagingIdentity, type JobArtifactStageBlock } from "../features/JobArtifactSyncIdentity";
 import { SafeRequestRetry, RequestReplacedError, assertRetryRequestCurrent, retryRequestSignal } from "../core/SafeRequestRetry";
 import { UiCommandCancelled } from "../core/UiCommandCancelled";
 import { preparePlanSafeRetry } from "../features/PlanSafeRetry";
@@ -611,7 +611,7 @@ const uiActionCommands = new Set<WebviewActionCommand>([
     "abortScheduler",
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
-    "refreshJobArtifacts", "retryJobArtifactSync",
+    "refreshJobArtifacts", "retryJobArtifactSync", "releaseJobStageBlockSlots",
     "analyzeRuntimeLog",
     "answerRunConfirmation", "retryPlanSubmission", "cancelPlanSubmission",
     "cleanupPlan", "reviewIsolatedPlanBatches",
@@ -654,7 +654,7 @@ const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
 ]);
 const UI_LAYOUT_SECTION_KEYS = new Set(defaultUiSectionOrder);
 const UI_BUTTON_ACTION_COMMANDS = new Set([
-    "refreshJobArtifacts", "retryJobArtifactSync",
+    "refreshJobArtifacts", "retryJobArtifactSync", "releaseJobStageBlockSlots",
     "cleanupPlan", "reviewIsolatedPlanBatches",
     "markJobUnavailable", "restoreJobAvailability",
     "recallFailedJob",
@@ -742,6 +742,7 @@ const OPERATION_NOTICE_TITLES: Record<string, string> = {
     // through the withUiCommandStatus funnel instead of repeating as card grey text.
     retryJobArtifactSync: "重试产物同步", refreshJobArtifacts: "刷新产物状态",
     syncPendingPlanArtifacts: "同步待同步产物", syncAllResultArtifacts: "同步全部结果文件",
+    releaseJobStageBlockSlots: "释放旧文件占用",
 };
 const PLAN_SCHEDULER_COMMANDS = new Set([...PLAN_PREFLIGHT_COMMANDS, ...PLAN_SUBMISSION_COMMANDS]);
 const RESULT_PARSE_COMMANDS = new Set(["parseResults", "refreshResults"]);
@@ -7013,6 +7014,8 @@ return this.testTunnel(true);
             case "refreshJobArtifacts":
             case "retryJobArtifactSync":
                 return this.withManualResultSync(() => this.artifactSyncFromUi(message, command === "refreshJobArtifacts"));
+            case "releaseJobStageBlockSlots":
+                return this.withManualResultSync(() => this.releaseJobStageBlockSlotsFromUi(message));
             case "splitProjectResultTable":
                 await this.splitProjectResultTableFromUi(message);
                 break;
@@ -7094,7 +7097,7 @@ return this.testTunnel(true);
         // text come from the classified result (partial/submitted never count as synced success);
         // begin sits inside the try and try/finally closes every exit — normal/failed/cancelled/
         // remote-pending/unexpected throw — so nothing dangles.
-        const artifactNoticeKey = ["retryJobArtifactSync", "refreshJobArtifacts", "syncPendingPlanArtifacts", "syncAllResultArtifacts"].includes(command)
+        const artifactNoticeKey = ["retryJobArtifactSync", "refreshJobArtifacts", "syncPendingPlanArtifacts", "syncAllResultArtifacts", "releaseJobStageBlockSlots"].includes(command)
             ? this.operationNoticeKey(message) : "";
         let noticeOutcome: any;
         try {
@@ -7124,7 +7127,7 @@ return this.testTunnel(true);
                     return { status: "completed", message: String(value.message) };
                 if (command === "runAllPlans" && typeof value?.selectionOnly === "boolean" && ["completed", "submitted", "failed", "cancelled"].includes(value.status))
                     return { status: value.status, message: String(value.message) };
-                if (["queueRemainingJobs", "refreshJobArtifacts", "retryJobArtifactSync"].includes(command) && value && ["completed","submitted","failed","cancelled"].includes(value.status))
+                if (["queueRemainingJobs", "refreshJobArtifacts", "retryJobArtifactSync", "releaseJobStageBlockSlots"].includes(command) && value && ["completed","submitted","failed","cancelled"].includes(value.status))
                     return {status:value.status,message:String(value.message||value.status)};
                 if (["stopAndClearPlan", "stopAndClearPlans", "stopAllPlans", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
                     const outcome = value.status === "partial" ? "failed" : value.status;
@@ -7221,7 +7224,7 @@ return this.testTunnel(true);
         // r4: artifact-sync commands keep the full text in the same log channel and advance
         // their funnel notification (display truncation stays display-only); other commands
         // keep their existing routing and the card grey line untouched.
-        if (["retryJobArtifactSync", "refreshJobArtifacts", "syncPendingPlanArtifacts", "syncAllResultArtifacts"].includes(command)) {
+        if (["retryJobArtifactSync", "refreshJobArtifacts", "syncPendingPlanArtifacts", "syncAllResultArtifacts", "releaseJobStageBlockSlots"].includes(command)) {
             this.logOperationFact(`[${clientActionId}] ${command} ${status}：${String(message || "")}`);
             this.reportOperationNotice(clientActionId, `${status}：${String(message || "")}`);
         }
@@ -13034,6 +13037,178 @@ this.assertPlanTopologyReady("Plan 调度");
         this.postState();
         return { status: report.errors.length ? "failed" : "completed", message: `${verifyOnly ? "产物状态核对" : "产物增量同步"}：${report.synced} 个 job 已一致，${report.excluded} 个不在勾选范围，${report.errors.length} 个未完成${report.errors.length ? "。" + report.errors.join("；") : "。"}` };
     }
+    ensureStagedSlotReleaseCapabilities() {
+        // 释放入口的能力判定=对 SimpleSFTP 实时 capabilities 的共享读取（每次插件启动一份，传输层失效自动重发现），
+        // 绝不按版本号推断；旧 SFTP 缺任一裁定能力或读取失败都记 false——面板不出现释放按钮，本类方法也拒绝执行。
+        const launch = this.simpleSftpCapLaunch;
+        if (this.stagedSlotReleaseCapability && this.stagedSlotReleaseCapability.launch === launch) return;
+        if (this.stagedSlotReleaseCapabilityCheck && this.stagedSlotReleaseCapabilityCheck.launch === launch) return;
+        const entry: { launch: number; promise: Promise<void> } = { launch, promise: undefined as any };
+        entry.promise = (async () => {
+            let ok = false;
+            try { ok = stagedSlotReleaseEvidenceReady(await this.readSimpleSftpCapabilities()); } catch { ok = false; }
+            const previous = this.stagedSlotReleaseCapability?.ok === true;
+            this.stagedSlotReleaseCapability = { launch, ok };
+            if (ok && !previous) this.postState();
+        })().finally(() => { if (this.stagedSlotReleaseCapabilityCheck === entry) this.stagedSlotReleaseCapabilityCheck = undefined; });
+        this.stagedSlotReleaseCapabilityCheck = entry;
+        void entry.promise.catch(() => undefined);
+    }
+    async releaseJobStageBlockSlotsFromUi(message) {
+        // 「释放旧文件占用」专用一次性受控链（裁定 Q5＋终审 P1-1/P1-2/P1-3＋0.2.114 提前释放）：完整能力门
+        // （方法＋选项齐备，含 isolatedMaintenanceDelete.userConfirmedSlotRelease）→ 冻结队列行核对
+        // → 实时只读重核候选 → 冻结 journal 绑定（identity/完整代/committed/过期阈值/终态时刻＋requireExpired:false
+        //    ＝用户确认提前释放，仅免锁内年龄阈值，其余检查全保留，digest 前置不可翻转）
+        // → files.cleanup.preview 精确冻结＋后端自证（safety 三标志缺任一即在确认前停，旧后端＝不给入口）
+        // → 一次明确确认 → confirm(phase 1, exactTargets) → execute 隔离（引擎持槽锁、rename 前对当前 journal 复检绑定）
+        // → status 隔离完成回执证成 → 校上下文 → isolatedMaintenanceDelete（删除集合只从冻结 token/digest 派生）
+        // → 最终只读复核 → 校上下文 → 只重试原同步（Job 完成状态不动）。
+        // 不新增远程 shell/直删路径；预览零写入；任何隔离/回执不明只停不重放；隔离开始后的每个异步边界
+        // 与每个后续修改（登记删除、重试同步）之前都重新校上下文，上下文已变则如实报告已完成到哪一步；
+        // 本流程的一次确认不外溢到通用清理入口。
+        const root = workspaceRoot(), client = this.client, generation = this.projectContextGeneration;
+        if (!root || !client) throw new Error("请连接当前项目的 Worker 后重试。");
+        const planId = String(message.planId || ""), jobIndex = Number(message.jobIndex), commandId = String(message.commandId || "");
+        if (!planId || !Number.isInteger(jobIndex) || !commandId) throw new Error("释放缺少精确 job 身份，未执行任何修改。");
+        const isCurrent = () => workspaceRoot() === root && this.client === client && this.projectContextGeneration === generation;
+        const assertCurrent = () => { if (!isCurrent()) throw new Error("项目或连接已变化，释放已停止；未确认的修改不会继续。"); };
+        // 1. 实时能力门：按钮出现与否之外，执行入口同样独立复核，绝不按版本号放行。
+        let releaseCapable = false;
+        try { releaseCapable = stagedSlotReleaseEvidenceReady(await this.readSimpleSftpCapabilities()); } catch { releaseCapable = false; }
+        if (!releaseCapable) {
+            this.recordActionError({ command: "releaseJobStageBlockSlots", message: "配套 SimpleSFTP 未声明完整的受控暂存槽释放能力，释放未执行；保留原始错误文本。" });
+            return { status: "failed", message: "配套 SimpleSFTP 未声明完整的受控暂存槽释放能力（实时 capabilities 判定），释放未执行；请更新并重启 SimpleSFTP。" };
+        }
+        // 2. 冻结候选只读队列行——UI 只回传身份，路径/代/identity 一律取持久化的净化卡点。
+        const queue = await this.loadDistributedQueue(root);
+        assertCurrent();
+        const plan = queue.plans.find(row => row.id === planId);
+        const job = plan?.jobs.find(row => row.index === jobIndex && row.commandId === commandId);
+        const block: JobArtifactStageBlock | undefined = job ? artifactStageBlockFromError({ stageBlock: job.artifactStageBlock }) : undefined;
+        if (!plan || !job || !block) return { status: "failed", message: "该 job 的暂存槽卡点已不存在或身份已变化，未执行释放；请刷新产物状态。" };
+        if (block.releaseCandidate !== true) return { status: "failed", message: "当前卡点没有可释放候选（槽被占用、非终态或时间不明），未执行任何修改。" };
+        const target = this.workerCodeSyncTargets().find(row => String(row.id || "") === block.destination.id);
+        if (!target) return { status: "failed", message: `目标 ${block.destination.id || "未知"} 未连接或未启用，无法核对释放对象；未执行任何修改。` };
+        const server = this.sftpServerOptions(target);
+        const node = { kind: "remote", host: server.host, user: server.user || server.username, port: server.port, root: server.remotePath };
+        // 3. 实时只读重核：候选必须仍是本 identity 通道退出窗口的最旧 committed 槽，且路径＋完整代与冻结卡点一致；
+        //    locked/非 committed/候选不唯一=protected，不提供强制释放。未满 1 天的退出候选允许经一次确认提前释放。
+        const live = await this.simpleSftpApiCall("files.cleanup.stagedSlots", { node, identity: block.identity, generation: block.incomingGeneration });
+        assertCurrent();
+        const candidates = Array.isArray(live?.candidates) ? live.candidates : [];
+        const candidate = candidates.length === 1 ? candidates[0] : undefined;
+        const persistedSlot = candidate ? block.slots.find(row => row.path === String(candidate.relativePath || "")
+            && row.generation === String(candidate.generation || "")) : undefined;
+        if (!candidate || candidate.status !== "committed" || candidate.locked === true || candidate.releaseCandidate !== true || !persistedSlot) {
+            const protectedReason = candidates.length === 1 && candidates[0].protectedReason ? `：${candidates[0].protectedReason}` : "";
+            return { status: "failed", message: `实时复核未确认可释放候选（候选须唯一、committed、未被占用，且路径与完整代匹配冻结卡点${protectedReason}），未执行任何修改。` };
+        }
+        const relativePath = String(candidate.relativePath || "");
+        // 3b. 冻结 journal 绑定（终审 P1-1＋0.2.114 解冻）：identity、完整代、committed 状态、远端过期阈值
+        //     （随本次盘点返回的 expiry，两种模式下都照实必填，绝不塞 0/缺省去暗关年龄规则）与终态时刻
+        //     （journal 本身无终态时刻时为 null）必须在预览时显式带上——已批准的 SimpleSFTP 只在下发时把它
+        //     交给引擎，引擎在持有槽锁、no_replace rename 之前逐条对当前 journal 复检；不传=锁内只剩槽锁
+        //     检查，预览的只读结论跨不过这段窗口。任一项缺失=fail-closed，绝不发送无绑定的释放预览。
+        //     requireExpired:false（0.2.114，字段名逐字采用）＝"用户亲自确认的提前释放"专用语义：引擎仅
+        //     跳过最后那条年龄阈值，其余锁内检查（形状/identity/完整代/committed/终态精确一致/畸形时间/
+        //     future/createdAt 矛盾）原样保留；true/缺省=0.2.113 行为，年轻槽会在确认后仍被年龄规则拒，
+        //     因此本用户确认链一律发 false，且 requireExpired 已进 digest 前置，预览后不可翻转。
+        const journalIdentity = block.identity, journalGeneration = String(candidate.generation || "");
+        const journalExpiryMs = Number(live?.expiry?.ms);
+        const journalTerminalAt = Number.isInteger(Number(candidate.terminalAt)) && Number(candidate.terminalAt) > 0
+            ? Number(candidate.terminalAt) : null;
+        if (!/^[0-9a-f]{64}$/.test(journalIdentity) || !/^[0-9a-f]{64}$/.test(journalGeneration)
+            || !Number.isInteger(journalExpiryMs) || journalExpiryMs <= 0) {
+            return { status: "failed", message: "暂存槽 journal 绑定信息不完整（identity/完整代必须是 64hex，过期阈值必须是正整数），未执行任何修改。" };
+        }
+        const archiveBatch = "job-" + crypto.createHash("sha256")
+            .update(JSON.stringify(["staged-slot-release", block.identity, candidate.generation, relativePath, crypto.randomBytes(8).toString("hex")])).digest("hex").slice(0, 48);
+        // 4. 精确预览（只读、冻结 token/digest/绝对路径＋journal 绑定）；预览失败不产生任何远端修改。
+        const preview: any = await this.simpleSftpApiCall("files.cleanup.preview", { node, action: "isolate", consumerRoot: root,
+            authorizationSource: "single_confirmation_release",
+            stagedJournal: { identity: journalIdentity, generation: journalGeneration, status: "committed",
+                expiryMs: journalExpiryMs, terminalAt: journalTerminalAt, requireExpired: false },
+            targets: [{ relativePath, type: "directory", archiveBatch, destination: "clean_dir/" + archiveBatch + "/" + relativePath }] });
+        assertCurrent();
+        // 4b. 后端自证（终审 P1-2＋0.2.114）：isolate 预览的 safety 三个标志（后台隔离删除、隔离完成回执、
+        //     用户确认提前释放）都由连上的后端逐目标自证派生，不支持即显式缺省（旧 0.2.113 没有提前释放
+        //     旗＝预期 fail-closed，不做兜底）。缺任一=在弹确认和任何修改之前停止并如实说明；预览是只读操作。
+        if (preview?.safety?.backgroundIsolatedDelete !== 1 || preview?.safety?.isolationCompletionReceipt !== 1
+            || preview?.safety?.userConfirmedSlotRelease !== 1) {
+            this.recordActionError({ command: "releaseJobStageBlockSlots", message: `${block.destination.id}：连上的后端未在预览中自证后台隔离删除、隔离完成回执与用户确认提前释放能力（preview.safety 标志缺失，可能不支持提前释放），已停止；未确认、未执行任何修改。` });
+            return { status: "failed", message: "连上的后端未在预览中自证后台隔离删除、隔离完成回执与用户确认提前释放能力（preview.safety 标志缺失，后端不支持提前释放），未执行任何修改；请更新并重启 SimpleSFTP。" };
+        }
+        const pending = (Array.isArray(preview?.targets) ? preview.targets : []).map((row, index) => ({ row, index })).filter(({ row }) => row.missing !== true);
+        if (preview?.token !== undefined && preview?.digest !== undefined && pending.length === 1 && pending[0].row.absolutePath !== undefined
+            && String(pending[0].row.relativePath) === relativePath && String(pending[0].row.destination) === "clean_dir/" + archiveBatch + "/" + relativePath) {
+            // 5. 一次明确确认：展示的绝对/相对路径即下面 confirm exactTargets 与执行绑定，逐字一致。
+            const ageText = Number.isInteger(candidate.ageMs) ? Math.floor(Number(candidate.ageMs) / 3600000) + " 小时" : "未知";
+            const terminalText = Number(candidate.terminalAt) > 0 ? new Date(Number(candidate.terminalAt)).toLocaleString() : "未知（时间来源 " + String(candidate.timeSource ?? "未知") + "）";
+            const profileText = block.destination.profile ? "（profile " + block.destination.profile + "）" : "";
+            const detail = [
+                `主机 ${block.destination.host}${profileText} · 范围 ${block.scope} · 通道 ${block.lane}`,
+                `目标项目根：${server.remotePath}`,
+                `绝对路径：${pending[0].row.absolutePath}`,
+                `相对路径：${pending[0].row.relativePath}`,
+                `槽 ${persistedSlot.slot} · 代 ${candidate.generation} · 状态 ${candidate.status}`,
+                `终态时间：${terminalText} · 已存在 ${ageText}`,
+                "释放影响：该旧代暂存副本先进入既有隔离区，隔离完成回执证成后才登记永久删除；本 job 的训练完成状态不变，释放后只自动重试这一条产物同步。",
+            ].join("\n");
+            const accepted = await vscode.window.showWarningMessage("确认释放旧文件占用（一次确认，仅作用上面这一个冻结候选）\n" + detail, { modal: true }, "确认释放此暂存槽");
+            if (accepted !== "确认释放此暂存槽") return { status: "cancelled", message: "已取消释放；预览是只读操作，未执行任何修改。" };
+            assertCurrent();
+            // 6. 隔离 → 状态证成 → 登记删除（集合只从冻结 token/digest 派生）→ 最终只读复核。
+            const exactTargets = pending.map(({ row }) => String(row.absolutePath));
+            await this.simpleSftpApiCall("files.cleanup.confirm", { token: preview.token, digest: preview.digest, confirm: true, phase: 1, consumerRoot: root, exactTargets });
+            for (const { index } of pending) { assertCurrent(); await this.simpleSftpApiCall("files.cleanup.execute", { token: preview.token, digest: preview.digest, index, consumerRoot: root }); }
+            // 终审 P1-3：隔离开始后的每个异步边界都要重新校上下文。已发出的隔离不会因此回滚，但登记
+            // 永久删除与重试同步都是后续修改——上下文一变，两者必须停下，且如实报告"已完成到哪一步"。
+            let isolated = false, unknownState = false, contextChanged = false;
+            for (let attempt = 0; attempt < 40; attempt++) {
+                const row: any = await this.simpleSftpApiCall("files.cleanup.status", { token: preview.token, consumerRoot: root });
+                if (pending.every(({ index }) => String(row?.states?.[index]) === "completed")) { isolated = true; break; }
+                if (pending.some(({ index }) => String(row?.states?.[index]) === "unknown")) { unknownState = true; break; }
+                if (!isCurrent()) { contextChanged = true; break; }
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                if (!isCurrent()) { contextChanged = true; break; }
+            }
+            if (contextChanged) {
+                this.recordActionError({ command: "releaseJobStageBlockSlots", message: `${block.destination.id}：隔离完成回执尚未证成时项目或连接已变化，已停止轮询；隔离请求此前已发出，未登记永久删除、未重试同步（token ${String(preview.token).slice(0, 8)}…）。` });
+                return { status: "failed", message: "项目或连接已变化：隔离请求此前已发出、完成回执未证成；未登记永久删除、未重试产物同步，原始同步保持部分同步与真实错误。" };
+            }
+            if (!isolated) {
+                // 隔离结果不明=停止且不再发送任何修改（裁定停止条件）；真实状态由台账后续读取收敛。
+                this.recordActionError({ command: "releaseJobStageBlockSlots", message: `${block.destination.id}：隔离完成回执${unknownState ? "为 unknown" : "未在限定时间内证成"}，已停止且未重放修改（token ${String(preview.token).slice(0, 8)}…）。` });
+                return { status: "failed", message: `隔离完成回执${unknownState ? "为 unknown" : "未在限定时间内证成"}，已停止且未重放修改；原始同步保持部分同步与真实错误。` };
+            }
+            // 隔离已证成——登记永久删除（后续修改）之前再校一次上下文：不回滚已完成的隔离，只停下登记与重试。
+            if (!isCurrent()) {
+                this.recordActionError({ command: "releaseJobStageBlockSlots", message: `${block.destination.id}：旧暂存槽隔离已完成，但项目或连接已变化；未登记永久删除、未重试产物同步。` });
+                return { status: "failed", message: `已释放 ${block.destination.host} 的旧暂存槽（${relativePath}）：隔离已完成；项目或连接已变化，未登记永久删除、未重试产物同步。` };
+            }
+            const deletion: any = await this.simpleSftpApiCall("files.cleanup.isolatedMaintenanceDelete", { token: preview.token, digest: preview.digest, consumerRoot: root,
+                targets: pending.map(({ index, row }) => ({ index, relativePath: String(row.relativePath), destination: String(row.destination) })) });
+            const deleteState = String(deletion?.state || "unknown");
+            if (!["accepted", "already_accepted"].includes(deleteState)) {
+                this.recordActionError({ command: "releaseJobStageBlockSlots", message: `${block.destination.id}：隔离副本删除登记未接受（state ${deleteState}）。` });
+                return { status: "failed", message: `隔离副本的登记删除未接受（state ${deleteState}）；原始同步保持部分同步与真实错误。` };
+            }
+            // 最终只读复核：原槽应已退出本 identity 的盘点（观测性，不据此重发修改）。
+            const recheck = await this.simpleSftpApiCall("files.cleanup.stagedSlots", { node, identity: block.identity, generation: block.incomingGeneration }).catch(() => undefined);
+            const stillThere = Array.isArray(recheck?.candidates) && recheck.candidates.some(row => String(row?.relativePath || "") === relativePath);
+            // 7. 只重试这一条原产物同步（CompletedJobSyncHost 只写产物同步字段，不改 Job 完成状态）。
+            //    重试是对"新"上下文可能有害的后续修改：上下文已变则如实报告"删除已登记"并到此为止。
+            if (!isCurrent()) {
+                this.recordActionError({ command: "releaseJobStageBlockSlots", message: `${block.destination.id}：隔离副本删除已登记（state ${deleteState}），但项目或连接已变化；未重试产物同步。` });
+                return { status: "failed", message: `已释放 ${block.destination.host} 的旧暂存槽（${relativePath}）并登记永久删除；项目或连接已变化，未重试产物同步。` };
+            }
+            const sync = await this.artifactSyncFromUi({ planId, jobIndex, commandId }, false);
+            const suffix = stillThere ? "（最终只读复核仍见该候选，稍后刷新产物状态核对）" : "";
+            if (sync.status === "completed") return { status: "completed", message: `已释放 ${block.destination.host} 的旧暂存槽（${relativePath}）并完成产物同步。${suffix}` };
+            return { status: "failed", message: `已释放 ${block.destination.host} 的旧暂存槽（${relativePath}）；${suffix}产物同步仍未完成：${sync.message}` };
+        }
+        return { status: "failed", message: "预览未能把候选冻结为唯一隔离目标（token/路径绑定不完整），未执行任何修改。" };
+    }
     private async syncCompletedPlanArtifacts(context) {
         const root = context.root;
         const client = this.client;
@@ -14483,8 +14658,12 @@ this.assertPlanTopologyReady("Plan 调度");
             failedJobs.add(jobKey(plan, job));
             job.artifactError = errorMessage(error);
             job.artifactRetryAfter = new Date(Date.now() + 30_000).toISOString();
+            // 0.2.113 配套：错误原文不变；结构化卡点（若有）净化后同 patch 写入，同一写冲掉旧卡点。
+            const stageBlock = artifactStageBlockFromError(error);
+            job.artifactStageBlock = stageBlock;
             await this.patchDistributedJob(root, plan.id, job.index, job.attempt,
-                { artifactError: job.artifactError, artifactRetryAfter: job.artifactRetryAfter });
+                { artifactError: job.artifactError, artifactRetryAfter: job.artifactRetryAfter, artifactStageBlock: stageBlock });
+            if (stageBlock) this.ensureStagedSlotReleaseCapabilities();
             const message = `${plan.planFile} job ${job.index}：${job.artifactError}`;
             failures.push(message);
             this.recordActionError({ command: "distributedArtifactSync", message });
@@ -14650,9 +14829,10 @@ this.assertPlanTopologyReady("Plan 调度");
         for (const [key, { plan, job }] of verifiedJobs) {
             if (failedJobs.has(key) || !(job.artifactError || job.artifactRetryAfter)) continue;
             await this.patchDistributedJob(root, plan.id, job.index, job.attempt,
-                { artifactError: undefined, artifactRetryAfter: undefined });
+                { artifactError: undefined, artifactRetryAfter: undefined, artifactStageBlock: undefined });
             job.artifactError = undefined;
             job.artifactRetryAfter = undefined;
+            job.artifactStageBlock = undefined;
         }
         if (verifyAll && failures.length) throw new Error(`服务器最新产物同步未完成（${failures.length} 项）：${failures.slice(0, 3).join("；")}`);
     }
@@ -21678,6 +21858,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
     private simpleSftpCapLaunch = 0;
     private simpleSftpCapShared: { launch: number; promise: Promise<{ endpoint: URL; headers: Record<string, string>; methods: unknown[]; instanceId: string; features: Record<string, unknown>; methodOptions: Record<string, unknown> }> } | undefined;
+    // 0.2.113 配套：释放入口能力门的同步可读快照（同一次 SimpleSFTP 启动只实时读一次，绝不按版本号推断）。
+    private stagedSlotReleaseCapability: { launch: number; ok: boolean } | undefined;
+    private stagedSlotReleaseCapabilityCheck: { launch: number; promise: Promise<void> } | undefined;
     beginSimpleSftpCapabilityLaunch() {
         // 31：新启动上下文必须重新取得一次能力；不跨启动、运行代际或 Scheduler 更换复用旧结果。
         this.simpleSftpCapLaunch = (this.simpleSftpCapLaunch || 0) + 1;
@@ -25254,6 +25437,13 @@ return "历史服务器";
                     return ACTIVE_PLAN_RUN_STATUSES.has(status) || ["unknown", "waiting_confirmation"].includes(status);
                 });
             });
+        // 0.2.113 配套：卡点投影。释放按钮的启用取决于对 SimpleSFTP 实时 capabilities 的读取结果
+        // （stagedSlotReleaseCapability 是同次启动的共享读，缺失/失败=false，绝不按版本号推断）；
+        // 队列行一旦带结构化卡点就惰性触发一次该读取，读全后仅在能力成立时刷新一次面板。
+        if (visibleDistributedPlanProgress.some(plan => (plan.jobs || []).some(job => job.artifactStageBlock)))
+            this.ensureStagedSlotReleaseCapabilities();
+        const stageBlockReleaseCapable = this.stagedSlotReleaseCapability?.ok === true
+            && this.stagedSlotReleaseCapability.launch === this.simpleSftpCapLaunch;
         const distributedPlans = visibleDistributedPlanProgress.map((plan) => ({ id: plan.id, projectId: plan.projectId, schedulingMode: plan.schedulingMode,
                 localDispatchOverride: plan.localDispatchOverride === true,
                 planJobCount: plan.planJobCount, fullPlanJobCount: plan.fullPlanJobCount, recoveryMissingCount: plan.recoveryMissingCount, remoteAcceptedJobCount: plan.remoteAcceptedJobCount,
@@ -25274,7 +25464,11 @@ return "历史服务器";
                     recallOperationId: job.recallOperationId || "",
                     commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt, outputRetiredAt: job.outputRetiredAt,
                     error: job.error, blockReason: job.blockReason, admissionRejection: job.admissionRejection, failureDiagnostic: job.failureDiagnostic, formalConflictEvidence: job.formalConflictEvidence,
-                    artifactError: job.artifactError, latestArtifactSync: job.latestArtifactSync ? PlanArtifactSyncStatus.projectJobArtifactSync(plan, job,
+                    artifactError: job.artifactError,
+                    artifactStageBlock: job.artifactStageBlock && job.artifactStageBlock.schemaVersion === 1
+                        && job.artifactStageBlock.code === "TRANSFER_STAGE_PENDING" ? job.artifactStageBlock : undefined,
+                    stageBlockReleaseCapable: stageBlockReleaseCapable && job.artifactStageBlock?.releaseCandidate === true ? true : undefined,
+                    latestArtifactSync: job.latestArtifactSync ? PlanArtifactSyncStatus.projectJobArtifactSync(plan, job,
                         this.workerCodeSyncTargets(), normalizeMirrorScopePaths(vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(workspaceRoot())).get("serverSync.paths", ["."])),
                         this.planArtifactSyncReceiptHoldsRoot === workspaceRoot() ? this.planArtifactSyncReceiptHolds : {}) : undefined, mirroredWorkerIds: job.mirroredWorkerIds || [] })) }));
         const summaryInputs = {

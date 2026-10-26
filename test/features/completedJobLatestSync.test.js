@@ -358,3 +358,52 @@ test('a real automatic sync failure is still surfaced once when the identity re-
  assert.equal(f.jobs[0].status,'completed','执行完成状态不被改写');
  assert.equal(f.jobs[0].latestArtifactSync.state,'partial','partial 重试记录与 30s 自动恢复保留');
 });
+
+// 0.5.416 配套（se-stage-block-visibility-release）：暂存槽卡点的宿主透传。
+// 契约：错误原文逐字保留（含 SFTP 追加的可读卡点后缀）；结构化 stageBlock（含 apiData 位置）
+// 净化后随同一 patch 与文本同写同清；成功与"下一次无卡点失败"都不得留下过期释放入口。
+const stageBlockShape=()=>({ schemaVersion:1, code:'TRANSFER_STAGE_PENDING',
+ destination:{id:'b',profile:'work',host:'nwpu3.invalid'}, scope:JSON.stringify(['job-artifacts','plans/p.yaml',0,'case0',42]),
+ lane:0, identity:'a'.repeat(64), incomingGeneration:'b'.repeat(64),
+ slots:[{slot:'slot-0',path:'.staged-slots/'+'a'.repeat(64)+'/slot-0',generation:'c'.repeat(64),status:'committed',createdAt:1,terminalAt:2,updatedAt:3,
+   timeSource:'journal-terminalAt',ageMs:172800000,locked:false,protectedReason:null,injected:'x'},
+  {slot:'slot-1',path:'.staged-slots/'+'a'.repeat(64)+'/slot-1',generation:'d'.repeat(64),status:'running',createdAt:4,terminalAt:0,updatedAt:5,
+   timeSource:null,ageMs:null,locked:true,protectedReason:'lock-held'}],
+ releaseCandidate:true });
+const stageBlockMessage='TRANSFER_STAGE_PENDING: 两代暂存槽均被同一来源的已提交代占用 · 暂存槽卡点：主机 nwpu3.invalid（profile work） · 范围 job-artifacts · 通道 0 · 身份 aaaaaaaaaaaa… · 待进入代 bbbbbbbbbbbb…';
+
+test('staged-slot stage block: readable error kept verbatim, structured slots persisted with full host/scope/lane/two slots, unknown fields dropped',async()=>{
+ const f=fixture();const original=f.h.simpleSftpApiCall;
+ f.h.simpleSftpApiCall=async(...args)=>{await original(...args);const error=new Error(stageBlockMessage);error.stageBlock=stageBlockShape();throw error;};
+ await f.run();const job=f.jobs[0];
+ assert.equal(job.status,'completed','卡点绝不改写训练完成状态');
+ assert.equal(job.latestArtifactSync.state,'partial');
+ assert.match(job.artifactError,new RegExp('^最新产物同步未完成：'+stageBlockMessage.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),'文本兼容：SFTP 可读卡点后缀逐字保留在 artifactError');
+ assert.equal(job.artifactStageBlock.identity,'a'.repeat(64));
+ assert.deepEqual(job.artifactStageBlock.destination,{id:'b',profile:'work',host:'nwpu3.invalid'},'主机/profile 全量持久化');
+ assert.equal(job.artifactStageBlock.scope,JSON.stringify(['job-artifacts','plans/p.yaml',0,'case0',42]),'范围=调用方声明的稳定 scope，逐字保留');
+ assert.equal(job.artifactStageBlock.slots.length,2,'两槽事实全部可见');
+ assert.equal(job.artifactStageBlock.slots[0].path,'.staged-slots/'+'a'.repeat(64)+'/slot-0','后台释放绑定必须拿到完整路径');
+ assert.equal(job.artifactStageBlock.slots[0].generation,'c'.repeat(64),'完整 64hex 代，不被缩写');
+ assert.equal(job.artifactStageBlock.slots[1].locked,true);assert.equal(job.artifactStageBlock.slots[1].protectedReason,'lock-held');
+ assert.equal(JSON.stringify(job.artifactStageBlock).includes('"injected"'),false,'白名单外字段不落队列文件');
+ assert.equal(f.errors.length,1);assert.match(f.errors[0].message,/TRANSFER_STAGE_PENDING/,'操作日志仍是原可读文本');
+ // 成功重试：文本与卡点同一 patch 清除，释放入口不留残影。
+ f.h.simpleSftpApiCall=original;f.jobs[0].latestArtifactSync.retryAfter='';
+ await new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],{force:true,jobs:[{planId:'plan',index:0,commandId:'command0'}]});
+ assert.equal(job.artifactError,undefined);assert.equal(job.artifactStageBlock,undefined,'成功后卡点随错误一并清除');
+ assert.equal(job.latestArtifactSync.state,'synced');
+});
+
+test('stage block also accepted from error.apiData, and a following blockless failure clears the stale block instead of keeping a stale release entry',async()=>{
+ const f=fixture();const original=f.h.simpleSftpApiCall;
+ f.h.simpleSftpApiCall=async(...args)=>{await original(...args);const error=new Error(stageBlockMessage);error.apiData={stageBlock:stageBlockShape()};throw error;};
+ await f.run();assert.ok(f.jobs[0].artifactStageBlock,'apiData.stageBlock 位置同样透传');
+ // 下一次失败无结构化字段：文本照常，旧卡点必须被同一次 patch 冲掉（防止对已消失候选保留按钮）。
+ f.h.simpleSftpApiCall=async(...args)=>{await original(...args);throw Error('另一链路故障');};
+ f.jobs[0].latestArtifactSync.retryAfter='';
+ await new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],{force:true,jobs:[{planId:'plan',index:0,commandId:'command0'}]});
+ assert.equal(f.jobs[0].artifactStageBlock,undefined,'无卡点的新失败清掉旧卡点');
+ assert.match(f.jobs[0].artifactError,/另一链路故障/);
+ assert.equal(f.jobs[0].latestArtifactSync.state,'partial');
+});
