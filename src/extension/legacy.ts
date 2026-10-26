@@ -8266,8 +8266,9 @@ return this.testTunnel(true);
             { ...validation, existing: [...existingByIndex.values()] }, true);
         if (body.existingOutputChoice === "rerun_missing")
             body.distributedSkipJobIndices ??= [...existingByIndex.keys()];
-        else if (body.existingOutputChoice === "rerun_all")
-            body.distributedSkipJobIndices = [];
+        // r82（0.5.414）：此处曾有 `else if (rerun_all) body.distributedSkipJobIndices = []`——无条件清空
+        // 刚由隔离审核得出的安全排除（现场缺陷①）。rerun_all 只表示"用户想全跑"，派发资格仍由
+        // enqueueDistributedPlan 的 planDispatchSelection 按 runReplacement.blocked 划分；这里不再改写。
     }
     async confirmPlanExistingOutputs(plan, body, validated, versionedAttempts = false) {
         const validation = planValidationFromResult(validated);
@@ -13365,8 +13366,12 @@ this.assertPlanTopologyReady("Plan 调度");
                 signal: AbortSignal.timeout(8000) }); }
             catch (error) { return { workerId: worker.id, error: errorMessage(error) }; }
         }));
+        // r82：占用核查豁免是显式决定=用户跳过 ∪ 隔离阻断（本轮不派发故不核查其启动观测），
+        // 不再是"清空排除表"的副作用；阻断源只认隔离流程的结构化 blocked（runReplacement.blocked）。
         const skip = new Set(body.distributedSkipJobIndices || []);
-        WorkerTaskQuery.assertLaunchObservations(snapshots, (validation?.jobs || []).filter(job => !skip.has(Number(job.index))));
+        const launchObservationExempt = new Set([...skip, ...(body.runReplacement?.flow === "isolate" && Array.isArray(body.runReplacement.blocked)
+            ? body.runReplacement.blocked.map((row: any) => Number(row?.index)) : [])].filter(Number.isInteger));
+        WorkerTaskQuery.assertLaunchObservations(snapshots, (validation?.jobs || []).filter(job => !launchObservationExempt.has(Number(job.index))));
         for (const snapshot of snapshots) if (declarations.length && snapshot.capabilities?.declaredResultQuery !== 1)
             throw new Error("Worker " + snapshot.workerId + "：需要更新 Agent/Scheduler 以查询当前声明的结果；未删除或提交。");
         body.workerSubmissionSnapshots = snapshots;
@@ -13420,8 +13425,13 @@ this.assertPlanTopologyReady("Plan 调度");
         // Replacement already finished through the confirmed cleanup service. A new
         // formal writer must still reject occupied paths; never forward overwrite.
         const overwriteExisting = false;
-        const skipped = new Set(body.existingOutputChoice !== "rerun_missing" ? [] : (Array.isArray(body.distributedSkipJobIndices) ? body.distributedSkipJobIndices.map(Number) : []));
-        const selectedJobs = validation.jobs.filter((job) => !skipped.has(Number(job.index)));
+        // r82：入队选择走共享选择函数（此前"非补跑即清空"让隔离阻断 job 随 rerun_all 蒸发，现场缺陷②）。
+        // 划分：可执行（入队+可派发）/ 隔离暂停（入队可见 pending+job 级标记，不派发）/ 有意跳过（不入队）。
+        const selection = DistributedPlanQueue.planDispatchSelection(validation, body);
+        // r90：保留 enqueue 既有契约文本 `selectedJobs = validation.jobs.filter(...)`（distributedRerunAndWorkerDelta
+        // 文本契约钉死）。语义与 planDispatchSelection.selectedJobs 逐字等价：仅剔除"有意跳过"集合；
+        // 隔离暂停 job 的划分仍取 selection.blockedMarkers（入队可见、不派发），行为不变。
+        const selectedJobs = validation.jobs.filter((job) => !selection.userSkipped.has(Number(job.index)));
         if (this.taskLifecycleProtocol === 2 && !body.workerSubmissionSnapshots) await this.assertPlanSubmissionWorkers(body, validated);
         if (!selectedJobs.length) {
             void vscode.window.showInformationMessage("此 Plan 的任务均已有完成产物，本次选择跳过；未提交新任务。");
@@ -13446,6 +13456,8 @@ this.assertPlanTopologyReady("Plan 调度");
             outputDir: String(job.output_dir || "").replace(/\\/g, "/").replace(/\/$/, ""),
             collectionResultCsv: String(job.result_csv || ""),
             checkpointSource: job.checkpoint_source,
+            // r82：隔离阻断 job 以 pending+job 级标记入队——面板可见、四条派发路径过滤、发送前再核都读这份持久事实。
+            outputIsolationBlocked: selection.blockedMarkers.get(Number(job.index)),
         })) }, id);
         const supersededId = String(supersededDeferredId || "");
         const next = supersededId ? { ...enqueued, deferred: (enqueued.deferred || []).map((row) => row.id === supersededId
@@ -13481,7 +13493,9 @@ this.assertPlanTopologyReady("Plan 调度");
         const latest = await this.loadDistributedQueue(root);
         const submittedPlan = latest.plans.find((item) => item.id === id);
         const result = DistributedPlanQueue.distributedSubmissionResult(submittedPlan, dispatchError);
-        return { enqueued: true, ...result };
+        // r82：blockedCount（队列事实）+skippedCount（本轮有意跳过）随提交结果透传给通知层——
+        // 部分提交不得再呈现为无等待的全量接收（现场 r81d：操作记录 status=succeeded、error=""）。
+        return { enqueued: true, ...result, skippedCount: selection.userSkipped.size };
     }
     detachStaleDistributedTick(task) {
         if (!task || this.distributedQueueTickPromise !== task) return;
@@ -13607,6 +13621,19 @@ this.assertPlanTopologyReady("Plan 调度");
             || probes?.[workerId]?.capabilities?.endpoints?.taskShellEnvironment !== 1
             || probes?.[workerId]?.capabilities?.endpoints?.projectManagedValidation !== 1)
             throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE：${workerId} 未声明正式身份与登录 shell 环境协议；请部署匹配的 Scheduler 和 Agent。`);
+        // r82：最终发送口统一再核——四条派发路径（自动 tick、旧兼容 tick、服务器/手动、失败恢复重试）
+        // 与任何未来旁路都在此按最新持久队列复核隔离阻断；标记来自磁盘队列事实而非调用方传入的内存候选。
+        // 说明：既有方法提取型测试宿主可没有 loadDistributedQueue（行为不变）；生产扩展类始终具备该方法，守卫必然生效。
+        // r90（413 兼容）：再核整体移到 Worker 协议门之后——旧协议必须在任何队列读写之前被拒
+        // （formalIdentityContract 契约"旧能力不得触达队列保存/发送"），此前置读盘会先抛出队列错误、吞掉 WORKER_PROTOCOL_INCOMPATIBLE。
+        if (typeof this.loadDistributedQueue === "function" && root) {
+            const persisted = await this.loadDistributedQueue(root);
+            if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+                throw new Error("派发上下文已变化；未发送任务。");
+            const persistedJob = persisted.plans.find((row) => row.id === plan.id)?.jobs.find((row) => row.index === job.index);
+            if (persistedJob?.outputIsolationBlocked)
+                throw new Error("OUTPUT_ISOLATION_BLOCKED：" + DistributedPlanQueue.outputIsolationNotice(persistedJob));
+        }
         const executionMode = PlanExecutionMode.requirePlanExecutionMode(plan.executionMode);
         const target = this.workerActionTargets().find((item) => item.id === workerId);
         if (!target) throw new Error(`Worker ${workerId} 配置已失效`);

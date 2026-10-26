@@ -84,7 +84,13 @@ export class ManualDispatchHost {
       workerSubmissionSnapshots:[],runReplacement:{}};
     const validation={execution_mode:plan.executionMode,jobs:jobs.map(j=>({index:j.index,case:j.case,seed:j.seed,output_dir:j.outputDir,result_csv:j.collectionResultCsv}))};
     await h.assertPlanSubmissionWorkers(body,{validation});
-    try {await new PlanRunHost(h,this.root).replace(plan,body,validation);return (body as any).assignedExperimentIndices;}
+    try {await new PlanRunHost(h,this.root).replace(plan,body,validation);
+      // r82：审核结果成对透传——accepted 可派发，blocked（隔离未完成/核验未知，带 stage/code）交派发层
+      // 打 job 级阻断标记。此前只回 assignedExperimentIndices，阻断 job 被派发层当普通未完成 job 处理，
+      // 正是现场"排除又派发"的入口之一；取消仍返回 false（未移动任何文件）。
+      const blocked=(body as any).runReplacement?.blocked||[];
+      return {accepted:(body as any).assignedExperimentIndices||[],
+        blocked:blocked.map((row:any)=>({index:Number(row.index),reason:String(row.reason||""),stage:row.stage,code:row.code,operationId:row.operationId}))};}
     catch(error:any){if(error.apiData?.code==="REPLACEMENT_CANCELLED")return false;throw error;}
   }
 }

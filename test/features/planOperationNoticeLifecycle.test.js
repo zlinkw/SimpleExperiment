@@ -376,3 +376,28 @@ test('webpage messages become native info/warning/error actions with full logs a
   for (let index = 0; index < 40; index++) sandbox.notify.call(host, { message: 'message-' + index });
   assert.ok(host.webviewNoticeLastAt.size <= 32);
 });
+
+// ── r82（0.5.414）：部分提交如实呈现（413 上红）────────────────────────────────
+// 现场：一 job 隔离执行被拒（四 target 全 pending、pendingNodes:[]），操作记录仍是
+// status="succeeded"、error=""（r81d local_operations run-plan 记录键集无任何阻断表达），
+// 用户看到"预演通过，开启调度"。修复契约：blockedCount 进入提交结果与进度文案；
+// 三类如实文案（未启动+下一步 / 过期须重新预览 / 现场失败走"重新排队此 job"）有单源投影。
+// r83 返修：拆开短路——进度呈现与文案投影各自独立成用例，任一红不再遮蔽其余断言的复现机会。
+test('r82 red: a partial submission with isolation-paused jobs is never announced as full success and names the next step', () => {
+  const Queue = require('../../dist/features/DistributedPlanQueue.js');
+  const progress = Queue.distributedSubmissionProgress({ enqueued: true, localQueued: true, pendingCount: 0, blockedCount: 2, dispatchError: '' });
+  assert.equal(progress.waiting, true, '存在隔离暂停 job 时操作不得落为无等待的完成态');
+  assert.doesNotMatch(progress.message, /调度队列已接收；面板继续显示/, '部分提交不得沿用全量接收文案');
+  assert.match(progress.message, /隔离未完成/); assert.match(progress.message, /2/);
+  assert.match(progress.message, /重新审核/);
+});
+test('r82 red: the isolation notice states 未启动+下一步 and never claims success', () => {
+  const Queue = require('../../dist/features/DistributedPlanQueue.js');
+  const notice = Queue.outputIsolationNotice({ index: 3, outputIsolationBlocked: { reason: 'nwpu3：ACTIVE_TRANSFER SimpleSFTP files.cleanup.execute：[ACTIVE_TRANSFER]', stage: 'execute', code: 'ACTIVE_TRANSFER', declarationKey: 'work/j3', observedAt: '2026-10-26T03:13:15.000Z' } });
+  assert.match(notice, /未启动/); assert.match(notice, /重新审核/); assert.doesNotMatch(notice, /已成功|已完成本次/);
+});
+test('r82 red: an expired preview token notice demands a fresh preview with exact paths', () => {
+  const Queue = require('../../dist/features/DistributedPlanQueue.js');
+  const expired = Queue.outputIsolationNotice({ index: 3, outputIsolationBlocked: { reason: 'PREVIEW_EXPIRED', stage: 'execute', code: 'PREVIEW_EXPIRED', declarationKey: 'work/j3', observedAt: '2026-10-26T03:13:15.000Z' } });
+  assert.match(expired, /重新生成预览/); assert.match(expired, /精确路径/);
+});

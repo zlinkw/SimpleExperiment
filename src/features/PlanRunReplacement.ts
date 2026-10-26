@@ -1,14 +1,20 @@
-import { busyEvidenceFromError, cleanupDigest, cleanupError, CleanupPreview } from "./PlanCleanup";
+import { busyEvidenceFromError, cleanupDigest, cleanupError, isolationReceiptComplete, CleanupPreview } from "./PlanCleanup";
 
 export type RunReplacement = { key?: string; flow?: "isolate"; previews?: Array<{ index: number; preview: CleanupPreview }>;
   choice?: "rerun_all" | "rerun_missing"; phase?: number; selectedIndices?: number[]; completed?: string[];
-  blocked?: Array<{ index: number; reason: string; codes?: string[]; busyOnly?: boolean;
+  // r82（0.5.414）：每条阻断必须带产生阶段——preview=预览拒绝/异常，execute=执行拒绝或结果不完整
+  // （含状态兜底失败），verify=隔离后源核验失败。旧持久化条目可缺 stage，消费端按"未核实"保守处理。
+  blocked?: Array<{ index: number; reason: string; stage?: "preview" | "execute" | "verify"; code?: string; operationId?: string; codes?: string[]; busyOnly?: boolean;
     busy?: Array<Record<string, unknown> & { nodeId?: string }> }>; done?: boolean };
+export type RunReplacementBlockedFact = { index: number; reason: string; stage: "preview" | "execute" | "verify"; code?: string };
 export type RunReplacementPorts = {
   preview(job: any): Promise<CleanupPreview>;
   service: any;
   execute(id: string): Promise<any>;
   verify(preview: CleanupPreview): Promise<void>;
+  // r87 块4：后台清隔离副本的旁路提交（仅"本次 rerun_all + 完成回执齐备"时触发，不进派发 await 链）。
+  // 返回真实受理状态（accepted≠completed）；调用方 fire-and-forget，失败只落操作日志与通知。
+  autoDeleteIsolated?(operationId: string): Promise<{ state: "accepted" | "failed" | "unknown"; operationId?: string; message?: string }>;
   ask(payload: any): Promise<string>;
   save(): Promise<void>;
   assertCurrent(): void;
@@ -69,7 +75,8 @@ const busyDetail = (rows: Array<{ busy?: Array<Record<string, unknown> & { nodeI
 
 /** One flow for normal runs and explicit retries: isolate old outputs first, admit each job independently. */
 export async function replaceRunOutputs(ports: RunReplacementPorts, state: RunReplacement, planFile: string,
-  jobs: any[], completedIndices: number[], key: string): Promise<{ choice: "rerun_all" | "rerun_missing"; selectedIndices: number[] }> {
+  jobs: any[], completedIndices: number[], key: string): Promise<{ choice: "rerun_all" | "rerun_missing"; selectedIndices: number[];
+  blocked: RunReplacementBlockedFact[] }> {
   ports.assertCurrent();
   if (state.key && state.key !== key) cleanupError("RUN_DECLARATION_CHANGED", "本次任务或服务器配置已变化，请重新提交并确认路径。");
   state.key = key;
@@ -82,7 +89,7 @@ export async function replaceRunOutputs(ports: RunReplacementPorts, state: RunRe
   if (!state.previews) {
     state.flow = "isolate";
     const previews: Array<{ index: number; preview: CleanupPreview }> = [];
-    const blocked: Array<{ index: number; reason: string; codes: string[]; busyOnly: boolean;
+    const blocked: Array<{ index: number; reason: string; stage: "preview"; code?: string; codes: string[]; busyOnly: boolean;
       busy: Array<Record<string, unknown> & { nodeId?: string }> }> = [];
     let next = 0, fatal: any;
     const read = async () => { while (next < jobs.length && !fatal) {
@@ -100,7 +107,7 @@ export async function replaceRunOutputs(ports: RunReplacementPorts, state: RunRe
           const codes = [...preview.blockers.map(row => String(row.code || "").trim() || "UNCLASSIFIED_BLOCKER"),
             ...anomalies.map(row => String(row.error || "").trim() || "PROTECTED_OR_UNCLASSIFIED_PATH")];
           const busy = preview.blockers.filter(row => row.busy).map(row => Object.assign({ nodeId: row.nodeId }, row.busy));
-          blocked.push({ index: Number(job.index), reason, codes, busyOnly: busyOnlyEvidence(codes), busy });
+          blocked.push({ index: Number(job.index), reason, codes, busyOnly: busyOnlyEvidence(codes), busy, stage: "preview", code: codes[0] });
           previews[position] = { index: Number(job.index), preview: emptyPreview(Number(job.index)) };
           ports.progress("任务 " + job.index + " 暂不能安全隔离；本轮仅暂停该 job，不等待其他任务：" + reason);
           continue;
@@ -117,7 +124,8 @@ export async function replaceRunOutputs(ports: RunReplacementPorts, state: RunRe
         const thrownEvidence = busyEvidenceFromError(error);
         const thrownBusy = thrownEvidence ? [Object.assign({ nodeId: String(job?.id || "") }, thrownEvidence)] : [];
         blocked.push({ index: Number(job.index), reason: String(error?.apiData?.detail || error?.message || code || "preview_failed"),
-          codes: [code || "UNCLASSIFIED_PREVIEW_ERROR"], busyOnly: code === TRANSFER_BUSY_CODE, busy: thrownBusy });
+          codes: [code || "UNCLASSIFIED_PREVIEW_ERROR"], busyOnly: code === TRANSFER_BUSY_CODE, busy: thrownBusy,
+          stage: "preview", code: code || "UNCLASSIFIED_PREVIEW_ERROR" });
         previews[position] = { index: Number(job.index), preview: emptyPreview(Number(job.index)) };
         ports.progress("任务 " + job.index + " 无法建立隔离预览；本轮仅暂停该 job：" + blocked[blocked.length - 1].reason);
       }
@@ -192,31 +200,74 @@ export async function replaceRunOutputs(ports: RunReplacementPorts, state: RunRe
         let recheckFailure: unknown; let recheckFailed = false;
         await lane("write", async () => {
           try {
-            if ((await ports.service.status(preview.token)).state !== "completed") throw new Error("已记录的隔离批次未确认完成");
-            await ports.verify(preview);
+            const persisted = await ports.service.status(preview.token);
+            if (persisted.state !== "completed") throw new Error("已记录的隔离批次未确认完成");
+            // r87 块4：0.2.111 完成回执（rename 成功、移动当时源缺失、登记成功，已随操作冻结落盘）
+            // 即为移动阶段本节点事实的完备证明，回执齐备不再逐条复核原路径；
+            // 能力缺失或回执不全时走旧 verify 链，强度不变。
+            if (!(Number(persisted.preview?.autoDeleteCapability) === 1 && isolationReceiptComplete(persisted.preview.rows)))
+              await ports.verify(preview);
           } catch (error) { recheckFailed = true; recheckFailure = error; }
         });
-        if (recheckFailed) { blockedIndexes.add(index); state.blocked.push({ index, reason: String((recheckFailure as any)?.message || recheckFailure) }); await ports.save(); }
+        if (recheckFailed) { blockedIndexes.add(index); state.blocked.push({ index, reason: String((recheckFailure as any)?.message || recheckFailure), stage: "verify" }); await ports.save(); }
         continue;
       }
       ports.progress("正在把已确认旧输出移入 clean 隔离区；已完成 " + state.completed.length + "/" + selected.length + " 批…");
-      let moved = false; let blockReason = "";
+      let moved = false; let blockReason = ""; let blockCode = "";
+      // r88：execute 返回的操作快照（能力位+随行回执）在写段回调之外才使用——提升为显式变量、
+      // 回调内赋值；不改 any/断言，也不事后重查插件（"随行冻结"语义保持）。
+      let executePreview: CleanupPreview | undefined;
       await lane("write", async () => {
         let result;
         try { result = await ports.execute(preview.token); }
         catch (error) {
+          // r82：执行拒绝的精确错误码（如 PREVIEW_EXPIRED）必须留在阻断事实里——现场靠它区分
+          // "令牌过期须重新预览"与普通冲突；状态兜底只补"是否已动手"的证据，不洗掉错误码。
+          blockCode = String((error as any)?.apiData?.code || (error as any)?.code || "");
           try { result = await ports.service.status(preview.token); } catch {}
           if (result?.state !== "completed") { blockReason = String((error as any)?.message || error); return; }
         }
-        if (result.state !== "completed" || result.pendingNodes?.length) { blockReason = String(result.error || "部分目标尚未确认隔离完成，可重试失败步骤"); return; }
+        // r82 现场修复：顶层 completed 与空 pendingNodes 都不是准入证明——批次返回逐 target 明细时
+        // 必须逐条核对，任一 target 非 completed（pending/executing/未知）一律不准入（r81a：四 target 全
+        // pending 却"顶层好看"）。无明细保持既有保守判断，不放低标准。
+        const targetRows = Array.isArray(result?.targets) ? result.targets : Object.values(result?.targets || {});
+        const targetPending = targetRows.some((row: any) => row && typeof row === "object" && row.state !== "completed");
+        if (result.state !== "completed" || result.pendingNodes?.length || targetPending) { blockReason = String(result.error || "部分目标尚未确认隔离完成，可重试失败步骤"); return; }
         moved = true;
+        executePreview = result?.preview;
       });
-      if (!moved) { blockedIndexes.add(index); state.blocked.push({ index, reason: blockReason }); await ports.save(); continue; }
+      if (!moved) { blockedIndexes.add(index); state.blocked.push({ index, reason: blockReason, stage: "execute", ...(blockCode ? { code: blockCode } : {}) }); await ports.save(); continue; }
       state.completed.push(preview.token); await ports.save(); // 完成事实先落盘（verify 之前），落盘等待不持写锁——与原顺序一致
       let verifyFailed = false; let verifyReason = "";
-      await lane("write", async () => { try { await ports.verify(preview); } catch (error: any) { verifyFailed = true; verifyReason = String(error?.message || error); } });
-      if (verifyFailed) { blockedIndexes.add(index); state.blocked.push({ index, reason: verifyReason }); await ports.save(); }
+      // r87 块4：receipt-backed = 该预览的插件应答声明后台清理能力，且每个 isolate 目标都返回完整完成回执
+      // （rename 成功、移动当时源缺失、登记成功——execute 返回随操作冻结落盘）。
+      // 回执齐备→跳过原路径复核（不再"读隔离副本/重查源"后才派发）；有能力而回执不全→该 job 按未核实阻断、不派发；
+      // 能力缺失→旧 verify 链原样保留，不削弱也不加强度。
+      const capability = Number(executePreview?.autoDeleteCapability) === 1;
+      const receiptBacked = executePreview !== undefined && capability && isolationReceiptComplete(executePreview.rows);
+      if (capability && !receiptBacked) { verifyFailed = true; verifyReason = "隔离完成回执不完整（rename/移动当时源缺失/登记未全部成功返回），未准入该 job，未提交任务。"; }
+      else if (!receiptBacked)
+        await lane("write", async () => { try { await ports.verify(preview); } catch (error: any) { verifyFailed = true; verifyReason = String(error?.message || error); } });
+      if (verifyFailed) { blockedIndexes.add(index); state.blocked.push({ index, reason: verifyReason, stage: "verify" }); await ports.save(); continue; }
+      // 隔离完成即派发：后台删除是旁路任务，不进本 await 链；仅本轮用户选择 rerun_all 时触发。
+      // autoDeleteIsolated 为 async 方法且传输异常自落 unknown，不会抛回；这里仍只落日志/通知——
+      // 不回滚隔离、不取消已派发 job、不把新 job 判失败；受理/未成功措辞与实际状态逐字一致，
+      // accepted 只说"已提交后台永久删除"，绝不写成"删除已完成"。
+      if (receiptBacked && state.choice === "rerun_all" && ports.autoDeleteIsolated) {
+        const isolateTargets = preview.rows.filter(row => row.disposition === "isolate").map(row => row.node.id + "：" + row.destination).join("、");
+        void ports.autoDeleteIsolated(preview.token).then(outcome => {
+          if (outcome.state === "accepted")
+            ports.progress("旧副本已提交后台永久删除（自动删除不可恢复）：" + isolateTargets + "；不影响已经启动的新任务。");
+          else ports.progress("旧副本后台清理未成功（job " + index + "，" + isolateTargets + "，状态 " + outcome.state
+            + (outcome.operationId ? "，维护号 " + outcome.operationId : "") + "，不影响已启动的新任务）：" + (outcome.message || "未返回原因")
+            + "；副本仍在清理区，可稍后人工复核删除。");
+        }, (error: any) => ports.progress("旧副本后台清理未受理（job " + index + "，" + isolateTargets + "，不影响已启动的新任务）："
+          + String(error?.message || error)));
+      }
     }
+    // r87 块4 兼容矩阵行1：旧插件（未上报能力）→ 保留旧链、不调新接口、不自动删，并明确提示需更新。
+    if (state.choice === "rerun_all" && selected.some(({ preview }) => Number(preview.autoDeleteCapability) !== 1))
+      ports.progress("旧产物已隔离、新任务不受影响，但配套 SimpleSFTP 未上报后台自动清理能力：旧副本不会自动删除；自动清理需更新 SimpleSFTP 到 0.2.111。");
   }
   const accepted = (state.selectedIndices || []).filter(index => !blockedIndexes.has(index));
   if (jobs.length && !accepted.length)
@@ -225,7 +276,12 @@ export async function replaceRunOutputs(ports: RunReplacementPorts, state: RunRe
   // 与旧删除流一致：仅当本轮确有旧输出被隔离时才对已准入 job 建立保留围栏；空产物提交不动队列。
   if (selected.length) await ports.hold(jobs.filter(job => accepted.includes(Number(job.index))));
   state.done = true; await ports.save();
-  return { choice: state.choice!, selectedIndices: accepted };
+  // r82：准入决定结构化交回调用方——selectedIndices（运行选择里最终准入者）与 blocked（隔离未完成/
+  // 核验未知者）成对返回，与"用户有意跳过"互斥；成功轮次也必须显式返回 blocked=[]，
+  // 下游不得把缺字段当"无阻断"或"全放行"。
+  const blockedFacts: RunReplacementBlockedFact[] = (state.blocked || []).filter(row => blockedIndexes.has(Number(row.index)))
+    .map(row => ({ index: Number(row.index), reason: row.reason, stage: row.stage || "verify" as const, ...(row.code ? { code: row.code } : {}) }));
+  return { choice: state.choice!, selectedIndices: accepted, blocked: blockedFacts };
 }
 
 export const runReplacementKey = (plan: string, revision: string, code: string, jobs: any[], nodes: any[]) =>

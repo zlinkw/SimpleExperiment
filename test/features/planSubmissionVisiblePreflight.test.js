@@ -723,3 +723,24 @@ function extract(name) {
   const next = renderedPanel.indexOf("\n    function ", start + 1);
   return renderedPanel.slice(start, next);
 }
+
+// ── r82（0.5.414）：入队选择/占用核查豁免必须显式区分 可执行 / 隔离暂停 / 有意跳过（413 上红）──
+// 现场：legacy.ts:13423 把非 rerun_missing 的排除集清成 []，隔离失败 job 按普通 pending 入队照常派发；
+// assertLaunchObservations（legacy.ts:13368-13369）又用同一 skip 集决定豁免。修复后豁免是显式决定，
+// 且阻断 job 带着 job 级标记入队、界面可见。
+// r83 返修：拆开短路——方法体接线钉与共享选择函数行为各自独立成用例，任一红不再遮蔽其余断言的复现机会。
+test("r82 red: enqueue wiring pins — no erasure, shared selection, job-level marker, explicit exemption", () => {
+  const enqueueMethod = method("enqueueDistributedPlan");
+  assert.equal(/existingOutputChoice !== "rerun_missing" \? \[\]/.test(enqueueMethod), false, "隔离阻断不得随非补跑清空而蒸发");
+  assert.match(enqueueMethod, /planDispatchSelection\(/, "入队选择必须走 DistributedPlanQueue.planDispatchSelection 共享函数");
+  assert.match(enqueueMethod, /outputIsolationBlocked/, "阻断 job 入队必须携带 job 级阻断标记");
+  assert.match(method("assertPlanSubmissionWorkers"), /blocked|launchObservationExempt/, "占用核查豁免必须显式并入隔离阻断 job（本轮不派发），不再是清空排除表的副作用");
+});
+test("r82 red: planDispatchSelection keeps isolation-blocked jobs as visible pending queue entries, launchable only for the safe subset", () => {
+  const selection = DistributedPlanQueue.planDispatchSelection(
+    { jobs: [{ index: 0, output_dir: "w0", result_csv: "c0" }, { index: 1, output_dir: "w1", result_csv: "c1" }] },
+    { existingOutputChoice: "rerun_all", distributedSkipJobIndices: [], runReplacement: { flow: "isolate", blocked: [{ index: 1, reason: "ACTIVE_TRANSFER", stage: "execute", code: "ACTIVE_TRANSFER" }] } });
+  assert.deepEqual(selection.selectedJobs.map(job => Number(job.index)), [0, 1], "阻断 job 仍入队（可见、待处理）");
+  assert.deepEqual(selection.launchableJobs.map(job => Number(job.index)), [0], "只有安全准入者可进入派发候选");
+  assert.equal(selection.blockedMarkers.get(1).stage, "execute");
+});

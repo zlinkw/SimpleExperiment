@@ -1,4 +1,4 @@
-import { DistributedQueue, QueuedJob, QueuedPlan } from "./DistributedPlanQueue";
+import { DistributedQueue, outputIsolationNotice, QueuedJob, QueuedPlan } from "./DistributedPlanQueue";
 import { dispatchAdmissionDenied } from "../project/UnifiedDispatchAdmission";
 
 export type ManualDispatchRequest = { workflowId: string; indices: number[]; workerId: string; gpuId: string;
@@ -10,7 +10,10 @@ export type ManualDispatchPorts = {
   assertCurrent(): void;
   online(workerId: string): boolean; supports(workerId: string): boolean; newCommandId(): string;
   prepare(plan: QueuedPlan): Promise<void>; stop(plan: QueuedPlan, job: QueuedJob): Promise<void>;
-  review(plan: QueuedPlan, jobs: QueuedJob[]): Promise<boolean | number[]>;
+  /** r82：审核可返回 true/false、接受子集，或成对的 {accepted, blocked}——blocked 是隔离
+   * 未完成/核验未知的准入排除（可见、不派发、绝不等于用户保留），与"取消"和"有意跳过"区分。 */
+  review(plan: QueuedPlan, jobs: QueuedJob[]): Promise<boolean | number[] | { accepted?: number[];
+    blocked?: Array<{ index: number; reason: string; stage?: string; code?: string; operationId?: string }> }>;
   send(plan: QueuedPlan, job: QueuedJob): Promise<unknown>; tick(): Promise<void>;
 };
 
@@ -60,7 +63,14 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
     await ports.save(queue);
     const reviewed = await ports.review(plan, selected);
     if (reviewed === false) return { status: "cancelled", message: "文件审核已取消，未启动本批任务。" };
-    const accepted = Array.isArray(reviewed) ? selected.filter(job => reviewed.includes(job.index)) : selected;
+    // r82：三态消费——数组=接受子集；对象={accepted, blocked}成对；其余（true）=全部接受。
+    // blocked 条目是隔离准入排除（本轮不派发），不得借用 retainExistingOutputs 的"用户保留"语义。
+    const blockedDecisions = new Map<number, { index: number; reason: string; stage?: string; code?: string; operationId?: string }>();
+    if (reviewed && !Array.isArray(reviewed) && typeof reviewed === "object")
+      for (const row of reviewed.blocked || []) if (Number.isInteger(Number(row?.index))) blockedDecisions.set(Number(row.index), row);
+    const accepted = Array.isArray(reviewed) ? selected.filter(job => reviewed.includes(job.index))
+      : reviewed && typeof reviewed === "object" && !Array.isArray(reviewed)
+        ? selected.filter(job => (reviewed.accepted || []).includes(job.index)) : selected;
     const online = ports.online(request.workerId);
     if (online) {
       if (!ports.supports(request.workerId)) throw new Error("目标 Worker 尚不支持手动派发，请更新其 Agent/Scheduler。");
@@ -69,8 +79,20 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
     const latest = await ports.load(), current = latest.plans.find(row => row.id === plan.id);
     if (!current || current.revision !== plan.revision) throw new Error("PLAN 已变化，未派发。");
     for (const original of selected.filter(job => !accepted.includes(job))) {
-      const job = current.jobs.find(row => row.index === original.index); if (job) Object.assign(job,
-        { manualDispatch: undefined, retainExistingOutputs: true, status: "cancelled", manualDispatchNotice: "保留已有完成产物，本次未派发。" });
+      const job = current.jobs.find(row => row.index === original.index); if (!job) continue;
+      const decision = blockedDecisions.get(original.index);
+      if (decision) {
+        // 隔离未完成/核验未知：job 保持可见 pending、清掉手动派发身份（不得占用派发身份），
+        // 打 job 级阻断标记+如实原因——它是"待重新审核"，不是"用户保留/沿用完成"。
+        Object.assign(job, { manualDispatch: undefined, manualDispatchNotice: undefined, retainExistingOutputs: undefined,
+          outputIsolationBlocked: { reason: String(decision.reason || "隔离结果未核实"),
+            stage: decision.stage === "preview" || decision.stage === "execute" || decision.stage === "verify" ? decision.stage : "execute",
+            ...(decision.code ? { code: String(decision.code) } : {}), ...(decision.operationId ? { operationId: String(decision.operationId) } : {}),
+            declarationKey: job.outputDir, observedAt: new Date().toISOString() } });
+        job.blockReason = outputIsolationNotice(job);
+        continue;
+      }
+      Object.assign(job, { manualDispatch: undefined, retainExistingOutputs: true, status: "cancelled", manualDispatchNotice: "保留已有完成产物，本次未派发。" });
     }
     for (const original of accepted) {
       const job = current.jobs.find(row => row.index === original.index);
@@ -83,6 +105,9 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
         runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined,
         stopIntent: undefined, automaticRetry: undefined, recallRequested: undefined, reassignmentPending: undefined,
         unavailable: undefined, cleanup: undefined, outputRetiredAt: undefined, trainingRecovery: undefined, retainExistingOutputs: undefined,
+        // r82：走到这里=用户经既有审核路径、精确声明未变（上方身份核对）且本轮隔离完成核验通过，
+        // 随同一次 save 事务性解除阻断标记——除此之外任何路径（投影/合并/重排/重试）都不得清标。
+        outputIsolationBlocked: undefined,
         trustedTerminalStatus: undefined, admissionRejection: undefined, formalConflictEvidence: undefined, originalExecution: undefined,
         statusQueryError: undefined, lastObservedAt: undefined, tmuxWindowId: undefined, tmuxPane: undefined, tmuxSession: undefined,
         artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, latestArtifactSync: undefined, mirroredWorkerIds: undefined, fragmentWorkerIds: undefined,
@@ -107,7 +132,9 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
 export async function dispatchReadyManualJobs(ports: ManualDispatchPorts) {
   const queue = await ports.load();
   for (const plan of queue.plans) for (const job of plan.jobs) {
-    if (job.manualDispatch?.stage !== "ready" || job.commandId || job.status !== "pending") continue;
+    // r82：ready 清扫先核最新持久队列里的隔离阻断——阻断 job 留在 ready 状态等待重新审核，
+    // 绝不发送、不清标记、不产生新副作用（现场缺口：手动 ready 路径此前无隔离概念）。
+    if (job.manualDispatch?.stage !== "ready" || job.commandId || job.status !== "pending" || job.outputIsolationBlocked) continue;
     ports.assertCurrent();
     const placement = job.manualDispatch;
     if (!ports.online(placement.workerId)) {

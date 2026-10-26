@@ -82,6 +82,47 @@ test('missing original command or server identity cannot authorize a replacement
  }
 });
 
+// ── r82（0.5.414）：手动派发链的隔离阻断契约（413 上红）──────────────────────────
+// review 现在可返回 {accepted, blocked}；被阻断 job 保留为可见 pending+outputIsolationBlocked，
+// 绝不借用 retainExistingOutputs（那是用户主动保留语义）；只有接受（隔离完成且核验通过）才事务性清标。
+test('r82 red: review blocking one job by isolation marks it visibly-unlaunchable, never as user-retained',async()=>{
+ const f=fixture();f.ports.review=async()=>({accepted:[1],blocked:[{index:0,reason:'nwpu3：ACTIVE_TRANSFER SimpleSFTP files.cleanup.execute：[ACTIVE_TRANSFER]',stage:'execute',code:'ACTIVE_TRANSFER'}]});
+ const r=await dispatchManualJobs(f.ports,request);assert.deepEqual(r.indices,[1]);assert.equal(f.sends,1);
+ const j0=f.q.plans[0].jobs[0];
+ assert.ok(j0.outputIsolationBlocked,'被阻断 job 必须带独立 job 级阻断字段');
+ assert.equal(j0.outputIsolationBlocked.code,'ACTIVE_TRANSFER');assert.equal(j0.outputIsolationBlocked.stage,'execute');
+ assert.notEqual(j0.retainExistingOutputs,true,'隔离失败不得伪装成"用户保留已有产物"');
+ assert.match(j0.blockReason,/隔离未完成|重新审核/);
+});
+// r83 返修：拆开短路——接受清标、ready 清扫、序列化投影各自独立成用例，任一红不再遮蔽其余断言的复现机会。
+test('r82 red: acceptance clears a prior marker transactionally',async()=>{
+ const g=fixture(),gq=await g.ports.load();
+ gq.plans[0].jobs[1].outputIsolationBlocked={reason:'上轮传输忙',stage:'execute',code:'ACTIVE_TRANSFER',declarationKey:'work/job1',observedAt:'2026-10-26T03:13:15.000Z'};
+ await g.ports.save(gq);g.ports.review=async()=>({accepted:[0,1],blocked:[]});
+ await dispatchManualJobs(g.ports,request);
+ assert.equal(g.q.plans[0].jobs[1].outputIsolationBlocked,undefined,'用户走既有审核路径、隔离完成且核验通过后，随同一次 save 解除');
+ assert.equal(g.sends,2);
+});
+test('r82 red: the ready sweep never sends or loses a blocked job',async()=>{
+ const f=fixture(),q=await f.ports.load();
+ Object.assign(q.plans[0].jobs[0],{localQueueOnly:true,nextCommandId:'ready-command',manualDispatch:{workerId:'worker',gpuId:'0',stage:'ready'},
+  outputIsolationBlocked:{reason:'隔离未完成',stage:'execute',code:'ACTIVE_TRANSFER',declarationKey:'work/job0',observedAt:'2026-10-26T03:13:15.000Z'}});
+ await f.ports.save(q);await dispatchReadyManualJobs(f.ports);
+ assert.equal(f.sends,0,'ready 清扫必须先核最新持久状态的阻断，绝不发送');
+ assert.equal(f.q.plans[0].jobs[0].manualDispatch.stage,'ready','阻断只暂停派发，不吞掉用户已确认的排队意图之外的新副作用');
+ assert.ok(f.q.plans[0].jobs[0].outputIsolationBlocked);
+});
+test('r82 red: serialize/restore projection keeps the block marker and re-projects its explanation',()=>{
+ const Queue=require('../../dist/features/DistributedPlanQueue');
+ const queue={schemaVersion:1,plans:[{id:'p',projectId:'project',planFile:'p.yaml',revision:'r',codeFingerprint:'f',enqueuedAt:'2026-10-26T03:13:15.000Z',
+  resultPathPolicy:'declared',jobs:[{index:0,case:'c',seed:1,attempt:0,outputDir:'work/job0',status:'pending',lifecycleProtocol:2,
+  manualDispatch:{workerId:'worker',gpuId:'0',stage:'ready'},
+  outputIsolationBlocked:{reason:'隔离未完成',stage:'execute',code:'ACTIVE_TRANSFER',declarationKey:'work/job0',observedAt:'2026-10-26T03:13:15.000Z'}}]}]};
+ const restored=Queue.restoreFormalJobQueue(JSON.parse(Queue.serializeDistributedQueue(queue)));
+ assert.ok(restored.plans[0].jobs[0].outputIsolationBlocked,'序列化/恢复投影不得抹掉阻断字段');
+ assert.match(restored.plans[0].jobs[0].blockReason,/旧产物隔离未完成/,'重载后必须能重新解释为何未启动（blockReason 投影）');
+});
+
 test('block B: unified admission denial rewinds the ready job at save and consumes no POST',async()=>{
  const f=fixture(),q0=await f.ports.load();
  Object.assign(q0.plans[0].jobs[0],{localQueueOnly:true,nextCommandId:'ready-command',

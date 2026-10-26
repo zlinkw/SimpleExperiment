@@ -443,6 +443,44 @@ test('协调生命周期：FIFO 后到不越队、获准即抛错必须释放、
   }finally{try{await batch.close();}catch{/* 幂等兜底 */}}
 });
 
+// ── r82（0.5.414）：运行选择与安全准入分离 —— 派发路径接线回归 ──────────────────────
+// 现场（GPT 计划 r80 锚点）：replaceRunOutputs 已把隔离失败 job 排除出准入（PlanRunHost.ts:216-219），
+// 但 legacy.ts 两处 rerun_all 处理又把排除表清空/忽略（:8269-8270、:13423），队列没有独立隔离门槛，
+// 被阻断 job 仍照常派发，远端 cluster_agent.py:7310 FORMAL_JOB_CONFLICT 退出 1、训练未启动。
+// 修复契约：blocked 独立于 distributedSkipJobIndices；入队保留可见的 pending+marker；派发四条路径过滤；
+// 最终发送前按最新持久状态再核。以下在 413 上必须红，修复后转绿。
+test('r82 red wiring pins: rerun_all 不得清空安全排除；入队选择走共享 planDispatchSelection；占用核查豁免含阻断 job',()=>{
+  assert.equal(/=== "rerun_all"\)\s*\n\s*body\.distributedSkipJobIndices = \[\];/.test(legacySource),false,
+    '8269-8270 的 rerun_all 无条件清空安全排除结果必须删除（用户选择=想全跑，只有安全准入者可派发）');
+  assert.equal(/existingOutputChoice !== "rerun_missing" \? \[\]/.test(legacySource),false,
+    '13423 的"非补跑即清空"必须改为共享选择函数；隔离阻断不得随 rerun_all 蒸发');
+  assert.match(legacySource,/planDispatchSelection\(/,'入队必须经 DistributedPlanQueue.planDispatchSelection 统一划分 可执行/隔离暂停/有意跳过');
+  assert.match(legacySource,/runReplacement[\s\S]{0,200}blocked[\s\S]{0,160}assertLaunchObservations|launchObservationExempt/,'占用核查豁免集必须显式包含隔离阻断 job（本轮不派发故不核查，且豁免是显式决定而非清空排除表的副作用）');
+});
+test('r82 red: planDispatchSelection keeps blocked jobs visible-unlaunchable in both rerun_all and rerun_missing; user skips stay skipped',()=>{
+  const {planDispatchSelection}=require('../../src/features/DistributedPlanQueue.ts');
+  assert.equal(typeof planDispatchSelection,'function','必须提供共享选择函数（提交体→队列→派发同一事实源）');
+  const validation={jobs:[0,1,2].map(index=>({index,case:'case'+index,seed:index,output_dir:'work/job'+index,result_csv:'tmp/r'+index+'.csv'}))};
+  const bodyBase=()=>({existingOutputChoice:'rerun_all',distributedSkipJobIndices:[],
+    runReplacement:{flow:'isolate',choice:'rerun_all',blocked:[{index:1,reason:'nwpu3：ACTIVE_TRANSFER SimpleSFTP files.cleanup.execute：[ACTIVE_TRANSFER]',stage:'execute',code:'ACTIVE_TRANSFER'}]}});
+  for(const choice of ['rerun_all','rerun_missing']){
+    const body=bodyBase();body.existingOutputChoice=choice;if(choice==='rerun_missing')body.distributedSkipJobIndices=[2];
+    const s=planDispatchSelection(validation,body);
+    assert.ok(!s.launchableJobs.some(job=>Number(job.index)===1),'隔离未完成的 job 绝不进入可派发选择（两路一致）');
+    assert.ok(s.selectedJobs.some(job=>Number(job.index)===1),'阻断 job 必须仍入队（可见、待处理），不得静默消失');
+    const marker=s.blockedMarkers.get(1);assert.ok(marker,'隔离阻断 job 必须带 marker');assert.equal(marker.stage,'execute');assert.equal(marker.code,'ACTIVE_TRANSFER');
+    assert.equal(marker.declarationKey,'work/job1');assert.ok(marker.observedAt);
+    // r84 机械修（父裁定）：原式 !(…)===choice==='rerun_missing' 因 === 左结合恒为 false（4/4 组合复现，见 block2-stage-brief.md r84 节），与实现对错无关。
+    // 期望方向逐字不变：rerun_missing 时 job2 不入队；rerun_all 时 job2 入选（此前"沿用完成"的 job 重新回流，仍受隔离门槛约束）。
+    const job2Selected = s.selectedJobs.some(job => Number(job.index) === 2);
+    assert.equal(job2Selected, choice !== 'rerun_missing',
+      '有意跳过（rerun_missing 沿用完成）不入队；rerun_all 时 job2 是正常可执行');
+    assert.ok(!(s.userSkipped.has(1)),'隔离失败绝不得计作"沿用完成/有意跳过"');
+    if(choice==='rerun_missing')assert.ok(s.launchableJobs.some(job=>Number(job.index)===0),'补跑路：未跳过的干净 job 可派发');
+    else assert.ok(s.launchableJobs.some(job=>Number(job.index)===2),'全跑路：未阻断的干净 job 可派发');
+  }
+});
+
 test('排队窗口的既有 freshness 契约：等待期间 PLAN 被修改，获准后先经 batch.verify 拒绝，零下游 RPC 且名额释放',async()=>{
   // r75 父裁定：写/读段可能等他 Plan 临界段数秒，等待中用户改 PLAN/代码时，beforeDelete 的核对已过时；
   // legacy isolationGateLocal 在获准后、段体前复用既有 batch.verify(body)（不 memo、不放宽、长准备不入锁）。

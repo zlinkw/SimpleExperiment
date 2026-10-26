@@ -67,6 +67,27 @@ test('a manual queue intent cannot absorb later jobs or unfinished/unknown tasks
  p.jobs[2].workerId='w';p.jobs[3].stopIntent={commandId:'old',workerId:'w',requestedAt:'now',state:'pending'};
  assert.deepEqual(remainingQueueJobs(p).map(job=>job.index),[4,5,6,7]);
 });
+// r82（0.5.414）：隔离未完成 job 对服务器队列派发路径不可见、标记不被清除（现场 r81a：四 target 全 pending、
+// pendingNodes:[]、物理未移走，却在 16 秒后"预演通过，开启调度"照常入队派发）。413 上红。
+test('r82 red: a job with an unresolved isolation block is not a remaining queue job',()=>{
+ const p=plan(5).plans[0];
+ p.jobs[1].outputIsolationBlocked={reason:'nwpu3：ACTIVE_TRANSFER SimpleSFTP files.cleanup.execute：[ACTIVE_TRANSFER]',stage:'execute',code:'ACTIVE_TRANSFER',declarationKey:'work/1',observedAt:new Date().toISOString()};
+ assert.deepEqual(remainingQueueJobs(p).map(job=>job.index),[0,2,3,4]);
+});
+test('r82 red: the real server-queue dispatch sends zero blocked jobs, resplits only the safe subset and never clears the marker',async()=>{
+ const f=fixture(14);
+ f.queue.plans[0].jobs[3].outputIsolationBlocked={reason:'nwpu3：ACTIVE_TRANSFER SimpleSFTP files.cleanup.execute：[ACTIVE_TRANSFER]',stage:'execute',code:'ACTIVE_TRANSFER',declarationKey:'work/3',observedAt:new Date().toISOString()};
+ const old=ManualDispatchHost.prototype.review;ManualDispatchHost.prototype.review=async()=>true;
+ try{const result=await f.host.dispatch({all:true},true);
+  assert.equal(result.status,'submitted');assert.equal(f.sent.length,13,'14 个剩余 job 中隔离暂停 1 个：只有安全准入的 13 个可入服务器队列');
+  assert.ok(!f.sent.some(row=>row.index===3),'隔离未完成绝不发送');
+  assert.ok(f.queue.plans[0].jobs[3].outputIsolationBlocked,'队列派发不得清除阻断标记');
+  assert.equal(f.queue.plans[0].jobs[3].manualDispatch,undefined,'被阻断 job 不得占用手动派发身份');
+  assert.equal(f.queue.plans[0].jobs.filter(job=>job.manualDispatch).length,13);
+  assert.equal(result.allocations.reduce((sum,card)=>sum+card.count,0),13,'配额只在准入子集上重算，不把暂停 job 计入');
+ }finally{ManualDispatchHost.prototype.review=old}
+});
+
 test('rendered queue buttons distinguish one Plan from all remaining jobs without forwarding a GPU choice',()=>{
  const ts=require('typescript'),vm=require('node:vm'),html=require('../../src/ui/PanelHtml.ts').renderPanelHtml();
  const script=[...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n');new vm.Script(script);
