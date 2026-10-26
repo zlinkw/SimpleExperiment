@@ -70,7 +70,7 @@ test('retain lane (:11358 手动保留/合并扇出) sends the frozen-manifest i
 function batchFixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'se-batch-identity-'));
   const targets = [{ id: 'a', remotePath: '/p' }, { id: 'b', remotePath: '/p' }];
-  const files = { 'work_dirs/p/model.pth': { sha256: SHA.a, size: 3, modifiedAtMs: 1 }, 'tmp/a.json': { sha256: SHA.b, size: 2, modifiedAtMs: 1 } };
+  const files = { 'work_dirs/p/model.pth': { sha256: SHA.a, size: 3, modifiedAtMs: 1 }, 'results/a.json': { sha256: SHA.b, size: 2, modifiedAtMs: 1 } };
   const inventory = { a: structuredClone(files), b: {} }, transfers = [];
   const h = host('transferSyncScopeBatch', {
     context: { globalStorageUri: { fsPath: root } }, localMachineStateGuard: () => ({ prefixes: [], unknown: false }),
@@ -80,15 +80,15 @@ function batchFixture() {
     simpleSftpApiCall: async (method, p) => { assert.equal(method, 'sync.serverToServerFpsync'); transfers.push(p);
       for (const file of p.relativePaths) inventory[p.destination.id][file] = structuredClone(inventory[p.source.id][file]); },
   });
-  const work = [{ path: 'tmp/a.json', endpointId: 'a', directory: false }, { path: 'work_dirs/p/model.pth', endpointId: 'a', directory: false }];
+  const work = [{ path: 'results/a.json', endpointId: 'a', directory: false }, { path: 'work_dirs/p/model.pth', endpointId: 'a', directory: false }];
   return { h, inventory, run: () => h.transferSyncScopeBatch(root, targets, structuredClone(work), ['b'], () => {}), transfers };
 }
 test('batch lane (:11080 批量保留文件版本) sends the identity and a same-input rerun reproduces it verbatim', async () => {
   const f = batchFixture(); await f.run(); assert.equal(f.transfers.length, 1);
-  pinned(f.transfers[0], ['tmp/a.json', 'work_dirs/p/model.pth'], { 'tmp/a.json': SHA.b, 'work_dirs/p/model.pth': SHA.a }, '批量');
+  pinned(f.transfers[0], ['results/a.json', 'work_dirs/p/model.pth'], { 'results/a.json': SHA.b, 'work_dirs/p/model.pth': SHA.a }, '批量');
   const g = batchFixture(); await g.run();
   assert.deepEqual(identity(g.transfers[0]), identity(f.transfers[0]), '同输入跨实例逐字同代（同批重试复用己代）');
-  const changed = batchFixture(); changed.inventory.a['tmp/a.json'].sha256 = SHA.c; await changed.run();
+  const changed = batchFixture(); changed.inventory.a['results/a.json'].sha256 = SHA.c; await changed.run();
   assert.notEqual(changed.transfers[0].generation, f.transfers[0].generation, '清单变化必须开新代');
 });
 
@@ -122,6 +122,7 @@ function reconcileFixture() {
     workerCodeSyncTargets: () => targets, enabledWorkerConfigs: () => targets, loadPlanSyncLedger: async () => ({}),
     reconcileChosenDirectories: async () => {}, sftpServerOptions: row => row, assertSshTransportIdentities: async () => {},
     targetRootGuard: () => ({ prefixes: [], unknown: false }), withPluginStateFileLease: async (_r, _f, _k, _t, run) => run(),
+    localMachineStateGuard: () => ({ prefixes: [], unknown: false }), // r114：方法在 buildLocalCodeManifest 选项里就要本机守卫（evalmachine:16 缺件根因）
     verifiedSftpProjectInventory: async ({ source }) => ({ files: structuredClone(inventories[source.id] || {}) }),
     simpleSftpApiCall: async (method, p) => { assert.equal(method, 'sync.serverToServerFpsync'); transfers.push(p);
       for (const file of p.relativePaths) inventories[p.destination.id][file] = structuredClone(inventories[p.source.id][file]); },

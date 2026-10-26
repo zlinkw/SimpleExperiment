@@ -133,7 +133,9 @@ test('a zero-byte lock ages into the abandoned classification without any mutati
     () => ledger.freezeBatchScope(file, { batchId: 'locked-round', projectRoot: '/fixture' }, [{ planFile: 'p.yaml', submissionOperationId: 'op-1' }]),
     error => error.message.includes('ISOLATED_BATCH_LEDGER_LOCKED') && !error.message.includes('ABANDONED'));
   assert.equal(fs.statSync(lockPath).size, 0);
-  // 活锁（token 在位）任何阈值下都不进分类。
+  // 活锁（token 在位）任何阈值下都不进分类。先清掉外部 0 字节锁，holder 才能按协议获取；
+  // 否则子进程 fail-closed 锁在 LOCKED 是生产正确行为，不是老化失败。
+  fs.rmSync(lockPath);
   const holder = spawn(t, file, 'holder');
   await holder.wait('entered');
   assert.equal(await ledger.classifyAbandonedZeroByteLock(lockPath, Date.now() + 600_000), null, '活锁带 token 字节，绝不判废弃');
@@ -177,7 +179,8 @@ test('relocation never moves a token-bearing live lock and leaves every byte in 
   assert.ok(JSON.parse(tokenBytes).token, '活锁仍带身份 token');
   assert.deepEqual(fs.readdirSync(path.dirname(lockPath)).filter(name => name.includes('.orphan-')), [], '活锁移开被拒绝且零副作用');
   holder.send('release'); await holder.wait('done'); await holder.closed;
-  assert.equal(fs.readFileSync(file + '.lock', 'utf8'), tokenBytes, '拒绝移开不改变锁，直到持有者按原协议自行释放');
+  // r114 勘误：release 后锁按既有协议 unlink（:180 旧断言在释放后还去读锁内容，属装配错）；
+  // "拒绝移开不改变活锁"由释放前的 tokenBytes/零 orphan 两项断言钉住，释放本身不改。
   assert.equal(fs.existsSync(file + '.lock'), false);
 });
 
