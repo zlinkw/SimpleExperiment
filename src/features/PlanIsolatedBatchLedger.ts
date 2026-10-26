@@ -11,19 +11,23 @@ import { identityFromStat, sameIdentity, sha256File, type CacheIdentity, type Ca
 // （worker 快照匹配任务+物理窗口/执行中，四类查询错误全空）」算本批新执行的启动证明；
 // queued/dispatching/pending 是本机意图，completed/failed/cancelled 等终态不得反推启动。
 // 逐 job 证明一旦核实即持久入账（先证先存），不等其它 job 同时新鲜；提交链仍不等 GPU/训练完成。
-// 存储安全（用户 2026-10-26 裁定 B：撤锁文件＋写前指纹比对 CAS）：
+// 存储安全（用户 2026-10-26 裁定 B：撤锁文件＋写前指纹比对；2026-10-26 终审按"只描述真实存在的能力"更正措辞）：
 // 本账本（se-plan-isolated-batches.json）全仓只有插件本体一个写入者（legacy.ts 的 isolatedReplacementLedgerFileLocal
-// 是唯一路径定义；src/cli、运行时与远端均不接触），同进程多处写由 localChains 进程内链串行化。
-// 跨进程锁文件的唯一价值是防两个 VS Code 窗口共写；用户接受"同一时间单窗口"前提，改为写前比对后
-// 连该场景也只是失败关闭，不再需要锁文件——0 字节遗留锁死锁这一类问题自此永久消失。
-// CAS 语义（fail closed，绝不静默覆盖）：临界区进入时读账本一次，记身份指纹
+// 是唯一路径定义；src/cli、运行时与远端均不接触），同进程多处写由 localChains 进程内内存链串行化。
+// 现有保护＝同进程内存链串行化＋写前指纹比对。比对的作用是**尽快发现意外改写**，不是并发保证：
+// 比对与 rename 是两个分开的操作，**跨进程/跨窗口并发不受保护**——两个窗口先后读到同一指纹再各自写，
+// 两次写前比对都会通过，后完成 rename 的一方静默覆盖先完成的一方，可能丢掉一整份账本更新（不报错、不检测）。
+// 比对只在"对方已于我方写前落盘"时抛 ISOLATED_BATCH_LEDGER_STALE；未检出≠无覆盖。
+// 运维前提（是前提，不是保证）：同一个共享数据目录（globalStorage）整体只允许一个活跃插件窗口——
+// 不是"每个项目一个"。违反该前提时上述静默覆盖是已知且接受的行为边界。
+// 写前指纹比对机制：临界区进入时读账本一次，记身份指纹
 // {dev, ino, size, mtimeMs, ctimeMs, birthtimeMs, sha256}——身份元组与复用判据直接复用
 // LocalCodeManifestCache 的 identityFromStat/sameIdentity（CacheRow 形状），不新造哈希与缓存层。
 // 落盘（rename）前只 stat：身份六项全未变 ⇒ 直接落盘、不重算哈希（与 hashLocalCodeFiles 命中复用同一判据）；
 // 任一项变化 ⇒ 读一次内容算 sha256 与期望内容比（前后身份不符按"哈希期间变化"拒绝，同 LocalCodeManifestCache 的
 // 哈希期守卫口径）；内容相同（如外部 touch）才落盘，不同/文件消失/意外出现/身份不可核 ⇒ 零写入抛
 // ISOLATED_BATCH_LEDGER_STALE，临时文件保留为证据不删。历史遗留 `.lock` 文件不再被任何代码读取，
-// 属无害垃圾：不清理、不诊断、不报错。
+// 属无害垃圾：不清理、不诊断、不报错（锁文件已不存在，0 字节锁形态随之消失）。
 // 独立永久删除审核（下一切片）只允许引用这里冻结的 cleanup operation；账本不可读时入口一律关闭。
 
 export type IsolatedFrozenTarget = { nodeId: string; host: string; sourceRelativePath: string; isolationRelativePath: string; archiveBatch?: string };
@@ -45,7 +49,7 @@ export const LEDGER_STALE = "ISOLATED_BATCH_LEDGER_STALE";
 /** 账本身份指纹：直接复用 LocalCodeManifestCache.CacheRow（dev/ino/size/mtimeMs/ctimeMs/birthtimeMs + sha256），
  * 判据 sameIdentity、慢路径哈希 sha256File 同为该模块既有实现；只在内存中携带，不新增任何持久缓存。 */
 export type LedgerFingerprint = CacheRow;
-/** 临界区交给 work 的 CAS 依据：fingerprint=本次读取的身份指纹（文件缺失=null）；batches=同一次读取的批次列表（不再二次读盘）。 */
+/** 临界区交给 work 的写前依据：fingerprint=本次读取的身份指纹（文件缺失=null）；batches=同一次读取的批次列表（不再二次读盘）。 */
 export type LedgerWriteBasis = { fingerprint: LedgerFingerprint | null; batches: IsolatedFrozenBatch[] };
 export class IsolatedBatchLedgerCorruptError extends Error {
   detail: string;
@@ -76,10 +80,10 @@ function validBatch(row: any): row is IsolatedFrozenBatch {
       && ["opened","preview","confirmed1","confirmed2","executing","completed","busy","failed","cancelled","unknown"].includes(event.kind)));
 }
 
-/** 读取账本并记身份指纹（CAS 依据）：文件缺失=正常空态（fingerprint=null）；
+/** 读取账本并记身份指纹（写前比对依据）：文件缺失=正常空态（fingerprint=null）；
  * JSON/版本/结构不可核实=抛错并保留原字节（调用方禁止随后写盘）。内容哈希取自已读字节，
  * 慢路径重算复用 sha256File；文件缺失时 stat 先于 readFile，两者之间的变化只会让落盘前
- * 比对落入慢路径按内容裁决，不会静默覆盖。 */
+ * 比对落入慢路径按内容裁决（不符⇒零写入抛 STALE）。跨窗口同指纹竞态的静默覆盖见文件头存储安全注释。 */
 async function readLedgerWithFingerprint(file: string): Promise<LedgerWriteBasis> {
   let rawText: string;
   let identity: CacheIdentity | undefined;
@@ -102,7 +106,7 @@ async function readLedgerWithFingerprint(file: string): Promise<LedgerWriteBasis
     batches: raw.batches as IsolatedFrozenBatch[] };
 }
 
-/** 只读入口（审核资格等）：语义与既有一致；CAS 写者须走 withIsolatedBatchLedger 携带同一次读取的 basis。 */
+/** 只读入口（审核资格等）：语义与既有一致；写者须走 withIsolatedBatchLedger 携带同一次读取的 basis。 */
 export async function loadIsolatedBatchLedger(file: string): Promise<IsolatedFrozenBatch[]> {
   return (await readLedgerWithFingerprint(file)).batches;
 }
@@ -111,8 +115,9 @@ function ledgerStaleMessage(file: string, expected: LedgerFingerprint | null, ac
   return `${LEDGER_STALE}：写盘前比对发现账本已被其他写入者改动；本轮零写入（临时文件保留为证据、不删），原文件保持原样，审核入口本回合关闭。路径: ${file}；期望指纹: ${JSON.stringify(expected ?? "文件缺失")}；写前实况: ${actual}。可能有第二个窗口在写，请只保留一个窗口后重试。`;
 }
 
-/** rename 之前的 CAS 比对（复用 sameIdentity/sha256File）：任何不能确认"内容仍等于本次读取依据"
- * 的情形一律抛 ISOLATED_BATCH_LEDGER_STALE，由调用方保持零写入。 */
+/** rename 之前的写前指纹比对（复用 sameIdentity/sha256File）：任何不能确认"内容仍等于本次读取依据"
+ * 的情形一律抛 ISOLATED_BATCH_LEDGER_STALE，由调用方保持零写入。能检出"对方已先落盘"；
+ * 检不出"两窗口同读一指纹后各自写"（后 rename 者静默覆盖，见文件头存储安全注释）。 */
 async function assertLedgerBasisUnchanged(file: string, basis: LedgerWriteBasis): Promise<void> {
   const expected = basis.fingerprint;
   let stat;
@@ -141,8 +146,9 @@ async function assertLedgerBasisUnchanged(file: string, basis: LedgerWriteBasis)
   throw new Error(ledgerStaleMessage(file, expected, `内容不同（${JSON.stringify(identity)}，${stat.size} 字节，sha256=${sha256}）`));
 }
 
-/** 原子写：临时文件 fsync + rename + 尽力目录 fsync；rename 之前做写前指纹比对（CAS），
- * 不符即拒绝且绝不碰原文件——临时文件留在原地作为"本欲写入"的证据。 */
+/** 落盘：临时文件 fsync + rename + 尽力目录 fsync；rename 之前做写前指纹比对，
+ * 不符即拒绝且绝不碰原文件——临时文件留在原地作为"本欲写入"的证据。
+ * rename 对目标文件的替换不产生半写内容（崩溃可见性层面），但不提供并发覆盖防护（见文件头）。 */
 export async function saveIsolatedBatchLedger(file: string, batches: IsolatedFrozenBatch[], basis: LedgerWriteBasis): Promise<void> {
   if (!basis || !("fingerprint" in basis))
     throw new Error(`${LEDGER_STALE}：缺少写前读取依据（basis），拒绝无指纹落盘；写入必须经 withIsolatedBatchLedger 携带同一次读取的 basis。`);
@@ -156,16 +162,17 @@ export async function saveIsolatedBatchLedger(file: string, batches: IsolatedFro
   await assertLedgerBasisUnchanged(file, basis);
   await fs.rename(temp, file);
   try { const dir = await fs.open(path.dirname(file), "r"); try { await dir.sync(); } finally { await dir.close(); } }
-  catch { /* 目录 fsync 平台不支持时忽略；rename 已原子落盘 */ }
+  catch { /* 目录 fsync 平台不支持时忽略；rename 已完成目标替换 */ }
 }
 
 // 进程内串行链（用户裁定 B 保留项）：同一账本文件同一时刻只有一个本进程写入者，
-// 每个临界区自带"读一次→改→写前 CAS 比对→rename"的完整依据。跨进程不再互斥：
-// 第二写入者的效果只可能是让前者或后者在写前比对处 fail closed（ISOLATED_BATCH_LEDGER_STALE），
-// 不存在静默覆盖，也不再有任何锁文件/零字节锁形态。
+// 每个临界区自带"读一次→改→写前指纹比对→rename"的完整依据。**跨进程/跨窗口既无互斥也无覆盖保护**：
+// 比对与 rename 是两个分开的操作，两窗口同读一指纹时各自比对都会通过，后完成 rename 的一方
+// 静默覆盖另一方，可能丢掉一整份账本更新（不报错）。STALE 只证明"比对检出了改写"，不证明没检出=没覆盖。
+// 运维前提（前提，非保证）：同一共享数据目录整体只允许一个活跃插件窗口。无任何锁文件/零字节锁形态。
 const localChains = new Map<string, Promise<unknown>>();
 
-/** 账本临界区：进程内链排队 → 读一次账本并记身份指纹 → work 基于该依据修改 → 写盘走 basis 的 CAS 比对。 */
+/** 账本临界区：进程内链排队 → 读一次账本并记身份指纹 → work 基于该依据修改 → 写盘走 basis 的写前指纹比对。 */
 export function withIsolatedBatchLedger<T>(file: string, work: (basis: LedgerWriteBasis) => Promise<T>): Promise<T> {
   const step = async (): Promise<T> => {
     await fs.mkdir(path.dirname(file), { recursive: true });
