@@ -37486,6 +37486,10 @@ export async function __transferSyncScopeBatchForTest(provider, root, targets, w
     const prototype = RealtimeTunnelPanelProvider.prototype;
     return prototype.transferSyncScopeBatch.call(Object.assign(Object.create(prototype), provider), root, targets, work, destinationIds, report);
 }
+export async function __reconcileProjectFilesAcrossWorkersForTest(provider, root) {
+    const prototype = RealtimeTunnelPanelProvider.prototype;
+    return prototype.reconcileProjectFilesAcrossWorkers.call(Object.assign(Object.create(prototype), provider), root);
+}
 export async function __syncPendingResultMetricsForTest(provider) {
     const prototype = RealtimeTunnelPanelProvider.prototype;
     return prototype.syncPendingResultMetricsFromUi.call(Object.assign(Object.create(prototype), provider));

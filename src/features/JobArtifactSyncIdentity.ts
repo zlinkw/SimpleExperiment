@@ -36,14 +36,25 @@ export function jobArtifactRunGeneration(planId: string, commandId: string, sour
  * own-generation resume) instead of forcing a third generation; any changed path or SHA opens a new
  * one. The retentionKey carries no source/worker/node identity — it is the sorted deduplicated batch
  * path list, making one logical batch one logical source. Job artifact chain parameters are untouched.
+ * r117 (Q5 fix): a scope entry may be a DIRECTORY (manual directory retain legacy.ts:11368 and
+ * directory restore :11449 pass the directory path together with an inventory keyed by its contained
+ * files). The manifest therefore covers the complete frozen selection: a direct inventory entry is one
+ * item; otherwise every inventory descendant "<scope>/…" is an item. Inventory entries outside the
+ * scope never enter the hash (they must not open generations), and a directory's descendant SHA,
+ * additions or removals always open a new generation. Pure file scopes hash exactly as before.
  */
 export function syncScopeStagingIdentity(scopePaths: readonly string[],
   sourceFiles: Record<string, string | { sha256?: unknown }>): { retentionKey: string; generation: string } {
   const scope = [...new Set(scopePaths.map(file => String(file)))].sort();
-  const manifest = scope.map(file => {
-    const value = sourceFiles[file];
-    return [file, typeof value === "string" ? value.toLowerCase() : String(value?.sha256 ?? "").toLowerCase()];
-  });
+  const shaOf = (value: string | { sha256?: unknown } | undefined): string =>
+    typeof value === "string" ? value.toLowerCase() : String(value?.sha256 ?? "").toLowerCase();
+  const frozen = new Map<string, string>();
+  for (const scopePath of scope) {
+    const descendants = Object.keys(sourceFiles).filter(file => file.startsWith(scopePath + "/")).sort();
+    if (descendants.length) for (const file of descendants) frozen.set(file, shaOf(sourceFiles[file]));
+    else frozen.set(scopePath, shaOf(sourceFiles[scopePath]));
+  }
+  const manifest = [...frozen].sort((left, right) => (left[0] === right[0] ? 0 : left[0] < right[0] ? -1 : 1));
   return { retentionKey: "sync-scope-retain:" + JSON.stringify(scope),
     generation: createHash("sha256").update(JSON.stringify(["sync-scope-retain", scope, manifest])).digest("hex") };
 }
