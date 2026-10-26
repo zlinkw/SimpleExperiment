@@ -273,6 +273,30 @@ test("formal preflight rejection explains that training never started and disabl
   assert.notEqual(sandbox.executionRenderKeysForState(updated).planList, sandbox.executionRenderKeysForState(state).planList);
 });
 
+// r82（0.5.414）：隔离暂停 job 的如实呈现三面（blockText / statusLabel / 组级提示）。
+// r86 裁定：不留"启动器冲突"面板分支——jobNext 唯一消费点被 errorText∧(预检∨代码校验) 门死，该文案在真实渲染面永不可达；
+// 现场启动器失败走既有错误行契约（错误摘要+查看窗口日志+"重新排队此 job"按钮），以 doesNotMatch 钉死死文案不复现。
+// r87 机械修：三面各拆独立 test（断言文本逐字照搬、不增不减），首个断言失败不再短路其余两面。
+const isolationPausedState = () => ({ distributedPlans: [{ id: "isolation-pause", planFile: "plans/iso.yaml", jobs: [{ index: 0, case: "iso", seed: 43, status: "pending", outputDir: "work_dirs/iso",
+  blockReason: "旧产物隔离未完成：隔离预览确认已过期（PREVIEW_EXPIRED），训练未启动；请重新生成预览并重新核对精确路径后再确认，未复用旧令牌。",
+  outputIsolationBlocked: { reason: "隔离预览确认已过期", stage: "preview", code: "PREVIEW_EXPIRED", declarationKey: "work_dirs/iso", observedAt: "2026-10-26T05:00:00Z" } }] }] });
+test("r82: an isolation-blocked job renders its never-started explanation through blockText", () => {
+  const sandbox = clickSandbox();
+  sandbox.render(isolationPausedState());
+  assert.match(sandbox.html, /旧产物隔离未完成：隔离预览确认已过期（PREVIEW_EXPIRED），训练未启动/);
+  assert.doesNotMatch(sandbox.html, /启动器因旧产物冲突退出/);
+});
+test("r82: an isolation-blocked job renders the isolation-paused status label", () => {
+  const sandbox = clickSandbox();
+  sandbox.render(isolationPausedState());
+  assert.match(sandbox.html, /隔离暂停，未启动/);
+});
+test("r82: an isolation-blocked job renders the group-level never-dispatched hint", () => {
+  const sandbox = clickSandbox();
+  sandbox.render(isolationPausedState());
+  assert.match(sandbox.html, /1 个 job 旧产物隔离未完成：训练未启动、不会自动派发，也不计入沿用完成/);
+});
+
 test("completed Plan history keeps explicit expansion across status refreshes, count changes and recreation", () => {
   const sandbox = clickSandbox({ detailsOpenState: {}, persistTransientPanelState: () => {} });
   vm.runInContext(extract("detailsOpenAttr", "scheduleStatusInfoPopoverClose"), sandbox);

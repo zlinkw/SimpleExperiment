@@ -14820,12 +14820,14 @@ export function renderPanelHtml(): string {
         const label = group.planFile ? planBaseName(group.planFile) : "未关联 Plan 的操作";
         const totalJobs = Math.max(currentJobs.length, !submission && !deferredCurrent ? recovery.expectedJobCount : 0) || (!submission && !deferredCurrent ? group.tasks.length : 0);
         const failedJobs = currentJobs.filter((job) => String(job.status || "") === "failed").length;
+        // r82：计数区分——"隔离暂停"（旧产物隔离未完成，可见但不可派发）既不计入可执行也不计"沿用完成"。
+        const isolationPausedJobs = currentJobs.filter((job) => job.outputIsolationBlocked).length;
         const unavailableJobs = currentJobs.filter((job) => job.unavailable && job.status === "cancelled").length;
         const cancelledJobs = currentJobs.filter((job) => String(job.status || "") === "cancelled" && !job.unavailable).length;
         const successRate = totalJobs ? Math.round(completed * 100 / totalJobs) : 0;
         const statusText = submission ? executionSubmissionLabel(submission) : deferredView ? deferredView.statusText : unknown || recovery.unresolved ? "待核实" : tone === "blocked" ? (reviewJobs ? (anomalyJobs ? "完成但有异常，待复核" : "运行日志待核实") : "阻塞") : tone === "queued" ? "排队" : running ? "运行中" : dispatching ? "派发中" : tone === "failed" ? "失败" : missingWindows ? "远端未发现执行窗口" : unavailableJobs ? "已结束（含不可用 job）" : cancelledJobs === totalJobs && totalJobs ? "已中止" : cancelledJobs ? "已结束" : currentJobs.length ? "已完成" : "已结束";
         let countText = submission ? (statusText + " · 待生成 job") : deferredView ? deferredView.countText : totalJobs
-          ? ("成功 " + completed + "/" + totalJobs + " · " + successRate + "%" + (running ? " · 运行 " + running : "") + (queued ? " · 排队 " + queued : "") + (blockedCount ? " · 阻塞 " + blockedCount : "") + (failedJobs ? " · 失败 " + failedJobs : "") + (recovery.missingCount ? " · 待核实 " + recovery.missingCount : "") + (recovery.conflict ? " · 服务器状态冲突" : ""))
+          ? ("成功 " + completed + "/" + totalJobs + " · " + successRate + "%" + (running ? " · 运行 " + running : "") + (queued ? " · 排队 " + queued : "") + (isolationPausedJobs ? " · 隔离暂停 " + isolationPausedJobs : "") + (blockedCount ? " · 阻塞 " + blockedCount : "") + (failedJobs ? " · 失败 " + failedJobs : "") + (recovery.missingCount ? " · 待核实 " + recovery.missingCount : "") + (recovery.conflict ? " · 服务器状态冲突" : ""))
           : ("操作 " + group.operations.length);
         if (group.schedulingMode === "server_prequeue" && currentJobs.length) {
           countText += " · 服务器接收 " + group.remoteAcceptedJobCount + "/" + totalJobs;
@@ -14845,7 +14847,7 @@ export function renderPanelHtml(): string {
         const taskStamps = group.tasks.map((row) => Date.parse(row.enqueuedAt || row.createdAt || row.startedAt || "")).filter(Number.isFinite);
         const stamp = Date.parse(submitted || "") || (operationStamps.length ? Math.max(...operationStamps)
           : taskStamps.length ? Math.min(...taskStamps) : Number.MAX_SAFE_INTEGER);
-        return { ...group, currentJobs, totalJobs, missingInputs: Math.max(0, recovery.expectedJobCount-currentJobs.length), tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, submitting: !!submission, waitingSubmission, deferredCurrent, statusText, countText, failedJobs, unavailableJobs, label, stamp };
+        return { ...group, currentJobs, totalJobs, missingInputs: Math.max(0, recovery.expectedJobCount-currentJobs.length), tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, submitting: !!submission, waitingSubmission, deferredCurrent, statusText, countText, failedJobs, isolationPausedJobs, unavailableJobs, label, stamp };
       });
       items.sort((a, b) => a.stamp - b.stamp || a.key.localeCompare(b.key));
       if (typeof executionPlanFiles !== 'undefined') executionPlanFiles = Array.from(new Set(items.map(item => item.planFile).filter(Boolean)));
@@ -14885,6 +14887,7 @@ export function renderPanelHtml(): string {
         const distributedHtml = distributedRows.length ? '<h3>' + loadingPrefix(group.distributedActive) + '当前 job · 成功 ' + group.completed + '/' + group.totalJobs + '</h3>'
           + (group.missingInputs ? '<div class="executionDistributedFailure" role="status">缺少 ' + group.missingInputs + ' 个 job 的任务输入（声明 ' + group.totalJobs + '，当前 ' + distributedRows.length + '）。缺项不计入完成；选中对应 PLAN 后，可校验并选择“仅补跑未完成任务”。</div>' : '')
           + (group.failedJobs ? '<div class="executionDistributedFailure">' + group.failedJobs + ' 个当前 job 失败，未计入成功。打开对应日志查看原因。</div>' : '')
+          + (group.isolationPausedJobs ? '<div class="executionDistributedFailure" role="status">' + group.isolationPausedJobs + ' 个 job 旧产物隔离未完成：训练未启动、不会自动派发，也不计入沿用完成；请在对应 job 行通过“重新排队此 job”或手动派发重新审核产物处理。</div>' : '')
           + (group.logicalMerged ? '<div class="muted">补跑已合并 · ' + (group.mixedVersions ? '混合源码版本；逐 job 保留原始来源' : '保留逐 job 原始来源') + '</div>' : '')
           + Array.from(new Set(distributedRows.map(job => job.planId || group.distributedPlanId))).map(id => '<button type="button" class="mini" data-manual-dispatch="batch" data-plan-id="'+escAttr(id||'')+'" title="仅处理同一原始提交内的选中 job；已有文件另行审核">停止原任务并派发所选 job</button>').join('')
           + '<div class="executionDistributedJobs">' + distributedRows.map((job) => {
@@ -14897,7 +14900,7 @@ export function renderPanelHtml(): string {
           const unavailable = job.unavailable && status === "cancelled";
           const preflightRejected = Boolean(job.admissionRejection && status === "failed");
           const needsReview = status === "completed" && job.completionState !== "verified";
-          const statusLabel = needsReview ? (job.completionState === "review_required" ? "完成但有异常，待复核" : "产物完整，运行日志待核实") : job.executionState === "starting" ? "正在启动命令" : job.retainExistingOutputs ? "保留已有产物" : job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : job.executionState === "missing" ? "远端未发现该任务" : "执行状态待核实") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("PLAN 所需源码待核实") === 0 ? "源码待核实" : String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
+          const statusLabel = needsReview ? (job.completionState === "review_required" ? "完成但有异常，待复核" : "产物完整，运行日志待核实") : job.executionState === "starting" ? "正在启动命令" : job.outputIsolationBlocked ? "隔离暂停，未启动" : job.retainExistingOutputs ? "保留已有产物" : job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : job.executionState === "missing" ? "远端未发现该任务" : "执行状态待核实") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("PLAN 所需源码待核实") === 0 ? "源码待核实" : String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
           const placement = (job.workerId ? job.workerId + (preflightRejected ? " · 未启动" : job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : "未派发") + (job.manualDispatch ? " · 手动指定" : "");
           const canJumpLog = Boolean(!preflightRejected && job.workerId && (job.commandId || job.outputDir));
           const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">查看窗口日志</button>';
@@ -14936,8 +14939,11 @@ export function renderPanelHtml(): string {
             ? ['refreshJobArtifacts', 'retryJobArtifactSync'].map((command, index) => '<button type="button" class="mini secondary" data-command="' + command + '" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="只核对或增量同步此 job 当前勾选范围的产物，保留训练完成状态。">' + (index ? '重试产物同步' : '刷新产物状态') + '</button>').join('') : '';
           const anomalyRerunButton = status === "completed" && job.completionState === "review_required" && job.lifecycleProtocol === 2 && job.workerId && job.commandId
             ? '<button type="button" class="mini secondary" data-command="retryDistributedJob" data-runtime-anomaly-rerun="true" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="仅重跑此 job；已有产物沿用完整路径双确认，保留其他任务。">覆盖产物并重跑此 job</button>' : '';
-          const blockText = job.lifecycleProtocol === 2 ? String(job.statusQueryError || job.blockReason || "") : blocked ? String(job.blockReason || "") : "";
+          const blockText = job.lifecycleProtocol === 2 ? String(job.statusQueryError || job.blockReason || "") : job.outputIsolationBlocked || blocked ? String(job.blockReason || "") : "";
           const blockAdvice = blocked ? (blockText.indexOf("PLAN 所需源码待核实") === 0 ? "仅核实本 PLAN 的入口、配置与依赖；产物和缓存不参与。按具体路径处理源码变化，协议较旧时更新 Agent/Scheduler 后刷新即可，无需重新提交已在队列的 job。" : blockText.indexOf("等待当前代码版本") === 0 ? "这个已提交 job 保留排队；其他 Worker 可运行匹配版本。被占用的 Worker 收到旧任务结束回执后自动释放版本锁，无需再次提交。" : "下一步：空闲 GPU 不能运行这份旧代码。到实验准备的 Plan 列表手动选中，再点“校验并提交运行”；或恢复提交前的代码并重新同步 Worker。") : "";
+          // r86：jobNext 唯一消费点要求 errorText∧(preflightRejected∨codeProofBlocked)，"启动器冲突/隔离阻断"在此永不可达，不留死分支；
+          // 隔离暂停的可见面=blockText（下方独立渲染 blockReason）+statusLabel"隔离暂停，未启动"+组级提示；
+          // 现场启动器失败走既有错误行契约（错误摘要+查看窗口日志提示+"重新排队此 job"按钮）。链头恢复 413 原形。
           const jobNext = preflightRejected
             ? '<div class="muted">启动前预检已拒绝此 job，训练未开始，不会自动重派。请核对上面的输出与结果路径；保留已有权重和结果，显式处理冲突或修改正式 job 声明后再提交。</div>'
             : codeProofBlocked
@@ -15006,7 +15012,7 @@ export function renderPanelHtml(): string {
       const foldRow = (group) => {
         const totalJobs = (group.currentJobs || []).length;
         const statusText = group.statusText;
-        const count = totalJobs ? ("成功 " + group.completed + "/" + totalJobs + (group.failedJobs ? " · 失败 " + group.failedJobs : "") + (group.unavailableJobs ? " · 不可用 " + group.unavailableJobs : "")) : group.countText;
+        const count = totalJobs ? ("成功 " + group.completed + "/" + totalJobs + (group.failedJobs ? " · 失败 " + group.failedJobs : "") + (group.isolationPausedJobs ? " · 隔离暂停 " + group.isolationPausedJobs : "") + (group.unavailableJobs ? " · 不可用 " + group.unavailableJobs : "")) : group.countText;
         const foldRaw = stopClearForPlan(group.planFile);
         const foldClear = foldRaw && !stopClearNewerThan(group, foldRaw) && String(foldRaw.outcome || "") !== "completed" ? foldRaw : null;
         const foldOutcome = String(foldClear && foldClear.outcome || "");

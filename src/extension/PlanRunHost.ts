@@ -184,6 +184,8 @@ export class PlanRunHost {
         (progress: any) => body.reportPlanStageLocal?.("任务 " + job.index + " · " + progress.message)),
       service: cleanup.service, execute: (id: string) => cleanup.execute(id),
       verify: (preview: any) => cleanup.service.assertIsolatedSourcesAbsent(preview),
+      // r87 块4：隔离完成即派发；后台清理只在 rerun_all+回执齐备时被 fire-and-forget 触发，失败不进派发链。
+      autoDeleteIsolated: (id: string) => cleanup.autoDeleteIsolated(id),
       ask: (payload: any) => h.askRunConfirmation(payload, body.submissionOperationIdLocal),
       save: () => this.save(body),
       assertCurrent,
@@ -216,7 +218,12 @@ export class PlanRunHost {
     }, body.runReplacement, body.planFile, jobs, [...completed], key);
     body.existingOutputChoice = result.choice;
     body.existingOutputCount = body.runReplacement.previews?.filter((row: any) => row.preview.rows.some((file: any) => file.disposition === "isolate")).length || 0;
-    body.distributedSkipJobIndices = jobs.filter((job: any) => !result.selectedIndices.includes(Number(job.index))).map((job: any) => Number(job.index));
+    // r82：跳过清单只装"用户选择沿用完成"的 job。隔离阻断者不是有意跳过——它带着
+    // runReplacement.blocked 以 pending+job 级标记入队（可见、不派发），由 planDispatchSelection
+    // 在入队时统一划分；把它混进跳过清单会让它在队列里彻底消失（现场 r81 的另一半成因）。
+    const isolationBlockedIndices = new Set((result.blocked || []).map((row: any) => Number(row.index)));
+    body.distributedSkipJobIndices = jobs.filter((job: any) => !result.selectedIndices.includes(Number(job.index))
+      && !isolationBlockedIndices.has(Number(job.index))).map((job: any) => Number(job.index));
     body.assignedExperimentIndices = result.selectedIndices;
     body.outputReplacementOperationIds = body.runReplacement.completed || [];
     body.overwrite = body.overwriteExisting = false;

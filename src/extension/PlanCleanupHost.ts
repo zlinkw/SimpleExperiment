@@ -417,6 +417,10 @@ export class PlanCleanupHost {
     return recordIsolatedReviewEventFor(this.isolatedReviewContext(), originalId, kind, reviewId, detail);
   }
   async verifyIsolatedAbsence(originalId: string) { return verifyIsolatedTargetsAbsence(this.isolatedReviewContext(), originalId); }
+  /** r87 块4：后台清隔离副本的旁路提交——只走 service 的门（能力、回执齐备、job 级完成），
+   * 与上面人工审核链的"目的地缺失证明"完全无关，也不共用它的授权。传输异常由 service 落 unknown，
+   * 门拒绝（能力缺失/回执不全）由派发侧 fire-and-forget 的处理器落日志与通知，不影响已派发任务。 */
+  async autoDeleteIsolated(id: string) { await this.ensureOperationRecordsMigrated(); return this.service.autoDeleteIsolated(id); }
   // r17-B anchor rule: every reader of the old operation-record location takes the migration
   // first — a fresh window opening the isolated-review bridge must still find (byte-import)
   // a legacy-only record instead of answering OPERATION_NOT_FOUND.

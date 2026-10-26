@@ -2,16 +2,22 @@ const test=require('node:test'),assert=require('node:assert/strict'),vm=require(
 require('../_helpers/registerTsRequire');
 const {replaceRunOutputs}=require('../../src/features/PlanRunReplacement.ts');
 function fixture(){
- const events=[],files=new Set(['job0/old-only.bin','job0/model.pth','job1/failed.log']),operations=new Map(),state={};let choice='rerun_all',cancel=0,fail=false,lost=false;
+ const events=[],files=new Set(['job0/old-only.bin','job0/model.pth','job1/failed.log']),operations=new Map(),state={};let choice='rerun_all',cancel=0,fail=false,lost=false,autoDelete=false;
  const jobs=[0,1,2].map(index=>({index,output_dir:'work/job'+index,result_csv:'tmp/result/job'+index+'.csv'}));
  const ports={assertCurrent(){},progress(){},save:async()=>events.push('save'),
- preview:async job=>({token:'op'+job.index,digest:'digest'+job.index,action:'isolate',scope:{},blockers:[],verifiedOnly:false,expiresAt:Date.now()+6e5,confirmations:0,rows:[{node:{id:'worker',kind:'remote',user:'u',host:'host',port:2222},nodeId:'worker',absolutePath:'/safe/'+job.output_dir,type:'directory',disposition:job.index<2?'isolate':'absent'}]}),
+ preview:async job=>({token:'op'+job.index,digest:'digest'+job.index,action:'isolate',scope:{},blockers:[],verifiedOnly:false,expiresAt:Date.now()+6e5,confirmations:0,...(autoDelete?{autoDeleteCapability:1}:{}),rows:[{node:{id:'worker',kind:'remote',user:'u',host:'host',port:2222},nodeId:'worker',absolutePath:'/safe/'+job.output_dir,type:'directory',disposition:job.index<2?'isolate':'absent'}]}),
  ask:async p=>{events.push('ask'+p.phase);assert.ok(p.groups[0].targets.every(t=>t.path.startsWith('/safe/')));if(cancel===p.phase)return 'cancel';return p.phase===1?choice:'isolate_and_run';},
  beforeDelete:async()=>{events.push('workers');if(fail)throw Error('nwpu3 unavailable');},hold:async selected=>events.push('hold:'+selected.map(job=>job.index).join(',')),
  verify:async preview=>events.push('verify'+preview.token),
+ autoDeleteIsolated:async id=>{events.push('delete'+id);return {state:'accepted'};},
  service:{confirm:async p=>events.push('confirm'+p.phase+p.token),preflightConfirmed:async id=>events.push('check'+id),status:async id=>operations.get(id)||{state:'partial'}},
- execute:async id=>{events.push('isolate'+id);for(const file of [...files])if(file.startsWith('job'+id.slice(2)+'/'))files.delete(file);const result={state:'completed',pendingNodes:[]};operations.set(id,result);if(lost)throw Error('response lost');return result;}};
- return {ports,state,jobs,events,files,set:(v)=>{({choice=choice,cancel=cancel,fail=fail,lost=lost}=v);},run:()=>replaceRunOutputs(ports,state,'plans/p.yaml',jobs,[0],'frozen')};
+ // r87 块4：autoDelete='full'/'partial' 模拟 0.2.111 execute 返回携带操作快照——
+ // full=每目标完整完成回执（rename、移动当时源缺失、登记成功），partial=登记未成功。
+ // r98 B1 口径：此桩替换的是 PlanCleanup 服务层（其 rows.isolationReceipt 是 captureIsolationReceipt 冻结后的
+ // 内部形状，与插件线路协议由 PlanCleanup.ts 单点映射）；真实 SFTP 应答形状、五条完成路径与硬门负例
+ // 在 planRunIsolateRerun.test.js 的 r98 用例按线路级覆盖，本桩不得引入插件未返回的字段。
+ execute:async id=>{events.push('isolate'+id);for(const file of [...files])if(file.startsWith('job'+id.slice(2)+'/'))files.delete(file);const result={state:'completed',pendingNodes:[]};if(autoDelete)result.preview={autoDeleteCapability:1,rows:[{disposition:'isolate',isolationReceipt:{renamed:true,sourceMissingAtMove:true,registered:autoDelete==='full'}}]};operations.set(id,result);if(lost)throw Error('response lost');return result;}};
+ return {ports,state,jobs,events,files,set:(v)=>{({choice=choice,cancel=cancel,fail=fail,lost=lost,autoDelete=autoDelete}=v);},run:()=>replaceRunOutputs(ports,state,'plans/p.yaml',jobs,[0],'frozen')};
 }
 test('two clicks isolate every selected job directory including stale extra files, then continue without a third review',async()=>{
  const f=fixture(),r=await f.run();assert.deepEqual(r.selectedIndices,[0,1,2]);assert.equal(f.files.size,0);
@@ -46,10 +52,54 @@ test('an unfinished delete-first state from the previous flow is re-previewed as
  const r=await f.run();assert.equal(f.state.flow,'isolate');assert.ok(f.state.previews.some(row=>row.preview.action==='isolate'));
  assert.ok(!f.events.some(e=>e==='confirm1old-token'));assert.deepEqual(r.selectedIndices,[0,1,2]);
 });
+// r82（0.5.414）：运行选择与安全准入分离——返回值必须同时携带 selectedIndices 与结构化 blocked；
+// blocked 是"隔离未完成/核验未知"的准入排除，不是用户跳过，也不得被当作已授权凭证。413 上红（无 blocked 字段）。
+test('r82 red: a clean run still reports its admission split explicitly: selected plus an empty blocked list',async()=>{
+ const f=fixture(),r=await f.run();
+ assert.ok(Array.isArray(r.blocked),'成功轮次也必须显式返回 blocked=[]，让下游无法把缺字段当"无阻断"或"全放行"');
+ assert.deepEqual(r.blocked,[]);assert.deepEqual(r.selectedIndices,[0,1,2]);
+});
+
 test('actual injected modal script renders full paths and sends only one correlated answer per click',()=>{
  const html=require('../../src/ui/RunConfirmation.ts').withRunConfirmation('<body><script nonce="allowed"></script></body>');const scripts=[...html.matchAll(/<script nonce="allowed">([\s\S]*?)<\/script>/g)];assert.equal(scripts.length,2);const script=scripts[1][1];new vm.Script(script);
  const handlers={},sent=[],nodes={};function node(){return {textContent:'',hidden:true,children:[],appendChild(child){this.children.push(child);},focus(){},addEventListener(type,fn){handlers[type]=fn;},querySelector(key){return nodes[key]||=node();},querySelectorAll(){return nodes['.buttons'].children;}};}
  const dialog=node();vm.runInNewContext(script,{window:{addEventListener:(name,fn)=>handlers[name]=fn},document:{getElementById:()=>dialog,createElement:()=>node()},vscode:{postMessage:m=>sent.push(m)}});
  const full='/safe/'+('中文 very long path/'.repeat(60))+'model';handlers.message({data:{type:'planRunConfirmation',requestId:'request1',payload:{title:'confirm',planFile:'p.yaml',phase:2,groups:[{value:'isolate_and_run',label:'隔离并重跑',targets:[{path:full,server:'w',connection:'u@h:22',type:'directory'}]}]}}});
  assert.ok(nodes['.paths'].children.some(n=>n.textContent.includes(full)));const button=nodes['.buttons'].children[0];button.onclick();button.onclick();assert.equal(sent.length,1);assert.equal(sent[0].requestId,'request1');
+});
+// r87 块4（0.5.414）：隔离完成即派发 + 后台自动删接线。回执齐备（rename、移动当时源缺失、登记成功）
+// 即准入，后台删除是旁路任务绝不进 await 链；能力缺失保持旧复核链并明确提示需更新插件。
+test('r87 block4: complete isolation receipts admit immediately — background delete is fired off the dispatch chain and verify is skipped',async()=>{
+ const f=fixture();let release;const blockedDelete=new Promise(resolve=>{release=resolve;});const deleted=[];
+ f.set({autoDelete:'full'});f.ports.autoDeleteIsolated=async id=>{deleted.push(id);await blockedDelete;return {state:'accepted'};};
+ const r=await f.run();
+ assert.deepEqual(r.selectedIndices,[0,1,2]);assert.deepEqual(r.blocked,[]);
+ assert.deepEqual(deleted,['op0','op1'],'仅本批已隔离完成的令牌提交后台删除；absent 的 job2 无令牌可删');
+ assert.ok(!f.events.some(e=>e.startsWith('verify')),'回执齐备后不再逐条复核原路径（不再读隔离副本后才派发）');
+ assert.ok(f.events.includes('hold:0,1,2'),'删除请求仍悬而未决时 hold/派发已经完成——后台删除不在 await 链上');
+ release();
+});
+test('r87 block4: capability reported with an incomplete receipt blocks that job as unverified, dispatches nothing for it and never starts a background delete',async()=>{
+ const f=fixture();const deleted=[];f.set({autoDelete:'partial'});f.ports.autoDeleteIsolated=async id=>{deleted.push(id);return {state:'accepted'};};
+ const r=await f.run();
+ assert.deepEqual(r.selectedIndices,[2],'登记未成功的 job 不准入，独立 job 不被整批拖住');
+ assert.deepEqual(r.blocked.map(row=>[row.index,row.stage]),[[0,'verify'],[1,'verify']]);
+ assert.ok(r.blocked.every(row=>/回执不完整/.test(row.reason)));
+ assert.deepEqual(deleted,[],'回执不全的 token 不提交后台删除');
+ assert.ok(!f.events.some(e=>e.startsWith('verify')),'能力已上报时不再走旧逐条复核链');
+});
+test('r87 block4: rerun_missing with complete receipts still skips verify but never auto-deletes (deletion authorization is rerun_all-only)',async()=>{
+ const f=fixture();const deleted=[];f.set({choice:'rerun_missing',autoDelete:'full'});f.ports.autoDeleteIsolated=async id=>{deleted.push(id);return {state:'accepted'};};
+ const r=await f.run();
+ assert.deepEqual(r.selectedIndices,[1,2]);assert.ok(f.files.has('job0/model.pth'),'补跑不覆盖完成 job，其旧副本更不许被自动删');
+ assert.deepEqual(deleted,[],'rerun_missing 不触发后台删除');
+ assert.ok(!f.events.some(e=>e.startsWith('verify')));
+});
+test('r87 block4: an old plugin without the capability keeps the verify chain untouched and tells the user 0.2.111 is required',async()=>{
+ const f=fixture();const notes=[];f.ports.progress=text=>notes.push(text);
+ const r=await f.run();
+ assert.deepEqual(r.selectedIndices,[0,1,2]);assert.deepEqual(r.blocked,[]);
+ assert.ok(f.events.includes('verifyop0')&&f.events.includes('verifyop1'),'能力缺失时旧逐条复核链原样保留，不削弱');
+ assert.ok(!f.events.some(e=>e.startsWith('delete')),'旧插件绝不调用新删除接口');
+ assert.ok(notes.some(text=>/0\.2\.111/.test(text)&&/不会自动删除/.test(text)),'兼容矩阵行1：明确提示自动清理需更新 SimpleSFTP 到 0.2.111');
 });

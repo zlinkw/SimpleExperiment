@@ -64,6 +64,31 @@ test('two valid cleanup targets cannot be confirmed in a reordered echo',async()
   assert.equal(operation.preview.confirmations,1);
   assert.equal(f.mutations,0);
 });
+// ── r87（块3 合并查询）：执行前逐目标复查按节点合并为一次批量预览；单目标不符仍逐条阻断、零 mutation ──
+test('r87 block3: the pre-execute recheck merges same-node targets into one batched preview while a per-target mismatch still blocks with zero mutations',async()=>{
+  const extra={nodeId:'local',relativePath:'work_dirs/exact/c.csv',type:'file',category:'专用产物',owners:['owner'],evidence:['exact job / attempt / command registration'],dependencies:[]};
+  const f=await fixture();f.scope.candidates.push(clone(extra));
+  f.sources.set('local:work_dirs/exact/c.csv','sha-work_dirs/exact/c.csv'); // r90：补上第三个候选在源台账里的事实（fixture 键 nodeId:relativePath）
+  const p=await f.service.preview({planFile:f.scope.planFile});
+  assert.equal(p.rows.filter(r=>r.disposition===p.action).length,3,'local 两个目标 + w1 一个目标');
+  const operation=await f.confirm(p);
+  const cut=f.calls.length;
+  await f.service.execute(operation.id);
+  const recheck=f.calls.slice(cut).filter(row=>row.method==='files.cleanup.preview');
+  assert.equal(recheck.length,2,'每个节点身份一次批量复查，而不是逐行一次');
+  assert.equal(recheck.find(row=>row.params.node.id==='local').params.targets.length,2,'同节点两个目标同批携带各自的 destination/expectedOwner');
+  assert.equal(f.mutations,3);
+  const g=await fixture();g.scope.candidates.push(clone(extra));
+  g.sources.set('local:work_dirs/exact/c.csv','sha-work_dirs/exact/c.csv'); // r93：与 f 镜像——同一候选的源台账事实两个分支都必须在，否则 g.confirm 先被 MISSING_TARGET 挡下，走不到篡改断言
+  const gp=await g.service.preview({planFile:g.scope.planFile});const gop=await g.confirm(gp);
+  const original=g.ports.sftp;
+  g.ports.sftp=async(method,params)=>{const result=await original(method,params);
+    if(method==='files.cleanup.preview'&&params.targets.length===2)result.targets[1].fingerprint='sha-tampered';
+    return result;};
+  await assert.rejects(g.service.execute(gop.id),error=>error.apiData?.code==='PREVIEW_CHANGED');
+  assert.equal(g.mutations,0,'一个目标的内容变化不得放行任何一次 mutation');
+});
+
 test('preview performs no journal writes, no mutation, keeps exact evidence and immutable returned records',async()=>{
   const f=await fixture(),p=await f.service.preview({planFile:f.scope.planFile});
   assert.equal(f.mutations,0);await assert.rejects(fs.stat(f.storageRoot),{code:'ENOENT'});

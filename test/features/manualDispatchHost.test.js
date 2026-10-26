@@ -34,6 +34,15 @@ test('unknown Worker and invisible GPU fail before sync, stopping or deletion',a
  await assert.rejects(f.host.ports().prepare({jobs:[{manualDispatch:{workerId:'w',gpuId:'99',stage:'preparing'}}]}),/GPU 不可见/);assert.equal(f.sync,0);assert.equal(f.queries,0);
 });
 
+// r82（0.5.414）接线钉（诚实标注为源码钉，行为面由 manualJobDispatch/serverQueueDispatch 行为用例承载）：
+// 现场缺陷之一正是 Host.review 只回 assignedExperimentIndices，runReplacement.blocked 里的准入排除在
+// 派发层不可见，被阻断 job 又被当普通未完成 job 处理。413 上红。
+test('r82 red wiring pin: Host.review must surface the structured isolation block, not only accepted indices',()=>{
+ const src=fs.readFileSync(path.resolve('src/extension/ManualDispatchHost.ts'),'utf8');
+ assert.match(src,/runReplacement[\s\S]{0,400}blocked|blocked:[\s\S]{0,200}stage/,'review 必须把 replaceRunOutputs 的结构化 blocked 透传给派发层');
+ assert.match(src,/accepted/,'接受子集与阻断集合必须成对返回（{accepted, blocked}），取消仍返回 false');
+});
+
 test('actual Host cancels an unacknowledged original command and actively verifies the fence before a new placement',async()=>{
  const f=fixture(),events=[];let cancelled=false,sends=0;
  let queue={plans:[{id:'p',projectId:'project-id',planFile:'plans/p.yaml',revision:'revision',codeFingerprint:'hash',executionMode:'train_test',resultPathPolicy:'declared',

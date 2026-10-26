@@ -27,6 +27,13 @@ export type QueuedJob = {
   manualDispatch?: { workerId: string; gpuId: string; stage: "preparing" | "ready" | "sent"; origin?: "server_queue"; batchId?: string };
   manualDispatchNotice?: string;
   retainExistingOutputs?: boolean;
+  /** r82（0.5.414）job 级显式隔离阻断：旧产物隔离未完成或核验未知——job 保持可见 pending，
+   * 但四条派发路径（自动 tick、服务器队列、手动 ready、失败恢复）一律不得派发。
+   * 本字段本身不是授权凭证；缺失也不等于"已证明隔离成功"（准入只由本轮隔离结果的结构化
+   * blocked 划分）。解除仅发生在用户走既有审核路径、精确声明未变且隔离完成核验通过时，
+   * 随接受事务性写回（置 undefined），任何投影/合并/重排/清理不得静默清除。 */
+  outputIsolationBlocked?: { reason: string; stage: "preview" | "execute" | "verify"; code?: string; operationId?: string;
+    declarationKey: string; observedAt: string };
   executionState?: string;
   resultState?: string;
   runtimeDiagnostics?: RuntimeDiagnostics;
@@ -202,6 +209,8 @@ export function restoreFormalJobQueue(queue: DistributedQueue): DistributedQueue
     for (const job of plan.jobs || []) {
       if (job.resultPathPolicy === "declared" && job.attempt === undefined) job.attempt = 0;
       if (job.lifecycleProtocol === 2) clearNativeProjection(job, plan);
+      // r82：恢复投影对任何协议版本都保留隔离阻断并重建其解释（lifecycle 2 已在上方投影过，此处幂等）。
+      if (job.outputIsolationBlocked) job.blockReason = outputIsolationNotice(job);
       for (const record of job.history || []) if (record.attempt === undefined && !record.outputDir.split("/").includes("attempts")) record.attempt = 0;
     }
   }
@@ -212,6 +221,9 @@ function clearNativeProjection(job: QueuedJob, plan: QueuedPlan) {
   job.status = job.unavailable || job.retainExistingOutputs ? "cancelled" : job.commandId ? "unknown" : "pending";
   for (const key of ["executionState", "resultState", "completionState", "runtimeDiagnostics", "exitCode", "statusQueryError", "verificationQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason",
     "tmuxPane", "tmuxWindowId", "tmuxSession", "logPath", "finishedAt"] as const) delete job[key];
+  // r82：隔离阻断是本机持久事实而非远端运行投影——投影可以清原生运行字段，但不得抹掉
+  // outputIsolationBlocked 或它的解释；重载后必须仍能回答"为何未启动、下一步做什么"。
+  if (job.outputIsolationBlocked) job.blockReason = outputIsolationNotice(job);
   if (hasVerifiedCompletion(plan, job)) Object.assign(job, verifiedCompletionProjection(plan, job));
   else delete job.verifiedCompletion;
 }
@@ -237,6 +249,9 @@ export function serializeDistributedQueue(queue: DistributedQueue): string {
     if (job.lifecycleProtocol === 2) {
       clearNativeProjection(job, plan);
     }
+    // r82：落盘前把隔离阻断的解释持久化进 blockReason——清原生投影删掉的是运行观测，
+    // 不得连带删掉"为何未启动"的持久解释（现场缺口：重载后 job 只剩无声 pending）。
+    if (job.outputIsolationBlocked) job.blockReason = outputIsolationNotice(job);
     if (job.attempt === 0) delete (job as Partial<QueuedJob>).attempt;
     for (const record of job.history || []) if (record.attempt === 0) delete (record as { attempt?: number }).attempt;
   }
@@ -905,11 +920,51 @@ export function distributedSubmissionResult(plan: QueuedPlan | undefined, dispat
   const disposition = distributedSubmissionDisposition(plan);
   const unresolved = plan?.jobs.find((job) => !["queued", "running", "completed", "failed", "cancelled"].includes(job.status)
     && !(job.status === "pending" && !job.workerId && !job.commandId && !job.blockReason));
-  return { ...disposition, dispatchError: dispatchError || (!disposition.durableAccepted && unresolved
-    ? unresolved.blockReason || "持久接收状态仍待核对" : "") };
+  // r82：隔离暂停 job 必须计入提交结果，否则部分提交会被呈现成无等待的全量接收（现场 r81d）。
+  return { ...disposition, blockedCount: plan?.jobs.filter((job) => job.outputIsolationBlocked).length || 0,
+    dispatchError: dispatchError || (!disposition.durableAccepted && unresolved
+      ? unresolved.blockReason || "持久接收状态仍待核对" : "") };
 }
 
-export function distributedSubmissionProgress(submission: { enqueued?: boolean; localQueued?: boolean; pendingCount?: number; rejectedCount?: number; dispatchError?: string } | undefined) {
+/** r82（0.5.414）三类如实文案的唯一投影源：未启动+原因+下一步 / 令牌过期须重新生成预览并核对
+ * 精确路径 / 其余按记录原因照实说明。绝不出现"已成功/已完成本次"类措辞，也不做会自动消失的装饰。 */
+export function outputIsolationNotice(job: Pick<QueuedJob, "outputIsolationBlocked"> | undefined): string {
+  const blocked = job?.outputIsolationBlocked;
+  if (!blocked) return "";
+  if (blocked.code === "PREVIEW_EXPIRED")
+    return "旧产物隔离未完成：隔离预览确认已过期（PREVIEW_EXPIRED），训练未启动；请重新生成预览并重新核对精确路径后再确认，未复用旧令牌。";
+  return "旧产物隔离未完成，训练未启动：" + String(blocked.reason || blocked.code || "隔离结果未核实").slice(0, 300)
+    + "。请通过“重新排队此 job”重新审核产物处理（覆盖须重走完整两次确认）。";
+}
+
+/** r82（0.5.414）提交体→入队→派发共用的唯一事实源：划分 可执行 / 隔离暂停（可见 pending 但不得
+ * 派发，携带 job 级标记）/ 有意跳过（用户选择沿用完成，不入队）。blocked 源仅认隔离流程
+ * （flow==="isolate"）的结构化阻断；标记缺失≠已证明隔离成功——它由本函数按当轮提交体生成，
+ * 任何派发路径都不得用"没有标记"反推准入。 */
+export function planDispatchSelection(validation: { jobs?: Array<Record<string, unknown>> } | undefined, body: any): {
+  selectedJobs: Array<Record<string, unknown>>; launchableJobs: Array<Record<string, unknown>>;
+  userSkipped: Set<number>; blockedMarkers: Map<number, NonNullable<QueuedJob["outputIsolationBlocked"]>> } {
+  const jobs = validation?.jobs || [];
+  const blockedRows = body?.runReplacement?.flow === "isolate" && Array.isArray(body.runReplacement.blocked) ? body.runReplacement.blocked : [];
+  const blockedMarkers = new Map<number, NonNullable<QueuedJob["outputIsolationBlocked"]>>();
+  const observedAt = new Date().toISOString();
+  for (const row of blockedRows) {
+    const index = Number(row?.index);
+    if (!Number.isInteger(index)) continue;
+    const declaration = jobs.find(job => Number(job.index) === index);
+    const declarationKey = String(declaration?.output_dir || declaration?.outputDir || row?.declarationKey || "");
+    const stage = row?.stage === "preview" || row?.stage === "execute" || row?.stage === "verify" ? row.stage : "execute";
+    blockedMarkers.set(index, { reason: String(row?.reason || "隔离结果未核实"), stage,
+      ...(row?.code ? { code: String(row.code) } : {}), ...(row?.operationId ? { operationId: String(row.operationId) } : {}),
+      declarationKey, observedAt: String(row?.observedAt || observedAt) });
+  }
+  const userSkipped = new Set<number>(body?.existingOutputChoice === "rerun_missing"
+    ? (Array.isArray(body.distributedSkipJobIndices) ? body.distributedSkipJobIndices.map(Number) : []).filter(Number.isInteger) : []);
+  const selectedJobs = jobs.filter(job => !userSkipped.has(Number(job.index)));
+  return { selectedJobs, launchableJobs: selectedJobs.filter(job => !blockedMarkers.has(Number(job.index))), userSkipped, blockedMarkers };
+}
+
+export function distributedSubmissionProgress(submission: { enqueued?: boolean; localQueued?: boolean; pendingCount?: number; rejectedCount?: number; dispatchError?: string; blockedCount?: number; skippedCount?: number } | undefined) {
   if (!submission) return { status: "failed" as const, waiting: false, message: "本机未能确认保存调度意图：未返回提交记录。" };
   if (submission.enqueued === false) return { status: "succeeded" as const, waiting: false,
     message: "已有产物覆盖本次全部任务；按所选“跳过已有”处理，未创建新调度任务。" };
@@ -917,6 +972,15 @@ export function distributedSubmissionProgress(submission: { enqueued?: boolean; 
     message: `本机未能确认保存调度意图：${submission.dispatchError || "状态未知"}。` };
   if (Number(submission.rejectedCount || 0) > 0) return { status: "failed" as const, waiting: false,
     message: `${submission.rejectedCount} 个 job 被 Worker 启动前预检拒绝，未启动训练。具体原因见 Plan 卡片；这些 job 不会自动重派。` };
+  // r82：部分提交如实呈现——存在隔离暂停 job 时绝不沿用"调度队列已接收"的全量接收文案；
+  // 计数区分 可执行（等待派发）/ 隔离暂停（须重新审核）/ 有意跳过（沿用完成），进持久操作日志。
+  if (Number(submission.blockedCount || 0) > 0) {
+    const pending = Number(submission.pendingCount || 0) > 0 ? `${submission.pendingCount} 个可执行 job 等待派发` : "本批没有可立即派发的 job";
+    const skipped = Number(submission.skippedCount || 0) > 0 ? `，${submission.skippedCount} 个按所选沿用完成产物` : "";
+    const detail = submission.dispatchError ? `状态核对仍有待处理项：${submission.dispatchError}。` : "";
+    return { status: "succeeded" as const, waiting: true,
+      message: `本机调度队列已保存：${pending}${skipped}；另有 ${submission.blockedCount} 个 job 旧产物隔离未完成，训练未启动、不会自动重派，请在 Plan 卡片通过“重新排队此 job”重新审核产物处理。${detail}刷新状态可查看进度。` };
+  }
   if (Number(submission.pendingCount || 0) > 0 || Boolean(submission.dispatchError)) {
     const pending = Number(submission.pendingCount || 0) > 0 ? ` ${submission.pendingCount} 个 job 保持未绑定，等待新鲜空闲 GPU。` : "";
     const detail = submission.dispatchError ? ` 状态核对仍有待处理项：${submission.dispatchError}。` : "";
@@ -1008,7 +1072,7 @@ export function legacyDistributedQueuePath(storageRoot: string, projectRoot: str
   return path.join(storageRoot, "distributed-plan-queues", key + ".json");
 }
 
-export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id" | "enqueuedAt" | "jobs"> & { jobs: Array<Pick<QueuedJob, "index" | "case" | "seed" | "outputDir" | "collectionResultCsv" | "checkpointSource">> }, id: string, enqueuedAt = new Date().toISOString()): DistributedQueue {
+export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id" | "enqueuedAt" | "jobs"> & { jobs: Array<Pick<QueuedJob, "index" | "case" | "seed" | "outputDir" | "collectionResultCsv" | "checkpointSource" | "outputIsolationBlocked">> }, id: string, enqueuedAt = new Date().toISOString()): DistributedQueue {
   if (!plan.revision || !plan.codeFingerprint || !plan.planFile || !id) throw new Error("Plan identity and code fingerprint are required.");
   const registered = queue.plans.find(item => item.id === id);
   if (registered) {
@@ -1041,6 +1105,9 @@ export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id"
     return { index: job.index, case: job.case, seed: job.seed, outputDir: job.outputDir,
       ...(job.collectionResultCsv ? { collectionResultCsv: job.collectionResultCsv } : {}),
       ...(job.checkpointSource ? { checkpointSource: job.checkpointSource } : {}),
+      // r82：隔离阻断 job 照常入队（可见、pending），标记随行持久化；派发过滤、面板解释与
+      // 发送前复查都读这份队列事实，而不是提交内存。
+      ...(job.outputIsolationBlocked ? { outputIsolationBlocked: job.outputIsolationBlocked } : {}),
       lifecycleProtocol: 2 as const, resultPathPolicy: "declared" as const, globalJobId: `${id}:${job.index}`, attempt: 0, status: "pending" as const };
   });
   if (!jobs.length) throw new Error("Plan has no jobs.");
@@ -1107,7 +1174,9 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
       && !plan.jobs.some((job) => job.status === "pending" && job.localQueueOnly === true && !job.recallRequested)) continue;
     if (!versioned && (!runnableFingerprint || plan.codeFingerprint !== runnableFingerprint)
       && !workers.some(row=>row.online&&row.compatiblePlans?.includes(plan.id))) continue;
+    // r82：隔离暂停 job 不得进入自动派发候选（现场 03:25:27Z：阻断 job 照常派发→远端 FORMAL_JOB_CONFLICT 退出 1）。
     const pending = plan.jobs.filter((job) => !job.manualDispatch && job.status === "pending" && !job.recallRequested && !job.stopIntent
+      && !job.outputIsolationBlocked
       && (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || job.localQueueOnly === true));
     if (!pending.length) continue;
     const eligibleWorkerIds = new Set(workers.filter(row => row.declaredJobPaths === true
