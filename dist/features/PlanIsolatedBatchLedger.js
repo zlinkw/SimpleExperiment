@@ -283,10 +283,13 @@ async function relocateAbandonedLedgerLock(lockPath, nowMs = Date.now()) {
     const { stdout } = await releaseOwnedLock(process.execPath, ["-e", relocateScript, parent, path.basename(lockPath),
         String(parentIdentity.dev), String(parentIdentity.ino), stamp], { cwd: parent, windowsHide: true,
         timeout: 2000, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
+    // r114：子进程输出的字段名是 {orphan,sha}——父侧核实必须按同一契约读取（此前误读
+    // moved.orphanPath 会把每次合法移开都报成"无法核实"）。两个字段仍全部必须为非空字符串，
+    // 任一缺失/类型不符依旧 fail closed 报人工核对，不放松。
     const moved = JSON.parse(String(stdout));
-    if (typeof moved.orphanPath !== "string" || typeof moved.sha !== "string")
+    if (typeof moved.orphan !== "string" || typeof moved.sha !== "string")
         throw new Error(`${exports.ABANDONED_ZERO_BYTE_LOCK}：移开结果无法核实，请按输出人工核对锁与 orphan 文件。`);
-    return { orphanPath: moved.orphanPath, sha256: moved.sha };
+    return { orphanPath: moved.orphan, sha256: moved.sha };
 }
 /** r109 最小切片③：按签名限流——同签名窗口（默认 1 小时）内只放行首条，其后计数；出窗再放行时
  * 携带被抑制条数，保证 action_errors 的 8 条窗口不被每 tick 重复错误淹没。nowMs 可注入仅用于测试。 */

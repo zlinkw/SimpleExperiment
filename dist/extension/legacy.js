@@ -37,6 +37,7 @@ exports.RealtimeTunnelPanelProvider = void 0;
 exports.activate = activate;
 exports.deactivate = deactivate;
 exports.__transferSyncScopeBatchForTest = __transferSyncScopeBatchForTest;
+exports.__reconcileProjectFilesAcrossWorkersForTest = __reconcileProjectFilesAcrossWorkersForTest;
 exports.__syncPendingResultMetricsForTest = __syncPendingResultMetricsForTest;
 exports.__rebuildProjectResultTablesForTest = __rebuildProjectResultTablesForTest;
 exports.__handleResultUiCommandForTest = __handleResultUiCommandForTest;
@@ -39539,6 +39540,10 @@ catch { }
 async function __transferSyncScopeBatchForTest(provider, root, targets, work, destinationIds, report) {
     const prototype = RealtimeTunnelPanelProvider.prototype;
     return prototype.transferSyncScopeBatch.call(Object.assign(Object.create(prototype), provider), root, targets, work, destinationIds, report);
+}
+async function __reconcileProjectFilesAcrossWorkersForTest(provider, root) {
+    const prototype = RealtimeTunnelPanelProvider.prototype;
+    return prototype.reconcileProjectFilesAcrossWorkers.call(Object.assign(Object.create(prototype), provider), root);
 }
 async function __syncPendingResultMetricsForTest(provider) {
     const prototype = RealtimeTunnelPanelProvider.prototype;
