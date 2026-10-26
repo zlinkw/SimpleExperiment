@@ -1,0 +1,39 @@
+# tsc 缓存分区修正＋最慢测试准备复用（perf-tsc-cache-and-test-prep-20261026）
+
+状态：两片实现完成、Linux 静态自查完成、本地提交（未 push）；定向回归需 Windows，等待主控排宿主。**本文件不构成任何验收结论。**
+
+## 两条线实际坐标（2026-10-26 实测）
+| 线 | 目录 | 分支 | HEAD | 进度 |
+|---|---|---|---|---|
+| 性能切片（本文件所在） | /repos/MCP/zlk-cluster-orchestrator-perf-tsc-cache-20261026 | perf-tsc-cache-and-test-prep-20261026 | 见 evidence.md「候选提交」 | 实现+静态自查+本地提交完成；宿主定向回归未开始 |
+| 0.5.415 主线（CAS 账本+可见性） | /repos/MCP/zlk-cluster-orchestrator-isolated-ledger-lock-20261026 | fix-isolated-ledger-orphan-lock-20261026 | b1b47098（dist 回写后；源码 e4dceca1） | 宿主编译已完成并退出（用户确认）；7 套件结果未回——不得写成已完成 |
+
+基线：本 worktree 自重新 fetch 核实的 origin/master `bcf0955165559055ab06aa2e8438c227664a6a30` 创建；common-dir `/repos/MCP/zlk-cluster-orchestrator/.git`。不触碰 415 候选树、`.win-se-*`、`.win-sftp-*`、Root。
+
+## 片 1：scripts/tsc-cached.js —— 兼容分区与完整输入身份分离
+病根（原文件实测）：partition=`platform-arch-inputHash[0:16]`，而 inputHash 含全部源码内容哈希与 fileCount 及项目 package.json/package-lock 全文哈希 ⇒ 任一源码字节或版本号变化即换新 tsbuildinfo 目录从零冷启动；复用判定本身只看 toolchain 四项+输出完整性+buildinfo 在位，不看 inputHash。
+
+改法（已实施，最小）：
+1. `COMPAT_VERSION="v2"` + `compatHash` 作分区键：compatVersion、realpath(root)（worktree/dist 位置隔离，不跨副本共享可写 buildinfo）、platform/arch/node 精确版、ts.version + typescript/@types/node/@types/vscode 三个包体 package.json 哈希（package-lock 换 @types 由此类捕获）、规范化 parsed.options、透传 argv。脚本注释内写明 compatVersion **人工升位判据**（TS 大版本变化 / 本脚本 buildinfo/state 格式语义变化 / 输出目录与发射语义变化 / 键构成变化；其余一律不自动动）。
+2. 明确排除于分区：源码内容、fileCount、项目版本字段、lock 全文——由 tsbuildinfo 原生增量跟踪（incremental 的职责）。
+3. inputHash 语义逐字保留，继续写 state 并驱动 verify-only 门禁；state 新增 previousInputHash/inputDrift/compatHash/compatVersion（只增不减，失败证据字段同增）。
+4. 模式选择新增 `state.compatHash!==compatHash ⇒ cold(compat-formula-mismatch)` 防御；verify-only、.stale 封存、失败证据、同副本串行语义未动；旧分区目录不触碰不清理（新公式目录名含 `compat v2`，天然不碰撞）。
+5. 公式升级或分区变更后的**首编译是一次性冷启动，如实记录为冷编译，不表述为“缓存失效已修”**。
+6. 未改 tsconfig、未换编译器（项目锁定 TS 5.9.3；全局官方 TS 7.0.2 已装但本任务不采用）、未动锁文件。
+
+## 片 2：test/project/branchProjectRegistry.test.js —— 建仓准备复用
+成本结构（Windows）：makeRepo 每仓 5-6 次 git spawn × ≈23 仓 + commitFile 3 次/处 ⇒ 该套件 123,817ms 由 spawn 主导。
+已实施：模块级懒建**一个模板仓**（init+base 空提交+tracked.txt "base" 提交，与原 makeRepo 骨架构建逐条同构命令），模板落在本套件私有随机临时目录 `se-branch-template-*`（mkdtemp，每次运行独立，不落宿主全局固定位置/项目目录/缓存目录）；makeRepo 改为 `git clone -q --no-hardlinks <模板> <dir>` + `git remote remove origin`（用例自 add origin、独立仓分类读 remote 列表，残留模板 origin 会破坏两处）——每用例仍持独占可写真实 Git 副本（独立 .git/refs/工作树、真实历史），隔离/互斥/真实 ff/worktree 语义不变，无 mock。after() 删除模板本体（Windows 只读对象先递归放开权限；失败如实打印 retained）；各用例夹具仓维持 zero-cleanup 留证不动。
+断言对应表：不触碰任何断言/用例名/用例数（39→39，diff 零 test() 增删行）——每条“原断言→仍覆盖用例”均＝原用例本体不变，仅仓骨架构建方式替换，夹具内容逐字节相同。
+
+## testWorkflowRunner.test.js（45,653ms）裁定
+逐用例核读：45.6s 由**被测行为本身**构成——每用例须真实拉起 runner 进程与作业子进程以证明重叠窗口/最大并行/互斥/锁所有权/取消树/树漂移/超时非通过；准备与 fixture 成本可忽略。无可安全复用点 ⇒ 保留原样并写明原因，不改 mock、不退役。
+
+## 手测退役裁定（本轮）
+**退役清单＝空；退役前后自动清单条数 0 → 0。** 逐条依据表在 evidence.md（:1273 互斥类不退役；:1382/:1415/:1483 均混缠人眼看不到的零写入/拒绝/冻结参数断言，拆分＝改用例，越界）。不存在空列掩盖覆盖缺口：无安全退役项，也不新写无法机器复现的手测项。范围隔离：本清单只落本性能切片分支，0.5.415 候选树与宿主验收树测试清单未动。
+
+## 片 4 定向回归（全部宿主 Windows 执行；Linux 不跑产品编译/测试）
+①真实源码变更跨编译复用：冷编译→改一个 src 文件→再编译：mode=incremental、state.previousInputHash/inputDrift 在位、dist 更新、真实退出码；②诊断非零：注入类型错误→exit≠0+state-failed 证据→复原→mode=rebuild；③输出完整性：删一个 dist 文件→.stale 封存+冷编译；verify-only 同场景 output-drift 非零；④配置/工具链失效：passthrough 参数变→新分区目录；@types marker 变→新分区（临时改哈希输入复验）；⑤worktree 隔离：两 worktree 各编译→cacheDir 分离（realpath 键）。三态（冷/无改/有改）完整日志+退出码入 evidence.md。不新增性能阈值断言，不重跑无影响全量。
+
+## 明确不做
+不采用全局 TS7（项目 moduleResolution:Node 与 tsc-cached require TS API 兼容阻塞）、不装项目本地 TS7、不改业务模块/tsconfig/锁文件/模块语义、不清理旧缓存、不跨 worktree 共享可写状态、不为凑数量做无价值拆分。
