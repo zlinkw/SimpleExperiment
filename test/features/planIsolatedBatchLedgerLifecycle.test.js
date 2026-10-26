@@ -142,3 +142,50 @@ test('源码钉：账本安全原语、真实 producer 接线与提升来源约�
   assert.ok(batch.indexOf('const planMessages')<batch.indexOf('await freezeBatchScope('));
   assert.ok(!/admitted\s*=\s*true/.test(batch));
 });
+
+// ─── 用户授权 2026-10-26（裁定 B 后续）：两处原静默失败点补可见性 ───────────────────────────
+// attach 隔离事实与 committed 终局的账本写失败原为空 catch/return false 静默消失，现经既有
+// action_errors 通道（command isolatedLedgerWrite）如实记录一条；fail-closed 准入语义一字未动。
+// 测试落点选本套件：仓内唯一已装配 commitIsolatedEnqueueLocal 真实方法体提取（makeCommit 同款）
+// 与源码钉约定的套件；planOperationNoticeLifecycle 管的是 operation notice 瞬时通知道，而本次
+// 选择的通道是 action_errors 持久诊断，不是 notice，故不放那边、也不新开文件。
+const errorMessageStub=error=>String(error?.message||error);
+const observeWriteFailure=(()=>{const make=new Function('errorMessage','return function (kind, batchId, operationId, error) {'
+  +transpile(extractMethodBody(legacySource,'observeIsolatedLedgerWriteFailure(kind, batchId, operationId, error) {'))+'};');
+  return make(errorMessageStub);})();
+
+test('可见性（用户授权）：committed 终局写失败 ⇒ action_errors 记一条可见诊断，入队结果与 fail-closed 语义不变',async()=>{
+  const makeCommit=new Function('markPlanTerminal','return async function (submissionOperationId, planFile, cardId, queuedPlan) {'
+    +transpile(extractMethodBody(legacySource,'async commitIsolatedEnqueueLocal(submissionOperationId, planFile, cardId, queuedPlan) {'))+'};');
+  const records=[];
+  const stubThis={currentIsolatedBatchLocal:{batchId:'b-vis'},isolatedReplacementLedgerFileLocal:()=>'ledger-vis.json',
+    observeIsolatedLedgerWriteFailure:observeWriteFailure,recordActionError:row=>records.push(row)};
+  const stale=new Error('ISOLATED_BATCH_LEDGER_STALE：写盘前比对发现账本已被其他写入者改动；本轮零写入（临时文件保留为证据、不删），原文件保持原样，审核入口本回合关闭。路径: ledger-vis.json。可能有第二个窗口在写，请只保留一个窗口后重试。');
+  const commit=makeCommit(async()=>{throw stale;});
+  assert.equal(await commit.call(stubThis,'submit-vis','plans/a.yaml','card',{jobs:[{index:0,commandId:'cmd-0'}]}),false,
+    'fail-closed 原样：终局写失败仍 return false，不阻断已提交入队');
+  assert.equal(records.length,1,'恰一条可见记录，无双通道重复');
+  assert.equal(records[0].command,'isolatedLedgerWrite');
+  assert.match(records[0].message,/committed 终局/);assert.match(records[0].message,/批次 b-vis/);assert.match(records[0].message,/操作 submit-vis/);
+  assert.match(records[0].message,/ISOLATED_BATCH_LEDGER_STALE/);assert.match(records[0].message,/第二个窗口/);
+  assert.match(records[0].message,/隔离副本已保留，本次不进入清理审核，需人工确认后可重试/);
+});
+
+test('可见性（用户授权）：attach 隔离事实失败接线 isolatedLedgerWrite；原空 catch 移除，SelectedPlanBatchHost 提示链不重复记账',()=>{
+  const records=[];
+  observeWriteFailure.call({recordActionError:row=>records.push(row)},'隔离事实','b-vis-2','op-iso-2',
+    new Error('ISOLATED_BATCH_LEDGER_STALE：写盘前比对发现账本已被其他写入者改动'));
+  assert.equal(records.length,1);
+  assert.equal(records[0].command,'isolatedLedgerWrite');
+  assert.match(records[0].message,/隔离事实.*批次 b-vis-2.*操作 op-iso-2/);
+  assert.match(records[0].message,/隔离副本已保留，本次不进入清理审核，需人工确认后可重试/);
+  const at=legacySource.indexOf('try { await attachIsolatedCleanup(isolatedLedgerFile');
+  assert.ok(at>0,'attach 调用点仍在');
+  const region=legacySource.slice(at,at+1200);
+  assert.match(region,/catch \(error\) \{[\s\S]*this\.observeIsolatedLedgerWriteFailure\("隔离事实", isolatedBatchInfo\.batchId, operationId, error\)/,
+    'attach 失败必须经可见通道记录（含批次与操作身份）');
+  assert.ok(!/catch \{ \/\* 账本写入失败/.test(region),'原静默空 catch {} 已移除');
+  const batchHost=fs.readFileSync(path.resolve(__dirname,'../../src/extension/SelectedPlanBatchHost.ts'),'utf8');
+  assert.ok(!batchHost.includes('isolatedLedgerWrite'),
+    '去重：freeze 失败仍只走 :147 既有 ledgerError 提示链；单个写操作失败只产生一条可见记录，两个通道不叠加');
+});

@@ -12475,7 +12475,10 @@ this.assertPlanTopologyReady("Plan 调度");
                     try { await attachIsolatedCleanup(isolatedLedgerFile, isolatedBatchInfo, { submissionOperationId: operationId,
                         planFile: body.planFile, revision: body.planRevision || "", codeFingerprint: this.lastCodeSyncState?.fingerprint || body.codeFingerprint || "",
                         runReplacement: body.runReplacement }); }
-                    catch { /* 账本写入失败：无冻结即无审核提示；隔离区原样保留，删除仍需清理入口两次确认。 */ }
+                    catch (error) { /* 账本写入失败：无冻结即无审核提示；隔离区原样保留，删除仍需清理入口两次确认。
+                        2026-10-26 用户授权（裁定 B 后续）补可见性：经既有 action_errors 通道如实记录一条；
+                        准入与 fail-closed 语义一字未动——该事实仍未入账，审核/删除入口依旧关闭。 */
+                        this.observeIsolatedLedgerWriteFailure("隔离事实", isolatedBatchInfo.batchId, operationId, error); }
                 }
             }
             assertCurrent();
@@ -13564,7 +13567,18 @@ this.assertPlanTopologyReady("Plan 调度");
                     identity: jobs.length && jobs.every(job => Number.isInteger(job.jobIndex))
                         ? { queuePlanId: String(cardId), jobs } : undefined });
             return true;
-        } catch { return false; /* 账本失败关闭：不影响已提交的入队；缺冻结记录则该批不浮出删除审核 */ }
+        } catch (error) { /* 账本失败关闭：不影响已提交的入队；缺冻结记录则该批不浮出删除审核。
+            2026-10-26 用户授权补可见性（同上，语义未动）；返回值与调用点既有处理（丢弃返回值、入队继续）保持原样。 */
+            this.observeIsolatedLedgerWriteFailure("committed 终局", isolatedBatchInfo.batchId, submissionOperationId, error);
+            return false; }
+    }
+    /** 用户授权（2026-10-26，裁定 B 后续）：attach 隔离事实与 committed 终局两处原静默失败点补一条
+     * 可见记录——只走既有 recordActionError/action_errors 通道（与 isolatedLedgerPromotion 同族），
+     * 不新增 UI/弹窗/通道。仅让"账本没写成"可见：事实仍未冻结进账本，审核入口保持关闭，
+     * 删除入口绝不会被这条记录授权；准入判据与 fail-closed 语义不变。 */
+    observeIsolatedLedgerWriteFailure(kind, batchId, operationId, error) {
+        this.recordActionError({ command: "isolatedLedgerWrite",
+            message: `隔离账本写入失败（${kind}，批次 ${String(batchId || "?")}，操作 ${String(operationId || "?")}）：${errorMessage(error)}；隔离副本已保留，本次不进入清理审核，需人工确认后可重试。` });
     }
     /** 用本轮 tick 刚写入的队列快照核实隔离账本 awaiting_dispatch 项。启动证明只取队列粘性原生证明
      * （worker 快照身份匹配任务+物理窗口存在+四类查询错误全空）；通用 job.status/lastObservedAt 不作证明，
