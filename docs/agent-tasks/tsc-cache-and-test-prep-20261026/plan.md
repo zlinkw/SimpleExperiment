@@ -23,7 +23,7 @@
 
 ## 片 2：test/project/branchProjectRegistry.test.js —— 建仓准备复用
 成本结构（Windows）：makeRepo 每仓 5-6 次 git spawn × ≈23 仓 + commitFile 3 次/处 ⇒ 该套件 123,817ms 由 spawn 主导。
-已实施：模块级懒建**一个模板仓**（init+base 空提交+tracked.txt "base" 提交，与原 makeRepo 骨架构建逐条同构命令），模板落在本套件私有随机临时目录 `se-branch-template-*`（mkdtemp，每次运行独立，不落宿主全局固定位置/项目目录/缓存目录）；makeRepo 改为 `git clone -q --no-hardlinks <模板> <dir>` + `git remote remove origin`（用例自 add origin、独立仓分类读 remote 列表，残留模板 origin 会破坏两处）——每用例仍持独占可写真实 Git 副本（独立 .git/refs/工作树、真实历史），隔离/互斥/真实 ff/worktree 语义不变，无 mock。after() 删除模板本体（Windows 只读对象先递归放开权限；失败如实打印 retained）；各用例夹具仓维持 zero-cleanup 留证不动。
+已实施：模块级懒建**一个模板仓**（init+base 空提交+tracked.txt "base" 提交，与原 makeRepo 骨架构建逐条同构命令），模板落在本套件私有随机临时目录 `os.tmpdir()/se-branch-template-XXXXXX`（mkdtemp，每次运行独立，不落宿主全局固定位置/项目目录/缓存目录）；makeRepo 改为 `git clone -q --no-hardlinks <模板> <dir>`（克隆进 mkdtemp 刚建的既有空目录，不预删目标）+ `git remote remove origin`（用例自 add origin、独立仓分类读 remote 列表，残留模板 origin 会破坏两处）——每用例仍持独占可写真实 Git 副本（独立 .git/refs/工作树、真实历史），隔离/互斥/真实 ff/worktree 语义不变，无 mock。夹具生命周期（主控 2026-10-26 返修裁定）：模板同样进入既有 tempDirs 留证集合，与其他夹具同命运——运行后保留、由人工/既有清理流程处置；套件内零删除、零 chmod 路径（首版曾加 after() 删模板与 removeTreeBestEffort，已按裁定整体移除，见 evidence.md 返修记录）。
 断言对应表：不触碰任何断言/用例名/用例数（39→39，diff 零 test() 增删行）——每条“原断言→仍覆盖用例”均＝原用例本体不变，仅仓骨架构建方式替换，夹具内容逐字节相同。
 
 ## testWorkflowRunner.test.js（45,653ms）裁定

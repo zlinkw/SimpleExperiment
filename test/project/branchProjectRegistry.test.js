@@ -47,22 +47,10 @@ function tempDir(prefix) {
   return dir;
 }
 // FIXTURE POLICY: zero cleanup — retained for audit instead of rmSync (与 test/api 2026-10-23 策略一致)。
-// perf 2026-10-26 唯一例外：共享“模板仓”本身不是证据（无 per-case 内容），套件结束时删除；
-// 各用例夹具仓/克隆副本仍是 zero-cleanup 留证，逐条打印策略不变。
-function removeTreeBestEffort(dir) {
-  try {
-    // Windows：Git 对象文件只读位会让 rmSync 抛 EPERM，先递归放开写位再删。
-    const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const abs = path.join(d, e.name); if (e.isDirectory()) walk(abs); else { try { fs.chmodSync(abs, 0o644); } catch {} } } try { fs.chmodSync(d, 0o755); } catch {} };
-    walk(dir);
-    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
-    return true;
-  } catch { return false; }
-}
+// perf 2026-10-26：共享“模板仓”同样进入 tempDirs 留证集合，与其他夹具同命运（运行后保留，
+// 由人工/既有清理流程处置）；本套件不新增任何删除或权限修改路径。
 after(() => {
   for (const dir of tempDirs) console.log(`[fixtures retained, no cleanup] ${dir}`);
-  if (templateRepo && fs.existsSync(templateRepo)) {
-    console.log(removeTreeBestEffort(templateRepo) ? `[template removed] ${templateRepo}` : `[template removal failed, retained] ${templateRepo}`);
-  }
 });
 
 function gitGitEnv(extra = {}) {
@@ -79,7 +67,7 @@ function git(args, cwd) {
 let templateRepo = null;
 function ensureTemplateRepo() {
   if (templateRepo) return templateRepo;
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "se-branch-template-")); // 不进 tempDirs：模板不是 per-case 证据，由 after() 清理
+  const dir = tempDir("se-branch-template-"); // 进 tempDirs 留证集合：模板与其他夹具同命运，运行后保留、不删除
   git(["init", "-q", dir], dir);
   git(["checkout", "-q", "-B", "main"], dir);
   git(["-c", "user.email=test@example.invalid", "-c", "user.name=Branch Test", "commit", "-q", "--allow-empty", "-m", "base"], dir);
@@ -92,8 +80,7 @@ function ensureTemplateRepo() {
 function makeRepo(name) {
   const seed = ensureTemplateRepo();
   const dir = tempDir(`se-branch-${name}-`);
-  fs.rmSync(dir); // clone 要求目标不存在；mkdtemp 刚创建的空目录，竞窗口仅限本测试临时域
-  git(["clone", "-q", "--no-hardlinks", seed, dir], os.tmpdir());
+  git(["clone", "-q", "--no-hardlinks", seed, dir], os.tmpdir()); // 克隆进既有空目录（mkdtemp 刚建）；git 支持克隆进已存在的空目录，不预删目标
   git(["remote", "remove", "origin"], dir); // 夹具按独立仓使用：不得残留指向模板的 origin（用例自己 remote add，分类逻辑读 remote 列表）
   return dir;
 }
