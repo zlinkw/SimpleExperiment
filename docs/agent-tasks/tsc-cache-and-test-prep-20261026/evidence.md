@@ -1,4 +1,14 @@
 # evidence —— tsc-cache-and-test-prep-20261026（2026-10-26，全部为实测记录）
+## 冻结声明（用户收口指令 2026-10-26）
+**frozen candidate = `d7f00adcf6b6481daacb26d065616848224ca30b`**（分支 perf-tsc-cache-and-test-prep-20261026）。已证的路径解析修复（d7f5c711）与 TS7 实际启动接入（d7f00adc）均含于其中；自冻结起不再追加任何功能/建议性改动（后续想法只入 plan.md「后续候选」段），不再触碰 tsc-cached/test-selection 的任何键（COMPAT_VERSION、分区键、发现逻辑）。
+冻结身份（sha256 实测；**验证期间这些输入文件不变**）：
+- scripts/tsc-cached.js `682ab82830ce4f38f1c605d515017078318460767c91e2c6ae0fdbc796179025`
+- scripts/test-selection.js `59980c0d69b0bab91466cd0d1280800450c33dd8bbd00ef44a0c7f0650bbe86f`
+- scripts/test-workflow.json `0151bdb3f126e35b691ba8426722d99bd9195e0ccdfe9159d068af56d1ba3847`
+- scripts/test-workflow.js `618b528060333bb80bb9ad42e03a9b32f435df3d9f3fb8655087e027d5ae19ab`
+- test/project/branchProjectRegistry.test.js `eb0a19bc11a1ee62764b38ef8c078706705d9a3f06eca4c54d24cef6bec797d3`
+本笔冻结记录为 docs-only（不改上述任何文件）。本树存在**非本切片负责人写入**的工作区项（冻结时点原样，未提交未回滚，交主控裁定）：dist/** 12 文件（15:30 宿主重编译痕迹）、src/features/DispatchWake.ts 修改、未跟踪 test/中文空格 probe钉对.ts、未跟踪 node_modules/——**宿主按 d7f00adc 验证时须以该提交的文件内容为准（检出或校验上述 sha），勿把这批工作区噪音当候选输入**。
+
 
 ## 候选提交（本地，未 push）
 - 本切片候选（返修前）：`8fee3f7695714688059b76675e3a5162d9271ca9`（branch perf-tsc-cache-and-test-prep-20261026，基线 origin/master `bcf09551…` 重新 fetch 核实；common-dir `/repos/MCP/zlk-cluster-orchestrator/.git`）

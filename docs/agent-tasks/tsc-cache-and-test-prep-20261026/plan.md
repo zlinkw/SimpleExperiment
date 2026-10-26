@@ -55,3 +55,7 @@
 
 ## 明确不做
 不采用全局 TS7（项目 moduleResolution:Node 与 tsc-cached require TS API 兼容阻塞）、不装项目本地 TS7、不改业务模块/tsconfig/锁文件/模块语义、不清理旧缓存、不跨 worktree 共享可写状态、不为凑数量做无价值拆分。
+
+## 后续候选（冻结后想法一律登记于此，不落码）
+- attested whitelist 覆盖 124/238 是当前按需静默面的上限约束（干净基线仅 1 组/6 文件可静默）；扩展 whitelist 需逐文件补 independence basis，属下一候选，不在本切片。
+- 浅克隆/浅历史仓库的组时间可靠性（当前保守为不判旧）如需支持，需带完整历史或 graft 感知的替代来源，属下一候选。
