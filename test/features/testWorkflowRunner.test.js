@@ -576,10 +576,15 @@ test("r24 compile cache: cold→hit, input/config/toolchain drift, missing/tampe
   assert.match(r2.stdout, /emitted=0/, "hit = native up-to-date, zero emits (no fake gain)");
   fs.writeFileSync(src, "export const x: number = 2;\n"); // 源漂移
   const r3 = runTsc();
-  assert.equal(line(r3.stdout, "mode"), "cold");
-  assert.notEqual(line(r3.stdout, "partition"), p1, "input drift ⇒ new partition");
-  assert.match(r3.stdout, /emitted=[1-9]/);
   const p3 = line(r3.stdout, "partition");
+  // 片1契约（主控 2026-10-26 批准）：源码内容不进兼容分区 ⇒ 源漂移不换分区、不强制冷编译；
+  // 防陈旧输出的保护＝增量必须真实重编译＋产物字节更新＋state 全量输入身份漂移记录。
+  assert.equal(line(r3.stdout, "mode"), "incremental");
+  assert.equal(line(r3.stdout, "partition"), p1, "source content drift keeps the compat partition (incremental, not cold, owns source drift)");
+  assert.match(r3.stdout, /emitted=[1-9]/);
+  assert.match(fs.readFileSync(path.join(ws, "dist", "a.js"), "utf8"), /= 2/, "incremental recompile really refreshed the artifact (no stale output reuse)");
+  const st3 = JSON.parse(fs.readFileSync(path.join(ws, "simple_cluster", "cache", "tsc", p3, "state.json"), "utf8"));
+  assert.equal(st3.inputDrift && st3.inputDrift.changed, true, "full input identity drift must be recorded in state (verify-only gate input)");
   fs.writeFileSync(path.join(ws, "tsconfig.json"), JSON.stringify({ compilerOptions: { rootDir: "src", outDir: "dist", module: "CommonJS", target: "ES2022", strict: false }, include: ["src/**/*.ts"] }));
   const r4 = runTsc();
   assert.notEqual(line(r4.stdout, "partition"), p3, "effective config drift ⇒ new partition");

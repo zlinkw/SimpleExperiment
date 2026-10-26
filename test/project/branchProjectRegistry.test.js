@@ -47,6 +47,8 @@ function tempDir(prefix) {
   return dir;
 }
 // FIXTURE POLICY: zero cleanup — retained for audit instead of rmSync (与 test/api 2026-10-23 策略一致)。
+// perf 2026-10-26：共享“模板仓”同样进入 tempDirs 留证集合，与其他夹具同命运（运行后保留，
+// 由人工/既有清理流程处置）；本套件不新增任何删除或权限修改路径。
 after(() => {
   for (const dir of tempDirs) console.log(`[fixtures retained, no cleanup] ${dir}`);
 });
@@ -58,14 +60,28 @@ function gitGitEnv(extra = {}) {
 function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: gitGitEnv() });
 }
-function makeRepo(name) {
-  const dir = tempDir(`se-branch-${name}-`);
+// perf 2026-10-26：模板仓把每仓 5-6 次 git spawn 压成 1 次 clone。
+// 模板落在此套件私有的随机临时目录（mkdtemp，每次运行独立，不落宿主全局固定位置），after() 删除模板本体。
+// 每个用例仍得到 --no-hardlinks 的完整独立副本：真实历史（base 空提交 + tracked.txt "base" 提交，
+// 与原 makeRepo 逐字节同构）、独立 .git/refs/工作树，独占可写——隔离/互斥/真实 ff/worktree 语义不变，绝不 mock。
+let templateRepo = null;
+function ensureTemplateRepo() {
+  if (templateRepo) return templateRepo;
+  const dir = tempDir("se-branch-template-"); // 进 tempDirs 留证集合：模板与其他夹具同命运，运行后保留、不删除
   git(["init", "-q", dir], dir);
   git(["checkout", "-q", "-B", "main"], dir);
   git(["-c", "user.email=test@example.invalid", "-c", "user.name=Branch Test", "commit", "-q", "--allow-empty", "-m", "base"], dir);
   fs.writeFileSync(path.join(dir, "tracked.txt"), "base\n", "utf8");
   git(["add", "-A"], dir);
   git(["-c", "user.email=test@example.invalid", "-c", "user.name=Branch Test", "commit", "-q", "-m", "files"], dir);
+  templateRepo = dir;
+  return dir;
+}
+function makeRepo(name) {
+  const seed = ensureTemplateRepo();
+  const dir = tempDir(`se-branch-${name}-`);
+  git(["clone", "-q", "--no-hardlinks", seed, dir], os.tmpdir()); // 克隆进既有空目录（mkdtemp 刚建）；git 支持克隆进已存在的空目录，不预删目标
+  git(["remote", "remove", "origin"], dir); // 夹具按独立仓使用：不得残留指向模板的 origin（用例自己 remote add，分类逻辑读 remote 列表）
   return dir;
 }
 function commitFile(repo, file, text, message) {
@@ -830,7 +846,10 @@ function gitBScript() {
   ];
 }
 
-test("C5 祖先 ff：真实仓包含合并提交的后续头可安全快进；脏/fetch 期间身份变化/不含合并提交/分叉全停", async () => {
+// 本用例超时 30000ms（主控 2026-10-26 批准，仅本条）：三次 Windows 实测 19,560.5/20,049.6/20,206.3ms
+// （日志 1e21fdf6/9ec77370/bee2bf80）卡在 --test-timeout 20000 阈值中间；≈196 次真实 git spawn 的进程
+// 开销主导（判因见 evidence.md 超时变更台账），30s＝最坏实测 1.5 倍余量。断言、用例结构与覆盖未动。
+test("C5 祖先 ff：真实仓包含合并提交的后续头可安全快进；脏/fetch 期间身份变化/不含合并提交/分叉全停", { timeout: 30000 }, async () => {
   const originDir = tempDir("se-pr-origin-");
   git(["init", "-q", "--bare", "-b", "main", originDir], originDir);
   const seed = tempDir("se-pr-seed-");
