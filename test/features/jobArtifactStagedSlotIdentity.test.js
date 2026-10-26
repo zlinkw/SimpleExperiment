@@ -102,12 +102,19 @@ test("卡点净化保留主机/范围/通道/身份与两槽全量事实和完�
 });
 
 test("释放能力门要求裁定能力实时齐备，任一缺失（含新 SE＋旧 SFTP）一律关闭", () => {
-  const base = () => structuredClone({ methods: ["files.cleanup.stagedSlots", "files.cleanup.preview", "files.cleanup.execute"],
+  // 终审 P1-2：门覆盖释放链真实会调用的每个方法与裁定选项——含 confirm 的精确批次摘要、
+  // isolatedMaintenanceDelete 的登记 token/删除集合只能由插件从台账派生/回执前置保证；
+  // status 是只读回执轮询，接收端只声明方法不声明选项（缺方法名同样拒绝）。
+  const base = () => structuredClone({ methods: ["files.cleanup.stagedSlots", "files.cleanup.preview", "files.cleanup.confirm",
+      "files.cleanup.execute", "files.cleanup.status", "files.cleanup.isolatedMaintenanceDelete"],
     methodOptions: {
       "files.cleanup.stagedSlots": { expiredCommittedReclaim: 1, structuredBlockEvidence: 1, releaseConfirmationCount: 1 },
       "sync.serverToServerFpsync": { claimScopedExpiredReclaim: 1, stageBlockEvidence: 1 },
       "files.cleanup.preview": { backgroundIsolatedDelete: 1 },
-      "files.cleanup.execute": { isolationCompletionReceipt: 1 } } });
+      "files.cleanup.execute": { isolationCompletionReceipt: 1 },
+      "files.cleanup.confirm": { exactBatchDigest: true, deleteConfirmationCount: 2 },
+      "files.cleanup.isolatedMaintenanceDelete": { registeredIsolationTokenOnly: 1, pluginDerivedDeleteSet: 1,
+        isolationCompletionReceiptRequired: 1 } } });
   assert.equal(stagedSlotReleaseEvidenceReady(base()), true);
   const mutations = [
     c => { c.methodOptions["files.cleanup.stagedSlots"].expiredCommittedReclaim = 0; },
@@ -115,6 +122,14 @@ test("释放能力门要求裁定能力实时齐备，任一缺失（含新 SE�
     c => { delete c.methodOptions["sync.serverToServerFpsync"].stageBlockEvidence; },
     c => { delete c.methodOptions["files.cleanup.preview"].backgroundIsolatedDelete; },
     c => { delete c.methodOptions["files.cleanup.execute"].isolationCompletionReceipt; },
+    c => { delete c.methodOptions["files.cleanup.confirm"].exactBatchDigest; },
+    c => { c.methodOptions["files.cleanup.confirm"].exactBatchDigest = false; },
+    c => { delete c.methodOptions["files.cleanup.isolatedMaintenanceDelete"].registeredIsolationTokenOnly; },
+    c => { delete c.methodOptions["files.cleanup.isolatedMaintenanceDelete"].pluginDerivedDeleteSet; },
+    c => { delete c.methodOptions["files.cleanup.isolatedMaintenanceDelete"].isolationCompletionReceiptRequired; },
+    c => { c.methods = c.methods.filter(name => name !== "files.cleanup.confirm"); }, // 缺方法：确认链不可用
+    c => { c.methods = c.methods.filter(name => name !== "files.cleanup.status"); }, // 缺方法：回执轮询不可用
+    c => { c.methods = c.methods.filter(name => name !== "files.cleanup.isolatedMaintenanceDelete"); }, // 缺方法：隔离副本无法登记删除
     c => { c.methods = ["files.cleanup.preview", "files.cleanup.execute"]; }, // 旧 SFTP：无 stagedSlots
   ];
   for (const mutate of mutations) {

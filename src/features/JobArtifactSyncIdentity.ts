@@ -130,10 +130,16 @@ export function artifactStageBlockFromError(error: unknown): JobArtifactStageBlo
 }
 
 /**
- * Real-time capability gate for the "释放旧文件占用" entry (ruling Q6): SE enables it ONLY when the
- * live capabilities carry every ruled flag together — never inferred from a version number. An old
- * SimpleSFTP (no stagedSlots expiry evidence, no stage-block evidence, no background/isolation
- * receipts) keeps the release entry hidden and the plain readable error visible.
+ * Real-time capability gate for the "释放旧文件占用" entry (ruling Q6 + final-review P1-2): SE
+ * enables it ONLY when the live capabilities carry the COMPLETE release-chain contract together —
+ * every method the controlled chain later calls (stagedSlots/preview/confirm/execute/status/
+ * isolatedMaintenanceDelete) plus each method's ruled options, never inferred from a version
+ * number. confirm must prove the exact-batch digest binding and isolatedMaintenanceDelete the
+ * registered-token-only + plugin-derived-delete-set + receipt-required guarantees, or SE could
+ * reach isolation before discovering the deletion capability is missing. files.cleanup.status
+ * carries no declared method options on the receiving side (it is the read-only receipt poll), so
+ * only its method presence is required there. An old SimpleSFTP keeps the release entry hidden
+ * and the plain readable error visible.
  */
 export function stagedSlotReleaseEvidenceReady(capabilities: unknown): boolean {
   const shared = capabilities && typeof capabilities === "object" ? capabilities as Record<string, unknown> : undefined;
@@ -141,9 +147,14 @@ export function stagedSlotReleaseEvidenceReady(capabilities: unknown): boolean {
   const options = shared?.methodOptions && typeof shared.methodOptions === "object"
     ? shared.methodOptions as Record<string, Record<string, unknown>> : {};
   const staged = options["files.cleanup.stagedSlots"] || {}, fpsync = options["sync.serverToServerFpsync"] || {},
-    preview = options["files.cleanup.preview"] || {}, execute = options["files.cleanup.execute"] || {};
-  return ["files.cleanup.stagedSlots", "files.cleanup.preview", "files.cleanup.execute"].every(method => methods.includes(method))
+    preview = options["files.cleanup.preview"] || {}, execute = options["files.cleanup.execute"] || {},
+    confirm = options["files.cleanup.confirm"] || {}, isolatedDelete = options["files.cleanup.isolatedMaintenanceDelete"] || {};
+  return ["files.cleanup.stagedSlots", "files.cleanup.preview", "files.cleanup.confirm", "files.cleanup.execute",
+    "files.cleanup.status", "files.cleanup.isolatedMaintenanceDelete"].every(method => methods.includes(method))
     && staged.expiredCommittedReclaim === 1 && staged.structuredBlockEvidence === 1 && staged.releaseConfirmationCount === 1
     && fpsync.claimScopedExpiredReclaim === 1 && fpsync.stageBlockEvidence === 1
-    && preview.backgroundIsolatedDelete === 1 && execute.isolationCompletionReceipt === 1;
+    && preview.backgroundIsolatedDelete === 1 && execute.isolationCompletionReceipt === 1
+    && confirm.exactBatchDigest === true
+    && isolatedDelete.registeredIsolationTokenOnly === 1 && isolatedDelete.pluginDerivedDeleteSet === 1
+    && isolatedDelete.isolationCompletionReceiptRequired === 1;
 }

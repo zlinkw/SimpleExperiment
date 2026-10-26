@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.416",
-  "buildId": "c01797428c191b28adf4fd4b0249a18712fb165f67473baf95b407a7f6cd46e6",
+  "buildId": "e7091ecb97446fb419f5406a9e69db79ee16ca8b8cb5f4764d64895dc3a20502",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -117,7 +117,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "51439943191046a3f686f6aaf0ba602f715793c5f9b8c969343fb8d2b3920d98"
+      "sha256": "481919b2bb9d0b83483207194f071cee4d950cac48bb1386db8e5b8b824d80a0"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -313,7 +313,7 @@
     },
     {
       "path": "dist/features/JobArtifactSyncIdentity.js",
-      "sha256": "7f284bc05ae9d9543388aaee028e660f90dd3d911a2a0aeb43190384af1eb40b"
+      "sha256": "93315e0076cbabd089343eedbd845d281815dfabe80592a44603ebc1eecf8d3b"
     },
     {
       "path": "dist/features/JobAvailability.js",

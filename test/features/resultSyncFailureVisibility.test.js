@@ -228,9 +228,18 @@ test("completed old-revision history and an artifact sync do not masquerade as a
 const STAGE_ID = "a".repeat(64), STAGE_GEN = "c".repeat(64), STAGE_INCOMING = "b".repeat(64);
 const STAGE_RELATIVE = ".staged-slots/" + STAGE_ID + "/slot-0";
 const STAGE_ABSOLUTE = "/safe/project/" + STAGE_RELATIVE;
+// 0.5.416 终审返修（P1-1/P1-2）夹具要点：
+// - capabilities 是已发布 SimpleSFTP 0.2.113 的完整释放契约（方法＋裁定选项），缺任一即入门拒绝；
+// - preview mock 忠实复现发布版 preview 的 stagedJournal 严格格式校验（cleanup-file-api.js 0.2.113）：
+//   绑定格式非法即抛 INVALID_STAGED_JOURNAL_BINDING；不传绑定仍会成功（真实后端只保留槽锁检查——
+//   这正是 P1-1 的窗口，回归用例靠这条真实分支证明"没带绑定就会被隔离"）；
+// - execute mock 忠实复现引擎锁内复检（cleanup-files.py verify_staged_journal_binding）：
+//   台账带绑定 → rename 前对当前 journal 逐条比对（identity/完整代/committed 状态/终态时刻精确一致），
+//   任一不符抛 STAGED_JOURNAL_MISMATCH 且源槽目录原样保留；无绑定 → 只有槽锁检查，隔离照常发生；
+// - preview 响应只在 previewSafety 时携带后端自证 safety 标志（真实后端对不支持的后端显式缺省）。
 function releaseFixture(options = {}) {
   const { capabilityReady = true, warningChoice, liveCandidates, deleteState = "accepted", statusStates, releaseCandidate = true,
-    ageMs = 172800000 } = options;
+    ageMs = 172800000, previewSafety = true, liveExpiry = { enabled: true, ms: 86400000 }, onCall } = options;
   const cleanupCalls = [], warnings = [], errorLog = [], syncRetries = [], patches = [];
   const queueJob = { index: 0, commandId: "command0", artifactStageBlock: { schemaVersion: 1, code: "TRANSFER_STAGE_PENDING",
     destination: { id: "b", profile: "work", host: "nwpu3.invalid" }, scope: "job-artifacts-scope", lane: 0, identity: STAGE_ID,
@@ -240,10 +249,20 @@ function releaseFixture(options = {}) {
       { slot: "slot-1", path: ".staged-slots/" + STAGE_ID + "/slot-1", generation: "d".repeat(64), status: "running", createdAt: 4,
         terminalAt: 0, updatedAt: 5, timeSource: null, ageMs: null, locked: true, protectedReason: "lock-held" }],
     releaseCandidate } };
-  const capabilities = { methods: ["files.cleanup.stagedSlots", "files.cleanup.preview", "files.cleanup.execute"],
+  const capabilities = { methods: ["files.cleanup.stagedSlots", "files.cleanup.preview", "files.cleanup.confirm",
+      "files.cleanup.execute", "files.cleanup.status", "files.cleanup.isolatedMaintenanceDelete"],
     methodOptions: { "files.cleanup.stagedSlots": { expiredCommittedReclaim: 1, structuredBlockEvidence: 1, releaseConfirmationCount: 1 },
       "sync.serverToServerFpsync": { claimScopedExpiredReclaim: 1, stageBlockEvidence: 1 },
-      "files.cleanup.preview": { backgroundIsolatedDelete: 1 }, "files.cleanup.execute": { isolationCompletionReceipt: 1 } } };
+      "files.cleanup.preview": { backgroundIsolatedDelete: 1 }, "files.cleanup.execute": { isolationCompletionReceipt: 1 },
+      "files.cleanup.confirm": { exactBatchDigest: true, deleteConfirmationCount: 2 },
+      "files.cleanup.isolatedMaintenanceDelete": { registeredIsolationTokenOnly: 1, pluginDerivedDeleteSet: 1,
+        isolationCompletionReceiptRequired: 1 } } };
+  const state = {
+    // 远端 journal 的当前事实（引擎锁内复检的比对基准）；回归用例在 execute 前改动它模拟竞态。
+    journal: { identity: STAGE_ID, generation: STAGE_GEN, status: "committed", terminalAt: 2 },
+    slotDirectoryPresent: true, previewLedger: null,
+    breakContext: () => { host.projectContextGeneration += 1; },
+  };
   const sandbox = { workspaceRoot: () => "C:/project", crypto: require("node:crypto"),
     JobArtifactSyncIdentity_1: require("../../dist/features/JobArtifactSyncIdentity.js"),
     vscode: { window: { showWarningMessage: async (...args) => { warnings.push(args); return warningChoice; } } } };
@@ -267,20 +286,47 @@ function releaseFixture(options = {}) {
     postState() {},
     simpleSftpApiCall: async (method, params) => {
       cleanupCalls.push({ method, params });
+      if (onCall) onCall(method, params, state);
       if (method === "files.cleanup.stagedSlots") {
         stagedSlotsReads += 1;
         if (stagedSlotsReads === 1) return { candidates: liveCandidates === undefined
-          ? [{ relativePath: STAGE_RELATIVE, type: "directory", status: "committed", generation: STAGE_GEN, locked: false, releaseCandidate: true, ageMs, protectedReason: null }]
-          : liveCandidates };
+          ? [{ relativePath: STAGE_RELATIVE, type: "directory", status: "committed", generation: STAGE_GEN, locked: false, releaseCandidate: true,
+              terminalAt: state.journal.terminalAt, ageMs, protectedReason: null }]
+          : liveCandidates, ...(liveExpiry === null ? {} : { expiry: liveExpiry }) };
         return { candidates: [] }; // 删除后的最终只读复核：原槽已退出盘点。
       }
-      if (method === "files.cleanup.preview") return { token: "tok-1", digest: "dig-1",
-        targets: [{ relativePath: params.targets[0].relativePath, destination: params.targets[0].destination, absolutePath: STAGE_ABSOLUTE, missing: false }] };
-      if (method === "files.cleanup.status") return { states: statusStates || { 0: "completed" } };
+      if (method === "files.cleanup.preview") {
+        const binding = params.stagedJournal;
+        if (binding !== undefined) {
+          const valid = binding && typeof binding === "object" && !Array.isArray(binding)
+            && /^[0-9a-f]{64}$/.test(String(binding.identity || "")) && /^[0-9a-f]{64}$/.test(String(binding.generation || ""))
+            && binding.status === "committed" && Number.isInteger(binding.expiryMs) && binding.expiryMs > 0
+            && (binding.terminalAt === null || (Number.isInteger(binding.terminalAt) && binding.terminalAt > 0));
+          if (!valid) throw new Error("INVALID_STAGED_JOURNAL_BINDING");
+        }
+        state.previewLedger = { stagedJournal: binding === undefined ? undefined : JSON.parse(JSON.stringify(binding)) };
+        return { token: "tok-1", digest: "dig-1",
+          ...(previewSafety ? { safety: { backgroundIsolatedDelete: 1, isolationCompletionReceipt: 1 } } : {}),
+          targets: [{ relativePath: params.targets[0].relativePath, destination: params.targets[0].destination, absolutePath: STAGE_ABSOLUTE, missing: false }] };
+      }
+      if (method === "files.cleanup.execute") {
+        const binding = state.previewLedger ? state.previewLedger.stagedJournal : undefined;
+        if (binding !== undefined) {
+          const journal = state.journal;
+          const journalTerminal = Number.isInteger(journal.terminalAt) && journal.terminalAt > 0 ? journal.terminalAt : null;
+          if (journal.identity !== binding.identity || journal.generation !== binding.generation
+              || journal.status !== binding.status || journalTerminal !== binding.terminalAt)
+            throw new Error("STAGED_JOURNAL_MISMATCH：锁内复检发现暂存槽 journal 不再符合过期回收资格，拒绝隔离");
+        }
+        state.slotDirectoryPresent = false; // no_replace rename 落定：源槽目录退出项目根
+        return {};
+      }
+      if (method === "files.cleanup.status") return { states: statusStates || (state.slotDirectoryPresent ? { 0: "pending" } : { 0: "completed" }) };
       if (method === "files.cleanup.isolatedMaintenanceDelete") return { state: deleteState };
       return {};
     } };
-  return { host, cleanupCalls, warnings, errorLog, syncRetries, patches,
+  return { host, state, cleanupCalls, warnings, errorLog, syncRetries, patches,
+    get slotDirectoryPresent() { return state.slotDirectoryPresent; },
     run: () => host.releaseJobStageBlockSlotsFromUi({ planId: "plan", jobIndex: 0, commandId: "command0" }) };
 }
 
@@ -299,6 +345,13 @@ test("release chain freezes the live candidate, shows one exact confirmation and
   assert.equal(preview.targets[0].relativePath, STAGE_RELATIVE);
   assert.match(preview.targets[0].archiveBatch, /^job-[a-f0-9]{48}$/);
   assert.equal(preview.targets[0].destination, "clean_dir/" + preview.targets[0].archiveBatch + "/" + STAGE_RELATIVE);
+  // 终审 P1-1：释放授权必须显式携带冻结 journal 绑定，让引擎在槽锁内、rename 前对当前 journal 复检。
+  assert.ok(preview.stagedJournal && typeof preview.stagedJournal === "object", "释放预览必须携带 stagedJournal 绑定，绝不只靠槽锁");
+  assert.equal(preview.stagedJournal.identity, STAGE_ID);
+  assert.equal(preview.stagedJournal.generation, STAGE_GEN, "绑定完整代=冻结候选的完整代");
+  assert.equal(preview.stagedJournal.status, "committed");
+  assert.equal(preview.stagedJournal.expiryMs, 86400000, "过期阈值取本次实时盘点返回的远端 expiry");
+  assert.equal(preview.stagedJournal.terminalAt, 2, "终态时刻冻结自实时候选（journal 无终态时刻时为 null）");
   // 一次确认：恰一个模态，展示的绝对/相对路径与 confirm exactTargets、执行绑定逐字一致；完整代随确认呈现。
   assert.equal(f.warnings.length, 1);
   const shown = String(f.warnings[0][0]);
@@ -379,4 +432,89 @@ test("an under-one-day leaving candidate is released only through this one expli
   assert.equal((await f.run()).status, "completed", "未满 1 天的退出候选允许经用户一次确认提前释放（自动链仍不得动它）");
   assert.equal(f.warnings.length, 1, "提前释放同样只有一次确认");
   assert.match(String(f.warnings[0][0]), /已存在 1 小时/);
+});
+
+// ——— 0.5.416 终审返修（P1-1/P1-2/P1-3）新增回归 ———
+
+test("a preview whose backend withholds the background-delete and isolation-receipt proofs stops before any confirmation or mutation", async () => {
+  // 终审 P1-2：SimpleSFTP 对自证不了支持的后端显式缺省 preview.safety 标志；缺任一即在弹确认前判掉。
+  const f = releaseFixture({ warningChoice: "确认释放此暂存槽", previewSafety: false });
+  const result = await f.run();
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /未在预览中自证/);
+  assert.match(result.message, /未执行任何修改/);
+  assert.equal(f.warnings.length, 0, "自证缺失在确认之前判掉，绝不打一次注定失败的确认");
+  assert.deepEqual(f.cleanupCalls.map(row => row.method), ["files.cleanup.stagedSlots", "files.cleanup.preview"], "预览只读；confirm/execute/删除登记零调用");
+  assert.equal(f.slotDirectoryPresent, true, "后端未自证=源槽目录原样存在");
+  assert.deepEqual(f.syncRetries, []);
+  assert.equal(f.errorLog.length, 1, "真实原因进入既有操作日志");
+});
+
+test("a stagedSlots answer without the remote expiry threshold refuses the release before preview, never an unbound one", async () => {
+  const f = releaseFixture({ warningChoice: "确认释放此暂存槽", liveExpiry: null });
+  const result = await f.run();
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /journal 绑定信息不完整/);
+  assert.deepEqual(f.cleanupCalls.map(row => row.method), ["files.cleanup.stagedSlots"], "缺过期阈值=fail-closed，绝不发送无 journal 绑定的释放预览");
+  assert.equal(f.warnings.length, 0);
+});
+
+test("a generation-changed, resumed or freshly re-committed slot cannot be isolated through the full release chain and its source directory stays present", async () => {
+  // 终审 P1-1 回归：journal 在预览与 rename 之间被换代/重新占用/重新 commit 时，引擎锁内复检必须拒绝隔离
+  // （夹具 execute 忠实复现 verify_staged_journal_binding 的比对语义）。若产品没把绑定带到预览，夹具会按
+  // 发布版真实行为只剩槽锁检查、隔离照常发生——源槽目录消失，本用例即失败，这就是回归防护本身。
+  for (const race of [
+    { label: "换代", after: { generation: "e".repeat(64) } },
+    { label: "非终态", after: { status: "running" } },
+    { label: "刚重新 commit", after: { terminalAt: 777 } },
+  ]) {
+    const f = releaseFixture({ warningChoice: "确认释放此暂存槽",
+      onCall: (method, params, state) => { if (method === "files.cleanup.execute") Object.assign(state.journal, race.after); } });
+    await assert.rejects(f.run(), /STAGED_JOURNAL_MISMATCH/, race.label);
+    assert.equal(f.slotDirectoryPresent, true, race.label + "：锁内复检拒绝后源槽目录必须原样存在，绝不被隔离");
+    assert.equal(f.cleanupCalls.filter(row => row.method === "files.cleanup.execute").length, 1, "拒绝后不重放隔离");
+    assert.deepEqual(f.cleanupCalls.filter(row => row.method === "files.cleanup.isolatedMaintenanceDelete"), [], "隔离被拒后绝不登记永久删除");
+    assert.deepEqual(f.syncRetries, [], race.label + "：隔离失败不触发同步重试粉饰");
+    assert.ok(f.cleanupCalls.some(row => row.method === "files.cleanup.preview" && row.params.stagedJournal),
+      race.label + "：走到完整释放链路且预览确实携带了 journal 绑定");
+  }
+});
+
+test("a context change during isolation polling stops the wait, registers no delete, retries no sync and reports the isolation as dispatched", async () => {
+  const f = releaseFixture({ warningChoice: "确认释放此暂存槽", statusStates: { 0: "pending" },
+    onCall: (method, params, state) => { if (method === "files.cleanup.status") state.breakContext(); } });
+  const result = await f.run();
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /项目或连接已变化/);
+  assert.match(result.message, /隔离请求此前已发出/, "如实报告：隔离修改已发出，不谎称未做任何事");
+  assert.match(result.message, /未登记永久删除、未重试产物同步/);
+  assert.equal(f.cleanupCalls.filter(row => row.method === "files.cleanup.status").length, 1, "上下文变化后立即停止轮询，不再空转");
+  assert.deepEqual(f.cleanupCalls.filter(row => row.method === "files.cleanup.isolatedMaintenanceDelete"), []);
+  assert.deepEqual(f.syncRetries, []);
+  assert.equal(f.errorLog.length, 1);
+});
+
+test("a context change after the isolation receipt keeps the proven isolation, registers no delete and reports it truthfully", async () => {
+  const f = releaseFixture({ warningChoice: "确认释放此暂存槽", statusStates: { 0: "completed" },
+    onCall: (method, params, state) => { if (method === "files.cleanup.status") state.breakContext(); } });
+  const result = await f.run();
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /隔离已完成/, "已证成的隔离如实报告，不谎称未做");
+  assert.match(result.message, /项目或连接已变化/);
+  assert.match(result.message, /未登记永久删除、未重试产物同步/);
+  assert.equal(f.slotDirectoryPresent, false, "已完成的隔离不回滚（既成事实），只停下后续修改");
+  assert.deepEqual(f.cleanupCalls.filter(row => row.method === "files.cleanup.isolatedMaintenanceDelete"), []);
+  assert.deepEqual(f.syncRetries, []);
+});
+
+test("a context change after the delete registration skips the sync retry and reports the registered delete", async () => {
+  const f = releaseFixture({ warningChoice: "确认释放此暂存槽",
+    onCall: (method, params, state) => { if (method === "files.cleanup.isolatedMaintenanceDelete") state.breakContext(); } });
+  const result = await f.run();
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /已登记永久删除/, "删除登记已完成后如实报告");
+  assert.match(result.message, /项目或连接已变化/);
+  assert.match(result.message, /未重试产物同步/);
+  assert.deepEqual(f.syncRetries, [], "上下文已变不得对新上下文调用产物同步");
+  assert.equal(f.errorLog.length, 1);
 });

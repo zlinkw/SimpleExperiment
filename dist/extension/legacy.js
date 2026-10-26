@@ -13994,11 +13994,15 @@ class RealtimeTunnelPanelProvider {
         void entry.promise.catch(() => undefined);
     }
     async releaseJobStageBlockSlotsFromUi(message) {
-        // 「释放旧文件占用」专用一次性受控链（裁定 Q5）：实时能力门 → 冻结队列行核对 → 实时只读重核候选
-        // → files.cleanup.preview 精确冻结 → 一次明确确认 → confirm(phase 1, exactTargets) → execute 隔离
-        // → status 隔离完成回执证成 → isolatedMaintenanceDelete（删除集合只从冻结 token/digest 派生）
-        // → 最终只读复核 → 只重试原同步（Job 完成状态不动）。
-        // 不新增远程 shell/直删路径；预览零写入；任何隔离/回执不明只停不重放；本流程的一次确认不外溢到通用清理入口。
+        // 「释放旧文件占用」专用一次性受控链（裁定 Q5＋终审 P1-1/P1-2/P1-3）：完整能力门（方法＋选项齐备）
+        // → 冻结队列行核对 → 实时只读重核候选 → 冻结 journal 绑定（identity/完整代/committed/过期阈值/终态时刻）
+        // → files.cleanup.preview 精确冻结＋后端自证（safety 缺任一标志即在确认前停）→ 一次明确确认
+        // → confirm(phase 1, exactTargets) → execute 隔离（引擎持槽锁、rename 前对当前 journal 复检绑定）
+        // → status 隔离完成回执证成 → 校上下文 → isolatedMaintenanceDelete（删除集合只从冻结 token/digest 派生）
+        // → 最终只读复核 → 校上下文 → 只重试原同步（Job 完成状态不动）。
+        // 不新增远程 shell/直删路径；预览零写入；任何隔离/回执不明只停不重放；隔离开始后的每个异步边界
+        // 与每个后续修改（登记删除、重试同步）之前都重新校上下文，上下文已变则如实报告已完成到哪一步；
+        // 本流程的一次确认不外溢到通用清理入口。
         const root = workspaceRoot(), client = this.client, generation = this.projectContextGeneration;
         if (!root || !client)
             throw new Error("请连接当前项目的 Worker 后重试。");
@@ -14048,13 +14052,34 @@ class RealtimeTunnelPanelProvider {
             return { status: "failed", message: `实时复核未确认可释放候选（候选须唯一、committed、未被占用，且路径与完整代匹配冻结卡点${protectedReason}），未执行任何修改。` };
         }
         const relativePath = String(candidate.relativePath || "");
+        // 3b. 冻结 journal 绑定（终审 P1-1）：identity、完整代、committed 状态、远端过期阈值（随本次盘点返回的
+        //     expiry）与终态时刻（journal 本身无终态时刻时为 null，与 SFTP 自动过期回收链一致）必须在预览时
+        //     显式带上——已批准的 SimpleSFTP 只在下发时把它交给引擎，引擎在持有槽锁、no_replace rename 之前
+        //     逐条对当前 journal 复检；不传=锁内只剩槽锁检查，预览的只读结论跨不过这段窗口。任一项缺失=
+        //     fail-closed，绝不发送无绑定的释放预览。
+        const journalIdentity = block.identity, journalGeneration = String(candidate.generation || "");
+        const journalExpiryMs = Number(live?.expiry?.ms);
+        const journalTerminalAt = Number.isInteger(Number(candidate.terminalAt)) && Number(candidate.terminalAt) > 0
+            ? Number(candidate.terminalAt) : null;
+        if (!/^[0-9a-f]{64}$/.test(journalIdentity) || !/^[0-9a-f]{64}$/.test(journalGeneration)
+            || !Number.isInteger(journalExpiryMs) || journalExpiryMs <= 0) {
+            return { status: "failed", message: "暂存槽 journal 绑定信息不完整（identity/完整代必须是 64hex，过期阈值必须是正整数），未执行任何修改。" };
+        }
         const archiveBatch = "job-" + crypto.createHash("sha256")
             .update(JSON.stringify(["staged-slot-release", block.identity, candidate.generation, relativePath, crypto.randomBytes(8).toString("hex")])).digest("hex").slice(0, 48);
-        // 4. 精确预览（只读、冻结 token/digest/绝对路径）；预览失败不产生任何远端修改。
+        // 4. 精确预览（只读、冻结 token/digest/绝对路径＋journal 绑定）；预览失败不产生任何远端修改。
         const preview = await this.simpleSftpApiCall("files.cleanup.preview", { node, action: "isolate", consumerRoot: root,
             authorizationSource: "single_confirmation_release",
+            stagedJournal: { identity: journalIdentity, generation: journalGeneration, status: "committed",
+                expiryMs: journalExpiryMs, terminalAt: journalTerminalAt },
             targets: [{ relativePath, type: "directory", archiveBatch, destination: "clean_dir/" + archiveBatch + "/" + relativePath }] });
         assertCurrent();
+        // 4b. 后端自证（终审 P1-2）：isolate 预览的 safety 只在连上的后端能证明支持时才携带
+        //     （SimpleSFTP 对不支持的后端显式缺省）。缺任一标志=在弹确认和任何修改之前停止；预览是只读操作。
+        if (preview?.safety?.backgroundIsolatedDelete !== 1 || preview?.safety?.isolationCompletionReceipt !== 1) {
+            this.recordActionError({ command: "releaseJobStageBlockSlots", message: `${block.destination.id}：连上的后端未在预览中自证后台隔离删除与隔离完成回执能力（preview.safety 标志缺失），已停止；未确认、未执行任何修改。` });
+            return { status: "failed", message: "连上的后端未在预览中自证后台隔离删除与隔离完成回执能力（preview.safety 标志缺失），未执行任何修改；请更新并重启 SimpleSFTP。" };
+        }
         const pending = (Array.isArray(preview?.targets) ? preview.targets : []).map((row, index) => ({ row, index })).filter(({ row }) => row.missing !== true);
         if (preview?.token !== undefined && preview?.digest !== undefined && pending.length === 1 && pending[0].row.absolutePath !== undefined
             && String(pending[0].row.relativePath) === relativePath && String(pending[0].row.destination) === "clean_dir/" + archiveBatch + "/" + relativePath) {
@@ -14082,7 +14107,9 @@ class RealtimeTunnelPanelProvider {
                 assertCurrent();
                 await this.simpleSftpApiCall("files.cleanup.execute", { token: preview.token, digest: preview.digest, index, consumerRoot: root });
             }
-            let isolated = false, unknownState = false;
+            // 终审 P1-3：隔离开始后的每个异步边界都要重新校上下文。已发出的隔离不会因此回滚，但登记
+            // 永久删除与重试同步都是后续修改——上下文一变，两者必须停下，且如实报告"已完成到哪一步"。
+            let isolated = false, unknownState = false, contextChanged = false;
             for (let attempt = 0; attempt < 40; attempt++) {
                 const row = await this.simpleSftpApiCall("files.cleanup.status", { token: preview.token, consumerRoot: root });
                 if (pending.every(({ index }) => String(row?.states?.[index]) === "completed")) {
@@ -14093,12 +14120,29 @@ class RealtimeTunnelPanelProvider {
                     unknownState = true;
                     break;
                 }
+                if (!isCurrent()) {
+                    contextChanged = true;
+                    break;
+                }
                 await new Promise(resolve => setTimeout(resolve, 3000));
+                if (!isCurrent()) {
+                    contextChanged = true;
+                    break;
+                }
+            }
+            if (contextChanged) {
+                this.recordActionError({ command: "releaseJobStageBlockSlots", message: `${block.destination.id}：隔离完成回执尚未证成时项目或连接已变化，已停止轮询；隔离请求此前已发出，未登记永久删除、未重试同步（token ${String(preview.token).slice(0, 8)}…）。` });
+                return { status: "failed", message: "项目或连接已变化：隔离请求此前已发出、完成回执未证成；未登记永久删除、未重试产物同步，原始同步保持部分同步与真实错误。" };
             }
             if (!isolated) {
                 // 隔离结果不明=停止且不再发送任何修改（裁定停止条件）；真实状态由台账后续读取收敛。
                 this.recordActionError({ command: "releaseJobStageBlockSlots", message: `${block.destination.id}：隔离完成回执${unknownState ? "为 unknown" : "未在限定时间内证成"}，已停止且未重放修改（token ${String(preview.token).slice(0, 8)}…）。` });
                 return { status: "failed", message: `隔离完成回执${unknownState ? "为 unknown" : "未在限定时间内证成"}，已停止且未重放修改；原始同步保持部分同步与真实错误。` };
+            }
+            // 隔离已证成——登记永久删除（后续修改）之前再校一次上下文：不回滚已完成的隔离，只停下登记与重试。
+            if (!isCurrent()) {
+                this.recordActionError({ command: "releaseJobStageBlockSlots", message: `${block.destination.id}：旧暂存槽隔离已完成，但项目或连接已变化；未登记永久删除、未重试产物同步。` });
+                return { status: "failed", message: `已释放 ${block.destination.host} 的旧暂存槽（${relativePath}）：隔离已完成；项目或连接已变化，未登记永久删除、未重试产物同步。` };
             }
             const deletion = await this.simpleSftpApiCall("files.cleanup.isolatedMaintenanceDelete", { token: preview.token, digest: preview.digest, consumerRoot: root,
                 targets: pending.map(({ index, row }) => ({ index, relativePath: String(row.relativePath), destination: String(row.destination) })) });
@@ -14111,6 +14155,11 @@ class RealtimeTunnelPanelProvider {
             const recheck = await this.simpleSftpApiCall("files.cleanup.stagedSlots", { node, identity: block.identity, generation: block.incomingGeneration }).catch(() => undefined);
             const stillThere = Array.isArray(recheck?.candidates) && recheck.candidates.some(row => String(row?.relativePath || "") === relativePath);
             // 7. 只重试这一条原产物同步（CompletedJobSyncHost 只写产物同步字段，不改 Job 完成状态）。
+            //    重试是对"新"上下文可能有害的后续修改：上下文已变则如实报告"删除已登记"并到此为止。
+            if (!isCurrent()) {
+                this.recordActionError({ command: "releaseJobStageBlockSlots", message: `${block.destination.id}：隔离副本删除已登记（state ${deleteState}），但项目或连接已变化；未重试产物同步。` });
+                return { status: "failed", message: `已释放 ${block.destination.host} 的旧暂存槽（${relativePath}）并登记永久删除；项目或连接已变化，未重试产物同步。` };
+            }
             const sync = await this.artifactSyncFromUi({ planId, jobIndex, commandId }, false);
             const suffix = stillThere ? "（最终只读复核仍见该候选，稍后刷新产物状态核对）" : "";
             if (sync.status === "completed")
