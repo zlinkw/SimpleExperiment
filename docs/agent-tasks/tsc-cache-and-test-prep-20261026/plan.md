@@ -57,5 +57,6 @@
 不采用全局 TS7（项目 moduleResolution:Node 与 tsc-cached require TS API 兼容阻塞）、不装项目本地 TS7、不改业务模块/tsconfig/锁文件/模块语义、不清理旧缓存、不跨 worktree 共享可写状态、不为凑数量做无价值拆分。
 
 ## 后续候选（冻结后想法一律登记于此，不落码）
+- **gate-04 自指纹失效（runner 既有缺陷，主控 2026-10-26 裁定本轮 A 暂缓）**：判因（读码实证）——版本 bump 提交若未同步 `src/runtime/RuntimeManifest.ts`（本树触发态：package.json=0.5.414 ≠ CURRENT_RUNTIME_VERSION=0.5.413），write-agent-runtime.js:16-28 在 compile 链 gate 内重写该 src 文件，而 startFingerprint 于 test-workflow.js:672 在所有 phase 之前采集 ⇒ end≠start ⇒ :722 `overall=invalidated` exit 1；表现为"未同步树上首跑必自伤、二跑必绿"（本树与 r130 run1 同根因）。触发条件已由 0.5.415 分支三处版本对齐消除（合并进 master 即消除当前触发＝方案 C）。**A 方案（获批即实施）**：把 `node scripts/write-agent-runtime.js` 提为一轮一次 hoist 进 prereq 串行段（复用 test-workflow.js:154/:216 prepare-wsl-tests 既有提升机制），置于 startFingerprint 采集之前；compile 链原位 gate 移除（src 写入与 dist 产物由 hoist 完成，dist 不在指纹面）；r29 #5 防漂移语义不削弱，runner 自产写入移出测量窗口。**实施触发条件：在版本已同步的树上仍出现 start≠end 自指纹失效**——出现即按 A 批准实施；不再凭"更稳健"动共享 runner 指纹窗口。
 - attested whitelist 覆盖 124/238 是当前按需静默面的上限约束（干净基线仅 1 组/6 文件可静默）；扩展 whitelist 需逐文件补 independence basis，属下一候选，不在本切片。
 - 浅克隆/浅历史仓库的组时间可靠性（当前保守为不判旧）如需支持，需带完整历史或 graft 感知的替代来源，属下一候选。
