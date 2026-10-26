@@ -62,3 +62,65 @@ test("r9: a frozen-protected source refuses with an explicit error instead of an
   assert.equal(jobs[0].latestArtifactSync.state, "partial");
   assert.ok(!jobs[0].mirroredWorkerIds);
 });
+
+// 0.5.416 配套（se-stage-block-visibility-release）：暂存槽卡点证据净化与释放能力门（纯单元，无平台依赖）。
+// 卡点结构化字段是释放执行的唯一绑定来源：净化必须全量保留主机/范围/通道/身份/两槽与完整 64hex 代，
+// 拒绝任何非 v1 结构与未知字段；释放能力门只认实时 capabilities，绝不按版本号推断。
+const { sanitizeArtifactStageBlock, artifactStageBlockFromError, stagedSlotReleaseEvidenceReady }
+  = require("../../src/features/JobArtifactSyncIdentity.ts");
+const STAGE_ID = "a".repeat(64), STAGE_GEN = "c".repeat(64), STAGE_INCOMING = "b".repeat(64);
+const rawStageBlock = () => ({ schemaVersion: 1, code: "TRANSFER_STAGE_PENDING",
+  destination: { id: "nwpu3", profile: "work", host: "nwpu3.invalid" }, scope: '["job-artifacts","plans/p.yaml",0,"c0",42]',
+  lane: 1, identity: STAGE_ID, incomingGeneration: STAGE_INCOMING,
+  slots: [{ slot: "slot-0", path: ".staged-slots/" + STAGE_ID + "/slot-0", generation: STAGE_GEN, status: "committed",
+      createdAt: 10, terminalAt: 20, updatedAt: 30, timeSource: "journal-terminalAt", ageMs: 172800000, locked: false,
+      protectedReason: null, injectedUnknownField: "不得进入持久化" },
+    { slot: "slot-1", path: ".staged-slots/" + STAGE_ID + "/slot-1", generation: "d".repeat(64), status: "running",
+      createdAt: 40, terminalAt: 0, updatedAt: 50, timeSource: null, ageMs: null, locked: true, protectedReason: "lock-held" }],
+  releaseCandidate: true });
+
+test("卡点净化保留主机/范围/通道/身份与两槽全量事实和完整 64hex 代，拒绝非 v1、错误文本与未知字段", () => {
+  const clean = sanitizeArtifactStageBlock(rawStageBlock());
+  assert.ok(clean, "v1 卡点必须通过净化");
+  assert.deepEqual(clean.destination, { id: "nwpu3", profile: "work", host: "nwpu3.invalid" });
+  assert.equal(clean.scope, '["job-artifacts","plans/p.yaml",0,"c0",42]', "scope 逐字保留调用方声明的稳定范围");
+  assert.equal(clean.lane, 1);
+  assert.equal(clean.identity, STAGE_ID);
+  assert.equal(clean.incomingGeneration, STAGE_INCOMING, "UI 可缩写，持久化与后台绑定必须完整值");
+  assert.equal(clean.slots.length, 2, "两槽事实全量可见：含被占用槽的 locked/protectedReason");
+  assert.equal(clean.slots[0].path, ".staged-slots/" + STAGE_ID + "/slot-0");
+  assert.equal(clean.slots[0].generation, STAGE_GEN);
+  assert.equal(clean.slots[1].locked, true);
+  assert.equal(clean.slots[1].protectedReason, "lock-held");
+  assert.equal(JSON.stringify(clean).includes("不得进入持久化"), false, "白名单外字段绝不落队列文件");
+  assert.equal(sanitizeArtifactStageBlock({ schemaVersion: 2, code: "TRANSFER_STAGE_PENDING" }), undefined);
+  assert.equal(sanitizeArtifactStageBlock({ schemaVersion: 1, code: "OTHER" }), undefined);
+  assert.equal(sanitizeArtifactStageBlock("暂存槽卡点：主机 x · 范围 y"), undefined, "错误文本永不是卡点来源（禁止从文本猜路径）");
+  assert.equal(sanitizeArtifactStageBlock({ ...rawStageBlock(), identity: "not-hex" }).identity, "", "非 64hex 身份置空，不成为可执行绑定");
+  assert.equal(artifactStageBlockFromError({ message: "m", apiData: { stageBlock: rawStageBlock() } }).releaseCandidate, true, "apiData.stageBlock 位置同样兼容");
+  assert.equal(artifactStageBlockFromError({ message: "m" }), undefined, "无结构化字段=只有文本，不猜");
+});
+
+test("释放能力门要求裁定能力实时齐备，任一缺失（含新 SE＋旧 SFTP）一律关闭", () => {
+  const base = () => structuredClone({ methods: ["files.cleanup.stagedSlots", "files.cleanup.preview", "files.cleanup.execute"],
+    methodOptions: {
+      "files.cleanup.stagedSlots": { expiredCommittedReclaim: 1, structuredBlockEvidence: 1, releaseConfirmationCount: 1 },
+      "sync.serverToServerFpsync": { claimScopedExpiredReclaim: 1, stageBlockEvidence: 1 },
+      "files.cleanup.preview": { backgroundIsolatedDelete: 1 },
+      "files.cleanup.execute": { isolationCompletionReceipt: 1 } } });
+  assert.equal(stagedSlotReleaseEvidenceReady(base()), true);
+  const mutations = [
+    c => { c.methodOptions["files.cleanup.stagedSlots"].expiredCommittedReclaim = 0; },
+    c => { delete c.methodOptions["files.cleanup.stagedSlots"].releaseConfirmationCount; },
+    c => { delete c.methodOptions["sync.serverToServerFpsync"].stageBlockEvidence; },
+    c => { delete c.methodOptions["files.cleanup.preview"].backgroundIsolatedDelete; },
+    c => { delete c.methodOptions["files.cleanup.execute"].isolationCompletionReceipt; },
+    c => { c.methods = ["files.cleanup.preview", "files.cleanup.execute"]; }, // 旧 SFTP：无 stagedSlots
+  ];
+  for (const mutate of mutations) {
+    const clone = base(); mutate(clone);
+    assert.equal(stagedSlotReleaseEvidenceReady(clone), false);
+  }
+  assert.equal(stagedSlotReleaseEvidenceReady(undefined), false);
+  assert.equal(stagedSlotReleaseEvidenceReady({ methods: [], version: "0.3.0" }), false, "版本号字样不构成能力");
+});

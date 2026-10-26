@@ -106,6 +106,9 @@ export type QueuedJob = {
   mirroredWorkerIds?: string[];
   artifactError?: string;
   artifactRetryAfter?: string;
+  /** 0.2.113 配套：暂存槽卡点结构化证据（schemaVersion 1，白名单净化后持久化）。
+   * 仅随 artifactError 失败/成功同写同清；释放执行的完整路径绑定只读本字段，绝不解析错误文本。 */
+  artifactStageBlock?: import("./JobArtifactSyncIdentity").JobArtifactStageBlock;
   latestArtifactSync?: { key: string; state: "synced" | "partial" | "excluded"; scopes: string[]; checkedAt: string;
     workerIds?: string[]; error?: string; retryAfter?: string; artifactDigest?: string;
     /** r10：仅 completedJob 同步成功且分类出"只存在于其它端点的历史保留副本"时写入（路径+原因）。 */
@@ -1672,7 +1675,7 @@ export function retryVerifiedJob(queue: DistributedQueue, planId: string, jobInd
       failureDiagnostic: undefined, formalConflictEvidence: undefined, blockReason: undefined, recoveryConflict: undefined,
       stopReason: undefined, automaticRetry: undefined, dispatchAcknowledgedAt: undefined, lastDispatchAttemptAt: undefined,
       cleanup: undefined,
-      artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, latestArtifactSync: undefined, outputRetiredAt: undefined,
+      artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, artifactStageBlock: undefined, latestArtifactSync: undefined, outputRetiredAt: undefined,
       historyLogIdentity: undefined, logPath: undefined,
       status: "pending" as const, history: [...(item.history || []), { attempt: item.attempt,
         status: item.status, workerId: item.workerId, commandId: item.commandId, outputDir: item.outputDir,

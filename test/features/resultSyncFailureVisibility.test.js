@@ -221,3 +221,148 @@ test("completed old-revision history and an artifact sync do not masquerade as a
   f.host.localDistributedCodeFingerprint = async () => { throw new Error("should not compare inactive code"); };
   assert.equal(await f.host.distributedCodeVersionHold({}), undefined);
 });
+
+// 0.5.416 配套（se-stage-block-visibility-release）：「释放旧文件占用」专用受控链。
+// 从编译产物切出真实 releaseJobStageBlockSlotsFromUi 方法，在 vm 沙箱里由产品代码驱动全部分支；
+// 只 mock 宿主表面（能力读取、cleanup RPC、确认框、重试入口），断言全部走真实方法逻辑。
+const STAGE_ID = "a".repeat(64), STAGE_GEN = "c".repeat(64), STAGE_INCOMING = "b".repeat(64);
+const STAGE_RELATIVE = ".staged-slots/" + STAGE_ID + "/slot-0";
+const STAGE_ABSOLUTE = "/safe/project/" + STAGE_RELATIVE;
+function releaseFixture(options = {}) {
+  const { capabilityReady = true, warningChoice, liveCandidates, deleteState = "accepted", statusStates, releaseCandidate = true,
+    ageMs = 172800000 } = options;
+  const cleanupCalls = [], warnings = [], errorLog = [], syncRetries = [], patches = [];
+  const queueJob = { index: 0, commandId: "command0", artifactStageBlock: { schemaVersion: 1, code: "TRANSFER_STAGE_PENDING",
+    destination: { id: "b", profile: "work", host: "nwpu3.invalid" }, scope: "job-artifacts-scope", lane: 0, identity: STAGE_ID,
+    incomingGeneration: STAGE_INCOMING,
+    slots: [{ slot: "slot-0", path: STAGE_RELATIVE, generation: STAGE_GEN, status: "committed", createdAt: 1, terminalAt: 2, updatedAt: 3,
+      timeSource: "journal-terminalAt", ageMs, locked: false, protectedReason: null },
+      { slot: "slot-1", path: ".staged-slots/" + STAGE_ID + "/slot-1", generation: "d".repeat(64), status: "running", createdAt: 4,
+        terminalAt: 0, updatedAt: 5, timeSource: null, ageMs: null, locked: true, protectedReason: "lock-held" }],
+    releaseCandidate } };
+  const capabilities = { methods: ["files.cleanup.stagedSlots", "files.cleanup.preview", "files.cleanup.execute"],
+    methodOptions: { "files.cleanup.stagedSlots": { expiredCommittedReclaim: 1, structuredBlockEvidence: 1, releaseConfirmationCount: 1 },
+      "sync.serverToServerFpsync": { claimScopedExpiredReclaim: 1, stageBlockEvidence: 1 },
+      "files.cleanup.preview": { backgroundIsolatedDelete: 1 }, "files.cleanup.execute": { isolationCompletionReceipt: 1 } } };
+  const sandbox = { workspaceRoot: () => "C:/project", crypto: require("node:crypto"),
+    JobArtifactSyncIdentity_1: require("../../dist/features/JobArtifactSyncIdentity.js"),
+    vscode: { window: { showWarningMessage: async (...args) => { warnings.push(args); return warningChoice; } } } };
+  vm.createContext(sandbox);
+  const start = source.indexOf("async releaseJobStageBlockSlotsFromUi(");
+  const end = source.indexOf("syncCompletedPlanArtifacts(context)", start);
+  assert.ok(start >= 0 && end > start, "compiled release method slice");
+  vm.runInContext(`this.methods = { ${source.slice(start, end).replace(/}\r?\n {4}(?=(?:async )?[a-zA-Z_$][\w$]*\()/g, "},\n    ")} };`, sandbox);
+  let stagedSlotsReads = 0;
+  const host = { ...sandbox.methods, client: {}, projectContextGeneration: 1,
+    readSimpleSftpCapabilities: async () => { if (!capabilityReady) throw new Error("SimpleSFTP 不支持 files.cleanup.stagedSlots。"); return capabilities; },
+    recordActionError: row => errorLog.push(row),
+    loadDistributedQueue: async () => ({ plans: [{ id: "plan", jobs: [queueJob] }] }),
+    patchDistributedJob: async (...args) => patches.push(args),
+    workerCodeSyncTargets: () => [{ id: "b", host: "nwpu3.invalid", port: 22, user: "u", remotePath: "/safe/project" }],
+    sftpServerOptions: row => ({ id: row.id, host: row.host, user: row.user, port: row.port, remotePath: row.remotePath }),
+    artifactSyncFromUi: async message => { syncRetries.push(message); return { status: "completed", message: "产物增量同步：1 个 job 已一致" }; },
+    postState() {},
+    simpleSftpApiCall: async (method, params) => {
+      cleanupCalls.push({ method, params });
+      if (method === "files.cleanup.stagedSlots") {
+        stagedSlotsReads += 1;
+        if (stagedSlotsReads === 1) return { candidates: liveCandidates === undefined
+          ? [{ relativePath: STAGE_RELATIVE, type: "directory", status: "committed", generation: STAGE_GEN, locked: false, releaseCandidate: true, ageMs, protectedReason: null }]
+          : liveCandidates };
+        return { candidates: [] }; // 删除后的最终只读复核：原槽已退出盘点。
+      }
+      if (method === "files.cleanup.preview") return { token: "tok-1", digest: "dig-1",
+        targets: [{ relativePath: params.targets[0].relativePath, destination: params.targets[0].destination, absolutePath: STAGE_ABSOLUTE, missing: false }] };
+      if (method === "files.cleanup.status") return { states: statusStates || { 0: "completed" } };
+      if (method === "files.cleanup.isolatedMaintenanceDelete") return { state: deleteState };
+      return {};
+    } };
+  return { host, cleanupCalls, warnings, errorLog, syncRetries, patches,
+    run: () => host.releaseJobStageBlockSlotsFromUi({ planId: "plan", jobIndex: 0, commandId: "command0" }) };
+}
+
+test("release chain freezes the live candidate, shows one exact confirmation and only then isolates, proves receipts, deletes registered and retries just the original sync", async () => {
+  const f = releaseFixture({ warningChoice: "确认释放此暂存槽" });
+  const result = await f.run();
+  assert.equal(result.status, "completed", result.message);
+  assert.match(result.message, /已释放 nwpu3\.invalid 的旧暂存槽/);
+  assert.deepEqual(f.cleanupCalls.map(row => row.method), ["files.cleanup.stagedSlots", "files.cleanup.preview", "files.cleanup.confirm",
+    "files.cleanup.execute", "files.cleanup.status", "files.cleanup.isolatedMaintenanceDelete", "files.cleanup.stagedSlots"]);
+  const preview = f.cleanupCalls[1].params;
+  assert.equal(preview.action, "isolate");
+  assert.equal(preview.authorizationSource, "single_confirmation_release", "授权来源=一次确认释放，绝不冒充自动过期策略或通用清理");
+  assert.equal(preview.consumerRoot, "C:/project", "consumerRoot=本地消费项目，不是远端根");
+  assert.equal(preview.targets.length, 1);
+  assert.equal(preview.targets[0].relativePath, STAGE_RELATIVE);
+  assert.match(preview.targets[0].archiveBatch, /^job-[a-f0-9]{48}$/);
+  assert.equal(preview.targets[0].destination, "clean_dir/" + preview.targets[0].archiveBatch + "/" + STAGE_RELATIVE);
+  // 一次确认：恰一个模态，展示的绝对/相对路径与 confirm exactTargets、执行绑定逐字一致；完整代随确认呈现。
+  assert.equal(f.warnings.length, 1);
+  const shown = String(f.warnings[0][0]);
+  assert.match(shown, new RegExp("绝对路径：" + STAGE_ABSOLUTE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.ok(shown.includes(STAGE_RELATIVE) && shown.includes(STAGE_GEN), "UI 与后台使用同一完整路径/完整代");
+  assert.match(shown, /主机 nwpu3\.invalid（profile work） · 范围 job-artifacts-scope · 通道 0/);
+  assert.equal(f.warnings[0][1].modal, true);
+  const confirm = f.cleanupCalls[2].params;
+  assert.deepEqual([confirm.token, confirm.digest, confirm.phase, confirm.confirm], ["tok-1", "dig-1", 1, true]);
+  assert.deepEqual(confirm.exactTargets, [STAGE_ABSOLUTE], "确认绑定精确 token/digest/绝对路径");
+  const execute = f.cleanupCalls[3].params;
+  assert.equal(execute.token, "tok-1"); assert.equal(execute.index, 0);
+  const deletion = f.cleanupCalls[5].params;
+  assert.equal(deletion.token, "tok-1"); assert.equal(deletion.digest, "dig-1", "删除集合只从冻结 token/digest 派生");
+  assert.deepEqual(deletion.targets, [{ index: 0, relativePath: STAGE_RELATIVE, destination: preview.targets[0].destination }]);
+  assert.deepEqual(f.syncRetries, [{ planId: "plan", jobIndex: 0, commandId: "command0" }], "成功后只重试这一条原同步");
+  assert.deepEqual(f.patches, [], "释放链自身不改 Job/产物字段；完成状态由既有同步链管理");
+});
+
+test("a dismissed confirmation mutates nothing after the read-only preview and keeps partial plus the original error", async () => {
+  const f = releaseFixture({ warningChoice: undefined });
+  const result = await f.run();
+  assert.equal(result.status, "cancelled");
+  assert.match(result.message, /未执行任何修改/);
+  assert.deepEqual(f.cleanupCalls.map(row => row.method), ["files.cleanup.stagedSlots", "files.cleanup.preview"], "取消后 confirm/execute/delete 零调用");
+  assert.deepEqual(f.syncRetries, [], "取消释放不触发同步重试");
+});
+
+test("new SE plus old SFTP (live capabilities missing): release refuses before any cleanup call and never guesses a path", async () => {
+  const f = releaseFixture({ capabilityReady: false });
+  const result = await f.run();
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /实时 capabilities|未声明完整的受控暂存槽释放能力/);
+  assert.deepEqual(f.cleanupCalls, [], "旧 SFTP 下整个受控清理协议一次都不调用，更不会猜路径");
+  assert.equal(f.errorLog.length, 1, "真实原因进既有操作日志/通知反馈");
+});
+
+test("a locked, mismatched or non-candidate live slot is protected: no preview freeze and no release entry", async () => {
+  const locked = releaseFixture({ liveCandidates: [{ relativePath: STAGE_RELATIVE, status: "committed", generation: STAGE_GEN, locked: true, releaseCandidate: false, protectedReason: "lock-held" }] });
+  assert.equal((await locked.run()).status, "failed");
+  assert.deepEqual(locked.cleanupCalls.map(row => row.method), ["files.cleanup.stagedSlots"], "被占用=protected，不提供强制释放");
+  const moved = releaseFixture({ liveCandidates: [{ relativePath: ".staged-slots/" + STAGE_ID + "/slot-9", status: "committed", generation: "e".repeat(64), locked: false, releaseCandidate: true }] });
+  assert.equal((await moved.run()).status, "failed", "实时候选与冻结卡点路径/完整代不一致必须停");
+  assert.equal(moved.cleanupCalls.length, 1);
+  const notReleasable = releaseFixture({ releaseCandidate: false });
+  assert.equal((await notReleasable.run()).status, "failed");
+  assert.match((await notReleasable.run()).message, /无可释放候选/);
+  assert.deepEqual(notReleasable.cleanupCalls, [], "卡点无候选时连盘点都不发起");
+});
+
+test("unknown isolation receipt or refused registered delete stops without replay and keeps the real failure", async () => {
+  const unknown = releaseFixture({ warningChoice: "确认释放此暂存槽", statusStates: { 0: "unknown" } });
+  const unknownResult = await unknown.run();
+  assert.equal(unknownResult.status, "failed");
+  assert.match(unknownResult.message, /unknown/);
+  assert.equal(unknown.cleanupCalls.filter(row => row.method === "files.cleanup.execute").length, 1, "隔离结果 unknown 后不得再次发送修改");
+  assert.deepEqual(unknown.cleanupCalls.filter(row => row.method === "files.cleanup.isolatedMaintenanceDelete"), []);
+  assert.deepEqual(unknown.syncRetries, []);
+  assert.equal(unknown.errorLog.length, 1, "unknown 停止如实进入操作日志");
+  const rejected = releaseFixture({ warningChoice: "确认释放此暂存槽", deleteState: "rejected" });
+  assert.equal((await rejected.run()).status, "failed", "删除登记未接受=失败，不冒充成功");
+  assert.deepEqual(rejected.syncRetries, [], "删除未成功不宣称释放完成，也不触发重试粉饰");
+});
+
+test("an under-one-day leaving candidate is released only through this one explicit confirmation", async () => {
+  const f = releaseFixture({ warningChoice: "确认释放此暂存槽", ageMs: 3600000 });
+  assert.equal((await f.run()).status, "completed", "未满 1 天的退出候选允许经用户一次确认提前释放（自动链仍不得动它）");
+  assert.equal(f.warnings.length, 1, "提前释放同样只有一次确认");
+  assert.match(String(f.warnings[0][0]), /已存在 1 小时/);
+});
