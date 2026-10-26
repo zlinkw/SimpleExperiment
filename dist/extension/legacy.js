@@ -37,6 +37,7 @@ exports.RealtimeTunnelPanelProvider = void 0;
 exports.activate = activate;
 exports.deactivate = deactivate;
 exports.__transferSyncScopeBatchForTest = __transferSyncScopeBatchForTest;
+exports.__reconcileProjectFilesAcrossWorkersForTest = __reconcileProjectFilesAcrossWorkersForTest;
 exports.__syncPendingResultMetricsForTest = __syncPendingResultMetricsForTest;
 exports.__rebuildProjectResultTablesForTest = __rebuildProjectResultTablesForTest;
 exports.__handleResultUiCommandForTest = __handleResultUiCommandForTest;
@@ -8655,8 +8656,9 @@ class RealtimeTunnelPanelProvider {
         await this.confirmPlanExistingOutputsFromValidation(plan, body, { ...validation, existing: [...existingByIndex.values()] }, true);
         if (body.existingOutputChoice === "rerun_missing")
             body.distributedSkipJobIndices ??= [...existingByIndex.keys()];
-        else if (body.existingOutputChoice === "rerun_all")
-            body.distributedSkipJobIndices = [];
+        // r82（0.5.414）：此处曾有 `else if (rerun_all) body.distributedSkipJobIndices = []`——无条件清空
+        // 刚由隔离审核得出的安全排除（现场缺陷①）。rerun_all 只表示"用户想全跑"，派发资格仍由
+        // enqueueDistributedPlan 的 planDispatchSelection 按 runReplacement.blocked 划分；这里不再改写。
     }
     async confirmPlanExistingOutputs(plan, body, validated, versionedAttempts = false) {
         const validation = planValidationFromResult(validated);
@@ -11766,6 +11768,10 @@ class RealtimeTunnelPanelProvider {
                         source: this.sftpServerOptions(sourceRow),
                         destination: { ...destination, host: destination.networkHost || destination.host },
                         relativePaths: group.files,
+                        // r112 依据：现场被占死的正是共享 project-files 槽（d-47be3d71…=sha256(["project-files",0])、lane1 d-008f3730…），
+                        // 本处漏传身份即回退共享 scope＋每发新代，两代 committed 后该链路必撞 TRANSFER_STAGE_PENDING。
+                        // 身份取本次冻结 plan.files（发送前已算好、发送后用于校验），同批同内容重试复用同代走 receiver resume。
+                        ...(0, JobArtifactSyncIdentity_1.syncScopeStagingIdentity)(group.files, plan.files),
                         confirm: true, pathConfirmed: true,
                         taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({
                             action: "批量保留文件版本",
@@ -12106,6 +12112,10 @@ class RealtimeTunnelPanelProvider {
                     await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: this.sftpServerOptions(sourceRow),
                         destination: { ...this.sftpServerOptions(row), host: this.sftpServerOptions(row).networkHost || this.sftpServerOptions(row).host },
                         ...(directory ? { relativePath: relative, directory: true, manualRetain: true } : { relativePaths: [relative] }),
+                        // r112 依据：本处（含"合并最新版"逐文件扇入 :10758）漏传身份回退共享 project-files scope＋每操作新代，
+                        // 即 nwpu3 双槽（d-47be3d71…/d-008f3730…）被同源自家 committed 代占满的直接来源；身份取校验前已冻结、
+                        // 校验后逐字节复核的 sourceInventory，重试同内容复用同代；来源在确认期间变化本就被"来源版本已变化"检查拒绝。
+                        ...(0, JobArtifactSyncIdentity_1.syncScopeStagingIdentity)([relative], sourceInventory),
                         confirm: true, pathConfirmed: true,
                         taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({
                             action: directory ? "手动保留目录版本" : "手动保留文件版本",
@@ -12195,6 +12205,9 @@ class RealtimeTunnelPanelProvider {
                     await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: this.sftpServerOptions(sourceRow),
                         destination: { ...destination, host: destination.networkHost || destination.host },
                         relativePath: directory, directory: true, manualRetain: true, confirm: true, pathConfirmed: true,
+                        // r112 依据：目录恢复与保留同走 directory:/project-files 共享槽，漏传即每轮新代；身份取本轮
+                        // 已按清单哈希核对过的 sourceFiles（holds 记录＋来源实盘），恢复重试复用同代。
+                        ...(0, JobArtifactSyncIdentity_1.syncScopeStagingIdentity)([directory], sourceFiles),
                         taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({
                             action: "恢复手动保留目录",
                             sourceId: sourceRow.id, destinationId: target.id, detail: directory,
@@ -13304,6 +13317,13 @@ class RealtimeTunnelPanelProvider {
             // 不得把别的 PLAN 的确认与提交排在一次慢隔离之后（2026-10-21 18:13–18:20 批次慢的根因）。
             if (batch)
                 body.confirmGateLocal = work => batch.serial("outputs", work);
+            // 同批隔离机械 I/O 读写协调：预检为读者并发、SFTP 计忙写段互斥（批内 FIFO）；只排本批
+            // 自有临界段，不占对话道、不等待任意外部传输（外部忙仍由配套即时拒绝）。排队可能等待
+            // 他 Plan 的写段——获准后、段体前先过既有 batch.verify(body)（PLAN/代码最新声明核对，r75
+            // 契约窗口），等待期间声明已变化绝不带旧动作继续；verify 在隔离生命周期 finally 覆盖内，
+            // 抛错必释放名额。不长准备入锁、不 memo 预检、不放宽 verify。
+            if (batch)
+                body.isolationGateLocal = (kind, work) => batch.isolation(kind, async () => { await batch.verify(body); return work(); });
             await this.waitForPlanSubmission(message, () => confirmOutputs());
             // 记录“本批有旧产物已按确认移入隔离区”，仅供整批派发准入完成后提示独立删除审核；绝不自动删除。
             if (batch && body.existingOutputCount && ["rerun_all", "rerun_missing"].includes(body.existingOutputChoice)) {
@@ -13320,7 +13340,11 @@ class RealtimeTunnelPanelProvider {
                             planFile: body.planFile, revision: body.planRevision || "", codeFingerprint: this.lastCodeSyncState?.fingerprint || body.codeFingerprint || "",
                             runReplacement: body.runReplacement });
                     }
-                    catch { /* 账本写入失败：无冻结即无审核提示；隔离区原样保留，删除仍需清理入口两次确认。 */ }
+                    catch (error) { /* 账本写入失败：无冻结即无审核提示；隔离区原样保留，删除仍需清理入口两次确认。
+                        2026-10-26 用户授权（裁定 B 后续）补可见性：经既有 action_errors 通道如实记录一条；
+                        准入与 fail-closed 语义一字未动——该事实仍未入账，审核/删除入口依旧关闭。 */
+                        this.observeIsolatedLedgerWriteFailure("隔离事实", isolatedBatchInfo.batchId, operationId, error);
+                    }
                 }
             }
             assertCurrent();
@@ -14335,8 +14359,12 @@ class RealtimeTunnelPanelProvider {
                 return { workerId: worker.id, error: errorMessage(error) };
             }
         }));
+        // r82：占用核查豁免是显式决定=用户跳过 ∪ 隔离阻断（本轮不派发故不核查其启动观测），
+        // 不再是"清空排除表"的副作用；阻断源只认隔离流程的结构化 blocked（runReplacement.blocked）。
         const skip = new Set(body.distributedSkipJobIndices || []);
-        WorkerTaskQuery.assertLaunchObservations(snapshots, (validation?.jobs || []).filter(job => !skip.has(Number(job.index))));
+        const launchObservationExempt = new Set([...skip, ...(body.runReplacement?.flow === "isolate" && Array.isArray(body.runReplacement.blocked)
+                ? body.runReplacement.blocked.map((row) => Number(row?.index)) : [])].filter(Number.isInteger));
+        WorkerTaskQuery.assertLaunchObservations(snapshots, (validation?.jobs || []).filter(job => !launchObservationExempt.has(Number(job.index))));
         for (const snapshot of snapshots)
             if (declarations.length && snapshot.capabilities?.declaredResultQuery !== 1)
                 throw new Error("Worker " + snapshot.workerId + "：需要更新 Agent/Scheduler 以查询当前声明的结果；未删除或提交。");
@@ -14400,8 +14428,13 @@ class RealtimeTunnelPanelProvider {
         // Replacement already finished through the confirmed cleanup service. A new
         // formal writer must still reject occupied paths; never forward overwrite.
         const overwriteExisting = false;
-        const skipped = new Set(body.existingOutputChoice !== "rerun_missing" ? [] : (Array.isArray(body.distributedSkipJobIndices) ? body.distributedSkipJobIndices.map(Number) : []));
-        const selectedJobs = validation.jobs.filter((job) => !skipped.has(Number(job.index)));
+        // r82：入队选择走共享选择函数（此前"非补跑即清空"让隔离阻断 job 随 rerun_all 蒸发，现场缺陷②）。
+        // 划分：可执行（入队+可派发）/ 隔离暂停（入队可见 pending+job 级标记，不派发）/ 有意跳过（不入队）。
+        const selection = DistributedPlanQueue.planDispatchSelection(validation, body);
+        // r90：保留 enqueue 既有契约文本 `selectedJobs = validation.jobs.filter(...)`（distributedRerunAndWorkerDelta
+        // 文本契约钉死）。语义与 planDispatchSelection.selectedJobs 逐字等价：仅剔除"有意跳过"集合；
+        // 隔离暂停 job 的划分仍取 selection.blockedMarkers（入队可见、不派发），行为不变。
+        const selectedJobs = validation.jobs.filter((job) => !selection.userSkipped.has(Number(job.index)));
         if (this.taskLifecycleProtocol === 2 && !body.workerSubmissionSnapshots)
             await this.assertPlanSubmissionWorkers(body, validated);
         if (!selectedJobs.length) {
@@ -14427,6 +14460,8 @@ class RealtimeTunnelPanelProvider {
                 outputDir: String(job.output_dir || "").replace(/\\/g, "/").replace(/\/$/, ""),
                 collectionResultCsv: String(job.result_csv || ""),
                 checkpointSource: job.checkpoint_source,
+                // r82：隔离阻断 job 以 pending+job 级标记入队——面板可见、四条派发路径过滤、发送前再核都读这份持久事实。
+                outputIsolationBlocked: selection.blockedMarkers.get(Number(job.index)),
             })) }, id);
         const supersededId = String(supersededDeferredId || "");
         const next = supersededId ? { ...enqueued, deferred: (enqueued.deferred || []).map((row) => row.id === supersededId
@@ -14469,7 +14504,9 @@ class RealtimeTunnelPanelProvider {
         const latest = await this.loadDistributedQueue(root);
         const submittedPlan = latest.plans.find((item) => item.id === id);
         const result = DistributedPlanQueue.distributedSubmissionResult(submittedPlan, dispatchError);
-        return { enqueued: true, ...result };
+        // r82：blockedCount（队列事实）+skippedCount（本轮有意跳过）随提交结果透传给通知层——
+        // 部分提交不得再呈现为无等待的全量接收（现场 r81d：操作记录 status=succeeded、error=""）。
+        return { enqueued: true, ...result, skippedCount: selection.userSkipped.size };
     }
     detachStaleDistributedTick(task) {
         if (!task || this.distributedQueueTickPromise !== task)
@@ -14509,7 +14546,7 @@ class RealtimeTunnelPanelProvider {
             // 方法存在性防护只服务 VM 部分提取夹具，真实类内该方法恒定存在。
             if (generation === this.distributedQueueGeneration && typeof this.promoteIsolatedDispatchLocal === "function")
                 await this.promoteIsolatedDispatchLocal(generation)
-                    .catch(error => this.recordActionError({ command: "isolatedLedgerPromotion", message: errorMessage(error) }));
+                    .catch(error => this.observeIsolatedLedgerPromotionError(error));
         }
         finally {
             if (this.distributedTickAbort === abort)
@@ -14537,9 +14574,19 @@ class RealtimeTunnelPanelProvider {
                     ? { queuePlanId: String(cardId), jobs } : undefined });
             return true;
         }
-        catch {
-            return false; /* 账本失败关闭：不影响已提交的入队；缺冻结记录则该批不浮出删除审核 */
+        catch (error) { /* 账本失败关闭：不影响已提交的入队；缺冻结记录则该批不浮出删除审核。
+            2026-10-26 用户授权补可见性（同上，语义未动）；返回值与调用点既有处理（丢弃返回值、入队继续）保持原样。 */
+            this.observeIsolatedLedgerWriteFailure("committed 终局", isolatedBatchInfo.batchId, submissionOperationId, error);
+            return false;
         }
+    }
+    /** 用户授权（2026-10-26，裁定 B 后续）：attach 隔离事实与 committed 终局两处原静默失败点补一条
+     * 可见记录——只走既有 recordActionError/action_errors 通道（与 isolatedLedgerPromotion 同族），
+     * 不新增 UI/弹窗/通道。仅让"账本没写成"可见：事实仍未冻结进账本，审核入口保持关闭，
+     * 删除入口绝不会被这条记录授权；准入判据与 fail-closed 语义不变。 */
+    observeIsolatedLedgerWriteFailure(kind, batchId, operationId, error) {
+        this.recordActionError({ command: "isolatedLedgerWrite",
+            message: `隔离账本写入失败（${kind}，批次 ${String(batchId || "?")}，操作 ${String(operationId || "?")}）：${errorMessage(error)}；隔离副本已保留，本次不进入清理审核，需人工确认后可重试。` });
     }
     /** 用本轮 tick 刚写入的队列快照核实隔离账本 awaiting_dispatch 项。启动证明只取队列粘性原生证明
      * （worker 快照身份匹配任务+物理窗口存在+四类查询错误全空）；通用 job.status/lastObservedAt 不作证明，
@@ -14568,6 +14615,14 @@ class RealtimeTunnelPanelProvider {
                 source: valid ? String(proof.source) : "", windowSeen: valid && proof.windowSeen === true };
         }));
         return (0, PlanIsolatedBatchLedger_1.promoteDispatchedPlans)(file, root, observations);
+    }
+    /** 用户裁定 B（2026-10-26）后：账本已去锁，r109 的按签名限流与疑似零字节锁诊断随锁整体退役——
+     * 这些机制只为压制"锁卡死时每 tick 重复报错"；ISOLATED_BATCH_LEDGER_STALE 只在写前指纹比对
+     * 检出账本已被改写时出现——它不能排除未被检出的跨窗口写入（两窗口同读一指纹各自写＝静默覆盖，
+     * 见 PlanIsolatedBatchLedger.ts 文件头存储安全注释与"单活跃窗口"运维前提）。损坏（CORRUPT）本就应逐轮如实上报。此处只记录、不上抛：
+     * 审核入口随之关闭，绝不影响队列与本轮 tick 结果。 */
+    observeIsolatedLedgerPromotionError(error) {
+        this.recordActionError({ command: "isolatedLedgerPromotion", message: errorMessage(error) });
     }
     refreshSelectedDistributedLog(queue, newTerminal = false) {
         if (this.selectedDistributedLogRefreshPromise || !this.selectedLogRunKey)
@@ -14611,6 +14666,19 @@ class RealtimeTunnelPanelProvider {
                 || probes?.[workerId]?.capabilities?.endpoints?.taskShellEnvironment !== 1
                 || probes?.[workerId]?.capabilities?.endpoints?.projectManagedValidation !== 1)
                 throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE：${workerId} 未声明正式身份与登录 shell 环境协议；请部署匹配的 Scheduler 和 Agent。`);
+            // r82：最终发送口统一再核——四条派发路径（自动 tick、旧兼容 tick、服务器/手动、失败恢复重试）
+            // 与任何未来旁路都在此按最新持久队列复核隔离阻断；标记来自磁盘队列事实而非调用方传入的内存候选。
+            // 说明：既有方法提取型测试宿主可没有 loadDistributedQueue（行为不变）；生产扩展类始终具备该方法，守卫必然生效。
+            // r90（413 兼容）：再核整体移到 Worker 协议门之后——旧协议必须在任何队列读写之前被拒
+            // （formalIdentityContract 契约"旧能力不得触达队列保存/发送"），此前置读盘会先抛出队列错误、吞掉 WORKER_PROTOCOL_INCOMPATIBLE。
+            if (typeof this.loadDistributedQueue === "function" && root) {
+                const persisted = await this.loadDistributedQueue(root);
+                if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+                    throw new Error("派发上下文已变化；未发送任务。");
+                const persistedJob = persisted.plans.find((row) => row.id === plan.id)?.jobs.find((row) => row.index === job.index);
+                if (persistedJob?.outputIsolationBlocked)
+                    throw new Error("OUTPUT_ISOLATION_BLOCKED：" + DistributedPlanQueue.outputIsolationNotice(persistedJob));
+            }
             const executionMode = PlanExecutionMode.requirePlanExecutionMode(plan.executionMode);
             const target = this.workerActionTargets().find((item) => item.id === workerId);
             if (!target)
@@ -23537,6 +23605,9 @@ class RealtimeTunnelPanelProvider {
                 const span = paths.length === 1 ? paths[0] : `${paths[0]} … ${paths[paths.length - 1]}（${paths.length} 个文件）`;
                 await this.simpleSftpApiCall("sync.serverToServerFpsync", {
                     source, destination: { ...destination, host: destination.networkHost || destination.host }, relativePaths: paths,
+                    // r112 依据：跨机对账补齐与批量同步共用同一共享 scope，漏传即每次对账新代、挤占同一对槽；
+                    // 身份取本轮 verified 清单 inventories[来源]（补齐决策与事后复核同源），同输入重跑复用同代。
+                    ...(0, JobArtifactSyncIdentity_1.syncScopeStagingIdentity)(paths, inventories[group.source.id]),
                     confirm: true, pathConfirmed: true,
                     taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({
                         action: "项目文件补齐",
@@ -39451,6 +39522,10 @@ catch { }
 async function __transferSyncScopeBatchForTest(provider, root, targets, work, destinationIds, report) {
     const prototype = RealtimeTunnelPanelProvider.prototype;
     return prototype.transferSyncScopeBatch.call(Object.assign(Object.create(prototype), provider), root, targets, work, destinationIds, report);
+}
+async function __reconcileProjectFilesAcrossWorkersForTest(provider, root) {
+    const prototype = RealtimeTunnelPanelProvider.prototype;
+    return prototype.reconcileProjectFilesAcrossWorkers.call(Object.assign(Object.create(prototype), provider), root);
 }
 async function __syncPendingResultMetricsForTest(provider) {
     const prototype = RealtimeTunnelPanelProvider.prototype;

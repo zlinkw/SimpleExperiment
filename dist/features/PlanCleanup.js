@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PlanCleanup = exports.cleanupJobKey = exports.cleanupDigest = void 0;
 exports.busyEvidenceFromError = busyEvidenceFromError;
+exports.isolationReceiptComplete = isolationReceiptComplete;
 exports.cleanupError = cleanupError;
 exports.cleanupRelative = cleanupRelative;
 exports.isolateRequiredInputPaths = isolateRequiredInputPaths;
@@ -107,6 +108,13 @@ function busyEvidenceFromError(error) {
     if (!reportedBlocking)
         evidence.legacyBusyShape = true;
     return evidence;
+}
+/** r87 块4：token 级"隔离完成回执齐备"= 每个隔离目标都带 rename 成功 + 移动当时源缺失 + 登记成功。
+ * 任一目标缺任一项（partial/unknown/pending/executing/回执不全）→ 不派发该 job、不启动该 token 后台删除。 */
+function isolationReceiptComplete(rows) {
+    const sources = rows.filter(row => row.disposition === "isolate");
+    return sources.length > 0 && sources.every(row => Boolean(row.isolationReceipt) && row.isolationReceipt.renamed === true
+        && row.isolationReceipt.sourceMissingAtMove === true && row.isolationReceipt.registered === true);
 }
 function cleanupError(code, detail = code) {
     const error = Object.assign(new Error(detail), { apiCode: code === "CONFIRM_REQUIRED" ? 2001 : 2010, apiData: { code, detail } });
@@ -521,6 +529,34 @@ class PlanCleanup {
             operation.state = "partial";
         return operation;
     }
+    /** r98 B1：按插件真实协议（cleanup-file-api.js isolateCompletionProof 同形硬门）捕获隔离完成回执。
+     * 只接受该 row 自己的后端应答（调用点即 row.backendToken+backendIndex 的单次请求/应答），字段与
+     * cleanup-files.py 移动时写下的 completion 逐字对齐：isolationCompletionProtocol===1 硬门，
+     * renameCommitted/sourceMissingAtMove/registered/executorsChecked 全真且 executors 为空数组，
+     * 且 sourceRelativePath/destinationRelativePath/archiveBatch 与本行绑定一致——任何一项不满足即视为
+     * 无回执（保持旧双确认审核链，绝不解锁后台删除），不接受跨 row/token/index 借用。
+     * 覆盖五条完成路径：execute 直接完成 {ok,receipt}；alreadyCompleted 重入 {ok,alreadyCompleted,receipt}；
+     * check 完成 {ok,state:"completed",receipt}；托管观察完成回显（proof.completion 或 receipt.completion）；
+     * 丢应答后只读收敛（主动 check 同样回 receipt）。取到即随行冻结（renameCommitted→renamed），已冻结不覆盖。 */
+    captureIsolationReceipt(row, response) {
+        if (row.isolationReceipt)
+            return false;
+        for (const value of [response?.receipt, response?.completion, response?.receipt?.completion]) {
+            if (!value || typeof value !== "object" || Array.isArray(value))
+                continue;
+            if (value.isolationCompletionProtocol !== 1 || value.renameCommitted !== true || value.sourceMissingAtMove !== true
+                || value.registered !== true || value.executorsChecked !== true
+                || !Array.isArray(value.executors) || value.executors.length !== 0)
+                continue;
+            if (value.sourceRelativePath !== row.relativePath || value.destinationRelativePath !== row.destination)
+                continue;
+            if (value.archiveBatch !== undefined && value.archiveBatch !== row.archiveBatch)
+                continue;
+            row.isolationReceipt = { renamed: true, sourceMissingAtMove: true, registered: true };
+            return true;
+        }
+        return false;
+    }
     async managedCheck(row) {
         return this.query(row, "files.cleanup.check", { token: row.backendToken, index: row.backendIndex,
             ...(typeof row.backendDigest === "string" ? { backendDigest: row.backendDigest } : {}) });
@@ -588,7 +624,9 @@ class PlanCleanup {
                     return;
                 try {
                     const proof = await this.managedCheck(row);
+                    // r98 B1 路径③/④/⑤：观察/刷新时该行已完成——回执同样随其 check 应答（含完成回显）冻结。
                     if (proof.state === "completed") {
+                        this.captureIsolationReceipt(row, proof);
                         operation.targets[row.id] = { state: "completed", receipt: { source: "active_query", verifiedBy: proof.verifiedBy, rootIdentity: proof.rootIdentity } };
                         if (proof.executor?.exitCode !== undefined && proof.executor.exitCode !== null && proof.executor.exitCode !== 0) {
                             unresolved = true;
@@ -679,10 +717,13 @@ class PlanCleanup {
             // 执行回执只是传输证据；一轮批量主动查询解析整批事实。batchExecuting 期间继续等待，不重发。
             for (let poll = 0; poll < 240; poll++) {
                 const refreshed = await this.ports.sftp("files.cleanup.status", { token: backendToken }).catch(() => undefined);
+                // r87 块3(题面5)：快照与上一轮完全一致时不重复写同一状态；完成回执/执行态等任何变化仍立即原子落盘。
                 if (refreshed) {
+                    const before = JSON.stringify([operation.targets, operation.state, operation.error]);
                     snapshot = refreshed;
                     this.applyBatchObservations(operation, group, snapshot);
-                    await this.save(operation);
+                    if (JSON.stringify([operation.targets, operation.state, operation.error]) !== before)
+                        await this.save(operation);
                 }
                 if (!pending().length || !snapshot?.batchExecuting)
                     break;
@@ -728,7 +769,9 @@ class PlanCleanup {
                         return operation;
                     }
                     let proof = await this.managedCheck(row);
+                    // r98 B1 路径③/⑤：执行前核查已见完成（含上次应答丢失后由只读 check 收敛）——回执随 check 应答冻结。
                     if (proof.state === "completed") {
+                        this.captureIsolationReceipt(row, proof);
                         operation.targets[row.id] = { state: "completed", receipt: { source: "active_query" } };
                         continue;
                     }
@@ -740,7 +783,11 @@ class PlanCleanup {
                         if (operation.preview.action === "isolate") {
                             // 隔离是快速重命名事务：错误（如必需输入重叠、目标冲突）必须直接回传，仅排除相关 job；服务器端注册映射保证重试不重复移动。
                             try {
-                                await this.ports.sftp("files.cleanup.execute", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex });
+                                const response = await this.ports.sftp("files.cleanup.execute", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex });
+                                // r87 块4 / r98 B1：0.2.111 完成回执随行冻结——这只是移动阶段的本节点事实，不是删除时的新检查，
+                                // 也不描述为"隔离副本已重新读取核验"。r98：按真实协议读取（路径①execute 直接完成 {ok,receipt}、
+                                // 路径②alreadyCompleted 重入 {ok,alreadyCompleted,receipt}），硬门+行绑定见 captureIsolationReceipt。
+                                this.captureIsolationReceipt(row, response);
                             }
                             catch (error) {
                                 operation.targets[row.id] = { state: "pending" };
@@ -756,7 +803,9 @@ class PlanCleanup {
                     const started = Date.now();
                     while (true) {
                         proof = await this.managedCheck(row);
+                        // r98 B1 路径③：execute 应答之后由本行自己的 check 应答冻结回执（含托管观察完成回显 proof.completion）。
                         if (proof.state === "completed") {
+                            this.captureIsolationReceipt(row, proof);
                             operation.targets[row.id] = { state: "completed", receipt: { source: "active_query", verifiedBy: proof.verifiedBy } };
                             await this.save(operation);
                             if (proof.executor?.exitCode !== undefined && proof.executor.exitCode !== null && proof.executor.exitCode !== 0)
@@ -825,6 +874,30 @@ class PlanCleanup {
         const completed = new Map();
         const observationRound = round ?? this.newObservationRound();
         try {
+            // r87 块3(题面2)：先收集本轮全部待观察的确认路径删除行（completed/executing），按"节点完整身份+冻结根"
+            // 各发一次批量只读观察；随后逐行 roundVerifyEntry 经 observeRound 的 entry-owner 视图命中同一份证据，零新增 RPC。
+            // 后端 verify/inspect 消费的内容或目的地证明观察契约表达不全——那些分支保留原接口，本预热不触碰。
+            const warmGroups = new Map();
+            for (const operation of history)
+                if (operation.preview.action === "delete" && operation.preview.scope.authorizationMode === "confirmed_paths"
+                    && operation.preview.scope.observationMode === "managed_tmux")
+                    for (const row of operation.preview.rows) {
+                        const state = operation.targets[row.id]?.state;
+                        if (state !== "completed" && state !== "executing")
+                            continue;
+                        const key = this.nodeIdentity(row.node) + ":" + (0, exports.cleanupDigest)(row.rootIdentity ?? null);
+                        const warm = warmGroups.get(key);
+                        const target = this.observeTargetOf(row);
+                        if (warm)
+                            warm.targets.push(target);
+                        else
+                            warmGroups.set(key, { node: row.node, rootIdentity: row.rootIdentity, targets: [target] });
+                    }
+            if (warmGroups.size) {
+                const warmed = [...warmGroups.values()];
+                observationRound.plannedGroups = Math.max(observationRound.plannedGroups, warmed.length);
+                await Promise.all(warmed.map(group => (0, ObservationRound_1.observeRound)(observationRound, group.node, group.targets, group.rootIdentity === undefined ? {} : { rootIdentity: group.rootIdentity })));
+            }
             for (const operation of history)
                 for (const row of operation.preview.rows) {
                     const state = operation.targets[row.id]?.state;
@@ -863,8 +936,13 @@ class PlanCleanup {
                     }
                     else if (state === "executing") {
                         const proof = await this.ports.sftp("files.cleanup.check", { token: row.backendToken, index: row.backendIndex });
-                        if (proof.state === "completed")
+                        if (proof.state === "completed") {
+                            // r98 B1 路径⑤：丢应答后的只读收敛——check 应答携带完成回执时同样随行冻结并持久化，
+                            // 之后授权/后台删除读到的仍是同一份冻结事实。
+                            if (this.captureIsolationReceipt(row, proof))
+                                await this.save(operation);
                             completed.set(row.id, { ...row, disposition: "completed" });
+                        }
                         else if (proof.state !== "pending")
                             cleanupError("DELETE_RECEIPT_UNCERTAIN");
                     }
@@ -1151,6 +1229,8 @@ class PlanCleanup {
                 result.blockers.push({ code: "ISOLATE_REQUIRED_INPUTS_UNRESOLVED", nodeId, detail });
         }
         const physical = new Map();
+        // r87 块4：能力门只认每个后端应答都显式上报 backgroundIsolatedDelete；任何一处缺失都保持旧人工审核链。
+        let isolateAutoDeleteSupported = true;
         const backendReads = await Promise.allSettled(scope.nodes.map(async (node) => {
             const rows = result.rows.filter(row => row.node.id === node.id && row.disposition === action);
             if (node.error || !rows.length)
@@ -1197,6 +1277,8 @@ class PlanCleanup {
                     if (action === "isolate" && !(Number(backend.safety?.isolateFast) === 1 && Number(backend.safety?.requiredInputGuard) === 1
                         && Number(backend.safety?.registeredIsolationDeletion) === 1 && Number(backend.safety?.subtreeSingleWriter) === 1))
                         cleanupError("SFTP_ISOLATE_UPGRADE_REQUIRED", "当前 SimpleSFTP 不支持受控快速隔离或注册隔离删除；请更新配套插件后重新预览，未执行任何移动，不会回退旧删除链。");
+                    if (action === "isolate" && Number(backend.safety?.backgroundIsolatedDelete) !== 1)
+                        isolateAutoDeleteSupported = false;
                     // The confirmed fast chain is proven by its answer itself: missing fast flags or a refusal
                     // (UNKNOWN_ACTION / UPDATE_REQUIRED) is one unified upgrade requirement, never an empty success.
                     if (scope.authorizationMode === "confirmed_paths" && action === "delete")
@@ -1239,6 +1321,8 @@ class PlanCleanup {
                                 expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch, requiredInputs: row.requiredInputs })) });
                         if (scope.authorizationMode === "confirmed_paths" && action === "delete")
                             (0, FastDeleteContract_1.assertFastDeletePreviewSafety)(exact.safety, approved.length);
+                        if (action === "isolate" && Number(exact.safety?.backgroundIsolatedDelete) !== 1)
+                            isolateAutoDeleteSupported = false;
                         if ((0, exports.cleanupDigest)(exact.rootIdentity) !== (0, exports.cleanupDigest)(backend.rootIdentity)
                             || exact.targets.length !== approved.length
                             || approved.some((row, position) => exact.targets[position].fingerprint !== row.fingerprint))
@@ -1289,6 +1373,8 @@ class PlanCleanup {
                 cleanupError("SOURCE_RECREATED_OR_CHANGED");
         }
         result.rows.push(...completed);
+        if (action === "isolate" && isolateAutoDeleteSupported && result.rows.some(row => row.disposition === "isolate"))
+            result.autoDeleteCapability = 1;
         result.digest = (0, exports.cleanupDigest)({ action, scope, rows: result.rows, verifiedOnly: result.verifiedOnly });
         this.previews.set(token, clone(result));
         notify({ phase: "complete", message: "预览检查完成，尚未执行清理" });
@@ -1401,6 +1487,43 @@ class PlanCleanup {
                 cleanupError("DEPENDENCY_CHANGED");
         }
     }
+    /**
+     * r87 块3(题面1)：执行前复查按"节点完整身份+冻结安全根+动作"分组，一次既有 targets[] 批量预览替代逐行请求。
+     * 逐目标比对 missing/fingerprint/rootIdentity：缺项、重复、错位、根变化一律 PREVIEW_CHANGED——绝不以数组长度推断成功；
+     * 每个目标仍携带自己的 destination/expectedOwner/archiveBatch，失败文案与原逐行分支逐字一致。
+     */
+    async assertReconfirmedTargets(preview, rows, mode) {
+        if (!rows.length)
+            return;
+        const groups = new Map();
+        for (const row of rows) {
+            const key = this.nodeIdentity(row.node);
+            const group = groups.get(key);
+            if (group)
+                group.push(row);
+            else
+                groups.set(key, [row]);
+        }
+        for (const group of groups.values()) {
+            const check = await this.ports.sftp("files.cleanup.preview", { node: group[0].node, action: preview.action,
+                targets: group.map(row => ({ relativePath: row.relativePath, destination: row.destination, type: row.type, archiveBatch: row.archiveBatch, expectedOwner: row.expectedOwner })) });
+            const results = check?.targets;
+            // 缺项/超长/错位一律拒绝；后端若回显 relativePath 还须逐位一致（重复与错位在这里挡住，不靠位置约定赌）。
+            if (!Array.isArray(results) || results.length !== group.length)
+                cleanupError("PREVIEW_CHANGED", "PREVIEW_CHANGED：复查回包缺项或错位，未执行任何变更");
+            for (const [position, row] of group.entries()) {
+                const info = results[position];
+                if (!info || (typeof info.relativePath === "string" && info.relativePath !== row.relativePath))
+                    cleanupError("PREVIEW_CHANGED", "PREVIEW_CHANGED：" + row.absolutePath + "：复查结果与目标不匹配，未执行任何变更");
+                if (mode === "absent") {
+                    if (!info.missing || (0, exports.cleanupDigest)(check.rootIdentity) !== (0, exports.cleanupDigest)(row.rootIdentity))
+                        cleanupError("PREVIEW_CHANGED");
+                }
+                else if (info.fingerprint !== row.fingerprint || (0, exports.cleanupDigest)(check.rootIdentity) !== (0, exports.cleanupDigest)(row.rootIdentity))
+                    cleanupError("PREVIEW_CHANGED", "PREVIEW_CHANGED：" + row.absolutePath + "：目标内容或安全根已变化，请重新核对路径");
+            }
+        }
+    }
     async execute(id) {
         const current = await this.status(id);
         if (current.state === "completed")
@@ -1409,7 +1532,9 @@ class PlanCleanup {
             return this.executeManaged(current);
         if (this.busy.has(id))
             cleanupError("OPERATION_BUSY");
-        const operation = await this.status(id), preview = operation.preview;
+        // r87 块3(题面5)：两次 status(id) 之间本端无任何写入，合并为一次纯状态读取；
+        // 循环内的 status 暂停闸门保留自己的新鲜观察轮——每次轮询新建一轮，旧轮不得穿过 mutation 复用。
+        const operation = current, preview = operation.preview;
         if (operation.continuedBy || operation.restoredBy)
             cleanupError("OPERATION_SUPERSEDED");
         if (preview.confirmations !== (preview.action === "delete" ? 2 : 1))
@@ -1432,19 +1557,9 @@ class PlanCleanup {
                 await this.ports.sftp("files.cleanup.verify", { token: row.backendToken, index: row.backendIndex });
             if (preview.continuationOf || Object.values(operation.targets).some(target => target.state !== "completed"))
                 await this.revalidate(preview, operation);
-            for (const row of preview.rows.filter(row => row.disposition === "absent")) {
-                const check = await this.ports.sftp("files.cleanup.preview", { node: row.node, action: preview.action,
-                    targets: [{ relativePath: row.relativePath, destination: row.destination, type: row.type, archiveBatch: row.archiveBatch, expectedOwner: row.expectedOwner }] });
-                if (!check.targets[0].missing || (0, exports.cleanupDigest)(check.rootIdentity) !== (0, exports.cleanupDigest)(row.rootIdentity))
-                    cleanupError("PREVIEW_CHANGED");
-            }
+            await this.assertReconfirmedTargets(preview, preview.rows.filter(row => row.disposition === "absent"), "absent");
             // Recheck every unprocessed node before any mutation; successful targets are never resent.
-            for (const row of preview.rows.filter(row => operation.targets[row.id]?.state === "pending")) {
-                const check = await this.ports.sftp("files.cleanup.preview", { node: row.node, action: preview.action,
-                    targets: [{ relativePath: row.relativePath, destination: row.destination, type: row.type, archiveBatch: row.archiveBatch, expectedOwner: row.expectedOwner }] });
-                if (check.targets[0].fingerprint !== row.fingerprint || (0, exports.cleanupDigest)(check.rootIdentity) !== (0, exports.cleanupDigest)(row.rootIdentity))
-                    cleanupError("PREVIEW_CHANGED", "PREVIEW_CHANGED：" + row.absolutePath + "：目标内容或安全根已变化，请重新核对路径");
-            }
+            await this.assertReconfirmedTargets(preview, preview.rows.filter(row => operation.targets[row.id]?.state === "pending"), "fingerprint");
             if (preview.continuationOf)
                 for (const previous of await this.history(preview.continuationOf)) {
                     for (const row of previous.preview.rows.filter(row => previous.targets[row.id]?.state === "executing"
@@ -1531,46 +1646,186 @@ class PlanCleanup {
         return operation;
     }
     async restorePreview(id) {
-        const original = await this.status(id);
-        if (original.preview.action !== "move" || original.restoredBy || original.continuedBy)
-            cleanupError("NOT_RESTORABLE");
-        // Dependencies and live activity remain gates; original PLAN may be absent after a successful move.
-        const preview = clone(original.preview);
-        preview.token = (0, node_crypto_1.randomBytes)(24).toString("hex");
-        preview.action = "restore";
-        delete preview.continuationOf;
-        preview.originalOperationId = id;
-        preview.confirmations = 0;
-        preview.expiresAt = Date.now() + 30 * 60 * 1000;
-        preview.blockers = [];
-        preview.rows = [];
-        for (const row of (await this.completedHistory(await this.history(id))).filter(row => row.fingerprint)) {
-            const backend = await this.ports.sftp("files.cleanup.preview", { node: row.node, action: "restore", observationMode: preview.scope.observationMode,
-                targets: [{ relativePath: row.destination, type: row.type, destination: row.relativePath, archiveBatch: row.archiveBatch }] });
-            if (backend.targets[0].contentFingerprint !== row.contentFingerprint || backend.targets[0].inode !== row.inode)
-                cleanupError("CONTENT_CHANGED");
-            preview.rows.push({ ...row, ...backend.targets[0], relativePath: row.destination, destination: row.relativePath, disposition: "restore",
-                backendToken: backend.token, backendDigest: backend.digest, backendIndex: 0, rootIdentity: backend.rootIdentity });
+        // r87 块3(题面4)：纯读链显式共享同一个观察轮（status→history→completedHistory），不再各自起轮。
+        const sharedRound = this.newObservationRound();
+        try {
+            const original = await this.status(id, sharedRound);
+            if (original.preview.action !== "move" || original.restoredBy || original.continuedBy)
+                cleanupError("NOT_RESTORABLE");
+            // Dependencies and live activity remain gates; original PLAN may be absent after a successful move.
+            const preview = clone(original.preview);
+            preview.token = (0, node_crypto_1.randomBytes)(24).toString("hex");
+            preview.action = "restore";
+            delete preview.continuationOf;
+            preview.originalOperationId = id;
+            preview.confirmations = 0;
+            preview.expiresAt = Date.now() + 30 * 60 * 1000;
+            preview.blockers = [];
+            preview.rows = [];
+            for (const row of (await this.completedHistory(await this.history(id, sharedRound), sharedRound)).filter(row => row.fingerprint)) {
+                const backend = await this.ports.sftp("files.cleanup.preview", { node: row.node, action: "restore", observationMode: preview.scope.observationMode,
+                    targets: [{ relativePath: row.destination, type: row.type, destination: row.relativePath, archiveBatch: row.archiveBatch }] });
+                if (backend.targets[0].contentFingerprint !== row.contentFingerprint || backend.targets[0].inode !== row.inode)
+                    cleanupError("CONTENT_CHANGED");
+                preview.rows.push({ ...row, ...backend.targets[0], relativePath: row.destination, destination: row.relativePath, disposition: "restore",
+                    backendToken: backend.token, backendDigest: backend.digest, backendIndex: 0, rootIdentity: backend.rootIdentity });
+            }
+            if (!preview.rows.length)
+                cleanupError("NO_VERIFIED_TARGETS");
+            preview.digest = (0, exports.cleanupDigest)(preview.rows);
+            this.previews.set(preview.token, clone(preview));
+            return preview;
         }
-        if (!preview.rows.length)
-            cleanupError("NO_VERIFIED_TARGETS");
-        preview.digest = (0, exports.cleanupDigest)(preview.rows);
-        this.previews.set(preview.token, clone(preview));
-        return preview;
+        finally {
+            sharedRound.closed = true;
+        }
     }
-    /** 隔离完成后主动核实原输出路径已可新建（只读查询，不产生写入）；失败只排除相关 job。 */
+    /** 隔离完成后主动核实原输出路径已可新建（只读查询，不产生写入）；失败只排除相关 job。
+     * r87 块3(题面6)：同一节点的全部原路径在同一观察轮里一次批量核实；观察只证明"源路径可用/不存在"，
+     * 隔离目的地身份与回执核验仍由既有链路负责，本合并既不替代也不削弱。
+     * r90（413 兼容）：批量只读观察是后端具备能力时的等价优化——某节点批量未成功（能力升级/回包不符/
+     * 缺项/行错误/传输异常）时，该节点逐行回退 413 原 inspectPresence 复核链，判定与文案逐字保持；
+     * 任何后端下核验次数只增不减，绝不因合并减少一次必要检查。 */
     async assertIsolatedSourcesAbsent(preview) {
-        for (const row of preview.rows.filter(row => row.disposition === "isolate")) {
-            let proof;
+        const rows = preview.rows.filter(row => row.disposition === "isolate");
+        if (!rows.length)
+            return;
+        const round = this.newObservationRound();
+        try {
+            const groups = new Map();
+            for (const row of rows) {
+                const key = this.nodeIdentity(row.node);
+                const group = groups.get(key);
+                if (group)
+                    group.push(row);
+                else
+                    groups.set(key, [row]);
+            }
+            const entries = [...groups.values()];
+            round.plannedGroups = Math.max(round.plannedGroups, entries.length);
+            const outcomes = await Promise.all(entries.map(group => (0, ObservationRound_1.observeRound)(round, group[0].node, group.map(row => ({ key: row.id, relativePath: row.relativePath, type: row.type }))).catch(() => undefined)));
+            for (const [index, group] of entries.entries()) {
+                const outcome = outcomes[index];
+                const decided = outcome !== undefined && !outcome.upgrade && !outcome.failure
+                    && group.every(row => !outcome.missingKeys.includes(row.id) && outcome.byKey.get(row.id) !== undefined && !outcome.byKey.get(row.id).error);
+                if (!outcome || !decided) {
+                    for (const row of group) {
+                        let proof;
+                        try {
+                            proof = await this.inspectPresence(row);
+                        }
+                        catch (error) {
+                            cleanupError("SOURCE_PATH_UNVERIFIED", row.absolutePath + "：隔离后无法主动核实原路径，未准入该 job：" + String(error.message || error));
+                        }
+                        if (proof?.target?.missing !== true)
+                            cleanupError("SOURCE_PATH_UNAVAILABLE", row.absolutePath + "：隔离后原路径仍被占用，未准入该 job，未提交任务。");
+                    }
+                    continue;
+                }
+                for (const row of group) {
+                    const entry = outcome.byKey.get(row.id);
+                    if (!entry)
+                        cleanupError("SOURCE_PATH_UNVERIFIED", row.absolutePath + "：隔离后无法主动核实原路径，未准入该 job：批量观察缺少该行结果。");
+                    if (!entry || entry.status !== "gone" && entry.status !== "replaced")
+                        cleanupError("SOURCE_PATH_UNAVAILABLE", row.absolutePath + "：隔离后原路径仍被占用，未准入该 job，未提交任务。");
+                    if (entry && entry.status === "replaced" && entry.target && entry.target.missing !== true)
+                        cleanupError("SOURCE_PATH_UNAVAILABLE", row.absolutePath + "：隔离后原路径仍被占用，未准入该 job，未提交任务。");
+                }
+            }
+        }
+        finally {
+            round.closed = true;
+        }
+    }
+    /** r87 块4：隔离完成回执齐备后，向插件提交"后台清隔离副本"的旁路入口。
+     * SE 只提交 token + 冻结摘要 + 每目标精确路径绑定（index/relativePath/destination），删除集合由插件按自己的本次登记核验，
+     * 不接受调用方替换 destination；不伪造 confirmations，不动通用双确认删除链。
+     * 该入口提交阶段永不抛回派发链：传输异常只落真实状态（unknown≠失败重发），accepted 绝不写成 completed，
+     * 已有结论（accepted/failed/unknown）不重发请求，避免制造重复删除执行者。
+     * r98 B2：单 token 语义按 (backendToken,backendDigest,节点) 分组逐组提交，各组结论独立落盘，
+     * 聚合措辞如实（部分受理=unknown，绝不写"已全部提交"）。 */
+    async autoDeleteIsolated(id) {
+        const operation = await this.status(id);
+        if (operation.preview.action !== "isolate")
+            cleanupError("NOT_ISOLATED_OPERATION");
+        if (Number(operation.preview.autoDeleteCapability) !== 1)
+            cleanupError("SFTP_ISOLATE_AUTODELETE_UPGRADE_REQUIRED", "旧副本不会自动清理：自动清理需更新 SimpleSFTP 到 0.2.111；副本已安全隔离在清理区，可稍后在 Plan 卡片人工复核删除（永久删除仍需两次确认）。");
+        if (operation.continuedBy || operation.restoredBy)
+            cleanupError("OPERATION_SUPERSEDED");
+        const sources = operation.preview.rows.filter(row => row.disposition === "isolate");
+        if (!sources.length || sources.some(row => operation.targets[row.id]?.state !== "completed") || !isolationReceiptComplete(operation.preview.rows))
+            cleanupError("ISOLATE_AUTODELETE_NOT_AUTHORIZED", "该令牌内仍有目标未完成隔离或未返回完整完成回执（rename 成功、移动当时源缺失、登记成功），不启动后台清理。");
+        if (operation.autoDeleteState) // 已受理/已失败/结果未知都保留原结论；旁路重试不重发删除请求（防重复删除执行者）。
+            return { state: operation.autoDeleteState, ...(operation.autoDeleteOperationId ? { operationId: operation.autoDeleteOperationId } : {}),
+                ...(operation.autoDeleteError ? { message: operation.autoDeleteError } : {}) };
+        // r98 B2：插件端 files.cleanup.isolatedMaintenanceDelete 是单 token 语义，并拒绝重复 index 与绑定不匹配
+        // （cleanup-file-api.js :1095+）——多节点（各自 index 从 0 起）或同节点 >500 分块共用一个请求必然
+        // TARGET_BINDINGS_MISMATCH。故按真实 (backendToken, backendDigest, 节点) 分组，每组只带自己的目标逐组提交。
+        const groups = new Map();
+        for (const row of sources) {
+            if (!row.backendToken || !Number.isInteger(row.backendIndex))
+                cleanupError("ISOLATE_AUTODELETE_NOT_AUTHORIZED", "隔离令牌缺少后端绑定，无法提交后台清理。");
+            const key = row.backendToken + "|" + (row.backendDigest || "") + "|" + row.node.id;
+            const bucket = groups.get(key);
+            if (bucket)
+                bucket.push(row);
+            else
+                groups.set(key, [row]);
+        }
+        // 断点续交：已有任意组结论就不再对"已记录（accepted/failed/unknown 都一样）"的组重发——防重复删除执行者；
+        // 只为从未提交过的组补首次提交。聚合结论已落盘时直接按聚合视图原样返回。
+        const prior = new Map((operation.autoDeleteGroups || []).map(row => [row.token + "|" + (row.digest || "") + "|" + row.nodeId, row]));
+        const results = [];
+        for (const [key, group] of groups) {
+            const recorded = prior.get(key);
+            if (recorded) {
+                results.push(recorded);
+                continue;
+            }
+            const anchor = group[0];
+            let state;
+            let operationId;
+            let reason;
             try {
-                proof = await this.inspectPresence(row);
+                const response = await this.ports.sftp("files.cleanup.isolatedMaintenanceDelete", { token: anchor.backendToken, digest: anchor.backendDigest,
+                    targets: group.map(row => ({ index: row.backendIndex, relativePath: row.relativePath, destination: row.destination })) });
+                state = response?.state === "accepted" || response?.state === "already_accepted" ? "accepted" : response?.state === "failed" ? "failed" : "unknown";
+                if (typeof response?.operationId === "string")
+                    operationId = response.operationId;
+                // 附带项（读侧兜底，单列待核）：插件端失败原因可能在 reason 或 message——先 reason 回退 message，不改任何判定与措辞强度。
+                if (state !== "accepted")
+                    reason = String(response?.reason || response?.message || "后台清理请求未成功返回，隔离与已派发任务不受影响。");
             }
             catch (error) {
-                cleanupError("SOURCE_PATH_UNVERIFIED", row.absolutePath + "：隔离后无法主动核实原路径，未准入该 job：" + String(error.message || error));
+                // 该组传输结果未知：绝不自动重发删除，落真实原因；其余组继续各自提交。
+                // r98 补：插件的拒绝走 fail(code,message=code,{reason})（cleanup-file-api.js :311-312）——抛错路径的具体原因在
+                // error.apiData.reason，error.message 往往只是码名；先 apiData.reason 回退 message。仍记 unknown（拒绝结果
+                // 对调用方同样不可断言为 failed），不改任何判定与归档强度。
+                state = "unknown";
+                reason = String(error?.apiData?.reason || error?.message || error);
             }
-            if (proof?.target?.missing !== true)
-                cleanupError("SOURCE_PATH_UNAVAILABLE", row.absolutePath + "：隔离后原路径仍被占用，未准入该 job，未提交任务。");
+            const outcome = { nodeId: anchor.node.id, token: anchor.backendToken, ...(anchor.backendDigest ? { digest: anchor.backendDigest } : {}),
+                state, ...(operationId ? { operationId } : {}), ...(reason ? { error: reason } : {}), destinations: group.map(row => row.destination) };
+            results.push(outcome);
+            operation.autoDeleteGroups = results;
+            await this.save(operation); // 各组结论即取即独立落盘
         }
+        const acceptedCount = results.filter(row => row.state === "accepted").length;
+        // 聚合语义只三档：全部受理才是 accepted；全部明确失败才是 failed；其余（部分受理/含未知）一律 unknown——
+        // 部分受理绝不写"已全部提交"，有失败或未知绝不写"已提交"。
+        const state = acceptedCount === results.length ? "accepted"
+            : acceptedCount === 0 && results.every(row => row.state === "failed") ? "failed" : "unknown";
+        operation.autoDeleteGroups = results;
+        operation.autoDeleteState = state;
+        operation.autoDeleteOperationId = (results.find(row => row.state === "accepted" && row.operationId) || results.find(row => row.operationId))?.operationId;
+        operation.autoDeleteError = state === "accepted" ? undefined
+            : "共 " + results.length + " 个后端批次，" + acceptedCount + " 组已受理；未受理批次："
+                + results.filter(row => row.state !== "accepted").map(row => row.nodeId + "：" + row.destinations.join("、")
+                    + "（" + (row.state === "failed" ? "未受理" : "结果未知") + (row.error ? "：" + row.error : "") + "）").join("；")
+                + "；副本仍在清理区，可稍后人工复核删除，隔离与已派发任务不受影响。";
+        await this.save(operation);
+        return { state, ...(operation.autoDeleteOperationId ? { operationId: operation.autoDeleteOperationId } : {}),
+            ...(operation.autoDeleteError ? { message: operation.autoDeleteError } : {}) };
     }
     /** 隔离目标的永久删除预览：只接受已完成隔离操作冻结的目的路径；对外仍是 delete/confirmed_paths 双确认受管流程。 */
     async isolatedDeletePreview(id, verifiedOnly = false) {
