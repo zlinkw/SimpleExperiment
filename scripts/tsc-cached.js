@@ -38,11 +38,27 @@ const projectTscBin = path.join(SELF_REPO, "node_modules", "typescript", "bin", 
  * （env PSG_TSC7_BIN 显式声明 或 npm root -g 实际布局）；绝不 npx/隐式下载；
  * 发现不到/版本不符 ⇒ 回退项目 5.9.3 CLI 并把逐条原因如实打印与入 state。 */
 const TS7_EXPECTED = "7.0.2";
+/** 校验一个 tsc bin 是否确为 typescript@TS7_EXPECTED；返回 {ok,meta,reason}，不加载其 API。 */
+function validateTs7Bin(bin) {
+  if (!fs.existsSync(bin)) return { ok: false, reason: `bin missing at ${bin}` };
+  let meta = null;
+  try { meta = JSON.parse(fs.readFileSync(path.join(bin, "..", "..", "package.json"), "utf8")); }
+  catch (e) { return { ok: false, reason: `package.json unreadable (${e.code || e.message})` }; }
+  if (meta.name !== "typescript" || meta.version !== TS7_EXPECTED) return { ok: false, reason: `version mismatch (found ${meta.name}@${meta.version}, want typescript@${TS7_EXPECTED})` };
+  return { ok: true, meta };
+}
 function discoverSharedTsc7() {
   const reasons = [];
   const bins = [];
   if (process.env.PSG_TSC7_DISABLE === "1") return { kind: "ts5-project", bin: projectTscBin, version: ts.version, source: "disabled", fallbackReasons: ["PSG_TSC7_DISABLE=1（显式回退开关）"] };
-  if (process.env.PSG_TSC7_BIN) bins.push(["env PSG_TSC7_BIN", path.resolve(process.env.PSG_TSC7_BIN)]);
+  // 显式指定的 PSG_TSC7_BIN 必须成立：无效 ⇒ 直接判发现失败回退 5.9.3 并打印原因（宿主 4ff96bc9/32244d04/a33fb138 实证原判据缺陷：
+  // 无效 env 曾静默落入 npm 分支继续 ts7-global）。不再尝试隐式发现；隐式路径容错逻辑本身不变。
+  if (process.env.PSG_TSC7_BIN) {
+    const envBin = path.resolve(process.env.PSG_TSC7_BIN);
+    const chk = validateTs7Bin(envBin);
+    if (chk.ok) return { kind: "ts7-global", bin: envBin, version: chk.meta.version, source: "env PSG_TSC7_BIN" };
+    return { kind: "ts5-project", bin: projectTscBin, version: ts.version, source: "fallback", fallbackReasons: [`env PSG_TSC7_BIN invalid: ${chk.reason}（显式指定无效即发现失败，不回退到隐式发现）`] };
+  }
   // 全局根查询用 process.execPath 直跑实际 npm-cli.js（Windows 上 shell:false 无法 spawn .cmd——宿主日志 9cd487db spawnSync npm.cmd EINVAL 实证）；
   // 来源仅两种且均无硬编码用户路径：npm 注入的 npm_execpath，或 node 同布局推导；绝不 shell 拼接、绝不 npx/下载。
   let npmCli = process.env.npm_execpath && fs.existsSync(process.env.npm_execpath) ? process.env.npm_execpath : null;
@@ -58,12 +74,9 @@ function discoverSharedTsc7() {
     else reasons.push("npm root -g unavailable: " + (probe ? String(probe.stderr || probe.error?.message || "exit " + probe.status).trim() : "spawn failed") + " (npm-cli.js=" + npmCli + ")");
   }
   for (const [source, bin] of bins) {
-    if (!fs.existsSync(bin)) { reasons.push(`${source}: bin missing at ${bin}`); continue; }
-    let meta = null;
-    try { meta = JSON.parse(fs.readFileSync(path.join(bin, "..", "..", "package.json"), "utf8")); }
-    catch (e) { reasons.push(`${source}: package.json unreadable (${e.code || e.message})`); continue; }
-    if (meta.name !== "typescript" || meta.version !== TS7_EXPECTED) { reasons.push(`${source}: version mismatch (found ${meta.name}@${meta.version}, want typescript@${TS7_EXPECTED})`); continue; }
-    return { kind: "ts7-global", bin, version: meta.version, source };
+    const chk = validateTs7Bin(bin);
+    if (!chk.ok) { reasons.push(`${source}: ${chk.reason}`); continue; }
+    return { kind: "ts7-global", bin, version: chk.meta.version, source };
   }
   return { kind: "ts5-project", bin: projectTscBin, version: ts.version, source: "fallback", fallbackReasons: reasons };
 }
