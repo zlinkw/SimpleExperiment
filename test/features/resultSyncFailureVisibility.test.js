@@ -512,7 +512,7 @@ test("a context change after the delete registration skips the sync retry and re
     onCall: (method, params, state) => { if (method === "files.cleanup.isolatedMaintenanceDelete") state.breakContext(); } });
   const result = await f.run();
   assert.equal(result.status, "failed");
-  assert.match(result.message, /已登记永久删除/, "删除登记已完成后如实报告");
+  assert.match(result.message, /并登记永久删除/, "删除登记已完成后如实报告（产品原句「…并登记永久删除；项目或连接已变化…」的字面子串）");
   assert.match(result.message, /项目或连接已变化/);
   assert.match(result.message, /未重试产物同步/);
   assert.deepEqual(f.syncRetries, [], "上下文已变不得对新上下文调用产物同步");
