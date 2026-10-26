@@ -1,7 +1,9 @@
 "use strict";
 /**
  * r24 #2 已安装 tsc 原生 incremental + 显式分区 tsBuildInfoFile + 完整输入/输出校验。
- * 分区键 = 规范 root(realpath) / 平台 / 架构 / node / tsc 版本 / 有效 tsconfig / 类型依赖标记 / 全部输入文件 sha。
+ * perf 2026-10-26：分区键只按【兼容边界】划分（见下方 compatHash 构成与 compatVersion 人工升位判据）；
+ * 全部输入文件内容哈希仍是完整输入身份 inputHash，独立保存在 state 中并继续驱动 verify-only 门禁。
+ * 源码内容/文件数/项目版本号变化不再换分区——由 tsbuildinfo 原生增量吸收（这正是 incremental 的职责）。
  * 语义（命中=诚实的 native up-to-date，发射数如实打印；绝不把 tsbuildinfo 存在当收益）：
  *  - 无状态/键漂移/上次失败 → miss(cold|previous-failed)，tsc --incremental 照常全查；
  *  - 上次 complete 且 tsbuildinfo 在、state.outputs 逐文件 sha 全匹配 → incremental（native 判定 no-op 或增量发射）；
@@ -57,7 +59,41 @@ inputsHasher.update("\n");
 for (const m of toolchainMarkers) inputsHasher.update(m[0]).update("\u0000").update(m[1]).update("\n");
 for (const abs of inputFiles) inputsHasher.update(relOf(abs)).update("\u0000").update(fs.existsSync(abs) ? shaFile(abs) : "missing").update("\n");
 const inputHash = inputsHasher.digest("hex");
-const partition = `${process.platform}-${process.arch}-${inputHash.slice(0, 16)}`;
+
+/* ============== 兼容分区（perf 2026-10-26）==============
+ * partition 只按“编译器兼容边界”划分。原生 incremental（tsbuildinfo）本身就按规格跟踪文件内容与
+ * 文件集合变化；把源码内容放进分区键会让每次改动都丢掉上一份 buildinfo 从零冷启动。
+ * compatHash 六类构成：
+ *   1 compatVersion（兼容公式版本，见下方人工升位判据）；
+ *   2 规范 worktree/输出位置 realpath(root)（不同副本绝不共享可写 buildinfo/dist）；
+ *   3 宿主 platform/arch/node 精确版；
+ *   4 工具链：ts.version + typescript 包体哈希 + @types/node、@types/vscode 包哈希（类型环境载体；
+ *     package-lock 若更换 @types 由本类捕获）；
+ *   5 有效编译选项（规范化 parsed.options）+ 透传 argv（两者共同决定发射契约）；
+ *   6 明确排除：源码内容、fileCount、项目 package.json 版本字段、package-lock 全文——
+ *     前两者属 incremental 原生跟踪范围，后两者不改变编译器兼容性。
+ * compatVersion 人工升位判据（任一命中必须手动升位；其余情况一律不动，不做自动升位）：
+ *   a) TypeScript 大版本变化（tsbuildinfo 格式随大版本演进）；
+ *   b) 本脚本 tsbuildinfo/state 存储格式或语义变化；
+ *   c) 输出目录/发射语义变化（outDir 语义、--listEmittedFiles 的 dist/ 前缀过滤口径等）；
+ *   d) 本键构成（边界项增删）变化。
+ * 完整输入身份 inputHash 与 verify-only、.stale 封存、失败证据、同副本串行语义逐字保留；
+ * 公式升级后首编译是一次性冷启动，如实记录，不表述为“缓存失效已修”。 */
+const COMPAT_VERSION = "v2";
+const compatHasher = crypto.createHash("sha256");
+compatHasher.update(JSON.stringify({
+  compatVersion: COMPAT_VERSION,
+  root: (() => { try { return fs.realpathSync(root); } catch { return path.resolve(root); } })(),
+  platform: process.platform, arch: process.arch, node: process.version, ts: ts.version,
+  argv: [...(passthrough.length ? passthrough : ["-p", ".", "--pretty", "false"])],
+  options: parsed.options,
+}));
+for (const m of ["node_modules/typescript/package.json", "node_modules/@types/node/package.json", "node_modules/@types/vscode/package.json"]) {
+  const abs = path.join(root, m);
+  compatHasher.update("\n").update(m).update("\u0000").update(fs.existsSync(abs) ? shaFile(abs) : "missing");
+}
+const compatHash = compatHasher.digest("hex");
+const partition = `${process.platform}-${process.arch}-compat${COMPAT_VERSION}-${compatHash.slice(0, 16)}`;
 const cacheRoot = process.env.PSG_TSC_CACHE_ROOT || path.join(root, "simple_cluster", "cache", "tsc"); // r26 #1 配对评估用覆盖；默认路径不变
 const cacheDir = path.join(cacheRoot, partition);
 const buildInfo = path.join(cacheDir, "tsconfig.tsbuildinfo");
@@ -102,6 +138,7 @@ if (!state) { mode = "cold"; missReason = "no-state"; }
 else if (state.status === "failed") { mode = "rebuild"; missReason = "previous-failed"; stash("state-failed-kept"); }
 else if (state.status !== "complete") { mode = "cold"; missReason = "state-" + state.status; }
 else if (!state.toolchain || state.toolchain.platform !== process.platform || state.toolchain.arch !== process.arch || state.toolchain.ts !== ts.version || state.toolchain.node !== process.version) { mode = "cold"; missReason = "toolchain/state-mismatch"; }
+else if (state.compatHash !== compatHash) { mode = "cold"; missReason = "compat-formula-mismatch"; }
 else {
   const missing = [];
   for (const [rel, sha] of Object.entries(state.outputs || {})) {
@@ -121,7 +158,7 @@ else {
   } else { mode = "incremental"; }
 }
 
-process.stdout.write(`[tsc-cached] partition=${partition} mode=${mode} missReason=${missReason} cacheDir=${path.relative(root, cacheDir)} inputs=${inputFiles.length} ts=${ts.version}\n`);
+process.stdout.write(`[tsc-cached] partition=${partition} compat=${COMPAT_VERSION}:${compatHash.slice(0, 12)} inputHash=${inputHash.slice(0, 12)}${state && state.status === "complete" && state.inputHash ? (state.inputHash === inputHash ? " (same-input)" : " (input-drift)") : ""} mode=${mode} missReason=${missReason} cacheDir=${path.relative(root, cacheDir)} inputs=${inputFiles.length} ts=${ts.version}\n`);
 
 const startedAtIso = new Date().toISOString();
 const tscArgs = [tscBin, ...(passthrough.length ? passthrough : ["-p", ".", "--pretty", "false"]), "--incremental", "--tsBuildInfoFile", buildInfo, "--listEmittedFiles"];
@@ -146,12 +183,13 @@ if (ok) {
     if (!rel.startsWith("dist/")) continue;
     try { outputs[rel] = shaFile(abs); } catch { /* next run re-verifies from scratch */ }
   }
-  const nextState = { status: "complete", inputHash, partition, toolchain: { platform: process.platform, arch: process.arch, node: process.version, ts: ts.version }, outputs, emittedLastRun: emitted.length, mode, missReason, wallMs, startedAt: startedAtIso, completedAt: nowIso };
+  const priorInputHash = state && state.status === "complete" ? state.inputHash : null;
+  const nextState = { status: "complete", inputHash, previousInputHash: priorInputHash, inputDrift: priorInputHash === null ? null : { changed: priorInputHash !== inputHash, from: priorInputHash.slice(0, 12), to: inputHash.slice(0, 12) }, compatHash, compatVersion: COMPAT_VERSION, partition, toolchain: { platform: process.platform, arch: process.arch, node: process.version, ts: ts.version }, outputs, emittedLastRun: emitted.length, mode, missReason, wallMs, startedAt: startedAtIso, completedAt: nowIso };
   if (state && state.status === "complete") fs.copyFileSync(stateFile, path.join(cacheDir, `state-complete-${String(state.completedAt || "prev").replace(/[:.]/g, "-")}.json`)); // r27 同上
   fs.writeFileSync(stateFile + ".tmp", JSON.stringify(nextState, null, 1));
   fs.renameSync(stateFile + ".tmp", stateFile); // 完整写入（tmp+rename），半写状态只会落 broken 证据
 } else {
-  const failed = { status: "failed", inputHash, partition, failedAt: nowIso, exit: run.status, note: "tsc 失败；下次按 previous-failed 增量重建；本文件与 gate 日志为失败证据" };
+  const failed = { status: "failed", inputHash, previousInputHash: state && state.status === "complete" ? state.inputHash : null, compatHash, compatVersion: COMPAT_VERSION, partition, failedAt: nowIso, exit: run.status, note: "tsc 失败；下次按 previous-failed 增量重建；本文件与 gate 日志为失败证据" };
   if (state && state.status === "complete") fs.copyFileSync(stateFile, path.join(cacheDir, `state-complete-prior-${nowIso.replace(/[:.]/g, "-")}.json`));
   fs.writeFileSync(stateFile, JSON.stringify(failed, null, 1));
 }

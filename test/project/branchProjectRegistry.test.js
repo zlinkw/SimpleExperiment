@@ -47,8 +47,22 @@ function tempDir(prefix) {
   return dir;
 }
 // FIXTURE POLICY: zero cleanup — retained for audit instead of rmSync (与 test/api 2026-10-23 策略一致)。
+// perf 2026-10-26 唯一例外：共享“模板仓”本身不是证据（无 per-case 内容），套件结束时删除；
+// 各用例夹具仓/克隆副本仍是 zero-cleanup 留证，逐条打印策略不变。
+function removeTreeBestEffort(dir) {
+  try {
+    // Windows：Git 对象文件只读位会让 rmSync 抛 EPERM，先递归放开写位再删。
+    const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const abs = path.join(d, e.name); if (e.isDirectory()) walk(abs); else { try { fs.chmodSync(abs, 0o644); } catch {} } } try { fs.chmodSync(d, 0o755); } catch {} };
+    walk(dir);
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    return true;
+  } catch { return false; }
+}
 after(() => {
   for (const dir of tempDirs) console.log(`[fixtures retained, no cleanup] ${dir}`);
+  if (templateRepo && fs.existsSync(templateRepo)) {
+    console.log(removeTreeBestEffort(templateRepo) ? `[template removed] ${templateRepo}` : `[template removal failed, retained] ${templateRepo}`);
+  }
 });
 
 function gitGitEnv(extra = {}) {
@@ -58,14 +72,29 @@ function gitGitEnv(extra = {}) {
 function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: gitGitEnv() });
 }
-function makeRepo(name) {
-  const dir = tempDir(`se-branch-${name}-`);
+// perf 2026-10-26：模板仓把每仓 5-6 次 git spawn 压成 1 次 clone。
+// 模板落在此套件私有的随机临时目录（mkdtemp，每次运行独立，不落宿主全局固定位置），after() 删除模板本体。
+// 每个用例仍得到 --no-hardlinks 的完整独立副本：真实历史（base 空提交 + tracked.txt "base" 提交，
+// 与原 makeRepo 逐字节同构）、独立 .git/refs/工作树，独占可写——隔离/互斥/真实 ff/worktree 语义不变，绝不 mock。
+let templateRepo = null;
+function ensureTemplateRepo() {
+  if (templateRepo) return templateRepo;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "se-branch-template-")); // 不进 tempDirs：模板不是 per-case 证据，由 after() 清理
   git(["init", "-q", dir], dir);
   git(["checkout", "-q", "-B", "main"], dir);
   git(["-c", "user.email=test@example.invalid", "-c", "user.name=Branch Test", "commit", "-q", "--allow-empty", "-m", "base"], dir);
   fs.writeFileSync(path.join(dir, "tracked.txt"), "base\n", "utf8");
   git(["add", "-A"], dir);
   git(["-c", "user.email=test@example.invalid", "-c", "user.name=Branch Test", "commit", "-q", "-m", "files"], dir);
+  templateRepo = dir;
+  return dir;
+}
+function makeRepo(name) {
+  const seed = ensureTemplateRepo();
+  const dir = tempDir(`se-branch-${name}-`);
+  fs.rmSync(dir); // clone 要求目标不存在；mkdtemp 刚创建的空目录，竞窗口仅限本测试临时域
+  git(["clone", "-q", "--no-hardlinks", seed, dir], os.tmpdir());
+  git(["remote", "remove", "origin"], dir); // 夹具按独立仓使用：不得残留指向模板的 origin（用例自己 remote add，分类逻辑读 remote 列表）
   return dir;
 }
 function commitFile(repo, file, text, message) {
