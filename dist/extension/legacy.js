@@ -8655,8 +8655,9 @@ class RealtimeTunnelPanelProvider {
         await this.confirmPlanExistingOutputsFromValidation(plan, body, { ...validation, existing: [...existingByIndex.values()] }, true);
         if (body.existingOutputChoice === "rerun_missing")
             body.distributedSkipJobIndices ??= [...existingByIndex.keys()];
-        else if (body.existingOutputChoice === "rerun_all")
-            body.distributedSkipJobIndices = [];
+        // r82（0.5.414）：此处曾有 `else if (rerun_all) body.distributedSkipJobIndices = []`——无条件清空
+        // 刚由隔离审核得出的安全排除（现场缺陷①）。rerun_all 只表示"用户想全跑"，派发资格仍由
+        // enqueueDistributedPlan 的 planDispatchSelection 按 runReplacement.blocked 划分；这里不再改写。
     }
     async confirmPlanExistingOutputs(plan, body, validated, versionedAttempts = false) {
         const validation = planValidationFromResult(validated);
@@ -13304,6 +13305,13 @@ class RealtimeTunnelPanelProvider {
             // 不得把别的 PLAN 的确认与提交排在一次慢隔离之后（2026-10-21 18:13–18:20 批次慢的根因）。
             if (batch)
                 body.confirmGateLocal = work => batch.serial("outputs", work);
+            // 同批隔离机械 I/O 读写协调：预检为读者并发、SFTP 计忙写段互斥（批内 FIFO）；只排本批
+            // 自有临界段，不占对话道、不等待任意外部传输（外部忙仍由配套即时拒绝）。排队可能等待
+            // 他 Plan 的写段——获准后、段体前先过既有 batch.verify(body)（PLAN/代码最新声明核对，r75
+            // 契约窗口），等待期间声明已变化绝不带旧动作继续；verify 在隔离生命周期 finally 覆盖内，
+            // 抛错必释放名额。不长准备入锁、不 memo 预检、不放宽 verify。
+            if (batch)
+                body.isolationGateLocal = (kind, work) => batch.isolation(kind, async () => { await batch.verify(body); return work(); });
             await this.waitForPlanSubmission(message, () => confirmOutputs());
             // 记录“本批有旧产物已按确认移入隔离区”，仅供整批派发准入完成后提示独立删除审核；绝不自动删除。
             if (batch && body.existingOutputCount && ["rerun_all", "rerun_missing"].includes(body.existingOutputChoice)) {
@@ -14335,8 +14343,12 @@ class RealtimeTunnelPanelProvider {
                 return { workerId: worker.id, error: errorMessage(error) };
             }
         }));
+        // r82：占用核查豁免是显式决定=用户跳过 ∪ 隔离阻断（本轮不派发故不核查其启动观测），
+        // 不再是"清空排除表"的副作用；阻断源只认隔离流程的结构化 blocked（runReplacement.blocked）。
         const skip = new Set(body.distributedSkipJobIndices || []);
-        WorkerTaskQuery.assertLaunchObservations(snapshots, (validation?.jobs || []).filter(job => !skip.has(Number(job.index))));
+        const launchObservationExempt = new Set([...skip, ...(body.runReplacement?.flow === "isolate" && Array.isArray(body.runReplacement.blocked)
+                ? body.runReplacement.blocked.map((row) => Number(row?.index)) : [])].filter(Number.isInteger));
+        WorkerTaskQuery.assertLaunchObservations(snapshots, (validation?.jobs || []).filter(job => !launchObservationExempt.has(Number(job.index))));
         for (const snapshot of snapshots)
             if (declarations.length && snapshot.capabilities?.declaredResultQuery !== 1)
                 throw new Error("Worker " + snapshot.workerId + "：需要更新 Agent/Scheduler 以查询当前声明的结果；未删除或提交。");
@@ -14400,8 +14412,13 @@ class RealtimeTunnelPanelProvider {
         // Replacement already finished through the confirmed cleanup service. A new
         // formal writer must still reject occupied paths; never forward overwrite.
         const overwriteExisting = false;
-        const skipped = new Set(body.existingOutputChoice !== "rerun_missing" ? [] : (Array.isArray(body.distributedSkipJobIndices) ? body.distributedSkipJobIndices.map(Number) : []));
-        const selectedJobs = validation.jobs.filter((job) => !skipped.has(Number(job.index)));
+        // r82：入队选择走共享选择函数（此前"非补跑即清空"让隔离阻断 job 随 rerun_all 蒸发，现场缺陷②）。
+        // 划分：可执行（入队+可派发）/ 隔离暂停（入队可见 pending+job 级标记，不派发）/ 有意跳过（不入队）。
+        const selection = DistributedPlanQueue.planDispatchSelection(validation, body);
+        // r90：保留 enqueue 既有契约文本 `selectedJobs = validation.jobs.filter(...)`（distributedRerunAndWorkerDelta
+        // 文本契约钉死）。语义与 planDispatchSelection.selectedJobs 逐字等价：仅剔除"有意跳过"集合；
+        // 隔离暂停 job 的划分仍取 selection.blockedMarkers（入队可见、不派发），行为不变。
+        const selectedJobs = validation.jobs.filter((job) => !selection.userSkipped.has(Number(job.index)));
         if (this.taskLifecycleProtocol === 2 && !body.workerSubmissionSnapshots)
             await this.assertPlanSubmissionWorkers(body, validated);
         if (!selectedJobs.length) {
@@ -14427,6 +14444,8 @@ class RealtimeTunnelPanelProvider {
                 outputDir: String(job.output_dir || "").replace(/\\/g, "/").replace(/\/$/, ""),
                 collectionResultCsv: String(job.result_csv || ""),
                 checkpointSource: job.checkpoint_source,
+                // r82：隔离阻断 job 以 pending+job 级标记入队——面板可见、四条派发路径过滤、发送前再核都读这份持久事实。
+                outputIsolationBlocked: selection.blockedMarkers.get(Number(job.index)),
             })) }, id);
         const supersededId = String(supersededDeferredId || "");
         const next = supersededId ? { ...enqueued, deferred: (enqueued.deferred || []).map((row) => row.id === supersededId
@@ -14469,7 +14488,9 @@ class RealtimeTunnelPanelProvider {
         const latest = await this.loadDistributedQueue(root);
         const submittedPlan = latest.plans.find((item) => item.id === id);
         const result = DistributedPlanQueue.distributedSubmissionResult(submittedPlan, dispatchError);
-        return { enqueued: true, ...result };
+        // r82：blockedCount（队列事实）+skippedCount（本轮有意跳过）随提交结果透传给通知层——
+        // 部分提交不得再呈现为无等待的全量接收（现场 r81d：操作记录 status=succeeded、error=""）。
+        return { enqueued: true, ...result, skippedCount: selection.userSkipped.size };
     }
     detachStaleDistributedTick(task) {
         if (!task || this.distributedQueueTickPromise !== task)
@@ -14509,7 +14530,7 @@ class RealtimeTunnelPanelProvider {
             // 方法存在性防护只服务 VM 部分提取夹具，真实类内该方法恒定存在。
             if (generation === this.distributedQueueGeneration && typeof this.promoteIsolatedDispatchLocal === "function")
                 await this.promoteIsolatedDispatchLocal(generation)
-                    .catch(error => this.recordActionError({ command: "isolatedLedgerPromotion", message: errorMessage(error) }));
+                    .catch(error => this.observeIsolatedLedgerPromotionError(error));
         }
         finally {
             if (this.distributedTickAbort === abort)
@@ -14569,6 +14590,46 @@ class RealtimeTunnelPanelProvider {
         }));
         return (0, PlanIsolatedBatchLedger_1.promoteDispatchedPlans)(file, root, observations);
     }
+    /** r109 最小切片③：promotion 失败按签名限流（同签名每小时一条＋抑制计数），保住 action_errors 的 8 条窗口；
+     * 废弃零字节锁（最小切片①分类码）另走 isolatedLedgerLockDiagnostic 命令并给出经确认的移开入口。 */
+    isolatedLedgerReportState = new Map();
+    observeIsolatedLedgerPromotionError(error) {
+        const message = errorMessage(error);
+        const abandoned = message.startsWith(PlanIsolatedBatchLedger_1.ABANDONED_ZERO_BYTE_LOCK);
+        const verdict = (0, PlanIsolatedBatchLedger_1.nextIsolatedLedgerReport)(this.isolatedLedgerReportState, message.slice(0, 160));
+        if (!verdict.report)
+            return;
+        const counted = verdict.suppressed > 0 ? message + "（窗口内同签名错误已抑制 " + verdict.suppressed + " 条）" : message;
+        this.recordActionError({ command: abandoned ? "isolatedLedgerLockDiagnostic" : "isolatedLedgerPromotion", message: counted });
+        if (!abandoned)
+            return;
+        const match = /\(诊断: (\{.*\})）?$/.exec(counted) || /\(诊断: (\{.*\})\)/.exec(counted);
+        let lockPath = "";
+        if (match) {
+            try {
+                const parsed = JSON.parse(match[1]);
+                if (typeof parsed.lockPath === "string")
+                    lockPath = parsed.lockPath;
+            }
+            catch { /* 诊断快照不可读：只保留记录，不给移开入口 */ }
+        }
+        if (!lockPath)
+            return;
+        this.showNativePanelMessage?.({ tone: "warning", message: "隔离账本锁文件被确认为无身份的 0 字节废弃锁（超过 150 秒无字节变化）；账本与锁原字节均保留，晋升与隔离区删除审核保持关闭。可在弹出的确认中选择\"重命名移开（保留字节）\"。" });
+        void vscode.window.showWarningMessage("隔离账本锁文件被确认为废弃的 0 字节锁：0 字节、无身份记录且长时间无字节变化——活锁不会呈现该形态，任何合法持有者都无法释放它。不会删除任何文件：确认后仅将其重命名移开为 <原名>.orphan-<时间戳>（保留全部原字节），下一轮晋升自动重试。", { modal: true, detail: "路径：" + lockPath }, "确认重命名移开（保留字节）")
+            .then(async (choice) => {
+            if (choice !== "确认重命名移开（保留字节）")
+                return;
+            try {
+                const moved = await (0, PlanIsolatedBatchLedger_1.relocateAbandonedLedgerLock)(lockPath);
+                this.recordActionError({ command: "isolatedLedgerLockRelocated", message: "废弃零字节锁已经用户确认移开：orphan=" + moved.orphanPath + "；原字节 sha256=" + moved.sha256 + "。下一轮晋升将重试。" });
+                void vscode.window.showInformationMessage("废弃锁已按确认重命名移开（原字节保留于 orphan 文件），无需重载窗口。");
+            }
+            catch (moveError) {
+                this.recordActionError({ command: "isolatedLedgerLockRelocated", message: "废弃锁移开未执行或未通过复核，原锁与账本保持原样：" + errorMessage(moveError) });
+            }
+        });
+    }
     refreshSelectedDistributedLog(queue, newTerminal = false) {
         if (this.selectedDistributedLogRefreshPromise || !this.selectedLogRunKey)
             return;
@@ -14611,6 +14672,19 @@ class RealtimeTunnelPanelProvider {
                 || probes?.[workerId]?.capabilities?.endpoints?.taskShellEnvironment !== 1
                 || probes?.[workerId]?.capabilities?.endpoints?.projectManagedValidation !== 1)
                 throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE：${workerId} 未声明正式身份与登录 shell 环境协议；请部署匹配的 Scheduler 和 Agent。`);
+            // r82：最终发送口统一再核——四条派发路径（自动 tick、旧兼容 tick、服务器/手动、失败恢复重试）
+            // 与任何未来旁路都在此按最新持久队列复核隔离阻断；标记来自磁盘队列事实而非调用方传入的内存候选。
+            // 说明：既有方法提取型测试宿主可没有 loadDistributedQueue（行为不变）；生产扩展类始终具备该方法，守卫必然生效。
+            // r90（413 兼容）：再核整体移到 Worker 协议门之后——旧协议必须在任何队列读写之前被拒
+            // （formalIdentityContract 契约"旧能力不得触达队列保存/发送"），此前置读盘会先抛出队列错误、吞掉 WORKER_PROTOCOL_INCOMPATIBLE。
+            if (typeof this.loadDistributedQueue === "function" && root) {
+                const persisted = await this.loadDistributedQueue(root);
+                if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+                    throw new Error("派发上下文已变化；未发送任务。");
+                const persistedJob = persisted.plans.find((row) => row.id === plan.id)?.jobs.find((row) => row.index === job.index);
+                if (persistedJob?.outputIsolationBlocked)
+                    throw new Error("OUTPUT_ISOLATION_BLOCKED：" + DistributedPlanQueue.outputIsolationNotice(persistedJob));
+            }
             const executionMode = PlanExecutionMode.requirePlanExecutionMode(plan.executionMode);
             const target = this.workerActionTargets().find((item) => item.id === workerId);
             if (!target)

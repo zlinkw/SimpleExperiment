@@ -5,7 +5,7 @@
 ## 交付顺序
 
 1. 核对当前仓库 Git 状态、origin、目标平台、更新客户端的真实发行源及配套依赖。保留用户改动。仅修改约束或文档时，执行适用验证、提交和推送，无需新运行版本。
-2. 实现及回归通过后递增 patch，同步 package、lock 和 runtime。显式运行 `npm run package`，验证实际 VSIX 的 publisher/name、版本、平台、engine、运行依赖闭包和秘密排除。保存这个确定包的字节大小与 SHA256，不在后续安装或上传时换包。
+2. 实现及回归通过后递增 patch，同步 package、lock 和 runtime。"同步"指同一提交内三处逐字一致：`package.json#version`、`package-lock.json` 根 `version` 与 `packages[""].version`、`src/runtime/RuntimeManifest.ts` 的 `CURRENT_RUNTIME_VERSION`；发布前执行 `node scripts/write-agent-runtime.js` 后仍必须 `git diff --stat src/runtime/RuntimeManifest.ts` 为空（首编自动改写意味着提交态落后一版，Windows 输入面 gate 会判 `overall=invalidated`；0.5.414 即因此被判红且 tag 缺失）。显式运行 `npm run package`，验证实际 VSIX 的 publisher/name、版本、平台、engine、运行依赖闭包和秘密排除。保存这个确定包的字节大小与 SHA256，不在后续安装或上传时换包。
 3. 检查差异，仅提交本批次文件。普通 push 到既有 `origin/master`，fetch 确认 HEAD 相等。不得改写远端历史。运行版本 Release 的 tag 必须绑定已验证源码提交；若有包内文档提交，也记录实际构建来源。
 4. 向实际 GitHub 更新源显式上传稳定 Release 的 VSIX 与同名 `.vsix.sha256`。校验清单使用 UTF-8，格式为 `<64位SHA256>  <精确VSIX文件名>`。配套 SimpleSFTP 所需版本若尚未可取得，也必须经过自身约束和验证后发布到其自身更新源；可以复用已核验一致的现有资产。
 5. 重新查询真实 Latest Release 并核对资产，再用实际更新解析逻辑验证较旧版本可识别该目标平台的更新。必要时将这两个精确包读取到本机隔离验证目录核验 SHA、ZIP 和内嵌 manifest；保留验证文件，不以顺手清理删除历史内容。仅检查 main/master、tag 或 release 创建回执不算验收。

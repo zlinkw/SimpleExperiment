@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { runPlanStopClearBatch, planStopBatchSignature } from "./PlanStopClearBatchHost";
 import { analyzeRuntimeLog, runtimeLogAnalysisMessage } from "./RuntimeLogAnalysisHost";
 import { runAllPlans, runSelectedPlans } from "./SelectedPlanBatchHost";
-import { attachIsolatedCleanup, markPlanTerminal, promoteDispatchedPlans } from "../features/PlanIsolatedBatchLedger";
+import { ABANDONED_ZERO_BYTE_LOCK, attachIsolatedCleanup, markPlanTerminal, nextIsolatedLedgerReport, promoteDispatchedPlans, relocateAbandonedLedgerLock, type LedgerErrorThrottleState } from "../features/PlanIsolatedBatchLedger";
 import { planSubmissionBatchFor } from "../features/PlanSubmissionBatch";
 import * as PlanCodeScopeHost from "./PlanCodeScopeHost";
 import * as fs from "fs/promises";
@@ -25,7 +25,7 @@ import { syncGpuQuotaPolicies } from "./GpuQuotaPolicyHost";
 import { closeGpuTmuxSession, closeTmuxSession, manageTmuxSession } from "./GpuTmuxClose";
 import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
 import { deleteConfirmedScopeCopy, previewConfirmedScopeDeletion, completeConfirmedScopeDeletion, type ConfirmedScopeBatch, type ConfirmedScopeOutcome } from "../features/SyncScopeDelete";
-import { jobArtifactRunGeneration } from "../features/JobArtifactSyncIdentity";
+import { jobArtifactRunGeneration, syncScopeStagingIdentity } from "../features/JobArtifactSyncIdentity";
 import { SafeRequestRetry, RequestReplacedError, assertRetryRequestCurrent, retryRequestSignal } from "../core/SafeRequestRetry";
 import { UiCommandCancelled } from "../core/UiCommandCancelled";
 import { preparePlanSafeRetry } from "../features/PlanSafeRetry";
@@ -11081,6 +11081,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                         source: this.sftpServerOptions(sourceRow),
                         destination: { ...destination, host: destination.networkHost || destination.host },
                         relativePaths: group.files,
+                        // r112 依据：现场被占死的正是共享 project-files 槽（d-47be3d71…=sha256(["project-files",0])、lane1 d-008f3730…），
+                        // 本处漏传身份即回退共享 scope＋每发新代，两代 committed 后该链路必撞 TRANSFER_STAGE_PENDING。
+                        // 身份取本次冻结 plan.files（发送前已算好、发送后用于校验），同批同内容重试复用同代走 receiver resume。
+                        ...syncScopeStagingIdentity(group.files, plan.files),
                         confirm: true, pathConfirmed: true,
                         taskLabel: workerFpsyncTaskLabel({
                             action: "批量保留文件版本",
@@ -11358,6 +11362,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: this.sftpServerOptions(sourceRow),
                     destination: { ...this.sftpServerOptions(row), host: this.sftpServerOptions(row).networkHost || this.sftpServerOptions(row).host },
                     ...(directory ? { relativePath: relative, directory: true, manualRetain: true } : { relativePaths: [relative] }),
+                    // r112 依据：本处（含"合并最新版"逐文件扇入 :10758）漏传身份回退共享 project-files scope＋每操作新代，
+                    // 即 nwpu3 双槽（d-47be3d71…/d-008f3730…）被同源自家 committed 代占满的直接来源；身份取校验前已冻结、
+                    // 校验后逐字节复核的 sourceInventory，重试同内容复用同代；来源在确认期间变化本就被"来源版本已变化"检查拒绝。
+                    ...syncScopeStagingIdentity([relative], sourceInventory),
                     confirm: true, pathConfirmed: true,
                     taskLabel: workerFpsyncTaskLabel({
                         action: directory ? "手动保留目录版本" : "手动保留文件版本",
@@ -11436,6 +11444,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: this.sftpServerOptions(sourceRow),
                         destination: { ...destination, host: destination.networkHost || destination.host },
                         relativePath: directory, directory: true, manualRetain: true, confirm: true, pathConfirmed: true,
+                        // r112 依据：目录恢复与保留同走 directory:/project-files 共享槽，漏传即每轮新代；身份取本轮
+                        // 已按清单哈希核对过的 sourceFiles（holds 记录＋来源实盘），恢复重试复用同代。
+                        ...syncScopeStagingIdentity([directory], sourceFiles),
                         taskLabel: workerFpsyncTaskLabel({
                             action: "恢复手动保留目录",
                             sourceId: sourceRow.id, destinationId: target.id, detail: directory,
@@ -13527,7 +13538,7 @@ this.assertPlanTopologyReady("Plan 调度");
             // 方法存在性防护只服务 VM 部分提取夹具，真实类内该方法恒定存在。
             if (generation === this.distributedQueueGeneration && typeof this.promoteIsolatedDispatchLocal === "function")
                 await this.promoteIsolatedDispatchLocal(generation)
-                    .catch(error => this.recordActionError({ command: "isolatedLedgerPromotion", message: errorMessage(error) }));
+                    .catch(error => this.observeIsolatedLedgerPromotionError(error));
         }
         finally {
             if (this.distributedTickAbort === abort) this.distributedTickAbort = undefined;
@@ -13579,6 +13590,35 @@ this.assertPlanTopologyReady("Plan 调度");
                     source: valid ? String(proof.source) : "", windowSeen: valid && proof.windowSeen === true };
             }));
         return promoteDispatchedPlans(file, root, observations);
+    }
+    /** r109 最小切片③：promotion 失败按签名限流（同签名每小时一条＋抑制计数），保住 action_errors 的 8 条窗口；
+     * 废弃零字节锁（最小切片①分类码）另走 isolatedLedgerLockDiagnostic 命令并给出经确认的移开入口。 */
+    private isolatedLedgerReportState: LedgerErrorThrottleState = new Map();
+    observeIsolatedLedgerPromotionError(error) {
+        const message = errorMessage(error);
+        const abandoned = message.startsWith(ABANDONED_ZERO_BYTE_LOCK);
+        const verdict = nextIsolatedLedgerReport(this.isolatedLedgerReportState, message.slice(0, 160));
+        if (!verdict.report) return;
+        const counted = verdict.suppressed > 0 ? message + "（窗口内同签名错误已抑制 " + verdict.suppressed + " 条）" : message;
+        this.recordActionError({ command: abandoned ? "isolatedLedgerLockDiagnostic" : "isolatedLedgerPromotion", message: counted });
+        if (!abandoned) return;
+        const match = /\(诊断: (\{.*\})）?$/.exec(counted) || /\(诊断: (\{.*\})\)/.exec(counted);
+        let lockPath = "";
+        if (match) { try { const parsed: Record<string, unknown> = JSON.parse(match[1]); if (typeof parsed.lockPath === "string") lockPath = parsed.lockPath; } catch { /* 诊断快照不可读：只保留记录，不给移开入口 */ } }
+        if (!lockPath) return;
+        this.showNativePanelMessage?.({ tone: "warning", message: "隔离账本锁文件被确认为无身份的 0 字节废弃锁（超过 150 秒无字节变化）；账本与锁原字节均保留，晋升与隔离区删除审核保持关闭。可在弹出的确认中选择\"重命名移开（保留字节）\"。" });
+        void vscode.window.showWarningMessage("隔离账本锁文件被确认为废弃的 0 字节锁：0 字节、无身份记录且长时间无字节变化——活锁不会呈现该形态，任何合法持有者都无法释放它。不会删除任何文件：确认后仅将其重命名移开为 <原名>.orphan-<时间戳>（保留全部原字节），下一轮晋升自动重试。",
+            { modal: true, detail: "路径：" + lockPath }, "确认重命名移开（保留字节）")
+            .then(async (choice) => {
+                if (choice !== "确认重命名移开（保留字节）") return;
+                try {
+                    const moved = await relocateAbandonedLedgerLock(lockPath);
+                    this.recordActionError({ command: "isolatedLedgerLockRelocated", message: "废弃零字节锁已经用户确认移开：orphan=" + moved.orphanPath + "；原字节 sha256=" + moved.sha256 + "。下一轮晋升将重试。" });
+                    void vscode.window.showInformationMessage("废弃锁已按确认重命名移开（原字节保留于 orphan 文件），无需重载窗口。");
+                } catch (moveError) {
+                    this.recordActionError({ command: "isolatedLedgerLockRelocated", message: "废弃锁移开未执行或未通过复核，原锁与账本保持原样：" + errorMessage(moveError) });
+                }
+            });
     }
     refreshSelectedDistributedLog(queue, newTerminal = false) {
         if (this.selectedDistributedLogRefreshPromise || !this.selectedLogRunKey) return;
@@ -21991,6 +22031,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 const span = paths.length === 1 ? paths[0] : `${paths[0]} … ${paths[paths.length - 1]}（${paths.length} 个文件）`;
                 await this.simpleSftpApiCall("sync.serverToServerFpsync", {
                     source, destination: { ...destination, host: destination.networkHost || destination.host }, relativePaths: paths,
+                    // r112 依据：跨机对账补齐与批量同步共用同一共享 scope，漏传即每次对账新代、挤占同一对槽；
+                    // 身份取本轮 verified 清单 inventories[来源]（补齐决策与事后复核同源），同输入重跑复用同代。
+                    ...syncScopeStagingIdentity(paths, inventories[group.source.id]),
                     confirm: true, pathConfirmed: true,
                     taskLabel: workerFpsyncTaskLabel({
                         action: "项目文件补齐",
