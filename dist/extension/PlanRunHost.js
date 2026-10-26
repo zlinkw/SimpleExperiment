@@ -246,6 +246,8 @@ class PlanRunHost {
                     purpose: "replace_outputs", manifest: { declarations: [job], replacement: true } } }, (progress) => body.reportPlanStageLocal?.("任务 " + job.index + " · " + progress.message)),
             service: cleanup.service, execute: (id) => cleanup.execute(id),
             verify: (preview) => cleanup.service.assertIsolatedSourcesAbsent(preview),
+            // r87 块4：隔离完成即派发；后台清理只在 rerun_all+回执齐备时被 fire-and-forget 触发，失败不进派发链。
+            autoDeleteIsolated: (id) => cleanup.autoDeleteIsolated(id),
             ask: (payload) => h.askRunConfirmation(payload, body.submissionOperationIdLocal),
             save: () => this.save(body),
             assertCurrent,
@@ -267,6 +269,8 @@ class PlanRunHost {
             progress: (text) => body.reportPlanStageLocal?.(text),
             // 批路径注入批次对话道；单 PLAN 提交没有批次道，保持原语义直接执行。
             interactive: work => (body.confirmGateLocal || ((fn) => fn()))(work),
+            // 批路径注入同批隔离机械 I/O 读写协调道（批次接线缺省时=单 PLAN/非批次，直接执行零新语义）。
+            isolation: body.isolationGateLocal,
             hold: async (selected) => {
                 // 归一化匹配后核实每个已确认目标都在队列声明中；真实不匹配显式失败且不写队列，禁止静默漏 retired。
                 await h.saveDistributedQueue(this.root, undefined, { artifactMutation: true, mutateLatest: (queue) => {
@@ -280,7 +284,12 @@ class PlanRunHost {
         }, body.runReplacement, body.planFile, jobs, [...completed], key);
         body.existingOutputChoice = result.choice;
         body.existingOutputCount = body.runReplacement.previews?.filter((row) => row.preview.rows.some((file) => file.disposition === "isolate")).length || 0;
-        body.distributedSkipJobIndices = jobs.filter((job) => !result.selectedIndices.includes(Number(job.index))).map((job) => Number(job.index));
+        // r82：跳过清单只装"用户选择沿用完成"的 job。隔离阻断者不是有意跳过——它带着
+        // runReplacement.blocked 以 pending+job 级标记入队（可见、不派发），由 planDispatchSelection
+        // 在入队时统一划分；把它混进跳过清单会让它在队列里彻底消失（现场 r81 的另一半成因）。
+        const isolationBlockedIndices = new Set((result.blocked || []).map((row) => Number(row.index)));
+        body.distributedSkipJobIndices = jobs.filter((job) => !result.selectedIndices.includes(Number(job.index))
+            && !isolationBlockedIndices.has(Number(job.index))).map((job) => Number(job.index));
         body.assignedExperimentIndices = result.selectedIndices;
         body.outputReplacementOperationIds = body.runReplacement.completed || [];
         body.overwrite = body.overwriteExisting = false;

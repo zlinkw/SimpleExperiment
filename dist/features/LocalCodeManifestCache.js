@@ -33,6 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.identityFromStat = identityFromStat;
+exports.sameIdentity = sameIdentity;
 exports.localCodeManifestCachePath = localCodeManifestCachePath;
 exports.sha256File = sha256File;
 exports.hashLocalCodeFiles = hashLocalCodeFiles;

@@ -152,7 +152,12 @@ class ManualDispatchHost {
         await h.assertPlanSubmissionWorkers(body, { validation });
         try {
             await new PlanRunHost_1.PlanRunHost(h, this.root).replace(plan, body, validation);
-            return body.assignedExperimentIndices;
+            // r82：审核结果成对透传——accepted 可派发，blocked（隔离未完成/核验未知，带 stage/code）交派发层
+            // 打 job 级阻断标记。此前只回 assignedExperimentIndices，阻断 job 被派发层当普通未完成 job 处理，
+            // 正是现场"排除又派发"的入口之一；取消仍返回 false（未移动任何文件）。
+            const blocked = body.runReplacement?.blocked || [];
+            return { accepted: body.assignedExperimentIndices || [],
+                blocked: blocked.map((row) => ({ index: Number(row.index), reason: String(row.reason || ""), stage: row.stage, code: row.code, operationId: row.operationId })) };
         }
         catch (error) {
             if (error.apiData?.code === "REPLACEMENT_CANCELLED")
