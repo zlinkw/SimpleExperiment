@@ -213,6 +213,11 @@ test('cross-worker reconcile lane (:22036 项目文件补齐) drives the real pl
     await assert.rejects(() => drifting.run(), /项目同步未完成/);
     assert.equal(drifting.transfers.length, 1);
     assert.deepEqual(identity(drifting.transfers[0]), identity(sent), '目标侧内容漂移不改变来源冻结身份（冲突仍由完成校验拒绝）');
+    const shifted = reconcileFixture(inventories => { inventories.a['code/y.py'] = { sha256: 'c'.repeat(64) }; });
+    await shifted.run();
+    assert.equal(shifted.transfers.length, 1);
+    assert.equal(shifted.transfers[0].retentionKey, sent.retentionKey, '同一补齐路径仍是同一逻辑源');
+    assert.notEqual(shifted.transfers[0].generation, sent.generation, '来源 SHA 改变必须开新代（方向计划 B 段要求，r122 补齐）');
   } finally {
     distVscodeStub.workspace.workspaceFolders = [];
   }

@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { runPlanStopClearBatch, planStopBatchSignature } from "./PlanStopClearBatchHost";
 import { analyzeRuntimeLog, runtimeLogAnalysisMessage } from "./RuntimeLogAnalysisHost";
 import { runAllPlans, runSelectedPlans } from "./SelectedPlanBatchHost";
-import { ABANDONED_ZERO_BYTE_LOCK, attachIsolatedCleanup, markPlanTerminal, nextIsolatedLedgerReport, promoteDispatchedPlans, relocateAbandonedLedgerLock, type LedgerErrorThrottleState } from "../features/PlanIsolatedBatchLedger";
+import { ABANDONED_ZERO_BYTE_LOCK, attachIsolatedCleanup, markPlanTerminal, nextIsolatedLedgerReport, promoteDispatchedPlans, type LedgerErrorThrottleState } from "../features/PlanIsolatedBatchLedger";
 import { planSubmissionBatchFor } from "../features/PlanSubmissionBatch";
 import * as PlanCodeScopeHost from "./PlanCodeScopeHost";
 import * as fs from "fs/promises";
@@ -13591,34 +13591,19 @@ this.assertPlanTopologyReady("Plan 调度");
             }));
         return promoteDispatchedPlans(file, root, observations);
     }
-    /** r109 最小切片③：promotion 失败按签名限流（同签名每小时一条＋抑制计数），保住 action_errors 的 8 条窗口；
-     * 废弃零字节锁（最小切片①分类码）另走 isolatedLedgerLockDiagnostic 命令并给出经确认的移开入口。 */
+    /** r109③/r122 终审 B2：promotion 失败按签名限流（窗口内同签名首条＋抑制计数），保住 action_errors 的
+     * 8 条窗口。疑似遗留零字节锁（①分类码）只记 isolatedLedgerLockDiagnostic 只读诊断——诊断消息自带
+     * 精确路径/字节/年龄快照，供人工一次命令处理；插件不再弹窗、不再执行任何移开（原确认弹窗与
+     * relocate 路径已删除）。限流按消息前 160 字符签名：前缀相同即去重，抑制只是不再重复上报，
+     * 不代表错误已恢复。 */
     private isolatedLedgerReportState: LedgerErrorThrottleState = new Map();
     observeIsolatedLedgerPromotionError(error) {
         const message = errorMessage(error);
         const abandoned = message.startsWith(ABANDONED_ZERO_BYTE_LOCK);
         const verdict = nextIsolatedLedgerReport(this.isolatedLedgerReportState, message.slice(0, 160));
         if (!verdict.report) return;
-        const counted = verdict.suppressed > 0 ? message + "（窗口内同签名错误已抑制 " + verdict.suppressed + " 条）" : message;
+        const counted = verdict.suppressed > 0 ? message + "（窗口内同签名前缀（前 160 字符）仅上报首条，已抑制 " + verdict.suppressed + " 条；抑制不代表错误已恢复，前缀相同的不同错误也会被一并去重）" : message;
         this.recordActionError({ command: abandoned ? "isolatedLedgerLockDiagnostic" : "isolatedLedgerPromotion", message: counted });
-        if (!abandoned) return;
-        const match = /\(诊断: (\{.*\})）?$/.exec(counted) || /\(诊断: (\{.*\})\)/.exec(counted);
-        let lockPath = "";
-        if (match) { try { const parsed: Record<string, unknown> = JSON.parse(match[1]); if (typeof parsed.lockPath === "string") lockPath = parsed.lockPath; } catch { /* 诊断快照不可读：只保留记录，不给移开入口 */ } }
-        if (!lockPath) return;
-        this.showNativePanelMessage?.({ tone: "warning", message: "隔离账本锁文件被确认为无身份的 0 字节废弃锁（超过 150 秒无字节变化）；账本与锁原字节均保留，晋升与隔离区删除审核保持关闭。可在弹出的确认中选择\"重命名移开（保留字节）\"。" });
-        void vscode.window.showWarningMessage("隔离账本锁文件被确认为废弃的 0 字节锁：0 字节、无身份记录且长时间无字节变化——活锁不会呈现该形态，任何合法持有者都无法释放它。不会删除任何文件：确认后仅将其重命名移开为 <原名>.orphan-<时间戳>（保留全部原字节），下一轮晋升自动重试。",
-            { modal: true, detail: "路径：" + lockPath }, "确认重命名移开（保留字节）")
-            .then(async (choice) => {
-                if (choice !== "确认重命名移开（保留字节）") return;
-                try {
-                    const moved = await relocateAbandonedLedgerLock(lockPath);
-                    this.recordActionError({ command: "isolatedLedgerLockRelocated", message: "废弃零字节锁已经用户确认移开：orphan=" + moved.orphanPath + "；原字节 sha256=" + moved.sha256 + "。下一轮晋升将重试。" });
-                    void vscode.window.showInformationMessage("废弃锁已按确认重命名移开（原字节保留于 orphan 文件），无需重载窗口。");
-                } catch (moveError) {
-                    this.recordActionError({ command: "isolatedLedgerLockRelocated", message: "废弃锁移开未执行或未通过复核，原锁与账本保持原样：" + errorMessage(moveError) });
-                }
-            });
     }
     refreshSelectedDistributedLog(queue, newTerminal = false) {
         if (this.selectedDistributedLogRefreshPromise || !this.selectedLogRunKey) return;

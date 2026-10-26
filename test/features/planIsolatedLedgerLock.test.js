@@ -116,9 +116,12 @@ test('a lost writer cannot publish its staged bytes and cannot release the forei
   assert.deepEqual((await ledger.loadIsolatedBatchLedger(file)).map(row => row.batchId), ['seed']);
 });
 
-// ==== r109 最小切片（0.5.415）：废弃零字节锁分类、确认改名移开、晋升错误限流 ====
-const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
-
+// ==== r109 最小切片（0.5.415）：疑似遗留零字节锁只读分类＋晋升错误限流 ====
+// r122 终审 B2：插件内的 rename 移开路径（含确认弹窗）已整体删除——分类只掌握本实例创建窗，
+// 不排除其他进程 open(wx) 后的创建态，且移开脚本从 size 复核到 rename 与创建者无互斥。
+// 对应退役用例（B2 授权清单）：'relocation refuses while the threshold is unmet…'、
+// 'the next acquire succeeds after a confirmed relocation…'、'relocation never moves a
+// token-bearing live lock…'——三条测的都是被删除的 relocateAbandonedLedgerLock 行为本身。
 test('a zero-byte lock ages into the abandoned classification without any mutation', async t => {
   const file = seed(), lockPath = file + '.lock';
   fs.writeFileSync(lockPath, '');
@@ -145,43 +148,6 @@ test('a zero-byte lock ages into the abandoned classification without any mutati
   assert.equal(await ledger.classifyAbandonedZeroByteLock(lockPath, Date.now() + 600_000), null);
   fs.rmdirSync(lockPath); fs.writeFileSync(lockPath, '{"token":"x"}');
   assert.equal(await ledger.classifyAbandonedZeroByteLock(lockPath, Date.now() + 600_000), null);
-});
-
-test('relocation refuses while the threshold is unmet, then renames with bytes preserved', async () => {
-  const file = seed(), lockPath = file + '.lock', before = fs.readFileSync(file, 'utf8');
-  fs.writeFileSync(lockPath, '');
-  await assert.rejects(() => ledger.relocateAbandonedLedgerLock(lockPath), /ISOLATED_BATCH_LEDGER_LOCK_ABANDONED_ZERO_BYTE/);
-  assert.ok(fs.existsSync(lockPath), '未阈值的 0 字节锁移开被拒绝且锁仍在');
-  assert.deepEqual(fs.readdirSync(path.dirname(lockPath)).filter(name => name.includes('.orphan-')), [], '拒绝路径必须零副作用');
-  const moved = await ledger.relocateAbandonedLedgerLock(lockPath, Date.now() + 160_000);
-  assert.ok(moved.orphanPath.startsWith(path.resolve(lockPath) + '.orphan-'), '移开只允许改名为 orphan 文件');
-  assert.equal(moved.sha256, EMPTY_SHA256, '原字节 sha256 必须留痕且与空文件一致');
-  assert.equal(fs.readFileSync(moved.orphanPath).length, 0, 'orphan 文件保留原 0 字节');
-  assert.equal(fs.existsSync(lockPath), false);
-  assert.equal(fs.readFileSync(file, 'utf8'), before, '移开不触碰账本');
-});
-
-test('the next acquire succeeds after a confirmed relocation moved the abandoned lock', async () => {
-  const file = seed(), lockPath = file + '.lock';
-  fs.writeFileSync(lockPath, '');
-  await ledger.relocateAbandonedLedgerLock(lockPath, Date.now() + 160_000);
-  await ledger.freezeBatchScope(file, { batchId: 'after-relocation', projectRoot: '/fixture' }, [{ planFile: 'p.yaml', submissionOperationId: 'op-1' }]);
-  assert.deepEqual((await ledger.loadIsolatedBatchLedger(file)).map(row => row.batchId), ['seed', 'after-relocation']);
-  assert.equal(fs.existsSync(lockPath), false, '合法获取的锁按既有协议在结束时释放');
-});
-
-test('relocation never moves a token-bearing live lock and leaves every byte in place', async t => {
-  const file = seed(), lockPath = file + '.lock';
-  const holder = spawn(t, file, 'holder');
-  await holder.wait('entered');
-  await assert.rejects(() => ledger.relocateAbandonedLedgerLock(lockPath, Date.now() + 600_000), /ISOLATED_BATCH_LEDGER_LOCK_ABANDONED_ZERO_BYTE/);
-  const tokenBytes = fs.readFileSync(lockPath, 'utf8');
-  assert.ok(JSON.parse(tokenBytes).token, '活锁仍带身份 token');
-  assert.deepEqual(fs.readdirSync(path.dirname(lockPath)).filter(name => name.includes('.orphan-')), [], '活锁移开被拒绝且零副作用');
-  holder.send('release'); await holder.wait('done'); await holder.closed;
-  // r114 勘误：release 后锁按既有协议 unlink（:180 旧断言在释放后还去读锁内容，属装配错）；
-  // "拒绝移开不改变活锁"由释放前的 tokenBytes/零 orphan 两项断言钉住，释放本身不改。
-  assert.equal(fs.existsSync(file + '.lock'), false);
 });
 
 test('promotion errors report once per signature per window with suppressed counts', () => {

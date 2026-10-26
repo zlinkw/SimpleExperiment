@@ -33,10 +33,12 @@ export type ReviewedIsolatedBatch = IsolatedFrozenBatch & { reviews?: IsolatedRe
 
 export const LEDGER_CORRUPT = "ISOLATED_BATCH_LEDGER_CORRUPT";
 export const LEDGER_LOCK_LOST = "ISOLATED_BATCH_LEDGER_LOCK_LOST";
-/** r109（0.5.415 最小切片①）0 字节废弃锁分类码：锁协议规定活锁必先写 token 才返回所有权，
- * 竞争者与持有者都没有对已存在锁的写入路径，且释放只认 token——所以 0 字节、无身份、久无字节
- * 变化的锁不可能被任何合法持有者持有或释放，与活锁在协议上可严格区分。本分类只读诊断，
- * 永不摘取；移开只发生在用户确认后且仅 rename 保留字节（见 relocateAbandonedLedgerLock）。 */
+/** r109（0.5.415 最小切片①）疑似遗留零字节锁分类码（r122 终审 B2 收缩措辞与能力面）：
+ * 0 字节、无身份记录、≥150s 无字节变化且本实例无在途创建窗的锁按"疑似遗留"上报。
+ * 分类只掌握本实例的创建窗（60s 失效），不排除其他进程 open(wx) 后尚未写 token 的
+ * 创建态，故不下"必为废弃/活锁不可能如此"的结论；插件内不做任何摘取或移开
+ * （原 rename 移开路径已按 B2 删除），诊断快照（精确路径/字节/时间戳）交由人工在
+ * 授权上下文用一条明确命令处理。其余形态的获取拒绝路径逐字不变。 */
 export const ABANDONED_ZERO_BYTE_LOCK = "ISOLATED_BATCH_LEDGER_LOCK_ABANDONED_ZERO_BYTE";
 /** 废弃零字节锁的诊断快照（全部来自 lstat 实测，不做任何推断字段）。 */
 export type AbandonedZeroByteDiagnosis = { lockPath: string; size: number; birthtimeMs: number; mtimeMs: number; ino: number; nlink: number; classifiedAt: string };
@@ -161,12 +163,12 @@ async function acquireLedgerLock(lockPath: string): Promise<{ token: string; rel
         timeout: 2000, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
     } };
     if (Date.now() >= acquireStarted + LOCK_WAIT_MS) {
-      // r109 最小切片①：只读分类先行——0 字节、无身份、久无字节变化的锁在协议上不可能被任何合法
-      // 持有者持有或释放（活锁必先写 token；无写锁路径；释放只认 token），据实上报供用户确认移开。
+      // r109①/r122 B2：只读分类先行——该形态按"疑似遗留"据实上报；不排除其他进程的创建态，
+      // 插件不移开、不摘取，人工按诊断快照处理。
       // 其余任何形态（含 0 字节未满阈值、目录、链接、有 token 活锁）仍走下面逐字不变的 LOCKED 拒绝。
       const abandoned = await classifyAbandonedZeroByteLock(lockPath);
       if (abandoned)
-        throw new Error(`${ABANDONED_ZERO_BYTE_LOCK}：锁文件 0 字节且无身份记录，已 ${Math.floor((Date.now() - Math.max(abandoned.birthtimeMs, abandoned.mtimeMs)) / 1000)} 秒无字节变化——活锁不会呈现该形态，任何合法持有者都无法释放它；原字节保留、未摘取，审核入口本回合关闭（诊断: ${JSON.stringify(abandoned)}）`);
+        throw new Error(`${ABANDONED_ZERO_BYTE_LOCK}：锁文件 0 字节且无身份记录，已 ${Math.floor((Date.now() - Math.max(abandoned.birthtimeMs, abandoned.mtimeMs)) / 1000)} 秒无字节变化——疑似遗留零字节锁（已排除本实例创建窗，但不排除其他进程 open(wx) 后尚未写 token）；原字节保留、未摘取，插件不代为移开，请人工按诊断核对（诊断: ${JSON.stringify(abandoned)}）`);
       throw new Error("ISOLATED_BATCH_LEDGER_LOCKED：账本锁仍在位；活锁、遗留锁或未知身份均保留，不自动摘取，审核入口本回合关闭。");
     }
     await new Promise(resolve => setTimeout(resolve, LOCK_RETRY_MS));
@@ -189,51 +191,6 @@ export async function classifyAbandonedZeroByteLock(lockPath: string, nowMs: num
   if (!Number.isFinite(lastTouched) || lastTouched > nowMs || nowMs - lastTouched < ABANDONED_MIN_AGE_MS) return null;
   return { lockPath: resolved, size: 0, birthtimeMs: birth, mtimeMs: entry.mtimeMs, ino: entry.ino, nlink: entry.nlink,
     classifiedAt: new Date(nowMs).toISOString() };
-}
-
-// r109 最小切片②：经用户确认的移开脚本——复用 releaseScript 的父目录身份校验（realpath/chdir/dev/ino）
-// 与锁对象校验（普通文件、非链接、nlink===1），并追加"此刻仍 0 字节"复核：token 可解析或字节非 0
-// 一律拒绝。只 rename 到 <leaf>.orphan-<stamp>（存在即加 pid 后缀，绝不覆盖、绝不 unlink），
-// 输出移开路径与原字节 sha256 供操作日志留痕。
-const relocateScript = `
-const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
-const [parent,leaf,device,inode,stamp]=process.argv.slice(1);
-const deny=code=>{throw new Error(code)};
-if(!leaf||leaf!==path.basename(leaf)||leaf==='.'||leaf==='..')deny('PARENT_CD_FAILED');
-if(fs.realpathSync(parent)!==parent)deny('PARENT_CD_FAILED');
-process.chdir(parent);
-const st=fs.statSync('.');
-if(fs.realpathSync(process.cwd())!==parent||String(st.dev)!==device||String(st.ino)!==inode)deny('PARENT_CD_FAILED');
-const target='./'+leaf,entry=fs.lstatSync(target);
-if(!entry.isFile()||entry.isSymbolicLink()||entry.nlink!==1||entry.dev!==st.dev)deny('ABANDONED_LOCK_PRECONDITION_FAILED');
-if(entry.size!==0)deny('ABANDONED_LOCK_PRECONDITION_FAILED');
-let orphan='./'+leaf+'.orphan-'+stamp;
-if(fs.existsSync(orphan)||fs.existsSync('./'+path.basename(orphan)))orphan='./'+leaf+'.orphan-'+stamp+'-'+process.pid;
-if(fs.existsSync(orphan))deny('ABANDONED_LOCK_PRECONDITION_FAILED');
-const sha=crypto.createHash('sha256').update(fs.readFileSync(target)).digest('hex');
-fs.renameSync(target,orphan);
-process.stdout.write(JSON.stringify({orphan:path.resolve(orphan),sha}));
-`;
-
-/** r109 最小切片②：用户确认后的唯一允许的移开动作。先在进程内重跑只读分类（活锁/未满阈值/目录等
- * 一律拒绝且零操作），再在独立子进程内以父目录身份复核后 rename——保留全部原字节，禁止删除。
- * 返回移开路径与原字节 sha256（0 字节即固定空串哈希，留痕用）。 */
-export async function relocateAbandonedLedgerLock(lockPath: string, nowMs: number = Date.now()): Promise<{ orphanPath: string; sha256: string }> {
-  const diagnosis = await classifyAbandonedZeroByteLock(lockPath, nowMs);
-  if (!diagnosis) throw new Error(`${ABANDONED_ZERO_BYTE_LOCK}：移开前复核未通过——锁不是"0 字节且无身份、久无变化"的废弃形态（或本实例正在创建），未执行任何操作。`);
-  const parent = path.dirname(lockPath);
-  const parentIdentity = await fs.stat(parent);
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const { stdout } = await releaseOwnedLock(process.execPath, ["-e", relocateScript, parent, path.basename(lockPath),
-    String(parentIdentity.dev), String(parentIdentity.ino), stamp], { cwd: parent, windowsHide: true,
-    timeout: 2000, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
-  // r114：子进程输出的字段名是 {orphan,sha}——父侧核实必须按同一契约读取（此前误读
-  // moved.orphanPath 会把每次合法移开都报成"无法核实"）。两个字段仍全部必须为非空字符串，
-  // 任一缺失/类型不符依旧 fail closed 报人工核对，不放松。
-  const moved: Record<string, unknown> = JSON.parse(String(stdout));
-  if (typeof moved.orphan !== "string" || typeof moved.sha !== "string")
-    throw new Error(`${ABANDONED_ZERO_BYTE_LOCK}：移开结果无法核实，请按输出人工核对锁与 orphan 文件。`);
-  return { orphanPath: moved.orphan, sha256: moved.sha };
 }
 
 /** r109 最小切片③：按签名限流——同签名窗口（默认 1 小时）内只放行首条，其后计数；出窗再放行时
