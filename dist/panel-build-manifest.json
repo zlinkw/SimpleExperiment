@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.415",
-  "buildId": "94a668c7a0c12443a6ee4ab2dcec922bd657ac99f44e1c09d0ad33d8848c6fe8",
+  "buildId": "afc2999a59004e42e4c27049d09b6536360058d621ca26b5eb8f05125fdac066",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -117,7 +117,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "e6edf208d4660262871c8ab8b9bf345484f187eaef9ce09f0ba47279da8225ca"
+      "sha256": "c403a7cfefe49515f5828608296423a4202bced80af8c5ddf538132d4090d108"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -437,7 +437,7 @@
     },
     {
       "path": "dist/features/PlanIsolatedBatchLedger.js",
-      "sha256": "e263a8ee66ca585ba3ec6cadfd704a39120e5f4c3aafc1a707aa37339611b4d3"
+      "sha256": "859dd5e16f5449e9f05691ee04b13cdfb033106535311f1ae6c46453afbb8fe9"
     },
     {
       "path": "dist/features/PlanIsolatedReview.js",

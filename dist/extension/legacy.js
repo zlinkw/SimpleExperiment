@@ -14617,8 +14617,9 @@ class RealtimeTunnelPanelProvider {
         return (0, PlanIsolatedBatchLedger_1.promoteDispatchedPlans)(file, root, observations);
     }
     /** 用户裁定 B（2026-10-26）后：账本已去锁，r109 的按签名限流与疑似零字节锁诊断随锁整体退役——
-     * 这些机制只为压制"锁卡死时每 tick 重复报错"；CAS 下 ISOLATED_BATCH_LEDGER_STALE 只会在真的有
-     * 第二写入者改账本时出现，损坏（CORRUPT）本就应逐轮如实上报。此处只记录、不上抛：
+     * 这些机制只为压制"锁卡死时每 tick 重复报错"；ISOLATED_BATCH_LEDGER_STALE 只在写前指纹比对
+     * 检出账本已被改写时出现——它不能排除未被检出的跨窗口写入（两窗口同读一指纹各自写＝静默覆盖，
+     * 见 PlanIsolatedBatchLedger.ts 文件头存储安全注释与"单活跃窗口"运维前提）。损坏（CORRUPT）本就应逐轮如实上报。此处只记录、不上抛：
      * 审核入口随之关闭，绝不影响队列与本轮 tick 结果。 */
     observeIsolatedLedgerPromotionError(error) {
         this.recordActionError({ command: "isolatedLedgerPromotion", message: errorMessage(error) });
