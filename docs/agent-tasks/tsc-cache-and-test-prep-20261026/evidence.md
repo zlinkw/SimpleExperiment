@@ -79,3 +79,10 @@
 
 ## 耗时事实（仅报告，不写入任何断言/门禁）
 branchProjectRegistry 宿主实测 123,817ms（约 23 仓 × 5-6 git spawn + commitFile 3 次/处 主导）；本切片后每仓 spawn 5-6→1（clone）+1（remote remove）。testWorkflowRunner 45,653ms 保持。改进效果以宿主三态实测为准，Linux 不产出任何产品耗时数。
+
+## 超时变更台账（本切片唯一一条；主控 2026-10-26 批准）
+- **位置**：test/project/branchProjectRegistry.test.js 「C5 祖先 ff：真实仓包含合并提交的后续头可安全快进…」用例声明（现 :852，改前 :849）。
+- **旧值→新值**：原无 test 级 timeout，随 manifest 全局 `--test-timeout 20000` ⇒ 本用例 test 级 `{ timeout: 30000 }`（仅覆盖本条；其余用例仍 20s；不改断言、不拆用例、不跳过）。
+- **三次 Windows 实测**：19,560.5ms 通过 / 20,049.6ms 超时 / 20,206.3ms 超时（宿主日志 1e21fdf6 / 9ec77370 / bee2bf80）。
+- **判定理由**：分布 19.5–20.2s 恰卡 20s 阈值中间，Windows 进程开销抖动即可翻转；判因（码证）≈196 次真实 git spawn 主导（测试直接 33＋产品 fastForwardAncestorRoot 31＋readGitIdentity 22 次×6），无网络/无 sleep/无共享状态，属被测行为本身成本；30s＝最坏实测约 1.5 倍余量。
+- **确认口径**：超时值变化即新输入，宿主单跑该用例 1 次确认即可（主控裁定），不重跑整套件、不跑 3 次。

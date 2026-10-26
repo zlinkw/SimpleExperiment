@@ -846,7 +846,10 @@ function gitBScript() {
   ];
 }
 
-test("C5 祖先 ff：真实仓包含合并提交的后续头可安全快进；脏/fetch 期间身份变化/不含合并提交/分叉全停", async () => {
+// 本用例超时 30000ms（主控 2026-10-26 批准，仅本条）：三次 Windows 实测 19,560.5/20,049.6/20,206.3ms
+// （日志 1e21fdf6/9ec77370/bee2bf80）卡在 --test-timeout 20000 阈值中间；≈196 次真实 git spawn 的进程
+// 开销主导（判因见 evidence.md 超时变更台账），30s＝最坏实测 1.5 倍余量。断言、用例结构与覆盖未动。
+test("C5 祖先 ff：真实仓包含合并提交的后续头可安全快进；脏/fetch 期间身份变化/不含合并提交/分叉全停", { timeout: 30000 }, async () => {
   const originDir = tempDir("se-pr-origin-");
   git(["init", "-q", "--bare", "-b", "main", originDir], originDir);
   const seed = tempDir("se-pr-seed-");
