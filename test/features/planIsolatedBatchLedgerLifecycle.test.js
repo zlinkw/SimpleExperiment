@@ -1,62 +1,9 @@
 const { test, assert, fs, os, path, fork, ledger, runSelectedPlans, Q, ts, tmpFile, replacementState, extractMethodBody, legacySource, transpile, seed, observed, spawnChild, batchFixture, runBatch } = require("./planIsolatedBatchLedger.support.cjs");
 
-test('跨进程锁：正常创建者释放；活 owner 与过期未知 owner 都保留原锁并快速 fail closed',async()=>{
-  const file=tmpFile('ledger.json');
-  await ledger.freezeBatchScope(file,{batchId:'b-1',projectRoot:'/proj'},[{planFile:'plans/a.yaml',submissionOperationId:'op-a'}]);
-  assert.equal(fs.existsSync(file+'.lock'),false,'正常创建者工作结束后释放自己的锁');
-  assert.deepEqual(fs.readdirSync(path.dirname(file)).filter(name=>name.includes('.stolen.')||name.includes('.released.')),[],'回收与释放不留残片');
-  fs.writeFileSync(file+'.lock',JSON.stringify({token:'alive',host:os.hostname(),pid:process.pid,expiresAt:new Date(Date.now()+3_600_000).toISOString()}));
-  const before=fs.readFileSync(file,'utf8');
-  const startedAt=Date.now();
-  await assert.rejects(()=>ledger.freezeBatchScope(file,{batchId:'b-2',projectRoot:'/proj'},[{planFile:'plans/x.yaml',submissionOperationId:'op-x'}]),
-    /ISOLATED_BATCH_LEDGER_LOCKED/);
-  assert.ok(Date.now()-startedAt<3000,'活锁必须快速失败（不阻塞提交/派发回合）');
-  assert.equal(fs.readFileSync(file,'utf8'),before,'等不到锁绝零写入');
-  assert.equal(fs.existsSync(file+'.lock'),true,'抢锁失败者绝不删除他人活锁（TTL 未到也不可）');
-  const unknownFile=tmpFile('unknown.json'),raw=JSON.stringify({token:'dead',expiresAt:new Date(0).toISOString()});
-  fs.writeFileSync(unknownFile+'.lock',raw);
-  await assert.rejects(ledger.freezeBatchScope(unknownFile,{batchId:'b-1',projectRoot:'/proj'},[{planFile:'p',submissionOperationId:'o'}]),/ISOLATED_BATCH_LEDGER_LOCKED/);
-  assert.equal(fs.readFileSync(unknownFile+'.lock','utf8'),raw);
-  assert.equal(fs.existsSync(unknownFile),false,'无法证明失主时零账本写入');
-});
-
-test('真实进程互斥：竞争者不能摘走活锁；原 owner 释放后才进入',async()=>{
-  const distFile=path.resolve(__dirname,'../../dist/features/PlanIsolatedBatchLedger.js');
-  assert.ok(fs.existsSync(distFile),'双进程夹具消费编译产物；请先 npm run typecheck');
-  const file=tmpFile('ledger.json');
-  const eventsFile=file+'.events';// 锁内物理事件账本：仅持锁进程在临界区内追加，行序=真实串行序（2026-10-23 等强证明返修）
-  const b=spawnChild(distFile,file,'ordinary',eventsFile);let a;
-  const cleanup=async()=>{for(const w of [a,b].filter(Boolean)){try{if(w.p.connected)w.p.send('release');}catch{/* 已断开 */}}
-    for(const w of [a,b].filter(Boolean))await Promise.race([new Promise(r=>w.p.on('close',r)),new Promise(r=>setTimeout(r,200))]);
-    for(const w of [a,b].filter(Boolean))if(w.p.exitCode===null){w.p.kill('SIGKILL');}};
-  try{
-    const bEntered=await b.wait('entered');
-    const originalLock=fs.readFileSync(file+'.lock','utf8');a=spawnChild(distFile,file,'contender',eventsFile);
-    // r28-U1（主控明确技术批准——验收时序变化：固定 400ms 睡眠→真实争锁握手；旧/新/依据已记 plan）：
-    // A 在 B 活锁上真实得到 fsp.open EEXIST 并报 contended 后，「A 未进入」才是真实竞争下的强证明；
-    // 旧 400ms 小于实测 fork→entered 486ms 的窗口，既窄又不能证明 A 已实际尝试锁。生产 20ms/600ms 与 helper 3000ms 均未动。
-    await a.wait('contended');
-    assert.ok(!a.events.some(m=>m.event==='entered'),'A 竞争遇 B 活锁（真实 EEXIST）时不得进入临界区');
-    const live=JSON.parse(fs.readFileSync(file+'.lock','utf8'));
-    assert.equal(JSON.stringify(live),originalLock,'B 活锁始终在位，不能先摘走再还原');
-    try{a.p.send('release');}catch{/* 已结束 */}
-    try{b.p.send('release');}catch{/* 已结束 */}
-    await b.wait('done');
-    await a.wait('done');
-    assert.notEqual(a.p.pid,b.p.pid,'回归必须由两个真实进程完成');
-    const aEntered=a.events.find(m=>m.event==='entered');
-    assert.ok(aEntered,'A 应串行排队——本场景 B 已释放故 A 必须随后进入');
-    // 等强串行证明（2026-10-23 返修，替换原 enteredAt>=bDoneAt-50 观测时刻断言）：
-    // ENTER/LEAVE 由各持锁进程在生产锁持有期内追加，锁本身保证写入互斥，
-    // 因此账本行序就是临界区的真实串行序——不依赖任何父进程观测时刻，零时间容差。
-    // 偷锁/插入会直接破坏严格 4 行序；活锁原位、不同 PID、无残片断言全部保留在下方。
-    const seq=fs.readFileSync(eventsFile,'utf8').trim().split(/\r?\n/);
-    assert.deepEqual(seq,['ENTER '+b.p.pid,'LEAVE '+b.p.pid,'ENTER '+a.p.pid,'LEAVE '+a.p.pid],
-      '锁内事件账本必须呈严格 B.enter→B.leave→A.enter→A.leave（真实串行恢复）');
-    assert.equal(fs.existsSync(file+'.lock'),false,'两进程收尾后锁已释放');
-    assert.deepEqual(fs.readdirSync(path.dirname(file)).filter(name=>name.includes('.stolen.')||name.includes('.released.')),[],'CAS 回收与还原不留残片');
-  }finally{await cleanup();}
-});
+// 用户裁定 B（2026-10-26）退役两条锁协议用例（所测行为已随锁移除，完整退役清单见 planIsolatedLedgerLock.test.js 头注）：
+//   原:3  '跨进程锁：正常创建者释放；活 owner 与过期未知 owner 都保留原锁并快速 fail closed'（锁获取/释放/遗留锁保留）
+//   原:23 '真实进程互斥：竞争者不能摘走活锁；原 owner 释放后才进入'（跨进程锁互斥与锁内事件序）
+// 跨进程"第二写入者"场景现在由写前指纹比对 fail closed，覆盖在 planIsolatedLedgerLock.test.js（CAS 套件）。
 
 test('helper 反例（r28-U1）：子进程真实 IPC error 即时拒绝 done 等待并附完整诊断，不伪装 3000ms IPC 超时',async()=>{
   const distFile=path.resolve(__dirname,'../../dist/features/PlanIsolatedBatchLedger.js');
@@ -173,10 +120,13 @@ test('legacy 文案：删除后最终写入身份漂移不谎称「未删除文�
 
 test('源码钉：账本安全原语、真实 producer 接线与提升来源约束',()=>{
   const module=fs.readFileSync(path.resolve(__dirname,'../../src/features/PlanIsolatedBatchLedger.ts'),'utf8');
-  assert.match(module,/fs\.open\(lockPath, "wx"\)/);
-  assert.doesNotMatch(module,/fs\.(rename|link)\(lockPath,/,'竞争者不得先摘锁后复核');
-  assert.doesNotMatch(module,/pidAlive|ownerRemovable/,'TTL/PID 不授权自动摘取任何锁');
-  assert.match(module,/ownerToken !== fence\.token/,'写盘前失主 fencing');
+  // 裁定 B（2026-10-26）：锁原语钉整体替换为 CAS 原语钉（去锁＋写前指纹比对，复用既有身份/哈希实现）。
+  assert.match(module,/identityFromStat\(await fs\.stat\(file\)\)/,'读取时记身份元组：复用 LocalCodeManifestCache 身份函数，未新造判据');
+  assert.match(module,/sameIdentity\(expected, identity\)/,'快路径：身份六项全未变即落盘，不重算哈希');
+  assert.match(module,/sha256File\(file\)/,'慢路径内容比对复用既有 sha256File，未新写文件哈希');
+  assert.match(module,/LEDGER_STALE = "ISOLATED_BATCH_LEDGER_STALE"/,'写前不符 fail closed 的新错误码');
+  assert.doesNotMatch(module,/acquireLedgerLock|releaseScript|classifyAbandonedZeroByteLock|nextIsolatedLedgerReport|LEDGER_LOCK_LOST/,'锁文件全链、零字节分类与限流已随裁定 B 移除');
+  assert.doesNotMatch(module,/pidAlive|ownerRemovable/,'不存在任何自动摘锁取锁代码路径');
   assert.match(module,/const PROOF_STATUSES = \["running"\]/);
   assert.match(module,/now - at < 0/,'任何未来观察都拒绝');
   const queue=fs.readFileSync(path.resolve(__dirname,'../../src/features/DistributedPlanQueue.ts'),'utf8');

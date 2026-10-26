@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { runPlanStopClearBatch, planStopBatchSignature } from "./PlanStopClearBatchHost";
 import { analyzeRuntimeLog, runtimeLogAnalysisMessage } from "./RuntimeLogAnalysisHost";
 import { runAllPlans, runSelectedPlans } from "./SelectedPlanBatchHost";
-import { ABANDONED_ZERO_BYTE_LOCK, attachIsolatedCleanup, markPlanTerminal, nextIsolatedLedgerReport, promoteDispatchedPlans, type LedgerErrorThrottleState } from "../features/PlanIsolatedBatchLedger";
+import { attachIsolatedCleanup, markPlanTerminal, promoteDispatchedPlans } from "../features/PlanIsolatedBatchLedger";
 import { planSubmissionBatchFor } from "../features/PlanSubmissionBatch";
 import * as PlanCodeScopeHost from "./PlanCodeScopeHost";
 import * as fs from "fs/promises";
@@ -13591,19 +13591,12 @@ this.assertPlanTopologyReady("Plan 调度");
             }));
         return promoteDispatchedPlans(file, root, observations);
     }
-    /** r109③/r122 终审 B2：promotion 失败按签名限流（窗口内同签名首条＋抑制计数），保住 action_errors 的
-     * 8 条窗口。疑似遗留零字节锁（①分类码）只记 isolatedLedgerLockDiagnostic 只读诊断——诊断消息自带
-     * 精确路径/字节/年龄快照，供人工一次命令处理；插件不再弹窗、不再执行任何移开（原确认弹窗与
-     * relocate 路径已删除）。限流按消息前 160 字符签名：前缀相同即去重，抑制只是不再重复上报，
-     * 不代表错误已恢复。 */
-    private isolatedLedgerReportState: LedgerErrorThrottleState = new Map();
+    /** 用户裁定 B（2026-10-26）后：账本已去锁，r109 的按签名限流与疑似零字节锁诊断随锁整体退役——
+     * 这些机制只为压制"锁卡死时每 tick 重复报错"；CAS 下 ISOLATED_BATCH_LEDGER_STALE 只会在真的有
+     * 第二写入者改账本时出现，损坏（CORRUPT）本就应逐轮如实上报。此处只记录、不上抛：
+     * 审核入口随之关闭，绝不影响队列与本轮 tick 结果。 */
     observeIsolatedLedgerPromotionError(error) {
-        const message = errorMessage(error);
-        const abandoned = message.startsWith(ABANDONED_ZERO_BYTE_LOCK);
-        const verdict = nextIsolatedLedgerReport(this.isolatedLedgerReportState, message.slice(0, 160));
-        if (!verdict.report) return;
-        const counted = verdict.suppressed > 0 ? message + "（窗口内同签名前缀（前 160 字符）仅上报首条，已抑制 " + verdict.suppressed + " 条；抑制不代表错误已恢复，前缀相同的不同错误也会被一并去重）" : message;
-        this.recordActionError({ command: abandoned ? "isolatedLedgerLockDiagnostic" : "isolatedLedgerPromotion", message: counted });
+        this.recordActionError({ command: "isolatedLedgerPromotion", message: errorMessage(error) });
     }
     refreshSelectedDistributedLog(queue, newTerminal = false) {
         if (this.selectedDistributedLogRefreshPromise || !this.selectedLogRunKey) return;
