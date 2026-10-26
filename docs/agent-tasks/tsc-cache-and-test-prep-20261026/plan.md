@@ -45,5 +45,12 @@
 - **绑定与核对**：receipt 记录 selection 全量＋onDemandJobs；validateReceiptForAssemble 增决策 hash 一致性＋按需文件不得出现在当前执行计划。**生效边界（如实）**：本改动合并后，合并前产生的历史 receipt 因无 selection 字段一律不可再用于组装（decision missing 拒绝），需按新策略重跑完整验收；本模块未在宿主实跑通过前不得称已生效。
 - **同包复用实测结论（不补齐，已满足）**：`npm run package`（package.json:961）单入口按 compile→fullCheck→post→assemble 顺序执行，任一测试失败即止（test-workflow.js:842 早退，不触组装）；组装仅一次 vsce，随后 verify-vsix-manifest.js 打开最终 .vsix 实测 entries/leak/required（单一规则源 package-content-policy.json，:4-5、:98）＋README 唯一性与内容一致（:76-93）；包 SHA+字节绑定 receipt candidate.packaged（test-workflow.js:734，sha256Fresh 现算）；后续 package:assemble 只凭 receipt 逐项+指纹+planHash+决策核对，不再重复测试/组装。测试通过不替代组装完整性——后者由最终归档实际内容检查独立承担。
 
+## 默认流程（用户 2026-10-26 覆盖裁定，立即生效）
+默认入口 `npm run package`（package.json:961）＝恰好三段：**① 必要编译（compile gates）→ ② 本轮规定测试（fullCheck：分组/按需/保护策略，片5）→ ③ 组装包（post/assemble 工具门 + 一次 vsce）**。完成即报告包路径与 receipt candidate.packaged 真实状态（test-workflow.js:734 SHA 绑定）。
+- 默认**不做**：独立 acceptance 阶段（acceptance/check:full 为另设入口）、归档内容审计、包后冒烟/安装验收；缺这些 receipt **不拦打包**，也不得以任何别名（“交付检查”“包完整性核对”等）插回默认链。**用户要验收时另行明确触发。**
+- 打包器自带必需 manifest 检查照常执行且不掩盖工具错误——这属工具门禁非独立验收：vsce package、verify-vsix-manifest.js（实际解包核 entries/leak/required，单一规则源 package-content-policy.json）、verify:package-runtime（=verify-vsix-runtime.js：版本一致 + vsce ls 清单预览 + 运行时闭包，组装前工具门，无安装/冒烟/部署审计——定性为“打包器自带”，保留默认链合规）。
+- 测试是核心不删不减：按需仅不默认启动，保护照旧；真实失败/退出码/完整日志保留（fullCheck 失败 :842 早退非零）。
+- 新策略验证口径：现有清单上的计算结果（dry-run）＋受影响套件即可，不为证明策略重跑整轮约 12 分钟包验收；区分“原任务已做的测试”与“新改动的受影响回归”。
+
 ## 明确不做
 不采用全局 TS7（项目 moduleResolution:Node 与 tsc-cached require TS API 兼容阻塞）、不装项目本地 TS7、不改业务模块/tsconfig/锁文件/模块语义、不清理旧缓存、不跨 worktree 共享可写状态、不为凑数量做无价值拆分。

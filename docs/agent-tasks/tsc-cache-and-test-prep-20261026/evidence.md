@@ -33,6 +33,9 @@
 - **同包复用实测结论（读源码核得，无需补齐）**：`npm run package`＝单入口顺序链 compile→fullCheck→post→assemble，测试失败在 test-workflow.js:842 早退绝不触组装；组装仅一次 vsce；最终 .vsix 由 verify-vsix-manifest.js 实际解包核 entries/leak/required（单一规则源 package-content-policy.json，脚本 :4-5、:98）+README 唯一性与内容一致（:76-93）；包 SHA/字节 candidate.packaged 现算绑定 receipt（test-workflow.js:734）；package:assemble 只核对（逐项+指纹+planHash+新增决策 hash），不重复测试/组装。测试通过不替代组装完整性检查——后者独立对最终归档内容执行。
 - **Linux 静态自查（本片，真实记录）**：`node --check scripts/test-selection.js`、`node --check scripts/test-workflow.js`、`node scripts/test-workflow.js check:full --dry-run` 三次均被 PreToolUse 钩子前置拒绝（PI_NATIVE_PLATFORM_REQUIRED，未执行；未换形态重试）⇒ 语法与决策数字由宿主首跑/dry-run 兜底；test-workflow.js 十处接线 grep 回读＋编辑区人工回审通过（作用域/括号完整）。tsc：两文件均在类型程序外（include=src/**/*.ts），同前口径。
 
+## 默认流程与验证口径（用户 2026-10-26 覆盖裁定）
+默认链＝必要编译→本轮规定测试（含按需/保护策略）→组装包，完成即报包路径+真实状态；独立 acceptance/归档审计/包后冒烟安装**不默认**、缺 receipt 不拦打包、不换名插回，用户另行触发。vsce/verify-vsix-manifest/verify:package-runtime（组装前 vsce ls+版本+闭包工具门）属打包器自带，照常。新策略验证=dry-run 数字+受影响套件（branchProjectRegistry、testWorkflowRunner 属受影响回归——selection 改动所在 runner 的既有回归套件），**不需重跑整轮约 12 分钟 package 全验收**；原任务已做的 7 套件结果（415 线，另一树同一 runner 基线）与新切片受影响回归分开记，不混成新一轮全量。
+
 ## 片 4 定向回归（等待主控排 Windows 宿主；未开始，不得预写结果）
 ①跨真实源码变更复用（冷→改一 src 文件→incremental+inputDrift+dist 更新+真实退出码）；②诊断非零传播（注入类型错误 exit≠0+state-failed→复原 rebuild）；③输出缺失/篡改（.stale 封存；verify-only output-drift 非零）；④配置/工具链失效（argv 变/@types 变→新分区）；⑤worktree 隔离（两副本 cacheDir 分离）。三态（冷/无改/有改）完整日志+退出码回填本文件。分区公式变化后的首编译为**一次性冷编译**，如实记录，不写成“缓存失效已修”。
 
