@@ -114,7 +114,7 @@ test("释放能力门要求裁定能力实时齐备，任一缺失（含新 SE�
       "files.cleanup.execute": { isolationCompletionReceipt: 1 },
       "files.cleanup.confirm": { exactBatchDigest: true, deleteConfirmationCount: 2 },
       "files.cleanup.isolatedMaintenanceDelete": { registeredIsolationTokenOnly: 1, pluginDerivedDeleteSet: 1,
-        isolationCompletionReceiptRequired: 1 } } });
+        isolationCompletionReceiptRequired: 1, userConfirmedSlotRelease: 1 } } });
   assert.equal(stagedSlotReleaseEvidenceReady(base()), true);
   const mutations = [
     c => { c.methodOptions["files.cleanup.stagedSlots"].expiredCommittedReclaim = 0; },
@@ -127,6 +127,8 @@ test("释放能力门要求裁定能力实时齐备，任一缺失（含新 SE�
     c => { delete c.methodOptions["files.cleanup.isolatedMaintenanceDelete"].registeredIsolationTokenOnly; },
     c => { delete c.methodOptions["files.cleanup.isolatedMaintenanceDelete"].pluginDerivedDeleteSet; },
     c => { delete c.methodOptions["files.cleanup.isolatedMaintenanceDelete"].isolationCompletionReceiptRequired; },
+    c => { delete c.methodOptions["files.cleanup.isolatedMaintenanceDelete"].userConfirmedSlotRelease; }, // 旧 0.2.113：无提前释放旗=不给入口，预期 fail-closed
+    c => { c.methodOptions["files.cleanup.isolatedMaintenanceDelete"].userConfirmedSlotRelease = 0; },
     c => { c.methods = c.methods.filter(name => name !== "files.cleanup.confirm"); }, // 缺方法：确认链不可用
     c => { c.methods = c.methods.filter(name => name !== "files.cleanup.status"); }, // 缺方法：回执轮询不可用
     c => { c.methods = c.methods.filter(name => name !== "files.cleanup.isolatedMaintenanceDelete"); }, // 缺方法：隔离副本无法登记删除

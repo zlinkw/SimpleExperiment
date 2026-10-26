@@ -244,20 +244,26 @@ const STAGE_RELATIVE = ".staged-slots/" + STAGE_ID + "/slot-0";
 //   就要求原样带回，无回退）；绑定 terminalAt 必须精确一致；时间基准 terminalAt→updatedAt→manifest
 //   mtime 择基；future 基准；createdAt 矛盾；以及 1146–1147 的最后一条无条件年龄阈值
 //   （(now-basis)*1000 < expiryMs 即拒）。任一不满足抛同源错误，真实源槽目录原样保留。
-//   无绑定则按 0.2.113 只剩槽锁检查、隔离照常发生。隔离成功先建父目录再 renameSync 真实移动槽目录到
+//   无绑定则按发布版只剩槽锁检查、隔离照常发生。隔离成功先建父目录再 renameSync 真实移动槽目录到
 //   clean_dir/<batch>/<rel>（no_replace：destination 已存在即 DESTINATION_EXISTS）。
+// - 0.2.114 解冻（SFTP 提交 2b8586a，字段逐字采用）：引擎移植支持 `requireExpired`——仅当值恰为
+//   false 时跳过最后那条年龄阈值，其余锁内检查原样；undefined 冻结为 true（0.2.113 逐字节不变）。
+//   preview mock 按 cleanup-file-api.js:519 严格校验（只接受 undefined 或 boolean）；requireExpired 进
+//   冻结台账并以"台账绑定序列化=预览时冻结摘要"模拟 digest 前置（cleanup-file-api.js:591 真实实现把
+//   绑定并入 hash 前置，确认阶段翻转值将以 CONFIRM_REQUIRED 被拒、execute 只重放冻结 copy——夹具以
+//   execute 前摘要核对模拟同一拒绝点，模拟面如实标注）。bindingMode 选项可模拟"自动回收链/旧调用方"
+//   的 true/缺省绑定形态（本产品用户确认链一律 false），flipAtConfirm 选项模拟确认后翻转尝试。
 // - 默认 journal 用 terminalAt=2/updatedAt=3 的秒级纪元时间戳（1970 年）：引擎把 basis 直接当 epoch
-//   秒使用，忠实移植 ⇒ 默认候选即"早已过过期阈值的旧槽"。"年轻候选成功释放"依赖 SimpleSFTP 0.2.114
-//   拟新增的 requireExpired 区分字段（字段名以 SFTP 负责人回报为准）：发布版 0.2.113 下真年轻 journal
-//   确认后必被年龄阈值拒——"a genuinely young journal is refused…"用例如实钉住现状，产品释放链与
-//   绑定内容在该契约落地前一律不动。
+//   秒使用，忠实移植 ⇒ 默认候选即"早已过过期阈值的旧槽"；youngJournal=true 时基准=一小时前，用于
+//   requireExpired:false 成功路径与 true/缺省仍拒的兼容断言。
 const RELEASE_TMP_ROOTS = [];
 process.on("exit", () => {
   for (const root of RELEASE_TMP_ROOTS) { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* 尽力清理 */ } }
 });
 function releaseFixture(options = {}) {
   const { capabilityReady = true, warningChoice, liveCandidates, deleteState = "accepted", statusStates, releaseCandidate = true,
-    ageMs = 172800000, previewSafety = true, liveExpiry = { enabled: true, ms: 86400000 }, onCall, youngJournal = false } = options;
+    ageMs = 172800000, previewSafety = true, liveExpiry = { enabled: true, ms: 86400000 }, onCall, youngJournal = false,
+    journalInit = null, bindingMode = null, flipAtConfirm = false, safetyMissing = null } = options;
   const cleanupCalls = [], warnings = [], errorLog = [], syncRetries = [], patches = [];
   const queueJob = { index: 0, commandId: "command0", artifactStageBlock: { schemaVersion: 1, code: "TRANSFER_STAGE_PENDING",
     destination: { id: "b", profile: "work", host: "nwpu3.invalid" }, scope: "job-artifacts-scope", lane: 0, identity: STAGE_ID,
@@ -274,7 +280,7 @@ function releaseFixture(options = {}) {
       "files.cleanup.preview": { backgroundIsolatedDelete: 1 }, "files.cleanup.execute": { isolationCompletionReceipt: 1 },
       "files.cleanup.confirm": { exactBatchDigest: true, deleteConfirmationCount: 2 },
       "files.cleanup.isolatedMaintenanceDelete": { registeredIsolationTokenOnly: 1, pluginDerivedDeleteSet: 1,
-        isolationCompletionReceiptRequired: 1 } } };
+        isolationCompletionReceiptRequired: 1, userConfirmedSlotRelease: 1 } } };
   // 真实远端根：槽目录＋manifest.json 都是真文件；引擎移植只读这些真实文件，绝不读模拟状态。
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "se-stage-release-"));
   RELEASE_TMP_ROOTS.push(projectRoot);
@@ -285,9 +291,9 @@ function releaseFixture(options = {}) {
   const state = {
     // 台账 journal 的当前事实（引擎锁内复检唯一比对来源=真实 manifest.json）；回归用例在 execute 前
     // 改写/删除真实文件模拟竞态。youngJournal=true 时基准=一小时前（epoch 秒），忠实触发年龄阈值拒。
-    journal: youngJournal
+    journal: { ...(youngJournal
       ? { identity: STAGE_ID, generation: STAGE_GEN, status: "committed", createdAt: nowS - 3720, terminalAt: nowS - 3600, updatedAt: nowS - 3600 }
-      : { identity: STAGE_ID, generation: STAGE_GEN, status: "committed", createdAt: 1, terminalAt: 2, updatedAt: 3 },
+      : { identity: STAGE_ID, generation: STAGE_GEN, status: "committed", createdAt: 1, terminalAt: 2, updatedAt: 3 }), ...(journalInit || {}) },
     writeJournal: () => fs.writeFileSync(journalFile, JSON.stringify(state.journal)),
     setJournal: patch => { Object.assign(state.journal, patch); state.writeJournal(); },
     removeJournal: () => fs.rmSync(journalFile, { force: true }),
@@ -333,20 +339,43 @@ function releaseFixture(options = {}) {
           const valid = binding && typeof binding === "object" && !Array.isArray(binding)
             && /^[0-9a-f]{64}$/.test(String(binding.identity || "")) && /^[0-9a-f]{64}$/.test(String(binding.generation || ""))
             && binding.status === "committed" && Number.isInteger(binding.expiryMs) && binding.expiryMs > 0
-            && (binding.terminalAt === null || (Number.isInteger(binding.terminalAt) && binding.terminalAt > 0));
+            && (binding.terminalAt === null || (Number.isInteger(binding.terminalAt) && binding.terminalAt > 0))
+            && (binding.requireExpired === undefined || typeof binding.requireExpired === "boolean"); // cleanup-file-api.js:519
           if (!valid) throw new Error("INVALID_STAGED_JOURNAL_BINDING");
         }
-        state.previewLedger = { stagedJournal: binding === undefined ? undefined : JSON.parse(JSON.stringify(binding)),
+        // 冻结进台账（execute 只重放这份）；bindingMode 模拟"自动回收链/旧调用方"的 true/缺省形态——
+        // 本产品用户确认链收到的绑定总是 requireExpired:false，覆盖只为构造 0.2.113 兼容拒的路径。
+        const frozen = binding === undefined ? undefined : JSON.parse(JSON.stringify(binding));
+        if (frozen && bindingMode === "true") frozen.requireExpired = true;
+        if (frozen && bindingMode === "absent") delete frozen.requireExpired;
+        // 摘要模拟：真实实现把绑定（含 requireExpired）并入 digest 前置（cleanup-file-api.js:591），
+        // 确认后改值的确认请求会被 CONFIRM_REQUIRED 拒、execute 只重放冻结 copy；夹具以"execute 前
+        // 序列化比对冻结摘要"模拟同一拒绝点。
+        state.previewLedger = { stagedJournal: frozen, frozenBindingDigest: frozen === undefined ? null : JSON.stringify(frozen),
           target: { relativePath: params.targets[0].relativePath, destination: params.targets[0].destination } };
-        return { token: "tok-1", digest: "dig-1",
-          ...(previewSafety ? { safety: { backgroundIsolatedDelete: 1, isolationCompletionReceipt: 1 } } : {}),
+        const safety = { backgroundIsolatedDelete: 1, isolationCompletionReceipt: 1, userConfirmedSlotRelease: 1 };
+        if (safetyMissing) delete safety[String(safetyMissing)];
+        return { token: "tok-1", digest: "dig-1", ...(previewSafety ? { safety } : {}),
           targets: [{ relativePath: params.targets[0].relativePath, destination: params.targets[0].destination, absolutePath: slotAbsolute, missing: false }] };
+      }
+      if (method === "files.cleanup.confirm") {
+        // 模拟"确认请求试图翻转 requireExpired"：真实后端会因 digest 前置不符直接拒该确认请求；
+        // 夹具退一步让台账先被改掉，由 execute 的冻结摘要核对兜住同一拒绝点（CONFIRM_REQUIRED）。
+        if (flipAtConfirm && state.previewLedger && state.previewLedger.stagedJournal)
+          state.previewLedger.stagedJournal.requireExpired = true;
+        return {};
       }
       if (method === "files.cleanup.execute") {
         const binding = state.previewLedger ? state.previewLedger.stagedJournal : undefined;
+        // 冻结摘要核对（digest 前置的夹具模拟）：requireExpired 已进真实 digest 前置，
+        // 预览后被翻转 → 与冻结摘要不符 → CONFIRM_REQUIRED，rename 之前拒。
+        if (state.previewLedger && state.previewLedger.frozenBindingDigest !== null
+            && JSON.stringify(binding) !== state.previewLedger.frozenBindingDigest)
+          throw new Error("CONFIRM_REQUIRED：台账绑定与预览冻结摘要不一致，拒绝执行");
         if (binding !== undefined) {
-          // verify_staged_journal_binding 的忠实移植（0.2.113；0.2.114 的 requireExpired 未实现——
-          // 本夹具保持发布版行为，年龄阈值无条件生效）。
+          // verify_staged_journal_binding 的忠实移植（0.2.113 全量＋0.2.114 requireExpired 分支：
+          // 恰为 false 只跳过最后那条年龄阈值，其余检查原样；undefined 冻结为 true=旧行为）。
+          const requireExpired = binding.requireExpired === undefined ? true : binding.requireExpired;
           const denyInvalid = () => { throw new Error("INVALID_STAGED_JOURNAL_BINDING"); };
           const denyMismatch = () => { throw new Error("STAGED_JOURNAL_MISMATCH：锁内复检发现暂存槽 journal 不再符合过期回收资格，拒绝隔离"); };
           if (!(typeof binding.identity === "string" && /^[0-9a-f]{64}$/.test(binding.identity)
@@ -375,7 +404,7 @@ function releaseFixture(options = {}) {
           const basis = terminal !== null ? terminal : updated !== null ? updated : manifestMtime;
           const now = Date.now() / 1000;
           if (basis > now || (createdS && basis < createdS - 1)) denyMismatch();
-          if ((now - basis) * 1000 < binding.expiryMs) denyMismatch(); // cleanup-files.py:1146–1147
+          if (requireExpired !== false && (now - basis) * 1000 < binding.expiryMs) denyMismatch(); // cleanup-files.py 年龄阈值；0.2.114 仅 requireExpired===False 跳过
         }
         const destination = state.previewLedger.target.destination;
         const destinationAbsolute = path.join(projectRoot, ...String(destination).split("/"));
@@ -419,8 +448,9 @@ test("release chain freezes the live candidate, shows one exact confirmation and
   assert.equal(preview.stagedJournal.identity, STAGE_ID);
   assert.equal(preview.stagedJournal.generation, STAGE_GEN, "绑定完整代=冻结候选的完整代");
   assert.equal(preview.stagedJournal.status, "committed");
-  assert.equal(preview.stagedJournal.expiryMs, 86400000, "过期阈值取本次实时盘点返回的远端 expiry");
+  assert.equal(preview.stagedJournal.expiryMs, 86400000, "过期阈值取本次实时盘点返回的远端 expiry，两种模式都照实携带，绝不塞 0/缺省");
   assert.equal(preview.stagedJournal.terminalAt, 2, "终态时刻冻结自实时候选（journal 无终态时刻时为 null）");
+  assert.equal(preview.stagedJournal.requireExpired, false, "用户确认链一律 requireExpired:false（0.2.114：仅免锁内年龄阈值，其余检查全保留）");
   // 一次确认：恰一个模态，展示的绝对/相对路径与 confirm exactTargets、执行绑定逐字一致；完整代随确认呈现。
   assert.equal(f.warnings.length, 1);
   const shown = String(f.warnings[0][0]);
@@ -560,21 +590,72 @@ test("a generation-changed, resumed, freshly re-committed or journal-removed slo
   }
 });
 
-test("a genuinely young journal is refused after the one confirmation by the released 0.2.113 age threshold (placeholder until the 0.2.114 user-release field lands)", async () => {
-  // 终审第二轮（审核第 1/3 条）如实钉住发布版行为：0.2.113 引擎在锁内无条件执行年龄阈值
-  // （cleanup-files.py:1146–1147），真实年轻的 committed journal（基准=一小时前，epoch 秒）即便携带
-  // 完整绑定并被用户确认，也会被 (now-basis)*1000 < expiryMs 拒绝——"确认后释放旧占用"在 0.2.113 上做
-  // 不成，这正是上一轮假绿的缺陷本身。等待 SimpleSFTP 0.2.114 的 requireExpired 区分字段（最终名字以
-  // SFTP 负责人回报为准，契约见 /repos/MCP/.sftp-0-2-114-user-release-20261027/contract.md）：落地后
-  // 本夹具随 SFTP 同步移植该分支，并把"年轻候选一次确认后成功"补为成功用例（本条改为断言
-  // requireExpired 缺省仍拒的兼容路径）。在此之前产品侧不改绑定、不发明绕过。
-  const f = releaseFixture({ warningChoice: "确认释放此暂存槽", youngJournal: true, ageMs: 3600000 });
-  await assert.rejects(f.run(), /STAGED_JOURNAL_MISMATCH/);
-  assert.equal(f.warnings.length, 1, "用户确实被征询了一次（0.2.113 下的真实症状：确认之后才被拒）");
-  assert.equal(fs.existsSync(f.slotAbsolute), true, "年龄阈值拒绝后真实源槽目录原样存在");
-  assert.equal(f.isolatedCopyPresent, false, "拒绝后不得留下隔离副本");
-  assert.deepEqual(f.cleanupCalls.filter(row => row.method === "files.cleanup.isolatedMaintenanceDelete"), [], "隔离被拒后绝不登记永久删除");
+test("a genuinely young journal is released through the one confirmation with requireExpired false on real directories, while the frozen true/absent modes stay refused", async () => {
+  // 0.2.114 解冻（占位用例翻正）：真实年轻的 committed journal（基准=一小时前，epoch 秒）携带
+  // requireExpired:false 的用户确认绑定 ⇒ 引擎只免最后一条年龄阈值、其余锁内检查照跑 ⇒ 一次确认后
+  // 成功，目录证据全真实；同时"缺省/true 仍被年龄规则拒"的 0.2.113 兼容路径逐模式保留（bindingMode
+  // 模拟自动回收链/旧调用方形态，本产品链总是 false）。
+  const ok = releaseFixture({ warningChoice: "确认释放此暂存槽", youngJournal: true, ageMs: 3600000 });
+  const okResult = await ok.run();
+  assert.equal(okResult.status, "completed", okResult.message);
+  assert.equal(ok.warnings.length, 1, "年轻槽同样只走一次明确确认");
+  const binding = ok.cleanupCalls.find(row => row.method === "files.cleanup.preview").params.stagedJournal;
+  assert.equal(binding.requireExpired, false, "用户亲自确认要释放=显式 false");
+  assert.equal(binding.expiryMs, 86400000, "过期阈值仍照实携带实时值，不塞 0、不缺省");
+  assert.equal(fs.existsSync(ok.slotAbsolute), false, "成功证据（真实文件系统）：年轻源槽目录被真实 rename 移走");
+  assert.equal(ok.isolatedCopyPresent, true, "成功证据（真实文件系统）：隔离副本真实存在");
+  assert.equal(ok.isolatedCopyManifestPresent, true, "隔离副本的 manifest.json 真实存在");
+  assert.equal(ok.syncRetries.length, 1, "成功后只重试这一条原同步");
+  for (const mode of ["true", "absent"]) {
+    const f = releaseFixture({ warningChoice: "确认释放此暂存槽", youngJournal: true, ageMs: 3600000, bindingMode: mode });
+    await assert.rejects(f.run(), /STAGED_JOURNAL_MISMATCH/, mode);
+    assert.equal(fs.existsSync(f.slotAbsolute), true, mode + "：requireExpired 缺省/true 保持 0.2.113 逐字节行为，年轻槽确认后仍被年龄规则拒");
+    assert.equal(f.isolatedCopyPresent, false);
+    assert.deepEqual(f.cleanupCalls.filter(row => row.method === "files.cleanup.isolatedMaintenanceDelete"), [], "拒绝后绝不登记永久删除");
+    assert.deepEqual(f.syncRetries, []);
+  }
+});
+
+test("flipping requireExpired after the preview is refused via the frozen binding digest before any rename", async () => {
+  // requireExpired 进真实 digest 前置（cleanup-file-api.js:591），确认阶段改值必被 CONFIRM_REQUIRED 拒、
+  // execute 只重放冻结 copy；夹具以 execute 前的冻结摘要核对模拟同一拒绝点（模拟面已在夹具头注明）。
+  const f = releaseFixture({ warningChoice: "确认释放此暂存槽", youngJournal: true, ageMs: 3600000, flipAtConfirm: true });
+  await assert.rejects(f.run(), /CONFIRM_REQUIRED/);
+  assert.equal(fs.existsSync(f.slotAbsolute), true, "预览后翻转=与冻结摘要不符，rename 之前拒，真实目录原样存在");
+  assert.equal(f.isolatedCopyPresent, false);
+  assert.deepEqual(f.cleanupCalls.filter(row => row.method === "files.cleanup.isolatedMaintenanceDelete"), []);
   assert.deepEqual(f.syncRetries, []);
+});
+
+test("malformed, future or createdAt-contradicting journals stay refused under the lock even with requireExpired false", async () => {
+  // 0.2.114 只允许跳过年龄阈值：绑定带 false 时这些 journal 病灶仍逐条被锁内检查拒（真实目录证据）。
+  const nowS = Math.floor(Date.now() / 1000);
+  for (const rule of [
+    { label: "畸形时间（terminalAt 写成 null）", journalInit: { terminalAt: null } },
+    { label: "未来时间戳", journalInit: { terminalAt: nowS + 3600, updatedAt: nowS + 3600 } },
+    { label: "createdAt 矛盾（创建晚于终态）", journalInit: { terminalAt: nowS - 3600, createdAt: nowS + 120 } },
+  ]) {
+    const f = releaseFixture({ warningChoice: "确认释放此暂存槽", ageMs: 3600000, journalInit: rule.journalInit });
+    await assert.rejects(f.run(), /STAGED_JOURNAL_MISMATCH/, rule.label);
+    assert.equal(fs.existsSync(f.slotAbsolute), true, rule.label + "：requireExpired:false 下其余锁内检查原样保留");
+    assert.equal(f.isolatedCopyPresent, false);
+    assert.deepEqual(f.cleanupCalls.filter(row => row.method === "files.cleanup.isolatedMaintenanceDelete"), []);
+    assert.deepEqual(f.syncRetries, []);
+  }
+});
+
+test("a preview safety proof missing any one of the three flags — including the 0.2.114 user-release proof — stops before confirmation", async () => {
+  for (const missing of ["backgroundIsolatedDelete", "isolationCompletionReceipt", "userConfirmedSlotRelease"]) {
+    const f = releaseFixture({ warningChoice: "确认释放此暂存槽", safetyMissing: missing });
+    const result = await f.run();
+    assert.equal(result.status, "failed", missing);
+    assert.match(result.message, /未在预览中自证/, missing);
+    assert.match(result.message, /后端不支持提前释放|未执行任何修改/, missing);
+    assert.equal(f.warnings.length, 0, missing + "：在弹确认之前判掉");
+    assert.deepEqual(f.cleanupCalls.map(row => row.method), ["files.cleanup.stagedSlots", "files.cleanup.preview"], missing + "：confirm/execute/删除登记零调用");
+    assert.equal(fs.existsSync(f.slotAbsolute), true, missing + "：真实源槽目录原样存在");
+    assert.deepEqual(f.syncRetries, []);
+  }
 });
 
 test("a context change during isolation polling stops the wait, registers no delete, retries no sync and reports the isolation as dispatched", async () => {

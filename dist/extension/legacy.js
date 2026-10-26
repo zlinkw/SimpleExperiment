@@ -13994,10 +13994,12 @@ class RealtimeTunnelPanelProvider {
         void entry.promise.catch(() => undefined);
     }
     async releaseJobStageBlockSlotsFromUi(message) {
-        // 「释放旧文件占用」专用一次性受控链（裁定 Q5＋终审 P1-1/P1-2/P1-3）：完整能力门（方法＋选项齐备）
-        // → 冻结队列行核对 → 实时只读重核候选 → 冻结 journal 绑定（identity/完整代/committed/过期阈值/终态时刻）
-        // → files.cleanup.preview 精确冻结＋后端自证（safety 缺任一标志即在确认前停）→ 一次明确确认
-        // → confirm(phase 1, exactTargets) → execute 隔离（引擎持槽锁、rename 前对当前 journal 复检绑定）
+        // 「释放旧文件占用」专用一次性受控链（裁定 Q5＋终审 P1-1/P1-2/P1-3＋0.2.114 提前释放）：完整能力门
+        // （方法＋选项齐备，含 isolatedMaintenanceDelete.userConfirmedSlotRelease）→ 冻结队列行核对
+        // → 实时只读重核候选 → 冻结 journal 绑定（identity/完整代/committed/过期阈值/终态时刻＋requireExpired:false
+        //    ＝用户确认提前释放，仅免锁内年龄阈值，其余检查全保留，digest 前置不可翻转）
+        // → files.cleanup.preview 精确冻结＋后端自证（safety 三标志缺任一即在确认前停，旧后端＝不给入口）
+        // → 一次明确确认 → confirm(phase 1, exactTargets) → execute 隔离（引擎持槽锁、rename 前对当前 journal 复检绑定）
         // → status 隔离完成回执证成 → 校上下文 → isolatedMaintenanceDelete（删除集合只从冻结 token/digest 派生）
         // → 最终只读复核 → 校上下文 → 只重试原同步（Job 完成状态不动）。
         // 不新增远程 shell/直删路径；预览零写入；任何隔离/回执不明只停不重放；隔离开始后的每个异步边界
@@ -14052,11 +14054,15 @@ class RealtimeTunnelPanelProvider {
             return { status: "failed", message: `实时复核未确认可释放候选（候选须唯一、committed、未被占用，且路径与完整代匹配冻结卡点${protectedReason}），未执行任何修改。` };
         }
         const relativePath = String(candidate.relativePath || "");
-        // 3b. 冻结 journal 绑定（终审 P1-1）：identity、完整代、committed 状态、远端过期阈值（随本次盘点返回的
-        //     expiry）与终态时刻（journal 本身无终态时刻时为 null，与 SFTP 自动过期回收链一致）必须在预览时
-        //     显式带上——已批准的 SimpleSFTP 只在下发时把它交给引擎，引擎在持有槽锁、no_replace rename 之前
-        //     逐条对当前 journal 复检；不传=锁内只剩槽锁检查，预览的只读结论跨不过这段窗口。任一项缺失=
-        //     fail-closed，绝不发送无绑定的释放预览。
+        // 3b. 冻结 journal 绑定（终审 P1-1＋0.2.114 解冻）：identity、完整代、committed 状态、远端过期阈值
+        //     （随本次盘点返回的 expiry，两种模式下都照实必填，绝不塞 0/缺省去暗关年龄规则）与终态时刻
+        //     （journal 本身无终态时刻时为 null）必须在预览时显式带上——已批准的 SimpleSFTP 只在下发时把它
+        //     交给引擎，引擎在持有槽锁、no_replace rename 之前逐条对当前 journal 复检；不传=锁内只剩槽锁
+        //     检查，预览的只读结论跨不过这段窗口。任一项缺失=fail-closed，绝不发送无绑定的释放预览。
+        //     requireExpired:false（0.2.114，字段名逐字采用）＝"用户亲自确认的提前释放"专用语义：引擎仅
+        //     跳过最后那条年龄阈值，其余锁内检查（形状/identity/完整代/committed/终态精确一致/畸形时间/
+        //     future/createdAt 矛盾）原样保留；true/缺省=0.2.113 行为，年轻槽会在确认后仍被年龄规则拒，
+        //     因此本用户确认链一律发 false，且 requireExpired 已进 digest 前置，预览后不可翻转。
         const journalIdentity = block.identity, journalGeneration = String(candidate.generation || "");
         const journalExpiryMs = Number(live?.expiry?.ms);
         const journalTerminalAt = Number.isInteger(Number(candidate.terminalAt)) && Number(candidate.terminalAt) > 0
@@ -14071,14 +14077,16 @@ class RealtimeTunnelPanelProvider {
         const preview = await this.simpleSftpApiCall("files.cleanup.preview", { node, action: "isolate", consumerRoot: root,
             authorizationSource: "single_confirmation_release",
             stagedJournal: { identity: journalIdentity, generation: journalGeneration, status: "committed",
-                expiryMs: journalExpiryMs, terminalAt: journalTerminalAt },
+                expiryMs: journalExpiryMs, terminalAt: journalTerminalAt, requireExpired: false },
             targets: [{ relativePath, type: "directory", archiveBatch, destination: "clean_dir/" + archiveBatch + "/" + relativePath }] });
         assertCurrent();
-        // 4b. 后端自证（终审 P1-2）：isolate 预览的 safety 只在连上的后端能证明支持时才携带
-        //     （SimpleSFTP 对不支持的后端显式缺省）。缺任一标志=在弹确认和任何修改之前停止；预览是只读操作。
-        if (preview?.safety?.backgroundIsolatedDelete !== 1 || preview?.safety?.isolationCompletionReceipt !== 1) {
-            this.recordActionError({ command: "releaseJobStageBlockSlots", message: `${block.destination.id}：连上的后端未在预览中自证后台隔离删除与隔离完成回执能力（preview.safety 标志缺失），已停止；未确认、未执行任何修改。` });
-            return { status: "failed", message: "连上的后端未在预览中自证后台隔离删除与隔离完成回执能力（preview.safety 标志缺失），未执行任何修改；请更新并重启 SimpleSFTP。" };
+        // 4b. 后端自证（终审 P1-2＋0.2.114）：isolate 预览的 safety 三个标志（后台隔离删除、隔离完成回执、
+        //     用户确认提前释放）都由连上的后端逐目标自证派生，不支持即显式缺省（旧 0.2.113 没有提前释放
+        //     旗＝预期 fail-closed，不做兜底）。缺任一=在弹确认和任何修改之前停止并如实说明；预览是只读操作。
+        if (preview?.safety?.backgroundIsolatedDelete !== 1 || preview?.safety?.isolationCompletionReceipt !== 1
+            || preview?.safety?.userConfirmedSlotRelease !== 1) {
+            this.recordActionError({ command: "releaseJobStageBlockSlots", message: `${block.destination.id}：连上的后端未在预览中自证后台隔离删除、隔离完成回执与用户确认提前释放能力（preview.safety 标志缺失，可能不支持提前释放），已停止；未确认、未执行任何修改。` });
+            return { status: "failed", message: "连上的后端未在预览中自证后台隔离删除、隔离完成回执与用户确认提前释放能力（preview.safety 标志缺失，后端不支持提前释放），未执行任何修改；请更新并重启 SimpleSFTP。" };
         }
         const pending = (Array.isArray(preview?.targets) ? preview.targets : []).map((row, index) => ({ row, index })).filter(({ row }) => row.missing !== true);
         if (preview?.token !== undefined && preview?.digest !== undefined && pending.length === 1 && pending[0].row.absolutePath !== undefined

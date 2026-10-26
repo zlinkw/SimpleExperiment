@@ -138,8 +138,11 @@ export function artifactStageBlockFromError(error: unknown): JobArtifactStageBlo
  * registered-token-only + plugin-derived-delete-set + receipt-required guarantees, or SE could
  * reach isolation before discovering the deletion capability is missing. files.cleanup.status
  * carries no declared method options on the receiving side (it is the read-only receipt poll), so
- * only its method presence is required there. An old SimpleSFTP keeps the release entry hidden
- * and the plain readable error visible.
+ * only its method presence is required there. userConfirmedSlotRelease (SimpleSFTP 0.2.114) is the
+ * early-release half of that guarantee: the controlled chain always binds requireExpired:false, so
+ * without the descriptor proving it the backend would refuse a young slot right after the user
+ * confirmed — an old SimpleSFTP (0.2.113 and earlier, no such option) is the intended fail-closed:
+ * the release entry stays hidden and the plain readable error stays visible, with no fallback.
  */
 export function stagedSlotReleaseEvidenceReady(capabilities: unknown): boolean {
   const shared = capabilities && typeof capabilities === "object" ? capabilities as Record<string, unknown> : undefined;
@@ -156,5 +159,6 @@ export function stagedSlotReleaseEvidenceReady(capabilities: unknown): boolean {
     && preview.backgroundIsolatedDelete === 1 && execute.isolationCompletionReceipt === 1
     && confirm.exactBatchDigest === true
     && isolatedDelete.registeredIsolationTokenOnly === 1 && isolatedDelete.pluginDerivedDeleteSet === 1
-    && isolatedDelete.isolationCompletionReceiptRequired === 1;
+    && isolatedDelete.isolationCompletionReceiptRequired === 1
+    && isolatedDelete.userConfirmedSlotRelease === 1;
 }
