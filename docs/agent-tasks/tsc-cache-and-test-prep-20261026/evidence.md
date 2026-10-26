@@ -47,6 +47,16 @@
 - **TS7 共享 CLI**：仅获“可继续核兼容切换”授权；本轮未动模块语义/锁文件，等待同一代码在 TS7 CLI 与 5.9.3 API 下的诊断集+产物差异真实证据，无证据不切换。
 - **本树非我写入项（如实报备，未提交未回滚）**：2026-10-26 15:30 本 worktree dist/** 12 文件被重新编译修改 + 未跟踪 node_modules 目录出现（宿主侧行为痕迹）；本切片提交严格显式路径，node_modules 已加入变更判定的执行无关排除表。
 
+## TS7 共享 CLI 接入（用户核准"继续加速编译"，证据先行；tsc-cached.js 改动见本切片提交）
+- 既有证据（主控 .pi-build-cache-followup-20261026-225840/，一对隔离 emit，非中位数非端到端）：5.9.3=13,787ms vs 7.0.2=2,879ms，双方 exit 0、源码前后 SHA 相同（c5585c07…）、各 387 文件、385 逐字节相同；候选配置仅隔离覆盖 module=Node16/moduleResolution=Node16，源码未动、无 type:module（CJS 目标不变）。
+- **两处输出差异核实（不猜）**：
+  - extension/legacy.js＝纯换行排版差：token 流比较 300,274 vs 300,274 **完全相同**（first_diff=-1），双方 vm.Script 解析通过；换行位置在逗号后（零 ASI 歧义）⇒ **等价，无兼容问题**。
+  - tunnel/XshellSessionPatcher.js＝真实语义差：TS5 把动态 import 降级为 Promise.resolve().then(()=>require("fs"))，TS7 保留原生 `await import("fs")`（Node 24 支持）。**必须**由既有测试确认 COPYFILE_EXCL/备份行为后才可启用：test/tunnel/xshellSessionPatcher.test.js:18 `xshell login command update creates backup`（真实执行 updateXshellSessionLoginCommand({backup:true})→dist :77 分支断言 backupPath+内容）与 :12（替换语义）；test/tunnel/independentAgent.test.js（直接 require 该模块的 4 用例）。
+- **实现要点**：discoverSharedTsc7()＝env PSG_TSC7_BIN 显式声明或 npm root -g 实际布局（无硬编码用户路径）→ bin 存在 + 读包内 package.json **字段**校验 name==typescript && version==7.0.2（不加载其 API、绝不 npx/下载）；发现不到/版本不符⇒回退项目 5.9.3 CLI 并逐条原因打印+入 state；PSG_TSC7_DISABLE=1 显式禁用开关（真实回退阀门）。项目 5.9.3 JS API 保留（仅 tsconfig 解析），旧 API 路径零 require 全局 7；旧包/全部现有工具与测试未动；锁文件/tsconfig/业务语义未改。
+- **缓存诚实性**：COMPAT_VERSION→v3（判据 d 键构成变化）；compatHash/inputHash 均记录 {kind,version,realpath bin}+compilerOverrides+有效选项（含 Node16 覆盖）；toolchain state 存实际执行编译器（kind+version），日志 compiler=ts7-global@7.0.2 [overrides] api=5.9.3——不再冒报 ts.version。v3 新分区首编译＝一次性冷启动，如实记录。
+- **待宿主（Linux 禁跑产品编译/测试；精确命令）**：三对交替（复用隔离输出目录）：每对 = `node scripts/tsc-cached.js`（自动发现应报 ts7-global@7.0.2）与 `PSG_TSC7_DISABLE=1 node scripts/tsc-cached.js` 交替，记录耗时/exit/输出文件数/逐字节一致数（vs ts5-current-output 基线）；回归 `node --test test/tunnel/xshellSessionPatcher.test.js test/tunnel/independentAgent.test.js`（Windows，经既有 runner 单入口亦可）。**采用判据**：三对稳定加速 + 两套件全过 + 差异仅 legacy.js 排版 ⇒ 启用；任一失败 ⇒ PSG_TSC7_DISABLE=1 回退并报具体原因，不伪造兼容。
+- 验证：node --check scripts/tsc-cached.js exit 0；token 等价比较与 vm 解析为离线只读检查（读证据目录输出件）。
+
 ## 片 4 定向回归（等待主控排 Windows 宿主；未开始，不得预写结果）
 ①跨真实源码变更复用（冷→改一 src 文件→incremental+inputDrift+dist 更新+真实退出码）；②诊断非零传播（注入类型错误 exit≠0+state-failed→复原 rebuild）；③输出缺失/篡改（.stale 封存；verify-only output-drift 非零）；④配置/工具链失效（argv 变/@types 变→新分区）；⑤worktree 隔离（两副本 cacheDir 分离）。三态（冷/无改/有改）完整日志+退出码回填本文件。分区公式变化后的首编译为**一次性冷编译**，如实记录，不写成“缓存失效已修”。
 

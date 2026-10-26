@@ -30,8 +30,38 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i] === "--verify-only") verifyOnly = true;
   else passthrough.push(args[i]);
 }
-const ts = require(path.join(SELF_REPO, "node_modules", "typescript"));
-const tscBin = path.join(SELF_REPO, "node_modules", "typescript", "bin", "tsc");
+const ts = require(path.join(SELF_REPO, "node_modules", "typescript")); // 项目 5.9.3 JS API：仅用于 tsconfig 解析与 fileNames，旧 API 代码路径绝不 require 全局 7
+const projectTscBin = path.join(SELF_REPO, "node_modules", "typescript", "bin", "tsc");
+
+/* ============ 共享全局 TS7 CLI 运行时发现（perf 2026-10-26，主控核准接入）============
+ * 固定校验 typescript@7.0.2；只读 package.json 版本字段，不加载其 API；不硬编码当前用户路径
+ * （env PSG_TSC7_BIN 显式声明 或 npm root -g 实际布局）；绝不 npx/隐式下载；
+ * 发现不到/版本不符 ⇒ 回退项目 5.9.3 CLI 并把逐条原因如实打印与入 state。 */
+const TS7_EXPECTED = "7.0.2";
+function discoverSharedTsc7() {
+  const reasons = [];
+  const bins = [];
+  if (process.env.PSG_TSC7_DISABLE === "1") return { kind: "ts5-project", bin: projectTscBin, version: ts.version, source: "disabled", fallbackReasons: ["PSG_TSC7_DISABLE=1（显式回退开关）"] };
+  if (process.env.PSG_TSC7_BIN) bins.push(["env PSG_TSC7_BIN", path.resolve(process.env.PSG_TSC7_BIN)]);
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  let probe = null;
+  try { probe = spawnSync(npm, ["root", "-g"], { encoding: "utf8", windowsHide: true }); } catch { probe = null; }
+  if (probe && probe.status === 0 && probe.stdout.trim()) bins.push(["npm root -g", path.join(probe.stdout.trim(), "typescript", "bin", "tsc")]);
+  else reasons.push("npm root -g unavailable: " + (probe ? String(probe.stderr || probe.error?.message || "exit " + probe.status).trim() : "spawn failed"));
+  for (const [source, bin] of bins) {
+    if (!fs.existsSync(bin)) { reasons.push(`${source}: bin missing at ${bin}`); continue; }
+    let meta = null;
+    try { meta = JSON.parse(fs.readFileSync(path.join(bin, "..", "..", "package.json"), "utf8")); }
+    catch (e) { reasons.push(`${source}: package.json unreadable (${e.code || e.message})`); continue; }
+    if (meta.name !== "typescript" || meta.version !== TS7_EXPECTED) { reasons.push(`${source}: version mismatch (found ${meta.name}@${meta.version}, want typescript@${TS7_EXPECTED})`); continue; }
+    return { kind: "ts7-global", bin, version: meta.version, source };
+  }
+  return { kind: "ts5-project", bin: projectTscBin, version: ts.version, source: "fallback", fallbackReasons: reasons };
+}
+const compilerUsed = discoverSharedTsc7();
+// 已核准的候选兼容覆盖（仅隔离 CLI 覆盖，不改 tsconfig/源码/锁文件；CJS 目标不变，Node24 原生支持动态 import）：
+const compilerOverrides = compilerUsed.kind === "ts7-global" ? ["--module", "Node16", "--moduleResolution", "Node16"] : [];
+if (compilerUsed.kind === "ts5-project" && compilerUsed.fallbackReasons.length) process.stdout.write(`[tsc-cached] TS7 共享 CLI 未启用，回退项目 5.9.3 CLI：${compilerUsed.fallbackReasons.join(" | ")}\n`);
 
 function shaFile(abs) { return crypto.createHash("sha256").update(fs.readFileSync(abs)).digest("hex"); }
 const relOf = abs => path.relative(root, abs).split(path.sep).join("/");
@@ -51,9 +81,10 @@ for (const m of ["node_modules/typescript/package.json", "node_modules/@types/no
 const inputsHasher = crypto.createHash("sha256");
 inputsHasher.update(JSON.stringify({
   root: (() => { try { return fs.realpathSync(root); } catch { return path.resolve(root); } })(),
-  platform: process.platform, arch: process.arch, node: process.version, ts: ts.version,
-  argv: [...(passthrough.length ? passthrough : ["-p", ".", "--pretty", "false"])],
-  options: parsed.options, fileCount: inputFiles.length,
+  platform: process.platform, arch: process.arch, node: process.version,
+  compiler: { kind: compilerUsed.kind, version: compilerUsed.version }, // 完整输入身份同样绑定实际执行编译器与有效选项（verify-only 结论不得跨编译器沿用；不冒报 API 版本）
+  argv: [...(passthrough.length ? passthrough : ["-p", ".", "--pretty", "false"]), ...compilerOverrides],
+  options: { ...parsed.options, ...(compilerOverrides.length ? { module: "Node16", moduleResolution: "Node16" } : {}) }, fileCount: inputFiles.length,
 }));
 inputsHasher.update("\n");
 for (const m of toolchainMarkers) inputsHasher.update(m[0]).update("\u0000").update(m[1]).update("\n");
@@ -79,14 +110,16 @@ const inputHash = inputsHasher.digest("hex");
  *   d) 本键构成（边界项增删）变化。
  * 完整输入身份 inputHash 与 verify-only、.stale 封存、失败证据、同副本串行语义逐字保留；
  * 公式升级后首编译是一次性冷启动，如实记录，不表述为“缓存失效已修”。 */
-const COMPAT_VERSION = "v2";
+const COMPAT_VERSION = "v3"; // 升位判据 d（键构成变化）：v3 记录【实际执行编译器】身份与覆盖选项，不再以项目 API 5.9.3 冒报实际编译器
 const compatHasher = crypto.createHash("sha256");
 compatHasher.update(JSON.stringify({
   compatVersion: COMPAT_VERSION,
   root: (() => { try { return fs.realpathSync(root); } catch { return path.resolve(root); } })(),
-  platform: process.platform, arch: process.arch, node: process.version, ts: ts.version,
+  platform: process.platform, arch: process.arch, node: process.version,
+  compiler: { kind: compilerUsed.kind, version: compilerUsed.version, bin: (() => { try { return fs.realpathSync(compilerUsed.bin); } catch { return compilerUsed.bin; } })() },
+  compilerOverrides,
   argv: [...(passthrough.length ? passthrough : ["-p", ".", "--pretty", "false"])],
-  options: parsed.options,
+  options: { ...parsed.options, ...Object.fromEntries(compilerOverrides.length ? [["module", "Node16"], ["moduleResolution", "Node16"]] : []) }, // 有效选项=tsconfig+覆盖
 }));
 for (const m of ["node_modules/typescript/package.json", "node_modules/@types/node/package.json", "node_modules/@types/vscode/package.json"]) {
   const abs = path.join(root, m);
@@ -137,7 +170,7 @@ let mode, missReason = "none";
 if (!state) { mode = "cold"; missReason = "no-state"; }
 else if (state.status === "failed") { mode = "rebuild"; missReason = "previous-failed"; stash("state-failed-kept"); }
 else if (state.status !== "complete") { mode = "cold"; missReason = "state-" + state.status; }
-else if (!state.toolchain || state.toolchain.platform !== process.platform || state.toolchain.arch !== process.arch || state.toolchain.ts !== ts.version || state.toolchain.node !== process.version) { mode = "cold"; missReason = "toolchain/state-mismatch"; }
+else if (!state.toolchain || state.toolchain.platform !== process.platform || state.toolchain.arch !== process.arch || state.toolchain.ts !== compilerUsed.version || state.toolchain.compiler !== compilerUsed.kind || state.toolchain.node !== process.version) { mode = "cold"; missReason = "toolchain/state-mismatch"; }
 else if (state.compatHash !== compatHash) { mode = "cold"; missReason = "compat-formula-mismatch"; }
 else {
   const missing = [];
@@ -158,10 +191,10 @@ else {
   } else { mode = "incremental"; }
 }
 
-process.stdout.write(`[tsc-cached] partition=${partition} compat=${COMPAT_VERSION}:${compatHash.slice(0, 12)} inputHash=${inputHash.slice(0, 12)}${state && state.status === "complete" && state.inputHash ? (state.inputHash === inputHash ? " (same-input)" : " (input-drift)") : ""} mode=${mode} missReason=${missReason} cacheDir=${path.relative(root, cacheDir)} inputs=${inputFiles.length} ts=${ts.version}\n`);
+process.stdout.write(`[tsc-cached] partition=${partition} compat=${COMPAT_VERSION}:${compatHash.slice(0, 12)} inputHash=${inputHash.slice(0, 12)}${state && state.status === "complete" && state.inputHash ? (state.inputHash === inputHash ? " (same-input)" : " (input-drift)") : ""} mode=${mode} missReason=${missReason} cacheDir=${path.relative(root, cacheDir)} inputs=${inputFiles.length} compiler=${compilerUsed.kind}@${compilerUsed.version}${compilerOverrides.length ? " [" + compilerOverrides.join(" ") + "]" : ""} api=${ts.version}${compilerUsed.source !== "fallback" ? " via " + compilerUsed.source : ""}\n`);
 
 const startedAtIso = new Date().toISOString();
-const tscArgs = [tscBin, ...(passthrough.length ? passthrough : ["-p", ".", "--pretty", "false"]), "--incremental", "--tsBuildInfoFile", buildInfo, "--listEmittedFiles"];
+const tscArgs = [compilerUsed.bin, ...(passthrough.length ? passthrough : ["-p", ".", "--pretty", "false"]), ...compilerOverrides, "--incremental", "--tsBuildInfoFile", buildInfo, "--listEmittedFiles"];
 const t0 = process.hrtime.bigint();
 const run = spawnSync(process.execPath, tscArgs, { cwd: root, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
 const wallMs = Number((process.hrtime.bigint() - t0) / 1000000n);
@@ -184,7 +217,7 @@ if (ok) {
     try { outputs[rel] = shaFile(abs); } catch { /* next run re-verifies from scratch */ }
   }
   const priorInputHash = state && state.status === "complete" ? state.inputHash : null;
-  const nextState = { status: "complete", inputHash, previousInputHash: priorInputHash, inputDrift: priorInputHash === null ? null : { changed: priorInputHash !== inputHash, from: priorInputHash.slice(0, 12), to: inputHash.slice(0, 12) }, compatHash, compatVersion: COMPAT_VERSION, partition, toolchain: { platform: process.platform, arch: process.arch, node: process.version, ts: ts.version }, outputs, emittedLastRun: emitted.length, mode, missReason, wallMs, startedAt: startedAtIso, completedAt: nowIso };
+  const nextState = { status: "complete", inputHash, previousInputHash: priorInputHash, inputDrift: priorInputHash === null ? null : { changed: priorInputHash !== inputHash, from: priorInputHash.slice(0, 12), to: inputHash.slice(0, 12) }, compatHash, compatVersion: COMPAT_VERSION, partition, toolchain: { platform: process.platform, arch: process.arch, node: process.version, ts: compilerUsed.version, compiler: compilerUsed.kind, compilerOverrides }, outputs, emittedLastRun: emitted.length, mode, missReason, wallMs, startedAt: startedAtIso, completedAt: nowIso };
   if (state && state.status === "complete") fs.copyFileSync(stateFile, path.join(cacheDir, `state-complete-${String(state.completedAt || "prev").replace(/[:.]/g, "-")}.json`)); // r27 同上
   fs.writeFileSync(stateFile + ".tmp", JSON.stringify(nextState, null, 1));
   fs.renameSync(stateFile + ".tmp", stateFile); // 完整写入（tmp+rename），半写状态只会落 broken 证据
