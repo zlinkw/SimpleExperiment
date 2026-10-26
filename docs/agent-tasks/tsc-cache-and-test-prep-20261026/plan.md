@@ -14,10 +14,10 @@
 病根（原文件实测）：partition=`platform-arch-inputHash[0:16]`，而 inputHash 含全部源码内容哈希与 fileCount 及项目 package.json/package-lock 全文哈希 ⇒ 任一源码字节或版本号变化即换新 tsbuildinfo 目录从零冷启动；复用判定本身只看 toolchain 四项+输出完整性+buildinfo 在位，不看 inputHash。
 
 改法（已实施，最小）：
-1. `COMPAT_VERSION="v2"` + `compatHash` 作分区键：compatVersion、realpath(root)（worktree/dist 位置隔离，不跨副本共享可写 buildinfo）、platform/arch/node 精确版、ts.version + typescript/@types/node/@types/vscode 三个包体 package.json 哈希（package-lock 换 @types 由此类捕获）、规范化 parsed.options、透传 argv。脚本注释内写明 compatVersion **人工升位判据**（TS 大版本变化 / 本脚本 buildinfo/state 格式语义变化 / 输出目录与发射语义变化 / 键构成变化；其余一律不自动动）。
+1. `COMPAT_VERSION` + `compatHash` 作分区键：compatVersion、realpath(root)（worktree/dist 位置隔离，不跨副本共享可写 buildinfo）、platform/arch/node 精确版、ts.version + typescript/@types/node/@types/vscode 三个包体 package.json 哈希（package-lock 换 @types 由此类捕获）、规范化 parsed.options、透传 argv。脚本注释内写明 compatVersion **人工升位判据**（TS 大版本变化 / 本脚本 buildinfo/state 格式语义变化 / 输出目录与发射语义变化 / 键构成变化；其余一律不自动动）。版本史（如实）：片1 初版公式记 v2；片4 接入 TS7 后键构成改为记录【实际执行编译器】身份（kind/version/realpath bin）与有效覆盖选项（module/moduleResolution=Node16），不再以项目 API 5.9.3 冒报实际编译器 ⇒ 按判据 d（键构成变化）升 **v3**；当前代码实际值 `COMPAT_VERSION="v3"`（tsc-cached.js:135），宿主冷编译属 v3 公式，勿按 v2 目录名核对。
 2. 明确排除于分区：源码内容、fileCount、项目版本字段、lock 全文——由 tsbuildinfo 原生增量跟踪（incremental 的职责）。
 3. inputHash 语义逐字保留，继续写 state 并驱动 verify-only 门禁；state 新增 previousInputHash/inputDrift/compatHash/compatVersion（只增不减，失败证据字段同增）。
-4. 模式选择新增 `state.compatHash!==compatHash ⇒ cold(compat-formula-mismatch)` 防御；verify-only、.stale 封存、失败证据、同副本串行语义未动；旧分区目录不触碰不清理（新公式目录名含 `compat v2`，天然不碰撞）。
+4. 模式选择新增 `state.compatHash!==compatHash ⇒ cold(compat-formula-mismatch)` 防御；verify-only、.stale 封存、失败证据、同副本串行语义未动；旧分区目录不触碰不清理（新公式目录名含 `compat <COMPAT_VERSION>`，当前 v3，天然不碰撞）。
 5. 公式升级或分区变更后的**首编译是一次性冷启动，如实记录为冷编译，不表述为“缓存失效已修”**。
 6. 未改 tsconfig、未换编译器（项目锁定 TS 5.9.3；全局官方 TS 7.0.2 已装但本任务不采用）、未动锁文件。
 
