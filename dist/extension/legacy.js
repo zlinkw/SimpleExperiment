@@ -13340,7 +13340,11 @@ class RealtimeTunnelPanelProvider {
                             planFile: body.planFile, revision: body.planRevision || "", codeFingerprint: this.lastCodeSyncState?.fingerprint || body.codeFingerprint || "",
                             runReplacement: body.runReplacement });
                     }
-                    catch { /* 账本写入失败：无冻结即无审核提示；隔离区原样保留，删除仍需清理入口两次确认。 */ }
+                    catch (error) { /* 账本写入失败：无冻结即无审核提示；隔离区原样保留，删除仍需清理入口两次确认。
+                        2026-10-26 用户授权（裁定 B 后续）补可见性：经既有 action_errors 通道如实记录一条；
+                        准入与 fail-closed 语义一字未动——该事实仍未入账，审核/删除入口依旧关闭。 */
+                        this.observeIsolatedLedgerWriteFailure("隔离事实", isolatedBatchInfo.batchId, operationId, error);
+                    }
                 }
             }
             assertCurrent();
@@ -14570,9 +14574,19 @@ class RealtimeTunnelPanelProvider {
                     ? { queuePlanId: String(cardId), jobs } : undefined });
             return true;
         }
-        catch {
-            return false; /* 账本失败关闭：不影响已提交的入队；缺冻结记录则该批不浮出删除审核 */
+        catch (error) { /* 账本失败关闭：不影响已提交的入队；缺冻结记录则该批不浮出删除审核。
+            2026-10-26 用户授权补可见性（同上，语义未动）；返回值与调用点既有处理（丢弃返回值、入队继续）保持原样。 */
+            this.observeIsolatedLedgerWriteFailure("committed 终局", isolatedBatchInfo.batchId, submissionOperationId, error);
+            return false;
         }
+    }
+    /** 用户授权（2026-10-26，裁定 B 后续）：attach 隔离事实与 committed 终局两处原静默失败点补一条
+     * 可见记录——只走既有 recordActionError/action_errors 通道（与 isolatedLedgerPromotion 同族），
+     * 不新增 UI/弹窗/通道。仅让"账本没写成"可见：事实仍未冻结进账本，审核入口保持关闭，
+     * 删除入口绝不会被这条记录授权；准入判据与 fail-closed 语义不变。 */
+    observeIsolatedLedgerWriteFailure(kind, batchId, operationId, error) {
+        this.recordActionError({ command: "isolatedLedgerWrite",
+            message: `隔离账本写入失败（${kind}，批次 ${String(batchId || "?")}，操作 ${String(operationId || "?")}）：${errorMessage(error)}；隔离副本已保留，本次不进入清理审核，需人工确认后可重试。` });
     }
     /** 用本轮 tick 刚写入的队列快照核实隔离账本 awaiting_dispatch 项。启动证明只取队列粘性原生证明
      * （worker 快照身份匹配任务+物理窗口存在+四类查询错误全空）；通用 job.status/lastObservedAt 不作证明，
@@ -14602,45 +14616,12 @@ class RealtimeTunnelPanelProvider {
         }));
         return (0, PlanIsolatedBatchLedger_1.promoteDispatchedPlans)(file, root, observations);
     }
-    /** r109 最小切片③：promotion 失败按签名限流（同签名每小时一条＋抑制计数），保住 action_errors 的 8 条窗口；
-     * 废弃零字节锁（最小切片①分类码）另走 isolatedLedgerLockDiagnostic 命令并给出经确认的移开入口。 */
-    isolatedLedgerReportState = new Map();
+    /** 用户裁定 B（2026-10-26）后：账本已去锁，r109 的按签名限流与疑似零字节锁诊断随锁整体退役——
+     * 这些机制只为压制"锁卡死时每 tick 重复报错"；CAS 下 ISOLATED_BATCH_LEDGER_STALE 只会在真的有
+     * 第二写入者改账本时出现，损坏（CORRUPT）本就应逐轮如实上报。此处只记录、不上抛：
+     * 审核入口随之关闭，绝不影响队列与本轮 tick 结果。 */
     observeIsolatedLedgerPromotionError(error) {
-        const message = errorMessage(error);
-        const abandoned = message.startsWith(PlanIsolatedBatchLedger_1.ABANDONED_ZERO_BYTE_LOCK);
-        const verdict = (0, PlanIsolatedBatchLedger_1.nextIsolatedLedgerReport)(this.isolatedLedgerReportState, message.slice(0, 160));
-        if (!verdict.report)
-            return;
-        const counted = verdict.suppressed > 0 ? message + "（窗口内同签名错误已抑制 " + verdict.suppressed + " 条）" : message;
-        this.recordActionError({ command: abandoned ? "isolatedLedgerLockDiagnostic" : "isolatedLedgerPromotion", message: counted });
-        if (!abandoned)
-            return;
-        const match = /\(诊断: (\{.*\})）?$/.exec(counted) || /\(诊断: (\{.*\})\)/.exec(counted);
-        let lockPath = "";
-        if (match) {
-            try {
-                const parsed = JSON.parse(match[1]);
-                if (typeof parsed.lockPath === "string")
-                    lockPath = parsed.lockPath;
-            }
-            catch { /* 诊断快照不可读：只保留记录，不给移开入口 */ }
-        }
-        if (!lockPath)
-            return;
-        this.showNativePanelMessage?.({ tone: "warning", message: "隔离账本锁文件被确认为无身份的 0 字节废弃锁（超过 150 秒无字节变化）；账本与锁原字节均保留，晋升与隔离区删除审核保持关闭。可在弹出的确认中选择\"重命名移开（保留字节）\"。" });
-        void vscode.window.showWarningMessage("隔离账本锁文件被确认为废弃的 0 字节锁：0 字节、无身份记录且长时间无字节变化——活锁不会呈现该形态，任何合法持有者都无法释放它。不会删除任何文件：确认后仅将其重命名移开为 <原名>.orphan-<时间戳>（保留全部原字节），下一轮晋升自动重试。", { modal: true, detail: "路径：" + lockPath }, "确认重命名移开（保留字节）")
-            .then(async (choice) => {
-            if (choice !== "确认重命名移开（保留字节）")
-                return;
-            try {
-                const moved = await (0, PlanIsolatedBatchLedger_1.relocateAbandonedLedgerLock)(lockPath);
-                this.recordActionError({ command: "isolatedLedgerLockRelocated", message: "废弃零字节锁已经用户确认移开：orphan=" + moved.orphanPath + "；原字节 sha256=" + moved.sha256 + "。下一轮晋升将重试。" });
-                void vscode.window.showInformationMessage("废弃锁已按确认重命名移开（原字节保留于 orphan 文件），无需重载窗口。");
-            }
-            catch (moveError) {
-                this.recordActionError({ command: "isolatedLedgerLockRelocated", message: "废弃锁移开未执行或未通过复核，原锁与账本保持原样：" + errorMessage(moveError) });
-            }
-        });
+        this.recordActionError({ command: "isolatedLedgerPromotion", message: errorMessage(error) });
     }
     refreshSelectedDistributedLog(queue, newTerminal = false) {
         if (this.selectedDistributedLogRefreshPromise || !this.selectedLogRunKey)

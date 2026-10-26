@@ -33,12 +33,9 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.IsolatedBatchLedgerCorruptError = exports.ABANDONED_ZERO_BYTE_LOCK = exports.LEDGER_LOCK_LOST = exports.LEDGER_CORRUPT = void 0;
+exports.IsolatedBatchLedgerCorruptError = exports.LEDGER_STALE = exports.LEDGER_CORRUPT = void 0;
 exports.loadIsolatedBatchLedger = loadIsolatedBatchLedger;
 exports.saveIsolatedBatchLedger = saveIsolatedBatchLedger;
-exports.classifyAbandonedZeroByteLock = classifyAbandonedZeroByteLock;
-exports.relocateAbandonedLedgerLock = relocateAbandonedLedgerLock;
-exports.nextIsolatedLedgerReport = nextIsolatedLedgerReport;
 exports.withIsolatedBatchLedger = withIsolatedBatchLedger;
 exports.mergeIsolatedBatches = mergeIsolatedBatches;
 exports.freezeBatchScope = freezeBatchScope;
@@ -47,18 +44,12 @@ exports.markPlanTerminal = markPlanTerminal;
 exports.promoteDispatchedPlans = promoteDispatchedPlans;
 exports.eligibleIsolatedReviews = eligibleIsolatedReviews;
 const node_fs_1 = require("node:fs");
-const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
 const node_crypto_1 = require("node:crypto");
-const node_child_process_1 = require("node:child_process");
-const node_util_1 = require("node:util");
+const LocalCodeManifestCache_1 = require("./LocalCodeManifestCache");
 exports.LEDGER_CORRUPT = "ISOLATED_BATCH_LEDGER_CORRUPT";
-exports.LEDGER_LOCK_LOST = "ISOLATED_BATCH_LEDGER_LOCK_LOST";
-/** r109（0.5.415 最小切片①）0 字节废弃锁分类码：锁协议规定活锁必先写 token 才返回所有权，
- * 竞争者与持有者都没有对已存在锁的写入路径，且释放只认 token——所以 0 字节、无身份、久无字节
- * 变化的锁不可能被任何合法持有者持有或释放，与活锁在协议上可严格区分。本分类只读诊断，
- * 永不摘取；移开只发生在用户确认后且仅 rename 保留字节（见 relocateAbandonedLedgerLock）。 */
-exports.ABANDONED_ZERO_BYTE_LOCK = "ISOLATED_BATCH_LEDGER_LOCK_ABANDONED_ZERO_BYTE";
+/** 裁定 B（2026-10-26）：写前指纹比对失败的新错误码，替代已随锁整体移除的"锁失主"拒绝码。 */
+exports.LEDGER_STALE = "ISOLATED_BATCH_LEDGER_STALE";
 class IsolatedBatchLedgerCorruptError extends Error {
     detail;
     constructor(detail) { super(`${exports.LEDGER_CORRUPT}：账本内容不可核实，保留原文件且不覆盖、不视为空；隔离区删除审核入口保持关闭（${detail}）。`); this.detail = detail; }
@@ -86,17 +77,26 @@ function validBatch(row) {
             && typeof event.eventId === "string" && typeof event.cleanupOperationId === "string" && typeof event.at === "string"
             && ["opened", "preview", "confirmed1", "confirmed2", "executing", "completed", "busy", "failed", "cancelled", "unknown"].includes(event.kind)));
 }
-/** 读取账本：文件缺失=正常空态；JSON/版本/结构不可核实=抛错并保留原字节（调用方禁止随后写盘）。 */
-async function loadIsolatedBatchLedger(file) {
+/** 读取账本并记身份指纹（CAS 依据）：文件缺失=正常空态（fingerprint=null）；
+ * JSON/版本/结构不可核实=抛错并保留原字节（调用方禁止随后写盘）。内容哈希取自已读字节，
+ * 慢路径重算复用 sha256File；文件缺失时 stat 先于 readFile，两者之间的变化只会让落盘前
+ * 比对落入慢路径按内容裁决，不会静默覆盖。 */
+async function readLedgerWithFingerprint(file) {
     let rawText;
+    let identity;
     try {
+        identity = (0, LocalCodeManifestCache_1.identityFromStat)(await node_fs_1.promises.stat(file));
         rawText = await node_fs_1.promises.readFile(file, "utf8");
     }
     catch (error) {
         if (error?.code === "ENOENT")
-            return [];
+            return { fingerprint: null, batches: [] };
+        if (error instanceof IsolatedBatchLedgerCorruptError)
+            throw error;
         throw new IsolatedBatchLedgerCorruptError(String(error?.message || error));
     }
+    if (!identity)
+        throw new IsolatedBatchLedgerCorruptError("读取前的身份字段（dev/ino/size/时间戳）不完整，不可核实");
     let raw;
     try {
         raw = JSON.parse(rawText);
@@ -106,12 +106,56 @@ async function loadIsolatedBatchLedger(file) {
     }
     if (!raw || raw.version !== LEDGER_VERSION || !Array.isArray(raw.batches) || !raw.batches.every(validBatch))
         throw new IsolatedBatchLedgerCorruptError("版本或结构不符合可核实形状");
-    return raw.batches;
+    return { fingerprint: { ...identity, sha256: (0, node_crypto_1.createHash)("sha256").update(rawText, "utf8").digest("hex") },
+        batches: raw.batches };
 }
-/** 原子写：临时文件 fsync + rename + 尽力目录 fsync；带 fence 时 rename 前复核锁 token，失主拒绝且不碰原文件。 */
-async function saveIsolatedBatchLedger(file, batches, fence) {
-    if (!fence?.lockPath || !fence.token)
-        throw new Error(exports.LEDGER_LOCK_LOST);
+/** 只读入口（审核资格等）：语义与既有一致；CAS 写者须走 withIsolatedBatchLedger 携带同一次读取的 basis。 */
+async function loadIsolatedBatchLedger(file) {
+    return (await readLedgerWithFingerprint(file)).batches;
+}
+function ledgerStaleMessage(file, expected, actual) {
+    return `${exports.LEDGER_STALE}：写盘前比对发现账本已被其他写入者改动；本轮零写入（临时文件保留为证据、不删），原文件保持原样，审核入口本回合关闭。路径: ${file}；期望指纹: ${JSON.stringify(expected ?? "文件缺失")}；写前实况: ${actual}。可能有第二个窗口在写，请只保留一个窗口后重试。`;
+}
+/** rename 之前的 CAS 比对（复用 sameIdentity/sha256File）：任何不能确认"内容仍等于本次读取依据"
+ * 的情形一律抛 ISOLATED_BATCH_LEDGER_STALE，由调用方保持零写入。 */
+async function assertLedgerBasisUnchanged(file, basis) {
+    const expected = basis.fingerprint;
+    let stat;
+    try {
+        stat = await node_fs_1.promises.stat(file);
+    }
+    catch (error) {
+        if (error?.code === "ENOENT") {
+            if (!expected)
+                return; // 依据=文件缺失，写前仍缺失：一致。
+            throw new Error(ledgerStaleMessage(file, expected, `文件缺失（期望指纹的 ${expected.size} 字节内容不在位）`));
+        }
+        throw new Error(ledgerStaleMessage(file, expected, `写前身份不可核实（${String(error?.code || error?.message || error)}）`));
+    }
+    const identity = (0, LocalCodeManifestCache_1.identityFromStat)(stat);
+    if (!identity)
+        throw new Error(ledgerStaleMessage(file, expected, `身份字段不完整（现 ${stat.size} 字节），不可核实`));
+    // Boolean() 取判据值而不让 sameIdentity 的类型守卫在否定分支把 expected 收窄（判据是值比较，不是类型判别）。
+    if (Boolean(expected && (0, LocalCodeManifestCache_1.sameIdentity)(expected, identity)))
+        return; // 快路径：身份六项全未变 ⇒ 不重算哈希。
+    if (!expected) {
+        const sha256 = (await (0, LocalCodeManifestCache_1.sha256File)(file)).toLowerCase();
+        throw new Error(ledgerStaleMessage(file, null, `文件意外出现（${JSON.stringify(identity)}，${stat.size} 字节，sha256=${sha256}）`));
+    }
+    const sha256 = (await (0, LocalCodeManifestCache_1.sha256File)(file)).toLowerCase();
+    // 哈希期间变化守卫（同 LocalCodeManifestCache 哈希链口径）：前后身份不符则该哈希不可代表写前实况。
+    const after = (0, LocalCodeManifestCache_1.identityFromStat)(await node_fs_1.promises.stat(file));
+    if (!(0, LocalCodeManifestCache_1.sameIdentity)({ ...identity, sha256 }, after))
+        throw new Error(ledgerStaleMessage(file, expected, `文件在哈希期间发生变化（${JSON.stringify(identity)}，${stat.size} 字节，sha256=${sha256}），无法确认写前实际内容`));
+    if (sha256 === expected.sha256)
+        return; // 身份变了但内容相同（如外部 touch）：仍落盘。
+    throw new Error(ledgerStaleMessage(file, expected, `内容不同（${JSON.stringify(identity)}，${stat.size} 字节，sha256=${sha256}）`));
+}
+/** 原子写：临时文件 fsync + rename + 尽力目录 fsync；rename 之前做写前指纹比对（CAS），
+ * 不符即拒绝且绝不碰原文件——临时文件留在原地作为"本欲写入"的证据。 */
+async function saveIsolatedBatchLedger(file, batches, basis) {
+    if (!basis || !("fingerprint" in basis))
+        throw new Error(`${exports.LEDGER_STALE}：缺少写前读取依据（basis），拒绝无指纹落盘；写入必须经 withIsolatedBatchLedger 携带同一次读取的 basis。`);
     await node_fs_1.promises.mkdir(path.dirname(file), { recursive: true });
     const temp = `${file}.${process.pid}.${(0, node_crypto_1.randomUUID)()}.tmp`;
     const handle = await node_fs_1.promises.open(temp, "wx");
@@ -122,20 +166,7 @@ async function saveIsolatedBatchLedger(file, batches, fence) {
     finally {
         await handle.close();
     }
-    if (fence) {
-        let ownerToken;
-        try {
-            ownerToken = JSON.parse(await node_fs_1.promises.readFile(fence.lockPath, "utf8"))?.token;
-        }
-        catch {
-            ownerToken = undefined;
-        }
-        if (ownerToken !== fence.token) {
-            // Preserve the uncommitted temporary bytes as evidence; never clean an
-            // absolute path after ownership was lost.
-            throw new Error(`${exports.LEDGER_LOCK_LOST}：写盘前复核发现账本锁已易主；本轮零写入，原文件保持原样，审核入口本回合关闭。`);
-        }
-    }
+    await assertLedgerBasisUnchanged(file, basis);
     await node_fs_1.promises.rename(temp, file);
     try {
         const dir = await node_fs_1.promises.open(path.dirname(file), "r");
@@ -148,175 +179,17 @@ async function saveIsolatedBatchLedger(file, batches, fence) {
     }
     catch { /* 目录 fsync 平台不支持时忽略；rename 已原子落盘 */ }
 }
-// 跨进程锁：open(wx) 是唯一取得所有权的边界。持有期间任何竞争者都不得移动/删除锁。
-// 不自动恢复遗留锁：无法证明原 owner 身份时牺牲本轮审核可用性，不能牺牲互斥性。
+// 进程内串行链（用户裁定 B 保留项）：同一账本文件同一时刻只有一个本进程写入者，
+// 每个临界区自带"读一次→改→写前 CAS 比对→rename"的完整依据。跨进程不再互斥：
+// 第二写入者的效果只可能是让前者或后者在写前比对处 fail closed（ISOLATED_BATCH_LEDGER_STALE），
+// 不存在静默覆盖，也不再有任何锁文件/零字节锁形态。
 const localChains = new Map();
-const LOCK_TTL_MS = 15_000, LOCK_RETRY_MS = 20, LOCK_WAIT_MS = 600;
-const lockHost = os.hostname();
-const releaseOwnedLock = (0, node_util_1.promisify)(node_child_process_1.execFile);
-// r109 最小切片①：废弃判定阈值＝150s（10×TTL）。0 字节锁的 mtime 即"身份丢失时刻"（创建后从未成功写入，
-// 或写入在 fs 层失败）；外部读取/杀软触碰最多推迟检出，绝不提前。
-const ABANDONED_MIN_AGE_MS = 150_000;
-// 本实例"open(wx) 已成功、token 写入尚未收尾"的创建窗（按解析路径记起始毫秒）。分类器见此窗直接放弃，
-// 保证绝不把自家正在落盘的锁当成废弃锁；60s 兜底防止异常残留把分类永久挡死。
-const creatorWindows = new Map();
-const CREATOR_WINDOW_GUARD_MS = 60_000;
-const releaseScript = `
-const fs=require('node:fs'),path=require('node:path');
-const [parent,leaf,device,inode,token]=process.argv.slice(1);
-const deny=code=>{throw new Error(code)};
-if(!leaf||leaf!==path.basename(leaf)||leaf==='.'||leaf==='..')deny('PARENT_CD_FAILED');
-if(fs.realpathSync(parent)!==parent)deny('PARENT_CD_FAILED');
-process.chdir(parent);
-const st=fs.statSync('.');
-if(fs.realpathSync(process.cwd())!==parent||String(st.dev)!==device||String(st.ino)!==inode)deny('PARENT_CD_FAILED');
-const target='./'+leaf,entry=fs.lstatSync(target);
-if(!entry.isFile()||entry.isSymbolicLink()||entry.nlink!==1||entry.dev!==st.dev)deny('ISOLATED_BATCH_LEDGER_LOCK_LOST');
-if(JSON.parse(fs.readFileSync(target,'utf8')).token!==token)deny('ISOLATED_BATCH_LEDGER_LOCK_LOST');
-fs.unlinkSync(target);
-`;
-async function acquireLedgerLock(lockPath) {
-    const token = (0, node_crypto_1.randomUUID)();
-    const parent = path.dirname(lockPath), parentIdentity = await node_fs_1.promises.stat(parent);
-    const acquireStarted = Date.now();
-    for (;;) {
-        let created = false;
-        const creatorKey = path.resolve(lockPath);
-        try {
-            const handle = await node_fs_1.promises.open(lockPath, "wx");
-            creatorWindows.set(creatorKey, Date.now()); // 从 open 成功起进入本实例创建窗，token 落盘/失败即关闭
-            try {
-                await handle.writeFile(JSON.stringify({ token, host: lockHost, pid: process.pid,
-                    acquiredAt: new Date().toISOString(), expiresAt: new Date(Date.now() + LOCK_TTL_MS).toISOString() }), "utf8");
-                await handle.sync();
-                created = true;
-            }
-            finally {
-                await handle.close();
-                creatorWindows.delete(creatorKey);
-            }
-        }
-        catch (error) {
-            creatorWindows.delete(creatorKey);
-            if (error?.code !== "EEXIST")
-                throw error;
-        }
-        if (created)
-            return { token, release: async () => {
-                    // 先核对再释放；在本协议中其他进程没有摘锁权限，因此不存在回收者插入窗口。
-                    // A short file utility has its own cwd; the extension's cwd never changes.
-                    // It checks the physical parent and exact owner, then unlinks ./leaf only.
-                    await releaseOwnedLock(process.execPath, ["-e", releaseScript, parent, path.basename(lockPath),
-                        String(parentIdentity.dev), String(parentIdentity.ino), token], { cwd: parent, windowsHide: true,
-                        timeout: 2000, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
-                } };
-        if (Date.now() >= acquireStarted + LOCK_WAIT_MS) {
-            // r109 最小切片①：只读分类先行——0 字节、无身份、久无字节变化的锁在协议上不可能被任何合法
-            // 持有者持有或释放（活锁必先写 token；无写锁路径；释放只认 token），据实上报供用户确认移开。
-            // 其余任何形态（含 0 字节未满阈值、目录、链接、有 token 活锁）仍走下面逐字不变的 LOCKED 拒绝。
-            const abandoned = await classifyAbandonedZeroByteLock(lockPath);
-            if (abandoned)
-                throw new Error(`${exports.ABANDONED_ZERO_BYTE_LOCK}：锁文件 0 字节且无身份记录，已 ${Math.floor((Date.now() - Math.max(abandoned.birthtimeMs, abandoned.mtimeMs)) / 1000)} 秒无字节变化——活锁不会呈现该形态，任何合法持有者都无法释放它；原字节保留、未摘取，审核入口本回合关闭（诊断: ${JSON.stringify(abandoned)}）`);
-            throw new Error("ISOLATED_BATCH_LEDGER_LOCKED：账本锁仍在位；活锁、遗留锁或未知身份均保留，不自动摘取，审核入口本回合关闭。");
-        }
-        await new Promise(resolve => setTimeout(resolve, LOCK_RETRY_MS));
-    }
-}
-/** r109 最小切片①：废弃零字节锁的只读分类。判据全部实测：普通文件 ∧ 非链接 ∧ nlink===1 ∧ size===0 ∧
- * max(birthtime,mtime) 距今 ≥150s ∧ 本实例对该路径没有 open(wx) 成功后的在途创建窗。
- * 任何读取异常/字段异常一律返回 null（fail closed 回原 LOCKED 路径），本函数不写、不删、不改任何文件。
- * nowMs 可注入仅用于确定性测试；生产调用使用真实时钟。 */
-async function classifyAbandonedZeroByteLock(lockPath, nowMs = Date.now()) {
-    const resolved = path.resolve(lockPath);
-    const creatorStarted = creatorWindows.get(resolved);
-    if (creatorStarted !== undefined && nowMs - creatorStarted < CREATOR_WINDOW_GUARD_MS)
-        return null;
-    let entry;
-    try {
-        entry = await node_fs_1.promises.lstat(resolved);
-    }
-    catch {
-        return null;
-    }
-    if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1 || entry.size !== 0)
-        return null;
-    const birth = Number.isFinite(entry.birthtimeMs) && entry.birthtimeMs > 0 ? entry.birthtimeMs : entry.mtimeMs;
-    const lastTouched = Math.max(birth, entry.mtimeMs);
-    if (!Number.isFinite(lastTouched) || lastTouched > nowMs || nowMs - lastTouched < ABANDONED_MIN_AGE_MS)
-        return null;
-    return { lockPath: resolved, size: 0, birthtimeMs: birth, mtimeMs: entry.mtimeMs, ino: entry.ino, nlink: entry.nlink,
-        classifiedAt: new Date(nowMs).toISOString() };
-}
-// r109 最小切片②：经用户确认的移开脚本——复用 releaseScript 的父目录身份校验（realpath/chdir/dev/ino）
-// 与锁对象校验（普通文件、非链接、nlink===1），并追加"此刻仍 0 字节"复核：token 可解析或字节非 0
-// 一律拒绝。只 rename 到 <leaf>.orphan-<stamp>（存在即加 pid 后缀，绝不覆盖、绝不 unlink），
-// 输出移开路径与原字节 sha256 供操作日志留痕。
-const relocateScript = `
-const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
-const [parent,leaf,device,inode,stamp]=process.argv.slice(1);
-const deny=code=>{throw new Error(code)};
-if(!leaf||leaf!==path.basename(leaf)||leaf==='.'||leaf==='..')deny('PARENT_CD_FAILED');
-if(fs.realpathSync(parent)!==parent)deny('PARENT_CD_FAILED');
-process.chdir(parent);
-const st=fs.statSync('.');
-if(fs.realpathSync(process.cwd())!==parent||String(st.dev)!==device||String(st.ino)!==inode)deny('PARENT_CD_FAILED');
-const target='./'+leaf,entry=fs.lstatSync(target);
-if(!entry.isFile()||entry.isSymbolicLink()||entry.nlink!==1||entry.dev!==st.dev)deny('ABANDONED_LOCK_PRECONDITION_FAILED');
-if(entry.size!==0)deny('ABANDONED_LOCK_PRECONDITION_FAILED');
-let orphan='./'+leaf+'.orphan-'+stamp;
-if(fs.existsSync(orphan)||fs.existsSync('./'+path.basename(orphan)))orphan='./'+leaf+'.orphan-'+stamp+'-'+process.pid;
-if(fs.existsSync(orphan))deny('ABANDONED_LOCK_PRECONDITION_FAILED');
-const sha=crypto.createHash('sha256').update(fs.readFileSync(target)).digest('hex');
-fs.renameSync(target,orphan);
-process.stdout.write(JSON.stringify({orphan:path.resolve(orphan),sha}));
-`;
-/** r109 最小切片②：用户确认后的唯一允许的移开动作。先在进程内重跑只读分类（活锁/未满阈值/目录等
- * 一律拒绝且零操作），再在独立子进程内以父目录身份复核后 rename——保留全部原字节，禁止删除。
- * 返回移开路径与原字节 sha256（0 字节即固定空串哈希，留痕用）。 */
-async function relocateAbandonedLedgerLock(lockPath, nowMs = Date.now()) {
-    const diagnosis = await classifyAbandonedZeroByteLock(lockPath, nowMs);
-    if (!diagnosis)
-        throw new Error(`${exports.ABANDONED_ZERO_BYTE_LOCK}：移开前复核未通过——锁不是"0 字节且无身份、久无变化"的废弃形态（或本实例正在创建），未执行任何操作。`);
-    const parent = path.dirname(lockPath);
-    const parentIdentity = await node_fs_1.promises.stat(parent);
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const { stdout } = await releaseOwnedLock(process.execPath, ["-e", relocateScript, parent, path.basename(lockPath),
-        String(parentIdentity.dev), String(parentIdentity.ino), stamp], { cwd: parent, windowsHide: true,
-        timeout: 2000, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
-    // r114：子进程输出的字段名是 {orphan,sha}——父侧核实必须按同一契约读取（此前误读
-    // moved.orphanPath 会把每次合法移开都报成"无法核实"）。两个字段仍全部必须为非空字符串，
-    // 任一缺失/类型不符依旧 fail closed 报人工核对，不放松。
-    const moved = JSON.parse(String(stdout));
-    if (typeof moved.orphan !== "string" || typeof moved.sha !== "string")
-        throw new Error(`${exports.ABANDONED_ZERO_BYTE_LOCK}：移开结果无法核实，请按输出人工核对锁与 orphan 文件。`);
-    return { orphanPath: moved.orphan, sha256: moved.sha };
-}
-/** r109 最小切片③：按签名限流——同签名窗口（默认 1 小时）内只放行首条，其后计数；出窗再放行时
- * 携带被抑制条数，保证 action_errors 的 8 条窗口不被每 tick 重复错误淹没。nowMs 可注入仅用于测试。 */
-function nextIsolatedLedgerReport(state, signature, windowMs = 3_600_000, nowMs = Date.now()) {
-    const prior = state.get(signature);
-    if (!prior || nowMs - prior.lastAt >= windowMs) {
-        const suppressed = prior ? prior.suppressed : 0;
-        state.set(signature, { lastAt: nowMs, suppressed: 0 });
-        return { report: true, suppressed };
-    }
-    prior.suppressed += 1;
-    return { report: false, suppressed: prior.suppressed };
-}
-/** 账本临界区：先进程内链（同实例重入），再跨进程 CAS 锁；锁内写盘一律带 token fencing。 */
+/** 账本临界区：进程内链排队 → 读一次账本并记身份指纹 → work 基于该依据修改 → 写盘走 basis 的 CAS 比对。 */
 function withIsolatedBatchLedger(file, work) {
     const step = async () => {
         await node_fs_1.promises.mkdir(path.dirname(file), { recursive: true });
-        const parent = await node_fs_1.promises.realpath(path.dirname(file));
-        const physicalFile = path.join(parent, path.basename(file));
-        const lockPath = `${physicalFile}.lock`;
-        const lock = await acquireLedgerLock(lockPath);
-        try {
-            return await work({ lockPath, token: lock.token });
-        }
-        finally {
-            await lock.release();
-        }
+        const basis = await readLedgerWithFingerprint(file);
+        return work(basis);
     };
     const key = path.resolve(file);
     const previous = localChains.get(key) ?? Promise.resolve();
@@ -387,8 +260,8 @@ function mergeIsolatedBatches(existing, incoming) {
 async function freezeBatchScope(file, batchInfo, plans) {
     if (!batchInfo.batchId || !plans.length)
         throw new Error("批次冻结需要批次身份与非空初始 PLAN 集合。");
-    return withIsolatedBatchLedger(file, async (fence) => {
-        const batches = await loadIsolatedBatchLedger(file);
+    return withIsolatedBatchLedger(file, async (basis) => {
+        const batches = basis.batches;
         let batch = batches.find(entry => entry.batchId === batchInfo.batchId);
         if (!batch) {
             batch = { batchId: String(batchInfo.batchId), projectRoot: String(batchInfo.projectRoot || ""),
@@ -396,7 +269,7 @@ async function freezeBatchScope(file, batchInfo, plans) {
                 frozenAt: new Date().toISOString(),
                 plans: plans.map(row => ({ planFile: String(row.planFile), submissionOperationId: String(row.submissionOperationId), revision: "", codeFingerprint: "", state: "frozen", cleanup: [] })) };
             batches.push(batch);
-            await saveIsolatedBatchLedger(file, batches, fence);
+            await saveIsolatedBatchLedger(file, batches, basis);
         }
         else if (batch.projectRoot !== batchInfo.projectRoot || batch.canonicalProjectId !== batchInfo.canonicalProjectId
             || batch.plans.length !== plans.length || !plans.every(row => batch.plans.some(existing => planKey(existing) === planKey(row)))) {
@@ -419,8 +292,8 @@ async function attachIsolatedCleanup(file, batchInfo, row) {
             sourceRelativePath: String(entry.relativePath), isolationRelativePath: String(entry.destination),
             ...(entry.archiveBatch ? { archiveBatch: String(entry.archiveBatch) } : {}) })) }))
         .filter((entry) => entry.cleanupOperationId && entry.targets.length);
-    return withIsolatedBatchLedger(file, async (fence) => {
-        const batches = await loadIsolatedBatchLedger(file);
+    return withIsolatedBatchLedger(file, async (basis) => {
+        const batches = basis.batches;
         const batch = batches.find(entry => entry.batchId === batchInfo.batchId);
         const plan = batch?.plans.find(entry => entry.submissionOperationId === row.submissionOperationId && entry.planFile === row.planFile);
         if (!plan)
@@ -451,14 +324,14 @@ async function attachIsolatedCleanup(file, batchInfo, row) {
                 changed = true;
             }
         if (changed)
-            await saveIsolatedBatchLedger(file, batches, fence);
+            await saveIsolatedBatchLedger(file, batches, basis);
         return true;
     });
 }
 /** 提交终局（首写为准，幂等不回退）：committed+真实卡身份→awaiting_dispatch；失败/取消→void；其余 unknown。 */
 async function markPlanTerminal(file, batchInfo, terminal) {
-    return withIsolatedBatchLedger(file, async (fence) => {
-        const batches = await loadIsolatedBatchLedger(file);
+    return withIsolatedBatchLedger(file, async (basis) => {
+        const batches = basis.batches;
         const plan = batches.find(entry => entry.batchId === batchInfo.batchId)?.plans
             .find(entry => entry.submissionOperationId === terminal.submissionOperationId && entry.planFile === terminal.planFile);
         if (!plan || plan.state !== "frozen")
@@ -475,7 +348,7 @@ async function markPlanTerminal(file, batchInfo, terminal) {
         }
         else
             plan.state = "unknown"; // 没有可核卡片+job 结构的「入队」不足信
-        await saveIsolatedBatchLedger(file, batches, fence);
+        await saveIsolatedBatchLedger(file, batches, basis);
     });
 }
 // 只有观察到的 running 才是启动证明；queued/pending/dispatching=本机意图，completed/failed/cancelled=终态，
@@ -508,8 +381,8 @@ function startupProofMatched(observation, plan, identity, batch, now) {
 async function promoteDispatchedPlans(file, projectRoot, observations, now = Date.now()) {
     if (!observations.length)
         return 0;
-    return withIsolatedBatchLedger(file, async (fence) => {
-        const batches = await loadIsolatedBatchLedger(file);
+    return withIsolatedBatchLedger(file, async (basis) => {
+        const batches = basis.batches;
         let promoted = 0, changed = false;
         for (const batch of batches.filter(entry => entry.projectRoot && entry.projectRoot === projectRoot)) {
             for (const plan of batch.plans) {
@@ -545,7 +418,7 @@ async function promoteDispatchedPlans(file, projectRoot, observations, now = Dat
             }
         }
         if (changed)
-            await saveIsolatedBatchLedger(file, batches, fence);
+            await saveIsolatedBatchLedger(file, batches, basis);
         return promoted;
     });
 }

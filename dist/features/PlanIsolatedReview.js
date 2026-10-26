@@ -66,14 +66,14 @@ async function resolveIsolatedBatchReview(file, root, operationId, queue, loadOp
 }
 /** Append independent events, including late replies. They never mutate PLAN state or schedule work. */
 async function recordIsolatedReviewEvent(file, batchId, operationId, event) {
-    await (0, PlanIsolatedBatchLedger_1.withIsolatedBatchLedger)(file, async (fence) => {
-        const batches = await (0, PlanIsolatedBatchLedger_1.loadIsolatedBatchLedger)(file);
+    await (0, PlanIsolatedBatchLedger_1.withIsolatedBatchLedger)(file, async (basis) => {
+        const batches = basis.batches;
         const batch = batches.find(row => row.batchId === batchId);
         if (!batch?.plans.some(plan => plan.cleanup.some(record => record.cleanupOperationId === operationId)))
             denied("ISOLATED_OPERATION_BATCH_CONFLICT");
         (batch.reviews ||= []).push({ eventId: (0, node_crypto_1.randomUUID)(), cleanupOperationId: operationId, kind: event.kind,
             ...(event.reviewOperationId ? { reviewOperationId: event.reviewOperationId } : {}), at: new Date().toISOString(),
             ...(event.detail ? { detail: String(event.detail).slice(0, 1200) } : {}) });
-        await (0, PlanIsolatedBatchLedger_1.saveIsolatedBatchLedger)(file, batches, fence);
+        await (0, PlanIsolatedBatchLedger_1.saveIsolatedBatchLedger)(file, batches, basis);
     });
 }
