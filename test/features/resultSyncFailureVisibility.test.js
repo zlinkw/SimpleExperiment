@@ -1,6 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const vm = require("node:vm");
 const OperationOutcome_1 = require("../../dist/core/OperationOutcome.js");
 const source = fs.readFileSync(require.resolve("../../dist/extension/legacy.js"), "utf8");
@@ -227,19 +229,35 @@ test("completed old-revision history and an artifact sync do not masquerade as a
 // 只 mock 宿主表面（能力读取、cleanup RPC、确认框、重试入口），断言全部走真实方法逻辑。
 const STAGE_ID = "a".repeat(64), STAGE_GEN = "c".repeat(64), STAGE_INCOMING = "b".repeat(64);
 const STAGE_RELATIVE = ".staged-slots/" + STAGE_ID + "/slot-0";
-const STAGE_ABSOLUTE = "/safe/project/" + STAGE_RELATIVE;
-// 0.5.416 终审返修（P1-1/P1-2）夹具要点：
-// - capabilities 是已发布 SimpleSFTP 0.2.113 的完整释放契约（方法＋裁定选项），缺任一即入门拒绝；
-// - preview mock 忠实复现发布版 preview 的 stagedJournal 严格格式校验（cleanup-file-api.js 0.2.113）：
-//   绑定格式非法即抛 INVALID_STAGED_JOURNAL_BINDING；不传绑定仍会成功（真实后端只保留槽锁检查——
-//   这正是 P1-1 的窗口，回归用例靠这条真实分支证明"没带绑定就会被隔离"）；
-// - execute mock 忠实复现引擎锁内复检（cleanup-files.py verify_staged_journal_binding）：
-//   台账带绑定 → rename 前对当前 journal 逐条比对（identity/完整代/committed 状态/终态时刻精确一致），
-//   任一不符抛 STAGED_JOURNAL_MISMATCH 且源槽目录原样保留；无绑定 → 只有槽锁检查，隔离照常发生；
-// - preview 响应只在 previewSafety 时携带后端自证 safety 标志（真实后端对不支持的后端显式缺省）。
+// 0.5.416 终审第二轮返修夹具要点（审核第 3/4 条：mock 逐条对齐真实引擎、目录证据必须真实）：
+// - 源槽目录与 manifest.json 是真实文件系统实体：夹具在 mkdtemp 的真实临时目录里建真实目录与文件；
+//   所有"源槽仍在/已被移走""隔离副本存在/不存在"断言一律基于 existsSync 真实结果，不再用模拟布尔
+//   冒充真实目录证据（temp 根在进程退出时尽力清理）。
+// - capabilities 是已发布 SimpleSFTP 0.2.113 的完整释放契约（方法＋裁定选项），缺任一即入门拒绝。
+// - preview mock 忠实复现发布版 preview 的 stagedJournal 严格格式校验（cleanup-file-api.js 0.2.113:508–516）
+//   并把绑定与目标冻结进模拟台账（真实台账语义：execute 只能用冻结值）；绑定格式非法即抛
+//   INVALID_STAGED_JOURNAL_BINDING；不传绑定预览仍成功（发布版只保留槽锁检查——回归用例靠这条真实
+//   分支证明"没带绑定就会被隔离"）。preview 在夹具里零写入：绝不触碰槽目录。
+// - execute mock 逐条移植发布版 cleanup-files.py::verify_staged_journal_binding（0.2.113 全部语义）：
+//   绑定形状；journal 不可读/JSON 损坏/非对象；identity/完整代/committed 状态；已写字段的 null 一律
+//   malformed（createdAt/terminalAt/updatedAt）；journal 丢了 terminalAt 不再被接受（绑定冻结了终态时刻
+//   就要求原样带回，无回退）；绑定 terminalAt 必须精确一致；时间基准 terminalAt→updatedAt→manifest
+//   mtime 择基；future 基准；createdAt 矛盾；以及 1146–1147 的最后一条无条件年龄阈值
+//   （(now-basis)*1000 < expiryMs 即拒）。任一不满足抛同源错误，真实源槽目录原样保留。
+//   无绑定则按 0.2.113 只剩槽锁检查、隔离照常发生。隔离成功先建父目录再 renameSync 真实移动槽目录到
+//   clean_dir/<batch>/<rel>（no_replace：destination 已存在即 DESTINATION_EXISTS）。
+// - 默认 journal 用 terminalAt=2/updatedAt=3 的秒级纪元时间戳（1970 年）：引擎把 basis 直接当 epoch
+//   秒使用，忠实移植 ⇒ 默认候选即"早已过过期阈值的旧槽"。"年轻候选成功释放"依赖 SimpleSFTP 0.2.114
+//   拟新增的 requireExpired 区分字段（字段名以 SFTP 负责人回报为准）：发布版 0.2.113 下真年轻 journal
+//   确认后必被年龄阈值拒——"a genuinely young journal is refused…"用例如实钉住现状，产品释放链与
+//   绑定内容在该契约落地前一律不动。
+const RELEASE_TMP_ROOTS = [];
+process.on("exit", () => {
+  for (const root of RELEASE_TMP_ROOTS) { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* 尽力清理 */ } }
+});
 function releaseFixture(options = {}) {
   const { capabilityReady = true, warningChoice, liveCandidates, deleteState = "accepted", statusStates, releaseCandidate = true,
-    ageMs = 172800000, previewSafety = true, liveExpiry = { enabled: true, ms: 86400000 }, onCall } = options;
+    ageMs = 172800000, previewSafety = true, liveExpiry = { enabled: true, ms: 86400000 }, onCall, youngJournal = false } = options;
   const cleanupCalls = [], warnings = [], errorLog = [], syncRetries = [], patches = [];
   const queueJob = { index: 0, commandId: "command0", artifactStageBlock: { schemaVersion: 1, code: "TRANSFER_STAGE_PENDING",
     destination: { id: "b", profile: "work", host: "nwpu3.invalid" }, scope: "job-artifacts-scope", lane: 0, identity: STAGE_ID,
@@ -257,12 +275,26 @@ function releaseFixture(options = {}) {
       "files.cleanup.confirm": { exactBatchDigest: true, deleteConfirmationCount: 2 },
       "files.cleanup.isolatedMaintenanceDelete": { registeredIsolationTokenOnly: 1, pluginDerivedDeleteSet: 1,
         isolationCompletionReceiptRequired: 1 } } };
+  // 真实远端根：槽目录＋manifest.json 都是真文件；引擎移植只读这些真实文件，绝不读模拟状态。
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "se-stage-release-"));
+  RELEASE_TMP_ROOTS.push(projectRoot);
+  const slotAbsolute = path.join(projectRoot, ...STAGE_RELATIVE.split("/"));
+  const journalFile = path.join(slotAbsolute, "manifest.json");
+  fs.mkdirSync(slotAbsolute, { recursive: true });
+  const nowS = Math.floor(Date.now() / 1000);
   const state = {
-    // 远端 journal 的当前事实（引擎锁内复检的比对基准）；回归用例在 execute 前改动它模拟竞态。
-    journal: { identity: STAGE_ID, generation: STAGE_GEN, status: "committed", terminalAt: 2 },
-    slotDirectoryPresent: true, previewLedger: null,
+    // 台账 journal 的当前事实（引擎锁内复检唯一比对来源=真实 manifest.json）；回归用例在 execute 前
+    // 改写/删除真实文件模拟竞态。youngJournal=true 时基准=一小时前（epoch 秒），忠实触发年龄阈值拒。
+    journal: youngJournal
+      ? { identity: STAGE_ID, generation: STAGE_GEN, status: "committed", createdAt: nowS - 3720, terminalAt: nowS - 3600, updatedAt: nowS - 3600 }
+      : { identity: STAGE_ID, generation: STAGE_GEN, status: "committed", createdAt: 1, terminalAt: 2, updatedAt: 3 },
+    writeJournal: () => fs.writeFileSync(journalFile, JSON.stringify(state.journal)),
+    setJournal: patch => { Object.assign(state.journal, patch); state.writeJournal(); },
+    removeJournal: () => fs.rmSync(journalFile, { force: true }),
+    isolatedApplied: false, isolatedDestination: null, previewLedger: null,
     breakContext: () => { host.projectContextGeneration += 1; },
   };
+  state.writeJournal();
   const sandbox = { workspaceRoot: () => "C:/project", crypto: require("node:crypto"),
     JobArtifactSyncIdentity_1: require("../../dist/features/JobArtifactSyncIdentity.js"),
     vscode: { window: { showWarningMessage: async (...args) => { warnings.push(args); return warningChoice; } } } };
@@ -304,29 +336,66 @@ function releaseFixture(options = {}) {
             && (binding.terminalAt === null || (Number.isInteger(binding.terminalAt) && binding.terminalAt > 0));
           if (!valid) throw new Error("INVALID_STAGED_JOURNAL_BINDING");
         }
-        state.previewLedger = { stagedJournal: binding === undefined ? undefined : JSON.parse(JSON.stringify(binding)) };
+        state.previewLedger = { stagedJournal: binding === undefined ? undefined : JSON.parse(JSON.stringify(binding)),
+          target: { relativePath: params.targets[0].relativePath, destination: params.targets[0].destination } };
         return { token: "tok-1", digest: "dig-1",
           ...(previewSafety ? { safety: { backgroundIsolatedDelete: 1, isolationCompletionReceipt: 1 } } : {}),
-          targets: [{ relativePath: params.targets[0].relativePath, destination: params.targets[0].destination, absolutePath: STAGE_ABSOLUTE, missing: false }] };
+          targets: [{ relativePath: params.targets[0].relativePath, destination: params.targets[0].destination, absolutePath: slotAbsolute, missing: false }] };
       }
       if (method === "files.cleanup.execute") {
         const binding = state.previewLedger ? state.previewLedger.stagedJournal : undefined;
         if (binding !== undefined) {
-          const journal = state.journal;
-          const journalTerminal = Number.isInteger(journal.terminalAt) && journal.terminalAt > 0 ? journal.terminalAt : null;
-          if (journal.identity !== binding.identity || journal.generation !== binding.generation
-              || journal.status !== binding.status || journalTerminal !== binding.terminalAt)
-            throw new Error("STAGED_JOURNAL_MISMATCH：锁内复检发现暂存槽 journal 不再符合过期回收资格，拒绝隔离");
+          // verify_staged_journal_binding 的忠实移植（0.2.113；0.2.114 的 requireExpired 未实现——
+          // 本夹具保持发布版行为，年龄阈值无条件生效）。
+          const denyInvalid = () => { throw new Error("INVALID_STAGED_JOURNAL_BINDING"); };
+          const denyMismatch = () => { throw new Error("STAGED_JOURNAL_MISMATCH：锁内复检发现暂存槽 journal 不再符合过期回收资格，拒绝隔离"); };
+          if (!(typeof binding.identity === "string" && /^[0-9a-f]{64}$/.test(binding.identity)
+              && typeof binding.generation === "string" && /^[0-9a-f]{64}$/.test(binding.generation)
+              && Number.isInteger(binding.expiryMs) && binding.expiryMs > 0
+              && (binding.terminalAt === null || (Number.isInteger(binding.terminalAt) && binding.terminalAt > 0)))) denyInvalid();
+          let row, manifestMtime;
+          try {
+            row = JSON.parse(fs.readFileSync(journalFile, "utf8").slice(0, 262144));
+            manifestMtime = fs.statSync(journalFile).mtimeMs / 1000;
+          } catch { denyMismatch(); }
+          const trusted = value => Number.isInteger(value) && value > 0 ? value : null;
+          if (row === null || typeof row !== "object" || Array.isArray(row)
+              || row.identity !== binding.identity || row.generation !== binding.generation || row.status !== "committed") denyMismatch();
+          if ("createdAt" in row && trusted(row.createdAt) === null) denyMismatch();
+          const created = trusted(row.createdAt);
+          const createdS = created ? (created > 1_000_000_000_000 ? created / 1_000_000_000 : created) : 0;
+          if ("terminalAt" in row && trusted(row.terminalAt) === null) denyMismatch();
+          if ("updatedAt" in row && trusted(row.updatedAt) === null) denyMismatch();
+          // 字段缺失与写出 null 在 Python 里都让 raw 值为 None，但写出 null 已先被 malformed 拒——
+          // 到这里的 None 只可能是字段缺失。
+          const terminal = "terminalAt" in row ? row.terminalAt : null;
+          const updated = "updatedAt" in row ? row.updatedAt : null;
+          if (terminal === null && binding.terminalAt !== null) denyMismatch();
+          if (terminal !== null && binding.terminalAt !== null && terminal !== binding.terminalAt) denyMismatch();
+          const basis = terminal !== null ? terminal : updated !== null ? updated : manifestMtime;
+          const now = Date.now() / 1000;
+          if (basis > now || (createdS && basis < createdS - 1)) denyMismatch();
+          if ((now - basis) * 1000 < binding.expiryMs) denyMismatch(); // cleanup-files.py:1146–1147
         }
-        state.slotDirectoryPresent = false; // no_replace rename 落定：源槽目录退出项目根
+        const destination = state.previewLedger.target.destination;
+        const destinationAbsolute = path.join(projectRoot, ...String(destination).split("/"));
+        if (fs.existsSync(destinationAbsolute)) throw new Error("DESTINATION_EXISTS " + destinationAbsolute);
+        fs.mkdirSync(path.dirname(destinationAbsolute), { recursive: true });
+        fs.renameSync(slotAbsolute, destinationAbsolute); // no_replace rename：真实移动源槽目录
+        state.isolatedApplied = true;
+        state.isolatedDestination = destinationAbsolute;
         return {};
       }
-      if (method === "files.cleanup.status") return { states: statusStates || (state.slotDirectoryPresent ? { 0: "pending" } : { 0: "completed" }) };
+      if (method === "files.cleanup.status") return { states: statusStates || (state.isolatedApplied ? { 0: "completed" } : { 0: "pending" }) };
       if (method === "files.cleanup.isolatedMaintenanceDelete") return { state: deleteState };
       return {};
     } };
-  return { host, state, cleanupCalls, warnings, errorLog, syncRetries, patches,
-    get slotDirectoryPresent() { return state.slotDirectoryPresent; },
+  return { host, state, cleanupCalls, warnings, errorLog, syncRetries, patches, projectRoot, slotAbsolute,
+    // 真实文件系统证据（不再是模拟布尔）：
+    get slotDirectoryPresent() { return fs.existsSync(slotAbsolute); },
+    get isolatedCopyPresent() { return state.isolatedDestination !== null && fs.existsSync(state.isolatedDestination); },
+    get isolatedCopyManifestPresent() {
+      return state.isolatedDestination !== null && fs.existsSync(path.join(state.isolatedDestination, "manifest.json")); },
     run: () => host.releaseJobStageBlockSlotsFromUi({ planId: "plan", jobIndex: 0, commandId: "command0" }) };
 }
 
@@ -355,7 +424,7 @@ test("release chain freezes the live candidate, shows one exact confirmation and
   // 一次确认：恰一个模态，展示的绝对/相对路径与 confirm exactTargets、执行绑定逐字一致；完整代随确认呈现。
   assert.equal(f.warnings.length, 1);
   const shown = String(f.warnings[0][0]);
-  assert.match(shown, new RegExp("绝对路径：" + STAGE_ABSOLUTE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(shown, new RegExp("绝对路径：" + f.slotAbsolute.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "确认展示的绝对路径=夹具真实槽目录");
   assert.ok(shown.includes(STAGE_RELATIVE) && shown.includes(STAGE_GEN), "UI 与后台使用同一完整路径/完整代");
   assert.match(shown, /主机 nwpu3\.invalid（profile work） · 范围 job-artifacts-scope · 通道 0/);
   assert.equal(f.warnings[0][1].modal, true);
@@ -366,7 +435,7 @@ test("release chain freezes the live candidate, shows one exact confirmation and
   // 不放宽语义、不减字段（JSON 往返对全字段纯数据等价）。
   const normalize = value => JSON.parse(JSON.stringify(value));
   assert.deepEqual([confirm.token, confirm.digest, confirm.phase, confirm.confirm], ["tok-1", "dig-1", 1, true]);
-  assert.deepEqual(normalize(confirm.exactTargets), [STAGE_ABSOLUTE], "确认绑定精确 token/digest/绝对路径");
+  assert.deepEqual(normalize(confirm.exactTargets), [f.slotAbsolute], "确认绑定精确 token/digest/绝对路径（真实槽目录路径）");
   const execute = f.cleanupCalls[3].params;
   assert.equal(execute.token, "tok-1"); assert.equal(execute.index, 0);
   const deletion = f.cleanupCalls[5].params;
@@ -377,6 +446,10 @@ test("release chain freezes the live candidate, shows one exact confirmation and
   assert.equal(deletionTargets[0].relativePath, STAGE_RELATIVE);
   assert.equal(deletionTargets[0].destination, preview.targets[0].destination);
   assert.deepEqual(deletionTargets, [{ index: 0, relativePath: STAGE_RELATIVE, destination: preview.targets[0].destination }]);
+  // 真实文件系统证据：成功隔离＝夹具真实槽目录被 renameSync 真实移走，隔离副本（含 manifest.json）真实存在。
+  assert.equal(fs.existsSync(f.slotAbsolute), false, "成功证据（真实文件系统）：原槽目录已被真实 rename 移走");
+  assert.equal(f.isolatedCopyPresent, true, "成功证据（真实文件系统）：隔离副本真实存在");
+  assert.equal(f.isolatedCopyManifestPresent, true, "journal manifest.json 随槽目录一起进入隔离副本");
   assert.deepEqual(normalize(f.syncRetries), [{ planId: "plan", jobIndex: 0, commandId: "command0" }], "成功后只重试这一条原同步");
   assert.deepEqual(f.patches, [], "释放链自身不改 Job/产物字段；完成状态由既有同步链管理");
 });
@@ -445,7 +518,7 @@ test("a preview whose backend withholds the background-delete and isolation-rece
   assert.match(result.message, /未执行任何修改/);
   assert.equal(f.warnings.length, 0, "自证缺失在确认之前判掉，绝不打一次注定失败的确认");
   assert.deepEqual(f.cleanupCalls.map(row => row.method), ["files.cleanup.stagedSlots", "files.cleanup.preview"], "预览只读；confirm/execute/删除登记零调用");
-  assert.equal(f.slotDirectoryPresent, true, "后端未自证=源槽目录原样存在");
+  assert.equal(fs.existsSync(f.slotAbsolute), true, "后端未自证=真实源槽目录原样存在（夹具 preview 零写入）");
   assert.deepEqual(f.syncRetries, []);
   assert.equal(f.errorLog.length, 1, "真实原因进入既有操作日志");
 });
@@ -459,25 +532,49 @@ test("a stagedSlots answer without the remote expiry threshold refuses the relea
   assert.equal(f.warnings.length, 0);
 });
 
-test("a generation-changed, resumed or freshly re-committed slot cannot be isolated through the full release chain and its source directory stays present", async () => {
-  // 终审 P1-1 回归：journal 在预览与 rename 之间被换代/重新占用/重新 commit 时，引擎锁内复检必须拒绝隔离
-  // （夹具 execute 忠实复现 verify_staged_journal_binding 的比对语义）。若产品没把绑定带到预览，夹具会按
-  // 发布版真实行为只剩槽锁检查、隔离照常发生——源槽目录消失，本用例即失败，这就是回归防护本身。
+test("a generation-changed, resumed, freshly re-committed or journal-removed slot cannot be isolated through the full release chain and its real source directory stays present", async () => {
+  // 终审 P1-1 回归：journal 在预览与 rename 之间被换代/重新占用/重新 commit/删除时，引擎锁内复检必须
+  // 拒绝隔离——竞态改写的是真实 manifest.json，夹具 execute 逐条移植 verify_staged_journal_binding 读取
+  // 该真实文件后同源拒绝。若产品没把绑定带到预览，夹具按发布版真实行为只剩槽锁检查、隔离照常发生——
+  // 真实槽目录被移走，本用例即失败，这就是回归防护本身。
   for (const race of [
     { label: "换代", after: { generation: "e".repeat(64) } },
     { label: "非终态", after: { status: "running" } },
     { label: "刚重新 commit", after: { terminalAt: 777 } },
+    { label: "台账被删", removeJournal: true },
   ]) {
     const f = releaseFixture({ warningChoice: "确认释放此暂存槽",
-      onCall: (method, params, state) => { if (method === "files.cleanup.execute") Object.assign(state.journal, race.after); } });
+      onCall: (method, params, state) => {
+        if (method !== "files.cleanup.execute") return;
+        if (race.removeJournal) state.removeJournal();
+        else state.setJournal(race.after);
+      } });
     await assert.rejects(f.run(), /STAGED_JOURNAL_MISMATCH/, race.label);
-    assert.equal(f.slotDirectoryPresent, true, race.label + "：锁内复检拒绝后源槽目录必须原样存在，绝不被隔离");
+    assert.equal(fs.existsSync(f.slotAbsolute), true, race.label + "：锁内复检拒绝后真实源槽目录必须原样存在，绝不被隔离");
+    assert.equal(f.isolatedCopyPresent, false, race.label + "：拒绝后不得留下任何隔离副本");
     assert.equal(f.cleanupCalls.filter(row => row.method === "files.cleanup.execute").length, 1, "拒绝后不重放隔离");
     assert.deepEqual(f.cleanupCalls.filter(row => row.method === "files.cleanup.isolatedMaintenanceDelete"), [], "隔离被拒后绝不登记永久删除");
     assert.deepEqual(f.syncRetries, [], race.label + "：隔离失败不触发同步重试粉饰");
     assert.ok(f.cleanupCalls.some(row => row.method === "files.cleanup.preview" && row.params.stagedJournal),
       race.label + "：走到完整释放链路且预览确实携带了 journal 绑定");
   }
+});
+
+test("a genuinely young journal is refused after the one confirmation by the released 0.2.113 age threshold (placeholder until the 0.2.114 user-release field lands)", async () => {
+  // 终审第二轮（审核第 1/3 条）如实钉住发布版行为：0.2.113 引擎在锁内无条件执行年龄阈值
+  // （cleanup-files.py:1146–1147），真实年轻的 committed journal（基准=一小时前，epoch 秒）即便携带
+  // 完整绑定并被用户确认，也会被 (now-basis)*1000 < expiryMs 拒绝——"确认后释放旧占用"在 0.2.113 上做
+  // 不成，这正是上一轮假绿的缺陷本身。等待 SimpleSFTP 0.2.114 的 requireExpired 区分字段（最终名字以
+  // SFTP 负责人回报为准，契约见 /repos/MCP/.sftp-0-2-114-user-release-20261027/contract.md）：落地后
+  // 本夹具随 SFTP 同步移植该分支，并把"年轻候选一次确认后成功"补为成功用例（本条改为断言
+  // requireExpired 缺省仍拒的兼容路径）。在此之前产品侧不改绑定、不发明绕过。
+  const f = releaseFixture({ warningChoice: "确认释放此暂存槽", youngJournal: true, ageMs: 3600000 });
+  await assert.rejects(f.run(), /STAGED_JOURNAL_MISMATCH/);
+  assert.equal(f.warnings.length, 1, "用户确实被征询了一次（0.2.113 下的真实症状：确认之后才被拒）");
+  assert.equal(fs.existsSync(f.slotAbsolute), true, "年龄阈值拒绝后真实源槽目录原样存在");
+  assert.equal(f.isolatedCopyPresent, false, "拒绝后不得留下隔离副本");
+  assert.deepEqual(f.cleanupCalls.filter(row => row.method === "files.cleanup.isolatedMaintenanceDelete"), [], "隔离被拒后绝不登记永久删除");
+  assert.deepEqual(f.syncRetries, []);
 });
 
 test("a context change during isolation polling stops the wait, registers no delete, retries no sync and reports the isolation as dispatched", async () => {
