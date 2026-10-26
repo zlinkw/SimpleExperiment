@@ -181,8 +181,11 @@ function batchIdentityFixture(shaOverride) {
   ];
   return { provider, fpsyncs, work };
 }
-const batchIdentityOracle = (paths, hashes) => crypto.createHash("sha256").update(JSON.stringify(["sync-scope-retain",
-  [...paths].sort(), [...paths].sort().map((file) => [file, hashes[file].toLowerCase()]])])).digest("hex");
+const batchIdentityOracle = (paths, hashes) => {
+  const sorted = [...paths].sort();
+  const manifest = sorted.map((file) => [file, hashes[file].toLowerCase()]);
+  return crypto.createHash("sha256").update(JSON.stringify(["sync-scope-retain", sorted, manifest])).digest("hex");
+};
 
 test("batch lane (:11084 批量保留文件版本) sends the frozen-manifest identity, reruns verbatim, and opens a generation on SHA change", async () => {
   const originalExecute = vscodeStub.commands.executeCommand;

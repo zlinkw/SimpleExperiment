@@ -164,7 +164,7 @@ const distVscodeStub = {
 const originalLoad = Module._load;
 Module._load = function (request, ...args) { return request === 'vscode' ? distVscodeStub : originalLoad.call(this, request, ...args); };
 const { __reconcileProjectFilesAcrossWorkersForTest } = require('../../dist/extension/legacy.js');
-const { projectMirrorStateStoragePath } = require('../../dist/features/PlanArtifactSync.js');
+const { projectMirrorStateStoragePath, emptyPlanSyncLedger } = require('../../dist/features/PlanArtifactSync.js');
 const CODE = { x: 'd'.repeat(64), y: 'e'.repeat(64) };
 function reconcileFixture(mutateTarget) {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'se-reconcile-seam-'));
@@ -177,7 +177,7 @@ function reconcileFixture(mutateTarget) {
     context: { globalStorageUri: { fsPath: root } },
     workerCodeSyncTargets: () => targets, enabledWorkerConfigs: () => targets,
     captureProjectContext: () => ({}), syncCodeTargets: async () => {},
-    loadPlanSyncLedger: async () => ({}),
+    loadPlanSyncLedger: async () => emptyPlanSyncLedger(), // 生产真实形状 {schemaVersion:2, entries:{}}（PlanArtifactSync.ts:16-18）；r118 红2：{} 缺 entries，pendingPlanSyncs 依赖该合同（PlanArtifactSync.ts:144），属夹具形状错而非生产缺陷
     withPluginStateFileLease: async (_root, _file, _kind, _label, run) => run(), // 状态文件租约隔离；真实写盘仍在私有夹具内
     localMachineStateGuard: () => ({ prefixes: [], unknown: false }),
     targetRootGuard: () => ({ prefixes: [], unknown: false }),
