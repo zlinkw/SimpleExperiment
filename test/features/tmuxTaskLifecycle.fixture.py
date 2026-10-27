@@ -66,10 +66,19 @@ metrics=pathlib.Path(root)/csv;metrics.parent.mkdir(parents=True,exist_ok=True);
 namespace={"__file__":str(program)}
 exec(bootstrap+code,namespace)
 # 失败诊断只增加可见性：5 秒截止、50ms 轮询、异常口径、返回值与全部原断言均保持不变。
-# 循环里本来就要发起的那一次观测（task_inventory 或 display-message）顺手记进 LAST_OBS，
-# 所以超时定位靠“循环内最后一次观测”，超时后最多只补一次 1 秒有界查询，
-# 不会扞大外层 python 10 秒与 node 单文件 20 秒上限。
+# 循环里本来就要发起的那一次观测（task_inventory、task_query 或 display-message）顺手记进 LAST_OBS，
+# 所以超时定位只靠“循环内最后一次观测”；到期后不再发起任何 tmux 查询（含版本查询），
+# 观察预算严格是一份 5 秒，不扞大外层 python 10 秒与 node 单文件 20 秒上限。
 LAST_OBS={"stage":"","rows":None,"raw":None,"error":"","polls":0}
+# tmux 版本在起动时取一次并缓存（不属于等待观测预算），超时诊断只读这份缓存。
+# 用函数内缩进的 try：兄弟夹具 tmuxSchedulerPrefix.fixture.py 按第一个行首 "try:" 切取本文件前缀复用，
+# 在本行之前新增行首 try: 会截断它的前缀。
+def cached_tmux_version():
+    try:
+        return subprocess.run(["tmux","-V"],capture_output=True,timeout=1).stdout.decode("utf-8","replace").strip()
+    except Exception as exc:
+        return "unavailable:"+type(exc).__name__+":"+str(exc)[:120]
+TMUX_VERSION=cached_tmux_version()
 def wait_for(check,stage="",refresh=None):
     deadline=time.monotonic()+5
     LAST_OBS["stage"]=stage
@@ -98,18 +107,13 @@ def report_timeout():
         for row in rows:
             lines.append("[fixture-diagnostic] inventory commandId="+str(row.get("commandId"))+" phase="+str(row.get("phase"))
                 +" dead="+str(row.get("dead"))+" exitCode="+repr(row.get("exitCode"))+" windowId="+str(row.get("tmuxWindowId"))
-                +" paneId="+str(row.get("tmuxPane"))+" session="+str(row.get("tmuxSession")))
+                +" paneId="+str(row.get("tmuxPane"))+" session="+str(row.get("tmuxSession"))
+                +" observationTmux="+json.dumps((row.get("observation") or {}).get("tmux"),ensure_ascii=False,sort_keys=True)[:240])
     elif LAST_OBS["raw"] is not None:
         lines.append("[fixture-diagnostic] lastRawObservation="+repr(LAST_OBS["raw"])[:200])
-    try:
-        # 只查本夹具私有 TMUX_TMPDIR 上的 server（task_tmux 继承其 socket 根），单次 1 秒超时；不碰真实用户窗口。
-        text=namespace["task_tmux"](["list-panes","-a","-F","#{window_id}|#{pane_id}|#{pane_dead}|#{pane_dead_status}|#{@se_phase}"],timeout=1)
-        lines.append("[fixture-diagnostic] privateServerListPanes="+text.replace(chr(10)," ; ")[:1500])
-    except Exception as exc:lines.append("[fixture-diagnostic] listPanesError="+type(exc).__name__+":"+str(exc)[:200])
-    try:
-        version=subprocess.run(["tmux","-V"],capture_output=True,timeout=1)
-        lines.append("[fixture-diagnostic] tmuxVersion="+version.stdout.decode("utf-8","replace").strip())
-    except Exception as exc:lines.append("[fixture-diagnostic] tmuxVersionError="+type(exc).__name__+":"+str(exc)[:120])
+    # 到期只打印已收集事实：不再发 list-panes，也不再发 tmux -V，超时路径的追加查询数为 0。
+    lines.append("[fixture-diagnostic] queriesAfterDeadline=0")
+    lines.append("[fixture-diagnostic] tmuxVersion(cachedAtStartup)="+TMUX_VERSION)
     sys.stderr.write(chr(10).join(lines)+chr(10))
     sys.stderr.flush()
 def job(index,case="slow"):
@@ -152,12 +156,24 @@ try:
     assert namespace["task_queue_endpoint"](root,"worker")["epoch"]!=epoch
     stopped=namespace["task_stop"](root,{"targetCommandId":c["commandId"],"projectId":"project","workflowId":"workflow"},"worker")
     assert stopped["stoppedTasks"][0]["paneClosed"]
-    # tmux can expose pane_dead before publishing pane_dead_status. Observe a
-    # settled exit before asserting the result; do not race that native update.
-    wait_for(lambda: all(row["dead"] and row["exitCode"] is not None for row in (LAST_OBS["rows"] or [])),
+    # Only the pane death is awaited here: a live tmux build can leave
+    # pane_dead_status unpublished for the whole 5 second budget, and production
+    # completion for that case is defined by verified artifacts, not by a number.
+    # So completion is asserted on the real task_query observation below; a real
+    # non-zero exit code would still fail there, and none is claimed when absent.
+    wait_for(lambda: all(any(r["commandId"]==item["commandId"] and r["dead"] for r in (LAST_OBS["rows"] or [])) for item in (a,b)),
         "settled-exit-before-query",lambda: namespace["task_inventory"](root))
-    observed=namespace["task_query"](root,[a,b])
-    assert all(row["status"]=="completed" for row in observed["tasks"]),observed
+    observed=namespace["task_query"](root,[a,b])["tasks"]
+    assert observed,observed
+    completed={row["commandId"]:row for row in observed if row["commandId"] in (a["commandId"],b["commandId"])}
+    assert set(completed)=={a["commandId"],b["commandId"]},observed
+    for required in (a,b):
+        row=completed[required["commandId"]]
+        manifest=row["observation"]["result"]
+        assert manifest and manifest["identityMatches"] and manifest["verified"] and manifest["artifactsComplete"],row
+        assert row["status"]=="completed",row
+        # An observed exit code must be zero; an unobserved one is unknown, not proven zero.
+        assert row["exitCode"] in (None,0),row
     # Some live tmux builds return an empty status for retained dead panes.
     # Keep the real inventory/windows/manifests; omit only the unavailable field.
     real_tmux=namespace["task_tmux"]
@@ -209,10 +225,21 @@ try:
     assert namespace["task_query"](root,[a,b])["tasks"][-1]["status"]=="completed"
     failure=job(3,"failure")
     namespace["task_queue_rpc"](root,"worker","accept",failure,ensure=True)
-    wait_for(lambda: any(r["commandId"]==failure["commandId"] and r["dead"] for r in (LAST_OBS["rows"] or [])),
-        "failed-task-dead",lambda: namespace["task_inventory"](root))
-    failed=next(row for row in namespace["task_query"](root,[failure])["tasks"] if row["commandId"]==failure["commandId"])
+    # One real observation per poll, and that same observation is asserted: the
+    # pane must be dead and carry a real integer native exit code. No second query
+    # window, no fallback from the scripted case, file, phase or manifest; if the
+    # platform never yields the code, the 5 second budget expires and fails here.
+    def settled_failure():
+        for row in (LAST_OBS["rows"] or []):
+            observed=(((row or {}).get("observation") or {}).get("tmux") or {})
+            if (row.get("commandId")==failure["commandId"] and row.get("projectId")==failure["projectId"]
+                    and row.get("workerId")==failure["workerId"] and observed.get("dead") is True
+                    and isinstance(observed.get("exitCode"),int)):
+                return row
+        return None
+    failed=wait_for(settled_failure,"failed-task-settled-exit",lambda: namespace["task_query"](root,[failure])["tasks"])
     assert failed["status"]=="failed" and failed["exitCode"]==7,failed
+    assert failed["observation"]["tmux"]["exitCode"]==failed["exitCode"],failed
     declarations=[dict(index=item["experimentIndex"],case=item["case"],seed=item["seed"],mode=item["mode"],output_dir=item["outputDir"],result_csv=item["collectionResultCsv"]) for item in (a,b,failure)]
     assert [item["completed"] for item in namespace["task_declared_results"](root,declarations)]==[True,True,False]
     option = namespace["task_option"]
