@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.420",
-  "buildId": "dafc4c4a70c28d83f3372d8630929a7e0d296fd36bc44f33035af954c63014d3",
+  "version": "0.5.421",
+  "buildId": "ed11744f883b3747a0c0bccf7ce5def0b2fcf3f8aea21a653ade05f131b15fa6",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -117,7 +117,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "f1cb9d36a6db412d90fd5edca5583f3d79b6f017407c9b74a8522e7521c4bfb8"
+      "sha256": "263fa7de15d07925558ae3b91d091b2cef336710cabe9872995a75132bc13a73"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -234,6 +234,10 @@
     {
       "path": "dist/features/CodeSyncProofWaiter.js",
       "sha256": "cc4512408d2eb28ce87fedcde4c0a5b04df42eb601373f61e796b054b809c5c4"
+    },
+    {
+      "path": "dist/features/DispatchHandoffGate.js",
+      "sha256": "eef6b24da46cf6e1ea302d695555dbc2cd3676f12a2160ee3bf0c1391afe8183"
     },
     {
       "path": "dist/features/DispatchWake.js",
@@ -717,7 +721,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "8941f54b9220a2f29b7b1e516126c92fd264f1902d6b3c733c4accc710b3347d"
+      "sha256": "1d8e631e6e7ba554b07b30aa0a43c04c375bff9e10a84110faefcfc5adc0a5ae"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1065,7 +1069,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "d4dc848a69141b206836524825ebc2c09ce9fb5eccdeaedd6c5029319ddc5d5e"
+      "sha256": "f9060f1d66b410ae040f1b66b3745be61d296536a98c3d9ad0e05f9950427378"
     },
     {
       "path": "scripts/check-static.js",

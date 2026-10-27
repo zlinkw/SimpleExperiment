@@ -12,7 +12,17 @@
 
 export type WorkerUploadState = "uploading" | "uploaded" | "unknown-failed";
 export type DispatchHandoffPhase = "admission-intent-save" | "code-proof-prepare" | "transmission" | "local-receipt-commit";
-export type HandoffOutcome = "committed" | "unsent-released" | "round-ended";
+/**
+ * 只有拿到真实证据才允许用对应结局：
+ * - `committed`：本机回执真的落盘成功（不是“发送函数已返回”）；
+ * - `unsent-released`：越过传输边界前就被证明未发送，且安全退回已落盘；
+ * - `transport-handed-off`：传输已收敛且精确查询确认任务已在远端；
+ * - `transport-not-observed`：传输已收敛且完整查询确认该 commandId 不在远端（未到达或已回收）；
+ * - `round-ended` / `stale-generation`：只用于从未发送的登记，绝不用于已发送请求。
+ */
+export type HandoffOutcome =
+  "committed" | "unsent-released" | "round-ended" | "stale-generation"
+  | "transport-handed-off" | "transport-not-observed";
 
 export const HANDOFF_PHASES: DispatchHandoffPhase[] = [
   "admission-intent-save", "code-proof-prepare", "transmission", "local-receipt-commit",
@@ -35,9 +45,33 @@ export interface WorkerUploadRecord {
   startedAtMs: number;
   updatedAtMs: number;
   error?: string;
+  /** 本次写入真正落在哪个规范服务器 + 实际远端 root（由生产侧身份解析得出，可为空表示尚未解析）。 */
+  targetKey?: string;
   /** 上一轮未确认写入的失败详情；新一轮可以推进真实证据，但旧失败不会被抹掉。 */
   previousUnknownError?: string;
 }
+
+/**
+ * 写入结果仍未知的代码上传：保留原操作身份与目标所有权，直到主动查询确认结束。
+ * 与 `workerUploads` 分开存放，因此不会随本轮 intent 结束或新一轮登记被抹掉。
+ */
+export interface UnknownCodeWrite {
+  uploadId: string;
+  syncId: string;
+  root: string;
+  targetKey: string;
+  workerId: string;
+  startedAtMs: number;
+  updatedAtMs: number;
+  error: string;
+  /** 已确认越过传输调用边界，之后没有任何“明确未开始”的解释空间。 */
+  transportStarted: boolean;
+}
+
+/**
+ * 写入结果未知的目标表不裁剪：裁掉就等于丢掉派发阻塞与恢复依据。
+ * 展示侧另有 IDENTITY_LIMIT 有界，不会把大表吐给面板。
+ */
 
 export interface DispatchHandoff {
   handoffId: string;
@@ -58,6 +92,13 @@ export interface DispatchHandoff {
   phaseStartedAtMs: number;
   /** 越过真实传输边界后为真；此后只能由真实提交或明确未发送证据释放。 */
   transmissionStarted: boolean;
+  /** 底层传输 promise 自己已落定（外层函数返回不代表送达，两者分开记）。 */
+  transportSettled: boolean;
+  transportOutcome: "" | "ok" | "failed";
+  /** 本机回执真的落盘成功，才算“状态已可靠移交”。 */
+  localCommitConfirmed: boolean;
+  /** 尚未拿到释放证据时，说明当前在等哪一种证据。 */
+  awaitingEvidence: string;
 }
 
 export interface TickPhaseRecord {
@@ -86,6 +127,8 @@ export interface HandoffGate {
   workerUploads: Map<string, WorkerUploadRecord>;
   /** 活跃交接所有权，键为 `<root>\0<commandId>`。 */
   handoffs: Map<string, DispatchHandoff>;
+  /** 写入结果仍未知的目标，键为 `<root>\0<targetKey>`；只有主动查询确认结束才可解除。 */
+  unknownWrites: Map<string, UnknownCodeWrite>;
   /** 已结束交接的有界近期记录（最新在前）。 */
   recentHandoffs: Array<{ handoffId: string; commandId: string; workerId: string; phase: string; outcome: string; sent: boolean; endedAtMs: number }>;
   /** 有界近期 tick 账本（最新在前），与交接状态分开。 */
@@ -99,18 +142,14 @@ const IDENTITY_LIMIT = 16;
 
 export function createGate(): HandoffGate {
   return {
-    uploads: [], workerUploads: new Map(), handoffs: new Map(), recentHandoffs: [],
+    uploads: [], workerUploads: new Map(), handoffs: new Map(), unknownWrites: new Map(), recentHandoffs: [],
     ticks: new Map(), recentTicks: [], waiters: new Set(),
   };
 }
 
 const workerKey = (root: string, workerId: string) => `${String(root || "")}\u0000${String(workerId || "")}`;
 const handoffKey = (root: string, commandId: string) => `${String(root || "")}\u0000${String(commandId || "")}`;
-const terminal = (status: string) => status === "completed" || status === "succeeded" || status === "failed"
-  || status === "cancelled" || status === "canceled";
-const identityId = (row: { planId?: string, planFile?: string, jobIndex?: number, commandId?: string, workerId?: string }) => [
-  String(row.planId || ""), String(row.planFile || ""), String(row.jobIndex ?? ""), String(row.commandId || ""), String(row.workerId || ""),
-].join("\u0000");
+const unknownKey = (root: string, targetKey: string) => `${String(root || "")}\u0000${String(targetKey || "")}`;
 
 function notify(gate: HandoffGate): void {
   for (const waiter of [...gate.waiters]) waiter.notify();
@@ -133,12 +172,25 @@ export function beginUpload(gate: HandoffGate, input: { uploadId: string; root: 
       uploadId: intent.uploadId, root: intent.root, workerId, state: "uploading",
       startedAtMs: previous && previous.uploadId === intent.uploadId ? previous.startedAtMs : intent.startedAtMs,
       updatedAtMs: intent.startedAtMs,
-      // 上一轮「结果未知」只保留失败详情，不伪装成本轮结论：本轮仍需自己的真实证据才能放行新派发。
+      // 上一轮「结果未知」只保留失败详情，不伪装成本轮结论：本轮仍需自己的真实证据才能放行新派发；
+      // 真正的未知写入保留在 unknownWrites 表里，只能由主动查询解除，不靠这里卡住新一轮推进。
       ...(previous && previous.state === "unknown-failed" && previous.uploadId !== intent.uploadId
         ? { previousUnknownError: previous.error } : {}),
     });
   }
   return intent;
+}
+
+/** 记下本次写入真正落在哪个实际目标（规范服务器 + 远端 root），别名判定依赖它。 */
+export function noteUploadTarget(gate: HandoffGate, uploadId: string, root: string, workerId: string, targetKey: string): void {
+  if (!targetKey) return;
+  const key = workerKey(root, workerId);
+  const existing = gate.workerUploads.get(key);
+  if (!existing) return;
+  if (existing.uploadId !== String(uploadId) && existing.state !== "unknown-failed") return;
+  existing.targetKey = String(targetKey);
+  existing.updatedAtMs = Date.now();
+  notify(gate);
 }
 
 /** 本次上传结束：只回收本轮身份，其他身份的所有权（含未知）保持不变。 */
@@ -156,18 +208,85 @@ export function endUpload(gate: HandoffGate, uploadId: string): void {
 }
 
 /** 只有本轮上传中确认写入完成的 Worker 才重新允许新派发。 */
-export function uploadBlocksWorker(gate: HandoffGate, root: string, workerId: string): boolean {
+export function uploadBlocksWorker(gate: HandoffGate, root: string, workerId: string, targetKey?: string): boolean {
   const record = gate.workerUploads.get(workerKey(root, workerId));
-  // 未被本次写入针对的 Worker 不得被误锁；目标集合为空按失败关闭，不因未给出目标就当作无风险。
-  return gate.uploads.some(intent => intent.root === String(root || "")
-    && (!intent.workerIds.length || intent.workerIds.includes(String(workerId)))
-    && !(record?.uploadId === intent.uploadId && record?.state === "uploaded"));
+  const rootKey = String(root || "");
+  const wanted = String(workerId || "");
+  const key = String(targetKey || "");
+  // 写入结果仍未知的目标：不因本轮结束、其他 Worker 成功或换代而解除阻塞。
+  if (pendingUnknownCodeWrite(gate, rootKey, { targetKey: key, workerId: wanted })) return true;
+  for (const intent of gate.uploads) {
+    if (intent.root !== rootKey) continue;
+    // 未被本次写入针对的 Worker 不得被误锁；目标集合为空按失败关闭，不因未给出目标就当作无风险。
+    const own = !intent.workerIds.length || intent.workerIds.includes(wanted);
+    const ownDone = record?.uploadId === intent.uploadId && record?.state === "uploaded";
+    if (own && !ownDone) return true;
+    if (!key) continue;
+    // 别名共享同一实际写目标：A 完成不代表同一服务器同一 root 上 B 的写入已结束，不能只凭 A 的记录放行。
+    for (const other of gate.workerUploads.values()) {
+      if (other.uploadId !== intent.uploadId || other.workerId === wanted) continue;
+      if (!other.targetKey || other.targetKey !== key) continue;
+      if (other.state !== "uploaded") return true;
+    }
+  }
+  return false;
+}
+
+/** 未知写入所属目标：按实际写目标匹配，也允许只按 Worker ID 匹配（身份不可解析时的保留）。 */
+export function pendingUnknownCodeWrite(gate: HandoffGate, root: string,
+  identity: { targetKey?: string; workerId?: string }): UnknownCodeWrite | undefined {
+  const rootKey = String(root || "");
+  const targetKey = String(identity?.targetKey || "");
+  const workerId = String(identity?.workerId || "");
+  if (targetKey) {
+    const exact = gate.unknownWrites.get(unknownKey(rootKey, targetKey));
+    if (exact) return exact;
+  }
+  if (!workerId) return undefined;
+  return [...gate.unknownWrites.values()]
+    .filter(record => record.root === rootKey && record.workerId === workerId)
+    .sort((a, b) => a.startedAtMs - b.startedAtMs)[0];
+}
+
+/** 写入结果未知：保留原操作身份与目标所有权，不因本轮结束、其他 Worker 成功或新一轮登记而消失。 */
+export function recordUnknownCodeWrite(gate: HandoffGate, input: {
+  uploadId: string; syncId?: string; root: string; targetKey: string; workerId: string; error: string; transportStarted?: boolean; startedAtMs?: number;
+}): UnknownCodeWrite {
+  const key = unknownKey(input.root, input.targetKey || `worker:${input.workerId || ""}`);
+  const now = Date.now();
+  const record: UnknownCodeWrite = {
+    uploadId: String(input.uploadId || ""), syncId: String(input.syncId || ""), root: String(input.root || ""),
+    targetKey: String(input.targetKey || ""), workerId: String(input.workerId || ""), startedAtMs: input.startedAtMs || now,
+    updatedAtMs: now, error: String(input.error || "写入结果未知"), transportStarted: input.transportStarted === true,
+  };
+  gate.unknownWrites.set(key, record);
+  // 不淘汰尚未解决的未知写入：所有权只能由主动查询确认结束后释放。
+  notify(gate);
+  return record;
+}
+
+/** 只有主动查询确认写入已结束后才能释放未知写入所有权；调用方必须交出真实查询证据。 */
+export function resolveUnknownCodeWrite(gate: HandoffGate, root: string,
+  identity: { targetKey?: string; workerId?: string }): UnknownCodeWrite | undefined {
+  const record = pendingUnknownCodeWrite(gate, root, identity);
+  if (!record) return undefined;
+  for (const [key, value] of [...gate.unknownWrites]) {
+    if (value !== record) continue;
+    gate.unknownWrites.delete(key);
+  }
+  const key = workerKey(record.root, record.workerId);
+  const existing = gate.workerUploads.get(key);
+  if (existing && existing.state === "unknown-failed") gate.workerUploads.delete(key);
+  notify(gate);
+  return record;
 }
 
 /** 本轮派发是否必须整体让路：所有候选 Worker 都仍被未完成的写入意图挡住。 */
-export function uploadYieldsWholeRound(gate: HandoffGate, root: string, workerIds: readonly string[]): boolean {
-  if (!workerIds.length) return false;
-  return workerIds.every(workerId => uploadBlocksWorker(gate, root, workerId));
+export function uploadYieldsWholeRound(gate: HandoffGate, root: string,
+  workers: readonly (string | { workerId: string; targetKey?: string })[]): boolean {
+  const entries = (workers || []).map(entry => (typeof entry === "string" ? { workerId: entry } : entry)).filter(entry => entry?.workerId);
+  if (!entries.length) return false;
+  return entries.every(entry => uploadBlocksWorker(gate, root, entry.workerId, entry.targetKey));
 }
 
 export function markWorkerUploadState(gate: HandoffGate, uploadId: string, root: string, workerId: string,
@@ -180,6 +299,7 @@ export function markWorkerUploadState(gate: HandoffGate, uploadId: string, root:
     uploadId: String(uploadId), root: String(root || ""), workerId: String(workerId), state,
     startedAtMs: existing && existing.uploadId === String(uploadId) ? existing.startedAtMs : now,
     updatedAtMs: now, error: state === "unknown-failed" ? String(error || "结果未知") : undefined,
+    ...(existing?.targetKey ? { targetKey: existing.targetKey } : {}),
   });
   if (state !== "uploading") notify(gate);
 }
@@ -198,6 +318,7 @@ export function beginHandoff(gate: HandoffGate, input: {
     planFile: String(input.planFile || ""), jobIndex: Number(input.jobIndex), commandId: String(input.commandId || ""),
     gpuId: String(input.gpuId || ""), attempt: Number(input.attempt || 0), startedAtMs: now,
     phase: "admission-intent-save", phaseIndex: 0, phaseStartedAtMs: now, transmissionStarted: false,
+    transportSettled: false, transportOutcome: "", localCommitConfirmed: false, awaitingEvidence: "",
   };
   gate.handoffs.set(key, record);
   return record;
@@ -227,6 +348,7 @@ export function markHandoffTransmission(gate: HandoffGate, root: string, command
   const record = gate.handoffs.get(handoffKey(root, commandId));
   if (!record) return;
   record.transmissionStarted = true;
+  record.awaitingEvidence = "transport-in-flight";
   const index = HANDOFF_PHASES.indexOf("transmission");
   if (index >= record.phaseIndex) {
     record.phase = "transmission";
@@ -235,10 +357,52 @@ export function markHandoffTransmission(gate: HandoffGate, root: string, command
   }
 }
 
+/**
+ * 底层传输自己落定了（fire-and-forget 的 POST 落定，或同步发送已返回）。
+ * 这与“外层调用已返回”是两回事：只有落定之后，精确查询才能用作释放证据。
+ */
+export function markHandoffTransportSettled(gate: HandoffGate, root: string, commandId: string,
+  outcome: "ok" | "failed"): DispatchHandoff | undefined {
+  const record = gate.handoffs.get(handoffKey(root, commandId));
+  if (!record || !record.transmissionStarted || record.transportSettled) return record;
+  record.transportSettled = true;
+  record.transportOutcome = outcome;
+  record.awaitingEvidence = outcome === "ok" ? "awaiting-exact-query-or-local-commit" : "awaiting-exact-query";
+  notify(gate);
+  return record;
+}
+
+/** 本机提交/退回尚未可靠落盘：不删除所有权，只记录当前在等哪一种证据。 */
+export function markHandoffAwaitingEvidence(gate: HandoffGate, root: string, commandId: string, reason: string): DispatchHandoff | undefined {
+  const record = gate.handoffs.get(handoffKey(root, commandId));
+  if (!record) return undefined;
+  record.awaitingEvidence = String(reason || "awaiting-evidence");
+  notify(gate);
+  return record;
+}
+
+/**
+ * 释放只在真实证据上发生：
+ * - `committed` 要求本机落盘真的成功（由调用方保证）；
+ * - `transport-handed-off` / `transport-not-observed` 要求传输已落定后的完整无错查询（由调用方保证）；
+ * - 已发送的记录在任何其他结局下都不得删除，包括“外层已返回 / 整轮结束 / 异常 / 换代”，
+ *   也不管传输是否已落定：传输失败落定不等于本机状态已移交，更不等于已查过远端。
+ *   否则一次 fresh 查询的 missing 或一次换代就能把在途写入的所有权抹掉。
+ */
+const EVIDENCED_RELEASE_OUTCOMES: readonly HandoffOutcome[] = ["committed", "transport-handed-off", "transport-not-observed"];
+
 export function endHandoff(gate: HandoffGate, root: string, commandId: string, outcome: HandoffOutcome): boolean {
   const key = handoffKey(root, commandId);
   const record = gate.handoffs.get(key);
   if (!record) return false;
+  if (record.transmissionStarted && !EVIDENCED_RELEASE_OUTCOMES.includes(outcome)) {
+    // 已发送但未拿到可靠移交/查询证据：保留所有权，只标注当前在等哪一种证据。
+    record.awaitingEvidence = record.transportSettled
+      ? `${outcome}-deferred-awaiting-commit-or-query`
+      : `${outcome}-deferred-transport-in-flight`;
+    notify(gate);
+    return false;
+  }
   gate.handoffs.delete(key);
   gate.recentHandoffs.unshift({
     handoffId: record.handoffId, commandId: record.commandId, workerId: record.workerId, phase: record.phase,
@@ -249,11 +413,37 @@ export function endHandoff(gate: HandoffGate, root: string, commandId: string, o
   return true;
 }
 
-/** 整轮结束或换代：本轮未提交的交接按真实结局回收，不改写为已提交。 */
+/**
+ * 整轮结束或换代：从未发送的登记按真实结局回收；已发送的登记不能靠 generation 或轮次抹掉，
+ * 它们留在表内并标注待证证据，由精确查询/可靠移交释放。
+ */
 export function endRoundHandoffs(gate: HandoffGate, tickId: string, outcome: HandoffOutcome): number {
   const stale = [...gate.handoffs.values()].filter(record => record.tickId === String(tickId));
-  for (const record of stale) endHandoff(gate, record.root, record.commandId, outcome);
-  return stale.length;
+  let ended = 0;
+  for (const record of stale) {
+    if (endHandoff(gate, record.root, record.commandId, outcome)) ended += 1;
+  }
+  return ended;
+}
+
+/**
+ * 精确查询后的释放：一次完整、无错误的 Worker 任务观测才能当证据。
+ * 传输仍在途的登记任何情况下都不释放；查询失败或 queryComplete 不为 true 同样不释放。
+ */
+export function releaseHandoffsOnObservation(gate: HandoffGate, root: string, workerId: string, snapshot: any): number {
+  if (!snapshot || snapshot.error || snapshot.queryComplete !== true) return 0;
+  const observed = new Set((Array.isArray(snapshot.tasks) ? snapshot.tasks : [])
+    .map((task: any) => String(task?.commandId || "")).filter(Boolean));
+  const rootKey = String(root || "");
+  const wanted = String(workerId || "");
+  let released = 0;
+  for (const record of [...gate.handoffs.values()]) {
+    if (record.root !== rootKey || record.workerId !== wanted) continue;
+    if (!record.transmissionStarted || !record.transportSettled) continue;
+    const outcome: HandoffOutcome = observed.has(record.commandId) ? "transport-handed-off" : "transport-not-observed";
+    if (endHandoff(gate, rootKey, record.commandId, outcome)) released += 1;
+  }
+  return released;
 }
 
 export function blockingHandoffs(gate: HandoffGate, root: string, workerIds: readonly string[]): DispatchHandoff[] {
@@ -346,20 +536,29 @@ export function gateSnapshot(gate: HandoffGate, root?: string) {
   const scoped = (value: string) => !root || value === String(root);
   const workerUploads = [...gate.workerUploads.values()].filter(record => scoped(record.root)).slice(-IDENTITY_LIMIT)
     .map(record => ({ workerId: record.workerId, uploadId: record.uploadId, state: record.state,
+      ...(record.targetKey ? { targetKey: record.targetKey } : {}),
       ageMs: Math.max(0, Date.now() - record.updatedAtMs), ...(record.error ? { error: record.error.slice(0, 240) } : {}) }));
   const active = [...gate.handoffs.values()].filter(record => scoped(record.root))
     .map(record => ({ handoffId: record.handoffId, tickId: record.tickId, generation: record.generation, workerId: record.workerId,
       planId: record.planId, planFile: record.planFile, jobIndex: record.jobIndex, commandId: record.commandId,
       gpuId: record.gpuId, attempt: record.attempt, phase: record.phase, phaseIndex: record.phaseIndex,
       phaseElapsedMs: Math.max(0, Date.now() - record.phaseStartedAtMs), elapsedMs: Math.max(0, Date.now() - record.startedAtMs),
-      sent: record.transmissionStarted }))
+      sent: record.transmissionStarted, transportSettled: record.transportSettled, transportOutcome: record.transportOutcome,
+      localCommitConfirmed: record.localCommitConfirmed, awaitingEvidence: record.awaitingEvidence }))
     .sort((a, b) => b.elapsedMs - a.elapsedMs);
+  const unknownWrites = [...gate.unknownWrites.values()].filter(record => scoped(record.root))
+    .sort((a, b) => b.updatedAtMs - a.updatedAtMs).slice(0, IDENTITY_LIMIT)
+    .map(record => ({ targetKey: record.targetKey, workerId: record.workerId, uploadId: record.uploadId,
+      ageMs: Math.max(0, Date.now() - record.updatedAtMs), transportStarted: record.transportStarted,
+      error: String(record.error || "").slice(0, 240) }));
   return {
-    status: active.length ? "handoff-in-flight" : gate.uploads.length ? "upload-in-flight" : "idle",
+    status: active.length ? "handoff-in-flight" : unknownWrites.length ? "unknown-write-retained"
+      : gate.uploads.length ? "upload-in-flight" : "idle",
     uploadIntents: gate.uploads.filter(intent => scoped(intent.root)).slice(0, IDENTITY_LIMIT)
       .map(intent => ({ uploadId: intent.uploadId, scope: intent.scope, workerCount: intent.workerIds.length,
         workerIds: intent.workerIds.slice(0, 8), ageMs: Math.max(0, Date.now() - intent.startedAtMs) })),
     workerUploads,
+    unknownWrites,
     activeHandoffs: active.slice(0, IDENTITY_LIMIT),
     activeHandoffCount: active.length,
     recentHandoffs: gate.recentHandoffs.slice(0, RECENT_LIMIT),
@@ -388,7 +587,8 @@ export function handoffEvidence(gate: HandoffGate, root: string, blocking: reado
     blocking: blocking.slice(0, 8).map(record => ({ tickId: record.tickId, generation: record.generation, workerId: record.workerId,
       planFile: record.planFile, jobIndex: record.jobIndex, commandId: record.commandId, phase: record.phase,
       phaseElapsedMs: Math.max(0, Date.now() - record.phaseStartedAtMs), elapsedMs: Math.max(0, Date.now() - record.startedAtMs),
-      sent: record.transmissionStarted })),
+      sent: record.transmissionStarted, transportSettled: record.transportSettled, transportOutcome: record.transportOutcome,
+      localCommitConfirmed: record.localCommitConfirmed, awaitingEvidence: record.awaitingEvidence })),
     tick: tickSnapshot(gate, root),
     gate: gateSnapshot(gate, root),
   };
@@ -398,42 +598,86 @@ export function handoffEvidence(gate: HandoffGate, root: string, blocking: reado
  * 同一实际写目标的代码写入互斥（与 Worker ID 无关）：
  * 两个不同 Worker ID 指向同一规范服务器与同一远端 root 时也必须互斥。
  */
-export interface TargetLeaseTable { held: Map<string, { ownerId: string; startedAtMs: number }>; waiters: Map<string, Array<() => void>> }
+export interface TargetLeaseTable {
+  held: Map<string, { ownerId: string; startedAtMs: number }>;
+  waiters: Map<string, Array<() => void>>;
+  /**
+   * 被「写入结果未知」围栏住的写目标：写锁继续保留（放锁等于允许另一个 Worker 立刻覆盖同一实际目标），
+   * 但已经排在该目标上的等待者必须能结束本次等待，拿到明确的「未开始、需核实」结局，
+   * 既不空等一把不会自放的锁，也不接管写入。唯一出路是持有者交出真实查询证据后交还保留租约。
+   */
+  fenced: Map<string, { ownerId: string; reason: string; startedAtMs: number }>;
+}
 export interface TargetLeaseToken { key: string; ownerId: string }
+/** 目标已被未确认写入围栏时的结局：不是令牌，本分支没有开始任何写入，也没有拿到写锁。 */
+export interface TargetLeaseDeferred {
+  key: string;
+  ownerId: string;
+  deferred: { owner: string; reason: string; heldMs: number };
+}
+export type TargetLeaseAcquireResult = TargetLeaseToken | TargetLeaseDeferred;
 
 export function createTargetLeaseTable(): TargetLeaseTable {
-  return { held: new Map(), waiters: new Map() };
+  return { held: new Map(), waiters: new Map(), fenced: new Map() };
 }
 
+/** 目标当前是否处于「写入结果未知、写锁保留」状态。 */
+export function targetLeaseFence(table: TargetLeaseTable, key: string) {
+  return (table.fenced || new Map()).get(String(key || ""));
+}
+
+const deferredLeaseResult = (key: string, ownerId: string,
+  fence: { ownerId: string; reason: string; startedAtMs: number }): TargetLeaseDeferred => ({
+  key, ownerId,
+  deferred: {
+    owner: fence.ownerId,
+    reason: fence.reason || "上一次写入结果未确认结束",
+    heldMs: Math.max(0, Date.now() - fence.startedAtMs),
+  },
+});
+
 export function acquireTargetLease(table: TargetLeaseTable, key: string, ownerId: string,
-  waiters?: { signal?: AbortSignal }): Promise<TargetLeaseToken> {
+  waiters?: { signal?: AbortSignal }): Promise<TargetLeaseAcquireResult> {
+  const fences = table.fenced || (table.fenced = new Map());
   const claim = () => {
     if (table.held.has(key)) return undefined;
     table.held.set(key, { ownerId, startedAtMs: Date.now() });
     return { key, ownerId } as TargetLeaseToken;
   };
+  // 目标已被未确认写入围栏：新到的等待者也立刻拿到「未开始、需核实」，不去空等一把只能由查询证据释放的锁。
+  const fenceAtEntry = fences.get(key);
+  if (fenceAtEntry) return Promise.resolve(deferredLeaseResult(key, ownerId, fenceAtEntry));
   const immediate = claim();
   if (immediate) return Promise.resolve(immediate);
   return new Promise((resolve, reject) => {
     let settled = false;
     const wake = () => {
       if (settled) return;
-      const token = claim();
-      if (!token) return;
+      const fence = fences.get(key);
+      if (!fence) {
+        const token = claim();
+        if (!token) return;
+        settled = true;
+        leaveQueue();
+        waiters?.signal?.removeEventListener?.("abort", abort);
+        resolve(token);
+        return;
+      }
+      // 排队期间目标进入未知状态：结束本次等待并明确「未开始、需核实」，不接管写入、不空等、不裁状态。
       settled = true;
-      const queue = table.waiters.get(key) || [];
-      const next = queue.filter(item => item !== wake);
-      if (next.length) table.waiters.set(key, next);
-      else table.waiters.delete(key);
+      leaveQueue();
       waiters?.signal?.removeEventListener?.("abort", abort);
-      resolve(token);
+      resolve(deferredLeaseResult(key, ownerId, fence));
+    };
+    const leaveQueue = () => {
+      const queue = (table.waiters.get(key) || []).filter(item => item !== wake);
+      if (queue.length) table.waiters.set(key, queue);
+      else table.waiters.delete(key);
     };
     const abort = () => {
       if (settled) return;
       settled = true;
-      const queue = (table.waiters.get(key) || []).filter(item => item !== wake);
-      if (queue.length) table.waiters.set(key, queue);
-      else table.waiters.delete(key);
+      leaveQueue();
       reject(Object.assign(new Error("代码写入目标租约等待已取消，未开始写入。"), { dispatchNotSent: true }));
     };
     const queue = table.waiters.get(key) || [];
@@ -444,11 +688,28 @@ export function acquireTargetLease(table: TargetLeaseTable, key: string, ownerId
   });
 }
 
+/**
+ * 目标写入结果未知：保留写锁不放，并把已经排在该目标上的等待者全部唤醒，
+ * 让它们以「未开始、需核实」结束本次等待，整批因此能正常失败收敛。
+ * 这不是交出所有权：围栏与保留租约只能由真实查询证据后的 releaseTargetLease 解除。
+ */
+export function fenceTargetLease(table: TargetLeaseTable, token: TargetLeaseToken | undefined, reason: string): boolean {
+  if (!token) return false;
+  const held = table.held.get(token.key);
+  if (!held || held.ownerId !== token.ownerId) return false;
+  const fences = table.fenced || (table.fenced = new Map());
+  fences.set(token.key, { ownerId: token.ownerId, reason: String(reason || ""), startedAtMs: Date.now() });
+  for (const wake of [...(table.waiters.get(token.key) || [])]) wake();
+  return true;
+}
+
 export function releaseTargetLease(table: TargetLeaseTable, token: TargetLeaseToken | undefined): boolean {
   if (!token) return false;
   const held = table.held.get(token.key);
   if (!held || held.ownerId !== token.ownerId) return false;
   table.held.delete(token.key);
+  // 只有持有者本人交出这把锁（未知写入路径即“查询已确认结束”）才解除围栏，随后排队者才能重新取锁。
+  if (table.fenced?.get(token.key)?.ownerId === held.ownerId) table.fenced.delete(token.key);
   const queue = table.waiters.get(token.key) || [];
   const next = queue.shift();
   if (queue.length) table.waiters.set(token.key, queue);
@@ -456,27 +717,3 @@ export function releaseTargetLease(table: TargetLeaseTable, token: TargetLeaseTo
   next?.();
   return true;
 }
-
-/**
- * 有界并发且逐项收敛：单个回调抛错或取消不会让其余在途分支失去登记，
- * 因此外层可以等全部分支真正结束之后再释放 gate 与写入计数。
- */
-export async function runBoundedSettled<Item>(items: readonly Item[], limit: number,
-  worker: (item: Item, index: number) => Promise<unknown>): Promise<{ outcomes: Array<{ status: "fulfilled" | "rejected"; value?: unknown; error?: unknown }> }> {
-  const total = items.length;
-  const outcomes: Array<{ status: "fulfilled" | "rejected"; value?: unknown; error?: unknown }> = new Array(total);
-  let next = 0;
-  const lanes = Math.max(1, Math.min(Math.max(1, Number(limit) || 1), total || 1));
-  await Promise.all(Array.from({ length: lanes }, async () => {
-    for (;;) {
-      const index = next;
-      next += 1;
-      if (index >= total) return;
-      try { outcomes[index] = { status: "fulfilled", value: await worker(items[index], index) }; }
-      catch (error) { outcomes[index] = { status: "rejected", error }; }
-    }
-  }));
-  return { outcomes };
-}
-
-export const __testOnly = { terminalStatus: terminal, identityId };

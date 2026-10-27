@@ -208,6 +208,7 @@ const BranchPlanDispatch = __importStar(require("../project/BranchPlanDispatch")
 const BranchHeadBinding = __importStar(require("../project/BranchHeadBinding"));
 const BranchPullRequest = __importStar(require("../project/BranchPullRequest"));
 const UnifiedDispatchAdmission = __importStar(require("../project/UnifiedDispatchAdmission"));
+const DispatchHandoffGate = __importStar(require("../features/DispatchHandoffGate"));
 const GitIdentityProbe_1 = require("../project/GitIdentityProbe");
 const LocalApiClient_1 = require("../cli/LocalApiClient");
 const RenamedExtensionStateMigration_1 = require("../config/RenamedExtensionStateMigration");
@@ -1137,6 +1138,8 @@ class RealtimeTunnelPanelProvider {
     availabilityPushInFlight = false;
     lastCodeSyncState = {};
     lastCodeSyncStats = { hashed: 0, hashReused: 0, cacheWriteSkipped: 0, inventoryCalls: 0, uploads: 0 };
+    /** 代码同步等待派发交接超时的有界证据快照（走既有诊断与动作错误通道）。 */
+    dispatchHandoffTimeoutEvidence;
     codeSyncWarmProofs = new Map();
     codeSyncAgentProofs = new Map();
     workerProbeSignatures = new Map();
@@ -3080,6 +3083,8 @@ class RealtimeTunnelPanelProvider {
             this.lastWorkerTaskSnapshots.delete(this.lastWorkerTaskSnapshots.keys().next().value);
         this.noteWorkerTaskPlanStatus(cacheKey, snapshot);
         const [root, workerId] = cacheKey.split("\u0000");
+        // 精确查询才能释放在途传输的交接所有权；传输仍在途、查询不完整或任务不在快照里时 gate 自己会拒绝。
+        this.releaseDispatchHandoffsOnObservationLocal?.(root, workerId, snapshot);
         if (workerId && this.distributedQueueRoot === root && root === workspaceRoot()
             && (0, DispatchWake_1.ownExecutionExited)(previousSnapshot, snapshot, this.distributedQueueCache, DistributedPlanQueue.canonicalProjectId(root)))
             this.requestDistributedQueueRefresh();
@@ -9513,67 +9518,118 @@ class RealtimeTunnelPanelProvider {
             this.pluginUpdateInstalling = false;
         }
     }
-    async syncToGitHub(confirm = true, taskName) {
-        if (confirm)
-            this.notifyLocalActionStarted("同步到 GitHub", "正在执行 git add/commit/push。");
+    /**
+     * 本机仓库准备必须按序先完成：绑定项目/仓库、必要的 stage 与 commit，并确定待推送提交。
+     * 提交钩子会改变源码，因此这一步与后续 Worker 上传读源码不得交错；本步不走任何网络。
+     */
+    async prepareLocalGitPublish(taskName, report = (_text) => { }) {
         const repo = await this.primaryGitRepository();
         await vscode.commands.executeCommand("git.stageAll");
-        if (gitRepositoryHasChanges(repo)) {
-            const message = timestampCommitMessage(taskName, changedFileNamesFromRepo(repo));
+        const committed = gitRepositoryHasChanges(repo);
+        const message = timestampCommitMessage(taskName, committed ? changedFileNamesFromRepo(repo) : []);
+        if (committed) {
             assertNonEmptyCommitMessage(message);
             repo.inputBox.value = message;
             await repo.commit(message);
-            await repo.push();
-            void vscode.window.showInformationMessage(`GitHub 同步完成：${message}`);
-            return;
         }
-        await repo.push();
-        void vscode.window.showInformationMessage(`GitHub 同步完成：${timestampCommitMessage(taskName, [])}`);
+        const hasRemote = gitRepositoryHasRemote(repo);
+        report(`待推送提交已确定${committed ? "（本次新建提交）" : "（无本地变更）"}：${message}`);
+        return { repo, message, committed, hasRemote };
+    }
+    /** 只走网络：已有远端则 push，否则走既有首次仓库发布流程；不读写 Worker，也不读源码树。 */
+    async publishPreparedGitBranch(prepared, report = (_text) => { }) {
+        if (prepared.hasRemote) {
+            report("正在推送到 GitHub…");
+            await prepared.repo.push();
+            return { pushed: true, createdRemote: false };
+        }
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("请先打开一个工作区，再执行 GitHub 发布。");
+        const cp = require("child_process");
+        const probe = cp.spawnSync("gh", ["--version"], { encoding: "utf8", timeout: 5000 });
+        const ghMissing = probe.error || probe.status !== 0;
+        if (ghMissing) {
+            const choice = await vscode.window.showErrorMessage(`未检测到 gh CLI（GitHub 官方命令行）。首次发布需要它创建仓库。请先安装 gh 并执行 \`gh auth login\`，然后重试。`, { modal: true }, "打开安装页", "查看文档");
+            if (choice === "打开安装页")
+                await vscode.env.openExternal(vscode.Uri.parse("https://cli.github.com/"));
+            else if (choice === "查看文档")
+                await vscode.env.openExternal(vscode.Uri.parse("https://docs.github.com/zh/github-cli/github-cli/setting-up-the-github-cli"));
+            throw new Error("gh CLI 未安装或未登录，无法创建远程仓库；已引导打开安装页，请安装后重新执行「发布到git并上传worker」。");
+        }
+        report("首次发布：正在创建远端仓库并推送…");
+        await runVsCodeShellTask("SimpleExperiment GitHub publish", "gh repo create --source . --remote origin --private --push", root);
+        return { pushed: true, createdRemote: true };
+    }
+    async syncToGitHub(confirm = true, taskName) {
+        if (confirm)
+            this.notifyLocalActionStarted("同步到 GitHub", "正在执行 git add/commit/push。");
+        // 本机准备（含 stage/commit）与网络 push 的次序不变，只是拆成可单独复用的两段。
+        const prepared = await this.prepareLocalGitPublish(taskName);
+        await this.publishPreparedGitBranch(prepared);
+        void vscode.window.showInformationMessage(`GitHub 同步完成：${prepared.message}`);
     }
     async publishToGitHub(taskName) {
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "发布到git并上传worker", cancellable: false }, async (progress) => {
             const report = (message, increment) => progress.report({ message, increment });
-            report("正在连接 GitHub 并提交/推送仓库…", 8);
+            // 总进度按各分支最新状态归并：增量只在确定阶段加一次，交错回调只改写文案，不重复累加。
+            const branchState = { git: "正在准备本机提交", workers: "等待本机准备" };
+            const merged = () => report(`GitHub：${branchState.git}｜Worker：${branchState.workers}`, 0);
+            report("正在准备本机提交与 GitHub 凭证…", 8);
             const token = await this.githubUpdateToken(true);
-            const repo = await this.primaryGitRepository();
-            if (gitRepositoryHasRemote(repo)) {
-                await this.syncToGitHub(false, taskName);
+            const prepared = await this.prepareLocalGitPublish(taskName, text => { branchState.git = text; merged(); });
+            // 本机准备完成后，Git 网络推送与 Worker 上传是两条独立分支：Worker 不等 Git 网络成功，
+            // 任一侧失败都不得自动取消另一侧已经开始的工作，也不得提前释放已发起的写入所有权。
+            // 两条分支各自收敛为结果对象，Promise.all 不会提前拒绝而留下无主写入。
+            report("本机提交已确定，GitHub 推送与 Worker 上传并行进行…", 14);
+            const gitBranch = (async () => {
+                try {
+                    const result = await this.publishPreparedGitBranch(prepared, text => { branchState.git = text; merged(); });
+                    branchState.git = result?.createdRemote ? "首次仓库已发布" : "已推送";
+                    return { ok: true, result };
+                }
+                catch (error) {
+                    branchState.git = `失败：${errorMessage(error)}`;
+                    return { ok: false, error };
+                }
+                finally {
+                    merged();
+                }
+            })();
+            const workerBranch = (async () => {
+                try {
+                    const upload = await this.uploadProjectToWorkers(false, {
+                        progressReport: text => { branchState.workers = text; merged(); }, progressSpan: 70,
+                    });
+                    branchState.workers = upload.message;
+                    return { ok: true, upload };
+                }
+                catch (error) {
+                    branchState.workers = `失败：${errorMessage(error)}`;
+                    return { ok: false, error };
+                }
+                finally {
+                    merged();
+                }
+            })();
+            const [gitResult, workerResult] = await Promise.all([gitBranch, workerBranch]);
+            // 四种组合分别如实呈现；成功目标不回滚，未知写入只提示先查询。
+            if (gitResult.ok && workerResult.ok) {
+                report(workerResult.upload.message, 0);
+                void vscode.window.showInformationMessage(`GitHub 已发布；${workerResult.upload.message}`);
+            }
+            else if (gitResult.ok) {
+                void vscode.window.showErrorMessage(`GitHub 已发布，但 Worker 上传失败：${errorMessage(workerResult.error)}。可单独使用「上传到 Worker」入口重试。`);
+                throw workerResult.error;
+            }
+            else if (workerResult.ok) {
+                void vscode.window.showErrorMessage(`GitHub 发布失败：${errorMessage(gitResult.error)}；Worker 上传已完成（${workerResult.upload.message}），成功目标未回滚。请单独使用「同步到 GitHub」入口重试。`);
+                throw gitResult.error;
             }
             else {
-                const root = workspaceRoot();
-                if (!root)
-                    throw new Error("请先打开一个工作区，再执行 GitHub 发布。");
-                await vscode.commands.executeCommand("git.stageAll");
-                if (gitRepositoryHasChanges(repo)) {
-                    const message = timestampCommitMessage(taskName, changedFileNamesFromRepo(repo));
-                    assertNonEmptyCommitMessage(message);
-                    repo.inputBox.value = message;
-                    await repo.commit(message);
-                }
-                const cp = require("child_process");
-                const probe = cp.spawnSync("gh", ["--version"], { encoding: "utf8", timeout: 5000 });
-                const ghMissing = probe.error || probe.status !== 0;
-                if (ghMissing) {
-                    const choice = await vscode.window.showErrorMessage(`未检测到 gh CLI（GitHub 官方命令行）。首次发布需要它创建仓库。请先安装 gh 并执行 \`gh auth login\`，然后重试。`, { modal: true }, "打开安装页", "查看文档");
-                    if (choice === "打开安装页")
-                        await vscode.env.openExternal(vscode.Uri.parse("https://cli.github.com/"));
-                    else if (choice === "查看文档")
-                        await vscode.env.openExternal(vscode.Uri.parse("https://docs.github.com/zh/github-cli/github-cli/setting-up-the-github-cli"));
-                    throw new Error("gh CLI 未安装或未登录，无法创建远程仓库；已引导打开安装页，请安装后重新执行「发布到git并上传worker」。");
-                }
-                await runVsCodeShellTask("SimpleExperiment GitHub publish", "gh repo create --source . --remote origin --private --push", root);
+                void vscode.window.showErrorMessage(`GitHub 与 Worker 均失败：GitHub ${errorMessage(gitResult.error)}；Worker ${errorMessage(workerResult.error)}。请分别使用对应入口重试；结果未知的写入会先查询，不会自动重放。`);
+                throw gitResult.error;
             }
-            report("GitHub 已完成，正在准备 Worker 上传…", 22);
-            let upload;
-            try {
-                upload = await this.uploadProjectToWorkers(false, { progressReport: report, progressSpan: 70 });
-            }
-            catch (uploadErr) {
-                void vscode.window.showErrorMessage(`GitHub 已发布，但 Worker 上传失败：${errorMessage(uploadErr)}。可单独使用「上传到 Worker」入口重试。`);
-                throw uploadErr;
-            }
-            report(upload.message, 0);
-            void vscode.window.showInformationMessage(`GitHub 已发布；${upload.message}`);
             void token;
         });
     }
@@ -12301,16 +12357,780 @@ class RealtimeTunnelPanelProvider {
         if (synced?.length && !synced.some(t => t.id === selected))
             this.stampWorkerPoolManualTarget(body, synced[0].id);
     }
+    /** 交接 gate 与 tick 阶段账本。状态只存于本模块的纯结构，经既有状态/错误通道上报，不新增文件与定时器。 */
+    // 不在字段初始化时碰模块命名空间：很多测试只摘出部分类成员到 VM 宿主，字段初始化器会连带
+    // 拉起整个 gate 模块引用。这里改为首次真实使用时惰性创建，调用方永远拿到真实结构。
+    dispatchHandoffGate = undefined;
+    codeUploadTargetLeases = undefined;
+    gateStateLocal() {
+        return this.dispatchHandoffGate || (this.dispatchHandoffGate = DispatchHandoffGate.createGate());
+    }
+    targetLeaseTableLocal() {
+        return this.codeUploadTargetLeases || (this.codeUploadTargetLeases = DispatchHandoffGate.createTargetLeaseTable());
+    }
+    /** tick 生命周期与交接记录的身份对应（仅本轮生命周期内有效）。 */
+    distributedTickIds = new WeakMap();
+    codeUploadHandoffSeq = 0;
+    /** tick 身份经字段传给 core，避免给二参签名的既有提取夹具新增参数。 */
+    distributedCurrentTickId = undefined;
+    /** 写入结果未知的目标租约保留表：键为实际写目标键，只有主动查询确认结束后才放回。 */
+    retainedCodeUploadTargetLeases = undefined;
+    /** 同一实际目标的接管决策串行队列：查询在途时兄弟分支可能刚取锁，并发决策会误取消本轮自己的上传。 */
+    codeUploadTakeoverTails = undefined;
+    /**
+     * 本轮（同一个 syncId）正拿着写锁、已越过真实写入边界的分支起点集合。
+     * 只在 `upload.workspace` 调用期间存在（无论成败都注销），用于在操作项不带主机/路径时也能认出“这是本轮刚启动的上传”。
+     */
+    codeUploadRoundWriteEpochs = undefined;
+    distributedTickSeq = 0;
+    /** 每 Worker（按实际写目标）独立的传输/校验/proof 阶段，不折叠成“全部成功”。 */
+    codeSyncTargetResults = [];
+    beginCodeUploadHandoffLocal(root, scope, workerIds) {
+        if (!root)
+            return undefined;
+        return DispatchHandoffGate.beginUpload(this.gateStateLocal(), {
+            uploadId: `upload-${++this.codeUploadHandoffSeq}`, root, scope: String(scope || ""), workerIds: workerIds || [],
+        });
+    }
+    endCodeUploadHandoffLocal(uploadId) {
+        if (uploadId)
+            DispatchHandoffGate.endUpload(this.gateStateLocal(), String(uploadId));
+    }
+    /** 等待已登记的派发交接真正结束；超时只说明本轮仍未安全，不释放任何交接所有权。 */
+    awaitDispatchHandoffSafeLocal(intent, timeoutMs) {
+        if (!intent)
+            return Promise.resolve({ safe: true, waitedMs: 0, timedOut: false, blocking: [] });
+        return DispatchHandoffGate.waitForBlockingClear(this.gateStateLocal(), intent.root, intent.workerIds || [], timeoutMs);
+    }
+    markCodeUploadWorkerReadyLocal(intent, root, workerId, targetKey) {
+        if (!intent || !workerId)
+            return;
+        DispatchHandoffGate.markWorkerUploadState(this.gateStateLocal(), intent.uploadId, root, workerId, "uploaded");
+        if (targetKey)
+            DispatchHandoffGate.noteUploadTarget(this.gateStateLocal(), intent.uploadId, root, workerId, targetKey);
+    }
+    markCodeUploadWorkerFailedLocal(intent, root, workerId, error, targetKey) {
+        if (!intent || !workerId)
+            return;
+        if (targetKey)
+            DispatchHandoffGate.noteUploadTarget(this.gateStateLocal(), intent.uploadId, root, workerId, targetKey);
+        DispatchHandoffGate.markWorkerUploadState(this.gateStateLocal(), intent.uploadId, root, workerId, "unknown-failed", error);
+    }
+    /** 记下本轮写入的真实目标键（规范服务器 + 实际 root），别名共享目标靠它判定。 */
+    noteCodeUploadTargetLocal(intent, root, workerId, targetKey) {
+        if (!intent || !workerId || !targetKey)
+            return;
+        DispatchHandoffGate.noteUploadTarget(this.gateStateLocal(), intent.uploadId, root, workerId, targetKey);
+    }
+    /** 派发入口重查：本轮上传尚未确认写入完成的 Worker 不得接受新派发。 */
+    dispatchHandoffAllowsWorkerLocal(root, workerId) {
+        return !DispatchHandoffGate.uploadBlocksWorker(this.gateStateLocal(), root, workerId, this.dispatchTargetKeyLocal(workerId));
+    }
+    dispatchHandoffYieldsRoundLocal(root, workerIds) {
+        const entries = (workerIds || []).map((workerId) => ({ workerId, targetKey: this.dispatchTargetKeyLocal(workerId) }));
+        return DispatchHandoffGate.uploadYieldsWholeRound(this.gateStateLocal(), root, entries);
+    }
+    /** 派发 gate 入口：为已过准入前置筛选的派发登记交接所有权（所有权先于准入落盘）。 */
+    registerDispatchHandoffsLocal(input) {
+        let registered = 0;
+        for (const dispatch of input.dispatches || []) {
+            if (!dispatch?.commandId || !dispatch.workerId)
+                continue;
+            DispatchHandoffGate.beginHandoff(this.gateStateLocal(), { tickId: input.tickId, generation: input.generation, root: input.root,
+                projectId: input.projectId, workerId: String(dispatch.workerId || ""), planId: String(dispatch.planId || ""),
+                planFile: String(dispatch.planFile || ""), jobIndex: Number(dispatch.jobIndex), commandId: String(dispatch.commandId || ""),
+                gpuId: dispatch.gpuId === undefined ? "" : String(dispatch.gpuId), attempt: Number(dispatch.attempt || 0) });
+            registered += 1;
+        }
+        return registered;
+    }
+    advanceDispatchHandoffLocal(root, commandId, phase) {
+        if (!root || !commandId)
+            return undefined;
+        return DispatchHandoffGate.advanceHandoff(this.gateStateLocal(), root, commandId, phase);
+    }
+    markDispatchHandoffTransmissionLocal(root, commandId) {
+        if (!root || !commandId)
+            return;
+        DispatchHandoffGate.markHandoffTransmission(this.gateStateLocal(), root, commandId);
+    }
+    /**
+     * 底层传输落定：外层函数已返回不等于送达，因此本方法只能由传输自己的 promise 调用。
+     * fire-and-forget 可以继续向调用方返回 unknown，但在途登记不会随外层返回消失。
+     */
+    markDispatchHandoffTransportSettledLocal(root, commandId, outcome) {
+        if (!root || !commandId)
+            return undefined;
+        return DispatchHandoffGate.markHandoffTransportSettled(this.gateStateLocal(), root, commandId, outcome);
+    }
+    /** 把传输 promise 的落定接到交接登记上（不吞错，原有错误上报保持原样）。 */
+    observeDispatchHandoffTransportLocal(root, commandId, posted) {
+        void Promise.resolve(posted).then(() => this.markDispatchHandoffTransportSettledLocal?.(root, commandId, "ok"), () => this.markDispatchHandoffTransportSettledLocal?.(root, commandId, "failed"));
+    }
+    /** 本机提交/退回没真的落盘：不删所有权，只标注当前在等什么证据。 */
+    markDispatchHandoffAwaitingEvidenceLocal(root, commandId, reason) {
+        if (!root || !commandId)
+            return undefined;
+        return DispatchHandoffGate.markHandoffAwaitingEvidence(this.gateStateLocal(), root, commandId, reason);
+    }
+    /** 精确查询（完整、无错误的 Worker 任务观测）后的释放；传输仍在途时 gate 自己会拒绝释放。 */
+    releaseDispatchHandoffsOnObservationLocal(root, workerId, snapshot) {
+        if (!root || !workerId)
+            return 0;
+        return DispatchHandoffGate.releaseHandoffsOnObservation(this.gateStateLocal(), root, workerId, snapshot);
+    }
+    endDispatchHandoffLocal(root, commandId, outcome) {
+        if (!root || !commandId)
+            return false;
+        return DispatchHandoffGate.endHandoff(this.gateStateLocal(), root, commandId, outcome);
+    }
+    /**
+     * 本机队列真的落盘后的可靠移交：已发送记 committed，从未发送记 unsent-released。
+     * 没拿到这条证据时调用方只能标注等待，不能拿“发送函数已返回”当提交成功。
+     */
+    commitDispatchHandoffLocal(root, commandId) {
+        if (!root || !commandId)
+            return false;
+        const gate = this.gateStateLocal();
+        const record = DispatchHandoffGate.advanceHandoff(gate, root, commandId, "local-receipt-commit");
+        if (!record)
+            return false;
+        record.localCommitConfirmed = true;
+        return DispatchHandoffGate.endHandoff(gate, root, commandId, record.transmissionStarted ? "committed" : "unsent-released");
+    }
+    /** 整轮结束/换代：本轮未提交的交接按真实结局回收，绝不改写成已提交。 */
+    endTickHandoffsLocal(tickId, outcome) {
+        return tickId ? DispatchHandoffGate.endRoundHandoffs(this.gateStateLocal(), tickId, outcome) : 0;
+    }
+    beginDistributedTickRecordLocal(root, generation) {
+        return `tick-${++this.distributedTickSeq}`;
+    }
+    beginDistributedTickLocal(tickId, root, generation) {
+        if (!tickId)
+            return undefined;
+        return DispatchHandoffGate.beginTick(this.gateStateLocal(), { tickId, root: root || "", generation });
+    }
+    setDistributedTickPhaseLocal(tickId, phase, detail) {
+        if (!tickId)
+            return;
+        DispatchHandoffGate.setTickPhase(this.gateStateLocal(), tickId, phase, detail);
+    }
+    endDistributedTickRecordLocal(tickId, outcome, error) {
+        if (!tickId)
+            return;
+        DispatchHandoffGate.endTick(this.gateStateLocal(), tickId, outcome, error ? errorMessage(error) : undefined);
+    }
+    /** 等待超时证据：走既有可持久化错误通道，同时刷新面板诊断快照。 */
+    recordDispatchHandoffTimeoutLocal(source, intent, wait) {
+        const root = String(intent?.root || workspaceRoot() || "");
+        const blocking = wait?.blocking || DispatchHandoffGate.blockingHandoffs(this.gateStateLocal(), root, intent?.workerIds || []);
+        const evidence = DispatchHandoffGate.handoffEvidence(this.gateStateLocal(), root, blocking);
+        this.dispatchHandoffTimeoutEvidence = { source: String(source || ""), at: new Date().toISOString(), waitedMs: Number(wait?.waitedMs || 0), ...evidence };
+        const active = evidence.blocking.map((row) => `${row.workerId || "?"}/${row.planFile || row.planId || "?"}#${row.jobIndex} ${row.phase}${row.sent ? " 已发送" : " 未确认发送"} ${row.elapsedMs}ms`);
+        const tickPhase = evidence.tick.ticks.filter((row) => row.outcome === "in-flight")
+            .map((row) => `${row.tickId} ${row.phase}#${row.phaseIndex} ${row.elapsedMs}ms`);
+        const storage = this.distributedQueueStorageDiagnostics || { status: "ready" };
+        const message = `原派发尚未确认结束，代码同步未写入；请刷新任务状态后重试。`
+            + `交接阶段[${active.slice(0, 4).join("；") || "无活跃交接"}]本轮阶段[${tickPhase.slice(0, 3).join("；") || "无进行中 tick"}]`
+            + `队列诊断 ${storage.status}${storage.reason ? `/${storage.reason}` : ""}`;
+        // 精确身份要能走过真实压缩与序列化、重载后仍可核对：tickId / generation / 阻塞 commandId / phase /
+        // 已等时长 / 是否已发 / 传输是否落定 / 有界队列诊断；只留白名单字段，不带密钥和文件清单。
+        const gateSnapshotForEvidence = evidence?.gate || {};
+        const latestQueueMetric = (this.distributedQueueMetrics || []).slice(-1)[0] || {};
+        const handoffEvidenceDetails = {
+            source: String(source || ""),
+            waitedMs: Number(wait?.waitedMs || 0),
+            tickId: String(wait?.tickId || this.distributedCurrentTickId || evidence.blocking[0]?.tickId || ""),
+            generation: Number(wait?.generation || evidence.blocking[0]?.generation || 0),
+            blockingHandoffCount: Number(gateSnapshotForEvidence.activeHandoffCount || evidence.blocking.length || 0),
+            activeUploadCount: (gateSnapshotForEvidence.uploadIntents || []).length,
+            queueBytes: Number(latestQueueMetric.queueBytes || 0),
+            clearedJobsCount: Number(latestQueueMetric.clearedJobs || 0),
+            queueStorageStatus: String(storage?.status || "ready"),
+            queueStorageReason: String(storage?.reason || ""),
+            blocking: evidence.blocking.slice(0, 4).map((row) => ({ tickId: String(row.tickId || ""),
+                generation: Number(row.generation || 0), workerId: String(row.workerId || ""), commandId: String(row.commandId || ""),
+                phase: String(row.phase || ""), sent: row.sent === true, transportSettled: row.transportSettled === true,
+                transportOutcome: String(row.transportOutcome || ""), elapsedMs: Number(row.elapsedMs || 0) })),
+        };
+        this.recordActionError({ command: "codeUploadDispatchHandoff", message, details: { dispatchHandoff: handoffEvidenceDetails },
+            suggestion: "已保留仍在执行的派发交接所有权；请刷新任务状态后重试，不会重叠写入同一 Worker。" });
+        this.postState();
+        return message;
+    }
+    dispatchHandoffDiagnosticsLocal() {
+        const snapshot = DispatchHandoffGate.gateSnapshot(this.gateStateLocal(), workspaceRoot() || "");
+        if (this.dispatchHandoffTimeoutEvidence)
+            snapshot.lastWaitTimeout = this.dispatchHandoffTimeoutEvidence;
+        return snapshot;
+    }
+    distributedTickDiagnosticsLocal() {
+        return DispatchHandoffGate.tickSnapshot(this.gateStateLocal(), workspaceRoot() || "");
+    }
+    /** 发送口最后的 gate 重查：新登记的写入意图未交接完成前不得开始传输（抛出后由既有「明确未发送」路径退回）。 */
+    assertDispatchHandoffSendAllowedLocal(root, workerId) {
+        if (!root || !workerId)
+            return;
+        if (DispatchHandoffGate.uploadBlocksWorker(this.gateStateLocal(), root, workerId, this.dispatchTargetKeyLocal(workerId)))
+            throw new Error(`代码写入尚未交接完成，${workerId} 的远端项目根不能并发覆盖；本次任务未发送。`);
+    }
+    /** 非 tick 通道（手动/服务器队列/失败重试）同样进入交接所有权；tick 已登记的由 tick 在回执提交后结束。 */
+    ensureDispatchHandoffForSendLocal(root, workerId, commandId, plan, job, gpuId) {
+        if (!root || !commandId || !workerId)
+            return false;
+        if (DispatchHandoffGate.hasHandoff(this.gateStateLocal(), root, commandId))
+            return false;
+        DispatchHandoffGate.beginHandoff(this.gateStateLocal(), { tickId: "send-channel", generation: Number(this.distributedQueueGeneration),
+            root, projectId: String(plan?.projectId || ""), workerId, planId: String(plan?.id || ""), planFile: String(plan?.planFile || ""),
+            jobIndex: Number(job?.index), commandId, gpuId: gpuId === undefined ? "" : String(gpuId), attempt: Number(job?.attempt || 0) });
+        return true;
+    }
+    /**
+     * 代码写入目标的真实身份：走生产侧已有绑定 sftpServerOptions → sshTransportIdentity。
+     * 解析不出来就明确失败，绝不退回统一的占位身份：否则不同服务器只要 remotePath 相同就会
+     * 抢同一把写锁，把用户要的跳服务器并行打成串行。
+     */
+    resolveCodeUploadTargetIdentityLocal(target) {
+        if (typeof this.sftpServerOptions !== "function")
+            throw new Error("无法解析代码写入目标的服务器身份（SFTP 配置解析入口不可用），本轮未开始写入。");
+        const server = this.sftpServerOptions(target);
+        const label = String(target?.label || target?.id || "SSH 目标");
+        const host = String(server?.host || server?.networkHost || "").trim();
+        if (!host)
+            throw new Error(`${label} 没能解析出可用的服务器地址，本轮未开始写入；请先在设置里补全该服务器地址或 SSH 别名。`);
+        const remoteRoot = String(target?.remotePath || server?.remotePath || "")
+            .replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+        if (!remoteRoot)
+            throw new Error(`${label} 缺少远端项目根，本轮未开始写入；避免把不同项目的写入归并成同一把锁。`);
+        // POSIX 路径区分大小写，root 不得无条件转小写；主机名不区分，因此只主机部分转小写。
+        const port = Number(server?.port || 22) || 22;
+        return { host, port, remoteRoot, networkHost: String(server?.networkHost || ""),
+            sshConfigAlias: String(server?.sshConfigAlias || ""), sshConfigHost: String(server?.sshConfigHost || ""),
+            key: `${host.toLowerCase()}:${port}:${remoteRoot}` };
+    }
+    /** 代码写入目标租约：以规范服务器 + 实际远端 root 为键，与 Worker ID 无关；身份解析失败不得默默写入。 */
+    async acquireCodeUploadTargetLeaseLocal(target, ownerId, signal, resolvedIdentity) {
+        // 调用方可以在等锁前自己先把身份解出来（别名判定需要等锁前就有目标键）；
+        // 不重复解析也不编造身份，空身份仍走原路径重新解析或明确报错。
+        const identity = resolvedIdentity?.key ? { key: String(resolvedIdentity.key) } : this.resolveCodeUploadTargetIdentityLocal(target);
+        const acquired = await DispatchHandoffGate.acquireTargetLease(this.targetLeaseTableLocal(), identity.key, ownerId, { signal });
+        const deferred = acquired.deferred;
+        // 拿不到令牌只有一种情况：同一实际目标已被上一份未确认写入围栏，调用方必须按「未开始、需核实」处理。
+        return { token: deferred ? undefined : acquired, key: identity.key, identity, deferred };
+    }
+    releaseCodeUploadTargetLeaseLocal(token) {
+        return token ? DispatchHandoffGate.releaseTargetLease(this.targetLeaseTableLocal(), token) : false;
+    }
+    /** 写入结果未知时保留目标租约：释放即等于允许另一个 Worker 覆盖同一实际目标。 */
+    /** 写入结果未知时保留目标租约：释放即等于允许另一个 Worker 覆盖同一实际目标。 */
+    retainCodeUploadTargetLeaseLocal(lease) {
+        if (!lease?.token || !lease.key)
+            return false;
+        this.retainedCodeUploadTargetLeases = { ...(this.retainedCodeUploadTargetLeases || {}), [lease.key]: lease.token };
+        // 锁确实保留住了，但已经排在这把锁上的同批分支不能无限等：围栏会把它们以「未开始、需核实」放出去，
+        // 整批因此能正常收敛，下一次重试才能进到主动查询恢复；围栏与保留租约本身都原样留着。
+        DispatchHandoffGate.fenceTargetLease(this.targetLeaseTableLocal(), lease.token, `上一份写入该目标的写入结果未确认结束（${lease.key}）`);
+        return true;
+    }
+    releaseRetainedCodeUploadTargetLeaseLocal(targetKey) {
+        const token = (this.retainedCodeUploadTargetLeases || {})[targetKey];
+        if (!token)
+            return false;
+        delete this.retainedCodeUploadTargetLeases[targetKey];
+        return DispatchHandoffGate.releaseTargetLease(this.targetLeaseTableLocal(), token);
+    }
+    /** 目标当前是否有写入结果未知的在途写入（同时看 gate 记录与保留租约）。 */
+    pendingCodeUploadUnknownWriteLocal(root, identity) {
+        const record = DispatchHandoffGate.pendingUnknownCodeWrite(this.gateStateLocal(), root, identity);
+        if (!record)
+            return undefined;
+        return { ...record, retainedLease: Boolean((this.retainedCodeUploadTargetLeases || {})[record.targetKey]) };
+    }
+    /** 主动查询确认写入已结束后，才释放未知写入所有权与保留的目标租约。 */
+    resolveCodeUploadUnknownWriteLocal(root, identity) {
+        const record = DispatchHandoffGate.resolveUnknownCodeWrite(this.gateStateLocal(), root, identity);
+        if (!record)
+            return undefined;
+        this.releaseRetainedCodeUploadTargetLeaseLocal(record.targetKey);
+        return record;
+    }
+    /**
+     * 实际写目标的传输核实（只读投影，不碰远端、不写队列、不带超时参数）：
+     * 只用 SimpleSFTP 自己的 `transfers.list`，再按 `codeUploadTargetRowsLocal` 分类：
+     * 本机插件发起的未结束传输与未终结台账（包括只有 `id=operationId`、没有活动传输行也没有主机/路径的纯台账行，
+     * 以及只有 `{id, stage}` 的当前上传阶段项）都必须参与静默判定；
+     * 本轮兄弟分支正在写的项既不取消，也不能在端口与本目标分不开时谎称静默。
+     * 已可靠归因到其他实际目标的行不阻塞本目标（否则同批不同 root 的并行写入会互相锁死）；
+     * SimpleSFTP 自己的“同目标仍有未确认旧请求”守卫仍是底线。
+     * 旧的 `sync.projectTreeState` 只回答“目录在不在/是不是空”，不能证明写操作已结束，已不再使用。
+     */
+    async verifyCodeUploadTargetQuiescentLocal(target, targetKey, syncId) {
+        const label = String(target?.label || target?.id || "Worker");
+        let state;
+        try {
+            state = await this.simpleSftpApiCall("transfers.list", {});
+        }
+        catch (error) {
+            return { quiescent: false, rows: [], blocked: [], protectedRows: [],
+                pendingOperations: 0, evidence: "operation-query-failed",
+                detail: `${label} 的传输操作查询本身失败：${errorMessage(error)}` };
+        }
+        const transfers = Array.isArray(state?.transfers) ? state.transfers : undefined;
+        const operations = Array.isArray(state?.operations) ? state.operations : undefined;
+        const busy = state?.busy && typeof state.busy === "object" ? state.busy : undefined;
+        const instanceId = String(state?.instanceId || "");
+        if (state?.ok !== true || !transfers || !operations || !instanceId || !busy
+            || busy.schemaVersion !== 1 || typeof busy.busy !== "boolean") {
+            return { quiescent: false, rows: [], blocked: [], protectedRows: [],
+                pendingOperations: 0, evidence: "operation-state-incomplete",
+                detail: `${label} 的写操作状态返回不完整（缺实例身份、传输表或忙投影），不能把“查不到字段”当成已收敛` };
+        }
+        const attribution = this.codeUploadTargetRowsLocal(transfers, operations, targetKey, this.codeUploadCurrentRoundTargetKeysLocal(syncId), this.codeUploadRoundWriteFloorLocal(syncId));
+        const rows = attribution.rows;
+        const blocked = attribution.blocked;
+        const pendingOperations = attribution.pendingOperations;
+        // 静默只能由“没有可取消项、也没有无法寻址项”得出；未终结台账即使没有活动传输行也必须参与判定。
+        const note = (busy.busy === true || pendingOperations)
+            ? `（写入引擎整体报忙或有 ${pendingOperations} 项未终结操作，其中 ${attribution.protectedRows.length} 项是本轮兄弟分支正在写的，不会被取消）`
+            : "";
+        if (rows.length) {
+            const phase = String(rows[0].phase || rows[0].status || "active");
+            const foreign = rows.filter((row) => row.targetScoped !== true).length;
+            return { quiescent: false, rows, blocked, protectedRows: attribution.protectedRows, pendingOperations,
+                evidence: "operation-active",
+                detail: `${label} 的本机写入引擎上仍有 ${rows.length} 项本插件发起的未结束传输（阶段 ${phase}，其中 ${foreign} 项归属不明或属于其他 Worker）${note}` };
+        }
+        if (blocked.length) {
+            const reasons = [...new Set(blocked.map((row) => String(row.reason)))].join("、");
+            return { quiescent: false, rows, blocked, protectedRows: attribution.protectedRows, pendingOperations,
+                evidence: String(blocked[0].reason),
+                detail: `${label} 的本机写入引擎上还有 ${blocked.length} 项无法寻址或无法与本轮写入区分的未结束传输/操作（${reasons}），本轮不接管${note}` };
+        }
+        return { quiescent: true, rows, blocked, protectedRows: attribution.protectedRows, pendingOperations,
+            evidence: "operation-write-quiesced",
+            detail: `${label} 的实际写入目标已无本插件发起的活动传输（实例 ${instanceId.slice(0, 24)}）${note}` };
+    }
+    /**
+     * 把一次真实写入包在“本轮写入边界”里：调用 `upload.workspace` 之前登记起点，无论成功、失败还是抛错都注销。
+     * 这样同一 syncId 的其他并行分支在接管查询时能分辨“这个不带主机/路径的操作项是不是本轮刚启动的上传”。
+     */
+    async withCodeUploadRoundWriteLocal(syncId, targetKey, run) {
+        const roundKey = String(syncId || "");
+        const table = this.codeUploadRoundWriteEpochs || (this.codeUploadRoundWriteEpochs = new Map());
+        const epoch = { targetKey: String(targetKey || ""), startedAtMs: Date.now() };
+        const epochs = table.get(roundKey) || new Set();
+        epochs.add(epoch);
+        table.set(roundKey, epochs);
+        try {
+            return await run();
+        }
+        finally {
+            const alive = table.get(roundKey);
+            if (alive) {
+                alive.delete(epoch);
+                if (!alive.size)
+                    table.delete(roundKey);
+            }
+        }
+    }
+    /** 本轮正在写入的最早起点；本轮没有任何分支在写就交回 undefined（此时取消范围与原来完全一致，旧操作照旧逐项取消）。 */
+    codeUploadRoundWriteFloorLocal(syncId) {
+        const epochs = this.codeUploadRoundWriteEpochs?.get(String(syncId || ""));
+        if (!epochs || !epochs.size)
+            return undefined;
+        return Math.min(...[...epochs].map((epoch) => Number(epoch.startedAtMs)));
+    }
+    /**
+     * 本轮自己人正在写的实际目标键：租约所有者等于本次 syncId 的那些键。
+     * 这就是“本轮刚发起、绝不能被自己取消”的唯一依据；被保留的旧租约属于上一份未确认写入，不算本轮。
+     */
+    codeUploadCurrentRoundTargetKeysLocal(syncId) {
+        const keys = [];
+        const held = this.codeUploadTargetLeases?.held;
+        if (!syncId || !held || typeof held.entries !== "function")
+            return keys;
+        for (const [key, token] of held.entries()) {
+            if (String(token?.ownerId || "") === String(syncId))
+                keys.push(String(key));
+        }
+        return keys;
+    }
+    /**
+     * 把本机插件发起的“活动传输 + 未终结台账操作/当前上传阶段项”分类（只读，不发任何写请求）。
+     * 身份形状按已安装的 SimpleSFTP 0.2.114 真实返回写（`transfers.list` = `listActiveTransfers()` +
+     * `listTransferOperationState()`），不用“有没有 id”区分活动项与台账项：
+     * - `transfers` 行：`{ id(=transferId), operation, localPath, remotePath, host, status, phase, operationId? }`，
+     *   只有这一类的 id 才能当 transferId。
+     * - `operations` 项只有两种：当前上传阶段 `{ id(=operationId), stage, startedAt }`，与未终结台账行
+     *   `{ id(=operationId), operationId, operationInstanceId, status, reason, recovery, childCount }`；
+     *   两者的 id 都是操作身份，且都没有顶层 host/remotePath，因此绝不把它们的 id 当 transferId 发给取消接口。
+     * 用户已授权：能精确归属本目标就精确取消；归属不明、缺台账实例身份、或只存在于台账/阶段表里的未终结项，
+     * 就按“本插件发起”逐项目取消。本机 `transfers.list` 的传输表与台账按构造只包含本机这个
+     * 插件实例发起的传输；别的电脑上插件发起的传输不会出现在本机台账，也取消不到，
+     * 因此“不误杀其他电脑”天然成立，不需要额外的归属标记（服务器侧 tmux 前缀不标传输，不能当归属依据）。
+     * - rows：可取消项，按身份种类带上已有的 transferId 或 operationId（有 operationInstanceId 就带上）；
+     *   targetScoped=true 表示已精确归因到本目标，false 表示归属不明或属于其他 Worker（回执要如实区分）。
+     * - protectedRows：本轮自己人（同一次同步的兄弟分支，租约所有者就是本次 syncId）正在写的行，绝不取消；
+     *   与它同一 operationId 的台账/阶段项会被去重，不会再作为可取消项重复出现。
+     * - blocked：既无 transferId 又无 operationId 的项——SimpleSFTP 的取消接口无法寻址，
+     *   这是接口前提而不是保守选择；另含“属本轮又与本目标同主机同路径”的端口不可分辨项。
+     */
+    codeUploadTargetRowsLocal(transfers, operations, targetKey, currentRoundKeys = [], currentRoundWriteFloorMs) {
+        // 键形如 `host:port:/posix/root`；root 可含冒号，因此只剥前两段，且不转小写 POSIX 路径。
+        const splitKey = (key) => {
+            const parts = String(key || "").split(":");
+            if (parts.length < 3)
+                return undefined;
+            return { host: parts[0].toLowerCase(), root: parts.slice(2).join(":").replace(/\/+$/, "") };
+        };
+        const owner = splitKey(targetKey);
+        const roundKeys = (currentRoundKeys || []).map(splitKey).filter(Boolean);
+        const normalize = (value) => String(value || "").replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+        const sameTarget = (identity, host, root) => Boolean(identity && host && root && String(host).toLowerCase() === identity.host
+            && (root === identity.root || root.startsWith(`${identity.root}/`) || identity.root.startsWith(`${root}/`)));
+        // SimpleSFTP 与插件跑在同一台机器、同一个时钟上，startedAt 是操作创建时刻的 ISO 字符串。
+        const stamp = (value) => { const at = Date.parse(String(value || "")); return Number.isFinite(at) ? at : undefined; };
+        // 本轮已有分支在实际写入时，不能证明“比本轮写入更早”的操作项一律当自己人（只能排队，不能取消）。
+        const roundFloor = Number.isFinite(Number(currentRoundWriteFloorMs)) ? Number(currentRoundWriteFloorMs) : undefined;
+        const maybeCurrentRoundWrite = (entry) => roundFloor !== undefined
+            && (entry.startedAtMs === undefined || entry.startedAtMs >= roundFloor);
+        // 传输身份：只有这一类的 id 是 transferId，也只有这一类带主机与远端路径。
+        const transferItems = (transfers || []).map((row) => ({
+            transferId: String(row?.id || row?.transferId || ""),
+            operationId: String(row?.operationId || ""),
+            operationInstanceId: "",
+            host: String(row?.host || "").trim(), root: normalize(row?.remotePath),
+            status: String(row?.status || ""), phase: String(row?.phase || row?.stage || ""),
+            startedAtMs: stamp(row?.startedAt),
+        }));
+        // 操作身份：当前阶段项与未终结台账行按 operationId 归并成一项，身份取更全的那份；两个都没有的另存。
+        const operationItems = new Map();
+        const anonymousOperations = [];
+        let pendingOperations = 0;
+        for (const row of operations || []) {
+            if (String(row?.status || "") === "settled")
+                continue;
+            // 真实返回里两种形状的共同点：id 就是 operationId（台账行额外重复一份 operationId 字段）。
+            const operationId = String(row?.operationId || row?.id || "");
+            const item = {
+                transferId: "", operationId,
+                operationInstanceId: String(row?.operationInstanceId || ""),
+                host: String(row?.host || "").trim(), root: normalize(row?.remotePath),
+                status: String(row?.status || ""), phase: String(row?.stage || row?.phase || ""),
+                startedAtMs: stamp(row?.startedAt),
+            };
+            if (!operationId) {
+                anonymousOperations.push(item);
+                pendingOperations += 1;
+                continue;
+            }
+            const existing = operationItems.get(operationId);
+            operationItems.set(operationId, existing ? {
+                transferId: "", operationId,
+                operationInstanceId: existing.operationInstanceId || item.operationInstanceId,
+                host: existing.host || item.host, root: existing.root || item.root,
+                status: existing.status || item.status, phase: existing.phase || item.phase,
+                startedAtMs: existing.startedAtMs ?? item.startedAtMs,
+            } : item);
+        }
+        // 传输行与同一 operationId 的台账/阶段项去重：同一份工作只算一项，既保留可取消的 transferId，
+        // 也保证“本轮兄弟正在写”那张传输被保护时，它的台账项不会再作为可取消项出现。
+        const entries = [];
+        for (const transfer of transferItems) {
+            const paired = transfer.operationId ? operationItems.get(transfer.operationId) : undefined;
+            if (paired) {
+                operationItems.delete(transfer.operationId);
+                entries.push({
+                    transferId: transfer.transferId, operationId: transfer.operationId,
+                    operationInstanceId: paired.operationInstanceId,
+                    host: transfer.host || paired.host, root: transfer.root || paired.root,
+                    status: transfer.status || paired.status, phase: transfer.phase || paired.phase,
+                    startedAtMs: transfer.startedAtMs ?? paired.startedAtMs,
+                });
+                pendingOperations += 1;
+                continue;
+            }
+            entries.push(transfer);
+        }
+        for (const item of operationItems.values()) {
+            entries.push(item);
+            pendingOperations += 1;
+        }
+        for (const item of anonymousOperations)
+            entries.push(item);
+        const rows = [];
+        const protectedRows = [];
+        const blocked = [];
+        const classify = (entry) => {
+            // 取消接口只能按 transferId 或 operationId 寻址；两个都没有就发不出取消（接口前提，不是保守选择）。
+            if (!entry.transferId && !entry.operationId) {
+                blocked.push({ ...entry, reason: "operation-unaddressable" });
+                return;
+            }
+            const ours = sameTarget(owner, entry.host, entry.root);
+            if (!entry.host && !entry.root && maybeCurrentRoundWrite(entry)) {
+                // 只有操作身份的阶段项/台账行不带主机与路径，没法靠归属认出它属于本轮哪个分支。
+                // 本轮已有分支越过写入边界，而该项又不能被证明比本轮写入更早，就只能当自己人：
+                // 既不取消，也不能声称静默（上层转为排队等锁）。比本轮写入明确更早的旧操作仍按用户授权取消。
+                blocked.push({ ...entry, reason: "operation-current-round-ambiguous" });
+                return;
+            }
+            if (roundKeys.some(key => sameTarget(key, entry.host, entry.root))) {
+                // 本轮兄弟正在写：绝不取消；若它还跟本目标同主机同路径（端口分不出），也不能声称静默。
+                if (ours)
+                    blocked.push({ ...entry, reason: "operation-current-round-ambiguous" });
+                else
+                    protectedRows.push(entry);
+                return;
+            }
+            rows.push({ ...entry, targetScoped: ours });
+        };
+        for (const entry of entries)
+            classify(entry);
+        return { rows, protectedRows, blocked, pendingOperations };
+    }
+    /** 取消本机插件发起的一次传输：按台账已有的身份寻址（transferId 或 operationId，有实例身份就带上），结果严格判定。 */
+    async cancelCodeUploadTargetWriteLocal(target, row) {
+        const label = String(target?.label || target?.id || "Worker");
+        const transferId = String(row?.transferId || "");
+        const operationId = String(row?.operationId || "");
+        const operationInstanceId = String(row?.operationInstanceId || "");
+        const id = transferId || operationId;
+        // 唯一的硬性前提：两个可寻址身份都没有。SimpleSFTP 的取消接口只能按 transferId 或 operationId 找人，
+        // 两个都缺就发不出有意义的取消，只能保守阻塞并明确失败（这是接口寻址前提，不是保守选择）。
+        if (!transferId && !operationId) {
+            return { accepted: false, id: "", evidence: "operation-unaddressable",
+                detail: `${label}：上一份传输既没有 transferId 也没有 operationId，取消接口无法寻址` };
+        }
+        const params = { reason: "用户重新发起同步，取消上一次传输以接管" };
+        if (transferId)
+            params.transferId = transferId;
+        if (operationId)
+            params.operationId = operationId;
+        // 台账里有实例身份就原样带上作为守卫；没有就只交已有的身份，不自己编一个。
+        if (operationInstanceId)
+            params.operationInstanceId = operationInstanceId;
+        let result;
+        try {
+            result = await this.simpleSftpApiCall("transfers.cancel", params);
+        }
+        catch (error) {
+            return { accepted: false, id, evidence: "operation-cancel-failed",
+                detail: `${label}：取消上一次传输的请求本身失败（${errorMessage(error)}）` };
+        }
+        const status = String(result?.status || "");
+        if (status === "identityMismatch") {
+            return { accepted: false, id, evidence: "operation-identity-mismatch",
+                detail: `${label}：取消被拒，传输实例身份不符（identityMismatch）` };
+        }
+        if (result?.ok !== true || result?.cancelled !== true) {
+            return { accepted: false, id, evidence: "operation-cancel-refused",
+                detail: `${label}：取消未被接受（cancelled=${String(result?.cancelled)}，status=${status || "?"}）` };
+        }
+        if (status === "outcomeUnknown" || status === "notFound") {
+            return { accepted: false, id, evidence: `operation-cancel-${status}`,
+                detail: `${label}：取消结果不明确（status=${status}）` };
+        }
+        return { accepted: true, id, status, evidence: "cancel-requested", detail: "" };
+    }
+    /**
+     * 同一实际写目标的接管决策必须串行：两个别名分支并发决策时，B 的查询在途期间 A 可能刚取锁开始上传，
+     * B 会把本轮兄弟的上传当成旧传输取消。接管段内只查询与取消，从不等写租约，因此串行不会死锁。
+     */
+    async takeoverCodeUploadTargetLocal(target, targetKey, syncId) {
+        const key = String(targetKey || "");
+        const tails = this.codeUploadTakeoverTails || (this.codeUploadTakeoverTails = new Map());
+        const previous = tails.get(key) || Promise.resolve();
+        const run = () => this.takeoverCodeUploadTargetLockedLocal(target, key, syncId);
+        const current = previous.then(run, run);
+        const settled = current.then(() => undefined, () => undefined);
+        tails.set(key, settled);
+        try {
+            return await current;
+        }
+        finally {
+            if (tails.get(key) === settled)
+                tails.delete(key);
+        }
+    }
+    /**
+     * 同一实际写目标的接管：用户要求“直接取消上一次传输、确认落地后直接接管”，所以这里不是被动等上一份停下。
+     * 规则：用户只授权取消本机这个插件实例发起的传输（别的电脑发起的不会出现在本机台账，也取消不到）：
+     * 能精确归因到本目标就精确取消；归属不明、缺台账实例身份、或只在台账里的未终结项，同样按“本插件发起”逐项取消；
+     * 唯一硬性前提是 transferId 与 operationId 都没有（取消接口无法寻址）；
+     * 发每一张取消请求前都要重新核对本轮写目标归属，查询期间新开始的本轮兄弟分支不得被取消；
+     * 取消被拒/抛错/身份不符、或取消后本机侧仍有活动传输 → 保留未知写入所有权并明确失败，绝不盲写。
+     * 等取消落地的节奏复用本项目已有的本地退让常数（attempt < 4 退让、20 * (attempt + 1) ms），
+     * 但这是新增的有界复核行为：最多退让 20 + 40 + 60 + 80 = 200ms，另加五次复核调用自身耗时，总等待不是固定值；
+     * 退让用完后仍不静默就本轮失败、以后可重试，不引入新的超时预算参数，也不把“等够了”当成成功。
+     */
+    async takeoverCodeUploadTargetLockedLocal(target, targetKey, syncId) {
+        const label = String(target?.label || target?.id || "Worker");
+        // 只有“本轮自己人正拿着这把锁”才算兄弟；被保留下来的租约按定义是上一份未确认的写入，永远不是兄弟。
+        const currentBatchWriting = () => {
+            const held = this.codeUploadTargetLeases?.held?.get?.(String(targetKey || ""));
+            const retainedBefore = Boolean((this.retainedCodeUploadTargetLeases || {})[String(targetKey || "")]);
+            return !retainedBefore && held && String(held.ownerId || "") === String(syncId || "");
+        };
+        // 排队等锁的回执：默认本分支什么都没取消；如果在发现兄弟之前已经真取消过旧写入，
+        // 就必须把这些身份原样带回去，不能因为结局是“排队”就把已做过的取消抹掉。
+        const siblingReceipt = (stage, cancelledAlready = [], foreignAlready = 0) => ({
+            quiescent: true, takeover: "sibling", cancelled: cancelledAlready, cancelledForeign: foreignAlready,
+            evidence: "sibling-writing",
+            detail: `${label}：${cancelledAlready.length
+                ? `已先取消 ${cancelledAlready.length} 项本插件发起的旧写入，随后发现同一次同步已有分支在该实际目标上写入（${stage}）`
+                : `同一次同步已有分支在该实际目标上写入（${stage}）`}，本分支只排队等锁，不取消自己人的传输`
+        });
+        if (currentBatchWriting())
+            return siblingReceipt("接管入口处");
+        const first = await this.verifyCodeUploadTargetQuiescentLocal(target, targetKey, syncId);
+        if (first.quiescent)
+            return { ...first, takeover: "idle", cancelled: [] };
+        if (!first.rows.length) {
+            // 没有任何可取消项，而阻塞原因全是“本轮兄弟刚启动的写入”→ 这就是排队等锁，不是旧传输，不能取消。
+            if (this.codeUploadBlockedByCurrentBatchLocal(first.blocked))
+                return siblingReceipt("查询返回后");
+            return { ...first, takeover: "blocked", cancelled: [] };
+        }
+        // 到这里说明既有要取消的旧项（可能还有不带主机/路径的本轮操作项）：
+        // 先把旧项按用户授权取消，再在下面的复核里将剩下的本轮项转为排队，不因为兄弟在写就跳过旧项取消。
+        const cancelled = [];
+        let cancelledForeign = 0;
+        for (const row of first.rows) {
+            // 上一张取消可能刚好让兄弟取到锁：发下一张前重新核对，查询期间新开始的兄弟不能当旧传输取消。
+            if (currentBatchWriting())
+                return siblingReceipt("查询返回后");
+            const receipt = await this.cancelCodeUploadTargetWriteLocal(target, row);
+            if (receipt.accepted !== true) {
+                return { ...first, takeover: "refused", cancelled, evidence: receipt.evidence,
+                    detail: `${receipt.detail}；本轮不接管、不覆盖，已保留原操作身份` };
+            }
+            if (row.targetScoped !== true)
+                cancelledForeign += 1;
+            cancelled.push(receipt.id);
+        }
+        const cancelledText = `已取消 ${cancelled.length} 项本插件发起的在传任务`
+            + (cancelledForeign ? `（含 ${cancelledForeign} 项其他 Worker 的未完成上传或归属不明的传输）` : "");
+        for (let attempt = 0;; attempt += 1) {
+            const again = await this.verifyCodeUploadTargetQuiescentLocal(target, targetKey, syncId);
+            if (again.quiescent) {
+                return { ...again, takeover: "cancelled", cancelled, cancelledForeign,
+                    detail: `${label}：${cancelledText}（${cancelled.slice(0, 4).join("、")}${cancelled.length > 4 ? " 等" : ""}），已确认本机侧静默，现在接管写入（只能保证本机侧没有其他任务还在写，不声称远端目录完全干净）` };
+            }
+            // 取消被接受不等于旧传输已终结：排队放行必须同时满足“复核后已没有旧活跃项（rows 已空）”
+            // 与“剩下的阻塞确实全是本轮兄弟”。只要 rows 还在，就不能凭 blocked 里的本轮阶段项转 sibling：
+            // 不同 root 的新分支接下来申请的是自己那把锁，不会等兄弟，旧传输还在写就会开新写入。
+            // 因此这里继续往下的既有有界复核，窗口用尽按 still-active 明确失败（不写、不清未知记录、不放保留租约）。
+            if (!again.rows.length
+                && (currentBatchWriting() || this.codeUploadBlockedByCurrentBatchLocal(again.blocked))) {
+                return siblingReceipt("取消后复核时", cancelled, cancelledForeign);
+            }
+            if (!again.rows.length || attempt >= 4) {
+                return { ...again, takeover: "still-active", cancelled,
+                    detail: `${label}：已请求取消上一次写入但仍未确认落地（${again.detail}）；本轮不接管、不覆盖，请重试` };
+            }
+            await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
+        }
+    }
+    /** 阻塞项是否全部来自“本轮兄弟分支正在同一实际目标上写”：是则排队等锁，而不是失败或取消自己人。 */
+    codeUploadBlockedByCurrentBatchLocal(blocked) {
+        const rows = Array.isArray(blocked) ? blocked : [];
+        return rows.length > 0 && rows.every((row) => String(row?.reason || "") === "operation-current-round-ambiguous");
+    }
+    /** 把 Worker ID 映射到它的真实写目标键；解不出就交回空键，由 gate 只按原 Worker ID 规则判定，不编造身份。 */
+    dispatchTargetKeyLocal(workerId) {
+        if (!workerId || typeof this.sftpSharedTargets !== "function" || typeof this.sftpServerOptions !== "function")
+            return "";
+        let row;
+        try {
+            row = (this.sftpSharedTargets() || []).find((target) => String(target?.id || "") === String(workerId));
+        }
+        catch {
+            return "";
+        }
+        if (!row)
+            return "";
+        try {
+            return this.resolveCodeUploadTargetIdentityLocal(row).key;
+        }
+        catch {
+            return "";
+        }
+    }
+    /** 记下“写入结果未知”的原操作身份与目标所有权（只有主动查询确认结束才能解除）。 */
+    rememberUnknownCodeWriteLocal(intent, root, target, lease, syncId, error) {
+        const identity = this.gateStateLocal ? DispatchHandoffGate.recordUnknownCodeWrite(this.gateStateLocal(), {
+            uploadId: String(intent?.uploadId || syncId || ""), syncId: String(syncId || ""),
+            root: String(root || ""), targetKey: String(lease?.key || "") || `worker:${target?.id || ""}`,
+            workerId: String(target?.id || ""), error: errorMessage(error), transportStarted: true,
+        }) : undefined;
+        this.markCodeSyncTargetResultLocal?.(target, syncId, { unknownWrite: true, error: errorMessage(error) });
+        return identity;
+    }
+    /** 每 Worker（实际写目标）的阶段结果：传输、校验、proof 分开，失败详情不被其他 Worker 覆盖。 */
+    markCodeSyncTargetResultLocal(target, syncId, patch) {
+        const rows = this.codeSyncTargetResults || (this.codeSyncTargetResults = []);
+        const key = `${String(syncId || "")}\u0000${String(target?.id || "")}`;
+        const existing = rows.find((row) => row.key === key);
+        const record = existing || { key, syncId: String(syncId || ""), workerId: String(target?.id || ""),
+            label: String(target?.label || target?.id || ""), remotePath: String(target?.remotePath || ""),
+            leaseKey: "", targetKey: "", transfer: "pending", verified: "pending", proof: "pending", ready: false };
+        const stages = ["transfer", "verified", "proof"];
+        for (const [name, value] of Object.entries(patch || {})) {
+            if (value === undefined)
+                continue;
+            if (stages.includes(name)) {
+                const current = String(record[name] || "pending");
+                // 阶段不跨级升级：传输未确认完成不能把 proof 记成就绪。
+                if (name === "proof" && value === "done" && record.transfer !== "done")
+                    continue;
+                // 已失败的阶段只允许同一阶段的后续观察覆盖，不会被其他阶段或其他 Worker 的成功洗成成功。
+                if (current.endsWith("-failed") && !String(value).endsWith("-failed") && String(patch.retryStage || "") !== name)
+                    continue;
+                // 已完成阶段不会因后续阶段失败被抹回未知；失败详情仍记在 error。
+                if (current === "done" && String(value) !== "done" && String(patch.retryStage || "") !== name)
+                    continue;
+            }
+            record[name] = value;
+        }
+        record.ready = record.transfer === "done" && record.verified !== "pending" && record.proof === "done";
+        if (record.ready)
+            record.readyAt = new Date().toISOString();
+        if (!existing)
+            rows.push(record);
+        if (rows.length > 64)
+            rows.splice(0, rows.length - 64);
+        return record;
+    }
     async syncCodeTargets(targets, scope, options = {}) {
         if (this.syncScopeMutationInFlight)
             throw new Error("文件树操作进行中，代码同步稍后重试。");
         if (this.codeSyncInFlight)
             throw new Error("已有代码同步进行中，请完成后重试，未覆盖正在使用的代码。");
         this.codeSyncInFlight = (this.codeSyncInFlight || 0) + 1;
+        // 交接 gate：在任何 await 之前同步登记「禁止新派发进入」的意图，派发侧进入 gate 时重查该意图。
+        // 方法存在性防护只服务 VM 部分提取夹具，真实扩展类内这些方法恒定存在。
+        const handoffWorkerIds = (targets || []).filter(Boolean).map((target) => String(target.id || "")).filter(Boolean);
+        let codeUploadHandoff = this.beginCodeUploadHandoffLocal?.(options.projectContext?.root || workspaceRoot(), scope, handoffWorkerIds);
         try {
-            const dispatchInFlight = this.distributedQueueTickPromise;
-            if (dispatchInFlight)
-                await this.boundedPromise(() => dispatchInFlight, 10_000, new Error("原派发尚未确认结束，代码同步未写入；请刷新任务状态后重试。"));
+            // 只等待已获所有权的派发真正交接完成（准入落盘→证明准备→发送或明确未发送→本机回执提交），
+            // 不再等待整轮 tick；10_000 语义是「安全交接等待预算」，超既不上传也不释放仍活跃的交接所有权。
+            const dispatchInFlight = codeUploadHandoff
+                ? this.awaitDispatchHandoffSafeLocal?.(codeUploadHandoff, 10_000)
+                : Promise.resolve({ safe: true, waitedMs: 0, timedOut: false, blocking: [] });
+            let handoffWait;
+            try {
+                handoffWait = await this.boundedPromise(() => dispatchInFlight, 10_000, new Error("原派发尚未确认结束，代码同步未写入；请刷新任务状态后重试。"));
+            }
+            catch (error) {
+                // 外层预算同时到期时也要留下同一轮阶段的有界证据，用户文案保持原样。
+                throw new Error(this.recordDispatchHandoffTimeoutLocal?.("codeSyncTargets", codeUploadHandoff, undefined)
+                    || errorMessage(error));
+            }
+            if (handoffWait && handoffWait.safe !== true) {
+                const reason = this.recordDispatchHandoffTimeoutLocal?.("codeSyncTargets", codeUploadHandoff, handoffWait);
+                throw new Error(reason || "原派发尚未确认结束，代码同步未写入；请刷新任务状态后重试。");
+            }
             const projectContext = options.projectContext;
             // Set by prepareCodeSyncRootGuards once this operation's frozen binding
             // exists; every later await boundary in this function re-checks it
@@ -12333,6 +13153,11 @@ class RealtimeTunnelPanelProvider {
             const root = projectContext?.root || workspaceRoot();
             if (!root)
                 throw new Error("请先打开一个工作区，再同步代码。");
+            // 等待期间工作区可能已切换：意图必须绑到真正要写入的项目根，登记与换绑之间没有 await，不留空档。
+            if (codeUploadHandoff && codeUploadHandoff.root !== root) {
+                this.endCodeUploadHandoffLocal?.(codeUploadHandoff.uploadId);
+                codeUploadHandoff = this.beginCodeUploadHandoffLocal?.(root, scope, handoffWorkerIds);
+            }
             let enabledTargets = targets.filter(Boolean);
             if (!enabledTargets.length)
                 throw new Error("没有可用于代码同步的 Worker 目标。");
@@ -12443,12 +13268,20 @@ class RealtimeTunnelPanelProvider {
             this.lastCodeSyncState = { fingerprint, scope, workers: roleStatus.workersRunning, workerVersions, updatedAt: new Date().toISOString() };
             void this.persistProjectCodeSyncState().catch(() => undefined);
             this.postState();
+            const syncId = String(codeUploadHandoff?.uploadId || `sync-${Date.now()}`);
+            const cancelledBranches = [];
             const progressStep = progressReport ? Number(options.progressSpan || 0) / enabledTargets.length : 0;
             const hashCompare = options.hashCompare === true;
-            await mapLimited(enabledTargets, 2, async (target, index) => {
+            const uploadOneTarget = async (target, index, lease, leaseState) => {
+                // 旧未知写入的核实与释放已经提到等锁之前（见下方 mapLimited 回调）：
+                // 能走到这里说明本轮已拿到写锁，不在持锁期间做恢复查询。
+                // 写入边界与返回边界是两个事实：未越过边界 = 明确未开始；越过但未返回 = 结果未知。
+                let writeStarted = false;
+                let writeReturned = false;
                 if (progressReport)
                     progressReport(`正在读取 ${target.label || target.id} 的远端清单（${index + 1}/${enabledTargets.length}）…`);
                 try {
+                    this.markCodeSyncTargetResultLocal?.(target, syncId, { transfer: "pending" });
                     if (incremental)
                         await this.safeWorkerCodeSyncTargets([target], root, fingerprint, scope, progressReport);
                     let uploadManifest = manifest;
@@ -12476,6 +13309,8 @@ class RealtimeTunnelPanelProvider {
                     if (hashCompare) {
                         if (target.role === "worker" && workerProbeOk && this.codeSyncWarmProofs?.get(warmProofKey) > Date.now()) {
                             workerVersions[target.id] = await workerVersion();
+                            this.markCodeSyncTargetResultLocal?.(target, syncId, { transfer: "done", verified: "done", proof: "done", retryStage: "transfer" });
+                            this.markCodeUploadWorkerReadyLocal?.(codeUploadHandoff, root, target.id, lease?.key);
                             await options.onTargetReady?.(target.id);
                             if (progressReport)
                                 progressReport(`${target.label || target.id}：Extension Host 内近期远端核对凭据有效，跳过递归清单`);
@@ -12509,7 +13344,10 @@ class RealtimeTunnelPanelProvider {
                             if (progressReport && progressStep > 0)
                                 progressReport(`${target.label || target.id} 内容未变化，未重传`, progressStep);
                             if (target.role === "worker") {
+                                this.markCodeSyncTargetResultLocal?.(target, syncId, { transfer: "done", verified: "done", retryStage: "transfer" });
                                 workerVersions[target.id] = await workerVersion(true);
+                                this.markCodeSyncTargetResultLocal?.(target, syncId, { proof: "done" });
+                                this.markCodeUploadWorkerReadyLocal?.(codeUploadHandoff, root, target.id, lease?.key);
                                 await options.onTargetReady?.(target.id);
                                 if (workerProbeOk)
                                     this.rememberCodeSyncWarmProof(warmProofKey);
@@ -12521,8 +13359,9 @@ class RealtimeTunnelPanelProvider {
                     if (progressReport)
                         progressReport(`正在传输 ${target.label || target.id} 的 ${Object.keys(uploadManifest).length} 个变化文件…`);
                     const transferStarted = Date.now();
+                    writeStarted = true;
                     syncStats.uploads += 1;
-                    const result = await this.simpleSftpApiCall("upload.workspace", {
+                    const result = await this.withCodeUploadRoundWriteLocal(syncId, String(lease?.key || ""), () => this.simpleSftpApiCall("upload.workspace", {
                         apiMode: true,
                         confirm: true,
                         pathConfirmed: true,
@@ -12544,12 +13383,15 @@ class RealtimeTunnelPanelProvider {
                             progressReport(`${target.label || target.id}：远端已写入 ${snapshot.writtenBytes}/${snapshot.totalBytes || 0} 字节，${snapshot.writtenFiles || 0}/${snapshot.totalFiles || 0} 个文件；内容待核验`);
                         else
                             progressReport(`${target.label || target.id}：已处理 ${snapshot.processedFiles || 0} 个文件，${snapshot.processedBytes || 0} 字节`);
-                    });
+                    }));
+                    // 调用已返回：无论结果是成是败，传输本身已终结，不属于“仍在途”的未知写入。
+                    writeReturned = true;
                     assertCurrent();
                     if (!sftpUploadSucceeded(result, hashCompare ? "" : fingerprint))
                         throw new Error(resultError(result) || "SFTP 上传未确认成功。");
                     if (progressReport)
                         progressReport(`${target.label || target.id} 传输完成（本段 ${Date.now() - transferStarted} ms）`);
+                    this.markCodeSyncTargetResultLocal?.(target, syncId, { transfer: "done" });
                     // SimpleSFTP verifies every uploaded file after extraction. A second
                     // full project inventory here would repeat the expensive tree scan.
                     if (!hashCompare) {
@@ -12558,9 +13400,12 @@ class RealtimeTunnelPanelProvider {
                         const mismatches = verified.filter((row) => !row.exists || String(row.sha256 || "").toLowerCase() !== String(manifest[row.path]?.sha256 || "").toLowerCase());
                         if (mismatches.length)
                             throw new Error(`上传后源码校验失败：${mismatches.slice(0, 12).map((row) => `${row.path}${row.exists ? " 版本不一致" : " 缺失"}`).join("、")}${mismatches.length > 12 ? ` 等 ${mismatches.length} 项` : ""}`);
+                        this.markCodeSyncTargetResultLocal?.(target, syncId, { verified: "done" });
                     }
                     if (target.role === "worker") {
                         workerVersions[target.id] = await workerVersion(true);
+                        this.markCodeSyncTargetResultLocal?.(target, syncId, { proof: "done" });
+                        this.markCodeUploadWorkerReadyLocal?.(codeUploadHandoff, root, target.id, lease?.key);
                         await options.onTargetReady?.(target.id);
                         if (hashCompare && workerProbeOk)
                             this.rememberCodeSyncWarmProof(warmProofKey);
@@ -12570,11 +13415,113 @@ class RealtimeTunnelPanelProvider {
                         progressReport(`已完成 ${target.label || target.id}（${index + 1}/${enabledTargets.length}）`, progressStep);
                 }
                 catch (error) {
-                    if (isUiCommandCancelled(error))
-                        throw error;
+                    if (isUiCommandCancelled(error)) {
+                        // 不在这里抛出：mapLimited 内部用 Promise.all，一个回调提前拒绝会让其他在途上传失去登记。
+                        // 取消也不能丢未知写入身份：已越过传输边界的取消同样是“结果未知”。
+                        if (writeStarted && !writeReturned) {
+                            this.rememberUnknownCodeWriteLocal?.(codeUploadHandoff, root, target, lease, syncId, error);
+                            if (leaseState)
+                                leaseState.retain = true;
+                        }
+                        cancelledBranches.push(error);
+                        return;
+                    }
+                    // 三段失败要分开：未进入传输 = 明确未开始；调用已返回但结果不对 = 已确认终结；
+                    // 越界后报错 = 仍在途的未知写入，必须保留操作身份与目标租约。
+                    const unknownInFlight = writeStarted && !writeReturned;
+                    const failureStage = unknownInFlight ? "unknown-failed" : "confirmed-failed";
+                    // 传输已确认完成的阶段由记录器自身保护，不会被本轮失败抹回未知；失败详情仍记在 error。
+                    this.markCodeSyncTargetResultLocal?.(target, syncId, { transfer: failureStage, verified: failureStage,
+                        proof: failureStage, error: errorMessage(error) });
+                    // 写入结果无法确认的 Worker 保留「未知失败」所有权，不因其他 Worker 成功或本轮结束被洗成就绪。
+                    this.markCodeUploadWorkerFailedLocal?.(codeUploadHandoff, root, target.id, errorMessage(error), lease?.key);
+                    if (unknownInFlight) {
+                        this.rememberUnknownCodeWriteLocal?.(codeUploadHandoff, root, target, lease, syncId, error);
+                        if (leaseState)
+                            leaseState.retain = true;
+                    }
                     failures.push({ role: target.role, label: target.label, message: errorMessage(error) });
                 }
+            };
+            // 同一实际写目标（规范服务器 + 实际远端 root）互斥，不同目标继续并行且保留既有并发度 2；
+            // 超过两个目标按容量排队，一个槽位释放即补位，不等前两个目标全部结束。
+            await mapLimited(enabledTargets, 2, async (target, index) => {
+                const leaseState = { retain: false };
+                // 先解身份、先登记、再等锁：正在同一实际目标上排队的别名 Worker 也必须带着自己的目标键参与判定，
+                // 否则“上一份已完成、另一份还在等锁”时会被提前放行，向共享 root 的写入仍可交错。
+                let targetKey = "";
+                try {
+                    targetKey = this.resolveCodeUploadTargetIdentityLocal(target).key;
+                }
+                catch (error) {
+                    // 解不出身份就是明确未开始写入：逐目标失败上报，绝不退回占位身份去抢锁。
+                    failures.push({ role: target.role, label: target.label, message: errorMessage(error) });
+                    return;
+                }
+                this.noteCodeUploadTargetLocal?.(codeUploadHandoff, root, target.id, targetKey);
+                this.markCodeSyncTargetResultLocal?.(target, syncId, { leaseKey: targetKey, targetKey });
+                // 上一份没确认结束的写入按用户要求直接取消，并核实本目标确实静默之后才接管写入（包括交出被保留的那把租约）。
+                // 这一步必须排在等锁之前：先等锁就是在等自己必须先核实才能释放的那把锁，同批别名等待者也无法收敛。
+                const takeover = await this.takeoverCodeUploadTargetLocal?.(target, targetKey, syncId)
+                    || { quiescent: true, takeover: "unavailable", cancelled: [], detail: "" };
+                if (takeover.quiescent !== true) {
+                    // 取消不掉、身份不符、取消后仍活跃或查询不可用：保留未知写入所有权，本轮不写一字节。
+                    failures.push({ role: target.role, label: target.label,
+                        message: `${takeover.detail}；不会盲目覆盖` });
+                    return;
+                }
+                const pendingUnknown = this.pendingCodeUploadUnknownWriteLocal?.(root, { targetKey, workerId: target.id });
+                if (pendingUnknown && takeover.takeover !== "sibling") {
+                    this.resolveCodeUploadUnknownWriteLocal?.(root, { targetKey, workerId: target.id });
+                    if (progressReport)
+                        progressReport(`${target.label || target.id}：已确认上一次写入结束（${takeover.evidence}），继续本轮同步`);
+                }
+                if (takeover.takeover === "cancelled") {
+                    // 面板/回执要能看出发生了一件什么：包括取消了本插件的多少项在传任务、其中多少属于其他 Worker。
+                    this.markCodeSyncTargetResultLocal?.(target, syncId, {
+                        takeover: "cancelled", cancelledWrites: (takeover.cancelled || []).slice(0, 4),
+                        cancelledForeign: takeover.cancelledForeign || 0
+                    });
+                    this.logOperationFact?.(`[code-sync] ${target.label || target.id}：${takeover.detail}`);
+                    if (progressReport)
+                        progressReport(`${target.label || target.id}：上一次传输已被取消并接管（已取消 ${(takeover.cancelled || []).length} 项本插件在传任务，含其他 Worker 的未完成上传 ${(takeover.cancelledForeign || 0)} 项；仅覆盖本次勾选范围，本机侧静默不等于远端目录完全干净）`);
+                }
+                if (takeover.takeover === "sibling" && (takeover.cancelled || []).length) {
+                    // 排队等锁前回了一笔旧写入：这也是本插件真实做过的取消，必须如实上报，不能只报“排队”。
+                    this.markCodeSyncTargetResultLocal?.(target, syncId, {
+                        takeover: "sibling", cancelledWrites: (takeover.cancelled || []).slice(0, 4),
+                        cancelledForeign: takeover.cancelledForeign || 0
+                    });
+                    this.logOperationFact?.(`[code-sync] ${target.label || target.id}：${takeover.detail}`);
+                    if (progressReport)
+                        progressReport(`${target.label || target.id}：排队等锁前先取消了 ${(takeover.cancelled || []).length} 项本插件发起的旧写入（含其他 Worker 的未完成上传 ${(takeover.cancelledForeign || 0)} 项），同一次同步的兄弟分支写完后本分支再接管；仅覆盖本次勾选范围`);
+                }
+                const lease = await this.acquireCodeUploadTargetLeaseLocal?.(target, syncId, undefined, { key: targetKey })
+                    || { token: undefined, key: targetKey, deferred: undefined };
+                if (!lease.token && lease.deferred) {
+                    // 同一实际目标已被上一份未确认写入围栏：本分支明确「未开始、需核实」，
+                    // 不写一字节、不接管别人的写锁，也不得替持有者交出保留租约。
+                    const reason = String(lease.deferred.reason || "上一次写入结果未确认结束");
+                    this.markCodeSyncTargetResultLocal?.(target, syncId, { leaseDeferred: true, error: `${reason}；本轮未开始写入` });
+                    failures.push({ role: target.role, label: target.label,
+                        message: `${reason}：本目标本轮未开始写入，需要主动核实后重试` });
+                    return;
+                }
+                try {
+                    return await uploadOneTarget(target, index, lease, leaseState);
+                }
+                finally {
+                    // 写入结果未知的目标不得提前放回租约：否则另一个 Worker 可以立刻覆盖同一实际目标。
+                    if (leaseState.retain && lease.token)
+                        this.retainCodeUploadTargetLeaseLocal?.(lease);
+                    else
+                        this.releaseCodeUploadTargetLeaseLocal?.(lease.token);
+                }
             });
+            // 全部已发起分支真正收敛后才会到这里，之后的 finally 才能释放 gate 与写入计数；
+            // 不能把 finally 的执行当作底层写入已结束。
+            if (cancelledBranches.length)
+                throw cancelledBranches[0];
             if (failures.length) {
                 const failedText = failures.map((failure) => `${failure.label}: ${failure.message}`);
                 this.lastCodeSyncState = {
@@ -12609,6 +13556,8 @@ class RealtimeTunnelPanelProvider {
             return enabledTargets;
         }
         finally {
+            // 只回收本次上传的意图；仍在执行的派发交接与结果未知的 Worker 所有权保持原样。
+            this.endCodeUploadHandoffLocal?.(codeUploadHandoff?.uploadId);
             this.codeSyncInFlight--;
         }
     }
@@ -13515,6 +14464,7 @@ class RealtimeTunnelPanelProvider {
         this.stampWorkerPoolManualTarget(body, selected);
         return selected;
     }
+    distributedQueueMetrics = [];
     async loadDistributedQueue(root) {
         const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
         // r17-A: one-time race-safe migration of the known legacy snapshot into the project
@@ -13526,6 +14476,31 @@ class RealtimeTunnelPanelProvider {
         let migration;
         const hasSameRootSnapshot = this.distributedQueueRoot === root && this.distributedQueueCache;
         let source;
+        const loadStartedAt = Date.now();
+        let readMs = 0;
+        let parseMs = 0;
+        // 队列指标是纯诊断：记录器随方法自带，不给“摘出类成员进 VM 宿主”的用例新增跨方法依赖。
+        const shape = (queue, bytes) => ({ plans: Array.isArray(queue?.plans) ? queue.plans.length : 0,
+            clearedJobs: Array.isArray(queue?.clearedJobs) ? queue.clearedJobs.length : 0,
+            deferred: Array.isArray(queue?.deferred) ? queue.deferred.length : 0, queueBytes: Number(bytes || 0) });
+        const record = (patch) => {
+            try {
+                const metrics = this.distributedQueueMetrics || (this.distributedQueueMetrics = []);
+                const last = metrics[metrics.length - 1];
+                // 同体积同条数的空转轮次只累计计数，不涨条目，也不额外写盘。
+                if (last && last.op === "load" && last.queueBytes === patch.queueBytes && last.plans === patch.plans
+                    && last.clearedJobs === patch.clearedJobs) {
+                    last.repeats = Number(last.repeats || 1) + 1;
+                    last.at = new Date().toISOString();
+                    last.lastMs = Number(patch.totalMs || 0);
+                    return;
+                }
+                metrics.push({ at: new Date().toISOString(), op: "load", repeats: 1, ...patch });
+                if (metrics.length > 24)
+                    metrics.splice(0, metrics.length - 24);
+            }
+            catch { /* 诊断失败不影响队列读写 */ }
+        };
         try {
             migration = await (0, ProjectStatePaths_1.ensureProjectSnapshotMigrated)(String(root || ""), legacyFile, file);
             source = await fs.readFile(file, "utf8").catch(async (error) => { if (error?.code === "ENOENT")
@@ -13539,11 +14514,19 @@ class RealtimeTunnelPanelProvider {
             return DistributedPlanQueue.cloneDistributedQueue(this.distributedQueueCache, this.distributedQueueDiskSignature);
         }
         const signature = DistributedPlanQueue.distributedQueueDiskSignature(source);
-        if (hasSameRootSnapshot && signature === this.distributedQueueDiskSignature)
-            return DistributedPlanQueue.cloneDistributedQueue(this.distributedQueueCache, signature);
+        readMs = Date.now() - loadStartedAt;
+        if (hasSameRootSnapshot && signature === this.distributedQueueDiskSignature) {
+            const cloneStartedAt = Date.now();
+            const cached = DistributedPlanQueue.cloneDistributedQueue(this.distributedQueueCache, signature);
+            record({ ...shape(cached, (typeof Buffer === "undefined" ? source.length : Buffer.byteLength(source, "utf8"))),
+                cacheHit: true, readMs, cloneMs: Date.now() - cloneStartedAt, totalMs: Date.now() - loadStartedAt });
+            return cached;
+        }
         let queue;
+        const parseStartedAt = Date.now();
         try {
             queue = DistributedPlanQueue.restoreFormalJobQueue(source ? JSON.parse(source) : DistributedPlanQueue.emptyDistributedQueue());
+            parseMs = Date.now() - parseStartedAt;
             if (queue.schemaVersion !== 1 || !Array.isArray(queue.plans))
                 throw new Error("分布式 Plan 队列格式无效，已停止自动派发。");
             if (Array.isArray(queue.deferred))
@@ -13572,14 +14555,22 @@ class RealtimeTunnelPanelProvider {
                 throw error;
             this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(),
                 reason: "queue-parse-failed", message: compactSensitiveText(errorMessage(error), 240) };
+            record({ ...shape(this.distributedQueueCache, (typeof Buffer === "undefined" ? source.length : Buffer.byteLength(source, "utf8"))),
+                status: "stale", readMs, parseMs, totalMs: Date.now() - loadStartedAt });
             return DistributedPlanQueue.cloneDistributedQueue(this.distributedQueueCache, this.distributedQueueDiskSignature);
         }
+        const cacheCopyStartedAt = Date.now();
         this.distributedQueueCache = JSON.parse(JSON.stringify(queue));
+        const cacheCopyMs = Date.now() - cacheCopyStartedAt;
         this.distributedQueueRoot = root;
         this.distributedQueueDiskSignature = signature;
         if (this.distributedQueueStorageDiagnostics?.status === "stale")
             this.distributedQueueStorageDiagnostics = { status: "ready" };
-        return DistributedPlanQueue.cloneDistributedQueue(this.distributedQueueCache, signature);
+        const cloneStartedAt = Date.now();
+        const snapshot = DistributedPlanQueue.cloneDistributedQueue(this.distributedQueueCache, signature);
+        record({ ...shape(snapshot, (typeof Buffer === "undefined" ? source.length : Buffer.byteLength(source, "utf8"))),
+            cacheHit: false, readMs, parseMs, cacheCopyMs, cloneMs: Date.now() - cloneStartedAt, totalMs: Date.now() - loadStartedAt });
+        return snapshot;
     }
     async withQueueWriteResource(root, work, options = {}) {
         if (!this.hostOperationLease)
@@ -13779,7 +14770,31 @@ class RealtimeTunnelPanelProvider {
                     queue = admissionQueue;
                 }
                 await fs.mkdir(path.dirname(file), { recursive: true });
+                const serializeStartedAt = Date.now();
+                // 同上：写侧指标自带记录器，避免给切片宿主新增依赖；同内容轮次只计数。
+                const shape = (queue, bytes) => ({ plans: Array.isArray(queue?.plans) ? queue.plans.length : 0,
+                    clearedJobs: Array.isArray(queue?.clearedJobs) ? queue.clearedJobs.length : 0,
+                    deferred: Array.isArray(queue?.deferred) ? queue.deferred.length : 0, queueBytes: Number(bytes || 0) });
+                const record = (patch) => {
+                    try {
+                        const metrics = this.distributedQueueMetrics || (this.distributedQueueMetrics = []);
+                        const last = metrics[metrics.length - 1];
+                        if (last && last.op === "save" && last.queueBytes === patch.queueBytes && last.plans === patch.plans
+                            && last.clearedJobs === patch.clearedJobs && Boolean(last.sameContent) === Boolean(patch.sameContent)) {
+                            last.repeats = Number(last.repeats || 1) + 1;
+                            last.at = new Date().toISOString();
+                            last.lastMs = Number(patch.totalMs || 0);
+                            return;
+                        }
+                        metrics.push({ at: new Date().toISOString(), op: "save", repeats: 1, ...patch });
+                        if (metrics.length > 24)
+                            metrics.splice(0, metrics.length - 24);
+                    }
+                    catch { /* 诊断失败不影响队列提交 */ }
+                };
                 const serialized = DistributedPlanQueue.serializeDistributedQueue(queue);
+                const serializeMs = Date.now() - serializeStartedAt;
+                const queueShape = shape(queue, (typeof Buffer === "undefined" ? serialized.length : Buffer.byteLength(serialized, "utf8")));
                 // r18-B：空转的 500ms 观察轮次也会提交“最新队列”。逐字节内容未变时没有任何新事实需要落盘，
                 // 而重写要付 2MB 级 JSON 的临时文件+rename，并在 rename 前再读一次盘（实测 12 秒内 43 次
                 // 写入内容完全相同、约 3.6 次/秒），把调度轮次拖长到让“等原派发结束”的调用方（代码同步
@@ -13790,9 +14805,13 @@ class RealtimeTunnelPanelProvider {
                     DistributedPlanQueue.setDistributedQueueBaseSignature(queue, diskSignature);
                     if (workingQueue && workingQueue !== queue)
                         DistributedPlanQueue.setDistributedQueueBaseSignature(workingQueue, diskSignature);
+                    // 同内容轮次不写盘，只记一条有界观察，确认 500ms 空转轮没有全量重写。
+                    record({ ...queueShape, sameContent: true, serializeMs,
+                        writeMs: 0, totalMs: Date.now() - serializeStartedAt });
                     return;
                 }
                 let publicationConflict = false;
+                const writeStartedAt = Date.now();
                 try {
                     await (0, StateStore_1.atomicWriteText)(file, serialized, { beforeRename: async () => {
                             assertStopBatch();
@@ -13819,8 +14838,13 @@ class RealtimeTunnelPanelProvider {
                     throw error;
                 }
                 this.distributedQueueRoot = root;
+                const cacheCopyStartedAt = Date.now();
                 this.distributedQueueCache = DistributedPlanQueue.keepCurrentObservations(JSON.parse(JSON.stringify(queue)), (options.artifactMutation || options.publicationMutation || options.controlMutation) && this.distributedQueueRoot === root ? this.distributedQueueCache : undefined);
+                const cacheCopyMs = Date.now() - cacheCopyStartedAt;
                 this.distributedQueueDiskSignature = DistributedPlanQueue.distributedQueueDiskSignature(serialized);
+                record({ ...queueShape, sameContent: false, serializeMs,
+                    writeMs: Date.now() - writeStartedAt, cacheCopyMs, dispatchAdmission: options.dispatchAdmission === true,
+                    totalMs: Date.now() - serializeStartedAt });
                 if (options.artifactMutation || options.publicationMutation) {
                     this.distributedQueueMetadataWrites = [...(this.distributedQueueMetadataWrites || []),
                         { root, from: diskSignature, to: this.distributedQueueDiskSignature }].slice(-64);
@@ -14737,6 +15761,14 @@ class RealtimeTunnelPanelProvider {
             return;
         this.distributedQueueTickPromise = undefined;
         void Promise.resolve(task).then(() => undefined, () => undefined);
+        // 换代/停止后的旧轮已被围栏：既不能发送也不能写盘，本轮未提交交接按失效结局回收，
+        // 同时保留其阶段与身份供诊断，不把失效轮次冒充为已完成。
+        const detachedTickId = this.distributedTickIds?.get?.(task);
+        if (detachedTickId) {
+            this.endTickHandoffsLocal?.(detachedTickId, "stale-generation");
+            this.endDistributedTickRecordLocal?.(detachedTickId, "invalidated", "本轮已被换代或停止围栏隔离");
+            this.distributedTickIds?.delete?.(task);
+        }
     }
     requestDistributedQueueRefresh() {
         this.distributedQueueRefreshRequested = true;
@@ -14761,8 +15793,15 @@ class RealtimeTunnelPanelProvider {
         const generation = this.distributedQueueGeneration;
         const abort = new AbortController();
         this.distributedTickAbort = abort;
+        const tickId = this.beginDistributedTickRecordLocal?.(workspaceRoot(), generation);
+        // tick 身份经字段传递，保持 tickDistributedQueueCore 原有的二参签名（多份夹具只按二参拼接切片）。
+        this.distributedCurrentTickId = tickId;
         const task = this.tickDistributedQueueCore(generation, abort.signal);
+        this.distributedTickIds?.set?.(task, tickId);
         this.distributedQueueTickPromise = task;
+        this.beginDistributedTickLocal?.(tickId, workspaceRoot(), generation);
+        // catch 已记过终态时，finally 不得再用“本轮结束/换代”覆盖失败结局或重复回收交接。
+        let tickTerminalRecorded = false;
         try {
             await task;
             // 隔离账本派发终局：挂在已登记 tick 生命周期的完成点上（同代际才执行，随 abort/换代自然失效）。
@@ -14772,9 +15811,25 @@ class RealtimeTunnelPanelProvider {
                 await this.promoteIsolatedDispatchLocal(generation)
                     .catch(error => this.observeIsolatedLedgerPromotionError(error));
         }
+        catch (error) {
+            // 本轮异常终止也要给出精确终态：失败的 tick 不能永远留在 in-flight；已发送但传输未落定的
+            // 交接由 gate 保留所有权，这里只按真实结局记账，不拿“本轮失败”抹掉未知写入。
+            const staleRound = generation !== this.distributedQueueGeneration;
+            tickTerminalRecorded = true;
+            this.endTickHandoffsLocal?.(tickId, staleRound ? "stale-generation" : "tick-failed");
+            this.endDistributedTickRecordLocal?.(tickId, staleRound ? "invalidated" : "failed", { generation });
+            throw error;
+        }
         finally {
             if (this.distributedTickAbort === abort)
                 this.distributedTickAbort = undefined;
+            // 本轮 tick 生命周期终点：未提交的交接按真实结局回收（generation 已不是本轮的轮次不可能再发送或写盘），
+            // 不会把仍在执行的派发当作已提交，也不会让同步侧永久等待；异常路径已在 catch 里记过终态。
+            if (!tickTerminalRecorded) {
+                this.endTickHandoffsLocal?.(tickId, generation === this.distributedQueueGeneration ? "round-ended" : "stale-generation");
+                this.endDistributedTickRecordLocal?.(tickId, generation === this.distributedQueueGeneration ? "completed" : "invalidated");
+            }
+            this.distributedTickIds?.delete?.(task);
             if (this.distributedQueueTickPromise === task) {
                 this.distributedQueueTickPromise = undefined;
                 if (this.distributedQueueRefreshRequested && generation === this.distributedQueueGeneration && !this.distributedPlanStopEpoch)
@@ -14871,7 +15926,11 @@ class RealtimeTunnelPanelProvider {
     }
     async sendDistributedJob(plan, job, workerId, gpuId, commandId, sharedCodeManifest) {
         let transmissionStarted = false;
+        // 非 tick 通道的交接所有权在本函数内回收；tick 已登记的所有权仍由 tick 在回执提交后结束。
+        let channelHandoffRoot = "";
         try {
+            if (this.ensureDispatchHandoffForSendLocal?.(workspaceRoot() || "", workerId, commandId, plan, job, gpuId) === true)
+                channelHandoffRoot = workspaceRoot() || "";
             // 块B防旁路（批准方案§4）：统一域内只允许发送已在本机队列持久化同意的精确身份。
             // 发送前的普适 save→send 顺序使所有既有通道自然通过；任何未来旁路在此被硬拒。
             const unifiedSendDomain = this.unifiedDomainState();
@@ -14985,7 +16044,10 @@ class RealtimeTunnelPanelProvider {
                 // stop the transport. Re-check the fence synchronously right before posting.
                 if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
                     throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
+                // 交接 gate：最后围栏前重查写入意图；新登记意图按「明确未发送」安全退回，不留无主准入意图。
+                this.assertDispatchHandoffSendAllowedLocal?.(root, workerId);
                 transmissionStarted = true;
+                this.markDispatchHandoffTransmissionLocal?.(root, commandId);
                 return client.postWorkerAction(workerId, "start-worker-task", request);
             });
             if (job.lifecycleProtocol === 2) {
@@ -14997,17 +16059,48 @@ class RealtimeTunnelPanelProvider {
                 // between this final fence and the post below.
                 if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
                     throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
+                // 协议 2 直接发送口同样先重查 gate，再标记真实传输边界；这里之后没有任何 await，围栏与发送同拍。
+                this.assertDispatchHandoffSendAllowedLocal?.(root, workerId);
                 transmissionStarted = true;
-                void client.postWorkerAction(workerId, "start-worker-task", request)
+                this.markDispatchHandoffTransmissionLocal?.(root, commandId);
+                // 协议 2 也是“发起即返回”：底层 POST 未落定前，交接登记必须保留为“传输在途”。
+                // 向调用方返回 unknown 仍可继续，但所有权不会随外层返回消失；后续由精确查询或本机落盘释放。
+                const posted = client.postWorkerAction(workerId, "start-worker-task", request);
+                this.observeDispatchHandoffTransportLocal?.(root, commandId, posted);
+                void posted
                     .catch(error => this.recordActionError({ command: "distributedSubmissionTransport", message: errorMessage(error) }));
                 return { lifecycleProtocol: 2, status: "unknown", commandId, message: "请求已发送；由主动查询核实远端任务" };
             }
-            return await transfer();
+            let transported;
+            try {
+                transported = await transfer();
+            }
+            catch (error) {
+                // 旧传输渠道同理：报错不等于未送达，只记传输已落定，所有权留给精确查询/本机落盘。
+                if (transmissionStarted)
+                    this.markDispatchHandoffTransportSettledLocal?.(root, commandId, "failed");
+                throw error;
+            }
+            if (transmissionStarted)
+                this.markDispatchHandoffTransportSettledLocal?.(root, commandId, "ok");
+            return transported;
         }
         catch (error) {
             if (!transmissionStarted)
                 throw Object.assign(new Error(String(error?.message || error)), { dispatchNotSent: true, cause: error });
             throw error;
+        }
+        finally {
+            if (channelHandoffRoot) {
+                if (transmissionStarted) {
+                    // 外层调用已返回 ≠ 送达≠本机已接管；传输仍未落定时不能改写成“已交精确查询”的口气。
+                    const held = (this.dispatchHandoffDiagnosticsLocal?.().activeHandoffs || [])
+                        .find((row) => row.commandId === commandId);
+                    this.markDispatchHandoffAwaitingEvidenceLocal?.(channelHandoffRoot, commandId, held?.transportSettled ? "channel-send-returned-awaiting-exact-query" : "channel-send-returned-transport-in-flight");
+                }
+                else
+                    this.endDispatchHandoffLocal?.(channelHandoffRoot, commandId, "unsent-released");
+            }
         }
     }
     async releaseUnsentDistributedJob(root, plan, job, error) {
@@ -15024,6 +16117,10 @@ class RealtimeTunnelPanelProvider {
     }
     async tickDistributedQueueCore(generation = this.distributedQueueGeneration, signal) {
         const root = workspaceRoot();
+        // tick 阶段账本与交接 gate 状态分别记录；直接调用（含既有提取夹具）未带身份时自建一条，不复用上轮。
+        const tickId = String(this.distributedCurrentTickId || "") || this.beginDistributedTickRecordLocal?.(root, generation);
+        this.beginDistributedTickLocal?.(tickId, root, generation);
+        this.setDistributedTickPhaseLocal?.(tickId, "load-queue");
         const queueWriteCurrent = () => generation === this.distributedQueueGeneration && !this.distributedPlanStopEpoch && !signal?.aborted && workspaceRoot() === root;
         const abandonHungProbe = () => {
             if (queueWriteCurrent())
@@ -15073,6 +16170,7 @@ class RealtimeTunnelPanelProvider {
         const probeTask = this.distributedQueueTickPromise;
         let probeWatch;
         const snapshotsStartedAt = Date.now();
+        this.setDistributedTickPhaseLocal?.(tickId, "worker-snapshots");
         // Scheduling needs current windows, not slow artifact/log verification.
         const probes = this.readWorkerTaskSnapshotBatch(snapshotWorkerIds, { signal, executionOnly: this.taskLifecycleProtocol === 2 });
         const submissionPlansForTiming = () => [...(this.distributedSubmissionTimings?.entries?.() || [])]
@@ -15217,6 +16315,15 @@ class RealtimeTunnelPanelProvider {
             this.recordPlanSubmissionTimingByOperation?.(timing.operationId, "gpuSnapshotMs", gpuSnapshotResult.completedAt - snapshotsStartedAt);
         if (!queueWriteCurrent())
             return;
+        // 交接 gate：粗筛之后本轮还经过召回/重试等多个 await，同步意图必须在此重查；
+        // 全部候选 Worker 仍被未完成写入挡住时整轮让路（仍按原规则落盘本轮观察）。
+        if (this.dispatchHandoffYieldsRoundLocal?.(root, this.workerActionTargets().map((target) => target.id))) {
+            this.setDistributedTickPhaseLocal?.(tickId, "yield-code-upload");
+            await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            this.postState();
+            return;
+        }
+        this.setDistributedTickPhaseLocal?.(tickId, "schedule-retries");
         // Code upload and new dispatch never mutate one Worker project root concurrently.
         if (this.codeSyncInFlight && !(this.workerPreparation?.root === root && this.workerPreparation.preparation.ready.size)) {
             await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
@@ -15472,10 +16579,12 @@ class RealtimeTunnelPanelProvider {
             await PlanCodeScopeHost.inspectPlanCodeSlots(this, queue, workers, signal);
             if (!queueWriteCurrent())
                 return;
+            // gate 重查：inspect 期间新登记的写入意图必须在分配前生效，否则不会为被阻塞目标持久化不会发送的准入意图。
+            const dispatchableWorkers = workers.filter((worker) => this.dispatchHandoffAllowsWorkerLocal?.(root, String(worker?.workerId || "")) !== false);
             const ownedGpuSnapshot = GpuJobOwnership.projectGpuOwnership(dispatchGpuSnapshot || {}, GpuJobOwnership.submittedGpuJobs(queue, taskSnapshots, DistributedPlanQueue.canonicalProjectId(root), Object.fromEntries(targets.map(target => [target.id, target.project_dir]))));
             const hosted = { queue: DistributedSchedulingPolicy.localSchedulingQueue(queue), dispatches: [] };
             queue = hosted.queue;
-            const allocation = DistributedPlanQueue.allocateAvailable(queue, workers, { requireIdleGpuAdmission: true, localIdleOnly: true });
+            const allocation = DistributedPlanQueue.allocateAvailable(queue, dispatchableWorkers, { requireIdleGpuAdmission: true, localIdleOnly: true });
             queue = allocation.queue;
             const hostedRetries = queue.plans.flatMap((plan) => DistributedPlanQueue.hostedRetryCandidates(plan)
                 .filter((job) => job.lifecycleProtocol !== 2 && job.workerId && job.commandId
@@ -15491,6 +16600,9 @@ class RealtimeTunnelPanelProvider {
             }
             // 块B：save 返回统一准入回执；被拒意图已随 save 剥回本地等待，绝不进入发送集合。
             let durableAdmissionReceipt;
+            this.setDistributedTickPhaseLocal?.(tickId, "dispatch-admission", { workerId: dispatches.map((item) => item.workerId).join(",").slice(0, 120) });
+            // 交接所有权从准入意图落盘前开始，覆盖证明准备、真实发送或明确未发送、本机回执提交。
+            this.registerDispatchHandoffsLocal?.({ tickId, generation, root, projectId, dispatches });
             if (dispatches.length)
                 durableAdmissionReceipt = await this.saveDistributedQueue(root, queue, { queueGeneration: generation, dispatchAdmission: true });
             if (durableAdmissionReceipt?.dispatchAdmission && dispatches.some((item) => UnifiedDispatchAdmission.dispatchAdmissionDenied(durableAdmissionReceipt, item.planId, item.jobIndex, item.commandId))) {
@@ -15525,6 +16637,9 @@ class RealtimeTunnelPanelProvider {
                 const gpuId = "gpuId" in dispatch ? dispatch.gpuId : undefined;
                 const launchKey = DistributedPlanQueue.distributedJobControlKey(plan, job);
                 this.distributedLaunchInFlight.add(launchKey);
+                this.advanceDispatchHandoffLocal?.(root, dispatch.commandId, "code-proof-prepare");
+                this.setDistributedTickPhaseLocal?.(tickId, "code-proof-prepare", { workerId: dispatch.workerId, planId: dispatch.planId,
+                    jobIndex: dispatch.jobIndex, commandId: dispatch.commandId, sent: false });
                 let receipt;
                 let receiptError;
                 try {
@@ -15617,6 +16732,19 @@ class RealtimeTunnelPanelProvider {
                     await receiptCommits;
                 }
                 finally {
+                    // 发送函数已返回、整轮结束、换代都不是释放证据：只有本机队列真的落盘
+                    // （commitDispatchHandoffLocal）或精确查询确认，才结束已发送的交接。
+                    const handoff = this.advanceDispatchHandoffLocal?.(root, dispatch.commandId, "local-receipt-commit");
+                    if (receiptCommitError) {
+                        // 回执提交失败、明确未发送的退回失败，都不能记成 committed / unsent-released。
+                        this.markDispatchHandoffAwaitingEvidenceLocal?.(root, dispatch.commandId, handoff?.transmissionStarted === true ? "receipt-commit-failed" : "unsent-rollback-incomplete");
+                    }
+                    else if (!handoff?.transmissionStarted && !receiptError)
+                        this.endDispatchHandoffLocal?.(root, dispatch.commandId, "unsent-released");
+                    else
+                        this.markDispatchHandoffAwaitingEvidenceLocal?.(root, dispatch.commandId, handoff?.transmissionStarted === true ? "awaiting-round-commit-or-exact-query" : "awaiting-unsent-rollback-evidence");
+                    this.setDistributedTickPhaseLocal?.(tickId, "receipt-commit", { workerId: dispatch.workerId, planId: dispatch.planId,
+                        jobIndex: dispatch.jobIndex, commandId: dispatch.commandId, sent: handoff?.transmissionStarted === true });
                     this.distributedLaunchInFlight.delete(launchKey);
                 }
             }));
@@ -15629,8 +16757,10 @@ class RealtimeTunnelPanelProvider {
             }
             if (!queueWriteCurrent())
                 return;
-            if (queueWriteCurrent())
-                await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            // 本机队列真的落盘了：这才是“状态已可靠移交”，逐条按真实结局结束交接。
+            for (const dispatch of dispatches)
+                this.commitDispatchHandoffLocal?.(root, String(dispatch.commandId || ""));
             if (newTerminal || Date.now() >= this.distributedNextPostprocessAt) {
                 this.distributedNextPostprocessAt = Date.now() + 60_000;
                 this.scheduleDistributedPostprocess(root, newTerminal);
@@ -15692,7 +16822,9 @@ class RealtimeTunnelPanelProvider {
             this.postState();
             return;
         }
-        const allocation = DistributedPlanQueue.allocateAvailable(queue, workers);
+        // gate 重查（同上）：分配前重新查询写入意图，避免为被阻塞目标持久化不会发送的准入意图。
+        const dispatchableLegacyWorkers = workers.filter((worker) => this.dispatchHandoffAllowsWorkerLocal?.(root, String(worker?.workerId || "")) !== false);
+        const allocation = DistributedPlanQueue.allocateAvailable(queue, dispatchableLegacyWorkers);
         queue = allocation.queue;
         if (!queueWriteCurrent()) {
             this.postState();
@@ -15701,6 +16833,8 @@ class RealtimeTunnelPanelProvider {
         // 块B：旧兼容路径同样必须过统一准入；这里的 job 查找不核 commandId，
         // 所以被拒意图只能靠回执过滤排除（不得依赖队列状态）。
         let legacyAdmissionReceipt;
+        this.setDistributedTickPhaseLocal?.(tickId, "dispatch-admission", { workerId: allocation.dispatches.map((item) => item.workerId).join(",").slice(0, 120) });
+        this.registerDispatchHandoffsLocal?.({ tickId, generation, root, projectId: DistributedPlanQueue.canonicalProjectId(root), dispatches: allocation.dispatches });
         if (allocation.dispatches.length)
             legacyAdmissionReceipt = await this.saveDistributedQueue(root, queue, { queueGeneration: generation, dispatchAdmission: true });
         if (!queueWriteCurrent()) {
@@ -15727,6 +16861,10 @@ class RealtimeTunnelPanelProvider {
                 return { dispatch, plan, job, error };
             }
             finally {
+                // 旧兼容传输的发送与本机回执在同一回调内收敛；这里不凭“发送已返回”抹掉所有权，
+                // 真正的释放放在下面的队列落盘之后（commitDispatchHandoffLocal）。
+                const handoff = this.advanceDispatchHandoffLocal?.(root, dispatch.commandId, "local-receipt-commit");
+                this.markDispatchHandoffAwaitingEvidenceLocal?.(root, dispatch.commandId, handoff?.transmissionStarted === true ? "awaiting-legacy-round-commit-or-exact-query" : "awaiting-legacy-unsent-evidence");
                 this.distributedLaunchInFlight.delete(launchKey);
             }
         }));
@@ -15764,6 +16902,7 @@ class RealtimeTunnelPanelProvider {
                 return;
             }
             await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            this.commitDispatchHandoffLocal?.(root, String(dispatch.commandId || ""));
         }
         if (newTerminal || Date.now() >= this.distributedNextPostprocessAt) {
             this.distributedNextPostprocessAt = Date.now() + 60_000;
@@ -27254,6 +28393,17 @@ class RealtimeTunnelPanelProvider {
             panelStateTelemetryPreviousSample: this.latestPanelStateTelemetry || null,
         });
         diagnostics.distributedQueueStorage = this.distributedQueueStorageDiagnostics || { status: "ready" };
+        // 交接 gate 与 tick 阶段分开上报，不折叠为“派发中”；均为有界快照，不含密钥与文件清单。
+        diagnostics.dispatchHandoff = this.dispatchHandoffDiagnosticsLocal?.() || { status: "idle" };
+        diagnostics.distributedQueueTick = this.distributedTickDiagnosticsLocal?.() || { status: "idle" };
+        // 队列体积与各阶段耗时只取有界最近项，不复制队列内容，也不新增写盘。
+        diagnostics.distributedQueueMetrics = (this.distributedQueueMetrics || []).slice(-24);
+        // 逐 Worker（实际写目标）的阶段结果：传输/校验/proof 分开保留，不被合并成一个全局成功布尔。
+        diagnostics.codeSyncTargetResults = (Array.isArray(this.codeSyncTargetResults) ? this.codeSyncTargetResults.slice(-12) : [])
+            .map((record) => ({ targetId: String(record?.workerId || ""), syncId: String(record?.syncId || ""),
+            targetKey: String(record?.targetKey || ""), transfer: String(record?.transfer || ""),
+            verified: String(record?.verified || ""), proof: String(record?.proof || ""), ready: record?.ready === true,
+            unknownWrite: record?.unknownWrite === true, error: String(record?.error || "").slice(0, 160) }));
         diagnostics.completedPlanMirror = this.completedPlanMirrorDiagnostics || { status: "ready" };
         diagnostics.planOutputRetention = this.lastPlanOutputRetention || { status: "idle" };
         timing.diagnosticsMs = Math.max(0, Date.now() - diagnosticsStartedAt);
@@ -29558,6 +30708,9 @@ function normalizeActionErrorRow(value) {
         ...(OperationOutcome_1.normalizeOperationOutcome(row.operationOutcome) ? { operationOutcome: OperationOutcome_1.normalizeOperationOutcome(row.operationOutcome) } : {}),
         ...(capabilityMissing.length ? { capabilityMissing } : {}),
         ...(command === "panelLifecycle" && row.details && typeof row.details === "object" ? { details: compactPanelLifecycleDetails(row.details) } : {}),
+        // 交接超时证据也要能重载后读回：只取有界的 dispatchHandoff 精确身份，其他 details 一律丢弃。
+        ...(command === "codeUploadDispatchHandoff" && row.details?.dispatchHandoff && typeof row.details.dispatchHandoff === "object"
+            ? { details: { dispatchHandoff: compactDispatchHandoffEvidence(row.details.dispatchHandoff) } } : {}),
         timestamp: String(row.timestamp || new Date().toISOString()),
     };
 }
@@ -37429,6 +38582,42 @@ function compactUiActionError(error) {
         timestamp: new Date().toISOString(),
     };
 }
+/** 交接超时证据的有界压缩：只允许精确身份与计数，重载后仍能读回“当时挡住的是谁”。 */
+function compactDispatchHandoffEvidence(value) {
+    if (!value || typeof value !== "object")
+        return undefined;
+    const text = (raw, max) => typeof raw === "string" && raw ? compactSensitiveText(raw, max) : undefined;
+    const count = (raw) => Number.isSafeInteger(raw) && raw >= 0 ? raw : undefined;
+    const row = (item) => {
+        if (!item || typeof item !== "object")
+            return undefined;
+        const tick = text(item.tickId, 64);
+        const commandId = text(item.commandId, 96);
+        if (!tick || !commandId)
+            return undefined;
+        return {
+            tickId: tick, generation: count(item.generation) || 0, workerId: text(item.workerId, 64) || "",
+            commandId, phase: text(item.phase, 48) || "", sent: item.sent === true,
+            transportSettled: item.transportSettled === true, transportOutcome: text(item.transportOutcome, 32) || "",
+            elapsedMs: count(item.elapsedMs) || 0,
+        };
+    };
+    const blocking = (Array.isArray(value.blocking) ? value.blocking : []).slice(0, 4).map(row).filter(Boolean);
+    const out = {
+        ...(text(value.source, 48) ? { source: text(value.source, 48) } : {}),
+        ...(count(value.waitedMs) !== undefined ? { waitedMs: value.waitedMs } : {}),
+        ...(text(value.tickId, 64) ? { tickId: text(value.tickId, 64) } : {}),
+        ...(count(value.generation) !== undefined ? { generation: value.generation } : {}),
+        ...(count(value.blockingHandoffCount) !== undefined ? { blockingHandoffCount: value.blockingHandoffCount } : {}),
+        ...(count(value.activeUploadCount) !== undefined ? { activeUploadCount: value.activeUploadCount } : {}),
+        ...(count(value.queueBytes) !== undefined ? { queueBytes: value.queueBytes } : {}),
+        ...(count(value.clearedJobsCount) !== undefined ? { clearedJobsCount: value.clearedJobsCount } : {}),
+        ...(text(value.queueStorageStatus, 24) ? { queueStorageStatus: text(value.queueStorageStatus, 24) } : {}),
+        ...(text(value.queueStorageReason, 48) ? { queueStorageReason: text(value.queueStorageReason, 48) } : {}),
+        ...(blocking.length ? { blocking } : {}),
+    };
+    return Object.keys(out).length ? out : undefined;
+}
 function compactPanelLifecycleDetails(details) {
     if (!details || typeof details !== "object")
         return undefined;
@@ -37467,6 +38656,7 @@ function compactPanelLifecycleDetails(details) {
         ...(safeCount(details.stateBuildDurationMs) !== undefined ? { stateBuildDurationMs: details.stateBuildDurationMs } : {}),
         ...(safeCount(details.telemetrySampleId) !== undefined ? { telemetrySampleId: details.telemetrySampleId } : {}),
         ...(compactPanelRenderEvidence(details.renderEvidence) ? { renderEvidence: compactPanelRenderEvidence(details.renderEvidence) } : {}),
+        ...(compactDispatchHandoffEvidence(details.dispatchHandoff) ? { dispatchHandoff: compactDispatchHandoffEvidence(details.dispatchHandoff) } : {}),
     };
 }
 function panelLifecycleDiagnosticMessage(reason) {

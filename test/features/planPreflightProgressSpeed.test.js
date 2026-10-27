@@ -36,7 +36,7 @@ const manifestApi = manifestFactory(require("node:fs").promises, require("node:f
 
 const DispatchHandoffGateModule = require("../../dist/features/DispatchHandoffGate.js");
 
-const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest", "vscode_1", "LocalCodeManifestCache_1", "SafeRequestRetry_1", "DistributedPlanQueue", "workspaceRoot", "PlanCodeScopeHost", "ProjectRootMap_1", "DispatchHandoffGate", `
+const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest", "vscode_1", "LocalCodeManifestCache_1", "SafeRequestRetry_1", "DistributedPlanQueue", "workspaceRoot", "PlanCodeScopeHost", "ProjectRootMap_1", "DispatchHandoffGate", "SshTransportIdentity_1", `
   function stringField(message, key) { return String((message && message[key]) || ""); }
   function operationResultPlanFile(body) { return String((body && (body.planFile || body.selectedPlanId || (body.options && body.options.planFile))) || ""); }
   function errorMessage(error) { return error && error.message ? error.message : String(error || ""); }
@@ -66,6 +66,25 @@ const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpri
   ${compiled("acquireCodeUploadTargetLeaseLocal")}
   ${compiled("releaseCodeUploadTargetLeaseLocal")}
   ${compiled("markCodeSyncTargetResultLocal")}
+  // 写目标身份与未知写入所有权同样只能用生产方法本体，不允许注入伪 sftpManager。
+  ${compiled("sftpServerOptions")}
+  ${compiled("sshTransportIdentity")}
+  ${compiled("resolveCodeUploadTargetIdentityLocal")}
+  ${compiled("dispatchTargetKeyLocal")}
+  ${compiled("noteCodeUploadTargetLocal")}
+  ${compiled("retainCodeUploadTargetLeaseLocal")}
+  ${compiled("releaseRetainedCodeUploadTargetLeaseLocal")}
+  ${compiled("pendingCodeUploadUnknownWriteLocal")}
+  ${compiled("resolveCodeUploadUnknownWriteLocal")}
+  ${compiled("verifyCodeUploadTargetQuiescentLocal")}
+  ${compiled("codeUploadTargetRowsLocal")}
+  ${compiled("codeUploadCurrentRoundTargetKeysLocal")}
+  ${compiled("withCodeUploadRoundWriteLocal")}
+  ${compiled("codeUploadRoundWriteFloorLocal")}
+  ${compiled("cancelCodeUploadTargetWriteLocal")}
+  ${compiled("takeoverCodeUploadTargetLocal")}
+  ${compiled("takeoverCodeUploadTargetLockedLocal")}
+  ${compiled("rememberUnknownCodeWriteLocal")}
   ${compiled("syncCodeTargets")}
   ${compiled("safeWorkerCodeSyncTargets")}
   ${compiled("syncManualWorkerCode")}
@@ -83,9 +102,9 @@ const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpri
   ${compiled("reportOperationNotice")}
   ${compiled("logOperationFact")}
   ${compiled("ensureOperationLogChannel")}
-  return { syncCodeTargets, safeWorkerCodeSyncTargets, syncManualWorkerCode, uploadProjectToWorkers, distributeCodeToWorkers, publishToGitHub, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs, operationNoticeKey, reportOperationNotice, logOperationFact, ensureOperationLogChannel, boundedPromise, gateStateLocal, targetLeaseTableLocal, beginCodeUploadHandoffLocal, endCodeUploadHandoffLocal, awaitDispatchHandoffSafeLocal, markCodeUploadWorkerReadyLocal, markCodeUploadWorkerFailedLocal, recordDispatchHandoffTimeoutLocal, acquireCodeUploadTargetLeaseLocal, releaseCodeUploadTargetLeaseLocal, markCodeSyncTargetResultLocal };
+  return { syncCodeTargets, safeWorkerCodeSyncTargets, syncManualWorkerCode, uploadProjectToWorkers, distributeCodeToWorkers, publishToGitHub, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs, operationNoticeKey, reportOperationNotice, logOperationFact, ensureOperationLogChannel, boundedPromise, gateStateLocal, targetLeaseTableLocal, beginCodeUploadHandoffLocal, endCodeUploadHandoffLocal, awaitDispatchHandoffSafeLocal, markCodeUploadWorkerReadyLocal, markCodeUploadWorkerFailedLocal, recordDispatchHandoffTimeoutLocal, acquireCodeUploadTargetLeaseLocal, releaseCodeUploadTargetLeaseLocal, markCodeSyncTargetResultLocal, sftpServerOptions, sshTransportIdentity, resolveCodeUploadTargetIdentityLocal, dispatchTargetKeyLocal, noteCodeUploadTargetLocal, retainCodeUploadTargetLeaseLocal, releaseRetainedCodeUploadTargetLeaseLocal, pendingCodeUploadUnknownWriteLocal, resolveCodeUploadUnknownWriteLocal, verifyCodeUploadTargetQuiescentLocal, codeUploadTargetRowsLocal, codeUploadCurrentRoundTargetKeysLocal, withCodeUploadRoundWriteLocal, codeUploadRoundWriteFloorLocal, cancelCodeUploadTargetWriteLocal, takeoverCodeUploadTargetLocal, takeoverCodeUploadTargetLockedLocal, rememberUnknownCodeWriteLocal };
 `);
-function apiFactory(...args) { while(args.length<9)args.push(undefined);return createApi(...args,require("../../dist/extension/PlanCodeScopeHost.js"),require("../../dist/features/ProjectRootMap.js"),DispatchHandoffGateModule); }
+function apiFactory(...args) { while(args.length<9)args.push(undefined);return createApi(...args,require("../../dist/extension/PlanCodeScopeHost.js"),require("../../dist/features/ProjectRootMap.js"),DispatchHandoffGateModule,require("../../dist/tunnel/SshTransportIdentity.js")); }
 
 function sha(char) { return char.repeat(64); }
 
@@ -165,6 +184,18 @@ function syncHost(remote) {
   host.rememberCodeSyncWarmProof = (key) => host.codeSyncWarmProofs.set(key, Date.now() + 300000);
   host.ensureWorkerCodeSyncProof = async () => undefined;
   host.simpleSftpApiCall = async (method, payload) => {
+    // 接管前的只读核实与取消也走现有通道：默认回答“本目标静默”，其余调用仍按原样严格断言。
+    if (method === "transfers.list") {
+      host.transferQueries = (host.transferQueries || []).concat(1);
+      return { ok: true, instanceId: "instance-fixture-1", transfers: [], operations: [], settledOperations: [],
+        busy: { schemaVersion: 1, instanceId: "instance-fixture-1", busy: false, activeTransferCount: 0,
+          blockingTransferCount: 0, observerTransferCount: 0, uploadOperationCount: 0, uploadOperations: [],
+          uploadQueueCount: 0, uploadQueues: { count: 0, keyHashes: [] } } };
+    }
+    if (method === "transfers.cancel") {
+      host.cancelCalls = (host.cancelCalls || []).concat(payload);
+      return { ok: true, cancelled: true, status: "cancelling", settled: false };
+    }
     assert.equal(method, "upload.workspace");
     host.uploads.push(Object.keys(payload.manifest)); host.uploadRequests.push(payload);
     return { ok: true, status: "completed" };
