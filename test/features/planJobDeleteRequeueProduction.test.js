@@ -30,7 +30,7 @@ const ast=ts.createSourceFile('host.ts',legacySource,ts.ScriptTarget.Latest,true
 function legacyMethods(names,globals={}){let cls;function visit(n){if(ts.isClassDeclaration(n)&&n.name?.text==='RealtimeTunnelPanelProvider')cls=n;ts.forEachChild(n,visit)}visit(ast);
   const members=cls.members.filter(n=>names.includes(n.name?.getText(ast)));assert.equal(members.length,names.length,names.join(','));
   return vm.runInNewContext(ts.transpileModule('class Host{'+members.map(n=>n.getText(ast)).join('\n')+'};Host',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
-    {AbortController,errorMessage:e=>e.message,compactSensitiveText:s=>String(s).slice(0,240),require:()=>({getUpdater:()=>undefined}),syncGpuQuotaPolicies:async()=>({}),
+    {AbortController,DispatchHandoffGate:require("../../dist/features/DispatchHandoffGate.js"),errorMessage:e=>e.message,compactSensitiveText:s=>String(s).slice(0,240),require:()=>({getUpdater:()=>undefined}),syncGpuQuotaPolicies:async()=>({}),
      DistributedPlanQueue:Q,fs:fsPromises,path,atomicWriteText,...globals});}
 const QueueHost=legacyMethods(['saveDistributedQueue','withQueueWriteResource']);
 const hostTemplate=fs.readFileSync(path.resolve(__dirname,'../../dist/extension/PlanCleanupHost.js'),'utf8');

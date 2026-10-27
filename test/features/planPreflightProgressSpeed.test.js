@@ -34,7 +34,9 @@ const manifestEnd = distSource.indexOf("function isLocalCodeOwnedPath(", manifes
 const manifestFactory = new Function("fs", "fsNode", "path", "crypto", "LocalCodeManifestCache_1", "PlanCodeScopeHost", distSource.slice(manifestStart, manifestEnd) + "\nreturn { buildLocalCodeManifest };");
 const manifestApi = manifestFactory(require("node:fs").promises, require("node:fs"), path, crypto, require("../../dist/features/LocalCodeManifestCache.js"), require("../../dist/extension/PlanCodeScopeHost.js"));
 
-const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest", "vscode_1", "LocalCodeManifestCache_1", "SafeRequestRetry_1", "DistributedPlanQueue", "workspaceRoot", "PlanCodeScopeHost", "ProjectRootMap_1", `
+const DispatchHandoffGateModule = require("../../dist/features/DispatchHandoffGate.js");
+
+const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest", "vscode_1", "LocalCodeManifestCache_1", "SafeRequestRetry_1", "DistributedPlanQueue", "workspaceRoot", "PlanCodeScopeHost", "ProjectRootMap_1", "DispatchHandoffGate", `
   function stringField(message, key) { return String((message && message[key]) || ""); }
   function operationResultPlanFile(body) { return String((body && (body.planFile || body.selectedPlanId || (body.options && body.options.planFile))) || ""); }
   function errorMessage(error) { return error && error.message ? error.message : String(error || ""); }
@@ -51,6 +53,19 @@ const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpri
   function codeSyncConfirmationLabel(scope) { return scope; }
   const vscode = arguments[4];
   function gitRepositoryHasRemote() { return true; }
+  // 新增交接门的真实宿主依赖：直接用生产类方法本体，不写“缺方法就跳过”的替身。
+  ${compiled("gateStateLocal")}
+  ${compiled("targetLeaseTableLocal")}
+  ${compiled("boundedPromise")}
+  ${compiled("beginCodeUploadHandoffLocal")}
+  ${compiled("endCodeUploadHandoffLocal")}
+  ${compiled("awaitDispatchHandoffSafeLocal")}
+  ${compiled("markCodeUploadWorkerReadyLocal")}
+  ${compiled("markCodeUploadWorkerFailedLocal")}
+  ${compiled("recordDispatchHandoffTimeoutLocal")}
+  ${compiled("acquireCodeUploadTargetLeaseLocal")}
+  ${compiled("releaseCodeUploadTargetLeaseLocal")}
+  ${compiled("markCodeSyncTargetResultLocal")}
   ${compiled("syncCodeTargets")}
   ${compiled("safeWorkerCodeSyncTargets")}
   ${compiled("syncManualWorkerCode")}
@@ -68,9 +83,9 @@ const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpri
   ${compiled("reportOperationNotice")}
   ${compiled("logOperationFact")}
   ${compiled("ensureOperationLogChannel")}
-  return { syncCodeTargets, safeWorkerCodeSyncTargets, syncManualWorkerCode, uploadProjectToWorkers, distributeCodeToWorkers, publishToGitHub, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs, operationNoticeKey, reportOperationNotice, logOperationFact, ensureOperationLogChannel };
+  return { syncCodeTargets, safeWorkerCodeSyncTargets, syncManualWorkerCode, uploadProjectToWorkers, distributeCodeToWorkers, publishToGitHub, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs, operationNoticeKey, reportOperationNotice, logOperationFact, ensureOperationLogChannel, boundedPromise, gateStateLocal, targetLeaseTableLocal, beginCodeUploadHandoffLocal, endCodeUploadHandoffLocal, awaitDispatchHandoffSafeLocal, markCodeUploadWorkerReadyLocal, markCodeUploadWorkerFailedLocal, recordDispatchHandoffTimeoutLocal, acquireCodeUploadTargetLeaseLocal, releaseCodeUploadTargetLeaseLocal, markCodeSyncTargetResultLocal };
 `);
-function apiFactory(...args) { while(args.length<9)args.push(undefined);return createApi(...args,require("../../dist/extension/PlanCodeScopeHost.js"),require("../../dist/features/ProjectRootMap.js")); }
+function apiFactory(...args) { while(args.length<9)args.push(undefined);return createApi(...args,require("../../dist/extension/PlanCodeScopeHost.js"),require("../../dist/features/ProjectRootMap.js"),DispatchHandoffGateModule); }
 
 function sha(char) { return char.repeat(64); }
 
@@ -85,6 +100,12 @@ function syncHost(remote) {
     lastCodeSyncStats: {},
     codeSyncWarmProofs: new Map(),
     codeSyncAgentProofs: new Map(),
+    // 交接门真实宿主状态：与生产类字段初始化一致（legacy.ts 的 dispatchHandoffGate /
+    // codeUploadTargetLeases / codeSyncTargetResults / dispatchHandoffTimeoutEvidence）。
+    dispatchHandoffGate: undefined,
+    codeUploadTargetLeases: undefined,
+    codeSyncTargetResults: [],
+    dispatchHandoffTimeoutEvidence: undefined,
     pendingPlanSubmissionManifest: undefined,
     lastWorkerProbes: { "worker-a": { status: "ok", agentVersion: "agent-1", statusGeneration: 0 } },
     lastFullEndpointProbeAt: Date.now(),
@@ -129,7 +150,12 @@ function syncHost(remote) {
   host.notifyLocalActionStarted = () => {};
   host.githubUpdateToken = async () => "test-token";
   host.primaryGitRepository = async () => ({});
-  host.syncToGitHub = async () => { host.githubPublished = true; };
+  // 本机仓库准备与网络推送已拆成两段，这里替换为可控替身；断言保持不变。
+  host.prepareLocalGitPublish = async (_taskName, report) => {
+    report("待推送提交已确定：publish-test");
+    return { repo: {}, message: "publish-test", committed: false, hasRemote: true };
+  };
+  host.publishPreparedGitBranch = async () => { host.githubPublished = true; return { pushed: true, createdRemote: false }; };
   host.persistProjectCodeSyncState = async () => {};
   host.postState = () => {};
   host.markProjectOnboardingComplete = async () => {};
@@ -167,6 +193,7 @@ function syncHost(remote) {
     () => project,
   );
   Object.assign(host, api);
+  // 交接门与租约表走生产侧惰性创建，这里不再预置结构。
   host.localCodeManifestCacheFile = () => path.join(host.context.globalStorageUri.fsPath, "code-manifest.json");
   host.target = { id: "worker-a", role: "worker", label: "Worker A", host: "worker.example", user: "me", port: 22, remotePath: "/work/proj" };
   host.workerCodeSyncTargets = () => [host.target];

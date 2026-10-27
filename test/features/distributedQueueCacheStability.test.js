@@ -96,6 +96,7 @@ const progressMethod = sourceBlock("serverPlanProgress() {", "async refreshServe
   .replace(/}\s+async /g, "}, async ").replace(/,\s*$/, "").trim();
 const methodSource = `${queueMethods},\n${progressMethod}`;
 const sandbox = {
+    DispatchHandoffGate: require("../../dist/features/DispatchHandoffGate.js"),
   DistributedPlanQueue: queueApi,
   DistributedSchedulingPolicy: schedulingPolicy,
   DistributedPlanQueue_1: queueApi,

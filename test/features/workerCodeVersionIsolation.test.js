@@ -161,7 +161,9 @@ test("allocation is held only during a code write; running reconciliation contin
   const sync = source.slice(source.indexOf("async syncCodeTargets("), source.indexOf("codeSyncWarmProofKey(" , source.indexOf("async safeWorkerCodeSyncTargets(")));
   assert.match(sync, /dispatchInFlight[\s\S]*boundedPromise/);
   assert.match(sync, /safeWorkerCodeSyncTargets/);
-  assert.match(sync, /finally \{ this\.codeSyncInFlight--/);
+  // 交接 gate：同步侧只等已拥有所有权的派发，并在 finally 里同时回收同步意图与写入计数。
+  assert.doesNotMatch(sync, /this\.distributedQueueTickPromise/, "代码同步不得再等整轮 tick");
+  assert.match(sync, /finally \{[\s\S]*this\.endCodeUploadHandoffLocal\?\.\(codeUploadHandoff\?\.uploadId\);[\s\S]*this\.codeSyncInFlight--;\s*\}/);
   const send = source.slice(source.indexOf("async sendDistributedJob("), source.indexOf("async tickDistributedQueueCore("));
   assert.match(send, /fingerprintFromManifest\(codeManifest\) !== plan\.codeFingerprint/);
 });
