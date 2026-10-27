@@ -10910,7 +10910,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 scopeBatches.set(endpointId, await previewConfirmedScopeDeletion(
                     (method, params) => this.simpleSftpApiCall(method, params, 0),
                     { id: endpointId, kind: "remote", host: server.host, user: server.user || server.username, port: server.port, root: server.remotePath },
-                    list, stage => report(`${endpointId}：${stage}`)));
+                    list, root, stage => report(`${endpointId}：${stage}`)));
             }
         }
         for (const item of work) {
@@ -11057,7 +11057,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const destination = this.sftpServerOptions(row);
             for (const directory of plan.directoryDeletes) {
                 report(`${row.id}：清理已确认目录 ${directory}`);
-                await this.deleteSyncScopeRemoteCopy(row.id, destination, directory, true, report);
+                await this.deleteSyncScopeRemoteCopy(root, row.id, destination, directory, true, report);
             }
             for (const group of plan.groups) {
                 const batchNote = group.batchCount > 1 ? ` · 批次 ${group.batch}/${group.batchCount}` : "";
@@ -11153,7 +11153,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         });
         return work.map((item) => item.path);
     }
-    async deleteSyncScopeRemoteCopy(id, server, relative, directory, report = (_stage: string) => {}) {
+    async deleteSyncScopeRemoteCopy(root, id, server, relative, directory, report = (_stage: string) => {}) {
         const guard = this.targetRootGuard({ ...server, id });
         if (!guard || guard.unknown || isUnderMachineStatePrefixes(relative, guard.prefixes, directory))
             throw new Error("远端机器状态路径或其祖先不可删除；请核对节点状态根。");
@@ -11166,7 +11166,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             snapshot => report(`${id}：已检查 ${snapshot.processedFiles || 0} 项文件元数据`),
             ["files.cleanup.inspect", "files.cleanup.execute"].includes(method) ? { source: { ...server, id }, relativePath: relative } : undefined),
             { id, kind: "remote", host: server.host, user: server.user || server.username,
-                port: server.port, root: server.remotePath }, relative, directory, report);
+                port: server.port, root: server.remotePath }, relative, directory, root, report);
     }
     async removeSyncScopeCopies(root, targets, relative, endpointIds, directory, report = (_stage: string) => {}) {
         this.assertArtifactSyncPathsIdle?.(root, [relative]);
@@ -11205,7 +11205,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             report(`正在删除 ${copy.id} 的 ${relative}`);
             try {
                 if (copy.id === "local") await deleteLocalSyncPath(root, relative);
-                else await this.deleteSyncScopeRemoteCopy(copy.id, copy.server, relative, directory, report);
+                else await this.deleteSyncScopeRemoteCopy(root, copy.id, copy.server, relative, directory, report);
                 completed.push(copy.id);
             } catch (error) {
                 try {
@@ -11344,7 +11344,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (endpointId === "local") {
                 if (directory) {
                     const destination = this.sftpServerOptions(row);
-                    await this.deleteSyncScopeRemoteCopy(row.id, destination, relative, true, report);
+                    await this.deleteSyncScopeRemoteCopy(root, row.id, destination, relative, true, report);
                 }
                 const files = directory ? sourceInventory : { [relative]: sourceInventory[relative] };
                 const manifest = Object.fromEntries(Object.entries(files).map(([file, info]: [string, any]) => [file, { size: info.size, sha256: info.sha256 }]));
@@ -11455,7 +11455,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                             sourceId: sourceRow.id, destinationId: target.id, detail: directory,
                         }) });
                 } else {
-                    await this.deleteSyncScopeRemoteCopy(target.id, destination, directory, true);
+                    await this.deleteSyncScopeRemoteCopy(root, target.id, destination, directory, true);
                     if (Object.keys(sourceFiles).length) {
                         const manifest = Object.fromEntries(Object.entries(sourceFiles).map(([file, info]: [string, any]) => [file, { sha256: info.sha256, size: info.size }]));
                         const result = await (async () => {
@@ -12872,6 +12872,17 @@ this.assertPlanTopologyReady("Plan 调度");
             }
             await fs.mkdir(path.dirname(file), { recursive: true });
             const serialized = DistributedPlanQueue.serializeDistributedQueue(queue);
+            // r18-B：空转的 500ms 观察轮次也会提交“最新队列”。逐字节内容未变时没有任何新事实需要落盘，
+            // 而重写要付 2MB 级 JSON 的临时文件+rename，并在 rename 前再读一次盘（实测 12 秒内 43 次
+            // 写入内容完全相同、约 3.6 次/秒），把调度轮次拖长到让“等原派发结束”的调用方（代码同步
+            // 10 秒上限）超时。处理方式与 mutateLatest 的未变化分支一致：发布磁盘快照、保留 base 签名、
+            // 不产生 staging 写。携带新派发意图的保存（dispatchAdmission）不走此短路，同意回执不变。
+            if (!options.appendPlanId && options.dispatchAdmission !== true && serialized === diskSource) {
+                publishDiskSnapshot(diskSource, diskSignature, "ready", undefined);
+                DistributedPlanQueue.setDistributedQueueBaseSignature(queue, diskSignature);
+                if (workingQueue && workingQueue !== queue) DistributedPlanQueue.setDistributedQueueBaseSignature(workingQueue, diskSignature);
+                return;
+            }
             let publicationConflict = false;
             try {
                 await atomicWriteText(file, serialized, { beforeRename: async () => {
@@ -14991,7 +15002,7 @@ this.assertPlanTopologyReady("Plan 调度");
                 }),
                 remove: async (record) => {
                     await this.assertSshTransportIdentities([targets.get(record.workerId)]);
-                    await this.deleteSyncScopeRemoteCopy(record.workerId, servers.get(record.workerId), record.outputDir, true);
+                    await this.deleteSyncScopeRemoteCopy(root, record.workerId, servers.get(record.workerId), record.outputDir, true);
                 },
                 retired: async (candidate) => {
                     const latest = await this.loadDistributedQueue(root);

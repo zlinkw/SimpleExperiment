@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.416",
-  "buildId": "5d967cbfec049e1d66bc2033573fa8725ce6e0b11a8da72ce319203d7fa32ba0",
+  "version": "0.5.417",
+  "buildId": "1817c189dc55af7d1c27579c08329a829a51d77a0403731bf7407e65afe7df21",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -117,7 +117,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "e689dceac2ceab0c54b7a4b8e99ed2e2fbe990ac6189aa6f26cdd29501398ec1"
+      "sha256": "88574ea16a2483abb747cf978e12e5bf48b2de81dc1ab7b05959effd49ffeac1"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -565,7 +565,7 @@
     },
     {
       "path": "dist/features/SyncScopeDelete.js",
-      "sha256": "f3ff4649b5e32a037ae26d4c7afc4cd6e698a17f8b9e3e23395cf11991689667"
+      "sha256": "2e4e94bce211815b3412e6f4736db47aa5416a639b7d5ec5a2a1346a32c543ef"
     },
     {
       "path": "dist/features/SyncScopeLocalIndex.js",
@@ -717,7 +717,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "7afa4619a7cb60aae756955d3908d6acdeab6095748d842c3648be25c4acce9e"
+      "sha256": "4000646c1dc016ef0151849b76488c0a407cabdf18aed980db2ddd780df7bc85"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -885,7 +885,7 @@
     },
     {
       "path": "dist/tunnel/XshellSessionPatcher.js",
-      "sha256": "b92f7cb533c275674fdeda2386bcde4e49e85f2dd600b0c305e0da64106d84b6"
+      "sha256": "205c1d0fb93b6b15c072244fbbc14ebd38ee9fb3111fd72f9f2664f31690692d"
     },
     {
       "path": "dist/tunnel/XshellSessionScanner.js",
@@ -1065,7 +1065,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "f76771d10ba432fdd0dbc9ea981e648fb34e3c11f96843342215f4ff2fc563fd"
+      "sha256": "4272603030a1ac05273c04756227ba0e657e35233a7c0c3935911d3d02a2e51d"
     },
     {
       "path": "scripts/check-static.js",

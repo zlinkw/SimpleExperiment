@@ -15,6 +15,7 @@ const FAST = { confirmedPathDeletion: 1, entryIdentityBind: 1, batchedFastDelete
 const err = (code, message) => Object.assign(new Error(message || code), { apiData: { code } });
 const isoName = relativePath => '__iso_' + relativePath.replace(/[^\w]/g, '_');
 const node = { id: 'w1', kind: 'remote', root: '/project', host: 'h', user: 'u', port: 22 };
+const CONSUMER = 'D:/local/consumer-project';
 const SENTENCE = '我确认所列路径正确、文件未被占用，并同意永久删除';
 
 /** Engine double mirroring the SimpleSFTP cb2de41c fast contract: batched preview/confirm/execute/status only. */
@@ -71,7 +72,7 @@ function makeEngine({ present = new Set(), dirs = new Set(), residue = new Set()
 async function batchFixture(options) {
   const engine = makeEngine(options);
   const entries = options.entries || [];
-  const batches = await previewConfirmedScopeDeletion(engine.rpc, node, entries);
+  const batches = await previewConfirmedScopeDeletion(engine.rpc, node, entries, CONSUMER);
   return { engine, batches };
 }
 
@@ -80,7 +81,7 @@ test('the batch preview sends one bounded public request instead of one call per
     const present = new Set(Array.from({ length: total }, (_, index) => 'work_dirs/f' + index));
     const engine = makeEngine({ present });
     const entries = Array.from({ length: total }, (_, index) => ({ relativePath: 'work_dirs/f' + index, directory: false }));
-    const batches = await previewConfirmedScopeDeletion(engine.rpc, node, entries);
+    const batches = await previewConfirmedScopeDeletion(engine.rpc, node, entries, CONSUMER);
     assert.equal(engine.countOf('.preview'), 1 + (total > 5000 ? 1 : 0));
     assert.deepEqual(batches.map(batch => batch.rows.length), total > 5000 ? [5000, 1000] : [total]);
     assert.equal(batches.flatMap(batch => batch.rows).filter(row => row.absolutePath && row.type === 'file').length, total);
@@ -99,11 +100,11 @@ test('preview rows carry the full original to isolation mapping and fail closed 
   assert.equal(file.isolationAbsolutePath, undefined);
   assert.equal(gone.missing, true);
   const legacy = makeEngine({ legacy: true, present: new Set(['work_dirs/job']) });
-  await assert.rejects(previewConfirmedScopeDeletion(legacy.rpc, node, [{ relativePath: 'work_dirs/job', directory: true }]),
+  await assert.rejects(previewConfirmedScopeDeletion(legacy.rpc, node, [{ relativePath: 'work_dirs/job', directory: true }], CONSUMER),
     error => { assert.match(error.message, /批量快速删除链/); assert.equal(error.apiData.code, 'SFTP_FAST_DELETE_UPGRADE_REQUIRED'); return true; });
   assert.equal(legacy.countOf('.confirm'), 0); assert.equal(legacy.countOf('.execute'), 0);
   const changed = makeEngine({ present: new Set(['work_dirs/job']), wrongType: true });
-  await assert.rejects(previewConfirmedScopeDeletion(changed.rpc, node, [{ relativePath: 'work_dirs/job', directory: true }]), /路径或类型已变化/);
+  await assert.rejects(previewConfirmedScopeDeletion(changed.rpc, node, [{ relativePath: 'work_dirs/job', directory: true }], CONSUMER), /路径或类型已变化/);
   assert.equal(changed.countOf('.confirm'), 0);
 });
 
@@ -367,3 +368,18 @@ function panelBridge() {
   }
   return { bridge, deletePreview };
 }
+
+test('the batched chain binds preview, confirm, execute and status to one frozen local project root', async () => {
+  const entries = [{ relativePath: 'work_dirs/job', directory: true }];
+  const engine = makeEngine({ present: new Set(['work_dirs/job']), dirs: new Set(['work_dirs/job']), entries });
+  const batches = await previewConfirmedScopeDeletion(engine.rpc, node, entries, CONSUMER);
+  assert.equal(batches[0].consumerRoot, CONSUMER);
+  const outcomes = await completeConfirmedScopeDeletion(engine.rpc, batches[0], () => {}, { wait: async () => {} });
+  assert.deepEqual(outcomes.map(row => row.state), ['completed']);
+  assert.ok(engine.calls.length >= 4, 'preview+confirm+execute+status all really went out');
+  assert.ok(engine.calls.every(call => call.params.consumerRoot === CONSUMER),
+    'every files.cleanup.* request carries the same consuming project root: ' + JSON.stringify(engine.calls.map(call => [call.method, call.params.consumerRoot])));
+  for (const bad of ['', 'relative/project']) {
+    await assert.rejects(previewConfirmedScopeDeletion(async () => { throw new Error('must not send a request'); }, node, entries, bad), /消费项目的绝对路径/);
+  }
+});

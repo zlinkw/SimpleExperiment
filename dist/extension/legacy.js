@@ -11561,7 +11561,7 @@ class RealtimeTunnelPanelProvider {
                         throw new Error(`删除目标 ${endpointId} 未连接或未启用。`);
                     const server = this.sftpServerOptions(targetRow);
                     report(`${endpointId}：只读批量预检 ${list.length} 条路径`);
-                    scopeBatches.set(endpointId, await (0, SyncScopeDelete_1.previewConfirmedScopeDeletion)((method, params) => this.simpleSftpApiCall(method, params, 0), { id: endpointId, kind: "remote", host: server.host, user: server.user || server.username, port: server.port, root: server.remotePath }, list, stage => report(`${endpointId}：${stage}`)));
+                    scopeBatches.set(endpointId, await (0, SyncScopeDelete_1.previewConfirmedScopeDeletion)((method, params) => this.simpleSftpApiCall(method, params, 0), { id: endpointId, kind: "remote", host: server.host, user: server.user || server.username, port: server.port, root: server.remotePath }, list, root, stage => report(`${endpointId}：${stage}`)));
                 }
             }
             for (const item of work) {
@@ -11740,7 +11740,7 @@ class RealtimeTunnelPanelProvider {
             const destination = this.sftpServerOptions(row);
             for (const directory of plan.directoryDeletes) {
                 report(`${row.id}：清理已确认目录 ${directory}`);
-                await this.deleteSyncScopeRemoteCopy(row.id, destination, directory, true, report);
+                await this.deleteSyncScopeRemoteCopy(root, row.id, destination, directory, true, report);
             }
             for (const group of plan.groups) {
                 const batchNote = group.batchCount > 1 ? ` · 批次 ${group.batch}/${group.batchCount}` : "";
@@ -11840,7 +11840,7 @@ class RealtimeTunnelPanelProvider {
         });
         return work.map((item) => item.path);
     }
-    async deleteSyncScopeRemoteCopy(id, server, relative, directory, report = (_stage) => { }) {
+    async deleteSyncScopeRemoteCopy(root, id, server, relative, directory, report = (_stage) => { }) {
         const guard = this.targetRootGuard({ ...server, id });
         if (!guard || guard.unknown || (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(relative, guard.prefixes, directory))
             throw new Error("远端机器状态路径或其祖先不可删除；请核对节点状态根。");
@@ -11850,7 +11850,7 @@ class RealtimeTunnelPanelProvider {
         if (directory && capability.methodOptions?.["files.cleanup.preview"]?.confirmedPathNestedRepositories !== 1)
             throw new Error("请更新 SimpleSFTP 至 0.2.98 或以上并重载窗口：整目录删除需要子仓库元数据保护协议。");
         return (0, SyncScopeDelete_1.deleteConfirmedScopeCopy)((method, params) => this.simpleSftpApiCall(method, params, 0, snapshot => report(`${id}：已检查 ${snapshot.processedFiles || 0} 项文件元数据`), ["files.cleanup.inspect", "files.cleanup.execute"].includes(method) ? { source: { ...server, id }, relativePath: relative } : undefined), { id, kind: "remote", host: server.host, user: server.user || server.username,
-            port: server.port, root: server.remotePath }, relative, directory, report);
+            port: server.port, root: server.remotePath }, relative, directory, root, report);
     }
     async removeSyncScopeCopies(root, targets, relative, endpointIds, directory, report = (_stage) => { }) {
         this.assertArtifactSyncPathsIdle?.(root, [relative]);
@@ -11903,7 +11903,7 @@ class RealtimeTunnelPanelProvider {
                 if (copy.id === "local")
                     await (0, SyncResolution_1.deleteLocalSyncPath)(root, relative);
                 else
-                    await this.deleteSyncScopeRemoteCopy(copy.id, copy.server, relative, directory, report);
+                    await this.deleteSyncScopeRemoteCopy(root, copy.id, copy.server, relative, directory, report);
                 completed.push(copy.id);
             }
             catch (error) {
@@ -12090,7 +12090,7 @@ class RealtimeTunnelPanelProvider {
                 if (endpointId === "local") {
                     if (directory) {
                         const destination = this.sftpServerOptions(row);
-                        await this.deleteSyncScopeRemoteCopy(row.id, destination, relative, true, report);
+                        await this.deleteSyncScopeRemoteCopy(root, row.id, destination, relative, true, report);
                     }
                     const files = directory ? sourceInventory : { [relative]: sourceInventory[relative] };
                     const manifest = Object.fromEntries(Object.entries(files).map(([file, info]) => [file, { size: info.size, sha256: info.sha256 }]));
@@ -12217,7 +12217,7 @@ class RealtimeTunnelPanelProvider {
                         }) });
                 }
                 else {
-                    await this.deleteSyncScopeRemoteCopy(target.id, destination, directory, true);
+                    await this.deleteSyncScopeRemoteCopy(root, target.id, destination, directory, true);
                     if (Object.keys(sourceFiles).length) {
                         const manifest = Object.fromEntries(Object.entries(sourceFiles).map(([file, info]) => [file, { sha256: info.sha256, size: info.size }]));
                         const result = await (async () => {
@@ -13780,6 +13780,18 @@ class RealtimeTunnelPanelProvider {
                 }
                 await fs.mkdir(path.dirname(file), { recursive: true });
                 const serialized = DistributedPlanQueue.serializeDistributedQueue(queue);
+                // r18-B：空转的 500ms 观察轮次也会提交“最新队列”。逐字节内容未变时没有任何新事实需要落盘，
+                // 而重写要付 2MB 级 JSON 的临时文件+rename，并在 rename 前再读一次盘（实测 12 秒内 43 次
+                // 写入内容完全相同、约 3.6 次/秒），把调度轮次拖长到让“等原派发结束”的调用方（代码同步
+                // 10 秒上限）超时。处理方式与 mutateLatest 的未变化分支一致：发布磁盘快照、保留 base 签名、
+                // 不产生 staging 写。携带新派发意图的保存（dispatchAdmission）不走此短路，同意回执不变。
+                if (!options.appendPlanId && options.dispatchAdmission !== true && serialized === diskSource) {
+                    publishDiskSnapshot(diskSource, diskSignature, "ready", undefined);
+                    DistributedPlanQueue.setDistributedQueueBaseSignature(queue, diskSignature);
+                    if (workingQueue && workingQueue !== queue)
+                        DistributedPlanQueue.setDistributedQueueBaseSignature(workingQueue, diskSignature);
+                    return;
+                }
                 let publicationConflict = false;
                 try {
                     await (0, StateStore_1.atomicWriteText)(file, serialized, { beforeRename: async () => {
@@ -16182,7 +16194,7 @@ class RealtimeTunnelPanelProvider {
                 }),
                 remove: async (record) => {
                     await this.assertSshTransportIdentities([targets.get(record.workerId)]);
-                    await this.deleteSyncScopeRemoteCopy(record.workerId, servers.get(record.workerId), record.outputDir, true);
+                    await this.deleteSyncScopeRemoteCopy(root, record.workerId, servers.get(record.workerId), record.outputDir, true);
                 },
                 retired: async (candidate) => {
                     const latest = await this.loadDistributedQueue(root);
@@ -24824,8 +24836,7 @@ class RealtimeTunnelPanelProvider {
                         if (answer !== label)
                             throw new UiCommandCancelled_1.UiCommandCancelled("已取消关闭窗口。");
                     }, progress: work => vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
-                        title: `关闭 ${workerId} · ${message.gpuSession || message.closeSession}`, cancellable: false }, progress => work(message => progress.report({ message }))),
-                }, { workerId, gpuSession: String(message.gpuSession || ""), session: String(message.closeSession || ""), identities: message.identities });
+                        title: `关闭 ${workerId} · ${message.gpuSession || message.closeSession}`, cancellable: false }, progress => work(message => progress.report({ message }))), }, { workerId, gpuSession: String(message.gpuSession || ""), session: String(message.closeSession || ""), identities: message.identities });
             }
             finally {
                 this.tmuxClearTaskTabsInFlight = false;
