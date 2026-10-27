@@ -37902,7 +37902,10 @@ async function openReusableMappedTemp(root, relative) {
         const identityChanged = before && before.ino && opened.ino && (before.dev !== opened.dev || before.ino !== opened.ino);
         if (!opened.isFile() || identityChanged)
             throw new Error(`本机映射暂存文件身份在打开时变化：${relative}`);
-        return { full: checked.full, handle, identity: { dev: opened.dev, ino: opened.ino } };
+        // 句柄已经打开，此后任何异常都必须先归还句柄，所以暂存槽所在目录的 realpath 采样放在同一个受保护 try 内；
+        // 采样失败按原样抛出（走下面的 catch 关闭句柄），不吞异常，也不留漏句柄的路径。
+        const parentReal = await fs.realpath(path.dirname(checked.full));
+        return { full: checked.full, handle, identity: { dev: opened.dev, ino: opened.ino }, parentReal };
     }
     catch (error) {
         await handle.close().catch(() => undefined);
@@ -37966,6 +37969,9 @@ async function distributeMappedDownloads(root, entries, transfers, overwrite, ho
             const parent = path.dirname(destination);
             await fs.mkdir(parent, { recursive: true });
             const checkedParent = await fs.realpath(parent);
+            // 写入前记下目标父目录自身的 dev/ino：目标父目录被改名让位后同名重建时，重新解析出的路径字符串仍然相等，
+            // 只有目录身份能识别；lstat 异常按原样抛出，不吞成通过。
+            const checkedParentStat = await fs.lstat(checkedParent);
             const rootReal = await fs.realpath(root);
             const parentWithin = path.relative(rootReal, checkedParent);
             if (parentWithin.startsWith("..") || path.isAbsolute(parentWithin))
@@ -37974,6 +37980,10 @@ async function distributeMappedDownloads(root, entries, transfers, overwrite, ho
             const temporaryRelative = mappedResultTemporaryRelativePath(destinationRelative);
             const temporaryState = await openReusableMappedTemp(root, temporaryRelative);
             const temporary = temporaryState.full;
+            // 暂存槽目录不应由目标父目录代替：槽位固定在项目根下的 simple_cluster/tmp/mapped-staging，
+            // 发布前的身份校验必须与该槽所在目录（打开时已解析过符号链接）比对，拿 checkedParent 比对会让每次正常发布都误判。
+            // 该采样由 openReusableMappedTemp 在持有句柄保护的 try 内完成，避免此处 realpath 抛错漏关句柄。
+            const temporaryParentReal = temporaryState.parentReal;
             try {
                 await streamCopyFile(source, temporary, RESULT_ARTIFACT_MAX_BYTES, temporaryState.handle);
             }
@@ -37988,10 +37998,20 @@ async function distributeMappedDownloads(root, entries, transfers, overwrite, ho
                 residues.push(temporary);
                 throw new Error(`本机映射父目录在写入后发生变化，暂存保留：${temporary}`);
             }
+            // 字符串复核通过仍可能是「原父目录被改名让位 + 同名新建目录」：路径一致但已是另一个目录，
+            // 必须靠 dev/ino 差异保留暂存并拒绝发布。ino 缺失/为 0/不可比较时不启用本判据（退回上面的字符串比较），
+            // 不比较 mtime/ctime/birthtime；lstat 的权限或 I/O 异常原样抛出，不当作通过。
+            const latestParentStat = await fs.lstat(currentParent.identity);
+            const parentDirectoryIdentityChanged = checkedParentStat.ino > 0 && latestParentStat.ino > 0
+                && (checkedParentStat.dev !== latestParentStat.dev || checkedParentStat.ino !== latestParentStat.ino);
+            if (parentDirectoryIdentityChanged) {
+                residues.push(temporary);
+                throw new Error(`本机映射父目录在写入后发生变化，暂存保留：${temporary}`);
+            }
             const latestTemp = await fs.lstat(temporary).catch((error) => error?.code === "ENOENT" ? undefined : Promise.reject(error));
             const latestTempReal = latestTemp ? await fs.realpath(temporary) : "";
             const tempIdentityChanged = latestTemp && temporaryState.identity.ino && latestTemp.ino && (temporaryState.identity.dev !== latestTemp.dev || temporaryState.identity.ino !== latestTemp.ino);
-            if (!latestTemp?.isFile() || latestTemp.isSymbolicLink() || tempIdentityChanged || path.resolve(latestTempReal) !== path.resolve(checkedParent, path.basename(temporary))) {
+            if (!latestTemp?.isFile() || latestTemp.isSymbolicLink() || tempIdentityChanged || path.resolve(latestTempReal) !== path.resolve(temporaryParentReal, path.basename(temporary))) {
                 residues.push(temporary);
                 throw new Error(`本机映射暂存文件身份在发布前变化，暂存保留：${temporary}`);
             }
