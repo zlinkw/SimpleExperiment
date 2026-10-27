@@ -802,20 +802,47 @@ test("runner: real-repo plan reconciles with an independently expanded manifest 
   const pkg = inPackage;
   // —— 语义对账：五个权威入口的 (canonical identity + argv) 集合与独立展开完全一致（不多、不少、不重、非空）。
   // argv 参与 identity ⇒ 同文件多 argv 行（矩阵）必须与 manifest 定义逐条相等；单一总数不再是门禁。
+  // 2026-10-27 契约修复（用户批准）：按需策略 ondemand-old-tests-v2（scripts/test-selection.js）把最旧候选组
+  // 整体移出 plan.jobs 放进 plan.onDemandJobs（status=on_demand_not_run）＝延后启动，不是清单缺项；该策略于
+  // 2026-10-26 加入，而本用例（2026-10-24）写成与剥离按需后的 plan.jobs 对齐，历史 package 批次 onDemandFileCount
+  // 均为 0（scopeUnknown 命中全保护）所以从未暴露。对账基准因此改为完整计划集 = plan.jobs ∪ plan.onDemandJobs。
+  // 比对键完全不变：canonical 全路径身份 + argv（win32 下 realpath 后统一小写），既未改成 basename 也未改成相对路径；
+  // 期望集与实测集仍取同一次独立展开 canonicalPlan；missing 与 extra 两条断言一条不删，等式仍成立，只是基准换成并集。
+  // 另加三条保护断言：两侧不得相交、并集元素数=选择前唯一集 plan.dedup.uniqueRuns、每个按需项 identity 属于并集且由清单定义。
   const expectedByEntry = {};
   for (const entry of ["package", "build", "check:full", "test", "test:features"]) {
     const exp = canonicalPlan(manifest, entry);
     assert.ok(exp.map.size > 0, `canonical expansion of ${entry} must never be empty`);
     expectedByEntry[entry] = exp;
+    const plan = planOf(entry);
+    const canonicalKey = (identity, argv) => identity + "\u0000" + argv.join("\u0000");
+    // plan.onDemandJobs 只带 { file, argv, status }（运行器 plan 的返回形状），故按需侧身份由本用例自带的
+    // 独立规范实现 canonicalIdentity(file) 还原，绝不 import 被测 jobIdentity；与 expected 侧同一规范语义。
+    const onDemandKeys = new Set(plan.onDemandJobs.map(j => canonicalKey(canonicalIdentity(j.file), j.argv)));
     const map = new Map();
-    for (const j of planOf(entry).jobs) {
-      const key = j.identity + "\u0000" + j.argv.join("\u0000");
+    for (const j of plan.jobs) {
+      const key = canonicalKey(j.identity, j.argv);
       assert.ok(!map.has(key), `${entry}: planner emitted duplicate identity+argv for ${j.file}`);
+      assert.ok(!onDemandKeys.has(key), `${entry}: same identity+argv appears in both plan.jobs and plan.onDemandJobs: ${j.file}`); // 保护 1：两侧不相交
       map.set(key, j);
+    }
+    for (const j of plan.onDemandJobs) {
+      const key = canonicalKey(canonicalIdentity(j.file), j.argv);
+      assert.ok(!map.has(key), `${entry}: planner emitted duplicate identity+argv for on-demand ${j.file}`);
+      map.set(key, j);
+    }
+    // 保护 2：并集元素数必须等于选择前唯一集（按需延后不得改变唯一集大小，也不得多出或漏掉条目）。
+    assert.equal(map.size, plan.dedup.uniqueRuns, `${entry}: plan.jobs ∪ plan.onDemandJobs must equal the pre-selection unique set`);
+    // 保护 3：每个按需 job 的 canonical identity 必须落在并集内，且确实由 manifest 契约定义（不得凭空多出自定义项）。
+    const unionIdentities = new Set([...map.keys()].map(k => k.split("\u0000")[0]));
+    for (const j of plan.onDemandJobs) {
+      const identity = canonicalIdentity(j.file);
+      assert.ok(unionIdentities.has(identity), `${entry}: on-demand job identity absent from the union: ${j.file}`);
+      assert.ok([...exp.map.keys()].some(k => k.split("\u0000")[0] === identity), `${entry}: on-demand job is not defined by the manifest contract: ${j.file}`);
     }
     const missing = [...exp.map.keys()].filter(k => !map.has(k)).map(k => exp.map.get(k).file);
     const extra = [...map.keys()].filter(k => !exp.map.has(k)).map(k => map.get(k).file);
-    assert.deepEqual(missing, [], `${entry}: manifest-defined jobs missing from the plan`);
+    assert.deepEqual(missing, [], `${entry}: manifest-defined jobs missing from the plan (basis: plan.jobs ∪ plan.onDemandJobs)`);
     assert.deepEqual(extra, [], `${entry}: planned jobs not defined by the manifest contract`);
   }
   // dedup 语义：请求槽位数与去重数直接绑定独立展开（requestedSlots=展开条目数，removed=重复条目数）。
@@ -832,10 +859,11 @@ test("runner: real-repo plan reconciles with an independently expanded manifest 
   // 盘上覆盖对账（替代 >=798 固定数）：每一个盘上 *.test.js 都被 test 入口规范覆盖（遗漏即失败），
   // 且 test 入口规划的每个文件真实在盘上（幽灵即失败）。本轮“原覆盖无丢失”由精确 diff（仅测试/文档，manifest 定义与旧文件未删）
   // + 本节独立集合对账共同证明；动态相等关系本身不单独防未来删文件——删除测试仍受既有“必须用户批准”流程约束。
-  const testJobs = planOf("test").jobs;
+  const testPlan = planOf("test"); // 盘上覆盖同样按完整计划集判定：按需延后仍属覆盖，不得误报成盘上文件脱离覆盖
+  const testJobs = [...testPlan.jobs, ...testPlan.onDemandJobs];
   const testFileSet = new Set(testJobs.map(j => j.file));
   for (const f of disk) assert.ok(testFileSet.has(f), `disk test file dropped from test-entry coverage: ${f}`);
-  for (const j of testJobs) assert.ok(fs.existsSync(path.join(REPO, j.file)), `planned file not on disk: ${j.file}`);
+  for (const j of testJobs) assert.ok(fs.existsSync(path.join(REPO, j.file)), `planned file not on disk: ${j.file}`); // 幽灵检查一并覆盖按需侧（只增强不削弱）
   // 分类分区守恒（每个 job 恰属 independent/exclusive 之一侧；总数已由上方集合对账绑定规范展开）。
   assert.equal(pkg.independent + pkg.exclusive, pkg.jobs, "independent+exclusive must partition the planned jobs exactly");
   for (const [name, script] of Object.entries(JSON.parse(fs.readFileSync(path.join(REPO, "package.json"), "utf8")).scripts)) {
