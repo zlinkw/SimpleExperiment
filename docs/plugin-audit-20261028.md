@@ -16,3 +16,5 @@ B1 follow-up: metadata links rejected; owner file opened without truncation befo
 No SimpleExperiment package, release, install, merge, or remote Agent update has been performed. Azure/MSAL upgrade remains deferred per plan.
 
 Windows lock correction: a real EACCES on reserved port 50523 invalidated the hashed-TCP-only approach. Windows now uses a named OS mutex held by hidden pwsh.exe with stdin lifetime; no fixed tunnel endpoint or directory deletion. Unix keeps bounded same-root TCP exclusion. Link escape regression and the two adapted real runner cases pass. Full historic runner suite remains unverified.
+
+Authorized test maintenance C1: user approved preserving all assertions, splitting the legacy 60s suite into <=20s groups, and retaining/safely simulating cleanup. Setup guide 12/12, package policy 10/10, result-sync visibility 32/32, runner missing-output/user-site cases 2/2 passed. Missing-file races now retain exact fixture bytes under clean_dir with fingerprints and manifest; terminal cleanup leaves fixture roots intact. C2 native cleanup simulation and full matrix execution pending.

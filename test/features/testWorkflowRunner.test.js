@@ -603,7 +603,7 @@ test("r24 compile cache: cold→hit, input/config/toolchain drift, missing/tampe
   const r6 = runTsc(); const p6 = line(r6.stdout, "partition");
   assert.equal(line(r6.stdout, "mode"), "incremental", "r5 rebuild completed ⇒ r6 is a genuine hit");
   assert.match(r6.stdout, /emitted=0/);
-  fs.rmSync(path.join(ws, "dist", "a.js"));
+  require("../_helpers/retainFixtureTarget.cjs")(ws, path.join(ws, "dist", "a.js"));
   const r7 = runTsc();
   assert.equal(line(r7.stdout, "mode"), "cold");
   assert.match(r7.stdout, /missReason=output-drift/);
@@ -950,7 +950,7 @@ test("r28: existing user-site deps stay visible (batch-once resolve, PYTHONPATH 
 test("r28: unresolvable user site ⇒ no PYTHONPATH injection for the whole batch (fail-safe)", t => {
   const s = r28Setup(t);
   if (!s) return t.skip("no resolvable python on this host");
-  fs.rmSync(s.usersiteBase, { recursive: true, force: true }); // 解析出的目录不存在 ⇒ 降级
+  // A separate absent PYTHONUSERBASE below simulates unresolvable input; existing fixture bytes stay retained.
   const files = [r28PyJob(s.ws, "pyvisn", s.marker, "absent")];
   const run = r28Run(s.ws, files, { ...process.env, PYTHONUSERBASE: path.join(s.ws, "no-such-base"), PYTHONPATH: s.marker });
   assert.equal(run.status, 0, run.stdout + run.stderr);
