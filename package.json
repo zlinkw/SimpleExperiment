@@ -1,8 +1,8 @@
 {
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
-  "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.425",
+  "description": "面向科研实验的后台 SSH 隧道实时集群编排面板。",
+  "version": "0.5.426",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -40,6 +40,7 @@
     "onCommand:simpleExperiment.startWorkerTunnel",
     "onCommand:simpleExperiment.startAllXshellRealtimeTunnels",
     "onCommand:simpleExperiment.startAllXshellConnections",
+    "onCommand:simpleExperiment.openXshellSessions",
     "onCommand:simpleExperiment.testAllTunnels",
     "onCommand:simpleExperiment.showTunnelEndpointRegistry",
     "onCommand:simpleExperiment.testXshellTunnel",
@@ -172,13 +173,18 @@
       },
       {
         "command": "simpleExperiment.startAllXshellRealtimeTunnels",
-        "title": "SimpleExperiment：启动全部 Xshell 会话",
+        "title": "SimpleExperiment：启动全部后台隧道",
         "icon": "$(run-all)"
       },
       {
         "command": "simpleExperiment.startAllXshellConnections",
-        "title": "SimpleExperiment：启动全部 Xshell 连接",
+        "title": "SimpleExperiment：启动全部后台连接",
         "icon": "$(run-all)"
+      },
+      {
+        "command": "simpleExperiment.openXshellSessions",
+        "title": "SimpleExperiment：一键打开 Xshell",
+        "icon": "$(terminal)"
       },
       {
         "command": "simpleExperiment.testAllTunnels",

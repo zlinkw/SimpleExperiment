@@ -76,6 +76,8 @@ test("configured single-project workspaces keep onboarding visible until explici
     agentProjectDir: "/srv/projects",
     workerTunnels: [{
       id: "worker-a",
+      workerHost: "worker.example",
+      workerUser: "research",
       savedSessionPath: "C:/Sessions/worker-a.xsh",
       agentProjectDir: "/srv/projects",
       enabled: true,

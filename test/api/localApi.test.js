@@ -641,7 +641,7 @@ test("SimpleExperiment parameterized onboarding uses one structured confirmation
     assert.match(extensionSource, new RegExp(`"${method.replace(/\./g, "\\.")}": async`), `missing API method ${method}`);
   }
   assert.match(extensionSource, /enabledServers: targets\.filter\(\(target\) => target\.enabled !== false\)/);
-  assert.match(extensionSource, /xshellSessions: params\.applyXshell === false \? \[\] : targets\.map/);
+  assert.match(extensionSource, /xshellSessions: params\.applyXshell === true \? targets\.map/);
   assert.match(extensionSource, /remoteRuntime: params\.deployRuntime === false \? \[\] : targets\.map/);
   assert.match(extensionSource, /preview: \{\s*operation: "startAllConnections",\s*topology/s);
   assert.match(extensionSource, /ports,\s*remoteRoots:/);

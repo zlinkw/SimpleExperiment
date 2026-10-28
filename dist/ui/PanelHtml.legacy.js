@@ -1351,7 +1351,7 @@ function renderPanelHtml() {
       <div class="topbar-actions">
         <button data-command="toggleLowTrafficMode" type="button" class="secondary lowTrafficToggle" id="lowTrafficModeButton" aria-pressed="false" disabled title="低流量模式（全局偏好）：正在读取当前状态...">低流量：读取中</button>
         <button data-command="bootstrapProject" type="button" title="扫描工作区，识别 experiments/plans 下的实验计划与项目配置&#10;同时检查服务器与 Agent 等前置条件&#10;已有的计划与接入配置不会重复写入">识别工作区</button>
-        <span class="status-chip">Xshell</span>
+        <span class="status-chip">后台 SSH</span>
         <span class="status-chip">全局配置</span>
         <span class="status-chip status-completed">仅本机端口</span>
         <button data-command="verifyAgentVersion" class="secondary" type="button" title="校验 Agent 版本&#10;对比本机与各服务器上的 Agent 版本&#10;不一致时提示升级">校验 Agent 版本</button>
@@ -1413,7 +1413,8 @@ function renderPanelHtml() {
         <div class="toolbar" data-anchor="sync-actions">
           <button type="button" data-command="prepareAgents" title="第 1 步 · 先部署&#10;上传最新版 Agent 到全部服务器并启动&#10;无需隧道在线">部署Agent</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
-          <button type="button" data-command="startAll" class="secondary" title="第 1 步 · 连隧道&#10;启动全部 Xshell 隧道，建立本机到服务器的端口转发">启动全部隧道</button>
+          <button type="button" data-command="startAll" class="secondary" title="第 1 步 · 连隧道&#10;后台建立本机到服务器的 SSH 端口转发">启动全部隧道</button>
+          <button type="button" data-command="openXshell" class="secondary" title="打开已启用服务器的 Xshell 会话，供手动操作">一键打开 Xshell</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
           <button type="button" data-command="publishGithub" data-confirm="true" title="第 2 步 · 传代码&#10;先提交推送到 GitHub（未配置会引导登录）&#10;再通过 SimpleSFTP 上传到所有 Worker；仅上传到启用的 Worker">发布到git并上传worker</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
@@ -1615,7 +1616,7 @@ function renderPanelHtml() {
       </details>
       <details class="advanced">
         <summary>高级诊断</summary>
-        <div class="toolbar" title="插件不内置 SSH；Worker 连接由 Xshell 本地端口转发提供">
+        <div class="toolbar" title="Worker 隧道在后台建立；Xshell 提供服务器导入和手动终端">
           <button data-command="startWorker" type="button" title="启动 Worker&#10;在 Worker 服务器上启动 Agent&#10;接收调度任务并上报 GPU 状态">启动 Worker</button>
           <button data-command="configurePorts" class="secondary" type="button" title="配置隧道端口&#10;分配或调整 Worker 的本机转发端口">配置端口</button>
           <button data-command="repairPorts" class="secondary" type="button" title="处理端口冲突&#10;检测被占用的隧道端口并重新分配">处理端口冲突</button>
@@ -3159,7 +3160,7 @@ function renderPanelHtml() {
       scalar: "单值", mapping: "对象", object: "对象", sequence: "列表", array: "列表"
     });
     const STATUS_LABELS = Object.freeze({
-      xshell_tunnel_realtime: "Xshell 实时隧道", offline_import: "离线导入", unknown: "未知", local_port_closed: "本地端口未打开", agent_unreachable: "Agent 不可达", agent_ok: "Agent 正常", file_api_unavailable: "文件 API 不可用",
+      xshell_tunnel_realtime: "后台 SSH 隧道", offline_import: "离线导入", unknown: "未知", local_port_closed: "本地端口未打开", agent_unreachable: "Agent 不可达", agent_ok: "Agent 正常", file_api_unavailable: "文件 API 不可用",
       disconnected: "未连接", connecting: "连接中", connected: "已连接", reconnecting: "重连中", websocket: "WebSocket（本地转发）", sse: "SSE（本地转发）", polling: "快照备用", snapshot: "快照备用", paused: "已暂停",
       accepted: "已接收", submitted: "已提交", queued: "排队中", pending: "等待中", running: "运行中", in_progress: "运行中", testing: "检测中", completed: "已完成", completed_with_errors: "部分失败", done: "已完成",
       success: "成功", succeeded: "成功", failed: "失败", error: "错误", warning: "注意", stalled: "已卡住", stopped: "已停止", cancelled: "已取消", canceled: "已取消", skipped: "已跳过",
@@ -7355,7 +7356,8 @@ function renderPanelHtml() {
     }
 
     const COMMAND_HELP_TEXT = Object.freeze({
-        startAllConnections: "打开已配置的 Xshell 连接",
+        startAllConnections: "后台建立已配置 Worker 的 SSH 隧道",
+        openXshell: "打开已启用服务器的 Xshell 会话供手动操作",
         prepareAgents: "检测并复用健康 Agent；必要时部署独立服务，保留原登录行为，核实运行版本",
         testAll: "检测全部",
         snapshot: "刷新快照",
@@ -7391,8 +7393,8 @@ function renderPanelHtml() {
         deleteWorkerConfig: "删除 Worker 配置",
         configureSessions: "选择 Xshell 会话",
         configureAgentSessions: "写入 Agent RemoteCommand",
-        startTunnelEndpoint: "启动 Xshell 隧道",
-        startAgentEndpoint: "启动 Xshell 隧道",
+        startTunnelEndpoint: "启动后台 SSH 隧道",
+        startAgentEndpoint: "后台部署并启动 Agent",
         startAgents: "启动全部隧道",
         writeAgentCommands: "写入 Agent RemoteCommand",
         test: "检测当前端点",
@@ -9675,7 +9677,7 @@ function renderPanelHtml() {
             configPortPair(scope, "隧道端口对", "localForwardPort", "remoteTelemetryPort", worker.localForwardPort || assignment.localForwardPort || "", worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "", workerSession, "savedSessionForwardIndex", worker.savedSessionForwardIndex, tunnelHost(worker.localForwardHost || assignment.localForwardHost || setup.localForwardHost), tunnelHost(worker.remoteAgentHost || assignment.remoteBindHost || setup.remoteAgentHost)) +
             configSelect(scope, "enabled", "启用状态", worker.enabled === false ? "false" : "true", [["true", "启用"], ["false", "禁用"]]) +
           '</div>' +
-          '<div class="muted">插件的 SSH/SFTP 文件操作使用服务器地址；Xshell 会话只负责隧道。文件传输路径由项目父目录和当前项目名自动计算。</div>' +
+          '<div class="muted">后台隧道与 Agent 部署使用系统 SSH 认证；Xshell 用于导入服务器和手动终端。文件传输路径由项目父目录和当前项目名自动计算。</div>' +
           renderServerDestinationPreview(workerAgent, scope) +
           renderSchedulerDependencyStatus((((state.workerProbes || {})[worker.id] || {}).schedulerDependencies), worker.displayName || worker.id) +
           '<div class="toolbar">' +
@@ -9804,7 +9806,8 @@ function renderPanelHtml() {
         '<div class="toolbar">' +
           '<button type="button" data-section-target="settings" title="跳转到设置区" data-anchor-target="settings-servers">设置</button>' +
           '<button data-command="addWorkerConfig" title="在设置区追加一块空白服务器表单&#10;填写远端路径与环境后，需再点「保存」才会生效">新增服务器</button>' +
-          '<button data-command="startAll" class="secondary" title="第 1 步 · 连隧道&#10;启动全部 Xshell 隧道，建立本机到服务器的端口转发">' + esc("启动 Worker 隧道") + '</button>' +
+          '<button data-command="startAll" class="secondary" title="后台建立全部 Worker 的 SSH 端口转发">' + esc("启动 Worker 隧道") + '</button>' +
+          '<button data-command="openXshell" class="secondary" title="打开导入的 Xshell 会话供手动操作">一键打开 Xshell</button>' +
           '<button data-command="prepareAgents" title="第 1 步 · 先部署&#10;上传最新版 Agent 到全部服务器并启动&#10;无需隧道在线">' + esc("部署 Worker Agent") + '</button>' +
           '<button data-command="testAll" class="secondary" title="第 3 步 · 检测&#10;检测全部服务器隧道、Agent 与调度依赖&#10;失败项会列出原因">' + esc("检测 Worker") + '</button>' +
         '</div>');
@@ -10333,10 +10336,10 @@ function renderPanelHtml() {
         workerUser: "登录该 Worker 的 SSH 用户名；SFTP 使用同一用户。",
         condaEnv: "必填完整路径，以 / 开头，如 /path/to/conda_envs/<env_name> 或 /usr/local/anaconda3/envs/<env_name>，可选以 /bin/python 结尾；留空使用系统 Python；仅环境名如 <env_name> 已废弃",
         agentProjectDir: "填写服务器上的绝对父目录，例如 /srv/projects；插件自动追加当前本地项目名作为代码目录，并在该父目录下计算 Agent 路径。不要填写单个文件或再次追加项目名。",
-        savedSessionPath: "选择本机已有的 Xshell 会话文件，用于建立 Agent 端口转发；SSH/SFTP 连接地址仍取上面的服务器地址。",
+        savedSessionPath: "导入服务器信息并保留手动打开 Xshell 的入口；后台连接使用已保存的服务器地址和端口。",
         agentSessionPath: "Agent 会话",
         localForwardPort: "本机监听隧道的端口；插件通过当前 Worker 配置的本机主机地址和此端口访问 Agent。不是 SSH 登录端口。",
-        remoteTelemetryPort: "Worker Agent 在远端配置主机地址上监听的端口；需与所选 Xshell 会话的远端转发主机和端口一致。不是 SSH 登录端口。",
+        remoteTelemetryPort: "Worker Agent 在远端配置主机地址上监听的端口；需与 Agent 的实际监听配置一致。不是 SSH 登录端口。",
         enabled: "关闭后此 Worker 不参与新任务调度，也不作为当前文件传输目标；配置仍保留。",
         maxConcurrentGpus: "同时占用的 GPU 数上限；留空或 auto 使用全部可用 GPU，不限制排队任务数。",
         gpuIdleUtilThreshold: "空卡利用率阈值：利用率 < 阈值 才视为空闲（与显存双条件且关系）",
@@ -10350,10 +10353,10 @@ function renderPanelHtml() {
         remoteTmuxSessionPrefix: "远端 tmux 会话名前缀；多用户共用服务器时建议用稳定用户名，旧 zlk 会话可填 zlk",
         condaEnv: "必填完整路径，以 / 开头，如 /path/to/conda_envs/<env_name> 或 /usr/local/anaconda3/envs/<env_name>，可选以 /bin/python 结尾；留空使用系统 Python；仅环境名如 <env_name> 已废弃",
         agentProjectDir: "填写服务器上的绝对父目录，例如 /srv/projects；插件自动追加当前本地项目名作为代码目录，并在该父目录下计算 Agent 路径。不要填写单个文件或再次追加项目名。",
-        savedSessionPath: "选择本机已有的 Xshell 会话文件，用于建立 Agent 端口转发；SSH/SFTP 连接地址仍取上面的服务器地址。",
+        savedSessionPath: "导入服务器信息并保留手动打开 Xshell 的入口；后台连接使用已保存的服务器地址和端口。",
         agentSessionPath: "Agent 会话",
         localForwardPort: "本机监听隧道的端口；插件通过当前 Worker 配置的本机主机地址和此端口访问 Agent。不是 SSH 登录端口。",
-        remoteAgentPort: "Worker Agent 在远端配置主机地址上监听的端口；需与所选 Xshell 会话的远端转发主机和端口一致。不是 SSH 登录端口。"
+        remoteAgentPort: "Worker Agent 在远端配置主机地址上监听的端口；需与 Agent 的实际监听配置一致。不是 SSH 登录端口。"
       };
       if (scope === "topology") return topologyHelp[key] || "";
       if (scope === "scheduler") return schedulerHelp[key] || "";
@@ -10476,11 +10479,12 @@ function renderPanelHtml() {
       setHtmlIfChanged("agentSessions", '<div class="toolbar">' +
         '<button data-command="prepareAgents" title="第 1 步 · 先部署&#10;上传最新版 Agent 到全部服务器并启动&#10;无需隧道在线">准备 Agent 并启动</button>' +
         '<button data-command="writeAgentCommands" class="secondary" title="把 Agent 启动命令写入 Xshell 会话&#10;便于手动启动与排查">写入自动启动命令</button>' +
-        '<button data-command="startAllConnections" class="secondary" title="启动全部连接&#10;建立所有服务器隧道并拉起 Agent">启动连接</button>' +
+        '<button data-command="startAllConnections" class="secondary" title="在后台建立所有已启用 Worker 隧道">启动后台连接</button>' +
+        '<button data-command="openXshell" class="secondary" title="打开导入的 Xshell 会话供手动操作">一键打开 Xshell</button>' +
         '</div>' +
         '<div class="endpointCardGrid">' + cards.join("") + '</div>' +
         diagnosticBudgetNotice("Worker Agent 会话", workers.length, DIAGNOSTIC_AGENT_WORKER_CARD_LIMIT, "个") +
-        '<div class="muted">RemoteCommand 仅由写入按钮修改；启动隧道只打开 .xsh；登录后进入当前项目代码目录。</div>');
+        '<div class="muted">Agent 和隧道在后台启动；Xshell 会话只在手动打开时运行，旧 RemoteCommand 写入入口仍保留。</div>');
     }
 
     function agentSessionCard(role, name, item, fallbackTmux) {
@@ -10498,7 +10502,7 @@ function renderPanelHtml() {
         '<div class="endpointMiniGrid">' +
           endpointMini("tmux", item.tmuxSessionName || fallbackTmux || "-", item.tmuxSessionName || fallbackTmux || "-") +
           endpointMini("Xshell 隧道", item.sessionPath ? "已选择" : "未选择", item.sessionPath || "未选择") +
-          endpointMini("启动方式", "随隧道启动", "随隧道启动") +
+          endpointMini("启动方式", "后台受管启动", "通过 SimpleSFTP 管理指定 tmux 窗口") +
           endpointMini("端点", endpointId, "启动按钮会携带的端点 ID") +
         '</div>' +
         '<div class="toolbar">' + action + '</div>' +
@@ -11546,7 +11550,7 @@ function renderPanelHtml() {
         : "";
       var summaryHtml = servers.length
         ? '<div class="summaryLine"><span class="pill">服务器 ' + servers.length + '</span><span class="pill">GPU ' + gpuCount + '</span><span class="pill status-completed">空闲 ' + freeCount + '</span><span class="pill status-warning">占用 ' + busyCount + '</span><span class="gpuServerMineBadge">我的 ' + mineCount + '</span>' + omittedHint + '</div>'
-        : '<div class="muted">暂无 GPU 数据。请确认 Xshell 隧道与 Worker Agent 可用。</div>';
+        : '<div class="muted">暂无 GPU 数据。请确认后台隧道与 Worker Agent 可用。</div>';
        setHtmlPreservingGpuCanvases("gpuHistoryOverview", renderGpuHistoryOverview(state, servers));
       setHtmlIfChanged("gpuSummary", summaryHtml);
       renderGpuTensorboardControls(state);
@@ -17891,10 +17895,9 @@ function renderPanelHtml() {
         else if (isLenient) { pushSoft("tunnel", "tunnel 未连接"); }
         else { return "tunnel 未连接"; }
       }
-      if (command === "startAll" && !hasAnyTunnelSession(state)) return "请先配置 Worker 的 Xshell 隧道会话";
-      if (command === "startAgents" && !hasAnyTunnelSession(state)) return "请先配置 Worker 的 Xshell 隧道会话";
-      if (command === "startAllConnections" && !hasAnyTunnelSession(state)) return "请先配置 Xshell 隧道会话";
-      if (command === "prepareAgents" && !serverSetupReadiness(state).ready) return "请先配置 Worker 的 Xshell 会话和项目父目录";
+      if ((command === "startAll" || command === "startAgents" || command === "startAllConnections") && !hasAnyTunnelSession(state)) return "请先配置并启用 Worker 的服务器地址和登录用户名";
+      if (command === "openXshell" && !asArray((state.setup || {}).workerTunnels).some((worker) => worker.enabled !== false && worker.savedSessionPath)) return "请先导入 Worker 的 Xshell 会话";
+      if (command === "prepareAgents" && !serverSetupReadiness(state).ready) return "请先配置 Worker 的服务器地址、用户名和项目父目录";
       if (command === "prepareAgents") {
         const preparationBlockers = agentPreparationBlockersFromState(state);
         if (preparationBlockers.length) return preparationBlockers[0];
@@ -17950,7 +17953,7 @@ function renderPanelHtml() {
     }
     function hasAnyTunnelSession(state) {
       const setup = state.setup || {};
-      return Boolean(setup.savedSessionPath || asArray(setup.workerTunnels || []).some((worker) => worker.enabled !== false && worker.savedSessionPath));
+      return asArray(setup.workerTunnels || []).some((worker) => worker.enabled !== false && String(worker.workerHost || worker.hubHost || "").trim() && String(worker.workerUser || worker.hubUser || "").trim());
     }
     function hasAnyAgentSession(state) {
       const setup = state.setup || {};
@@ -18552,7 +18555,8 @@ function renderPanelHtml() {
       {}
       workers.forEach((worker) => {
         const label = String(worker.displayName || worker.id || "Worker");
-        if (!meaningfulValue(worker.savedSessionPath)) missing.push(label + " Xshell 会话");
+        if (!meaningfulValue(worker.workerHost || worker.hubHost)) missing.push(label + " 服务器地址");
+        if (!meaningfulValue(worker.workerUser || worker.hubUser)) missing.push(label + " 登录用户名");
         if (!meaningfulValue(worker.agentProjectDir)) missing.push(label + " 项目父目录");
       });
       const workerLabel = workers.length ? "；" + workers.length + " 个 Worker" : "；尚无 Worker";

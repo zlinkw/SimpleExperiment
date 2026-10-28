@@ -439,7 +439,8 @@ export function structuredMissingInventory(options: MissingInventoryOptions): Mi
   } else {
     const setupMissing = [];
     for (const worker of workers) {
-      if (!String(worker.savedSessionPath || "").trim()) setupMissing.push(`${String(worker.displayName || worker.id || "Worker")} Xshell 会话`);
+      if (!String(worker.workerHost || worker.hubHost || "").trim()) setupMissing.push(`${String(worker.displayName || worker.id || "Worker")} 服务器地址`);
+      if (!String(worker.workerUser || worker.hubUser || "").trim()) setupMissing.push(`${String(worker.displayName || worker.id || "Worker")} 登录用户名`);
       if (!String(worker.agentProjectDir || "").trim()) setupMissing.push(`${String(worker.displayName || worker.id || "Worker")} 项目父目录`);
     }
     if (setupMissing.length) {
