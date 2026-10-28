@@ -74,7 +74,7 @@ async function updateXshellSessionLoginCommand(filePath, command, options = {}) 
     if (options.backup !== false) {
         backupPath = `${filePath}.simple-backup`;
         try {
-            await fs.copyFile(filePath, backupPath, (await import("fs")).constants.COPYFILE_EXCL);
+            await fs.copyFile(filePath, backupPath, (await Promise.resolve().then(() => __importStar(require("fs")))).constants.COPYFILE_EXCL);
         }
         catch (error) {
             if (error.code !== "EEXIST")
