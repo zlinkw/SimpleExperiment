@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.422",
-  "buildId": "ab03f43299d2aa875ddfe92374e304354ea4fea07cff8b72537d8222e40add2c",
+  "buildId": "4d68a167dda9ed1c0c9f80a712aedc37635f6ea5fdc733d5f2a567f889ff97e9",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -117,7 +117,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "8f23f264a122268052c4691113b6e50c59d6041c6c97948482b638ff7933c59e"
+      "sha256": "f835d99e1991567c1b5e255d31ed0a57a84f9706d149451f2c0519a8b5a842e5"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -801,7 +801,7 @@
     },
     {
       "path": "dist/tunnel/MultiEndpointRealtimeClient.legacy.js",
-      "sha256": "61b95107f4199cb61892b9ac290d6bab9bc5820e498d764041b1111ef92e743d"
+      "sha256": "b272b59f11990af87924097ef7bd0665907214d445cfee0065c3e5abf92ee097"
     },
     {
       "path": "dist/tunnel/OfflineImport.js",
@@ -825,7 +825,7 @@
     },
     {
       "path": "dist/tunnel/RealtimeTunnelClient.legacy.js",
-      "sha256": "65edbbcd85972b8b5c8920f91cc6a0b27e89c57ecbaeeeedca621cdfafdbdff7"
+      "sha256": "c6251db0743fac7bafd0465709d7651d58a456f04cb1e8b316e96d9534b69fd4"
     },
     {
       "path": "dist/tunnel/RequestBudget.js",
@@ -945,7 +945,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "f13ec1861179b4b0cb7cc6f5241d0bc7a0ac2c5fa082d019107d13f8225e46c8"
+      "sha256": "f038b4c8f64543a4281e5b8b734059c28b7d63f4da98ea1ff08e86b20e662261"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",

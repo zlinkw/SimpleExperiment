@@ -35,7 +35,9 @@ class MultiEndpointRealtimeClient {
                 sharedCoordinator = budget.createCoordinator();
             budget.attachCoordinator(sharedCoordinator, endpoint.id);
             this.budgets.set(endpoint.id, budget);
-            this.clients.set(endpoint.id, new RealtimeTunnelClient_1.RealtimeTunnelClient(endpoint, budget, policy, (state) => {
+            // One policy object is commonly shared by every endpoint: hand each client its own copy so a
+            // later change on one endpoint can never be seen as an already-applied value by another.
+            this.clients.set(endpoint.id, new RealtimeTunnelClient_1.RealtimeTunnelClient(endpoint, budget, { ...policy }, (state) => {
                 this.mergedState = mergeRealtimeStates(this.endpointStates(endpoint.id, state), this.endpoints, this.protectedLogKeys, this.endpointById);
                 this.onState(this.mergedState);
             }));
@@ -445,6 +447,8 @@ class MultiEndpointRealtimeClient {
                 lastHeartbeatAt: item?.lastHeartbeatAt,
                 reconnectCount: item?.reconnectCount || 0,
                 lastError: item?.lastError,
+                displayAutoRefreshDisabled: item?.displayAutoRefreshDisabled === true,
+                displayAutoClosed: item?.displayAutoClosed === true,
             };
         });
         const statuses = new Set(endpoints.map((endpoint) => endpoint.streamStatus));
@@ -454,6 +458,11 @@ class MultiEndpointRealtimeClient {
             lastHeartbeatAt: latest(endpoints.map((endpoint) => endpoint.lastHeartbeatAt)),
             reconnectCount: endpoints.reduce((sum, endpoint) => sum + endpoint.reconnectCount, 0),
             lastError: endpoints.find((endpoint) => endpoint.lastError)?.lastError,
+            // The host distinguishes "no tunnel at all" from "the low-traffic guard closed the display
+            // channels on purpose" through these two flags; a guarded closure is not an outage.
+            displayAutoRefreshDisabled: endpoints.length > 0 && endpoints.every((endpoint) => endpoint.displayAutoRefreshDisabled === true),
+            displayAutoClosed: endpoints.length > 0
+                && endpoints.every((endpoint) => endpoint.streamStatus === "disconnected" && endpoint.displayAutoClosed === true),
             endpoints,
         };
         this.diagnosticsEndpointSources = sources;

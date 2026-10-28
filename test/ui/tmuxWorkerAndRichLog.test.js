@@ -43,10 +43,12 @@ test("tmux overview requests and retains all Worker session lists", () => {
   assert.match(panel, /allWorkers: !jobWorker/);
   assert.match(panel, /tmuxListsByWorker\[item\.workerId\]/);
   assert.match(panel, /data-tmux-worker/);
-  // r2 C05: every configured Worker is still requested, but one Worker key may only have one
-  // display round in flight, so the fan-out goes through the host-side single-flight merge.
-  assert.match(host, /Promise\.all\(workerIds\.map\(\(workerId\) => this\.displayReadOnce\("tmuxList\|" \+ workerId,/);
-  assert.match(host, /\(\) => this\.fetchOneTmuxListFromUi\(workerId, _message\?\.requestId\)\)\)\)/);
+  // r2 C05 + r5: every configured Worker is still requested, but under the low-traffic guard one
+  // Worker key may only have one display round in flight, while each request still publishes a reply
+  // carrying its own requestId. Normal mode keeps one round per request.
+  assert.match(host, /await Promise\.all\(workerIds\.map\(\(workerId\) => this\.fetchTmuxListForCaller\(workerId, _message\?\.requestId\)\)\);/);
+  assert.match(host, /if \(!this\.displayMergeEnabled\(\)\) return this\.fetchOneTmuxListFromUi\(workerId, requestId\);/);
+  assert.match(host, /return this\.publishTmuxList\(workerId, result, requestId\);/);
   assert.match(host, /private displayReadOnce<T>\(key: string, reader: \(\) => Promise<T>, signal\?: AbortSignal\)/);
 });
 

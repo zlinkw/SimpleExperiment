@@ -22,13 +22,18 @@ function extractFunction(name) {
   return match[0];
 }
 const code = ['"use strict";',
+  extractFunction('lowTrafficModeFromState'), extractFunction('displayAutoAllowed'),
   extractFunction('gpuHistorySeriesKey'), extractFunction('gpuWindowFineWindowMs'),
+  // The carried-frame consumer merges coarse and fine segments, so its real helpers belong to the
+  // harness as well; otherwise the merge path would only be exercised by a stub.
+  extractFunction('gpuHistorySegmentGapLimit'), extractFunction('historyExpectedStepFromSortedTimes'),
+  extractFunction('mergeGpuHistorySegments'),
   extractFunction('requestGpuHistoryRemote'),
   extractFunction('applyGpuWindowSamples'), extractFunction('requestGpuHistory')].join('\n');
 const compiled = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 
 function harness() {
-  const posted = [], drawn = [], timers = new Map(), cleared = [];
+  const posted = [], drawn = [], notices = [], timers = new Map(), cleared = [];
   let nextTimer = 1;
   const context = {
     posted, drawn, timers, cleared, Map, Number, Array, String, Math, Boolean, Object, Date,
@@ -36,14 +41,21 @@ function harness() {
     gpuWindowRequestSeq: 0, gpuWindowPending: new Map(), gpuWindowPendingByKey: new Map(),
     gpuHistorySeriesCache: new Map(), gpuHistoryRequestLastAt: new Map(),
     gpuHistoryMeta: {}, gpuHistorySeriesRevision: 0,
+    GPU_HISTORY_GAP_FACTOR: 1.75,
+    asArray: (value) => (Array.isArray(value) ? value : (!value || typeof value !== "object" ? [] : Object.values(value))),
     GPU_HISTORY_REQUEST_COOLDOWN_MS: 0, GPU_HISTORY_SERIES_CACHE_LIMIT: 8,
     scheduleGpuHistoryDraw: () => drawn.push(1),
+    // Normal mode authority (no low-traffic frame): the automatic ring entry keeps its original
+    // trajectory, and the guard hook is observable rather than missing.
+    lastState: { trafficMode: { enabled: false, displayAutoRefresh: true } },
+    tmuxDisplayAutoHint: true,
+    renderDisplayAutoNotices: () => notices.push(1),
     setTimeout: (fn, ms) => { const id = nextTimer++; timers.set(id, { fn, ms }); return id; },
     clearTimeout: id => { cleared.push(id); timers.delete(id); },
   };
   vm.runInNewContext(compiled, context);
   return {
-    context, posted, drawn, timers, cleared,
+    context, posted, drawn, notices, timers, cleared,
     fireTimeouts() { for (const [id, timer] of [...timers]) { timers.delete(id); timer.fn(); } },
   };
 }

@@ -27,6 +27,13 @@ const names = [
   "postLowTrafficModeReceipt(requestId, receipt)",
   "realtimeRefreshPolicy()",
   "displayReadOnce(key, reader, signal)",
+  "displayMergeEnabled()",
+  "displayReadKey(kind, identity)",
+  "displayReadBlockedFor(message)",
+  "readTmuxListNetwork(workerId, signal)",
+  "publishTmuxList(workerId, result, requestId, publish)",
+  "publishTmuxListFailure(workerId, requestId, exc, publish)",
+  "fetchTmuxListForCaller(workerId, requestId)",
   "fetchTmuxListFromUi(_message)",
 ];
 const bodies = names.map((marker) => legacyMethod(source, marker)
@@ -46,7 +53,7 @@ function createFixture() {
   const timers = [];
   const cleared = [];
   let nextId = 0;
-  const state = { stored: {}, posts: [], policyUpdates: [], progressRounds: 0, progressOptions: [], ticks: 0, failWrite: false, reads: 0, listReads: [] };
+  const state = { stored: {}, posts: [], messages: [], policyUpdates: [], progressRounds: 0, progressOptions: [], ticks: 0, failWrite: false, reads: 0, listReads: [], failNextRead: false };
   const sandbox = {
     NORMAL_TRAFFIC_INTERVALS: NORMAL,
     LOW_TRAFFIC_INTERVALS: LOW,
@@ -55,6 +62,9 @@ function createFixture() {
     errorMessage: (error) => String((error && error.message) || error),
     booleanField: (message, key) => (message || {})[key] === true,
     workspaceRoot: () => "/work/root",
+    stringField: (message, key) => String((message && typeof message === "object" ? message[key] : "") || ""),
+    vscode: { workspace: { getConfiguration: () => ({ get: () => undefined }) } },
+    AgentTmuxPolicy_1: { normalizeRemoteTmuxSessionPrefix: (value) => String(value || "simple") },
     RealtimeTunnelClient_1: { defaultRealtimeRefreshPolicy: {
       mode: "realtime", preferWebSocket: true, fallbackToSse: true, fallbackToPolling: true,
       heartbeatIntervalSeconds: 5, snapshotFallbackIntervalSeconds: 5, gpuEventCoalesceMs: 500,
@@ -79,8 +89,16 @@ function createFixture() {
     tunnelConfig: { refreshProfile: "realtime", pauseAllBackgroundTraffic: false, allowStreaming: true, pauseWhenWebviewHidden: true },
     budget: { isPaused: () => state.paused === true },
     lastHealth: undefined,
-    view: { visible: true },
+    view: { visible: true, webview: { postMessage: (payload) => { state.messages.push(payload); return true; } } },
+    projectContextGeneration: 1,
+    setupConfig: { sessionPrefix: "simple" },
     client: { updateRefreshPolicy(policy) { state.policyUpdates.push(policy); } },
+    requestTmuxJson: async (workerId) => {
+      if (state.failNextRead) { state.failNextRead = false; throw new Error("fixture read failure"); }
+      state.reads += 1;
+      state.listReads.push(workerId);
+      return { ok: true, available: true };
+    },
     distributedQueueCache: { plans: [{ planFile: "a.yaml", jobs: [] }] },
     distributedQueueRoot: "/work/root",
     displayReadInFlight: new Map(),
@@ -167,6 +185,8 @@ test("pauseAll, manual_only and pauseAllBackgroundTraffic block low traffic inst
   assert.equal(pausedPolicy.effective, false);
   assert.equal(pausedPolicy.blockedBy, "paused");
   assert.equal(json(pausedPolicy.intervals), json(NORMAL), "a stronger constraint keeps the normal schedule untouched");
+  // A stronger constraint must never reopen the A-class display gate: the persisted toggle decides it.
+  assert.equal(pausedPolicy.displayAutoRefresh, false, "paused must not switch automatic display traffic back on");
   assert.equal(paused.host.tunnelConfig.refreshProfile, "realtime");
 
   const manual = createFixture();
@@ -174,12 +194,15 @@ test("pauseAll, manual_only and pauseAllBackgroundTraffic block low traffic inst
   manual.host.tunnelConfig = { ...manual.host.tunnelConfig, refreshProfile: "manual_only" };
   const manualPolicy = manual.api.effectiveTrafficPolicy.call(manual.host);
   assert.equal(manualPolicy.blockedBy, "manual_only");
+  assert.equal(manualPolicy.displayAutoRefresh, false, "manual_only must not switch automatic display traffic back on");
   assert.equal(manual.host.tunnelConfig.refreshProfile, "manual_only", "low traffic must not rewrite the refresh profile");
 
   const background = createFixture();
   background.host.lowTrafficMode = true;
   background.host.tunnelConfig = { ...background.host.tunnelConfig, pauseAllBackgroundTraffic: true };
-  assert.equal(background.api.effectiveTrafficPolicy.call(background.host).blockedBy, "background_traffic_paused");
+  const backgroundPolicy = background.api.effectiveTrafficPolicy.call(background.host);
+  assert.equal(backgroundPolicy.blockedBy, "background_traffic_paused");
+  assert.equal(backgroundPolicy.displayAutoRefresh, false, "a background pause must not switch display traffic back on");
 });
 
 test("realtime policy changes only the display fields; every other field is identical", () => {
@@ -236,32 +259,67 @@ test("r2 F4: the 10s necessary confirmation still runs while the panel is hidden
   assert.equal(state.progressRounds, 0, "a stale workspace root must not trigger a remote query");
 });
 
-test("r2 F2: display reads are one round per key and repeated clicks merge into it", async () => {
-  const { host, api, state } = createFixture();
-  const first = api.displayReadOnce.call(host, "tmuxList|w1", () => { state.reads += 1; return Promise.resolve("a"); });
-  const second = api.displayReadOnce.call(host, "tmuxList|w1", () => { state.reads += 1; return Promise.resolve("b"); });
-  assert.equal(first, second, "an in-flight repeated click must join the same round");
-  assert.equal(await first, "a");
-  assert.equal(await second, "a");
-  assert.equal(state.reads, 1);
-  const third = api.displayReadOnce.call(host, "tmuxList|w1", () => { state.reads += 1; return Promise.resolve("c"); });
-  assert.equal(await third, "c", "the next independent click is allowed a new round");
-  assert.equal(state.reads, 2);
-  const otherKey = api.displayReadOnce.call(host, "tmuxCapture|w1|win", () => { state.reads += 1; return Promise.resolve("d"); });
-  assert.equal(await otherKey, "d");
-  assert.equal(state.reads, 3, "a different section key is its own round");
-  // Callers that need their own cancellation (API server route) must not be silently joined.
-  const controller = new AbortController();
-  await api.displayReadOnce.call(host, "tmuxList|w1", () => { state.reads += 1; return Promise.resolve("e"); }, controller.signal);
-  assert.equal(state.reads, 4);
-  // The UI entry point merges per selected Worker.
-  host.enabledWorkerConfigs = () => [{ id: "w1" }, { id: "w2" }];
-  host.fetchOneTmuxListFromUi = async (workerId) => { state.listReads.push(workerId); return { ok: true, workerId }; };
+test("r5: normal mode never merges display reads, low traffic merges one round but replies per requestId", async () => {
+  // Normal mode: merging is off entirely, so every request keeps its own round (zero behavioural
+  // difference from before the switch existed).
+  const normal = createFixture();
+  normal.host.enabledWorkerConfigs = () => [{ id: "w1" }];
+  const normalCalls = [];
+  normal.host.fetchOneTmuxListFromUi = async (workerId, requestId) => { normalCalls.push(requestId); return { ok: true }; };
   await Promise.all([
-    api.fetchTmuxListFromUi.call(host, { allWorkers: true, requestId: 1 }),
-    api.fetchTmuxListFromUi.call(host, { allWorkers: true, requestId: 2 }),
+    normal.api.fetchTmuxListFromUi.call(normal.host, { allWorkers: true, requestId: 1, origin: "user" }),
+    normal.api.fetchTmuxListFromUi.call(normal.host, { allWorkers: true, requestId: 2, origin: "user" }),
   ]);
-  assert.deepEqual(state.listReads, ["w1", "w2"], "two clicks for the same Workers are one round per Worker");
+  assert.deepEqual(normalCalls, [1, 2], "normal mode keeps one round per request");
+  assert.equal(normal.api.displayMergeEnabled.call(normal.host), false);
+
+  // Low traffic: one shared network round, but one honest reply per caller requestId, so a UI that
+  // timed out and retried is never answered with a swallowed identity.
+  const low = createFixture();
+  low.host.lowTrafficMode = true;
+  low.host.enabledWorkerConfigs = () => [{ id: "w1" }, { id: "w2" }];
+  await Promise.all([
+    low.api.fetchTmuxListFromUi.call(low.host, { allWorkers: true, requestId: 7, origin: "user" }),
+    low.api.fetchTmuxListFromUi.call(low.host, { allWorkers: true, requestId: 8, origin: "user" }),
+  ]);
+  assert.equal(low.state.reads, 2, "one round per Worker, not one per click");
+  assert.deepEqual(low.state.listReads, ["w1", "w2"], "two clicks for the same Workers produce one round per Worker");
+  assert.deepEqual(low.state.messages.map((message) => message.workerId + ":" + message.requestId).sort(),
+    ["w1:7", "w1:8", "w2:7", "w2:8"], "every caller gets its own reply for every Worker, never a swallowed identity");
+  assert.equal(low.state.messages.every((message) => message.type === "tmuxList" && message.ok === true), true);
+  assert.equal(low.host.displayReadInFlight.size, 0, "a settled round releases its key");
+
+  // A failing round releases the key too and answers both identities with the failure.
+  const failing = createFixture();
+  failing.host.lowTrafficMode = true;
+  failing.host.enabledWorkerConfigs = () => [{ id: "w1" }];
+  failing.state.failNextRead = true;
+  await Promise.all([
+    failing.api.fetchTmuxListFromUi.call(failing.host, { allWorkers: true, requestId: 11, origin: "user" }),
+    failing.api.fetchTmuxListFromUi.call(failing.host, { allWorkers: true, requestId: 12, origin: "user" }),
+  ]);
+  assert.deepEqual(failing.state.messages.map((message) => [message.requestId, message.ok]), [[11, false], [12, false]]);
+  assert.equal(failing.host.displayReadInFlight.size, 0, "a failed round must not leave a poisoned key behind");
+  await failing.api.fetchTmuxListFromUi.call(failing.host, { allWorkers: true, requestId: 13, origin: "user" });
+  assert.deepEqual(failing.state.messages[2].requestId, 13, "the next request is allowed a fresh round");
+
+  // A project/connection switch must never join an older round.
+  const switched = createFixture();
+  switched.host.lowTrafficMode = true;
+  switched.host.enabledWorkerConfigs = () => [{ id: "w1" }];
+  const pending = switched.api.fetchTmuxListFromUi.call(switched.host, { allWorkers: true, requestId: 21, origin: "user" });
+  switched.host.projectContextGeneration = 2;
+  await pending;
+  await switched.api.fetchTmuxListFromUi.call(switched.host, { allWorkers: true, requestId: 22, origin: "user" });
+  assert.equal(switched.state.reads, 2, "a new project context generation is its own round");
+
+  // Signal-carrying callers (API server) keep their own cancellation, and the authority check for an
+  // automatic origin is the host's, not the webview's.
+  assert.equal(low.api.displayReadBlockedFor.call(low.host, { origin: "auto" }), true, "an automatic display read is refused while the guard is on");
+  assert.equal(low.api.displayReadBlockedFor.call(low.host, { origin: "user" }), false, "an explicit manual read stays available");
+  assert.equal(normal.api.displayReadBlockedFor.call(normal.host, {}), false, "normal mode is untouched");
+  const closeCheck = legacyMethod(source, "readTmuxListAfterKill()");
+  assert.doesNotMatch(closeCheck, /displayReadOnce/, "the fresh closeCheck verification may never join an older display read");
 });
 
 test("r2 F1: the real client opens no display channel, snapshot, poll or reconnect in low traffic mode", async () => {
@@ -404,7 +462,7 @@ test("webview echo carries the authoritative preference, block reason and interv
   assert.equal(blockedEcho.blockedBy, "paused");
   assert.equal(blockedEcho.scope, "global");
   assert.equal(blockedEcho.switching, false);
-  // A stronger constraint keeps the display channels exactly as the user configured them.
-  assert.equal(blockedEcho.displayAutoRefresh, true);
+  // A stronger constraint never reopens the display gate: the toggle the user persisted decides it.
+  assert.equal(blockedEcho.displayAutoRefresh, false);
   assert.equal(json(blockedEcho.intervals), json(NORMAL));
 });

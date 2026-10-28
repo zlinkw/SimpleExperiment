@@ -38,7 +38,7 @@ export interface RealtimeRefreshPolicy {
   displayAutoRefresh: boolean;
 }
 
-export const defaultRealtimeRefreshPolicy: RealtimeRefreshPolicy = {
+export const defaultRealtimeRefreshPolicy: RealtimeRefreshPolicy = Object.freeze({
   mode: "realtime",
   preferWebSocket: true,
   fallbackToSse: true,
@@ -57,7 +57,7 @@ export const defaultRealtimeRefreshPolicy: RealtimeRefreshPolicy = {
   pauseWhenWebviewHidden: false,
   keepAgentStreamWhenHidden: true,
   displayAutoRefresh: true,
-};
+});
 
 export type StreamStatus = "disconnected" | "connecting" | "websocket" | "sse" | "polling" | "paused";
 
@@ -68,6 +68,10 @@ export interface RealtimeClientDiagnostics {
   requiresManualReconnect?: boolean;
   reconnectCount: number;
   lastError?: string;
+  /** True while display-class automatic refresh is switched off (low traffic mode). */
+  displayAutoRefreshDisabled?: boolean;
+  /** True when a disconnected status came from closing the display channels only. */
+  displayAutoClosed?: boolean;
 }
 
 export class RealtimeTunnelClient {
@@ -93,16 +97,23 @@ export class RealtimeTunnelClient {
   get progressGeneration(): number { return this.connectionGeneration; }
   private disposed = false;
   private workerGpuUpdatedAt = 0;
+  // Each client owns its own policy copy: several endpoints are commonly built from one
+  // policy object and an in-place write would silently change every other endpoint's cadence.
+  private policy: RealtimeRefreshPolicy;
+  // True while the stream is closed only because display auto-refresh is off. That is an
+  // intentional closure and must never be reported as tunnel_unavailable / local_port_closed.
+  private displayAutoClosed = false;
 
   constructor(
     private readonly endpoint: TunnelEndpointConfig,
     private readonly budget: RequestBudget,
-    private readonly policy: RealtimeRefreshPolicy = defaultRealtimeRefreshPolicy,
+    private readonly policyArgument: RealtimeRefreshPolicy = defaultRealtimeRefreshPolicy,
     private readonly onState: (state: RealtimeState) => void = () => undefined,
   ) {
+    this.policy = { ...policyArgument };
     this.http = new HttpTunnelClient(endpoint, budget);
     this.files = new FileTransferClient({ ...endpoint, fileCapabilities: endpoint.fileCapabilities }, budget);
-    this.reconnectPolicy = new RealtimeReconnect(policy);
+    this.reconnectPolicy = new RealtimeReconnect(this.policy);
   }
 
   async connect(sinceSeq = this.state.lastSeq, options: { manual?: boolean } = {}): Promise<void> {
@@ -114,6 +125,7 @@ export class RealtimeTunnelClient {
       // no poll fallback and no display reconnect. Cached lastSeq/snapshot stay readable and a
       // manual single-shot read still works; nothing here marks the client as user-paused.
       this.clearDisplayTimers();
+      if (this.status === "disconnected") this.displayAutoClosed = true;
       return;
     }
     if (this.budget.isPaused()) throw new RequestBudgetDeniedError("events", { allowed: false, reason: "paused" });
@@ -178,6 +190,9 @@ export class RealtimeTunnelClient {
   }
 
   async disconnect(reason = "manual"): Promise<void> {
+    // Only the display-auto closure is explained by the low-traffic guard; any other closure is a
+    // real connection state change and must be able to surface as a connection error again.
+    this.displayAutoClosed = reason === "display-auto";
     this.connectionGeneration += 1;
     this.snapshotAbort?.abort();
     this.snapshotAbort = undefined;
@@ -208,6 +223,8 @@ export class RealtimeTunnelClient {
     if (this.pollTimer) clearTimeout(this.pollTimer);
     this.pollTimer = undefined;
     if (this.disposed || this.status === "paused" || this.budget.isPaused()) return;
+    // A real connection loss is never the guard's intentional closure.
+    this.displayAutoClosed = false;
     const websocket = this.websocket;
     this.websocket = undefined;
     websocket?.close();
@@ -453,21 +470,47 @@ export class RealtimeTunnelClient {
    */
   updateRefreshPolicy(policy?: Partial<RealtimeRefreshPolicy> | null): void {
     if (this.disposed || !policy) return;
-    const displayAutoRefresh = policy.displayAutoRefresh !== false;
-    const next = Number(policy.snapshotFallbackIntervalSeconds);
-    const cadenceChanged = Number.isFinite(next) && next >= 0 && next !== Number(this.policy.snapshotFallbackIntervalSeconds);
-    if (displayAutoRefresh && !cadenceChanged) return;
-    if (Number.isFinite(next) && next >= 0) this.policy.snapshotFallbackIntervalSeconds = next;
-    this.policy.displayAutoRefresh = displayAutoRefresh;
+    const incoming = { ...policy };
+    const previous = this.policy;
+    const prevDisplayAutoRefresh = previous.displayAutoRefresh !== false;
+    const prevFallback = Number(previous.snapshotFallbackIntervalSeconds);
+    const displayAutoRefresh = incoming.displayAutoRefresh === undefined
+      ? prevDisplayAutoRefresh
+      : incoming.displayAutoRefresh !== false;
+    const nextFallback = Number(incoming.snapshotFallbackIntervalSeconds);
+    // The caller's object is never adopted: another endpoint mutating its own copy must not reach
+    // this client, and restore decisions compare against this client's own previous view.
+    this.policy = {
+      ...previous,
+      ...incoming,
+      displayAutoRefresh,
+      snapshotFallbackIntervalSeconds: Number.isFinite(nextFallback) && nextFallback >= 0
+        ? nextFallback
+        : previous.snapshotFallbackIntervalSeconds,
+    };
     if (!displayAutoRefresh) {
       this.clearDisplayTimers();
-      if (this.status !== "disconnected") void this.disconnect("display-auto");
+      if (this.status !== "disconnected") {
+        void this.disconnect("display-auto").catch(() => undefined);
+      } else {
+        this.displayAutoClosed = true;
+      }
+      return;
+    }
+    if (prevDisplayAutoRefresh && prevFallback === this.policy.snapshotFallbackIntervalSeconds) {
+      // Neither the display guard nor the cadence changed: never disturb a healthy connection.
       return;
     }
     // Restored to normal: re-arm exactly the channels this client had before, with the original
-    // cadence, and never replay the rounds that were skipped while the mode was on.
-    if (this.status === "polling") this.scheduleSnapshotFallbackPoll();
-    else if (this.status === "disconnected") this.scheduleAutomaticReconnect();
+    // cadence, and never replay the rounds that were skipped while the mode was on. A client the
+    // guard closed goes back through the normal connect path (stream first, then the configured
+    // fallback); a polling client only re-arms its fallback poll.
+    if (this.status === "polling") {
+      this.scheduleSnapshotFallbackPoll();
+      return;
+    }
+    if (this.status === "connecting") return;
+    if (!this.requiresManualReconnect) void this.connect().catch(() => undefined);
   }
 
   diagnostics(): RealtimeClientDiagnostics {
@@ -478,7 +521,9 @@ export class RealtimeTunnelClient {
       && cached.lastHeartbeatAt === this.state.lastHeartbeatAt
       && cached.reconnectCount === this.reconnectCount
       && cached.requiresManualReconnect === this.requiresManualReconnect
-      && cached.lastError === this.lastError) {
+      && cached.lastError === this.lastError
+      && cached.displayAutoRefreshDisabled === this.displayAutoRefreshDisabled()
+      && cached.displayAutoClosed === this.displayAutoClosed) {
       return cached;
     }
     const diagnostics = {
@@ -488,6 +533,8 @@ export class RealtimeTunnelClient {
       reconnectCount: this.reconnectCount,
       lastError: this.lastError,
       requiresManualReconnect: this.requiresManualReconnect,
+      displayAutoRefreshDisabled: this.displayAutoRefreshDisabled(),
+      displayAutoClosed: this.displayAutoClosed,
     };
     this.diagnosticsCache = diagnostics;
     return diagnostics;

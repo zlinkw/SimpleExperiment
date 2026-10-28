@@ -1961,9 +1961,12 @@ export function renderPanelHtml(): string {
     let tmuxPollTimer = 0;
     const TMUX_POLL_MS = 5000;
     let tmuxPollIntervalMs = TMUX_POLL_MS;
-    // A previous frame/persisted hint only prevents the pre-handshake initial pull; the host frame stays authoritative.
+    // A previous frame/persisted hint only prevents the pre-handshake initial pull; the host frame
+    // stays authoritative and the host itself is the last authority for any actual read. The stored
+    // flag is written and read with the SAME polarity: true means "automatic display refresh is off";
+    // an absent value (fresh webview, normal mode) keeps the original behaviour.
     let tmuxDisplayAutoHint = true;
-    try { tmuxDisplayAutoHint = !(restoredWebviewState && restoredWebviewState.lowTrafficDisplayAuto === false); } catch (e) { tmuxDisplayAutoHint = true; }
+    try { tmuxDisplayAutoHint = !(restoredWebviewState && restoredWebviewState.lowTrafficDisplayAutoOff === true); } catch (e) { tmuxDisplayAutoHint = true; }
     const displayRefreshAt = new Map();
     let tmuxListOrigin = "auto";
     let tmuxCaptureOrigin = "auto";
@@ -2485,7 +2488,7 @@ export function renderPanelHtml(): string {
           if (meta) meta.textContent = "会话刷新暂未收到响应，下次自动重试";
           scheduleTmuxInitialRetry();
         }, 20000);
-        vscode.postMessage({ command: "fetchTmuxList", workerId: jobWorker || tmuxSelectedWorkerId, allWorkers: !jobWorker, background: true, requestId: tmuxListRequestId });
+        vscode.postMessage({ command: "fetchTmuxList", workerId: jobWorker || tmuxSelectedWorkerId, allWorkers: !jobWorker, background: true, requestId: tmuxListRequestId, origin: tmuxListOrigin });
       } catch (e) {
         clearTimeout(tmuxListTimeout);
         tmuxListTimeout = 0;
@@ -2518,7 +2521,7 @@ export function renderPanelHtml(): string {
       tmuxListBusy = false;
       if (item.ok !== false) {
         recordDisplaySample("tmuxList", item.fetchedAt, tmuxListOrigin === "user");
-        try { persistWebviewState({ lowTrafficDisplayAuto: !displayAutoAllowed("auto") }); } catch (e) {}
+        try { persistWebviewState({ lowTrafficDisplayAutoOff: !displayAutoAllowed("auto") }); } catch (e) {}
         renderDisplayAutoNotices();
       }
       if (tmuxConfiguredWorkers.some(function(worker) { return tmuxListsByWorker[worker.id]?.ok === false; })) scheduleTmuxInitialRetry();
@@ -2657,7 +2660,7 @@ export function renderPanelHtml(): string {
       pre.dataset.lastFetch = String(now);
       meta.textContent = "同步中 " + win + " ...";
       try {
-        vscode.postMessage({ command: "fetchTmuxCapture", workerId: tmuxSelectedWorkerId, window: win });
+        vscode.postMessage({ command: "fetchTmuxCapture", workerId: tmuxSelectedWorkerId, window: win, origin: tmuxCaptureOrigin });
       } catch (e) {
         tmuxCaptureBusy.delete(captureKey);
         meta.textContent = "同步失败 " + String(e).slice(0,60);
@@ -2669,13 +2672,13 @@ export function renderPanelHtml(): string {
       if (mode) return mode.displayAutoRefresh !== false;
       return tmuxDisplayAutoHint !== false;
     }
-    function displaySampleNotice(key) {
+    function displaySampleNotice(key, cachedFallback) {
       const mode = lowTrafficModeFromState(lastState || {});
       const disabled = mode ? mode.displayAutoRefresh === false : tmuxDisplayAutoHint === false;
       if (!disabled) return "";
       const manual = displayRefreshAt.get(key + "|manual") || "";
       if (manual) return "低流量：自动刷新已关闭；上次手动刷新 " + manual;
-      const cached = displayRefreshAt.get(key + "|fetch") || "";
+      const cached = displayRefreshAt.get(key + "|fetch") || String(cachedFallback || "");
       if (cached) return "低流量：自动刷新已关闭；当前缓存采样于 " + cached + "，本模式尚未手动刷新";
       return "低流量：自动刷新已关闭；尚未手动刷新";
     }
@@ -2693,6 +2696,38 @@ export function renderPanelHtml(): string {
         const text = displaySampleNotice("tmuxCapture:" + (tmuxSelectedWorkerId || "") + ":" + (tmuxResolveCaptureTarget() || ""));
         if (capture.textContent !== text) capture.textContent = text;
       }
+      // GPU history keeps one row per key (overview plus every expanded series) so each area reports
+      // its own real sample time; they are re-filled after every render because the GPU section
+      // re-creates its DOM.
+      try {
+        document.querySelectorAll(".gpuHistoryNotice").forEach(function (node) {
+          const key = String(node.dataset.gpuNoticeKey || "");
+          if (!key) return;
+          const cached = gpuHistoryMeta && gpuHistoryMeta.updatedAt ? String(gpuHistoryMeta.updatedAt) : "";
+          const text = displaySampleNotice("gpuHistory:" + key, cached);
+          if (node.textContent !== text) node.textContent = text;
+        });
+      } catch (e) {}
+    }
+    // Turning the guard on must also drop rounds an automatic entry already scheduled: no reply is
+    // expected for them any more, so their pending/timeout state must not linger and no automatic
+    // retry may be armed. A manual round keeps its own pending state and timeout.
+    function cancelPendingAutoDisplayWork() {
+      if (tmuxListOrigin === "user") return;
+      clearTimeout(tmuxListTimeout);
+      tmuxListTimeout = 0;
+      clearTimeout(tmuxInitialRetryTimer);
+      tmuxInitialRetryTimer = 0;
+      tmuxListBusy = false;
+      tmuxListPendingWorkers.clear();
+      try {
+        gpuWindowPendingByKey.forEach(function (entry) {
+          if (!entry || entry.origin === "user") return;
+          if (entry.timer) clearTimeout(entry.timer);
+          gpuWindowPending.delete(entry.id);
+          if (gpuWindowPendingByKey.get(entry.key) === entry) gpuWindowPendingByKey.delete(entry.key);
+        });
+      } catch (e) {}
     }
     function scheduleTmuxPoll() {
       clearInterval(tmuxPollTimer);
@@ -2743,7 +2778,8 @@ export function renderPanelHtml(): string {
           scheduleTmuxPoll();
         }
         tmuxDisplayAutoHint = mode.displayAutoRefresh !== false;
-        try { persistWebviewState({ lowTrafficDisplayAuto: mode.displayAutoRefresh !== false }); } catch (e) {}
+        try { persistWebviewState({ lowTrafficDisplayAutoOff: mode.displayAutoRefresh === false }); } catch (e) {}
+        if (mode.displayAutoRefresh === false) cancelPendingAutoDisplayWork();
       }
       renderDisplayAutoNotices();
       const button = el("lowTrafficModeButton");
@@ -2779,15 +2815,21 @@ export function renderPanelHtml(): string {
       try { applyLowTrafficModeState(lastState || {}); } catch (e) {}
     }
     function handleLowTrafficModeReceipt(item) {
-      clearLowTrafficReceiptTimer();
       const requestId = String((item || {}).requestId || "");
       const pending = lowTrafficTogglePending;
+      // Identity first: a receipt belonging to an abandoned request must not cancel the current
+      // request's timeout timer and must not be taken as its confirmation.
       if (pending && requestId && pending.requestId && requestId !== pending.requestId) return;
+      const hadPending = Boolean(pending);
+      clearLowTrafficReceiptTimer();
       lowTrafficTogglePending = null;
       if (item && item.ok === true) {
         lowTrafficReceiptNotice = "";
+        // Label, aria-pressed and the NEXT click target all read this confirmed value until the
+        // matching authoritative state frame arrives.
         lowTrafficReceiptDisplay = { enabled: item.enabled === true, until: Date.now() + 5000 };
       } else {
+        if (!hadPending && requestId) return;
         lowTrafficReceiptDisplay = null;
         lowTrafficReceiptNotice = "低流量模式设置失败：" + String((item && item.error) || "未知错误") + "（保持原值，可在恢复后重试）";
       }
@@ -3876,8 +3918,10 @@ export function renderPanelHtml(): string {
           payload.keepColumns = [...document.querySelectorAll("#resultSplitColumns input[data-result-split-column]:checked")].map((input) => input.value);
         }
         if (command === "toggleLowTrafficMode") {
-          const lowTrafficMode = lowTrafficModeFromState(lastState || {});
-          const lowTrafficTarget = !(lowTrafficMode && lowTrafficMode.enabled === true);
+          // Label, aria-pressed and the next target all come from the same confirmed value: the
+          // authoritative state, or the host's confirmed receipt while its state frame is still on the
+          // way. Reading lastState directly here would send the stale value as the next target.
+          const lowTrafficTarget = !lowTrafficDisplayEnabled(lowTrafficModeFromState(lastState || {}));
           lowTrafficToggleSeq += 1;
           payload.enabled = lowTrafficTarget;
           payload.documentGeneration = panelDocumentGeneration;
@@ -4164,7 +4208,7 @@ export function renderPanelHtml(): string {
         if (scope === "overview") {
           const wasOpen = gpuHistoryOverviewOpen;
           gpuHistoryOverviewOpen = historyDetails.open;
-          if (historyDetails.open && !wasOpen) requestGpuHistory({ maxPoints: 96 }, true);
+          if (historyDetails.open && !wasOpen) requestGpuHistory({ maxPoints: 96 }, true, "auto");
         } else if (scope === "gpu") {
           const serverId = historyDetails.dataset.serverId || "";
           const gpuId = historyDetails.dataset.gpuId || "";
@@ -4173,13 +4217,27 @@ export function renderPanelHtml(): string {
           if (historyDetails.open) {
             expandedGpuHistoryKeys.add(key);
             while (expandedGpuHistoryKeys.size > GPU_HISTORY_SERIES_CACHE_LIMIT) expandedGpuHistoryKeys.delete(expandedGpuHistoryKeys.values().next().value);
-            if (!wasOpen) requestGpuHistory({ serverId, gpuId, maxPoints: 288 }, true);
+            if (!wasOpen) requestGpuHistory({ serverId, gpuId, maxPoints: 288 }, true, "auto");
           } else {
             expandedGpuHistoryKeys.delete(key);
           }
         }
         if (historyDetails.open) scheduleGpuHistoryDraw();
       }
+    }, true);
+    // The explicit GPU-history entry: one click refreshes exactly the key it belongs to (overview or
+    // that series), one round per key, and it is the only way GPU history reaches the server while the
+    // low-traffic guard is on. stopPropagation keeps the <details>/row toggle from double-firing.
+    document.addEventListener("click", function (event) {
+      const btn = event.target && event.target.closest ? event.target.closest("button[data-gpu-history-manual]") : null;
+      if (!btn) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const key = String(btn.dataset.gpuHistoryManual || "");
+      const parts = key.split("::");
+      if (!key || parts[0] === "overview") requestGpuHistory({ maxPoints: 96 }, true, "user");
+      else if (parts.length >= 2 && parts[0] && parts[1]) requestGpuHistory({ serverId: parts[0], gpuId: parts[1], maxPoints: 288 }, true, "user");
+      renderDisplayAutoNotices();
     }, true);
     document.addEventListener("focusin", (event) => {
       const input = event.target;
@@ -4595,6 +4653,14 @@ export function renderPanelHtml(): string {
           try { refreshTmuxCapture(); } catch (e) {}
           continue;
         }
+        if (item.type === "gpuHistoryResult") {
+          // The host answers every GPU history round with the identity it actually served; the sample
+          // times shown in low traffic come from that real result, never from the click itself.
+          const gpuKey = gpuHistorySeriesKey(String(item.serverId || "overview"), String(item.gpuId || "overview"));
+          if (item.ok !== false) recordDisplaySample("gpuHistory:" + gpuKey, item.fetchedAt, item.origin === "user");
+          renderDisplayAutoNotices();
+          continue;
+        }
         if (item.type === "tmuxCapture") {
           tmuxCaptureBusy.delete(String(item.workerId || "") + ":" + String(item.window || ""));
           if (tmuxSelectedWorkerId && item.workerId !== tmuxSelectedWorkerId) continue;
@@ -4711,6 +4777,9 @@ export function renderPanelHtml(): string {
         renderVisibleSections(state);
         try { renderBranchProjectsCard(state); } catch (e) {}
         try { renderTmuxOverview(tmuxListCache.sessions || []); } catch (e) {}
+        // The GPU / tmux sections re-create their DOM on every render, so the low-traffic hints and the
+        // manual-refresh entries must be filled again after the render, not only on a mode frame.
+        try { renderDisplayAutoNotices(); } catch (e) {}
         applyLayoutColumns();
         schedulePostRenderMaintenance();
         restoreTransientPanelState();
@@ -11657,7 +11726,7 @@ export function renderPanelHtml(): string {
               var tr = btn.closest("tr");
               var srv = tr ? tr.getAttribute("data-server-id") : "";
               var gid = tr ? tr.getAttribute("data-gpu-id") : "";
-              if(srv && gid) requestGpuHistory({ serverId: srv, gpuId: gid, maxPoints: 288 }, true);
+              if(srv && gid) requestGpuHistory({ serverId: srv, gpuId: gid, maxPoints: 288 }, true, "auto");
             }
             renderGpuSection(lastState || state);
             setTimeout(function(){ scheduleGpuHistoryDraw(); }, 60);
@@ -11673,7 +11742,7 @@ export function renderPanelHtml(): string {
             else {
               gpuDenseState.expandedKey=k;
               var srv=tr.getAttribute("data-server-id"); var gid=tr.getAttribute("data-gpu-id");
-              if(srv && gid) requestGpuHistory({ serverId: srv, gpuId: gid, maxPoints: 288 }, true);
+              if(srv && gid) requestGpuHistory({ serverId: srv, gpuId: gid, maxPoints: 288 }, true, "auto");
             }
             renderGpuSection(lastState || state);
             setTimeout(function(){ scheduleGpuHistoryDraw(); }, 60);
@@ -11739,8 +11808,15 @@ export function renderPanelHtml(): string {
       const points = Number(maxPoints) > 0 ? Number(maxPoints) : 96;
       return Math.min(24 * 3600000, points * 60000);
     }
-    function requestGpuHistoryRemote(payload) {
-      vscode.postMessage(Object.assign({ command: "loadGpuHistory" }, payload));
+    function requestGpuHistoryRemote(payload, origin) {
+      // A05 display read: with the low-traffic guard on, only an explicit manual click reaches the
+      // server. Expansion, focus, initial retries and the ring fallback are automatic entries.
+      if (!displayAutoAllowed(origin)) {
+        renderDisplayAutoNotices();
+        return false;
+      }
+      vscode.postMessage(Object.assign({ command: "loadGpuHistory", origin: origin === "user" ? "user" : "auto" }, payload));
+      return true;
     }
     // Gap decisions are materialized per segment at that segment's OWN granularity
     // before coarse and fine runs are concatenated, so a merged fine-run median
@@ -11795,7 +11871,7 @@ export function renderPanelHtml(): string {
       if (!samples.length) {
         // No host-cached fine frames for this window: honestly fall back to the
         // existing server history request; coarse buckets stay coarse.
-        requestGpuHistoryRemote(entry.payload);
+        requestGpuHistoryRemote(entry.payload, entry.origin);
         return;
       }
       const workerId = entry.workerId;
@@ -11840,9 +11916,15 @@ export function renderPanelHtml(): string {
         scheduleGpuHistoryDraw();
       }
     }
-    function requestGpuHistory(query, force) {
+    function requestGpuHistory(query, force, origin) {
       const payload = query && typeof query === "object" ? query : {};
       const key = gpuHistorySeriesKey(payload.serverId || "overview", payload.gpuId || "overview");
+      if (!displayAutoAllowed(origin)) {
+        // A05 in low traffic: no request, no timer, no cooldown burn. The area keeps showing the
+        // cached curve together with its real sample time and the manual-refresh state.
+        renderDisplayAutoNotices();
+        return false;
+      }
       const now = Date.now();
       const lastAt = Number(gpuHistoryRequestLastAt?.get(key) || 0);
       if (!force && now - lastAt < GPU_HISTORY_REQUEST_COOLDOWN_MS) return false;
@@ -11861,11 +11943,11 @@ export function renderPanelHtml(): string {
           if (previous.timer) clearTimeout(previous.timer);
           gpuWindowPending.delete(previous.id);
         }
-        const entry = { id: ++gpuWindowRequestSeq, workerId: ringWorker, key: key, payload: Object.assign({}, payload), timer: 0 };
+        const entry = { id: ++gpuWindowRequestSeq, workerId: ringWorker, key: key, origin: origin === "user" ? "user" : "auto", payload: Object.assign({}, payload), timer: 0 };
         entry.timer = setTimeout(function() {
           if (gpuWindowPendingByKey.get(key) === entry) {
             gpuWindowPendingByKey.delete(key); gpuWindowPending.delete(entry.id);
-            requestGpuHistoryRemote(entry.payload);
+            requestGpuHistoryRemote(entry.payload, entry.origin);
           }
         }, 800);
         gpuWindowPending.set(entry.id, entry);
@@ -11874,7 +11956,7 @@ export function renderPanelHtml(): string {
           start: now - gpuWindowFineWindowMs(payload.maxPoints), end: now, maxPoints: Number(payload.maxPoints) || 96 });
         return true;
       }
-      requestGpuHistoryRemote(payload);
+      requestGpuHistoryRemote(payload, origin);
       return true;
     }
     function refreshGpuHistoryAfterSnapshot() {
@@ -11953,6 +12035,7 @@ export function renderPanelHtml(): string {
         '<summary>历史状态曲线（最近 1 天）</summary>' +
         '<div class="gpuHistoryPanelBody">' +
           '<div class="gpuHistoryStatus ' + escAttr(gpuHistoryStatusClass()) + '">' + esc(status) + '</div>' +
+          gpuLowTrafficControlsMarkup(gpuHistorySeriesKey("overview", "overview")) +
           body +
         '</div>' +
       '</details>';
@@ -11961,9 +12044,10 @@ export function renderPanelHtml(): string {
     function renderGpuHistoryCard(serverId, gpuId, gpuName) {
       const series = gpuHistorySeriesFor(serverId, gpuId);
       const status = gpuHistoryStatusText("gpu");
-      if (!series) return '<div class="gpuHistoryStatus ' + escAttr(gpuHistoryStatusClass()) + '">' + esc(status) + '</div>';
+      const controls = gpuLowTrafficControlsMarkup(gpuHistorySeriesKey(serverId, gpuId));
+      if (!series) return '<div class="gpuHistoryStatus ' + escAttr(gpuHistoryStatusClass()) + '">' + esc(status) + '</div>' + controls;
       return renderGpuHistoryChart("GPU " + gpuId + (gpuName && gpuName !== "-" ? " · " + gpuName : ""), "gpu", [series], "最近 24 小时 · 线性时间 · 利用率 (%) / 显存已用 (MB)") +
-        '<div class="gpuHistoryStatus ' + escAttr(gpuHistoryStatusClass()) + '">' + esc(status) + '</div>';
+        '<div class="gpuHistoryStatus ' + escAttr(gpuHistoryStatusClass()) + '">' + esc(status) + '</div>' + controls;
     }
 
     function gpuHistoryStatusText(scope) {
@@ -11982,6 +12066,14 @@ export function renderPanelHtml(): string {
       if (gpuHistoryLastStateStatus === "error") return "error";
       if (gpuHistoryLastStateStatus === "stale") return "stale";
       return "";
+    }
+
+    // One control row per GPU history key: the low-traffic hint (real sample time, or never manually
+    // refreshed) plus the only entry that may fetch while the guard is on. Every key gets its own row,
+    // so the overview and each expanded series report their own state instead of sharing one hint.
+    function gpuLowTrafficControlsMarkup(key) {
+      return '<span class="gpuHistoryNotice" data-gpu-notice-key="' + escAttr(key) + '"></span>' +
+        '<button type="button" class="gpuHistoryManualBtn" data-gpu-history-manual="' + escAttr(key) + '">手动刷新历史</button>';
     }
 
     function gpuHistoryOverviewSeries(state, servers) {

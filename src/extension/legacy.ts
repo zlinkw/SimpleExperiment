@@ -1407,9 +1407,10 @@ export class RealtimeTunnelPanelProvider {
         const backgroundPaused = this.tunnelConfig?.pauseAllBackgroundTraffic === true;
         const blockedBy = !enabled ? "" : paused ? "paused" : manualOnly ? "manual_only" : backgroundPaused ? "background_traffic_paused" : "";
         const intervals = enabled && !blockedBy ? LOW_TRAFFIC_INTERVALS : NORMAL_TRAFFIC_INTERVALS;
-        // A-class (display-only) automatic traffic is switched off by a boolean, never by a small
-        // interval: a 0 second cadence must not be clamped back to 5s by a downstream Math.max().
-        const displayAutoRefresh = !(enabled && !blockedBy);
+        // A-class (display-only) traffic follows the persisted toggle only, as a boolean: a stronger
+        // constraint (manual_only / paused / background paused) must never reopen the display gate, and
+        // a 0 cadence must not be clamped back to 5s by a downstream Math.max().
+        const displayAutoRefresh = !enabled;
         return { enabled, effective: enabled && !blockedBy, blockedBy, displayAutoRefresh, intervals: { ...intervals }, scope: "global" };
     }
     /** Webview echo; the authoritative value always comes from the host, never from webview state. */
@@ -5615,8 +5616,13 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             }).catch(() => undefined);
             const diagnostics = client.diagnostics();
             const unavailable = diagnostics.endpoints.length > 0 && diagnostics.endpoints.every((endpoint) => endpoint.streamStatus === "disconnected");
-            this.lastError = unavailable ? "tunnel_unavailable" : undefined;
-            if (unavailable && !this.lastHealth) {
+            // Closing the display channels is an intentional low-traffic closure, not an outage: it must
+            // not be published as tunnel_unavailable / local_port_closed. A real connection error keeps
+            // displayAutoClosed false (connectionLost / any non-display disconnect clears it) and is still
+            // reported honestly; nothing here invents a connected health state either.
+            const displayGuarded = diagnostics.displayAutoRefreshDisabled === true && diagnostics.displayAutoClosed === true;
+            this.lastError = unavailable && !displayGuarded ? "tunnel_unavailable" : undefined;
+            if (unavailable && !displayGuarded && !this.lastHealth) {
                 this.lastHealth = {
                     state: "local_port_closed",
                     status: "local_port_closed",
@@ -5630,6 +5636,10 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 return;
             this.lastError = errorMessage(error);
         }
+        // Converge the applied strategy (queue/progress cadence + A-class guard) on the fresh
+        // connection evidence, so a resume/config path cannot leave the client on a stale policy.
+        if (generation === this.projectContextGeneration && client === this.client)
+            this.applyTrafficScheduling();
         if (generation === this.projectContextGeneration && client === this.client)
             this.postState();
     }
@@ -6311,7 +6321,9 @@ return this.testTunnel(true);
             return;
         this.lastHealth = { state: "paused", status: "paused", checkedAt: new Date().toISOString(), message: "所有网络活动已暂停。" };
         // The preference is kept; only the effective cadence yields to the stronger pause constraint.
-        this.scheduleTrafficTimers();
+        // Re-apply the whole strategy (host timers and client policy) against the current toggle so the
+        // queue/progress cadence and the A-class guard converge on the same state.
+        this.applyTrafficScheduling();
         this.postState();
     }
     async resumeNetwork() {
@@ -6319,6 +6331,11 @@ return this.testTunnel(true);
         await this.clearOfflineImport();
         if (generation !== this.projectContextGeneration)
             return;
+        // The pause marker written by pauseAllNetworkActivity is stale from here on: keeping it would
+        // make effectiveTrafficPolicy() believe a pause is still in force, so the applied strategy would
+        // diverge from the persisted toggle. ensureRealtimeConnected converges again on fresh evidence.
+        if (this.lastHealth?.state === "paused" || this.lastHealth?.status === "paused")
+            this.lastHealth = undefined;
         this.client.resume();
         this.applyTrafficScheduling();
         void this.ensureRealtimeConnected("resume network");
@@ -6495,9 +6512,25 @@ return this.testTunnel(true);
         if (generation === this.projectContextGeneration && client === this.client)
             this.postState();
     }
+    /**
+     * Authoritative backstop for A-class display reads: while the low-traffic guard is on, only an
+     * explicitly user-initiated request performs a round. The webview gates its own automatic entries,
+     * but a request queued before the panel learned the mode (or a pre-handshake initial pull) still
+     * must not produce traffic. Signal-carrying rounds come from the API server (C-class) and are
+     * handled by their own callers, never by this check.
+     */
+    private displayReadBlockedFor(message: any): boolean {
+        return this.effectiveTrafficPolicy().displayAutoRefresh === false && stringField(message, "origin") !== "user";
+    }
     async loadGpuHistoryFromUi(message) {
         const generation = this.projectContextGeneration;
         const client = this.client;
+        const displayOrigin = stringField(message, "origin");
+        // A05: in low traffic an automatic history request performs no read at all and publishes no
+        // result frame (no sample happened); the area keeps its cached curve plus the real sample time
+        // and only the explicit manual entry (origin "user") reaches the server.
+        if (this.displayReadBlockedFor(message))
+            return;
         const query = (0, GpuHistoryState_1.normalizeGpuHistoryQuery)({
             serverId: stringField(message, "serverId") || undefined,
             gpuId: stringField(message, "gpuId") || undefined,
@@ -6524,6 +6557,19 @@ return this.testTunnel(true);
         }
         if (generation === this.projectContextGeneration && client === this.client)
             this.postState(true);
+        if (generation === this.projectContextGeneration && client === this.client) {
+            // One honest result frame per round so the panel's per-key sample / manual-refresh times come
+            // from the round the host actually served, not from the click.
+            this.view?.webview.postMessage({
+                type: "gpuHistoryResult",
+                ok: !failure,
+                serverId: query.serverId || "overview",
+                gpuId: query.gpuId || "overview",
+                origin: displayOrigin === "user" ? "user" : "auto",
+                fetchedAt: new Date().toISOString(),
+                error: failure ? errorMessage(failure) : undefined,
+            });
+        }
         if (failure && stringField(message, "clientActionId"))
             throw failure;
     }
@@ -24062,9 +24108,12 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             await this.copyLastCheckStaticReportFromUi();
     }
     async fetchTmuxCaptureFromUi(message: any, options: { signal?: AbortSignal; publish?: boolean } = {}) {
+        if (!options.signal && this.displayReadBlockedFor(message))
+            return;
         if (!options.signal) {
-            // One round per Worker+window key; an in-flight repeated click merges into it.
-            return this.displayReadOnce("tmuxCapture|" + String(this.tmuxWorkerId(message) || "") + "|" + String(message?.window || message?.session || message?.name || ""),
+            // One round per Worker+window key while the low-traffic guard is on; normal mode keeps its
+            // own round per request.
+            return this.displayReadOnce(this.displayReadKey("tmuxCapture", `${String(this.tmuxWorkerId(message) || "")}|${String(message?.window || message?.session || message?.name || "")}`),
                 () => this.fetchTmuxCaptureRound(message, options));
         }
         return this.fetchTmuxCaptureRound(message, options);
@@ -24115,14 +24164,25 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         return endpoint;
     }
     /**
-   * Display-class reads are keyed by what the user is looking at, not by the click: repeated clicks
-   * on the same Worker/section while a read is in flight share that one round instead of queueing a
-   * new request per click. The caller that started the round publishes the result; joined callers get
-   * the same promise. Callers that need their own cancellation (API server) keep their own request.
+   * Display-class reads are keyed by what the user is looking at, not by the click. Merging is a
+   * low-traffic-only optimization: in normal mode every request still performs its own round, so the
+   * normal-mode traffic trajectory stays bit-for-bit the same as before this switch existed. When the
+   * guard is on, repeated clicks on the same Worker/section share one network round, but every caller
+   * still publishes a reply carrying its OWN requestId (see fetchTmuxListForCaller), so a UI that
+   * timed out and retried is never answered with a swallowed or stale identity. Callers that need
+   * their own cancellation (API server, signal-carrying rounds) never merge. The key carries the
+   * project context generation and workspace root, so a project/connection switch cannot join an
+   * older round, and readTmuxListAfterKill bypasses this map entirely for its fresh closeCheck read.
    */
     private displayReadInFlight = new Map<string, Promise<any>>();
+    private displayMergeEnabled(): boolean {
+        return this.effectiveTrafficPolicy().displayAutoRefresh === false;
+    }
+    private displayReadKey(kind: string, identity: string): string {
+        return kind + "|" + String(this.projectContextGeneration) + "|" + (workspaceRoot() || "-") + "|" + identity;
+    }
     private displayReadOnce<T>(key: string, reader: () => Promise<T>, signal?: AbortSignal): Promise<T> {
-        if (signal) return reader();
+        if (signal || !this.displayMergeEnabled()) return reader();
         const active = this.displayReadInFlight.get(key);
         if (active) return active as Promise<T>;
         const promise = reader().finally(() => {
@@ -24132,10 +24192,26 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         return promise;
     }
     async fetchTmuxListFromUi(_message: any) {
+        if (this.displayReadBlockedFor(_message))
+            return;
         const workers = this.enabledWorkerConfigs();
         const workerIds = _message?.allWorkers === true ? workers.map((worker) => worker.id) : [this.tmuxWorkerId(_message, true)];
-        await Promise.all(workerIds.map((workerId) => this.displayReadOnce("tmuxList|" + workerId,
-            () => this.fetchOneTmuxListFromUi(workerId, _message?.requestId))));
+        await Promise.all(workerIds.map((workerId) => this.fetchTmuxListForCaller(workerId, _message?.requestId)));
+    }
+    /**
+     * N clicks produce one network round under the low-traffic guard but N replies, each with the
+     * caller's own requestId; in normal mode this is exactly one round per request, as before.
+     */
+    private async fetchTmuxListForCaller(workerId: string, requestId?: number) {
+        if (!this.displayMergeEnabled()) return this.fetchOneTmuxListFromUi(workerId, requestId);
+        try {
+            const result = await this.displayReadOnce(this.displayReadKey("tmuxList", workerId),
+                () => this.readTmuxListNetwork(workerId));
+            return this.publishTmuxList(workerId, result, requestId);
+        }
+        catch (exc: any) {
+            return this.publishTmuxListFailure(workerId, requestId, exc);
+        }
     }
     publishTmuxList(workerId: string, result: any, requestId?: number, publish = true) {
         const cfg = vscode.workspace.getConfiguration("simpleExperiment");
@@ -24157,22 +24233,31 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async fetchOneTmuxListFromUi(workerId: string, requestId?: number, options: { signal?: AbortSignal; publish?: boolean } = {}) {
         options.signal?.throwIfAborted();
         try {
-            let result: any = null;
-            const tryClient = (this.client as any)?.clients?.get(workerId);
-            if (tryClient && typeof tryClient.requestJson === "function") {
-                result = await tryClient.requestJson(`/api/tmux/list`, "manual_refresh", undefined, { method: "GET", userInitiated: true, signal: options.signal });
-            }
-            if (!result) {
-                result = await this.requestTmuxJson(workerId, `/api/tmux/list`, 5000, 512 * 1024, options.signal);
-            }
+            const result = await this.readTmuxListNetwork(workerId, options.signal);
             return this.publishTmuxList(workerId, result, requestId, options.publish !== false);
         } catch (exc: any) {
             if (options.signal?.aborted) throw exc;
-            const msg = String(exc?.message || exc || "fetch failed").slice(0, 500);
-            const payload = { type: "tmuxList", ok: false, available: false, workerId, requestId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), sessions: [], error: msg, fetchedAt: new Date().toISOString() };
-            if (options.publish !== false) this.view?.webview.postMessage(payload);
-            return payload;
+            return this.publishTmuxListFailure(workerId, requestId, exc, options.publish !== false);
         }
+    }
+    /** The network round only: publishing stays with the caller so each requestId gets its own reply. */
+    private async readTmuxListNetwork(workerId: string, signal?: AbortSignal) {
+        signal?.throwIfAborted();
+        const tryClient = (this.client as any)?.clients?.get(workerId);
+        let result: any = null;
+        if (tryClient && typeof tryClient.requestJson === "function") {
+            result = await tryClient.requestJson(`/api/tmux/list`, "manual_refresh", undefined, { method: "GET", userInitiated: true, signal });
+        }
+        if (!result) {
+            result = await this.requestTmuxJson(workerId, `/api/tmux/list`, 5000, 512 * 1024, signal);
+        }
+        return result;
+    }
+    private publishTmuxListFailure(workerId: string, requestId: number | undefined, exc: any, publish = true) {
+        const msg = String(exc?.message || exc || "fetch failed").slice(0, 500);
+        const payload = { type: "tmuxList", ok: false, available: false, workerId, requestId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), sessions: [], error: msg, fetchedAt: new Date().toISOString() };
+        if (publish) this.view?.webview.postMessage(payload);
+        return payload;
     }
     private requestTmuxJson(workerId: string, requestPath: string, timeoutMs: number, maxBytes: number, signal?: AbortSignal): Promise<any> {
         const endpoint = this.tmuxEndpoint(workerId);
@@ -25548,6 +25633,12 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
         this.gpuHistoryState.reset();
         this.budget = new RequestBudget_1.RequestBudget((0, TunnelGateway_1.requestBudgetConfigFromTunnel)(this.tunnelConfig));
         this.client = this.createClient();
+        // A fresh client / new project context must never join a display read that started earlier.
+        this.displayReadInFlight.clear();
+        // A config-driven client reset (manual_only / pauseAllBackgroundTraffic / endpoint changes)
+        // must converge the cadence and the A-class guard on the current toggle, not only on the
+        // policy snapshot baked into the new client; timers are re-armed from the same strategy.
+        this.applyTrafficScheduling();
         this.realtimeUiStateRefs = undefined;
         this.cacheCleanupConnectionKey = "";
         this.planArtifactSyncStatuses = {};
