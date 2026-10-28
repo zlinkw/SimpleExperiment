@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.422",
-  "buildId": "17057c07a1a309612b77b5444d9a2734d02538b386e7ed3baa7a67f08ca69a48",
+  "version": "0.5.423",
+  "buildId": "23ba7a682e182f04a8b81f4dcb64c3698c85e11866ba1c3ea08a052b45c182d9",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -857,7 +857,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "eed245f2a71d8039e2597ceb572ca840a10f97b3aa50342b0bc51a2fd6e9909e"
+      "sha256": "b84509389b9f9839d73c4a3343e1d6afec14b6e5bf1b3a7c942719159a98e8ca"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1205,7 +1205,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "7618f821b785128757af8f46571b62305e91cf5fbbf1d28edf0bbe4f4ebbaeb0"
+      "sha256": "0075efab59d3130b81c4cbfbccc2dc4b569044eaf146a7093fbcdeb7e7844d8a"
     },
     {
       "path": "scripts/check-static.js",
