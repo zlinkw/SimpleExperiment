@@ -18,6 +18,7 @@ import { collectNodeTargets, nodesForTargets, bindMachineStateByNode, managedNod
 import { guardCleanupSftpCall } from "./PlanCleanupSftpGuard";
 import { assertIsolatedReviewBinding, recordIsolatedReviewEventFor, verifyIsolatedTargetsAbsence, openIsolatedBatchReviewFlow, type IsolatedReviewContext } from "./PlanCleanupIsolatedReviews";
 import { verifyDeclaredTargetsOnNodes } from "./PlanCleanupTargetVerification";
+import { reviewEmptyIsolationParents } from "./PlanCleanupEmptyParents";
 
 async function json(file: string, fallback: any): Promise<any> {
   const text = await fs.readFile(file, "utf8").catch((error: any) => { if (error.code === "ENOENT") return ""; throw error; });
@@ -420,11 +421,23 @@ export class PlanCleanupHost {
   /** r87 块4：后台清隔离副本的旁路提交——只走 service 的门（能力、回执齐备、job 级完成），
    * 与上面人工审核链的"目的地缺失证明"完全无关，也不共用它的授权。传输异常由 service 落 unknown，
    * 门拒绝（能力缺失/回执不全）由派发侧 fire-and-forget 的处理器落日志与通知，不影响已派发任务。 */
-  async autoDeleteIsolated(id: string) { await this.ensureOperationRecordsMigrated(); return this.service.autoDeleteIsolated(id); }
+  async autoDeleteIsolated(id: string, parents?: import("../features/IsolationEmptyParents").EmptyParentPreview[]) {
+    await this.ensureOperationRecordsMigrated(); return this.service.autoDeleteIsolated(id, parents);
+  }
   // r17-B anchor rule: every reader of the old operation-record location takes the migration
   // first — a fresh window opening the isolated-review bridge must still find (byte-import)
   // a legacy-only record instead of answering OPERATION_NOT_FOUND.
-  async openIsolatedBatchReviews() { await this.ensureOperationRecordsMigrated(); return openIsolatedBatchReviewFlow(this.isolatedReviewContext()); }
+  async openIsolatedBatchReviews() {
+    await this.ensureOperationRecordsMigrated(); this.assertWorkspace();
+    const choice = await vscode.window.showQuickPick([
+      { label: "审核隔离产物", value: "artifacts" },
+      { label: "审核已删除产物留下的空目录", value: "empty" }
+    ], { title: "选择永久删除审核范围", placeHolder: "下一页核对完整路径；永久删除仍需两次确认" });
+    if (choice?.value === "empty") return reviewEmptyIsolationParents({ askRunConfirmation: (payload: any) => this.host.askRunConfirmation(payload),
+      notifyWarn: (text: string) => vscode.window.showWarningMessage(text), notifyInfo: (text: string) => vscode.window.showInformationMessage(text)
+    }, this.service, () => this.assertWorkspace());
+    if (choice?.value === "artifacts") return openIsolatedBatchReviewFlow(this.isolatedReviewContext());
+  }
   open(file: string, operationId?: string, job?: CleanupJobSelection, isolatedOperationId?: string) { return openPlanCleanupPanel(this, file, operationId, job, isolatedOperationId); }
   openJob(file: string, job: CleanupJobSelection) { return this.open(file, undefined, job); }
 }

@@ -152,16 +152,34 @@ async function replaceRunOutputs(ports, state, planFile, jobs, completedIndices,
         state.choice = "rerun_all";
     // 对话道回调里 TS 收窄失效；本行起 state.previews 恒存在（上方分支已保证），用别名传递同一引用。
     const previewRows = state.previews;
+    if (ports.prepareEmptyParents && !state.emptyParents && !state.done) {
+        // Recovered old confirmations did not show these additional paths. Ask both pages afresh.
+        if (state.choice && targets(previewRows).length) {
+            delete state.choice;
+            delete state.selectedIndices;
+            state.phase = 0;
+        }
+        const prepared = {};
+        for (const { preview } of previewRows)
+            if (targets([{ index: 0, preview }]).length)
+                prepared[preview.token] = await ports.prepareEmptyParents(preview);
+        state.emptyParents = prepared;
+        await ports.save();
+    }
+    const permanentTargets = (rows) => rows.flatMap(({ preview }) => (state.emptyParents?.[preview.token] || []).flatMap(group => group.confirmationTargets.map(target => ({ server: group.node.id, connection: group.node.kind === "remote"
+            ? group.node.user + "@" + group.node.host + ":" + group.node.port : "本机", path: target.absolutePath, type: target.type }))));
     if (!state.choice)
         await gate(async () => {
             ports.progress("等待选择运行范围并核对将移入隔离区的完整路径…");
             const choice = await ports.ask({ phase: 1, planFile, title: "选择运行范围并核对将移入 clean 隔离区的完整路径", groups: [
-                    { value: "rerun_all", label: "覆盖并重跑全部", targets: targets(previewRows) },
+                    { value: "rerun_all", label: "覆盖并重跑全部（永久删除隔离旧产物及所列空目录）", targets: [...targets(previewRows), ...permanentTargets(previewRows)] },
                     { value: "rerun_missing", label: "仅补跑未完成任务", disabled: !missing.length,
                         targets: targets(previewRows.filter(row => missing.includes(row.index))) }
                 ] });
             if (!["rerun_all", "rerun_missing"].includes(choice))
                 (0, PlanCleanup_1.cleanupError)("REPLACEMENT_CANCELLED", "已取消；未移动文件或提交任务。");
+            if (choice === "rerun_all" && ports.confirmEmptyParents)
+                await ports.confirmEmptyParents(previewRows.flatMap(({ preview }) => state.emptyParents?.[preview.token] || []), 1);
             state.choice = choice;
             state.selectedIndices = choice === "rerun_missing" ? missing : all;
             await ports.save();
@@ -169,13 +187,18 @@ async function replaceRunOutputs(ports, state, planFile, jobs, completedIndices,
     state.selectedIndices ||= state.choice === "rerun_missing" ? missing : all;
     const selected = state.previews.filter(row => state.selectedIndices.includes(row.index) && targets([row]).length);
     const exact = targets(selected);
+    const permanent = state.choice === "rerun_all" ? permanentTargets(selected) : [];
     if (exact.length && (state.phase || 0) < 1)
         await gate(async () => {
-            ports.progress("等待确认：旧输出移入 clean 隔离区后立即启动新运行；永久删除稍后单独双确认…");
+            ports.progress(permanent.length ? "等待第二次确认永久删除隔离旧产物及所列空目录；新运行在隔离后启动…"
+                : "等待确认：旧输出移入 clean 隔离区后立即启动新运行；永久删除稍后单独双确认…");
             if (await ports.ask({ phase: 2, planFile, title: "将以下旧输出移入 clean 隔离区并重跑", groups: [
-                    { value: "isolate_and_run", label: "隔离并重跑（旧输出不直接删除；永久删除稍后单独两次确认）", targets: exact }
+                    { value: "isolate_and_run", label: permanent.length ? "确认永久删除隔离旧产物与所列空目录，并重跑"
+                            : "隔离并重跑（旧输出不直接删除；永久删除稍后单独两次确认）", targets: [...exact, ...permanent] }
                 ] }) !== "isolate_and_run")
                 (0, PlanCleanup_1.cleanupError)("REPLACEMENT_CANCELLED", "已取消；未移动文件或提交任务。");
+            if (permanent.length && ports.confirmEmptyParents)
+                await ports.confirmEmptyParents(selected.flatMap(({ preview }) => state.emptyParents?.[preview.token] || []), 2);
             for (const { preview } of selected)
                 await ports.service.confirm({ token: preview.token, digest: preview.digest, phase: 1, confirm: true,
                     exactTargets: targets([{ index: 0, preview }]).map(row => row.server + ":" + row.path) });
@@ -302,7 +325,7 @@ async function replaceRunOutputs(ports, state, planFile, jobs, completedIndices,
             // accepted 只说"已提交后台永久删除"，绝不写成"删除已完成"。
             if (receiptBacked && state.choice === "rerun_all" && ports.autoDeleteIsolated) {
                 const isolateTargets = preview.rows.filter(row => row.disposition === "isolate").map(row => row.node.id + "：" + row.destination).join("、");
-                void ports.autoDeleteIsolated(preview.token).then(outcome => {
+                void ports.autoDeleteIsolated(preview.token, state.emptyParents?.[preview.token]).then(outcome => {
                     if (outcome.state === "accepted")
                         ports.progress("旧副本已提交后台永久删除（自动删除不可恢复）：" + isolateTargets + "；不影响已经启动的新任务。");
                     else
@@ -325,6 +348,7 @@ async function replaceRunOutputs(ports, state, planFile, jobs, completedIndices,
     if (selected.length)
         await ports.hold(jobs.filter(job => accepted.includes(Number(job.index))));
     state.done = true;
+    delete state.emptyParents;
     await ports.save();
     // r82：准入决定结构化交回调用方——selectedIndices（运行选择里最终准入者）与 blocked（隔离未完成/
     // 核验未知者）成对返回，与"用户有意跳过"互斥；成功轮次也必须显式返回 blocked=[]，

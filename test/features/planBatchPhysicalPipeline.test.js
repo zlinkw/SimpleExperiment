@@ -42,6 +42,7 @@ async function world(){
   const records=new Map();const stats={moves:0,deletes:0,preflights:0};
   let isolatedDeletePreviewCalls=0;
   const sftp=async(method,params)=>{
+    if(method==='files.cleanup.isolationParentsPreview')return{ok:true,eligible:false,targets:[]}; // This legacy fixture has no empty-parent capability.
     const abs=relative=>path.join(serverRoot,relative);
     if(method==='files.cleanup.preview'){
       const targets=[];
