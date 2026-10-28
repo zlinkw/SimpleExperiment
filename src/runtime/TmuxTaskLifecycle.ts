@@ -1000,7 +1000,10 @@ def task_queue_serve(root, worker_id):
                             raise ValueError("TASK_CANCELLED")
                         found = next((row for row in task_inventory(root, execution_only=True) if row["commandId"] == command_id), None)
                         if found:
-                            if any(found.get(key) != payload.get(key) for key in ("projectId", "workerId", "workflowId", "experimentIndex", "globalJobId", "case", "seed", "outputDir", "collectionResultCsv")):
+                            # Match admission's top-level-over-options precedence without rerunning
+                            # launch/source probes for an already accepted command.
+                            identity = {**(payload.get("options") if isinstance(payload.get("options"), dict) else {}), **payload}
+                            if any(found.get(key) != identity.get(key) for key in ("projectId", "workerId", "workflowId", "experimentIndex", "globalJobId", "case", "seed", "outputDir", "collectionResultCsv")):
                                 raise ValueError("TASK_COMMAND_ID_CONFLICT")
                             value = task_public_observation(root, found, found)
                         elif command_id in accepted:

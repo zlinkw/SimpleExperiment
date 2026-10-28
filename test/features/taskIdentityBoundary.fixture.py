@@ -54,4 +54,16 @@ for key, value in [('workerId', 'other'), ('experimentIndex', 9), ('collectionRe
 request = Request(dict(job))
 scope['do_POST'](request)
 assert json.loads(request.wfile.getvalue())['ok'] is True
+
+# Initial admission accepts stable fields in options. The same request must stay idempotent.
+nested = {key: value for key, value in job.items() if key in ("commandId", "projectId", "workflowId", "outputDir")}
+nested["options"] = {key: value for key, value in job.items() if key not in nested}
+request = Request(nested)
+scope['do_POST'](request)
+assert json.loads(request.wfile.getvalue())['ok'] is True, 'same nested identity must remain idempotent'
+
+request = Request({**job, "options": {"workerId": "ignored-by-root", "experimentIndex": 9}})
+scope['do_POST'](request)
+assert json.loads(request.wfile.getvalue())['ok'] is True, 'top-level identity keeps admission precedence'
+
 print('task identity boundaries passed')
