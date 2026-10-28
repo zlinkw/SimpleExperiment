@@ -1,0 +1,5 @@
+# 只读调查者证据占位目录
+
+项目内仅保留目录占位；两名只读调查者的实际证据文件位于项目外的
+`D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/readers/` 下，
+绝对路径清单见同目录 `../evidence.md`。
