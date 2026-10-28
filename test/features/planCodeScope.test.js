@@ -9,6 +9,44 @@ const hash=content=>crypto.createHash('sha256').update(content).digest('hex');
 const source=()=>{const manifest={'plans/p.yaml':{size:4,sha256:hash('plan')},'train.py':{size:4,sha256:hash('code')}};return {manifest,digest:hash(JSON.stringify(Object.entries(manifest).map(([k,v])=>[k,v])))};};
 function fixture(){const s=source(),plan={id:'p',projectId:'project',revision:hash('plan'),codeFingerprint:'old-global',planFile:'plans/p.yaml',resultPathPolicy:'declared',executionMode:'train_test',jobs:[{index:0,status:'pending',case:'a',seed:42,attempt:0,outputDir:'work/a',collectionResultCsv:'tmp/a.csv'}]};let calls=0;
  const host={workerActionTargets:()=>[{id:'w'}],lastWorkerProbes:{w:{status:'ok',capabilities:{endpoints:{planCodeScope:1}}}},client:{getWorkerPlanCodeScope:async(_,r)=>{calls++;return {ok:true,compatible:true,readOnly:true,...r,executionSource:s};}}};return {host,plan,s,get calls(){return calls}};}
+
+test('a queued Plan source check keeps its network deadline until actual request admission',async t=>{
+ const {RequestBudget,defaultRequestBudgetConfig}=require('../../src/tunnel/RequestBudget.ts');
+ const {HttpTunnelClient}=require('../../src/tunnel/TunnelClient.ts');
+ const budget=new RequestBudget({...defaultRequestBudgetConfig,maxConcurrentRequestsGlobal:1,maxConcurrentRequestsPerWorker:1});
+ const f=fixture(),http=new HttpTunnelClient({localHost:'localhost',localPort:1},budget);
+ let release,settled=false,fetches=0,stall=false;
+ const occupied=budget.run('manual_refresh',()=>new Promise(resolve=>release=resolve),{userInitiated:true});
+ await new Promise(setImmediate);
+ t.mock.timers.enable({apis:['setTimeout','Date']});
+ t.mock.method(AbortSignal,'timeout',ms=>{const controller=new AbortController();setTimeout(()=>controller.abort(new DOMException('deadline expired','TimeoutError')),ms);return controller.signal;});
+ t.mock.method(global,'fetch',async(_url,options)=>{fetches++;assert.equal(options.signal.aborted,false);
+  if(stall)return new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true}));
+  const query=JSON.parse(options.body);return new Response(JSON.stringify({ok:true,compatible:true,readOnly:true,...query,executionSource:f.s}));});
+ f.host.client.getWorkerPlanCodeScope=(_worker,query,options)=>http.getPlanCodeScope(query,options);
+ const pending=H.resolvePlanExecutionSource(f.host,f.plan);pending.then(()=>settled=true,()=>settled=true);
+ try{
+  await new Promise(setImmediate);t.mock.timers.tick(15001);await new Promise(setImmediate);
+  assert.equal(fetches,0);assert.equal(settled,false,'time in the request queue must not expire an unstarted network request');
+  release();await occupied;assert.deepEqual(await pending,f.s);assert.equal(fetches,1);
+  stall=true;
+  const timedOut=assert.rejects(H.verifyWorkerPlanSource(f.host,'w',f.plan),/无有效响应/);
+  await new Promise(setImmediate);t.mock.timers.tick(15001);await timedOut;
+  assert.equal(fetches,2,'an admitted stalled request retains its existing network inactivity limit');
+ }finally{release();await occupied;await pending.catch(()=>{});}
+});
+
+test('caller cancellation still removes a queued Plan source check without sending it',async()=>{
+ const {RequestBudget,defaultRequestBudgetConfig}=require('../../src/tunnel/RequestBudget.ts');
+ const {HttpTunnelClient}=require('../../src/tunnel/TunnelClient.ts');
+ const budget=new RequestBudget({...defaultRequestBudgetConfig,maxConcurrentRequestsGlobal:1,maxConcurrentRequestsPerWorker:1});
+ const f=fixture(),http=new HttpTunnelClient({localHost:'localhost',localPort:1},budget),controller=new AbortController();let release;
+ const occupied=budget.run('manual_refresh',()=>new Promise(resolve=>release=resolve),{userInitiated:true});await new Promise(setImmediate);
+ f.host.client.getWorkerPlanCodeScope=(_worker,query,options)=>http.getPlanCodeScope(query,options);
+ const pending=H.resolvePlanExecutionSource(f.host,f.plan,controller.signal);const rejected=assert.rejects(pending,/abort|cancel/i);
+ controller.abort(new Error('cancel source check'));await rejected;release();await occupied;
+ assert.equal(f.plan.executionSource,undefined);
+});
 test('fresh per-plan evidence permits idle dispatch despite unrelated whole-project versions',async()=>{
  const f=fixture(),workers=[{workerId:'w',online:true,idleGpuIds:['0'],declaredJobPaths:true,idleGpuAdmission:true,codeFingerprint:'new-global'}],queue={schemaVersion:1,plans:[f.plan]};
  await H.inspectPlanCodeSlots(f.host,queue,workers);assert.equal(f.calls,2);assert.deepEqual(workers[0].compatiblePlans,['p']);
