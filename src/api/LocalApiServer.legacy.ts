@@ -447,7 +447,7 @@ export class LocalApiServer {
     const onResponseClosed = () => { if (!response.writableEnded) controller.abort(); };
     response.once("close", onResponseClosed);
     try {
-      const handler = this.methods[payload.method];
+      const handler = Object.hasOwn(this.methods, payload.method) ? this.methods[payload.method] : undefined;
       const requested = (payload.params || {}) as Record<string, unknown>;
       if ([requested.topologyMode, requested.mode].some(value => ["hub_worker", "hub_control", "hub", "hub_available"].includes(String(value || "")))
           || requested.hub || requested.hubConfig || Array.isArray(requested.serverIds) && requested.serverIds.includes("hub")
@@ -668,7 +668,7 @@ export class LocalApiServer {
       execution: { resultPathPolicy: "declared", formalJobPathProtocol: 1, formalJobIdentityEnvProtocol: 1, formalJobStopIdentityProtocol: 2, formalJobStopUsesAttempts: false, historicalAttempts: "readOnly", draftPromotion: "retired",
         stagedJobPreflightProtocol: 1, admissionAssetValidation: "deferred_until_start", executionAssetValidation: "fresh" },
       retiredMethods: { "drafts.promote": "DRAFT_PROMOTION_RETIRED" },
-      methods: Object.keys(this.methods).sort(),
+      methods: Object.keys(this.methods).filter(method => typeof this.methods[method] === "function").sort(),
       methodOptions: {
         ...(Object.keys(this.methods).includes("agents.lifecycle") ? {
           "agents.lifecycle": { actions: ["inspect", "ensure", "stop", "restart", "migrate"], requiredParams: ["serverIds"],
@@ -721,7 +721,7 @@ export class LocalApiServer {
   }
 
   openapi(): Record<string, unknown> {
-    const methods = Object.keys(this.methods).sort();
+    const methods = Object.keys(this.methods).filter(method => typeof this.methods[method] === "function").sort();
     return {
       openapi: "3.0.0",
       "x-simple-method-options": this.capabilities().methodOptions,
