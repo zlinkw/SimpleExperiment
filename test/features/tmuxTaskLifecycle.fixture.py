@@ -1,5 +1,5 @@
 """Only extracted lifecycle functions, real isolated tmux, stdlib CPU probes."""
-import ast, base64, datetime, hashlib, json, os, pathlib, re, shlex, subprocess, sys, tempfile, threading, time, urllib.request, urllib.parse, uuid, textwrap
+import ast, base64, datetime, hashlib, json, math, os, pathlib, re, shlex, subprocess, sys, tempfile, threading, time, urllib.request, urllib.parse, uuid, textwrap
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "_helpers"))
@@ -38,7 +38,7 @@ root = tempfile.mkdtemp(prefix="se-native-lifecycle-")
 os.environ.pop("TMUX", None)
 os.environ["TMUX_TMPDIR"] = root
 os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = "fixture"
-bootstrap = '''import base64, datetime, hashlib, json, os, pathlib, re, shlex, subprocess, sys, threading, time, urllib.request, uuid
+bootstrap = '''import base64, datetime, hashlib, json, math, os, pathlib, re, shlex, subprocess, sys, threading, time, urllib.request, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 def now_iso(): return datetime.datetime.now(datetime.timezone.utc).isoformat()
 def collect_local_gpu(): return ([{"id":"0"},{"id":"1"}], "")
@@ -82,6 +82,29 @@ metrics=pathlib.Path(root)/csv;metrics.parent.mkdir(parents=True,exist_ok=True);
 ''',encoding="utf-8")
 namespace={"__file__":str(program)}
 exec(bootstrap+code,namespace)
+def install_fixture_budget_observer(peak_mb):
+    # Device-boundary fixture result, published by the Scheduler's sole metadata writer.
+    # An external set-option races a live sampling turn and does not model this ownership.
+    observer = r'''
+_fixture_budget_update = task_budget_update
+def task_budget_update(root, rows, gpus, now=None):
+    _fixture_budget_update(root, rows, gpus, now)
+    if not pathlib.Path(root, "fixture-budget-calibrated").exists():
+        return
+    for row in rows:
+        value = task_budget_read(row)
+        if not value:
+            continue
+        value["peakMb"] = max(value.get("peakMb", 0), PEAK_MB)
+        value["oom"] = bool(value.get("oom") or pathlib.Path(root, "fixture-budget-oom").exists())
+        value["ready"] = not value["oom"]
+        value["budgetMb"] = task_budget_size(value["peakMb"])
+        task_option(row["tmuxPane"], "gpu_budget", json.dumps(value))
+        row["_gpuBudget"] = value
+'''.replace('PEAK_MB', str(int(peak_mb)))
+    source = program.read_text(encoding='utf-8')
+    assert source.count('if __name__=="__main__":') == 1
+    program.write_text(source.replace('if __name__=="__main__":', observer + '\nif __name__=="__main__":'), encoding='utf-8')
 # 失败诊断只增加可见性：5 秒截止、50ms 轮询、异常口径、返回值与全部原断言均保持不变。
 # 循环里本来就要发起的那一次观测（task_inventory、task_query 或 display-message）顺手记进 LAST_OBS，
 # 所以超时定位只靠“循环内最后一次观测”；到期后不再发起任何 tmux 查询（含版本查询），
@@ -201,7 +224,7 @@ def recovery_case():
             lines=[]
             for line in text.splitlines():
                 fields=line.split("\t")
-                if len(fields)==9 and fields[3]=="1": fields[4]=""
+                if len(fields) in (9,10) and fields[3]=="1": fields[4]=""
                 lines.append("\t".join(fields))
             return "\n".join(lines)
         return text

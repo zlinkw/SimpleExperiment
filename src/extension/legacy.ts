@@ -21,6 +21,7 @@ import { runProjectStaticCheck } from "../features/ProjectStaticCheck";
 import * as TmuxWindowIdentity from "../features/TmuxWindowIdentity";
 import * as GpuMemoryScheduling from "../features/GpuMemoryScheduling";
 import * as GpuQuotaScheduling from "../features/GpuQuotaScheduling";
+import * as GpuMemoryBudget from "../features/GpuMemoryBudget";
 import { syncGpuQuotaPolicies } from "./GpuQuotaPolicyHost";
 import { closeGpuTmuxSession, closeTmuxSession, manageTmuxSession } from "./GpuTmuxClose";
 import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
@@ -15615,7 +15616,11 @@ this.assertPlanTopologyReady("Plan 调度");
         const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === workerId);
         const schedulerSettings = this.schedulerSettings() as any;
         if (probes?.[workerId]?.capabilities?.endpoints?.gpuQuotaScheduling !== 1) throw new Error("GPU_QUOTA_PROTOCOL_REQUIRED：请更新 Worker Agent/Scheduler，未发送任务。");
-        const memoryScheduling = { ...GpuQuotaScheduling.quotaSettings(schedulerSettings, workerConfig, this.lastRealtimeState?.gpu?.[workerId] || []), gpuQuotaScheduling: 1 };
+        if (probes?.[workerId]?.capabilities?.endpoints?.gpuMemoryBudgetScheduling !== 1)
+            throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE：${workerId} 需要更新 Agent/Scheduler 才能安全预留显存；未派发任务。`);
+        const memoryScheduling = { ...GpuQuotaScheduling.quotaSettings(schedulerSettings, workerConfig, this.lastRealtimeState?.gpu?.[workerId] || []),
+            gpuQuotaScheduling: 1, gpuMemoryBudgetScheduling: 1,
+            ...(job.gpuMemoryReservation ? { gpuMemoryReservation: job.gpuMemoryReservation } : {}) };
         if (memoryScheduling.gpuCardOverrides && probes?.[workerId]?.capabilities?.endpoints?.gpuCardQuotaScheduling !== 1) throw new Error("GPU_CARD_QUOTA_PROTOCOL_REQUIRED：逐卡配置需要更新 Worker Agent/Scheduler，未发送任务。");
         if (memoryScheduling.gpuMaxConcurrentCards !== undefined && probes?.[workerId]?.capabilities?.endpoints?.gpuCardLimitScheduling !== 1) throw new Error("GPU_CARD_LIMIT_PROTOCOL_REQUIRED：服务器占卡上限需要更新 Worker Agent/Scheduler，未发送任务。");
         const settings = vscode.workspace.getConfiguration("simpleExperiment");
@@ -16146,6 +16151,8 @@ this.assertPlanTopologyReady("Plan 调度");
                 const memoryPolicy = GpuQuotaScheduling.quotaSettings(scheduler, workerConfig, dispatchGpuSnapshot?.[target.id] || []);
                 const memory = GpuQuotaScheduling.quotaPlacement(dispatchGpuSnapshot?.[target.id] || [], memoryCounts.get(target.id) || new Map(), memoryPolicy);
                 return { workerId: target.id, online: live, idleGpuAdmission: snapshot?.capabilities?.idleGpuAdmission === true,
+                    gpuBudgetSupported: this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.gpuMemoryBudgetScheduling === 1,
+                    gpuRows: dispatchGpuSnapshot?.[target.id] || [], gpuPolicy: memoryPolicy,
                     gpuSlots: memory?.slots, memoryWeight: memory?.weight,
                     declaredJobPaths: this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths === true
                         && this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv === 1
@@ -16164,7 +16171,8 @@ this.assertPlanTopologyReady("Plan 调度");
                     Object.fromEntries(targets.map(target => [target.id, target.project_dir]))));
             const hosted = { queue: DistributedSchedulingPolicy.localSchedulingQueue(queue), dispatches: [] };
             queue = hosted.queue;
-            const allocation = DistributedPlanQueue.allocateAvailable(queue, dispatchableWorkers, { requireIdleGpuAdmission: true, localIdleOnly: true });
+            const allocation = DistributedPlanQueue.allocateAvailable(queue, dispatchableWorkers, { requireIdleGpuAdmission: true, localIdleOnly: true,
+                memoryBudget: GpuMemoryBudget.memoryBudgetAdmission(queue, dispatchableWorkers) });
             queue = allocation.queue;
             const hostedRetries = queue.plans.flatMap((plan) => DistributedPlanQueue.hostedRetryCandidates(plan)
                 .filter((job) => job.lifecycleProtocol !== 2 && job.workerId && job.commandId

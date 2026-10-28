@@ -474,9 +474,9 @@ class SyncScopeIndex:
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.431"
-RUNTIME_VERSION = "0.5.431"
-PLUGIN_VERSION = "0.5.431"
+AGENT_VERSION = "0.5.432"
+RUNTIME_VERSION = "0.5.432"
+PLUGIN_VERSION = "0.5.432"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -7971,7 +7971,7 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
                 "manualDispatch": 1,
                 "gpuMemoryRatioScheduling": 1,
                 "gpuQuotaScheduling": 1,
-                "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1,
+                "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "gpuMemoryBudgetScheduling": 1,
                 "schedulerRuntimeUpdate": 1,
                 "queuedJobRecall": True,
                 "liveOutput": True,
@@ -19182,6 +19182,170 @@ def gpu_admission_recheck_evidence(root, worker_id, evidence, intent=None):
     return list(frame["gpus"]), ""
 
 
+def task_budget_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
+
+def task_budget_group(row):
+    return json.dumps([row.get("projectId", ""), row.get("workflowId", ""), row.get("planRevision", ""),
+        row.get("codeFingerprint", ""), row.get("case", ""), row.get("executionMode") or row.get("mode") or ""], ensure_ascii=False, separators=(",", ":"))
+
+def task_budget_hardware(worker, gpu):
+    total = next((gpu[k] for k in ("memoryTotalMb", "memory_total_mb", "memoryTotal", "memory_total") if gpu.get(k) is not None), 0)
+    return json.dumps([worker, str(gpu.get("name") or gpu.get("gpuName") or gpu.get("gpu_name") or ""), total], ensure_ascii=False, separators=(",", ":"))
+
+def task_budget_size(peak):
+    return math.ceil(peak * 1.2 + 1024)
+
+def task_budget_read(row):
+    try:
+        value = row.get("_gpuBudget") if "_gpuBudget" in row else json.loads(task_option(row["tmuxPane"], "gpu_budget") or "{}")
+        if value.get("version") == 1 and value.get("commandId") == row["commandId"] and value.get("projectId") == row["projectId"] and value.get("group") == task_budget_group(row):
+            return value
+    except (ValueError, TypeError):
+        pass
+    return {}
+
+def task_budget_current(row, gpu):
+    # Device-side attribution already published by the existing collector. No PID lifecycle control.
+    current, seen = 0, set()
+    for process in gpu.get("processes") or []:
+        if process.get("pluginManaged") is not True or process.get("jobCommandId") != row["commandId"] or process.get("jobProjectId") != row["projectId"]:
+            continue
+        pid, used = process.get("pid"), process.get("usedMemoryMb")
+        if pid not in seen and task_budget_number(used):
+            seen.add(pid)
+            current += used
+    return current
+
+def task_budget_update(root, rows, gpus, now=None):
+    now = time.monotonic() if now is None else now
+    active = [row for row in rows if not row.get("dead") and row.get("phase") in ("admitted", "starting", "running")]
+    for row in rows:
+        evidence = task_budget_read(row)
+        if not evidence or evidence.get("finished"):
+            continue
+        if row.get("dead") and not evidence.get("finished"):
+            if evidence.get("started") is not None and row.get("exitCode") == 0:
+                evidence["durationSeconds"] = max(0.001, now - evidence["started"])
+                evidence["ready"] = evidence.get("peakMb", 0) > 0 and not evidence.get("oom")
+            evidence["finished"] = True
+        elif not row.get("dead") and row.get("phase") == "running":
+            gpu = next((gpu for gpu in gpus if gpu_row_id(gpu) == str(row.get("gpuId"))), None)
+            if gpu is None:
+                if evidence.get("lastSample") is None or now - evidence["lastSample"] > 30:
+                    evidence["sampleStart"] = None
+            else:
+                used = next((gpu[k] for k in ("memoryUsedMb", "memory_used_mb", "memoryUsed", "memory_used") if gpu.get(k) is not None), None)
+                current = task_budget_current(row, gpu)
+                exclusive = sum(str(item.get("gpuId")) == str(row.get("gpuId")) for item in active) == 1
+                # The exclusive probe includes contexts, workspaces and external allocations, conservatively.
+                measured = max(current, used - evidence.get("usedBeforeMb", 0)) if evidence.get("probe") and exclusive and task_budget_number(used) and current > 0 else used if evidence.get("probe") and exclusive and task_budget_number(used) else current
+                evidence["concurrency"] = max(evidence.get("concurrency", 1), sum(str(item.get("gpuId")) == str(row.get("gpuId")) for item in active))
+                allocated = measured > 0 and (current > 0 or exclusive and task_budget_number(used) and used > evidence.get("usedBeforeMb", 0))
+                if task_budget_number(used) and (allocated or evidence.get("started") is not None):
+                    evidence.setdefault("started", now)
+                    if evidence.get("lastSample") is None or now - evidence["lastSample"] > 30 or evidence.get("sampleStart") is None:
+                        evidence["sampleStart"] = now
+                    evidence["lastSample"] = now
+                    evidence["peakMb"] = max(evidence.get("peakMb", 0), measured)
+                    evidence["samples"] = evidence.get("samples", 0) + 1
+                    if evidence["samples"] >= 2 and now - evidence["sampleStart"] >= 600:
+                        evidence["ready"] = not evidence.get("oom", False)
+                else:
+                    evidence["sampleStart"] = None
+        # Read only the exact native task pane; never guess epoch progress from project logs.
+        if not evidence.get("finished") or row.get("dead"):
+            tail = task_tmux(["capture-pane", "-p", "-t", row["tmuxPane"], "-S", "-100"])
+            if re.search(r"(?i)(?:CUDA[^\n]*out of memory|CUDA_ERROR_OUT_OF_MEMORY|CUBLAS_STATUS_ALLOC_FAILED|CUDNN_STATUS_ALLOC_FAILED|torch\.OutOfMemoryError)", tail):
+                evidence["oom"] = True
+                evidence["ready"] = False
+        if evidence.get("ready"):
+            evidence["budgetMb"] = task_budget_size(evidence["peakMb"])
+        task_option(row["tmuxPane"], "gpu_budget", json.dumps(evidence, ensure_ascii=False, separators=(",", ":")))
+        row["_gpuBudget"] = evidence
+
+def task_budget_public(row):
+    value = task_budget_read(row)
+    return {key: value[key] for key in ("version", "commandId", "projectId", "group", "hardware", "peakMb", "ready", "oom", "durationSeconds", "concurrency") if key in value} if value else None
+
+def task_budget_admit(row, gpu, live, evidence):
+    options = row.get("options") or {}
+    if options.get("gpuMemoryBudgetScheduling") != 1:
+        return True
+    hardware, group = task_budget_hardware(row["workerId"], gpu), task_budget_group(row)
+    request = options.get("gpuMemoryReservation") or {}
+    if not request:
+        local = [value for item, value in evidence if value.get("group") == group and value.get("hardware") == hardware]
+        known = [value for value in local if value.get("ready") and value.get("peakMb", 0) > 0]
+        total = next((gpu[k] for k in ("memoryTotalMb", "memory_total_mb", "memoryTotal", "memory_total") if gpu.get(k) is not None), 0)
+        used = next((gpu[k] for k in ("memoryUsedMb", "memory_used_mb", "memoryUsed", "memory_used") if gpu.get(k) is not None), 0)
+        request = {"version": 1, "group": group, "hardware": hardware, "probe": not bool(known),
+                   "budgetMb": task_budget_size(max(value["peakMb"] for value in known)) if known else max(0, total - used)}
+        if known and request["budgetMb"] > total - used and max(value["peakMb"] for value in known) + 1024 <= total - used:
+            request.update(budgetMb=total - used, exclusive=True)
+    if request.get("version") != 1 or request.get("group") != group or request.get("hardware") != hardware or not task_budget_number(request.get("budgetMb")) or request["budgetMb"] <= 0 or type(request.get("probe")) is not bool:
+        return False
+    same_card = [item for item in live if str(item.get("gpuId")) == gpu_row_id(gpu)]
+    if request.get("exclusive") and same_card:
+        return False
+    siblings = [value for item, value in evidence if task_budget_group(item) == group and value.get("hardware") == hardware]
+    if any(value.get("oom") for value in siblings):
+        return False
+    if request["probe"]:
+        if same_card or any(not item.get("dead") and value.get("probe") and not value.get("ready") for item, value in evidence if value.get("group") == group and value.get("hardware") == hardware):
+            return False
+    else:
+        known = [value for value in siblings if value.get("ready") and value.get("peakMb", 0) > 0]
+        if not known and not same_card:
+            # The source tab may have been explicitly closed. Reobserve this new job, never replay the old one.
+            request = {**request, "probe": True, "budgetMb": next((gpu[k] for k in ("memoryTotalMb", "memory_total_mb", "memoryTotal", "memory_total") if gpu.get(k) is not None), 0)}
+            if any(not item.get("dead") and value.get("probe") and not value.get("ready") for item, value in evidence if value.get("group") == group and value.get("hardware") == hardware):
+                return False
+        elif not known or request["budgetMb"] < (max(value["peakMb"] for value in siblings) + 1024 if request.get("exclusive") else task_budget_size(max(value["peakMb"] for value in siblings))):
+            return False
+    used = next((gpu[k] for k in ("memoryUsedMb", "memory_used_mb", "memoryUsed", "memory_used") if gpu.get(k) is not None), None)
+    total = next((gpu[k] for k in ("memoryTotalMb", "memory_total_mb", "memoryTotal", "memory_total") if gpu.get(k) is not None), None)
+    if not task_budget_number(total) or not task_budget_number(used) or total <= 0 or used > total:
+        return False
+    deficit, uncredited_used = 0, used
+    for item in same_card:
+        value = next((value for candidate, value in evidence if candidate["commandId"] == item["commandId"]), {})
+        if not value or value.get("exclusive") or not value.get("ready") or value.get("oom"):
+            return False
+        group_peak = max([value.get("peakMb", 0)] + [sample.get("peakMb", 0) for candidate, sample in evidence if sample.get("group") == value.get("group") and sample.get("hardware") == hardware])
+        budget = max(value.get("budgetMb", 0), task_budget_size(group_peak))
+        credit = min(task_budget_current(item, gpu), uncredited_used)
+        uncredited_used -= credit
+        deficit += max(0, budget - credit)
+    if not request["probe"] and total - used - deficit < request["budgetMb"]:
+        return False
+    options["gpuMemoryReservation"] = request
+    return True
+
+def task_budget_reserve(row, gpu):
+    request = (row.get("options") or {}).get("gpuMemoryReservation")
+    if (row.get("options") or {}).get("gpuMemoryBudgetScheduling") != 1:
+        return
+    value = {**request, "commandId": row["commandId"], "projectId": row["projectId"], "peakMb": 0,
+             "ready": not request["probe"], "oom": False, "concurrency": 1, "samples": 0}
+    value["usedBeforeMb"] = next((gpu[k] for k in ("memoryUsedMb", "memory_used_mb", "memoryUsed", "memory_used") if gpu.get(k) is not None), 0)
+    task_option(row["tmuxPane"], "gpu_budget", json.dumps(value, ensure_ascii=False, separators=(",", ":")))
+    row["_gpuBudget"] = value
+
+def task_budget_order(queued, evidence):
+    if not any(row.get("gpuMemoryBudgetScheduling") == 1 for row in queued):
+        return queued
+    counts = {}
+    durations = {}
+    for row in queued:
+        group = task_budget_group(row)
+        counts[group] = counts.get(group, 0) + 1
+    for row, value in evidence:
+        if value.get("finished") and value.get("durationSeconds"):
+            group = task_budget_group(row)
+            durations[group] = max(durations.get(group, 1), value["durationSeconds"])
+    return sorted(queued, key=lambda row: (row.get("dispatchPolicy") != "manual", -counts[task_budget_group(row)] * durations.get(task_budget_group(row), 1)))
+
 TASK_LIFECYCLE_PROTOCOL = 2
 NATIVE_TASK_RUNNER_CONTEXT = None
 TASK_SCHEDULER_UPDATE_ERROR = ""
@@ -19213,7 +19377,7 @@ def task_write_job(target, job):
     prefix = "job_" + digest[:16] + "_"
     for index, value in enumerate(parts):
         task_option(target, prefix + str(index), value)
-    header = {key: value for key, value in job.items() if key not in ("codeManifest", "executionSource", "options", "distributedResults", "checkpointSource")}
+    header = {key: value for key, value in job.items() if key not in ("codeManifest", "executionSource", "options", "distributedResults", "checkpointSource", "gpuMemoryReservation")}
     header["_se_payload"] = {"version": 1, "parts": len(parts), "bytes": len(encoded), "sha256": digest}
     wrapper = base64.urlsafe_b64encode(json.dumps(header, ensure_ascii=False).encode("utf-8")).decode("ascii")
     if len(wrapper) > 3072:
@@ -19258,11 +19422,11 @@ def task_safe_path(root, relative):
     return full
 
 def task_inventory(root, execution_only=False):
-    fmt = "#{pane_id}\t#{window_id}\t#{session_name}\t#{pane_dead}\t#{pane_dead_status}\t#{@se_job}\t#{@se_phase}\t#{@se_gpu}\t#{@se_log}"
+    fmt = "#{pane_id}\t#{window_id}\t#{session_name}\t#{pane_dead}\t#{pane_dead_status}\t#{@se_job}\t#{@se_phase}\t#{@se_gpu}\t#{@se_log}\t#{@se_gpu_budget}"
     rows = []
     for line in task_tmux(["list-panes", "-a", "-F", fmt]).splitlines():
         fields = line.split("\t")
-        if len(fields) != 9 or not fields[5]:
+        if len(fields) not in (9, 10) or not fields[5]:
             continue
         try:
             # The published header already carries the execution identity. A
@@ -19277,6 +19441,10 @@ def task_inventory(root, execution_only=False):
         row = {**job, "tmuxPane": fields[0], "tmuxWindowId": fields[1], "tmuxSession": fields[2],
                "dead": fields[3] == "1", "phase": fields[6], "gpuId": fields[7] or job.get("gpuId", ""), "logPath": fields[8]}
         row["exitCode"] = int(fields[4]) if re.fullmatch(r"-?\d+", fields[4]) else None
+        try:
+            row["_gpuBudget"] = json.loads(fields[9] or "{}") if len(fields) == 10 else {}
+        except (ValueError, TypeError):
+            row["_gpuBudget"] = {}
         rows.append(row)
     return rows
 
@@ -19328,7 +19496,8 @@ def task_execution_inventory(root, queries=()):
             "failed" if row["dead"] and row["exitCode"] is not None and row["exitCode"] != 0 else "exited" if row["dead"] else
             "queued" if row["phase"] in ("queued", "bound") else "starting" if row["phase"] in ("admitted", "starting") else
             "running" if row["phase"] == "running" else "unknown")
-        tasks.append({**public, "lifecycleProtocol": 2, "observation": observed, "executionState": execution,
+        tasks.append({**public, "gpuMemoryProfile": task_budget_public(row) if row.get("_gpuBudget") else None,
+                      "lifecycleProtocol": 2, "observation": observed, "executionState": execution,
                       "status": "queued" if execution in ("queued", "starting") else execution if execution in ("running", "failed") else "unknown"})
     # The fast inventory may only CARRY an already-collected sample: it tries the
     # shared cache without ever waiting on a sampler that holds the lock during
@@ -19389,7 +19558,7 @@ def task_execution_inventory(root, queries=()):
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
                 "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1,
                 "runtimeDiagnostics": 1, "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1,
-                "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1,
+                "gpuCardLimitScheduling": 1, "gpuMemoryBudgetScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1,
                 # This runtime carries the shared independent-collector frames; the
                 # carried sample's frameSource says honestly whether the current
                 # frame is collector-shared or a marked direct sample.
@@ -19505,7 +19674,7 @@ def task_public_observation(root, job, row=None):
         "experimentIndex", "case", "seed", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount", "fullPlanJobCount", "enqueuedAt",
         "executionMode", "mode", "checkpointSource", "lifecycleProtocol", "runKey", "dispatchPolicy") if key in job}
     actual_mode = "test" if job.get("checkpointTestOnly") and job.get("executionMode") == "train_test" else job.get("mode") or job.get("executionMode")
-    return {**public, "actualExecutionMode": actual_mode, **({k: row[k] for k in ("tmuxWindowId", "tmuxPane", "tmuxSession", "gpuId", "exitCode")} if row else {}),
+    return {**public, "gpuMemoryProfile": task_budget_public(row) if row and row.get("_gpuBudget") else None, "actualExecutionMode": actual_mode, **({k: row[k] for k in ("tmuxWindowId", "tmuxPane", "tmuxSession", "gpuId", "exitCode")} if row else {}),
             "status": status, "executionState": execution, "resultState": result_state, "runtimeDiagnostics": diagnostics, "completionState": completion,
             "exitCode": known_exit,
             "successful": status == "completed" and completion == "verified",
@@ -19766,7 +19935,7 @@ def task_query(root, queries=(), selected_only=False, observation_only=False):
             "activeOperations": active_cleanup_operations(root) if "active_cleanup_operations" in globals() else [],
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
                              "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1, "runtimeDiagnostics": 1,
-                             "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1, "gpuCollector": 1}}
+                             "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "gpuMemoryBudgetScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1, "gpuCollector": 1}}
 
 def task_session_prefix():
     prefix = re.sub(r"[^a-z0-9._-]+", "-", str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower()).strip("-")[:32]
@@ -19952,6 +20121,8 @@ def task_queue_rpc(root, worker_id, action, payload, ensure=False):
         raise RuntimeError("SCHEDULER_UPDATE_REQUIRED: update this project's Scheduler for per-GPU quotas; task windows are preserved")
     if action == "accept" and (payload.get("options") or {}).get("gpuQuotaScheduling") == 1 and endpoint.get("gpuQuotaScheduling") != 1:
         raise RuntimeError("SCHEDULER_UPDATE_REQUIRED: update this project's Scheduler for GPU quotas; task windows are preserved")
+    if action == "accept" and (payload.get("options") or {}).get("gpuMemoryBudgetScheduling") == 1 and endpoint.get("gpuMemoryBudgetScheduling") != 1:
+        raise RuntimeError("SCHEDULER_UPDATE_REQUIRED: update Scheduler for memory reservations; task windows are preserved")
     if action == "accept" and payload.get("dispatchPolicy") != "manual" and (payload.get("options") or {}).get("gpuMemoryRatioEnabled") is True and endpoint.get("gpuMemoryRatioScheduling") != 1:
         raise RuntimeError("SCHEDULER_UPDATE_REQUIRED: restart this project's Scheduler control window to enable memory-ratio scheduling; task windows are preserved")
     body = json.dumps({"action": action, "payload": payload, "epoch": endpoint["epoch"]}, ensure_ascii=False).encode("utf-8")
@@ -19970,7 +20141,7 @@ def task_queue_job(root, worker_id, command):
                "checkpointTestOnly", "condaEnv", "distributedResults", "codeSyncProofId", "codeManifest", "manifestDigest", "executionSource", "tmuxSessionPrefix", "maxConcurrentGpus",
                "gpuIdleUtilThreshold", "gpuIdleMemThresholdMb", "schedulerPath", "defaultResultCsvDir", "lifecycleProtocol", "dispatchPolicy",
                "gpuMemoryRatioEnabled", "gpuMemoryPerJobGb", "gpuMemoryMaxJobsPerGpu", "gpuMemoryReserveGb", "gpuMemoryTolerancePercent",
-               "gpuQuotaScheduling", "gpuJobsPerCard", "gpuMinFreeMemoryGb", "gpuCardOverrides", "gpuMaxConcurrentCards"}
+                             "gpuQuotaScheduling", "gpuJobsPerCard", "gpuMinFreeMemoryGb", "gpuCardOverrides", "gpuMaxConcurrentCards", "gpuMemoryBudgetScheduling", "gpuMemoryReservation"}
     job = {key: command[key] for key in allowed if key in command}
     options = command.get("options") if isinstance(command.get("options"), dict) else {}
     job["options"] = {key: value for key, value in options.items() if key in allowed or key == "distributedResults"}
@@ -20019,7 +20190,7 @@ def task_queue_accept(root, worker_id, command, window, prepared=None):
                       "-P", "-F", "#{pane_id}", "--", "sh", "-c", "exec " + shlex.join(runner)])
     job["pane"] = pane
     task_tmux(["set-option", "-w", "-t", pane, "remain-on-exit", "on"])
-    core = {key: value for key, value in job.items() if key not in ("codeManifest", "executionSource", "options", "distributedResults")}
+    core = {key: value for key, value in job.items() if key not in ("codeManifest", "executionSource", "options", "distributedResults", "gpuMemoryReservation")}
     task_option(pane, "phase", "binding")
     task_option(pane, "job", base64.urlsafe_b64encode(json.dumps(core, ensure_ascii=False).encode("utf-8")).decode("ascii"))
     try:
@@ -20115,6 +20286,8 @@ def task_admission_gpu(row, gpus, occupied):
             card_policy = {**policy, **policy.get("gpuCardOverrides", {}).get(gpu_id, {})}
             if row.get("dispatchPolicy") == "manual" and gpu_id != pinned:
                 continue
+            if options.get("gpuMemoryBudgetScheduling") == 1 and pinned and gpu_id != pinned:
+                continue
             total = gpu.get("memoryTotalMb", gpu.get("memory_total_mb", gpu.get("memoryTotal", gpu.get("memory_total"))))
             used = gpu.get("memoryUsedMb", gpu.get("memory_used_mb", gpu.get("memoryUsed", gpu.get("memory_used"))))
             try:
@@ -20123,6 +20296,8 @@ def task_admission_gpu(row, gpus, occupied):
             except (ValueError, TypeError):
                 valid = False
             if valid and total - used >= card_policy["gpuMinFreeMemoryGb"] * 1024 and occupied.get(gpu_id, 0) < card_policy["gpuJobsPerCard"]:
+                if options.get("gpuMemoryBudgetScheduling") == 1 and not task_budget_admit(row, gpu, row.get("_budgetLive", []), row.get("_budgetEvidence", [])):
+                    continue
                 return gpu_id
         return None
     if row.get("dispatchPolicy") == "manual":
@@ -20245,7 +20420,7 @@ def task_queue_serve(root, worker_id):
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     task_option(controller, "endpoint", json.dumps({"host": server.server_address[0], "port": server.server_address[1],
         "secret": secret, "epoch": epoch, "root": root, "workerId": worker_id, "protocol": 2,
-        "runningVersion": globals().get("RUNTIME_VERSION", "fixture"), "runtimeFiles": task_runtime_files(root), "gpuMemoryRatioScheduling": 1, "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1}))
+        "runningVersion": globals().get("RUNTIME_VERSION", "fixture"), "runtimeFiles": task_runtime_files(root), "gpuMemoryRatioScheduling": 1, "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "gpuMemoryBudgetScheduling": 1}))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     while True:
         queued = []
@@ -20257,10 +20432,13 @@ def task_queue_serve(root, worker_id):
                     if not live["dead"] and live["phase"] in ("admitted", "starting", "running") and live["gpuId"]:
                         occupied[live["gpuId"]] = occupied.get(live["gpuId"], 0) + 1
                 queued = sorted([row for row in rows if not row["dead"] and row["phase"] == "queued"], key=lambda row: row.get("dispatchPolicy") != "manual")
-                if queued:
+                if queued or any(row.get("_gpuBudget") and not row["_gpuBudget"].get("finished") for row in rows):
                     gpus, error = gpu_admission_probe(root, worker_id) if "gpu_admission_probe" in globals() else collect_local_gpu()
                     if gpus or not error:
-                        for row in queued:
+                        task_budget_update(root, rows, gpus if not error else [])
+                        live_budget_rows = [item for item in rows if not item["dead"] and item["phase"] in ("admitted", "starting", "running")]
+                        budget_evidence = [(item, task_budget_read(item)) for item in rows]
+                        for row in task_budget_order(queued, budget_evidence):
                             # Occupancy and cancellation need only live headers;
                             # load the full, hash-checked launch input for queued jobs.
                             job = task_read_job(row["tmuxPane"])
@@ -20275,7 +20453,7 @@ def task_queue_serve(root, worker_id):
                             current_policy = json.loads(policy_text)
                             options = {**options, **current_policy, "gpuCardOverrides": current_policy.get("gpuCardOverrides") or {},
                                        "gpuMaxConcurrentCards": current_policy.get("gpuMaxConcurrentCards")}
-                            row = {**row, "options": options}
+                            row = {**row, "options": options, "_budgetLive": live_budget_rows, "_budgetEvidence": budget_evidence}
                             if error and row.get("dispatchPolicy") != "manual":
                                 continue
                             try:
@@ -20286,6 +20464,8 @@ def task_queue_serve(root, worker_id):
                                 continue
                             if chosen is None:
                                 continue
+                            gpu = next(gpu for gpu in gpus if gpu_row_id(gpu) == chosen)
+                            task_budget_reserve(row, gpu)
                             session = fixed_gpu_window_name(row.get("tmuxSessionPrefix") or options.get("tmuxSessionPrefix") or os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"), chosen)
                             if subprocess.run(["tmux", "has-session", "-t", "=" + session], capture_output=True, timeout=3).returncode:
                                 task_tmux(["new-session", "-d", "-s", session])
@@ -20293,6 +20473,9 @@ def task_queue_serve(root, worker_id):
                             task_tmux(["move-window", "-s", row["tmuxWindowId"], "-t", target + ":"])
                             task_option(row["tmuxWindowId"], "gpu", chosen)
                             task_option(row["tmuxWindowId"], "phase", "admitted")
+                            row = {**row, "gpuId": chosen, "phase": "admitted"}
+                            live_budget_rows.append(row)
+                            budget_evidence.append((row, task_budget_read(row)))
                             if options.get("gpuQuotaScheduling") == 1 or row.get("dispatchPolicy") != "manual":
                                 occupied[chosen] = occupied.get(chosen, 0) + 1
                                 gpu = next(gpu for gpu in gpus if gpu_row_id(gpu) == chosen)

@@ -3,6 +3,7 @@
 require('./registerTsRequire');
 module.exports = {
   GpuQuotaScheduling: require('../../src/features/GpuQuotaScheduling.ts'),
+  GpuMemoryBudget: require('../../src/features/GpuMemoryBudget.ts'),
   GpuMemoryScheduling: require('../../src/features/GpuMemoryScheduling.ts'),
   GpuJobOwnership: require('../../src/features/GpuJobOwnership.ts'),
   DistributedSchedulingPolicy: require('../../src/features/DistributedSchedulingPolicy.ts'),

@@ -6,7 +6,7 @@ const tree = ts.createSourceFile('host.ts', source, ts.ScriptTarget.Latest, true
 const cls = tree.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === 'RealtimeTunnelPanelProvider');
 function host(names, globals = {}) {
   const code = 'class Host {' + cls.members.filter(node => names.includes(node.name?.getText(tree))).map(node => node.getText(tree)).join('\n') + '}; Host;';
-  return new (vm.runInNewContext(ts.transpileModule(code, {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText, {GpuQuotaScheduling:require('../../dist/features/GpuQuotaScheduling'),...globals}))();
+  return new (vm.runInNewContext(ts.transpileModule(code, {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText, {GpuMemoryBudget:require('../../src/features/GpuMemoryBudget.ts'),GpuQuotaScheduling:require('../../dist/features/GpuQuotaScheduling'),...globals}))();
 }
 const Q = require('../../src/features/DistributedPlanQueue.ts');
 const ExecutionMode = require('../../src/features/PlanExecutionMode.ts');
@@ -24,7 +24,7 @@ test('only a provably unsent native preparation can release its original intent,
     startIntent:{commandId:'original',workerId:'w',gpuId:'0'}};plan.jobs=[job];
   let posts=0, stored={plans:[structuredClone(plan)]}, controls=0;
   Object.assign(h,{client:{postWorkerAction:async()=>{posts++;}},taskLifecycleProtocol:2,distributedQueueGeneration:0,unifiedDomainState:()=>({active:false,blocked:""}),
-    lastWorkerProbes:{w:{capabilities:{endpoints:{declaredJobPaths:true,formalJobIdentityEnv:1,gpuQuotaScheduling:1,taskShellEnvironment:1,projectManagedValidation:1}}}},
+    lastWorkerProbes:{w:{capabilities:{endpoints:{declaredJobPaths:true,formalJobIdentityEnv:1,gpuQuotaScheduling:1,gpuMemoryBudgetScheduling:1,taskShellEnvironment:1,projectManagedValidation:1}}}},
     submissionWorkerProbes:async()=>h.lastWorkerProbes,workerActionTargets:()=>[{id:'w'}],enabledWorkerConfigs:()=>[],schedulerSettings:()=>({}),
     saveDistributedQueue:async(_,unused,options)=>{assert.equal(options.controlMutation,true);controls++;stored=options.mutateLatest(stored);},postState(){}});
   let failure;try{await h.sendDistributedJob(plan,job,'w','0','original');}catch(error){failure=error;}
@@ -57,7 +57,7 @@ test('the real scheduling tick commits a preparation timeout back to local pendi
   AgentTmuxPolicy_1:{normalizeRemoteTmuxSessionPrefix:v=>v},vscode:{workspace:{getConfiguration:()=>({get:()=> 'mine'})}},setInterval,clearInterval});
  let stored=Q.enqueuePlan(Q.emptyDistributedQueue(),{projectId:Q.canonicalProjectId(root),planFile:'p.yaml',revision:'r',codeFingerprint:'code',executionMode:'train_test',
   jobs:[{index:0,case:'bus',seed:42,outputDir:'work/a',collectionResultCsv:'work/a/metrics.csv'}]},'p'),posts=0;
- const endpoints={declaredJobPaths:true,formalJobIdentityEnv:1,gpuQuotaScheduling:1,taskShellEnvironment:1,projectManagedValidation:1};
+ const endpoints={declaredJobPaths:true,formalJobIdentityEnv:1,gpuQuotaScheduling:1,gpuMemoryBudgetScheduling:1,taskShellEnvironment:1,projectManagedValidation:1};
  Object.assign(h,{taskLifecycleProtocol:2,distributedQueueGeneration:0,distributedPlanStopEpoch:0,distributedLaunchInFlight:new Set(),
   unifiedDomainState:()=>({active:false,blocked:""}), // 块B：夹具根未登记→既有单机派发路径（真实发送法身含守卫）
   distributedNextPostprocessAt:Infinity,distributedNextFailureDetailAt:Infinity,isRealtimeMode:()=>true,workerCodeSyncTargets:()=>[],

@@ -9625,7 +9625,7 @@ export function renderPanelHtml(): string {
             '<div class="muted">默认由本机按逐卡配额派发；仅点击运行进度中的“剩余 job 入服务器队列”才会预排队。</div>' +
             configInput("scheduler", "gpuJobsPerCard", "每卡最大并行 job 数", scheduler.gpuJobsPerCard ?? 1, "number") +
             configInput("scheduler", "gpuMinFreeMemoryGb", "可派发最低总剩余显存（GiB）", scheduler.gpuMinFreeMemoryGb ?? 22, "number") +
-            '<div class="muted gpuMemorySummary">自动识别服务器全部显卡。每张卡未达到 job 配额，且该卡总剩余显存达到门槛时可派发。不按每个 job 预估显存，不以利用率或其他进程阻断。</div>' +
+            '<div class="muted gpuMemorySummary">自动识别服务器全部显卡。新配置先运行一个正式 job，连续观察显存 10 分钟后按峰值加余量预留预算；任务提前正常结束也可完成观察。多 PLAN 边观察边派发，保留每卡并行上限与最低总剩余显存门槛。采样未知或检测到 OOM 时暂停相应新增派发。</div>' +
             '<details class="wide" data-details-key="scheduler-advanced"' + detailsOpenAttr("scheduler-advanced", false) + ' style="grid-column:1 / -1"><summary>刷新与连接选项</summary><div class="configGrid">' +
             configInput("scheduler", "pollSeconds", "调度轮询基准(秒)", configDefault(scheduler.pollSeconds, 10), "number") +
             configInput("scheduler", "jitterSeconds", "正向随机抖动(秒)", configDefault(scheduler.jitterSeconds, 30), "number") +
@@ -10312,7 +10312,7 @@ export function renderPanelHtml(): string {
         mode: "选择调度架构：单 Worker 由一台执行服务器运行；仅多 Worker 由多台执行服务器运行；Hub 可用时由 Hub 统一调度。切换后需保存。"
       };
       const schedulerHelp = {
-        gpuJobsPerCard: "本项目每张实际显卡最多并行多少个 job。", gpuMinFreeMemoryGb: "显卡总剩余显存达到该值才可继续派发；不按每个 job 预估。",
+        gpuJobsPerCard: "本项目每张实际显卡最多并行多少个 job；实际派发还需通过显存预算检查。", gpuMinFreeMemoryGb: "派发前显卡总剩余显存须达到该值，并须覆盖已有任务未申请的预算与新任务预算。",
         gpuMemoryPerJobGb: "只需填写每个 job 按多少 G 显存计算。例如填 24，96G 显卡可同时运行 4 个 job；实际显存不足时等待。",
         dispatchMode: "默认全部由本机按逐卡配额派发；旧预排队设置不再自动生效，仅通过运行进度按钮将剩余 job 按配额放入服务器队列。",
         pollSeconds: "Worker 两次常规调度检查之间的基准间隔，单位秒；数值越小检查越频繁。",

@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的后台 SSH 隧道实时集群编排面板。",
-  "version": "0.5.431",
+  "version": "0.5.432",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -932,7 +932,7 @@
           "minimum": 0,
           "maximum": 1024,
           "default": 22,
-          "description": "可继续派发所需的单卡总剩余显存，单位 GiB；含边界，不按每个 job 预估。"
+          "description": "可继续派发所需的单卡总剩余显存，单位 GiB，含边界；同时检查已派发任务与新任务的显存预算。"
         }
       }
     }
