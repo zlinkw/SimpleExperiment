@@ -6,7 +6,7 @@ module.exports = function retainFixtureTarget(scope, source, expectedType = "fil
   const inside = (root, file) => { const rel = path.relative(root, file); return rel && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel); };
   if (!inside(temporary, scope) || !inside(scope, source)) throw Error('FIXTURE_SCOPE_REQUIRED');
   const relative = path.relative(scope, source);
-  if (relative.split(path.sep).some(x => ['.git', 'clean_dir'].includes(x))) throw Error('FIXTURE_PROTECTED_PATH');
+  if (relative.split(path.sep).includes('.git') || path.basename(source) === 'clean_dir' || (path.basename(source) === 'MANIFEST.md' && path.basename(path.dirname(source)) === 'clean_dir')) throw Error('FIXTURE_PROTECTED_PATH');
   const inventory = target => {
     const info = fs.lstatSync(target);
     if (info.isSymbolicLink() || info.dev !== fs.statSync(scope).dev) throw Error('FIXTURE_LINK_OR_MOUNT');

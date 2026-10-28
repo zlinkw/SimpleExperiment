@@ -75,7 +75,7 @@ async function world(){
       if(row.action==='isolate'){const dest=abs(target.destination);await fsPromises.mkdir(path.dirname(dest),{recursive:true});
         await fsPromises.rename(abs(target.relativePath),dest);stats.moves+=1;
         return {ok:true,receipt:{source:target.relativePath,destination:target.destination,contentFingerprint:target.contentFingerprint}};}
-      await fsPromises.rm(abs(target.relativePath),{recursive:true,force:true});stats.deletes+=1;
+      if(await fsPromises.stat(abs(target.relativePath)).catch(()=>null)) require("../_helpers/retainFixtureTarget.cjs")(serverRoot,abs(target.relativePath),target.type); stats.deletes+=1;
       return {ok:true,receipt:{source:target.relativePath,contentFingerprint:target.contentFingerprint}};}
     throw Error('ADAPTER_REFUSES_'+method);};
   const scopes=new Map(plans.map(plan=>[plan.planFile,{projectId:Q.canonicalProjectId(root),planKey:'owner',planFile:plan.planFile,planHash:'h-'+plan.case,
