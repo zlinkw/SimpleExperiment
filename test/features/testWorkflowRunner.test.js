@@ -408,7 +408,7 @@ test("runner: 属主存活但锁已超阈值——没终端阻塞、答 n 阻塞
   assert.ok(fs.existsSync(path.join(secondNoLock, "owner.json")), "半途改主意必须一个字节也不删");
 });
 
-test("runner: owner 缺失/损坏或没有合法 pid——超写盘宽限直接删除，宽限内仍阻塞", t => {
+test("runner: owner 缺失/损坏或没有合法 pid——宽限内阻塞，过宽限也只能先问，两次确认之后才删除", t => {
   const fresh = lockHarness(t, "stale3a");
   const freshLock = plantBatchLock(fresh.ws, null, { corrupt: true });
   const blocked = runRunnerCapped(fresh.ws, fresh.manifest, "one");
