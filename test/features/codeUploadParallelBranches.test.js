@@ -377,8 +377,12 @@ test("上传写租约包住真实写入，取消在全部目标收敛后才抛�
   // 本轮的历史记录覆盖决定必须在本轮结束时作废，且不得插到写锁与发送之间。
   const staleClearAt = sync.lastIndexOf("this.codeUploadStaleRounds?.delete(String(staleRoundKey));");
   const vetoAt = sync.indexOf("staleDecision.approved !== true");
-  const stalePrecheckAt = sync.indexOf("collectCodeUploadStaleRecordsLocal?.(enabledTargets, root, syncId)");
+  const stalePrecheckAt = sync.indexOf("collectCodeUploadStaleRecordsLocal?.(enabledTargets, root, syncId");
   assert.ok(stalePrecheckAt > 0 && stalePrecheckAt < mapAt, "覆盖确认必须排在 mapLimited 之前，不得与写入交错");
+  // A1：接管即将失败时的“当场补问”也必须排在申请写租约之前——批准之前一把锁也拿不到、一个字节也发不出。
+  const lateAskAt = sync.indexOf("codeUploadStaleLateConsentLocal?.(syncId");
+  const leaseAskAt = sync.indexOf("acquireCodeUploadTargetLeaseLocal?.(target, syncId");
+  assert.ok(lateAskAt > 0 && leaseAskAt > 0 && lateAskAt < leaseAskAt, "当场补问必须排在申请写入租约之前");
   assert.ok(vetoAt > 0 && vetoAt < takeoverAt, "未批准时必须在接管与取锁之前退出：连取消也不发，一字节也发不出");
   assert.ok(staleClearAt > finallyAt, "覆盖决定的清理必须排在交接意图回收之后");
   const tailBlock = sync.slice(finallyAt);
@@ -758,12 +762,13 @@ test("只在台账里、没有活动传输行的未终结操作也要取消：�
   assert.equal(host.codeSyncInFlight, 0);
 });
 
-test("既无 transferId 又无 operationId 的未终结项：取消接口无法寻址，零取消请求并明确失败", async () => {
+test("既无 transferId 又无 operationId 的未终结项：取消接口无法寻址——本轮先问一次，没批准零取消零写入，批准才覆盖接管", async () => {
+  const buildFixture = () => {
   const targets = [workerTarget("w-a", "Worker A", "one.example", "/work/proj")];
   const order = [];
   let stale = false;
   let writes = 0;
-  const host = realHost.createRealSyncHost({ targets, upload: async (_host, method) => {
+  const hostOptions = { targets, upload: async (_host, method) => {
     if (method === "transfers.list") {
       order.push("verify");
       return stale ? realHost.busyTransferState({ id: "", operationId: "", host: "one.example", remotePath: "/work/proj" })
@@ -774,15 +779,45 @@ test("既无 transferId 又无 operationId 的未终结项：取消接口无法�
     order.push("write:" + writes);
     if (writes === 1) { stale = true; throw new host.UiCommandCancelled("用户在传输中取消"); }
     return { ok: true, status: "completed" };
-  } });
-  const targetKey = host.resolveCodeUploadTargetIdentityLocal(targets[0]).key;
-  await assert.rejects(host.syncCodeTargets(targets, "run", { hashCompare: true }), /用户在传输中取消/);
-  await assert.rejects(host.syncCodeTargets(targets, "run", { hashCompare: true }), /无法寻址/s);
-  assert.equal(order.includes("cancel"), false, "两个可寻址身份都没有：这是取消接口的寻址前提，不是保守选择");
-  assert.equal(order.includes("write:2"), false, "无法寻址就一个字也不写");
-  const pending = host.pendingCodeUploadUnknownWriteLocal(host.project, { targetKey, workerId: "w-a" });
+  } };
+  const host = realHost.createRealSyncHost(hostOptions);
+  return { host, hostOptions, targets, order };
+  };
+  // 一、没点确认（默认 N）：取消接口寻不到身份的记录必须本轮就问（A1），没批准就保持原有明确失败事实。
+  const refused = buildFixture();
+  const refusedKey = refused.host.resolveCodeUploadTargetIdentityLocal(refused.targets[0]).key;
+  await assert.rejects(refused.host.syncCodeTargets(refused.targets, "run", { hashCompare: true }), /用户在传输中取消/);
+  const heldAfterFirstRound = refused.host.codeUploadTargetLeases?.held?.size || 0;
+  assert.equal(heldAfterFirstRound, 1, "第一轮被取消的写入必须留下保留租约（这正是本轮要保护的东西）");
+  await assert.rejects(refused.host.syncCodeTargets(refused.targets, "run", { hashCompare: true }), /无法寻址/s);
+  assert.equal(refused.host.modals.length, 1, "取消接口寻不到身份的记录必须当轮就问，不要求用户先失败一轮（A1）");
+  assert.equal(refused.host.modals.length, 1, "取消接口寻不到身份 = 本轮就问一下，不要求用户先失败一轮再重试");
+  assert.equal(refused.host.modals[0].modal, true, "必须是原生模态框");
+  assert.ok(refused.host.modals[0].detail.includes("取消接口无法寻址的未终结记录"), "确认框要说清为什么救不回来");
+  assert.ok(refused.host.modals[0].detail.includes("one.example") && refused.host.modals[0].detail.includes("/work/proj"),
+    "确认框必须列出本次实际要覆盖的目标与远端 root");
+  assert.equal(refused.order.includes("cancel"), false, "两个可寻址身份都没有：这是取消接口的寻址前提，不是保守选择");
+  assert.equal(refused.order.includes("write:2"), false, "没批准就一个字也不写");
+  assert.equal(refused.host.codeUploadTargetLeases?.held?.size || 0, heldAfterFirstRound,
+    "没批准既不能新拿一把写锁，也不能把保留租约悄悄放掉");
+  const pending = refused.host.pendingCodeUploadUnknownWriteLocal(refused.host.project, { targetKey: refusedKey, workerId: "w-a" });
   assert.ok(pending && pending.retainedLease, "无法寻址时未知写入与保留租约继续不动");
-  assert.equal(host.codeSyncInFlight, 0, "本批仍要正常收敛");
+  assert.equal(refused.host.codeSyncInFlight, 0, "本批仍要正常收敛");
+  // 二、明确批准：仍然一个取消也不发（接口本来寻不到），按本轮确认覆盖接管，回执如实记退出未被确认。
+  const approved = buildFixture();
+  const approvedKey = approved.host.resolveCodeUploadTargetIdentityLocal(approved.targets[0]).key;
+  await assert.rejects(approved.host.syncCodeTargets(approved.targets, "run", { hashCompare: true }), /用户在传输中取消/);
+  approved.hostOptions.modalAnswer = "完全覆盖并继续";
+  await approved.host.syncCodeTargets(approved.targets, "run", { hashCompare: true });
+  assert.equal(approved.host.modals.length, 1, "批准之后不再重复打扰");
+  assert.equal(approved.order.includes("cancel"), false, "寻不到身份就不发取消");
+  assert.ok(approved.order.includes("write:2"), "批准之后才允许覆盖接管写入");
+  const taken = approved.host.codeSyncTargetResults.find(row => row.takeover === "stale-overwrite");
+  assert.ok(taken, "必须留下“本轮是覆盖接管”的事实");
+  assert.equal(taken.staleAuthorizedBy, "user-modal-approval");
+  assert.equal(approved.host.pendingCodeUploadUnknownWriteLocal(approved.host.project, { targetKey: approvedKey, workerId: "w-a" }), undefined,
+    "真正接管过之后才释放未知写入所有权");
+  assert.equal(approved.host.codeUploadTargetLeases.held.size, 0, "接管完成不留残留写锁");
 });
 
 test("归属不明但接口能寻址：拿台账已有的 id 取消，确认静默之后才写入", async () => {
@@ -1144,14 +1179,17 @@ test("混合复核：旧传输接受取消但始终不落地的同时还有本�
     let listCalls = 0;
     let prelude = withRetainedPrelude;
     const releaseWriter = deferred();
+    // 带保留围栏的一轮，批量预检会先按目标各读一次投影（本机两个目标都留着未确认写入所有权）；
+    // 本轮唯一“确实静默”的查询就是预检之后的第一次分支查询（那一支据此正常接管并开始写）。
+    const quietAtRead = (withRetainedPrelude ? targets.length : 0) + 1;
     const host = realHost.createRealSyncHost({ targets, upload: async (_host, method, params) => {
       if (method === "transfers.list") {
         listCalls += 1;
         order.push("list");
         const state = realHost.quiescedTransferState();
-        // 事件顺序确定化：本段第一次查询时本机侧确实静默（那一支据此正常接管并开始写）；
         // 之后每一次查询都返回“接受取消但始终不落地的旧传输”，并在本轮真的在写时同时给出本轮阶段项。
-        if (!prelude && listCalls > 1) {
+        // 事件顺序完全由只读次数确定，不用计时断言；新增的只读预检次数已按目标数计入 quietAtRead。
+        if (!prelude && listCalls !== quietAtRead) {
           const operations = [{ id: "op-old-still-running", operationId: "op-old-still-running",
             status: "uploading", startedAt: oldStartedAt }];
           if (writing) {
@@ -1327,38 +1365,45 @@ test("超过 3 小时的未知记录：不弹框、按长期授权直接过期�
   assert.equal(host.codeSyncInFlight, 0);
 });
 
-test("还没到 3 小时的未知记录：一个模态框列全本批待覆盖目标，明确批准之后才取新写租约与发送", async () => {
+test("还没到 3 小时的未知记录：第一次点击就在本轮弹一个模态框，批准之后同一轮才取新写租约与发送", async () => {
   const targets = [workerTarget("w-a", "Worker A", "one.example", "/work/projA"),
     workerTarget("w-b", "Worker B", "two.example", "/work/projB")];
   const fixture = createStaleRound({ targets });
   const host = fixture.host;
   fixture.state.startedAt = new Date(Date.now() - 2 * HOUR_MS).toISOString();
-  await assert.rejects(host.syncCodeTargets(targets, "run", { hashCompare: true }), /取消未被接受/);
-  assert.equal(host.modals.length, 0, "本轮还没证实“取消救不回来”，不该弹框");
-  assert.equal(fixture.state.uploads.length, 0, "取消救不回来的一轮必须零发送");
-  // 下一轮：这条记录已被证实取消救不回来 → 先问用户；批准之前不得拿到任何新写租约或发送。
+  // A1（本轮返修）：第一次点击就要能问清并继续，绝不允许“必须先失败一轮、再点第二次”。
+  fixture.hostOptions.modalAnswer = () => "完全覆盖并继续";
+  await host.syncCodeTargets(targets, "run", { hashCompare: true });
+  assert.equal(host.modals.length, 1, "第一次遇到就要当轮问一次，且整批只弹一个框");
+  assert.deepEqual([...new Set(fixture.state.uploads)].sort(), ["w-a", "w-b"], "批准之后同一轮就要把两个目标都写完");
+  const approvedModal = host.modals[0];
+  assert.ok(approvedModal.detail.includes("还没到 3 小时"), "正文要说清为什么要问");
+  assert.ok(approvedModal.detail.includes("op-stale-unknown"), "清单必须带操作身份");
+  assert.ok(approvedModal.detail.includes("one.example") && approvedModal.detail.includes("two.example"),
+    "清单必须列出本批全部实际目标主机（面板上原本看不到）");
+  assert.ok(approvedModal.detail.includes("/work/projA") && approvedModal.detail.includes("/work/projB"),
+    "一个框就要列全本批所有远端 root");
+  assert.equal(host.codeSyncInFlight, 0);
+
+  // 单目标形态：弹框那一刻必须一把新写租约也没拿到、一个字节也没发出去（顺序硬证据）。
+  const solo = createStaleRound({});
+  solo.state.startedAt = new Date(Date.now() - 2 * HOUR_MS).toISOString();
   const heldAtModal = [];
   const uploadsAtModal = [];
-  fixture.hostOptions.modalAnswer = (modal) => {
-    heldAtModal.push(host.codeUploadTargetLeases?.held?.size || 0);
-    uploadsAtModal.push(fixture.state.uploads.length);
+  solo.hostOptions.modalAnswer = () => {
+    heldAtModal.push(solo.host.codeUploadTargetLeases?.held?.size || 0);
+    uploadsAtModal.push(solo.state.uploads.length);
     return "完全覆盖并继续";
   };
-  await host.syncCodeTargets(targets, "run", { hashCompare: true });
+  await solo.host.syncCodeTargets(solo.targets, "run", { hashCompare: true });
   assert.deepEqual(heldAtModal, [0], "弹框决定时一把新写租约也不能拿到");
   assert.deepEqual(uploadsAtModal, [0], "弹框决定时一个字节也还没发出去");
-  assert.equal(host.modals.length, 1, "整批只弹一个框，不得逐 Worker 重复打扰");
+  assert.equal(solo.host.modals.length, 1, "单个目标也只弹一个框");
   const modal = host.modals[0];
   assert.equal(modal.message, "存在未完成传输，是否完全覆盖后继续？", "标题按用户确认的文案");
   assert.equal(modal.modal, true, "必须是原生模态框，不是右下角通知");
   assert.deepEqual(modal.buttons, ["完全覆盖并继续", "不覆盖，本轮停止"], "按钮文案与顺序不许改");
-  assert.ok(modal.detail.includes("还没到 3 小时"), "正文要说清为什么要问");
-  assert.ok(modal.detail.includes("op-stale-unknown"), "必须列出操作身份");
-  assert.ok(modal.detail.includes("one.example") && modal.detail.includes("two.example"), "必须列出主机（面板上原本看不到）");
-  assert.ok(modal.detail.includes("/work/projA") && modal.detail.includes("/work/projB"), "一个框就要列全本批所有待覆盖目标与远端 root");
-  assert.deepEqual([...new Set(fixture.state.uploads)].sort(), ["w-a", "w-b"], "批准之后两个目标都要照常写完");
   assert.equal(host.codeUploadTargetLeases.held.size, 0, "接管完成不留残留写锁");
-  assert.equal(host.codeSyncInFlight, 0);
 });
 
 test("选“不覆盖，本轮停止”或关掉模态框：整批零新租约零发送，原有保护一条不少", async () => {
@@ -1372,10 +1417,10 @@ test("选“不覆盖，本轮停止”或关掉模态框：整批零新租约�
     const fixture = createStaleRound({ targets });
     const host = fixture.host;
     fixture.state.startedAt = new Date(Date.now() - 2 * HOUR_MS).toISOString();
-    await assert.rejects(host.syncCodeTargets(targets, "run", { hashCompare: true }), /取消未被接受/, item.name);
+    // A1：第一次点击就要问；这里第一次就把“不覆盖/关掉框”的答案摆好，验证本轮就地停下。
     fixture.hostOptions.modalAnswer = item.answer;
     await assert.rejects(host.syncCodeTargets(targets, "run", { hashCompare: true }), item.expect, item.name);
-    assert.equal(host.modals.length, 1, item.name);
+    assert.equal(host.modals.length, 1, item.name + "：本轮就问一次，不多问也不留到下一轮");
     assert.equal(fixture.state.uploads.length, 0, item.name + "：未批准就一字节也不发");
     assert.equal(host.codeUploadTargetLeases?.held?.size || 0, 0, item.name + "：未批准不得拿任何写锁");
     for (const target of targets) {
@@ -1387,15 +1432,13 @@ test("选“不覆盖，本轮停止”或关掉模态框：整批零新租约�
     // 拒绝不是永久豁免：下一轮重新问一次，批准后才能接管。
     fixture.hostOptions.modalAnswer = "完全覆盖并继续";
     await host.syncCodeTargets(targets, "run", { hashCompare: true });
-    assert.equal(host.modals.length, 2, item.name + "：下一轮必须重新问，不能记住上次的选择");
+    assert.equal(host.modals.length, 2, item.name + "：下一轮必须重新问一次（整批仍然只有一个框），不能记住上次的选择");
     assert.deepEqual([...new Set(fixture.state.uploads)].sort(), ["w-a", "w-b"], item.name + "：批准之后仍能正常接管");
   }
 });
 
 test("时间边界与异常时间：3 小时以内或时间缺失/非法/来自未来一律不得自动过期", async () => {
   const targets = [workerTarget("w-a", "Worker A", "one.example", "/work/proj")];
-  const host = realHost.createRealSyncHost({ targets });
-  const targetKey = host.resolveCodeUploadTargetIdentityLocal(targets[0]).key;
   const now = Date.now();
   const cases = [
     { name: "差 5 秒到 3 小时", startedAtMs: now - 3 * HOUR_MS + 5000, expired: false },
@@ -1403,9 +1446,23 @@ test("时间边界与异常时间：3 小时以内或时间缺失/非法/来自�
     { name: "创建时间来自未来", startedAtMs: now + HOUR_MS, expired: false },
     { name: "超过 3 小时一秒", startedAtMs: now - 3 * HOUR_MS - 1000, expired: true },
   ];
-  cases.forEach((item, index) => host.noteCodeUploadStaleSuspectsLocal(targetKey,
-    [{ operationId: "op-boundary-" + index, status: "outcomeUnknown", startedAtMs: item.startedAtMs }],
-    "operation-cancel-refused"));
+  // A1 之后分类只能来自本轮实时投影（内存提示表不再驱动确认框）：这里如实造出四项未终结台账项。
+  const operations = cases.map((item, index) => ({
+    id: "op-boundary-" + index, operationId: "op-boundary-" + index, operationInstanceId: "instance-real-1",
+    status: "outcomeUnknown", childCount: 1,
+    ...(item.startedAtMs === undefined ? {} : { startedAt: new Date(item.startedAtMs).toISOString() }),
+  }));
+  const host = realHost.createRealSyncHost({ targets, upload: async (_host, method) => {
+    if (method === "transfers.list") {
+      const state = realHost.quiescedTransferState();
+      state.busy.busy = true;
+      state.busy.uploadOperationCount = operations.length;
+      state.busy.uploadOperations = operations.map(row => ({ operationId: row.operationId, status: row.status }));
+      state.operations = operations;
+      return state;
+    }
+    return { ok: true, status: "completed" };
+  } });
   const summary = await host.collectCodeUploadStaleRecordsLocal(targets, host.project, "sync-boundary");
   assert.equal(summary.expired.length, 1, "只有严格超过 3 小时的那一条可以自动过期");
   assert.equal(summary.needsConsent.length, 3, "3 小时以内与异常时间都必须问用户");
@@ -1424,7 +1481,6 @@ test("批准之后发送前重查发现新记录：本轮停下、不弹第二�
   const fixture = createStaleRound({});
   const host = fixture.host;
   fixture.state.startedAt = new Date(Date.now() - 2 * HOUR_MS).toISOString();
-  await assert.rejects(host.syncCodeTargets(fixture.targets, "run", { hashCompare: true }), /取消未被接受/);
   let askedOnce = false;
   fixture.hostOptions.modalAnswer = (modal) => {
     if (!askedOnce) {
@@ -1436,8 +1492,9 @@ test("批准之后发送前重查发现新记录：本轮停下、不弹第二�
     }
     return "完全覆盖并继续";
   };
-  await assert.rejects(host.syncCodeTargets(fixture.targets, "run", { hashCompare: true }), /没列出过的未完成记录/);
-  assert.equal(host.modals.length, 1, "同一轮绝不再弹第二个模态框");
+  await assert.rejects(host.syncCodeTargets(fixture.targets, "run", { hashCompare: true }),
+    /还没拿到本轮明确批准（op-late-unknown）|没列出过的未完成记录/);
+  assert.equal(host.modals.length, 1, "批准之后本轮绝不再弹第二个模态框");
   assert.equal(fixture.state.uploads.length, 0, "范围变了就停下，一字节也不写");
   // 重新发起：新记录已被记成救不回来的历史项，两条都列出来之后才能覆盖。
   await host.syncCodeTargets(fixture.targets, "run", { hashCompare: true });
@@ -1448,3 +1505,188 @@ test("批准之后发送前重查发现新记录：本轮停下、不弹第二�
   assert.equal(host.codeSyncInFlight, 0);
 });
 
+
+// —— Round 12 返修补测：审核清单 1~6（全部走真实 syncCodeTargets / 真实生产方法入口，不做计时断言）
+// 规格：A1 第一次点击就在本轮问；A2 覆盖判定看“实时仍未完成的全部非兄弟记录”，已接受取消不算退出；
+// A3 批准清单一条不漏、批准绑定身份+实例+发起时间+冻结范围、归属不完整就写“归属未知”。
+
+/** 可注入的“未终结台账”夹具：每项只给 operationId / 创建时间 / 台账实例身份，取消结果由 cancelFor 决定。 */
+function createLedgerRound(options) {
+  const targets = options.targets || [workerTarget("w-a", "Worker A", "one.example", "/work/proj")];
+  const operations = options.operations;
+  const cancelFor = options.cancelFor || (params => ({ ok: true, operationId: String(params.operationId || ""),
+    status: "outcomeUnknown", settled: false, cancelled: false }));
+  const state = { order: [], cancels: [], uploads: [] };
+  const hostOptions = { targets, upload: async (_host, method, params) => {
+    if (method === "transfers.list") {
+      state.order.push("list");
+      const projection = realHost.quiescedTransferState();
+      projection.operations = operations.map(row => ({ id: row.operationId, operationId: row.operationId,
+        operationInstanceId: row.instanceId || "instance-real-1", status: row.status || "outcomeUnknown", childCount: 1,
+        ...(row.startedAtMs === undefined ? {} : { startedAt: new Date(row.startedAtMs).toISOString() }) }));
+      projection.busy.busy = true;
+      projection.busy.uploadOperationCount = projection.operations.length;
+      projection.busy.uploadOperations = projection.operations.map(row => ({ operationId: row.operationId, status: row.status }));
+      return projection;
+    }
+    if (method === "transfers.cancel") { state.order.push("cancel:" + String(params.operationId || "")); state.cancels.push(params); return cancelFor(params); }
+    state.order.push("upload:" + String(params.targetId));
+    state.uploads.push(String(params.targetId));
+    return { ok: true, status: "completed" };
+  } };
+  const host = realHost.createRealSyncHost(hostOptions);
+  return { host, hostOptions, targets, state, operations };
+}
+
+test("超过 3 小时且“取消被接受但始终不落地”：仍按长期授权过期接管，不弹框也不永久卡死", async () => {
+  const fixture = createLedgerRound({
+    operations: [{ operationId: "op-old-accepted", startedAtMs: Date.now() - 4 * HOUR_MS }],
+    cancelFor: params => ({ ok: true, operationId: String(params.operationId || ""), cancelled: true,
+      status: "cancelling", settled: false }),
+  });
+  await fixture.host.syncCodeTargets(fixture.targets, "run", { hashCompare: true });
+  assert.equal(fixture.host.modals.length, 0, "严格超过 3 小时的记录按用户长期授权过期，不该弹框打扰");
+  assert.deepEqual([...new Set(fixture.state.uploads)], ["w-a"],
+    "“取消已被接受”不能当成退出证据，也不能反过来抹掉过期授权：仍要能按长期授权接管");
+  const record = fixture.host.codeSyncTargetResults.find(row => row.takeover === "stale-overwrite");
+  assert.ok(record, "必须留下覆盖接管事实");
+  assert.equal(record.staleAuthorizedBy, "expired-over-3h");
+  assert.equal(record.staleIgnored, 1, "被过期忽略的条数要如实记进回执");
+  assert.match(fixture.host.facts.join("\n"), /退出从未被确认落地/, "过期接管不等于证明旧传输已停止");
+  assert.equal(fixture.host.codeUploadTargetLeases.held.size, 0, "接管完成不留残留写锁");
+});
+
+test("年轻项“取消被接受但仍存在”＋过期项“取消被拒”：年轻项没批准就零写入，批准之后才继续", async () => {
+  const build = () => createLedgerRound({
+    operations: [{ operationId: "op-young-accepted", startedAtMs: Date.now() - 60 * 1000 },
+      { operationId: "op-old-refused", startedAtMs: Date.now() - 4 * HOUR_MS }],
+    cancelFor: params => String(params.operationId || "") === "op-young-accepted"
+      ? { ok: true, operationId: "op-young-accepted", cancelled: true, status: "cancelling", settled: false }
+      : { ok: true, operationId: "op-old-refused", cancelled: false, status: "outcomeUnknown", settled: false },
+  });
+  // 一、没批准：年轻项仍在实时投影里，绝不能被“取消已接受”的回执掩盖成可覆盖（审核方标为阻断级的场景）。
+  const refused = build();
+  await assert.rejects(refused.host.syncCodeTargets(refused.targets, "run", { hashCompare: true }), /取消未被接受/);
+  assert.equal(refused.host.modals.length, 1, "本轮就要问一次，不要求用户先失败一轮");
+  assert.ok(refused.host.modals[0].detail.includes("op-young-accepted"),
+    "已接受取消但仍存在的年轻项必须进批准清单，不得被取消回执排除（A2）");
+  assert.equal(refused.state.uploads.length, 0, "年轻项没拿到批准就一个字节也不写");
+  assert.equal(refused.host.codeUploadTargetLeases?.held?.size || 0, 0, "没批准不得拿任何写锁");
+  // 二、明确批准：年轻项按本轮确认覆盖、过期项按长期授权过期，两项各自满足凭据之后才写入。
+  const approved = build();
+  approved.hostOptions.modalAnswer = "完全覆盖并继续";
+  await approved.host.syncCodeTargets(approved.targets, "run", { hashCompare: true });
+  assert.deepEqual([...new Set(approved.state.uploads)], ["w-a"], "批准之后才能接管写入");
+  assert.equal(approved.host.modals.length, 1, "批准之后本轮不再弹框");
+  const record = approved.host.codeSyncTargetResults.find(row => row.takeover === "stale-overwrite");
+  assert.ok(record && record.staleIgnoredAts.length === 1, "过期那一条按长期授权忽略，年轻那一条必须来自本轮确认");
+});
+
+test("13 条待覆盖记录：同一个模态框一条不漏全部列出，禁止用省略号代替批准项", async () => {
+  const operations = Array.from({ length: 13 }, (_unused, index) => ({
+    operationId: "op-many-" + index, startedAtMs: Date.now() - 2 * HOUR_MS }));
+  const fixture = createLedgerRound({ operations });
+  await assert.rejects(fixture.host.syncCodeTargets(fixture.targets, "run", { hashCompare: true }), /取消未被接受/);
+  assert.equal(fixture.host.modals.length, 1, "整批只弹一个框");
+  const detail = fixture.host.modals[0].detail;
+  for (let index = 0; index < 13; index++)
+    assert.ok(detail.includes("操作身份 op-many-" + index), `第 ${index} 条必须出现在批准清单里`);
+  assert.equal((detail.match(/操作身份 op-many-/g) || []).length, 13, "清单条目数必须与待覆盖条数一致");
+  assert.equal(/略|省略|…|etc\./.test(detail), false, "批准清单不允许用省略号或“其余 N 条略”代替");
+  assert.match(srcSource, /for \(const record of summary\.needsConsent\) lines\.push\(describe\(record\)\);/);
+  assert.equal(/needsConsent[^)]{0,30}\.slice\(/.test(srcSource), false, "批准清单不得再被 slice 截断");
+  assert.equal(fixture.state.uploads.length, 0, "没批准就一字节也不写");
+});
+
+test("同一 operationId 换实例或换发起时间就是另一份操作：旧批准无效、零写入；清单范围变了也必须停下", async () => {
+  const bindAt = Date.now() - 2 * HOUR_MS;
+  const fixture = createLedgerRound({ operations: [{ operationId: "op-bind", startedAtMs: bindAt, instanceId: "instance-real-1" }] });
+  const host = fixture.host;
+  const key = host.resolveCodeUploadTargetIdentityLocal(fixture.targets[0]).key;
+  const summary = await host.collectCodeUploadStaleRecordsLocal(fixture.targets, host.project, "sync-bind");
+  host.recordCodeUploadStaleDecisionLocal("sync-bind", summary, { approved: true, modalShown: true },
+    { targetKeys: summary.targetKeys, fingerprint: "fp-round-1" });
+  const epoch = { targetKey: key, fingerprint: "fp-round-1" };
+  const same = [{ operationId: "op-bind", operationInstanceId: "instance-real-1", startedAtMs: bindAt }];
+  assert.equal(host.codeUploadStaleOverwriteLocal("sync-bind", key, same, epoch).covered, true,
+    "同一身份+同一实例+同一发起时间：本轮确认过就可以覆盖");
+  assert.equal(host.codeUploadStaleOverwriteLocal("sync-bind", key,
+    [{ ...same[0], operationInstanceId: "instance-another-7" }], epoch).covered, false,
+    "同一个 operationId 换成别的台账实例身份就是另一份操作，旧批准必须无效");
+  assert.equal(host.codeUploadStaleOverwriteLocal("sync-bind", key,
+    [{ ...same[0], startedAtMs: Date.now() - 90 * 60 * 1000 }], epoch).covered, false,
+    "同一个 operationId 换成别的发起时间也是另一份操作，旧批准必须无效");
+  const scopeShift = host.codeUploadStaleOverwriteLocal("sync-bind", key, same, { targetKey: key, fingerprint: "fp-round-2" });
+  assert.equal(scopeShift.covered, false, "冻结的清单指纹变了（勾选范围变了）必须停下重新确认");
+  assert.equal(scopeShift.scopeChanged, true, "范围变化要如实标出来，不能伪装成普通失败");
+  // 端到端：批准之后同一身份换了实例，本轮也必须零写入。
+  const e2e = createLedgerRound({ operations: [{ operationId: "op-bind2", startedAtMs: bindAt, instanceId: "instance-real-1" }] });
+  e2e.hostOptions.modalAnswer = () => { e2e.operations[0].instanceId = "instance-another-7"; return "完全覆盖并继续"; };
+  await assert.rejects(e2e.host.syncCodeTargets(e2e.targets, "run", { hashCompare: true }), /还没拿到本轮明确批准/);
+  assert.equal(e2e.state.uploads.length, 0, "批准之后换了实例就停下，一字节也不写");
+  assert.equal(e2e.host.modals.length, 1, "同一轮不再弹第二个框");
+});
+
+test("旧记录归属不完整：确认框明确写“归属未知”，本次实际覆盖目标另列，不冒充旧传输的已知归属", async () => {
+  const fixture = createLedgerRound({ operations: [{ operationId: "op-no-owner", startedAtMs: Date.now() - 2 * HOUR_MS }] });
+  await assert.rejects(fixture.host.syncCodeTargets(fixture.targets, "run", { hashCompare: true }), /取消未被接受/);
+  const detail = fixture.host.modals[0].detail;
+  const line = String((detail.split("\n").find(row => row.includes("op-no-owner")) || ""));
+  assert.ok(line.length > 0, "清单里必须有这条记录");
+  assert.ok(line.includes("旧记录归属未知"), "台账项不带主机/路径时必须写明归属未知");
+  assert.equal(line.includes("one.example") || line.includes("/work/proj"), false, "不得把本次目标写成分配给旧记录的已知归属");
+  assert.ok(detail.includes("本次实际要覆盖的目标") && detail.includes("one.example") && detail.includes("/work/proj"),
+    "本次实际要覆盖的目标必须另列，用户才知道会覆盖到哪里");
+  assert.equal(fixture.state.uploads.length, 0);
+});
+
+test("本机未知写入所有权不参与覆盖批准集合，但必须在确认框里如实列出，并随批准后的接管一起处理", async () => {
+  const targets = [workerTarget("w-a", "Worker A", "one.example", "/work/proj")];
+  const build = () => {
+    const order = [];
+    let stale = false;
+    let writes = 0;
+    const hostOptions = { targets, upload: async (_host, method) => {
+      if (method === "transfers.list") {
+        order.push("verify");
+        return stale ? realHost.busyTransferState({ id: "", operationId: "", host: "one.example", remotePath: "/work/proj" })
+          : realHost.quiescedTransferState();
+      }
+      if (method === "transfers.cancel") { order.push("cancel"); return { ok: true, cancelled: true, status: "cancelling", settled: false }; }
+      writes += 1;
+      order.push("write:" + writes);
+      if (writes === 1) { stale = true; throw new host2Error(); }
+      return { ok: true, status: "completed" };
+    } };
+    const host = realHost.createRealSyncHost(hostOptions);
+    function host2Error() { return new host.UiCommandCancelled("用户在传输中取消"); }
+    return { host, hostOptions, order };
+  };
+  const fixture = build();
+  const targetKey = fixture.host.resolveCodeUploadTargetIdentityLocal(targets[0]).key;
+  await assert.rejects(fixture.host.syncCodeTargets(targets, "run", { hashCompare: true }), /用户在传输中取消/);
+  const owned = fixture.host.pendingCodeUploadUnknownWriteLocal(fixture.host.project, { targetKey, workerId: "w-a" });
+  assert.ok(owned && owned.retainedLease, "第一轮必须真的留下未知写入所有权与保留租约");
+  await assert.rejects(fixture.host.syncCodeTargets(targets, "run", { hashCompare: true }), /用户未确认/);
+  const detail = fixture.host.modals[0].detail;
+  assert.match(detail, /本机在下列目标上还记着/, "本机未知写入所有权必须在确认框里如实列出");
+  assert.ok(detail.includes("保留租约 仍在"), "保留租约仍在要写清，用户才知道批准会顺带接管它");
+  // 直接走生产入口复核批准集合的构成：本机未知写入所有权单列展示，不进待覆盖批准集合。
+  const summary = await fixture.host.collectCodeUploadStaleRecordsLocal(targets, fixture.host.project, "sync-local-ownership");
+  const bindings = [String((summary.needsConsent[0] || {}).identity || '')];
+  assert.equal(summary.unknownWriteTargets.length, 1, "本机未知写入所有权必须单列在确认框的独立段落里");
+  assert.equal(summary.needsConsent.length, 1, "待覆盖批准集合只有那条传输记录：本机所有权没有可靠创建时间，参与过期判定会把长期授权变成永远要点确认");
+  assert.equal(summary.needsConsent.some(row => String(row.identity || '').includes('保留租约')), false,
+    "保留租约不是传输记录，不得变成第二个批准项");
+  assert.equal(bindings.length, 1, `批准集合只绑那一条传输记录：本机未知写入所有权没有可靠创建时间，不参与覆盖批准（实际 ${JSON.stringify(bindings)}）`);
+  assert.equal(bindings[0].startsWith("anonymous:"), true, "绑的就是那条寻不到身份的传输记录");
+  assert.equal(fixture.order.includes("write:2"), false, "没批准就一字节也不写");
+  // 批准之后：本机所有权与保留租约随真实接管一并释放，不留在表上。
+  const takenOver = build();
+  await assert.rejects(takenOver.host.syncCodeTargets(targets, "run", { hashCompare: true }), /用户在传输中取消/);
+  takenOver.hostOptions.modalAnswer = "完全覆盖并继续";
+  await takenOver.host.syncCodeTargets(targets, "run", { hashCompare: true });
+  assert.equal(takenOver.host.pendingCodeUploadUnknownWriteLocal(takenOver.host.project, { targetKey, workerId: "w-a" }), undefined,
+    "真正接管过之后才释放本机未知写入所有权");
+  assert.equal(takenOver.host.codeUploadTargetLeases?.held?.size || 0, 0, "接管完成不留残留写锁");
+});

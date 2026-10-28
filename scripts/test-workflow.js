@@ -579,6 +579,17 @@ const OWNER_WRITE_GRACE_MS = 60_000;
 // 一次删除；没到就继续阻塞（并发批本来就是错的）。此常量只决定“问不问”，永远不会让属主存活的锁
 // 被自动删除。
 const STALE_LOCK_CONFIRM_AGE_MS = 2 * 60 * 60 * 1000;
+/**
+ * LOCK_DELETE_CONFIRMATIONS（B3 命名策略开关）：删除本项目批锁需要几次明确点击确认。
+ * 取值来源（用户原话，逐条对应）：
+ *  - 2026-10-28「B，加一次确认」：选 B，仍然要用户确认，工具不得自行永久删除；把原来的一次确认加为两次明确确认；
+ *  - 更早「这些锁不做移走。允许做成直接删除的方式」：只授权“直接删除”这个方式（不移走、不堆积），
+ *    并不免除项目 P0“永久删除须两次明确确认”的流程；
+ *  - 更早「让用户只需要点击确认即可」：确认只需点击回答，不要求用户输入路径，也不要求用户手工去删。
+ * 本轮固定为 2，与项目 P0 永久删除双确认一致。将来放宽只能由用户再次明确授权后改这一个常量，
+ * 不得在别处另开旁路；非交互入口（无 TTY、stdin 用于取消控制、CI）在任何取值下都不算确认。
+ */
+const LOCK_DELETE_CONFIRMATIONS = 2;
 
 /**
  * r30: 判定 pid 是否仍存活。不能假设 signalling 语义跨平台一致：项目 AGENTS 明确警告 Python 的
@@ -600,18 +611,26 @@ function ownerProcessAlive(pid) {
   }
 }
 
-/** 读属主登记：缺失/损坏都归为“无法证明归属”，但调用方还要看写盘宽限期才能决定是否删除。 */
+/**
+ * 读属主登记（B1 返修）：三种情况必须分开，不得一律归为“损坏即可删”。
+ *  - ENOENT：owner 登记确实不存在（missing）——无法证明归属，调用方还要看写盘宽限期；
+ *  - 其它读取错误（EACCES/EISDIR/EIO/瞬时错）：readFailed——只是我们读不到，**不等于属主已死**，
+ *    调用方一律保守阻塞，绝不因为锁够老就自动删除；
+ *  - 读到但解析失败/不是对象：broken（形状不可用），同样按“无法证明归属”处理。
+ */
 function readLockOwner(lockDir) {
   let text;
   try { text = fs.readFileSync(path.join(lockDir, "owner.json"), "utf8"); } catch (error) {
-    return { text: `(unreadable: ${error && error.code || error})`, owner: null, broken: `owner.json 读不到（${error && error.code || error}）` };
+    const code = error && error.code;
+    if (code === "ENOENT") return { text: "(missing)", owner: null, broken: "owner.json 不存在", readFailed: false, missing: true };
+    return { text: `(unreadable: ${code || error})`, owner: null, broken: `owner.json 读不到（${code || error}）`, readFailed: true, missing: false };
   }
   let parsed;
   try { parsed = JSON.parse(text); } catch (error) {
-    return { text, owner: null, broken: `owner.json 解析失败（${error && error.message || error}）` };
+    return { text, owner: null, broken: `owner.json 解析失败（${error && error.message || error}）`, readFailed: false, missing: false };
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { text, owner: null, broken: "owner.json 不是对象" };
-  return { text, owner: parsed, broken: null };
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { text, owner: null, broken: "owner.json 不是对象", readFailed: false, missing: false };
+  return { text, owner: parsed, broken: null, readFailed: false, missing: false };
 }
 
 /** 锁目录自身的年龄（用于写盘宽限与“要不要问用户”的阈值判定，绝不用来自动删活锁）。 */
@@ -620,31 +639,37 @@ function lockDirAgeMs(lockDir) {
 }
 
 /**
- * 判定现有锁该怎么处理。只有两种情况下可以直接删（无需确认）：
- *  a) owner.json 里的 pid 经 ownerProcessAlive 证实已不存在（ESRCH，正向死亡证据）；
- *  b) owner 缺失/损坏/根本没有合法 pid，因而无法证明归属，且锁目录已超过 OWNER_WRITE_GRACE_MS
- *     （避开刚 mkdir 还没写 owner 的窗口——那把锁属于还活着的批）。
- * 属主仍存活（含 EPERM/判定异常）一律不自作主张：只有锁龄超过 STALE_LOCK_CONFIRM_AGE_MS 才转换成
- * “请用户确认”，否则继续阻塞。删除对象永远只是这个锁目录本身，不碰其它任何文件。
- * 返回 action: "delete" | "ask" | "block"。
+ * 判定现有锁该怎么处理（B1 返修）。已经没有“自动删除”这一档：
+ *  - "ask"：可以请用户点击确认。三种依据：pid 经 ESRCH 确证已消失（唯一的死亡硬依据）；
+ *    owner 缺失/形状不可用/没有合法 pid 因而无法证明归属且已过 OWNER_WRITE_GRACE_MS（这只是“无法证明”，
+ *    **不是死亡证明**，缺失或损坏 owner 都不等于原批次已退出）；或属主仍在跑但锁龄已达阈值。
+ *    进入 ask 也必须完成 LOCK_DELETE_CONFIRMATIONS（本轮 2 次）明确确认才能删，工具绝不自作主张。
+ *  - "block"：owner 读取失败（EACCES/EISDIR/EIO/瞬时错：读不到不等于属主已死，身份不明一律保守停止）、
+ *    写盘宽限内的无主窗口、属主仍在跑且未到老锁阈值。锁龄永远不能替代归属证据。
+ * 返回 action: "ask" | "block"，并带 basis 供日志与确认文案引用。
  */
 function classifyStaleLock(lockDir) {
-  const { text, owner, broken } = readLockOwner(lockDir);
+  const { text, owner, broken, readFailed, missing } = readLockOwner(lockDir);
   const pidNumeric = owner ? Number(owner.pid) : NaN;
   const ageMs = lockDirAgeMs(lockDir);
   const view = (extra) => ({ ...extra, ownerText: text,
     batchId: owner && owner.batchId || "(unknown)",
     pid: owner && owner.pid !== undefined && owner.pid !== null ? String(owner.pid) : "(none)",
     startedAt: owner && owner.startedAt || "(unknown)", root: owner && owner.root || "(unknown)", ageMs });
+  if (readFailed) {
+    // B1：权限/I/O/瞬时错只说明“我们读不到属主”，不是“原批次已退出”。年龄再老也不许判死。
+    return view({ action: "block", basis: "owner-read-failed",
+      reason: `${broken}：读取失败不等于属主已死，归属未知一律保守阻塞（只有 pid 报 ESRCH 才是死亡硬依据），不自动删除` });
+  }
   if (broken || !Number.isInteger(pidNumeric) || pidNumeric <= 0) {
     const why = broken || `owner.json 里没有合法 pid（${JSON.stringify(owner && owner.pid)}）`;
-    if (ageMs < OWNER_WRITE_GRACE_MS) return view({ action: "block", reason: `${why}，且锁目录只有 ${Math.round(ageMs)}ms（< ${OWNER_WRITE_GRACE_MS}ms 写盘宽限），可能是刚建锁还来不及写 owner 的活动批` });
-    return view({ action: "delete", reason: `${why}，锁目录已存在 ${Math.round(ageMs / 1000)}s（超过 ${OWNER_WRITE_GRACE_MS / 1000}s 写盘宽限），无法证明仍有活动批拥有它` });
+    if (ageMs < OWNER_WRITE_GRACE_MS) return view({ action: "block", basis: "owner-unprovable-in-grace", reason: `${why}，且锁目录只有 ${Math.round(ageMs)}ms（< ${OWNER_WRITE_GRACE_MS}ms 写盘宽限），可能是刚建锁还来不及写 owner 的活动批` });
+    return view({ action: "ask", basis: missing ? "owner-missing" : "owner-unusable-shape", reason: `${why}，锁目录已存在 ${Math.round(ageMs / 1000)}s（超过 ${OWNER_WRITE_GRACE_MS / 1000}s 写盘宽限）；这只是无法证明归属，不是死亡证明，必须由用户确认后才动` });
   }
   const alive = ownerProcessAlive(pidNumeric);
-  if (!alive.alive) return view({ action: "delete", reason: alive.basis });
-  if (ageMs >= STALE_LOCK_CONFIRM_AGE_MS) return view({ action: "ask", reason: `${alive.basis}，属主仍在跑，但锁已存在 ${Math.round(ageMs / 60000)} 分钟（≥ ${STALE_LOCK_CONFIRM_AGE_MS / 60000} 分钟阈值），无法证明属主已死` });
-  return view({ action: "block", reason: `${alive.basis}，属主仍在跑，且锁龄 ${Math.round(ageMs / 1000)}s 未到老锁阈值` });
+  if (!alive.alive) return view({ action: "ask", basis: "owner-dead-esrch", reason: `${alive.basis}（死亡硬依据）；仍需用户完成 ${LOCK_DELETE_CONFIRMATIONS} 次确认才删除` });
+  if (ageMs >= STALE_LOCK_CONFIRM_AGE_MS) return view({ action: "ask", basis: "owner-alive-aged", reason: `${alive.basis}，属主仍在跑，但锁已存在 ${Math.round(ageMs / 60000)} 分钟（≥ ${STALE_LOCK_CONFIRM_AGE_MS / 60000} 分钟阈值），无法证明属主已死` });
+  return view({ action: "block", basis: "owner-alive", reason: `${alive.basis}，属主仍在跑，且锁龄 ${Math.round(ageMs / 1000)}s 未到老锁阈值` });
 }
 
 /**
@@ -657,7 +682,7 @@ function classifyStaleLock(lockDir) {
  *  6) 删后核实目标确实不存在；任何情况下都恢复原 cwd。
  * 只用于本工作副本自己的批锁；属主仍存活的他人锁只能问，不能走到这里删。
  */
-function deleteOwnedLockChild({ safeRoot, parentDir, childName }) {
+function deleteOwnedLockChild({ safeRoot, parentDir, childName, chdir: chdirHook, getCwd: getCwdHook }) {
   const rejected = (why) => { throw new Error(`LOCK_TARGET_REJECTED: ${why}；目标=${JSON.stringify(childName)} 父目录=${parentDir}`); };
   if (typeof childName !== "string" || childName.length === 0) rejected("删除目标不能为空");
   if (childName === "." || childName === "..") rejected("删除目标不能是当前目录或父目录");
@@ -669,15 +694,26 @@ function deleteOwnedLockChild({ safeRoot, parentDir, childName }) {
   try { parentReal = fs.realpathSync(path.resolve(parentDir)); } catch (error) { rejected(`直接父目录解不开（${error && error.code || error}）`); }
   const rel = path.relative(rootReal, parentReal);
   if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) rejected(`直接父目录不在安全根内：${parentReal} vs ${rootReal}`);
-  const parentStat = fs.lstatSync(parentReal);
+  let parentStat, targetStat;
+  try { parentStat = fs.lstatSync(parentReal); }
+  catch (error) { rejected(`直接父目录 stat 失败（${error && error.code || error}）`); }
   if (!parentStat.isDirectory() || parentStat.isSymbolicLink()) rejected(`直接父目录必须是普通目录且不是符号链接：${parentReal}`);
-  const targetStat = fs.lstatSync(path.join(parentReal, childName));
+  try { targetStat = fs.lstatSync(path.join(parentReal, childName)); }
+  catch (error) { rejected(`目标 stat 失败（${error && error.code || error}），不删除`); }
   if (!targetStat.isDirectory() || targetStat.isSymbolicLink()) rejected(`只能删除自己创建的普通锁目录（不是文件、不是符号链接）：${childName}`);
   const cwdBefore = process.cwd();
+  // B1 补齐：chdir 直接抛错（权限不足、目录刚被顶替、路径失效等）也必须统一转成 PARENT_CD_FAILED，
+  // 不让调用方看到裸 errno。chdir/getCwd 只是可注入缝，默认行为与以前逐字一致。
+  const go = typeof chdirHook === "function" ? chdirHook : (dir) => process.chdir(dir);
+  const where = typeof getCwdHook === "function" ? getCwdHook : () => process.cwd();
   try {
-    process.chdir(parentReal);
-    const cwdNow = process.cwd();
-    const same = process.platform === "win32" ? cwdNow.toLowerCase() === parentReal.toLowerCase() : cwdNow === parentReal;
+    try {
+      go(parentReal);
+    } catch (error) {
+      throw new Error(`PARENT_CD_FAILED: 无法 cd 进直接父目录（${error && error.code || error}），不执行删除`);
+    }
+    const cwdNow = where();
+    const same = process.platform === "win32" ? String(cwdNow).toLowerCase() === parentReal.toLowerCase() : cwdNow === parentReal;
     if (!same) throw new Error(`PARENT_CD_FAILED: 已 cd 但物理工作目录不一致（${cwdNow} vs ${parentReal}），不执行删除`);
     fs.rmSync(`./${childName}`, { recursive: true });
     if (fs.existsSync(`./${childName}`)) throw new Error(`LOCK_STILL_PRESENT: 删除后目标仍存在 ./${childName}`);
@@ -687,45 +723,127 @@ function deleteOwnedLockChild({ safeRoot, parentDir, childName }) {
   return { parentReal, removed: `./${childName}` };
 }
 
-/** 无交互终端时不代为决定（CI、stdin 被用于取消控制）；有终端时只读一行 y/N，默认 N。 */
-function confirmLockDeletion(state, verdict) {
-  const interactive = process.stdin.isTTY === true || process.env.TEST_WORKFLOW_INTERACTIVE === "1";
-  if (!interactive || state.cancelStdin) {
-    return { approved: false, reason: "无交互终端（stdin 不是 TTY，或本批用 stdin 做取消控制），不代为决定" };
+/** 目标指纹：路径 + 类型 + inode + 大小 + mtime + owner.json 内容摘要，用来核实“仍是刚才那把锁”（B2）。 */
+function lockFingerprint(evidence) {
+  const ownerSha = crypto.createHash("sha256")
+    .update(String(evidence.ownerText === undefined ? "" : evidence.ownerText), "utf8").digest("hex").slice(0, 16);
+  return `real=${evidence.lockDirReal}|type=${evidence.type}|ino=${evidence.ino}|size=${evidence.size}|mtime=${evidence.mtimeMs}|ownerSha=${ownerSha}`;
+}
+
+/**
+ * 自动为确认备齐全部事实（B3：用户只需点击，不需要输入路径，也不需要手工删除）：
+ * 精确完整路径、类型、属主 owner.json 原文、pid、batchId、startedAt、锁龄、判定依据与目标指纹。
+ */
+function collectLockEvidence(lockDir) {
+  const evidence = { lockDir, type: "(unknown)", lockDirReal: "(解不开)", ino: 0, size: 0, mtimeMs: 0 };
+  try {
+    const st = fs.lstatSync(lockDir);
+    evidence.type = st.isSymbolicLink() ? "符号链接" : (st.isDirectory() ? "普通目录" : "文件");
+    evidence.ino = st.ino; evidence.size = st.size; evidence.mtimeMs = Math.round(st.mtimeMs);
+  } catch (error) { evidence.type = `stat 失败（${error && error.code || error}）`; }
+  try { evidence.lockDirReal = fs.realpathSync(lockDir); } catch { /* 保留“(解不开)”，不猜路径 */ }
+  const read = readLockOwner(lockDir);
+  evidence.ownerText = read.text;
+  evidence.ownerBroken = read.broken;
+  evidence.ownerReadFailed = read.readFailed;
+  evidence.fingerprint = lockFingerprint(evidence);
+  return evidence;
+}
+
+/**
+ * 删除前的最后一道核实（B2）：目标必须与判定/确认时**完全同一**（指纹一致），且重新判定仍允许进入删除。
+ * 等待确认期间原锁退出、另一个活动批取得同名锁时，这里必须失败——旧确认绝不能删掉新锁，
+ * 也不能拿“外层还会重试三轮”当作删除前核验的替代。
+ */
+function verifyLockDeletionTarget(lockDir, evidence, verdict) {
+  const now = collectLockEvidence(lockDir);
+  if (now.fingerprint !== evidence.fingerprint) {
+    return { ok: false, changed: true, now, reason: `目标已不是判定/确认时的那把锁（旧指纹=${evidence.fingerprint} 新指纹=${now.fingerprint}）` };
   }
-  process.stdout.write(`[test-workflow] 批锁属主 pid=${verdict.pid} 仍在跑（batchId=${verdict.batchId} startedAt=${verdict.startedAt}），`
-    + `但锁已存在 ${Math.round(verdict.ageMs / 60000)} 分钟（≥ ${STALE_LOCK_CONFIRM_AGE_MS / 60000} 分钟）。删除 ${state.lockDir} 并继续？[y/N] `);
+  const again = classifyStaleLock(lockDir);
+  if (again.action !== "ask") return { ok: false, changed: false, now, again, reason: `删除前重新判定为 ${again.action}（${again.reason}），不删除` };
+  if (verdict && again.basis !== verdict.basis) return { ok: false, changed: false, now, again, reason: `删除前判定依据已变化（${verdict.basis} → ${again.basis}），不删除，交回重新判定` };
+  return { ok: true, now, again };
+}
+
+/** 只读一行确认输入：默认 N；读不到（EOF、stdin 不可用）一律按未确认处理，绝不当成同意。 */
+function readConfirmationLine() {
   let answer = "";
   try {
     const buf = Buffer.alloc(1);
-    for (let i = 0; i < 256; i++) {
+    for (let i = 0; i < 4096; i++) {
       let read = 0;
       try { read = fs.readSync(0, buf, 0, 1); } catch { break; }
       if (read <= 0) break;
-      answer += buf.toString("utf8", 0, read);
+      answer += buf.toString("utf8", 0, 1);
       if (answer.includes("\n")) break;
     }
   } catch { answer = ""; }
-  const trimmed = answer.trim();
-  process.stdout.write(`（回答：${trimmed || "(空，默认 N)"}）\n`);
-  if (/^y(es)?$/i.test(trimmed)) return { approved: true, reason: "用户已在终端确认删除" };
-  return { approved: false, reason: `用户未确认删除（回答 ${JSON.stringify(trimmed)}，默认 N）` };
+  return answer.trim();
 }
 
+/**
+ * 永久删除批锁前的确认（B3 + 用户 2026-10-28「B，加一次确认」）：必须完成
+ * LOCK_DELETE_CONFIRMATIONS 次**明确点击**（本轮 2 次，与项目 P0 永久删除双确认一致）。
+ * 每次确认前自动打印精确路径、类型、owner、pid、batchId、startedAt、锁龄、判定依据与目标指纹；
+ * 用户只回答 y/N，不需要输入路径，也不需要自己手工去删。
+ * 两次确认之间必须重新核实“仍是刚才那把锁”；删除前还有 verifyLockDeletionTarget 这第三道核验。
+ * 非交互入口（无 TTY、stdin 被本批用于取消控制、CI）一律不代为决定，只打印事实后继续阻塞：
+ * “没有终端”不是同意；日志、死亡证据或直接子项限制都不能替代确认要求。
+ */
+function confirmLockDeletion(state, verdict, evidence) {
+  const interactive = process.stdin.isTTY === true || process.env.TEST_WORKFLOW_INTERACTIVE === "1";
+  if (!interactive || state.cancelStdin) {
+    return { approved: false, confirmations: 0,
+      reason: `无交互终端（stdin 不是 TTY，或本批用 stdin 做取消控制，或 CI），不代为决定：${LOCK_DELETE_CONFIRMATIONS} 次确认一次也没有发生` };
+  }
+  const ageText = Number.isFinite(verdict.ageMs) ? `${Math.round(verdict.ageMs / 1000)}s` : "未知";
+  for (let round = 1; round <= LOCK_DELETE_CONFIRMATIONS; round++) {
+    if (round > 1) {
+      const now = collectLockEvidence(state.lockDir);
+      if (now.fingerprint !== evidence.fingerprint) {
+        return { approved: false, confirmations: round - 1, targetChanged: true,
+          reason: `第 ${round - 1} 次与第 ${round} 次确认之间目标已变化（旧指纹=${evidence.fingerprint} 新指纹=${now.fingerprint}），停止删除并重新判定` };
+      }
+    }
+    process.stdout.write(`[test-workflow] 永久删除批锁——第 ${round}/${LOCK_DELETE_CONFIRMATIONS} 次确认（本项目 P0：永久删除须 ${LOCK_DELETE_CONFIRMATIONS} 次明确确认，只需回答 y，默认 N）\n`
+      + `  精确路径        : ${state.lockDir}\n`
+      + `  类型            : ${evidence.type}\n`
+      + `  属主 owner.json : ${String(evidence.ownerText).split(/\r?\n/).join(" ").slice(0, 400)}\n`
+      + `  pid / batchId   : ${verdict.pid} / ${verdict.batchId}\n`
+      + `  startedAt       : ${verdict.startedAt}\n`
+      + `  锁龄 / 安全根    : ${ageText} / ${state.root}\n`
+      + `  判定依据        : ${verdict.basis} —— ${verdict.reason}\n`
+      + `  目标指纹        : ${evidence.fingerprint}\n`
+      + `  影响范围        : 只删除这个锁目录本身（直接子项 ./batch.lock），同目录其它文件与项目文件一律不动\n`
+      + `确认删除 ${state.lockDir} ？[y/N] `);
+    const answer = readConfirmationLine();
+    process.stdout.write(`（第 ${round}/${LOCK_DELETE_CONFIRMATIONS} 次回答：${answer || "(空，默认 N)"}）\n`);
+    if (!/^y(es)?$/i.test(answer)) {
+      return { approved: false, confirmations: round - 1,
+        reason: `第 ${round}/${LOCK_DELETE_CONFIRMATIONS} 次确认未通过（回答 ${JSON.stringify(answer)}，默认 N），此前 ${round - 1} 次确认不作数` };
+    }
+  }
+  return { approved: true, confirmations: LOCK_DELETE_CONFIRMATIONS, reason: `用户已在终端完成 ${LOCK_DELETE_CONFIRMATIONS} 次明确确认` };
+}
+
+/**
+ * 取得本工作副本的批锁（r31 口径，仅服务本地测试/打包工具链；插件运行时的其它锁不套用这里的规则）。
+ * 拿不到锁时：先只读判定归属（B1：读不到 owner / 身份不明一律阻塞，年龄不能替代归属证据）；
+ * 只有可进入确认的依据（ESRCH 死亡硬依据、无法证明归属且已过写盘宽限、属主存活但锁已老）才转成确认；
+ * 确认必须完成 LOCK_DELETE_CONFIRMATIONS（本轮 2 次）明确点击（B3），删除前还要核实仍是同一目标（B2）；
+ * 非交互入口与用户拒绝都继续阻塞，并给出精确路径与全部事实。任何情况下都不移动、不留档、不批量清理。
+ */
 async function acquireLock(state) {
   // r17-C: the batch lock lives inside the consumed project's managed tree (git-ignored and
   // package-ignored by the existing simple_cluster rules). Admission/release semantics are
   // byte-identical to before; a crash-residual lock at the OLD repo-root location is neither
   // scanned nor touched.
-  // r30: 用户口径——陈封锁不得永久阻塞，也不得靠“移走”无限堆文件。拿不到锁时：进程 ESRCH 确证已死
-  // （或 owner 根本无法证明归属且已过写盘宽限）→ 直接删除锁目录并留一行依据；属主仍在跑且锁龄超阈值
-  // → 只在有交互终端时问一行 y/N（默认 N）；无终端或用户不同意 → 继续阻塞并给出精确路径与原因。
-  // 属主存活的锁绝不允许自动删。
   const parent = path.join(state.root, "simple_cluster", "locks", "simple-experiment", "test-workflow");
   await fsp.mkdir(parent, { recursive: true });
   state.lockDir = path.join(parent, "batch.lock");
   const meta = { pid: process.pid, entry: state.plan.entry, batchId: state.batchId, startedAt: new Date().toISOString(), root: state.root };
-  // 最多三轮：mkdir 失败 → 判归属 → 可删或已确认则删除后重试（并发竞争时下一轮重新判定）。
+  // 最多三轮：mkdir 失败 → 判归属 → 用户双确认且复核通过才删除后重试（并发竞争时下一轮重新判定）。
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       await fsp.mkdir(state.lockDir);
@@ -734,28 +852,43 @@ async function acquireLock(state) {
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
       const verdict = classifyStaleLock(state.lockDir);
+      // B3：无论哪一档都先自动备齐事实，阻塞文案与确认文案直接引用，用户不必自己去找路径。
+      const evidence = collectLockEvidence(state.lockDir);
       const ageText = Number.isFinite(verdict.ageMs) ? `${Math.round(verdict.ageMs / 1000)}s` : "未知";
-      const facts = `pid=${verdict.pid} batchId=${verdict.batchId} startedAt=${verdict.startedAt} 锁龄=${ageText}`;
+      const facts = `pid=${verdict.pid} batchId=${verdict.batchId} startedAt=${verdict.startedAt} 锁龄=${ageText}`
+        + ` 依据=${verdict.basis} 指纹=${evidence.fingerprint}`;
       const blockLine = (extra) => `another test-workflow batch owns this working copy — 拒绝并发批（不放大并行上限）。${verdict.reason}。`
         + ` ${facts} root=${verdict.root} 锁目录=${state.lockDir}。${extra}owner.json=${verdict.ownerText}`;
-      let authorizedBy = "auto";
+      let confirmed = 0;
       if (verdict.action === "ask") {
-        const answer = confirmLockDeletion(state, verdict);
+        const answer = confirmLockDeletion(state, verdict, evidence);
         if (!answer.approved) {
-          fail(blockLine(`${answer.reason}。要自动清理请在本机交互终端重跑并按 y 确认，或人工确认无活动批后删除这个精确目录：${state.lockDir}`), 3);
+          fail(blockLine(`${answer.reason}。要自动清理请在本机交互终端重跑并连续 ${LOCK_DELETE_CONFIRMATIONS} 次回答 y，`
+            + `或人工确认无活动批后自行删除这个精确目录：${state.lockDir}`), 3);
         }
-        authorizedBy = "user-confirmed";
-      } else if (verdict.action !== "delete") {
-        fail(blockLine(`要自动清理请等锁龄超过 ${STALE_LOCK_CONFIRM_AGE_MS / 60000} 分钟后在交互终端确认，或人工确认无活动批后删除这个精确目录：${state.lockDir}`), 3);
+        confirmed = answer.confirmations;
+      } else {
+        fail(blockLine(`归属不明或属主仍存活，本工具不会自动删除锁。要清理请等属主退出、或锁龄超过 ${STALE_LOCK_CONFIRM_AGE_MS / 60000} 分钟后`
+          + `在本机交互终端连续 ${LOCK_DELETE_CONFIRMATIONS} 次回答 y，或人工确认无活动批后自行删除这个精确目录：${state.lockDir}`), 3);
+      }
+      // B2：删除前最后一道核实——必须还是刚才判定并确认的那把锁，且重新判定仍允许删除。
+      // 期间被新的活动批顶替时绝不删除，只记一行并重新判定（“还有三轮重试”不是核验的替代）。
+      const check = verifyLockDeletionTarget(state.lockDir, evidence, verdict);
+      if (!check.ok) {
+        if (check.changed) {
+          console.log(`[test-workflow] STALE-LOCK-RECLASSIFY 删除前复核发现 ${state.lockDir} 已不是判定/确认时的那把锁（${check.reason}），本轮不删除，重新判定`);
+          continue;
+        }
+        fail(blockLine(`删除前复核不通过：${check.reason}`), 3);
       }
       try { deleteOwnedLockChild({ safeRoot: state.root, parentDir: parent, childName: "batch.lock" }); }
       catch (removeError) {
-        fail(`拒绝并发批（不放大并行上限）：判定为${authorizedBy === "auto" ? "属主已死的" : "用户已确认陈旧的"}锁（${verdict.reason}，${facts}）但删除被安全纪律拦下：${removeError && removeError.message || removeError}`
+        fail(`拒绝并发批（不放大并行上限）：用户已确认陈旧的锁（${verdict.reason}，${facts}）但删除被安全纪律拦下：${removeError && removeError.message || removeError}`
           + `；锁目录=${state.lockDir}`, 3);
       }
       console.log(`[test-workflow] STALE-LOCK-DELETED 依据=${verdict.reason} 旧pid=${verdict.pid} 旧batchId=${verdict.batchId}`
         + ` 旧startedAt=${verdict.startedAt} 锁龄=${ageText} 已删目录=${state.lockDir}`
-        + ` 来源=${authorizedBy === "auto" ? "自动（进程存在性硬依据）" : "用户终端确认"}`);
+        + ` 来源=用户终端确认（${confirmed}/${LOCK_DELETE_CONFIRMATIONS} 次） 目标指纹=${evidence.fingerprint}`);
     }
   }
   fail(`another test-workflow batch owns this working copy — 拒绝并发批（不放大并行上限）：三轮内未能取得 ${state.lockDir}。`
@@ -1051,7 +1184,8 @@ function writeAcceptanceReport(root, receipt) {
 }
 
 module.exports = { planEntry, planHash, jobIdentity, expandGlobPattern, resolveStepCommand, validateReceiptForAssemble, inputFingerprint, verifyNoNpmHooks, sha256File, sha256Fresh,
-  ownerProcessAlive, readLockOwner, classifyStaleLock, deleteOwnedLockChild, STALE_LOCK_CONFIRM_AGE_MS, OWNER_WRITE_GRACE_MS };
+  ownerProcessAlive, readLockOwner, classifyStaleLock, deleteOwnedLockChild, collectLockEvidence, lockFingerprint,
+  verifyLockDeletionTarget, confirmLockDeletion, LOCK_DELETE_CONFIRMATIONS, STALE_LOCK_CONFIRM_AGE_MS, OWNER_WRITE_GRACE_MS };
 
 if (require.main === module) main().then(code => { process.exitCode = code; }).catch(error => {
   process.stderr.write(`[test-workflow] FATAL: ${error && error.stack || error}\n`);

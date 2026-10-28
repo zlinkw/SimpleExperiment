@@ -49,6 +49,7 @@ const METHOD_NAMES = [
   "withCodeUploadRoundWriteLocal", "codeUploadRoundWriteFloorLocal",
   "cancelCodeUploadTargetWriteLocal",
   "codeUploadStaleAgeLocal", "codeUploadStuckOperationLocal", "codeUploadStaleIdentityLocal",
+  "codeUploadStaleBindingLocal", "codeUploadStaleLateConsentLocal",
   "noteCodeUploadStaleSuspectsLocal", "collectCodeUploadStaleRecordsLocal", "askCodeUploadStaleOverwriteLocal",
   "recordCodeUploadStaleDecisionLocal", "codeUploadStaleOverwriteLocal", "clearCodeUploadStaleSuspectsLocal",
   "takeoverCodeUploadTargetLocal", "takeoverCodeUploadTargetLockedLocal", "codeUploadBlockedByCurrentBatchLocal",
@@ -58,7 +59,7 @@ const METHOD_NAMES = [
 const asyncNames = new Set(["syncCodeTargets", "safeWorkerCodeSyncTargets", "boundedPromise", "acquireCodeUploadTargetLeaseLocal",
   "verifyCodeUploadTargetQuiescentLocal", "cancelCodeUploadTargetWriteLocal", "takeoverCodeUploadTargetLocal",
   "takeoverCodeUploadTargetLockedLocal", "withCodeUploadRoundWriteLocal", "collectCodeUploadStaleRecordsLocal",
-  "askCodeUploadStaleOverwriteLocal"]);
+  "askCodeUploadStaleOverwriteLocal", "codeUploadStaleLateConsentLocal"]);
 
 function compiled(name) {
   const body = sliceMethod(distSource, name).replace(/^\s{4}/gm, "");

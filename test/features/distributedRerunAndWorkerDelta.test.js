@@ -64,7 +64,11 @@ test("runPlan uses one history-choice modal and no overwrite bypass checkbox", (
 
 test("publish reports each pre-upload stage and transfers only changed files", () => {
   const publish = extension.slice(extension.indexOf("async publishToGitHub("), extension.indexOf("async overwriteFromGitHub("));
-  assert.match(publish, /GitHub 已完成，正在准备 Worker 上传…/);
+  // 阶段文案必须如实描述 round 8 之后的真实形态：本机提交确定后，GitHub 网络推送与 Worker 上传并行，
+  // Worker 分支不再排在 GitHub 成功之后；旧串行文案保留在下面当反向断言，不许回来。
+  assert.match(publish, /正在准备本机提交与 GitHub 凭证…/);
+  assert.match(publish, /本机提交已确定，GitHub 推送与 Worker 上传并行进行…/, "必须有“本机提交已确定之后两条分支并行”的阶段事实");
+  assert.doesNotMatch(publish, /GitHub 已完成，正在准备 Worker 上传…/, "不得回到“Worker 上传等 GitHub 网络成功”的旧串行文案");
   assert.doesNotMatch(publish, /开始上传到 Worker/);
   const upload = extension.slice(extension.indexOf("async uploadProjectToWorkers("), extension.indexOf("async distributeCodeToWorkers("));
   assert.match(upload, /正在准备 SFTP 目标…/);
