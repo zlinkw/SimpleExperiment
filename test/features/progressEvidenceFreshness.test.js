@@ -67,14 +67,14 @@ test('remote clock skew cannot expire a fresh protocol 2 observation', () => {
   assert.equal(P.serverAuthoritativeProgress(f.queue, [f.snapshot], 'p', now)[0].jobs[0].executionState, 'exited');
  }
 });
-test('log expiry changes only completion review, retaining artifacts and known anomalies', () => {
+test('log expiry retains artifacts and known runtime failures without certifying clean completion', () => {
  const now = Date.now(), f = fixture(now), stamp = age => ({ networkStartedAt: at(now - age), receivedAt: at(now - age) });
  f.task.observation.result = { runId: commandId, status: 'completed', present: true, verified: true, artifactsComplete: true };
  f.task.observation.evidence = { execution: stamp(1000), artifacts: stamp(500), logs: stamp(21000) };
  for (const count of [0, 1]) {
   f.task.observation.runtimeDiagnostics = { schemaVersion: 1, commandId, runId: commandId, count, state: count ? 'anomalous' : 'clear', scanComplete: true };
   const job = P.serverAuthoritativeProgress(f.queue, [f.snapshot], 'p', now)[0].jobs[0];
-  assert.equal(job.status, 'completed'); assert.equal(job.resultState, 'complete'); assert.equal(job.executionState, 'exited');
+  assert.equal(job.status, count ? 'failed' : 'completed'); assert.equal(job.resultState, 'complete'); assert.equal(job.executionState, 'exited');
   assert.equal(job.completionState, count ? 'review_required' : 'unverified'); assert.equal(job.statusQueryError, undefined);
  }
 });

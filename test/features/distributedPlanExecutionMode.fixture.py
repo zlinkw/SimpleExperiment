@@ -17,7 +17,7 @@ scheduler = extract_runtime_functions(str(runtime / "cluster_scheduler.py"), ["p
 resolved = []
 for mode in ("train", "test", "train_test"):
     raw = ("mode: " + mode + "\r\n").encode("utf-8")
-    fake_scheduler = SimpleNamespace(load_plan=lambda _: {"mode": mode}, plan_execution_mode=scheduler.plan_execution_mode)
+    fake_scheduler = SimpleNamespace(yaml=object(), load_plan=lambda _: {"mode": mode}, plan_execution_mode=scheduler.plan_execution_mode)
     with patch.object(agent, "safe_project_path", lambda *args: "virtual"), \
          patch.object(agent, "scalar_scheduler_module", lambda: fake_scheduler), \
          patch.object(pathlib.Path, "read_bytes", lambda _: raw):

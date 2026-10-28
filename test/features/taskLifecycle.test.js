@@ -2,6 +2,17 @@ const test = require('node:test'), assert = require('node:assert/strict');
 require('../_helpers/registerTsRequire');
 const { taskLifecycle, observationMatches } = require('../../src/features/TaskLifecycle.ts');
 const base = { lifecycleProtocol:2, commandId:'c', projectId:'p', workerId:'w', observedAt:new Date().toISOString() };
+
+test('explicit runtime errors fail an ended job despite exit zero and complete artifacts', () => {
+  const runtimeDiagnostics={schemaVersion:1,commandId:'c',runId:'c',state:'anomalous',count:1,scanComplete:true};
+  const result={runId:'c',status:'completed',present:true,verified:true,artifactsComplete:true,exitCode:0};
+  const observed=taskLifecycle({...base,result,runtimeDiagnostics,tmux:{dead:true,exitCode:0}});
+  assert.equal(observed.status,'failed');assert.equal(observed.exitCode,0);
+  assert.equal(observed.execution,'exited');assert.equal(observed.result,'complete');
+  assert.equal(taskLifecycle({...base,result,runtimeDiagnostics:{...runtimeDiagnostics,scanComplete:false},tmux:{dead:true,exitCode:0}}).status,'failed');
+  assert.equal(taskLifecycle({...base,result,runtimeDiagnostics:{...runtimeDiagnostics,commandId:'old'},tmux:{dead:true,exitCode:0}}).status,'completed');
+  assert.equal(taskLifecycle({...base,result,runtimeDiagnostics,tmux:{dead:false,phase:'running'}}).status,'running');
+});
 test('admitted and starting windows are not running until the task command begins', () => {
   for (const phase of ['queued','bound','admitted','starting'])
     assert.equal(taskLifecycle({...base, tmux:{windowId:'@1',paneId:'%1',dead:false,phase}}).status,'queued', phase);
