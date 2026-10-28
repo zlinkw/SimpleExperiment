@@ -6152,10 +6152,26 @@ def verified_durable_execution_mode(project_dir, command):
     if len(raw) > 1048576 or hashlib.sha256(raw).hexdigest() != durable_plan_value(command, "planRevision"):
         raise ValueError("Original Plan revision unavailable; execution mode cannot be recovered safely")
     scheduler = scalar_scheduler_module()
-    plan = scheduler.load_plan(plan_path)
+    if getattr(scheduler, "yaml", None) is None:
+        # The helper Agent interpreter need not carry research dependencies.
+        # Parse only this bound Plan with the same selected task environment.
+        env = formal_job_command_env(command)
+        args = [simple_runtime_python(env), "-B", "-X", "utf8", cluster_scheduler_path(project_dir),
+                "--plan-execution-mode-json", "--plan", str(plan_path), "--plan-revision", hashlib.sha256(raw).hexdigest()]
+        proc = subprocess_inactivity_run(simple_conda_wrapped_args(args, env), cwd=project_dir, env=env, progress_stream="stderr")
+        if proc.returncode:
+            raise ValueError((proc.stderr or proc.stdout or "PLAN_MODE_QUERY_FAILED")[-4000:])
+        report = json.loads(proc.stdout)
+        if report.get("ok") is not True or report.get("planRevision") != hashlib.sha256(raw).hexdigest():
+            raise ValueError("Original Plan revision disagrees with task-environment parser")
+        mode = report.get("executionMode")
+        if mode not in ("train", "test", "train_test"):
+            raise ValueError("Task-environment parser returned an invalid execution mode")
+    else:
+        plan = scheduler.load_plan(plan_path)
+        mode = scheduler.plan_execution_mode(plan)
     if pathlib.Path(plan_path).read_bytes() != raw:
         raise ValueError("Original Plan changed during execution mode verification")
-    mode = scheduler.plan_execution_mode(plan)
     # executionMode is introduced by the fixed Host. Old mode alone is not
     # evidence: affected versions always saved train_test regardless of validation.
     expected = command.get("executionMode")

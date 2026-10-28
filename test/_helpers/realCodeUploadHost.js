@@ -54,9 +54,9 @@ const METHOD_NAMES = [
   "recordCodeUploadStaleDecisionLocal", "codeUploadStaleOverwriteLocal", "clearCodeUploadStaleSuspectsLocal",
   "takeoverCodeUploadTargetLocal", "takeoverCodeUploadTargetLockedLocal", "codeUploadBlockedByCurrentBatchLocal",
   "rememberUnknownCodeWriteLocal",
-  "syncCodeTargets", "safeWorkerCodeSyncTargets",
+  "syncCodeTargets", "checkRunCodeWithoutUploadLocal", "safeWorkerCodeSyncTargets",
 ];
-const asyncNames = new Set(["syncCodeTargets", "safeWorkerCodeSyncTargets", "boundedPromise", "acquireCodeUploadTargetLeaseLocal",
+const asyncNames = new Set(["syncCodeTargets", "checkRunCodeWithoutUploadLocal", "safeWorkerCodeSyncTargets", "boundedPromise", "acquireCodeUploadTargetLeaseLocal",
   "verifyCodeUploadTargetQuiescentLocal", "cancelCodeUploadTargetWriteLocal", "takeoverCodeUploadTargetLocal",
   "takeoverCodeUploadTargetLockedLocal", "withCodeUploadRoundWriteLocal", "collectCodeUploadStaleRecordsLocal",
   "askCodeUploadStaleOverwriteLocal", "codeUploadStaleLateConsentLocal"]);
