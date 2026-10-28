@@ -18364,8 +18364,9 @@ class RealtimeTunnelPanelProvider {
             return;
         if (["running", "starting", "queued"].includes(state.execution))
             throw new Error("所选任务仍在服务器排队或运行；请先中止或明确召回。");
-        if (anomalyOnly && (state.status !== "completed" || state.completionState !== "review_required"))
-            throw new Error("本轮查询未确认该 job 已完成且存在运行异常；未删除或重跑。");
+        if (anomalyOnly && (!["completed", "failed"].includes(state.status)
+            || !["exited", "failed"].includes(state.execution) || state.completionState !== "review_required"))
+            throw new Error("本轮查询未确认该 job 已结束且存在运行异常；未删除或重跑。");
         // 返修（2026-10-22 父裁决，两阶段）P0：
         // 阶段 1（初次准入）：允许当前原生协议真正核实的「已取消」或「已终止」原始形态——
         //   取消完成：cancelled===true 且 tmux===null；
