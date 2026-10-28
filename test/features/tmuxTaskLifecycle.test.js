@@ -16,14 +16,16 @@ test('Scheduler startup uses configured prefix despite an older shared tmux serv
 });
 function nativeScenario(scenario) {
   const script=path.resolve(__dirname,'tmuxTaskLifecycle.fixture.py'),runtime=path.resolve(__dirname,'../../dist/runtime/cluster_agent.py');
-  const args=process.platform==='win32'?['--distribution',process.env.SIMPLE_TEST_WSL_DISTRO||'Ubuntu-Codex','--exec','python3',linux(script),linux(runtime)]:[script,runtime];
+  // Keep a waiting shell parent across the WSL boundary. This mirrors the SSH
+  // launch context without replacing real tmux status or widening any deadline.
+  // Positional arguments preserve paths verbatim; the shell returns Python's code.
+  const args=process.platform==='win32'?['--distribution',process.env.SIMPLE_TEST_WSL_DISTRO||'Ubuntu-Codex','--exec','/bin/sh','-c','"$@"; fixture_status=$?; exit "$fixture_status"','fixture-parent','python3',linux(script),linux(runtime)]:[script,runtime];
   args.push(scenario);
   const result=spawnSync(process.platform==='win32'?'wsl.exe':'python3',args,{encoding:'utf8',timeout:10000,windowsHide:true});
   assert.equal(result.status,0,result.stderr||result.stdout||String(result.error||''));
   assert.deepEqual(JSON.parse(result.stdout),{ok:true,realTmux:true,callbacks:0,stateFilesRead:0});
 }
-test('real tmux recovery survives caller loss and queries results without state files',()=>nativeScenario('recovery'));
-test('real tmux nonzero exit, binding failure and explicit rerun remain exact',()=>nativeScenario('failure'));
+test('real tmux queue/runner boundary survives caller loss, closes exact tasks and queries results without state files',()=>nativeScenario('all'));
 test('closing a legacy pane during a live inventory does not block the next stop query',()=>{
   const script=path.resolve(__dirname,'tmuxStopRace.fixture.py'),runtime=path.resolve(__dirname,'../../dist/runtime/cluster_agent.py');
   const args=process.platform==='win32'?['--distribution',process.env.SIMPLE_TEST_WSL_DISTRO||'Ubuntu-Codex','--exec','python3',linux(script),linux(runtime)]:[script,runtime];
