@@ -897,12 +897,12 @@ test("runner: real-repo plan reconciles with an independently expanded manifest 
  * （合法机制，不硬编码绝对路径）；模块名 r28dep 全局唯一，证明可见性来自注入而非系统 site-packages。 */
 const PY_CMD = process.platform === "win32" ? "python" : "python3";
 function r28Setup(t) {
-  const probe = spawnSync(PY_CMD, ["-B", "-c", "import site; print(site.getusersitepackages())"], { encoding: "utf8", timeout: 15000, windowsHide: true, env: process.env });
+  const probe = spawnSync(PY_CMD, ["-B", "-c", "import site; print(site.getusersitepackages())"], { encoding: "utf8", timeout: 10000, windowsHide: true, env: process.env });
   if (probe.status !== 0) return null; // 本机无可解析 Python ⇒ 契约不适用（两台验收机均有 Python，勿据此跳过当作通过）
   const ws = makeWorkspace(t);
   const usersiteBase = path.join(ws, "usersite");
   const marker = path.join(ws, "keepme"); // 已有 PYTHONPATH 代表（只需被保留，不必在盘上存在）
-  const siteProbe = spawnSync(PY_CMD, ["-B", "-c", "import site; print(site.getusersitepackages())"], { encoding: "utf8", timeout: 15000, windowsHide: true, env: { ...process.env, PYTHONUSERBASE: usersiteBase } });
+  const siteProbe = spawnSync(PY_CMD, ["-B", "-c", "import site; print(site.getusersitepackages())"], { encoding: "utf8", timeout: 10000, windowsHide: true, env: { ...process.env, PYTHONUSERBASE: usersiteBase } });
   assert.equal(siteProbe.status, 0, siteProbe.stderr);
   const siteDir = siteProbe.stdout.trim();
   fs.mkdirSync(siteDir, { recursive: true });

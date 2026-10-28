@@ -959,7 +959,7 @@ async function candidateOf(repo, plans, selected, extra = {}) {
   });
 }
 
-test("C4-R3 候选：plan.id 键控，同 planFile 两轮各半确证绝不拼凑；版本/HEAD/撤证/命令/清单缺失全部零通过", async () => {
+function researchCandidateWorld() {
   const repo = makeRepo("r3ab");
   fs.mkdirSync(path.join(repo, "experiments"), { recursive: true });
   fs.mkdirSync(path.join(repo, "pkg"), { recursive: true });
@@ -974,6 +974,11 @@ test("C4-R3 候选：plan.id 键控，同 planFile 两轮各半确证绝不拼�
   // proof 必须按各自 plan 计算 identity（上面 proofedJob 用了最小 plan 字段——补全为完整 plan 后重算）
   planA.jobs[0].verifiedCompletion.identity = verifiedCompletion.completionIdentity(planA, planA.jobs[0]);
   planB.jobs[1].verifiedCompletion.identity = verifiedCompletion.completionIdentity(planB, planB.jobs[1]);
+  return { repo, rev, planA, planB };
+}
+
+test("C4-R3 候选：同 planFile 两轮各半确证不拼凑，空选择与缺损队列全部拒绝", async () => {
+  const { repo, rev, planA, planB } = researchCandidateWorld();
   // A/B 各只有部分确证：任何选择都不许通过；B 不得借 A 的 job0 确证过关
   let cand = await candidateOf(repo, [planA, planB], ["plan-B"]);
   assert.equal(cand.ok, false, "B 的 job0 无确证绝不能借同 planFile 的 A 拼凑成“全验”");
@@ -988,6 +993,10 @@ test("C4-R3 候选：plan.id 键控，同 planFile 两轮各半确证绝不拼�
   assert.equal((await candidateOf(repo, undefined, ["plan-A"], { queueState: "missing" })).ok, false);
   assert.equal((await candidateOf(repo, undefined, ["plan-A"], { queueState: "corrupt", queueError: "boom" })).ok, false);
   assert.equal((await candidateOf(repo, [], ["plan-Gone"])).ok, false, "队列里找不到的 id＝撤证/变化");
+});
+
+test("C4-R3 候选：完整轮次按 plan.id 隔离，HEAD 变更逐 blob 核对", async () => {
+  const { repo, rev, planA, planB } = researchCandidateWorld();
   // 补全确证后：按原 id 只核本轮；A/B 各自成候选且摘要互不相同
   planA.jobs[1] = proofedJob(planA, 1, "cmdA1", "w1", "out/a1");
   planB.jobs[0] = proofedJob(planB, 0, "cmdB0", "w1", "out/b0");
@@ -1008,6 +1017,12 @@ test("C4-R3 候选：plan.id 键控，同 planFile 两轮各半确证绝不拼�
   // 撤证/命令变化/版本字段变化/清单缺失：确认后任何破坏 → ok:false（调用方据此零写入）
   commitFile(repo, "experiments/a.yaml", "run: v1\n", "back to v1 bytes");
   assert.equal((await candidateOf(repo, [planA, planB], ["plan-A"])).ok, true, "同字节再提交后 blob 绑定依旧成立");
+});
+
+test("C4-R3 候选：撤证、命令、版本、清单与终止文字不能代替完成确证", async () => {
+  const { repo, rev, planA, planB } = researchCandidateWorld();
+  planA.jobs[1] = proofedJob(planA, 1, "cmdA1", "w1", "out/a1");
+  planB.jobs[0] = proofedJob(planB, 0, "cmdB0", "w1", "out/b0");
   const savedProof = planA.jobs[0].verifiedCompletion;
   delete planA.jobs[0].verifiedCompletion;
   assert.equal((await candidateOf(repo, [planA, planB], ["plan-A"])).ok, false, "撤证必须立即可见");
@@ -1028,6 +1043,12 @@ test("C4-R3 候选：plan.id 键控，同 planFile 两轮各半确证绝不拼�
   terminalOnly.jobs[0].status = "completed";
   terminalOnly.jobs.forEach(job => { job.verifiedCompletion = undefined; });
   assert.equal((await candidateOf(repo, [terminalOnly], ["plan-T"])).ok, false, "TrustedTerminalProof 只证终止，不是科研完成");
+});
+
+test("C4-R3 候选：dirty 如实进入摘要，恢复同字节后摘要稳定", async () => {
+  const { repo, rev, planA, planB } = researchCandidateWorld();
+  planA.jobs[1] = proofedJob(planA, 1, "cmdA1", "w1", "out/a1");
+  planB.jobs[0] = proofedJob(planB, 0, "cmdB0", "w1", "out/b0");
   // dirty 如实透出（新的写入由调用方要求 dirty===false；同 HEAD 下重算必须稳定）
   fs.appendFileSync(path.join(repo, ".git", "info", "exclude"), "\n/clean_dir/\n", "utf8");
   const bClean = await candidateOf(repo, [planB], ["plan-B"]);
@@ -1460,7 +1481,7 @@ test("C4-R6 UI 真实入口 alreadyMerged 恢复：只读 view 取得 mergeCommi
   assert.equal(lost.gh.calls.filter(row => row.args.startsWith("pr merge")).length, 0, "OPEN/未知绝不落入 gh pr merge");
 });
 
-test("C4-R6 UI 真实入口合并顺序：非空选择＋候选证据先于最终确认展示；确认后撤证零 merge；取消选择/取消确认零写入", async () => {
+function mergeOrderWorld() {
   const fx = uiBranchFixture("r6-order");
   const manifest = manifestFor(fx.root, ["experiments/a.yaml", "pkg/model.py", "tracked.txt"]);
   const rev = manifest.manifest["experiments/a.yaml"].sha256;
@@ -1478,6 +1499,11 @@ test("C4-R6 UI 真实入口合并顺序：非空选择＋候选证据先于最�
     env.branchPullRequest = { ...pr, runGh: gh.runner, runGitPullRequest: mergeUiGit().runner };
     return { env, gh, host: makeLegacyUiHost(env), queueFile };
   };
+  return { fx, build };
+}
+
+test("C4-R6 UI 合并顺序：确认顺序与证据展示，确认后撤证零 merge", async () => {
+  const { fx, build } = mergeOrderWorld();
   // 1) 确认后（实际写之前）撤证 → 复核必拦停，零 pr view/pr merge（模块根本未被调用）
   const case1 = build({ answer: (title) => {
     if (title.startsWith("合并 PR #")) {
@@ -1502,6 +1528,10 @@ test("C4-R6 UI 真实入口合并顺序：非空选择＋候选证据先于最�
   assert.ok(modal.detail.includes(fx.head), "确认前展示完整 40 位源 SHA：" + modal.detail.slice(0, 200));
   assert.match(modal.detail, /全部完成确证/); assert.match(modal.detail, /清单摘要/); assert.match(modal.detail, /覆盖限制/);
   assert.equal(case1.gh.calls.filter(row => row.args.startsWith("pr view") || row.args.startsWith("pr merge")).length, 0, "复核拦停后模块未被调用：零合并视图查询、零 merge");
+});
+
+test("C4-R6 UI 合并顺序：空选择不展示确认且零 merge", async () => {
+  const { fx, build } = mergeOrderWorld();
   // 2) 空选择＝拒绝：证据弹窗都不出现
   const case2 = build({ pickItems: () => [] });
   let thrown2 = null;
@@ -1509,6 +1539,10 @@ test("C4-R6 UI 真实入口合并顺序：非空选择＋候选证据先于最�
   assert.ok(thrown2 && /未选择任何 PLAN/.test(String(thrown2.message)), String(thrown2 && thrown2.message));
   assert.ok(!case2.env.events.some(row => row.kind === "warn" && row.title.startsWith("合并 PR #")));
   assert.equal(case2.gh.calls.filter(row => row.args.startsWith("pr merge")).length, 0);
+});
+
+test("C4-R6 UI 合并顺序：看到证据后取消确认零 merge", async () => {
+  const { fx, build } = mergeOrderWorld();
   // 3) 看到证据后取消确认＝零写入
   const case3 = build({ answer: (title) => title.startsWith("合并 PR #") ? "" : "确认合并" });
   let thrown3 = null;
@@ -1516,6 +1550,10 @@ test("C4-R6 UI 真实入口合并顺序：非空选择＋候选证据先于最�
   assert.ok(thrown3 && /已取消合并/.test(String(thrown3.message)), String(thrown3 && thrown3.message));
   assert.ok(case3.env.events.some(row => row.kind === "warn" && row.title.startsWith("合并 PR #") && /plan-A/.test(row.detail)));
   assert.equal(case3.gh.calls.filter(row => row.args.startsWith("pr merge")).length, 0);
+});
+
+test("C4-R6 UI 合并顺序：dirty 拒绝说明状态目录边界且零查询", async () => {
+  const { fx, build } = mergeOrderWorld();
   // 4) dirty 门拒绝文案带本机运行状态准备提示（锚点：branchResearchCandidateFlow 的 dirty 门；仅该门，不泛加）
   const case4 = build({ answer: () => "确认合并" });
   fs.writeFileSync(path.join(fx.root, "scratch-untracked.txt"), "dirty\n", "utf8"); // 模拟未跟踪内容使 dirty=true（队列夹具已在 build 时按真实路径排除并核过 clean）
