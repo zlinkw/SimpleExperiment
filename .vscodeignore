@@ -160,5 +160,11 @@ dist/ui/styles/layout.css.js
 .review-*/**
 # r25-A: runner 同根批开发锁绝不入包（实际泄漏过一次，回归+清单门禁双防）
 .test-workflow-batch.lock/**
+# 2026-10-28: 本机清理暂存区 clean_dir 绝不入包（本轮实际泄漏 extension/clean_dir/MANIFEST.md，
+# 同样是回归+清单门禁双防）。clean_dir 是本地待清理暂存区：既含清理登记（本机绝对路径/pid/指纹），
+# legacy.ts「将草稿移入 clean_dir」也会把用户草稿移到这里，缺这条就会把用户文件打进公开发布包。
+# 同规在 scripts/package-content-policy.json 的 local-cleanup-staging，两处一致由
+# test/features/packageContentPolicy.test.js 钉住（删任意一边即测试失败）。
+clean_dir/**
 # 用户长期裁决 2026-10-24：旧嵌套 SimpleSFTP 捆绑副本永不入包；独立安装的配套 SimpleSFTP 不受影响
 extensions/simple-sftp/**
