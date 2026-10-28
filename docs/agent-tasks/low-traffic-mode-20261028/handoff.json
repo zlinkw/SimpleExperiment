@@ -92,7 +92,7 @@
     {
       "kind": "evidence",
       "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/docs/agent-tasks/low-traffic-mode-20261028/evidence.md",
-      "sha256": "c61eae12e88ea2e9f139bffb3ce3b27c1e26a3856fe51d53e0737448c4dfc782"
+      "sha256": "24e5aa74c2da94833bcbbf8441965fa9d916493c7cb6411e9f0bf6311c5ed2b9"
     },
     {
       "kind": "evidence",
@@ -107,7 +107,7 @@
     {
       "kind": "plan",
       "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/docs/agent-tasks/low-traffic-mode-20261028/plan.md",
-      "sha256": "8408993633a5ffd9a48d7f9ddf33394822b1577f4c13aa996bd237f5de7384d0"
+      "sha256": "f7c777b2bf439fb3ed3491724556daf7c7d930bb8a578bb37aad17101e8522e4"
     },
     {
       "kind": "diff",
@@ -124,10 +124,10 @@
         "kind": "config",
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/scripts/test-workflow.json",
         "sha256": "0866aed5a71b3010ab445bb25d5bed3c05f71d4f0adb3af477f0bfd6e80e8a4c",
-        "detail": "scripts/test-workflow.json 定义 compile/build/package 域的 gates 与 domains，超时由 runner 自管，本轮命令未设模型侧超时（timeoutMs=null）"
+        "detail": "scripts/test-workflow.json 定义 compile/build/package 域 gates 与 domains，超时由 runner 自管，命令未设模型侧超时（timeoutMs=null）"
       },
       "complete": true,
-      "name": "npm run package（compile+build 全量+各受影响域+包门禁）",
+      "name": "必需验收：npm run package 第二轮（compile + build 全量 + 各域 + 包门禁）",
       "argv": [
         "npm",
         "run",
@@ -143,7 +143,7 @@
           "sha256": "0dac95e4dddf8de4772e24cc711e7097868d6eec91c7d87cddd9666526932b1e"
         }
       ],
-      "environmentNote": "以 Git for Windows Bash 执行，PATH 前置 /d/Git/cmd，使 executionShellPreflight 能解析真实 Git Bash；首轮该域内 hostOperationLease 1 例因并发心跳饿死失败，单独连跑 3 次 14/14 通过，第二轮 overall=passed files=238"
+      "note": "overall=passed files=238；PATH 前置 /d/Git/cmd 使 executionShellPreflight 能解析真实 Git Bash"
     },
     {
       "platform": "win32",
@@ -153,10 +153,10 @@
         "kind": "config",
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/package.json",
         "sha256": "fb50cf7eda28e4b69efe4b7be002dd57e591e458e98f22a4177e076324532a4f",
-        "detail": "package.json#scripts.build/compile 内置 node -c 语法门禁；vm.Script 检查为一次性解析命令，未设超时（timeoutMs=null）"
+        "detail": "package.json#scripts.compile/build 内置 node -c 语法门禁；vm.Script 为一次性解析命令，未设超时（timeoutMs=null）"
       },
       "complete": true,
-      "name": "npm run compile（tsc + node -c dist/extension.js + node -c dist/ui/PanelHtml.js）",
+      "name": "必需验收：npm run compile（tsc + node -c dist/extension.js + node -c dist/ui/PanelHtml.js）",
       "argv": [
         "npm",
         "run",
@@ -181,10 +181,10 @@
         "kind": "config",
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/package.json",
         "sha256": "fb50cf7eda28e4b69efe4b7be002dd57e591e458e98f22a4177e076324532a4f",
-        "detail": "package.json#scripts.build/compile 内置 node -c 语法门禁；vm.Script 检查为一次性解析命令，未设超时（timeoutMs=null）"
+        "detail": "package.json#scripts.compile/build 内置 node -c 语法门禁；vm.Script 为一次性解析命令，未设超时（timeoutMs=null）"
       },
       "complete": true,
-      "name": "双重校验第二门禁 vm.Script dist/ui/PanelHtml.js 与 P0 端点检索",
+      "name": "必需验收：双重校验第二门禁 vm.Script 与 P0 端点检索",
       "argv": [
         "node",
         "-e",
@@ -200,7 +200,7 @@
           "sha256": "f4195348e52c3aa3577179e674c8c0331790eccab9dd3185809b88cfd6e6cff8"
         }
       ],
-      "note": "同一日志记录 node -c 两项 exit=0、vm.Script exit=0、grep 10890 src+dist=0、grep 固定 127.0.0.1:18765 src=0"
+      "note": "同日志：node -c 两项 exit=0、vm.Script exit=0、grep 10890 src+dist=0、grep 固定 127.0.0.1:18765 src=0"
     },
     {
       "platform": "win32",
@@ -213,7 +213,7 @@
         "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
       },
       "complete": true,
-      "name": "低流量策略与 r2 F1–F4 新增测试",
+      "name": "必需验收：低流量策略与 r2 F1–F4 新增测试",
       "argv": [
         "node",
         "--test",
@@ -232,7 +232,7 @@
           "sha256": "58cc55546f72958465d4a3aa988fc4efe8bbdd546c9ae57481477a083205d9a9"
         }
       ],
-      "note": "16 tests / 16 pass / 0 fail"
+      "note": "16 tests 16 pass 0 fail"
     },
     {
       "platform": "win32",
@@ -245,7 +245,7 @@
         "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
       },
       "complete": true,
-      "name": "真实渲染面板脚本健康（按钮位置、展示闸门、无 timer、手动入口）",
+      "name": "必需验收：真实渲染面板脚本健康（按钮、展示闸门、无 timer、手动入口）",
       "argv": [
         "node",
         "--test",
@@ -264,7 +264,7 @@
           "sha256": "b8632f58375ea315b17d8916135a6ea9e1218e0196a886aee01010464c044537"
         }
       ],
-      "note": "7 tests / 7 pass / 0 fail"
+      "note": "7 tests 7 pass 0 fail"
     },
     {
       "platform": "win32",
@@ -277,7 +277,7 @@
         "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
       },
       "complete": true,
-      "name": "面板消息链派发（白名单、不占 lease、不占 UI 状态、文档代际）",
+      "name": "必需验收：面板消息链派发（白名单、不占 lease、不占 UI 状态、文档代际）",
       "argv": [
         "node",
         "--test",
@@ -296,7 +296,7 @@
           "sha256": "d762262610a1daf8f0e8cdbaf03feac2294ad8e61a96366847e0628e5488dce2"
         }
       ],
-      "note": "13 tests / 13 pass / 0 fail"
+      "note": "13 tests 13 pass 0 fail"
     },
     {
       "platform": "win32",
@@ -309,7 +309,7 @@
         "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
       },
       "complete": true,
-      "name": "队列 tick 节奏契约随策略表最小更新",
+      "name": "必需验收：队列节奏契约随策略表最小更新",
       "argv": [
         "node",
         "--test",
@@ -328,7 +328,93 @@
           "sha256": "5366918b10e4ae712ea0c23980c311dccd433757fb363a53f02f8d8ac1be8742"
         }
       ],
-      "note": "3 tests / 3 pass / 0 fail"
+      "note": "3 tests 3 pass 0 fail"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "timeoutMs": null,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/scripts/test-workflow.json",
+        "sha256": "0866aed5a71b3010ab445bb25d5bed3c05f71d4f0adb3af477f0bfd6e80e8a4c",
+        "detail": "scripts/test-workflow.json 定义 compile/build/package 域 gates 与 domains，超时由 runner 自管，命令未设模型侧超时（timeoutMs=null）"
+      },
+      "complete": true,
+      "name": "F4-FAIL-1 首轮 npm run package 内 hostOperationLease job-222 真实失败（保留原始失败，不改代码求绿）",
+      "argv": [
+        "npm",
+        "run",
+        "package"
+      ],
+      "status": "failed",
+      "exitCode": 1,
+      "required": false,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/60-package.log",
+          "sha256": "63566bfce5be2a3d042b2fdc2988ede0c1523a7f872f2bbeebc63706c83f04de"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/simple_cluster/reports/test-workflow/2026-10-28T01-54-33-605Z-54792-package/job-222-hostOperationLease.test.out.log",
+          "sha256": "26a67cc752f682db138c4d6b84e8dce80887386ac393aa89f465c08a58bc2433"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/simple_cluster/reports/test-workflow/2026-10-28T01-54-33-605Z-54792-package/job-222-hostOperationLease.test.err.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "detail": "失败用例 test\\core\\hostOperationLease.test.js:91 continuous heartbeat preserves ownership beyond lease TTL and keeps UTF-8 labels；TypeError: Cannot read properties of undefined (reading 'actionLabel') at hostOperationLease.test.js:95:20；60-package.log 第 237 行为该 job 失败行，完整堆栈在同日志 264-270 段与 job-222 out.log"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/baseline-repro",
+      "timeoutMs": 20000,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
+      },
+      "complete": true,
+      "name": "F4-FAIL-1 分类取证 A：基线树 7a6062fa（不含本任务改动）在同等并发下复现同一失败",
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/core/hostOperationLease.test.js"
+      ],
+      "status": "failed",
+      "exitCode": 1,
+      "required": false,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/71-baseline-load-hostOperationLease-run1.log",
+          "sha256": "5cab2e1fec0b37425db8bec0e86bdf3ec215866db5bcf6b080cbf9596478316e"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/72-baseline-load-hostOperationLease-run2.log",
+          "sha256": "a41fd30be7424c18a89ad05198391734fb8d9360f96fad6de5f25a104855aec7"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/73-baseline-load-hostOperationLease-run3.log",
+          "sha256": "e1b54ec1578e58c2c90f8bc5a26c3493307887b3aac709b89f31ebeff416c6aa"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/74-baseline-load-hostOperationLease-run4.log",
+          "sha256": "3aa05c23b278a82933a4056e60fd76a82f32f182982d894482c962fe51639d50"
+        }
+      ],
+      "detail": "16 个 CPU spinner 负载下 4/4 次同一用例失败（exit=1）：run3 TypeError 读 actionLabel，run1/run2 Missing expected rejection (HostOperationLeaseConflictError)，run4 HostOperationLeaseLostError code=RESOURCE_LEASE_LOST；基线由 git archive 7a6062fa10441cc5852166a34138781a2604d9e9 导出，本任务代码不在其中。结论：既有并发时序抖动（ttlMs=120/heartbeatMs=20 心跳在 CPU 饥饿下错过续租），非本改动引入；本任务 32 个变更文件不含任何 src/core、dist/core、test/core 文件，测试与实现三文件 sha256 与基线一致（110cf3d3be82a875bc9b06e639bf2af8bec3f30e2e4743537ef151a521c3a1a1、84a54dce5f733d37562d2b21dcc53d569778a79b6e2e3537727504b9a41f2b1d、75c23f592c7ff19545a55e36abb4fc77deb3c3f8788d3ef62b55b898613f8473），且该测试进程不加载任何被改动模块"
     },
     {
       "platform": "win32",
@@ -341,14 +427,51 @@
         "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
       },
       "complete": true,
-      "name": "跳转日志面板夹具补齐（用户发起读取仍放行）",
+      "name": "F4-FAIL-1 分类取证 B：当前副本在同等并发下同样复现（与基线行为一致）",
       "argv": [
         "node",
         "--test",
         "--test-force-exit",
         "--test-timeout",
         "20000",
-        "test/ui/jobTmuxLogNavigation.test.js"
+        "test/core/hostOperationLease.test.js"
+      ],
+      "status": "failed",
+      "exitCode": 1,
+      "required": false,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/75-current-load-hostOperationLease-run1.log",
+          "sha256": "45fb1179051900a7a1941b4d39a2f74899abc9a0e1eccf6a2b8a694e5a096e8b"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/76-current-load-hostOperationLease-run2.log",
+          "sha256": "ea690df8ed1fe01a7a3e8ba46036b26c60f0b104999d2eac1a9a745129507eba"
+        }
+      ],
+      "detail": "2/2 次 exit=1，同一用例，表现与基线负载run4 同族（HostOperationLeaseLostError RESOURCE_LEASE_LOST）"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/baseline-repro",
+      "timeoutMs": 20000,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
+      },
+      "complete": true,
+      "name": "F4-FAIL-1 复跑取证：基线树无负载单跑通过",
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/core/hostOperationLease.test.js"
       ],
       "status": "passed",
       "exitCode": 0,
@@ -356,11 +479,11 @@
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/45-test-test_ui_jobTmuxLogNavigation_test_js.log",
-          "sha256": "119f52efdecb7a662210db1502437e9b7128c39d8fcf2807e278fc31e0c91443"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/70-baseline-noload-hostOperationLease.log",
+          "sha256": "c29fbcc767c004a9324ca23b288bcdba54de5113290e5aad1d942babe1003f3c"
         }
       ],
-      "note": "10 tests / 10 pass / 0 fail"
+      "note": "14 tests 14 pass 0 fail，说明失败仅在负载下出现"
     },
     {
       "platform": "win32",
@@ -373,7 +496,7 @@
         "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
       },
       "complete": true,
-      "name": "hostOperationLease 单文件重复验证",
+      "name": "F4-FAIL-1 复跑取证：本副本单跑三次通过 + 第二轮 package 通过",
       "argv": [
         "node",
         "--test",
@@ -402,7 +525,7 @@
           "sha256": "421c2c03050360a91dd71304b572caae93b36a292db16788e838ef5bb73c050d"
         }
       ],
-      "note": "14/14 三次连跑全通过，用于排除 package 首轮高并发下的单例心跳饿死"
+      "note": "3 次 14/14；第二轮 package（见必需验收第 1 条）该 job passed"
     },
     {
       "platform": "win32",
@@ -415,7 +538,7 @@
         "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
       },
       "complete": true,
-      "name": "新模块行数门禁（基线既有失败，本任务未触碰相关文件）",
+      "name": "F4-FAIL-2 test/factories_integration.test.js 新模块行数门禁（基线既有，非本任务引入）",
       "argv": [
         "node",
         "--test",
@@ -434,8 +557,40 @@
           "sha256": "3c8b5f9f356eefd0648fb440655c4bec47b528b4ec17a592006153fc4bc973bd"
         }
       ],
-      "note": "8 tests / 7 pass / 1 fail：CacheCleanupPanel.ts 与 PlanCleanupHost.ts 在主仓同一基线即为 478/430 行 > 400；本任务未修改这两个文件"
+      "detail": "8 tests 7 pass 1 fail；门禁按 readFileSync.split('\\n').length 计数（test/factories_integration.test.js:352-354），故报 479 与 431 行；git show 7a6062fa 基线字节 wc -l 为 478 与 430、同口径 split 计数为 479 与 431，本副本数字完全相同；git diff --stat 7a6062fa..HEAD -- 这两个文件为空（本任务未触碰）。是否在 package 的 238 文件集合内：不在——scripts/test-workflow.json 与 package.json/scripts 内 0 命中，60-package.log、63-package2.log、50-build.log 内 0 命中，63-package2.log 枚举的唯一测试文件恰为 238 个且不含 factories_integration；故 package overall=passed 未掩盖该门禁，仅按 T9 显式单跑时暴露"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "timeoutMs": 20000,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
+      },
+      "complete": true,
+      "name": "诊断：跳转日志面板夹具补齐后通过",
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/ui/jobTmuxLogNavigation.test.js"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "required": false,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/45-test-test_ui_jobTmuxLogNavigation_test_js.log",
+          "sha256": "119f52efdecb7a662210db1502437e9b7128c39d8fcf2807e278fc31e0c91443"
+        }
+      ],
+      "note": "10 tests 10 pass 0 fail"
     }
   ],
-  "notes": "purpose=final：阶段 3 实现与本轮规定验证已完成。candidate.revision 保持冻结基线 7a6062fa10441cc5852166a34138781a2604d9e9（= 已核实的 GitHub zlinkw/SimpleExperiment master 最新提交），任务分支 feat/low-traffic-mode-20261028 的实现提交在本索引写出后由同一交付步骤完成，父级主控以分支 HEAD 与 PR 为准。主线基准 D:/GitRepo/MCP/zlk-cluster-orchestrator 全程零写入。\nr2 定稿落点唯一：src/extension/legacy.ts:485-486 两张间隔表 + effectiveTrafficPolicy().displayAutoRefresh。A 类展示读（WS/SSE 自动轮询、快照回退、tmux 列表/抓取、进入/聚焦/切 Worker/切页签/回到可见/初始重试）在低流量下一律自动 0 次，只保留手动刷新按钮（origin=user）与缓存采样时间小字；B 类保持队列 5000ms、进度与终态确认 10000ms 且面板隐藏仍执行；C 类用户发起操作与确认后刷新不变。默认正常模式逐值等于原常量，开关默认关。\n版本 0.5.422 已同步 package.json、package-lock.json、src/runtime/RuntimeManifest.ts 及生成的 dist/runtime/RuntimeManifest.js；npm run package overall=passed（exit=0，files=238），产物 simple-experiment-0.5.422.vsix 2683707 字节，SHA256 7bb4f147da77f2bcf4520fe62158162bd9efdbeecec9e0f3dd69fbe42f7a73a0，解包内 package.json 版本与面板脚本 toggleLowTrafficMode 已核对。\n本轮未执行 GitHub Release 发布、本机 install:latest、重载窗口 UI 验收与远端 Agent 部署，按契约由父级主控确认后办理。\n已知非本任务失败：test/factories_integration.test.js 新模块行数门禁为基线既有（主仓同一基线 CacheCleanupPanel.ts 478 行、PlanCleanupHost.ts 430 行，本任务未触碰）；test/features/executionShellPreflight.test.js 需把 /d/Git/cmd 前置 PATH 才能解析真实 Git Bash（where.exe git 默认先命中 ucrt64 目录），属本机环境；test/core/hostOperationLease.test.js 在 package 首轮高并发下 1 例心跳饿死，单跑 3 次 14/14 通过，第二轮 package 通过。\n既有测试 seam 的最小适配（未删断言、未放宽超时）：schedulerContract 由内联 500ms 改为断言策略表 500ms 且使用 intervals.queueMs；tmuxWorkerAndRichLog/planNoticeLayout/tmuxOtherSessionsDisclosure/jobTmuxLogNavigation 随 refreshTmuxList(origin)/refreshTmuxCapture(origin) 新签名补 displayAutoAllowed 等夹具；新增断言集中在 test/features/panelLowTrafficModePolicy.test.js（16 例）与 panelWebviewScriptHealth（新增 1 例）、panelMessageDispatch（新增 1 例）。"
+  "notes": "purpose=final：阶段 3 实现与规定验证已完成，本轮按要求补全两条失败链证据后再交 GPT 终审。candidate.revision 仍为冻结基线 7a6062fa10441cc5852166a34138781a2604d9e9；实现提交 8f778444，本轮只新增文档取证提交，PR #25 随之更新。主线基准 D:/GitRepo/MCP/zlk-cluster-orchestrator 全程零写入。\n本轮（补证据）未修改任何生产代码，也未修改任何测试断言或超时阈值，只追加 evidence.md 第 15 节、plan.md 第 11 节与本索引的失败记录。\nF4-FAIL-1 hostOperationLease 分类为既有并发时序抖动，非本改动引入。依据（evidence.md 15.1，下方 checks 为对应 failed/passed 条目）：该用例只 require node 内置模块与 dist/core/HostOperationLease，对本次改动模块的引用命中为 0；test/core/hostOperationLease.test.js、src/core/HostOperationLease.ts、dist/core/HostOperationLease.js 与基线字节 sha256 一致；本任务 32 个变更文件不含 src/core、dist/core、test/core 任何文件；用 git archive 7a6062fa 导出的基线树在 16 个 CPU spinner 同等并发下 4/4 复现同一用例失败（TypeError 读 actionLabel、缺少 HostOperationLeaseConflictError 拒绝、HostOperationLeaseLostError 且 code 为 RESOURCE_LEASE_LOST 三种同族表现），当前副本同负载 2/2 复现，无负载双方均 14/14 通过；首轮与第二轮 package 的 files=238、maxParallel=2、maxObservedConcurrent=1 相同，差别只是机器负载。原始失败以 status=failed、exitCode=1 保留，logs 指向 60-package.log（第 237 行即该 job 失败行）与 job-222 的 out 与 err 完整日志。\nF4-FAIL-2 新模块行数门禁为基线既有技术债。git show 7a6062fa 基线字节 CacheCleanupPanel.ts 用 wc 计 478 行、PlanCleanupHost.ts 430 行；门禁按 readFileSync 后以换行 split 的数组长度计数（test/factories_integration.test.js 第 352 至 354 行），文件以换行结尾时比 wc 多 1，故断言报 479 与 431；本副本数字与基线完全相同，且 git diff --stat 基线..HEAD 对这两个文件输出为空。该测试不在 npm run package 的 238 文件集合内：scripts/test-workflow.json、package.json、scripts 目录内检索 0 命中，60-package.log、63-package2.log、50-build.log 内 0 命中，63-package2.log 枚举的唯一测试文件恰为 238 个且不含 factories_integration，因此 package overall=passed 并未掩盖该门禁，它只在按 T9 显式单跑时暴露。\nrequired 标注口径：required=true 仅用于项目必需验收（第二轮 npm run package、npm run compile、vm.Script 双门禁与 P0 端点检索、本任务新增与扩展的 4 个测试文件）。首轮 package 的 hostOperationLease 失败、基线与当前副本的负载复现、行数门禁都是诊断取证条目，required=false，但 failed 状态与真实 exitCode 原样保留，未改成通过。\n实现要点与版本不变：低流量模式按钮加唯一策略源 legacy.ts 第 485 与 486 行和 effectiveTrafficPolicy 的 displayAutoRefresh；r2 定稿 A 类展示读自动 0 次仅手动、B 类队列 5 秒与进度终态确认 10 秒且面板隐藏仍执行、C 类用户操作原行为；默认关闭且正常模式逐值等于原常量。版本 0.5.422，simple-experiment-0.5.422.vsix 2683707 字节，SHA256 7bb4f147da77f2bcf4520fe62158162bd9efdbeecec9e0f3dd69fbe42f7a73a0（未上传 Release、未安装、未重载验收）。"
 }

@@ -165,7 +165,7 @@ PanelHtml.ts 默认委托 legacy（证据 §7/E01）；FEATURE_FACTORY_PANEL=1 �
 | F5 已完成：版本 0.5.422 + package 门禁 overall=passed，VSIX 身份与 SHA256 见证据§11 | F4通过；§8 | package.json、package-lock.json、src/runtime/RuntimeManifest.ts及既有生成runtime；必要版本模板位 | build + vm双门禁、package；版本全为0.5.422，同一VSIX及SHA；GPT审最终diff/日志，非“计划已审”等于候选已审 |
 | F6 进行中：PR 由本轮提交；Release 发布、本机安装、重载验收由主控确认后执行 | F5审核通过 | 任务分支提交、既有Release、本机安装；仅快进干净基准 | §8门禁；PR合并证据、Latest真实可见/指纹一致、本机只装一次、用户重载后按钮和功能验证，主控确认最终完成 |
 
-### 6.1 本轮规定测试命令（未来执行；当前全部 not-run）
+### 6.1 本轮规定测试命令（已逐个单文件串行执行，结果见证据 §14.4；两条失败分流的取证见证据 §15）
 
 在上述唯一副本 cwd 执行。T1–T9 是正确性/安全检查，不是性能测试。先执行不依赖dist的目标单文件；依赖dist的用例在必要build后运行。不使用裸 npm test，不用通配符一次启动全仓，也不存在 test:ui。
 
@@ -369,3 +369,10 @@ r1表中未受影响F0/F1/F4–F6及全部执行安全条款保留；下表细�
 
 **未获用户确认，不列为必做项或交付门槛**：流量字节数/费用量化实测、性能测试规模及未确认Worker/job并发，继续按r1 §7待确认；本修订不要求用户补充答复才能实施。仅本次r2计划文件更新/回读，未实现、未编译、未测试、未打包，也不改实施者源码或Git状态。
 
+
+## 11. 交审前失败分流状态（只补证据，不改生产代码）
+
+- F4-FAIL-1 hostOperationLease 首轮 package 失败：分类为既有并发时序抖动，非本改动引入。取证（证据 §15.1）：该用例只依赖 node 内置与 dist/core/HostOperationLease，对本次改动的模块引用 0 命中；测试与 core 实现三个文件的 sha256 与基线一致；git archive 基线树在 16 个 CPU spinner 同等并发下 4/4 复现同一用例失败（TypeError 读 actionLabel / 缺少 HostOperationLeaseConflictError 拒绝 / HostOperationLeaseLostError RESOURCE_LEASE_LOST 三种同族表现），当前副本同负载 2/2 复现，无负载双方 14/14 通过；第二轮 package overall=passed files=238。
+- F4-FAIL-2 新模块行数门禁：基线既有技术债。取证（证据 §15.2）：git show 基线字节 CacheCleanupPanel.ts 478 行、PlanCleanupHost.ts 430 行（wc -l），门禁按 split 换行 计数为 479/431，本副本数字完全相同且这两个文件未被触碰；该测试不在 npm run package 的 238 文件集合内（workflow 配置与三轮日志均 0 命中，238 个枚举文件不含它），仅在按 T9 显式单跑时暴露。
+- handoff.json 状态：上述两条均以 status=failed、exitCode=1 原样保留并指向完整日志；复跑与基线复现另列为 status=passed/failed 的诊断条目；required 只标在真正的必需验收（package、compile、vm 双门禁、本任务新增/扩展测试）上，诊断类 required=false。
+- F0–F5 状态维持 §6 表中「已完成」，F6 仍为「进行中：PR 已提交（#25），发行/安装/重载验收待主控」。

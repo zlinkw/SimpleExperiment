@@ -1198,3 +1198,56 @@ AGENTS.md 要求的第二条校验（原文摘录）：`node -e "new (require('v
 - GPU 历史曲线为冷却节流而非定时器，本轮未改其节流阈值。
 - 未实测节省率（无两台真实 Worker 环境），表中为调度设计值。
 - Release 发布、本机安装、重载后 UI 验收由主控确认，本阶段未执行。
+
+---
+
+## 15. 交审前失败分流补证（F4-FAIL-1、F4-FAIL-2；本轮只补证据，未改任何生产代码）
+
+### 15.1 F4-FAIL-1 test/core/hostOperationLease.test.js 在首轮 package 门禁失败
+
+| 项 | 值 |
+|---|---|
+| 命令 | npm run package（node scripts/test-workflow.js package），runner 以 exclusive 调度执行 test/core/hostOperationLease.test.js |
+| 平台 | win32（Git for Windows Bash，原生 Windows） |
+| 该 job 退出码 | 1（整轮 package 退出码 1，1 job not passed） |
+| 失败用例全名 | test\core\hostOperationLease.test.js:91 continuous heartbeat preserves ownership beyond lease TTL and keeps UTF-8 labels (410.6306ms) |
+| 错误与堆栈 | TypeError: Cannot read properties of undefined (reading actionLabel)，at TestContext.<anonymous> test\core\hostOperationLease.test.js:95:20，at async Test.run node:internal/test_runner/test:1332:7，at async Test.processPendingSubtests node:internal/test_runner/test:911:7 |
+| 汇总日志 | D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/60-package.log 第 237 行（job failed exit=1 ... job-222），失败摘要在同文件 227-241 段、完整堆栈在 264-270 段 |
+| job-222 完整日志 | D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/simple_cluster/reports/test-workflow/2026-10-28T01-54-33-605Z-54792-package/job-222-hostOperationLease.test.out.log（sha256 26a67cc752f682db138c4d6b84e8dce80887386ac393aa89f465c08a58bc2433）与同目录 job-222-hostOperationLease.test.err.log |
+| 失败点语义 | 用例第 95 行先 await held.assertHeld()，再从 (await a.inspect()).records 中 find 本租约并读 actionLabel；记录被 TTL 清除时 find 返回 undefined，故抛 TypeError |
+| 该用例时序 | manager(a, ttlMs 120, heartbeatMs 20) 后等待 190ms，要求两次心跳周期内租约仍存活 |
+
+复跑记录（真实退出码，日志目录 D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs）：
+
+| 记录 | 方式 | 结果 |
+|---|---|---|
+| 61-test-hostOperationLease.log | 单文件 node --test --test-force-exit --test-timeout 20000 | exit=0，14/14 |
+| 62-test-hostOperationLease-rerun1.log、rerun2.log | 同上再跑两次 | 各 exit=0，14/14 |
+| 63-package2.log | 第二次 npm run package | exit=0，overall=passed files=238，hostOperationLease passed |
+| 70-baseline-noload-hostOperationLease.log | 基线树（不含本任务改动）单跑 | exit=0，14/14 |
+| 71/72/73/74-baseline-load-hostOperationLease-run1..4.log | 基线树 + 16 个 CPU spinner 同等并发 | 4/4 次 exit=1，同一用例失败 |
+| 75/76-current-load-hostOperationLease-run1..2.log | 当前副本 + 同样 16 spinner | 2/2 次 exit=1，同一用例失败 |
+
+分类结论：既有并发时序抖动（该用例 120ms TTL 与 20ms 心跳的余量在 CPU 饥饿下不足），不是本次改动引入的新风险。依据逐条可核查：
+
+1. 依赖面无关：该测试 require 仅 node:test、node:assert、node:fs、node:os、node:path 与 ../../dist/core/HostOperationLease；对 extension/legacy、dist/extension、PanelHtml、RealtimeTunnelClient、MultiEndpoint、RuntimeManifest 的引用命中数为 0。测试进程不启动扩展宿主，本次改动的调度入口 effectiveTrafficPolicy、scheduleTrafficTimers、updateRefreshPolicy 不在该进程内。
+2. 代码身份与基线一致：git diff --name-only 7a6062fa..HEAD 过滤 lease 或 core 命中 0；git diff --stat 7a6062fa..HEAD -- test/core/hostOperationLease.test.js src/core dist/core 输出为空；sha256 实测测试文件 110cf3d3be82a875bc9b06e639bf2af8bec3f30e2e4743537ef151a521c3a1a1、src/core/HostOperationLease.ts 84a54dce5f733d37562d2b21dcc53d569778a79b6e2e3537727504b9a41f2b1d、dist/core/HostOperationLease.js 75c23f592c7ff19545a55e36abb4fc77deb3c3f8788d3ef62b55b898613f8473，均与基线字节一致。失败发生在本次改动路径之外。
+3. 基线同等并发可复现：git archive 7a6062fa10441cc5852166a34138781a2604d9e9 导出到 D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/baseline-repro（不含本任务任何改动），16 spinner 同等并发下该用例 4/4 失败，当前副本同负载 2/2 失败，无负载双方均 14/14 通过。
+4. 三种表现同源于同一时序机制：run3 为 TypeError 读 actionLabel（记录已清除）；run1、run2 为 AssertionError Missing expected rejection (HostOperationLeaseConflictError)（租约已过期，第二次 acquire 反而成功）；run4 与 current run2 为 Error [HostOperationLeaseLostError] 宿主操作租约已失效，code RESOURCE_LEASE_LOST、outcomeUnknown true，堆栈落在 dist/core/HostOperationLease.legacy.js:458 与 dist/core/ResourceOperationLease.js:392 与 :41。均为心跳回调错过 20ms 周期、120ms TTL 到期的同族结果。
+5. 两轮 package 唯一差别是机器负载：files=238、maxParallel=2、maxObservedConcurrent=1 相同，首轮有其它独占 job 抢占 CPU；本次改动未新增或修改任何 core 层定时器，只改扩展宿主的队列/进度节奏与实时客户端策略。
+
+处置：未修改该测试与任何生产代码。handoff.json 中以 status=failed、exitCode=1、complete=true 原样保留该失败（logs 指向 job-222 完整 out/err 日志与 60-package.log），并附单跑复现、基线同等并发复现、第二轮 package 通过记录。
+
+### 15.2 F4-FAIL-2 test/factories_integration.test.js 新模块行数门禁 (<400，目标 <300)
+
+只读核实数字：
+
+| 文件 | 基线 wc -l（git show 7a6062fa） | 本副本 wc -l | 门禁口径 split 换行计数（基线 / 本副本） |
+|---|---|---|---|
+| src/extension/CacheCleanupPanel.ts | 478 | 478 | 479 / 479 |
+| src/extension/PlanCleanupHost.ts | 430 | 430 | 431 / 431 |
+
+- 口径差原因：test/factories_integration.test.js 第 352-354 行按 readFileSync(file,utf8).split 换行 的长度计数，文件以换行结尾时比 wc -l 多 1，故断言输出为 479 与 431；主仓同一基线 wc -l 亦为 478 与 430，基线字节本身已超阈值，门禁在基线上同样失败。
+- 与本任务无关：git diff --stat 7a6062fa..HEAD -- src/extension/CacheCleanupPanel.ts src/extension/PlanCleanupHost.ts 输出为空；本次 src 改动仅 extension/legacy.ts、runtime/RuntimeManifest.ts、tunnel/MultiEndpointRealtimeClient.legacy.ts、tunnel/RealtimeTunnelClient.legacy.ts、ui/PanelHtml.legacy.ts。
+- 是否在 npm run package 的 238 文件集合内：不在。依据：scripts/test-workflow.json 中 factories_integration 出现 0 次，package.json 与 scripts 目录检索 0 次；60-package.log、63-package2.log、50-build.log 中出现 0 次；63-package2.log 实际枚举的唯一测试文件路径恰为 238 个，其中不含 factories_integration。package overall=passed 未掩盖该门禁，它仅在按 T9 显式单跑时暴露（30-test-test_factories_integration_test_js.log，exit=1，8 tests 7 pass 1 fail）。
+- 处置：未改生产代码、未放宽门禁阈值；结论为基线既有技术债，是否拆分这两个文件由主控决定。
