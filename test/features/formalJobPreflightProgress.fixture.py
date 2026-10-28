@@ -23,7 +23,7 @@ variant = sys.argv[1]
 root = pathlib.Path(tempfile.mkdtemp(prefix="simple-formal-preflight-")).resolve()
 (root / "experiments/plans").mkdir(parents=True)
 hook = root / "validator.py"
-hook.write_text('''import hashlib, json, os, sys, time
+hook.write_text('''import hashlib, json, os, pathlib, sys, time
 processed = 0
 files = 0
 def validate_result_paths(config, contract):
@@ -32,6 +32,8 @@ def validate_result_paths(config, contract):
     files += 1
     print('SIMPLE_PROGRESS ' + json.dumps({'phase':'assets','processedFiles':files,'processedBytes':processed,'callbackIndex':index}), file=sys.stderr, flush=True)
     variant = os.environ['PROBE_VARIANT']
+    if os.environ.get('PROBE_WATCHDOG_READY'):
+        pathlib.Path(os.environ['PROBE_WATCHDOG_READY']).write_text('ready', encoding='utf-8')
     if variant == 'exit':
         print('ACTUAL_PREFLIGHT_EXIT_7', file=sys.stderr, flush=True)
         sys.exit(7)
@@ -143,18 +145,42 @@ agent.redact_text = lambda value: value
 scale = 1 if variant in ("no-environment", "api", "api-environment", "api-completed", "fast", "duplicate", "pad", "staged") else 30
 agent.time = SimpleNamespace(**{name: getattr(time, name) for name in dir(time) if not name.startswith("__") and name not in ("monotonic", "sleep")},
     monotonic=lambda: time.monotonic() * scale, sleep=lambda seconds: time.sleep(min(seconds, 0.005)))
+# The inactivity variants use a controlled clock after their real probe starts.
+# Interpreter/AST startup and reader teardown remain real and bounded by the outer
+# 10s child limit; they are not multiplied into the virtual watchdog deadline.
+controlled_watchdog = variant in ("grow", "cancel", "stall", "heartbeat", "decreasing", "exit", "mixed")
+watchdog_clock = [0.0]
+watchdog_ready_files = []
+current_watchdog_ready = [None]
+if controlled_watchdog:
+    def watchdog_sleep(seconds):
+        if current_watchdog_ready[0] is not None and current_watchdog_ready[0].exists():
+            watchdog_clock[0] += seconds * 3
+        time.sleep(min(seconds, 0.005))
+    agent.time.monotonic = lambda: watchdog_clock[0]
+    agent.time.sleep = watchdog_sleep
 original_run, original_popen = subprocess.run, subprocess.Popen
 def scaled_run(*args, **kw):
     if kw.get("timeout") == 10: kw["timeout"] /= scale
     result = original_run(*args, **kw); stderr.append(result.stderr or ""); return result
 def popen(*args, **kw):
+    if controlled_watchdog:
+        ready = root / ("fixture-watchdog-ready-" + str(len(children)))
+        current_watchdog_ready[0] = ready
+        watchdog_ready_files.append(ready)
+        kw["env"] = dict(kw.get("env") or os.environ, PROBE_WATCHDOG_READY=str(ready))
     proc = original_popen(*args, **kw); children.append(proc); return proc
 agent.subprocess = SimpleNamespace(**{name: getattr(subprocess, name) for name in dir(subprocess) if not name.startswith("__")})
 agent.subprocess.run = scaled_run
 agent.subprocess.Popen = popen
+inactivity_durations = []
 original_inactivity = agent.subprocess_inactivity_run
 def inactivity(*args, **kw):
-    result = original_inactivity(*args, **kw); stderr.append(result.stderr or ""); return result
+    phase_started = time.monotonic()
+    try:
+        result = original_inactivity(*args, **kw); stderr.append(result.stderr or ""); return result
+    finally:
+        inactivity_durations.append((time.monotonic() - phase_started) * scale)
 agent.subprocess_inactivity_run = inactivity
 entry = {"cancel": threading.Event(), "processes": set(), "root": str(root), "action": "preflight-worker-task",
          "operationId": "preflight-op", "opId": "preflight-op", "payload": command}
@@ -344,4 +370,4 @@ elif variant != "api-completed":
 assert all(proc.poll() is not None for proc in children), "preflight child is still alive"
 assert not entry["processes"], "preflight child remained registered"
 print(json.dumps({"receipt": receipt, "callbacks": callbacks, "progressCount": len(events),
-                  "elapsedVirtualSeconds": (time.monotonic() - started) * scale, "executionStarted": False}))
+                  "elapsedVirtualSeconds": watchdog_clock[0] if controlled_watchdog else (time.monotonic() - started) * scale, "elapsedTotalVirtualSeconds": (time.monotonic() - started) * scale, "watchdogReady": any(file.exists() for file in watchdog_ready_files), "inactivityDurations": inactivity_durations, "variant": variant, "executionStarted": False}))

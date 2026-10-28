@@ -8,7 +8,7 @@ SimpleExperiment 是一个 VS Code 插件，用 Xshell 本地隧道、远端 Age
 
 - 在 Windows VS Code 中编辑代码，在一台或多台 Linux GPU 服务器上运行实验。
 - 希望通过已保存的 Xshell 会话访问服务器，而不是让插件保存另一套 SSH 密钥。
-- 需要 Hub 汇总调度，或只需要单 Worker / 多 Worker 直连执行。
+- 需要单 Worker 或多 Worker 直连执行。
 - 需要可追溯的 Plan、任务、日志、指标和归档流程。
 
 ## 组件
@@ -20,7 +20,7 @@ TensorBoard event 日志的目录层级和跨 seed 汇总要求见 [插件实验
 | SimpleExperiment | 服务器配置、拓扑选择、Plan 校验/预演/运行、Agent 与任务监控、结果分析入口。 |
 | SimpleSFTP | 项目文件上传下载、Agent runtime 分发、ignore 规则和路径确认。 |
 | Xshell | 用户已配置的登录会话和 `127.0.0.1` 本地端口转发。 |
-| Remote Agent | 由用户显式部署到 Hub/Worker 的受管 Python runtime。 |
+| Remote Agent | 由用户显式部署到 Worker 的受管 Python runtime。 |
 
 两个 VS Code 扩展必须一起安装：`simple-local.simple-experiment` 和 `simple-local.simple-sftp`。
 
@@ -28,7 +28,7 @@ TensorBoard event 日志的目录层级和跨 seed 汇总要求见 [插件实验
 
 - Windows 10/11 和 VS Code 1.100 以上。
 - 可运行的 Xshell，并且能保存 `.xsh` 会话。
-- Linux Hub/Worker 已安装 Python 3。
+- Linux Worker 已安装 Python 3。
 - 运行计划的环境需要 `PyYAML`。例如：
 
 ```bash
@@ -65,8 +65,8 @@ code --install-extension .\simple-experiment-<version>.vsix
 | 模式 | 用法 |
 | --- | --- |
 | `single_worker` | 只有一台 Worker。该 Worker 自行调度和保存状态，不依赖 Hub。 |
-| `worker_pool` | 两台以上 Worker 各自调度分片；无 Hub，不做跨节点备份。 |
-| `hub_worker` | Hub 负责全局调度和汇总，至少一台 Worker 执行实验。 |
+| `worker_pool` | 多台已启用 Worker；调度和产物同步以各 Worker 配置及勾选范围为准。 |
+| 历史 Hub 配置 | 已退役，仅保留历史读取和明确拒绝入口。 |
 
 模式保存在 `simpleExperiment.topologyMode`，推荐在面板“设置 > 服务器”中选择。切换模式不会迁移已有任务。
 
@@ -113,9 +113,9 @@ tmux -V                   # 推荐，用于保持 Agent 和长任务运行
 
 ### 2. 配置 Xshell 会话
 
-Hub 和每台 Worker 都需要一个已保存的 `.xsh` 会话。
+每台启用的 Worker 都需要一个已保存的 `.xsh` 会话。
 
-以 Hub 为例：
+以 Worker A 为例，以下端口仅为示例，实际以每台服务器的用户配置为准：
 
 1. 打开 Xshell 会话属性。
 2. 进入 **连接 > SSH > 隧道**。
@@ -125,18 +125,17 @@ Hub 和每台 Worker 都需要一个已保存的 `.xsh` 会话。
 6. 目标主机填 `127.0.0.1`，目标端口填 `18765`。
 7. 保存会话并测试登录。
 
-Worker 不复用 Hub 的本机监听端口。远端 Agent 默认都监听自己的 `127.0.0.1:18765`，但每个 Worker 的本机端口必须不同：
+每台 Worker 使用自己的本机转发端点。远端 Agent 地址和端口同样来自该服务器配置：
 
 | 角色 | Xshell 监听端口 | 目标主机 | 目标端口 |
 | --- | ---: | --- | ---: |
-| Hub | `18765` | `127.0.0.1` | `18765` |
 | Worker A | `18766` | `127.0.0.1` | `18765` |
 | Worker B | `18767` | `127.0.0.1` | `18765` |
 | Worker C | `18768` | `127.0.0.1` | `18765` |
 
 规则：
 
-- 源主机/目标主机必须是 `127.0.0.1`、`localhost` 或 `::1`。
+- 源主机、目标主机与端口均以该服务器的实际隧道配置为准。
 - 不同端点不能复用同一个本机监听端口。
 - 尽量不要让多个端点复用同一个 `.xsh` 文件。
 - 私钥、密码仍由 Xshell 管理；插件不需要写入密码。
@@ -145,12 +144,12 @@ Worker 不复用 Hub 的本机监听端口。远端 Agent 默认都监听自己�
 
 打开 VS Code 单项目工作区，然后打开 **SimpleExperiment > 设置 > 服务器**。
 
-Hub 至少填写：
+每台启用的 Worker 至少填写：
 
 | 字段 | 示例 |
 | --- | --- |
-| 显示名 | `Lab-Hub` |
-| Xshell 会话 | 选择已保存的 Hub `.xsh` |
+| 显示名 | `Lab-Worker-A` |
+| Xshell 会话 | 选择该 Worker 已保存的 `.xsh` |
 | 本地转发端口 | `18765` |
 | 远端 Agent 端口 | `18765` |
 | 项目父目录 | `/data/experiments` |
@@ -161,12 +160,12 @@ Hub 至少填写：
 | 字段 | 说明 |
 | --- | --- |
 | 本地转发端口 | 必须唯一，例如 `18766`。 |
-| 项目父目录 | 通常与 Hub 相同，但必须按实际服务器填写。 |
+| 项目父目录 | 按实际 Worker 配置填写。 |
 | 并发占卡上限 | 该 Worker 同时允许被调度占用的 GPU 数。 |
 | 允许 GPU ID | 留空不限制；也可填 `0,1,2,3`。 |
 | tmux 前缀 | 多用户共用时改成用户短标识。 |
 
-保存后点击 **检测全部**。只有 Hub 和所有启用 Worker 都可达且项目目录匹配，才算通过。
+保存后点击 **检测全部**。只有所有启用 Worker 都可达且项目目录匹配，才算通过。
 
 ### 4. 准备 Agent
 
@@ -180,7 +179,7 @@ Hub 至少填写：
 2. 写入受管 `RemoteCommand`，已有非 SimpleExperiment 登录命令时会停止而不是覆盖。
 3. 通过 SimpleSFTP 上传 Agent runtime。
 4. 打开对应 Xshell 会话。
-5. 检测 Hub/Worker。
+5. 检测 Worker。
 
 Agent runtime 位于 `<项目父目录>/simple_agent/runtime`，项目代码位于 `<项目父目录>/<本地工作区名称>`。
 
@@ -357,7 +356,7 @@ Agent 的 Plan seed/final 表位于 `simple_cluster/results/by_plan/<plan-key>/d
 
 | 设置 | 默认值 | 说明 |
 | --- | --- | --- |
-| `topologyMode` | 空 | `single_worker`、`worker_pool` 或 `hub_worker`。 |
+| `topologyMode` | 空 | `single_worker` 或 `worker_pool`；Hub 模式已退役。 |
 | `planDir` | `experiments/plans` | 相对工作区的 Plan 目录。 |
 | `codeSync.includePaths` | `[]` | 运行 Plan 前额外上传的本机文件或目录，在“设置上传文件范围”中维护。 |
 | `codeSync.allowedExtensions` | 常见源码与配置类型 | 上传范围内允许的扩展名；可交互修改，`*` 表示任意类型。 |
@@ -373,8 +372,8 @@ Agent 的 Plan seed/final 表位于 `simple_cluster/results/by_plan/<plan-key>/d
 | 设置 | 默认值 | 说明 |
 | --- | --- | --- |
 | `connectionMode` | `xshell_tunnel_realtime` | 正常使用保持实时隧道。`offline_import` 只导入离线包。 |
-| `tunnel.localForwardPort` | `18765` | Hub 的本机监听端口。 |
-| `tunnel.remoteAgentPort` | `18765` | Hub 远端 Agent 端口。 |
+| `tunnel.localForwardPort` | `18765` | 历史 Hub 字段，当前不生成连接目标。 |
+| `tunnel.remoteAgentPort` | `18765` | 历史 Hub 字段，当前不生成连接目标。 |
 | `tunnel.agentToken` | 空 | 可选共享 token；所有 Agent 使用同一值。不要写入项目文件。 |
 | `tunnel.remoteTmuxSessionPrefix` | `simple` | 远端 tmux 前缀，只允许小写字母、数字、点、下划线和连字符。 |
 | `tunnel.condaEnv` | 空 | 全局默认 Conda 环境。空值不激活 Conda。 |
@@ -406,8 +405,8 @@ Worker 推荐在面板卡片中配置。底层设置是 `tunnel.workerTunnels` �
 | `scheduler.pollSeconds` | `60` | 调度轮询基准秒数，最小 60。 |
 | `scheduler.jitterSeconds` | `30` | 正向随机抖动。60+30 表示实际间隔约 60-90 秒。 |
 | `scheduler.workerStatusTtlSeconds` | `180` | availability 缓存 TTL，不是轮询间隔。 |
-| `scheduler.localAvailabilityPushSeconds` | `60` | 本机向 Hub 上报可用性的基础间隔。 |
-| `scheduler.workerAvailabilityPushSeconds` | `60` | Worker 向 Hub 上报的基础间隔。 |
+| `scheduler.localAvailabilityPushSeconds` | `60` | 历史上报字段；自动可用性推送已退役。 |
+| `scheduler.workerAvailabilityPushSeconds` | `60` | 历史上报字段；自动可用性推送已退役。 |
 | `scheduler.operationEventMaxDelayMs` | `1000` | 操作事件最大合并延迟。 |
 | `scheduler.workerActionMinIntervalMs` | `1500` | 同一 Worker 控制动作最小间隔。 |
 | `scheduler.workerActionMaxConcurrent` | `1` | 同一 Worker 控制动作并发上限。 |

@@ -1580,3 +1580,39 @@ AGENTS.md 要求的第二条校验（原文摘录）：`node -e "new (require('v
 索引生成器一度因预期的 git diff --no-index 返回1残留在 LASTEXITCODE，使调用层误报刷新失败；文件已成功生成，当时未启动预检。仅修仓库外生成器在全部原生状态检查、写入和UTF-8回读完成后显式退出0，之后234预检通过。此记录与最后文档状态写入后仍须重算全部 sha256 并执行同一只读预检，最终回执留在仓库外，避免索引自引用。
 
 本轮进入原任务分支的 scoped 提交/普通推送阶段，实际新 SHA 与 push/fetch 确认在仓库外日志登记；handoff.revision 明确仅为快照父提交 ca130b16，不冒充最终 HEAD。只发布本分支的已验证源码，不整合 master、不声称可合并，不运行第五轮终审或任何发行/安装操作。版本/冲突决策仍待用户答复；当前 .vsix 与逐包清单保留，不上传历史版本。
+
+### 20.15 用户授权后的0.5.424主线整合
+
+用户明确答复“允许合入最新 master，改为 0.5.424 继续交付”。本轮复用原副本与feat分支，不stash、不清理、不改写旧提交；243重新fetch确认master仍为7d2fbc6c68cef6f40669fbf115dd71441822ac46、稳定Latest0.5.423、v0.5.424 tag不存在。原始基线7a6062fa固定保留，c08b49a7已验证候选是整合前父提交。
+
+244真实git merge --no-commit --no-ff返回1并登记11个冲突，不作为通过。冲突为版本与生成文件，以及一处scratch测试处理。package/lock/runtime源统一改0.5.424；247原生compile重建所有生成输出、py/sha与RuntimeManifest，exit0、overall=passed，双node-c通过。Panel源与preflight fixture自动合并保留新主线进度标签修正、受控watchdog与本任务选中AST函数计时前准备。Git测试保留新主线的所有独立拆组及本任务无硬链接/保留字节断言；scratch仅用本夹具exclude恢复同一clean Git输入，不额外移动/删除文件。源码/索引无剩余冲突标记，merge commit等待新候选验证后提交。
+
+现有node_modules是指向受保护主仓的junction，qs6.16.0与新master锁定6.17.0不同。本轮仅将这个任务副本的junction条目重命名到本树simple_cluster/cache/pre-0.5.424-dependency-link/node_modules，保留链接及目标，不删除文件；前后核对主仓qs package字节SHA不变。任务根的node_modules原条目缺失后，246执行npm ci --ignore-scripts --no-audit --no-fund新建本任务独立锁定依赖，exit0，120包，qs6.17.0；未修改主仓或全局依赖，未执行安装生命周期脚本。245保留路径/目标/指纹证据。
+
+旧最终0.5.422包及checksum已完整复制到仓库外probes/c08b49a7-package-backup，实测SHA仍为b0d5b59eb108241201b09c4db0b2aec686ca8efbd6c440812d630c5053e4a253；旧日志和报告均保留。合并没有删除上游文件。新主线已批准将旧C5 30秒复合测试拆为各20000ms用例，并统一boundedNodeTests；本任务没有调整这些值。外部单文件执行器继续使用用户授权的“原用例限时”，外层总保护由当前文件用例数×20000ms计算，旧183记录530000ms不变。
+
+接下来必须重跑合并后的目标文件、259完整build、260完整package、独立vm.Script和实包门禁；不得拿0.5.422旧候选的通过替代新0.5.424。尚未提交合并、交终审、合并PR、发行、安装或同步主仓。
+
+### 20.16 合并后17个目标文件全部单跑通过
+
+248-integrated-branchRegistry-424-takeover：36/36、exit0、无超时/取消，wallMs=102049；采用原用例Node20000ms，当前上游拆组后无30秒例外；外层保护36×20000=720000ms，只防整进程无限存活，不改变任何用例阈值。此记录不更改183原26项/530000ms历史。
+
+249–258共10文件均exit0、无超时：displayClosureDecisionTable、panelLowTrafficModePolicy、lowTrafficDisplayRework、gpuSampleCarryChannel，以及formalJobPreflight Failure / Progress / Structure / Environment / Rejections / Api六消费者。269–274另6文件均exit0：panelWebviewScriptHealth、panelMessageDispatch、panelInlineScriptSyntax、schedulerContract、tmuxWorkerAndRichLog、gpuWindowPanelWiring。全部使用同一外部单文件执行器先落完整日志与实际退出码，上一文件确认退出后才启动下一文件；没有重试或改阈值。决策表仍14项、kernel746496 / 映射8957952、N88 / A768及10连续链。
+
+新版本259完整build现正在运行，未结束前不计通过；其后仍须260 package及新实包/索引/实际候选终审。对UTF-8文件的首次回读检查误用了只在evidence出现而plan排版没有的空格短语，产生一次校验异常；随后分别核对两文件实际中文与版本字符串，确认UTF-8内容正常，没有编码覆盖或产品变动。
+
+### 20.17 0.5.424完整build与双重语法门禁通过
+
+259-build-integrated-424.log / .exit.txt：真实exit0、entry=build overall=passed、265个作业全部通过（228个去重测试文件，上游拆组展开）、maxParallel=1 / maxObservedConcurrent=1、按需未运行0，总时长566664ms。原始完整逐项日志及回执：simple_cluster/reports/test-workflow/2026-10-28T08-50-45-872Z-82636-build/。两道node-c均通过，新依赖与合并后源码输入的closureKey=d3e3a40278af…；不是借旧422候选记录。
+
+261-vmScript-integrated-424.log / .exit.txt：构建后独立vm.Script exit0、零异常；此前271还已验证真实render内层script。262-endpoint-audit-integrated-424.json：src/dist列出818个文件，业务文本中10890及固定127.0.0.1:18765零命中。260完整package仍在进行，未先记通过；必须补齐其真实退出码和新0.5.424归档证明，之后才可冻结提交/终审。
+
+### 20.18 最终0.5.424实包与交审冻结
+
+260-package-integrated-424.log / .exit.txt：真实exit0、entry=package overall=passed，304个作业全部通过（241个去重测试文件，包含上游3个安全测试及必要拆组），maxParallel=1 / maxObservedConcurrent=1，按需未运行0，总时长671300ms。完整回执与逐项原日志：simple_cluster/reports/test-workflow/2026-10-28T09-01-34-752Z-80200-package/；组装gate12成功，无live install。与259 build共同绑定整合后的0.5.424输入，不继承0.5.422旧门禁充数。
+
+最终simple-experiment-0.5.424.vsix为2695468字节，SHA256 63c86495048e48a226f51d4ffa3d98eda871fe2a0a1e528dc4eb08ff6f8f1e94；逐包simple-experiment-0.5.424.vsix.sha256是UTF-8无BOM、绑定精确文件名。263-package-evidence.json与完整identity-closure日志证明真实ZIP身份simple-local.simple-experiment、版本0.5.424、universal、engine ^1.100.0、runtime0.5.424；308个实际归档闭包/资源文件唯一存在且与当前磁盘字节SHA匹配，Agent/Scheduler实际内容符合清单哈希。264-vsix-manifest-integrated-424 exit0：351条目、leakHits0、missingRequired0、readmeViolations0；265-vsix-runtime-integrated-424 exit0：302模块、2入口。未安装、未上传Release、未合并PR。
+
+全部规定自动检查已通过，当前为交审冻结；本节写入后重算handoff所有sha256并执行只读预检，提交/普通推送真实两父整合提交、fetch确认，实际SHA在派发正文及仓库外日志给出。handoff以originalBaseRevision=7a6062fa保留原冻结祖先，以baseRevision/integratedUpstream=7d2fbc6c对应当前真实PR差异；revision仅标提交前快照父c08b49a7，不能冒充最终候选。原三条用户要求及GPT§20指导不改；版本424采用用户最新明确授权。原失败/超时保持原状态，不改阈值/断言或以未知求绿。
+
+后续只允许该实际候选通过GPT openai/gpt-6.1-sol medium第五轮终审后连续收尾。为避免在审核后改动已冻结输入，PR合并/稳定Release/真实Latest/本机安装/主线备份快进及用户重载状态记入仓库外权威输出 D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/delivery-0.5.424.json，并保留各命令日志；不反写已审核源索引或以未执行状态冒充完成。当前真实流量字节和费用仍未实测。

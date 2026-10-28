@@ -15104,7 +15104,7 @@ function renderPanelHtml() {
         const taskStamps = group.tasks.map((row) => Date.parse(row.enqueuedAt || row.createdAt || row.startedAt || "")).filter(Number.isFinite);
         const stamp = Date.parse(submitted || "") || (operationStamps.length ? Math.max(...operationStamps)
           : taskStamps.length ? Math.min(...taskStamps) : Number.MAX_SAFE_INTEGER);
-        return { ...group, currentJobs, totalJobs, missingInputs: Math.max(0, recovery.expectedJobCount-currentJobs.length), tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, submitting: !!submission, waitingSubmission, deferredCurrent, statusText, countText, failedJobs, isolationPausedJobs, unavailableJobs, label, stamp };
+        return { ...group, submissionOperationId: submission && (submission.operationId || submission.id || submission.opId), currentJobs, totalJobs, missingInputs: Math.max(0, recovery.expectedJobCount-currentJobs.length), tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, submitting: !!submission, waitingSubmission, deferredCurrent, statusText, countText, failedJobs, isolationPausedJobs, unavailableJobs, label, stamp };
       });
       items.sort((a, b) => a.stamp - b.stamp || a.key.localeCompare(b.key));
       if (typeof executionPlanFiles !== 'undefined') executionPlanFiles = Array.from(new Set(items.map(item => item.planFile).filter(Boolean)));
@@ -15140,7 +15140,7 @@ function renderPanelHtml() {
         const foldButton = '<button type="button" class="mini secondary" data-execution-plan-fold="' + escAttr(group.key) + '" title="只收起这张卡片，不停止调度、不清除历史">折叠此 Plan</button>';
         const selectBox = group.planFile ? '<input type="checkbox" class="executionPlanCheckbox" data-execution-plan-check="' + escAttr(group.planFile) + '" aria-label="勾选 ' + escAttr(group.label || group.planFile) + '"' + (isSelected ? ' checked' : '') + '>' : '';
         const dangerActions = group.planFile ? '<div class="executionPlanActions"><button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除历史</button></div>' : '';
-        const statusBadge = '<b class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b>';
+        const statusBadge = '<b' + (group.submissionOperationId ? ' data-submission-status="' + escAttr(group.submissionOperationId) + '"' : '') + ' class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b>';
         const distributedHtml = distributedRows.length ? '<h3>' + loadingPrefix(group.distributedActive) + '当前 job · 成功 ' + group.completed + '/' + group.totalJobs + '</h3>'
           + (group.missingInputs ? '<div class="executionDistributedFailure" role="status">缺少 ' + group.missingInputs + ' 个 job 的任务输入（声明 ' + group.totalJobs + '，当前 ' + distributedRows.length + '）。缺项不计入完成；选中对应 PLAN 后，可校验并选择“仅补跑未完成任务”。</div>' : '')
           + (group.failedJobs ? '<div class="executionDistributedFailure">' + group.failedJobs + ' 个当前 job 失败，未计入成功。打开对应日志查看原因。</div>' : '')
@@ -15244,7 +15244,7 @@ function renderPanelHtml() {
         const taskHtml = taskRows.length ? '<h3>任务与日志</h3>' + renderPlanTaskCards(state, sortedTasks, selected, group.key) : "";
         const more = sortedOps.length > opRows.length ? '<div class="muted">其余操作在下方“高级：完整操作记录”。</div>' : "";
         const phaseNote = group.submitting
-          ? '<div class="muted">' + esc(group.statusText) + '，当前还没有新 job。旧运行的成功数不计入这一阶段。</div>'
+          ? '<div class="muted" data-submission-note="' + escAttr(group.submissionOperationId || '') + '">' + esc(group.statusText) + '，当前还没有新 job。旧运行的成功数不计入这一阶段。</div>'
           : group.deferredCurrent
             ? '<div class="muted">' + esc(group.countText) + '。折叠只隐藏卡片，不改变调度。</div>' + (group.deferredNote ? '<div class="muted">' + esc(group.deferredNote) + '</div>' : '')
             : "";
@@ -15269,7 +15269,7 @@ function renderPanelHtml() {
         const syncBadge = group.tone === "completed" ? '<div class="executionPlanSyncStatus" title="' + escAttr([syncState.detail || "启动后连接就绪、Plan 完成及同步/下载结束时自动只读核验。", syncState.checkedAt || ""].join(" · ")) + '"><span class="pill ' + (syncState.status === "synced" ? "status-completed" : "status-warning") + '">' + esc(syncLabel) + (Number(syncState.targetCount) > 0 ? ' · ' + Number(syncState.syncedCount || 0) + '/' + Number(syncState.targetCount) + ' Worker' : '') + '</span></div>' : '';
         return '<article class="executionPlanCard executionPlanRow ' + group.tone + (isSelected ? ' is-selected' : '') + '" data-execution-plan-key="' + escAttr(group.key) + '">' +
           '<div class="executionPlanHead" title="' + escAttr(group.planFile || group.label) + '"><label class="executionPlanName">' + selectBox + loadingPrefix((group.active && !group.waitingSubmission && !group.deferredCurrent) || group.distributedActive) + esc(group.label) + '</label>' + statusBadge + '</div>' +
-          '<div class="executionPlanMeta"><span class="executionPlanCount">' + esc(count) + '</span><span title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</span></div>' +
+          '<div class="executionPlanMeta"><span class="executionPlanCount"' + (group.submissionOperationId ? ' data-submission-count="' + escAttr(group.submissionOperationId) + '"' : '') + '>' + esc(count) + '</span><span title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</span></div>' +
           syncBadge +
           stopClearSummary +
           actions +
@@ -15295,7 +15295,7 @@ function renderPanelHtml() {
         const foldClearLabel = foldOutcome === "failed" ? "清理失败" : foldOutcome === "partial" ? "清理未完成" : foldOutcome === "running" ? "正在清理" : foldOutcome === "cancelled" ? "清理已取消" : "";
         const checked = typeof selectedExecutionPlanFiles !== 'undefined' ? selectedExecutionPlanFiles.has(group.planFile) : samePlanSelection(group.planFile, selectedExecutionPlanFile);
         const selectBox = group.planFile ? '<input type="checkbox" class="executionPlanCheckbox" data-execution-plan-check="' + escAttr(group.planFile) + '" aria-label="勾选 ' + escAttr(group.label || group.planFile) + '"' + (checked ? ' checked' : '') + '>' : '';
-        return '<div class="executionPlanFoldRow ' + group.tone + '"><label class="executionPlanName">' + selectBox + esc(group.label) + '</label><span class="executionPlanCount">' + esc(count) + '</span><b class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b>' + (foldClearLabel ? '<b class="status-warning" data-plan-stop-fold="' + escAttr(foldOutcome) + '">' + esc(foldClearLabel) + '</b>' : '') + '<button type="button" class="mini secondary" data-execution-plan-fold="' + escAttr(group.key) + '" title="把这张 Plan 放回主视图。不改变调度。">恢复监控</button></div>';
+        return '<div class="executionPlanFoldRow ' + group.tone + '"><label class="executionPlanName">' + selectBox + esc(group.label) + '</label><span class="executionPlanCount"' + (group.submissionOperationId ? ' data-submission-count="' + escAttr(group.submissionOperationId) + '"' : '') + '>' + esc(count) + '</span><b' + (group.submissionOperationId ? ' data-submission-status="' + escAttr(group.submissionOperationId) + '"' : '') + ' class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b>' + (foldClearLabel ? '<b class="status-warning" data-plan-stop-fold="' + escAttr(foldOutcome) + '">' + esc(foldClearLabel) + '</b>' : '') + '<button type="button" class="mini secondary" data-execution-plan-fold="' + escAttr(group.key) + '" title="把这张 Plan 放回主视图。不改变调度。">恢复监控</button></div>';
       };
       const foldHtml = folded.length
         ? '<details class="executionPlanFold" data-details-key="execution-plan-fold" open><summary>已折叠 Plan ' + folded.length + '</summary>' + folded.map(foldRow).join("") + '</details>'
@@ -15434,11 +15434,8 @@ function renderPanelHtml() {
           localSubmissionProgress: row.localSubmissionProgress,
           workflowId: executionOperationWorkflowId(row),
           error: row.error,
-          // The group label now displays an ACTIVE submission's stage/message
-          // (same-source progress), so the key must carry exactly that displayed
-          // text; timestamps stay excluded to avoid per-frame rerenders.
-          message: active ? String(row.message || "") : row.message,
-          stage: active ? String(row.stage || "") : "",
+          // Active stage/message text is patched through stable operation identities.
+          message: active ? undefined : row.message,
           reconcileEvidenceActive: row.reconcileEvidenceActive,
         };
       });
@@ -15537,7 +15534,7 @@ function renderPanelHtml() {
 
     function renderExecutionPlanListIfChanged(state, force) {
       const key = executionPlanListKey(state);
-      if (!force && key === lastExecutionPlanListKey) return;
+      if (!force && key === lastExecutionPlanListKey) { patchExecutionProgressDom(state); return; }
       renderExecutionPlanList(state);
       lastExecutionPlanListKey = key;
     }
@@ -15604,6 +15601,16 @@ function renderPanelHtml() {
       }
       const taskRoot = el("executionPlanList");
       if (taskRoot && typeof taskRoot.querySelectorAll === "function") {
+        const submissions = new Map(operationRowsForState(data).map(row => [String(row.operationId || row.id || row.opId || ""), row]));
+        ["status", "count", "note"].forEach(kind => {
+          taskRoot.querySelectorAll("[data-submission-" + kind + "]").forEach(node => {
+            const row = submissions.get(String(node.getAttribute("data-submission-" + kind) || ""));
+            if (!row) return;
+            const label = executionSubmissionLabel(row);
+            const text = kind === "count" ? label + " · 待生成 job" : kind === "note" ? label + "，当前还没有新 job。旧运行的成功数不计入这一阶段。" : label;
+            node.textContent = typeof redactUiText === "function" ? redactUiText(text) : text;
+          });
+        });
         const taskRows = taskSectionViewModelForState(data).allRows || [];
         const taskByKey = new Map(taskRows.map((row) => [String(row.uiKey || taskTargetKey(row) || row.experimentId || row.experimentName || ""), row]));
         taskRoot.querySelectorAll("[data-task-render-key]").forEach((node) => {

@@ -249,7 +249,8 @@ function planEntry(manifestFile, manifest, root, entryName, opts) {
   if (full) phases.fullCheck.domainGates = acc.gates.map(g => ({ ...g, phase: "fullCheck" }));
 
   const byKey = new Map();
-  for (const j of acc.jobs) {
+  const expandedJobs = require("./test-case-groups").expandCaseGroups(root, acc.jobs, manifest.caseGroups, manifest.boundedNodeTests === true);
+  for (const j of expandedJobs) {
     const identity = jobIdentity(root, j.file);
     const key = identity + "\u0000" + j.argv.join("\u0000");
     const rel = path.relative(root, path.resolve(root, j.file)).split(path.sep).join("/");
@@ -276,7 +277,7 @@ function planEntry(manifestFile, manifest, root, entryName, opts) {
     requiredGates,
     selection: selection.summary,
     onDemandJobs: selection.onDemandJobs.map(j => ({ file: j.file, argv: j.argv, status: "on_demand_not_run" })),
-    dedup: { requestedSlots: acc.jobs.length, uniqueRuns: plannedUniqueBeforeSelection, duplicatesRemoved: acc.jobs.length - plannedUniqueBeforeSelection },
+    dedup: { requestedSlots: expandedJobs.length, uniqueRuns: plannedUniqueBeforeSelection, duplicatesRemoved: expandedJobs.length - plannedUniqueBeforeSelection },
   };
 }
 
@@ -571,36 +572,19 @@ async function runJobsScheduled(state) {
 /* ---------------- same-root batch lock (r29 #7: never auto-reclaim unknown ownership) ---------------- */
 
 async function acquireLock(state) {
-  // r17-C: the batch lock lives inside the consumed project's managed tree (git-ignored and
-  // package-ignored by the existing simple_cluster rules). Admission/release semantics are
-  // byte-identical to before; a crash-residual lock at the OLD repo-root location is neither
-  // scanned nor reclaimed — same unknown-ownership rule (r29 #7) applies wherever it sits.
-  const parent = path.join(state.root, "simple_cluster", "locks", "simple-experiment", "test-workflow");
-  await fsp.mkdir(parent, { recursive: true });
-  state.lockDir = path.join(parent, "batch.lock");
-  const meta = { pid: process.pid, entry: state.plan.entry, batchId: state.batchId, startedAt: new Date().toISOString(), root: state.root };
-  try {
-    await fsp.mkdir(state.lockDir);
-    await fsp.writeFile(path.join(state.lockDir, "owner.json"), JSON.stringify(meta, null, 1));
-    return;
-  } catch (error) {
-    if (error.code !== "EEXIST") throw error;
-    let ownerText = "(unreadable)";
-    try { ownerText = fs.readFileSync(path.join(state.lockDir, "owner.json"), "utf8"); } catch { /* keep marker */ }
-    fail(`another test-workflow batch owns this working copy — 拒绝并发批（不放大并行上限）。未知/坏 owner 不自动回收（r29 #7）；人工确认无活动批后手动删除该目录。owner.json=${ownerText}`, 3);
-  }
+  try { state.processLock = await require("./build-process-lock").acquireBuildLock(state.root, state.batchId); }
+  catch (error) { fail("拒绝并发批：" + error.message, 3); }
 }
 
-function releaseOwnedLock(state) {
-  if (!state.lockDir) return;
-  try {
-    const owner = JSON.parse(fs.readFileSync(path.join(state.lockDir, "owner.json"), "utf8"));
-    if (owner.pid === process.pid && owner.batchId === state.batchId) {
-      fs.writeFileSync(path.join(state.logDir, "lock-release.json"), JSON.stringify({ releasedAt: new Date().toISOString(), owner }, null, 1));
-      fs.rmSync(state.lockDir, { recursive: true, force: true });
-      state.lockReleased = true;
-    }
-  } catch { /* not ours — leave untouched */ }
+async function releaseOwnedLock(state) {
+  if (!state.processLock) return;
+  const confirmed = state.runningJobs.size === 0 && !state.activeGateKill
+    && state.receipt.jobs.every(job => job.treeStatus === "confirmed")
+    && state.receipt.gates.every(gate => gate.treeStatus === "confirmed" || gate.treeStatus === "n/a(not-spawned)" || gate.skippedAfterCancel);
+  state.lockReleased = await state.processLock.release(confirmed);
+  if (state.lockReleased && state.logDir && fs.existsSync(state.logDir))
+    fs.writeFileSync(path.join(state.logDir, "lock-release.json"), JSON.stringify({ releasedAt: new Date().toISOString(), batchId: state.batchId }), "utf8");
+  state.processLock = null;
 }
 
 /* ---------------- receipt validation (r29 #5) ---------------- */
@@ -751,7 +735,7 @@ async function main() {
       await fsp.mkdir(path.dirname(pointer), { recursive: true });
       await fsp.writeFile(pointer, JSON.stringify({ pointer: true, batchId, runReceipt: runPath, entry: plan.entry, overall: state.receipt.overall, totalWallMs: state.receipt.totalWallMs, inputFingerprint: startFingerprint, endedAt: state.receipt.endedAt }, null, 1));
     } catch { /* pointer is best-effort */ }
-    releaseOwnedLock(state);
+    await releaseOwnedLock(state);
     if (state.receipt.overall === "passed" && (plan.phases.compile || plan.phases.fullCheck)) {
       try { // 完整 compile+fullCheck+package 通过 = 当前闭包状态的新证明，记录进 closure-state（r29 #8 增量核的完成记录）
         // 覆盖范围诚实分级：只有完整打包链证明“全部”；check:full/build 只重验源码与测试。
@@ -857,7 +841,7 @@ async function main() {
     for (const job of state.runningJobs.values()) killOwnedTree(job);
     if (error.planFail && !state.receipt.jobs.length && !state.receipt.gates.length) { // pre-execution planning failure: no run credential required
       detachCancelStdin(); // r28 U2: 早退路径同样解除监听
-      releaseOwnedLock(state);
+      await releaseOwnedLock(state);
       return error.exitCode || 1;
     }
     return await writeReceiptAndRelease(1);

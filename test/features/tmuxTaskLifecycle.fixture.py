@@ -8,14 +8,31 @@ runtime = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 tree = ast.parse(runtime)
 nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name.startswith("task_")]
 code = ast.unparse(ast.Module(body=nodes, type_ignores=[]))
-code += '''
+code += r'''
 _modern_task_tmux = task_tmux
 def task_tmux(args, timeout=5, **kwargs):
     # Emulate the deployed older tmux protocol, while all accepted commands still
     # run against a real isolated tmux server.
     if args[:2] == ["source-file", "-"]: raise RuntimeError("TMUX_QUERY_FAILED: -: No such file or directory")
     if sum(len(str(arg).encode("utf-8")) + 1 for arg in args) > 4096: raise RuntimeError("TMUX_QUERY_FAILED: command too long")
-    return _modern_task_tmux(args, timeout=timeout, **kwargs)
+    fields = None
+    if args and args[0] == "list-panes" and "-F" in args:
+        at = args.index("-F") + 1
+        if "#{pane_dead_status}" in args[at] and "#{pane_id}" in args[at]:
+            args = list(args)
+            fields = args[at].split("\t")
+            args[at] += "\t#{pane_dead_signal}"
+    value = _modern_task_tmux(args, timeout=timeout, **kwargs)
+    if fields is not None:
+        native = globals().setdefault("_fixture_native_fields", {})
+        lines = []
+        for line in value.splitlines():
+            parts = line.split("\t")
+            row = dict(zip(fields + ["signal"], parts))
+            native[row.get("#{pane_id}", "?")] = {key: row.get(key) for key in ("#{pane_dead}", "#{pane_dead_status}", "signal")}
+            lines.append("\t".join(parts[:-1]))
+        return "\n".join(lines)
+    return value
 '''
 root = tempfile.mkdtemp(prefix="se-native-lifecycle-")
 os.environ.pop("TMUX", None)
@@ -100,7 +117,7 @@ def wait_for(check,stage="",refresh=None):
     raise AssertionError("bounded native observation timed out"+(" @"+stage if stage else ""))
 def report_timeout():
     # 诊断仅进 stderr；stdout 仍只输出末尾那一行结果 JSON。不打印环境、不打印原任务正文。
-    lines=["[fixture-diagnostic] stage="+str(LAST_OBS["stage"]),"polls="+str(LAST_OBS["polls"]),"lastQueryError="+str(LAST_OBS["error"] or "none")]
+    lines=["[fixture-diagnostic] nativeFields="+json.dumps(namespace.get("_fixture_native_fields", {})),"[fixture-diagnostic] stage="+str(LAST_OBS["stage"]),"polls="+str(LAST_OBS["polls"]),"lastQueryError="+str(LAST_OBS["error"] or "none")]
     rows=LAST_OBS["rows"]
     if isinstance(rows,list):
         lines.append("[fixture-diagnostic] inventoryRows="+str(len(rows)))
@@ -121,13 +138,14 @@ def job(index,case="slow"):
         planFile="experiments/plans/中文 plan.yaml",planRevision="a"*64,codeFingerprint="b"*64,globalJobId="workflow:"+str(index),
         experimentIndex=index,case=case,seed=42,resultPathPolicy="declared",outputDir="work/job"+str(index),
         collectionResultCsv="tmp/result/job"+str(index)+".csv",planJobCount=4,mode="train_test",executionMode="train_test",maxConcurrentGpus=2)
-try:
-    # Deliberately corrupt legacy state: none of the native functions can read it.
-    for name in ("worker_task_snapshot.json","distributed_plan_queue.json","worker_start_claims.json"):
-        (pathlib.Path(root)/name).write_text("corrupt legacy state",encoding="utf-8")
+def fixture_jobs():
     a,b,c=job(0),job(1),job(2,"failure")
     a["codeManifest"] = {"source/module_" + str(i) + ".py": {"size": i, "sha256": hashlib.sha256(str(i).encode()).hexdigest()} for i in range(180)}
     a["distributedResults"] = {"label": "中文 'quoted' $literal \\ value\n" * 12}
+    return a,b,c
+
+def recovery_case():
+    a,b,c=fixture_jobs()
     namespace["task_queue_rpc"](root,"worker","accept",a,ensure=True)
     assert next(row for row in namespace["task_inventory"](root) if row["commandId"] == a["commandId"])["codeManifest"] == a["codeManifest"]
     assert next(row for row in namespace["task_inventory"](root) if row["commandId"] == a["commandId"])["distributedResults"] == a["distributedResults"]
@@ -223,6 +241,16 @@ try:
     except RuntimeError as exc:
         assert "TASK_ALREADY_ACCEPTED_WINDOW_CLOSED" in str(exc)
     assert namespace["task_query"](root,[a,b])["tasks"][-1]["status"]=="completed"
+    return a,b
+
+def failure_case(a=None,b=None):
+    if a is None:
+        a,b,_=fixture_jobs()
+        for item in (a,b):
+            namespace["task_queue_rpc"](root,"worker","accept",item,ensure=True)
+        wait_for(lambda:all(any(row["commandId"]==item["commandId"] and row["dead"] for row in (LAST_OBS["rows"] or [])) for item in (a,b)),
+            "failure-world-completed-fixtures",lambda:namespace["task_inventory"](root))
+    control=namespace["task_queue_session"](root,"worker")+":queue"
     failure=job(3,"failure")
     namespace["task_queue_rpc"](root,"worker","accept",failure,ensure=True)
     # One real observation per poll, and that same observation is asserted: the
@@ -289,6 +317,16 @@ try:
         "rerun-dead-with-exit",lambda: namespace["task_inventory"](root))
     rerun_observed=next(row for row in namespace["task_query"](root,[rerun])["tasks"] if row["commandId"]==rerun["commandId"])
     assert rerun_observed["status"]=="completed", rerun_observed
+
+try:
+    # Deliberately corrupt legacy state: none of the native functions can read it.
+    for name in ("worker_task_snapshot.json","distributed_plan_queue.json","worker_start_claims.json"):
+        (pathlib.Path(root)/name).write_text("corrupt legacy state",encoding="utf-8")
+    scenario=sys.argv[2] if len(sys.argv)>2 else "all"
+    if scenario=="recovery": recovery_case()
+    elif scenario=="failure": failure_case()
+    elif scenario=="all": failure_case(*recovery_case())
+    else: raise ValueError("unknown private fixture scenario")
     print(json.dumps(dict(ok=True,realTmux=True,callbacks=0,stateFilesRead=0)))
 finally:
     # This is the fixture's newly created server under its private TMUX_TMPDIR only.
