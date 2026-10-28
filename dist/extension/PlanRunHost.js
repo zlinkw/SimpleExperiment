@@ -247,7 +247,9 @@ class PlanRunHost {
             service: cleanup.service, execute: (id) => cleanup.execute(id),
             verify: (preview) => cleanup.service.assertIsolatedSourcesAbsent(preview),
             // r87 块4：隔离完成即派发；后台清理只在 rerun_all+回执齐备时被 fire-and-forget 触发，失败不进派发链。
-            autoDeleteIsolated: (id) => cleanup.autoDeleteIsolated(id),
+            prepareEmptyParents: (preview) => cleanup.service.prepareEmptyParentCleanup(preview),
+            confirmEmptyParents: (previews, phase) => cleanup.service.confirmEmptyParentCleanup(previews, phase),
+            autoDeleteIsolated: (id, parents) => cleanup.autoDeleteIsolated(id, parents),
             ask: (payload) => h.askRunConfirmation(payload, body.submissionOperationIdLocal),
             save: () => this.save(body),
             assertCurrent,

@@ -19,6 +19,66 @@ function fixture(){
  execute:async id=>{events.push('isolate'+id);for(const file of [...files])if(file.startsWith('job'+id.slice(2)+'/'))files.delete(file);const result={state:'completed',pendingNodes:[]};if(autoDelete)result.preview={autoDeleteCapability:1,rows:[{disposition:'isolate',isolationReceipt:{renamed:true,sourceMissingAtMove:true,registered:autoDelete==='full'}}]};operations.set(id,result);if(lost)throw Error('response lost');return result;}};
  return {ports,state,jobs,events,files,set:(v)=>{({choice=choice,cancel=cancel,fail=fail,lost=lost,autoDelete=autoDelete}=v);},run:()=>replaceRunOutputs(ports,state,'plans/p.yaml',jobs,[0],'frozen')};
 }
+test('overwrite confirms artifact destinations and empty parents twice before isolation; missing-only preserves both',async()=>{
+ for(const choice of ['rerun_all','rerun_missing']){
+  const f=fixture();f.set({choice,autoDelete:'full'});const pages=[],phases=[],deletes=[];
+  f.ports.prepareEmptyParents=async preview=>[{token:'parents-'+preview.token,digest:'d',node:{id:'worker',kind:'remote'},sourceIsolationTokens:[preview.token],confirmations:0,
+   confirmationPaths:['/safe/clean_dir/'+preview.token,'/safe/clean_dir/'+preview.token+'/work/job'],
+   confirmationTargets:[{absolutePath:'/safe/clean_dir/'+preview.token,type:'directory'},{absolutePath:'/safe/clean_dir/'+preview.token+'/work/job',type:'directory'}]}];
+  f.ports.confirmEmptyParents=async (rows,phase)=>{phases.push(phase);for(const row of rows)row.confirmations=phase;};
+  const ask=f.ports.ask;f.ports.ask=async page=>{pages.push(page);return ask(page);};
+  f.ports.autoDeleteIsolated=async(id,parents)=>{assert.ok(parents.every(row=>row.confirmations===2));deletes.push(id);return{state:'accepted'};};
+  await f.run();
+  if(choice==='rerun_all'){
+   assert.deepEqual(phases,[1,2]);assert.deepEqual(deletes,['op0','op1']);
+   for(const page of pages)assert.ok(page.groups[0].targets.some(row=>row.path==='/safe/clean_dir/op0'));
+  }else{assert.deepEqual(phases,[]);assert.deepEqual(deletes,[]);assert.ok(!pages[1].groups[0].targets.some(row=>row.path.includes('/clean_dir/')));}
+  assert.equal(f.state.emptyParents,undefined,'finished run does not retain deletion inventories');
+ }
+});
+test('cancel second parent confirmation never moves or deletes old outputs',async()=>{
+ const f=fixture();f.set({cancel:2,autoDelete:'full'});const phases=[];
+ f.ports.prepareEmptyParents=async preview=>[{token:preview.token,confirmationPaths:['/safe/clean_dir/'+preview.token],confirmationTargets:[{absolutePath:'/safe/clean_dir/'+preview.token,type:'directory'}],node:{id:'worker'}}];
+ f.ports.confirmEmptyParents=async(_rows,phase)=>phases.push(phase);
+ await assert.rejects(f.run(),/已取消/);assert.deepEqual(phases,[1]);assert.equal(f.files.size,3);
+ assert.ok(!f.events.some(row=>row.startsWith('isolate')||row.startsWith('delete')));
+});
+test('parent preview binds all backend chunks to the current node and rejects extra deletion paths',async()=>{
+ const {previewEmptyParents,confirmEmptyParents,executeEmptyParents}=require('../../src/features/IsolationEmptyParents.ts');
+ const {cleanupDigest}=require('../../src/features/PlanCleanup.ts');
+ const node={id:'worker',kind:'remote',root:'/safe',user:'u',host:'h',port:22},batch='job-'+'a'.repeat(48),parent='/safe/clean_dir/'+batch,identity={path:'/safe'};
+ const preview={action:'isolate',rows:[0,1].map(i=>({disposition:'isolate',backendToken:'chunk'+i,rootIdentity:identity,node,type:i?'file':'directory',destination:'clean_dir/'+batch+'/work/job'+i}))};
+ const calls=[];let foreign=false,unowned=false;
+ const ports={currentNode:async()=>node,sftp:async(method,params)=>{calls.push({method,params});
+  if(method.endsWith('isolationParentsPreview'))return{eligible:true,isolationParentCleanup:true,token:'parent-token',digest:'digest',rootIdentity:identity,
+   sourceIsolationTokens:['chunk0','chunk1'],safety:{emptyDirectoriesOnly:1,doubleConfirmation:1,parentCwdRequired:1},
+   targets:unowned?[]:[{absolutePath:foreign?'/safe/other':parent,type:'directory'}],confirmationPaths:[...(unowned?[]:[parent]),...preview.rows.map(row=>'/safe/'+row.destination)]};
+  if(method.endsWith('execute'))return{state:'completed',receipt:{emptyDirectoriesRemoved:1}};
+  return{ok:true};}};
+ const parents=await previewEmptyParents(ports,preview,true);
+ assert.deepEqual(calls[0].params.isolationTokens,['chunk0','chunk1']);assert.equal(parents[0].confirmationTargets[2].type,'file');
+ await assert.rejects(executeEmptyParents(ports,parents),/CONFIRM_REQUIRED/);
+ await confirmEmptyParents(ports,parents,1);await confirmEmptyParents(ports,parents,2);
+ assert.equal(await executeEmptyParents(ports,parents),1);
+ assert.deepEqual(calls.filter(row=>row.method.endsWith('confirm')).map(row=>row.params.exactTargets),[parents[0].confirmationPaths,parents[0].confirmationPaths]);
+ unowned=true;const artifactOnly=await previewEmptyParents(ports,preview,true);assert.equal(artifactOnly.length,1);
+ assert.deepEqual(artifactOnly[0].confirmationPaths,preview.rows.map(row=>'/safe/'+row.destination),'unowned containers stay protected; artifacts still need exact confirmations');
+ unowned=false;foreign=true;await assert.rejects(previewEmptyParents(ports,preview,true),/空目录清理需要/);
+ ports.currentNode=async()=>({...node,root:'/changed'});await assert.rejects(confirmEmptyParents(ports,parents,2),/SERVER_IDENTITY_CHANGED/);
+ void cleanupDigest;
+});
+test('legacy empty-directory review shows the same complete paths twice and cancellation prevents execution',async()=>{
+ const {reviewEmptyIsolationParents}=require('../../src/extension/PlanCleanupEmptyParents.ts');
+ for(const cancel of [0,1,2]){
+  const pages=[],phases=[],messages=[];let executed=0;
+  const row={node:{id:'worker',kind:'remote',user:'u',host:'h',port:22},confirmationPaths:['/safe/clean_dir/job-known/work','/safe/clean_dir/job-known']};
+  const service={list:async()=>[{id:'original',action:'isolate'}],status:async()=>({preview:{action:'isolate'}}),prepareEmptyParentCleanup:async(_preview,future)=>{assert.equal(future,false);return[row];},
+   confirmEmptyParentCleanup:async(rows,phase)=>{assert.deepEqual(rows,[row]);phases.push(phase);},executeEmptyParentCleanup:async()=>{executed++;return 2;}};
+  await reviewEmptyIsolationParents({askRunConfirmation:async page=>{pages.push(page);return page.phase===cancel?'cancel':'delete_empty_parents';},notifyWarn:text=>messages.push(text),notifyInfo:text=>messages.push(text)},service,()=>{});
+  assert.equal(executed,cancel?0:1);assert.deepEqual(phases,cancel===1?[]:cancel===2?[1]:[1,2]);
+  for(const page of pages)assert.deepEqual(page.groups[0].targets.map(target=>target.path),row.confirmationPaths);
+ }
+});
 test('two clicks isolate every selected job directory including stale extra files, then continue without a third review',async()=>{
  const f=fixture(),r=await f.run();assert.deepEqual(r.selectedIndices,[0,1,2]);assert.equal(f.files.size,0);
  assert.deepEqual(f.events.filter(e=>e.startsWith('ask')),['ask1','ask2']);assert.ok(f.events.indexOf('workers')<f.events.indexOf('isolateop0'));assert.equal(f.state.done,true);

@@ -47,6 +47,7 @@ const StateStore_1 = require("../state/StateStore");
 const FastDeleteContract_1 = require("./FastDeleteContract");
 const ObservationRound_1 = require("./ObservationRound");
 const ProjectRootMap_1 = require("./ProjectRootMap");
+const IsolationEmptyParents_1 = require("./IsolationEmptyParents");
 const clone = (value) => JSON.parse(JSON.stringify(value));
 // SimpleSFTP bounds each local/SSH cleanup read at 60 seconds. Let that
 // transport finish instead of racing it with a shorter independent deadline.
@@ -1744,7 +1745,10 @@ class PlanCleanup {
      * 已有结论（accepted/failed/unknown）不重发请求，避免制造重复删除执行者。
      * r98 B2：单 token 语义按 (backendToken,backendDigest,节点) 分组逐组提交，各组结论独立落盘，
      * 聚合措辞如实（部分受理=unknown，绝不写"已全部提交"）。 */
-    async autoDeleteIsolated(id) {
+    async prepareEmptyParentCleanup(preview, forReplacement = true) { return (0, IsolationEmptyParents_1.previewEmptyParents)(this.ports, preview, forReplacement); }
+    async confirmEmptyParentCleanup(previews, phase) { return (0, IsolationEmptyParents_1.confirmEmptyParents)(this.ports, previews, phase); }
+    async executeEmptyParentCleanup(previews) { return (0, IsolationEmptyParents_1.executeEmptyParents)(this.ports, previews); }
+    async autoDeleteIsolated(id, parents) {
         const operation = await this.status(id);
         if (operation.preview.action !== "isolate")
             cleanupError("NOT_ISOLATED_OPERATION");
@@ -1755,6 +1759,9 @@ class PlanCleanup {
         const sources = operation.preview.rows.filter(row => row.disposition === "isolate");
         if (!sources.length || sources.some(row => operation.targets[row.id]?.state !== "completed") || !isolationReceiptComplete(operation.preview.rows))
             cleanupError("ISOLATE_AUTODELETE_NOT_AUTHORIZED", "该令牌内仍有目标未完成隔离或未返回完整完成回执（rename 成功、移动当时源缺失、登记成功），不启动后台清理。");
+        if (parents?.length && sources.some(source => !parents.some(parent => parent.confirmations === 2
+            && this.nodeIdentity(parent.node) === this.nodeIdentity(source.node) && parent.sourceIsolationTokens.includes(source.backendToken))))
+            cleanupError("CONFIRM_REQUIRED", "隔离产物和空目录必须属于同一节点及冻结令牌，并完成完整路径的两次确认。");
         if (operation.autoDeleteState) // 已受理/已失败/结果未知都保留原结论；旁路重试不重发删除请求（防重复删除执行者）。
             return { state: operation.autoDeleteState, ...(operation.autoDeleteOperationId ? { operationId: operation.autoDeleteOperationId } : {}),
                 ...(operation.autoDeleteError ? { message: operation.autoDeleteError } : {}) };
@@ -1787,7 +1794,9 @@ class PlanCleanup {
             let operationId;
             let reason;
             try {
+                const parent = parents?.find(row => row.node.id === anchor.node.id && row.sourceIsolationTokens.includes(anchor.backendToken));
                 const response = await this.ports.sftp("files.cleanup.isolatedMaintenanceDelete", { token: anchor.backendToken, digest: anchor.backendDigest,
+                    ...(parent ? { parentCleanupToken: parent.token } : {}),
                     targets: group.map(row => ({ index: row.backendIndex, relativePath: row.relativePath, destination: row.destination })) });
                 state = response?.state === "accepted" || response?.state === "already_accepted" ? "accepted" : response?.state === "failed" ? "failed" : "unknown";
                 if (typeof response?.operationId === "string")
@@ -1824,6 +1833,17 @@ class PlanCleanup {
                     + "（" + (row.state === "failed" ? "未受理" : "结果未知") + (row.error ? "：" + row.error : "") + "）").join("；")
                 + "；副本仍在清理区，可稍后人工复核删除，隔离与已派发任务不受影响。";
         await this.save(operation);
+        if (state === "accepted" && parents?.length) {
+            try {
+                await this.executeEmptyParentCleanup(parents);
+            }
+            catch (error) {
+                operation.autoDeleteState = "unknown";
+                operation.autoDeleteError = "旧副本已提交清理，但空目录尚未确认移除：" + String(error?.message || error) + "；可在隔离产物审核入口重新核实。";
+                await this.save(operation);
+                return { state: "unknown", operationId: operation.autoDeleteOperationId, message: operation.autoDeleteError };
+            }
+        }
         return { state, ...(operation.autoDeleteOperationId ? { operationId: operation.autoDeleteOperationId } : {}),
             ...(operation.autoDeleteError ? { message: operation.autoDeleteError } : {}) };
     }
