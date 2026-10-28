@@ -25975,8 +25975,7 @@ class RealtimeTunnelPanelProvider {
                         if (answer !== label)
                             throw new UiCommandCancelled_1.UiCommandCancelled("已取消关闭窗口。");
                     }, progress: work => vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
-                        title: `关闭 ${workerId} · ${message.gpuSession || message.closeSession}`, cancellable: false }, progress => work(message => progress.report({ message }))),
-                }, { workerId, gpuSession: String(message.gpuSession || ""), session: String(message.closeSession || ""), identities: message.identities });
+                        title: `关闭 ${workerId} · ${message.gpuSession || message.closeSession}`, cancellable: false }, progress => work(message => progress.report({ message }))), }, { workerId, gpuSession: String(message.gpuSession || ""), session: String(message.closeSession || ""), identities: message.identities });
             }
             finally {
                 this.tmuxClearTaskTabsInFlight = false;

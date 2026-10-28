@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.423",
-  "buildId": "23ba7a682e182f04a8b81f4dcb64c3698c85e11866ba1c3ea08a052b45c182d9",
+  "buildId": "1a9347a52f14983d7e1ff1da00ffd8bffda4a6da3312f74307d8035fa427a4de",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -237,7 +237,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "4dd4632bafb717e84a7b1e36cb5e50e887809ed1cce8ccaefc733be4c3100259"
+      "sha256": "263fa7de15d07925558ae3b91d091b2cef336710cabe9872995a75132bc13a73"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -1025,7 +1025,7 @@
     },
     {
       "path": "dist/tunnel/XshellSessionPatcher.js",
-      "sha256": "b92f7cb533c275674fdeda2386bcde4e49e85f2dd600b0c305e0da64106d84b6"
+      "sha256": "205c1d0fb93b6b15c072244fbbc14ebd38ee9fb3111fd72f9f2664f31690692d"
     },
     {
       "path": "dist/tunnel/XshellSessionScanner.js",
