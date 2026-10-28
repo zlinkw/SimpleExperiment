@@ -176,7 +176,7 @@ test("祖先关系：同点/领先/分叉/独立仓库如实区分", () => {
   const sameHead = { ...ancestorIdentity };
   assert.equal(probe.compareAncestorRelation(ancestorIdentity, sameHead), "ancestor-equal");
 
-  const childPath = path.join(path.dirname(repo), "child-worktree");
+  const childPath = path.join(tempDir("se-child-parent-"), "child-worktree");
   git(["worktree", "add", "-q", "-b", "innovation/one", childPath, "main"], repo);
   commitFile(childPath, "child.txt", "c\n", "child commit");
   const childIdentity = probe.readGitIdentity(childPath);
@@ -1001,6 +1001,7 @@ test("C4-R3 候选：plan.id 键控，同 planFile 两轮各半确证绝不拼�
   terminalOnly.jobs.forEach(job => { job.verifiedCompletion = undefined; });
   assert.equal((await candidateOf(repo, [terminalOnly], ["plan-T"])).ok, false, "TrustedTerminalProof 只证终止，不是科研完成");
   // dirty 如实透出（新的写入由调用方要求 dirty===false；同 HEAD 下重算必须稳定）
+  fs.appendFileSync(path.join(repo, ".git", "info", "exclude"), "\n/clean_dir/\n", "utf8");
   const bClean = await candidateOf(repo, [planB], ["plan-B"]);
   assert.equal(bClean.ok, true, JSON.stringify(bClean.reason));
   fs.writeFileSync(path.join(repo, "scratch.txt"), "dirty\n", "utf8");
@@ -1008,7 +1009,7 @@ test("C4-R3 候选：plan.id 键控，同 planFile 两轮各半确证绝不拼�
   assert.equal(dirtyCand.ok, true, "dirty 只如实透出，由写入门禁拒绝新的远端写入");
   assert.equal(dirtyCand.dirty, true);
   assert.notEqual(dirtyCand.digest, bClean.digest, "dirty 变化进入摘要：确认后再脏即复核失败");
-  fs.rmSync(path.join(repo, "scratch.txt"));
+  require("../_helpers/retainFixtureTarget.cjs")(repo, path.join(repo, "scratch.txt"), "file");
   const cleanAgain = await candidateOf(repo, [planB], ["plan-B"]);
   assert.equal(cleanAgain.digest, bClean.digest, "同输入重算摘要稳定（无易变时间戳）");
 });

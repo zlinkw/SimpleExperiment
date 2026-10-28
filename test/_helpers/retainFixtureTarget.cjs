@@ -1,6 +1,6 @@
 // Missing-file race fixtures preserve bytes instead of permanently removing them.
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto'), os = require('node:os');
-module.exports = function retainFixtureTarget(scope, source) {
+module.exports = function retainFixtureTarget(scope, source, expectedType = "file") {
   scope = fs.realpathSync(scope); source = path.resolve(source);
   const temporary = fs.realpathSync(os.tmpdir());
   const inside = (root, file) => { const rel = path.relative(root, file); return rel && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel); };
@@ -19,7 +19,9 @@ module.exports = function retainFixtureTarget(scope, source) {
     current = path.join(current, part);
     if (fs.lstatSync(current).isSymbolicLink()) throw Error('FIXTURE_PARENT_LINK');
   }
-  const before = inventory(source), destination = path.join(scope, 'clean_dir', relative);
+  const before = inventory(source);
+  if (before.type !== expectedType) throw Error('FIXTURE_TYPE_CHANGED');
+  const destination = path.join(scope, 'clean_dir', relative);
   if (fs.existsSync(destination)) throw Error('FIXTURE_DESTINATION_EXISTS');
   current = scope;
   for (const part of path.relative(scope, path.dirname(destination)).split(path.sep)) {
@@ -33,4 +35,17 @@ module.exports = function retainFixtureTarget(scope, source) {
   if (fs.existsSync(source) || JSON.stringify(inventory(destination)) !== JSON.stringify(before)) throw Error('FIXTURE_MOVE_FAILED');
   fs.appendFileSync(path.join(scope, 'clean_dir', 'MANIFEST.md'), JSON.stringify(record) + '\n', 'utf8');
   return destination;
+};
+
+if (require.main === module) module.exports(process.argv[2], process.argv[3], process.argv[4] || "file");
+
+module.exports.spawnGuarded = function spawnGuarded(scope, args) {
+  const argv = [...args[1]], encoded = argv.indexOf("-EncodedCommand") + 1;
+  const original = Buffer.from(argv[encoded], "base64").toString("utf16le");
+  const action = "Remove-Item -LiteralPath ('./'+$it.leaf) -Force -ErrorAction Stop";
+  if (!original.includes(action)) throw Error("FIXTURE_NATIVE_ACTION_CHANGED");
+  const quote = value => "'" + String(value).replaceAll("'", "''") + "'";
+  const replacement = "& " + quote(process.execPath) + " " + quote(__filename) + " " + quote(scope) + " $target.FullName file; if ($LASTEXITCODE -ne 0) { throw 'FIXTURE_RETAIN_FAILED' }";
+  argv[encoded] = Buffer.from(original.replace(action, replacement), "utf16le").toString("base64");
+  return require("node:child_process").spawn(args[0], argv, args[2]);
 };
