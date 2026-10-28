@@ -29,7 +29,7 @@ function makeWorkspace(t) {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), "psg-runner-"));
   fs.mkdirSync(path.join(ws, "test"));
   fs.writeFileSync(path.join(ws, "package.json"), JSON.stringify({ name: "fixture", scripts: {} }));
-  t.after(() => fs.rmSync(ws, { recursive: true, force: true }));
+  t.after(() => console.log(`[fixture retained] ${ws}`));
   return ws;
 }
 
@@ -241,10 +241,10 @@ test("runner: second batch on the same working copy is refused (caps never multi
   const manifest = writeManifest(ws, baseManifest(ws, { one: { phases: { fullCheck: { extraFiles: [{ file: slow, argv: [], source: "f" }] } } } }, [slow]));
   const first = spawn(process.execPath, [RUNNER, "one", "--root", ws, "--manifest", manifest], { stdio: "pipe", windowsHide: true });
   t.after(() => { try { first.kill(); } catch { /* settled */ } });
-  const lockDir = path.join(ws, "simple_cluster", "locks", "simple-experiment", "test-workflow", "batch.lock");
+  const lockDir = path.join(ws, "simple_cluster", "locks", "simple-experiment", "test-workflow", "process-owner.json");
   const deadline = Date.now() + 8000;
   while (!fs.existsSync(lockDir) && Date.now() < deadline) await new Promise(r => setTimeout(r, 50));
-  assert.ok(fs.existsSync(lockDir), "batch lock exists while first batch runs");
+  assert.ok(fs.existsSync(lockDir), "process ownership record exists while first batch runs");
   const second = runRunner(ws, manifest, "one");
   assert.equal(second.status, 3, "second same-root batch rejected with a distinct non-zero code");
   assert.match(second.stderr, /拒绝并发批/);

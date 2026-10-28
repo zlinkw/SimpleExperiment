@@ -282,6 +282,9 @@
        ],
        "source": "r22-new-runner-regression"
       },
+        {"file": "test/features/buildProcessLock.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "plugin-audit-20261028"},
+        {"file": "test/features/taskIdentityBoundary.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "plugin-audit-20261028"},
+        {"file": "test/features/stateWriterIsolation.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "plugin-audit-20261028"},
        {
         "file": "test/project/branchProjectRegistry.test.js",
         "argv": [],

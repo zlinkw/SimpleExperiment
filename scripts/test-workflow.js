@@ -571,15 +571,18 @@ async function runJobsScheduled(state) {
 /* ---------------- same-root batch lock (r29 #7: never auto-reclaim unknown ownership) ---------------- */
 
 async function acquireLock(state) {
-  state.processLock = await require("./build-process-lock").acquireBuildLock(state.root, state.batchId);
+  try { state.processLock = await require("./build-process-lock").acquireBuildLock(state.root, state.batchId); }
+  catch (error) { fail("拒绝并发批：" + error.message, 3); }
 }
 
-function releaseOwnedLock(state) {
+async function releaseOwnedLock(state) {
   if (!state.processLock) return;
   const confirmed = state.runningJobs.size === 0 && !state.activeGateKill
     && state.receipt.jobs.every(job => job.treeStatus === "confirmed")
     && state.receipt.gates.every(gate => gate.treeStatus === "confirmed" || gate.treeStatus === "n/a(not-spawned)" || gate.skippedAfterCancel);
-  state.lockReleased = state.processLock.release(confirmed);
+  state.lockReleased = await state.processLock.release(confirmed);
+  if (state.lockReleased && state.logDir && fs.existsSync(state.logDir))
+    fs.writeFileSync(path.join(state.logDir, "lock-release.json"), JSON.stringify({ releasedAt: new Date().toISOString(), batchId: state.batchId }), "utf8");
   state.processLock = null;
 }
 
@@ -731,7 +734,7 @@ async function main() {
       await fsp.mkdir(path.dirname(pointer), { recursive: true });
       await fsp.writeFile(pointer, JSON.stringify({ pointer: true, batchId, runReceipt: runPath, entry: plan.entry, overall: state.receipt.overall, totalWallMs: state.receipt.totalWallMs, inputFingerprint: startFingerprint, endedAt: state.receipt.endedAt }, null, 1));
     } catch { /* pointer is best-effort */ }
-    releaseOwnedLock(state);
+    await releaseOwnedLock(state);
     if (state.receipt.overall === "passed" && (plan.phases.compile || plan.phases.fullCheck)) {
       try { // 完整 compile+fullCheck+package 通过 = 当前闭包状态的新证明，记录进 closure-state（r29 #8 增量核的完成记录）
         // 覆盖范围诚实分级：只有完整打包链证明“全部”；check:full/build 只重验源码与测试。
@@ -837,7 +840,7 @@ async function main() {
     for (const job of state.runningJobs.values()) killOwnedTree(job);
     if (error.planFail && !state.receipt.jobs.length && !state.receipt.gates.length) { // pre-execution planning failure: no run credential required
       detachCancelStdin(); // r28 U2: 早退路径同样解除监听
-      releaseOwnedLock(state);
+      await releaseOwnedLock(state);
       return error.exitCode || 1;
     }
     return await writeReceiptAndRelease(1);
