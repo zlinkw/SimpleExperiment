@@ -67,11 +67,18 @@ function fixture(options = {}) {
     sandbox.document.createElement = () => ({ dataset: {}, style: {}, setAttribute() {} });
     sandbox.document.body = { appendChild: node => { elements[node.id] = node; toastNodes.push(node); } };
   }
+  // Normal mode fixture: no authoritative trafficMode yet and no persisted low traffic hint, so
+  // automatic display rounds stay allowed exactly as before.
+  sandbox.lastState = {};
+  sandbox.tmuxDisplayAutoHint = true;
+  sandbox.displayRefreshAt = new Map();
   vm.createContext(sandbox);
   if (options.realToast) vm.runInContext(fn("showToast"), sandbox);
   vm.runInContext(["tmuxCurrentGpuIdFromSession", "normalizeTmuxWindowFilter", "classifyTmuxWindow", "tmuxGpuIdFromSession", "tmuxTaskStatusLabel", "tmuxTaskWindowLabel", "tmuxWindowCloseButton", "getTmuxWindowCandidates",
     "renderTmuxFilterBar", "renderTmuxOverview", "renderTmuxWorkersOverview", "refreshTmuxList", "scheduleTmuxInitialRetry", "finishTmuxListRequest",
-    "resolveJobTmuxWindow", "cancelJobTmuxLogJump", "failJobTmuxLogJump", "jumpToJobTmuxLog", "handleJobTmuxLogList", "tmuxResolveCaptureTarget", "refreshTmuxCapture"].map(fn).join("\n"), sandbox);
+    "resolveJobTmuxWindow", "cancelJobTmuxLogJump", "failJobTmuxLogJump", "jumpToJobTmuxLog", "handleJobTmuxLogList", "tmuxResolveCaptureTarget", "refreshTmuxCapture",
+    // r2 display gate helpers live in the same script scope in production, so the fixture loads them too.
+    "lowTrafficModeFromState", "displayAutoAllowed", "displaySampleNotice", "recordDisplaySample", "renderDisplayAutoNotices"].map(fn).join("\n"), sandbox);
   const clickStart = script.indexOf('const jobTmuxLogButton = event.target.closest("button[data-job-tmux-log]")');
   const clickEnd = script.indexOf('const tmuxClearTaskTabs =', clickStart);
   assert.ok(clickStart >= 0 && clickEnd > clickStart);

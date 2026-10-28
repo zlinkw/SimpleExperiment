@@ -60,8 +60,8 @@ function gitGitEnv(extra = {}) {
 function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: gitGitEnv() });
 }
-// perf 2026-10-26：模板仓把每仓 5-6 次 git spawn 压成 1 次 clone。
-// 模板落在此套件私有的随机临时目录（mkdtemp，每次运行独立，不落宿主全局固定位置），after() 删除模板本体。
+// 模板只准备一次；各测试得到完整字节副本，不共享可写 Git 元数据或硬链接。
+// 模板落在此套件私有的随机临时目录（mkdtemp，每次运行独立），after() 只登记保留路径。
 // 每个用例仍得到 --no-hardlinks 的完整独立副本：真实历史（base 空提交 + tracked.txt "base" 提交，
 // 与原 makeRepo 逐字节同构）、独立 .git/refs/工作树，独占可写——隔离/互斥/真实 ff/worktree 语义不变，绝不 mock。
 let templateRepo = null;
@@ -80,8 +80,24 @@ function ensureTemplateRepo() {
 function makeRepo(name) {
   const seed = ensureTemplateRepo();
   const dir = tempDir(`se-branch-${name}-`);
-  git(["clone", "-q", "--no-hardlinks", seed, dir], os.tmpdir()); // 克隆进既有空目录（mkdtemp 刚建）；git 支持克隆进已存在的空目录，不预删目标
-  git(["remote", "remove", "origin"], dir); // 夹具按独立仓使用：不得残留指向模板的 origin（用例自己 remote add，分类逻辑读 remote 列表）
+  // makeRepo 的契约是独立、无 origin、具有同一初始真实历史的仓库；clone/remove origin
+  // 并非被测行为。字节复制避免每个夹具重复启动这两个 Git 准备进程。测试中的真实 clone、
+  // init、worktree、fetch、ff、身份探针及其断言继续原样执行。
+  const copyTree = (source, target) => {
+    for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+      const from = path.join(source, entry.name), to = path.join(target, entry.name);
+      assert.equal(fs.lstatSync(from).isSymbolicLink(), false, "模板禁止链接/重解析点");
+      assert.equal(fs.existsSync(to), false, "夹具复制不能覆盖或合并既有目标");
+      if (entry.isDirectory()) { fs.mkdirSync(to); copyTree(from, to); }
+      else {
+        assert.equal(entry.isFile(), true, "模板仅含普通文件/目录");
+        fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL);
+        assert.notEqual(fs.statSync(from, { bigint: true }).ino, fs.statSync(to, { bigint: true }).ino, "每个文件必须独立，禁止硬链接");
+      }
+    }
+  };
+  copyTree(seed, dir);
+  assert.equal(fs.realpathSync(path.join(dir, ".git")), path.join(fs.realpathSync(dir), ".git"), "Git 元数据只归本夹具");
   return dir;
 }
 function commitFile(repo, file, text, message) {
@@ -395,7 +411,8 @@ test("C3 当前提交树逐文件 blob 字节核对：忽略/未跟踪依赖=无
   assert.equal(result.ok, false);
   assert.equal(result.failures[0].reason, "内容 SHA 与已验清单不一致");
   // ④ 提交里删除 manifest 内文件 → 不在当前提交树
-  git(["rm", "-q", "-f", "pkg/model.py"], repo); // 工作树仍是 ③ 的未提交改动，必须 -f 才能移除
+  git(["rm", "--cached", "-q", "-f", "--", "pkg/model.py"], repo); // 仅从提交索引移除，保留磁盘原字节
+  assert.equal(fs.readFileSync(path.join(repo, "pkg/model.py"), "utf8"), "w = 2\n", "缺失 blob 场景不删除夹具文件");
   git(["-c", "user.email=test@example.invalid", "-c", "user.name=Branch Test", "commit", "-q", "-m", "drop model"], repo);
   const head2 = git(["rev-parse", "HEAD"], repo).trim();
   result = await binding.bindPlanSourceToCommit({ runner: binding.runGitBinary, cwd: repo, headCommit: head2,
@@ -1058,7 +1075,9 @@ test("C4-R3 候选：dirty 如实进入摘要，恢复同字节后摘要稳定",
   assert.equal(dirtyCand.ok, true, "dirty 只如实透出，由写入门禁拒绝新的远端写入");
   assert.equal(dirtyCand.dirty, true);
   assert.notEqual(dirtyCand.digest, bClean.digest, "dirty 变化进入摘要：确认后再脏即复核失败");
-  require("../_helpers/retainFixtureTarget.cjs")(repo, path.join(repo, "scratch.txt"), "file");
+  // 通过夹具专属 exclude 恢复同一 clean Git 输入；文件原字节保留，不做完整文件清理。
+  fs.appendFileSync(path.join(repo, ".git", "info", "exclude"), "\n/scratch.txt\n", "utf8");
+  assert.equal(fs.readFileSync(path.join(repo, "scratch.txt"), "utf8"), "dirty\n", "临时文件保留，不执行永久删除");
   const cleanAgain = await candidateOf(repo, [planB], ["plan-B"]);
   assert.equal(cleanAgain.digest, bClean.digest, "同输入重算摘要稳定（无易变时间戳）");
 });

@@ -24,8 +24,9 @@ test('coalescing cannot substitute result metadata for a control or declaration 
 });
 
 test('explicit successful tunnel test recovers authentication fencing without resetting healthy peers',async()=>{
- const calls=[],client={connect:async(_,options)=>calls.push(options.manual),diagnostics:()=>({endpoints:[{streamStatus:'sse'}]})};
- const host={projectContextGeneration:1,client,isRealtimeMode:()=>true,budget:{isPaused:()=>false},projectBootstrapPromise:Promise.resolve(),restoreRemotePlanOperations:async()=>{},reconcileStalePlanRunOperations:async()=>{},postState(){}};
+ const calls=[],converges=[],client={connect:async(_,options)=>calls.push(options.manual),diagnostics:()=>({endpoints:[{streamStatus:'sse'}]})};
+ const host={projectContextGeneration:1,client,isRealtimeMode:()=>true,budget:{isPaused:()=>false},projectBootstrapPromise:Promise.resolve(),restoreRemotePlanOperations:async()=>{},reconcileStalePlanRunOperations:async()=>{},applyTrafficScheduling(){converges.push(1);},postState(){}};
  const fn=method('ensureRealtimeConnected',{errorMessage:e=>e.message});
  await fn.call(host,'tunnel probe ok');await fn.call(host,'tunnel test ok');assert.deepEqual(calls,[false,true]);assert.equal(host.client,client);
+ assert.equal(converges.length,2,'every connection round must re-converge the traffic strategy on the fresh evidence');
 });
