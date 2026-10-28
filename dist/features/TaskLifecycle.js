@@ -33,7 +33,7 @@ function taskLifecycle(value) {
     const exitCode = pane?.exitCode ?? (value.result?.runId === value.commandId && value.result.identityMatches !== false ? value.result?.exitCode : undefined) ?? pane?.exitCode;
     if ((!pane || pane.dead) && Number.isInteger(exitCode) && !value.resultQueryError && !value.executionQueryError)
         execution = exitCode !== 0 ? "failed" : "exited";
-    const status = ["queued", "starting"].includes(execution) ? "queued" : execution === "running" ? "running"
+    let status = ["queued", "starting"].includes(execution) ? "queued" : execution === "running" ? "running"
         : execution === "failed" ? "failed" : execution === "unknown" ? "unknown" : result === "complete" ? "completed" : value.cancelled && !pane ? "cancelled"
             : execution === "missing" ? "unknown" : "unknown";
     const message = value.executionQueryError || (value.resultQueryError ? "产物核实失败：" + value.resultQueryError : execution === "starting" ? "任务窗口已建立，正在启动命令"
@@ -45,6 +45,9 @@ function taskLifecycle(value) {
     let completion = (0, RuntimeDiagnostics_1.completionState)(evidence, value.commandId);
     if (completion === "verified" && exitCode == null && value.result?.status === "failed")
         completion = "unverified";
+    if (completion === "review_required" && (execution === "exited" || execution === "failed"
+        || execution === "missing" && result === "complete"))
+        status = "failed";
     return { execution, result, status, message, exitCode,
         runtimeDiagnostics: evidence, completionState: completion };
 }

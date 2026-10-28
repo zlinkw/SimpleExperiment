@@ -320,6 +320,8 @@ def task_public_observation(root, job, row=None):
         completion = "unverified"
     status = "queued" if execution in ("queued", "starting") else "running" if execution == "running" else (
         "failed" if execution == "failed" else "unknown" if execution == "unknown" else "completed" if result_state == "complete" else "unknown")
+    if completion == "review_required" and (execution in ("exited", "failed") or execution == "missing" and result_state == "complete"):
+        status = "failed"
     public = {key: job[key] for key in ("commandId", "projectId", "workerId", "workflowId", "globalJobId", "planFile", "planRevision", "codeFingerprint",
         "experimentIndex", "case", "seed", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount", "fullPlanJobCount", "enqueuedAt",
         "executionMode", "mode", "checkpointSource", "lifecycleProtocol", "runKey", "dispatchPolicy") if key in job}

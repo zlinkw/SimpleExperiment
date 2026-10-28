@@ -15,6 +15,20 @@ def parse(text, command='command', chunk=13):
     return report(state,True,True)
 normal=marker('command','begin')+'WARNING: zero predicted classes; metric=0\nProcess dataset: 100\nError budget: 0; RuntimeError counter=0\n[simple-adapter] Prefer environment nvJitLink over system CUDA\n进度 300/300\r'+marker('command','end')
 assert parse(normal)['state']=='clear'
+# NumExpr prints errors without a trailing newline, joining the runtime marker.
+numeric_error='Error.  nthreads cannot be larger than environment variable "NUMEXPR_MAX_THREADS" (64)'
+joined=marker('command','begin')+numeric_error+marker('command','phase','test')+numeric_error+marker('command','end','test')
+for chunk in (1,13,4096):
+    numeric=parse(joined,chunk=chunk)
+    assert numeric['state']=='anomalous' and numeric['scanComplete'],numeric
+    assert numeric['count']==2 and numeric['types']=={'LoggedError':2},numeric
+    assert numeric['phases']=={'initialization':1,'test':1},numeric
+    for item in numeric['exceptions']:
+        assert joined.encode('utf8')[item['byteStart']:item['byteEnd']].decode('utf8')==numeric_error,item
+assert parse(marker('command','begin')+'progress without newline'+marker('command','end'))['state']=='clear'
+assert parse(marker('command','begin')+numeric_error+marker('other','end'))['scanComplete'] is False
+for error_line in ('ERROR: failed to load checkpoint\n','[ERROR] invalid configuration\n'):
+    assert parse(marker('command','begin')+error_line+marker('command','end'))['count']==1
 callback='Exception ignored on calling ctypes callback function: <function probe at 0x1>\nTraceback (most recent call last):\n  File "threadpoolctl.py", line 1, in callback\n    get_config().split()\nAttributeError: \'NoneType\' object has no attribute \'split\'\n'
 error=marker('command','begin')+marker('command','phase','train')+callback+'epoch 300/300\n'+marker('command','phase','test')+'test succeeded; acc=0\n'+marker('command','end','test')
 value=parse(error,chunk=1)
@@ -117,4 +131,16 @@ assert ns['task_log_diagnostics'](root,{'commandId':''}, {'logPath':legacy_path}
 assert ns['task_log_diagnostics'](root,legacy_job,terminal=False)['scanComplete'] is False
 legacy_file.write_text(marker('old','begin')+callback+marker('old','end'),encoding='utf8')
 assert ns['task_log_diagnostics'](root,legacy_job,terminal=True)['state']=='unverified'
+# The actual Agent observation must fail a terminal run without falsifying its
+# exit code or discarding artifacts, using the same original log scanner.
+lifecycle=ast.parse(pathlib.Path(sys.argv[2]).read_text(encoding='utf8'))
+exec(compile(ast.Module(body=[n for n in lifecycle.body if isinstance(n,ast.FunctionDef) and n.name=='task_public_observation'],type_ignores=[]),'public-observation','exec'),ns)
+ns['now_iso']=lambda:'2026-10-28T16:00:00Z'
+ns['task_manifest_observation']=lambda root,job:dict(runId='legacy',status='completed',present=True,verified=True,identityMatches=True,artifactsComplete=True,exitCode=0)
+legacy_file.write_text(marker('legacy','begin')+numeric_error+marker('legacy','end'),encoding='utf8')
+row=dict(tmuxWindowId='@1',tmuxPane='%1',tmuxSession='fixture',gpuId='0',dead=True,exitCode=0,phase='running',logPath=legacy_path)
+public=ns['task_public_observation'](root,dict(commandId='legacy',projectId='p',workerId='w'),row)
+assert public['status']=='failed' and not public['successful'],public
+assert public['exitCode']==0 and public['executionState']=='exited' and public['resultState']=='complete',public
+assert public['runtimeDiagnostics']['count']==1 and public['runtimeDiagnostics']['scanComplete'],public
 print(json.dumps({'ok':True,'scenarios':12,'originalLogsRetained':True}))

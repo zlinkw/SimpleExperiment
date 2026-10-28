@@ -94,5 +94,6 @@ with formal_job_writer(job,{'commandId':command},'train_test'):
  assert legacy['completionState']==('review_required' if anomaly else 'verified')
  legacy_collection=ns['task_collection_result'](str(root),dict(index=0,case='synthetic',seed=42,output_dir=out,result_csv=out+'/metric.csv',mode='train_test',planFile='experiments/plans/cpu.yaml'))
  assert legacy_collection['completed'] and 'runtimeDiagnostics' not in legacy_collection
- values.append(dict(observation=public['observation'],expectedStatus='failed' if kind=='failure' else 'completed',expectedCompletion='review_required' if anomaly else 'verified',exitCode=proc.returncode))
+ assert public['status']==('failed' if anomaly else 'completed'),(kind,public)
+ values.append(dict(observation=public['observation'],expectedStatus='failed' if anomaly else 'completed',expectedCompletion='review_required' if anomaly else 'verified',exitCode=proc.returncode))
 print(json.dumps(values))

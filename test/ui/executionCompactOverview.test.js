@@ -78,6 +78,20 @@ test('complete PLAN cards exclude anomalies and unverified logs from clean succe
   }
 });
 
+test('runtime log errors render a failed job and Plan while retaining artifact evidence and manual review actions', () => {
+  const sandbox=clickSandbox();
+  sandbox.render({distributedPlans:[{id:'wf',projectId:'p',planFile:'plans/errors.yaml',jobs:[{
+    index:0,case:'a',seed:42,status:'failed',lifecycleProtocol:2,completionState:'review_required',
+    executionState:'exited',resultState:'complete',exitCode:0,workerId:'w',commandId:'c',outputDir:'work/job',
+    runtimeDiagnostics:{schemaVersion:1,commandId:'c',runId:'c',state:'anomalous',count:1,scanComplete:true,
+      types:{LoggedError:1},phases:{test:1},exceptions:[{summary:'Error. nthreads cannot be larger than NUMEXPR_MAX_THREADS (64)',logPath:'raw.log',lineStart:7,lineEnd:7}]}
+  }]}]});
+  assert.match(sandbox.html,/executionPlanRow failed/);assert.match(sandbox.html,/成功 0\/1/);assert.match(sandbox.html,/失败 1/);
+  assert.match(sandbox.html,/退出码 0/);assert.match(sandbox.html,/产物：完整/);assert.match(sandbox.html,/nthreads cannot be larger/);
+  assert.match(sandbox.html,/data-command="analyzeRuntimeLog"/);
+  assert.match(sandbox.html,/data-runtime-anomaly-rerun="true"/);
+});
+
 test('native cards display readable execution and result states independently', () => {
   for(const [executionState,resultState,status,executionLabel,resultLabel] of [
     ['failed','complete','failed','失败','完整'],['exited','incomplete','unknown','已结束','不完整'],

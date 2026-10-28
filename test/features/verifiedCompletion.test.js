@@ -66,8 +66,10 @@ test('a new real nonzero exit or observed exception remains visible and releases
   for (const lane of Object.keys(obs.evidence)) obs.evidence[lane] = { networkStartedAt: t, receivedAt: t };
   if (kind === 'exit') obs.tmux.exitCode = 7;
   else { obs.runtimeDiagnostics.count = 1; obs.runtimeDiagnostics.state = 'anomalous'; }
-  const job = project(complete, [fresh], now + 1000).plans[0].jobs[0];
-  assert.equal(job.verifiedCompletion, undefined); assert.equal(job.status, kind === 'exit' ? 'failed' : 'completed');
+  const projected = project(complete, [fresh], now + 1000), job = projected.plans[0].jobs[0];
+  assert.equal(job.verifiedCompletion, undefined); assert.equal(job.status, 'failed');
+  const [summary]=summarizePlanStatuses({plans:[{file:'p.yaml',jobCount:1}],distributedPlans:projected.plans,topologyMode:'worker_pool'});
+  assert.equal(summary.status,'failed');assert.equal(summary.completedCount,0);assert.equal(summary.failedCount,1);
   if (kind === 'exception') assert.equal(job.completionState, 'review_required');
  }
 });
