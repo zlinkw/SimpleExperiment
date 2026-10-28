@@ -12,7 +12,7 @@
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/panel-build-manifest.json",
-        "sha256": "d3da0ac3552a1dfd03c6b09e5ff761e4f9c91469c3a9fd940b64cd59cc23b9fb"
+        "sha256": "445adaef5c974cd54d14282bcdfbe9c67a32a51a3f50efebafffb0421fff8e03"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/runtime/RuntimeManifest.js",
@@ -44,7 +44,7 @@
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/tunnel/RealtimeTunnelClient.legacy.js",
-        "sha256": "dc933c79d0a76ef01491d79842dd5b5f83eb28e4659e50488cc315f779fae6a4"
+        "sha256": "5a6213c7038ff01e39fdc2d8959087e0cddd76e08b348ab633cbc06179264e84"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/ui/PanelHtml.legacy.js",
@@ -72,7 +72,7 @@
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/tunnel/RealtimeTunnelClient.legacy.ts",
-        "sha256": "597158e82489ae213d84c41eace8c06d942191a5024405e6fca1f5fda9cc4878"
+        "sha256": "0a47c7a124ee412a88fa0e0da830352b726ef17a9c239f3f08376d0d5934aedb"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/ui/PanelHtml.legacy.ts",
@@ -84,7 +84,7 @@
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/lowTrafficDisplayRework.test.js",
-        "sha256": "19e03dd1d8ba0e29fda99d35db1d32236d51a6bcbd070ec89c6735e4b7843d0b"
+        "sha256": "f5ef299057d4e09d7b5c436a8ad42f867f37ff2f9a2a5c27edfb2faf6bbef967"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/panelLowTrafficModePolicy.test.js",
@@ -128,7 +128,7 @@
     {
       "kind": "evidence",
       "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/docs/agent-tasks/low-traffic-mode-20261028/evidence.md",
-      "sha256": "8fb82445f8a48b127a05b679990932c6665b3b11421c278320e882b637819ae3"
+      "sha256": "4e4e05ffc1efdfadc295d2b20f120e691a8fdc9aeabe127d9ba858dbc40878bc"
     },
     {
       "kind": "evidence",
@@ -143,17 +143,17 @@
     {
       "kind": "plan",
       "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/docs/agent-tasks/low-traffic-mode-20261028/plan.md",
-      "sha256": "6e3179ad5629de0d0b21467a1ba9715f4c6517a5666e6ac84ca3f136b345aa6c"
+      "sha256": "4c0c5b30f3ea6a7386d2a3fa3d57cd8020f4a75f9244794aeb0d0ae4dcf899c6"
     },
     {
       "kind": "diff",
       "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/final-candidate-7a6062fa.diff",
-      "sha256": "8e4b568bf86f234c4ac7bce6e83a4883cf0cd115c1a65c07ca5aaf5d483ec876"
+      "sha256": "9fd013ca0578c36462eaa3e605ac781a0d47c329e0967aa1d7d009941766007f"
     },
     {
       "kind": "package",
       "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/simple-experiment-0.5.422.vsix",
-      "sha256": "ca3baaf11e770110724d2c4160edb03b38704dc4092f1003aa5a96a407cbac7f"
+      "sha256": "dc682f25bc2fb30083e9aa2dc61f15a2162894771d9e3dada0a3919b2db06758"
     }
   ],
   "checks": [
@@ -447,11 +447,11 @@
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/115-package-r2final2.log",
-          "sha256": "f1ec76b82dcb9bffbbb192a4777796de08f84d5e41bb2205c531d2a5e155a666"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/126-package-r2final3.log",
+          "sha256": "62de827cc406ac538c9e61956294619d8cabaaa47a9f6f873212644f55d8c4e2"
         }
       ],
-      "note": "exit=0，entry=package overall=passed files=238 maxObservedConcurrent=1；因 B1/B2 改了 dist 必须重打：simple-experiment-0.5.422.vsix 2689215 字节，SHA256 ca3baaf11e770110724d2c4160edb03b38704dc4092f1003aa5a96a407cbac7f（上轮为 2688906 / 77a86a93…），版本保持 0.5.422，未安装、未发 Release、未合并"
+      "note": "exit=0，entry=package overall=passed files=238 maxObservedConcurrent=1；§17.3 改了 dist/tunnel/RealtimeTunnelClient.legacy.js 必须重打：simple-experiment-0.5.422.vsix 2689768 字节，SHA256 dc682f25bc2fb30083e9aa2dc61f15a2162894771d9e3dada0a3919b2db06758（与上一轮 ca3baaf1… 不同，符合预期）"
     },
     {
       "platform": "win32",
@@ -476,11 +476,11 @@
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/113-build-r2final2.log",
-          "sha256": "dc3a2886d42ea43b589dfa3ab398b1c109a9d76fca35a7dc50f0f34ef1deaaa3"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/124-build-r2final3.log",
+          "sha256": "e4bab42d79ce35b0f68d413359d11dcb8a4a7f3376396f788106370a34b77687"
         }
       ],
-      "note": "exit=0，entry=build overall=passed files=228 dedupRemoved=213，gate-01…gate-09 全部 gate ok（含两处 node -c）"
+      "note": "exit=0，entry=build overall=passed files=228 dedupRemoved=213，gate-01…gate-09 全部 gate ok，含 node -c dist/extension.js 与 node -c dist/ui/PanelHtml.js 两项语法门禁"
     },
     {
       "platform": "win32",
@@ -505,11 +505,11 @@
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/110-compile-r2final2.log",
-          "sha256": "64d949ce5e768e9063ed6db3d6f5ba456ce0b3b64cc9ede41479e0f77f64813b"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/120-compile-r2final3.log",
+          "sha256": "5ce6d3f4a231f78e792c256d1e6da0da9ace22d00263068c8a2ab341d09a63d6"
         }
       ],
-      "note": "exit=0 overall=passed；gate-06 node -c dist/extension.js ok、gate-07 node -c dist/ui/PanelHtml.js ok"
+      "note": "exit=0 overall=passed；gate-06 node -c dist/extension.js ok、gate-07 node -c dist/ui/PanelHtml.js ok，tsc 对新增 verifiedDisplayRound 与改写后的 markDisplayAutoClosed 无报错"
     },
     {
       "platform": "win32",
@@ -537,11 +537,11 @@
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-11-panelLowTrafficModePolicy.log",
-          "sha256": "bca963e2d1f1452472ae703e1b2ac2ac38a795ad650bdca4bd21bdb22f2eb5ea"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/122-11-panelLowTrafficModePolicy.log",
+          "sha256": "610fd3be56f075a384236a63272feff9c759eb5e62212b7c2dcea30af695a357"
         }
       ],
-      "note": "16 tests 16 pass 0 fail，exit=0；本轮 B1/B2 改动后原 16 项断言一条不减且全绿"
+      "note": "16 tests 16 pass 0 fail，exit=0；§17.3 返修后原 16 项断言一条不减且全绿（B2 回执严格 requestId 序列仍在本文件内）"
     },
     {
       "platform": "win32",
@@ -569,11 +569,21 @@
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-8-lowTrafficDisplayRework.log",
-          "sha256": "1fafee372a37973c918313539776b1c31446d230337e44eaabd2890ba94c26d8"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/121-2-lowTrafficDisplayRework-r2final3.log",
+          "sha256": "f18e1eebb5bc60ec531bbc7a8310fe3b90c1067773feda6875299c53925a30fd"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/121-3-rework-repeat1.log",
+          "sha256": "97dbdd84d7c8e3d63cde8e0285c1bf251ae1f7f2f8db659b0ea3e7b28ee5d51f"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/121-3-rework-repeat2.log",
+          "sha256": "402c16333936fc5c3e91896b6b398108ad76d57a27515c5dcc52bf0968cf3009"
         }
       ],
-      "note": "12 tests 12 pass 0 fail，exit=0（上轮 9 项 + 本轮 3 项，断言只增不减）。B1：真实 client+真实 aggregator+抽取的真实宿主方法，三步归因各自正确——主动关流 displayAutoClosed=true 且宿主不发布 tunnel_unavailable/local_port_closed；真实 socket hang up 后重复同 policy + 重复 connect + 再次 ensure 仍 displayAutoClosed=false、lastError 保留、宿主 tunnel_unavailable + local_port_closed；恢复正常节奏时重新发起真实连接且不改标为策略关闭。硬错 HTTP 401 后 requiresManualReconnect 与 401 文本均保留。B2：ltm-1 超时回落已落盘偏好 → ltm-2 成功确认 → 迟到的 ltm-1 成功/重复回执/缺 requestId 回执显示、定时器、pending、下一点击目标零变化 → ltm-3 失败提示真实原因且显示与目标回到已落盘偏好"
+      "note": "15 tests 15 pass 0 fail，exit=0（上一轮 12 项一条未减 + §17.3 本轮新增 3 条连续组合序列）。新增：软/硬错→disconnect(\"paused\")→重复同一低流量策略→宿主 ensure→恢复展示轮询（逐步断言 displayAutoClosed/lastError/requiresManualReconnect/streamStatus 与宿主 tunnel_unavailable+local_port_closed）；从未成功过的 connecting 阶段（悬挂预算，真实 connect 卡在 connecting、零网络）真实失败后重复策略与 connect 早退仍保留归因；无任何故障证据的纯主动关流（含健康暂停后再应用策略）仍必须算策略关闭且不得写离线健康，并在同段反证真实失败后立即撤销认领。另重复运行两次 repeat1_rc=0、repeat2_rc=0 确认不靠竞态"
     },
     {
       "platform": "win32",
@@ -601,11 +611,11 @@
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/98-3-panelWebviewScriptHealth.log",
-          "sha256": "9d0de360f978e100af4da0114c8151b05a16400948b5b93a622e31c089b62983"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/122-14-panelWebviewScriptHealth.log",
+          "sha256": "e8adcafedb3ddcaf89a1637d03375829b7780ec65c8e097b1a9350737ccf3692"
         }
       ],
-      "note": "7 tests 7 pass 0 fail"
+      "note": "7 tests 7 pass 0 fail，exit=0，§17.3 返修后重跑"
     },
     {
       "platform": "win32",
@@ -633,11 +643,11 @@
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/98-4-panelMessageDispatch.log",
-          "sha256": "b8e1ae3ae6aab4e536843f96fa8c8b3ed539a37cd3bb58846985bf78dbf2fc0c"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/122-12-panelMessageDispatch.log",
+          "sha256": "198120d5fdb779672e9d8089feb1e62451e697f385d79c014a8a02964b0beb71"
         }
       ],
-      "note": "13 tests 13 pass 0 fail"
+      "note": "13 tests 13 pass 0 fail，exit=0，§17.3 返修后重跑"
     },
     {
       "platform": "win32",
@@ -665,11 +675,11 @@
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/98-7-panelInlineScriptSyntax.log",
-          "sha256": "babf95751adfce812038b169937a544d25a73f27d75825ac18c0003e4b4a058f"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/122-61-panelInlineScriptSyntax.log",
+          "sha256": "6b6e4cadcc9760902e848fff9dd271262f80727a531e5a375156c65f5e024c6d"
         }
       ],
-      "note": "2 tests 2 pass 0 fail"
+      "note": "2 tests 2 pass 0 fail，exit=0，§17.3 返修后重跑"
     },
     {
       "platform": "win32",
@@ -697,11 +707,11 @@
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/98-5-schedulerContract.log",
-          "sha256": "a4ead68db66fd92f3c2a4ccb0c907fe767e01900e713766e4261a2978442ca20"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/122-23-schedulerContract.log",
+          "sha256": "f770337408bcba4e94c26686fe30f96b44ab32937de73e6e1295d68d09bca4a7"
         }
       ],
-      "note": "3 tests 3 pass 0 fail"
+      "note": "3 tests 3 pass 0 fail，exit=0，§17.3 返修后重跑"
     },
     {
       "platform": "win32",
@@ -729,11 +739,11 @@
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/98-6-tmuxWorkerAndRichLog.log",
-          "sha256": "461171f5ada070753b67b9fa772e08acdf2ca3e73c8b1a76c127ddad5d26e8a9"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/122-67-tmuxWorkerAndRichLog.log",
+          "sha256": "d7c58b276421621b073b6b0e5d4171285f390b8f21639b2f2eafb7a253d7d997"
         }
       ],
-      "note": "5 tests 5 pass 0 fail；断言 fetchTmuxListForCaller 扇出、displayMergeEnabled 为假时每请求一轮、publishTmuxList 逐 requestId 回执"
+      "note": "5 tests 5 pass 0 fail，exit=0，§17.3 返修后重跑（r5 每 requestId 各自回执形状未变）"
     },
     {
       "platform": "win32",
@@ -798,11 +808,11 @@
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-7-gpuWindowPanelWiring.log",
-          "sha256": "5f11e5335b3f6a82d806b5b116c0428b07309b29509b3d81883b50a34c8f9952"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/122-7-gpuWindowPanelWiring.log",
+          "sha256": "a7a31118340dde90ca8eb45d3dacfaafe876ce1d0a7e23e6cdce2fa9a543d029"
         }
       ],
-      "note": "6 tests 6 pass 0 fail，exit=0"
+      "note": "6 tests 6 pass 0 fail，exit=0，§17.3 返修后重跑，夹具口径结论沿用 §15.4/§17"
     },
     {
       "platform": "win32",
@@ -859,11 +869,11 @@
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/114-dual-gate-r2final2.log",
-          "sha256": "e65173e6c08777849ed7c7b3c82ee4aa8e1d371e3977a4a615a28f645e6af57b"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/125-dual-gate-r2final3.log",
+          "sha256": "bdb7831310eef5655bd2706a05e1700e5c60027851b8670d0051d4b3680f03ba"
         }
       ],
-      "note": "同一日志：node -c 两项 exit=0、vm.Script vm_script_exit=0、grep 10890 src+dist=0 命中、固定 127.0.0.1:18765 src=0 命中；另附渲染后内层脚本 handleLowTrafficModeReceipt 片段裸反斜杠 0 个（receipt_segment_backslashes=0）、中文文案完整、宿主认领点 3 处全部走 markDisplayAutoClosed、仅 helper 内保留唯一 displayAutoClosed = true"
+      "note": "同一日志：vm.Script dist/ui/PanelHtml.js vm_exit=0、裸反斜杠自查脚本 exit=0（chinese_failure_text_intact=true、client_mark_helper_present=true、client_claim_sites=3、client_direct_claims_left=1 即 helper 内唯一赋值点）、grep 10890 src+dist=0 命中、固定 127.0.0.1:18765 src=0 命中。本轮未改 PanelHtml.legacy.ts，双重门禁仍全量重跑"
     },
     {
       "platform": "win32",
@@ -876,14 +886,14 @@
         "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
         "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，一次一个 node 进程，20 秒未退出即停不重试，禁止裸 npm test"
       },
-      "name": "诊断：受影响 69 个测试文件串行回归（r2-final-2 返修后，一次一个 node 进程）",
+      "name": "诊断：受影响 69 个测试文件串行回归（r2-final-3 返修后，一次一个 node 进程）",
       "argv": [
         "node",
         "--test",
         "--test-force-exit",
         "--test-timeout",
         "20000",
-        "<logs/affected-files-r2final2.txt 中每个文件，单文件串行>"
+        "<logs/affected-files.txt 中每个文件，单文件串行>"
       ],
       "status": "failed",
       "exitCode": 1,
@@ -891,96 +901,26 @@
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/116-serial-summary-r2final2.txt",
-          "sha256": "9137347479999834e67893dee8fe32537e0faa2b7b227c42d6bc57618bc0e3a2"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/123-serial-summary-r2final3.txt",
+          "sha256": "93192ba27a964c530ff0739b8aa8db09b9332cc382a01a77ea3076c43e16508d"
         },
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-3-factories_integration.log",
-          "sha256": "7a0a9d23d00b2b625f7487aec1147e90f5d2acb466c2d4a06e3840bdfc337d8e"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/122-3-factories_integration.log",
+          "sha256": "e4afa7ed0f0c2a19946e7f708e3170aa9d06c79c2c032ba1a28e9e4ad1652d8b"
         },
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-5-distributedRerunAndWorkerDelta.log",
-          "sha256": "d3a31aa600861b092b24f77994433ede64becfab863f556434a7445d407185e9"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/122-5-distributedRerunAndWorkerDelta.log",
+          "sha256": "2ea31401a026685f2035c5b167854aed67870bc1d65b65e11e9885ab9d26b084"
         },
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-8-lowTrafficDisplayRework.log",
-          "sha256": "1fafee372a37973c918313539776b1c31446d230337e44eaabd2890ba94c26d8"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-11-panelLowTrafficModePolicy.log",
-          "sha256": "bca963e2d1f1452472ae703e1b2ac2ac38a795ad650bdca4bd21bdb22f2eb5ea"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-7-gpuWindowPanelWiring.log",
-          "sha256": "5f11e5335b3f6a82d806b5b116c0428b07309b29509b3d81883b50a34c8f9952"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-12-panelMessageDispatch.log",
-          "sha256": "a767edf66881c8a3e8099a1d5a9d2f60fedb7e14ed6c3289a8bb74e907f80dcd"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-14-panelWebviewScriptHealth.log",
-          "sha256": "0efe7015a4786e680786983147267f7938b20d594a86fb25b8dd25de65fff3b0"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-17-probeConnectionContinuity.log",
-          "sha256": "dc32ec593e1b65c2ea2106a9edcaf9741376ae2f375cab88569b4ee477dd3291"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-23-schedulerContract.log",
-          "sha256": "0091c27b0f75d079e65e0777518f5ec626415f5cdfdc69edd45048f8b8c4c615"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-61-panelInlineScriptSyntax.log",
-          "sha256": "39db18b75f7edbd18ece9b2e9cc5f211894c1e947f19561550b06c97de0f1391"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-67-tmuxWorkerAndRichLog.log",
-          "sha256": "d488bd7aa3cbc78a6440accdc45456fde875d608ae928510dbe418371dad8dc3"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-41-realtimeReconnect.log",
-          "sha256": "61579fe65686987b797983bdac6b440b5339a649d2361541998f5198cc684344"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-34-manualConnectionRecovery.log",
-          "sha256": "5ad806ea12289e3a73c7cf053ed49f59e5c25a3ffb2f8c10f2751ce158b43aac"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-36-multiEndpointRealtimeClient.log",
-          "sha256": "5c328d000828e1145130de50f8539a19e4f9cfaab5c808a38c0181952ad3d8e1"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-42-realtimeSnapshotFallback.log",
-          "sha256": "aeca2d8f023c5fe5e4d70680f082f9a053c77545d4838745f0bb3a743ea4db52"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-44-realtimeWebSocket.log",
-          "sha256": "7c5a1fadb670624943bb6a5d9ccf3a97ee2eb764a43956027d043cd8bc2bb2ca"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/112-54-gpuHistoryChartBehavior.log",
-          "sha256": "61c2d6aaa260a420fb6b554c903d0c3e5dd78532df87ee1f3381116cb8e39c52"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/121-2-lowTrafficDisplayRework-r2final3.log",
+          "sha256": "f18e1eebb5bc60ec531bbc7a8310fe3b90c1067773feda6875299c53925a30fd"
         }
       ],
-      "note": "67/69 文件 exit=0；2 个非零退出即 §15.4 已定性的两条基线既有失败（factories_integration 行数门禁、distributedRerunAndWorkerDelta 发布进度文案缺口），本轮未触碰其相关源码，也不放宽阈值。退出码由 run-serial.sh 逐文件先取 rc=$? 再输出（避免命令替换覆盖退出码），逐行结果与日志名见 logs/116-serial-summary-r2final2.txt，完整逐文件日志为 logs/112-*"
+      "note": "69 文件单文件串行（一次一个 node 进程，逐行 exit= 由 run-serial.sh 先取 rc=$? 再输出）：67 个 exit=0，2 个 exit=1，仍是已登记的两条基线既有失败——factories_integration 行数门（CacheCleanupPanel.ts 479 行、PlanCleanupHost.ts 431 行）与 distributedRerunAndWorkerDelta 的 GitHub 发布文案正则；分类沿用 §15/§16，未改生产代码或断言规避。清单仍为 logs/affected-files.txt（69 个）"
     },
     {
       "platform": "win32",
@@ -1015,5 +955,5 @@
       "note": "上轮该用例只以 ReferenceError 终止；harness 补齐真实合并函数后暴露夹具毫秒/秒口径不一致，按 §17 只改夹具输入数据（不断言、不降阈值）后 6/6 通过，本轮重跑仍 6/6。保留本条为状态迁移记录，非新增缺陷"
     }
   ],
-  "notes": "purpose=final：阶段 3 实现与规定验证已完成，本轮按要求补全两条失败链证据后再交 GPT 终审。candidate.revision 仍为冻结基线 7a6062fa10441cc5852166a34138781a2604d9e9；实现提交 8f778444，本轮只新增文档取证提交，PR #25 随之更新。主线基准 D:/GitRepo/MCP/zlk-cluster-orchestrator 全程零写入。\n本轮（补证据）未修改任何生产代码，也未修改任何测试断言或超时阈值，只追加 evidence.md 第 15 节、plan.md 第 11 节与本索引的失败记录。\nF4-FAIL-1 hostOperationLease 分类为既有并发时序抖动，非本改动引入。依据（evidence.md 15.1，下方 checks 为对应 failed/passed 条目）：该用例只 require node 内置模块与 dist/core/HostOperationLease，对本次改动模块的引用命中为 0；test/core/hostOperationLease.test.js、src/core/HostOperationLease.ts、dist/core/HostOperationLease.js 与基线字节 sha256 一致；本任务 32 个变更文件不含 src/core、dist/core、test/core 任何文件；用 git archive 7a6062fa 导出的基线树在 16 个 CPU spinner 同等并发下 4/4 复现同一用例失败（TypeError 读 actionLabel、缺少 HostOperationLeaseConflictError 拒绝、HostOperationLeaseLostError 且 code 为 RESOURCE_LEASE_LOST 三种同族表现），当前副本同负载 2/2 复现，无负载双方均 14/14 通过；首轮与第二轮 package 的 files=238、maxParallel=2、maxObservedConcurrent=1 相同，差别只是机器负载。原始失败以 status=failed、exitCode=1 保留，logs 指向 60-package.log（第 237 行即该 job 失败行）与 job-222 的 out 与 err 完整日志。\nF4-FAIL-2 新模块行数门禁为基线既有技术债。git show 7a6062fa 基线字节 CacheCleanupPanel.ts 用 wc 计 478 行、PlanCleanupHost.ts 430 行；门禁按 readFileSync 后以换行 split 的数组长度计数（test/factories_integration.test.js 第 352 至 354 行），文件以换行结尾时比 wc 多 1，故断言报 479 与 431；本副本数字与基线完全相同，且 git diff --stat 基线..HEAD 对这两个文件输出为空。该测试不在 npm run package 的 238 文件集合内：scripts/test-workflow.json、package.json、scripts 目录内检索 0 命中，60-package.log、63-package2.log、50-build.log 内 0 命中，63-package2.log 枚举的唯一测试文件恰为 238 个且不含 factories_integration，因此 package overall=passed 并未掩盖该门禁，它只在按 T9 显式单跑时暴露。\nrequired 标注口径：required=true 仅用于项目必需验收（第二轮 npm run package、npm run compile、vm.Script 双门禁与 P0 端点检索、本任务新增与扩展的 4 个测试文件）。首轮 package 的 hostOperationLease 失败、基线与当前副本的负载复现、行数门禁都是诊断取证条目，required=false，但 failed 状态与真实 exitCode 原样保留，未改成通过。\n实现要点与版本不变：低流量模式按钮加唯一策略源 legacy.ts 第 485 与 486 行和 effectiveTrafficPolicy 的 displayAutoRefresh；r2 定稿 A 类展示读自动 0 次仅手动、B 类队列 5 秒与进度终态确认 10 秒且面板隐藏仍执行、C 类用户操作原行为；默认关闭且正常模式逐值等于原常量。版本 0.5.422，simple-experiment-0.5.422.vsix 2683707 字节，SHA256 7bb4f147da77f2bcf4520fe62158162bd9efdbeecec9e0f3dd69fbe42f7a73a0（未上传 Release、未安装、未重载验收）。"
+  "notes": "purpose=final：阶段 3 实现与规定验证已完成，本轮按要求补全两条失败链证据后再交 GPT 终审。candidate.revision 仍为冻结基线 7a6062fa10441cc5852166a34138781a2604d9e9；实现提交 8f778444，本轮只新增文档取证提交，PR #25 随之更新。主线基准 D:/GitRepo/MCP/zlk-cluster-orchestrator 全程零写入。\n本轮（补证据）未修改任何生产代码，也未修改任何测试断言或超时阈值，只追加 evidence.md 第 15 节、plan.md 第 11 节与本索引的失败记录。\nF4-FAIL-1 hostOperationLease 分类为既有并发时序抖动，非本改动引入。依据（evidence.md 15.1，下方 checks 为对应 failed/passed 条目）：该用例只 require node 内置模块与 dist/core/HostOperationLease，对本次改动模块的引用命中为 0；test/core/hostOperationLease.test.js、src/core/HostOperationLease.ts、dist/core/HostOperationLease.js 与基线字节 sha256 一致；本任务 32 个变更文件不含 src/core、dist/core、test/core 任何文件；用 git archive 7a6062fa 导出的基线树在 16 个 CPU spinner 同等并发下 4/4 复现同一用例失败（TypeError 读 actionLabel、缺少 HostOperationLeaseConflictError 拒绝、HostOperationLeaseLostError 且 code 为 RESOURCE_LEASE_LOST 三种同族表现），当前副本同负载 2/2 复现，无负载双方均 14/14 通过；首轮与第二轮 package 的 files=238、maxParallel=2、maxObservedConcurrent=1 相同，差别只是机器负载。原始失败以 status=failed、exitCode=1 保留，logs 指向 60-package.log（第 237 行即该 job 失败行）与 job-222 的 out 与 err 完整日志。\nF4-FAIL-2 新模块行数门禁为基线既有技术债。git show 7a6062fa 基线字节 CacheCleanupPanel.ts 用 wc 计 478 行、PlanCleanupHost.ts 430 行；门禁按 readFileSync 后以换行 split 的数组长度计数（test/factories_integration.test.js 第 352 至 354 行），文件以换行结尾时比 wc 多 1，故断言报 479 与 431；本副本数字与基线完全相同，且 git diff --stat 基线..HEAD 对这两个文件输出为空。该测试不在 npm run package 的 238 文件集合内：scripts/test-workflow.json、package.json、scripts 目录内检索 0 命中，60-package.log、63-package2.log、50-build.log 内 0 命中，63-package2.log 枚举的唯一测试文件恰为 238 个且不含 factories_integration，因此 package overall=passed 并未掩盖该门禁，它只在按 T9 显式单跑时暴露。\nrequired 标注口径：required=true 仅用于项目必需验收（第二轮 npm run package、npm run compile、vm.Script 双门禁与 P0 端点检索、本任务新增与扩展的 4 个测试文件）。首轮 package 的 hostOperationLease 失败、基线与当前副本的负载复现、行数门禁都是诊断取证条目，required=false，但 failed 状态与真实 exitCode 原样保留，未改成通过。\n实现要点与版本不变：低流量模式按钮加唯一策略源 legacy.ts 第 485 与 486 行和 effectiveTrafficPolicy 的 displayAutoRefresh；r2 定稿 A 类展示读自动 0 次仅手动、B 类队列 5 秒与进度终态确认 10 秒且面板隐藏仍执行、C 类用户操作原行为；默认关闭且正常模式逐值等于原常量。版本 0.5.422，simple-experiment-0.5.422.vsix 2683707 字节，SHA256 7bb4f147da77f2bcf4520fe62158162bd9efdbeecec9e0f3dd69fbe42f7a73a0（未上传 Release、未安装、未重载验收）。\n本轮（r2-final-3，§17.3 唯一必改项）：实现提交 9c153ed7。markDisplayAutoClosed 的认领条件补全为「确实是策略自身转移且当前没有真实故障证据」——connecting（从未成功过）、paused、带 lastError、带 requiresManualReconnect 一律拒绝改写，被拒绝的认领同时写回 false 不遗留错误认领；新增 verifiedDisplayRound 只在 WebSocket onopen、SSE 建立、快照被接受三处写入，真实断连与除 display-auto/paused 之外的关闭清零，startPolling（快照尚未成功）刻意不写。§17.5 的 lastError 泛用非 telemetry 旧路径治理按主控指令本轮未动，仍为非阻塞建议。断言只增不减（12→15），三条新序列见 evidence.md §19.2。版本保持 0.5.422，已重新 npm run package（新 VSIX 2689768 字节，SHA256 dc682f25bc2fb30083e9aa2dc61f15a2162894771d9e3dada0a3919b2db06758），未 install:latest、未发 Release、未合并。handoff 引用的 diff 工件在 handoff 之后重新生成，故 diff 内嵌的 handoff 副本比最终文件早一步，diff 文件自身的 SHA256 与本索引记录一致。"
 }
