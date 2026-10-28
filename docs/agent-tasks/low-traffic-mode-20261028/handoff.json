@@ -80,7 +80,7 @@
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/gpuWindowPanelWiring.test.js",
-        "sha256": "087926c83bd7d88971d8f95dc35c604a77abf99c3c587bad4e4b823c241b0500"
+        "sha256": "24887925cf343dfb00a26bac80fe8b926cefe04d8abf5159949ea9f237b7e5e6"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/lowTrafficDisplayRework.test.js",
@@ -128,7 +128,7 @@
     {
       "kind": "evidence",
       "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/docs/agent-tasks/low-traffic-mode-20261028/evidence.md",
-      "sha256": "f6688ca6f8ae76430c5ad41b41673b78400f83dd1b1e7a855f20cb2b93ff3ed7"
+      "sha256": "440cc50ab4b760c01b2e5e6549096f56c5d97a02ef0a1fed6f356970034e45da"
     },
     {
       "kind": "evidence",
@@ -143,12 +143,12 @@
     {
       "kind": "plan",
       "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/docs/agent-tasks/low-traffic-mode-20261028/plan.md",
-      "sha256": "d71ddc06aca1ee7099af926fa8dc81168073b2081d452520ad25de018ff190d2"
+      "sha256": "52ffd6c9cac4c5f60ee6d33ac4433cca9a92ba0e06b95e3a253b5c58e6d0f515"
     },
     {
       "kind": "diff",
       "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/final-candidate-7a6062fa.diff",
-      "sha256": "7ff29f12f50b554542bbc2257b839e628ff5cc8f536e43b1dd8ab32570dbe6fb"
+      "sha256": "5c7fedb41bdcccad4bb6124c1c34d16024df852b86880fd933518b9b0f36f701"
     },
     {
       "kind": "package",
@@ -416,7 +416,8 @@
           "sha256": "3c8b5f9f356eefd0648fb440655c4bec47b528b4ec17a592006153fc4bc973bd"
         }
       ],
-      "detail": "8 tests 7 pass 1 fail；门禁按 readFileSync.split('\\n').length 计数（test/factories_integration.test.js:352-354），故报 479 与 431 行；git show 7a6062fa 基线字节 wc -l 为 478 与 430、同口径 split 计数为 479 与 431，本副本数字完全相同；git diff --stat 7a6062fa..HEAD -- 这两个文件为空（本任务未触碰）。是否在 package 的 238 文件集合内：不在——scripts/test-workflow.json 与 package.json/scripts 内 0 命中，60-package.log、63-package2.log、50-build.log 内 0 命中，63-package2.log 枚举的唯一测试文件恰为 238 个且不含 factories_integration；故 package overall=passed 未掩盖该门禁，仅按 T9 显式单跑时暴露"
+      "detail": "8 tests 7 pass 1 fail；门禁按 readFileSync.split('\\n').length 计数（test/factories_integration.test.js:352-354），故报 479 与 431 行；git show 7a6062fa 基线字节 wc -l 为 478 与 430、同口径 split 计数为 479 与 431，本副本数字完全相同；git diff --stat 7a6062fa..HEAD -- 这两个文件为空（本任务未触碰）。是否在 package 的 238 文件集合内：不在——scripts/test-workflow.json 与 package.json/scripts 内 0 命中，60-package.log、63-package2.log、50-build.log 内 0 命中，63-package2.log 枚举的唯一测试文件恰为 238 个且不含 factories_integration；故 package overall=passed 未掩盖该门禁，仅按 T9 显式单跑时暴露",
+      "note": "补取证：src/extension/CacheCleanupPanel.ts 与 src/extension/PlanCleanupHost.ts 基线 wc -l = 478/430，HEAD 仍 478/430，本次 diff 对这两个文件改动 0 行；门禁按 readFileSync().split 计数得 479/431（换行结尾多一格），阈值 400/300 基线即超线。见 evidence §15、§17.5"
     },
     {
       "platform": "win32",
@@ -445,7 +446,7 @@
           "sha256": "dc42956a32f28d9dc1a7b0ec38de0ee632c27782ff37d9b3a4cf20e80fec87a6"
         }
       ],
-      "note": "overall=passed files=238，与上一轮同一 0.5.422 版本、同一文件集合；PATH 前置 /d/Git/cmd 使 executionShellPreflight 能解析真实 Git Bash"
+      "note": "overall=passed files=238；PATH 前置 /d/Git/cmd。其后仅有测试夹具时间口径修正（test/features/gpuWindowPanelWiring.test.js），.vscodeignore:20 已排除 test/**，故 VSIX 字节与指纹不变（2688906 字节，SHA256 77a86a93911924876becadebc28b33826fce15bf46fcbec007768cc444c1f2b5）"
     },
     {
       "platform": "win32",
@@ -988,7 +989,7 @@
           "sha256": "f75d75bffdd43276ff79d385952b8108aa7913bac61ad588d8898911ff9bfa91"
         }
       ],
-      "note": "66/69 文件全绿；3 个失败为基线既有，已单列在下方三条非必需记录（factories_integration 行数门禁、distributedRerunAndWorkerDelta 缺 GitHub 发布阶段文案、gpuWindowPanelWiring 毫秒/秒时间口径漂移）。逐文件完整日志见 logs/88-*、logs/91-*、logs/93-*、logs/96-*、logs/98-*"
+      "note": "该批次当时 66/69 文件全绿；其中 gpuWindowPanelWiring 随后按 evidence §17 的取证只改夹具时间口径转绿（logs/101-*，6 pass 0 fail），实际剩 2 条基线既有失败（factories_integration 行数门禁、distributedRerunAndWorkerDelta 缺 GitHub 发布阶段文案）。逐文件完整日志见 logs/88-*、logs/91-*、logs/93-*、logs/96-*、logs/98-*、logs/101-*，汇总 logs/99-serial-summary.txt"
     },
     {
       "platform": "win32",
@@ -1020,7 +1021,7 @@
           "sha256": "864ae0c044d51b7740cf72aed126b4e82e015c6c3123b53d672f186925aa5938"
         }
       ],
-      "note": "基线 7a6062fa 与本轮 HEAD 的 src/extension/legacy.ts 均不含该字符串（git show 7a6062fa:src/extension/legacy.ts | grep -c 结果相同），与本任务无关；未改测试、未改生产代码"
+      "note": "取证数字：期望文案「GitHub 已完成，正在准备 Worker 上传」在 git show 7a6062fa:src/extension/legacy.ts 中出现 0 次、git show HEAD:src/extension/legacy.ts 中出现 0 次、本次 git diff 7a6062fa..HEAD -- src/extension/legacy.ts 中出现 0 次；即基线既有缺口（上一次发布进度合并改版替换文案未同步测试），非本任务引入。未改测试、未改生产代码。详见 evidence §17.5"
     },
     {
       "platform": "win32",
@@ -1033,7 +1034,7 @@
         "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
         "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
       },
-      "name": "非必需：gpuWindowPanelWiring 细粒度回传用例（本轮补齐 harness 后暴露毫秒/秒口径漂移）",
+      "name": "必需验收：GPU 细帧合并链真实执行（夹具改为真实上报口径后）",
       "argv": [
         "node",
         "--test",
@@ -1042,17 +1043,49 @@
         "20000",
         "test/features/gpuWindowPanelWiring.test.js"
       ],
+      "status": "passed",
+      "exitCode": 0,
+      "required": true,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/101-gpuWindowPanelWiring-fixturefix.log",
+          "sha256": "4a2cd022e63cdfd9e19cf53c2cbc5121129ab398a5cf556730a29b6d65ac5815"
+        }
+      ],
+      "note": "粗帧只被 src/ui/PanelHtml.legacy.ts:11905-11906 的 Number(row.bucketEpoch) < points[0].bucketEpoch 比较丢掉（不是 gapLimit、不是期望步长）：夹具原按 epoch 毫秒写缓存粗帧与期望值，而真实链路面板入缓存即 :11891 Math.round(collectedAt/1000)＝epoch 秒（GpuCollector.ts:415 ISO → GpuSampleRing.ts:27 毫秒 → :11891 秒；远端桶 clusterAgentRuntime.legacy.ts:2159-2168 + gpu_history_iso :2096 gmtime 同为秒；面板 24 小时窗口 :12164 latest-24*3600 亦按秒）。只改测试输入数据（test:61-74 t0Ms/t0、:113 coarse=t0-7200），断言文本/条数/阈值未动，6 tests 6 pass 0 fail。机制与数值推演见 evidence §17.1-17.3"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
+      "timeoutMs": 20000,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
+      },
+      "name": "取证：基线树原样运行 gpuWindowPanelWiring（该文件此前从未通过，断言未执行）",
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "_baseline_probe/test/features/gpuWindowPanelWiring.test.js"
+      ],
       "status": "failed",
       "exitCode": 1,
       "required": false,
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/98-8-gpuWindowPanelWiring.log",
-          "sha256": "5a934c9a7498ee092019e19d0f026c87061effeab3326929ba3bf39a6f863779"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/100-baseline-probe-gpuWindowPanelWiring.log",
+          "sha256": "b811a3bee6b66b57ce340078c66be4ab10a69afbfb4861058b060bf140043a77"
         }
       ],
-      "note": "基线 harness 缺少 mergeGpuHistorySegments 等真实依赖，该用例此前直接 ReferenceError；本轮补齐后用例真正执行，5 pass 1 fail：测试按 epoch 毫秒构造时间，生产 applyGpuWindowSamples 已按 src/ui/PanelHtml.legacy.ts:11891 注释改用 epoch 秒。未修改其断言、未放宽阈值，是否随本 PR 修正测试口径由主控决定"
+      "note": "把 git show 7a6062fa 的 src/ui/PanelHtml.legacy.ts 与 test/features/gpuWindowPanelWiring.test.js 按原目录结构复制到工作副本 _baseline_probe/ 后运行：tests 6 pass 3 fail 3，exit=1。两条 GPU 细帧用例以 ReferenceError: mergeGpuHistorySegments is not defined 异常终止（基线 harness 未抽取该函数，:11908 之前就抛错，1≠2 那条断言根本没执行到），第 3 条失败是探针副本缺少同级模块 ../features/PanelProgressDom，属探针环境限制。该文件也不在 npm run build(228)/npm run package(238) 作业名集合内，所以基线的红未被告警。探针目录已按删除规程（安全根=项目根、直接父目录核实、目标 ./_baseline_probe 最短相对路径）移除。见 evidence §17.4"
     }
   ],
   "notes": "purpose=final：阶段 3 实现与规定验证已完成，本轮按要求补全两条失败链证据后再交 GPT 终审。candidate.revision 仍为冻结基线 7a6062fa10441cc5852166a34138781a2604d9e9；实现提交 8f778444，本轮只新增文档取证提交，PR #25 随之更新。主线基准 D:/GitRepo/MCP/zlk-cluster-orchestrator 全程零写入。\n本轮（补证据）未修改任何生产代码，也未修改任何测试断言或超时阈值，只追加 evidence.md 第 15 节、plan.md 第 11 节与本索引的失败记录。\nF4-FAIL-1 hostOperationLease 分类为既有并发时序抖动，非本改动引入。依据（evidence.md 15.1，下方 checks 为对应 failed/passed 条目）：该用例只 require node 内置模块与 dist/core/HostOperationLease，对本次改动模块的引用命中为 0；test/core/hostOperationLease.test.js、src/core/HostOperationLease.ts、dist/core/HostOperationLease.js 与基线字节 sha256 一致；本任务 32 个变更文件不含 src/core、dist/core、test/core 任何文件；用 git archive 7a6062fa 导出的基线树在 16 个 CPU spinner 同等并发下 4/4 复现同一用例失败（TypeError 读 actionLabel、缺少 HostOperationLeaseConflictError 拒绝、HostOperationLeaseLostError 且 code 为 RESOURCE_LEASE_LOST 三种同族表现），当前副本同负载 2/2 复现，无负载双方均 14/14 通过；首轮与第二轮 package 的 files=238、maxParallel=2、maxObservedConcurrent=1 相同，差别只是机器负载。原始失败以 status=failed、exitCode=1 保留，logs 指向 60-package.log（第 237 行即该 job 失败行）与 job-222 的 out 与 err 完整日志。\nF4-FAIL-2 新模块行数门禁为基线既有技术债。git show 7a6062fa 基线字节 CacheCleanupPanel.ts 用 wc 计 478 行、PlanCleanupHost.ts 430 行；门禁按 readFileSync 后以换行 split 的数组长度计数（test/factories_integration.test.js 第 352 至 354 行），文件以换行结尾时比 wc 多 1，故断言报 479 与 431；本副本数字与基线完全相同，且 git diff --stat 基线..HEAD 对这两个文件输出为空。该测试不在 npm run package 的 238 文件集合内：scripts/test-workflow.json、package.json、scripts 目录内检索 0 命中，60-package.log、63-package2.log、50-build.log 内 0 命中，63-package2.log 枚举的唯一测试文件恰为 238 个且不含 factories_integration，因此 package overall=passed 并未掩盖该门禁，它只在按 T9 显式单跑时暴露。\nrequired 标注口径：required=true 仅用于项目必需验收（第二轮 npm run package、npm run compile、vm.Script 双门禁与 P0 端点检索、本任务新增与扩展的 4 个测试文件）。首轮 package 的 hostOperationLease 失败、基线与当前副本的负载复现、行数门禁都是诊断取证条目，required=false，但 failed 状态与真实 exitCode 原样保留，未改成通过。\n实现要点与版本不变：低流量模式按钮加唯一策略源 legacy.ts 第 485 与 486 行和 effectiveTrafficPolicy 的 displayAutoRefresh；r2 定稿 A 类展示读自动 0 次仅手动、B 类队列 5 秒与进度终态确认 10 秒且面板隐藏仍执行、C 类用户操作原行为；默认关闭且正常模式逐值等于原常量。版本 0.5.422，simple-experiment-0.5.422.vsix 2683707 字节，SHA256 7bb4f147da77f2bcf4520fe62158162bd9efdbeecec9e0f3dd69fbe42f7a73a0（未上传 Release、未安装、未重载验收）。"
