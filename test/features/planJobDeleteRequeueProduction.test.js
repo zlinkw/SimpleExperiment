@@ -134,7 +134,7 @@ function world(options={}){
     if(method==='files.cleanup.execute'){
       assert.ok(record.confirmations,'执行前必须已有确认相位');assert.equal(record.action,'delete','本流只允许永久删除');
       const target=record.targets[params.index];
-      await fsPromises.rm(abs(record.node,target.relativePath),{recursive:true,force:true});
+      if(await statReal(abs(record.node,target.relativePath))) require("../_helpers/retainFixtureTarget.cjs")(record.node.root,abs(record.node,target.relativePath),target.type);
       stats.deletes+=1;stats.removes.push(record.node.id+':'+target.relativePath);
       return {ok:true,receipt:{source:'active_query',verifiedBy:'path_absence',contentFingerprint:target.contentFingerprint}};}
     throw Error('ADAPTER_REFUSES_'+method);};

@@ -235,7 +235,7 @@ test("unowned managed files stay preview-only and protection is recomputed befor
             if (!entry.leaf || entry.leaf.includes("/") || entry.leaf.includes("\\")) throw new Error("unsafe leaf");
             const full = path.join(entry.parent, entry.leaf);
             if (fs.statSync(full).size !== Number(entry.size)) throw new Error("size changed");
-            fs.unlinkSync(full);
+            require("../_helpers/retainFixtureTarget.cjs")(root, full, "file");
             deletions.push(full);
             lines.push(`OK:${entry.i}`);
           }
@@ -251,7 +251,7 @@ test("unowned managed files stay preview-only and protection is recomputed befor
   } };
   const executor = process.platform === "win32" ? { spawn(...args) {
     spawns++;
-    return require("node:child_process").spawn(...args);
+    return require("../_helpers/retainFixtureTarget.cjs").spawnGuarded(root, args);
   } } : childProcessStub;
   const context = { generation: 1, endpoints: [], client: {}, localRoot: root, retentionIndex: async () => currentIndex,
     ...openAdmission, childProcessStub: executor };
@@ -392,7 +392,7 @@ test("production blocked provider exposes local-only leaving logs and releases a
   let spawns = 0;
   context.childProcessStub = { spawn(...args) {
     spawns++;
-    if (process.platform === "win32") return require("node:child_process").spawn(...args);
+    if (process.platform === "win32") return require("../_helpers/retainFixtureTarget.cjs").spawnGuarded(root, args);
     // Linux has no PowerShell. Preserve exact fixture files outside the active path; Windows
     // acceptance executes the real production PowerShell program against the same test.
     const child = new (require("node:events").EventEmitter)();

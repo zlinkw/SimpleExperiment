@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.421",
-  "buildId": "ed11744f883b3747a0c0bccf7ce5def0b2fcf3f8aea21a653ade05f131b15fa6",
+  "version": "0.5.423",
+  "buildId": "1a9347a52f14983d7e1ff1da00ffd8bffda4a6da3312f74307d8035fa427a4de",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -13,15 +13,135 @@
     },
     {
       "path": "dist/api/LocalApiServer.legacy.js",
-      "sha256": "3bbe1db5faf994bd6e34819c6b1e98d299ca2e0a2a43f9190699eeea55366425"
+      "sha256": "86538725aabee047b1bfa780ba32a6ce2fabc58bf61671b8043ba2a003030d3c"
+    },
+    {
+      "path": "dist/cli.js",
+      "sha256": "fb7b40731cbf11180668dca4a662eb393c89c8d73ec98a7726873ba12ad24186"
+    },
+    {
+      "path": "dist/cli.legacy.js",
+      "sha256": "bded5d52886778007273e64179182be99694299a102877dc38183abb3cd17dcf"
+    },
+    {
+      "path": "dist/cli/api.js",
+      "sha256": "11c280a94d35fa3d818e6a609352a2f540aed001d8f242c7303177d18360a0ec"
+    },
+    {
+      "path": "dist/cli/commands/action.js",
+      "sha256": "204ee41b982158dff7a600e1c568122f09431be7c77e72de3ede0a41de1fa798"
+    },
+    {
+      "path": "dist/cli/commands/actionsCatalog.js",
+      "sha256": "27eebb5410b9e3e405df8512cc4e0dac20b707d412a05ba5ce868bf822a865c6"
+    },
+    {
+      "path": "dist/cli/commands/agentsLifecycle.js",
+      "sha256": "9a5d28ab9ed63e4423d2917f27e939c27dbf56590184d5e1d30f73c6e053dd33"
+    },
+    {
+      "path": "dist/cli/commands/artifact.js",
+      "sha256": "edb1854134254646e84dd0f1be7f8cbdd0acaace62a9f4df3e1d31346747122d"
+    },
+    {
+      "path": "dist/cli/commands/compare.js",
+      "sha256": "1cdc75e97f11026e7f52127a277a762d0053a463c2f5d768ac100de2840e938a"
+    },
+    {
+      "path": "dist/cli/commands/control.js",
+      "sha256": "21c4d94bd3d3587bc9944e040c83a772f766ab09853299c5ee19b14f24c51f81"
+    },
+    {
+      "path": "dist/cli/commands/draft.js",
+      "sha256": "8f17c7ec7a44088034722d25cac6b66a382c15314ee426fa060fb8b4b84fe638"
+    },
+    {
+      "path": "dist/cli/commands/experiment.js",
+      "sha256": "0c6217e8447acb6ef507b31b7ba885001ba95015e5e5f4f03b88642f0c09c449"
+    },
+    {
+      "path": "dist/cli/commands/gpu.js",
+      "sha256": "79de02bc12a13a383da6b10442ef8114393603372ef52b61bb339684454722b0"
+    },
+    {
+      "path": "dist/cli/commands/index.js",
+      "sha256": "6f9eb34722dc37b62ca05c56e0795209b812a33394ceffb5329e6214ed73ca40"
+    },
+    {
+      "path": "dist/cli/commands/log.js",
+      "sha256": "81931b2f145a8127a18e34b43211a749cd1e1fb7d051b67d20de0a2e7143aa8d"
+    },
+    {
+      "path": "dist/cli/commands/metric.js",
+      "sha256": "5953dfee383a8017ff249340c25e412ce458fe9ebc36e936a8116419dee56ae9"
+    },
+    {
+      "path": "dist/cli/commands/plan.js",
+      "sha256": "d9d50ff2b5fc94eb1be12ee2490f329d22f333e05004de52dcde8a83ba4058c8"
+    },
+    {
+      "path": "dist/cli/commands/planCleanup.js",
+      "sha256": "ce8eab69ec95349f825ca93646e5a45aa5ba5cd4a5048d59269682a4440544f7"
+    },
+    {
+      "path": "dist/cli/commands/project.js",
+      "sha256": "2654177b45ed9e87cf1365ae24d2d1c3951369f4d5c8c97ddc81f36613cba2cb"
+    },
+    {
+      "path": "dist/cli/commands/projectOps.js",
+      "sha256": "22962c82332ce1fdeec81ab1c1bcd09589a75258dbe8841b1c605b871cc3042d"
+    },
+    {
+      "path": "dist/cli/commands/resource.js",
+      "sha256": "7142f0aaec471b81400b4740b70a01fbc42972e958dc4f27cccc3abf0689e4f8"
+    },
+    {
+      "path": "dist/cli/commands/result.js",
+      "sha256": "2577e313d6fd5ab717b3465f87a0b15d1b6279c1bbb1061e3a29230fe4b3e9d2"
+    },
+    {
+      "path": "dist/cli/commands/server.js",
+      "sha256": "fd776cadfb5a47e19803dcc3195df7e46351eeb91a9fa65afabdd8a777da22ea"
+    },
+    {
+      "path": "dist/cli/data.js",
+      "sha256": "56975590d95d97fca94205d0a24025c16d4109e479bf3936b893c183ba36b6b8"
     },
     {
       "path": "dist/cli/errors.js",
       "sha256": "5b19b14d8854208f8cdf42420ad2f5cfab30451185a84b7f011a5b8091f26057"
     },
     {
+      "path": "dist/cli/format.js",
+      "sha256": "bfd030cda541a4bac69b179336a2fe8b1eeb3b0967524df3205609e7a099cdf6"
+    },
+    {
+      "path": "dist/cli/help.js",
+      "sha256": "0ff5525e3f8f1de9849bb95a3cfc93a89232608fbaf0cd8082e7a3882d9fc0d1"
+    },
+    {
+      "path": "dist/cli/index.js",
+      "sha256": "8b74a523921bfb6fa4521961d2ed0e6f93269ad3a367de8043af270879895cd3"
+    },
+    {
       "path": "dist/cli/LocalApiClient.js",
       "sha256": "5092eb6b1c8d6477a2eb9198a953d4a3168788f9a774fd457f1f20c4e8bfe1f5"
+    },
+    {
+      "path": "dist/cli/parse.js",
+      "sha256": "1a2b834d94d66f35f613d0e69987dc33a025e690377bb3101c6616dc2b958713"
+    },
+    {
+      "path": "dist/cli/plugins.js",
+      "sha256": "191953ab839a53d718567a2d5ce79752605e11e4586fe03bb0b1cf171f5b4a88"
+    },
+    {
+      "path": "dist/cli/runtime.js",
+      "sha256": "474822eb6f026d80c055db86ea3e85230406de74afe7810d607e6a2c885c48de"
+    },
+    {
+      "path": "dist/cli/WorkflowRun.js",
+      "sha256": "7b1399a4bf09d4a49d2db751633d6ba166e6ca7e9cce33e7f50add67aaef5113"
     },
     {
       "path": "dist/config/RemoteRootPolicyPrefill.js",
@@ -228,6 +348,10 @@
       "sha256": "c02fda57db28a3c583632bb36ff284bba00cd771c498742f66c831f79471febc"
     },
     {
+      "path": "dist/features/Checkpoint.js",
+      "sha256": "b9ced91e3bb7d8b9a54010f4943015346e6a32fad4c4548a8a0ac0f494e2fa24"
+    },
+    {
       "path": "dist/features/CodeSyncDelta.js",
       "sha256": "6d1c7d8f23ca147569579e35504ab13baef8f70cd6c5e1e11b2321cd214d4af2"
     },
@@ -270,6 +394,10 @@
     {
       "path": "dist/features/DraftPlans.legacy.js",
       "sha256": "c36e5cb1a1ba88998283f1f1c8c3b78b3ba83d47bc231f90e8f82782e3fba4db"
+    },
+    {
+      "path": "dist/features/ExperimentRunner.js",
+      "sha256": "6f44bcab84e456328621caf791f76f3d1c886fc80b1d668609c393b07738a855"
     },
     {
       "path": "dist/features/ExtensionUpdates.js",
@@ -328,6 +456,10 @@
       "sha256": "0a8adac07318d51b7952de0f03f99d5cacfc57cf21fff1b5203d4b4b7abb02d3"
     },
     {
+      "path": "dist/features/Lifecycle.js",
+      "sha256": "88929c784cb25741148a5534907c3f29cb082d8a455778bb6d5f4aca6c15ac94"
+    },
+    {
       "path": "dist/features/LocalCodeManifestCache.js",
       "sha256": "6069e129b9968ccbf02d7d56ddaff96188ac5b95ed185399bd40b16497b60af5"
     },
@@ -346,6 +478,10 @@
     {
       "path": "dist/features/ManualJobDispatch.js",
       "sha256": "d18a4bedbd10f048bb8cd6b58ce901f17f089e4a4f5fd83ef3bd50a1a6785c30"
+    },
+    {
+      "path": "dist/features/Metrics.js",
+      "sha256": "ee634a956e1f3d1b7163499b17fa2af9aa7ce9068c33e95b34c1833b2353c0f4"
     },
     {
       "path": "dist/features/NativePlanRetry.js",
@@ -721,7 +857,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "1d8e631e6e7ba554b07b30aa0a43c04c375bff9e10a84110faefcfc5adc0a5ae"
+      "sha256": "b84509389b9f9839d73c4a3343e1d6afec14b6e5bf1b3a7c942719159a98e8ca"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -729,7 +865,7 @@
     },
     {
       "path": "dist/state/StateStore.js",
-      "sha256": "2a63477c221b3238819ff6d0bd032ae475aecd8fe3bcf690ddb0d922386694dc"
+      "sha256": "1eab1d8888743a7a39bb6948dd73086dfc32f8ea4c6ac8061c24e3eebba8f837"
     },
     {
       "path": "dist/templates/ProjectAdapterTemplates.js",
@@ -945,7 +1081,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "3184860192f8f895049874b2a04eec270314b1e2ddcfc38f2861fc4e8c106200"
+      "sha256": "4979ce7a42067dee7f8a803c3c8e441544f87547f126d21fc0fbfad0f03652d8"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -969,7 +1105,7 @@
     },
     {
       "path": "dist/updates/ReleaseClient.js",
-      "sha256": "2d7bbe05d284be4cada586515fbbbac4d7493bf972ab3a2d9be790ea8c4c9b78"
+      "sha256": "10dd7ad23e01406e185d22343e26ba5c84c93b91c17bf103bed2b256c4f4f76d"
     },
     {
       "path": "dist/updates/UpdateGate.js",
@@ -1069,7 +1205,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "f9060f1d66b410ae040f1b66b3745be61d296536a98c3d9ad0e05f9950427378"
+      "sha256": "0075efab59d3130b81c4cbfbccc2dc4b569044eaf146a7093fbcdeb7e7844d8a"
     },
     {
       "path": "scripts/check-static.js",

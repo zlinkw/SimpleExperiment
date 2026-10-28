@@ -37,8 +37,10 @@ exports.atomicWriteText = atomicWriteText;
 exports.readJsonState = readJsonState;
 exports.writeJsonState = writeJsonState;
 const fs = __importStar(require("fs/promises"));
+const node_crypto_1 = require("node:crypto");
 const path = __importStar(require("path"));
 const fsNode = __importStar(require("fs"));
+const writerIdentity = `${process.pid}-${(0, node_crypto_1.randomUUID)()}`;
 const atomicWriteQueues = new Map();
 async function atomicWriteText(file, text, options = {}) {
     const resolved = path.resolve(file);
@@ -60,7 +62,7 @@ async function writeFixedSlot(file, text, options) {
         throw new Error("状态重命名重试预算无效");
     const parent = path.dirname(file);
     await fs.mkdir(parent, { recursive: true });
-    const staging = `${file}.writing`;
+    const staging = `${file}.${writerIdentity}.writing`;
     let existing;
     try {
         existing = await fs.lstat(staging);

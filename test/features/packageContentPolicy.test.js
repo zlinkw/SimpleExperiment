@@ -183,7 +183,7 @@ test("zip-level regression: compliant final archive passes the policy CLI (exit 
     assert.equal(result.status, 0, `expected pass, stderr=${result.stderr}`);
   }
   finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    console.log(`[fixture retained] ${dir}`);
   }
 });
 
@@ -212,7 +212,7 @@ test("zip-level regression: docs/nested README/tests/backup/pycache entries fail
     assert.ok(!output.includes(FIXTURE_SENTINEL), "diagnostics must never echo file contents");
   }
   finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    console.log(`[fixture retained] ${dir}`);
   }
 });
 

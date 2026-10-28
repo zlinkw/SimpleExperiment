@@ -29,7 +29,7 @@ function makeWorkspace(t) {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), "psg-runner-"));
   fs.mkdirSync(path.join(ws, "test"));
   fs.writeFileSync(path.join(ws, "package.json"), JSON.stringify({ name: "fixture", scripts: {} }));
-  t.after(() => fs.rmSync(ws, { recursive: true, force: true }));
+  t.after(() => console.log(`[fixture retained] ${ws}`));
   return ws;
 }
 
@@ -241,10 +241,10 @@ test("runner: second batch on the same working copy is refused (caps never multi
   const manifest = writeManifest(ws, baseManifest(ws, { one: { phases: { fullCheck: { extraFiles: [{ file: slow, argv: [], source: "f" }] } } } }, [slow]));
   const first = spawn(process.execPath, [RUNNER, "one", "--root", ws, "--manifest", manifest], { stdio: "pipe", windowsHide: true });
   t.after(() => { try { first.kill(); } catch { /* settled */ } });
-  const lockDir = path.join(ws, "simple_cluster", "locks", "simple-experiment", "test-workflow", "batch.lock");
+  const lockDir = path.join(ws, "simple_cluster", "locks", "simple-experiment", "test-workflow", "process-owner.json");
   const deadline = Date.now() + 8000;
   while (!fs.existsSync(lockDir) && Date.now() < deadline) await new Promise(r => setTimeout(r, 50));
-  assert.ok(fs.existsSync(lockDir), "batch lock exists while first batch runs");
+  assert.ok(fs.existsSync(lockDir), "process ownership record exists while first batch runs");
   const second = runRunner(ws, manifest, "one");
   assert.equal(second.status, 3, "second same-root batch rejected with a distinct non-zero code");
   assert.match(second.stderr, /拒绝并发批/);
@@ -603,7 +603,7 @@ test("r24 compile cache: cold→hit, input/config/toolchain drift, missing/tampe
   const r6 = runTsc(); const p6 = line(r6.stdout, "partition");
   assert.equal(line(r6.stdout, "mode"), "incremental", "r5 rebuild completed ⇒ r6 is a genuine hit");
   assert.match(r6.stdout, /emitted=0/);
-  fs.rmSync(path.join(ws, "dist", "a.js"));
+  require("../_helpers/retainFixtureTarget.cjs")(ws, path.join(ws, "dist", "a.js"));
   const r7 = runTsc();
   assert.equal(line(r7.stdout, "mode"), "cold");
   assert.match(r7.stdout, /missReason=output-drift/);
@@ -770,9 +770,35 @@ function canonicalPlan(manifest, entryName) {
     for (const x of full.extraFiles || []) requested.push({ file: x.file, argv: [...x.argv] });
     for (const g of full.globs || []) for (const p of g.patterns) for (const hit of canonicalGlob(p)) requested.push({ file: hit, argv: [...g.argv] });
   }
+  const expanded = requested.flatMap(job => {
+    if (!(manifest.caseGroups || []).includes(job.file)) return [job];
+    // Independent lexical oracle: these two suites register literal top-level test names.
+    const source = fs.readFileSync(path.join(REPO, job.file), "utf8");
+    const names = [...source.matchAll(/^test\(("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'),/gm)]
+      .map(match => require("node:vm").runInNewContext(match[1]));
+    assert.ok(names.length);
+    const rest = [];
+    for (let i=0; i<job.argv.length; i++) {
+      const arg=job.argv[i]; if (arg === "--test-timeout") { i++; continue; }
+      if (["--test", "--test-force-exit"].includes(arg) || arg.startsWith("--test-timeout=")) continue;
+      rest.push(arg);
+    }
+    return names.map(name => ({...job, argv: ["--test", "--test-force-exit", "--test-timeout", "20000", "--test-name-pattern",
+      "^" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", ...rest]}));
+  });
+  const policyJobs = manifest.boundedNodeTests === true ? expanded.map(job => {
+    const rest = [];
+    for (let i=0; i<job.argv.length; i++) {
+      const arg=job.argv[i];
+      if (arg === "--test-timeout") { i++; continue; }
+      if (["--test", "--test-force-exit"].includes(arg) || arg.startsWith("--test-timeout=")) continue;
+      rest.push(arg);
+    }
+    return {...job, argv:["--test", "--test-force-exit", "--test-timeout", "20000", ...rest]};
+  }) : expanded;
   const map = new Map();
-  for (const j of requested) map.set(canonicalIdentity(j.file) + "\u0000" + j.argv.join("\u0000"), j);
-  return { requestedSlots: requested.length, map };
+  for (const j of policyJobs) map.set(canonicalIdentity(j.file) + "\u0000" + j.argv.join("\u0000"), j);
+  return { requestedSlots: policyJobs.length, map };
 }
 
 test("runner: real-repo plan reconciles with an independently expanded manifest contract", () => {
@@ -881,12 +907,12 @@ test("runner: real-repo plan reconciles with an independently expanded manifest 
  * （合法机制，不硬编码绝对路径）；模块名 r28dep 全局唯一，证明可见性来自注入而非系统 site-packages。 */
 const PY_CMD = process.platform === "win32" ? "python" : "python3";
 function r28Setup(t) {
-  const probe = spawnSync(PY_CMD, ["-B", "-c", "import site; print(site.getusersitepackages())"], { encoding: "utf8", timeout: 15000, windowsHide: true, env: process.env });
+  const probe = spawnSync(PY_CMD, ["-B", "-c", "import site; print(site.getusersitepackages())"], { encoding: "utf8", timeout: 10000, windowsHide: true, env: process.env });
   if (probe.status !== 0) return null; // 本机无可解析 Python ⇒ 契约不适用（两台验收机均有 Python，勿据此跳过当作通过）
   const ws = makeWorkspace(t);
   const usersiteBase = path.join(ws, "usersite");
   const marker = path.join(ws, "keepme"); // 已有 PYTHONPATH 代表（只需被保留，不必在盘上存在）
-  const siteProbe = spawnSync(PY_CMD, ["-B", "-c", "import site; print(site.getusersitepackages())"], { encoding: "utf8", timeout: 15000, windowsHide: true, env: { ...process.env, PYTHONUSERBASE: usersiteBase } });
+  const siteProbe = spawnSync(PY_CMD, ["-B", "-c", "import site; print(site.getusersitepackages())"], { encoding: "utf8", timeout: 10000, windowsHide: true, env: { ...process.env, PYTHONUSERBASE: usersiteBase } });
   assert.equal(siteProbe.status, 0, siteProbe.stderr);
   const siteDir = siteProbe.stdout.trim();
   fs.mkdirSync(siteDir, { recursive: true });
@@ -950,11 +976,29 @@ test("r28: existing user-site deps stay visible (batch-once resolve, PYTHONPATH 
 test("r28: unresolvable user site ⇒ no PYTHONPATH injection for the whole batch (fail-safe)", t => {
   const s = r28Setup(t);
   if (!s) return t.skip("no resolvable python on this host");
-  fs.rmSync(s.usersiteBase, { recursive: true, force: true }); // 解析出的目录不存在 ⇒ 降级
+  // A separate absent PYTHONUSERBASE below simulates unresolvable input; existing fixture bytes stay retained.
   const files = [r28PyJob(s.ws, "pyvisn", s.marker, "absent")];
   const run = r28Run(s.ws, files, { ...process.env, PYTHONUSERBASE: path.join(s.ws, "no-such-base"), PYTHONPATH: s.marker });
   assert.equal(run.status, 0, run.stdout + run.stderr);
   assert.equal(receipt(s.ws, "pyvis").jobs[0].status, "passed");
   assert.equal((run.stdout.match(/no PYTHONPATH injection this batch/g) || []).length, 1);
   assert.doesNotMatch(run.stdout, /batch-once\)/, "degraded batch must not claim an injected root");
+});
+
+// Grouping changes execution boundaries only; all registered tests retain their assertions.
+test("runner: case grouping covers every literal name and rejects dynamic registrations", t => {
+  const ws = makeWorkspace(t), file = "test/grouped.js";
+  fs.writeFileSync(path.join(ws, file), 'test("first (a)",()=>{});\ntest("second",()=>{});\n', "utf8");
+  const { expandCaseGroups } = require("../../scripts/test-case-groups");
+  const jobs = expandCaseGroups(ws, [{file, argv:["--test-timeout", "60000"], source:"fixture"}], [file]);
+  assert.equal(jobs.length, 2);
+  for (const title of ["first (a)", "second"]) assert.equal(jobs.filter(job => new RegExp(job.argv[job.argv.indexOf("--test-name-pattern")+1]).test(title)).length, 1);
+  assert.ok(jobs.every(job => job.argv.includes("20000") && !job.argv.includes("60000")));
+  fs.writeFileSync(path.join(ws, file), 'const name="dynamic";test(name,()=>{});', "utf8");
+  assert.throws(()=>expandCaseGroups(ws,[{file,argv:[]}],[file]),/DYNAMIC_NAME/);
+  const ungrouped = [{file:"test/plain.js",argv:[]}];
+  assert.deepEqual(expandCaseGroups(ws,ungrouped,[])[0].argv, [], "fixture manifests retain their deliberate timeout matrices");
+  assert.deepEqual(expandCaseGroups(ws,ungrouped,[],true)[0].argv, ["--test","--test-force-exit","--test-timeout","20000"]);
+  const matrix = [{file:"test/plain.js",argv:["--test-timeout=60000","--test-name-pattern","^one$"]}];
+  assert.deepEqual(expandCaseGroups(ws,matrix,[],true)[0].argv, ["--test","--test-force-exit","--test-timeout","20000","--test-name-pattern","^one$"]);
 });

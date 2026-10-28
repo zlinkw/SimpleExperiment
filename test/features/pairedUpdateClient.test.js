@@ -44,5 +44,6 @@ test('unavailable, oversized, prerelease and foreign assets never report up to d
 test('checksum text must bind the exact VSIX filename', async () => {
   const c = { repo: 'zlinkw/SimpleExperiment', label: 'Experiment', vsix: { name: 'right.vsix' }, checksum: { url: 'https://github.com/zlinkw/SimpleExperiment/releases/download/v1/right.vsix.sha256' } };
   await assert.rejects(new ReleaseClient(async () => new Response('a'.repeat(64) + '  other.vsix')).checksum(c), /精确/);
+  await assert.rejects(new ReleaseClient(async () => new Response('a'.repeat(64))).checksum(c), /精确/);
   assert.equal(await new ReleaseClient(async () => new Response('a'.repeat(64) + '  right.vsix')).checksum(c), 'a'.repeat(64));
 });

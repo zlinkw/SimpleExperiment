@@ -1,11 +1,13 @@
 {
+ "boundedNodeTests": true,
+ "caseGroups": ["test/features/testWorkflowRunner.test.js", "test/project/branchProjectRegistry.test.js", "test/features/tmuxTaskLifecycle.test.js"],
  "schemaVersion": 1,
  "notes": {
   "proven": "r22/r29 单一测试清单。domains.sourceScript 逐字保留改造前 npm 正文（planner 运行时递归展开，等价性由 test/features/testWorkflowRunner.test.js 强制）；entries 保存旧→新入口对应；final=true 的最终 profile 拒绝 --only/--reuse 类过滤。",
   "scheduling": "初始全局 max2（--max-parallel 不可超过）；classification.parallel 之外（含未知/漂移）一律独占串行；同文件不同 argv 为矩阵行且同组互斥；同根第二批准入拒绝（见 runner 锁）。",
   "prepareWsl": "prepare-wsl-tests.js 为 WSL 就绪预热（幂等、15s 帽），旧链在 3 个域内重复执行，新链每批一次前置执行；消费者文件仍全部在其之后启动。",
   "cliStatusGate": "acceptance/smoke 旧 node dist/cli.js status 已被 REMOVED_ENTRIES 明确退役（src/cli/index.ts:17），且不得在真实用户实例执行；原意由隔离契约 test/cli/simpleCli.test.js（project status，隔离 cwd/apiFile）在本清单 fullCheck 内覆盖。",
-  "argvMatrix": "来源 argv 保留：显式链文件带 --test-force-exit --test-timeout 20000；旧 glob 入口文件保持原无超时 argv（不新增预算，避免语义收紧）。",
+  "argvMatrix": "来源 argv 保留在 sourceScript；本仓 boundedNodeTests 显式要求每项实际使用 --test --test-force-exit --test-timeout 20000，保留名称筛选等独有矩阵参数。没有此策略的执行器夹具仍保留其专用期限矩阵。",
   "acceptanceCompact": "旧 acceptance 输出 compact 截断 8000 仅存 latest；新链完整 stdout/stderr 逐子项独占日志，latest 报告只作摘要并引用日志路径。",
   "isolation": "r29 #1：测试子进程 env 独立（HOME/USERPROFILE/APPDATA/LOCALAPPDATA/TMP/TEMP/TMPDIR/XDG_* → 每文件沙箱目录）并清除六项 Git 定位变量；非测试编译门禁保留规范环境。",
   "receipts": "r29 #5/#7：run 凭据独占 wx 写于本批 logDir/run.json；last-<entry>.json 仅指针/摘要；校验按当前计划逐项对账（文件矩阵/必要 gates/真实 0/日志存在），运行中输入漂移 ⇒ invalidated 非零。",
@@ -282,6 +284,9 @@
        ],
        "source": "r22-new-runner-regression"
       },
+        {"file": "test/features/buildProcessLock.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "plugin-audit-20261028"},
+        {"file": "test/features/taskIdentityBoundary.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "plugin-audit-20261028"},
+        {"file": "test/features/stateWriterIsolation.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "plugin-audit-20261028"},
        {
         "file": "test/project/branchProjectRegistry.test.js",
         "argv": [],

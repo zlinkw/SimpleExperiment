@@ -45,11 +45,11 @@ All command entry points should use `OperationQueue` and write audit records.
 
 SimpleExperiment owns plans, Agent lifecycle, run state, task control, result-analysis entry points, and experiment operations. SimpleSFTP owns real file transfer. The PPT add-in owns rendering. One component must not take over another component's authority.
 
-Three topologies are supported:
+Only explicitly enabled Workers are execution targets:
 
 - `single_worker`: one Worker schedules locally and stores its own state.
 - `worker_pool`: multiple Workers schedule deterministic shards without a Hub.
-- `hub_worker`: a Hub coordinates global state while Workers execute.
+Hub execution has retired. Historical fields never supply current execution targets.
 
 No-Hub modes never create a Hub automatically and never rely on cross-node backup. Worker-local state is authoritative for that mode.
 

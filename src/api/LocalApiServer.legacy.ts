@@ -2,6 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as http from "http";
 import * as path from "path";
+import { ResourceOperationLeaseManager } from "../core/ResourceOperationLease";
 import { atomicWriteText } from "../state/StateStore";
 import { operationOutcomeFor } from "../core/OperationOutcome";
 
@@ -446,7 +447,7 @@ export class LocalApiServer {
     const onResponseClosed = () => { if (!response.writableEnded) controller.abort(); };
     response.once("close", onResponseClosed);
     try {
-      const handler = this.methods[payload.method];
+      const handler = Object.hasOwn(this.methods, payload.method) ? this.methods[payload.method] : undefined;
       const requested = (payload.params || {}) as Record<string, unknown>;
       if ([requested.topologyMode, requested.mode].some(value => ["hub_worker", "hub_control", "hub", "hub_available"].includes(String(value || "")))
           || requested.hub || requested.hubConfig || Array.isArray(requested.serverIds) && requested.serverIds.includes("hub")
@@ -667,7 +668,7 @@ export class LocalApiServer {
       execution: { resultPathPolicy: "declared", formalJobPathProtocol: 1, formalJobIdentityEnvProtocol: 1, formalJobStopIdentityProtocol: 2, formalJobStopUsesAttempts: false, historicalAttempts: "readOnly", draftPromotion: "retired",
         stagedJobPreflightProtocol: 1, admissionAssetValidation: "deferred_until_start", executionAssetValidation: "fresh" },
       retiredMethods: { "drafts.promote": "DRAFT_PROMOTION_RETIRED" },
-      methods: Object.keys(this.methods).sort(),
+      methods: Object.keys(this.methods).filter(method => typeof this.methods[method] === "function").sort(),
       methodOptions: {
         ...(Object.keys(this.methods).includes("agents.lifecycle") ? {
           "agents.lifecycle": { actions: ["inspect", "ensure", "stop", "restart", "migrate"], requiredParams: ["serverIds"],
@@ -720,7 +721,7 @@ export class LocalApiServer {
   }
 
   openapi(): Record<string, unknown> {
-    const methods = Object.keys(this.methods).sort();
+    const methods = Object.keys(this.methods).filter(method => typeof this.methods[method] === "function").sort();
     return {
       openapi: "3.0.0",
       "x-simple-method-options": this.capabilities().methodOptions,
@@ -791,12 +792,26 @@ export class LocalApiServer {
     return path.join(path.dirname(this.discoveryPath), "instances", `${process.pid}_${safeStamp}.json`);
   }
 
+  private readonly discoveryWriterId = `api-discovery:${crypto.randomUUID()}`;
+
   private async writeDiscovery(): Promise<void> {
     if (!this.discoveryPath) return;
-    const text = `${JSON.stringify(this.discovery(), null, 2)}\n`;
-    await atomicWriteText(this.discoveryPath, text);
-    const instancePath = this.instanceRecordPath();
-    if (instancePath) await atomicWriteText(instancePath, text);
+    const directory = path.resolve(path.dirname(this.discoveryPath));
+    await fs.promises.mkdir(directory, { recursive: true });
+    const manager = new ResourceOperationLeaseManager({ leasePath: path.join(directory, "discovery-publication"),
+      windowId: this.discoveryWriterId });
+    const handle = await manager.acquire({ resources: [{ server: "local", project: directory, target: path.resolve(this.discoveryPath) }],
+      pluginId: this.name, workspaceUri: directory, hostProjectPath: directory, actionType: "discovery-publication", actionLabel: "API discovery", waitForConflict: true });
+    try {
+      const text = `${JSON.stringify(this.discovery(), null, 2)}\n`;
+      const instancePath = this.instanceRecordPath();
+      if (instancePath) await atomicWriteText(instancePath, text, { beforeRename: handle.assertHeld });
+      if (this.disposed) {
+        const current = JSON.parse(await fs.promises.readFile(this.discoveryPath, "utf8"));
+        if (current.pid !== process.pid || current.startedAt !== this.startedAt) return;
+      }
+      await atomicWriteText(this.discoveryPath, text, { beforeRename: handle.assertHeld });
+    } finally { await handle.release(); }
   }
 
   async dispose(): Promise<void> {
