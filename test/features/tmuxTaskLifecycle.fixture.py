@@ -138,13 +138,14 @@ def job(index,case="slow"):
         planFile="experiments/plans/中文 plan.yaml",planRevision="a"*64,codeFingerprint="b"*64,globalJobId="workflow:"+str(index),
         experimentIndex=index,case=case,seed=42,resultPathPolicy="declared",outputDir="work/job"+str(index),
         collectionResultCsv="tmp/result/job"+str(index)+".csv",planJobCount=4,mode="train_test",executionMode="train_test",maxConcurrentGpus=2)
-try:
-    # Deliberately corrupt legacy state: none of the native functions can read it.
-    for name in ("worker_task_snapshot.json","distributed_plan_queue.json","worker_start_claims.json"):
-        (pathlib.Path(root)/name).write_text("corrupt legacy state",encoding="utf-8")
+def fixture_jobs():
     a,b,c=job(0),job(1),job(2,"failure")
     a["codeManifest"] = {"source/module_" + str(i) + ".py": {"size": i, "sha256": hashlib.sha256(str(i).encode()).hexdigest()} for i in range(180)}
     a["distributedResults"] = {"label": "中文 'quoted' $literal \\ value\n" * 12}
+    return a,b,c
+
+def recovery_case():
+    a,b,c=fixture_jobs()
     namespace["task_queue_rpc"](root,"worker","accept",a,ensure=True)
     assert next(row for row in namespace["task_inventory"](root) if row["commandId"] == a["commandId"])["codeManifest"] == a["codeManifest"]
     assert next(row for row in namespace["task_inventory"](root) if row["commandId"] == a["commandId"])["distributedResults"] == a["distributedResults"]
@@ -240,6 +241,16 @@ try:
     except RuntimeError as exc:
         assert "TASK_ALREADY_ACCEPTED_WINDOW_CLOSED" in str(exc)
     assert namespace["task_query"](root,[a,b])["tasks"][-1]["status"]=="completed"
+    return a,b
+
+def failure_case(a=None,b=None):
+    if a is None:
+        a,b,_=fixture_jobs()
+        for item in (a,b):
+            namespace["task_queue_rpc"](root,"worker","accept",item,ensure=True)
+        wait_for(lambda:all(any(row["commandId"]==item["commandId"] and row["dead"] for row in (LAST_OBS["rows"] or [])) for item in (a,b)),
+            "failure-world-completed-fixtures",lambda:namespace["task_inventory"](root))
+    control=namespace["task_queue_session"](root,"worker")+":queue"
     failure=job(3,"failure")
     namespace["task_queue_rpc"](root,"worker","accept",failure,ensure=True)
     # One real observation per poll, and that same observation is asserted: the
@@ -306,6 +317,16 @@ try:
         "rerun-dead-with-exit",lambda: namespace["task_inventory"](root))
     rerun_observed=next(row for row in namespace["task_query"](root,[rerun])["tasks"] if row["commandId"]==rerun["commandId"])
     assert rerun_observed["status"]=="completed", rerun_observed
+
+try:
+    # Deliberately corrupt legacy state: none of the native functions can read it.
+    for name in ("worker_task_snapshot.json","distributed_plan_queue.json","worker_start_claims.json"):
+        (pathlib.Path(root)/name).write_text("corrupt legacy state",encoding="utf-8")
+    scenario=sys.argv[2] if len(sys.argv)>2 else "all"
+    if scenario=="recovery": recovery_case()
+    elif scenario=="failure": failure_case()
+    elif scenario=="all": failure_case(*recovery_case())
+    else: raise ValueError("unknown private fixture scenario")
     print(json.dumps(dict(ok=True,realTmux=True,callbacks=0,stateFilesRead=0)))
 finally:
     # This is the fixture's newly created server under its private TMUX_TMPDIR only.
