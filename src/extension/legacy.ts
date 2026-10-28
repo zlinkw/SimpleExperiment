@@ -12985,8 +12985,10 @@ reportStage("正在准备校验所需代码…");
         };
         // 同一实际写目标（规范服务器 + 实际远端 root）互斥，不同目标继续并行且保留既有并发度 2；
         // 超过两个目标按容量排队，一个槽位释放即补位，不等前两个目标全部结束。
+        const preparedTargets: any[] = [];
+        // 接管准备只查询、取消及确认旧记录。整批准备收敛前，任何目标都不能拿新写租约或发送。
+        // A 静默不能使它绕过 B 尚未完成的覆盖确认；拒绝/关闭仍保证整批零写入。
         await mapLimited(enabledTargets, 2, async (target, index) => {
-            const leaseState = { retain: false };
             // 先解身份、先登记、再等锁：正在同一实际目标上排队的别名 Worker 也必须带着自己的目标键参与判定，
             // 否则“上一份已完成、另一份还在等锁”时会被提前放行，向共享 root 的写入仍可交错。
             let targetKey = "";
@@ -13040,6 +13042,12 @@ reportStage("正在准备校验所需代码…");
                     return;
                 }
             }
+            preparedTargets[index] = { target, index, targetKey, takeover };
+        });
+        const batchDecision = this.codeUploadStaleRounds?.get(String(syncId));
+        if (!batchDecision || batchDecision.approved === true) await mapLimited(preparedTargets.filter(Boolean), 2, async (prepared) => {
+            const { target, index, targetKey, takeover } = prepared;
+            const leaseState = { retain: false };
             const pendingUnknown = this.pendingCodeUploadUnknownWriteLocal?.(root, { targetKey, workerId: target.id });
             if (pendingUnknown && takeover.takeover !== "sibling") {
                 this.resolveCodeUploadUnknownWriteLocal?.(root, { targetKey, workerId: target.id });

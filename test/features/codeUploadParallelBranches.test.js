@@ -854,8 +854,7 @@ test("查询在途期间本轮兄弟刚取锁开始上传：它不是旧传输�
     workerTarget("w-b", "Worker B", "ONE.example", "/work/proj/")];
   const order = [];
   const cancels = [];
-  // 事件顺序由用例控制：第二次核实压在“先取锁的一方已真正开始上传”之后才回答，
-  // 于是这张传输表反映的就是兄弟分支刚取锁开始上传之后的状态。
+  // 准备期静默；真实写入期间再主动复核同一目标，表中反映本轮兄弟刚启动的传输。
   const firstUploadStarted = deferred();
   const releaseFirstUpload = deferred();
   let listCalls = 0;
@@ -864,8 +863,7 @@ test("查询在途期间本轮兄弟刚取锁开始上传：它不是旧传输�
     if (method === "transfers.list") {
       listCalls += 1;
       order.push("list:" + listCalls);
-      if (listCalls === 1) return realHost.quiescedTransferState();
-      await firstUploadStarted.promise;
+      if (!firstUploader) return realHost.quiescedTransferState();
       // 此时兄弟已经取锁并正在上传：这张表里就是本轮自己刚发起的传输。
       return realHost.busyTransferState({ host: "one.example", remotePath: "/work/proj", operationId: "op-sib" },
         [{ operationId: "op-sib" }]);
@@ -882,6 +880,10 @@ test("查询在途期间本轮兄弟刚取锁开始上传：它不是旧传输�
   await waitUntil(() => order.includes("upload:" + firstUploader), "没有分支进入真实上传");
   // 后发起核实的一方必须能结束接管判断并排到真实租约队列上，而不是取消自己人。
   await waitUntil(() => (host.codeUploadTargetLeases.waiters.get(targetKey) || []).length === 1, "兄弟未在真实目标租约上排队");
+  const syncId = host.codeUploadTargetLeases.held.get(targetKey).ownerId;
+  const sibling = targets.find(target => target.id !== firstUploader);
+  const receipt = await host.takeoverCodeUploadTargetLocal(sibling, targetKey, syncId);
+  assert.equal(receipt.takeover, "sibling", "真实写入期间仍保护同轮兄弟，并在目标租约上排队");
   await waitUntil(() => order.includes("list:2"), "第二个接管核实没发生，竞态窗口没跑到");
   assert.equal(cancels.length, 0, "查询期间新开始的本轮兄弟绝不能被取消");
   releaseFirstUpload.resolve();
@@ -1024,10 +1026,8 @@ test("不同 root 并行：A 已取锁在写、只返回阶段项时，B 的接�
     if (method === "transfers.list") {
       listCalls += 1;
       order.push("list:" + listCalls);
-      // 第一次查询在任何写入之前 → 确实静默；之后的查询都压在“已有人越过了真实写入边界”之后，
-      // 此时 SimpleSFTP 只给一个不带主机/路径的阶段项，归属只能靠本轮写入边界。
-      if (listCalls === 1) return realHost.quiescedTransferState();
-      await writerStarted.promise;
+      // 整批准备期静默；写入开始后的主动接管查询才观察本轮阶段项，不让准备期等待未来写入。
+      if (!writing) return realHost.quiescedTransferState();
       phaseReturned += 1;
       return phaseOnlyState("op-current-" + writing);
     }
@@ -1039,6 +1039,10 @@ test("不同 root 并行：A 已取锁在写、只返回阶段项时，B 的接�
   } });
   const run = host.syncCodeTargets(targets, "run", { hashCompare: true });
   await waitUntil(() => order.includes("upload:" + writing), "没有分支进入真实上传");
+  const writerKey = host.resolveCodeUploadTargetIdentityLocal(targets.find(target => target.id === writing)).key;
+  const syncId = host.codeUploadTargetLeases.held.get(writerKey).ownerId;
+  const other = targets.find(target => target.id !== writing);
+  await host.takeoverCodeUploadTargetLocal(other, host.resolveCodeUploadTargetIdentityLocal(other).key, syncId);
   await waitUntil(() => phaseReturned >= 1, "第二个接管查询没落在写入窗口内，竞态窗口未跑到");
   assert.equal(cancels.length, 0, "查询期间本轮刚启动的上传不得被取消");
   releaseWriter.resolve();
@@ -1179,17 +1183,13 @@ test("混合复核：旧传输接受取消但始终不落地的同时还有本�
     let listCalls = 0;
     let prelude = withRetainedPrelude;
     const releaseWriter = deferred();
-    // 带保留围栏的一轮，批量预检会先按目标各读一次投影（本机两个目标都留着未确认写入所有权）；
-    // 本轮唯一“确实静默”的查询就是预检之后的第一次分支查询（那一支据此正常接管并开始写）。
-    const quietAtRead = (withRetainedPrelude ? targets.length : 0) + 1;
     const host = realHost.createRealSyncHost({ targets, upload: async (_host, method, params) => {
       if (method === "transfers.list") {
         listCalls += 1;
         order.push("list");
         const state = realHost.quiescedTransferState();
-        // 之后每一次查询都返回“接受取消但始终不落地的旧传输”，并在本轮真的在写时同时给出本轮阶段项。
-        // 事件顺序完全由只读次数确定，不用计时断言；新增的只读预检次数已按目标数计入 quietAtRead。
-        if (!prelude && listCalls !== quietAtRead) {
+        // 由真实写入事件引入旧项与本轮阶段项，不再依赖准备期查询次数。
+        if (!prelude && writing) {
           const operations = [{ id: "op-old-still-running", operationId: "op-old-still-running",
             status: "uploading", startedAt: oldStartedAt }];
           if (writing) {
@@ -1235,22 +1235,24 @@ test("混合复核：旧传输接受取消但始终不落地的同时还有本�
       assert.equal(fixture.host.codeUploadTargetLeases.held.size, 2, "两个目标都应留下保留租约");
     }
     fixture.enterMixedRound();
-    const run = fixture.host.syncCodeTargets(fixture.targets, "mixed", { hashCompare: true });
-    // 事件顺序推进，不用计时断言：先等到旧项已被取消且有一个分支已真实开写。
-    await waitUntil(() => fixture.cancels.length >= 1 && fixture.order.some(row => row.startsWith("upload:")),
-      "混合复核场景没跑到：旧项没被取消或没分支开始写");
-    // 再等到既有有界复核窗口跑完（取消后固定复核 5 次）或该分支已经开写，两者 whichever 先到；
-    // 必须让本轮写入窗口（写者仍未结束）覆盖整个复核过程，否则保护会因写入窗口结束而失效。
-    await waitUntil(() => fixture.listCalls >= 7 || fixture.order.filter(row => row.startsWith("upload:")).length > 1,
-      "有界复核窗口没跑完，本轮兄弟的写入窗口也没结束");
+    // A 穿过真实上传入口，B 在 A 的真实写入窗口内调用原生产接管方法。
+    // 新整批确认屏障不再允许靠同批 B 的未完成确认来制造 A 先写的窗口。
+    const run = fixture.host.syncCodeTargets([fixture.targets[0]], "mixed", { hashCompare: true });
+    await waitUntil(() => fixture.order.includes("upload:" + fixture.targets[0].id), "A 没有进入真实上传");
+    const failTarget = fixture.targets[1];
+    const syncId = fixture.host.codeUploadTargetLeases.held.get(fixture.keys[0]).ownerId;
+    const receipt = await fixture.host.takeoverCodeUploadTargetLocal(failTarget, fixture.keys[1], syncId);
+    assert.equal(receipt.quiescent, false, "旧传输未落地不得转成静默");
+    assert.equal(receipt.takeover, "still-active", "混合复核不能因只剩兄弟阻塞项就转为排队放行");
+    assert.match(receipt.detail, /仍未确认落地/);
     const started = fixture.order.filter(row => row.startsWith("upload:"));
     assert.equal(started.length, 1,
       `旧传输接受取消但仍在列表时，混合复核的分支一个字节也不能写（实际事件：${fixture.order.join(" | ")}）`);
     const writerId = started[0].slice("upload:".length);
-    const failTarget = fixture.targets.find(item => item.id !== writerId);
+    assert.notEqual(failTarget.id, writerId);
     assert.ok(failTarget, "必须存在走混合复核路径的那个分支");
     fixture.releaseWriter.resolve();
-    await assert.rejects(run, /仍未确认落地/, "旧传输没落地就必须明确失败，不得转成静默或排队放行");
+    await run;
     const uploads = [...new Set(fixture.order.filter(row => row.startsWith("upload:")))];
     assert.equal(uploads.length, 1, "混合复核的分支一个字节也不能写");
     assert.equal(fixture.order.includes("upload:" + failTarget.id), false,
@@ -1505,6 +1507,55 @@ test("批准之后发送前重查发现新记录：本轮停下、不弹第二�
   assert.equal(host.codeSyncInFlight, 0);
 });
 
+
+test("整批覆盖确认屏障：A 静默、B 年轻未知，等待/拒绝/关闭时所有目标零锁零发送，批准后仍并行上传", async () => {
+  for (const answer of ["不覆盖，本轮停止", undefined, "完全覆盖并继续"]) {
+    const watch = recorder(), modal = deferred(), finishUploads = deferred();
+    const targets = [workerTarget("w-a", "Worker A", "one.example", "/work/projA"),
+      workerTarget("w-b", "Worker B", "two.example", "/work/projB")];
+    let queries = 0;
+    const uploads = [];
+    const options = { targets, modalAnswer: () => { watch.record("modal"); return modal.promise; },
+      upload: async (_host, method, params) => {
+        if (method === "transfers.list") {
+          const projection = realHost.quiescedTransferState();
+          // A 首次观察静默，B 随后观察到年轻未知项。模拟两次主动查询之间真实出现的记录。
+          if (++queries > 1) projection.operations = [{ id: "op-b-young", operationId: "op-b-young",
+            operationInstanceId: "instance-real-1", status: "outcomeUnknown", childCount: 0,
+            startedAt: new Date(Date.now() - 60 * 1000).toISOString() }];
+          return projection;
+        }
+        if (method === "transfers.cancel") return { ok: true, cancelled: false, status: "outcomeUnknown" };
+        assert.equal(method, "upload.workspace");
+        uploads.push(params.targetId); watch.record("upload:" + params.targetId);
+        await finishUploads.promise;
+        return { ok: true, status: "completed" };
+      } };
+    const host = realHost.createRealSyncHost(options);
+    const run = host.syncCodeTargets(targets, "run", { hashCompare: true });
+    run.catch(() => {});
+    try {
+      await watch.once("modal");
+      assert.equal(host.codeUploadTargetLeases?.held?.size || 0, 0, "确认等待时整批不能取得任何新写租约");
+      assert.deepEqual(uploads, [], "A 静默也必须等待 B 的确认，不得先发送");
+      modal.resolve(answer);
+      if (answer === "完全覆盖并继续") {
+        await Promise.all([watch.once("upload:w-a"), watch.once("upload:w-b")]);
+        assert.deepEqual(new Set(uploads), new Set(["w-a", "w-b"]), "批准后两个上传都能进入，无需等待另一上传完成");
+        finishUploads.resolve();
+        await run;
+      } else {
+        await assert.rejects(run, /未获覆盖确认|用户未确认|用户选择不覆盖/);
+        assert.deepEqual(uploads, [], "拒绝或关闭必须保持整批零发送");
+        assert.equal(host.codeUploadTargetLeases?.held?.size || 0, 0);
+      }
+      assert.equal(host.modals.length, 1, "整批只询问一次");
+    } finally {
+      modal.resolve("不覆盖，本轮停止"); finishUploads.resolve();
+      await run.catch(() => {});
+    }
+  }
+});
 
 // —— Round 12 返修补测：审核清单 1~6（全部走真实 syncCodeTargets / 真实生产方法入口，不做计时断言）
 // 规格：A1 第一次点击就在本轮问；A2 覆盖判定看“实时仍未完成的全部非兄弟记录”，已接受取消不算退出；

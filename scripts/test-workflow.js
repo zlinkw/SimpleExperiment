@@ -767,33 +767,37 @@ function verifyLockDeletionTarget(lockDir, evidence, verdict) {
 }
 
 /** 只读一行确认输入：默认 N；读不到（EOF、stdin 不可用）一律按未确认处理，绝不当成同意。 */
-function readConfirmationLine() {
-  let answer = "";
-  try {
-    const buf = Buffer.alloc(1);
-    for (let i = 0; i < 4096; i++) {
-      let read = 0;
-      try { read = fs.readSync(0, buf, 0, 1); } catch { break; }
-      if (read <= 0) break;
-      answer += buf.toString("utf8", 0, 1);
-      if (answer.includes("\n")) break;
-    }
-  } catch { answer = ""; }
-  return answer.trim();
+function showLockDeletionDialog(prompt, run = spawnSync) {
+  const script = `$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+$prompt = [Console]::In.ReadToEnd() | ConvertFrom-Json
+$answer = [System.Windows.Forms.MessageBox]::Show([string]$prompt.message, [string]$prompt.title,
+  [System.Windows.Forms.MessageBoxButtons]::YesNoCancel, [System.Windows.Forms.MessageBoxIcon]::Warning,
+  [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
+if ($answer -eq [System.Windows.Forms.DialogResult]::Yes) { [Console]::Out.Write('confirm') }
+else { [Console]::Out.Write('cancel') }
+`;
+  const result = run("pwsh.exe", ["-NoProfile", "-NonInteractive", "-STA", "-WindowStyle", "Hidden", "-EncodedCommand",
+    Buffer.from(script, "utf16le").toString("base64")], {
+    encoding: "utf8", windowsHide: true, input: JSON.stringify(prompt),
+  });
+  return { approved: !result.error && result.status === 0 && String(result.stdout).trim() === "confirm",
+    reason: result.error || result.status !== 0 ? "原生确认窗口未正常完成，保留锁" : "用户关闭或拒绝确认窗口" };
 }
 
 /**
  * 永久删除批锁前的确认（B3 + 用户 2026-10-28「B，加一次确认」）：必须完成
  * LOCK_DELETE_CONFIRMATIONS 次**明确点击**（本轮 2 次，与项目 P0 永久删除双确认一致）。
  * 每次确认前自动打印精确路径、类型、owner、pid、batchId、startedAt、锁龄、判定依据与目标指纹；
- * 用户只回答 y/N，不需要输入路径，也不需要自己手工去删。
+ * 使用原生警告窗口点击“是/否”，不读取终端回答，不需要输入路径或手工删除。
  * 两次确认之间必须重新核实“仍是刚才那把锁”；删除前还有 verifyLockDeletionTarget 这第三道核验。
  * 非交互入口（无 TTY、stdin 被本批用于取消控制、CI）一律不代为决定，只打印事实后继续阻塞：
  * “没有终端”不是同意；日志、死亡证据或直接子项限制都不能替代确认要求。
  */
 function confirmLockDeletion(state, verdict, evidence) {
-  const interactive = process.stdin.isTTY === true || process.env.TEST_WORKFLOW_INTERACTIVE === "1";
-  if (!interactive || state.cancelStdin) {
+  const interactive = process.stdin.isTTY === true;
+  if (!interactive || state.cancelStdin || process.env.CI) {
     return { approved: false, confirmations: 0,
       reason: `无交互终端（stdin 不是 TTY，或本批用 stdin 做取消控制，或 CI），不代为决定：${LOCK_DELETE_CONFIRMATIONS} 次确认一次也没有发生` };
   }
@@ -806,7 +810,7 @@ function confirmLockDeletion(state, verdict, evidence) {
           reason: `第 ${round - 1} 次与第 ${round} 次确认之间目标已变化（旧指纹=${evidence.fingerprint} 新指纹=${now.fingerprint}），停止删除并重新判定` };
       }
     }
-    process.stdout.write(`[test-workflow] 永久删除批锁——第 ${round}/${LOCK_DELETE_CONFIRMATIONS} 次确认（本项目 P0：永久删除须 ${LOCK_DELETE_CONFIRMATIONS} 次明确确认，只需回答 y，默认 N）\n`
+    const message = `[test-workflow] 永久删除批锁——第 ${round}/${LOCK_DELETE_CONFIRMATIONS} 次确认（点击“是”才同意；“否”或关闭均取消）\n`
       + `  精确路径        : ${state.lockDir}\n`
       + `  类型            : ${evidence.type}\n`
       + `  属主 owner.json : ${String(evidence.ownerText).split(/\r?\n/).join(" ").slice(0, 400)}\n`
@@ -816,15 +820,15 @@ function confirmLockDeletion(state, verdict, evidence) {
       + `  判定依据        : ${verdict.basis} —— ${verdict.reason}\n`
       + `  目标指纹        : ${evidence.fingerprint}\n`
       + `  影响范围        : 只删除这个锁目录本身（直接子项 ./batch.lock），同目录其它文件与项目文件一律不动\n`
-      + `确认删除 ${state.lockDir} ？[y/N] `);
-    const answer = readConfirmationLine();
-    process.stdout.write(`（第 ${round}/${LOCK_DELETE_CONFIRMATIONS} 次回答：${answer || "(空，默认 N)"}）\n`);
-    if (!/^y(es)?$/i.test(answer)) {
+      + `是否永久删除 ${state.lockDir} ？`;
+    process.stdout.write(message + "\n");
+    const answer = showLockDeletionDialog({ title: `SimpleExperiment 永久删除批锁：第 ${round}/${LOCK_DELETE_CONFIRMATIONS} 次确认`, message });
+    if (!answer.approved) {
       return { approved: false, confirmations: round - 1,
-        reason: `第 ${round}/${LOCK_DELETE_CONFIRMATIONS} 次确认未通过（回答 ${JSON.stringify(answer)}，默认 N），此前 ${round - 1} 次确认不作数` };
+        reason: `第 ${round}/${LOCK_DELETE_CONFIRMATIONS} 次确认未通过（${answer.reason}），此前 ${round - 1} 次确认不作数` };
     }
   }
-  return { approved: true, confirmations: LOCK_DELETE_CONFIRMATIONS, reason: `用户已在终端完成 ${LOCK_DELETE_CONFIRMATIONS} 次明确确认` };
+  return { approved: true, confirmations: LOCK_DELETE_CONFIRMATIONS, reason: `用户已在原生窗口完成 ${LOCK_DELETE_CONFIRMATIONS} 次点击确认` };
 }
 
 /**
@@ -863,13 +867,13 @@ async function acquireLock(state) {
       if (verdict.action === "ask") {
         const answer = confirmLockDeletion(state, verdict, evidence);
         if (!answer.approved) {
-          fail(blockLine(`${answer.reason}。要自动清理请在本机交互终端重跑并连续 ${LOCK_DELETE_CONFIRMATIONS} 次回答 y，`
+          fail(blockLine(`${answer.reason}。要自动清理请在本机交互终端重跑并在原生窗口连续 ${LOCK_DELETE_CONFIRMATIONS} 次点击确认，`
             + `或人工确认无活动批后自行删除这个精确目录：${state.lockDir}`), 3);
         }
         confirmed = answer.confirmations;
       } else {
         fail(blockLine(`归属不明或属主仍存活，本工具不会自动删除锁。要清理请等属主退出、或锁龄超过 ${STALE_LOCK_CONFIRM_AGE_MS / 60000} 分钟后`
-          + `在本机交互终端连续 ${LOCK_DELETE_CONFIRMATIONS} 次回答 y，或人工确认无活动批后自行删除这个精确目录：${state.lockDir}`), 3);
+          + `在本机交互终端重跑并在原生窗口连续 ${LOCK_DELETE_CONFIRMATIONS} 次点击确认，或人工确认无活动批后自行删除这个精确目录：${state.lockDir}`), 3);
       }
       // B2：删除前最后一道核实——必须还是刚才判定并确认的那把锁，且重新判定仍允许删除。
       // 期间被新的活动批顶替时绝不删除，只记一行并重新判定（“还有三轮重试”不是核验的替代）。
@@ -888,7 +892,7 @@ async function acquireLock(state) {
       }
       console.log(`[test-workflow] STALE-LOCK-DELETED 依据=${verdict.reason} 旧pid=${verdict.pid} 旧batchId=${verdict.batchId}`
         + ` 旧startedAt=${verdict.startedAt} 锁龄=${ageText} 已删目录=${state.lockDir}`
-        + ` 来源=用户终端确认（${confirmed}/${LOCK_DELETE_CONFIRMATIONS} 次） 目标指纹=${evidence.fingerprint}`);
+        + ` 来源=用户原生窗口点击确认（${confirmed}/${LOCK_DELETE_CONFIRMATIONS} 次） 目标指纹=${evidence.fingerprint}`);
     }
   }
   fail(`another test-workflow batch owns this working copy — 拒绝并发批（不放大并行上限）：三轮内未能取得 ${state.lockDir}。`
@@ -1185,7 +1189,7 @@ function writeAcceptanceReport(root, receipt) {
 
 module.exports = { planEntry, planHash, jobIdentity, expandGlobPattern, resolveStepCommand, validateReceiptForAssemble, inputFingerprint, verifyNoNpmHooks, sha256File, sha256Fresh,
   ownerProcessAlive, readLockOwner, classifyStaleLock, deleteOwnedLockChild, collectLockEvidence, lockFingerprint,
-  verifyLockDeletionTarget, confirmLockDeletion, LOCK_DELETE_CONFIRMATIONS, STALE_LOCK_CONFIRM_AGE_MS, OWNER_WRITE_GRACE_MS };
+  verifyLockDeletionTarget, confirmLockDeletion, showLockDeletionDialog, LOCK_DELETE_CONFIRMATIONS, STALE_LOCK_CONFIRM_AGE_MS, OWNER_WRITE_GRACE_MS };
 
 if (require.main === module) main().then(code => { process.exitCode = code; }).catch(error => {
   process.stderr.write(`[test-workflow] FATAL: ${error && error.stack || error}\n`);

@@ -13912,8 +13912,10 @@ class RealtimeTunnelPanelProvider {
             };
             // 同一实际写目标（规范服务器 + 实际远端 root）互斥，不同目标继续并行且保留既有并发度 2；
             // 超过两个目标按容量排队，一个槽位释放即补位，不等前两个目标全部结束。
+            const preparedTargets = [];
+            // 接管准备只查询、取消及确认旧记录。整批准备收敛前，任何目标都不能拿新写租约或发送。
+            // A 静默不能使它绕过 B 尚未完成的覆盖确认；拒绝/关闭仍保证整批零写入。
             await mapLimited(enabledTargets, 2, async (target, index) => {
-                const leaseState = { retain: false };
                 // 先解身份、先登记、再等锁：正在同一实际目标上排队的别名 Worker 也必须带着自己的目标键参与判定，
                 // 否则“上一份已完成、另一份还在等锁”时会被提前放行，向共享 root 的写入仍可交错。
                 let targetKey = "";
@@ -13971,68 +13973,75 @@ class RealtimeTunnelPanelProvider {
                         return;
                     }
                 }
-                const pendingUnknown = this.pendingCodeUploadUnknownWriteLocal?.(root, { targetKey, workerId: target.id });
-                if (pendingUnknown && takeover.takeover !== "sibling") {
-                    this.resolveCodeUploadUnknownWriteLocal?.(root, { targetKey, workerId: target.id });
-                    if (progressReport)
-                        progressReport(takeover.takeover === "stale-overwrite"
-                            ? `${target.label || target.id}：按${takeover.stale?.expiredOnly
-                                ? `超过 3 小时的自动过期授权（忽略 ${takeover.stale?.ignoredCount || 0} 项，本地时间 ${(takeover.stale?.ignoredAts || []).slice(0, 3).join("、") || "缺失"}）`
-                                : "你刚才确认的完全覆盖"}接管该目标；上一份写入的退出仍未被确认，这不是“已确认结束”`
-                            : `${target.label || target.id}：已确认上一次写入结束（${takeover.evidence}），继续本轮同步`);
-                }
-                if (takeover.takeover === "stale-overwrite") {
-                    // 回执如实记下覆盖来源与被忽略的旧记录条数/本地时间，不伪装成“已确认落地”。
-                    const staleInfo = takeover.stale || {};
-                    // 已按确认或 3 小时过期真正接管过的记录从提示台账摘掉，下一轮不能再拿它们弹框。
-                    this.clearCodeUploadStaleSuspectsLocal?.(targetKey, [...(staleInfo.expired || []), ...(staleInfo.consented || [])]);
-                    this.markCodeSyncTargetResultLocal?.(target, syncId, { takeover: "stale-overwrite",
-                        staleIgnored: staleInfo.ignoredCount || 0, staleIgnoredAts: (staleInfo.ignoredAts || []).slice(0, 4),
-                        staleAuthorizedBy: staleInfo.expiredOnly ? "expired-over-3h" : "user-modal-approval" });
-                    this.logOperationFact?.(`[code-sync] ${target.label || target.id}：${takeover.detail}`);
-                }
-                if (takeover.takeover === "cancelled") {
-                    // 面板/回执要能看出发生了一件什么：包括取消了本插件的多少项在传任务、其中多少属于其他 Worker。
-                    this.markCodeSyncTargetResultLocal?.(target, syncId, {
-                        takeover: "cancelled", cancelledWrites: (takeover.cancelled || []).slice(0, 4),
-                        cancelledForeign: takeover.cancelledForeign || 0
-                    });
-                    this.logOperationFact?.(`[code-sync] ${target.label || target.id}：${takeover.detail}`);
-                    if (progressReport)
-                        progressReport(`${target.label || target.id}：上一次传输已被取消并接管（已取消 ${(takeover.cancelled || []).length} 项本插件在传任务，含其他 Worker 的未完成上传 ${(takeover.cancelledForeign || 0)} 项；仅覆盖本次勾选范围，本机侧静默不等于远端目录完全干净）`);
-                }
-                if (takeover.takeover === "sibling" && (takeover.cancelled || []).length) {
-                    // 排队等锁前回了一笔旧写入：这也是本插件真实做过的取消，必须如实上报，不能只报“排队”。
-                    this.markCodeSyncTargetResultLocal?.(target, syncId, {
-                        takeover: "sibling", cancelledWrites: (takeover.cancelled || []).slice(0, 4),
-                        cancelledForeign: takeover.cancelledForeign || 0
-                    });
-                    this.logOperationFact?.(`[code-sync] ${target.label || target.id}：${takeover.detail}`);
-                    if (progressReport)
-                        progressReport(`${target.label || target.id}：排队等锁前先取消了 ${(takeover.cancelled || []).length} 项本插件发起的旧写入（含其他 Worker 的未完成上传 ${(takeover.cancelledForeign || 0)} 项），同一次同步的兄弟分支写完后本分支再接管；仅覆盖本次勾选范围`);
-                }
-                const lease = await this.acquireCodeUploadTargetLeaseLocal?.(target, syncId, undefined, { key: targetKey })
-                    || { token: undefined, key: targetKey, deferred: undefined };
-                if (!lease.token && lease.deferred) {
-                    // 同一实际目标已被上一份未确认写入围栏：本分支明确「未开始、需核实」，
-                    // 不写一字节、不接管别人的写锁，也不得替持有者交出保留租约。
-                    const reason = String(lease.deferred.reason || "上一次写入结果未确认结束");
-                    this.markCodeSyncTargetResultLocal?.(target, syncId, { leaseDeferred: true, error: `${reason}；本轮未开始写入` });
-                    failures.push({ role: target.role, label: target.label,
-                        message: `${reason}：本目标本轮未开始写入，需要主动核实后重试` });
-                    return;
-                }
-                try {
-                    return await uploadOneTarget(target, index, lease, leaseState);
-                }
-                finally {
-                    // 写入结果未知的目标不得提前放回租约：否则另一个 Worker 可以立刻覆盖同一实际目标。
-                    if (leaseState.retain && lease.token)
-                        this.retainCodeUploadTargetLeaseLocal?.(lease);
-                    else
-                        this.releaseCodeUploadTargetLeaseLocal?.(lease.token);
-                }
+                preparedTargets[index] = { target, index, targetKey, takeover };
             });
+            const batchDecision = this.codeUploadStaleRounds?.get(String(syncId));
+            if (!batchDecision || batchDecision.approved === true)
+                await mapLimited(preparedTargets.filter(Boolean), 2, async (prepared) => {
+                    const { target, index, targetKey, takeover } = prepared;
+                    const leaseState = { retain: false };
+                    const pendingUnknown = this.pendingCodeUploadUnknownWriteLocal?.(root, { targetKey, workerId: target.id });
+                    if (pendingUnknown && takeover.takeover !== "sibling") {
+                        this.resolveCodeUploadUnknownWriteLocal?.(root, { targetKey, workerId: target.id });
+                        if (progressReport)
+                            progressReport(takeover.takeover === "stale-overwrite"
+                                ? `${target.label || target.id}：按${takeover.stale?.expiredOnly
+                                    ? `超过 3 小时的自动过期授权（忽略 ${takeover.stale?.ignoredCount || 0} 项，本地时间 ${(takeover.stale?.ignoredAts || []).slice(0, 3).join("、") || "缺失"}）`
+                                    : "你刚才确认的完全覆盖"}接管该目标；上一份写入的退出仍未被确认，这不是“已确认结束”`
+                                : `${target.label || target.id}：已确认上一次写入结束（${takeover.evidence}），继续本轮同步`);
+                    }
+                    if (takeover.takeover === "stale-overwrite") {
+                        // 回执如实记下覆盖来源与被忽略的旧记录条数/本地时间，不伪装成“已确认落地”。
+                        const staleInfo = takeover.stale || {};
+                        // 已按确认或 3 小时过期真正接管过的记录从提示台账摘掉，下一轮不能再拿它们弹框。
+                        this.clearCodeUploadStaleSuspectsLocal?.(targetKey, [...(staleInfo.expired || []), ...(staleInfo.consented || [])]);
+                        this.markCodeSyncTargetResultLocal?.(target, syncId, { takeover: "stale-overwrite",
+                            staleIgnored: staleInfo.ignoredCount || 0, staleIgnoredAts: (staleInfo.ignoredAts || []).slice(0, 4),
+                            staleAuthorizedBy: staleInfo.expiredOnly ? "expired-over-3h" : "user-modal-approval" });
+                        this.logOperationFact?.(`[code-sync] ${target.label || target.id}：${takeover.detail}`);
+                    }
+                    if (takeover.takeover === "cancelled") {
+                        // 面板/回执要能看出发生了一件什么：包括取消了本插件的多少项在传任务、其中多少属于其他 Worker。
+                        this.markCodeSyncTargetResultLocal?.(target, syncId, {
+                            takeover: "cancelled", cancelledWrites: (takeover.cancelled || []).slice(0, 4),
+                            cancelledForeign: takeover.cancelledForeign || 0
+                        });
+                        this.logOperationFact?.(`[code-sync] ${target.label || target.id}：${takeover.detail}`);
+                        if (progressReport)
+                            progressReport(`${target.label || target.id}：上一次传输已被取消并接管（已取消 ${(takeover.cancelled || []).length} 项本插件在传任务，含其他 Worker 的未完成上传 ${(takeover.cancelledForeign || 0)} 项；仅覆盖本次勾选范围，本机侧静默不等于远端目录完全干净）`);
+                    }
+                    if (takeover.takeover === "sibling" && (takeover.cancelled || []).length) {
+                        // 排队等锁前回了一笔旧写入：这也是本插件真实做过的取消，必须如实上报，不能只报“排队”。
+                        this.markCodeSyncTargetResultLocal?.(target, syncId, {
+                            takeover: "sibling", cancelledWrites: (takeover.cancelled || []).slice(0, 4),
+                            cancelledForeign: takeover.cancelledForeign || 0
+                        });
+                        this.logOperationFact?.(`[code-sync] ${target.label || target.id}：${takeover.detail}`);
+                        if (progressReport)
+                            progressReport(`${target.label || target.id}：排队等锁前先取消了 ${(takeover.cancelled || []).length} 项本插件发起的旧写入（含其他 Worker 的未完成上传 ${(takeover.cancelledForeign || 0)} 项），同一次同步的兄弟分支写完后本分支再接管；仅覆盖本次勾选范围`);
+                    }
+                    const lease = await this.acquireCodeUploadTargetLeaseLocal?.(target, syncId, undefined, { key: targetKey })
+                        || { token: undefined, key: targetKey, deferred: undefined };
+                    if (!lease.token && lease.deferred) {
+                        // 同一实际目标已被上一份未确认写入围栏：本分支明确「未开始、需核实」，
+                        // 不写一字节、不接管别人的写锁，也不得替持有者交出保留租约。
+                        const reason = String(lease.deferred.reason || "上一次写入结果未确认结束");
+                        this.markCodeSyncTargetResultLocal?.(target, syncId, { leaseDeferred: true, error: `${reason}；本轮未开始写入` });
+                        failures.push({ role: target.role, label: target.label,
+                            message: `${reason}：本目标本轮未开始写入，需要主动核实后重试` });
+                        return;
+                    }
+                    try {
+                        return await uploadOneTarget(target, index, lease, leaseState);
+                    }
+                    finally {
+                        // 写入结果未知的目标不得提前放回租约：否则另一个 Worker 可以立刻覆盖同一实际目标。
+                        if (leaseState.retain && lease.token)
+                            this.retainCodeUploadTargetLeaseLocal?.(lease);
+                        else
+                            this.releaseCodeUploadTargetLeaseLocal?.(lease.token);
+                    }
+                });
             // 全部已发起分支真正收敛后才会到这里，之后的 finally 才能释放 gate 与写入计数；
             // 不能把 finally 的执行当作底层写入已结束。
             if (cancelledBranches.length)

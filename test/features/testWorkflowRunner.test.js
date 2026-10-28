@@ -270,7 +270,7 @@ test("runner: lock is released only by its owner and release is recorded (R29 #7
   assert.match(blocked.stderr, /无交互终端/, "阻塞文案要说清为什么没删");
   assert.ok(blocked.stderr.includes(foreignLock), "阻塞文案必须给精确完整路径");
   assert.ok(fs.existsSync(path.join(foreignLock, "owner.json")), "没确认一个字也不删");
-  const reclaimed = runRunnerCapped(ws, manifest, "one", { input: "y\ny", interactive: true });
+  const reclaimed = runRunnerCapped(ws, manifest, "one", { clicks: ["confirm","confirm"], interactive: true });
   assert.equal(reclaimed.status, 0, "用户连续 2 次确认之后必须删除陈封锁并继续: " + String(reclaimed.stderr).slice(-400));
   assert.match(reclaimed.stdout, /STALE-LOCK-DELETED/);
   assert.ok(!fs.existsSync(foreignLock), "确认之后的锁必须已消失");
@@ -306,10 +306,21 @@ function plantBatchLock(ws, owner, { corrupt = false, ageMs = 0 } = {}) {
 }
 
 /** 遵守 P0：新增用例的 spawnSync 一律 timeout <= 10000。 */
-function runRunnerCapped(ws, manifest, entry, { input, interactive } = {}) {
-  return spawnSync(process.execPath, [RUNNER, entry, "--root", ws, "--manifest", manifest],
-    { encoding: "utf8", windowsHide: true, timeout: 10000, env: interactive ? { ...process.env, TEST_WORKFLOW_INTERACTIVE: "1" } : process.env,
-      input: input === undefined ? undefined : `${input}\n` });
+function runRunnerCapped(ws, manifest, entry, { clicks, interactive } = {}) {
+  const preload = path.join(ws, "lock-dialog-preload.cjs");
+  if (interactive) fs.writeFileSync(preload, `
+    Object.defineProperty(process.stdin, "isTTY", { value: true });
+    const fs = require("node:fs"), cp = require("node:child_process");
+    const actual = cp.spawnSync, clicks = ${JSON.stringify(clicks || [])};
+    cp.spawnSync = (file, argv, options) => {
+      if (file !== "pwsh.exe" || !argv.includes("-EncodedCommand")) return actual(file, argv, options);
+      const prompt = JSON.parse(options.input);
+      fs.appendFileSync(${JSON.stringify(path.join(ws, "dialog-clicks.jsonl"))}, JSON.stringify({ argv, prompt }) + "\\n", "utf8");
+      return { status: 0, stdout: clicks.shift() === "confirm" ? "confirm" : "cancel", stderr: "" };
+    };
+  `, "utf8");
+  return spawnSync(process.execPath, [...(interactive ? ["--require", preload] : []), RUNNER, entry, "--root", ws, "--manifest", manifest],
+    { encoding: "utf8", windowsHide: true, timeout: 10000, env: process.env });
 }
 
 function lockHarness(t, name) {
@@ -319,7 +330,7 @@ function lockHarness(t, name) {
   return { ws, manifest };
 }
 
-test("runner: 属主 pid 已不存在（ESRCH）——没终端仍阻塞，终端连续 2 次 y 才原地删除并继续，不堆积也不写 clean_dir", t => {
+test("runner: 属主 pid 已不存在（ESRCH）——没终端仍阻塞，原生窗口连续 2 次点击才原地删除并继续", t => {
   const { ws, manifest } = lockHarness(t, "stale1");
   const pid = deadProcessPid();
   const lockDir = plantBatchLock(ws, { pid, entry: "one", batchId: "2026-10-28T01-42-23-521Z-24628-package", startedAt: "2026-10-28T01:42:23.814Z", root: ws });
@@ -327,12 +338,12 @@ test("runner: 属主 pid 已不存在（ESRCH）——没终端仍阻塞，终�
   const noTty = runRunnerCapped(ws, manifest, "one");
   assert.equal(noTty.status, 3, "没有终端不是同意：陈封锁也只能阻塞");
   assert.match(noTty.stderr, /无交互终端/, "要说清为什么没删");
-  assert.match(noTty.stderr, /连续 2 次回答 y/, "要告诉用户正确的清理入口");
+  assert.match(noTty.stderr, /连续 2 次点击确认/, "要告诉用户正确的清理入口");
   assert.ok(noTty.stderr.includes(lockDir), "阻塞文案必须给精确完整路径");
   assert.match(noTty.stderr, new RegExp(`pid=${pid}`), "阻塞文案必须给旧 pid");
   assert.ok(fs.existsSync(path.join(lockDir, "owner.json")), "没确认一个字也不删");
   // 二、交互入口：必须问两次，两次都自动打印全部事实，用户只回答 y。
-  const run = runRunnerCapped(ws, manifest, "one", { input: "y\ny", interactive: true });
+  const run = runRunnerCapped(ws, manifest, "one", { clicks: ["confirm","confirm"], interactive: true });
   assert.equal(run.status, 0, "连续 2 次确认之后必须删除并继续: " + String(run.stderr).slice(-500));
   assert.equal((run.stdout.match(/永久删除批锁——第 \d\/2 次确认/g) || []).length, 2, "必须逐次提示两次确认");
   for (const field of ["精确路径", "类型", "属主 owner.json", "pid / batchId", "startedAt", "判定依据", "目标指纹", "影响范围"])
@@ -343,7 +354,7 @@ test("runner: 属主 pid 已不存在（ESRCH）——没终端仍阻塞，终�
   assert.ok(run.stdout.includes("2026-10-28T01-42-23-521Z-24628-package"), "日志必须写明旧 batchId");
   assert.ok(run.stdout.includes("2026-10-28T01:42:23.814Z"), "日志必须写明旧 startedAt");
   assert.ok(run.stdout.includes("ESRCH"), "日志必须写明判定依据");
-  assert.match(run.stdout, /来源=用户终端确认（2\/2 次）/, "日志必须记明确认次数与来源");
+  assert.match(run.stdout, /来源=用户原生窗口点击确认（2\/2 次）/, "日志必须记明确认次数与来源");
   assert.ok(!fs.existsSync(lockDir), "锁目录必须已被删除");
   assert.ok(!fs.existsSync(path.join(LOCK_PARENT(ws), "stale-locks")), "不得堆积隔离目录");
   assert.ok(!fs.existsSync(path.join(ws, "clean_dir")), "不得把锁写进 clean_dir 长期留档");
@@ -364,7 +375,7 @@ test("runner: 属主 pid 仍存活（本测试进程作活体属主）不得删�
   assert.equal(JSON.parse(fs.readFileSync(path.join(lockDir, "owner.json"), "utf8")).pid, process.pid);
 });
 
-test("runner: 属主存活但锁已超阈值——没终端阻塞、答 n 阻塞、只答一次 y 也阻塞，连续两次 y 才删除并继续", t => {
+test("runner: 属主存活但锁已超阈值——没终端/拒绝/关闭均阻塞，两次原生窗口点击才删除", t => {
   const aged = 3 * 60 * 60 * 1000; // 超过 STALE_LOCK_CONFIRM_AGE_MS（2 小时）
   const silent = lockHarness(t, "aged0");
   const silentLock = plantBatchLock(silent.ws, { pid: process.pid, entry: "one", batchId: "aged-batch-silent", startedAt: "2026-10-28T03:00:00.000Z", root: silent.ws }, { ageMs: aged });
@@ -376,16 +387,16 @@ test("runner: 属主存活但锁已超阈值——没终端阻塞、答 n 阻塞
 
   const deny = lockHarness(t, "agedn");
   const denyLock = plantBatchLock(deny.ws, { pid: process.pid, entry: "one", batchId: "aged-batch-n", startedAt: "2026-10-28T03:10:00.000Z", root: deny.ws }, { ageMs: aged });
-  const answered = runRunnerCapped(deny.ws, deny.manifest, "one", { input: "n", interactive: true });
+  const answered = runRunnerCapped(deny.ws, deny.manifest, "one", { clicks: ["cancel"], interactive: true });
   assert.equal(answered.status, 3, "答 n 必须仍阻塞（默认 N）");
-  assert.match(answered.stdout, /\[y\/N\]/, "必须真的提示过一行 y/N");
+  assert.match(answered.stdout, /点击“是”/, "必须真的展示点击确认说明");
   assert.match(answered.stderr, /第 1\/2 次确认未通过/, "要说清是哪一次确认没过");
   assert.ok(fs.existsSync(path.join(denyLock, "owner.json")), "答 n 不得删除");
 
   // 「B，加一次确认」：只点一次 y 绝不构成同意——第二次没有明确 y 就停止删除。
   const once = lockHarness(t, "agedonce");
   const onceLock = plantBatchLock(once.ws, { pid: process.pid, entry: "one", batchId: "aged-batch-once", startedAt: "2026-10-28T03:15:00.000Z", root: once.ws }, { ageMs: aged });
-  const onceRun = runRunnerCapped(once.ws, once.manifest, "one", { input: "y", interactive: true });
+  const onceRun = runRunnerCapped(once.ws, once.manifest, "one", { clicks: ["confirm"], interactive: true });
   assert.equal(onceRun.status, 3, "只答一次 y 不得删除（双确认是本轮契约）");
   assert.match(onceRun.stderr, /第 2\/2 次确认未通过/, "要说清第二次确认没过（EOF 也按默认 N）");
   assert.match(onceRun.stderr, /此前 1 次确认不作数/, "前一次确认不能被累计复用");
@@ -393,16 +404,16 @@ test("runner: 属主存活但锁已超阈值——没终端阻塞、答 n 阻塞
 
   const approve = lockHarness(t, "agedy");
   const approveLock = plantBatchLock(approve.ws, { pid: process.pid, entry: "one", batchId: "aged-batch-y", startedAt: "2026-10-28T03:20:00.000Z", root: approve.ws }, { ageMs: aged });
-  const okRun = runRunnerCapped(approve.ws, approve.manifest, "one", { input: "y\ny", interactive: true });
+  const okRun = runRunnerCapped(approve.ws, approve.manifest, "one", { clicks: ["confirm","confirm"], interactive: true });
   assert.equal(okRun.status, 0, "连续两次 y 必须删除并继续: " + String(okRun.stderr).slice(-500));
   assert.match(okRun.stdout, /STALE-LOCK-DELETED/);
-  assert.match(okRun.stdout, /来源=用户终端确认（2\/2 次）/);
+  assert.match(okRun.stdout, /来源=用户原生窗口点击确认（2\/2 次）/);
   assert.ok(!fs.existsSync(approveLock), "确认后锁必须确实消失");
 
   // 第二次回答 n：第一次确认作废，仍然零删除。
   const secondNo = lockHarness(t, "agedy2n");
   const secondNoLock = plantBatchLock(secondNo.ws, { pid: process.pid, entry: "one", batchId: "aged-batch-y-n", startedAt: "2026-10-28T03:25:00.000Z", root: secondNo.ws }, { ageMs: aged });
-  const halfRun = runRunnerCapped(secondNo.ws, secondNo.manifest, "one", { input: "y\nn", interactive: true });
+  const halfRun = runRunnerCapped(secondNo.ws, secondNo.manifest, "one", { clicks: ["confirm","cancel"], interactive: true });
   assert.equal(halfRun.status, 3, "第二次答 n 必须停止删除");
   assert.match(halfRun.stderr, /第 2\/2 次确认未通过/);
   assert.ok(fs.existsSync(path.join(secondNoLock, "owner.json")), "半途改主意必须一个字节也不删");
@@ -424,7 +435,7 @@ test("runner: owner 缺失/损坏或没有合法 pid——宽限内阻塞，过�
   assert.match(blockedAged.stderr, /依据=owner-unusable-shape/, "要写清判定依据是无法证明归属");
   assert.match(blockedAged.stderr, /无法证明归属，不是死亡证明/, "文案不得把“读不懂”说成“已退出”");
   assert.ok(fs.existsSync(path.join(agedLock, "owner.json")), "没确认不得删损坏 owner 的锁");
-  const gone = runRunnerCapped(aged.ws, aged.manifest, "one", { input: "y\ny", interactive: true });
+  const gone = runRunnerCapped(aged.ws, aged.manifest, "one", { clicks: ["confirm","confirm"], interactive: true });
   assert.equal(gone.status, 0, "用户连续两次确认之后必须删除并继续: " + String(gone.stderr).slice(-500));
   assert.match(gone.stdout, /STALE-LOCK-DELETED/);
   assert.ok(!fs.existsSync(agedLock), "确认之后损坏 owner 的旧锁必须被删除");
@@ -435,7 +446,7 @@ test("runner: owner 缺失/损坏或没有合法 pid——宽限内阻塞，过�
   const noPidBlocked = runRunnerCapped(noPid.ws, noPid.manifest, "one");
   assert.equal(noPidBlocked.status, 3, "owner 没有合法 pid 且没有确认时必须阻塞");
   assert.ok(fs.existsSync(path.join(noPidLock, "owner.json")), "没确认不得删");
-  const noPidRun = runRunnerCapped(noPid.ws, noPid.manifest, "one", { input: "y\ny", interactive: true });
+  const noPidRun = runRunnerCapped(noPid.ws, noPid.manifest, "one", { clicks: ["confirm","confirm"], interactive: true });
   assert.equal(noPidRun.status, 0, "确认之后 owner 没有合法 pid 且已过宽限必须删除后继续: " + String(noPidRun.stderr).slice(-400));
   assert.ok(!fs.existsSync(noPidLock));
 });
@@ -466,7 +477,7 @@ test("runner: 删除纪律拒绝任何非直接子项目标，只有合法 ./直
   assert.equal(process.cwd(), cwdBefore, "删除必须恢复原 cwd");
 });
 
-test("runner: owner.json 读不到（EISDIR/权限/瞬时 IO）一律阻塞，绝不当成属主已死，连点两次 y 也不许删", t => {
+test("runner: owner.json 读不到（EISDIR/权限/瞬时 IO）一律阻塞，绝不当成属主已死，两次点击也不许删", t => {
   const ws = makeWorkspace(t);
   const job = makeJob(ws, "unreadable", {});
   const manifest = writeManifest(ws, baseManifest(ws, { one: { phases: { fullCheck: { extraFiles: [{ file: job, argv: [], source: "f" }] } } } }, [job]));
@@ -486,7 +497,7 @@ test("runner: owner.json 读不到（EISDIR/权限/瞬时 IO）一律阻塞，�
   assert.equal(noTty.status, 3);
   assert.match(noTty.stderr, /读取失败不等于属主已死/, "阻塞文案要说清为什么不能判死");
   assert.ok(fs.existsSync(path.join(lockDir, "owner.json")), "没搞清归属之前一个字也不动");
-  const forced = runRunnerCapped(ws, manifest, "one", { input: "y\ny", interactive: true });
+  const forced = runRunnerCapped(ws, manifest, "one", { clicks: ["confirm","confirm"], interactive: true });
   assert.equal(forced.status, 3, "归属未知时用户点确认也不许删——确认不能替代归属证据");
   assert.equal((forced.stdout.match(/永久删除批锁——第/g) || []).length, 0, "block 档根本不该出现确认提示");
   assert.ok(fs.existsSync(path.join(lockDir, "owner.json")), "确认不替代归属证据");
@@ -533,6 +544,57 @@ test("runner: 确认期间锁被顶替（指纹变了）旧确认作废、零删
   assert.ok(fs.existsSync(path.join(fresh, "owner.json")), "新锁必须原样保留");
   assert.equal(JSON.parse(fs.readFileSync(path.join(fresh, "owner.json"), "utf8")).batchId, "new-live-batch");
   assert.equal(runner.classifyStaleLock(fresh).action, "block", "换成存活属主且未达阈值必须回到阻塞");
+});
+
+test("runner: 原生点击入口传递精确目标，默认取消，不读取 stdin，也没有测试环境批准旁路", t => {
+  const prompt = { title: "删除确认", message: "精确路径 C:/fixture/batch.lock\n影响范围：只删除这个目录" };
+  const calls = [];
+  const fakeDialog = (stdout, status = 0) => (file, argv, options) => {
+    calls.push({ file, argv, options }); return { status, stdout, stderr: "" };
+  };
+  assert.equal(runner.showLockDeletionDialog(prompt, fakeDialog("confirm")).approved, true);
+  for (const answer of ["", "cancel", "y", "yes", "confirm\nother"]) {
+    assert.equal(runner.showLockDeletionDialog(prompt, fakeDialog(answer)).approved, false, "只有明确窗口回执可以同意");
+  }
+  assert.equal(runner.showLockDeletionDialog(prompt, fakeDialog("confirm", 1)).approved, false);
+  for (const call of calls) {
+    assert.equal(call.file, "pwsh.exe");
+    assert.ok(call.argv.includes("-STA") && call.argv.includes("-NonInteractive"));
+    assert.equal(call.options.windowsHide, true);
+    assert.deepEqual(JSON.parse(call.options.input), prompt);
+    const script = Buffer.from(call.argv.at(-1), "base64").toString("utf16le");
+    assert.match(script, /Windows\.Forms\.MessageBox\]::Show/);
+    assert.match(script, /MessageBoxButtons\]::YesNoCancel/);
+    assert.match(script, /MessageBoxDefaultButton\]::Button2/);
+    assert.doesNotMatch(script, /Read-Host/);
+  }
+  const source = fs.readFileSync(RUNNER, "utf8");
+  assert.doesNotMatch(source, /TEST_WORKFLOW_INTERACTIVE|function readConfirmationLine/);
+});
+
+test("runner: 两个真实入口窗口都包含同一完整路径和冻结指纹，CI 即便有终端也不代批", t => {
+  const { ws, manifest } = lockHarness(t, "native-click");
+  const lock = plantBatchLock(ws, { pid: deadProcessPid(), batchId: "native-click-old", startedAt: "2026-10-28T00:00:00.000Z", root: ws });
+  const evidence = runner.collectLockEvidence(lock);
+  const run = runRunnerCapped(ws, manifest, "one", { interactive: true, clicks: ["confirm", "confirm"] });
+  assert.equal(run.status, 0, run.stderr);
+  const dialogs = fs.readFileSync(path.join(ws, "dialog-clicks.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+  assert.equal(dialogs.length, 2);
+  for (const [index, dialog] of dialogs.entries()) {
+    assert.ok(dialog.prompt.title.includes(`第 ${index + 1}/2 次`));
+    for (const fact of [lock, evidence.fingerprint, "native-click-old", "./batch.lock", "影响范围"]) assert.ok(dialog.prompt.message.includes(fact), fact);
+  }
+  const ci = lockHarness(t, "native-ci");
+  const ciLock = plantBatchLock(ci.ws, { pid: deadProcessPid(), batchId: "ci-old", startedAt: "2026-10-28T00:00:00.000Z", root: ci.ws });
+  const before = fs.readFileSync(path.join(ciLock, "owner.json"));
+  const previous = process.env.CI;
+  try {
+    process.env.CI = "true";
+    const blocked = runRunnerCapped(ci.ws, ci.manifest, "one", { interactive: true, clicks: ["confirm", "confirm"] });
+    assert.equal(blocked.status, 3);
+    assert.ok(!fs.existsSync(path.join(ci.ws, "dialog-clicks.jsonl")));
+    assert.deepEqual(fs.readFileSync(path.join(ciLock, "owner.json")), before);
+  } finally { if (previous === undefined) delete process.env.CI; else process.env.CI = previous; }
 });
 
 test("runner: 删锁确认次数是命名策略开关，本轮固定两次并留下用户原话依据", t => {
