@@ -568,27 +568,198 @@ async function runJobsScheduled(state) {
   return maxObserved;
 }
 
-/* ---------------- same-root batch lock (r29 #7: never auto-reclaim unknown ownership) ---------------- */
+/* ---------------- same-root batch lock (r29 #7 + r30: 属主确已死的锁直接删除，活动批照旧阻塞) ---------------- */
+
+// 阈值来源均为本轮用户口径（2026-10-28）：进程存在性是硬依据，年龄只是辅助，不得只靠年龄就动活动批。
+// r30 口径修订：不用“移走堆积”（会让文件无限度堆叠），改成“能确定的直接删、判不定的先问一次”。
+// OWNER_WRITE_GRACE_MS：mkdir 与 owner.json 落盘之间存在窗口（刚建好目录、还没来得及写 owner）。
+// 只有“无法证明归属”的锁才需要这个宽限；已证实 pid 消失（ESRCH）不需要宽限。
+const OWNER_WRITE_GRACE_MS = 60_000;
+// STALE_LOCK_CONFIRM_AGE_MS：属主进程仍在（或存活判定不清）但锁已老到这个程度，才值得打扰用户确认
+// 一次删除；没到就继续阻塞（并发批本来就是错的）。此常量只决定“问不问”，永远不会让属主存活的锁
+// 被自动删除。
+const STALE_LOCK_CONFIRM_AGE_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * r30: 判定 pid 是否仍存活。不能假设 signalling 语义跨平台一致：项目 AGENTS 明确警告 Python 的
+ * os.kill(pid,0) 在 Windows 对存活进程也会抛错，Node 侧同样只把 ESRCH 当作“确不存在”；
+ * EPERM/EACCES（权限不足、他人会话、受保护进程）以及任何其它异常一律保守算存活。
+ * 判定不清时最多继续阻塞或让用户确认一次，绝不因为判定不确定就删活动批的锁。
+ */
+function ownerProcessAlive(pid) {
+  const numeric = Number(pid);
+  if (!Number.isInteger(numeric) || numeric <= 0) return { alive: false, basis: `owner pid 缺失或非法（${JSON.stringify(pid)}）` };
+  try {
+    process.kill(numeric, 0);
+    return { alive: true, basis: `pid ${numeric} 可 signalling` };
+  } catch (error) {
+    const code = error && error.code;
+    if (code === "ESRCH") return { alive: false, basis: `pid ${numeric} 已不存在（ESRCH）` };
+    if (code === "EPERM" || code === "EACCES") return { alive: true, basis: `pid ${numeric} 存在但无权 signalling（${code}）` };
+    return { alive: true, basis: `pid ${numeric} 存活判定异常（${code || error}），保守视为存活` };
+  }
+}
+
+/** 读属主登记：缺失/损坏都归为“无法证明归属”，但调用方还要看写盘宽限期才能决定是否删除。 */
+function readLockOwner(lockDir) {
+  let text;
+  try { text = fs.readFileSync(path.join(lockDir, "owner.json"), "utf8"); } catch (error) {
+    return { text: `(unreadable: ${error && error.code || error})`, owner: null, broken: `owner.json 读不到（${error && error.code || error}）` };
+  }
+  let parsed;
+  try { parsed = JSON.parse(text); } catch (error) {
+    return { text, owner: null, broken: `owner.json 解析失败（${error && error.message || error}）` };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { text, owner: null, broken: "owner.json 不是对象" };
+  return { text, owner: parsed, broken: null };
+}
+
+/** 锁目录自身的年龄（用于写盘宽限与“要不要问用户”的阈值判定，绝不用来自动删活锁）。 */
+function lockDirAgeMs(lockDir) {
+  try { return Date.now() - fs.statSync(lockDir).mtimeMs; } catch { return Number.POSITIVE_INFINITY; }
+}
+
+/**
+ * 判定现有锁该怎么处理。只有两种情况下可以直接删（无需确认）：
+ *  a) owner.json 里的 pid 经 ownerProcessAlive 证实已不存在（ESRCH，正向死亡证据）；
+ *  b) owner 缺失/损坏/根本没有合法 pid，因而无法证明归属，且锁目录已超过 OWNER_WRITE_GRACE_MS
+ *     （避开刚 mkdir 还没写 owner 的窗口——那把锁属于还活着的批）。
+ * 属主仍存活（含 EPERM/判定异常）一律不自作主张：只有锁龄超过 STALE_LOCK_CONFIRM_AGE_MS 才转换成
+ * “请用户确认”，否则继续阻塞。删除对象永远只是这个锁目录本身，不碰其它任何文件。
+ * 返回 action: "delete" | "ask" | "block"。
+ */
+function classifyStaleLock(lockDir) {
+  const { text, owner, broken } = readLockOwner(lockDir);
+  const pidNumeric = owner ? Number(owner.pid) : NaN;
+  const ageMs = lockDirAgeMs(lockDir);
+  const view = (extra) => ({ ...extra, ownerText: text,
+    batchId: owner && owner.batchId || "(unknown)",
+    pid: owner && owner.pid !== undefined && owner.pid !== null ? String(owner.pid) : "(none)",
+    startedAt: owner && owner.startedAt || "(unknown)", root: owner && owner.root || "(unknown)", ageMs });
+  if (broken || !Number.isInteger(pidNumeric) || pidNumeric <= 0) {
+    const why = broken || `owner.json 里没有合法 pid（${JSON.stringify(owner && owner.pid)}）`;
+    if (ageMs < OWNER_WRITE_GRACE_MS) return view({ action: "block", reason: `${why}，且锁目录只有 ${Math.round(ageMs)}ms（< ${OWNER_WRITE_GRACE_MS}ms 写盘宽限），可能是刚建锁还来不及写 owner 的活动批` });
+    return view({ action: "delete", reason: `${why}，锁目录已存在 ${Math.round(ageMs / 1000)}s（超过 ${OWNER_WRITE_GRACE_MS / 1000}s 写盘宽限），无法证明仍有活动批拥有它` });
+  }
+  const alive = ownerProcessAlive(pidNumeric);
+  if (!alive.alive) return view({ action: "delete", reason: alive.basis });
+  if (ageMs >= STALE_LOCK_CONFIRM_AGE_MS) return view({ action: "ask", reason: `${alive.basis}，属主仍在跑，但锁已存在 ${Math.round(ageMs / 60000)} 分钟（≥ ${STALE_LOCK_CONFIRM_AGE_MS / 60000} 分钟阈值），无法证明属主已死` });
+  return view({ action: "block", reason: `${alive.basis}，属主仍在跑，且锁龄 ${Math.round(ageMs / 1000)}s 未到老锁阈值` });
+}
+
+/**
+ * 删除本项目自己创建的锁目录，遵守项目 P0 删除纪律（不因口径放宽而取消）：
+ *  1) 目标只能是直接子项名：不允许绝对路径、父目录、`..`、`/`、`\`、通配符或拼接长路径；
+ *  2) 目标与直接父目录先解析成规范路径，直接父目录必须落在本项目安全根之内；
+ *  3) 先核类型：直接父目录与目标都必须是普通目录且不是符号链接（只删自己创建的锁）；
+ *  4) 真的 cd 进直接父目录并核实物理工作目录一致，不一致立即停下报 PARENT_CD_FAILED；
+ *  5) 删除参数只能写 `./<直接子项名>`；失败原文抛出，绝不退化成 rm 长路径；
+ *  6) 删后核实目标确实不存在；任何情况下都恢复原 cwd。
+ * 只用于本工作副本自己的批锁；属主仍存活的他人锁只能问，不能走到这里删。
+ */
+function deleteOwnedLockChild({ safeRoot, parentDir, childName }) {
+  const rejected = (why) => { throw new Error(`LOCK_TARGET_REJECTED: ${why}；目标=${JSON.stringify(childName)} 父目录=${parentDir}`); };
+  if (typeof childName !== "string" || childName.length === 0) rejected("删除目标不能为空");
+  if (childName === "." || childName === "..") rejected("删除目标不能是当前目录或父目录");
+  if (path.isAbsolute(childName) || /^[a-zA-Z]:[\\/]/.test(childName)) rejected("删除目标不能是绝对路径");
+  if (/[\\/]/.test(childName)) rejected("删除目标不能含路径分隔符，只能是直接子项名");
+  if (/[*?[\]]/.test(childName)) rejected("删除目标不允许通配符");
+  let rootReal, parentReal;
+  try { rootReal = fs.realpathSync(path.resolve(safeRoot)); } catch (error) { rejected(`安全根解不开（${error && error.code || error}）`); }
+  try { parentReal = fs.realpathSync(path.resolve(parentDir)); } catch (error) { rejected(`直接父目录解不开（${error && error.code || error}）`); }
+  const rel = path.relative(rootReal, parentReal);
+  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) rejected(`直接父目录不在安全根内：${parentReal} vs ${rootReal}`);
+  const parentStat = fs.lstatSync(parentReal);
+  if (!parentStat.isDirectory() || parentStat.isSymbolicLink()) rejected(`直接父目录必须是普通目录且不是符号链接：${parentReal}`);
+  const targetStat = fs.lstatSync(path.join(parentReal, childName));
+  if (!targetStat.isDirectory() || targetStat.isSymbolicLink()) rejected(`只能删除自己创建的普通锁目录（不是文件、不是符号链接）：${childName}`);
+  const cwdBefore = process.cwd();
+  try {
+    process.chdir(parentReal);
+    const cwdNow = process.cwd();
+    const same = process.platform === "win32" ? cwdNow.toLowerCase() === parentReal.toLowerCase() : cwdNow === parentReal;
+    if (!same) throw new Error(`PARENT_CD_FAILED: 已 cd 但物理工作目录不一致（${cwdNow} vs ${parentReal}），不执行删除`);
+    fs.rmSync(`./${childName}`, { recursive: true });
+    if (fs.existsSync(`./${childName}`)) throw new Error(`LOCK_STILL_PRESENT: 删除后目标仍存在 ./${childName}`);
+  } finally {
+    try { process.chdir(cwdBefore); } catch { /* 原 cwd 已不存在时不掩盖真实错因 */ }
+  }
+  return { parentReal, removed: `./${childName}` };
+}
+
+/** 无交互终端时不代为决定（CI、stdin 被用于取消控制）；有终端时只读一行 y/N，默认 N。 */
+function confirmLockDeletion(state, verdict) {
+  const interactive = process.stdin.isTTY === true || process.env.TEST_WORKFLOW_INTERACTIVE === "1";
+  if (!interactive || state.cancelStdin) {
+    return { approved: false, reason: "无交互终端（stdin 不是 TTY，或本批用 stdin 做取消控制），不代为决定" };
+  }
+  process.stdout.write(`[test-workflow] 批锁属主 pid=${verdict.pid} 仍在跑（batchId=${verdict.batchId} startedAt=${verdict.startedAt}），`
+    + `但锁已存在 ${Math.round(verdict.ageMs / 60000)} 分钟（≥ ${STALE_LOCK_CONFIRM_AGE_MS / 60000} 分钟）。删除 ${state.lockDir} 并继续？[y/N] `);
+  let answer = "";
+  try {
+    const buf = Buffer.alloc(1);
+    for (let i = 0; i < 256; i++) {
+      let read = 0;
+      try { read = fs.readSync(0, buf, 0, 1); } catch { break; }
+      if (read <= 0) break;
+      answer += buf.toString("utf8", 0, read);
+      if (answer.includes("\n")) break;
+    }
+  } catch { answer = ""; }
+  const trimmed = answer.trim();
+  process.stdout.write(`（回答：${trimmed || "(空，默认 N)"}）\n`);
+  if (/^y(es)?$/i.test(trimmed)) return { approved: true, reason: "用户已在终端确认删除" };
+  return { approved: false, reason: `用户未确认删除（回答 ${JSON.stringify(trimmed)}，默认 N）` };
+}
 
 async function acquireLock(state) {
   // r17-C: the batch lock lives inside the consumed project's managed tree (git-ignored and
   // package-ignored by the existing simple_cluster rules). Admission/release semantics are
   // byte-identical to before; a crash-residual lock at the OLD repo-root location is neither
-  // scanned nor reclaimed — same unknown-ownership rule (r29 #7) applies wherever it sits.
+  // scanned nor touched.
+  // r30: 用户口径——陈封锁不得永久阻塞，也不得靠“移走”无限堆文件。拿不到锁时：进程 ESRCH 确证已死
+  // （或 owner 根本无法证明归属且已过写盘宽限）→ 直接删除锁目录并留一行依据；属主仍在跑且锁龄超阈值
+  // → 只在有交互终端时问一行 y/N（默认 N）；无终端或用户不同意 → 继续阻塞并给出精确路径与原因。
+  // 属主存活的锁绝不允许自动删。
   const parent = path.join(state.root, "simple_cluster", "locks", "simple-experiment", "test-workflow");
   await fsp.mkdir(parent, { recursive: true });
   state.lockDir = path.join(parent, "batch.lock");
   const meta = { pid: process.pid, entry: state.plan.entry, batchId: state.batchId, startedAt: new Date().toISOString(), root: state.root };
-  try {
-    await fsp.mkdir(state.lockDir);
-    await fsp.writeFile(path.join(state.lockDir, "owner.json"), JSON.stringify(meta, null, 1));
-    return;
-  } catch (error) {
-    if (error.code !== "EEXIST") throw error;
-    let ownerText = "(unreadable)";
-    try { ownerText = fs.readFileSync(path.join(state.lockDir, "owner.json"), "utf8"); } catch { /* keep marker */ }
-    fail(`another test-workflow batch owns this working copy — 拒绝并发批（不放大并行上限）。未知/坏 owner 不自动回收（r29 #7）；人工确认无活动批后手动删除该目录。owner.json=${ownerText}`, 3);
+  // 最多三轮：mkdir 失败 → 判归属 → 可删或已确认则删除后重试（并发竞争时下一轮重新判定）。
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await fsp.mkdir(state.lockDir);
+      await fsp.writeFile(path.join(state.lockDir, "owner.json"), JSON.stringify(meta, null, 1));
+      return;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      const verdict = classifyStaleLock(state.lockDir);
+      const ageText = Number.isFinite(verdict.ageMs) ? `${Math.round(verdict.ageMs / 1000)}s` : "未知";
+      const facts = `pid=${verdict.pid} batchId=${verdict.batchId} startedAt=${verdict.startedAt} 锁龄=${ageText}`;
+      const blockLine = (extra) => `another test-workflow batch owns this working copy — 拒绝并发批（不放大并行上限）。${verdict.reason}。`
+        + ` ${facts} root=${verdict.root} 锁目录=${state.lockDir}。${extra}owner.json=${verdict.ownerText}`;
+      let authorizedBy = "auto";
+      if (verdict.action === "ask") {
+        const answer = confirmLockDeletion(state, verdict);
+        if (!answer.approved) {
+          fail(blockLine(`${answer.reason}。要自动清理请在本机交互终端重跑并按 y 确认，或人工确认无活动批后删除这个精确目录：${state.lockDir}`), 3);
+        }
+        authorizedBy = "user-confirmed";
+      } else if (verdict.action !== "delete") {
+        fail(blockLine(`要自动清理请等锁龄超过 ${STALE_LOCK_CONFIRM_AGE_MS / 60000} 分钟后在交互终端确认，或人工确认无活动批后删除这个精确目录：${state.lockDir}`), 3);
+      }
+      try { deleteOwnedLockChild({ safeRoot: state.root, parentDir: parent, childName: "batch.lock" }); }
+      catch (removeError) {
+        fail(`拒绝并发批（不放大并行上限）：判定为${authorizedBy === "auto" ? "属主已死的" : "用户已确认陈旧的"}锁（${verdict.reason}，${facts}）但删除被安全纪律拦下：${removeError && removeError.message || removeError}`
+          + `；锁目录=${state.lockDir}`, 3);
+      }
+      console.log(`[test-workflow] STALE-LOCK-DELETED 依据=${verdict.reason} 旧pid=${verdict.pid} 旧batchId=${verdict.batchId}`
+        + ` 旧startedAt=${verdict.startedAt} 锁龄=${ageText} 已删目录=${state.lockDir}`
+        + ` 来源=${authorizedBy === "auto" ? "自动（进程存在性硬依据）" : "用户终端确认"}`);
+    }
   }
+  fail(`another test-workflow batch owns this working copy — 拒绝并发批（不放大并行上限）：三轮内未能取得 ${state.lockDir}。`
+    + `请确认无活动批后删除这个精确目录再重试`, 3);
 }
 
 function releaseOwnedLock(state) {
@@ -654,7 +825,7 @@ async function main() {
     logDir: opts.logDir || path.join(opts.root, "simple_cluster", "reports", "test-workflow", batchId),
     maxParallel: opts.maxParallel || globalCap,
     killGraceMs: (manifest.batchDefaults && manifest.batchDefaults.killGraceMs) || 30000,
-    gateSeq: 0, jobSeq: 0, cancelled: false, refused: null, activeGateKill: null, runningJobs: new Map(),
+    gateSeq: 0, jobSeq: 0, cancelStdin: !!opts.cancelStdin, cancelled: false, refused: null, activeGateKill: null, runningJobs: new Map(),
     receipt: { schemaVersion: 2, batchId, entry: plan.entry, final: plan.final, root: opts.root, manifest: manifestFile.file, startedAt: new Date().toISOString(), maxParallel: 0, hooksVerified: plan.hookProof, closurePreflight: null, phases: {}, gates: [], jobs: [], dedup: plan.dedup, overall: null },
     t0: nowMono(), phaseTimes: [], lockDir: null, lockReleased: false, receiptWritten: false,
   };
@@ -879,7 +1050,8 @@ function writeAcceptanceReport(root, receipt) {
   process.stdout.write(`[acceptance] overall=${receipt.overall} report=${path.join(dir, "latest.md")} logs=${receipt.logDir}\n`);
 }
 
-module.exports = { planEntry, planHash, jobIdentity, expandGlobPattern, resolveStepCommand, validateReceiptForAssemble, inputFingerprint, verifyNoNpmHooks, sha256File, sha256Fresh };
+module.exports = { planEntry, planHash, jobIdentity, expandGlobPattern, resolveStepCommand, validateReceiptForAssemble, inputFingerprint, verifyNoNpmHooks, sha256File, sha256Fresh,
+  ownerProcessAlive, readLockOwner, classifyStaleLock, deleteOwnedLockChild, STALE_LOCK_CONFIRM_AGE_MS, OWNER_WRITE_GRACE_MS };
 
 if (require.main === module) main().then(code => { process.exitCode = code; }).catch(error => {
   process.stderr.write(`[test-workflow] FATAL: ${error && error.stack || error}\n`);
