@@ -20,6 +20,28 @@ function loadSourceRenderer() {
 
 const renderPanelHtml = loadSourceRenderer();
 
+test("manual Xshell button survives the rendered command guard and forwards its click", () => {
+  const html=renderPanelHtml(),script=extractScripts(html).join("\n");
+  const parsed=ts.createSourceFile("xshell-click.js",script,ts.ScriptTarget.ES2022,true,ts.ScriptKind.JS);
+  let commands,capabilities,guard,click;
+  function visit(node){
+    if(ts.isVariableStatement(node)&&node.declarationList.declarations.some(d=>d.name.getText(parsed)==='webviewHandledCommands'))commands=node.getText(parsed);
+    if(ts.isVariableStatement(node)&&node.declarationList.declarations.some(d=>d.name.getText(parsed)==='uiCapabilityMap'))capabilities=node.getText(parsed);
+    if(ts.isFunctionDeclaration(node)&&node.name?.text==='disableUnsupportedCommandButtons')guard=node.getText(parsed);
+    if(ts.isCallExpression(node)&&node.expression.getText(parsed)==='document.addEventListener'&&node.arguments[0]?.text==='click'&&node.arguments[1]?.getText(parsed).includes('data-distributed-retry'))click=node.arguments[1].getText(parsed);
+    ts.forEachChild(node,visit);
+  }
+  visit(parsed);assert.ok(commands&&guard&&click);
+  assert.match(html,/data-command="openXshell"[^>]*>一键打开 Xshell/);
+  const button={dataset:{command:'openXshell'},disabled:false,textContent:'一键打开 Xshell',closest:()=>null,getAttribute:()=>null,setAttribute(){}};
+  const sent=[],sandbox={document:{querySelectorAll:()=>[button]},setNativeTitle(){},hidePinContextMenu(){},payloadFromButton:()=>({}),
+    pendingKeyForButton:()=> 'openXshell',pendingButtonKeys:new Set(),retryableTransferCommand:()=>false,commandNeedsLoading:()=>false,vscode:{postMessage:value=>sent.push(value)}};
+  vm.createContext(sandbox);vm.runInContext(capabilities+'\n'+commands+'\n'+guard+'\nthis.guard=disableUnsupportedCommandButtons;this.click='+click+';',sandbox);
+  sandbox.guard();assert.equal(button.disabled,false,'configured Xshell button must not be disabled as an unsupported client command');
+  sandbox.click({preventDefault(){},stopPropagation(){},target:{closest:selector=>selector==='button[data-command]'?button:null}});
+  assert.equal(sent.length,1);assert.equal(sent[0].command,'openXshell');
+});
+
 function extractScripts(html) {
   const scripts = [];
   const expression = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
