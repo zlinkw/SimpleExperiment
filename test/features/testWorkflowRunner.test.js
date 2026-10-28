@@ -492,6 +492,31 @@ test("runner: owner.json 读不到（EISDIR/权限/瞬时 IO）一律阻塞，�
   assert.ok(fs.existsSync(path.join(lockDir, "owner.json")), "确认不替代归属证据");
 });
 
+test("runner: cd 不进直接父目录或 cd 后物理目录不符一律 PARENT_CD_FAILED，锁原地不动", t => {
+  const ws = makeWorkspace(t);
+  const parent = LOCK_PARENT(ws);
+  const lockDir = plantBatchLock(ws, { pid: deadProcessPid(), entry: "one", batchId: "cd-fail-batch", startedAt: "2026-10-28T06:00:00.000Z", root: ws }, { ageMs: 5 * 60 * 1000 });
+  const cwdBefore = process.cwd();
+  // 一、chdir 本身抛错（权限不足、目录被顶替、路径失效等）：必须统一转成 PARENT_CD_FAILED，不外泄裸 errno。
+  assert.throws(() => runner.deleteOwnedLockChild({
+    safeRoot: ws, parentDir: parent, childName: "batch.lock",
+    chdir: () => { throw Object.assign(new Error("operation not permitted"), { code: "EPERM" }); },
+  }), /PARENT_CD_FAILED/, "cd 失败必须报 PARENT_CD_FAILED");
+  assert.ok(fs.existsSync(path.join(lockDir, "owner.json")), "cd 失败时锁必须原地不动");
+  // 二、chdir 调用成功但物理工作目录对不上（伪造/被换根）：同样必须停手。
+  assert.throws(() => runner.deleteOwnedLockChild({
+    safeRoot: ws, parentDir: parent, childName: "batch.lock",
+    chdir: () => undefined, getCwd: () => path.join(parent, "some-where-else"),
+  }), /PARENT_CD_FAILED/, "cd 后物理目录不一致必须报 PARENT_CD_FAILED");
+  assert.ok(fs.existsSync(path.join(lockDir, "owner.json")), "物理目录不一致时锁必须原地不动");
+  // 三、失败路径必须把进程工作目录还原，绝不影响后续打包步骤。
+  assert.equal(process.cwd(), cwdBefore, "删除失败也必须恢复原 cwd");
+  // 四、同一个目标在正常钩子下仍可删除（证明上面两次是真的被 PARENT_CD_FAILED 拦住，而不是路径本身不合法）。
+  const removed = runner.deleteOwnedLockChild({ safeRoot: ws, parentDir: parent, childName: "batch.lock" });
+  assert.equal(removed.removed, "./batch.lock");
+  assert.ok(!fs.existsSync(lockDir));
+});
+
 test("runner: 确认期间锁被顶替（指纹变了）旧确认作废、零删除，新活动锁原样保留", t => {
   const ws = makeWorkspace(t);
   const oldLock = plantBatchLock(ws, { pid: deadProcessPid(), entry: "one", batchId: "old-batch-1", startedAt: "2026-10-28T05:00:00.000Z", root: ws }, { ageMs: 5 * 60 * 1000 });
