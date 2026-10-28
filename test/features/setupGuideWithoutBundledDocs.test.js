@@ -27,7 +27,7 @@ test("resolver keeps file behavior when a local guide exists (source checkout / 
     assert.equal(resolved.path, path.join(dir, "docs", SETUP_GUIDE_FILE_NAME));
   }
   finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    console.log(`[fixture retained] ${dir}`);
   }
 });
 
@@ -40,7 +40,7 @@ test("resolver falls back to the online repo doc when the shipped package has no
     assert.ok(!resolved.path, "online fallback must not expose a file path");
   }
   finally {
-    fs.rmSync(emptyInstall, { recursive: true, force: true });
+    console.log(`[fixture retained] ${emptyInstall}`);
   }
 });
 
@@ -148,7 +148,7 @@ test("runtime: local guide file opens through markdown.showPreview (original beh
     assert.equal(calls.openExternal.length, 0);
   }
   finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    console.log(`[fixture retained] ${dir}`);
   }
 });
 
@@ -165,7 +165,7 @@ test("runtime: preview failure still falls back to openTextDocument for the same
     assert.equal(calls.openExternal.length, 0);
   }
   finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    console.log(`[fixture retained] ${dir}`);
   }
 });
 
@@ -181,7 +181,7 @@ test("runtime: shipped package without docs opens the online link and never touc
     assert.equal(calls.showWarning.length, 0);
   }
   finally {
-    fs.rmSync(emptyInstall, { recursive: true, force: true });
+    console.log(`[fixture retained] ${emptyInstall}`);
   }
 });
 
@@ -194,7 +194,7 @@ test("runtime: openExternal=false surfaces a warning containing the URL (no sile
     assert.match(calls.showWarning[0], /https:\/\/github\.com\/zlinkw\/SimpleExperiment\/blob\/master\/docs\/simple-experiment-setup\.md/);
   }
   finally {
-    fs.rmSync(emptyInstall, { recursive: true, force: true });
+    console.log(`[fixture retained] ${emptyInstall}`);
   }
 });
 

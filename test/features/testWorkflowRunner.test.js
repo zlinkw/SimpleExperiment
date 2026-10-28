@@ -29,7 +29,7 @@ function makeWorkspace(t) {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), "psg-runner-"));
   fs.mkdirSync(path.join(ws, "test"));
   fs.writeFileSync(path.join(ws, "package.json"), JSON.stringify({ name: "fixture", scripts: {} }));
-  t.after(() => fs.rmSync(ws, { recursive: true, force: true }));
+  t.after(() => console.log(`[fixture retained] ${ws}`));
   return ws;
 }
 
@@ -241,10 +241,10 @@ test("runner: second batch on the same working copy is refused (caps never multi
   const manifest = writeManifest(ws, baseManifest(ws, { one: { phases: { fullCheck: { extraFiles: [{ file: slow, argv: [], source: "f" }] } } } }, [slow]));
   const first = spawn(process.execPath, [RUNNER, "one", "--root", ws, "--manifest", manifest], { stdio: "pipe", windowsHide: true });
   t.after(() => { try { first.kill(); } catch { /* settled */ } });
-  const lockDir = path.join(ws, "simple_cluster", "locks", "simple-experiment", "test-workflow", "batch.lock");
+  const lockDir = path.join(ws, "simple_cluster", "locks", "simple-experiment", "test-workflow", "process-owner.json");
   const deadline = Date.now() + 8000;
   while (!fs.existsSync(lockDir) && Date.now() < deadline) await new Promise(r => setTimeout(r, 50));
-  assert.ok(fs.existsSync(lockDir), "batch lock exists while first batch runs");
+  assert.ok(fs.existsSync(lockDir), "process ownership record exists while first batch runs");
   const second = runRunner(ws, manifest, "one");
   assert.equal(second.status, 3, "second same-root batch rejected with a distinct non-zero code");
   assert.match(second.stderr, /拒绝并发批/);
@@ -258,6 +258,8 @@ test("runner: lock is released only by its owner and release is recorded (R29 #7
   const job = makeJob(ws, "q", {});
   const manifest = writeManifest(ws, baseManifest(ws, { one: { phases: { fullCheck: { extraFiles: [{ file: job, argv: [], source: "f" }] } } } }, [job]));
   assert.equal(runRunner(ws, manifest, "one").status, 0);
+  const processRecord = JSON.parse(fs.readFileSync(path.join(ws, "simple_cluster", "locks", "simple-experiment", "test-workflow", "process-owner.json"), "utf8"));
+  assert.equal(processRecord.status, "released", "正常构建只释放主线进程锁，不创建或删除 batch.lock");
   assert.ok(!fs.existsSync(path.join(ws, "simple_cluster", "locks", "simple-experiment", "test-workflow", "batch.lock")), "own lock released after the batch");
   const rec = receipt(ws, "one");
   assert.ok(fs.existsSync(path.join(rec.logDir, "lock-release.json")), "release record retained");
@@ -536,7 +538,7 @@ test("runner: 确认期间锁被顶替（指纹变了）旧确认作废、零删
   assert.equal(verdict.action, "ask", "ESRCH 死亡硬依据可以进入确认");
   assert.equal(runner.verifyLockDeletionTarget(oldLock, evidence, verdict).ok, true, "仍是刚才那把锁时复核必须通过");
   // 等待确认期间原批退出、另一个活动批取得了同名新锁（真实竞争形态）。
-  fs.rmSync(oldLock, { recursive: true, force: true });
+  // 更新为新的活动属主即可触发身份变化，不为模拟竞争永久删除夹具目录。
   const fresh = plantBatchLock(ws, { pid: process.pid, entry: "one", batchId: "new-live-batch", startedAt: new Date().toISOString(), root: ws });
   const check = runner.verifyLockDeletionTarget(fresh, evidence, verdict);
   assert.equal(check.ok, false, "目标已换人：旧确认绝不能删这把新锁");
@@ -580,10 +582,21 @@ test("runner: 两个真实入口窗口都包含同一完整路径和冻结指纹
   assert.equal(run.status, 0, run.stderr);
   const dialogs = fs.readFileSync(path.join(ws, "dialog-clicks.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
   assert.equal(dialogs.length, 2);
+  const recordFile = path.join(LOCK_PARENT(ws), "process-owner.json");
+  const released = JSON.parse(fs.readFileSync(recordFile, "utf8"));
+  assert.equal(released.status, "released", "遗留目录处理后仍必须使用并释放主线进程锁");
   for (const [index, dialog] of dialogs.entries()) {
     assert.ok(dialog.prompt.title.includes(`第 ${index + 1}/2 次`));
     for (const fact of [lock, evidence.fingerprint, "native-click-old", "./batch.lock", "影响范围"]) assert.ok(dialog.prompt.message.includes(fact), fact);
   }
+  fs.writeFileSync(recordFile, JSON.stringify({ ...released, status: "active" }), "utf8");
+  const unsettled = fs.readFileSync(recordFile);
+  const refused = runRunnerCapped(ws, manifest, "one", { interactive: true, clicks: ["confirm", "confirm"] });
+  assert.equal(refused.status, 3, "新的未结算进程记录不能被遗留锁点击流程绕过");
+  assert.match(refused.stderr, /BUILD_LOCK_UNSETTLED/);
+  assert.deepEqual(fs.readFileSync(recordFile), unsettled);
+  assert.equal(fs.readFileSync(path.join(ws, "dialog-clicks.jsonl"), "utf8").trim().split("\n").length, 2,
+    "进程锁拒绝不能弹出或累计遗留目录删除确认");
   const ci = lockHarness(t, "native-ci");
   const ciLock = plantBatchLock(ci.ws, { pid: deadProcessPid(), batchId: "ci-old", startedAt: "2026-10-28T00:00:00.000Z", root: ci.ws });
   const before = fs.readFileSync(path.join(ciLock, "owner.json"));
@@ -946,7 +959,7 @@ test("r24 compile cache: cold→hit, input/config/toolchain drift, missing/tampe
   const r6 = runTsc(); const p6 = line(r6.stdout, "partition");
   assert.equal(line(r6.stdout, "mode"), "incremental", "r5 rebuild completed ⇒ r6 is a genuine hit");
   assert.match(r6.stdout, /emitted=0/);
-  fs.rmSync(path.join(ws, "dist", "a.js"));
+  require("../_helpers/retainFixtureTarget.cjs")(ws, path.join(ws, "dist", "a.js"));
   const r7 = runTsc();
   assert.equal(line(r7.stdout, "mode"), "cold");
   assert.match(r7.stdout, /missReason=output-drift/);
@@ -1113,9 +1126,35 @@ function canonicalPlan(manifest, entryName) {
     for (const x of full.extraFiles || []) requested.push({ file: x.file, argv: [...x.argv] });
     for (const g of full.globs || []) for (const p of g.patterns) for (const hit of canonicalGlob(p)) requested.push({ file: hit, argv: [...g.argv] });
   }
+  const expanded = requested.flatMap(job => {
+    if (!(manifest.caseGroups || []).includes(job.file)) return [job];
+    // Independent lexical oracle: these two suites register literal top-level test names.
+    const source = fs.readFileSync(path.join(REPO, job.file), "utf8");
+    const names = [...source.matchAll(/^test\(("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'),/gm)]
+      .map(match => require("node:vm").runInNewContext(match[1]));
+    assert.ok(names.length);
+    const rest = [];
+    for (let i=0; i<job.argv.length; i++) {
+      const arg=job.argv[i]; if (arg === "--test-timeout") { i++; continue; }
+      if (["--test", "--test-force-exit"].includes(arg) || arg.startsWith("--test-timeout=")) continue;
+      rest.push(arg);
+    }
+    return names.map(name => ({...job, argv: ["--test", "--test-force-exit", "--test-timeout", "20000", "--test-name-pattern",
+      "^" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", ...rest]}));
+  });
+  const policyJobs = manifest.boundedNodeTests === true ? expanded.map(job => {
+    const rest = [];
+    for (let i=0; i<job.argv.length; i++) {
+      const arg=job.argv[i];
+      if (arg === "--test-timeout") { i++; continue; }
+      if (["--test", "--test-force-exit"].includes(arg) || arg.startsWith("--test-timeout=")) continue;
+      rest.push(arg);
+    }
+    return {...job, argv:["--test", "--test-force-exit", "--test-timeout", "20000", ...rest]};
+  }) : expanded;
   const map = new Map();
-  for (const j of requested) map.set(canonicalIdentity(j.file) + "\u0000" + j.argv.join("\u0000"), j);
-  return { requestedSlots: requested.length, map };
+  for (const j of policyJobs) map.set(canonicalIdentity(j.file) + "\u0000" + j.argv.join("\u0000"), j);
+  return { requestedSlots: policyJobs.length, map };
 }
 
 test("runner: real-repo plan reconciles with an independently expanded manifest contract", () => {
@@ -1224,12 +1263,12 @@ test("runner: real-repo plan reconciles with an independently expanded manifest 
  * （合法机制，不硬编码绝对路径）；模块名 r28dep 全局唯一，证明可见性来自注入而非系统 site-packages。 */
 const PY_CMD = process.platform === "win32" ? "python" : "python3";
 function r28Setup(t) {
-  const probe = spawnSync(PY_CMD, ["-B", "-c", "import site; print(site.getusersitepackages())"], { encoding: "utf8", timeout: 15000, windowsHide: true, env: process.env });
+  const probe = spawnSync(PY_CMD, ["-B", "-c", "import site; print(site.getusersitepackages())"], { encoding: "utf8", timeout: 10000, windowsHide: true, env: process.env });
   if (probe.status !== 0) return null; // 本机无可解析 Python ⇒ 契约不适用（两台验收机均有 Python，勿据此跳过当作通过）
   const ws = makeWorkspace(t);
   const usersiteBase = path.join(ws, "usersite");
   const marker = path.join(ws, "keepme"); // 已有 PYTHONPATH 代表（只需被保留，不必在盘上存在）
-  const siteProbe = spawnSync(PY_CMD, ["-B", "-c", "import site; print(site.getusersitepackages())"], { encoding: "utf8", timeout: 15000, windowsHide: true, env: { ...process.env, PYTHONUSERBASE: usersiteBase } });
+  const siteProbe = spawnSync(PY_CMD, ["-B", "-c", "import site; print(site.getusersitepackages())"], { encoding: "utf8", timeout: 10000, windowsHide: true, env: { ...process.env, PYTHONUSERBASE: usersiteBase } });
   assert.equal(siteProbe.status, 0, siteProbe.stderr);
   const siteDir = siteProbe.stdout.trim();
   fs.mkdirSync(siteDir, { recursive: true });
@@ -1293,11 +1332,29 @@ test("r28: existing user-site deps stay visible (batch-once resolve, PYTHONPATH 
 test("r28: unresolvable user site ⇒ no PYTHONPATH injection for the whole batch (fail-safe)", t => {
   const s = r28Setup(t);
   if (!s) return t.skip("no resolvable python on this host");
-  fs.rmSync(s.usersiteBase, { recursive: true, force: true }); // 解析出的目录不存在 ⇒ 降级
+  // A separate absent PYTHONUSERBASE below simulates unresolvable input; existing fixture bytes stay retained.
   const files = [r28PyJob(s.ws, "pyvisn", s.marker, "absent")];
   const run = r28Run(s.ws, files, { ...process.env, PYTHONUSERBASE: path.join(s.ws, "no-such-base"), PYTHONPATH: s.marker });
   assert.equal(run.status, 0, run.stdout + run.stderr);
   assert.equal(receipt(s.ws, "pyvis").jobs[0].status, "passed");
   assert.equal((run.stdout.match(/no PYTHONPATH injection this batch/g) || []).length, 1);
   assert.doesNotMatch(run.stdout, /batch-once\)/, "degraded batch must not claim an injected root");
+});
+
+// Grouping changes execution boundaries only; all registered tests retain their assertions.
+test("runner: case grouping covers every literal name and rejects dynamic registrations", t => {
+  const ws = makeWorkspace(t), file = "test/grouped.js";
+  fs.writeFileSync(path.join(ws, file), 'test("first (a)",()=>{});\ntest("second",()=>{});\n', "utf8");
+  const { expandCaseGroups } = require("../../scripts/test-case-groups");
+  const jobs = expandCaseGroups(ws, [{file, argv:["--test-timeout", "60000"], source:"fixture"}], [file]);
+  assert.equal(jobs.length, 2);
+  for (const title of ["first (a)", "second"]) assert.equal(jobs.filter(job => new RegExp(job.argv[job.argv.indexOf("--test-name-pattern")+1]).test(title)).length, 1);
+  assert.ok(jobs.every(job => job.argv.includes("20000") && !job.argv.includes("60000")));
+  fs.writeFileSync(path.join(ws, file), 'const name="dynamic";test(name,()=>{});', "utf8");
+  assert.throws(()=>expandCaseGroups(ws,[{file,argv:[]}],[file]),/DYNAMIC_NAME/);
+  const ungrouped = [{file:"test/plain.js",argv:[]}];
+  assert.deepEqual(expandCaseGroups(ws,ungrouped,[])[0].argv, [], "fixture manifests retain their deliberate timeout matrices");
+  assert.deepEqual(expandCaseGroups(ws,ungrouped,[],true)[0].argv, ["--test","--test-force-exit","--test-timeout","20000"]);
+  const matrix = [{file:"test/plain.js",argv:["--test-timeout=60000","--test-name-pattern","^one$"]}];
+  assert.deepEqual(expandCaseGroups(ws,matrix,[],true)[0].argv, ["--test","--test-force-exit","--test-timeout","20000","--test-name-pattern","^one$"]);
 });

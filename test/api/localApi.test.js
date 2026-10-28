@@ -112,6 +112,10 @@ test("SimpleExperiment local API requires bearer auth and handles invalid RPC", 
     assert.equal(health.status, 401);
     const unknown = await rpc(f.server.port, f.token, "unknown");
     assert.equal(unknown.body.error.code, -32601);
+    for (const method of ["toString", "constructor", "__defineGetter__"]) {
+      const inherited = await rpc(f.server.port, f.token, method);
+      assert.equal(inherited.body.error.code, -32601);
+    }
     const invalid = await request(f.server.port, {
       method: "POST",
       path: "/api/v1/rpc",

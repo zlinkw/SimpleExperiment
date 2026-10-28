@@ -70,3 +70,10 @@ for (const changed of ["dist/ui/PanelHtml.legacy.js", "dist/extension/legacy.js"
     assert.notEqual(after.manifest.manifestHash, before.manifest.manifestHash);
   });
 }
+
+test("missing transitive imports fail with their chain, including CommonJS CLI launchers", () => {
+  const files = { "bin/cli.cjs": 'require("../dist/cli.js")', "dist/cli.js": 'require("./missing")' };
+  assert.throws(() => collectLocalRuntimeClosure(root, ["bin/cli.cjs"], [], createFs(files)), /bin\/cli.cjs.*dist\/cli.js.*missing/);
+  files["dist/missing.cjs"] = 'module.exports = {}';
+  assert.ok(collectLocalRuntimeClosure(root, ["bin/cli.cjs"], [], createFs(files)).some(row => row.file === "dist/missing.cjs"));
+});

@@ -249,7 +249,8 @@ function planEntry(manifestFile, manifest, root, entryName, opts) {
   if (full) phases.fullCheck.domainGates = acc.gates.map(g => ({ ...g, phase: "fullCheck" }));
 
   const byKey = new Map();
-  for (const j of acc.jobs) {
+  const expandedJobs = require("./test-case-groups").expandCaseGroups(root, acc.jobs, manifest.caseGroups, manifest.boundedNodeTests === true);
+  for (const j of expandedJobs) {
     const identity = jobIdentity(root, j.file);
     const key = identity + "\u0000" + j.argv.join("\u0000");
     const rel = path.relative(root, path.resolve(root, j.file)).split(path.sep).join("/");
@@ -276,7 +277,7 @@ function planEntry(manifestFile, manifest, root, entryName, opts) {
     requiredGates,
     selection: selection.summary,
     onDemandJobs: selection.onDemandJobs.map(j => ({ file: j.file, argv: j.argv, status: "on_demand_not_run" })),
-    dedup: { requestedSlots: acc.jobs.length, uniqueRuns: plannedUniqueBeforeSelection, duplicatesRemoved: acc.jobs.length - plannedUniqueBeforeSelection },
+    dedup: { requestedSlots: expandedJobs.length, uniqueRuns: plannedUniqueBeforeSelection, duplicatesRemoved: expandedJobs.length - plannedUniqueBeforeSelection },
   };
 }
 
@@ -839,22 +840,17 @@ function confirmLockDeletion(state, verdict, evidence) {
  * 非交互入口与用户拒绝都继续阻塞，并给出精确路径与全部事实。任何情况下都不移动、不留档、不批量清理。
  */
 async function acquireLock(state) {
-  // r17-C: the batch lock lives inside the consumed project's managed tree (git-ignored and
-  // package-ignored by the existing simple_cluster rules). Admission/release semantics are
-  // byte-identical to before; a crash-residual lock at the OLD repo-root location is neither
-  // scanned nor touched.
+  // 正常构建始终使用主线的 OS 进程锁。仅当底层明确拒绝遗留 batch.lock 时，
+  // 才进入精确路径双点击清理；绝不把 process-owner.json 纳入目录删除或重建旧锁。
   const parent = path.join(state.root, "simple_cluster", "locks", "simple-experiment", "test-workflow");
-  await fsp.mkdir(parent, { recursive: true });
   state.lockDir = path.join(parent, "batch.lock");
-  const meta = { pid: process.pid, entry: state.plan.entry, batchId: state.batchId, startedAt: new Date().toISOString(), root: state.root };
-  // 最多三轮：mkdir 失败 → 判归属 → 用户双确认且复核通过才删除后重试（并发竞争时下一轮重新判定）。
+  // 最多三轮：底层先核实安全目录与 OS 锁；遗留目录经双确认清理后，再从底层重新核验准入。
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      await fsp.mkdir(state.lockDir);
-      await fsp.writeFile(path.join(state.lockDir, "owner.json"), JSON.stringify(meta, null, 1));
+      state.processLock = await require("./build-process-lock").acquireBuildLock(state.root, state.batchId);
       return;
     } catch (error) {
-      if (error.code !== "EEXIST") throw error;
+      if (!String(error.message || "").startsWith("LEGACY_BUILD_LOCK:")) fail("拒绝并发批：" + error.message, 3);
       const verdict = classifyStaleLock(state.lockDir);
       // B3：无论哪一档都先自动备齐事实，阻塞文案与确认文案直接引用，用户不必自己去找路径。
       const evidence = collectLockEvidence(state.lockDir);
@@ -899,16 +895,15 @@ async function acquireLock(state) {
     + `请确认无活动批后删除这个精确目录再重试`, 3);
 }
 
-function releaseOwnedLock(state) {
-  if (!state.lockDir) return;
-  try {
-    const owner = JSON.parse(fs.readFileSync(path.join(state.lockDir, "owner.json"), "utf8"));
-    if (owner.pid === process.pid && owner.batchId === state.batchId) {
-      fs.writeFileSync(path.join(state.logDir, "lock-release.json"), JSON.stringify({ releasedAt: new Date().toISOString(), owner }, null, 1));
-      fs.rmSync(state.lockDir, { recursive: true, force: true });
-      state.lockReleased = true;
-    }
-  } catch { /* not ours — leave untouched */ }
+async function releaseOwnedLock(state) {
+  if (!state.processLock) return;
+  const confirmed = state.runningJobs.size === 0 && !state.activeGateKill
+    && state.receipt.jobs.every(job => job.treeStatus === "confirmed")
+    && state.receipt.gates.every(gate => gate.treeStatus === "confirmed" || gate.treeStatus === "n/a(not-spawned)" || gate.skippedAfterCancel);
+  state.lockReleased = await state.processLock.release(confirmed);
+  if (state.lockReleased && state.logDir && fs.existsSync(state.logDir))
+    fs.writeFileSync(path.join(state.logDir, "lock-release.json"), JSON.stringify({ releasedAt: new Date().toISOString(), batchId: state.batchId }), "utf8");
+  state.processLock = null;
 }
 
 /* ---------------- receipt validation (r29 #5) ---------------- */
@@ -1059,7 +1054,7 @@ async function main() {
       await fsp.mkdir(path.dirname(pointer), { recursive: true });
       await fsp.writeFile(pointer, JSON.stringify({ pointer: true, batchId, runReceipt: runPath, entry: plan.entry, overall: state.receipt.overall, totalWallMs: state.receipt.totalWallMs, inputFingerprint: startFingerprint, endedAt: state.receipt.endedAt }, null, 1));
     } catch { /* pointer is best-effort */ }
-    releaseOwnedLock(state);
+    await releaseOwnedLock(state);
     if (state.receipt.overall === "passed" && (plan.phases.compile || plan.phases.fullCheck)) {
       try { // 完整 compile+fullCheck+package 通过 = 当前闭包状态的新证明，记录进 closure-state（r29 #8 增量核的完成记录）
         // 覆盖范围诚实分级：只有完整打包链证明“全部”；check:full/build 只重验源码与测试。
@@ -1165,7 +1160,7 @@ async function main() {
     for (const job of state.runningJobs.values()) killOwnedTree(job);
     if (error.planFail && !state.receipt.jobs.length && !state.receipt.gates.length) { // pre-execution planning failure: no run credential required
       detachCancelStdin(); // r28 U2: 早退路径同样解除监听
-      releaseOwnedLock(state);
+      await releaseOwnedLock(state);
       return error.exitCode || 1;
     }
     return await writeReceiptAndRelease(1);
