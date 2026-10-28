@@ -1389,3 +1389,41 @@ AGENTS.md 要求的第二条校验（原文摘录）：`node -e "new (require('v
 ### 18.4 流程更正：基线/对照探针一律放仓库外
 
 上轮 `_baseline_probe` 建在任务工作副本内又删除，属流程偏差。本轮起所有对照探针改放 `D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/probes/<名字>`（仓库外），本轮未在工作副本内创建任何临时目录；`git status` 全程只出现本任务的源码/测试/文档改动。
+
+## 19. r2-final-3 必改项（§17.3 认领条件补全）与组合断言（worker，2026-10-28）
+
+本节按 plan.md §17.3 的通过条件返修，只动 B1 的认领条件与配套断言；§17.5 的 lastError 泛用非 telemetry 旧路径治理按指令本轮不动，§15.5 的三条非阻塞建议同样不动。
+
+### 19.1 改动位置与一句话说明
+
+- `src/tunnel/RealtimeTunnelClient.legacy.ts:104-110`：新增私有字段 `verifiedDisplayRound`（本轮连接是否真的有成功证据：流建立成功或快照被接受），只在真实断连与非展示类关闭时清零。
+- `src/tunnel/RealtimeTunnelClient.legacy.ts:481-505`（`markDisplayAutoClosed`）：认领条件补全为三条——`connecting`（握手从未完成）一律拒绝；有 `lastError` 或 `requiresManualReconnect` 时，只有「之后真的成功过且流仍活着」才可认领，暂停不算恢复证据；完全无故障证据时，关掉活的/暂停的展示通道或从未打开过才算策略主动关闭。被拒绝的认领同时把 `displayAutoClosed` 写回 false，不遗留错误的 true。
+- `src/tunnel/RealtimeTunnelClient.legacy.ts:199-205`（`disconnect`）：`display-auto` 与 `paused` 保留成功证据，其余关闭方式视为开始新的连接故事，清零成功证据。
+- `src/tunnel/RealtimeTunnelClient.legacy.ts:233-237`（`connectionLost`）：真实断连同时撤销成功证据。
+- `src/tunnel/RealtimeTunnelClient.legacy.ts:597 / 636 / 741-744`：WebSocket `onopen`、SSE 建立、快照成功三处写入成功证据；`startPolling`（快照尚未成功）刻意不写，避免把未成功当成功。
+- `test/features/lowTrafficDisplayRework.test.js`：断言只增不减，12 项 → 15 项，新增 3 条连续状态组合序列（真实 client + 真实 aggregator + 抽取的真实宿主方法 `ensureRealtimeConnected`）。
+
+### 19.2 新增组合断言与结果（单文件串行，`node --test --test-force-exit --test-timeout 20000`）
+
+| 断言名 | 覆盖序列 | 结果 |
+| --- | --- | --- |
+| `r3/b1: a real loss keeps its attribution through pause, repeated policy and resume (soft and hard)` | 低流量下真实软错/硬错 → `disconnect("paused")` → 再次应用同一低流量策略（关流把 paused 变 disconnected）→ 宿主 ensure → 恢复展示轮询 → 再 ensure；逐步断言 `displayAutoClosed`、`lastError`、`requiresManualReconnect`、`streamStatus`、宿主 `tunnel_unavailable`/`local_port_closed` | 通过（`logs/121-2-lowTrafficDisplayRework-r2final3.log`，15 tests 15 pass 0 fail，exit=0） |
+| `r3/b1: a failure during a never-succeeded connecting handshake keeps its attribution` | 从未成功过 → 真实软错 → 关低流量开始恢复（真实 `connect()` 卡在 `connecting`，用悬挂预算，不触碰任何网络）→ 再次开低流量并重复策略 → `connect` 早退 → 聚合层与宿主 ensure 仍报不可用 | 同上，通过 |
+| `r3/b1 reverse: a guard closure without any fault evidence is never reported as an outage` | 无任何故障证据的纯主动关流 → 健康通道暂停后再应用策略 → 两步都必须仍算策略关闭且不得写 `tunnel_unavailable`/`local_port_closed`；同段反证：一旦出现真实失败，同一序列立即撤销认领并如实报离线 | 同上，通过 |
+
+稳定性：同一文件额外连续重复两次，`repeat1_rc=0`、`repeat2_rc=0`，15/15 全绿（`logs/121-3-rework-repeat1.log`、`logs/121-3-rework-repeat2.log`）。`disconnect` 内 `status` 赋值在任何 `await` 之前完成，策略更新后 `await tick()` 的断言不依赖竞态。
+
+### 19.3 受影响集合与门禁（本轮真实退出码）
+
+- 串行回归 69 个文件（一次一个 node 进程，`logs/123-serial-summary-r2final3.txt`）：67 个 exit=0，2 个 exit=1，仍是已登记的基线既有失败——`test/factories_integration.test.js`（行数门 `extension\CacheCleanupPanel.ts: 479 行, extension\PlanCleanupHost.ts: 431 行`，`logs/122-3-factories_integration.log`）、`test/features/distributedRerunAndWorkerDelta.test.js`（GitHub 发布文案正则，`logs/122-5-distributedRerunAndWorkerDelta.log`）；两者与本任务无因果，结论沿用 §15/§16 的基线取证，未改生产代码去"修测试"。
+- `npm run compile` exit=0（`logs/120-compile-r2final3.log`，tsc + 两处 `node -c` gate ok）；`npm run build` exit=0、`overall=passed files=228`、`node -c dist/extension.js` 与 `node -c dist/ui/PanelHtml.js` 双 gate ok（`logs/124-build-r2final3.log`）。
+- `vm.Script dist/ui/PanelHtml.js` exit=0；内层脚本裸反斜杠自查 exit=0（`client_claim_sites=3`、`client_direct_claims_left=1` 即 helper 内唯一赋值点）；`grep 10890` 在 src+dist 零命中；固定 `127.0.0.1:18765` 在 src 零命中（`logs/125-dual-gate-r2final3.log`）。本轮未改 `PanelHtml.legacy.ts`，双重门禁仍全量重跑。
+- `npm run package` exit=0、`overall=passed files=238`、`maxObservedConcurrent=1`（`logs/126-package-r2final3.log`）。改了 `dist/tunnel/RealtimeTunnelClient.legacy.js` 必须重打：新包 `simple-experiment-0.5.422.vsix` 2689768 字节，SHA256 `dc682f25bc2fb30083e9aa2dc61f15a2162894771d9e3dada0a3919b2db06758`（与上一轮 `ca3baaf1…` 不同，符合预期）。版本保持 0.5.422；未 `install:latest`、未发 Release、未合并。
+- 对照探针一律放在仓库外 `D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/`；本轮无需新增探针（`connecting` 悬挂由测试内的悬挂预算实现，不在工作副本内创建或删除目录）。
+
+### 19.4 边界与未做
+
+- 未新增测试阈值、未降低覆盖、未把 §17.5 的 lastError 泛用旧路径治理纳入本轮；该条仍按 GPT 判定为非阻塞建议保留。
+- 未做安装、远端发行、Release 与 PR 合并；主仓 `D:/GitRepo/MCP/zlk-cluster-orchestrator` 保持零写入，仍停在基线 `7a6062fa`。
+- 字节/费用节省率仍未实测，不作为通过证据。
+- 交审自报：`handoff.json` 引用的 diff 工件按上一轮同样方式在 handoff 之后重新生成，因此 diff 内嵌的 handoff 副本比最终文件早一步（diff 文件本身的 SHA256 与 handoff 记录一致）。

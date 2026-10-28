@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.422",
-  "buildId": "b436a26d3e34cb67374f51d04c26aedcadbd8efde65ae3aba926cf74a3dae8b5",
+  "buildId": "1f54bd99a5ef50f14dc87fab1c1344c7ef81a0da93e2b2eed3c6d78bda798960",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -825,7 +825,7 @@
     },
     {
       "path": "dist/tunnel/RealtimeTunnelClient.legacy.js",
-      "sha256": "dc933c79d0a76ef01491d79842dd5b5f83eb28e4659e50488cc315f779fae6a4"
+      "sha256": "5a6213c7038ff01e39fdc2d8959087e0cddd76e08b348ab633cbc06179264e84"
     },
     {
       "path": "dist/tunnel/RequestBudget.js",

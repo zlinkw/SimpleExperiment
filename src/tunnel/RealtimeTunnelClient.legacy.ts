@@ -103,6 +103,11 @@ export class RealtimeTunnelClient {
   // True while the stream is closed only because display auto-refresh is off. That is an
   // intentional closure and must never be reported as tunnel_unavailable / local_port_closed.
   private displayAutoClosed = false;
+  // Real success evidence for the current connection: set only when a round actually succeeded (the
+  // stream opened, or a snapshot was accepted) and dropped by any real connection loss or by closing
+  // the client for anything other than the guard. A paused or still-handshaking client has no such
+  // evidence, so a policy change must not reinterpret its outstanding failure as our own closure.
+  private verifiedDisplayRound = false;
 
   constructor(
     private readonly endpoint: TunnelEndpointConfig,
@@ -194,6 +199,9 @@ export class RealtimeTunnelClient {
     // real connection state change and must be able to surface as a connection error again.
     if (reason === "display-auto") this.markDisplayAutoClosed();
     else this.displayAutoClosed = false;
+    // A guard closure keeps the success evidence of the round it closes; pausing keeps it too (the
+    // user paused a channel that worked), while any other closure starts a new connection story.
+    if (reason !== "display-auto" && reason !== "paused") this.verifiedDisplayRound = false;
     this.connectionGeneration += 1;
     this.snapshotAbort?.abort();
     this.snapshotAbort = undefined;
@@ -224,8 +232,10 @@ export class RealtimeTunnelClient {
     if (this.pollTimer) clearTimeout(this.pollTimer);
     this.pollTimer = undefined;
     if (this.disposed || this.status === "paused" || this.budget.isPaused()) return;
-    // A real connection loss is never the guard's intentional closure.
+    // A real connection loss is never the guard's intentional closure, and it invalidates the success
+    // evidence of the round that just failed.
     this.displayAutoClosed = false;
+    this.verifiedDisplayRound = false;
     const websocket = this.websocket;
     this.websocket = undefined;
     websocket?.close();
@@ -470,15 +480,27 @@ export class RealtimeTunnelClient {
    * bumping the connection generation. It is deliberately not disconnect("paused").
    */
   /**
-   * Claim the current closure as the guard's intentional display-channel closure. Only a real policy
-   * transition may do that: closing a stream that is still live, or being disconnected while no
-   * failure attribution stands. A genuine connection loss keeps its own attribution (lastError /
-   * requiresManualReconnect) until a new connection supersedes it, so repeating connect() or the very
-   * same updateRefreshPolicy() while the mode stays on can never rewrite an outage into an
-   * intentional closure. Nothing here marks the client as connected or probed.
+   * Decide whether the current closure may be attributed to the low-traffic display guard. Only a
+   * genuine policy transition with nothing unresolved about the connection qualifies:
+   * - a handshake that never completed (`connecting`) never qualifies, because there is no successful
+   *   round to close and the outstanding attempt or failure keeps its own attribution;
+   * - standing fault evidence (lastError / requiresManualReconnect) is superseded only by a round that
+   *   really succeeded afterwards on a live stream; a pause is not proof of recovery, and a refused
+   *   claim also drops any stale claim instead of leaving a wrong one behind;
+   * - with no fault evidence at all, closing a live or paused display channel, or simply never opening
+   *   one, is our own closure and must not be reported as an outage.
+   * Nothing here marks the client as connected, online or already probed.
    */
   private markDisplayAutoClosed(): void {
-    if (this.status === "disconnected" && (this.lastError || this.requiresManualReconnect)) return;
+    if (this.status === "connecting") {
+      this.displayAutoClosed = false;
+      return;
+    }
+    const live = ["websocket", "sse", "polling"].includes(this.status);
+    if (this.lastError || this.requiresManualReconnect) {
+      this.displayAutoClosed = live && this.verifiedDisplayRound;
+      return;
+    }
     this.displayAutoClosed = true;
   }
 
@@ -566,6 +588,7 @@ export class RealtimeTunnelClient {
       if (this.websocket !== ws) return;
       this.status = "websocket";
       this.reconnectPolicy.reset();
+      this.verifiedDisplayRound = true;
     };
     ws.onmessage = (event) => {
       if (this.websocket !== ws) return;
@@ -604,6 +627,7 @@ export class RealtimeTunnelClient {
     }
     this.status = "sse";
     this.reconnectPolicy.reset();
+    this.verifiedDisplayRound = true;
     void this.readSse(response.body, abort);
   }
 
@@ -708,6 +732,9 @@ export class RealtimeTunnelClient {
       }
       if (generation !== this.connectionGeneration) return snapshot;
       this.reconnectPolicy.reset();
+      // A round that really succeeded is the only evidence able to supersede an older failure
+      // attribution once the guard later closes the display channels.
+      this.verifiedDisplayRound = true;
       if (this.policy.mode === "manual_only" && this.status === "disconnected") {
         this.status = "polling";
         this.lastError = undefined;

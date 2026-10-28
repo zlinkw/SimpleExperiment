@@ -512,3 +512,150 @@ test("r6/b2: a receipt without an outstanding request has no display, timer or n
   assert.equal(shown(), false, "a failed write keeps showing the persisted preference");
   assert.equal(nextTarget(), true, "and the next click target with it");
 });
+
+
+// §17.3 r2-final-3: claiming the closure requires a genuine policy transition plus real success
+// evidence, so a pause, a never-completed handshake, a standing lastError or a hard manual-reconnect
+// fault can never be relabelled as the guard's intentional closure - and a refused claim must not leave
+// a stale claim behind. The reverse case (no fault evidence at all) must still be attributed to the
+// guard, so normal low traffic never looks like an outage.
+test("r3/b1: a real loss keeps its attribution through pause, repeated policy and resume (soft and hard)", async () => {
+  for (const [reason, hard] of [["socket hang up", false], ["HTTP 401 Unauthorized", true]]) {
+    const multi = new MultiEndpointRealtimeClient([endpoint("w1")], () => new RequestBudget());
+    const child = [...multi.clients.values()][0];
+    const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason)")];
+    const fixture = hostFixture(members);
+    const { host } = fixture;
+    host.isRealtimeMode = () => true;
+    host.client = { connect: async () => { await multi.connect(); }, diagnostics: () => multi.diagnostics() };
+    try {
+      multi.updateRefreshPolicy({ displayAutoRefresh: false, snapshotFallbackIntervalSeconds: 0 });
+      await host.ensureRealtimeConnected("startup");
+      assert.equal(multi.diagnostics().displayAutoClosed, true, reason + ": step 0 baseline guard closure");
+      // Step 1 - a real failure establishes its own attribution (a hard one also demands a manual
+      // reconnect).
+      await child.connectionLost(reason);
+      let diagnostics = multi.diagnostics();
+      assert.equal(diagnostics.displayAutoClosed, false, reason + ": step 1 the failure clears the guard explanation");
+      assert.equal(Boolean(child.diagnostics().requiresManualReconnect), hard, reason + ": step 1 hard/soft marking");
+      // Step 2 - the user pauses the stream (pauseRealtimeStream calls disconnect("paused")).
+      await child.disconnect("paused");
+      await host.ensureRealtimeConnected("pause stream");
+      diagnostics = multi.diagnostics();
+      assert.equal(diagnostics.endpoints[0].streamStatus, "paused", reason + ": step 2 paused state");
+      assert.equal(host.lastError, undefined, reason + ": step 2 a pause is not published as unavailable");
+      assert.equal(host.lastHealth, undefined, reason + ": step 2 a pause writes no offline health");
+      // Step 3 - the same low-traffic policy is applied again (pauseAllNetworkActivity and
+      // resumeNetwork both re-apply it) while the failure is still outstanding.
+      multi.updateRefreshPolicy({ displayAutoRefresh: false, snapshotFallbackIntervalSeconds: 0 });
+      await tick();
+      diagnostics = multi.diagnostics();
+      assert.equal(diagnostics.endpoints[0].streamStatus, "disconnected", reason + ": step 3 the policy really closed the stream");
+      assert.equal(diagnostics.displayAutoClosed, false, reason + ": step 3 a paused real failure must not become a guard closure");
+      assert.match(String(diagnostics.endpoints[0].lastError), hard ? /401/ : /socket hang up/, reason + ": step 3 failure evidence kept");
+      await host.ensureRealtimeConnected("resume network");
+      assert.equal(host.lastError, "tunnel_unavailable", reason + ": step 3 the outage is still published");
+      assert.equal(host.lastHealth && host.lastHealth.status, "local_port_closed", reason + ": step 3 real health attribution");
+      // Step 4 - restoring the cadence must not fake a recovery: without a successful round the
+      // endpoint stays disconnected, keeps the failure and claims nothing.
+      let restores = 0;
+      child.connect = async () => { restores += 1; };
+      multi.updateRefreshPolicy({ displayAutoRefresh: true, snapshotFallbackIntervalSeconds: 5 });
+      await tick();
+      assert.equal(restores, hard ? 0 : 1, reason + ": step 4 a soft loss re-arms, a hard failure stays limited");
+      diagnostics = multi.diagnostics();
+      assert.equal(diagnostics.endpoints[0].streamStatus, "disconnected", reason + ": step 4 nothing looks online");
+      assert.equal(diagnostics.displayAutoClosed, false, reason + ": step 4 no stale claim survives");
+      assert.match(String(diagnostics.endpoints[0].lastError), hard ? /401/ : /socket hang up/, reason + ": step 4 failure evidence survives the restore");
+      await host.ensureRealtimeConnected("resume network");
+      assert.equal(host.lastError, "tunnel_unavailable", reason + ": step 5 the host still reports the real outage");
+    }
+    finally { await multi.disconnect("dispose"); }
+  }
+});
+
+test("r3/b1: a failure during a never-succeeded connecting handshake keeps its attribution", async () => {
+  let releaseGate;
+  const gate = new Promise((resolve) => { releaseGate = resolve; });
+  // The handshake hangs before any socket or fetch is created, so the client really stops in
+  // "connecting" with no successful round and no network traffic.
+  const hangingBudget = { isPaused: () => false, run: async (_kind, fn) => { await gate; return fn(); }, setHidden: () => {}, noteCoalescedRequest: () => {} };
+  const multi = new MultiEndpointRealtimeClient([endpoint("w1")], () => new RequestBudget());
+  const child = new RealtimeTunnelClient(endpoint("w1"), hangingBudget);
+  multi.clients.clear();
+  multi.clients.set("w1", child);
+  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason)")];
+  const fixture = hostFixture(members);
+  const { host } = fixture;
+  host.isRealtimeMode = () => true;
+  host.client = { connect: async () => { await multi.connect(); }, diagnostics: () => multi.diagnostics() };
+  try {
+    multi.updateRefreshPolicy({ displayAutoRefresh: false, snapshotFallbackIntervalSeconds: 0 });
+    await host.ensureRealtimeConnected("startup");
+    assert.equal(multi.diagnostics().displayAutoClosed, true, "step 0: a guard closure without any failure is still the guard");
+    // Step 1 - a real soft loss before anything ever connected successfully.
+    await child.connectionLost("socket hang up");
+    assert.equal(child.diagnostics().displayAutoClosed, false, "step 1: the real loss owns the attribution");
+    // Step 2 - turning the guard off starts a real recovery round that stops inside the handshake.
+    multi.updateRefreshPolicy({ displayAutoRefresh: true, snapshotFallbackIntervalSeconds: 5 });
+    await tick();
+    assert.equal(child.diagnostics().streamStatus, "connecting", "step 2: the handshake really has not completed");
+    // Step 3 - the guard goes back on while the handshake is still outstanding, then the same policy
+    // is applied again.
+    multi.updateRefreshPolicy({ displayAutoRefresh: false, snapshotFallbackIntervalSeconds: 0 });
+    await tick();
+    multi.updateRefreshPolicy({ displayAutoRefresh: false, snapshotFallbackIntervalSeconds: 0 });
+    await tick();
+    let diagnostics = multi.diagnostics();
+    assert.equal(diagnostics.endpoints[0].streamStatus, "disconnected", "step 3: the unfinished handshake was closed by the policy");
+    assert.equal(diagnostics.displayAutoClosed, false, "step 3: a never-succeeded connecting must not become a guard closure");
+    assert.match(String(diagnostics.endpoints[0].lastError), /socket hang up/, "step 3: the older real failure is kept");
+    // Step 4 - the early-return connect path may not claim it either.
+    await multi.connect();
+    await child.connect();
+    diagnostics = multi.diagnostics();
+    assert.equal(diagnostics.displayAutoClosed, false, "step 4: connect after the refused claim still does not claim it");
+    // Step 5 - the real host method over the real aggregator publishes the outage.
+    await host.ensureRealtimeConnected("resume network");
+    assert.equal(host.lastError, "tunnel_unavailable", "step 5: the unfinished handshake failure is published as unavailable");
+    assert.equal(host.lastHealth && host.lastHealth.status, "local_port_closed", "step 5: real health attribution");
+  }
+  finally { releaseGate(); await multi.disconnect("dispose"); }
+});
+
+test("r3/b1 reverse: a guard closure without any fault evidence is never reported as an outage", async () => {
+  const multi = new MultiEndpointRealtimeClient([endpoint("w1")], () => new RequestBudget());
+  const child = [...multi.clients.values()][0];
+  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason)")];
+  const fixture = hostFixture(members);
+  const { host } = fixture;
+  host.isRealtimeMode = () => true;
+  host.client = { connect: async () => { await multi.connect(); }, diagnostics: () => multi.diagnostics() };
+  try {
+    multi.updateRefreshPolicy({ displayAutoRefresh: false, snapshotFallbackIntervalSeconds: 0 });
+    await host.ensureRealtimeConnected("startup");
+    assert.equal(child.diagnostics().displayAutoClosed, true, "step 1: closing without any failure evidence stays the guard");
+    assert.equal(multi.diagnostics().displayAutoClosed, true, "step 1: the aggregator keeps the policy attribution");
+    assert.equal(host.lastError, undefined, "step 1: no invented tunnel_unavailable for the guard");
+    assert.equal(host.lastHealth, undefined, "step 1: no invented local_port_closed health for the guard");
+    // A pause of a channel that never failed, then the policy applied again, must still look like the
+    // policy rather than an outage.
+    await child.disconnect("paused");
+    multi.updateRefreshPolicy({ displayAutoRefresh: false, snapshotFallbackIntervalSeconds: 0 });
+    await tick();
+    await host.ensureRealtimeConnected("resume network");
+    assert.equal(multi.diagnostics().displayAutoClosed, true, "step 2: a healthy pause then closure is not an outage");
+    assert.equal(host.lastError, undefined, "step 2: still no invented outage");
+    assert.equal(host.lastHealth, undefined, "step 2: still no invented offline health");
+    // The counter-case inside the same sequence: once a real failure exists the identical sequence has
+    // to publish the outage.
+    await child.connectionLost("socket hang up");
+    multi.updateRefreshPolicy({ displayAutoRefresh: false, snapshotFallbackIntervalSeconds: 0 });
+    await tick();
+    await host.ensureRealtimeConnected("resume network");
+    assert.equal(multi.diagnostics().displayAutoClosed, false, "step 3: a real failure revokes the claim");
+    assert.equal(host.lastError, "tunnel_unavailable", "step 3: the real failure is published");
+    assert.equal(host.lastHealth && host.lastHealth.status, "local_port_closed", "step 3: the real failure writes real health");
+  }
+  finally { await multi.disconnect("dispose"); }
+});

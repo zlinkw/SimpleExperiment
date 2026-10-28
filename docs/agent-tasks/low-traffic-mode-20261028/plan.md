@@ -564,3 +564,77 @@ factories_integration行数失败与distributedRerunAndWorkerDelta文案失败�
 - 新增连续状态断言 3 项（lowTrafficDisplayRework 9→12，断言只增不减）；受影响 69 个文件串行重跑 67 绿，2 条失败为已定性的基线既有项（logs/112-serial-summary.txt）。
 - 双重门禁与打包：build 228 通过含两处 node -c、vm.Script 零反斜杠问题、grep 10890=0；package 238 通过，VSIX 2689215 字节、SHA256 ca3baaf11e770110724d2c4160edb03b38704dc4092f1003aa5a96a407cbac7f，版本保持 0.5.422，未安装/未发行/未合并。
 - 流程更正：对照探针今后一律放仓库外 probes/ 目录，本轮未在工作副本内建任何临时目录。
+
+## 17. r2-final-3 第三轮最终审核结论（GPT reviewer，2026-10-28）
+
+### 17.1 结论与范围
+
+**继续返修：B2已关闭；B1仍有1组必须返修（暂停/未完成重连状态绕过归因保护）。当前不能合并PR #25，不能发行或安装本次0.5.422。** 本轮只读核验第二轮后真实diff、代码状态转移、测试和既有原始日志，只追加本章节；未改源码、测试、版本或Git索引，未运行新测试、构建、打包或服务器操作。本审核阶段结束，返修耗时暂无法可靠估算。
+
+### 17.2 候选与证据身份
+
+- 实际分支feat/low-traffic-mode-20261028，基线7a6062fa10441cc5852166a34138781a2604d9e9，8个提交，HEAD **0e0b86476cb6a8b20460e2a339128df778febcb1**。本轮实现63e3bc77及索引提交0e0b8647的增量与所述B1/B2范围一致。
+- 索引SHA256 **128ce4afef3b2216cdfcc35f939df72af039d620526f2e38e718a78943272615**；29个candidate.files、6个artifacts、23条checks。递归核验本索引全部108条path/sha256引用，无缺失/不一致；核验前工作区干净且无暂存文件。引用数量与第二轮不同，不能沿用上一轮127条数字。
+- package.json及package-lock.json均0.5.422；VSIX **2689215字节**、SHA256 **ca3baaf11e770110724d2c4160edb03b38704dc4092f1003aa5a96a407cbac7f**，指纹与包登记一致。追加本章后plan哈希失效，须由主控更新handoff；不能声称追加后的索引仍全部一致。
+- 只读身份/diff核验exit=0原始日志：host-native/diagnostics/host-windows/92def298-313d-4c9d-bfe6-c2a2d061b6f6-stdout.log；门禁日志摘要读取exit=0：同目录123b9367-a0f0-478e-8a4f-2ae717e143db-stdout.log。未重新查询GitHub PR/发行状态，以交审提供的OPEN/MERGEABLE为交接状态，不冒充本轮远端实测。
+
+### 17.3 B1未关闭：helper把paused/connecting都误当成已有健康活动流
+
+**必须返修 / high。** 位置：src/tunnel/RealtimeTunnelClient.legacy.ts:480–483 markDisplayAutoClosed，:194–196 disconnect，:506–510 updateRefreshPolicy；宿主src/extension/legacy.ts:6304–6341暂停/恢复入口与:5616–5642 ensureRealtimeConnected。
+
+本次确实修复了“disconnected + lastError/requiresManualReconnect”下重复policy/connect的归因覆盖，新增软/硬错误连续断言也真实执行。但helper只在status===disconnected时保护错误；status!==disconnected并不等于“流仍健康活着”。至少以下两条既有入口可达：
+
+1. 低流量下真实软/硬错误已置displayAutoClosed=false并保存lastError（硬错还置requiresManualReconnect=true）→用户暂停流/暂停网络经disconnect("paused")置status=paused、保留错误→再次应用当前低流量策略，updateRefreshPolicy因paused!=disconnected调用disconnect("display-auto")→helper跳过其唯一保护条件，写displayAutoClosed=true并转disconnected。恢复时markDisplayAutoClosed虽然因错误return，却不撤销已经错误写入的true；全部端点同此状态时宿主displayGuarded=true，再次把真实不可用归因为策略关闭。pauseRealtimeStream明确直接调用disconnect("paused")；pauseAllNetworkActivity在暂停后直接applyTrafficScheduling，resumeNetwork也重新apply，非假设中的新入口。
+2. 真实软断连→关闭低流量开始恢复连接，connect把status置connecting（尚未成功，旧lastError仍在）→握手完成前再次开启低流量→helper因connecting!=disconnected认领主动关闭。实际没有新的连接成功证据，却把旧失败归因覆盖成策略关闭。本轮恢复测试把child.connect换成只计数的stub、故意保持disconnected，没有覆盖真实connecting中再切回低流量。
+
+端点lastError文本仍在不等于宿主错误分类正确；这两条路径可让宿主不再报tunnel_unavailable，而硬错仍实际限制请求。不得用“暂停是用户意图”推定旧故障已被恢复，尤其恢复后错误仍受限的情形。
+
+通过条件：把“当前流有真实成功证据/本次策略主动关闭”与“暂停或重试未完成”明确区分；未获成功证据前，暂停/重复策略/重连尝试不能抹掉尚未解除的软/硬故障归因，也不能遗留错误的displayAutoClosed=true。不要简单把所有非disconnected都视为健康，不通过恢复A类自动请求来探活求绿。补真实client+aggregator+宿主组合序列：软/硬错→paused→重复policy→resume/ensure仍正确报错；软错→connecting→再开低流量仍保留未恢复错误；无错的纯主动关流仍无假离线。正常模式原有节奏与行为不改。
+
+### 17.4 B2已关闭，严格requestId不会造成永久switching
+
+src/ui/PanelHtml.legacy.ts:2817–2837先要求pending和双方非空且相同requestId，再处理成功/失败；无pending、旧成功、重复、缺身份回执均在写显示/清timer前返回。新增整段乱序序列保留原9项并扩至12项，断言真实消费函数与下一目标，修复符合15.3 B2。
+
+合法点击在发送消息前beginLowTrafficToggle(target,payload.requestId)，宿主postLowTrafficModeReceipt原样回传requestId；正常匹配成功和失败都会清pending。被拒回执不会取消当前超时，原8秒定时器仍会解除pending并提示结果未知；超时后迟到回执丢弃，由权威state收敛，不自动重发。这可能诚实显示一次“结果未知”，但不会永久卡在switching，不应为兼容无身份回执重新打开漏洞。本轮未发现B2引入新的必改项。
+
+### 17.5 自报lastError恢复残留：非阻塞建议（1条，本轮新增）
+
+真正成功后泛用WS/SSE/non-telemetry polling路径未统一清lastError是既有残留：onopen/:567和SSE/:605只改status/reset；readSnapshot成功清错当前在:711–716的manual_only条件与Worker telemetry分支。不能宣称所有兼容路径恢复后诊断错误都自动清掉。
+
+不据此增加本任务必改：当前生产realtimeEndpoints仅启用Worker，RealtimeTunnelClient:294–296按role==="worker"即归为telemetry；正常建立Worker通道后走成功snapshot并在:716清错，失败则按真实失败保留；非telemetry兼容路径不是当前受支持执行目标。泛用路径旧lastError可能出现在“最后错误”诊断，但连接可用与否仍按streamStatus判定，requiresManualReconnect在发起有效重连时重置；本次未把旧lastError用作已连接状态的阻塞门禁，未发现它在当前Worker成功恢复后制造错误可用状态或错误受限原因。后续可单独统一“已验证恢复清旧错”的兼容语义，不将未成功尝试当成功；此建议不能豁免17.3已证实的paused/connecting错误归因。
+
+### 17.6 验证完整性、旧失败与续接
+
+12条required均complete=true/status=passed/exitCode=0；原始日志与索引引用均一致。logs/110-compile-r2final2.log、113-build-r2final2.log及115-package-r2final2.log记录node-c两项gate exit=0；build overall=passed files=228，package overall=passed files=238，maxObservedConcurrent=1。logs/114-dual-gate-r2final2.log的vm.Script exit=0、10890 src/dist=0、固定127.0.0.1:18765 src=0；该日志还保留一次自查命令被多层引号损坏的SyntaxError，之后脚本文件机械修正的backslash_check_exit=0、片段反斜杠0及中文/身份guard检查成立。不是把失败命令改记通过；最终语法/自查门禁有效。
+
+logs/112-8为12/12，112-11为16/16；112-61实际内联脚本2/2，112-7 GPU夹具6/6。部分required仍引用未失效的98日志，受影响项另有112本轮实际重跑，不虚构全部索引字段都换成新日志。116串行汇总为69文件、67个exit0、2个exit1，逐项真实退出码可查，旧失败仍为factories行数与distributedRerun文案，沿用已核基线分类、非阻塞；历史租约/基线GPU探针failed记录也未被改为通过。GPU夹具口径结论沿用15.4，不新增治理要求。
+
+**登记验证真实有效，但17.3状态组合尚缺，12项required通过不等于B1整体关闭。** 字节/费用节省率仍未实测、待确认，不作通过证据，不列门槛。此前非阻塞建议保持原分类，不自动扩为本轮TODO；本轮新增非阻塞建议1条见17.5。
+
+原实施者同副本只续接17.3，补相关组合断言、必要编译/模板门禁、按影响验证与新候选包/索引后再补审。当前Release与本机安装继续暂停，不宣布最终交付完成。
+
+
+## 18. r2-final-3 返修完成记录（worker，2026-10-28；不改 §17 的审核指导）
+
+### 18.1 §17.3 必改项处置（已实现）
+
+- 认领条件按 §17.3 通过条件补全，判定集中在 `src/tunnel/RealtimeTunnelClient.legacy.ts` 的 `markDisplayAutoClosed()`：`connecting`（握手从未完成，从未成功过）一律拒绝；`lastError`/`requiresManualReconnect` 仍在时，只有"之后真的成功过一轮且流仍活着"才允许认领（暂停不算恢复证据）；完全无故障证据时，关掉活的或暂停中的展示通道、或从未打开过通道，才算策略主动关闭。被拒绝的认领同时把 `displayAutoClosed` 写回 false，不遗留错误的 true。
+- 成功证据由新字段 `verifiedDisplayRound` 表示，只在三处真实成功点写入（WebSocket `onopen`、SSE 建立、快照被接受），在真实断连与除 `display-auto`/`paused` 之外的关闭方式清零；`startPolling`（快照尚未成功）刻意不写。没有把所有非 disconnected 视为健康，也没有用恢复 A 类自动请求探活求绿。
+- §17.3 列出的两条可达路径分别有真实组合断言覆盖（真实 client + 真实 aggregator + 抽取的真实宿主方法，逐步断言归因与宿主可用判定，序列见 evidence.md §19.2）：软/硬错→paused→重复策略→resume/ensure 仍正确报错；软错→connecting→再开低流量仍保留未恢复错误；无错纯主动关流仍无假离线（含健康暂停后再应用策略的反证）。正常模式的节奏与行为未改（`updateRefreshPolicy` 的恢复正常分支、原有节奏常量都未动）。
+
+### 18.2 本轮 TODO 状态
+
+| 项目 | 状态 | 依据 |
+| --- | --- | --- |
+| §17.3 认领条件补全（paused / 未完成 connecting / lastError / requiresManualReconnect 一律拒绝改写） | 已完成 | 代码见上；`test/features/lowTrafficDisplayRework.test.js` 15/15 通过，exit=0 |
+| §17.3 要求的连续组合断言（只增不减） | 已完成，12 项 → 15 项，原 12 项一条未减 | `logs/121-2-lowTrafficDisplayRework-r2final3.log`；两次重复运行 `logs/121-3-rework-repeat{1,2}.log` 均 exit=0 |
+| §17.4 B2 | 本轮未触碰，保持已关闭状态 | `panelLowTrafficModePolicy` 16/16 重跑通过 |
+| §17.5 lastError 泛用非 telemetry 旧路径治理 | 按主控指令本轮不动，仍为非阻塞建议 | 未改 `:691`/`:711-716` 分支语义 |
+| §17.6 验证完整性 | 已完成本轮真实验证：compile/build 双 `node -c`、`vm.Script`、裸反斜杠自查、`grep 10890`=0、固定端点=0、69 文件串行回归、重新打包 | evidence.md §19.3 的日志与真实退出码 |
+| 版本 / 打包 / 发行 / 合并 | 版本保持 0.5.422；已重新 `npm run package`（新指纹），未 install:latest、未发 Release、未合并 | evidence.md §19.3 |
+
+### 18.3 遗留（不冒充通过）
+
+- 串行回归仍有 2 条已登记的基线既有失败（行数门、GitHub 发布文案），本轮退出码与原因逐字记录，未改生产代码规避。
+- 字节/费用节省率仍未实测；本轮不新增任何阈值或门槛。
+- 远端发行与本机安装保持暂停，最终交付由主控确认。
