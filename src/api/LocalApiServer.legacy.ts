@@ -2,6 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as http from "http";
 import * as path from "path";
+import { ResourceOperationLeaseManager } from "../core/ResourceOperationLease";
 import { atomicWriteText } from "../state/StateStore";
 import { operationOutcomeFor } from "../core/OperationOutcome";
 
@@ -791,12 +792,26 @@ export class LocalApiServer {
     return path.join(path.dirname(this.discoveryPath), "instances", `${process.pid}_${safeStamp}.json`);
   }
 
+  private readonly discoveryWriterId = `api-discovery:${crypto.randomUUID()}`;
+
   private async writeDiscovery(): Promise<void> {
     if (!this.discoveryPath) return;
-    const text = `${JSON.stringify(this.discovery(), null, 2)}\n`;
-    await atomicWriteText(this.discoveryPath, text);
-    const instancePath = this.instanceRecordPath();
-    if (instancePath) await atomicWriteText(instancePath, text);
+    const directory = path.resolve(path.dirname(this.discoveryPath));
+    await fs.promises.mkdir(directory, { recursive: true });
+    const manager = new ResourceOperationLeaseManager({ leasePath: path.join(directory, "discovery-publication"),
+      windowId: this.discoveryWriterId });
+    const handle = await manager.acquire({ resources: [{ server: "local", project: directory, target: path.resolve(this.discoveryPath) }],
+      pluginId: this.name, workspaceUri: directory, hostProjectPath: directory, actionType: "discovery-publication", actionLabel: "API discovery", waitForConflict: true });
+    try {
+      const text = `${JSON.stringify(this.discovery(), null, 2)}\n`;
+      const instancePath = this.instanceRecordPath();
+      if (instancePath) await atomicWriteText(instancePath, text, { beforeRename: handle.assertHeld });
+      if (this.disposed) {
+        const current = JSON.parse(await fs.promises.readFile(this.discoveryPath, "utf8"));
+        if (current.pid !== process.pid || current.startedAt !== this.startedAt) return;
+      }
+      await atomicWriteText(this.discoveryPath, text, { beforeRename: handle.assertHeld });
+    } finally { await handle.release(); }
   }
 
   async dispose(): Promise<void> {
