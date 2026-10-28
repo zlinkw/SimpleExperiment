@@ -22,7 +22,7 @@ variant = sys.argv[1]
 root = pathlib.Path(tempfile.mkdtemp(prefix="simple-formal-preflight-")).resolve()
 (root / "experiments/plans").mkdir(parents=True)
 hook = root / "validator.py"
-hook.write_text('''import hashlib, json, os, sys, time
+hook.write_text('''import hashlib, json, os, pathlib, sys, time
 processed = 0
 files = 0
 def validate_result_paths(config, contract):
@@ -45,6 +45,7 @@ def validate_result_paths(config, contract):
         if digest.hexdigest() != os.environ['PROBE_ASSET_SHA256']:
             raise ValueError('SOURCE_HASH_CHANGED')
     if variant in ('stall','heartbeat','decreasing'):
+        pathlib.Path('fixture-watchdog-ready').write_text('ready', encoding='utf-8')
         for number in range(200):
             payload = {'phase': 'heartbeat-'+str(number), 'processedBytes': 0, 'processedFiles': files}
             if variant == 'decreasing': payload['processedFiles'] = 0
@@ -133,6 +134,19 @@ agent.redact_text = lambda value: value
 scale = 1 if variant in ("no-environment", "api", "api-environment", "api-completed", "fast", "duplicate", "pad", "staged") else 30
 agent.time = SimpleNamespace(**{name: getattr(time, name) for name in dir(time) if not name.startswith("__") and name not in ("monotonic", "sleep")},
     monotonic=lambda: time.monotonic() * scale, sleep=lambda seconds: time.sleep(min(seconds, 0.005)))
+# The inactivity variants use a controlled clock after their real probe starts.
+# Interpreter/AST startup and reader teardown remain real and bounded by the outer
+# 10s child limit; they are not multiplied into the virtual watchdog deadline.
+controlled_watchdog = variant in ("stall", "heartbeat", "decreasing")
+watchdog_clock = [0.0]
+watchdog_ready = root / "fixture-watchdog-ready"
+if controlled_watchdog:
+    def watchdog_sleep(seconds):
+        if watchdog_ready.exists():
+            watchdog_clock[0] += seconds * 3
+        time.sleep(min(seconds, 0.005))
+    agent.time.monotonic = lambda: watchdog_clock[0]
+    agent.time.sleep = watchdog_sleep
 original_run, original_popen = subprocess.run, subprocess.Popen
 def scaled_run(*args, **kw):
     if kw.get("timeout") == 10: kw["timeout"] /= scale
@@ -142,9 +156,14 @@ def popen(*args, **kw):
 agent.subprocess = SimpleNamespace(**{name: getattr(subprocess, name) for name in dir(subprocess) if not name.startswith("__")})
 agent.subprocess.run = scaled_run
 agent.subprocess.Popen = popen
+inactivity_durations = []
 original_inactivity = agent.subprocess_inactivity_run
 def inactivity(*args, **kw):
-    result = original_inactivity(*args, **kw); stderr.append(result.stderr or ""); return result
+    phase_started = time.monotonic()
+    try:
+        result = original_inactivity(*args, **kw); stderr.append(result.stderr or ""); return result
+    finally:
+        inactivity_durations.append((time.monotonic() - phase_started) * scale)
 agent.subprocess_inactivity_run = inactivity
 entry = {"cancel": threading.Event(), "processes": set(), "root": str(root), "action": "preflight-worker-task",
          "operationId": "preflight-op", "opId": "preflight-op", "payload": command}
@@ -334,4 +353,4 @@ elif variant != "api-completed":
 assert all(proc.poll() is not None for proc in children), "preflight child is still alive"
 assert not entry["processes"], "preflight child remained registered"
 print(json.dumps({"receipt": receipt, "callbacks": callbacks, "progressCount": len(events),
-                  "elapsedVirtualSeconds": (time.monotonic() - started) * scale, "executionStarted": False}))
+                  "elapsedVirtualSeconds": watchdog_clock[0] if controlled_watchdog else (time.monotonic() - started) * scale, "elapsedTotalVirtualSeconds": (time.monotonic() - started) * scale, "watchdogReady": watchdog_ready.exists(), "inactivityDurations": inactivity_durations, "variant": variant, "executionStarted": False}))
