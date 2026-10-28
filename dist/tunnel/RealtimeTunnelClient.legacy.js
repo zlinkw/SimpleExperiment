@@ -86,7 +86,7 @@ class RealtimeTunnelClient {
             // manual single-shot read still works; nothing here marks the client as user-paused.
             this.clearDisplayTimers();
             if (this.status === "disconnected")
-                this.displayAutoClosed = true;
+                this.markDisplayAutoClosed();
             return;
         }
         if (this.budget.isPaused())
@@ -167,7 +167,10 @@ class RealtimeTunnelClient {
     async disconnect(reason = "manual") {
         // Only the display-auto closure is explained by the low-traffic guard; any other closure is a
         // real connection state change and must be able to surface as a connection error again.
-        this.displayAutoClosed = reason === "display-auto";
+        if (reason === "display-auto")
+            this.markDisplayAutoClosed();
+        else
+            this.displayAutoClosed = false;
         this.connectionGeneration += 1;
         this.snapshotAbort?.abort();
         this.snapshotAbort = undefined;
@@ -451,6 +454,19 @@ class RealtimeTunnelClient {
      * through disconnect("display-auto"), which also invalidates old reconnect/poll callbacks by
      * bumping the connection generation. It is deliberately not disconnect("paused").
      */
+    /**
+     * Claim the current closure as the guard's intentional display-channel closure. Only a real policy
+     * transition may do that: closing a stream that is still live, or being disconnected while no
+     * failure attribution stands. A genuine connection loss keeps its own attribution (lastError /
+     * requiresManualReconnect) until a new connection supersedes it, so repeating connect() or the very
+     * same updateRefreshPolicy() while the mode stays on can never rewrite an outage into an
+     * intentional closure. Nothing here marks the client as connected or probed.
+     */
+    markDisplayAutoClosed() {
+        if (this.status === "disconnected" && (this.lastError || this.requiresManualReconnect))
+            return;
+        this.displayAutoClosed = true;
+    }
     updateRefreshPolicy(policy) {
         if (this.disposed || !policy)
             return;
@@ -478,7 +494,7 @@ class RealtimeTunnelClient {
                 void this.disconnect("display-auto").catch(() => undefined);
             }
             else {
-                this.displayAutoClosed = true;
+                this.markDisplayAutoClosed();
             }
             return;
         }

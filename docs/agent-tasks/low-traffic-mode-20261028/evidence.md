@@ -1358,3 +1358,34 @@ AGENTS.md 要求的第二条校验（原文摘录）：`node -e "new (require('v
 - `test/features/distributedRerunAndWorkerDelta.test.js`：期望文案 `GitHub 已完成，正在准备 Worker 上传` 在 `git show 7a6062fa:src/extension/legacy.ts` 中出现 **0** 次，在 `git show HEAD:src/extension/legacy.ts` 中出现 **0** 次，本次 `git diff 7a6062fa..HEAD -- src/extension/legacy.ts` 中该文案出现 **0** 次（未被本次改动触碰）。基线上一次发布进度合并改版替换了文案而未同步测试。
 - `test/factories_integration.test.js` 行数门禁：`src/extension/CacheCleanupPanel.ts`、`src/extension/PlanCleanupHost.ts` 基线 `wc -l` = **478 / 430**，HEAD 仍 **478 / 430**，本次 diff 对这两个文件的改动行数 **0**；门禁按 `readFileSync().split` 计数得 479 / 431（文件以换行结尾多一格），阈值 400/300 早已超线（§15）。
 - 两条均按 `status:"failed"`、`required:false` 如实保留在 `handoff.json`，未改测试、未改生产代码、未放宽阈值。
+
+## 18. r2-final-2 两项必改（B1 归因、B2 回执）与连续状态断言
+
+原始要求逐字（plan.md §15.3）：「真实断连必须仍然如实报为不可用，只有我们自己主动关掉的展示流才不报离线」「没有 pending 时任何 ok=true 回执都写 lowTrafficReceiptDisplay 并优先覆盖权威 state」「回执必须绑定当前有效请求/最新确认代际；不匹配、缺少身份、已废弃及旧成功均无显示/定时器/下一目标副作用」。
+
+### 18.1 B1：真实断连不再被重复应用的策略改写成主动关流
+
+- 根因：`connect()` 与 `updateRefreshPolicy()` 在低流量分支无条件 `this.displayAutoClosed = true`，`disconnect("display-auto")` 也按 reason 直接赋值。真实软/硬断连后（`connectionLost` 已置 `displayAutoClosed=false` 并保存 `lastError`），宿主 `ensureRealtimeConnected` 先 `connect()` 再取 diagnostics、方法末尾又 `applyTrafficScheduling()`，同一策略被重复应用时该端点被重新标成「策略关闭」，聚合后 `displayAutoClosed=true` → 宿主把 `lastError`/`tunnel_unavailable` 置空，真实断连被吞。
+- 改法（只改归因，不动节奏、不动 A 类闸门）：`src/tunnel/RealtimeTunnelClient.legacy.ts:480-483` 新增 `markDisplayAutoClosed()`，规则是「只有真实策略转移才可认领关流」——流仍活着（`status !== "disconnected"`）时关流是真实转移；已经 disconnected 且仍有失败依据（`lastError` 或 `requiresManualReconnect`）时拒绝认领，真实断连的归因保持到真正建立新连接为止；三个原本直接写 true 的位置改为调用它：`:128`（connect 低流量早退）、`:195`（`disconnect("display-auto")`）、`:510`（`updateRefreshPolicy` 已断开分支）。全文件仅剩 `:482` 在 helper 内写 `true`（`grep -n "displayAutoClosed = true"` 已核）。不伪造在线：未连上时 `streamStatus` 仍是 `disconnected`。
+- 连续状态断言（真实 client + 真实 aggregator + 抽取的真实宿主方法，不再用 diagnostics stub）：
+  - `r3/b1: a real outage keeps its attribution through guard, loss, repeated policy, connect and host ensure`：步骤一主动关流 → `displayAutoClosed=true`、无任何 lastError、宿主不发布 `tunnel_unavailable` 也不伪造 `local_port_closed`；步骤二真实软断连（`socket hang up`）后重复同一 policy + 重复 `connect()` + 再次宿主 ensure → 仍 `displayAutoClosed=false`、`lastError` 保留、宿主 `lastError="tunnel_unavailable"`、`lastHealth.status="local_port_closed"`；步骤三恢复正常节奏 → 重新发起真实连接（计数 1）、仍未连上不改标为策略关闭、失败依据保留。
+  - `r3/b1: a hard authentication failure stays a manual-reconnect outage through repeated policy and ensure`：硬错（`HTTP 401 unauthorized`）后重复 policy + 宿主 ensure → 端点 `requiresManualReconnect=true`（真实 client diagnostics）、聚合 `lastError` 仍含 401、宿主仍报不可用。
+
+### 18.2 B2：没有 pending 时的过期回执彻底无副作用
+
+- 根因：`handleLowTrafficModeReceipt` 只在「有 pending 且双方都有 requestId」时做身份比对，pending 为空时任何 `ok=true` 回执都会写入 `lowTrafficReceiptDisplay` 并在 5 秒内压过权威 state，显示与下一次点击目标一起倒退；缺 requestId 的回执还能越过身份检查。
+- 改法（只修回执消费，不自动重发设置、不改网络行为）：`src/ui/PanelHtml.legacy.ts:2817-2837` 改为「回执必须属于当前仍在途的那一个请求」——`if (!pending || !requestId || !pending.requestId || requestId !== pending.requestId) return;`，无 pending、缺身份、已废弃、重复回执、旧成功一律直接返回，不动显示、不动定时器、不动 pending、不动下一次点击目标；确认成功的回执额外记录自身 `requestId` 便于调试。点击目标仍与显示共用同一份已确认值（`:3924` 未改）。
+- 连续状态断言（`panelFunction` 取渲染后的真实生产函数）：`r6/b2: a receipt without an outstanding request has no display, timer or next-target effect through the whole sequence`，一段连续序列：ltm-1 提交 → 显示提交目标；超时 → 提示结果未知、显示回落到已落盘偏好、下一目标仍为「开」；ltm-2 提交并成功（关）→ 显示与下一目标同步为「关/开」，且只清掉它自己那一个定时器；迟到的 ltm-1 成功 → 显示、定时器、pending、下一目标全部零变化；ltm-2 重复回执、无 requestId 回执同样零变化；ltm-3 失败 → 提示真实失败原因、不记为已确认值、显示与下一目标回到已落盘偏好。
+- 断言只增不减：`test/features/lowTrafficDisplayRework.test.js` 由 9 项增至 12 项（原 9 项一条未删），`test/features/panelLowTrafficModePolicy.test.js` 保持 16 项全绿。
+
+### 18.3 本轮验证（全部单文件串行，一次一个 node 进程，`node --test --test-force-exit --test-timeout 20000`）
+
+- `npm run compile` exit=0，两个 `node -c` gate ok（`logs/110-compile-r2final2.log`）。
+- `test/features/lowTrafficDisplayRework.test.js`：12 tests / 12 pass / 0 fail，真实 exit=0；`test/features/panelLowTrafficModePolicy.test.js`：16/16（`logs/111-*`，逐文件退出码另见 112 汇总）。
+- 受影响 69 个文件重跑（清单 `logs/affected-files-r2final2.txt`＝上轮 69 项，含本轮新增用例文件）：**67 个 exit=0，2 个失败为上轮已定性的基线既有项**（`test/factories_integration.test.js` 行数门禁、`test/features/distributedRerunAndWorkerDelta.test.js` 文案缺口）。逐文件退出码/通过数与日志名见 `logs/112-serial-summary.txt`（由 `run-serial.sh` 逐文件 `rc=$?` 真实采集，先取退出码再做任何命令替换）。
+- 双重门禁：`npm run build` exit=0、`overall=passed files=228`，`node -c dist/extension.js`、`node -c dist/ui/PanelHtml.js` 两个 gate 均 ok（`logs/113-build-r2final2.log`）；`vm.Script dist/ui/PanelHtml.js` 零异常、`grep 10890 src dist`=0、固定 `127.0.0.1:18765` src=0（`logs/114-dual-gate-r2final2.log`）。同一日志补充：新改动的内层 `handleLowTrafficModeReceipt` 片段裸反斜杠 0 个、中文文案未被外层模板剥离破坏、宿主侧认领点 3 处均走 helper。
+- 打包：`npm run package` exit=0、`overall=passed files=238`（`logs/115-package-r2final2.log`）；`simple-experiment-0.5.422.vsix` **2689215 字节**，SHA256 `ca3baaf11e770110724d2c4160edb03b38704dc4092f1003aa5a96a407cbac7f`（与上轮 2688906/`77a86a93…` 不同，符合「改了 dist 必须重打」）。版本仍 0.5.422，未安装、未发 Release、未合并。
+
+### 18.4 流程更正：基线/对照探针一律放仓库外
+
+上轮 `_baseline_probe` 建在任务工作副本内又删除，属流程偏差。本轮起所有对照探针改放 `D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/probes/<名字>`（仓库外），本轮未在工作副本内创建任何临时目录；`git status` 全程只出现本任务的源码/测试/文档改动。

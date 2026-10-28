@@ -2817,19 +2817,19 @@ export function renderPanelHtml(): string {
     function handleLowTrafficModeReceipt(item) {
       const requestId = String((item || {}).requestId || "");
       const pending = lowTrafficTogglePending;
-      // Identity first: a receipt belonging to an abandoned request must not cancel the current
-      // request's timeout timer and must not be taken as its confirmation.
-      if (pending && requestId && pending.requestId && requestId !== pending.requestId) return;
-      const hadPending = Boolean(pending);
+      // A receipt only means something for the request that is still outstanding. Without a live
+      // pending, or without a usable identity on both sides, it is stale, abandoned or a duplicate:
+      // the shown value, the next click target, the pending state and the timeout timer stay
+      // completely untouched, so the button keeps showing the latest confirmed preference.
+      if (!pending || !requestId || !pending.requestId || requestId !== pending.requestId) return;
       clearLowTrafficReceiptTimer();
       lowTrafficTogglePending = null;
       if (item && item.ok === true) {
         lowTrafficReceiptNotice = "";
         // Label, aria-pressed and the NEXT click target all read this confirmed value until the
         // matching authoritative state frame arrives.
-        lowTrafficReceiptDisplay = { enabled: item.enabled === true, until: Date.now() + 5000 };
+        lowTrafficReceiptDisplay = { requestId: requestId, enabled: item.enabled === true, until: Date.now() + 5000 };
       } else {
-        if (!hadPending && requestId) return;
         lowTrafficReceiptDisplay = null;
         lowTrafficReceiptNotice = "低流量模式设置失败：" + String((item && item.error) || "未知错误") + "（保持原值，可在恢复后重试）";
       }

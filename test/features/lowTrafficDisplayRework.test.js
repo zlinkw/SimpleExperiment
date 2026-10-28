@@ -350,3 +350,165 @@ test("r6: the confirmed receipt drives both the label and the next click target,
   const rendered = require("../../dist/ui/PanelHtml").renderPanelHtml();
   assert.match(rendered, /const lowTrafficTarget = !lowTrafficDisplayEnabled\(lowTrafficModeFromState\(lastState \|\| \{\}\)\);/);
 });
+
+// r2-final-2 rework coverage (GPT second final review of PR #25, items B1 and B2). Both tests walk a
+// continuous state sequence instead of a single call, and they run the real production artefacts:
+// the real tunnel client, the real multi-endpoint aggregator and the extracted host method for B1;
+// the rendered production panel functions for B2.
+test("r3/b1: a real outage keeps its attribution through guard, loss, repeated policy, connect and host ensure", async () => {
+  const multi = new MultiEndpointRealtimeClient([endpoint("w1")], () => new RequestBudget());
+  const child = [...multi.clients.values()][0];
+  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason)")];
+  const fixture = hostFixture(members);
+  const { host } = fixture;
+  host.isRealtimeMode = () => true;
+  // The host method under test talks to the real aggregator over the real client: no diagnostics stub.
+  host.client = { connect: async () => { await multi.connect(); }, diagnostics: () => multi.diagnostics() };
+  try {
+    // Step 1 - our own closure: no display stream, reported as a policy closure, no invented outage.
+    multi.updateRefreshPolicy({ displayAutoRefresh: false, snapshotFallbackIntervalSeconds: 0 });
+    await host.ensureRealtimeConnected("startup");
+    let diagnostics = multi.diagnostics();
+    assert.equal(diagnostics.displayAutoRefreshDisabled, true);
+    assert.equal(diagnostics.displayAutoClosed, true, "step 1: the guard closure is attributed to the policy");
+    assert.ok(diagnostics.endpoints.every((item) => !item.lastError), "step 1: no connection error may be invented");
+    assert.notEqual(host.lastError, "tunnel_unavailable", "step 1: a pure guard closure must not look like an outage");
+    assert.equal(host.lastHealth, undefined, "step 1: no fake local_port_closed health for the guard");
+
+    // Step 2 - a real soft connection loss while the mode stays on, then the very same policy and
+    // connect are applied again plus another host ensure: the outage attribution must survive.
+    child.connectionLost("socket hang up");
+    diagnostics = multi.diagnostics();
+    assert.equal(diagnostics.displayAutoClosed, false, "step 2: a real loss clears the guard explanation");
+    assert.match(String(diagnostics.endpoints[0].lastError), /socket hang up/);
+    multi.updateRefreshPolicy({ displayAutoRefresh: false, snapshotFallbackIntervalSeconds: 0 });
+    await multi.connect();
+    await host.ensureRealtimeConnected("resume network");
+    diagnostics = multi.diagnostics();
+    assert.equal(diagnostics.displayAutoClosed, false, "step 2: repeating the same policy cannot rewrite the outage into a guard closure");
+    assert.match(String(diagnostics.endpoints[0].lastError), /socket hang up/, "step 2: the failure evidence is kept");
+    assert.equal(host.lastError, "tunnel_unavailable", "step 2: a real outage is still published as unavailable");
+    assert.equal(host.lastHealth.status, "local_port_closed", "step 2: the real outage still produces the real health state");
+
+    // Step 3 - recovery attempt: restoring the cadence re-arms the real connection, but until a
+    // connection actually succeeds the endpoint stays disconnected and keeps the failure attribution
+    // (no fake online, and no silent reclassification as a guard closure either).
+    let restores = 0;
+    child.connect = async () => { restores += 1; };
+    multi.updateRefreshPolicy({ displayAutoRefresh: true, snapshotFallbackIntervalSeconds: 5 });
+    await tick();
+    assert.equal(restores, 1, "step 3: restoring the policy re-arms a real connection round");
+    diagnostics = multi.diagnostics();
+    assert.equal(diagnostics.endpoints[0].streamStatus, "disconnected", "step 3: nothing is presented as online without a connection");
+    assert.equal(diagnostics.displayAutoClosed, false, "step 3: the outage is not relabelled as the guard");
+    assert.match(String(diagnostics.endpoints[0].lastError), /socket hang up/, "step 3: the failure evidence survives the restore");
+  }
+  finally { await multi.disconnect("dispose"); }
+});
+
+test("r3/b1: a hard authentication failure stays a manual-reconnect outage through repeated policy and ensure", async () => {
+  const multi = new MultiEndpointRealtimeClient([endpoint("w1")], () => new RequestBudget());
+  const child = [...multi.clients.values()][0];
+  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason)")];
+  const fixture = hostFixture(members);
+  const { host } = fixture;
+  host.isRealtimeMode = () => true;
+  host.client = { connect: async () => { await multi.connect(); }, diagnostics: () => multi.diagnostics() };
+  try {
+    multi.updateRefreshPolicy({ displayAutoRefresh: false, snapshotFallbackIntervalSeconds: 0 });
+    await host.ensureRealtimeConnected("startup");
+    assert.equal(multi.diagnostics().displayAutoClosed, true, "the guard closure alone is still reported as the guard");
+    // A hard error (auth/version) is a real outage with a manual-reconnect requirement.
+    child.connectionLost("HTTP 401 unauthorized");
+    multi.updateRefreshPolicy({ displayAutoRefresh: false, snapshotFallbackIntervalSeconds: 0 });
+    await host.ensureRealtimeConnected("resume network");
+    const diagnostics = multi.diagnostics();
+    assert.equal(diagnostics.displayAutoClosed, false, "a hard failure must never be attributed to the guard");
+    assert.equal(child.diagnostics().requiresManualReconnect, true, "the manual-reconnect evidence is kept on the real endpoint client");
+    assert.match(String(diagnostics.endpoints[0].lastError), /401/, "the real failure text is kept");
+    assert.match(String(diagnostics.lastError), /401/, "the aggregator still surfaces the real failure upward");
+    assert.equal(host.lastError, "tunnel_unavailable", "the hard failure is still published as unavailable");
+    assert.equal(host.lastHealth.status, "local_port_closed");
+  }
+  finally { await multi.disconnect("dispose"); }
+});
+
+test("r6/b2: a receipt without an outstanding request has no display, timer or next-target effect through the whole sequence", () => {
+  const timers = new Map();
+  let nextTimer = 1;
+  const sandbox = {
+    console,
+    Date,
+    timers,
+    setTimeout: (fn, _ms) => { const id = nextTimer++; timers.set(id, fn); return id; },
+    clearTimeout: (id) => { timers.delete(id); sandbox.cleared.push(id); },
+    cleared: [],
+    LOW_TRAFFIC_RECEIPT_TIMEOUT_MS: 5000,
+    lowTrafficToggleSeq: 0,
+    lowTrafficTogglePending: null,
+    lowTrafficReceiptDisplay: null,
+    lowTrafficReceiptNotice: "",
+    lowTrafficReceiptTimer: 0,
+    // The persisted preference of this panel is "off"; every step below must keep showing that until
+    // a receipt bound to the outstanding request says otherwise.
+    lastState: { trafficMode: { enabled: false } },
+  };
+  vm.runInNewContext([
+    panelFunction("clearLowTrafficReceiptTimer"),
+    panelFunction("beginLowTrafficToggle"),
+    panelFunction("handleLowTrafficModeReceipt"),
+    panelFunction("lowTrafficDisplayEnabled"),
+    "function applyLowTrafficModeState() {}",
+    "this.receipt = handleLowTrafficModeReceipt; this.enabled = lowTrafficDisplayEnabled; this.begin = beginLowTrafficToggle;",
+  ].join("\n"), sandbox, { filename: "panel-receipt-sequence.js" });
+  const mode = sandbox.lastState.trafficMode;
+  const shown = () => sandbox.enabled(mode);
+  const nextTarget = () => !shown();
+  const fireTimeout = () => { const fn = [...timers.values()].pop(); timers.clear(); fn(); };
+
+  // Round 1: the request is given up on after the timeout, so the display falls back to the
+  // authoritative persisted value and the next target stays "turn it on".
+  sandbox.begin(true, "ltm-1");
+  assert.equal(sandbox.lowTrafficTogglePending.requestId, "ltm-1");
+  assert.equal(shown(), true, "while a request is outstanding the pending target is shown");
+  fireTimeout();
+  assert.equal(sandbox.lowTrafficTogglePending, null);
+  assert.ok(String(sandbox.lowTrafficReceiptNotice).indexOf("未收到回执") >= 0, "the timeout tells the user the result is unknown");
+  assert.equal(shown(), false, "after giving up the display shows the persisted preference again");
+  assert.equal(nextTarget(), true);
+
+  // Round 2: a matching receipt confirms "off" - label, aria value and next target all move together.
+  const clearedBeforeRound2 = sandbox.cleared.length;
+  sandbox.begin(false, "ltm-2");
+  sandbox.receipt({ ok: true, enabled: false, requestId: "ltm-2" });
+  assert.equal(sandbox.cleared.length, clearedBeforeRound2 + 1, "only the outstanding request's timer is cancelled");
+  assert.equal(shown(), false, "the confirmed value is shown");
+  assert.equal(nextTarget(), true, "the next click targets the confirmed value");
+
+  // A late success for the abandoned ltm-1 must be completely inert: no display change, no timer
+  // churn, no next-target flip.
+  const inertTimerOps = sandbox.cleared.length;
+  sandbox.receipt({ ok: true, enabled: true, requestId: "ltm-1" });
+  assert.equal(sandbox.cleared.length, inertTimerOps, "an abandoned receipt touches no timer");
+  assert.equal(sandbox.lowTrafficTogglePending, null, "an abandoned receipt cannot re-open a pending state");
+  assert.equal(shown(), false, "an abandoned success must not roll the display back");
+  assert.equal(nextTarget(), true, "the next target still equals the latest confirmed preference");
+
+  // A duplicate receipt for the already confirmed request, and a receipt without identity, are inert
+  // as well.
+  sandbox.receipt({ ok: true, enabled: true, requestId: "ltm-2" });
+  assert.equal(shown(), false, "a duplicate receipt for a finished request is inert");
+  sandbox.receipt({ ok: true, enabled: true });
+  assert.equal(shown(), false, "a receipt without requestId is inert");
+  assert.equal(sandbox.cleared.length, inertTimerOps, "neither duplicate nor identity-free receipt touches the timer");
+
+  // Round 3: a matching failure keeps the persisted value and says so; the next target is unchanged.
+  sandbox.begin(true, "ltm-3");
+  assert.equal(shown(), true, "the outstanding round shows its target");
+  sandbox.receipt({ ok: false, error: "globalState 写入失败", requestId: "ltm-3" });
+  assert.equal(sandbox.lowTrafficTogglePending, null);
+  assert.equal(sandbox.lowTrafficReceiptDisplay, null, "a failure is never remembered as a confirmed value");
+  assert.ok(String(sandbox.lowTrafficReceiptNotice).indexOf("globalState 写入失败") >= 0, "the real failure reason is reported");
+  assert.equal(shown(), false, "a failed write keeps showing the persisted preference");
+  assert.equal(nextTarget(), true, "and the next click target with it");
+});

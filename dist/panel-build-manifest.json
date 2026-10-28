@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.422",
-  "buildId": "4d68a167dda9ed1c0c9f80a712aedc37635f6ea5fdc733d5f2a567f889ff97e9",
+  "buildId": "b436a26d3e34cb67374f51d04c26aedcadbd8efde65ae3aba926cf74a3dae8b5",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -825,7 +825,7 @@
     },
     {
       "path": "dist/tunnel/RealtimeTunnelClient.legacy.js",
-      "sha256": "c6251db0743fac7bafd0465709d7651d58a456f04cb1e8b316e96d9534b69fd4"
+      "sha256": "dc933c79d0a76ef01491d79842dd5b5f83eb28e4659e50488cc315f779fae6a4"
     },
     {
       "path": "dist/tunnel/RequestBudget.js",
@@ -945,7 +945,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "f038b4c8f64543a4281e5b8b734059c28b7d63f4da98ea1ff08e86b20e662261"
+      "sha256": "33079232f7b61f72565bbfc28db057348f565b4302eec88be747b6a5a927c7d9"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",

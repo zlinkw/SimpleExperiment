@@ -498,3 +498,69 @@ r1表中未受影响F0/F1/F4–F6及全部执行安全条款保留；下表细�
 ## 14. gpuWindowPanelWiring 失败项定性与收口（终审放行前补取证）
 
 粗帧只被 `src/ui/PanelHtml.legacy.ts:11905-11906` 的 `bucketEpoch < points[0].bucketEpoch` 比较丢掉：夹具把缓存粗帧与期望值写成 epoch 毫秒，而真实链路面板入缓存即 `Math.round(collectedAt/1000)`＝epoch 秒（`GpuCollector.ts:415` ISO → `GpuSampleRing.ts:27` 毫秒 → `PanelHtml:11891` 秒；远端桶 `clusterAgentRuntime.legacy.ts:2159-2168` + `:2096` gmtime 同为秒；面板 24 小时窗口 `:12164` 亦按秒）。判为夹具口径不一致，走分支 2：只改测试输入数据（`test:61-74`、`:113`），断言文本/数量/阈值不动，复跑 exit=0、6 pass 0 fail（`logs/101-*`）。该文件此前并非绿：基线探针 exit=1、3 pass 3 fail，两条用例在 `ReferenceError: mergeGpuHistorySegments is not defined` 处异常终止，断言根本没跑到（`logs/100-*`），且它不在 build 228/package 238 作业集合内。详见 evidence §17。
+
+## 15. r2-final-2 第二轮最终审核结论（GPT reviewer，2026-10-28）
+
+### 15.1 结论与候选身份
+
+**仍需返修：R3、R6各有一个连续状态漏洞；当前不能合并PR #25，不能发行或安装本次0.5.422 VSIX。** 本轮只追加本章节，未修改源码、测试、版本、索引，未执行测试/构建/打包或Git写操作；不把已有通过日志当作缺失场景的行为证明。
+
+审查对象：工作分支feat/low-traffic-mode-20261028，冻结基线7a6062fa10441cc5852166a34138781a2604d9e9，实际HEAD **021e239319fbf6ac44233ab6aa89c558fd8d9973**。handoff索引SHA256 **9df780cadec6712e0dd967ab6e3b5209c6512fa80b51c4785a53bdc535282e90**；29个candidate.files、6个artifacts、22条checks。递归核验127条带path/sha256的候选、配置、日志及产物引用全部相符，核验前工作区干净、无暂存文件。package.json/package-lock.json均0.5.422；VSIX 2688906字节，SHA256 **77a86a93911924876becadebc28b33826fce15bf46fcbec007768cc444c1f2b5**。追加本章后plan哈希必然变化，主控须更新handoff该项，不能继续声称索引全部未变化。
+
+身份核验完整原始日志：host-native/diagnostics/host-windows/77c4e762-3a4c-4d48-b141-6aad9dbee68a-stdout.log；检查摘要日志：同目录e8412e46-5f52-4b89-aa9b-341d8c8fb75f-stdout.log；两条只读命令均exit=0。
+
+### 15.2 上轮六组逐项复核
+
+- **R1主要漏闸与提示极性已修复**：GPU展开及ring回退都进displayAutoAllowed(origin)，宿主GPU/tmux读也二次门控；lowTrafficDisplayAutoOff读写同极性封住首帧前宿主联网，GPU各key手动按钮与成功时间回执已落地。新增真实函数测试比原正则门禁更强。正常模式自动来源继续放行。
+- **R2已关闭**：默认策略冻结，实例复制调用方policy，每端点按自身旧策略恢复；aggregator只转发partial，不再共享改写。9项新增测试中包含双端点与恢复计数证据。
+- **R3只修复假离线的一半，未关闭**：合法展示关闭不再直接伪造local_port_closed，但真实断连标记会被后续策略收敛覆盖，见15.3 B1。
+- **R4已修复原逻辑问题**：displayAutoRefresh=!enabled，不再由blockedBy重新开启；pause/resume/reset/ensure应用统一策略，resume清陈旧paused依据。B/C原有约束和NORMAL常量未被本轮返修改写。
+- **R5已关闭原合并/回执问题**：displayMergeEnabled仅在低流量展示关闭时为真；正常分支走原每调用一轮，低流量共享网络结果但每workerId:requestId各自发布。key含项目代际与workspaceRoot，closeCheck不合并，signal调用不合并。16项策略测试明确核对正常两调用/两轮与低流量两Worker四回执；NORMAL 500/2000/5000/5逐值不变。未发现本轮在正常模式继续启用单飞的情况。
+- **R6只修复匹配pending和下一目标的一半，未关闭**：点击与显示共用确认值、旧回执不再取消另一pending定时器，但pending结束后旧成功仍被接受，见15.3 B2。
+
+### 15.3 必须返修（2项）
+
+#### B1 / high / R3：策略重复应用会把真实断连重新解释为主动关闭
+
+位置：src/tunnel/RealtimeTunnelClient.legacy.ts:123–130 connect，:490–498 updateRefreshPolicy；宿主src/extension/legacy.ts:5616–5642 ensureRealtimeConnected。
+
+静态可执行路径：低流量关闭展示后，connectionLost("socket hang up")正确置displayAutoClosed=false、保存真实lastError；但再次connect()在disconnected且低流量时无条件置true，或重复updateRefreshPolicy({displayAutoRefresh:false})在disconnected分支同样置true。前者发生于宿主ensure先connect再取diagnostics，后者发生于该方法末尾applyTrafficScheduling及其他策略收敛入口。此后aggregator所有端点均被标为displayAutoClosed=true，宿主displayGuarded为真并把lastError/tunnel_unavailable置为undefined。端点lastError字段虽然仍在，不代表宿主错误判定正确；“实际断连”已被重新归因为“策略主动关闭”，违背保留真实错误的契约。硬错误requiresManualReconnect能挡住connect早退，却挡不住重复updateRefreshPolicy覆盖。
+
+现有新增r3真实client测试只在connectionLost后立即读diagnostics；宿主测试用固定diagnostics stub，且“真实失败”stub把displayAutoRefreshDisabled设成false，未走“仍为低流量→再应用同策略/ensure”的组合，因而9/9通过不能排除此缺陷。
+
+通过条件：主动关闭只记录真实的策略关闭转移，不覆盖既有真实错误/断连归因；未探测保持未探测、不伪造在线。补真实client/aggregator→宿主组合断言：真实软/硬断连后重复相同policy、connect及ensure，错误依据仍保留且不被标为策略关闭；纯主动关流不出现假离线；仍不得为验证错误而恢复A类自动联网。
+
+#### B2 / medium / R6：没有pending时，过期成功回执仍能倒退显示和下一次点击目标
+
+位置：src/ui/PanelHtml.legacy.ts:2817–2840 handleLowTrafficModeReceipt，:2754–2757 lowTrafficDisplayEnabled。
+
+静态路径：身份检查只有pending存在且双方requestId非空时才拒绝；pending为空时任何ok=true回执都写lowTrafficReceiptDisplay并优先覆盖权威state五秒。例如已确认ltm-2=false（pending已清空），迟到/重复的ltm-1成功enabled=true仍被接受，按钮显示开、下一点击发送false，而最新已确认状态其实为关。ltm-1曾超时、ltm-2成功后再收到旧成功也相同。已有代码只对无pending的旧失败做return，成功没有对应保护。回执没有requestId时还可越过现有pending的身份检查。
+
+现有r6测试覆盖“旧成功遇到新pending”和“无pending旧失败”，没有覆盖“新成功结束后旧成功”，因此漏掉此分支。这不是请求在途合并问题，不应通过扩大单飞或更改正常网络行为解决。
+
+通过条件：回执必须绑定当前有效请求/最新确认代际；不匹配、缺少身份、已废弃及旧成功均无显示/定时器/下一目标副作用。补确认ltm-2后再到ltm-1成功、超时→新请求成功→旧成功、重复回执与缺requestId测试；正反切换、写入失败及延迟state仍正确。只修回执消费，不自动重发设置。
+
+### 15.4 验证日志、夹具与基线失败定性
+
+12条required均complete=true/status=passed/exitCode=0；22条checks中的历史failed如实保留。logs/94-build-r1r6.log记录build 228文件通过，logs/95-package-r1r6.log记录package 238文件通过、maxObservedConcurrent=1；logs/83-compile-r1r6b.log与97-dual-gate-r1r6.log的node-c两项和vm.Script均exit=0。97记录10890 src/dist=0、固定127.0.0.1:18765 src=0。logs/98-7-panelInlineScriptSyntax.log实际内联脚本2/2；没有拿模块vm校验替代模板剥离后的内联检查。相关新模板片段未发现裸反斜杠。98-1策略16/16、98-2返修9/9、101 GPU夹具6/6均有真实汇总，无cancelled/skipped；日志真实不等于B1/B2场景已经覆盖。
+
+GPU夹具时间修正合规：ISO→ring毫秒→面板Math.round(/1000)秒、远端粗桶及24小时窗口均按秒；改t0Ms/t0及两小时前粗帧输入而不改断言/条数/阈值，没有改生产合并逻辑来求绿。补齐真实merge函数依赖后断言首次被实际执行，6/6可作为本轮单文件证据；基线探针的模块缺失失败只算探针环境限制，不夸大为第三个基线产品缺陷。历史未入build/package是测试登记缺口，不因本任务已显式运行而倒推此前通过。
+
+factories_integration行数失败与distributedRerunAndWorkerDelta文案失败均可列非阻塞：前者相关源码字节及split行数基线/HEAD一致；后者预期文案在两者均0命中且本次未删除。既有hostOperationLease高负载抖动沿用12.4已核分类，不另加负载实验、不降低TTL/门禁。真实失败继续保留failed，不记为通过。字节/费用节省率未实测，不能作通过证据，也不是此次门槛。
+
+### 15.5 非阻塞建议（3条）与续接条件
+
+1. 将已补齐依赖的gpuWindowPanelWiring及本次两个低流量专项测试纳入合适的长期按需工作流，避免以后仅靠手工登记；不据此声称当前build/package已包含它们。
+2. 另任务治理factories行数技术债与distributedRerun文案测试漂移，保持失败透明，不放宽阈值；既有租约时序建议沿用12.4。
+3. 补强组合状态测试：项目代际测试应保持旧读在途时发新读，端点恢复除connect计数外可逐项验证原stream/poll/reconnect节奏；这些不替代本轮B1/B2必须断言。
+
+原实施者同副本续接B1/B2；修复后按影响验证并重新生成与源码一致的候选包/日志/索引，再做增量终审。不重复治理无变化历史失败，不要求性能/收费实验，不自动扩大任务。仅审核阶段完成；合并、稳定Release与同字节一次安装仍待通过，暂无法可靠估算返修耗时。
+
+
+## 16. r2-final-2 返修完成记录（worker，2026-10-28；不改 §15 的审核指导）
+
+- TODO 状态：B1（R3 真实断连归因）已改并按三步连续序列验证；B2（R6 无 pending 过期回执）已改并按连续回执序列验证；R1/R2/R4/R5 与两条基线既有失败按 §15 结论未触碰；§15.5 三条非阻塞建议未实施（未纳入工作流登记、未治理技术债、未扩测）。
+- 实现与逐条证据：见 evidence.md §18（B1 在 src/tunnel/RealtimeTunnelClient.legacy.ts:128/195/480-483/510，B2 在 src/ui/PanelHtml.legacy.ts:2817-2837）。
+- 新增连续状态断言 3 项（lowTrafficDisplayRework 9→12，断言只增不减）；受影响 69 个文件串行重跑 67 绿，2 条失败为已定性的基线既有项（logs/112-serial-summary.txt）。
+- 双重门禁与打包：build 228 通过含两处 node -c、vm.Script 零反斜杠问题、grep 10890=0；package 238 通过，VSIX 2689215 字节、SHA256 ca3baaf11e770110724d2c4160edb03b38704dc4092f1003aa5a96a407cbac7f，版本保持 0.5.422，未安装/未发行/未合并。
+- 流程更正：对照探针今后一律放仓库外 probes/ 目录，本轮未在工作副本内建任何临时目录。
