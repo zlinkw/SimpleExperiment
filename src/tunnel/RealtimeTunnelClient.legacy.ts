@@ -61,6 +61,13 @@ export const defaultRealtimeRefreshPolicy: RealtimeRefreshPolicy = Object.freeze
 
 export type StreamStatus = "disconnected" | "connecting" | "websocket" | "sse" | "polling" | "paused";
 
+/** §20.3 evidence classes: N nothing outstanding, W soft display-only note, T outstanding transport fault, H outstanding hard fault. */
+export type DisplayFaultClass = "N" | "W" | "T" | "H";
+/** Which kind of entry wrote the current error text; never inferred from status or text content. */
+export type DisplayEvidenceOrigin = "none" | "soft-display" | "transport" | "hard" | "resolved-history" | "unknown";
+/** The reason the display channels are currently closed, as decided by §20.4. */
+export type DisplayClosureReason = "none" | "display-auto" | "paused" | "other" | "transport-fault" | "hard-fault" | "unknown-fault";
+
 export interface RealtimeClientDiagnostics {
   streamStatus: StreamStatus;
   lastSeq: number;
@@ -72,6 +79,14 @@ export interface RealtimeClientDiagnostics {
   displayAutoRefreshDisabled?: boolean;
   /** True when a disconnected status came from closing the display channels only. */
   displayAutoClosed?: boolean;
+  /** §20.3 classification of the outstanding evidence behind that attribution. */
+  displayFaultClass?: DisplayFaultClass;
+  /** Outstanding fault independent of the error text; clearing the text does not clear it. */
+  displayFaultPending?: "none" | "transport" | "hard";
+  /** Origin recorded for the current error text (§20.5); "unknown" means no entry labelled it. */
+  displayErrorOrigin?: DisplayEvidenceOrigin;
+  /** §20.4 closure reason, kept separate from the fault fields so neither overwrites the other. */
+  displayClosureReason?: DisplayClosureReason;
 }
 
 export class RealtimeTunnelClient {
@@ -105,9 +120,25 @@ export class RealtimeTunnelClient {
   private displayAutoClosed = false;
   // Real success evidence for the current connection: set only when a round actually succeeded (the
   // stream opened, or a snapshot was accepted) and dropped by any real connection loss or by closing
-  // the client for anything other than the guard. A paused or still-handshaking client has no such
-  // evidence, so a policy change must not reinterpret its outstanding failure as our own closure.
+  // the client for anything other than the guard. It is diagnostic input only: by itself it never
+  // proves the success happened after an outstanding fault (§20.5).
   private verifiedDisplayRound = false;
+  // §20.2/§20.3 attribution evidence. The fault is tracked independently of the error text so a later
+  // soft note or a cleared text cannot erase an unresolved transport/hard fault, and the success is
+  // tracked with its channel and generation so only a matching later success can clear its own fault.
+  private displayFaultPending: "none" | "transport" | "hard" = "none";
+  private displayFaultChannel: "stream" | "snapshot" | "unknown" = "unknown";
+  private displayFaultGeneration = -1;
+  private displayFaults = new Map<"stream" | "snapshot" | "unknown", { kind: "transport" | "hard"; generation: number }>();
+  private displayErrorOrigin: DisplayEvidenceOrigin = "none";
+  private displayErrorResolved = false;
+  // Only text written by an actual fault entry can become resolved history. A later unlabelled
+  // diagnostic must not borrow the recovery of a different fault (N05 versus N07).
+  private displayErrorFault?: { origin: "transport" | "hard"; text?: string };
+  private displayClosureReason: DisplayClosureReason = "none";
+  // Generation of an explicitly authorised manual retry; a hard fault is only liftable by a matching
+  // success in that generation, never by the flag reset at the start of an attempt.
+  private manualRetryGeneration = -1;
 
   constructor(
     private readonly endpoint: TunnelEndpointConfig,
@@ -130,10 +161,16 @@ export class RealtimeTunnelClient {
       // no poll fallback and no display reconnect. Cached lastSeq/snapshot stay readable and a
       // manual single-shot read still works; nothing here marks the client as user-paused.
       this.clearDisplayTimers();
-      if (this.status === "disconnected") this.markDisplayAutoClosed();
+      // A11/A15 (and A13/A17 when a fault stands): re-stating the guard re-decides from the
+      // outstanding evidence only, so the answer is idempotent and never depends on the status.
+      this.decideDisplayClosure({ kind: "close", reason: "display-auto", generation: this.connectionGeneration });
       return;
     }
     if (this.budget.isPaused()) throw new RequestBudgetDeniedError("events", { allowed: false, reason: "paused" });
+    // Only an explicitly authorised manual retry may eventually lift a hard fault, and only a
+    // matching success in that generation actually clears it; resetting the flag below is not
+    // proof of recovery (§20.5).
+    if (options.manual) this.manualRetryGeneration = this.connectionGeneration + 1;
     this.requiresManualReconnect = false;
     const generation = this.connectionGeneration + 1;
     await this.disconnect("reconnect");
@@ -145,11 +182,12 @@ export class RealtimeTunnelClient {
     }
     this.status = "connecting";
     if (this.shouldUseWebSocket()) {
+      let snapshotPhase = false;
       try {
         await this.budget.run("events", async () => {
           this.connectWebSocket(sinceSeq);
         }, { userInitiated: true });
-        if (this.isWorkerTelemetryEndpoint()) await this.refreshSnapshot();
+        if (this.isWorkerTelemetryEndpoint()) { snapshotPhase = true; await this.refreshSnapshot(); }
         return;
       } catch (error) {
         if (!this.isCurrentConnection(generation)) return;
@@ -157,37 +195,53 @@ export class RealtimeTunnelClient {
           this.status = "disconnected";
           throw error;
         }
-        this.lastError = message(error);
         if (isHardConnectionError(error)) {
-          this.connectionLost(this.lastError);
+          this.lastError = message(error);
+          this.connectionLost(this.lastError, snapshotPhase ? "snapshot" : "stream");
           return;
         }
+        // A round that ran on an already established stream classified its own failure inside
+        // readSnapshot (a GPU/display note stays W); only a handshake that never completed is a
+        // stream fault here, so the classification is never written twice with different channels.
         if (["websocket"].includes(this.status)) return;
+        if (!snapshotPhase) {
+          this.lastError = message(error);
+          this.displayErrorOrigin = "transport";
+          this.displayErrorResolved = false;
+          this.noteDisplayFault("transport", "stream", generation);
+        }
       }
     }
     if (this.shouldUseSse()) {
+      let snapshotPhase = false;
       try {
         await this.connectSse(sinceSeq);
         if (!this.isCurrentConnection(generation)) return;
-        if (options.manual || this.isWorkerTelemetryEndpoint()) await this.getSnapshot();
+        if (options.manual || this.isWorkerTelemetryEndpoint()) { snapshotPhase = true; await this.getSnapshot(); }
         return;
       } catch (error) {
         if (!this.isCurrentConnection(generation)) return;
-        this.lastError = message(error);
         if (isHardConnectionError(error)) {
-          this.connectionLost(this.lastError);
+          this.lastError = message(error);
+          this.connectionLost(this.lastError, snapshotPhase ? "snapshot" : "stream");
           return;
         }
         if (["sse"].includes(this.status)) return;
+        if (!snapshotPhase) {
+          this.lastError = message(error);
+          this.displayErrorOrigin = "transport";
+          this.displayErrorResolved = false;
+          this.noteDisplayFault("transport", "stream", generation);
+        }
       }
     }
     if (this.policy.fallbackToPolling) {
       try { await this.startPolling(); } catch (error) {
-        if (this.isCurrentConnection(generation)) this.connectionLost(message(error));
+        if (this.isCurrentConnection(generation)) this.connectionLost(message(error), "snapshot");
       }
       return;
     }
-    if (this.isCurrentConnection(generation)) this.connectionLost(this.lastError || "Connection failed");
+    if (this.isCurrentConnection(generation)) this.connectionLost(this.lastError || "Connection failed", "stream");
   }
 
   private isCurrentConnection(generation: number): boolean {
@@ -197,8 +251,13 @@ export class RealtimeTunnelClient {
   async disconnect(reason = "manual"): Promise<void> {
     // Only the display-auto closure is explained by the low-traffic guard; any other closure is a
     // real connection state change and must be able to surface as a connection error again.
-    if (reason === "display-auto") this.markDisplayAutoClosed();
-    else this.displayAutoClosed = false;
+    // A03-A18: one close event, one reason. The answer comes from the outstanding evidence, not from
+    // the status, so the same reason always produces the same attribution.
+    this.decideDisplayClosure({
+      kind: "close",
+      reason: reason === "display-auto" ? "display-auto" : reason === "paused" ? "paused" : "other",
+      generation: this.connectionGeneration,
+    });
     // A guard closure keeps the success evidence of the round it closes; pausing keeps it too (the
     // user paused a channel that worked), while any other closure starts a new connection story.
     if (reason !== "display-auto" && reason !== "paused") this.verifiedDisplayRound = false;
@@ -228,10 +287,11 @@ export class RealtimeTunnelClient {
     if (this.status !== "disconnected" && this.status !== "paused") await this.getSnapshot();
   }
 
-  private connectionLost(reason: string): void {
+  private connectionLost(reason: string, channel: "stream" | "snapshot" = "stream"): void {
     if (this.pollTimer) clearTimeout(this.pollTimer);
     this.pollTimer = undefined;
     if (this.disposed || this.status === "paused" || this.budget.isPaused()) return;
+    this.retainUnknownDisplayFault();
     // A real connection loss is never the guard's intentional closure, and it invalidates the success
     // evidence of the round that just failed.
     this.displayAutoClosed = false;
@@ -247,6 +307,9 @@ export class RealtimeTunnelClient {
     this.lastError = this.requiresManualReconnect
       ? reason + "；连接配置或认证失败，请修复配置后重新检测隧道。"
       : reason + (this.policy.mode === "manual_only" ? "；连接暂时中断，请手动刷新或重新连接。服务器任务可能仍在运行。" : "；连接暂时中断，插件将按退避间隔自动恢复。服务器任务可能仍在运行。");
+    this.displayErrorOrigin = this.requiresManualReconnect ? "hard" : "transport";
+    this.displayErrorResolved = false;
+    this.noteDisplayFault(this.requiresManualReconnect ? "hard" : "transport", channel, this.connectionGeneration);
     this.onState(this.state);
     if (!this.requiresManualReconnect) this.scheduleAutomaticReconnect();
   }
@@ -257,7 +320,9 @@ export class RealtimeTunnelClient {
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;
       if (this.disposed || this.hidden || this.status !== "disconnected" || this.budget.isPaused() || generation !== this.connectionGeneration) return;
-      void this.connect(this.state.lastSeq).catch((error) => this.connectionLost(message(error)));
+      void this.connect(this.state.lastSeq).catch((error) => {
+        if (generation + 1 === this.connectionGeneration && !this.disposed && !(error instanceof RequestBudgetDeniedError)) this.connectionLost(message(error));
+      });
     }, this.reconnectPolicy.nextDelayMs());
     this.reconnectTimer.unref?.();
   }
@@ -464,7 +529,13 @@ export class RealtimeTunnelClient {
       return;
     }
     if (!hidden && this.status === "paused" && this.policy.pauseWhenWebviewHidden && !this.budget.isPaused()) {
-      void this.connect(this.state.lastSeq).catch((error) => { this.lastError = message(error); });
+      const generation = this.connectionGeneration + 1;
+      void this.connect(this.state.lastSeq).catch((error) => {
+        if (generation !== this.connectionGeneration || this.disposed) return;
+        this.lastError = message(error);
+        this.displayErrorOrigin = isHardConnectionError(error) ? "hard" : "transport";
+        this.noteDisplayFault(isHardConnectionError(error) ? "hard" : "transport", "stream", generation);
+      });
     }
     if (!hidden && this.status === "polling") this.scheduleSnapshotFallbackPoll();
     if (!hidden && this.status === "disconnected" && !this.requiresManualReconnect && !this.budget.isPaused()) this.scheduleAutomaticReconnect();
@@ -480,28 +551,147 @@ export class RealtimeTunnelClient {
    * bumping the connection generation. It is deliberately not disconnect("paused").
    */
   /**
-   * Decide whether the current closure may be attributed to the low-traffic display guard. Only a
-   * genuine policy transition with nothing unresolved about the connection qualifies:
-   * - a handshake that never completed (`connecting`) never qualifies, because there is no successful
-   *   round to close and the outstanding attempt or failure keeps its own attribution;
-   * - standing fault evidence (lastError / requiresManualReconnect) is superseded only by a round that
-   *   really succeeded afterwards on a live stream; a pause is not proof of recovery, and a refused
-   *   claim also drops any stale claim instead of leaving a wrong one behind;
-   * - with no fault evidence at all, closing a live or paused display channel, or simply never opening
-   *   one, is our own closure and must not be reported as an outage.
-   * Nothing here marks the client as connected, online or already probed.
+   * §20.3 N01–N08: classify the evidence that is outstanding right now. The classification never
+   * parses the error text and never infers health from the connection status: an explicit
+   * manual-reconnect fence or a fault recorded by a real fault entry decides the hard/transport rows,
+   * the labelled origin of the current text decides the remaining rows, and a text that no entry
+   * labelled stays the explicit unknown boundary (N05) instead of silently counting as healthy.
    */
-  private markDisplayAutoClosed(): void {
-    if (this.status === "connecting") {
+  private displayEvidenceClass(): DisplayFaultClass {
+    if (this.requiresManualReconnect) return "H";                    // N01
+    if (this.displayFaultPending === "hard") return "H";              // N02
+    if (this.displayFaultPending === "transport") return "T";         // N03 / N04
+    if (this.displayErrorOrigin === "soft-display") return "W";       // N06
+    if (!this.lastError) return "N";                                  // N08
+    if (this.displayErrorOrigin === "resolved-history" && this.displayErrorResolved) return "N"; // N07
+    return "T";                                                       // N05
+  }
+
+  /** The N05 boundary: no fault entry stands, yet the current text has no known origin. */
+  private displayEvidenceUnknown(): boolean {
+    return this.displayFaultChannel === "unknown" && this.displayFaultPending === "transport"
+      || (this.displayFaultPending === "none" && !this.requiresManualReconnect
+        && Boolean(this.lastError) && this.displayErrorOrigin !== "soft-display"
+        && !(this.displayErrorOrigin === "resolved-history" && this.displayErrorResolved));
+  }
+
+  /** N05 becomes an outstanding unknown fault before text can be replaced or cleared. */
+  private retainUnknownDisplayFault(): void {
+    if (this.displayFaultPending === "none" && this.displayEvidenceUnknown()) {
+      this.displayFaults.set("unknown", { kind: "transport", generation: this.connectionGeneration });
+      this.syncDisplayFaults();
+    }
+  }
+
+  private syncDisplayFaults(): void {
+    const faults = [...this.displayFaults.entries()];
+    const fault = faults.find(([, item]) => item.kind === "hard") || faults.find(([channel]) => channel === "unknown") || faults[0];
+    this.displayFaultPending = fault?.[1].kind || "none";
+    this.displayFaultChannel = fault?.[0] || "unknown";
+    this.displayFaultGeneration = fault?.[1].generation ?? -1;
+  }
+
+  /**
+   * §20.5 fault event. Only the current generation writes, so a callback of an obsolete connection
+   * cannot change the attribution (A01). A new real fault always revokes a previous guard claim, and
+   * clearing the error text somewhere else never clears this record.
+   */
+  private noteDisplayFault(kind: "transport" | "hard", channel: "stream" | "snapshot" | "unknown", generation: number): void {
+    if (generation !== this.connectionGeneration || this.disposed) return;
+    this.displayErrorFault = this.displayErrorOrigin === kind ? { origin: kind, text: this.lastError } : undefined;
+    const previous = this.displayFaults.get(channel);
+    // Later transport failures cannot downgrade an unresolved authentication/configuration fault.
+    this.displayFaults.set(channel, { kind: previous?.kind === "hard" ? "hard" : kind, generation });
+    this.syncDisplayFaults();
+    this.verifiedDisplayRound = false;
+    this.displayAutoClosed = false;
+    this.displayClosureReason = this.displayFaultPending === "hard" ? "hard-fault" : this.displayFaultChannel === "unknown" ? "unknown-fault" : "transport-fault";
+  }
+
+  /**
+   * §20.5 success event. Only a success of the current generation whose channel actually proves the
+   * failing round recovered clears that fault: a snapshot success never proves a stream recovery and
+   * an established stream never proves a snapshot query succeeded. A hard fault additionally requires
+   * the authorised manual retry generation; merely starting an attempt is not recovery.
+   */
+  private noteDisplaySuccess(channel: "stream" | "snapshot", generation = this.connectionGeneration): void {
+    if (generation !== this.connectionGeneration || this.disposed) return;
+    this.retainUnknownDisplayFault();
+    this.verifiedDisplayRound = true;
+    // Causality: a success may only resolve a fault it could causally follow, on the same channel. The
+    // fault is normally recorded in the generation that then died, so equality is not required; a
+    // snapshot success never resolves a stream fault (nor the other way round), and a hard fault only
+    // yields to the authorised manual attempt in its own generation.
+    const fault = this.displayFaults.get(channel);
+    if (!fault || fault.generation > generation) return;
+    if (fault.kind === "transport" || this.manualRetryGeneration === generation) {
+      this.displayFaults.delete(channel);
+      this.syncDisplayFaults();
+      if (this.displayFaultPending !== "hard" && this.manualRetryGeneration === generation) this.requiresManualReconnect = false;
+      if (this.displayFaultPending === "none") {
+        if (this.lastError && this.displayErrorFault?.origin === this.displayErrorOrigin
+          && this.displayErrorFault.text === this.lastError) {
+          this.displayErrorOrigin = "resolved-history";
+          this.displayErrorResolved = true;
+        }
+        this.displayErrorFault = undefined;
+        this.retainUnknownDisplayFault();
+      }
+    }
+  }
+
+  private clearDisplayFault(): void {
+    this.displayFaults.clear();
+    this.displayFaultPending = "none";
+    this.displayFaultChannel = "unknown";
+    this.displayFaultGeneration = -1;
+    // The diagnostic text may stay; it is history, not an outstanding fault any more (N07).
+    if (this.lastError) { this.displayErrorOrigin = "resolved-history"; this.displayErrorResolved = true; }
+  }
+
+  /**
+   * A GPU/display query that failed while an independent event stream stayed open is a soft display
+   * note (W): the real hint is preserved, but it is not evidence of a closed port and it does not
+   * revoke a legitimate guard closure. Without a live stream the same failure is a snapshot fault.
+   */
+  private noteDisplayQueryFailure(error: unknown): void {
+    if (this.disposed) return;
+    this.retainUnknownDisplayFault();
+    this.displayErrorResolved = false;
+    if (["sse", "websocket"].includes(this.status)) {
+      this.lastError = "遥测查询待核实：" + message(error);
+      this.displayErrorOrigin = "soft-display";
+      return;
+    }
+    this.lastError = message(error);
+    this.displayErrorOrigin = "transport";
+    this.noteDisplayFault("transport", "snapshot", this.connectionGeneration);
+  }
+
+  /**
+   * §20.4 A01–A18: the only writer of displayAutoClosed. A stale callback or a passive call keeps
+   * every field; a display-auto request while the guard is off is normalised to passive instead of
+   * fabricating a closure. Otherwise the claim is exactly "this closure reason is display-auto and no
+   * transport/hard fault stands". A soft display note keeps the claim, so repeating the same policy or
+   * connect can never flip the first legitimate closure into a fake outage, and only a new real fault
+   * or a matching recovery can change the answer.
+   */
+  private decideDisplayClosure(input: { kind: "passive" | "close"; reason: "display-auto" | "paused" | "other"; generation: number }): void {
+    if (input.generation !== this.connectionGeneration || this.disposed) return;
+    if (input.kind === "passive") return;
+    if (input.reason === "display-auto" && !this.displayAutoRefreshDisabled()) return;
+    this.retainUnknownDisplayFault();
+    if (input.reason !== "display-auto") {
       this.displayAutoClosed = false;
+      this.displayClosureReason = input.reason;
       return;
     }
-    const live = ["websocket", "sse", "polling"].includes(this.status);
-    if (this.lastError || this.requiresManualReconnect) {
-      this.displayAutoClosed = live && this.verifiedDisplayRound;
-      return;
-    }
-    this.displayAutoClosed = true;
+    const fault = this.displayEvidenceClass();
+    const claim = fault === "N" || fault === "W";
+    this.displayAutoClosed = claim;
+    this.displayClosureReason = claim
+      ? "display-auto"
+      : fault === "H" ? "hard-fault" : this.displayEvidenceUnknown() ? "unknown-fault" : "transport-fault";
   }
 
   updateRefreshPolicy(policy?: Partial<RealtimeRefreshPolicy> | null): void {
@@ -529,7 +719,7 @@ export class RealtimeTunnelClient {
       if (this.status !== "disconnected") {
         void this.disconnect("display-auto").catch(() => undefined);
       } else {
-        this.markDisplayAutoClosed();
+        this.decideDisplayClosure({ kind: "close", reason: "display-auto", generation: this.connectionGeneration });
       }
       return;
     }
@@ -559,7 +749,11 @@ export class RealtimeTunnelClient {
       && cached.requiresManualReconnect === this.requiresManualReconnect
       && cached.lastError === this.lastError
       && cached.displayAutoRefreshDisabled === this.displayAutoRefreshDisabled()
-      && cached.displayAutoClosed === this.displayAutoClosed) {
+      && cached.displayAutoClosed === this.displayAutoClosed
+      && cached.displayFaultClass === this.displayEvidenceClass()
+      && cached.displayFaultPending === this.displayFaultPending
+      && cached.displayErrorOrigin === this.displayErrorOrigin
+      && cached.displayClosureReason === this.displayClosureReason) {
       return cached;
     }
     const diagnostics = {
@@ -571,6 +765,10 @@ export class RealtimeTunnelClient {
       requiresManualReconnect: this.requiresManualReconnect,
       displayAutoRefreshDisabled: this.displayAutoRefreshDisabled(),
       displayAutoClosed: this.displayAutoClosed,
+      displayFaultClass: this.displayEvidenceClass(),
+      displayFaultPending: this.displayFaultPending,
+      displayErrorOrigin: this.displayErrorOrigin,
+      displayClosureReason: this.displayClosureReason,
     };
     this.diagnosticsCache = diagnostics;
     return diagnostics;
@@ -581,6 +779,7 @@ export class RealtimeTunnelClient {
   }
 
   private connectWebSocket(sinceSeq: number): void {
+    const generation = this.connectionGeneration;
     const wsUrl = localBaseUrl(this.endpoint).replace(/^http:/, "ws:") + `/api/events?since=${encodeURIComponent(String(sinceSeq))}`;
     const ws = new WebSocket(wsUrl);
     this.websocket = ws;
@@ -588,7 +787,7 @@ export class RealtimeTunnelClient {
       if (this.websocket !== ws) return;
       this.status = "websocket";
       this.reconnectPolicy.reset();
-      this.verifiedDisplayRound = true;
+      this.noteDisplaySuccess("stream", generation);
     };
     ws.onmessage = (event) => {
       if (this.websocket !== ws) return;
@@ -600,7 +799,11 @@ export class RealtimeTunnelClient {
     };
     ws.onerror = () => {
       if (this.websocket !== ws) return;
+      this.retainUnknownDisplayFault();
       this.lastError = "websocket error";
+      this.displayErrorOrigin = "transport";
+      this.displayErrorResolved = false;
+      this.noteDisplayFault("transport", "stream", generation);
     };
     ws.onclose = () => {
       if (this.websocket !== ws) return;
@@ -627,7 +830,7 @@ export class RealtimeTunnelClient {
     }
     this.status = "sse";
     this.reconnectPolicy.reset();
-    this.verifiedDisplayRound = true;
+    this.noteDisplaySuccess("stream");
     void this.readSse(response.body, abort);
   }
 
@@ -680,7 +883,7 @@ export class RealtimeTunnelClient {
       if (!this.isCurrentConnection(generation) || this.status !== "polling" || this.hidden) return;
       this.pollTimer = undefined;
       void this.readSnapshot(false, true)
-        .catch((error) => { if (this.isCurrentConnection(generation)) this.connectionLost(message(error)); })
+        .catch((error) => { if (this.isCurrentConnection(generation)) this.connectionLost(message(error), "snapshot"); })
         .finally(() => { if (this.isCurrentConnection(generation)) this.scheduleSnapshotFallbackPoll(); });
     }, this.snapshotFallbackDelayMs());
     this.pollTimer.unref?.();
@@ -702,6 +905,7 @@ export class RealtimeTunnelClient {
     const task = (async () => {
       const generation = this.connectionGeneration;
       let snapshot: ClusterSnapshot;
+      let freshSnapshotRead = true;
       try {
         if (this.isWorkerTelemetryEndpoint()) {
           // Worker telemetry deliberately has no Hub /api/snapshot. Bootstrap
@@ -713,7 +917,10 @@ export class RealtimeTunnelClient {
           // it still samples whenever nothing fresh has been carried.
           const carriedFresh = fromPoll === true && this.workerGpuUpdatedAt > 0
             && Date.now() - this.workerGpuUpdatedAt <= this.snapshotFallbackDelayMs() * 2;
-          if (carriedFresh) snapshot = { generatedAt: new Date(this.workerGpuUpdatedAt).toISOString(), gpu: this.state.gpu };
+          if (carriedFresh) {
+            freshSnapshotRead = false;
+            snapshot = { generatedAt: new Date(this.workerGpuUpdatedAt).toISOString(), gpu: this.state.gpu };
+          }
           else {
             const gpuResult = await this.http.getGpu();
             if (generation !== this.connectionGeneration || this.disposed) return { gpu: {} };
@@ -725,22 +932,24 @@ export class RealtimeTunnelClient {
         if (generation === this.connectionGeneration && !(error instanceof RequestBudgetDeniedError)) {
           // A slow GPU snapshot does not invalidate an independently open
           // event stream. Authentication errors still fence the connection.
-          if (isHardConnectionError(error) || !["sse", "websocket"].includes(this.status)) this.connectionLost(message(error));
-          else this.lastError = "遥测查询待核实：" + message(error);
+          if (isHardConnectionError(error) || !["sse", "websocket"].includes(this.status)) this.connectionLost(message(error), "snapshot");
+          else this.noteDisplayQueryFailure(error);
         }
         throw error;
       }
-      if (generation !== this.connectionGeneration) return snapshot;
+      if (generation !== this.connectionGeneration || this.disposed) return snapshot;
       this.reconnectPolicy.reset();
-      // A round that really succeeded is the only evidence able to supersede an older failure
-      // attribution once the guard later closes the display channels.
-      this.verifiedDisplayRound = true;
+      // Reusing an older carried sample does not prove a later failed query recovered.
+      if (freshSnapshotRead) this.noteDisplaySuccess("snapshot", generation);
       if (this.policy.mode === "manual_only" && this.status === "disconnected") {
         this.status = "polling";
         this.lastError = undefined;
       }
       this.state = applySnapshot(this.state, snapshot, { protectedLogKeys: this.protectedLogKeys });
-      if (this.isWorkerTelemetryEndpoint()) this.lastError = undefined;
+      if (this.isWorkerTelemetryEndpoint()) {
+        this.lastError = undefined;
+        if (this.displayErrorOrigin === "soft-display") this.displayErrorOrigin = "none";
+      }
       this.onState(this.state);
       return snapshot;
     })();
@@ -760,8 +969,11 @@ export class RealtimeTunnelClient {
     if (journalGap) {
       this.state = compactRealtimeState({ ...this.state, lastSeq: 0 }, { protectedLogKeys: this.protectedLogKeys });
       if (this.state !== beforeState) this.onState(this.state);
+      const generation = this.connectionGeneration;
       void this.getSnapshot()
-        .catch((error) => { this.lastError = message(error); })
+        .catch((error) => {
+          if (generation === this.connectionGeneration && !this.disposed && !(error instanceof RequestBudgetDeniedError)) this.noteDisplayQueryFailure(error);
+        })
         .finally(() => {
           // The stream remains connected; a snapshot repairs the replay gap.
         });

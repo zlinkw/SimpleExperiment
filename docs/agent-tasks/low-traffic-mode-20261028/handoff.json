@@ -4,15 +4,15 @@
   "task": "规划 SimpleExperiment 插件「低流量模式」：默认仍为正常模式，在顶部颜色条（topbar 的 statusLegend）之后新增一个按钮，点击开启、再次点击关闭并跨重载保持；开启后在保持功能完整可用（自动同步、就绪检查、来源哈希与实际版本核验、永久删除双确认等不得削减）的前提下，尽可能节省与服务器间通信的流量。现有实现、间隔常量、可复用省流量设施与全部未知项见主证据。",
   "candidate": {
     "root": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
-    "revision": "7a6062fa10441cc5852166a34138781a2604d9e9",
+    "revision": "ca130b164227668e2da8eab9dfeba71c42c82d0f",
     "files": [
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/extension/legacy.js",
-        "sha256": "f835d99e1991567c1b5e255d31ed0a57a84f9706d149451f2c0519a8b5a842e5"
+        "sha256": "794c4a6f3f86ab48fdbb3d9b89589b403580b97504e422bd5a19f0effd56ec25"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/panel-build-manifest.json",
-        "sha256": "445adaef5c974cd54d14282bcdfbe9c67a32a51a3f50efebafffb0421fff8e03"
+        "sha256": "012d482a0cca4683870590b5d87c1da262354095a0ac5685384ca8b2cc94c3d7"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/runtime/RuntimeManifest.js",
@@ -40,11 +40,11 @@
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/tunnel/MultiEndpointRealtimeClient.legacy.js",
-        "sha256": "b272b59f11990af87924097ef7bd0665907214d445cfee0065c3e5abf92ee097"
+        "sha256": "84d1e2da8332416471fffc405ec55e79052432317d96dfdb06e3dfbcad4b7f81"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/tunnel/RealtimeTunnelClient.legacy.js",
-        "sha256": "5a6213c7038ff01e39fdc2d8959087e0cddd76e08b348ab633cbc06179264e84"
+        "sha256": "b3a86b4e09c9a6c95ee1d59acaec80f1d2d374daaff7597848a262c6599c740e"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/ui/PanelHtml.legacy.js",
@@ -60,7 +60,7 @@
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/extension/legacy.ts",
-        "sha256": "68e90fa6406a07cd5ea7a16f2c5d144534151277e37ab268f3d9500daa3b0e71"
+        "sha256": "ef40f8704f464ac134c2abe96d292621172a96e0cb3df5201cea13d72af4eaa3"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/runtime/RuntimeManifest.ts",
@@ -68,11 +68,11 @@
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/tunnel/MultiEndpointRealtimeClient.legacy.ts",
-        "sha256": "400ea739234f05c529f9a16485f587bf14c0ca77cd5c013ba71461854460214a"
+        "sha256": "ee2214f2709fa3dc359e3641b32d48723a309be71b85bac6ba61c1820170b29c"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/tunnel/RealtimeTunnelClient.legacy.ts",
-        "sha256": "0a47c7a124ee412a88fa0e0da830352b726ef17a9c239f3f08376d0d5934aedb"
+        "sha256": "ddb1daac30ce6f7729c3d0a4760b192913ae648f3cfce4eee1c0f5c0f28ad9c8"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/ui/PanelHtml.legacy.ts",
@@ -84,7 +84,7 @@
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/lowTrafficDisplayRework.test.js",
-        "sha256": "f5ef299057d4e09d7b5c436a8ad42f867f37ff2f9a2a5c27edfb2faf6bbef967"
+        "sha256": "7ef669d6607e43caff423ed084822117dc837efc2cdbed2937dbbac66870d5a4"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/panelLowTrafficModePolicy.test.js",
@@ -121,14 +121,37 @@
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/ui/tmuxWorkerAndRichLog.test.js",
         "sha256": "2c0e705882351393419643c5e4737acce53a6883a60b5fcfba5f4a8994b6c544"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/displayClosureDecisionTable.test.js",
+        "sha256": "7a52f2b1f26fece1f94c155d6859ef2f880d33b6db76d142815253312ad6474c"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/gpuSampleCarryChannel.test.js",
+        "sha256": "38bfaf82d86bc81a062564eda24b8e2dc142509ee94115cbff703d6022c5d7de"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/project/branchProjectRegistry.test.js",
+        "sha256": "12fdeb2c73041ed18618e2ecbe5f9ee51324981b8d9b82397039c461509b1f61"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/_helpers/extractRuntimeFunctions.py",
+        "sha256": "95126b7429ca17bea0935ad87a6de28c675f08eaa8354a9476d31348a00c7da1"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/formalJobPreflightProgress.fixture.py",
+        "sha256": "f961358067d9d10f6cb797b6f9e5126d0720b008f2c1505726bfb19eb86dfef9"
       }
-    ]
+    ],
+    "baseRevision": "7a6062fa10441cc5852166a34138781a2604d9e9",
+    "snapshotKind": "precommit-worktree",
+    "revisionRole": "snapshotParent; final pushed candidate SHA is supplied in the review brief"
   },
   "artifacts": [
     {
       "kind": "evidence",
       "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/docs/agent-tasks/low-traffic-mode-20261028/evidence.md",
-      "sha256": "4e4e05ffc1efdfadc295d2b20f120e691a8fdc9aeabe127d9ba858dbc40878bc"
+      "sha256": "fe58c4ad725366c28cd370634f38783003e1f906990b1fb92bfe9ec7727089c6"
     },
     {
       "kind": "evidence",
@@ -143,17 +166,42 @@
     {
       "kind": "plan",
       "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/docs/agent-tasks/low-traffic-mode-20261028/plan.md",
-      "sha256": "4c0c5b30f3ea6a7386d2a3fa3d57cd8020f4a75f9244794aeb0d0ae4dcf899c6"
+      "sha256": "106beba7ab812982edf6f0bbe8ed85b2d1d1ada033334d81134bbb3ff81ad2d8"
     },
     {
       "kind": "diff",
-      "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/final-candidate-7a6062fa.diff",
-      "sha256": "9fd013ca0578c36462eaa3e605ac781a0d47c329e0967aa1d7d009941766007f"
+      "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/takeover-candidate-20261028T0809185105836Z.diff",
+      "sha256": "9b06beef22dc063bdbd0b3475a64a6a279cf4332ce381e1642687ad1390e35df"
     },
     {
       "kind": "package",
       "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/simple-experiment-0.5.422.vsix",
-      "sha256": "dc682f25bc2fb30083e9aa2dc61f15a2162894771d9e3dada0a3919b2db06758"
+      "sha256": "b0d5b59eb108241201b09c4db0b2aec686ca8efbd6c440812d630c5053e4a253"
+    },
+    {
+      "sha256": "c0b195b27c6854a0069eeed402ebf6919ec577fca7c09cee512e4366b740b39f",
+      "kind": "evidence",
+      "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/227-endpoint-audit-final-takeover.json"
+    },
+    {
+      "sha256": "070ab2f8c9c1bb473e1b0395d1acf8ee492532a3fde88ffe7a8c957270c238ca",
+      "kind": "evidence",
+      "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/195-package-evidence.json"
+    },
+    {
+      "sha256": "c160e6b570cfb1c6b173197a2baf2bb2787131da2a7e35b9506933b01fbe368d",
+      "kind": "evidence",
+      "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/228-live-latest-before-review.json"
+    },
+    {
+      "sha256": "b08636adafede1ea7c1851ff335a97a7b85d4034ee323076b95e241f8b42cd50",
+      "kind": "evidence",
+      "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/229-fetch-new-master.log"
+    },
+    {
+      "sha256": "ad7346865928d4bf2b6c05e8e75d8342dd4a1257c0b976bdc4077430c37fea02",
+      "kind": "checksum",
+      "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/simple-experiment-0.5.422.vsix.sha256"
     }
   ],
   "checks": [
@@ -953,7 +1001,2496 @@
         }
       ],
       "note": "上轮该用例只以 ReferenceError 终止；harness 补齐真实合并函数后暴露夹具毫秒/秒口径不一致，按 §17 只改夹具输入数据（不断言、不降阈值）后 6/6 通过，本轮重跑仍 6/6。保留本条为状态迁移记录，非新增缺陷"
+    },
+    {
+      "detail": "wallMs=20190; 原始退出/超时均保留，不覆盖前次失败; 历史整文件20秒口径及旧夹具已被用户授权的独立环境/原用例限时183完整26项通过替代；非当前候选门禁",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "271cd0b51df74b54833677b39f34c33917f9c9a7dbdae4e0824f34517d455ea7",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\151-branchProjectRegistry-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "3257b983ae6036f5fc69a6e5796d7e13c666bbe548902eb5534f0fbf528683a6",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/151-branchProjectRegistry-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/151-branchProjectRegistry-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/project/branchProjectRegistry.test.js [151-branchProjectRegistry-takeover.result]",
+      "exitCode": -1,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": false,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/project/branchProjectRegistry.test.js"
+      ],
+      "complete": false,
+      "status": "timeout",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=10564; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "8d5a20942c97aa156d6a961be72f4ed9a30ab84b850c683e3b0525ee8617570e",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\152-formalJobPreflightFailure-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "620bdbd04fb975850be872203e89bde633505ace55eb261275242cc2434a2069",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/152-formalJobPreflightFailure-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/152-formalJobPreflightFailure-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/formalJobPreflightFailure.test.js [152-formalJobPreflightFailure-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/formalJobPreflightFailure.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=1967; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "41708882d7799c05f03bb5462d3862a1b23853673737f99e6724176e668b2b47",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\157-displayClosureDecisionTable-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "2cd31b5d9464c51069a22a9df2c4f5592d62a4e1fff9d2de74cc565ca94c00e6",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/157-displayClosureDecisionTable-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/157-displayClosureDecisionTable-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/displayClosureDecisionTable.test.js [157-displayClosureDecisionTable-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/displayClosureDecisionTable.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=2141; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "e5afefc885267c8de5fae465c26b8b24a0e0ea538952a365a85654abf882a90f",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\158-lowTrafficDisplayRework-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "bec9817d176e3c94b3c91e5ad342c3d62b815357c139bd9725da8c4d3dc34e4c",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/158-lowTrafficDisplayRework-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/158-lowTrafficDisplayRework-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/lowTrafficDisplayRework.test.js [158-lowTrafficDisplayRework-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/lowTrafficDisplayRework.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=692; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "5d52347fc54021fbcd768d3b2f5fcc2ccfc2be5cacf853cd8041959f03e1c183",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\159-gpuSampleCarryChannel-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "4bf6b2ee792b126a4ca1c08c0332642e77a997659f2e1b4d2a397feb58e3d627",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/159-gpuSampleCarryChannel-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/159-gpuSampleCarryChannel-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/gpuSampleCarryChannel.test.js [159-gpuSampleCarryChannel-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/gpuSampleCarryChannel.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=1321; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "31b6b3806ff230ea937126fa31f68be7895f5118ce72dd288969d1d15b8a12eb",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\160-panelLowTrafficModePolicy-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "6661f748cc6b2506dbc6ad37b50cf944ba3d1cb00d8dfe3fd0616cf4c0528551",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/160-panelLowTrafficModePolicy-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/160-panelLowTrafficModePolicy-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/panelLowTrafficModePolicy.test.js [160-panelLowTrafficModePolicy-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/panelLowTrafficModePolicy.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=979; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "83e8bef3774b21d01327e8bc322aeff8b3853c229f62d28c9d3475c6b747fd2d",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\161-boundedResponse-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "e8afd79e6d5bad799937d9b041f9911a0ab99c488b965c769e723ce528c34d60",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/161-boundedResponse-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/161-boundedResponse-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/boundedResponse.test.js [161-boundedResponse-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/boundedResponse.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=212; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "9cae5d5a8e9a06bd6c68fe27ba2914da6c2587e02ab6c3f3e8eae0451928df11",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\162-autoConnectRealtimeOnPanelOpen-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "9ea6afa3dc997e3972806e4c6203fa0db2c37ceef6a404761436236dbc807e6c",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/162-autoConnectRealtimeOnPanelOpen-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/162-autoConnectRealtimeOnPanelOpen-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/autoConnectRealtimeOnPanelOpen.test.js [162-autoConnectRealtimeOnPanelOpen-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/autoConnectRealtimeOnPanelOpen.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=1297; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "ff26c442b420f5baf00f4a5028ae695708ba1f40ffdee320d65233e2f9b19706",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\163-manualConnectionRecovery-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "0f060ac4f9ef4c247b77128cab22046e55ff91d96dc3b16fc5e1ead54d0d0a9a",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/163-manualConnectionRecovery-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/163-manualConnectionRecovery-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/manualConnectionRecovery.test.js [163-manualConnectionRecovery-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/manualConnectionRecovery.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=299; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "550abb4120ee532c2feaeb2429c1c243f38e306df41dfc66e320a78a0d7d2396",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\164-journalGapSnapshot-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "9a2b71d2a2f9cdbbc3e3e2282d823b5daf568a1148f81cec35093c49b6c70b64",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/164-journalGapSnapshot-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/164-journalGapSnapshot-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/journalGapSnapshot.test.js [164-journalGapSnapshot-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/journalGapSnapshot.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=288; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "cdab565e3bc0bf6662f197e68413cdf0f3f58b9d899be545fd404e8f593fd320",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\165-realtimeSnapshotFallback-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "1ad35d3a3e21aaa9bfed5106c0d28f9dc05d9403a17e2a37573fff6b926293c1",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/165-realtimeSnapshotFallback-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/165-realtimeSnapshotFallback-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/realtimeSnapshotFallback.test.js [165-realtimeSnapshotFallback-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/realtimeSnapshotFallback.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=327; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "2c78a449a48e3124fd0117740ab0f65fb7b3ab080857e9667ac5ae0c70d17334",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\166-realtimeReconnect-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "17245594e00e7567dd2e602a1f0aa1059dc94924e605c5a582e2e7f84b4f8796",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/166-realtimeReconnect-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/166-realtimeReconnect-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/realtimeReconnect.test.js [166-realtimeReconnect-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/realtimeReconnect.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=412; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "d86b05c2304b6b44b2a6256a64f850fc9194836f1e737e720ae14f57462f2a39",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\167-noDirectSshRealtime-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "f9aebcc61eedcf2023a9a0724f42be5aa53b3e772ccf801c84307e09075cb5f0",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/167-noDirectSshRealtime-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/167-noDirectSshRealtime-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/noDirectSshRealtime.test.js [167-noDirectSshRealtime-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/noDirectSshRealtime.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=247; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "2478073812f8ac0f61fe14ab81a79a08260a27b8ae0fe55268314368b5792f93",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\168-realtimeWebSocket-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "5b832c3630d2d32dd61021bc2fc717ff14047ba5c29fa87e5749c231b43d1d95",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/168-realtimeWebSocket-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/168-realtimeWebSocket-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/realtimeWebSocket.test.js [168-realtimeWebSocket-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/realtimeWebSocket.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=428; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "fbc86cc95615cb976528756aaac68e2554f1578fb8029aa2880a63b31a74365d",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\169-realtimeSseFallback-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "401630f7728dc644dabfa6e660b0764ad056c76ad9efe3e9384385c26bb51d09",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/169-realtimeSseFallback-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/169-realtimeSseFallback-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/realtimeSseFallback.test.js [169-realtimeSseFallback-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/realtimeSseFallback.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=1547; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "7baf598ac4fa1fdee85012de4d7a2c0217d90bff815ddae2d47186f4c91404bf",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\170-replaceGpuSchedulerLiveOutput-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "640af553400f36ac87fc297dba6559fc5c002d7e7bce510d052dfb0e9e39ea50",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/170-replaceGpuSchedulerLiveOutput-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/170-replaceGpuSchedulerLiveOutput-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/replaceGpuSchedulerLiveOutput.test.js [170-replaceGpuSchedulerLiveOutput-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/replaceGpuSchedulerLiveOutput.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=386; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "8d2346c026dbb86e0c1a6945ae46f95cef2ee62d205c46c73c1e48b9e7f77beb",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\171-requestBudget-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "5b514e243f4acfb04c7fd82065e9faccfa183b85cac4d2e89a68eba9d163b50f",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/171-requestBudget-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/171-requestBudget-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/requestBudget.test.js [171-requestBudget-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/requestBudget.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=1991; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "8367d1c6e6d7a168ee45ae5b8f4a3815b2e673aff8b1dcd111e5f4444f5ae82f",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\172-gpuWorkerSnapshotRecovery-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "aa3aed7b864f0a90e2f94751282ac7a8292304b514051719fb39f88db94c9323",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/172-gpuWorkerSnapshotRecovery-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/172-gpuWorkerSnapshotRecovery-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/gpuWorkerSnapshotRecovery.test.js [172-gpuWorkerSnapshotRecovery-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/gpuWorkerSnapshotRecovery.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=252; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "16f095508c1bce8e9d68a1f8ddad35f3eaf6d3c681449c58682672901e6da744",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\173-reconnectSinceSeq-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "93779b049b4f37784ff6ec8d764c2c5fe90d4b0bd54c62784925884e536c903c",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/173-reconnectSinceSeq-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/173-reconnectSinceSeq-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/reconnectSinceSeq.test.js [173-reconnectSinceSeq-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/reconnectSinceSeq.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=339; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "ac1f1509aef4bbfae19ed3a6d3fa5289c08509c451160f1b372f206e12a0a26c",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\174-realtimeDiagnosticsCompactionCache-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "5f6a5b3ee150b279e793f8234f4cc0d06b74187a7545a2559735b2b37de90e11",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/174-realtimeDiagnosticsCompactionCache-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/174-realtimeDiagnosticsCompactionCache-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/realtimeDiagnosticsCompactionCache.test.js [174-realtimeDiagnosticsCompactionCache-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/realtimeDiagnosticsCompactionCache.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=1331; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "65b08f74c496546340edd61ad48561e03aaa267a666432af51b50df802353d10",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\175-probeConnectionContinuity-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "bd150586f32ee482801553a5f214b5940435193c6ea8b6dafcff06e284ddb80f",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/175-probeConnectionContinuity-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/175-probeConnectionContinuity-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/probeConnectionContinuity.test.js [175-probeConnectionContinuity-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/probeConnectionContinuity.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=20302; 原始退出/超时均保留，不覆盖前次失败; 历史整文件20秒口径及旧夹具已被用户授权的独立环境/原用例限时183完整26项通过替代；非当前候选门禁",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "4885e7f623e0cd301856fb1bec07a0fc6ce06ed4a8cabe8845c75aaa0cf88623",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\176-branchProjectRegistry-prep-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "6c7a7b95d1e0645c6d57e0e4966ee1190d28b2ae551c14e4d0762a9b28bfbe90",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/176-branchProjectRegistry-prep-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/176-branchProjectRegistry-prep-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/project/branchProjectRegistry.test.js [176-branchProjectRegistry-prep-takeover.result]",
+      "exitCode": -1,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": false,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/project/branchProjectRegistry.test.js"
+      ],
+      "complete": false,
+      "status": "timeout",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=1805; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "e5a02c0cf484a34909d39dc8cd0661ece3f96f277eba05b145c6d2dcbaafa626",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\182-displayClosureDecisionTable-frozen-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "e33e3402e6aadd4d3c38c062dadbe19ad043b148cab46ac74abf0c9319da98a4",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/182-displayClosureDecisionTable-frozen-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/182-displayClosureDecisionTable-frozen-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/displayClosureDecisionTable.test.js [182-displayClosureDecisionTable-frozen-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/displayClosureDecisionTable.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=84005; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "3ff391de9bc1bdcfee9cf016422768a73f8406e6a114ea4d7eb06a143ea1ff0e",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\183-branchProjectRegistry-original-limits-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "723f20bfeb4718676d28a71866cd49c79f1d2ddf0d90717c9e22dfcee95896e6",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/183-branchProjectRegistry-original-limits-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/183-branchProjectRegistry-original-limits-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/project/branchProjectRegistry.test.js [183-branchProjectRegistry-original-limits-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 530000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/project/branchProjectRegistry.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "106beba7ab812982edf6f0bbe8ed85b2d1d1ada033334d81134bbb3ff81ad2d8",
+        "detail": "用户明确授权按原用例限时重新验证：Node 20000ms、C5 既有30000ms不变；外层总保护取原用例限时之和530000ms，见 plan §21 / evidence §20.6。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/docs/agent-tasks/low-traffic-mode-20261028/plan.md"
+      }
+    },
+    {
+      "detail": "wallMs=3970; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "e6819b8182e5607c385707dfac376fe7525e01f93a540b8ab133efbc18b8cd73",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\187-formalJobPreflightProgress-prepared-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "cb9664b1200611c0e114623f4e919c1263206f3069444daafe7ee13aaf446385",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/187-formalJobPreflightProgress-prepared-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/187-formalJobPreflightProgress-prepared-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/formalJobPreflightProgress.test.js [187-formalJobPreflightProgress-prepared-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/formalJobPreflightProgress.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=10041; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "4ccdf19dd24b3fcc4f1b22502cf09a8472481f7658558135f9d4e48941dddcf2",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\188-formalJobPreflightFailure-prepared-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "05c11ae86fcf0b156d64342a602ffbd323cafd199cd046a4fed7c254cb7d26ba",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/188-formalJobPreflightFailure-prepared-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/188-formalJobPreflightFailure-prepared-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/formalJobPreflightFailure.test.js [188-formalJobPreflightFailure-prepared-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/formalJobPreflightFailure.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=6882; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "c47c7b030055491dad9e704da83a9ec1ef102f07e72e86ea770f171697384e39",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\189-formalJobPreflightStructure-prepared-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "e4286a48894a97780650715cedc87b944b1d46e0ff8006607a0115cfd9993796",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/189-formalJobPreflightStructure-prepared-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/189-formalJobPreflightStructure-prepared-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/formalJobPreflightStructure.test.js [189-formalJobPreflightStructure-prepared-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/formalJobPreflightStructure.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=2358; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "70e69cf7df8f980c125766649d069a6418b4c4d0eea1f79f7bf257247dd8ccfa",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\190-formalJobPreflightEnvironment-prepared-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "034f60331f9cbd67174f5a0d00db78d14025ed87d403abca14009d330f841db4",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/190-formalJobPreflightEnvironment-prepared-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/190-formalJobPreflightEnvironment-prepared-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/formalJobPreflightEnvironment.test.js [190-formalJobPreflightEnvironment-prepared-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/formalJobPreflightEnvironment.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=7567; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "c904cbb1eac1f6f9a3a6e35f4c08c8dca00d74e34d0a59f5bdb587ea6af18381",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\191-formalJobPreflightRejections-prepared-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "b350fa02be1ba67a2dd3e68a9b492a77a9aad84bd34b2d6f3aca8394427b8c6e",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/191-formalJobPreflightRejections-prepared-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/191-formalJobPreflightRejections-prepared-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/formalJobPreflightRejections.test.js [191-formalJobPreflightRejections-prepared-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/formalJobPreflightRejections.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=4953; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "c2a5fc4e0fbbc68058eeb56afce441dffd6408c1ff0fc87a5e31cb193fb2b81f",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\192-formalJobPreflightApi-prepared-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "00c62bfe707337bea79f0bdec45dbac4aa3468454ec0ceb9c3b18b60603b9e07",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/192-formalJobPreflightApi-prepared-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/192-formalJobPreflightApi-prepared-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/formalJobPreflightApi.test.js [192-formalJobPreflightApi-prepared-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/formalJobPreflightApi.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=1754; 原始退出/超时均保留，不覆盖前次失败; §20 表内反证的修正前失败保留；统一 reducer 修正后226完整表通过，最终候选仍受205 build及202 package约束",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "58717e3527d85b9b6484d5e613ac2a9a8860d9b36949ba84a0f866df29142c46",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\199-displayClosure-all-channels-before-fix-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "cdcceba7019a31d4c875376c3d872085350e4dbc39ef7b8bdf8b7dff1c286e1d",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/199-displayClosure-all-channels-before-fix-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/199-displayClosure-all-channels-before-fix-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/displayClosureDecisionTable.test.js [199-displayClosure-all-channels-before-fix-takeover.result]",
+      "exitCode": 1,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": false,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/displayClosureDecisionTable.test.js"
+      ],
+      "complete": true,
+      "status": "failed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=2407; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "78aec3fe449946a65306a9fb53b856d93a9dce66edaa80db26cacd3841667516",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\204-displayClosure-all-channels-fixed-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "1a93e4d1f9ad92e7d934d0a93b18c091c2b3da9d666a63a2c36356582ceefcda",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/204-displayClosure-all-channels-fixed-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/204-displayClosure-all-channels-fixed-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/displayClosureDecisionTable.test.js [204-displayClosure-all-channels-fixed-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/displayClosureDecisionTable.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=1422; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "ee9e82787f74e50c8f769ced05f0ff37ad1a9e41d4f798f9ee69d02ad6670aef",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\206-lowTrafficDisplayRework-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "14a743e8245d993f76cbc28f3823170cc9c693963110e12734a9482cd2520ff1",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/206-lowTrafficDisplayRework-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/206-lowTrafficDisplayRework-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/lowTrafficDisplayRework.test.js [206-lowTrafficDisplayRework-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/lowTrafficDisplayRework.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=595; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "29c5622f90e9b227052e3a5f00ea8638e27e288dc395900c4d92c3f4a5d1f03c",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\207-gpuSampleCarryChannel-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "2ed08512440bc9ee70e9945075c5a7543d7a8af8263e3bcbb0207592997f11c0",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/207-gpuSampleCarryChannel-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/207-gpuSampleCarryChannel-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/gpuSampleCarryChannel.test.js [207-gpuSampleCarryChannel-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/gpuSampleCarryChannel.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=1358; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "f59e7a5f680738bfd63c9af1f2f289a143a89951041b2e33d4d0e2f6ee05c0a3",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\208-panelLowTrafficModePolicy-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "b01653443b9dcef49117c8364b8305ef89041b580e760d4696438f5b5fc91d26",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/208-panelLowTrafficModePolicy-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/208-panelLowTrafficModePolicy-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/panelLowTrafficModePolicy.test.js [208-panelLowTrafficModePolicy-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/panelLowTrafficModePolicy.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=957; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "5d28f0a628c41b398d963cbea35086717b01d334c079b1570decf1891bbee593",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\209-boundedResponse-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "1cbd92624b4ca47b486a9859e35356eeb8a39980d0cd7c65e46f0ef78254ad00",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/209-boundedResponse-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/209-boundedResponse-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/boundedResponse.test.js [209-boundedResponse-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/boundedResponse.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=244; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "6955a90897b5773b7ebba0f2ba3160053d508a449caabc8f212e7c162a6c5e02",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\210-autoConnectRealtimeOnPanelOpen-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "e2f23d93d9bd0726f01b6852757f5845e645f3b20c8565fcf0be721c4b37152a",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/210-autoConnectRealtimeOnPanelOpen-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/210-autoConnectRealtimeOnPanelOpen-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/autoConnectRealtimeOnPanelOpen.test.js [210-autoConnectRealtimeOnPanelOpen-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/autoConnectRealtimeOnPanelOpen.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=1311; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "f933d3f40b1754fc1a2b075724147d560e2333897857a980a8074d959f461609",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\211-manualConnectionRecovery-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "9a615eb4dd4031d38a497bed11290cd8d518ea42a9fc1723a785a7cbf0642b10",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/211-manualConnectionRecovery-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/211-manualConnectionRecovery-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/manualConnectionRecovery.test.js [211-manualConnectionRecovery-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/manualConnectionRecovery.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=323; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "b4db02e01347632ecf34799bf632cabd1116dfe1ea9c37fe35dcf5d0305edcfe",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\212-journalGapSnapshot-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "e685ac8142eba25da2c23ab209ed844d9b261c4288a840a315a2458ef4e55ec6",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/212-journalGapSnapshot-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/212-journalGapSnapshot-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/journalGapSnapshot.test.js [212-journalGapSnapshot-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/journalGapSnapshot.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=329; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "634e33c496ded07fde8483cdeaf2ff466b3027a7221bd3edc050043396ed3a8a",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\213-realtimeSnapshotFallback-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "66db61ec46676956fd40ac584ab7e4bafcd19497c2e7937190f5ced888677a19",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/213-realtimeSnapshotFallback-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/213-realtimeSnapshotFallback-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/realtimeSnapshotFallback.test.js [213-realtimeSnapshotFallback-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/realtimeSnapshotFallback.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=464; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "2f42cde61bc6146ddc920fb684e1b9412c9b8cfaf48c898254fefd0a27c88452",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\214-realtimeReconnect-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "e015302b5f1840a45e5c3820a37130484d3bcb6147aa4f1935a637e93c3a9b8c",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/214-realtimeReconnect-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/214-realtimeReconnect-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/realtimeReconnect.test.js [214-realtimeReconnect-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/realtimeReconnect.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=430; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "cdaf929bcda9a9a23027e8f1af0ce0a059f25e174672ae95f5dbe96bde801487",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\215-noDirectSshRealtime-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "db0880d6a5bfb3e2b52e90ce58f867083ac701c5c2fc793eb5861b335ae38efa",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/215-noDirectSshRealtime-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/215-noDirectSshRealtime-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/noDirectSshRealtime.test.js [215-noDirectSshRealtime-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/noDirectSshRealtime.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=285; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "1c1f87e12d25ed3cab92aed4d59b9a6e01225b2f37fd36f5b77e842793d26f31",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\216-realtimeWebSocket-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "96915bb11d4f99c8a6ed310dbbfcff99ecf3b610c7e5e145c5e45862c75b4099",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/216-realtimeWebSocket-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/216-realtimeWebSocket-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/realtimeWebSocket.test.js [216-realtimeWebSocket-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/realtimeWebSocket.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=471; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "410a0ebfd1f2fce458e3e4744d1af5e5b3d7422d896011dbf00bea807ea1ea6b",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\217-realtimeSseFallback-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "4d0df82c0be30e4d601c10d039ef7feeb8cc03bcef8e5dca8770f45a092043cb",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/217-realtimeSseFallback-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/217-realtimeSseFallback-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/realtimeSseFallback.test.js [217-realtimeSseFallback-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/realtimeSseFallback.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=1516; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "2a961be605951a51aaf84f766bd9122d1e70d81dd1501d614a67c8d7c11f6432",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\218-replaceGpuSchedulerLiveOutput-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "fd04ce7636d0902d9b1d2e7b4b847d9589d21b7517e4dbd49992db1cbff8662f",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/218-replaceGpuSchedulerLiveOutput-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/218-replaceGpuSchedulerLiveOutput-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/replaceGpuSchedulerLiveOutput.test.js [218-replaceGpuSchedulerLiveOutput-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/replaceGpuSchedulerLiveOutput.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=416; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "c28c2025f7e92cbe49d1f3a45ebb175b7d0687da1a1dd2d313e55a91eddf0ee2",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\219-requestBudget-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "0fc2dae8b855d196503e623dba274a844a97e2c95dfe74bc3e3966da99b686d4",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/219-requestBudget-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/219-requestBudget-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/requestBudget.test.js [219-requestBudget-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/requestBudget.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=1973; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "7728d6da1cd0b6ced96bc9408a416a94fd923b6cd4f1ce23abe2f8b1413d637c",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\220-gpuWorkerSnapshotRecovery-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "adbf3679a167987b3f5c6570e2288d3418f1481a1ae45c3dbf341e8c1714c9c0",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/220-gpuWorkerSnapshotRecovery-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/220-gpuWorkerSnapshotRecovery-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/gpuWorkerSnapshotRecovery.test.js [220-gpuWorkerSnapshotRecovery-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/gpuWorkerSnapshotRecovery.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=293; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "48a27209ddb8856ab37a5c2408fc58e2554470c36cf73ed5dc46abf2a674c200",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\221-reconnectSinceSeq-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "f561b732e528b401b46f281224f8ad827c30543b8f8b854b9a0b7b757041706b",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/221-reconnectSinceSeq-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/221-reconnectSinceSeq-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/tunnel/reconnectSinceSeq.test.js [221-reconnectSinceSeq-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/tunnel/reconnectSinceSeq.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=272; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "91ca65d5a08992642ac78361401c6dd4c8cc53ce107b3311c0faa7e1211cf828",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\222-realtimeDiagnosticsCompactionCache-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "3c0e351bf948133b323848775a9a6d2803fa5726f7a53e1be01f37bafe8770d7",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/222-realtimeDiagnosticsCompactionCache-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/222-realtimeDiagnosticsCompactionCache-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/realtimeDiagnosticsCompactionCache.test.js [222-realtimeDiagnosticsCompactionCache-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/realtimeDiagnosticsCompactionCache.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=1327; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "1c85d9e7e7765ab7e9b0de50f8a6565c183adb5d7daa31704c58c31484e7c95e",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\223-probeConnectionContinuity-priority-final-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "5d5b119e38858b6759268e61d2ed2ca679b4657cfd143ad5a420808d80e45b4d",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/223-probeConnectionContinuity-priority-final-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/223-probeConnectionContinuity-priority-final-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/probeConnectionContinuity.test.js [223-probeConnectionContinuity-priority-final-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/probeConnectionContinuity.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=3119; 原始退出/超时均保留，不覆盖前次失败; §20 表内反证的修正前失败保留；统一 reducer 修正后226完整表通过，最终候选仍受205 build及202 package约束",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "890b3e7d5019218a87ae41c406506035cfd4da2787d5aa47ea015563091f27ac",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\225-display-evidence-witness-before-fix-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "84e0dd54ad780ab2a73a9c7feeb6c01bc5b84849c647170e021f620b289f76eb",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/225-display-evidence-witness-before-fix-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/225-display-evidence-witness-before-fix-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/displayClosureDecisionTable.test.js [225-display-evidence-witness-before-fix-takeover.result]",
+      "exitCode": 1,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": false,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/displayClosureDecisionTable.test.js"
+      ],
+      "complete": true,
+      "status": "failed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "detail": "wallMs=3317; 原始退出/超时均保留，不覆盖前次失败",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "bef8fe9c020eb620a46d4587317bb80bbee4814b8f4623a290d18a7900ca8591",
+          "path": "D:\\GitRepo\\MCP\\.agent-evidence\\low-traffic-mode-20261028\\logs\\226-display-evidence-witness-fixed-takeover.result.json"
+        },
+        {
+          "kind": "log",
+          "sha256": "6d1133b74d6f963f1d41ab33cde17001467760c9ff161a0718f42a393e556839",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/226-display-evidence-witness-fixed-takeover.out.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/226-display-evidence-witness-fixed-takeover.err.log"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接实测 test/features/displayClosureDecisionTable.test.js [226-display-evidence-witness-fixed-takeover.result]",
+      "exitCode": 0,
+      "timeoutMs": 20000,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": true,
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/displayClosureDecisionTable.test.js"
+      ],
+      "complete": true,
+      "status": "passed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "timeoutMs": null,
+      "exitCode": 0,
+      "platform": "win32",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      },
+      "required": true,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "status": "passed",
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "86a7b3db67457ef92330c63da6169443e686e7c3c9e48067542f8847c22d21f5",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/205-build-final-takeover.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/205-build-final-takeover.exit.txt"
+        }
+      ],
+      "name": "承接产品输入 compile（含双 node-c）",
+      "argv": [
+        "npm",
+        "run",
+        "build",
+        "--",
+        "--max-parallel",
+        "1"
+      ],
+      "complete": true,
+      "takeoverCheck": true
+    },
+    {
+      "timeoutMs": null,
+      "exitCode": 0,
+      "platform": "win32",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      },
+      "required": true,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "status": "passed",
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/201-vmScript-final-takeover.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/201-vmScript-final-takeover.exit.txt"
+        }
+      ],
+      "name": "承接构建后 vm.Script",
+      "argv": [
+        "node",
+        "-e",
+        "new (require('vm').Script)(require('fs').readFileSync('dist/ui/PanelHtml.js','utf8'))"
+      ],
+      "complete": true,
+      "takeoverCheck": true
+    },
+    {
+      "detail": "旧fixture输入：首次真实进度前进行AST提取，formalJobPreflightProgress failed；当前修正候选仍必须通过单独required的205 build与202 package，不借此降级当前门禁。",
+      "takeoverCheck": true,
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "7d7483fb0a251b85db2e69545583ccd58cde598f77990e5f8263009466fce9d1",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/184-build-frozen-takeover.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/184-build-frozen-takeover.exit.txt"
+        }
+      ],
+      "platform": "win32",
+      "name": "承接184完整build（fixture准备修正前，原失败保留）",
+      "exitCode": 1,
+      "timeoutMs": null,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "required": false,
+      "argv": [
+        "npm",
+        "run",
+        "build",
+        "--",
+        "--max-parallel",
+        "1"
+      ],
+      "complete": true,
+      "status": "failed",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      }
+    },
+    {
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "86a7b3db67457ef92330c63da6169443e686e7c3c9e48067542f8847c22d21f5",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/205-build-final-takeover.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/205-build-final-takeover.exit.txt"
+        }
+      ],
+      "detail": "当前候选真实聚合退出码，不借旧候选通过记录或调低 required 求绿。",
+      "timeoutMs": null,
+      "status": "passed",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "name": "承接当前候选 npm run build",
+      "complete": true,
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      },
+      "required": true,
+      "takeoverCheck": true,
+      "platform": "win32",
+      "exitCode": 0,
+      "argv": [
+        "npm",
+        "run",
+        "build",
+        "--",
+        "--max-parallel",
+        "1"
+      ]
+    },
+    {
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "0bc4bf5f664c1b44b070f0a970c7f7100a128681cd80a1d8e2fce266f73db3fa",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/202-package-final-takeover.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/202-package-final-takeover.exit.txt"
+        }
+      ],
+      "detail": "当前候选真实聚合退出码，不借旧候选通过记录或调低 required 求绿。",
+      "timeoutMs": null,
+      "status": "passed",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "name": "承接当前候选 npm run package",
+      "complete": true,
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      },
+      "required": true,
+      "takeoverCheck": true,
+      "platform": "win32",
+      "exitCode": 0,
+      "argv": [
+        "npm",
+        "run",
+        "package",
+        "--",
+        "--max-parallel",
+        "1"
+      ]
+    },
+    {
+      "timeoutMs": null,
+      "exitCode": 0,
+      "platform": "win32",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      },
+      "required": true,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "status": "passed",
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "0db0a6b58fb46bf63fc9bf7601b134684f18f3d097086dbaaceed3da09f82dbb",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/230-vsix-manifest-final.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/230-vsix-manifest-final.exit.txt"
+        }
+      ],
+      "name": "最终实包内容/秘密排除门禁",
+      "argv": [
+        "node",
+        "scripts/verify-vsix-manifest.js",
+        "--vsix",
+        "simple-experiment-0.5.422.vsix"
+      ],
+      "complete": true,
+      "takeoverCheck": true
+    },
+    {
+      "timeoutMs": null,
+      "exitCode": 0,
+      "platform": "win32",
+      "timeoutSource": {
+        "kind": "config",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "本任务用户明示单文件 20000ms，20 秒未退出终止；超时不得当通过；本轮修正后仅一次额外验证获用户授权。",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md"
+      },
+      "required": true,
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "status": "passed",
+      "logs": [
+        {
+          "kind": "log",
+          "sha256": "5068d4a16a278933bf670a62ecf2a6611cf90d4494435f1022b123f758130d01",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/231-vsix-runtime-final.log"
+        },
+        {
+          "kind": "log",
+          "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/231-vsix-runtime-final.exit.txt"
+        }
+      ],
+      "name": "最终运行闭包门禁",
+      "argv": [
+        "node",
+        "scripts/verify-vsix-runtime.js"
+      ],
+      "complete": true,
+      "takeoverCheck": true
     }
   ],
-  "notes": "purpose=final：阶段 3 实现与规定验证已完成，本轮按要求补全两条失败链证据后再交 GPT 终审。candidate.revision 仍为冻结基线 7a6062fa10441cc5852166a34138781a2604d9e9；实现提交 8f778444，本轮只新增文档取证提交，PR #25 随之更新。主线基准 D:/GitRepo/MCP/zlk-cluster-orchestrator 全程零写入。\n本轮（补证据）未修改任何生产代码，也未修改任何测试断言或超时阈值，只追加 evidence.md 第 15 节、plan.md 第 11 节与本索引的失败记录。\nF4-FAIL-1 hostOperationLease 分类为既有并发时序抖动，非本改动引入。依据（evidence.md 15.1，下方 checks 为对应 failed/passed 条目）：该用例只 require node 内置模块与 dist/core/HostOperationLease，对本次改动模块的引用命中为 0；test/core/hostOperationLease.test.js、src/core/HostOperationLease.ts、dist/core/HostOperationLease.js 与基线字节 sha256 一致；本任务 32 个变更文件不含 src/core、dist/core、test/core 任何文件；用 git archive 7a6062fa 导出的基线树在 16 个 CPU spinner 同等并发下 4/4 复现同一用例失败（TypeError 读 actionLabel、缺少 HostOperationLeaseConflictError 拒绝、HostOperationLeaseLostError 且 code 为 RESOURCE_LEASE_LOST 三种同族表现），当前副本同负载 2/2 复现，无负载双方均 14/14 通过；首轮与第二轮 package 的 files=238、maxParallel=2、maxObservedConcurrent=1 相同，差别只是机器负载。原始失败以 status=failed、exitCode=1 保留，logs 指向 60-package.log（第 237 行即该 job 失败行）与 job-222 的 out 与 err 完整日志。\nF4-FAIL-2 新模块行数门禁为基线既有技术债。git show 7a6062fa 基线字节 CacheCleanupPanel.ts 用 wc 计 478 行、PlanCleanupHost.ts 430 行；门禁按 readFileSync 后以换行 split 的数组长度计数（test/factories_integration.test.js 第 352 至 354 行），文件以换行结尾时比 wc 多 1，故断言报 479 与 431；本副本数字与基线完全相同，且 git diff --stat 基线..HEAD 对这两个文件输出为空。该测试不在 npm run package 的 238 文件集合内：scripts/test-workflow.json、package.json、scripts 目录内检索 0 命中，60-package.log、63-package2.log、50-build.log 内 0 命中，63-package2.log 枚举的唯一测试文件恰为 238 个且不含 factories_integration，因此 package overall=passed 并未掩盖该门禁，它只在按 T9 显式单跑时暴露。\nrequired 标注口径：required=true 仅用于项目必需验收（第二轮 npm run package、npm run compile、vm.Script 双门禁与 P0 端点检索、本任务新增与扩展的 4 个测试文件）。首轮 package 的 hostOperationLease 失败、基线与当前副本的负载复现、行数门禁都是诊断取证条目，required=false，但 failed 状态与真实 exitCode 原样保留，未改成通过。\n实现要点与版本不变：低流量模式按钮加唯一策略源 legacy.ts 第 485 与 486 行和 effectiveTrafficPolicy 的 displayAutoRefresh；r2 定稿 A 类展示读自动 0 次仅手动、B 类队列 5 秒与进度终态确认 10 秒且面板隐藏仍执行、C 类用户操作原行为；默认关闭且正常模式逐值等于原常量。版本 0.5.422，simple-experiment-0.5.422.vsix 2683707 字节，SHA256 7bb4f147da77f2bcf4520fe62158162bd9efdbeecec9e0f3dd69fbe42f7a73a0（未上传 Release、未安装、未重载验收）。\n本轮（r2-final-3，§17.3 唯一必改项）：实现提交 9c153ed7。markDisplayAutoClosed 的认领条件补全为「确实是策略自身转移且当前没有真实故障证据」——connecting（从未成功过）、paused、带 lastError、带 requiresManualReconnect 一律拒绝改写，被拒绝的认领同时写回 false 不遗留错误认领；新增 verifiedDisplayRound 只在 WebSocket onopen、SSE 建立、快照被接受三处写入，真实断连与除 display-auto/paused 之外的关闭清零，startPolling（快照尚未成功）刻意不写。§17.5 的 lastError 泛用非 telemetry 旧路径治理按主控指令本轮未动，仍为非阻塞建议。断言只增不减（12→15），三条新序列见 evidence.md §19.2。版本保持 0.5.422，已重新 npm run package（新 VSIX 2689768 字节，SHA256 dc682f25bc2fb30083e9aa2dc61f15a2162894771d9e3dada0a3919b2db06758），未 install:latest、未发 Release、未合并。handoff 引用的 diff 工件在 handoff 之后重新生成，故 diff 内嵌的 handoff 副本比最终文件早一步，diff 文件自身的 SHA256 与本索引记录一致。"
+  "notes": "purpose=final：阶段 3 实现与规定验证已完成，本轮按要求补全两条失败链证据后再交 GPT 终审。candidate.revision 仍为冻结基线 7a6062fa10441cc5852166a34138781a2604d9e9；实现提交 8f778444，本轮只新增文档取证提交，PR #25 随之更新。主线基准 D:/GitRepo/MCP/zlk-cluster-orchestrator 全程零写入。\n本轮（补证据）未修改任何生产代码，也未修改任何测试断言或超时阈值，只追加 evidence.md 第 15 节、plan.md 第 11 节与本索引的失败记录。\nF4-FAIL-1 hostOperationLease 分类为既有并发时序抖动，非本改动引入。依据（evidence.md 15.1，下方 checks 为对应 failed/passed 条目）：该用例只 require node 内置模块与 dist/core/HostOperationLease，对本次改动模块的引用命中为 0；test/core/hostOperationLease.test.js、src/core/HostOperationLease.ts、dist/core/HostOperationLease.js 与基线字节 sha256 一致；本任务 32 个变更文件不含 src/core、dist/core、test/core 任何文件；用 git archive 7a6062fa 导出的基线树在 16 个 CPU spinner 同等并发下 4/4 复现同一用例失败（TypeError 读 actionLabel、缺少 HostOperationLeaseConflictError 拒绝、HostOperationLeaseLostError 且 code 为 RESOURCE_LEASE_LOST 三种同族表现），当前副本同负载 2/2 复现，无负载双方均 14/14 通过；首轮与第二轮 package 的 files=238、maxParallel=2、maxObservedConcurrent=1 相同，差别只是机器负载。原始失败以 status=failed、exitCode=1 保留，logs 指向 60-package.log（第 237 行即该 job 失败行）与 job-222 的 out 与 err 完整日志。\nF4-FAIL-2 新模块行数门禁为基线既有技术债。git show 7a6062fa 基线字节 CacheCleanupPanel.ts 用 wc 计 478 行、PlanCleanupHost.ts 430 行；门禁按 readFileSync 后以换行 split 的数组长度计数（test/factories_integration.test.js 第 352 至 354 行），文件以换行结尾时比 wc 多 1，故断言报 479 与 431；本副本数字与基线完全相同，且 git diff --stat 基线..HEAD 对这两个文件输出为空。该测试不在 npm run package 的 238 文件集合内：scripts/test-workflow.json、package.json、scripts 目录内检索 0 命中，60-package.log、63-package2.log、50-build.log 内 0 命中，63-package2.log 枚举的唯一测试文件恰为 238 个且不含 factories_integration，因此 package overall=passed 并未掩盖该门禁，它只在按 T9 显式单跑时暴露。\nrequired 标注口径：required=true 仅用于项目必需验收（第二轮 npm run package、npm run compile、vm.Script 双门禁与 P0 端点检索、本任务新增与扩展的 4 个测试文件）。首轮 package 的 hostOperationLease 失败、基线与当前副本的负载复现、行数门禁都是诊断取证条目，required=false，但 failed 状态与真实 exitCode 原样保留，未改成通过。\n实现要点与版本不变：低流量模式按钮加唯一策略源 legacy.ts 第 485 与 486 行和 effectiveTrafficPolicy 的 displayAutoRefresh；r2 定稿 A 类展示读自动 0 次仅手动、B 类队列 5 秒与进度终态确认 10 秒且面板隐藏仍执行、C 类用户操作原行为；默认关闭且正常模式逐值等于原常量。版本 0.5.422，simple-experiment-0.5.422.vsix 2683707 字节，SHA256 7bb4f147da77f2bcf4520fe62158162bd9efdbeecec9e0f3dd69fbe42f7a73a0（未上传 Release、未安装、未重载验收）。\n本轮（r2-final-3，§17.3 唯一必改项）：实现提交 9c153ed7。markDisplayAutoClosed 的认领条件补全为「确实是策略自身转移且当前没有真实故障证据」——connecting（从未成功过）、paused、带 lastError、带 requiresManualReconnect 一律拒绝改写，被拒绝的认领同时写回 false 不遗留错误认领；新增 verifiedDisplayRound 只在 WebSocket onopen、SSE 建立、快照被接受三处写入，真实断连与除 display-auto/paused 之外的关闭清零，startPolling（快照尚未成功）刻意不写。§17.5 的 lastError 泛用非 telemetry 旧路径治理按主控指令本轮未动，仍为非阻塞建议。断言只增不减（12→15），三条新序列见 evidence.md §19.2。版本保持 0.5.422，已重新 npm run package（新 VSIX 2689768 字节，SHA256 dc682f25bc2fb30083e9aa2dc61f15a2162894771d9e3dada0a3919b2db06758），未 install:latest、未发 Release、未合并。handoff 引用的 diff 工件在 handoff 之后重新生成，故 diff 内嵌的 handoff 副本比最终文件早一步，diff 文件自身的 SHA256 与本索引记录一致。承接外部阻塞：实际 origin/master / Latest 已至 7d2fbc6c / 0.5.423，PR25 CONFLICTING。当前0.5.422验证不授权降级发行。用户是否允许同副本整合并改0.5.424仍待答；预检 ok:true 仅表示指纹/检查合同有效，不代表已获语义批准或交付完成。承接外部阻塞：实际 origin/master / Latest 已至 7d2fbc6c / 0.5.423，PR25 CONFLICTING。当前0.5.422验证不授权降级发行。用户是否允许同副本整合并改0.5.424仍待答；预检 ok:true 仅表示指纹/检查合同有效，不代表已获语义批准或交付完成。承接外部阻塞：实际 origin/master / Latest 已至 7d2fbc6c / 0.5.423，PR25 CONFLICTING。当前0.5.422验证不授权降级发行。用户是否允许同副本整合并改0.5.424仍待答；预检 ok:true 仅表示指纹/检查合同有效，不代表已获语义批准或交付完成。"
 }

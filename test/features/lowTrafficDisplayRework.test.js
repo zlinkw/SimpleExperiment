@@ -154,6 +154,7 @@ test("r3: the host does not publish tunnel_unavailable for a guarded closure and
 
   // The same code path still reports a real outage.
   const broken = hostFixture(members);
+  broken.host.lowTrafficMode = false; // Preserve the original normal-mode path alongside §20 low traffic.
   broken.host.isRealtimeMode = () => true;
   broken.host.applyTrafficScheduling = () => { broken.calls.applyTrafficScheduling += 1; };
   broken.host.client.diagnostics = () => ({
@@ -388,7 +389,8 @@ test("r3/b1: a real outage keeps its attribution through guard, loss, repeated p
     assert.equal(diagnostics.displayAutoClosed, false, "step 2: repeating the same policy cannot rewrite the outage into a guard closure");
     assert.match(String(diagnostics.endpoints[0].lastError), /socket hang up/, "step 2: the failure evidence is kept");
     assert.equal(host.lastError, "tunnel_unavailable", "step 2: a real outage is still published as unavailable");
-    assert.equal(host.lastHealth.status, "local_port_closed", "step 2: the real outage still produces the real health state");
+    assert.equal(host.lastHealth, undefined, "step 2: display transport failure does not invent a port probe");
+    assert.match(String(child.diagnostics().lastError), /socket hang up/, "step 2: the original transport evidence remains");
 
     // Step 3 - recovery attempt: restoring the cadence re-arms the real connection, but until a
     // connection actually succeeds the endpoint stays disconnected and keeps the failure attribution
@@ -428,7 +430,8 @@ test("r3/b1: a hard authentication failure stays a manual-reconnect outage throu
     assert.match(String(diagnostics.endpoints[0].lastError), /401/, "the real failure text is kept");
     assert.match(String(diagnostics.lastError), /401/, "the aggregator still surfaces the real failure upward");
     assert.equal(host.lastError, "tunnel_unavailable", "the hard failure is still published as unavailable");
-    assert.equal(host.lastHealth.status, "local_port_closed");
+    assert.equal(host.lastHealth, undefined, "401 is not evidence of an observed closed local port");
+    assert.match(String(child.diagnostics().lastError), /401/, "the authentication evidence remains");
   }
   finally { await multi.disconnect("dispose"); }
 });
@@ -555,7 +558,8 @@ test("r3/b1: a real loss keeps its attribution through pause, repeated policy an
       assert.match(String(diagnostics.endpoints[0].lastError), hard ? /401/ : /socket hang up/, reason + ": step 3 failure evidence kept");
       await host.ensureRealtimeConnected("resume network");
       assert.equal(host.lastError, "tunnel_unavailable", reason + ": step 3 the outage is still published");
-      assert.equal(host.lastHealth && host.lastHealth.status, "local_port_closed", reason + ": step 3 real health attribution");
+      assert.equal(host.lastHealth, undefined, reason + ": step 3 no invented port probe or checkedAt");
+      assert.equal(child.diagnostics().displayFaultClass, hard ? "H" : "T", reason + ": step 3 exact fault preserved");
       // Step 4 - restoring the cadence must not fake a recovery: without a successful round the
       // endpoint stays disconnected, keeps the failure and claims nothing.
       let restores = 0;
@@ -618,7 +622,8 @@ test("r3/b1: a failure during a never-succeeded connecting handshake keeps its a
     // Step 5 - the real host method over the real aggregator publishes the outage.
     await host.ensureRealtimeConnected("resume network");
     assert.equal(host.lastError, "tunnel_unavailable", "step 5: the unfinished handshake failure is published as unavailable");
-    assert.equal(host.lastHealth && host.lastHealth.status, "local_port_closed", "step 5: real health attribution");
+    assert.equal(host.lastHealth, undefined, "step 5: an unfinished handshake does not prove a port closed");
+    assert.equal(child.diagnostics().displayFaultClass, "T", "step 5: the real transport fault is preserved");
   }
   finally { releaseGate(); await multi.disconnect("dispose"); }
 });
@@ -655,7 +660,8 @@ test("r3/b1 reverse: a guard closure without any fault evidence is never reporte
     await host.ensureRealtimeConnected("resume network");
     assert.equal(multi.diagnostics().displayAutoClosed, false, "step 3: a real failure revokes the claim");
     assert.equal(host.lastError, "tunnel_unavailable", "step 3: the real failure is published");
-    assert.equal(host.lastHealth && host.lastHealth.status, "local_port_closed", "step 3: the real failure writes real health");
+    assert.equal(host.lastHealth, undefined, "step 3: the failure does not invent a fresh port observation");
+    assert.equal(child.diagnostics().displayFaultClass, "T", "step 3: the real transport evidence remains visible");
   }
   finally { await multi.disconnect("dispose"); }
 });

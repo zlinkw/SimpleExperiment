@@ -449,6 +449,10 @@ class MultiEndpointRealtimeClient {
                 lastError: item?.lastError,
                 displayAutoRefreshDisabled: item?.displayAutoRefreshDisabled === true,
                 displayAutoClosed: item?.displayAutoClosed === true,
+                displayFaultClass: item?.displayFaultClass,
+                displayFaultPending: item?.displayFaultPending,
+                displayErrorOrigin: item?.displayErrorOrigin,
+                displayClosureReason: item?.displayClosureReason,
             };
         });
         const statuses = new Set(endpoints.map((endpoint) => endpoint.streamStatus));

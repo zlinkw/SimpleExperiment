@@ -4,6 +4,7 @@ import copy
 import contextlib
 import io
 import json
+import marshal
 import os
 import pathlib
 import subprocess
@@ -15,7 +16,7 @@ from types import SimpleNamespace
 
 repo = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(repo / "test/_helpers"))
-from extractRuntimeFunctions import extract_runtime_functions
+from extractRuntimeFunctions import compile_runtime_functions, extract_runtime_functions
 
 runtime = repo / "dist/runtime"
 variant = sys.argv[1]
@@ -55,11 +56,20 @@ def validate_result_paths(config, contract):
 (root / "asset.dat").write_bytes(b"owned-asset" * 512)
 asset_sha256 = __import__('hashlib').sha256((root / "asset.dat").read_bytes()).hexdigest()
 child = root / "scheduler_probe.py"
-child.write_text('''import argparse, json, os, pathlib, sys
+# AST dependency extraction is fixture preparation, rather than Worker startup or asset progress.
+# Prepare exactly the real selected functions once, before the scaled inactivity clock begins.
+# The child still starts a real interpreter, imports the real dependencies, and executes those
+# functions in its own module. No entry point/full runtime is imported or executed, and no fake
+# heartbeat is emitted to extend the production watchdog.
+prepared_scheduler = root / "scheduler_selected.marshal"
+prepared_scheduler.write_bytes(marshal.dumps(compile_runtime_functions(
+    str(runtime / "cluster_scheduler.py"), ["formal_job_preflight_report", "execution_shell_preflight"])))
+child.write_text('''import argparse, json, marshal, os, pathlib, sys, types
 TASK_SHELL_ENVIRONMENT_PROTOCOL = 1
-sys.path.insert(0, ''' + repr(str(repo / "test/_helpers")) + ''')
-from extractRuntimeFunctions import extract_runtime_functions
-scheduler = extract_runtime_functions(''' + repr(str(runtime / "cluster_scheduler.py")) + ''', ['formal_job_preflight_report', 'execution_shell_preflight'])
+scheduler = types.ModuleType('isolated_runtime')
+scheduler.__file__ = ''' + repr(str(runtime / "cluster_scheduler.py")) + '''
+sys.modules[scheduler.__name__] = scheduler
+exec(marshal.loads(pathlib.Path(''' + repr(str(prepared_scheduler)) + ''').read_bytes()), scheduler.__dict__)
 if os.environ.get('PROBE_VARIANT') == 'no-environment':
  def forbidden_environment_probe(): raise AssertionError('automatic environment probe invoked')
  scheduler.execution_shell_preflight = forbidden_environment_probe

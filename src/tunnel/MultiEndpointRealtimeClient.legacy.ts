@@ -1,7 +1,7 @@
 import { RequestBudget, RequestBudgetConfig, RequestBudgetCoordinator, RequestBudgetSnapshot } from "./RequestBudget";
 import { ClusterSnapshot, GpuHistoryQuery, GpuHistoryResponse, TunnelAction, TunnelEndpointConfig } from "./TunnelClient";
 import { DownloadOptions, FileListResponse, FileTransferTask } from "./FileTransferTypes";
-import { defaultRealtimeRefreshPolicy, RealtimeClientDiagnostics, RealtimeRefreshPolicy, RealtimeTunnelClient, StreamStatus } from "./RealtimeTunnelClient";
+import { defaultRealtimeRefreshPolicy, DisplayClosureReason, DisplayEvidenceOrigin, DisplayFaultClass, RealtimeClientDiagnostics, RealtimeRefreshPolicy, RealtimeTunnelClient, StreamStatus } from "./RealtimeTunnelClient";
 import { compactRealtimeLogs, createRealtimeState, RealtimeState } from "./RealtimeEventReducer";
 import { mergeAuthorityRealtimeStates } from "./AuthorityMergePolicy";
 import { isWorkerTelemetryAction, workerLocalSchedulerActionNames, workerResultActionNames, WorkerLocalSchedulerAction, WorkerResultAction } from "./WorkerTelemetryApi";
@@ -30,6 +30,11 @@ export interface MultiEndpointDiagnostics {
     lastError?: string;
     displayAutoRefreshDisabled?: boolean;
     displayAutoClosed?: boolean;
+    /** Per-endpoint attribution, never merged across endpoints (§20.6.2). */
+    displayFaultClass?: DisplayFaultClass;
+    displayFaultPending?: "none" | "transport" | "hard";
+    displayErrorOrigin?: DisplayEvidenceOrigin;
+    displayClosureReason?: DisplayClosureReason;
   }>;
   /** True when every endpoint client has display-class automatic refresh switched off. */
   displayAutoRefreshDisabled?: boolean;
@@ -473,6 +478,10 @@ throw new Error("AVAILABILITY_PUSH_RETIRED：使用 Worker 主动查询。");
         lastError: item?.lastError,
         displayAutoRefreshDisabled: item?.displayAutoRefreshDisabled === true,
         displayAutoClosed: item?.displayAutoClosed === true,
+        displayFaultClass: item?.displayFaultClass,
+        displayFaultPending: item?.displayFaultPending,
+        displayErrorOrigin: item?.displayErrorOrigin,
+        displayClosureReason: item?.displayClosureReason,
       };
     });
     const statuses = new Set(endpoints.map((endpoint) => endpoint.streamStatus));

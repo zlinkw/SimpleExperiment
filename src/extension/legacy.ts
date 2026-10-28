@@ -5622,7 +5622,10 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             // reported honestly; nothing here invents a connected health state either.
             const displayGuarded = diagnostics.displayAutoRefreshDisabled === true && diagnostics.displayAutoClosed === true;
             this.lastError = unavailable && !displayGuarded ? "tunnel_unavailable" : undefined;
-            if (unavailable && !displayGuarded && !this.lastHealth) {
+            // §20.4: a display transport error (including 401 or unknown evidence) is not a
+            // fresh filesystem/socket probe. Low traffic must retain the endpoint diagnostics,
+            // without inventing a checkedAt or claiming the local port was observed closed.
+            if (unavailable && !displayGuarded && !this.lastHealth && this.lowTrafficMode !== true) {
                 this.lastHealth = {
                     state: "local_port_closed",
                     status: "local_port_closed",

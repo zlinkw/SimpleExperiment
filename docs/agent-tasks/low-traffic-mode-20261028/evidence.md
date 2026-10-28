@@ -1427,3 +1427,156 @@ AGENTS.md 要求的第二条校验（原文摘录）：`node -e "new (require('v
 - 未做安装、远端发行、Release 与 PR 合并；主仓 `D:/GitRepo/MCP/zlk-cluster-orchestrator` 保持零写入，仍停在基线 `7a6062fa`。
 - 字节/费用节省率仍未实测，不作为通过证据。
 - 交审自报：`handoff.json` 引用的 diff 工件按上一轮同样方式在 handoff 之后重新生成，因此 diff 内嵌的 handoff 副本比最终文件早一步（diff 文件本身的 SHA256 与 handoff 记录一致）。
+
+## 20. 承接与 §20 决策表完整性修正（2026-10-28）
+
+### 20.1 身份与首项测试
+
+- 唯一源码写入目录仍为 `D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028`；任务分支 `feat/low-traffic-mode-20261028`，HEAD `ca130b164227668e2da8eab9dfeba71c42c82d0f`。主仓只读核实为干净 master / `7a6062fa10441cc5852166a34138781a2604d9e9`。全部原未提交文件保留。
+- 首项命令：`node --test --test-force-exit --test-timeout 20000 test/project/branchProjectRegistry.test.js`，由仓库外 `probes/run-single-validation.ps1` 先创建独占 stdout/stderr 文件，再启动子进程，20 秒外层终止并等待退出，随后读取日志。临时 Git 夹具只落规定 probes 根；未删除。
+- 完整原日志：`logs/151-branchProjectRegistry-takeover.out.log`、`.err.log`；结果：`.result.json`，真实子进程 exitCode=-1，timedOut=true，wallMs=20190。仅前 7 个测试有成功输出，没有整文件终态，因此整文件不通过。未重试、未改超时、未为本项更改生产代码或其测试。开跑时进程清单为空不等于持续采集宿主负载，不能声称严格排除了期间其它任务或环境负载；也不能将原 build 失败定性为纯并发超时。
+- 下一项 formalJobPreflightFailure 的启动预检发现其它任务占用测试窗口，拒绝启动；这次拒绝不算目标用例已运行。用户指示等待，期间已明确允许检查并修改实现；未停止其它任务。
+
+### 20.2 与固定表对应的补齐
+
+| 表范围 | 原增量缺口 | 本次修正及断言位置 |
+| --- | --- | --- |
+| N01–N04 / §20.5 | 单一 fault 可被另一通道或后续软传输错误覆盖 | 按 stream/snapshot/unknown 保存最小未解除故障；硬错优先；匹配成功只解除自身通道；reducer matrix 覆盖两种严重度和两个通道的乘积 |
+| N05 | 未标注文本清空后直接变 N08；resolved-history 无匹配成功证明 | 决策写入前保留 unknown fault，匹配恢复证据单独记录；未知通道不能被普通 snapshot 成功洗白；独立 oracle 及未知来源矩阵覆盖 |
+| N06–N08 | 空文本软来源未按 W 分类；旧缓存可被当新成功 | W 不依赖文本是否为空；复用 carry sample 不写新成功证据；gpuSampleCarryChannel 新反证保持原去重与采样时间 |
+| A01 / A02 | disposed 当前代际 helper 仍可改字段；journal-gap 失败回调缺代际核对 | disposed / stale 早退；journal-gap 与重连 catch 核代际；全字段保留断言，原 10 链保留 |
+| A03–A18 / §20.6 | 宿主从展示断连生成 local_port_closed 与 checkedAt，401/未知也被误报端口关闭 | 仅低流量禁止该推断，保留逐端点真实故障及 tunnel_unavailable；正常模式原路径不变。旧低流量健康断言修正为“不伪造检查”，同步增加真实故障保留断言，未减少用例或断言数量 |
+| §20.7 全称量词 | 原逐行用例只展开部分维度 | 新增纯内存独立 evidence/action oracle，展开 origin/pending/text/M/resolved × status/V/G/K/R/A/C，每向量两次幂等断言；T/I/budget 等价因子映射另测；实际计数以本轮测试输出为准，未运行前不写通过 |
+
+所有 lastError 写入口核对清单：WS/SSE connect catch 依据真实失败阶段区分 stream/snapshot；connectionLost 写传输或硬错并在通知前登记；setHidden catch 核连接代际；ws.onerror 核 socket 与代际；活流展示失败写 soft-display；journal-gap catch 核代际、销毁和预算取消；snapshot 成功仅以实际新读取解除对应故障。未解析错误文本来猜来源，未增加网络请求或科研检查。
+
+### 20.3 中间验证与阻塞
+
+- `npm run compile -- --max-parallel 1` exit=0、overall=passed files=0，两道 node-c 均通过。完整日志 `logs/153-compile-takeover.log` 与 `.exit.txt`。编译后还有源码增量，因此只是中间证据，最终候选须重验。
+- `vm.Script dist/ui/PanelHtml.js` exit=0，完整日志 `logs/154-vmScript-takeover.log` 与 `.exit.txt`。端点检索 `logs/155-endpoint-audit-takeover.json`：src/dist 中 10890 和 127.0.0.1:18765 都为零命中。本轮未改 PanelHtml 内层脚本。
+- 尚未运行本轮新增专项；完整 build 未通过；151 timeout 仍按 required 阻塞。不能重跑同一超时文件或修改阈值来满足 build，不能把 required 改 false。旧 149 failed、150 interrupted 原记录保留。
+- 0.5.422 不变，旧 VSIX 未重打、未安装；PR #25 尚未更新/合并，未发 Release，主仓未同步。最新远端只读核实仍为 v0.5.421、master=7a6062fa；不以此替代后续发布前重新核实。节省字节/费用均未实测。
+
+### 20.4 已运行专项及原 build 失败补充
+
+- formalJobPreflightFailure：`logs/152-formalJobPreflightFailure-takeover.{out.log,err.log,result.json}`，exit=0，1/1，wallMs=10564。原 150 日志实际失败点为 `assert.ok(result.elapsedVirtualSeconds < 90)`，不是 ETIMEDOUT，也不是 Python 子进程 status 非零。夹具 `formalJobPreflightProgress.fixture.py:133-135,337` 将真实 monotonic 耗时乘 30 再检查，确会受宿主进程启动/负载影响；本次单跑通过只能证明本次候选在当次条件下通过，不能证明原失败只由并发造成。未改 90、scale、任何 timeout 或生产逻辑。
+- 交接时 150 仍无汇总；重新只读核实时该原日志 LastWriteTime=2026-10-28 13:29:37，已出现 `overall=failed files=228 maxObservedConcurrent=1`，唯一 failed 是 formalJobPreflightFailure。总时长 715641ms，runner 已结算。新增事实保留，不能继续声称原文件永远没有汇总；此处不反推外层 shell 未捕获的真实退出码。
+- 决策表 `logs/157-displayClosureDecisionTable-takeover.*`：14/14，exit=0，wallMs=1967。纯模型 kernel=248832，双次幂等；T/I/budget 等价因子 12，映射完整域 2985984；真实入口逐行证据 88 组合，动作 768 组合，原 chain1–chain10 全部通过。
+- `logs/158-lowTrafficDisplayRework-takeover.*`：15/15、exit=0、wallMs=2141；`logs/159-gpuSampleCarryChannel-takeover.*`：5/5、exit=0、wallMs=692；`logs/160-panelLowTrafficModePolicy-takeover.*`：16/16、exit=0、wallMs=1321。
+- 冻结产品输入后的 compile：`logs/156-compile-final-input-takeover.log` / `.exit.txt`，exit=0、overall=passed，两道 node-c gate 通过。其后仅测试准备和文档继续修改，产品源码未变。
+
+逐行映射（同名 node:test 内每个标签均执行真实 client；另有独立 oracle 覆盖全部有限域）：
+
+| 行 | 逐行测试 / 标签 |
+| --- | --- |
+| N01 | §20.3 N01-N08 / N01@STATUS_KEYS |
+| N02 | §20.3 N01-N08 / N02@STATUS_KEYS |
+| N03 | §20.3 N01-N08 / N03@STATUS_KEYS |
+| N04 | §20.3 N01-N08 / N04@STATUS_KEYS |
+| N05 | §20.3 N01-N08 / N05@STATUS_KEYS；reducer unknown 来源矩阵 |
+| N06 | §20.3 N01-N08 / N06@STATUS_KEYS；chain1 |
+| N07 | §20.3 N01-N08 / N07@STATUS_KEYS；chain7 |
+| N08 | §20.3 N01-N08 / N08@STATUS_KEYS；chain3/6 |
+| A01 | §20.4 A01-A18 / A01；kernel stale；chain2/10 |
+| A02 | §20.4 A01-A18 / A02；kernel passive/G-enabled |
+| A03 | §20.4 A01-A18 / A03 |
+| A04 | §20.4 A01-A18 / A04 |
+| A05 | §20.4 A01-A18 / A05；chain4 |
+| A06 | §20.4 A01-A18 / A06；chain5 |
+| A07 | §20.4 A01-A18 / A07 |
+| A08 | §20.4 A01-A18 / A08 |
+| A09 | §20.4 A01-A18 / A09 |
+| A10 | §20.4 A01-A18 / A10 |
+| A11 | §20.4 A01-A18 / A11；chain3/6 |
+| A12 | §20.4 A01-A18 / A12；chain1 |
+| A13 | §20.4 A01-A18 / A13；chain4/6/8 |
+| A14 | §20.4 A01-A18 / A14；chain5 |
+| A15 | §20.4 A01-A18 / A15；kernel 第二次应用；chain3 |
+| A16 | §20.4 A01-A18 / A16；kernel 第二次应用；chain1 |
+| A17 | §20.4 A01-A18 / A17；kernel 第二次应用；chain4/8 |
+| A18 | §20.4 A01-A18 / A18；kernel 第二次应用；chain5 |
+
+### 20.5 获准排查 branchProjectRegistry 准备成本
+
+用户明确允许“排查准备成本并验证一次”，保持全部断言、20 秒上限，不为此修改生产代码。原测试自身已有 C5 30 秒显式超时（2026-10-26 批准记录，约 196 次真实 Git spawn；历史独立 C5 19.56/20.05/20.21 秒），本轮一字未改该值、Node 参数或外层 20 秒终止。首次 151 在前 7 项后到达整文件上限，不等同于原 C5 30 秒超时已复现。
+
+- 准备修正：makeRepo 由一次真实 clone + remote remove 改为同一只读模板的完整独立字节复制；每目标缺失才复制，拒绝链接，逐文件确认无硬链接，Git 元数据归本夹具。其它测试中真正被测的 clone/init/worktree/fetch/ff 与全部断言不变，无共享可写仓库。
+- 安全修正：旧 `git rm` 改为只移除 index 条目、保留磁盘字节；旧 scratch 文件删除改为夹具专属 exclude，使同一 clean Git 输入恢复，同时原字节保留并新增断言。未执行任何永久删除，未改宿主 Git 配置。
+- 这只是准备成本修正，不能保证包含 26 个串行用例的整文件能在 20 秒完成。获准的一次修正后验证尚待测试窗口，不提前标通过。
+
+### 20.6 一次准备修正验证、隔离更正与限时口径授权
+
+- 获准的一次验证 `logs/176-branchProjectRegistry-prep-takeover.*`：真实子进程 exit=-1、timedOut=true、wallMs=20302。前 7 项内有 1 项失败，未产生完整整文件终态，不计通过，未隐瞒或覆盖。
+- 该项额外失败是本轮执行器的临时父目录隔离错误：151、176 的 TMP/TEMP 同为 probes 根，测试硬编码兄弟目录 `child-worktree`。现存 `probes/child-worktree/.git` 精确指向 151 的 `se-branch-relation-1vOjGN/.git/worktrees/child-worktree`（创建 13:31:53），176 的仓为 `se-branch-relation-4nB6Tx`（13:56:26），因此新 worktree 创建遇旧目录。此问题不是产品回归或模板复制断言通过的证明。已修执行器为每次独占 `<LogStem>.environment`，目标已存在则拒绝；保留全部旧夹具，不清理、不覆盖。
+- 原 149 runner receipt 的 branchProjectRegistry 为 argv=[]、wallMs=163875；完整 TAP 为 26 项、25 pass、1 cancelled，唯一 C5 `test timed out after 30000ms`。它与本轮“整个文件 20 秒”外层看门狗口径不同，不能混作同一超时复现。
+- 用户随后明确授权“按原用例限时重新验证”：撤销本轮新增的整文件 20 秒看门狗，保留 Node `--test-timeout 20000` 与仓库中 C5 既有 `timeout:30000`，用独立临时目录重新验证完整文件一次。执行器额外总进程保护预算仅取冻结文件原用例限时之和（26×20s+原 C5 额外10s=530s），不改任何仓库内阈值。183 是此授权下的新验证，151/176 的失败与超时完整保留。
+- 新冻结产品输入 `logs/179-compile-frozen-takeover.*` exit=0、overall=passed、双 node-c 通过；`logs/180-vmScript-frozen-takeover.*` exit=0；冻结决策表 `logs/182-displayClosureDecisionTable-frozen-takeover.*` 14/14、exit=0，含未知故障不被后来已知通道故障改写的新增反证。
+- 直接受影响连接回归 15 个文件全部单文件串行 exit=0，真实结果/完整日志为 `logs/161-*` 至 `175-*` 的 `.result.json/.out.log/.err.log`，没有超时/取消/失败。执行期间一个文件结束并确认退出后才启动下一个。
+
+### 20.7 183 完整通过与 184 新构建失败
+
+- `logs/183-branchProjectRegistry-original-limits-takeover.*`：26/26、exit=0、无取消/超时、wallMs=84005；C5 实测 15691.5624ms。独立临时目录内全部真实 Git 行为与新增保留字节/无硬链接断言通过。151/176 是已撤销的整文件口径/旧隔离输入的历史非通过，保留原始日志，不改成 passed。
+- `logs/184-build-frozen-takeover.log` 与 `.exit.txt`：真实 exit=1，`overall=failed files=228 maxParallel=1 maxObservedConcurrent=1`，totalWallMs=574405。branchProjectRegistry（job-226）以及另 226 项通过；唯一失败为 formalJobPreflightProgress（job-006），不是先前 formalJobPreflightFailure。两道 node-c gate 通过不等于整体通过。
+- 真实失败为 `durableAccepted` 期望 true、实际 false。回执 `FORMAL_JOB_PREFLIGHT_STALLED`，阶段 starting，`progressCount=0`、`elapsedVirtualSeconds=30.732248998247087`，未启动科研执行。说明首次真实资产进度之前已耗尽当前夹具 ×30 的启动窗口；不是外层 Node 20 秒或 Python 10 秒进程超时。
+- 该夹具原本让子进程先解析整个 Scheduler 源文件的 AST、做静态依赖提取，然后才开始发真实资产进度。AST 提取是测试隔离准备，并非被测 Worker 资产进度。保留真实 Python 子进程和函数实现，将这一纯准备移到父进程、scaled clock 之前：公共 helper 新增 `compile_runtime_functions`，与原接口共享同一节点选择函数；父进程每次从当前源码新鲜提取，仅把选中函数和必要 import 的 code object 写入本次私有目录；子进程仍独立导入必要依赖并执行真实函数，不执行完整 runtime 或 main。
+- 未改任何断言、90 秒界限、scale=30、inactivity=30、Node 20 秒、spawnSync=10 秒或轮询/取消规则；不提前发假 heartbeat、不伪造资产计数，不改生产代码。该准备只消除测试专有的 AST 分析成本，`elapsedVirtualSeconds>10` 仍须由真实资产读取/进度达到。
+- 新增 scope 为 `test/_helpers/extractRuntimeFunctions.py` 与 `test/features/formalJobPreflightProgress.fixture.py`，均不入运行包。原 extractor 接口及 namespace 注入的语义保持，节点选择代码原样提取共用。先单文件验证该 fixture 的六个消费者，再重跑完整 build；在其完成前仍阻塞 package/提交/终审/发行/安装。
+
+### 20.8 准备修正后六项单跑
+
+全部按原 Node 20000ms、单文件串行执行，完整 stdout/stderr 和真实退出码均先落盘；无超时/取消，未修改任何用例断言、时间值或生产代码。
+
+| 文件 | 日志前缀 | exit / wallMs |
+| --- | --- | --- |
+| formalJobPreflightProgress.test.js | 187-formalJobPreflightProgress-prepared-takeover | 0 / 3970 |
+| formalJobPreflightFailure.test.js | 188-formalJobPreflightFailure-prepared-takeover | 0 / 10041 |
+| formalJobPreflightStructure.test.js | 189-formalJobPreflightStructure-prepared-takeover | 0 / 6882 |
+| formalJobPreflightEnvironment.test.js | 190-formalJobPreflightEnvironment-prepared-takeover | 0 / 2358 |
+| formalJobPreflightRejections.test.js | 191-formalJobPreflightRejections-prepared-takeover | 0 / 7567 |
+| formalJobPreflightApi.test.js | 192-formalJobPreflightApi-prepared-takeover | 0 / 4953 |
+
+仅这六项通过不代替完整 build；下一轮日志为 186-build-prepared-takeover。此前 184 失败原日志继续保留。再次核实远端 master 仍为冻结基线 7a6062fa，PR #25 OPEN/MERGEABLE、head=ca130b16、无 GitHub check rollup；真实 Latest 仍为 v0.5.421。本轮仍未提交/发行/安装。
+
+### 20.9 完整 build 门禁已通过（准备修正后的冻结候选）
+
+- `logs/186-build-prepared-takeover.log` / `.exit.txt`：真实 exit=0，`entry=build overall=passed files=228 maxParallel=1 maxObservedConcurrent=1`，总时长 565569ms；全部 228 个 job passed，按需未运行数为 0。逐子项完整 stdout/stderr 和 run.json 在 `simple_cluster/reports/test-workflow/2026-10-28T06-35-02-719Z-69064-build/`。
+- 该 run 的 compile gates 包含并通过 `node -c dist/extension.js` 与 `node -c dist/ui/PanelHtml.js`；编译缓存按原项目机制复用，未减少任何测试或断言。formalJobPreflightProgress、Failure 与 branchProjectRegistry 均通过。
+- 构建后独立 `vm.Script dist/ui/PanelHtml.js`：`logs/193-vmScript-build-takeover.log` / `.exit.txt`，exit=0，零异常。`logs/194-endpoint-audit-build-takeover.json`：src/dist 中 10890 和固定 127.0.0.1:18765 零命中。本轮 PanelHtml 源码未更改。
+- package.json / lock 根 / lock packages[""] 均为 0.5.422，runtime 源清单未产生差异；版本不再递增。之前旧 VSIX 已复制到仓库外 `previous-simple-experiment-0.5.422-ca130b16.vsix`，2689768 字节、SHA256 dc682f25bc2fb30083e9aa2dc61f15a2162894771d9e3dada0a3919b2db06758，保留原字节供对照。
+- 当前已满足完整 build 与双重语法门禁；下一步仅重打包并补齐同一新包证据。旧失败 149/150/151/176/184 的性质和日志保留；不把它们改成通过。尚未提交、push、终审、合并、发行或安装。
+
+### 20.10 中间 package 通过与最终整表反证修正
+
+- 185-package-frozen-takeover：真实 exit0、overall=passed、238 项通过、maxParallel / maxObservedConcurrent 均为 1，总时长 653689ms。中间 VSIX 为 2692568 字节、SHA256 c37f9aa12433aeb210b4058ca28b43c9964c7672d6e170f3994f03ac93e68c47，仓库外保留 intermediate-185-simple-experiment-0.5.422.vsix。此包产生后又修正源码，明确不是最终交付包。
+- 将原 §20 有限域的故障通道展开为 stream / snapshot / unknown，kernel 从 248832 扩大为 746496；T×I×budget 等价映射由 2985984 扩大为 8957952。199 真实 exit1 暴露 M=true 与 unknown 通道传输证据并存时，F 已为 H 而 closureReason 仍为 unknown-fault；按 N01 仅在统一决策函数调整 H 优先，204 全部 14 项通过。
+- reducer 矩阵追加 N05 / N07 的原契约反证：已知通道恢复不能把其后无匹配来源的其它错误文本认证为 resolved-history；覆盖 none / unknown / transport / hard / 未证明 resolved-history 五种来源。225 真实 exit1，原 lastError 被误认证为 N。修正为只允许真实 noteDisplayFault 入口记录的来源及同一文本在匹配恢复后成为历史，其它文本转入既有 unknown 故障保留机制；不解析错误内容，不新增网络或持久化账本。
+- 226-display-evidence-witness-fixed-takeover：exit0、14/14、无超时，包含全部有限域、N 88 组合 / A 768 组合、10 条连续链与增补 reducer 反证。206–223 的 18 个直接相关文件在 N01 修正后亦全部 exit0；最终小范围来源证明修正仍必须经过新的完整 205 build / 202 package，不能借 186 / 185 旧候选记录交付。
+- 以上均为 §20 已列语义的表内反证和统一 reducer 修正，原 GPT 指导、所有断言和超时阈值保留；没有新增外部协议/性能指标或收费服务器实验。当前尚未提交、push、交审、合并、发行或安装。
+
+### 20.11 远端并行任务推进造成新的交付阻塞
+
+最终 205 build 进行中重新查询真实 GitHub 更新源，最新稳定 Release 已为 v0.5.423（published_at 2026-10-28T06:32:16Z），绑定 7d2fbc6c68cef6f40669fbf115dd71441822ac46；git ls-remote 及 fetch 确认该提交也是当前 origin/master。PR #26（插件审计）已合入，修改 58 个文件，包含 runtime / Panel / 更新客户端安全修正及测试准备。PR #25 重新查询为 CONFLICTING，不能合并或把 0.5.422 提升为 Latest。
+
+真实原始回执：logs/228-live-latest-before-review.json、logs/229-fetch-new-master.log。未改任务分支、原工作区源码、版本或已发布资产；用户原要求保持 0.5.422，与禁止降级 Latest 无法同时完成后续发行。已请求用户选择是否允许在同一副本合入新 master、处理冲突并使用 0.5.424 后重新验证；答复前只完成既有候选的独立验证，不擅自整合或发布旧版。原基线 7a6062fa 仍是本任务冻结祖先，不以新远端引用冒充原基线。
+
+### 20.12 最终 0.5.422 候选完整 build 通过
+
+- logs/205-build-final-takeover.log / .exit.txt：真实 exit0、entry=build、overall=passed、228 项全部通过、maxParallel=1 / maxObservedConcurrent=1、未运行 0，总时长 630266ms。完整逐项原日志与回执：simple_cluster/reports/test-workflow/2026-10-28T07-41-45-240Z-53756-build/。此候选包含 §20.10 的最终来源证明修正，不借旧候选通过。
+- 两道 node-c gate 在本次 build 中通过；随后 logs/201-vmScript-final-takeover.log / .exit.txt 的独立 vm.Script exit0，零异常。logs/227-endpoint-audit-final-takeover.json 检查 src / dist 共 818 个列出文件，业务文本内 10890 与固定 127.0.0.1:18765 零命中。
+- 原 0.5.422 候选 package 202 继续完成已授权的独立验证，尚未结算，不先计通过。远端 0.5.423 / PR25 冲突的阻塞独立存在；验证通过不会自动豁免版本规则、授权整合或允许降级 Latest。
+
+### 20.13 最终 0.5.422 实包验证完成，后续交付因主线推进阻塞
+
+- logs/202-package-final-takeover.log / .exit.txt：真实 exit0，entry=package、overall=passed、238 项全部 passed，maxParallel=1 / maxObservedConcurrent=1，未运行 0；总时长 720082ms。逐项完整日志与回执为 simple_cluster/reports/test-workflow/2026-10-28T07-53-42-350Z-72488-package/，组装 gate12 成功，不包含 live install。
+- 最终 simple-experiment-0.5.422.vsix：2692706 字节，SHA256 b0d5b59eb108241201b09c4db0b2aec686ca8efbd6c440812d630c5053e4a253。逐包 .vsix.sha256 为 UTF-8 无 BOM，绑定精确文件名。此包未发行、未安装。
+- logs/232-package-identity-closure-final.log、195-package-runtime-inputs.json、195-package-evidence.json：真实归档身份 simple-local.simple-experiment、版本0.5.422、universal、VS Code ^1.100.0；package/lock/编译 runtime 版本一致。对真实 ZIP 内274个运行闭包/面板/资源文件逐项唯一存在与当前字节 SHA256 比对（package.json 检查身份和 engine）；Agent / Scheduler 内容哈希与清单相符。
+- logs/230-vsix-manifest-final.log / .exit.txt：exit0，351 ZIP 条目、leakHits=0、missingRequired=0、readmeViolations=0。logs/231-vsix-runtime-final.log / .exit.txt：exit0，268 本机模块、2 个入口闭包验证通过。未对运行中的面板、远端服务器或 Agent 执行验收或写入。
+- 当前代码验证与包证据已完成，但不等于交付完成。真实稳定 Latest 已为0.5.423、master为7d2fbc6c、PR25 CONFLICTING。用户关于同副本整合并使用0.5.424的选择仍待答复；保留全部改动与旧失败原文，未以旧0.5.422覆盖或降低Latest，尚未提交本轮增量、push、第五轮终审、合并、发行、安装或同步主仓。
+
+### 20.14 全索引预检与冻结提交边界
+
+234-final-preflight-takeover：只读 node D:/OpenChamber-AgentConfig/OpenChamberProjectSandbox/pi-task-preflight.mjs <handoff.json> 真实 exit0、ok:true、purpose=final、candidateFiles=34、artifacts=11、checks=82、semanticApproval=false。全部历史失败保留原状态；151/176 被用户新口径183完整通过替代，199/225 被统一 reducer 修正后226整表与205/202最终门禁替代，均在索引明确标历史，不伪造转绿。规定最终 build/package/vm/包门禁均为 required。
+
+索引生成器一度因预期的 git diff --no-index 返回1残留在 LASTEXITCODE，使调用层误报刷新失败；文件已成功生成，当时未启动预检。仅修仓库外生成器在全部原生状态检查、写入和UTF-8回读完成后显式退出0，之后234预检通过。此记录与最后文档状态写入后仍须重算全部 sha256 并执行同一只读预检，最终回执留在仓库外，避免索引自引用。
+
+本轮进入原任务分支的 scoped 提交/普通推送阶段，实际新 SHA 与 push/fetch 确认在仓库外日志登记；handoff.revision 明确仅为快照父提交 ca130b16，不冒充最终 HEAD。只发布本分支的已验证源码，不整合 master、不声称可合并，不运行第五轮终审或任何发行/安装操作。版本/冲突决策仍待用户答复；当前 .vsix 与逐包清单保留，不上传历史版本。

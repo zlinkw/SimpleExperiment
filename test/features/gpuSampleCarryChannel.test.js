@@ -28,7 +28,10 @@ function topLevelFunction(name) {
 const code = [
   topLevelFunction('gpuSnapshotRows'), topLevelFunction('isHardConnectionError'),
   topLevelFunction('objectRecord'), topLevelFunction('message'),
-  'class T {' + ['getWorkerTasks', 'readSnapshot', 'snapshotFallbackDelayMs', 'acceptWorkerGpuSample', 'isWorkerTelemetryEndpoint', 'workerEndpointId'].map(member).join('\n') + '}; T;',
+  'class T {' + ['getWorkerTasks', 'readSnapshot', 'snapshotFallbackDelayMs', 'acceptWorkerGpuSample', 'isWorkerTelemetryEndpoint', 'workerEndpointId',
+    // §20 evidence bookkeeping members that the snapshot path now touches; extracted verbatim so the
+    // poll path is exercised against the real code rather than a stub.
+    'displayEvidenceClass', 'displayEvidenceUnknown', 'retainUnknownDisplayFault', 'syncDisplayFaults', 'noteDisplaySuccess', 'noteDisplayFault', 'noteDisplayQueryFailure', 'clearDisplayFault', 'decideDisplayClosure'].map(member).join('\n') + '}; T;',
 ].join('\n');
 const Client = vm.runInNewContext(ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText,
   { AbortController, applySnapshot: Reducer.applySnapshot });
@@ -43,6 +46,8 @@ function clientHarness(carried) {
   client.status = 'sse';
   client.hidden = false;
   client.lastError = '';
+  client.displayFaultPending = 'none';
+  client.displayFaults = new Map();
   client.snapshotInFlight = undefined;
   client.snapshotAbort = undefined;
   client.protectedLogKeys = [];
@@ -66,6 +71,18 @@ function clientHarness(carried) {
 }
 
 const carriedSample = { schemaVersion: 1, source: 'worker_telemetry', generatedAt: iso(now - 500), status: 'ok', error: '', seq: 7, epoch: 'boot-a', gpus: [{ index: '0', memoryUsed: 2222, utilization: 55 }] };
+
+test('a carried sample cannot resolve a later snapshot-channel failure without a new successful read', async () => {
+  const h = clientHarness({ schemaVersion: 1, executionOnly: true, queryComplete: true, tasks: [], gpuSample: carriedSample });
+  await h.client.getWorkerTasks({ executionOnly: true });
+  h.client.noteDisplayFault('transport', 'snapshot', h.client.connectionGeneration);
+  const before = h.client.workerGpuUpdatedAt;
+  await h.client.readSnapshot(false, true);
+  assert.equal(h.reads.gpu, 0, 'the existing carried-sample deduplication remains intact');
+  assert.equal(h.client.workerGpuUpdatedAt, before, 'reusing data does not change its evidence time');
+  assert.equal(h.client.displayEvidenceClass(), 'T', 'success before the fault cannot prove recovery');
+  assert.equal(h.client.displayFaultPending, 'transport');
+});
 
 test('an execution inventory carrying the Worker sample updates the existing in-memory GPU state without re-stamping its time', async () => {
   const h = clientHarness({ schemaVersion: 1, executionOnly: true, queryComplete: true, tasks: [], gpuSample: carriedSample });

@@ -153,6 +153,8 @@ PanelHtml.ts 默认委托 legacy（证据 §7/E01）；FEATURE_FACTORY_PANEL=1 �
 
 ## 6. TODO 分块与验证矩阵
 
+当前候选状态以文末承接记录为准。下表“已完成”描述此前已验候选；§20 及本次增量尚未完成 build/package，不继承为当前候选通过。
+
 实施由主控续接原任务的实现负责人，GPT medium 对方向/最终候选负责；本规划代理不派发实现者、不在本轮跑测试。下表顺序整合，单个功能块稳定后再验证，避免多写入者同时改 legacy.ts。
 
 | 块/状态 | 依赖与读范围 | 预计写范围（均为后续实施） | 检查命令/断言与预期 |
@@ -638,3 +640,222 @@ logs/112-8为12/12，112-11为16/16；112-61实际内联脚本2/2，112-7 GPU夹
 - 串行回归仍有 2 条已登记的基线既有失败（行数门、GitHub 发布文案），本轮退出码与原因逐字记录，未改生产代码规避。
 - 字节/费用节省率仍未实测；本轮不新增任何阈值或门槛。
 - 远端发行与本机安装保持暂停，最终交付由主控确认。
+
+## 19. r2-final-4 第四轮最终审核结论（GPT reviewer，2026-10-28）
+
+### 19.1 结论与身份
+
+**仍需返修，必须返修1项：新markDisplayAutoClosed在“成功活流但lastError仍非空”分支不幂等，同一关闭会因重复策略从主动关闭变成假离线。** §17.3原来的paused/未成功connecting绕过已修复；B2保持关闭，但不能因此批准整体候选。当前不能按长期授权合并PR #25、发行或安装本次0.5.422。本轮只追加本章，未改源码、测试、版本、Git索引，未运行新测试、构建、打包或外部服务器操作；本人审核阶段完成，返修耗时暂无法可靠估算。
+
+- 实际HEAD **ca130b164227668e2da8eab9dfeba71c42c82d0f**，基线7a6062fa10441cc5852166a34138781a2604d9e9至HEAD为10个提交；增量9c153ed7实现与ca130b16登记符合本轮范围。
+- 索引SHA256 **1e95fd33bb4bdc01def2062ed51e94f383f2208a1c3e74f3cab433e087a69b7a**；29个candidate.files、6个artifacts、23条checks。全部96条带path/sha256的引用核验相符，核验前工作区干净。package.json/package-lock.json均0.5.422；VSIX **2689768字节**，SHA256 **dc682f25bc2fb30083e9aa2dc61f15a2162894771d9e3dada0a3919b2db06758**，包登记与实际字节一致。
+- 身份/增量核验exit=0原始日志：host-native/diagnostics/host-windows/27ad43b7-04cf-4378-be16-7c4d6511015e-stdout.log；已有门禁/重复运行摘要读取exit=0：同目录afbefc43-d445-4096-8541-502c90dada49-stdout.log。本轮未重新查询远端PR、Latest或安装状态，不把交审OPEN/MERGEABLE当本轮远端实测。
+- 追加本章后plan指纹变化，主控须更新handoff该项；96条全匹配只指追加前冻结候选，不适用于追加后的原索引。
+
+### 19.2 §17.3已修复部分与新回归（必须返修 / high / 1项）
+
+位置：src/tunnel/RealtimeTunnelClient.legacy.ts:494–503（特别:499–501）、:194–205 disconnect、:523–535重复updateRefreshPolicy；真实Worker软错误入口:724–729；宿主ensureRealtimeConnected的connect/diagnostics/applyTrafficScheduling链见src/extension/legacy.ts:5605–5642。
+
+本轮显式成功字段在真实WS onopen（实际:591）、SSE建立（:630）、成功接受snapshot（:737）写入；connectionLost与非paused/display-auto关闭清零。现有新增组合断言能证明软/硬故障→paused、故障→未完成connecting不再被重认领；未成功startPolling不写成功字段也正确。无错暂停后主动关闭不伪造离线。上述原缺口已关闭。
+
+**但helper新增的有错误分支，既允许在live+verified时认领，又在关流后的下一次相同调用中撤销认领。** 静态确定的状态表如下（期间没有任何新连接故障）：
+
+| 步骤 | status | lastError | verifiedDisplayRound | helper写displayAutoClosed |
+| --- | --- | --- | --- | --- |
+| 有真实成功证据的活流，存在未清的错误/警告 | sse或websocket | 非空 | true | 尚未调用 |
+| 开启低流量，disconnect("display-auto")进入helper | live=true | 同一非空值 | true | **true** |
+| disconnect结束，只因策略变成disconnected | disconnected | 同一非空值 | true（刻意保留） | true |
+| 再次同policy或connect低流量早退，重新进入helper | live=false | 同一非空值 | true | **false** |
+
+最后一步是:501的live && verifiedDisplayRound直接赋值导致，不是新故障证据；所有端点相同时，聚合displayAutoClosed从true变false，宿主下一次ensure据此报tunnel_unavailable，可能制造local_port_closed。重复策略在宿主多入口必定可用，不是未来假设。
+
+这不只涉及§17.5已排除的泛用非telemetry旧路径：**真实Worker活跃SSE/WS建立后verified=true，某次GPU快照软失败会走:729，仅写“遥测查询待核实：...”而明确不关闭独立活流，也不撤销verified。** 此时点击低流量即进入上表；第一次合法主动关流到第二次收敛之间没有新端口失败，却变为离线。反过来，verified布尔值只表示该连接曾成功，不能证明成功发生在lastError之后；本次“有错但verified即已恢复”的条件也不能自动视为更新成功证据。不应通过清掉真实快照错误文本求幂等。
+
+新增15项测试（含两次重复）都未触达live=true、verified=true、lastError非空的新增分支：故障序列在connectionLost后verified已清零，恢复仍是只计数stub；反证序列完全没有lastError。重复执行这些用例不能覆盖上述状态。
+
+通过条件：对同一真实关闭原因重复policy/connect必须幂等；只有新的真实故障证据才能把合法主动关闭改成故障归因，只有相对该故障更新的实际成功证据才可解除真实故障。保留Worker软遥测失败的真实提示，但不能把仍可用的独立流被策略关掉解释成端口关闭；不得恢复A类自动请求来探活或无条件清lastError。补真实client/aggregator/宿主序列：实际流成功→快照软失败仍保持流→开启低流量→重复同policy/connect/ensure，逐步核对归因不凭空翻转、无假离线；同时保留真实软/硬故障、paused、connecting原组合。实现可复用现有关闭原因/成功证据，不要求治理整个泛用连接层或扩大协议。
+
+### 19.3 合法恢复、暂停与既有残留定性
+
+正常Worker成功snapshot仍在:744附近清lastError，下一次纯策略关闭可稳定认领；paused本身不证明故障恢复，现新条件在有错且非live时拒绝并写false符合§17.3。B2及正常模式原节奏本轮未改，未发现其新增问题。问题集中在19.2的有错活流关闭后重复应用，不要求为未成功连接假报在线。
+
+§17.5泛用非telemetry成功后未统一清lastError的全局治理仍是非阻塞建议，本轮保留1条、没有新增非阻塞建议；不要求借本任务重构全部清错策略。**本轮新helper直接读取lastError并影响归因的实际Worker回归则是必改，不能套用旧路径非阻塞结论放过。** 先前工作流登记/历史技术债建议保持原分类，不自动扩大本轮TODO。
+
+### 19.4 必需验证真实性与续接
+
+12条required全部complete=true/status=passed/exitCode=0，原始日志和输入引用指纹相符。logs/120-compile-r2final3.log、124-build-r2final3.log、126-package-r2final3.log均有node-c两个gate exit=0；build overall=passed files=228，package overall=passed files=238、maxObservedConcurrent=1。logs/125-dual-gate-r2final3.log记录vm_script_ok、内层片段反斜杠0、中文/身份guard自查、10890 src/dist=0及固定127.0.0.1:18765 src=0；本轮PanelHtml未改，实际内联脚本122-61仍2/2通过，不拿模块语法检查代替内联检查。
+
+logs/121-2返修15/15、121-3两次重复各15/15，122-11策略16/16；123串行回归69文件记录67个exit0、2个exit1，仍为已核基线行数门和GitHub阶段文案失败，不放宽门禁、不要求治理无变化历史问题。23条checks中历史失败按原分类保留，未将failed伪装成passed。字节/费用节省率仍未实测，不能作通过证据，也不是门槛。
+
+验证真实与19.2缺失行为覆盖须分开。原实施者同副本续接这一组必改，冻结后补相关真实断言、必要门禁及与源码一致的新VSIX/索引，再增量补审。当前不合并、不发稳定Release、不执行install:latest；最终交付仍由主控确认。
+
+## 20. 展示主动关闭认领判定的完整决策表（GPT规划，2026-10-28）
+
+### 20.1 固定范围与统一语义
+
+本节一次性替代§17.3、§19.2中零散的helper分支建议，作为同一B1必改项的完整实现/验收契约，不覆盖历史记录。本节不是通过结论：当前候选仍未获准合并/发行。本轮仅追加计划，没有修改实现、测试、版本或Git索引，也没有执行测试。
+
+**核心决定：关闭归因只由“本次关闭原因 + 尚未解除的真实传输/硬故障”决定，不由关闭前后status或lastError字符串是否为空决定。** 软展示查询错误必须保留，但不是独立活流断线证据；无错误的未完成握手被用户模式取消，也不是网络故障。认领只解释为何没有展示通道，绝不证明服务器在线、健康检查通过或任务完成。
+
+为此允许在现有client内最小增加/调整内存归因字段，区分故障来源与先后顺序；不能只在当前布尔表达式上继续加status分支。不得引入额外远端探活、科研环境检查、请求配额、协议或持久化状态文件。正常模式既有网络行为不变；本节只约束展示关闭归因与与其直接相关的假离线抑制。
+
+### 20.2 全部输入维度、取值及有效集合
+
+| 输入 | 取值与含义 | 对判定的约束 |
+| --- | --- | --- |
+| endpoint/clientGeneration | 当前精确端点与client连接代际；当前/已失效 | 旧代际回调不得改当前归因 |
+| K：本次操作 | passive（只查询/正常策略无关闭动作）；close（显式处理关闭）；stale（失效回调） | passive/stale不做新认领，不得顺便改归因 |
+| G：展示闸门 | enabled/disabled（displayAutoRefresh true/false） | close(display-auto)只在disabled有效；enabled时请求该原因按passive处理，不伪造一次关闭 |
+| S：连接状态 | D=disconnected；C=connecting；P=paused；E=已建立websocket/sse；Q=polling | 不把Q（正在等首个snapshot）当成功；E区分WS/SSE实现但归因规则相同 |
+| V：verifiedDisplayRound | false/true | 只是成功证据输入，不单独说明成功晚于故障；不得用live && V决定关闭归因 |
+| successRelation | none；beforeFault；afterFault（含成功类别、端点、代际及顺序） | 只有同身份、能验证对应失败通道且更晚的成功才能解除该故障 |
+| L：lastError | empty/nonempty；文本原样保留 | 文本不是故障分类器，不解析中文/英文字符串判定来源 |
+| M：requiresManualReconnect | false/true | true优先归为硬故障，绝不能因普通展示成功或策略切换自动解除 |
+| evidenceOrigin | none；soft-display；transport；hard；resolved-history；unknown | 来自实际写错/成功入口，不从S、V、L倒猜 |
+| faultPending | none；transport；hard（独立于最后一条文本） | 后来的软提示或清文本不能抹掉尚未解除的真实故障 |
+| T：策略调用类型 | 首次初始化到低流量；真实正常→低流量转移；同策略重复应用 | 前两者合为表中“新应用”，第三者为“重复”；状态查询不算策略应用 |
+| I：是否首次关流 | 当前client生命周期从未处理过display-auto / 已处理过 | 两者均覆盖；首次初始化可以就是同策略重复调用，不能把T和I强行等同 |
+| R：本次关闭原因 | display-auto；paused；other（manual/reconnect/dispose/deactivate等原原因） | 一次调用只能有一个原因；原因不等于传输健康 |
+| C：上次关闭原因 | none/display-auto/paused/other | 记录精确原因；不能由当前disconnected反推；最新真实故障撤销旧display-auto解释 |
+| A：原displayAutoClosed | false/true | 必须覆盖两个原值，包括错误遗留true；不能靠初始值碰巧正确 |
+| budget/用户全暂停 | paused/not-paused | 不新增联网，不改变预算；全暂停时不发布网络不可用，故障证据仍保留到恢复后 |
+
+有效集合用有限枚举的**笛卡尔积 + 下列约束**定义，不暗留“其它分支”：
+1. S的WS/SSE合为E但至少各有一条真实入口轨迹；C必须覆盖V=false和V=true（Worker快照可在WS onopen前先成功），Q也必须覆盖V=false/true，P/D同样两值。不能以“connecting从未成功”排除C,V=true。
+2. 当前原生入口稳定状态中E,V=false以及M=true且S为C/E/Q一般不能由正常成功回调产生，但本轮**统一列为必须覆盖的保守输入**，不借“不可达”删除；结果仍由下表决定。M=true无论其它字段如何都不得认领。
+3. “原因同时是paused和display-auto”“一个枚举同时取两个值”“同一回调既当前又失效”是定义矛盾，排除；拆成按实际顺序的两个事件，而不是生成一行。T只有一个值；I不与T绑定。successRelation=afterFault必须有匹配身份/类别的真实成功事件，否则归入unknown，不能自证成功。
+4. K=close、R=display-auto、G=enabled这一矛盾请求归一化成passive；stale优先于所有其它输入。disposed旧实例回调按stale，不作为活动client的第六个状态。
+5. 除上述定义矛盾，所有枚举组合均落入下表的全称通配范围，**不得再以未经证实的不可达为理由漏测**。本节不存在需留待下一轮猜测的状态组合。
+
+### 20.3 故障证据归一化表（8行，按优先顺序；输出F）
+
+F只取N（无未解除故障，可含已解除历史文本）、W（仅软展示错误）、T（未解除传输错误）、H（未解除硬错）。先按20.5的事件规则更新证据，再按本表分类。表内“任意”涵盖20.2有效集合全部剩余取值。
+
+| 行 | 有效输入条件（排除更高优先行） | F | 必须保留内容 |
+| --- | --- | --- | --- |
+| N01 | M=true，不论L/V/S及其它证据 | H | 硬错与人工重连限制，不能认领主动关流 |
+| N02 | M=false，但faultPending=hard且尚无获授权、匹配的新成功 | H | 硬错归因；开始重连不算解除 |
+| N03 | faultPending=transport，L=nonempty | T | 传输故障，后续软提示覆盖文本也不能改分类 |
+| N04 | faultPending=transport，L=empty | T | 清空文本不等于修复故障 |
+| N05 | 无H/T，L=nonempty且来源unknown/none/未标注，或被标作transport/hard/resolved-history但无匹配解除证据；明确soft-display除外 | T | 明确记“连接证据未知”，保守不认领；不能展示为已验证端口关闭 |
+| N06 | 无H/T，仅soft-display错误（L可空或非空） | W | 原软错误/未检查提示；不升级成端口关闭 |
+| N07 | 无H/T/W，L=nonempty，且只是已由匹配新成功解除的历史文本 | N | 可保留历史诊断；不再作为当前故障门禁 |
+| N08 | 无H/T/W，L=empty | N | 未探测仍未探测，不能发明在线证据 |
+
+N05不是未来兼容功能：现有lastError多入口写入必须逐一标注来源；setHidden连接失败catch、connect的WS/SSE fallback错误、ws.onerror、journal-gap snapshot失败等不能遗漏。实现应让当前正常入口进入N01–N04/N06–N08；N05作为来源确实缺失时的显式未知边界必须断言，不允许静默归为健康。不得只靠清L使N05变N08而丢掉未知归因，应将其保留为faultPending，直到匹配成功或明确确认它只是软展示问题。
+
+### 20.4 关闭动作决策表（18行，互斥且穷尽）
+
+每行S/V/L/M/I/C/A均取20.2有效集合中**与归一化F一致的全部值**；G、代际和K先按20.2归一化。列“写回”表示把A及原因收敛为确定值；若值已相同可物理跳过赋值，但不能漏做结果/故障断言。除stale外，错误文本不能被本判定清除。
+
+发布列是**由本次归因允许新增/保持的宿主错误**，不是承诺健康：不得伪造在线、checkedAt或local_port_closed。全暂停时一律不新发tunnel_unavailable；暂停解除后仍按保留故障重新判断。聚合规则见20.6。
+
+| 行 | K / R / T | F | A结果 | 认领本次展示关闭 | 写回/原因 | 故障归因 | tunnel_unavailable |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A01 | stale，任意R/T | 任意 | 保持 | 否 | 不写 | 当前全部保持 | 不因旧回调新增/撤销 |
+| A02 | passive，任意R/T | 任意 | 保持 | 否 | 不写 | 全部保持 | 沿原正常/暂停规则；不由本判定增删 |
+| A03 | close / paused | N | false | 否 | 写false，原因paused | 未探测不改为通过 | 否（本次是用户暂停） |
+| A04 | close / paused | W | false | 否 | 同上 | 保留软错误 | 否 |
+| A05 | close / paused | T | false | 否 | 同上 | 保留传输错误 | 暂停期间否，恢复后可报真实错误 |
+| A06 | close / paused | H | false | 否 | 同上 | 保留硬错/限制 | 暂停期间否，恢复后可报真实错误 |
+| A07 | close / other | N | false | 否 | 写false，原因other | 无新故障 | 正常模式沿原规则；不能称已验证端口故障 |
+| A08 | close / other | W | false | 否 | 同上 | 保留软错误 | 正常模式沿原规则，不能由W证明端口故障 |
+| A09 | close / other | T | false | 否 | 同上 | 保留传输错误 | 可（活动当前端点确实不可用时；N05显示未知） |
+| A10 | close / other | H | false | 否 | 同上 | 保留硬错/限制 | 可（不能将401解释为已证实端口关闭） |
+| A11 | close / display-auto / 新应用 | N | true | 是 | 写true，原因display-auto | 保持未探测/历史事实 | 否 |
+| A12 | close / display-auto / 新应用 | W | true | 是 | 同上 | **保留软错误** | **否** |
+| A13 | close / display-auto / 新应用 | T | false | 否 | 写false；不得用display-auto覆盖故障原因 | **保留传输错误** | 可；N05只能报连接未知，不声称已检查端口关闭 |
+| A14 | close / display-auto / 新应用 | H | false | 否 | 同上 | 保留硬错/限制 | 可；保持真实认证/配置原因 |
+| A15 | close / display-auto / 同策略重复 | N | true | 是（重申同一原因，不是新故障/新请求） | 同A11 | 保持 | 否 |
+| A16 | close / display-auto / 同策略重复 | W | true | 是（同上） | **同A12，不能因S变D改false** | **保留软错误** | **否** |
+| A17 | close / display-auto / 同策略重复 | T | false | 否 | 同A13；纠正遗留true | 保留传输错误 | 同A13 |
+| A18 | close / display-auto / 同策略重复 | H | false | 否 | 同A14；纠正遗留true | 保留硬错/限制 | 同A14 |
+
+“新应用”包括初始化低流量与真实正常→低流量转移；须分别实例化。A13/A17必须覆盖首次关流I=true和I=false；A11/A15同样覆盖，不能用“不是第一次”维持错误true。C和A错误遗留也必须按本表纠正。由此“首次认领”和“同策略重复”不再有不同的健康推理。
+
+### 20.5 事件更新与参考判定（不新增网络）
+
+归因的事件来源必须闭合，不能把顺序语义藏进verified布尔值：
+- 当前代际connectionLost、真实握手/stream故障、ws.onerror且尚无更新的有效恢复证据：置相应T/H，撤销旧display-auto归因。硬错误保留人工重连限制。**pause、切策略、disconnect均不是恢复事件。**
+- 独立活流保持建立时GPU快照/展示查询软失败：记W并保留真实提示，不置T，不撤销合法主动关闭原因；若此前已有T/H则仍为T/H，不能被W覆盖。
+- 当前代际、匹配失败类别的实际WS/SSE建立，或polling对应snapshot被接受：才可解除被其证明恢复的T。成功早于故障、仅startPolling、仅connect调用/计数、排入队列、旧回调都不算。HTTP展示快照成功不自动证明另一个WS通道故障已恢复；记录最小source/序号或等价因果状态即可。
+- H只能在既有显式人工重连/重新检测流程授权后，由匹配的新成功解除；本地提前把M=false不等于清H。不能为本功能自动重连硬故障。
+- verifiedDisplayRound仍可供诊断/成功证据使用；其true只有连同身份、类别和先后关系才能说明恢复。无须给所有操作新增独立历史账本，只存当前未解除故障与最近相关成功的最小证据。
+- 新实例明确初始化无继承故障，不把另一个client/Worker的成功复制过来。源码中所有lastError写入口须对照这四种来源作一次清单；没有来源的值按N05，不新增解析文本的兜底。
+- 低流量下允许用户主动的真实手动刷新；其成功仅解除自己确实验证的故障，不借机创建展示自动流或把未知标在线。
+
+参考伪代码（唯一认领式；evidenceReducer按上述事件语义执行，测试必须同时覆盖reducer和调用链）：
+
+    function decide(input, previous):
+        if input.isStale:
+            return KEEP_ALL
+        if input.kind == passive or
+           (input.reason == displayAuto and input.displayAutoRefresh == true):
+            return KEEP_ALL
+        F = classifyCurrentEvidence(input)  // N01..N08，已处理当前事件，非解析lastError
+        claim = (input.reason == displayAuto) and (F == N or F == W)
+        return { displayAutoClosed: claim,
+                 closureReason: claim ? displayAuto : actualNonDisplayOrFaultReason(input),
+                 preserveFaultAndWarning: true,
+                 noNewNetwork: true }
+
+其中actualNonDisplayOrFaultReason：R=paused/other记录原原因；R=display-auto但F=T/H保留原fault/unknown原因，不把错误close原因改写成display-auto。A01/A02不调用此函数产生写回。paused/other允许保留独立故障字段，不能只有一个互相覆盖的reason字符串。
+
+**幂等性：同一身份、原因及未解除证据下，f(f(x))=f(x)；策略关流导致S由E/C/Q/P变D不算新故障，也不改变F。** 首轮A12到重复A16永远true，N也同理；T/H首轮及重复永远false。仅新故障/匹配恢复、明确新关闭原因或代际变化才能改变结论。无新事件时重复调用不得改变错误文本、M、证据时间或重新发请求。
+
+### 20.6 宿主汇总/错误呈现的有限配套边界
+
+单client表不能被宿主“全disconnected就端口关闭”重新推翻：
+1. 全部当前启用端点为A11/A12/A15/A16：禁止由展示通道状态新增tunnel_unavailable/local_port_closed，也不得生成在线状态。
+2. 端点为T/H且无可用传输，保留真实错误（认证错仍是认证错，未知仍是未知）；另一健康/策略关闭端点不能吞掉它。多Worker混合状态必须保留逐端点故障，不要求为一个故障把所有Worker报离线。
+3. 全暂停/用户paused只展示暂停和已有诊断，不把暂停自身报网络断线；resume不是恢复证明，恢复后T/H仍按表上报。不得因budget暂停早退清掉故障。
+4. 正常模式无display-auto请求时不由本功能改写原有连接节奏、任务接口、同步或整体健康状态；本次只修与主动关流有关的错误归因。不能据此改掉其它独立错误/安全校验。
+
+### 20.7 穷尽性与实施验收（本次固定，不再猜分支）
+
+**表的穷尽口径是8行证据归一化 × 18行动作分区的组合有效域，而非只测试26个幸运样例。** 每个原始有效输入先唯一命中N01–N08，再唯一命中A01–A18；passive/stale无须重新分类也不能漏保留证据。所有“任意”是全称量词，不是实施者自由挑一个代表。用纯内存表驱动生成20.2有限取值，过滤仅限其明确的定义矛盾；对每个有效向量断言输出、认领、写回/保持、故障、发布许可，并重复一次断言幂等。可按等价类压缩重复fixture，但必须报告被覆盖的维度取值集合/笛卡尔积映射，不能只给26行各一个值却声称全组合。
+
+最低登记是**26个逐行表驱动用例（N01–N08、A01–A18，每行至少一个非空断言集合）+ 以下10条连续调用链**；通配值展开产生的额外实例也必须执行。这个数量来自本契约的语义分区，不是新增性能/覆盖率百分比门槛，不能通过改数字免测。保留原15项相关断言，等价参数化可以合并进程，不删除其语义。
+
+连续链至少：
+1. 真实Worker SSE成功→GPU快照软失败、独立流仍活→首次低流量→重复policy/connect/ensure，A12→A16，无假离线且软提示保留。
+2. 同1的WS成功路径，确认onopen与旧代际onopen不能交叉写证据。
+3. polling首snapshot尚未成功→被模式取消且无故障，N/A11→A15，不把取消报故障；另加snapshot真实失败反证进入T。
+4. 真实软传输断连→paused→重复策略→resume，A05/A13/A17，不能因暂停/恢复消除T。
+5. 真实硬错（401）→同4，M/H保持；普通snapshot/同策略不能解除限制。
+6. 真实失败→恢复握手尚未完成→再开低流量，T保持；反证：无故障的C,V=false及C,V=true取消均不能发明离线。
+7. 错误之后匹配新成功→再低流量，N或W稳定true；反证：错误之前的成功及其它端点/代际成功均不能清T/H。
+8. 合法策略关闭后新真实故障→重复策略，true必须转false；没有新故障时不得转false。清L但faultPending仍在也不得转true。
+9. 两Worker：一个纯策略关闭、另一个T/H；逐端点真实错误保留、不串成功证据、不把全部展示关流报成全部端口关闭。
+10. 重复调用、无效的display-auto+正常G、旧回调/已销毁client、用户全暂停及resume先后；无新网络、无越代写回，正常模式原调用轨迹保留。
+
+本表列出的当前入口、分类及混合组合就是本次归因功能验收范围。实现与表不一致须返修；之后不能只凭“还可能有其它status分支”扩充门槛。若后续证据确实证明本节未枚举的新外部协议/新状态/新故障来源，必须先标明它不在本次封闭模型中、给出现实可达证据并交主控决定范围，而不是静默增补分支测试。当前已知范围没有残留未知：远端错误内容不确定但已由来源分类/unknown覆盖；网络延迟与回调任意顺序由代际及事件顺序覆盖，不需要收费服务器或压测。
+
+### 20.8 与历史结论的对应及交接停止条件
+
+- §17.3的“有故障paused/未完成connecting不能认领”由N01–N05+A05/A06/A13/A14/A17/A18及连续链4–7接管，保留故障这一结论不变。
+- **取代其过宽说法**：“connecting一律拒绝”仅适用于有未解除故障；没有故障、纯因模式取消握手按A11/A15，不得制造离线。“paused一律拒绝”同样不是完整规则，无故障时按A11/A15，预算暂停仍不联网。
+- §19.2的“成功活流+非空lastError”必须拆成来源：仅W或已解除历史文本按A12/A16或A11/A15；未解除T/H按A13/A17或A14/A18。非空字符串与V=true不再直接决定健康，首轮/重复分支不得相反。
+- §17.5全局泛用lastError清理仍不是本任务重构目标；但它与本判定交汇的历史文本按N07/unknown按N05已完整覆盖，不能再以旧建议豁免本表。
+- B2、A展示自动请求为0、B/C任务正确性、同步/结果收集、停止/清理安全、正常模式默认和原节奏均沿原契约；本节不重开这些已关闭问题。
+- 实施者按本节一次完成归因证据/reducer、认领函数和表驱动断言，冻结后按实际影响验证、必要编译/模板门禁、打包并更新handoff。只汇报表行覆盖、真实失败与产物身份，不再请求GPT逐分支猜测。未通过前仍不合并/发行/安装。计划新增后更新plan指纹由主控/实施者在交审登记时办理，本规划阶段不改索引或Git状态。
+
+## 21. 承接实施状态（2026-10-28，原 GPT 指导不变）
+
+| 项目 | 当前状态 | 证据 / 剩余 |
+| --- | --- | --- |
+| 原副本 / 未提交改动 | 原样承接后在本副本修正 | HEAD ca130b164227668e2da8eab9dfeba71c42c82d0f；未 stash/还原/清理，主仓未写入 |
+| branchProjectRegistry 单跑 | 原用例限时完整通过 26/26 | 183 exit0、84.005s、C5 15.692s；Node 20000ms 与既有 C5 30000ms 未改 |
+| formalJobPreflightFailure 单跑 | 通过 | 152 / 188 exit0；原 150 是虚拟耗时断言失败，不是进程超时，不能定性为纯并发 |
+| 测试准备修正 | 全部断言与阈值保留 | Git 模板独立字节复制；TMP 每次隔离；Scheduler 函数 AST 准备移到 scaled clock 之前，六消费者 187–192 通过 |
+| §20 表驱动实现 | 已完成整表对齐，最终完整门禁进行中 | 每通道独立故障与匹配恢复；硬错优先；未知归因不随清文本消失；恢复历史绑定真实写错来源和文本；旧回调/销毁不写；低流量不伪造端口检查 |
+| §20 断言 | 最新专项 226 通过 14/14 | kernel=746496，映射有限向量=8957952，各双次幂等；N 88 / A 768 逐行展开、10 条真实链、reducer 矩阵；原 15 相关项保留 |
+| 完整 build / package | 最终当前候选均通过 | 205 build 228 passed、exit0、630266ms；202 package 238 passed、exit0、720082ms。旧 186 / 185 仅为历史 |
+| vm / 端点 / 实包 / 索引 | 全部通过，提交冻结前再次重算确认 | 201 vm exit0；227 端点零命中；195 包身份及274文件匹配，230/231 内容及闭包 exit0；234预检 ok:true / semanticApproval=false，文档收口后再重算和只读复核 |
+| PR / 版本 / 发行 / 安装 | 当前验证增量进入 scoped 提交/普通推送；交付阻塞 | PR #25、0.5.422；具体新SHA和push/fetch结果以仓库外日志为准；未整合master、终审、合并、发行、安装或同步主仓 |
+
+当前 TODO：文档收口后重算全部 sha256、只读复核并提交/普通推送当前已验证增量。后续主线已推进至0.5.423且PR25冲突，等待用户明确版本/整合选择；未获答复不擅自改0.5.424或用0.5.422降级Latest。若获准整合，在同一副本保留本轮改动、完整保留新主线安全修正，重新验证和打包真实新候选，再 scoped commit / 普通 push 更新 PR25 → GPT openai/gpt-6.1-sol medium 第五轮终审。终审通过后才连续合并、fetch核实、稳定发行与真实Latest、同版本至多一次安装、通知重载、仓库外备份并快进同步主仓。真实流量字节和费用仍待实测，不作已验证结论。
+
+授权与失败口径保留：用户先允许排查 branchProjectRegistry 准备成本并验证一次；151 / 176 的整文件 20 秒外层终止及 176 的旧 child-worktree 碰撞均不计通过。执行器改为 probes/<LogStem>.environment 每次独占，不删除旧夹具。用户随后明确“授权按原用例限时重新验证”：撤销本轮新增的整文件 20 秒看门狗，Node 20000ms 与 C5 原有 30000ms 不变；外层总保护仅取 26×20s+10s=530s。183 是此口径下的一次完整验证。184 build 的首次真实进度前 AST 准备成本失败，以及 199 / 225 整表反证暴露的归因缺口，原日志保留；只有修正后的真实通过记录可替代当前门禁，不把历史失败改成 passed。详情见 evidence §20.5–20.10。
+
+最新外部阻塞：origin/master / 稳定 Latest 已被 PR26 推进至 7d2fbc6c / 0.5.423，PR25 为 CONFLICTING。0.5.422 不得降级 Latest；已向用户询问是否允许同副本合入并使用 0.5.424。答复前保持版本及原改动，不合并、发行、安装或同步主仓。见 evidence §20.11。
