@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.429",
-  "buildId": "c09b09875289933ecfe05acc36d9e7809e5b055c2ce34205be5594f891754ced",
+  "version": "0.5.430",
+  "buildId": "3b337abc8f2a453acc1723ffc1b87424cd4498c93700808852b5afaa7da21a5d",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -269,7 +269,7 @@
     },
     {
       "path": "dist/extension/PlanCodeScopeHost.js",
-      "sha256": "dd14f7cc3fdc3143fb024d51cd76d44c9a45176aed922fd3b5603bf82baca381"
+      "sha256": "4faaa8cf593fa3bc08fa66274c6a044235261380d24c043ca0072a2e82c59a2a"
     },
     {
       "path": "dist/extension/PlanRunHost.js",
@@ -857,7 +857,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "0ebd7477651b67121ef9a062532cff3a58e6a39cdaf7c61d308f57eaba043647"
+      "sha256": "db48e4de01d771a3b829d576fb835d6332426bbd4bad178680612729f5a03c4f"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1209,7 +1209,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "b6e923f56bb2bad9ff518c8c6c1a6065b05a21eded969e3165fe66628bcc18a7"
+      "sha256": "ab7004888986b2e246a80c367f54352a76cf83e29e12dc4c0755d2ea5ab29389"
     },
     {
       "path": "scripts/check-static.js",

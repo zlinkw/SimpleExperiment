@@ -51,7 +51,9 @@ function response(plan: any, value: any): PlanExecutionSource {
   return source;
 }
 async function inspect(h: any, workerId: string, plan: any, source?: PlanExecutionSource, signal?: AbortSignal) {
-  const options = { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000) };
+  // The HTTP client owns the 15s inactivity deadline after budget admission.
+  // A caller's cancellation still covers queueing; queue wait is not network inactivity.
+  const options = { signal };
   const target = h.workerActionTargets?.().find((row: any) => row.id === workerId);
   const index = target && h.projectFileObservationIndex?.(h.sftpServerOptions?.(target));
   const load = async () => {
