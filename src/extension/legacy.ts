@@ -11599,6 +11599,14 @@ reportStage("正在准备校验所需代码…");
      * 只在 `upload.workspace` 调用期间存在（无论成败都注销），用于在操作项不带主机/路径时也能认出“这是本轮刚启动的上传”。
      */
     private codeUploadRoundWriteEpochs: Map<string, Set<{ targetKey: string; startedAtMs: number }>> | undefined = undefined;
+    /**
+     * 「取消也救不回来」的未完成项提示台账（被拒、结果不明确、寻不到身份、取消后始终不落地）。
+     * 只用于下一轮的覆盖确认框如实列出，不是写入所有权表：这里不释放未知写入、保留租约或围栏，
+     * 条目上限只为防内存无限增长，淘汰最早条目也不会让任何目标变得可以写。
+     */
+    private codeUploadStaleSuspects: Map<string, any> | undefined = undefined;
+    /** 本轮（同一 syncId）的历史记录覆盖决定：批准与否、批准了哪些目标与哪些记录身份。 */
+    private codeUploadStaleRounds: Map<string, any> | undefined = undefined;
     private distributedTickSeq = 0;
     /** 每 Worker（按实际写目标）独立的传输/校验/proof 阶段，不折叠成“全部成功”。 */
     private codeSyncTargetResults: Array<Record<string, any>> = [];
@@ -12144,26 +12152,66 @@ reportStage("正在准备校验所需代码…");
                 : `同一次同步已有分支在该实际目标上写入（${stage}）`}，本分支只排队等锁，不取消自己人的传输` });
         if (currentBatchWriting()) return siblingReceipt("接管入口处");
         const first = await this.verifyCodeUploadTargetQuiescentLocal(target, targetKey, syncId);
+        /**
+         * 覆盖接管的唯一出路：本轮已在只读预检时把这批记录列给用户（或它们已按 3 小时自动过期），
+         * 且现在剩下的每一项都在那张清单里。它不把“取消未落地”谎称为静默，只给出诚实的覆盖回执；
+         * 清单里没有的新身份一律停下，不弹第二个模态框；本轮兄弟项永远不在清单里。
+         */
+        const staleReceipt = (state: any, blockers: any[], why: string, cancelledAlready: string[] = [],
+            cancelledForeignAlready = 0) => {
+            const verdict = this.codeUploadStaleOverwriteLocal(syncId, targetKey, blockers);
+            if (!verdict) return undefined;
+            if (verdict.covered !== true) {
+                // 本轮没批准过（或根本没弹框）→ 交回原来的明确失败文案，不伪装成“范围变了”，也不弹第二个框。
+                if (!(verdict.unknown || []).length) return undefined;
+                return { ...state, takeover: "stale-changed", cancelled: cancelledAlready,
+                    evidence: "stale-scope-changed",
+                    detail: `${label}：确认覆盖后又发现没列出过的未完成记录（${verdict.unknown.slice(0, 4).join("、")}${verdict.unknown.length > 4 ? " 等" : ""}），本轮停止，请重新发起同步以确认新的覆盖范围；本轮未写入任何字节` };
+            }
+            const shownAt = (record: any) => Number.isFinite(Number(record?.startedAtMs))
+                ? new Date(Number(record.startedAtMs)).toLocaleString() : "（本地时间缺失或异常）";
+            const ignoredAts = (verdict.expiredRecords || []).map((record: any) => shownAt(record));
+            return { ...state, takeover: "stale-overwrite", cancelled: cancelledAlready, cancelledForeign: cancelledForeignAlready,
+                stale: { expired: verdict.expired, expiredOnly: verdict.expiredOnly, consented: (verdict.consent || []).slice(),
+                    ignoredCount: (verdict.expiredRecords || []).length, ignoredAts },
+                evidence: verdict.expiredOnly ? "stale-overwrite-expired" : "stale-overwrite-authorized",
+                detail: `${label}：${verdict.expiredOnly
+                    ? `${verdict.expired.length} 项未完成记录已超过 3 小时（${ignoredAts.slice(0, 4).join("、")}${ignoredAts.length > 4 ? " 等" : ""}），按你的长期授权过期接管`
+                    : "你已确认完全覆盖这些未完成记录"}；它们的退出从未被确认落地（${why}），本轮按授权覆盖写入，只覆盖本次勾选范围，不声称远端目录已干净` };
+        };
         if (first.quiescent) return { ...first, takeover: "idle", cancelled: [] as string[] };
         if (!first.rows.length) {
             // 没有任何可取消项，而阻塞原因全是“本轮兄弟刚启动的写入”→ 这就是排队等锁，不是旧传输，不能取消。
             if (this.codeUploadBlockedByCurrentBatchLocal(first.blocked)) return siblingReceipt("查询返回后");
+            // 寻不到身份的台账项就是“永远再也取消不掉”那类：先记进提示台账，下一轮才能列给用户确认。
+            this.noteCodeUploadStaleSuspectsLocal(targetKey, first.blocked, String(first.evidence || "operation-unaddressable"));
+            const stale = staleReceipt(first, first.blocked, String(first.evidence || "取消接口无法寻址"));
+            if (stale) return stale;
             return { ...first, takeover: "blocked", cancelled: [] as string[] };
         }
         // 到这里说明既有要取消的旧项（可能还有不带主机/路径的本轮操作项）：
         // 先把旧项按用户授权取消，再在下面的复核里将剩下的本轮项转为排队，不因为兄弟在写就跳过旧项取消。
         const cancelled: string[] = [];
+        const cancelledIdentities: string[] = [];
+        const remainingBlockers = (state: any) => [...(state.rows || []), ...(state.blocked || [])]
+            .filter((row: any) => !cancelledIdentities.includes(this.codeUploadStaleIdentityLocal(row)));
         let cancelledForeign = 0;
         for (const row of first.rows) {
             // 上一张取消可能刚好让兄弟取到锁：发下一张前重新核对，查询期间新开始的兄弟不能当旧传输取消。
             if (currentBatchWriting()) return siblingReceipt("查询返回后");
             const receipt = await this.cancelCodeUploadTargetWriteLocal(target, row);
             if (receipt.accepted !== true) {
+                const blockers = remainingBlockers(first);
+                // 先把“取消救不回来”的项记进提示台账（下一轮的确认框靠它列全），再看本轮有没有覆盖凭据。
+                this.noteCodeUploadStaleSuspectsLocal(targetKey, blockers, String(receipt.evidence || "operation-cancel-refused"));
+                const stale = staleReceipt(first, blockers, String(receipt.evidence || "取消未被接受"), cancelled, cancelledForeign);
+                if (stale) return stale;
                 return { ...first, takeover: "refused", cancelled, evidence: receipt.evidence,
                     detail: `${receipt.detail}；本轮不接管、不覆盖，已保留原操作身份` };
             }
             if (row.targetScoped !== true) cancelledForeign += 1;
             cancelled.push(receipt.id);
+            cancelledIdentities.push(this.codeUploadStaleIdentityLocal(row));
         }
         const cancelledText = `已取消 ${cancelled.length} 项本插件发起的在传任务`
             + (cancelledForeign ? `（含 ${cancelledForeign} 项其他 Worker 的未完成上传或归属不明的传输）` : "");
@@ -12182,6 +12230,10 @@ reportStage("正在准备校验所需代码…");
                 return siblingReceipt("取消后复核时", cancelled, cancelledForeign);
             }
             if (!again.rows.length || attempt >= 4) {
+                const blockers = remainingBlockers(again);
+                this.noteCodeUploadStaleSuspectsLocal(targetKey, blockers, "取消后仍未落地");
+                const stale = staleReceipt(again, blockers, "已请求取消但仍未确认落地", cancelled, cancelledForeign);
+                if (stale) return stale;
                 return { ...again, takeover: "still-active", cancelled,
                     detail: `${label}：已请求取消上一次写入但仍未确认落地（${again.detail}）；本轮不接管、不覆盖，请重试` };
             }
@@ -12192,6 +12244,215 @@ reportStage("正在准备校验所需代码…");
     codeUploadBlockedByCurrentBatchLocal(blocked) {
         const rows = Array.isArray(blocked) ? blocked : [];
         return rows.length > 0 && rows.every((row: any) => String(row?.reason || "") === "operation-current-round-ambiguous");
+    }
+    /**
+     * 一项未完成记录距今多久：时间缺失、非法或来自未来一律交回 undefined，
+     * 这类记录不得自动过期，只能进确认框并标成异常（与字段调查里“startedAt 缺失”的真实形状一致）。
+     */
+    codeUploadStaleAgeLocal(startedAtMs?: number) {
+        const at = Number(startedAtMs);
+        if (!Number.isFinite(at) || at <= 0 || at > Date.now()) return undefined;
+        return Date.now() - at;
+    }
+    /**
+     * 这项记录是不是“取消也救不回来”：取消接口寻不到身份、取消被拒/身份不符/报回 outcomeUnknown/notFound，
+     * 或实时投影/台账已把它自己记成 outcomeUnknown。“取消被接受但本轮窗口内还没落地”不算：
+     * 那是还在退场的活跃传输，下一轮可能自然静默，只能继续按已审的有界复核失败，到 3 小时才自动过期。
+     * 这个判定只决定要不要打扰用户确认覆盖，不是远端已退出的证明。
+     */
+    codeUploadStuckOperationLocal(item: any) {
+        const why = String(item?.why || item?.reason || "");
+        if (why === "operation-unaddressable" || why === "operation-identity-mismatch" || why.startsWith("operation-cancel-")) return true;
+        return String(item?.status || "").toLowerCase() === "outcomeunknown";
+    }
+    /** 未完成项的身份：只用取消接口认的那两种身份（transferId/operationId）；匿名项退化到状态+创建时间，不新造第三种身份。 */
+    codeUploadStaleIdentityLocal(item: any) {
+        const transferId = String(item?.transferId || "");
+        const operationId = String(item?.operationId || "");
+        if (transferId && operationId) return `${transferId}|${operationId}`;
+        if (transferId || operationId) return transferId || operationId;
+        return `anonymous:${String(item?.status || item?.phase || "unknown")}:${Number.isFinite(Number(item?.startedAtMs)) ? Number(item.startedAtMs) : "?"}`;
+    }
+    /**
+     * 记下“取消救不回来”的未完成项，下一轮的覆盖确认框才能如实列出它们。
+     * 本轮兄弟项永远不进这张表；这里也不释放未知写入所有权、保留租约或围栏。
+     */
+    noteCodeUploadStaleSuspectsLocal(targetKey: string, items: any[], why: string) {
+        const table = this.codeUploadStaleSuspects || (this.codeUploadStaleSuspects = new Map<string, any>());
+        const key = String(targetKey || "");
+        for (const item of Array.isArray(items) ? items : []) {
+            if (String(item?.reason || "") === "operation-current-round-ambiguous") continue;
+            const identity = this.codeUploadStaleIdentityLocal(item);
+            if (!identity) continue;
+            table.delete(`${key}\u0000${identity}`);
+            const observedAt = Number.isFinite(Number(item?.startedAtMs)) ? Number(item.startedAtMs)
+                : Number(Date.parse(String(item?.startedAt || "")));
+            table.set(`${key}\u0000${identity}`, { targetKey: key, identity, why: String(why || ""),
+                host: String(item?.host || ""), root: String(item?.root || ""), status: String(item?.status || ""),
+                phase: String(item?.phase || ""), unaddressable: String(item?.reason || "") === "operation-unaddressable",
+                startedAtMs: Number.isFinite(observedAt) ? observedAt : undefined,
+                seenAtMs: Date.now() });
+        }
+        while (table.size > 128) {
+            const oldest = table.keys().next().value;
+            if (oldest === undefined) break;
+            table.delete(oldest);
+        }
+        return table.size;
+    }
+    /**
+     * 覆盖确认前的预检（必须排在所有只读预检之后、任何新写租约与发送之前）。
+     * 这里只读内存里已有的证据：上一轮确实“取消也救不回来”的记录（suspect）与本机记录的未知写入所有权，
+     * 不另发一次 `transfers.list`（接管入口本来就会查一次实时投影，这里重复查只会多一张无凭据的快照），
+     * 也不发取消、不取锁、不写任何字节。还在正常传输、取消能落面的项不候选：第一轮先给已审的
+     * “取消→核实落地→接管”机会，证实救不回来（下一轮成为 suspect）才打扰用户。
+     * 严格超过 3 小时的项不需要确认，在接管入口按实时投影自带的时间直接过期（见 `codeUploadStaleOverwriteLocal`）。
+     */
+    async collectCodeUploadStaleRecordsLocal(enabledTargets: any[], root: string, _syncId: string) {
+        const suspects = this.codeUploadStaleSuspects || new Map<string, any>();
+        const byTargetKey = new Map<string, any>();
+        const expired: any[] = [];
+        const needsConsent: any[] = [];
+        const targets = (Array.isArray(enabledTargets) ? enabledTargets : []).filter(Boolean);
+        const push = (record: any) => {
+            const age = this.codeUploadStaleAgeLocal(record.startedAtMs);
+            record.ageMs = age;
+            record.anomalous = age === undefined;
+            // 严格超过 3 小时才算过期；正好 3 小时、时间缺失/非法/来自未来都必须进确认框。
+            record.expired = age !== undefined && age > CODE_UPLOAD_STALE_OPERATION_AGE_MS;
+            (record.expired ? expired : needsConsent).push(record);
+            if (!byTargetKey.has(record.targetKey)) byTargetKey.set(record.targetKey, []);
+            byTargetKey.get(record.targetKey).push(record);
+        };
+        for (const target of targets) {
+            let identity: any;
+            try { identity = this.resolveCodeUploadTargetIdentityLocal(target); }
+            catch { continue; }   // 身份解不出的目标由分支自己按原路径明确失败，这里不猜身份
+            const targetKey = String(identity?.key || "");
+            const label = String(target?.label || target?.id || "Worker");
+            let askable = 0;
+            for (const [tableKey, suspect] of suspects) {
+                if (String(suspect?.targetKey || "") !== targetKey) continue;
+                // 本轮兄弟项从来不会被记进这张表；取消仍可能落面的活跃传输也不在这里打扰用户。
+                if (!this.codeUploadStuckOperationLocal(suspect)) continue;
+                askable += 1;
+                push({ targetKey, identity: String(suspect?.identity || ""), label,
+                    host: String(suspect?.host || identity?.host || ""), root: String(suspect?.root || identity?.remoteRoot || ""),
+                    status: String(suspect?.status || ""), phase: String(suspect?.phase || ""),
+                    startedAtMs: suspect?.startedAtMs, kind: `取消救不回来的旧传输（${suspect?.why || "上一轮已试过取消"}）`,
+                    tableKey: String(tableKey) });
+            }
+            // 本机记下的“写入结果未知”所有权与它锁住的保留租约：只有同一目标上确实有救不回来的旧传输
+            // （所以要覆盖）才列入确认范围；目标还能靠真实证据核实静默时不得拿它打扰用户。
+            if (!askable) continue;
+            const ownership = this.pendingCodeUploadUnknownWriteLocal?.(root, { targetKey, workerId: target?.id });
+            if (!ownership) continue;
+            push({ targetKey, identity: `ownership:${ownership.targetKey || targetKey}`, label,
+                host: String(identity?.host || ""), root: String(identity?.remoteRoot || ""), status: "outcomeUnknown",
+                phase: "", startedAtMs: Number(ownership.startedAtMs), kind: "本机记录的未知写入",
+                tableKey: `ownership\u0000${targetKey}` });
+        }
+        return { expired, needsConsent, byTargetKey, targetCount: targets.length,
+            scopeKeys: new Set(targets.map((target: any) => String(target?.id || ""))) };
+    }
+    /**
+     * 一个原生模态框列完本轮全部待覆盖记录（复用“写入 Agent 自启动路径”那套 `{ modal: true }` + 精确按钮判定）。
+     * 不接任何“记住选择/不再提醒”的持久豁免：决定只对这一次点击、这批目标、这组记录身份有效。
+     */
+    async askCodeUploadStaleOverwriteLocal(summary: any) {
+        const shownAt = (record: any) => Number.isFinite(Number(record?.startedAtMs))
+            ? new Date(Number(record.startedAtMs)).toLocaleString() : "（本地时间缺失或异常）";
+        const describe = (record: any) => `- ${record.label}｜${record.host || "主机未知"}｜${record.root || "远端根未知"}`
+            + `｜${record.kind}｜操作身份 ${record.identity}｜开始于 ${shownAt(record)}`
+            + (record.status ? `｜状态 ${record.status}` : "") + (record.phase ? `｜阶段 ${record.phase}` : "")
+            + (record.anomalous ? "｜时间缺失/非法/来自未来，不能自动过期" : (typeof record.ageMs === "number" ? `｜已过 ${Math.floor(record.ageMs / 60000)} 分钟` : ""))
+            + (record.status ? "" : "｜SimpleSFTP 不给状态与 requestKey");
+        const lines: string[] = [];
+        if ((summary?.expired || []).length) {
+            lines.push(`以下 ${summary.expired.length} 条已超过 3 小时，按你的长期授权直接过期接管，不需要你确认：`);
+            for (const record of summary.expired.slice(0, 12)) lines.push(describe(record));
+            if (summary.expired.length > 12) lines.push(`…其余 ${summary.expired.length - 12} 条略`);
+            lines.push("");
+        }
+        lines.push(`以下 ${summary.needsConsent.length} 条还没到 3 小时（或创建时间异常），需要你确认才能覆盖：`);
+        for (const record of summary.needsConsent.slice(0, 12)) lines.push(describe(record));
+        if (summary.needsConsent.length > 12) lines.push(`…其余 ${summary.needsConsent.length - 12} 条略`);
+        lines.push("", "“完全覆盖并继续”会重新申请写入租约，并向这些目标发送本次勾选范围的文件，同名文件被覆盖、其他文件不动。",
+            "这些记录的退出从未被确认，覆盖它们不等于证明它们已经停止。",
+            "选“不覆盖，本轮停止”或关掉本框，本轮不申请任何新写租约、不发送任何数据，原有未知写入记录与保留租约都原样保留。");
+        const detail = lines.join("\n");
+        const answer = await vscode.window.showWarningMessage("存在未完成传输，是否完全覆盖后继续？",
+            { modal: true, detail }, "完全覆盖并继续", "不覆盖，本轮停止");
+        const approved = answer === "完全覆盖并继续";
+        return { approved, reason: approved ? "" : (answer === "不覆盖，本轮停止" ? "用户选择不覆盖" : "用户未确认") };
+    }
+    /**
+     * 记下本轮的覆盖决定：只对这一批目标与刚才列出的记录身份生效，本轮结束即作废。
+     * 3 小时以上的记录按用户长期授权自动过期（不需要点按钮），其余必须 `approved === true` 才算批准。
+     */
+    recordCodeUploadStaleDecisionLocal(syncId: string, summary: any, decision: any) {
+        const rounds = this.codeUploadStaleRounds || (this.codeUploadStaleRounds = new Map<string, any>());
+        const targets = new Map<string, any>();
+        for (const record of [...(summary?.expired || []), ...(summary?.needsConsent || [])]) {
+            const row = targets.get(String(record.targetKey)) || { identities: new Set<string>(), expired: new Set<string>() };
+            row.identities.add(String(record.identity));
+            if (record.expired) row.expired.add(String(record.identity));
+            targets.set(String(record.targetKey), row);
+        }
+        const entry = { decidedAtMs: Date.now(), approved: decision?.approved === true,
+            autoExpired: decision?.autoExpired === true, reason: String(decision?.reason || ""),
+            modalShown: decision?.modalShown === true, expiredCount: (summary?.expired || []).length,
+            consentCount: (summary?.needsConsent || []).length, expiredRecords: (summary?.expired || []).slice(),
+            scopeKeys: summary?.scopeKeys || new Set<string>(), targets };
+        rounds.set(String(syncId || ""), entry);
+        return entry;
+    }
+    /**
+     * 接管即将失败时的覆盖判定，只认两种凭据：
+     * 1) 实时投影自带创建时间、严格超过 3 小时的记录 → 按用户长期授权直接过期；
+     * 2) 本轮模态框已列出并真正批准过的身份 → 按本次确认覆盖。
+     * 创建时间缺失/非法/来自未来、本轮没列过的新身份、或未批准的任一项→一律不允许覆盖；
+     * 本轮兄弟项不参与判定（它们只能排队，永远不让用户覆盖自己人）。
+     */
+    codeUploadStaleOverwriteLocal(syncId: string, targetKey: string, blockers: any[]) {
+        const items = (Array.isArray(blockers) ? blockers : [])
+            .filter((item: any) => String(item?.reason || "") !== "operation-current-round-ambiguous");
+        if (!items.length) return undefined;
+        const decision = (this.codeUploadStaleRounds || new Map<string, any>()).get(String(syncId || ""));
+        const approved = decision?.approved === true && decision?.modalShown === true;
+        const scope = decision?.targets?.get(String(targetKey || ""));
+        const expiredRecords: any[] = [];
+        const consented: string[] = [];
+        const unknown: string[] = [];
+        for (const item of items) {
+            const identity = this.codeUploadStaleIdentityLocal(item);
+            const age = this.codeUploadStaleAgeLocal(item?.startedAtMs);
+            if (age !== undefined && age > CODE_UPLOAD_STALE_OPERATION_AGE_MS) {
+                expiredRecords.push({ identity, startedAtMs: Number(item.startedAtMs) });
+                continue;
+            }
+            if (approved && scope?.identities?.has(identity)) { consented.push(identity); continue; }
+            unknown.push(identity || "（无身份）");
+        }
+        // 本轮没有真正弹框、真正批准过时，“这项没列过”不是“范围变了”，而是本来就该保留的硬失败：
+        // 交回 undefined 让接管按原身份不符/取消未被接受/无法寻址的原文案失败，不发明新说法。
+        if (unknown.length && !approved) return undefined;
+        if (unknown.length) return { covered: false, unknown, unapproved: false };
+        // 没到 3 小时的记录只能凭本轮已批准的确认接管；没批准过就依旧原样失败，不弹第二个框。
+        if (consented.length && !approved) return { covered: false, unknown: [], unapproved: true };
+        return { covered: true, expired: expiredRecords.map((record: any) => record.identity), consented,
+            expiredOnly: !consented.length, expiredRecords };
+    }
+    /** 已按确认或 3 小时过期真正接管过的记录，从提示台账里摘掉，下一轮不能再拿它弹框。 */
+    clearCodeUploadStaleSuspectsLocal(targetKey: string, identities: any[]) {
+        const table = this.codeUploadStaleSuspects;
+        if (!table) return 0;
+        let cleared = 0;
+        for (const identity of Array.isArray(identities) ? identities : []) {
+            const key = `${String(targetKey || "")}\u0000${String(identity || "")}`;
+            if (table.delete(key)) cleared += 1;
+        }
+        return cleared;
     }
     /** 把 Worker ID 映射到它的真实写目标键；解不出就交回空键，由 gate 只按原 Worker ID 规则判定，不编造身份。 */
     dispatchTargetKeyLocal(workerId: string) {
@@ -12250,6 +12511,8 @@ reportStage("正在准备校验所需代码…");
         // 方法存在性防护只服务 VM 部分提取夹具，真实扩展类内这些方法恒定存在。
         const handoffWorkerIds = (targets || []).filter(Boolean).map((target) => String(target.id || "")).filter(Boolean);
         let codeUploadHandoff = this.beginCodeUploadHandoffLocal?.(options.projectContext?.root || workspaceRoot(), scope, handoffWorkerIds);
+        // 本轮覆盖决定只能活到本轮结束，变量提到 try 外才能在 finally 里擦掉。
+        let staleRoundKey = "";
         try {
         // 只等待已获所有权的派发真正交接完成（准入落盘→证明准备→发送或明确未发送→本机回执提交），
         // 不再等待整轮 tick；10_000 语义是「安全交接等待预算」，超既不上传也不释放仍活跃的交接所有权。
@@ -12400,6 +12663,25 @@ reportStage("正在准备校验所需代码…");
         void this.persistProjectCodeSyncState().catch(() => undefined);
         this.postState();
         const syncId = String(codeUploadHandoff?.uploadId || `sync-${Date.now()}`);
+        staleRoundKey = syncId;
+        // 历史未完成传输必须排在所有只读预检之后、任何新写租约与发送之前：这里只查一次投影、
+        // 最多弹一个原生模态框列出全部待覆盖目标。批准前本方法不取锁、不发送；批准只对本批目标与
+        // 刚才列出的记录身份生效。只有“超过 3 小时自动过期”一种情况不需要点按钮（用户长期授权）。
+        const staleSummary = await this.collectCodeUploadStaleRecordsLocal?.(enabledTargets, root, syncId);
+        if (staleSummary && ((staleSummary.needsConsent || []).length || (staleSummary.expired || []).length)) {
+            if (progressReport)
+                progressReport(`发现 ${(staleSummary.needsConsent || []).length + (staleSummary.expired || []).length} 项未完成的历史传输，正在确认是否完全覆盖…`);
+            const decision = (staleSummary.needsConsent || []).length
+                ? { ...(await this.askCodeUploadStaleOverwriteLocal(staleSummary)), modalShown: true }
+                : { approved: true, reason: "", autoExpired: true, modalShown: false };
+            assertCurrent();
+            this.recordCodeUploadStaleDecisionLocal(syncId, staleSummary, decision);
+            this.logOperationFact?.(`[code-sync] 历史未完成传输：${decision.approved
+                ? `已批准完全覆盖（超过 3 小时自动过期 ${staleSummary.expired.length} 项，本轮模态框确认 ${staleSummary.needsConsent.length} 项）`
+                : `${decision.reason || "用户未确认"}，本轮不申请新写租约、不发送`}`);
+            if (decision.approved !== true && progressReport)
+                progressReport(`${decision.reason || "用户未确认"}：本轮不写入任何文件，原有未知写入记录与保留租约都原样保留`);
+        }
         const cancelledBranches = [];
         const progressStep = progressReport ? Number(options.progressSpan || 0) / enabledTargets.length : 0;
         const hashCompare = options.hashCompare === true;
@@ -12566,11 +12848,23 @@ reportStage("正在准备校验所需代码…");
             }
             this.noteCodeUploadTargetLocal?.(codeUploadHandoff, root, target.id, targetKey);
             this.markCodeSyncTargetResultLocal?.(target, syncId, { leaseKey: targetKey, targetKey });
+            const staleDecision = this.codeUploadStaleRounds?.get(String(syncId));
+            if (staleDecision && staleDecision.approved !== true) {
+                // 只读预检后的模态框没拿到批准：整批在本方法里统一停下，一字节也不发。
+                // 这里甚至排在接管之前：用户选了“本轮停止”，就连取消旧传输也不做，
+                // 原有未知写入记录、保留租约与围栏全部原样留着。
+                const whyText = String(staleDecision.reason || "用户未确认");
+                this.markCodeSyncTargetResultLocal?.(target, syncId, { staleConsent: whyText,
+                    error: `${whyText}：本轮未申请新写租约、未发送任何数据` });
+                failures.push({ role: target.role, label: target.label,
+                    message: `${whyText}：本轮未申请新的写入租约、未发送任何数据，原有未知写入记录与保留租约都未清除` });
+                return;
+            }
             // 上一份没确认结束的写入按用户要求直接取消，并核实本目标确实静默之后才接管写入（包括交出被保留的那把租约）。
             // 这一步必须排在等锁之前：先等锁就是在等自己必须先核实才能释放的那把锁，同批别名等待者也无法收敛。
             const takeover = await this.takeoverCodeUploadTargetLocal?.(target, targetKey, syncId)
                 || { quiescent: true, takeover: "unavailable", cancelled: [], detail: "" };
-            if (takeover.quiescent !== true) {
+            if (takeover.quiescent !== true && takeover.takeover !== "stale-overwrite") {
                 // 取消不掉、身份不符、取消后仍活跃或查询不可用：保留未知写入所有权，本轮不写一字节。
                 failures.push({ role: target.role, label: target.label,
                     message: `${takeover.detail}；不会盲目覆盖` });
@@ -12579,7 +12873,22 @@ reportStage("正在准备校验所需代码…");
             const pendingUnknown = this.pendingCodeUploadUnknownWriteLocal?.(root, { targetKey, workerId: target.id });
             if (pendingUnknown && takeover.takeover !== "sibling") {
                 this.resolveCodeUploadUnknownWriteLocal?.(root, { targetKey, workerId: target.id });
-                if (progressReport) progressReport(`${target.label || target.id}：已确认上一次写入结束（${takeover.evidence}），继续本轮同步`);
+                if (progressReport) progressReport(takeover.takeover === "stale-overwrite"
+                    ? `${target.label || target.id}：按${takeover.stale?.expiredOnly
+                        ? `超过 3 小时的自动过期授权（忽略 ${takeover.stale?.ignoredCount || 0} 项，本地时间 ${(takeover.stale?.ignoredAts || []).slice(0, 3).join("、") || "缺失"}）`
+                        : "你刚才确认的完全覆盖"}接管该目标；上一份写入的退出仍未被确认，这不是“已确认结束”`
+                    : `${target.label || target.id}：已确认上一次写入结束（${takeover.evidence}），继续本轮同步`);
+            }
+            if (takeover.takeover === "stale-overwrite") {
+                // 回执如实记下覆盖来源与被忽略的旧记录条数/本地时间，不伪装成“已确认落地”。
+                const staleInfo = takeover.stale || {};
+                // 已按确认或 3 小时过期真正接管过的记录从提示台账摘掉，下一轮不能再拿它们弹框。
+                this.clearCodeUploadStaleSuspectsLocal?.(targetKey,
+                    [...(staleInfo.expired || []), ...(staleInfo.consented || [])]);
+                this.markCodeSyncTargetResultLocal?.(target, syncId, { takeover: "stale-overwrite",
+                    staleIgnored: staleInfo.ignoredCount || 0, staleIgnoredAts: (staleInfo.ignoredAts || []).slice(0, 4),
+                    staleAuthorizedBy: staleInfo.expiredOnly ? "expired-over-3h" : "user-modal-approval" });
+                this.logOperationFact?.(`[code-sync] ${target.label || target.id}：${takeover.detail}`);
             }
             if (takeover.takeover === "cancelled") {
                 // 面板/回执要能看出发生了一件什么：包括取消了本插件的多少项在传任务、其中多少属于其他 Worker。
@@ -12651,6 +12960,8 @@ reportStage("正在准备校验所需代码…");
         } finally {
             // 只回收本次上传的意图；仍在执行的派发交接与结果未知的 Worker 所有权保持原样。
             this.endCodeUploadHandoffLocal?.(codeUploadHandoff?.uploadId);
+            // 本轮的覆盖决定不能溜到下一轮去复用。
+            if (staleRoundKey) this.codeUploadStaleRounds?.delete(String(staleRoundKey));
             this.codeSyncInFlight--;
         }
     }
@@ -38452,6 +38763,12 @@ function resultError(result) {
     return result && typeof result === "object" ? String(result.error || "") : "";
 }
 const NON_SUCCESSFUL_SYNC_STATUSES = new Set(["-", "待同步", "pending", "unknown", "running", "已跳过", "未参与本次同步"]);
+/**
+ * 历史未完成传输的自动过期边界：严格超过 3 小时仍未确认结束的旧记录，用户已长期授权直接覆盖接管，
+ * 不再逐轮把它顶回审核；正好 3 小时、更短、以及创建时间缺失/非法/来自未来的记录，必须先过一次原生模态框。
+ * 这条时间只决定「还要不要再问用户一次」，不是远端进程已退出的证明，也不放宽任何写入前提。
+ */
+const CODE_UPLOAD_STALE_OPERATION_AGE_MS = 3 * 60 * 60 * 1000;
 function syncRoleStatus(targets, previous = {}, fingerprint = "") {
     const workerCount = targets.filter((target) => target.role === "worker").length;
     const sameFingerprint = Boolean(fingerprint) && String(previous?.fingerprint || "") === fingerprint;

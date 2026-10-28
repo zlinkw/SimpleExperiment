@@ -48,13 +48,17 @@ const METHOD_NAMES = [
   "verifyCodeUploadTargetQuiescentLocal", "codeUploadTargetRowsLocal", "codeUploadCurrentRoundTargetKeysLocal",
   "withCodeUploadRoundWriteLocal", "codeUploadRoundWriteFloorLocal",
   "cancelCodeUploadTargetWriteLocal",
+  "codeUploadStaleAgeLocal", "codeUploadStuckOperationLocal", "codeUploadStaleIdentityLocal",
+  "noteCodeUploadStaleSuspectsLocal", "collectCodeUploadStaleRecordsLocal", "askCodeUploadStaleOverwriteLocal",
+  "recordCodeUploadStaleDecisionLocal", "codeUploadStaleOverwriteLocal", "clearCodeUploadStaleSuspectsLocal",
   "takeoverCodeUploadTargetLocal", "takeoverCodeUploadTargetLockedLocal", "codeUploadBlockedByCurrentBatchLocal",
   "rememberUnknownCodeWriteLocal",
   "syncCodeTargets", "safeWorkerCodeSyncTargets",
 ];
 const asyncNames = new Set(["syncCodeTargets", "safeWorkerCodeSyncTargets", "boundedPromise", "acquireCodeUploadTargetLeaseLocal",
   "verifyCodeUploadTargetQuiescentLocal", "cancelCodeUploadTargetWriteLocal", "takeoverCodeUploadTargetLocal",
-  "takeoverCodeUploadTargetLockedLocal", "withCodeUploadRoundWriteLocal"]);
+  "takeoverCodeUploadTargetLockedLocal", "withCodeUploadRoundWriteLocal", "collectCodeUploadStaleRecordsLocal",
+  "askCodeUploadStaleOverwriteLocal"]);
 
 function compiled(name) {
   const body = sliceMethod(distSource, name).replace(/^\s{4}/gm, "");
@@ -112,6 +116,8 @@ function createRealSyncHost(options = {}) {
     codeUploadTargetLeases: undefined,
     retainedCodeUploadTargetLeases: undefined,
     codeSyncTargetResults: [],
+    // 原生模态框的真实调用记录（标题/是否 modal/正文/按顺序的按钮）与运行事实日志。
+    modals: [], facts: [],
     dispatchHandoffTimeoutEvidence: undefined,
     lastWorkerProbes: {},
     lastFullEndpointProbeAt: Date.now(),
@@ -133,6 +139,7 @@ function createRealSyncHost(options = {}) {
     confirmRemoteWriteTargets: async (_label, targets) => { host.confirmations.push(targets.map(row => row.id)); },
     writeSftpManagerServerProfiles: async ids => { host.profiles.push(ids); },
     prepareSftpTargets: async () => {},
+    logOperationFact: (line) => { host.facts.push(String(line)); },
     notifyLocalActionStarted: () => {},
     persistProjectCodeSyncState: async () => {},
     postState: () => {},
@@ -176,6 +183,13 @@ function createRealSyncHost(options = {}) {
     Uri: { file: value => ({ fsPath: value }) },
     ProgressLocation: { Notification: 15 },
     window: { setStatusBarMessage() {}, withProgress: async (_options, run) => run({ report: row => host.stages.push(row.message) }),
+      // 未确认覆盖的默认答案就是 undefined（等于 Esc/关掉模态框），用例要批准必须自己写明。
+      showWarningMessage: async (message, boxOptions, ...buttons) => {
+        const record = { message: String(message), modal: boxOptions?.modal === true,
+          detail: String(boxOptions?.detail || ""), buttons: buttons.map(String) };
+        host.modals.push(record);
+        return typeof options.modalAnswer === "function" ? options.modalAnswer(record) : options.modalAnswer;
+      },
       showInformationMessage: message => host.calls.push({ method: "notice", message: String(message) }),
       showErrorMessage: message => host.calls.push({ method: "error", message: String(message) }) },
     commands: { executeCommand: async () => ({ ok: true }) },
