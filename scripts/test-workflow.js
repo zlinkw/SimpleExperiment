@@ -571,36 +571,16 @@ async function runJobsScheduled(state) {
 /* ---------------- same-root batch lock (r29 #7: never auto-reclaim unknown ownership) ---------------- */
 
 async function acquireLock(state) {
-  // r17-C: the batch lock lives inside the consumed project's managed tree (git-ignored and
-  // package-ignored by the existing simple_cluster rules). Admission/release semantics are
-  // byte-identical to before; a crash-residual lock at the OLD repo-root location is neither
-  // scanned nor reclaimed — same unknown-ownership rule (r29 #7) applies wherever it sits.
-  const parent = path.join(state.root, "simple_cluster", "locks", "simple-experiment", "test-workflow");
-  await fsp.mkdir(parent, { recursive: true });
-  state.lockDir = path.join(parent, "batch.lock");
-  const meta = { pid: process.pid, entry: state.plan.entry, batchId: state.batchId, startedAt: new Date().toISOString(), root: state.root };
-  try {
-    await fsp.mkdir(state.lockDir);
-    await fsp.writeFile(path.join(state.lockDir, "owner.json"), JSON.stringify(meta, null, 1));
-    return;
-  } catch (error) {
-    if (error.code !== "EEXIST") throw error;
-    let ownerText = "(unreadable)";
-    try { ownerText = fs.readFileSync(path.join(state.lockDir, "owner.json"), "utf8"); } catch { /* keep marker */ }
-    fail(`another test-workflow batch owns this working copy — 拒绝并发批（不放大并行上限）。未知/坏 owner 不自动回收（r29 #7）；人工确认无活动批后手动删除该目录。owner.json=${ownerText}`, 3);
-  }
+  state.processLock = await require("./build-process-lock").acquireBuildLock(state.root, state.batchId);
 }
 
 function releaseOwnedLock(state) {
-  if (!state.lockDir) return;
-  try {
-    const owner = JSON.parse(fs.readFileSync(path.join(state.lockDir, "owner.json"), "utf8"));
-    if (owner.pid === process.pid && owner.batchId === state.batchId) {
-      fs.writeFileSync(path.join(state.logDir, "lock-release.json"), JSON.stringify({ releasedAt: new Date().toISOString(), owner }, null, 1));
-      fs.rmSync(state.lockDir, { recursive: true, force: true });
-      state.lockReleased = true;
-    }
-  } catch { /* not ours — leave untouched */ }
+  if (!state.processLock) return;
+  const confirmed = state.runningJobs.size === 0 && !state.activeGateKill
+    && state.receipt.jobs.every(job => job.treeStatus === "confirmed")
+    && state.receipt.gates.every(gate => gate.treeStatus === "confirmed" || gate.treeStatus === "n/a(not-spawned)" || gate.skippedAfterCancel);
+  state.lockReleased = state.processLock.release(confirmed);
+  state.processLock = null;
 }
 
 /* ---------------- receipt validation (r29 #5) ---------------- */
