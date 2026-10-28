@@ -494,3 +494,7 @@ r1表中未受影响F0/F1/F4–F6及全部执行安全条款保留；下表细�
 - 受影响 69 个测试文件串行回归：66 绿；3 个失败为基线既有（`factories_integration` 行数门禁、`distributedRerunAndWorkerDelta` 缺 GitHub 阶段文案、`gpuWindowPanelWiring` 毫秒/秒口径漂移），取证见 evidence §15、§16.8，未放宽任何阈值。
 - 版本保持 0.5.422；`npm run package` 通过，VSIX 指纹见 evidence §16.7。未安装、未发布 Release、未合并，等主控确认。
 - 待主控决定一项：`gpuWindowPanelWiring` 的时间口径测试是否随本 PR 一并修正（测试侧，生产行为按注释为既有设计）。
+
+## 14. gpuWindowPanelWiring 失败项定性与收口（终审放行前补取证）
+
+粗帧只被 `src/ui/PanelHtml.legacy.ts:11905-11906` 的 `bucketEpoch < points[0].bucketEpoch` 比较丢掉：夹具把缓存粗帧与期望值写成 epoch 毫秒，而真实链路面板入缓存即 `Math.round(collectedAt/1000)`＝epoch 秒（`GpuCollector.ts:415` ISO → `GpuSampleRing.ts:27` 毫秒 → `PanelHtml:11891` 秒；远端桶 `clusterAgentRuntime.legacy.ts:2159-2168` + `:2096` gmtime 同为秒；面板 24 小时窗口 `:12164` 亦按秒）。判为夹具口径不一致，走分支 2：只改测试输入数据（`test:61-74`、`:113`），断言文本/数量/阈值不动，复跑 exit=0、6 pass 0 fail（`logs/101-*`）。该文件此前并非绿：基线探针 exit=1、3 pass 3 fail，两条用例在 `ReferenceError: mergeGpuHistorySegments is not defined` 处异常终止，断言根本没跑到（`logs/100-*`），且它不在 build 228/package 238 作业集合内。详见 evidence §17。

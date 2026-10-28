@@ -60,8 +60,18 @@ function harness() {
   };
 }
 
-const t0 = Date.now();
-const fineSample = { seq: 9, epoch: 'e2', collectedAt: t0, source: 'worker_telemetry',
+// Real reporting contract (not derived from this fixture):
+// - the Worker emits fine GPU frames with an ISO `generatedAt` (src/runtime/GpuCollector.ts:415),
+// - the host ring turns that into epoch-MILLISECONDS `collectedAt` (src/features/GpuSampleRing.ts:16,27,76),
+// - the panel history pipeline stores epoch-SECONDS `bucketEpoch` (src/ui/PanelHtml.legacy.ts:11891
+//   `Math.round(collectedAt / 1000)`), exactly like the coarse remote buckets
+//   (src/clusterAgentRuntime.legacy.ts:2162 `epoch // BUCKET_SECONDS * BUCKET_SECONDS`, :2096 gmtime)
+//   and like the panel's own window math (:12164 `latest - 24 * 3600`).
+// So the fixture supplies the fine frame the way the Worker really reports it (ms) and stores the
+// cached coarse bucket in the unit the pipeline actually uses (seconds).
+const t0Ms = Date.now();
+const t0 = Math.round(t0Ms / 1000);
+const fineSample = { seq: 9, epoch: 'e2', collectedAt: t0Ms, source: 'worker_telemetry',
   gpus: [{ index: 0, memoryUsedMb: 3000, memoryTotalMb: 8192, utilizationPercent: 61 }, { index: 1, memoryUsedMb: 100, memoryTotalMb: 8192, utilizationPercent: 0 }] };
 
 test('a GPU window request first asks the host ring for fine frames with a unique requestId instead of re-requesting remote history', () => {
@@ -100,7 +110,7 @@ test('answers are consumed only by their own request: out-of-order windows, wron
 test('carried fine frames update the existing chart series (keeping older coarse history intact) without any remote request', () => {
   const h = harness();
   vm.runInNewContext('requestGpuHistory({ serverId: "srv1", gpuId: "0", maxPoints: 96 });', h.context);
-  const coarse = { serverId: 'srv1', gpuId: '0', points: [{ bucketEpoch: t0 - 7200000, gpuUtilPercent: 10, memoryUsedMb: 1, memoryTotalMb: 8192, imputed: false }] };
+  const coarse = { serverId: 'srv1', gpuId: '0', points: [{ bucketEpoch: t0 - 7200, gpuUtilPercent: 10, memoryUsedMb: 1, memoryTotalMb: 8192, imputed: false }] };
   h.context.gpuHistorySeriesCache.set('srv1::0', coarse);
   vm.runInNewContext('applyGpuWindowSamples({ requestId: 1, workerId: "srv1", samples: SAMPLES });', Object.assign(h.context, { SAMPLES: [fineSample] }));
   assert.deepEqual(h.posted.map(m => m.command), ['gpuWindowSamples'], 'no duplicate remote history request happened for the fine window');

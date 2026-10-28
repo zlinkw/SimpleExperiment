@@ -1304,3 +1304,57 @@ AGENTS.md 要求的第二条校验（原文摘录）：`node -e "new (require('v
 - `test/features/distributedRerunAndWorkerDelta.test.js`：断言 `legacy.ts` 含 GitHub 发布阶段文案，基线与本轮 HEAD 均无该字符串，属基线既有缺口，与本任务无关。
 - `test/features/gpuWindowPanelWiring.test.js`：本轮补齐 harness 后该用例真正开始执行，暴露测试仍按「epoch 毫秒」写时间，而生产 `applyGpuWindowSamples` 已按注释改为「epoch 秒」（`src/ui/PanelHtml.legacy.ts:11891`），5 项通过、1 项因该口径差异失败。**未修改其断言、未放宽阈值**；是否随本 PR 修正该测试的时间口径，请主控决定。
 - `test/features/hostOperationLease.test.js` 与 §15 的并发计时抖动记录保持原样；本轮无负载条件下该文件按批内串行运行通过。
+
+## 17. gpuWindowPanelWiring 失败项的确切机制与处置（终审放行前补取证）
+
+### 17.1 粗帧被丢掉的确切判断点
+
+丢帧发生在唯一一处比较，不是 gapLimit、也不是期望步长：
+
+- `src/ui/PanelHtml.legacy.ts:11905-11906`
+  `const kept = existing && Array.isArray(existing.points) ? existing.points.filter(function (row) { return Number(row && row.bucketEpoch) < points[0].bucketEpoch; }) : [];`
+
+数值推演（用夹具真实数值，`t0 = Date.now()` 当时约 1793157725017）：
+
+| 量 | 修正前（夹具按毫秒） | 修正后（夹具按秒） |
+| --- | --- | --- |
+| 细帧 `points[0].bucketEpoch` = `Math.round(collectedAt/1000)`（:11891） | 1793157725 | 1793157725 |
+| 粗帧 `bucketEpoch`（夹具写入） | `t0-7200000` = 1793150525017 | `t0-7200` = 1793150525 |
+| 11906 判断 `粗 < 细` | `1793150525017 < 1793157725` → **false** → `kept=[]` | `1793150525 < 1793157725` → true → `kept=[粗帧]` |
+| `mergeGpuHistorySegments`（:11829）结果 | 只有 1 个细帧 → `points.length=1` | 粗帧 + 细帧 = 2 → 断言 2 通过 |
+| 边界 gap 标注（:11854-11855） | 不执行（`kept` 为空） | `boundary=7200`，`boundaryLimit=max(bucketSeconds||0, 期望步长 300)×1.75=525` → `fine[0].gapBefore=true`（2 小时空档如实标为断点，不参与断言） |
+
+`gapLimit`（:11826-11828）与 `historyExpectedStepFromSortedTimes`（:12298-12308，单点时回落 `gpuHistoryMeta.bucketSeconds || 300`）只在 `mergeGpuHistorySegments` 内给 `gapBefore` 打标记，从不删元素；真正删掉粗帧的只有 11906 的 `<` 比较，被比的是两侧不同单位的时间。
+
+### 17.2 真实上报的 bucketEpoch 单位＝epoch 秒（从生产与数据契约取证，不从夹具反推）
+
+1. Worker 侧细帧只发 ISO 时间：`src/runtime/GpuCollector.ts:415` `"collectedAt": now_iso()`。
+2. 宿主 ring 把 ISO 解析成 epoch 毫秒：`src/features/GpuSampleRing.ts:16` `collectedAt: number`、`:27` `Date.parse(String(item.generatedAt))`、`:76` 用毫秒窗口过滤，宿主 `gpuWindowSamplesFromUi`（`src/extension/legacy.ts:6582`）原样把该 samples 回给面板。
+3. 面板把它换算成 epoch 秒再入缓存：`src/ui/PanelHtml.legacy.ts:11891` `bucketEpoch: Math.round(collectedAt / 1000)`（:11889-11890 注释明确「历史管线是 epoch-SECONDS 尺度，GpuSampleRing.collectedAt 是 epoch 毫秒」）。
+4. 粗帧（远端历史桶）也是 epoch 秒：`src/clusterAgentRuntime.legacy.ts:2159-2168` `epoch = gpu_history_epoch(...)` → `bucket = int(epoch // GPU_HISTORY_BUCKET_SECONDS) * GPU_HISTORY_BUCKET_SECONDS`（:65 默认 60 秒）→ `"timestamp": gpu_history_iso(bucket)`，而 `gpu_history_iso`（:2096-2097）= `time.gmtime(float(epoch))`，即输入是秒。
+5. 面板消费侧同样按秒比较：`src/ui/PanelHtml.legacy.ts:12164` `const windowStart = latest - 24 * 3600;` 与 `:12166` `Number(point.bucketEpoch) >= windowStart`；若 bucketEpoch 是毫秒，24 小时窗口等于把全部历史滤空。
+
+结论：真实 Worker 上报经宿主入缓存后，`bucketEpoch` 一律是 epoch **秒**；夹具把粗帧与期望值写成毫秒，才让 11906 把粗帧当「晚于细帧」丢掉。
+
+### 17.3 处置：走「夹具口径修正」分支，未动生产合并逻辑与任何断言
+
+- 只改夹具输入数据：`test/features/gpuWindowPanelWiring.test.js:61-74` 引入 `t0Ms = Date.now()`（Worker 真实毫秒）与 `t0 = Math.round(t0Ms / 1000)`（管线真实秒），`collectedAt: t0Ms`，粗帧 `bucketEpoch: t0 - 7200`（仍是同一「2 小时前」意图）；附契约注释。
+- 断言文本、断言数量、阈值一律未动：`:119`、`:120`、`:124` 仍逐字为 `'the older coarse frame is kept and the fine frame added, nothing synthesized'`、`'the fine frame keeps the Worker collected time'`、`'both carried GPUs are applied'`，比较对象仍是 `t0` 与阈值 2/1/0，条数仍 6 项。
+- 复跑：`node --test --test-force-exit --test-timeout 20000 test/features/gpuWindowPanelWiring.test.js` → **exit=0，tests 6 / pass 6 / fail 0**，完整日志 `logs/101-gpuWindowPanelWiring-fixturefix.log`。
+- 生产侧确认未被触碰：`git diff 7a6062fa..HEAD -- src/ui/PanelHtml.legacy.ts` 中 `applyGpuWindowSamples`、`mergeGpuHistorySegments`、`gpuHistorySegmentGapLimit`、`historyExpectedStepFromSortedTimes`、`gpuHistorySeriesCache` 相关行为无改动，只给 `requestGpuHistory`/`requestGpuHistoryRemote` 增加 `origin` 参数与拦截分支。
+
+### 17.4 为什么该文件此前「看起来是绿的」——它其实从未通过
+
+- 基线取证：把基线的 `PanelHtml.legacy.ts` 与该测试文件按原目录结构复制到工作副本 `_baseline_probe/` 原样运行（探针目录已按删除规程核实父目录后 `./_baseline_probe` 移除），结果 **exit=1，tests 6 / pass 3 / fail 3**，日志 `logs/100-baseline-probe-gpuWindowPanelWiring.log`：
+  - `answers are consumed only by their own request...` → `ReferenceError: mergeGpuHistorySegments is not defined`
+  - `carried fine frames update the existing chart series...`（本次这条）→ 同一 `ReferenceError`
+  - 第 3 条失败是探针副本缺少同级模块 `../features/PanelProgressDom`，属探针环境限制，不算基线缺陷
+- 也就是：基线 harness 的 `extractFunction` 清单里没有 `mergeGpuHistorySegments`，被抽取的 `applyGpuWindowSamples` 在沙箱里调用到未定义标识符就抛错，**1≠2 那条断言根本没被执行到**（替代路径＝在 `:11908` 之前抛 ReferenceError，测试以异常终止，而不是以断言失败终止）。
+- CI 也照不到它：该文件不在 `npm run build`（228 个作业）与 `npm run package`（238 个作业）的作业名集合内（逐名核对 `simple_cluster/reports/test-workflow/2026-10-28T02-52-32-855Z-28036-build`、`.../2026-10-28T03-02-04-246Z-54940-package`），所以基线的红一直没被工作流暴露。
+- 本轮把真实函数接进沙箱后该用例第一次真正执行，才暴露出夹具的单位口径问题：这是覆盖率由「假绿/异常终止」变真实带来的发现，不是把原来绿的改成绿的。
+
+### 17.5 另两条失败的登记数字（基线既有、非本任务引入）
+
+- `test/features/distributedRerunAndWorkerDelta.test.js`：期望文案 `GitHub 已完成，正在准备 Worker 上传` 在 `git show 7a6062fa:src/extension/legacy.ts` 中出现 **0** 次，在 `git show HEAD:src/extension/legacy.ts` 中出现 **0** 次，本次 `git diff 7a6062fa..HEAD -- src/extension/legacy.ts` 中该文案出现 **0** 次（未被本次改动触碰）。基线上一次发布进度合并改版替换了文案而未同步测试。
+- `test/factories_integration.test.js` 行数门禁：`src/extension/CacheCleanupPanel.ts`、`src/extension/PlanCleanupHost.ts` 基线 `wc -l` = **478 / 430**，HEAD 仍 **478 / 430**，本次 diff 对这两个文件的改动行数 **0**；门禁按 `readFileSync().split` 计数得 479 / 431（文件以换行结尾多一格），阈值 400/300 早已超线（§15）。
+- 两条均按 `status:"failed"`、`required:false` 如实保留在 `handoff.json`，未改测试、未改生产代码、未放宽阈值。
