@@ -28,6 +28,7 @@ exports.defaultRealtimeRefreshPolicy = {
     reconnectMaxDelaySeconds: 60,
     pauseWhenWebviewHidden: false,
     keepAgentStreamWhenHidden: true,
+    displayAutoRefresh: true,
 };
 class RealtimeTunnelClient {
     endpoint;
@@ -72,6 +73,13 @@ class RealtimeTunnelClient {
             return;
         if (["websocket", "sse", "polling", "connecting"].includes(this.status))
             return;
+        if (this.displayAutoRefreshDisabled()) {
+            // A01/A04: no display stream, no initial snapshot (also not inside the manual_only branch),
+            // no poll fallback and no display reconnect. Cached lastSeq/snapshot stay readable and a
+            // manual single-shot read still works; nothing here marks the client as user-paused.
+            this.clearDisplayTimers();
+            return;
+        }
         if (this.budget.isPaused())
             throw new RequestBudget_1.RequestBudgetDeniedError("events", { allowed: false, reason: "paused" });
         this.requiresManualReconnect = false;
@@ -199,7 +207,7 @@ class RealtimeTunnelClient {
             this.scheduleAutomaticReconnect();
     }
     scheduleAutomaticReconnect() {
-        if (this.reconnectTimer || this.disposed || this.hidden || this.policy.mode === "manual_only" || this.status !== "disconnected" || this.budget.isPaused())
+        if (this.reconnectTimer || this.disposed || this.hidden || this.displayAutoRefreshDisabled() || this.policy.mode === "manual_only" || this.status !== "disconnected" || this.budget.isPaused())
             return;
         const generation = this.connectionGeneration;
         this.reconnectTimer = setTimeout(() => {
@@ -420,6 +428,39 @@ class RealtimeTunnelClient {
         if (!hidden && this.status === "disconnected" && !this.requiresManualReconnect && !this.budget.isPaused())
             this.scheduleAutomaticReconnect();
     }
+    /**
+     * Low-traffic mode: re-apply the cadence and the A-class display guard in place. The policy object
+     * is shared by every endpoint client built from one realtimeRefreshPolicy() snapshot, so nothing
+     * is rebuilt: lastSeq, cached snapshots, budgets and task/operation state stay intact, a paused
+     * client is never implicitly connected and the user refreshProfile/stream preference is untouched.
+     * Turning the display guard off closes the display channel and aborts in-flight display reads
+     * through disconnect("display-auto"), which also invalidates old reconnect/poll callbacks by
+     * bumping the connection generation. It is deliberately not disconnect("paused").
+     */
+    updateRefreshPolicy(policy) {
+        if (this.disposed || !policy)
+            return;
+        const displayAutoRefresh = policy.displayAutoRefresh !== false;
+        const next = Number(policy.snapshotFallbackIntervalSeconds);
+        const cadenceChanged = Number.isFinite(next) && next >= 0 && next !== Number(this.policy.snapshotFallbackIntervalSeconds);
+        if (displayAutoRefresh && !cadenceChanged)
+            return;
+        if (Number.isFinite(next) && next >= 0)
+            this.policy.snapshotFallbackIntervalSeconds = next;
+        this.policy.displayAutoRefresh = displayAutoRefresh;
+        if (!displayAutoRefresh) {
+            this.clearDisplayTimers();
+            if (this.status !== "disconnected")
+                void this.disconnect("display-auto");
+            return;
+        }
+        // Restored to normal: re-arm exactly the channels this client had before, with the original
+        // cadence, and never replay the rounds that were skipped while the mode was on.
+        if (this.status === "polling")
+            this.scheduleSnapshotFallbackPoll();
+        else if (this.status === "disconnected")
+            this.scheduleAutomaticReconnect();
+    }
     diagnostics() {
         const cached = this.diagnosticsCache;
         if (cached
@@ -530,12 +571,29 @@ class RealtimeTunnelClient {
         if (this.abort === abort && !abort.signal.aborted && this.status === "sse")
             this.connectionLost(failure);
     }
+    displayAutoRefreshDisabled() {
+        return this.policy.displayAutoRefresh === false;
+    }
+    clearDisplayTimers() {
+        if (this.pollTimer)
+            clearTimeout(this.pollTimer);
+        if (this.reconnectTimer)
+            clearTimeout(this.reconnectTimer);
+        this.pollTimer = undefined;
+        this.reconnectTimer = undefined;
+    }
     async startPolling() {
+        if (this.displayAutoRefreshDisabled())
+            return;
         this.status = "polling";
         await this.refreshSnapshot();
         this.scheduleSnapshotFallbackPoll();
     }
     scheduleSnapshotFallbackPoll() {
+        if (this.displayAutoRefreshDisabled()) {
+            this.clearDisplayTimers();
+            return;
+        }
         if (this.status !== "polling" || this.hidden)
             return;
         if (this.pollTimer)

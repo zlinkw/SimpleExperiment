@@ -82,6 +82,11 @@ export class MultiEndpointRealtimeClient {
     this.updateMergedState();
   }
 
+  /** Low-traffic mode: forward the cadence change to each endpoint client without reconnecting. */
+  updateRefreshPolicy(policy?: Partial<RealtimeRefreshPolicy> | null): void {
+    for (const client of this.clients.values()) client.updateRefreshPolicy(policy);
+  }
+
   async getSnapshot(): Promise<ClusterSnapshot> {
     const entries = await mapLimitAllSettled(this.endpoints, 8, async (endpoint) => {
       const snapshot = await this.clients.get(endpoint.id)?.getSnapshot();

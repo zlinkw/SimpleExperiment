@@ -344,6 +344,7 @@ const keys = {
     pendingWorkspaceContinuation: "simpleExperiment.pendingWorkspaceContinuation",
     pluginUpdateStatus: "simpleExperiment.pluginUpdateStatus",
     setupConfigurationSignature: "simpleExperiment.setupConfigurationSignature",
+    lowTrafficMode: "simpleExperiment.lowTrafficMode",
 };
 const API_CONFIG_NAMESPACE = "simpleExperiment";
 const API_CONFIG_PREFIX = `${API_CONFIG_NAMESPACE}.`;
@@ -364,6 +365,7 @@ const API_STATE_KEYS = {
     legacySftpNoticeShown: { store: "global", label: "旧 SFTP 插件提示", writable: true },
     pendingWorkspaceContinuation: { store: "global", label: "待续工作区操作", writable: false },
     migrationShown: { store: "global", label: "旧配置迁移提示", writable: true },
+    lowTrafficMode: { store: "global", label: "低流量模式", writable: false },
 };
 function validateApiConfigValue(key, schema, value) {
     const type = schema.type;
@@ -421,6 +423,16 @@ function redactApiStateValue(name, value) {
     }
     return value;
 }
+// Single derived cadence source (plan.md r2 §4/§10). Normal mode keeps the original schedule
+// byte-for-byte; the low traffic branch is only reached when the persisted preference is on and no
+// stronger constraint (pauseAll / manual_only / pauseAllBackgroundTraffic) is in effect. Every
+// timer/policy consumer reads this table only - no interval literal may be hardcoded elsewhere.
+// r2 final rules: B keeps a minimum cadence (queue 5s, necessary terminal confirmation 10s) while
+// A (display-only tmux / snapshot / stream / log tail) drops to 0, which means "no timer at all",
+// not "a slow timer". Turning the mode off restores these exact normal values.
+const NORMAL_TRAFFIC_INTERVALS = { queueMs: 500, progressMs: 2000, tmuxMs: 5000, snapshotFallbackSeconds: 5 };
+const LOW_TRAFFIC_INTERVALS = { queueMs: 5000, progressMs: 10000, tmuxMs: 0, snapshotFallbackSeconds: 0 };
+const LOW_TRAFFIC_REQUEST_HISTORY = 16;
 const FIRST_RUN_SETUP_PROMPT_VERSION = 4;
 const WORKSPACE_CONTINUATION_MAX_AGE_MS = 10 * 60_000;
 const SIMPLE_SFTP_EXTENSION_ID = "simple-local.simple-sftp";
@@ -572,7 +584,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "stopAndClearPlans",
     "refreshLocalResults",
     "webviewNotice", "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveAgentDefaults", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
-    "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "gpuWindowSamples", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
+    "toggleLowTrafficMode", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "gpuWindowSamples", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
@@ -582,7 +594,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
-    "webviewNotice", "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow",
+    "webviewNotice", "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow", "toggleLowTrafficMode",
 ]);
 const SAFE_TRANSFER_RETRY_COMMANDS = new Set([
     "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts",
@@ -593,7 +605,7 @@ const API_EXECUTABLE_COMMANDS = new Set([
     ...uiActionCommands,
     ...SAFE_WEBVIEW_COMMANDS,
 ].filter((command) => !API_INTERNAL_COMMANDS.has(command)));
-const COMMANDS_WITHOUT_UI_STATUS = new Set(["webviewNotice", "selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]);
+const COMMANDS_WITHOUT_UI_STATUS = new Set(["webviewNotice", "selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status", "toggleLowTrafficMode"]);
 const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER = new Set(["startAllConnections", "testAll", "snapshot"]);
 const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
     "runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions",
@@ -1235,6 +1247,16 @@ class RealtimeTunnelPanelProvider {
     planArtifactSyncStatusForcePending = false;
     planArtifactSyncStatusRetryAt = 0;
     planArtifactSyncStatusRetryCount = 0;
+    lowTrafficMode = false;
+    lowTrafficModeSwitching = false;
+    lowTrafficModeError = "";
+    lowTrafficModeSwitch = Promise.resolve();
+    lowTrafficModeRequests = new Map();
+    queueTrafficTimer;
+    queueTrafficTimerMs = 0;
+    progressTrafficTimer;
+    progressTrafficTimerMs = 0;
+    trafficTimersDisposed = false;
     constructor(context) {
         this.context = context;
         this.context.subscriptions.push(this.cacheCleanupContextChanged);
@@ -1256,6 +1278,9 @@ class RealtimeTunnelPanelProvider {
         void this.stableExtensionIdentityProbe();
         this.pluginUpdateStatus = this.refreshStoredPluginUpdateStatus(this.context.globalState.get(keys.pluginUpdateStatus));
         this.tunnelConfig = this.loadTunnelConfig();
+        // Read the persisted preference before the budget/client/timers so the very first
+        // realtimeRefreshPolicy() snapshot already carries the right cadence.
+        this.lowTrafficMode = this.context.globalState.get(keys.lowTrafficMode) === true;
         this.projectBootstrapPromise = this.bootstrapProjectLocalUiState()
             .catch(() => undefined)
             .finally(() => {
@@ -1265,21 +1290,171 @@ class RealtimeTunnelPanelProvider {
         this.topologyRuntimeMode = this.projectTopologyAssessment().mode;
         this.budget = new RequestBudget_1.RequestBudget((0, TunnelGateway_1.requestBudgetConfigFromTunnel)(this.tunnelConfig));
         this.client = this.createClient();
-        const queueTimer = setInterval(() => { void this.tickDistributedQueue().catch((error) => { if (error?.code === "STALE_QUEUE_ROUND")
-            return; this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) }); }); }, 500);
-        queueTimer.unref?.();
-        this.context.subscriptions.push({ dispose: () => clearInterval(queueTimer) });
-        const progressTimer = setInterval(() => {
-            if (!this.distributedQueueCache?.plans.length || this.distributedQueueRoot !== workspaceRoot())
-                return;
-            void this.refreshServerPlanProgress({ automatic: true });
-        }, 2000);
-        progressTimer.unref?.();
         this.context.subscriptions.push({ dispose: () => {
-                clearInterval(progressTimer);
+                this.trafficTimersDisposed = true;
+                if (this.queueTrafficTimer)
+                    clearInterval(this.queueTrafficTimer);
+                if (this.progressTrafficTimer)
+                    clearInterval(this.progressTrafficTimer);
+                this.queueTrafficTimer = undefined;
+                this.progressTrafficTimer = undefined;
                 for (const request of this.progressRefreshRequests?.values() || [])
                     request.controller.abort();
             } });
+        this.scheduleTrafficTimers();
+    }
+    /**
+     * Single cadence source (plan D2). `enabled` is the persisted preference; `effective` is what
+     * schedulers actually apply. pauseAll/offline pause and the stronger manual_only /
+     * pauseAllBackgroundTraffic constraints win and are surfaced as blockedBy instead of being
+     * silently overwritten, and neither of them is rewritten by this switch.
+     */
+    effectiveTrafficPolicy() {
+        const enabled = this.lowTrafficMode === true;
+        const paused = this.budget?.isPaused?.() === true
+            || this.lastHealth?.state === "paused" || this.lastHealth?.status === "paused";
+        const manualOnly = this.tunnelConfig?.refreshProfile === "manual_only";
+        const backgroundPaused = this.tunnelConfig?.pauseAllBackgroundTraffic === true;
+        const blockedBy = !enabled ? "" : paused ? "paused" : manualOnly ? "manual_only" : backgroundPaused ? "background_traffic_paused" : "";
+        const intervals = enabled && !blockedBy ? LOW_TRAFFIC_INTERVALS : NORMAL_TRAFFIC_INTERVALS;
+        // A-class (display-only) automatic traffic is switched off by a boolean, never by a small
+        // interval: a 0 second cadence must not be clamped back to 5s by a downstream Math.max().
+        const displayAutoRefresh = !(enabled && !blockedBy);
+        return { enabled, effective: enabled && !blockedBy, blockedBy, displayAutoRefresh, intervals: { ...intervals }, scope: "global" };
+    }
+    /** Webview echo; the authoritative value always comes from the host, never from webview state. */
+    trafficModeStateForWebview() {
+        return {
+            ...this.effectiveTrafficPolicy(),
+            switching: this.lowTrafficModeSwitching === true,
+            error: String(this.lowTrafficModeError || ""),
+        };
+    }
+    /** Re-arm queue/progress timers from the effective cadence; an unchanged cadence never churns timers. */
+    scheduleTrafficTimers() {
+        if (this.trafficTimersDisposed)
+            return;
+        const intervals = this.effectiveTrafficPolicy().intervals;
+        if (!this.queueTrafficTimer || this.queueTrafficTimerMs !== intervals.queueMs) {
+            if (this.queueTrafficTimer)
+                clearInterval(this.queueTrafficTimer);
+            this.queueTrafficTimer = setInterval(() => { void this.tickDistributedQueue().catch((error) => { if (error?.code === "STALE_QUEUE_ROUND")
+                return; this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) }); }); }, intervals.queueMs);
+            this.queueTrafficTimer.unref?.();
+            this.queueTrafficTimerMs = intervals.queueMs;
+        }
+        if (!this.progressTrafficTimer || this.progressTrafficTimerMs !== intervals.progressMs) {
+            if (this.progressTrafficTimer)
+                clearInterval(this.progressTrafficTimer);
+            this.progressTrafficTimer = setInterval(() => {
+                if (!this.distributedQueueCache?.plans.length || this.distributedQueueRoot !== workspaceRoot())
+                    return;
+                // r2: this round is B (necessary terminal confirmation), not a display refresh, so a
+                // hidden panel must still run it - remote completions have to become local confirmed
+                // facts and trigger the post-completion sync / result collection without a click. It
+                // already keeps the original early exits and only queries Workers that still owe work
+                // (progressRefreshWorkerIds + excludeVerifiedCompleted), and it shares the in-flight
+                // inventory read with the queue round instead of issuing a second RPC.
+                void this.refreshServerPlanProgress({ automatic: true });
+            }, intervals.progressMs);
+            this.progressTrafficTimer.unref?.();
+            this.progressTrafficTimerMs = intervals.progressMs;
+        }
+    }
+    /** Apply a cadence change to the live client without resetClient(); runtime state stays intact. */
+    applyTrafficScheduling() {
+        this.scheduleTrafficTimers();
+        this.client?.updateRefreshPolicy?.(this.realtimeRefreshPolicy());
+    }
+    /**
+     * Host-owned setter: validate, persist first, then apply. A failed Memento write restores the
+     * previous preference and the previous cadence, and reports the real error instead of a
+     * silent rollback. Repeated identical requestId values never flip the switch twice.
+     */
+    async setLowTrafficMode(enabled, requestId = "") {
+        const target = enabled === true;
+        const key = String(requestId || "").slice(0, 80);
+        if (key) {
+            const replay = this.lowTrafficModeRequests.get(key);
+            if (replay)
+                return replay;
+        }
+        const run = async () => {
+            this.lowTrafficModeSwitching = true;
+            const previous = this.lowTrafficMode;
+            try {
+                if (previous === target) {
+                    this.lowTrafficModeError = "";
+                    this.applyTrafficScheduling();
+                    this.postState(true);
+                    return { ok: true, enabled: previous, unchanged: true };
+                }
+                this.lowTrafficMode = target;
+                try {
+                    await this.context.globalState.update(keys.lowTrafficMode, target);
+                }
+                catch (error) {
+                    this.lowTrafficMode = previous;
+                    const text = errorMessage(error);
+                    this.lowTrafficModeError = text;
+                    this.applyTrafficScheduling();
+                    this.postState(true);
+                    return { ok: false, enabled: previous, error: `低流量模式设置未保存：${text}` };
+                }
+                this.lowTrafficModeError = "";
+                this.applyTrafficScheduling();
+                this.postState(true);
+                return { ok: true, enabled: target };
+            }
+            finally {
+                this.lowTrafficModeSwitching = false;
+            }
+        };
+        const settled = this.lowTrafficModeSwitch.then(run, run);
+        this.lowTrafficModeSwitch = settled.then(() => undefined, () => undefined);
+        const outcome = await settled;
+        if (key) {
+            this.lowTrafficModeRequests.set(key, outcome);
+            while (this.lowTrafficModeRequests.size > LOW_TRAFFIC_REQUEST_HISTORY) {
+                const oldest = this.lowTrafficModeRequests.keys().next().value;
+                if (oldest === undefined)
+                    break;
+                this.lowTrafficModeRequests.delete(oldest);
+            }
+        }
+        return outcome;
+    }
+    async handleLowTrafficModeToggle(message) {
+        const requestId = String(message?.requestId || "");
+        if (typeof message?.enabled !== "boolean") {
+            // A malformed frame must never silently flip the persisted preference to off.
+            this.postLowTrafficModeReceipt(requestId, {
+                ok: false,
+                enabled: this.lowTrafficMode === true,
+                error: "低流量模式设置未提交：请求缺少有效的开关值，保持原值。",
+            });
+            return;
+        }
+        const receipt = await this.setLowTrafficMode(message.enabled, requestId);
+        this.postLowTrafficModeReceipt(requestId, receipt);
+    }
+    /** Dedicated lightweight receipt; it never enters the remote pending/UI-status pipeline. */
+    postLowTrafficModeReceipt(requestId, receipt) {
+        const view = this.view;
+        if (!view)
+            return;
+        try {
+            view.webview.postMessage({
+                type: "lowTrafficModeUpdated",
+                requestId: String(requestId || ""),
+                ok: receipt?.ok === true,
+                enabled: receipt?.enabled === true,
+                error: String(receipt?.error || ""),
+            });
+        }
+        catch {
+            // A lost receipt converges through the next authoritative state frame or handshake retry.
+        }
     }
     refreshStoredPluginUpdateStatus(plan) {
         if (!plan || typeof plan !== "object" || !["update_available", "reload_required"].includes(String(plan.status)))
@@ -6364,6 +6539,8 @@ class RealtimeTunnelPanelProvider {
         if (generation !== this.projectContextGeneration || client !== this.client)
             return;
         this.lastHealth = { state: "paused", status: "paused", checkedAt: new Date().toISOString(), message: "所有网络活动已暂停。" };
+        // The preference is kept; only the effective cadence yields to the stronger pause constraint.
+        this.scheduleTrafficTimers();
         this.postState();
     }
     async resumeNetwork() {
@@ -6372,6 +6549,7 @@ class RealtimeTunnelPanelProvider {
         if (generation !== this.projectContextGeneration)
             return;
         this.client.resume();
+        this.applyTrafficScheduling();
         void this.ensureRealtimeConnected("resume network");
         this.postState();
     }
@@ -6752,7 +6930,7 @@ class RealtimeTunnelPanelProvider {
             return this.resumePlanSubmission(String(message.operationId || ""));
         if (command === "cancelPlanSubmission")
             return this.cancelPlanRunSubmission(String(message.operationId || ""));
-        if (["webviewNotice", "webviewReady", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewVisibility"].includes(command)
+        if (["webviewNotice", "webviewReady", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewVisibility", "toggleLowTrafficMode"].includes(command)
             && !this.isCurrentPanelDocumentMessage(message, command))
             return;
         if (this.extensionRuntimeVersionState().reloadRequired && command !== "reloadWindow") {
@@ -6871,6 +7049,9 @@ class RealtimeTunnelPanelProvider {
                     this.panelSectionFailures.add(String(message.section).slice(0, 40));
                     this.transitionPanelLifecycle("degraded", `section:${String(message.section).slice(0, 40)}`);
                 }
+                break;
+            case "toggleLowTrafficMode":
+                await this.handleLowTrafficModeToggle(message);
                 break;
             case "reloadPanel":
                 await this.reloadPanelHtml();
@@ -25696,6 +25877,13 @@ class RealtimeTunnelPanelProvider {
             await this.copyLastCheckStaticReportFromUi();
     }
     async fetchTmuxCaptureFromUi(message, options = {}) {
+        if (!options.signal) {
+            // One round per Worker+window key; an in-flight repeated click merges into it.
+            return this.displayReadOnce("tmuxCapture|" + String(this.tmuxWorkerId(message) || "") + "|" + String(message?.window || message?.session || message?.name || ""), () => this.fetchTmuxCaptureRound(message, options));
+        }
+        return this.fetchTmuxCaptureRound(message, options);
+    }
+    async fetchTmuxCaptureRound(message, options = {}) {
         const workerId = this.tmuxWorkerId(message);
         const _pfxRaw = this.setupConfig?.sessionPrefix || this.setupConfig?.remoteTmuxSessionPrefix || "simple";
         const _pfx = (0, AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix)(_pfxRaw);
@@ -25747,10 +25935,30 @@ class RealtimeTunnelPanelProvider {
             throw new Error(`Worker ${workerId} 的隧道端点未配置`);
         return endpoint;
     }
+    /**
+   * Display-class reads are keyed by what the user is looking at, not by the click: repeated clicks
+   * on the same Worker/section while a read is in flight share that one round instead of queueing a
+   * new request per click. The caller that started the round publishes the result; joined callers get
+   * the same promise. Callers that need their own cancellation (API server) keep their own request.
+   */
+    displayReadInFlight = new Map();
+    displayReadOnce(key, reader, signal) {
+        if (signal)
+            return reader();
+        const active = this.displayReadInFlight.get(key);
+        if (active)
+            return active;
+        const promise = reader().finally(() => {
+            if (this.displayReadInFlight.get(key) === promise)
+                this.displayReadInFlight.delete(key);
+        });
+        this.displayReadInFlight.set(key, promise);
+        return promise;
+    }
     async fetchTmuxListFromUi(_message) {
         const workers = this.enabledWorkerConfigs();
         const workerIds = _message?.allWorkers === true ? workers.map((worker) => worker.id) : [this.tmuxWorkerId(_message, true)];
-        await Promise.all(workerIds.map((workerId) => this.fetchOneTmuxListFromUi(workerId, _message?.requestId)));
+        await Promise.all(workerIds.map((workerId) => this.displayReadOnce("tmuxList|" + workerId, () => this.fetchOneTmuxListFromUi(workerId, _message?.requestId))));
     }
     publishTmuxList(workerId, result, requestId, publish = true) {
         const cfg = vscode.workspace.getConfiguration("simpleExperiment");
@@ -27486,7 +27694,8 @@ class RealtimeTunnelPanelProvider {
             preferWebSocket: streaming,
             fallbackToSse: streaming,
             fallbackToPolling: this.tunnelConfig.refreshProfile !== "manual_only",
-            snapshotFallbackIntervalSeconds: 5,
+            snapshotFallbackIntervalSeconds: this.effectiveTrafficPolicy().intervals.snapshotFallbackSeconds,
+            displayAutoRefresh: this.effectiveTrafficPolicy().displayAutoRefresh,
             pauseWhenWebviewHidden: hiddenPause,
             keepAgentStreamWhenHidden: true,
         };
@@ -28222,6 +28431,7 @@ class RealtimeTunnelPanelProvider {
             actionErrors: Array.isArray(source.actionErrors) ? source.actionErrors.slice(0, 4) : [],
             diagnostics: { panelLifecycle: this.panelLifecycleState, panelStateTelemetryPreviousSample: this.latestPanelStateTelemetry || null, ...(source.diagnostics || {}) },
             lastError: String(source.lastError || ""), degraded: true, degradedMessage: message,
+            trafficMode: source.trafficMode && typeof source.trafficMode === "object" ? source.trafficMode : this.trafficModeStateForWebview(),
         };
     }
     buildState(options = {}) {
@@ -28624,6 +28834,7 @@ class RealtimeTunnelPanelProvider {
             diagnostics,
             lastError: webviewLastError,
             checkStaticReports: this.listCheckStaticReportsSync(),
+            trafficMode: this.trafficModeStateForWebview(),
         };
         timing.totalMs = Math.max(0, Date.now() - totalStartedAt);
         this.latestPanelBuildTiming = timing;
@@ -29302,6 +29513,7 @@ class RealtimeTunnelPanelProvider {
             extensionVersion: String(this.context?.extension?.packageJSON?.version || ""),
             sessionStartedAt: this.sessionStartedAt,
             connectionMode: "xshell_tunnel_realtime",
+            trafficMode: this.trafficModeStateForWebview(),
             localEndpoint: (0, TunnelGateway_1.localBaseUrl)(this.tunnelConfig),
             workspace,
             setup,

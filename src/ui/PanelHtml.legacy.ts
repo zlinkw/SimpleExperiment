@@ -122,6 +122,8 @@ export function renderPanelHtml(): string {
     .topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-width: 0; }
     .topbar-actions { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; min-width: 0; }
     .topbar-actions button { min-height: 24px; padding: 3px 8px; font-size: 12px; }
+    .topbar-actions .lowTrafficToggle[aria-pressed="true"] { border-color: #2563EB; box-shadow: 0 0 0 2px rgba(37, 99, 235, .18); color: #1D4ED8; font-weight: 750; }
+    .topbar-actions .lowTrafficToggle:disabled { opacity: .62; }
     .topbar-actions .topbarIconButton { width: 28px; height: 28px; min-width: 28px; padding: 0; font-size: 15px; }
     .pluginVersionChip { font-variant-numeric: tabular-nums; color: #334155; background: #EEF2FF; border-color: #C7D2FE; }
     .projectOnboardingNotice { display: none; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid #F59E0B; border-left: 4px solid #D97706; border-radius: 8px; background: #FFFBEB; color: #78350F; }
@@ -1338,6 +1340,7 @@ export function renderPanelHtml(): string {
     <header class="topbar" aria-label="状态图例与全局快捷操作">
       <div class="statusLegend" aria-label="状态颜色图例"><span class="legendItem"><span class="legendDot good"></span>正常</span><span class="legendItem"><span class="legendDot info"></span>运行 / 信息</span><span class="legendItem"><span class="legendDot warn"></span>等待 / 注意</span><span class="legendItem"><span class="legendDot error"></span>异常 / 失败</span><span class="legendItem"><span class="legendDot mine"></span>我的任务 / 重点</span></div>
       <div class="topbar-actions">
+        <button data-command="toggleLowTrafficMode" type="button" class="secondary lowTrafficToggle" id="lowTrafficModeButton" aria-pressed="false" disabled title="低流量模式（全局偏好）：正在读取当前状态...">低流量：读取中</button>
         <button data-command="bootstrapProject" type="button" title="扫描工作区，识别 experiments/plans 下的实验计划与项目配置&#10;同时检查服务器与 Agent 等前置条件&#10;已有的计划与接入配置不会重复写入">识别工作区</button>
         <span class="status-chip">Xshell</span>
         <span class="status-chip">全局配置</span>
@@ -1514,12 +1517,12 @@ export function renderPanelHtml(): string {
        </div>
        <div id="tmuxListInfo" style="margin:6px 0;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--subtle-bg);font-size:12px;line-height:1.4;">
          <div id="tmuxWorkersOverview" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
-         <span id="tmuxListMeta">等待列出 tmux sessions...</span>
+         <span id="tmuxListMeta">等待列出 tmux sessions...</span><span id="tmuxAutoNotice" style="margin-left:8px;color:var(--vscode-descriptionForeground);"></span>
          <div id="tmuxFilterBar" class="tmuxFilterBar"></div>
          <div id="tmuxOverview" class="tmuxOverviewGrid" style="margin-top:6px;display:grid;gap:4px;"></div>
        </div>
        <details open>
-         <summary>实时捕获数据（<span id="tmuxCaptureMeta">选择任务或窗口后读取日志</span>）</summary>
+         <summary>实时捕获数据（<span id="tmuxCaptureMeta">选择任务或窗口后读取日志</span><span id="tmuxCaptureNotice" style="color:var(--vscode-descriptionForeground);"></span>）</summary>
          <pre id="tmuxCapturePre" style="max-height:320px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:10px;border-radius:4px;white-space:pre-wrap;word-break:break-all;"></pre>
        </details>
       <div id="tmuxInstructions" style="display:grid;gap:6px;margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--subtle-bg);">
@@ -1957,6 +1960,13 @@ export function renderPanelHtml(): string {
     const el = (id) => document.getElementById(id);
     let tmuxPollTimer = 0;
     const TMUX_POLL_MS = 5000;
+    let tmuxPollIntervalMs = TMUX_POLL_MS;
+    // A previous frame/persisted hint only prevents the pre-handshake initial pull; the host frame stays authoritative.
+    let tmuxDisplayAutoHint = true;
+    try { tmuxDisplayAutoHint = !(restoredWebviewState && restoredWebviewState.lowTrafficDisplayAuto === false); } catch (e) { tmuxDisplayAutoHint = true; }
+    const displayRefreshAt = new Map();
+    let tmuxListOrigin = "auto";
+    let tmuxCaptureOrigin = "auto";
     let tmuxListBusy = false;
     let tmuxListTimeout = 0;
     let tmuxInitialRetryTimer = 0;
@@ -2401,7 +2411,7 @@ export function renderPanelHtml(): string {
       tmuxListTimeout = 0;
       tmuxListBusy = false;
       tmuxListPendingWorkers.clear();
-      refreshTmuxList();
+      refreshTmuxList("user");
     }
     function handleJobTmuxLogList(item) {
       const selected = tmuxJobLogSelection;
@@ -2412,7 +2422,7 @@ export function renderPanelHtml(): string {
         }
         return;
       }
-      if (!tmuxListBusy && selected.requestId > tmuxListRequestId) refreshTmuxList();
+      if (!tmuxListBusy && selected.requestId > tmuxListRequestId) refreshTmuxList("user");
       const responseId = Number(item.requestId);
       if (!Number.isFinite(responseId) || responseId < selected.requestId || responseId !== tmuxListRequestId) return;
       if (Array.isArray(item.workers) && item.workers.length && !item.workers.some(function(worker) { return worker.id === selected.workerId; })) {
@@ -2454,8 +2464,10 @@ export function renderPanelHtml(): string {
       refreshTmuxCapture();
       refreshTmuxList();
     }
-    async function refreshTmuxList() {
+    async function refreshTmuxList(origin) {
       if (document.hidden || tmuxListBusy) return;
+      if (!displayAutoAllowed(origin)) return;
+      tmuxListOrigin = origin === "user" ? "user" : "auto";
       tmuxListBusy = true;
       tmuxListRequestId += 1;
       tmuxListPendingWorkers.clear();
@@ -2504,6 +2516,11 @@ export function renderPanelHtml(): string {
       clearTimeout(tmuxListTimeout);
       tmuxListTimeout = 0;
       tmuxListBusy = false;
+      if (item.ok !== false) {
+        recordDisplaySample("tmuxList", item.fetchedAt, tmuxListOrigin === "user");
+        try { persistWebviewState({ lowTrafficDisplayAuto: !displayAutoAllowed("auto") }); } catch (e) {}
+        renderDisplayAutoNotices();
+      }
       if (tmuxConfiguredWorkers.some(function(worker) { return tmuxListsByWorker[worker.id]?.ok === false; })) scheduleTmuxInitialRetry();
       else {
         tmuxInitialRetryCount = 0;
@@ -2617,11 +2634,13 @@ export function renderPanelHtml(): string {
       }
       return lines.slice(-200).map(function(line) { return line.join(""); }).join(String.fromCharCode(10)).trimEnd();
     }
-    async function refreshTmuxCapture() {
+    async function refreshTmuxCapture(origin) {
       const pre = el("tmuxCapturePre");
       const meta = el("tmuxCaptureMeta");
       const win = tmuxResolveCaptureTarget();
       if (!pre || !meta) return;
+      if (!displayAutoAllowed(origin)) return;
+      tmuxCaptureOrigin = origin === "user" ? "user" : "auto";
       if (!win || !tmuxSelectedWorkerId) {
         pre.textContent = "";
         pre.dataset.captureTarget = "";
@@ -2644,15 +2663,135 @@ export function renderPanelHtml(): string {
         meta.textContent = "同步失败 " + String(e).slice(0,60);
       }
     }
+    function displayAutoAllowed(origin) {
+      if (origin === "user") return true;
+      const mode = lowTrafficModeFromState(lastState || {});
+      if (mode) return mode.displayAutoRefresh !== false;
+      return tmuxDisplayAutoHint !== false;
+    }
+    function displaySampleNotice(key) {
+      const mode = lowTrafficModeFromState(lastState || {});
+      const disabled = mode ? mode.displayAutoRefresh === false : tmuxDisplayAutoHint === false;
+      if (!disabled) return "";
+      const manual = displayRefreshAt.get(key + "|manual") || "";
+      if (manual) return "低流量：自动刷新已关闭；上次手动刷新 " + manual;
+      const cached = displayRefreshAt.get(key + "|fetch") || "";
+      if (cached) return "低流量：自动刷新已关闭；当前缓存采样于 " + cached + "，本模式尚未手动刷新";
+      return "低流量：自动刷新已关闭；尚未手动刷新";
+    }
+    function recordDisplaySample(key, fetchedAt, manual) {
+      if (!key) return;
+      const stamp = String(fetchedAt || "") || new Date().toLocaleTimeString();
+      displayRefreshAt.set(key + "|fetch", stamp);
+      if (manual) displayRefreshAt.set(key + "|manual", stamp);
+    }
+    function renderDisplayAutoNotices() {
+      const list = el("tmuxAutoNotice");
+      if (list) { const text = displaySampleNotice("tmuxList"); if (list.textContent !== text) list.textContent = text; }
+      const capture = el("tmuxCaptureNotice");
+      if (capture) {
+        const text = displaySampleNotice("tmuxCapture:" + (tmuxSelectedWorkerId || "") + ":" + (tmuxResolveCaptureTarget() || ""));
+        if (capture.textContent !== text) capture.textContent = text;
+      }
+    }
     function scheduleTmuxPoll() {
       clearInterval(tmuxPollTimer);
+      tmuxPollTimer = 0;
+      if (!(Number(tmuxPollIntervalMs) > 0)) return;
       tmuxPollTimer = setInterval(function(){
         const overview = el("tmuxOverview");
         if (document.hidden || !overview || !overview.getClientRects().length) return;
         const bounds = overview.getBoundingClientRect();
         if (bounds.top > window.innerHeight || bounds.bottom < 0) return;
         refreshTmuxList(); refreshTmuxCapture();
-      }, TMUX_POLL_MS);
+      }, tmuxPollIntervalMs);
+    }
+    const LOW_TRAFFIC_RECEIPT_TIMEOUT_MS = 8000;
+    let lowTrafficToggleSeq = 0;
+    let lowTrafficTogglePending = null;
+    let lowTrafficReceiptDisplay = null;
+    let lowTrafficReceiptNotice = "";
+    let lowTrafficReceiptTimer = 0;
+    function lowTrafficModeFromState(state) {
+      const mode = (state || {}).trafficMode;
+      return mode && typeof mode === "object" ? mode : null;
+    }
+    function lowTrafficDisplayEnabled(mode) {
+      if (lowTrafficTogglePending) return lowTrafficTogglePending.target === true;
+      if (lowTrafficReceiptDisplay && Date.now() < lowTrafficReceiptDisplay.until) return lowTrafficReceiptDisplay.enabled === true;
+      return mode ? mode.enabled === true : null;
+    }
+    function lowTrafficModeLabel(mode) {
+      const enabled = lowTrafficDisplayEnabled(mode);
+      if (lowTrafficTogglePending) return "低流量：提交中";
+      if (mode === null || enabled === null) return "低流量：读取中";
+      if (!enabled) return "低流量：关";
+      if (mode.effective === true || lowTrafficDisplayEnabled(mode) !== (mode.enabled === true)) return "低流量：开";
+      const blocked = String(mode.blockedBy || "");
+      if (blocked === "paused") return "低流量：开（网络已暂停，恢复后生效）";
+      if (blocked === "manual_only") return "低流量：开（已是仅手动刷新，后台周期本已停止）";
+      if (blocked === "background_traffic_paused") return "低流量：开（后台通信已停）";
+      return "低流量：开（" + (blocked || "更强制约束") + "下暂不生效）";
+    }
+    function applyLowTrafficModeState(state) {
+      const mode = lowTrafficModeFromState(state);
+      if (mode) {
+        const intervalMs = Number((mode.intervals || {}).tmuxMs);
+        // r2: a display cadence of 0 means no timer at all, not a slow timer.
+        if (Number.isFinite(intervalMs) && intervalMs >= 0 && intervalMs !== tmuxPollIntervalMs) {
+          tmuxPollIntervalMs = intervalMs;
+          scheduleTmuxPoll();
+        }
+        tmuxDisplayAutoHint = mode.displayAutoRefresh !== false;
+        try { persistWebviewState({ lowTrafficDisplayAuto: mode.displayAutoRefresh !== false }); } catch (e) {}
+      }
+      renderDisplayAutoNotices();
+      const button = el("lowTrafficModeButton");
+      if (!button) return;
+      const label = lowTrafficModeLabel(mode);
+      if (button.textContent !== label) button.textContent = label;
+      const enabled = lowTrafficDisplayEnabled(mode);
+      const pressed = enabled === true ? "true" : "false";
+      if (button.getAttribute("aria-pressed") !== pressed) button.setAttribute("aria-pressed", pressed);
+      let title = "低流量模式（全局偏好，保存后本窗口立即生效；其他已打开窗口需重载窗口后应用）。开启只降低无人查看的后台展示类查询频率：队列协调、计划进度、tmux 展示与快照回退变慢；你的手动刷新、提交与停止、任务协调、产物同步、结果收集、就绪与版本校验保持不变。";
+      if (lowTrafficTogglePending) title = "正在提交低流量模式设置...";
+      else if (lowTrafficReceiptNotice) title = lowTrafficReceiptNotice;
+      else if (mode && mode.error) title = "上次设置未保存：" + String(mode.error);
+      if (button.getAttribute("title") !== title) button.setAttribute("title", title);
+      button.disabled = !mode || Boolean(lowTrafficTogglePending);
+    }
+    function clearLowTrafficReceiptTimer() {
+      if (!lowTrafficReceiptTimer) return;
+      clearTimeout(lowTrafficReceiptTimer);
+      lowTrafficReceiptTimer = 0;
+    }
+    function beginLowTrafficToggle(target, requestId) {
+      lowTrafficTogglePending = { target: target === true, requestId: String(requestId || "") };
+      lowTrafficReceiptNotice = "";
+      clearLowTrafficReceiptTimer();
+      lowTrafficReceiptTimer = setTimeout(function () {
+        lowTrafficReceiptTimer = 0;
+        if (!lowTrafficTogglePending) return;
+        lowTrafficTogglePending = null;
+        lowTrafficReceiptNotice = "低流量模式提交结果未知（未收到回执），未自动重发；当前显示值可能尚未变化，可再次点击重试或重新读取面板状态。";
+        try { applyLowTrafficModeState(lastState || {}); } catch (e) {}
+      }, LOW_TRAFFIC_RECEIPT_TIMEOUT_MS);
+      try { applyLowTrafficModeState(lastState || {}); } catch (e) {}
+    }
+    function handleLowTrafficModeReceipt(item) {
+      clearLowTrafficReceiptTimer();
+      const requestId = String((item || {}).requestId || "");
+      const pending = lowTrafficTogglePending;
+      if (pending && requestId && pending.requestId && requestId !== pending.requestId) return;
+      lowTrafficTogglePending = null;
+      if (item && item.ok === true) {
+        lowTrafficReceiptNotice = "";
+        lowTrafficReceiptDisplay = { enabled: item.enabled === true, until: Date.now() + 5000 };
+      } else {
+        lowTrafficReceiptDisplay = null;
+        lowTrafficReceiptNotice = "低流量模式设置失败：" + String((item && item.error) || "未知错误") + "（保持原值，可在恢复后重试）";
+      }
+      try { applyLowTrafficModeState(lastState || {}); } catch (e) {}
     }
     const DIAGNOSTIC_JSON_PREVIEW_LIMIT = 16000;
     const DIAGNOSTIC_JSON_MAX_DEPTH = 4;
@@ -3470,12 +3609,12 @@ export function renderPanelHtml(): string {
             if (it && it.status === "running") {
               it.status = "stalled";
               try { if (typeof showToast === "function") showToast("关闭窗口卡住（stalled）：后台可能仍在继续，已自动刷新列表", "warning"); } catch (e) {}
-              try { refreshTmuxList(); refreshTmuxCapture(); } catch (e) {}
+              try { refreshTmuxList("user"); refreshTmuxCapture("user"); } catch (e) {}
             }
           }, 30000);
           vscode.postMessage({ command: "killTmuxWindow", workerId: closeWorkerId, target: closeTarget, window: closeTarget, session: closeSession, identity: closeIdentity, danger: closeDanger ? "true" : "false", clientActionId: closeClientActionId });
         } catch (e) {
-          try { refreshTmuxList(); } catch (err) {}
+          try { refreshTmuxList("user"); } catch (err) {}
         }
         return;
       }
@@ -3735,6 +3874,15 @@ export function renderPanelHtml(): string {
           payload.splitField = String(document.querySelector("#resultSplitField")?.value || "");
           payload.splitValues = [...document.querySelectorAll("#resultSplitValues input[data-result-split-value]:checked")].map((input) => input.value);
           payload.keepColumns = [...document.querySelectorAll("#resultSplitColumns input[data-result-split-column]:checked")].map((input) => input.value);
+        }
+        if (command === "toggleLowTrafficMode") {
+          const lowTrafficMode = lowTrafficModeFromState(lastState || {});
+          const lowTrafficTarget = !(lowTrafficMode && lowTrafficMode.enabled === true);
+          lowTrafficToggleSeq += 1;
+          payload.enabled = lowTrafficTarget;
+          payload.documentGeneration = panelDocumentGeneration;
+          payload.requestId = "ltm-" + String(lowTrafficToggleSeq) + "-" + String(panelDocumentBuildId || "0") + "-" + String(Date.now());
+          beginLowTrafficToggle(lowTrafficTarget, payload.requestId);
         }
         if (command === "openLocalResultTable") {
           payload.tableKey = String(button.dataset.tableKey || "");
@@ -4237,8 +4385,8 @@ export function renderPanelHtml(): string {
         cancelJobTmuxLogJump();
         selectTmuxWorker(button.getAttribute("data-tmux-worker"));
       }, true);
-      if (btn) btn.addEventListener("click", refreshTmuxCapture);
-      if (listBtn) listBtn.addEventListener("click", refreshTmuxList);
+      if (btn) btn.addEventListener("click", function(){ refreshTmuxCapture("user"); });
+      if (listBtn) listBtn.addEventListener("click", function(){ refreshTmuxList("user"); });
       document.addEventListener("click", (ev)=>{
         const t = ev.target.closest("[data-copy-target]");
         if(!t) return;
@@ -4405,6 +4553,7 @@ export function renderPanelHtml(): string {
       let latestNavigationMessage = null;
       for (const item of messages) {
         if (!item) continue;
+        if (item.type === "lowTrafficModeUpdated") { try { handleLowTrafficModeReceipt(item); } catch (e) {} continue; }
         if (item.type === "uiCommandStatus") {
           if (String(item.command || "") === "stopAndClearPlan" && item.planStopClear && item.planStopClear.planFile && lastState) {
             const stopKey = String(item.planStopClear.planFile).replaceAll(String.fromCharCode(92), "/").replace(/^\\.\\//, "").toLowerCase();
@@ -4452,6 +4601,10 @@ export function renderPanelHtml(): string {
           if (String(item.window || "") !== tmuxResolveCaptureTarget()) continue;
           const pre = el("tmuxCapturePre");
           const meta = el("tmuxCaptureMeta");
+          if (item.ok !== false) {
+            recordDisplaySample("tmuxCapture:" + String(item.workerId || "") + ":" + String(item.window || ""), item.fetchedAt, tmuxCaptureOrigin === "user");
+            renderDisplayAutoNotices();
+          }
           if (pre) {
             const targetChanged = pre.dataset.captureTarget !== String(item.window || "");
             const decoded = decodeCapturedText(item.text || item.capture || "");
@@ -4538,6 +4691,7 @@ export function renderPanelHtml(): string {
       try {
         el("renderError").textContent = "";
         if (state && state.degradedMessage) el("renderError").textContent = String(state.degradedMessage);
+        try { applyLowTrafficModeState(state); } catch (e) {}
         renderProjectOnboardingNotice(state);
         const fastConfigEdit = shouldFastPathConfigEdit();
         if (fastConfigEdit) {
@@ -6345,8 +6499,9 @@ export function renderPanelHtml(): string {
                 try { if (typeof showToast === "function") showToast(clearText, String(data.status || "").toLowerCase() === "completed" ? "info" : "warning"); } catch (e) {}
               }
             }
-            refreshTmuxList();
-            refreshTmuxCapture();
+            // A finished user operation verifies its own tmux target; that is not a display timer.
+            refreshTmuxList("user");
+            refreshTmuxCapture("user");
           }
         } catch (e) {}
         if (lastState && !isConfigSaveCommand(data.command)) {
