@@ -249,7 +249,8 @@ function planEntry(manifestFile, manifest, root, entryName, opts) {
   if (full) phases.fullCheck.domainGates = acc.gates.map(g => ({ ...g, phase: "fullCheck" }));
 
   const byKey = new Map();
-  for (const j of acc.jobs) {
+  const expandedJobs = require("./test-case-groups").expandCaseGroups(root, acc.jobs, manifest.caseGroups);
+  for (const j of expandedJobs) {
     const identity = jobIdentity(root, j.file);
     const key = identity + "\u0000" + j.argv.join("\u0000");
     const rel = path.relative(root, path.resolve(root, j.file)).split(path.sep).join("/");
@@ -276,7 +277,7 @@ function planEntry(manifestFile, manifest, root, entryName, opts) {
     requiredGates,
     selection: selection.summary,
     onDemandJobs: selection.onDemandJobs.map(j => ({ file: j.file, argv: j.argv, status: "on_demand_not_run" })),
-    dedup: { requestedSlots: acc.jobs.length, uniqueRuns: plannedUniqueBeforeSelection, duplicatesRemoved: acc.jobs.length - plannedUniqueBeforeSelection },
+    dedup: { requestedSlots: expandedJobs.length, uniqueRuns: plannedUniqueBeforeSelection, duplicatesRemoved: expandedJobs.length - plannedUniqueBeforeSelection },
   };
 }
 

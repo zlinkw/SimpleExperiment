@@ -770,9 +770,25 @@ function canonicalPlan(manifest, entryName) {
     for (const x of full.extraFiles || []) requested.push({ file: x.file, argv: [...x.argv] });
     for (const g of full.globs || []) for (const p of g.patterns) for (const hit of canonicalGlob(p)) requested.push({ file: hit, argv: [...g.argv] });
   }
+  const expanded = requested.flatMap(job => {
+    if (!(manifest.caseGroups || []).includes(job.file)) return [job];
+    // Independent lexical oracle: these two suites register literal top-level test names.
+    const source = fs.readFileSync(path.join(REPO, job.file), "utf8");
+    const names = [...source.matchAll(/^test\(("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'),/gm)]
+      .map(match => require("node:vm").runInNewContext(match[1]));
+    assert.ok(names.length);
+    const rest = [];
+    for (let i=0; i<job.argv.length; i++) {
+      const arg=job.argv[i]; if (arg === "--test-timeout") { i++; continue; }
+      if (["--test", "--test-force-exit"].includes(arg) || arg.startsWith("--test-timeout=")) continue;
+      rest.push(arg);
+    }
+    return names.map(name => ({...job, argv: ["--test", "--test-force-exit", "--test-timeout", "20000", "--test-name-pattern",
+      "^" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", ...rest]}));
+  });
   const map = new Map();
-  for (const j of requested) map.set(canonicalIdentity(j.file) + "\u0000" + j.argv.join("\u0000"), j);
-  return { requestedSlots: requested.length, map };
+  for (const j of expanded) map.set(canonicalIdentity(j.file) + "\u0000" + j.argv.join("\u0000"), j);
+  return { requestedSlots: expanded.length, map };
 }
 
 test("runner: real-repo plan reconciles with an independently expanded manifest contract", () => {
@@ -957,4 +973,17 @@ test("r28: unresolvable user site ⇒ no PYTHONPATH injection for the whole batc
   assert.equal(receipt(s.ws, "pyvis").jobs[0].status, "passed");
   assert.equal((run.stdout.match(/no PYTHONPATH injection this batch/g) || []).length, 1);
   assert.doesNotMatch(run.stdout, /batch-once\)/, "degraded batch must not claim an injected root");
+});
+
+// Grouping changes execution boundaries only; all registered tests retain their assertions.
+test("runner: case grouping covers every literal name and rejects dynamic registrations", t => {
+  const ws = makeWorkspace(t), file = "test/grouped.js";
+  fs.writeFileSync(path.join(ws, file), 'test("first (a)",()=>{});\ntest("second",()=>{});\n', "utf8");
+  const { expandCaseGroups } = require("../../scripts/test-case-groups");
+  const jobs = expandCaseGroups(ws, [{file, argv:["--test-timeout", "60000"], source:"fixture"}], [file]);
+  assert.equal(jobs.length, 2);
+  for (const title of ["first (a)", "second"]) assert.equal(jobs.filter(job => new RegExp(job.argv[job.argv.indexOf("--test-name-pattern")+1]).test(title)).length, 1);
+  assert.ok(jobs.every(job => job.argv.includes("20000") && !job.argv.includes("60000")));
+  fs.writeFileSync(path.join(ws, file), 'const name="dynamic";test(name,()=>{});', "utf8");
+  assert.throws(()=>expandCaseGroups(ws,[{file,argv:[]}],[file]),/DYNAMIC_NAME/);
 });

@@ -846,10 +846,9 @@ function gitBScript() {
   ];
 }
 
-// 本用例超时 30000ms（主控 2026-10-26 批准，仅本条）：三次 Windows 实测 19,560.5/20,049.6/20,206.3ms
-// （日志 1e21fdf6/9ec77370/bee2bf80）卡在 --test-timeout 20000 阈值中间；≈196 次真实 git spawn 的进程
-// 开销主导（判因见 evidence.md 超时变更台账），30s＝最坏实测 1.5 倍余量。断言、用例结构与覆盖未动。
-test("C5 祖先 ff：真实仓包含合并提交的后续头可安全快进；脏/fetch 期间身份变化/不含合并提交/分叉全停", { timeout: 30000 }, async () => {
+// User-approved 2026-10-28: preserve every assertion while separating the old 30s
+// composite scenario into isolated <=20s groups. No timeout retries or wider limits.
+async function ancestorFfWorld() {
   const originDir = tempDir("se-pr-origin-");
   git(["init", "-q", "--bare", "-b", "main", originDir], originDir);
   const seed = tempDir("se-pr-seed-");
@@ -871,12 +870,23 @@ test("C5 祖先 ff：真实仓包含合并提交的后续头可安全快进；�
   commitFile(dirC, "tracked.txt", "follow-up\n", "follow-up commit after merge");
   git(["push", "-q", "origin", "refs/heads/main:refs/heads/main"], dirC);
   const followSha = git(["rev-parse", "HEAD"], dirC).trim();
+  return { dirA, dirC, identityOf, ffOptions, mergeSha, followSha };
+}
+
+test("C5 祖先 ff：正常快进包含合并提交的后续头且重复调用幂等", async () => {
+  const { dirA, identityOf, ffOptions, mergeSha, followSha } = await ancestorFfWorld();
   let ff = await pr.fastForwardAncestorRoot(ffOptions(() => identityOf(dirA), mergeSha));
   assert.equal(ff.status, "fast-forwarded", JSON.stringify(ff));
   assert.equal(ff.to, followSha.toLowerCase(), "目标=已核完整后续头，而非可漂移符号 ref");
   // 已在主线上
   ff = await pr.fastForwardAncestorRoot(ffOptions(() => identityOf(dirA), mergeSha));
   assert.ok(ff.status === "already-current" || ff.status === "fast-forwarded", "第二次应为无操作/仍一致：" + JSON.stringify(ff));
+
+});
+
+test("C5 祖先 ff：fetch 期间变脏必须阻断", async () => {
+  const { dirA, dirC, identityOf, ffOptions, mergeSha, followSha } = await ancestorFfWorld();
+  let ff = await pr.fastForwardAncestorRoot(ffOptions(() => identityOf(dirA), mergeSha));
   // fetch 期间本机变脏 → 停（注入探针：第二次读起 dirty）
   fs.writeFileSync(path.join(dirC, "extra.txt"), "y\n", "utf8");
   commitFile(dirC, "extra.txt", "y\n", "remote moves again");
@@ -890,11 +900,23 @@ test("C5 祖先 ff：真实仓包含合并提交的后续头可安全快进；�
   }, follow2));
   assert.equal(ff.status, "blocked");
   assert.match(ff.reason, /不干净/);
+
+});
+
+test("C5 祖先 ff：缺失合并提交必须阻断", async () => {
+  const { dirA, dirC, identityOf, ffOptions, mergeSha, followSha } = await ancestorFfWorld();
+  let ff = await pr.fastForwardAncestorRoot(ffOptions(() => identityOf(dirA), mergeSha));
   // 未包含的“合并提交” → 暂缓
   commitFile(dirA, "local-only.txt", "x\n", "local only");
   const localSha = git(["rev-parse", "HEAD"], dirA).trim();
   ff = await pr.fastForwardAncestorRoot(ffOptions(() => identityOf(dirA), localSha));
   assert.ok(ff.status === "blocked" && /尚未包含|不是|分叉/.test(ff.reason), JSON.stringify(ff));
+
+});
+
+test("C5 祖先 ff：分叉必须阻断且不切分支", async () => {
+  const { dirA, dirC, identityOf, ffOptions, mergeSha, followSha } = await ancestorFfWorld();
+  let ff = await pr.fastForwardAncestorRoot(ffOptions(() => identityOf(dirA), mergeSha));
   // 分叉 → blocked 且绝不合并提交
   commitFile(dirA, "tracked.txt", "diverged\n", "diverge locally");
   commitFile(dirC, "tracked.txt", "remote-again\n", "remote again");
@@ -904,9 +926,15 @@ test("C5 祖先 ff：真实仓包含合并提交的后续头可安全快进；�
   assert.equal(ff.status, "blocked");
   assert.match(ff.reason, /祖先|分叉|ff-only/);
   assert.equal(git(["rev-parse", "--abbrev-ref", "HEAD"], dirA).trim(), "main", "绝不切分支");
+
+});
+
+test("C5 祖先 ff：origin 漂移必须在 fetch 前阻断", async () => {
+  const { dirA, dirC, identityOf, ffOptions, mergeSha, followSha } = await ancestorFfWorld();
+  let ff = await pr.fastForwardAncestorRoot(ffOptions(() => identityOf(dirA), mergeSha));
   // origin 漂移 → fetch 前即停
   git(["remote", "set-url", "origin", "https://gitlab.internal/org/repo.git"], dirA);
-  ff = await pr.fastForwardAncestorRoot(ffOptions(() => identityOf(dirA), remote2));
+  ff = await pr.fastForwardAncestorRoot(ffOptions(() => identityOf(dirA), followSha));
   assert.equal(ff.status, "blocked");
   assert.match(ff.reason, /不一致/);
 });

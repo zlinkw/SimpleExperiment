@@ -1,4 +1,5 @@
 {
+ "caseGroups": ["test/features/testWorkflowRunner.test.js", "test/project/branchProjectRegistry.test.js"],
  "schemaVersion": 1,
  "notes": {
   "proven": "r22/r29 单一测试清单。domains.sourceScript 逐字保留改造前 npm 正文（planner 运行时递归展开，等价性由 test/features/testWorkflowRunner.test.js 强制）；entries 保存旧→新入口对应；final=true 的最终 profile 拒绝 --only/--reuse 类过滤。",
