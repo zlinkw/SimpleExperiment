@@ -249,7 +249,7 @@ function planEntry(manifestFile, manifest, root, entryName, opts) {
   if (full) phases.fullCheck.domainGates = acc.gates.map(g => ({ ...g, phase: "fullCheck" }));
 
   const byKey = new Map();
-  const expandedJobs = require("./test-case-groups").expandCaseGroups(root, acc.jobs, manifest.caseGroups);
+  const expandedJobs = require("./test-case-groups").expandCaseGroups(root, acc.jobs, manifest.caseGroups, manifest.boundedNodeTests === true);
   for (const j of expandedJobs) {
     const identity = jobIdentity(root, j.file);
     const key = identity + "\u0000" + j.argv.join("\u0000");

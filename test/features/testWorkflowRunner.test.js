@@ -786,9 +786,19 @@ function canonicalPlan(manifest, entryName) {
     return names.map(name => ({...job, argv: ["--test", "--test-force-exit", "--test-timeout", "20000", "--test-name-pattern",
       "^" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", ...rest]}));
   });
+  const policyJobs = manifest.boundedNodeTests === true ? expanded.map(job => {
+    const rest = [];
+    for (let i=0; i<job.argv.length; i++) {
+      const arg=job.argv[i];
+      if (arg === "--test-timeout") { i++; continue; }
+      if (["--test", "--test-force-exit"].includes(arg) || arg.startsWith("--test-timeout=")) continue;
+      rest.push(arg);
+    }
+    return {...job, argv:["--test", "--test-force-exit", "--test-timeout", "20000", ...rest]};
+  }) : expanded;
   const map = new Map();
-  for (const j of expanded) map.set(canonicalIdentity(j.file) + "\u0000" + j.argv.join("\u0000"), j);
-  return { requestedSlots: expanded.length, map };
+  for (const j of policyJobs) map.set(canonicalIdentity(j.file) + "\u0000" + j.argv.join("\u0000"), j);
+  return { requestedSlots: policyJobs.length, map };
 }
 
 test("runner: real-repo plan reconciles with an independently expanded manifest contract", () => {
@@ -986,4 +996,9 @@ test("runner: case grouping covers every literal name and rejects dynamic regist
   assert.ok(jobs.every(job => job.argv.includes("20000") && !job.argv.includes("60000")));
   fs.writeFileSync(path.join(ws, file), 'const name="dynamic";test(name,()=>{});', "utf8");
   assert.throws(()=>expandCaseGroups(ws,[{file,argv:[]}],[file]),/DYNAMIC_NAME/);
+  const ungrouped = [{file:"test/plain.js",argv:[]}];
+  assert.deepEqual(expandCaseGroups(ws,ungrouped,[])[0].argv, [], "fixture manifests retain their deliberate timeout matrices");
+  assert.deepEqual(expandCaseGroups(ws,ungrouped,[],true)[0].argv, ["--test","--test-force-exit","--test-timeout","20000"]);
+  const matrix = [{file:"test/plain.js",argv:["--test-timeout=60000","--test-name-pattern","^one$"]}];
+  assert.deepEqual(expandCaseGroups(ws,matrix,[],true)[0].argv, ["--test","--test-force-exit","--test-timeout","20000","--test-name-pattern","^one$"]);
 });

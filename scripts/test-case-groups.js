@@ -3,10 +3,21 @@ const path = require('node:path');
 const ts = require('typescript');
 const escape = name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-function expandCaseGroups(root, jobs, files = []) {
+function boundedNodeTestArgs(argv) {
+  const retained = [];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--test-timeout') { i++; continue; }
+    if (arg === '--test' || arg === '--test-force-exit' || arg.startsWith('--test-timeout=')) continue;
+    retained.push(arg);
+  }
+  return ['--test', '--test-force-exit', '--test-timeout', '20000', ...retained];
+}
+
+function expandCaseGroups(root, jobs, files = [], bounded = false) {
   const selected = new Set(files), names = new Map();
   return jobs.flatMap(job => {
-    if (!selected.has(job.file)) return [job];
+    if (!selected.has(job.file)) return [{ ...job, argv: bounded ? boundedNodeTestArgs(job.argv) : job.argv }];
     if (!names.has(job.file)) {
       const source = ts.createSourceFile(job.file, fs.readFileSync(path.join(root, job.file), 'utf8'), ts.ScriptTarget.Latest, true);
       const titles = [];
@@ -33,4 +44,4 @@ function expandCaseGroups(root, jobs, files = []) {
       '--test-name-pattern', '^' + escape(title) + '$', ...retained] }));
   });
 }
-module.exports = { expandCaseGroups };
+module.exports = { expandCaseGroups, boundedNodeTestArgs };
