@@ -10,7 +10,7 @@
 | 插件 | `SimpleSFTP` 和 `SimpleExperiment` 同时安装 |
 | 远程 | Linux、Python 3、可写实验目录；建议有 tmux |
 | Python 依赖 | 运行计划的环境安装 `PyYAML` |
-| 登录 | Xshell 已保存 Hub/Worker `.xsh` 会话 |
+| 登录 | 系统 OpenSSH 密钥或 ssh-agent；新增服务器可导入 Xshell `.xsh` 会话 |
 
 不要把 token、密码或私钥写入项目文件。
 
@@ -19,7 +19,7 @@
 ```text
 准备服务器目录和 Conda
         ↓
-配置 Xshell 本地隧道并保存 .xsh
+从 Xshell 会话导入服务器，保存服务器与端口配置
         ↓
 在 SimpleExperiment 设置中填写 Hub / Worker
         ↓
@@ -67,11 +67,11 @@ Agent runtime:        /data/experiments/simple_agent
 
 不要把 `/root`、`/tmp`、数据集目录或当前项目名填成项目父目录。
 
-## 3. 创建 Xshell 隧道
+## 3. 导入服务器并启动后台隧道
 
-为 Hub 和每台 Worker 分别创建已保存会话。
+新增服务器时仍从 Xshell 已保存会话导入地址、用户名和端口。导入后使用服务器设置中保存的配置，点击“一键打开隧道”会启动隐藏的系统 OpenSSH 连接，不打开 Xshell，也不修改会话登录命令。系统 SSH 必须已配置密钥或 ssh-agent；插件不会读取 Xshell 保存的密码。
 
-Hub 示例：
+需要交互终端时，点击“一键打开 Xshell”打开已保存会话。该入口保留原有会话的隧道及登录设置，但不代替后台连接或 Agent 就绪检查。下列手动转发步骤仅供保留旧会话设置的用户参考：
 
 1. 打开 Xshell 会话属性。
 2. 进入 **连接 > SSH > 隧道**。
@@ -81,7 +81,7 @@ Hub 示例：
 6. 目标主机：`127.0.0.1`；目标端口：`18765`。
 7. 保存并登录测试一次。
 
-Worker 的本机监听端口必须不同，但远端 Agent 端口通常相同：
+Worker 的本机监听端口必须不同，远端 Agent 地址和端口以每台服务器当前配置为准。以下为历史配置示例，Hub 已退役，不作为当前连接目标：
 
 | 角色 | 本机监听端口 | 目标地址 |
 | --- | ---: | --- |
@@ -157,18 +157,20 @@ Worker 的本机监听端口必须不同，但远端 Agent 端口通常相同：
 
 点击 **准备 Agent 并启动**。确认窗口会显示：
 
-首次配置使用“准备 Agent 并启动”完成受管自启动命令、runtime 部署、会话启动和检测。
+首次配置使用“准备 Agent 并启动”完成后台 runtime 部署、受管 Agent 启动、后台隧道和检测。
 
 准备 Agent 前必须打开目标本地项目；插件不会把 Agent 部署到通用占位项目目录。
 
-- 将修改的本地 `.xsh` 文件和固定备份路径；
+- 服务器地址、SSH 用户和端口；
 - 每台服务器的 runtime 上传位置；
 - 当前项目的最终远端代码目录；
 - Hub/Worker 角色与 SSH 身份。
 
-确认后插件会写入受管 `RemoteCommand`，通过 SimpleSFTP 上传 runtime，启动 Xshell 会话，然后检测端点。
+确认后插件通过 SimpleSFTP 在后台上传 runtime、管理指定 Agent tmux 窗口，再后台建立系统 SSH 隧道并检测端点。
 
-已有非 SimpleExperiment 登录命令的 `.xsh` 不会被覆盖；需要先人工迁移该命令。
+Xshell 会话用于新增服务器时的导入和“一键打开 Xshell”手动终端入口。自动准备和隧道启动不修改 `.xsh` 或依赖 Xshell 登录；原来的 RemoteCommand 写入入口仍供用户主动调用。
+
+后台认证复用系统默认密钥或 ssh-agent，不能读取 Xshell 加密密码。指定私钥请配置到系统 OpenSSH 的 `IdentityFile` 或 ssh-agent，供隧道与 SimpleSFTP 部署共同使用。
 
 检测通过标准：
 

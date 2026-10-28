@@ -61,6 +61,7 @@ import XshellTunnelIntegration_1 = require("../tunnel/XshellTunnelIntegration");
 import XshellTunnelCommandBuilder_1 = require("../tunnel/XshellTunnelCommandBuilder");
 import XshellTunnelPortProbe_1 = require("../tunnel/XshellTunnelPortProbe");
 import XshellSessionLauncher_1 = require("../tunnel/XshellSessionLauncher");
+import BackgroundSshTunnels_1 = require("../tunnel/BackgroundSshTunnels");
 import AgentTmuxPolicy_1 = require("../tunnel/AgentTmuxPolicy");
 import XshellSessionScanner_1 = require("../tunnel/XshellSessionScanner");
 import LocalSshConfig_1 = require("../tunnel/LocalSshConfig");
@@ -635,7 +636,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "stopAndClearPlan",
     "stopAndClearPlans",
     "refreshLocalResults",
-    "webviewNotice", "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveAgentDefaults", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
+    "webviewNotice", "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveAgentDefaults", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "openXshell", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "toggleLowTrafficMode", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "gpuWindowSamples", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
@@ -677,7 +678,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "quickSetup", "openSetupGuide", "configureSessions", "configureAgentSessions", "writeAgentCommands",
     "saveTopologyMode", "saveAgentDefaults", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
     "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure",
-    "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll",
+    "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "openXshell", "prepareAgents", "test", "testAll",
     "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot",
     "manualGpuSnapshot", "gpuWindowSamples", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "script",
     "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "editResultColumnMapping", "runAllPlans",
@@ -842,10 +843,11 @@ async function activateExtension(context) {
         hostCommand("simpleExperiment.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()),
         hostCommand("simpleExperiment.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()),
         hostCommand("simpleExperiment.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()),
-        hostCommand("simpleExperiment.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动 Xshell 隧道", () => provider?.startXshellRealtimeTunnel()),
-        hostCommand("simpleExperiment.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部 Xshell 隧道", () => provider?.startAllXshellRealtimeTunnels()),
+        hostCommand("simpleExperiment.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动后台隧道", () => provider?.startXshellRealtimeTunnel()),
+        hostCommand("simpleExperiment.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部后台隧道", () => provider?.startAllXshellRealtimeTunnels()),
         hostCommand("simpleExperiment.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()),
-        hostCommand("simpleExperiment.startAllXshellConnections", "start-all-connections", "启动全部 Xshell 连接", () => provider?.startAllXshellConnections()),
+        hostCommand("simpleExperiment.startAllXshellConnections", "start-all-connections", "启动全部后台连接", () => provider?.startAllXshellConnections()),
+        hostCommand("simpleExperiment.openXshellSessions", "open-xshell-sessions", "打开 Xshell 会话", () => provider?.openAllXshellSessions()),
         vscode.commands.registerCommand("simpleExperiment.testAllTunnels", () => provider?.testTunnel(true)),
         vscode.commands.registerCommand("simpleExperiment.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()),
         vscode.commands.registerCommand("simpleExperiment.testXshellTunnel", () => provider?.testTunnel(true)),
@@ -972,6 +974,7 @@ const planSubmitProgress = {
     },
 };
 export class RealtimeTunnelPanelProvider {
+    private backgroundTunnelManager;
     readonly manualDispatchInFlight = new Set<string>();
     // Generations that currently HOLD an incoming run out of the two-generation window, recorded
     // per plan file when admission is refused; consumed by the cache-cleanup review so a blocked
@@ -3490,7 +3493,7 @@ export class RealtimeTunnelPanelProvider {
                 networkHost: target.networkHost || "",
             })),
             modifications: {
-                xshellSessions: params.applyXshell === false ? [] : targets.map((target) => target.savedSessionPath).filter(Boolean),
+                xshellSessions: params.applyXshell === true ? targets.map((target) => target.savedSessionPath).filter(Boolean) : [],
                 remoteRuntime: params.deployRuntime === false ? [] : targets.map((target) => ({ serverId: target.id, installDir: this.agentRuntimeDirs(target.remoteRoot, target.agentInstallDir).installDir, workDir: this.agentRuntimeDirs(target.remoteRoot).workDir })),
             },
         };
@@ -3509,7 +3512,7 @@ export class RealtimeTunnelPanelProvider {
         const profileResult = await this.writeSftpManagerServerProfiles(targets.map((target) => target.id));
         if (profileResult.targetCount < targets.length)
             throw new Error(`project.prepare 写入 SimpleSFTP 目标不完整：需要 ${targets.length} 个，当前 ${profileResult.targetCount} 个。`);
-        const commandResults = params.applyXshell === false ? [] : await this.writeXshellAgentStartupCommands(false, false, serverIds);
+        const commandResults = params.applyXshell === true ? await this.writeXshellAgentStartupCommands(false, false, serverIds) : [];
         const blocked = commandResults.filter((item) => item.error || AGENT_STARTUP_BLOCKED_SKIP_REASONS.has(item.skippedReason));
         if (blocked.length)
             throw new Error(`project.prepare 未修改 Xshell 自启动命令：${blocked.map((item) => item.summary).join("；")}`);
@@ -3764,12 +3767,14 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 }),
                 preview: { operation: "startAllConnections", topology: this.apiPublicTopology(topology) },
             });
-        const targets = this.agentStartupTargets();
         const tunnelItems = this.tunnelLaunchItems();
-        const modificationPreview = targets.map((target) => ({
-            serverId: target.id,
-            xshellSession: target.filePath,
-            command: target.command,
+        const modificationPreview = tunnelItems.map((item) => ({
+            serverId: item.id,
+            transport: "background_openssh",
+            localForwardHost: item.config.localForwardHost,
+            localForwardPort: item.config.localForwardPort,
+            remoteAgentHost: item.config.remoteAgentHost,
+            remoteAgentPort: item.config.remoteAgentPort,
         }));
         const ports = tunnelItems.map((item) => ({
             serverId: item.id,
@@ -3784,11 +3789,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 preview: {
                     operation: "startAllConnections",
                     topology: this.apiPublicTopology(topology),
-                    servers: targets.map((target) => ({
-                        serverId: target.id,
-                        savedSessionPath: target.filePath,
-                        modification: "Xshell RemoteCommand / tmux Agent 启动",
-                    })),
+                    servers: modificationPreview,
                     ports,
                     remoteRoots: this.agentRuntimeUploadTargets().map((target) => ({
                         serverId: target.id,
@@ -3796,8 +3797,8 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                     })),
                 },
             });
-        await this.startAllXshellConnections(false, false);
-        return { ok: true, started: true, topology: this.apiPublicTopology(topology), preview: modificationPreview, ports };
+        const started = await this.startAllXshellConnections(false, false);
+        return { ok: started === true, started: started === true, phase: started === true ? "listening" : "unconfirmed", topology: this.apiPublicTopology(topology), preview: modificationPreview, ports };
     }
     async apiServerTestAll(params = {}) {
         const topology = this.projectTopologyAssessment();
@@ -5477,6 +5478,8 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
     }
     async dispose() {
         this.runConfirmation.cancel();
+        await this.backgroundTunnelManager?.dispose();
+        this.backgroundTunnelManager = undefined;
         if (this.panelHostEventLoopTimer) clearInterval(this.panelHostEventLoopTimer);
         this.panelHostEventLoopTimer = undefined;
         this.panelHostEventLoopHistogram?.disable();
@@ -5844,7 +5847,7 @@ return this.configureWorkerTunnels();
     async writeXshellAgentStartupCommands(showMessage = true, requireConfirm = true, serverIds = []) {
         assertSingleProjectWorkspace("写入 Agent 自启动路径");
         this.assertTopologyActualWorkRoots("写入 Agent 自启动路径");
-        const targets = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentStartupTargets(), serverIds);
+        const targets = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentStartupTargets().filter((target) => target.filePath), serverIds);
         if (!targets.length) {
             void vscode.window.showWarningMessage("没有可写入的 Xshell Agent 会话。请先配置或复用 Hub/Worker 会话。");
             return [];
@@ -5878,17 +5881,15 @@ return this.configureWorkerTunnels();
         return results;
     }
     async startAllXshellAgentSessions(showMessage = false, requireConfirm = true) {
-        void showMessage;
-        await this.startAllXshellRealtimeTunnels(requireConfirm);
-        return true;
+        void requireConfirm;
+        return this.prepareAgentsForFirstRun(showMessage);
     }
     async startAllXshellConnections(requireConfirm = true, scheduleAutoTest = true, serverIds = []) {
-        await this.syncXshellConfigBeforeNetwork("start all xshell connections");
-        const launchBlockers = this.currentTunnelLaunchBlockers();
-        if (launchBlockers.length) {
-            void vscode.window.showErrorMessage(`连接启动已阻止：${launchBlockers.join("；")}`);
-            return false;
-        }
+        return this.startBackgroundTunnels(requireConfirm, scheduleAutoTest, serverIds);
+    }
+    /** Explicit manual entry only: no deployment or background-failure fallback. */
+    async openAllXshellSessions(requireConfirm = true, serverIds = []) {
+        await this.refreshXshellSessionLibrary({ postState: false });
         const tunnelItems = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.tunnelLaunchItems(), serverIds);
         const launchItems = [
             ...tunnelItems
@@ -5906,17 +5907,13 @@ return this.configureWorkerTunnels();
         }
         const uniqueCount = new Set(launchItems.map((item) => localPathKey(item.sessionPath))).size;
         if (requireConfirm) {
-            const answer = await vscode.window.showWarningMessage(`启动连接将打开 ${uniqueCount} 个唯一 Xshell 隧道会话；同一个 .xsh 只打开一次，不会提交实验或自动修改 .xsh。若已点击“写入 Agent 自动启动命令”，Agent 会由 Xshell RemoteCommand 自动启动，并进入自动计算的当前项目代码目录。\n\n隧道会话 ${tunnelItems.length} 个：\n${tunnelItems.map((item) => `${item.id}: ${item.config.savedSessionPath || "未配置"}  ${tunnelHttpEndpoint(item.config.localForwardHost, item.config.localForwardPort)}`).join("\n") || "-"}\n\n插件不会直接执行 ${"s" + "sh"}/${"s" + "cp"}/${"r" + "sync"}。`, { modal: true }, "确认启动连接");
-            if (answer !== "确认启动连接")
+            const answer = await vscode.window.showWarningMessage(`将打开 ${uniqueCount} 个唯一 Xshell 会话供手动操作；同一个 .xsh 只打开一次，并保留会话原有的登录命令与设置。后台隧道和 Agent 部署由各自入口管理。\n\n${launchItems.map((item) => `${item.id}: ${item.sessionPath}`).join("\n")}`, { modal: true }, "打开 Xshell");
+            if (answer !== "打开 Xshell")
                 return;
         }
-        await this.launchUniqueXshellSessions(launchItems);
-        if (scheduleAutoTest && this.setupConfig.autoTestTunnelAfterStart) {
-            this.schedulePostLaunchAutoTest();
-        }
-        else {
-            void this.ensureRealtimeConnected("xshell sessions launched");
-        }
+        const results = await this.launchUniqueXshellSessions(launchItems);
+        void vscode.window.showInformationMessage(`Xshell 打开请求：${results.join("；")}。连接状态请在 Xshell 中查看。`);
+        return results;
     }
     async prepareAgentsForFirstRun(showMessage = true) {
         if(!await this.ensureSimpleSftpReadyForSetup("准备 Agent")){
@@ -5934,11 +5931,11 @@ return this.configureWorkerTunnels();
         this.assertTopologyActualWorkRoots("准备 Agent");
         const preparationBlockers = this.currentAgentPreparationBlockers();
         if (preparationBlockers.length)
-            throw new Error(`Agent 准备已阻止，尚未修改 .xsh 或部署 runtime：${preparationBlockers.join("；")}`);
+            throw new Error(`Agent 准备已阻止，尚未部署 runtime：${preparationBlockers.join("；")}`);
         const targets = this.agentStartupTargets();
         const expectedTargets = this.enabledWorkerConfigs().length;
         if (targets.length !== expectedTargets)
-            throw new Error(`Agent 准备目标不完整：需要 ${expectedTargets} 个，当前 ${targets.length} 个。请检查当前拓扑内所有服务器的 Xshell 会话和项目父目录。`);
+            throw new Error(`Agent 准备目标不完整：需要 ${expectedTargets} 个，当前 ${targets.length} 个。请检查当前拓扑内服务器地址和项目父目录。`);
         this.assertExecutionCondaEnvReady(this.workerActionTargets());
         const availableProfileTargets = this.sftpSharedTargets().length;
         if (availableProfileTargets < expectedTargets) {
@@ -5955,14 +5952,9 @@ return this.configureWorkerTunnels();
             const profileResult = await this.writeSftpManagerServerProfiles(targets.map((target) => target.id));
             if (profileResult.targetCount < expectedTargets)
                 throw new Error(`当前项目 SimpleSFTP 目标写入不完整：需要 ${expectedTargets} 个，当前 ${profileResult.targetCount} 个。尚未修改 .xsh 或上传 runtime。`);
-            progress.report({ message: "写入 Xshell Agent 自启动命令" });
-            const commandResults = await this.writeXshellAgentStartupCommands(false, false);
-            const blocked = commandResults.filter((item) => item.error || AGENT_STARTUP_BLOCKED_SKIP_REASONS.has(item.skippedReason));
-            if (blocked.length)
-                throw new Error(`Agent 自启动命令未就绪，尚未部署远端 runtime：${blocked.map((item) => item.summary).join("；")}`);
             progress.report({ message: "部署 runtime" });
             const deployed = await this.deployLatestAgentRuntime(false, true, [], true, { promptLegacyMigration: true, reportStage: message => progress.report({ message }) });
-            progress.report({ message: "启动 Xshell 会话" });
+            progress.report({ message: "建立后台 SSH 隧道" });
             await this.startAllXshellConnections(false, false);
             const deadline = Date.now() + 60000;
             let completion = tunnelTestCompletion(this.setupConfig, this.lastProbe, this.lastHealth, this.lastWorkerProbes, false);
@@ -6106,50 +6098,69 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const doc = await vscode.workspace.openTextDocument({ language: "json", content: JSON.stringify(this.endpointRegistryState(), null, 2) });
         await vscode.window.showTextDocument(doc, { preview: true });
     }
-    async startAllXshellRealtimeTunnels(requireConfirm = true) {
-        await this.syncXshellConfigBeforeNetwork("start all tunnels");
-        const portConflicts = this.currentPortConflicts();
-        const blockingConflicts = portConflicts.filter((conflict) => conflict.severity === "error");
-        if (blockingConflicts.length) {
-            void vscode.window.showErrorMessage(`端口冲突阻止启动全部隧道：${blockingConflicts.map((conflict) => `${conflict.endpointId}:${conflict.requestedPort}`).join(", ")}。请在服务器卡片中选择唯一的 Xshell 本机端口对后保存。`);
-            return;
-        }
-        const launchItems = this.tunnelLaunchItems();
-        const errors = launchItems.flatMap((item) => (0, XshellTunnelSetup_1.validateXshellSetupConfig)(item.config).map((error) => `${item.id}: ${error}`));
-        errors.push(...launchItems.map((item) => {
-            const unsafeForward = this.unsafeXshellForwardMessage(item.config);
-            return unsafeForward ? `${item.id}: ${unsafeForward}` : "";
-        }).filter((message) => Boolean(message)));
-        if (errors.length) {
-            void vscode.window.showErrorMessage(`${errors.join(" ")} 请先导入或配置隧道。`);
-            return;
-        }
+    private backgroundTunnels() {
+        if (!this.backgroundTunnelManager) this.backgroundTunnelManager = new BackgroundSshTunnels_1.BackgroundSshTunnelManager({
+            portAvailable: (host, port) => XshellTunnelLauncher_1.isLocalPortAvailable(port, host),
+            portListening: BackgroundSshTunnels_1.backgroundPortListening,
+            assertBusinessAllowed: () => require("../updates/Bootstrap").assertBusinessAllowed(),
+            probeTunnel: async endpoint => {
+                const item = this.tunnelLaunchItems().find(row => row.id === endpoint.id);
+                if (!item) return false;
+                try {
+                    const probe = await XshellTunnelPortProbe_1.probeWorkerTelemetryTunnel({ ...item.config,
+                        hubHost: endpoint.host, hubUser: endpoint.user, hubSshPort: endpoint.sshPort,
+                        localForwardHost: endpoint.localForwardHost, localForwardPort: endpoint.localForwardPort,
+                        remoteAgentHost: endpoint.remoteAgentHost, remoteAgentPort: endpoint.remoteAgentPort,
+                        token: this.tunnelConfig.token }, { timeoutMs: 1500 });
+                    return probe.status === "ok";
+                } catch { return false; }
+            },
+        });
+        return this.backgroundTunnelManager;
+    }
+    async startBackgroundTunnels(requireConfirm = true, scheduleAutoTest = true, serverIds = []) {
+        const projectContext = this.captureProjectContext();
+        await this.syncXshellConfigBeforeNetwork("start background tunnels");
+        if (!this.projectContextIsCurrent(projectContext)) throw new UiCommandCancelled("工作区已切换，后台隧道启动已取消。");
+        const blockers = this.currentTunnelLaunchBlockers();
+        if (blockers.length) throw new Error(`后台隧道启动已阻止：${blockers.join("；")}`);
+        const items = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.tunnelLaunchItems(), serverIds);
+        if (!items.length) throw new Error("没有明确启用的 Worker 隧道。");
+        const endpoints = items.map(BackgroundSshTunnels_1.backgroundTunnelEndpoint);
+        const identity = JSON.stringify([endpoints, this.tunnelConfig.token]);
+        const assertCurrent = () => {
+            if (!this.projectContextIsCurrent(projectContext) || projectContext.signal.aborted
+                || identity !== JSON.stringify([AgentRuntimeScope_1.selectAgentRuntimeTargets(this.tunnelLaunchItems(), serverIds).map(BackgroundSshTunnels_1.backgroundTunnelEndpoint), this.tunnelConfig.token]))
+                throw new UiCommandCancelled("服务器配置或工作区已变化，旧后台连接请求已取消，请重新启动。");
+        };
         if (requireConfirm) {
-            const answer = await vscode.window.showWarningMessage(`即将启动 ${launchItems.length} 个 Xshell 会话。插件将按每个端点的主机和端口配置连接，本地实时状态会从 已配置 Worker 隧道聚合。\n\n${launchItems.map((item) => `${item.id}: ${tunnelHttpEndpoint(item.config.localForwardHost, item.config.localForwardPort)} -> ${tunnelHttpEndpoint(item.config.remoteAgentHost, item.config.remoteAgentPort)}`).join("\n")}`, { modal: true }, "启动全部隧道");
-            if (answer !== "启动全部隧道")
-                return;
+            const answer = await vscode.window.showWarningMessage(`将后台启动 ${endpoints.length} 个 Worker SSH 隧道，使用与 SimpleSFTP 相同的系统密钥或 ssh-agent 认证。\n\n${endpoints.map(item => `${item.id}: ${item.user}@${item.host}:${item.sshPort}；${tunnelHttpEndpoint(item.localForwardHost, item.localForwardPort)} → ${tunnelHttpEndpoint(item.remoteAgentHost, item.remoteAgentPort)}`).join("\n")}`, { modal: true }, "启动后台隧道");
+            if (answer !== "启动后台隧道") return false;
         }
-        const integration = this.integration();
-        for (const item of launchItems) {
-            const occupancy = await this.detectPortOccupancy(item.config.localForwardPort, item.id);
-            if (occupancy === "current_tunnel") {
-                continue;
-            }
-            if (occupancy === "unknown_process" || occupancy === "existing_tunnel") {
-                continue;
-            }
-            if (!(await (0, XshellTunnelLauncher_1.isLocalPortAvailable)(item.config.localForwardPort, item.config.localForwardHost || "127.0.0.1"))) {
-                continue;
-            }
-            await integration.launchTunnel(item.config);
-            await waitForXshellBatchLaunchSlot();
-        }
-        if (this.setupConfig.autoTestTunnelAfterStart) {
-            this.schedulePostLaunchAutoTest();
-        }
-        else {
-            void this.ensureRealtimeConnected("xshell launched all");
-        }
+        assertCurrent();
+        const manager = this.backgroundTunnels();
+        const enabled = new Set(this.enabledWorkerConfigs().map(worker => worker.id));
+        const retired = manager.running().filter(row => !enabled.has(row.id)).map(row => row.id);
+        const retiredOutcomes = retired.length ? await manager.stop(retired) : [];
+        assertCurrent();
+        const outcomes = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+            title: "启动后台 SSH 隧道", cancellable: false }, progress => manager.launchAll(endpoints,
+                { signal: projectContext.signal, assertCurrent, report: message => progress.report({ message }) }));
+        assertCurrent();
+        outcomes.push(...retiredOutcomes.filter(row => row.state === "failed"));
+        const live = outcomes.filter(row => row.state === "verified" || row.state === "existing_tunnel");
+        const pending = outcomes.filter(row => row.state === "requested");
+        const failed = outcomes.filter(row => row.state === "failed" || row.state === "cancelled");
+        const summary = `后台隧道：已监听 ${live.length} 个，待确认 ${pending.length} 个，失败或取消 ${failed.length} 个。`
+            + outcomes.map(row => row.message).join("；") + "。Agent 就绪状态以检测结果为准。";
+        if (failed.length || pending.length) void vscode.window.showWarningMessage(summary);
+        else void vscode.window.showInformationMessage(summary);
+        if (scheduleAutoTest && this.setupConfig.autoTestTunnelAfterStart) this.schedulePostLaunchAutoTest();
+        else void this.ensureRealtimeConnected("background tunnels launched");
+        return outcomes.length > 0 && outcomes.every(row => row.state === "verified" || row.state === "existing_tunnel");
+    }
+    async startAllXshellRealtimeTunnels(requireConfirm = true) {
+        return this.startBackgroundTunnels(requireConfirm);
     }
     async testTunnel(userInitiated = false) {
         const generation = this.projectContextGeneration;
@@ -6957,6 +6968,9 @@ return this.testTunnel(true);
                 break;
             case "startAllConnections":
                 await this.startAllXshellConnections();
+                break;
+            case "openXshell":
+                await this.openAllXshellSessions();
                 break;
             case "prepareAgents":
                 await this.prepareAgentsForFirstRun(message.uiMode !== true);
@@ -9620,6 +9634,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             await this.agentLifecycleForTarget(target, before.status === "unhealthy" || before.status === "running" && before.runningVersion !== runtimeVersion ? "restart" : "ensure", manifest, true);
         });
         if (deferVerification) return { targets, manifest, timings };
+        await this.startBackgroundTunnels(false, false, targets.map(target => target.id));
         // 手动触发(showMessage=true)：单次 verify 立即返回，避免 fetch failed/ECONNREFUSED 无意义延迟；仅自动触发(showMessage=false)才轮询重试
         let verifyIssues: any;
         let _verifyOk: boolean;
@@ -17997,7 +18012,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         });
         const selectedWorker = manual.workerTunnels.find((worker) => worker.id === endpointId);
         await this.ensureXshellSessionLoaded(selectedWorker?.savedSessionPath);
-        await this.applySetupDraft(this.withXshellDerivedFields(manual), { syncAssignmentsFromFields: true });
+        await this.applySetupDraft(this.withImportedXshellFields(manual, sessionPathChanged(currentWorker.savedSessionPath, selectedWorker?.savedSessionPath) ? endpointId : ""), { syncAssignmentsFromFields: true });
         const savedWorker = this.setupConfig.workerTunnels.find((worker) => worker.id === endpointId);
         void this.showServerConfigSavedNextStep(savedWorker?.displayName || endpointId, savedWorker?.agentProjectDir).catch((error) => {
             void vscode.window.showErrorMessage(`服务器配置已保存，但后续引导失败：${errorMessage(error)}`);
@@ -18018,7 +18033,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             workerTunnels: workers,
         });
         await this.ensureXshellSessionLoaded(worker.savedSessionPath);
-        await this.applySetupDraft(this.withXshellDerivedFields(manual), { syncAssignmentsFromFields: true });
+        await this.applySetupDraft(this.withImportedXshellFields(manual, worker.id), { syncAssignmentsFromFields: true });
         if (showMessage)
             void vscode.window.showInformationMessage(`${worker.displayName || worker.id} 已添加并全局保存。`);
         return true;
@@ -18041,17 +18056,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         await this.applySetupDraft(manual, { syncAssignmentsFromFields: true });
     }
     async startTunnelEndpointFromUi(message) {
-        await this.syncXshellConfigBeforeNetwork("start endpoint");
-        const endpointId = stringField(message, "endpointId") || "hub";
-        const item = this.tunnelLaunchItems().find((entry) => entry.id === endpointId);
-        if (!item) {
-            void vscode.window.showWarningMessage(`未找到隧道会话：${endpointId}`);
-            return;
-        }
-        const answer = await vscode.window.showWarningMessage(`启动 ${endpointId} 的本地 Xshell 隧道会话？\n\n${item.config.savedSessionPath || "未配置 .xsh 路径"}`, { modal: true }, "启动");
-        if (answer !== "启动")
-            return;
-        await this.launchTunnelItem(item);
+        const endpointId = stringField(message, "endpointId");
+        if (!endpointId) throw new Error("请选择明确的 Worker 端点。");
+        await this.startBackgroundTunnels(true, true, [endpointId]);
     }
     async startAgentEndpointFromUi(message) {
         const id = stringField(message, "endpointId") || "hub";
@@ -25935,15 +25942,17 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
         await this.applySetupDraft(synced, { syncAssignmentsFromFields: true });
     }
     async syncXshellConfigBeforeNetwork(reason, options = {}) {
-        await Promise.all([
-            this.refreshXshellSessionLibrary({ postState: options.postState !== false }),
-            this.refreshLocalSshConfig(),
-        ]);
+        // Persisted endpoint fields own runtime connections; session files are only import/manual sources.
+        await this.refreshLocalSshConfig();
         await this.assertSshTransportIdentities(this.sftpSharedTargets());
-        await this.syncConfiguredXshellSessions(reason, options.postState !== false);
     }
     withXshellDerivedFields(config) {
+        // Compatibility normalization: runtime refresh never re-imports a saved session.
+        return XshellTunnelSetup_1.normalizeXshellSetupConfig(config);
+    }
+    withImportedXshellFields(config, importEndpointId = "") {
         const workers = config.workerTunnels.map((worker) => {
+            if (worker.id !== importEndpointId) return worker;
             const info = this.sessionInfoForPath(worker.savedSessionPath);
             const forward = chooseXshellForward(info, worker.savedSessionForwardIndex, worker.localForwardPort, worker.remoteTelemetryPort || worker.remoteAgentPort);
             const workerHost = worker.workerHost || worker.hubHost || info?.host || "";
@@ -26432,9 +26441,7 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
         const hubPath = this.setupConfig.savedSessionPath;
         {}
         for (const worker of this.enabledWorkerConfigs()) {
-            const filePath = worker.savedSessionPath;
-            if (!filePath)
-                continue;
+            const filePath = worker.savedSessionPath || "";
             const dirs = this.agentRuntimeDirs(worker.agentProjectDir, worker.agentInstallDir);
             const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, stateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix });
             targets.push({
@@ -26447,10 +26454,7 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
         return targets;
     }
     currentAgentPreparationBlockers() {
-        return uniqueStrings([
-            ...this.currentTunnelLaunchBlockers(),
-            ...agentSessionReuseBlockers(this.agentStartupTargets()),
-        ]);
+        return uniqueStrings(this.tunnelLaunchItems().flatMap((item) => BackgroundSshTunnels_1.backgroundTunnelErrors(item)));
     }
     currentTunnelLaunchBlockers() {
         const items = this.tunnelLaunchItems();
@@ -26458,10 +26462,7 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
             .filter((conflict) => conflict.severity === "error")
             .map((conflict) => conflict.message || conflict.suggestion);
         for (const item of items) {
-            blockers.push(...(0, XshellTunnelSetup_1.validateXshellSetupConfig)(item.config).map((error) => `${item.id}: ${error}`));
-            const unsafeForward = this.unsafeXshellForwardMessage(item.config);
-            if (unsafeForward)
-                blockers.push(`${item.id}: ${unsafeForward}`);
+            blockers.push(...BackgroundSshTunnels_1.backgroundTunnelErrors(item));
         }
         return uniqueStrings(blockers);
     }
@@ -26478,7 +26479,7 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
             return this.agentSessionStateCacheValue;
         }
         const value = {
-            mode: "xshell_saved_session_tmux",
+            mode: "background_ssh_managed_tmux",
             canWriteStartupCommands: this.agentStartupTargets().length > 0,
             preparationBlockers: this.currentAgentPreparationBlockers(),
             workers: this.setupConfig.workerTunnels.map((worker) => {
@@ -26487,7 +26488,7 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
                     id: worker.id,
                     displayName: worker.displayName,
                     enabled: worker.enabled !== false,
-                    configured: Boolean(worker.savedSessionPath),
+                    configured: Boolean((worker.workerHost || worker.hubHost) && (worker.workerUser || worker.hubUser)),
                     sessionPath: worker.savedSessionPath,
                     tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id, (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix),
                     actualWorkRoot: dirs.workRoot,
@@ -26498,7 +26499,7 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
                     startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, stateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
                 };
             }),
-            note: "Agent 是独立辅助服务，由 SimpleSFTP 核验归属后准备、复用或升级；Xshell 只负责登录与隧道。所列 tmux 名称保留用于旧版 Agent 历史会话。",
+            note: "Agent 由 SimpleSFTP 通过后台连接核验归属、准备和启动；隧道由后台系统 SSH 建立。Xshell 保留会话导入和手动打开入口。",
         };
         this.agentSessionStateCacheSetup = this.setupConfig;
         this.agentSessionStateCacheSessions = sessions;
@@ -26597,7 +26598,7 @@ return "历史服务器";
             assignments,
             conflicts,
             policy,
-            note: `${"Worker"} 连接都由 Xshell 会话本地端口转发提供；插件按每个端点的配置主机和端口连接。配置保存在 VS Code 全局扩展状态中。插件不内置 ${"S" + "SH"}，也不会执行 ${"s" + "sh"}/${"s" + "cp"}/${"r" + "sync"}。`,
+            note: "Worker 隧道由后台系统 SSH 按每个端点配置的主机和端口建立。Agent 部署由 SimpleSFTP 管理，Xshell 用于导入服务器和手动终端。",
         };
         this.endpointRegistryStateCacheConfig = this.setupConfig;
         this.endpointRegistryStateCacheHubProbe = this.lastProbe;
@@ -26660,26 +26661,7 @@ return "历史服务器";
         }
     }
     async launchTunnelItem(item) {
-        const errors = (0, XshellTunnelSetup_1.validateXshellSetupConfig)(item.config);
-        if (errors.length) {
-            void vscode.window.showErrorMessage(`${item.id}: ${errors.join(" ")}`);
-            return;
-        }
-        const unsafeForward = this.unsafeXshellForwardMessage(item.config);
-        if (unsafeForward) {
-            void vscode.window.showErrorMessage(`${item.id}: ${unsafeForward}`);
-            return;
-        }
-        const occupancy = await this.detectPortOccupancy(item.config.localForwardPort, item.id);
-        if (occupancy === "current_tunnel") {
-            return;
-        }
-        if (occupancy !== "available") {
-            return;
-        }
-        const launch = await this.integration().launchTunnel(item.config);
-        if (!launch.launched)
-            void vscode.window.showErrorMessage(`${item.id}: ${launch.message} ${launch.error || ""}`.trim());
+        return this.startBackgroundTunnels(false, true, [item.id]);
     }
     unsafeXshellForwardMessage(config) {
         const info = this.sessionInfoForPath(config.savedSessionPath);
@@ -30025,12 +30007,13 @@ function agentStartupWriteConfirmationDetail(startupTargets, runtimeTargets, inc
     const lines = [
         includeRuntimeUpload ? "【强制确认】准备 Agent 并启动" : "【强制确认】写入 Agent 自启动路径",
         "",
+        ...(includeRuntimeUpload ? ["通过 SimpleSFTP 后台部署和启动 Agent，随后建立系统 SSH 隧道。"] : [
         `本地 Xshell 会话文件（${sessions.length} 个）：`,
         ...(sessions.length ? sessions.flatMap((item) => {
             const id = String(item.id || "Agent").trim() || "Agent";
             const filePath = String(item.filePath || "").trim();
             return [`- ${id} 会话：${filePath}`, `- ${id} 固定备份：${filePath}.simple-backup`];
-        }) : ["- 未配置"]),
+        }) : ["- 未配置"])]),
         "",
         includeRuntimeUpload ? "预期上传的远端文件位置：" : "Agent 启动后使用的预期远端文件位置（本操作不上传）：",
     ];
@@ -30051,7 +30034,7 @@ function agentStartupWriteConfirmationDetail(startupTargets, runtimeTargets, inc
     }
     lines.push("");
     if (includeRuntimeUpload) {
-        lines.push(`准备 ${sessions.length} 个独立辅助 Agent：`, "1. 通过 SimpleSFTP 只读核对运行身份与状态目录归属，健康同版本复用", "2. 缺失时部署并启动；旧版仅核实归属且无活动任务后升级", "3. 原登录行为保留；只有 agentLoginPolicy=managed 才维护独立启动段", "4. 检测实际运行版本及当前配置的隧道；不修改平台入口或停止用户训练");
+        lines.push(`准备 ${(startupTargets || []).length} 个独立辅助 Agent：`, "1. 通过 SimpleSFTP 后台核对运行身份与状态目录归属，健康同版本复用", "2. 缺失时部署并启动，旧版核实归属后升级", "3. 在指定 tmux 窗口管理辅助 Agent，保留任务和原有 Xshell 登录行为", "4. 后台建立当前配置的隧道并检测实际运行版本；不修改平台入口或停止用户训练");
     }
     else {
         lines.push("本操作只写入上述本地 .xsh 及固定备份，不上传远端文件，也不会修改 X11、Host、User、端口转发或其它会话项。");
@@ -31935,7 +31918,7 @@ const hostOperationUiCommands = new Set([
     "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "reassignWorkerTask",
     "saveTopologyMode", "saveAgentDefaults", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
     "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure",
-    "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents",
+    "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "openXshell", "prepareAgents",
     "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "script", "offline",
     "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject",
     "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath",
@@ -31982,10 +31965,11 @@ const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     startAgentEndpoint: "启动 Agent 端点",
     startHub: "启动 Hub 隧道",
     startWorker: "启动 Worker 隧道",
-    start: "启动 Xshell 隧道",
+    start: "启动后台隧道",
     startAll: "启动全部隧道",
     startAgents: "启动 Agent 会话",
     startAllConnections: "启动全部连接",
+    openXshell: "打开 Xshell 会话",
     prepareAgents: "准备 Agent",
     runPlan: "运行计划",
     reproducePlan: "恢复并重新运行",
@@ -33232,8 +33216,10 @@ function serverSetupMissingItems(setup, hubRequired = true) {
     const workers = Array.isArray(config.workerTunnels) ? config.workerTunnels.filter((worker) => worker && worker.enabled !== false) : [];
     for (const worker of workers) {
         const label = String(worker.displayName || worker.id || "Worker");
-        if (!String(worker.savedSessionPath || "").trim())
-            missing.push(`${label} Xshell 会话`);
+        if (!String(worker.workerHost || worker.hubHost || "").trim())
+            missing.push(`${label} 服务器地址`);
+        if (!String(worker.workerUser || worker.hubUser || "").trim())
+            missing.push(`${label} 登录用户名`);
         if (!String(worker.agentProjectDir || "").trim())
             missing.push(`${label} 项目父目录`);
     }

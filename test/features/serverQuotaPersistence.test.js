@@ -26,7 +26,7 @@ function fixture({events=true,interruptStorage=false}={}){
  h.tunnelConfig={localPort:24000,remotePort:25000};h.setupConfig=X.normalizeXshellSetupConfig({condaEnv:'env',workerTunnels:['a','b'].map(id=>({id,workerHost:id,agentProjectDir:'/project',gpuMaxConcurrentCards:1}))});
  state.set('setup',structuredClone(h.setupConfig));state.set('tunnel',structuredClone(h.tunnelConfig));
  Object.assign(h,{lastWorkerProbes:{},isRealtimeMode:()=>true,effectiveConnectionMode:()=> 'xshell_realtime',loadTunnelConfig:()=>state.get('tunnel'),resetClient(){},postState(){},ensureRealtimeConnected:async()=>{},
-  withAssignmentsFromConfigFields:value=>value,withXshellDerivedFields:value=>value,ensureXshellSessionLoaded:async()=>{},showServerConfigSavedNextStep:async()=>{}});
+  withAssignmentsFromConfigFields:value=>value,withXshellDerivedFields:value=>value,withImportedXshellFields:value=>value,ensureXshellSessionLoaded:async()=>{},showServerConfigSavedNextStep:async()=>{}});
  return {h,state,writes,reload:()=>h.loadSetupConfig()};
 }
 test('server cap, zero/pause and cleared/inherit survive real save, configuration callbacks and fresh reload',async()=>{

@@ -1,8 +1,8 @@
 # SimpleExperiment
 
-SimpleExperiment 是一个 VS Code 插件，用 Xshell 本地隧道、远端 Agent 和配套 SimpleSFTP 管理 Linux GPU 实验服务器。它把项目接入、代码同步、Agent 部署、实验计划校验与运行、GPU/任务监控、结果解析和论文证据检查放在同一个工作流里。
+SimpleExperiment 是一个 VS Code 插件，用后台 SSH 隧道、远端 Agent 和配套 SimpleSFTP 管理 Linux GPU 实验服务器。它把项目接入、代码同步、Agent 部署、实验计划校验与运行、GPU/任务监控、结果解析和论文证据检查放在同一个工作流里。
 
-插件不直接发起 SSH、SCP 或 RSYNC。Agent 状态和控制走 Xshell 本地隧道；真实文件传输交给 SimpleSFTP。
+隧道由系统 OpenSSH 在后台建立固定的本地端口转发；Agent 部署和真实文件传输交给 SimpleSFTP，状态与任务控制通过隧道访问 Agent。Xshell 保留服务器会话导入和“一键打开 Xshell”手动终端入口。
 
 ## 适合谁使用
 
@@ -175,15 +175,17 @@ tmux -V                   # 推荐，用于保持 Agent 和长任务运行
 
 点击 **准备 Agent 并启动**。插件会按顺序：
 
-1. 显示本地 `.xsh` 备份位置和远端 runtime 目标。
-2. 写入受管 `RemoteCommand`，已有非 SimpleExperiment 登录命令时会停止而不是覆盖。
+1. 显示服务器身份、远端 runtime 和项目目录，确认写入范围。
+2. 通过后台 SimpleSFTP 核验辅助 Agent 的运行归属。
 3. 通过 SimpleSFTP 上传 Agent runtime。
-4. 打开对应 Xshell 会话。
+4. 在受管 tmux 窗口启动 Agent，并后台建立系统 SSH 隧道。
 5. 检测 Worker。
 
 Agent runtime 位于 `<项目父目录>/simple_agent/runtime`，项目代码位于 `<项目父目录>/<本地工作区名称>`。
 
-如果 Agent 版本更新，需要重启对应 Xshell 会话或 tmux 会话才能生效。
+Agent 更新通过受管生命周期重启精确的 Agent tmux 窗口。新增服务器仍可导入 Xshell 会话；“一键打开 Xshell”保留原来的手动打开会话行为。
+
+后台连接复用系统默认密钥或 ssh-agent，不能读取 Xshell 加密保存的密码。需要特定私钥时，先在系统 OpenSSH 的 `IdentityFile` 或 ssh-agent 中配置，使隧道与 SimpleSFTP 部署使用相同认证。
 
 ## 接入实验项目
 
