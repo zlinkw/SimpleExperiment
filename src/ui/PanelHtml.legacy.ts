@@ -1511,19 +1511,20 @@ export function renderPanelHtml(): string {
          </div>
          <div class="cardTools">
            <select id="tmuxWorkerSelect" title="选择 tmux 所在 Worker"></select>
-           <button id="tmuxRefreshBtn" title="重新拉取 tmux 捕获面板的内容" class="secondary" type="button">刷新 capture</button>
-           <button id="tmuxListBtn" title="列出服务器上所有 tmux 会话，供 capture 面板选择" class="secondary" type="button">列出 sessions</button>
+           <button id="tmuxListBtn" title="手动刷新所有启用 Worker 的会话、窗口和窗格；低流量模式也可使用" class="secondary" type="button">刷新窗口列表</button>
+           <button id="tmuxRefreshBtn" title="手动刷新当前选中窗口的日志；低流量模式也可使用" class="secondary" type="button">刷新当前日志</button>
            <select id="tmuxWindowSelect" title="选择 tmux 目标（session:window.pane）" style="display:none"><option value="">正在列出...</option></select>
          </div>
        </div>
        <div id="tmuxListInfo" style="margin:6px 0;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--subtle-bg);font-size:12px;line-height:1.4;">
          <div id="tmuxWorkersOverview" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
          <span id="tmuxListMeta">等待列出 tmux sessions...</span><span id="tmuxAutoNotice" style="margin-left:8px;color:var(--vscode-descriptionForeground);"></span>
+         <button type="button" class="mini secondary" data-tmux-refresh="list" title="低流量模式下手动更新窗口列表">刷新窗口列表</button>
          <div id="tmuxFilterBar" class="tmuxFilterBar"></div>
          <div id="tmuxOverview" class="tmuxOverviewGrid" style="margin-top:6px;display:grid;gap:4px;"></div>
        </div>
        <details open>
-         <summary>实时捕获数据（<span id="tmuxCaptureMeta">选择任务或窗口后读取日志</span><span id="tmuxCaptureNotice" style="color:var(--vscode-descriptionForeground);"></span>）</summary>
+         <summary>实时捕获数据（<span id="tmuxCaptureMeta">选择任务或窗口后读取日志</span><span id="tmuxCaptureNotice" style="color:var(--vscode-descriptionForeground);"></span>）<button type="button" class="mini secondary" data-tmux-refresh="capture" title="手动读取当前窗口最新日志">刷新当前日志</button></summary>
          <pre id="tmuxCapturePre" style="max-height:320px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:10px;border-radius:4px;white-space:pre-wrap;word-break:break-all;"></pre>
        </details>
       <div id="tmuxInstructions" style="display:grid;gap:6px;margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--subtle-bg);">
@@ -1540,6 +1541,7 @@ export function renderPanelHtml(): string {
       <div class="section-head">
           <div class="section-title">
             <h2>运行进度</h2>
+            <button type="button" class="mini secondary" data-command="manualSchedulerSnapshot" title="手动刷新调度器和任务状态；低流量模式也可使用">刷新运行状态</button>
             <div class="section-desc">每个 Plan 一张概览卡；详情按需展开，已完成的 Plan 可手动折叠。结构、同步与 Worker 状态分别核实；项目科研校验未自动执行。</div>
           </div>
           <div class="section-head-actions">
@@ -3499,6 +3501,13 @@ export function renderPanelHtml(): string {
       ...Object.keys(uiCapabilityMap)
     ]);
     document.addEventListener("click", (event) => {
+      const tmuxRefresh = event.target.closest("button[data-tmux-refresh]");
+      if (tmuxRefresh) {
+        event.preventDefault(); event.stopPropagation();
+        if (tmuxRefresh.dataset.tmuxRefresh === "list") refreshTmuxList("user");
+        else if (tmuxRefresh.dataset.tmuxRefresh === "capture") refreshTmuxCapture("user");
+        return;
+      }
       const taskSelectionInput = event.target.closest('input[type="checkbox"][data-command="selectExperiment"]');
       if (taskSelectionInput) {
         event.stopPropagation();
@@ -14636,7 +14645,7 @@ export function renderPanelHtml(): string {
             '<button type="button" data-trace-plan-scope="all" title="显示全部实验记录（含其他 Plan 的归档候选）" class="' + (!scope.scoped ? "is-active" : "") + '" aria-pressed="' + (!scope.scoped ? "true" : "false") + '">全部记录 ' + scope.totalCount + '</button>' +
           '</div><span class="muted" title="' + escAttr(scope.selectedPlanFile) + '">' + esc(compactPath(scope.selectedPlanFile)) + (scope.unscopedCount ? '；未归属 ' + scope.unscopedCount : '') + '</span></div>'
         : '<div class="taskScopeBar"><span class="muted">未选择 Plan，显示全部实验记录。</span></div>';
-      setHtmlIfChanged("traceTable", scopeBar + (rows.length ? traceNotice + '<div class="traceList">' + visibleRows.map((row) => renderTraceCard(row, selected)).join("") + '</div>' : '<div class="muted">' + (scope.scoped ? '当前 Plan 暂无实验记录；可切换“全部记录”查看历史或未归属记录。' : '暂无实验记录。') + '</div>') +
+      setHtmlIfChanged("traceTable", '<button type="button" class="mini secondary" data-command="manualTracesSnapshot" title="手动刷新实验记录；低流量模式也可使用">刷新实验记录</button>' + scopeBar + (rows.length ? traceNotice + '<div class="traceList">' + visibleRows.map((row) => renderTraceCard(row, selected)).join("") + '</div>' : '<div class="muted">' + (scope.scoped ? '当前 Plan 暂无实验记录；可切换“全部记录”查看历史或未归属记录。' : '暂无实验记录。') + '</div>') +
         (archivedPlans.length ? '<h3>已归档计划</h3>' + archivedNotice + '<div class="traceList">' + visibleArchivedPlans.map(renderArchivedPlanCard).join("") + '</div>' : ""));
       renderTraceDetailPane(selectedRow, rows.length);
     }

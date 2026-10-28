@@ -37,9 +37,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.427"
-RUNTIME_VERSION = "0.5.427"
-PLUGIN_VERSION = "0.5.427"
+SCHEDULER_VERSION = "0.5.428"
+RUNTIME_VERSION = "0.5.428"
+PLUGIN_VERSION = "0.5.428"
 FORMAL_JOB_PATH_PROTOCOL = 1
 FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1
 EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1
@@ -351,6 +351,8 @@ def iso_age_seconds(value: object) -> float | None:
 
 
 def load_yaml_file(path: str | Path) -> dict[str, Any]:
+    if yaml is None:
+        raise RuntimeError("PLAN_YAML_UNAVAILABLE: Plan 解析进程缺少 PyYAML；请在所选任务环境配置该依赖。解释器：" + sys.executable)
     with Path(path).open("r", encoding="utf-8") as f:
         value = yaml.safe_load(f) or {}
     tracked = globals().get("PLAN_VALIDATION_INPUT_FILES")
@@ -482,6 +484,19 @@ def load_plan(path: str | Path) -> dict[str, Any]:
     plan["_file"] = str(path)
     plan["_revision"] = hashlib.sha256(Path(path).read_bytes()).hexdigest()
     return plan
+
+
+def plan_execution_mode_report(path: str | Path, revision: str) -> dict[str, Any]:
+    """Pure Plan parsing: no validation, data access, output creation or admission."""
+    raw = Path(path).read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    if len(raw) > 1048576 or not revision or digest != revision:
+        raise ValueError("Original Plan revision unavailable; execution mode cannot be recovered safely")
+    plan = load_plan(path)
+    mode = plan_execution_mode(plan)
+    if Path(path).read_bytes() != raw:
+        raise ValueError("Original Plan changed during execution mode verification")
+    return {"ok": True, "executionMode": mode, "planRevision": digest}
 
 
 def plan_execution_mode(plan: dict[str, Any], requested: str = "") -> str:
@@ -4431,6 +4446,7 @@ def main() -> None:
     parser.add_argument("--formal-job-preflight", action="store_true")
     parser.add_argument("--formal-job-structure-only", action="store_true")
     parser.add_argument("--check-execution-shell-json", action="store_true")
+    parser.add_argument("--plan-execution-mode-json", action="store_true")
     parser.add_argument("--print-job-dir", action="store_true")
     parser.add_argument("--describe-jobs", action="store_true")
     parser.add_argument("--validate-plan", action="store_true")
@@ -4485,6 +4501,9 @@ def main() -> None:
         raise SystemExit("FORMAL_JOB_STRUCTURE_ONLY_REQUIRES_PREFLIGHT: execution always validates assets")
     _SCHEDULER_ARGS_FOR_GUARD = args
     args.default_result_csv_dir = normalize_default_result_csv_dir(args.default_result_csv_dir)
+    if args.plan_execution_mode_json:
+        print(json.dumps(plan_execution_mode_report(args.plan, args.plan_revision), ensure_ascii=False))
+        return
     if args.check_execution_shell_json:
         print(json.dumps(execution_shell_preflight(), ensure_ascii=False))
         return
@@ -4537,6 +4556,9 @@ if __name__ == "__main__":
     except SystemExit:
         raise
     except Exception as _sched_guard_exc:
+        if getattr(globals().get("_SCHEDULER_ARGS_FOR_GUARD"), "plan_execution_mode_json", False):
+            print("PLAN_MODE_QUERY_FAILED: " + str(_sched_guard_exc), file=sys.stderr)
+            raise SystemExit(2)
         # Startup / scheduler failure path: the scheduling loop's own except block
         # already emits a terminal event and re-raises, so we skip here when one
         # exists. For crashes before the loop (conda env missing, YAML parse,

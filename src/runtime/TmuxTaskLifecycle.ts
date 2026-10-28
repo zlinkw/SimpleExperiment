@@ -1147,7 +1147,18 @@ def task_runner(root, worker_id):
     job["options"] = {**(job.get("options") or {}), "durablePlanQueue": False}
     task_option(pane, "phase", "starting")
     NATIVE_TASK_RUNNER_CONTEXT = (job["commandId"], pane, os.path.realpath(root))
-    result = execute_worker_command(root, job, worker_id)
+    try:
+        result = execute_worker_command(root, job, worker_id)
+    except Exception as exc:
+        # Only the bound task pane above can receive this startup failure.
+        try:
+            current = task_read_job(pane)
+            if all(current.get(key) == job.get(key) for key in ("root", "workerId", "pane", "commandId")):
+                task_option(pane, "error", str(exc)[-4000:])
+                task_option(pane, "phase", "failed")
+        except Exception:
+            pass  # Preserve the original startup exception if the exact pane has gone.
+        raise
     return 0 if result.get("status") == "completed" else int(result.get("exitCode") or 1)
 
 def task_stop(root, command, worker_id):

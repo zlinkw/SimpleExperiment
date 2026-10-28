@@ -24,6 +24,7 @@ test("command receipt changes refresh the log button even when placement and sta
     compactOperationRowsForSignature: value => value, normalizeFileTransferRows: value => value,
     distributedPlanRecoveryView: () => null,
     renderExecutionPlanList: value => rendered.push(value),
+    patchExecutionProgressDom: () => true,
   };
   vm.createContext(sandbox);
   vm.runInContext(["executionRenderKeysForState", "executionPlanListKey", "renderExecutionPlanListIfChanged"].map(fn).join("\n"), sandbox);

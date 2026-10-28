@@ -1513,14 +1513,15 @@ test("整批覆盖确认屏障：A 静默、B 年轻未知，等待/拒绝/关�
     const watch = recorder(), modal = deferred(), finishUploads = deferred();
     const targets = [workerTarget("w-a", "Worker A", "one.example", "/work/projA"),
       workerTarget("w-b", "Worker B", "two.example", "/work/projB")];
-    let queries = 0;
+    let queriedWorker = "", youngOperationObserved = false;
     const uploads = [];
     const options = { targets, modalAnswer: () => { watch.record("modal"); return modal.promise; },
       upload: async (_host, method, params) => {
         if (method === "transfers.list") {
           const projection = realHost.quiescedTransferState();
-          // A 首次观察静默，B 随后观察到年轻未知项。模拟两次主动查询之间真实出现的记录。
-          if (++queries > 1) projection.operations = [{ id: "op-b-young", operationId: "op-b-young",
+          // A 保持静默；首次主动查询 B 时出现年轻未知项，不按内部查询次数推测目标。
+          if (queriedWorker === "w-b") youngOperationObserved = true;
+          if (youngOperationObserved) projection.operations = [{ id: "op-b-young", operationId: "op-b-young",
             operationInstanceId: "instance-real-1", status: "outcomeUnknown", childCount: 0,
             startedAt: new Date(Date.now() - 60 * 1000).toISOString() }];
           return projection;
@@ -1532,6 +1533,8 @@ test("整批覆盖确认屏障：A 静默、B 年轻未知，等待/拒绝/关�
         return { ok: true, status: "completed" };
       } };
     const host = realHost.createRealSyncHost(options);
+    const query = host.verifyCodeUploadTargetQuiescentLocal.bind(host);
+    host.verifyCodeUploadTargetQuiescentLocal = (target, ...args) => { queriedWorker = target.id; return query(target, ...args); };
     const run = host.syncCodeTargets(targets, "run", { hashCompare: true });
     run.catch(() => {});
     try {

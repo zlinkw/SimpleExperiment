@@ -11772,7 +11772,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         }
     }
     async ensureCodeReadyForRun(projectContext = this.captureProjectContext(), bodies = [], reportStage = (_text: string) => {}, onTargetReady?) {
-        reportStage("正在准备运行前代码同步…");
+        reportStage("正在检查运行代码；仅有变化时自动上传…");
         await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
         if (!this.projectContextIsCurrent(projectContext))
             throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
@@ -11788,7 +11788,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
             return onTargetReady(...args);
         } : undefined;
-        reportStage("正在同步运行所需代码…");
+        reportStage("正在核对各 Worker 的运行代码…");
         const [syncedTargets] = await Promise.all([
             this.syncCodeTargets(targets, "run", { projectContext, hashCompare: true, progressReport: (text) => reportStage(text), onTargetReady: targetReady }),
             versionsReady,
@@ -12987,6 +12987,28 @@ reportStage("正在准备校验所需代码…");
         const inventoryScopePaths = [...new Set(Object.keys(manifest).map((file) => file.split("/")[0]))].sort();
         assertCurrent();
         const fingerprint = fingerprintFromManifest(manifest);
+        if (["run", "plan-check"].includes(scope) && options.hashCompare === true) {
+            const checked = await this.checkRunCodeWithoutUploadLocal(enabledTargets, root, manifest, fingerprint,
+                includePaths, scopePaths, holds, assertCurrent, progressReport);
+            assertCurrent();
+            if (checked) {
+                this.lastCodeSyncState = { fingerprint, scope, workers: "已核对，代码一致，未上传",
+                    workerVersions: { ...(this.lastCodeSyncState?.workerVersions || {}), ...checked.workerVersions }, updatedAt: new Date().toISOString() };
+                this.lastCodeSyncStats = { hashed: Number(built.stats?.hashed || 0), hashReused: Number(built.stats?.reused || 0),
+                    cacheWriteSkipped: Number(built.stats?.cacheWriteSkipped || 0), inventoryCalls: checked.inventoryCalls, uploads: 0 };
+                for (const target of enabledTargets) {
+                    assertCurrent();
+                    this.markCodeUploadWorkerReadyLocal?.(codeUploadHandoff, root, target.id);
+                    await options.onTargetReady?.(target.id);
+                }
+                progressReport?.("所有 Worker 的运行代码已核对一致；未上传代码，继续 Plan 校验。");
+                this.postState();
+                await this.persistProjectCodeSyncState();
+                assertCurrent();
+                return enabledTargets;
+            }
+            progressReport?.("检测到代码变化或仍有待核实写入；按原同步保护检查，仅上传变化文件。");
+        }
         const expectedRelativeFiles = Object.keys(manifest).sort((a, b) => a.localeCompare(b)).slice(0, 8);
         let heldWorkers = [];
         const incremental = scope === "run" && typeof options.onTargetReady === "function";
@@ -13102,7 +13124,7 @@ reportStage("正在准备校验所需代码…");
                             codeSyncProofRuntimeGeneration: proof.runtimeGeneration } : {}) };
                 };
                 if (hashCompare) {
-                    if (target.role === "worker" && workerProbeOk && this.codeSyncWarmProofs?.get(warmProofKey) > Date.now()) {
+                    if (!["run", "plan-check"].includes(scope) && target.role === "worker" && workerProbeOk && this.codeSyncWarmProofs?.get(warmProofKey) > Date.now()) {
                         workerVersions[target.id] = await workerVersion();
                         this.markCodeSyncTargetResultLocal?.(target, syncId, { transfer: "done", verified: "done", proof: "done", retryStage: "transfer" });
                         this.markCodeUploadWorkerReadyLocal?.(codeUploadHandoff, root, target.id, lease?.key);
@@ -13385,6 +13407,56 @@ reportStage("正在准备校验所需代码…");
             }
             this.codeSyncInFlight--;
         }
+    }
+    async checkRunCodeWithoutUploadLocal(targets, root, manifest, fingerprint, includePaths, scopePaths, holds, assertCurrent, progressReport?) {
+        // Only current read evidence can bypass upload, never unresolved writers or old warm receipts.
+        const quiescent = async (target) => {
+            const key = String(this.resolveCodeUploadTargetIdentityLocal(target)?.key || "");
+            if (!key || this.pendingCodeUploadUnknownWriteLocal(root, { targetKey: key, workerId: target.id })) return false;
+            const live = await this.verifyCodeUploadTargetQuiescentLocal(target, key, "");
+            assertCurrent();
+            return live.quiescent === true;
+        };
+        let inventoryCalls = 0;
+        if (targets.some(target => this.lastWorkerProbes?.[target.id]?.status !== "ok")) return undefined;
+        for (const target of targets) {
+            if (!await quiescent(target)) return undefined;
+            const remoteFiles = {};
+            progressReport?.(`正在检查 ${target.label || target.id} 的代码差异…`);
+            for (const exactPaths of PlanCodeScopeHost.codeInventoryBatches(manifest)) {
+                const inventory = await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(target),
+                    relativePath: ".", recursive: true, scopePaths: exactPaths, inventoryPurpose: "code-sync" });
+                inventoryCalls++;
+                Object.assign(remoteFiles, inventoryFilesByPath(inventory));
+                assertCurrent();
+            }
+            if (Object.keys(changedManifestFiles(manifest, remoteFiles)).length) return undefined;
+        }
+        const eligible = await this.safeWorkerCodeSyncTargets(targets, root, fingerprint, "run", progressReport);
+        assertCurrent();
+        if (eligible.length !== targets.length || targets.some(target => !eligible.includes(target))) return undefined;
+        const workerVersions = {};
+        const inventoryScopePaths = [...new Set(Object.keys(manifest).map(file => file.split("/")[0]))].sort();
+        for (const target of targets) {
+            if (!await quiescent(target)) return undefined;
+            const key = this.codeSyncWarmProofKey(target, root, fingerprint, includePaths, scopePaths);
+            this.codeSyncAgentProofs.delete(key);
+            const proof = await this.ensureWorkerCodeSyncProof(target, root, fingerprint, manifest,
+                includePaths, scopePaths, inventoryScopePaths, key, progressReport);
+            assertCurrent();
+            if (!proof?.proofId || proof.manifestDigest !== fingerprint || !proof.runtimeGeneration) return undefined;
+            workerVersions[target.id] = { fingerprint, files: Object.keys(manifest).sort(), syncedAt: new Date().toISOString(),
+                ...(proof ? { codeSyncProofId: proof.proofId, manifestDigest: proof.manifestDigest,
+                    codeSyncScopeSignature: proof.scopeSignature, codeSyncProofVerifiedAt: proof.verifiedAt,
+                    codeSyncProofRuntimeGeneration: proof.runtimeGeneration } : {}) };
+        }
+        const latest = await buildLocalCodeManifest(root, includePaths, scopePaths, { executionOnly: true,
+            machineStateGuard: this.localMachineStateGuard(root), cacheFile: this.localCodeManifestCacheFile(root) });
+        assertCurrent();
+        if (fingerprintFromManifest(PlanCodeScopeHost.runSourceManifest(filterHeldFiles(latest, holds))) !== fingerprint)
+            throw new Error("本机代码在检查期间已变化，尚未上传或开始运行，请重新提交。");
+        for (const target of targets) if (!await quiescent(target)) return undefined;
+        return { workerVersions, inventoryCalls };
     }
     async safeWorkerCodeSyncTargets(targets, root, fingerprint, scope, progressReport?, options = {}) {
         const workers = targets.filter((target) => target.role === "worker");

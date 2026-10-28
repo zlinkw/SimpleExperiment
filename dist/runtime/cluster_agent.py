@@ -474,9 +474,9 @@ class SyncScopeIndex:
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.427"
-RUNTIME_VERSION = "0.5.427"
-PLUGIN_VERSION = "0.5.427"
+AGENT_VERSION = "0.5.428"
+RUNTIME_VERSION = "0.5.428"
+PLUGIN_VERSION = "0.5.428"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -7231,10 +7231,26 @@ def verified_durable_execution_mode(project_dir, command):
     if len(raw) > 1048576 or hashlib.sha256(raw).hexdigest() != durable_plan_value(command, "planRevision"):
         raise ValueError("Original Plan revision unavailable; execution mode cannot be recovered safely")
     scheduler = scalar_scheduler_module()
-    plan = scheduler.load_plan(plan_path)
+    if getattr(scheduler, "yaml", None) is None:
+        # The helper Agent interpreter need not carry research dependencies.
+        # Parse only this bound Plan with the same selected task environment.
+        env = formal_job_command_env(command)
+        args = [simple_runtime_python(env), "-B", "-X", "utf8", cluster_scheduler_path(project_dir),
+                "--plan-execution-mode-json", "--plan", str(plan_path), "--plan-revision", hashlib.sha256(raw).hexdigest()]
+        proc = subprocess_inactivity_run(simple_conda_wrapped_args(args, env), cwd=project_dir, env=env, progress_stream="stderr")
+        if proc.returncode:
+            raise ValueError((proc.stderr or proc.stdout or "PLAN_MODE_QUERY_FAILED")[-4000:])
+        report = json.loads(proc.stdout)
+        if report.get("ok") is not True or report.get("planRevision") != hashlib.sha256(raw).hexdigest():
+            raise ValueError("Original Plan revision disagrees with task-environment parser")
+        mode = report.get("executionMode")
+        if mode not in ("train", "test", "train_test"):
+            raise ValueError("Task-environment parser returned an invalid execution mode")
+    else:
+        plan = scheduler.load_plan(plan_path)
+        mode = scheduler.plan_execution_mode(plan)
     if pathlib.Path(plan_path).read_bytes() != raw:
         raise ValueError("Original Plan changed during execution mode verification")
-    mode = scheduler.plan_execution_mode(plan)
     # executionMode is introduced by the fixed Host. Old mode alone is not
     # evidence: affected versions always saved train_test regardless of validation.
     expected = command.get("executionMode")
@@ -20299,7 +20315,18 @@ def task_runner(root, worker_id):
     job["options"] = {**(job.get("options") or {}), "durablePlanQueue": False}
     task_option(pane, "phase", "starting")
     NATIVE_TASK_RUNNER_CONTEXT = (job["commandId"], pane, os.path.realpath(root))
-    result = execute_worker_command(root, job, worker_id)
+    try:
+        result = execute_worker_command(root, job, worker_id)
+    except Exception as exc:
+        # Only the bound task pane above can receive this startup failure.
+        try:
+            current = task_read_job(pane)
+            if all(current.get(key) == job.get(key) for key in ("root", "workerId", "pane", "commandId")):
+                task_option(pane, "error", str(exc)[-4000:])
+                task_option(pane, "phase", "failed")
+        except Exception:
+            pass  # Preserve the original startup exception if the exact pane has gone.
+        raise
     return 0 if result.get("status") == "completed" else int(result.get("exitCode") or 1)
 
 def task_stop(root, command, worker_id):

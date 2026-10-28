@@ -20,6 +20,28 @@ function loadSourceRenderer() {
 
 const renderPanelHtml = loadSourceRenderer();
 
+test("low traffic tmux buttons request one manual list/capture round with the selected identity", async () => {
+  const html=renderPanelHtml(),script=extractScripts(html).join("\n"),ast=ts.createSourceFile('tmux-buttons.js',script,ts.ScriptTarget.ES2022,true,ts.ScriptKind.JS);
+  const names=new Set(['refreshTmuxList','refreshTmuxCapture','displayAutoAllowed']),functions=[];let click;
+  function visit(node){
+    if(ts.isFunctionDeclaration(node)&&names.has(node.name?.text))functions.push(node.getText(ast));
+    if(ts.isCallExpression(node)&&node.expression.getText(ast)==='document.addEventListener'&&node.arguments[0]?.text==='click'&&node.arguments[1]?.getText(ast).includes('data-distributed-retry'))click=node.arguments[1].getText(ast);
+    ts.forEachChild(node,visit);
+  }
+  visit(ast);assert.equal(functions.length,names.size);assert.ok(click);
+  for(const kind of ['list','capture'])assert.match(html,new RegExp('data-tmux-refresh="'+kind+'"'));
+  const posted=[],elements=new Map(),el=id=>{if(!elements.has(id))elements.set(id,{textContent:'',dataset:{}});return elements.get(id);};
+  const sandbox={document:{hidden:false},el,clearTimeout(){},setTimeout:()=>1,vscode:{postMessage:m=>posted.push(m)},
+    tmuxListBusy:false,tmuxListRequestId:0,tmuxListPendingWorkers:new Set(),tmuxListOrigin:'auto',tmuxListTimeout:0,
+    tmuxSelectedWorkerId:'worker-a',tmuxCaptureOrigin:'auto',tmuxCaptureBusy:new Set(),tmuxLastCaptureTarget:'',
+    tmuxResolveCaptureTarget:()=> 'session:1.0',lowTrafficModeFromState:()=>({displayAutoRefresh:false}),lastState:{}};
+  vm.createContext(sandbox);vm.runInContext(functions.join('\n')+'\nthis.list=refreshTmuxList;this.capture=refreshTmuxCapture;this.click='+click+';',sandbox);
+  await sandbox.list();await sandbox.capture();assert.equal(posted.length,0);
+  for(const kind of ['list','capture'])sandbox.click({preventDefault(){},stopPropagation(){},target:{closest:s=>s==='button[data-tmux-refresh]'?{dataset:{tmuxRefresh:kind}}:null}});
+  assert.deepEqual(posted.map(m=>m.command),['fetchTmuxList','fetchTmuxCapture']);
+  assert.ok(posted.every(m=>m.origin==='user'&&m.workerId==='worker-a'));assert.equal(posted[0].requestId,1);assert.equal(posted[1].window,'session:1.0');
+});
+
 test("manual Xshell button survives the rendered command guard and forwards its click", () => {
   const html=renderPanelHtml(),script=extractScripts(html).join("\n");
   const parsed=ts.createSourceFile("xshell-click.js",script,ts.ScriptTarget.ES2022,true,ts.ScriptKind.JS);

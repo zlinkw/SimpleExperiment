@@ -86,6 +86,7 @@ const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpri
   ${compiled("takeoverCodeUploadTargetLockedLocal")}
   ${compiled("rememberUnknownCodeWriteLocal")}
   ${compiled("syncCodeTargets")}
+  ${compiled("checkRunCodeWithoutUploadLocal")}
   ${compiled("safeWorkerCodeSyncTargets")}
   ${compiled("syncManualWorkerCode")}
   ${compiled("uploadProjectToWorkers")}
@@ -102,7 +103,7 @@ const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpri
   ${compiled("reportOperationNotice")}
   ${compiled("logOperationFact")}
   ${compiled("ensureOperationLogChannel")}
-  return { syncCodeTargets, safeWorkerCodeSyncTargets, syncManualWorkerCode, uploadProjectToWorkers, distributeCodeToWorkers, publishToGitHub, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs, operationNoticeKey, reportOperationNotice, logOperationFact, ensureOperationLogChannel, boundedPromise, gateStateLocal, targetLeaseTableLocal, beginCodeUploadHandoffLocal, endCodeUploadHandoffLocal, awaitDispatchHandoffSafeLocal, markCodeUploadWorkerReadyLocal, markCodeUploadWorkerFailedLocal, recordDispatchHandoffTimeoutLocal, acquireCodeUploadTargetLeaseLocal, releaseCodeUploadTargetLeaseLocal, markCodeSyncTargetResultLocal, sftpServerOptions, sshTransportIdentity, resolveCodeUploadTargetIdentityLocal, dispatchTargetKeyLocal, noteCodeUploadTargetLocal, retainCodeUploadTargetLeaseLocal, releaseRetainedCodeUploadTargetLeaseLocal, pendingCodeUploadUnknownWriteLocal, resolveCodeUploadUnknownWriteLocal, verifyCodeUploadTargetQuiescentLocal, codeUploadTargetRowsLocal, codeUploadCurrentRoundTargetKeysLocal, withCodeUploadRoundWriteLocal, codeUploadRoundWriteFloorLocal, cancelCodeUploadTargetWriteLocal, takeoverCodeUploadTargetLocal, takeoverCodeUploadTargetLockedLocal, rememberUnknownCodeWriteLocal };
+  return { syncCodeTargets, checkRunCodeWithoutUploadLocal, safeWorkerCodeSyncTargets, syncManualWorkerCode, uploadProjectToWorkers, distributeCodeToWorkers, publishToGitHub, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs, operationNoticeKey, reportOperationNotice, logOperationFact, ensureOperationLogChannel, boundedPromise, gateStateLocal, targetLeaseTableLocal, beginCodeUploadHandoffLocal, endCodeUploadHandoffLocal, awaitDispatchHandoffSafeLocal, markCodeUploadWorkerReadyLocal, markCodeUploadWorkerFailedLocal, recordDispatchHandoffTimeoutLocal, acquireCodeUploadTargetLeaseLocal, releaseCodeUploadTargetLeaseLocal, markCodeSyncTargetResultLocal, sftpServerOptions, sshTransportIdentity, resolveCodeUploadTargetIdentityLocal, dispatchTargetKeyLocal, noteCodeUploadTargetLocal, retainCodeUploadTargetLeaseLocal, releaseRetainedCodeUploadTargetLeaseLocal, pendingCodeUploadUnknownWriteLocal, resolveCodeUploadUnknownWriteLocal, verifyCodeUploadTargetQuiescentLocal, codeUploadTargetRowsLocal, codeUploadCurrentRoundTargetKeysLocal, withCodeUploadRoundWriteLocal, codeUploadRoundWriteFloorLocal, cancelCodeUploadTargetWriteLocal, takeoverCodeUploadTargetLocal, takeoverCodeUploadTargetLockedLocal, rememberUnknownCodeWriteLocal };
 `);
 function apiFactory(...args) { while(args.length<9)args.push(undefined);return createApi(...args,require("../../dist/extension/PlanCodeScopeHost.js"),require("../../dist/features/ProjectRootMap.js"),DispatchHandoffGateModule,require("../../dist/tunnel/SshTransportIdentity.js")); }
 
@@ -182,7 +183,7 @@ function syncHost(remote) {
   host.codeSyncWarmProofKey = (target, root, fingerprint, includePaths, scopePaths) => JSON.stringify({ target: target.id, root, remotePath: target.remotePath, fingerprint, includePaths, scopePaths, statusGeneration: host.lastWorkerProbes[target.id]?.statusGeneration || 0 });
   host.planSubmissionManifestKey = (root, includePaths, scopePaths, holds) => JSON.stringify({ root, includePaths, scopePaths, holds });
   host.rememberCodeSyncWarmProof = (key) => host.codeSyncWarmProofs.set(key, Date.now() + 300000);
-  host.ensureWorkerCodeSyncProof = async () => undefined;
+  host.ensureWorkerCodeSyncProof = async (_target, _root, fingerprint) => ({ proofId: "current-proof", manifestDigest: fingerprint, runtimeGeneration: "current-runtime" });
   host.simpleSftpApiCall = async (method, payload) => {
     // 接管前的只读核实与取消也走现有通道：默认回答“本目标静默”，其余调用仍按原样严格断言。
     if (method === "transfers.list") {
@@ -331,7 +332,7 @@ test("manual skipping works for both topologies while stale or failed probes kee
   }
 });
 
-test("warm unchanged reuses stat hashes and Extension Host proof skips repeat remote inventory", async () => {
+test("run preparation reuses local stat hashes and always checks current remote content", async () => {
   const host = syncHost({
     files: { "src/train.py": { size: 4, sha256: crypto.createHash("sha256").update("same").digest("hex") } },
   });
@@ -342,21 +343,21 @@ test("warm unchanged reuses stat hashes and Extension Host proof skips repeat re
   assert.equal(host.inventories.length, 1);
   host.stages.length = 0;
   await host.syncCodeTargets([host.target], "plan-check", { projectContext: { root: host.project }, hashCompare: true, progressReport: (text) => host.stages.push(text) });
-  assert.equal(host.inventories.length, 1);
+  assert.equal(host.inventories.length, 2);
   assert.equal(host.lastCodeSyncStats.hashed, 0);
   assert.ok(host.lastCodeSyncStats.hashReused >= 1);
   assert.equal(host.lastCodeSyncStats.cacheWriteSkipped, 1);
   assert.equal(host.uploads.length, 0);
-  assert.match(host.stages.join("\n"), /缓存未改写/);
-  assert.match(host.stages.join("\n"), /跳过递归清单/);
+  assert.match(host.stages.join("\n"), /哈希沿用 1/);
+  assert.match(host.stages.join("\n"), /未上传代码/);
   await host.syncCodeTargets([{ ...host.target, remotePath: "/work/other" }], "plan-check", { projectContext: { root: host.project }, hashCompare: true });
-  assert.equal(host.inventories.length, 2, "remote path changes invalidate the warm proof");
+  assert.equal(host.inventories.length, 3, "remote path changes still require a current check");
   host.lastFullEndpointProbeAt = Date.now() - 120_000;
   await host.syncCodeTargets([host.target], "plan-check", { projectContext: { root: host.project }, hashCompare: true });
-  assert.equal(host.inventories.length, 2, "global endpoint probe age alone cannot invalidate a five-minute per-Worker proof");
+  assert.equal(host.inventories.length, 4, "every Plan preparation checks current remote hashes");
   host.lastWorkerProbes["worker-a"].statusGeneration += 1;
   await host.syncCodeTargets([host.target], "plan-check", { projectContext: { root: host.project }, hashCompare: true });
-  assert.equal(host.inventories.length, 3, "a Worker status generation change invalidates only that Worker's warm proof");
+  assert.equal(host.inventories.length, 5, "a new Worker generation receives a fresh content check and proof");
 });
 
 test("warm code proof still refreshes dynamic task ownership before every potential code write", async () => {
@@ -387,8 +388,7 @@ test('every enabled Worker verifies every exact source file without expanding to
   const other = { ...host.target, id: 'worker-b' };
   host.lastWorkerProbes['worker-b'] = { status: 'ok' };
   await host.syncCodeTargets([host.target, other], 'run', { hashCompare: true });
-  assert.equal(host.inventories.length, 2);
-  assert.deepEqual(host.inventories.map(r => r.source.id), ['worker-a', 'worker-b']);
+  assert.deepEqual([...new Set(host.inventories.map(r => r.source.id))], ['worker-a', 'worker-b'], 'read-check plus protected write verification still covers every enabled Worker');
   for (const request of host.inventories) {
     assert.deepEqual(request.scopePaths, ['src/nested/model.py', 'src/train.py']);
     assert.equal(request.inventoryPurpose, 'code-sync');

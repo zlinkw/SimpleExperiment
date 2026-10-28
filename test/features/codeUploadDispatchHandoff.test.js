@@ -389,7 +389,9 @@ test('the code upload waits on the handoff gate instead of the whole dispatch ro
   const registered = sync.indexOf('this.beginCodeUploadHandoffLocal?.');
   assert.ok(registered > 0 && registered < sync.indexOf('await this.boundedPromise'), 'the intent is registered before the first await');
   assert.ok(registered < sync.indexOf('ensureSftpManagerCommand'), 'probe/tunnel waits cannot delay the intent');
-  assert.equal((sync.match(/markCodeUploadWorkerReadyLocal\?\./g) || []).length, 3, 'every ready callback marks its own Worker');
+  const readyCallbacks = (sync.match(/await options\.onTargetReady\?\./g) || []).length;
+  assert.ok(readyCallbacks > 0);
+  assert.equal((sync.match(/markCodeUploadWorkerReadyLocal\?\./g) || []).length, readyCallbacks, 'every ready callback marks its own Worker, including the no-upload path');
   assert.match(sync, /awaitDispatchHandoffSafeLocal\?\.\(codeUploadHandoff, 10_000\)/, 'the wait budget stays 10_000 with handoff semantics');
   const released = sync.indexOf('this.endCodeUploadHandoffLocal?.(codeUploadHandoff?.uploadId)');
   assert.ok(released > sync.indexOf('} finally {'), 'the intent is released in the finally block');
