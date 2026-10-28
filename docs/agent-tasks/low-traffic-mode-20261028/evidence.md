@@ -1251,3 +1251,56 @@ AGENTS.md 要求的第二条校验（原文摘录）：`node -e "new (require('v
 - 与本任务无关：git diff --stat 7a6062fa..HEAD -- src/extension/CacheCleanupPanel.ts src/extension/PlanCleanupHost.ts 输出为空；本次 src 改动仅 extension/legacy.ts、runtime/RuntimeManifest.ts、tunnel/MultiEndpointRealtimeClient.legacy.ts、tunnel/RealtimeTunnelClient.legacy.ts、ui/PanelHtml.legacy.ts。
 - 是否在 npm run package 的 238 文件集合内：不在。依据：scripts/test-workflow.json 中 factories_integration 出现 0 次，package.json 与 scripts 目录检索 0 次；60-package.log、63-package2.log、50-build.log 中出现 0 次；63-package2.log 实际枚举的唯一测试文件路径恰为 238 个，其中不含 factories_integration。package overall=passed 未掩盖该门禁，它仅在按 T9 显式单跑时暴露（30-test-test_factories_integration_test_js.log，exit=1，8 tests 7 pass 1 fail）。
 - 处置：未改生产代码、未放宽门禁阈值；结论为基线既有技术债，是否拆分这两个文件由主控决定。
+
+## 16. r2-final-1 六组必改返修（GPT 终审必改项，返回修改）
+
+原始要求逐字：「低流量模式必须真的把 A 类展示读取降为 0，不能只是把间隔改长；关闭展示通道不能伪装成隧道断连；策略对象不能被多个端点共享改写；正常模式的行为轨迹必须零差异；回执身份与界面显示必须来自同一份已确认值。」
+
+### 16.1 R1 A 类展示真正归零（不只是拉长间隔）
+
+- 展示闸门：`displayAutoRefresh = !enabled`（`effectiveTrafficPolicy()`），`tmuxMs=0`、`snapshotFallbackSeconds=0`，`scheduleTrafficTimers()` 在 `tmuxMs === 0` 时直接不建定时器；面板侧 `tmuxPollIntervalMs = 0` 同样不建定时器。
+- 来源门控：面板 `displayAutoAllowed(origin)` 只放行显式手动来源；`requestGpuHistory(query, force, origin)`、`requestGpuHistoryRemote(payload, origin)`、展开/焦点/初始重试/`gpuRingSamples` 回退全部传 `"auto"` 并被拦截。宿主侧二次把关：`loadGpuHistoryFromUi`、`fetchTmuxListFromUi`、`fetchTmuxCaptureFromUi` 在 `displayReadBlockedFor(message)` 为真时直接拒绝，自动来源一轮 Worker 联网都不发生。
+- 手动入口：每个 GPU 历史卡片有独立 `data-gpu-history-manual` 按钮（`gpuLowTrafficControlsMarkup(key)`），提示行与按钮同 key 渲染，`renderDisplayAutoNotices()` 在每次渲染后回填；手动刷新成功后宿主发布带 `fetchedAt`/`origin` 的 `gpuHistoryResult` 帧，`displaySampleNotice(key, cachedFallback)` 回落旧缓存时仍给出诚实提示。
+- 提示正反语义修正：持久化键改为 `lowTrafficDisplayAutoOff`（true=自动已关），写入与读取同极性，Webview 缓存不再被当权威；权威首帧前窗口由宿主拦截封住。
+
+### 16.2 R2 策略对象不被共享改写
+
+- `defaultRealtimeRefreshPolicy()` 返回 `Object.freeze({})`；构造函数 `this.policy = { ...policyArgument }`，每个客户端持有自己的副本。
+- `updateRefreshPolicy(partial)` 入参为 `Partial`，与**自身上一份视图**比较，只在真正变化时重启对应定时器；恢复时经 `connect()` 按各自视图重新起时，不再被首个端点写回后提前 return。
+
+### 16.3 R3 关闭展示通道不等于隧道断连
+
+- `RealtimeClientDiagnostics` 新增 `displayAutoRefreshDisabled`、`displayAutoClosed`；`disconnect("display-auto")` 置位，`connectionLost()` 清除；`MultiEndpointDiagnostics` 聚合。
+- 宿主 `ensureRealtimeConnected` 先判 `displayGuarded` 再判 `tunnel_unavailable` / `local_port_closed`，低流量收口不再发布断连状态；真实断连路径未改，仍如实上报。
+
+### 16.4 R4 A 类门控只看已持久化开关
+
+- `displayAutoRefresh = !enabled`，`blockedBy`（`manual_only` / `paused` / `background`）只影响 B/C 类节奏，**不再把展示闸门改回开启**。
+- `pauseAllNetworkActivity()`、`resumeNetwork()`（清陈旧暂停标记）、`resetClient()`、`ensureRealtimeConnected()` 连接后统一调用 `applyTrafficScheduling()` 收敛到当前策略。
+
+### 16.5 R5 合并只用于轮询、正常模式零差异、每个 requestId 都回执
+
+- `displayMergeEnabled()` 仅在 `displayAutoRefresh === false` 时为真，正常模式每请求一轮（行为轨迹零差异）。
+- `displayReadKey()` 含 `projectContextGeneration|workspaceRoot|身份`，切换项目/代际不复用同 key；`resetClient()` 清空 `displayReadInFlight`，读取失败即释放，不留下永久挂起的调用方。
+- `fetchTmuxListForCaller()`：低流量下多个调用方共享一轮网络读（`readTmuxListNetwork` + `displayReadOnce`），但各自 `publishTmuxList(workerId, result, requestId)`，回执身份独立。
+
+### 16.6 R6 回执身份与界面显示同一份已确认值
+
+- `handleLowTrafficModeReceipt()` 先校验 `requestId` 再清定时器，过期回执直接返回、无副作用。
+- 点击目标由 `lowTrafficDisplayEnabled(...)`（已确认回执值）取反得出，标签、`aria-pressed` 与下一次点击目标共用同一份值。
+
+### 16.7 本轮验证（全部单文件串行，`node --test --test-force-exit --test-timeout 20000`）
+
+- 新增 `test/features/lowTrafficDisplayRework.test.js`：9 项，覆盖 R1（GPU 自动拦截 / 手动放行 / 提示极性）、R2（默认策略冻结、端点互不改写）、R3（受控关闭 ≠ 断连、宿主不发布 `tunnel_unavailable`）、R4（pause/resume/reset 收敛策略）、R6（回执时序、过期 requestId）。日志 `logs/87-*`、`logs/90-*`，exit=0，9 pass 0 fail。
+- 更新 `test/features/panelLowTrafficModePolicy.test.js`：16 项全绿（含 R4 新语义 `displayAutoRefresh===false` 即使 `blockedBy` 存在、R5 按 `workerId:requestId` 配对回执）。
+- 受影响 69 个测试文件按 `logs/affected-files.txt` 串行跑完（日志 `logs/88-*`、`91-*`、`92-*`、`93-*`、`96-*`）：66 个文件全绿。
+- 因本轮改动需要跟改的 3 个既有测试（均为测试侧、不改生产语义）：`tmuxWorkerAndRichLog.test.js`（改为断言 R5 新形状 `fetchTmuxListForCaller` + 每个 requestId 各自回执，5 项全绿，`logs/96-*`）、`gpuWindowPanelWiring.test.js`（harness 补齐 `displayAutoAllowed`/`mergeGpuHistorySegments` 等被抽取函数的真实依赖）、`probeConnectionContinuity.test.js`（mock 宿主补 `applyTrafficScheduling` 并计数收敛次数，3 项全绿，`logs/92-2-*`）。
+- 双重门禁：`npm run compile` exit=0（`logs/83-compile-r1r6b.log`）；`npm run build` exit=0、`overall=passed files=228`（`logs/94-build-r1r6.log`，内含 `node -c dist/extension.js`、`node -c dist/ui/PanelHtml.js` 两项 gate ok）；`vm.Script dist/ui/PanelHtml.js` 零异常；`grep 10890 src dist` = 0 命中，`grep 127.0.0.1:18765 src` = 0 命中（`logs/97-dual-gate-r1r6.log`）。
+- 打包：`npm run package` exit=0、`overall=passed files=238`（`logs/95-package-r1r6.log`）；`simple-experiment-0.5.422.vsix` 2688906 字节，SHA256 `77a86a93911924876becadebc28b33826fce15bf46fcbec007768cc444c1f2b5`（版本按主控要求保持 0.5.422，未安装、未发布 Release、未合并）。
+
+### 16.8 本轮 3 个失败项的真实状态（未掩盖）
+
+- `test/features/factories_integration.test.js`：行数门禁，基线既有技术债，取证见 §15，且不在 build/package 的 228/238 作业集合内（作业名核对：`simple_cluster/reports/test-workflow/2026-10-28T03-02-04-246Z-54940-package` 无该作业）。
+- `test/features/distributedRerunAndWorkerDelta.test.js`：断言 `legacy.ts` 含 GitHub 发布阶段文案，基线与本轮 HEAD 均无该字符串，属基线既有缺口，与本任务无关。
+- `test/features/gpuWindowPanelWiring.test.js`：本轮补齐 harness 后该用例真正开始执行，暴露测试仍按「epoch 毫秒」写时间，而生产 `applyGpuWindowSamples` 已按注释改为「epoch 秒」（`src/ui/PanelHtml.legacy.ts:11891`），5 项通过、1 项因该口径差异失败。**未修改其断言、未放宽阈值**；是否随本 PR 修正该测试的时间口径，请主控决定。
+- `test/features/hostOperationLease.test.js` 与 §15 的并发计时抖动记录保持原样；本轮无负载条件下该文件按批内串行运行通过。

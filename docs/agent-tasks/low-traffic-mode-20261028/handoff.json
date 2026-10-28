@@ -7,36 +7,88 @@
     "revision": "7a6062fa10441cc5852166a34138781a2604d9e9",
     "files": [
       {
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/extension/legacy.ts",
-        "sha256": "0283b8ea14cd333affbab7f202aef2c1e39bfc4182430e27b5b76f5d5d179c53"
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/extension/legacy.js",
+        "sha256": "f835d99e1991567c1b5e255d31ed0a57a84f9706d149451f2c0519a8b5a842e5"
       },
       {
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/ui/PanelHtml.legacy.ts",
-        "sha256": "8736f63f80e95a470f579b1e98a651ffb4bc25381c8e2edf8e925e5b0ddd7816"
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/panel-build-manifest.json",
+        "sha256": "446e10cd713038301dac6c2a01f28025480c3be67eb0b113a40e8eb1462e1478"
       },
       {
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/tunnel/RealtimeTunnelClient.legacy.ts",
-        "sha256": "602936072df6fd265e211d0d1386c2a43623c631b557f142d46c2655de447271"
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/runtime/RuntimeManifest.js",
+        "sha256": "eed245f2a71d8039e2597ceb572ca840a10f97b3aa50342b0bc51a2fd6e9909e"
       },
       {
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/tunnel/MultiEndpointRealtimeClient.legacy.ts",
-        "sha256": "84a1224ab889004d51897fa738720e6ebb851876820892759d4682f7d40134f5"
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/runtime/RuntimeManifest.json",
+        "sha256": "b1b3fb23348288c241f352d46f2502bbea2483c4979fc8ea165bc814d09b9312"
       },
       {
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/runtime/RuntimeManifest.ts",
-        "sha256": "f90bff80d5a2fd6ce02e291af54d52584e105f8e3cc6a6ce0cd814e243bfa497"
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/runtime/cluster_agent.py",
+        "sha256": "6a5c1e85524ce14835b703605c24691ad832ab58ad27a2f7ba5b5aa51a71f61c"
       },
       {
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/package.json",
-        "sha256": "fb50cf7eda28e4b69efe4b7be002dd57e591e458e98f22a4177e076324532a4f"
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/runtime/cluster_agent.py.sha256",
+        "sha256": "0c42ac4047cf5c7ce8011d1faeeb21e8d2176d38cde32037d0f8ea566c6b6148"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/runtime/cluster_scheduler.py",
+        "sha256": "09250834650c386769014fd133270f3a9a64a4f7226c898fb518d08fcf73244b"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/runtime/cluster_scheduler.py.sha256",
+        "sha256": "21e341fd9b4c893410ec4a82656dd359d92c2a6a05678d23dc79719b58f0eb85"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/tunnel/MultiEndpointRealtimeClient.legacy.js",
+        "sha256": "b272b59f11990af87924097ef7bd0665907214d445cfee0065c3e5abf92ee097"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/tunnel/RealtimeTunnelClient.legacy.js",
+        "sha256": "c6251db0743fac7bafd0465709d7651d58a456f04cb1e8b316e96d9534b69fd4"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/ui/PanelHtml.legacy.js",
+        "sha256": "f038b4c8f64543a4281e5b8b734059c28b7d63f4da98ea1ff08e86b20e662261"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/package-lock.json",
         "sha256": "5aa9043fae5eac05768b11000ca29622079dc3be37cd13c069b16af87c4e47cd"
       },
       {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/package.json",
+        "sha256": "fb50cf7eda28e4b69efe4b7be002dd57e591e458e98f22a4177e076324532a4f"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/extension/legacy.ts",
+        "sha256": "68e90fa6406a07cd5ea7a16f2c5d144534151277e37ab268f3d9500daa3b0e71"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/runtime/RuntimeManifest.ts",
+        "sha256": "f90bff80d5a2fd6ce02e291af54d52584e105f8e3cc6a6ce0cd814e243bfa497"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/tunnel/MultiEndpointRealtimeClient.legacy.ts",
+        "sha256": "400ea739234f05c529f9a16485f587bf14c0ca77cd5c013ba71461854460214a"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/tunnel/RealtimeTunnelClient.legacy.ts",
+        "sha256": "594ac6e76ddc30fbdab5b5dccb9d5e7fdea115b74f9348bca76b837888231026"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/src/ui/PanelHtml.legacy.ts",
+        "sha256": "b5b342bc78b06143256b68fcd73af293d383765f086604b611a94943b77bb07f"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/gpuWindowPanelWiring.test.js",
+        "sha256": "087926c83bd7d88971d8f95dc35c604a77abf99c3c587bad4e4b823c241b0500"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/lowTrafficDisplayRework.test.js",
+        "sha256": "c7e6b65bab8ba1e9d8fdf2a6a932ee1b163b2c4980ba704c3a6e50b12b08a92e"
+      },
+      {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/panelLowTrafficModePolicy.test.js",
-        "sha256": "07eb4b72a5461ffc9a9c9388debd6a3156e2ea62a667435c39344d1e75595119"
+        "sha256": "b014491fb04dedb317b464a0b32b52a11cf629ec6685319352c90fc2febd37f1"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/panelMessageDispatch.test.js",
@@ -45,6 +97,10 @@
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/panelWebviewScriptHealth.test.js",
         "sha256": "52b572d7b98407322ae88e5cd8cbedc17de9e233788288b743f559013d880149"
+      },
+      {
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/probeConnectionContinuity.test.js",
+        "sha256": "3b9f839a844e91466a673bb076291e8cf934bb7b8e168d9bc186e7ef46b064ff"
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/features/schedulerContract.test.js",
@@ -64,27 +120,7 @@
       },
       {
         "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/test/ui/tmuxWorkerAndRichLog.test.js",
-        "sha256": "f41d0e139a80da4852d38b6611c0e9cdaa09d9f390f0da9ea08db5dea7780780"
-      },
-      {
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/extension/legacy.js",
-        "sha256": "8f23f264a122268052c4691113b6e50c59d6041c6c97948482b638ff7933c59e"
-      },
-      {
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/ui/PanelHtml.legacy.js",
-        "sha256": "f13ec1861179b4b0cb7cc6f5241d0bc7a0ac2c5fa082d019107d13f8225e46c8"
-      },
-      {
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/tunnel/RealtimeTunnelClient.legacy.js",
-        "sha256": "65edbbcd85972b8b5c8920f91cc6a0b27e89c57ecbaeeeedca621cdfafdbdff7"
-      },
-      {
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/tunnel/MultiEndpointRealtimeClient.legacy.js",
-        "sha256": "61b95107f4199cb61892b9ac290d6bab9bc5820e498d764041b1111ef92e743d"
-      },
-      {
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/dist/runtime/RuntimeManifest.js",
-        "sha256": "eed245f2a71d8039e2597ceb572ca840a10f97b3aa50342b0bc51a2fd6e9909e"
+        "sha256": "2c0e705882351393419643c5e4737acce53a6883a60b5fcfba5f4a8994b6c544"
       }
     ]
   },
@@ -92,7 +128,7 @@
     {
       "kind": "evidence",
       "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/docs/agent-tasks/low-traffic-mode-20261028/evidence.md",
-      "sha256": "24e5aa74c2da94833bcbbf8441965fa9d916493c7cb6411e9f0bf6311c5ed2b9"
+      "sha256": "f6688ca6f8ae76430c5ad41b41673b78400f83dd1b1e7a855f20cb2b93ff3ed7"
     },
     {
       "kind": "evidence",
@@ -107,268 +143,20 @@
     {
       "kind": "plan",
       "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/docs/agent-tasks/low-traffic-mode-20261028/plan.md",
-      "sha256": "f7c777b2bf439fb3ed3491724556daf7c7d930bb8a578bb37aad17101e8522e4"
+      "sha256": "d71ddc06aca1ee7099af926fa8dc81168073b2081d452520ad25de018ff190d2"
     },
     {
       "kind": "diff",
       "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/final-candidate-7a6062fa.diff",
-      "sha256": "7087bf2625aac7d296e2bac566d3b853891b06c9c982cbe5a04798e18bc276c5"
+      "sha256": "7ff29f12f50b554542bbc2257b839e628ff5cc8f536e43b1dd8ab32570dbe6fb"
+    },
+    {
+      "kind": "package",
+      "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/simple-experiment-0.5.422.vsix",
+      "sha256": "77a86a93911924876becadebc28b33826fce15bf46fcbec007768cc444c1f2b5"
     }
   ],
   "checks": [
-    {
-      "platform": "win32",
-      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
-      "timeoutMs": null,
-      "timeoutSource": {
-        "kind": "config",
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/scripts/test-workflow.json",
-        "sha256": "0866aed5a71b3010ab445bb25d5bed3c05f71d4f0adb3af477f0bfd6e80e8a4c",
-        "detail": "scripts/test-workflow.json 定义 compile/build/package 域 gates 与 domains，超时由 runner 自管，命令未设模型侧超时（timeoutMs=null）"
-      },
-      "complete": true,
-      "name": "必需验收：npm run package 第二轮（compile + build 全量 + 各域 + 包门禁）",
-      "argv": [
-        "npm",
-        "run",
-        "package"
-      ],
-      "status": "passed",
-      "exitCode": 0,
-      "required": true,
-      "logs": [
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/63-package2.log",
-          "sha256": "0dac95e4dddf8de4772e24cc711e7097868d6eec91c7d87cddd9666526932b1e"
-        }
-      ],
-      "note": "overall=passed files=238；PATH 前置 /d/Git/cmd 使 executionShellPreflight 能解析真实 Git Bash"
-    },
-    {
-      "platform": "win32",
-      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
-      "timeoutMs": null,
-      "timeoutSource": {
-        "kind": "config",
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/package.json",
-        "sha256": "fb50cf7eda28e4b69efe4b7be002dd57e591e458e98f22a4177e076324532a4f",
-        "detail": "package.json#scripts.compile/build 内置 node -c 语法门禁；vm.Script 为一次性解析命令，未设超时（timeoutMs=null）"
-      },
-      "complete": true,
-      "name": "必需验收：npm run compile（tsc + node -c dist/extension.js + node -c dist/ui/PanelHtml.js）",
-      "argv": [
-        "npm",
-        "run",
-        "compile"
-      ],
-      "status": "passed",
-      "exitCode": 0,
-      "required": true,
-      "logs": [
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/21-compile6.log",
-          "sha256": "756c2db14822d56e18cfae323e5219bb2ae2a68ff479c04995f5eaaa0801c8aa"
-        }
-      ]
-    },
-    {
-      "platform": "win32",
-      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
-      "timeoutMs": null,
-      "timeoutSource": {
-        "kind": "config",
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/package.json",
-        "sha256": "fb50cf7eda28e4b69efe4b7be002dd57e591e458e98f22a4177e076324532a4f",
-        "detail": "package.json#scripts.compile/build 内置 node -c 语法门禁；vm.Script 为一次性解析命令，未设超时（timeoutMs=null）"
-      },
-      "complete": true,
-      "name": "必需验收：双重校验第二门禁 vm.Script 与 P0 端点检索",
-      "argv": [
-        "node",
-        "-e",
-        "new (require('vm').Script)(require('fs').readFileSync('dist/ui/PanelHtml.js','utf8'))"
-      ],
-      "status": "passed",
-      "exitCode": 0,
-      "required": true,
-      "logs": [
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/65-dual-gate.log",
-          "sha256": "f4195348e52c3aa3577179e674c8c0331790eccab9dd3185809b88cfd6e6cff8"
-        }
-      ],
-      "note": "同日志：node -c 两项 exit=0、vm.Script exit=0、grep 10890 src+dist=0、grep 固定 127.0.0.1:18765 src=0"
-    },
-    {
-      "platform": "win32",
-      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
-      "timeoutMs": 20000,
-      "timeoutSource": {
-        "kind": "config",
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
-        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
-        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
-      },
-      "complete": true,
-      "name": "必需验收：低流量策略与 r2 F1–F4 新增测试",
-      "argv": [
-        "node",
-        "--test",
-        "--test-force-exit",
-        "--test-timeout",
-        "20000",
-        "test/features/panelLowTrafficModePolicy.test.js"
-      ],
-      "status": "passed",
-      "exitCode": 0,
-      "required": true,
-      "logs": [
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/30-test-test_features_panelLowTrafficModePolicy_test_js.log",
-          "sha256": "58cc55546f72958465d4a3aa988fc4efe8bbdd546c9ae57481477a083205d9a9"
-        }
-      ],
-      "note": "16 tests 16 pass 0 fail"
-    },
-    {
-      "platform": "win32",
-      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
-      "timeoutMs": 20000,
-      "timeoutSource": {
-        "kind": "config",
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
-        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
-        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
-      },
-      "complete": true,
-      "name": "必需验收：真实渲染面板脚本健康（按钮、展示闸门、无 timer、手动入口）",
-      "argv": [
-        "node",
-        "--test",
-        "--test-force-exit",
-        "--test-timeout",
-        "20000",
-        "test/features/panelWebviewScriptHealth.test.js"
-      ],
-      "status": "passed",
-      "exitCode": 0,
-      "required": true,
-      "logs": [
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/24-test-panelWebviewScriptHealth.log",
-          "sha256": "b8632f58375ea315b17d8916135a6ea9e1218e0196a886aee01010464c044537"
-        }
-      ],
-      "note": "7 tests 7 pass 0 fail"
-    },
-    {
-      "platform": "win32",
-      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
-      "timeoutMs": 20000,
-      "timeoutSource": {
-        "kind": "config",
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
-        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
-        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
-      },
-      "complete": true,
-      "name": "必需验收：面板消息链派发（白名单、不占 lease、不占 UI 状态、文档代际）",
-      "argv": [
-        "node",
-        "--test",
-        "--test-force-exit",
-        "--test-timeout",
-        "20000",
-        "test/features/panelMessageDispatch.test.js"
-      ],
-      "status": "passed",
-      "exitCode": 0,
-      "required": true,
-      "logs": [
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/30-test-test_features_panelMessageDispatch_test_js.log",
-          "sha256": "d762262610a1daf8f0e8cdbaf03feac2294ad8e61a96366847e0628e5488dce2"
-        }
-      ],
-      "note": "13 tests 13 pass 0 fail"
-    },
-    {
-      "platform": "win32",
-      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
-      "timeoutMs": 20000,
-      "timeoutSource": {
-        "kind": "config",
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
-        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
-        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
-      },
-      "complete": true,
-      "name": "必需验收：队列节奏契约随策略表最小更新",
-      "argv": [
-        "node",
-        "--test",
-        "--test-force-exit",
-        "--test-timeout",
-        "20000",
-        "test/features/schedulerContract.test.js"
-      ],
-      "status": "passed",
-      "exitCode": 0,
-      "required": true,
-      "logs": [
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/51-test-schedulerContract.log",
-          "sha256": "5366918b10e4ae712ea0c23980c311dccd433757fb363a53f02f8d8ac1be8742"
-        }
-      ],
-      "note": "3 tests 3 pass 0 fail"
-    },
-    {
-      "platform": "win32",
-      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
-      "timeoutMs": null,
-      "timeoutSource": {
-        "kind": "config",
-        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/scripts/test-workflow.json",
-        "sha256": "0866aed5a71b3010ab445bb25d5bed3c05f71d4f0adb3af477f0bfd6e80e8a4c",
-        "detail": "scripts/test-workflow.json 定义 compile/build/package 域 gates 与 domains，超时由 runner 自管，命令未设模型侧超时（timeoutMs=null）"
-      },
-      "complete": true,
-      "name": "F4-FAIL-1 首轮 npm run package 内 hostOperationLease job-222 真实失败（保留原始失败，不改代码求绿）",
-      "argv": [
-        "npm",
-        "run",
-        "package"
-      ],
-      "status": "failed",
-      "exitCode": 1,
-      "required": false,
-      "logs": [
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/60-package.log",
-          "sha256": "63566bfce5be2a3d042b2fdc2988ede0c1523a7f872f2bbeebc63706c83f04de"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/simple_cluster/reports/test-workflow/2026-10-28T01-54-33-605Z-54792-package/job-222-hostOperationLease.test.out.log",
-          "sha256": "26a67cc752f682db138c4d6b84e8dce80887386ac393aa89f465c08a58bc2433"
-        },
-        {
-          "kind": "log",
-          "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/simple_cluster/reports/test-workflow/2026-10-28T01-54-33-605Z-54792-package/job-222-hostOperationLease.test.err.log",
-          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        }
-      ],
-      "detail": "失败用例 test\\core\\hostOperationLease.test.js:91 continuous heartbeat preserves ownership beyond lease TTL and keeps UTF-8 labels；TypeError: Cannot read properties of undefined (reading 'actionLabel') at hostOperationLease.test.js:95:20；60-package.log 第 237 行为该 job 失败行，完整堆栈在同日志 264-270 段与 job-222 out.log"
-    },
     {
       "platform": "win32",
       "cwd": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/baseline-repro",
@@ -538,6 +326,77 @@
         "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
       },
       "complete": true,
+      "name": "诊断：跳转日志面板夹具补齐后通过",
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/ui/jobTmuxLogNavigation.test.js"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "required": false,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/45-test-test_ui_jobTmuxLogNavigation_test_js.log",
+          "sha256": "119f52efdecb7a662210db1502437e9b7128c39d8fcf2807e278fc31e0c91443"
+        }
+      ],
+      "note": "10 tests 10 pass 0 fail"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "timeoutMs": null,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/scripts/test-workflow.json",
+        "sha256": "0866aed5a71b3010ab445bb25d5bed3c05f71d4f0adb3af477f0bfd6e80e8a4c",
+        "detail": "scripts/test-workflow.json 定义 compile/build/package 域 gates 与 domains，超时由 runner 自管，命令未设模型侧超时（timeoutMs=null）"
+      },
+      "complete": true,
+      "name": "F4-FAIL-1 首轮 npm run package 内 hostOperationLease job-222 真实失败（保留原始失败，不改代码求绿）",
+      "argv": [
+        "npm",
+        "run",
+        "package"
+      ],
+      "status": "failed",
+      "exitCode": 1,
+      "required": false,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/60-package.log",
+          "sha256": "63566bfce5be2a3d042b2fdc2988ede0c1523a7f872f2bbeebc63706c83f04de"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/simple_cluster/reports/test-workflow/2026-10-28T01-54-33-605Z-54792-package/job-222-hostOperationLease.test.out.log",
+          "sha256": "26a67cc752f682db138c4d6b84e8dce80887386ac393aa89f465c08a58bc2433"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/simple_cluster/reports/test-workflow/2026-10-28T01-54-33-605Z-54792-package/job-222-hostOperationLease.test.err.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "detail": "失败用例 test\\core\\hostOperationLease.test.js:91 continuous heartbeat preserves ownership beyond lease TTL and keeps UTF-8 labels；TypeError: Cannot read properties of undefined (reading 'actionLabel') at hostOperationLease.test.js:95:20；60-package.log 第 237 行为该 job 失败行，完整堆栈在同日志 264-270 段与 job-222 out.log"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "timeoutMs": 20000,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
+      },
+      "complete": true,
       "name": "F4-FAIL-2 test/factories_integration.test.js 新模块行数门禁（基线既有，非本任务引入）",
       "argv": [
         "node",
@@ -562,6 +421,123 @@
     {
       "platform": "win32",
       "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
+      "timeoutMs": null,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/scripts/test-workflow.json",
+        "sha256": "0866aed5a71b3010ab445bb25d5bed3c05f71d4f0adb3af477f0bfd6e80e8a4c",
+        "detail": "scripts/test-workflow.json 定义 compile/build/package 域 gates 与 domains，超时由 runner 自管，命令未设模型侧超时（timeoutMs=null）"
+      },
+      "name": "必需验收：npm run package 返修后重打包（compile + build 全量 + 各域 + 包门禁）",
+      "argv": [
+        "npm",
+        "run",
+        "package"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "required": true,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/95-package-r1r6.log",
+          "sha256": "dc42956a32f28d9dc1a7b0ec38de0ee632c27782ff37d9b3a4cf20e80fec87a6"
+        }
+      ],
+      "note": "overall=passed files=238，与上一轮同一 0.5.422 版本、同一文件集合；PATH 前置 /d/Git/cmd 使 executionShellPreflight 能解析真实 Git Bash"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
+      "timeoutMs": null,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/scripts/test-workflow.json",
+        "sha256": "0866aed5a71b3010ab445bb25d5bed3c05f71d4f0adb3af477f0bfd6e80e8a4c",
+        "detail": "scripts/test-workflow.json 定义 compile/build/package 域 gates 与 domains，超时由 runner 自管，命令未设模型侧超时（timeoutMs=null）"
+      },
+      "name": "必需验收：npm run build 返修后（含 node -c dist/extension.js 与 node -c dist/ui/PanelHtml.js 双 gate）",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "required": true,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/94-build-r1r6.log",
+          "sha256": "9911cd2548c0bb5527429728066f501dbb32ebb3eb385517fbf0c077b31401fa"
+        }
+      ],
+      "note": "exit=0，overall=passed files=228，dedupRemoved=213，gates 01-09 全部 gate ok"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
+      "timeoutMs": null,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/scripts/test-workflow.json",
+        "sha256": "0866aed5a71b3010ab445bb25d5bed3c05f71d4f0adb3af477f0bfd6e80e8a4c",
+        "detail": "scripts/test-workflow.json 定义 compile/build/package 域 gates 与 domains，超时由 runner 自管，命令未设模型侧超时（timeoutMs=null）"
+      },
+      "name": "必需验收：npm run compile 返修后（tsc + node -c 两项语法门禁）",
+      "argv": [
+        "npm",
+        "run",
+        "compile"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "required": true,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/83-compile-r1r6b.log",
+          "sha256": "421cbde4a66725a15d2f2727f2ba9c2b5537dea769f81548759de03e4a85fc2e"
+        }
+      ],
+      "note": "exit=0，overall=passed；R1-R6 生产改动之后的编译门禁"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
+      "timeoutMs": null,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/package.json",
+        "sha256": "fb50cf7eda28e4b69efe4b7be002dd57e591e458e98f22a4177e076324532a4f",
+        "detail": "package.json#scripts.compile/build 内置 node -c 语法门禁；vm.Script 与 P0 端点检索为一次性解析命令，未设超时（timeoutMs=null）"
+      },
+      "name": "必需验收：双重校验第二门禁 vm.Script 与 P0 端点检索（返修后）",
+      "argv": [
+        "node",
+        "-e",
+        "new (require('vm').Script)(require('fs').readFileSync('dist/ui/PanelHtml.js','utf8'))"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "required": true,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/97-dual-gate-r1r6.log",
+          "sha256": "d74d2eff2a1e2c1b540310e627e85a4e07414ea59ab7f64ebd4d9377f99a34e5"
+        }
+      ],
+      "note": "同一日志：node -c dist/extension.js ok_exit=0、node -c dist/ui/PanelHtml.js ok_exit=0、vm.Script ok_exit=0、grep 10890 src+dist=0 命中、grep 固定 127.0.0.1:18765 src=0 命中"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
       "timeoutMs": 20000,
       "timeoutSource": {
         "kind": "config",
@@ -569,27 +545,514 @@
         "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
         "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
       },
-      "complete": true,
-      "name": "诊断：跳转日志面板夹具补齐后通过",
+      "name": "必需验收：低流量策略与 r2/r5 语义（panelLowTrafficModePolicy）",
       "argv": [
         "node",
         "--test",
         "--test-force-exit",
         "--test-timeout",
         "20000",
-        "test/ui/jobTmuxLogNavigation.test.js"
+        "test/features/panelLowTrafficModePolicy.test.js"
       ],
       "status": "passed",
       "exitCode": 0,
+      "required": true,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/98-1-panelLowTrafficModePolicy.log",
+          "sha256": "0fbbf3a30407d4d1776f390e8390b6e8c3a7798f2adfbe7c02598a6b7cb0cc8e"
+        }
+      ],
+      "note": "16 tests 16 pass 0 fail；含 R4「blockedBy 存在时 displayAutoRefresh 仍为 false」与 R5「按 workerId:requestId 配对回执」"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
+      "timeoutMs": 20000,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
+      },
+      "name": "必需验收：R1-R6 返修新增测试（展示闸门、策略副本隔离、受控关闭≠断连、策略收敛、回执时序）",
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/lowTrafficDisplayRework.test.js"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "required": true,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/98-2-lowTrafficDisplayRework.log",
+          "sha256": "075015f339f92098d5e9543e0e4d6ac58b3dc16d0d6db79fa5bc58107adbe897"
+        }
+      ],
+      "note": "9 tests 9 pass 0 fail：R1 自动拦截/手动放行/提示极性、R2 默认策略冻结与端点互不改写、R3 不发布 tunnel_unavailable、R4 pause/resume/reset 收敛、R6 过期 requestId 无副作用"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
+      "timeoutMs": 20000,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
+      },
+      "name": "必需验收：真实渲染面板脚本健康（按钮、展示闸门、无 timer、手动入口）",
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/panelWebviewScriptHealth.test.js"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "required": true,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/98-3-panelWebviewScriptHealth.log",
+          "sha256": "9d0de360f978e100af4da0114c8151b05a16400948b5b93a622e31c089b62983"
+        }
+      ],
+      "note": "7 tests 7 pass 0 fail"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
+      "timeoutMs": 20000,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
+      },
+      "name": "必需验收：面板消息链派发（白名单、不占 lease、不占 UI 状态、文档代际）",
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/panelMessageDispatch.test.js"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "required": true,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/98-4-panelMessageDispatch.log",
+          "sha256": "b8e1ae3ae6aab4e536843f96fa8c8b3ed539a37cd3bb58846985bf78dbf2fc0c"
+        }
+      ],
+      "note": "13 tests 13 pass 0 fail"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
+      "timeoutMs": 20000,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
+      },
+      "name": "必需验收：外层模板与内层 script 语法（panelInlineScriptSyntax）",
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/ui/panelInlineScriptSyntax.test.js"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "required": true,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/98-7-panelInlineScriptSyntax.log",
+          "sha256": "babf95751adfce812038b169937a544d25a73f27d75825ac18c0003e4b4a058f"
+        }
+      ],
+      "note": "2 tests 2 pass 0 fail"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
+      "timeoutMs": 20000,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
+      },
+      "name": "必需验收：队列节奏契约随策略表最小更新",
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/schedulerContract.test.js"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "required": true,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/98-5-schedulerContract.log",
+          "sha256": "a4ead68db66fd92f3c2a4ccb0c907fe767e01900e713766e4261a2978442ca20"
+        }
+      ],
+      "note": "3 tests 3 pass 0 fail"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
+      "timeoutMs": 20000,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
+      },
+      "name": "必需验收：tmux 展示来源闸门与每个 requestId 各自回执（r5 新形状）",
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/ui/tmuxWorkerAndRichLog.test.js"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "required": true,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/98-6-tmuxWorkerAndRichLog.log",
+          "sha256": "461171f5ada070753b67b9fa772e08acdf2ca3e73c8b1a76c127ddad5d26e8a9"
+        }
+      ],
+      "note": "5 tests 5 pass 0 fail；断言 fetchTmuxListForCaller 扇出、displayMergeEnabled 为假时每请求一轮、publishTmuxList 逐 requestId 回执"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
+      "timeoutMs": 20000,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
+      },
+      "name": "诊断：受影响 69 个测试文件按 logs/affected-files.txt 串行回归（r2-final-1 返修后）",
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "<logs/affected-files.txt 中每个文件，单文件串行>"
+      ],
+      "status": "failed",
+      "exitCode": 1,
       "required": false,
       "logs": [
         {
           "kind": "log",
-          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/45-test-test_ui_jobTmuxLogNavigation_test_js.log",
-          "sha256": "119f52efdecb7a662210db1502437e9b7128c39d8fcf2807e278fc31e0c91443"
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/99-serial-summary.txt",
+          "sha256": "38634cae7bf3226db5c2545022a89ec0c1b5717ee1b804591e0fbd9adbc1c4bc"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-01-httpApiContract.log",
+          "sha256": "7610125ae96ad540dd26d8b1814d6d0601b9b4bcea3d6e5a982b330cb2af6d82"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-02-tmuxCaptureHistory.log",
+          "sha256": "24263d9ecf9fc2f429303b2781fcfbe0bd29ade00c58661f00832c216a2027dc"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-03-factories_integration.log",
+          "sha256": "8173f3675b91dcd2bfcda1424419c99753854cc9116263c6d1a821bbf339e2a0"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-04-autoFallbackWideReadGuard.log",
+          "sha256": "f864b6f9e1c43b935dae7bd50ad3befc47300eb202aa567c7cd1c13b079bc003"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-05-distributedRerunAndWorkerDelta.log",
+          "sha256": "864ae0c044d51b7740cf72aed126b4e82e015c6c3123b53d672f186925aa5938"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-06-gpuSampleCarryChannel.log",
+          "sha256": "4676be7844112e2f00aa40da825a4bb79c5e382c84e5d509cf285d9ea782348d"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-07-gpuWindowPanelWiring.log",
+          "sha256": "21aa3b96d6a8b88927480ca0e7b8bc09f75efcaa7baaa444ee4d6a25edfba361"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-08-lowTrafficDisplayRework.log",
+          "sha256": "2b8d027e20ce29a9e881b9409880abddfc89030e598a832bb3a347b0675dbb34"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-09-nativePlanRetry.log",
+          "sha256": "6935b530e838f97327338760da9223ce17cc36daf08c52ae6647edf655906d7f"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-10-operationRetirement.log",
+          "sha256": "fcb3888cae356b479d72fa86a36287ece05b3b38a9d3f8ebed4b4432261b4a4f"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-11-panelLowTrafficModePolicy.log",
+          "sha256": "457151e44ee60a7b2439fe0bf328cdc00dd06fe1a515a741f8f11aa017e3de14"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-12-panelMessageDispatch.log",
+          "sha256": "41fa9c232aa98d25ee9cf43514149210bf929ea7e996f5fd0adc6039edbc5ca2"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-13-panelStateProjection.log",
+          "sha256": "72db7f27f18a314ece17b6ceb4369c4bf3905c325b308358ada5bc77c2dd153e"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-14-panelWebviewScriptHealth.log",
+          "sha256": "563f28f2eb9fb2d06ddc1612ef0f27b3eb299fbe220db1850ee2392cc5216258"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-15-planOperationNoticeLifecycle.log",
+          "sha256": "881576b5ad6363d94ba115f9b0a2875beb44379d2884d660a12dd481eaa5d61e"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-16-planSeedAggregate.log",
+          "sha256": "f54f7896d6c87887136c5fff4fe6e4e37b655b527937a813f27f8177f8353459"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-17-probeConnectionContinuity.log",
+          "sha256": "19129858a726f1af309ed2d722a9459c7775656ad773529164928cc028f8a372"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-18-progressDiagnosticsQueue.log",
+          "sha256": "7d0625fd9c840a541c69227d818f7d9cfaae662293eb0358526116e7f5dfd71b"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-19-progressEvidenceFreshness.log",
+          "sha256": "044373d8c1bf500f3a4a6523153904aa70a271c2d094fae8187969049d3a2849"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-20-projectWorkspaceChangeIsolation.log",
+          "sha256": "a9ef46c9b36a27c574d349ce29c9e484793dd35ddbe668b979b06fa3b6ae95ec"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-21-realtimeDiagnosticsCompactionCache.log",
+          "sha256": "961dbd34f5187e9363e9af7be4c39826252c4581e64cdf40cd65ce32a0e37d29"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-22-remoteResultInspectionWorkflow.log",
+          "sha256": "522689a3ce237a76a3347e7d746d2e45c705cb47055759ff2b0254da15cd554f"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-23-schedulerContract.log",
+          "sha256": "4ab35206f6e05e831f1d0505bff6d7f846092a38aada567b34011549af3888de"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-24-syncScopeAgentIndex.log",
+          "sha256": "079d69f7348d3c20a14db5b6f3f6af71cc74b454f5dc4ed31624d4555737faed"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-25-tmuxClearTaskTabs.log",
+          "sha256": "0065bfb487b3477f750ae8e6d990421458b92183afa89aa9adae6d3525c19fe9"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-100-authorityMergeWorkerGpuPreferred.log",
+          "sha256": "0c1dd560fc1ca6cdedac27dba7e29df5fdcd1bf5778afb3fe34e2eb554231624"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-125-boundedResponse.log",
+          "sha256": "8fe615ffb7e65f06bfb5a40d19ef271a72d90420771991f68fe950f7577100a5"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-150-gpuWorkerSnapshotRecovery.log",
+          "sha256": "b5c807871d12e81a6435fdf35e617dcb45067261f0122c05e4ca2cadc24b0b6d"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-175-hostOperationLeaseIntegration.log",
+          "sha256": "212e7384b00b1eb03da0dd8ce0455d6b9ee60bdf07218ebad53f820a1916fe86"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-200-journalGapSnapshot.log",
+          "sha256": "30a4ddeedcc8a150142268089fa54a4ffeb3bad1552744eafb6e0b77dcf16cca"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-225-manualConnectionRecovery.log",
+          "sha256": "5d8b58603f2c18856dd39c6fb248d6b222628c8173d71715dae7f799ae953a0e"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-25-tmuxTaskTabClose.log",
+          "sha256": "76d9734bfe4ded74c77446a45544f4cc147b81d8cd35588b9f7170b83a6b62a1"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-250-manualGpuSchedulerSnapshot.log",
+          "sha256": "67bab3151b255ed2d6895ab8ec1f985830b9b6ab1d7e7db2ed4a83bac7113239"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-275-multiEndpointRealtimeClient.log",
+          "sha256": "ae1f4ac35fcf71a37addbacf6808c9142c0b3bbfa4fa6b3289d08f912616649f"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-300-multiWorkerReconnectIsolation.log",
+          "sha256": "3c83941b5669cbafb57e9a8d41971c51fc8f4985c54327968f9a31985ef981fe"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-325-noDirectSshRealtime.log",
+          "sha256": "bf4f682bccd0338eaa899baf792e1055ff9afe0b81254978a0bfabda4e4a6c5d"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-350-noForbiddenSourceTerms.log",
+          "sha256": "c11472ce14f9f3fd980d79a609d4e797d7f05f1e9c52fed20817e66c040ad7bc"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-375-realtimeLogBudget.log",
+          "sha256": "03d477a26f982048cd06f0504aef0292305392e9fe277b8258cc445f7eae84c3"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-400-realtimeReconnect.log",
+          "sha256": "596d6138eae83c3eed9fc481ac409ee5e43c2ddbc08ce8d83a2d3a98f39b5578"
+        },
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/91-425-realtimeSnapshotFallback.log",
+          "sha256": "f75d75bffdd43276ff79d385952b8108aa7913bac61ad588d8898911ff9bfa91"
         }
       ],
-      "note": "10 tests 10 pass 0 fail"
+      "note": "66/69 文件全绿；3 个失败为基线既有，已单列在下方三条非必需记录（factories_integration 行数门禁、distributedRerunAndWorkerDelta 缺 GitHub 发布阶段文案、gpuWindowPanelWiring 毫秒/秒时间口径漂移）。逐文件完整日志见 logs/88-*、logs/91-*、logs/93-*、logs/96-*、logs/98-*"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
+      "timeoutMs": 20000,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
+      },
+      "name": "非必需：distributedRerunAndWorkerDelta 断言 legacy.ts 含 GitHub 发布阶段文案（基线既有缺口）",
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/distributedRerunAndWorkerDelta.test.js"
+      ],
+      "status": "failed",
+      "exitCode": 1,
+      "required": false,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/88-05-distributedRerunAndWorkerDelta.log",
+          "sha256": "864ae0c044d51b7740cf72aed126b4e82e015c6c3123b53d672f186925aa5938"
+        }
+      ],
+      "note": "基线 7a6062fa 与本轮 HEAD 的 src/extension/legacy.ts 均不含该字符串（git show 7a6062fa:src/extension/legacy.ts | grep -c 结果相同），与本任务无关；未改测试、未改生产代码"
+    },
+    {
+      "platform": "win32",
+      "cwd": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028",
+      "complete": true,
+      "timeoutMs": 20000,
+      "timeoutSource": {
+        "kind": "config",
+        "path": "D:/GitRepo/MCP/zlk-cluster-orchestrator-low-traffic-20261028/AGENTS.md",
+        "sha256": "657efdd353d2a4d5e9f31c4c2191f3878bbcfbfd385e1a2ec4fabff7766655de",
+        "detail": "AGENTS.md P0 禁止阻塞测试：node --test --test-force-exit --test-timeout 20000 <单个文件>，20 秒未退出即停止不重试"
+      },
+      "name": "非必需：gpuWindowPanelWiring 细粒度回传用例（本轮补齐 harness 后暴露毫秒/秒口径漂移）",
+      "argv": [
+        "node",
+        "--test",
+        "--test-force-exit",
+        "--test-timeout",
+        "20000",
+        "test/features/gpuWindowPanelWiring.test.js"
+      ],
+      "status": "failed",
+      "exitCode": 1,
+      "required": false,
+      "logs": [
+        {
+          "kind": "log",
+          "path": "D:/GitRepo/MCP/.agent-evidence/low-traffic-mode-20261028/logs/98-8-gpuWindowPanelWiring.log",
+          "sha256": "5a934c9a7498ee092019e19d0f026c87061effeab3326929ba3bf39a6f863779"
+        }
+      ],
+      "note": "基线 harness 缺少 mergeGpuHistorySegments 等真实依赖，该用例此前直接 ReferenceError；本轮补齐后用例真正执行，5 pass 1 fail：测试按 epoch 毫秒构造时间，生产 applyGpuWindowSamples 已按 src/ui/PanelHtml.legacy.ts:11891 注释改用 epoch 秒。未修改其断言、未放宽阈值，是否随本 PR 修正测试口径由主控决定"
     }
   ],
   "notes": "purpose=final：阶段 3 实现与规定验证已完成，本轮按要求补全两条失败链证据后再交 GPT 终审。candidate.revision 仍为冻结基线 7a6062fa10441cc5852166a34138781a2604d9e9；实现提交 8f778444，本轮只新增文档取证提交，PR #25 随之更新。主线基准 D:/GitRepo/MCP/zlk-cluster-orchestrator 全程零写入。\n本轮（补证据）未修改任何生产代码，也未修改任何测试断言或超时阈值，只追加 evidence.md 第 15 节、plan.md 第 11 节与本索引的失败记录。\nF4-FAIL-1 hostOperationLease 分类为既有并发时序抖动，非本改动引入。依据（evidence.md 15.1，下方 checks 为对应 failed/passed 条目）：该用例只 require node 内置模块与 dist/core/HostOperationLease，对本次改动模块的引用命中为 0；test/core/hostOperationLease.test.js、src/core/HostOperationLease.ts、dist/core/HostOperationLease.js 与基线字节 sha256 一致；本任务 32 个变更文件不含 src/core、dist/core、test/core 任何文件；用 git archive 7a6062fa 导出的基线树在 16 个 CPU spinner 同等并发下 4/4 复现同一用例失败（TypeError 读 actionLabel、缺少 HostOperationLeaseConflictError 拒绝、HostOperationLeaseLostError 且 code 为 RESOURCE_LEASE_LOST 三种同族表现），当前副本同负载 2/2 复现，无负载双方均 14/14 通过；首轮与第二轮 package 的 files=238、maxParallel=2、maxObservedConcurrent=1 相同，差别只是机器负载。原始失败以 status=failed、exitCode=1 保留，logs 指向 60-package.log（第 237 行即该 job 失败行）与 job-222 的 out 与 err 完整日志。\nF4-FAIL-2 新模块行数门禁为基线既有技术债。git show 7a6062fa 基线字节 CacheCleanupPanel.ts 用 wc 计 478 行、PlanCleanupHost.ts 430 行；门禁按 readFileSync 后以换行 split 的数组长度计数（test/factories_integration.test.js 第 352 至 354 行），文件以换行结尾时比 wc 多 1，故断言报 479 与 431；本副本数字与基线完全相同，且 git diff --stat 基线..HEAD 对这两个文件输出为空。该测试不在 npm run package 的 238 文件集合内：scripts/test-workflow.json、package.json、scripts 目录内检索 0 命中，60-package.log、63-package2.log、50-build.log 内 0 命中，63-package2.log 枚举的唯一测试文件恰为 238 个且不含 factories_integration，因此 package overall=passed 并未掩盖该门禁，它只在按 T9 显式单跑时暴露。\nrequired 标注口径：required=true 仅用于项目必需验收（第二轮 npm run package、npm run compile、vm.Script 双门禁与 P0 端点检索、本任务新增与扩展的 4 个测试文件）。首轮 package 的 hostOperationLease 失败、基线与当前副本的负载复现、行数门禁都是诊断取证条目，required=false，但 failed 状态与真实 exitCode 原样保留，未改成通过。\n实现要点与版本不变：低流量模式按钮加唯一策略源 legacy.ts 第 485 与 486 行和 effectiveTrafficPolicy 的 displayAutoRefresh；r2 定稿 A 类展示读自动 0 次仅手动、B 类队列 5 秒与进度终态确认 10 秒且面板隐藏仍执行、C 类用户操作原行为；默认关闭且正常模式逐值等于原常量。版本 0.5.422，simple-experiment-0.5.422.vsix 2683707 字节，SHA256 7bb4f147da77f2bcf4520fe62158162bd9efdbeecec9e0f3dd69fbe42f7a73a0（未上传 Release、未安装、未重载验收）。"

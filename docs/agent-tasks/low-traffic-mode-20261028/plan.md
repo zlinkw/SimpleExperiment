@@ -376,3 +376,121 @@ r1表中未受影响F0/F1/F4–F6及全部执行安全条款保留；下表细�
 - F4-FAIL-2 新模块行数门禁：基线既有技术债。取证（证据 §15.2）：git show 基线字节 CacheCleanupPanel.ts 478 行、PlanCleanupHost.ts 430 行（wc -l），门禁按 split 换行 计数为 479/431，本副本数字完全相同且这两个文件未被触碰；该测试不在 npm run package 的 238 文件集合内（workflow 配置与三轮日志均 0 命中，238 个枚举文件不含它），仅在按 T9 显式单跑时暴露。
 - handoff.json 状态：上述两条均以 status=failed、exitCode=1 原样保留并指向完整日志；复跑与基线复现另列为 status=passed/failed 的诊断条目；required 只标在真正的必需验收（package、compile、vm 双门禁、本任务新增/扩展测试）上，诊断类 required=false。
 - F0–F5 状态维持 §6 表中「已完成」，F6 仍为「进行中：PR 已提交（#25），发行/安装/重载验收待主控」。
+
+## 12. r2-final-1 最终审核结论（purpose=final，2026-10-28）
+
+### 12.1 结论、范围和候选身份
+
+**结论：必须回原实施者返修；当前不得合并 PR #25，不得发行/安装当前0.5.422包。** 已完成的编译/测试不撤销为“没跑”，但不能覆盖以下实际代码缺陷；§11“F0–F5已完成”是实施者交审状态，不等于本次审核通过。本章只追加审核结论，未改任何源码、测试、版本、索引或Git状态，未执行新测试/编译/打包。
+
+审核冻结身份：
+- 基线：7a6062fa10441cc5852166a34138781a2604d9e9。
+- 实现：8f77844458790451d52ab7d98dbe2d54bdfb733f；取证文档HEAD：1d920cc80ed05e76246b47ef82a3071dcdcbb8bb。
+- 交审索引SHA256：8abcbb13e266f69a455d0ca47a25e1fb022fe402b155aac8414d4fe35ae29ed8，purpose=final；candidate.revision仍指基线，其notes明确绑定实现提交，不误认基线为已实现HEAD。
+- 版本0.5.422；simple-experiment-0.5.422.vsix，2683707字节，SHA256 **7bb4f147da77f2bcf4520fe62158162bd9efdbeecec9e0f3dd69fbe42f7a73a0**。
+- 审核前只读核验候选20项、登记artifacts及全部checks日志共47个文件，哈希全部一致，无缺失；索引哈希、HEAD和根目录VSIX实物大小/完整哈希一致。审核前git status为空、未暂存。追加本章后plan的哈希必然变化，主控应更新交接索引，不沿用旧plan哈希假装未变；本审核者不写索引/提交。
+- 身份核验原始日志：D:/OpenChamber-AgentConfig/Pi/host-native/diagnostics/host-windows/66f4174f-d530-4b05-b3d0-3e8d115a8876-stdout.log；真实exitCode=0。
+- 实际源码diff已对照基线读取，包含宿主策略/消息/单飞、两个实时客户端、面板及测试调整；生成物、版本与新策略文件均在哈希核验范围。审核是静态调用链与现有真实日志审查，以下缺陷未新运行复现，不把代码推导写成实测。
+
+### 12.2 必须返修（6组，均是当前契约缺口/真实代码风险）
+
+#### R1 / high：A类未全覆盖，且首帧前仍可能自动联网，展示时间提示仅tmux落地
+
+位置与证据：
+- src/ui/PanelHtml.legacy.ts:4167、4176：展开GPU历史就直接requestGpuHistory(...,true)；:11843–11877 requestGpuHistory/requestGpuHistoryRemote在无Worker时直接发loadGpuHistory、有Worker时本地ring为空/800ms超时也发远程请求，没有displayAutoAllowed或明确手动刷新origin守卫。src/extension/legacy.ts:6498–6524 loadGpuHistoryFromUi继而client.getGpuHistory，亦无A自动来源闸门。这违反r2 A05“不在展开/切选择时自动拉一次”；cooldown不是零调用。
+- 面板:1966默认tmuxDisplayAutoHint=true，:2666–2670在未有trafficMode时接受该hint，:4403–4404仍有800/1400ms首次拉取。retainContextWhenHidden=false或重载无Webview状态时，慢于800ms的宿主首帧会让已持久化低流量的用户先拉tmux；宿主fetchTmuxListFromUi/Capture也没有依据权威模式拒绝自动来源。
+- :2521写lowTrafficDisplayAuto为 !displayAutoAllowed("auto")，而:1966/:2746将该键理解为“是否允许自动”；正反语义不一致，会把下一次初始允许/禁止提示颠倒。
+- :2688–2696 renderDisplayAutoNotices只更新tmux列表/截屏；A01/A03/A05/A06/A07各展示区没有本计划要求的常驻“自动刷新已关闭/上次成功手动刷新/尚未手动刷新”闭环。tmuxList使用单一全局key、无Worker/项目身份；多Worker部分失败时最后一条成功也可能将整区显示成刚成功刷新。
+
+通过条件：
+- 按§10 A01–A07逐个发起入口区分自动/手动/正确性，阻止展开/焦点/选择/初始重试/ring回退的A远程调用；不能仅封tmux。
+- 用宿主注入的权威启动状态或其他不改变正常模式轨迹的方式封住低流量首帧前窗口；修hint正反语义，Webview缓存不作权威。
+- 每区/精确身份显示真实采样与手动成功时间，无缓存空态和失败旧数据明确；不以B附带数据假装A手动成功。
+- 加真实渲染脚本+假HTTP/ring调用计数：低流量首次握手延迟、无缓存、展开GPU、切Worker、选择、隐藏恢复、初始失败重试均A自动0；独立手动点击每key一轮；正常模式未开启的入口轨迹与基线一致。新增测试目前只检查tmux正则/单client，不满足此覆盖。
+
+#### R2 / high：共享policy原地修改使多Worker退出低流量时只恢复第一个端点，并污染默认策略
+
+位置与证据：
+- src/tunnel/MultiEndpointRealtimeClient.legacy.ts:49–66把同一个policy对象传给所有子client，:85–87依次updateRefreshPolicy。
+- src/tunnel/RealtimeTunnelClient.legacy.ts:98–104默认policy直接引用defaultRealtimeRefreshPolicy，:454–471原地写this.policy；恢复时:459以“displayAutoRefresh=true且cadence未改变”直接返回。
+- 低→正常第一次子client把共享snapshot间隔从0写成5并安排自身重连；第二及后续子client看到共享值已为5，于:459直接返回，不清理/恢复自己的disconnected生命周期。构造时默认引用也可能被单个client切模式污染，影响后来构造的正常client。问题不是间隔表的数字，而是对象别名与每client副作用被全局值替代。
+
+通过条件：
+- 各client拥有自己的策略快照，或每个client都独立核对前/后模式并执行连接状态迁移；默认策略常量不可被实例写入。不能用强制重建整组client清掉运行状态来绕过。
+- 至少两个真实子client（同一aggregator）、正常→低→正常，分别验证stream/poll/reconnect恢复，默认值保持5且新建正常client未被前一个污染；重复策略不重复timer。不能像现测试在update后手动再调用client.connect来掩盖漏恢复。
+
+#### R3 / high：正确关闭展示通道被宿主误判为隧道不可用，违反真实反馈
+
+位置与证据：
+- RealtimeTunnelClient.legacy.ts:112–118低流量connect合法早退，updateRefreshPolicy通过disconnect("display-auto")使status=disconnected；这是主动关闭展示而非网络失败。
+- src/extension/legacy.ts:5601–5633 ensureRealtimeConnected在client.connect之后仍以所有streamStatus=disconnected判定unavailable，:5618设置lastError="tunnel_unavailable"，无lastHealth时还设置local_port_closed。持久化低流量后resolve/就绪探测/冷恢复均能走此入口，健康HTTP可成功但被展示策略假报离线。
+
+通过条件：
+- 把“展示自动刷新关闭”与网络未探测/真实连接失败分离；不伪造在线，也不能以合法关闭stream伪造端口关闭。
+- 假HTTP健康/版本可达且displayAutoRefresh=false的实际宿主调用链中，不出现tunnel_unavailable/local_port_closed；真实HTTP失败继续回传。已有B终态、pending、完成同步/结果收集保留，在隐藏、全部展示流关闭状态下验证真实协调链而非仅stub计数。
+
+#### R4 / high：blockedBy把A闸门重新打开，“更强约束”实际没有保证展示已停；恢复路径策略不收敛
+
+位置与证据：
+- src/extension/legacy.ts:1402–1413：manual_only/background_traffic_paused/paused时intervals恢复NORMAL，displayAutoRefresh=!(enabled&&!blockedBy)变true。
+- Webview只消费这些值，于是低流量+manual_only仍装5s tmux timer；RealtimeTunnelClient manual_only的connect原分支还主动取一次snapshot（:124附近），并非按钮文案所称“后台周期本已停止”。低流量不应因另一开关静默丢失A=0保证。
+- :6317–6324 resumeNetwork先resume预算再applyTrafficScheduling，但effectiveTrafficPolicy仍读取原lastHealth=paused；没有在此清理/重核旧paused依据，可能继续派生NORMAL/允许展示。pauseAll只scheduleTrafficTimers未同步client策略；配置resetClient路径同样需要核对queue/progress重排，不能仅在点击toggle时更新。
+
+通过条件：
+- 对低流量requested=true，A始终不被更强暂停/手动约束重新启用；B/C维持各原约束，存储不篡改。分离展示闸门与B有效节奏，不把“blocked”简单等同“正常自动展示”。
+- 对所有pause/resume、manual_only/后台开关配置变化、resetClient和重载场景验证最终策略收敛。低流量resume后应为B5/10s且A0；全暂停时不能私自联网；manual_only不能因低流量新增周期；正常模式既有配置行为不改。当前测试反而断言blockedEcho.displayAutoRefresh=true，应按真实约束修正而不是以此作通过依据。
+
+#### R5 / medium：单飞合并丢掉加入者requestId/身份，并无条件改变正常模式的调用行为
+
+位置与证据：
+- src/extension/legacy.ts:24124–24138 displayReadOnce仅返回首个reader的promise，fetchOneTmuxListFromUi在reader内部用首个requestId发布回执(:24151–24175)，加入者没有自己的发布；key仅Worker或Worker/window，没有规范项目/客户端代际。
+- 面板:2481–2487允许20s超时后重新刷新，:2507–2508只接受当前tmuxListRequestId。若旧读仍在途，新手动请求加入旧promise，只会收到旧requestId，不能结束新轮pending/更新手动成功时间。新Webview重置requestId、项目/连接切换也可能加入旧读。
+- 这些包装没有lowTrafficMode判断，在正常模式也取代原每调用各回执的行为；仅常量逐值相同不足以证明“零调用/行为差异”。
+
+通过条件：
+- 原正常分支行为保留；低流量共享底层网络读但为每个当前有效调用者发布匹配requestId的结果，不复用跨项目/client/generation旧读。必要停止后closeCheck新鲜核实不能加入展示旧结果。
+- 加“原读尚未完成→UI超时/重建→再次手动请求→原读返回”的闭环断言，当前按钮能退出pending且显示本轮真实结果；不同项目/代际不共享，失败/abort能释放key。正常模式对照原调用数和回执，不只测Map读次数。
+
+#### R6 / medium：成功回执后立即再次点击，可能仍发送同一个目标，未实现可靠再次点击关闭
+
+位置与证据：
+- src/ui/PanelHtml.legacy.ts:2789成功回执只暂存lowTrafficReceiptDisplay并解除pending；显示/aria-pressed使用该值。
+- :3878–3885点击目标却只取lastState.trafficMode.enabled，不取已收到的确认值。若成功回执先于节流/ACK背压下的新state，按钮显示“开”且可点击，但lastState仍“关”，再次点击仍发送enabled=true，不会关闭；反向同理。
+- 回执处理先clearLowTrafficReceiptTimer再核对requestId，也会让不匹配旧回执取消当前请求超时保障。
+
+通过条件：
+- 显示与下一次目标使用同一份宿主已确认值（或保持禁用直到对应权威state）；先校验回执身份再取消定时器，旧回执不能影响新pending。
+- 用乱序/延迟state与回执的实际脚本断言：关→点击→成功回执（暂不发state）→再点击应发送false，反向亦然；旧requestId不结束新pending，写入失败不改变确认值。不能只以源码包含“失败/回执”文字作验收。
+
+### 12.3 已通过项与验收完整性判断
+
+- 默认读取globalState严格===true、缺键默认false；keys/API只读global键、SAFE/INTERNAL/COMMANDS_WITHOUT_UI_STATUS、文档代际与本地回执链落地，未进入hostOperationUiCommands；按现有写入失败分支确实恢复旧内存值并发送ok=false，不是假成功。但R6交互、R2恢复/R4合成未通过，故不能整体称开关闭环已完成。
+- NORMAL表500/2000/5000/5逐值等于基线；B原queue/progress早退与10s确认调用存在，pending/清理探针、同步、结果收集、动态端点、完成证据代码未削减。本次未发现刻意跳过同步/metricsOnly替代完整结果。仍须补R3/R4的真实链路组合覆盖，不能由“旧B模块未改”推定关闭stream后所有行为都正确。
+- P0语法与端点检查有真实日志：logs/65-dual-gate.log记录node-c两项、vm.Script exit=0及10890 src/dist零命中、固定127.0.0.1:18765 src零命中；logs/63-package2.log显示build域和语法门禁真实运行。审阅新增内层script未发现本次裸反斜杠；内联script原测试也通过。不是用模块vm校验替代实际内联脚本检查。
+- handoff.checks共有14条，required=true共7条，均complete=true/status=passed/exitCode=0，日志哈希与原文件一致；63-package2.log末尾overall=passed files=238、maxObservedConcurrent=1、按需未执行0项属实。另有4条failed记录，对应两类历史问题及复现，不是只有两个failed对象；未被悄改passed。
+- **登记验收真实，但功能覆盖尚不完整。** panelWebviewScriptHealth新增A零请求主要为正则检查；panelLowTrafficModePolicy单client/宿主stub没有覆盖GPU展开、首帧慢、共享多端点恢复、假离线、相同URL的B/C分流及回执交错。7条required全部passed不能替代r2要求的完整行为证据。返修须按实际影响扩展现有seam，正常模式与低流量组合均补断言，禁止降低原断言/改超时求绿。
+- 字节/费用节省率确未实测，evidence §14.6正确写为未知，不当作通过证据，也不列交付门槛；不要求额外压测/真实收费服务器实验。
+
+### 12.4 非阻塞建议（2条，均是历史既有项，非本次相关真实回归）
+
+1. **历史租约时序用例后续治理**：同意F4-FAIL-1定性为既有负载敏感失败，不因它要求本次修改core/超时。已查看首轮60-package.log的完整失败摘要与基线73-baseline-load-hostOperationLease-run3.log：基线同一用例同一TypeError；其余基线/当前负载日志与无负载日志哈希均核实，失败依赖链不加载本次修改模块，相关core/测试在实际diff无变化。同类TTL/心跳失败的基线复现+相同输入+单跑及第二轮包真实通过，足以排除本次相关回归。不把基线复现失败记成通过，不批准修改TTL/断言或自动隔离。
+2. **历史行数门禁后续治理**：同意F4-FAIL-2为既有超阈值技术债。30-test-test_factories_integration_test_js.log实际7/8且失败只在行数，P0端点及vm测试通过；基线/候选相同字节及split口径479/431解释成立，未改的CacheCleanupPanel/PlanCleanupHost不因本次突然超限。该套件不属于本次package238集合，“package通过”不宣称该套件通过。可另任务决定拆分，不自动放宽阈值/停跑测试。
+
+两条历史失败分类证据足够，无需为此次分类再跑负载或修无关模块。它们非阻塞不等于R1–R6非阻塞。
+
+### 12.5 返修整合与停止条件
+
+原实施者续接当前副本处理R1–R6，先统一策略/身份和生命周期，再补各展示入口及回执闭环；不重派、不碰主线、不扩服务器协议。受影响单文件仍按r1/r2规定串行、20秒上限，复用真实未失效覆盖；最终修复候选必须重做必要编译/模板双门禁、相关回归和打包，替换本轮尚未发行的候选包并更新其真实身份，不能把当前VSIX指纹继续套用。若版本已被他处发布/占用，停止交主控决定，不覆写历史资产。
+
+交审时带新提交、更新索引、原始日志和上述通过条件的行为证据；GPT只补审实际变化及其影响，不机械重审无变化历史失败。当前PR #25继续保持未合并，Release/安装/重载验收均待审核通过后按长期授权办理。本审核阶段完成，整体交付仍阻塞，返修时间暂无法可靠估算。
+
+
+## 13. r2-final-1 返修完成记录（worker，2026-10-28）
+
+六组必改项 R1–R6 全部按 §12 的原文验收语义实现，未改动 GPT 的验收条款；两条非阻断建议（lease 计时、行数门禁）按 §12 明确不在本轮范围，未触碰。
+
+- 实现与逐条证据：见 `evidence.md` §16（含每条改动的文件:行位与验证日志编号）。
+- 新增测试：`test/features/lowTrafficDisplayRework.test.js`（9 项，R1/R2/R3/R4/R6 直证）；`test/features/panelLowTrafficModePolicy.test.js` 更新为 R4/R5 新语义（16 项）。
+- 受影响 69 个测试文件串行回归：66 绿；3 个失败为基线既有（`factories_integration` 行数门禁、`distributedRerunAndWorkerDelta` 缺 GitHub 阶段文案、`gpuWindowPanelWiring` 毫秒/秒口径漂移），取证见 evidence §15、§16.8，未放宽任何阈值。
+- 版本保持 0.5.422；`npm run package` 通过，VSIX 指纹见 evidence §16.7。未安装、未发布 Release、未合并，等主控确认。
+- 待主控决定一项：`gpuWindowPanelWiring` 的时间口径测试是否随本 PR 一并修正（测试侧，生产行为按注释为既有设计）。
