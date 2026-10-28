@@ -1000,7 +1000,7 @@ def task_queue_serve(root, worker_id):
                             raise ValueError("TASK_CANCELLED")
                         found = next((row for row in task_inventory(root, execution_only=True) if row["commandId"] == command_id), None)
                         if found:
-                            if any(found.get(key) != payload.get(key) for key in ("projectId", "workflowId", "outputDir")):
+                            if any(found.get(key) != payload.get(key) for key in ("projectId", "workerId", "workflowId", "experimentIndex", "globalJobId", "case", "seed", "outputDir", "collectionResultCsv")):
                                 raise ValueError("TASK_COMMAND_ID_CONFLICT")
                             value = task_public_observation(root, found, found)
                         elif command_id in accepted:
@@ -1038,9 +1038,13 @@ def task_queue_serve(root, worker_id):
                         task_option(controller, "cancelled", json.dumps(sorted(remembered)))
                         for row in task_inventory(root, execution_only=True):
                             if row["commandId"] == command_id:
-                                if row["projectId"] != payload["projectId"]:
+                                if row["projectId"] != payload["projectId"] or row["workerId"] != worker_id:
                                     raise ValueError("TASK_OWNER_MISMATCH")
-                                task_tmux(["kill-window", "-t", row["tmuxWindowId"]])
+                                current = [item for item in task_inventory(root, execution_only=True) if item["tmuxWindowId"] == row["tmuxWindowId"]]
+                                if any(item["commandId"] != command_id or item["projectId"] != payload["projectId"] or item["workerId"] != worker_id for item in current):
+                                    raise ValueError("TASK_OWNER_MISMATCH")
+                                if current:
+                                    task_tmux(["kill-window", "-t", row["tmuxWindowId"]])
                         value = {"cancelled": True}
                         wake.set()
                     else:
@@ -1156,14 +1160,20 @@ def task_stop(root, command, worker_id):
         raise ValueError("TASK_OWNER_MISMATCH")
     if any(row["projectId"] != project or row["workerId"] != worker_id for row in rows):
         raise ValueError("TASK_OWNER_MISMATCH")
+    cancel_confirmed = False
     try:
-        task_queue_rpc(root, worker_id, "cancel", {"targetCommandId": target, "projectId": project}, ensure=True)
+        receipt = task_queue_rpc(root, worker_id, "cancel", {"targetCommandId": target, "projectId": project}, ensure=True)
+        cancel_confirmed = isinstance(receipt, dict) and receipt.get("cancelled") is True
     except Exception:
         # Exact tab closure remains possible even when its controller is unhealthy.
         if not rows and not legacy_tabs:
             raise
         for row in rows:
-            task_tmux(["kill-window", "-t", row["tmuxWindowId"]])
+            current = [item for item in task_inventory(root, execution_only=True) if item["tmuxWindowId"] == row["tmuxWindowId"]]
+            if any(item["commandId"] != target or item["projectId"] != project or item["workerId"] != worker_id for item in current):
+                raise ValueError("TASK_OWNER_MISMATCH")
+            if current:
+                task_tmux(["kill-window", "-t", row["tmuxWindowId"]])
     for tab in legacy_tabs:
         # Reused/renamed windows are rechecked through stable markers immediately before closure.
         current = [row for row in local_stop_tmux_inventory(root) if row["window"] == tab["window"]]
@@ -1174,6 +1184,8 @@ def task_stop(root, command, worker_id):
     remaining = [row for row in task_inventory(root, execution_only=True) if row["commandId"] == target and row["projectId"] == project]
     if remaining:
         raise RuntimeError("TASK_STOP_NOT_CONFIRMED")
+    if not cancel_confirmed:
+        raise RuntimeError("TASK_CANCEL_UNCONFIRMED: exact windows closed; retain original stop intent")
     return {"status": "completed", "stoppedTasks": [{"commandId": target, "projectId": project, "workerId": worker_id,
         "workflowId": command.get("workflowId"), "stopBoundary": "local_command", "paneClosed": True, "cacheRetired": True,
         "closedWindowIds": sorted({row["tmuxWindowId"] for row in rows} | {row["window"] for row in legacy_tabs})}], "stoppedPids": []}
