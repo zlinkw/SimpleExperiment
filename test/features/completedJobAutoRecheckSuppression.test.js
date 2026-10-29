@@ -6,6 +6,16 @@ const TaskQuery = require('../../src/features/WorkerTaskQuery.ts');
 const P = require('../../src/features/DistributedSchedulingPolicy.ts');
 const { cleanupDigest } = require('../../src/features/PlanCleanup.ts');
 const { completionIdentity, hasVerifiedCompletion } = require('../../src/features/VerifiedCompletion.ts');
+test('low traffic stops queue network rounds only after every declared job is really confirmed',()=>{
+ const plan={id:'p',projectId:'project',planJobCount:72,jobs:Array.from({length:72},(_,index)=>({index,status:'completed',commandId:'c'+index,workerId:'w',outputDir:'work/'+index}))};
+ for(const job of plan.jobs)job.verifiedCompletion={schemaVersion:1,identity:completionIdentity(plan,job),verifiedAt:'2026-10-29T00:00:00Z',exitCode:0};
+ const queue={schemaVersion:1,plans:[plan]};assert.equal(P.lowTrafficQueueNeedsObservation(queue),false);
+ const changed=structuredClone(queue);changed.plans[0].jobs[0].verifiedCompletion=undefined;
+ assert.equal(P.lowTrafficQueueNeedsObservation(changed),true,'status text cannot end observation');
+ for(const field of ['stopIntent','recallRequested']){const pending=structuredClone(queue);pending.plans[0].jobs[0][field]=true;assert.equal(P.lowTrafficQueueNeedsObservation(pending),true);}
+ assert.equal(P.lowTrafficQueueNeedsObservation({...queue,deferred:[{status:'pending'}]}),true);
+ assert.equal(P.lowTrafficQueueNeedsObservation({schemaVersion:1,plans:[{...plan,planJobCount:73}]}),true);
+});
 const now = Date.now(), iso = n => new Date(n).toISOString();
 const immediate = () => new Promise(setImmediate);
 
@@ -169,6 +179,16 @@ test('one automatic round fetches the real execution inventory once for warm-up,
   assert.equal(client.observationBatches.flat().includes('run'), true);
   await provider.readWorkerTaskSnapshot('w', { fresh: true, executionOnly: true });
   assert.equal(client.executions, 2, 'a new round must fetch a fresh inventory instead of reusing the old cache');
+});
+test('real low-traffic Host defers running details, but still verifies exited tasks and honors manual refresh',async()=>{
+ const f=fixtures(),base=f.inventory;
+ f.inventory=()=>{const value=base();value.tasks.find(t=>t.commandId==='run').observation.tmux={dead:false,phase:'running'};return value;};
+ const client=observationClient(f),{provider}=providerHarness(f,client);provider.lowTrafficMode=true;
+ await provider.readWorkerTaskSnapshot('w',{fresh:true,excludeVerifiedCompleted:true});await immediate();
+ assert.equal(client.observationBatches.flat().includes('run'),false);assert.equal(client.logBatches.flat().includes('run'),false);
+ assert.equal(client.observationBatches.flat().includes('fail'),true,'real exits still need result verification');
+ client.observationBatches.length=0;await provider.readWorkerTaskSnapshot('w',{fresh:true});
+ assert.equal(client.observationBatches.flat().includes('run'),true,'manual detail refresh remains immediate');
 });
 
 test('solidified jobs receive zero job-specific queries across repeated automatic rounds', async () => {

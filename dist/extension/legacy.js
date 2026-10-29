@@ -3111,7 +3111,8 @@ class RealtimeTunnelPanelProvider {
                         excludeVerified = undefined;
                 }
                 const snapshot = await WorkerProgressQuery.queryWorkerProgress(client, workerId, queries, executionSnapshot, {
-                    signal: options.signal, deferDiagnostics: true, excludeVerified, onSnapshot: snapshot => {
+                    signal: options.signal, deferDiagnostics: true, excludeVerified,
+                    terminalOnly: options.excludeVerifiedCompleted === true && this.lowTrafficMode === true, onSnapshot: snapshot => {
                         if (!current())
                             return;
                         this.storeWorkerTaskSnapshot(cacheKey, WorkerProgressQuery.mergeProgressSnapshot(this.cachedWorkerTaskSnapshot(workerId, root, cacheKey), snapshot));
@@ -17068,6 +17069,8 @@ class RealtimeTunnelPanelProvider {
         if (queue.failedAttemptRecoveries?.some(row => row.status === "pending"))
             void FailedJobRecovery.processFailedAttemptRecoveries(this, root, makeOpId).catch(error => this.recordActionError({ command: "failedAttemptRecovery", message: errorMessage(error) }));
         let newTerminal = false;
+        if (this.lowTrafficMode === true && !DistributedSchedulingPolicy.lowTrafficQueueNeedsObservation(queue))
+            return;
         if (!queue.plans.length && !(queue.deferred || []).length && !this.workerActionTargets().length)
             return;
         const targetsNeedingMirror = this.workerCodeSyncTargets().filter((target) => queue.plans.some((plan) => plan.jobs.some((job) => job.status === "completed" && !job.mirroredWorkerIds?.includes(target.id))));
@@ -17104,7 +17107,7 @@ class RealtimeTunnelPanelProvider {
         const probes = this.readWorkerTaskSnapshotBatch(snapshotWorkerIds, { signal, executionOnly: this.taskLifecycleProtocol === 2 });
         const submissionPlansForTiming = () => [...(this.distributedSubmissionTimings?.entries?.() || [])]
             .filter(([planId]) => queue.plans.some((plan) => plan.id === planId));
-        const gpuSnapshotPromise = Promise.resolve().then(() => this.client.getGpu({ dispatch: true })).then((value) => ({ value, completedAt: Date.now() }), () => ({ value: undefined, completedAt: Date.now() }));
+        const gpuSnapshotPromise = this.lowTrafficMode === true ? undefined : Promise.resolve().then(() => this.client.getGpu({ dispatch: true })).then((value) => ({ value, completedAt: Date.now() }), () => ({ value: undefined, completedAt: Date.now() }));
         const taskSnapshots = await new Promise((resolve) => {
             const finish = (value) => { if (probeWatch)
                 clearInterval(probeWatch); resolve(value); };
@@ -17238,7 +17241,9 @@ class RealtimeTunnelPanelProvider {
         }
         if (stopTargets.length && queueWriteCurrent())
             await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
-        const gpuSnapshotResult = await gpuSnapshotPromise;
+        // Low traffic first accepts the inventory's fresh collector sample; the
+        // client reuses that exact frame or queries /gpu if it is stale/missing.
+        const gpuSnapshotResult = await (gpuSnapshotPromise || Promise.resolve().then(() => this.client.getGpu({ dispatch: true })).then(value => ({ value, completedAt: Date.now() }), () => ({ value: undefined, completedAt: Date.now() })));
         const dispatchGpuSnapshot = gpuSnapshotResult.value;
         for (const [, timing] of submissionPlansForTiming())
             this.recordPlanSubmissionTimingByOperation?.(timing.operationId, "gpuSnapshotMs", gpuSnapshotResult.completedAt - snapshotsStartedAt);

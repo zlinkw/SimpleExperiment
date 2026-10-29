@@ -57,6 +57,7 @@ class RealtimeTunnelClient {
     get progressGeneration() { return this.connectionGeneration; }
     disposed = false;
     workerGpuUpdatedAt = 0;
+    dispatchGpuSample;
     // Each client owns its own policy copy: several endpoints are commonly built from one
     // policy object and an in-place write would silently change every other endpoint's cadence.
     policy;
@@ -91,6 +92,7 @@ class RealtimeTunnelClient {
         this.onState = onState;
         this.policy = { ...policyArgument };
         this.http = new TunnelClient_1.HttpTunnelClient(endpoint, budget);
+        this.http.setLowTrafficMode(this.policy.displayAutoRefresh === false);
         this.files = new FileTransferClient_1.FileTransferClient({ ...endpoint, fileCapabilities: endpoint.fileCapabilities }, budget);
         this.reconnectPolicy = new RealtimeReconnect_1.RealtimeReconnect(this.policy);
     }
@@ -323,6 +325,10 @@ class RealtimeTunnelClient {
     getGpu(options = {}) {
         if (this.requiresManualReconnect)
             return Promise.reject(new Error(this.lastError));
+        const sample = this.dispatchGpuSample, now = Date.now();
+        if (options.dispatch && this.policy.displayAutoRefresh === false && sample?.generation === this.connectionGeneration
+            && now >= sample.sampledAt && now - sample.sampledAt <= 5000)
+            return Promise.resolve(sample.value);
         const generation = this.connectionGeneration;
         return this.coalescedRead(`gpu:${options.dispatch === true ? "dispatch" : "snapshot"}`, undefined, async () => {
             const value = await this.http.getGpu(options);
@@ -354,6 +360,10 @@ class RealtimeTunnelClient {
         this.workerGpuUpdatedAt = sampleTime;
         const workerId = this.workerEndpointId();
         const gpu = gpuSnapshotRows(value, workerId);
+        if (Number.isFinite(sampledAt) && !item.error && item.status !== "degraded" && Object.values(gpu).some(rows => Array.isArray(rows) && rows.length))
+            this.dispatchGpuSample = { value, sampledAt, generation: this.connectionGeneration };
+        else
+            this.dispatchGpuSample = undefined;
         this.state = { ...this.state, gpu,
             lastHeartbeatAt: new Date().toISOString(),
             workerHealth: { ...(this.state.workerHealth || {}), [workerId]: {
@@ -680,6 +690,8 @@ class RealtimeTunnelClient {
     updateRefreshPolicy(policy) {
         if (this.disposed || !policy)
             return;
+        if (policy.displayAutoRefresh !== undefined)
+            this.http.setLowTrafficMode(policy.displayAutoRefresh === false);
         const incoming = { ...policy };
         const previous = this.policy;
         const prevDisplayAutoRefresh = previous.displayAutoRefresh !== false;

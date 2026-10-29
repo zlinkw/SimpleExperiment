@@ -8,6 +8,12 @@ export type SchedulingMode = "local_idle" | "server_prequeue";
 // Local execution, artifact and log observations each retain their own age.
 // Log work has a separate budget and never extends these twenty seconds.
 export const PROGRESS_FRESHNESS_MS = 20_000;
+/** Confirmed completed batches do not need an endless idle-GPU inventory loop. */
+export function lowTrafficQueueNeedsObservation(queue: DistributedQueue): boolean {
+  return Boolean(queue.deferred?.some(row => row.status !== "superseded")
+    || queue.plans.some(plan => plan.jobs.length < Number(plan.planJobCount || plan.jobs.length)
+      || plan.jobs.some(job => job.stopIntent || job.recallRequested || !hasVerifiedCompletion(plan, job))));
+}
 /** Preparation restricts writers only while the current upload is in flight. */
 export function dispatchPreparationAllowsWorker(workerId: string, root: string, preparation: any, uploads: number): boolean {
   return !uploads || preparation?.root === root && preparation.preparation.ready.has(workerId);

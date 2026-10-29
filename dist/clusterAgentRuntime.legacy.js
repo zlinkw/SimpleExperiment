@@ -15971,9 +15971,32 @@ def serve_http(args):
 
         def send_json(self, payload, status=200):
             body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            compressed = False
+            if self.headers.get("X-Simple-Low-Traffic") == "1" and len(body) >= 1024:
+                for encoding in str(self.headers.get("Accept-Encoding") or "").split(","):
+                    parts = encoding.strip().lower().split(";")
+                    if parts[0].strip() != "gzip":
+                        continue
+                    quality = 1.0
+                    try:
+                        for parameter in parts[1:]:
+                            name, _, value = parameter.strip().partition("=")
+                            if name == "q":
+                                quality = float(value)
+                    except ValueError:
+                        quality = 0
+                    if 0 < quality <= 1:
+                        import gzip
+                        packed = gzip.compress(body, compresslevel=1, mtime=0)
+                        if len(packed) < len(body):
+                            body, compressed = packed, True
+                    break
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
+            if compressed:
+                self.send_header("Content-Encoding", "gzip")
+                self.send_header("Vary", "X-Simple-Low-Traffic, Accept-Encoding")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

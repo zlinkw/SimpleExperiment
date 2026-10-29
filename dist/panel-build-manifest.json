@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.436",
-  "buildId": "7516deb2697ae717da9cac3be09fd5e16c5e7aabb1973086a09a1befc3736c83",
+  "version": "0.5.437",
+  "buildId": "dc2c91919030f4cdaed19ae20527bf7cf371f5dbb6b184c18bc45c9c68f7243a",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -237,7 +237,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "e7fd33a08486283e5e808c1760b02af73e8663a719112c35e0a09e6aa4e2d94b"
+      "sha256": "784ceef847e20bda1fcbca2691440006d89811b4bb563cd73a2622c41b096370"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -397,7 +397,7 @@
     },
     {
       "path": "dist/features/DistributedSchedulingPolicy.js",
-      "sha256": "26b86993d6e042713d0e08290326393e2514bc3bea45cfee23acd3204e0bb8af"
+      "sha256": "a66b43fe1dd8e3a0c296566c0ae14454f5a278538b58d9c6b02ff1725bc1bf17"
     },
     {
       "path": "dist/features/DraftPlans.js",
@@ -789,7 +789,7 @@
     },
     {
       "path": "dist/features/WorkerProgressQuery.js",
-      "sha256": "7dc8d63113aca7d65a68c9ac6158604f3a08514c0411030eda2c164730174957"
+      "sha256": "0523f900b5831536d3f6403bcad05b987cc5b21d1d8f18893d3d35eb58d22c3a"
     },
     {
       "path": "dist/features/WorkerTaskQuery.js",
@@ -881,7 +881,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "c5114b7baf016c05ae19a387ea83be0b41639eab5958ad2192f47cfd5d1e12d5"
+      "sha256": "7093300548d9449fa80b2c07f88bc83d0610c966813d1ce093a83675d3f47c66"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -989,7 +989,7 @@
     },
     {
       "path": "dist/tunnel/RealtimeTunnelClient.legacy.js",
-      "sha256": "b3a86b4e09c9a6c95ee1d59acaec80f1d2d374daaff7597848a262c6599c740e"
+      "sha256": "5f18a86e7644034b46f2fc194a46e71172cc7e56067ee0a6977475e532d816ef"
     },
     {
       "path": "dist/tunnel/RequestBudget.js",
@@ -1005,7 +1005,7 @@
     },
     {
       "path": "dist/tunnel/TunnelClient.legacy.js",
-      "sha256": "8240c2f4da3a00e5e89d74cd92468abacc014054fe332f47b4a92d842ec5ce28"
+      "sha256": "700a2b80460df8f30c27fdfc489a397d55d7e1f3da648503dad03a19a1a9ed29"
     },
     {
       "path": "dist/tunnel/TunnelDiagnostics.js",
@@ -1233,7 +1233,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "49c68b0c0abfa3682c7fe1ea64da028fad07a59c2aca31c6d54f3c02b44a011c"
+      "sha256": "9a6114815bd4ba0e68304de5f8cc22791b3f340070076aeb8cf7125156273e94"
     },
     {
       "path": "scripts/check-static.js",

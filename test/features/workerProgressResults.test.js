@@ -1,6 +1,20 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 require('../_helpers/registerTsRequire');
 const {queryWorkerProgress}=require('../../src/features/WorkerProgressQuery.ts');
+test('low traffic tracks 72 live jobs without background artifact/log reads, then verifies a real exit',async()=>{
+ const tasks=Array.from({length:72},(_,i)=>({commandId:'c'+i,projectId:'p',workerId:'w',outputDir:'work/'+i,
+  observation:{lifecycleProtocol:2,commandId:'c'+i,projectId:'p',workerId:'w',tmux:{dead:false,phase:'running',windowId:'@'+i,paneId:'%'+i}}}));
+ let calls=0;const client={getWorkerTasks:async(_worker,options)=>{calls++;return {resultsOnly:true,queryComplete:true,capabilities:{taskLifecycle:2},tasks:options.queries.map(q=>({...q,observation:{lifecycleProtocol:2,commandId:q.commandId,projectId:'p',workerId:'w',result:{runId:q.commandId,status:'completed',present:true,verified:true,identityMatches:true,artifactsComplete:true},runtimeDiagnostics:{schemaVersion:1,commandId:q.commandId,runId:q.commandId,state:'clear',count:0,scanComplete:true}}}))};}};
+ const execution={queryComplete:true,capabilities:{taskLifecycle:2},tasks};
+ const running=await queryWorkerProgress(client,'w',tasks,execution,{terminalOnly:true});
+ assert.equal(calls,0);assert.equal(running.tasks.length,72);assert.equal(running.executionOnly,true);
+ assert.equal(running.resultQueryError,undefined,'deferral is not a failed read');
+ tasks[0].observation.tmux={...tasks[0].observation.tmux,dead:true,exitCode:0};
+ const ended=await queryWorkerProgress(client,'w',tasks,execution,{terminalOnly:true});
+ assert.equal(calls,1);assert.equal(ended.tasks[0].status,'completed');assert.equal(ended.tasks[0].completionState,'verified');
+ await queryWorkerProgress(client,'w',tasks.slice(1,3),{...execution,tasks:tasks.slice(1,3)});
+ assert.equal(calls,2,'explicit detail refresh still checks running tasks');
+});
 test('result and launch declaration queries avoid all historical task work',()=>{
  const path=require('node:path');const r=require('node:child_process').spawnSync(process.platform==='win32'?'python':'python3',['-B','-X','utf8',path.join(__dirname,'lightweightResultQueries.fixture.py'),path.join(__dirname,'../../src/runtime/TmuxTaskLifecycle.ts')],{encoding:'utf8',timeout:10000,windowsHide:true});assert.equal(r.status,0,r.stderr||r.stdout);
 });

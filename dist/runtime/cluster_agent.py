@@ -474,9 +474,9 @@ class SyncScopeIndex:
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.436"
-RUNTIME_VERSION = "0.5.436"
-PLUGIN_VERSION = "0.5.436"
+AGENT_VERSION = "0.5.437"
+RUNTIME_VERSION = "0.5.437"
+PLUGIN_VERSION = "0.5.437"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -17047,9 +17047,32 @@ def serve_http(args):
 
         def send_json(self, payload, status=200):
             body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            compressed = False
+            if self.headers.get("X-Simple-Low-Traffic") == "1" and len(body) >= 1024:
+                for encoding in str(self.headers.get("Accept-Encoding") or "").split(","):
+                    parts = encoding.strip().lower().split(";")
+                    if parts[0].strip() != "gzip":
+                        continue
+                    quality = 1.0
+                    try:
+                        for parameter in parts[1:]:
+                            name, _, value = parameter.strip().partition("=")
+                            if name == "q":
+                                quality = float(value)
+                    except ValueError:
+                        quality = 0
+                    if 0 < quality <= 1:
+                        import gzip
+                        packed = gzip.compress(body, compresslevel=1, mtime=0)
+                        if len(packed) < len(body):
+                            body, compressed = packed, True
+                    break
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
+            if compressed:
+                self.send_header("Content-Encoding", "gzip")
+                self.send_header("Vary", "X-Simple-Low-Traffic, Accept-Encoding")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

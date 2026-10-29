@@ -74,6 +74,8 @@ function callerAbortError(signal) {
 class HttpTunnelClient {
     endpoint;
     budget;
+    lowTrafficMode = false;
+    setLowTrafficMode(enabled) { this.lowTrafficMode = enabled === true; }
     snapshotPromise;
     reads = new Map();
     constructor(endpoint, budget) {
@@ -299,6 +301,7 @@ class HttpTunnelClient {
         const requestedAt = new Date().toISOString();
         return this.budget.run(purpose, async () => {
             const networkStartedAt = new Date().toISOString();
+            const lowTraffic = this.lowTrafficMode;
             const controller = new AbortController();
             const configuredTimeoutMs = Number(options.timeoutMs ?? this.endpoint.timeoutMs ?? 30_000);
             const timeoutMs = Number.isFinite(configuredTimeoutMs) ? Math.max(1, configuredTimeoutMs) : 30_000;
@@ -335,7 +338,9 @@ class HttpTunnelClient {
                 const value = JSON.parse(text);
                 if (apiPath.startsWith("/api/worker/tasks") && value && typeof value === "object")
                     value.localQueryTiming = { requestedAt, networkStartedAt, receivedAt: new Date().toISOString(),
-                        requestBytes: body === undefined ? 0 : Buffer.byteLength(JSON.stringify(body), "utf8"), responseBytes: Buffer.byteLength(text, "utf8") };
+                        requestBytes: body === undefined ? 0 : Buffer.byteLength(JSON.stringify(body), "utf8"), responseBytes: Buffer.byteLength(text, "utf8"),
+                        ...(lowTraffic ? { wireResponseBytes: Number(response.headers.get("content-length")) || Buffer.byteLength(text, "utf8"),
+                            contentEncoding: response.headers.get("content-encoding") || "identity" } : {}) };
                 return value;
             }
             finally {
@@ -346,6 +351,10 @@ class HttpTunnelClient {
     }
     headers(hasBody) {
         const headers = { Accept: "application/json" };
+        if (this.lowTrafficMode) {
+            headers["X-Simple-Low-Traffic"] = "1";
+            headers["Accept-Encoding"] = "gzip";
+        }
         if (hasBody)
             headers["Content-Type"] = "application/json";
         if (this.endpoint.token)

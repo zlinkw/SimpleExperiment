@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PROGRESS_FRESHNESS_MS = void 0;
+exports.lowTrafficQueueNeedsObservation = lowTrafficQueueNeedsObservation;
 exports.dispatchPreparationAllowsWorker = dispatchPreparationAllowsWorker;
 exports.progressRefreshWorkerIds = progressRefreshWorkerIds;
 exports.schedulingMode = schedulingMode;
@@ -15,6 +16,12 @@ const RuntimeDiagnostics_1 = require("./RuntimeDiagnostics");
 // Local execution, artifact and log observations each retain their own age.
 // Log work has a separate budget and never extends these twenty seconds.
 exports.PROGRESS_FRESHNESS_MS = 20_000;
+/** Confirmed completed batches do not need an endless idle-GPU inventory loop. */
+function lowTrafficQueueNeedsObservation(queue) {
+    return Boolean(queue.deferred?.some(row => row.status !== "superseded")
+        || queue.plans.some(plan => plan.jobs.length < Number(plan.planJobCount || plan.jobs.length)
+            || plan.jobs.some(job => job.stopIntent || job.recallRequested || !(0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job))));
+}
 /** Preparation restricts writers only while the current upload is in flight. */
 function dispatchPreparationAllowsWorker(workerId, root, preparation, uploads) {
     return !uploads || preparation?.root === root && preparation.preparation.ready.has(workerId);
