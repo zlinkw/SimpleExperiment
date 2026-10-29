@@ -47,10 +47,11 @@ test('later failure preserves ready servers; destructive replacement still waits
 });
 test('401 during activation rereads discovery once, before any RPC; persistent failure is bounded', async () => {
   let reads = 0, gets = 0; const auth = [];
-  const globals = { path, process: { env: { APPDATA: 'fixture' } }, os: { homedir: () => '' }, URL,
-    fs: { readFile: async () => JSON.stringify({ baseUrl: 'http://127.0.0.1:3456', token: String(++reads) }) },
+  const globals = { path, process, os: { homedir: () => '' }, URL, vscode:{extensions:{}},workspaceRoot:()=> 'C:/fixture',
+    ...require('../../src/core/SimpleSftpWindow.ts'),
+    fs: { readFile: async () => JSON.stringify({ pid:process.pid,startedAt:'fixture',version:'fixture',baseUrl: 'http://127.0.0.1:3456', token: String(++reads) }) },
     fetch: async (_url, options) => { auth.push(options.headers.Authorization); return ++gets === 1 ? { status: 401, ok: false }
-      : { ok: true, json: async () => ({ methods: ['files.cleanup.inspect'] }) }; } };
+      : { ok: true, json: async () => ({ name:'SimpleSFTP',version:'fixture',instanceId:process.pid+':fixture',methods: ['files.cleanup.inspect'] }) }; } };
   // 31：能力读取移入共享单槽；401 重试语义（只重读发现头部文件一次、不重放 RPC）保持不变。
   const capability = method('simpleSftpCapability', globals);
   const mk = () => ({ simpleSftpCapLaunch: 0, simpleSftpCapShared: undefined, readSimpleSftpCapabilities: method('readSimpleSftpCapabilities', globals) });
@@ -81,7 +82,7 @@ test('runtime reads overlap synchronization but readiness waits for both; worksp
 
 test('both cleanup paths forward the configured prefix without changing target authorization or caller input', async () => {
   const calls=[];
-  const run=method('simpleSftpApiCall',{assertRetryRequestCurrent(){},
+  const run=method('simpleSftpApiCall',{assertRetryRequestCurrent(){},workspaceRoot:()=> 'C:/fixture',
     sftpFileIndexQuery:require('../../src/features/ProjectFileIndex.ts').sftpFileIndexQuery,
     fileOperationIndexPaths:require('../../src/features/ProjectFileIndex.ts').fileOperationIndexPaths,
     vscode:{workspace:{getConfiguration:()=>({get:()=> 'global'})}},

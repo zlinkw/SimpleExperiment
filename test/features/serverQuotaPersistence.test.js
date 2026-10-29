@@ -16,6 +16,12 @@ function fixture({events=true,interruptStorage=false}={}){
   persistedXshellSetupConfig:value=>structuredClone(value),persistedTunnelGatewayConfig:value=>structuredClone(value),nonEmptyWorkerTunnelConfig:value=>value,
   vscode:{ConfigurationTarget:{Global:1},workspace:{getConfiguration:()=>config},window:{showInformationMessage(){},showWarningMessage(){}}},
   recordField:(message,key)=>message[key],stringField:(message,key)=>message[key],
+  workspaceRoot:()=> 'C:/quota-project',
+  readProjectConnectionValue:(_context,_root,key)=>structuredClone(state.get(key)),
+  saveProjectConnectionValues:async(_context,_root,values)=>{for(const [key,value] of Object.entries(values)){
+   if(interruptStorage&&key==='tunnel'&&!interrupted){interrupted=true;await h.handleConfigurationChanged({affectsConfiguration:prefix=>prefix==='simpleExperiment'||prefix==='simpleExperiment.tunnel'});}
+   state.set(key,structuredClone(value));writes.push(key);
+  }},
   preservedOptionalStringPatch:patch,preservedStringPatch:patch,clearableOptionalStringPatch:patch,sessionScopedOptionalStringPatch:patch,
   numberPatch:patch,forwardIndexPatch:patch,condaEnvPatch:patch,autoOrNumberRangePatch:patch,boolishPatch:patch,optionalNumberRangePatch:patch,
   sessionPathChanged:(a,b)=>a!==b,assertActualWorkRoot(){},normalizeRemoteWorkRoot:String,effectiveWorkerCondaEnv:(worker,global)=>worker.condaEnv??global,

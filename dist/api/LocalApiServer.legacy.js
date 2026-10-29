@@ -175,6 +175,7 @@ class LocalApiServer {
     methods;
     discoveryPath;
     workspace;
+    getWorkspace;
     sseTimeoutMs;
     maxEvents;
     maxEventBufferBytes;
@@ -207,6 +208,7 @@ class LocalApiServer {
         this.methods = options.methods && typeof options.methods === "object" ? options.methods : {};
         this.discoveryPath = options.discoveryPath || "";
         this.workspace = String(options.workspace || "");
+        this.getWorkspace = options.getWorkspace || (() => this.workspace);
         this.sseTimeoutMs = positiveNumber(options.sseTimeoutMs, DEFAULT_SSE_TIMEOUT_MS);
         this.maxEvents = Math.max(1, Math.min(1024, positiveNumber(options.maxEvents, DEFAULT_MAX_EVENTS)));
         this.maxEventBufferBytes = Math.max(1024, positiveNumber(options.maxEventBufferBytes, DEFAULT_EVENT_BUFFER_BYTES));
@@ -449,6 +451,22 @@ class LocalApiServer {
             controller.abort(); };
         response.once("close", onResponseClosed);
         try {
+            const expectedInstance = String(request.headers["x-simple-api-instance"] || "");
+            let expectedWorkspace;
+            try {
+                expectedWorkspace = decodeURIComponent(String(request.headers["x-simple-api-workspace"] || ""));
+            }
+            catch {
+                throw new Error("API_WORKSPACE_MISMATCH：项目窗口标识无效，未执行请求。");
+            }
+            const normalize = (value) => {
+                const clean = String(value || "").replace(/\\/g, "/").replace(/\/+$/, "");
+                return process.platform === "win32" ? clean.toLowerCase() : clean;
+            };
+            if (expectedInstance && expectedInstance !== `${process.pid}:${this.startedAt}`)
+                throw new Error("API_INSTANCE_MISMATCH：请求属于另一个窗口，未执行。");
+            if (expectedWorkspace && normalize(expectedWorkspace) !== normalize(this.getWorkspace()))
+                throw new Error("API_WORKSPACE_MISMATCH：当前项目已变化，未执行请求。");
             const handler = Object.hasOwn(this.methods, payload.method) ? this.methods[payload.method] : undefined;
             const requested = (payload.params || {});
             if ([requested.topologyMode, requested.mode].some(value => ["hub_worker", "hub_control", "hub", "hub_available"].includes(String(value || "")))
@@ -693,7 +711,8 @@ class LocalApiServer {
             name: this.name,
             version: this.version,
             instanceId: `${process.pid}:${this.startedAt}`,
-            ...(this.workspace ? { workspace: this.workspace } : {}),
+            workspace: this.getWorkspace(),
+            windowScope: 1,
             transport: ["http", "cli"],
             rpc: "json-rpc-2.0",
             execution: { resultPathPolicy: "declared", formalJobPathProtocol: 1, formalJobIdentityEnvProtocol: 1, formalJobStopIdentityProtocol: 2, formalJobStopUsesAttempts: false, historicalAttempts: "readOnly", draftPromotion: "retired",
@@ -803,7 +822,8 @@ class LocalApiServer {
             pid: process.pid,
             startedAt: this.startedAt,
             instanceId: `${process.pid}:${this.startedAt}`,
-            ...(this.workspace ? { workspace: this.workspace } : {}),
+            workspace: this.getWorkspace(),
+            windowScope: 1,
             status: this.disposed ? "stopped" : "running",
             ...(this.stoppedAt ? { stoppedAt: this.stoppedAt } : {}),
         };
@@ -822,6 +842,7 @@ class LocalApiServer {
         return path.join(path.dirname(this.discoveryPath), "instances", `${process.pid}_${safeStamp}.json`);
     }
     discoveryWriterId = `api-discovery:${crypto.randomUUID()}`;
+    async refreshWorkspace() { await this.writeDiscovery(); }
     async writeDiscovery() {
         if (!this.discoveryPath)
             return;

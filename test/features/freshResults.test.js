@@ -22,6 +22,15 @@ function fixture(workerId = 'a', runId = 'cmd', metric = '0.4', outcome = 'compl
     receive: async () => Object.entries(texts).map(([remotePath, text]) => ({ remotePath, text })) };
 }
 const parse = text => [{ dimensions: { case: 'alpha', seed: '42', method: 'demo', dataset: 'set' }, metrics: { auc: { value: Number(text) } } }];
+
+test('a transport failure in a shared result read does not fan out into per-job requests',async()=>{
+  const f=fixture(),second={...job,index:1,seed:43,output_dir:job.output_dir+'-43',result_csv:job.output_dir+'-43/metrics.csv'};
+  const original=f.snapshot.declaredResults[0];
+  f.snapshot.declaredResults.push({...original,index:1,outputDir:second.output_dir,runId:'cmd43',
+    files:original.files.map(file=>({...file,remotePath:file.remotePath.replace(job.output_dir,second.output_dir)}))});
+  let calls=0;const result=await collectFreshResults([{...plan,jobs:[job,second]}],[f.snapshot],async()=>{calls++;throw TypeError('fetch failed');},parse);
+  assert.equal(calls,1);assert.equal(result.jobs.length,2);assert.ok(result.jobs.every(row=>row.state==='unknown'));
+});
 test('live manifests collect without any queue, ledger, registry, inventory cache or local raw files; replicas count once', async () => {
   const a = fixture(), b = fixture('b'); let reads = 0;
   const result = await collectFreshResults([plan], [a.snapshot, b.snapshot], async () => { reads++; return a.receive(); }, parse);

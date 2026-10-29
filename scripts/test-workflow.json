@@ -169,6 +169,7 @@
       "extraFiles": [
       { "file": "test/features/gpuMemoryBudget.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "gpu-memory-budget-admission" },
       { "file": "test/features/outputIsolationRecovery.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "transfer-busy-auto-recovery" },
+      { "file": "test/features/windowScopeIsolation.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "window-scope-isolation" },
       {
        "file": "test/project/branchProjectRegistry.test.js",
        "argv": [],
@@ -288,6 +289,7 @@
       },
         {"file": "test/features/gpuMemoryBudget.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "gpu-memory-budget-admission"},
         {"file": "test/features/outputIsolationRecovery.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "transfer-busy-auto-recovery"},
+        {"file": "test/features/windowScopeIsolation.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "window-scope-isolation"},
         {"file": "test/features/buildProcessLock.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "plugin-audit-20261028"},
         {"file": "test/features/taskIdentityBoundary.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "plugin-audit-20261028"},
         {"file": "test/features/stateWriterIsolation.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "plugin-audit-20261028"},

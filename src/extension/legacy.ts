@@ -6,6 +6,8 @@ import { runAllPlans, runSelectedPlans } from "./SelectedPlanBatchHost";
 import { attachIsolatedCleanup, markPlanTerminal, promoteDispatchedPlans } from "../features/PlanIsolatedBatchLedger";
 import { planSubmissionBatchFor } from "../features/PlanSubmissionBatch";
 import * as PlanCodeScopeHost from "./PlanCodeScopeHost";
+import { currentWindowSftpDiscovery, sameProjectRoot } from "../core/SimpleSftpWindow";
+import { readProjectConnectionValue, saveProjectConnectionValues } from "../core/ProjectConnectionProfiles";
 import * as fs from "fs/promises";
 import * as fsNode from "fs";
 import * as path from "path";
@@ -405,8 +407,8 @@ const API_CONFIG_NAMESPACE = "simpleExperiment";
 const API_CONFIG_PREFIX = `${API_CONFIG_NAMESPACE}.`;
 const API_SECRET_CONFIG_KEYS = new Set([`${API_CONFIG_NAMESPACE}.tunnel.agentToken`]);
 const API_STATE_KEYS = {
-    tunnelConfig: { store: "global", label: "隧道网关配置", writable: true },
-    setupConfig: { store: "global", label: "Xshell 会话与服务器配置", writable: true },
+    tunnelConfig: { store: "workspace", label: "当前项目隧道网关配置", writable: true },
+    setupConfig: { store: "workspace", label: "当前项目 Xshell 会话与服务器配置", writable: true },
     pptPlotConfig: { store: "global", label: "PPT 绘图配置（项目优先）", writable: true },
     uiLayout: { store: "global", label: "SimpleExperiment 面板布局", writable: true },
     hiddenLegacyTaskUiKeys: { store: "global", label: "隐藏旧任务 UI 键", writable: true },
@@ -876,7 +878,7 @@ async function activateExtension(context) {
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
     void RemoteRootPolicyPrefill_1.prefillRemoteRootPolicy(
         context,
-        context.globalState.get(keys.setupConfig),
+        readProjectConnectionValue(context, workspaceRoot(), keys.setupConfig),
         vscode,
     ).catch(() => undefined);
     void provider.startLocalApiServer().catch((error) => {
@@ -1575,6 +1577,7 @@ export class RealtimeTunnelPanelProvider {
                 preferredPortRetryMs: 3000,
                 discoveryPath: API_DISCOVERY_PATH,
                 workspace: scope,
+                getWorkspace: () => workspaceRoot() || "",
                 methods: this.createLocalApiMethods(),
                 viewerSessionKey: signingKey,
                 viewerSessionScope: scope,
@@ -3354,6 +3357,7 @@ export class RealtimeTunnelPanelProvider {
         const stateKey = (keys as Record<string, string>)[name];
         if (!meta || !stateKey)
             throw new Error(`未知 SimpleExperiment 状态：${name}`);
+        if (name === "setupConfig" || name === "tunnelConfig") return readProjectConnectionValue(this.context, workspaceRoot(), stateKey);
         return meta.store === "global" ? this.context.globalState.get(stateKey) : this.context.workspaceState.get(stateKey);
     }
     async apiStateList() {
@@ -3400,7 +3404,9 @@ export class RealtimeTunnelPanelProvider {
             });
         const value = normalizeApiStateValue(key, params.value);
         const stateKey = (keys as Record<string, string>)[key];
-        if (meta.store === "global")
+        if (key === "setupConfig" || key === "tunnelConfig")
+            await saveProjectConnectionValues(this.context, workspaceRoot(), { [stateKey]: value });
+        else if (meta.store === "global")
             await this.context.globalState.update(stateKey, value);
         else
             await this.context.workspaceState.update(stateKey, value);
@@ -3432,7 +3438,9 @@ export class RealtimeTunnelPanelProvider {
                 current: redactApiStateValue(key, this.apiStateValue(key)),
             });
         const stateKey = (keys as Record<string, string>)[key];
-        if (meta.store === "global")
+        if (key === "setupConfig" || key === "tunnelConfig")
+            await saveProjectConnectionValues(this.context, workspaceRoot(), { [stateKey]: undefined });
+        else if (meta.store === "global")
             await this.context.globalState.update(stateKey, undefined);
         else
             await this.context.workspaceState.update(stateKey, undefined);
@@ -4635,7 +4643,11 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
     }
     async reloadProjectContextAfterWorkspaceChange() {
         this.resetProjectContextInMemory();
+        this.tunnelConfig = this.loadTunnelConfig();
+        this.setupConfig = this.loadSetupConfig();
+        this.invalidateSimpleSftpCapability();
         this.topologyRuntimeMode = this.projectTopologyAssessment().mode;
+        await this.localApiServer?.refreshWorkspace();
         this.resetClient();
         await this.bootstrapProjectLocalUiState();
         await this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
@@ -23787,11 +23799,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
     readSimpleSftpCapabilities() {
         const launch = this.simpleSftpCapLaunch;
-        if (this.simpleSftpCapShared && this.simpleSftpCapShared.launch === launch) return this.simpleSftpCapShared.promise;
+        const root = workspaceRoot();
+        if (this.simpleSftpCapShared && this.simpleSftpCapShared.launch === launch && this.simpleSftpCapShared.root === root) return this.simpleSftpCapShared.promise;
         const shared = (async () => {
             const discoveryFile = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleSFTP", "api.json");
             for (let attempt = 0; attempt < 2; attempt++) {
-                const discovery = JSON.parse(await fs.readFile(discoveryFile, "utf8"));
+                const discovery = await currentWindowSftpDiscovery(vscode.extensions, root,
+                    async () => JSON.parse(await fs.readFile(discoveryFile, "utf8")));
                 const endpoint = new URL(String(discovery.baseUrl || ""));
                 if (endpoint.protocol !== "http:" || !["127.0.0.1", "localhost", "::1"].includes(endpoint.hostname))
                     throw new Error("SimpleSFTP 本地 API 地址不安全。");
@@ -23802,6 +23816,15 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 if (capabilityResponse.status === 401 && attempt === 0) continue;
                 if (!capabilityResponse.ok) throw new Error(`SimpleSFTP capability 查询失败：HTTP ${capabilityResponse.status}`);
                 const capabilities = await capabilityResponse.json();
+                if (capabilities.instanceId !== `${discovery.pid}:${discovery.startedAt}`
+                    || capabilities.name !== "SimpleSFTP" || capabilities.version !== discovery.version)
+                    throw new Error("SFTP_INSTANCE_MISMATCH：当前 SimpleSFTP 监听身份已变化，未转交请求。");
+                if (capabilities.windowScope === 1 && (!sameProjectRoot(String(capabilities.workspace || ""), root)
+                    || Number(capabilities.pid) !== process.pid))
+                    throw new Error("SFTP_WORKSPACE_MISMATCH：SimpleSFTP 项目窗口不匹配，未转交请求。");
+                if (workspaceRoot() !== root) throw new Error("SFTP_WORKSPACE_CHANGED：项目已变化，未转交请求。");
+                headers["X-Simple-Api-Instance"] = capabilities.instanceId;
+                headers["X-Simple-Api-Workspace"] = encodeURIComponent(root);
                 return {
                     endpoint,
                     headers,
@@ -23816,7 +23839,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         shared.catch(() => {
             if (this.simpleSftpCapShared && this.simpleSftpCapShared.promise === shared) this.simpleSftpCapShared = undefined;
         });
-        this.simpleSftpCapShared = { launch, promise: shared };
+        this.simpleSftpCapShared = { launch, root, promise: shared };
         return shared;
     }
     async simpleSftpCapability(method, timeoutMs = 0) {
@@ -23852,13 +23875,19 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const { fileIndexRound, fileIndexBinding, ...plainRequest } = params || {};
         const request = fileIndexRound !== undefined || fileIndexBinding !== undefined ? plainRequest : params || {};
         const capLaunchAtStart = this.simpleSftpCapLaunch;
+        const requestRoot = workspaceRoot();
         const query = sftpFileIndexQuery(method, params || {});
         // The cleanup node carries the SSH alias; the full source also carries
         // its configured network identity. Keep the page/read/mutation owner stable.
         const observationSource = method === "files.cleanup.inspect" && cleanupObservation ? cleanupObservation.source
             : request.node?.kind === "local" ? undefined : request.source || request.server || request.node;
         const index = query && this.projectFileObservationIndex?.(observationSource);
-        const load = () => callSftpWithProgress(method, request, (name) => this.simpleSftpCapability(name), onProgress);
+        const load = () => callSftpWithProgress(method, request, async (name) => {
+            if (workspaceRoot() !== requestRoot) throw new Error("SFTP_WORKSPACE_MISMATCH：项目已变化，未转交请求。");
+            const capability = await this.simpleSftpCapability(name);
+            if (workspaceRoot() !== requestRoot) throw new Error("SFTP_WORKSPACE_MISMATCH：项目已变化，未转交请求。");
+            return capability;
+        }, onProgress);
         if (index) {
             const client = this.client, root = workspaceRoot();
             for (let attempt = 0; ; attempt++) {
@@ -25818,7 +25847,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         }
     }
     loadTunnelConfig() {
-        const saved = this.context.globalState.get(keys.tunnelConfig) || {};
+        const saved = readProjectConnectionValue(this.context, workspaceRoot(), keys.tunnelConfig) || {};
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         return (0, TunnelGateway_1.normalizeTunnelGatewayConfig)({
             ...TunnelGateway_1.defaultTunnelGatewayConfig,
@@ -25830,10 +25859,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         });
     }
     loadSetupConfig() {
-        const saved = this.context.globalState.get(keys.setupConfig) || {};
+        if (!workspaceRoot()) return XshellTunnelSetup_1.normalizeXshellSetupConfig({ ...XshellTunnelSetup_1.defaultXshellTunnelSetupConfig, workerTunnels: [] });
+        const saved = readProjectConnectionValue(this.context, workspaceRoot(), keys.setupConfig) || {};
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         const sessionDefaults = this.sessionDefaultInspections(config);
-        const storedSignature = this.context.globalState.get(keys.setupConfigurationSignature);
+        const storedSignature = readProjectConnectionValue(this.context, workspaceRoot(), keys.setupConfigurationSignature);
         const hasStoredSignature = typeof storedSignature === "string";
         const savedDefaultsWin = hasStoredSignature && storedSignature === this.sessionDefaultConfigurationSignature(sessionDefaults);
         const sessionDefaultValue = (key, savedValue, fallback) => {
@@ -25942,24 +25972,17 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             allowStreaming: true,
             refreshProfile: "realtime",
         });
-        const configuration = vscode.workspace.getConfiguration("simpleExperiment");
-        // These updates raise handleConfigurationChanged, which reloads the
-        // global setup. Persist the new Worker settings before that reentry.
+        // A panel save belongs to this project. Explicit user/global settings
+        // remain templates; changing this panel must not rewrite other windows.
         await this.saveState();
-        await Promise.all([
-            configuration.update("tunnel.remoteTmuxSessionPrefix", next.remoteTmuxSessionPrefix, vscode.ConfigurationTarget.Global),
-            configuration.update("tunnel.condaEnv", next.condaEnv, vscode.ConfigurationTarget.Global),
-            configuration.update("tunnel.agentLoginPolicy", next.agentLoginPolicy || "preserve", vscode.ConfigurationTarget.Global),
-        ]);
-        await this.context.globalState.update(keys.setupConfigurationSignature, this.sessionDefaultConfigurationSignature());
+        await saveProjectConnectionValues(this.context, workspaceRoot(), { [keys.setupConfigurationSignature]: this.sessionDefaultConfigurationSignature() });
         this.resetClient();
         this.postState();
     }
     async saveState() {
         const tunnel = persistedTunnelGatewayConfig(this.tunnelConfig);
         const setup = persistedXshellSetupConfig(this.setupConfig);
-        await this.context.globalState.update(keys.tunnelConfig, tunnel);
-        await this.context.globalState.update(keys.setupConfig, setup);
+        await saveProjectConnectionValues(this.context, workspaceRoot(), { [keys.tunnelConfig]: tunnel, [keys.setupConfig]: setup });
     }
     async refreshLocalSshConfig(force = false) {
         const fingerprint = localMetadataFingerprint([LocalSshConfig_1.defaultSshConfigPath()]);
@@ -26750,7 +26773,7 @@ return "历史服务器";
     }
     configurationSourceState() {
         const config = vscode.workspace.getConfiguration("simpleExperiment");
-        const saved = this.context.globalState.get(keys.setupConfig) || {};
+        const saved = readProjectConnectionValue(this.context, workspaceRoot(), keys.setupConfig) || {};
         const inspectedWorkers = config.inspect("tunnel.workerTunnels");
         const workspaceWorkers = inspectedWorkers?.workspaceFolderValue ?? inspectedWorkers?.workspaceValue ?? inspectedWorkers?.globalValue;
         const savedWorkerCount = saved.workerTunnels?.length || 0;
@@ -26768,7 +26791,7 @@ return "历史服务器";
         if (this.configurationSourceStateCacheKey === cacheKey && this.configurationSourceStateCacheValue)
             return this.configurationSourceStateCacheValue;
         const value = {
-            primary: "VS Code globalState",
+            primary: "当前项目 workspaceState",
             endpointProfiles: savedWorkerCount || saved.savedSessionPath ? "已导入" : "未导入",
             savedHubSession: Boolean(saved.savedSessionPath),
             savedHubAgentSession: Boolean(saved.agentSessionPath),

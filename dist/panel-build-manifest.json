@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.437",
-  "buildId": "dc2c91919030f4cdaed19ae20527bf7cf371f5dbb6b184c18bc45c9c68f7243a",
+  "version": "0.5.438",
+  "buildId": "f96e03cc6c858b9c70a4532d6b80c5742c3b21581d6b97811f2206242d9574d7",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -13,7 +13,7 @@
     },
     {
       "path": "dist/api/LocalApiServer.legacy.js",
-      "sha256": "8f1484924a9f6b6ebec3576621adf503103c6ec037f887bdd2fba3422a82ad70"
+      "sha256": "67c9082ab204a9578d3e523ceff6aceeb00d6a8f7e6c329796f81e61d6854cb7"
     },
     {
       "path": "dist/cli.js",
@@ -25,7 +25,7 @@
     },
     {
       "path": "dist/cli/api.js",
-      "sha256": "11c280a94d35fa3d818e6a609352a2f540aed001d8f242c7303177d18360a0ec"
+      "sha256": "4bd3d2e75a63ced35f9f268f9b282bb48f82fd1c1dafac45bc1af23fd8bc3787"
     },
     {
       "path": "dist/cli/commands/action.js",
@@ -121,11 +121,11 @@
     },
     {
       "path": "dist/cli/index.js",
-      "sha256": "5cfd3f338e662284dc5dcd73b2fd3a2e9183e0e8a0ecb239cb8091b47f2e0872"
+      "sha256": "38a6b866eb97a675aadff95e074018f291c20b9a09463823fa0ec5fdce20f0f4"
     },
     {
       "path": "dist/cli/LocalApiClient.js",
-      "sha256": "5092eb6b1c8d6477a2eb9198a953d4a3168788f9a774fd457f1f20c4e8bfe1f5"
+      "sha256": "d037bac833a4536a8d235cc5509fa70b4430ebdcad826685e15f92b7f43543e4"
     },
     {
       "path": "dist/cli/parse.js",
@@ -180,6 +180,10 @@
       "sha256": "a597600d78e93341d54d3581475798cd3a719352f4c6e489cf847139117175d0"
     },
     {
+      "path": "dist/core/ProjectConnectionProfiles.js",
+      "sha256": "8e787ff5704d749b6a271eb8d022fb16ddaae09b4dd92ce7b7d9571c09a20e46"
+    },
+    {
       "path": "dist/core/ResourceOperationLease.js",
       "sha256": "fa77df46bebfa767429ee6ca5b2016ce2e289249cd7f9fa50071c9a116dddb0b"
     },
@@ -194,6 +198,10 @@
     {
       "path": "dist/core/SimpleSftpProgressWait.js",
       "sha256": "f60af13a5630daf00e1f5b34e6436705461f1a21f02a5b2199f11f628aec29cc"
+    },
+    {
+      "path": "dist/core/SimpleSftpWindow.js",
+      "sha256": "dae082a0463754e40cde14b28f6b31ceea2d581ebeed70bfbb79f0beb6a8dfc6"
     },
     {
       "path": "dist/core/UiCommandCancelled.js",
@@ -237,7 +245,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "784ceef847e20bda1fcbca2691440006d89811b4bb563cd73a2622c41b096370"
+      "sha256": "4febb7b0578b131beee4c742db3ee0cd7c269ed07761bfa3e0ff73febd663c8c"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -293,7 +301,7 @@
     },
     {
       "path": "dist/extension/ResultCollectionHost.js",
-      "sha256": "e025225cec4791abe1a4cf27cf4679e26712e16caf37923981008c567c88f0bb"
+      "sha256": "464d5aaaf40187674dfab1cb977bd9e5f49d8a26d795dcc27a99726d34fc0a09"
     },
     {
       "path": "dist/extension/RunConfirmation.js",
@@ -841,7 +849,7 @@
     },
     {
       "path": "dist/results/FreshResults.js",
-      "sha256": "565b761a18e6fb54011cb58cdc00b6e94a8ed0f6895c1e25197ee730ad6fbaf1"
+      "sha256": "7aa32acdc0ba68f0814b790fd205dc94687648fa8b5de7440d8e8e99e9fbbebd"
     },
     {
       "path": "dist/results/LatestResultExport.js",
@@ -881,7 +889,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "7093300548d9449fa80b2c07f88bc83d0610c966813d1ce093a83675d3f47c66"
+      "sha256": "8943e09de2ad78a427a2a7f63ae245f8f0db6a48b8f3de2108c7a8fcd29e9190"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1233,7 +1241,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "9a6114815bd4ba0e68304de5f8cc22791b3f340070076aeb8cf7125156273e94"
+      "sha256": "ffc3871ca642aab690f4167370017565059fb7fe9b348225fe963fdb20b20b37"
     },
     {
       "path": "scripts/check-static.js",

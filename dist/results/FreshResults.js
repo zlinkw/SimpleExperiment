@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resultDigest = void 0;
+exports.transientResultReadError = transientResultReadError;
 exports.resultPath = resultPath;
 exports.collectFreshResults = collectFreshResults;
 exports.freshResultTables = freshResultTables;
@@ -41,6 +42,11 @@ const node_crypto_1 = require("node:crypto");
 const NativeResultManifest_1 = require("./NativeResultManifest");
 const Tables = __importStar(require("./ProjectResultTables"));
 const RuntimeDiagnostics_1 = require("../features/RuntimeDiagnostics");
+/** Transport interruptions can retry reads, never identity/content/permission failures. */
+function transientResultReadError(error) {
+    const messages = [error?.message, error?.code, error?.cause?.message, error?.cause?.code].filter(Boolean).join(" ");
+    return error?.name === "TimeoutError" || /fetch failed|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ENOTFOUND|ETIMEDOUT|socket hang up|network error|UND_ERR_(?:SOCKET|CONNECT_TIMEOUT|HEADERS_TIMEOUT)|HTTP (?:502|503|504)\b/i.test(messages);
+}
 function resultPath(value) {
     if (!value || value.startsWith("/") || /[:\\\x00-\x1f*?]/.test(value)
         || value.split("/").some(part => !part || [".", "..", ".git", "clean_dir"].includes(part)))
@@ -93,7 +99,7 @@ function batchResultReads(receive, current) {
                         }
                         catch (error) {
                             for (const request of batch) {
-                                if (batch.length === 1 || !current()) {
+                                if (batch.length === 1 || !current() || transientResultReadError(error)) {
                                     request.reject(error);
                                     continue;
                                 }

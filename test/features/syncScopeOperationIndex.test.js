@@ -56,7 +56,7 @@ test('file-operation metadata refresh reuses live Worker indexes and remote-only
 });
 
 test('memory-only batch downloads do not trigger write preflight, invalidation or a second recursive index read',async()=>{
- const call=await method('simpleSftpApiCall',{assertRetryRequestCurrent(){},sftpFileIndexQuery,fileOperationIndexPaths,
+ const call=await method('simpleSftpApiCall',{assertRetryRequestCurrent(){},workspaceRoot:()=> 'C:/fixture',sftpFileIndexQuery,fileOperationIndexPaths,
  callSftpWithProgress:async(name,params)=>{assert.equal(name,'sync.downloadMappedPaths');assert.equal(params.memoryOnly,true);return {ok:true,entries:[]};}});
  const host={refreshProjectFileIndexesBeforeOperation:()=>assert.fail('memory reads cannot start a file-operation scan'),invalidateProjectFileIndexes:()=>assert.fail('memory reads cannot invalidate filesystem observations')};
  assert.equal((await call.call(host,'sync.downloadMappedPaths',{source:{id:'w1'},memoryOnly:true,entries:[{remotePath:'artifacts/a',localRelativePath:'artifacts/a'}]})).ok,true);

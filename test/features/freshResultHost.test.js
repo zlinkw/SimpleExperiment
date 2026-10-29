@@ -5,6 +5,37 @@ const { resultDigest } = require('../../src/results/FreshResults.ts');
 const { readLatestResultExport, latestResultCatalog, regenerateLatestResultTables } = require('../../src/results/LatestResultExport.ts');
 const { fixture, planFile, planText } = require('../_helpers/freshResultHost');
 function files(root) { return fs.readdirSync(root, { withFileTypes: true }).flatMap(row => row.isDirectory() ? files(path.join(root,row.name)).map(item => row.name+'/'+item) : [row.name]); }
+
+test('manual result collection recovers transient discovery, file observation and memory read failures',async()=>{
+  const f=fixture(),read=f.host.client.getWorkerTasks,receive=f.host.simpleSftpApiCall;
+  const failed=new Set();let attempts=0;
+  f.host.client.getWorkerTasks=async(...args)=>{
+    const stage=args[1].discovery?'declarations':'observations';
+    if(!failed.has(stage)){failed.add(stage);throw TypeError('fetch failed');}
+    return read(...args);
+  };
+  f.host.simpleSftpApiCall=async(...args)=>{if(++attempts===1)throw Object.assign(Error('socket hang up'),{code:'ECONNRESET'});return receive(...args);};
+  const report=await f.service.update();assert.equal(report.completed,1);assert.equal(report.current,true);
+  assert.equal(attempts,2);assert.equal(failed.size,2);
+});
+
+test('persistent result transport failures are bounded, preserve the published table and never retry identity errors',async()=>{
+  const f=fixture();await f.service.update();
+  const target=path.join(f.root,'experiments/results/latest-results.json'),before=fs.readFileSync(target,'utf8');
+  let attempts=0;f.host.simpleSftpApiCall=async()=>{attempts++;throw TypeError('fetch failed');};
+  const report=await f.service.update();assert.equal(attempts,3);assert.equal(report.current,false);
+  assert.equal(fs.readFileSync(target,'utf8'),before);assert.match(report.missing.join(' '),/连接|fetch failed/);
+  attempts=0;f.host.simpleSftpApiCall=async()=>{attempts++;throw Error('SFTP_WORKSPACE_MISMATCH');};
+  await f.service.update();assert.equal(attempts,1);
+});
+
+test('project changes during a failed read stop result retries and prevent stale publication',async()=>{
+  const f=fixture();let active=true,attempts=0;
+  f.host.projectContextIsCurrent=()=>active;
+  f.host.simpleSftpApiCall=async()=>{attempts++;active=false;throw TypeError('fetch failed');};
+  await assert.rejects(f.service.update(),/变化|取消/);assert.equal(attempts,1);
+  assert.equal(fs.existsSync(path.join(f.root,'experiments/results/latest-results.json')),false);
+});
 test('artifact-only aggregation retains verified metrics independently of task console diagnostics',async()=>{
   const f=fixture();await f.service.update();
   f.raw['work_dirs/alpha42/metrics.csv']='0';const original=JSON.stringify(f.raw),read=f.host.client.getWorkerTasks;

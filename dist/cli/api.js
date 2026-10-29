@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.setApiWorkspace = setApiWorkspace;
 exports.setInstancePin = setInstancePin;
 exports.hasApiDiscovery = hasApiDiscovery;
 exports.discoveryOrNull = discoveryOrNull;
@@ -45,6 +46,8 @@ const LocalApiClient_1 = require("./LocalApiClient");
 const fs = __importStar(require("node:fs"));
 // CLI --instance wins over SIMPLE_CLI_INSTANCE_ID; set once by runSimpleCli before any dispatch.
 let cliInstancePin = "";
+let cliWorkspace = "";
+function setApiWorkspace(value) { cliWorkspace = String(value || "").trim(); }
 function setInstancePin(value) {
     cliInstancePin = String(value || "").trim();
 }
@@ -72,7 +75,7 @@ function discoveryOrNull() {
  */
 async function callApi(method, params = {}) {
     try {
-        return await (0, LocalApiClient_1.callPluginRpc)("experiment", method, params, cliInstancePin || undefined);
+        return await (0, LocalApiClient_1.callPluginRpc)("experiment", method, params, cliInstancePin || undefined, cliWorkspace ? { workspace: cliWorkspace } : undefined);
     }
     catch (error) {
         const rpc = error;

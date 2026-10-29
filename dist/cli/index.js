@@ -41,6 +41,7 @@ async function runSimpleCli(argv) {
     const { positionals, flags } = parsed;
     // The explicit --instance flag outranks SIMPLE_CLI_INSTANCE_ID for every domain from here on.
     (0, api_1.setInstancePin)(flags.instance || "");
+    (0, api_1.setApiWorkspace)(flags.workspace || "");
     const [domain, action, ...rest] = positionals;
     if (!domain || domain === "help" || (flags.help && !action)) {
         (0, format_1.writeText)(domain && (SIMPLE_DOMAINS.has(domain) || domain === "doctor") ? (0, help_1.domainHelp)(domain) : help_1.SIMPLE_HELP);
