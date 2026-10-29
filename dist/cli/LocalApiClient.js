@@ -86,13 +86,15 @@ function readLocalDiscovery(file) {
         fs.closeSync(fd);
     }
 }
-function requestLocalJson(discovery, route, body, maxBytes = 16 * 1024 * 1024, timeoutMs = 15000) {
+function requestLocalJson(discovery, route, body, maxBytes = 16 * 1024 * 1024, timeoutMs = 15000, signal) {
+    if (signal?.aborted)
+        return Promise.reject(signal.reason || Error("实例核实已取消"));
     validateDiscovery(discovery);
     if (!["/api/v1/capabilities", "/api/v1/rpc", "/api/v1/health"].includes(route))
         throw new Error("Invalid local API route");
     const url = new URL(route, String(discovery.baseUrl));
     return new Promise((resolve, reject) => {
-        const req = http.request({ hostname: url.hostname === "[::1]" ? "::1" : url.hostname === "localhost" ? "127.0.0.1" : url.hostname, port: url.port, path: url.pathname,
+        const req = http.request({ hostname: url.hostname === "[::1]" ? "::1" : url.hostname === "localhost" ? "127.0.0.1" : url.hostname, port: url.port, path: url.pathname, signal,
             method: body ? "POST" : "GET", headers: { Authorization: `Bearer ${discovery.token}`,
                 ...(body && discovery.pid && discovery.startedAt ? { "X-Simple-Api-Instance": `${discovery.pid}:${discovery.startedAt}` } : {}),
                 ...(body && discovery.workspace ? { "X-Simple-Api-Workspace": encodeURIComponent(String(discovery.workspace)) } : {}),
@@ -257,7 +259,18 @@ const CANDIDATE_HANDSHAKE_BUDGET = 16;
  * cannot confirm uniqueness", pointing at an explicit discoveryPath) — a prefix handshake must never
  * pretend the remainder is absent or that the first live hit is unique.
  */
-async function resolveInstanceByWorkspace(plugin, workspace, expectedInstanceId) {
+async function resolveInstanceByWorkspace(plugin, workspace, expectedInstanceId, options = {}) {
+    const timeoutMs = options.timeoutMs ?? 30_000;
+    if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30_000)
+        throw Error("实例核实总等待上限必须在 1–30000 毫秒内。");
+    const signal = AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)].filter(Boolean));
+    const check = () => { if (signal.aborted)
+        throw Error(options.signal?.aborted ? "实例核实已取消，未执行命令。" : "实例核实达到总等待上限，无法确认唯一实例；未执行命令，请指定 --instance 或稍后重试。"); };
+    const progress = (message) => { try {
+        options.onProgress?.(message);
+    }
+    catch { /* display cannot authorize routing */ } };
+    check();
     if (!workspace || !String(workspace).trim())
         throw new Error("按工作区路由必须提供明确的 workspace。");
     const listing = listPluginInstances(plugin);
@@ -276,15 +289,20 @@ async function resolveInstanceByWorkspace(plugin, workspace, expectedInstanceId)
         throw new Error(`工作区 ${workspace} 有 ${candidates.length} 条候选实例记录，超过单次 ${CANDIDATE_HANDSHAKE_BUDGET} 条握手预算；未完整核验，不能确认唯一。请用已知的 discoveryPath 明确指定目标实例，不做部分握手、不扩大探测。`);
     const live = [];
     const unreachable = [];
-    for (const row of candidates) {
+    for (const [index, row] of candidates.entries()) {
+        check();
+        progress("正在核实实例 " + (index + 1) + "/" + candidates.length + " · " + row.instanceId);
         try {
-            await preflightPluginAt(plugin, row.discoveryPath, workspace);
+            await preflightPluginAt(plugin, row.discoveryPath, workspace, signal);
             live.push(row);
         }
         catch {
+            check();
             unreachable.push(row);
         }
+        progress("已处理实例 " + (index + 1) + "/" + candidates.length + "；当前可达 " + live.length);
     }
+    check();
     if (live.length === 0) {
         const known = listing.rows.filter((row) => row.workspace)
             .map((row) => `${row.workspace}(${row.status || "?"}${row.status === "running" ? "，记录称运行中但握手失败=疑似崩溃遗留，记录保留" : ""})`).join(", ");
@@ -323,9 +341,9 @@ async function preflightPlugin(plugin) {
  * resolveInstanceByWorkspace). When expectedWorkspace is given, the live capabilities must carry a
  * matching workspace — an older listener without the field is refused, never assumed.
  */
-async function preflightPluginAt(plugin, discoveryPath, expectedWorkspace) {
+async function preflightPluginAt(plugin, discoveryPath, expectedWorkspace, signal) {
     try {
-        const preflight = await preflightHandshake(plugin, discoveryPath);
+        const preflight = await preflightHandshake(plugin, discoveryPath, signal);
         if (expectedWorkspace !== undefined && String(expectedWorkspace).trim()) {
             const live = String(preflight.capabilities.workspace || "");
             if (!live || !sameWorkspacePath(live, expectedWorkspace))
@@ -348,7 +366,7 @@ function assertInstancePin(expected, preflight) {
         throw new errors_1.CliError(2, "ENV", `Instance pin mismatch: this command was pinned to instance ${pin}, but the live listener is ${preflight.instanceId} (${String(preflight.capabilities.name)}). Refusing to run against a different window; remove or fix --instance.`, "");
     }
 }
-async function preflightHandshake(plugin, discoveryPath) {
+async function preflightHandshake(plugin, discoveryPath, signal) {
     const spec = PLUGIN_ENDPOINTS[plugin];
     if (!fs.existsSync(discoveryPath)) {
         throw new Error(`${spec.label} API discovery not found: ${discoveryPath}. Open VS Code once to start the extension host.`);
@@ -362,7 +380,7 @@ async function preflightHandshake(plugin, discoveryPath) {
         throw new Error("Local API discovery lacks a plugin name");
     if (typeof discovery.version !== "string" || !discovery.version)
         throw new Error("Local API discovery lacks a plugin version");
-    const capabilities = await requestLocalJson(discovery, "/api/v1/capabilities", undefined, 1024 * 1024, 10000);
+    const capabilities = await requestLocalJson(discovery, "/api/v1/capabilities", undefined, 1024 * 1024, 10000, signal);
     if (capabilities.schemaVersion !== 1 || capabilities.rpc !== "json-rpc-2.0"
         || !Array.isArray(capabilities.methods) || !capabilities.methods.every((m) => typeof m === "string")) {
         throw new Error("Invalid live API capabilities");

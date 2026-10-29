@@ -6,6 +6,41 @@ const { readLatestResultExport, latestResultCatalog, regenerateLatestResultTable
 const { fixture, planFile, planText } = require('../_helpers/freshResultHost');
 function files(root) { return fs.readdirSync(root, { withFileTypes: true }).flatMap(row => row.isDirectory() ? files(path.join(root,row.name)).map(item => row.name+'/'+item) : [row.name]); }
 
+test('cancelling an uncooperative capability read releases the query and ignores its late response',async()=>{
+  const f=fixture(),abort=new AbortController(),capability=f.host.simpleSftpCapability;
+  let entered,release,reads=0,lateFinished=false;
+  const ready=new Promise(resolve=>entered=resolve),blocked=new Promise(resolve=>release=resolve);
+  f.host.simpleSftpCapability=async()=>{if(++reads===1){entered();await blocked;lateFinished=true;}return capability();};
+  const first=f.service.update(abort.signal).then(()=>assert.fail('cancelled read cannot publish'),error=>assert.equal(error.name,'AbortError'));
+  try{
+    await ready;abort.abort();await first;
+    const report=await f.service.update();
+    assert.equal(report.current,true);assert.equal(reads,2);assert.equal(lateFinished,false);
+    assert.equal(f.calls.filter(row=>row[0]==='sync.downloadMappedPaths').length,1);
+    const output=path.join(f.root,'experiments/results/latest-results.json'),before=fs.readFileSync(output,'utf8');
+    release();await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(fs.readFileSync(output,'utf8'),before);assert.equal(f.calls.filter(row=>row[0]==='sync.downloadMappedPaths').length,1);
+  }finally{release();await first;}
+});
+
+test('waiting progress names the slow Worker and never publishes before all Worker checks finish',async()=>{
+  const f=fixture(),abort=new AbortController(),read=f.host.client.getWorkerTasks,messages=[],seen=[];
+  let entered,release;
+  const ready=new Promise(resolve=>entered=resolve),blocked=new Promise(resolve=>release=resolve),worker=f.host.workerCodeSyncTargets()[0];
+  f.host.workerCodeSyncTargets=()=>[worker,{...worker,id:'b'}];
+  f.host.client.getWorkerTasks=async(id,options)=>{
+    seen.push(id);if(id==='b'){entered();await blocked;return{queryComplete:true,capabilities:{resultCollection:1},tasks:[],declaredResults:[]};}
+    return read(id,options);
+  };
+  const pending=f.service.update(abort.signal,{onProgress:row=>messages.push(row.message)}).catch(error=>assert.equal(error.name,'AbortError'));
+  try{
+    await ready;assert.ok(seen.includes('a')&&seen.includes('b'));
+    assert.ok(messages.some(message=>/b · 产物状态 · 第 1\/3 次/.test(message)&&message.includes('单次上限 30 秒')));
+    assert.equal(fs.existsSync(path.join(f.root,'experiments/results/latest-results.json')),false);
+    abort.abort();await pending;
+  }finally{release();await pending;}
+});
+
 test('cancellable callers share one verified read and one cancellation leaves the other reader intact',async()=>{
   const f=fixture(),a=new AbortController(),b=new AbortController(),messages=[];
   let release;f.block(new Promise(resolve=>release=resolve));
@@ -72,25 +107,27 @@ test('repeated declaration errors group by Worker and reason and keep job and PL
   fs.writeFileSync(path.join(f.root,other),planText,'utf8');
   const input=(await f.host.currentResultPlanInputs())[0];
   f.host.currentResultPlanInputs=async()=>[input,{...input,planFile:other}];
-  f.offline(true);const report=await f.service.update();
+  const messages=[];f.offline(true);const report=await f.service.update(undefined,{onProgress:row=>messages.push(row.message)});
   const group=report.issueGroups.find(row=>row.workerId==='a'&&row.message==='offline');
   assert.deepEqual(group.affected,[planFile,other]);
   assert.equal(report.counts.plans,2);assert.equal(report.counts.unknownJobs,4);
   assert.equal(report.counts.unverifiedPlans,2);assert.equal(report.counts.completeJobs,0);
   assert.equal(report.current,false);
+  assert.ok(messages.some(message=>message==='已处理 PLAN 声明 2/2；已核实 0；待核实 2'));
 });
 
 test('manual result collection recovers transient discovery, file observation and memory read failures',async()=>{
   const f=fixture(),read=f.host.client.getWorkerTasks,receive=f.host.simpleSftpApiCall;
-  const failed=new Set();let attempts=0;
+  const failed=new Set(),messages=[];let attempts=0;
   f.host.client.getWorkerTasks=async(...args)=>{
     const stage=args[1].discovery?'declarations':'observations';
     if(!failed.has(stage)){failed.add(stage);throw TypeError('fetch failed');}
     return read(...args);
   };
   f.host.simpleSftpApiCall=async(...args)=>{if(++attempts===1)throw Object.assign(Error('socket hang up'),{code:'ECONNRESET'});return receive(...args);};
-  const report=await f.service.update();assert.equal(report.completed,1);assert.equal(report.current,true);
+  const report=await f.service.update(undefined,{onProgress:row=>messages.push(row.message)});assert.equal(report.completed,1);assert.equal(report.current,true);
   assert.equal(attempts,2);assert.equal(failed.size,2);
+  assert.ok(messages.some(message=>message.includes('第 2/3 次')));
 });
 
 test('persistent result transport failures are bounded, preserve the published table and never retry identity errors',async()=>{

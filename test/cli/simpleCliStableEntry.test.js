@@ -7,6 +7,8 @@ test('help resolves an installed CLI without any discovery or running window',as
  const extensions=path.join(root,'offline');const dir=path.join(extensions,'simple-local.simple-experiment-3.0.0');fs.mkdirSync(path.join(dir,'dist'),{recursive:true});
  fs.writeFileSync(path.join(dir,'package.json'),JSON.stringify({name:'simple-experiment',publisher:'simple-local',version:'3.0.0'}),'utf8');
  fs.writeFileSync(path.join(dir,'dist/cli.js'),'throw Error("not executed by resolution");','utf8');
+ const old=path.join(extensions,'simple-local.simple-experiment-1.0.0');fs.mkdirSync(old,{recursive:true});
+ fs.writeFileSync(path.join(old,'package.json'),JSON.stringify({name:'simple-experiment',publisher:'simple-local',version:'1.0.0'}),'utf8');
  for(const argv of [['--help'],['help'],[],['result','--help']])assert.equal(await resolveCli({extensionsRoot:extensions,discoveryFile:path.join(root,'missing.json'),argv}),path.join(dir,'dist/cli.js'));
 });
 
@@ -25,11 +27,26 @@ test('workspace and instance selection bypass a dead default window with real id
  const saved={APPDATA:process.env.APPDATA,SIMPLE_EXPERIMENT_API_FILE:process.env.SIMPLE_EXPERIMENT_API_FILE,SIMPLE_CLI_INSTANCE_ID:process.env.SIMPLE_CLI_INSTANCE_ID};
  process.env.APPDATA=appdata;delete process.env.SIMPLE_EXPERIMENT_API_FILE;delete process.env.SIMPLE_CLI_INSTANCE_ID;
  try{
-  let selected;assert.equal(await resolveCli({extensionsRoot:extensions,argv:['--workspace',workspace],onResolved:value=>selected=value}),path.join(dir,'dist/cli.js'));assert.equal(selected,file);
+  let selected;const progress=[];assert.equal(await resolveCli({extensionsRoot:extensions,argv:['--workspace',workspace],onProgress:message=>progress.push(message),onResolved:value=>selected=value}),path.join(dir,'dist/cli.js'));assert.equal(selected,file);
+  assert.ok(progress.some(message=>message.includes('正在核实实例 1/1')));assert.ok(progress.some(message=>message.includes('已处理实例 1/1')));
+  const abort=new AbortController();abort.abort();await assert.rejects(resolveCli({extensionsRoot:extensions,argv:['--workspace',workspace],signal:abort.signal}),/abort|取消/i);
   assert.equal(await resolveCli({extensionsRoot:extensions,argv:['--instance',instanceId]}),path.join(dir,'dist/cli.js'));
   await assert.rejects(resolveCli({extensionsRoot:extensions,argv:['--instance','other']}),/missing|ambiguous/);
   liveWorkspace=path.join(root,'different');await assert.rejects(resolveCli({extensionsRoot:extensions,argv:['--workspace',workspace]}),/存活|工作区|实例/);
  }finally{for(const [key,value]of Object.entries(saved)){if(value===undefined)delete process.env[key];else process.env[key]=value;}server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+});
+test('a missing CLI in the selected running version refuses rather than falling back to a newer version',async()=>{
+ const extensions=path.join(root,'broken-running'),file=path.join(root,'broken-api.json');
+ for(const version of ['1.0.0','2.0.0']){
+  const dir=path.join(extensions,'simple-local.simple-experiment-'+version);fs.mkdirSync(path.join(dir,'dist'),{recursive:true});
+  fs.writeFileSync(path.join(dir,'package.json'),JSON.stringify({name:'simple-experiment',publisher:'simple-local',version}),'utf8');
+  if(version==='2.0.0')fs.writeFileSync(path.join(dir,'dist/cli.js'),'throw Error("never executed");','utf8');
+ }
+ const server=http.createServer((req,res)=>res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',name:'SimpleExperiment',version:'1.0.0',instanceId:'66:2026-01-01T00:00:00Z'})));
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ fs.writeFileSync(file,JSON.stringify({name:'SimpleExperiment',version:'1.0.0',pid:66,startedAt:'2026-01-01T00:00:00Z',baseUrl:'http://127.0.0.1:'+server.address().port,token:'test-only'}),'utf8');
+ try{await assert.rejects(resolveCli({extensionsRoot:extensions,discoveryFile:file}),/ENOENT/);}
+ finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
 test("stable shims replace recognized npm wrappers and reject unrelated commands before writes",()=>{
  const dest=path.join(root,"commands");fs.mkdirSync(dest);

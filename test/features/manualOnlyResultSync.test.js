@@ -56,6 +56,16 @@ function selectedMethods(names, globals = {}) {
   return new sandbox.Subject();
 }
 
+test('current PLAN update invokes a real full-table refresh while scoped API reads stay separate',async()=>{
+  const provider=selectedMethods(['syncAllResultArtifactsFromUi'],{stringField:(message,key)=>message[key]});
+  const calls=[];provider.resolveSelectedPlanFile=value=>value;
+  provider.rebuildProjectResultTablesFromUi=async options=>{calls.push(options);return{exported:true};};
+  assert.equal((await provider.syncAllResultArtifactsFromUi({planFile:'experiments/plans/a.yaml'})).exported,true);
+  assert.equal(calls.length,1);assert.equal(calls[0].planFiles,undefined);assert.match(calls[0].title,/更新结果总表/);
+  provider.resolveSelectedPlanFile=()=>'';
+  await assert.rejects(provider.syncAllResultArtifactsFromUi({}),/无法确认/);assert.equal(calls.length,1);
+});
+
 test('already cancelled result refresh is a normal receipt and never starts a server query',async()=>{
  const f=fixture(),notices=[];
  const provider=selectedMethods(['rebuildProjectResultTablesFromUi'],{AbortController,vscode:{ProgressLocation:{Notification:1},window:{

@@ -182,10 +182,33 @@ export class ResultCollectionHost {
         }
       }
     };
-    const readTasks = (workerId: string, options: any, budget: number, attempts = 3) => retryRead<any>(() => h.client.getWorkerTasks(workerId,
-      { ...options, signal: requestSignal ? AbortSignal.any([requestSignal, AbortSignal.timeout(budget)]) : AbortSignal.timeout(budget) }), attempts);
+    const pendingReads = new Map<object, { workerId: string; phase: string; attempt: number; attempts: number; budget: number; started: number }>();
+    const returnedWorkers = new Set<string>();
+    let waitingTimer: ReturnType<typeof setInterval> | undefined;
+    const reportPending = () => {
+      if (!current() || !pendingReads.size) return;
+      const waiting = [...pendingReads.values()].map(row => row.workerId + " · " + row.phase + " · 第 " + row.attempt + "/" + row.attempts
+        + " 次 · 已等 " + Math.floor((Date.now() - row.started) / 1000) + " 秒（单次上限 " + Math.ceil(row.budget / 1000) + " 秒）");
+      this.report({ message: "等待 Worker：" + waiting.join("；") + "；产物查询已处理 " + returnedWorkers.size + "/" + targets.length + " 台" });
+    };
+    const readTasks = (workerId: string, options: any, budget: number, attempts = 3) => {
+      let attempt = 0;
+      return retryRead<any>(async () => {
+        const reader = {};
+        pendingReads.set(reader, { workerId, phase: options.discovery ? "PLAN 声明" : "产物状态", attempt: ++attempt, attempts, budget, started: Date.now() });
+        if (!waitingTimer) { waitingTimer = setInterval(reportPending, 5000); waitingTimer.unref?.(); }
+        reportPending();
+        try { return await this.waitFor(h.client.getWorkerTasks(workerId,
+          { ...options, signal: requestSignal ? AbortSignal.any([requestSignal, AbortSignal.timeout(budget)]) : AbortSignal.timeout(budget) }), requestSignal); }
+        finally {
+          pendingReads.delete(reader);
+          if (!pendingReads.size) { clearInterval(waitingTimer); waitingTimer = undefined; }
+          else reportPending();
+        }
+      }, attempts);
+    };
     const started = Date.now(), timing: Record<string, number> = {};
-    let inputs = await h.currentResultPlanInputs(); check();
+    let inputs = await this.waitFor<any[]>(h.currentResultPlanInputs(), requestSignal); check();
     const scoped = Boolean(selection?.length);
     if (scoped) {
       const chosen = new Set<string>();
@@ -250,11 +273,11 @@ export class ResultCollectionHost {
     };
     // Bound pressure on slow tunnels and preserve PLAN order. All enabled Workers
     // still receive the complete declarations/file verification below.
-    let discoveredPlans = 0;
+    let processedPlans = 0, verifiedPlans = 0;
     for (let offset = 0; offset < inputs.length; offset += 4) {
       const settled = await Promise.allSettled(inputs.slice(offset, offset + 4).map(async (plan: any) => {
-        try { return await discover(plan); }
-        finally { this.report({ message: "已核实 PLAN 声明 " + (++discoveredPlans) + "/" + inputs.length }); }
+        try { const value = await discover(plan); if (value) verifiedPlans++; return value; }
+        finally { processedPlans++; this.report({ message: "已处理 PLAN 声明 " + processedPlans + "/" + inputs.length + "；已核实 " + verifiedPlans + "；待核实 " + (processedPlans - verifiedPlans) }); }
       }));
       const failed = settled.find(row => row.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
@@ -276,6 +299,7 @@ export class ResultCollectionHost {
         }
         return { workerId: worker.id, queryComplete: true, tasks: values.flatMap(value => value.tasks || []), declaredResults: values.flatMap(value => value.declaredResults || []) };
       } catch (error: any) { return { workerId: worker.id, queryComplete: false, error: String(error.message || error) }; }
+      finally { returnedWorkers.add(worker.id); reportPending(); }
     })); check();
     timing.observationsMs = Date.now() - observationStarted;
     const receiveStarted = Date.now(); let memoryRequests = 0, memoryFiles = 0, verifiedFiles = 0;
@@ -283,7 +307,8 @@ export class ResultCollectionHost {
     const receive = async (workerId: string, files: ResultSource[]) => {
       check();
       if (readUnavailable.has(workerId)) throw readUnavailable.get(workerId);
-      const capability = await h.simpleSftpCapability("sync.downloadMappedPaths"); check();
+      this.report({ message: "核实 SimpleSFTP 能力 · " + workerId });
+      const capability = await this.waitFor<any>(h.simpleSftpCapability("sync.downloadMappedPaths"), requestSignal); check();
       if (capability.methodOptions?.["sync.downloadMappedPaths"]?.memoryOnly !== true
         || capability.methodOptions?.["sync.downloadMappedPaths"]?.memoryWrapperResults !== true) throw Error("请更新 SimpleSFTP：需要内存指标读取能力");
       const server = h.sftpServerOptions(targets.find((row: any) => row.id === workerId));
@@ -299,9 +324,9 @@ export class ResultCollectionHost {
         let response: any;
         try { response = await retryRead(async () => {
           memoryRequests++; memoryFiles += batch.length;
-          return h.simpleSftpApiCall("sync.downloadMappedPaths", { server, localPath: root,
+          return this.waitFor(h.simpleSftpApiCall("sync.downloadMappedPaths", { server, localPath: root,
           entries: batch.map(file => ({ ...file, localRelativePath: file.remotePath })), memoryOnly: true, metricsOnly: true, wrapperResults: true,
-          maxFileBytes: 4 * 1024 * 1024, maxBatchBytes: 4 * 1024 * 1024, confirm: true, pathConfirmed: true, signal: requestSignal });
+          maxFileBytes: 4 * 1024 * 1024, maxBatchBytes: 4 * 1024 * 1024, confirm: true, pathConfirmed: true, signal: requestSignal }), requestSignal);
         }); } catch (error) {
           if (transientResultReadError(error)) readUnavailable.set(workerId, error);
           throw error;
@@ -349,12 +374,12 @@ export class ResultCollectionHost {
     timing.publicationMs = Date.now() - publicationStarted;
     const participating = new Set<string>([...queued.map((plan: any) => plan.planFile),
       ...result.jobs.filter(job => job.state !== "missing" && (job.commandId || job.error || job.state === "conflict" || job.executionState === "running")).map(job => job.planFile)]);
-    const coverage = Object.fromEntries(inputs.map((plan: any) => [plan.planFile, {
+    const coverage = Object.fromEntries<{ included: boolean; expected: number; completed: number; artifactsComplete: number; reviewRequired: number }>(inputs.map((plan: any) => [String(plan.planFile), {
       included: participating.has(plan.planFile),
       expected: plans.find(row => row.planFile === plan.planFile)?.jobs.length || plan.jobCount || 0,
       completed: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && job.aggregationState === "eligible").length,
       artifactsComplete: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete").length,
-      reviewRequired: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && job.aggregationState === "review_required").length }]));
+      reviewRequired: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && job.aggregationState === "review_required").length }] as const));
     const issues = [...declarationIssues,
       ...result.jobs.filter(job => job.error).map(job => ({ workerId: job.workerId || "", message: job.error!, affected: [job.planFile + " · " + job.case + "/" + job.seed] }))];
     const issueGroups = [...issues.reduce((groups, issue) => {

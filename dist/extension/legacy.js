@@ -24402,7 +24402,7 @@ class RealtimeTunnelPanelProvider {
         const planFile = this.resolveSelectedPlanFile(stringField(message, "planFile") || this.planFileInput || this.selectedPlanId || "");
         if (!planFile)
             throw new Error("无法确认结果所属 Plan，已阻止同步。");
-        return this.rebuildProjectResultTablesFromUi({ planFiles: [planFile], title: "更新当前 Plan 指标表" });
+        return this.rebuildProjectResultTablesFromUi({ title: "更新结果总表（包含当前 Plan）" });
     }
     async syncPendingResultMetricsFromUi(options = {}) {
         return options.background ? (0, ResultCollectionHost_1.resultCollectionHost)(this).refreshAutomatic() : this.rebuildProjectResultTablesFromUi(options);
@@ -25990,7 +25990,7 @@ class RealtimeTunnelPanelProvider {
         return (0, ResultCollectionHost_1.resultCollectionHost)(this).refreshAutomatic();
     }
     async rebuildProjectResultTablesFromUi(options = {}) {
-        const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "更新结果汇总", cancellable: true }, async (progress, token) => {
+        const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: options.title || "更新结果汇总", cancellable: true }, async (progress, token) => {
             const abort = new AbortController();
             const listener = token.onCancellationRequested?.(() => abort.abort());
             if (token.isCancellationRequested)

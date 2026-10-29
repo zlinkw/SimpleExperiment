@@ -282,13 +282,14 @@ test("Plan concise table is the primary result entry with scoped explanations", 
   assert.match(panel, /重建当前 Plan 汇总/);
 });
 
-test("current Plan sync delegates to the scoped verified metric rebuild without saving raw copies", () => {
+test("current Plan sync updates the verified full result table without saving raw copies", () => {
   const handler = extension.slice(extension.indexOf("async syncAllResultArtifactsFromUi"), extension.indexOf("async syncPendingResultMetricsFromUi"));
   assert.match(extension, /case "syncAllResultArtifacts":\s*return this\.withManualResultSync\(\(\) => this\.syncAllResultArtifactsFromUi\(message\)\)/);
   assert.match(panel, /data-command="syncAllResultArtifacts" data-plan-file=/);
   assert.match(handler, /resolveSelectedPlanFile/);
   assert.match(handler, /if \(!planFile\) throw new Error/);
-  assert.match(handler, /return this\.rebuildProjectResultTablesFromUi\(\{ planFiles: \[planFile\]/);
+  assert.match(handler, /return this\.rebuildProjectResultTablesFromUi\(\{ title: "更新结果总表（包含当前 Plan）"/);
+  assert.doesNotMatch(handler, /planFiles:/);
   assert.doesNotMatch(handler, /client\.downloadWorkerFile\(|client\.downloadFile\(/);
   assert.doesNotMatch(handler, /selectPlanFromUi|this\.selectedPlanId\s*=/);
 });

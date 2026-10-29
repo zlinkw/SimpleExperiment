@@ -760,6 +760,37 @@ test("multi-window: per-instance discovery records coexist and workspace routing
   }
 });
 
+test('workspace routing cancellation and total deadline refuse partial uniqueness and retain instance records',async()=>{
+  const client=require('../../dist/cli/LocalApiClient.js'),saved=process.env.SIMPLE_EXPERIMENT_API_FILE;
+  for(const mode of ['deadline','cancel']){
+    const dir=fs.mkdtempSync(path.join(os.tmpdir(),'simple-instance-budget-')),workspace=path.join(dir,'workspace'),instances=path.join(dir,'instances'),abort=new AbortController(),requests=[],progress=[];
+    fs.mkdirSync(instances);process.env.SIMPLE_EXPERIMENT_API_FILE=path.join(dir,'api.json');
+    const server=http.createServer((req,res)=>{
+      requests.push(req.url);
+      if(req.url.startsWith('/api/v1/capabilities')){
+        // Token selects two distinct identities on this fixture listener. The second read intentionally never replies.
+        if(req.headers.authorization==='Bearer stalled'){if(mode==='cancel')abort.abort();return;}
+        res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:[],name:'SimpleExperiment',version:'1.0.0',instanceId:'1:2026-01-01T00:00:00Z',workspace}));
+      }else{assert.fail('routing must not execute any RPC');}
+    });
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const records=[];
+    for(const [index,token]of ['live','stalled'].entries()){
+      const file=path.join(instances,index+'.json'),value=JSON.stringify({name:'SimpleExperiment',version:'1.0.0',pid:index+1,startedAt:'2026-01-01T00:00:00Z',instanceId:(index+1)+':2026-01-01T00:00:00Z',baseUrl:'http://127.0.0.1:'+server.address().port,token,workspace,status:'running'});
+      fs.writeFileSync(file,value,'utf8');records.push([file,value]);
+    }
+    try{
+      await assert.rejects(client.resolveInstanceByWorkspace('experiment',workspace,undefined,{signal:abort.signal,timeoutMs:mode==='deadline'?1000:30000,onProgress:message=>progress.push(message)}),mode==='deadline'?/总等待上限.*无法确认唯一/:/已取消.*未执行命令/);
+      assert.equal(requests.length,2);assert.ok(progress.some(message=>message.includes('当前可达 1')));
+      for(const [file,value]of records)assert.equal(fs.readFileSync(file,'utf8'),value);
+    }finally{
+      server.closeAllConnections();await new Promise(resolve=>server.close(resolve));
+      if(saved===undefined)delete process.env.SIMPLE_EXPERIMENT_API_FILE;else process.env.SIMPLE_EXPERIMENT_API_FILE=saved;
+      console.log('[fixtures retained, no cleanup] '+dir);
+    }
+  }
+});
+
 test("instance enumeration: over-cap directory is reported truncated, never silently partial", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-instances-trunc-"));
   const discoveryPath = path.join(dir, "api.json");

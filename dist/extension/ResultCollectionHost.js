@@ -276,9 +276,42 @@ class ResultCollectionHost {
                 }
             }
         };
-        const readTasks = (workerId, options, budget, attempts = 3) => retryRead(() => h.client.getWorkerTasks(workerId, { ...options, signal: requestSignal ? AbortSignal.any([requestSignal, AbortSignal.timeout(budget)]) : AbortSignal.timeout(budget) }), attempts);
+        const pendingReads = new Map();
+        const returnedWorkers = new Set();
+        let waitingTimer;
+        const reportPending = () => {
+            if (!current() || !pendingReads.size)
+                return;
+            const waiting = [...pendingReads.values()].map(row => row.workerId + " · " + row.phase + " · 第 " + row.attempt + "/" + row.attempts
+                + " 次 · 已等 " + Math.floor((Date.now() - row.started) / 1000) + " 秒（单次上限 " + Math.ceil(row.budget / 1000) + " 秒）");
+            this.report({ message: "等待 Worker：" + waiting.join("；") + "；产物查询已处理 " + returnedWorkers.size + "/" + targets.length + " 台" });
+        };
+        const readTasks = (workerId, options, budget, attempts = 3) => {
+            let attempt = 0;
+            return retryRead(async () => {
+                const reader = {};
+                pendingReads.set(reader, { workerId, phase: options.discovery ? "PLAN 声明" : "产物状态", attempt: ++attempt, attempts, budget, started: Date.now() });
+                if (!waitingTimer) {
+                    waitingTimer = setInterval(reportPending, 5000);
+                    waitingTimer.unref?.();
+                }
+                reportPending();
+                try {
+                    return await this.waitFor(h.client.getWorkerTasks(workerId, { ...options, signal: requestSignal ? AbortSignal.any([requestSignal, AbortSignal.timeout(budget)]) : AbortSignal.timeout(budget) }), requestSignal);
+                }
+                finally {
+                    pendingReads.delete(reader);
+                    if (!pendingReads.size) {
+                        clearInterval(waitingTimer);
+                        waitingTimer = undefined;
+                    }
+                    else
+                        reportPending();
+                }
+            }, attempts);
+        };
         const started = Date.now(), timing = {};
-        let inputs = await h.currentResultPlanInputs();
+        let inputs = await this.waitFor(h.currentResultPlanInputs(), requestSignal);
         check();
         const scoped = Boolean(selection?.length);
         if (scoped) {
@@ -362,14 +395,18 @@ class ResultCollectionHost {
         };
         // Bound pressure on slow tunnels and preserve PLAN order. All enabled Workers
         // still receive the complete declarations/file verification below.
-        let discoveredPlans = 0;
+        let processedPlans = 0, verifiedPlans = 0;
         for (let offset = 0; offset < inputs.length; offset += 4) {
             const settled = await Promise.allSettled(inputs.slice(offset, offset + 4).map(async (plan) => {
                 try {
-                    return await discover(plan);
+                    const value = await discover(plan);
+                    if (value)
+                        verifiedPlans++;
+                    return value;
                 }
                 finally {
-                    this.report({ message: "已核实 PLAN 声明 " + (++discoveredPlans) + "/" + inputs.length });
+                    processedPlans++;
+                    this.report({ message: "已处理 PLAN 声明 " + processedPlans + "/" + inputs.length + "；已核实 " + verifiedPlans + "；待核实 " + (processedPlans - verifiedPlans) });
                 }
             }));
             const failed = settled.find(row => row.status === "rejected");
@@ -401,6 +438,10 @@ class ResultCollectionHost {
             catch (error) {
                 return { workerId: worker.id, queryComplete: false, error: String(error.message || error) };
             }
+            finally {
+                returnedWorkers.add(worker.id);
+                reportPending();
+            }
         }));
         check();
         timing.observationsMs = Date.now() - observationStarted;
@@ -411,7 +452,8 @@ class ResultCollectionHost {
             check();
             if (readUnavailable.has(workerId))
                 throw readUnavailable.get(workerId);
-            const capability = await h.simpleSftpCapability("sync.downloadMappedPaths");
+            this.report({ message: "核实 SimpleSFTP 能力 · " + workerId });
+            const capability = await this.waitFor(h.simpleSftpCapability("sync.downloadMappedPaths"), requestSignal);
             check();
             if (capability.methodOptions?.["sync.downloadMappedPaths"]?.memoryOnly !== true
                 || capability.methodOptions?.["sync.downloadMappedPaths"]?.memoryWrapperResults !== true)
@@ -433,9 +475,9 @@ class ResultCollectionHost {
                     response = await retryRead(async () => {
                         memoryRequests++;
                         memoryFiles += batch.length;
-                        return h.simpleSftpApiCall("sync.downloadMappedPaths", { server, localPath: root,
+                        return this.waitFor(h.simpleSftpApiCall("sync.downloadMappedPaths", { server, localPath: root,
                             entries: batch.map(file => ({ ...file, localRelativePath: file.remotePath })), memoryOnly: true, metricsOnly: true, wrapperResults: true,
-                            maxFileBytes: 4 * 1024 * 1024, maxBatchBytes: 4 * 1024 * 1024, confirm: true, pathConfirmed: true, signal: requestSignal });
+                            maxFileBytes: 4 * 1024 * 1024, maxBatchBytes: 4 * 1024 * 1024, confirm: true, pathConfirmed: true, signal: requestSignal }), requestSignal);
                     });
                 }
                 catch (error) {
@@ -494,7 +536,7 @@ class ResultCollectionHost {
         timing.publicationMs = Date.now() - publicationStarted;
         const participating = new Set([...queued.map((plan) => plan.planFile),
             ...result.jobs.filter(job => job.state !== "missing" && (job.commandId || job.error || job.state === "conflict" || job.executionState === "running")).map(job => job.planFile)]);
-        const coverage = Object.fromEntries(inputs.map((plan) => [plan.planFile, {
+        const coverage = Object.fromEntries(inputs.map((plan) => [String(plan.planFile), {
                 included: participating.has(plan.planFile),
                 expected: plans.find(row => row.planFile === plan.planFile)?.jobs.length || plan.jobCount || 0,
                 completed: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && job.aggregationState === "eligible").length,
