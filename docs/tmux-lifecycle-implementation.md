@@ -1,5 +1,7 @@
 # tmux 作业生命周期实施
 
+> 历史设计/验收记录。涉及旧控制节点、旧端口、旧推送及旧运行策略的内容不作为当前操作说明；当前只使用单台或多台 Worker，请以 [配置说明](simple-experiment-setup.md) 和 [接入模板](experiment-integration.md) 为准。
+
 开发基线 0.5.305；交付目标 SimpleExperiment 0.5.306、SimpleSFTP 0.2.81。用户批准 Scheduler/tmux/最终产物的主动查询方案。
 
 固定边界：不访问生产服务器，不训练，不删除真实产物；保留用户工作区改动。

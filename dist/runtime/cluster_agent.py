@@ -474,9 +474,9 @@ class SyncScopeIndex:
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.438"
-RUNTIME_VERSION = "0.5.438"
-PLUGIN_VERSION = "0.5.438"
+AGENT_VERSION = "0.5.439"
+RUNTIME_VERSION = "0.5.439"
+PLUGIN_VERSION = "0.5.439"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -13157,7 +13157,7 @@ def scheduler_validate_json(root, scheduler, plan, default_result_csv_dir="exper
 def dry_run_preview_action(root, plan, workers, assigned_indices=None, default_result_csv_dir="experiments/results", operation_id=""):
     scheduler = cluster_scheduler_path(root)
     if not scheduler:
-        raise RuntimeError("Hub 上缺少 cluster_scheduler.py，请先部署最新版 Agent。")
+        raise RuntimeError("当前 Worker 缺少 cluster_scheduler.py，请准备最新版 Agent。")
     owner = str(operation_id or "").strip()
     if not owner:
         raise ValueError("Dry-run 缺少稳定 operationId，拒绝创建无归属暂存文件。")

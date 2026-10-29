@@ -1,5 +1,7 @@
 # 正式 job 与内存汇总契约
 
+> 历史版本协议记录。下文的 0.5.278、协议 1 和旧节点升级步骤不作为当前操作说明；当前只使用单台或多台 Worker，协议与接入以 [项目契约](plugin-project-contract.md)、[配置说明](simple-experiment-setup.md) 和 [接入模板](experiment-integration.md) 为准。
+
 适用版本：本 Windows 仓库的 SimpleExperiment 0.5.278。正式表示执行及保存方式，不代表结果满足论文证据要求。未核验 Mac 仓库 ad87dbd 或其 0.5.310 安装包，也未部署、探测生产 Hub/Worker。
 
 ## 新任务路径

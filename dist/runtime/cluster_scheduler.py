@@ -37,9 +37,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.438"
-RUNTIME_VERSION = "0.5.438"
-PLUGIN_VERSION = "0.5.438"
+SCHEDULER_VERSION = "0.5.439"
+RUNTIME_VERSION = "0.5.439"
+PLUGIN_VERSION = "0.5.439"
 FORMAL_JOB_PATH_PROTOCOL = 1
 FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1
 EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1
@@ -4267,7 +4267,7 @@ def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, 
     _, declared_jobs = build_jobs(loaded, default_result_csv_dir)
     declared_job = next((job for job in declared_jobs if job.index == experiment_index), None)
     if not declared_job or declared_job.output_dir != output_dir_text:
-        raise ValueError("FORMAL_JOB_DECLARATION_CHANGED: Hub dispatch output")
+        raise ValueError("FORMAL_JOB_DECLARATION_CHANGED: retired cross-node dispatch output")
     enqueue_worker_command(worker, {
         "action": "start-worker-task",
         "commandId": command_id,

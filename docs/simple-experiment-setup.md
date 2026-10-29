@@ -1,285 +1,192 @@
-# SimpleExperiment 配置说明
+# SimpleExperiment 配置与使用说明
 
-本文是面向新用户的完整配置流程。快速概览见仓库根目录 [README](../readme.md)。
+本说明以当前 Windows 插件实现为准。只配置执行服务器 Worker：启用一台就是单 Worker，启用多台就是多 Worker；二者使用同一套 `worker_pool` 流程。旧 `single_worker` 值可兼容读取，不需要另建控制服务器。旧控制节点配置不会生成连接、调度或结果汇总目标。
 
-## 前置条件
+快速入口见 [README](../README.md)，接入其他项目见 [最小实验接入指南](experiment-integration.md)，全部注册设置见 [配置字段参考](configuration-reference.md)，接口边界见 [项目契约](plugin-project-contract.md)。
 
-| 项目 | 要求 |
+## 1. 先了解各部分做什么
+
+| 部分 | 职责 | 退出后的行为 |
+| --- | --- | --- |
+| 本机 SimpleExperiment | 选择 PLAN、校验、同步协调、本机队列、显存预算、显示与结果汇总 | 尚未派发的本机任务需要窗口恢复后继续处理 |
+| SimpleSFTP | 管理 SSH/SFTP 目标和实际文件传输，回传文件事实与传输状态 | 不以旧传输回执代替实际文件检查 |
+| 每台 Worker 的 Agent | 提供本机转发后的健康、GPU、任务、文件查询及受管操作 | 可以独立准备、重启；不依赖科研 Conda 与它使用同一个 Python |
+| 每台 Worker 的 Scheduler | 接收已经明确派入服务器的队列，管理该 Worker 的执行窗口 | 已接收队列不因 VS Code 或 Agent 退出而被清空 |
+| 每个 job 的 tmux 窗口 | 前台运行实际命令，保留窗口与退出码供主动查询 | 普通停止精确关闭该任务窗口，不关闭整个 tmux server |
+
+多 Worker 是把不同 job 放到不同服务器执行，不自动把一个训练脚本变成跨服务器 DDP。已有 torchrun、分布式通信、数据分片和训练依赖由项目自己管理。
+
+## 2. 安装与前置条件
+
+- Windows、VS Code 1.100 或更新版本，安装 SimpleSFTP 和 SimpleExperiment。
+- 每台 Linux Worker 有可写的项目父目录、可用 SSH 登录、Python 3 和 tmux。科研命令所需依赖由项目环境提供；解析 YAML PLAN 的解释器需要 PyYAML。
+- 自动后台连接使用系统 OpenSSH 密钥或 ssh-agent。Xshell 保存的加密密码不会自动交给后台 SSH。
+- 一个窗口打开一个本地项目根目录。多根、空窗口和不支持的虚拟文件系统不能借用其他项目的连接执行操作。
+
+安装顺序为 SimpleSFTP → SimpleExperiment → **Developer: Reload Window**。两个窗口都开着时分别重载。内置“检查配套更新”读取两个插件各自的稳定 Latest Release。发行包同时提供 `.vsix` 和绑定精确文件名的 `.vsix.sha256`。
+
+## 3. 目录、端口与身份先填清楚
+
+假设本地项目是 `D:/Research/demo_project`，某 Worker 的项目父目录由你指定为 `/srv/experiments`：
+
+~~~text
+本地项目根目录         D:/Research/demo_project
+Worker 项目父目录      /srv/experiments
+最终远端代码目录       /srv/experiments/demo_project
+Agent 安装位置示例     /srv/experiments/simple_agent
+job 正式输出示例       work_dirs/demo/baseline/seed_42
+job 指标示例           work_dirs/demo/baseline/seed_42/metrics.csv
+本地最终汇总           experiments/results/
+~~~
+
+这些只是示例，不能照搬成真实服务器路径。不要把项目目录再填进“项目父目录”造成 `demo_project/demo_project`；不要用文件路径、系统根、数据集根或临时目录代替项目父目录。部署确认页会给出实际计算后的安装、状态和代码目录，应以该页为准。
+
+区分三种端口：
+
+| 端口 | 用途 | 例子，仅作说明 |
+| --- | --- | --- |
+| Worker SSH 端口 | 登录和文件传输 | A 的 22；B 可以是不同端口 |
+| 本机转发端口 | VS Code 访问本机隧道入口 | A 的 21801；B 的 21802，不能互相冲突 |
+| 远端 Agent 端口 | 转发真正到达的服务端口 | A 的 21901；B 的 21902，由各服务器配置决定 |
+
+请求使用每台 Worker 的 `localForwardHost/localForwardPort` 与 `remoteAgentHost/remoteAgentPort`；不能把某个示例端口当作唯一地址。端口检查失败应核对对应 Worker，不另建控制节点。
+
+如果设置了共享 `tunnel.agentToken`，它必须与全部启用 Worker 的 Agent 实际认证值一致。不要把 token、密码或私钥内容放进 PLAN、命令模板或提交到仓库。
+
+## 4. 添加第一台 Worker
+
+从已保存会话接入时，配置顺序是：Xshell 会话 -> SimpleExperiment 服务器目录 -> SimpleSFTP 目标 -> 准备 Agent。首次配置使用“准备 Agent 并启动”；插件不会把 Agent 部署到通用占位项目目录。没有打开项目时先选择真实工作区，随后按该项目计算并确认远端目标。
+
+1. 打开目标项目，进入 **SimpleExperiment → 设置 → 服务器**。
+2. 从已保存的 Xshell 会话导入服务器信息，或使用当前支持的服务器编辑入口填写真实主机、用户和 SSH 端口。导入只提供初始值，保存后核对当前卡片。
+3. 设置一个稳定且唯一的 Worker ID，例如 `worker-a`，再设置显示名。不要在已有任务运行中随意改 ID。
+4. 填写项目父目录、本机转发端点、远端 Agent 端点，以及科研任务需要的 Conda 环境。
+5. 启用该 Worker，保存；查看实际 SimpleSFTP 目标是否属于同一服务器和项目。
+6. 点击 **准备 Agent 并启动**，阅读精确目标后确认。它通过 SimpleSFTP 部署受管运行文件，启动指定 Agent tmux 窗口，建立后台 SSH 隧道并检查。
+7. 检测应覆盖全部启用 Worker 的连接、实际项目路径、身份和所需协议。没有启用的 Worker 不能算准备完成。
+
+### 服务器卡片字段
+
+| 字段 | 填法与含义 |
 | --- | --- |
-| 本机 | Windows + VS Code 1.100+ |
-| 插件 | `SimpleSFTP` 和 `SimpleExperiment` 同时安装 |
-| 远程 | Linux、Python 3、可写实验目录；建议有 tmux |
-| Python 依赖 | 运行计划的环境安装 `PyYAML` |
-| 登录 | 系统 OpenSSH 密钥或 ssh-agent；新增服务器可导入 Xshell `.xsh` 会话 |
+| `id` / `displayName` | 稳定机器标识 / 便于辨认的显示名 |
+| `workerHost` / `workerUser` / `workerSshPort` | 真实 SSH 登录地址、用户、端口 |
+| `sshConfigAlias` | 可选 OpenSSH 别名，须存在于当前机器的 SSH 配置中 |
+| `savedSessionPath` | 导入来源及手动打开 Xshell 的会话文件，不等于后台 SSH 已认证 |
+| `localForwardHost` / `localForwardPort` | 本机隧道入口地址和端口；各启用目标不能冲突 |
+| `remoteAgentHost` / `remoteAgentPort` | 该 Worker 的 Agent 实际监听地址和端口 |
+| `remoteTelemetryPort` | 历史兼容别名；新配置优先使用卡片当前 Agent 端口字段 |
+| `agentProjectDir` | 远端项目父目录，插件计算最终当前项目路径 |
+| `agentInstallDir` / `agentStateDir` / `workerStateDir` | 高级安装与状态目录；以部署预览为准，不随意改到数据集或科研产物目录 |
+| `condaEnv` | 科研任务的环境绝对路径，例如 `/srv/venvs/research`，也可精确到 `/bin/python`；空值继承项目默认，`-` 不是环境名 |
+| tmux 前缀 | 稳定且不与其他用户冲突的短名称；插件按它与 Worker ID 计算专用窗口 |
+| `enabled` | 是否参与当前新操作；关闭不会自动停止已有任务 |
+| `gpuJobsPerCard` | 每张卡允许并行的 job 数；留空继承项目默认 |
+| `gpuMinFreeMemoryGb` | 允许继续派发前的总剩余显存门槛，单位 GiB；还要通过峰值预算检查 |
+| `gpuMaxConcurrentCards` | 该 Worker 所有 PLAN 合计的并发占卡上限；留空不额外限制，0 暂停新派发 |
+| `gpuCardOverrides` | 按实际 GPU ID 覆盖并行数和剩余显存门槛；逐卡并行数 0 暂停该卡新派发 |
 
-不要把 token、密码或私钥写入项目文件。
+辅助 Agent 的解释器独立于科研 Conda。环境尚未安装项目依赖，不代表 Agent 身份不可信；正式命令真的缺包时会如实回报错误，插件不自动安装、修复环境或修改全局 shell。
 
-## 配置总览
+### 后台隧道与 Xshell 的区别
 
-```text
-准备服务器目录和 Conda
-        ↓
-从 Xshell 会话导入服务器，保存服务器与端口配置
-        ↓
-在 SimpleExperiment 设置中填写 Hub / Worker
-        ↓
-选择拓扑模式并检测全部
-        ↓
-准备 Agent 并启动
-        ↓
-接入本地实验项目和 Plan
-        ↓
-校验、预演、确认后运行
-```
+“一键打开隧道”启动受管的隐藏后台 OpenSSH 连接。“一键打开 Xshell”打开交互会话，保留原登录行为；关闭交互窗口不应被当作后台隧道停止证明。不要同时让两种连接争用相同本机端口。
 
-每个 VS Code 窗口只打开一个实验项目。多根工作区会在上传、Agent 部署和远端运行前被阻断。
+旧会话中手动配置 Local/Outgoing 转发时，源地址与端口对应本机端点，目标地址与端口对应远端 Agent 端点。字段取实际配置，不要求所有机器使用同一端口。
 
-接入顺序：Xshell 会话 -> SimpleExperiment 服务器目录 -> SimpleSFTP 目标 -> 准备 Agent -> 运行 Plan。
+## 5. 从单 Worker 扩展到多 Worker
 
-## 1. 安装插件
+增加第二张服务器卡片并使用不同 ID、本机端口和准确的远端项目父目录；启用后保存，再准备和检查全部启用 Worker。移除一台的参与资格应先关闭其 enabled，已有 job 的停止、结果归属和路径仍按原 Worker 身份处理。
 
-1. 安装最新版 `simple-local.simple-sftp`。
-2. 安装最新版 `simple-local.simple-experiment`。
-3. 执行 **Developer: Reload Window**。
+不同 Worker 可以有不同 GPU 型号、容量和科研环境路径。数据集与必要权重必须在各机器可访问；插件不会从一台的数据集路径推断另一台路径。可以使用 case 配置或项目入口映射这些差异。
 
-两个插件的 Latest Release 会成对发布。面板“设置”中的配套更新入口会同时检查两者；确认后才下载并按 SimpleSFTP → SimpleExperiment 的顺序安装。
+新配置统一是 `worker_pool`，无论启用一台还是多台。多机 job 并行与单 job 多 GPU 是两个概念；单 job 的 GPU 参数必须由项目命令本身支持。
 
-## 2. 准备远端目录和环境
+## 6. 连接配置保存在哪
 
-示例：
+服务器、Conda、tmux 和隧道面板配置按当前项目保存到 VS Code workspaceState；两个不同项目窗口不会互写面板连接。旧项目首次升级复制旧连接配置一次，之后独立保存。不要通过复制内部状态文件把一个项目伪装成另一个项目。
 
-```bash
-mkdir -p /data/experiments
-conda create -n ml-env python=3.10 -y
-conda activate ml-env
-python -m pip install PyYAML
-tmux -V
-```
+VS Code 用户级设置可作为共用模板；需要项目独立的参数写入工作区设置或面板。插件安装版本、用户主动设置的全局偏好仍是 VS Code 的共用能力。API 发现绑定窗口实例和项目根目录，另一个窗口改写兼容 `api.json` 不会把当前项目的请求转过去。
 
-目录规则：
+## 7. 同步三种范围不要混淆
 
-```text
-用户填写的项目父目录: /data/experiments
-本地工作区名:         my_project
-远端代码目录:          /data/experiments/my_project
-Agent runtime:        /data/experiments/simple_agent
-```
+| 范围 | 用途 | 处理原则 |
+| --- | --- | --- |
+| 本机 → Worker | 代码、配置、PLAN、必要小输入 | 使用上传/同步范围树；默认排除训练产物、大权重、数据集和环境 |
+| Worker → Worker | 各执行机间需要的项目与最新 job 产物 | 默认范围包含整个 work_dirs（兼容 work_dir），每 job 完成只同步该 job 最新产物与当前勾选范围的交集 |
+| Worker → 本机结果汇总 | 主动核实并收集轻量指标 | 原始指标通过内存读取和指纹核实，本地写最终汇总；不自动下载整个训练目录 |
 
-不要把 `/root`、`/tmp`、数据集目录或当前项目名填成项目父目录。
+新增大数据或权重先决定它是否真的需要上传。`serverSync.paths` 的用户排除不会被自动补回。`tmp/result` 可以是 PLAN 声明的合法正式结果路径，目录名称本身不决定结果真假。
 
-## 3. 导入服务器并启动后台隧道
+正式运行保留代码同步、静态入口探针、全部启用 Worker 就绪检查和输出目录准备；其中包含真实写入，不能把整段称为纯只读验证。
 
-新增服务器时仍从 Xshell 已保存会话导入地址、用户名和端口。导入后使用服务器设置中保存的配置，点击“一键打开隧道”会启动隐藏的系统 OpenSSH 连接，不打开 Xshell，也不修改会话登录命令。系统 SSH 必须已配置密钥或 ssh-agent；插件不会读取 Xshell 保存的密码。
+## 8. 接入与运行第一个 PLAN
 
-需要交互终端时，点击“一键打开 Xshell”打开已保存会话。该入口保留原有会话的隧道及登录设置，但不代替后台连接或 Agent 就绪检查。下列手动转发步骤仅供保留旧会话设置的用户参考：
+优先使用 [最小实验接入指南](experiment-integration.md) 选择零源码改动的通用命令或输出指标的模板。PLAN 放在 `experiments/plans/`，不要从别人的项目复制硬编码路径。
 
-1. 打开 Xshell 会话属性。
-2. 进入 **连接 > SSH > 隧道**。
-3. 点击 **添加**。
-4. 类型：**Local (Outgoing)**。
-5. 源主机：`localhost`；源端口：`18765`。
-6. 目标主机：`127.0.0.1`；目标端口：`18765`。
-7. 保存并登录测试一次。
+1. 准备真实命令、所需输入、独立输出路径和依赖环境。
+2. 在面板识别项目并选择 PLAN。项目输出规则通过设置维护，新项目不强制创建 `experiments/simple_project.yaml`。
+3. 先校验，再预演，核对展开后的 case、seed、命令、工作目录、目标 Worker、输出目录、指标路径和任务数量。
+4. 首次先做小规模调试；Debug 输出隔离，不当作正式论文结果。
+5. 使用 **校验并提交运行**。确认页中的服务器、目录、同步范围、执行环境、代码与 PLAN 身份必须正确。
+6. 提交后区分“本机等待派发”“已进入服务器队列”“任务窗口运行”“产物已核实完成”。接收回执不等于任务成功。
 
-Worker 的本机监听端口必须不同，远端 Agent 地址和端口以每台服务器当前配置为准。以下为历史配置示例，Hub 已退役，不作为当前连接目标：
+不要直接在终端运行研究脚本来冒充插件的正式实验。CLI/API 也应读取当前实例能力，先 validatePlan、dryRunPlan，再提交 runPlan；确切方法与参数取当前版本，不猜端口或旧接口名。
 
-| 角色 | 本机监听端口 | 目标地址 |
-| --- | ---: | --- |
-| Hub | `18765` | `127.0.0.1:18765` |
-| Worker A | `18766` | `127.0.0.1:18765` |
-| Worker B | `18767` | `127.0.0.1:18765` |
+## 9. 调度、显存与手动派发
 
-检查项：
+默认每卡最大并行 job 数是 1，总剩余显存门槛是 22 GiB。小显存卡如果始终等待，应按真实容量与实验需求调低门槛；提高并行上限不会关闭显存预算和防 OOM 检查。
 
-- 源和目标都只使用 loopback 地址。
-- 每个端点的本机监听端口唯一。
-- 尽量不复用同一个 `.xsh` 文件。
-- 如果设置了 Agent token，所有 Agent 必须使用同一个值。
+新配置优先级为逐卡覆盖 → Worker 覆盖 → 项目默认。服务器并发占卡上限独立计算，所有 PLAN 合计；调低上限或设为 0 只影响后续派发，不杀正在运行的任务。`maxConcurrentGpus`、旧“每 job 固定多少 GiB”和利用率空卡阈值属于旧兼容参数，不作为新配置教程。
 
-## 4. 填写 SimpleExperiment 服务器设置
+显存预算使用插件自己观察的进程显存峰值，不要求项目打印固定 epoch 文案。默认需要约 10 分钟连续有效观察，采样中断会重新累计连续窗口；已成功完成的短任务可以贡献完整运行峰值。未有可信估计时先独占探测，已有同组配置与相同硬件估计后才尝试并行。估计按当前 PLAN 生命周期持久化，重载后复用；不同配置或硬件不能任意套用。当前峰值预算增加约 20% 和 1024 MiB 余量；已有任务尚未实际申请的预算也计入预留，OOM 证据会阻止继续沿用乐观估计。
 
-打开单项目工作区，进入 **SimpleExperiment > 设置 > 服务器**。
+峰值是观察估计，验证、评估、动态 batch 或输入变化仍可能出现更高峰值。想增加余量可提高剩余显存门槛、降低每卡并行数或降低项目 batch size；不要把预算估计理解为绝对不会 OOM。
 
-如果从配置说明或错误提示进入，点击 **打开服务器设置** 会直接定位到该区域。
+**手动派发**可以指定某张卡，也可以选择“该服务器自动派发”：后者固定服务器，等待该 Worker 的合适空卡。它不会擅自换服务器，也不会绕过并行占卡与显存保护。需要服务器独立消费剩余队列时，使用运行进度中的对应入服务器队列按钮，检查明确目标后确认。
 
-### Hub
+## 10. 查看运行、停止与恢复
 
-| 字段 | 示例 / 说明 |
+- 看任务卡片的服务器、GPU、执行状态、退出码、产物核实和日志分析，不能只看一个绿色标签。
+- 已新鲜确认退出 0、产物完整且日志无异常的同一任务会保存完成事实；重载、断线、TTL 到期或本轮复查失败不应自动扣减完成数。
+- 新的真实非零退出、产物缺失、内容损坏、身份冲突或异常证据仍会提示处理，不因历史完成而掩盖。
+- 连接差时先恢复该 Worker 的隧道/认证，再主动刷新；不要因为未知状态自动重跑。
+- 普通停止绑定原 commandId 与实际 tmux 窗口，不关闭整个 GPU 会话或整个 tmux server。
+- Agent 的准备、升级、重启不以旧任务登记为阻断条件；实际科研任务和产物保留。
+- `ACTIVE_TRANSFER` 表示本次文件操作忙，传输结束后自动重新核实；旧错误不作为永久卡死依据。未确认旧破坏性操作结束时，仍不能重复发送它。
+
+覆盖或清理已有产物必须进入精确路径预览和两次确认。查询失败是未知，不等于目录已消失；不会按 PLAN 名称前缀批量删除。
+
+## 11. 中途获取结果与弱连接
+
+点击 **更新结果汇总**，即可在整批尚未跑完时收集当前已经产生且通过核实的结果。每个参与 Worker 会主动查询实际任务/声明/文件事实；通过 SimpleSFTP 在内存中读取轻量文件，并核对当前运行身份、路径、大小与 SHA256。
+
+只有真正读取和核实的结果算本轮结果。临时网络故障的只读声明、观察和内存读取最多尝试三次，间隔 0.5 秒与 1.5 秒；持续断线不再拆成逐 job 重读。取消、项目变化、权限或指纹错误不会被当成网络抖动反复尝试。整批结果未知时保留原导出，并说明它不是本轮查询结果。
+
+**重建本机表格**使用已保存的最终汇总重建表格，不能替代一次新的服务器核实。全新查询发现实际结果已被删除时，旧行不能继续冒充当前结果。解析与收集不隐式执行科研质量、数据污染或论文结论检查；需要这些检查时由消费项目主动执行。
+
+## 12. 低流量与长期运行
+
+不看界面时可使用低流量模式，并按需手动刷新状态、结果和 GPU 详情。它减少重复状态、历史与大块日志读取，不关闭服务器 Scheduler，也不把已经接收的队列收回本机。
+
+低流量不等于绝对零通信：尚未派完的本机队列、必要任务核实和真实文件传输仍可能通信。大日志、历史 GPU 曲线、同步产物和反复更新结果都会消耗流量。长时间不看时不要常开这些详情；正在执行的上传/下载应按实际传输量判断。
+
+## 13. 常见问题
+
+| 现象 | 先检查什么 |
 | --- | --- |
-| 显示名 | `Lab-Hub` |
-| Xshell 会话 | 选择 Hub 已保存的 `.xsh` |
-| 本地转发端口 | `18765` |
-| 远端 Agent 端口 | `18765` |
-| 项目父目录 | `/data/experiments` |
-| Conda 环境 | `ml-env`；留空使用系统 Python |
-| tmux 前缀 | 多用户时改成短用户标识 |
+| 很多空卡仍等待 | 每卡配额、服务器占卡上限、0 暂停项、22 GiB 默认门槛、显存估计是否就绪、真实新鲜 GPU 证据 |
+| 单卡项目不会上第二台机器 | 第二台是否 enabled、当前操作选择范围、各自数据/环境/代码同步及就绪检查 |
+| 后台 SSH 失败而 Xshell 能登录 | 系统密钥/ssh-agent、Host 别名和 IdentityFile；Xshell 密码不自动复用 |
+| 端口可连但 Agent 身份不对 | 是否转发到另一台/旧项目、实际远端 Agent 地址端口、配置项目根与运行版本 |
+| `fetch failed` 偶发 | 等待本轮有限重试；持续失败再核对目标隧道、连接中断和 Worker 负载，保留旧表后重查 |
+| 另一个项目窗口影响连接 | 两个插件和全部窗口是否都已重载；不要通过全局兼容发现文件指定错误实例 |
+| Conda/缺包报错 | 正式任务选中的环境绝对路径与该项目依赖；由用户管理环境，不要求 Agent 导入科研包 |
+| 已完成任务重载后复查未知 | 完成事实应保留；查看新的未知提示与原完成证据，不自动重跑 |
+| 想清理或覆盖旧结果 | 使用受保护的精确路径流程，两次核对目标；不要手工改内部状态来绕过 |
 
-### Worker
+## 14. CLI 与自动化入口
 
-除 Hub 相似字段外，还要填写：
+使用 `simpleex --help` 查看本机入口，按实际实例使用 `--workspace` 或 `--instance`。同一项目开多个存活实例时不要按“最新时间”猜目标；明确完整实例 ID。先读取匹配项目的 discovery 与 capabilities/openapi，再选当前支持的方法。写入与危险操作需要明确的确认参数，`CONFIRM_REQUIRED` 是正常保护，不应静默补齐后重试。
 
-| 字段 | 说明 |
-| --- | --- |
-| 本地转发端口 | 例如 `18766`，必须唯一。 |
-| 并发占卡上限 | 该 Worker 允许同时使用的 GPU 数。 |
-| 允许 GPU ID | 如 `0,1,2,3`；留空不限制。 |
-| Worker Conda 环境 | 可覆盖全局环境；空值或 `-` 视为未配置。 |
-
-### 安全边界
-
-可在 VS Code settings 中添加：
-
-```jsonc
-"simpleExperiment.remote.allowedRoots": [
-  "/data/experiments"
-],
-"simpleExperiment.remote.deniedRoots": [
-  "/root",
-  "/data/experiments-forbidden"
-]
-```
-
-这些路径只限制“项目父目录”，不会自动推断某台服务器的存储路径。
-
-## 5. 选择拓扑
-
-在服务器设置中选择一种：
-
-| 模式 | 适用场景 |
-| --- | --- |
-| `single_worker` | 只有一台执行机，无 Hub。 |
-| `worker_pool` | 两台以上 Worker 分片执行，无 Hub。 |
-| `hub_worker` | Hub 调度汇总，至少一台 Worker 执行。 |
-
-切换模式不会迁移旧任务。正式运行前至少要有一台启用的 Worker。
-
-## 6. 准备 Agent
-
-点击 **准备 Agent 并启动**。确认窗口会显示：
-
-首次配置使用“准备 Agent 并启动”完成后台 runtime 部署、受管 Agent 启动、后台隧道和检测。
-
-准备 Agent 前必须打开目标本地项目；插件不会把 Agent 部署到通用占位项目目录。
-
-- 服务器地址、SSH 用户和端口；
-- 每台服务器的 runtime 上传位置；
-- 当前项目的最终远端代码目录；
-- Hub/Worker 角色与 SSH 身份。
-
-确认后插件通过 SimpleSFTP 在后台上传 runtime、管理指定 Agent tmux 窗口，再后台建立系统 SSH 隧道并检测端点。
-
-Xshell 会话用于新增服务器时的导入和“一键打开 Xshell”手动终端入口。自动准备和隧道启动不修改 `.xsh` 或依赖 Xshell 登录；原来的 RemoteCommand 写入入口仍供用户主动调用。
-
-后台认证复用系统默认密钥或 ssh-agent，不能读取 Xshell 加密密码。指定私钥请配置到系统 OpenSSH 的 `IdentityFile` 或 ssh-agent，供隧道与 SimpleSFTP 部署共同使用。
-
-检测通过标准：
-
-- Hub 和所有启用 Worker 可达；
-- Agent 版本兼容；
-- Agent 报告的项目路径等于 `<项目父目录>/<当前工作区名>`；
-- Worker availability 可获取。
-
-## 7. 接入项目
-
-推荐结构：
-
-```text
-my_project/
-  train.py
-  test.py
-  configs/
-    smoke.yaml
-    baseline.yaml
-  experiments/
-    plans/
-      baseline.yaml
-    simple_project.yaml
-  work_dirs/
-```
-
-点击 **接入当前项目** 后：
-
-1. 选择或创建 Plan。
-2. 确认训练/评估入口和命令。
-3. 确认结果文件路径。
-4. 缺少输出映射时生成轻量 adapter。
-5. 执行检测和输出契约检查。
-
-Plan 示例（向 MultiModal 对齐：train 仅 `--output-dir`，test 双写）：
-
-```yaml
-suite: demo
-base_config: configs/smoke.yaml
-mode: train_test
-seeds: [0]
-runner:
-  train_command: python train.py --config {config} --seed {seed} --output-dir {output_dir}
-  test_command: python test.py --config {config} --seed {seed} --output-dir {output_dir} --result-csv {result_csv}
-naming:
-  output_dir: "work_dirs/{case}/seed_{seed}"
-cases:
-  - name: smoke
-paper:
-  result_csv: experiments/results/demo.csv
-# 口径说明（与主契约统一）：此处为最终大表覆盖写法（回退链第 1 级直接字段命中大表，test 经 --result-csv 追加）；
-# 新手 per-job 默认写法为 `paper.result_csv: "{output_dir}/metrics_summary.csv"`（见 docs/plugin-project-contract.md “paper.result_csv 口径统一”）。
-# `naming.output_dir` 优先级高于 `sweep_dir/job_name` 拼接；`cases` 中 `name:` 与 `case:` 等价归一。
-expectedResults:
-  - "{output_dir}/metrics_summary.csv"
-  - "{output_dir}/metrics_case.csv"
-  - experiments/results/demo.csv
-```
-
-标准输出：per-job 双 csv（`metrics_summary.csv` + `metrics_case.csv`）+ 双 log（`stdout.log` + `stderr.log`）+ 最终大表（`experiments/results/<method>.csv`，按实验类型命名）。试探输出先落 `tmp/`，确认后转正，不进归档。
-
-首次接项目先使用 smoke 配置和小规模 epoch/step。
-
-## 8. 运行和监控
-
-1. 选择 Plan。
-2. 点击 **校验并提交运行**。
-3. 在强确认窗口核对：
-   - 最终远端项目路径；
-   - Plan 和 revision；
-   - 任务数；
-   - topology 和 selectedWorkers；
-   - condaEnv；
-   - maxConcurrentGpus；
-   - 预期结果位置。
-4. 确认后插件自动同步代码。
-5. 自动校验和预演通过后才提交调度。
-6. 在任务页查看日志、排队、失败、停止和重试。
-
-Debug 运行会隔离到 debug 目录，不能进入正式归档、统计或 PPT 流程。
-
-## 9. 结果处理
-
-调度终态后：
-
-1. 插件检查 Plan 声明的结果路径。
-2. 解析完整预览结果。
-3. 用户选择哪些记录归档。
-4. 已归档记录才进入质量门禁、统计摘要、论文表格、claim evidence 和 PPT 绘图。
-
-不要把临时预览 CSV 当作论文证据来源；有效结果以归档清单为准。
-
-## 常见问题
-
-| 问题 | 处理 |
-| --- | --- |
-| 本地端口未打开 | 启动对应 Xshell 会话，重新核对 Local (Outgoing) 转发。 |
-| Agent 不可达 | 核对本机端口、远端端口、token 和 tmux 会话。 |
-| Agent 版本不匹配 | 重新部署 runtime 后重启 Xshell/tmux，再检测全部。 |
-| 项目目录不匹配 | 修改“项目父目录”，不要让末级重复出现当前项目名。 |
-| 未配置 condaEnv | 在 Worker 卡片填写真实环境名；`-` 不是环境名。 |
-| PyYAML 缺失 | 在实际执行环境中执行 `python -m pip install PyYAML`。 |
-| SimpleSFTP 未就绪 | 安装配套版本并重载窗口。 |
-| 上传慢 | 用 ignore 规则排除数据集、checkpoint、缓存和大模型文件。 |
-
-## 支持边界
-
-- 不内置 SSH、SCP 或 RSYNC 客户端调用。
-- 不自动删除远端数据集、checkpoint、归档或结果。
-- 不绕过路径确认、运行确认和 Debug 门禁。
-- 不根据服务器名猜测远端根目录。
-- 所有状态文件使用原子替换，并保留审计字段。
+源码开发的 `npm run package` 只构建打包，不改变活动扩展；`npm run install:latest` 才执行一次新版本安装。安装后核对版本与 simpleex，重载后再做界面检查。远端 Agent 是否更新是独立操作，不因本机发行自动更新训练服务器。

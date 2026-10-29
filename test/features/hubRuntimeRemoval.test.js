@@ -36,6 +36,19 @@ function panelFunction(name,globals){
  function visit(node){if(ts.isFunctionDeclaration(node)&&node.name?.text===name)found=node;ts.forEachChild(node,visit);}visit(tree);assert.ok(found,name);
  return vm.runInNewContext(found.getText(tree)+';'+name,globals);
 }
+
+test('rendered topology and help describe one or multiple Workers and mark old configuration retired',()=>{
+ const label=panelFunction('topologyModeLabel',{}),help=panelFunction('configHelp',{});
+ assert.match(label('worker_pool'),/单台或多台/);assert.doesNotMatch(help('topology','mode'),/Hub/i);
+ assert.match(label('hub_worker'),/已退役/);assert.match(help('hub','hubHost'),/已退役/);
+});
+
+test('artifact actions cannot bypass missing Worker capabilities through a retired fallback',()=>{
+ const run=panelFunction('rowActionDisableReason',{usableTaskKey:Boolean,directWorkerActionMap:{inspectArtifact:'inspect'},
+  TASK_CONTROL_COMMANDS:new Set(),ARTIFACT_SCOPE_COMMANDS:new Set(['inspectArtifact']),
+  missingWorkerActionCapabilities:()=>['inspect'],disableReason:()=>assert.fail('missing Worker capability must block')});
+ assert.match(run({},'inspectArtifact',{runKey:'command',workerId:'w'}),/Worker Agent.*inspect/);
+});
 test('rendered Agent cards and sync readiness do not display or depend on a saved Hub',()=>{
  let rendered='';
  const render=panelFunction('renderAgentSessions',{DIAGNOSTIC_AGENT_WORKER_CARD_LIMIT:20,agentSessionCard:(role,name)=>role+':'+name,
