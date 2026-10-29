@@ -115,6 +115,28 @@ function seedRegistry() {
 }
 
 const {fixture}=require('../_helpers/freshResultHost');
+
+test('single Worker result discovery uses the selected execution environment when sync destinations have no Conda field',async()=>{
+  const f=fixture();f.host.workerActionTargets=()=>[{id:'a',conda_env:'chosen-research-env'}];
+  const original=f.host.client.getWorkerTasks;
+  f.host.client.getWorkerTasks=async(id,options)=>{
+    if(options.discovery)assert.equal(options.discovery.condaEnv,'chosen-research-env');
+    return original(id,options);
+  };
+  const report=await __syncPendingResultMetricsForTest(f.host);
+  assert.equal(report.current,true,JSON.stringify(report.skipped));assert.equal(report.completed,1);
+  assert.ok(f.calls.some(row=>row[0]==='tasks'&&row[2].discovery?.condaEnv==='chosen-research-env'));
+});
+
+test('a task environment change during result discovery cancels publication and preserves the previous export',async()=>{
+  const f=fixture();let env='first';f.host.workerActionTargets=()=>[{id:'a',condaEnv:env}];
+  await __syncPendingResultMetricsForTest(f.host);
+  const table=path.join(f.root,'experiments/results/set/final/final.csv'),before=fs.readFileSync(table,'utf8');
+  const original=f.host.client.getWorkerTasks;
+  f.host.client.getWorkerTasks=async(id,options)=>{const value=await original(id,options);if(options.discovery)env='changed';return value;};
+  await assert.rejects(__syncPendingResultMetricsForTest(f.host),/配置已变化/);
+  assert.equal(fs.readFileSync(table,'utf8'),before);
+});
 test("actual UI entry reads native manifests and alias metrics into memory without a result registry", async()=>{
   const f=fixture();f.raw['work_dirs/alpha42/metrics.csv']=csvFor([{seed:42,metric:'AUC',value:.4},{seed:42,metric:'roc_auc',value:.4},{seed:42,metric:'ECE',value:.1}]);
   f.host.parseFreshResultMetric=RealtimeTunnelPanelProvider.prototype.parseFreshResultMetric;

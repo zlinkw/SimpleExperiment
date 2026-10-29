@@ -13,7 +13,7 @@ export type ManualDispatchPorts = {
   /** r82：审核可返回 true/false、接受子集，或成对的 {accepted, blocked}——blocked 是隔离
    * 未完成/核验未知的准入排除（可见、不派发、绝不等于用户保留），与"取消"和"有意跳过"区分。 */
   review(plan: QueuedPlan, jobs: QueuedJob[]): Promise<boolean | number[] | { accepted?: number[];
-    blocked?: Array<{ index: number; reason: string; stage?: string; code?: string; operationId?: string }> }>;
+    blocked?: Array<{ index: number; reason: string; stage?: string; code?: string; operationId?: string; codes?: string[]; busyOnly?: boolean }> }>;
   send(plan: QueuedPlan, job: QueuedJob): Promise<unknown>; tick(): Promise<void>;
 };
 
@@ -65,7 +65,7 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
     if (reviewed === false) return { status: "cancelled", message: "文件审核已取消，未启动本批任务。" };
     // r82：三态消费——数组=接受子集；对象={accepted, blocked}成对；其余（true）=全部接受。
     // blocked 条目是隔离准入排除（本轮不派发），不得借用 retainExistingOutputs 的"用户保留"语义。
-    const blockedDecisions = new Map<number, { index: number; reason: string; stage?: string; code?: string; operationId?: string }>();
+    const blockedDecisions = new Map<number, { index: number; reason: string; stage?: string; code?: string; operationId?: string; codes?: string[]; busyOnly?: boolean }>();
     if (reviewed && !Array.isArray(reviewed) && typeof reviewed === "object")
       for (const row of reviewed.blocked || []) if (Number.isInteger(Number(row?.index))) blockedDecisions.set(Number(row.index), row);
     const accepted = Array.isArray(reviewed) ? selected.filter(job => reviewed.includes(job.index))
@@ -88,6 +88,7 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
           outputIsolationBlocked: { reason: String(decision.reason || "隔离结果未核实"),
             stage: decision.stage === "preview" || decision.stage === "execute" || decision.stage === "verify" ? decision.stage : "execute",
             ...(decision.code ? { code: String(decision.code) } : {}), ...(decision.operationId ? { operationId: String(decision.operationId) } : {}),
+            ...(Array.isArray(decision.codes) ? {codes:decision.codes.map(String)} : {}), ...(typeof decision.busyOnly === "boolean" ? {busyOnly:decision.busyOnly} : {}),
             declarationKey: job.outputDir, observedAt: new Date().toISOString() } });
         job.blockReason = outputIsolationNotice(job);
         continue;

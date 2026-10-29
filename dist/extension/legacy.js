@@ -138,6 +138,7 @@ const GpuJobOwnership = __importStar(require("../features/GpuJobOwnership"));
 const CodeSyncDelta_1 = require("../features/CodeSyncDelta");
 const CodeSyncProofWaiter_1 = require("../features/CodeSyncProofWaiter");
 const ManualDispatchHost_1 = require("./ManualDispatchHost");
+const OutputIsolationRecoveryHost_1 = require("./OutputIsolationRecoveryHost");
 const ServerQueueHost_1 = require("./ServerQueueHost");
 const DispatchWake_1 = require("../features/DispatchWake");
 const ManualJobDispatch_1 = require("../features/ManualJobDispatch");
@@ -580,7 +581,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "cleanupPlan", "reviewIsolatedPlanBatches",
     "markJobUnavailable", "restoreJobAvailability",
     "recallFailedJob",
-    "retryDistributedJob", "dispatchJobs", "queueRemainingJobs",
+    "retryDistributedJob", "dispatchJobs", "queueRemainingJobs", "recheckOutputIsolation",
     "stopAllPlans",
     "stopAndClearPlan",
     "stopAndClearPlans",
@@ -621,7 +622,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "cleanupPlan", "reviewIsolatedPlanBatches",
     "markJobUnavailable", "restoreJobAvailability",
     "recallFailedJob",
-    "retryDistributedJob", "dispatchJobs", "queueRemainingJobs",
+    "retryDistributedJob", "dispatchJobs", "queueRemainingJobs", "recheckOutputIsolation",
     "testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope",
     ...uiActionCommands,
     "quickSetup", "openSetupGuide", "configureSessions", "configureAgentSessions", "writeAgentCommands",
@@ -7153,6 +7154,8 @@ class RealtimeTunnelPanelProvider {
                 return await this.retryDistributedJobFromUi(message);
             case "dispatchJobs":
                 return await new ManualDispatchHost_1.ManualDispatchHost(this, workspaceRoot()).dispatch(message, true);
+            case "recheckOutputIsolation":
+                return await new OutputIsolationRecoveryHost_1.OutputIsolationRecoveryHost(this, workspaceRoot()).fromUi(message);
             case "queueRemainingJobs":
                 return await new ServerQueueHost_1.ServerQueueHost(this, workspaceRoot()).dispatch(message, true);
             case "analyzeRuntimeLog": {
@@ -16690,6 +16693,11 @@ class RealtimeTunnelPanelProvider {
         void this.tickDistributedQueue().catch(error => { if (error?.code === "STALE_QUEUE_ROUND")
             return; this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) }); });
     }
+    queueOutputIsolationRecoveryLocal(root) {
+        if (!root || this.distributedQueueRoot !== root || !this.distributedQueueCache?.plans?.some(plan => plan.jobs.some(job => job.status === "pending" && job.outputIsolationBlocked && !job.commandId)))
+            return;
+        void (0, OutputIsolationRecoveryHost_1.queueOutputIsolationRecovery)(this, root).catch(error => this.recordActionError({ command: "recheckOutputIsolation", message: errorMessage(error) }));
+    }
     async tickDistributedQueue() {
         if (this.manualDispatchInFlight?.size)
             return;
@@ -16702,6 +16710,7 @@ class RealtimeTunnelPanelProvider {
             return this.distributedQueueTickPromise;
         if (this.distributedPlanStopEpoch)
             return;
+        this.queueOutputIsolationRecoveryLocal?.(workspaceRoot());
         this.distributedQueueRefreshRequested = false;
         if (this.taskLifecycleProtocol === 2)
             void (0, GpuQuotaPolicyHost_1.syncGpuQuotaPolicies)(this, workspaceRoot()).catch(() => { });
@@ -29435,7 +29444,8 @@ class RealtimeTunnelPanelProvider {
                 localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,
                 recallOperationId: job.recallOperationId || "",
                 commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt, outputRetiredAt: job.outputRetiredAt,
-                error: job.error, blockReason: job.blockReason, admissionRejection: job.admissionRejection, failureDiagnostic: job.failureDiagnostic, formalConflictEvidence: job.formalConflictEvidence,
+                error: job.error, blockReason: job.blockReason, outputIsolationBlocked: job.outputIsolationBlocked,
+                admissionRejection: job.admissionRejection, failureDiagnostic: job.failureDiagnostic, formalConflictEvidence: job.formalConflictEvidence,
                 artifactError: job.artifactError,
                 artifactStageBlock: job.artifactStageBlock && job.artifactStageBlock.schemaVersion === 1
                     && job.artifactStageBlock.code === "TRANSFER_STAGE_PENDING" ? job.artifactStageBlock : undefined,
@@ -34181,6 +34191,7 @@ const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     analyzeRuntimeLog: "重新分析运行日志",
     retryDistributedJob: "核验并恢复任务",
     recallFailedJob: "召回失败 job 到本机重跑",
+    recheckOutputIsolation: "重新核实并恢复待派发 job",
     markJobUnavailable: "标记 job 不可用",
     restoreJobAvailability: "撤销 job 不可用",
     quickSetup: "检查服务器配置",

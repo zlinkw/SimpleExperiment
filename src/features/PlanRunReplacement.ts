@@ -8,7 +8,7 @@ export type RunReplacement = { key?: string; flow?: "isolate"; previews?: Array<
   // （含状态兜底失败），verify=隔离后源核验失败。旧持久化条目可缺 stage，消费端按"未核实"保守处理。
   blocked?: Array<{ index: number; reason: string; stage?: "preview" | "execute" | "verify"; code?: string; operationId?: string; codes?: string[]; busyOnly?: boolean;
     busy?: Array<Record<string, unknown> & { nodeId?: string }> }>; done?: boolean };
-export type RunReplacementBlockedFact = { index: number; reason: string; stage: "preview" | "execute" | "verify"; code?: string };
+export type RunReplacementBlockedFact = { index: number; reason: string; stage: "preview" | "execute" | "verify"; code?: string; codes?: string[]; busyOnly?: boolean; operationId?: string };
 export type RunReplacementPorts = {
   preview(job: any): Promise<CleanupPreview>;
   service: any;
@@ -302,7 +302,8 @@ export async function replaceRunOutputs(ports: RunReplacementPorts, state: RunRe
   // 核验未知者）成对返回，与"用户有意跳过"互斥；成功轮次也必须显式返回 blocked=[]，
   // 下游不得把缺字段当"无阻断"或"全放行"。
   const blockedFacts: RunReplacementBlockedFact[] = (state.blocked || []).filter(row => blockedIndexes.has(Number(row.index)))
-    .map(row => ({ index: Number(row.index), reason: row.reason, stage: row.stage || "verify" as const, ...(row.code ? { code: row.code } : {}) }));
+    .map(row => ({ index: Number(row.index), reason: row.reason, stage: row.stage || "verify" as const, ...(row.code ? { code: row.code } : {}),
+      ...(row.codes ? {codes:row.codes} : {}), ...(typeof row.busyOnly === "boolean" ? {busyOnly:row.busyOnly} : {}), ...(row.operationId ? {operationId:row.operationId} : {}) }));
   return { choice: state.choice!, selectedIndices: accepted, blocked: blockedFacts };
 }
 

@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { PlanCleanup, cleanupDigest, cleanupError, type CleanupOperation, type CleanupPreview, type CleanupRemovedMetadata, type CleanupProgressSink, type CleanupJobSelection } from "../features/PlanCleanup";
+import { PlanCleanup, cleanupDigest, cleanupError, cleanupRelative, type CleanupOperation, type CleanupPreview, type CleanupRemovedMetadata, type CleanupProgressSink, type CleanupJobSelection } from "../features/PlanCleanup";
 import { collectPlanCleanupEvidence } from "../features/PlanCleanupEvidence";
 import { distributedQueuePath, legacyDistributedQueuePath, emptyDistributedQueue, canonicalProjectId, type DistributedQueue } from "../features/DistributedPlanQueue";
 import { cleanupTaskEvidence, replacementEvidenceQueue, replacementJobGroups, replacementLifecycleJob } from "../features/PlanOutputReplacement";
@@ -99,6 +99,27 @@ export class PlanCleanupHost {
    */
   async verifyDeclaredTargets(params: { job: CleanupJobSelection; declared: Array<{ relativePath: string; type: string }>; nodes: any[] }) {
     return verifyDeclaredTargetsOnNodes({ host: this.host, assertWorkspace: () => this.assertWorkspace(), currentNode: id => this.currentNode(id) }, params);
+  }
+  async inspectPendingOutputTargets(job: { outputDir: string; collectionResultCsv?: string }) {
+    const nodes = this.managedNodes();
+    const declared = [{ relativePath: cleanupRelative(job.outputDir), type: "directory" },
+      ...(job.collectionResultCsv ? [{ relativePath: cleanupRelative(job.collectionResultCsv), type: "file" }] : [])];
+    if (!nodes.some(node => node.kind === "remote")) return {state:"unknown" as const,detail:"没有可核实的已启用 Worker。"};
+    const overlap = (value: unknown) => typeof value === "string" && declared.some(row=>value===row.relativePath || value.startsWith(row.relativePath+"/") || row.relativePath.startsWith(value+"/"));
+    const observations = await Promise.all(nodes.filter(node=>node.kind==="remote").map(async node=>{
+      if (node.error || typeof this.host.readWorkerTaskSnapshot !== "function") throw Error(node.error || "缺少本轮原生窗口观察入口。");
+      return this.host.readWorkerTaskSnapshot(node.id,{fresh:true,inventoryOnly:true,declarations:[]});
+    }));
+    if (observations.some(snapshot=>!snapshot || snapshot.error || snapshot.pending || snapshot.capabilities?.taskLifecycle!==2 || snapshot.queryComplete!==true || snapshot.controlIncomplete || snapshot.queryErrors?.length))
+      return {state:"unknown" as const,detail:"Worker 原生窗口或清理执行状态未核实，将自动重查。"};
+    if (observations.some(snapshot=>(snapshot.cleanupExecutors||[]).some((row:any)=>overlap(row.relativePath)||overlap(row.destination))
+      || (snapshot.tasks||[]).some((task:any)=>overlap(task.outputDir) && task.observation?.tmux?.dead!==true && task.dead!==true
+        && (task.observation?.tmux?.dead===false || task.dead===false || !["completed","failed","cancelled"].includes(String(task.status))))))
+      return {state:"unknown" as const,detail:"当前精确输出路径仍有关联运行窗口或清理执行器；等待其退出后自动核实。"};
+    const result = await verifyDeclaredTargetsOnNodes({host:this.host,assertWorkspace:()=>this.assertWorkspace(),currentNode:id=>this.currentNode(id)}, {declared,nodes});
+    if (result.blockers.length || result.verdicts.length !== declared.length * nodes.length || result.verdicts.some(row=>row.state==="error"))
+      return {state:"unknown" as const,detail:[...result.blockers.map(row=>row.detail),...result.verdicts.filter(row=>row.state==="error").map(row=>row.error)].filter(Boolean).join("；") || "精确路径观察不完整。"};
+    return {state:result.verdicts.every(row=>row.state==="absent") ? "absent" as const : "present" as const};
   }
   async replacementGroups(queue: DistributedQueue, file: string, declarations: any[], projectId: string, stablePlanId: string) {
     this.assertWorkspace();

@@ -97,6 +97,7 @@ import * as GpuJobOwnership from "../features/GpuJobOwnership";
 import { changedManifestFiles, inventoryFilesByPath } from "../features/CodeSyncDelta";
 import { waitForCodeSyncProof } from "../features/CodeSyncProofWaiter";
 import { ManualDispatchHost } from "./ManualDispatchHost";
+import { OutputIsolationRecoveryHost, queueOutputIsolationRecovery } from "./OutputIsolationRecoveryHost";
 import { ServerQueueHost } from "./ServerQueueHost";
 import { ownExecutionExited } from "../features/DispatchWake";
 import { dispatchReadyManualJobs } from "../features/ManualJobDispatch";
@@ -632,7 +633,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "cleanupPlan", "reviewIsolatedPlanBatches",
     "markJobUnavailable", "restoreJobAvailability",
     "recallFailedJob",
-    "retryDistributedJob", "dispatchJobs", "queueRemainingJobs",
+    "retryDistributedJob", "dispatchJobs", "queueRemainingJobs", "recheckOutputIsolation",
     "stopAllPlans",
     "stopAndClearPlan",
     "stopAndClearPlans",
@@ -673,7 +674,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "cleanupPlan", "reviewIsolatedPlanBatches",
     "markJobUnavailable", "restoreJobAvailability",
     "recallFailedJob",
-    "retryDistributedJob", "dispatchJobs", "queueRemainingJobs",
+    "retryDistributedJob", "dispatchJobs", "queueRemainingJobs", "recheckOutputIsolation",
     "testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope",
     ...uiActionCommands,
     "quickSetup", "openSetupGuide", "configureSessions", "configureAgentSessions", "writeAgentCommands",
@@ -6884,6 +6885,8 @@ return this.testTunnel(true);
                 return await this.retryDistributedJobFromUi(message);
             case "dispatchJobs":
                 return await new ManualDispatchHost(this, workspaceRoot()).dispatch(message, true);
+            case "recheckOutputIsolation":
+                return await new OutputIsolationRecoveryHost(this,workspaceRoot()).fromUi(message);
             case "queueRemainingJobs":
                 return await new ServerQueueHost(this, workspaceRoot()).dispatch(message, true);
             case "analyzeRuntimeLog": {
@@ -15475,6 +15478,11 @@ this.assertPlanTopologyReady("Plan 调度");
         this.distributedQueueRefreshRequested = true;
         void this.tickDistributedQueue().catch(error => { if (error?.code === "STALE_QUEUE_ROUND") return; this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) }); });
     }
+    queueOutputIsolationRecoveryLocal(root: string) {
+        if (!root || this.distributedQueueRoot !== root || !this.distributedQueueCache?.plans?.some(plan =>
+            plan.jobs.some(job => job.status === "pending" && job.outputIsolationBlocked && !job.commandId))) return;
+        void queueOutputIsolationRecovery(this,root).catch(error => this.recordActionError({command:"recheckOutputIsolation",message:errorMessage(error)}));
+    }
     async tickDistributedQueue() {
         if (this.manualDispatchInFlight?.size) return;
         if (require("../updates/Bootstrap").getUpdater()?.blocked) return;
@@ -15482,6 +15490,7 @@ this.assertPlanTopologyReady("Plan 调度");
         if (cleanup?.blocksTaskScheduling ?? cleanup?.executing) return;
         if (this.distributedQueueTickPromise) return this.distributedQueueTickPromise;
         if (this.distributedPlanStopEpoch) return;
+        this.queueOutputIsolationRecoveryLocal?.(workspaceRoot());
         this.distributedQueueRefreshRequested = false;
         if (this.taskLifecycleProtocol === 2) void syncGpuQuotaPolicies(this, workspaceRoot()).catch(() => {});
         const generation = this.distributedQueueGeneration;
@@ -27415,7 +27424,8 @@ return "历史服务器";
                     localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,
                     recallOperationId: job.recallOperationId || "",
                     commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt, outputRetiredAt: job.outputRetiredAt,
-                    error: job.error, blockReason: job.blockReason, admissionRejection: job.admissionRejection, failureDiagnostic: job.failureDiagnostic, formalConflictEvidence: job.formalConflictEvidence,
+                    error: job.error, blockReason: job.blockReason, outputIsolationBlocked: job.outputIsolationBlocked,
+                    admissionRejection: job.admissionRejection, failureDiagnostic: job.failureDiagnostic, formalConflictEvidence: job.formalConflictEvidence,
                     artifactError: job.artifactError,
                     artifactStageBlock: job.artifactStageBlock && job.artifactStageBlock.schemaVersion === 1
                         && job.artifactStageBlock.code === "TRANSFER_STAGE_PENDING" ? job.artifactStageBlock : undefined,
@@ -32079,6 +32089,7 @@ const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     analyzeRuntimeLog: "重新分析运行日志",
     retryDistributedJob: "核验并恢复任务",
     recallFailedJob: "召回失败 job 到本机重跑",
+    recheckOutputIsolation: "重新核实并恢复待派发 job",
     markJobUnavailable: "标记 job 不可用",
     restoreJobAvailability: "撤销 job 不可用",
     quickSetup: "检查服务器配置",

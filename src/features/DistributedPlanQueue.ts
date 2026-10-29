@@ -35,9 +35,11 @@ export type QueuedJob = {
    * 但四条派发路径（自动 tick、服务器队列、手动 ready、失败恢复）一律不得派发。
    * 本字段本身不是授权凭证；缺失也不等于"已证明隔离成功"（准入只由本轮隔离结果的结构化
    * blocked 划分）。解除仅发生在用户走既有审核路径、精确声明未变且隔离完成核验通过时，
-   * 随接受事务性写回（置 undefined），任何投影/合并/重排/清理不得静默清除。 */
+   * 随接受事务性写回（置 undefined）。传输忙可由当前全节点精确路径不存在证明解除；
+   * 投影、历史回执和单纯传输空闲均不得清除。 */
   outputIsolationBlocked?: { reason: string; stage: "preview" | "execute" | "verify"; code?: string; operationId?: string;
-    declarationKey: string; observedAt: string };
+    declarationKey: string; observedAt: string; codes?: string[]; busyOnly?: boolean;
+    recovery?: { state: "waiting_transfer" | "review_required" | "unknown"; checkedAt: string; nextCheckAt: string; detail?: string } };
   executionState?: string;
   resultState?: string;
   runtimeDiagnostics?: RuntimeDiagnostics;
@@ -942,10 +944,13 @@ export function distributedSubmissionResult(plan: QueuedPlan | undefined, dispat
 export function outputIsolationNotice(job: Pick<QueuedJob, "outputIsolationBlocked"> | undefined): string {
   const blocked = job?.outputIsolationBlocked;
   if (!blocked) return "";
+  if (blocked.recovery?.state === "waiting_transfer") return "等待传输结束后自动核实旧产物；核实安全后回到自动队列，训练尚未启动。";
+  if (blocked.recovery?.state === "review_required") return "传输已结束，当前仍存在旧产物；请点击“审核旧产物”核对精确路径，原有确认和产物保护保留。";
+  if (blocked.recovery?.state === "unknown") return "旧产物状态本轮未核实，将自动重查；可点击“重新核实”。" + String(blocked.recovery.detail || "").slice(0,300);
   if (blocked.code === "PREVIEW_EXPIRED")
     return "旧产物隔离未完成：隔离预览确认已过期（PREVIEW_EXPIRED），训练未启动；请重新生成预览并重新核对精确路径后再确认，未复用旧令牌。";
   return "旧产物隔离未完成，训练未启动：" + String(blocked.reason || blocked.code || "隔离结果未核实").slice(0, 300)
-    + "。请通过“重新排队此 job”重新审核产物处理（覆盖须重走完整两次确认）。";
+    + "。请通过“重新核实/审核旧产物”重新审核（覆盖须重走完整两次确认）。";
 }
 
 /** r82（0.5.414）提交体→入队→派发共用的唯一事实源：划分 可执行 / 隔离暂停（可见 pending 但不得
@@ -967,6 +972,7 @@ export function planDispatchSelection(validation: { jobs?: Array<Record<string, 
     const stage = row?.stage === "preview" || row?.stage === "execute" || row?.stage === "verify" ? row.stage : "execute";
     blockedMarkers.set(index, { reason: String(row?.reason || "隔离结果未核实"), stage,
       ...(row?.code ? { code: String(row.code) } : {}), ...(row?.operationId ? { operationId: String(row.operationId) } : {}),
+      ...(Array.isArray(row?.codes) ? { codes: row.codes.map(String) } : {}), ...(typeof row?.busyOnly === "boolean" ? { busyOnly: row.busyOnly } : {}),
       declarationKey, observedAt: String(row?.observedAt || observedAt) });
   }
   const userSkipped = new Set<number>(body?.existingOutputChoice === "rerun_missing"

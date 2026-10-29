@@ -3484,7 +3484,7 @@ export function renderPanelHtml(): string {
       "releaseJobStageBlockSlots",
       "analyzeRuntimeLog",
       "retryDistributedJob",
-      "recallFailedJob",
+      "recallFailedJob", "recheckOutputIsolation",
       "markJobUnavailable", "restoreJobAvailability",
       "stopAllPlans",
       "stopAndClearPlan", "stopAndClearPlans", "reloadWindow", "webviewHeartbeatAck", "webviewVisibility",
@@ -15056,7 +15056,7 @@ export function renderPanelHtml(): string {
         const submission = executionNewerSubmission(group);
         const deferredCurrent = !submission && !!group.deferredStatus;
         const currentJobs = submission || deferredCurrent ? [] : executionCurrentDistributedJobs(group);
-        const schedulable = (job) => distributedJobIsActive(job) && !(String(job.status || "").toLowerCase() === "pending" && fingerprintBlocked(job));
+        const schedulable = (job) => distributedJobIsActive(job) && !job.outputIsolationBlocked && !(String(job.status || "").toLowerCase() === "pending" && fingerprintBlocked(job));
         const recovery = group.distributedRecovery || { expectedJobCount: 0, missingCount: 0, conflict: false, unresolved: false };
         const distributedActive = recovery.unresolved || currentJobs.some(schedulable);
         const active = submission || deferredCurrent ? true : currentJobs.length ? distributedActive
@@ -15065,7 +15065,7 @@ export function renderPanelHtml(): string {
           : group.tasks.some((row) => taskFailureLikeStatus(row.status)) || (!submission && !deferredCurrent && group.operations.some((row) => operationIsFailureLike(row.status) || operationHasDeadEvidence(row)));
         const blockedCount = currentJobs.filter((job) => String(job.status || "") === "pending" && fingerprintBlocked(job)).length;
         const blockedOnly = currentJobs.length > 0 && blockedCount === currentJobs.filter((job) => String(job.status || "") === "pending" || ["dispatching", "queued", "running", "unknown"].includes(String(job.status || ""))).length && blockedCount > 0 && !currentJobs.some((job) => ["dispatching", "queued", "running", "unknown", "failed"].includes(String(job.status || "")));
-        const queued = currentJobs.filter((job) => ["pending", "queued"].includes(String(job.status || "")) && !fingerprintBlocked(job)).length;
+        const queued = currentJobs.filter((job) => ["pending", "queued"].includes(String(job.status || "")) && !job.outputIsolationBlocked && !fingerprintBlocked(job)).length;
         const missingWindows = currentJobs.filter((job) => job.lifecycleProtocol === 2 && job.executionState === "missing" && !job.statusQueryError).length;
         const unknown = currentJobs.filter((job) => String(job.status || "") === "unknown").length;
         const dispatching = currentJobs.filter((job) => String(job.status || "") === "dispatching").length;
@@ -15075,7 +15075,7 @@ export function renderPanelHtml(): string {
         const waitingSubmission = submission && submission.localSubmissionProgress === true && String(submission.status || "").toLowerCase() === "queued";
         const reviewJobs = (currentJobs.length ? currentJobs : group.tasks).filter(job => ["completed", "done"].includes(job.status) && job.completionState !== "verified").length;
         const anomalyJobs = (currentJobs.length ? currentJobs : group.tasks).filter(job => ["completed", "done"].includes(job.status) && job.completionState === "review_required").length;
-        const tone = submission ? (waitingSubmission ? "blocked" : "queued") : deferredView ? deferredView.tone : unknown || recovery.unresolved ? "blocked" : running ? "running" : queued || dispatching ? "queued" : failed ? "failed" : reviewJobs || blockedOnly ? "blocked" : active ? "blocked" : "completed";
+        const tone = submission ? (waitingSubmission ? "blocked" : "queued") : deferredView ? deferredView.tone : unknown || recovery.unresolved ? "blocked" : running ? "running" : queued || dispatching ? "queued" : failed ? "failed" : reviewJobs || blockedOnly || currentJobs.some(job=>job.outputIsolationBlocked) ? "blocked" : active ? "blocked" : "completed";
         const completed = currentJobs.length ? currentJobs.filter((job) => String(job.status || "") === "completed" && job.completionState === "verified").length
           : submission || deferredCurrent ? 0
           : group.tasks.filter((row) => TASK_TERMINAL_STATUSES?.has(taskStatusToken(row.status)) && !taskFailureLikeStatus(row.status) && row.completionState === "verified").length;
@@ -15149,7 +15149,7 @@ export function renderPanelHtml(): string {
         const distributedHtml = distributedRows.length ? '<h3>' + loadingPrefix(group.distributedActive) + '当前 job · 成功 ' + group.completed + '/' + group.totalJobs + '</h3>'
           + (group.missingInputs ? '<div class="executionDistributedFailure" role="status">缺少 ' + group.missingInputs + ' 个 job 的任务输入（声明 ' + group.totalJobs + '，当前 ' + distributedRows.length + '）。缺项不计入完成；选中对应 PLAN 后，可校验并选择“仅补跑未完成任务”。</div>' : '')
           + (group.failedJobs ? '<div class="executionDistributedFailure">' + group.failedJobs + ' 个当前 job 失败，未计入成功。打开对应日志查看原因。</div>' : '')
-          + (group.isolationPausedJobs ? '<div class="executionDistributedFailure" role="status">' + group.isolationPausedJobs + ' 个 job 旧产物隔离未完成：训练未启动、不会自动派发，也不计入沿用完成；请在对应 job 行通过“重新排队此 job”或手动派发重新审核产物处理。</div>' : '')
+          + (group.isolationPausedJobs ? '<div class="executionDistributedFailure" role="status">' + group.isolationPausedJobs + ' 个 job 旧产物隔离未完成：训练未启动、不会自动派发，也不计入沿用完成；传输忙结束后自动核实，安全后回到队列。其他阻塞或仍有旧文件时，请在对应行点击恢复按钮重新审核。</div>' : '')
           + (group.logicalMerged ? '<div class="muted">补跑已合并 · ' + (group.mixedVersions ? '混合源码版本；逐 job 保留原始来源' : '保留逐 job 原始来源') + '</div>' : '')
           + Array.from(new Set(distributedRows.map(job => job.planId || group.distributedPlanId))).map(id => '<button type="button" class="mini" data-manual-dispatch="batch" data-plan-id="'+escAttr(id||'')+'" title="仅处理同一原始提交内的选中 job；已有文件另行审核">停止原任务并派发所选 job</button>').join('')
           + '<div class="executionDistributedJobs">' + distributedRows.map((job) => {
@@ -15158,11 +15158,13 @@ export function renderPanelHtml(): string {
           const manualControls=status!=="completed"?'<input type="checkbox" aria-label="选择手动派发任务" data-manual-job="'+escAttr(String(job.index))+'" data-plan-id="'+escAttr(manualPlan)+'" data-command-id="'+(job.commandId?escAttr(job.commandId):'')+'"'+(manualSelection&&manualSelection.has(job.index)&&manualSelection.get(job.index)===(job.commandId||'')?' checked':'')+'><button type="button" class="mini" data-manual-dispatch="single" data-plan-id="'+escAttr(manualPlan)+'" data-job-index="'+escAttr(String(job.index))+'" data-command-id="'+(job.commandId?escAttr(job.commandId):'')+'">'+(['queued','running'].includes(status)?'停止后派发':'手动派发')+'</button>':'';
           const retryView = automaticJobRetryView(job);
           const blocked = status === "pending" && fingerprintBlocked(job);
-          const jobActive = ["pending", "dispatching", "queued", "running", ...(job.lifecycleProtocol === 2 ? [] : ["unknown"])].includes(status) && !blocked;
+          const jobActive = ["pending", "dispatching", "queued", "running", ...(job.lifecycleProtocol === 2 ? [] : ["unknown"])].includes(status) && !blocked && !job.outputIsolationBlocked;
           const unavailable = job.unavailable && status === "cancelled";
           const preflightRejected = Boolean(job.admissionRejection && status === "failed");
           const needsReview = status === "completed" && job.completionState !== "verified";
-          const statusLabel = needsReview ? (job.completionState === "review_required" ? "完成但有异常，待复核" : "产物完整，运行日志待核实") : job.executionState === "starting" ? "正在启动命令" : job.outputIsolationBlocked ? "隔离暂停，未启动" : job.retainExistingOutputs ? "保留已有产物" : job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : job.executionState === "missing" ? "远端未发现该任务" : "执行状态待核实") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("PLAN 所需源码待核实") === 0 ? "源码待核实" : String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
+          const isolationState = job.outputIsolationBlocked && job.outputIsolationBlocked.recovery && job.outputIsolationBlocked.recovery.state;
+          const isolationLabel = isolationState === "waiting_transfer" ? "等待传输，自动重查" : isolationState === "review_required" ? "旧产物待审核" : isolationState === "unknown" ? "产物待核实，自动重查" : "隔离暂停，未启动";
+          const statusLabel = needsReview ? (job.completionState === "review_required" ? "完成但有异常，待复核" : "产物完整，运行日志待核实") : job.executionState === "starting" ? "正在启动命令" : job.outputIsolationBlocked ? isolationLabel : job.retainExistingOutputs ? "保留已有产物" : job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : job.executionState === "missing" ? "远端未发现该任务" : "执行状态待核实") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("PLAN 所需源码待核实") === 0 ? "源码待核实" : String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
           const placement = (job.workerId ? job.workerId + (preflightRejected ? " · 未启动" : job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : "未派发") + (job.manualDispatch ? " · 手动指定" : "");
           const canJumpLog = Boolean(!preflightRejected && job.workerId && (job.commandId || job.outputDir));
           const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">查看窗口日志</button>';
@@ -15177,10 +15179,12 @@ export function renderPanelHtml(): string {
           const recallButton = status === "queued" || job.recallRequested === true
             ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" title="只召回此排队 job；运行中、已结束或状态不明的任务保持原 Worker。">' + (job.recallRequested ? "重试召回" : "召回到本机") + '</button>' : "";
           const recallNote = job.recallRequested ? "召回待确认，仍固定在原 Worker" : "";
-          const failedRecallButton = status === "failed" && job.resultPathPolicy === "declared" && job.workerId && job.commandId
+          const isolationRecoveryButton = job.outputIsolationBlocked && status === "pending" && !job.workerId && !job.commandId
+            ? '<button type="button" class="mini secondary" data-command="recheckOutputIsolation" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '">' + (isolationState === "review_required" ? "审核旧产物" : "重新核实/审核旧产物") + '</button>' : "";
+          const failedRecallButton = isolationRecoveryButton || status === "failed" && job.resultPathPolicy === "declared" && job.workerId && job.commandId
             && job.globalJobId === String(job.planId || group.distributedPlanId || "") + ":" + String(job.index)
             && !job.unavailable && !job.recoveryConflict && !group.distributedRecovery?.conflict
-            ? '<button type="button" class="mini secondary" data-command="recallFailedJob" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="核对原作业身份、已停止状态及空输出；若有遗留文件，打开仅针对该 job 的人工审核预览。不会自动移动或覆盖产物。">重新排队此 job</button>' : "";
+            ? isolationRecoveryButton || '<button type="button" class="mini secondary" data-command="recallFailedJob" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="核对原作业身份、已停止状态及空输出；若有遗留文件，打开仅针对该 job 的人工审核预览。不会自动移动或覆盖产物。">重新排队此 job</button>' : "";
           const failedCleanup = asArray(group.failedAttemptRecoveries).filter(row => Number(row.jobIndex) === Number(job.index)).at(-1);
           const canMarkUnavailable = !job.unavailable && !job.recoveryConflict && !group.distributedRecovery?.conflict
             && (["failed", "cancelled"].includes(status) || status === "pending" && !job.workerId && !job.commandId);
@@ -15229,6 +15233,7 @@ export function renderPanelHtml(): string {
             ? '<div class="muted">启动前预检已拒绝此 job，训练未开始，不会自动重派。请核对上面的输出与结果路径；保留已有权重和结果，显式处理冲突或修改正式 job 声明后再提交。</div>'
             : codeProofBlocked
             ? '<div class="muted">启动前代码校验阻塞，训练尚未开始。部署并重启该 Worker 的 Agent 后刷新状态；原 job 保留排队，无需重新提交 Plan。校验仍未通过时，请核对 Worker 的对应代码版本。</div><button type="button" class="mini secondary" data-command="snapshot">刷新状态</button>'
+            : isolationRecoveryButton ? '<div class="muted">自动重查只核实精确路径。仍有旧产物时，通过审核按钮确认处理；已完成的 job 和产物保留。</div>'
             : failedRecallButton ? '<div class="muted">仅重新排队这个正式失败 job。若有遗留文件，先打开精确 job 的人工审核预览；确认清理完成后再重排。PLAN、源配置和其他 job 保留。</div>'
             : errorText && !retryView.note && !unavailable
             ? '<div class="muted">下一步：点本行“跳转到日志”查看对应 TMUX 任务窗口。这是已提交 job 的失败，不会自动清理。确认需要停止后，再点本 Plan 的“终止并清除该 Plan”（两次确认）。</div><span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度，查看本 Plan 的状态">运行进度</button><button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button></span>'
@@ -15474,6 +15479,7 @@ export function renderPanelHtml(): string {
             gpuId: job.gpuId,
             commandId: job.commandId,
             blockReason: job.blockReason,
+            outputIsolationBlocked: job.outputIsolationBlocked,
             admissionRejection: job.admissionRejection,
             outputDir: job.outputDir,
             collectionResultCsv: job.collectionResultCsv,

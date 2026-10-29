@@ -73,7 +73,16 @@ export class ResultCollectionHost {
   private async collect(signal?: AbortSignal) {
     const h = this.h, context = h.captureProjectContext(), root = context.root;
     if (!root) throw Error("请先打开当前实验项目。");
-    const targets = h.workerCodeSyncTargets();
+    // Sync destinations carry transport identity. The selected task environment
+    // belongs to execution targets (including the global Conda fallback).
+    const currentTargets = () => {
+      const execution = h.workerActionTargets?.() || [];
+      return h.workerCodeSyncTargets().map((worker: any) => {
+        const task = execution.find((row: any) => row.id === worker.id);
+        return {...worker,condaEnv:String(task?.condaEnv ?? task?.conda_env ?? worker.condaEnv ?? "")};
+      });
+    };
+    const targets = currentTargets();
     const projectKey = (value: string) => {
       const normalized = String(value || "").replaceAll("\\", "/");
       return process.platform === "win32" ? normalized.toLowerCase() : normalized;
@@ -84,7 +93,7 @@ export class ResultCollectionHost {
       index: job.index, case: job.case, seed: job.seed, outputDir: job.outputDir, collectionResultCsv: job.collectionResultCsv,
       commandId: job.commandId, workerId: job.workerId }));
     let owners: string | undefined;
-    const key = () => JSON.stringify(h.workerCodeSyncTargets().map((row: any) => [row.id, row.host, row.user, row.port, row.remotePath, row.condaEnv]));
+    const key = () => JSON.stringify(currentTargets().map((row: any) => [row.id, row.host, row.user, row.port, row.remotePath, row.condaEnv]));
     const binding = key();
     const current = () => !signal?.aborted && h.projectContextIsCurrent(context) && key() === binding
       && (owners === undefined || owners === JSON.stringify(runBindings()));

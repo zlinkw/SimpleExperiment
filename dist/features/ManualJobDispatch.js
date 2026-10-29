@@ -92,6 +92,7 @@ async function dispatchManualJobs(ports, request) {
                     outputIsolationBlocked: { reason: String(decision.reason || "隔离结果未核实"),
                         stage: decision.stage === "preview" || decision.stage === "execute" || decision.stage === "verify" ? decision.stage : "execute",
                         ...(decision.code ? { code: String(decision.code) } : {}), ...(decision.operationId ? { operationId: String(decision.operationId) } : {}),
+                        ...(Array.isArray(decision.codes) ? { codes: decision.codes.map(String) } : {}), ...(typeof decision.busyOnly === "boolean" ? { busyOnly: decision.busyOnly } : {}),
                         declarationKey: job.outputDir, observedAt: new Date().toISOString() } });
                 job.blockReason = (0, DistributedPlanQueue_1.outputIsolationNotice)(job);
                 continue;

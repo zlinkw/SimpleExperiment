@@ -297,6 +297,22 @@ test("formal preflight rejection explains that training never started and disabl
 const isolationPausedState = () => ({ distributedPlans: [{ id: "isolation-pause", planFile: "plans/iso.yaml", jobs: [{ index: 0, case: "iso", seed: 43, status: "pending", outputDir: "work_dirs/iso",
   blockReason: "旧产物隔离未完成：隔离预览确认已过期（PREVIEW_EXPIRED），训练未启动；请重新生成预览并重新核对精确路径后再确认，未复用旧令牌。",
   outputIsolationBlocked: { reason: "隔离预览确认已过期", stage: "preview", code: "PREVIEW_EXPIRED", declarationKey: "work_dirs/iso", observedAt: "2026-10-26T05:00:00Z" } }] }] });
+
+test('transfer-isolation recovery renders a usable action for unstarted jobs and preserves completed siblings',()=>{
+ const sandbox=clickSandbox(),state=isolationPausedState(),p=state.distributedPlans[0];
+ p.jobs[0].outputIsolationBlocked.recovery={state:'review_required'};
+ p.jobs.push({index:1,case:'pad',seed:43,status:'completed',completionState:'verified',commandId:'done',workerId:'w'});
+ sandbox.render(state);assert.match(sandbox.html,/成功 1\/2/);assert.match(sandbox.html,/旧产物待审核/);
+ assert.match(sandbox.html,/data-command="recheckOutputIsolation"[^>]*data-job-index="0"[^>]*>审核旧产物/);
+ assert.doesNotMatch(sandbox.html,/data-command="recheckOutputIsolation"[^>]*data-job-index="1"/);
+ assert.doesNotMatch(sandbox.html,/排队 1/);assert.doesNotMatch(sandbox.html,/本机等待空卡/);
+ const changed=structuredClone(state);changed.distributedPlans[0].jobs[0].outputIsolationBlocked.recovery.state='waiting_transfer';
+ assert.notEqual(sandbox.executionRenderKeysForState(state).planList,sandbox.executionRenderKeysForState(changed).planList);
+ const source=readSource('src/extension/legacy.ts'),start=source.indexOf('if (visibleDistributedPlanProgress.some(plan =>'),end=source.indexOf('const summaryInputs =',start);
+ const projected=vm.runInNewContext(source.slice(start,end)+'distributedPlans;',{visibleDistributedPlanProgress:state.distributedPlans,DistributedPlanQueue:{jobIsUnavailable:()=>false}});
+ assert.equal(projected[0].jobs[0].outputIsolationBlocked.recovery.state,'review_required');
+ sandbox.render({distributedPlans:projected});assert.match(sandbox.html,/data-command="recheckOutputIsolation"/);
+});
 test("r82: an isolation-blocked job renders its never-started explanation through blockText", () => {
   const sandbox = clickSandbox();
   sandbox.render(isolationPausedState());

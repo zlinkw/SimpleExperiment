@@ -258,6 +258,19 @@ test('外置 CSV 仍存在：目录缺失被核验救回，但 CSV present 必�
   assert.equal(w.jobRow().commandId,'cmd-old');
   assert.ok(w.existsRemote('experiments/results/a0.csv'),'外置结果文件保留待审');
 });
+
+test('automatic isolation recheck uses current windows plus all physical paths, never deleting or borrowing sibling completion',async()=>{
+ const w=await world({externalCsv:true,onRemote:false}),s=await w.build();
+ s.adapter.host.readWorkerTaskSnapshot=async()=>({queryComplete:true,capabilities:{taskLifecycle:2},tasks:[],cleanupExecutors:[]});
+ const result=await s.adapter.inspectPendingOutputTargets({outputDir:'work_dirs/a0',collectionResultCsv:'experiments/results/a0.csv'});
+ assert.equal(result.state,'present','an external result file must require explicit review');
+ assert.equal(w.stats.deletes,0);
+ s.adapter.host.readWorkerTaskSnapshot=async()=>({queryComplete:true,capabilities:{taskLifecycle:2},tasks:[],cleanupExecutors:[{relativePath:'work_dirs/a0'}]});
+ const busy=await s.adapter.inspectPendingOutputTargets({outputDir:'work_dirs/a0',collectionResultCsv:'experiments/results/a0.csv'});
+ assert.equal(busy.state,'unknown');assert.match(busy.detail,/清理执行器/);assert.equal(w.stats.deletes,0);
+ s.adapter.host.readWorkerTaskSnapshot=async()=>({queryComplete:false,tasks:[],cleanupExecutors:[]});
+ assert.equal((await s.adapter.inspectPendingOutputTargets({outputDir:'work_dirs/a0'})).state,'unknown');
+});
 test('外置 CSV 核验未知（后端应答错误）：按缺项拒绝，不得把 error 当不存在',async()=>{
   const w=await world({externalCsv:true,onRemote:false,inspectErrorFor:'w1\0experiments/results/a0.csv'});await w.build();
   await assert.rejects(()=>w.run(),error=>/CLEANUP_PROOF_INCOMPLETE/.test(String(error&&error.message))&&/核验=error/.test(String(error&&error.message)));

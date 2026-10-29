@@ -90,7 +90,7 @@ export class ManualDispatchHost {
       // 正是现场"排除又派发"的入口之一；取消仍返回 false（未移动任何文件）。
       const blocked=(body as any).runReplacement?.blocked||[];
       return {accepted:(body as any).assignedExperimentIndices||[],
-        blocked:blocked.map((row:any)=>({index:Number(row.index),reason:String(row.reason||""),stage:row.stage,code:row.code,operationId:row.operationId}))};}
+        blocked:blocked.map((row:any)=>({index:Number(row.index),reason:String(row.reason||""),stage:row.stage,code:row.code,operationId:row.operationId,codes:row.codes,busyOnly:row.busyOnly}))};}
     catch(error:any){if(error.apiData?.code==="REPLACEMENT_CANCELLED")return false;throw error;}
   }
 }
