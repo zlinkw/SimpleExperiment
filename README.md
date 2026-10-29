@@ -9,7 +9,8 @@
 | 需求 | 入口 |
 | --- | --- |
 | 从安装到运行一批实验 | [完整配置与使用说明](docs/simple-experiment-setup.md) |
-| 给任何已有项目做最小接入 | [零改源码、已有指标、轻量适配器三套模板](docs/experiment-integration.md) |
+| 交给 AI 接入其他实验 | [详细 AI 执行契约与三套最小模板](docs/experiment-integration.md)；设置顶部可一键复制任务 |
+| 提取进度、TensorBoard 和结果格式实践 | [MultiModal 最佳实践与固定源码出处](docs/multimodal-integration-best-practice.md) |
 | 查参数默认值、覆盖关系和旧参数 | [配置字段参考](docs/configuration-reference.md) |
 | 给 AI 或项目维护者的对接边界 | [项目契约](docs/plugin-project-contract.md) |
 | 理解服务器自动选卡和手动派发 | [Worker 手动派发](docs/worker-only-manual-dispatch.md) |

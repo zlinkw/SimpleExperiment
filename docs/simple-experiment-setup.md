@@ -1,5 +1,7 @@
 # SimpleExperiment 配置与使用说明
 
+> **置顶：让 AI 接入其他项目。** 先读 [实验最小接入指南 · AI 执行契约](experiment-integration.md)，再参考 [MultiModal 最佳实践](multimodal-integration-best-practice.md)。插件 **设置** 顶部提供 **打开接入指南** 和 **复制接入任务给 AI**：后者复制可直接粘贴的任务提示词、完整指南链接与验收要求。它不会自动执行接入、上传或训练；接收任务的 AI 应在目标项目核实实际入口，并先读取完整指南。
+
 本说明以当前 Windows 插件实现为准。只配置执行服务器 Worker：启用一台就是单 Worker，启用多台就是多 Worker；二者使用同一套 `worker_pool` 流程。旧 `single_worker` 值可兼容读取，不需要另建控制服务器。旧控制节点配置不会生成连接、调度或结果汇总目标。
 
 快速入口见 [README](../README.md)，接入其他项目见 [最小实验接入指南](experiment-integration.md)，全部注册设置见 [配置字段参考](configuration-reference.md)，接口边界见 [项目契约](plugin-project-contract.md)。

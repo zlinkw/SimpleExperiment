@@ -1,11 +1,16 @@
 // @ts-nocheck
 import { patchPanelProgressDom } from "../features/PanelProgressDom";
 import { composeLogicalPlans } from "../features/LogicalPlanProgress";
+import { experimentIntegrationGuideUrl, experimentIntegrationAiTask, extensionRepositoryUrl } from "../features/SetupGuideSource";
 export function renderPanelHtml(): string {
     const nonce = String(Date.now());
     const PLUGIN_VERSION: string = (() => { try { const pkg = require("../../package.json"); return String((pkg && pkg.version) || "").trim() || "unknown"; } catch { return "unknown"; } })();
     const panelProgressDomPatchSource = "(" + patchPanelProgressDom.toString() + ")";
     const logicalPlansSource = "(" + composeLogicalPlans.toString() + ")";
+    const guideRepository = (() => { try { return extensionRepositoryUrl(require("../../package.json")); } catch { return undefined; } })();
+    const guideAttribute = (value: string) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "&#10;");
+    const integrationGuideHref = guideAttribute(experimentIntegrationGuideUrl(guideRepository));
+    const integrationAiTask = guideAttribute(experimentIntegrationAiTask(guideRepository));
     return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -1638,6 +1643,11 @@ export function renderPanelHtml(): string {
         <div class="cardTools">
           <button type="button" class="secondary settingsBackButton" data-main-view="workspace" title="关闭设置，返回主界面">关闭设置</button>
         </div>
+      </div>
+      <div class="settingsCommandTools" data-anchor="settings-integration-guide">
+        <div><b>最小实验接入指南 · 交给 AI</b><div class="muted">完整契约、MultiModal 实践、终端进度、TensorBoard 与结果格式</div></div>
+        <a href="${integrationGuideHref}" title="打开官方完整接入指南">打开接入指南</a>
+        <button type="button" class="secondary" data-command="copyText" data-text="${integrationAiTask}" title="复制可直接交给 AI 的接入任务、完整指南链接和验收要求">复制接入任务给 AI</button>
       </div>
       <div class="settingsLayoutTools" data-anchor="settings-layout">
         <b>界面布局</b>
