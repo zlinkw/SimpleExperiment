@@ -6,12 +6,16 @@ import type { RuntimeDiagnostics, CompletionState } from "./RuntimeDiagnostics";
 import { freshTaskObservation } from "./WorkerProgressEvidence";
 import { hasVerifiedCompletion, nextVerifiedCompletion, verifiedCompletionProjection, trustedTerminalProofFor, type TrustedTerminalProof, type VerifiedCompletion } from "./VerifiedCompletion";
 import { projectStateFile, projectStateId } from "./ProjectStatePaths";
+import { budgetEvidence, mergeBudgetEvidence, type GpuBudgetEvidence, type GpuBudgetReservation } from "./GpuMemoryBudget";
 
 export type JobState = "pending" | "dispatching" | "queued" | "running" | "completed" | "failed" | "cancelled" | "unknown";
 export type JobFailureClass = "deterministic" | "resource" | "transient" | "unknown";
 export type AutomaticJobRetry = { failureCount: number; failedAttempt: number; retryAt?: string; exhausted?: boolean; lastError?: string;
   failureClass?: JobFailureClass; blockedReason?: string };
 export type QueuedJob = {
+  gpuMemoryProfile?: GpuBudgetEvidence;
+  gpuMemoryReservation?: GpuBudgetReservation;
+  gpuMemoryWaitReason?: string;
   index: number;
   case: string;
   seed: number;
@@ -224,6 +228,7 @@ function clearNativeProjection(job: QueuedJob, plan: QueuedPlan) {
   job.status = job.unavailable || job.retainExistingOutputs ? "cancelled" : job.commandId ? "unknown" : "pending";
   for (const key of ["executionState", "resultState", "completionState", "runtimeDiagnostics", "exitCode", "statusQueryError", "verificationQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason",
     "tmuxPane", "tmuxWindowId", "tmuxSession", "logPath", "finishedAt"] as const) delete job[key];
+  if (job.gpuMemoryWaitReason) job.blockReason = job.gpuMemoryWaitReason;
   // r82：隔离阻断是本机持久事实而非远端运行投影——投影可以清原生运行字段，但不得抹掉
   // outputIsolationBlocked 或它的解释；重载后必须仍能回答"为何未启动、下一步做什么"。
   if (job.outputIsolationBlocked) job.blockReason = outputIsolationNotice(job);
@@ -241,6 +246,7 @@ export function keepCurrentObservations(queue: DistributedQueue, live: Distribut
     if (job.lifecycleProtocol !== 2 || !job.commandId || !current || current.commandId !== job.commandId || current.workerId !== job.workerId
       || !current.lastObservedAt || now - Date.parse(current.lastObservedAt) > 30000 || !Number.isFinite(Date.parse(current.lastObservedAt))) continue;
     for (const key of keys) (job as any)[key] = current[key];
+    job.gpuMemoryProfile = mergeBudgetEvidence(job.gpuMemoryProfile, current.gpuMemoryProfile);
     Object.assign(job, verifiedCompletionProjection(plan, job));
   }
   return queue;
@@ -610,6 +616,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
         recoveryConflict: undefined, trustedTerminalStatus: undefined,
         statusQueryError: observation.queryError || observation.executionQueryError, lastObservedAt: snapshot.fetchedAt || observation.observedAt,
         observationErrors: cleanNativeErrors,
+        gpuMemoryProfile: !observation.queryError && !observation.executionQueryError
+          ? mergeBudgetEvidence(job.gpuMemoryProfile, budgetEvidence(task?.gpuMemoryProfile, job.commandId || "", projectId)) : job.gpuMemoryProfile,
         nativeStartProof: job.nativeStartProof && job.nativeStartProof.commandId === job.commandId
           && job.nativeStartProof.workerId === job.workerId ? job.nativeStartProof
           : (cleanNativeErrors.length === 0 && nativeWindowSeen)
@@ -1156,7 +1164,8 @@ function noteFingerprintMismatch(plans: QueuedPlan[], workers: readonly WorkerSl
   }
 }
 
-export function allocateAvailable(queue: DistributedQueue, workers: readonly WorkerSlots[], options: { requireIdleGpuAdmission?: boolean; localIdleOnly?: boolean } = {}): { queue: DistributedQueue; dispatches: Dispatch[] } {
+export function allocateAvailable(queue: DistributedQueue, workers: readonly WorkerSlots[], options: { requireIdleGpuAdmission?: boolean; localIdleOnly?: boolean;
+  memoryBudget?: ReturnType<typeof import("./GpuMemoryBudget").memoryBudgetAdmission> } = {}): { queue: DistributedQueue; dispatches: Dispatch[] } {
   const versioned = workers.some((row) => row.codeFingerprint);
   const plans = queue.plans.map((plan) => ({ ...plan, jobs: plan.jobs.map((job) => ({ ...job })) }));
   const dispatches: Dispatch[] = [];
@@ -1170,7 +1179,7 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
   const slots = new Map(workers.filter((row) => row.online && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true)
     && (!versioned || Boolean(row.codeFingerprint) || Boolean(row.compatiblePlans?.length)))
     .map((row) => [row.workerId, (row.gpuSlots ?? [...new Set(row.idleGpuIds)]).slice(0, Math.max(0, row.capacity ?? row.gpuSlots?.length ?? row.idleGpuIds.length))]));
-  for (const plan of plans) {
+  for (const plan of options.memoryBudget?.sortPlans(plans) || plans) {
     if (plan.executionModeBlocked || plan.recoveryConflict) continue;
     if (plan.resultPathPolicy !== "declared") continue;
     if (options.localIdleOnly && plan.schedulingMode === "server_prequeue" && plan.localDispatchOverride !== true
@@ -1195,18 +1204,21 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
       const whole = ranked().find(([workerId, ids]) => workerId === primary && ids.length >= caseJobs.length)
         || ranked().find(([, ids]) => ids.length >= caseJobs.length);
       for (const job of caseJobs) {
-        const chosen = job.reassignmentWorkerId ? eligibleWorkerIds.has(job.reassignmentWorkerId)
+        const budgetChoice = options.memoryBudget?.choose(plan, job, workers.filter(worker => eligibleWorkerIds.has(worker.workerId)), slots);
+        const chosen = options.memoryBudget ? budgetChoice?.workerId : job.reassignmentWorkerId ? eligibleWorkerIds.has(job.reassignmentWorkerId)
           && slots.get(job.reassignmentWorkerId)?.length ? job.reassignmentWorkerId : undefined
           : whole?.[0] && slots.get(whole[0])?.length ? whole[0]
           : slots.get(primary)?.length ? primary : ranked()[0]?.[0];
         if (!chosen) continue;
-        const gpuId = slots.get(chosen)?.shift();
+        const gpuId = options.memoryBudget ? budgetChoice?.gpuId : slots.get(chosen)?.shift();
         if (gpuId === undefined) break;
+        if (options.memoryBudget) slots.get(chosen)!.splice(slots.get(chosen)!.indexOf(gpuId), 1);
         const commandId = durableCommandId(plan, job, chosen, gpuId);
         if (commandId !== job.commandId) Object.assign(job, { runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined });
         Object.assign(job, { status: "dispatching", workerId: chosen, gpuId, commandId, blockReason: undefined,
           ...(job.lifecycleProtocol === 2 ? { startIntent: { commandId, workerId: chosen, gpuId } } : {}),
           reassignmentWorkerId: undefined });
+        options.memoryBudget?.reserve(plan, job, chosen, gpuId);
         dispatches.push({ planId: plan.id, jobIndex: job.index, workerId: chosen, gpuId, attempt: job.attempt, commandId });
       }
     }

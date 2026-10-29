@@ -8,7 +8,7 @@ const PlanExecutionMode=require('../../dist/features/PlanExecutionMode');
 const GpuQuotaScheduling=require('../../dist/features/GpuQuotaScheduling');
 const PlanCodeScopeHost=require('../../dist/extension/PlanCodeScopeHost');
 const AgentTmuxPolicy_1=require('../../dist/tunnel/AgentTmuxPolicy');
-const endpoints={declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,projectManagedValidation:1,gpuQuotaScheduling:1};
+const endpoints={declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,projectManagedValidation:1,gpuQuotaScheduling:1,gpuMemoryBudgetScheduling:1};
 const vscode={workspace:{getConfiguration:()=>({get:()=>undefined})}};
 const queue = require("../../dist/features/DistributedPlanQueue.js");
 const source = fs.readFileSync(require.resolve("../../src/extension/legacy.ts"), "utf8");
@@ -113,7 +113,7 @@ test("old pending job uses the original Worker's durable proof after the local c
   vm.runInContext(proofFunction + "\n" + method("sendDistributedJob"), sandbox);
   Object.assign(f.host, sandbox.methods, { distributedQueueGeneration: 1, workerActionTargets: () => f.workers, enabledWorkerConfigs: () => f.workers,
     lastWorkerTaskSnapshots:new Map([[f.root+"\u0000worker-old",{capabilities:{taskLifecycle:2}}]]), schedulerSettings: () => ({}), withRemoteActionResource: async (_worker, _action, _request, run) => run(),
-    lastWorkerProbes: { "worker-old": { capabilities: { endpoints: {declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,projectManagedValidation:1,gpuQuotaScheduling:1}, actionEndpoints: { "register-code-sync-proof": true } } } },
+    lastWorkerProbes: { "worker-old": { capabilities: { endpoints: {declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,projectManagedValidation:1,gpuQuotaScheduling:1,gpuMemoryBudgetScheduling:1}, actionEndpoints: { "register-code-sync-proof": true } } } },
     lastCodeSyncState: { fingerprint: "new-local-code", workerVersions: { "worker-old": { fingerprint: oldFingerprint, manifestDigest: oldFingerprint, codeSyncProofId: proofId } } },
     buildDistributedJobCodeManifest: async () => { throw new Error("must not substitute current local code for original proof"); },
     client: { postWorkerAction: async (_worker, _action, request) => { sent.push(request); return { status: "queued" }; } },
@@ -138,7 +138,7 @@ test("a pre-migration cache without a proof uses a verified matching manifest an
   const fingerprint = sandbox.fingerprintFromManifest(manifest);
   Object.assign(f.host, sandbox.methods, { distributedQueueGeneration: 1, workerActionTargets: () => f.workers, enabledWorkerConfigs: () => f.workers,
     schedulerSettings: () => ({}), withRemoteActionResource: async (_worker, _action, _request, run) => run(),
-    lastWorkerProbes: { "worker-free": { capabilities: { endpoints: {declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,projectManagedValidation:1,gpuQuotaScheduling:1}, actionEndpoints: { "register-code-sync-proof": true } } } },
+    lastWorkerProbes: { "worker-free": { capabilities: { endpoints: {declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,projectManagedValidation:1,gpuQuotaScheduling:1,gpuMemoryBudgetScheduling:1}, actionEndpoints: { "register-code-sync-proof": true } } } },
     lastCodeSyncState: { fingerprint, workerVersions: { "worker-free": { fingerprint } } },
     buildDistributedJobCodeManifest: async () => manifest,
     client: { postWorkerAction: async (_worker, _action, request) => { sent.push(request); return { status: "queued" }; } },

@@ -233,7 +233,7 @@ test('the final send boundary re-checks the gate and refuses a send without post
   let settlePost = { resolve: () => ({}), reject: () => {} };
   Object.assign(h, { client: { postWorkerAction: () => new Promise((resolve, reject) => { posted.push(1); settlePost = { resolve, reject }; }) },
     taskLifecycleProtocol: 2, distributedQueueGeneration: 0, distributedPlanStopEpoch: 0, unifiedDomainState: () => ({ active: false, blocked: '' }),
-    lastWorkerProbes: { w: { capabilities: { endpoints: { declaredJobPaths: true, formalJobIdentityEnv: 1, gpuQuotaScheduling: 1, taskShellEnvironment: 1, projectManagedValidation: 1 } } } },
+    lastWorkerProbes: { w: { capabilities: { endpoints: { declaredJobPaths: true, formalJobIdentityEnv: 1, gpuQuotaScheduling: 1, gpuMemoryBudgetScheduling: 1, taskShellEnvironment: 1, projectManagedValidation: 1 } } } },
     submissionWorkerProbes: async () => h.lastWorkerProbes, workerActionTargets: () => [{ id: 'w' }], enabledWorkerConfigs: () => [],
     schedulerSettings: () => ({}), lastWorkerTaskSnapshots: new Map([[`${ROOT}\u0000w`, { capabilities: { taskLifecycle: 2 } }]]),
     lastCodeSyncState: {}, postState() {}, recordActionError() {}, loadDistributedQueue: async () => ({ plans: [] }) });

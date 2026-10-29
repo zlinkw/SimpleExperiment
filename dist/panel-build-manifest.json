@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.432",
-  "buildId": "537618f5e88a01967cbe4e498157ac9d9f3d49cba8a11b99caad5bdcef1e8a1e",
+  "version": "0.5.433",
+  "buildId": "82667bb9e6ede26b915c88c9375e3fdb87026fbf5a2b3916348cb3964dbcb251",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -237,7 +237,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "a9dad973d3cfcb799b347fe249edfb4e56a206a5afaf39352e42176539e9e876"
+      "sha256": "1cd4a4ea29c5c690d00e84f8dbeeedb70c497298bc4fdfb4968e2459ef438cc6"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -385,7 +385,7 @@
     },
     {
       "path": "dist/features/DistributedPlanQueue.js",
-      "sha256": "5ee16a00d27d30b4e1b3ecce21e7583c563d3b9620b13df05b1ddd81085a698c"
+      "sha256": "73c4c6a78df3ab7d61a1cbf198b2530398959395d6bbc61abaeb191c8c9f1db3"
     },
     {
       "path": "dist/features/DistributedProjectContract.js",
@@ -434,6 +434,10 @@
     {
       "path": "dist/features/GpuJobOwnership.js",
       "sha256": "bcf82ea7a758b075f98647842fc23dea0395865806533fa127f385cdfa3d9f43"
+    },
+    {
+      "path": "dist/features/GpuMemoryBudget.js",
+      "sha256": "e64d997774d828e317622e39aa9d4dd2b1b15bd3fb7976ea36f1eb10b4ba9a95"
     },
     {
       "path": "dist/features/GpuMemoryScheduling.js",
@@ -869,7 +873,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "137984819e109aa58f3a6a9cc031b08a7ecc84e8e26b0b023ca2d7407dc616db"
+      "sha256": "bd657fea956113dd2015b71bacff0454f9e4f798b74803436a9f72967e48a448"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1097,7 +1101,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "c07fb6b96f4d05adb6665c6b8bf580d09ff4aa102557f4e9ed0df9da37709f0c"
+      "sha256": "0583ea2e91671afae64060c4ecdca3db30969d35f9d6426f42072dc91042676c"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1221,7 +1225,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "e6978e42b3900b0437fe72619961c9e9d951ac6a4ec3628952c11babae73fad1"
+      "sha256": "28785e29149325893841a7e249443ed3f9d93542d36c3423781c745720b803dc"
     },
     {
       "path": "scripts/check-static.js",

@@ -35,7 +35,7 @@ test('real Scheduler conflict travels through Agent action, durable audit, snaps
 });
 
 function fixture(initial = true) {
-  const Provider = vm.runInNewContext(code, { GpuQuotaScheduling: require('../../dist/features/GpuQuotaScheduling'), DistributedPlanQueue: Queue, DistributedSchedulingPolicy: Policy, PlanCodeScopeHost,
+  const Provider = vm.runInNewContext(code, { GpuMemoryBudget: require('../../src/features/GpuMemoryBudget.ts'), GpuQuotaScheduling: require('../../dist/features/GpuQuotaScheduling'), DistributedPlanQueue: Queue, DistributedSchedulingPolicy: Policy, PlanCodeScopeHost,
     GpuJobOwnership: Ownership, PlanExecutionMode: Modes, workspaceRoot: () => root,
     mapLimited: async (rows, _limit, fn) => Promise.all(rows.map(fn)), errorMessage: error => error.message,
     makeOpId: () => 'generated-command', setInterval, clearInterval });
@@ -43,7 +43,7 @@ function fixture(initial = true) {
   Object.assign(p, { distributedQueueGeneration: 0, distributedPlanStopEpoch: 0, distributedLaunchInFlight: new Set(),
     distributedNextFailureDetailAt: Infinity, distributedNextPostprocessAt: Infinity, lastWorkerProbes: { worker: {
       status: 'ok', capabilities: { endpoints: { declaredJobPaths: true, formalJobIdentityEnv: 1,
-        executionShellPreflight: 1, taskShellEnvironment: 1, stagedJobPreflight: 1, projectManagedValidation: 1 } } } },
+        executionShellPreflight: 1, taskShellEnvironment: 1, stagedJobPreflight: 1, projectManagedValidation: 1, gpuMemoryBudgetScheduling: 1 } } } },
     lastCodeSyncState: { workerVersions: { worker: { fingerprint: agentReceipt.codeFingerprint } } } });
   p.isRealtimeMode = () => true;
   p.projectTopologyAssessment = () => ({ mode: 'worker_pool' });
@@ -63,7 +63,7 @@ function fixture(initial = true) {
     memoryUsedMb: 7, memoryTotalMb: 24576, processes: [] })) }) };
   let stored = Queue.enqueuePlan(Queue.emptyDistributedQueue(), { projectId, planFile: agentReceipt.planFile,
     revision: agentReceipt.planRevision, codeFingerprint: agentReceipt.codeFingerprint, executionMode: 'train_test',
-    resultPathPolicy: 'declared', schedulingMode: 'local_idle', jobs: [42, 43].map((seed, index) => ({ index, case: 'case', seed,
+    resultPathPolicy: 'declared', schedulingMode: 'local_idle', jobs: [42, 43].map((seed, index) => ({ index, case: 'case' + index, seed,
       outputDir: agentReceipt.outputDir.replace('seed42', 'seed' + seed),
       collectionResultCsv: agentReceipt.collectionResultCsv.replace('seed42', 'seed' + seed) })) }, agentReceipt.workflowId);
   stored.plans[0].jobs.forEach(job => { delete job.lifecycleProtocol; }); // Legacy receipt recovery fixture.
@@ -134,7 +134,7 @@ test('lost rejection response recovers from a fresh durable snapshot even when G
   const { p, stored } = fixture(false);
   const plan = stored().plans[0];
   const tasks = plan.jobs.map(job => ({ ...agentReceipt, commandId: job.commandId, runKey: job.runKey,
-    gpuId: job.gpuId, experimentIndex: job.index, seed: job.seed, globalJobId: job.globalJobId,
+    gpuId: job.gpuId, experimentIndex: job.index, case: job.case, seed: job.seed, globalJobId: job.globalJobId,
     outputDir: job.outputDir, collectionResultCsv: job.collectionResultCsv }));
   p.readWorkerTaskSnapshotBatch = async () => [{ workerId: 'worker', generatedAt: new Date().toISOString(),
     fetchedAt: new Date().toISOString(), capabilities: { durablePlanQueue: true, idleGpuAdmission: true, schemaVersion: 1 }, tasks }];
@@ -151,7 +151,7 @@ test('plain HTTP failures stay unknown and busy GPU rejection remains local pend
     const { p, stored } = fixture();
     p.sendDistributedJob = async (plan, job, workerId, gpuId, commandId) => {
       if (kind === 'http') throw Error('Hub Agent HTTP 500: FORMAL_JOB_CONFLICT');
-      return { ...agentReceipt, commandId, runKey: commandId, workerId, gpuId, experimentIndex: job.index, seed: job.seed,
+      return { ...agentReceipt, commandId, runKey: commandId, workerId, gpuId, experimentIndex: job.index, case: job.case, seed: job.seed,
         globalJobId: job.globalJobId, outputDir: job.outputDir, collectionResultCsv: job.collectionResultCsv,
         reason: 'gpu_busy', status: 'pending', neverStartedEvidence: undefined };
     };

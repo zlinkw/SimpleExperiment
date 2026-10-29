@@ -36,7 +36,7 @@ test('the active-query publication wakes scheduling without depending on push or
 });
 test('actual native tick fills every newly free quota slot from current execution reads while artifact queries remain slow',async()=>{
  const Host=hostMethods(['tickDistributedQueueCore'],{setInterval,clearInterval,DistributedPlanQueue:Q,
-  DistributedSchedulingPolicy:require('../../src/features/DistributedSchedulingPolicy.ts'),GpuQuotaScheduling:require('../../src/features/GpuQuotaScheduling.ts'),
+  DistributedSchedulingPolicy:require('../../src/features/DistributedSchedulingPolicy.ts'),GpuQuotaScheduling:require('../../src/features/GpuQuotaScheduling.ts'),GpuMemoryBudget:require('../../src/features/GpuMemoryBudget.ts'),
   GpuJobOwnership:require('../../src/features/GpuJobOwnership.ts'),PlanCodeScopeHost:{supportsPlanCodeScope:()=>false,inspectPlanCodeSlots:async()=>{}}});
  const h=new Host(),project=Q.canonicalProjectId('project'),sent=[];
  let stored=Q.enqueuePlan(Q.emptyDistributedQueue(),{projectId:project,executionMode:'train_test',schedulingMode:'server_prequeue',planFile:'p.yaml',revision:'r',codeFingerprint:'code',
@@ -45,7 +45,7 @@ test('actual native tick fills every newly free quota slot from current executio
  let exited=false;
  Object.assign(h,{taskLifecycleProtocol:2,distributedQueueGeneration:0,distributedPlanStopEpoch:0,distributedNextFailureDetailAt:Infinity,distributedNextPostprocessAt:Infinity,
   distributedLaunchInFlight:new Set(),isRealtimeMode:()=>true,workerCodeSyncTargets:()=>[],workerActionTargets:()=>[{id:'w',project_dir:'/project'}],
-  lastWorkerProbes:{w:{status:'ok',capabilities:{endpoints:{declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1}}}},lastCodeSyncState:{workerVersions:{w:{fingerprint:'code'}}},
+  lastWorkerProbes:{w:{status:'ok',capabilities:{endpoints:{declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,gpuMemoryBudgetScheduling:1}}}},lastCodeSyncState:{workerVersions:{w:{fingerprint:'code'}}},
   enabledWorkerConfigs:()=>[{id:'w',gpuQuotaConfigured:true,gpuJobsPerCard:1,gpuCardOverrides:{'1':{gpuJobsPerCard:6}}}],schedulerSettings:()=>({}),
   recordActionError(){},postState(){},queuePlanArtifactSyncStatusCheck(){},scheduleDistributedPostprocess(){},buildDistributedJobCodeManifest:async()=>({}),
   loadDistributedQueue:async()=>structuredClone(stored),saveDistributedQueue:async(_root,q)=>{stored=structuredClone(q)},
@@ -55,6 +55,8 @@ test('actual native tick fills every newly free quota slot from current executio
   client:{getGpu:async()=>({w:[0,1].map(index=>({index,memoryTotalMb:100*1024,memoryUsedMb:exited?0:99*1024}))})},
   sendDistributedJob:async(plan,job,workerId,gpuId,commandId)=>{assert.equal(stored.plans[0].jobs[job.index].commandId,commandId);sent.push({index:job.index,gpuId});return {lifecycleProtocol:2}}});
  await h.tickDistributedQueueCore();assert.equal(sent.length,0);
+ const budget=require('../../src/features/GpuMemoryBudget.ts'),p=stored.plans[0],j=p.jobs[0];
+ j.gpuMemoryProfile={version:1,commandId:'original',projectId:project,group:budget.budgetGroup(p,j),hardware:budget.budgetHardware('w',{memoryTotalMb:100*1024,memoryUsedMb:0}),peakMb:1024,ready:true,oom:false};
  exited=true;await h.tickDistributedQueueCore();assert.equal(sent.length,7);assert.equal(sent.filter(j=>j.gpuId==='0').length,1);assert.equal(sent.filter(j=>j.gpuId==='1').length,6);
  assert.equal(stored.plans[0].jobs[0].commandId,'original');assert.equal(stored.plans[0].jobs[0].executionState,'exited');assert.notEqual(stored.plans[0].jobs[0].status,'completed','freeing a GPU never claims verified results');
  assert.equal(stored.plans[0].jobs.filter(j=>j.status==='pending'&&!j.workerId).length,7);
