@@ -6,7 +6,7 @@ import type { RuntimeDiagnostics, CompletionState } from "./RuntimeDiagnostics";
 import { freshTaskObservation } from "./WorkerProgressEvidence";
 import { hasVerifiedCompletion, nextVerifiedCompletion, verifiedCompletionProjection, trustedTerminalProofFor, type TrustedTerminalProof, type VerifiedCompletion } from "./VerifiedCompletion";
 import { projectStateFile, projectStateId } from "./ProjectStatePaths";
-import { budgetEvidence, mergeBudgetEvidence, type GpuBudgetEvidence, type GpuBudgetReservation } from "./GpuMemoryBudget";
+import { budgetEvidence, mergeBudgetEvidence, retainPlanMemoryEstimates, type PlanGpuMemoryEstimates, type GpuBudgetEvidence, type GpuBudgetReservation } from "./GpuMemoryBudget";
 
 export type JobState = "pending" | "dispatching" | "queued" | "running" | "completed" | "failed" | "cancelled" | "unknown";
 export type JobFailureClass = "deterministic" | "resource" | "transient" | "unknown";
@@ -28,7 +28,9 @@ export type QueuedJob = {
   attempt: number;
   status: JobState;
   lifecycleProtocol?: 2;
-  manualDispatch?: { workerId: string; gpuId: string; stage: "preparing" | "ready" | "sent"; origin?: "server_queue"; batchId?: string };
+  manualDispatch?: { workerId: string; gpuId: string; gpuSelection?: "automatic"; stage: "preparing" | "ready" | "sent"; origin?: "server_queue"; batchId?: string };
+  /** User-selected Worker; GPU selection stays in the normal local budgeted queue. */
+  automaticWorkerId?: string;
   manualDispatchNotice?: string;
   retainExistingOutputs?: boolean;
   /** r82（0.5.414）job 级显式隔离阻断：旧产物隔离未完成或核验未知——job 保持可见 pending，
@@ -129,6 +131,7 @@ export type QueuedJob = {
   history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; logPath?: string; tmuxSession?: string; finishedAt?: string; stopReason?: string; error?: string; outputRetiredAt?: string; admissionRejection?: QueuedJob["admissionRejection"]; cleanupOperationId?: string }>;
 };
 export type QueuedPlan = {
+  gpuMemoryEstimates?: PlanGpuMemoryEstimates;
   executionSource?: { digest: string; manifest: Record<string, { size: number; sha256: string }> };
   /** 提交时的本机 Git 溯源（分支/HEAD/脏状态/时间；origin 已剥离凭证）。纯本机展示与绑定用，
    * 绝不参与 completionIdentity、job 身份或 Worker 协议。dirty 缺失=当时未知。 */
@@ -256,6 +259,7 @@ export function keepCurrentObservations(queue: DistributedQueue, live: Distribut
 
 export function serializeDistributedQueue(queue: DistributedQueue): string {
   const copy = cloneDistributedQueue(queue);
+  copy.plans = copy.plans.map(plan => retainPlanMemoryEstimates(plan));
   for (const plan of copy.plans) if (plan.resultPathPolicy === "declared") for (const job of plan.jobs) {
     if (job.lifecycleProtocol === 2) {
       clearNativeProjection(job, plan);
@@ -267,6 +271,10 @@ export function serializeDistributedQueue(queue: DistributedQueue): string {
     for (const record of job.history || []) if (record.attempt === 0) delete (record as { attempt?: number }).attempt;
   }
   return JSON.stringify(copy, null, 2) + "\n";
+}
+
+export function retainQueueMemoryEstimates(queue: DistributedQueue, prior?: DistributedQueue): DistributedQueue {
+  return { ...queue, plans: queue.plans.map(plan => retainPlanMemoryEstimates(plan, prior?.plans.find(old => old.id === plan.id))) };
 }
 
 /** Persist only compact confirmed facts into the existing queue, never raw
@@ -1213,8 +1221,12 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
       const whole = ranked().find(([workerId, ids]) => workerId === primary && ids.length >= caseJobs.length)
         || ranked().find(([, ids]) => ids.length >= caseJobs.length);
       for (const job of caseJobs) {
-        const budgetChoice = options.memoryBudget?.choose(plan, job, workers.filter(worker => eligibleWorkerIds.has(worker.workerId)), slots);
-        const chosen = options.memoryBudget ? budgetChoice?.workerId : job.reassignmentWorkerId ? eligibleWorkerIds.has(job.reassignmentWorkerId)
+        const allowedWorkers = workers.filter(worker => eligibleWorkerIds.has(worker.workerId)
+          && (!job.automaticWorkerId || worker.workerId === job.automaticWorkerId));
+        const budgetChoice = options.memoryBudget?.choose(plan, job, allowedWorkers, slots);
+        const chosen = options.memoryBudget ? budgetChoice?.workerId : job.automaticWorkerId ? allowedWorkers.some(worker => worker.workerId === job.automaticWorkerId)
+          && slots.get(job.automaticWorkerId)?.length ? job.automaticWorkerId : undefined
+          : job.reassignmentWorkerId ? eligibleWorkerIds.has(job.reassignmentWorkerId)
           && slots.get(job.reassignmentWorkerId)?.length ? job.reassignmentWorkerId : undefined
           : whole?.[0] && slots.get(whole[0])?.length ? whole[0]
           : slots.get(primary)?.length ? primary : ranked()[0]?.[0];

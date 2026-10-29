@@ -109,17 +109,24 @@ def task_budget_admit(row, gpu, live, evidence):
     siblings = [value for item, value in evidence if task_budget_group(item) == group and value.get("hardware") == hardware]
     if any(value.get("oom") for value in siblings):
         return False
+    # The authenticated local scheduler carries the current PLAN's durable estimate.
+    # Group/hardware above bind it to this exact configuration and physical Worker.
+    estimate = request.get("estimate")
+    if estimate is not None and (not isinstance(estimate, dict) or estimate.get("version") != 1 or estimate.get("ready") is not True or not task_budget_number(estimate.get("peakMb")) or estimate["peakMb"] <= 0):
+        return False
     if request["probe"]:
         if same_card or any(not item.get("dead") and value.get("probe") and not value.get("ready") for item, value in evidence if value.get("group") == group and value.get("hardware") == hardware):
             return False
     else:
         known = [value for value in siblings if value.get("ready") and value.get("peakMb", 0) > 0]
+        if estimate is not None:
+            known.append(estimate)
         if not known and not same_card:
             # The source tab may have been explicitly closed. Reobserve this new job, never replay the old one.
             request = {**request, "probe": True, "budgetMb": next((gpu[k] for k in ("memoryTotalMb", "memory_total_mb", "memoryTotal", "memory_total") if gpu.get(k) is not None), 0)}
             if any(not item.get("dead") and value.get("probe") and not value.get("ready") for item, value in evidence if value.get("group") == group and value.get("hardware") == hardware):
                 return False
-        elif not known or request["budgetMb"] < (max(value["peakMb"] for value in siblings) + 1024 if request.get("exclusive") else task_budget_size(max(value["peakMb"] for value in siblings))):
+        elif not known or request["budgetMb"] < (max(value.get("peakMb", 0) for value in siblings + known) + 1024 if request.get("exclusive") else task_budget_size(max(value.get("peakMb", 0) for value in siblings + known))):
             return False
     used = next((gpu[k] for k in ("memoryUsedMb", "memory_used_mb", "memoryUsed", "memory_used") if gpu.get(k) is not None), None)
     total = next((gpu[k] for k in ("memoryTotalMb", "memory_total_mb", "memoryTotal", "memory_total") if gpu.get(k) is not None), None)
@@ -144,7 +151,7 @@ def task_budget_reserve(row, gpu):
     request = (row.get("options") or {}).get("gpuMemoryReservation")
     if (row.get("options") or {}).get("gpuMemoryBudgetScheduling") != 1:
         return
-    value = {**request, "commandId": row["commandId"], "projectId": row["projectId"], "peakMb": 0,
+    value = {**request, "commandId": row["commandId"], "projectId": row["projectId"], "peakMb": (request.get("estimate") or {}).get("peakMb", 0),
              "ready": not request["probe"], "oom": False, "concurrency": 1, "samples": 0}
     value["usedBeforeMb"] = next((gpu[k] for k in ("memoryUsedMb", "memory_used_mb", "memoryUsed", "memory_used") if gpu.get(k) is not None), 0)
     task_option(row["tmuxPane"], "gpu_budget", json.dumps(value, ensure_ascii=False, separators=(",", ":")))

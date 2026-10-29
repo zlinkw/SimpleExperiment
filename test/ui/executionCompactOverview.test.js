@@ -1003,6 +1003,15 @@ test("queried absent historical windows reserve no active slot and never count a
 // 0.5.416 配套（se-stage-block-visibility-release）：暂存槽卡点在 Job 错误区的显示矩阵。
 // 「卡在哪台/哪个范围/通道/身份＋两槽」始终按结构化字段显示；「释放旧文件占用」按钮仅当
 // 结构化 releaseCandidate 与扩展端实时能力门（stageBlockReleaseCapable）同时成立才出现。
+test('Worker-local automatic selection is visible before dispatch and invalidates the real render key',()=>{
+ const sandbox=clickSandbox(),state={distributedPlans:[{id:'wf',planFile:'plans/p.yaml',jobs:[
+  {index:0,case:'c',seed:42,status:'pending',lifecycleProtocol:2,automaticWorkerId:'selected-worker'}]}]};
+ const key=sandbox.executionRenderKeysForState(state).planList;sandbox.render(state);
+ assert.match(sandbox.html,/selected-worker · 等待本服务器空卡 · 自动选卡/);
+ assert.doesNotMatch(sandbox.html,/data-job-tmux-log="1"[^>]*data-worker-id="selected-worker"/,'waiting intent is not a running Worker identity');
+ const next=structuredClone(state);next.distributedPlans[0].jobs[0].automaticWorkerId='other-worker';
+ assert.notEqual(sandbox.executionRenderKeysForState(next).planList,key);
+});
 const stageBlockFixture = (overrides = {}) => ({ schemaVersion: 1, code: "TRANSFER_STAGE_PENDING",
   destination: { id: "nwpu3", profile: "work", host: "nwpu3.invalid" }, scope: '["job-artifacts","plans/p.yaml",0,"c0",42]',
   lane: 1, identity: "a".repeat(64), incomingGeneration: "b".repeat(64),

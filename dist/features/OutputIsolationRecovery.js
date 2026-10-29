@@ -25,7 +25,7 @@ function transferBusyIsolation(job) {
 function isolationIdentity(plan, job) {
     const { recovery: _recovery, ...block } = job.outputIsolationBlocked || {};
     return (0, PlanCleanup_1.cleanupDigest)([plan.id, plan.projectId, plan.planFile, plan.revision, plan.codeFingerprint, plan.executionMode,
-        job.index, job.case, job.seed, job.outputDir, job.collectionResultCsv, block]);
+        job.index, job.case, job.seed, job.outputDir, job.collectionResultCsv, job.automaticWorkerId, block]);
 }
 /** Rechecks only. Never confirms, executes, moves, deletes, stops or submits a job. */
 async function refreshOutputIsolation(ports, selection) {

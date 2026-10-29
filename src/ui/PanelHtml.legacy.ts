@@ -15165,7 +15165,7 @@ export function renderPanelHtml(): string {
           const isolationState = job.outputIsolationBlocked && job.outputIsolationBlocked.recovery && job.outputIsolationBlocked.recovery.state;
           const isolationLabel = isolationState === "waiting_transfer" ? "等待传输，自动重查" : isolationState === "review_required" ? "旧产物待审核" : isolationState === "unknown" ? "产物待核实，自动重查" : "隔离暂停，未启动";
           const statusLabel = needsReview ? (job.completionState === "review_required" ? "完成但有异常，待复核" : "产物完整，运行日志待核实") : job.executionState === "starting" ? "正在启动命令" : job.outputIsolationBlocked ? isolationLabel : job.retainExistingOutputs ? "保留已有产物" : job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : job.executionState === "missing" ? "远端未发现该任务" : "执行状态待核实") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("PLAN 所需源码待核实") === 0 ? "源码待核实" : String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
-          const placement = (job.workerId ? job.workerId + (preflightRejected ? " · 未启动" : job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : "未派发") + (job.manualDispatch ? " · 手动指定" : "");
+          const placement = (job.workerId ? job.workerId + (preflightRejected ? " · 未启动" : job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : job.automaticWorkerId ? job.automaticWorkerId + " · 等待本服务器空卡" : "未派发") + (job.automaticWorkerId ? " · 自动选卡" : job.manualDispatch ? " · 手动指定" : "");
           const canJumpLog = Boolean(!preflightRejected && job.workerId && (job.commandId || job.outputDir));
           const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">查看窗口日志</button>';
           const errorText = String((artifactSyncRequired && job.artifactError) || job.error || "").trim();
@@ -15265,7 +15265,7 @@ export function renderPanelHtml(): string {
         const recallPlanIds = Array.from(new Set(currentJobs.map((job) => String(job.planId || "")).filter(Boolean)));
         const recallPlanButton = recallPlanIds.length === 1 && currentJobs.some((job) => String(job.status || "") === "queued" || job.recallRequested === true)
           ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(recallPlanIds[0]) + '" data-plan-file="' + escAttr(group.planFile || "") + '" title="召回此 Plan 当前所有服务器排队任务到本机空闲 GPU；运行中和已结束任务保持原状态。">召回 Plan 到本机</button>' : '';
-        const queuePlanButton = recallPlanIds.length === 1 && currentJobs.some(job => job.status === "pending" && !job.workerId && !job.commandId && !job.manualDispatch)
+        const queuePlanButton = recallPlanIds.length === 1 && currentJobs.some(job => job.status === "pending" && !job.workerId && !job.commandId && !job.manualDispatch && !job.automaticWorkerId)
           ? '<button type="button" class="mini secondary" data-command="queueRemainingJobs" data-plan-id="' + escAttr(recallPlanIds[0]) + '" title="仅将此 Plan 尚未派发的 job 按各卡配置的 job 配额比例放入服务器队列；运行中和已排队任务保持原状">剩余 job 入服务器队列</button>' : '';
         const artifactPlanIds = artifactSyncRequired ? Array.from(new Set(currentJobs.filter(job => job.status === 'completed' && job.lifecycleProtocol === 2 && job.workerId && job.commandId && !job.unavailable).map(job => String(job.planId || group.distributedPlanId || '')).filter(Boolean))) : [];
         const planArtifactButtons = artifactPlanIds.length ? ['refreshJobArtifacts', 'retryJobArtifactSync'].map((command, index) => '<button type="button" class="mini secondary" data-command="' + command + '" data-plan-ids="' + escAttr(JSON.stringify(artifactPlanIds)) + '" title="仅处理此 PLAN 已完成 job；运行中任务保持原状。">' + (index ? '重试 Plan 产物同步' : '刷新 Plan 产物状态') + '</button>').join('') : '';
@@ -15480,6 +15480,7 @@ export function renderPanelHtml(): string {
             commandId: job.commandId,
             blockReason: job.blockReason,
             outputIsolationBlocked: job.outputIsolationBlocked,
+            automaticWorkerId: job.automaticWorkerId, manualDispatch: job.manualDispatch, manualDispatchNotice: job.manualDispatchNotice,
             admissionRejection: job.admissionRejection,
             outputDir: job.outputDir,
             collectionResultCsv: job.collectionResultCsv,

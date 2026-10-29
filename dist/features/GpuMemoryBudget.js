@@ -5,6 +5,7 @@ exports.budgetHardware = budgetHardware;
 exports.budgetSize = budgetSize;
 exports.budgetEvidence = budgetEvidence;
 exports.mergeBudgetEvidence = mergeBudgetEvidence;
+exports.retainPlanMemoryEstimates = retainPlanMemoryEstimates;
 exports.memoryBudgetAdmission = memoryBudgetAdmission;
 const GpuQuotaScheduling_1 = require("./GpuQuotaScheduling");
 const GpuMemoryScheduling_1 = require("./GpuMemoryScheduling");
@@ -35,6 +36,39 @@ function mergeBudgetEvidence(prior, next) {
     return { ...prior, ...next, peakMb: Math.max(prior.peakMb, next.peakMb), oom: prior.oom || next.oom,
         ready: (prior.ready || next.ready) && !(prior.oom || next.oom) };
 }
+/** Compact PLAN-lifetime measurements, in the existing queue. Never a launch or completion proof. */
+function retainPlanMemoryEstimates(plan, prior) {
+    const complete = plan.jobs.length >= Number(plan.planJobCount || plan.jobs.length)
+        && plan.jobs.length > 0 && plan.jobs.every(job => (0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job));
+    if (complete || plan.resultPathPolicy !== "declared")
+        return { ...plan, gpuMemoryEstimates: undefined };
+    const binding = JSON.stringify([plan.projectId, plan.id, plan.revision, plan.codeFingerprint, plan.executionMode]);
+    const groups = new Set(plan.jobs.map(job => budgetGroup(plan, job)));
+    const entries = new Map();
+    const add = (value) => {
+        if (!value || typeof value !== "object")
+            return;
+        if (!groups.has(value.group) || typeof value.hardware !== "string" || !positive(value.peakMb) && !(value.oom === true && value.peakMb === 0)
+            || typeof value.ready !== "boolean" || typeof value.oom !== "boolean")
+            return;
+        const key = JSON.stringify([value.group, value.hardware]), old = entries.get(key);
+        const oom = Boolean(old?.oom || value.oom);
+        entries.set(key, { group: value.group, hardware: value.hardware, peakMb: Math.max(old?.peakMb || 0, value.peakMb),
+            ready: Boolean(old?.ready || value.ready) && !oom, oom });
+    };
+    for (const cache of [prior?.gpuMemoryEstimates, plan.gpuMemoryEstimates])
+        if (cache?.version === 1 && cache.binding === binding && Array.isArray(cache.entries))
+            cache.entries.forEach(add);
+    for (const job of plan.jobs) {
+        const evidence = budgetEvidence(job.gpuMemoryProfile, job.commandId || "", plan.projectId || "");
+        if (!evidence || evidence.group !== budgetGroup(plan, job))
+            continue;
+        // A verified successful full run already observed its whole duration, including short jobs.
+        add({ ...evidence, ready: evidence.ready || (0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job) && evidence.peakMb > 0 && !evidence.oom });
+    }
+    return { ...plan, gpuMemoryEstimates: entries.size ? { version: 1, binding,
+            entries: [...entries.values()].sort((a, b) => a.group.localeCompare(b.group) || a.hardware.localeCompare(b.hardware)) } : undefined };
+}
 /** One round's admission ledger; durable reservations live on the existing job, never in a second queue. */
 function memoryBudgetAdmission(queue, workers) {
     const profiles = new Map();
@@ -42,7 +76,11 @@ function memoryBudgetAdmission(queue, workers) {
     const probes = new Set();
     const profileKey = (group, hardware) => JSON.stringify([group, hardware]);
     const cardKey = (workerId, gpuId) => JSON.stringify([workerId, gpuId]);
-    for (const plan of queue.plans)
+    for (const plan of queue.plans) {
+        for (const estimate of retainPlanMemoryEstimates(plan).gpuMemoryEstimates?.entries || []) {
+            const key = profileKey(estimate.group, estimate.hardware);
+            profiles.set(key, [...profiles.get(key) || [], estimate]);
+        }
         for (const job of plan.jobs) {
             const group = budgetGroup(plan, job);
             const evidence = budgetEvidence(job.gpuMemoryProfile, job.commandId || "", plan.projectId || "");
@@ -62,6 +100,7 @@ function memoryBudgetAdmission(queue, workers) {
                     probes.add(profileKey(group, job.gpuMemoryReservation.hardware));
             }
         }
+    }
     const estimates = (group, hardware) => profiles.get(profileKey(group, hardware)) || [];
     const peak = (group, hardware) => Math.max(0, ...estimates(group, hardware).map(p => p.peakMb));
     const ready = (group, hardware) => estimates(group, hardware).some(p => p.ready)
@@ -81,6 +120,8 @@ function memoryBudgetAdmission(queue, workers) {
             const group = budgetGroup(plan, job);
             const candidates = [];
             for (const worker of eligible) {
+                if (job.automaticWorkerId && job.automaticWorkerId !== worker.workerId)
+                    continue;
                 if (!worker.gpuBudgetSupported || !worker.gpuPolicy || job.reassignmentWorkerId && job.reassignmentWorkerId !== worker.workerId)
                     continue;
                 for (const gpuId of new Set(slots.get(worker.workerId) || [])) {
@@ -120,6 +161,8 @@ function memoryBudgetAdmission(queue, workers) {
                         continue;
                     // Keep the last compatible empty card available for an unmeasured configuration.
                     const unknownWaiting = pending.some(item => {
+                        if (item.job.automaticWorkerId && item.job.automaticWorkerId !== worker.workerId)
+                            return false;
                         const otherGroup = budgetGroup(item.plan, item.job);
                         if (otherGroup === group || worker.codeScopeErrors?.[item.plan.id]
                             || !worker.compatiblePlans?.includes(item.plan.id) && worker.codeFingerprint !== item.plan.codeFingerprint)
@@ -147,7 +190,8 @@ function memoryBudgetAdmission(queue, workers) {
                         && Math.max(...shared.map(p => p.concurrency / p.durationSeconds)) <= Math.min(...solo.map(p => 1 / p.durationSeconds)))
                         continue;
                     candidates.push({ workerId: worker.workerId, gpuId,
-                        reservation: { version: 1, group, hardware, budgetMb, probe: !isReady, ...(exclusive ? { exclusive: true } : {}) },
+                        reservation: { version: 1, group, hardware, budgetMb, probe: !isReady, ...(exclusive ? { exclusive: true } : {}),
+                            ...(isReady ? { estimate: { version: 1, peakMb: measuredPeak, ready: true } } : {}) },
                         score: !isReady ? -memory.free : active.length * memory.total + memory.free - deficit - budgetMb });
                 }
             }
@@ -155,8 +199,15 @@ function memoryBudgetAdmission(queue, workers) {
             const best = candidates[0];
             if (best)
                 planned.set(job, best.reservation);
-            else
-                job.blockReason = job.gpuMemoryWaitReason = "等待自动显存观察（连续 10 分钟）、预算余量或用户并行配额；未派发";
+            else {
+                const relevant = eligible.filter(worker => !job.automaticWorkerId || worker.workerId === job.automaticWorkerId);
+                const observed = relevant.flatMap(worker => (worker.gpuRows || []).flatMap(row => estimates(group, budgetHardware(worker.workerId, row))));
+                job.blockReason = job.gpuMemoryWaitReason = job.automaticWorkerId && !relevant.some(worker => worker.online)
+                    ? "等待所选服务器连接与当前显卡状态；未派发"
+                    : observed.some(value => value.ready && !value.oom) ? "已有 PLAN 显存估计；等待预算余量、可用显卡或用户并行配额；未派发"
+                        : observed.some(value => value.oom) ? "该配置已观察到 OOM，暂停自动并发；请检查任务配置与显存预算"
+                            : "等待自动显存观察（连续 10 分钟或任务成功完成）；尚无该配置与硬件的可用估计，未派发";
+            }
             return best;
         },
         reserve(plan, job, workerId, gpuId) {

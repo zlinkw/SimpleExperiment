@@ -27,6 +27,55 @@ function calibrated(queue, planId = 'a', peakMb = 12 * 1024) {
   job.gpuMemoryProfile = { ...job.gpuMemoryReservation, commandId: job.commandId, projectId: 'p', peakMb, ready: true, oom: false };
   return queue;
 }
+function verified(plan,job){
+ const V=require('../../src/features/VerifiedCompletion.ts');
+ job.status='completed';job.lifecycleProtocol=2;job.verifiedCompletion={schemaVersion:1,identity:V.completionIdentity(plan,job),verifiedAt:'2026-10-29T02:00:00Z',exitCode:0};
+}
+test('PLAN estimates survive reload and source telemetry loss, then expire only when all declared jobs complete',()=>{
+ const queue=calibrated(plan(D.emptyDistributedQueue(),'cached',4),'cached'),p=queue.plans[0];
+ p.jobs[0].gpuMemoryProfile.ready=false;verified(p,p.jobs[0]);
+ const restored=D.restoreFormalJobQueue(JSON.parse(D.serializeDistributedQueue(queue)));
+ assert.equal(restored.plans[0].gpuMemoryEstimates.entries[0].ready,true,'a fully verified short run has observed its complete peak');
+ delete restored.plans[0].jobs[0].gpuMemoryProfile;
+ const again=D.restoreFormalJobQueue(JSON.parse(D.serializeDistributedQueue(restored)));
+ const out=allocate(again,[worker([gpu(0)])]);assert.equal(out.dispatches.length,3);
+ assert.ok(out.queue.plans[0].jobs.slice(1).every(j=>!j.gpuMemoryReservation.probe&&j.gpuMemoryReservation.estimate.peakMb===12*1024));
+ const pending=out.queue.plans[0];pending.jobs.slice(1).forEach(j=>verified(pending,j));
+ assert.equal(JSON.parse(D.serializeDistributedQueue(out.queue)).plans[0].gpuMemoryEstimates,undefined);
+ assert.ok(out.queue.plans[0].jobs[0].verifiedCompletion,'completion facts are untouched');
+});
+test('cached PLAN estimates increase monotonically, keep OOM, and cannot cross runs, cases or hardware',()=>{
+ const queue=calibrated(plan(D.emptyDistributedQueue(),'cache',3),'cache');
+ const original=B.retainPlanMemoryEstimates(queue.plans[0]);
+ const stale=structuredClone(original);stale.gpuMemoryEstimates=undefined;stale.jobs[0].gpuMemoryProfile.peakMb=1;
+ assert.equal(B.retainPlanMemoryEstimates(stale,original).gpuMemoryEstimates.entries[0].peakMb,12*1024);
+ const merged=D.retainQueueMemoryEstimates({schemaVersion:1,plans:[stale]},{schemaVersion:1,plans:[original]});
+ assert.equal(JSON.parse(D.serializeDistributedQueue(merged)).plans[0].gpuMemoryEstimates.entries[0].peakMb,12*1024,'metadata save merges current disk estimates before serialization');
+ const lower=structuredClone(original);lower.jobs[0].gpuMemoryProfile.ready=false;
+ assert.equal(B.retainPlanMemoryEstimates(lower).gpuMemoryEstimates.entries[0].ready,true);
+ lower.jobs[0].gpuMemoryProfile.oom=true;const oom=B.retainPlanMemoryEstimates(lower);
+ delete lower.jobs[0].gpuMemoryProfile;lower.gpuMemoryEstimates=oom.gpuMemoryEstimates;
+ assert.equal(allocate({schemaVersion:1,plans:[lower]}).dispatches.length,0);assert.equal(oom.gpuMemoryEstimates.entries[0].ready,false);
+ for(const field of ['id','revision','codeFingerprint','executionMode','projectId']){
+  const other=structuredClone(original);other[field]+='changed';other.jobs.forEach(j=>delete j.gpuMemoryProfile);
+  assert.equal(B.retainPlanMemoryEstimates(other,original).gpuMemoryEstimates,undefined,field);
+ }
+ const otherCase=structuredClone(original);otherCase.jobs.forEach(j=>{j.case='different';delete j.gpuMemoryProfile;});
+ assert.equal(B.retainPlanMemoryEstimates(otherCase).gpuMemoryEstimates,undefined);
+ const noSource=structuredClone(original);verified(noSource,noSource.jobs[0]);delete noSource.jobs[0].gpuMemoryProfile;
+ const otherWorker=worker([gpu(0)],{workerId:'other'});
+ const probe=allocate({schemaVersion:1,plans:[noSource]},[otherWorker]);
+ assert.equal(probe.dispatches.length,1);assert.equal(probe.queue.plans[0].jobs[1].gpuMemoryReservation.probe,true);
+});
+test('Worker-local automatic jobs keep memory budgets, quotas and distinct wait reasons with cached estimates',()=>{
+ const queue=calibrated(plan(D.emptyDistributedQueue(),'restricted',6),'restricted');
+ queue.plans[0].jobs.slice(1).forEach(j=>j.automaticWorkerId='w');
+ const rows=[worker([gpu(0,55*1024)]),worker([gpu(0)],{workerId:'other'})];
+ const out=allocate(queue,rows);assert.equal(out.dispatches.length,0);
+ assert.match(out.queue.plans[0].jobs[1].gpuMemoryWaitReason,/已有 PLAN 显存估计/);
+ const freed=allocate(out.queue,[worker([gpu(0)])]);assert.equal(freed.dispatches.length,3);
+ assert.ok(freed.dispatches.every(d=>d.workerId==='w'));assert.equal(allocate(freed.queue,[worker([gpu(0)])]).dispatches.length,0);
+});
 test('different plans probe on separate cards; one unknown group never fans out before calibration', () => {
   const queue = plan(plan(D.emptyDistributedQueue(), 'a'), 'b');
   const out = allocate(queue);

@@ -41,6 +41,7 @@ exports.cloneDistributedQueue = cloneDistributedQueue;
 exports.restoreFormalJobQueue = restoreFormalJobQueue;
 exports.keepCurrentObservations = keepCurrentObservations;
 exports.serializeDistributedQueue = serializeDistributedQueue;
+exports.retainQueueMemoryEstimates = retainQueueMemoryEstimates;
 exports.updateVerifiedCompletions = updateVerifiedCompletions;
 exports.taskAttempt = taskAttempt;
 exports.queueMetadataAdvanceRecorded = queueMetadataAdvanceRecorded;
@@ -185,6 +186,7 @@ function keepCurrentObservations(queue, live, now = Date.now()) {
 }
 function serializeDistributedQueue(queue) {
     const copy = cloneDistributedQueue(queue);
+    copy.plans = copy.plans.map(plan => (0, GpuMemoryBudget_1.retainPlanMemoryEstimates)(plan));
     for (const plan of copy.plans)
         if (plan.resultPathPolicy === "declared")
             for (const job of plan.jobs) {
@@ -202,6 +204,9 @@ function serializeDistributedQueue(queue) {
                         delete record.attempt;
             }
     return JSON.stringify(copy, null, 2) + "\n";
+}
+function retainQueueMemoryEstimates(queue, prior) {
+    return { ...queue, plans: queue.plans.map(plan => (0, GpuMemoryBudget_1.retainPlanMemoryEstimates)(plan, prior?.plans.find(old => old.id === plan.id))) };
 }
 /** Persist only compact confirmed facts into the existing queue, never raw
  * observations, log text, metrics or a replayable remote task registration. */
@@ -1199,11 +1204,15 @@ function allocateAvailable(queue, workers, options = {}) {
             const whole = ranked().find(([workerId, ids]) => workerId === primary && ids.length >= caseJobs.length)
                 || ranked().find(([, ids]) => ids.length >= caseJobs.length);
             for (const job of caseJobs) {
-                const budgetChoice = options.memoryBudget?.choose(plan, job, workers.filter(worker => eligibleWorkerIds.has(worker.workerId)), slots);
-                const chosen = options.memoryBudget ? budgetChoice?.workerId : job.reassignmentWorkerId ? eligibleWorkerIds.has(job.reassignmentWorkerId)
-                    && slots.get(job.reassignmentWorkerId)?.length ? job.reassignmentWorkerId : undefined
-                    : whole?.[0] && slots.get(whole[0])?.length ? whole[0]
-                        : slots.get(primary)?.length ? primary : ranked()[0]?.[0];
+                const allowedWorkers = workers.filter(worker => eligibleWorkerIds.has(worker.workerId)
+                    && (!job.automaticWorkerId || worker.workerId === job.automaticWorkerId));
+                const budgetChoice = options.memoryBudget?.choose(plan, job, allowedWorkers, slots);
+                const chosen = options.memoryBudget ? budgetChoice?.workerId : job.automaticWorkerId ? allowedWorkers.some(worker => worker.workerId === job.automaticWorkerId)
+                    && slots.get(job.automaticWorkerId)?.length ? job.automaticWorkerId : undefined
+                    : job.reassignmentWorkerId ? eligibleWorkerIds.has(job.reassignmentWorkerId)
+                        && slots.get(job.reassignmentWorkerId)?.length ? job.reassignmentWorkerId : undefined
+                        : whole?.[0] && slots.get(whole[0])?.length ? whole[0]
+                            : slots.get(primary)?.length ? primary : ranked()[0]?.[0];
                 if (!chosen)
                     continue;
                 const gpuId = options.memoryBudget ? budgetChoice?.gpuId : slots.get(chosen)?.shift();

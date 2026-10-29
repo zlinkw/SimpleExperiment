@@ -33,6 +33,20 @@ test('unknown Worker and invisible GPU fail before sync, stopping or deletion',a
  const f=fixture();await assert.rejects(f.host.dispatch({confirm:true,workflowId:'p',indices:[0],workerId:'missing',gpuId:'0'}),/未启用|不存在/);
  await assert.rejects(f.host.ports().prepare({jobs:[{manualDispatch:{workerId:'w',gpuId:'99',stage:'preparing'}}]}),/GPU 不可见/);assert.equal(f.sync,0);assert.equal(f.queries,0);
 });
+test('actual GPU picker offers Worker-local automatic dispatch even when no GPU snapshot is available',async()=>{
+ const f=fixture();let queue={plans:[{id:'p',revision:'r',codeFingerprint:'hash',resultPathPolicy:'declared',executionMode:'train',jobs:[
+  {index:0,case:'c',seed:1,attempt:0,status:'pending',outputDir:'work/c',collectionResultCsv:'result/c.csv'}]}]},picks=0;
+ f.h.loadDistributedQueue=async()=>structuredClone(queue);f.h.saveDistributedQueue=async(_,next)=>{queue=structuredClone(next);};
+ f.h.lastWorkerProbes={w:{status:'ok',capabilities:{endpoints:{manualDispatch:1}}}};
+ f.h.client.getGpu=async()=>{throw Error('GPU query unavailable');};
+ f.h.sendDistributedJob=async()=>assert.fail('automatic placement must wait for normal budget admission');
+ f.host.review=async()=>true;
+ f.picks.showQuickPick=async rows=>{picks++;if(picks===1)return rows.find(row=>row.id==='w');
+  assert.equal(rows.length,1);assert.equal(rows[0].label,'此服务器自动派发');return rows[0];};
+ const result=await f.host.dispatch({workflowId:'p',indices:[0],expectedCommands:{0:''}},true);
+ assert.equal(result.status,'submitted');assert.equal(picks,2);assert.equal(f.sync,1);assert.equal(f.queries,2);
+ const job=queue.plans[0].jobs[0];assert.equal(job.automaticWorkerId,'w');assert.equal(job.manualDispatch,undefined);assert.equal(job.commandId,undefined);
+});
 
 // r82（0.5.414）接线钉（诚实标注为源码钉，行为面由 manualJobDispatch/serverQueueDispatch 行为用例承载）：
 // 现场缺陷之一正是 Host.review 只回 assignedExperimentIndices，runReplacement.blocked 里的准入排除在

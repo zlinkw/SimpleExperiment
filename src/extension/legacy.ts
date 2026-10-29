@@ -14620,6 +14620,7 @@ this.assertPlanTopologyReady("Plan 调度");
                     if (metrics.length > 24) metrics.splice(0, metrics.length - 24);
                 } catch { /* 诊断失败不影响队列提交 */ }
             };
+            queue = DistributedPlanQueue.retainQueueMemoryEstimates(queue, current);
             const serialized = DistributedPlanQueue.serializeDistributedQueue(queue);
             const serializeMs = Date.now() - serializeStartedAt;
             const queueShape = shape(queue, (typeof Buffer === "undefined" ? serialized.length : Buffer.byteLength(serialized, "utf8")));
@@ -16122,7 +16123,7 @@ this.assertPlanTopologyReady("Plan 调度");
                 if (plan.projectId !== projectId || plan.recoveryConflict || plan.schedulingMode === "server_prequeue" && plan.localDispatchOverride !== true) continue;
                 for (const job of plan.jobs) {
                     if (!queueWriteCurrent()) return;
-                    if (job.recallRequested === true || job.stopIntent) continue;
+                    if (job.recallRequested === true || job.stopIntent || job.automaticWorkerId) continue;
                     if (job.recoveryConflict || !job.workerId || !job.commandId
                         || !(job.status === "queued" || job.status === "cancelled" && job.reassignmentPending)) continue;
                     const snapshot = snapshotsByWorker.get(job.workerId);
@@ -27425,6 +27426,7 @@ return "历史服务器";
                     recallOperationId: job.recallOperationId || "",
                     commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt, outputRetiredAt: job.outputRetiredAt,
                     error: job.error, blockReason: job.blockReason, outputIsolationBlocked: job.outputIsolationBlocked,
+                    automaticWorkerId: job.automaticWorkerId, manualDispatch: job.manualDispatch, manualDispatchNotice: job.manualDispatchNotice,
                     admissionRejection: job.admissionRejection, failureDiagnostic: job.failureDiagnostic, formalConflictEvidence: job.formalConflictEvidence,
                     artifactError: job.artifactError,
                     artifactStageBlock: job.artifactStageBlock && job.artifactStageBlock.schemaVersion === 1

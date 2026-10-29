@@ -62,8 +62,9 @@ class ManualDispatchHost {
             prepare: async (plan) => {
                 h.assertExecutionWorkersReady();
                 h.assertExecutionAgentProjectsReady({ options: { workers: h.workerActionTargets() } });
-                const gpu = this.gpuSnapshot || await h.client.getGpu({ userInitiated: true });
-                for (const j of plan.jobs.filter(j => j.manualDispatch?.stage === "preparing")) {
+                const specific = plan.jobs.filter(j => j.manualDispatch?.stage === "preparing" && j.manualDispatch.gpuSelection !== "automatic");
+                const gpu = specific.length ? (this.gpuSnapshot || await h.client.getGpu({ userInitiated: true })) : {};
+                for (const j of specific) {
                     const p = j.manualDispatch, rows = Array.isArray(gpu[p.workerId]) ? gpu[p.workerId] : [];
                     if (!rows.some((r) => String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id) === p.gpuId))
                         throw Error("目标 GPU 不可见：" + p.workerId + " · GPU " + p.gpuId + "；未停止原任务或审核产物。");
@@ -104,7 +105,7 @@ class ManualDispatchHost {
         try {
             if (h.distributedQueueTickPromise)
                 await h.distributedQueueTickPromise;
-            let workerId = String(params.workerId || ""), gpuId = params.gpuId === undefined ? "" : String(params.gpuId);
+            let workerId = String(params.workerId || ""), gpuId = params.gpuId === undefined ? "" : String(params.gpuId), gpuSelection = params.gpuSelection;
             if (fromUi && !workerId) {
                 const saved = await h.loadDistributedQueue(this.root), plan = saved.plans.find((p) => p.id === workflowId);
                 const placements = indices.map((i) => plan?.jobs.find((j) => j.index === i)?.manualDispatch);
@@ -112,6 +113,7 @@ class ManualDispatchHost {
                 if (first?.stage === "preparing" && placements.every((p) => p?.workerId === first.workerId && p?.gpuId === first.gpuId)) {
                     workerId = first.workerId;
                     gpuId = first.gpuId;
+                    gpuSelection = first.gpuSelection;
                 }
             }
             if (fromUi && !workerId) {
@@ -122,7 +124,7 @@ class ManualDispatchHost {
             }
             if (!h.enabledWorkerConfigs().some((w) => w.id === workerId))
                 throw Error("目标 Worker 未启用或不存在：" + workerId);
-            if (fromUi && !gpuId) {
+            if (fromUi && !gpuId && gpuSelection !== "automatic") {
                 let snapshot = h.client.currentState?.().gpu || h.lastRealtimeState?.gpu || {};
                 try {
                     snapshot = await h.client.getGpu({ userInitiated: true });
@@ -131,13 +133,14 @@ class ManualDispatchHost {
                 catch { }
                 const rows = Array.isArray(snapshot[workerId]) ? snapshot[workerId] : [];
                 const tasks = h.lastWorkerTaskSnapshots?.get(this.root + "\u0000" + workerId)?.tasks || [];
-                const picked = await vscode.window.showQuickPick(rows.map((r) => ({ label: "GPU " + String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id), id: String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id),
-                    description: String(r.name || "") + " · 显存 " + String(r.memoryUsedMb ?? r.memoryUsed ?? r.memory_used_mb ?? "?") + "/" + String(r.memoryTotalMb ?? r.memoryTotal ?? r.memory_total_mb ?? "?") + " MB · 利用率 " + String(r.utilizationPercent ?? r.utilization ?? r.utilization_gpu ?? "?") + "% · 任务 " + tasks.filter((t) => !['completed', 'failed', 'cancelled'].includes(t.status) && String(t.gpuId ?? t.observation?.tmux?.gpuId ?? "") === String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id)).length })), { title: "选择 GPU（忙卡可选；纳入管理的分支会在统一派发队列中等配额，不会无限绕过）", ignoreFocusOut: true });
+                const picked = await vscode.window.showQuickPick([{ label: "此服务器自动派发", id: "", gpuSelection: "automatic", description: "仅等待此 Worker 的可用显卡；遵守显存阈值、预算与并行上限" }, ...rows.map((r) => ({ label: "GPU " + String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id), id: String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id),
+                        description: String(r.name || "") + " · 显存 " + String(r.memoryUsedMb ?? r.memoryUsed ?? r.memory_used_mb ?? "?") + "/" + String(r.memoryTotalMb ?? r.memoryTotal ?? r.memory_total_mb ?? "?") + " MB · 利用率 " + String(r.utilizationPercent ?? r.utilization ?? r.utilization_gpu ?? "?") + "% · 任务 " + tasks.filter((t) => !['completed', 'failed', 'cancelled'].includes(t.status) && String(t.gpuId ?? t.observation?.tmux?.gpuId ?? "") === String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id)).length }))], { title: "选择此服务器自动派发或指定 GPU", ignoreFocusOut: true });
                 if (!picked)
                     return { status: "cancelled" };
                 gpuId = picked.id;
+                gpuSelection = picked.gpuSelection;
             }
-            return await (0, ManualJobDispatch_1.dispatchManualJobs)(this.ports(), { workflowId, indices, workerId, gpuId, expectedCommands: params.expectedCommands, stopRunning: fromUi || params.stopRunning === true });
+            return await (0, ManualJobDispatch_1.dispatchManualJobs)(this.ports(), { workflowId, indices, workerId, gpuId, gpuSelection, expectedCommands: params.expectedCommands, stopRunning: fromUi || params.stopRunning === true });
         }
         finally {
             h.manualDispatchInFlight.delete(key);

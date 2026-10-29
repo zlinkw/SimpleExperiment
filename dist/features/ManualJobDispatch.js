@@ -8,7 +8,12 @@ const UnifiedDispatchAdmission_1 = require("../project/UnifiedDispatchAdmission"
 async function dispatchManualJobs(ports, request) {
     ports.assertCurrent();
     const indices = [...new Set(request.indices)];
-    if (!indices.length || indices.some(index => !Number.isInteger(index) || index < 0) || !request.workerId || !String(request.gpuId).trim())
+    const automatic = request.gpuSelection === "automatic";
+    const gpuId = String(request.gpuId ?? "").trim();
+    if (request.gpuSelection && !["automatic", "specific"].includes(request.gpuSelection)
+        || automatic && gpuId)
+        throw new Error("自动选卡不能同时指定 GPU。");
+    if (!indices.length || indices.some(index => !Number.isInteger(index) || index < 0) || !request.workerId || !automatic && !gpuId)
         throw new Error("请选择任务、服务器和 GPU。");
     let queue = await ports.load();
     const plan = queue.plans.find(row => row.id === request.workflowId);
@@ -20,9 +25,12 @@ async function dispatchManualJobs(ports, request) {
     const selected = jobs;
     if (ports.online(request.workerId) && !ports.supports(request.workerId))
         throw new Error("目标 Worker 尚不支持手动派发，请更新其 Agent/Scheduler。");
+    if (automatic && !ports.online(request.workerId))
+        throw new Error("目标服务器未连接，请重连后选择此服务器自动派发。");
     if (!ports.online(request.workerId) && selected.every(job => job.status === "pending" && !job.commandId)) {
         for (const job of selected) {
             job.manualDispatch = undefined;
+            job.automaticWorkerId = undefined;
             job.manualDispatchNotice = "目标服务器未连接，已回到自动派发队列。";
         }
         await ports.save(queue);
@@ -43,7 +51,8 @@ async function dispatchManualJobs(ports, request) {
             throw new Error("请使用“停止后派发”撤出原任务。");
     }
     for (const job of selected)
-        job.manualDispatch = { workerId: request.workerId, gpuId: String(request.gpuId), stage: "preparing" };
+        job.manualDispatch = { workerId: request.workerId, gpuId,
+            ...(automatic ? { gpuSelection: "automatic" } : {}), stage: "preparing" };
     await ports.save(queue); // Reserve before sync/stop: automatic allocation must skip this batch.
     let committed = false;
     try {
@@ -89,6 +98,7 @@ async function dispatchManualJobs(ports, request) {
                 // 隔离未完成/核验未知：job 保持可见 pending、清掉手动派发身份（不得占用派发身份），
                 // 打 job 级阻断标记+如实原因——它是"待重新审核"，不是"用户保留/沿用完成"。
                 Object.assign(job, { manualDispatch: undefined, manualDispatchNotice: undefined, retainExistingOutputs: undefined,
+                    automaticWorkerId: automatic ? request.workerId : undefined,
                     outputIsolationBlocked: { reason: String(decision.reason || "隔离结果未核实"),
                         stage: decision.stage === "preview" || decision.stage === "execute" || decision.stage === "verify" ? decision.stage : "execute",
                         ...(decision.code ? { code: String(decision.code) } : {}), ...(decision.operationId ? { operationId: String(decision.operationId) } : {}),
@@ -117,9 +127,11 @@ async function dispatchManualJobs(ports, request) {
                 trustedTerminalStatus: undefined, admissionRejection: undefined, formalConflictEvidence: undefined, originalExecution: undefined,
                 statusQueryError: undefined, lastObservedAt: undefined, tmuxWindowId: undefined, tmuxPane: undefined, tmuxSession: undefined,
                 artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, artifactStageBlock: undefined, latestArtifactSync: undefined, mirroredWorkerIds: undefined, fragmentWorkerIds: undefined,
-                manualDispatchNotice: online ? undefined : "目标服务器未连接，已回到自动派发队列。",
-                checkpointTestOnly: undefined, localQueueOnly: true, blockReason: online ? undefined : "目标服务器未连接，已回到自动派发队列。",
-                manualDispatch: online ? { workerId: request.workerId, gpuId: String(request.gpuId), stage: "ready" } : undefined });
+                automaticWorkerId: automatic ? request.workerId : undefined,
+                gpuMemoryReservation: undefined, gpuMemoryWaitReason: undefined, reassignmentWorkerId: undefined,
+                manualDispatchNotice: automatic ? "已在所选服务器自动选卡队列中等待，沿用显存预算与并行上限。" : online ? undefined : "目标服务器未连接，已回到自动派发队列。",
+                checkpointTestOnly: undefined, localQueueOnly: true, blockReason: automatic ? "等待所选服务器的可用显卡与显存预算。" : online ? undefined : "目标服务器未连接，已回到自动派发队列。",
+                manualDispatch: !automatic && online ? { workerId: request.workerId, gpuId, stage: "ready" } : undefined });
         }
         await ports.save(latest);
         committed = true;

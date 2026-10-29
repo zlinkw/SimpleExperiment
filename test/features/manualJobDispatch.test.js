@@ -6,6 +6,37 @@ function fixture(){let q={plans:[{id:'p',planFile:'experiments/plans/p.yaml',rev
   prepare:async()=>{prepare++},stop:async()=>{stop++},review:async()=>allow,send:async()=>{send++;throw Error('response lost')},tick:()=>dispatchReadyManualJobs(ports)};
  return {ports,get q(){return q},get sends(){return send},get stops(){return stop},get preparations(){return prepare},offline:()=>online=false,cancel:()=>allow=false,old:()=>supported=false};}
 const request={workflowId:'p',indices:[0,1],workerId:'worker',gpuId:'0',stopRunning:true,expectedCommands:{0:'',1:''}};
+test('automatic GPU selection persists only the Worker and waits in the normal allocator across reloads',async()=>{
+ const f=fixture(),Queue=require('../../dist/features/DistributedPlanQueue');
+ const result=await dispatchManualJobs(f.ports,{...request,gpuId:undefined,gpuSelection:'automatic'});
+ assert.equal(result.fallbackToAutomatic,false);assert.equal(f.sends,0);assert.equal(f.preparations,1);
+ const restored=Queue.restoreFormalJobQueue(JSON.parse(Queue.serializeDistributedQueue(f.q)));
+ assert.ok(restored.plans[0].jobs.every(j=>j.automaticWorkerId==='worker'&&!j.workerId&&!j.commandId&&!j.manualDispatch));
+ const rows=[{workerId:'worker',online:true,declaredJobPaths:true,idleGpuIds:[]},
+  {workerId:'other',online:true,declaredJobPaths:true,idleGpuIds:['9','10']}];
+ assert.equal(Queue.allocateAvailable(restored,rows).dispatches.length,0,'idle cards on another Worker cannot take selected jobs');
+ rows[0].idleGpuIds=['2','3'];const selected=Queue.allocateAvailable(restored,rows);
+ assert.equal(selected.dispatches.length,2);assert.ok(selected.dispatches.every(d=>d.workerId==='worker'));
+ assert.deepEqual(selected.dispatches.map(d=>d.gpuId),['2','3']);
+ const remaining=require('../../dist/features/ServerQueueDispatch');assert.equal(remaining.remainingQueueJobs(restored.plans[0]).length,0);
+ f.offline();await f.ports.save(restored);await dispatchReadyManualJobs(f.ports);
+ assert.ok(f.q.plans[0].jobs.every(j=>j.automaticWorkerId==='worker'));assert.equal(f.sends,0);
+});
+test('automatic placement preserves isolation and completion guards; explicit cards replace its Worker constraint',async()=>{
+ const f=fixture();f.ports.review=async()=>({accepted:[1],blocked:[{index:0,reason:'transfer busy',stage:'execute',code:'ACTIVE_TRANSFER'}]});
+ await dispatchManualJobs(f.ports,{...request,gpuId:undefined,gpuSelection:'automatic'});
+ assert.equal(f.sends,0);assert.equal(f.q.plans[0].jobs[0].automaticWorkerId,'worker');assert.ok(f.q.plans[0].jobs[0].outputIsolationBlocked);
+ assert.equal(f.q.plans[0].jobs[1].automaticWorkerId,'worker');
+ f.ports.review=async()=>true;await dispatchManualJobs(f.ports,{...request,indices:[1]});
+ assert.equal(f.q.plans[0].jobs[1].automaticWorkerId,undefined);assert.equal(f.sends,1);
+ const q=await f.ports.load();q.plans[0].jobs[0].status='completed';await f.ports.save(q);
+ await assert.rejects(dispatchManualJobs(f.ports,{...request,indices:[0],gpuId:undefined,gpuSelection:'automatic'}),/已完成/);
+});
+test('automatic selection cannot hide a conflicting GPU or silently change to a different offline Worker',async()=>{
+ const f=fixture();await assert.rejects(dispatchManualJobs(f.ports,{...request,gpuSelection:'automatic'}),/不能同时/);
+ f.offline();await assert.rejects(dispatchManualJobs(f.ports,{...request,gpuId:undefined,gpuSelection:'automatic'}),/未连接/);
+ assert.equal(f.sends,0);assert.equal(f.preparations,0);
+});
 test('manual batch places different jobs on the same GPU once; response loss/reload cannot resend',async()=>{
  const f=fixture();await dispatchManualJobs(f.ports,request);assert.equal(f.sends,2);
  assert.ok(f.q.plans[0].jobs.every(j=>j.gpuId==='0'&&j.manualDispatch.stage==='sent'));assert.notEqual(f.q.plans[0].jobs[0].commandId,f.q.plans[0].jobs[1].commandId);

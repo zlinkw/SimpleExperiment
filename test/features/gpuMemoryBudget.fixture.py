@@ -70,4 +70,23 @@ gpu["processes"] = [dict(pid="4", pluginManaged=True, jobCommandId="gap", jobPro
 update("/fixture", [gap], [gpu], 0)
 update("/fixture", [gap], [gpu], 600)
 assert not ns["task_budget_read"](gap)["ready"]
+# The source window may be gone after a reload. An exact PLAN/hardware estimate
+# carried by the local scheduler remains usable, with the same native admission checks.
+gpu.update(memoryUsedMb=100, processes=[])
+cached = dict(row, commandId="cached", tmuxPane="%5", options={**row["options"]}, _budgetLive=[], _budgetEvidence=[])
+cached.pop("_gpuBudget", None)
+request = dict(version=1, group=ns["task_budget_group"](cached), hardware=ns["task_budget_hardware"]("w", gpu),
+               budgetMb=ns["task_budget_size"](12288), probe=False, estimate=dict(version=1, peakMb=12288, ready=True))
+cached["options"]["gpuMemoryReservation"] = request
+assert choose(cached, [gpu], {}) == "0"
+ns["task_budget_reserve"](cached, gpu)
+assert ns["task_budget_read"](cached)["peakMb"] == 12288 and ns["task_budget_read"](cached)["ready"]
+for change in (dict(group="other-plan"), dict(hardware="other-worker"), dict(budgetMb=12288), dict(estimate=dict(version=1, peakMb=float("nan"), ready=True))):
+    invalid = dict(cached, options={**cached["options"], "gpuMemoryReservation": {**request, **change}})
+    assert choose(invalid, [gpu], {}) is None
+gpu["memoryUsedMb"] = 75 * 1024
+assert choose(cached, [gpu], {}) is None
+gpu["memoryUsedMb"] = 100
+cached["_budgetEvidence"] = [(row, {**evidence, "oom": True})]
+assert choose(cached, [gpu], {}) is None, "persisted estimates never override native OOM evidence"
 print(json.dumps(dict(timedProbe=True, reservation=True, oom=True)))

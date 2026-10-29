@@ -101,7 +101,7 @@ function allocateServerPrequeue(queue, workers) {
         for (const job of plan.jobs)
             if (job.workerId)
                 loads.set(job.workerId, (loads.get(job.workerId) || 0) + 1);
-        for (const job of plan.jobs.filter((job) => !job.manualDispatch && job.status === "pending" && !job.workerId && !job.commandId
+        for (const job of plan.jobs.filter((job) => !job.manualDispatch && !job.automaticWorkerId && job.status === "pending" && !job.workerId && !job.commandId
             && job.localQueueOnly !== true && job.recallRequested !== true)) {
             const target = eligible.filter((worker) => Number(weights[worker.workerId]) > 0).sort((a, b) => ((loads.get(a.workerId) || 0) + 1) / weights[a.workerId]
                 - ((loads.get(b.workerId) || 0) + 1) / weights[b.workerId] || a.workerId.localeCompare(b.workerId))[0];

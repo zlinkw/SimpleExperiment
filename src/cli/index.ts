@@ -115,7 +115,7 @@ export async function runSimpleCli(argv: string[]): Promise<number> {
     const jobs=String(flags.jobs||"").trim();
     if (!/^\d+(?:,\d+)*$/.test(jobs)) throw usageError("请用 --jobs 明确选择 job 索引，例如 --jobs 0,2。");
     const result=await callApi("tasks.dispatch",{workflowId:String(flags.workflow||""),indices:jobs.split(",").map(Number),
-      workerId:String(flags.worker||""),gpuId:String(flags.gpu??""),confirm:flags.confirm===true,stopRunning:flags["stop-running"]===true});
+      workerId:String(flags.worker||""),...(flags.gpu==="auto"?{gpuSelection:"automatic"}:{gpuId:String(flags.gpu??"")}),confirm:flags.confirm===true,stopRunning:flags["stop-running"]===true});
     writeJson(result);return EXIT_OK;
   }
   if (["config", "state", "flow", "tmux", "panel"].includes(domain)

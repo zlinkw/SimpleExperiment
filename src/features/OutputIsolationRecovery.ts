@@ -18,7 +18,7 @@ export function transferBusyIsolation(job: QueuedJob): boolean {
 export function isolationIdentity(plan: QueuedPlan, job: QueuedJob): string {
   const { recovery: _recovery, ...block } = job.outputIsolationBlocked || {};
   return cleanupDigest([plan.id, plan.projectId, plan.planFile, plan.revision, plan.codeFingerprint, plan.executionMode,
-    job.index, job.case, job.seed, job.outputDir, job.collectionResultCsv, block]);
+    job.index, job.case, job.seed, job.outputDir, job.collectionResultCsv, job.automaticWorkerId, block]);
 }
 export type IsolationRecoveryPorts = {
   load(): Promise<DistributedQueue>;

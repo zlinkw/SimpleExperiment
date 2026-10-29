@@ -726,7 +726,8 @@ class LocalApiServer {
                 } : {}),
                 ...(Object.keys(this.methods).includes("plans.cleanup.preview") ? {
                     "tasks.dispatch": { params: ["workflowId", "indices", "workerId", "gpuId", "confirm"], manualDispatch: 1,
-                        sameGpuConcurrent: true, idleGpuRequired: false, pluginCapacityOverride: true, optionalParams: ["expectedCommands", "stopRunning", "distribution", "workflowIds", "all"], distributions: ["explicit_gpu", "quota_remaining"], defaultAutomaticDispatch: "local_idle", startsTraining: true },
+                        sameGpuConcurrent: true, idleGpuRequired: false, pluginCapacityOverride: true, optionalParams: ["expectedCommands", "stopRunning", "distribution", "workflowIds", "all", "gpuSelection"], distributions: ["explicit_gpu", "quota_remaining"],
+                        gpuSelection: { automatic: { gpuIdRequired: false, workerRestricted: true, localQueue: true, memoryBudgetRequired: true }, specific: { gpuIdRequired: true } }, defaultAutomaticDispatch: "local_idle", startsTraining: true },
                     "tasks.list": { readOnly: true, lifecycleProtocol: 2, activeQueries: ["scheduler", "tmux", "final_manifest"],
                         pushRequired: false, receiptRequired: false, executionAndResultSeparate: true, runtimeDiagnostics: 1,
                         completionState: ["verified", "review_required", "unverified"], legacyCompletedIsCleanSuccess: false },
