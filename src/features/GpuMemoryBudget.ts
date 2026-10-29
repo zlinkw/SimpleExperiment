@@ -5,7 +5,7 @@ import { hasVerifiedCompletion, hasTrustedTerminalProof } from "./VerifiedComple
 
 export type GpuBudgetEvidence = {
   version: 1; commandId: string; projectId: string; group: string; hardware: string;
-  peakMb: number; ready: boolean; oom: boolean; durationSeconds?: number; concurrency?: number;
+  peakMb: number; ready: boolean; oom: boolean; durationSeconds?: number; concurrency?: number; observedSeconds?: number;
 };
 export type GpuBudgetReservation = { version: 1; group: string; hardware: string; budgetMb: number; probe: boolean; exclusive?: boolean;
   estimate?: { version: 1; peakMb: number; ready: true } };
@@ -29,6 +29,7 @@ export function budgetEvidence(value: any, commandId: string, projectId: string)
     && typeof value.ready === "boolean" && typeof value.oom === "boolean"
     ? { version: 1, commandId, projectId, group: value.group, hardware: value.hardware, peakMb: value.peakMb,
       ready: value.ready, oom: value.oom,
+      ...(typeof value.observedSeconds === "number" && Number.isFinite(value.observedSeconds) && value.observedSeconds >= 0 ? { observedSeconds: value.observedSeconds } : {}),
       ...(positive(value.durationSeconds) ? { durationSeconds: value.durationSeconds } : {}),
       ...(positive(value.concurrency) ? { concurrency: value.concurrency } : {}) } : undefined;
 }
@@ -118,20 +119,36 @@ export function memoryBudgetAdmission(queue: DistributedQueue, workers: readonly
     choose(plan: QueuedPlan, job: QueuedJob, eligible: readonly WorkerSlots[], slots: Map<string, string[]>) {
       const group = budgetGroup(plan, job);
       const candidates: Array<{ workerId: string; gpuId: string; reservation: GpuBudgetReservation; score: number }> = [];
+      const reasons: string[] = [];
       for (const worker of eligible as BudgetWorker[]) {
         if (job.automaticWorkerId && job.automaticWorkerId !== worker.workerId) continue;
-        if (!worker.gpuBudgetSupported || !worker.gpuPolicy || job.reassignmentWorkerId && job.reassignmentWorkerId !== worker.workerId) continue;
+        if (!worker.gpuBudgetSupported || !worker.gpuPolicy || job.reassignmentWorkerId && job.reassignmentWorkerId !== worker.workerId) {
+          reasons.push(worker.workerId + "：等待兼容的显存预算遥测或指定服务器"); continue;
+        }
+        for (const row of worker.gpuRows || []) {
+          const id = String(row.index ?? row.gpu_id ?? row.gpuId ?? row.id), memory = gpuMemoryNumbers(row);
+          if ((slots.get(worker.workerId) || []).includes(id)) continue;
+          const policy = cardSettings(worker.gpuPolicy, id), active = held.get(cardKey(worker.workerId, id)) || [];
+          reasons.push(worker.workerId + " GPU " + id + "：" + (!memory ? "等待显存遥测" : memory.free < policy.gpuMinFreeMemoryGb * 1024
+            ? "空闲 " + Math.floor(memory.free) + " MiB，低于用户阈值 " + Math.ceil(policy.gpuMinFreeMemoryGb * 1024) + " MiB"
+            : active.length >= policy.gpuJobsPerCard ? "并行名额 " + active.length + "/" + policy.gpuJobsPerCard
+            : "等待可用调度名额（服务器占卡上限 " + (worker.gpuPolicy.gpuMaxConcurrentCards ?? "不限") + "）"));
+        }
         for (const gpuId of new Set(slots.get(worker.workerId) || [])) {
           const row = worker.gpuRows?.find(row => String(row.index ?? row.gpu_id ?? row.gpuId ?? row.id) === gpuId);
           const memory = row && gpuMemoryNumbers(row);
           if (!memory) continue;
           const hardware = budgetHardware(worker.workerId, row), key = cardKey(worker.workerId, gpuId);
+          const wait = (text: string) => reasons.push(worker.workerId + " GPU " + gpuId + "：" + text);
           const active = held.get(key) || [], policy = cardSettings(worker.gpuPolicy, gpuId);
-          if (active.length >= policy.gpuJobsPerCard || memory.free < policy.gpuMinFreeMemoryGb * 1024) continue;
+          if (active.length >= policy.gpuJobsPerCard || memory.free < policy.gpuMinFreeMemoryGb * 1024) { wait("并行名额 " + active.length + "/" + policy.gpuJobsPerCard + "；空闲 " + Math.floor(memory.free) + " MiB，阈值 " + Math.ceil(policy.gpuMinFreeMemoryGb * 1024) + " MiB"); continue; }
           const isReady = ready(group, hardware);
-          if (estimates(group, hardware).some(p => p.oom)) continue;
-          if (!isReady && (active.length || probes.has(profileKey(group, hardware)))) continue;
-          if (active.some(item => !item.reservation || item.reservation.exclusive || !ready(budgetGroup(item.plan, item.job), hardware))) continue;
+          if (estimates(group, hardware).some(p => p.oom)) { wait("已观察到 OOM，自动并发暂停"); continue; }
+          if (!isReady && (active.length || probes.has(profileKey(group, hardware)))) {
+            const sample = queue.plans.flatMap(p => p.jobs).map(j => j.gpuMemoryProfile).find(p => p?.group === group && p.hardware === hardware && !p.ready);
+            wait("等待独占采样；峰值 " + peak(group, hardware) + " MiB；" + (sample?.observedSeconds === undefined ? "采样进度未上报" : "已连续观察 " + Math.floor(sample.observedSeconds) + "/600 秒")); continue;
+          }
+          if (active.some(item => !item.reservation || item.reservation.exclusive || !ready(budgetGroup(item.plan, item.job), hardware))) { wait("已有任务保留独占或未知显存预算"); continue; }
           let deficit = 0;
           let uncreditedUsed = memory.total - memory.free;
           for (const item of active) {
@@ -149,7 +166,7 @@ export function memoryBudgetAdmission(queue: DistributedQueue, workers: readonly
           const measuredPeak = peak(group, hardware);
           const exclusive = isReady && !active.length && budgetSize(measuredPeak) > memory.free && measuredPeak + 1024 <= memory.free;
           const budgetMb = isReady && !exclusive ? budgetSize(measuredPeak) : memory.free;
-          if (budgetMb <= 0 || memory.free - deficit < budgetMb) continue;
+          if (budgetMb <= 0 || memory.free - deficit < budgetMb) { wait("空闲 " + Math.floor(memory.free) + " MiB；已预留 " + Math.ceil(deficit) + " MiB；本任务需 " + Math.ceil(budgetMb) + " MiB；缺少 " + Math.ceil(Math.max(0, budgetMb + deficit - memory.free)) + " MiB"); continue; }
           // Keep the last compatible empty card available for an unmeasured configuration.
           const unknownWaiting = pending.some(item => {
             if (item.job.automaticWorkerId && item.job.automaticWorkerId !== worker.workerId) return false;
@@ -161,20 +178,20 @@ export function memoryBudgetAdmission(queue: DistributedQueue, workers: readonly
           });
           if (isReady && !active.length && unknownWaiting) {
             const empty = [...new Set(slots.get(worker.workerId) || [])].filter(id => !(held.get(cardKey(worker.workerId, id)) || []).length);
-            if (empty.length <= 1) continue;
+            if (empty.length <= 1) { wait("为尚未测量的配置保留最后一张空卡"); continue; }
           }
           if (isReady && active.length && unknownWaiting) {
             const ids = [...new Set((worker.gpuRows || []).map(row => String(row.index ?? row.gpu_id ?? row.gpuId ?? row.id)))];
             const draining = ids.filter(id => (held.get(cardKey(worker.workerId, id)) || []).length)
               .sort((a, b) => (held.get(cardKey(worker.workerId, a)) || []).length - (held.get(cardKey(worker.workerId, b)) || []).length || a.localeCompare(b))[0];
-            if (draining === gpuId) continue;
+            if (draining === gpuId) { wait("等待当前任务结束，为待测配置释放整卡"); continue; }
           }
           const completed = estimates(group, hardware).filter(p => p.durationSeconds && p.concurrency);
           const solo = completed.filter(p => p.concurrency === 1);
           const shared = completed.filter(p => p.concurrency! > 1);
           // Normal completed jobs provide feedback; never run a synthetic training probe.
           if (active.length > 0 && solo.length && shared.length
-            && Math.max(...shared.map(p => p.concurrency! / p.durationSeconds!)) <= Math.min(...solo.map(p => 1 / p.durationSeconds!))) continue;
+            && Math.max(...shared.map(p => p.concurrency! / p.durationSeconds!)) <= Math.min(...solo.map(p => 1 / p.durationSeconds!))) { wait("既有完成任务显示共享运行未提高吞吐，等待整卡"); continue; }
           candidates.push({ workerId: worker.workerId, gpuId,
             reservation: { version: 1, group, hardware, budgetMb, probe: !isReady, ...(exclusive ? { exclusive: true } : {}),
               ...(isReady ? { estimate: { version: 1, peakMb: measuredPeak, ready: true } as const } : {}) },
@@ -192,6 +209,7 @@ export function memoryBudgetAdmission(queue: DistributedQueue, workers: readonly
           : observed.some(value => value.ready && !value.oom) ? "已有 PLAN 显存估计；等待预算余量、可用显卡或用户并行配额；未派发"
           : observed.some(value => value.oom) ? "该配置已观察到 OOM，暂停自动并发；请检查任务配置与显存预算"
           : "等待自动显存观察（连续 10 分钟或任务成功完成）；尚无该配置与硬件的可用估计，未派发";
+        if (reasons.length) job.blockReason = job.gpuMemoryWaitReason += "。" + reasons.slice(0, 3).join("；") + (reasons.length > 3 ? "；另有 " + (reasons.length - 3) + " 张卡等待" : "");
       }
       return best;
     },

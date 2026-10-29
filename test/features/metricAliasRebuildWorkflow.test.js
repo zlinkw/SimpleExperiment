@@ -33,7 +33,16 @@ test('active collection publishes canonical seed means, sample SD and Markdown w
   assert.equal(fs.existsSync(path.join(f.root,'simple_cluster/results/project_table_registry.json')),false);
   assert.ok(report.results.every(row=>row.runId&&row.workerId&&row.planFile===planFile));
   const aliases=new Set(report.results.flatMap(row=>Object.keys(row.metrics)));
-  for(const name of ['AUC','roc_auc','ECE','ece'])assert.ok(aliases.has(name),'original metric alias retained in memory: '+name);
+  assert.deepEqual([...aliases].sort(),['AUC','ECE'],'fresh parser uses the same canonical names as table aggregation');
+});
+
+test('configured aliases apply to long and wide CSV without conflating AP and AUPRC',()=>{
+  const job={case:'x',seed:42};
+  assert.equal(parse('metric,value\ncustom_score,0.8',{},job,{custom_score:'AUC'})[0].metrics.AUC.value,.8);
+  const row=parse('score,AP,AUPRC\n0.8,0.4,0.5',{},job,{score:'AUC'})[0];
+  assert.deepEqual(row.metrics,{AUC:{value:.8},AP:{value:.4},AUPRC:{value:.5}});
+  assert.throws(()=>parse('score,AUC\n0.8,0.9',{},job,{score:'AUC'}),/冲突/);
+  assert.equal(parse('AP\n0.4',{},job,{AP:'AUPRC'})[0].metrics.AUPRC.value,.4);
 });
 test('same-seed alias conflict stays explicit and excludes that seed from the current partial export',async()=>{
   const f=setup();await f.service.update();f.values(true);

@@ -474,9 +474,9 @@ class SyncScopeIndex:
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.440"
-RUNTIME_VERSION = "0.5.440"
-PLUGIN_VERSION = "0.5.440"
+AGENT_VERSION = "0.5.441"
+RUNTIME_VERSION = "0.5.441"
+PLUGIN_VERSION = "0.5.441"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -19276,6 +19276,7 @@ def task_budget_update(root, rows, gpus, now=None):
                         evidence["ready"] = not evidence.get("oom", False)
                 else:
                     evidence["sampleStart"] = None
+        evidence["observedSeconds"] = max(0, now - evidence["sampleStart"]) if evidence.get("sampleStart") is not None else 0
         # Read only the exact native task pane; never guess epoch progress from project logs.
         if not evidence.get("finished") or row.get("dead"):
             tail = task_tmux(["capture-pane", "-p", "-t", row["tmuxPane"], "-S", "-100"])
@@ -19289,7 +19290,7 @@ def task_budget_update(root, rows, gpus, now=None):
 
 def task_budget_public(row):
     value = task_budget_read(row)
-    return {key: value[key] for key in ("version", "commandId", "projectId", "group", "hardware", "peakMb", "ready", "oom", "durationSeconds", "concurrency") if key in value} if value else None
+    return {key: value[key] for key in ("version", "commandId", "projectId", "group", "hardware", "peakMb", "ready", "oom", "durationSeconds", "concurrency", "observedSeconds") if key in value} if value else None
 
 def task_budget_admit(row, gpu, live, evidence):
     options = row.get("options") or {}

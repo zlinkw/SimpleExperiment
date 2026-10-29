@@ -511,7 +511,9 @@ def write_metrics(path, rows):
 
 这是一段工作区设置示例，合并到已有对象，不覆盖服务器配置或其他规则。映射方向是“插件规范字段 → 原 CSV 列名”。缺失列应补充真实输出或去掉不适用映射，不造空字符串来假装维度齐全。
 
-`metricAliases` 用于支持该规则的捕获/预览通道；不要假设所有主动汇总路径都会自动应用全部别名。最稳妥的是结果 CSV 直接输出规范指标名，并用本轮实际汇总核对。AUC/AUROC 可在项目确认同义后统一；AUPRC/AP、macro/micro F1、不同阈值 accuracy 不应未经确认合并。
+`metricAliases` 同时用于捕获/预览和主动汇总的长表、宽表 CSV。例如 `custom_score: AUC` 会进入规范 AUC 列；同一行或同一 seed 的等价指标值不一致时明确报冲突，不覆盖旧表。默认将 AP/average_precision 与 AUPRC/pr_auc 分开，也将普通、macro、micro、weighted F1 分开；只有项目确认含义相同后才显式配置合并。历史已保存别名保留，应核对是否含旧的 AP→AUPRC 或 macro_f1→F1。不同阈值、单位或协议下的指标不要合并。
+
+接入编辑器支持通用、分类、分割、回归和自定义类型。通用项目不强制 AUC；分割可用 DSC、IoU、HD95、ASD，回归可用 RMSE、MAE、R2。类型建议不会覆盖已有主指标、辅助指标或自定义类型；实际输出名、单位和指标方向仍由消费项目确定。
 
 同一个 case、seed、method、dataset、split、eval_protocol、metric 应有明确唯一的最终结果。多 checkpoint 或多个聚合口径不要靠重复行的先后顺序“最后一个覆盖”。每个 seed 输出单次值；重复实验的均值/标准差由正确分组的汇总产生，不让某行混填 `mean ± std` 字符串或跨端点平均。
 

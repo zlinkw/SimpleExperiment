@@ -40,6 +40,7 @@ assert not ns["task_budget_read"](row)["ready"]
 update("/fixture", [row], [gpu], 600)
 evidence = ns["task_budget_read"](row)
 assert evidence["ready"] and evidence["peakMb"] == 12288
+assert ns["task_budget_public"](row)["observedSeconds"] == 600
 assert evidence["budgetMb"] == ns["task_budget_size"](12288)
 # Simulate a fresh controller recovering only persisted window metadata.
 restored = {key: value for key, value in row.items() if key != "_gpuBudget"}

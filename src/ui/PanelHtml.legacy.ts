@@ -1348,7 +1348,7 @@ export function renderPanelHtml(): string {
         <button data-command="toggleLowTrafficMode" type="button" class="secondary lowTrafficToggle" id="lowTrafficModeButton" aria-pressed="false" disabled title="低流量模式（全局偏好）：正在读取当前状态...">低流量：读取中</button>
         <button data-command="bootstrapProject" type="button" title="扫描工作区，识别 experiments/plans 下的实验计划与项目配置&#10;同时检查服务器与 Agent 等前置条件&#10;已有的计划与接入配置不会重复写入">识别工作区</button>
         <span class="status-chip">后台 SSH</span>
-        <span class="status-chip">全局配置</span>
+        <span class="status-chip">当前项目配置</span>
         <span class="status-chip status-completed">仅本机端口</span>
         <button data-command="verifyAgentVersion" class="secondary" type="button" title="校验 Agent 版本&#10;对比本机与各服务器上的 Agent 版本&#10;不一致时提示升级">校验 Agent 版本</button>
         <button data-command="clearCache" class="secondary" type="button" title="查看各 Worker 已结束任务超过 7 天的临时文件与日志，审核完整路径后才可删除">缓存回收审核</button>
@@ -3155,7 +3155,7 @@ export function renderPanelHtml(): string {
       submitting: "提交中", run: "提交待处理", monitor: "任务状态", results: "结果待处理", review: "任务需处理"
     });
     const PROJECT_TASK_TYPE_LABELS = Object.freeze({
-      classification: "分类", segmentation: "分割", regression: "回归", detection: "目标检测",
+      classification: "分类", segmentation: "分割", regression: "回归", generic: "通用", custom: "自定义", detection: "目标检测",
       object_detection: "目标检测", generation: "生成", retrieval: "检索", ranking: "排序"
     });
     const CONFIG_PARAM_KIND_LABELS = Object.freeze({
@@ -9640,8 +9640,7 @@ export function renderPanelHtml(): string {
             configInput("scheduler", "pollSeconds", "调度轮询基准(秒)", configDefault(scheduler.pollSeconds, 10), "number") +
             configInput("scheduler", "jitterSeconds", "正向随机抖动(秒)", configDefault(scheduler.jitterSeconds, 30), "number") +
             configInput("scheduler", "workerStatusTtlSeconds", "可用性缓存 TTL(秒)", configDefault(scheduler.workerStatusTtlSeconds, 45), "number") +
-            configInput("scheduler", "localAvailabilityPushSeconds", "本机汇总上报间隔(秒)", configDefault(scheduler.localAvailabilityPushSeconds, 10), "number") +
-            configInput("scheduler", "workerAvailabilityPushSeconds", "Worker 上报间隔(秒)", configDefault(scheduler.workerAvailabilityPushSeconds, 10), "number") +
+            '<details><summary>旧版兼容参数（不影响当前刷新）</summary><div class="muted">本机汇总上报间隔：' + esc(scheduler.localAvailabilityPushSeconds ?? 10) + ' 秒；Worker 上报间隔：' + esc(scheduler.workerAvailabilityPushSeconds ?? 10) + ' 秒。保留旧值；当前按主动查询与手动刷新执行。</div></details>' +
             configInput("scheduler", "operationEventMaxDelayMs", "实时事件最多等待(毫秒)", configDefault(scheduler.operationEventMaxDelayMs, 1000), "number") +
             '<div class="muted">请求限流已关闭。旧版操作间隔和请求并发设置不再限制操作；GPU 任务并发仍按调度策略执行。</div>' +
             '</div>' + renderSchedulerGlossary() + '</details>' +
@@ -9681,7 +9680,7 @@ export function renderPanelHtml(): string {
             '<div class="muted gpuMemorySummary">自动识别全部显卡。' + memoryDescription(workerMemory) + '</div>' +
             cardQuotaInputs(worker, workerMemory, scope) +
             '<details class="wide" data-details-key="' + escAttr("worker-advanced-" + worker.id) + '"' + detailsOpenAttr("worker-advanced-" + worker.id, false) + ' style="grid-column:1 / -1"><summary>连接状态刷新</summary><div class="configGrid">' +
-            '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '"><div class="label">会话检测最小间隔 秒' + helpBadge(configHelp(scope, "sessionCheckMinSeconds")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.sessionCheckMinSeconds') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.sessionCheckMinSeconds ?? "") + '" placeholder="默认 5" type="number" min="1" max="60" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '" /></div></div>' +
+            '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '"><div class="label">会话检测最小间隔 秒' + helpBadge(configHelp(scope, "sessionCheckMinSeconds")) + '</div><div class="value"><input data-config-input="' + escAttr(scope) + '" data-key="sessionCheckMinSeconds" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.sessionCheckMinSeconds ?? "") + '" placeholder="默认 5" type="number" min="1" max="60" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '" /></div></div>' +
             '</div></details>' +
             configSessionSelect(scope, "savedSessionPath", "Xshell 隧道会话", worker.savedSessionPath || "") +
             configPortPair(scope, "隧道端口对", "localForwardPort", "remoteTelemetryPort", worker.localForwardPort || assignment.localForwardPort || "", worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "", workerSession, "savedSessionForwardIndex", worker.savedSessionForwardIndex, tunnelHost(worker.localForwardHost || assignment.localForwardHost || setup.localForwardHost), tunnelHost(worker.remoteAgentHost || assignment.remoteBindHost || setup.remoteAgentHost)) +
@@ -9691,7 +9690,7 @@ export function renderPanelHtml(): string {
           renderServerDestinationPreview(workerAgent, scope) +
           renderSchedulerDependencyStatus((((state.workerProbes || {})[worker.id] || {}).schedulerDependencies), worker.displayName || worker.id) +
           '<div class="toolbar">' +
-            '<button data-command="addWorkerConfig" class="secondary" title="在设置区追加一块空白服务器表单&#10;填写远端路径与环境后，需再点「保存」才会生效">新增服务器</button>' +
+            '<button data-command="addWorkerConfig" class="secondary" title="选择 Xshell 会话，确认后立即导入并保存到当前项目">导入服务器</button>' +
             '<button data-command="saveWorkerConfig" data-endpoint-id="' + escAttr(worker.id) + '" data-config-scope="' + escAttr(scope) + '" title="保存该 Worker 的配置&#10;含远端路径、Conda 环境与并发占卡上限">保存服务器</button>' +
             '<button data-command="startTunnelEndpoint" data-endpoint-id="' + escAttr(worker.id) + '" data-confirm="true" class="secondary" title="启动该端点的隧道&#10;建立本机到服务器的端口转发">启动隧道</button>' +
             '<button data-command="deleteWorkerConfig" data-endpoint-id="' + escAttr(worker.id) + '" data-danger="true" class="secondary" title="删除该 Worker 配置&#10;已上传到远端的文件不会被删除">删除</button>' +
@@ -10303,7 +10302,7 @@ export function renderPanelHtml(): string {
 
     function renderSchedulerGlossary() {
       const items = [
-        ["实时事件最多等待", "停止、删除、归档、任务状态变化发生后，Worker 最多攒多久再推送；它不是轮询周期。", "数值越小越实时，但事件更多；默认 1000 毫秒。"],
+        ["实时事件最多等待", "旧版事件合并参数；当前运行状态由主动查询核实。", "低流量模式仅手动刷新显示；必要的调度与安全核实继续执行。"],
         ["Worker 操作防连点间隔", "旧版兼容设置，当前版本不再限制请求间隔。", "停止、重试和校验等操作无需等待此间隔。"],
         ["Worker 操作同时执行数", "旧版兼容设置，当前版本不再限制控制请求并发。", "GPU 任务并发仍由调度策略控制。"],
         ["可用性缓存 TTL", "Worker 调度器判断本机 可用性快照还可信的时间窗口。", "TTL 过期后不再新派任务，但它不是刷新频率。"]
@@ -13744,26 +13743,30 @@ export function renderPanelHtml(): string {
 
     function renderProjectRuleEditor(rules) {
       const partial = adapterRulesArePartial(rules);
-      const classificationMetrics = uniqueText([rules.primaryMetric || "AUC", ...(rules.secondaryMetrics || []), ...(rules.classificationMetrics || ["accuracy", "F1", "AUPRC", "precision", "recall", "specificity", "balanced_accuracy", "loss"])]);
-      const segmentationMetrics = uniqueText(rules.segmentationMetrics || ["Dice", "DSC", "IoU", "HD95", "ASD"]);
+      const taskType = configDraftValue("projectAdapterRules", "taskType", rules.taskType || "generic");
+      const classificationMetrics = uniqueText(rules.classificationMetrics || []);
+      const segmentationMetrics = uniqueText(rules.segmentationMetrics || []);
+      const suggestions = taskType === "classification" ? "分类示例：主指标 AUC；辅助 accuracy、F1、AUPRC。AP 与 AUPRC 分开统计。" : taskType === "segmentation" ? "分割示例：主指标 DSC；辅助 IoU、HD95、ASD。距离类指标通常越小越好，由项目明确。" : taskType === "regression" ? "回归示例：主指标 RMSE；辅助 MAE、R2。指标方向和单位由项目明确。" : "通用或自定义任务：填写项目实际输出的指标名，不要求分类指标。";
       const candidateCsv = uniqueText(rules.candidateCsv || ["metrics_summary.csv", "work_dirs/*/metrics_summary.csv", "experiments/results/*.csv", "test_results/summary.csv"]);
       const configuredJson = uniqueText(asArray(rules.candidateJson).filter(isParseableResultCandidate));
       const candidateJson = configuredJson.length ? configuredJson : ["metrics.json", "result.json", "results.json"];
       const consoleLogs = uniqueText(rules.consoleLogs || ["stdout.log", "stderr.log"]);
       const textLogs = uniqueText(rules.textLogs || ["summary.txt", "console.log"]);
-      const aliases = mapToLines(rules.metricAliases || { acc: "accuracy", auroc: "AUC", roc_auc: "AUC", auprc: "AUPRC", macro_f1: "F1", val_loss: "loss", dice: "DSC" });
+      const aliases = mapToLines(rules.metricAliases || {});
       const summary = renderAdapterRuleSummary(Object.assign({}, rules, { classificationMetrics, segmentationMetrics, candidateCsv, candidateJson, consoleLogs, textLogs }));
       const partialNotice = partial
         ? '<div class="notice warning" title="规则摘要">自动识别规则只显示摘要；保存前请核对下方字段。已保存的插件配置仍完整保留。</div>'
         : "";
       return '<details class="projectRuleEditor" data-details-key="project-rule-editor"' + detailsOpenAttr("project-rule-editor", false) + ' title="接入规则">' +
-        '<summary>分类指标与输出捕获配置<span class="muted">' + esc(summary) + '</span></summary>' +
+        '<summary>任务指标与输出接入配置<span class="muted">' + esc(summary) + '</span></summary>' +
         (partialNotice + '<div class="projectRuleGrid">' +
-          projectRuleInput("taskType", "任务类型", rules.taskType || "classification", "默认分类任务；分割只保留兼容入口。") +
-          projectRuleInput("primaryMetric", "主指标", rules.primaryMetric || "AUC", "质量门禁、统计、论文表格默认围绕主指标组织。") +
-          projectRuleTextarea("secondaryMetrics", "辅助指标", asEditorList(rules.secondaryMetrics || ["accuracy", "F1", "AUPRC", "precision", "recall", "specificity"]), "每行或逗号分隔，用于论文表格和结果扫读。") +
-          projectRuleTextarea("classificationMetrics", "分类指标池", asEditorList(classificationMetrics), "分类任务常用指标别名归一化范围。") +
-          projectRuleTextarea("segmentationMetrics", "分割兼容指标", asEditorList(segmentationMetrics), "仅作为偶尔使用分割任务时的兼容指标。") +
+          configSelect("projectAdapterRules", "taskType", "任务类型", taskType, [["generic","通用"],["classification","分类"],["segmentation","分割"],["regression","回归"],["custom","自定义"]].concat(["generic","classification","segmentation","regression","custom"].includes(taskType) ? [] : [[taskType,taskType]])) +
+          '<div class="muted wide">' + esc(suggestions) + ' 切换类型不覆盖已填写指标；建议值请按项目实际输出填写。</div>' +
+          projectRuleInput("primaryMetric", "主指标", rules.primaryMetric || "", "填写实际输出的主指标名称；通用任务可留空。") +
+          projectRuleTextarea("secondaryMetrics", "辅助指标", asEditorList(rules.secondaryMetrics || []), "每行或逗号分隔，用于结果扫读。") +
+          '<details class="wide"><summary>兼容指标池（可选，保留已有配置）</summary>' +
+          projectRuleTextarea("classificationMetrics", "分类指标池", asEditorList(classificationMetrics), "分类任务常用指标范围；其他任务可留空。") +
+          projectRuleTextarea("segmentationMetrics", "分割指标池", asEditorList(segmentationMetrics), "分割项目可填写 DSC、IoU、HD95、ASD；其他任务可留空。") + '</details>' +
           projectRuleTextarea("candidateCsv", "候选 CSV", asEditorList(candidateCsv), "优先使用 metrics_summary.csv 长表（含 work_dirs 通配）。") +
           projectRuleTextarea("candidateJson", "候选 JSON", asEditorList(candidateJson), "已有结构化结果文件可在这里登记。") +
           projectRuleTextarea("consoleLogs", "控制台日志", asEditorList(consoleLogs), "run_wrapper 会捕获 stdout/stderr；正则可从日志提取指标。") +
@@ -13947,7 +13950,7 @@ export function renderPanelHtml(): string {
 
     function renderAdapterRuleSummary(rules) {
       const parts = [
-        "任务 " + projectTaskTypeLabel(rules.taskType || "classification"),
+        "任务 " + projectTaskTypeLabel(rules.taskType || "generic"),
         "主指标 " + (rules.primaryMetric || "AUC"),
         "分类 " + adapterRuleCount(rules, "classificationMetrics"),
         "分割 " + adapterRuleCount(rules, "segmentationMetrics"),
@@ -15257,7 +15260,7 @@ export function renderPanelHtml(): string {
             + (retryView.note ? '<div class="muted">' + esc(retryView.note) + '</div>' : '')
             + (job.manualDispatchNotice ? '<div class="muted">' + esc(job.manualDispatchNotice) + '</div>' : '')
             + (job.latestArtifactSync ? '<div class="muted">最新产物同步：' + esc(job.latestArtifactSync.state === "synced" ? "已同步到全部启用服务器" : job.latestArtifactSync.state === "excluded" ? "不在当前勾选范围内" : "未完成，可刷新重试") + '</div>' : '')
-            + (blockText ? '<div class="executionDistributedJobError">' + esc(blockText) + (blockAdvice ? '<div>下一步：' + esc(blockAdvice.replace(/^下一步：/, "")) + '</div>' : '') + '</div>' : '')
+            + (blockText ? '<div class="' + (job.status === "pending" && job.gpuMemoryWaitReason && !job.outputIsolationBlocked ? 'muted' : 'executionDistributedJobError') + '">' + esc(blockText) + (blockAdvice ? '<div>下一步：' + esc(blockAdvice.replace(/^下一步：/, "")) + '</div>' : '') + '</div>' : '')
             + (errorText ? '<div class="executionDistributedJobError">' + esc(executionJobErrorSummary(errorText)) + (job.artifactError && artifactButtons ? '<div class="muted">点“刷新产物状态”核对；需要补传时点“重试产物同步”，无需重跑训练。</div>' : preflightRejected || codeProofBlocked ? jobNext : '<div class="muted">点击“查看窗口日志”查看完整输出。</div>') + '</div>' : '') + stageBlockHtml + '</div>';
         }).join("") + '</div>' : '';
         const opHtml = opRows.length ? '<h3>最近操作</h3><div class="operationTimeline">' + opRows.map(renderOperationItem).join("") + '</div>' : "";
@@ -16790,8 +16793,10 @@ export function renderPanelHtml(): string {
       const valueChoices = choices.map(value => '<label data-result-split-value-row="' + escAttr(value) + '"' + (resultSplitSearchQuery && !value.toLowerCase().includes(resultSplitSearchQuery.trim().toLowerCase()) ? ' style="display:none"' : '') + '><input type="checkbox" data-result-split-value value="' + escAttr(value) + '"' + (resultSplitSelectedValues === null || resultSplitSelectedValues.includes(value) ? ' checked' : '') + '> ' + esc(value || "（空值）") + '</label>').join("");
       const columns = fields.map(name => '<label><input type="checkbox" data-result-split-column value="' + escAttr(name) + '"' + (resultSplitSelectedColumns === null || resultSplitSelectedColumns.includes(name) ? ' checked' : '') + '> ' + esc(name) + '</label>').join("");
       const syncReport = (state || {}).resultSyncReport;
-      const reportCount = syncReport ? "发现 " + Number(syncReport.discovered || 0) + " · 收录 " + asArray(syncReport.included).length + " · 缺指标 " + asArray(syncReport.missing).length + " · 跳过/失败 " + asArray(syncReport.skipped).length : "";
-      const reportDetails = syncReport ? asArray(syncReport.included).concat(asArray(syncReport.missing), asArray(syncReport.skipped)).map(line => esc(String(line))).join("<br>") : "";
+      const counts = syncReport?.counts;
+      const reportCount = counts ? "发现 " + counts.plans + " 个 Plan · 收录 " + counts.includedPlans + " 个 Plan · 已完成 " + counts.completeJobs + " 个 job · 未完成 " + counts.unfinishedJobs + " 个 job · 待核实 " + counts.unknownJobs + " 个 job · 查询问题 " + counts.queryIssues + " 项" : syncReport ? "发现 " + Number(syncReport.discovered || 0) + " 个 Plan · 收录 " + asArray(syncReport.included).length + " 个 Plan · 未完成或待核实 " + asArray(syncReport.missing).length + " 项 · 查询问题 " + asArray(syncReport.skipped).length + " 项" : "";
+      const groupedDetails = asArray(syncReport?.issueGroups).map(group => '<details><summary>' + esc((group.workerId || "声明查询") + "：" + group.message) + '（' + asArray(group.affected).length + ' 项）</summary>' + asArray(group.affected).map(line => esc(String(line))).join("<br>") + '</details>').join("");
+      const reportDetails = syncReport ? asArray(syncReport.included).map(line => esc(String(line))).join("<br>") + (asArray(syncReport.missing).length ? '<details><summary>未完成或待核实条目（' + asArray(syncReport.missing).length + ' 项）</summary>' + asArray(syncReport.missing).map(line => esc(String(line))).join("<br>") + '</details>' : '') + (groupedDetails || asArray(syncReport.skipped).map(line => esc(String(line))).join("<br>")) : "";
       const reportHtml = reportCount ? '<div class="resultSyncStatus"><span>' + esc(reportCount) + '</span>' + (reportDetails ? '<details data-details-key="result-sync-report"' + detailsOpenAttr("result-sync-report", false) + '><summary>查看 Plan 与 Worker 明细</summary><div class="resultSyncDetails">' + reportDetails + '</div></details>' : '') + '</div>' : "";
       const tableRow = (row, kind) => '<div class="resultTableRowCompact' + (kind === "final" ? ' resultDatasetFinal' : '') + '" title="' + escAttr(row.path || "") + '"><span class="resultTableName" title="' + escAttr(row.path || "") + '">' + esc(kind === "final" ? "final.csv" : row.name) + '</span><span class="resultTableCount">' + Number(row.rowCount || 0) + ' 行</span><span class="resultTableActions"><button type="button" class="secondary mini" data-command="openLocalResultTable" data-table-key="' + escAttr(row.tableKey) + '" data-format="csv" title="' + escAttr(row.path || "") + '">CSV</button><button type="button" class="secondary mini" data-command="openLocalResultTable" data-table-key="' + escAttr(row.tableKey) + '" data-format="md" title="' + escAttr(row.markdownPath || "") + '">Markdown</button><button type="button" class="secondary mini" data-open-result-split data-table-key="' + escAttr(row.tableKey) + '">拆表</button></span></div>';
       const planRows = (plans, ownerKey, referenceOnly = false) => plans.map(plan => {

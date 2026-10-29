@@ -6,6 +6,44 @@ const { readLatestResultExport, latestResultCatalog, regenerateLatestResultTable
 const { fixture, planFile, planText } = require('../_helpers/freshResultHost');
 function files(root) { return fs.readdirSync(root, { withFileTypes: true }).flatMap(row => row.isDirectory() ? files(path.join(root,row.name)).map(item => row.name+'/'+item) : [row.name]); }
 
+test('strict manual mode suppresses tab and completion reads while explicit refresh remains available',async()=>{
+  const f=fixture();f.host.lowTrafficMode=true;
+  f.service.refreshOnVisible();f.service.observe({queryComplete:true,capabilities:{resultCollection:1},tasks:[]});
+  await f.service.refreshAutomatic();assert.equal(f.calls.length,0);
+  const report=await f.service.update();assert.equal(report.current,true);assert.ok(f.calls.length>0);
+  f.host.lowTrafficMode=false;let started;
+  const entered=new Promise(resolve=>started=resolve),original=f.host.client.getWorkerTasks;
+  f.host.client.getWorkerTasks=async(...args)=>{started();await new Promise(resolve=>args[1].signal.addEventListener('abort',resolve,{once:true}));return original(...args);};
+  const pending=f.service.refreshAutomatic();await entered;
+  f.host.lowTrafficMode=true;f.service.suspendAutomatic();assert.equal(await pending,undefined,'intentional automatic cancellation is not an outage');
+});
+
+test('selected PLAN queries restrict server reads and preserve the full export and display summary',async()=>{
+  const f=fixture();await f.service.update();const summary=f.host.resultsSummary;
+  const exportFile=path.join(f.root,'experiments/results/latest-results.json'),before=fs.readFileSync(exportFile,'utf8');
+  const current=f.host.currentResultPlanInputs;f.host.currentResultPlanInputs=async()=>[...await current(),{planFile:'experiments/plans/other.yaml',revision:'other',mode:'test',seeds:[42],jobCount:1}];
+  f.calls.length=0;const report=await f.service.update(undefined,{planFiles:['demo']});
+  assert.equal(report.scope,'selected_plans');assert.equal(report.current,true);assert.equal(report.exported,false);
+  assert.equal(report.discovered,1);assert.equal(f.host.resultsSummary,summary);
+  assert.equal(fs.readFileSync(exportFile,'utf8'),before);
+  assert.ok(f.calls.filter(row=>row[0]==='tasks').every(row=>!row[2].discovery||row[2].discovery.planFile===planFile));
+  assert.ok(f.calls.filter(row=>row[0]==='tasks').flatMap(row=>row[2].declarations||[]).every(row=>row.planFile===planFile));
+  await assert.rejects(f.service.update(undefined,{planFiles:['absent']}),/不存在或不唯一/);
+});
+
+test('repeated declaration errors group by Worker and reason and keep job and PLAN units distinct',async()=>{
+  const f=fixture(),other='experiments/plans/other.yaml';
+  fs.writeFileSync(path.join(f.root,other),planText,'utf8');
+  const input=(await f.host.currentResultPlanInputs())[0];
+  f.host.currentResultPlanInputs=async()=>[input,{...input,planFile:other}];
+  f.offline(true);const report=await f.service.update();
+  const group=report.issueGroups.find(row=>row.workerId==='a'&&row.message==='offline');
+  assert.deepEqual(group.affected,[planFile,other]);
+  assert.equal(report.counts.plans,2);assert.equal(report.counts.unknownJobs,4);
+  assert.equal(report.counts.unverifiedPlans,2);assert.equal(report.counts.completeJobs,0);
+  assert.equal(report.current,false);
+});
+
 test('manual result collection recovers transient discovery, file observation and memory read failures',async()=>{
   const f=fixture(),read=f.host.client.getWorkerTasks,receive=f.host.simpleSftpApiCall;
   const failed=new Set();let attempts=0;

@@ -135,7 +135,7 @@ test("equivalent metric aliases deduplicate per seed while raw registry keys sta
 
 test("all declared metric families use stable canonical columns and unknown metrics remain distinct", () => {
   const families = {
-    AUC: ["auc", "auroc", "roc_auc"], AUPRC: ["AP", "average_precision", "auprc", "pr_auc"],
+    AUC: ["auc", "auroc", "roc_auc"], AP: ["AP", "average_precision"], AUPRC: ["auprc", "pr_auc"],
     accuracy: ["ACC", "acc", "accuracy"], brier: ["brier", "brier_score"], F1: ["F1", "f1", "f1_score"],
     macro_f1: ["f1_macro", "macro_f1"], micro_f1: ["f1_micro", "micro_f1"],
     weighted_f1: ["f1_score_weighted", "f1_weighted", "weighted_f1"], recall: ["recall", "sensitivity"], ECE: ["ECE", "ece"],
@@ -147,7 +147,7 @@ test("all declared metric families use stable canonical columns and unknown metr
     { ...record("w1", "demo", "bus_p30", 42, "clean", "unused", 0), metrics },
   ]), plan, 1);
   const output = tables.buildTables(registry)["bus/final"];
-  for (const name of ["roc_auc", "auprc", "accuracy", "brier_score", "f1_score", "macro_f1", "micro_f1", "weighted_f1", "recall", "ece", "custom_a", "custom_b"])
+  for (const name of ["roc_auc", "ap", "auprc", "accuracy", "brier_score", "f1_score", "macro_f1", "micro_f1", "weighted_f1", "recall", "ece", "custom_a", "custom_b"])
     assert.ok(output.header.includes(name + "_mean"), name);
   assert.equal(output.header.filter((name) => name.endsWith("_mean")).length, Object.keys(families).length + 2);
 });

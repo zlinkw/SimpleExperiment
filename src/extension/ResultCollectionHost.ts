@@ -4,6 +4,7 @@ import { collectFreshResults, freshResultTables, resultDigest, resultPath, trans
 import { publishLatestResult } from "../results/LatestResultExport";
 import { newestJobOutputs } from "../features/LatestJobArtifacts";
 import { retryRequestSignal } from "../core/SafeRequestRetry";
+import { canonicalMetricName } from "../results/ProjectResultTables";
 
 const hosts = new WeakMap<object, ResultCollectionHost>();
 export function resultCollectionHost(host: any): ResultCollectionHost {
@@ -13,21 +14,39 @@ export function resultCollectionHost(host: any): ResultCollectionHost {
 }
 export class ResultCollectionHost {
   private request?: Promise<any>;
+  private requestKey = "";
+  private automaticController?: AbortController;
   private again = false;
   private timer?: ReturnType<typeof setTimeout>;
   private seen = new Set<string>();
   private scope = "";
   private visibleScope = "";
   constructor(private readonly h: any) {}
+  private automaticAllowed() { return !this.h.panelDisposed && this.h.lowTrafficMode !== true && this.h.effectiveTrafficPolicy?.().displayAutoRefresh !== false; }
+  suspendAutomatic() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined; this.again = false; this.visibleScope = "";
+    this.automaticController?.abort();
+  }
+  async refreshAutomatic() {
+    if (!this.automaticAllowed()) return undefined;
+    if (this.automaticController) return this.request;
+    const controller = new AbortController(); this.automaticController = controller;
+    try { return await this.update(controller.signal, { automatic: true }); }
+    catch (error) { if (controller.signal.aborted) return undefined; throw error; }
+    finally { if (this.automaticController === controller) this.automaticController = undefined; }
+  }
   refreshOnVisible() {
+    if (!this.automaticAllowed()) return;
     const context = this.h.captureProjectContext();
     const key = context.root + ":" + context.generation;
     if (this.visibleScope === key) return;
     this.visibleScope = key;
-    void this.update().catch((error: any) => this.h.recordActionError?.({ command: "updateResultSummary", message: String(error.message || error) }));
+    if (this.request) return;
+    void this.refreshAutomatic().catch((error: any) => this.h.recordActionError?.({ command: "updateResultSummary", message: String(error.message || error) }));
   }
   observe(snapshot: any) {
-    if (snapshot.queryComplete !== true || snapshot.capabilities?.resultCollection !== 1 || this.h.panelDisposed) return;
+    if (!this.automaticAllowed() || snapshot.queryComplete !== true || snapshot.capabilities?.resultCollection !== 1) return;
     const scope = this.h.captureProjectContext().root || "";
     if (scope !== this.scope) { this.scope = scope; this.seen.clear(); }
     const completed = (snapshot.tasks || []).filter((task: any) => task.observation?.result?.verified === true
@@ -41,28 +60,35 @@ export class ResultCollectionHost {
     if (this.timer || this.request) return;
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      if (this.h.panelDisposed || this.h.captureProjectContext().root !== scope) return;
-      void this.update().then((report: any) => { if (!report.current) fresh.forEach((key: string) => this.seen.delete(key)); }).catch((error: any) => {
+      if (!this.automaticAllowed() || this.h.captureProjectContext().root !== scope) return;
+      void this.refreshAutomatic().then((report: any) => { if (!report?.current) fresh.forEach((key: string) => this.seen.delete(key)); }).catch((error: any) => {
         fresh.forEach((key: string) => this.seen.delete(key));
         this.h.recordActionError?.({ command: "updateResultSummary", message: String(error.message || error) });
       });
     }, 250);
     this.timer.unref?.();
   }
-  async update(signal?: AbortSignal): Promise<any> {
-    if (this.request) return this.request;
+  async update(signal?: AbortSignal, options: { planFiles?: string[]; automatic?: boolean } = {}): Promise<any> {
+    if (signal?.aborted) throw signal.reason || Error("结果查询已取消");
+    if (options.automatic && !this.automaticAllowed()) return undefined;
+    const key = JSON.stringify([this.h.captureProjectContext().root, options.automatic === true, [...options.planFiles || []].sort()]);
+    if (this.request) {
+      if (this.requestKey === key && !signal) return this.request;
+      await this.request.catch(() => undefined);
+      return this.update(signal, options);
+    }
     this.again = false;
-    const run = this.collect(signal);
-    this.request = run;
+    const run = this.collect(signal, options.planFiles);
+    this.request = run; this.requestKey = key;
     try { return await run; } finally {
       if (this.request === run) this.request = undefined;
       // New completions request a separate refresh; they cannot keep the current
       // user's request open through an unbounded sequence of full collections.
-      if (this.again && !this.timer && !signal?.aborted && !this.h.panelDisposed) {
+      if (this.again && !this.timer && !signal?.aborted && this.automaticAllowed()) {
         this.timer = setTimeout(() => {
           this.timer = undefined;
-          if (this.h.panelDisposed) return;
-          void this.update().catch((error: any) => {
+          if (!this.automaticAllowed()) return;
+          void this.refreshAutomatic().catch((error: any) => {
             this.seen.clear();
             this.h.recordActionError?.({ command: "updateResultSummary", message: String(error.message || error) });
           });
@@ -71,7 +97,7 @@ export class ResultCollectionHost {
       }
     }
   }
-  private async collect(signal?: AbortSignal) {
+  private async collect(signal?: AbortSignal, selection?: string[]) {
     const h = this.h, context = h.captureProjectContext(), root = context.root;
     if (!root) throw Error("请先打开当前实验项目。");
     // Sync destinations carry transport identity. The selected task environment
@@ -120,10 +146,23 @@ export class ResultCollectionHost {
     const readTasks = (workerId: string, options: any, budget: number, attempts = 3) => retryRead<any>(() => h.client.getWorkerTasks(workerId,
       { ...options, signal: requestSignal ? AbortSignal.any([requestSignal, AbortSignal.timeout(budget)]) : AbortSignal.timeout(budget) }), attempts);
     const started = Date.now(), timing: Record<string, number> = {};
-    const inputs = await h.currentResultPlanInputs(); check();
+    let inputs = await h.currentResultPlanInputs(); check();
+    const scoped = Boolean(selection?.length);
+    if (scoped) {
+      const chosen = new Set<string>();
+      for (const value of selection!) {
+        const normalized = String(value).replaceAll("\\", "/").replace(/^\.\//, "");
+        const exact = inputs.filter((row: any) => row.planFile === normalized);
+        const matches = exact.length ? exact : inputs.filter((row: any) => path.posix.basename(row.planFile).replace(/\.ya?ml$/i, "") === normalized.replace(/\.ya?ml$/i, ""));
+        if (matches.length !== 1) throw Error("PLAN 选择不存在或不唯一：" + value);
+        chosen.add(matches[0].planFile);
+      }
+      inputs = inputs.filter((row: any) => chosen.has(row.planFile));
+    }
     timing.localPlansMs = Date.now() - started;
     const discoveryStarted = Date.now();
     const plans: ResultPlan[] = [], declarationErrors: string[] = [];
+    const declarationIssues: Array<{ workerId: string; message: string; affected: string[] }> = [];
     // A transport failure belongs to this refresh, not to each of its PLANs.
     // Do not quarantine declaration mismatches: another PLAN on this Worker may be valid.
     const unavailable = new Map<string, string>();
@@ -157,7 +196,11 @@ export class ResultCollectionHost {
           if (!Array.isArray(response.declaredJobs) || !response.declaredJobs.length || response.declaredJobs.some((job: any) => job.planHash !== plan.revision))
             throw Error("服务器 PLAN 与当前本机声明不一致，未使用旧路径");
           jobs = response.declaredJobs; break;
-        } catch (error: any) { declarationErrors.push(plan.planFile + " · " + worker.id + "：" + String(error.message || error)); }
+        } catch (error: any) {
+          const message = String(error.message || error);
+          declarationErrors.push(plan.planFile + " · " + worker.id + "：" + message);
+          declarationIssues.push({ workerId: worker.id, message, affected: [plan.planFile] });
+        }
       }
       if (!jobs) return undefined;
       const declared = jobs.map((job: any) => ({ planFile: resultPath(plan.planFile), index: Number(job.index), case: String(job.case), seed: Number(job.seed),
@@ -248,10 +291,12 @@ export class ResultCollectionHost {
     }
     check();
     const publicationStarted = Date.now();
-    const tables = { ...freshResultTables(result, plans, h.resultAdapterRules().derivedMetric),
-      ...Object.fromEntries(Object.entries(freshResultTables(result, plans, h.resultAdapterRules().derivedMetric, true)).map(([key, value]) => ["review/" + key, value])) };
+    const rules = h.resultAdapterRules();
+    const derived = rules.derivedMetric ? { ...rules.derivedMetric, metric: canonicalMetricName(rules.derivedMetric.metric, rules.metricAliases) } : undefined;
+    const tables = { ...freshResultTables(result, plans, derived),
+      ...Object.fromEntries(Object.entries(freshResultTables(result, plans, derived, true)).map(([key, value]) => ["review/" + key, value])) };
     const directory = h.resultCsvDirectory || "experiments/results";
-    const published = await publishLatestResult(root, directory, result, tables, current); check();
+    const published = scoped ? false : await publishLatestResult(root, directory, result, tables, current); check();
     timing.publicationMs = Date.now() - publicationStarted;
     const participating = new Set<string>([...queued.map((plan: any) => plan.planFile),
       ...result.jobs.filter(job => job.state !== "missing" && (job.commandId || job.error || job.state === "conflict" || job.executionState === "running")).map(job => job.planFile)]);
@@ -261,7 +306,22 @@ export class ResultCollectionHost {
       completed: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && job.aggregationState === "eligible").length,
       artifactsComplete: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete").length,
       reviewRequired: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && job.aggregationState === "review_required").length }]));
-    const report = { source: "active_query", observedAt: result.observedAt, current: published, merged: published, downloaded: result.records.length > 0, planCoverage: coverage,
+    const issues = [...declarationIssues,
+      ...result.jobs.filter(job => job.error).map(job => ({ workerId: job.workerId || "", message: job.error!, affected: [job.planFile + " · " + job.case + "/" + job.seed] }))];
+    const issueGroups = [...issues.reduce((groups, issue) => {
+      const key = JSON.stringify([issue.workerId, issue.message]);
+      const group = groups.get(key) || { ...issue, affected: [] as string[] };
+      group.affected.push(...issue.affected); groups.set(key, group); return groups;
+    }, new Map<string, typeof issues[number]>()).values()];
+    const report = { source: "active_query", scope: scoped ? "selected_plans" : "all_plans", exported: published,
+      observedAt: result.observedAt, current: scoped ? result.querySucceeded : published, merged: published, downloaded: result.records.length > 0, planCoverage: coverage,
+      issueGroups, counts: { plans: inputs.length, includedPlans: new Set(result.records.map(row => row.planFile)).size,
+        completeJobs: result.jobs.filter(job => job.state === "complete").length,
+        unknownJobs: result.jobs.filter(job => job.index >= 0 && (job.state === "unknown" || job.state === "conflict")).length
+          + inputs.filter((plan: any) => !plans.some(row => row.planFile === plan.planFile)).reduce((sum: number, plan: any) => sum + Number(plan.jobCount || 0), 0),
+        unverifiedPlans: inputs.filter((plan: any) => !plans.some(row => row.planFile === plan.planFile)).length,
+        unfinishedJobs: result.jobs.filter(job => job.state !== "complete" && job.state !== "unknown" && job.state !== "conflict").length,
+        queryIssues: result.errors.length },
       queryTiming: timing, memoryRequests, memoryFiles,
       plans: plans.map(plan => plan.planFile), discovered: inputs.length, included: [...new Set(result.records.map(row => row.planFile))],
       missing: result.jobs.filter(job => participating.has(job.planFile) && job.state !== "complete").map(job => job.planFile + " · " + job.case + "/" + job.seed + "：" + (job.error || job.state)),
@@ -277,9 +337,9 @@ export class ResultCollectionHost {
         workflowId: row.workflowId, revision: row.revision, codeFingerprint: row.codeFingerprint, executionWorkerId: row.executionWorkerId,
         completionState: result.jobs.find(job => job.commandId === row.runId)?.completionState,
         runtimeDiagnostics: result.jobs.find(job => job.commandId === row.runId)?.runtimeDiagnostics })) };
-    h.resultsSummary = report;
+    if (!scoped) h.resultsSummary = report;
     const { results: _records, tables: _tables, jobs: _jobs, ...brief } = report;
-    h.resultSyncReport = brief;
+    if (!scoped) h.resultSyncReport = brief;
     if (published) await h.refreshLocalResultCatalogForProject(context);
     timing.totalMs = Date.now() - started;
     h.postState?.(); return report;

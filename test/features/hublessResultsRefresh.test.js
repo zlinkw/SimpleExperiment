@@ -16,7 +16,9 @@ test('results.list actively queries declared Worker artifacts and scopes the req
   assert.equal(result.source,'active_query');assert.equal(result.planFile,planFile);
   assert.equal(result.results.length,1);assert.equal(result.results[0].planFile,planFile);
   assert.ok(f.calls.some(row=>row[0]==='tasks'));assert.ok(f.calls.some(row=>row[0]==='sync.downloadMappedPaths'));
-  const other=await api.call(f.host,{planFile:'plans/absent.yaml'});assert.equal(other.results.length,0);
+  const before=f.calls.length;
+  await assert.rejects(api.call(f.host,{planFile:'plans/absent.yaml'}),/不存在或不唯一/);
+  assert.equal(f.calls.length,before,'invalid scope cannot trigger a full server scan');
 });
 test('a disconnected Worker produces an explicit partial result and cannot revive cached metrics',async()=>{
   const f=fixture();const online=f.host.workerCodeSyncTargets()[0],query=f.host.client.getWorkerTasks;

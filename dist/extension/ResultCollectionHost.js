@@ -41,6 +41,7 @@ const FreshResults_1 = require("../results/FreshResults");
 const LatestResultExport_1 = require("../results/LatestResultExport");
 const LatestJobArtifacts_1 = require("../features/LatestJobArtifacts");
 const SafeRequestRetry_1 = require("../core/SafeRequestRetry");
+const ProjectResultTables_1 = require("../results/ProjectResultTables");
 const hosts = new WeakMap();
 function resultCollectionHost(host) {
     let service = hosts.get(host);
@@ -53,6 +54,8 @@ function resultCollectionHost(host) {
 class ResultCollectionHost {
     h;
     request;
+    requestKey = "";
+    automaticController;
     again = false;
     timer;
     seen = new Set();
@@ -61,16 +64,49 @@ class ResultCollectionHost {
     constructor(h) {
         this.h = h;
     }
+    automaticAllowed() { return !this.h.panelDisposed && this.h.lowTrafficMode !== true && this.h.effectiveTrafficPolicy?.().displayAutoRefresh !== false; }
+    suspendAutomatic() {
+        if (this.timer)
+            clearTimeout(this.timer);
+        this.timer = undefined;
+        this.again = false;
+        this.visibleScope = "";
+        this.automaticController?.abort();
+    }
+    async refreshAutomatic() {
+        if (!this.automaticAllowed())
+            return undefined;
+        if (this.automaticController)
+            return this.request;
+        const controller = new AbortController();
+        this.automaticController = controller;
+        try {
+            return await this.update(controller.signal, { automatic: true });
+        }
+        catch (error) {
+            if (controller.signal.aborted)
+                return undefined;
+            throw error;
+        }
+        finally {
+            if (this.automaticController === controller)
+                this.automaticController = undefined;
+        }
+    }
     refreshOnVisible() {
+        if (!this.automaticAllowed())
+            return;
         const context = this.h.captureProjectContext();
         const key = context.root + ":" + context.generation;
         if (this.visibleScope === key)
             return;
         this.visibleScope = key;
-        void this.update().catch((error) => this.h.recordActionError?.({ command: "updateResultSummary", message: String(error.message || error) }));
+        if (this.request)
+            return;
+        void this.refreshAutomatic().catch((error) => this.h.recordActionError?.({ command: "updateResultSummary", message: String(error.message || error) }));
     }
     observe(snapshot) {
-        if (snapshot.queryComplete !== true || snapshot.capabilities?.resultCollection !== 1 || this.h.panelDisposed)
+        if (!this.automaticAllowed() || snapshot.queryComplete !== true || snapshot.capabilities?.resultCollection !== 1)
             return;
         const scope = this.h.captureProjectContext().root || "";
         if (scope !== this.scope) {
@@ -90,9 +126,9 @@ class ResultCollectionHost {
             return;
         this.timer = setTimeout(() => {
             this.timer = undefined;
-            if (this.h.panelDisposed || this.h.captureProjectContext().root !== scope)
+            if (!this.automaticAllowed() || this.h.captureProjectContext().root !== scope)
                 return;
-            void this.update().then((report) => { if (!report.current)
+            void this.refreshAutomatic().then((report) => { if (!report?.current)
                 fresh.forEach((key) => this.seen.delete(key)); }).catch((error) => {
                 fresh.forEach((key) => this.seen.delete(key));
                 this.h.recordActionError?.({ command: "updateResultSummary", message: String(error.message || error) });
@@ -100,12 +136,22 @@ class ResultCollectionHost {
         }, 250);
         this.timer.unref?.();
     }
-    async update(signal) {
-        if (this.request)
-            return this.request;
+    async update(signal, options = {}) {
+        if (signal?.aborted)
+            throw signal.reason || Error("结果查询已取消");
+        if (options.automatic && !this.automaticAllowed())
+            return undefined;
+        const key = JSON.stringify([this.h.captureProjectContext().root, options.automatic === true, [...options.planFiles || []].sort()]);
+        if (this.request) {
+            if (this.requestKey === key && !signal)
+                return this.request;
+            await this.request.catch(() => undefined);
+            return this.update(signal, options);
+        }
         this.again = false;
-        const run = this.collect(signal);
+        const run = this.collect(signal, options.planFiles);
         this.request = run;
+        this.requestKey = key;
         try {
             return await run;
         }
@@ -114,12 +160,12 @@ class ResultCollectionHost {
                 this.request = undefined;
             // New completions request a separate refresh; they cannot keep the current
             // user's request open through an unbounded sequence of full collections.
-            if (this.again && !this.timer && !signal?.aborted && !this.h.panelDisposed) {
+            if (this.again && !this.timer && !signal?.aborted && this.automaticAllowed()) {
                 this.timer = setTimeout(() => {
                     this.timer = undefined;
-                    if (this.h.panelDisposed)
+                    if (!this.automaticAllowed())
                         return;
-                    void this.update().catch((error) => {
+                    void this.refreshAutomatic().catch((error) => {
                         this.seen.clear();
                         this.h.recordActionError?.({ command: "updateResultSummary", message: String(error.message || error) });
                     });
@@ -128,7 +174,7 @@ class ResultCollectionHost {
             }
         }
     }
-    async collect(signal) {
+    async collect(signal, selection) {
         const h = this.h, context = h.captureProjectContext(), root = context.root;
         if (!root)
             throw Error("请先打开当前实验项目。");
@@ -185,11 +231,25 @@ class ResultCollectionHost {
         };
         const readTasks = (workerId, options, budget, attempts = 3) => retryRead(() => h.client.getWorkerTasks(workerId, { ...options, signal: requestSignal ? AbortSignal.any([requestSignal, AbortSignal.timeout(budget)]) : AbortSignal.timeout(budget) }), attempts);
         const started = Date.now(), timing = {};
-        const inputs = await h.currentResultPlanInputs();
+        let inputs = await h.currentResultPlanInputs();
         check();
+        const scoped = Boolean(selection?.length);
+        if (scoped) {
+            const chosen = new Set();
+            for (const value of selection) {
+                const normalized = String(value).replaceAll("\\", "/").replace(/^\.\//, "");
+                const exact = inputs.filter((row) => row.planFile === normalized);
+                const matches = exact.length ? exact : inputs.filter((row) => path.posix.basename(row.planFile).replace(/\.ya?ml$/i, "") === normalized.replace(/\.ya?ml$/i, ""));
+                if (matches.length !== 1)
+                    throw Error("PLAN 选择不存在或不唯一：" + value);
+                chosen.add(matches[0].planFile);
+            }
+            inputs = inputs.filter((row) => chosen.has(row.planFile));
+        }
         timing.localPlansMs = Date.now() - started;
         const discoveryStarted = Date.now();
         const plans = [], declarationErrors = [];
+        const declarationIssues = [];
         // A transport failure belongs to this refresh, not to each of its PLANs.
         // Do not quarantine declaration mismatches: another PLAN on this Worker may be valid.
         const unavailable = new Map();
@@ -239,7 +299,9 @@ class ResultCollectionHost {
                     break;
                 }
                 catch (error) {
-                    declarationErrors.push(plan.planFile + " · " + worker.id + "：" + String(error.message || error));
+                    const message = String(error.message || error);
+                    declarationErrors.push(plan.planFile + " · " + worker.id + "：" + message);
+                    declarationIssues.push({ workerId: worker.id, message, affected: [plan.planFile] });
                 }
             }
             if (!jobs)
@@ -361,10 +423,12 @@ class ResultCollectionHost {
         }
         check();
         const publicationStarted = Date.now();
-        const tables = { ...(0, FreshResults_1.freshResultTables)(result, plans, h.resultAdapterRules().derivedMetric),
-            ...Object.fromEntries(Object.entries((0, FreshResults_1.freshResultTables)(result, plans, h.resultAdapterRules().derivedMetric, true)).map(([key, value]) => ["review/" + key, value])) };
+        const rules = h.resultAdapterRules();
+        const derived = rules.derivedMetric ? { ...rules.derivedMetric, metric: (0, ProjectResultTables_1.canonicalMetricName)(rules.derivedMetric.metric, rules.metricAliases) } : undefined;
+        const tables = { ...(0, FreshResults_1.freshResultTables)(result, plans, derived),
+            ...Object.fromEntries(Object.entries((0, FreshResults_1.freshResultTables)(result, plans, derived, true)).map(([key, value]) => ["review/" + key, value])) };
         const directory = h.resultCsvDirectory || "experiments/results";
-        const published = await (0, LatestResultExport_1.publishLatestResult)(root, directory, result, tables, current);
+        const published = scoped ? false : await (0, LatestResultExport_1.publishLatestResult)(root, directory, result, tables, current);
         check();
         timing.publicationMs = Date.now() - publicationStarted;
         const participating = new Set([...queued.map((plan) => plan.planFile),
@@ -376,7 +440,24 @@ class ResultCollectionHost {
                 artifactsComplete: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete").length,
                 reviewRequired: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && job.aggregationState === "review_required").length
             }]));
-        const report = { source: "active_query", observedAt: result.observedAt, current: published, merged: published, downloaded: result.records.length > 0, planCoverage: coverage,
+        const issues = [...declarationIssues,
+            ...result.jobs.filter(job => job.error).map(job => ({ workerId: job.workerId || "", message: job.error, affected: [job.planFile + " · " + job.case + "/" + job.seed] }))];
+        const issueGroups = [...issues.reduce((groups, issue) => {
+                const key = JSON.stringify([issue.workerId, issue.message]);
+                const group = groups.get(key) || { ...issue, affected: [] };
+                group.affected.push(...issue.affected);
+                groups.set(key, group);
+                return groups;
+            }, new Map()).values()];
+        const report = { source: "active_query", scope: scoped ? "selected_plans" : "all_plans", exported: published,
+            observedAt: result.observedAt, current: scoped ? result.querySucceeded : published, merged: published, downloaded: result.records.length > 0, planCoverage: coverage,
+            issueGroups, counts: { plans: inputs.length, includedPlans: new Set(result.records.map(row => row.planFile)).size,
+                completeJobs: result.jobs.filter(job => job.state === "complete").length,
+                unknownJobs: result.jobs.filter(job => job.index >= 0 && (job.state === "unknown" || job.state === "conflict")).length
+                    + inputs.filter((plan) => !plans.some(row => row.planFile === plan.planFile)).reduce((sum, plan) => sum + Number(plan.jobCount || 0), 0),
+                unverifiedPlans: inputs.filter((plan) => !plans.some(row => row.planFile === plan.planFile)).length,
+                unfinishedJobs: result.jobs.filter(job => job.state !== "complete" && job.state !== "unknown" && job.state !== "conflict").length,
+                queryIssues: result.errors.length },
             queryTiming: timing, memoryRequests, memoryFiles,
             plans: plans.map(plan => plan.planFile), discovered: inputs.length, included: [...new Set(result.records.map(row => row.planFile))],
             missing: result.jobs.filter(job => participating.has(job.planFile) && job.state !== "complete").map(job => job.planFile + " · " + job.case + "/" + job.seed + "：" + (job.error || job.state)),
@@ -392,9 +473,11 @@ class ResultCollectionHost {
                 workflowId: row.workflowId, revision: row.revision, codeFingerprint: row.codeFingerprint, executionWorkerId: row.executionWorkerId,
                 completionState: result.jobs.find(job => job.commandId === row.runId)?.completionState,
                 runtimeDiagnostics: result.jobs.find(job => job.commandId === row.runId)?.runtimeDiagnostics })) };
-        h.resultsSummary = report;
+        if (!scoped)
+            h.resultsSummary = report;
         const { results: _records, tables: _tables, jobs: _jobs, ...brief } = report;
-        h.resultSyncReport = brief;
+        if (!scoped)
+            h.resultSyncReport = brief;
         if (published)
             await h.refreshLocalResultCatalogForProject(context);
         timing.totalMs = Date.now() - started;

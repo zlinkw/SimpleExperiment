@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "defaultChannel": "trial",
+  "promotionRequiresExplicitUserAcceptance": true,
+  "authoritative": {
+    "simpleExperiment": {
+      "version": "0.5.440",
+      "commit": "c6005169d6298d7713c653b34f909268de505bae",
+      "release": "https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.440",
+      "asset": "simple-experiment-0.5.440.vsix",
+      "bytes": 2758045,
+      "sha256": "604839552e76cbc232398786fa17eb66edac4fd4905827f8ac9e29e3b6debc6d"
+    },
+    "simpleSftp": {
+      "version": "0.2.117",
+      "commit": "7c136f209bf0fee8a1f98eebdececc02afca02bf",
+      "release": "https://github.com/zlinkw/SimpleSFTP/releases/tag/v0.2.117",
+      "asset": "simple-sftp-0.2.117.vsix",
+      "bytes": 240255,
+      "sha256": "b55df912487a2a91b31a497b3f70af2c7410bf4a25da97ca973f954536436116"
+    }
+  },
+  "trialPublication": {
+    "prerelease": true,
+    "latest": false,
+    "installation": "Only when explicitly authorized for the current delivery; once per version",
+    "automaticStablePromotion": false
+  }
+}

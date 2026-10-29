@@ -18,6 +18,23 @@ function extractFunction(source, name) {
   throw new Error(`unterminated ${name}`);
 }
 
+test("rendered Worker interval participates in the real save collector", () => {
+  const panelFunction = require("../_helpers/panelFunction");
+  const rendered = panelFunction("renderServerCardsV2");
+  const expression = rendered.split('\n').find(line => line.includes('data-key="sessionCheckMinSeconds"')).trim().replace(/\+\s*$/, '');
+  const sandbox = { worker: { id: 'a', sessionCheckMinSeconds: 17 }, scope: 'worker:a', escAttr: String, configHelp: () => '', helpBadge: () => '' };
+  const markup = vm.runInNewContext(expression, sandbox);
+  assert.match(markup, /data-config-input="worker:a" data-key="sessionCheckMinSeconds"/);
+  const ts = require('typescript'), body = panelFunction('payloadFromButton');
+  const ast = ts.createSourceFile('panel.js', body, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const statement = ast.statements[0].body.statements.find(node => ts.isIfStatement(node) && node.expression.getText(ast) === 'button.dataset.configScope');
+  const input = { dataset: { key: 'sessionCheckMinSeconds' }, value: 17 };
+  const context = { payload: {}, button: { dataset: { configScope: 'worker:a' } }, configInputValue: item => item.value,
+    document: { querySelectorAll: selector => { assert.equal(selector, '[data-config-input="worker:a"]'); return [input]; } } };
+  vm.runInNewContext(statement.getText(ast), context);
+  assert.equal(context.payload.patch.sessionCheckMinSeconds, 17);
+});
+
 test("all visible panel commands have extension handlers", () => {
   const root = path.join(__dirname, "..", "..");
   const html = readSource("src/ui/PanelHtml.ts");

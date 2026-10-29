@@ -31,6 +31,18 @@ function verified(plan,job){
  const V=require('../../src/features/VerifiedCompletion.ts');
  job.status='completed';job.lifecycleProtocol=2;job.verifiedCompletion={schemaVersion:1,identity:V.completionIdentity(plan,job),verifiedAt:'2026-10-29T02:00:00Z',exitCode:0};
 }
+
+test('waiting diagnostics explain quota and sampling without changing admission',()=>{
+ const q=calibrated(plan(D.emptyDistributedQueue(),'a',3)),p=q.plans[0];
+ const profile=p.jobs[0].gpuMemoryProfile;profile.ready=false;profile.observedSeconds=120;
+ const evidence=B.budgetEvidence(profile,profile.commandId,'p');assert.equal(evidence.observedSeconds,120);
+ const w=worker([gpu(0)]),admission=B.memoryBudgetAdmission(q,[w]),job=p.jobs[1];
+ assert.equal(admission.choose(p,job,[w],new Map([['w',['0']]])),undefined);
+ assert.match(job.gpuMemoryWaitReason,/w GPU 0.*120\/600 秒/);
+ const quota=worker([gpu(0)],{gpuPolicy:{gpuJobsPerCard:1,gpuMinFreeMemoryGb:2}});
+ B.memoryBudgetAdmission(q,[quota]).choose(p,job,[quota],new Map());
+ assert.match(job.gpuMemoryWaitReason,/并行名额 1\/1/);
+});
 test('PLAN estimates survive reload and source telemetry loss, then expire only when all declared jobs complete',()=>{
  const queue=calibrated(plan(D.emptyDistributedQueue(),'cached',4),'cached'),p=queue.plans[0];
  p.jobs[0].gpuMemoryProfile.ready=false;verified(p,p.jobs[0]);

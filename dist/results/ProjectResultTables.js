@@ -49,6 +49,7 @@ exports.summaryForWorker = summaryForWorker;
 exports.mergeAvailableWorkerResults = mergeAvailableWorkerResults;
 exports.writeCsv = writeCsv;
 exports.readCsv = readCsv;
+exports.canonicalMetricName = canonicalMetricName;
 exports.buildTables = buildTables;
 exports.splitCsvByValues = splitCsvByValues;
 exports.resultCatalog = resultCatalog;
@@ -421,7 +422,8 @@ function readCsv(text, delimiter = ",") {
 }
 const METRIC_EQUIVALENCE_GROUPS = {
     AUC: ["auc", "auroc", "roc_auc"],
-    AUPRC: ["ap", "average_precision", "auprc", "pr_auc"],
+    AP: ["ap", "average_precision"],
+    AUPRC: ["auprc", "pr_auc"],
     accuracy: ["acc", "accuracy"],
     brier: ["brier", "brier_score"],
     ECE: ["ece"],
@@ -432,8 +434,10 @@ const METRIC_EQUIVALENCE_GROUPS = {
     recall: ["recall", "sensitivity"],
 };
 const METRIC_EQUIVALENCE = new Map(Object.entries(METRIC_EQUIVALENCE_GROUPS).flatMap(([canonical, aliases]) => aliases.map((alias) => [alias, canonical])));
-function canonicalMetricName(value) {
-    const name = String(value || "").trim();
+function canonicalMetricName(value, aliases = {}) {
+    const source = String(value || "").trim();
+    const alias = Object.entries(aliases).find(([key]) => key.toLowerCase() === source.toLowerCase());
+    const name = String(alias?.[1] || source).trim();
     return METRIC_EQUIVALENCE.get(name.toLowerCase()) || name;
 }
 function canonicalMetricValues(metrics) {

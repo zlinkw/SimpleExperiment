@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.440",
-  "buildId": "f3316be2dce2ac08bd82a00182afae04704879e1f26d0ede967a3a348e891167",
+  "version": "0.5.441",
+  "buildId": "b1426b3aada00a3435c999aa8168d225cf029ac24faec1adeaa43513c2acece9",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -245,7 +245,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "65d1b28015ec9eea3e60cc2f4f7548aba54c3b9d53fcb7d5aa9e62510916e0f7"
+      "sha256": "1c7f837a710728e7598d375a63b7ef1be7644dac4f77a435304dc8b4620db5a6"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -301,7 +301,7 @@
     },
     {
       "path": "dist/extension/ResultCollectionHost.js",
-      "sha256": "464d5aaaf40187674dfab1cb977bd9e5f49d8a26d795dcc27a99726d34fc0a09"
+      "sha256": "84ecc5d19c60dc90e94cdf5a66e27ee7f704bf3baf4e8a01f9aceb42566cbe44"
     },
     {
       "path": "dist/extension/RunConfirmation.js",
@@ -449,7 +449,7 @@
     },
     {
       "path": "dist/features/GpuMemoryBudget.js",
-      "sha256": "67f2eed921f7c1b5a246faf6e4daa16c40e6eed03f1c2a6726e425f382ef7d70"
+      "sha256": "d1f825e5667a8a781001fe40e4985d0b0ef4e6a2004448e963bc52ad4ea4b340"
     },
     {
       "path": "dist/features/GpuMemoryScheduling.js",
@@ -873,7 +873,7 @@
     },
     {
       "path": "dist/results/ProjectResultTables.js",
-      "sha256": "4d633a774f398da6902ef8868f690c5feb7b619d65b12c90815758b7b1af5608"
+      "sha256": "4754c561a3ff2c074e570933d2fd1e929628a95303f451f4d69862f2a8c1af8c"
     },
     {
       "path": "dist/results/ResultLayout.js",
@@ -889,7 +889,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "8ad312bdcc95edcce26e642df5522d947524692cf1ad067382d00f0b5379b076"
+      "sha256": "a43ea1152b6d2c42fad66dd83e4cdd4da05ec4b0a63fda1e4e019e0d7355de8c"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1117,7 +1117,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "6a208134b675223fd8d4e41b8255840705f16a377b535eaa4f498c13ad2e8682"
+      "sha256": "b935aaa4f768f9b3140c3452c9f3c454c5509473e0971e05af9371751b356703"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1241,7 +1241,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "ad0aa6610b74c061482220e062abfd11134b769095ac29404f81471863d17063"
+      "sha256": "1dc56e7650759699596a13d2fb96e36dd465f1dd115f82ee6b05f67ae977b762"
     },
     {
       "path": "scripts/check-static.js",

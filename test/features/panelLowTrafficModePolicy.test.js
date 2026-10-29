@@ -55,6 +55,7 @@ function createFixture() {
   let nextId = 0;
   const state = { stored: {}, posts: [], messages: [], policyUpdates: [], progressRounds: 0, progressOptions: [], ticks: 0, failWrite: false, reads: 0, listReads: [], failNextRead: false };
   const sandbox = {
+    resultCollectionHost: () => ({ suspendAutomatic() {} }),
     NORMAL_TRAFFIC_INTERVALS: NORMAL,
     LOW_TRAFFIC_INTERVALS: LOW,
     LOW_TRAFFIC_REQUEST_HISTORY: 16,

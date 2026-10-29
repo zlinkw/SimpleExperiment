@@ -1409,6 +1409,8 @@ class RealtimeTunnelPanelProvider {
                     return { ok: false, enabled: previous, error: `低流量模式设置未保存：${text}` };
                 }
                 this.lowTrafficModeError = "";
+                if (target)
+                    (0, ResultCollectionHost_1.resultCollectionHost)(this).suspendAutomatic();
                 this.applyTrafficScheduling();
                 this.postState(true);
                 return { ok: true, enabled: target };
@@ -2864,10 +2866,10 @@ class RealtimeTunnelPanelProvider {
         });
     }
     resultAdapterRules() { return pluginProjectAdapterRules(workspaceRoot()); }
-    parseFreshResultMetric(text, job) { return parseDownloadedMetricCsv(text, this.resultAdapterRules().csvColumnMapping || {}, job); }
+    parseFreshResultMetric(text, job) { const rules = this.resultAdapterRules(); return parseDownloadedMetricCsv(text, rules.csvColumnMapping || {}, job, rules.metricAliases || {}); }
     async apiResultsList(params = {}, signal) {
-        const report = await (0, ResultCollectionHost_1.resultCollectionHost)(this).update(signal);
         const selected = stringField(params, "planFile") || stringField(params, "planId") || "";
+        const report = await (0, ResultCollectionHost_1.resultCollectionHost)(this).update(signal, { planFiles: selected ? [selected] : undefined });
         const results = (report.results || []).filter(row => !selected || samePlanSelection(row.planFile, selected));
         return { source: "active_query", planFile: selected, results: results.slice(0, 200), summary: { ...report, results } };
     }
@@ -19673,7 +19675,7 @@ class RealtimeTunnelPanelProvider {
         await this.ensureXshellSessionLoaded(worker.savedSessionPath);
         await this.applySetupDraft(this.withImportedXshellFields(manual, worker.id), { syncAssignmentsFromFields: true });
         if (showMessage)
-            void vscode.window.showInformationMessage(`${worker.displayName || worker.id} 已添加并全局保存。`);
+            void vscode.window.showInformationMessage(`${worker.displayName || worker.id} 已导入并保存到当前项目。`);
         return true;
     }
     async deleteWorkerConfigFromUi(message) {
@@ -24403,7 +24405,7 @@ class RealtimeTunnelPanelProvider {
         return this.rebuildProjectResultTablesFromUi({ planFiles: [planFile], title: "更新当前 Plan 指标表" });
     }
     async syncPendingResultMetricsFromUi(options = {}) {
-        return options.background ? (0, ResultCollectionHost_1.resultCollectionHost)(this).update() : this.rebuildProjectResultTablesFromUi(options);
+        return options.background ? (0, ResultCollectionHost_1.resultCollectionHost)(this).refreshAutomatic() : this.rebuildProjectResultTablesFromUi(options);
     }
     async summaryForMetricDownload(client, planFile) {
         const summary = typeof client?.getResultsSummary === "function"
@@ -25985,7 +25987,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error(`项目同步未完成：${verified.conflicts.length} 个内容冲突、${verified.copies.length} 个缺失文件、${verified.protectedDifferences.length} 个代码或 Plan 产物差异；详情见 ${file}。`);
     }
     async updateProjectResultTablesFromSummary(summary, planFile) {
-        return (0, ResultCollectionHost_1.resultCollectionHost)(this).update();
+        return (0, ResultCollectionHost_1.resultCollectionHost)(this).refreshAutomatic();
     }
     async rebuildProjectResultTablesFromUi(options = {}) {
         const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "更新结果汇总", cancellable: true }, async (progress, token) => {
@@ -25993,13 +25995,13 @@ class RealtimeTunnelPanelProvider {
             const listener = token.onCancellationRequested?.(() => abort.abort());
             try {
                 progress.report({ message: "主动查询 PLAN 声明和服务器实际产物…" });
-                return await (0, ResultCollectionHost_1.resultCollectionHost)(this).update(abort.signal);
+                return await (0, ResultCollectionHost_1.resultCollectionHost)(this).update(abort.signal, { planFiles: options.planFiles });
             }
             finally {
                 listener?.dispose();
             }
         });
-        const message = result.current ? "结果已更新：" + result.completed + "/" + result.expected + " 个 job；缺项 " + result.missing.length + "。"
+        const message = result.current ? (result.scope === "selected_plans" ? "所选 PLAN 查询完成（未覆盖整批导出）：" : "结果已更新：") + result.completed + "/" + result.expected + " 个 job；未完成或待核实 " + result.missing.length + "。"
             : "本轮无法核实服务器结果；保留原导出文件，它不是本轮查询结果。";
         if (result.current && !result.skipped.length && !result.missing.length)
             void vscode.window.showInformationMessage(message);
@@ -27245,6 +27247,8 @@ class RealtimeTunnelPanelProvider {
         });
     }
     async refreshResultsSummary(planHint = "", manualRetry = false) {
+        if (this.lowTrafficMode && !manualRetry)
+            return;
         if (this.effectiveConnectionMode() === "offline_import") {
             this.applyOfflineResultsSummaryFromBundle(this.offlineBundle);
             this.postState();
@@ -37135,7 +37139,8 @@ async function inferProjectAdapterRules(root, configFiles, factory, planFiles = 
     // classification_report 分支已删除：classification_report.csv/.txt 不再脑补，走 Plan 声明。
     const hasSegmentationTask = [...taskSignals].some((item) => /segmentation|seg\b/i.test(item));
     const hasClassificationTask = [...taskSignals].some((item) => /classification|multimodal_classification/i.test(item));
-    const taskType = hasSegmentationTask && !hasClassificationTask ? "segmentation" : "classification";
+    const hasRegressionTask = [...taskSignals].some((item) => /regression/i.test(item));
+    const taskType = hasSegmentationTask && !hasClassificationTask ? "segmentation" : hasClassificationTask ? "classification" : hasRegressionTask ? "regression" : "generic";
     const normalizedMetrics = uniqueStrings([...metrics].map(normalizeMetricName).filter(Boolean));
     const metricGroups = partitionProjectMetrics(normalizedMetrics);
     const classification = uniqueStrings([
@@ -37160,10 +37165,10 @@ async function inferProjectAdapterRules(root, configFiles, factory, planFiles = 
     ]);
     return {
         taskType,
-        primaryMetric: classification.includes("AUC") ? "AUC" : classification[0] || "accuracy",
-        secondaryMetrics: classification.filter((item) => item !== "AUC").slice(0, 8),
-        classificationMetrics: classification,
-        segmentationMetrics: segmentation,
+        primaryMetric: taskType === "classification" ? "AUC" : taskType === "segmentation" ? "DSC" : taskType === "regression" ? "RMSE" : normalizedMetrics[0] || "",
+        secondaryMetrics: taskType === "classification" ? classification.filter((item) => item !== "AUC").slice(0, 8) : taskType === "segmentation" ? segmentation.filter(item => !["DSC", "Dice"].includes(item)) : taskType === "regression" ? ["MAE", "R2"] : normalizedMetrics.slice(1, 9),
+        classificationMetrics: taskType === "classification" ? classification : metricGroups.classification,
+        segmentationMetrics: taskType === "segmentation" ? segmentation : metricGroups.segmentation,
         candidateCsv: uniqueStrings([...csv].map((item) => item.replace(/\\/g, "/"))),
         candidateJson: uniqueStrings([...json]),
         consoleLogs: uniqueStrings([...consoleLogs]),
@@ -37188,12 +37193,16 @@ async function inferProjectAdapterRules(root, configFiles, factory, planFiles = 
 function mergeProjectAdapterRules(explicitRules, inferredRules) {
     const hasMap = (value) => Object.keys(value || {}).length > 0;
     const unionList = (...lists) => uniqueStrings(lists.flatMap((list) => Array.isArray(list) ? list : []).map((item) => String(item || "").trim().replace(/\\/g, "/")).filter(Boolean));
+    const taskType = explicitRules.taskType || inferredRules.taskType;
+    const defaults = taskType === inferredRules.taskType ? inferredRules : taskType === "classification" ? { primaryMetric: "AUC", secondaryMetrics: ["accuracy", "F1", "AUPRC"] }
+        : taskType === "segmentation" ? { primaryMetric: "DSC", secondaryMetrics: ["IoU", "HD95", "ASD"] }
+            : taskType === "regression" ? { primaryMetric: "RMSE", secondaryMetrics: ["MAE", "R2"] } : { primaryMetric: "", secondaryMetrics: [] };
     return {
         distributedResults: explicitRules.distributedResults === true,
         distributed: explicitRules.distributed || {},
-        taskType: explicitRules.taskType || inferredRules.taskType,
-        primaryMetric: explicitRules.primaryMetric || inferredRules.primaryMetric,
-        secondaryMetrics: explicitRules.secondaryMetrics?.length ? explicitRules.secondaryMetrics : inferredRules.secondaryMetrics,
+        taskType,
+        primaryMetric: explicitRules.primaryMetric || defaults.primaryMetric,
+        secondaryMetrics: explicitRules.secondaryMetrics?.length ? explicitRules.secondaryMetrics : defaults.secondaryMetrics,
         classificationMetrics: explicitRules.classificationMetrics?.length ? explicitRules.classificationMetrics : inferredRules.classificationMetrics,
         segmentationMetrics: explicitRules.segmentationMetrics?.length ? explicitRules.segmentationMetrics : inferredRules.segmentationMetrics,
         candidateCsv: dedupOutputCandidates(unionList(explicitRules.candidateCsv, inferredRules.candidateCsv)),
@@ -37378,12 +37387,12 @@ function defaultMetricAliases() {
         test_auc: "AUC",
         auprc: "AUPRC",
         pr_auc: "AUPRC",
-        average_precision: "AUPRC",
-        ap: "AUPRC",
+        average_precision: "AP",
+        ap: "AP",
         f1_score: "F1",
-        macro_f1: "F1",
-        micro_f1: "F1",
-        weighted_f1: "F1",
+        macro_f1: "macro_f1",
+        micro_f1: "micro_f1",
+        weighted_f1: "weighted_f1",
         sensitivity: "recall",
         tpr: "recall",
         ppv: "precision",
@@ -40254,7 +40263,7 @@ async function distributeMappedDownloads(root, entries, transfers, overwrite, ho
         throw new Error(`映射下载已接收，但本机分发留下暂存文件：${residues.join("、")}`);
     return delivered;
 }
-function parseDownloadedMetricCsv(text, columnMapping = {}, jobDefaults = {}) {
+function parseDownloadedMetricCsv(text, columnMapping = {}, jobDefaults = {}, metricAliases = {}) {
     const parsed = ProjectResultTables.readCsv(String(text || "").replace(/^\uFEFF/, ""));
     const mappedName = (field, fallback) => {
         const configured = String(columnMapping?.[field] || "").trim();
@@ -40284,17 +40293,23 @@ function parseDownloadedMetricCsv(text, columnMapping = {}, jobDefaults = {}) {
             split: splitIndex >= 0 ? cells[splitIndex] : "",
         };
         const metrics = {};
+        const assign = (source, value) => {
+            const name = ProjectResultTables.canonicalMetricName(source, metricAliases);
+            if (metrics[name] && metrics[name].value !== value)
+                throw new Error("同一行等价指标值冲突：" + source + " / " + name + "。已保留旧表。");
+            metrics[name] = { value };
+        };
         if (metricIndex >= 0 && valueIndex >= 0 && cells[metricIndex]) {
             const value = String(cells[valueIndex] || "").trim() ? Number(cells[valueIndex]) : NaN;
             if (Number.isFinite(value))
-                metrics[cells[metricIndex]] = { value };
+                assign(cells[metricIndex], value);
         }
         for (const [column, name] of metricIndex >= 0 && valueIndex >= 0 ? [] : parsed.header.entries()) {
             if (reserved.has(column))
                 continue;
             const value = String(cells[column] || "").trim() ? Number(cells[column]) : NaN;
             if (name && Number.isFinite(value))
-                metrics[name] = { value };
+                assign(name, value);
         }
         return dimensions.case && dimensions.seed && Object.keys(metrics).length ? [{ dimensions, metrics }] : [];
     });
