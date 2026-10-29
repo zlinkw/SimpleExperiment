@@ -11473,6 +11473,7 @@ class RealtimeTunnelPanelProvider {
         if (configured.some((id) => !targets.some((target) => target.id === id)))
             throw new Error("有 Worker 未连接或未启用；请恢复连接后再合并最新版。");
         const copyScope = {};
+        let preparedHeld = false;
         if (artifactCopy) {
             const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
             if (selectedPaths.some(file => isLocalCodeOwnedPath(file, true, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"))))
@@ -11651,6 +11652,44 @@ class RealtimeTunnelPanelProvider {
                     return { completed: [], files, errors: work.length ? [`仍有 ${work.length} 个文件待同步；请点“重试产物同步”。`] : [], foreignOnly: foreignCopies };
                 const source = targets.find(row => row.id === sourceId);
                 const completed = [];
+                if (options.prepareOnly) {
+                    const preparedArtifactCopy = {
+                        member: { retentionKey: options.completedJob.retentionKey, planId: options.completedJob.planId,
+                            commandId: options.completedJob.commandId, files }, files, foreignOnly: foreignCopies,
+                        assertCurrent: async () => { checkCancelled(); await options.assertCurrent?.(); assertArtifactBindingsCurrent(); },
+                        release: () => this.activeArtifactSyncScopes.delete(copyScope),
+                        // Empty deltas still contribute their frozen identity to a retry of this member set.
+                        requests: targets.filter(row => row.id !== sourceId).map(destination => ({
+                            source: this.sftpServerOptions(source),
+                            destination: { ...this.sftpServerOptions(destination), host: this.sftpServerOptions(destination).networkHost || this.sftpServerOptions(destination).host },
+                            paths: groups.get(destination.id) || [],
+                            guard: async (paths) => {
+                                await options.assertCurrent?.();
+                                assertArtifactBindingsCurrent();
+                                checkCancelled();
+                                await this.assertSshTransportIdentities([source, destination]);
+                                for (const file of paths)
+                                    if ((0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, sourcePrefixes, true)
+                                        || (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(file, machinePrefixesFor(destination.id), true))
+                                        throw Error("本次冻结机器状态映射与产物批次路径冲突：" + file);
+                            },
+                            transfer: async (paths, identity, jobs) => {
+                                await this.simpleSftpApiCall("sync.serverToServerFpsync", {
+                                    source: this.sftpServerOptions(source), destination: { ...this.sftpServerOptions(destination),
+                                        host: this.sftpServerOptions(destination).networkHost || this.sftpServerOptions(destination).host },
+                                    relativePaths: paths, confirm: true, pathConfirmed: true, ...identity, compression: "auto", singleStream: true,
+                                    taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({ action: "合并同步任务最新产物", sourceId, destinationId: destination.id,
+                                        detail: jobs + " 个 job / " + paths.length + " 个文件" })
+                                });
+                            },
+                            inventory: async (paths) => (await this.verifiedSftpProjectInventory({
+                                source: this.sftpServerOptions(destination), relativePath: ".", scopePaths: paths
+                            })).files,
+                        })),
+                    };
+                    preparedHeld = true;
+                    return { preparedArtifactCopy };
+                }
                 for (const [id, paths] of groups) {
                     const destination = targets.find(row => row.id === id);
                     await options.assertCurrent?.();
@@ -11705,8 +11744,9 @@ class RealtimeTunnelPanelProvider {
                 errors: [...skipped, ...results.filter((item) => item.error).map((item) => `${item.item.path}：${item.error}`)] };
         }
         finally {
-            if (artifactCopy)
+            if (artifactCopy && !preparedHeld)
                 this.activeArtifactSyncScopes.delete(copyScope);
+            else if (artifactCopy) { /* The prepared batch owns release through its finally. */ }
             else
                 this.syncScopeMutationInFlight = false;
         }
@@ -15840,6 +15880,8 @@ class RealtimeTunnelPanelProvider {
         });
     }
     async artifactSyncFromUi(message, verifyOnly = false) {
+        if (this.workerCodeSyncTargets().length < 2)
+            return { status: "completed", message: "当前只有一台已启用 Worker，无需 Worker 间产物同步。" };
         const root = workspaceRoot(), client = this.client, generation = this.projectContextGeneration;
         if (!root || !client)
             throw new Error("请连接当前项目的 Worker 后重试。");
@@ -16079,6 +16121,8 @@ class RealtimeTunnelPanelProvider {
         return { status: "failed", message: "预览未能把候选冻结为唯一隔离目标（token/路径绑定不完整），未执行任何修改。" };
     }
     async syncCompletedPlanArtifacts(context) {
+        if (this.workerCodeSyncTargets().length < 2)
+            return;
         const root = context.root;
         const client = this.client;
         const targetsKey = () => JSON.stringify(this.workerCodeSyncTargets().map(row => [row.id, row.host, row.port, row.user, row.remotePath]));
@@ -16165,6 +16209,10 @@ class RealtimeTunnelPanelProvider {
         void this.refreshPlanArtifactSyncStatus(force).catch((error) => console.warn(`[SimpleExperiment] 产物同步状态读取未完成：${errorMessage(error).slice(0, 300)}`));
     }
     async refreshPlanArtifactSyncStatus(force = false) {
+        if (this.workerCodeSyncTargets().length < 2) {
+            this.planArtifactSyncStatuses = {};
+            return;
+        }
         const root = workspaceRoot();
         const queue = this.distributedQueueCache;
         if (!root || this.distributedQueueRoot !== root || !queue || !this.isRealtimeMode())
@@ -17777,6 +17825,8 @@ class RealtimeTunnelPanelProvider {
         this.postState();
     }
     async syncDistributedJobArtifacts(root, queue, phase, verifyAll = false, report, automatic) {
+        if (this.workerCodeSyncTargets().length < 2)
+            return;
         const contract = this.distributedProjectContract();
         const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
         const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
@@ -17974,8 +18024,7 @@ class RealtimeTunnelPanelProvider {
         // Plan ownership stays in each record; compatible files share one archive per Worker pair.
         const groups = new Map();
         for (const item of transfers) {
-            const key = JSON.stringify([item.source, item.destination, item.plan.planFile,
-                item.job.index, item.job.case, item.job.seed]);
+            const key = JSON.stringify([item.source, item.destination]);
             if (!groups.has(key))
                 groups.set(key, []);
             groups.get(key).push(item);
@@ -17988,6 +18037,11 @@ class RealtimeTunnelPanelProvider {
                 await this.assertSshTransportIdentities([first.sourceRow, first.target]);
                 await automatic?.assertCurrent();
                 const paths = [...new Set(items.flatMap((item) => item.paths))].sort();
+                const batchIdentity = (0, JobArtifactSyncIdentity_1.jobArtifactBatchIdentity)(items.map(item => ({
+                    retentionKey: JSON.stringify(["job-artifacts", item.plan.planFile, item.job.index, item.job.case, item.job.seed]),
+                    planId: item.plan.id, commandId: item.job.commandId,
+                    files: Object.fromEntries(item.paths.map((file) => [file, String(item.job.artifacts?.[file] || "").toLowerCase()])),
+                })));
                 for (let offset = 0; offset < paths.length; offset += 5000) {
                     await automatic?.assertCurrent();
                     report?.({ phase: "transferring", workerId: `${first.sourceId} → ${first.workerId}`,
@@ -17995,10 +18049,10 @@ class RealtimeTunnelPanelProvider {
                     await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: first.source,
                         destination: { ...first.destination, host: first.destination.networkHost || first.destination.host },
                         relativePaths: paths.slice(offset, offset + 5000), compression: "auto", singleStream: true,
-                        retentionKey: JSON.stringify(["job-artifacts", first.plan.planFile, first.job.index, first.job.case, first.job.seed]),
+                        retentionKey: batchIdentity.retentionKey,
                         // r6：与完成任务链复用同一纯函数——真实 plan.id/commandId 加分批前完整冻结
                         // 清单（paths 全集，不取当前批次）。同输入跨入口同代，同 command 内容变化开新代。
-                        generation: (0, JobArtifactSyncIdentity_1.jobArtifactRunGeneration)(first.plan.id, first.job.commandId, Object.fromEntries(paths.map((file) => [file, String(first.job.artifacts?.[file] || "").toLowerCase()]))),
+                        generation: batchIdentity.generation,
                         confirm: true, pathConfirmed: true,
                         taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({ action: automatic ? "自动同步已完成 Plan 产物" : "压缩同步最新版 Plan 产物",
                             sourceId: first.sourceId, destinationId: first.workerId,

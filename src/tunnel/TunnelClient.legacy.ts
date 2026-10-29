@@ -265,7 +265,7 @@ export class HttpTunnelClient implements TunnelClient {
 
   getPlanCodeScope(query: unknown, options: { signal?: AbortSignal } = {}): Promise<any> {
     return this.requestJson("/api/code-sync/plan-scope", "manual_refresh", query,
-      { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 15000 });
+      { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 20000 });
   }
   getSyncScopeIndex(query: unknown, options: { signal?: AbortSignal } = {}): Promise<any> {
     return this.requestJson("/api/sync-scope/index", "manual_refresh", query,

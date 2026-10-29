@@ -5,6 +5,21 @@ import type { ProjectFileIndex } from "../features/ProjectFileIndex";
 
 export type PlanExecutionSource = { digest: string; manifest: Record<string, { size: number; sha256: string }> };
 const resolving = new WeakMap<object, Promise<PlanExecutionSource | undefined>>();
+// Different Plans on one Worker share execution capacity, never their source facts.
+const workerReads = new WeakMap<object, Map<string, Promise<unknown>>>();
+function workerRead<T>(host: object, workerId: string, signal: AbortSignal | undefined, read: () => Promise<T>): Promise<T> {
+  let lanes = workerReads.get(host); if (!lanes) { lanes = new Map(); workerReads.set(host, lanes); }
+  const previous = lanes.get(workerId) || Promise.resolve();
+  const task = previous.catch(() => {}).then(() => { signal?.throwIfAborted(); return read(); });
+  lanes.set(workerId, task);
+  void task.catch(() => {}).finally(() => { if (lanes!.get(workerId) === task) lanes!.delete(workerId); });
+  if (!signal) return task;
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason || Error("Plan source read cancelled"));
+    if (signal.aborted) abort(); else signal.addEventListener("abort", abort, { once: true });
+    task.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
 const digest = (manifest: PlanExecutionSource["manifest"]) => createHash("sha256").update(JSON.stringify(
   Object.keys(manifest).sort().map(key => [key, { size: manifest[key].size, sha256: manifest[key].sha256 }]))).digest("hex");
 /** Single source of truth for manifest self-verification (also consumed by the C3 HEAD binding). */
@@ -51,13 +66,13 @@ function response(plan: any, value: any): PlanExecutionSource {
   return source;
 }
 async function inspect(h: any, workerId: string, plan: any, source?: PlanExecutionSource, signal?: AbortSignal) {
-  // The HTTP client owns the 15s inactivity deadline after budget admission.
+  // The HTTP client owns the user-approved 20s inactivity deadline after admission.
   // A caller's cancellation still covers queueing; queue wait is not network inactivity.
   const options = { signal };
   const target = h.workerActionTargets?.().find((row: any) => row.id === workerId);
   const index = target && h.projectFileObservationIndex?.(h.sftpServerOptions?.(target));
   const load = async () => {
-    const value = await h.client.getWorkerPlanCodeScope(workerId, query(plan, source), options);
+    const value = await workerRead(h, workerId, signal, () => h.client.getWorkerPlanCodeScope(workerId, query(plan, source), options));
     response(plan, value); // Invalid identity or digest is never published into the shared index.
     return value;
   };

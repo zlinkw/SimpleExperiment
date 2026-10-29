@@ -45,6 +45,30 @@ const node_crypto_1 = require("node:crypto");
 const fs = __importStar(require("node:fs/promises"));
 const path = __importStar(require("node:path"));
 const resolving = new WeakMap();
+// Different Plans on one Worker share execution capacity, never their source facts.
+const workerReads = new WeakMap();
+function workerRead(host, workerId, signal, read) {
+    let lanes = workerReads.get(host);
+    if (!lanes) {
+        lanes = new Map();
+        workerReads.set(host, lanes);
+    }
+    const previous = lanes.get(workerId) || Promise.resolve();
+    const task = previous.catch(() => { }).then(() => { signal?.throwIfAborted(); return read(); });
+    lanes.set(workerId, task);
+    void task.catch(() => { }).finally(() => { if (lanes.get(workerId) === task)
+        lanes.delete(workerId); });
+    if (!signal)
+        return task;
+    return new Promise((resolve, reject) => {
+        const abort = () => reject(signal.reason || Error("Plan source read cancelled"));
+        if (signal.aborted)
+            abort();
+        else
+            signal.addEventListener("abort", abort, { once: true });
+        task.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+    });
+}
 const digest = (manifest) => (0, node_crypto_1.createHash)("sha256").update(JSON.stringify(Object.keys(manifest).sort().map(key => [key, { size: manifest[key].size, sha256: manifest[key].sha256 }]))).digest("hex");
 /** Single source of truth for manifest self-verification (also consumed by the C3 HEAD binding). */
 exports.planExecutionSourceDigest = digest;
@@ -97,13 +121,13 @@ function response(plan, value) {
     return source;
 }
 async function inspect(h, workerId, plan, source, signal) {
-    // The HTTP client owns the 15s inactivity deadline after budget admission.
+    // The HTTP client owns the user-approved 20s inactivity deadline after admission.
     // A caller's cancellation still covers queueing; queue wait is not network inactivity.
     const options = { signal };
     const target = h.workerActionTargets?.().find((row) => row.id === workerId);
     const index = target && h.projectFileObservationIndex?.(h.sftpServerOptions?.(target));
     const load = async () => {
-        const value = await h.client.getWorkerPlanCodeScope(workerId, query(plan, source), options);
+        const value = await workerRead(h, workerId, signal, () => h.client.getWorkerPlanCodeScope(workerId, query(plan, source), options));
         response(plan, value); // Invalid identity or digest is never published into the shared index.
         return value;
     };
