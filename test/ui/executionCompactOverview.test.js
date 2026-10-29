@@ -514,7 +514,7 @@ test("latest distributed attempt determines completed or failed Plan display", (
   assert.doesNotMatch(html, /nwpu5/);
   sandbox.render({ sessionStartedAt: "2026-09-25T12:00:00Z", distributedPlans: [completed, {
     ...failed, id: "newest", enqueuedAt: "2026-09-25T13:00:00Z",
-    jobs: [{ ...failed.jobs[0], finishedAt: "2026-09-25T13:10:00Z", artifactError: "missing dataset schema" }],
+    jobs: [{ ...failed.jobs[0], finishedAt: "2026-09-25T13:10:00Z", error: "missing dataset schema" }],
   }] });
   assert.match(html, /executionPlanRow failed/);
   assert.match(html, /成功 0\/1 · 0% · 失败 1/);
@@ -641,7 +641,7 @@ function clickSandbox(extra) {
   const clickEnd = panel.indexOf('const tracePlanScopeTarget = event.target.closest', clickStart);
   assert.ok(clickStart > 0 && clickEnd > clickStart);
   vm.runInContext("var lastState = {};\n" + executionPlanSource()
-    + "\nthis.render = function (state) { lastState = state; return renderExecutionPlanList(state); };\nthis.foldClick = function (event) {\n"
+    + "\nthis.render = function (state) { state = Object.assign({ setup: { workerTunnels: [{id:'a',enabled:true},{id:'b',enabled:true}] } }, state); lastState = state; return renderExecutionPlanList(state); };\nthis.foldClick = function (event) {\n"
     + panel.slice(clickStart, clickEnd).replaceAll("\\\\", "\\")
     + "\n};", sandbox);
   return sandbox;
@@ -999,6 +999,21 @@ const stageBlockJob = (extra = {}) => ({ index: 0, case: "done", seed: 42, statu
   lifecycleProtocol: 2, workerId: "nwpu3", commandId: "cmd-a",
   artifactError: "最新产物同步未完成：TRANSFER_STAGE_PENDING: 两代暂存槽均被同一来源的已提交代占用 · 暂存槽卡点：主机 nwpu3.invalid",
   ...extra });
+
+test('single enabled Worker hides obsolete cross-Worker artifact controls and errors while retaining real execution failures',()=>{
+ const sandbox=clickSandbox();
+ const state={setup:{workerTunnels:[{id:'current',enabled:true},{id:'history',enabled:false}]},
+  distributedPlans:[{id:'wf',planFile:'plans/p.yaml',jobs:[stageBlockJob({error:'actual command failed',
+   artifactStageBlock:stageBlockFixture(),stageBlockReleaseCapable:true})]}],
+  planArtifactSyncStatuses:{wf:{runId:'wf',status:'partial',targetCount:2}}};
+ const multi=structuredClone(state);multi.setup.workerTunnels[1].enabled=true;
+ const previous=sandbox.executionRenderKeysForState(multi).planList;
+ sandbox.render(multi);assert.match(sandbox.html,/TRANSFER_STAGE_PENDING/);
+ assert.notEqual(sandbox.executionRenderKeysForState(state).planList,previous,'changing only enabled Workers invalidates the rendered Plan key');
+ sandbox.render(state);
+ assert.match(sandbox.html,/actual command failed/);
+ assert.doesNotMatch(sandbox.html,/TRANSFER_STAGE_PENDING|暂存槽卡点|全局同步|重试产物同步|刷新产物状态|重试 Plan 产物同步|刷新 Plan 产物状态|releaseJobStageBlockSlots/);
+});
 
 test("stage block shows host/profile/scope/lane/identity and both slots in the job error area while keeping the readable error line", () => {
   const sandbox = clickSandbox();

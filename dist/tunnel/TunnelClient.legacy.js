@@ -170,7 +170,7 @@ class HttpTunnelClient {
         });
     }
     getPlanCodeScope(query, options = {}) {
-        return this.requestJson("/api/code-sync/plan-scope", "manual_refresh", query, { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 15000 });
+        return this.requestJson("/api/code-sync/plan-scope", "manual_refresh", query, { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 20000 });
     }
     getSyncScopeIndex(query, options = {}) {
         return this.requestJson("/api/sync-scope/index", "manual_refresh", query, { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 5000 });

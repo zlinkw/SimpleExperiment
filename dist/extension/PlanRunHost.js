@@ -185,7 +185,8 @@ class PlanRunHost {
         body.planFile = planFile;
         const sourcePlan = { ...plan, projectId: plan?.projectId || (0, DistributedPlanQueue_1.canonicalProjectId)(this.root), planFile: body.planFile,
             revision: body.planRevision, codeFingerprint: plan?.codeFingerprint || h.lastCodeSyncState?.fingerprint };
-        const executionSource = body.executionSource || await (0, PlanCodeScopeHost_1.resolvePlanExecutionSource)(h, sourcePlan);
+        const sourceSignal = h.distributedSubmissionAborts?.get(body.submissionOperationIdLocal)?.signal;
+        const executionSource = body.executionSource || await (0, PlanCodeScopeHost_1.resolvePlanExecutionSource)(h, sourcePlan, sourceSignal);
         if (executionSource) {
             await (0, PlanCodeScopeHost_1.verifyLocalPlanSource)(this.root, executionSource, h.projectFileObservationIndex?.());
             body.executionSource = executionSource;

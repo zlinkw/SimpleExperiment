@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.432",
-  "buildId": "f30d0dd2c6cd1fcab4bbd48a05958324ab651af2a5d96cd46883d1efd9ffbbe5",
+  "version": "0.5.433",
+  "buildId": "82667bb9e6ede26b915c88c9375e3fdb87026fbf5a2b3916348cb3964dbcb251",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -217,7 +217,7 @@
     },
     {
       "path": "dist/extension/CompletedJobSyncHost.js",
-      "sha256": "9e43120b42b892a91f88593d7a590a27f4757f70d2fafef2771cc4a9376f6e72"
+      "sha256": "f4d50b55ed3d3c45d688353c10049d4f432a69a539e10bdfb9ef5e3b12ff8110"
     },
     {
       "path": "dist/extension/ExtensionContext.js",
@@ -237,7 +237,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "dc33f16c56dc24b71229c141d9df596f6d4f62d040a2d1b13838b0d050b82b35"
+      "sha256": "1cd4a4ea29c5c690d00e84f8dbeeedb70c497298bc4fdfb4968e2459ef438cc6"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -249,7 +249,7 @@
     },
     {
       "path": "dist/extension/PlanCleanupHost.js",
-      "sha256": "f13a3edcf88f8428802b77e50442b15e0da875008f233504d07a96f585172768"
+      "sha256": "f4e8bdd193b979ae1226a92471e172b9b1aa58d3f1ada52519edd5c863421aa5"
     },
     {
       "path": "dist/extension/PlanCleanupIsolatedReviews.js",
@@ -273,11 +273,11 @@
     },
     {
       "path": "dist/extension/PlanCodeScopeHost.js",
-      "sha256": "4faaa8cf593fa3bc08fa66274c6a044235261380d24c043ca0072a2e82c59a2a"
+      "sha256": "8ba6a772fb08a48177e1d576d1b12c82ccc867a364b7f49c55c835f4e1ac1451"
     },
     {
       "path": "dist/extension/PlanRunHost.js",
-      "sha256": "d68733247058f728f5dcdcf9ce8ed23a47585c1513d66fba1ef80990b63af994"
+      "sha256": "a5a3d072ed3e77e4c8d399b92ad34193cac26cd6b02e7b49de40c2d970f37b18"
     },
     {
       "path": "dist/extension/PlanStopClearBatchHost.js",
@@ -301,7 +301,7 @@
     },
     {
       "path": "dist/extension/SelectedPlanBatchHost.js",
-      "sha256": "391d69797d3432c370e45d53793ae42f4dabda942ccbbb1198e7dca0bd2e4d0a"
+      "sha256": "fa76ffc8e2f076aac62beb0b20d8157f987b14d16d7f79507f011485645631bd"
     },
     {
       "path": "dist/extension/ServerQueueHost.js",
@@ -346,6 +346,10 @@
     {
       "path": "dist/features/ApiWorkflow.legacy.js",
       "sha256": "b5e8be6bb2ddad64fd69ec73db774e3edba2607d3441bd5cdbfa469cf98cab85"
+    },
+    {
+      "path": "dist/features/ArtifactBatchTransfer.js",
+      "sha256": "aba28f61265a1c8fa02de1a280a6589b487465c31cc09e10489ddc7ce2199e2e"
     },
     {
       "path": "dist/features/AutomaticScopeContent.js",
@@ -457,7 +461,7 @@
     },
     {
       "path": "dist/features/JobArtifactSyncIdentity.js",
-      "sha256": "c96e41bbee0a14c5f9b2d4872ef873419d0526c4ad5e3d6488931b8bf0d6a93d"
+      "sha256": "683abd2e4bd3c0b549ddaf84615e60027c5f6e12336f8bac29631ae1582fc191"
     },
     {
       "path": "dist/features/JobAvailability.js",
@@ -869,7 +873,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "137984819e109aa58f3a6a9cc031b08a7ecc84e8e26b0b023ca2d7407dc616db"
+      "sha256": "bd657fea956113dd2015b71bacff0454f9e4f798b74803436a9f72967e48a448"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -993,7 +997,7 @@
     },
     {
       "path": "dist/tunnel/TunnelClient.legacy.js",
-      "sha256": "7ec601b818e4fdd27b9d5c9db6438aed945397ee80f4f50b6c6c9ecb43e6322e"
+      "sha256": "8240c2f4da3a00e5e89d74cd92468abacc014054fe332f47b4a92d842ec5ce28"
     },
     {
       "path": "dist/tunnel/TunnelDiagnostics.js",
@@ -1097,7 +1101,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "11aa697c651ab3f25bf0fc42f841da45f914ca22b40ce9c215f7352eddde9232"
+      "sha256": "0583ea2e91671afae64060c4ecdca3db30969d35f9d6426f42072dc91042676c"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1221,7 +1225,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "11c89de84e12cfdac608919c04ca30216d5fe7899d0cdcabc56befcdeafe5670"
+      "sha256": "28785e29149325893841a7e249443ed3f9d93542d36c3423781c745720b803dc"
     },
     {
       "path": "scripts/check-static.js",

@@ -132,7 +132,8 @@ export class PlanRunHost {
     body.planFile = planFile;
     const sourcePlan = { ...plan, projectId: plan?.projectId || canonicalProjectId(this.root), planFile: body.planFile,
       revision: body.planRevision, codeFingerprint: plan?.codeFingerprint || h.lastCodeSyncState?.fingerprint };
-    const executionSource = body.executionSource || await resolvePlanExecutionSource(h, sourcePlan);
+    const sourceSignal = h.distributedSubmissionAborts?.get(body.submissionOperationIdLocal)?.signal;
+    const executionSource = body.executionSource || await resolvePlanExecutionSource(h, sourcePlan, sourceSignal);
     if (executionSource) { await verifyLocalPlanSource(this.root, executionSource, h.projectFileObservationIndex?.()); body.executionSource = executionSource; }
     const expectedFingerprint = executionSource?.digest || h.lastCodeSyncState?.fingerprint || "";
     body.runReplacement ||= {};

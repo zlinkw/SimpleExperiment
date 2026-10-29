@@ -41,6 +41,7 @@ async function runPlanBatch(host, params, allPlans) {
             throw Error("工作区或连接已变化；后续 PLAN 未提交。");
     };
     const rows = [];
+    const waiting = new Map();
     let batch;
     try {
         current();
@@ -62,6 +63,19 @@ async function runPlanBatch(host, params, allPlans) {
         // VS Code Notification (task ui-plan-gpu-progress-20261024 item 5).
         const planMessages = new Map(files.map(file => [file, { command: "runPlan", planFile: file, planId: file, selectedPlanId: file,
                 debugMode: false, clientActionId: "selected-plan-" + (0, node_crypto_1.randomUUID)(), parentClientActionId: params.parentClientActionId || params.clientActionId || "" }]));
+        // Local intent includes the complete selection before any network lane starts.
+        for (const [file, message] of planMessages) {
+            host.beginPlanSubmissionProgress?.(message, { planFile: file, planRevision: host.localPlanMetadata.plans.find((plan) => (plan.planFile || plan.file) === file)?.revision });
+            const row = host.localOperations?.[host.planSubmissionOperationId(message)];
+            if (row) {
+                row.stage = "batch_waiting";
+                row.message = "本机批次排队，获得提交通道后自动继续。";
+                row.retryableSubmission = false;
+            }
+            waiting.set(file, message);
+        }
+        host.markLocalOperationsDirty?.();
+        host.postState?.();
         const ledgerFile = typeof host.isolatedReplacementLedgerFileLocal === "function" ? String(host.isolatedReplacementLedgerFileLocal() || "") : "";
         // 入口冻结完整初始 PLAN 集合（含稍后无隔离/隔离前失败的 PLAN）；账本损坏/被锁 → 保留原字节、审核入口关闭，
         // 但不阻断正常提交流程（失败关闭只作用于隔离区删除审核）。
@@ -79,6 +93,7 @@ async function runPlanBatch(host, params, allPlans) {
         await batch.start();
         const submit = async (planFile, index) => {
             const message = planMessages.get(planFile);
+            waiting.delete(planFile);
             batch.bind(message);
             const operationId = host.planSubmissionOperationId(message);
             let status = "unknown", detail = "";
@@ -125,18 +140,24 @@ async function runPlanBatch(host, params, allPlans) {
         let next = 0, stopped = false;
         const lane = async () => {
             while (!stopped && next < files.length) {
-                current();
+                try {
+                    current();
+                }
+                catch {
+                    stopped = true;
+                    return;
+                }
                 const index = next++, file = files[index];
                 const row = await submit(file, index).catch(error => ({ planFile: file, operationId: "", status: "failed", message: error instanceof Error ? error.message : String(error) }));
                 rows.push(row);
                 if (["succeeded", "queued", "submitted"].includes(row.status))
                     dispatch();
-                if (["failed", "cancelled"].includes(row.status))
+                if (row.status === "cancelled")
                     stopped = true;
             }
         };
         // 有界并发派发保持原契约：并发只发生在各 PLAN 的准备/提交链上，跨 PLAN 校验与身份互不借用；
-        // 一旦某项失败就停止尚未启动的 PLAN，已在途的如实保留，不自动回滚也不重放。
+        // 单项失败只结束该 PLAN；其余明确选择继续。取消或上下文变化仍停止后续项。
         await Promise.all(Array.from({ length: Math.min(4, files.length) }, lane));
         rows.sort((a, b) => files.indexOf(a.planFile) - files.indexOf(b.planFile));
         // 隔离区独立删除审核只能在「完整初始集合逐项终局 + 已登记轮询核实远端派发」之后浮出。
@@ -197,6 +218,9 @@ async function runPlanBatch(host, params, allPlans) {
             selectionOnly: !allPlans, rows, remaining: files.slice(next) };
     }
     finally {
+        if (host.projectContextIsCurrent(context))
+            for (const message of waiting.values())
+                host.finishPlanSubmissionProgress?.(message, "cancelled", "本批已停止；该 PLAN 尚未进入提交通道，未发送运行请求。");
         if (host.currentIsolatedBatchLocal?.batchId === isolatedBatchIdLocal)
             host.currentIsolatedBatchLocal = undefined;
         await batch?.close();

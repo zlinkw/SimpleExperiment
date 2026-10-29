@@ -265,11 +265,16 @@ class PlanCleanupHost {
         this.assertWorkspace();
         // Retain the original config/reference graph, without importing cached task activity.
         const scope = await (0, PlanCleanupEvidence_1.collectPlanCleanupEvidence)({ root: this.root, planFile: file, queue: (0, DistributedPlanQueue_1.emptyDistributedQueue)(), ledger,
-            registry, resultDir: this.host.resultCsvDirectory || "experiments/results", nodes, snapshots: [], operations: [],
+            registry, resultDir: this.host.resultCsvDirectory || "experiments/results", nodes: nodes.map(node => ({ ...node })), snapshots: [], operations: [],
             allowMissing: allowMissing || authorizationMode === "confirmed_paths", archivedFiles, removedMetadata, activityMode: "managed_tmux" });
         const configuration = scope.candidates.filter(row => ["PLAN 文件", "专用配置"].includes(row.category))
             .map(row => [row.relativePath, row.expectedSha256, row.dependencies, row.protectedReason]);
-        scope.nodes = [...nodes, ...scope.nodes.filter(node => !nodes.some(row => row.id === node.id))];
+        const currentNodes = new Set(nodes.map(node => node.id));
+        scope.notices ||= [];
+        scope.notices.push(...scope.blockers.filter(row => row.nodeId && !currentNodes.has(row.nodeId)));
+        scope.blockers = scope.blockers.filter(row => !row.nodeId || currentNodes.has(row.nodeId));
+        scope.nodes = [...nodes];
+        scope.candidates = scope.candidates.filter(row => currentNodes.has(row.nodeId));
         if (job)
             scope.candidates = [];
         else

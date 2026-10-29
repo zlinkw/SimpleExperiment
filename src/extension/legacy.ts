@@ -26,7 +26,7 @@ import { syncGpuQuotaPolicies } from "./GpuQuotaPolicyHost";
 import { closeGpuTmuxSession, closeTmuxSession, manageTmuxSession } from "./GpuTmuxClose";
 import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
 import { deleteConfirmedScopeCopy, previewConfirmedScopeDeletion, completeConfirmedScopeDeletion, type ConfirmedScopeBatch, type ConfirmedScopeOutcome } from "../features/SyncScopeDelete";
-import { artifactStageBlockFromError, jobArtifactRunGeneration, stagedSlotReleaseEvidenceReady, syncScopeStagingIdentity, type JobArtifactStageBlock } from "../features/JobArtifactSyncIdentity";
+import { artifactStageBlockFromError, jobArtifactRunGeneration, jobArtifactBatchIdentity, stagedSlotReleaseEvidenceReady, syncScopeStagingIdentity, type JobArtifactStageBlock } from "../features/JobArtifactSyncIdentity";
 import { SafeRequestRetry, RequestReplacedError, assertRetryRequestCurrent, retryRequestSignal } from "../core/SafeRequestRetry";
 import { UiCommandCancelled } from "../core/UiCommandCancelled";
 import { preparePlanSafeRetry } from "../features/PlanSafeRetry";
@@ -10821,7 +10821,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             : aggregate;
         return statuses;
     }
-    async mergeLatestWorkerVersions(root, targets, selectedPaths, relative, report = (_stage: string) => {}, options: { metricsOnly?: boolean; signal?: AbortSignal; completedJob?: { sourceId: string; planId: string; commandId: string; retentionKey: string; requiredArtifacts?: Record<string, string> }; assertCurrent?: () => Promise<void>; verifyOnly?: boolean } = {}) {
+    async mergeLatestWorkerVersions(root, targets, selectedPaths, relative, report = (_stage: string) => {}, options: { prepareOnly?: boolean; metricsOnly?: boolean; signal?: AbortSignal; completedJob?: { sourceId: string; planId: string; commandId: string; retentionKey: string; requiredArtifacts?: Record<string, string> }; assertCurrent?: () => Promise<void>; verifyOnly?: boolean } = {}) {
         const checkCancelled = () => { if (options.signal?.aborted) throw new UiCommandCancelled("同步服务器结果已取消，未下载指标文件。"); };
         checkCancelled();
         if (options.metricsOnly && !selectedPaths.length) return { completed: [], errors: [] };
@@ -10841,6 +10841,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const configured = this.enabledWorkerConfigs().map((worker) => worker.id).filter(Boolean);
         if (configured.some((id) => !targets.some((target) => target.id === id))) throw new Error("有 Worker 未连接或未启用；请恢复连接后再合并最新版。");
         const copyScope = {};
+        let preparedHeld = false;
         if (artifactCopy) {
             const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
             if (selectedPaths.some(file => isLocalCodeOwnedPath(file, true, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"))))
@@ -10998,6 +10999,39 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 if (options.verifyOnly) return { completed: [], files, errors: work.length ? [`仍有 ${work.length} 个文件待同步；请点“重试产物同步”。`] : [], foreignOnly: foreignCopies };
                 const source = targets.find(row => row.id === sourceId);
                 const completed = [];
+                if (options.prepareOnly) {
+                    const preparedArtifactCopy: import("../features/ArtifactBatchTransfer").PreparedArtifactCopy = {
+                        member: { retentionKey: options.completedJob.retentionKey, planId: options.completedJob.planId,
+                            commandId: options.completedJob.commandId, files }, files, foreignOnly: foreignCopies,
+                        assertCurrent: async () => { checkCancelled(); await options.assertCurrent?.(); assertArtifactBindingsCurrent(); },
+                        release: () => this.activeArtifactSyncScopes.delete(copyScope),
+                        // Empty deltas still contribute their frozen identity to a retry of this member set.
+                        requests: targets.filter(row => row.id !== sourceId).map(destination => ({
+                            source: this.sftpServerOptions(source),
+                            destination: { ...this.sftpServerOptions(destination), host: this.sftpServerOptions(destination).networkHost || this.sftpServerOptions(destination).host },
+                            paths: groups.get(destination.id) || [],
+                            guard: async (paths: string[]) => {
+                                await options.assertCurrent?.(); assertArtifactBindingsCurrent(); checkCancelled();
+                                await this.assertSshTransportIdentities([source, destination]);
+                                for (const file of paths) if (isUnderMachineStatePrefixes(file, sourcePrefixes, true)
+                                    || isUnderMachineStatePrefixes(file, machinePrefixesFor(destination.id), true))
+                                    throw Error("本次冻结机器状态映射与产物批次路径冲突：" + file);
+                            },
+                            transfer: async (paths: string[], identity, jobs: number) => {
+                                await this.simpleSftpApiCall("sync.serverToServerFpsync", {
+                                    source: this.sftpServerOptions(source), destination: { ...this.sftpServerOptions(destination),
+                                        host: this.sftpServerOptions(destination).networkHost || this.sftpServerOptions(destination).host },
+                                    relativePaths: paths, confirm: true, pathConfirmed: true, ...identity, compression: "auto", singleStream: true,
+                                    taskLabel: workerFpsyncTaskLabel({ action: "合并同步任务最新产物", sourceId, destinationId: destination.id,
+                                        detail: jobs + " 个 job / " + paths.length + " 个文件" }) });
+                            },
+                            inventory: async (paths: string[]) => (await this.verifiedSftpProjectInventory({
+                                source: this.sftpServerOptions(destination), relativePath: ".", scopePaths: paths })).files,
+                        })),
+                    };
+                    preparedHeld = true;
+                    return { preparedArtifactCopy };
+                }
                 for (const [id, paths] of groups) {
                     const destination = targets.find(row => row.id === id);
                     await options.assertCurrent?.();
@@ -11049,7 +11083,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             return { completed: results.filter((item) => !item.error).map((item) => item.item.path),
                 errors: [...skipped, ...results.filter((item) => item.error).map((item) => `${item.item.path}：${item.error}`)] };
         } finally {
-            if (artifactCopy) this.activeArtifactSyncScopes.delete(copyScope);
+            if (artifactCopy && !preparedHeld) this.activeArtifactSyncScopes.delete(copyScope);
+            else if (artifactCopy) { /* The prepared batch owns release through its finally. */ }
             else this.syncScopeMutationInFlight = false;
         }
     }
@@ -14745,6 +14780,8 @@ this.assertPlanTopologyReady("Plan 调度");
         });
     }
     async artifactSyncFromUi(message, verifyOnly = false) {
+        if (this.workerCodeSyncTargets().length < 2)
+            return { status: "completed", message: "当前只有一台已启用 Worker，无需 Worker 间产物同步。" };
         const root = workspaceRoot(), client = this.client, generation = this.projectContextGeneration;
         if (!root || !client) throw new Error("请连接当前项目的 Worker 后重试。");
         const planIds = Array.isArray(message.planIds) ? message.planIds.map(String) : [String(message.planId || "")];
@@ -14943,6 +14980,7 @@ this.assertPlanTopologyReady("Plan 调度");
         return { status: "failed", message: "预览未能把候选冻结为唯一隔离目标（token/路径绑定不完整），未执行任何修改。" };
     }
     private async syncCompletedPlanArtifacts(context) {
+        if (this.workerCodeSyncTargets().length < 2) return;
         const root = context.root;
         const client = this.client;
         const targetsKey = () => JSON.stringify(this.workerCodeSyncTargets().map(row => [row.id, row.host, row.port, row.user, row.remotePath]));
@@ -15023,6 +15061,7 @@ this.assertPlanTopologyReady("Plan 调度");
         void this.refreshPlanArtifactSyncStatus(force).catch((error) => console.warn(`[SimpleExperiment] 产物同步状态读取未完成：${errorMessage(error).slice(0, 300)}`));
     }
     private async refreshPlanArtifactSyncStatus(force = false): Promise<void> {
+        if (this.workerCodeSyncTargets().length < 2) { this.planArtifactSyncStatuses = {}; return; }
         const root = workspaceRoot();
         const queue = this.distributedQueueCache;
         if (!root || this.distributedQueueRoot !== root || !queue || !this.isRealtimeMode()) return;
@@ -16466,6 +16505,7 @@ this.assertPlanTopologyReady("Plan 调度");
         this.postState();
     }
     async syncDistributedJobArtifacts(root, queue, phase: "fragments" | "bulk", verifyAll = false, report?, automatic?) {
+        if (this.workerCodeSyncTargets().length < 2) return;
         const contract = this.distributedProjectContract();
         const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
         const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
@@ -16635,8 +16675,7 @@ this.assertPlanTopologyReady("Plan 调度");
         // Plan ownership stays in each record; compatible files share one archive per Worker pair.
         const groups = new Map<string, any[]>();
         for (const item of transfers) {
-            const key = JSON.stringify([item.source, item.destination, item.plan.planFile,
-                item.job.index, item.job.case, item.job.seed]);
+            const key = JSON.stringify([item.source, item.destination]);
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(item);
         }
@@ -16647,6 +16686,11 @@ this.assertPlanTopologyReady("Plan 调度");
                 await this.assertSshTransportIdentities([first.sourceRow, first.target]);
                 await automatic?.assertCurrent();
                 const paths = [...new Set<string>(items.flatMap((item) => item.paths))].sort();
+                const batchIdentity = jobArtifactBatchIdentity(items.map(item => ({
+                    retentionKey: JSON.stringify(["job-artifacts", item.plan.planFile, item.job.index, item.job.case, item.job.seed]),
+                    planId: item.plan.id, commandId: item.job.commandId,
+                    files: Object.fromEntries(item.paths.map((file: string) => [file, String(item.job.artifacts?.[file] || "").toLowerCase()])),
+                })));
                 for (let offset = 0; offset < paths.length; offset += 5000) {
                     await automatic?.assertCurrent();
                     report?.({ phase: "transferring", workerId: `${first.sourceId} → ${first.workerId}`,
@@ -16654,11 +16698,10 @@ this.assertPlanTopologyReady("Plan 调度");
                     await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: first.source,
                         destination: { ...first.destination, host: first.destination.networkHost || first.destination.host },
                         relativePaths: paths.slice(offset, offset + 5000), compression: "auto", singleStream: true,
-                        retentionKey: JSON.stringify(["job-artifacts", first.plan.planFile, first.job.index, first.job.case, first.job.seed]),
+                        retentionKey: batchIdentity.retentionKey,
                         // r6：与完成任务链复用同一纯函数——真实 plan.id/commandId 加分批前完整冻结
                         // 清单（paths 全集，不取当前批次）。同输入跨入口同代，同 command 内容变化开新代。
-                        generation: jobArtifactRunGeneration(first.plan.id, first.job.commandId,
-                            Object.fromEntries(paths.map((file: string) => [file, String(first.job.artifacts?.[file] || "").toLowerCase()]))),
+                        generation: batchIdentity.generation,
                         confirm: true, pathConfirmed: true,
                         taskLabel: workerFpsyncTaskLabel({ action: automatic ? "自动同步已完成 Plan 产物" : "压缩同步最新版 Plan 产物",
                             sourceId: first.sourceId, destinationId: first.workerId,

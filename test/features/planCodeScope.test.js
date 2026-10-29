@@ -10,6 +10,18 @@ const source=()=>{const manifest={'plans/p.yaml':{size:4,sha256:hash('plan')},'t
 function fixture(){const s=source(),plan={id:'p',projectId:'project',revision:hash('plan'),codeFingerprint:'old-global',planFile:'plans/p.yaml',resultPathPolicy:'declared',executionMode:'train_test',jobs:[{index:0,status:'pending',case:'a',seed:42,attempt:0,outputDir:'work/a',collectionResultCsv:'tmp/a.csv'}]};let calls=0;
  const host={workerActionTargets:()=>[{id:'w'}],lastWorkerProbes:{w:{status:'ok',capabilities:{endpoints:{planCodeScope:1}}}},client:{getWorkerPlanCodeScope:async(_,r)=>{calls++;return {ok:true,compatible:true,readOnly:true,...r,executionSource:s};}}};return {host,plan,s,get calls(){return calls}};}
 
+test('different Plan source checks share a per-Worker read lane and cancelled queued reads never reach the server',async()=>{
+ const f=fixture(),calls=[];let release;
+ const held=new Promise(resolve=>release=resolve);
+ f.host.client.getWorkerPlanCodeScope=async(worker,query)=>{calls.push(query.planFile);if(query.planFile==='plans/p.yaml')await held;
+  const manifest={[query.planFile]:{size:4,sha256:query.planRevision}};
+  return{ok:true,compatible:true,readOnly:true,...query,executionSource:{manifest,digest:H.planExecutionSourceDigest(manifest)}};};
+ const first=H.resolvePlanExecutionSource(f.host,f.plan);await new Promise(setImmediate);
+ const controller=new AbortController(),second=H.resolvePlanExecutionSource(f.host,{...f.plan,id:'second',planFile:'plans/second.yaml'},controller.signal);
+ const cancelled=assert.rejects(second,/cancel|abort/i);await new Promise(setImmediate);const before=[...calls];controller.abort();
+ release();await first;await cancelled;
+ assert.deepEqual(before,['plans/p.yaml']);assert.deepEqual(calls,['plans/p.yaml']);
+});
 test('a queued Plan source check keeps its network deadline until actual request admission',async t=>{
  const {RequestBudget,defaultRequestBudgetConfig}=require('../../src/tunnel/RequestBudget.ts');
  const {HttpTunnelClient}=require('../../src/tunnel/TunnelClient.ts');
@@ -30,8 +42,11 @@ test('a queued Plan source check keeps its network deadline until actual request
   assert.equal(fetches,0);assert.equal(settled,false,'time in the request queue must not expire an unstarted network request');
   release();await occupied;assert.deepEqual(await pending,f.s);assert.equal(fetches,1);
   stall=true;
-  const timedOut=assert.rejects(H.verifyWorkerPlanSource(f.host,'w',f.plan),/无有效响应/);
-  await new Promise(setImmediate);t.mock.timers.tick(15001);await timedOut;
+  let ended=false;const stalledRead=H.verifyWorkerPlanSource(f.host,'w',f.plan);stalledRead.then(()=>ended=true,()=>ended=true);
+  const timedOut=assert.rejects(stalledRead,/20 秒无有效响应/);
+  await new Promise(setImmediate);t.mock.timers.tick(15001);await new Promise(setImmediate);
+  assert.equal(ended,false,'the user-approved source check remains active beyond the former 15-second deadline');
+  t.mock.timers.tick(5000);await timedOut;
   assert.equal(fetches,2,'an admitted stalled request retains its existing network inactivity limit');
  }finally{release();await occupied;await pending.catch(()=>{});}
 });
