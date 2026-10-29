@@ -324,9 +324,9 @@ export function workerTaskLogBinding(plan: Pick<QueuedPlan, "id">, job: Pick<Que
   return { logPath };
 }
 
-export type WorkerSlots = { workerId: string; idleGpuIds: string[]; gpuSlots?: string[]; online: boolean; capacity?: number; codeFingerprint?: string; idleGpuAdmission?: boolean; declaredJobPaths?: boolean; compatiblePlans?: string[]; codeScopeErrors?: Record<string,string> };
-export function workerCanRunPlan(queue: DistributedQueue, worker: Pick<WorkerSlots,"workerId"|"codeFingerprint"|"compatiblePlans"|"codeScopeErrors">, plan: QueuedPlan): boolean {
-  if (worker.codeScopeErrors?.[plan.id]) return false;
+export type WorkerSlots = { workerId: string; idleGpuIds: string[]; gpuSlots?: string[]; online: boolean; capacity?: number; codeFingerprint?: string; idleGpuAdmission?: boolean; declaredJobPaths?: boolean; compatiblePlans?: string[]; codeScopeErrors?: Record<string,string>; codeScopePending?: Record<string,boolean> };
+export function workerCanRunPlan(queue: DistributedQueue, worker: Pick<WorkerSlots,"workerId"|"codeFingerprint"|"compatiblePlans"|"codeScopeErrors"|"codeScopePending">, plan: QueuedPlan): boolean {
+  if (worker.codeScopeErrors?.[plan.id] || worker.codeScopePending?.[plan.id]) return false;
   return worker.compatiblePlans?.includes(plan.id) === true || worker.codeFingerprint === plan.codeFingerprint
     && workerCodeVersionAvailable(queue, worker.workerId, plan.codeFingerprint);
 }
@@ -1153,8 +1153,11 @@ function noteFingerprintMismatch(plans: QueuedPlan[], workers: readonly WorkerSl
     const held = plan.jobs.some(jobHasLiveExecution);
     const waiting = !matched && workers.some(row => row.online && row.codeFingerprint === plan.codeFingerprint);
     for (const job of plan.jobs) {
-      if (job.status !== "pending") continue;
+      if (job.status !== "pending" || job.outputIsolationBlocked) continue;
       const scopeErrors = workers.filter(row=>row.online).map(row=>row.codeScopeErrors?.[plan.id]).filter(Boolean);
+      // Refresh-in-flight is a gate, not evidence of changed/missing source.
+      // Preserve the existing queue reason until a real outcome is available.
+      if (!matched && !scopeErrors.length && workers.some(row => row.online && row.codeScopePending?.[plan.id])) continue;
       if (!matched && scopeErrors.length) { job.blockReason = "PLAN 所需源码待核实：" + scopeErrors.slice(0,3).join("；"); continue; }
       if (waiting) job.blockReason = CODE_FINGERPRINT_WAITING;
       else if (anyOnline && !matched && !held) job.blockReason = CODE_FINGERPRINT_MISMATCH;
@@ -1192,7 +1195,7 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
       && (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || job.localQueueOnly === true));
     if (!pending.length) continue;
     const eligibleWorkerIds = new Set(workers.filter(row => row.declaredJobPaths === true
-      && !row.codeScopeErrors?.[plan.id] && (!versioned || workerCanRunPlan({ ...queue, plans }, row, plan))).map(row => row.workerId));
+      && !row.codeScopeErrors?.[plan.id] && !row.codeScopePending?.[plan.id] && (!versioned || workerCanRunPlan({ ...queue, plans }, row, plan))).map(row => row.workerId));
     const ranked = () => [...slots].filter(([id, gpuIds]) => gpuIds.length && eligibleWorkerIds.has(id))
       .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
     const assignedWorkerIds = [...new Set(plan.jobs.filter((job) => job.workerId).map((job) => job.workerId!))];

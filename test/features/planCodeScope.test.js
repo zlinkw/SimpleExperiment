@@ -94,3 +94,48 @@ test('one slow source query does not hold the idle Worker which has already veri
  await H.inspectPlanCodeSlots(f.host,{plans:[f.plan]},workers);assert.deepEqual(workers[0].compatiblePlans,['p']);assert.equal(workers[1].compatiblePlans,undefined);
  assert.equal(Q.allocateAvailable({schemaVersion:1,plans:[f.plan]},workers).dispatches[0].workerId,'w');release();
 });
+
+test('a completed source read is consumed by the next queue round before its refresh expires',async t=>{
+ const f=fixture();f.plan.executionSource=f.s;
+ let release;f.host.client.getWorkerPlanCodeScope=(_worker,r)=>new Promise(resolve=>{release=()=>resolve({ok:true,compatible:true,readOnly:true,...r,executionSource:f.s});});
+ const workers=()=>[{workerId:'w',online:true,idleGpuIds:['0'],declaredJobPaths:true,idleGpuAdmission:true,codeFingerprint:'new-global'}];
+ t.mock.timers.enable({apis:['setTimeout','Date']});
+ const first=workers(),pending=H.inspectPlanCodeSlots(f.host,{plans:[f.plan]},first);
+ await new Promise(setImmediate);t.mock.timers.tick(350);await pending;
+ assert.equal(Q.allocateAvailable({schemaVersion:1,plans:[f.plan]},first).dispatches.length,0);
+ release();await new Promise(setImmediate);t.mock.timers.tick(2500);
+ const next=workers(),round=H.inspectPlanCodeSlots(f.host,{plans:[f.plan]},next);
+ await new Promise(setImmediate);t.mock.timers.tick(350);await round;
+ assert.deepEqual(next[0].compatiblePlans,['p'],'a successful unread result must survive until a queue round adopts it');
+ assert.equal(Q.allocateAvailable({schemaVersion:1,plans:[f.plan]},next).dispatches.length,1);
+ f.host.client.getWorkerPlanCodeScope=async()=>{throw Error('PLAN_SOURCE_CHANGED: train.py');};
+ await assert.rejects(H.verifyWorkerPlanSource(f.host,'w',f.plan),/PLAN_SOURCE_CHANGED/,'the final launch check must still reject source changed after the background observation');
+});
+
+test('background source refresh gates new starts without replacing memory or output-isolation wait reasons',async()=>{
+ const f=fixture();f.plan.executionSource=f.s;
+ const memoryReason='等待自动显存观察（连续 10 分钟）、预算余量或用户并行配额；未派发';
+ f.plan.jobs[0].blockReason=memoryReason;
+ f.plan.jobs.push({...f.plan.jobs[0],index:1,outputIsolationBlocked:{reason:'ACTIVE_TRANSFER'},blockReason:'旧产物隔离未完成'});
+ let release;f.host.client.getWorkerPlanCodeScope=(_worker,r)=>new Promise(resolve=>{release=()=>resolve({ok:true,compatible:true,readOnly:true,...r,executionSource:f.s});});
+ const workers=[{workerId:'w',online:true,idleGpuIds:['0'],declaredJobPaths:true,idleGpuAdmission:true,codeFingerprint:'new-global'}];
+ await H.inspectPlanCodeSlots(f.host,{plans:[f.plan]},workers);
+ const blocked=Q.allocateAvailable({schemaVersion:1,plans:[f.plan]},workers);
+ assert.equal(blocked.dispatches.length,0);assert.equal(blocked.queue.plans[0].jobs[0].blockReason,memoryReason);
+ assert.equal(blocked.queue.plans[0].jobs[1].blockReason,'旧产物隔离未完成');
+ release();await new Promise(setImmediate);
+});
+
+test('a delayed source failure is consumed and reported instead of being replaced by another background read',async t=>{
+ const f=fixture();f.plan.executionSource=f.s;let rejectRead;
+ f.host.client.getWorkerPlanCodeScope=()=>new Promise((_resolve,reject)=>{rejectRead=reject;});
+ const workers=()=>[{workerId:'w',online:true,idleGpuIds:['0'],declaredJobPaths:true,idleGpuAdmission:true,codeFingerprint:'old-global'}];
+ t.mock.timers.enable({apis:['setTimeout','Date']});
+ const first=H.inspectPlanCodeSlots(f.host,{plans:[f.plan]},workers());
+ await new Promise(setImmediate);t.mock.timers.tick(350);await first;
+ rejectRead(Error('PLAN_SOURCE_CHANGED: configs/model.yaml'));await new Promise(setImmediate);t.mock.timers.tick(2500);
+ const next=workers(),round=H.inspectPlanCodeSlots(f.host,{plans:[f.plan]},next);
+ await new Promise(setImmediate);t.mock.timers.tick(350);await round;
+ const allocation=Q.allocateAvailable({schemaVersion:1,plans:[f.plan]},next);
+ assert.equal(allocation.dispatches.length,0);assert.match(allocation.queue.plans[0].jobs[0].blockReason,/configs\/model.yaml/);
+});

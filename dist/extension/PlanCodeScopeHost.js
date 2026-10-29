@@ -202,6 +202,7 @@ async function verifyLocalPlanSource(root, source, index) {
 /** Admission checks cannot turn transfer inventory changes into execution version conflicts. */
 async function inspectPlanCodeSlots(h, queue, workers, signal) {
     const reads = h.planCodeScopeReads ||= new Map();
+    const wanted = new Set();
     let accepting = true;
     const requests = [];
     const pending = queue.plans.filter((p) => p.projectId && p.resultPathPolicy === "declared" && p.jobs.some((j) => j.status === "pending" && !j.commandId));
@@ -214,23 +215,29 @@ async function inspectPlanCodeSlots(h, queue, workers, signal) {
         if (!ready.length)
             continue;
         for (const w of ready) {
-            (w.codeScopeErrors ||= {})[plan.id] = w.workerId + "：源码核实进行中。";
+            (w.codeScopePending ||= {})[plan.id] = true;
             const target = h.workerActionTargets().find((r) => r.id === w.workerId);
             const key = JSON.stringify([plan.projectId, plan.id, plan.revision, plan.codeFingerprint, w.workerId, target]);
+            wanted.add(key);
             let entry = reads.get(key);
-            if (!entry || entry.at && Date.now() - entry.at > 2000) {
-                entry = { at: 0, promise: undefined };
+            // A read can finish after this round's bounded wait. Keep that result until
+            // a later round consumes it, even when polling exceeds the refresh TTL.
+            // The actual launch still verifies the frozen source again before sending.
+            if (!entry || entry.signal?.aborted || entry.consumed && entry.at && Date.now() - entry.at > 2000) {
+                entry = { at: 0, consumed: false, signal, promise: undefined };
                 entry.promise = verifyWorkerPlanSource(h, w.workerId, plan, signal).then(source => ({ source }), error => ({ error })).then(value => { entry.at = Date.now(); return value; });
                 reads.set(key, entry);
             }
             requests.push(entry.promise.then(({ source, error }) => {
-                if (!accepting)
+                if (!accepting || signal?.aborted)
                     return;
+                entry.consumed = true;
+                delete w.codeScopePending[plan.id];
                 if (error)
-                    w.codeScopeErrors[plan.id] = w.workerId + ": " + String(error.message || error);
+                    (w.codeScopeErrors ||= {})[plan.id] = w.workerId + ": " + String(error.message || error);
                 else {
                     plan.executionSource = source;
-                    delete w.codeScopeErrors[plan.id];
+                    delete w.codeScopeErrors?.[plan.id];
                     (w.compatiblePlans ||= []).push(plan.id);
                 }
             }));
@@ -246,6 +253,6 @@ async function inspectPlanCodeSlots(h, queue, workers, signal) {
             clearTimeout(timer);
     }
     for (const [key, entry] of reads)
-        if (entry.at && Date.now() - entry.at > 2000)
+        if (!wanted.has(key) || entry.consumed && entry.at && Date.now() - entry.at > 2000)
             reads.delete(key);
 }
