@@ -5,12 +5,13 @@ import { experimentIntegrationGuideUrl, experimentIntegrationAiTask, extensionRe
 export function renderPanelHtml(): string {
     const nonce = String(Date.now());
     const PLUGIN_VERSION: string = (() => { try { const pkg = require("../../package.json"); return String((pkg && pkg.version) || "").trim() || "unknown"; } catch { return "unknown"; } })();
+    const RELEASE_TRACK = (() => { try { return require("../../package.json").simpleExperimentRelease || {}; } catch { return {}; } })();
     const panelProgressDomPatchSource = "(" + patchPanelProgressDom.toString() + ")";
     const logicalPlansSource = "(" + composeLogicalPlans.toString() + ")";
     const guideRepository = (() => { try { return extensionRepositoryUrl(require("../../package.json")); } catch { return undefined; } })();
     const guideAttribute = (value: string) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "&#10;");
-    const integrationGuideHref = guideAttribute(experimentIntegrationGuideUrl(guideRepository));
-    const integrationAiTask = guideAttribute(experimentIntegrationAiTask(guideRepository));
+    const integrationGuideHref = guideAttribute(experimentIntegrationGuideUrl(guideRepository, PLUGIN_VERSION));
+    const integrationAiTask = guideAttribute(experimentIntegrationAiTask(guideRepository, PLUGIN_VERSION));
     return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -1486,7 +1487,7 @@ export function renderPanelHtml(): string {
           <div class="section-desc">显存、利用率、温度、进程 — 密集大表（点击行展开 1天曲线+进程）</div>
         </div>
         <div class="gpuDenseToolbar">
-          <button type="button" class="mini secondary" data-command="snapshot" title="刷新 GPU 状态">刷新</button>
+          <button type="button" class="mini secondary" data-command="manualGpuSnapshot" title="仅刷新当前启用 Worker 的 GPU 状态">刷新</button>
           <button type="button" class="mini secondary" id="gpuMergeToggle" title="切换服务器列合并/打散">合并:开</button>
           <button type="button" class="mini secondary" id="gpuDenseSettingsBtn" title="自定义列与全局行高">⚙</button>
         </div>
@@ -1937,6 +1938,7 @@ export function renderPanelHtml(): string {
     console.log("[webview] acquireVsCodeApi", vscodeApiAvailable, typeof vscode.postMessage);
     const panelDocumentGeneration = String(document.documentElement?.getAttribute("data-panel-document-generation") || "");
     const panelRunningVersion = String(document.documentElement?.getAttribute("data-panel-running-version") || "");
+    const panelReleaseTrack = ${JSON.stringify(RELEASE_TRACK)};
     const panelDocumentBuildId = String(document.documentElement?.getAttribute("data-panel-build-id") || "");
     const PANEL_RENDER_FRAME_STALL_MS = 15000;
     const restoredTransientPanelState = restoredPanelStateFromApi(vscode);
@@ -4294,6 +4296,7 @@ export function renderPanelHtml(): string {
         updateServerDestinationPreview(input);
         serverConfigEditLockUntil = Date.now() + 30000;
         if (input.dataset.configInput === "resultMapping") updateResultMappingExample(input);
+        if (input.dataset.configInput === "projectAdapterRules" && input.dataset.key === "taskType") updateProjectTaskTypeHint(input);
       }
       if (isPlanPreviewEditor(input)) planPreviewEditLockUntil = Date.now() + 45000;
       if (input && input.id === "resourceTreeSearch") {
@@ -9889,6 +9892,7 @@ export function renderPanelHtml(): string {
 
     function renderPluginUpdateSettings(state) {
       const plan = (state || {}).pluginUpdate || {};
+      const track = typeof panelReleaseTrack === "object" ? panelReleaseTrack : {};
       const storedStatus = String(plan.status || "unknown");
       const hasStoredUpdate = [plan.experiment, plan.sftp].some((item) => item && item.updateAvailable === true);
       const status = storedStatus === "update_available" && !hasStoredUpdate ? "up_to_date" : storedStatus;
@@ -9896,7 +9900,7 @@ export function renderPanelHtml(): string {
       const rows = [plan.experiment, plan.sftp].filter(Boolean).map((item) => {
         return item.updateAvailable
           ? '<span>' + esc(item.label + ': ' + (item.currentVersion || "-") + ' → ' + (item.latestVersion || "-")) + '</span>'
-          : '<span>' + esc(item.label + ': ' + (item.currentVersion || "-") + '（已是最新）') + '</span>';
+          : '<span>' + esc(item.label + ': ' + (item.currentVersion || "-") + '；正式更新通道 ' + (item.latestVersion || "未查询") + '（无需更新，不降级）') + '</span>';
       }).join("");
       const canInstall = status === "update_available" && hasStoredUpdate;
       const busy = status === "checking" || status === "installing";
@@ -9904,8 +9908,9 @@ export function renderPanelHtml(): string {
         '<div class="pluginUpdate">' +
           '<div class="pluginUpdateMain">' +
             '<b>插件配套更新 · ' + esc(pluginUpdateStatusLabel(status)) + '</b>' +
+            (track.channel === "trial" ? '<span class="notice warning">' + esc('当前为试行版 ' + (typeof panelRunningVersion === "string" ? panelRunningVersion : state.extensionVersion || "-") + '；权威版固定为 ' + track.authoritativeVersion + '，SimpleSFTP ' + track.authoritativeSftpVersion + '。仅在用户实际认可后提升。') + '</span>' : '') +
             '<span>' + esc(status === "up_to_date"
-              ? "当前已是最新版本；更新来源为两个仓库的 GitHub Latest Release。"
+              ? "正式通道暂无更高版本；试行版不因此转正，也不会自动降级。更新来源为两个仓库的 GitHub Latest Release。"
               : (plan.message || "同时检查 SimpleExperiment 和 SimpleSFTP 的 GitHub Latest Release。")) + '</span>' +
             (rows ? rows : '') +
             (Number.isFinite(checkedAt) ? '<span class="muted">检查时间：' + esc(new Date(checkedAt).toLocaleString()) + '</span>' : '') +
@@ -13746,7 +13751,7 @@ export function renderPanelHtml(): string {
       const taskType = configDraftValue("projectAdapterRules", "taskType", rules.taskType || "generic");
       const classificationMetrics = uniqueText(rules.classificationMetrics || []);
       const segmentationMetrics = uniqueText(rules.segmentationMetrics || []);
-      const suggestions = taskType === "classification" ? "分类示例：主指标 AUC；辅助 accuracy、F1、AUPRC。AP 与 AUPRC 分开统计。" : taskType === "segmentation" ? "分割示例：主指标 DSC；辅助 IoU、HD95、ASD。距离类指标通常越小越好，由项目明确。" : taskType === "regression" ? "回归示例：主指标 RMSE；辅助 MAE、R2。指标方向和单位由项目明确。" : "通用或自定义任务：填写项目实际输出的指标名，不要求分类指标。";
+      const suggestions = projectTaskTypeHint(taskType);
       const candidateCsv = uniqueText(rules.candidateCsv || ["metrics_summary.csv", "work_dirs/*/metrics_summary.csv", "experiments/results/*.csv", "test_results/summary.csv"]);
       const configuredJson = uniqueText(asArray(rules.candidateJson).filter(isParseableResultCandidate));
       const candidateJson = configuredJson.length ? configuredJson : ["metrics.json", "result.json", "results.json"];
@@ -13761,7 +13766,7 @@ export function renderPanelHtml(): string {
         '<summary>任务指标与输出接入配置<span class="muted">' + esc(summary) + '</span></summary>' +
         (partialNotice + '<div class="projectRuleGrid">' +
           configSelect("projectAdapterRules", "taskType", "任务类型", taskType, [["generic","通用"],["classification","分类"],["segmentation","分割"],["regression","回归"],["custom","自定义"]].concat(["generic","classification","segmentation","regression","custom"].includes(taskType) ? [] : [[taskType,taskType]])) +
-          '<div class="muted wide">' + esc(suggestions) + ' 切换类型不覆盖已填写指标；建议值请按项目实际输出填写。</div>' +
+          '<div class="muted wide" data-project-task-type-hint>' + esc(suggestions) + '</div>' +
           projectRuleInput("primaryMetric", "主指标", rules.primaryMetric || "", "填写实际输出的主指标名称；通用任务可留空。") +
           projectRuleTextarea("secondaryMetrics", "辅助指标", asEditorList(rules.secondaryMetrics || []), "每行或逗号分隔，用于结果扫读。") +
           '<details class="wide"><summary>兼容指标池（可选，保留已有配置）</summary>' +
@@ -13781,6 +13786,17 @@ export function renderPanelHtml(): string {
           '<button data-command="saveProjectAdapterRules" data-config-scope="projectAdapterRules" title="保存输出接入配置到插件工作区设置并同步 Agent">保存接入规则</button>' +
         '</div>') +
       '</details>';
+    }
+
+    function projectTaskTypeHint(taskType) {
+      const suggestion = taskType === "classification" ? "分类示例：主指标 AUC；辅助 accuracy、F1、AUPRC。AP 与 AUPRC 分开统计。" : taskType === "segmentation" ? "分割示例：主指标 DSC；辅助 IoU、HD95、ASD。距离类指标通常越小越好，由项目明确。" : taskType === "regression" ? "回归示例：主指标 RMSE；辅助 MAE、R2。指标方向和单位由项目明确。" : "通用或自定义任务：填写项目实际输出的指标名，不要求分类指标。";
+      return suggestion + " 切换类型不覆盖已填写指标；建议值请按项目实际输出填写。";
+    }
+
+    function updateProjectTaskTypeHint(input) {
+      const editor = input.closest?.(".projectRuleEditor");
+      const hint = editor?.querySelector("[data-project-task-type-hint]");
+      if (hint) hint.textContent = projectTaskTypeHint(input.value);
     }
 
     function projectRuleInput(key, label, value, title, cls) {

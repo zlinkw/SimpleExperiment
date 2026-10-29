@@ -14,22 +14,23 @@ export type SetupGuideSource =
   | { kind: "file"; path: string }
   | { kind: "online"; url: string };
 
-export function setupGuideOnlineUrl(repositoryUrl?: string): string {
+export function setupGuideOnlineUrl(repositoryUrl?: string, version?: string): string {
   const match = /^(?:https:\/\/github\.com[/:]|git@github\.com:)([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(String(repositoryUrl || "").trim());
-  if (!match) return SETUP_GUIDE_ONLINE_FALLBACK_URL;
-  return `https://github.com/${match[1]}/blob/master/docs/${SETUP_GUIDE_FILE_NAME}`;
+  const ref = /^\d+\.\d+\.\d+$/.test(String(version || "")) ? "v" + version : "master";
+  return `https://github.com/${match?.[1] || "zlinkw/SimpleExperiment"}/blob/${ref}/docs/${SETUP_GUIDE_FILE_NAME}`;
 }
 
 /** Short handoff task only; complete guides remain in the source repository. No network or project reads. */
-export function experimentIntegrationGuideUrl(repositoryUrl?: string): string {
-  return setupGuideOnlineUrl(repositoryUrl).replace(SETUP_GUIDE_FILE_NAME, "experiment-integration.md");
+export function experimentIntegrationGuideUrl(repositoryUrl?: string, version?: string): string {
+  return setupGuideOnlineUrl(repositoryUrl, version).replace(SETUP_GUIDE_FILE_NAME, "experiment-integration.md");
 }
 
-export function experimentIntegrationAiTask(repositoryUrl?: string): string {
-  const guide = experimentIntegrationGuideUrl(repositoryUrl);
+export function experimentIntegrationAiTask(repositoryUrl?: string, version?: string): string {
+  const guide = experimentIntegrationGuideUrl(repositoryUrl, version);
   const practice = guide.replace("experiment-integration.md", "multimodal-integration-best-practice.md");
   return [
     "请把当前工作区项目接入 SimpleExperiment / SimpleSFTP。先核实当前项目规范根目录、AGENTS.md、已有训练/评估入口、配置及产物，不把示例命令当作真实接口。",
+    ...(version ? ["当前插件版本：" + version + "。按对应版本指南接入；仍以现场 capabilities/OpenAPI 为准。"] : []),
     `完整接入指南（先完整阅读）：${guide}`,
     `MultiModal 已核对源码的最佳实践：${practice}`,
     "若无法读取链接，请明确请求指南正文，不凭记忆补造字段。按指南区分必需契约、可选增强和项目专用规则。先给出入口/参数/配置/seed/输出/指标映射，再在现有模块内做最小修改。",
@@ -55,8 +56,9 @@ export function resolveSetupGuideSource(
   extensionPath: string,
   repositoryUrl?: string,
   existsSync: (target: string) => boolean = fs.existsSync,
+  version?: string,
 ): SetupGuideSource {
   const local = path.join(extensionPath, "docs", SETUP_GUIDE_FILE_NAME);
   if (existsSync(local)) return { kind: "file", path: local };
-  return { kind: "online", url: setupGuideOnlineUrl(repositoryUrl) };
+  return { kind: "online", url: setupGuideOnlineUrl(repositoryUrl, version) };
 }

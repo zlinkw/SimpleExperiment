@@ -50,6 +50,10 @@ test("online url derives from repository forms and falls back when repository is
   assert.equal(setupGuideOnlineUrl("git@github.com:other-org/other-repo.git"), "https://github.com/other-org/other-repo/blob/master/docs/simple-experiment-setup.md");
   assert.equal(setupGuideOnlineUrl(""), SETUP_GUIDE_ONLINE_FALLBACK_URL);
   assert.equal(setupGuideOnlineUrl(undefined), SETUP_GUIDE_ONLINE_FALLBACK_URL);
+  const version = require('../../package.json').version;
+  assert.equal(setupGuideOnlineUrl(undefined, version), SETUP_GUIDE_ONLINE_FALLBACK_URL.replace('/master/', '/v'+version+'/'));
+  assert.equal(resolveSetupGuideSource('unavailable', undefined, () => false, version).url, setupGuideOnlineUrl(undefined, version));
+  assert.equal(setupGuideOnlineUrl(undefined, '../bad'), SETUP_GUIDE_ONLINE_FALLBACK_URL);
 });
 
 test("extensionRepositoryUrl accepts string and object repository forms", () => {
@@ -241,8 +245,11 @@ test("AI integration entry is pinned in settings and its full multiline task rea
   const match = html.slice(start).match(/<button\b[^>]*data-command="copyText"[^>]*data-text="([^"]+)"/);
   assert.ok(match, "one-click copy must use the existing clipboard command");
   const payload = match[1].replace(/&#10;/g, "\n").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
-  assert.equal(payload, guides.experimentIntegrationAiTask(repository));
-  assert.ok(html.includes('href="' + guides.experimentIntegrationGuideUrl(repository) + '"'));
+  const version = require('../../package.json').version;
+  assert.equal(payload, guides.experimentIntegrationAiTask(repository, version));
+  assert.ok(html.includes('href="' + guides.experimentIntegrationGuideUrl(repository, version) + '"'));
+  assert.ok(payload.includes('/blob/v'+version+'/docs/'));
+  assert.ok(payload.includes('当前插件版本：'+version));
   assert.match(payload, /MultiModal/); assert.match(payload, /不凭记忆/); assert.match(payload, /confirm\/pathConfirmed/);
   const copied = [];
   const vscode = { env: { clipboard: { writeText: async text => copied.push(text) } }, window: { showInformationMessage() {}, showWarningMessage: () => assert.fail("nonempty task") } };

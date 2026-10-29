@@ -60,7 +60,7 @@ test("rendered integration editor supports generic, regression and custom projec
     esc: String, escAttr: String, detailsOpenAttr: () => '', adapterRulesArePartial: () => false,
     uniqueText: rows => [...new Set(rows)], asArray: value => Array.isArray(value) ? value : [],
     isParseableResultCandidate: () => true, renderAdapterRuleSummary: () => '' };
-  for (const name of ['configSelect','projectRuleInput','projectRuleTextarea','asEditorList','mapToLines','renderProjectRuleEditor'])
+  for (const name of ['configSelect','projectRuleInput','projectRuleTextarea','asEditorList','mapToLines','projectTaskTypeHint','renderProjectRuleEditor'])
     vm.runInNewContext(panelFunction(name), sandbox);
   for (const taskType of ['generic','classification','segmentation','regression','future-task']) {
     const html = sandbox.renderProjectRuleEditor({ taskType, primaryMetric: 'project_score', secondaryMetrics: ['custom'], metricAliases: { raw_score: 'project_score' } });
@@ -72,4 +72,24 @@ test("rendered integration editor supports generic, regression and custom projec
   const generic = sandbox.renderProjectRuleEditor({});
   assert.match(generic,/data-key="primaryMetric" value=""/);
   assert.match(generic,/value="generic" selected/);
+});
+
+test('task type changes update only suggestion text and GPU refresh keeps its narrow command',()=>{
+ const panelFunction=require('../_helpers/panelFunction'),hint={textContent:''};
+ const sandbox={};for(const name of ['projectTaskTypeHint','updateProjectTaskTypeHint'])vm.runInNewContext(panelFunction(name),sandbox);
+ sandbox.updateProjectTaskTypeHint({value:'regression',closest:()=>({querySelector:selector=>{assert.equal(selector,'[data-project-task-type-hint]');return hint;}})});
+ assert.match(hint.textContent,/RMSE.*MAE.*R2/);
+ const html=require('../../dist/ui/PanelHtml').renderPanelHtml();
+ assert.match(html,/data-command="manualGpuSnapshot" title="仅刷新当前启用 Worker 的 GPU 状态"/);
+ assert.doesNotMatch(html,/data-command="snapshot" title="刷新 GPU 状态"/);
+});
+
+test('trial updates show running and authoritative versions without claiming official promotion',()=>{
+ const panelFunction=require('../_helpers/panelFunction'),pkg=require('../../package.json'),policy=require('../../docs/release-policy.json');
+ const sandbox={panelReleaseTrack:pkg.simpleExperimentRelease,panelRunningVersion:pkg.version,esc:String,pluginUpdateStatusLabel:String,setHtmlIfChanged:(_id,html)=>sandbox.html=html};
+ vm.runInNewContext(panelFunction('renderPluginUpdateSettings'),sandbox);
+ sandbox.renderPluginUpdateSettings({pluginUpdate:{status:'up_to_date',experiment:{label:'SimpleExperiment',currentVersion:pkg.version,latestVersion:policy.authoritative.simpleExperiment.version,updateAvailable:false}}});
+ assert.ok(sandbox.html.includes('试行版 '+pkg.version));assert.ok(sandbox.html.includes('权威版固定为 '+policy.authoritative.simpleExperiment.version));
+ assert.equal(pkg.simpleExperimentRelease.authoritativeSftpVersion,policy.authoritative.simpleSftp.version);
+ assert.doesNotMatch(sandbox.html,/已是最新/);assert.match(sandbox.html,/不降级/);
 });

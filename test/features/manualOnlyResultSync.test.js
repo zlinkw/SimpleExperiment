@@ -56,6 +56,16 @@ function selectedMethods(names, globals = {}) {
   return new sandbox.Subject();
 }
 
+test('already cancelled result refresh is a normal receipt and never starts a server query',async()=>{
+ const f=fixture(),notices=[];
+ const provider=selectedMethods(['rebuildProjectResultTablesFromUi'],{AbortController,vscode:{ProgressLocation:{Notification:1},window:{
+  withProgress:async(_options,run)=>run({report(){}},{isCancellationRequested:true,onCancellationRequested:()=>({dispose(){}})}),
+  showInformationMessage:text=>notices.push(text),showWarningMessage:()=>assert.fail('cancellation is not a query failure')
+ }}});
+ const result=await provider.rebuildProjectResultTablesFromUi.call(f.host);
+ assert.equal(result.status,'cancelled');assert.equal(f.calls.length,0);assert.match(notices[0],/已取消/);
+});
+
 function distributedHost() {
   const calls = [];
   const provider = selectedMethods(["scheduleDistributedPostprocess", "postprocessDistributedResultsForManual", "syncPendingResultMetricsFromUi"]);

@@ -85,7 +85,7 @@ test("update card hides installation when the installed versions are current", (
   assert.match(panelSource, /storedStatus === "update_available" && !hasStoredUpdate \? "up_to_date" : storedStatus/);
   assert.match(panelSource, /canInstall = status === "update_available" && hasStoredUpdate/);
   assert.match(panelSource, /\(canInstall \? '<button data-command="installPluginUpdates"/);
-  assert.match(panelSource, /当前已是最新版本；更新来源为两个仓库的 GitHub Latest Release。/);
+  assert.match(panelSource, /正式通道暂无更高版本；试行版不因此转正，也不会自动降级。/);
 });
 
 test("local API update commands return their plans directly", () => {

@@ -6,6 +6,42 @@ const { readLatestResultExport, latestResultCatalog, regenerateLatestResultTable
 const { fixture, planFile, planText } = require('../_helpers/freshResultHost');
 function files(root) { return fs.readdirSync(root, { withFileTypes: true }).flatMap(row => row.isDirectory() ? files(path.join(root,row.name)).map(item => row.name+'/'+item) : [row.name]); }
 
+test('cancellable callers share one verified read and one cancellation leaves the other reader intact',async()=>{
+  const f=fixture(),a=new AbortController(),b=new AbortController(),messages=[];
+  let release;f.block(new Promise(resolve=>release=resolve));
+  let firstCancelled=false;
+  const first=f.service.update(a.signal).then(()=>false,error=>{firstCancelled=error.name==='AbortError';return firstCancelled;});
+  const second=f.service.update(b.signal,{onProgress:progress=>messages.push(progress.message)});
+  try { a.abort();await new Promise(resolve=>setImmediate(resolve));assert.equal(firstCancelled,true); }
+  finally { release(); }
+  await first;const report=await second;assert.equal(report.current,true);
+  assert.equal(f.calls.filter(row=>row[2]?.discovery).length,1);
+  assert.equal(report.memoryRequests,1);
+  assert.ok(messages.some(message=>message.includes('PLAN')));
+  assert.ok(messages.some(message=>message.includes('内存读取指标 · a')));
+  assert.ok(messages.some(message=>message.includes('保存本机结果')));
+});
+
+test('queued cancellation responds without waiting for the active scope or starting another query',async()=>{
+  const f=fixture(),abort=new AbortController();let release,settled=false;
+  f.block(new Promise(resolve=>release=resolve));const active=f.service.update();
+  const queued=f.service.update(abort.signal,{planFiles:['absent']}).catch(error=>{settled=true;assert.equal(error.name,'AbortError');});
+  try { abort.abort();await new Promise(resolve=>setImmediate(resolve));assert.equal(settled,true); }
+  finally { release(); }
+  await Promise.all([active,queued]);assert.equal(f.calls.filter(row=>row[2]?.discovery).length,1);
+});
+
+test('automatic readers share cancellation while a joined manual reader keeps its verified query',async()=>{
+  const f=fixture();let release;f.block(new Promise(resolve=>release=resolve));
+  let cancelledReaders;
+  const first=f.service.refreshAutomatic(),second=f.service.refreshAutomatic(),cancelled=Promise.all([first,second]).then(value=>cancelledReaders=value);
+  const manual=f.service.update(new AbortController().signal);
+  try { f.host.lowTrafficMode=true;f.service.suspendAutomatic();await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(cancelledReaders,[undefined,undefined]); }
+  finally { release(); }
+  await cancelled;assert.equal((await manual).current,true);
+  assert.equal(f.calls.filter(row=>row[2]?.discovery).length,1);
+});
+
 test('strict manual mode suppresses tab and completion reads while explicit refresh remains available',async()=>{
   const f=fixture();f.host.lowTrafficMode=true;
   f.service.refreshOnVisible();f.service.observe({queryComplete:true,capabilities:{resultCollection:1},tasks:[]});

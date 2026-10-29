@@ -48,21 +48,21 @@ const path = __importStar(require("path"));
  */
 exports.SETUP_GUIDE_FILE_NAME = "simple-experiment-setup.md";
 exports.SETUP_GUIDE_ONLINE_FALLBACK_URL = "https://github.com/zlinkw/SimpleExperiment/blob/master/docs/simple-experiment-setup.md";
-function setupGuideOnlineUrl(repositoryUrl) {
+function setupGuideOnlineUrl(repositoryUrl, version) {
     const match = /^(?:https:\/\/github\.com[/:]|git@github\.com:)([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(String(repositoryUrl || "").trim());
-    if (!match)
-        return exports.SETUP_GUIDE_ONLINE_FALLBACK_URL;
-    return `https://github.com/${match[1]}/blob/master/docs/${exports.SETUP_GUIDE_FILE_NAME}`;
+    const ref = /^\d+\.\d+\.\d+$/.test(String(version || "")) ? "v" + version : "master";
+    return `https://github.com/${match?.[1] || "zlinkw/SimpleExperiment"}/blob/${ref}/docs/${exports.SETUP_GUIDE_FILE_NAME}`;
 }
 /** Short handoff task only; complete guides remain in the source repository. No network or project reads. */
-function experimentIntegrationGuideUrl(repositoryUrl) {
-    return setupGuideOnlineUrl(repositoryUrl).replace(exports.SETUP_GUIDE_FILE_NAME, "experiment-integration.md");
+function experimentIntegrationGuideUrl(repositoryUrl, version) {
+    return setupGuideOnlineUrl(repositoryUrl, version).replace(exports.SETUP_GUIDE_FILE_NAME, "experiment-integration.md");
 }
-function experimentIntegrationAiTask(repositoryUrl) {
-    const guide = experimentIntegrationGuideUrl(repositoryUrl);
+function experimentIntegrationAiTask(repositoryUrl, version) {
+    const guide = experimentIntegrationGuideUrl(repositoryUrl, version);
     const practice = guide.replace("experiment-integration.md", "multimodal-integration-best-practice.md");
     return [
         "请把当前工作区项目接入 SimpleExperiment / SimpleSFTP。先核实当前项目规范根目录、AGENTS.md、已有训练/评估入口、配置及产物，不把示例命令当作真实接口。",
+        ...(version ? ["当前插件版本：" + version + "。按对应版本指南接入；仍以现场 capabilities/OpenAPI 为准。"] : []),
         `完整接入指南（先完整阅读）：${guide}`,
         `MultiModal 已核对源码的最佳实践：${practice}`,
         "若无法读取链接，请明确请求指南正文，不凭记忆补造字段。按指南区分必需契约、可选增强和项目专用规则。先给出入口/参数/配置/seed/输出/指标映射，再在现有模块内做最小修改。",
@@ -83,9 +83,9 @@ function extensionRepositoryUrl(extensionPackageJson) {
     }
     return undefined;
 }
-function resolveSetupGuideSource(extensionPath, repositoryUrl, existsSync = fs.existsSync) {
+function resolveSetupGuideSource(extensionPath, repositoryUrl, existsSync = fs.existsSync, version) {
     const local = path.join(extensionPath, "docs", exports.SETUP_GUIDE_FILE_NAME);
     if (existsSync(local))
         return { kind: "file", path: local };
-    return { kind: "online", url: setupGuideOnlineUrl(repositoryUrl) };
+    return { kind: "online", url: setupGuideOnlineUrl(repositoryUrl, version) };
 }

@@ -43,6 +43,7 @@ const LatestJobArtifacts_1 = require("../features/LatestJobArtifacts");
 const SafeRequestRetry_1 = require("../core/SafeRequestRetry");
 const ProjectResultTables_1 = require("../results/ProjectResultTables");
 const hosts = new WeakMap();
+const cancelled = (signal) => Object.assign(Error("结果查询已取消"), { name: "AbortError", cause: signal?.reason });
 function resultCollectionHost(host) {
     let service = hosts.get(host);
     if (!service) {
@@ -55,7 +56,11 @@ class ResultCollectionHost {
     h;
     request;
     requestKey = "";
+    requestController;
+    readers = new Map();
+    lastProgress;
     automaticController;
+    automaticRequest;
     again = false;
     timer;
     seen = new Set();
@@ -73,25 +78,25 @@ class ResultCollectionHost {
         this.visibleScope = "";
         this.automaticController?.abort();
     }
-    async refreshAutomatic() {
+    refreshAutomatic() {
         if (!this.automaticAllowed())
-            return undefined;
-        if (this.automaticController)
-            return this.request;
+            return Promise.resolve(undefined);
+        if (this.automaticRequest)
+            return this.automaticRequest;
         const controller = new AbortController();
         this.automaticController = controller;
-        try {
-            return await this.update(controller.signal, { automatic: true });
-        }
-        catch (error) {
+        const run = this.update(controller.signal, { automatic: true }).catch(error => {
             if (controller.signal.aborted)
                 return undefined;
             throw error;
-        }
-        finally {
-            if (this.automaticController === controller)
+        }).finally(() => {
+            if (this.automaticController === controller) {
                 this.automaticController = undefined;
-        }
+                this.automaticRequest = undefined;
+            }
+        });
+        this.automaticRequest = run;
+        return run;
     }
     refreshOnVisible() {
         if (!this.automaticAllowed())
@@ -136,31 +141,69 @@ class ResultCollectionHost {
         }, 250);
         this.timer.unref?.();
     }
+    waitFor(run, signal) {
+        if (!signal)
+            return run;
+        if (signal.aborted)
+            return Promise.reject(cancelled(signal));
+        return new Promise((resolve, reject) => {
+            const cancel = () => { signal.removeEventListener("abort", cancel); reject(cancelled(signal)); };
+            signal.addEventListener("abort", cancel, { once: true });
+            run.then(value => { signal.removeEventListener("abort", cancel); resolve(value); }, error => { signal.removeEventListener("abort", cancel); reject(error); });
+        });
+    }
+    subscribe(run, signal, onProgress) {
+        const reader = {};
+        this.readers.set(reader, onProgress);
+        if (this.lastProgress) {
+            try {
+                onProgress?.(this.lastProgress);
+            }
+            catch { /* display observers cannot change a query */ }
+        }
+        return this.waitFor(run, signal).finally(() => {
+            this.readers.delete(reader);
+            if (this.request === run && this.readers.size === 0)
+                this.requestController?.abort();
+        });
+    }
+    report(progress) {
+        this.lastProgress = progress;
+        for (const observer of this.readers.values()) {
+            try {
+                observer?.(progress);
+            }
+            catch { /* display only */ }
+        }
+    }
     async update(signal, options = {}) {
         if (signal?.aborted)
-            throw signal.reason || Error("结果查询已取消");
+            throw cancelled(signal);
         if (options.automatic && !this.automaticAllowed())
             return undefined;
-        const key = JSON.stringify([this.h.captureProjectContext().root, options.automatic === true, [...options.planFiles || []].sort()]);
+        const context = this.h.captureProjectContext();
+        const key = JSON.stringify([context.root, context.generation, [...new Set(options.planFiles || [])].sort()]);
         if (this.request) {
-            if (this.requestKey === key && !signal)
-                return this.request;
-            await this.request.catch(() => undefined);
+            if (this.requestKey === key && !this.requestController?.signal.aborted)
+                return this.subscribe(this.request, signal, options.onProgress);
+            await this.waitFor(this.request.then(() => undefined, () => undefined), signal);
+            const next = this.h.captureProjectContext();
+            if (next.root !== context.root || next.generation !== context.generation)
+                throw Error("项目已变化，取消等待中的结果查询。");
             return this.update(signal, options);
         }
         this.again = false;
-        const run = this.collect(signal, options.planFiles);
-        this.request = run;
-        this.requestKey = key;
-        try {
-            return await run;
-        }
-        finally {
-            if (this.request === run)
+        const controller = new AbortController();
+        this.requestController = controller;
+        this.lastProgress = undefined;
+        const run = this.collect(controller.signal, options.planFiles).finally(() => {
+            if (this.request === run) {
                 this.request = undefined;
+                this.requestController = undefined;
+            }
             // New completions request a separate refresh; they cannot keep the current
             // user's request open through an unbounded sequence of full collections.
-            if (this.again && !this.timer && !signal?.aborted && this.automaticAllowed()) {
+            if (this.again && !this.timer && !controller.signal.aborted && this.automaticAllowed()) {
                 this.timer = setTimeout(() => {
                     this.timer = undefined;
                     if (!this.automaticAllowed())
@@ -172,9 +215,13 @@ class ResultCollectionHost {
                 }, 250);
                 this.timer.unref?.();
             }
-        }
+        });
+        this.request = run;
+        this.requestKey = key;
+        return this.subscribe(run, signal, options.onProgress);
     }
     async collect(signal, selection) {
+        this.report({ message: "读取本机 PLAN 声明…" });
         const h = this.h, context = h.captureProjectContext(), root = context.root;
         if (!root)
             throw Error("请先打开当前实验项目。");
@@ -268,6 +315,7 @@ class ResultCollectionHost {
                 if (unavailable.has(worker.id))
                     continue;
                 try {
+                    this.report({ message: "核实 PLAN 声明 · " + worker.id + " · " + plan.planFile });
                     let response;
                     let finishWarmup;
                     if (!discoveryReady.has(worker.id))
@@ -314,8 +362,16 @@ class ResultCollectionHost {
         };
         // Bound pressure on slow tunnels and preserve PLAN order. All enabled Workers
         // still receive the complete declarations/file verification below.
+        let discoveredPlans = 0;
         for (let offset = 0; offset < inputs.length; offset += 4) {
-            const settled = await Promise.allSettled(inputs.slice(offset, offset + 4).map(discover));
+            const settled = await Promise.allSettled(inputs.slice(offset, offset + 4).map(async (plan) => {
+                try {
+                    return await discover(plan);
+                }
+                finally {
+                    this.report({ message: "已核实 PLAN 声明 " + (++discoveredPlans) + "/" + inputs.length });
+                }
+            }));
             const failed = settled.find(row => row.status === "rejected");
             if (failed?.status === "rejected")
                 throw failed.reason;
@@ -331,6 +387,7 @@ class ResultCollectionHost {
             const values = [];
             try {
                 for (let offset = 0; offset < Math.max(1, declarations.length); offset += 500) {
+                    this.report({ message: "查询实际产物 · " + worker.id + " · job " + Math.min(offset, declarations.length) + "/" + declarations.length });
                     const value = await readTasks(worker.id, {
                         queries: [], declarations: declarations.slice(offset, offset + 500)
                     }, 30000, unavailable.has(worker.id) ? 1 : 3);
@@ -348,7 +405,7 @@ class ResultCollectionHost {
         check();
         timing.observationsMs = Date.now() - observationStarted;
         const receiveStarted = Date.now();
-        let memoryRequests = 0, memoryFiles = 0;
+        let memoryRequests = 0, memoryFiles = 0, verifiedFiles = 0;
         const readUnavailable = new Map();
         const receive = async (workerId, files) => {
             check();
@@ -370,6 +427,7 @@ class ResultCollectionHost {
                     batches.push([file]);
             }
             for (const batch of batches) {
+                this.report({ message: "内存读取指标 · " + workerId + " · 已核实 " + verifiedFiles + " 个文件" });
                 let response;
                 try {
                     response = await retryRead(async () => {
@@ -397,6 +455,8 @@ class ResultCollectionHost {
                         throw Error("RESULT_CONTENT_CHANGED: " + file.remotePath);
                     output.push({ remotePath: file.remotePath, text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes) });
                 }
+                verifiedFiles += batch.length;
+                this.report({ message: "内存读取指标 · " + workerId + " · 已核实 " + verifiedFiles + " 个文件" });
             }
             return output;
         };
@@ -423,6 +483,7 @@ class ResultCollectionHost {
         }
         check();
         const publicationStarted = Date.now();
+        this.report({ message: scoped ? "生成所选 PLAN 结果（不覆盖整批导出）…" : "生成并保存本机结果表格…" });
         const rules = h.resultAdapterRules();
         const derived = rules.derivedMetric ? { ...rules.derivedMetric, metric: (0, ProjectResultTables_1.canonicalMetricName)(rules.derivedMetric.metric, rules.metricAliases) } : undefined;
         const tables = { ...(0, FreshResults_1.freshResultTables)(result, plans, derived),

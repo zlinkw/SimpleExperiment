@@ -22765,7 +22765,7 @@ class RealtimeTunnelPanelProvider {
     }
     /** 发行包不含 docs/：本地存在指南时保持原预览/文本打开行为，否则打开仓库在线文档链接。 */
     async showSetupGuideDocument() {
-        const guide = (0, SetupGuideSource_1.resolveSetupGuideSource)(this.context.extensionPath, (0, SetupGuideSource_1.extensionRepositoryUrl)(this.context.extension?.packageJSON));
+        const guide = (0, SetupGuideSource_1.resolveSetupGuideSource)(this.context.extensionPath, (0, SetupGuideSource_1.extensionRepositoryUrl)(this.context.extension?.packageJSON), undefined, this.context.extension?.packageJSON?.version);
         if (guide.kind === "file") {
             const uri = vscode.Uri.file(guide.path);
             try {
@@ -25993,14 +25993,25 @@ class RealtimeTunnelPanelProvider {
         const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "更新结果汇总", cancellable: true }, async (progress, token) => {
             const abort = new AbortController();
             const listener = token.onCancellationRequested?.(() => abort.abort());
+            if (token.isCancellationRequested)
+                abort.abort();
             try {
                 progress.report({ message: "主动查询 PLAN 声明和服务器实际产物…" });
-                return await (0, ResultCollectionHost_1.resultCollectionHost)(this).update(abort.signal, { planFiles: options.planFiles });
+                return await (0, ResultCollectionHost_1.resultCollectionHost)(this).update(abort.signal, { planFiles: options.planFiles, onProgress: value => progress.report(value) });
+            }
+            catch (error) {
+                if (abort.signal.aborted)
+                    return { status: "cancelled", cancelled: true, notificationShown: true };
+                throw error;
             }
             finally {
                 listener?.dispose();
             }
         });
+        if (result.cancelled) {
+            void vscode.window.showInformationMessage("本次结果查询已取消；其他入口仍在使用的查询可以继续，已有导出文件保留。");
+            return result;
+        }
         const message = result.current ? (result.scope === "selected_plans" ? "所选 PLAN 查询完成（未覆盖整批导出）：" : "结果已更新：") + result.completed + "/" + result.expected + " 个 job；未完成或待核实 " + result.missing.length + "。"
             : "本轮无法核实服务器结果；保留原导出文件，它不是本轮查询结果。";
         if (result.current && !result.skipped.length && !result.missing.length)
