@@ -268,13 +268,16 @@ class ResultCollectionHost {
             index: job.index, case: job.case, seed: job.seed, outputDir: job.outputDir, collectionResultCsv: job.collectionResultCsv,
             commandId: job.commandId, workerId: job.workerId
         }));
-        let owners;
+        const ownerKey = (row) => JSON.stringify([row.planFile, row.case, Number(row.seed)]);
+        const ownerMap = () => new Map(runBindings().map(row => [ownerKey(row), JSON.stringify(row)]));
+        const readOwners = new Map();
+        let snapshotOwners = new Map();
         const key = () => JSON.stringify(currentTargets().map((row) => [row.id, row.host, row.user, row.port, row.remotePath, row.condaEnv]));
         const binding = key();
         const signals = [signal, context.signal, (0, SafeRequestRetry_1.retryRequestSignal)()].filter(Boolean);
         const requestSignal = signals.length ? AbortSignal.any(signals) : undefined;
         const current = () => !requestSignal?.aborted && h.projectContextIsCurrent(context) && key() === binding
-            && (owners === undefined || owners === JSON.stringify(runBindings()));
+            && (() => { const latest = ownerMap(); return [...readOwners].every(([key, value]) => latest.get(key) === value); })();
         const check = () => { if (!current())
             throw Error("结果查询已取消或项目/服务器配置已变化。"); };
         const retryRead = async (read, attempts = 3) => {
@@ -472,6 +475,16 @@ class ResultCollectionHost {
         let memoryRequests = 0, memoryFiles = 0, verifiedFiles = 0;
         const readUnavailable = new Map();
         const receive = async (workerId, files) => {
+            // Only outputs actually being read can invalidate this query. Normal
+            // dispatch of another job must not cancel already verified results.
+            for (const plan of plans)
+                for (const job of plan.jobs) {
+                    if (!files.some(file => file.remotePath === job.result_csv || file.remotePath.startsWith(job.output_dir + "/")))
+                        continue;
+                    const key = ownerKey(job);
+                    if (!readOwners.has(key))
+                        readOwners.set(key, snapshotOwners.get(key));
+                }
             check();
             if (readUnavailable.has(workerId))
                 throw readUnavailable.get(workerId);
@@ -527,7 +540,7 @@ class ResultCollectionHost {
         };
         // Queue metadata supplies provenance/ownership only, never result bytes or proof.
         const queued = queuedPlans(), bindings = runBindings();
-        owners = JSON.stringify(bindings);
+        snapshotOwners = new Map(bindings.map(row => [ownerKey(row), JSON.stringify(row)]));
         const result = await (0, FreshResults_1.collectFreshResults)(plans, snapshots, receive, (text, job) => h.parseFreshResultMetric(text, job), h.resultAdapterRules().planDatasetMapping || {}, current, bindings);
         check();
         timing.metricsMs = Date.now() - receiveStarted;

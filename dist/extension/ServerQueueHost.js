@@ -59,10 +59,14 @@ class ServerQueueHost {
         const binding = targets(), key = this.root + "\0server-queue", reserved = [];
         const current = () => { if (!h.projectContextIsCurrent(context) || context.root !== this.root || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath !== this.root || targets() !== binding || h.distributedPlanStopEpoch !== epoch)
             throw Error("项目、GPU 配额或连接已变化，未继续派发服务器队列。"); };
-        if (h.manualDispatchInFlight.size)
-            throw Error("已有手动派发正在处理，请等待本批结果。");
+        if (h.manualDispatchInFlight.size || h.manualDispatchReviewKeys?.size)
+            throw Error("已有手动派发或产物审核正在处理，请等待本批结果。");
         h.manualDispatchInFlight.add(key);
         const batchId = (0, node_crypto_1.randomUUID)();
+        let reservedOnDisk = false;
+        const reservationMatches = (plan, job, item) => plan && job && job.status === "pending" && !job.commandId
+            && JSON.stringify([plan.id, plan.projectId, plan.revision, plan.codeFingerprint, job.index, job.outputDir, job.collectionResultCsv]) === item.identity
+            && job.manualDispatch?.stage === "preparing" && job.manualDispatch?.batchId === batchId;
         try {
             if (h.distributedQueueTickPromise)
                 await h.distributedQueueTickPromise;
@@ -90,6 +94,22 @@ class ServerQueueHost {
             let distribution = (0, ServerQueueDispatch_1.quotaQueuePlacements)(selected.length, cards);
             const identity = (plan, job) => JSON.stringify([plan.id, plan.projectId, plan.revision, plan.codeFingerprint, job.index, job.outputDir, job.collectionResultCsv]);
             selected.forEach((item, index) => reserved.push({ ...item, identity: identity(item.plan, item.job), placement: distribution.placements[index] }));
+            // Persist only this batch's job reservations before a human review can
+            // release the global gate. Other jobs remain eligible for normal scheduling.
+            await h.saveDistributedQueue(this.root, undefined, { controlMutation: true, mutateLatest: (latest) => {
+                    current();
+                    for (const item of reserved) {
+                        const plan = latest.plans.find((p) => p.id === item.plan.id), job = plan?.jobs.find((j) => j.index === item.job.index);
+                        if (!job || identity(plan, job) !== item.identity || !(0, ServerQueueDispatch_1.remainingQueueJobs)(plan).includes(job))
+                            throw Error("排队批次已变化，未预约任务。");
+                    }
+                    for (const item of reserved) {
+                        const job = latest.plans.find((p) => p.id === item.plan.id).jobs.find((j) => j.index === item.job.index);
+                        job.manualDispatch = { ...item.placement, stage: "preparing", origin: "server_queue", batchId };
+                    }
+                    return { ...latest };
+                } });
+            reservedOnDisk = true;
             const ports = new ManualDispatchHost_1.ManualDispatchHost(h, this.root).ports(), approved = new Set(), blocked = new Map();
             for (const planId of new Set(reserved.map(item => item.plan.id))) {
                 current();
@@ -128,7 +148,7 @@ class ServerQueueHost {
                     current();
                     for (const item of reserved) {
                         const plan = latest.plans.find((p) => p.id === item.plan.id), job = plan?.jobs.find((j) => j.index === item.job.index);
-                        if (!job || identity(plan, job) !== item.identity || !(0, ServerQueueDispatch_1.remainingQueueJobs)(plan).includes(job))
+                        if (!reservationMatches(plan, job, item) || job.stopIntent || job.outputIsolationBlocked)
                             throw Error("排队批次已变化，未提交新任务。");
                     }
                     for (const item of reserved) {
@@ -159,10 +179,26 @@ class ServerQueueHost {
             return { status: "submitted", message: `已按逐卡 job 配额将 ${approved.size} 个剩余 job 派入服务器队列；比例 ` + distribution.allocations.map(card => `${card.workerId}/GPU ${card.gpuId}=${card.weight}（本批 ${card.count}）`).join("、"), allocations: distribution.allocations };
         }
         finally {
-            h.manualDispatchInFlight.delete(key);
-            h.postState();
-            if (h.projectContextIsCurrent(context))
-                void h.tickDistributedQueue().catch(() => { });
+            try {
+                if (reservedOnDisk)
+                    await h.saveDistributedQueue(this.root, undefined, { controlMutation: true, mutateLatest: (latest) => {
+                            let changed = false;
+                            for (const item of reserved) {
+                                const plan = latest.plans.find((p) => p.id === item.plan.id), job = plan?.jobs.find((j) => j.index === item.job.index);
+                                if (job?.manualDispatch?.stage === "preparing" && job.manualDispatch.batchId === batchId) {
+                                    job.manualDispatch = reservationMatches(plan, job, item) ? item.job.manualDispatch : undefined;
+                                    changed = true;
+                                }
+                            }
+                            return changed ? { ...latest } : latest;
+                        } });
+            }
+            finally {
+                h.manualDispatchInFlight.delete(key);
+                h.postState();
+                if (h.projectContextIsCurrent(context))
+                    void h.tickDistributedQueue().catch(() => { });
+            }
         }
     }
 }

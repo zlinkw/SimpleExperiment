@@ -176,13 +176,16 @@ export class ResultCollectionHost {
       planFile: plan.planFile, workflowId: plan.id, revision: plan.revision, codeFingerprint: plan.codeFingerprint,
       index: job.index, case: job.case, seed: job.seed, outputDir: job.outputDir, collectionResultCsv: job.collectionResultCsv,
       commandId: job.commandId, workerId: job.workerId }));
-    let owners: string | undefined;
+    const ownerKey = (row: any) => JSON.stringify([row.planFile, row.case, Number(row.seed)]);
+    const ownerMap = () => new Map(runBindings().map(row => [ownerKey(row), JSON.stringify(row)]));
+    const readOwners = new Map<string, string | undefined>();
+    let snapshotOwners = new Map<string, string>();
     const key = () => JSON.stringify(currentTargets().map((row: any) => [row.id, row.host, row.user, row.port, row.remotePath, row.condaEnv]));
     const binding = key();
     const signals = [signal, context.signal, retryRequestSignal()].filter(Boolean) as AbortSignal[];
     const requestSignal = signals.length ? AbortSignal.any(signals) : undefined;
     const current = () => !requestSignal?.aborted && h.projectContextIsCurrent(context) && key() === binding
-      && (owners === undefined || owners === JSON.stringify(runBindings()));
+      && (() => { const latest = ownerMap(); return [...readOwners].every(([key, value]) => latest.get(key) === value); })();
     const check = () => { if (!current()) throw Error("结果查询已取消或项目/服务器配置已变化。"); };
     const retryRead = async <T>(read: () => Promise<T>, attempts = 3): Promise<T> => {
       for (let attempt = 0; ; attempt++) {
@@ -323,6 +326,13 @@ export class ResultCollectionHost {
     const receiveStarted = Date.now(); let memoryRequests = 0, memoryFiles = 0, verifiedFiles = 0;
     const readUnavailable = new Map<string, any>();
     const receive = async (workerId: string, files: ResultSource[]) => {
+      // Only outputs actually being read can invalidate this query. Normal
+      // dispatch of another job must not cancel already verified results.
+      for (const plan of plans) for (const job of plan.jobs) {
+        if (!files.some(file => file.remotePath === job.result_csv || file.remotePath.startsWith(job.output_dir + "/"))) continue;
+        const key = ownerKey(job);
+        if (!readOwners.has(key)) readOwners.set(key, snapshotOwners.get(key));
+      }
       check();
       if (readUnavailable.has(workerId)) throw readUnavailable.get(workerId);
       this.report({ message: "核实 SimpleSFTP 能力 · " + workerId });
@@ -365,7 +375,8 @@ export class ResultCollectionHost {
       return output;
     };
     // Queue metadata supplies provenance/ownership only, never result bytes or proof.
-    const queued = queuedPlans(), bindings = runBindings(); owners = JSON.stringify(bindings);
+    const queued = queuedPlans(), bindings = runBindings();
+    snapshotOwners = new Map(bindings.map(row => [ownerKey(row), JSON.stringify(row)]));
     const result = await collectFreshResults(plans, snapshots, receive, (text, job) => h.parseFreshResultMetric(text, job), h.resultAdapterRules().planDatasetMapping || {}, current, bindings); check();
     timing.metricsMs = Date.now() - receiveStarted;
     // A failed declaration cannot make an entire PLAN silently disappear from a new export.

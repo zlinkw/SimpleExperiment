@@ -7,7 +7,11 @@ const GpuQuotaScheduling_1 = require("./GpuQuotaScheduling");
 // r82：隔离暂停 job 不是"剩余可排队 job"——服务器队列只在安全准入子集上重算配额，
 // 暂停 job 保持可见 pending 且不占用任何派发身份（标记不得被派发路径清除）。
 const remainingQueueJobs = (plan) => plan.resultPathPolicy === "declared" && !plan.executionModeBlocked && !plan.recoveryConflict
-    ? plan.jobs.filter(job => job.status === "pending" && !job.workerId && !job.commandId && !job.manualDispatch && !job.automaticWorkerId && !job.recallRequested
+    // An interrupted batch review can be explicitly reviewed again after reload.
+    // Automatic allocation still excludes every manualDispatch reservation.
+    ? plan.jobs.filter(job => job.status === "pending" && !job.workerId && !job.commandId
+        && (!job.manualDispatch || job.manualDispatch.origin === "server_queue" && job.manualDispatch.stage === "preparing" && job.manualDispatch.batchId)
+        && !job.automaticWorkerId && !job.recallRequested
         && !job.stopIntent && !job.unavailable && !job.retainExistingOutputs && !job.outputIsolationBlocked) : [];
 exports.remainingQueueJobs = remainingQueueJobs;
 /** Queue weights are configured per-card quotas, independent of today's free slots. */

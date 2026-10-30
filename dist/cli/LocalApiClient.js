@@ -416,7 +416,9 @@ function rpcTimeoutMs(plugin, method) {
     if (plugin !== "sftp") {
         // These host handlers await synchronization, deployment or remote validation; a client-side
         // 15s cutoff would abort the host request mid-operation. Queries retain their bounded timer.
-        return ["plan.validate", "workflow.plan", "invoke", "agents.lifecycle", "project.prepare", "server.testAll"].includes(method) ? 0 : 15_000;
+        // Results use the host's bounded metadata reads / progress inactivity guard.
+        // Dispatch must finish on its actual receipt, never a shorter client cutoff.
+        return ["plan.validate", "workflow.plan", "invoke", "agents.lifecycle", "project.prepare", "server.testAll", "results.list", "tasks.dispatch"].includes(method) ? 0 : 15_000;
     }
     const unbounded = /^(sync\.|upload\.|download\.|remote\.|files\.cleanup\.)/.test(method)
         // agents.lifecycle mutates remote state over one long SSH command with no reconciliation

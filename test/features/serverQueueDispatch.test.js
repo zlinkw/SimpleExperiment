@@ -37,6 +37,52 @@ function fixture(count=14){
   sendDistributedJob:async(plan,job,worker,gpu,command)=>{assert.equal(h.manualDispatchInFlight.size,1);sent.push({worker,gpu,command,index:job.index,origin:job.manualDispatch.origin})}};
  return {h,host:new ServerQueueHost(h,'project'),sent,get queue(){return saved},set queue(value){saved=value}};
 }
+
+test('real manual and batch review release the global gate only with job reservations and retain unrelated progress',async()=>{
+ const {PlanRunHost}=require('../../src/extension/PlanRunHost.ts'),old=PlanRunHost.prototype.replace;
+ try{for(const mode of ['manual','batch'])for(const outcome of ['accepted','cancelled','stopped']){
+  const f=fixture(2);f.queue.plans.push({...plan(1).plans[0],id:'other',planFile:'plans/other.yaml'});
+  f.h.assertPlanSubmissionWorkers=async()=>{};
+  PlanRunHost.prototype.replace=async(_plan,body)=>{
+   assert.equal(f.h.manualDispatchInFlight.size,1);
+   await body.runConfirmationWaitLocal(async()=>{
+    assert.equal(f.h.manualDispatchInFlight.size,0);assert.equal(f.h.manualDispatchReviewKeys.size,1);
+    const selected=f.queue.plans[0].jobs.filter(j=>j.manualDispatch?.stage==='preparing');
+    assert.equal(selected.length,mode==='manual'?1:2);
+    const auto=Queue.allocateAvailable(Policy.localSchedulingQueue(structuredClone(f.queue)),[{workerId:'w',online:true,idleGpuAdmission:true,declaredJobPaths:true,codeFingerprint:'code',idleGpuIds:['0'],gpuSlots:Array(10).fill('0')}],{requireIdleGpuAdmission:true,localIdleOnly:true});
+    assert.ok(auto.dispatches.some(j=>j.planId==='other'));
+    assert.ok(auto.dispatches.every(j=>!selected.some(reserved=>j.planId==='p'&&j.jobIndex===reserved.index)));
+    assert.equal(remainingQueueJobs(f.queue.plans[1]).length,1);
+    await assert.rejects(new ServerQueueHost(f.h,'project').dispatch({all:true},true),/审核|正在处理/);
+    const unrelated=f.queue.plans[1].jobs[0];Object.assign(unrelated,{status:'completed',commandId:'unrelated-complete',completionState:'verified'});
+    if(outcome==='stopped')f.h.distributedPlanStopEpoch++;
+    return 'choice';
+   });
+   assert.equal(f.h.manualDispatchInFlight.size,1);
+   if(outcome==='cancelled')throw Object.assign(Error('cancel'),{apiData:{code:'REPLACEMENT_CANCELLED'}});
+   body.assignedExperimentIndices=mode==='manual'?[0]:[0,1];
+  };
+  const work=mode==='manual'?new ManualDispatchHost(f.h,'project').dispatch({confirm:true,workflowId:'p',indices:[0],workerId:'w',gpuId:'0',expectedCommands:{0:''}}):f.host.dispatch({planId:'p'},true);
+  if(outcome==='stopped'||outcome==='cancelled'&&mode==='batch')await assert.rejects(work,/停止|变化|取消/);
+  else assert.equal((await work).status,outcome==='cancelled'?'cancelled':'submitted');
+  assert.equal(f.h.manualDispatchInFlight.size,0);assert.equal(f.h.manualDispatchReviewKeys.size,0);
+  assert.equal(f.queue.plans[1].jobs[0].commandId,'unrelated-complete');assert.equal(f.queue.plans[1].jobs[0].completionState,'verified');
+  assert.ok(f.queue.plans[0].jobs.every(j=>j.manualDispatch?.stage!=='preparing'));
+  assert.equal(f.sent.length,outcome==='accepted'?(mode==='manual'?1:2):0);
+ }}finally{PlanRunHost.prototype.replace=old}
+});
+
+test('an interrupted batch review can be explicitly reviewed after reload without automatic launch or losing the old reservation on cancellation',async()=>{
+ const old=ManualDispatchHost.prototype.review;
+ try{for(const cancel of [true,false]){
+  const f=fixture(2),prior={workerId:'w',gpuId:'0',stage:'preparing',origin:'server_queue',batchId:'old-window'};
+  f.queue.plans[0].jobs[0].manualDispatch=structuredClone(prior);
+  ManualDispatchHost.prototype.review=async()=>cancel?false:true;
+  assert.equal(remainingQueueJobs(f.queue.plans[0]).length,2);
+  if(cancel){await assert.rejects(f.host.dispatch({planId:'p'},true),/取消/);assert.deepEqual(f.queue.plans[0].jobs[0].manualDispatch,prior);assert.equal(f.sent.length,0);}
+  else{const result=await f.host.dispatch({planId:'p'},true);assert.equal(result.status,'submitted');assert.equal(f.sent.length,2);assert.ok(f.sent.every(row=>row.command));}
+ }}finally{ManualDispatchHost.prototype.review=old}
+});
 test('the real manual queue host freezes only remaining jobs and sends the exact 1:6 split once; no persistent auto mode is enabled',async()=>{
  const f=fixture(17);Object.assign(f.queue.plans[0].jobs[0],{status:'running',workerId:'w',gpuId:'0',commandId:'running'});
  Object.assign(f.queue.plans[0].jobs[1],{status:'queued',workerId:'w',gpuId:'1',commandId:'already-queued'});f.queue.plans[0].jobs[2].status='completed';

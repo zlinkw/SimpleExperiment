@@ -251,7 +251,10 @@ class PlanRunHost {
             prepareEmptyParents: (preview) => cleanup.service.prepareEmptyParentCleanup(preview),
             confirmEmptyParents: (previews, phase) => cleanup.service.confirmEmptyParentCleanup(previews, phase),
             autoDeleteIsolated: (id, parents) => cleanup.autoDeleteIsolated(id, parents),
-            ask: (payload) => h.askRunConfirmation(payload, body.submissionOperationIdLocal),
+            ask: (payload) => {
+                const work = () => h.askRunConfirmation(payload, body.submissionOperationIdLocal);
+                return body.runConfirmationWaitLocal ? body.runConfirmationWaitLocal(work) : work();
+            },
             save: () => this.save(body),
             assertCurrent,
             beforeDelete: async () => {

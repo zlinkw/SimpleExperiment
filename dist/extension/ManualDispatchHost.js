@@ -97,6 +97,8 @@ class ManualDispatchHost {
         if (!fromUi && params.confirm !== true)
             throw Error("CONFIRM_REQUIRED：请确认所选 job、服务器和 GPU。");
         const workflowId = String(params.workflowId || params.planId || ""), indices = Array.isArray(params.indices) ? params.indices : [params.jobIndex];
+        if (h.manualDispatchReviewKeys?.size)
+            throw Error("请先完成或取消当前产物审核；其他任务仍会自动调度。");
         let selections = ManualDispatchHost.selections.get(h);
         if (!selections) {
             selections = new Set();
@@ -147,8 +149,8 @@ class ManualDispatchHost {
                 gpuSelection = picked.gpuSelection;
             }
             ports.assertCurrent();
-            if (h.manualDispatchInFlight.has(key) || h.manualDispatchInFlight.has(this.root + "\0server-queue"))
-                throw Error("已有派发正在处理，请等待本批结果。");
+            if (h.manualDispatchInFlight.has(key) || h.manualDispatchInFlight.has(this.root + "\0server-queue") || h.manualDispatchReviewKeys?.size)
+                throw Error("已有派发或产物审核正在处理，请等待本批结果。");
             h.manualDispatchInFlight.add(key);
             acquired = true;
             if (h.distributedQueueTickPromise)
@@ -168,6 +170,26 @@ class ManualDispatchHost {
     async review(plan, jobs) {
         const h = this.host, body = { planFile: plan.planFile, planRevision: plan.revision, options: {}, distributedSkipJobIndices: [],
             workerSubmissionSnapshots: [], runReplacement: {} };
+        body.runConfirmationWaitLocal = async (work) => {
+            const batchKey = this.root + "\0server-queue", key = h.manualDispatchInFlight.has(batchKey) ? batchKey : this.root + "\0" + plan.id;
+            if (!h.manualDispatchInFlight.has(key))
+                return work();
+            const ports = this.ports();
+            (h.manualDispatchReviewKeys ||= new Set()).add(key);
+            h.manualDispatchInFlight.delete(key);
+            h.postState();
+            void Promise.resolve(h.tickDistributedQueue()).catch(() => { });
+            try {
+                return await work();
+            }
+            finally {
+                h.manualDispatchReviewKeys.delete(key);
+                h.manualDispatchInFlight.add(key);
+                if (h.distributedQueueTickPromise)
+                    await h.distributedQueueTickPromise;
+                ports.assertCurrent();
+            }
+        };
         const validation = { execution_mode: plan.executionMode, jobs: jobs.map(j => ({ index: j.index, case: j.case, seed: j.seed, output_dir: j.outputDir, result_csv: j.collectionResultCsv })) };
         await h.assertPlanSubmissionWorkers(body, { validation });
         try {

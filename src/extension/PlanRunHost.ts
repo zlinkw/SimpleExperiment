@@ -189,7 +189,10 @@ export class PlanRunHost {
       prepareEmptyParents: (preview: any) => cleanup.service.prepareEmptyParentCleanup(preview),
       confirmEmptyParents: (previews: any[], phase: number) => cleanup.service.confirmEmptyParentCleanup(previews, phase),
       autoDeleteIsolated: (id: string, parents: any) => cleanup.autoDeleteIsolated(id, parents),
-      ask: (payload: any) => h.askRunConfirmation(payload, body.submissionOperationIdLocal),
+      ask: (payload: any) => {
+        const work=()=>h.askRunConfirmation(payload, body.submissionOperationIdLocal);
+        return body.runConfirmationWaitLocal ? body.runConfirmationWaitLocal(work) : work();
+      },
       save: () => this.save(body),
       assertCurrent,
       beforeDelete: async () => {

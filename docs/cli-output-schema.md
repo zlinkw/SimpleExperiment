@@ -4,6 +4,8 @@ Default JSON fields. `--full` returns the existing detailed payload.
 
 ## result list / show / export
 
+0.5.446 试行版：精确 id 优先；使用 experimentId/runKey 且匹配多行时，show/export 返回 BUSINESS 错误 `RESULT_SELECTION_AMBIGUOUS`，detail 包含 `{id,candidates:[{id,seed,dimensions}]}`，不会写入导出目标。唯一别名继续可用。结果查询与手动派发不使用客户端 15 秒 RPC 截止，仍保留实际服务端结果核实与普通状态请求截止；断线时不自动重发派发请求。
+
 0.5.445 试行版默认只读取 `results.list` 的本轮 `active_query`；整批未核实或 API 连接失败时返回错误，不混用本机 registry 或旧 Worker 汇总。按完整运行身份、维度和来源路径生成现代结果稳定 ID，并读取 `summary.results` 完整集合，而非仅顶层预览。
 
 `result list --json` 保留数组格式；每行新增 `source: "active_query" | "history"`、`current: boolean` 和 `observedAt: string | null`。`show --json`、`export --json` 的回执及 JSON 导出内容包含相同字段。`current=true` 表示该行本轮已核实，不表示整个 PLAN 已完成。seed 为 0 时保留数值 0。

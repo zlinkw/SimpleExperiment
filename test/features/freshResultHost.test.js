@@ -250,6 +250,19 @@ test('a newer submission during memory reads prevents late publication of the ol
   await assert.rejects(f.service.update(),/取消|变化/);
   assert.equal(fs.existsSync(path.join(f.root,'experiments/results/latest-results.json')),false);
 });
+
+test('normal dispatch of another job during memory reads keeps verified result publication current',async()=>{
+  for(const scoped of [false,true]){
+    const f=fixture(),read=f.host.simpleSftpApiCall;
+    f.host.distributedQueueCache={plans:[{id:'workflow',projectId:f.root,planFile,revision:'original',codeFingerprint:'a'.repeat(64),
+      jobs:[{index:0,case:'alpha',seed:42,outputDir:'work_dirs/alpha42',collectionResultCsv:'work_dirs/alpha42/metrics.csv',commandId:'command',workerId:'a'},
+        {index:1,case:'beta',seed:43,outputDir:'work_dirs/beta43',collectionResultCsv:'work_dirs/beta43/metrics.csv',status:'pending'}]}]};
+    f.host.simpleSftpApiCall=async(...args)=>{const value=await read(...args);Object.assign(f.host.distributedQueueCache.plans[0].jobs[1],{status:'running',commandId:'other-command',workerId:'a'});return value;};
+    const report=await f.service.update(undefined,scoped?{planFiles:[planFile]}:{});
+    assert.equal(report.current,true);assert.equal(report.results.length,1);assert.equal(report.results[0].runId,'command');
+    assert.equal(report.exported,!scoped);assert.equal(fs.existsSync(path.join(f.root,'experiments/results/latest-results.json')),!scoped);
+  }
+});
 test('cancellation during a memory read publishes nothing and a later fresh query succeeds', async () => {
   const f = fixture(), controller = new AbortController(), receive = f.host.simpleSftpApiCall;
   f.host.simpleSftpApiCall = async (...args) => { const value = await receive(...args); controller.abort(); return value; };

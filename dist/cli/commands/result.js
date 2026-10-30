@@ -144,9 +144,7 @@ async function resultList(flags) {
     return 0;
 }
 async function resultShow(id, flags) {
-    const match = (await loadResults(flags)).find((row) => row.id === id || row.experimentId === id || row.runKey === id);
-    if (!match)
-        throw (0, errors_1.businessError)(`result not found: ${id}`);
+    const match = selectResult(await loadResults(flags), id);
     const payload = {
         id: match.id,
         experimentId: match.experimentId,
@@ -166,9 +164,7 @@ async function resultShow(id, flags) {
     return 0;
 }
 async function resultExport(id, flags) {
-    const match = (await loadResults(flags)).find((row) => row.id === id || row.experimentId === id || row.runKey === id);
-    if (!match)
-        throw (0, errors_1.businessError)(`result not found: ${id}`);
+    const match = selectResult(await loadResults(flags), id);
     const format = String(flags.format || "json").toLowerCase();
     if (!["csv", "json"].includes(format))
         throw (0, errors_1.usageError)(`unsupported --format ${flags.format}. Use csv or json.`);
@@ -208,6 +204,17 @@ async function resultExport(id, flags) {
     else
         process.stdout.write(output.endsWith("\n") ? output : `${output}\n`);
     return 0;
+}
+function selectResult(rows, id) {
+    const exact = rows.find(row => row.id === id);
+    if (exact)
+        return exact;
+    const matches = rows.filter(row => row.experimentId === id || row.runKey === id);
+    if (!matches.length)
+        throw (0, errors_1.businessError)(`result not found: ${id}`);
+    if (matches.length > 1)
+        throw (0, errors_1.businessError)("RESULT_SELECTION_AMBIGUOUS：此运行对应多行结果，请用精确结果 ID 查看或导出。", JSON.stringify({ id, candidates: matches.map(row => ({ id: row.id, seed: row.seed, dimensions: row.record.dimensions })) }));
+    return matches[0];
 }
 async function loadResults(flags = {}) {
     const records = [];
