@@ -51,9 +51,31 @@ class OutputIsolationRecoveryHost {
     async fromUi(message) {
         const h = this.h, ports = this.ports();
         ports.assertCurrent();
-        const queue = await ports.load(), plan = queue.plans.find((p) => p.id === String(message.planId));
-        const job = plan?.jobs.find((j) => j.index === Number(message.jobIndex));
-        if (!plan || !job || !(0, DistributedPlanQueue_1.sameDistributedPlanFile)(plan.planFile, String(message.planFile)) || !(0, OutputIsolationRecovery_1.pendingIsolationJob)(plan, job))
+        let queue = await ports.load(), plan = queue.plans.find((p) => p.id === String(message.planId));
+        let job = plan?.jobs.find((j) => j.index === Number(message.jobIndex));
+        if (!plan || !job || !(0, DistributedPlanQueue_1.sameDistributedPlanFile)(plan.planFile, String(message.planFile)))
+            throw Error("所选 job 已变化或已启动，请刷新后重试。");
+        if ((0, OutputIsolationRecovery_1.interruptedIsolationReview)(plan, job)) {
+            const assertIdle = () => {
+                ports.assertCurrent();
+                if (h.manualDispatchInFlight?.size || h.manualDispatchReviewKeys?.size || reviews.get(h)?.has(reviewKey(this.root, plan, job)))
+                    throw Error("产物审核正在处理，请先完成或取消当前审核。");
+            };
+            assertIdle();
+            const planId = plan.id, index = job.index, identity = (0, OutputIsolationRecovery_1.isolationIdentity)(plan, job), reservation = JSON.stringify(job.manualDispatch);
+            await ports.save((latest) => {
+                assertIdle();
+                const p = latest.plans.find((p) => p.id === planId), j = p?.jobs.find((j) => j.index === index);
+                if (!p || !j || !(0, OutputIsolationRecovery_1.interruptedIsolationReview)(p, j) || (0, OutputIsolationRecovery_1.isolationIdentity)(p, j) !== identity || JSON.stringify(j.manualDispatch) !== reservation)
+                    throw Error("任务或中断审核预约已变化，未恢复旧审核。");
+                j.manualDispatch = undefined;
+                return { ...latest };
+            });
+            queue = await ports.load();
+            plan = queue.plans.find((p) => p.id === planId);
+            job = plan?.jobs.find((j) => j.index === index);
+        }
+        if (!plan || !job || !(0, OutputIsolationRecovery_1.pendingIsolationJob)(plan, job))
             throw Error("所选 job 已变化或已启动，请刷新后重试。");
         const selected = { planId: plan.id, index: job.index };
         const result = await (0, OutputIsolationRecovery_1.refreshOutputIsolation)(ports, selected);

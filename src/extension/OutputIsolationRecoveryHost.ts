@@ -1,6 +1,6 @@
 import { cleanupDigest } from "../features/PlanCleanup";
 import { canonicalProjectId, sameDistributedPlanFile } from "../features/DistributedPlanQueue";
-import { isolationIdentity, pendingIsolationJob, refreshOutputIsolation } from "../features/OutputIsolationRecovery";
+import { interruptedIsolationReview, isolationIdentity, pendingIsolationJob, refreshOutputIsolation } from "../features/OutputIsolationRecovery";
 
 const flights = new WeakMap<object, Map<string, Promise<unknown>>>();
 const reviews = new WeakMap<object, Set<string>>();
@@ -40,10 +40,30 @@ export class OutputIsolationRecoveryHost {
   refresh(selection?: { planId: string; index: number }) { return refreshOutputIsolation(this.ports(), selection); }
   async fromUi(message: any) {
     const h = this.h, ports = this.ports(); ports.assertCurrent();
-    const queue = await ports.load(), plan = queue.plans.find((p: any) => p.id === String(message.planId));
-    const job = plan?.jobs.find((j: any) => j.index === Number(message.jobIndex));
-    if (!plan || !job || !sameDistributedPlanFile(plan.planFile, String(message.planFile)) || !pendingIsolationJob(plan,job))
+    let queue = await ports.load(), plan = queue.plans.find((p: any) => p.id === String(message.planId));
+    let job = plan?.jobs.find((j: any) => j.index === Number(message.jobIndex));
+    if (!plan || !job || !sameDistributedPlanFile(plan.planFile, String(message.planFile)))
       throw Error("所选 job 已变化或已启动，请刷新后重试。");
+    if (interruptedIsolationReview(plan,job)) {
+      const assertIdle = () => {
+        ports.assertCurrent();
+        if (h.manualDispatchInFlight?.size || h.manualDispatchReviewKeys?.size || reviews.get(h)?.has(reviewKey(this.root,plan,job)))
+          throw Error("产物审核正在处理，请先完成或取消当前审核。");
+      };
+      assertIdle();
+      const planId = plan.id, index = job.index, identity = isolationIdentity(plan,job), reservation = JSON.stringify(job.manualDispatch);
+      await ports.save((latest: any) => {
+        assertIdle();
+        const p = latest.plans.find((p: any) => p.id === planId), j = p?.jobs.find((j: any) => j.index === index);
+        if (!p || !j || !interruptedIsolationReview(p,j) || isolationIdentity(p,j) !== identity || JSON.stringify(j.manualDispatch) !== reservation)
+          throw Error("任务或中断审核预约已变化，未恢复旧审核。");
+        j.manualDispatch = undefined;
+        return {...latest};
+      });
+      queue = await ports.load(); plan = queue.plans.find((p: any) => p.id === planId);
+      job = plan?.jobs.find((j: any) => j.index === index);
+    }
+    if (!plan || !job || !pendingIsolationJob(plan,job)) throw Error("所选 job 已变化或已启动，请刷新后重试。");
     const selected = {planId:plan.id,index:job.index};
     const result = await refreshOutputIsolation(ports, selected);
     if (result.some(row => row.state === "resumed")) { h.requestDistributedQueueRefresh(); return {status:"queued"}; }

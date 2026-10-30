@@ -215,6 +215,28 @@ test('snapshot cache persistence retains only one active and one latest snapshot
   assert.deepEqual(written.filter(([id])=>id==='b'),[['b',7]],'a blocked Worker cache cannot discard another Worker');
   assert.equal(p.workerTaskSnapshotWriters.size,0,'idle writer keys do not accumulate across polling cycles');
 });
+test('a failed snapshot write drains the already queued latest evidence and still reports the original failure',async()=>{
+ const Provider=providerMethods(['queueWorkerTaskSnapshotPersistence','workerTaskSnapshotWriters'],{LatestSnapshotWriter});
+ const p=new Provider();p.client={};let release;const gate=new Promise(r=>release=r),written=[];
+ p.writeWorkerTaskSnapshot=async(_w,_root,row)=>{written.push(row.seq);if(row.seq===0){await gate;throw Error('disk busy');}};
+ p.queueWorkerTaskSnapshotPersistence('w','/project',{seq:0});await new Promise(setImmediate);
+ const entry=p.workerTaskSnapshotWriters.get('/project\u0000w');
+ p.queueWorkerTaskSnapshotPersistence('w','/project',{seq:1});release();
+ await assert.rejects(entry.active,/disk busy/);
+ assert.deepEqual(written,[0,1]);assert.equal(entry.writer.pendingCount,0);assert.equal(p.workerTaskSnapshotWriters.size,0);
+});
+test('protocol-2 persistence treats unchanged completion facts as an unchanged queue, never an undefined replacement',async()=>{
+ const Provider=providerMethods(['writeWorkerTaskSnapshot'],{DistributedPlanQueue:queue});
+ const p=new Provider(),root=process.cwd();let saved=intent();saved.plans[0].projectId=queue.canonicalProjectId(root);
+ p.saveDistributedQueue=async(_root,_queue,o)=>{const before=saved;saved=o.mutateLatest(before);assert.ok(saved);};
+ const before=saved;
+ await p.writeWorkerTaskSnapshot('w',root,{workerId:'w',queryComplete:true,capabilities:{taskLifecycle:2},tasks:[]});assert.equal(saved,before);
+ const plan=saved.plans[0],sample=snapshot(plan,plan.jobs[0],'completed');
+ await p.writeWorkerTaskSnapshot('a',root,sample);const proof=saved.plans[0].jobs[0].verifiedCompletion;assert.ok(proof);
+ const confirmed=saved;await p.writeWorkerTaskSnapshot('a',root,sample);assert.equal(saved,confirmed);
+ const restored=queue.restoreFormalJobQueue(JSON.parse(queue.serializeDistributedQueue(saved)));
+ assert.equal(restored.plans[0].jobs[0].status,'completed');assert.deepEqual(restored.plans[0].jobs[0].verifiedCompletion,proof);
+});
 test('optional snapshot write failure, changed client/workspace and disposal cannot overwrite later snapshots or leak writers',async()=>{
   let currentRoot='/project';
   const Provider=providerMethods(['queueWorkerTaskSnapshotPersistence','workerTaskSnapshotWriters'],{LatestSnapshotWriter,workspaceRoot:()=>currentRoot});

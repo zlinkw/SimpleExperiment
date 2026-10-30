@@ -88,6 +88,19 @@ test('confirmation updates touch only existing exact jobs and have a stable no-o
  assert.ok(next.plans[0].jobs[0].verifiedCompletion); assert.equal(Q.updateVerifiedCompletions(next, f.snapshot, 'p', now + 1000), undefined);
  assert.equal(Q.updateVerifiedCompletions({ schemaVersion: 1, plans: [] }, f.snapshot, 'p', now), undefined);
 });
+test('low traffic is quiet for explicit local exclusions but retains every unresolved execution and control intent',()=>{
+ for(const exclusion of [{retainExistingOutputs:true},{unavailable:{reason:'user excluded'}}]){
+  const q={schemaVersion:1,plans:[{id:'p',jobs:[{index:0,status:'cancelled',...exclusion}]}]};
+  assert.equal(P.lowTrafficQueueNeedsObservation(q),false);
+  assert.equal(P.lowTrafficQueueNeedsObservation(Q.restoreFormalJobQueue(JSON.parse(Q.serializeDistributedQueue(q)))),false);
+  for(const patch of [{commandId:'old',workerId:'w'},{startIntent:{commandId:'c'}},{dispatchConsent:{commandId:'c'}},
+   {manualDispatch:{stage:'preparing'}},{stopIntent:{state:'pending'}},{recallRequested:true},{status:'pending'},{status:'unknown'}]){
+   const changed=structuredClone(q);Object.assign(changed.plans[0].jobs[0],patch);assert.equal(P.lowTrafficQueueNeedsObservation(changed),true);
+  }
+ }
+ const f=fixture();assert.equal(P.lowTrafficQueueNeedsObservation(f.queue),true);
+ assert.equal(P.lowTrafficQueueNeedsObservation(project(f.queue,[f.snapshot])),false);
+});
 test('a fresh response for the same command cannot confirm different declared artifact paths', () => {
  for (const field of ['outputDir', 'collectionResultCsv']) {
   const f = fixture(); f.queue.plans[0].jobs[0][field] = 'work/other';

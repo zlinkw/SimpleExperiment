@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.447",
-  "buildId": "231e0c6a0b3c65e11a24e11d34ffe63f996606a94554f30f233ef7ebfb080241",
+  "version": "0.5.448",
+  "buildId": "7e1f34f0bc65858c22dd4054213d1537d17fb27917cbee81d09dd84cff172d96",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -165,7 +165,7 @@
     },
     {
       "path": "dist/core/LatestSnapshotWriter.js",
-      "sha256": "172ad742cc339381328a6a7773d6423d4e79a9e61cff7ff86fff8a32d0d8e6df"
+      "sha256": "37279c0eec84372e96e8309fecd4c55153a65a4961f0fb07e6685c7d16f31c22"
     },
     {
       "path": "dist/core/OperationOutcome.js",
@@ -245,7 +245,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "11bd02f7078e287c8f216c271ee9871e6e72d8872ca34070012667f1f653e7aa"
+      "sha256": "8c7ec39b19c4cc83757fb7556c3a594a70c4dae274648f18f7d06c30735bf1bd"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -253,7 +253,7 @@
     },
     {
       "path": "dist/extension/OutputIsolationRecoveryHost.js",
-      "sha256": "eb47eed4d7f1bf7e364856961cd35dd8a35e7415a59828040809b33d0081dd84"
+      "sha256": "74b4c082d122b3717c6ae56ae2e318821ac461e4bd4f3a1c28db71b110e89be1"
     },
     {
       "path": "dist/extension/PlanCleanupEmptyParents.js",
@@ -405,7 +405,7 @@
     },
     {
       "path": "dist/features/DistributedSchedulingPolicy.js",
-      "sha256": "a66b43fe1dd8e3a0c296566c0ae14454f5a278538b58d9c6b02ff1725bc1bf17"
+      "sha256": "363224f13995c33574b5217c4355b6e2ee65af9d1ab39a8a953d166d472a7a10"
     },
     {
       "path": "dist/features/DraftPlans.js",
@@ -505,7 +505,7 @@
     },
     {
       "path": "dist/features/ManualJobDispatch.js",
-      "sha256": "b951d5b872b1327dc4b8688f876ba6e1e1a228ad00a0bc0b06ac1bf55ac6d710"
+      "sha256": "9cdc40038cba033fc428180c32fbf525292df557cd12562c6067f7c05443933b"
     },
     {
       "path": "dist/features/Metrics.js",
@@ -525,7 +525,7 @@
     },
     {
       "path": "dist/features/OutputIsolationRecovery.js",
-      "sha256": "231fb4b969cfd17e356a1a0e98a6e385d7861ae0fbd171314eb2ae051a5b9074"
+      "sha256": "571db45b0f8e24ad655f15c461f1ed49c1910ab00944e78020109933dd9bee63"
     },
     {
       "path": "dist/features/PanelBuildIdentity.js",
@@ -889,7 +889,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "3ccd506b82f454915b58f7743cfdabd29b78963b104b6456c405f7fc05166031"
+      "sha256": "4624e9a959fb30bc95bb780eeb4d550b91dac3b05b6207247f76a9f39b131e16"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1117,7 +1117,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "eed789d77293df556b8cbde3d8aa0a2f728725dcfcef5fbbdafb16911a6f3e66"
+      "sha256": "503dd516b9b0b931deeb8dfcf4a9e455e4076c8cd50e4dad8f3f98b6549e4de1"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1241,7 +1241,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "587f9a63e765c46d936110203741809880f404e988937e3ba86613921414d8f2"
+      "sha256": "9bef4f8e56c249dc38a883fdd14a39fbecf45036cbff1c7884e7ba7883ecae5c"
     },
     {
       "path": "scripts/check-static.js",

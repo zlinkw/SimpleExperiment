@@ -9,12 +9,19 @@ export class LatestSnapshotWriter<T> {
     this.pending = { value };
     if (!this.active) {
       this.active = Promise.resolve().then(async () => {
+        let failed = false, firstError: unknown;
         try {
           while (this.pending) {
             const next = this.pending;
             this.pending = undefined;
-            await this.write(next.value);
+            try { await this.write(next.value); }
+            catch (error) {
+              // Do not replay the failed write or discard a newer queued snapshot.
+              if (!failed) firstError = error;
+              failed = true;
+            }
           }
+          if (failed) throw firstError;
         } finally { this.active = undefined; }
       });
     }

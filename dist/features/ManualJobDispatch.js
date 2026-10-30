@@ -75,6 +75,7 @@ async function dispatchManualJobs(ports, request) {
             ...(automatic ? { gpuSelection: "automatic" } : {}), stage: "preparing" };
     await ports.save(queue); // Reserve before sync/stop: automatic allocation must skip this batch.
     let committed = false;
+    const stopped = new Set();
     try {
         if (ports.online(request.workerId))
             await ports.prepare(plan);
@@ -84,6 +85,7 @@ async function dispatchManualJobs(ports, request) {
             if (job.commandId && job.workerId) {
                 ports.assertCurrent();
                 await ports.stop(prepared.plan, job);
+                stopped.add(job.index);
                 job.status = "cancelled";
                 job.executionState = "missing";
             }
@@ -116,6 +118,24 @@ async function dispatchManualJobs(ports, request) {
                     continue;
                 const decision = blockedDecisions.get(original.index);
                 if (decision) {
+                    // Only the successful exact stop above permits retiring the old execution.
+                    // Keep its ownership/log history; a blocked replacement has no launch identity.
+                    if (job.commandId && stopped.has(job.index)) {
+                        job.history = [...(job.history || []), { attempt: job.attempt || 0, status: "cancelled", commandId: job.commandId,
+                                workerId: job.workerId, outputDir: job.outputDir, logPath: job.logPath || original.logPath, finishedAt: job.finishedAt,
+                                stopReason: "manual-dispatch-isolation" }];
+                        Object.assign(job, { status: "pending", localQueueOnly: true, commandId: undefined, nextCommandId: undefined,
+                            workerId: undefined, gpuId: undefined, runKey: undefined, startIntent: undefined, dispatchConsent: undefined,
+                            dispatchAdmissionTrace: undefined, dispatchAcknowledgedAt: undefined, lastDispatchAttemptAt: undefined,
+                            nativeStartProof: undefined, trustedTerminalProof: undefined, trustedTerminalStatus: undefined,
+                            executionState: undefined, resultState: undefined, completionState: undefined, runtimeDiagnostics: undefined,
+                            exitCode: undefined, statusQueryError: undefined, verificationQueryError: undefined, lastObservedAt: undefined,
+                            tmuxWindowId: undefined, tmuxPane: undefined, tmuxSession: undefined, logPath: undefined, historyLogIdentity: undefined,
+                            finishedAt: undefined, error: undefined, automaticRetry: undefined, gpuMemoryReservation: undefined,
+                            trainingRecovery: undefined, originalExecution: undefined, artifacts: undefined, artifactError: undefined,
+                            artifactRetryAfter: undefined, artifactStageBlock: undefined, latestArtifactSync: undefined,
+                            mirroredWorkerIds: undefined, fragmentWorkerIds: undefined });
+                    }
                     // 隔离未完成/核验未知：job 保持可见 pending、清掉手动派发身份（不得占用派发身份），
                     // 打 job 级阻断标记+如实原因——它是"待重新审核"，不是"用户保留/沿用完成"。
                     Object.assign(job, { manualDispatch: undefined, manualDispatchNotice: undefined, retainExistingOutputs: undefined,
@@ -161,6 +181,10 @@ async function dispatchManualJobs(ports, request) {
         else
             await ports.save(commitReview(await ports.load()));
         committed = true;
+        const blocked = selected.filter(job => !accepted.includes(job) && blockedDecisions.has(job.index)).length;
+        if (!accepted.length)
+            return { status: blocked ? "blocked" : "completed", blocked, retained: selected.length - blocked,
+                indices: [], message: blocked ? "产物隔离尚未核实，保留等待；本批未派发。" : "已保留已有产物；本批未派发。" };
         // A later disconnect before sending can still fall back. Once marked sent it can only be queried.
         await ports.tick();
         return { status: "submitted", fallbackToAutomatic: !online, indices: accepted.map(job => job.index) };

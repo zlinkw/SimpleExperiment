@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pendingIsolationJob = pendingIsolationJob;
+exports.interruptedIsolationReview = interruptedIsolationReview;
 exports.transferBusyIsolation = transferBusyIsolation;
 exports.isolationIdentity = isolationIdentity;
 exports.refreshOutputIsolation = refreshOutputIsolation;
@@ -12,6 +13,11 @@ function pendingIsolationJob(plan, job) {
         && !job.startIntent && !job.dispatchConsent && !job.manualDispatch && !job.stopIntent && !job.recallRequested
         && !job.verifiedCompletion && !job.unavailable && !job.retainExistingOutputs
         && job.outputIsolationBlocked.declarationKey === job.outputDir;
+}
+/** Explicit recovery only. Background checks never release a preparing reservation. */
+function interruptedIsolationReview(plan, job) {
+    return job.manualDispatch?.origin === "server_queue" && job.manualDispatch.stage === "preparing"
+        && !!job.manualDispatch.batchId && pendingIsolationJob(plan, { ...job, manualDispatch: undefined });
 }
 function transferBusyIsolation(job) {
     const block = job.outputIsolationBlocked;

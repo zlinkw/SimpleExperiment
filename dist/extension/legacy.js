@@ -3335,7 +3335,7 @@ class RealtimeTunnelPanelProvider {
         if (!root)
             return;
         if (snapshot.capabilities?.taskLifecycle === 2) {
-            return this.saveDistributedQueue(root, undefined, { controlMutation: true, mutateLatest: latest => DistributedPlanQueue.updateVerifiedCompletions(latest, snapshot, DistributedPlanQueue.canonicalProjectId(root)) });
+            return this.saveDistributedQueue(root, undefined, { controlMutation: true, mutateLatest: latest => DistributedPlanQueue.updateVerifiedCompletions(latest, snapshot, DistributedPlanQueue.canonicalProjectId(root)) || latest });
         }
         const fullPath = workerTaskSnapshotPath(root, workerId);
         const payload = JSON.stringify({
@@ -7656,6 +7656,10 @@ class RealtimeTunnelPanelProvider {
                     ? this.localOperations?.[this.planSubmissionOperationId(message)] : undefined;
                 if (submission?.status === "failed")
                     return { status: "failed", message: submission.message || "计划未提交。" };
+                if (["dispatchJobs", "queueRemainingJobs", "recheckOutputIsolation"].includes(command) && value?.status === "blocked")
+                    return { status: "cancelled", message: String(value.message || "产物隔离尚未核实，本批未派发；请重新核实或审核旧产物。") };
+                if (command === "recheckOutputIsolation" && value?.status === "queued")
+                    return { status: "completed", message: "已重新核实产物状态，已恢复本机排队；仍遵守显存预算与并行上限。" };
                 if (["recallFailedJob", "retryDistributedJob"].includes(command) && value?.status === "blocked")
                     return { status: "cancelled", message: String(value.message || "未提交重新排队；请先审核该 job 的遗留文件。") };
                 if (command === "retryDistributedJob" && value?.status === "queued" && value.source === "local")

@@ -8,6 +8,11 @@ export function pendingIsolationJob(plan: QueuedPlan, job: QueuedJob): boolean {
     && !job.verifiedCompletion && !job.unavailable && !job.retainExistingOutputs
     && job.outputIsolationBlocked.declarationKey === job.outputDir;
 }
+/** Explicit recovery only. Background checks never release a preparing reservation. */
+export function interruptedIsolationReview(plan: QueuedPlan, job: QueuedJob): boolean {
+  return job.manualDispatch?.origin === "server_queue" && job.manualDispatch.stage === "preparing"
+    && !!job.manualDispatch.batchId && pendingIsolationJob(plan, { ...job, manualDispatch: undefined });
+}
 export function transferBusyIsolation(job: QueuedJob): boolean {
   const block = job.outputIsolationBlocked;
   if (!block || block.busyOnly === false || block.codes?.some(code => code !== "ACTIVE_TRANSFER")) return false;

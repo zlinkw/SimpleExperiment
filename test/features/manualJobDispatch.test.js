@@ -7,6 +7,26 @@ function fixture(){let q={plans:[{id:'p',planFile:'experiments/plans/p.yaml',rev
  return {ports,get q(){return q},get sends(){return send},get stops(){return stop},get preparations(){return prepare},offline:()=>online=false,cancel:()=>allow=false,old:()=>supported=false};}
 const request={workflowId:'p',indices:[0,1],workerId:'worker',gpuId:'0',stopRunning:true,expectedCommands:{0:'',1:''}};
 
+test('a stopped original blocked by transfer returns to recoverable isolation waiting without a false submitted receipt',async()=>{
+ const Q=require('../../dist/features/DistributedPlanQueue'),R=require('../../dist/features/OutputIsolationRecovery');
+ const f=fixture(),initial=await f.ports.load(),job=initial.plans[0].jobs[0];
+ Object.assign(job,{commandId:'old',workerId:'old-worker',gpuId:'1',runKey:'old',status:'running',lifecycleProtocol:2,
+  startIntent:{commandId:'old',workerId:'old-worker',gpuId:'1'},dispatchConsent:{commandId:'old',workerId:'old-worker',gpuId:'1',agreedAt:'now'},
+  logPath:'work/job0/train.log',checkpointSource:{path:'frozen.pt'}});await f.ports.save(initial);
+ f.ports.review=async()=>({accepted:[],blocked:[{index:0,reason:'SimpleSFTP files.cleanup.execute：[ACTIVE_TRANSFER]',code:'ACTIVE_TRANSFER',busyOnly:true,stage:'execute'}]});
+ const result=await dispatchManualJobs(f.ports,{...request,indices:[0],expectedCommands:{0:'old'}});
+ assert.equal(result.status,'blocked');assert.equal(result.blocked,1);assert.equal(f.stops,1);assert.equal(f.sends,0);
+ const restored=Q.restoreFormalJobQueue(JSON.parse(Q.serializeDistributedQueue(f.q))),p=restored.plans[0],j=p.jobs[0];
+ assert.equal(j.status,'pending');assert.equal(j.commandId,undefined);assert.equal(j.workerId,undefined);assert.equal(j.nextCommandId,undefined);
+ assert.equal(j.startIntent,undefined);assert.equal(j.dispatchConsent,undefined);assert.equal(R.pendingIsolationJob(p,j),true);
+ assert.equal(j.history.at(-1).commandId,'old');assert.equal(j.history.at(-1).workerId,'old-worker');assert.equal(j.history.at(-1).logPath,'work/job0/train.log');
+ assert.equal(j.checkpointSource.path,'frozen.pt');assert.equal(j.outputDir,'work/job0');
+ let saved=restored;const outcome=await R.refreshOutputIsolation({load:async()=>saved,save:async m=>saved=m(saved),assertCurrent(){},busy:async()=>({state:'idle'}),inspect:async()=>({state:'absent'})});
+ assert.equal(outcome[0].state,'resumed');assert.equal(saved.plans[0].jobs[0].outputIsolationBlocked,undefined);
+ const g=fixture();g.ports.review=async()=>[];
+ assert.equal((await dispatchManualJobs(g.ports,request)).status,'completed');assert.equal(g.sends,0);
+});
+
 test('fresh completion, stop/recall intent and changed identities are preserved before stop and at review commit',async()=>{
  const Queue=require('../../dist/features/DistributedPlanQueue'),V=require('../../dist/features/VerifiedCompletion');
  for(const stage of ['prepare','review','commit'])for(const change of ['verified','stop','recall','output','code']){

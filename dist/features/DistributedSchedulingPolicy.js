@@ -18,9 +18,11 @@ const RuntimeDiagnostics_1 = require("./RuntimeDiagnostics");
 exports.PROGRESS_FRESHNESS_MS = 20_000;
 /** Confirmed completed batches do not need an endless idle-GPU inventory loop. */
 function lowTrafficQueueNeedsObservation(queue) {
+    const locallyExcluded = (job) => job.status === "cancelled" && (job.retainExistingOutputs || job.unavailable)
+        && !job.commandId && !job.workerId && !job.startIntent && !job.dispatchConsent && !job.manualDispatch;
     return Boolean(queue.deferred?.some(row => row.status !== "superseded")
         || queue.plans.some(plan => plan.jobs.length < Number(plan.planJobCount || plan.jobs.length)
-            || plan.jobs.some(job => job.stopIntent || job.recallRequested || !(0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job))));
+            || plan.jobs.some(job => job.stopIntent || job.recallRequested || !(0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job) && !locallyExcluded(job))));
 }
 /** Preparation restricts writers only while the current upload is in flight. */
 function dispatchPreparationAllowsWorker(workerId, root, preparation, uploads) {

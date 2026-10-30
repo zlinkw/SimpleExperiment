@@ -14,6 +14,33 @@ function fixture(){
   busy:async()=>{calls.push('busy');return{state:busy}},inspect:async()=>{calls.push('inspect');await onInspect?.();return{state}}};
  return {ports,calls,get queue(){return queue},advance(){now+=31000},idle(){busy='idle'},state(value){state=value},onInspect(fn){onInspect=fn}};
 }
+test('explicit interrupted batch recovery releases only its stale reservation before fresh inspection; active reviews stay protected',async()=>{
+ for(const state of ['absent','unknown','active','changed']){
+  const f=fixture(),root=process.cwd();f.queue.plans[0].projectId=Q.canonicalProjectId(root);f.idle();
+  const j=f.queue.plans[0].jobs[0],done=structuredClone(f.queue.plans[0].jobs[1]);
+  j.manualDispatch={workerId:'w',gpuId:'0',stage:'preparing',origin:'server_queue',batchId:'interrupted-window'};
+  const calls=[],h={manualDispatchInFlight:new Set(state==='active'?['live-review']:[]),captureProjectContext:()=>({root}),projectContextIsCurrent:()=>true,
+   workerCodeSyncTargets:()=>[{id:'w',remotePath:'/project'}],loadDistributedQueue:f.ports.load,
+   saveDistributedQueue:async(_root,_q,o)=>{if(state==='changed')f.queue.plans[0].jobs[0].commandId='new-command';await f.ports.save(o.mutateLatest)},
+   postState(){},requestDistributedQueueRefresh(){calls.push('wake')},simpleSftpApiCall:async()=>{calls.push('busy');return{ok:true,instanceId:'i',busy:{schemaVersion:1,busy:false}}},
+   planCleanupHost:()=>({inspectPendingOutputTargets:async()=>{calls.push('inspect');return{state}}})};
+  // Background recovery never steals a persisted preparing reservation.
+  await queueOutputIsolationRecovery(h,root);assert.deepEqual(calls,[]);assert.ok(j.manualDispatch);
+  const work=new OutputIsolationRecoveryHost(h,root).fromUi({planId:'plan',planFile:'plans/p.yaml',jobIndex:0});
+  if(state==='active'||state==='changed'){
+   await assert.rejects(work,/审核|变化|正在/);assert.deepEqual(calls,[]);
+   if(state==='active')assert.equal(f.queue.plans[0].jobs[0].manualDispatch.batchId,'interrupted-window');
+   else assert.equal(f.queue.plans[0].jobs[0].commandId,'new-command');
+  }else{
+   const result=await work;assert.equal(result.status,state==='absent'?'queued':'blocked');
+   assert.equal(f.queue.plans[0].jobs[0].manualDispatch,undefined);
+   if(state==='absent')assert.equal(f.queue.plans[0].jobs[0].outputIsolationBlocked,undefined);
+   else assert.ok(f.queue.plans[0].jobs[0].outputIsolationBlocked);
+   assert.deepEqual(calls,state==='absent'?['busy','inspect','wake']:['busy','inspect']);
+  }
+  assert.deepEqual(f.queue.plans[0].jobs[1],done);
+ }
+});
 test('busy transfer followed by fresh absence automatically requeues only the unstarted job, including across reload',async()=>{
  const f=fixture(),done=structuredClone(f.queue.plans[0].jobs[1]);
  await R.refreshOutputIsolation(f.ports);assert.deepEqual(f.calls,['busy']);
@@ -71,8 +98,9 @@ test('real background host shares an in-flight check and does not replay any cle
 
 test('explicit review owns the job until confirmation ends; background rechecks and stale approvals cannot release it',async()=>{
  const Module=require('node:module'),original=Module._load;
- try { for(const outcome of ['accepted','changed','cancelled']){
+ try { for(const interrupted of [false,true])for(const outcome of ['accepted','changed','cancelled']){
   const f=fixture(),root=process.cwd(),calls=[];f.queue.plans[0].projectId=Q.canonicalProjectId(root);
+  if(interrupted)f.queue.plans[0].jobs[0].manualDispatch={workerId:'w',gpuId:'0',stage:'preparing',origin:'server_queue',batchId:'old-window'};
   let entered,approve;const ready=new Promise(r=>entered=r),approval=new Promise(r=>approve=r);
   Module._load=function(request,parent,...args){
    if(request==='./ManualDispatchHost'&&parent?.filename.endsWith('OutputIsolationRecoveryHost.ts'))return {ManualDispatchHost:class{
