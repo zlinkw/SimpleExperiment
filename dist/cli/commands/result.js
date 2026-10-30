@@ -43,6 +43,7 @@ exports.loadResults = loadResults;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const api_1 = require("../api");
+const node_crypto_1 = require("node:crypto");
 const data_1 = require("../data");
 const runtime_1 = require("../runtime");
 const errors_1 = require("../errors");
@@ -121,7 +122,7 @@ function resultPaperTable(flags) {
     return 0;
 }
 async function resultList(flags) {
-    const rows = await loadResults();
+    const rows = await loadResults(flags);
     const experiment = String(flags.experiment || "").trim();
     const filtered = experiment ? rows.filter((row) => row.experimentId === experiment || row.id === experiment || row.runKey === experiment) : rows;
     const view = filtered.map((row) => ({
@@ -131,16 +132,19 @@ async function resultList(flags) {
         metric: row.primaryMetric,
         value: row.primaryValue,
         updated: row.updated,
+        source: row.source,
+        current: row.current,
+        observedAt: row.observedAt,
     }));
     if (flags.json) {
         (0, format_1.writeJson)(view, flags.compactJson);
         return 0;
     }
-    (0, format_1.writeText)((0, format_1.table)(["id", "experimentId", "status", "metric", "value", "updated"], view));
+    (0, format_1.writeText)((0, format_1.table)(["id", "experimentId", "status", "metric", "value", "updated", "source", "current"], view));
     return 0;
 }
 async function resultShow(id, flags) {
-    const match = (await loadResults()).find((row) => row.id === id || row.experimentId === id || row.runKey === id);
+    const match = (await loadResults(flags)).find((row) => row.id === id || row.experimentId === id || row.runKey === id);
     if (!match)
         throw (0, errors_1.businessError)(`result not found: ${id}`);
     const payload = {
@@ -150,9 +154,10 @@ async function resultShow(id, flags) {
         metrics: match.metrics,
         time: match.updated || match.created || null,
         config: match.config || null,
-        seed: match.seed || null,
+        seed: match.seed ?? null,
         checkpoint: match.checkpoint || null,
         outputFiles: match.outputFiles,
+        source: match.source, current: match.current, observedAt: match.observedAt,
     };
     if (flags.json)
         (0, format_1.writeJson)(payload, flags.compactJson);
@@ -161,7 +166,7 @@ async function resultShow(id, flags) {
     return 0;
 }
 async function resultExport(id, flags) {
-    const match = (await loadResults()).find((row) => row.id === id || row.experimentId === id || row.runKey === id);
+    const match = (await loadResults(flags)).find((row) => row.id === id || row.experimentId === id || row.runKey === id);
     if (!match)
         throw (0, errors_1.businessError)(`result not found: ${id}`);
     const format = String(flags.format || "json").toLowerCase();
@@ -192,37 +197,58 @@ async function resultExport(id, flags) {
             decimals: {},
             metricDisplayNames: {},
         }, "markdown");
-    const output = format === "json" ? JSON.stringify({ id: match.id, metrics: match.metrics, rows }, null, 2) : body;
+    const evidence = { source: match.source, current: match.current, observedAt: match.observedAt };
+    const output = format === "json" ? JSON.stringify({ id: match.id, ...evidence, metrics: match.metrics, rows }, null, 2) : body;
     if (flags.out) {
         fs.mkdirSync(path.dirname(path.resolve(flags.out)), { recursive: true });
         fs.writeFileSync(path.resolve(flags.out), output.endsWith("\n") ? output : `${output}\n`, "utf8");
     }
     if (flags.json)
-        (0, format_1.writeJson)({ id: match.id, format, path: flags.out || "", content: flags.compactJson ? undefined : output }, flags.compactJson);
+        (0, format_1.writeJson)({ id: match.id, ...evidence, format, path: flags.out || "", content: flags.compactJson ? undefined : output }, flags.compactJson);
     else
         process.stdout.write(output.endsWith("\n") ? output : `${output}\n`);
     return 0;
 }
-async function loadResults() {
+async function loadResults(flags = {}) {
     const records = [];
-    for (const rel of [data_1.RESULT_REGISTRY_REL, data_1.RESULT_REGISTRY_LOCAL_REL]) {
-        const parsed = (0, data_1.readJsonFile)((0, data_1.resolveProjectPath)(rel), null);
-        records.push(...extractRecords(parsed));
+    let observedAt = null;
+    if (flags.history) {
+        process.stderr.write("历史结果：仅查看本机旧记录，未核实服务器当前状态；不能作为本轮查询结果。\n");
+        for (const rel of [data_1.RESULT_REGISTRY_REL, data_1.RESULT_REGISTRY_LOCAL_REL])
+            records.push(...extractRecords((0, data_1.readJsonFile)((0, data_1.resolveProjectPath)(rel), null)));
+        records.push(...parseLocalResultFiles());
     }
-    records.push(...parseLocalResultFiles());
-    records.push(...await (0, runtime_1.readWorkerResultRecords)());
-    const remote = await (0, api_1.optionalApi)("results.list", {});
-    records.push(...extractRecords(remote));
+    else {
+        const remote = await (0, api_1.callApi)("results.list", {});
+        if (remote?.source !== "active_query" || remote?.summary?.current !== true)
+            throw (0, errors_1.businessError)("RESULT_QUERY_UNVERIFIED：本轮服务器结果未核实；可重新查询，或用 --history 明确查看本机历史记录。");
+        // The public API limits the preview to 200 rows; summary.results is the complete query.
+        records.push(...extractRecords(Array.isArray(remote.summary.results) ? remote.summary.results : remote));
+        observedAt = remote.summary.observedAt || null;
+    }
     const byId = new Map();
-    for (const record of records) {
+    for (const raw of records) {
+        const modern = !!(raw.planFile && raw.workerId && raw.runId);
+        // Include the run and complete dimension tuple: different seeds/endpoints and reruns cannot collide.
+        const id = modern ? "result-" + (0, node_crypto_1.createHash)("sha256").update(JSON.stringify([raw.planFile, raw.workerId, raw.runId, raw.workflowId || "", raw.revision || "", raw.codeFingerprint || "",
+            Object.entries(raw.dimensions || {}).sort(([a], [b]) => a.localeCompare(b)), (raw.sourceFiles || []).map((file) => file.path).sort()])).digest("hex")
+            : raw.resultId || raw.experimentId;
+        if (!id)
+            throw (0, errors_1.businessError)("RESULT_IDENTITY_MISSING：结果缺少可核实的行身份，未合并或导出。");
+        const record = modern ? { ...raw, schemaVersion: 1, resultId: id, experimentId: raw.runId, runKey: raw.runId,
+            suite: String(raw.dimensions?.dataset || raw.planFile), experimentName: String(raw.dimensions?.method || raw.dimensions?.case || raw.runId),
+            status: raw.completionState === "verified" && raw.aggregationState === "eligible" ? "validated" : "warning",
+            provenance: { planFile: raw.planFile, workerId: raw.workerId }, createdAt: raw.createdAt || "", updatedAt: observedAt || "",
+            metrics: Object.fromEntries(Object.entries(raw.metrics || {}).map(([key, value]) => [key, typeof value === "object" && value !== null ? value : { value }])) } : raw;
         if ((0, runtime_1.isDiagnosticWorkerResult)(record))
             continue;
         const metrics = Object.fromEntries(Object.entries(record.metrics || {}).map(([key, value]) => [key, value && typeof value === "object" ? value.value : value]));
         const primaryMetric = record.primaryMetric || Object.keys(metrics)[0] || "";
         const outputFiles = (record.sourceFiles || []).map((item) => item.path).filter(Boolean);
         const checkpoints = (0, Checkpoint_1.checkpointRecordsFromManifest)(record);
-        byId.set(record.resultId || record.experimentId, {
-            id: record.resultId || record.experimentId,
+        byId.set(id, {
+            id,
+            source: flags.history ? "history" : "active_query", current: !flags.history, observedAt,
             experimentId: record.experimentId,
             runKey: record.runKey,
             status: record.status,

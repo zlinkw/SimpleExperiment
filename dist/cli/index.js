@@ -156,7 +156,18 @@ async function runSimpleCli(argv) {
     }
     if (domain === "experiment" && action === "pause")
         throw (0, errors_1.businessError)("EXPERIMENT_PAUSE_UNSUPPORTED: the scheduler has no pause operation; use experiment stop or monitor.");
-    await initializeProjectRoot();
+    if (flags.history) {
+        if (!(domain === "result" && ["list", "show", "export"].includes(action) || domain === "metric" && ["list", "show"].includes(action) || domain === "compare" || domain === "experiment" && action === "results"))
+            throw (0, errors_2.usageError)("--history 仅用于 result list|show|export、metric list|show、compare 或 experiment results。");
+        if (flags.instance || process.env.SIMPLE_CLI_INSTANCE_ID)
+            throw (0, errors_2.usageError)("--history 只读取本机项目；请用 --workspace 选择本机目录，不使用 --instance。");
+        const root = (0, data_1.validProjectRoot)(flags.workspace || process.env.SIMPLE_EXPERIMENT_PROJECT_ROOT || process.cwd());
+        if (!root)
+            throw (0, errors_2.envError)("历史结果需要存在的本机项目目录。");
+        (0, data_1.setProjectRoot)(root);
+    }
+    else
+        await initializeProjectRoot();
     if (domain === "project") {
         if (action && action !== "status")
             throw (0, errors_2.usageError)(`unknown project action: ${action}`);

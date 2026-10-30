@@ -13,10 +13,30 @@ test('actual manual Host accepts a busy excluded visible GPU, preserves sync and
  const f=fixture();await f.host.ports().prepare({codeFingerprint:'hash',jobs:[{manualDispatch:{workerId:'w',gpuId:'0',stage:'preparing'}}]});
  assert.equal(f.sync,1);assert.equal(f.queries,2);
 });
-test('manual selection pauses automatic dispatch before opening pickers and resumes after cancellation',async()=>{
- const f=fixture();f.picks.showQuickPick=async()=>{assert.equal(f.h.manualDispatchInFlight.size,1);return undefined;};
+test('manual selection leaves automatic dispatch available and cancellation leaves other gates intact',async()=>{
+ const f=fixture();f.picks.showQuickPick=async()=>{assert.equal(f.h.manualDispatchInFlight.size,0);f.h.manualDispatchInFlight.add('other');return undefined;};
  const result=await f.host.dispatch({workflowId:'p',indices:[0],expectedCommands:{0:''}},true);
- assert.equal(result.status,'cancelled');assert.equal(f.h.manualDispatchInFlight.size,0);
+ assert.equal(result.status,'cancelled');assert.deepEqual([...f.h.manualDispatchInFlight],['other']);
+});
+
+test('an open picker rejects duplicate selection without blocking scheduling; changed endpoints cannot commit',async()=>{
+ const f=fixture();let release;const waiting=new Promise(resolve=>release=resolve);
+ f.picks.showQuickPick=()=>waiting;
+ const pending=f.host.dispatch({workflowId:'p',indices:[0]},true);
+ await Promise.resolve();await Promise.resolve();
+ assert.equal(f.h.manualDispatchInFlight.size,0);
+ await assert.rejects(f.host.dispatch({workflowId:'p',indices:[0]},true),/重复/);
+ f.h.workerActionTargets=()=>[{id:'w',host:'changed'}];release({id:'w'});
+ await assert.rejects(pending,/项目、连接或停止请求/);
+ assert.equal(f.sync,0);assert.equal(f.h.manualDispatchInFlight.size,0);
+});
+
+test('confirmed manual selection holds dispatch gate while awaiting an automatic tick and rechecks stop intent',async()=>{
+ const f=fixture();let finish;f.h.distributedQueueTickPromise=new Promise(resolve=>finish=resolve);
+ const pending=f.host.dispatch({confirm:true,workflowId:'p',indices:[0],workerId:'w',gpuId:'0'});
+ assert.equal(f.h.manualDispatchInFlight.size,1);
+ f.h.distributedPlanStopEpoch=1;finish();
+ await assert.rejects(pending,/停止请求/);assert.equal(f.sync,0);assert.equal(f.h.manualDispatchInFlight.size,0);
 });
 test('health client replacement is harmless, but an actual endpoint change still cancels manual dispatch',()=>{
  const f=fixture();let target={id:'w',local_agent_url:'http://configured:1234',project_dir:'/project'};

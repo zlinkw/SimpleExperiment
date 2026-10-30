@@ -126,6 +126,29 @@
 | gpuCardOverrides.<GPU编号>.gpuJobsPerCard | 逐卡最大并行 job 数；0 暂停该卡的新派发。 |
 | gpuCardOverrides.<GPU编号>.gpuMinFreeMemoryGb | 逐卡总剩余显存门槛，单位 GiB；预算预留仍继续检查。 |
 
+## CLI 当前结果与离线历史（0.5.445 试行版）
+
+`simpleex result list`、`result show <id>`、`result export <id>` 默认调用当前项目插件的 `results.list`，只使用本轮核实的结果。插件离线、连接中断或整批结果未核实时返回错误，不会自动读取旧 registry、旧 Worker 汇总或本机 CSV 填补，也不会覆盖指定的已有导出文件。部分任务未完成时仍可列出本轮已经核实的行。
+
+```powershell
+# 主动查询；先列出精确 id，再查看或导出其中一行
+simpleex result list --json
+simpleex result show <结果id> --json
+simpleex result export <结果id> --format json --out result.json --json
+
+# 明确查看本机历史；不要求 VS Code/Worker 在线
+simpleex result list --history --json
+simpleex result list --history --workspace D:\Projects\MyExperiment --json
+simpleex result show <历史结果id> --history --json
+simpleex result export <历史结果id> --history --format csv --out historical-result.csv
+```
+
+历史查询只读取本机项目目录，`--workspace` 必须指向实际存在的本机目录；不使用 `--instance`。历史行标记 `source=history`、`current=false`，并向 stderr 输出未核实提醒；旧状态和时间仅作历史信息。默认结果的 `current=true` 表示该行来自本次主动查询，不表示整批所有任务已完成。现代行的 ID 绑定 PLAN、Worker、运行 ID、版本身份、全部维度及来源路径；种子、评测协议或运行不同不会覆盖另一行，查询排序变化不会改变同一行的 ID。单次查询的完整结果不受 API 顶层预览 200 行限制。
+
+`metric list/show`、`compare` 和 `experiment results` 同样默认查询当前结果；显式添加 `--history` 才查看历史。`experiment results <id> --history` 仅按历史结果自身精确 ID、experimentId 或 runKey 匹配，不连接服务器补配置或推断归属。`result parse --file`、`result paper-table --file` 和 `metric leaderboard --file` 保留原本的本地文件分析方式。
+
+“剩余 job 入服务器队列”严格按产物审核结果区分已通过、隔离受阻和用户保留：只将通过的子集按配额分配；受阻 job 持久保存真实原因，重载后可继续核实，用户保留的产物不派发。手动派发的服务器/GPU 选择框不暂停自动队列；确认后重新核对当前任务身份、连接和停止意图，再执行原有同步、产物审核与派发。选择期间若任务已变化，需重新选择，不会凭旧选择覆盖当前状态。
+
 ## 旧值与新配置的区别
 
 新用户不再配置 workerRealtimeMode、workerTelemetryMode、控制节点或固定显存比例来代替当前 Worker 策略。旧字段保留兼容读取不表示仍有对应功能。single_worker 和旧拓扑标志读取后统一为 Worker 流程，不恢复已退役角色；新的 API/CLI 显式请求退役目标会被拒绝。

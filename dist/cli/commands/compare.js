@@ -11,7 +11,7 @@ const LOWER_IS_BETTER = /(?:^|_)(loss|error|mse|mae|perplexity)(?:_|$)/i;
 async function compareCommand(rest, flags) {
     const leftId = (0, parse_1.requirePositional)(rest, 0, "first experiment id");
     const rightId = (0, parse_1.requirePositional)(rest, 1, "second experiment id");
-    const rows = await (0, result_1.loadResults)();
+    const rows = await (0, result_1.loadResults)(flags);
     const left = metricsFor(rows, leftId);
     const right = metricsFor(rows, rightId);
     const difference = {};

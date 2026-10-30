@@ -9,6 +9,10 @@ function parseArgv(argv) {
     const flags = { json: false, compactJson: false, full: false, help: false, dryRun: false, check: false, watch: false };
     for (let i = 0; i < argv.length; i += 1) {
         const token = argv[i];
+        if (token === "--history") {
+            flags.history = true;
+            continue;
+        }
         if (token === "--confirm") {
             flags.confirm = true;
             continue;

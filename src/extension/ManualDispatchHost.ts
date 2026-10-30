@@ -6,6 +6,7 @@ import { PlanRunHost } from "./PlanRunHost";
 import { supportsPlanCodeScope, verifyWorkerPlanSource, verifyLocalPlanSource } from "./PlanCodeScopeHost";
 
 export class ManualDispatchHost {
+  private static readonly selections = new WeakMap<object, Set<string>>();
   private gpuSnapshot: any;
   constructor(private readonly host: any, private readonly root: string) {}
   ports(): ManualDispatchPorts {
@@ -48,11 +49,13 @@ export class ManualDispatchHost {
     const h=this.host;
     if(!fromUi&&params.confirm!==true)throw Error("CONFIRM_REQUIRED：请确认所选 job、服务器和 GPU。");
     const workflowId=String(params.workflowId||params.planId||""),indices=Array.isArray(params.indices)?params.indices:[params.jobIndex];
-    const key=this.root+"\0"+workflowId;if(h.manualDispatchInFlight.has(key))throw Error("这批任务正在处理，请勿重复点击。");
+    let selections=ManualDispatchHost.selections.get(h);
+    if(!selections){selections=new Set();ManualDispatchHost.selections.set(h,selections);}
+    const key=this.root+"\0"+workflowId;if(h.manualDispatchInFlight.has(key)||selections.has(key))throw Error("这批任务正在处理，请勿重复点击。");
     if(h.manualDispatchInFlight.has(this.root+"\0server-queue"))throw Error("剩余 job 正在按配额派发服务器队列，请等待本批结果。");
-    h.manualDispatchInFlight.add(key);
+    const ports=this.ports();let acquired=false;
+    selections.add(key);
     try {
-    if(h.distributedQueueTickPromise)await h.distributedQueueTickPromise;
     let workerId=String(params.workerId||""),gpuId=params.gpuId===undefined?"":String(params.gpuId),gpuSelection=params.gpuSelection;
     if(fromUi&&!workerId){
       const saved=await h.loadDistributedQueue(this.root),plan=saved.plans.find((p:any)=>p.id===workflowId);
@@ -76,9 +79,14 @@ export class ManualDispatchHost {
         description:String(r.name||"")+" · 显存 "+String(r.memoryUsedMb??r.memoryUsed??r.memory_used_mb??"?")+"/"+String(r.memoryTotalMb??r.memoryTotal??r.memory_total_mb??"?")+" MB · 利用率 "+String(r.utilizationPercent??r.utilization??r.utilization_gpu??"?")+"% · 任务 "+tasks.filter((t:any)=>!['completed','failed','cancelled'].includes(t.status)&&String(t.gpuId??t.observation?.tmux?.gpuId??"")===String(r.index??r.gpu_id??r.gpuId??r.id)).length}))],{title:"选择此服务器自动派发或指定 GPU",ignoreFocusOut:true});
       if(!picked)return {status:"cancelled"};gpuId=picked.id;gpuSelection=picked.gpuSelection;
     }
-    return await dispatchManualJobs(this.ports(),{workflowId,indices,workerId,gpuId,gpuSelection,expectedCommands:params.expectedCommands,stopRunning:fromUi||params.stopRunning===true} as ManualDispatchRequest);
+    ports.assertCurrent();
+    if(h.manualDispatchInFlight.has(key)||h.manualDispatchInFlight.has(this.root+"\0server-queue"))throw Error("已有派发正在处理，请等待本批结果。");
+    h.manualDispatchInFlight.add(key);acquired=true;
+    if(h.distributedQueueTickPromise)await h.distributedQueueTickPromise;
+    ports.assertCurrent();
+    return await dispatchManualJobs(ports,{workflowId,indices,workerId,gpuId,gpuSelection,expectedCommands:params.expectedCommands,stopRunning:fromUi||params.stopRunning===true} as ManualDispatchRequest);
     }
-    finally{h.manualDispatchInFlight.delete(key);h.postState();void h.tickDistributedQueue();}
+    finally{selections.delete(key);if(acquired){h.manualDispatchInFlight.delete(key);h.postState();void Promise.resolve(h.tickDistributedQueue()).catch(()=>{});}}
   }
   async review(plan:any,jobs:any[]){
     const h=this.host,body={planFile:plan.planFile,planRevision:plan.revision,options:{},distributedSkipJobIndices:[],

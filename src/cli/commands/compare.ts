@@ -9,7 +9,7 @@ const LOWER_IS_BETTER = /(?:^|_)(loss|error|mse|mae|perplexity)(?:_|$)/i;
 export async function compareCommand(rest: string[], flags: CliFlags): Promise<number> {
   const leftId = requirePositional(rest, 0, "first experiment id");
   const rightId = requirePositional(rest, 1, "second experiment id");
-  const rows = await loadResults();
+  const rows = await loadResults(flags);
   const left = metricsFor(rows, leftId);
   const right = metricsFor(rows, rightId);
   const difference: Record<string, { left: number; right: number; delta: number }> = {};

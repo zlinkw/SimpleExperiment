@@ -26,7 +26,7 @@ export function metricLeaderboard(flags: CliFlags): number {
 
 export async function metricList(flags: CliFlags): Promise<number> {
   const names = new Set<string>();
-  for (const row of await loadResults()) {
+  for (const row of await loadResults(flags)) {
     for (const key of Object.keys(numericMetrics(row))) names.add(key);
   }
   const payload = { metrics: Array.from(names).sort() };
@@ -36,7 +36,7 @@ export async function metricList(flags: CliFlags): Promise<number> {
 }
 
 export async function metricShow(id: string, flags: CliFlags): Promise<number> {
-  const rows = (await loadResults()).filter((row) => matchesResult(row, id));
+  const rows = (await loadResults(flags)).filter((row) => matchesResult(row, id));
   const metrics: Record<string, unknown> = {};
   for (const row of rows) Object.assign(metrics, numericMetrics(row));
   if (flags.json) writeJson(metrics, flags.compactJson);

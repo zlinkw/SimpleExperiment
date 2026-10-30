@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { remainingQueueJobs, serverQueueCards, quotaQueuePlacements } from "../features/ServerQueueDispatch";
 import { ManualDispatchHost } from "./ManualDispatchHost";
 import { quotaSettings } from "../features/GpuQuotaScheduling";
+import { outputIsolationNotice } from "../features/DistributedPlanQueue";
 
 /** An explicit button freezes remaining jobs; no PLAN-wide persistent prequeue switch. */
 export class ServerQueueHost {
@@ -38,7 +39,7 @@ export class ServerQueueHost {
       let distribution=quotaQueuePlacements(selected.length,cards);
       const identity=(plan:any,job:any)=>JSON.stringify([plan.id,plan.projectId,plan.revision,plan.codeFingerprint,job.index,job.outputDir,job.collectionResultCsv]);
       selected.forEach((item:any,index:number)=>reserved.push({...item,identity:identity(item.plan,item.job),placement:distribution.placements[index]}));
-      const ports=new ManualDispatchHost(h,this.root).ports(), approved=new Set<string>();
+      const ports=new ManualDispatchHost(h,this.root).ports(), approved=new Set<string>(), blocked=new Map<string,any>();
       for(const planId of new Set(reserved.map(item=>item.plan.id))){
         current();const plan=reserved.find(item=>item.plan.id===planId).plan;
         const jobs=reserved.filter(item=>item.plan.id===planId).map(item=>({...item.job,
@@ -48,7 +49,12 @@ export class ServerQueueHost {
         const prepareInput={...input,jobs:[...jobs,...cards.map(card=>({...jobs[0],manualDispatch:{...card,stage:"preparing"}}))]};
         await ports.prepare(prepareInput);current();const reviewed=await ports.review(input,jobs);current();
         if(reviewed===false)throw Error("已取消产物审核；本批剩余 job 未派发。");
-        for(const job of jobs)if(!Array.isArray(reviewed)||reviewed.includes(job.index))approved.add(identity(plan,job));
+        const decisions=new Map<number,any>();
+        if(reviewed&&typeof reviewed==="object"&&!Array.isArray(reviewed))
+          for(const row of reviewed.blocked||[])if(Number.isInteger(Number(row?.index)))decisions.set(Number(row.index),row);
+        const accepted=Array.isArray(reviewed)?reviewed:reviewed&&typeof reviewed==="object"?reviewed.accepted||[]:jobs.map(job=>job.index);
+        for(const job of jobs){const id=identity(plan,job),decision=decisions.get(job.index);
+          if(decision)blocked.set(id,decision);else if(accepted.includes(job.index))approved.add(id);}
       }
       distribution=quotaQueuePlacements(approved.size,cards);
       let placementIndex=0;for(const item of reserved)if(approved.has(item.identity))item.placement=distribution.placements[placementIndex++];
@@ -58,9 +64,19 @@ export class ServerQueueHost {
           if(!job||identity(plan,job)!==item.identity||!remainingQueueJobs(plan).includes(job))throw Error("排队批次已变化，未提交新任务。");}
         for(const item of reserved){const plan=latest.plans.find((p:any)=>p.id===item.plan.id),job=plan.jobs.find((j:any)=>j.index===item.job.index);
           if(approved.has(item.identity)){job.nextCommandId=randomUUID().replaceAll("-","");job.manualDispatch={...item.placement,stage:"ready",origin:"server_queue",batchId};job.localQueueOnly=true;}
-          else Object.assign(job,{manualDispatch:undefined,retainExistingOutputs:true,status:"cancelled",manualDispatchNotice:"保留已有产物，本次未派发。"});}
+          else if(blocked.has(item.identity)){
+            const decision=blocked.get(item.identity);
+            Object.assign(job,{manualDispatch:undefined,nextCommandId:undefined,manualDispatchNotice:undefined,retainExistingOutputs:undefined,
+              outputIsolationBlocked:{reason:String(decision.reason||"隔离结果未核实"),
+                stage:["preview","execute","verify"].includes(decision.stage)?decision.stage:"execute",
+                ...(decision.code?{code:String(decision.code)}:{}),...(decision.operationId?{operationId:String(decision.operationId)}:{}),
+                ...(Array.isArray(decision.codes)?{codes:decision.codes.map(String)}:{}),...(typeof decision.busyOnly==="boolean"?{busyOnly:decision.busyOnly}:{}),
+                declarationKey:job.outputDir,observedAt:new Date().toISOString()}});
+            job.blockReason=outputIsolationNotice(job);
+          }else Object.assign(job,{manualDispatch:undefined,retainExistingOutputs:true,status:"cancelled",manualDispatchNotice:"保留已有产物，本次未派发。"});}
         return {...latest};
       }});
+      if(!approved.size)return {status:blocked.size?"blocked":"completed",blocked:blocked.size,retained:reserved.length-blocked.size,message:blocked.size?"产物隔离尚未核实，受阻 job 保留等待；本批未派发。":"已保留已有产物；本批未派发。",allocations:distribution.allocations};
       await ports.tick();
       return {status:"submitted",message:`已按逐卡 job 配额将 ${approved.size} 个剩余 job 派入服务器队列；比例 `+distribution.allocations.map(card=>`${card.workerId}/GPU ${card.gpuId}=${card.weight}（本批 ${card.count}）`).join("、"),allocations:distribution.allocations};
     } finally {

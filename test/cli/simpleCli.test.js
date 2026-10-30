@@ -219,14 +219,14 @@ test("simpleex result list show export reuse Results", async () => {
       }],
     }, null, 2),
   });
-  const listed = await runCli(["result", "list", "--json"], { cwd: dir });
+  const listed = await runCli(["result", "list", "--json", "--history"], { cwd: dir });
   assert.equal(listed.code, 0);
   const rows = JSON.parse(listed.stdout);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].id, "res-1");
-  const filtered = await runCli(["result", "list", "--experiment", "exp-ok", "--json"], { cwd: dir });
+  const filtered = await runCli(["result", "list", "--experiment", "exp-ok", "--json", "--history"], { cwd: dir });
   assert.equal(JSON.parse(filtered.stdout).length, 1);
-  const shown = await runCli(["result", "show", "res-1", "--json"], { cwd: dir });
+  const shown = await runCli(["result", "show", "res-1", "--json", "--history"], { cwd: dir });
   assert.equal(shown.code, 0);
   const detail = JSON.parse(shown.stdout);
   assert.ok("metrics" in detail);
@@ -235,58 +235,28 @@ test("simpleex result list show export reuse Results", async () => {
   assert.ok("seed" in detail);
   assert.ok("checkpoint" in detail);
   assert.ok("outputFiles" in detail);
-  const exported = await runCli(["result", "export", "res-1", "--format", "json", "--json"], { cwd: dir });
+  const exported = await runCli(["result", "export", "res-1", "--format", "json", "--json", "--history"], { cwd: dir });
   assert.equal(exported.code, 0);
   const exportPayload = JSON.parse(exported.stdout);
   assert.equal(exportPayload.format, "json");
   assert.equal(exportPayload.id, "res-1");
 });
 
-test("loadResults includes parsed Worker summaries", async () => {
+test("loadResults uses only the active query and excludes diagnostic log records", async () => {
   const api = require("../../dist/cli/api.js");
   const { loadResults } = require("../../dist/cli/commands/result.js");
-  const originalOptionalApi = api.optionalApi;
-  const record = {
-    schemaVersion: 1, resultId: "worker-result-1", experimentId: "suite/baseline/seed_7",
-    runKey: "suite/baseline/seed_7:clean", status: "parsed",
-    metrics: { accuracy: { value: 0.91, higherIsBetter: true } },
-    dimensions: { case: "baseline", seed: 7, eval_protocol: "clean" },
-    primaryMetric: "accuracy",
-    sourceFiles: [{ path: "experiments/results/demo.csv", type: "csv", endpoint: "hub" }],
-    createdAt: "2026-09-23T00:04:00Z", updatedAt: "2026-09-23T00:04:00Z",
-    provenance: { planFile: "experiments/plans/baseline.yaml", workerId: "worker-a", resultOwnerWorkerId: "worker-a" },
-    planFile: "experiments/plans/baseline.yaml", workerId: "worker-a", resultOwnerWorkerId: "worker-a",
-  };
-  const diagnostic = {
-    ...record,
-    resultId: "worker-stderr-row0",
-    sourceFiles: [{ path: "work_dirs/demo/stderr.log", type: "text", endpoint: "hub" }],
-  };
-  const workerServer = http.createServer((req, res) => {
-    if (req.url === "/api/results/summary") {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ schemaVersion: 1, resultCount: 2, parsedResults: 2, parseFailed: 0, results: [record, diagnostic] }));
-    } else { res.writeHead(404); res.end(); }
-  });
-  await new Promise((resolve) => workerServer.listen(0, "127.0.0.1", resolve));
-  api.optionalApi = async (method) => method === "state.get"
-    ? { value: { workerTunnels: [
-      { id: "worker-a", localForwardHost: "127.0.0.1", localForwardPort: workerServer.address().port, enabled: true },
-      { id: "offline-worker", localForwardHost: "127.0.0.1", localForwardPort: 1, enabled: true },
-    ] } }
-    : { results: [diagnostic] };
+  const original = api.callApi, optional = api.optionalApi;
+  const record = {resultId:"worker-result-1",experimentId:"suite/baseline/seed_7",runKey:"run",status:"parsed",
+    metrics:{accuracy:{value:0.91}},dimensions:{seed:7},primaryMetric:"accuracy",
+    sourceFiles:[{path:"experiments/results/demo.csv",type:"csv",endpoint:"worker"}]};
+  api.optionalApi=async()=>assert.fail("current results cannot use legacy Worker enrichment");
+  api.callApi=async(method)=>{assert.equal(method,"results.list");return {source:"active_query",summary:{current:true,observedAt:"2026-10-30T00:00:00Z"},
+    results:[record,{...record,resultId:"worker-stderr-row0",sourceFiles:[{path:"work_dirs/demo/stderr.log",type:"text",endpoint:"worker"}]}]};};
   try {
-    const rows = await loadResults();
-    const result = rows.find((row) => row.id === "worker-result-1");
-    assert.equal(result?.experimentId, "suite/baseline/seed_7");
-    assert.equal(result?.primaryMetric, "accuracy");
-    assert.equal(result?.primaryValue, 0.91);
-    assert.equal(rows.some((row) => row.id === "worker-stderr-row0"), false);
-  } finally {
-    api.optionalApi = originalOptionalApi;
-    workerServer.closeAllConnections();
-    await new Promise((resolve) => workerServer.close(resolve));
-  }
+    const rows=await loadResults();assert.equal(rows.length,1);
+    assert.equal(rows[0].experimentId,"suite/baseline/seed_7");assert.equal(rows[0].primaryValue,0.91);
+    assert.equal(rows[0].source,"active_query");assert.equal(rows[0].current,true);
+  } finally { api.callApi=original;api.optionalApi=optional; }
 });
 
 test("simpleex gpu status and server list stay offline-safe", async () => {
@@ -303,6 +273,31 @@ test("simpleex gpu status and server list stay offline-safe", async () => {
   assert.ok("online" in serverRows[0]);
   assert.ok("ssh" in serverRows[0]);
   assert.ok("gpu" in serverRows[0]);
+});
+
+test('active result rows retain exact identities across order changes and failed queries never use local history',async()=>{
+ const api=require('../../dist/cli/api.js'),data=require('../../dist/cli/data.js');
+ const {loadResults,resultShow,resultExport}=require('../../dist/cli/commands/result.js');
+ const format=require('../../dist/cli/format.js');
+ const priorApi=api.callApi,priorRoot=data.projectRoot(),priorWrite=format.writeJson;
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'cli-current-results-'));
+ writeProject(dir,{'simple_cluster/results/result_registry.json':JSON.stringify({records:[{resultId:'stale',experimentId:'old',metrics:{auc:{value:1}},sourceFiles:[]}]})});
+ const make=(workerId,runId,seed,endpoint)=>({planFile:'plans/p.yaml',workerId,runId,workflowId:'p',revision:'r',codeFingerprint:'hash',
+  dimensions:{case:'baseline',seed,eval_protocol:endpoint,dataset:'bus'},metrics:{auc:0.8+seed/100},sourceFiles:[{path:'work/'+runId}],
+  completionState:'verified',aggregationState:'eligible'});
+ let records=[make('a','run-0',0,'clean'),make('a','run-0',1,'clean'),make('a','run-0',0,'shift'),make('b','run-0',0,'clean')],current=true,calls=0,output='';
+ api.callApi=async(method)=>{calls++;assert.equal(method,'results.list');return {source:'active_query',results:records.slice(0,1),summary:{current,observedAt:'2026-10-30T00:00:00Z',results:records}};};
+ try{
+  data.setProjectRoot(dir);const rows=await loadResults();assert.equal(rows.length,4);assert.equal(new Set(rows.map(r=>r.id)).size,4);assert.ok(rows.every(r=>r.current&&r.source==='active_query'));
+  records.reverse();assert.deepEqual((await loadResults()).map(r=>r.id).sort(),rows.map(r=>r.id).sort());
+  const zero=rows[0];format.writeJson=value=>{output=JSON.stringify(value);};
+  await resultShow(zero.id,{json:true});let detail=JSON.parse(output);assert.equal(detail.seed,0);assert.equal(detail.metrics.auc,0.8);assert.equal(detail.current,true);
+  output='';await resultExport(zero.id,{json:true,format:'json'});const exported=JSON.parse(output);assert.equal(exported.current,true);assert.equal(JSON.parse(exported.content).metrics.auc,0.8);assert.equal(JSON.parse(exported.content).rows.length,1);
+  const dest=path.join(dir,'existing-export.json');fs.writeFileSync(dest,'keep existing export','utf8');current=false;
+  await assert.rejects(resultExport(zero.id,{json:true,out:dest}),/RESULT_QUERY_UNVERIFIED/);assert.equal(fs.readFileSync(dest,'utf8'),'keep existing export');
+  api.callApi=async()=>{throw Error('connection reset');};await assert.rejects(loadResults(),/connection reset/);
+  const count=calls;const history=await loadResults({history:true});assert.equal(history.length,1);assert.equal(history[0].id,'stale');assert.equal(history[0].current,false);assert.equal(calls,count);
+ }finally{api.callApi=priorApi;data.setProjectRoot(priorRoot);format.writeJson=priorWrite;}
 });
 
 test("GPU tasks require one matching running worker and GPU", () => {

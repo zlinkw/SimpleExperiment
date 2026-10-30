@@ -53,6 +53,33 @@ test('retaining existing outputs recomputes the actual queued subset back to 1:6
  const f=fixture(14),old=ManualDispatchHost.prototype.review;ManualDispatchHost.prototype.review=async(_,jobs)=>jobs.slice(0,7).map(job=>job.index);
  try{const result=await f.host.dispatch({planId:'p'},true);assert.deepEqual(result.allocations.map(card=>card.count),[1,6]);assert.equal(f.sent.length,7);assert.equal(f.queue.plans[0].jobs.filter(job=>job.retainExistingOutputs).length,7)}finally{ManualDispatchHost.prototype.review=old}
 });
+
+test('structured review sends only accepted jobs, persists new isolation blocks and protects completed jobs',async()=>{
+ const f=fixture(16),old=ManualDispatchHost.prototype.review;
+ Object.assign(f.queue.plans[0].jobs[15],{status:'completed',commandId:'finished',completionState:'verified'});
+ ManualDispatchHost.prototype.review=async()=>({accepted:[0,1,2,3,4,5,6,7],blocked:[{index:7,reason:'transfer active',stage:'execute',code:'ACTIVE_TRANSFER',codes:['ACTIVE_TRANSFER'],operationId:'op-1',busyOnly:true}]});
+ try{
+  const result=await f.host.dispatch({all:true},true);assert.equal(result.status,'submitted');assert.deepEqual(result.allocations.map(c=>c.count),[1,6]);
+  assert.deepEqual(f.sent.map(j=>j.index),[0,1,2,3,4,5,6]);
+  const reloaded=structuredClone(f.queue),blocked=reloaded.plans[0].jobs[7];
+  assert.equal(blocked.status,'pending');assert.equal(blocked.manualDispatch,undefined);assert.equal(blocked.nextCommandId,undefined);
+  assert.equal(blocked.retainExistingOutputs,undefined);assert.equal(blocked.outputIsolationBlocked.code,'ACTIVE_TRANSFER');
+  assert.equal(blocked.outputIsolationBlocked.operationId,'op-1');assert.equal(blocked.outputIsolationBlocked.declarationKey,blocked.outputDir);
+  assert.equal(blocked.outputIsolationBlocked.busyOnly,true);assert.ok(blocked.blockReason);
+  assert.equal(reloaded.plans[0].jobs.filter(j=>j.retainExistingOutputs).length,7);
+  assert.equal(reloaded.plans[0].jobs[15].commandId,'finished');assert.equal(reloaded.plans[0].jobs[15].completionState,'verified');
+ }finally{ManualDispatchHost.prototype.review=old}
+});
+
+test('structured all-retained or all-blocked review creates no dispatch identity and reports no submitted jobs',async()=>{
+ const old=ManualDispatchHost.prototype.review;
+ try{for(const blocked of [false,true]){
+  const f=fixture(2);ManualDispatchHost.prototype.review=async()=>({accepted:[],blocked:blocked?[{index:0,stage:'verify',reason:'unknown'},{index:1,stage:'preview',reason:'busy'}]:[]});
+  const result=await f.host.dispatch({all:true},true);assert.equal(result.status,blocked?'blocked':'completed');assert.equal(f.sent.length,0);
+  assert.ok(f.queue.plans[0].jobs.every(j=>!j.manualDispatch&&!j.commandId&&!j.nextCommandId));
+  assert.ok(f.queue.plans[0].jobs.every(j=>blocked?!!j.outputIsolationBlocked:j.retainExistingOutputs===true));
+ }}finally{ManualDispatchHost.prototype.review=old}
+});
 test('unknown GPU data, cancelled review, changed quotas and changed jobs never turn into an enqueue or overwrite progress',async()=>{
  for(const kind of ['gpu','cancel','quota','job']){
   const f=fixture(7),old=ManualDispatchHost.prototype.review;

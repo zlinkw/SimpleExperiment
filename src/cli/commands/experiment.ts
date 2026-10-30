@@ -613,10 +613,10 @@ export async function experimentConfig(id: string, flags: CliFlags): Promise<num
 }
 
 export async function experimentResults(id: string, flags: CliFlags): Promise<number> {
-  const loaded = await loadExperimentDetail(id);
-  const allResults = await loadResults();
-  let rows = allResults.filter((row) => resultMatchesExperiment(row, loaded.match));
-  if (rows.length === 0 && loaded.match.type === "worker_run" && loaded.match.status === "success") {
+  const loaded = flags.history ? undefined : await loadExperimentDetail(id);
+  const allResults = await loadResults(flags);
+  let rows = allResults.filter((row) => loaded ? resultMatchesExperiment(row, loaded.match) : row.id === id || row.experimentId === id || row.runKey === id);
+  if (rows.length === 0 && loaded && loaded.match.type === "worker_run" && loaded.match.status === "success") {
     const config = await configPayload(loaded.match);
     const experimentName = yamlValue(String(config.yaml || ""), "experiment_name");
     if (experimentName) {
@@ -626,7 +626,8 @@ export async function experimentResults(id: string, flags: CliFlags): Promise<nu
   const metrics = Object.fromEntries(rows.map((row) => [row.id, row.metrics]));
   const output_paths = Array.from(new Set(rows.flatMap((row) => row.outputFiles))).filter(Boolean);
   const payload = {
-    experiment_id: loaded.match.id,
+    experiment_id: loaded?.match.id || id,
+    source: flags.history ? "history" : "active_query", current: !flags.history,
     result_ids: rows.map((row) => row.id),
     metrics,
     output_paths,

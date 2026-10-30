@@ -47,7 +47,8 @@ async function resolveCli(options={}){
  const localHelp=Array.isArray(options.argv)&&(!argv.length||argv.includes('--help')||argv[0]==='help');
  const workspace=routeFlag(argv,'--workspace').trim(),pin=(routeFlag(argv,'--instance')||process.env.SIMPLE_CLI_INSTANCE_ID||'').trim();
  const newest=()=>{const rows=installedEntries(root);if(!rows.length||rows.filter(row=>row.version===rows[0].version).length!==1)throw Error('Expected exactly one newest installed CLI');return installedCliEntry(rows[0]);};
- if(localHelp)return newest().entry;
+ const localHistory=argv.includes('--history')&&(argv[0]==='result'&&['list','show','export'].includes(argv[1])||argv[0]==='metric'&&['list','show'].includes(argv[1])||argv[0]==='compare'||argv[0]==='experiment'&&argv[1]==='results');
+ if(localHelp||localHistory)return newest().entry;
  const signal=AbortSignal.any([options.signal,AbortSignal.timeout(30000)].filter(Boolean));
  signal.throwIfAborted();
  let file=options.discoveryFile||process.env.SIMPLE_EXPERIMENT_API_FILE||path.join(process.env.APPDATA||path.join(os.homedir(),"AppData","Roaming"),"SimpleExperiment","api.json");

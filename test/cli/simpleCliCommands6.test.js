@@ -245,17 +245,17 @@ test("agent commands expose status, tree, logs, control, results, and json", asy
   assert.equal(config.batch_size, "8");
   assert.equal(config.epoch, "20");
 
-  const results = JSON.parse((await runCli(["experiment", "results", "run-plan-1", "--json"], { cwd: dir })).stdout);
+  const results = JSON.parse((await runCli(["experiment", "results", "run-plan-1", "--json", "--history"], { cwd: dir })).stdout);
   assert.equal(results.experiment_id, "run-plan-1");
   assert.ok(results.result_ids.includes("res-a"));
   assert.equal(results.metrics["res-a"].auc, 0.8);
   assert.equal(results.metrics["res-b"], undefined);
-  const metric = JSON.parse((await runCli(["metric", "show", "run-100", "--json"], { cwd: dir })).stdout);
+  const metric = JSON.parse((await runCli(["metric", "show", "run-100", "--json", "--history"], { cwd: dir })).stdout);
   assert.equal(metric.auc, 0.9);
   assert.equal(metric.f1, 0.7);
   assert.equal("accuracy" in metric, false);
 
-  const compared = JSON.parse((await runCli(["compare", "run-plan-1", "run-100", "--json"], { cwd: dir })).stdout);
+  const compared = JSON.parse((await runCli(["compare", "run-plan-1", "run-100", "--json", "--history"], { cwd: dir })).stdout);
   assert.equal(compared.metric_difference.auc.delta, 0.1);
   assert.ok(compared.improvement.includes("auc"));
   assert.ok(compared.improvement.includes("loss"));

@@ -39,7 +39,7 @@ function metricLeaderboard(flags) {
 }
 async function metricList(flags) {
     const names = new Set();
-    for (const row of await (0, result_1.loadResults)()) {
+    for (const row of await (0, result_1.loadResults)(flags)) {
         for (const key of Object.keys(numericMetrics(row)))
             names.add(key);
     }
@@ -51,7 +51,7 @@ async function metricList(flags) {
     return 0;
 }
 async function metricShow(id, flags) {
-    const rows = (await (0, result_1.loadResults)()).filter((row) => matchesResult(row, id));
+    const rows = (await (0, result_1.loadResults)(flags)).filter((row) => matchesResult(row, id));
     const metrics = {};
     for (const row of rows)
         Object.assign(metrics, numericMetrics(row));

@@ -172,14 +172,14 @@ test("simpleex result list show export reuse Results", async () => {
       }],
     }, null, 2),
   });
-  const listed = await runCli(["result", "list", "--json"], { cwd: dir });
+  const listed = await runCli(["result", "list", "--json", "--history"], { cwd: dir });
   assert.equal(listed.code, 0);
   const rows = JSON.parse(listed.stdout);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].id, "res-1");
-  const filtered = await runCli(["result", "list", "--experiment", "exp-ok", "--json"], { cwd: dir });
+  const filtered = await runCli(["result", "list", "--experiment", "exp-ok", "--json", "--history"], { cwd: dir });
   assert.equal(JSON.parse(filtered.stdout).length, 1);
-  const shown = await runCli(["result", "show", "res-1", "--json"], { cwd: dir });
+  const shown = await runCli(["result", "show", "res-1", "--json", "--history"], { cwd: dir });
   assert.equal(shown.code, 0);
   const detail = JSON.parse(shown.stdout);
   assert.ok("metrics" in detail);
@@ -188,7 +188,7 @@ test("simpleex result list show export reuse Results", async () => {
   assert.ok("seed" in detail);
   assert.ok("checkpoint" in detail);
   assert.ok("outputFiles" in detail);
-  const exported = await runCli(["result", "export", "res-1", "--format", "json", "--json"], { cwd: dir });
+  const exported = await runCli(["result", "export", "res-1", "--format", "json", "--json", "--history"], { cwd: dir });
   assert.equal(exported.code, 0);
   const exportPayload = JSON.parse(exported.stdout);
   assert.equal(exportPayload.format, "json");
@@ -196,51 +196,21 @@ test("simpleex result list show export reuse Results", async () => {
 });
 
 
-test("loadResults includes parsed Worker summaries", async () => {
+test("loadResults uses only the active query and excludes diagnostic log records", async () => {
   const api = require("../../dist/cli/api.js");
   const { loadResults } = require("../../dist/cli/commands/result.js");
-  const originalOptionalApi = api.optionalApi;
-  const record = {
-    schemaVersion: 1, resultId: "worker-result-1", experimentId: "suite/baseline/seed_7",
-    runKey: "suite/baseline/seed_7:clean", status: "parsed",
-    metrics: { accuracy: { value: 0.91, higherIsBetter: true } },
-    dimensions: { case: "baseline", seed: 7, eval_protocol: "clean" },
-    primaryMetric: "accuracy",
-    sourceFiles: [{ path: "experiments/results/demo.csv", type: "csv", endpoint: "hub" }],
-    createdAt: "2026-09-23T00:04:00Z", updatedAt: "2026-09-23T00:04:00Z",
-    provenance: { planFile: "experiments/plans/baseline.yaml", workerId: "worker-a", resultOwnerWorkerId: "worker-a" },
-    planFile: "experiments/plans/baseline.yaml", workerId: "worker-a", resultOwnerWorkerId: "worker-a",
-  };
-  const diagnostic = {
-    ...record,
-    resultId: "worker-stderr-row0",
-    sourceFiles: [{ path: "work_dirs/demo/stderr.log", type: "text", endpoint: "hub" }],
-  };
-  const workerServer = http.createServer((req, res) => {
-    if (req.url === "/api/results/summary") {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ schemaVersion: 1, resultCount: 2, parsedResults: 2, parseFailed: 0, results: [record, diagnostic] }));
-    } else { res.writeHead(404); res.end(); }
-  });
-  await new Promise((resolve) => workerServer.listen(0, "127.0.0.1", resolve));
-  api.optionalApi = async (method) => method === "state.get"
-    ? { value: { workerTunnels: [
-      { id: "worker-a", localForwardHost: "127.0.0.1", localForwardPort: workerServer.address().port, enabled: true },
-      { id: "offline-worker", localForwardHost: "127.0.0.1", localForwardPort: 1, enabled: true },
-    ] } }
-    : { results: [diagnostic] };
+  const original = api.callApi, optional = api.optionalApi;
+  const record = {resultId:"worker-result-1",experimentId:"suite/baseline/seed_7",runKey:"run",status:"parsed",
+    metrics:{accuracy:{value:0.91}},dimensions:{seed:7},primaryMetric:"accuracy",
+    sourceFiles:[{path:"experiments/results/demo.csv",type:"csv",endpoint:"worker"}]};
+  api.optionalApi=async()=>assert.fail("current results cannot use legacy Worker enrichment");
+  api.callApi=async(method)=>{assert.equal(method,"results.list");return {source:"active_query",summary:{current:true,observedAt:"2026-10-30T00:00:00Z"},
+    results:[record,{...record,resultId:"worker-stderr-row0",sourceFiles:[{path:"work_dirs/demo/stderr.log",type:"text",endpoint:"worker"}]}]};};
   try {
-    const rows = await loadResults();
-    const result = rows.find((row) => row.id === "worker-result-1");
-    assert.equal(result?.experimentId, "suite/baseline/seed_7");
-    assert.equal(result?.primaryMetric, "accuracy");
-    assert.equal(result?.primaryValue, 0.91);
-    assert.equal(rows.some((row) => row.id === "worker-stderr-row0"), false);
-  } finally {
-    api.optionalApi = originalOptionalApi;
-    workerServer.closeAllConnections();
-    await new Promise((resolve) => workerServer.close(resolve));
-  }
+    const rows=await loadResults();assert.equal(rows.length,1);
+    assert.equal(rows[0].experimentId,"suite/baseline/seed_7");assert.equal(rows[0].primaryValue,0.91);
+    assert.equal(rows[0].source,"active_query");assert.equal(rows[0].current,true);
+  } finally { api.callApi=original;api.optionalApi=optional; }
 });
 
 

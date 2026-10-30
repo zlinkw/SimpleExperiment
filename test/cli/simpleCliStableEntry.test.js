@@ -10,6 +10,8 @@ test('help resolves an installed CLI without any discovery or running window',as
  const old=path.join(extensions,'simple-local.simple-experiment-1.0.0');fs.mkdirSync(old,{recursive:true});
  fs.writeFileSync(path.join(old,'package.json'),JSON.stringify({name:'simple-experiment',publisher:'simple-local',version:'1.0.0'}),'utf8');
  for(const argv of [['--help'],['help'],[],['result','--help']])assert.equal(await resolveCli({extensionsRoot:extensions,discoveryFile:path.join(root,'missing.json'),argv}),path.join(dir,'dist/cli.js'));
+ for(const argv of [['result','list','--history'],['metric','show','r','--history'],['compare','a','b','--history'],['experiment','results','r','--history']])assert.equal(await resolveCli({extensionsRoot:extensions,discoveryFile:path.join(root,'missing.json'),argv}),path.join(dir,'dist/cli.js'));
+ await assert.rejects(resolveCli({extensionsRoot:extensions,discoveryFile:path.join(root,'missing.json'),argv:['task','dispatch','--history']}),/ENOENT/);
 });
 
 test('default launcher checks the project and frozen instance routing reuses only that record with fresh handshakes',async()=>{

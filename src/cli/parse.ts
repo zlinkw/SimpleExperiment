@@ -8,6 +8,7 @@ export interface CliFlags {
   dryRun: boolean;
   check: boolean;
   watch: boolean;
+  history?: boolean;
   workflow?: string;
   operation?: string;
   jobs?: string;
@@ -147,6 +148,7 @@ export function parseArgv(argv: string[]): ParsedCli {
   const flags: CliFlags = { json: false, compactJson: false, full: false, help: false, dryRun: false, check: false, watch: false };
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
+    if (token === "--history") { flags.history = true; continue; }
     if (token === "--confirm") { flags.confirm = true; continue; }
     if (token === "--remaining") { flags.remaining = true; continue; }
     if (token === "--all") { flags.all = true; continue; }

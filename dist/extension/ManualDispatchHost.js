@@ -43,6 +43,7 @@ const PlanCodeScopeHost_1 = require("./PlanCodeScopeHost");
 class ManualDispatchHost {
     host;
     root;
+    static selections = new WeakMap();
     gpuSnapshot;
     constructor(host, root) {
         this.host = host;
@@ -96,15 +97,20 @@ class ManualDispatchHost {
         if (!fromUi && params.confirm !== true)
             throw Error("CONFIRM_REQUIRED：请确认所选 job、服务器和 GPU。");
         const workflowId = String(params.workflowId || params.planId || ""), indices = Array.isArray(params.indices) ? params.indices : [params.jobIndex];
+        let selections = ManualDispatchHost.selections.get(h);
+        if (!selections) {
+            selections = new Set();
+            ManualDispatchHost.selections.set(h, selections);
+        }
         const key = this.root + "\0" + workflowId;
-        if (h.manualDispatchInFlight.has(key))
+        if (h.manualDispatchInFlight.has(key) || selections.has(key))
             throw Error("这批任务正在处理，请勿重复点击。");
         if (h.manualDispatchInFlight.has(this.root + "\0server-queue"))
             throw Error("剩余 job 正在按配额派发服务器队列，请等待本批结果。");
-        h.manualDispatchInFlight.add(key);
+        const ports = this.ports();
+        let acquired = false;
+        selections.add(key);
         try {
-            if (h.distributedQueueTickPromise)
-                await h.distributedQueueTickPromise;
             let workerId = String(params.workerId || ""), gpuId = params.gpuId === undefined ? "" : String(params.gpuId), gpuSelection = params.gpuSelection;
             if (fromUi && !workerId) {
                 const saved = await h.loadDistributedQueue(this.root), plan = saved.plans.find((p) => p.id === workflowId);
@@ -140,12 +146,23 @@ class ManualDispatchHost {
                 gpuId = picked.id;
                 gpuSelection = picked.gpuSelection;
             }
-            return await (0, ManualJobDispatch_1.dispatchManualJobs)(this.ports(), { workflowId, indices, workerId, gpuId, gpuSelection, expectedCommands: params.expectedCommands, stopRunning: fromUi || params.stopRunning === true });
+            ports.assertCurrent();
+            if (h.manualDispatchInFlight.has(key) || h.manualDispatchInFlight.has(this.root + "\0server-queue"))
+                throw Error("已有派发正在处理，请等待本批结果。");
+            h.manualDispatchInFlight.add(key);
+            acquired = true;
+            if (h.distributedQueueTickPromise)
+                await h.distributedQueueTickPromise;
+            ports.assertCurrent();
+            return await (0, ManualJobDispatch_1.dispatchManualJobs)(ports, { workflowId, indices, workerId, gpuId, gpuSelection, expectedCommands: params.expectedCommands, stopRunning: fromUi || params.stopRunning === true });
         }
         finally {
-            h.manualDispatchInFlight.delete(key);
-            h.postState();
-            void h.tickDistributedQueue();
+            selections.delete(key);
+            if (acquired) {
+                h.manualDispatchInFlight.delete(key);
+                h.postState();
+                void Promise.resolve(h.tickDistributedQueue()).catch(() => { });
+            }
         }
     }
     async review(plan, jobs) {

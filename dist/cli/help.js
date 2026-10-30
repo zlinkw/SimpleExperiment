@@ -132,19 +132,20 @@ function domainHelp(domain) {
   simpleex plan cleanup continue --operation-id <id> [--verified-only] [--json]   |   recheck --node-id <id> [--json]
        confirmations live in the confirm phases only (delete confirms twice, others once): the exactTargets file must echo the preview rows as ["nodeId:absolutePath", …] in preview order, filtered to disposition==action (digest is order-sensitive); execute/resume carry only the operation id — no confirm factor exists there and none is auto-filled. PREVIEW_EXPIRED/OPERATION_SUPERSEDED/CLEANUP_TARGET_CHANGED answer as business refusals; a completed operation returns idempotently and a started move is only settled, never re-issued.`,
         result: `Usage:
-  simpleex result list [--experiment <id>] [--json]
-  simpleex result show <id> [--json]
-  simpleex result export <id> [--format csv|json] [--out <file>] [--json]
+  simpleex result list [--experiment <id>] [--history] [--json]
+  simpleex result show <id> [--history] [--json]
+  simpleex result export <id> [--format csv|json] [--out <file>] [--history] [--json]
   simpleex result parse --file <f> [--preset <id>] [--json]
-  simpleex result paper-table --file <registry.json> [--metrics AUC,accuracy] [--format markdown|csv|latex]`,
+  simpleex result paper-table --file <registry.json> [--metrics AUC,accuracy] [--format markdown|csv|latex]
+  默认通过当前项目 API 主动核实结果，失败不会混入历史；--history 仅查看本机旧记录（current=false），可用 --workspace 指定本机目录。`,
         log: `Usage:
   simpleex log show <id> [--json]
   simpleex log tail <id> [--lines <n>] [--json]`,
         metric: `Usage:
-  simpleex metric list [--json]
-  simpleex metric show <experiment> [--json]
+  simpleex metric list [--history] [--json]
+  simpleex metric show <experiment> [--history] [--json]
   simpleex metric leaderboard --file <metrics> [--primary <metric>]`,
-        compare: `Usage: simpleex compare <id1> <id2> [--json]`,
+        compare: `Usage: simpleex compare <id1> <id2> [--history] [--json]`,
         gpu: `Usage: simpleex gpu status [--json]`,
         resource: `Usage: simpleex resource available [--json]`,
         server: `Usage: simpleex server list [--json]`,
