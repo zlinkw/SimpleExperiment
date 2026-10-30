@@ -104,6 +104,7 @@ export async function resultList(flags: CliFlags): Promise<number> {
 
 export async function resultShow(id: string, flags: CliFlags): Promise<number> {
   const match = selectResult(await loadResults(flags), id);
+  if (!match) throw businessError(`result not found: ${id}`);
   const payload = {
     id: match.id,
     experimentId: match.experimentId,
@@ -123,6 +124,7 @@ export async function resultShow(id: string, flags: CliFlags): Promise<number> {
 
 export async function resultExport(id: string, flags: CliFlags): Promise<number> {
   const match = selectResult(await loadResults(flags), id);
+  if (!match) throw businessError(`result not found: ${id}`);
   const format = String(flags.format || "json").toLowerCase();
   if (!["csv", "json"].includes(format)) throw usageError(`unsupported --format ${flags.format}. Use csv or json.`);
   const records = [match.record];
@@ -161,11 +163,11 @@ export async function resultExport(id: string, flags: CliFlags): Promise<number>
   return 0;
 }
 
-function selectResult(rows: ResultRow[], id: string): ResultRow {
+export function selectResult(rows: ResultRow[], id: string): ResultRow | undefined {
   const exact = rows.find(row => row.id === id);
   if (exact) return exact;
   const matches = rows.filter(row => row.experimentId === id || row.runKey === id);
-  if (!matches.length) throw businessError(`result not found: ${id}`);
+  if (!matches.length) return undefined;
   if (matches.length > 1) throw businessError("RESULT_SELECTION_AMBIGUOUS：此运行对应多行结果，请用精确结果 ID 查看或导出。", JSON.stringify({ id, candidates: matches.map(row => ({ id: row.id, seed: row.seed, dimensions: row.record.dimensions })) }));
   return matches[0];
 }

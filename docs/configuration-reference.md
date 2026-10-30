@@ -161,6 +161,20 @@ simpleex result export <历史结果id> --history --format csv --out historical-
 
 `result show/export` 优先使用精确结果 ID。运行 ID 或 experimentId 只有唯一匹配行时才兼容接受；多行时返回 `RESULT_SELECTION_AMBIGUOUS`，在错误详情列出候选 ID、种子和维度，原导出文件不变。先执行 `simpleex result list --json`，再复制所需行的精确 ID 查看或导出。该规则同样适用于明确的 `--history` 查询。
 
+## 审核中断与最终提交保护（0.5.447 试行版）
+
+批量审核每完成一个 PLAN，就把本轮已发现的产物隔离阻断保存到原 job。后续 PLAN 被取消、审核失败或配置变化时，这些阻断仍保留，重载后继续显示原因，不能因释放本批预约而重新进入自动派发。所有通过审核的 job 仍须等整批提交复核通过才创建新派发身份；不会因为提前保存阻断就提前运行。原传输结束后的精确路径重查和显存保护保留。
+
+手动派发会在实际停止原任务前重新读取队列，并在最终队列写入事务中核对最新状态。若所选 job 新增已确认完成事实、停止或召回意图，或所属 PLAN、代码、Worker、原 commandId、case/seed、声明输出路径变化，本次拒绝派发并保留这些事实。需要重跑已完成任务时，使用原有明确重跑入口。失败时仅释放本次预约，不清除完成、停止或产物证据；其他未选中的任务完成不会中断这次操作。
+
+`result show/export`、`metric show` 与 `compare` 共用相同选择规则：精确结果 ID 优先，experimentId/runKey 别名只允许唯一匹配。多行时返回 `RESULT_SELECTION_AMBIGUOUS` 及候选 ID，不自动选第一行、最后一行或计算平均值。先执行 `simpleex result list --json`，按所需种子和评测范围选择精确 ID；使用 `--history` 时同样如此。唯一别名及原本的无结果提示保留，`metric list` 仍列出当前可见结果中的指标名称。
+
+```powershell
+simpleex result list --json
+simpleex metric show <精确结果ID> --json
+simpleex compare <左侧精确结果ID> <右侧精确结果ID> --json
+```
+
 ## 旧值与新配置的区别
 
 新用户不再配置 workerRealtimeMode、workerTelemetryMode、控制节点或固定显存比例来代替当前 Worker 策略。旧字段保留兼容读取不表示仍有对应功能。single_worker 和旧拓扑标志读取后统一为 Worker 流程，不恢复已退役角色；新的 API/CLI 显式请求退役目标会被拒绝。

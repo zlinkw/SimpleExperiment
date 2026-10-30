@@ -55,6 +55,10 @@ class ManualDispatchHost {
         const targetKey = targets();
         return {
             load: () => h.loadDistributedQueue(this.root), save: async (q, options) => { const receipt = await h.saveDistributedQueue(this.root, q, options || {}); h.postState(); return receipt; },
+            commitReview: async (mutate) => {
+                await h.saveDistributedQueue(this.root, undefined, { controlMutation: true, mutateLatest: (latest) => ({ ...mutate(latest) }) });
+                h.postState();
+            },
             assertCurrent: () => { if (targets() !== targetKey || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath !== this.root || h.distributedPlanStopEpoch !== stopEpoch)
                 throw Error("项目、连接或停止请求已变化，未继续派发。"); },
             online: id => h.enabledWorkerConfigs().some((w) => w.id === id) && h.lastWorkerProbes?.[id]?.status === "ok",

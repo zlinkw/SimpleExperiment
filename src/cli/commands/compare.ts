@@ -1,8 +1,8 @@
 import { usageError } from "../errors";
 import { block, writeJson, writeText } from "../format";
 import { CliFlags, requirePositional } from "../parse";
-import { loadResults } from "./result";
-import { metricNumber } from "./metric";
+import { loadResults, selectResult } from "./result";
+import { numericMetrics } from "./metric";
 
 const LOWER_IS_BETTER = /(?:^|_)(loss|error|mse|mae|perplexity)(?:_|$)/i;
 
@@ -42,13 +42,6 @@ export async function compareEntry(rest: string[], flags: CliFlags): Promise<num
 }
 
 function metricsFor(rows: Awaited<ReturnType<typeof loadResults>>, id: string): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const row of rows) {
-    if (row.id !== id && row.experimentId !== id && row.runKey !== id) continue;
-    for (const [key, value] of Object.entries(row.metrics || {})) {
-      const numeric = metricNumber(value);
-      if (numeric !== null) out[key] = numeric;
-    }
-  }
-  return out;
+  const row = selectResult(rows, id);
+  return row ? numericMetrics(row) : {};
 }

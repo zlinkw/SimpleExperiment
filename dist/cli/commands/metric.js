@@ -51,10 +51,8 @@ async function metricList(flags) {
     return 0;
 }
 async function metricShow(id, flags) {
-    const rows = (await (0, result_1.loadResults)(flags)).filter((row) => matchesResult(row, id));
-    const metrics = {};
-    for (const row of rows)
-        Object.assign(metrics, numericMetrics(row));
+    const row = (0, result_1.selectResult)(await (0, result_1.loadResults)(flags), id);
+    const metrics = row ? numericMetrics(row) : {};
     if (flags.json)
         (0, format_1.writeJson)(metrics, flags.compactJson);
     else
@@ -76,7 +74,4 @@ function metricNumber(value) {
     if (typeof value === "string" && value.trim() && Number.isFinite(Number(value)))
         return Number(value);
     return null;
-}
-function matchesResult(row, id) {
-    return row.id === id || row.experimentId === id || row.runKey === id;
 }

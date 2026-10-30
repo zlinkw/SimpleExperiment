@@ -1,5 +1,6 @@
 import { DistributedQueue, outputIsolationNotice, QueuedJob, QueuedPlan } from "./DistributedPlanQueue";
 import { dispatchAdmissionDenied } from "../project/UnifiedDispatchAdmission";
+import { hasVerifiedCompletion } from "./VerifiedCompletion";
 
 export type ManualDispatchRequest = { workflowId: string; indices: number[]; workerId: string; gpuId?: string; gpuSelection?: "automatic" | "specific";
   expectedCommands?: Record<string, string>; stopRunning?: boolean };
@@ -7,6 +8,8 @@ export type ManualDispatchPorts = {
   load(): Promise<DistributedQueue>;
   /** save 可携带 dispatchAdmission 并回传统一准入回执（旧宿主不返回回执=行为不变）。 */
   save(queue: DistributedQueue, options?: { dispatchAdmission?: boolean }): Promise<unknown>;
+  /** Production host validates and mutates the latest queue under its write lease. */
+  commitReview?(mutate: (latest: DistributedQueue) => DistributedQueue): Promise<void>;
   assertCurrent(): void;
   online(workerId: string): boolean; supports(workerId: string): boolean; newCommandId(): string;
   prepare(plan: QueuedPlan): Promise<void>; stop(plan: QueuedPlan, job: QueuedJob): Promise<void>;
@@ -45,6 +48,22 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
     return { status: "submitted", fallbackToAutomatic: true, indices };
   }
   const identities = new Map(selected.map(job => [job.index, job.commandId || ""]));
+  const binding=(job:QueuedJob)=>JSON.stringify([job.index,job.commandId,job.workerId,job.case,job.seed,job.outputDir,job.collectionResultCsv]);
+  const bindings=new Map(selected.map(job=>[job.index,binding(job)]));
+  const currentSelection=(latest:DistributedQueue)=>{
+    ports.assertCurrent();
+    const current=latest.plans.find(row=>row.id===plan.id);
+    if(!current||current.revision!==plan.revision||current.projectId!==plan.projectId||current.codeFingerprint!==plan.codeFingerprint)
+      throw new Error("PLAN 已变化，未派发。");
+    const jobs=selected.map(original=>current.jobs.find(job=>job.index===original.index));
+    for(const job of jobs){
+      if(!job||binding(job)!==bindings.get(job.index))throw new Error("任务身份或声明已变化，未派发。");
+      if(job.status==="completed"||hasVerifiedCompletion(current,job))throw new Error("所选任务已确认完成，保留完成事实；请使用重跑入口，未派发。");
+      if(job.stopIntent||job.recallRequested)throw new Error("所选任务已有停止或召回意图，保留原意图；未继续派发。");
+    }
+    return {plan:current,jobs:jobs as QueuedJob[]};
+  };
+  currentSelection(queue);
   for (const job of selected) {
     if (request.expectedCommands && request.expectedCommands[job.index] !== (job.commandId || "")) throw new Error("任务已变化，请刷新后重新选择；未重复派发。");
     const uncertain = job.status === "dispatching" || job.status === "unknown" && job.commandId && !["missing", "failed", "exited"].includes(job.executionState || "");
@@ -62,13 +81,14 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
   let committed = false;
   try {
     if (ports.online(request.workerId)) await ports.prepare(plan);
-    for (const job of selected) if (job.commandId && job.workerId) {
-      ports.assertCurrent(); await ports.stop(plan, job);
+    queue=await ports.load();const prepared=currentSelection(queue);
+    for (const job of prepared.jobs) if (job.commandId && job.workerId) {
+      ports.assertCurrent(); await ports.stop(prepared.plan, job);
       job.status = "cancelled"; job.executionState = "missing";
     }
     ports.assertCurrent();
     await ports.save(queue);
-    const reviewed = await ports.review(plan, selected);
+    const reviewed = await ports.review(prepared.plan, prepared.jobs);
     if (reviewed === false) return { status: "cancelled", message: "文件审核已取消，未启动本批任务。" };
     // r82：三态消费——数组=接受子集；对象={accepted, blocked}成对；其余（true）=全部接受。
     // blocked 条目是隔离准入排除（本轮不派发），不得借用 retainExistingOutputs 的"用户保留"语义。
@@ -83,8 +103,8 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
       if (!ports.supports(request.workerId)) throw new Error("目标 Worker 尚不支持手动派发，请更新其 Agent/Scheduler。");
     }
     ports.assertCurrent();
-    const latest = await ports.load(), current = latest.plans.find(row => row.id === plan.id);
-    if (!current || current.revision !== plan.revision) throw new Error("PLAN 已变化，未派发。");
+    const commitReview = (latest:DistributedQueue) => {
+    const current = currentSelection(latest).plan;
     for (const original of selected.filter(job => !accepted.includes(job))) {
       const job = current.jobs.find(row => row.index === original.index); if (!job) continue;
       const decision = blockedDecisions.get(original.index);
@@ -126,16 +146,23 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
         checkpointTestOnly: undefined, localQueueOnly: true, blockReason: automatic ? "等待所选服务器的可用显卡与显存预算。" : online ? undefined : "目标服务器未连接，已回到自动派发队列。",
         manualDispatch: !automatic && online ? { workerId: request.workerId, gpuId, stage: "ready" } : undefined });
     }
-    await ports.save(latest); committed = true;
+    return latest;
+    };
+    if(ports.commitReview)await ports.commitReview(commitReview);
+    else await ports.save(commitReview(await ports.load()));
+    committed = true;
     // A later disconnect before sending can still fall back. Once marked sent it can only be queried.
     await ports.tick();
     return { status: "submitted", fallbackToAutomatic: !online, indices: accepted.map(job => job.index) };
   } finally {
     if (!committed) {
-      const latest = await ports.load();
+      const release = (latest:DistributedQueue) => {
       for (const p of latest.plans) if (p.id === plan.id) for (const job of p.jobs) if (identities.get(job.index) === (job.commandId || "") && job.manualDispatch?.stage === "preparing")
         job.manualDispatch = undefined;
-      await ports.save(latest);
+      return latest;
+      };
+      if(ports.commitReview)await ports.commitReview(release);
+      else await ports.save(release(await ports.load()));
     }
   }
 }

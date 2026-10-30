@@ -47,15 +47,6 @@ async function compareEntry(rest, flags) {
     return compareCommand(rest, flags);
 }
 function metricsFor(rows, id) {
-    const out = {};
-    for (const row of rows) {
-        if (row.id !== id && row.experimentId !== id && row.runKey !== id)
-            continue;
-        for (const [key, value] of Object.entries(row.metrics || {})) {
-            const numeric = (0, metric_1.metricNumber)(value);
-            if (numeric !== null)
-                out[key] = numeric;
-        }
-    }
-    return out;
+    const row = (0, result_1.selectResult)(rows, id);
+    return row ? (0, metric_1.numericMetrics)(row) : {};
 }

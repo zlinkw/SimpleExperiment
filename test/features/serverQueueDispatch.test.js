@@ -126,6 +126,26 @@ test('structured all-retained or all-blocked review creates no dispatch identity
   assert.ok(f.queue.plans[0].jobs.every(j=>blocked?!!j.outputIsolationBlocked:j.retainExistingOutputs===true));
  }}finally{ManualDispatchHost.prototype.review=old}
 });
+
+test('a later PLAN cancellation or failure cannot erase a previously observed isolation block',async()=>{
+ const old=ManualDispatchHost.prototype.review;
+ try{for(const outcome of ['cancel','error','quota-change']){
+  const f=fixture(2);f.queue.plans.push({...plan(1).plans[0],id:'later',planFile:'plans/later.yaml'});let reviews=0,observedAt;
+  ManualDispatchHost.prototype.review=async()=>{
+   if(++reviews===1)return {accepted:[1],blocked:[{index:0,reason:'transfer busy',stage:'execute',code:'ACTIVE_TRANSFER',operationId:'first-plan-op',busyOnly:true}]};
+   const blocked=f.queue.plans[0].jobs[0];assert.equal(blocked.outputIsolationBlocked.code,'ACTIVE_TRANSFER');observedAt=blocked.outputIsolationBlocked.observedAt;
+   if(outcome==='error')throw Error('later review failed');
+   if(outcome==='quota-change')f.h.schedulerSettings=()=>({gpuJobsPerCard:2});
+   return false;
+  };
+  await assert.rejects(f.host.dispatch({all:true},true),/取消|failed|变化/);assert.equal(reviews,2);assert.equal(f.sent.length,0);
+  const restored=Queue.restoreFormalJobQueue(JSON.parse(Queue.serializeDistributedQueue(f.queue))),blocked=restored.plans[0].jobs[0];
+  assert.equal(blocked.outputIsolationBlocked.code,'ACTIVE_TRANSFER');assert.equal(blocked.outputIsolationBlocked.operationId,'first-plan-op');
+  assert.equal(blocked.outputIsolationBlocked.observedAt,observedAt);assert.ok(blocked.blockReason);assert.equal(blocked.manualDispatch,undefined);assert.equal(blocked.nextCommandId,undefined);
+  const auto=Queue.allocateAvailable(Policy.localSchedulingQueue(restored),[{workerId:'w',online:true,idleGpuAdmission:true,declaredJobPaths:true,codeFingerprint:'code',idleGpuIds:['0'],gpuSlots:['0','0','0']}],{requireIdleGpuAdmission:true,localIdleOnly:true});
+  assert.ok(!auto.dispatches.some(row=>row.planId==='p'&&row.jobIndex===0));
+ }}finally{ManualDispatchHost.prototype.review=old}
+});
 test('unknown GPU data, cancelled review, changed quotas and changed jobs never turn into an enqueue or overwrite progress',async()=>{
  for(const kind of ['gpu','cancel','quota','job']){
   const f=fixture(7),old=ManualDispatchHost.prototype.review;

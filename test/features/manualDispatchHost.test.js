@@ -13,6 +13,28 @@ test('actual manual Host accepts a busy excluded visible GPU, preserves sync and
  const f=fixture();await f.host.ports().prepare({codeFingerprint:'hash',jobs:[{manualDispatch:{workerId:'w',gpuId:'0',stage:'preparing'}}]});
  assert.equal(f.sync,1);assert.equal(f.queries,2);
 });
+
+test('actual Host rechecks fresh completion and stop intent inside the final queue write transaction',async()=>{
+ const {dispatchManualJobs}=require('../../dist/features/ManualJobDispatch'),V=require('../../dist/features/VerifiedCompletion');
+ for(const change of ['complete','stop']){
+  const f=fixture();let writes=0,sends=0,injected=false;
+  let queue={plans:[{id:'p',projectId:'project',planFile:'plans/p.yaml',revision:'r',codeFingerprint:'hash',resultPathPolicy:'declared',executionMode:'train_test',
+   jobs:[{index:0,attempt:0,status:'running',commandId:'original',workerId:'b',case:'c',seed:42,outputDir:'work/c',collectionResultCsv:'tmp/c.csv'}]}]};
+  f.h.lastWorkerProbes={w:{status:'ok',capabilities:{endpoints:{manualDispatch:1}}}};
+  f.h.loadDistributedQueue=async()=>structuredClone(queue);
+  f.h.saveDistributedQueue=async(_,next,options)=>{
+   if(options?.mutateLatest){writes++;if(!injected){injected=true;const p=queue.plans[0],j=p.jobs[0];
+     if(change==='complete'){j.verifiedCompletion={schemaVersion:1,identity:V.completionIdentity(p,j),verifiedAt:'2026-10-30T00:00:00Z',exitCode:0};}
+     else j.stopIntent={commandId:'original',workerId:'b',state:'pending',requestedAt:'2026-10-30T00:00:00Z'};}
+    queue=structuredClone(options.mutateLatest(structuredClone(queue)));
+   }else queue=structuredClone(next);
+  };
+  const ports=f.host.ports();ports.stop=async()=>{};ports.review=async()=>true;ports.send=async()=>sends++;
+  await assert.rejects(dispatchManualJobs(ports,{workflowId:'p',indices:[0],workerId:'w',gpuId:'0',stopRunning:true,expectedCommands:{0:'original'}}),/完成|停止/);
+  assert.ok(writes>=1);assert.equal(sends,0);assert.equal(queue.plans[0].jobs[0].commandId,'original');
+  if(change==='complete')assert.ok(queue.plans[0].jobs[0].verifiedCompletion);else assert.equal(queue.plans[0].jobs[0].stopIntent.state,'pending');
+ }
+});
 test('manual selection leaves automatic dispatch available and cancellation leaves other gates intact',async()=>{
  const f=fixture();f.picks.showQuickPick=async()=>{assert.equal(f.h.manualDispatchInFlight.size,0);f.h.manualDispatchInFlight.add('other');return undefined;};
  const result=await f.host.dispatch({workflowId:'p',indices:[0],expectedCommands:{0:''}},true);
@@ -56,7 +78,7 @@ test('unknown Worker and invisible GPU fail before sync, stopping or deletion',a
 test('actual GPU picker offers Worker-local automatic dispatch even when no GPU snapshot is available',async()=>{
  const f=fixture();let queue={plans:[{id:'p',revision:'r',codeFingerprint:'hash',resultPathPolicy:'declared',executionMode:'train',jobs:[
   {index:0,case:'c',seed:1,attempt:0,status:'pending',outputDir:'work/c',collectionResultCsv:'result/c.csv'}]}]},picks=0;
- f.h.loadDistributedQueue=async()=>structuredClone(queue);f.h.saveDistributedQueue=async(_,next)=>{queue=structuredClone(next);};
+ f.h.loadDistributedQueue=async()=>structuredClone(queue);f.h.saveDistributedQueue=async(_,next,options)=>{queue=structuredClone(options?.mutateLatest?options.mutateLatest(structuredClone(queue)):next);};
  f.h.lastWorkerProbes={w:{status:'ok',capabilities:{endpoints:{manualDispatch:1}}}};
  f.h.client.getGpu=async()=>{throw Error('GPU query unavailable');};
  f.h.sendDistributedJob=async()=>assert.fail('automatic placement must wait for normal budget admission');
@@ -81,7 +103,7 @@ test('actual Host cancels an unacknowledged original command and actively verifi
  const f=fixture(),events=[];let cancelled=false,sends=0;
  let queue={plans:[{id:'p',projectId:'project-id',planFile:'plans/p.yaml',revision:'revision',codeFingerprint:'hash',executionMode:'train_test',resultPathPolicy:'declared',
   jobs:[{index:0,attempt:0,status:'unknown',workerId:'b',commandId:'original',case:'c',seed:42,outputDir:'work/job',collectionResultCsv:'tmp/job.csv'}]}]};
- f.h.loadDistributedQueue=async()=>structuredClone(queue);f.h.saveDistributedQueue=async(_,next)=>{queue=structuredClone(next);};
+ f.h.loadDistributedQueue=async()=>structuredClone(queue);f.h.saveDistributedQueue=async(_,next,options)=>{queue=structuredClone(options?.mutateLatest?options.mutateLatest(structuredClone(queue)):next);};
  f.h.lastWorkerProbes={w:{status:'ok',capabilities:{endpoints:{manualDispatch:1}}},b:{status:'ok'}};
  f.h.client.postWorkerAction=async(worker,action,payload)=>{
   assert.equal(worker,'b');assert.equal(action,'stop-worker-task');assert.equal(payload.targetCommandId,'original');

@@ -1,7 +1,7 @@
 import { businessError, usageError } from "../errors";
 import { writeJson, writeText } from "../format";
 import { CliFlags, requirePositional } from "../parse";
-import { loadResults, ResultRow } from "./result";
+import { loadResults, ResultRow, selectResult } from "./result";
 import { buildLeaderboard, leaderboardToMarkdown, parseMetricsFile } from "../../features/Metrics";
 
 export async function metricCommand(action: string, rest: string[], flags: CliFlags): Promise<number> {
@@ -36,9 +36,8 @@ export async function metricList(flags: CliFlags): Promise<number> {
 }
 
 export async function metricShow(id: string, flags: CliFlags): Promise<number> {
-  const rows = (await loadResults(flags)).filter((row) => matchesResult(row, id));
-  const metrics: Record<string, unknown> = {};
-  for (const row of rows) Object.assign(metrics, numericMetrics(row));
+  const row = selectResult(await loadResults(flags), id);
+  const metrics = row ? numericMetrics(row) : {};
   if (flags.json) writeJson(metrics, flags.compactJson);
   else writeText(Object.entries(metrics).map(([key, value]) => `${key}: ${String(value)}`).join("\n") || "(no metrics)");
   return 0;
@@ -57,8 +56,4 @@ export function metricNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
   return null;
-}
-
-function matchesResult(row: ResultRow, id: string): boolean {
-  return row.id === id || row.experimentId === id || row.runKey === id;
 }

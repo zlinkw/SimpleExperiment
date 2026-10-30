@@ -4,6 +4,8 @@ Default JSON fields. `--full` returns the existing detailed payload.
 
 ## result list / show / export
 
+0.5.447 试行版：metric show 和 compare 同样使用此处的精确 ID/唯一别名规则，多行返回 BUSINESS / RESULT_SELECTION_AMBIGUOUS 与候选详情，不混合指标。精确 ID 和唯一别名的成功 JSON 结构不变；metric show 无匹配仍为 `{}`，compare 无匹配仍提供原 reason。
+
 0.5.446 试行版：精确 id 优先；使用 experimentId/runKey 且匹配多行时，show/export 返回 BUSINESS 错误 `RESULT_SELECTION_AMBIGUOUS`，detail 包含 `{id,candidates:[{id,seed,dimensions}]}`，不会写入导出目标。唯一别名继续可用。结果查询与手动派发不使用客户端 15 秒 RPC 截止，仍保留实际服务端结果核实与普通状态请求截止；断线时不自动重发派发请求。
 
 0.5.445 试行版默认只读取 `results.list` 的本轮 `active_query`；整批未核实或 API 连接失败时返回错误，不混用本机 registry 或旧 Worker 汇总。按完整运行身份、维度和来源路径生成现代结果稳定 ID，并读取 `summary.results` 完整集合，而非仅顶层预览。

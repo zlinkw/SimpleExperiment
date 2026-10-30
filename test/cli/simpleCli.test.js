@@ -291,6 +291,15 @@ test('active result rows retain exact identities across order changes and failed
   data.setProjectRoot(dir);const rows=await loadResults();assert.equal(rows.length,4);assert.equal(new Set(rows.map(r=>r.id)).size,4);assert.ok(rows.every(r=>r.current&&r.source==='active_query'));
   records.reverse();assert.deepEqual((await loadResults()).map(r=>r.id).sort(),rows.map(r=>r.id).sort());
   const zero=rows[0];format.writeJson=value=>{output=JSON.stringify(value);};
+  const {metricShow}=require('../../dist/cli/commands/metric.js'),{compareCommand}=require('../../dist/cli/commands/compare.js');
+  for(const ordered of [records,[...records].reverse()]){
+    records=ordered;
+    await assert.rejects(metricShow('run-0',{json:true}),/RESULT_SELECTION_AMBIGUOUS/);
+    await assert.rejects(compareCommand(['run-0',zero.id],{json:true}),/RESULT_SELECTION_AMBIGUOUS/);
+    await assert.rejects(compareCommand([zero.id,'run-0'],{json:true}),/RESULT_SELECTION_AMBIGUOUS/);
+    await metricShow(zero.id,{json:true});assert.equal(JSON.parse(output).auc,0.8);
+    await compareCommand([zero.id,rows[1].id],{json:true});assert.equal(JSON.parse(output).metric_difference.auc.delta,0.01);
+  }
   await assert.rejects(resultShow('run-0',{json:true}),error=>{
     assert.match(error.message,/RESULT_SELECTION_AMBIGUOUS/);assert.equal(JSON.parse(error.detail).candidates.length,4);return true;
   });
@@ -300,6 +309,9 @@ test('active result rows retain exact identities across order changes and failed
   await resultShow(zero.id,{json:true});let detail=JSON.parse(output);assert.equal(detail.seed,0);assert.equal(detail.metrics.auc,0.8);assert.equal(detail.current,true);
   output='';await resultExport(zero.id,{json:true,format:'json'});const exported=JSON.parse(output);assert.equal(exported.current,true);assert.equal(JSON.parse(exported.content).metrics.auc,0.8);assert.equal(JSON.parse(exported.content).rows.length,1);
   records=[make('a','unique-command',0,'clean')];await resultShow('unique-command',{json:true});assert.equal(JSON.parse(output).experimentId,'unique-command');
+  await metricShow('unique-command',{json:true});assert.equal(JSON.parse(output).auc,0.8);
+  await metricShow('missing',{json:true});assert.deepEqual(JSON.parse(output),{});
+  await compareCommand(['missing','unique-command'],{json:true});assert.match(JSON.parse(output).reason,/no results recorded for missing/);
   const dest=path.join(dir,'existing-export.json');fs.writeFileSync(dest,'keep existing export','utf8');current=false;
   await assert.rejects(resultExport(zero.id,{json:true,out:dest}),/RESULT_QUERY_UNVERIFIED/);assert.equal(fs.readFileSync(dest,'utf8'),'keep existing export');
   api.callApi=async()=>{throw Error('connection reset');};await assert.rejects(loadResults(),/connection reset/);

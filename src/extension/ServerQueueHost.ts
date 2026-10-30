@@ -53,6 +53,14 @@ export class ServerQueueHost {
         return {...latest};
       }});reservedOnDisk=true;
       const ports=new ManualDispatchHost(h,this.root).ports(), approved=new Set<string>(), blocked=new Map<string,any>();
+      const markBlocked=(job:any,decision:any)=>{
+        job.outputIsolationBlocked||={reason:String(decision.reason||"隔离结果未核实"),
+          stage:["preview","execute","verify"].includes(decision.stage)?decision.stage:"execute",
+          ...(decision.code?{code:String(decision.code)}:{}),...(decision.operationId?{operationId:String(decision.operationId)}:{}),
+          ...(Array.isArray(decision.codes)?{codes:decision.codes.map(String)}:{}),...(typeof decision.busyOnly==="boolean"?{busyOnly:decision.busyOnly}:{}),
+          declarationKey:job.outputDir,observedAt:new Date().toISOString()};
+        job.blockReason=outputIsolationNotice(job);
+      };
       for(const planId of new Set(reserved.map(item=>item.plan.id))){
         current();const plan=reserved.find(item=>item.plan.id===planId).plan;
         const jobs=reserved.filter(item=>item.plan.id===planId).map(item=>({...item.job,
@@ -68,24 +76,28 @@ export class ServerQueueHost {
         const accepted=Array.isArray(reviewed)?reviewed:reviewed&&typeof reviewed==="object"?reviewed.accepted||[]:jobs.map(job=>job.index);
         for(const job of jobs){const id=identity(plan,job),decision=decisions.get(job.index);
           if(decision)blocked.set(id,decision);else if(accepted.includes(job.index))approved.add(id);}
+        // A failed/cancelled later PLAN cannot erase a safety fact already
+        // observed for this one. Keep reservations until the whole batch settles.
+        const blockedHere=reserved.filter(item=>item.plan.id===planId&&blocked.has(item.identity));
+        if(blockedHere.length)await h.saveDistributedQueue(this.root,undefined,{controlMutation:true,mutateLatest:(latest:any)=>{
+          current();
+          for(const item of blockedHere){const p=latest.plans.find((p:any)=>p.id===item.plan.id),job=p?.jobs.find((j:any)=>j.index===item.job.index);
+            if(!reservationMatches(p,job,item))throw Error("审核目标已变化，未改写其他任务的阻断。");}
+          for(const item of blockedHere){const job=latest.plans.find((p:any)=>p.id===item.plan.id).jobs.find((j:any)=>j.index===item.job.index);markBlocked(job,blocked.get(item.identity));}
+          return {...latest};
+        }});
       }
       distribution=quotaQueuePlacements(approved.size,cards);
       let placementIndex=0;for(const item of reserved)if(approved.has(item.identity))item.placement=distribution.placements[placementIndex++];
       await h.saveDistributedQueue(this.root,undefined,{controlMutation:true,mutateLatest:(latest:any)=>{
         current();
         for(const item of reserved){const plan=latest.plans.find((p:any)=>p.id===item.plan.id),job=plan?.jobs.find((j:any)=>j.index===item.job.index);
-          if(!reservationMatches(plan,job,item)||job.stopIntent||job.outputIsolationBlocked)throw Error("排队批次已变化，未提交新任务。");}
+          if(!reservationMatches(plan,job,item)||job.stopIntent||job.outputIsolationBlocked&&!blocked.has(item.identity))throw Error("排队批次已变化，未提交新任务。");}
         for(const item of reserved){const plan=latest.plans.find((p:any)=>p.id===item.plan.id),job=plan.jobs.find((j:any)=>j.index===item.job.index);
           if(approved.has(item.identity)){job.nextCommandId=randomUUID().replaceAll("-","");job.manualDispatch={...item.placement,stage:"ready",origin:"server_queue",batchId};job.localQueueOnly=true;}
           else if(blocked.has(item.identity)){
-            const decision=blocked.get(item.identity);
-            Object.assign(job,{manualDispatch:undefined,nextCommandId:undefined,manualDispatchNotice:undefined,retainExistingOutputs:undefined,
-              outputIsolationBlocked:{reason:String(decision.reason||"隔离结果未核实"),
-                stage:["preview","execute","verify"].includes(decision.stage)?decision.stage:"execute",
-                ...(decision.code?{code:String(decision.code)}:{}),...(decision.operationId?{operationId:String(decision.operationId)}:{}),
-                ...(Array.isArray(decision.codes)?{codes:decision.codes.map(String)}:{}),...(typeof decision.busyOnly==="boolean"?{busyOnly:decision.busyOnly}:{}),
-                declarationKey:job.outputDir,observedAt:new Date().toISOString()}});
-            job.blockReason=outputIsolationNotice(job);
+            Object.assign(job,{manualDispatch:undefined,nextCommandId:undefined,manualDispatchNotice:undefined,retainExistingOutputs:undefined});
+            markBlocked(job,blocked.get(item.identity));
           }else Object.assign(job,{manualDispatch:undefined,retainExistingOutputs:true,status:"cancelled",manualDispatchNotice:"保留已有产物，本次未派发。"});}
         return {...latest};
       }});

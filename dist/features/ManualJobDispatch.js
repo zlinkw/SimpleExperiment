@@ -4,6 +4,7 @@ exports.dispatchManualJobs = dispatchManualJobs;
 exports.dispatchReadyManualJobs = dispatchReadyManualJobs;
 const DistributedPlanQueue_1 = require("./DistributedPlanQueue");
 const UnifiedDispatchAdmission_1 = require("../project/UnifiedDispatchAdmission");
+const VerifiedCompletion_1 = require("./VerifiedCompletion");
 /** One placement intent; transport responses never prove acceptance or permit a second launch. */
 async function dispatchManualJobs(ports, request) {
     ports.assertCurrent();
@@ -37,6 +38,25 @@ async function dispatchManualJobs(ports, request) {
         return { status: "submitted", fallbackToAutomatic: true, indices };
     }
     const identities = new Map(selected.map(job => [job.index, job.commandId || ""]));
+    const binding = (job) => JSON.stringify([job.index, job.commandId, job.workerId, job.case, job.seed, job.outputDir, job.collectionResultCsv]);
+    const bindings = new Map(selected.map(job => [job.index, binding(job)]));
+    const currentSelection = (latest) => {
+        ports.assertCurrent();
+        const current = latest.plans.find(row => row.id === plan.id);
+        if (!current || current.revision !== plan.revision || current.projectId !== plan.projectId || current.codeFingerprint !== plan.codeFingerprint)
+            throw new Error("PLAN 已变化，未派发。");
+        const jobs = selected.map(original => current.jobs.find(job => job.index === original.index));
+        for (const job of jobs) {
+            if (!job || binding(job) !== bindings.get(job.index))
+                throw new Error("任务身份或声明已变化，未派发。");
+            if (job.status === "completed" || (0, VerifiedCompletion_1.hasVerifiedCompletion)(current, job))
+                throw new Error("所选任务已确认完成，保留完成事实；请使用重跑入口，未派发。");
+            if (job.stopIntent || job.recallRequested)
+                throw new Error("所选任务已有停止或召回意图，保留原意图；未继续派发。");
+        }
+        return { plan: current, jobs: jobs };
+    };
+    currentSelection(queue);
     for (const job of selected) {
         if (request.expectedCommands && request.expectedCommands[job.index] !== (job.commandId || ""))
             throw new Error("任务已变化，请刷新后重新选择；未重复派发。");
@@ -58,16 +78,18 @@ async function dispatchManualJobs(ports, request) {
     try {
         if (ports.online(request.workerId))
             await ports.prepare(plan);
-        for (const job of selected)
+        queue = await ports.load();
+        const prepared = currentSelection(queue);
+        for (const job of prepared.jobs)
             if (job.commandId && job.workerId) {
                 ports.assertCurrent();
-                await ports.stop(plan, job);
+                await ports.stop(prepared.plan, job);
                 job.status = "cancelled";
                 job.executionState = "missing";
             }
         ports.assertCurrent();
         await ports.save(queue);
-        const reviewed = await ports.review(plan, selected);
+        const reviewed = await ports.review(prepared.plan, prepared.jobs);
         if (reviewed === false)
             return { status: "cancelled", message: "文件审核已取消，未启动本批任务。" };
         // r82：三态消费——数组=接受子集；对象={accepted, blocked}成对；其余（true）=全部接受。
@@ -86,54 +108,58 @@ async function dispatchManualJobs(ports, request) {
                 throw new Error("目标 Worker 尚不支持手动派发，请更新其 Agent/Scheduler。");
         }
         ports.assertCurrent();
-        const latest = await ports.load(), current = latest.plans.find(row => row.id === plan.id);
-        if (!current || current.revision !== plan.revision)
-            throw new Error("PLAN 已变化，未派发。");
-        for (const original of selected.filter(job => !accepted.includes(job))) {
-            const job = current.jobs.find(row => row.index === original.index);
-            if (!job)
-                continue;
-            const decision = blockedDecisions.get(original.index);
-            if (decision) {
-                // 隔离未完成/核验未知：job 保持可见 pending、清掉手动派发身份（不得占用派发身份），
-                // 打 job 级阻断标记+如实原因——它是"待重新审核"，不是"用户保留/沿用完成"。
-                Object.assign(job, { manualDispatch: undefined, manualDispatchNotice: undefined, retainExistingOutputs: undefined,
-                    automaticWorkerId: automatic ? request.workerId : undefined,
-                    outputIsolationBlocked: { reason: String(decision.reason || "隔离结果未核实"),
-                        stage: decision.stage === "preview" || decision.stage === "execute" || decision.stage === "verify" ? decision.stage : "execute",
-                        ...(decision.code ? { code: String(decision.code) } : {}), ...(decision.operationId ? { operationId: String(decision.operationId) } : {}),
-                        ...(Array.isArray(decision.codes) ? { codes: decision.codes.map(String) } : {}), ...(typeof decision.busyOnly === "boolean" ? { busyOnly: decision.busyOnly } : {}),
-                        declarationKey: job.outputDir, observedAt: new Date().toISOString() } });
-                job.blockReason = (0, DistributedPlanQueue_1.outputIsolationNotice)(job);
-                continue;
+        const commitReview = (latest) => {
+            const current = currentSelection(latest).plan;
+            for (const original of selected.filter(job => !accepted.includes(job))) {
+                const job = current.jobs.find(row => row.index === original.index);
+                if (!job)
+                    continue;
+                const decision = blockedDecisions.get(original.index);
+                if (decision) {
+                    // 隔离未完成/核验未知：job 保持可见 pending、清掉手动派发身份（不得占用派发身份），
+                    // 打 job 级阻断标记+如实原因——它是"待重新审核"，不是"用户保留/沿用完成"。
+                    Object.assign(job, { manualDispatch: undefined, manualDispatchNotice: undefined, retainExistingOutputs: undefined,
+                        automaticWorkerId: automatic ? request.workerId : undefined,
+                        outputIsolationBlocked: { reason: String(decision.reason || "隔离结果未核实"),
+                            stage: decision.stage === "preview" || decision.stage === "execute" || decision.stage === "verify" ? decision.stage : "execute",
+                            ...(decision.code ? { code: String(decision.code) } : {}), ...(decision.operationId ? { operationId: String(decision.operationId) } : {}),
+                            ...(Array.isArray(decision.codes) ? { codes: decision.codes.map(String) } : {}), ...(typeof decision.busyOnly === "boolean" ? { busyOnly: decision.busyOnly } : {}),
+                            declarationKey: job.outputDir, observedAt: new Date().toISOString() } });
+                    job.blockReason = (0, DistributedPlanQueue_1.outputIsolationNotice)(job);
+                    continue;
+                }
+                Object.assign(job, { manualDispatch: undefined, retainExistingOutputs: true, status: "cancelled", manualDispatchNotice: "保留已有完成产物，本次未派发。" });
             }
-            Object.assign(job, { manualDispatch: undefined, retainExistingOutputs: true, status: "cancelled", manualDispatchNotice: "保留已有完成产物，本次未派发。" });
-        }
-        for (const original of accepted) {
-            const job = current.jobs.find(row => row.index === original.index);
-            if (!job || (job.commandId || "") !== identities.get(job.index))
-                throw new Error("任务已变化，未派发。");
-            job.history = [...(job.history || []), ...(job.commandId ? [{ attempt: 0, status: job.status, commandId: job.commandId,
-                        workerId: job.workerId, outputDir: job.outputDir, stopReason: "manual-dispatch" }] : [])];
-            Object.assign(job, { nextCommandId: ports.newCommandId(), commandId: undefined, workerId: undefined, gpuId: undefined,
-                runKey: undefined, status: "pending", lifecycleProtocol: 2, actualExecutionMode: current.executionMode,
-                executionState: undefined, resultState: undefined, finishedAt: undefined, error: undefined,
-                runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined,
-                stopIntent: undefined, automaticRetry: undefined, recallRequested: undefined, reassignmentPending: undefined,
-                unavailable: undefined, cleanup: undefined, outputRetiredAt: undefined, trainingRecovery: undefined, retainExistingOutputs: undefined,
-                // r82：走到这里=用户经既有审核路径、精确声明未变（上方身份核对）且本轮隔离完成核验通过，
-                // 随同一次 save 事务性解除阻断标记——除此之外任何路径（投影/合并/重排/重试）都不得清标。
-                outputIsolationBlocked: undefined,
-                trustedTerminalStatus: undefined, admissionRejection: undefined, formalConflictEvidence: undefined, originalExecution: undefined,
-                statusQueryError: undefined, lastObservedAt: undefined, tmuxWindowId: undefined, tmuxPane: undefined, tmuxSession: undefined,
-                artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, artifactStageBlock: undefined, latestArtifactSync: undefined, mirroredWorkerIds: undefined, fragmentWorkerIds: undefined,
-                automaticWorkerId: automatic ? request.workerId : undefined,
-                gpuMemoryReservation: undefined, gpuMemoryWaitReason: undefined, reassignmentWorkerId: undefined,
-                manualDispatchNotice: automatic ? "已在所选服务器自动选卡队列中等待，沿用显存预算与并行上限。" : online ? undefined : "目标服务器未连接，已回到自动派发队列。",
-                checkpointTestOnly: undefined, localQueueOnly: true, blockReason: automatic ? "等待所选服务器的可用显卡与显存预算。" : online ? undefined : "目标服务器未连接，已回到自动派发队列。",
-                manualDispatch: !automatic && online ? { workerId: request.workerId, gpuId, stage: "ready" } : undefined });
-        }
-        await ports.save(latest);
+            for (const original of accepted) {
+                const job = current.jobs.find(row => row.index === original.index);
+                if (!job || (job.commandId || "") !== identities.get(job.index))
+                    throw new Error("任务已变化，未派发。");
+                job.history = [...(job.history || []), ...(job.commandId ? [{ attempt: 0, status: job.status, commandId: job.commandId,
+                            workerId: job.workerId, outputDir: job.outputDir, stopReason: "manual-dispatch" }] : [])];
+                Object.assign(job, { nextCommandId: ports.newCommandId(), commandId: undefined, workerId: undefined, gpuId: undefined,
+                    runKey: undefined, status: "pending", lifecycleProtocol: 2, actualExecutionMode: current.executionMode,
+                    executionState: undefined, resultState: undefined, finishedAt: undefined, error: undefined,
+                    runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined,
+                    stopIntent: undefined, automaticRetry: undefined, recallRequested: undefined, reassignmentPending: undefined,
+                    unavailable: undefined, cleanup: undefined, outputRetiredAt: undefined, trainingRecovery: undefined, retainExistingOutputs: undefined,
+                    // r82：走到这里=用户经既有审核路径、精确声明未变（上方身份核对）且本轮隔离完成核验通过，
+                    // 随同一次 save 事务性解除阻断标记——除此之外任何路径（投影/合并/重排/重试）都不得清标。
+                    outputIsolationBlocked: undefined,
+                    trustedTerminalStatus: undefined, admissionRejection: undefined, formalConflictEvidence: undefined, originalExecution: undefined,
+                    statusQueryError: undefined, lastObservedAt: undefined, tmuxWindowId: undefined, tmuxPane: undefined, tmuxSession: undefined,
+                    artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, artifactStageBlock: undefined, latestArtifactSync: undefined, mirroredWorkerIds: undefined, fragmentWorkerIds: undefined,
+                    automaticWorkerId: automatic ? request.workerId : undefined,
+                    gpuMemoryReservation: undefined, gpuMemoryWaitReason: undefined, reassignmentWorkerId: undefined,
+                    manualDispatchNotice: automatic ? "已在所选服务器自动选卡队列中等待，沿用显存预算与并行上限。" : online ? undefined : "目标服务器未连接，已回到自动派发队列。",
+                    checkpointTestOnly: undefined, localQueueOnly: true, blockReason: automatic ? "等待所选服务器的可用显卡与显存预算。" : online ? undefined : "目标服务器未连接，已回到自动派发队列。",
+                    manualDispatch: !automatic && online ? { workerId: request.workerId, gpuId, stage: "ready" } : undefined });
+            }
+            return latest;
+        };
+        if (ports.commitReview)
+            await ports.commitReview(commitReview);
+        else
+            await ports.save(commitReview(await ports.load()));
         committed = true;
         // A later disconnect before sending can still fall back. Once marked sent it can only be queried.
         await ports.tick();
@@ -141,13 +167,18 @@ async function dispatchManualJobs(ports, request) {
     }
     finally {
         if (!committed) {
-            const latest = await ports.load();
-            for (const p of latest.plans)
-                if (p.id === plan.id)
-                    for (const job of p.jobs)
-                        if (identities.get(job.index) === (job.commandId || "") && job.manualDispatch?.stage === "preparing")
-                            job.manualDispatch = undefined;
-            await ports.save(latest);
+            const release = (latest) => {
+                for (const p of latest.plans)
+                    if (p.id === plan.id)
+                        for (const job of p.jobs)
+                            if (identities.get(job.index) === (job.commandId || "") && job.manualDispatch?.stage === "preparing")
+                                job.manualDispatch = undefined;
+                return latest;
+            };
+            if (ports.commitReview)
+                await ports.commitReview(release);
+            else
+                await ports.save(release(await ports.load()));
         }
     }
 }

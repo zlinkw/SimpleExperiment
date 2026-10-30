@@ -39,6 +39,7 @@ exports.resultPaperTable = resultPaperTable;
 exports.resultList = resultList;
 exports.resultShow = resultShow;
 exports.resultExport = resultExport;
+exports.selectResult = selectResult;
 exports.loadResults = loadResults;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
@@ -145,6 +146,8 @@ async function resultList(flags) {
 }
 async function resultShow(id, flags) {
     const match = selectResult(await loadResults(flags), id);
+    if (!match)
+        throw (0, errors_1.businessError)(`result not found: ${id}`);
     const payload = {
         id: match.id,
         experimentId: match.experimentId,
@@ -165,6 +168,8 @@ async function resultShow(id, flags) {
 }
 async function resultExport(id, flags) {
     const match = selectResult(await loadResults(flags), id);
+    if (!match)
+        throw (0, errors_1.businessError)(`result not found: ${id}`);
     const format = String(flags.format || "json").toLowerCase();
     if (!["csv", "json"].includes(format))
         throw (0, errors_1.usageError)(`unsupported --format ${flags.format}. Use csv or json.`);
@@ -211,7 +216,7 @@ function selectResult(rows, id) {
         return exact;
     const matches = rows.filter(row => row.experimentId === id || row.runKey === id);
     if (!matches.length)
-        throw (0, errors_1.businessError)(`result not found: ${id}`);
+        return undefined;
     if (matches.length > 1)
         throw (0, errors_1.businessError)("RESULT_SELECTION_AMBIGUOUS：此运行对应多行结果，请用精确结果 ID 查看或导出。", JSON.stringify({ id, candidates: matches.map(row => ({ id: row.id, seed: row.seed, dimensions: row.record.dimensions })) }));
     return matches[0];

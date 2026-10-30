@@ -6,6 +6,42 @@ function fixture(){let q={plans:[{id:'p',planFile:'experiments/plans/p.yaml',rev
   prepare:async()=>{prepare++},stop:async()=>{stop++},review:async()=>allow,send:async()=>{send++;throw Error('response lost')},tick:()=>dispatchReadyManualJobs(ports)};
  return {ports,get q(){return q},get sends(){return send},get stops(){return stop},get preparations(){return prepare},offline:()=>online=false,cancel:()=>allow=false,old:()=>supported=false};}
 const request={workflowId:'p',indices:[0,1],workerId:'worker',gpuId:'0',stopRunning:true,expectedCommands:{0:'',1:''}};
+
+test('fresh completion, stop/recall intent and changed identities are preserved before stop and at review commit',async()=>{
+ const Queue=require('../../dist/features/DistributedPlanQueue'),V=require('../../dist/features/VerifiedCompletion');
+ for(const stage of ['prepare','review','commit'])for(const change of ['verified','stop','recall','output','code']){
+  const f=fixture(),initial=await f.ports.load();initial.plans[0].projectId='project';
+  Object.assign(initial.plans[0].jobs[0],{commandId:'original',workerId:'worker',status:'running',lifecycleProtocol:2});await f.ports.save(initial);
+  const advance=async()=>{
+   const latest=await f.ports.load(),p=latest.plans[0],j=p.jobs[0];
+   if(change==='verified'){j.status='unknown';j.verifiedCompletion={schemaVersion:1,identity:V.completionIdentity(p,j),verifiedAt:'2026-10-30T00:00:00Z',exitCode:0};}
+   if(change==='stop')j.stopIntent={commandId:'original',workerId:'worker',state:'pending',requestedAt:'2026-10-30T00:00:00Z'};
+   if(change==='recall')j.recallRequested=true;
+   if(change==='output')j.outputDir='work/new-declaration';
+   if(change==='code')p.codeFingerprint='new-code';
+   await f.ports.save(latest);
+  };
+  if(stage==='prepare')f.ports.prepare=advance;
+  f.ports.review=async()=>{if(stage==='review')await advance();return true;};
+  f.ports.commitReview=async mutate=>{if(stage==='commit')await advance();await f.ports.save(mutate(await f.ports.load()));};
+  await assert.rejects(dispatchManualJobs(f.ports,{...request,indices:[0],expectedCommands:{0:'original'}}),/完成|停止|召回|身份|声明|PLAN/);
+  assert.equal(f.sends,0);assert.equal(f.q.plans[0].jobs[0].commandId,'original');assert.equal(f.q.plans[0].jobs[0].nextCommandId,undefined);
+  if(stage==='prepare')assert.equal(f.stops,0);
+  const restored=Queue.restoreFormalJobQueue(JSON.parse(Queue.serializeDistributedQueue(f.q))),j=restored.plans[0].jobs[0];
+  if(change==='verified'){assert.equal(j.status,'completed');assert.ok(j.verifiedCompletion);assert.equal(j.verifiedCompletion.exitCode,0);}
+  if(change==='stop')assert.equal(j.stopIntent.state,'pending');
+  if(change==='recall')assert.equal(j.recallRequested,true);
+  if(change==='output')assert.equal(j.outputDir,'work/new-declaration');
+  if(change==='code')assert.equal(restored.plans[0].codeFingerprint,'new-code');
+ }
+});
+
+test('an unrelated job completing during manual review does not block the selected job or lose its evidence',async()=>{
+ const f=fixture();f.ports.review=async()=>{const latest=await f.ports.load();Object.assign(latest.plans[0].jobs[1],{status:'completed',commandId:'unrelated',workerId:'worker',completionState:'verified'});await f.ports.save(latest);return true;};
+ f.ports.commitReview=async mutate=>f.ports.save(mutate(await f.ports.load()));
+ assert.equal((await dispatchManualJobs(f.ports,{...request,indices:[0]})).status,'submitted');assert.equal(f.sends,1);
+ assert.equal(f.q.plans[0].jobs[1].commandId,'unrelated');assert.equal(f.q.plans[0].jobs[1].completionState,'verified');
+});
 test('automatic GPU selection persists only the Worker and waits in the normal allocator across reloads',async()=>{
  const f=fixture(),Queue=require('../../dist/features/DistributedPlanQueue');
  const result=await dispatchManualJobs(f.ports,{...request,gpuId:undefined,gpuSelection:'automatic'});
