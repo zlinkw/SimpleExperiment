@@ -12,6 +12,39 @@ test('help resolves an installed CLI without any discovery or running window',as
  for(const argv of [['--help'],['help'],[],['result','--help']])assert.equal(await resolveCli({extensionsRoot:extensions,discoveryFile:path.join(root,'missing.json'),argv}),path.join(dir,'dist/cli.js'));
 });
 
+test('default launcher checks the project and frozen instance routing reuses only that record with fresh handshakes',async()=>{
+ const appdata=path.join(root,'bound-routing'),extensions=path.join(root,'bound-extensions'),dir=path.join(extensions,'simple-local.simple-experiment-5.0.0');
+ fs.mkdirSync(path.join(dir,'dist'),{recursive:true});fs.writeFileSync(path.join(dir,'package.json'),JSON.stringify({name:'simple-experiment',publisher:'simple-local',version:'5.0.0'}),'utf8');fs.writeFileSync(path.join(dir,'dist/cli.js'),'// resolution fixture','utf8');
+ const apiDir=path.join(appdata,'SimpleExperiment'),file=path.join(apiDir,'api.json'),workspace=process.cwd(),other=path.join(root,'other-project'),instanceId='55:2026-01-01T00:00:00Z';
+ fs.mkdirSync(apiDir,{recursive:true});let liveWorkspace=other,liveId=instanceId,capabilities=0,rpcs=0;
+ const server=http.createServer((req,res)=>{
+  if(req.url==='/api/v1/capabilities'){capabilities++;res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:['status'],name:'SimpleExperiment',version:'5.0.0',instanceId:liveId,workspace:liveWorkspace}));return;}
+  const chunks=[];req.on('data',bytes=>chunks.push(bytes));req.on('end',()=>{rpcs++;const rpc=JSON.parse(Buffer.concat(chunks).toString('utf8'));res.end(JSON.stringify({jsonrpc:'2.0',id:rpc.id,result:{ok:true}}));});
+ });
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ fs.writeFileSync(file,JSON.stringify({name:'SimpleExperiment',version:'5.0.0',pid:55,startedAt:'2026-01-01T00:00:00Z',baseUrl:'http://127.0.0.1:'+server.address().port,token:'test-only',workspace}),'utf8');
+ const saved=Object.fromEntries(['APPDATA','SIMPLE_EXPERIMENT_API_FILE','SIMPLE_CLI_INSTANCE_ID','SIMPLE_CLI_RESOLVED_EXPERIMENT'].map(key=>[key,process.env[key]])),originalReaddir=fs.readdirSync;
+ process.env.APPDATA=appdata;delete process.env.SIMPLE_EXPERIMENT_API_FILE;delete process.env.SIMPLE_CLI_INSTANCE_ID;delete process.env.SIMPLE_CLI_RESOLVED_EXPERIMENT;
+ try{
+  await assert.rejects(resolveCli({extensionsRoot:extensions,argv:['project','status']}),/API_WORKSPACE_MISMATCH/);assert.equal(rpcs,0);
+  liveWorkspace=workspace;let selected,binding;
+  await resolveCli({extensionsRoot:extensions,argv:['project','status'],onResolved:(value,target)=>{selected=value;binding=target;}});
+  assert.equal(selected,file);assert.equal(binding.requireCwd,true);
+  process.env.SIMPLE_EXPERIMENT_API_FILE=selected;process.env.SIMPLE_CLI_RESOLVED_EXPERIMENT=JSON.stringify(binding);
+  const transport=require('../../dist/cli/LocalApiClient.js'),before=capabilities;
+  fs.readdirSync=(directory,...args)=>{if(path.resolve(directory)===path.join(apiDir,'instances'))assert.fail('already selected instance must not trigger workspace enumeration');return originalReaddir(directory,...args);};
+  for(let i=0;i<2;i++)assert.equal((await transport.callPluginRpc('experiment','status',{},undefined,{workspace})).ok,true);
+  assert.equal(rpcs,2);assert.equal(capabilities-before,2,'every RPC retains its own live handshake');
+  liveId='different';await assert.rejects(transport.callPluginRpc('experiment','status',{}),/identity mismatch/i);assert.equal(rpcs,2);liveId=instanceId;
+  liveWorkspace=other;process.env.SIMPLE_CLI_RESOLVED_EXPERIMENT=JSON.stringify({...binding,workspace:other});
+  await assert.rejects(transport.callPluginRpc('experiment','status',{}),/API_WORKSPACE_MISMATCH/);assert.equal(rpcs,2);
+  process.env.SIMPLE_CLI_RESOLVED_EXPERIMENT=JSON.stringify({...binding,workspace:other,requireCwd:false});
+  assert.equal((await transport.callPluginRpc('experiment','status',{},undefined,{workspace:other})).ok,true);
+  await assert.rejects(transport.callPluginRpc('experiment','status',{},'different',{workspace:other}),/pin mismatch/i);assert.equal(rpcs,3);
+  process.env.SIMPLE_CLI_RESOLVED_EXPERIMENT='{invalid';await assert.rejects(transport.callPluginRpc('experiment','status',{}),/CLI_INSTANCE_BINDING_INVALID/);assert.equal(rpcs,3);
+ }finally{fs.readdirSync=originalReaddir;for(const[key,value]of Object.entries(saved)){if(value===undefined)delete process.env[key];else process.env[key]=value;}server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+});
+
 test('workspace and instance selection bypass a dead default window with real identity checks',async()=>{
  const appdata=path.join(root,'routing'),extensions=path.join(root,'routing-extensions'),dir=path.join(extensions,'simple-local.simple-experiment-4.0.0');
  fs.mkdirSync(path.join(dir,'dist/cli'),{recursive:true});fs.writeFileSync(path.join(dir,'package.json'),JSON.stringify({name:'simple-experiment',publisher:'simple-local',version:'4.0.0'}),'utf8');

@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.443",
-  "buildId": "496cbdb52b44abfbe1a4c3675fc4d48cfc8d708edb760b9a13b37813038f1fec",
+  "version": "0.5.444",
+  "buildId": "5f6f9cb8d8b57448b5b072bc2238235692823cfbb310d797699dce9b1e36b872",
   "files": [
     {
       "path": "bin/simpleex.cjs",
-      "sha256": "86a2dd5a2aad7c9542e47e688bedb367df8193b48b340301433e3b31f66b118d"
+      "sha256": "5f71d7f01986a142d6ffa61f3af3c66b15d186d99f4bdd2e7e3c8ebf4c718f1a"
     },
     {
       "path": "dist/api/LocalApiServer.js",
@@ -125,7 +125,7 @@
     },
     {
       "path": "dist/cli/LocalApiClient.js",
-      "sha256": "6cd35f22c73063bacef2f199dfe5eac66b99a5cea9747233a6eb36b2c5fb9142"
+      "sha256": "8e0084e3980f901e491b9b45c06f8d82ba69159380700eca5666ea8c3831c50c"
     },
     {
       "path": "dist/cli/parse.js",
@@ -301,7 +301,7 @@
     },
     {
       "path": "dist/extension/ResultCollectionHost.js",
-      "sha256": "e95a86100eb523ce43dcbe51ad8f9fb2ac4690bf35733caf02b10b4f574b3f05"
+      "sha256": "7c0655b63eef73fd93dadf1809ba98159528c4fc17dbd945af838aab48701888"
     },
     {
       "path": "dist/extension/RunConfirmation.js",
@@ -889,7 +889,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "5a14872aaf81c8a44c7c8db45485ad7975c9100de6ba481e28824a3018e913f7"
+      "sha256": "05741ef0d1c58a6ceadbec7dc3dd7f650b50c0e126095eb113ba48345550fba6"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1117,7 +1117,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "4c394580299895fde429a50b0b124e2d4712a0127e73b8cf36322c45b7d39de2"
+      "sha256": "eed789d77293df556b8cbde3d8aa0a2f728725dcfcef5fbbdafb16911a6f3e66"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1241,7 +1241,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "d34e4e2d21d41d84ae256fc99cd2c4c4353bbba540577e85e339222e652d54c6"
+      "sha256": "6898bea85a744a66ac17877b9023df48a888e4480e14084dfc514c92c3a737ce"
     },
     {
       "path": "scripts/check-static.js",

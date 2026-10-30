@@ -368,7 +368,26 @@ export async function callPluginRpc(plugin: UnifiedPlugin, method: string, param
   target?: { discoveryPath?: string; workspace?: string }): Promise<unknown> {
   if (typeof method !== "string" || !method || !params || typeof params !== "object" || Array.isArray(params)) throw new Error("API method and object params required");
   let preflight: PluginPreflight;
-  if (target && (target.discoveryPath || target.workspace)) {
+  const bindingText = plugin === "experiment" ? process.env.SIMPLE_CLI_RESOLVED_EXPERIMENT : undefined;
+  let binding: { discoveryPath: string; instanceId: string; workspace: string; requireCwd: boolean } | undefined;
+  if (bindingText) {
+    try {
+      const value = bindingText.length <= 16384 ? JSON.parse(bindingText) : undefined;
+      if (!value || value.schemaVersion !== 1 || typeof value.discoveryPath !== "string" || !path.isAbsolute(value.discoveryPath)
+        || typeof value.instanceId !== "string" || !value.instanceId || typeof value.workspace !== "string" || typeof value.requireCwd !== "boolean") throw Error();
+      const sameFile = (file: string) => sameWorkspacePath(path.resolve(file), value.discoveryPath);
+      if (!sameFile(pluginDiscoveryPath(plugin)) || target?.discoveryPath && !sameFile(target.discoveryPath)) throw Error();
+      binding = value;
+    } catch { throw Error("CLI_INSTANCE_BINDING_INVALID：入口选择的实例绑定已变化，未执行命令；请重新调用。"); }
+  }
+  if (binding) {
+    // Reuse the selected record, never its response/token: every RPC still performs
+    // a live identity/workspace handshake and re-reads discovery before sending.
+    preflight = await preflightPluginAt(plugin, binding.discoveryPath, target?.workspace || binding.workspace || undefined);
+    assertInstancePin(binding.instanceId, preflight);
+    if (binding.workspace && !sameWorkspacePath(binding.workspace, String(preflight.capabilities.workspace || "")))
+      throw Error("API_WORKSPACE_MISMATCH：入口选定实例的工作区已变化，未执行命令。");
+  } else if (target && (target.discoveryPath || target.workspace)) {
     const workspace = String(target.workspace || "").trim();
     // The pin must resolve the ambiguity itself: filter by the exact pinned instance BEFORE any
     // workspace-wide probing, so `--instance` is a real disambiguation, not a post-hoc mismatch check.
@@ -380,7 +399,7 @@ export async function callPluginRpc(plugin: UnifiedPlugin, method: string, param
     preflight = await preflightPlugin(plugin);
   }
   assertInstancePin(expectedInstanceId, preflight);
-  if (!target && !expectedInstanceId && !process.env.SIMPLE_CLI_INSTANCE_ID && !process.env[PLUGIN_ENDPOINTS[plugin].env]) {
+  if (binding?.requireCwd || !binding && !target && !expectedInstanceId && !process.env.SIMPLE_CLI_INSTANCE_ID && !process.env[PLUGIN_ENDPOINTS[plugin].env]) {
     const workspace = String(preflight.capabilities.workspace || "");
     const relative = workspace ? path.relative(path.resolve(workspace), process.cwd()) : "..";
     if (!workspace || relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative))

@@ -71,17 +71,20 @@ async function resolveCli(options={}){
  const candidates=installedEntries(root,d.version);
  if(candidates.length!==1)throw Error("Expected exactly one installed CLI matching the running plugin "+d.version+"; configure SIMPLE_CLI_EXTENSIONS_ROOT for the selected VS Code installation");
  const fresh=discovery(file);for(const key of ["baseUrl","token","pid","startedAt","version","name"])if(fresh[key]!==d[key])throw Error("Discovery changed during CLI resolution");
- options.onResolved?.(file);
+ const requireCwd=!workspace&&!pin&&!options.discoveryFile&&!process.env.SIMPLE_EXPERIMENT_API_FILE;
+ if(requireCwd){const live=String(cap.workspace||''),relative=live?path.relative(path.resolve(live),process.cwd()):'..';
+  if(!live||relative==='..'||relative.startsWith('..'+path.sep)||path.isAbsolute(relative))throw Error('API_WORKSPACE_MISMATCH：默认 API 属于其他项目窗口，请使用 --workspace 或 --instance 明确选择；未执行命令。');}
+ options.onResolved?.(path.resolve(file),{schemaVersion:1,discoveryPath:path.resolve(file),instanceId:cap.instanceId,workspace:String(cap.workspace||''),requireCwd});
  return installedCliEntry(candidates[0]).entry;
 }
 async function main(){
- let selectedFile;
+ let selectedFile,selectedTarget;
  const controller=new AbortController(),cancel=()=>controller.abort(Error('CLI 实例核实已取消，未执行命令。'));
  process.once('SIGINT',cancel);process.once('SIGTERM',cancel);
  let entry;
- try{entry=await resolveCli({argv:process.argv.slice(2),signal:controller.signal,onProgress:message=>process.stderr.write('[simpleex] '+message+'\n'),onResolved:file=>{selectedFile=file;}});}
+ try{entry=await resolveCli({argv:process.argv.slice(2),signal:controller.signal,onProgress:message=>process.stderr.write('[simpleex] '+message+'\n'),onResolved:(file,target)=>{selectedFile=file;selectedTarget=target;}});}
  finally{process.removeListener('SIGINT',cancel);process.removeListener('SIGTERM',cancel);}
- const child=spawn(process.execPath,[entry,...process.argv.slice(2)],{stdio:"inherit",windowsHide:true,env:{...process.env,...(selectedFile?{SIMPLE_EXPERIMENT_API_FILE:selectedFile}:{})}});
+ const child=spawn(process.execPath,[entry,...process.argv.slice(2)],{stdio:"inherit",windowsHide:true,env:{...process.env,SIMPLE_CLI_RESOLVED_EXPERIMENT:selectedTarget?JSON.stringify(selectedTarget):'',...(selectedFile?{SIMPLE_EXPERIMENT_API_FILE:selectedFile}:{})}});
  child.on("error",()=>{process.stderr.write("Could not start the verified CLI\n");process.exitCode=2;});
  child.on("close",(code,signal)=>{process.exitCode=signal?4:code===null?4:code;});
 }

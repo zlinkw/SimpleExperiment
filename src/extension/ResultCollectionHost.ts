@@ -5,6 +5,7 @@ import { publishLatestResult } from "../results/LatestResultExport";
 import { newestJobOutputs } from "../features/LatestJobArtifacts";
 import { retryRequestSignal } from "../core/SafeRequestRetry";
 import { canonicalMetricName } from "../results/ProjectResultTables";
+import { ProgressInactivity } from "../core/ProgressInactivity";
 
 const hosts = new WeakMap<object, ResultCollectionHost>();
 export type ResultReadProgress = { message: string };
@@ -100,6 +101,23 @@ export class ResultCollectionHost {
   private report(progress: ResultReadProgress) {
     this.lastProgress = progress;
     for (const observer of this.readers.values()) { try { observer?.(progress); } catch { /* display only */ } }
+  }
+  private async readMetrics<T>(workerId: string, signal: AbortSignal | undefined,
+    read: (signal: AbortSignal, progress: (value: any) => void) => Promise<T>): Promise<T> {
+    const controller = new AbortController();
+    const timeout = Object.assign(Error("RESULT_READ_IDLE：" + workerId + " 指标只读查询连续 120 秒无有效进展；本轮结束，可重新查询。"), { code: "RESULT_READ_IDLE" });
+    const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+    const watchdog = new ProgressInactivity(120_000, () => controller.abort(timeout));
+    try {
+      return await this.waitFor(read(requestSignal, value => {
+        if (requestSignal.aborted) return;
+        if (watchdog.update({ phase: value.phase, processedBytes: value.processedBytes, processedFiles: value.processedFiles }))
+          this.report({ message: "内存读取指标 · " + workerId + " · " + (value.processedFiles ?? 0) + " 个文件 / " + (value.processedBytes ?? 0) + " 字节；无有效进展上限 120 秒" });
+      }), requestSignal);
+    } catch (error) {
+      if (controller.signal.aborted) throw timeout;
+      throw error;
+    } finally { watchdog.dispose(); }
   }
   async update(signal?: AbortSignal, options: ReadOptions = {}): Promise<any> {
     if (signal?.aborted) throw cancelled(signal);
@@ -320,15 +338,15 @@ export class ResultCollectionHost {
         else batches.push([file]);
       }
       for (const batch of batches) {
-        this.report({ message: "内存读取指标 · " + workerId + " · 已核实 " + verifiedFiles + " 个文件" });
+        this.report({ message: "内存读取指标 · " + workerId + " · 已核实 " + verifiedFiles + " 个文件；无有效进展上限 120 秒" });
         let response: any;
         try { response = await retryRead(async () => {
           memoryRequests++; memoryFiles += batch.length;
-          return this.waitFor(h.simpleSftpApiCall("sync.downloadMappedPaths", { server, localPath: root,
+          return this.readMetrics(workerId, requestSignal, (readSignal, progress) => h.simpleSftpApiCall("sync.downloadMappedPaths", { server, localPath: root,
           entries: batch.map(file => ({ ...file, localRelativePath: file.remotePath })), memoryOnly: true, metricsOnly: true, wrapperResults: true,
-          maxFileBytes: 4 * 1024 * 1024, maxBatchBytes: 4 * 1024 * 1024, confirm: true, pathConfirmed: true, signal: requestSignal }), requestSignal);
+          maxFileBytes: 4 * 1024 * 1024, maxBatchBytes: 4 * 1024 * 1024, confirm: true, pathConfirmed: true, signal: readSignal }, 0, progress));
         }); } catch (error) {
-          if (transientResultReadError(error)) readUnavailable.set(workerId, error);
+          if (transientResultReadError(error) || (error as any)?.code === "RESULT_READ_IDLE") readUnavailable.set(workerId, error);
           throw error;
         }
         check();

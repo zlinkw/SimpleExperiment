@@ -17036,9 +17036,9 @@ function renderPanelHtml() {
         renderProjectResultTables(state) +
         '<section class="resultPlanActions"><div class="resultPlanActionsTitle"><strong>当前 Plan</strong><small>' + esc(resultPlanFile ? compactPath(resultPlanFile) : "尚未选择 Plan") + '</small></div><div class="resultPlanActionButtons">' +
           '<button class="taskActionButton secondary" data-command="syncAllResultArtifacts" data-plan-file="' + escAttr(resultPlanFile) + '" title="重新核实全部当前 Plan 与启用 Worker 的实际产物，包含当前 Plan，并真实更新本机结果总表；不混用旧行，不保存原始指标副本。">更新结果总表</button>' +
-          '<button class="taskActionButton secondary" data-command="parseResults" data-plan-file="' + escAttr(resultPlanFile) + '" title="重新读取当前 Plan 声明的原始结果表，计算简洁 CSV、可读 Markdown 和详细汇总；不会重新训练，也不会改写原始 seed 表。">重建当前 Plan 汇总</button>' +
-          '<button class="taskActionButton secondary" data-open-result-mapping type="button" title="在结果区直接选择原始 CSV 的 case、seed、指标、方法、数据集、比例和评估端点列；保存到插件设置，再重建当前 Plan 汇总。">设置结果列映射</button>' +
-        '</div><div class="resultPlanActionsHelp">' + esc(multiWorkerTables ? "多 Worker 结果按服务器分别保存；各项目总表只覆盖对应 Worker。" : aggregateMessage || "解析当前 Plan 后生成独立汇总表；原始结果不会改动。") + '</div></section>' +
+          '<button class="taskActionButton secondary" data-command="parseResults" data-plan-file="' + escAttr(resultPlanFile) + '" title="兼容原重建入口：与更新结果总表使用同一路径，主动核实全部 Plan 和启用 Worker 后更新总表；不限定当前 Plan，也不重新训练。">重新核实整批结果</button>' +
+          '<button class="taskActionButton secondary" data-open-result-mapping type="button" title="在结果区直接选择原始 CSV 的 case、seed、指标、方法、数据集、比例和评估端点列；保存到插件设置，再重新核实整批结果。">设置结果列映射</button>' +
+        '</div><div class="resultPlanActionsHelp">' + esc("更新与核实会检查全部 Plan 和启用 Worker。" + (multiWorkerTables ? "多 Worker 结果按服务器分别保存；各项目总表只覆盖对应 Worker。" : aggregateMessage || "原始结果不会改动。")) + '</div></section>' +
         renderResultColumnMappingEditor(state, summary.columnMappingPreview) +
         '<details data-details-key="result-advanced"' + detailsOpenAttr("result-advanced", false) + '><summary>高级证据与分析</summary>' +
           renderResultNextAction({ parsed, parsedRows, qualityGatePath: qualityReady ? qualityGatePath : "", statisticsPath: statisticsReady ? statisticsPath : "", claimStatus, claimIssueCount, paperTablePath: paperTableReady ? paperTablePath : "", plottingContractPath: analysisArtifacts.plottingContractPath, effectiveArchivedResultCount, pendingReviewCount, excludedResultCount, previewCsvPath, archivableCount: traceStats.archivable, archiveBlockedCount: traceStats.archiveBlocked, previewResultCount, outputContractStatus: outputContractCheck.status, outputContractMissingFiles: outputContractCheck.missingFiles, outputContractUnparseableFiles: outputContractCheck.unparseableFiles, outputContractMessage: outputContractCheck.message, autoParseStatus: autoParseReadiness.status, planFile: autoParseReadiness.planFile }) +
@@ -17063,7 +17063,7 @@ function renderPanelHtml() {
 
     function resultFileButton(label, file, planFile, workerId, help, showUnavailable) {
       const path = meaningfulValue(file);
-      if (!path) return showUnavailable ? '<button class="taskActionButton secondary" type="button" disabled title="当前 Plan 尚未生成此文件。先启动新版 Agent，然后点击“重建当前 Plan 汇总”。">' + esc(label) + ' · 未生成</button>' : "";
+      if (!path) return showUnavailable ? '<button class="taskActionButton secondary" type="button" disabled title="当前 Plan 尚未生成此文件。可重新核实整批结果检查已有产物；文件是否生成由实验输出决定。">' + esc(label) + ' · 未生成</button>' : "";
       return '<button class="taskActionButton' + (/^查看简洁汇总/.test(label) ? '' : ' secondary') + '" data-command="openResultArtifact" data-remote-path="' + escAttr(path) + '" data-plan-file="' + escAttr(planFile || "") + '"' + (workerId ? ' data-worker-id="' + escAttr(workerId) + '"' : "") + ' title="' + escAttr((help || "点击后同步结果文件到本机项目并打开。") + String.fromCharCode(10) + "远端文件：" + path) + '">' + esc(label) + '</button>';
     }
 

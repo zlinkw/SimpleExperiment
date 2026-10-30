@@ -279,7 +279,7 @@ test("Plan concise table is the primary result entry with scoped explanations", 
   assert.doesNotMatch(panel, /原始数据与详细追溯/);
   assert.match(panel, /data-details-key="result-split-tables"/);
   assert.match(panel, /尚无总表。点击“更新结果汇总”/);
-  assert.match(panel, /重建当前 Plan 汇总/);
+  assert.match(panel, /重新核实整批结果/);
 });
 
 test("current Plan sync updates the verified full result table without saving raw copies", () => {

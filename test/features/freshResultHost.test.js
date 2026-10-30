@@ -6,6 +6,30 @@ const { readLatestResultExport, latestResultCatalog, regenerateLatestResultTable
 const { fixture, planFile, planText } = require('../_helpers/freshResultHost');
 function files(root) { return fs.readdirSync(root, { withFileTypes: true }).flatMap(row => row.isDirectory() ? files(path.join(root,row.name)).map(item => row.name+'/'+item) : [row.name]); }
 
+test('silent memory reads expire without replacing export bytes; genuine progress extends the read and a fresh query recovers',async()=>{
+  const f=fixture();await f.service.update();
+  const output=path.join(f.root,'experiments/results/latest-results.json'),before=fs.readFileSync(output,'utf8');
+  const progressModule=require('../../src/core/ProgressInactivity.ts'),Original=progressModule.ProgressInactivity,receive=f.host.simpleSftpApiCall;
+  let now=0,entered,release,watchdog,reportProgress,attempts=0;const messages=[];
+  const ready=new Promise(resolve=>entered=resolve),blocked=new Promise(resolve=>release=resolve);
+  progressModule.ProgressInactivity=class extends Original{constructor(idle,onIdle){super(idle,onIdle,()=>now);watchdog=this;}};
+  f.host.simpleSftpApiCall=async(method,params,_timeout,onProgress)=>{attempts++;reportProgress=onProgress;entered();await blocked;return receive(method,params);};
+  let pending;
+  try{
+    pending=f.service.update(undefined,{onProgress:value=>messages.push(value.message)});await ready;
+    assert.equal(watchdog.idleMs,120000);now=119999;assert.equal(watchdog.check(),false);
+    reportProgress({phase:'streaming',processedBytes:16,processedFiles:0});
+    now=239998;assert.equal(watchdog.check(),false);reportProgress({phase:'streaming',processedBytes:16,processedFiles:0});
+    now=239999;assert.equal(watchdog.check(),true);
+    const expired=await pending;assert.equal(expired.current,false);assert.equal(attempts,1);
+    assert.equal(fs.readFileSync(output,'utf8'),before);assert.match(expired.missing.join(' '),/RESULT_READ_IDLE/);
+    assert.ok(messages.some(message=>message.includes('16 字节')));
+    f.host.simpleSftpApiCall=receive;assert.equal((await f.service.update()).current,true);
+    const recovered=fs.readFileSync(output,'utf8');release();await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(fs.readFileSync(output,'utf8'),recovered);
+  }finally{release();watchdog?.dispose();progressModule.ProgressInactivity=Original;if(pending)await pending;}
+});
+
 test('cancelling an uncooperative capability read releases the query and ignores its late response',async()=>{
   const f=fixture(),abort=new AbortController(),capability=f.host.simpleSftpCapability;
   let entered,release,reads=0,lateFinished=false;
