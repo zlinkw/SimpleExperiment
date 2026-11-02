@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.470",
-  "buildId": "536bc55e0fd725694a181c7025c4af049f2d50f5694e0223f7afa6643afc3c5b",
+  "version": "0.5.471",
+  "buildId": "b488cb89ebc0b0639324bea674b9ff0c1320b356a58fd48f7eefb4d8ae4d4608",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -149,7 +149,7 @@
     },
     {
       "path": "dist/config/RemoteRootPolicyPrefill.js",
-      "sha256": "85d4cd67b4dddad506cf94a28ee11e2d9faac5a58e4218cf71d5825f6e0dec5c"
+      "sha256": "22c3e8e60c6baa02f0dd2d1a7bcaba3d6f26bac780e2b2be78c9830fa5af3138"
     },
     {
       "path": "dist/config/RenamedExtensionStateMigration.js",
@@ -361,7 +361,7 @@
     },
     {
       "path": "dist/features/ApiWorkflow.legacy.js",
-      "sha256": "b5e8be6bb2ddad64fd69ec73db774e3edba2607d3441bd5cdbfa469cf98cab85"
+      "sha256": "709840a61ea55c74bd69992f6b92f50ef17a457c50af90d8bbb6de0eb799476f"
     },
     {
       "path": "dist/features/ArtifactBatchTransfer.js",
@@ -893,7 +893,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "755c63b74e1b5afb349c6419f9b43eb383dff836f7d4a111a93d83851b25cb3f"
+      "sha256": "57d38b01834c9fd9858c4b036c1cdf5391a91e7ab989557a30144dc6a6610af9"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1245,7 +1245,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "18e157cab710a1ce9fdbf9a9916fca5907b27407dd02a258bf38ec96fe5de2a7"
+      "sha256": "1fbbf5435f2ee79a31606d242225fba63eed72b9b7b0fbe4c9e2c08a82f3ab25"
     },
     {
       "path": "scripts/check-static.js",

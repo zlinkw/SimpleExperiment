@@ -353,13 +353,21 @@ test("SimpleExperiment accepts topology aliases and keeps configured remote root
     () => workflow.resolveApiRemoteRootWithPolicy("/root/disk1/qgking/zlk", { id: "nwpu3" }, { deniedRoots: ["/root/disk1/qgking/zlk"] }),
     /remote\.deniedRoots/,
   );
-  assert.throws(() => workflow.resolveApiRemoteRoot("/srv/simple_agent/projects", {}), /simple_agent/);
-  assert.throws(() => workflow.resolveApiRemoteRoot("/srv/zlk_agent/projects", {}), /zlk_agent/);
+  for (const configured of ["/srv/simple_agent/projects", "/srv/zlk_agent/projects", "/srv/alice_agent/projects"]) {
+    assert.equal(workflow.resolveApiRemoteRoot(configured, {}), configured);
+  }
   assert.throws(() => workflow.resolveApiRemoteRoot("/data/../secret", {}), /\.\./);
   assert.throws(
     () => workflow.resolveApiRemoteRootWithPolicy("/data/qgking/simple", { id: "nwpu3" }, { allowedRoots: ["/data/qgking/zlk"] }),
-    /历史命名迁移缺陷/,
+    /remote\.allowedRoots/,
   );
+  const paths = ["/data/qgking/simple", "/data/qgking/zlk"];
+  for (const configured of paths) {
+    assert.equal(workflow.resolveApiRemoteRootWithPolicy(configured, {}, { allowedRoots: paths }), configured);
+    assert.equal(workflow.resolveApiRemoteRootWithPolicy(configured + "/project", {}, { deniedRoots: [paths.find(value => value !== configured)] }), configured + "/project");
+    assert.throws(() => workflow.resolveApiRemoteRootWithPolicy(configured + "/project", {}, { deniedRoots: [configured] }), /remote\.deniedRoots/);
+  }
+  assert.throws(() => workflow.resolveApiRemoteRootWithPolicy("/data/qgking/simple-other", {}, { allowedRoots: paths }), /remote\.allowedRoots/);
 });
 
 test("SimpleExperiment workflow state persists every required stage", () => {

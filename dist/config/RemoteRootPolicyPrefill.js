@@ -52,8 +52,6 @@ function normalizeRemoteRoot(value) {
     const segments = root.split("/").filter(Boolean);
     if (segments.includes(".") || segments.includes(".."))
         return undefined;
-    if (segments.some((segment) => ["simple_agent", "zlk_agent"].includes(segment.toLowerCase())))
-        return undefined;
     return root;
 }
 function unique(values) {
@@ -66,11 +64,7 @@ function parentRemotePath(value) {
 function rootsFromSetupConfig(source) {
     const setup = record(source);
     const workers = Array.isArray(setup.workerTunnels) ? setup.workerTunnels : [];
-    const values = [
-        setup.agentProjectDir,
-        ...workers,
-    ];
-    return values.map((value) => record(value).agentProjectDir ?? value)
+    return workers.map((value) => record(value).agentProjectDir)
         .map((value) => normalizeRemoteRoot(value))
         .filter((value) => Boolean(value));
 }
@@ -100,17 +94,9 @@ function deriveRemoteRootPolicyPrefill(source = {}, projectName = "") {
     ]);
     const unsafeRoots = candidates.filter((root) => root === "/root" || root.startsWith("/root/"));
     const allowedRoots = candidates.filter((root) => !unsafeRoots.includes(root));
-    // Seed the migration-defect sibling (for example /data/team/simple beside
-    // /data/team/zlk) so the failed branding migration cannot become authoritative.
-    const migrationDefectRoots = allowedRoots.map((root) => {
-        const separator = root.lastIndexOf("/");
-        const leaf = separator >= 0 ? root.slice(separator + 1).toLowerCase() : "";
-        return leaf === "zlk" ? `${root.slice(0, separator)}/simple` : undefined;
-    }).filter((value) => Boolean(value))
-        .filter((value) => !allowedRoots.includes(value));
     return {
         allowedRoots: unique(allowedRoots),
-        deniedRoots: unique([...unsafeRoots, ...migrationDefectRoots]),
+        deniedRoots: unique(unsafeRoots),
     };
 }
 async function readServerProfiles() {

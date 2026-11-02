@@ -52,7 +52,8 @@
 | PFX2e | 通用关窗不得按 Agent 会话名跳过精确窗口保护 | passed |
 | PFX2f1 | TensorBoard runtime 使用全局前缀及精确项目服务身份 | passed |
 | PFX2f2 | Host 传递唯一全局值，展示实际返回的服务目标 | passed |
-| PFX3 | 远端路径校验和错误品牌迁移的前缀残留 | pending |
+| PFX3a | API 路径与策略预填移除品牌推断和旧 Hub 来源 | passed |
+| PFX3b | Host 与实际 UI 路径校验移除固定目录名推断 | pending |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
 | D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | passed |
@@ -398,6 +399,18 @@ PFX2f2 首轮 package 2026-11-02T18-34-40-012Z-45180：318 作业通过、未运
 最终修正后的 compile 2026-11-02T18-47-06-465Z-15108 通过；Controls1 四项和原 requestBudget 十二项通过（pfx2f2-final-*.log），累计必要定向覆盖 45 项，已有未变化运行证明复用。真实 HTML 源未再变化，复用 pfx2-render-1793644461120.json 的六场景/焦点证据，最终包仍核验实际脚本。冻结同一 8 文件内部 0.5.470，开始第二轮规定 package。
 
 PFX2f2 最终验证：2026-11-02T18-47-46-029Z-43464-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、702355ms。内部 universal/trial 0.5.470：2773768 字节，SHA256 c36c7eaa4b23f64faece88509b5427194bfd49d36c47fe4ed4a0689732f25085；实际字节与 receipt 一致，362 项内容门禁零违规，真实 HTML 三脚本及模块解析通过。全局前缀、请求项目/Worker、实际服务证据和 stop/emergency 通道均已覆盖；真实服务器及 Extension Host 验收仍未执行。无服务器操作、公开发行或安装；PFX3、D1 精确附着及 PFX4 收口前继续不发布中间包。
+
+## 当前批次 PFX3a
+
+PFX2f2 提交 b774b2038b416f4e12e141ac6fe30f32faabad14 已普通 push/fetch 一致。复现线索：API 将每个 simple 路径段替换成 zlk 推断“真实目录”，两者都明确允许时仍拒绝 simple；API/预填把 simple_agent、zlk_agent 目录名当作机器归属证据；预填从退役 Hub 顶层读根，并在 zlk 旁生成不存在来源的 simple 禁止项。
+
+移除这些推断，只使用用户配置的字面路径与显式允许/禁止策略；预填只读 Worker 配置、既有服务器资料和 SSH 记录，不复活顶层 Hub。实际 runtime/状态映射保护由现有 ProjectRootMap 保留，不能用任意目录名代替。保留遍历、边界、显式禁止、既有 /root 预填限制和一次性标记；不提升预填版本、不改写已经保存的列表，不自动迁移或清理目录。合法显式 zlk 和 simple 路径均保留。
+
+两个实现、两个原测试、三版本及本计划，共 8 文件，内部 0.5.471。原套件覆盖两种路径同时允许、互不推断、精确禁止和邻名不匹配、未知目录名、单独已配置数组不被覆写及无项目不预填；不增加进程/性能断言。Host 与 UI 旧文案/判定待 PFX3b，组内仍不发布或安装。待 compile、定向和规定 package；不连接服务器。
+
+PFX3a compile 2026-11-02T19-02-26-701Z-29584 通过；54 项定向通过（prefill 3、localApi 33、policyUi 2、rootMap 14、现有 Host gate 2），日志 pfx3a-*.log。实际映射的状态树及祖先保护、异 Worker 同名产物、未知/越界映射拒绝均保留，不靠目录品牌判定归属。Host gate 当前仍按旧 UI 规则通过，明确由 PFX3b 改正，不当作 API/UI 已完全一致。UI 源未修改，复用有效隔离渲染；最终包核对实际 HTML。冻结本批 8 文件内部 0.5.471，开始规定 package，无公开发行或安装。
+
+PFX3a 最终验证：2026-11-02T19-03-40-042Z-40844-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、715202ms。内部 universal/trial 0.5.471：2773051 字节，SHA256 fd8e41106ecd045976a9154a37004106217763a582a034118ce74673c3026f99；实际字节与 receipt 一致，362 项内容门禁零违规，实际 HTML 三脚本及模块解析通过。无服务器操作、公开发行或安装；继续 PFX3b。
 
 ## 后续定向核查线索（尚未实施）
 

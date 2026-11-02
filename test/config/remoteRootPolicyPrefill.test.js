@@ -13,6 +13,9 @@ test("remote root policy prefill derives allow and deny lists from prior server 
       workerTunnels: [
         { agentProjectDir: "/data/qgking/zlk" },
         { agentProjectDir: "/mnt/runtime/zlk_agent/projects" },
+        { agentProjectDir: "/srv/simple_agent/projects" },
+        { agentProjectDir: "/data/qgking/simple" },
+        { agentProjectDir: "/data/../invalid" },
       ],
     },
     serverProfiles: {
@@ -24,11 +27,9 @@ test("remote root policy prefill derives allow and deny lists from prior server 
     remoteSshInstallPaths: { nwpu3: "/data/qgking/zlk" },
   }, "MultiModal");
 
-  assert.deepEqual(value.allowedRoots, ["/media/npu/Data/zlk", "/data/qgking/zlk"]);
+  assert.deepEqual(value.allowedRoots, ["/data/qgking/zlk", "/mnt/runtime/zlk_agent/projects", "/srv/simple_agent/projects", "/data/qgking/simple"]);
   assert.deepEqual(value.deniedRoots, [
     "/root/disk1/qgking/zlk",
-    "/media/npu/Data/simple",
-    "/data/qgking/simple",
   ]);
 });
 
@@ -76,11 +77,10 @@ test("prefill writes only unset policy arrays from saved roots", async () => {
     readServerProfiles: () => ({ servers: [{ remotePath: "/data/qgking/zlk/MultiModal" }] }),
   });
 
-  assert.deepEqual(value.allowedRoots, ["/media/npu/Data/zlk", "/data/qgking/zlk"]);
-  assert.deepEqual(value.deniedRoots, ["/media/npu/Data/simple", "/data/qgking/simple"]);
+  assert.deepEqual(value.allowedRoots, ["/data/qgking/zlk"]);
+  assert.deepEqual(value.deniedRoots, []);
   assert.deepEqual(first.updates, [
     { section: "simpleExperiment", key: "remote.allowedRoots", value: value.allowedRoots },
-    { section: "simpleExperiment", key: "remote.deniedRoots", value: value.deniedRoots },
   ]);
   assert.equal(first.values.get("simpleExperiment.remoteRootPolicyPrefillVersion"), 1);
 
@@ -90,6 +90,14 @@ test("prefill writes only unset policy arrays from saved roots", async () => {
     readServerProfiles: () => ({}),
   }), undefined);
   assert.deepEqual(second.updates, []);
+  const onlyDenied = createPrefillHarness({ setupConfig, allowed: undefined, denied: ["/data/qgking/simple"] });
+  await prefillRemoteRootPolicy(onlyDenied.context, setupConfig, onlyDenied.vscode, { readServerProfiles: () => ({}) });
+  assert.deepEqual(onlyDenied.updates, [{ section: "simpleExperiment", key: "remote.allowedRoots", value: ["/data/qgking/zlk"] }]);
+  const onlyAllowed = createPrefillHarness({ setupConfig, allowed: ["/custom/simple"], denied: undefined });
+  await prefillRemoteRootPolicy(onlyAllowed.context, setupConfig, onlyAllowed.vscode, {
+    readServerProfiles: () => ({ servers: [{ remotePath: "/root/unsafe/MultiModal" }] }),
+  });
+  assert.deepEqual(onlyAllowed.updates, [{ section: "simpleExperiment", key: "remote.deniedRoots", value: ["/root/unsafe"] }]);
 });
 
 test("prefill preserves explicit user decisions for either array", async () => {
@@ -101,4 +109,7 @@ test("prefill preserves explicit user decisions for either array", async () => {
 
   assert.equal(value, undefined);
   assert.deepEqual(harness.updates, []);
+  const none = createPrefillHarness({ folders: [] });
+  assert.equal(await prefillRemoteRootPolicy(none.context, setupConfig, none.vscode, { readServerProfiles: () => ({}) }), undefined);
+  assert.deepEqual(none.updates, []);
 });
