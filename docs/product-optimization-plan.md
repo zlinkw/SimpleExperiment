@@ -25,7 +25,9 @@
 | B2 | 等待原因、自动继续说明、原 job 恢复与中断审核 | passed |
 | B3 | 精确停止与重载恢复，不因未知撤销完成 | passed |
 | C1 | 精确 job 的产物、退出码、异常及日志跟随 | passed |
-| C2 | 当前/全部 PLAN 范围；任务、完整性、同步、汇总分开 | pending |
+| C2-base | CLI 结果夹具能力与主动查询响应契约 | passed |
+| C2a | 结果主页面的当前/全部 PLAN 范围 | running |
+| C2b | 资源动作、兼容任务与生成下一步中的旧结果入口 | pending |
 | C3 | 最新 job 产物与用户范围交集、逐 Worker 同步反馈 | pending |
 | D0 | 项目内服务状态与多窗口隔离核查，按证据修正共享路径 | pending |
 | D1 | 零目标、禁用、未核实、离线；精确附着命令 | pending |
@@ -134,6 +136,25 @@ B2/B3 交付：源码 a34419fe8518ef625926f1cf3871e24111861bc7 已 push/fetch �
 C1 定向证据：补齐原消息夹具的 tmuxCaptureOrigin 后，真实处理器复现失败回包清空旧日志；修正后 jobTmuxLogNavigation 12 项、panelWebviewScriptHealth 9 项通过。暂停/继续/跳到最新只改滚动，不发送新读取；空文本与缺少源时间分别显示，不伪造新成功时间。compile 通过；实际 HTML 三段脚本和隔离 Chrome 的读取失败保留、原时间、暂停位置 50、跳到最新保持暂停、原六种首屏/窄窗口/焦点通过，报告 simple_cluster/reports/product-optimization/c1-render-1793621285019.json。新增原请求要求的 [页面覆盖表](product-ui-coverage.md)，分开源码/隔离和待现场验证；共 7 个非生成文件，冻结版本 0.5.455，最终 package pending。
 
 C1 最终 package：318 作业通过，未运行 0，maxObservedConcurrent=1，exit=0，743608ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T12-08-48-566Z-35976-package/run.json。实际生成 HTML 的三段脚本通过，VSIX 0.5.455 为 universal/trial、2776461 字节，SHA256 e81a79f16bf04bfcb56e86579ebb3d11edf4e4a2ac3d4cd730f20797e81700ed，与 receipt 相符，361 项内容门禁零违规。覆盖文档按 UTF-8 复读通过；未安装、无服务器操作。下一批只修结果操作范围及相应旧 CLI 夹具能力契约，不改结果归属规则或添加分析。
+
+C1 交付：源码 7874ce8a25fde9c023688123ffb17af690b88a3e 已 push/fetch 一致；https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.455 为 draft=false/prerelease=true，真实下载及精确文件名校验一致。真实更新客户端仍为稳定 0.5.440/0.2.117，试行 455 不降级；未安装、无服务器操作。
+
+## C2-base：CLI 结果夹具
+
+范围仅为 workerRunLifecycle 的两处旧结果夹具与本计划；产品 CLI、结果收集实现及相关运行输入未改。补齐 results.list 能力及 active_query/current/summary.results 响应，原 Worker、PLAN、case、seed 错配拒绝断言全部保留。
+验证：完整单文件 8 项通过，exit=0；日志 simple_cluster/reports/product-optimization/c2-target-1793622372390/workerRunLifecycle-fixed.log。复用 C1 0.5.455 的未改 CLI 编译输出与有效覆盖，不因夹具修复再次打包、递增运行版本或发布。首次补响应漏 current 标识的真实失败保留。该测试批单独提交；尚未完成的 C2a UI 和版本修改不纳入本批。
+
+## 当前批次 C2a
+
+目标：结果主页面更新入口明确作用于本项目全部 PLAN 和全部启用 Worker；PLAN 上下文与实际列名来源分别表达，项目列映射范围明确；移除主页面被替代的旧按钮，保留公开 API 与主动科研分析功能。
+证据：当前 Plan 卡内两个按钮实际同走全项目收集；右侧资源动作还保留解析/刷新别名。B1 已在未改基线复现两项额外 CLI 结果夹具失败：未声明/响应真实 results.list，而非产品归属匹配失效。
+范围：实际 legacy UI，resultActionWorkflow/resultDatasetHierarchy/remoteResultInspectionWorkflow 三处既有界面契约，三处版本及本计划，共 8 个非生成文件；CLI 夹具已独立为 C2-base，覆盖表在后续有文件余量的批次更新。只改可见范围和测试契约，不改结果过滤、安全校验、后端收集或分析策略，不创建原始指标本机副本。资源动作及兼容任务中的旧入口另作 C2b；全部批次完成前不安装。
+验证：既有结果 UI/映射/动作回归、完整 CLI 结果归属套件（保留错 Worker/PLAN/case/seed 拒绝）、实际 HTML 和隔离页面范围，最终 package。现场收集/传输仍待验证，不把本机模拟接口当服务器验收。
+
+C2a 定向验证：workerRunLifecycle 原先 6/8 的两个失败已修复为当前 results.list 能力、active_query/current 与完整 summary.results 响应；全套 8 项通过，错 Worker/PLAN/case/seed 的原拒绝断言保留。首次补响应漏 current 标识的失败也保留在 simple_cluster/reports/product-optimization/c2-target-1793622372390/workerRunLifecycle.log。resultActionWorkflow 的三条旧内部结构断言已替换为真实 update() 的同范围共享、完成后再次查询和既有实时声明夹具；原项目/连接绑定检查保留，freshResultHost 25 项（含取消、归属变化、旧查询不可发布）通过。resultActionWorkflow 1、resultDatasetHierarchy 10、resultMappingEditor 1、resultCommandPhaseRouting 3、resultNextActionWorkflow 3 项通过；原失败日志不覆盖。
+C2a 主页面复用已有 syncPendingPlanArtifacts → syncPendingResultMetricsFromUi → 全项目收集，移除另一个要求“先选当前 PLAN”的重复同步别名，后端未改。生成下一步只导向现有总表或实验区；资源动作和兼容任务中的其余旧入口由 C2b 继续替换。实际 Chrome 证实总表内唯一全项目更新按钮、无单 PLAN 参数、范围帮助、项目映射生效范围及源文件、旧主页面按钮移除；首次 harness 未读取 data-tip，随后发现既有标题压缩隐藏第二句作用范围，已把映射范围前置。最终报告 simple_cluster/reports/product-optimization/c2-render-1793623225304.json，实际 HTML 三段脚本、原六种首屏/焦点/窄窗口通过。冻结 0.5.456，最终 package pending。
+
+C2a 首轮 package：317/318 作业通过，overall=failed/exit=1，694480ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T12-41-08-222Z-71872-package/run.json。唯一失败文件 remoteResultInspectionWorkflow 的两个旧 UI 断言仍要求“更新结果汇总”及已移除的当前 PLAN 同步按钮，保留真实失败；其余作业没有重签。按最新全局规则和交付技能，CLI 夹具单独按测试增量完成。C2a 的打包器 validateReceiptForAssemble 当前只接收 overall=passed、完整输入指纹及逐项计划一致的单一 package/check:full 记录，不能表达 failed 记录加定向补跑；不篡改记录或绕过门禁。后续先修正失败界面契约，再按项目明确要求的 build/package 路径完成运行版本交付。
 
 ## 后续定向核查线索（尚未实施）
 

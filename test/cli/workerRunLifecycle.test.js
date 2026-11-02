@@ -138,13 +138,13 @@ test("Worker Agent task snapshot survives after scheduler and runtime rows disap
   const server = http.createServer((req, res) => {
     if(req.url==='/api/v1/capabilities') {
       res.writeHead(200,{'content-type':'application/json'});
-      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',name:'SimpleExperiment',version:'0.0.0-fake',instanceId:'4242:2026-01-01T00:00:00.000Z',methods:['status','invoke','tasks.list','operations.list','state.get','live.output']}));return;
+      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',name:'SimpleExperiment',version:'0.0.0-fake',instanceId:'4242:2026-01-01T00:00:00.000Z',methods:['status','invoke','tasks.list','operations.list','state.get','live.output','results.list']}));return;
     }
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
     req.on("end", () => {
       const { id, method } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      const result = method === "tasks.list"
+      const result = method === "results.list" ? { source: "active_query", summary: { current: true, observedAt: "2026-09-23T00:04:00Z", results: [resultRecord] }, results: [resultRecord] } : method === "tasks.list"
         ? { schedulerStates: [], experimentTraces: [], workerTasks: [
           { workerId: "worker-a", schemaVersion: 1, generatedAt: "2026-09-23T00:04:00Z", tasks: [task] },
           { workerId: "worker-b", tasks: [], error: "Worker task snapshot unavailable" },
@@ -266,13 +266,13 @@ test("historical launch config text survives a missing job config and terminal p
   const server = http.createServer((req, res) => {
     if(req.url==='/api/v1/capabilities') {
       res.writeHead(200,{'content-type':'application/json'});
-      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',name:'SimpleExperiment',version:'0.0.0-fake',instanceId:'4242:2026-01-01T00:00:00.000Z',methods:['status','invoke','tasks.list','operations.list','state.get','live.output']}));return;
+      res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',name:'SimpleExperiment',version:'0.0.0-fake',instanceId:'4242:2026-01-01T00:00:00.000Z',methods:['status','invoke','tasks.list','operations.list','state.get','live.output','results.list']}));return;
     }
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
     req.on("end", () => {
       const { id, method } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      const result = method === "tasks.list"
+      const result = method === "results.list" ? { source: "active_query", summary: { current: true, observedAt: "2026-09-23T01:00:00Z", results }, results } : method === "tasks.list"
         ? { schedulerStates: [], experimentTraces: [], workerTasks: [{ workerId: "worker-a", tasks: [task] }] }
         : method === "state.get"
           ? { value: { workerTunnels: [{ id: "worker-a", localForwardHost: "127.0.0.1", localForwardPort: workerServer.address().port }] } }
