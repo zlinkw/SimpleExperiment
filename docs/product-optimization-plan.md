@@ -539,7 +539,9 @@ E1-test 提交 031819a0f429fea60b8620401239efde9b9ab88c 已普通 push/fetch 一
 
 PFX3e/E1a 定向：compile 2026-11-02T21-51-01-247Z-18688 通过；taskStats 3、TMUX OtherSessions 18、runtimeLogAnalysisHost 19、projectQuickStart 8、resultEvidence 1、jobTmuxLogNavigation 12，共 61 项通过，e1-final-*.log。没有新增性能断言，原扫描/缓存检查逐字保留。实际生成主 HTML 三段脚本解析通过；e1-render-1793656362866.json 覆盖真实 DOM 原生补跑合并、混合旧投影不重复、完成 verified、相同前缀未知窗口/明确控制器/原生任务分别分组，同时复核既有导航、精确附着、输入预览、自定义布局、窄窗口与刷新焦点。首次渲染探针继承前一场景的单窗口 filter，读取总览节点为 null；正确显式切回总览后通过，未为探针修改生产行为。补当前覆盖表，合计 8 非生成文件，冻结内部 0.5.478 进入规定 package。没有服务器操作、公开发行、安装或科研分析。
 
-PFX3e/E1a 首轮 package：2026-11-02T21-53-11-486Z-89836-package/run.json，317/318 通过、executionCompactOverview 一项失败，exit=1、694825ms、锁已释放，未组包。该原夹具手工将 `${logicalPlansSource}` 只替换第一次；新增复用位于其前面，原 renderExecutionPlanList 插值未展开，51 子例出现相同 SyntaxError。实际生成 HTML 与其 61 项定向/浏览器检查无此语法问题，但先前反向引用未覆盖模板变量的手工替换消费者，判断不完整。按 exact logicalPlansSource 搜索只此一个测试消费者，改 replaceAll 展开全部，保留 51 项原断言及期限，未改生产功能迎合夹具。E1-test2 仅该测试及本计划：当前套件 51/51 通过（e1-interpolation-fixture-fixed.log），已提交 HEAD 的原 UI 函数同一 51 项通过（e1-interpolation-committed-baseline.log），证明此准备与未提交 E1 修改无绑定。生产候选不变，包仍未完成；接下来严格检查与组包，不伪造失败 receipt。
+PFX3e/E1a 首轮 package：2026-11-02T21-53-11-486Z-89836-package/run.json，317/318 通过、executionCompactOverview 一项失败，exit=1、694825ms、锁已释放，未组包。该原夹具手工将 `${logicalPlansSource}` 只替换第一次；新增复用位于其前面，原 renderExecutionPlanList 插值未展开，51 子例出现相同 SyntaxError。实际生成 HTML 与其 61 项定向/浏览器检查无此语法问题，但先前反向引用未覆盖模板变量的手工替换消费者，判断不完整。按 exact logicalPlansSource 搜索只此一个测试消费者，改 replaceAll 展开全部，保留 51 项原断言及期限，未改生产功能迎合夹具。E1-test2 仅该测试及本计划：当前套件 51/51 通过（e1-interpolation-fixture-fixed.log）。额外旧 HEAD 对照在 git show 读取阶段 status=null，未进入断言，e1-interpolation-committed-baseline.log 为失败；主流程没有在失败后停止，误将此项记为通过并随 de42d5f2 提交，此处明确纠正，不将该对照算通过。生产候选不变，包仍未完成；补齐对照的实际源码读取后再验证，不改测试期限或生产代码，不伪造失败 receipt。
+
+E1-test2 对照更正：仅对隔离诊断中的 git show 源码读取提供足够缓冲，原 20 秒 Node/10 秒子进程期限和全部 51 项断言不变；已提交 de42d5f2 的原 UI 函数完整 51/51 通过，exit=0，e1-interpolation-baseline-buffer-fixed.log。此前 status=null 的旧失败日志保留，不覆盖；不把记录修正视为生产候选已完成。该说明单独提交，随后生产 0.5.478 继续原规定 package；未改变生产实现、版本、覆盖、执行器或发行边界。
 
 ## 发现线索与后续边界（以批次状态为准）
 
