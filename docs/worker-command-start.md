@@ -1,5 +1,7 @@
 # Worker 命令启动、运行状态与错误摘要
 
+> 本页按版本保留历史修复与现场证据。当前资源前缀只来自用户级全局设置 `simpleExperiment.tunnel.remoteTmuxSessionPrefix`，默认 simple；旧 job/options 不是配置来源。Host 传递当前全局值，Agent/Scheduler 在当前请求边界核对并携带，已有队列和窗口保留精确身份，不自动重派、改名或清理。当前目录与使用说明见 [配置指南](simple-experiment-setup.md#3-目录端口与身份先填清楚)；下文历史路径、版本和服务器观测不作为当前默认或本轮验收。
+
 ## 0.5.317 修复边界
 
 2026-10-15 只读核对 0.5.316 插件的当前任务窗口，NWPU3 的项目子命令报 `ModuleNotFoundError: No module named 'torch'`，NWPU5 的 run_wrapper 子命令报 `FileNotFoundError: 'python'`。任务窗口确实已建立并以退出码 1 结束。未停止、删除或重跑这些生产任务。

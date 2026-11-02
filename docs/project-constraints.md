@@ -14,11 +14,12 @@
 
 - **原则**：代码、配置、文档、测试、脚本中禁止出现任何写死的服务器标识，包括但不限于：主机名、IP、`workerId`/`serverId`（如 `nwpu3`）、`tmux` 会话名（如 `zlk-worker-nwpu3-agent`）、`Xshell` 会话文件名（如 `qgking.3.xsh`）、远端绝对路径（如 `/data/qgking/...`）、`conda` 环境名与用户名的硬编码组合。
 - **实现要求**：
-  - 所有服务器相关逻辑必须通过配置与拓扑动态获取：`setup.workerTunnels[].id`、`setup.remoteTmuxSessionPrefix`/`sessionPrefix`、`topology.workers`、`workers.json`、`assignmentById`、`tunnelPortAssignments`、`agentProjectDir` 等。
-  - `tmux` 会话名统一由 `AgentTmuxPolicy.defaultAgentTmuxSessionName(role, endpointId, sessionPrefix)` 生成，当前执行目标使用 `${prefix}-worker-${endpointId}-agent` / `${prefix}_tb`；旧角色名称只可兼容识别，不创建对应窗口。禁止在业务逻辑中拼接 `zlk-` 或具体 `nwpu3`。
+  - 所有服务器相关逻辑必须通过配置与拓扑动态获取：`setup.workerTunnels[].id`、`topology.workers`、`workers.json`、`assignmentById`、`tunnelPortAssignments`、`agentProjectDir` 等。资源前缀唯一来源是用户级全局设置 `simpleExperiment.tunnel.remoteTmuxSessionPrefix` 的 `globalValue`，默认 simple；`setup.remoteTmuxSessionPrefix` 仅承载该派生值，项目、Worker、旧 `sessionPrefix` 与持久任务字段不作为独立配置来源。每次打开仍为默认时提醒修改并说明作用。
+  - Agent 会话由 `AgentTmuxPolicy.defaultAgentTmuxSessionName` 计算；同账号/Worker 的 Agent 服务按稳定项目窗口隔离。TensorBoard 会话由 `tb_tmux_session_name(root)` 计算，控制和查询核对项目、Worker 及实际原生窗口；不再使用不含项目身份的 `${prefix}_tb` 独立设置。前缀用于命名，不能作为项目归属、活动事实或停止授权；历史实际窗口按精确身份保留。禁止在业务逻辑中拼接固定个人前缀或服务器身份。
+  - 默认 runtime、Agent 状态、日志和锁归 `<项目父目录>/<工作区名>/<全局前缀>_agent`，Scheduler 与任务归当前项目；共享 GPU 采样保留账号公共 Worker 状态目录，同一 Worker 共用采样。已有显式安装/状态目录保留，修改全局前缀不自动迁移、改名、停止、重启或清理资源。
   - `cluster_scheduler.py` / `cluster_agent.py` 的 `--worker-id` 默认值保持通用 `worker`，实际值必须由 `workers.json` 或 `SIMPLE_EXPERIMENT_WORKER_ID` 环境变量注入，不得在源码中默认 `nwpu3`。
   - `extension.ts` 中 `tryIds`、`abort`、`prepareAgents` 等多端点重试必须遍历 `enabledWorkerConfigs()` 或 `clients.keys()`，禁止写死 `["hub","nwpu3"]`。
-  - 新增 Worker 时自动沿用 `TunnelPortAllocator` 的 `assignment`，前端 `renderTensorBoardLinkRow` 的 URL 必须由 `localForwardPort+1000` 动态生成，不得写死 `19767/19768/6006`。
+  - Agent 隧道沿用每台服务器的明确端点配置与 `TunnelPortAllocator` 的 assignment，不加固定端口偏移。`renderTensorBoardLinkRow` 通过当前 Host 打开现有本机 LocalApiServer 的受保护页面，再复用配置的 Agent 隧道和项目绑定查询；不使用 `localForwardPort+1000`。TensorBoard 配置默认端口只是默认值，实际服务窗口和端口以当前项目服务回执及主动查询为准，端口占用不能借用或停止他人服务。
   - 测试、文档、示例中的具体服务器名仅可作为 `example` 出现在注释或 `test/fixtures`，禁止作为业务分支条件。
 
 - **校验**：`rg -n "nwpu3|qgking\.3|10\.70\.|/data/qgking" src --glob '!*.test.*'` 必须 0 命中；`rg -n "zlk-worker-" src` 仅允许在 `AgentTmuxPolicy` 的通用拼接处出现，且需以 `${prefix}` / `${endpointId}` 变量形式。

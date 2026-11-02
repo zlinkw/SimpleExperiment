@@ -2,6 +2,8 @@
 
 > 历史设计/验收记录。涉及旧控制节点、旧端口、旧推送及旧运行策略的内容不作为当前操作说明；当前只使用单台或多台 Worker，请以 [配置说明](simple-experiment-setup.md) 和 [接入模板](experiment-integration.md) 为准。
 
+> 当前默认 Agent runtime 位于 `<项目父目录>/<当前项目名>/<全局前缀>_agent/simple_cluster/runtime`，前缀来自本机全局用户设置，默认 simple；Agent 状态和日志默认归该项目，共享 GPU 采样保留账号公共 Worker 状态目录。下文项目外 simple_agent 与旧部署入口只保留为历史记录，不能据此上传、迁移、清理或更新服务器。当前每次真实传输仍使用 SimpleSFTP API 并核对精确目标，本轮未执行本页任何现场操作。
+
 ## 固定边界
 
 - `SimpleExperiment` 不直接执行 SSH、SCP 或 RSYNC，也不使用 SFTP 传输实时状态。
