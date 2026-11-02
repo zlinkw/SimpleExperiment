@@ -15091,7 +15091,7 @@ function renderPanelHtml() {
       }
       function automaticJobRetryView(job) {
         const retry = job.automaticRetry;
-        if (!retry || !retry.failureCount || job.status === "completed") return { label: "", note: "" };
+        if (job.lifecycleProtocol === 2 || !retry || !retry.failureCount || job.status === "completed") return { label: "", note: "" };
         const failures = "连续失败 " + retry.failureCount + "/5";
         if (retry.blockedReason) return { label: retry.failureClass === "deterministic" ? "代码错误，停止重试"
           : "需人工核查", note: failures + "；" + retry.blockedReason };
@@ -15288,8 +15288,9 @@ function renderPanelHtml() {
           const needsReview = status === "completed" && job.completionState !== "verified";
           const isolationState = job.outputIsolationBlocked && job.outputIsolationBlocked.recovery && job.outputIsolationBlocked.recovery.state;
           const isolationLabel = isolationState === "waiting_transfer" ? "等待传输，自动重查" : isolationState === "review_required" ? "旧产物待审核" : isolationState === "unknown" ? "产物待核实，自动重查" : "隔离暂停，未启动";
-          const statusLabel = needsReview ? (job.completionState === "review_required" ? "完成但有异常，待复核" : "产物完整，运行日志待核实") : job.executionState === "starting" ? "正在启动命令" : job.outputIsolationBlocked ? isolationLabel : job.retainExistingOutputs ? "保留已有产物" : job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : job.executionState === "missing" ? "远端未发现该任务" : "执行状态待核实") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("PLAN 所需源码待核实") === 0 ? "源码待核实" : String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
-          const placement = (job.workerId ? job.workerId + (preflightRejected ? " · 未启动" : job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : job.automaticWorkerId ? job.automaticWorkerId + " · 等待本服务器空卡" : "未派发") + (job.automaticWorkerId ? " · 自动选卡" : job.manualDispatch ? " · 手动指定" : "");
+          const nativeDeliveryLabel = job.lifecycleProtocol === 2 ? ({ pending: "本机待派发", dispatching: "等待接收确认", queued: "服务器已接收，等待执行" })[status] : "";
+          const statusLabel = needsReview ? (job.completionState === "review_required" ? "完成但有异常，待复核" : "产物完整，运行日志待核实") : job.executionState === "starting" ? "正在启动命令" : job.outputIsolationBlocked ? isolationLabel : job.retainExistingOutputs ? "保留已有产物" : job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : job.executionState === "missing" ? "远端未发现该任务" : "执行状态待核实") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("PLAN 所需源码待核实") === 0 ? "源码待核实" : String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : nativeDeliveryLabel || retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
+          const placement = (job.workerId ? job.workerId + (preflightRejected ? " · 未启动" : job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : job.automaticWorkerId ? job.automaticWorkerId + " · 等待本服务器准入" : "未派发") + (job.automaticWorkerId ? " · 自动选卡" : job.manualDispatch ? " · 手动指定" : "");
           const canJumpLog = Boolean(!preflightRejected && job.workerId && (job.commandId || job.outputDir));
           const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">查看窗口日志</button>';
           const errorText = String((artifactSyncRequired && job.artifactError) || job.error || "").trim();
@@ -15348,7 +15349,14 @@ function renderPanelHtml() {
             + '</div>';
           const anomalyRerunButton = ["completed", "failed"].includes(status) && job.completionState === "review_required" && job.lifecycleProtocol === 2 && job.workerId && job.commandId
             ? '<button type="button" class="mini secondary" data-command="retryDistributedJob" data-runtime-anomaly-rerun="true" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="仅重跑此 job；已有产物沿用完整路径双确认，保留其他任务。">覆盖产物并重跑此 job</button>' : '';
-          const blockText = job.lifecycleProtocol === 2 ? String(job.statusQueryError || job.blockReason || "") : job.outputIsolationBlocked || blocked ? String(job.blockReason || "") : "";
+          const blockText = job.lifecycleProtocol === 2 ? String(job.statusQueryError || job.blockReason || job.gpuMemoryWaitReason || "") : job.outputIsolationBlocked || blocked ? String(job.blockReason || "") : "";
+          const stopPending = job.lifecycleProtocol === 2 && job.commandId && job.stopIntent && job.stopIntent.commandId === job.commandId && job.stopIntent.workerId === job.workerId;
+          const waitNote = job.lifecycleProtocol !== 2 || stopPending || job.outputIsolationBlocked ? "" : status === "pending"
+            ? job.localQueueOnly || job.manualDispatch ? "等待手动派发，不会自动派发。" : "自动调度开启且 Worker/GPU 满足准入后继续；本机须保持打开，无需重复提交。"
+            : status === "dispatching" ? "本机已发出提交意图，等待主动查询确认接收；不代表已经运行，请勿重复提交。"
+            : status === "queued" ? "服务器已接收；Scheduler 与 GPU 满足准入后由服务器继续，本机退出不撤回已接收任务。" : "";
+          const recheckNote = job.lifecycleProtocol === 2 && job.completionState === "verified" && job.verificationQueryError
+            ? "本轮复查未知：" + job.verificationQueryError + "。已确认完成保留；原确证时间：" + String(job.verifiedCompletion && job.verifiedCompletion.verifiedAt || "未提供") : "";
           const blockAdvice = blocked ? (blockText.indexOf("PLAN 所需源码待核实") === 0 ? "仅核实本 PLAN 的入口、配置与依赖；产物和缓存不参与。按具体路径处理源码变化，协议较旧时更新 Agent/Scheduler 后刷新即可，无需重新提交已在队列的 job。" : blockText.indexOf("等待当前代码版本") === 0 ? "这个已提交 job 保留排队；其他 Worker 可运行匹配版本。被占用的 Worker 收到旧任务结束回执后自动释放版本锁，无需再次提交。" : "下一步：空闲 GPU 不能运行这份旧代码。到实验准备的 Plan 列表手动选中，再点“校验并提交运行”；或恢复提交前的代码并重新同步 Worker。") : "";
           // r86：jobNext 唯一消费点要求 errorText∧(preflightRejected∨codeProofBlocked)，"启动器冲突/隔离阻断"在此永不可达，不留死分支；
           // 隔离暂停的可见面=blockText（下方独立渲染 blockReason）+statusLabel"隔离暂停，未启动"+组级提示；
@@ -15364,6 +15372,10 @@ function renderPanelHtml() {
             : "";
           return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '">'+(manualControls?'<div class="executionManualDispatch">'+manualControls+'</div>':'')+'<span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (needsReview || blocked || unavailable ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + failedRecallButton + availabilityButton + logButton + trainingRecoveryButton
             + lifecycleStates + diagnosticSummary + analyzeButton + anomalyRerunButton + artifactButtons
+            + (waitNote ? '<div class="muted">' + esc(waitNote) + '</div>' : '')
+            + (stopPending ? '<div class="muted">停止请求待确认；仍显示服务器实际执行状态。连接恢复后可重试原任务停止，不创建新任务。</div>' : '')
+            + (recheckNote ? '<div class="muted">' + esc(recheckNote) + '</div>' : '')
+            + (nativeRerun ? '<div class="muted">先查看此 job 的窗口日志；需要恢复时使用本行“重跑此 job”，先核实原请求及此 job 的精确产物范围，不会自动重跑或清理其他任务。</div>' : '')
             + (job.sourceCodeFingerprint ? '<div class="muted" title="' + escAttr(job.planId + ' · ' + job.sourceRevision + ' · ' + job.sourceCodeFingerprint) + '">源码版本：' + esc(job.sourceCodeFingerprint.slice(0, 12)) + ' · commandId ' + esc(job.commandId || '') + '</div>' : '')
             + (unavailable ? '<div class="muted">不可用原因：' + esc(job.unavailable.reason) + ' · ' + esc(job.unavailable.markedAt) + '</div>' : '')
             + (recallNote ? '<div class="muted">' + esc(recallNote) + '</div>' : '')
@@ -15589,6 +15601,7 @@ function renderPanelHtml() {
           remoteAcceptedJobCount: plan.remoteAcceptedJobCount,
           failedAttemptRecoveries: plan.failedAttemptRecoveries,
           jobs: asArray(plan.jobs).map((job) => ({
+            index: job.index,
             jobIndex: job.jobIndex,
             attempt: job.attempt,
             resultPathPolicy: job.resultPathPolicy,
@@ -15599,6 +15612,8 @@ function renderPanelHtml() {
             resultState: job.resultState,
             completionState: job.completionState, runtimeDiagnostics: job.runtimeDiagnostics, exitCode: job.exitCode,
             statusQueryError: job.statusQueryError,
+            verificationQueryError: job.verificationQueryError, verifiedCompletion: job.verifiedCompletion,
+            stopIntent: job.stopIntent, localQueueOnly: job.localQueueOnly, gpuMemoryWaitReason: job.gpuMemoryWaitReason,
             workerId: job.workerId,
             gpuId: job.gpuId,
             commandId: job.commandId,

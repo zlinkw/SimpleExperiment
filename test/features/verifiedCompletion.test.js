@@ -44,6 +44,25 @@ test('unverified artifacts or logs, failed exit and an unrelated run cannot esta
   assert.equal(project(f.queue, [f.snapshot]).plans[0].jobs[0].verifiedCompletion, undefined);
  }
 });
+
+test('cold or pending Worker rounds expose an unknown recheck without changing the saved completion', () => {
+ const f = fixture(), complete = project(f.queue, [f.snapshot]);
+ const original = structuredClone(complete.plans[0].jobs[0].verifiedCompletion);
+ for (const snapshots of [[], [{workerId:'w',tasks:[],error:'cold offline'}], [{workerId:'w',tasks:[],pending:true}]]) {
+  const next = Q.mergeDurableWorkerSnapshots(complete, snapshots, 'p', now + 1000), job = next.plans[0].jobs[0];
+  assert.equal(job.status,'completed'); assert.equal(job.completionState,'verified');
+  assert.deepEqual(job.verifiedCompletion,original); assert.ok(job.verificationQueryError);
+  const restored=Q.restoreFormalJobQueue(JSON.parse(Q.serializeDistributedQueue(next)));
+  assert.deepEqual(restored.plans[0].jobs[0].verifiedCompletion,original);
+  assert.equal(restored.plans[0].jobs[0].verificationQueryError,undefined,'round diagnostics are not persisted as current observation');
+  const rechecked=Q.mergeDurableWorkerSnapshots(next,[f.snapshot],'p',now+1000).plans[0].jobs[0];
+  assert.equal(rechecked.verificationQueryError,undefined);assert.deepEqual(rechecked.verifiedCompletion,original);
+ }
+ const stopped=structuredClone(complete);stopped.plans[0].jobs[0].stopIntent={commandId:'c',workerId:'w',requestedAt:iso(now),state:'pending'};
+ const restored=Q.restoreFormalJobQueue(JSON.parse(Q.serializeDistributedQueue(stopped)));
+ assert.deepEqual(restored.plans[0].jobs[0].stopIntent,stopped.plans[0].jobs[0].stopIntent);
+ assert.equal(Q.allocateAvailable(restored,[{workerId:'w',idleGpuIds:['0'],online:true,declaredJobPaths:true}]).dispatches.length,0);
+});
 test('new positive artifact defects revoke confirmation; failed or ambiguous reads do not', () => {
  const f = fixture(), complete = project(f.queue, [f.snapshot]);
  for (const defect of ['missing', 'bad-size', 'wrong-run', 'failed-read', 'ambiguous-null']) {

@@ -7,6 +7,32 @@ const {composeLogicalPlans}=require('../../src/features/LogicalPlanProgress.ts')
 
 const panel = readSource("src/ui/PanelHtml.ts").replace('${logicalPlansSource}', '('+composeLogicalPlans.toString()+')');
 
+test('native waiting stages explain delivery and never advertise historical automatic retries',()=>{
+ for(const [status,label,note] of [['pending','本机待派发','本机须保持打开'],['dispatching','等待接收确认','不代表已经运行'],['queued','服务器已接收','服务器继续']]){
+  const sandbox=clickSandbox();sandbox.render({distributedPlans:[{id:'wf',planFile:'plans/wait.yaml',jobs:[{
+   index:0,status,lifecycleProtocol:2,workerId:status==='pending'?'':'w',commandId:status==='pending'?'':'c',outputDir:'work/job',
+   blockReason:'等待 GPU 显存预算',automaticRetry:{failureCount:2,retryAt:'2026-11-03T00:00:00Z'}
+  }]}]});
+  assert.ok(sandbox.html.includes(label));assert.ok(sandbox.html.includes(note));assert.match(sandbox.html,/等待 GPU 显存预算/);
+  assert.doesNotMatch(sandbox.html,/等待自动重试|连续失败 2/);
+ }
+ const manual=clickSandbox();manual.render({distributedPlans:[{id:'wf',planFile:'plans/wait.yaml',jobs:[{index:0,status:'pending',lifecycleProtocol:2,localQueueOnly:true,outputDir:'work/job'}]}]});
+ assert.match(manual.html,/不会自动派发/);
+});
+
+test('verified completion keeps its count while recheck and exact pending stop remain separate',()=>{
+ const sandbox=clickSandbox(),job={index:0,status:'completed',completionState:'verified',lifecycleProtocol:2,workerId:'w',commandId:'c',outputDir:'work/job',
+  verificationQueryError:'本轮网络失败',verifiedCompletion:{verifiedAt:'2026-10-30T00:00:00.000Z'}};
+ const state={distributedPlans:[{id:'wf',planFile:'plans/done.yaml',jobs:[job]}]};
+ sandbox.render(state);assert.match(sandbox.html,/成功 1\/1/);assert.match(sandbox.html,/本轮复查未知/);assert.match(sandbox.html,/2026-10-30T00:00:00.000Z/);
+ const key=sandbox.executionRenderKeysForState(state).planList;
+ const changed=structuredClone(state);changed.distributedPlans[0].jobs[0].verificationQueryError='另一次错误';
+ assert.notEqual(sandbox.executionRenderKeysForState(changed).planList,key);
+ job.status='running';job.completionState=undefined;job.stopIntent={commandId:'c',workerId:'w',state:'pending'};
+ sandbox.render(structuredClone(state));assert.match(sandbox.html,/停止请求待确认/);assert.match(sandbox.html,/运行中/);
+ job.stopIntent.workerId='other';sandbox.render(structuredClone(state));assert.doesNotMatch(sandbox.html,/停止请求待确认/);
+});
+
 test('completed job and PLAN expose independent artifact refresh and delta retry while siblings run',()=>{
   const sandbox=clickSandbox();
   sandbox.render({distributedPlans:[{id:'wf',planFile:'plans/corim.yaml',jobs:[
@@ -1007,7 +1033,7 @@ test('Worker-local automatic selection is visible before dispatch and invalidate
  const sandbox=clickSandbox(),state={distributedPlans:[{id:'wf',planFile:'plans/p.yaml',jobs:[
   {index:0,case:'c',seed:42,status:'pending',lifecycleProtocol:2,automaticWorkerId:'selected-worker'}]}]};
  const key=sandbox.executionRenderKeysForState(state).planList;sandbox.render(state);
- assert.match(sandbox.html,/selected-worker · 等待本服务器空卡 · 自动选卡/);
+ assert.match(sandbox.html,/selected-worker · 等待本服务器准入 · 自动选卡/);
  assert.doesNotMatch(sandbox.html,/data-job-tmux-log="1"[^>]*data-worker-id="selected-worker"/,'waiting intent is not a running Worker identity');
  const next=structuredClone(state);next.distributedPlans[0].jobs[0].automaticWorkerId='other-worker';
  assert.notEqual(sandbox.executionRenderKeysForState(next).planList,key);

@@ -499,10 +499,21 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
             }
         }
     }
-    queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => job.lifecycleProtocol === 2 && !(0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job) && job.workerId && job.commandId && !pulled.some(row => row.workerId === job.workerId)
-                && !snapshots.some(row => row.workerId === job.workerId && row.pending === true)
-                ? { ...job, status: "unknown", executionState: "unknown", resultState: "unverified",
-                    error: undefined, statusQueryError: "当前 Worker 主动查询不可用；原任务未重复派发", blockReason: "查询失败，可刷新或中止原任务" } : job) })) };
+    queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => {
+                if (plan.projectId !== projectId || job.lifecycleProtocol !== 2 || !job.workerId || !job.commandId)
+                    return job;
+                const snapshot = snapshots.find(row => row.workerId === job.workerId);
+                const pending = snapshot?.pending === true;
+                if (pulled.some(row => row.workerId === job.workerId) && !pending)
+                    return job;
+                if ((0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job))
+                    return { ...job, ...(0, VerifiedCompletion_1.verifiedCompletionProjection)(plan, job),
+                        verificationQueryError: snapshot?.error || (pending ? "Worker 查询进行中，本轮尚未取得有效观察" : "本轮未取得此 Worker 的有效主动查询") };
+                if (pending)
+                    return job;
+                return { ...job, status: "unknown", executionState: "unknown", resultState: "unverified",
+                    error: undefined, statusQueryError: "当前 Worker 主动查询不可用；原任务未重复派发", blockReason: "查询失败，可刷新或中止原任务" };
+            }) })) };
     if (pulled.length) {
         queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => {
                     const snapshot = pulled.find(row => row.workerId === job.workerId);
