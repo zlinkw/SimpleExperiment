@@ -34,8 +34,9 @@
 | D0a | 项目内 runtime 与辅助日志的同步/覆盖保护 | passed |
 | PFX0 | 单一全局前缀来源、保存范围和每次打开提醒 | passed |
 | PFX-test | 受影响夹具使用正式前缀字段，目录方法提取不绑定旧参数个数 | passed |
+| PFX-test2 | 根绑定检查覆盖实际安装映射，不强制所有插件路径在项目外 | passed |
 | PFX-base | 前缀默认值与归一化收敛一处，提供实际目录命名 | passed |
-| PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | pending |
+| PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | running |
 | PFX2 / D0c | 服务命名与调度前缀统一，消除个人前缀兜底 | pending |
 | PFX3 | 远端路径校验和错误品牌迁移的前缀残留 | pending |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
@@ -257,6 +258,19 @@ PFX0 源码 dfc9b870957eac522e36581e4add6ab27555fb91 已普通 push/fetch 一致
 PFX-base 定向结果：agentTmuxPolicy 3、publicRuntimeEnvironmentDefault 8、agentInstallDirIsolation 1、serverQuotaPersistence 4、configurationSettings 4 项通过。共享实现覆盖 simple 默认、zlk/alice 自定义、大小写、空值、非法字符及既有 32 位规则，设置与 tmux 计算一致；原明确输入保存校验未变。compile exit=0；实际 HTML 三段及模块脚本通过，UI 未改，复用 PFX0 隔离页面。冻结内部版本 0.5.462，共 8 个非生成文件；规定 package pending，不安装、不发布中间包。
 
 PFX-base 最终验证：318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、699464ms；凭据 2026-11-02T15-32-12-506Z-91220-package/run.json。VSIX 0.5.462 为 universal/trial、2779309 字节，SHA256 55a5506bc1a50442c0fbda91cc50e197c212b92e6b1855a3e2a35661f2b6a58b，与 receipt 一致；362 项内容门禁零违规，新编译的共享前缀模块确实在包内，实际 HTML 三段/模块脚本通过。本批未触发目录或窗口变化。当前仅内部包，远端发行待整组收口、未安装。下一批把默认 Agent 目录放到项目内，使用全局前缀并保持显式路径，修正核实调用方和草稿预览；不迁移旧文件。
+
+## 当前批次 PFX1 / D0b
+
+PFX-base 源码 fa0fb7f61d99dd25b78a891ac88621d5fe4ae8f7 已普通 push/fetch 一致。0.5.462 仍为内部验证包。
+目标：默认 <项目父目录>/<项目名>/<全局前缀>_agent；实际 runtime、状态与日志沿用安装根内布局。无本地项目或未确定目录时，不生成可用启动/部署目标。显式安装路径原样优先，不改名或迁移旧目录。
+证据：旧默认在项目父目录内固定 simple_agent；两处版本核实会吞掉目录解析失败并猜回旧位置。草稿预览同样使用父目录/simple_agent，且无法区分用户明确填写的默认同名路径。
+范围：既有 Host 目录/核实调用、实际 legacy UI 的已保存/草稿预览及重绘字段、agentInstallDirIsolation/projectRemoteDestinationClarity 两现有套件、三处版本和本计划，共 8 个非生成文件。目录名复用 PFX-base，已知完整 projectWorkDir 明确传入，不二次追加本地项目名。
+保留：D0a runtime/日志与原机器状态保护；部署专用 SimpleSFTP uploadFiles、科研 work_dirs/tmp/result；共享 GPU 采样根与唯一源不变；所有真实迁移/写入仍须用户原操作和确认。本轮不操作服务器。项目服务 tmux 命名另批处理。
+验收：默认/任意前缀、两个项目同父目录、显式路径、无项目、已知完整项目路径；核实不得猜路径或把未知当成功；草稿变更不改已保存值，显式默认同名路径也不随草稿移动。原版本核实、根绑定、设置缓存与实际生成 HTML/隔离页面、规定 package。预计 20–30 分钟，远端现场仍待验证。
+
+PFX1 定向进展：agentInstallDirIsolation 5 项通过，包含真实版本核实方法的精确 URL 路径、显式路径及无目录零请求；projectRemoteDestinationClarity 首轮 3/4 失败，旧“登录后进入”label 在 fa0fb7f6 基准也不存在，现改为实际渲染的代码/runtime 完整路径断言，4 项通过。首次基准读取因 Node 默认 1MB maxBuffer 不足失败；改用 PowerShell UTF-8 读取后证实旧文案不在基准，不改变产品登录行为。agentRuntimeVerificationLatency 1、projectRootMap 14、completedJobArtifactRootBinding 7 项通过。
+planSubmissionStateGuard 为 25/26：旧第一例强制 prefixes=0，但安装根移入项目后 runtime 和 lifecycle 日志必须被 D0a 保护。插入 PFX-test2 纯测试准备批，仅该已有套件和本计划；按实际安装根相对代码根的关系核对精确两个保护前缀，外部 Agent/GPU 状态仍不误入项目映射，全部原 GET/归属/取消/零写入断言保留。PFX1 源码与 UI 仍未提交，不能宣称本批已完成。
+PFX-test2 验证：planSubmissionStateGuard 26 项、既有 agentSessionStateCache 2 项通过；外部安装仍要求零项目保护前缀，内部安装只接受精确 runtime/日志路径，未删断言、未改期限或生产根保护。纯测试/记录两文件独立提交，无新运行版本、打包或安装；PFX1 继续隔离页面和规定 package。
 
 ## 后续定向核查线索（尚未实施）
 

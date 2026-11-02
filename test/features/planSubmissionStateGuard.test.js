@@ -208,7 +208,14 @@ test("legacy cached probe (unrecorded transport fields) is re-probed exactly ONC
   assert.equal(fixture.host.lastWorkerProbes.nwpu3.workerId, "nwpu3");
   assert.ok(fixture.host.lastWorkerProbes.nwpu3.statusGeneration >= 1, "registration goes through stampWorkerProbeGeneration");
   const guard = fixture.host.targetRootGuard(fixture.target);
-  assert.ok(guard && guard.unknown === false && guard.prefixes.length === 0, "guard now resolves with state roots outside the code root");
+  assert.ok(guard && guard.unknown === false, "the fresh bound observation resolves the guard");
+  const install = fixture.host.agentRuntimeDirs("/srv/work").installDir;
+  const relativeInstall = path.posix.relative(CODE_ROOT, install);
+  const expectedPrefixes = relativeInstall.startsWith("..") ? [] : [
+    `${relativeInstall}/simple_cluster/runtime`, `${relativeInstall}/logs/agent-lifecycle.log`,
+  ];
+  assert.deepEqual(Array.from(guard.prefixes).sort(), expectedPrefixes.sort(),
+    "outside state roots stay outside; only the actual install runtime and lifecycle log enter the in-project protection map");
 });
 
 test("legacy probe plus a FAILED read-only probe stays blocked, writes nothing, caches nothing", async () => {
