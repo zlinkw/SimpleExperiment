@@ -30,7 +30,10 @@
 | C2b | 资源动作、兼容任务与生成下一步中的旧结果入口 | passed |
 | C2c | 自定义固定项中的结果别名迁移，保留布局和位置 | passed |
 | C3 | 最新 job 产物与用户范围交集、逐 Worker 同步反馈 | passed |
-| D0 | 项目内服务状态与多窗口隔离核查，按证据修正共享路径 | pending |
+| D0a | 项目内 runtime 与辅助日志的同步/覆盖保护 | passed |
+| D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | pending |
+| D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | pending |
+| D0d | 更新目录与服务说明，保留完整使用指南 | pending |
 | D1 | 零目标、禁用、未核实、离线；精确附着命令 | pending |
 | D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | pending |
 | D3 | 保存范围、生效时间与草稿恢复 | pending |
@@ -198,10 +201,22 @@ C3 定向证据：executionCompactOverview 51、latestJobArtifacts 3、planArtif
 
 C3 最终 package：318 作业全部通过、未运行 0、maxParallel=1、exit=0、726287ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T13-54-24-591Z-9248-package/run.json。VSIX 0.5.459 为 universal/trial、2777697 字节，SHA256 c4e1905610d7adca94567e90d1269d26af9aaf954a8b54bdae6789b915e64235，与 receipt 相符；361 项内容门禁零违规，实际 HTML 三段及模块脚本通过。包身份及字节校验之后，汇总脚本因读取不存在的 maxObservedConcurrent 字段 exit=1；随后按实际 schema 读取记录 exit=0，未换包、未改测试或重跑打包。下一批先处理项目内默认 runtime 的现有保护映射，再改目录和服务命名；共享 GPU 采样不动。真实服务器验收仍待验证。
 
+C3 交付：源码 5c75ad0dedabcf0cc8cf58135da00bb16c817181 已普通 push/fetch 一致；https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.459 为 draft=false/prerelease=true，真实远端下载、字节数及精确文件名校验一致。实际公开 ReleaseClient 确认稳定版仍为 0.5.440/0.2.117，试行不降级、旧稳定可更新。未安装、未部署、无训练服务器操作。
+
+## 当前批次 D0a
+
+目标：在改变默认目录前，把实际受管 runtime 目录和 Agent lifecycle 日志接入已有逐端点保护映射；不让科研同步或覆盖触碰辅助服务文件。
+证据：targetRootGuard 已消费实际 installDir，但机器状态路径只包含 stateRoot/显式状态及共享 GPU 根；实际部署代码在 <installDir>/simple_cluster/runtime，AgentLifecycle 将日志写入 <installDir>/logs/agent-lifecycle.log。当前相对保护不能覆盖这两处。须通过真实 Host 映射与边界回归证明后修正，不执行真实传输或删除。
+范围：既有 Host targetRootGuard、既有 projectRootMap 测试、三处版本及本计划，共 6 个非生成文件。只注册实际两个受管路径，保留显式安装根与代码根相同、或与科研目录混用的已有场景；不把整个安装根或整个项目改成机器状态。不改变默认目录、GPU 采样、调度或服务生命周期，不迁移/清理文件。
+验证：先复现项目内 runtime 保护缺口，覆盖默认专用目录及显式同根/混合目录，科研 work_dirs 和 tmp/result 保持可同步；原端点/共享传输/状态写入边界回归、compile/package 及试行交付。目录与命名分开后续批次，确保每批最多 8 文件。
+
+D0a 定向证据：projectRootMap 新增真实 Host 映射断言先以 13/14、exit=1 复现 /srv/project/simple_agent 内 runtime 未受保护；只加入现有 runtime 目录与实际 lifecycle 日志文件后 14/14 通过。同根和 work_dirs 混合安装均保留科学模型、tmp/result、普通日志和 runtimeX 近似名称。completedJobArtifactRootBinding 7 项通过，绑定、未知映射、切换取消及 verifyOnly 保留。实际科研代码上传使用精确 manifest；受管 Agent 部署走既有独立 uploadFiles 入口，不被项目传输保护误挡，未执行部署。compile 及实际 HTML 三段/模块脚本通过；UI 实现未变，复用 C3 实际渲染，不重做隔离页面。原失败日志 simple_cluster/reports/product-optimization/d0a-target-1793628822391/before.log 保留；冻结 0.5.460，共 6 个非生成文件，最终 package pending。
+
+D0a 最终 package：318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、768448ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T14-17-56-106Z-43196-package/run.json。VSIX 0.5.460 为 universal/trial、2777800 字节，SHA256 f350e59a31400f9f4ea714e23f6c1a6b2b9681de5dd2a63a36e65dbbcdef5c86，与 receipt 相符，361 项收包门禁零违规。只补实际两个受管路径，不改变整个安装根语义、默认位置、服务命名或共享 GPU 采样。下一批修改默认目录及明确的项目路径调用方、预览；未安装、未部署。
+
 ## 后续定向核查线索（尚未实施）
 
 - D0：agentRuntimeDirs 默认 <父目录>/simple_agent；Agent tmux 默认名仅含前缀和 Worker，不含项目。默认 runtime 应转项目内，并用稳定项目身份分开 Agent 窗口；不迁移或清理旧目录，不改变用户显式目录。用户已选择保留 GPU Collector 的账号/Worker 共享唯一采样源（GpuCollector.ts、AgentLifecycle.ts），其余归项目；当前未改。
-- D0 待核实风险：ProjectRootMap 的相对机器状态保护消费 stateRoots，programRoot 目前仅是映射字段。改变默认安装位置前，核实同步/覆盖/清理的实际消费者如何排除项目内 runtime；不能凭字段存在宣称已受保护，也不在未复现风险前改全局语义。保留用户显式安装根与代码根相同的已有场景，不能为新默认路径把整个科研项目变为机器状态。
 - D1：serverSetupReadiness 在 0 Worker 时 missing 为空导致 ready=true；占位 tmuxCmdAgent/Sch/Gpu 从未填充真实目标，仍可复制。应修正空目标语义，提供真实选定窗口的唯一附着入口。
 - D2：operationEventMaxDelayMs 配置/后端默认 200，面板三处回退 1000；全局读取缺少与保存的 10000 上限一致的约束。Conda label 含“可选，必填”，configInput/configSelect 的 label 没有 for/id。
 - D2/D3：Worker Conda 继承时表单显示全局值；saveWorkerConfigCore 用 effectiveWorkerCondaEnv 作缺值回退，会把继承固化成覆盖。需显式区分继承、系统 Python 与路径，不自动探测/安装科研依赖。

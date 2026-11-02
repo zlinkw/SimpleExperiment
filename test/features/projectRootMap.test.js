@@ -292,6 +292,21 @@ test("host maps configured roots and the bound worker probe using the actual cod
   assert.deepEqual(JSON.parse(JSON.stringify(method.call(host, target))), { prefixes: ["control", "run/collector"], unknown: false });
   delete host.setupConfig.workerTunnels[0].workerStateDir;
   assert.equal(method.call(host, target).unknown, true);
+  host.lastWorkerProbes = {};
+  host.setupConfig.workerTunnels[0].workerStateDir = "/shared/gpu";
+  for (const relativeInstall of ["simple_agent", "", "work_dirs"]) {
+    const installDir = "/srv/project" + (relativeInstall ? "/" + relativeInstall : "");
+    host.agentRuntimeDirs = () => ({ workDir: "/srv/project", installDir });
+    const guard = method.call(host, target);
+    assert.equal(guard.unknown, false);
+    const prefix = relativeInstall ? relativeInstall + "/" : "";
+    assert.equal(isUnderMachineStatePrefixes(prefix + "simple_cluster/runtime/cluster_agent.py", guard.prefixes), true, "the actual runtime is protected: " + installDir);
+    assert.equal(isUnderMachineStatePrefixes(prefix + "logs/agent-lifecycle.log", guard.prefixes), true, "the Agent lifecycle log is protected");
+    assert.equal(isUnderMachineStatePrefixes(prefix + "simple_cluster/runtimeX/train.py", guard.prefixes), false);
+    assert.equal(isUnderMachineStatePrefixes("work_dirs/experiment/model.pth", guard.prefixes), false, "a mixed install root must not hide scientific artifacts");
+    assert.equal(isUnderMachineStatePrefixes("tmp/result/metrics.csv", guard.prefixes), false);
+    assert.equal(isUnderMachineStatePrefixes(prefix + "logs/science.csv", guard.prefixes), false);
+  }
 });
 
 

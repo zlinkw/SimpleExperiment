@@ -10637,7 +10637,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 // Keep explicit roots protected while an older observation is
                 // still cached across an Agent restart or configuration change.
                 machineStateDirs: [observed?.workerStateDir, target?.agentStateDir, config?.agentStateDir,
-                    target?.workerStateDir, config?.workerStateDir].filter(Boolean),
+                    target?.workerStateDir, config?.workerStateDir,
+                    // These are the actual deployment and lifecycle-output paths.
+                    // Protect them without treating a mixed install root as all state.
+                    ...(dirs?.installDir ? [`${dirs.installDir}/simple_cluster/runtime`,
+                        `${dirs.installDir}/logs/agent-lifecycle.log`] : [])].filter(Boolean),
             });
             const guard = machineStateGuard(map);
             if (observed?.gpuCollectorProtocol === 1 && (!observed.workerStateDir || !observed.agentStateDir)) guard.unknown = true;
