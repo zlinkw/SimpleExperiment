@@ -41,6 +41,7 @@
 | PFX-test6 | 将注释匹配替换为原进程内的真实 TensorBoard 命名断言 | passed |
 | PFX-test7 | 私有 tmux 夹具包含真实共用前缀函数依赖 | passed |
 | PFX-test8 | 归一化组合检查不绑定 TensorBoard 格式函数的参数个数 | passed |
+| PFX-test9 | 旧停止夹具使用真实取消确认契约，保留未确认停止意图 | passed |
 | PFX-base | 前缀默认值与归一化收敛一处，提供实际目录命名 | passed |
 | PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | passed |
 | PFX2a / D0c | Agent 窗口按规范项目身份隔离 | passed |
@@ -49,7 +50,7 @@
 | PFX2d | 调度前缀归一化与真实原队列定位 | passed |
 | PFX2e | 通用关窗不得按 Agent 会话名跳过精确窗口保护 | passed |
 | PFX2f1 | TensorBoard runtime 使用全局前缀及精确项目服务身份 | passed |
-| PFX2f2 | Host 传递唯一全局值，展示实际返回的服务目标 | pending |
+| PFX2f2 | Host 传递唯一全局值，展示实际返回的服务目标 | running |
 | PFX3 | 远端路径校验和错误品牌迁移的前缀残留 | pending |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
@@ -371,7 +372,19 @@ PFX2f1 定向共 32 项通过（Controls1 4、AndFence 5、policy 5、gpuIdentit
 
 PFX2f1 最终验证：2026-11-02T18-09-22-156Z-87964-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、708209ms。内部 universal/trial 0.5.469：2773407 字节，SHA256 9c7df4dfc59f7743c9cfb6f8836fd5bba9dbda0815b0a0c2e73c0e6c2c7e9432；与 receipt 一致，362 项内容门禁零违规，实际 HTML 三段及模块解析通过。无训练服务器操作、自动重跑、产物清理、发布或安装。
 
-PFX2f2 必须同时完成请求方项目边界：Host 不能只相信目标 Agent 自己的 root。请求携带精确 projectDir/Worker 并在服务操作前核对；使用旧 Agent 不认识的项目服务路由，保证旧服务即使忽略新参数也不会执行旧前缀操作。不以相同版本号作为停止门禁，不自动部署；旧未知服务仍保留精确 TMUX 窗口人工入口。面板及成功提示使用本轮返回的真实服务名/端口/日志，不再猜 prefix_tb。
+## 测试准备 PFX-test9
+
+扩展定向检查时 Controls3 出现两项真实失败，完整日志 pfx2f2-tensorboardControls3.test.js.log 保留。其 fixture 成功 RPC 仅返回 ok，没有生产 task_stop 必需的 cancelled=true；故障 RPC 后还把精确窗口已关闭当作取消围栏已确认。task_stop 及其共享模块本批未修改，这套旧文件不在上一批 package 的实际 jobs 中，不能声称上一批 318 项覆盖过它。
+
+仅修原夹具：正常回执返回显式 cancelled=true；控制器失败仍核实原精确窗关闭、无 PID/会话操作及无关窗口保留，并新增失败码、取消未确认、未退休和缓存未清除断言。保留原测试和期限，不弱化正常成功、归属变化与未知目标覆盖。Controls3 四项全部通过，exit=0，pfx-test9-controls3.log。夹具及本计划独立验证/提交，无新运行版本；PFX2f2 生产候选尚未提交，不把它作为本测试准备的实现依赖。
+
+## 当前批次 PFX2f2
+
+PFX2f1 提交 d122cb0216dc60a75434073ee7807f1e038b08e8 已普通 push/fetch 一致。Host 请求携带精确 projectDir/Worker 与唯一全局前缀，使用 /api/tensorboard/service；旧 Agent 不认识该路由时明确失败，不回退旧命名操作。新 Agent 对新旧 HTTP 入口都在服务操作与回执写入前核对请求项目和 Worker。沿用既有操作响应和请求预算，不增加版本相等门禁或自动部署；旧未知服务仍保留精确 TMUX 窗口人工入口。
+
+删除无效 tensorboard.tmuxSession 设置入口，不改用户已保存 JSON；成功提示读取本轮真实服务名、窗口、端口及日志。失败查询显示未知和原错误，不伪装未运行；启动只轮询原 5×2 秒预算。Worker 显式空 Conda 保持系统 Python，继承值由既有配置提供；没有科研环境检查。保留非 TensorBoard save-result-policy 的原 Worker 传输。项目切换后不把新项目目标补进旧服务请求。
+
+Host、Agent、实际 UI、既有 Controls1、三版本及本计划共 8 文件；内部 0.5.470。原 Python 进程扩展新旧 HTTP 入口的缺失/异项目/异 Worker 零写入拒绝，原 Node 套件替换静态名称猜测为真实 Host 方法执行，覆盖全局值、动态端点、返回事实、未知与旧 Agent 无回退。待 compile、定向、实际 HTML/隔离渲染及规定 package；无服务器操作、公开发行或安装。
 
 ## 后续定向核查线索（尚未实施）
 

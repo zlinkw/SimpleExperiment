@@ -30,7 +30,7 @@ def queue_rpc(root, worker, action, payload, **kwargs):
     for wid, row in list(windows.items()):
         if row['kind'] == 'native' and row['command'] == payload['targetCommandId'] and row['project'] == payload['projectId']:
             del windows[wid]
-    return {'ok': True}
+    return {'ok': True, 'cancelled': True}
 
 def task_tmux(args):
     assert args[0] == 'kill-window' and args[1] == '-t' and args[2].startswith('@'), args
@@ -98,12 +98,14 @@ def run_bridge():
 
 def run_fallback():
     global rpc_failed
-    # A broken controller still allows closing exact observed windows; no PID fallback.
+    # Exact windows can close while an unhealthy controller leaves cancellation unconfirmed.
     for kind in ('native', 'legacy'):
         reset(kind)
         rpc_failed = True
         value = ns['stop_scheduler_operation']('/fixture', request)
-        assert value['status'] == 'completed' and set(windows) == {'@2'}, (kind, value, windows)
+        assert value['status'] == 'failed' and set(windows) == {'@2'}, (kind, value, windows)
+        assert value['errorCode'] == 'TASK_STOP_NOT_CONFIRMED' and 'TASK_CANCEL_UNCONFIRMED' in value['message'], value
+        assert value['retiredOperationIds'] == [] and value['cacheRetired'] is False, value
         assert effects == [('cancel', 'original'), ('kill-window', '@1')], effects
 
     reset('legacy')
