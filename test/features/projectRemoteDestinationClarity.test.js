@@ -46,7 +46,6 @@ test("editing a project parent root updates unsaved destination preview without 
   assert.match(panel, /未保存预览；点击保存服务器后生效/);
   assert.match(panel, /上传和 Agent 启动仍使用已保存配置/);
   assert.match(panel, /路径末级与项目名相同；[\s\S]{0,120}否则项目名会重复/);
-  assert.match(panel, /不要填写 simple_agent；请填写它的父目录/);
   assert.match(panel, /classList\.toggle\("error", Boolean\(issue\)\)/);
   assert.ok([...panel.matchAll(/updateServerDestinationPreview\(input\)/g)].length >= 4);
 
@@ -56,11 +55,17 @@ test("editing a project parent root updates unsaved destination preview without 
     extractFunction("normalizeRemoteDestinationRoot"),
     extractFunction("remoteDestinationParentRoot"),
     extractFunction("remoteDestinationRootWarning"),
-    "this.parent = remoteDestinationParentRoot; this.warn = remoteDestinationRootWarning;",
+    extractFunction("remoteDestinationRootIssue"),
+    "this.parent = remoteDestinationParentRoot; this.warn = remoteDestinationRootWarning; this.issue = remoteDestinationRootIssue;",
   ].join("\n"), sandbox);
   assert.equal(sandbox.parent("/srv/projects/demo"), "/srv/projects");
   assert.match(sandbox.warn("/srv/projects/demo", "demo"), /建议改为 \/srv\/projects/);
   assert.equal(sandbox.warn("/srv/projects", "demo"), "");
+  for (const configured of ["/srv/simple_agent", "/srv/zlk_agent", "/srv/alice_agent", "/srv/simple"]) {
+    assert.equal(sandbox.issue(configured, "demo"), "");
+  }
+  assert.match(sandbox.issue("", "demo"), /请填写项目父目录/);
+  assert.match(sandbox.issue("/srv/../secret", "demo"), /不能包含 \.\./);
 });
 
 test("draft runtime paths use the resolved global prefix and preserve explicit installation paths", () => {

@@ -41944,9 +41944,6 @@ function actualWorkRootValidationMessage(value, projectName = remoteProjectName(
     if (!root)
         return `请填写 ${displayLabel} 上用于存放项目的父目录。`;
     const segments = root.split("/").filter(Boolean);
-    const lowerSegments = segments.map((item) => item.toLowerCase());
-    if (lowerSegments.includes("simple_agent") || lowerSegments.includes("zlk_agent"))
-        return `${displayLabel} 项目父目录不能包含 simple_agent 或 zlk_agent；插件默认管理项目内的 Agent runtime。`;
     if (segments.includes(".."))
         return `${displayLabel} 项目父目录不能包含 ..。`;
     try {

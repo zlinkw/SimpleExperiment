@@ -24,7 +24,7 @@ function extractFunction(name) {
   throw new Error(`unterminated function ${name}`);
 }
 
-test("project parent roots reject reserved Agent directories and suggest the real parent", () => {
+test("project parent roots preserve configured names, enforce policies and suggest the real parent", () => {
   const sandbox = {};
   const { resolveApiRemoteRootWithPolicy } = require("../../dist/features/ApiWorkflow.js");
   sandbox.ApiWorkflow_1 = { resolveApiRemoteRootWithPolicy };
@@ -39,8 +39,12 @@ test("project parent roots reject reserved Agent directories and suggest the rea
   assert.equal(sandbox.parent("projects/demo"), "projects");
   assert.equal(sandbox.parent("/demo"), undefined);
   assert.equal(sandbox.warn("/srv/projects", "demo", "Hub"), undefined);
-  assert.match(sandbox.check("/srv/simple_agent", "demo", "Hub"), /不能包含 simple_agent/);
-  assert.match(sandbox.check("/srv/simple_agent/archive", "demo", "Worker"), /不能包含 simple_agent/);
+  for (const configured of ["/srv/simple_agent", "/srv/simple_agent/archive", "/srv/zlk_agent", "/srv/alice_agent"]) {
+    assert.equal(sandbox.check(configured, "demo", "Worker"), undefined);
+  }
+  assert.match(sandbox.check("/srv/../secret", "demo", "Worker"), /不能包含 \.\./);
+  assert.equal(sandbox.check("/srv/simple", "demo", "Worker", {}, { allowedRoots: ["/srv/simple", "/srv/zlk"] }), undefined);
+  assert.match(sandbox.check("/srv/simple", "demo", "Worker", {}, { deniedRoots: ["/srv/simple"] }), /remote\.deniedRoots/);
   assert.equal(sandbox.check("/data/custom-root", "demo", "Hub", {}, {}), undefined);
   assert.match(sandbox.check("/", "demo", "Hub"), /项目的父目录/);
 });

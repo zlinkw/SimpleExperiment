@@ -9577,8 +9577,7 @@ export function renderPanelHtml(): string {
     function remoteDestinationRootIssue(root, projectName) {
       if (!root) return "请填写项目父目录";
       const segments = root.split("/").filter(Boolean);
-      const lowerSegments = segments.map((item) => item.toLowerCase());
-      if (lowerSegments.includes("simple_agent")) return "不要填写 simple_agent；请填写它的父目录";
+      if (segments.includes("..")) return "项目父目录不能包含 ..";
       return "";
     }
 

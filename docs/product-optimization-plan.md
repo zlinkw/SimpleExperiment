@@ -53,7 +53,7 @@
 | PFX2f1 | TensorBoard runtime 使用全局前缀及精确项目服务身份 | passed |
 | PFX2f2 | Host 传递唯一全局值，展示实际返回的服务目标 | passed |
 | PFX3a | API 路径与策略预填移除品牌推断和旧 Hub 来源 | passed |
-| PFX3b | Host 与实际 UI 路径校验移除固定目录名推断 | pending |
+| PFX3b | Host 与实际 UI 路径校验移除固定目录名推断 | passed |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
 | D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | passed |
@@ -411,6 +411,16 @@ PFX2f2 提交 b774b2038b416f4e12e141ac6fe30f32faabad14 已普通 push/fetch 一�
 PFX3a compile 2026-11-02T19-02-26-701Z-29584 通过；54 项定向通过（prefill 3、localApi 33、policyUi 2、rootMap 14、现有 Host gate 2），日志 pfx3a-*.log。实际映射的状态树及祖先保护、异 Worker 同名产物、未知/越界映射拒绝均保留，不靠目录品牌判定归属。Host gate 当前仍按旧 UI 规则通过，明确由 PFX3b 改正，不当作 API/UI 已完全一致。UI 源未修改，复用有效隔离渲染；最终包核对实际 HTML。冻结本批 8 文件内部 0.5.471，开始规定 package，无公开发行或安装。
 
 PFX3a 最终验证：2026-11-02T19-03-40-042Z-40844-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、715202ms。内部 universal/trial 0.5.471：2773051 字节，SHA256 fd8e41106ecd045976a9154a37004106217763a582a034118ce74673c3026f99；实际字节与 receipt 一致，362 项内容门禁零违规，实际 HTML 三脚本及模块解析通过。无服务器操作、公开发行或安装；继续 PFX3b。
+
+## 当前批次 PFX3b
+
+PFX3a 提交 6b9b3c574bd8d42aa01c2f38220e7b3ea3c14467 已普通 push/fetch 一致。Host 和实际 PanelHtml.legacy 仍按 simple_agent/zlk_agent 字面段拒绝项目父目录，和刚修正的 API 不一致。移除名称猜测，保留空值、遍历与显式路径策略；UI 预览同步显示 .. 的真实问题。目录是否是受保护 runtime 继续取实际映射，不由前缀或目录名决定。
+
+保留用户实际路径、显式 Agent 安装目录、未保存草稿预览、项目名重复提示及用户选择上一级的既有确认流程；不改路径解析的其他既有语义，不自动改根、同步、迁移或清理目录。两实现、两既有测试、三版本及本计划共 8 文件，内部 0.5.472。原 VM 进程扩展合法旧/新前缀名、策略与遍历断言，不约束局部变量写法、不增性能测试。待 compile、定向、实际 HTML 脚本/隔离渲染及规定 package；无服务器操作，组内不公开发行或安装。
+
+PFX3b compile 2026-11-02T19-17-19-863Z-85440 通过；30 项定向通过（Host gate 2、目的地预览 4、rootMap 14、保存后续 2、globalDefault 8）。隔离 Chrome 六场景和 420px 焦点/输入保留通过，真实生成 HTML 三脚本解析通过；新增实际 DOM 的 simple_agent/zlk_agent 草稿路径均展开到当前项目及 alice_agent runtime，.. 草稿显示 error，报告 pfx3b-render-1793647110730.json。无真实 API、服务器或实际保存；冻结同一 8 文件内部 0.5.472，开始规定 package。
+
+PFX3b 最终验证：2026-11-02T19-18-45-699Z-27968-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、704712ms。内部 universal/trial 0.5.472：2772948 字节，SHA256 f08a86b70a12077a461ff25391f641ee561fbd057651539ff852a76784d9fe7a；实际字节与 receipt 一致，362 项内容门禁零违规，真实 HTML 三脚本及模块解析通过。实际映射保护和保存/准备/SFTP 的共享门禁保留，未修改或清理任何服务器目录。下一批为 D1 精确附着及前缀说明收口，继续不公开发行或安装中间包。
 
 ## 后续定向核查线索（尚未实施）
 
