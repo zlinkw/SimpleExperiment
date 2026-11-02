@@ -259,3 +259,46 @@ test('低流量下展示区自动请求为0且手动刷新有独立入口与采�
  assert.ok(automatic.length >= 4, 'the automatic call sites (poll, selection, visibility, retry) must still exist');
  for (const line of automatic) assert.doesNotMatch(line, /"user"/, 'automatic display call site must not be marked user: ' + line.trim());
 });
+
+function cardMenuFixture() {
+ const script=extractScripts(renderPanelHtml()).join('\n'),tree=ts.createSourceFile('card-menu.js',script,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
+ const names=new Set(['showStatusCardContextMenu','hidePinContextMenu','handleStatusCardMenuKeydown']),functions=[];
+ function visit(n){if(ts.isFunctionDeclaration(n)&&names.has(n.name?.text))functions.push(n.getText(tree));ts.forEachChild(n,visit)}visit(tree);
+ assert.equal(functions.length,names.size);
+ const s={document:{activeElement:null},statusCardMenuOrigin:null,window:{innerWidth:300,innerHeight:200},closedInspector:0,
+   statusCardKey:()=> 'card-a',statusCardLabel:()=> '本项目精确任务',collapsedStatusCards:{},setNativeTitle(){},escAttr:String,esc:String,
+   statusCardSelector:()=>'.status-card',closeInspectorAddMenu(){s.closedInspector++}};
+ const origin={isConnected:true,attrs:{},setAttribute(k,v){this.attrs[k]=v},focus(){s.document.activeElement=this},getBoundingClientRect:()=>({left:280,top:180}),closest:selector=>selector==='.status-card'?origin:null};
+ const items=[0,1].map(index=>({index,focus(){s.document.activeElement=this}}));
+ const menu={hidden:true,dataset:{},style:{},innerHTML:'',classList:{add(){},remove(){}},querySelector:()=>items[0],querySelectorAll:()=>items,contains:target=>items.includes(target),getBoundingClientRect:()=>({width:240,height:90})};
+ s.el=id=>id==='pinContextMenu'?menu:null;
+ vm.createContext(s);vm.runInContext(functions.join('\n'),s);
+ return {s,origin,items,menu,key(key,target=s.document.activeElement,shiftKey=false){let prevented=false;s.handleStatusCardMenuKeydown({key,target,shiftKey,preventDefault(){prevented=true}});return prevented}};
+}
+
+test('status cards support keyboard menu navigation, viewport placement and focus return',()=>{
+ const f=cardMenuFixture();f.origin.focus();
+ assert.equal(f.key('F10',f.origin,true),true);
+ assert.equal(f.menu.hidden,false);assert.equal(f.s.document.activeElement,f.items[0]);
+ assert.equal(f.menu.style.left,'52px');assert.equal(f.menu.style.top,'102px');
+ assert.equal(f.origin.attrs['aria-expanded'],'true');
+ f.key('ArrowDown');assert.equal(f.s.document.activeElement,f.items[1]);
+ f.key('ArrowDown');assert.equal(f.s.document.activeElement,f.items[0]);
+ f.key('ArrowUp');assert.equal(f.s.document.activeElement,f.items[1]);
+ f.key('Home');assert.equal(f.s.document.activeElement,f.items[0]);
+ f.key('End');assert.equal(f.s.document.activeElement,f.items[1]);
+ assert.equal(f.key('Escape'),true);assert.equal(f.menu.hidden,true);assert.equal(f.s.document.activeElement,f.origin);
+ assert.equal(f.origin.attrs['aria-expanded'],'false');
+ f.key('ContextMenu',f.origin);
+ assert.equal(f.key('Tab'),false);assert.equal(f.menu.hidden,true);assert.equal(f.s.document.activeElement,f.origin);
+});
+
+test('card menus preserve text editing context menus and do not steal outside focus',()=>{
+ const f=cardMenuFixture(),input={closest:selector=>selector==='.status-card'?f.origin:input};
+ assert.equal(f.key('F10',input,true),false);assert.equal(f.menu.hidden,true);
+ f.key('ContextMenu',f.origin);
+ const outside={};f.s.document.activeElement=outside;f.s.hidePinContextMenu();
+ assert.equal(f.menu.hidden,true);assert.equal(f.s.document.activeElement,outside);
+ f.key('ContextMenu',f.origin);f.origin.isConnected=false;
+ f.s.hidePinContextMenu(true);assert.equal(f.s.document.activeElement,f.items[0]);
+});

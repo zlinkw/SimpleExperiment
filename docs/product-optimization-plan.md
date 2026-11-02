@@ -74,8 +74,9 @@
 | D2-test | 原 Conda 标题测试固定真实字段含义，不保留矛盾文案 | passed |
 | D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | passed（本机；现场待验证） |
 | D3 | 保存范围、生效时间与草稿恢复 | passed（本机；真实重载待验证） |
-| E1 | 主次/危险操作、错误、帮助、空态与刷新范围 | partial（E1a passed，最终覆盖核对随 E2） |
-| E2 | label、键盘、焦点、窄窗口、长路径、缩放与主题 | pending |
+| E1 | 主次/危险操作、错误、帮助、空态与刷新范围 | passed（本机覆盖；现场待验证） |
+| E2 | label、键盘、焦点、窄窗口、长路径、缩放与主题 | passed（本机；剩余项目表单随 D2b） |
+| D2b | 其余可编辑空值编码及项目接入表单 label | pending（E2 冻结中发现，待实际 DOM 复现） |
 
 ## 已完成 P0
 
@@ -600,6 +601,28 @@ D3 构建记录：初次修改后误在编译前运行依赖 dist 的原夹具�
 D3 定向共 38 项通过：settingsSecondaryView 10、panelWebviewScriptHealth 9、actionLifecycle 9、resultCommandPhaseRouting 3、planScopedPptConfigPaths 2、pptPlotConfirmationWorkflow 5，d3-candidate/d3-final-*.log（不包括上述旧生成物 d3-final-drafts 失败记录）。实际生成 HTML 三脚本 vm.Script 与 Chrome d3-render-1793660942293.json 通过：真实点击提交时快照不随新输入改变、快照不发给 Host、成功后新前缀/环境值及失败/重复回包保留、PPT 草稿重载挂载、只清原路径、晚到状态更新与选择期间新输入保护，同时复用 D2 及原主线真实 DOM 回归。长探针超过 Windows 命令长度而未启动后，改在既有 ignored reports 目录落盘同内容生成探针执行，无产品文件变动或真实 API。diff 空白检查已通过。本批 6 非生成文件冻结，进入规定 package；未发行、安装或操作服务器。
 
 D3 最终验证：2026-11-02T23-09-57-703Z-63856-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、724966ms，锁已释放。内部 universal/trial 0.5.480：2778522 字节，SHA256 7f88ace847dd6f9752703f70feda9e358932ac0e481e8adc951cda77280b56e5，与 receipt 及逐包清单一致；362 项内容门禁零违规，实际主 HTML 三脚本与模块解析通过。六个非生成文件按批提交；没有公开发行、安装、真实绘图或服务器操作。E2 将处理实际表单关联、状态卡片键盘/焦点和主题/视口问题，原生双确认保持完整目标与原有两阶段。
+
+## 当前批次 E2
+
+D3 提交 3ffc851c2816a6ec41cc18bf4a3acd1877176bc5 已普通 push/fetch 一致；全局 AGENTS 和交付技能时间/长度未变。E2 仅 3 个相关 UI 问题：真实配置标签及可访问名称、状态卡片菜单键盘/焦点、实际主题与窄/长路径/等效缩放视口。主 UI legacy、ScalarDashboardHtml、原 panelWebviewScriptHealth、三版本、本计划及覆盖表最多 8 文件，拟内部 0.5.481。保留自定义顺序/列宽/固定/组、所有精确操作、审核完整路径与原生两阶段确认，不修改未走的 RunConfirmation 回退。
+
+E2 实际复现：e2-before-render-1793661782295.json 的三 Worker 配置有 52 个 input/select 未关联 label；深色主题变量下 body 仍 rgb(238,242,247)、文字 rgb(221,221,221)，主背景/侧栏/部分状态面板浅色写死。状态卡片菜单目前只接鼠标，固定估算弹出尺寸，不聚焦菜单项；Escape 只处理另一个自定义组菜单。截图 ui-b45f5f67448d4972b56be23756bceb57.png 已按 silent-ui-screenshot 在专用临时根逐个查看并归入该根 clean_dir（无删除）。后续最小修改用现有主题变量、真实菜单尺寸与隐式 label；实际 HTML、隔离 DOM/键盘、420 窄窗/长路径/等效两倍视口及主题截图验证，真实 VS Code 缩放/重载仍待用户现场核实，不新增性能测试。
+
+E2 实现与定向：8 非生成文件，内部 0.5.481。真实 configInput/configSelect/configSessionSelect/端口对/会话阈值及结果目录关联可见 label；状态卡片保留既有名称、增加键盘菜单说明与焦点入口，菜单按实测尺寸约束视口，方向/Home/End、Escape/Tab 和动作后的卡片焦点分别处理，外部关闭不抢焦点。深浅中性面板/文字/边框及语义浅色底改用既有 VS Code 主题变量，仅实际 style 区的 294 条声明；保留主次/危险操作、状态文字及完整审核路径。独立曲线页随浏览器配色并重绘现有轴标签/网格，不查询新指标、不改变统计、平滑、曲线数据或原生服务行为。
+
+E2 真实浏览器返修证据：初探针选中关闭 details 内的元素，不能把该次未聚焦算产品复现；明确展开并断言真实焦点后，确认祖先 details 被当作交互控件，已从鼠标/键盘排除列表移除，summary 与输入仍保持原生。探针继承导航的平滑滚动，菜单按既有规则关闭；改为探针显式 instant 定位，不放宽产品关闭行为。原始 CDP Enter 缺字符事件不触发原生按钮，补正常 Enter 字符后验证实际点击；未为此修改生产按钮。菜单键还会产生后续 contextmenu，曾把已打开菜单关闭，实际监听现在抑制菜单自身的这次浏览器事件。e2-menu-*.log 保留各原失败和实际事件 trace，最终全部按实际键盘路径通过。
+
+E2 定向 54 项通过：panelWebviewScriptHealth 11、settingsSecondaryView 10、serverManagementSchedulerInputs 6、actionLifecycle 9、gpuMemoryScheduling 9、tensorboardScalar 9，e2-final-*.log。最终 compile 2026-11-02T23-34-52-731Z-71288 通过。e2-after-render-1793662502832.json、e2-light-render-1793662563280.json、e2-high-contrast-render-1793662579081.json：52 个原未关联字段全部关联、当前可见 textbox/combobox/spinbutton 无空名称，真实按键折叠/展开/焦点/Tab、输入原生菜单、三主题、1120/560/420 视口及长路径无横溢出，同时保留原主线、自定义布局和 D3 草稿检查。560 仅代表等效两倍视口，不冒充真实 VS Code 缩放验收。三张最终主面板截图已逐个查看并移入专用临时 clean_dir。
+
+曲线 e2-scalar-render-1793662638190.json 使用明确的合成样本，真实 Canvas 深/浅轴标签与样式通过，配色切换只重绘、未增加 catalog/tags/series 查询；截图逐个查看归档，不读取科研指标。e2-native-view-render-1793662667474.json 保留只读入口不启动及 420/1120 原生 iframe 尺寸。实际主 HTML 三脚本、标量脚本均解析通过。diff 检查通过，冻结当前八文件进入规定 package；未公开发行、安装、科研分析或操作服务器。后续仅说明/覆盖清单收口及最终试行交付，不自动接现场任务。
+
+E2 最终验证：2026-11-02T23-40-52-535Z-44692-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、730551ms，锁已释放。内部 universal/trial 0.5.481 为 2780135 字节，SHA256 6d4f85847e8050bd28019e7714e260f7950092a7fbb94eeff255f0da11e2d946，与 receipt/逐包清单一致；362 项内容门禁零违规，实际 HTML 三脚本与模块解析通过。本批八文件完成；后续发现不混入该冻结候选，未公开发行或安装。
+
+## 补充批次 D2b
+
+冻结期间按其余表单核对源读取→渲染→提交链，发现 escAttr 仍委托展示用 esc 将空值变成短横线；D2 只在通用 configInput 局部保空。PPT 默认空路径及可选派生字段仍走旧编码；Host stringPatch/normalizePptPlotConfig 不会移除该短横线。两个根目录 textarea 和 projectRuleTextarea 的空正文也用展示占位，Host 根列表解析会保留短横线。同时 projectRuleInput/projectRuleTextarea 的可见 label 与输入仍为兄弟节点，E2 的服务器表单 52 字段覆盖不能冒充它们已验证。以上为源码链已证，下一批先用真实生成 DOM/序列化复现，不作为现场服务器结论。
+
+补充边界为 2 个相关表单问题：统一保留属性/可编辑 textarea 真空值，以及剩余项目输出接入 helper 的 label 关联。展示区占位保留，用户显式非空短横线不自动改写；不修改既有保存值、输出接入规则或科研数据。UI legacy、原 settingsSecondaryView、三版本、本计划及覆盖表最多七文件，拟内部 0.5.482。完成相关消费者、实际页面及规定 package 后，再做说明/清单收口和最终试行发行/安装，不提前发布已知遗漏的中间包。
 
 ## 发现线索与后续边界（以批次状态为准）
 
