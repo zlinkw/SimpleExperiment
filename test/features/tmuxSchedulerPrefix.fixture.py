@@ -21,13 +21,37 @@ try:
     namespace['task_tmux'](['new-session', '-d', '-s', 'foreign-controller', '-n', 'queue', 'sleep 20'])
     namespace['task_option']('foreign-controller:queue', 'endpoint', json.dumps({'root': root + '-other', 'workerId': 'worker'}))
     assert namespace['task_queue_session'](root, 'worker', refresh=True) == original
-    following = dict(job(1), tmuxSessionPrefix='next-owner')
+    following = dict(job(1), tmuxSessionPrefix='obsolete-row-owner', options={'tmuxSessionPrefix': 'obsolete-option-owner'})
     namespace['task_queue_rpc'](root, 'worker', 'accept', following, ensure=True)
     wait_for(lambda: pathlib.Path(root, 'started-command-1').is_file())
     sessions = namespace['task_tmux'](['list-sessions', '-F', '#{session_name}']).splitlines()
     controllers = [name for name in sessions if '-sch-' in name]
     assert controllers == [original], controllers
     assert any(name.startswith('next-owner-gpu-') for name in sessions), sessions
+    assert not any(name.startswith(('obsolete-row-owner-', 'obsolete-option-owner-')) for name in sessions), sessions
+    endpoint_reader = namespace['task_queue_endpoint']
+    endpoint = endpoint_reader(root, 'worker')
+    assert endpoint['globalResourcePrefix'] == 1
+    for invalid in (None, 'team.lab', 'bad prefix'):
+        body = {'action': 'configure', 'payload': {}, 'epoch': endpoint['epoch']}
+        if invalid is not None:
+            body['globalResourcePrefix'] = invalid
+        request = urllib.request.Request('http://' + endpoint['host'] + ':' + str(endpoint['port']) + '/control',
+            data=json.dumps(body).encode('utf-8'), headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + endpoint['secret']})
+        with urllib.request.urlopen(request, timeout=3) as response:
+            rejected = json.load(response)
+        assert rejected['ok'] is False and 'GLOBAL_RESOURCE_PREFIX_REQUIRED' in rejected['error'], rejected
+    namespace['task_queue_endpoint'] = lambda *args: {**endpoint, 'globalResourcePrefix': 0}
+    try:
+        try:
+            namespace['task_queue_rpc'](root, 'worker', 'configure', {})
+            raise AssertionError('old Scheduler silently accepted global-prefix configuration')
+        except RuntimeError as failure:
+            assert 'SCHEDULER_UPDATE_REQUIRED' in str(failure), failure
+        cancelled = namespace['task_queue_rpc'](root, 'worker', 'cancel', {'targetCommandId': 'not-started-command', 'projectId': job(0)['projectId']})
+        assert cancelled['cancelled'] is True, cancelled
+    finally:
+        namespace['task_queue_endpoint'] = endpoint_reader
     pending = 'pending-sch-' + original.rsplit('-sch-', 1)[1]
     namespace['task_tmux'](['new-session', '-d', '-s', pending, '-n', 'queue', 'sleep 20'])
     pending_id = namespace['task_tmux'](['display-message', '-p', '-t', pending + ':queue', '#{window_id}'])

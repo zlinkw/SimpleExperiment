@@ -102,7 +102,7 @@ test("built Agent and Scheduler use the carried global prefix and project-local 
   const cases = [null, "", "simple", "zlk", "alice", " Alice Lab! ", "team.lab", "---", "x".repeat(40)]
     .map(value => [value, names.normalizeRemoteResourcePrefix(value)]);
   const script = String.raw`
-import json, os, pathlib, sys
+import ast, json, os, pathlib, sys
 sys.path.insert(0, ${JSON.stringify(path.resolve(__dirname, "../_helpers"))})
 from extractRuntimeFunctions import extract_runtime_functions
 agent = extract_runtime_functions(${JSON.stringify(path.resolve(__dirname, "../../dist/runtime/cluster_agent.py"))},
@@ -124,6 +124,7 @@ for value, expected in json.loads(${JSON.stringify(JSON.stringify(cases))}):
     assert agent.simple_tmux_name("sch-job") == expected + "-sch-job"
     assert agent.task_session_prefix() == expected
     assert agent.fixed_gpu_window_name(None, "0") == expected + "-gpu-0"
+    assert agent.fixed_gpu_window_name("obsolete-job-owner", "0") == expected + "-gpu-0"
     key = agent.project_state_namespace(os.path.realpath(root)).rsplit(".", 1)[1]
     assert agent.tb_tmux_session_name(root) == expected + "-" + key + "_tb"
     assert pathlib.Path(agent.agent_install_dir(root)) == root / (expected + "_agent")
@@ -155,6 +156,25 @@ legacy.mkdir(parents=True)
 missing = {"worker_id": "shared", "log_path": "work_dirs/other/stdout.log", "gpu_id": "1"}
 scheduler.sync_running_console_logs("plan", [missing], {"shared": {"id": "shared"}}, {}, "running")
 assert missing.get("sync_skipped") == "no_tail_yet" and "log_tail" not in missing, missing
+entry = next(node for node in ast.parse(pathlib.Path(${JSON.stringify(path.resolve(__dirname, "../../dist/runtime/cluster_agent.py"))}).read_text(encoding="utf-8")).body if isinstance(node, ast.FunctionDef) and node.name == "execute_worker_command")
+requests = []
+scope = dict(agent.__dict__, TASK_LIFECYCLE_PROTOCOL=2, task_queue_rpc=lambda *args, **kwargs: requests.append((args, kwargs)) or {"queued": True}, task_stop=lambda *args: {"stopped": True}, _execute_worker_command_unfenced=lambda *args: {"runner": True})
+exec(compile(ast.Module(body=[entry], type_ignores=[]), "global_prefix_entry", "exec"), scope)
+start = {"action": "start-worker-task", "lifecycleProtocol": 2, "workerId": "worker", "commandId": "identity", "tmuxSessionPrefix": "carried-global", "options": {"tmuxSessionPrefix": "obsolete-option"}}
+assert scope["execute_worker_command"](root, start, "worker") == {"queued": True}
+assert os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] == "carried-global" and len(requests) == 1
+for patch in ({"tmuxSessionPrefix": "bad.prefix"}, {"workerId": "other"}):
+    try:
+        scope["execute_worker_command"](root, {**start, **patch}, "worker")
+        raise AssertionError("invalid global transport accepted")
+    except ValueError:
+        pass
+assert len(requests) == 1 and os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] == "carried-global"
+assert scope["execute_worker_command"](root, {**start, "action": "stop-worker-task", "tmuxSessionPrefix": "invalid prefix"}, "worker") == {"stopped": True}
+runner = {**start, "_lifecycleRunner": True, "tmuxSessionPrefix": "obsolete-runner"}
+scope["NATIVE_TASK_RUNNER_CONTEXT"] = ("identity", os.environ.get("TMUX_PANE"), os.path.realpath(root))
+assert scope["execute_worker_command"](root, runner, "worker") == {"runner": True}
+assert os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] == "carried-global"
 print(json.dumps({"ok": True, "cases": len(json.loads(${JSON.stringify(JSON.stringify(cases))})), "projectSettingsIgnored": True, "explicitPathsPreserved": True}))
 `;
   fs.writeFileSync(file, script, "utf8");

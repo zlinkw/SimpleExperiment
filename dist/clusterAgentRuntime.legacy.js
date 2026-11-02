@@ -4255,7 +4255,8 @@ def _normalize_gpu_id_for_window(value):
     return "0" if not s.isdigit() else s
 
 def fixed_gpu_window_name(prefix, gpu_id):
-    base = remote_resource_prefix(prefix if prefix and str(prefix).strip() else None)
+    # The legacy argument cannot choose an owner; use the carried global value.
+    base = remote_resource_prefix()
     gid_raw = _normalize_gpu_id_for_window(gpu_id)
     gid = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(gid_raw or "0").strip().lower()).strip("-").lower() or "0"
     return f"{base}-gpu-{gid}"
@@ -5702,15 +5703,8 @@ def _execute_worker_command_unfenced(root, command, worker_id):
             "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "SHELL", "TMUX", "TMUX_PANE", "CONDA_EXE")}
         result = subprocess.run(["bash", "-c", shell], cwd=project_dir, env=child_env)
         return {"commandId": command_id, "status": "completed" if result.returncode == 0 else "failed", "exitCode": result.returncode}
-    # per-GPU固定窗口(1C)：主路径为 simple-gpu-{gpu_id} 复用 + split-window，log_path 仍按 session 归一，保证 tmux ls 仅 simple-gpu-0..3
-    _tmux_prefix = str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "").strip()
-    try:
-        _cfg_prefix = str((options.get("tmuxSessionPrefix") if isinstance(options, dict) else "") or (command.get("tmuxSessionPrefix") if isinstance(command, dict) else "") or "").strip()
-        if _cfg_prefix:
-            _tmux_prefix = _cfg_prefix
-    except Exception:
-        pass
-    gpu_window = fixed_gpu_window_name(_tmux_prefix, gpu_id) if str(gpu_id or "").strip() else simple_tmux_name(session)
+    # GPU grouping uses the same global prefix as Agent and Scheduler naming.
+    gpu_window = fixed_gpu_window_name(_resolve_tmux_prefix(), gpu_id) if str(gpu_id or "").strip() else simple_tmux_name(session)
     tmux_session = gpu_window
     # Let the scheduler (run_job) publish the resolved experiment output_dir to a sidecar so the
     # tmux window can mirror stdout.log/stderr.log live (see start_simple_tmux_command split-pane).
@@ -5904,6 +5898,16 @@ def execute_worker_command(root, command, worker_id):
                 if globals().get("NATIVE_TASK_RUNNER_CONTEXT") != (command.get("commandId"), os.environ.get("TMUX_PANE"), os.path.realpath(root)):
                     raise ValueError("TASK_RUNNER_CONTEXT_REQUIRED: cannot execute a job in the Agent window")
                 return _execute_worker_command_unfenced(root, command, worker_id)
+            # The Host overwrites this top-level transport field from its global
+            # setting. Persisted runner jobs and options cannot update that value.
+            if command.get("tmuxSessionPrefix") is not None:
+                prefix = command["tmuxSessionPrefix"]
+                options = command.get("options") if isinstance(command.get("options"), dict) else {}
+                if (command.get("workerId") or options.get("workerId")) != worker_id:
+                    raise ValueError("TASK_OWNER_REQUIRED")
+                if not isinstance(prefix, str) or prefix != remote_resource_prefix(prefix):
+                    raise ValueError("GLOBAL_RESOURCE_PREFIX_REQUIRED")
+                os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = prefix
             return task_queue_rpc(root, worker_id, "accept", command, ensure=True)
     if action == "retry-worker-task" and command.get("recoverTrainingOnly") is True:
         return recover_train_only_completion(root, command, worker_id)

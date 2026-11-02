@@ -485,9 +485,9 @@ def remote_agent_directory_name():
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.475"
-RUNTIME_VERSION = "0.5.475"
-PLUGIN_VERSION = "0.5.475"
+AGENT_VERSION = "0.5.476"
+RUNTIME_VERSION = "0.5.476"
+PLUGIN_VERSION = "0.5.476"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -5340,7 +5340,8 @@ def _normalize_gpu_id_for_window(value):
     return "0" if not s.isdigit() else s
 
 def fixed_gpu_window_name(prefix, gpu_id):
-    base = remote_resource_prefix(prefix if prefix and str(prefix).strip() else None)
+    # The legacy argument cannot choose an owner; use the carried global value.
+    base = remote_resource_prefix()
     gid_raw = _normalize_gpu_id_for_window(gpu_id)
     gid = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(gid_raw or "0").strip().lower()).strip("-").lower() or "0"
     return f"{base}-gpu-{gid}"
@@ -6787,15 +6788,8 @@ def _execute_worker_command_unfenced(root, command, worker_id):
             "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "SHELL", "TMUX", "TMUX_PANE", "CONDA_EXE")}
         result = subprocess.run(["bash", "-c", shell], cwd=project_dir, env=child_env)
         return {"commandId": command_id, "status": "completed" if result.returncode == 0 else "failed", "exitCode": result.returncode}
-    # per-GPU固定窗口(1C)：主路径为 simple-gpu-{gpu_id} 复用 + split-window，log_path 仍按 session 归一，保证 tmux ls 仅 simple-gpu-0..3
-    _tmux_prefix = str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "").strip()
-    try:
-        _cfg_prefix = str((options.get("tmuxSessionPrefix") if isinstance(options, dict) else "") or (command.get("tmuxSessionPrefix") if isinstance(command, dict) else "") or "").strip()
-        if _cfg_prefix:
-            _tmux_prefix = _cfg_prefix
-    except Exception:
-        pass
-    gpu_window = fixed_gpu_window_name(_tmux_prefix, gpu_id) if str(gpu_id or "").strip() else simple_tmux_name(session)
+    # GPU grouping uses the same global prefix as Agent and Scheduler naming.
+    gpu_window = fixed_gpu_window_name(_resolve_tmux_prefix(), gpu_id) if str(gpu_id or "").strip() else simple_tmux_name(session)
     tmux_session = gpu_window
     # Let the scheduler (run_job) publish the resolved experiment output_dir to a sidecar so the
     # tmux window can mirror stdout.log/stderr.log live (see start_simple_tmux_command split-pane).
@@ -6989,6 +6983,16 @@ def execute_worker_command(root, command, worker_id):
                 if globals().get("NATIVE_TASK_RUNNER_CONTEXT") != (command.get("commandId"), os.environ.get("TMUX_PANE"), os.path.realpath(root)):
                     raise ValueError("TASK_RUNNER_CONTEXT_REQUIRED: cannot execute a job in the Agent window")
                 return _execute_worker_command_unfenced(root, command, worker_id)
+            # The Host overwrites this top-level transport field from its global
+            # setting. Persisted runner jobs and options cannot update that value.
+            if command.get("tmuxSessionPrefix") is not None:
+                prefix = command["tmuxSessionPrefix"]
+                options = command.get("options") if isinstance(command.get("options"), dict) else {}
+                if (command.get("workerId") or options.get("workerId")) != worker_id:
+                    raise ValueError("TASK_OWNER_REQUIRED")
+                if not isinstance(prefix, str) or prefix != remote_resource_prefix(prefix):
+                    raise ValueError("GLOBAL_RESOURCE_PREFIX_REQUIRED")
+                os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = prefix
             return task_queue_rpc(root, worker_id, "accept", command, ensure=True)
     if action == "retry-worker-task" and command.get("recoverTrainingOnly") is True:
         return recover_train_only_completion(root, command, worker_id)
@@ -19844,7 +19848,12 @@ def task_queue_rpc(root, worker_id, action, payload, ensure=False):
         raise RuntimeError("SCHEDULER_UPDATE_REQUIRED: update Scheduler for memory reservations; task windows are preserved")
     if action == "accept" and payload.get("dispatchPolicy") != "manual" and (payload.get("options") or {}).get("gpuMemoryRatioEnabled") is True and endpoint.get("gpuMemoryRatioScheduling") != 1:
         raise RuntimeError("SCHEDULER_UPDATE_REQUIRED: restart this project's Scheduler control window to enable memory-ratio scheduling; task windows are preserved")
-    body = json.dumps({"action": action, "payload": payload, "epoch": endpoint["epoch"]}, ensure_ascii=False).encode("utf-8")
+    request_body = {"action": action, "payload": payload, "epoch": endpoint["epoch"]}
+    if action in ("accept", "configure"):
+        if endpoint.get("globalResourcePrefix") != 1:
+            raise RuntimeError("SCHEDULER_UPDATE_REQUIRED: update this project's Scheduler for global resource naming; task windows are preserved")
+        request_body["globalResourcePrefix"] = task_session_prefix()
+    body = json.dumps(request_body, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request("http://" + endpoint["host"] + ":" + str(endpoint["port"]) + "/control", data=body,
                                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + endpoint["secret"]})
     with urllib.request.urlopen(request, timeout=8) as response:
@@ -20070,6 +20079,12 @@ def task_queue_serve(root, worker_id):
                     raise ValueError("SCHEDULER_INSTANCE_CHANGED")
                 payload = request.get("payload") or {}
                 with mutex:
+                    if request["action"] in ("accept", "configure"):
+                        prefix = request.get("globalResourcePrefix")
+                        if not isinstance(prefix, str) or prefix != remote_resource_prefix(prefix):
+                            raise ValueError("GLOBAL_RESOURCE_PREFIX_REQUIRED")
+                        # Current Agent configuration, separate from immutable job snapshots.
+                        os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = prefix
                     if request["action"] == "accept":
                         command_id = payload.get("commandId")
                         if (payload.get("options") or {}).get("gpuQuotaScheduling") == 1:
@@ -20139,7 +20154,7 @@ def task_queue_serve(root, worker_id):
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     task_option(controller, "endpoint", json.dumps({"host": server.server_address[0], "port": server.server_address[1],
         "secret": secret, "epoch": epoch, "root": root, "workerId": worker_id, "protocol": 2,
-        "runningVersion": globals().get("RUNTIME_VERSION", "fixture"), "runtimeFiles": task_runtime_files(root), "gpuMemoryRatioScheduling": 1, "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "gpuMemoryBudgetScheduling": 1}))
+        "runningVersion": globals().get("RUNTIME_VERSION", "fixture"), "runtimeFiles": task_runtime_files(root), "gpuMemoryRatioScheduling": 1, "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "gpuMemoryBudgetScheduling": 1, "globalResourcePrefix": 1}))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     while True:
         queued = []
@@ -20185,7 +20200,7 @@ def task_queue_serve(root, worker_id):
                                 continue
                             gpu = next(gpu for gpu in gpus if gpu_row_id(gpu) == chosen)
                             task_budget_reserve(row, gpu)
-                            session = fixed_gpu_window_name(row.get("tmuxSessionPrefix") or options.get("tmuxSessionPrefix") or os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"), chosen)
+                            session = fixed_gpu_window_name(task_session_prefix(), chosen)
                             if subprocess.run(["tmux", "has-session", "-t", "=" + session], capture_output=True, timeout=3).returncode:
                                 task_tmux(["new-session", "-d", "-s", session])
                             target = task_tmux(["display-message", "-p", "-t", session + ":", "#{session_id}"])

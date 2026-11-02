@@ -797,7 +797,12 @@ def task_queue_rpc(root, worker_id, action, payload, ensure=False):
         raise RuntimeError("SCHEDULER_UPDATE_REQUIRED: update Scheduler for memory reservations; task windows are preserved")
     if action == "accept" and payload.get("dispatchPolicy") != "manual" and (payload.get("options") or {}).get("gpuMemoryRatioEnabled") is True and endpoint.get("gpuMemoryRatioScheduling") != 1:
         raise RuntimeError("SCHEDULER_UPDATE_REQUIRED: restart this project's Scheduler control window to enable memory-ratio scheduling; task windows are preserved")
-    body = json.dumps({"action": action, "payload": payload, "epoch": endpoint["epoch"]}, ensure_ascii=False).encode("utf-8")
+    request_body = {"action": action, "payload": payload, "epoch": endpoint["epoch"]}
+    if action in ("accept", "configure"):
+        if endpoint.get("globalResourcePrefix") != 1:
+            raise RuntimeError("SCHEDULER_UPDATE_REQUIRED: update this project's Scheduler for global resource naming; task windows are preserved")
+        request_body["globalResourcePrefix"] = task_session_prefix()
+    body = json.dumps(request_body, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request("http://" + endpoint["host"] + ":" + str(endpoint["port"]) + "/control", data=body,
                                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + endpoint["secret"]})
     with urllib.request.urlopen(request, timeout=8) as response:
@@ -1023,6 +1028,12 @@ def task_queue_serve(root, worker_id):
                     raise ValueError("SCHEDULER_INSTANCE_CHANGED")
                 payload = request.get("payload") or {}
                 with mutex:
+                    if request["action"] in ("accept", "configure"):
+                        prefix = request.get("globalResourcePrefix")
+                        if not isinstance(prefix, str) or prefix != remote_resource_prefix(prefix):
+                            raise ValueError("GLOBAL_RESOURCE_PREFIX_REQUIRED")
+                        # Current Agent configuration, separate from immutable job snapshots.
+                        os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = prefix
                     if request["action"] == "accept":
                         command_id = payload.get("commandId")
                         if (payload.get("options") or {}).get("gpuQuotaScheduling") == 1:
@@ -1092,7 +1103,7 @@ def task_queue_serve(root, worker_id):
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     task_option(controller, "endpoint", json.dumps({"host": server.server_address[0], "port": server.server_address[1],
         "secret": secret, "epoch": epoch, "root": root, "workerId": worker_id, "protocol": 2,
-        "runningVersion": globals().get("RUNTIME_VERSION", "fixture"), "runtimeFiles": task_runtime_files(root), "gpuMemoryRatioScheduling": 1, "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "gpuMemoryBudgetScheduling": 1}))
+        "runningVersion": globals().get("RUNTIME_VERSION", "fixture"), "runtimeFiles": task_runtime_files(root), "gpuMemoryRatioScheduling": 1, "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "gpuMemoryBudgetScheduling": 1, "globalResourcePrefix": 1}))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     while True:
         queued = []
@@ -1138,7 +1149,7 @@ def task_queue_serve(root, worker_id):
                                 continue
                             gpu = next(gpu for gpu in gpus if gpu_row_id(gpu) == chosen)
                             task_budget_reserve(row, gpu)
-                            session = fixed_gpu_window_name(row.get("tmuxSessionPrefix") or options.get("tmuxSessionPrefix") or os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"), chosen)
+                            session = fixed_gpu_window_name(task_session_prefix(), chosen)
                             if subprocess.run(["tmux", "has-session", "-t", "=" + session], capture_output=True, timeout=3).returncode:
                                 task_tmux(["new-session", "-d", "-s", session])
                             target = task_tmux(["display-message", "-p", "-t", session + ":", "#{session_id}"])

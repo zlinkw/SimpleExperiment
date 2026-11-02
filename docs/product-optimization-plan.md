@@ -56,7 +56,7 @@
 | PFX3a | API 路径与策略预填移除品牌推断和旧 Hub 来源 | passed |
 | PFX3b | Host 与实际 UI 路径校验移除固定目录名推断 | passed |
 | PFX3c | 全局前缀的 tmux 旧版名称兼容与输入边界 | passed |
-| PFX3d | 清除旧任务字段绕过统一前缀函数的残余 | running |
+| PFX3d | 清除旧任务字段绕过统一前缀函数的残余 | passed |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
 | D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | passed |
@@ -502,7 +502,11 @@ PFX-test11 独立准备批仅修改该原 Python 夹具及本计划：注入真�
 
 现有 package:assemble 只接受 overall=passed、candidate=validated 的完整凭据，没有受支持的失败凭据合并入口。首轮失败不改签、不伪造 receipt，也不改 runner 或降低覆盖；夹具准备提交后，同一未变化生产候选重新走规定 package 以得到可组包凭据。旧的 317 项通过仍保留原记录。
 
-## 后续定向核查线索（尚未实施）
+PFX-test11 提交 331045141459e0846d31ffb6bd0b5e25bbf1de51 已普通 push/fetch 一致。生产源码及版本在夹具修正前后未变；本批仍为 8 个非生成文件，内部 0.5.476，开始第二轮规定 package。新调用链不依赖旧 job/options 来命名，保留当前 Host 全局传输字段；无公开发行/安装或服务器操作。
+
+PFX3d 最终验证：2026-11-02T20-54-12-564Z-69720-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、714911ms，原失败身份用例在规定入口中通过。内部 universal/trial 0.5.476：2774728 字节，SHA256 f32fc930b372f1b9acbd7b32b30432bfa8d693939a76e64987acc2cc26dfd030；实际字节与 receipt 一致，362 项内容门禁零违规，实际 HTML 三脚本及模块解析通过。源码本批 8 文件，不包括已独立提交的 PFX-test11 夹具。原失败及超时诊断均保留，最终通过不改变它们的真实状态。无公开发行、安装或服务器操作；下一批 D1c 为实际图表读取与浏览器入口的项目身份，未接线代理类不扩改。
+
+## 发现线索与后续边界（以批次状态为准）
 
 - D1c 新确证：Host scalarAgentFetch 直接访问配置隧道，仅附 Agent token；scalar catalog/query 与 native UI proxy 请求未带当前项目/Worker 身份。Agent 相应 GET 直接使用其自己的 root 返回 scalar_catalog，未核对调用窗口预期项目。故将另一项目 Agent 的端口误填到当前项目时，可把其图表当作当前项目数据；已修正的 /api/tensorboard/service 控制路由有 root/Worker 校验，不能冒称覆盖了这些只读路径。后续独立批在支持的新请求路径中核对稳定项目和 Worker、禁用目标不访问，旧 Agent 明确不支持而不回退；不自动启动/重启/部署，不修改指标或科研分析策略。先保留当前 PFX3c 冻结候选，D1c 完成前不声称共享账号隔离已经全部收口。
 
@@ -516,7 +520,7 @@ PFX2e 提交 b257d66f1fbbab2be699fe7166f589c76defe8e3 已普通 push/fetch 一�
 PFX-test8：原 Controls5 完整套件 3 项通过，exit=0，pfx-test8-controls5.log。无产品实现/包变化，复用已通过 PFX2e 其他必要覆盖；本批只提交测试与计划。
 
 - D0a–c 已验证：默认 runtime 归项目内全局前缀目录，Agent 窗口按项目身份分开，显式目录与共享 GPU 采样保留。D0d 仍需更新完整指南；未自动迁移、部署或清理旧资源。
-- D1：serverSetupReadiness 在 0 Worker 时 missing 为空导致 ready=true；占位 tmuxCmdAgent/Sch/Gpu 从未填充真实目标，仍可复制。应修正空目标语义，提供真实选定窗口的唯一附着入口。
+- D1a/b 已处理：零目标不再 ready，占位附着命令已由主动核实 Worker/原生窗口身份的唯一复制入口替代；D1c 图表读取仍待完成。
 - D2：operationEventMaxDelayMs 配置/后端默认 200，面板三处回退 1000；全局读取缺少与保存的 10000 上限一致的约束。Conda label 含“可选，必填”，configInput/configSelect 的 label 没有 for/id。
 - D2/D3：Worker Conda 继承时表单显示全局值；saveWorkerConfigCore 用 effectiveWorkerCondaEnv 作缺值回退，会把继承固化成覆盖。需显式区分继承、系统 Python 与路径，不自动探测/安装科研依赖。
 - D2 端口配置范围：已有 tensorboard.port 目前 scope=application，同电脑多项目无法各自保存不同值。后续允许当前项目覆盖并保留原全局默认/显式值，清楚说明共享账号各项目服务需要独立端口；不自动换端口或停止其他项目。PFX2f 已保证端口占用明确失败、不借用其他服务，配置体验尚未完成。
