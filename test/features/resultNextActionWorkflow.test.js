@@ -122,7 +122,7 @@ test("result workbench follows preview, archive, and final-analysis order", () =
   assert.match(panel, /论文表格已生成，等待 PPT 绘图契约[\s\S]{0,120}"exportPlottingContract"/);
   assert.match(panel, /结果证据与绘图契约均已完成[\s\S]{0,120}"plotResultsToPpt"/);
   assert.match(panel, /projectNextAction\(stage\.message, stage\.label, stage\.command, \{ file: stage\.file, planFile: stage\.planFile \}\)/);
-  assert.match(panel, /results: \[\["解析结果", "parseResults"\][\s\S]*\["绘图到 PPT", "plotResultsToPpt"\]\]/);
+  assert.match(panel, /results: \[\["更新全部 PLAN 结果", "syncPendingPlanArtifacts"\][\s\S]*\["绘图到 PPT", "plotResultsToPpt"\]\]/);
 });
 
 test("runtime contract repair disappears after results become available", () => {

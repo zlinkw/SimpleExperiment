@@ -53,7 +53,7 @@ test("result workflow actions and evidence summary are wired without duplicated 
   const html = readSource("src/ui/PanelHtml.ts");
   assert.doesNotMatch(html, /id="resultActions"/);
   assert.doesNotMatch(html, /id="artifactActions"/);
-  assert.match(html, /results: \[\["解析结果", "parseResults"\], \["刷新结果", "refreshResults"\]/);
+  assert.match(html, /results: \[\["更新全部 PLAN 结果", "syncPendingPlanArtifacts"\]/);
   for (const command of ["syncPendingPlanArtifacts", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable"]) {
     assert.match(html, new RegExp(`"${command}"`));
   }

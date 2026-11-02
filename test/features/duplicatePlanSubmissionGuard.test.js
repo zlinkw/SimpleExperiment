@@ -102,14 +102,30 @@ function loadPlanPreparationContext(activity = { active: false }) {
     planActiveRunEvidence: () => activity,
     esc: value => String(value || ""),
     planExecutionStage: () => ({ phase: "results", status: "已完成" }),
-    projectNextAction: () => "",
-    renderRuntimeContractRecoveryActions: () => "",
+    lastState: {},
+    debugModeDisableReason: () => "",
+    simpleSftpCommandDisableReason: () => "",
     renderPlanBatchPicker: () => "",
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction(panel, "renderPlanPreparationContext")}\nthis.render = renderPlanPreparationContext;`, sandbox);
+  vm.runInContext(`${extractFunction(panel, "projectNextAction")}\n${extractFunction(panel, "projectSectionNextAction")}\n${extractFunction(panel, "renderPlanPreparationContext")}\nthis.render = renderPlanPreparationContext;`, sandbox);
   return sandbox.render;
 }
+
+test("zero-result preparation uses real recovery controls with explicit project scope", () => {
+  const render = loadPlanPreparationContext();
+  const plan = "plans/recovery.yaml";
+  const update = render({}, plan, true, "", { kind: "command", command: "parseResults", message: "输出契约完整", label: "重新解析结果" });
+  assert.match(update, /data-section-target="results" data-anchor-target="results-summary"/);
+  assert.match(update, /本项目全部 PLAN 与全部启用 Worker/);
+  assert.doesNotMatch(update, /data-command="(?:parseResults|runPlan)"/);
+  const running = render({}, plan, true, "", { kind: "section", section: "execution", anchor: "execution", message: "正在检查输出契约", label: "查看检查进度" });
+  assert.match(running, /data-section-target="execution"/);
+  assert.doesNotMatch(running, /data-command=/);
+  const check = render({}, plan, true, "", { kind: "command", command: "checkOutputContract", message: "未发现结果记录", label: "检查输出契约" });
+  assert.match(check, /data-command="checkOutputContract"/);
+  assert.match(check, /data-plan-file="plans\/recovery.yaml"/);
+});
 
 function loadPlanRuntimeEvidenceCache() {
   const sandbox = {};

@@ -7435,6 +7435,7 @@ function renderPanelHtml() {
         generateOutputAdapter: "生成输出接入模板",
         saveProjectAdapterRules: "保存插件接入规则",
         saveResultColumnMapping: "保存结果列映射",
+        syncPendingPlanArtifacts: "核实本项目全部 PLAN 与全部启用 Worker，在内存读取指标并更新项目总表；不触发科研分析",
         validatePlan: "校验计划",
         dryRunPlan: "预演计划",
         runPlan: "校验并提交运行",
@@ -7473,6 +7474,7 @@ function renderPanelHtml() {
         stopExperiment: "停止任务",
         retryExperiment: "重试任务",
         reproducePlan: "复现实验",
+        syncPendingPlanArtifacts: "更新全部 PLAN 结果",
         parseResults: "解析结果",
         refreshResults: "刷新结果",
         runQualityGate: "质量门禁",
@@ -8927,7 +8929,7 @@ function renderPanelHtml() {
         gpu: [["刷新", "snapshot"], ["检测全部", "testAll"]],
         plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan"], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
         execution: [["重试", "retryExperiment", { confirm: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["清空历史", "clearOperations"], ["刷新运行状态", "snapshot"]],
-        results: [["解析结果", "parseResults"], ["刷新结果", "refreshResults"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
+        results: [["更新全部 PLAN 结果", "syncPendingPlanArtifacts"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
         sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["发布到git并上传worker", "publishGithub", { confirm: true }], ["检测全部", "testAll"], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }],  ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["项目同步范围与状态", "configureCodeSyncIncludes"]],
         tmux: [["刷新会话", "fetchTmuxList"], ["同步窗口", "fetchTmuxCapture"], ["检测全部", "testAll"]],
         diagnostics: [["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["下载调试包", "downloadDebugBundle"], ["审计尾部", "openAuditTail"]]
@@ -9371,7 +9373,7 @@ function renderPanelHtml() {
       const contractStage = currentPlanRuntimeContractStage(state, planFile);
       if (contractStage) {
         const tone = contractStage.section === "execution" || contractStage.section === "operations" ? "info" : "warn";
-        return result(runtimeContractStageBadge(contractStage), runtimeContractStageMessage(contractStage, project), { tone });
+        return result(contractStage.label, contractStage.message, { tone });
       }
       if (!outputGate.ok) return result("待补输出", "当前 Plan 输出门禁缺少：" + outputGate.missing.join("、") + "。");
       if (!workerReadiness.ready) return result("待添加 Worker", workerReadiness.summary || "正式运行至少需要一个启用的执行 Worker。");
@@ -11215,8 +11217,8 @@ function renderPanelHtml() {
       const queued = taskStats.queued;
       const failed = taskStats.failed;
       const outputSummary = planEvidenceCandidates.length ? compactText(planEvidenceCandidates.join("、"), 44) : (planOutputSignals.length ? "命令/日志证据" : "未声明");
-      const outputStatus = runtimeContractStage ? runtimeContractStageMessage(runtimeContractStage, project) : (outputReady ? "可运行 / " + outputSummary : "待规则 / " + outputSummary);
-      const outputBadge = runtimeContractStage ? runtimeContractStageBadge(runtimeContractStage) : "预览 " + validPreviewCount;
+      const outputStatus = runtimeContractStage ? runtimeContractStage.message : (outputReady ? "可运行 / " + outputSummary : "待规则 / " + outputSummary);
+      const outputBadge = runtimeContractStage ? runtimeContractStage.label : "预览 " + validPreviewCount;
       const outputTone = runtimeContractStage ? (runtimeContractStage.section === "execution" || runtimeContractStage.section === "operations" || runtimeContractStage.command === "parseResults" ? "info" : "warn") : (outputReady ? "good" : "warn");
       const executionStage = selectedPlan ? planExecutionStage(state, selectedPlan) : { phase: "select", status: "未选择计划" };
       const preflight = selectedPlan ? planPreflightSummary(state, selectedPlan) : { ready: false, tone: "warn", message: "未选择计划", badge: "待选择" };
@@ -11294,7 +11296,12 @@ function renderPanelHtml() {
         return '<div class="planRunActions muted">在下方明确选择当前 PLAN；没有计划时先识别工作区。</div>';
       }
       if (runtimeContractStage) {
-        return '<div class="planRunActions">' + renderRuntimeContractRecoveryActions(runtimeContractStage, { adapterConfig }, selectedPlan) + '</div>';
+        const stage = runtimeContractStage;
+        const recovery = stage.command === "parseResults"
+          ? projectSectionNextAction("结果更新核实本项目全部 PLAN 与全部启用 Worker。", "前往项目结果", "results", "results-summary")
+          : stage.section ? projectSectionNextAction(stage.message, stage.label, stage.section, stage.anchor || stage.section)
+          : projectNextAction(stage.message, stage.label, stage.command, { planFile: selectedPlan, file: stage.file });
+        return '<div class="planRunActions">' + recovery + '</div>';
       }
       if (!outputReady) {
         const adapterAction = adapterConfig
@@ -11346,7 +11353,7 @@ function renderPanelHtml() {
       const gates = [
         ["选择计划", selectedPlan ? "good" : "warn", selectedPlan ? "已选择" : "需要选择计划"],
         ["同步代码", syncReady ? "good" : "info", syncReady ? "代码指纹已确认" : "运行时自动同步"],
-        ["输出接入", outputReady ? "good" : runtimeContractStage ? runtimeOutputTone : "warn", outputReady ? "可运行" : runtimeContractStage ? runtimeContractStageBadge(runtimeContractStage) : "待规则"],
+        ["输出接入", outputReady ? "good" : runtimeContractStage ? runtimeOutputTone : "warn", outputReady ? "可运行" : runtimeContractStage ? runtimeContractStage.label : "待规则"],
         ["校验预演", (preflight || {}).tone || ((preflight || {}).ready ? "good" : "info"), (preflight || {}).badge || "运行时自动执行"]
       ];
       return gates.map((gate) => planRunRow(gate[0], gate[1], gate[2], gate[2])).join("");
@@ -14592,10 +14599,9 @@ function renderPanelHtml() {
         ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS?.has(row.status), true],
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
         ["转移", "reassignWorkerTask", manualReassignSurfaceVisible(row), true],
-        ["解析", "parseResults", true, false],
         ["打开日志", "selectLogRunKey", Boolean(key), false],
         ["隐藏残留", "clearLegacyTasks", !usableTaskKey(taskActionKey(row)), false]
-      ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("") + analyzeAction;
+      ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("") + '<button type="button" class="taskActionButton secondary" data-section-target="results" data-anchor-target="results-summary" title="查看项目结果总表；更新范围为本项目全部 PLAN 与全部启用 Worker">查看项目结果</button>' + analyzeAction;
       const pendingBadge = pending ? '<span class="taskActionPending">' + loadingPrefix(true) + esc(pendingLabel(pending)) + '</span>' : "";
       const taskTime = taskTimestampView(row);
       const titleBits = [
@@ -14654,7 +14660,7 @@ function renderPanelHtml() {
         (selectedPlanFiles.length > 1 ? '<span class="pill status-warning" title="多计划">多计划 ' + selectedPlanFiles.length + '</span>' : '') +
         actionButton("停止选中", "stopExperiment", { confirm: true, batch: true }) +
         actionButton("重试选中", "retryExperiment", { confirm: true, batch: true, disabledReason: retryReason }) +
-        actionButton("解析选中", "parseResults", { batch: true }) +
+        '<button type="button" class="taskActionButton secondary" data-section-target="results" data-anchor-target="results-summary" title="查看项目结果总表；更新范围不限定于选中任务">查看项目结果</button>' +
         (legacyCount ? actionButton("清除选中旧任务", "clearLegacyTasks", { batch: true }) : "") +
         (allLegacyRows.length > legacyCount ? clearVisibleLegacyButton(allLegacyRows) : ""));
     }
@@ -14914,7 +14920,7 @@ function renderPanelHtml() {
           taskDetailLine("更新", '<span title="' + escAttr("更新时间：" + traceTime.raw) + '">' + esc(traceTime.relative) + '</span>') +
         '</div>' +
         '<div class="taskActions">' +
-          traceActionButton("解析", "parseResults", row) +
+          '<button type="button" class="taskActionButton secondary" data-section-target="results" data-anchor-target="results-summary" title="查看项目结果总表；更新范围不限定于这条历史记录">查看项目结果</button>' +
           traceActionButton("反推配置", "inferConfigFromRun", row) +
           traceActionButton("恢复 Plan", "recoverPlanFromRun", row) +
           traceActionButton("异常诊断", "diagnoseResultAnomaly", row) +

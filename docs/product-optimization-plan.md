@@ -27,7 +27,8 @@
 | C1 | 精确 job 的产物、退出码、异常及日志跟随 | passed |
 | C2-base | CLI 结果夹具能力与主动查询响应契约 | passed |
 | C2a | 结果主页面的当前/全部 PLAN 范围 | passed |
-| C2b | 资源动作、兼容任务与生成下一步中的旧结果入口 | pending |
+| C2b | 资源动作、兼容任务与生成下一步中的旧结果入口 | passed |
+| C2c | 自定义固定项中的结果别名迁移，保留布局和位置 | pending |
 | C3 | 最新 job 产物与用户范围交集、逐 Worker 同步反馈 | pending |
 | D0 | 项目内服务状态与多窗口隔离核查，按证据修正共享路径 | pending |
 | D1 | 零目标、禁用、未核实、离线；精确附着命令 | pending |
@@ -159,6 +160,18 @@ C2a 首轮 package：317/318 作业通过，overall=failed/exit=1，694480ms；�
 C2-base 提交 a06b1ea2f5046841c6538ed5cd2dec823e5dba3c 已普通 push/fetch 一致；未重复编译、打包、安装或发布。C2a remoteResultInspectionWorkflow 完整 14 项补跑通过（exit=0），保留原公开别名的兼容、安全和无原始副本检查，只替换主界面范围断言；日志 simple_cluster/reports/product-optimization/c2-target-1793622372390/remoteResultInspectionWorkflow-fixed.log。当前项目 AGENTS 仍明确要求运行版本交付执行 npm run package，且现有组装门禁拒绝首轮 failed 记录，未获准更改该执行契约；因此最终运行版本沿用该既有入口，不恢复通用复用参数或新增收包旁路。实现和已通过隔离渲染未再变更。
 
 C2a 最终 package：318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、729979ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T12-54-02-759Z-32380-package/run.json，原失败不改签。实际 HTML 三段脚本及模块 vm.Script 通过。VSIX 0.5.456 为 universal/trial、2776430 字节，SHA256 6d6392fc40acc6b53bcde2b7d8e32c2792386702da6a6946b60325c275df4230，与 receipt 相符；361 项收包门禁零违规。共 8 个非生成文件；现场收集仍待验证，未安装或部署。下一批为剩余旧结果 UI 入口及零结果恢复上下文；不改科研分析或结果安全边界。
+
+C2a 交付：源码 f50ca164058a07940dced20e21e8b726d8e69920 已普通 push/fetch 一致；https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.456 为 draft=false/prerelease=true，真实下载的包、字节数及精确文件名校验一致。普通更新客户端网络请求遇到 GitHub 公共配额 HTTP 403，延期至 2026-11-02T13:16:26Z；保留该真实非通过结果。随后通过现有 gh 登录凭据仅为 api.github.com 添加认证，实际 ReleaseClient 读取真实公开 Release 并通过解析：稳定仍为 0.5.440/0.2.117，试行不降级，旧稳定版本可更新；未使用 mock，未改产品认证或全局设置。报告 simple_cluster/reports/product-optimization/c2-target-1793622372390/actual-update-client.json。未安装、无训练服务器操作。
+
+## 当前批次 C2b
+
+目标：移除资源动作、兼容任务卡/批量/详情中把全项目更新伪装成单任务解析的旧入口；零结果恢复只导向真实作用范围，补齐可达缺失函数造成的页面错误。
+范围：实际 legacy UI，resultActionWorkflow/resultNextActionWorkflow/duplicatePlanSubmissionGuard 三处既有测试，三处版本及本计划，共 8 个非生成文件。自定义固定项迁移独立 C2c，保留位置、布局和主动科研分析。不得新增后台读取、自动执行检查/分析或改变结果安全边界。
+验证：先用实际隔离页面复现零结果路径，再定向验证恢复导航、原提交防重及结果动作；编译、生成 HTML 脚本、现有打包与试行交付。C2a 包和远端资产已核实后才开始本批。
+
+C2b 定向证据：在实际生成页面直接调用 renderPlanPreparationContext 的零结果恢复分支，复现 ReferenceError: renderRuntimeContractRecoveryActions is not defined；单纯发送状态未触发该惰性分支，不把它记作失败复现。已改为消费现有阶段的 label/message，复用既有导航/显式命令渲染，不另建恢复框架。结果更新阶段只跳到项目总表；检查阶段保留精确 PLAN 的用户主动按钮，运行中只跳进度。资源动作合并为全项目更新，兼容任务卡/批量/详情只导向项目结果，不暗示仅解析选中 job。duplicatePlanSubmissionGuard 11、resultNextActionWorkflow 3、resultActionWorkflow 1、overviewProjectReadiness 4、taskActionLayout 1 项通过；前一夹具不再用空函数冒充恢复实现。compile exit=0；真实 Chrome 的未检查/检查中/完成/失败四种零结果恢复、任务卡/批量导航、资源动作及原六种首屏/焦点/窄窗口通过，报告 simple_cluster/reports/product-optimization/c2b-render-1793625170573.json；实际 HTML 三段脚本通过。冻结 0.5.457，最终 package pending。自定义保存项和相应能力映射留 C2c；覆盖表在后续余量批次更新。
+
+C2b 最终 package：318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、705831ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T13-14-00-857Z-20448-package/run.json。VSIX 0.5.457 为 universal/trial、2776748 字节，SHA256 d441a8aa6e238ece467b1ef2eda747128283e66bce83f468a3d4e4721511c842，与 receipt 相符；361 项内容门禁零违规，实际 HTML 三段及模块脚本通过。共 8 个非生成文件，未安装、无训练服务器操作。下一批仅迁移保存的自定义结果动作并明确其范围；原始指标仍不落本机，旧公开 API 保留。
 
 ## 后续定向核查线索（尚未实施）
 
