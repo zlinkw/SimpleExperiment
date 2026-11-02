@@ -587,6 +587,12 @@ D2 定向 57 项通过：serverQuotaPersistence 8、gpuMemoryScheduling 9、publ
 
 D2 最终验证：2026-11-02T22-52-44-901Z-81624-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、734992ms，锁已释放。内部 universal/trial 0.5.479 为 2778312 字节，SHA256 01f139a8203c73ea8227989e5bf35444ce01f47ce17a38cf65d65a74a6b47174；实际包字节与 receipt、逐包清单一致，362 项内容门禁零违规，实际主 HTML 三脚本与模块解析通过。本批 8 非生成文件，未公开发行或安装，权威版 440/117 不变。下一批 D3 只处理保存期间的新草稿、旧回包与路径选择；E2 与最终说明/交付仍未完成。
 
+## 当前批次 D3
+
+D2 提交 74dc0720c24c092754b63b42143e1e5b23e8ff5e 已普通 push/fetch 一致。D3-test 先独立修正原 panelWebviewScriptHealth 对整 scope 删除实现的绑定：仍验证 defaults 属于实际服务器可编辑 scope，改验证真实保存按钮及前缀输入接线，不再强制存在破坏新草稿的 delete 语句。原其余低流量、手动刷新、实际 click/command/空身份断言保留，原 9 项在未修改 0.5.479 生产实现上全部通过，d3-health-fixture-prep.log。仅测试与计划单独提交，不改版本/重新打包。
+
+D3 边界：只清除本次提交且仍未改变的草稿；忽略无对应 pending 上下文的旧成功回包，保留失败/取消与保存期间的新输入；PPT 路径选择只消费其原路径草稿，其他绘图草稿保留，晚到路径状态可更新未编辑的路径，恢复草稿时仍挂载实际表单。复用既有 pending action 和浅复制标量草稿，不加哈希、草稿框架或科研操作。UI legacy、原 settingsSecondaryView、三版本和本计划，共 6 文件，内部拟 0.5.480；先原函数复现，再最小检查、实际 HTML/隔离渲染和规定 package。
+
 ## 发现线索与后续边界（以批次状态为准）
 
 - D1c 新确证：Host scalarAgentFetch 直接访问配置隧道，仅附 Agent token；scalar catalog/query 与 native UI proxy 请求未带当前项目/Worker 身份。Agent 相应 GET 直接使用其自己的 root 返回 scalar_catalog，未核对调用窗口预期项目。故将另一项目 Agent 的端口误填到当前项目时，可把其图表当作当前项目数据；已修正的 /api/tensorboard/service 控制路由有 root/Worker 校验，不能冒称覆盖了这些只读路径。后续独立批在支持的新请求路径中核对稳定项目和 Worker、禁用目标不访问，旧 Agent 明确不支持而不回退；不自动启动/重启/部署，不修改指标或科研分析策略。先保留当前 PFX3c 冻结候选，D1c 完成前不声称共享账号隔离已经全部收口。

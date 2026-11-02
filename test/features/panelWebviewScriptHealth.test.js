@@ -197,7 +197,8 @@ test("Agent defaults stay in the normal editable server configuration flow",()=>
  function visit(n){if(ts.isFunctionDeclaration(n)&&n.name?.text==='isServerConfigScope')scope=n.getText(tree);ts.forEachChild(n,visit);}visit(tree);
  const isServerScope=vm.runInNewContext(scope+';isServerConfigScope;');
  assert.equal(isServerScope('defaults'),true);assert.equal(isServerScope('worker:a'),true);assert.equal(isServerScope('hub'),false);
- assert.match(script,/delete configDrafts\.defaults/);
+ assert.match(script,/data-command="saveAgentDefaults" data-config-scope="defaults"/);
+ assert.match(script,/configInput\("defaults", "remoteTmuxSessionPrefix"/);
 });
 test('an unassigned job renders an empty command identity all the way into the actual click payload',()=>{
  const script=extractScripts(renderPanelHtml()).join('\n');
