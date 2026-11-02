@@ -6,7 +6,7 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 
-test("result workflow actions and evidence summary are wired without duplicated middle-column buttons", () => {
+test("result workflow actions and evidence summary are wired without duplicated middle-column buttons", async () => {
   const extension = readSource("src/extension.ts");
   for (const action of ["parse-results", "refresh-results", "run-quality-gate", "run-statistics", "export-paper-table", "check-claim-evidence"]) {
     assert.match(extension, new RegExp(action));
@@ -19,11 +19,22 @@ test("result workflow actions and evidence summary are wired without duplicated 
   const manualRefreshBlock = extension.match(/async refreshResultsSummary\(planHint = "", manualRetry = false\)[\s\S]*?scheduleResultsSummaryRefreshFromRealtime/)?.[0] || "";
   assert.match(manualRefreshBlock, /resultCollectionHost\(this\)\.update\(\)/);
   const collector = fs.readFileSync(path.join(root, 'src/extension/ResultCollectionHost.ts'), 'utf8');
-  assert.match(collector, /if \(this\.request\) return this\.request/);
-  assert.match(collector, /if \(this\.request === run\) this\.request = undefined/);
+  // Verify same-scope sharing and post-settlement release through update().
+  const { ResultCollectionHost } = require('../../dist/extension/ResultCollectionHost.js');
+  const service = new ResultCollectionHost({ captureProjectContext: () => ({root:'fixture',generation:1}) });
+  const pending=[];service.collect=()=>new Promise(resolve=>pending.push(resolve));
+  const first=service.update(),second=service.update(),sharedReads=pending.length;
+  const report={current:true};pending.forEach(resolve=>resolve(report));
+  assert.deepEqual(await Promise.all([first,second]),[report,report]);assert.equal(sharedReads,1,'same-scope callers share one query');
+  const next=service.update(),totalReads=pending.length;pending.at(-1)(report);await next;
+  assert.equal(totalReads,2,'a completed request is released before a later query');
   assert.match(collector, /context = h\.captureProjectContext\(\)/);
   assert.match(collector, /h\.projectContextIsCurrent\(context\) && key\(\) === binding/);
-  assert.match(collector, /owners === JSON\.stringify\(runBindings\(\)\)/);
+  // The current collector reads server declarations. This existing fixture rejects
+  // queue, sync-ledger and registry reads instead of treating them as live results.
+  require('../_helpers/registerTsRequire');
+  const fresh = require('../_helpers/freshResultHost').fixture();
+  assert.equal((await fresh.service.update()).current,true);
   const timerBlock = extension.match(/scheduleResultsSummaryTimer\(reason, dirtyKey, delayMs\)[\s\S]*?resolveSelectedPlanFile/)?.[0] || "";
   assert.match(timerBlock, /const timerGeneration = \+\+this\.resultsSummaryRefreshTimerGeneration/);
   assert.match(timerBlock, /const generation = this\.projectContextGeneration/);
@@ -43,7 +54,7 @@ test("result workflow actions and evidence summary are wired without duplicated 
   assert.doesNotMatch(html, /id="resultActions"/);
   assert.doesNotMatch(html, /id="artifactActions"/);
   assert.match(html, /results: \[\["解析结果", "parseResults"\], \["刷新结果", "refreshResults"\]/);
-  for (const command of ["parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable"]) {
+  for (const command of ["syncPendingPlanArtifacts", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable"]) {
     assert.match(html, new RegExp(`"${command}"`));
   }
 
@@ -52,6 +63,10 @@ test("result workflow actions and evidence summary are wired without duplicated 
   assert.doesNotMatch(html, /class="resultWorkbench"/);
   assert.match(html, /resultEvidenceWorkbench/);
   assert.match(html, /function renderResultEvidenceWorkbench/);
+  assert.match(html, /本项目全部 PLAN · 全部启用 Worker/);
+  assert.match(html, /PLAN 上下文：/);
+  assert.match(html, /对本项目全部 PLAN 生效/);
+  assert.doesNotMatch(html, /data-command="(?:parseResults|refreshResults|syncAllResultArtifacts)"/);
   assert.match(html, /pairedComparisons/);
   assert.match(html, /function pairedComparisonTitle/);
   assert.match(html, /return "缺配对结果"/);

@@ -269,23 +269,25 @@ test("preview and effective CSV buttons open result artifacts without changing P
   assert.doesNotMatch(buttonHelper, /data-command="openPlan"/);
 });
 
-test("Plan concise table is the primary result entry with scoped explanations", () => {
-  assert.match(panel, /按数据集组织结果/);
+test("project result table is the primary entry with explicit all-Plan scope", () => {
+  assert.match(panel, /本项目全部 PLAN · 全部启用 Worker/);
   assert.match(panel, /data-command="openLocalResultTable"/);
   assert.match(panel, /查看共享产物/);
   assert.doesNotMatch(panel, /resultFileButton\("查看简洁汇总 CSV"/);
-  assert.match(panel, /更新结果汇总/);
+  assert.match(panel, /更新全部 PLAN 结果/);
   assert.doesNotMatch(panel, /data-details-key="result-trace-files"/);
   assert.doesNotMatch(panel, /原始数据与详细追溯/);
   assert.match(panel, /data-details-key="result-split-tables"/);
-  assert.match(panel, /尚无总表。点击“更新结果汇总”/);
-  assert.match(panel, /重新核实整批结果/);
+  assert.match(panel, /尚无总表。点击“更新全部 PLAN 结果”/);
+  assert.match(panel, /列映射保存范围为本项目/);
 });
 
-test("current Plan sync updates the verified full result table without saving raw copies", () => {
+test("project update replaces the scoped UI alias while its public handler stays compatible", () => {
   const handler = extension.slice(extension.indexOf("async syncAllResultArtifactsFromUi"), extension.indexOf("async syncPendingResultMetricsFromUi"));
   assert.match(extension, /case "syncAllResultArtifacts":\s*return this\.withManualResultSync\(\(\) => this\.syncAllResultArtifactsFromUi\(message\)\)/);
-  assert.match(panel, /data-command="syncAllResultArtifacts" data-plan-file=/);
+  assert.match(panel, /data-command="syncPendingPlanArtifacts" data-action-section="results"/);
+  assert.doesNotMatch(panel, /data-command="syncAllResultArtifacts"/);
+  assert.match(extension, /case "syncPendingPlanArtifacts":\s*return this\.withManualResultSync\(\(\) => this\.syncPendingResultMetricsFromUi\(\)\)/);
   assert.match(handler, /resolveSelectedPlanFile/);
   assert.match(handler, /if \(!planFile\) throw new Error/);
   assert.match(handler, /return this\.rebuildProjectResultTablesFromUi\(\{ title: "更新结果总表（包含当前 Plan）"/);

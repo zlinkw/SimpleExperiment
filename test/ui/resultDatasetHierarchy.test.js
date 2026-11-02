@@ -132,15 +132,15 @@ test("renderer puts compact dataset tables first and collapses plans, unassigned
   assert.match(source, /\.resultTableName \{ min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;/);
   assert.match(source, /\.resultDatasetGroup > summary \{ display: grid; grid-template-columns: auto minmax\(0, 1fr\) auto;/);
   assert.match(source, /\.resultDatasetStats \{[^}]*grid-column: 2 \/ -1;/);
-  assert.match(source, /data-command="syncAllResultArtifacts"/);
-  assert.match(source, /data-command="parseResults"/);
+  assert.match(source, /data-command="syncPendingPlanArtifacts"/);
+  assert.doesNotMatch(source, /data-command="parseResults"/);
   assert.doesNotMatch(source, /原始数据与详细追溯/);
   assert.doesNotMatch(source, /data-details-key="result-trace-files"/);
   assert.doesNotMatch(source, /\.resultArtifactGroup\[data-details-key="result-trace-files"\]/);
   const rendererSource = source.slice(start, end);
   assert.doesNotMatch(rendererSource, /experiments\/results/);
   const reportHtml = renderer.renderProjectResultTables({ resultSyncReport: { discovered: 20, included: ["Plan A"], missing: ["Plan B"], skipped: ["Plan C"] }, resultOutputConfig: { catalog, tables: catalog.datasets.flatMap(group => group.tables) } });
-  assert.match(reportHtml, /发现 20 · 收录 1 · 缺指标 1 · 跳过\/失败 1/);
+  assert.match(reportHtml, /发现 20 个 Plan · 收录 1 个 Plan · 未完成或待核实 1 项 · 查询问题 1 项/);
   assert.match(reportHtml, /<details data-details-key="result-sync-report"><summary>查看 Plan 与 Worker 明细/);
   assert.match(readSource("src/ui/sections/ResultsSection.ts"), /按数据集浏览总表、方法结果与原始文件/);
 });

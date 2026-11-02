@@ -16968,10 +16968,10 @@ export function renderPanelHtml(): string {
       const legacyHtml = legacyTables.length ? '<details class="resultSpecialGroup" data-details-key="result-legacy-tables"' + detailsOpenAttr("result-legacy-tables", false) + '><summary>旧版结果结构（' + legacyTables.length + '）</summary><div class="resultSpecialBody"><div class="muted">旧结构只读保留；重新汇总后会生成按数据集组织的结果。</div>' + legacyTables.map(row => '<div class="resultTableName" title="' + escAttr(row.path || "") + '">' + esc(resultCatalogBasename(row.path)) + '</div>').join("") + '</div></details>' : "";
       const advancedHtml = sharedHtml || legacyHtml ? '<details class="resultSpecialGroup resultAdvancedSources" id="result-advanced-sources" data-details-key="result-advanced-sources"' + detailsOpenAttr("result-advanced-sources", false) + '><summary>高级来源</summary><div class="resultSpecialBody">' + sharedHtml + legacyHtml + '</div></details>' : "";
       const optionsHtml = (items, chosen) => items.map(item => '<option value="' + escAttr(item) + '"' + (item === chosen ? ' selected' : '') + '>' + esc(item) + '</option>').join("");
-      return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>按数据集组织结果。</p></div><div class="resultTopActions"><button type="button" data-command="syncPendingPlanArtifacts" data-action-section="results" title="主动查询当前 PLAN 的实际产物，在内存汇总最新指标；允许部分完成。">更新结果汇总</button><button type="button" class="secondary" data-command="refreshLocalResults" data-action-section="results" title="从最新汇总 JSON 重新生成表格，不连接服务器；本机导出不代表服务器当前状态。">重建本机表格</button></div></div>' +
+      return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>本项目全部 PLAN · 全部启用 Worker</p></div><div class="resultTopActions"><button type="button" data-command="syncPendingPlanArtifacts" data-action-section="results" title="范围为本项目全部 PLAN 与全部启用 Worker；按当前配置主动核实，在内存读取指标并生成总表，允许部分完成。">更新全部 PLAN 结果</button><button type="button" class="secondary" data-command="refreshLocalResults" data-action-section="results" title="从最新汇总 JSON 重新生成表格，不连接服务器；本机导出不代表服务器当前状态。">重建本机表格</button></div></div>' +
         reportHtml +
         catalogStatusHtml +
-        (catalog.error ? '<div class="muted">结果目录需要检查：' + esc(catalog.error) + '</div>' : view.datasets.length ? '<section class="resultDatasetList"><h4 class="resultDatasetSectionTitle">数据集结果</h4>' + datasetsHtml + '</section>' : catalogLoadStatus === "ready" ? '<div class="muted">尚无总表。点击“更新结果汇总”合并 Worker 结果、下载指标并生成总表。</div>' : '') +
+        (catalog.error ? '<div class="muted">结果目录需要检查：' + esc(catalog.error) + '</div>' : view.datasets.length ? '<section class="resultDatasetList"><h4 class="resultDatasetSectionTitle">数据集结果</h4>' + datasetsHtml + '</section>' : catalogLoadStatus === "ready" ? '<div class="muted">尚无总表。点击“更新全部 PLAN 结果”，在内存核实 Worker 指标并生成项目总表。</div>' : '') +
         unassignedHtml + (view.mappingConflicts.length ? '<div class="muted">' + view.mappingConflicts.map(item => esc('Plan ' + item.planFile + ' 的实际结果数据集 ' + item.actual.join('、') + ' 与历史人工映射 ' + item.mapped.join('、') + ' 不一致，已采用实际结果；请检查映射。')).join('<br>') + '</div>' : '') + advancedHtml +
         '<details class="resultArtifactGroup" id="resultSplitTables" data-details-key="result-split-tables"' + detailsOpenAttr("result-split-tables", false) + '><summary>按列和值拆成子表</summary>' +
         '<div class="muted" id="resultSplitSourceName">来源：' + esc((selected?.dataset || "未识别数据集") + " / " + (selected?.name || "无")) + '</div>' +
@@ -17130,11 +17130,10 @@ export function renderPanelHtml(): string {
       const tableRows = rows.join("");
       const html = '<div class="resultEvidenceWorkbench" title="结果证据">' +
         renderProjectResultTables(state) +
-        '<section class="resultPlanActions"><div class="resultPlanActionsTitle"><strong>当前 Plan</strong><small>' + esc(resultPlanFile ? compactPath(resultPlanFile) : "尚未选择 Plan") + '</small></div><div class="resultPlanActionButtons">' +
-          '<button class="taskActionButton secondary" data-command="syncAllResultArtifacts" data-plan-file="' + escAttr(resultPlanFile) + '" title="重新核实全部当前 Plan 与启用 Worker 的实际产物，包含当前 Plan，并真实更新本机结果总表；不混用旧行，不保存原始指标副本。">更新结果总表</button>' +
-          '<button class="taskActionButton secondary" data-command="parseResults" data-plan-file="' + escAttr(resultPlanFile) + '" title="兼容原重建入口：与更新结果总表使用同一路径，主动核实全部 Plan 和启用 Worker 后更新总表；不限定当前 Plan，也不重新训练。">重新核实整批结果</button>' +
-          '<button class="taskActionButton secondary" data-open-result-mapping type="button" title="在结果区直接选择原始 CSV 的 case、seed、指标、方法、数据集、比例和评估端点列；保存到插件设置，再重新核实整批结果。">设置结果列映射</button>' +
-        '</div><div class="resultPlanActionsHelp">' + esc("更新与核实会检查全部 Plan 和启用 Worker。" + (multiWorkerTables ? "多 Worker 结果按服务器分别保存；各项目总表只覆盖对应 Worker。" : aggregateMessage || "原始结果不会改动。")) + '</div></section>' +
+        '<section class="resultPlanActions"><div class="resultPlanActionsTitle"><strong>项目结果配置</strong><small>对本项目全部 PLAN 生效</small></div><div class="resultPlanActionButtons">' +
+          '<button class="taskActionButton secondary" data-open-result-mapping type="button" title="对本项目全部 PLAN 生效；列名样例以映射面板标出的源文件为准。保存后主动更新全部 PLAN 结果。">项目结果列映射</button>' +
+        '</div><div class="resultPlanActionsHelp">' + esc("更新入口在上方结果总表：核实本项目全部 PLAN 与全部启用 Worker；指标在内存读取，原始指标不保存为本机副本，不触发科研分析。" + (multiWorkerTables ? "多 Worker 结果按服务器分别保存；各项目总表只覆盖对应 Worker。" : aggregateMessage || "原始结果保留。")) + '</div></section>' +
+        '<div class="resultPlanActionsHelp" style="overflow-wrap:anywhere;">PLAN 上下文：' + esc(resultPlanFile || "尚未选择 PLAN") + '。列名样例以映射面板标出的源文件为准；列映射保存范围为本项目。</div>' +
         renderResultColumnMappingEditor(state, summary.columnMappingPreview) +
         '<details data-details-key="result-advanced"' + detailsOpenAttr("result-advanced", false) + '><summary>高级证据与分析</summary>' +
           renderResultNextAction({ parsed, parsedRows, qualityGatePath: qualityReady ? qualityGatePath : "", statisticsPath: statisticsReady ? statisticsPath : "", claimStatus, claimIssueCount, paperTablePath: paperTableReady ? paperTablePath : "", plottingContractPath: analysisArtifacts.plottingContractPath, effectiveArchivedResultCount, pendingReviewCount, excludedResultCount, previewCsvPath, archivableCount: traceStats.archivable, archiveBlockedCount: traceStats.archiveBlocked, previewResultCount, outputContractStatus: outputContractCheck.status, outputContractMissingFiles: outputContractCheck.missingFiles, outputContractUnparseableFiles: outputContractCheck.unparseableFiles, outputContractMessage: outputContractCheck.message, autoParseStatus: autoParseReadiness.status, planFile: autoParseReadiness.planFile }) +
@@ -17159,7 +17158,7 @@ export function renderPanelHtml(): string {
 
     function resultFileButton(label, file, planFile, workerId, help, showUnavailable) {
       const path = meaningfulValue(file);
-      if (!path) return showUnavailable ? '<button class="taskActionButton secondary" type="button" disabled title="当前 Plan 尚未生成此文件。可重新核实整批结果检查已有产物；文件是否生成由实验输出决定。">' + esc(label) + ' · 未生成</button>' : "";
+      if (!path) return showUnavailable ? '<button class="taskActionButton secondary" type="button" disabled title="当前 PLAN 尚未生成此文件。可点击“更新全部 PLAN 结果”核实已有产物；文件是否生成由实验输出决定。">' + esc(label) + ' · 未生成</button>' : "";
       return '<button class="taskActionButton' + (/^查看简洁汇总/.test(label) ? '' : ' secondary') + '" data-command="openResultArtifact" data-remote-path="' + escAttr(path) + '" data-plan-file="' + escAttr(planFile || "") + '"' + (workerId ? ' data-worker-id="' + escAttr(workerId) + '"' : "") + ' title="' + escAttr((help || "点击后同步结果文件到本机项目并打开。") + String.fromCharCode(10) + "远端文件：" + path) + '">' + esc(label) + '</button>';
     }
 
@@ -17187,19 +17186,20 @@ export function renderPanelHtml(): string {
         '<label class="resultMappingField" title="派生差值乘以 1 保留原单位，乘以 100 转为百分点评估。"><span><b>倍率</b></span><select data-config-input="resultMapping" data-key="derivedScale" title="派生差值乘以 1 保留原单位，乘以 100 转为百分点评估。"><option value="1"' + (String(configDraftValue("resultMapping", "derivedScale", derived.scale || 1)) === "1" ? ' selected' : '') + '>1，原单位</option><option value="100"' + (String(configDraftValue("resultMapping", "derivedScale", derived.scale || 1)) === "100" ? ' selected' : '') + '>100，百分点评估</option></select></label></div></details>';
       const metrics = asArray(item.metricColumns).slice(0, 12).map((entry) => esc((entry || {}).column || "")).filter(Boolean).join("、");
       return '<details id="resultColumnMappingEditor" class="resultMappingEditor" data-details-key="result-column-mapping-editor"' + detailsOpenAttr("result-column-mapping-editor", false) + '>' +
-        '<summary>结果列映射 · ' + esc(item.source || "尚无结果表预览") + '</summary>' +
+        '<summary>项目结果列映射 · ' + esc(item.source || "尚无结果表预览") + '</summary>' +
         '<div class="resultMappingHelp">选择原始 CSV 中对应的列；留在“自动识别”即可沿用当前识别结果。case 和 seed 用于匹配 Plan；长表设置指标名称与指标值，宽表把这两项留空，由数值列自动形成指标。</div>' +
-        (headers.length ? '<div class="muted">已读取 ' + headers.length + ' 列，候选项展示前 20 行中的样例值。</div>' : '<div class="muted">先对当前 Plan 点击“重建汇总”，取得原始 CSV 列名后即可选择。</div>') +
+        (headers.length ? '<div class="muted">已读取 ' + headers.length + ' 列，候选项展示前 20 行中的样例值。保存后对本项目全部 PLAN 生效。</div>' : '<div class="muted">当前结果源尚未提供列名预览，请核对源文件与输出接入规则；保存范围为本项目。</div>') +
         '<div class="resultMappingGrid">' + main + '</div>' +
         '<details class="resultMappingAdvanced" data-details-key="result-column-mapping-advanced"' + detailsOpenAttr("result-column-mapping-advanced", false) + '><summary>其他字段：数据集、方法、比例、评估端点</summary><div class="resultMappingGrid">' + advanced + '</div></details>' + derivedForm +
         (metrics ? '<div class="muted">当前识别的宽表数值列：' + metrics + '</div>' : "") +
-        '<div class="resultMappingActions"><button data-command="saveResultColumnMapping" data-config-scope="resultMapping" type="button"' + (!headers.length ? ' disabled' : '') + '>保存映射</button><span class="muted">保存后点击上方“重建汇总”以重新计算当前 Plan。</span></div>' +
+        '<div class="resultMappingActions"><button data-command="saveResultColumnMapping" data-config-scope="resultMapping" type="button"' + (!headers.length ? ' disabled' : '') + '>保存映射</button><span class="muted">保存到本项目后，点击“更新全部 PLAN 结果”按映射重新收集。</span></div>' +
         '</details>';
     }
 
     function renderResultNextAction(status) {
       const stage = resultWorkflowStage(status);
-      if (stage.kind === "await-run") return resultAwaitRunNextAction(stage);
+      if (stage.kind === "await-run") return projectSectionNextAction(stage.message, "查看 PLAN 与运行进度", "plans", "plans-local");
+      if (stage.command === "parseResults") return projectSectionNextAction("结果更新会核实本项目全部 PLAN 与全部启用 Worker。", "前往结果总表", "results", "results-summary");
       if (["archive", "archive-blocked", "review"].includes(stage.kind)) return "";
       if (stage.kind === "section") return projectSectionNextAction(stage.message, stage.label, stage.section, stage.anchor || stage.section);
       if (stage.command === "plotResultsToPpt") {

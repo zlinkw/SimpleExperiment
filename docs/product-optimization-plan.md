@@ -26,7 +26,7 @@
 | B3 | 精确停止与重载恢复，不因未知撤销完成 | passed |
 | C1 | 精确 job 的产物、退出码、异常及日志跟随 | passed |
 | C2-base | CLI 结果夹具能力与主动查询响应契约 | passed |
-| C2a | 结果主页面的当前/全部 PLAN 范围 | running |
+| C2a | 结果主页面的当前/全部 PLAN 范围 | passed |
 | C2b | 资源动作、兼容任务与生成下一步中的旧结果入口 | pending |
 | C3 | 最新 job 产物与用户范围交集、逐 Worker 同步反馈 | pending |
 | D0 | 项目内服务状态与多窗口隔离核查，按证据修正共享路径 | pending |
@@ -156,12 +156,17 @@ C2a 主页面复用已有 syncPendingPlanArtifacts → syncPendingResultMetricsF
 
 C2a 首轮 package：317/318 作业通过，overall=failed/exit=1，694480ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T12-41-08-222Z-71872-package/run.json。唯一失败文件 remoteResultInspectionWorkflow 的两个旧 UI 断言仍要求“更新结果汇总”及已移除的当前 PLAN 同步按钮，保留真实失败；其余作业没有重签。按最新全局规则和交付技能，CLI 夹具单独按测试增量完成。C2a 的打包器 validateReceiptForAssemble 当前只接收 overall=passed、完整输入指纹及逐项计划一致的单一 package/check:full 记录，不能表达 failed 记录加定向补跑；不篡改记录或绕过门禁。后续先修正失败界面契约，再按项目明确要求的 build/package 路径完成运行版本交付。
 
+C2-base 提交 a06b1ea2f5046841c6538ed5cd2dec823e5dba3c 已普通 push/fetch 一致；未重复编译、打包、安装或发布。C2a remoteResultInspectionWorkflow 完整 14 项补跑通过（exit=0），保留原公开别名的兼容、安全和无原始副本检查，只替换主界面范围断言；日志 simple_cluster/reports/product-optimization/c2-target-1793622372390/remoteResultInspectionWorkflow-fixed.log。当前项目 AGENTS 仍明确要求运行版本交付执行 npm run package，且现有组装门禁拒绝首轮 failed 记录，未获准更改该执行契约；因此最终运行版本沿用该既有入口，不恢复通用复用参数或新增收包旁路。实现和已通过隔离渲染未再变更。
+
+C2a 最终 package：318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、729979ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T12-54-02-759Z-32380-package/run.json，原失败不改签。实际 HTML 三段脚本及模块 vm.Script 通过。VSIX 0.5.456 为 universal/trial、2776430 字节，SHA256 6d6392fc40acc6b53bcde2b7d8e32c2792386702da6a6946b60325c275df4230，与 receipt 相符；361 项收包门禁零违规。共 8 个非生成文件；现场收集仍待验证，未安装或部署。下一批为剩余旧结果 UI 入口及零结果恢复上下文；不改科研分析或结果安全边界。
+
 ## 后续定向核查线索（尚未实施）
 
-- C2：resultPlanActions 标题是“当前 Plan”，两个主按钮实际都核实全部 Plan；parseResults 主按钮还是旧重建别名。应保留一个全范围更新入口，并将当前 PLAN 映射/文件动作清楚分开。
+- C2b：主结果页已统一范围，资源动作、兼容任务和自定义固定项中的结果别名仍须核对；保留自定义布局位置及功能，移除被替代的旧界面入口。
 - D0：agentRuntimeDirs 默认 <父目录>/simple_agent；Agent tmux 默认名仅含前缀和 Worker，不含项目。默认 runtime 应转项目内，并用稳定项目身份分开 Agent 窗口；不迁移或清理旧目录，不改变用户显式目录。用户已选择保留 GPU Collector 的账号/Worker 共享唯一采样源（GpuCollector.ts、AgentLifecycle.ts），其余归项目；当前未改。
 - D1：serverSetupReadiness 在 0 Worker 时 missing 为空导致 ready=true；占位 tmuxCmdAgent/Sch/Gpu 从未填充真实目标，仍可复制。应修正空目标语义，提供真实选定窗口的唯一附着入口。
 - D2：operationEventMaxDelayMs 配置/后端默认 200，面板三处回退 1000；全局读取缺少与保存的 10000 上限一致的约束。Conda label 含“可选，必填”，configInput/configSelect 的 label 没有 for/id。
 - D2/D3：Worker Conda 继承时表单显示全局值；saveWorkerConfigCore 用 effectiveWorkerCondaEnv 作缺值回退，会把继承固化成覆盖。需显式区分继承、系统 Python 与路径，不自动探测/安装科研依赖。
 - D3：clearConfigDraftsForCommand 收到 completed 后整 scope 删除草稿，缺少对发出时草稿的快照核对；保存期间的新输入及无对应 pending item 的旧成功回包可能清掉新草稿。失败回包不清草稿的现有行为保留。
 - E1 首屏计数返修线索：overviewTaskStats 目前只数 schedulerRowsForState 的兼容任务，没有读取 distributedPlans；协议 2 作业存在时首屏可能仍显示 0。须复用逻辑 PLAN 归并计数且说明记录来源，不能把当前原生 job 与旧任务投影重复累计；E1 实施并补定向回归。
+- C2b 恢复上下文新增源码线索：当前实际脚本调用 runtimeContractStageBadge、runtimeContractStageMessage、renderRuntimeContractRecoveryActions，但没有这些函数的定义；已解析却零结果时可达该分支。原 duplicatePlanSubmissionGuard 夹具把第三个名称替换成空函数，不能证明真实页面可用。下一批先用真实隔离页面复现，再复用现有阶段消息、导航与命令生成恢复入口；不自动执行输出检查或科研分析。
