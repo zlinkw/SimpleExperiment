@@ -44,8 +44,8 @@ function runPython(script) {
 test("extension and agent never hardcode absolute server paths or tmux names", () => {
   // Check that tb session name is derived from prefix, not hardcoded
   assert.match(agentSource, /tb_tmux_session_name\b/);
-  assert.match(extensionSource, /_tb/);
-  assert.match(extensionSource, /tbSession/);
+  assert.match(agentSource, /_tb/);
+  assert.match(agentSource, /tb_session/);
   // Ensure no absolute server path in tb_discover_launch candidates (they are relative to root)
   assert.match(agentSource, /for rel in \("tmp\/start_tb\.sh", "start_tb\.sh", "scripts\/start_tb\.sh", "simple_cluster\/tmp\/start_tb\.sh"\)/);
 });

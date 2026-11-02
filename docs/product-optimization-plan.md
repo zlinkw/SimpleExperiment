@@ -42,6 +42,7 @@
 | PFX-test7 | 私有 tmux 夹具包含真实共用前缀函数依赖 | passed |
 | PFX-test8 | 归一化组合检查不绑定 TensorBoard 格式函数的参数个数 | passed |
 | PFX-test9 | 旧停止夹具使用真实取消确认契约，保留未确认停止意图 | passed |
+| PFX-test10 | TensorBoard 名称检查归负责命名的 Agent，保留无硬编码约束 | passed |
 | PFX-base | 前缀默认值与归一化收敛一处，提供实际目录命名 | passed |
 | PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | passed |
 | PFX2a / D0c | Agent 窗口按规范项目身份隔离 | passed |
@@ -380,11 +381,15 @@ PFX2f1 最终验证：2026-11-02T18-09-22-156Z-87964-package/run.json，318 作�
 
 ## 当前批次 PFX2f2
 
+PFX-test9 提交 db270884d16ae0036ed1f57b94513c0934612a71 已普通 push/fetch 一致。Controls4 四项通过；Controls5 首次 1 失败/2 通过，日志 pfx2f2-tensorboardControls5.test.js.log 保留。该静态检查强制 Host 出现 _tb/tbSession，与移除 Host 名称猜测的当前目标冲突。PFX-test10 仅把这两项名称断言移到真实负责命名的 Agent，保留名称存在、相对启动脚本、动态 URL 和共用前缀行为全部约束；Agent 的实际项目隔离由原运行断言覆盖，不为通过断言在 Host 保留无用变量。仅既有测试及本计划独立提交，不依赖 PFX2f2 未提交实现，不增版本。
+
 PFX2f1 提交 d122cb0216dc60a75434073ee7807f1e038b08e8 已普通 push/fetch 一致。Host 请求携带精确 projectDir/Worker 与唯一全局前缀，使用 /api/tensorboard/service；旧 Agent 不认识该路由时明确失败，不回退旧命名操作。新 Agent 对新旧 HTTP 入口都在服务操作与回执写入前核对请求项目和 Worker。沿用既有操作响应和请求预算，不增加版本相等门禁或自动部署；旧未知服务仍保留精确 TMUX 窗口人工入口。
 
 删除无效 tensorboard.tmuxSession 设置入口，不改用户已保存 JSON；成功提示读取本轮真实服务名、窗口、端口及日志。失败查询显示未知和原错误，不伪装未运行；启动只轮询原 5×2 秒预算。Worker 显式空 Conda 保持系统 Python，继承值由既有配置提供；没有科研环境检查。保留非 TensorBoard save-result-policy 的原 Worker 传输。项目切换后不把新项目目标补进旧服务请求。
 
 Host、Agent、实际 UI、既有 Controls1、三版本及本计划共 8 文件；内部 0.5.470。原 Python 进程扩展新旧 HTTP 入口的缺失/异项目/异 Worker 零写入拒绝，原 Node 套件替换静态名称猜测为真实 Host 方法执行，覆盖全局值、动态端点、返回事实、未知与旧 Agent 无回退。待 compile、定向、实际 HTML/隔离渲染及规定 package；无服务器操作、公开发行或安装。
+
+PFX-test10：Controls5 三项通过，exit=0，pfx-test10-controls5.log；不重编译或重打未变化生产包，复用有效命名回归证据。
 
 ## 后续定向核查线索（尚未实施）
 
