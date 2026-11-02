@@ -40,6 +40,7 @@
 | PFX-test5 | TensorBoard 使用真实命名行为，不约束局部变量写法 | passed |
 | PFX-test6 | 将注释匹配替换为原进程内的真实 TensorBoard 命名断言 | passed |
 | PFX-test7 | 私有 tmux 夹具包含真实共用前缀函数依赖 | passed |
+| PFX-test8 | 归一化组合检查不绑定 TensorBoard 格式函数的参数个数 | passed |
 | PFX-base | 前缀默认值与归一化收敛一处，提供实际目录命名 | passed |
 | PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | passed |
 | PFX2a / D0c | Agent 窗口按规范项目身份隔离 | passed |
@@ -47,7 +48,8 @@
 | PFX2c | 移除个人主终端猜测及错误启动兜底 | passed |
 | PFX2d | 调度前缀归一化与真实原队列定位 | passed |
 | PFX2e | 通用关窗不得按 Agent 会话名跳过精确窗口保护 | passed |
-| PFX2f | TensorBoard 使用全局前缀及精确项目服务身份 | pending |
+| PFX2f1 | TensorBoard runtime 使用全局前缀及精确项目服务身份 | pending |
+| PFX2f2 | Host 传递唯一全局值，展示实际返回的服务目标 | pending |
 | PFX3 | 远端路径校验和错误品牌迁移的前缀残留 | pending |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
@@ -356,6 +358,10 @@ PFX2e compile 和 27 项定向检查通过（closeRuntime 1、closeHTTP 2、sess
 PFX2e 最终验证：2026-11-02T17-37-37-693Z-6640-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、698736ms。内部 universal/trial 0.5.468：2771965 字节，SHA256 5698f66e67b3a0f021d35ed243cc5666523b60520a020d56a7df38ec1cb1f4cb；与 receipt 一致，362 项内容门禁零违规，实际 HTML 三段及模块解析通过。无训练服务器操作、自动重跑、产物清理、发布或安装。
 
 ## 后续定向核查线索（尚未实施）
+
+PFX2e 提交 b257d66f1fbbab2be699fe7166f589c76defe8e3 已普通 push/fetch 一致。PFX-test8 纯测试准备：Controls5 的共用归一化断言直接验证已存在的真实 normalizer，保留原 Worker 拓扑、URL、脚本路径及全部测试；TB 命名格式继续由 AndFence 六组、policy 九组和 Controls1 实际服务检查负责。函数存在检查不再约束参数个数，供后续加入必需项目身份；不增加进程或降低行为覆盖。仅原测试和本计划独立验证/提交，无新运行版本。PFX2f 按 8 文件上限拆 runtime 与 Host 两批，不提交依赖未入库生产修改才能通过的测试。
+
+PFX-test8：原 Controls5 完整套件 3 项通过，exit=0，pfx-test8-controls5.log。无产品实现/包变化，复用已通过 PFX2e 其他必要覆盖；本批只提交测试与计划。
 
 - D0a–c 已验证：默认 runtime 归项目内全局前缀目录，Agent 窗口按项目身份分开，显式目录与共享 GPU 采样保留。D0d 仍需更新完整指南；未自动迁移、部署或清理旧资源。
 - D1：serverSetupReadiness 在 0 Worker 时 missing 为空导致 ready=true；占位 tmuxCmdAgent/Sch/Gpu 从未填充真实目标，仍可复制。应修正空目标语义，提供真实选定窗口的唯一附着入口。
