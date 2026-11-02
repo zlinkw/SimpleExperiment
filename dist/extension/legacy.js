@@ -26253,10 +26253,19 @@ class RealtimeTunnelPanelProvider {
     }
     async openScalarViewerFromUi(message) {
         const endpointId = String(message?.endpointId || "").trim();
+        const client = this.client, workspace = workspaceRoot();
+        if (endpointId)
+            this.tensorboardTarget(endpointId);
+        else if (!this.scalarEndpoints().length)
+            throw new Error("没有已启用且配置 Agent 隧道的 Worker。");
         const server = await this.startLocalApiServer();
         for (let attempt = 0; attempt < 20; attempt++) {
+            if (this.client !== client || workspaceRoot() !== workspace)
+                throw new Error("项目已切换，请重新打开当前项目的图表。");
             try {
-                const opened = await vscode.env.openExternal(vscode.Uri.parse(server.viewerUrl(endpointId)));
+                const url = new URL(server.viewerUrl(endpointId));
+                url.searchParams.set("workspace", String(workspaceRoot() || ""));
+                const opened = await vscode.env.openExternal(vscode.Uri.parse(url.href));
                 if (!opened)
                     throw new Error("本机浏览器未接受曲线页面");
                 return;
@@ -26270,24 +26279,63 @@ class RealtimeTunnelPanelProvider {
     }
     scalarEndpoints() {
         const entries = [...(this.client?.endpointById?.entries?.() || [])];
-        return entries.filter(([, endpoint]) => endpoint?.localPort && endpoint?.role !== "hub");
+        const enabled = new Set(this.enabledWorkerConfigs().map(worker => worker.id));
+        return entries.filter(([id, endpoint]) => enabled.has(id) && endpoint?.localPort && endpoint?.role === "worker");
     }
     async scalarAgentFetch(endpointId, method, route, body, contentType = "application/json", signal) {
-        const endpoint = this.client?.endpointById?.get?.(endpointId);
-        if (!endpoint)
-            throw new Error(`未找到 ${endpointId} 的 Agent 隧道配置`);
+        const client = this.client, workspace = workspaceRoot();
+        const { endpoint, projectDir } = this.tensorboardTarget(endpointId);
         const host = String(endpoint.localHost || "127.0.0.1");
         const base = tunnelHttpOrigin(host, endpoint.localPort);
-        const headers = {};
+        const headers = { "X-Simple-Project-Root": encodeURIComponent(projectDir), "X-Simple-Worker-Id": encodeURIComponent(endpointId) };
         if (endpoint.token)
             headers["X-Simple-Agent-Token"] = String(endpoint.token);
         if (body !== undefined)
             headers["Content-Type"] = contentType;
-        const response = await fetch(base + route, {
-            method, headers, body: body === undefined ? undefined : Buffer.isBuffer(body) ? body : JSON.stringify(body),
-            signal, redirect: route.startsWith("/api/tensorboard/ui") ? "follow" : "manual",
-        });
-        return response;
+        let current = new URL(route, base), requestMethod = method;
+        let requestBody = body === undefined ? undefined : Buffer.isBuffer(body) ? body : JSON.stringify(body);
+        const follow = route === "/api/tensorboard/ui" || route.startsWith("/api/tensorboard/ui/");
+        // Preserve Fetch's 20-redirect limit while keeping credentials and project proof at this Agent.
+        for (let redirects = 0;; redirects++) {
+            const target = this.tensorboardTarget(endpointId);
+            if (this.client !== client || workspaceRoot() !== workspace || target.projectDir !== projectDir || target.endpoint !== endpoint)
+                throw new Error("项目或 Worker 已切换，图表读取已停止。");
+            if (current.pathname.startsWith("/api/tensorboard/project/"))
+                current.pathname = current.pathname.replace("/api/tensorboard/project/", "/api/tensorboard/");
+            if (current.origin !== new URL(base).origin || current.username || current.password || !current.pathname.startsWith("/api/tensorboard/")
+                || redirects > 0 && !(current.pathname === "/api/tensorboard/ui" || current.pathname.startsWith("/api/tensorboard/ui/")))
+                throw new Error("图表重定向超出当前项目的 Agent 入口，已停止读取。");
+            const outbound = new URL(current.href);
+            outbound.pathname = current.pathname.replace("/api/tensorboard/", "/api/tensorboard/project/");
+            const response = await fetch(outbound.href, { method: requestMethod, headers, body: requestBody, signal, redirect: "manual" });
+            const latest = this.tensorboardTarget(endpointId);
+            if (this.client !== client || workspaceRoot() !== workspace || latest.projectDir !== projectDir || latest.endpoint !== endpoint)
+                throw new Error("项目或 Worker 已切换，图表读取已停止。");
+            if (response.status === 404)
+                throw new Error("项目绑定的图表入口返回 HTTP 404：入口或资源不存在；旧版 Agent 请在服务器设置中主动准备该项目 Agent，未回退读取。");
+            const location = response.headers.get("location");
+            if (!follow || ![301, 302, 303, 307, 308].includes(response.status) || !location)
+                return response;
+            await response.body?.cancel();
+            if (redirects === 20)
+                throw new Error("TensorBoard 重定向超过 Fetch 的 20 次上限。");
+            if (response.status === 303 && requestMethod !== "GET" && requestMethod !== "HEAD" || [301, 302].includes(response.status) && requestMethod === "POST") {
+                requestMethod = "GET";
+                requestBody = undefined;
+                delete headers["Content-Type"];
+            }
+            current = new URL(location, outbound);
+        }
+    }
+    async tensorboardViewerUrl(endpointId) {
+        const client = this.client, projectDir = this.tensorboardTarget(endpointId).projectDir;
+        const server = await this.startLocalApiServer();
+        if (this.client !== client || this.tensorboardTarget(endpointId).projectDir !== projectDir)
+            throw new Error("项目已切换，请重新打开当前项目的图表。");
+        const url = new URL(server.viewerUrl(endpointId));
+        url.searchParams.set("native", "ready");
+        url.searchParams.set("workspace", String(workspaceRoot() || ""));
+        return url.href;
     }
     async withScalarRequestTimeout(signal, work) {
         const controller = new AbortController();
@@ -26400,7 +26448,7 @@ class RealtimeTunnelPanelProvider {
     tensorboardTarget(endpointId) {
         const worker = this.enabledWorkerConfigs().find(item => item.id === endpointId);
         const endpoint = this.client?.endpointById?.get?.(endpointId);
-        if (!worker || endpoint?.role !== "worker")
+        if (!worker || endpoint?.role !== "worker" || !endpoint.localPort)
             throw new Error("请选择已启用且配置了 Agent 隧道的 Worker。");
         const projectDir = String(this.expectedWorkerAgentProjectRoot(endpointId) || "");
         if (!projectDir.startsWith("/"))
@@ -26410,12 +26458,11 @@ class RealtimeTunnelPanelProvider {
     async openTensorBoardFromUi(message, openExternal = true) {
         const endpointId = String(message?.endpointId || message?.endpoint_id || "").trim();
         let remoteReady = null;
-        const { worker, endpoint, projectDir } = this.tensorboardTarget(endpointId);
+        const { worker, projectDir } = this.tensorboardTarget(endpointId);
         const cfg = vscode.workspace.getConfiguration("simpleExperiment");
         const remotePort = Number(cfg.get("tensorboard.port")) || 6006;
         const logdir = String(cfg.get("tensorboard.logdir") || "work_dirs");
         const condaEnv = String(worker.condaEnv ?? this.setupConfig.condaEnv ?? "").trim();
-        const url = `${tunnelHttpOrigin(endpoint.localHost, endpoint.localPort)}/api/tensorboard/ui/`;
         const body = { projectDir, port: remotePort, logdir, condaEnv };
         try {
             const started = await this.postTensorboardAction(endpointId, "start-tensorboard", body);
@@ -26436,9 +26483,10 @@ class RealtimeTunnelPanelProvider {
                 throw new Error(`TensorBoard 端口尚未就绪：${status?.message || "请查看当前项目服务日志"}`);
             remoteReady = status.running;
             this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, ...status });
-            const proxyCheck = await fetch(url, { signal: AbortSignal.timeout(5000) });
+            const proxyCheck = await this.scalarAgentFetch(endpointId, "GET", "/api/tensorboard/ui/", undefined, "application/json", AbortSignal.timeout(5000));
             if (!proxyCheck.ok)
                 throw new Error(`Agent 隧道中的 TensorBoard 入口返回 HTTP ${proxyCheck.status}；请在 ${endpointId} 部署最新 Agent`);
+            const url = openExternal ? await this.tensorboardViewerUrl(endpointId) : "";
             if (openExternal)
                 await vscode.env.openExternal(vscode.Uri.parse(url));
             if (openExternal)
@@ -26518,10 +26566,9 @@ class RealtimeTunnelPanelProvider {
     }
     async copyTensorBoardUrlFromUi(message) {
         const endpointId = String(message?.endpointId || "").trim();
-        const { endpoint } = this.tensorboardTarget(endpointId);
-        const targetUrl = `${tunnelHttpOrigin(endpoint.localHost, endpoint.localPort)}/api/tensorboard/ui/`;
+        const targetUrl = await this.tensorboardViewerUrl(endpointId);
         await vscode.env.clipboard.writeText(targetUrl);
-        void vscode.window.showInformationMessage(`已复制 TensorBoard 链接（${endpointId}）：${targetUrl}`);
+        void vscode.window.showInformationMessage(`已复制当前项目 TensorBoard 链接（${endpointId}）：请在 60 秒内首次打开，并保持本机插件窗口运行。复制不会启动服务。`);
     }
     async copyTextFromUi(message) {
         if (message?.tmuxAttach !== undefined) {

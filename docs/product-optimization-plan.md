@@ -57,6 +57,7 @@
 | PFX3b | Host 与实际 UI 路径校验移除固定目录名推断 | passed |
 | PFX3c | 全局前缀的 tmux 旧版名称兼容与输入边界 | passed |
 | PFX3d | 清除旧任务字段绕过统一前缀函数的残余 | passed |
+| PFX3e / E1a | TMUX 同名前缀不作归属证据，首屏统计真实原生逻辑任务 | pending |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
 | D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | passed |
@@ -64,9 +65,9 @@
 | D1-test | 日志/低流量夹具隔离附着命令组件边界 | passed |
 | D1a | 移除占位附着命令，复制前主动核实精确 Worker/窗口 | passed |
 | D1b | 零目标/禁用配置与观测分开，错误状态不得显示健康 | passed |
-| D1c | TensorBoard 只读查询与实际浏览器入口绑定当前项目和启用 Worker | running |
+| D1c | TensorBoard 只读查询与实际浏览器入口绑定当前项目和启用 Worker | passed |
 | D1d | 独立旧代理类的调用关系核实 | not-applicable（当前无调用方，不扩改） |
-| D1 | 零目标、禁用、未核实、离线；精确附着与项目绑定查询 | partial（D1a/b passed，D1c pending） |
+| D1 | 零目标、禁用、未核实、离线；精确附着与项目绑定查询 | passed（本机覆盖，真实服务器待验证） |
 | D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | pending |
 | D3 | 保存范围、生效时间与草稿恢复 | pending |
 | E1 | 主次/危险操作、错误、帮助、空态与刷新范围 | pending |
@@ -521,6 +522,12 @@ D1c 实现与定向检查：Agent 复用服务控制的项目/Worker 校验保�
 D1c 首轮规定 package：2026-11-02T21-20-25-160Z-5240-package/run.json，316/318 通过、2 项失败、exit=1、701742ms、锁已释放，未组包。tmuxCloseHttp 的手工 Handler 夹具未注入新增 TENSORBOARD_PROJECT_PREFIX，原源码/生成 runtime 两入口均 NameError；这是本批变更依赖，前述“仅以上相关套件”判断不完整，现已按 reject_if_needed 和手工 HTTP 抽取追踪到此夹具，其他 syncScopeAgentIndex stub 掉该方法不受影响。D1c-test1 独立准备批只给原夹具注入该只读协议常量，不改断言/期限/生产行为；修正后源码及生成 runtime 两项通过（d1c-http-fixture-fixed.log），已提交旧 HEAD 同一 Handler 的全部原断言也通过（d1c-http-fixture-committed-baseline.log），不依赖未提交生产修改。
 
 另一失败为原 tmuxTaskLifecycle 的 failed-task-settled-exit：窗口原生 dead=1、exitCode 为空、signal 为空，5 秒观察结束仍未知；该现象在更早 B1 与 PFX3d 已出现，不能声称由图表请求造成或已修好。隔离 verbose 诊断输出成功 JSON，但原 10 秒 WSL 子进程仍 ETIMEDOUT，按失败保留 d1c-native-verbose-diagnostic.json；诊断漏了原入口的 WSL 预热，且临时日志在 WSL 重启后已不可读，不能当作通过或真实 tmux 原因证据。随后继续在原期限和同一私有 fixture 下补完整诊断；不修改生产完成规则、退出码、超时或覆盖。D1c 未通过，禁止提交为完成、组包发行或安装。
+
+D1c-test1 提交 5d26d19e223b416ae615bdfeec490a9e06796012 已普通 push/fetch 一致。补齐原入口预热后的私有 verbose 诊断在原 10 秒子进程期限内 exit=0（d1c-native-warm-verbose-diagnostic.json）；保留的 d1c-native-server-trace.json 记录真实 `%6 exited` 与原生 pane_dead_status=7，没有退出码文件或 PID 兜底。随后按 package 中同一 argv 单独执行未改动的原 tmux 测试，1 项通过，d1c-native-original-confirm.log，5.058 秒测试/7.972 秒 Node 总时间。原空状态失败根因未确定，不把这次成功说成已修复偶发问题；该原测试仍以相同期限和断言进入严格 package，任何再次失败继续阻断。生产候选未变，准备第二轮规定 package；不改 runner/receipt、超时、覆盖或完成判定。
+
+D1c 最终规定验证：2026-11-02T21-35-53-621Z-79240-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、724491ms。原 tmux 及 HTTP 失败项在同一严格入口中通过，首次失败和原生退出码偶发未知的诊断仍保留，不声称已根治环境现象。内部 universal/trial 0.5.477 为 2776333 字节，SHA256 3e5e74842f5d388ef4c1bdb5a93158e22aded03c80d1d7267fbbea65ed9c5921，与 receipt 和逐包清单一致；362 项内容门禁零违规，实际主 HTML 三脚本及模块解析通过，Scalar 脚本与两模式渲染证据沿用最终同内容候选。8 个非生成文件；没有科研数据读取、服务器操作、公开发行或安装。D1 本机正确性及隔离渲染完成，真实 Extension Host 与服务器仍待现场核实。
+
+下一批修订 PFX3e/E1a：当前 UI tmuxSessionOwnership 的同前缀 fallback 仍把未绑定当前项目的窗口判为 mine，tmuxSessionGroup 又按名字判为插件服务；原 OtherSessions 用例也沿用了未核实 Agent 的假设。移除名称作为归属证明，保留真实窗口选择、确认和服务保护；与既定 E1 原生任务首屏统计同属“状态证据”，合为两个问题、UI legacy 与原两测试、三版本及本计划，最多 7 文件（若更新覆盖表为 8）。新测试先复现，保留原缓存/扫描断言及真实导航，不新增性能断言。先做必要 VM 依赖准备批，不混入设置、目录迁移或清理。PFX4 文档仍为六说明+原 guide 测试+计划的 8 文件；另有当前 project-constraints 的过时前缀来源、TB 会话及端口偏移说明，单列 PFX4b 文档收口。历史服务器记录保留并指向当前契约，不批量替换历史真实路径。CLI 的 --tmux-session-prefix 位于独立 SimpleSFTP 受管清理只读观测契约，不是 SimpleExperiment 命名设置，保留此精确历史目标选择能力。前缀组公开发行继续等待 PFX3e 和 PFX4 收口。
 
 ## 发现线索与后续边界（以批次状态为准）
 

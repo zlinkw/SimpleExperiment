@@ -191,7 +191,7 @@ print("ok")
 
 test("worker Agent proxies TensorBoard pages only for an active session and valid token", () => {
   const script = `
-import importlib.util, pathlib, tempfile, threading, types, os, urllib.request, urllib.error, json, socket
+import importlib.util, pathlib, tempfile, threading, types, os, urllib.request, urllib.error, urllib.parse, json, socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import sys
 sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
@@ -199,6 +199,9 @@ from extractRuntimeFunctions import extract_runtime_functions
 agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["TENSORBOARD_PROXY_PORTS","ThreadingHTTPServer","serve_http","start_gpu_log_tail_sampler","start_worker_hub_uplink","start_worker_local_command_processor","start_worker_telemetry_sampler","tmux_session_alive"])
 os.environ['SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX'] = 'owner'
 native_window = {'current': None}
+reads = []
+agent.scalar_catalog = lambda root, logdir: reads.append(('catalog', root, logdir)) or {'plans': [], 'logdir': logdir}
+agent.scalar_query = lambda root, payload: reads.append(('query', root, payload)) or {'tags': ['synthetic']}
 agent.tensorboard_window = lambda *args, **kwargs: native_window['current']
 class TensorBoard(BaseHTTPRequestHandler):
     def log_message(self, *args): pass
@@ -277,6 +280,25 @@ with tempfile.TemporaryDirectory() as root:
     assert urllib.request.urlopen(req, timeout=5).read() == b'tensorboard page'
     browser_url = f'http://127.0.0.1:{local.server_port}/api/tensorboard/ui/'
     assert urllib.request.urlopen(browser_url, timeout=5).read() == b'tensorboard page'
+    scoped = f'http://127.0.0.1:{local.server_port}/api/tensorboard/project/'
+    proof = {'X-Simple-Agent-Token': 'secret', 'X-Simple-Project-Root': urllib.parse.quote(root, safe=''), 'X-Simple-Worker-Id': 'test'}
+    assert json.load(urllib.request.urlopen(urllib.request.Request(scoped + 'scalars/catalog?logdir=synthetic%20only', headers=proof), timeout=5))['logdir'] == 'synthetic only'
+    query = urllib.request.Request(scoped + 'scalars/query', data=b'{"case":"fixture"}', headers={**proof, 'Content-Type': 'application/json'}, method='POST')
+    assert json.load(urllib.request.urlopen(query, timeout=5))['tags'] == ['synthetic']
+    assert reads == [('catalog', root, 'synthetic only'), ('query', root, {'case': 'fixture'})], reads
+    assert urllib.request.urlopen(urllib.request.Request(scoped + 'ui/', headers=proof), timeout=5).read() == b'tensorboard page'
+    assert urllib.request.urlopen(urllib.request.Request(scoped + f'proxy?port={tb.server_port}&path=%2Fdata', headers=proof), timeout=5).read() == b'tensorboard page'
+    for headers, code in (({}, 401), ({'X-Simple-Agent-Token': 'secret'}, 403), ({**proof, 'X-Simple-Project-Root': urllib.parse.quote(root + '-foreign')}, 403), ({**proof, 'X-Simple-Project-Root': 'relative'}, 403), ({**proof, 'X-Simple-Worker-Id': 'foreign'}, 403)):
+        for suffix in ('scalars/catalog', 'ui/', 'proxy'):
+            try:
+                urllib.request.urlopen(urllib.request.Request(scoped + suffix, headers=headers), timeout=5)
+                raise AssertionError(('foreign project accepted', suffix, headers))
+            except urllib.error.HTTPError as exc: assert exc.code == code, (exc.code, suffix)
+    try:
+        urllib.request.urlopen(urllib.request.Request(scoped + 'service', data=b'{}', headers=proof, method='POST'), timeout=5)
+        raise AssertionError('read-only namespace accepted service control')
+    except urllib.error.HTTPError as exc: assert exc.code == 404, exc.code
+    assert len(reads) == 2, reads
     foreign_query = urllib.request.Request(url.replace('sessionPrefix=owner', 'sessionPrefix=other-project'), headers={'X-Simple-Agent-Token': 'secret'})
     assert urllib.request.urlopen(foreign_query, timeout=5).read() == b'tensorboard page'
     native_window['current']['dead'] = True
@@ -320,9 +342,9 @@ test("Host uses the global project service route, actual returned facts and visi
   const source = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
   const ast = ts.createSourceFile("host.ts", source, ts.ScriptTarget.Latest, true);
   const cls = ast.statements.find(n => ts.isClassDeclaration(n) && n.name?.text === "RealtimeTunnelPanelProvider");
-  const names = ["tensorboardTarget", "postTensorboardAction", "openTensorBoardFromUi", "getTensorBoardStatusFromUi", "stopTensorBoardFromUi", "copyTensorBoardUrlFromUi", "openTensorBoardUrlFromUi"];
+  const names = ["tensorboardTarget", "postTensorboardAction", "openTensorBoardFromUi", "getTensorBoardStatusFromUi", "stopTensorBoardFromUi", "copyTensorBoardUrlFromUi", "openTensorBoardUrlFromUi", "scalarAgentFetch", "scalarEndpoints", "tensorboardViewerUrl"];
   const members = cls.members.filter(n => names.includes(n.name?.getText(ast))).map(n => n.getText(ast)).join("\n");
-  const calls = [], messages = [], notices = [], opened = [], waits = [];
+  const calls = [], messages = [], notices = [], opened = [], waits = [], fetched = [];
   let project = "/projects/current", responseMode = "ready", workerEnabled = true, seq = 0;
   const worker = { id: "gpu-a", condaEnv: "" }, endpoint = { role: "worker", localHost: "localhost", localPort: 23117 };
   const facts = { status: "completed", running: true, listening: true, tmuxSession: "actual-project_tb", windowId: "@41", port: 6333, logPath: "logs/actual.log" };
@@ -338,7 +360,8 @@ test("Host uses the global project service route, actual returned facts and visi
     makeOpId: () => "op-" + ++seq,
     tunnelHttpOrigin: (host, port) => `http://${host}:${port}`,
     setTimeout: (done, ms) => { waits.push(ms); done(); }, AbortSignal,
-    fetch: async url => { opened.push(url); return { ok: true }; },
+    URL, Buffer, workspaceRoot: () => "/local/current",
+    fetch: async (url, options) => { fetched.push({ url, options }); return new Response("page", { status: 200 }); },
     vscode: { workspace: { getConfiguration: () => ({ get: key => ({ "tensorboard.port": 6006, "tensorboard.logdir": "work_dirs" })[key] }) },
       window: { showInformationMessage: async text => { notices.push(text); }, showErrorMessage: async text => { notices.push(text); } },
       env: { openExternal: async url => opened.push(url), clipboard: { writeText: async text => opened.push(text) } }, Uri: { parse: text => text } },
@@ -350,6 +373,7 @@ test("Host uses the global project service route, actual returned facts and visi
   host.client = { endpointById: new Map([[worker.id, endpoint]]), clients: new Map([[worker.id, epClient]]),
     postWorkerAction: async () => { throw new Error("legacy transport was called"); } };
   host.view = { webview: { postMessage: value => messages.push(value) } };
+  host.startLocalApiServer = async () => ({ viewerUrl: id => "http://127.0.0.1:34567/viewer?ticket=fixture&server=" + encodeURIComponent(id) });
   await host.openTensorBoardFromUi({ endpointId: worker.id });
   assert.equal(calls.length, 2); assert.equal(waits[0], 2000);
   for (const call of calls) {
@@ -360,7 +384,16 @@ test("Host uses the global project service route, actual returned facts and visi
   }
   assert.equal(calls[0].body.condaEnv, "");
   assert.match(notices[0], /6333 actual-project_tb @41.*logs\/actual\.log/);
-  assert.equal(opened[0], "http://localhost:23117/api/tensorboard/ui/");
+  const browser = new URL(opened[0]);
+  assert.equal(browser.origin, "http://127.0.0.1:34567"); assert.equal(browser.searchParams.get("native"), "ready");
+  assert.equal(browser.searchParams.get("server"), worker.id); assert.equal(browser.searchParams.get("workspace"), "/local/current");
+  assert.equal(fetched[0].url, "http://localhost:23117/api/tensorboard/project/ui/");
+  assert.equal(decodeURIComponent(fetched[0].options.headers["X-Simple-Project-Root"]), project);
+  assert.equal(decodeURIComponent(fetched[0].options.headers["X-Simple-Worker-Id"]), worker.id);
+  const controlsBeforeCopy = calls.length;
+  await host.copyTensorBoardUrlFromUi({ endpointId: worker.id });
+  assert.equal(calls.length, controlsBeforeCopy); assert.equal(opened.at(-1), opened[0]);
+  assert.match(notices.at(-1), /60 秒.*复制不会启动服务/);
   assert.equal(messages.at(-1).windowId, "@41");
   await host.stopTensorBoardFromUi({ endpointId: worker.id }); assert.equal(messages.at(-1).running, false);
   assert.equal(calls.at(-1).purpose, "stop");
@@ -385,4 +418,57 @@ test("Host uses the global project service route, actual returned facts and visi
   project = "";
   assert.equal((await host.postTensorboardAction(worker.id, "save-result-policy", { policy: "configured" })).status, "completed");
   assert.equal(policyCalls.length, 1); assert.equal(policyCalls[0][0], worker.id); assert.equal(policyCalls[0][1], "save-result-policy");
+});
+
+test("scalar HTTP reads bind enabled project identity through redirects and reject stale responses", async () => {
+  const vm = require("node:vm"), ts = require("typescript");
+  const source = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
+  const ast = ts.createSourceFile("host.ts", source, ts.ScriptTarget.Latest, true);
+  const cls = ast.statements.find(n => ts.isClassDeclaration(n) && n.name?.text === "RealtimeTunnelPanelProvider");
+  const names = ["tensorboardTarget", "scalarAgentFetch", "scalarEndpoints"];
+  const members = cls.members.filter(n => names.includes(n.name?.getText(ast))).map(n => n.getText(ast)).join("\n");
+  let workspace = "/local/one", project = "/project/中文 one", enabled = true, mode = "ok";
+  const endpoint = { role: "worker", localHost: "localhost", localPort: 23001, token: "fixture-secret" };
+  const requests = [];
+  let host;
+  const Host = vm.runInNewContext(ts.transpileModule("class Host {" + members + "}; Host", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
+    URL, Buffer, workspaceRoot: () => workspace, tunnelHttpOrigin: (h, p) => `http://${h}:${p}`,
+    fetch: async (url, options) => {
+      requests.push({ url, ...options, headers: { ...options.headers } });
+      if (mode === "old") return new Response("old", { status: 404 });
+      if (mode === "workspace") workspace = "/local/two";
+      if (mode === "project") project = "/project/two";
+      if (mode === "client") host.client = { ...host.client };
+      if (mode === "endpoint") host.client.endpointById.set("卡 a", { ...endpoint });
+      if (mode === "disabled") enabled = false;
+      if (mode === "foreign") return new Response(null, { status: 302, headers: { location: "http://foreign.invalid/api/tensorboard/ui/" } });
+      if (mode === "relative" && requests.length === 1) return new Response(null, { status: 303, headers: { location: "assets/page?x=1" } });
+      return new Response("synthetic", { status: 200, headers: { "content-type": "text/plain" } });
+    },
+  });
+  host = new Host();
+  host.enabledWorkerConfigs = () => enabled ? [{ id: "卡 a" }] : [];
+  host.expectedWorkerAgentProjectRoot = () => project;
+  host.client = { endpointById: new Map([["卡 a", endpoint], ["disabled", endpoint], ["hub", { ...endpoint, role: "hub" }]]) };
+  assert.deepEqual(Array.from(host.scalarEndpoints(), row => row[0]), ["卡 a"]);
+  const result = await host.scalarAgentFetch("卡 a", "POST", "/api/tensorboard/scalars/query?x=%E4%B8%AD", { case: "fixture" });
+  assert.equal(await result.text(), "synthetic");
+  assert.equal(requests[0].url, "http://localhost:23001/api/tensorboard/project/scalars/query?x=%E4%B8%AD");
+  assert.equal(decodeURIComponent(requests[0].headers["X-Simple-Project-Root"]), project);
+  assert.equal(decodeURIComponent(requests[0].headers["X-Simple-Worker-Id"]), "卡 a");
+  assert.equal(requests[0].headers["X-Simple-Agent-Token"], "fixture-secret");
+  assert.equal(requests[0].body, '{"case":"fixture"}');
+  requests.length = 0; mode = "relative";
+  await host.scalarAgentFetch("卡 a", "POST", "/api/tensorboard/ui/", Buffer.from("binary"), "application/octet-stream");
+  assert.equal(requests.length, 2); assert.equal(requests[1].url, "http://localhost:23001/api/tensorboard/project/ui/assets/page?x=1");
+  assert.equal(requests[1].method, "GET"); assert.equal(requests[1].body, undefined); assert.equal(requests[1].headers["Content-Type"], undefined);
+  for (const scenario of ["foreign", "old", "workspace", "project", "client", "endpoint", "disabled"]) {
+    requests.length = 0; mode = scenario; workspace = "/local/one"; project = "/project/中文 one"; enabled = true;
+    host.client.endpointById.set("卡 a", endpoint);
+    await assert.rejects(host.scalarAgentFetch("卡 a", "GET", "/api/tensorboard/ui/"), scenario === "old" ? /HTTP 404.*主动准备.*未回退/ : scenario === "disabled" ? /已启用/ : scenario === "foreign" ? /重定向超出/ : /已切换/);
+    assert.equal(requests.length, 1, scenario + " must not follow or retry another target");
+  }
+  enabled = false; requests.length = 0;
+  await assert.rejects(host.scalarAgentFetch("卡 a", "GET", "/api/tensorboard/scalars/catalog"), /已启用/);
+  assert.equal(requests.length, 0);
 });

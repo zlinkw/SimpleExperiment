@@ -485,9 +485,9 @@ def remote_agent_directory_name():
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.476"
-RUNTIME_VERSION = "0.5.476"
-PLUGIN_VERSION = "0.5.476"
+AGENT_VERSION = "0.5.477"
+RUNTIME_VERSION = "0.5.477"
+PLUGIN_VERSION = "0.5.477"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -13186,6 +13186,7 @@ def tb_find_events_dir(root, max_depth=5):
 
 
 TENSORBOARD_BROWSER_PREFIX = "/api/tensorboard/ui"
+TENSORBOARD_PROJECT_PREFIX = "/api/tensorboard/project"
 
 # Scalar reader belongs to the Agent runtime, not to the project's TensorBoard
 # installation. Only the two documented scalar encodings are accepted.
@@ -13563,13 +13564,17 @@ def close_tensorboard_window(root, session, window=None):
     return [window["windowId"]]
 
 
-def tensorboard_action(root, action, payload, operation_id, op_id):
+def require_tensorboard_project(root, payload):
     project = str(payload.get("projectDir") or "").strip()
     worker = str(payload.get("workerId") or "").strip()
     if not os.path.isabs(project) or os.path.realpath(project) != os.path.realpath(root):
         raise ValueError("TENSORBOARD_PROJECT_MISMATCH: 请求项目与当前 Agent 不一致，未操作服务。")
     if not worker or worker != str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip():
         raise ValueError("TENSORBOARD_WORKER_MISMATCH: 请求 Worker 与当前 Agent 不一致，未操作服务。")
+
+
+def tensorboard_action(root, action, payload, operation_id, op_id):
+    require_tensorboard_project(root, payload)
     prefix = remote_resource_prefix()
     tb_session = tb_tmux_session_name(root)
     if "session_prefix" in payload or payload.get("sessionPrefix") is not None and remote_resource_prefix(payload["sessionPrefix"]) != prefix:
@@ -15327,6 +15332,7 @@ def api_openapi(root, token_required=False, mode="worker_telemetry"):
             "/api/actions/stop-tensorboard",
             "/api/actions/get-tensorboard-status",
             "/api/tensorboard/service",
+            "/api/tensorboard/project/{path}",
             "/api/actions/install-rich",
             "/api/tensorboard/proxy",
             "/api/tensorboard/ui/{path}",
@@ -16951,6 +16957,21 @@ def serve_http(args):
                 self.send_json({"error": "localhost only"}, status=403)
                 return True
             browser_path = urlparse(self.path).path
+            if browser_path.startswith(TENSORBOARD_PROJECT_PREFIX + "/"):
+                if not self.authorized():
+                    self.send_json({"error": "unauthorized"}, status=401)
+                    return True
+                logical = browser_path.replace(TENSORBOARD_PROJECT_PREFIX + "/", "/api/tensorboard/", 1)
+                if logical not in ("/api/tensorboard/proxy", "/api/tensorboard/scalars/catalog", "/api/tensorboard/scalars/query", TENSORBOARD_BROWSER_PREFIX) and not logical.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
+                    self.send_json({"error": "not found"}, status=404)
+                    return True
+                try:
+                    require_tensorboard_project(root, {"projectDir": unquote(self.headers.get("X-Simple-Project-Root") or ""), "workerId": unquote(self.headers.get("X-Simple-Worker-Id") or "")})
+                except ValueError as exc:
+                    self.send_json({"error": str(exc)}, status=403)
+                    return True
+                self.path = self.path.replace(TENSORBOARD_PROJECT_PREFIX + "/", "/api/tensorboard/", 1)
+                return False
             if browser_path == TENSORBOARD_BROWSER_PREFIX or browser_path.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return False
             if not self.authorized():
@@ -16969,6 +16990,9 @@ def serve_http(args):
                     return
             elif self.reject_if_needed():
                 return
+            if route.startswith(TENSORBOARD_PROJECT_PREFIX + "/"):
+                parsed = urlparse(self.path)
+                route = parsed.path
             if route in ("/api/health", "/health", "/api/version", "/version"):
                 # 兼容别名：/health 与 /api/health 均可达，避免前端 worker_telemetry 404 无回调
                 if route in ("/health", "/version") or route == "/api/version":
@@ -17382,6 +17406,7 @@ def serve_http(args):
                 return self.proxy_tensorboard(urlparse(self.path))
             allowed = ACTION_ROUTES.union({
                 "/api/tensorboard/service",
+                "/api/tensorboard/scalars/query",
                 "/api/tmux/kill-window",
                 "/api/worker/availability/batch",
                 "/api/workers/uplink/events",

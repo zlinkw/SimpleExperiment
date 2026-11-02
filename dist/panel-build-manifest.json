@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.476",
-  "buildId": "ef7b5faa4cb3c4c07f28f2357282e1162f76ac7549213b594612a9c36e8bb085",
+  "version": "0.5.477",
+  "buildId": "f2355a724b545eb2f065cd5abb8ecd7c248a5815e907269ca0190a7a5c69e709",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -249,7 +249,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "0a1217feb06d5ca25572cdabe4c7e0eef40ae282ab40733a8e54bbd12b2ce401"
+      "sha256": "eeb8445dd4f53a876fab7e31c16636519abb53298a515a39141ad43b0fa6b759"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -893,7 +893,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "3dd4e152b45c25017ab37f2654d7767cfb2678d49629b1e144585de35054fd0f"
+      "sha256": "b6f8439894d7d54cea3030192556c8f5a782ab5298cd36dac3f7dd3eca886291"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -921,7 +921,7 @@
     },
     {
       "path": "dist/tensorboard/ScalarDashboardHtml.js",
-      "sha256": "5426a366db7e71c70c2ff2d9a9a59b05872cd57c506ba9cf530d4f042779c692"
+      "sha256": "67f6f810bccec75f24009ec807251c034123f4507bb01117ed252d60c5509f2d"
     },
     {
       "path": "dist/tunnel/AgentCapabilities.js",
@@ -1245,7 +1245,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "e9f4918e3fa64a5447dcc40a5ab714945df1d0ab69173d5636d7f6d5de9ab7bc"
+      "sha256": "4e1188889a7093af640de62f7ddd7360c4f97604996523994c161891a55ccff9"
     },
     {
       "path": "scripts/check-static.js",

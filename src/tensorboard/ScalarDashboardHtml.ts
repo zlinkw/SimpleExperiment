@@ -17,6 +17,9 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
 <script>
 (function(){
   const server=__SCALAR_VIEWER_SERVER__;
+  const nativeReadOnlyMode=new URLSearchParams(window.location.search).get('native')==='ready';
+  const workspaceContext=new URLSearchParams(window.location.search).get('workspace')||'';
+  if(workspaceContext){const heading=document.querySelector('h1');heading.textContent='实验曲线 · '+workspaceContext.split(String.fromCharCode(92)).join('/').split('/').filter(Boolean).pop();heading.title='本机项目：'+workspaceContext+' · Worker：'+(server||'全部启用 Worker')}
   ${scalarChartMathScript}
   const tree=document.getElementById('tree'),content=document.getElementById('content'),groupRoot=document.getElementById('groups'),status=document.getElementById('status');
   const scalarPage=document.getElementById('scalarPage'),sidebarHandle=document.getElementById('sidebarHandle'),caseSearch=document.getElementById('caseSearch'),selectedOnly=document.getElementById('selectedOnly'),selectionSummary=document.getElementById('selectionSummary');
@@ -266,7 +269,7 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
     }
     renderHoverDetails(card,entries);
   }
-  document.getElementById('refresh').onclick=()=>active?queueRefresh():void loadCatalog();document.getElementById('settingsButton').onclick=()=>document.getElementById('settings').classList.toggle('open');
+  document.getElementById('refresh').onclick=()=>{if(!document.getElementById('nativePage').hidden){document.getElementById('nativeFrame').src='/api/tensorboard/ui/?server='+encodeURIComponent(server)+'&reload='+Date.now();return}active?queueRefresh():void loadCatalog()};document.getElementById('settingsButton').onclick=()=>document.getElementById('settings').classList.toggle('open');
   caseSearch.oninput=renderTree;selectedOnly.onchange=renderTree;
   document.getElementById('clearComparisons').onclick=()=>{comparison.clear();renderTree();queueRefresh()};
   let dragStartX=0,dragStartWidth=310,dragging=false;
@@ -287,11 +290,11 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
     connectionTimer=setTimeout(()=>{connectionTimer=0;void checkLocalConnection().finally(()=>scheduleConnectionCheck(2500))},Math.max(250,Number(delay)||2500));
   }
   interval.onchange=()=>{interval.value=String(Math.max(1,Math.floor(Number(interval.value)||5)));localStorage.setItem('scalarInterval',interval.value);scheduleAutoRefresh()};columns.onchange=()=>{columns.value=String(Math.max(1,Math.min(6,Math.floor(Number(columns.value)||3))));localStorage.setItem('scalarColumns',columns.value);applyChartLayout()};auto.onchange=()=>{localStorage.setItem('scalarAuto',String(auto.checked));scheduleAutoRefresh()};band.onchange=()=>{localStorage.setItem('scalarBand',String(band.checked));cards.forEach(drawCard)};raw.onchange=()=>{localStorage.setItem('scalarRaw',String(raw.checked));cards.forEach(drawCard)};window.addEventListener('resize',()=>{setSidebarWidth(localStorage.getItem('scalarSidebarWidth'),false);applyChartLayout()});
-  document.getElementById('scalarTab').onclick=function(){cancelRead('tags');cancelRead('series');document.getElementById('scalarPage').hidden=false;document.getElementById('nativePage').hidden=true;this.classList.add('active');document.getElementById('nativeTab').classList.remove('active');applyChartLayout();queueRefresh();scheduleAutoRefresh()};
+  document.getElementById('scalarTab').onclick=function(){cancelRead('tags');cancelRead('series');document.getElementById('scalarPage').hidden=false;document.getElementById('nativePage').hidden=true;this.classList.add('active');document.getElementById('nativeTab').classList.remove('active');applyChartLayout();if(!catalogReady)void loadCatalog();else queueRefresh();scheduleAutoRefresh()};
   async function openNative(){
     if(nativeStarted||nativeOpening||Date.now()<nextNativeAttempt)return;
     nativeOpening=true;
-    try{message('连接图像、直方图和网络图…');await call('native.open');document.getElementById('nativeFrame').src='/api/tensorboard/ui/?server='+encodeURIComponent(server)+'&reload='+Date.now();nativeStarted=true;nextNativeAttempt=0;message('原生内容已连接')}
+    try{message('连接图像、直方图和网络图…');if(!nativeReadOnlyMode)await call('native.open');document.getElementById('nativeFrame').src='/api/tensorboard/ui/?server='+encodeURIComponent(server)+'&reload='+Date.now();nativeStarted=true;nextNativeAttempt=0;message(nativeReadOnlyMode?'已打开当前项目的原生只读入口；服务错误见页面响应':'原生内容已连接')}
     catch(error){nextNativeAttempt=Date.now()+Math.max(5000,Number(error.retryAfterMs)||0);message('原生内容等待连接：'+error.message,true)}
     finally{nativeOpening=false}
   }
@@ -308,8 +311,8 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
       if(!health.ok||!health.epoch)throw new Error('本机接口尚未就绪');
       const restarted=!!localEpoch&&localEpoch!==health.epoch;
       localEpoch=health.epoch;
-      if(restarted){message('插件已重连，正在恢复曲线数据');catalogReady=false;nativeStarted=false;nextNativeAttempt=0;if(active)queueRefresh()}
-      if(!catalogReady)void loadCatalog();
+      if(restarted){message('插件已重连，正在恢复图表入口');catalogReady=false;nativeStarted=false;nextNativeAttempt=0;if(active&&!scalarPage.hidden)queueRefresh()}
+      if(!catalogReady&&!scalarPage.hidden)void loadCatalog();
       if(!document.getElementById('nativePage').hidden&&!nativeStarted)void openNative();
     }catch(error){if(error.name!=='AbortError'&&!document.hidden)message('等待插件本机接口恢复：'+error.message,true)}
     finally{clearTimeout(deadline);if(connectionController===controller)connectionController=null;connectionChecking=false}
@@ -318,9 +321,10 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
     if(document.hidden){clearTimeout(autoRefreshTimer);autoRefreshTimer=0;clearTimeout(connectionTimer);connectionTimer=0;if(connectionController)connectionController.abort();cancelScalarReads();pending=false;return}
     void checkLocalConnection().finally(()=>scheduleConnectionCheck(250));
     scheduleAutoRefresh();
-    if(active)queueRefresh();
+    if(active&&!scalarPage.hidden)queueRefresh();
   });
   window.addEventListener('pagehide',()=>{clearTimeout(autoRefreshTimer);clearTimeout(connectionTimer);autoRefreshTimer=0;connectionTimer=0;if(connectionController)connectionController.abort();cancelScalarReads()},{once:true});
+  if(nativeReadOnlyMode)document.getElementById('nativeTab').click();
   void checkLocalConnection().finally(()=>scheduleConnectionCheck(2500));
 })();
 </script></body></html>`;
