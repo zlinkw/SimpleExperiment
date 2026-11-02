@@ -6,7 +6,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "_helpers")
 from closeFixtureTmuxWindows import close_fixture_tmux_windows
 runtime = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 tree = ast.parse(runtime)
-nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name.startswith("task_")]
+nodes = [node for node in tree.body
+         if isinstance(node, ast.FunctionDef) and (node.name.startswith("task_") or node.name == "remote_resource_prefix")
+         or isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "REMOTE_RESOURCE_DEFAULT_PREFIX" for target in node.targets)]
 code = ast.unparse(ast.Module(body=nodes, type_ignores=[]))
 code += r'''
 _modern_task_tmux = task_tmux

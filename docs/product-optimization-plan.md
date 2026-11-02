@@ -39,6 +39,7 @@
 | PFX-test4 | 目录与会话组合夹具复用真实命名导出 | passed |
 | PFX-test5 | TensorBoard 使用真实命名行为，不约束局部变量写法 | passed |
 | PFX-test6 | 将注释匹配替换为原进程内的真实 TensorBoard 命名断言 | passed |
+| PFX-test7 | 私有 tmux 夹具包含真实共用前缀函数依赖 | passed |
 | PFX-base | 前缀默认值与归一化收敛一处，提供实际目录命名 | passed |
 | PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | passed |
 | PFX2a / D0c | Agent 窗口按规范项目身份隔离 | passed |
@@ -331,6 +332,10 @@ PFX2c compile 与 27 项定向检查通过（gpuIdentity 1、AndFence 5、Contro
 PFX2c 最终验证：2026-11-02T17-00-40-400Z-30024-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、705916ms。内部 universal/trial 0.5.466：2771923 字节，SHA256 f19199e176ff70d0f95749852e52d9c8c9907dd371842942bc8bbb650fefd1b2；与 receipt 一致，362 项内容门禁零违规，实际 HTML 三段及模块解析通过。无训练服务器操作、自动重跑、产物清理、发布或安装。下一批先补原私有 tmux 夹具的真实前缀依赖，再修改原队列定位，不修改当前已接收任务和窗口。
 
 ## 后续定向核查线索（尚未实施）
+
+PFX2c 提交 02f0247bf2061ce5ea58c9653539745f66320724 已普通 push/fetch 一致。PFX-test7 先准备原私有 tmux 夹具：从已生成 runtime 抽取 task_* 的同时加入实际共用前缀函数及其默认常量，避免下一批引用进入函数闭包后缺少绑定；不导入完整 runtime，不替换命名行为。仅原夹具和本计划，真实受影响目标检查后独立提交，不改运行版本。
+
+PFX-test7 验证：tmuxLifecycle 3、schedulerRuntimeUpdate 2、gpuMemoryAdmission 1、manualTmuxAdmission 1，共 7 项通过，均使用原私有 tmux/CPU 夹具、原超时和断言。未修改 task_* 函数字节；其余原生消费者由下一运行批次规定 package 覆盖，不伪记已执行。纯夹具与计划独立提交，不新增包。
 
 - D0：agentRuntimeDirs 默认 <父目录>/simple_agent；Agent tmux 默认名仅含前缀和 Worker，不含项目。默认 runtime 应转项目内，并用稳定项目身份分开 Agent 窗口；不迁移或清理旧目录，不改变用户显式目录。用户已选择保留 GPU Collector 的账号/Worker 共享唯一采样源（GpuCollector.ts、AgentLifecycle.ts），其余归项目；当前未改。
 - D1：serverSetupReadiness 在 0 Worker 时 missing 为空导致 ready=true；占位 tmuxCmdAgent/Sch/Gpu 从未填充真实目标，仍可复制。应修正空目标语义，提供真实选定窗口的唯一附着入口。
