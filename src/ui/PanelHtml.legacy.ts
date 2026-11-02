@@ -3223,7 +3223,7 @@ export function renderPanelHtml(): string {
       gpuId: "data-gpu-id", endpointId: "data-endpoint-id", remotePath: "data-remote-path", file: "data-file", planFile: "data-plan-file", workerId: "data-worker-id",
       configScope: "data-config-scope", savePlan: "data-save-plan", batchSelected: "data-batch-selected"
     });
-    const PINNED_COMMAND_VALUES = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "publishGithub", "syncGithub", "overwriteGithub",  "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
+    const PINNED_COMMAND_VALUES = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "syncPendingPlanArtifacts", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "publishGithub", "syncGithub", "overwriteGithub",  "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
     const SIMPLE_SFTP_GATED_COMMANDS = new Set(["prepareAgents", "deployLatestAgent",  "uploadProjectToWorkers", "distributeCodeToWorkers", "configureDownloadScope", "configureServerSyncScope", "runPlan", "reproducePlan", "runAllPlans", "downloadDebugBundle", "downloadRemoteResult"]);
     const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
     const COMMAND_ACTION_NAMES = Object.freeze({
@@ -3236,6 +3236,7 @@ export function renderPanelHtml(): string {
     });
     const PENDING_ACTION_LABELS = Object.freeze({
       stopExperiment: "停止中", retryExperiment: "重试中", reassignWorkerTask: "转移中", parseResults: "解析中",
+      syncPendingPlanArtifacts: "更新项目结果中",
       archiveArtifacts: "归档中", syncArtifacts: "检查中", completeThreeWay: "校验中", deleteArtifacts: "删除中",
       runPlan: "准备提交中", dryRunPlan: "预演中", validatePlan: "校验中", checkClaimEvidence: "检查中"
     });
@@ -3454,7 +3455,7 @@ export function renderPanelHtml(): string {
     ]);
     const LOW_VALUE_NATIVE_TITLE_KEYS = new Set(["详情", "建议", "说明", "提示", "修复", "原因", "帮助"]);
     const EXPLANATORY_TITLE_PATTERN = /(点击|请|用于|建议|避免|需要|不会|可以|保持|查看|显示|打开|确认|检查|保存|选择|拖动|执行|推荐|完整|这里|这个|当前|负责|说明|提示)/;
-    const pinnedCommandDefaults = ["testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureCodeSyncIncludes"];
+    const pinnedCommandDefaults = ["testAll", "snapshot", "startAllConnections", "runPlan", "syncPendingPlanArtifacts", "configureCodeSyncIncludes"];
     const uiCapabilityMap = {
       validatePlan: ["actions.validate-plan"],
       dryRunPlan: ["actions.dry-run-plan"],
@@ -7455,7 +7456,6 @@ export function renderPanelHtml(): string {
         stopExperiment: "停止任务",
         retryExperiment: "重试任务",
         reproducePlan: "复现实验",
-        syncPendingPlanArtifacts: "更新全部 PLAN 结果",
         parseResults: "解析结果",
         refreshResults: "刷新结果",
         runQualityGate: "质量门禁",
@@ -7636,7 +7636,7 @@ export function renderPanelHtml(): string {
       const unique = [];
       (source || []).forEach((command) => {
         const original = String(command || "");
-        const value = original === "configureServerSyncScope" ? "configureCodeSyncIncludes" : original;
+        const value = original === "parseResults" || original === "refreshResults" ? "syncPendingPlanArtifacts" : original === "configureServerSyncScope" ? "configureCodeSyncIncludes" : original;
         if (PINNED_COMMAND_VALUES?.has(value) && !unique.includes(value)) unique.push(value);
       });
       const normalized = unique.slice(0, 8);
@@ -7681,11 +7681,14 @@ export function renderPanelHtml(): string {
 
     function normalizeSavedButtonAction(item) {
       const source = item && typeof item === "object" ? item : {};
-      const command = String(source.command || "");
+      const original = String(source.command || "");
+      const legacyResult = original === "parseResults" || original === "refreshResults";
+      const command = legacyResult ? "syncPendingPlanArtifacts" : original;
       if (!command || !webviewHandledCommands?.has(command)) return null;
       const section = normalizeActionSection(source.section || activeResourceSection || "overview");
-      const payload = sanitizeActionPayload(source.payload || {});
-      const label = compactText(String(source.label || featureCommandLabel(command) || command).replace(/\\s+/g, " ").trim(), 40);
+      const payload = legacyResult ? {} : sanitizeActionPayload(source.payload || {});
+      const oldLabel = legacyResult && ["解析结果", "刷新结果", "解析", "解析选中", "重新解析结果", "解析已有结果"].includes(String(source.label || ""));
+      const label = compactText(String((oldLabel ? "" : source.label) || featureCommandLabel(command) || command).replace(/\\s+/g, " ").trim(), 40);
       const id = String(source.id || actionSpecId(command, section, payload, label)).slice(0, 240);
       return {
         id,
@@ -7695,8 +7698,8 @@ export function renderPanelHtml(): string {
         payload,
         confirm: Boolean(source.confirm),
         danger: Boolean(source.danger),
-        batch: Boolean(source.batch),
-        configScope: String(source.configScope || payload.configScope || "").slice(0, 80)
+        batch: legacyResult ? false : Boolean(source.batch),
+        configScope: legacyResult ? "" : String(source.configScope || payload.configScope || "").slice(0, 80)
       };
     }
 
@@ -17709,6 +17712,7 @@ export function renderPanelHtml(): string {
         completeThreeWay: "校验三方一致",
         deleteArtifacts: "删除",
         clearOperations: "清空运行进度历史",
+        syncPendingPlanArtifacts: "更新全部 PLAN 结果",
         parseResults: "解析结果",
         refreshResults: "刷新结果",
         runQualityGate: "质量门禁",

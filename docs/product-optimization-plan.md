@@ -28,7 +28,7 @@
 | C2-base | CLI 结果夹具能力与主动查询响应契约 | passed |
 | C2a | 结果主页面的当前/全部 PLAN 范围 | passed |
 | C2b | 资源动作、兼容任务与生成下一步中的旧结果入口 | passed |
-| C2c | 自定义固定项中的结果别名迁移，保留布局和位置 | pending |
+| C2c | 自定义固定项中的结果别名迁移，保留布局和位置 | passed |
 | C3 | 最新 job 产物与用户范围交集、逐 Worker 同步反馈 | pending |
 | D0 | 项目内服务状态与多窗口隔离核查，按证据修正共享路径 | pending |
 | D1 | 零目标、禁用、未核实、离线；精确附着命令 | pending |
@@ -173,13 +173,24 @@ C2b 定向证据：在实际生成页面直接调用 renderPlanPreparationContex
 
 C2b 最终 package：318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、705831ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T13-14-00-857Z-20448-package/run.json。VSIX 0.5.457 为 universal/trial、2776748 字节，SHA256 d441a8aa6e238ece467b1ef2eda747128283e66bce83f468a3d4e4721511c842，与 receipt 相符；361 项内容门禁零违规，实际 HTML 三段及模块脚本通过。共 8 个非生成文件，未安装、无训练服务器操作。下一批仅迁移保存的自定义结果动作并明确其范围；原始指标仍不落本机，旧公开 API 保留。
 
+C2b 交付：源码 7fcae50f81deaeccea439cc644503085292889d1 已普通 push/fetch 一致；https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.457 为 draft=false/prerelease=true，实际远端下载、字节数及精确文件名校验一致。本次实际 ReleaseClient 的普通公开请求通过：稳定版仍为 0.5.440/0.2.117，试行 457 不降级，旧稳定版本可更新；无需认证替换。未安装、未操作训练服务器。
+
+## 当前批次 C2c
+
+目标：已保存的 parseResults/refreshResults 自定义动作迁移到现有全项目更新入口，保留位置、分组、稳定 id 和用户自定名称；移除原单任务/批量参数，避免把全项目操作伪装成选中任务。
+范围：实际 legacy UI、既有 uiActionNormalizationCache、三处版本、本计划和页面覆盖表，共 7 个非生成文件。原默认按钮名称改为明确全 PLAN；用户命名保留，帮助明确范围。公开旧 API 不移除，不重置自定义布局，不改变服务器结果收集协议。
+验证：迁移、保存/重载归一化、自定义顺序/名称/列宽、无范围串借和当前按钮帮助；相关原有布局回归、真实生成 HTML、隔离页面及现有 package。实际新收集使用 ResultCollectionHost 的 resultCollection 与 SimpleSFTP 内存读取契约，不把旧 Agent parse-results 能力加成新门禁。无后台操作或科研分析。
+
+C2c 定向证据：uiActionNormalizationCache 6、uiLayoutSectionLookup 3、projectUiLayoutState 2、workbenchResourceTree 9 项通过。新增行为核对原 id、位置、用户名称保留，旧默认名称改为全项目更新，旧 Worker/PLAN/job/batch 参数清空，重复归一化不再改变结果；保留原缓存断言及期限，不新增性能测试。实际隔离渲染先发现 featureCommandLabel 缺少新命令，且 COMMAND_HELP_TEXT 中重复短项覆盖完整范围，已在本批修正并补真实标签函数断言。compile 通过；最终实际 Chrome 的保存/再次载入、八区自定义顺序、310/410 列宽、自定名称、精确空 payload、全部 PLAN/Worker 帮助，以及 C2b 恢复/原六种首屏/焦点/窄窗口与三段脚本通过，报告 simple_cluster/reports/product-optimization/c2c-render-1793626354778.json。UTF-8 复读通过，冻结 0.5.458，共 7 个非生成文件；最终 package pending。
+
+C2c 最终 package：318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、710321ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T13-33-23-576Z-67996-package/run.json。VSIX 0.5.458 为 universal/trial、2776912 字节，SHA256 4a9b44d39b2f10fa9dff1f0578ea01ca2eda69367b6780d39b5578fa2e8818ac，与 receipt 相符；361 项内容门禁零违规，实际 HTML 三段及模块脚本通过。原服务器结果读取契约未改，自定义布局不重置。下一批只完善同步回执、范围及逐 Worker 反馈，不改变最新 job 归属或同步策略。
+
 ## 后续定向核查线索（尚未实施）
 
-- C2b：主结果页已统一范围，资源动作、兼容任务和自定义固定项中的结果别名仍须核对；保留自定义布局位置及功能，移除被替代的旧界面入口。
 - D0：agentRuntimeDirs 默认 <父目录>/simple_agent；Agent tmux 默认名仅含前缀和 Worker，不含项目。默认 runtime 应转项目内，并用稳定项目身份分开 Agent 窗口；不迁移或清理旧目录，不改变用户显式目录。用户已选择保留 GPU Collector 的账号/Worker 共享唯一采样源（GpuCollector.ts、AgentLifecycle.ts），其余归项目；当前未改。
+- D0 待核实风险：ProjectRootMap 的相对机器状态保护消费 stateRoots，programRoot 目前仅是映射字段。改变默认安装位置前，核实同步/覆盖/清理的实际消费者如何排除项目内 runtime；不能凭字段存在宣称已受保护，也不在未复现风险前改全局语义。保留用户显式安装根与代码根相同的已有场景，不能为新默认路径把整个科研项目变为机器状态。
 - D1：serverSetupReadiness 在 0 Worker 时 missing 为空导致 ready=true；占位 tmuxCmdAgent/Sch/Gpu 从未填充真实目标，仍可复制。应修正空目标语义，提供真实选定窗口的唯一附着入口。
 - D2：operationEventMaxDelayMs 配置/后端默认 200，面板三处回退 1000；全局读取缺少与保存的 10000 上限一致的约束。Conda label 含“可选，必填”，configInput/configSelect 的 label 没有 for/id。
 - D2/D3：Worker Conda 继承时表单显示全局值；saveWorkerConfigCore 用 effectiveWorkerCondaEnv 作缺值回退，会把继承固化成覆盖。需显式区分继承、系统 Python 与路径，不自动探测/安装科研依赖。
 - D3：clearConfigDraftsForCommand 收到 completed 后整 scope 删除草稿，缺少对发出时草稿的快照核对；保存期间的新输入及无对应 pending item 的旧成功回包可能清掉新草稿。失败回包不清草稿的现有行为保留。
 - E1 首屏计数返修线索：overviewTaskStats 目前只数 schedulerRowsForState 的兼容任务，没有读取 distributedPlans；协议 2 作业存在时首屏可能仍显示 0。须复用逻辑 PLAN 归并计数且说明记录来源，不能把当前原生 job 与旧任务投影重复累计；E1 实施并补定向回归。
-- C2b 恢复上下文新增源码线索：当前实际脚本调用 runtimeContractStageBadge、runtimeContractStageMessage、renderRuntimeContractRecoveryActions，但没有这些函数的定义；已解析却零结果时可达该分支。原 duplicatePlanSubmissionGuard 夹具把第三个名称替换成空函数，不能证明真实页面可用。下一批先用真实隔离页面复现，再复用现有阶段消息、导航与命令生成恢复入口；不自动执行输出检查或科研分析。

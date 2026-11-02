@@ -27,15 +27,15 @@ function loadNormalizers() {
     SAVED_ACTION_PAYLOAD_KEYS: Object.freeze(["endpointId", "planFile", "planRevision", "planId", "file", "runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "confirmationPath", "artifactPath", "resultPath", "logPath", "savePlan", "batchSelected"]),
     BUTTON_PAYLOAD_ATTRIBUTE_NAMES: Object.freeze({ planFile: "plan-file", runKey: "run-key", sourcePath: "source-path" }),
     BUTTON_PAYLOAD_ATTRIBUTE_KEYS: Object.freeze(["planFile", "runKey", "sourcePath"]),
-    PINNED_COMMAND_VALUES: new Set(["runPlan", "parseResults", "publishGithub"]),
-    webviewHandledCommands: new Set(["runPlan", "parseResults", "publishGithub"]),
+    PINNED_COMMAND_VALUES: new Set(["runPlan", "syncPendingPlanArtifacts", "publishGithub"]),
+    webviewHandledCommands: new Set(["runPlan", "syncPendingPlanArtifacts", "publishGithub"]),
     pinnedCommandsNormalizationCache: new WeakMap(),
     savedButtonActionsNormalizationCache: new WeakMap(),
     SAVED_BUTTON_ACTION_NORMALIZATION_VARIANT_LIMIT: 8,
     labelCalls: 0,
     featureCommandLabel(command) {
       sandbox.labelCalls += 1;
-      return { runPlan: "Run", parseResults: "Parse", publishGithub: "Publish" }[command] || command;
+      return { runPlan: "Run", syncPendingPlanArtifacts: "更新全部 PLAN 结果", publishGithub: "Publish" }[command] || command;
     },
     compactText(value, limit) {
       return String(value || "").slice(0, limit);
@@ -67,8 +67,31 @@ test("pinned command normalization reuses one source array and invalidates on re
   const first = sandbox.normalizePinned(commands);
 
   assert.strictEqual(sandbox.normalizePinned(commands), first);
-  assert.deepEqual(Array.from(first), ["runPlan", "parseResults"]);
+  assert.deepEqual(Array.from(first), ["runPlan", "syncPendingPlanArtifacts"]);
   assert.notStrictEqual(sandbox.normalizePinned([...commands]), first);
+});
+
+test("saved result aliases keep custom identity and position while removing misleading task scope", () => {
+  const sandbox = loadNormalizers();
+  const actualLabels = {};
+  vm.runInNewContext(extractFunction("featureCommandLabel") + "\nthis.label = featureCommandLabel;", actualLabels);
+  assert.equal(actualLabels.label("syncPendingPlanArtifacts"), "更新全部 PLAN 结果");
+  const items = [
+    { id: "custom-run", command: "runPlan", label: "运行", payload: { planFile: "plans/a.yaml" } },
+    { id: "custom-result", command: "parseResults", label: "我的结果", section: "results", payload: { workerId: "worker-a", planFile: "plans/a.yaml", runKey: "job-a", batchSelected: true }, batch: true, configScope: "worker:worker-a" },
+    { id: "stock-result", command: "refreshResults", label: "刷新结果", section: "results" },
+  ];
+  const normalized = sandbox.normalizeActions(items, 16);
+  assert.deepEqual(Array.from(normalized, x => x.id), ["custom-run", "custom-result", "stock-result"]);
+  assert.equal(normalized[1].command, "syncPendingPlanArtifacts");
+  assert.equal(normalized[1].label, "我的结果");
+  assert.equal(normalized[1].section, "results");
+  assert.deepEqual(Object.keys(normalized[1].payload), []);
+  assert.equal(normalized[1].batch, false);
+  assert.equal(normalized[1].configScope, "");
+  assert.equal(normalized[2].label, "更新全部 PLAN 结果");
+  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.normalizeActions(JSON.parse(JSON.stringify(normalized)), 16))), JSON.parse(JSON.stringify(normalized)));
+  assert.deepEqual(Array.from(sandbox.normalizePinned(["runPlan", "parseResults", "refreshResults", "publishGithub"])), ["runPlan", "syncPendingPlanArtifacts", "publishGithub"]);
 });
 
 test("saved action normalization caches by source, limit, and active section", () => {
