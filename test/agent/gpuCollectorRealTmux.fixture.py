@@ -200,9 +200,14 @@ def main():
         while time.monotonic() < deadline:
             reg_now = agent.gpu_collector_read_registration(worker, root)
             if reg_now.get("mode") == "registered" and str(reg_now["registration"]["epoch"]) != reg1["registration"]["epoch"]:
-                reg2 = reg_now
-                frame2 = agent.read_gpu_collector_frame(worker, root)
-                break
+                # Registration precedes the first sample. Wait within the SAME
+                # deadline for this generation's frame instead of racing it.
+                candidate = agent.read_gpu_collector_frame(worker, root)
+                frame = candidate.get("frame") or {}
+                if str(frame.get("epoch") or "") == str(reg_now["registration"]["epoch"]) and int(frame.get("seq") or 0) >= 1:
+                    reg2 = reg_now
+                    frame2 = candidate
+                    break
             time.sleep(0.2)
         if not reg2:
             # Honest failure evidence from the exact respawned pane only.

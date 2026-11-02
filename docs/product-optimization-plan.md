@@ -18,7 +18,7 @@
 | --- | --- | --- |
 | P0 | 成功回执停止自动删除；冻结项目与迁移保护 | passed |
 | A1a | 默认导航前置实验/进度/产物；不重置自定义顺序 | passed |
-| A1b | 首屏当前项目、PLAN、运行概况、阻断和主操作 | pending |
+| A1b | 首屏当前项目、PLAN、运行概况、阻断和主操作 | passed |
 | A2 | PLAN 主线、准备上下文、批量范围；移除被替代旧 UI 入口 | pending |
 | B1 | UI/API/CLI 本机意图、服务器接收、执行、完成、同步、观测含义 | pending |
 | B2 | 等待原因、自动继续说明、原 job 恢复与中断审核 | pending |
@@ -63,3 +63,29 @@ A1a 进展：uiLayoutSectionLookup 3、noviceConfigAccess 4、workbenchResourceT
 A1a 首轮 build：268 作业中 267 通过，gpuMemoryBudget 的 WSL 子进程在原 10 秒期限超时，overall=failed/exit=1，原凭据 simple_cluster/reports/test-workflow/2026-11-02T09-00-07-108Z-79640-build/run.json 保留。外层 20 秒未触发；没有改期限或生产 GPU 实现。已有 WSL 就绪脚本通过（5001ms）后，同候选单文件 14 项通过，日志 simple_cluster/reports/product-optimization/a1-gpu-focused-20261102-171533/test.log。首轮失败没有改签通过。
 A1a 隔离 Chrome：等待真实 webviewStateRendered 回执后，默认八区顺序、自定义 sync 置后、310/410 列宽均通过，renderError 为空；无真实 API。报告 simple_cluster/reports/product-optimization/a1-render-1793611116267.json。初次校验在回执前读取 DOM，修正校验等待后通过，未为此修改产品。
 A1a 最终 package：0.5.450，318 作业全部通过，未运行 0，maxObservedConcurrent=1，exit=0，710193ms。凭据 simple_cluster/reports/test-workflow/2026-11-02T09-21-44-231Z-84416-package/run.json；VSIX 2770397 字节，SHA256 500a973dd280a94c359f80c72c032331d8f22996d715c5871efec83eb56543c6，内容门禁零违规。实际包身份为 universal/trial，权威版保持 0.5.440/0.2.117。首次额外身份脚本误用不存在的 simpleBuild 字段，改用实际 simpleExperimentRelease 后通过，未改产品字段。尚未安装；发布只允许 Prerelease/latest=false。
+
+A1a 交付：源码 8c48ef3d3b57f5b2e71f4264763683d11fd09914 已 push/fetch 一致；https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.450 为 draft=false/prerelease=true，真实下载 SHA256 一致；真实更新客户端仍看到稳定 0.5.440/0.2.117，试行 450 不降级。未安装、无训练服务器操作。
+
+## 当前批次 A1b
+
+目标：首屏显示当前项目、明确选择的 PLAN、本机记录概况、阻断原因及安全下一步；默认焦点进入实验，保留保存的布局与导航选择。
+范围：实际 PanelHtml.legacy 路径及定向首屏回归、三处版本元数据、本计划，最多 8 个非生成文件。
+证据：当前顶栏只有图例和运维按钮；首次 activeResourceSection/lastWorkspaceResource 仍默认 sync。
+边界：只读现有状态，不新增查询、科研分析、任务操作或 Agent 部署。运行按钮只由明确目标和现有门禁放行；有活动/失败/未知作业时进入对应进度，不自动重跑。概况明确为本机记录，不冒充本轮服务器观测。
+验证：首屏状态分支单文件检查、原工作流回归、build、实际 HTML 脚本与隔离 DOM 渲染、既有 package 门禁。现场服务器验收仍待验证。
+
+A1b 首轮 build：268 作业中 267 通过，exit=1，564918ms。凭据 simple_cluster/reports/test-workflow/2026-11-02T09-37-36-080Z-85572-build/run.json。gpuCollectorRealTmux 的 phase-c 看到新登记即跳出等待，首帧尚未发布时对 None 取 seq；实际失败为 TypeError（未触发超时）。本批增加最小夹具修正：原 8 秒截止时间内等待同一新 epoch 的首帧，保留 >=1、换代、单会话与精确窗口收尾断言，不改产品采集实现或 10/20 秒期限。共 7 个非生成文件。
+A1b 夹具修正后原单文件 4 项通过，日志 simple_cluster/reports/product-optimization/a1b-collector-20261102-174745/test.log，原失败不改签。隔离浏览器六种状态与 420px 长路径通过，首次焦点检查发现同一状态刷新会丢失首屏按钮焦点，已改为复用相同 HTML、仅对同项目/PLAN/动作恢复焦点；不将焦点跨目标带入新的运行操作。初次 harness 的 DOMStringMap 序列化与预期降级错误判断已校正，未为此改产品。
+A1b 最终 package：318 作业全部通过，未运行 0，maxObservedConcurrent=1，exit=0，707922ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T09-49-35-573Z-91916-package/run.json。隔离 Chrome 六种状态、420px 长路径、同目标焦点刷新与三段实际 HTML 脚本通过，报告 simple_cluster/reports/product-optimization/a1b-render-1793613761200.json；真实 API 未连接。VSIX 0.5.451，2771998 字节，SHA256 249c7c654482d30ed1a519c68f0dc16c29fd0d4bc6d6c8790cb77c58e195e536，内容门禁零违规、universal/trial、权威版 0.5.440/0.2.117 不变。未安装/未部署。
+
+## 后续定向核查线索（尚未实施）
+
+- A2：项目分支卡位于 PLAN 主操作前；清理与隔离审核在运行同一工具条。可收至同区的次级详情入口，保持命令身份与用户自定义详情组；移走时移除原按钮，避免复制旧入口。
+- B1/B3：TaskLifecycle、WorkerProgressEvidence、VerifiedCompletion 已区分本轮执行/产物/日志观察、持久完成事实及查询错误，不能因 UI 优化重写协议或把旧确认时间当本轮观测；仍需核对 UI/API/CLI 投影及回归。正式协议 2 不走历史自动 retry。
+- C1：tmuxCapture 的失败回包仍会覆盖文本并显示普通时间，易丢失上下文；跟随仅靠接近底部隐式判断，没有显式暂停。需绑定 Worker+精确窗口，分开缺失与读取失败，保留同目标旧文本及原时间。
+- C2：resultPlanActions 标题是“当前 Plan”，两个主按钮实际都核实全部 Plan；parseResults 主按钮还是旧重建别名。应保留一个全范围更新入口，并将当前 PLAN 映射/文件动作清楚分开。
+- D0：agentRuntimeDirs 默认 <父目录>/simple_agent；Agent tmux 默认名仅含前缀和 Worker，不含项目。默认 runtime 应转项目内，并用稳定项目身份分开 Agent 窗口；不迁移或清理旧目录，不改变用户显式目录。GPU Collector 是按账号/Worker 共享的唯一采样源（GpuCollector.ts、AgentLifecycle.ts），与各项目任务状态不同；已向用户异步确认是否保留这项公共源，当前未改。
+- D1：serverSetupReadiness 在 0 Worker 时 missing 为空导致 ready=true；占位 tmuxCmdAgent/Sch/Gpu 从未填充真实目标，仍可复制。应修正空目标语义，提供真实选定窗口的唯一附着入口。
+- D2：operationEventMaxDelayMs 配置/后端默认 200，面板三处回退 1000；全局读取缺少与保存的 10000 上限一致的约束。Conda label 含“可选，必填”，configInput/configSelect 的 label 没有 for/id。
+- D2/D3：Worker Conda 继承时表单显示全局值；saveWorkerConfigCore 用 effectiveWorkerCondaEnv 作缺值回退，会把继承固化成覆盖。需显式区分继承、系统 Python 与路径，不自动探测/安装科研依赖。
+- D3：clearConfigDraftsForCommand 收到 completed 后整 scope 删除草稿，缺少对发出时草稿的快照核对；保存期间的新输入及无对应 pending item 的旧成功回包可能清掉新草稿。失败回包不清草稿的现有行为保留。

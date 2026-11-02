@@ -21,6 +21,69 @@ function extractFunction(source, name) {
   throw new Error(`unterminated function ${name}`);
 }
 
+function experimentSummary(options = {}) {
+  const sandbox = {
+    planFromContext: () => options.plan,
+    overviewProjectStats: () => ({ plans: options.planCount || 0 }),
+    overviewTaskStats: () => ({ running: 1, queued: 2, failed: 3, completed: 4 }),
+    planExecutionStage: () => options.stage || { phase: "ready", command: "runPlan" },
+    planActiveRunEvidence: () => ({ active: options.active === true }),
+    planExecutionPhaseLabel: (phase) => phase,
+    enabledWorkerTunnelsForState: () => options.workers || [],
+    overviewProjectReadiness: () => options.readiness || { ready: true, blocking: false, status: "可提交", detail: "当前门禁已就绪" },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(extractFunction(panel, "experimentSummaryModel") + "\nthis.check = experimentSummaryModel;", sandbox);
+  return JSON.parse(JSON.stringify(sandbox.check(options.state || { workspace: { open: true, name: "Project A", root: "D:/Projects/A" } })));
+}
+
+test("experiment summary names the exact project and Plan without inventing a target", () => {
+  const closed = experimentSummary({ state: {} });
+  assert.equal(closed.status, "未打开项目");
+  assert.equal(closed.action.command, "bootstrapProject");
+  const empty = experimentSummary();
+  assert.equal(empty.status, "尚无 PLAN");
+  assert.equal(empty.action.command, "bootstrapProject");
+  const multiple = experimentSummary({ planCount: 2 });
+  assert.equal(multiple.planFile, "");
+  assert.equal(multiple.action.section, "plans");
+  assert.equal(multiple.action.command, undefined);
+  const selected = experimentSummary({ plan: { planFile: "experiments/plans/b.yaml" }, workers: [{ id: "worker-a" }] });
+  assert.equal(selected.project, "Project A");
+  assert.equal(selected.path, "D:/Projects/A");
+  assert.equal(selected.action.command, "runPlan");
+  assert.equal(selected.action.planFile, "experiments/plans/b.yaml");
+  const noWorker = experimentSummary({ plan: { planFile: "experiments/plans/b.yaml" } });
+  assert.equal(noWorker.status, "未配置启用的 Worker");
+  assert.equal(noWorker.action.section, "settings");
+  assert.equal(noWorker.action.command, undefined);
+});
+
+test("experiment summary routes active, failed and uncertain tasks to review instead of resubmitting", () => {
+  const plan = { planFile: "experiments/plans/a.yaml" };
+  for (const phase of ["monitor", "submitting", "validating", "dry-running", "review", "debug-review"]) {
+    const model = experimentSummary({ plan, stage: { phase, status: "查询对应任务" } });
+    assert.equal(model.action.section, "execution", phase);
+    assert.equal(model.action.command, undefined, phase);
+  }
+  const completed = experimentSummary({ plan, stage: { phase: "results" } });
+  assert.equal(completed.action.section, "results");
+  const active = experimentSummary({ plan, active: true });
+  assert.equal(active.action.section, "execution");
+  const unknown = experimentSummary({ plan, state: { workspace: { open: true, name: "Project A" }, degradedMessage: "本轮查询失败" } });
+  assert.equal(unknown.project, "Project A");
+  assert.equal(unknown.status, "本轮状态未取得");
+  assert.equal(unknown.action.section, "diagnostics");
+  const offline = experimentSummary({ plan, workers: [{ id: "worker-a" }], stage: { phase: "validate", command: "validatePlan", label: "重新校验" }, readiness: { blocking: true, outputReady: true, status: "Agent 待检测", detail: "Worker 离线" } });
+  assert.equal(offline.detail, "Worker 离线");
+  assert.equal(offline.action.command, undefined);
+  const validation = experimentSummary({ plan, workers: [{ id: "worker-a" }], stage: { phase: "validate", command: "validatePlan", label: "重新校验" }, readiness: { blocking: true, outputReady: true, status: "校验待修复", detail: "缺少配置" } });
+  assert.equal(validation.action.command, "validatePlan");
+  assert.equal(validation.action.planFile, plan.planFile);
+  assert.match(panel, /本机任务记录：[\s\S]*记录不代表本轮服务器观测/);
+  assert.match(panel, /准备阶段会写入服务器/);
+});
+
 function bootstrapCompletion(options) {
   const sandbox = { HUB_READY_STATUSES: new Set(["ok", "file_api_unavailable", "agent_ok"]) };
   vm.createContext(sandbox);

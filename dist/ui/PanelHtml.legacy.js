@@ -1058,7 +1058,14 @@ function renderPanelHtml() {
 
     /* Final dashboard layout: macOS-like surfaces, restrained status color, draggable three columns. */
     .app-shell { width: min(100%, 1680px); height: 100vh; padding: 18px 20px 18px; gap: 10px; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; }
-    .topbar { position: relative; z-index: 3; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--vscode-editor-background); max-height: 72px; overflow: auto; overscroll-behavior: contain; }
+    .topbar { position: relative; z-index: 3; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--vscode-editor-background); max-height: min(40vh, 240px); overflow: auto; overscroll-behavior: contain; }
+    .experimentSummary { flex: 1 0 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; color: var(--vscode-foreground); }
+    .experimentSummaryContext, .experimentSummaryEvidence { min-width: 0; overflow-wrap: anywhere; }
+    .experimentSummaryContext b { margin-right: 8px; }
+    .experimentSummaryContext div { margin-bottom: 3px; }
+    .experimentSummaryEvidence { grid-column: 1 / -1; font-size: 12px; color: var(--vscode-descriptionForeground); }
+    .experimentSummaryAction { align-self: start; white-space: normal; max-width: 180px; }
+    @media (max-width: 520px) { .experimentSummary { grid-template-columns: minmax(0, 1fr); } .experimentSummaryAction { max-width: 100%; } }
     .statusLegend { position: relative; z-index: 3; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; flex: 1 1 auto; padding: 0; border: 0; background: transparent; backdrop-filter: none; color: #475569; box-shadow: none; }
     .topbar-actions { align-items: center; }
     .legendItem { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 750; white-space: nowrap; }
@@ -1363,10 +1370,10 @@ function renderPanelHtml() {
   </div>
   <div class="app-shell">
     <header class="topbar" aria-label="状态图例与全局快捷操作">
+      <div id="experimentSummary" class="experimentSummary" aria-label="当前实验与下一步"><span>正在读取当前项目与 PLAN...</span></div>
       <div class="statusLegend" aria-label="状态颜色图例"><span class="legendItem"><span class="legendDot good"></span>正常</span><span class="legendItem"><span class="legendDot info"></span>运行 / 信息</span><span class="legendItem"><span class="legendDot warn"></span>等待 / 注意</span><span class="legendItem"><span class="legendDot error"></span>异常 / 失败</span><span class="legendItem"><span class="legendDot mine"></span>我的任务 / 重点</span></div>
       <div class="topbar-actions">
         <button data-command="toggleLowTrafficMode" type="button" class="secondary lowTrafficToggle" id="lowTrafficModeButton" aria-pressed="false" disabled title="低流量模式（全局偏好）：正在读取当前状态...">低流量：读取中</button>
-        <button data-command="bootstrapProject" type="button" title="扫描工作区，识别 experiments/plans 下的实验计划与项目配置&#10;同时检查服务器与 Agent 等前置条件&#10;已有的计划与接入配置不会重复写入">识别工作区</button>
         <span class="status-chip">后台 SSH</span>
         <span class="status-chip">当前项目配置</span>
         <span class="status-chip status-completed">仅本机端口</span>
@@ -2933,8 +2940,8 @@ function renderPanelHtml() {
     let draggedSection = "";
     let draggedResourceTreeSection = "";
     let draggedResourceTreeChild = null;
-    let activeResourceSection = "sync";
-    let activeResourceAnchor = "sync";
+    let activeResourceSection = "plans";
+    let activeResourceAnchor = "plans";
     const sectionRenderOrder = ["settings", "sync", "plans", "results", "gpu", "execution", "diagnostics"];
     const dirtyPanelSections = new Set();
     const explicitlyExpandedInterestSections = new Set();
@@ -2948,7 +2955,7 @@ function renderPanelHtml() {
     let sectionTelemetrySamples = [];
     let currentMainView = "workspace";
     let runMode = "formal";
-    let lastWorkspaceResource = { section: "sync", anchor: "sync" };
+    let lastWorkspaceResource = { section: "plans", anchor: "plans" };
     let activeResourceNode = null;
     let resourceTreeScrollLockUntil = 0;
     let resourceTreeMeta = {};
@@ -4801,6 +4808,7 @@ function renderPanelHtml() {
         if (state && state.degradedMessage) el("renderError").textContent = String(state.degradedMessage);
         try { applyLowTrafficModeState(state); } catch (e) {}
         renderProjectOnboardingNotice(state);
+        renderExperimentSummary(state);
         const fastConfigEdit = shouldFastPathConfigEdit();
         if (fastConfigEdit) {
           renderResourceTree(state);
@@ -9097,6 +9105,72 @@ function renderPanelHtml() {
       const poll = Number(configDefault(scheduler.pollSeconds, 10));
       const jitter = Number(configDefault(scheduler.jitterSeconds, 30));
       return String(poll) + "-" + String(poll + Math.max(0, jitter)) + "s";
+    }
+
+    function experimentSummaryModel(state) {
+      const data = state || {};
+      const workspace = data.workspace || {};
+      const selectedPlan = planFromContext(data, {});
+      const planFile = String((selectedPlan || {}).planFile || (selectedPlan || {}).file || (selectedPlan || {}).path || "");
+      const model = {
+        project: String(workspace.name || (workspace.open ? "当前项目" : "未打开项目")),
+        path: String(workspace.hostPath || workspace.root || ""),
+        planFile,
+        stats: overviewTaskStats(data),
+        status: "待选择 PLAN",
+        detail: "请选择本次运行的 PLAN。",
+        action: { label: "选择 PLAN", section: "plans", anchor: "plans" }
+      };
+      if (!workspace.open) {
+        return Object.assign(model, { status: "未打开项目", detail: "先打开项目文件夹，再选择实验计划。", action: { label: "打开并识别项目", command: "bootstrapProject" } });
+      }
+      if (data.degradedMessage) {
+        return Object.assign(model, { status: "本轮状态未取得", detail: String(data.degradedMessage), action: { label: "查看诊断与恢复", section: "diagnostics", anchor: "diagnostics" } });
+      }
+      if (!selectedPlan || !planFile) {
+        if (!overviewProjectStats(data).plans) return Object.assign(model, { status: "尚无 PLAN", detail: "识别项目并明确创建或选择实验计划后再运行。", action: { label: "识别或创建 PLAN", command: "bootstrapProject" } });
+        return model;
+      }
+      const stage = planExecutionStage(data, planFile);
+      const activity = planActiveRunEvidence(data, planFile, selectedPlan);
+      if (activity.active || ["monitor", "submitting", "validating", "dry-running", "review", "debug-review", "results"].includes(stage.phase)) {
+        const results = stage.phase === "results" && !activity.active;
+        return Object.assign(model, { status: stage.executionLabel || planExecutionPhaseLabel(stage.phase), detail: stage.status || "查看当前任务的精确状态与日志。", action: { label: results ? "查看产物与日志" : "查看运行进度", section: results ? "results" : "execution", anchor: results ? "results" : "execution" } });
+      }
+      if (!enabledWorkerTunnelsForState(data).length) {
+        return Object.assign(model, { status: "未配置启用的 Worker", detail: "正式运行至少需要一个明确启用的执行 Worker。", action: { label: "配置 Worker", section: "settings", anchor: "settings-servers" } });
+      }
+      const readiness = overviewProjectReadiness(data);
+      model.status = readiness.status;
+      model.detail = readiness.detail;
+      if (readiness.blocking) {
+        model.action = { label: "查看运行准备与阻断", section: "plans", anchor: "plans" };
+        if (["校验待修复", "预演待处理"].includes(readiness.status) && ["validatePlan", "dryRunPlan"].includes(stage.command) && readiness.outputReady) model.action = { label: stage.label, command: stage.command, planFile };
+        return model;
+      }
+      model.action = { label: "校验并提交当前 PLAN", command: "runPlan", planFile };
+      return model;
+    }
+
+    function renderExperimentSummary(state) {
+      const target = el("experimentSummary");
+      if (!target) return;
+      const model = experimentSummaryModel(state);
+      const action = model.action;
+      const reason = action.command ? debugModeDisableReason(action.command) || simpleSftpCommandDisableReason(state, action.command) : "";
+      const attrs = action.command
+        ? ' data-command="' + escAttr(action.command) + '"' + (action.planFile ? ' data-plan-file="' + escAttr(action.planFile) + '"' : "")
+        : ' data-section-target="' + escAttr(action.section) + '" data-anchor-target="' + escAttr(action.anchor) + '"';
+      const title = reason || (action.command === "runPlan" ? "执行前确认目标与范围；包含自动同步、校验、预演及提交，准备阶段会写入服务器。" : model.detail);
+      const stats = model.stats;
+      const actionKey = JSON.stringify([model.project, model.path, model.planFile, action.command, action.section, action.anchor]);
+      const previous = el("experimentSummaryAction");
+      const restoreFocus = previous && document.activeElement === previous && previous.dataset.summaryActionKey === actionKey;
+      setHtmlIfChanged(target, '<div class="experimentSummaryContext"><div><b>当前项目</b>' + esc(model.project) + (model.path ? ' · ' + esc(model.path) : '') + '</div><div><b>当前 PLAN</b>' + esc(model.planFile || "未选择") + '</div><div><b>' + esc(model.status) + '</b>' + esc(model.detail) + '</div></div>' +
+        '<button id="experimentSummaryAction" type="button" class="experimentSummaryAction" data-summary-action-key="' + escAttr(actionKey) + '"' + attrs + ' title="' + escAttr(title) + '"' + (reason ? ' disabled aria-label="' + escAttr(action.label + "：" + reason) + '"' : '') + '>' + esc(action.label) + '</button>' +
+        '<div class="experimentSummaryEvidence">本机任务记录：运行 ' + stats.running + ' · 排队 ' + stats.queued + ' · 失败 ' + stats.failed + ' · 已确证完成 ' + stats.completed + '。记录不代表本轮服务器观测；在运行进度中主动查询。</div>');
+      const next = el("experimentSummaryAction");
+      if (restoreFocus && next && !next.disabled && document.activeElement !== next) next.focus({ preventScroll: true });
     }
 
     function overviewGpuStats(state) {
