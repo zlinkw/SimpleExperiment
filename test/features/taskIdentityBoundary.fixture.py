@@ -3,6 +3,12 @@ import io
 import json
 import pathlib
 import threading
+import os
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / '_helpers'))
+from extractRuntimeFunctions import extract_runtime_functions
+prefix_runtime = extract_runtime_functions(pathlib.Path(__file__).parents[2] / 'dist/runtime/cluster_agent.py', ['remote_resource_prefix'])
 
 source = (pathlib.Path(__file__).parents[2] / 'src/runtime/TmuxTaskLifecycle.ts').read_text(encoding='utf-8')
 tree = ast.parse(source.split('String.raw`', 1)[1].rsplit('`', 1)[0])
@@ -36,11 +42,12 @@ for changed in (False, True):
     assert len(closed) == (0 if changed else 1)
 
 scope = dict(json=json, root='/virtual', worker_id='w', secret='test', epoch='epoch', mutex=threading.RLock(),
-             remembered=set(), task_inventory=lambda *a, **k: [job], task_public_observation=lambda *a: dict(job, status='queued'))
+             remembered=set(), task_inventory=lambda *a, **k: [job], task_public_observation=lambda *a: dict(job, status='queued'),
+             os=os, remote_resource_prefix=prefix_runtime.remote_resource_prefix)
 load(post, scope)
 class Request:
     def __init__(self, payload):
-        body = json.dumps(dict(action='accept', epoch='epoch', payload=payload)).encode()
+        body = json.dumps(dict(action='accept', epoch='epoch', globalResourcePrefix='test', payload=payload)).encode()
         self.headers = {'Authorization': 'Bearer test', 'Content-Length': str(len(body))}
         self.rfile, self.wfile = io.BytesIO(body), io.BytesIO()
     def send_response(self, *args): pass

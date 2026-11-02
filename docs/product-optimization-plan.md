@@ -43,6 +43,7 @@
 | PFX-test8 | 归一化组合检查不绑定 TensorBoard 格式函数的参数个数 | passed |
 | PFX-test9 | 旧停止夹具使用真实取消确认契约，保留未确认停止意图 | passed |
 | PFX-test10 | TensorBoard 名称检查归负责命名的 Agent，保留无硬编码约束 | passed |
+| PFX-test11 | 手工 Scheduler 请求夹具携带合法全局字段，身份断言完整保留 | passed |
 | PFX-base | 前缀默认值与归一化收敛一处，提供实际目录命名 | passed |
 | PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | passed |
 | PFX2a / D0c | Agent 窗口按规范项目身份隔离 | passed |
@@ -55,7 +56,7 @@
 | PFX3a | API 路径与策略预填移除品牌推断和旧 Hub 来源 | passed |
 | PFX3b | Host 与实际 UI 路径校验移除固定目录名推断 | passed |
 | PFX3c | 全局前缀的 tmux 旧版名称兼容与输入边界 | passed |
-| PFX3d | 清除旧任务字段绕过统一前缀函数的残余 | pending |
+| PFX3d | 清除旧任务字段绕过统一前缀函数的残余 | running |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
 | D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | passed |
@@ -64,7 +65,7 @@
 | D1a | 移除占位附着命令，复制前主动核实精确 Worker/窗口 | passed |
 | D1b | 零目标/禁用配置与观测分开，错误状态不得显示健康 | passed |
 | D1c | TensorBoard 只读查询和代理绑定当前项目与启用 Worker | pending |
-| D1d | 独立本机 TensorBoard 代理的项目身份与复用边界 | pending |
+| D1d | 独立旧代理类的调用关系核实 | not-applicable（当前无调用方，不扩改） |
 | D1 | 零目标、禁用、未核实、离线；精确附着与项目绑定查询 | partial（D1a/b passed，D1c pending） |
 | D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | pending |
 | D3 | 保存范围、生效时间与草稿恢复 | pending |
@@ -477,11 +478,35 @@ PFX3c：41 项定向通过（policy 6、globalDefault 8、TB Controls1–5 合�
 
 PFX3c 最终验证：compile 2026-11-02T20-11-44-841Z-70232 和 package 2026-11-02T20-11-53-872Z-63012-package/run.json 通过。318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、723999ms。内部 universal/trial 0.5.475：2774135 字节，SHA256 6cf55ce5f92f4e1707003da7e2d018528087dd227e09bf5584ca21b6d19361af；实际字节与 receipt 一致，362 项内容门禁零违规，实际 HTML 三脚本及模块解析通过。前缀组仍未公开发行/安装：下一边界为 PFX3d 任务字段旁路，随后 D1c/d 只读项目身份和 PFX4 完整说明收口。没有服务器操作。
 
+## 当前批次 PFX3d
+
+PFX3c 提交 c2f9bb3bbcbc82074ac5cb2bda9a66797621c720 已普通 push/fetch 一致。实际固定 GPU 名称函数仍接受调用方传入的旧前缀，legacy 启动和协议 2 准入绕开统一函数从 job/options 传值。先在原 policy 的实际生成函数九组和现有私有 tmux 前缀场景中加入冲突旧字段，复现后修正；不运行科研命令或完整 runtime。
+
+固定 GPU 命名只读插件携带的全局环境；旧参数保留调用兼容但不再有选择归属的权限，移除两个旁路及误导的固定 simple-gpu 注释。保留本轮实际旧队列/窗口定位、精确身份、取消围栏、全部原断言与期限，不重放或迁移任务。AgentRuntime、TmuxTaskLifecycle、policy 测试及原 tmux 前缀夹具、三版本和本计划，共 8 文件，内部 0.5.476。待复现、compile、相关命名/队列/GPU 消费者、规定 package；无服务器操作、发行或安装。
+
+PFX3d 首次实际函数复现 5/6、exit=1（pfx3d-before-policy.log）；原生 tmux 首例也出现 obsolete-row-owner-gpu-1，1 项失败（pfx3d-before-tmux.log）。该运行未完全退出时误开始编译，后续子项可能混候选，整轮不作有效通过凭据，保留真实日志和状态；其首例在修改前已结束，错误窗口名仍是复现证据。之后严格串行。
+
+首轮修正后的 policy 六项通过，原生 tmux 1/3（pfx3d-final-tmuxTaskLifecycle.test.log）。新前缀未传到已经启动的 Scheduler，所以出现旧 configured-owner；单纯改为读 Scheduler 启动环境不完整。需在已有经鉴权、项目/Worker/epoch 绑定的 RPC 中独立携带当前 Agent 全局前缀，与不可变 job 字段分开；新收任务/配置才更新调度器当前值，停止仍不增加前缀门槛，旧队列/窗口保留。旧 Scheduler 不支持此协议时明确要求用户主动准备，不静默接受后误命名。该轮另有真实 tmux 退出码在原 8 秒观察内仍为空的失败，原因未证明与前缀有关；原诊断保留，不改期限或生产退出判定，将在实际 RPC 修正后的候选重新核实。
+
+PFX3d 传递修正：正式 Host 已在 sendDistributedJob 和 API 参数边界把顶层 tmuxSessionPrefix 覆写为当前全局值；它是现有传输字段，不是可选的 job 覆盖设置。Agent 仅在新的协议 2 启动请求边界校验该字段及有效 Worker，更新携带值，再由单独 RPC 全局字段传给调度器。历史 runner 分支先退出该路径，旧 row/options 从不更新它；停止也先走原停止路径。原 Host 手动派发用例暴露未保留这个既有传输契约及 Worker 位于 options 的受支持形式，已按现有契约补齐，未改 Host 请求或放宽身份要求。
+
+最终 compile 2026-11-02T20-34-18-098Z-32832 通过。26 项必要定向通过：policy 6、原生生命周期 3、真实 Host→Agent 手动准入 1、旧 durable queue 2、formal identity 2、共享 GPU collector 4、globalDefault 8。实际旧队列和其他用户窗口保留，缺少/非规范全局 RPC 字段明确失败；不支持该新语义的 Scheduler 阻断新接收/配置，但精确取消仍可用。pfx3d-final-contract-*.log 与 pfx3d-confirmed-*.log 保留最终结果；先前 rpc/bound-global 的真实失败同样保留。
+
+旧 serverPlanQueue 的 Python 子进程两次在原 10 秒期限 ETIMEDOUT（final-contract、checked 日志）。同一保存脚本换全新隔离根并启用 3 秒栈诊断后 2.997 秒完成，pfx3d-queue-timeout-diagnostic.json；原入口带栈诊断 1.893 秒通过，随后无诊断的原命令 2.674 秒通过。根因未确定，不声称修改前缀修好了超时；不延长期限、退役断言、改生产 IO 或隐藏失败。这一文件不在既有 318 作业清单内，不能冒称 package 已覆盖它。实际 tmux 退出码暂缺在后续最终候选原期限内通过，初次诊断仍保留。
+
+冻结同一 8 文件与内部 0.5.476，开始规定 package。UI 未修改，复用 D1b 隔离渲染，最终包仍核验真实生成脚本。没有服务器操作、发行、安装或新的性能断言；剩余 D1c/d 与 PFX4 仍阻断前缀组公开交付。
+
+PFX3d 首轮 package：2026-11-02T20-39-37-204Z-84780-package/run.json，317/318 通过，taskIdentityBoundary 一项失败，overall=failed、exit=1、687182ms、锁已释放，未组包。此前进度输出按工具返回片段报告，完整 receipt 确认此失败后立即按失败处理。手工 do_POST 夹具只注入了原身份参数，没有新的合法全局字段及所需 os/normalizer；先触发字段错误，因而没有进入它原本要验证的身份冲突分支。
+
+PFX-test11 独立准备批仅修改该原 Python 夹具及本计划：注入真实现有 remote_resource_prefix，发送规范 test 全局字段，保留原全部停止、冲突和幂等断言，不修改生产代码兜底。原入口一项通过（pfx3d-identity-fixture.log），同时用已提交 HEAD 的原 Handler 在隔离脚本执行相同断言通过（pfx-test11-committed-baseline.log），证明该准备不依赖未提交的 PFX3d 实现。无新运行版本/包；只提交这两个文件。
+
+现有 package:assemble 只接受 overall=passed、candidate=validated 的完整凭据，没有受支持的失败凭据合并入口。首轮失败不改签、不伪造 receipt，也不改 runner 或降低覆盖；夹具准备提交后，同一未变化生产候选重新走规定 package 以得到可组包凭据。旧的 317 项通过仍保留原记录。
+
 ## 后续定向核查线索（尚未实施）
 
 - D1c 新确证：Host scalarAgentFetch 直接访问配置隧道，仅附 Agent token；scalar catalog/query 与 native UI proxy 请求未带当前项目/Worker 身份。Agent 相应 GET 直接使用其自己的 root 返回 scalar_catalog，未核对调用窗口预期项目。故将另一项目 Agent 的端口误填到当前项目时，可把其图表当作当前项目数据；已修正的 /api/tensorboard/service 控制路由有 root/Worker 校验，不能冒称覆盖了这些只读路径。后续独立批在支持的新请求路径中核对稳定项目和 Worker、禁用目标不访问，旧 Agent 明确不支持而不回退；不自动启动/重启/部署，不修改指标或科研分析策略。先保留当前 PFX3c 冻结候选，D1c 完成前不声称共享账号隔离已经全部收口。
 
-- D1d：独立 TensorBoardLocalProxy 仍转发旧 /api/tensorboard/proxy，ActiveProxy 的复用只比服务器端点、端口和前缀，不含项目根；需要在 D1c 新的项目绑定协议之后接入，独立一批更新其接口、Host 调用和原代理回归，避免超过 8 文件。D1c 的 scalarNativeProxy 不能代替这个独立浏览器代理的验收。
+- D1d 线索修正：TensorBoardLocalProxy 类仍转发旧路径，但全仓 src 引用只有类定义，当前 Host 没有使用这个类。不能把该未接线类的项目复用问题当作主入口已复现缺陷；本轮保留文件，不新增代理或扩改它。实际 openTensorBoardFromUi 使用 Agent 直接 URL，D1c 仍须核实并改为项目绑定的实际浏览器入口；scalarNativeProxy 和直接打开入口都要覆盖。
 - PFX3d：旧 run-command 分支在统一 _resolve_tmux_prefix 之外仍从 options/command.tmuxSessionPrefix 选前缀；协议 2 准入也将 row/options.tmuxSessionPrefix 直接传给 fixed_gpu_window_name，而后者实际接受该值。当前 Python 九组只证明统一函数忽略别名，不能覆盖这个旁路。下一独立批用实际生成函数复现并清除旁路，保留原任务/队列定位身份及用户显式旧窗口，不在当前 PFX3c 打包途中修改。
 
 - PFX3c 新确证：公共 schema/Host 与唯一归一化均允许 `team.lab`；实际 Agent/Scheduler/GPU 会话名原样携带点号。官方 [tmux 3.4 session_check_name](https://github.com/tmux/tmux/blob/3.4/session.c#L221-L236) 会把 `.` 转成 `_`，与插件后续原名定位不一致；当前 master 已有不同规则，不能凭新版源码排除已支持服务器上的故障。后续独立批统一便携前缀字符范围、沿用同一 TS/Python 归一化和全局输入校验，不新增 tmux 版本门槛，不改用户实际旧目录/窗口或自动迁移。当前 D1b 冻结候选不扩入这项修改，PFX4 收口前必须完成。
