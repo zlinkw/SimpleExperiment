@@ -41,8 +41,8 @@ test("backend action routing reuses composed confirmation and scheduler sets", (
   assert.match(watchdog, /return 0;/);
   assert.doesNotMatch(body, /\["archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay"\]\.includes\(command\)/);
   assert.doesNotMatch(body, /\["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"\]\.includes\(command\)/);
-  assert.doesNotMatch(source, /command === "validatePlan" \|\| command === "dryRunPlan"/);
-  assert.doesNotMatch(source, /command === "runPlan" \|\| command === "reproducePlan"/);
+  assert.doesNotMatch(body, /command === "validatePlan" \|\| command === "dryRunPlan"/);
+  assert.doesNotMatch(body, /command === "runPlan" \|\| command === "reproducePlan"/);
 });
 
 test("backend primitive parsing reuses fixed value and type sets", () => {
