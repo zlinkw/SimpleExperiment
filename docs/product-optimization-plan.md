@@ -34,7 +34,7 @@
 | D0a | 项目内 runtime 与辅助日志的同步/覆盖保护 | passed |
 | PFX0 | 单一全局前缀来源、保存范围和每次打开提醒 | passed |
 | PFX-test | 受影响夹具使用正式前缀字段，目录方法提取不绑定旧参数个数 | passed |
-| PFX-base | 前缀默认值与归一化收敛一处，提供实际目录命名 | pending |
+| PFX-base | 前缀默认值与归一化收敛一处，提供实际目录命名 | passed |
 | PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | pending |
 | PFX2 / D0c | 服务命名与调度前缀统一，消除个人前缀兜底 | pending |
 | PFX3 | 远端路径校验和错误品牌迁移的前缀残留 | pending |
@@ -244,6 +244,19 @@ PFX-test 验证：八文件 77 项通过（13+9+2+11+1+8+7+26），所有原边�
 PFX-test 提交 203645252da589baf7168fe84d01650040d0598c 已普通 push/fetch 一致。PFX0 继续：新增真实 Host 用例先以 7/8、exit=1 证明全局前缀变化会使项目 Conda 被全局 Conda 替换；旧签名包含前缀是原因。现只对 Conda 保存比较签名，并读取已存在的双字段旧签名中的 Conda 部分，不把前缀作为项目覆盖依据。原全局 Conda 变更的继承规则保留。publicRuntimeEnvironmentDefault 8、globalConfigPersistence 2、serverQuotaPersistence 4 项通过；其余已有效回归复用。默认 simple（包括空值归一化）每次打开提醒。既有 Xshell 和 tmux 两种归一化的差异在 PFX-base 统一，本批不宣称所有非法旧输入路径已收口。UI 未再改变，复用上文实际 Chrome 和三段脚本结果；冻结 0.5.461，完整 package 重新验证。
 
 PFX0 最终验证：318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、718130ms；凭据 2026-11-02T15-15-27-600Z-46984-package/run.json。VSIX 0.5.461 为 universal/trial、2778832 字节，SHA256 9125757ea7aef2a63dd9cff21bc828fa44a6214d437496a0b4450481da73c1a1，与 receipt 一致；361 项内容门禁零违规，实际 HTML 三段及模块脚本通过。身份校验通过后读取误写的 gate-13 日志路径 exit=1；按真实 receipt 的 gate-12 路径复读 exit=0，未重打包或更改检查结果。共 8 个非生成文件。当前为前缀整改内部批次：远端发行未完成，待 PFX4 收口；未安装、无服务器操作。下一批只统一前缀常量/归一化与命名工具，不改目录、不触发迁移或服务操作。
+
+## 当前批次 PFX-base
+
+PFX0 源码 dfc9b870957eac522e36581e4add6ab27555fb91 已普通 push/fetch 一致。内部包 0.5.461 未发布、未安装；前缀整改组尚未交付完成。
+目标：simple 默认值与前缀归一化只维护一处；设置、提醒和 tmux 读取相同实际值。目录名由同一前缀生成，供下一批项目内路径使用。
+证据：Xshell 以整串合法性失败回退 simple，AgentTmuxPolicy 则小写、替换非法字符并限长；旧全局非法值可在面板与提醒得到不同前缀。两处默认也各自写死。
+范围：纯 RemoteResourcePrefix 模块、既有 AgentTmuxPolicy/Xshell 默认与归一化、既有 agentTmuxPolicy 测试、三处版本、本计划，共 8 个非生成文件。沿用已公开的 tmux 归一化规则；设置保存仍按原正式正则拒绝非法输入。simple 仅为默认，zlk 与 alice 一样只是合法自定义输入，不做路径替换。
+边界：本批不改变默认安装位置、项目命名或任何实际窗口，不迁移旧目录，不改变共享 GPU 身份。包内固定代码路径、扩展 ID 和历史证据不属于个人前缀默认。
+验收：默认与有效前缀在 schema/设置/tmux 一致，任意自定义前缀可生成目录名；原全局提醒、Conda、启动命令和设置回归及规定 package。目录、Python 和错误迁移机制继续后续批次，不提前宣称无残留。预计本批 20–30 分钟；现场验证仍待授权。
+
+PFX-base 定向结果：agentTmuxPolicy 3、publicRuntimeEnvironmentDefault 8、agentInstallDirIsolation 1、serverQuotaPersistence 4、configurationSettings 4 项通过。共享实现覆盖 simple 默认、zlk/alice 自定义、大小写、空值、非法字符及既有 32 位规则，设置与 tmux 计算一致；原明确输入保存校验未变。compile exit=0；实际 HTML 三段及模块脚本通过，UI 未改，复用 PFX0 隔离页面。冻结内部版本 0.5.462，共 8 个非生成文件；规定 package pending，不安装、不发布中间包。
+
+PFX-base 最终验证：318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、699464ms；凭据 2026-11-02T15-32-12-506Z-91220-package/run.json。VSIX 0.5.462 为 universal/trial、2779309 字节，SHA256 55a5506bc1a50442c0fbda91cc50e197c212b92e6b1855a3e2a35661f2b6a58b，与 receipt 一致；362 项内容门禁零违规，新编译的共享前缀模块确实在包内，实际 HTML 三段/模块脚本通过。本批未触发目录或窗口变化。当前仅内部包，远端发行待整组收口、未安装。下一批把默认 Agent 目录放到项目内，使用全局前缀并保持显式路径，修正核实调用方和草稿预览；不迁移旧文件。
 
 ## 后续定向核查线索（尚未实施）
 

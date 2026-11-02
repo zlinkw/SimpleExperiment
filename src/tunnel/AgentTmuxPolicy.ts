@@ -1,7 +1,8 @@
 import { assertLocalhost } from "./TunnelGateway";
+import { DEFAULT_REMOTE_RESOURCE_PREFIX, normalizeRemoteResourcePrefix } from "../config/RemoteResourcePrefix";
+export { remoteAgentDirectoryName } from "../config/RemoteResourcePrefix";
 
-// 仅当 settings 缺失时回退到 "simple"（与 tunnel.remoteTmuxSessionPrefix / XshellTunnelSetup 默认保持一致，动态解析优先）
-export const simpleTmuxSessionPrefix = "simple";
+export const simpleTmuxSessionPrefix = DEFAULT_REMOTE_RESOURCE_PREFIX;
 export const simpleAgentTmuxCommandVersion = "SIMPLE_EXPERIMENT_AGENT_TMUX_V21=1";
 export const simpleAgentRuntimeRelativePath = "simple_cluster/runtime/cluster_agent.py";
 export const simpleDefaultCondaEnv = "";
@@ -24,13 +25,7 @@ export interface AgentTmuxStartupOptions {
 }
 
 export function normalizeRemoteTmuxSessionPrefix(value?: string): string {
-  const prefix = String(value || simpleTmuxSessionPrefix)
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 32);
-  return /^[a-z0-9]/.test(prefix) ? prefix : simpleTmuxSessionPrefix;
+  return normalizeRemoteResourcePrefix(value);
 }
 
 export function defaultAgentTmuxSessionName(role: AgentTmuxRole, endpointId?: string, sessionPrefix?: string): string {

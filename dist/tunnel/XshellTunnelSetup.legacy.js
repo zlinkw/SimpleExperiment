@@ -8,13 +8,14 @@ exports.validateXshellSetupConfig = validateXshellSetupConfig;
 exports.xshellExecutablePath = xshellExecutablePath;
 exports.publicXshellSetupSummary = publicXshellSetupSummary;
 const TunnelGateway_1 = require("./TunnelGateway");
+const RemoteResourcePrefix_1 = require("../config/RemoteResourcePrefix");
 const GpuMemoryScheduling_1 = require("../features/GpuMemoryScheduling");
 const GpuQuotaScheduling_1 = require("../features/GpuQuotaScheduling");
 const TunnelPortConflict_1 = require("./TunnelPortConflict");
 const WorkerTelemetryApi_1 = require("./WorkerTelemetryApi");
 exports.defaultXshellTunnelSetupConfig = {
     xshellExePath: "",
-    remoteTmuxSessionPrefix: "simple",
+    remoteTmuxSessionPrefix: RemoteResourcePrefix_1.DEFAULT_REMOTE_RESOURCE_PREFIX,
     hubHost: "",
     hubUser: "",
     hubSshPort: 22,
@@ -61,7 +62,7 @@ function normalizeXshellSetupConfig(input = {}) {
         ...exports.defaultXshellTunnelSetupConfig,
         xshellExePath,
         hubDisplayName: input.hubDisplayName?.trim() || undefined,
-        remoteTmuxSessionPrefix: normalizeRemoteTmuxSessionPrefix(input.remoteTmuxSessionPrefix),
+        remoteTmuxSessionPrefix: (0, RemoteResourcePrefix_1.normalizeRemoteResourcePrefix)(input.remoteTmuxSessionPrefix),
         hubHost: input.hubHost || "",
         hubUser: input.hubUser || "",
         transferHost: input.transferHost?.trim() || undefined,
@@ -250,11 +251,6 @@ function publicXshellSetupSummary(config) {
 }
 function basename(value) {
     return value.replace(/\\/g, "/").split("/").pop() || value;
-}
-function normalizeRemoteTmuxSessionPrefix(value) {
-    // 仅当 settings 缺失时回退到 "simple"（与 AgentTmuxPolicy.simpleTmuxSessionPrefix 同步，动态解析优先）
-    const prefix = String(value ?? "simple").trim().toLowerCase();
-    return /^[a-z0-9][a-z0-9._-]{0,31}$/.test(prefix) ? prefix : "simple";
 }
 function normalizeSshPort(value, fallback) {
     const port = Number(value);

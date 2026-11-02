@@ -1,24 +1,20 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.simpleDefaultCondaEnv = exports.simpleAgentRuntimeRelativePath = exports.simpleAgentTmuxCommandVersion = exports.simpleTmuxSessionPrefix = void 0;
+exports.simpleDefaultCondaEnv = exports.simpleAgentRuntimeRelativePath = exports.simpleAgentTmuxCommandVersion = exports.simpleTmuxSessionPrefix = exports.remoteAgentDirectoryName = void 0;
 exports.normalizeRemoteTmuxSessionPrefix = normalizeRemoteTmuxSessionPrefix;
 exports.defaultAgentTmuxSessionName = defaultAgentTmuxSessionName;
 exports.isValidRemoteTmuxSessionName = isValidRemoteTmuxSessionName;
 exports.agentTmuxStartupCommand = agentTmuxStartupCommand;
 const TunnelGateway_1 = require("./TunnelGateway");
-// 仅当 settings 缺失时回退到 "simple"（与 tunnel.remoteTmuxSessionPrefix / XshellTunnelSetup 默认保持一致，动态解析优先）
-exports.simpleTmuxSessionPrefix = "simple";
+const RemoteResourcePrefix_1 = require("../config/RemoteResourcePrefix");
+var RemoteResourcePrefix_2 = require("../config/RemoteResourcePrefix");
+Object.defineProperty(exports, "remoteAgentDirectoryName", { enumerable: true, get: function () { return RemoteResourcePrefix_2.remoteAgentDirectoryName; } });
+exports.simpleTmuxSessionPrefix = RemoteResourcePrefix_1.DEFAULT_REMOTE_RESOURCE_PREFIX;
 exports.simpleAgentTmuxCommandVersion = "SIMPLE_EXPERIMENT_AGENT_TMUX_V21=1";
 exports.simpleAgentRuntimeRelativePath = "simple_cluster/runtime/cluster_agent.py";
 exports.simpleDefaultCondaEnv = "";
 function normalizeRemoteTmuxSessionPrefix(value) {
-    const prefix = String(value || exports.simpleTmuxSessionPrefix)
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9._-]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 32);
-    return /^[a-z0-9]/.test(prefix) ? prefix : exports.simpleTmuxSessionPrefix;
+    return (0, RemoteResourcePrefix_1.normalizeRemoteResourcePrefix)(value);
 }
 function defaultAgentTmuxSessionName(role, endpointId, sessionPrefix) {
     const prefix = normalizeRemoteTmuxSessionPrefix(sessionPrefix);

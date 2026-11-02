@@ -1,4 +1,5 @@
 import { normalizePort } from "./TunnelGateway";
+import { DEFAULT_REMOTE_RESOURCE_PREFIX, normalizeRemoteResourcePrefix } from "../config/RemoteResourcePrefix";
 import { memorySchedulingOverrides } from "../features/GpuMemoryScheduling";
 import { quotaOverrides } from "../features/GpuQuotaScheduling";
 import {
@@ -120,7 +121,7 @@ export type XshellTunnelSetupConfig = XshellRealtimeTunnelConfig;
 
 export const defaultXshellTunnelSetupConfig: XshellTunnelSetupConfig = {
   xshellExePath: "",
-  remoteTmuxSessionPrefix: "simple",
+  remoteTmuxSessionPrefix: DEFAULT_REMOTE_RESOURCE_PREFIX,
   hubHost: "",
   hubUser: "",
   hubSshPort: 22,
@@ -168,7 +169,7 @@ export function normalizeXshellSetupConfig(input: Partial<XshellTunnelSetupConfi
     ...defaultXshellTunnelSetupConfig,
     xshellExePath,
     hubDisplayName: input.hubDisplayName?.trim() || undefined,
-    remoteTmuxSessionPrefix: normalizeRemoteTmuxSessionPrefix(input.remoteTmuxSessionPrefix),
+    remoteTmuxSessionPrefix: normalizeRemoteResourcePrefix(input.remoteTmuxSessionPrefix),
     hubHost: input.hubHost || "",
     hubUser: input.hubUser || "",
     transferHost: input.transferHost?.trim() || undefined,
@@ -354,12 +355,6 @@ export function publicXshellSetupSummary(config: XshellTunnelSetupConfig): Recor
 
 function basename(value: string): string {
   return value.replace(/\\/g, "/").split("/").pop() || value;
-}
-
-function normalizeRemoteTmuxSessionPrefix(value: unknown): string {
-  // 仅当 settings 缺失时回退到 "simple"（与 AgentTmuxPolicy.simpleTmuxSessionPrefix 同步，动态解析优先）
-  const prefix = String(value ?? "simple").trim().toLowerCase();
-  return /^[a-z0-9][a-z0-9._-]{0,31}$/.test(prefix) ? prefix : "simple";
 }
 
 function normalizeSshPort(value: unknown, fallback: number): number {

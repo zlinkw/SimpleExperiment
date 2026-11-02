@@ -7,6 +7,26 @@ const {
   isValidRemoteTmuxSessionName,
 } = require("../../dist/tunnel/AgentTmuxPolicy.js");
 
+test("setup, runtime naming and the public setting share one prefix default and normalization", () => {
+  const names = require("../../dist/config/RemoteResourcePrefix.js");
+  const policy = require("../../dist/tunnel/AgentTmuxPolicy.js");
+  const setup = require("../../dist/tunnel/XshellTunnelSetup.js");
+  const property = require("../../package.json").contributes.configuration.properties["simpleExperiment.tunnel.remoteTmuxSessionPrefix"];
+  assert.equal(property.default, names.DEFAULT_REMOTE_RESOURCE_PREFIX);
+  assert.equal(property.scope, "application");
+  assert.equal(policy.simpleTmuxSessionPrefix, names.DEFAULT_REMOTE_RESOURCE_PREFIX);
+  assert.equal(setup.defaultXshellTunnelSetupConfig.remoteTmuxSessionPrefix, names.DEFAULT_REMOTE_RESOURCE_PREFIX);
+  for (const value of [undefined, "", "simple", "zlk", "alice", " Alice Lab! ", "team.lab", "---", "x".repeat(40)]) {
+    const prefix = names.normalizeRemoteResourcePrefix(value);
+    assert.equal(setup.normalizeXshellSetupConfig({ remoteTmuxSessionPrefix: value }).remoteTmuxSessionPrefix, prefix);
+    assert.equal(policy.normalizeRemoteTmuxSessionPrefix(value), prefix);
+    assert.equal(names.remoteAgentDirectoryName(value), prefix + "_agent");
+    assert.equal(policy.remoteAgentDirectoryName(value), prefix + "_agent");
+  }
+  assert.equal(names.remoteAgentDirectoryName("zlk"), "zlk_agent");
+  assert.equal(names.remoteAgentDirectoryName("alice"), "alice_agent");
+});
+
 test("agent tmux policy supports configurable remote session prefixes", () => {
   assert.throws(()=>defaultAgentTmuxSessionName("hub"),/HUB_REMOVED/);
   assert.equal(defaultAgentTmuxSessionName("worker", "nwpu5"), "simple-worker-nwpu5-agent");
