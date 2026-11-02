@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.448",
-  "buildId": "7e1f34f0bc65858c22dd4054213d1537d17fb27917cbee81d09dd84cff172d96",
+  "version": "0.5.449",
+  "buildId": "c7126bdd44bdfd11758b1953d46ba93030b515f87702bd3ef5c4de7882e9eab8",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -245,7 +245,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "8c7ec39b19c4cc83757fb7556c3a594a70c4dae274648f18f7d06c30735bf1bd"
+      "sha256": "c1bb23d8cb7b803b4e49491bb901b09516ff0e2c185e79744182b099828e2f53"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -289,7 +289,7 @@
     },
     {
       "path": "dist/extension/PlanRunHost.js",
-      "sha256": "7b6b0aaa762f027b06117850883a1ee0be50dd4825ce28284c7289055b2c5115"
+      "sha256": "396418b093898bb81393c348dd34f3ba3340ae9aab7be965a6147cdeabba5b54"
     },
     {
       "path": "dist/extension/PlanStopClearBatchHost.js",
@@ -877,7 +877,7 @@
     },
     {
       "path": "dist/results/ResultLayout.js",
-      "sha256": "6fee3fc2e41689d68ba9aa3e29a56ef79a28f12c6afe48bc404aa8f3b68ef86a"
+      "sha256": "5bd3adf9078432b74f2d879157c09c9b47517de74627eab747f1f10b9c4cb090"
     },
     {
       "path": "dist/results/ResultOwnershipScope.js",
@@ -889,7 +889,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "4624e9a959fb30bc95bb780eeb4d550b91dac3b05b6207247f76a9f39b131e16"
+      "sha256": "a075dbaddcda478d42977f71d86f8a91504788b5bacde9203eab6a743428f0d3"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1241,7 +1241,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "9bef4f8e56c249dc38a883fdd14a39fbecf45036cbff1c7884e7ba7883ecae5c"
+      "sha256": "ae2e0d88184b308724d0f0421a74ab533673abc4daaf3202ad1e7aebc394c97b"
     },
     {
       "path": "scripts/check-static.js",

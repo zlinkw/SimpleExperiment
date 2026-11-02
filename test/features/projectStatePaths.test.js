@@ -196,7 +196,7 @@ test('释放合同：marker 未落定时 await 释放确定保留不删；落定
   await P.ensureProjectDirectorySnapshotsMigrated(noLegacy.projectRoot,noLegacy.legacy,noLegacy.target,MIG,noLegacy.marker);
   assert.ok(fs.existsSync(noLegacy.marker),'旧目录不存在也持久落定，不再重探');
 });
-test('回执释放归属与成功事实门禁：缺成功事实/root 不符一律保留；running job 非回执消费者；冻结 root 释放只动本项目',async()=>{
+test('回执保留归属与成功事实门禁：缺成功事实/root 不符一律保留；不读取远端队列；冻结项目不串写',async()=>{
   const rootA=mkRoot('frzA'),rootB=mkRoot('frzB'),storage=path.join(mkRoot('frzstore'),'g');
   const hostStub={context:{globalStorageUri:{fsPath:storage}},loadDistributedQueue:()=>assert.fail('r20：远端队列 job 状态不再是本地回执消费者的判据，释放不得读队列')};
   const saveStore=new PlanRunHost(hostStub,rootA);
@@ -204,13 +204,13 @@ test('回执释放归属与成功事实门禁：缺成功事实/root 不符一�
   const receipt=path.join(rootA,'simple_cluster','state','simple-experiment','run-submissions',
     require('../../dist/features/PlanCleanup.js').cleanupDigest(rootA),require('../../dist/features/PlanCleanup.js').cleanupDigest('op-1')+'.json');
   assert.ok(fs.existsSync(receipt));
-  assert.equal(await new PlanRunHost(hostStub,rootA).releaseSettled('op-1'),'no-success-fact','缺成功提交业务事实=明确保留，不默认无引用');
+  assert.equal(await new PlanRunHost(hostStub,rootA).retainSettled('op-1'),'no-success-fact','缺成功提交业务事实=明确保留，不默认无引用');
   assert.ok(fs.existsSync(receipt),'拒绝删除路径零改动');
-  assert.equal(await new PlanRunHost(hostStub,rootB).releaseSettled('op-1','submission-succeeded'),'not-found','切换项目后的 root 找不到 A 的回执，也绝不写 B');
+  assert.equal(await new PlanRunHost(hostStub,rootB).retainSettled('op-1','submission-succeeded'),'not-found','切换项目后的 root 找不到 A 的回执，也绝不写 B');
   assert.ok(fs.existsSync(receipt),'A 回执仍在原项目');
   assert.ok(!fs.existsSync(path.join(rootB,'simple_cluster','state','simple-experiment','run-submissions')),'B 的树根本没被创建');
-  assert.equal(await new PlanRunHost(hostStub,rootA).releaseSettled('op-1','submission-succeeded'),'released','成功提交事实+durable 关联即可按冻结 root 释放，不等 job 终态');
-  assert.ok(!fs.existsSync(receipt));
+  assert.equal(await new PlanRunHost(hostStub,rootA).retainSettled('op-1','submission-succeeded'),'retained','成功提交只核对回执，不能授权自动删除项目机器状态');
+  assert.ok(fs.existsSync(receipt),'成功提交回执仍保留');
   assert.ok(!fs.existsSync(path.join(rootB,'simple_cluster','state','simple-experiment','run-submissions')),'B 文件全程不变');
 });
 test('受管目录进入真实 machine-state 映射：五桶全为已验证前缀、unknown=false，清单与白名单原语义一致',async()=>{
@@ -289,7 +289,7 @@ test('r24 目录级真跨进程：B 导入持租时第三进程释放与 A 并�
   assert.deepEqual(fs.readdirSync(fx.target).filter(name=>name.includes('migrating')),[],'无迁移中间物残留');
 });
 
-test('r24 回执级真跨进程：持有同 scope 租约内完成导入，第三进程 releaseSettled 排队，落定后只删一次',{timeout:90000},async()=>{
+test('r24 回执级真跨进程：持有同 scope 租约内完成导入，第三进程 retainSettled 排队，落定后原字节保留',{timeout:90000},async()=>{
   const root=mkRoot('xreceipt'),storage=path.join(mkRoot('xreceiptstore'),'g');
   const legacyDir=path.join(storage,'run-submissions',cleanupDigest(root));
   const newDir=path.join(root,'simple_cluster','state','simple-experiment','run-submissions',cleanupDigest(root));
@@ -302,7 +302,7 @@ test('r24 回执级真跨进程：持有同 scope 租约内完成导入，第三
   const sig=path.join(dir,'a.signal'),gate=path.join(dir,'a.gate');
   const a=spawnWorker('receipt-hold',root,storage,'op-x',sig,gate);
   await waitFile(sig,'A 已持有回执 marker 同 scope 租约（导入未开始）');
-  const c=spawnWorker('receipt-release',root,storage,'op-x');
+  const c=spawnWorker('receipt-retain',root,storage,'op-x');
   await new Promise(r=>setTimeout(r,800));
   assert.equal(c.exitCode===null,true,'第三进程释放必须被跨进程租约阻塞（未阻塞会立即以 pending-migration 退出）：c.out='+c.out+' c.err='+c.err);
   assert.ok(!fs.existsSync(markerFile)&&!fs.existsSync(path.join(newDir,cleanupDigest('op-x')+'.json')),'阻塞期间 C 不得删除或伪造未落定的回执');
@@ -310,12 +310,12 @@ test('r24 回执级真跨进程：持有同 scope 租约内完成导入，第三
   const ao=await workerResult(a,'A'),co=await workerResult(c,'C');
   assert.equal(ao.markerValue,'legacy','A 在持有上下文内完成字节导入');
   assert.equal(ao.assertHeld,'ok');
-  assert.equal(co.outcome,'released');
-  assert.equal(fs.existsSync(path.join(newDir,cleanupDigest('op-x')+'.json')),false,'落定后仅 C 这一次删除');
+  assert.equal(co.outcome,'retained');
+  assert.equal(fs.readFileSync(path.join(newDir,cleanupDigest('op-x')+'.json'),'utf8'),xBytes,'导入落定后 C 核对回执，原字节保留');
   assert.equal(fs.readFileSync(path.join(newDir,cleanupDigest('op-y')+'.json'),'utf8'),yBytes,'同批未终态回执 op-y 保留且字节一致');
   assert.equal(fs.readFileSync(path.join(legacyDir,cleanupDigest('op-x')+'.json'),'utf8'),xBytes,'旧回执目录一字未改');
   const host=new PlanRunHost({context:{globalStorageUri:{fsPath:storage}},loadDistributedQueue:async()=>({plans:[]})},root);
-  assert.equal(await host.releaseSettled('op-x','submission-succeeded'),'not-found','释放幂等：已删除的回执不复活也不重复删');
+  assert.equal(await host.retainSettled('op-x','submission-succeeded'),'retained','重复核对幂等，不删除或改写回执');
 });
 
 test('r21 同一记录并发释放确定终态（恰好一方删除，其余 not-found）；目录伪装记录绝不被删',async()=>{
@@ -364,16 +364,16 @@ test('r21 缓存守卫：POSIX 真实 chmod 写位拒绝/恢复 0700 通过/非�
 });
 
 // ── r20 producer 接线矩阵：驱动真实 RealtimeTunnelPanelProvider.finishPlanSubmissionProgress（vm 切片，
-// 同 staleQueueRoundBehavior 先例）→ 真实 releaseSettledPlanSubmissionReceipt → 真实 PlanRunHost/租约/文件。
+// 同 staleQueueRoundBehavior 先例）→ 真实 retainSettledPlanSubmissionReceipt → 真实 PlanRunHost/租约/文件。成功与失败都保留原文件。
 // 同步点用"已被接线捕获的返回 Promise"await 完成，不 sleep/轮询；三个真 succeeded 分支（正常 durable/
-// 短恢复形态=带 workflowId 回执、keep_existing 形态=无 workflowId 回执）都释放；failed/cancelled/queued、
-// 缺冻结 root、损坏回执、成功前已被取消的记录一律保留；释放只动冻结 root 下的精确回执。
+// 短恢复形态=带 workflowId 回执、keep_existing 形态=无 workflowId 回执）都保留；failed/cancelled/queued、
+// 缺冻结 root、损坏回执、成功前已被取消的记录一律保留；核对只读冻结 root 下的精确回执。
 function producerHost(warns){
   const vm=require('node:vm'),ts=require('typescript');
   const source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);
   let cls;function visit(n){if(ts.isClassDeclaration(n)&&n.name&&n.name.getText(ast)==='RealtimeTunnelPanelProvider')cls=n;ts.forEachChild(n,visit);}visit(ast);
-  const names=['finishPlanSubmissionProgress','releaseSettledPlanSubmissionReceipt'];
+  const names=['finishPlanSubmissionProgress','retainSettledPlanSubmissionReceipt'];
   const members=cls.members.filter(n=>n.name&&names.includes(n.name.getText(ast)));
   assert.equal(members.length,names.length,names.join(','));
   return vm.runInNewContext(ts.transpileModule('class Host{'+members.map(n=>n.getText(ast)).join('\n')+'};Host',
@@ -381,15 +381,15 @@ function producerHost(warns){
     {assert,console:{log(){},warn:(...a)=>warns.push(a.map(String).join(' '))},path,Date,JSON,String,Number,Map,Set,Promise,
      PlanRunHost,normalizePlanSelectionKey:s=>String(s||'').toLowerCase().trim(),errorMessage:e=>String(e&&e.message||e)});
 }
-test('r20 producer 接线：真 finish 的 succeeded/failed/cancelled/queued 矩阵只按成功事实释放，围栏与冻结 root 不动',async()=>{
+test('r20 producer 接线：真 finish 的 succeeded/failed/cancelled/queued 矩阵全部保留回执，围栏与冻结 root 不动',async()=>{
   const root=mkRoot('wire'),storage=path.join(mkRoot('wireStore'),'g'),other=mkRoot('wireOther');
   const warns=[];const Host=producerHost(warns);const h=new Host();
   Object.assign(h,{context:{globalStorageUri:{fsPath:storage}}, // 真实 provider 形状：helper→PlanRunHost 迁移检查要读 legacy 目录锚点
     localOperations:{},distributedSubmissionAborts:new Map(),
     planSubmissionOperationId:m=>'plan-submit-'+m.clientActionId,markLocalOperationsDirty(){},postState(){},trimPlanSubmissionEpochs(){}});
   // 用既有返回 Promise 作同步点：包装（不替换语义）真实 helper，捕获接线发起的 Promise。
-  const real=Object.getPrototypeOf(h).releaseSettledPlanSubmissionReceipt;
-  const pending=[];h.releaseSettledPlanSubmissionReceipt=function(...a){const p=real.apply(this,a);pending.push(p);return p;};
+  const real=Object.getPrototypeOf(h).retainSettledPlanSubmissionReceipt;
+  const pending=[];h.retainSettledPlanSubmissionReceipt=function(...a){const p=real.apply(this,a);pending.push(p);return p;};
   const store=new PlanRunHost({context:{globalStorageUri:{fsPath:storage}}},root);
   const recFile=op=>path.join(root,'simple_cluster','state','simple-experiment','run-submissions',cleanupDigest(root),cleanupDigest(op)+'.json');
   // durable 正常/短恢复形态（带 workflowId）与 keep_existing 形态（明确正常完成、可无 workflowId/新 plan）
@@ -405,6 +405,7 @@ test('r20 producer 接线：真 finish 的 succeeded/failed/cancelled/queued 矩
   await store.save({submissionOperationIdLocal:'plan-submit-q',planFile:'plans/q.yaml',submissionWorkflowId:'wf-q'});
   // keep_existing 释放后不许新建其它项目路径；缺 root 的 noot 有回执（保留）
   await store.save({submissionOperationIdLocal:'plan-submit-noot',planFile:'plans/n.yaml'});
+  const originalReceipts=Object.fromEntries(['a','k','bad','canc','f','q','noot'].map(op=>[op,fs.readFileSync(recFile('plan-submit-'+op),'utf8')]));
   const settle=async()=>{while(pending.length)await pending.shift();};
   h.finishPlanSubmissionProgress({clientActionId:'a'},'succeeded','调度队列已保存。'); // 正常 durable 形态
   h.finishPlanSubmissionProgress({clientActionId:'k'},'succeeded','用户选择保留已有产物，本次未创建新调度任务。'); // keep_existing
@@ -414,8 +415,8 @@ test('r20 producer 接线：真 finish 的 succeeded/failed/cancelled/queued 矩
   h.finishPlanSubmissionProgress({clientActionId:'f'},'failed','校验未通过');
   h.finishPlanSubmissionProgress({clientActionId:'q'},'queued','等待前序');
   await settle();
-  assert.equal(fs.existsSync(recFile('plan-submit-a')),false,'正常 durable：成功终态立即释放，不等 job 终态');
-  assert.equal(fs.existsSync(recFile('plan-submit-k')),false,'keep_existing：无 workflowId 也是明确成功，释放且不虚构 plan');
+  assert.equal(fs.existsSync(recFile('plan-submit-a')),true,'正常 durable：成功终态保留项目回执');
+  assert.equal(fs.existsSync(recFile('plan-submit-k')),true,'keep_existing：保留原回执，不删除或虚构 plan');
   assert.equal(fs.readFileSync(path.join(path.dirname(recFile('plan-submit-a')),'user-keep.json'),'utf8'),'KEEP','只删精确回执，同目录其它文件不动');
   assert.equal(fs.readFileSync(recFile('plan-submit-bad'),'utf8'),'not-json{{','损坏回执保留原字节');
   assert.ok(fs.existsSync(recFile('plan-submit-noot')),'缺冻结 receiptRoot：明确保留并记日志，绝不猜当前 workspaceRoot');
@@ -426,15 +427,16 @@ test('r20 producer 接线：真 finish 的 succeeded/failed/cancelled/queued 矩
   assert.equal(h.localOperations['plan-submit-f'].retryableSubmission,undefined,'finish 不新增/篡改记录字段');
   assert.ok(fs.existsSync(recFile('plan-submit-q')),'queued 保留');
   assert.equal(h.localOperations['plan-submit-a'].status,'succeeded');
-  // 幂等：重复 succeeded 终态只产生 not-found，不复活也不重复删；marker 持久→释放值不复活由 :104 用例钉住
+  for(const [op,bytes] of Object.entries(originalReceipts))assert.equal(fs.readFileSync(recFile('plan-submit-'+op),'utf8'),bytes,'成功、取消、失败及排队回执原字节保留：'+op);
+  // 幂等：重复 succeeded 保留同一份回执，不复活、改写或删除记录。
   h.finishPlanSubmissionProgress({clientActionId:'a'},'succeeded','重复终态');await settle();
-  assert.equal(fs.existsSync(recFile('plan-submit-a')),false);
+  assert.equal(fs.existsSync(recFile('plan-submit-a')),true,'重复成功终态也不删除回执');
   assert.ok(!fs.existsSync(path.join(other,'simple_cluster')),'其它项目树全程零创建');
-  // 两项目交错：B 的回执只按 B 的冻结 root 释放，A 终态不触碰 B
+  // 两项目交错：B 的回执只按 B 的冻结 root 核对和保留，A 终态不触碰 B
   const storeB=new PlanRunHost({context:{globalStorageUri:{fsPath:storage}}},other);
   await storeB.save({submissionOperationIdLocal:'plan-submit-b1',planFile:'plans/b.yaml',submissionWorkflowId:'wf-b'});
   h.localOperations['plan-submit-b1']={status:'running',planFile:'p.yaml',receiptRoot:other};
   h.finishPlanSubmissionProgress({clientActionId:'b1'},'succeeded','B 成功终态（工作区已切走也不影响冻结归属）');await settle();
-  assert.equal(fs.existsSync(path.join(other,'simple_cluster','state','simple-experiment','run-submissions',cleanupDigest(other),cleanupDigest('plan-submit-b1')+'.json')),false,'B 回执按 B 冻结 root 精确释放');
+  assert.equal(fs.existsSync(path.join(other,'simple_cluster','state','simple-experiment','run-submissions',cleanupDigest(other),cleanupDigest('plan-submit-b1')+'.json')),true,'B 回执按 B 冻结 root 保留，不触碰 A 项目');
   assert.equal(fs.readFileSync(path.join(path.dirname(recFile('plan-submit-a')),'user-keep.json'),'utf8'),'KEEP','B 的释放零触碰 A 文件');
 });

@@ -64,26 +64,18 @@ class PlanRunHost {
             this.receiptsMigration = (0, ProjectStatePaths_1.ensureProjectDirectorySnapshotsMigrated)(this.root, path.join(this.host.context.globalStorageUri.fsPath, "run-submissions", (0, PlanCleanup_1.cleanupDigest)(this.root)), path.join((0, ProjectStatePaths_1.projectStateDir)(this.root, "simple-experiment"), "run-submissions", (0, PlanCleanup_1.cleanupDigest)(this.root)), /^[a-f0-9]{64}\.json$/, this.receiptsMigrationMarker()).catch((error) => { this.receiptsMigration = undefined; throw error; });
         return this.receiptsMigration;
     }
-    /** r17-C lifecycle (r18 lease protocol, r20 consumer contract): a SUCCEEDED submission is the last
-     * purpose of this recoverable input — the durable queue fact has replaced it. Release takes the
-     * SAME marker scope lease as the migration (one lease serializes check→import→publish and
-     * check→delete), re-runs migration under that lease, and only then removes the exact receipt path
-     * THIS host derives for this operationId after verifying its recorded root/operationId.
-     * r20 修正 r18/19 的过度判据：队列 job 的 pending/running 是远端任务生命周期，不是这份本地回执的
-     * 消费者——load() 全 src 仅 resume/cancel 两个入口，面板按钮门控 retryableSubmission 从不落在
-     * succeeded 记录上，且提交流的所有 save 都在队列 durable 写之前 await 完成。因此删除的唯一授权是
-     * 调用方显式传入的成功提交业务结果（"submission-succeeded"，来自 finish 的真实 succeeded 分支，
-     * 覆盖正常 durable、durable 短恢复与 keep_existing——后者按定义可无 workflowId/新 plan）；缺该事实、
-     * failed/cancelled/queued 一律不删。failed/cancelled 回执按既有语义保留（恢复入口依赖其明确错误
-     * 语义）；损坏/foreign/未落定 marker 保留；绝不扫描、改写或删 legacy 文件。 */
-    async releaseSettled(id, successFact) {
+    /** Submission success never authorizes deleting project machine state.
+     * Keep the exact receipt byte-for-byte, including keep_existing submissions.
+     * Use the migration lease so another window cannot race import with this check.
+     * This check neither consults remote jobs nor creates a recovery/cleanup intent. */
+    async retainSettled(id, successFact) {
         if (!id)
             return "not-found";
         if (successFact !== "submission-succeeded")
             return "no-success-fact"; // 无终态依据绝不删除：缺事实=明确保留，不默认无引用
         const marker = this.receiptsMigrationMarker();
         const file = this.file(id);
-        return await (0, ProjectStatePaths_1.withProjectStateMigrationLease)(this.root, marker, "plan-receipt-release", "释放已成功的提交恢复记录", async () => {
+        return await (0, ProjectStatePaths_1.withProjectStateMigrationLease)(this.root, marker, "plan-receipt-retain", "保留已成功的提交恢复记录", async () => {
             await this.ensureReceiptsMigrated(); // same target re-uses this lease (nested acquire reuses parent)
             if (!await fs.stat(marker).catch(() => undefined))
                 return "pending-migration";
@@ -98,8 +90,7 @@ class PlanRunHost {
             }
             if (value?.root !== this.root || value?.operationId !== id)
                 return "foreign-record";
-            await fs.rm(file, { force: true });
-            return "released";
+            return "retained";
         });
     }
     async load(id) {

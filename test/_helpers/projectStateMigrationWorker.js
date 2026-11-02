@@ -9,8 +9,8 @@
 //   receipt-hold <root> <storage> <opId> <signal> <gate>
 //     在 withProjectStateMigrationLease 的真实持有上下文内：assertOwned → 发信号 → 等闸门，
 //     放行后才 host.load(opId) 完成导入（同 ALS 上下文嵌套 acquire 命中 parent、复用不冲突）。
-//   receipt-release <root> <storage> <opId>
-//     第三进程执行一次 PlanRunHost.releaseSettled。
+//   receipt-retain <root> <storage> <opId>
+//     第三进程执行一次 PlanRunHost.retainSettled。
 // 租约嵌套复用依赖 AsyncLocalStorage（仅生产 run() 建立上下文），所以验证/屏障必须放在生产
 // 租约回调内部、绝不裸 acquire 外层自锁。只与 dist/ 下的生产 API 交互；不读测试内部状态、不写源码/Git。
 const fs = require("node:fs");
@@ -44,12 +44,13 @@ const waitGate = async (signal, gate) => {
   } else if (mode === "release") {
     const outcome = await P.releaseMigratedProjectSnapshotRecord(projectRoot, marker, extra1);
     process.stdout.write(JSON.stringify({ role: "release", outcome }));
-  } else if (mode === "receipt-hold" || mode === "receipt-release") {
+  } else if (mode === "receipt-hold" || mode === "receipt-retain") {
     const { cleanupDigest } = require("../../dist/features/PlanCleanup.js");
-    const { PlanRunHost } = require("../../dist/extension/PlanRunHost.js");
+    require("./registerTsRequire");
+    const { PlanRunHost } = require("../../src/extension/PlanRunHost.ts");
     const host = new PlanRunHost({ context: { globalStorageUri: { fsPath: second } }, loadDistributedQueue: async () => ({ plans: [] }) }, projectRoot);
-    if (mode === "receipt-release") {
-      process.stdout.write(JSON.stringify({ role: "receipt-release", outcome: await host.releaseSettled(third, "submission-succeeded") }));
+    if (mode === "receipt-retain") {
+      process.stdout.write(JSON.stringify({ role: "receipt-retain", outcome: await host.retainSettled(third, "submission-succeeded") }));
       return;
     }
     const markerFile = P.projectStateFile(projectRoot, "simple-experiment", "migrations",

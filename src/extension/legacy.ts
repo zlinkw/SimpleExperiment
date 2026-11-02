@@ -8263,31 +8263,27 @@ return this.testTunnel(true);
             this.distributedSubmissionAborts?.delete(operationId);
             this.trimPlanSubmissionEpochs();
         }
-        // r17-C / r20 接线：提交成功终态是恢复记录的最后一个用途（队列已是事实），释放该 operationId 的
-        // 精确回执；failed/cancelled/queued 保留——恢复/取消入口依赖其明确语义。成功分支的三个来源
-        // （正常 durable enqueue、durable 短恢复、keep_existing 正常完成）都汇经此处，success 事实由
-        // 唯一入口的 status==="succeeded" 提供，不接受任意显示文本。frozen root 取提交时持久化的
-        // receiptRoot，绝不在终态取当前 workspaceRoot；缺 root/坏记录/foreign/未落定一律保留并如实
-        // 记日志（helper 内），释放失败只多留一条记录，不静默、不猜测。
-        if (status === "succeeded") void this.releaseSettledPlanSubmissionReceipt?.(operationId, current.receiptRoot);
+        // 成功回执是项目机器状态，提交成功不授权删除。只核对冻结项目下的回执并保留原字节；
+        // failed/cancelled/queued 的恢复语义不变，不创建重跑、清理或服务器操作。
+        if (status === "succeeded") void this.retainSettledPlanSubmissionReceipt?.(operationId, current.receiptRoot);
         this.markLocalOperationsDirty();
         this.postState();
     }
-    async releaseSettledPlanSubmissionReceipt(operationId: string, frozenRoot: string): Promise<void> {
-        // r18 根漂移修正：释放必须用操作提交时冻结的绝对 root（begin/submit 持久化的 receiptRoot）；
+    async retainSettledPlanSubmissionReceipt(operationId: string, frozenRoot: string): Promise<void> {
+        // 核对必须用操作提交时冻结的绝对 root（begin/submit 持久化的 receiptRoot）；
         // 用户中途切换项目时终态清理仍归原项目。缺原归属 → 保留记录并留日志，绝不猜测删除。
         const root = String(frozenRoot || "");
         if (!operationId || !path.isAbsolute(root)) {
-            console.warn("[SimpleExperiment] 提交恢复记录缺少冻结归属，保留不释放：", operationId || "(空)");
+            console.warn("[SimpleExperiment] 提交恢复记录缺少冻结归属，保留不核对：", operationId || "(空)");
             return;
         }
         try {
             // r20：成功事实由本方法唯一来源（finish 的 status==="succeeded" 分支）携带；本方法不做显示文本判断。
-            const outcome = await new PlanRunHost(this, root).releaseSettled(operationId, "submission-succeeded");
-            if (outcome !== "released" && outcome !== "not-found")
-                console.warn("[SimpleExperiment] 提交恢复记录本轮未释放（保留，不猜测）：", operationId, outcome);
+            const outcome = await new PlanRunHost(this, root).retainSettled(operationId, "submission-succeeded");
+            if (outcome !== "retained" && outcome !== "not-found")
+                console.warn("[SimpleExperiment] 提交恢复记录核对未完成（保留，不猜测）：", operationId, outcome);
         } catch (error: any) {
-            console.warn("[SimpleExperiment] 提交恢复记录释放失败，保留：", operationId, String(error?.message || error));
+            console.warn("[SimpleExperiment] 提交恢复记录核对失败，保留：", operationId, String(error?.message || error));
         }
     }
     planSubmissionQueueDetail(body, blocker, confirmed = true) {

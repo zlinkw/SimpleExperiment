@@ -1,4 +1,8 @@
 .audit/**
+.worktrees/**
+.slim/**
+.openchamber-sandbox.json
+.ignore
 src/**
 tsconfig.json
 *.tsbuildinfo
