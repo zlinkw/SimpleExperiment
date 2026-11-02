@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的后台 SSH 隧道实时集群编排面板。",
-  "version": "0.5.469",
+  "version": "0.5.470",
   "simpleExperimentRelease": {
     "channel": "trial",
     "authoritativeVersion": "0.5.440",
@@ -531,19 +531,13 @@
           "minimum": 1024,
           "maximum": 65535,
           "scope": "application",
-          "description": "TensorBoard 在远端监听的端口，点击“打开 TensorBoard”时会重启该端口上的 <prefix>_tb tmux 会话。"
+          "description": "TensorBoard 在远端监听的端口。显式打开时重启当前项目的精确服务窗口；共享账号上的不同项目应配置独立端口，端口占用时不会关闭其他服务。"
         },
         "simpleExperiment.tensorboard.logdir": {
           "type": "string",
           "default": "work_dirs",
           "scope": "application",
           "description": "启动 TensorBoard 时优先使用的日志目录（相对于远端项目根目录）。留空或不存在时，agent 会自动探测 events.out.tfevents.* 目录并直接启动 tensorboard。"
-        },
-        "simpleExperiment.tensorboard.tmuxSession": {
-          "type": "string",
-          "default": "",
-          "scope": "application",
-          "description": "TensorBoard 的 tmux 会话名。留空时自动取 <tunnel.remoteTmuxSessionPrefix>_tb，切勿写死具体服务器或用户名。"
         },
         "simpleExperiment.tunnel.condaEnv": {
           "type": "string",

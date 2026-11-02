@@ -51,7 +51,7 @@
 | PFX2d | 调度前缀归一化与真实原队列定位 | passed |
 | PFX2e | 通用关窗不得按 Agent 会话名跳过精确窗口保护 | passed |
 | PFX2f1 | TensorBoard runtime 使用全局前缀及精确项目服务身份 | passed |
-| PFX2f2 | Host 传递唯一全局值，展示实际返回的服务目标 | running |
+| PFX2f2 | Host 传递唯一全局值，展示实际返回的服务目标 | passed |
 | PFX3 | 远端路径校验和错误品牌迁移的前缀残留 | pending |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
@@ -391,6 +391,14 @@ Host、Agent、实际 UI、既有 Controls1、三版本及本计划共 8 文件�
 
 PFX-test10：Controls5 三项通过，exit=0，pfx-test10-controls5.log；不重编译或重打未变化生产包，复用有效命名回归证据。
 
+PFX2f2 定向覆盖合计 33 项通过（Controls1–5 为 4/4/4/4/3，AndFence 5、localProxy 1、publicDefault 8）；两套旧夹具的首次失败和独立修正凭据保留。PFX-test10 提交 a1d860c207d0e04244aefc425b0a151f39ca8070 已普通 push/fetch 一致。compile 2026-11-02T18-30-54-535Z-51928 通过；实际生成 HTML 三脚本解析及隔离 Chrome 六场景、420px 焦点/输入保护通过，报告 pfx2-render-1793644461120.json，无真实 API。冻结本批 8 文件与内部 0.5.470，开始规定 package；测试准备两个提交不改停止生产协议，也未把原不在 package jobs 内的文件冒称为旧全量覆盖。
+
+PFX2f2 首轮 package 2026-11-02T18-34-40-012Z-45180：318 作业通过、未运行 0、exit=0、704403ms，仅为中间候选，未交付。只读传输调用链核对发现新路由尚未保留旧 actionPurpose 的语义：停止必须仍用 stop/emergency 通道，启动用 run_plan，状态用 manual_refresh。待该运行完全退出、锁释放后才修正 Host 与原 VM 断言，旧 Agent 404 同时提供主动准备当前项目 Agent 的恢复说明并保留原 HTTP 错误；不自动部署或重发。新增启动后查询失败仍未知、非 TB save-result-policy 仍走原 Worker 通道的同进程断言。生产输入变化后重新执行 compile、定向和规定 package，不把首轮凭据当最终候选通过。
+
+最终修正后的 compile 2026-11-02T18-47-06-465Z-15108 通过；Controls1 四项和原 requestBudget 十二项通过（pfx2f2-final-*.log），累计必要定向覆盖 45 项，已有未变化运行证明复用。真实 HTML 源未再变化，复用 pfx2-render-1793644461120.json 的六场景/焦点证据，最终包仍核验实际脚本。冻结同一 8 文件内部 0.5.470，开始第二轮规定 package。
+
+PFX2f2 最终验证：2026-11-02T18-47-46-029Z-43464-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、702355ms。内部 universal/trial 0.5.470：2773768 字节，SHA256 c36c7eaa4b23f64faece88509b5427194bfd49d36c47fe4ed4a0689732f25085；实际字节与 receipt 一致，362 项内容门禁零违规，真实 HTML 三脚本及模块解析通过。全局前缀、请求项目/Worker、实际服务证据和 stop/emergency 通道均已覆盖；真实服务器及 Extension Host 验收仍未执行。无服务器操作、公开发行或安装；PFX3、D1 精确附着及 PFX4 收口前继续不发布中间包。
+
 ## 后续定向核查线索（尚未实施）
 
 PFX2e 提交 b257d66f1fbbab2be699fe7166f589c76defe8e3 已普通 push/fetch 一致。PFX-test8 纯测试准备：Controls5 的共用归一化断言直接验证已存在的真实 normalizer，保留原 Worker 拓扑、URL、脚本路径及全部测试；TB 命名格式继续由 AndFence 六组、policy 九组和 Controls1 实际服务检查负责。函数存在检查不再约束参数个数，供后续加入必需项目身份；不增加进程或降低行为覆盖。仅原测试和本计划独立验证/提交，无新运行版本。PFX2f 按 8 文件上限拆 runtime 与 Host 两批，不提交依赖未入库生产修改才能通过的测试。
@@ -401,5 +409,6 @@ PFX-test8：原 Controls5 完整套件 3 项通过，exit=0，pfx-test8-controls
 - D1：serverSetupReadiness 在 0 Worker 时 missing 为空导致 ready=true；占位 tmuxCmdAgent/Sch/Gpu 从未填充真实目标，仍可复制。应修正空目标语义，提供真实选定窗口的唯一附着入口。
 - D2：operationEventMaxDelayMs 配置/后端默认 200，面板三处回退 1000；全局读取缺少与保存的 10000 上限一致的约束。Conda label 含“可选，必填”，configInput/configSelect 的 label 没有 for/id。
 - D2/D3：Worker Conda 继承时表单显示全局值；saveWorkerConfigCore 用 effectiveWorkerCondaEnv 作缺值回退，会把继承固化成覆盖。需显式区分继承、系统 Python 与路径，不自动探测/安装科研依赖。
+- D2 端口配置范围：已有 tensorboard.port 目前 scope=application，同电脑多项目无法各自保存不同值。后续允许当前项目覆盖并保留原全局默认/显式值，清楚说明共享账号各项目服务需要独立端口；不自动换端口或停止其他项目。PFX2f 已保证端口占用明确失败、不借用其他服务，配置体验尚未完成。
 - D3：clearConfigDraftsForCommand 收到 completed 后整 scope 删除草稿，缺少对发出时草稿的快照核对；保存期间的新输入及无对应 pending item 的旧成功回包可能清掉新草稿。失败回包不清草稿的现有行为保留。
 - E1 首屏计数返修线索：overviewTaskStats 目前只数 schedulerRowsForState 的兼容任务，没有读取 distributedPlans；协议 2 作业存在时首屏可能仍显示 0。须复用逻辑 PLAN 归并计数且说明记录来源，不能把当前原生 job 与旧任务投影重复累计；E1 实施并补定向回归。

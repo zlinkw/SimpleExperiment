@@ -4747,7 +4747,7 @@ export function renderPanelHtml(): string {
           continue;
         }
         if (item.type === "tensorboardSwitchStatus") {
-          gpuTensorboardStatus[String(item.endpointId || "")] = { running: !!item.running, error: String(item.error || "") };
+          gpuTensorboardStatus[String(item.endpointId || "")] = { running: typeof item.running === "boolean" ? item.running : null, error: String(item.error || "") };
           renderGpuTensorboardControls(lastState || {});
           renderOperationSectionIfChanged(lastState || {});
           continue;

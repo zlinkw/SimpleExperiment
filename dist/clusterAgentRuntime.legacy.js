@@ -12475,6 +12475,12 @@ def close_tensorboard_window(root, session, window=None):
 
 
 def tensorboard_action(root, action, payload, operation_id, op_id):
+    project = str(payload.get("projectDir") or "").strip()
+    worker = str(payload.get("workerId") or "").strip()
+    if not os.path.isabs(project) or os.path.realpath(project) != os.path.realpath(root):
+        raise ValueError("TENSORBOARD_PROJECT_MISMATCH: 请求项目与当前 Agent 不一致，未操作服务。")
+    if not worker or worker != str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip():
+        raise ValueError("TENSORBOARD_WORKER_MISMATCH: 请求 Worker 与当前 Agent 不一致，未操作服务。")
     prefix = remote_resource_prefix()
     tb_session = tb_tmux_session_name(root)
     if "session_prefix" in payload or payload.get("sessionPrefix") is not None and remote_resource_prefix(payload["sessionPrefix"]) != prefix:
@@ -14231,6 +14237,7 @@ def api_openapi(root, token_required=False, mode="worker_telemetry"):
             "/api/actions/start-tensorboard",
             "/api/actions/stop-tensorboard",
             "/api/actions/get-tensorboard-status",
+            "/api/tensorboard/service",
             "/api/actions/install-rich",
             "/api/tensorboard/proxy",
             "/api/tensorboard/ui/{path}",
@@ -16278,11 +16285,14 @@ def serve_http(args):
                     return self.send_json({"error": str(exc)}, status=400)
             if mode == "worker_telemetry":
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
+                if route == "/api/tensorboard/service":
+                    worker_action = "get-tensorboard-status"
                 if route not in ("/api/actions/save-result-policy", "/api/actions/finalize-worker-operation", "/api/actions/start-worker-task", "/api/actions/preflight-worker-task", "/api/actions/register-code-sync-proof", "/api/actions/rebuild-distributed-results", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/actions/preview-cache-cleanup", "/api/actions/delete-cache-candidates", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(urlparse(self.path))
             allowed = ACTION_ROUTES.union({
+                "/api/tensorboard/service",
                 "/api/tmux/kill-window",
                 "/api/worker/availability/batch",
                 "/api/workers/uplink/events",
@@ -16611,8 +16621,19 @@ def serve_http(args):
             op_id = require_op_id(self, payload)
             if not op_id:
                 return
-            action = route.rsplit("/", 1)[-1]
+            action = str(payload.get("action") or "") if route == "/api/tensorboard/service" else route.rsplit("/", 1)[-1]
             operation_id = str(payload.get("operationId") or f"{action}-{op_id}")
+            if route == "/api/tensorboard/service" and action not in WORKER_TENSORBOARD_ACTIONS:
+                return self.send_json({"error": "TENSORBOARD_ACTION_INVALID"}, status=400)
+            if action in WORKER_TENSORBOARD_ACTIONS:
+                # Validate request identity before any operation receipt writes.
+                try:
+                    return self.send_json(tracked_cleanup_action(root, action, payload, operation_id, op_id))
+                except ValueError as exc:
+                    return self.send_json({"error": str(exc), "running": None, "listening": None}, status=403)
+                except Exception as exc:
+                    return self.send_json(terminal_action(root, action, operation_id, op_id, "failed", str(exc),
+                        {"running": None, "listening": None}, request=payload), status=500)
             if action == "preflight-worker-task":
                 current_worker = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip()
                 if payload.get("workerId") != current_worker:

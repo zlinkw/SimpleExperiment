@@ -26397,78 +26397,59 @@ class RealtimeTunnelPanelProvider {
             return { status: response.status, body: data, contentType: response.headers.get("content-type") || "application/octet-stream" };
         });
     }
-    async openTensorBoardFromUi(message, openExternal = true) {
-        const endpointId = String(message?.endpointId || message?.endpoint_id || "hub").trim() || "hub";
-        let remoteReady = false;
+    tensorboardTarget(endpointId) {
+        const worker = this.enabledWorkerConfigs().find(item => item.id === endpointId);
         const endpoint = this.client?.endpointById?.get?.(endpointId);
-        if (!endpoint)
-            throw new Error(`未找到 ${endpointId} 的 Agent 隧道配置`);
+        if (!worker || endpoint?.role !== "worker")
+            throw new Error("请选择已启用且配置了 Agent 隧道的 Worker。");
+        const projectDir = String(this.expectedWorkerAgentProjectRoot(endpointId) || "");
+        if (!projectDir.startsWith("/"))
+            throw new Error(`${endpointId} 的远端项目根目录尚未配置，未操作 TensorBoard。`);
+        return { worker, endpoint, projectDir };
+    }
+    async openTensorBoardFromUi(message, openExternal = true) {
+        const endpointId = String(message?.endpointId || message?.endpoint_id || "").trim();
+        let remoteReady = null;
+        const { worker, endpoint, projectDir } = this.tensorboardTarget(endpointId);
         const cfg = vscode.workspace.getConfiguration("simpleExperiment");
-        const rawPrefix = String(this.setupConfig?.remoteTmuxSessionPrefix || "simple").trim() || "simple";
-        // 统一归一：与 agent 侧 tb_tmux_session_name / write_snapshots 完全一致（小写、非法→-、截32）
-        const normPrefix = (() => {
-            try {
-                const fn = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix;
-                if (typeof fn === "function")
-                    return fn(rawPrefix);
-            }
-            catch { }
-            return String(rawPrefix).trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "simple";
-        })();
-        const sessionPrefix = normPrefix;
         const remotePort = Number(cfg.get("tensorboard.port")) || 6006;
         const logdir = String(cfg.get("tensorboard.logdir") || "work_dirs");
-        const condaEnv = String(cfg.get("tunnel.condaEnv") || "").trim();
-        // TB session name is derived from the configured prefix; never hardcoded to a server/user.
-        // The actual launch command is discovered adaptively by the agent (no server path in settings).
-        const tbSession = String(cfg.get("tensorboard.tmuxSession") || `${normPrefix}_tb`);
+        const condaEnv = String(worker.condaEnv ?? this.setupConfig.condaEnv ?? "").trim();
         const url = `${tunnelHttpOrigin(endpoint.localHost, endpoint.localPort)}/api/tensorboard/ui/`;
-        const body = { sessionPrefix, port: remotePort, logdir, condaEnv, tmuxSession: tbSession, session: tbSession };
+        const body = { projectDir, port: remotePort, logdir, condaEnv };
         try {
-            // Always restart a fresh TB session so the panel shows the latest state (low cost).
             const started = await this.postTensorboardAction(endpointId, "start-tensorboard", body);
-            if (started?.status === "failed")
-                throw new Error(String(started.message || "远端启动失败"));
-            // Poll readiness (server-side port probe) up to ~10s without exhausting the tunnel budget.
-            let status = undefined;
-            let sessionUp = false;
+            if (started?.status !== "completed")
+                throw new Error(String(started?.message || "远端启动未确认"));
+            let status;
             for (let i = 0; i < 5; i++) {
                 await new Promise((r) => setTimeout(r, 2000));
-                try {
-                    status = await this.postTensorboardAction(endpointId, "get-tensorboard-status", { ...body, opId: makeOpId("get-tensorboard-status") });
-                }
-                catch { }
-                if (status) {
-                    sessionUp = sessionUp || !!status.running;
-                    if (status.listening)
-                        break;
-                }
+                remoteReady = null;
+                status = await this.postTensorboardAction(endpointId, "get-tensorboard-status", { ...body, opId: makeOpId("get-tensorboard-status") });
+                if (status?.status !== "completed")
+                    throw new Error(String(status?.message || "远端状态查询未确认"));
+                remoteReady = typeof status.running === "boolean" ? status.running : null;
+                if (status.listening === true)
+                    break;
             }
-            const listening = !!(status && status.listening);
-            if (!listening) {
-                void vscode.window.showErrorMessage(`TB 启动失败，请检查服务器 start_tb.sh / 端口占用（${url}）`);
-                this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: false, error: "远端端口未就绪" });
-                return;
-            }
-            else {
-                remoteReady = true;
-                this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: true });
-            }
+            if (status?.listening !== true)
+                throw new Error(`TensorBoard 端口尚未就绪：${status?.message || "请查看当前项目服务日志"}`);
+            remoteReady = status.running;
+            this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, ...status });
             const proxyCheck = await fetch(url, { signal: AbortSignal.timeout(5000) });
             if (!proxyCheck.ok)
                 throw new Error(`Agent 隧道中的 TensorBoard 入口返回 HTTP ${proxyCheck.status}；请在 ${endpointId} 部署最新 Agent`);
             if (openExternal)
                 await vscode.env.openExternal(vscode.Uri.parse(url));
-            const logPath = status?.logPath || `simple_cluster/tmux_logs/${tbSession}.log`;
             if (openExternal)
-                void vscode.window.showInformationMessage(`TensorBoard 已就绪：${url}（远端 ${remotePort} ${tbSession} @ ${endpointId}，日志 ${logPath}）`, "复制链接").then((sel) => {
+                void vscode.window.showInformationMessage(`TensorBoard 已就绪：${url}（远端 ${status.port} ${status.tmuxSession} ${status.windowId} @ ${endpointId}，日志 ${status.logPath}）`, "复制链接").then((sel) => {
                     if (sel === "复制链接")
                         vscode.env.clipboard.writeText(url);
                 });
         }
         catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: remoteReady, error: msg });
+            this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: remoteReady, listening: null, error: msg });
             void vscode.window.showErrorMessage(`启动 TensorBoard 失败：${msg}`);
             throw e;
         }
@@ -26478,34 +26459,43 @@ class RealtimeTunnelPanelProvider {
         if (!endpointId)
             return;
         const cfg = vscode.workspace.getConfiguration("simpleExperiment");
-        const sessionPrefix = String(this.setupConfig?.remoteTmuxSessionPrefix || "simple");
         try {
-            const status = await this.postTensorboardAction(endpointId, "get-tensorboard-status", { sessionPrefix, port: Number(cfg.get("tensorboard.port")) || 6006 });
-            this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: !!status?.running, listening: !!status?.listening });
+            const status = await this.postTensorboardAction(endpointId, "get-tensorboard-status", { port: Number(cfg.get("tensorboard.port")) || 6006 });
+            if (status?.status !== "completed")
+                throw new Error(String(status?.message || "远端状态查询未确认"));
+            this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, ...status });
         }
         catch (e) {
-            this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: false, error: String(e) });
+            this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: null, listening: null, error: String(e) });
         }
     }
     async stopTensorBoardFromUi(message) {
         const endpointId = String(message?.endpointId || "").trim();
         if (!endpointId)
             throw new Error("缺少服务器 ID");
-        const cfg = vscode.workspace.getConfiguration("simpleExperiment");
-        const sessionPrefix = String(this.setupConfig?.remoteTmuxSessionPrefix || "simple");
-        const stopped = await this.postTensorboardAction(endpointId, "stop-tensorboard", { sessionPrefix });
-        if (stopped?.status === "failed")
-            throw new Error(String(stopped.message || "远端关闭失败"));
-        this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: false });
+        const stopped = await this.postTensorboardAction(endpointId, "stop-tensorboard", {});
+        if (stopped?.status !== "completed" || stopped.running !== false)
+            throw new Error(String(stopped?.message || "远端关闭尚未确认"));
+        this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, ...stopped });
     }
     async postTensorboardAction(endpointId, action, body) {
         const client = this.client;
         const opId = body?.opId || makeOpId(action);
-        const fullBody = { opId, ...body, endpointId };
+        const projectService = ["start-tensorboard", "stop-tensorboard", "get-tensorboard-status"].includes(action);
+        const projectDir = projectService ? this.tensorboardTarget(endpointId).projectDir : "";
+        if (projectService && body?.projectDir && body.projectDir !== projectDir)
+            throw new Error("项目已切换，TensorBoard 查询已停止；请在当前项目重新打开。");
+        const fullBody = { ...body, opId, endpointId, ...(projectService ? { action, projectDir, workerId: endpointId,
+                sessionPrefix: AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig.remoteTmuxSessionPrefix) } : {}) };
         for (let attempt = 0; attempt < 4; attempt++) {
             try {
-                if (endpointId === "hub")
-                    return await client.postAction(action, fullBody);
+                if (projectService) {
+                    const epClient = client.clients?.get?.(endpointId);
+                    if (!epClient)
+                        throw new Error("无法定位当前 Worker 客户端");
+                    const purpose = action === "stop-tensorboard" ? "stop" : action === "start-tensorboard" ? "run_plan" : "manual_refresh";
+                    return await epClient.requestJson("/api/tensorboard/service", purpose, fullBody, { method: "POST", userInitiated: true });
+                }
                 if (typeof client.postWorkerAction === "function")
                     return await client.postWorkerAction(endpointId, action, fullBody);
                 const epClient = client.clients?.get?.(endpointId);
@@ -26514,6 +26504,9 @@ class RealtimeTunnelPanelProvider {
                 throw new Error("无法定位 Worker 客户端以控制 TensorBoard");
             }
             catch (error) {
+                const message = String(error?.message || error);
+                if (projectService && message.startsWith("Worker Agent HTTP 404:"))
+                    throw new Error(`当前 Agent 尚不支持项目隔离的 TensorBoard 服务接口；请在服务器设置中主动准备该项目 Agent。${message}`);
                 const decision = error?.decision;
                 if (attempt === 3 || !["cooldown", "rate_limited"].includes(String(decision?.reason || "")))
                     throw error;
@@ -26524,10 +26517,8 @@ class RealtimeTunnelPanelProvider {
         throw new Error("TensorBoard 请求未能发送");
     }
     async copyTensorBoardUrlFromUi(message) {
-        const endpointId = String(message?.endpointId || "hub").trim();
-        const endpoint = this.client?.endpointById?.get?.(endpointId);
-        if (!endpoint)
-            throw new Error(`未找到 ${endpointId} 的 Agent 隧道配置`);
+        const endpointId = String(message?.endpointId || "").trim();
+        const { endpoint } = this.tensorboardTarget(endpointId);
         const targetUrl = `${tunnelHttpOrigin(endpoint.localHost, endpoint.localPort)}/api/tensorboard/ui/`;
         await vscode.env.clipboard.writeText(targetUrl);
         void vscode.window.showInformationMessage(`已复制 TensorBoard 链接（${endpointId}）：${targetUrl}`);
@@ -27196,7 +27187,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error(`关闭未生效：原窗口仍在 tmux 列表 ${identity.target}`);
     }
     async openTensorBoardUrlFromUi(message) {
-        const endpointId = String(message?.endpointId || message?.endpoint_id || "hub").trim() || "hub";
+        const endpointId = String(message?.endpointId || message?.endpoint_id || "").trim();
         await this.openTensorBoardFromUi({ endpointId });
     }
     async showLogHistoryFromUi(message) {

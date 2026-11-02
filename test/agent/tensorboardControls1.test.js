@@ -68,6 +68,11 @@ start_state = {"dead": False}
 os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = "owner"
 root = tempfile.mkdtemp(prefix="tensorboard-window-identity-")
 session = agent.tb_tmux_session_name(root)
+os.environ["SIMPLE_EXPERIMENT_WORKER_ID"] = "test"
+raw_action = agent.tensorboard_action
+def scoped_action(root, action, payload, operation_id, op_id):
+    return raw_action(root, action, {"projectDir": root, "workerId": "test", **payload}, operation_id, op_id)
+agent.tensorboard_action = scoped_action
 def run(args, **kwargs):
     global list_count, assigned
     calls.append(args)
@@ -239,12 +244,29 @@ with tempfile.TemporaryDirectory() as root:
     result_path.write_bytes(b'protocol_version,value\\n1,0.5\\n')
     agent.serve_http(types.SimpleNamespace(host='127.0.0.1', port=0, token='secret', mode='worker_telemetry', project_dir=root, worker_id='test'))
     local = servers[0]
+    service_url = f'http://127.0.0.1:{local.server_port}/api/tensorboard/service'
+    def service(payload, route=service_url):
+        req = urllib.request.Request(route, data=json.dumps(payload).encode(), headers={'X-Simple-Agent-Token': 'secret', 'Content-Type': 'application/json'}, method='POST')
+        return json.load(urllib.request.urlopen(req, timeout=5))
+    before = sorted(str(p.relative_to(root)) for p in pathlib.Path(root).rglob('*'))
+    for action in ('start-tensorboard', 'stop-tensorboard', 'get-tensorboard-status'):
+        for identity in ({}, {'projectDir': root + '-foreign', 'workerId': 'test'}, {'projectDir': root, 'workerId': 'other'}):
+            for route in (service_url, f'http://127.0.0.1:{local.server_port}/api/actions/{action}'):
+                try:
+                    service({'opId': 'wrong-identity', 'action': action, **identity}, route)
+                    raise AssertionError('missing or foreign service identity accepted')
+                except urllib.error.HTTPError as exc:
+                    assert exc.code == 403, exc.code
+                    assert 'MISMATCH' in json.load(exc)['error']
+    assert sorted(str(p.relative_to(root)) for p in pathlib.Path(root).rglob('*')) == before
+    valid_status = service({'action': 'get-tensorboard-status', 'opId': 'project-status', 'projectDir': root, 'workerId': 'test', 'sessionPrefix': 'owner'})
+    assert valid_status['status'] == 'completed' and valid_status['running'] is False, valid_status
     result_url = f'http://127.0.0.1:{local.server_port}/api/files/download?path=experiments%2Fresults%2Fconcatenation.csv'
     result_req = urllib.request.Request(result_url, headers={'X-Simple-Agent-Token': 'secret'})
     assert urllib.request.urlopen(result_req, timeout=5).read() == result_path.read_bytes()
     agent.tmux_session_alive = lambda *a, **k: False
     status_url = f'http://127.0.0.1:{local.server_port}/api/actions/get-tensorboard-status'
-    status_req = urllib.request.Request(status_url, data=json.dumps({'opId': 'tb-status', 'sessionPrefix': 'owner'}).encode(), headers={'X-Simple-Agent-Token': 'secret', 'Content-Type': 'application/json'}, method='POST')
+    status_req = urllib.request.Request(status_url, data=json.dumps({'opId': 'tb-status', 'sessionPrefix': 'owner', 'projectDir': root, 'workerId': 'test'}).encode(), headers={'X-Simple-Agent-Token': 'secret', 'Content-Type': 'application/json'}, method='POST')
     status = json.load(urllib.request.urlopen(status_req, timeout=5))
     assert status['status'] == 'completed' and status['running'] is False, status
     session = agent.tb_tmux_session_name(root)
@@ -290,25 +312,77 @@ print('proxy ok')
 });
 
 
-test("openTensorBoardFromUi restarts <prefix>_tb, polls status, and opens the Agent tunnel URL", () => {
-  // Check package.json config
+test("Host uses the global project service route, actual returned facts and visible unknown states", async () => {
   assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tensorboard.port"].default, 6006);
   assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tensorboard.logdir"].default, "work_dirs");
-  assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tensorboard.tmuxSession"].default, "");
-  // Check extension.ts logic
-  assert.match(extensionSource, /async openTensorBoardFromUi/);
-  assert.match(extensionSource, /postTensorboardAction/);
-  assert.match(extensionSource, /start-tensorboard/);
-   assert.match(extensionSource, /for \(let i = 0; i < 5; i\+\+\)/);
-   assert.match(extensionSource, /await new Promise.*2000/);
-  assert.match(extensionSource, /get-tensorboard-status/);
-  assert.match(extensionSource, /status\.listening/);
-  assert.match(extensionSource, /tunnelHttpOrigin\(endpoint\.localHost, endpoint\.localPort\)/);
-  assert.match(extensionSource, /fetch\(url, \{ signal: AbortSignal\.timeout\(5000\) \}\)/);
-  assert.match(extensionSource, /TB 启动失败，请检查服务器 start_tb\.sh \/ 端口占用/);
-  // body contains only non-absolute fields
-  assert.match(extensionSource, /sessionPrefix.*port.*logdir.*condaEnv.*tmuxSession/);
-  // Verify transmission via hub or worker client (through postTensorboardAction wrapper)
-  assert.match(extensionSource, /postTensorboardAction/);
-  assert.match(extensionSource, /postWorkerAction|postAction/);
+  assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tensorboard.tmuxSession"], undefined);
+  const vm = require("node:vm"), ts = require("typescript");
+  const source = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
+  const ast = ts.createSourceFile("host.ts", source, ts.ScriptTarget.Latest, true);
+  const cls = ast.statements.find(n => ts.isClassDeclaration(n) && n.name?.text === "RealtimeTunnelPanelProvider");
+  const names = ["tensorboardTarget", "postTensorboardAction", "openTensorBoardFromUi", "getTensorBoardStatusFromUi", "stopTensorBoardFromUi", "copyTensorBoardUrlFromUi", "openTensorBoardUrlFromUi"];
+  const members = cls.members.filter(n => names.includes(n.name?.getText(ast))).map(n => n.getText(ast)).join("\n");
+  const calls = [], messages = [], notices = [], opened = [], waits = [];
+  let project = "/projects/current", responseMode = "ready", workerEnabled = true, seq = 0;
+  const worker = { id: "gpu-a", condaEnv: "" }, endpoint = { role: "worker", localHost: "localhost", localPort: 23117 };
+  const facts = { status: "completed", running: true, listening: true, tmuxSession: "actual-project_tb", windowId: "@41", port: 6333, logPath: "logs/actual.log" };
+  const epClient = { requestJson: async (route, purpose, body, options) => {
+    calls.push({ route, purpose, body, options });
+    if (responseMode === "old") throw new Error("Worker Agent HTTP 404: not found");
+    if (responseMode === "failed" || responseMode === "failed-after-start" && body.action === "get-tensorboard-status") return { status: "failed", message: "window query unavailable", running: null, listening: null };
+    if (body.action === "stop-tensorboard") return { status: "completed", running: false, listening: false, tmuxSession: facts.tmuxSession };
+    return facts;
+  } };
+  const Host = vm.runInNewContext(ts.transpileModule("class Host {" + members + "}; Host", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
+    AgentTmuxPolicy_1: require(path.join(root, "dist/tunnel/AgentTmuxPolicy.js")),
+    makeOpId: () => "op-" + ++seq,
+    tunnelHttpOrigin: (host, port) => `http://${host}:${port}`,
+    setTimeout: (done, ms) => { waits.push(ms); done(); }, AbortSignal,
+    fetch: async url => { opened.push(url); return { ok: true }; },
+    vscode: { workspace: { getConfiguration: () => ({ get: key => ({ "tensorboard.port": 6006, "tensorboard.logdir": "work_dirs" })[key] }) },
+      window: { showInformationMessage: async text => { notices.push(text); }, showErrorMessage: async text => { notices.push(text); } },
+      env: { openExternal: async url => opened.push(url), clipboard: { writeText: async text => opened.push(text) } }, Uri: { parse: text => text } },
+  });
+  const host = new Host();
+  host.setupConfig = { remoteTmuxSessionPrefix: "Owner", condaEnv: "/global/env" };
+  host.enabledWorkerConfigs = () => workerEnabled ? [worker] : [];
+  host.expectedWorkerAgentProjectRoot = () => project;
+  host.client = { endpointById: new Map([[worker.id, endpoint]]), clients: new Map([[worker.id, epClient]]),
+    postWorkerAction: async () => { throw new Error("legacy transport was called"); } };
+  host.view = { webview: { postMessage: value => messages.push(value) } };
+  await host.openTensorBoardFromUi({ endpointId: worker.id });
+  assert.equal(calls.length, 2); assert.equal(waits[0], 2000);
+  for (const call of calls) {
+    assert.equal(call.route, "/api/tensorboard/service"); assert.equal(call.options.method, "POST");
+    assert.equal(call.purpose, call.body.action === "start-tensorboard" ? "run_plan" : "manual_refresh");
+    assert.equal(call.body.projectDir, project); assert.equal(call.body.workerId, worker.id);
+    assert.equal(call.body.sessionPrefix, "owner"); assert.equal(call.body.tmuxSession, undefined);
+  }
+  assert.equal(calls[0].body.condaEnv, "");
+  assert.match(notices[0], /6333 actual-project_tb @41.*logs\/actual\.log/);
+  assert.equal(opened[0], "http://localhost:23117/api/tensorboard/ui/");
+  assert.equal(messages.at(-1).windowId, "@41");
+  await host.stopTensorBoardFromUi({ endpointId: worker.id }); assert.equal(messages.at(-1).running, false);
+  assert.equal(calls.at(-1).purpose, "stop");
+  responseMode = "failed";
+  await host.getTensorBoardStatusFromUi({ endpointId: worker.id });
+  assert.equal(messages.at(-1).running, null); assert.match(messages.at(-1).error, /window query unavailable/);
+  responseMode = "old"; const before = calls.length;
+  await assert.rejects(host.openTensorBoardFromUi({ endpointId: worker.id }), /主动准备该项目 Agent.*404/);
+  assert.equal(calls.length, before + 1); assert.equal(messages.at(-1).running, null);
+  responseMode = "failed-after-start";
+  await assert.rejects(host.openTensorBoardFromUi({ endpointId: worker.id }), /window query unavailable/);
+  assert.equal(messages.at(-1).running, null);
+  workerEnabled = false;
+  await assert.rejects(host.openTensorBoardFromUi({ endpointId: worker.id }), /已启用/);
+  workerEnabled = true; project = "";
+  await assert.rejects(host.stopTensorBoardFromUi({ endpointId: worker.id }), /项目根目录/);
+  await assert.rejects(host.openTensorBoardFromUi({}), /已启用/);
+  project = "/projects/another";
+  await assert.rejects(host.postTensorboardAction(worker.id, "start-tensorboard", { projectDir: "/projects/current" }), /项目已切换/);
+  const policyCalls = [];
+  host.client.postWorkerAction = async (...args) => { policyCalls.push(args); return { status: "completed" }; };
+  project = "";
+  assert.equal((await host.postTensorboardAction(worker.id, "save-result-policy", { policy: "configured" })).status, "completed");
+  assert.equal(policyCalls.length, 1); assert.equal(policyCalls[0][0], worker.id); assert.equal(policyCalls[0][1], "save-result-policy");
 });
