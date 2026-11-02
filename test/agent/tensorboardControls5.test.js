@@ -44,7 +44,6 @@ function runPython(script) {
 test("extension and agent never hardcode absolute server paths or tmux names", () => {
   // Check that tb session name is derived from prefix, not hardcoded
   assert.match(agentSource, /tb_tmux_session_name\(prefix\)/);
-  assert.match(agentSource, /normalizeRemoteTmuxSessionPrefix/i);
   assert.match(extensionSource, /_tb/);
   assert.match(extensionSource, /tbSession/);
   // Ensure no absolute server path in tb_discover_launch candidates (they are relative to root)
@@ -59,14 +58,15 @@ test("TensorBoard browser URL uses the existing Agent tunnel without a local lis
 });
 
 
-test("worker_tmux_session_name: single-machine degenerates to gpu-<gpu>, multi-machine keeps worker", () => {
+test("Worker window names preserve topology and TensorBoard uses the configured prefix", () => {
   assert.match(agentSource, /def worker_tmux_session_name\(worker_id, gpu_id, local_worker_id=None\)/);
   const py = `
 import importlib.util, pathlib, os
 import sys
 sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
 from extractRuntimeFunctions import extract_runtime_functions
-agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["worker_tmux_session_name"])
+agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["worker_tmux_session_name", "tb_tmux_session_name"])
+assert agent.tb_tmux_session_name(" My Prefix! ") == "my-prefix_tb"
 
 def check(worker_id, gpu_id, local, expected):
     got = agent.worker_tmux_session_name(worker_id, gpu_id, local_worker_id=local)

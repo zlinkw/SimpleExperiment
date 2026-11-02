@@ -38,6 +38,7 @@
 | PFX-test3 | 生命周期组合检查遵循生成目标和已支持窗口协议 | passed |
 | PFX-test4 | 目录与会话组合夹具复用真实命名导出 | passed |
 | PFX-test5 | TensorBoard 使用真实命名行为，不约束局部变量写法 | passed |
+| PFX-test6 | 将注释匹配替换为原进程内的真实 TensorBoard 命名断言 | passed |
 | PFX-base | 前缀默认值与归一化收敛一处，提供实际目录命名 | passed |
 | PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | passed |
 | PFX2a / D0c | Agent 窗口按规范项目身份隔离 | passed |
@@ -305,6 +306,10 @@ PFX2a 提交 44278bec9c939921d9a6ae4879ccb728bbcb8b4e 已普通 push/fetch 一�
 调用链新增发现：通用 kill-window 旧自关闭分支只比较 Agent 会话名，即可跳过窗口身份核实；项目共用会话后尤其不可保留。记录为后续 PFX2e，使用精确 Agent 生命周期入口，当前不扩大本批。
 
 PFX-test5 纯测试修正：tensorboardAndFence 原静态断言要求局部变量必须叫 p，与前缀真实行为无关；收敛到共用归一化后该断言失败（3 通过/1 失败，完整日志 pfx2b-tensorboardAndFence.log）。移除该写法约束，保留六组真实函数返回值、长度、其他任务/日志断言和全部测试；不改生产代码来满足内部排版。完整套件 4 项通过，exit=0，日志 pfx-test5-tensorboard.log；测试与计划两文件独立提交。PFX2b policy 5、stateCache 2、availability 12 已通过，后两套保持原有性能/缓存断言。
+
+PFX-test5 提交 56180af95d9b5cef88160bfd0bfb27ab311d5de9 已普通 push/fetch 一致。PFX-test6：Controls5 还有一项只匹配已移除注释中 TS normalizer 名称的静态断言失败（2 通过/1 失败，pfx2b-tensorboardControls5.log），改为在原 Python 子进程中验证真实 TensorBoard 归一化结果，保留原拓扑窗口断言。仅该测试和本计划先提交，policy 新行为测试与 PFX2b 生产修改留在原批；不增性能断言、进程或调整超时。新日志测试首次夹具 Worker 为 Python 空字典导致跳过，补齐 Worker 身份后 policy 5 项（含九组 runtime 与不跨旧目录取日志）通过；失败输入与 pfx-test6-policy.log 保留。
+
+PFX-test6 最终 Controls5 3 项通过，exit=0，pfx-test6-tensorboard-final.log；原 Worker 命名、浏览器隧道、无固定服务器路径覆盖保留。仅测试和计划两文件独立提交；未生成或发布新包。
 
 PFX-test3 提交 ab8c417e4ad4066f4b467d03150863189fdb9a41 已普通 push/fetch 一致。PFX-test4 纯夹具准备：目录和会话缓存组合夹具加载真实 AgentTmuxPolicy 命名导出，再覆盖原有轻量启动替身，供项目窗口接口使用；不缩减原断言。目录 5、会话缓存 2 项通过，日志 pfx-test4-install.log / pfx-test4-cache.log；仅两测试与本计划独立提交，不改运行版本。
 
