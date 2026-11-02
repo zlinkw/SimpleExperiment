@@ -16,8 +16,9 @@
 
 | 批次 | 范围 | 状态 |
 | --- | --- | --- |
-| P0 | 成功回执停止自动删除；冻结项目与迁移保护 | running |
-| A1 | 实验、进度、产物优先导航与首屏；保留自定义布局 | pending |
+| P0 | 成功回执停止自动删除；冻结项目与迁移保护 | passed |
+| A1a | 默认导航前置实验/进度/产物；不重置自定义顺序 | running |
+| A1b | 首屏当前项目、PLAN、运行概况、阻断和主操作 | pending |
 | A2 | PLAN 主线、准备上下文、批量范围；移除被替代旧 UI 入口 | pending |
 | B1 | UI/API/CLI 本机意图、服务器接收、执行、完成、同步、观测含义 | pending |
 | B2 | 等待原因、自动继续说明、原 job 恢复与中断审核 | pending |
@@ -32,7 +33,7 @@
 | E1 | 主次/危险操作、错误、帮助、空态与刷新范围 | pending |
 | E2 | label、键盘、焦点、窄窗口、长路径、缩放与主题 | pending |
 
-## 当前批次 P0
+## 已完成 P0
 
 目标：提交成功不再授权永久删除项目内恢复回执。原 release 入口替换为 retain 核对，文件原字节保留；不增加自动回收或机器状态删除入口。
 范围：PlanRunHost、成功提交接线、现有 projectStatePaths 回归及其子进程夹具；三处版本元数据与必要收包排除修正，共 8 个非生成文件。本计划单独文档批提交。
@@ -44,8 +45,16 @@
 
 ## 执行记录
 
-- P0：19 项定向回归通过。首轮 package 的 318 作业全部通过，build 门禁通过；组装时发现未排除的 .worktrees（18116 文件/221.41MB）、.slim 和管理器配置，主动停止精确 VSCE 子进程。首轮 overall=failed/exit=1，完整日志 simple_cluster/reports/test-workflow/2026-11-02T08-19-49-844Z-9716-package/run.json 保留；未生成可发布包。
-- 必要收包修正仅补 .vscodeignore，不删除本机副本，不新增功能。更改收包输入后沿用现有 package 入口重新核验，不改写旧凭据或放宽门禁；发行尚未完成。
-- 后续边界：P0 的必要检查和源码同步成功后进入 A1；相关失败先修，不扩大到训练现场。
+- P0：19 项定向回归通过。首轮 package 的 318 作业通过，但收包混入开发副本，主动停止精确 VSCE 子进程，overall=failed/exit=1，原日志 2026-11-02T08-19-49-844Z-9716-package/run.json 保留。
+- 收包修正后 package 318 作业全部通过（maxObservedConcurrent=1、未运行=0、exit=0），749073ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T08-39-14-977Z-50636-package/run.json。运行闭包 311 模块/2 入口、实际 VSIX 361 项零违规、生成 HTML 三段脚本通过。
+- 源码 91e298646f3758c9b8d3f2dabb045c596474d833 已普通 push/fetch 核对。v0.5.449 为 Prerelease/latest=false，资产 2770608 字节，SHA256 4884bc1b8438f99d4cdd288259fabe0276d4c51f92e967caff6bc095ade6d159；真实远端下载字节一致。Release https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.449 。真实更新客户端经已有系统代理核实 Latest 仍为 0.5.440/0.2.117、无降级；初次直连 TLS ECONNRESET 原错误保留。本机未安装、无服务器操作。
 - 当前风险：其它项目状态 helper 中原有释放/临时文件代码不在本批改动范围，不能声称整仓删除路径审计完成。
-- 提交记录：计划文档批 `docs: track approved product optimization batches`；P0 源码尚未提交。
+- 提交记录：计划文档 dfae747a5a98eb04f04473085b286f5f0cdcbcc0；P0 源码 91e298646f3758c9b8d3f2dabb045c596474d833。
+
+## 当前批次 A1a
+
+目标：默认顺序为实验、运行进度、产物、准备、GPU、TMUX、诊断、设置；已有自定义顺序、宽度、折叠、固定与详情组不被重置。
+范围：前后端布局常量与归一化；已有 uiLayoutSectionLookup、workbenchResourceTree、noviceConfigAccess 套件；三处版本元数据。最多 8 个非生成文件。首屏独立为 A1b，避免超限。
+证据：当前默认先显示准备/GPU/TMUX；前端显式把 manual 且 sync 位于末尾的布局重置为默认，违背用户保留自定义布局的要求。
+验证：单文件目标检查串行；相关布局存储回归；build 与实际生成 HTML 脚本门禁；后续交付按原试行规则。无性能断言、无训练服务器。
+边界：移除不参与当前 UI 的 overview 默认导航项；历史布局数据只作迁移输入，不保留重复功能入口，不删除旧文件。
