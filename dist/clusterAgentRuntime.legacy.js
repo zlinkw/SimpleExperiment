@@ -4488,23 +4488,11 @@ def _tmux_pane_python_running(session, env):
     return False
 
 def _is_main_shell_target(session):
-    # 围栏：禁止重型调度指令落在主 shell simple1:0.0 / zlk1:0.0（兼容历史前缀，调度应仅在 <prefix>-sch-* / <prefix>-gpu-* / <prefix>-worker-*-agent）
-    try:
-        s = str(session or "").strip()
-        if not s:
-            return True
-        # 严格匹配主 shell 及其变体：simple1:0.0 / zlk1:0.0 / 0.0 / :0.0
-        if s in ("simple1:0.0", "zlk1:0.0") or s.endswith(":0.0") and not ("-sch-" in s or "-gpu-" in s or "-agent" in s):
-            # 额外：任何以 simple1/zlk1 开头且无 -sch/-gpu/-agent 的均视为主 shell（兼容历史）
-            if s.startswith("simple1") or s.startswith("zlk1"):
-                return True
-            if s == "0.0" or s.endswith(":0.0"):
-                return True
-        if s in ("simple1:0.0", "simple1:0", "zlk1:0.0", "zlk1:0", "0.0", "0"):
-            return True
-    except Exception:
-        pass
-    return False
+    target = str(session or "").strip()
+    if not target or target in ("0", "0.0"):
+        return True
+    managed = any(marker in target for marker in ("-sch-", "-gpu-", "-agent"))
+    return not managed and target.rsplit(":", 1)[-1] in ("0", "0.0")
 
 def _is_heavy_scheduler_line(line):
     try:
@@ -4529,7 +4517,7 @@ def _is_bootstrap_tmux_line(line):
         l = str(line or "").strip().lower()
         if not l:
             return False
-        # 建窗/控窗指令：允许在主 shell (zlk1:0.0/simple1:0.0) 上执行，不属于重型调度
+        # 用户明确选择的建窗/控窗命令与重型调度命令分开处理。
         if "tmux new-session" in l or "tmux new -s" in l or "tmux new-window" in l or "tmux kill-session" in l or "tmux kill-window" in l or "tmux kill-pane" in l or "tmux split-window" in l:
             return True
         # agent 管理窗模拟键入：tmux send-keys 透传 kill-window/new/split 等控窗指令同样放行
@@ -4541,108 +4529,6 @@ def _is_bootstrap_tmux_line(line):
         pass
     return False
 
-def _fallback_bootstrap_via_main_shell(session, shell_cmd, cwd, env, log_path):
-    # 宽松建窗 fallback：在主 shell (zlk1:0.0) 上人工发送 tmux 建窗指令，不阻断调度
-    candidates = ["zlk1:0.0", "simple1:0.0", "0.0"]
-    shell_part = " ".join(shlex.quote(s) for s in (shell_cmd or [])) if shell_cmd else ""
-    base_cmd = f"tmux new-session -d -s {shlex.quote(str(session))}"
-    if shell_part:
-        base_cmd = base_cmd + " " + shell_part
-    # cd 到正确目录后再建窗，避免 cwd 丢失
-    if cwd:
-        bootstrap_line = f"cd {shlex.quote(str(cwd))} && {base_cmd}"
-    else:
-        bootstrap_line = base_cmd
-    last_err = ""
-    for target in candidates:
-        try:
-            proc = subprocess.run(["tmux", "send-keys", "-t", target, bootstrap_line, "Enter"], capture_output=True, text=True, timeout=5, env=env)
-            if proc.returncode == 0:
-                msg = f"[fallback] bootstrap tmux new-session via main shell {target!r} for {session!r}: {bootstrap_line!r}"
-                print(msg, file=sys.stderr, flush=True)
-                try:
-                    if log_path:
-                        os.makedirs(os.path.dirname(str(log_path)) or ".", exist_ok=True)
-                        with open(str(log_path), "a", encoding="utf-8") as _lf:
-                            _lf.write(f"[{now_iso()}] FALLBACK bootstrap via {target}: {bootstrap_line}\n")
-                except Exception:
-                    pass
-                # 新建窗口后等待 5秒让 bashrc 执行完毕（统一 5秒规则，fallback 路径亦如此）
-                time.sleep(5)
-                # 验证 session 是否已创建
-                if tmux_session_alive(session, cwd, env):
-                    return True
-                # 再等待一次 readiness
-                try:
-                    if _wait_tmux_ready(session, env, timeout=10.0, poll=0.3, cwd=cwd):
-                        return True
-                except Exception:
-                    pass
-                # 即使 readiness 未完全通过，若 session 已存在也视为 fallback 成功（后续 send-keys 会重试）
-                if tmux_session_alive(session, cwd, env):
-                    return True
-            else:
-                last_err = f"target={target!r} rc={proc.returncode} stderr={_truncate_text(proc.stderr, 500)!r}"
-                print(f"[warn] fallback bootstrap via {target!r} failed for {session!r}: {last_err}", file=sys.stderr, flush=True)
-        except Exception as exc:
-            last_err = f"target={target!r} exc={exc!r}"
-            print(f"[warn] fallback bootstrap exception via {target!r} for {session!r}: {exc!r}", file=sys.stderr, flush=True)
-    # 直接 shell 执行兜底（非 tmux 终端，人工发送语义）：直接执行 tmux new-session 建窗
-    try:
-        proc2 = subprocess.run(base_cmd, shell=True, cwd=cwd or None, capture_output=True, text=True, timeout=10, env=env)
-        if proc2.returncode == 0 and tmux_session_alive(session, cwd, env):
-            print(f"[fallback] direct shell bootstrap success for {session!r}: {base_cmd!r}", file=sys.stderr, flush=True)
-            try:
-                if log_path:
-                    with open(str(log_path), "a", encoding="utf-8") as _lf2:
-                        _lf2.write(f"[{now_iso()}] FALLBACK direct shell bootstrap: {base_cmd} rc=0\n")
-            except Exception:
-                pass
-            return True
-        else:
-            print(f"[warn] direct shell bootstrap failed for {session!r} rc={getattr(proc2, 'returncode', '?')} stderr={_truncate_text(getattr(proc2, 'stderr', ''), 500)!r}", file=sys.stderr, flush=True)
-    except Exception as exc:
-        print(f"[warn] direct shell bootstrap exception for {session!r}: {exc!r}", file=sys.stderr, flush=True)
-    print(f"[warn] all fallback bootstrap paths failed for {session!r} last_err={last_err!r}", file=sys.stderr, flush=True)
-    return False
-
-def _popen_fallback_launch(args, cwd, env, log_path, exit_code_path):
-    # Popen 兜底：不依赖 tmux，直接启动调度命令，不阻断调度
-    try:
-        if log_path:
-            os.makedirs(os.path.dirname(str(log_path)) or ".", exist_ok=True)
-        log_file = open(str(log_path), "a", encoding="utf-8") if log_path else None
-        # 确保 exit_code 目录存在
-        if exit_code_path:
-            try:
-                _d = os.path.dirname(str(exit_code_path))
-                if _d:
-                    os.makedirs(_d, exist_ok=True)
-            except Exception:
-                pass
-        # 构造带 exit_code 回写的 shell 命令（与 tmux 路径一致）
-        cmd_str = shlex.join([str(x) for x in args])
-        if exit_code_path:
-            cmd_str = cmd_str + "; printf '%s' \"$?\" > " + shlex.quote(str(exit_code_path))
-        proc = subprocess.Popen(cmd_str, shell=True, cwd=str(cwd) if cwd else None, env=env, stdout=log_file or subprocess.DEVNULL, stderr=subprocess.STDOUT, preexec_fn=os.setsid if hasattr(os, "setsid") else None)
-        pid = int(getattr(proc, "pid", 0) or 0)
-        print(f"[fallback] Popen launch success pid={pid} cmd={_truncate_text(cmd_str, 400)!r}", file=sys.stderr, flush=True)
-        try:
-            if log_path:
-                with open(str(log_path), "a", encoding="utf-8") as _lf:
-                    _lf.write(f"[{now_iso()}] FALLBACK Popen launch pid={pid} cmd={_truncate_text(cmd_str, 500)}\n")
-        except Exception:
-            pass
-        return pid
-    except Exception as exc:
-        print(f"[warn] Popen fallback failed: {exc!r}", file=sys.stderr, flush=True)
-        try:
-            if log_path:
-                with open(str(log_path), "a", encoding="utf-8") as _lf:
-                    _lf.write(f"[{now_iso()}] FALLBACK Popen failed: {exc!r}\n")
-        except Exception:
-            pass
-        return 0
 
 def _truncate_text(value, limit=2000):
     try:
@@ -4685,7 +4571,7 @@ def _build_tmux_error_context(session, returncode=None, stderr="", stdout="", cw
 def _wait_tmux_ready(session, env, timeout=60.0, poll=0.3, cwd=""):
     # 围栏：禁止在主 shell 上执行 readiness 探针（应仅在 tmux 子窗口）
     if _is_main_shell_target(session):
-        raise RuntimeError(f"refusing to probe tmux readiness on main shell target {session!r}; must be simple-sch-*/simple-gpu-*/simple-worker-*-agent")
+        raise RuntimeError(f"refusing to probe tmux readiness on main shell target {session!r}; select a dedicated configured task or service target")
     # cwd 存在性校验：若 cwd 不存在直接抛错带路径（避免 bash -l 在不存在目录起慢或静默失败）
     _cwd_to_check = str(cwd or "")
     if _cwd_to_check:
@@ -4799,10 +4685,10 @@ def _wait_tmux_ready(session, env, timeout=60.0, poll=0.3, cwd=""):
     return False
 
 def _send_tmux_line(session, line, env, retries=3):
-    # 围栏：仅重型调度指令禁止落在主 shell；建窗/控窗类 tmux 指令允许在 zlk1:0.0/simple1:0.0 上执行（人工发送语义）
+    # 用户明确选定的主终端只允许显式窗口管理，不接收重型调度命令。
     if _is_main_shell_target(session) and _is_heavy_scheduler_line(line) and not _is_bootstrap_tmux_line(line):
         raise RuntimeError(f"refusing heavy scheduler line on main shell target {session!r}: {str(line)[:120]!r}")
-    # 建窗类 tmux 指令在主 shell 上直接放行（用户接受在 zlk1:0.0 上执行建窗/进窗）
+    # 显式窗口管理命令保留原入口。
     if _is_main_shell_target(session) and _is_bootstrap_tmux_line(line):
         pass
     # Send one line via tmux send-keys, validating the return code and retrying on
@@ -4899,7 +4785,7 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
         write_atomic_text(str(exit_code_path), "pending\n")
     # 围栏：显式拒绝主 shell target 作为 session（仅针对调度类 session 名，建窗指令本身可在主 shell 执行）
     if _is_main_shell_target(session):
-        raise RuntimeError(f"refusing to create tmux session on main shell target {session!r}; must be simple-sch-*/simple-gpu-*/simple-worker-*-agent; " + _build_tmux_error_context(session, None, "", "", cwd, 1, env))
+        raise RuntimeError(f"refusing to create tmux session on main shell target {session!r}; select a dedicated configured task or service target; " + _build_tmux_error_context(session, None, "", "", cwd, 1, env))
     proc = subprocess.run(["tmux", "new-session", "-d", "-s", session] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=client_env, timeout=20)
     if proc.returncode != 0:
         err = (proc.stderr or "") + (proc.stdout or "")
@@ -4943,90 +4829,20 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
             raise
         except Exception as exc:
             print(f"[warn] cwd existence check failed for {session!r} cwd={str(cwd)!r}: {exc!r}", file=sys.stderr, flush=True)
-    # Wait until the pane shell is actually ready to accept keystrokes. 宽松建窗：超时不直接阻断调度，降级 fallback
-    _wait_ok = False
-    _wait_exc_info = None
+    # Do not send commands unless this exact pane is ready.
     try:
-        _wait_ok = _wait_tmux_ready(session, client_env, timeout=60.0, poll=0.3, cwd=cwd)
-    except RuntimeError as _wait_exc:
-        _wait_exc_info = _wait_exc
-        print(f"[warn] tmux _wait_tmux_ready exception for {session!r}: {_wait_exc!r}, attempting fallback via main shell", file=sys.stderr, flush=True)
-        _wait_ok = False
-    if not _wait_ok:
-        _last_cap = getattr(_wait_tmux_ready, "last_capture", "")
-        _last_err = getattr(_wait_tmux_ready, "last_stderr", "")
-        _last_out = getattr(_wait_tmux_ready, "last_stdout", "")
-        _last_rc = getattr(_wait_tmux_ready, "last_rc", None)
-        _combined_stderr = _last_err or _truncate_text(_last_cap, 2000)
-        _combined_stdout = _last_out or _truncate_text(_last_cap, 2000)
-        ctx = _build_tmux_error_context(session, _last_rc, _combined_stderr, _combined_stdout, cwd, 1, env, last_capture=_last_cap)
-        print(f"[warn] tmux _wait_tmux_ready timeout/failed for {session!r}; cwd={str(cwd)!r}; last_capture={_truncate_text(_last_cap, 500)!r}; {ctx}; attempting fallback bootstrap via zlk1:0.0", file=sys.stderr, flush=True)
-        try:
-            if log_path:
-                with open(str(log_path), "a", encoding="utf-8") as _lf:
-                    _lf.write(f"[{now_iso()}] WARN _wait_tmux_ready failed for {session!r}, fallback via main shell; {ctx}\n")
-        except Exception:
-            pass
-        # 尝试在主 shell (zlk1:0.0) 上人工发送 tmux new-session 建窗，不阻断调度
-        _fallback_ok = _fallback_bootstrap_via_main_shell(session, shell_cmd, cwd, client_env, log_path)
-        if _fallback_ok:
-            print(f"[info] fallback bootstrap succeeded for {session!r}, retrying _wait_tmux_ready", file=sys.stderr, flush=True)
-            try:
-                _wait_ok = _wait_tmux_ready(session, env, timeout=15.0, poll=0.3, cwd=cwd)
-            except Exception as _re_exc:
-                print(f"[warn] retry _wait_tmux_ready after fallback failed for {session!r}: {_re_exc!r}", file=sys.stderr, flush=True)
-                _wait_ok = tmux_session_alive(session, cwd, env)
-        if not _wait_ok:
-            # 若 session 已存在但 readiness 未通过，仍尝试继续 send-keys（后续会重试），仅当 session 完全不存在时直接阻断
-            if tmux_session_alive(session, cwd, env):
-                print(f"[warn] _wait_tmux_ready still not ok but session alive for {session!r}, proceeding to send-keys with warn", file=sys.stderr, flush=True)
-                try:
-                    if log_path:
-                        with open(str(log_path), "a", encoding="utf-8") as _lf:
-                            _lf.write(f"[{now_iso()}] WARN _wait_tmux_ready not ok but session alive, proceeding to send-keys; fallback path used\n")
-                except Exception:
-                    pass
-                _wait_ok = True
-            else:
-                # Session 仍不存在，直接阻断调度并抛出详细上下文（不再 Popen 兜底）
-                print(f"[error] fallback bootstrap failed and session not alive for {session!r}, blocking task dispatch; {ctx}", file=sys.stderr, flush=True)
-                try:
-                    if log_path:
-                        with open(str(log_path), "a", encoding="utf-8") as _lf:
-                            _lf.write(f"[{now_iso()}] ERROR _wait_tmux_ready failed for {session!r}; {ctx}; blocking dispatch\n")
-                except Exception:
-                    pass
-                if _wait_exc_info is not None:
-                    raise RuntimeError(f"tmux _wait_tmux_ready failed for {session!r}; cwd={str(cwd)!r}; last_capture={_truncate_text(_last_cap, 2000)!r}; {ctx}; fallback via main shell failed; blocking task dispatch: {_wait_exc_info!r}") from _wait_exc_info
-                raise RuntimeError(f"tmux _wait_tmux_ready timeout after 60.0s for {session!r}; cwd={str(cwd)!r}; last_capture={_truncate_text(_last_cap, 2000)!r}; {ctx}; fallback via main shell failed; blocking task dispatch")
-    # Type each line, validating the send-keys return code. 宽松：失败先尝试 fallback 重建 session 并重发，仍失败则 Popen 兜底
-    _send_failed_lines = []
+        ready = _wait_tmux_ready(session, client_env, timeout=60.0, poll=0.3, cwd=cwd)
+    except RuntimeError as exc:
+        raise RuntimeError(f"tmux readiness failed for {session!r}; cwd={str(cwd)!r}: {exc}") from exc
+    if not ready:
+        last_capture = getattr(_wait_tmux_ready, "last_capture", "")
+        ctx = _build_tmux_error_context(session, None, "", "", cwd, 1, env, last_capture=last_capture)
+        raise RuntimeError(f"tmux readiness not confirmed for {session!r}; {ctx}; task dispatch stopped")
     for line in lines:
         rc = _send_tmux_line(session, line, client_env)
         if rc != 0:
-            print(f"[warn] tmux send-keys failed rc={rc} for {session!r} line={_truncate_text(line, 200)!r}, attempting retry via fallback", file=sys.stderr, flush=True)
-            # 若 session 已死，尝试 fallback 重建
-            if not tmux_session_alive(session, cwd, env):
-                _fallback_ok2 = _fallback_bootstrap_via_main_shell(session, shell_cmd, cwd, client_env, log_path)
-                if _fallback_ok2:
-                    time.sleep(0.5)
-                    rc = _send_tmux_line(session, line, client_env)
-                    if rc == 0:
-                        print(f"[info] retry send-keys after fallback succeeded for {session!r}", file=sys.stderr, flush=True)
-                        continue
-            _send_failed_lines.append((line, rc))
-    if _send_failed_lines:
-        print(f"[error] tmux send-keys failed for {len(_send_failed_lines)} lines for {session!r}, blocking task dispatch", file=sys.stderr, flush=True)
-        try:
-            if log_path:
-                with open(str(log_path), "a", encoding="utf-8") as _lf:
-                    _lf.write(f"[{now_iso()}] ERROR send-keys failed {len(_send_failed_lines)} lines for {session!r}; blocking dispatch\n")
-                    for _fl, _rc in _send_failed_lines:
-                        _lf.write(f"  failed line rc={_rc} line={_truncate_text(_fl, 300)!r}\n")
-        except Exception:
-            pass
-        ctx = _build_tmux_error_context(session, _send_failed_lines[0][1], "", f"send-keys failed for line={_truncate_text(_send_failed_lines[0][0], 500)!r}", cwd, 1, env)
-        raise RuntimeError(f"tmux send-keys failed rc={_send_failed_lines[0][1]} for {session!r}; line={_truncate_text(_send_failed_lines[0][0], 500)!r}; cwd={str(cwd)!r}; {ctx}; blocking task dispatch")
+            ctx = _build_tmux_error_context(session, rc, "", "", cwd, 1, env)
+            raise RuntimeError(f"tmux send-keys failed rc={rc} for {session!r}; line={_truncate_text(line, 500)!r}; {ctx}; task dispatch stopped")
     # Mirror the experiment's stdout.log/stderr.log into a split pane so the operator can see
     # errors directly inside the tmux window (the scheduler/train output may be redirected to
     # those files by the project). Start at the current end to avoid replaying prior attempts.
@@ -13659,82 +13475,20 @@ def handle_action(root, action, payload, operation_id, op_id):
         pid = 0
         used_tmux = False
         scheduler_exit_code_path = ""
-        scheduler_launch_error = ""
-        if tmux_available():
-            try:
-                scheduler_exit_code_path = safe_project_path(root, f"simple_cluster/tmp/cluster_scheduler/{op_id}.exit_code")
-                pid = start_simple_tmux_command(tmux_session, scheduler_args, root, log_path, env, scheduler_exit_code_path)
-                used_tmux = True
-            except Exception as exc:
-                scheduler_launch_error = f"scheduler tmux launch failed: {exc}; attempting fallback (main shell bootstrap + Popen)"
-                print(f"[warn] {scheduler_launch_error}", file=sys.stderr, flush=True)
-                try:
-                    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                    with open(log_path, "a", encoding="utf-8") as _lf:
-                        _lf.write(f"[{now_iso()}] SCHEDULER LAUNCH FAILED: {exc}\n")
-                        _lf.write(f"session={tmux_session!r} op_id={op_id!r} cwd={str(root)!r}\n")
-                        _lf.write(f"scheduler_args={_truncate_text(' '.join(str(x) for x in scheduler_args), 2000)}\n")
-                        _lf.write(f"[fallback] attempting bootstrap via zlk1:0.0 and Popen fallback\n")
-                        try:
-                            _lf.write(f"tmux_ls={_tmux_ls_snapshot(env)}\n")
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-                # 宽松建窗：tmux 建窗失败不直接阻断，尝试 Popen 兜底（同时记录 fallback 路径）
-                try:
-                    if not scheduler_exit_code_path:
-                        scheduler_exit_code_path = safe_project_path(root, f"simple_cluster/tmp/cluster_scheduler/{op_id}.exit_code")
-                    _popen_pid = _popen_fallback_launch(scheduler_args, root, env, log_path, scheduler_exit_code_path)
-                    if _popen_pid:
-                        pid = _popen_pid
-                        used_tmux = False
-                        scheduler_launch_error = ""
-                        print(f"[info] scheduler Popen fallback succeeded pid={pid} for {tmux_session!r}", file=sys.stderr, flush=True)
-                        try:
-                            with open(log_path, "a", encoding="utf-8") as _lf:
-                                _lf.write(f"[{now_iso()}] FALLBACK Popen scheduler launch pid={pid} (tmux failed, non-blocking)\n")
-                        except Exception:
-                            pass
-                    else:
-                        raise exc
-                except Exception as _fb_exc:
-                    deregister_active_run_plan(root, op_id)
-                    return terminal_action(root, action, operation_id, op_id, "failed", f"scheduler tmux launch failed: {exc}; Popen fallback also failed: {_fb_exc}", {"schedulerStarted": False, "tmuxSession": tmux_session, "logPath": log_rel, "planFile": plan, "failureSource": "scheduler_tmux_launch", "error": str(exc), "logTail": _truncate_text(str(exc), 4000)}, request=payload)
-        if not used_tmux and not pid:
-            msg = scheduler_launch_error or "tmux available but scheduler launch failed and Popen fallback attempted"
-            # 最后再尝试一次 Popen 兜底（tmux 不可用场景）
-            try:
-                if not scheduler_exit_code_path:
-                    scheduler_exit_code_path = safe_project_path(root, f"simple_cluster/tmp/cluster_scheduler/{op_id}.exit_code")
-                _popen_pid2 = _popen_fallback_launch(scheduler_args, root, env, log_path, scheduler_exit_code_path)
-                if _popen_pid2:
-                    pid = _popen_pid2
-                    print(f"[info] scheduler Popen fallback (no tmux) succeeded pid={pid} for {tmux_session!r}", file=sys.stderr, flush=True)
-                    try:
-                        with open(log_path, "a", encoding="utf-8") as _lf2:
-                            _lf2.write(f"[{now_iso()}] FALLBACK Popen scheduler launch pid={pid} (no tmux, non-blocking)\n")
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                        with open(log_path, "a", encoding="utf-8") as _lf2:
-                            _lf2.write(f"[{now_iso()}] SCHEDULER LAUNCH FAILED: {msg}\n")
-                            _lf2.write(f"session={tmux_session!r} op_id={op_id!r} cwd={str(root)!r}\n")
-                    except Exception:
-                        pass
-                    deregister_active_run_plan(root, op_id)
-                    return terminal_action(root, action, operation_id, op_id, "failed", msg, {"schedulerStarted": False, "tmuxSession": tmux_session, "logPath": log_rel, "planFile": plan, "failureSource": "scheduler_tmux_launch_no_fallback", "error": msg, "logTail": _truncate_text(msg, 4000)}, request=payload)
-            except Exception as _exc2:
-                try:
-                    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                    with open(log_path, "a", encoding="utf-8") as _lf2:
-                        _lf2.write(f"[{now_iso()}] SCHEDULER LAUNCH FAILED: {msg} fallback_exc={_exc2!r}\n")
-                except Exception:
-                    pass
-                deregister_active_run_plan(root, op_id)
-                return terminal_action(root, action, operation_id, op_id, "failed", msg, {"schedulerStarted": False, "tmuxSession": tmux_session, "logPath": log_rel, "planFile": plan, "failureSource": "scheduler_tmux_launch_no_fallback", "error": msg, "logTail": _truncate_text(str(_exc2), 4000)}, request=payload)
+        if not tmux_available():
+            deregister_active_run_plan(root, op_id)
+            return terminal_action(root, action, operation_id, op_id, "failed", "tmux unavailable; Scheduler was not started",
+                {"schedulerStarted": False, "tmuxSession": tmux_session, "logPath": log_rel, "planFile": plan,
+                 "failureSource": "scheduler_tmux_launch", "error": "TMUX_UNAVAILABLE"}, request=payload)
+        try:
+            scheduler_exit_code_path = safe_project_path(root, f"simple_cluster/tmp/cluster_scheduler/{op_id}.exit_code")
+            pid = start_simple_tmux_command(tmux_session, scheduler_args, root, log_path, env, scheduler_exit_code_path)
+            used_tmux = True
+        except Exception as exc:
+            deregister_active_run_plan(root, op_id)
+            return terminal_action(root, action, operation_id, op_id, "failed", f"scheduler tmux launch failed: {exc}",
+                {"schedulerStarted": False, "tmuxSession": tmux_session, "logPath": log_rel, "planFile": plan,
+                 "failureSource": "scheduler_tmux_launch", "error": str(exc), "logTail": _truncate_text(str(exc), 4000)}, request=payload)
         # Register the scheduler as a tracked task so it shows up in the task cards and can be
         # stopped from the panel even though it is launched by run-plan (not a worker task). This
         # closes the gap where a stuck scheduler process was invisible to the task UI.

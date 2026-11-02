@@ -43,7 +43,7 @@
 | PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | passed |
 | PFX2a / D0c | Agent 窗口按规范项目身份隔离 | passed |
 | PFX2b | 远端目录和前缀只读取全局传入值 | passed |
-| PFX2c | 移除个人主终端猜测及错误启动兜底 | pending |
+| PFX2c | 移除个人主终端猜测及错误启动兜底 | passed |
 | PFX2d | 调度前缀归一化与真实原队列定位 | pending |
 | PFX2e | 通用关窗不得按 Agent 会话名跳过精确窗口保护 | pending |
 | PFX2f | TensorBoard 使用全局前缀及精确项目服务身份 | pending |
@@ -319,6 +319,16 @@ PFX2b 最终验证：2026-11-02T16-43-13-238Z-80072-package/run.json，318 作�
 后续相关边界：TensorBoard 仍有旧 payload prefix 别名且服务仅按全局 prefix 命名，跨项目主动打开可能触及其他项目同名服务，列入 PFX2f 精确项目服务身份和端口占用可见反馈。Agent 与 TensorBoard 均保留用户配置的动态隧道/监听端口，不因目录隔离自动改端口；D1/D2 明示项目身份与配置，冲突需修改具体项目配置，不关闭其他项目服务。
 
 PFX-test3 提交 ab8c417e4ad4066f4b467d03150863189fdb9a41 已普通 push/fetch 一致。PFX-test4 纯夹具准备：目录和会话缓存组合夹具加载真实 AgentTmuxPolicy 命名导出，再覆盖原有轻量启动替身，供项目窗口接口使用；不缩减原断言。目录 5、会话缓存 2 项通过，日志 pfx-test4-install.log / pfx-test4-cache.log；仅两测试与本计划独立提交，不改运行版本。
+
+## 当前批次 PFX2c
+
+PFX2b 提交 7709f0ae32c946c3ae7da612e8f07324edb6687d 已普通 push/fetch 一致。旧 Agent 在准备/发送失败时会向固定个人主终端键入建窗命令，再尝试后台 Popen 调度；导出的旧 TS 帮助器也缺省选择个人终端。这些属于可达错误前缀机制。移除猜测/后台分支，保留用户入口并要求精确目标；就绪或发送失败保留原因，停止本次启动，不自动补发。主终端围栏按目标结构识别，不列个人前缀；SSH helper 缺目标零调用、使用 argv，信号退出不返回成功。公共生命周期、协议 2 队列、用户配置端口、任务/产物和显式服务入口保留。
+
+检查依据：gpuJobIdentity 原隔离 Python 进程增加就绪 false/异常及首条发送失败检查，保留环境、正式身份与遥测断言；AndFence 原套件增加 VM/子进程替身检查缺目标、主终端围栏、精确目标传递和无旧启动兜底。未启动真实 SSH、科研命令或服务器。两实现、两测试、三版本、本计划，共 8 文件；内部 0.5.466，定向/规定打包待验证，不发布/安装。
+
+PFX2c compile 与 27 项定向检查通过（gpuIdentity 1、AndFence 5、Controls1 4、Controls2 4、lifecycle 2、tmuxLifecycle 3、publicDefault 8），原协议 2、静默启动、原任务身份与停止/队列保护均保留。临时 tmux 为本机私有隔离 socket，SSH 为 VM 替身，不冒充现场验收。相关两个实现中个人主终端、猜测建窗及后台 Popen 兜底零命中；diff 检查通过。冻结 8 文件内部 0.5.466，规定 package 待执行；前端未变，复用 PFX2a 隔离渲染并在最终包检查实际生成脚本。
+
+PFX2c 最终验证：2026-11-02T17-00-40-400Z-30024-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、705916ms。内部 universal/trial 0.5.466：2771923 字节，SHA256 f19199e176ff70d0f95749852e52d9c8c9907dd371842942bc8bbb650fefd1b2；与 receipt 一致，362 项内容门禁零违规，实际 HTML 三段及模块解析通过。无训练服务器操作、自动重跑、产物清理、发布或安装。下一批先补原私有 tmux 夹具的真实前缀依赖，再修改原队列定位，不修改当前已接收任务和窗口。
 
 ## 后续定向核查线索（尚未实施）
 

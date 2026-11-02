@@ -160,6 +160,46 @@ print("ok")
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
+test("remote tmux helpers require explicit targets and never choose a personal main shell", async () => {
+  const vm = require("node:vm");
+  const { EventEmitter } = require("node:events");
+  const calls = [], child = {
+    spawn(executable, args, options) {
+      calls.push({ executable, args, options });
+      const proc = new EventEmitter();
+      proc.stdout = new EventEmitter(); proc.stderr = new EventEmitter();
+      proc.stdin = { write() {}, end() { queueMicrotask(() => proc.emit("close", null)); } };
+      queueMicrotask(() => { proc.stdout.emit("data", "alice-sch-job:1.0"); if (!args[1].includes("load-buffer")) proc.emit("close", 0); });
+      return proc;
+    },
+    execFile(executable, args, options, callback) {
+      calls.push({ executable, args, options });
+      callback(null, "alice-sch-job:1.0");
+    },
+  };
+  const module = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../../dist/tunnel/TmuxRemoteExecutor.js"), "utf8"),
+    { module, exports: module.exports, require: name => { assert.equal(name, "child_process"); return child; } });
+  const api = module.exports;
+  assert.throws(() => api.tmuxExecViaBuffer("echo ok", { host: "configured-host" }), /TMUX_TARGET_REQUIRED/);
+  assert.throws(() => api.tmuxCapturePane("configured-host"), /TMUX_TARGET_REQUIRED/);
+  await assert.rejects(api.assertTmuxPaneAlive("configured-host"), /TMUX_TARGET_REQUIRED/);
+  assert.throws(() => api.tmuxExecViaBuffer("echo ok", { host: "configured-host", target: "alice:1;wrong" }), /TMUX_TARGET_REQUIRED/);
+  for (const target of ["simple1:0.0", "zlk1:0.0", "other-user:0.0"])
+    assert.throws(() => api.tmuxExecViaBuffer("cluster_scheduler.py", { host: "configured-host", target }), /refusing heavy/);
+  assert.equal(calls.length, 0);
+  assert.equal((await api.tmuxExecViaBuffer("echo ok", { host: "configured-host", target: "alice-sch-job:1.0" })).exitCode, 1);
+  await api.tmuxCapturePane("configured-host", "@41");
+  await api.assertTmuxPaneAlive("configured-host", "%42");
+  assert.equal(calls.length, 3);
+  assert(calls.every(call => call.executable === "ssh.exe" && call.args[0] === "configured-host" && call.options.windowsHide === true));
+  assert.match(calls[0].args[1], /paste-buffer -t alice-sch-job:1\.0/);
+  assert.match(calls[1].args[1], /capture-pane -pt @41/);
+  assert.match(calls[2].args[1], /display-message -p -t %42/);
+  const built = fs.readFileSync(agentPath, "utf8");
+  assert.doesNotMatch(built, /_fallback_bootstrap_via_main_shell|_popen_fallback_launch|zlk1:0\.0/);
+});
+
 
 test("tb_discover_launch: explicit script hit / relative discovery / logdir fallback / events dir / root fallback", () => {
   const script = `

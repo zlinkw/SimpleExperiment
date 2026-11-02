@@ -72,6 +72,35 @@ with patch.object(subprocess, 'run', tmux_run), patch.object(os, 'makedirs'), pa
     except ValueError as exc:
         assert 'FORMAL_JOB_IDENTITY_MISMATCH' in str(exc)
     assert len(calls) == before
+    def no_background(*args, **kwargs):
+        raise AssertionError('background launch is forbidden')
+    subprocess.Popen = no_background
+    for ready in (False, 'error'):
+        lines.clear()
+        def readiness(*args, **kwargs):
+            if ready == 'error':
+                raise RuntimeError('original-readiness-failure')
+            return False
+        _wait_tmux_ready = readiness
+        try:
+            start_simple_tmux_command('alice-sch-failed', ['python', 'custom.py'], '/server/project', '', env)
+            raise AssertionError('unconfirmed readiness must stop dispatch')
+        except RuntimeError as exc:
+            assert 'readiness' in str(exc), exc
+            if ready == 'error':
+                assert 'original-readiness-failure' in str(exc), exc
+        assert lines == [], lines
+    _wait_tmux_ready = lambda *args, **kwargs: True
+    def failed_send(session, line, *args, **kwargs):
+        lines.append(line)
+        return 1
+    _send_tmux_line = failed_send
+    try:
+        start_simple_tmux_command('alice-sch-failed', ['python', 'custom.py'], '/server/project', '', env)
+        raise AssertionError('failed send must stop without replay')
+    except RuntimeError as exc:
+        assert 'send-keys failed rc=1' in str(exc), exc
+    assert len(lines) == 1, lines
 print('verified GPU job identity and tmux environment forwarding')
 `, 'utf8');
   try {

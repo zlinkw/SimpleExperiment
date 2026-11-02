@@ -1,8 +1,7 @@
 "use strict";
 /**
- * TmuxRemoteExecutor — 远端指令唯一入口
- * 所有远端命令必须经此封装走 tmux load-buffer/paste-buffer 围栏，禁止直接 ssh "command" 在宿主 shell 执行
- * 约束来源：docs/troubleshooting.md#tmux-围栏 与 zlk-server-tmux Skill
+ * 保留的显式目标 tmux 帮助器。插件主流程使用 Agent/SimpleSFTP API。
+ * 目标必须由调用方按当前配置明确提供，不能猜测其他用户的主终端。
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -43,19 +42,19 @@ exports.tmuxCapturePane = tmuxCapturePane;
 exports.assertTmuxPaneAlive = assertTmuxPaneAlive;
 const child_process = __importStar(require("child_process"));
 const DEFAULT_HOST = "";
-const DEFAULT_TARGET = "zlk1:0.0";
-// 围栏：禁止重型调度/agent 指令落入主 shell zlk1:0.0（仅允许 zlk-sch-*/zlk-gpu-*/zlk-worker-*-agent 等子窗口）
+function requireTmuxTarget(value) {
+    const target = String(value || "").trim();
+    if (!/^(?:[@%][0-9]+|[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+)$/.test(target))
+        throw new Error("TMUX_TARGET_REQUIRED：请选择精确窗口或 pane；没有可自动附着的缺省目标。");
+    return target;
+}
+// 未配置为专用任务或服务的首窗口不能接收重型调度命令。
 function isMainShellTarget(target) {
     const s = String(target || "").trim();
     if (!s)
         return true;
-    if (s === "zlk1:0.0" || s === "zlk1:0" || s === "0.0")
-        return true;
-    if (s.startsWith("zlk1") && !s.includes("-sch-") && !s.includes("-gpu-") && !s.includes("-agent"))
-        return true;
-    if (s.endsWith(":0.0") && !s.includes("-sch-") && !s.includes("-gpu-") && !s.includes("-agent"))
-        return true;
-    return false;
+    const managed = s.includes("-sch-") || s.includes("-gpu-") || s.includes("-agent");
+    return !managed && /:(?:0|0\.0)$/.test(s);
 }
 function isHeavySchedulerCommand(command) {
     const c = String(command || "");
@@ -76,26 +75,29 @@ function tmuxExecViaBuffer(command, options = {}) {
     const host = String(options.host || DEFAULT_HOST).trim();
     if (!host)
         throw new Error("tmux host 未配置：请按拓扑传入 worker/host 配置");
-    const target = options.target || DEFAULT_TARGET;
+    const target = requireTmuxTarget(options.target);
     if (isMainShellTarget(target) && isHeavySchedulerCommand(command)) {
         throw new Error(`refusing heavy scheduler command on main shell target ${target}: ${String(command).slice(0, 120)}`);
     }
     const remote = buildTmuxRemoteCommand(target);
     return new Promise((resolve, reject) => {
-        const proc = child_process.spawn("ssh.exe", [host, remote], { stdio: ["pipe", "pipe", "pipe"] });
+        const proc = child_process.spawn("ssh.exe", [host, remote], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
         let stdout = "";
         let stderr = "";
         proc.stdout?.on("data", (d) => (stdout += String(d)));
         proc.stderr?.on("data", (d) => (stderr += String(d)));
         proc.on("error", reject);
-        proc.on("close", (code) => resolve({ stdout, stderr, exitCode: code ?? 0 }));
+        proc.on("close", (code) => resolve({ stdout, stderr, exitCode: code ?? 1 }));
         proc.stdin?.write(command, "utf8");
         proc.stdin?.end();
     });
 }
-function tmuxCapturePane(host, target = DEFAULT_TARGET, lines = 80) {
+function tmuxCapturePane(host, target, lines = 80) {
+    if (!String(host || "").trim())
+        throw new Error("tmux host 未配置");
+    const exactTarget = requireTmuxTarget(target);
     return new Promise((resolve, reject) => {
-        const proc = child_process.spawn("ssh.exe", [host, `tmux capture-pane -pt ${target} -S -${lines}`], { stdio: ["pipe", "pipe", "pipe"] });
+        const proc = child_process.spawn("ssh.exe", [host, `tmux capture-pane -pt ${exactTarget} -S -${lines}`], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
         let out = "";
         let err = "";
         proc.stdout?.on("data", (d) => (out += String(d)));
@@ -104,13 +106,16 @@ function tmuxCapturePane(host, target = DEFAULT_TARGET, lines = 80) {
         proc.on("close", (code) => (code === 0 ? resolve(out) : reject(new Error(err || `capture failed ${code}`))));
     });
 }
-// 兼容旧调用：提供同步校验 pane 存在的 helper
-async function assertTmuxPaneAlive(host, target = DEFAULT_TARGET) {
-    const inspect = `tmux display-message -p -t ${target} '#{session_name}:#{window_index}.#{pane_index} #{pane_current_path}'`;
+// 核实调用方选定的 pane 是否存在。
+async function assertTmuxPaneAlive(host, target) {
+    if (!String(host || "").trim())
+        throw new Error("tmux host 未配置");
+    const exactTarget = requireTmuxTarget(target);
+    const inspect = `tmux display-message -p -t ${exactTarget} '#{session_name}:#{window_index}.#{pane_index}'`;
     await new Promise((resolve, reject) => {
-        child_process.exec(`ssh.exe ${host} "${inspect}"`, (err, stdout) => {
-            if (err || !String(stdout).includes(target.split(":")[0]))
-                reject(new Error(`pane ${target} not alive on ${host}`));
+        child_process.execFile("ssh.exe", [host, inspect], { windowsHide: true }, (err, stdout) => {
+            if (err || !String(stdout).trim())
+                reject(new Error(`pane ${exactTarget} not alive on ${host}`));
             else
                 resolve();
         });
