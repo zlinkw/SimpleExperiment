@@ -15,7 +15,7 @@ class Host {${cls.members.filter(n=>names.includes(n.name?.getText(tree))).map(n
 function fixture(state='absent', inspection, options={}) {
  let currentState=state;
  const calls=[];
- const target={id:'container',label:'container',host:'configured-host',port:23094,remotePath:'/srv/agent/simple_cluster/runtime',localForwardPort:23069};
+ const target={id:'container',label:'container',host:'configured-host',port:23094,remotePath:'/srv/agent/simple_cluster/runtime',projectWorkDir:'/srv/project',localForwardPort:23069};
  let host;
  const Host=vm.runInNewContext(code,{require:specifier=>require(path.resolve(__dirname,'../../dist/extension',specifier)),console:{log(){},warn(){}},fs:fs.promises,path,__dirname:path.resolve(__dirname,'../../dist/extension'),
   AgentRuntimeScope_1:scope,RuntimeManifest_1:manifest,SIMPLE_SFTP_EXTENSION_ID:'simple-local.simple-sftp',
@@ -51,7 +51,9 @@ test('real deployment entry checks ownership before upload and preserves dynamic
  const request=calls.at(-1).params;
  assert.equal(request.port,23065);assert.equal(request.host,'127.0.0.2');assert.equal(request.condaEnv,'/srv/env');
  assert.equal(request.projectDir,'/srv/project');assert.equal(request.server.port,23094);
- assert.equal(request.tmuxSession,'user-worker-container-agent');assert.equal(request.tmuxWindow,'agent');
+ assert.equal(request.tmuxSession,'user-worker-container-agent');
+ const startup=require('../../dist/tunnel/AgentTmuxPolicy').agentTmuxStartupCommand({role:'worker',endpointId:'container',workDir:request.projectDir,installDir:request.installDir,sessionPrefix:'user',host:request.host,port:request.port});
+ assert.equal(request.tmuxWindow,JSON.parse(/--config '([^']+)'/.exec(startup)[1]).tmuxWindow);
 });
 test('legacy preparation requires exact migration approval before any upload; confirmed migration preserves the staged order',async()=>{
  const unconfirmed=fixture('legacy');

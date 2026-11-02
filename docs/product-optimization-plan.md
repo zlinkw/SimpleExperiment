@@ -35,6 +35,7 @@
 | PFX0 | 单一全局前缀来源、保存范围和每次打开提醒 | passed |
 | PFX-test | 受影响夹具使用正式前缀字段，目录方法提取不绑定旧参数个数 | passed |
 | PFX-test2 | 根绑定检查覆盖实际安装映射，不强制所有插件路径在项目外 | passed |
+| PFX-test3 | 生命周期组合检查遵循生成目标和已支持窗口协议 | passed |
 | PFX-base | 前缀默认值与归一化收敛一处，提供实际目录命名 | passed |
 | PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | passed |
 | PFX2 / D0c | 服务命名与调度前缀统一，消除个人前缀兜底 | pending |
@@ -275,6 +276,15 @@ PFX-test2 验证：planSubmissionStateGuard 26 项、既有 agentSessionStateCac
 PFX-test2 提交 31be391fbaa2452b5a6ea8090eb49eaa870fd16b 已普通 push/fetch 一致。PFX1 定向检查合计 59 项通过（目录 5、预览 4、版本核实 1、根映射 14、产物绑定 7、提交根保护 26、会话缓存 2）。新增版本核实行为使用真实 Host 方法，记录精确请求路径；无目录发出零请求，不冒充真实网络。实际 Chrome 验证两个 Worker 的默认/显式同名目录、未保存父目录预览、保存值不变、仅显式意图变化时仍重绘，以及前缀提醒、C3/C2c 与原六种首屏/焦点/窄窗口；报告 simple_cluster/reports/product-optimization/pfx1-render-1793634842926.json。compile 及实际 HTML 三段脚本通过，UTF-8 复读通过。冻结内部版本 0.5.463，PFX1 共 8 个非生成文件，规定 package pending；不发布中间包、不安装。
 
 PFX1 最终验证：318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、707238ms；凭据 2026-11-02T15-55-56-080Z-86432-package/run.json。VSIX 0.5.463 为 universal/trial、2779635 字节，SHA256 07cfaedf18227bb74459aa6781f0d93844ffa5d77d5963cae458a56df0f4e211，与 receipt 一致；362 项内容门禁零违规，实际 HTML 三段/模块脚本通过。无真实迁移或服务器操作，内部包未发布、未安装。下一批复用现有生命周期协议的显式窗口参数，以稳定项目身份区分 Agent 窗口；同项目多窗口复用，其他项目保持各自窗口和目录，共享 GPU 采样不变。SimpleSFTP 与 Agent 的公共 lifecycle Python 必须保持字节相同，不为改名擅自改动一侧协议。
+
+## 当前批次 PFX2 / D0c
+
+PFX1 源码 83805e8fb051061f10064d518ae4baf0efc9119b 已普通 push/fetch 一致，0.5.463 仅内部包。
+目标：Agent 的精确窗口以既有稳定项目身份区分；同项目多窗口复用，同账号不同项目各自窗口，继续只关闭指定 windowId。目录已项目内隔离，共享 GPU 采样不变。
+实现选择：沿用全局前缀+Worker 的 tmux 服务会话，将项目身份放到显式 tmuxWindow 参数。现有公共 lifecycle 已支持同会话不同窗口、精确查找/关闭；不改其与 SimpleSFTP 的逐字节共享 Python，不新增进程管理或升级配套协议。会话名保留现有上限，项目窗口只需 22 字符，避免最长合法前缀和 80 位 Worker ID 加会话后缀时超出现有传输上限。
+先做 PFX-test3 纯测试准备：independentAgent 保留会话/端点/无 PID 等断言，窗口验证为已支持的 Agent 窗口格式并绑定实际项目；agentPreparationLifecycle 使用真实生成器比较 Host 的窗口目标，目标夹具补齐实际 projectWorkDir。共两测试和本计划，验证后独立提交，不改运行版本。项目唯一性由随后生成器的独立行为用例验证，不以组合夹具自比冒充。
+后续实现边界：Host 的启动/生命周期审核/查询默认目标和状态投影、既有 AgentTmuxPolicy 项目窗口函数、实际 UI 目标展示、既有 agentTmuxPolicy 用例及版本/计划，最多 8 文件。不操作真实窗口、服务、服务器或科研环境；无项目不生成可执行目标。现场多项目与端口归属仍待验证。
+PFX-test3 验证：independentAgent 4、agentPreparationLifecycle 10 项通过，原自定义登录/静默/动态端点/归属/迁移确认/精确生命周期断言保留。实际 shell 测试仅使用临时轻量输出器，无 Agent、GPU、服务器或 tmux 服务启动；API 组合检查为隔离边界。纯测试与计划三文件独立提交，无新运行版本或 VSIX。
 
 ## 后续定向核查线索（尚未实施）
 
