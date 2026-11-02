@@ -59,7 +59,7 @@ test('rendered panel labels and counts never paint an exit-zero anomaly or unver
  function visit(n){if(ts.isFunctionDeclaration(n)&&names.has(n.name?.text))functions.push(n.getText(source));ts.forEachChild(n,visit)}visit(source);
  assert.equal(functions.length,4);
  const rows=[{status:'completed',completionState:'verified'},{status:'completed',completionState:'review_required'},{status:'completed'}];
- const ctx=vm.createContext({rows,overviewTaskStatsCacheRows:null,overviewTaskStatsCacheValue:null,schedulerRowsForState:()=>rows,taskFailureLikeStatus:()=>false,taskStatusLabel:s=>s,statusClass:()=> 'status-completed',RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS:new Set(),ARTIFACT_SCOPE_COMMANDS:new Set()});
+ const ctx=vm.createContext({rows,overviewTaskStatsCacheRows:null,overviewTaskStatsCacheNativePlans:null,overviewTaskStatsCacheValue:null,schedulerRowsForState:()=>rows,taskFailureLikeStatus:()=>false,taskStatusLabel:s=>s,statusClass:()=> 'status-completed',RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS:new Set(),ARTIFACT_SCOPE_COMMANDS:new Set()});
  vm.runInContext(functions.join('\n'),ctx);
  assert.match(ctx.taskRowStatusLabel(rows[1]),/完成但有异常/);assert.match(ctx.taskRowStatusLabel(rows[2]),/日志待核实/);
  assert.equal(ctx.taskRowStatusClass(rows[1]),'status-warning');assert.equal(ctx.taskRowStatusClass(rows[2]),'status-warning');

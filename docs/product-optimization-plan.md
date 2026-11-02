@@ -58,6 +58,7 @@
 | PFX3c | 全局前缀的 tmux 旧版名称兼容与输入边界 | passed |
 | PFX3d | 清除旧任务字段绕过统一前缀函数的残余 | passed |
 | PFX3e / E1a | TMUX 同名前缀不作归属证据，首屏统计真实原生逻辑任务 | pending |
+| E1-test | 两个概况 VM 夹具准备原生数组缓存及真实生成函数 | passed |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
 | D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | passed |
@@ -528,6 +529,10 @@ D1c-test1 提交 5d26d19e223b416ae615bdfeec490a9e06796012 已普通 push/fetch �
 D1c 最终规定验证：2026-11-02T21-35-53-621Z-79240-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、724491ms。原 tmux 及 HTTP 失败项在同一严格入口中通过，首次失败和原生退出码偶发未知的诊断仍保留，不声称已根治环境现象。内部 universal/trial 0.5.477 为 2776333 字节，SHA256 3e5e74842f5d388ef4c1bdb5a93158e22aded03c80d1d7267fbbea65ed9c5921，与 receipt 和逐包清单一致；362 项内容门禁零违规，实际主 HTML 三脚本及模块解析通过，Scalar 脚本与两模式渲染证据沿用最终同内容候选。8 个非生成文件；没有科研数据读取、服务器操作、公开发行或安装。D1 本机正确性及隔离渲染完成，真实 Extension Host 与服务器仍待现场核实。
 
 下一批修订 PFX3e/E1a：当前 UI tmuxSessionOwnership 的同前缀 fallback 仍把未绑定当前项目的窗口判为 mine，tmuxSessionGroup 又按名字判为插件服务；原 OtherSessions 用例也沿用了未核实 Agent 的假设。移除名称作为归属证明，保留真实窗口选择、确认和服务保护；与既定 E1 原生任务首屏统计同属“状态证据”，合为两个问题、UI legacy 与原两测试、三版本及本计划，最多 7 文件（若更新覆盖表为 8）。新测试先复现，保留原缓存/扫描断言及真实导航，不新增性能断言。先做必要 VM 依赖准备批，不混入设置、目录迁移或清理。PFX4 文档仍为六说明+原 guide 测试+计划的 8 文件；另有当前 project-constraints 的过时前缀来源、TB 会话及端口偏移说明，单列 PFX4b 文档收口。历史服务器记录保留并指向当前契约，不批量替换历史真实路径。CLI 的 --tmux-session-prefix 位于独立 SimpleSFTP 受管清理只读观测契约，不是 SimpleExperiment 命名设置，保留此精确历史目标选择能力。前缀组公开发行继续等待 PFX3e 和 PFX4 收口。
+
+## 当前批次 PFX3e / E1a
+
+D1c 提交 475f46e71d049663c2b854f855197318a72bb2e7 已普通 push/fetch 一致。E1-test 独立准备仅改原 taskStats 与 runtimeLogAnalysisHost 两测试及计划：前者抽取真实生成 HTML 的函数，以便包含既有 composeLogicalPlans 的序列化实现；两者注入 upcoming 原生数组缓存变量，旧函数不依赖它，全部原扫描/缓存/异常断言保留。未修改生产候选/版本/打包输入，复用 D1c 全量覆盖，仅重跑两套件 2+19=21 项通过（e1-prep-*.log）；无新版本、全量重跑或组包。下一生产批最多 UI legacy、两个原测试、三版本及计划 7 文件；补当前协议 2 原生逻辑任务统计及同名前缀未核实的实际渲染，保留自定义布局、任务和精准窗口操作。先补复现再实现与相关检查，不处理目录、服务、设置或科研数据。
 
 ## 发现线索与后续边界（以批次状态为准）
 

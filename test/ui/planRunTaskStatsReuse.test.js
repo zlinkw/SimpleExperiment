@@ -3,9 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
-const { readSource } = require("../_helpers/sourceReader");
-
-const panel = readSource("src/ui/PanelHtml.ts");
+const panel = require("../../dist/ui/PanelHtml.js").renderPanelHtml();
 
 function extractFunction(name) {
   const start = panel.indexOf(`function ${name}(`);
@@ -23,6 +21,7 @@ function extractFunction(name) {
 function loadTaskStats() {
   const sandbox = {
     overviewTaskStatsCacheRows: null,
+    overviewTaskStatsCacheNativePlans: null,
     overviewTaskStatsCacheValue: null,
     schedulerRowsForState(state) { return state.rows; },
     taskFailureLikeStatus(status) { return new Set(["failed", "error", "stalled", "stopped", "cancelled"]).has(status); },
