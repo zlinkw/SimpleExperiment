@@ -165,10 +165,30 @@ test('real panel projection and rendered PLAN/job labels share the current synch
    workerCodeSyncTargets:()=>configured,workspaceRoot:()=>root,normalizeMirrorScopePaths:x=>x,
    vscode:{workspace:{getConfiguration:()=>({get:()=>['.']})},Uri:{file:x=>x}}});
   const sync=feature.confirmedPlanArtifactSync(plan,configured,['.']),sandbox=clickSandbox();
-  sandbox.render({distributedPlans:projected,planArtifactSyncStatuses:sync?{wf:sync}:{}});
+  sandbox.render({setup:{workerTunnels:configured.map(worker=>({...worker,enabled:true}))},distributedPlans:projected,planArtifactSyncStatuses:sync?{wf:sync}:{}});
   if(!changed){assert.match(sandbox.html,/已全局同步最新产物/);assert.match(sandbox.html,/4\/4 Worker/);assert.match(sandbox.html,/已同步到全部启用服务器/);assert.doesNotMatch(sandbox.html,/正在核验全局同步|全局同步待核验/);}
   else{assert.doesNotMatch(sandbox.html,/已同步到全部启用服务器|已全局同步最新产物/);assert.match(sandbox.html,/未完成，可刷新重试/);}
  }
+});
+
+test('artifact sync feedback preserves original scope and time without borrowing old per-Worker success',()=>{
+ const sandbox=clickSandbox(),checkedAt='2026-10-15T01:00:00Z';
+ const job={index:0,case:'done',seed:42,status:'completed',completionState:'verified',lifecycleProtocol:2,workerId:'a',commandId:'c',outputDir:'work_dirs/job',
+  latestArtifactSync:{state:'partial',checkedAt,scopes:['work_dirs/job','tmp/result/job.csv'],workerIds:['a','b'],error:'Worker b 查询失败'}};
+ const state={setup:{workerTunnels:[{id:'a',displayName:'Alpha'},{id:'b',displayName:'Beta'},{id:'disabled',displayName:'Disabled',enabled:false}]},
+  distributedPlans:[{id:'wf',planFile:'plans/sync.yaml',jobs:[job]}],planArtifactSyncStatuses:{wf:{runId:'wf',status:'partial',source:'filesystem',checkedAt,targetCount:2,syncedCount:0,pendingWorkerIds:['b'],unavailableWorkerIds:['a']}}};
+ sandbox.render(state);
+ assert.match(sandbox.html,/Alpha \[a\]：本轮未确认同步/);assert.match(sandbox.html,/Beta \[b\]：本轮未确认同步/);
+ assert.doesNotMatch(sandbox.html,/已确认同步|Disabled/);assert.match(sandbox.html,/work_dirs\/job/);assert.match(sandbox.html,/tmp\/result\/job.csv/);
+ assert.match(sandbox.html,/2026-10-15T01:00:00Z/);assert.match(sandbox.html,/原回执不冒充本轮文件查询/);assert.match(sandbox.html,/Worker b 查询失败/);
+ assert.match(sandbox.html,/待同步 Worker：b/);assert.match(sandbox.html,/查询未知 Worker：a/);assert.match(sandbox.html,/来源：文件系统核验/);assert.match(sandbox.html,/成功 1\/1/);
+ const key=sandbox.executionRenderKeysForState(state).planList,renamed=structuredClone(state);renamed.setup.workerTunnels[0].displayName='Renamed';
+ assert.notEqual(sandbox.executionRenderKeysForState(renamed).planList,key);
+ job.latestArtifactSync.state='synced';job.latestArtifactSync.error=undefined;sandbox.render(structuredClone(state));
+ assert.match(sandbox.html,/Alpha \[a\]：已确认同步/);assert.match(sandbox.html,/Beta \[b\]：已确认同步/);
+ const replacement=structuredClone(state);replacement.setup.workerTunnels[1]={id:'c',displayName:'Gamma'};sandbox.render(replacement);
+ assert.doesNotMatch(sandbox.html,/已同步到全部启用服务器|：已确认同步/);assert.match(sandbox.html,/Gamma \[c\]：本轮未确认同步/);
+ job.latestArtifactSync.state='excluded';sandbox.render(structuredClone(state));assert.match(sandbox.html,/未参与（范围未勾选）/);assert.match(sandbox.html,/成功 1\/1/);
 });
 
 test('failed jobs show a short error and a window-log button instead of embedding the terminal', () => {

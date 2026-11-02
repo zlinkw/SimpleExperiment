@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.458",
-  "buildId": "94fcece49106cc5eed3371a0f8cb154746f2c2be58b7eae43e1920943861114b",
+  "version": "0.5.459",
+  "buildId": "f84eb3415c975e997eff742bd94c8fb53a10235decd71ebb75b4c146c0a4c465",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -889,7 +889,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "406a35a770b559621ce2bb6cc00dc7648655e45b90afcd32caae7db822b4c856"
+      "sha256": "b7a631262e719212a648f0eaaafbecc0ea83a9c38fc0520da90559bbe7df752d"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1117,7 +1117,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "c070419b27417bd337d42004a15ee5e88aec9fca38c6a666eaed6306e547b6c7"
+      "sha256": "d57f779a916c9145c10f6f1b4ca8ac9a3650dc385e08647face5529a099e35c6"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1241,7 +1241,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "2b7d96fd2bbf577f7cca141f1fa62a44b60b1f66db1864643505bc6dc7ada42c"
+      "sha256": "6a5fd3f0d3f94669c612781ad440998c4cfcc70f681beebd9765e4a51da6a68c"
     },
     {
       "path": "scripts/check-static.js",

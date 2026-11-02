@@ -29,7 +29,7 @@
 | C2a | 结果主页面的当前/全部 PLAN 范围 | passed |
 | C2b | 资源动作、兼容任务与生成下一步中的旧结果入口 | passed |
 | C2c | 自定义固定项中的结果别名迁移，保留布局和位置 | passed |
-| C3 | 最新 job 产物与用户范围交集、逐 Worker 同步反馈 | pending |
+| C3 | 最新 job 产物与用户范围交集、逐 Worker 同步反馈 | passed |
 | D0 | 项目内服务状态与多窗口隔离核查，按证据修正共享路径 | pending |
 | D1 | 零目标、禁用、未核实、离线；精确附着命令 | pending |
 | D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | pending |
@@ -184,6 +184,19 @@ C2b 交付：源码 7fcae50f81deaeccea439cc644503085292889d1 已普通 push/fetc
 C2c 定向证据：uiActionNormalizationCache 6、uiLayoutSectionLookup 3、projectUiLayoutState 2、workbenchResourceTree 9 项通过。新增行为核对原 id、位置、用户名称保留，旧默认名称改为全项目更新，旧 Worker/PLAN/job/batch 参数清空，重复归一化不再改变结果；保留原缓存断言及期限，不新增性能测试。实际隔离渲染先发现 featureCommandLabel 缺少新命令，且 COMMAND_HELP_TEXT 中重复短项覆盖完整范围，已在本批修正并补真实标签函数断言。compile 通过；最终实际 Chrome 的保存/再次载入、八区自定义顺序、310/410 列宽、自定名称、精确空 payload、全部 PLAN/Worker 帮助，以及 C2b 恢复/原六种首屏/焦点/窄窗口与三段脚本通过，报告 simple_cluster/reports/product-optimization/c2c-render-1793626354778.json。UTF-8 复读通过，冻结 0.5.458，共 7 个非生成文件；最终 package pending。
 
 C2c 最终 package：318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、710321ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T13-33-23-576Z-67996-package/run.json。VSIX 0.5.458 为 universal/trial、2776912 字节，SHA256 4a9b44d39b2f10fa9dff1f0578ea01ca2eda69367b6780d39b5578fa2e8818ac，与 receipt 相符；361 项内容门禁零违规，实际 HTML 三段及模块脚本通过。原服务器结果读取契约未改，自定义布局不重置。下一批只完善同步回执、范围及逐 Worker 反馈，不改变最新 job 归属或同步策略。
+
+C2c 交付：源码 53ebbcabc6e70d3710fea3a63e3ddafcb348ae7d 已普通 push/fetch 一致；https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.458 为 draft=false/prerelease=true，真实下载、字节数及精确文件名校验一致。实际公开 ReleaseClient 确认稳定版仍为 0.5.440/0.2.117，试行不降级、旧稳定可更新。未安装、无远端部署。
+
+## 当前批次 C3
+
+目标：展示精确 job 同步记录的原时间、真实范围、错误及逐启用 Worker 确证；PLAN 同步展示明确来源、待同步与查询未知名单。完成事实、产物完整、同步、结果汇总仍分别表达。
+证据：LatestJobArtifacts 已正确选择最新逻辑 job，并与用户勾选范围取交集；PlanArtifactSyncStatus 已按 command/目标/范围保护确证，保留原 checkedAt。现有 UI 只显示通用同步状态，隐藏逐台反馈和范围。partial 回执没有可靠逐台成功名单，不能从旧 workerIds 推断本轮部分成功。
+范围：实际 legacy UI、既有 executionCompactOverview、三处版本、本计划与覆盖表，共 7 个非生成文件。保持现有最新来源、当前勾选、未勾选不补回及 SimpleSFTP 传输契约；不新增查询、传输、重跑、清理或科研分析，不保存原始指标副本。
+验证：最新 job/交集/同步确证既有回归，逐 Worker 的确证、partial、excluded、目标变化、原时间和重绘，以及实际 HTML/隔离渲染与 package。真实服务器同步和文件结果仍待验证。
+
+C3 定向证据：executionCompactOverview 51、latestJobArtifacts 3、planArtifactSyncStatus 16、completedJobLatestSync 32 项通过。最新 job、整个 work_dirs 默认及范围交集等既有实现未改；已有投影测试改用与回执一致的四台配置，而非默认两台夹具。同步失败/目标变化不借旧 workerIds 确认部分成功，原完成数保留；原 checkedAt、范围及错误完整展示，Worker 名称变化进入重绘键。按钮帮助压缩阶段的首轮断言失败保留，已增可见 job/PLAN 操作范围与全部目标，隔离验证显式走实际提示装饰后核实完整可访问帮助。最终真实 Chrome 的确证、partial、目标替换、禁用 Worker、长路径/420px、原时间/来源、完成数、精确 job 按钮及 C2c 自定义布局/重载、原首屏/焦点与三段脚本通过，报告 simple_cluster/reports/product-optimization/c3-render-1793627597625.json。compile 通过，UTF-8 复读通过，共 7 个非生成文件；冻结 0.5.459，最终 package pending。
+
+C3 最终 package：318 作业全部通过、未运行 0、maxParallel=1、exit=0、726287ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T13-54-24-591Z-9248-package/run.json。VSIX 0.5.459 为 universal/trial、2777697 字节，SHA256 c4e1905610d7adca94567e90d1269d26af9aaf954a8b54bdae6789b915e64235，与 receipt 相符；361 项内容门禁零违规，实际 HTML 三段及模块脚本通过。包身份及字节校验之后，汇总脚本因读取不存在的 maxObservedConcurrent 字段 exit=1；随后按实际 schema 读取记录 exit=0，未换包、未改测试或重跑打包。下一批先处理项目内默认 runtime 的现有保护映射，再改目录和服务命名；共享 GPU 采样不动。真实服务器验收仍待验证。
 
 ## 后续定向核查线索（尚未实施）
 

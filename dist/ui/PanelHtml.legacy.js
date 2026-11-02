@@ -15117,7 +15117,10 @@ function renderPanelHtml() {
     }
 
     function renderExecutionPlanList(state) {
-      const artifactSyncRequired = asArray(((state || {}).setup || {}).workerTunnels).filter(worker => worker && worker.enabled !== false).length > 1;
+      const artifactWorkers = asArray(((state || {}).setup || {}).workerTunnels).filter(worker => worker && worker.enabled !== false);
+      const artifactSyncRequired = artifactWorkers.length > 1;
+      const artifactWorkerLabel = worker => String(worker.displayName || worker.id) + ' [' + worker.id + ']';
+      const artifactTargets = artifactWorkers.map(artifactWorkerLabel).join('、');
       function distributedJobIsActive(job) {
         if (job.lifecycleProtocol === 2 && job.executionState === "missing" && !job.statusQueryError) return false;
         return ["pending", "dispatching", "queued", "running", "unknown"].includes(String(job.status || "").toLowerCase());
@@ -15360,7 +15363,17 @@ function renderPanelHtml() {
           const lifecycleStates = '<div class="muted executionLifecycleStates"><span>执行：' + esc(executionLabel) + (job.exitCode == null ? '' : ' · 退出码 ' + esc(String(job.exitCode))) + '</span> · <span>产物：' + esc(resultLabel) + '</span> · <span>' + esc(diagnosticLabel) + '</span></div>';
           const analyzeButton = job.commandId && job.workerId ? '<button type="button" class="mini secondary" data-command="analyzeRuntimeLog" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '">重新分析运行日志</button>' : '';
           const artifactButtons = artifactSyncRequired && status === "completed" && job.lifecycleProtocol === 2 && job.workerId && job.commandId && !unavailable
-            ? ['refreshJobArtifacts', 'retryJobArtifactSync'].map((command, index) => '<button type="button" class="mini secondary" data-command="' + command + '" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="只核对或增量同步此 job 当前勾选范围的产物，保留训练完成状态。">' + (index ? '重试产物同步' : '刷新产物状态') + '</button>').join('') : '';
+            ? ['refreshJobArtifacts', 'retryJobArtifactSync'].map((command, index) => '<button type="button" class="mini secondary" data-command="' + command + '" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="' + escAttr('范围为此 job 声明产物与当前勾选范围的交集；目标为全部启用 Worker：' + artifactTargets + '；保留训练完成状态，不重跑。') + '">' + (index ? '重试产物同步' : '刷新产物状态') + '</button>').join('') : '';
+          const syncReceipt = job.latestArtifactSync;
+          const syncCoversWorkers = syncReceipt && syncReceipt.state === 'synced' && artifactWorkers.length > 0
+            && artifactWorkers.every(worker => asArray(syncReceipt.workerIds).includes(worker.id));
+          const jobSyncHtml = syncReceipt ? '<div class="muted" style="overflow-wrap:anywhere;">最新产物同步：'
+            + esc(syncReceipt.state === 'excluded' ? '不在当前勾选范围内' : syncCoversWorkers ? '已同步到全部启用服务器' : '未完成，可刷新重试')
+            + '<div>同步记录时间：' + esc(syncReceipt.checkedAt || '未提供') + '；原回执不冒充本轮文件查询。</div>'
+            + '<div>记录范围：' + (asArray(syncReceipt.scopes).length ? asArray(syncReceipt.scopes).map(scope => '<code>' + esc(scope) + '</code>').join('、') : '未提供或未勾选') + '；重试采用当前勾选范围。</div>'
+            + (artifactWorkers.length ? artifactWorkers.map(worker => '<div>' + esc(artifactWorkerLabel(worker)) + '：'
+              + (syncReceipt.state === 'excluded' ? '未参与（范围未勾选）' : syncCoversWorkers ? '已确认同步' : '本轮未确认同步') + '</div>').join('') : '<div>当前无启用 Worker，旧记录不能证明连接就绪。</div>')
+            + (syncReceipt.error ? '<div>同步说明：' + esc(syncReceipt.error) + '</div>' : '') + '</div>' : '';
           // 暂存槽卡点（SimpleSFTP 0.2.113 结构化证据）：显示「卡在哪台/哪个范围/通道/身份＋两槽」。
           // 释放按钮仅当结构化候选 releaseCandidate 且 SE 实时能力门成立（stageBlockReleaseCapable，由扩展端
           // 读 capabilities 得出，绝不按版本号推断）才出现；显示可缩写代/身份，后台释放只绑定持久化完整值。
@@ -15405,6 +15418,7 @@ function renderPanelHtml() {
             : "";
           return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '">'+(manualControls?'<div class="executionManualDispatch">'+manualControls+'</div>':'')+'<span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (needsReview || blocked || unavailable ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + failedRecallButton + availabilityButton + logButton + trainingRecoveryButton
             + lifecycleStates + diagnosticSummary + analyzeButton + anomalyRerunButton + artifactButtons
+            + (artifactButtons ? '<div class="muted" style="overflow-wrap:anywhere;">产物操作范围：此 job 声明产物与当前勾选范围的交集；目标为全部启用 Worker：' + esc(artifactTargets) + '；不重跑训练。</div>' : '')
             + (waitNote ? '<div class="muted">' + esc(waitNote) + '</div>' : '')
             + (stopPending ? '<div class="muted">停止请求待确认；仍显示服务器实际执行状态。连接恢复后可重试原任务停止，不创建新任务。</div>' : '')
             + (recheckNote ? '<div class="muted">' + esc(recheckNote) + '</div>' : '')
@@ -15415,7 +15429,7 @@ function renderPanelHtml() {
             + (failedCleanupNote ? '<div class="muted">' + esc(failedCleanupNote) + '</div>' : '')
             + (retryView.note ? '<div class="muted">' + esc(retryView.note) + '</div>' : '')
             + (job.manualDispatchNotice ? '<div class="muted">' + esc(job.manualDispatchNotice) + '</div>' : '')
-            + (job.latestArtifactSync ? '<div class="muted">最新产物同步：' + esc(job.latestArtifactSync.state === "synced" ? "已同步到全部启用服务器" : job.latestArtifactSync.state === "excluded" ? "不在当前勾选范围内" : "未完成，可刷新重试") + '</div>' : '')
+            + jobSyncHtml
             + (blockText ? '<div class="' + (job.status === "pending" && job.gpuMemoryWaitReason && !job.outputIsolationBlocked ? 'muted' : 'executionDistributedJobError') + '">' + esc(blockText) + (blockAdvice ? '<div>下一步：' + esc(blockAdvice.replace(/^下一步：/, "")) + '</div>' : '') + '</div>' : '')
             + (errorText ? '<div class="executionDistributedJobError">' + esc(executionJobErrorSummary(errorText)) + (job.artifactError && artifactButtons ? '<div class="muted">点“刷新产物状态”核对；需要补传时点“重试产物同步”，无需重跑训练。</div>' : preflightRejected || codeProofBlocked ? jobNext : '<div class="muted">点击“查看窗口日志”查看完整输出。</div>') + '</div>' : '') + stageBlockHtml + '</div>';
         }).join("") + '</div>' : '';
@@ -15437,7 +15451,7 @@ function renderPanelHtml() {
         const queuePlanButton = recallPlanIds.length === 1 && currentJobs.some(job => job.status === "pending" && !job.workerId && !job.commandId && !job.manualDispatch && !job.automaticWorkerId)
           ? '<button type="button" class="mini secondary" data-command="queueRemainingJobs" data-plan-id="' + escAttr(recallPlanIds[0]) + '" title="仅将此 Plan 尚未派发的 job 按各卡配置的 job 配额比例放入服务器队列；运行中和已排队任务保持原状">剩余 job 入服务器队列</button>' : '';
         const artifactPlanIds = artifactSyncRequired ? Array.from(new Set(currentJobs.filter(job => job.status === 'completed' && job.lifecycleProtocol === 2 && job.workerId && job.commandId && !job.unavailable).map(job => String(job.planId || group.distributedPlanId || '')).filter(Boolean))) : [];
-        const planArtifactButtons = artifactPlanIds.length ? ['refreshJobArtifacts', 'retryJobArtifactSync'].map((command, index) => '<button type="button" class="mini secondary" data-command="' + command + '" data-plan-ids="' + escAttr(JSON.stringify(artifactPlanIds)) + '" title="仅处理此 PLAN 已完成 job；运行中任务保持原状。">' + (index ? '重试 Plan 产物同步' : '刷新 Plan 产物状态') + '</button>').join('') : '';
+        const planArtifactButtons = artifactPlanIds.length ? ['refreshJobArtifacts', 'retryJobArtifactSync'].map((command, index) => '<button type="button" class="mini secondary" data-command="' + command + '" data-plan-ids="' + escAttr(JSON.stringify(artifactPlanIds)) + '" title="' + escAttr('范围为此 PLAN 已完成 job 的声明产物与当前勾选范围的交集；目标为全部启用 Worker：' + artifactTargets + '；运行中任务保持原状。') + '">' + (index ? '重试 Plan 产物同步' : '刷新 Plan 产物状态') + '</button>').join('') : '';
         const actions = '<div class="executionPlanActions">' + resumeButton + queuePlanButton + recallPlanButton + planArtifactButtons + stopButton + foldButton + '</div>';
         const detailsBody = stopClearDetail + phaseNote + dangerActions + distributedHtml + opHtml + taskHtml + more;
         const reportedSync = ((state || {}).planArtifactSyncStatuses || {})[group.distributedPlanId] || {};
@@ -15445,13 +15459,18 @@ function renderPanelHtml() {
         const syncLabel = syncState.runId === group.distributedPlanId
           ? ({ checking: "正在核验全局同步", synced: "已全局同步最新产物", partial: "尚未全局同步", unknown: "全局同步待核验" }[syncState.status] || "全局同步待核验")
           : "全局同步待核验";
-        const syncBadge = artifactSyncRequired && group.tone === "completed" ? '<div class="executionPlanSyncStatus" title="' + escAttr([syncState.detail || "启动后连接就绪、Plan 完成及同步/下载结束时自动只读核验。", syncState.checkedAt || ""].join(" · ")) + '"><span class="pill ' + (syncState.status === "synced" ? "status-completed" : "status-warning") + '">' + esc(syncLabel) + (Number(syncState.targetCount) > 0 ? ' · ' + Number(syncState.syncedCount || 0) + '/' + Number(syncState.targetCount) + ' Worker' : '') + '</span></div>' : '';
+        const syncSource = ({ job_confirmations: '任务同步确证（非本轮文件查询）', filesystem: '文件系统核验', combined: '任务确证与文件核验' })[syncState.source] || '来源未提供';
+        const syncMetadata = syncState.runId ? '<div class="muted" style="overflow-wrap:anywhere;">来源：' + esc(syncSource) + '；记录时间：' + esc(syncState.checkedAt || '未提供')
+          + (asArray(syncState.pendingWorkerIds).length ? '<div>待同步 Worker：' + esc(syncState.pendingWorkerIds.join('、')) + '</div>' : '')
+          + (asArray(syncState.unavailableWorkerIds).length ? '<div>查询未知 Worker：' + esc(syncState.unavailableWorkerIds.join('、')) + '</div>' : '') + '</div>' : '';
+        const syncBadge = artifactSyncRequired && group.tone === "completed" ? '<div class="executionPlanSyncStatus" title="' + escAttr(syncState.detail || "刷新产物状态以核实当前同步；只展示已返回的记录。") + '"><span class="pill ' + (syncState.status === "synced" ? "status-completed" : "status-warning") + '">' + esc(syncLabel) + (Number(syncState.targetCount) > 0 ? ' · ' + Number(syncState.syncedCount || 0) + '/' + Number(syncState.targetCount) + ' Worker' : '') + '</span>' + syncMetadata + '</div>' : '';
         return '<article class="executionPlanCard executionPlanRow ' + group.tone + (isSelected ? ' is-selected' : '') + '" data-execution-plan-key="' + escAttr(group.key) + '">' +
           '<div class="executionPlanHead" title="' + escAttr(group.planFile || group.label) + '"><label class="executionPlanName">' + selectBox + loadingPrefix((group.active && !group.waitingSubmission && !group.deferredCurrent) || group.distributedActive) + esc(group.label) + '</label>' + statusBadge + '</div>' +
           '<div class="executionPlanMeta"><span class="executionPlanCount"' + (group.submissionOperationId ? ' data-submission-count="' + escAttr(group.submissionOperationId) + '"' : '') + '>' + esc(count) + '</span><span title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</span></div>' +
           syncBadge +
           stopClearSummary +
           actions +
+          (planArtifactButtons ? '<div class="muted" style="overflow-wrap:anywhere;">PLAN 产物操作范围：仅已完成 job 的声明产物与当前勾选范围的交集；目标为全部启用 Worker：' + esc(artifactTargets) + '。</div>' : '') +
           (detailsBody ? '<details class="executionPlanDetails" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, false) + '><summary>详情与日志</summary>' + detailsBody + '</details>' : '') +
           '</article>';
       };
@@ -15620,6 +15639,7 @@ function renderPanelHtml() {
       });
       const planList = stableSectionSignature({
         artifactSyncRequired: asArray((data.setup || {}).workerTunnels).filter(worker => worker && worker.enabled !== false).length > 1,
+        artifactWorkerTargets: asArray((data.setup || {}).workerTunnels).filter(worker => worker && worker.enabled !== false).map(worker => [worker.id, worker.displayName]),
         planArtifactSyncStatuses: data.planArtifactSyncStatuses,
         operations: planOperations,
         tasks: compactTaskRowsForRenderStructureSignature(view.allRows, view.allRows.length),
