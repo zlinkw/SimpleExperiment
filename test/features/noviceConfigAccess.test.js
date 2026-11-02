@@ -29,15 +29,21 @@ function loadLayoutHelpers() {
   return sandbox.exports;
 }
 
-test("servers config stays expanded near primary workflow by default", () => {
+test("default navigation puts experiments, progress and artifacts before server preparation", () => {
   const helpers = loadLayoutHelpers();
-  assert.equal(helpers.defaultUiSectionOrder[0], "sync");
-  assert.equal(helpers.defaultUiSectionOrder[1], "plans");
-  assert.equal(helpers.defaultUiSectionOrder[2], "gpu");
-  assert.equal(helpers.defaultUiSectionOrder[3], "tmux");
+  assert.deepEqual(Array.from(helpers.defaultUiSectionOrder), ["plans", "execution", "results", "sync", "gpu", "tmux", "diagnostics", "settings"]);
   assert.equal(helpers.defaultUiLayout.collapsed.sync, false);
   assert.equal(helpers.defaultUiLayout.collapsed.execution, false);
   assert.equal(helpers.defaultUiLayout.collapsed.diagnostics, true);
+  const automatic = helpers.normalizeUiLayout({ manual: false, order: ["sync", "plans", "gpu", "tmux", "execution", "results", "diagnostics", "settings"] });
+  assert.deepEqual(Array.from(automatic.order), Array.from(helpers.defaultUiSectionOrder), "old automatic layouts follow the new workflow order");
+  const custom = ["results", "plans", "execution", "gpu", "tmux", "diagnostics", "settings", "sync"];
+  const saved = helpers.normalizeUiLayout({ manual: true, order: custom, columns: { tree: 310, inspector: 410 }, collapsed: { plans: true }, treePinned: true });
+  assert.deepEqual(Array.from(helpers.normalizeUiLayout(saved).order), custom, "saved manual order survives restoration");
+  assert.equal(saved.collapsed.plans, true);
+  assert.equal(saved.columns.tree, 310);
+  assert.equal(saved.columns.inspector, 410);
+  assert.equal(saved.treePinned, true);
 });
 
 test("ordinary panel keeps tunnel setup while omitting network pause/resume controls", () => {
@@ -49,7 +55,7 @@ test("ordinary panel keeps tunnel setup while omitting network pause/resume cont
   assert.match(source, /class="topbar-actions"/);
   assert.doesNotMatch(source, /data-command="pauseAll"|data-command="resumeNetwork"/);
   assert.match(source, /data-command="resetUiLayout"/);
-  assert.match(source, /全局配置/);
+  assert.match(source, /当前项目配置/);
 });
 
 test("layout normalization keeps allowed commands and strips unknown payload fields", () => {

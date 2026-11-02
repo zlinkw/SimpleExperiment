@@ -3173,9 +3173,9 @@ export function renderPanelHtml(): string {
       archived: "已归档", pending_review: "待筛选", included: "已纳入", excluded: "未纳入", parsed: "已解析", parse_success: "已解析", not_parsed: "待解析", unparsed: "未解析", parse_failed: "解析失败", not_deleted: "未删除", delete_pending: "删除中", deleted: "已删除", residue: "有残留", clean: "已清理", not_found: "未发现"
     });
     const BUTTON_AUDIT_ROW_ACTION_COMMANDS = new Set(["stopExperiment", "retryExperiment", "reassignWorkerTask", "archiveArtifacts", "deleteArtifacts", "selectLogRunKey"]);
-    // 目标序（前端运行时唯一序）：sync→plans→gpu→tmux→execution→results→diagnostics→settings（settings 恒尾）；
-    // overview 不在前端常量中（后端 defaultUiSectionOrder 尾部保留 overview 做老布局兼容，前端 normalizeUiLayout 按 KEYS 过滤掉）；servers 仅 hidden 兼容节
-    const RESOURCE_TREE_SECTION_ORDER = Object.freeze(["sync", "plans", "gpu", "tmux", "execution", "results", "diagnostics", "settings"]);
+    // 前端运行时默认顺序：实验、运行进度、产物、准备、GPU、TMUX、诊断、设置。
+    // 默认跟随实验流程；显式自定义顺序由 normalizeUiLayout 保留。
+    const RESOURCE_TREE_SECTION_ORDER = Object.freeze(["plans", "execution", "results", "sync", "gpu", "tmux", "diagnostics", "settings"]);
     const RESOURCE_TREE_SECTION_KEYS = new Set(RESOURCE_TREE_SECTION_ORDER);
     const RESOURCE_TREE_TONE_VALUES = new Set(["good", "info", "warn", "error", "mine"]);
     const INSPECTOR_OPERATION_SECTIONS = new Set(["execution"]);
@@ -7546,7 +7546,6 @@ export function renderPanelHtml(): string {
         order = standardOrder.slice();
       } else {
         order = migratedIncoming.filter((item) => RESOURCE_TREE_SECTION_KEYS?.has(item)).concat(RESOURCE_TREE_SECTION_ORDER.filter((item) => !incomingSet?.has(item)));
-        if (order.length && order[order.length - 1] === "sync") order = standardOrder.slice();
       }
       const rawCollapsed = layout.collapsed && typeof layout.collapsed === "object" ? layout.collapsed : {};
       const collapsed = Object.assign({ servers: false, settings: false, sync: false, diagnostics: true, execution: false }, rawCollapsed);
@@ -7699,7 +7698,7 @@ export function renderPanelHtml(): string {
 
     // legacy detail/pinned actions removed; inspectorCustomGroups is the supported path.
 
-    var INSPECTOR_CUSTOM_GROUP_SECTION_ORDER = ["sync", "plans", "gpu", "tmux", "execution", "results"];
+    var INSPECTOR_CUSTOM_GROUP_SECTION_ORDER = ["plans", "execution", "results", "sync", "gpu", "tmux"];
     var INSPECTOR_CUSTOM_GROUP_STATIC_TITLES = { sync: "运行环境准备", plans: "实验准备", gpu: "GPU 状态", tmux: "TMUX 会话 / 窗口 / 窗格", execution: "运行进度", results: "结果文件" };
     var INSPECTOR_CUSTOM_GROUP_LEGACY_SECTIONS = { "基础设施": ["sync"], "发布": ["sync"], "实验": ["plans", "results"], "运维": [], "执行": ["execution"], "资源": ["gpu"], "TMUX 会话": ["tmux"] };
     var INSPECTOR_CUSTOM_GROUP_LEGACY_TARGETS = { "基础设施": ["运行环境准备"], "发布": ["运行环境准备"], "实验": ["实验准备", "结果文件"], "结果与归档": ["结果文件"], "运维": [], "执行": ["运行进度"], "资源": ["GPU 状态"], "TMUX 会话": ["TMUX 会话 / 窗口 / 窗格"] };

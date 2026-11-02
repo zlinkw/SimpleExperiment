@@ -455,22 +455,20 @@ let simpleSftpIntegrationReadinessCacheRegistry = null;
 let simpleSftpIntegrationReadinessCacheExtension = null;
 let simpleSftpIntegrationReadinessCacheLegacyExtension = null;
 let simpleSftpIntegrationReadinessCacheValue = null;
-// 后端默认布局：与前端 RESOURCE 目标序一致，settings 恒尾；末尾 overview 仅为老用户布局兼容保留，
-// 前端 normalizeUiLayout 按 RESOURCE_TREE_SECTION_KEYS 过滤掉 overview，不参与运行时 order（运行时以 legacy RESOURCE 为准）
+// 默认布局与实际启用的面板一致，实验、进度、产物优先，设置恒尾。
 const defaultUiSectionOrder = [
-    "sync",
     "plans",
-    "gpu",
-    "tmux",
     "execution",
     "results",
+    "sync",
+    "gpu",
+    "tmux",
     "diagnostics",
     "settings",
-    "overview",
 ];
 const defaultUiLayout = {
     order: defaultUiSectionOrder,
-    collapsed: { overview: false, plans: false, results: false, execution: false, tmux: false, settings: false, gpu: true, sync: false, diagnostics: true },
+    collapsed: { plans: false, results: false, execution: false, tmux: false, settings: false, gpu: true, sync: false, diagnostics: true },
     resourceTreeChildren: {},
     manual: false,
     columns: { tree: 280, inspector: 360 },
@@ -34289,10 +34287,10 @@ function normalizeUiLayout(input) {
     const orderInput = Array.isArray(input.order) ? input.order.map((item) => String(item)) : [];
     // 迁移旧布局：tasks / operations 卡片已合并为 execution；servers 已合入 sync
     const migratedOrder = orderInput.map((item) => (item === "tasks" || item === "operations" ? "execution" : item)).map((item) => (item === "servers" ? "sync" : item));
-    const order = [
+    const order = input.manual === true ? [
         ...migratedOrder.filter((item) => UI_LAYOUT_SECTION_KEYS.has(item)),
         ...defaultUiSectionOrder.filter((item) => !migratedOrder.includes(item)),
-    ];
+    ] : [...defaultUiSectionOrder];
     const collapsedInput = input.collapsed && typeof input.collapsed === "object" && !Array.isArray(input.collapsed)
         ? input.collapsed
         : {};
