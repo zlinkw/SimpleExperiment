@@ -35,11 +35,15 @@
 本地项目根目录         D:/Research/demo_project
 Worker 项目父目录      /srv/experiments
 最终远端代码目录       /srv/experiments/demo_project
-Agent 安装位置示例     /srv/experiments/simple_agent
+Agent 安装位置示例     /srv/experiments/demo_project/<全局前缀>_agent
 job 正式输出示例       work_dirs/demo/baseline/seed_42
 job 指标示例           work_dirs/demo/baseline/seed_42/metrics.csv
 本地最终汇总           experiments/results/
 ~~~
+
+`<全局前缀>` 的默认值为 `simple`，例如上述项目默认使用 `demo_project/simple_agent`。建议先在 **设置 → 服务器 → 全局远端资源前缀** 设置自己的稳定名称，只使用小写字母、数字、下划线和连字符，以字母或数字开头，最多 32 字符；点号会被部分 tmux 改写，因此不接受新输入。每次打开插件仍为默认值时都会提醒，说明前缀用于区分共享服务器/账号中的插件资源、降低名称冲突和误操作风险；不提供永久关闭提醒。`zlk` 是合法自选值，不会被当作默认值或自动填入。
+
+Agent 的 runtime、状态、日志和锁默认在当前项目内；已有显式安装/状态目录原样保留，前缀改变不会自动迁移、改名、停止服务或清理产物。唯一默认公共例外是同账号同 Worker 的 GPU 采样，位于 `~/.simple-cluster/worker-state`（显式 `workerStateDir` 优先），避免每个项目重复采样。项目、Worker 与窗口身份仍须核实，前缀不能代替认证和独立端口。
 
 这些只是示例，不能照搬成真实服务器路径。不要把项目目录再填进“项目父目录”造成 `demo_project/demo_project`；不要用文件路径、系统根、数据集根或临时目录代替项目父目录。部署确认页会给出实际计算后的安装、状态和代码目录，应以该页为准。
 
@@ -81,7 +85,7 @@ job 指标示例           work_dirs/demo/baseline/seed_42/metrics.csv
 | `agentProjectDir` | 远端项目父目录，插件计算最终当前项目路径 |
 | `agentInstallDir` / `agentStateDir` / `workerStateDir` | 高级安装与状态目录；以部署预览为准，不随意改到数据集或科研产物目录 |
 | `condaEnv` | 科研任务的环境绝对路径，例如 `/srv/venvs/research`，也可精确到 `/bin/python`；空值继承项目默认，`-` 不是环境名 |
-| tmux 前缀 | 稳定且不与其他用户冲突的短名称；插件按它与 Worker ID 计算专用窗口 |
+| 全局远端资源前缀 | 本机所有项目共用的用户设置，默认 `simple`；Worker 卡片及旧任务字段不能单独覆盖。用于插件目录和 tmux 名称，项目窗口另按精确项目身份区分 |
 | `enabled` | 是否参与当前新操作；关闭不会自动停止已有任务 |
 | `gpuJobsPerCard` | 每张卡允许并行的 job 数；留空继承项目默认 |
 | `gpuMinFreeMemoryGb` | 允许继续派发前的总剩余显存门槛，单位 GiB；还要通过峰值预算检查 |
@@ -106,7 +110,7 @@ job 指标示例           work_dirs/demo/baseline/seed_42/metrics.csv
 
 ## 6. 连接配置保存在哪
 
-服务器、Conda、tmux 和隧道面板配置按当前项目保存到 VS Code workspaceState；两个不同项目窗口不会互写面板连接。旧项目首次升级复制旧连接配置一次，之后独立保存。不要通过复制内部状态文件把一个项目伪装成另一个项目。
+服务器、Conda 与隧道面板配置按当前项目保存到 VS Code workspaceState；两个不同项目窗口不会互写面板连接。资源前缀是例外，只读写 VS Code 用户级全局设置 `simpleExperiment.tunnel.remoteTmuxSessionPrefix`，本机所有项目窗口共用；工作区值、旧 `sessionPrefix`、Worker 或任务字段不再作为设置来源。旧项目首次升级复制旧连接配置一次，之后独立保存。不要通过复制内部状态文件把一个项目伪装成另一个项目。
 
 VS Code 用户级设置可作为共用模板；需要项目独立的参数写入工作区设置或面板。插件安装版本、用户主动设置的全局偏好仍是 VS Code 的共用能力。API 发现绑定窗口实例和项目根目录，另一个窗口改写兼容 `api.json` 不会把当前项目的请求转过去。
 

@@ -60,10 +60,11 @@
 | PFX3e / E1a | TMUX 同名前缀不作归属证据，首屏统计真实原生逻辑任务 | passed |
 | E1-test | 两个概况 VM 夹具准备原生数组缓存及真实生成函数 | passed |
 | E1-test2 | 原执行总览夹具展开全部既有逻辑函数模板插值 | passed |
-| PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | running |
+| PFX4 / D0d | 六份现行说明的全局前缀与项目目录契约 | passed |
+| PFX4b | 当前项目约束与历史说明指向的最后收口 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
 | D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | passed |
-| D0d | 更新目录与服务说明，保留完整使用指南 | pending |
+| D0d | 更新目录与服务说明，保留完整使用指南 | partial（PFX4 passed，PFX4b pending） |
 | D1-test | 日志/低流量夹具隔离附着命令组件边界 | passed |
 | D1a | 移除占位附着命令，复制前主动核实精确 Worker/窗口 | passed |
 | D1b | 零目标/禁用配置与观测分开，错误状态不得显示健康 | passed |
@@ -556,6 +557,8 @@ PFX3e/E1a 提交 0c4bea2fad144b1df5dbb11d59b0a99989c4c176 已普通 push/fetch �
 PFX4-test 独立测试准备：文档消费者 publicCliAliases 原 0/1，pfx4-publicCliAliases.test.js.log，固定要求 package bin=`./dist/cli.js`，但已提交正式入口早已是稳定 shim `./bin/simpleex.cjs`，bin/package/CLI 本批没有改动。改断言为当前既有公开入口并核实文件存在，唯一别名、历史 recorded kernel 导出、require.main、用法及技术说明全部原断言保留；当前原套件 1/1、exit=0，pfx4-cli-entry-fixed.log。仅该测试和计划单独提交，不混入六文档及 guide 测试，避免 8 文件上限；不改生产版本、包、CLI 功能或安装。其他文档回归仍继续，PFX4 生产输入未变，沿用同一个已验证 VSIX。
 
 PFX4-test2 独立测试准备：runConfirmationFingerprintLabelClarity 原 0/1，仍要求早已退役的“同步 Hub/Worker”提示，pfx4-runConfirmationFingerprintLabelClarity.test.js.log。当前真实批量确认已明确“同步全部启用 Worker 的代码并核验代码指纹”，Host 本批未改；更新这一处过时文案断言，指纹字段、实际匹配函数与指南解释的原断言完整保留，pfx4-worker-wording-fixed.log 1/1 通过。仅此测试和计划提交，不改生产代码或恢复 Hub；未改其他测试、版本或重打包。
+
+PFX4 最终检查：guide 2、actualWorkRoot 2、projectRemoteDestination 4、publicBranding 2、remotePathConfirmation 6、publicCliAliases 1、runConfirmationFingerprint 1、setupGuideWithoutBundledDocs 13，共 31 项通过。pfx4-*.log 保留实际命令、原失败及修正结果；CLI 静态入口和 Hub 旧文案修正分别已提交 66f71f8ddb9e599758b25aa360789cf699e569fe、5cd421db2321803f9d1d19da8d6acb1688773bd4，普通 push/fetch 一致，不混入本批 8 文件。六文档原 UTF-8/行尾保留并复读，diff 检查通过，目录/字段/页面及在线指南路径相关断言完整。生产代码、配置、版本、构建工具与既有 VSIX 均未变；复用 0.5.478 的 318 项规定覆盖和包，不触发编译、全量、安装或额外包后检查。PFX4b 只修当前 project-constraints 的错误来源/服务名/端口偏移，给两份历史文档加当前入口说明并更新覆盖表，最多 5 文件；不抹掉历史真实证据或改任何服务器。待 PFX4b 完成后，公开完整前缀试行包；稳定权威 440/117 保持。
 
 ## 发现线索与后续边界（以批次状态为准）
 

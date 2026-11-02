@@ -27,7 +27,7 @@ Mac 若采用其他发行索引，按该平台的当前实现核对。禁止将 
 
 ## 多窗口连接作用域
 
-SimpleExperiment 的服务器、Conda、tmux 与隧道面板配置保存到当前项目的 workspaceState，按规范根目录分开。已有项目首次更新时复制旧配置一次；之后面板保存不会改全局连接模板，虚拟工作区不会借用其他项目配置。切换项目重新加载其配置与 API 身份。安装版本和用户主动设置的全局偏好仍沿用 VS Code 的共用机制。
+SimpleExperiment 的服务器、Conda 与隧道面板配置保存到当前项目的 workspaceState，按规范根目录分开。资源前缀仅保存为用户级全局设置 `simpleExperiment.tunnel.remoteTmuxSessionPrefix`，默认 simple，所有项目共用；每次打开仍为默认时提醒修改并解释作用，旧项目/Worker/任务别名不覆盖。Agent runtime、状态、日志和锁默认归服务器项目目录，GPU 采样保留账号公共目录；已有显式路径不自动改名、迁移或清理。已有项目首次更新时复制旧配置一次；之后面板保存不会改全局连接模板，虚拟工作区不会借用其他项目配置。切换项目重新加载其配置与 API 身份。安装版本和用户主动设置的全局偏好仍沿用 VS Code 的共用机制。
 
 SimpleSFTP 为每个窗口发布独立实例记录，并通过当前 Extension Host 的扩展导出提供发现信息。SimpleExperiment 优先读取同窗口导出；旧版全局发现文件只允许 PID 一致的兼容读取。RPC 同时绑定窗口实例和项目根目录，排队后再次检查；不会因为另一个窗口改写 api.json 而转发到该窗口。统一 CLI 使用 `--workspace` 或 `--instance` 明确选择；默认入口与当前目录不匹配时拒绝执行。两个已打开窗口均须重载后生效。
 

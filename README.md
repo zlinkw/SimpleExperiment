@@ -90,7 +90,11 @@ cases:
 
 ## 目录与连接作用域
 
-项目父目录是远端放置项目的父目录。例如本地项目名为 demo_project、父目录为 `/srv/experiments`，最终代码目录是 `/srv/experiments/demo_project`。不要重复追加项目名。安装与状态目录以部署预览为准。
+项目父目录是远端放置项目的父目录。例如本地项目名为 demo_project、父目录为 `/srv/experiments`，最终代码目录是 `/srv/experiments/demo_project`。不要重复追加项目名。默认 Agent runtime 位于 `<项目父目录>/<本地工作区名称>/<全局前缀>_agent/simple_cluster/runtime`，状态和辅助服务日志也归当前项目；显式配置的旧目录保留，以部署预览为准。
+
+资源前缀只读取本机全局设置 `simpleExperiment.tunnel.remoteTmuxSessionPrefix`，默认 `simple`。请在 **设置 → 服务器 → 全局远端资源前缀** 改为自己的稳定短名称；每次打开插件仍为默认值时都会提醒并说明用途。前缀帮助共享服务器或账号的用户区分插件目录和 tmux 名称，项目身份及精确窗口校验继续生效；它不能代替独立端口。`zlk` 是用户自选值，不是默认值，也不会从旧路径、Worker 或任务字段自动推断。修改不自动改名、迁移、重启或清理已有资源。
+
+共享 GPU 采样保留在账号公共目录 `~/.simple-cluster/worker-state`，同一 Worker 共用采样；其余 Agent、任务状态、日志和锁默认位于服务器当前项目内。多个项目窗口使用各自目录，并分别核对 Agent、本机转发及 TensorBoard 端口。
 
 每台 Worker 的本机/远端 Agent 地址和端口动态读取自己的配置，不使用某个固定隧道端口探测所有服务器。面板连接、Conda 与隧道配置按当前项目保存；两个项目窗口不会互写连接。CLI/API 绑定准确项目与实例，窗口切换后旧请求不能借用新项目执行。
 

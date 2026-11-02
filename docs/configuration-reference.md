@@ -20,7 +20,7 @@
 
 结果汇总分别显示 Plan 数、完成/未完成/待核实 job 数和查询问题数。问题按 Worker 与原因折叠，展开可看全部受影响条目。API 使用 `planFile` 或唯一 `planId` 时只查询所选 Plan，返回 `scope: selected_plans`，不覆盖整批表格；整批更新仍从面板“更新结果汇总”或不带 Plan 筛选的结果查询发起。
 
-- 面板服务器、Conda、tmux 与隧道值按当前项目 workspaceState 保存；旧项目首次迁移一次。
+- 面板服务器、Conda 与隧道值按当前项目 workspaceState 保存；旧项目首次迁移一次。资源前缀只读取用户级全局值，所有项目窗口共用，工作区或旧项目别名不覆盖它。
 - VS Code 注册设置是用户/工作区配置模板；下表 scope 是设置声明的范围，不表示面板会把连接写到全局。新拓扑只注册 worker_pool，一台或多台 Worker 均适用。
 - GPU 参数为逐卡覆盖 → Worker 覆盖 → 项目默认；服务器 gpuMaxConcurrentCards 对该服务器全部 PLAN 合计独立限制。逐卡并行 0 或服务器占卡 0 暂停新派发，留空继承/取消该层限制，不停止已有任务。
 - “默认值”精确列出 VS Code 注册默认；内部组件自身缺省、服务器启动参数或已有保存值可能不同。实际运行以当前卡片、校验/预演和已生效 Worker 策略为准。
@@ -51,10 +51,9 @@
 | `simpleExperiment.tunnel.localForwardPort` | number / application | `18765` | **旧兼容字段。** 旧版通用本机端口默认值；当前目标只由各 Worker 配置创建。不得拿此默认值探测所有服务器。 |
 | `simpleExperiment.tunnel.remoteAgentPort` | number / application | `18765` | 通用远端 Agent 端口默认值；各 Worker 自身 remoteAgentHost/remoteAgentPort 优先。 |
 | `simpleExperiment.tunnel.agentToken` | string / application | `""` | 可选的 Worker Agent token。诊断信息会自动脱敏。 |
-| `simpleExperiment.tunnel.remoteTmuxSessionPrefix` | string / application | `"simple"` | 远端 tmux 会话名前缀，用于多用户共用服务器时区分归属；仅允许小写字母、数字、点、下划线和连字符。 |
-| `simpleExperiment.tensorboard.port` | number / application | `6006` | TensorBoard 在远端监听的端口，点击“打开 TensorBoard”时会重启该端口上的 <prefix>_tb tmux 会话。 |
+| `simpleExperiment.tunnel.remoteTmuxSessionPrefix` | string / application | `"simple"` | 唯一全局资源前缀；仅用户级 globalValue 生效，用于远端插件目录与 tmux 命名。默认 simple，每次打开仍为默认时提醒修改并说明作用。新输入仅小写字母、数字、下划线和连字符，以字母或数字开头，最多 32 字符。项目/Worker/旧任务字段不覆盖，修改不自动改名、迁移或重启；zlk 仅是合法用户值。 |
+| `simpleExperiment.tensorboard.port` | number / application | `6006` | TensorBoard 在远端监听的端口；服务与当前项目及 Worker 绑定，显示实际返回的会话、窗口和端口。外部服务占用端口时明确失败，不关闭其他项目窗口。 |
 | `simpleExperiment.tensorboard.logdir` | string / application | `"work_dirs"` | 启动 TensorBoard 时优先使用的日志目录（相对于远端项目根目录）。留空或不存在时，agent 会自动探测 events.out.tfevents.* 目录并直接启动 tensorboard。 |
-| `simpleExperiment.tensorboard.tmuxSession` | string / application | `""` | TensorBoard 的 tmux 会话名。留空时自动取 <tunnel.remoteTmuxSessionPrefix>_tb，切勿写死具体服务器或用户名。 |
 | `simpleExperiment.tunnel.condaEnv` | string / application | `""` | 正式任务默认 Conda 环境绝对路径，可选以 /bin/python 结尾；留空使用系统 Python。每台 Worker 可覆盖。辅助 Agent 使用独立解释器，不以科研环境相同或依赖已安装作为就绪门禁。 |
 | `simpleExperiment.tunnel.workerTunnels` | array / application | `[]` | Worker 连接模板数组。推荐在当前项目服务器卡片保存连接；面板配置按项目持久化，不写其他窗口的全局连接。 |
 | `simpleExperiment.scheduler.dispatchMode` | string / window（未另声明） | `"local_idle"` | 默认全部本机调度；旧 server_prequeue 值仅兼容读取，服务器排队必须由用户点击按钮按逐卡 job 配额派发。 |
@@ -128,8 +127,8 @@
 | agentProjectDir | 用户选择的远端项目父目录；当前工作区名参与最终项目路径计算。 |
 | condaEnv | 正式任务环境绝对路径或精确 Python 路径；空值按项目默认/系统 Python 处理，辅助 Agent 不以科研解释器一致作为门槛。 |
 | savedSessionPath / savedSessionForwardIndex | Xshell 导入与手动打开入口；不能证明后台系统 SSH 认证成功。 |
-| agentInstallDir / agentStateDir / workerStateDir | 高级 runtime、Agent 状态与 Worker 状态目录，须核对部署页的精确位置。 |
-| sessionPrefix / remoteTmuxSessionPrefix | tmux 命名与归属前缀，避免与其他用户或项目冲突。 |
+| agentInstallDir / agentStateDir / workerStateDir | 默认 runtime 与 Agent 状态归当前项目 `<全局前缀>_agent`；只有共享 GPU 采样使用账号公共 Worker 状态目录。已有显式目录保留，部署前核对精确位置；前缀变化不自动迁移。 |
+| sessionPrefix / remoteTmuxSessionPrefix | 历史对象字段，不是独立设置来源；当前全局值来自 `simpleExperiment.tunnel.remoteTmuxSessionPrefix`。Host 向 Agent/Scheduler 传递当前全局值，旧存储任务不覆盖它。 |
 | gpuMaxConcurrentCards | 整台服务器所有 PLAN 合计的并发占卡上限，留空不限，0 暂停新派发。 |
 | gpuCardOverrides.<GPU编号>.gpuJobsPerCard | 逐卡最大并行 job 数；0 暂停该卡的新派发。 |
 | gpuCardOverrides.<GPU编号>.gpuMinFreeMemoryGb | 逐卡总剩余显存门槛，单位 GiB；预算预留仍继续检查。 |

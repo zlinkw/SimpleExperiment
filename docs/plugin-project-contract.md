@@ -9,6 +9,8 @@
 - Hub 已退役。其名称只允许用于历史格式读取、退役入口明确拒绝以及 GitHub 功能。历史结构、旧路径字段和 runtime 组件键不是当前调度能力。
 - 每台 Worker 有自己的 Agent、Scheduler、任务窗口和产物。多 Worker 不自动把单个 job 变为跨服务器训练。
 - 一个 VS Code 窗口只操作一个受支持的项目根目录；API 请求绑定项目及实例，禁止借用另一窗口的发现文件、连接或结果身份。
+- 资源前缀唯一来源是用户级全局设置 `simpleExperiment.tunnel.remoteTmuxSessionPrefix`，默认 simple；每次打开仍为默认时提醒修改并说明作用。它区分插件目录和 tmux 命名，不能替代项目/Worker/窗口归属、认证或独立端口。zlk 是合法自选值，旧项目、Worker 与持久任务字段不作为当前配置来源。
+- Agent runtime、状态、辅助日志和锁默认位于 `<项目父目录>/<工作区名>/<全局前缀>_agent` 内；Scheduler 与任务数据归当前项目。共享 GPU 采样是唯一默认账号公共状态，使用 `~/.simple-cluster/worker-state` 或用户显式 Worker 状态目录。同一 Worker 共享采样，不按项目复制采样进程；已有显式目录不自动迁移、改名、停止或清理。
 - 配套版本从当前发布源和实时 capabilities 确认；不能用本文中的某个历史最低版本代替实际协议检查。
 
 ## 2. 项目结构与环境
