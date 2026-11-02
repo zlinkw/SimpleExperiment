@@ -80,7 +80,7 @@ test('the rendered settings form restores global values, explicit Worker overrid
  let renderer;function find(node){if(ts.isFunctionDeclaration(node)&&node.name?.text==='renderServerCardsV2')renderer=node.getText(tree);else ts.forEachChild(node,find);}find(tree);
  assert.ok(renderer);const fields=new Map(),output=new Map();
  const context={serverStatusIndexesForState:()=>({conflicts:[],workerStatus:new Map(),assignmentById:new Map(),conflictById:new Map()}),
-  sessionForPath:()=>({}),asArray:value=>value,esc:String,escAttr:String,configDefault:(value,fallback)=>value??fallback,
+  sessionForPath:()=>({}),asArray:value=>value,esc:String,escAttr:String,configDefault:(value,fallback)=>value??fallback,configDraftValue:(_scope,_key,fallback)=>fallback,
   configInput:(scope,key,_label,value)=>{fields.set(scope+'.'+key,value);return '';},
   configSelect:(scope,key,_label,value)=>{fields.set(scope+'.'+key,value);return '';},
   treeAnchorId:(_group,id)=>id,formatTunnelAddress:()=>'',tunnelHost:value=>value,detailsOpenAttr:()=>'',
