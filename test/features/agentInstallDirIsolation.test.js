@@ -22,6 +22,7 @@ const sandbox = {
   remoteProjectName: () => "demo",
   normalizeRemoteWorkRoot: (root) => String(root || "").replace(/\/+$/, ""),
   AgentTmuxPolicy_1: {
+    ...require("../../dist/tunnel/AgentTmuxPolicy"),
     remoteAgentDirectoryName: require("../../dist/config/RemoteResourcePrefix").remoteAgentDirectoryName,
     defaultAgentTmuxSessionName: (role, id) => `${role}-${id || "hub"}`,
     agentTmuxStartupCommand: ({ installDir }) => `INSTALL_DIR=${installDir}`,

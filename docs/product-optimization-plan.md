@@ -286,6 +286,8 @@ PFX1 源码 83805e8fb051061f10064d518ae4baf0efc9119b 已普通 push/fetch 一致
 后续实现边界：Host 的启动/生命周期审核/查询默认目标和状态投影、既有 AgentTmuxPolicy 项目窗口函数、实际 UI 目标展示、既有 agentTmuxPolicy 用例及版本/计划，最多 8 文件。不操作真实窗口、服务、服务器或科研环境；无项目不生成可执行目标。现场多项目与端口归属仍待验证。
 PFX-test3 验证：independentAgent 4、agentPreparationLifecycle 10 项通过，原自定义登录/静默/动态端点/归属/迁移确认/精确生命周期断言保留。实际 shell 测试仅使用临时轻量输出器，无 Agent、GPU、服务器或 tmux 服务启动；API 组合检查为隔离边界。纯测试与计划三文件独立提交，无新运行版本或 VSIX。
 
+PFX-test3 提交 ab8c417e4ad4066f4b467d03150863189fdb9a41 已普通 push/fetch 一致。PFX-test4 纯夹具准备：目录和会话缓存组合夹具加载真实 AgentTmuxPolicy 命名导出，再覆盖原有轻量启动替身，供项目窗口接口使用；不缩减原断言。目录 5、会话缓存 2 项通过，日志 pfx-test4-install.log / pfx-test4-cache.log；仅两测试与本计划独立提交，不改运行版本。
+
 ## 后续定向核查线索（尚未实施）
 
 - D0：agentRuntimeDirs 默认 <父目录>/simple_agent；Agent tmux 默认名仅含前缀和 Worker，不含项目。默认 runtime 应转项目内，并用稳定项目身份分开 Agent 窗口；不迁移或清理旧目录，不改变用户显式目录。用户已选择保留 GPU Collector 的账号/Worker 共享唯一采样源（GpuCollector.ts、AgentLifecycle.ts），其余归项目；当前未改。

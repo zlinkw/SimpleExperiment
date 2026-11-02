@@ -23,6 +23,7 @@ function extractMethod(name) {
 function loadSubject() {
   const sandbox = {
     AgentTmuxPolicy_1: {
+      ...require("../../dist/tunnel/AgentTmuxPolicy"),
       defaultAgentTmuxSessionName(role, id) { return id ? `${role}-${id}` : role; },
       agentTmuxStartupCommand(options) { return `${options.role}:${options.endpointId || "hub"}:${options.workDir || ""}`; },
     },
