@@ -4054,6 +4054,15 @@ function renderPanelHtml() {
             payload.clientActionId = clientActionId;
             pendingButtonKeys.add(pendingKey);
             const pendingItem = Object.assign({ command, pendingKey, clientActionId, actionSection: button.dataset.actionSection || "", startedAt: Date.now(), label: button.textContent.trim(), status: "running", message: command === "runPlan" ? "已收到请求，正在准备计划校验…" : "" }, payload);
+            const pathPicker = command === "choosePptPath" || command === "chooseNewPptPath";
+            const draftScope = payload.configScope || (pathPicker ? "ppt" : "");
+            if (draftScope) {
+              const draft = configDrafts[draftScope] || {};
+              pendingItem.configScope = draftScope;
+              pendingItem.configDraftSnapshot = pathPicker
+                ? (Object.prototype.hasOwnProperty.call(draft, "presentationPath") ? { presentationPath: draft.presentationPath } : {})
+                : Object.assign({}, draft);
+            }
             pendingActions[pendingKey] = pendingItem;
             pendingActionsById[clientActionId] = pendingItem;
             setButtonLoading(button, pendingKey);
@@ -10258,20 +10267,13 @@ function renderPanelHtml() {
     function clearConfigDraftsForCommand(command, context) {
       const value = String(command || "");
       const scope = String((context && context.configScope) || "");
-      const endpointId = String((context && context.endpointId) || "");
-      if (scope) {
-        delete configDrafts[scope];
-        if (!hasConfigDrafts()) serverConfigEditLockUntil = 0;
-        persistTransientPanelState();
-        return;
+      if (!scope || context.command !== value || !context.configDraftSnapshot) return;
+      const draft = configDrafts[scope];
+      if (!draft) return;
+      for (const [key, submitted] of Object.entries(context.configDraftSnapshot)) {
+        if (Object.is(draft[key], submitted)) delete draft[key];
       }
-      if (value === "saveAgentDefaults") delete configDrafts.defaults;
-      if (value === "saveTopologyMode") delete configDrafts.topology;
-      if (value === "saveSchedulerConfig") delete configDrafts.scheduler;
-      if (value === "saveRemoteRootPolicy") delete configDrafts.remotePolicy;
-      if (value === "saveProjectAdapterRules") delete configDrafts.projectAdapterRules;
-      if (value === "savePptPlotConfig" || value === "choosePptPath" || value === "chooseNewPptPath") delete configDrafts.ppt;
-      if (value === "saveWorkerConfig" && endpointId) delete configDrafts["worker:" + endpointId];
+      if (!Object.keys(draft).length) delete configDrafts[scope];
       if (!hasConfigDrafts()) serverConfigEditLockUntil = 0;
       persistTransientPanelState();
     }
@@ -16769,7 +16771,10 @@ function renderPanelHtml() {
     }
 
     function renderPptPlotConfig(state) {
-      if (shouldKeepConfigDraftScope("ppt")) {
+      const pathInput = el("pptPlotConfig").querySelector('input[data-config-input="ppt"][data-key="presentationPath"]');
+      if (shouldKeepConfigDraftScope("ppt") && pathInput) {
+        if (!Object.prototype.hasOwnProperty.call(configDrafts.ppt || {}, "presentationPath") && document.activeElement !== pathInput)
+          pathInput.value = String((state.pptPlotConfig || {}).presentationPath || "");
         refreshPptPlotConfigDebugState(state);
         return;
       }

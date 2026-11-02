@@ -135,3 +135,72 @@ test("settings secondary view keeps pin and three-column mechanisms intact", () 
   assert.match(panel, /body\.inspector-pinned #cardDeck/);
   assert.match(panel, /data-section-target="settings"/);
 });
+
+function draftReceiptFixture(drafts) {
+  const s = {
+    configDrafts: drafts, serverConfigEditLockUntil: 123, persisted: 0,
+    pendingActions: {}, pendingActionsById: {}, pendingButtonKeys: new Set(), lastState: null,
+    TERMINAL_UI_STATUSES: new Set(["completed", "submitted", "failed", "cancelled", "stalled"]),
+    renderCommandPhaseLine() {}, clearPendingActionTimeout() {}, clearButtonsForPending() {},
+    applyPendingButtonStates() {}, persistTransientPanelState() { s.persisted++; },
+  };
+  vm.createContext(s);
+  vm.runInContext(["clearConfigDraftsForCommand", "hasConfigDrafts", "isTerminalUiStatus", "handleUiCommandStatus"].map(productionFunction).join("\n"), s);
+  return {
+    s,
+    pending(command, scope, snapshot, id = "save-1") {
+      const item = { command, configScope: scope, configDraftSnapshot: snapshot, clientActionId: id, pendingKey: id, status: "running" };
+      s.pendingActions[id] = item; s.pendingActionsById[id] = item; s.pendingButtonKeys.add(id);
+      return item;
+    },
+    reply(command, status, id = "save-1") { s.handleUiCommandStatus({ command, status, clientActionId: id }); },
+    drafts() { return JSON.parse(JSON.stringify(s.configDrafts)); },
+  };
+}
+
+test("successful settings receipts clear only submitted unchanged draft values", () => {
+  const f = draftReceiptFixture({ defaults: { remoteTmuxSessionPrefix: "alice", condaEnv: "" }, "worker:b": { gpuMaxConcurrentCards: 0 } });
+  f.pending("saveAgentDefaults", "defaults", { remoteTmuxSessionPrefix: "alice", condaEnv: "" });
+  f.s.configDrafts.defaults.remoteTmuxSessionPrefix = "bob";
+  f.s.configDrafts.defaults.extra = false;
+  f.reply("saveAgentDefaults", "completed");
+  assert.deepEqual(f.drafts(), { defaults: { remoteTmuxSessionPrefix: "bob", extra: false }, "worker:b": { gpuMaxConcurrentCards: 0 } });
+  assert.equal(f.s.serverConfigEditLockUntil, 123);
+  assert.equal(f.s.persisted, 1);
+  f.pending("saveAgentDefaults", "defaults", { remoteTmuxSessionPrefix: "bob", extra: false }, "save-2");
+  f.reply("saveAgentDefaults", "completed", "save-2");
+  assert.deepEqual(f.drafts(), { "worker:b": { gpuMaxConcurrentCards: 0 } });
+  f.pending("saveWorkerConfig", "worker:b", { gpuMaxConcurrentCards: 0 }, "save-3");
+  f.reply("saveWorkerConfig", "completed", "save-3");
+  assert.deepEqual(f.drafts(), {});
+  assert.equal(f.s.serverConfigEditLockUntil, 0);
+});
+
+test("failed, cancelled, orphaned and wrong-command settings receipts preserve drafts", () => {
+  for (const status of ["failed", "cancelled", "stalled", "submitted"]) {
+    const f = draftReceiptFixture({ scheduler: { jitterSeconds: 0 } });
+    f.pending("saveSchedulerConfig", "scheduler", { jitterSeconds: 0 });
+    f.reply("saveSchedulerConfig", status);
+    assert.deepEqual(f.drafts(), { scheduler: { jitterSeconds: 0 } }, status);
+    assert.equal(f.s.persisted, 0);
+  }
+  const f = draftReceiptFixture({ defaults: { condaEnv: "/env/new" } });
+  f.reply("saveAgentDefaults", "completed", "missing-old-id");
+  assert.deepEqual(f.drafts(), { defaults: { condaEnv: "/env/new" } });
+  f.pending("saveAgentDefaults", "defaults", { condaEnv: "/env/new" });
+  f.reply("saveSchedulerConfig", "completed");
+  assert.deepEqual(f.drafts(), { defaults: { condaEnv: "/env/new" } });
+  assert.equal(f.s.persisted, 0);
+});
+
+test("PPT path selection clears only its original path draft and retains later edits", () => {
+  const f = draftReceiptFixture({ ppt: { presentationPath: "old.pptx", chartType: "genericTable", styleMode: "default" } });
+  f.pending("choosePptPath", "ppt", { presentationPath: "old.pptx" });
+  f.reply("choosePptPath", "completed");
+  assert.deepEqual(f.drafts(), { ppt: { chartType: "genericTable", styleMode: "default" } });
+  f.s.configDrafts.ppt.presentationPath = "typed.pptx";
+  f.pending("chooseNewPptPath", "ppt", { presentationPath: "typed.pptx" }, "picker-2");
+  f.s.configDrafts.ppt.presentationPath = "new-typed.pptx";
+  f.reply("chooseNewPptPath", "completed", "picker-2");
+  assert.equal(f.s.configDrafts.ppt.presentationPath, "new-typed.pptx");
+});

@@ -73,7 +73,7 @@
 | D1 | 零目标、禁用、未核实、离线；精确附着与项目绑定查询 | passed（本机覆盖，真实服务器待验证） |
 | D2-test | 原 Conda 标题测试固定真实字段含义，不保留矛盾文案 | passed |
 | D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | passed（本机；现场待验证） |
-| D3 | 保存范围、生效时间与草稿恢复 | pending |
+| D3 | 保存范围、生效时间与草稿恢复 | passed（本机；真实重载待验证） |
 | E1 | 主次/危险操作、错误、帮助、空态与刷新范围 | partial（E1a passed，最终覆盖核对随 E2） |
 | E2 | label、键盘、焦点、窄窗口、长路径、缩放与主题 | pending |
 
@@ -592,6 +592,14 @@ D2 最终验证：2026-11-02T22-52-44-901Z-81624-package/run.json，318 作业�
 D2 提交 74dc0720c24c092754b63b42143e1e5b23e8ff5e 已普通 push/fetch 一致。D3-test 先独立修正原 panelWebviewScriptHealth 对整 scope 删除实现的绑定：仍验证 defaults 属于实际服务器可编辑 scope，改验证真实保存按钮及前缀输入接线，不再强制存在破坏新草稿的 delete 语句。原其余低流量、手动刷新、实际 click/command/空身份断言保留，原 9 项在未修改 0.5.479 生产实现上全部通过，d3-health-fixture-prep.log。仅测试与计划单独提交，不改版本/重新打包。
 
 D3 边界：只清除本次提交且仍未改变的草稿；忽略无对应 pending 上下文的旧成功回包，保留失败/取消与保存期间的新输入；PPT 路径选择只消费其原路径草稿，其他绘图草稿保留，晚到路径状态可更新未编辑的路径，恢复草稿时仍挂载实际表单。复用既有 pending action 和浅复制标量草稿，不加哈希、草稿框架或科研操作。UI legacy、原 settingsSecondaryView、三版本和本计划，共 6 文件，内部拟 0.5.480；先原函数复现，再最小检查、实际 HTML/隔离渲染和规定 package。
+
+D3 实现与验证：独立准备 fd8ed8972cfd759d925819fb9c7a930635f2e77c 已普通 push/fetch 一致。新增原 settingsSecondaryView 三项真实函数复现，旧 7 项通过、新 3 项失败（d3-before-drafts.log）。pending action 在发出时浅复制本 scope 已编辑标量；完成回包只清除该快照中仍等值的项，旧/异命令回包无清理授权；失败、取消、提交接收不清除。PPT 选择只记 presentationPath，保留图型与样式；已有表单可接收未编辑的路径新状态，重载草稿未挂载表单时仍完整渲染，均不执行绘图/分析。
+
+D3 构建记录：初次修改后误在编译前运行依赖 dist 的原夹具，d3-final-drafts.log 仍为原 7/10，不能算新候选结果。随后版本补丁误用了不存在的常量名被整体拒绝；只先修 runtime 版本再编译，生成器按旧 package 反向同步，接着更新 package 后又反向同步源码，导致 2026-11-02T23-06-27-406Z-51536 与 23-06-46-549Z-58572 两次 compile 均 invalidated/exit=1，门禁正确拒绝输入漂移。未改门禁/编译器/超时；三处统一 0.5.480 后，23-07-54-067Z-82484 compile 通过，d3-candidate-drafts.log 10/10 通过，所有失败原记录保留。
+
+D3 定向共 38 项通过：settingsSecondaryView 10、panelWebviewScriptHealth 9、actionLifecycle 9、resultCommandPhaseRouting 3、planScopedPptConfigPaths 2、pptPlotConfirmationWorkflow 5，d3-candidate/d3-final-*.log（不包括上述旧生成物 d3-final-drafts 失败记录）。实际生成 HTML 三脚本 vm.Script 与 Chrome d3-render-1793660942293.json 通过：真实点击提交时快照不随新输入改变、快照不发给 Host、成功后新前缀/环境值及失败/重复回包保留、PPT 草稿重载挂载、只清原路径、晚到状态更新与选择期间新输入保护，同时复用 D2 及原主线真实 DOM 回归。长探针超过 Windows 命令长度而未启动后，改在既有 ignored reports 目录落盘同内容生成探针执行，无产品文件变动或真实 API。diff 空白检查已通过。本批 6 非生成文件冻结，进入规定 package；未发行、安装或操作服务器。
+
+D3 最终验证：2026-11-02T23-09-57-703Z-63856-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、724966ms，锁已释放。内部 universal/trial 0.5.480：2778522 字节，SHA256 7f88ace847dd6f9752703f70feda9e358932ac0e481e8adc951cda77280b56e5，与 receipt 及逐包清单一致；362 项内容门禁零违规，实际主 HTML 三脚本与模块解析通过。六个非生成文件按批提交；没有公开发行、安装、真实绘图或服务器操作。E2 将处理实际表单关联、状态卡片键盘/焦点和主题/视口问题，原生双确认保持完整目标与原有两阶段。
 
 ## 发现线索与后续边界（以批次状态为准）
 
