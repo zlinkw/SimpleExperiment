@@ -7,7 +7,7 @@ module.exports=async function launchMessages(memory,workerOverride={}){
  const Provider=vm.runInNewContext(ts.transpileModule(proof+';class Provider{'+send+'};Provider;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{
   workspaceRoot:()=>root,PlanExecutionMode:require('../../dist/features/PlanExecutionMode'),DistributedSchedulingPolicy:require('../../dist/features/DistributedSchedulingPolicy'),
   GpuQuotaScheduling:require('../../dist/features/GpuQuotaScheduling'),GpuMemoryScheduling:require('../../dist/features/GpuMemoryScheduling'),PlanCodeScopeHost:require('../../dist/extension/PlanCodeScopeHost'),vscode:{workspace:{getConfiguration:()=>({get:()=>undefined})}},AgentTmuxPolicy_1:require('../../dist/tunnel/AgentTmuxPolicy')});
- const p=new Provider(),messages=[];Object.assign(p,{distributedQueueGeneration:0,distributedPlanStopEpoch:0,setupConfig:{sessionPrefix:'My-Tasks',remoteTmuxSessionPrefix:'obsolete'},
+ const p=new Provider(),messages=[];Object.assign(p,{distributedQueueGeneration:0,distributedPlanStopEpoch:0,setupConfig:{remoteTmuxSessionPrefix:'my-tasks'},
   // 块B发送守卫：夹具根不在统一登记域（登记表空）→ active:false，即既有单机发送路径。
   unifiedDomainState:()=>({active:false,blocked:""}),
   client:{postWorkerAction:async(_worker,action,body)=>messages.push({...JSON.parse(JSON.stringify(body)),action})},

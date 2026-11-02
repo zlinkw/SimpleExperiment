@@ -24,7 +24,7 @@ function sliceMethod(startMarker, endMarker, label) {
 const guardSlice = sliceMethod("codeSyncRootProbeConfig(target) {", "machineStatePrefixesForTarget(target) {", "guard");
 const prefixSlice = sliceMethod("machineStatePrefixesForTarget(target) {", "localMachineStateGuard(root) {", "prefix helpers");
 const localGuardSlice = sliceMethod("localMachineStateGuard(root) {", "async refreshSyncScopeStatus(", "localMachineStateGuard");
-const runtimeDirsSlice = sliceMethod("agentRuntimeDirs(actualWorkRoot, agentInstallDir) {", "currentAssignments() {", "agentRuntimeDirs");
+const runtimeDirsSlice = sliceMethod("    agentRuntimeDirs(", "currentAssignments() {", "agentRuntimeDirs");
 const expectedRootSlice = sliceMethod("expectedWorkerAgentProjectRoot(workerId) {", "async openSetupGuide() {", "expectedWorkerAgentProjectRoot");
 const stampSlice = sliceMethod("stampWorkerProbeGeneration(workerId, probe) {", "schedulePostLaunchAutoTest() {", "stampWorkerProbeGeneration");
 const boundedSlice = sliceMethod("async boundedPromise(work, timeoutMs, timeoutError) {", "async recoverPlanOperationsForStopClear(", "boundedPromise");

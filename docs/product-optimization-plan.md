@@ -31,6 +31,12 @@
 | C2c | 自定义固定项中的结果别名迁移，保留布局和位置 | passed |
 | C3 | 最新 job 产物与用户范围交集、逐 Worker 同步反馈 | passed |
 | D0a | 项目内 runtime 与辅助日志的同步/覆盖保护 | passed |
+| PFX0 | 单一全局前缀来源、保存范围和每次打开提醒 | running |
+| PFX-test | 受影响夹具使用正式前缀字段，目录方法提取不绑定旧参数个数 | passed |
+| PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | pending |
+| PFX2 / D0c | 服务命名与调度前缀统一，消除个人前缀兜底 | pending |
+| PFX3 | 远端路径校验和错误品牌迁移的前缀残留 | pending |
+| PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | pending |
 | D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | pending |
 | D0d | 更新目录与服务说明，保留完整使用指南 | pending |
@@ -213,6 +219,25 @@ C3 交付：源码 5c75ad0dedabcf0cc8cf58135da00bb16c817181 已普通 push/fetch
 D0a 定向证据：projectRootMap 新增真实 Host 映射断言先以 13/14、exit=1 复现 /srv/project/simple_agent 内 runtime 未受保护；只加入现有 runtime 目录与实际 lifecycle 日志文件后 14/14 通过。同根和 work_dirs 混合安装均保留科学模型、tmp/result、普通日志和 runtimeX 近似名称。completedJobArtifactRootBinding 7 项通过，绑定、未知映射、切换取消及 verifyOnly 保留。实际科研代码上传使用精确 manifest；受管 Agent 部署走既有独立 uploadFiles 入口，不被项目传输保护误挡，未执行部署。compile 及实际 HTML 三段/模块脚本通过；UI 实现未变，复用 C3 实际渲染，不重做隔离页面。原失败日志 simple_cluster/reports/product-optimization/d0a-target-1793628822391/before.log 保留；冻结 0.5.460，共 6 个非生成文件，最终 package pending。
 
 D0a 最终 package：318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、768448ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T14-17-56-106Z-43196-package/run.json。VSIX 0.5.460 为 universal/trial、2777800 字节，SHA256 f350e59a31400f9f4ea714e23f6c1a6b2b9681de5dd2a63a36e65dbbcdef5c86，与 receipt 相符，361 项收包门禁零违规。只补实际两个受管路径，不改变整个安装根语义、默认位置、服务命名或共享 GPU 采样。下一批修改默认目录及明确的项目路径调用方、预览；未安装、未部署。
+
+D0a 交付：9affe8948150ec72ad983e35b6bc70bdc182ff24 已普通 push/fetch 一致。GitHub API/GraphQL 请求出现 EOF，未重建或覆盖已有发布；按用户要求改网页。实际发布页 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.460 显示预发布和同一提交，网页下载的 VSIX 为 2777800 字节、SHA256 与上文一致，下载的精确文件名校验清单与本地逐字节一致。实际公开 ReleaseClient 已确认稳定版仍 0.5.440/0.2.117，试行不降级。未安装、无服务器操作。
+
+## 前缀返修修订与当前批次 PFX0
+
+用户追加：simple 是默认前缀，zlk 仅为一个用户曾使用的自定义值；前缀统一为全局变量。默认未改时每次打开插件提醒，解释作用和重要性，最终版本不能保留原错误机制。
+原 D0b 未提交修改已完整保存为隔离 patch，暂停，不丢弃；按 PFX0→PFX1→PFX2→PFX3→PFX4 验证后继续原 D1–E2。前缀返修收口前不安装。
+PFX0 范围：保留现有唯一 application 配置键 tunnel.remoteTmuxSessionPrefix 及用户已有全局值，读取只取 globalValue，不再让旧项目快照、sessionPrefix 别名或工作区覆盖夺权。面板保存前缀写用户全局设置，Conda 仍属项目。默认 simple 的首次显示/隐藏后再次打开均提醒；不以持久“已提示”标记跳过。无项目也可设置；默认未改没有“不再提示”。
+边界：本批先修来源、保存与提示，不宣称目录和运行时代码已收口；目录、服务、Python 和路径校验残留分后续有界批次。真实旧目录和窗口不自动迁移、改名、重启或清理；共享 GPU 采样保留账号公共唯一源。包品牌、历史格式读取和精确用户路径不能做 simple↔zlk 全局替换。
+发现：Host 有多个 sessionPrefix 优先于正式设置的读取分支；loadSetupConfig 可让项目 savedDefaultsWin 盖过全局值；一次性项目提示保存“已提示”后永不再问。TmuxRemoteExecutor 固定 zlk1，Agent Python bootstrap 优先 zlk1，ApiWorkflow 将 simple 路径段映射成 zlk，RemoteRootPolicyPrefill 存在相反迁移猜测；均须后续按真实调用链修正，不能仅改文案。
+验证：真实 Host 方法隔离检查跨项目/无项目全局读取、每次打开提醒、合法保存/非法值拒绝；原全局/配额/面板打开回归、实际 HTML/隔离渲染及规定 package。PFX0 最多 8 个非生成文件，现场服务器仍待验证。
+
+PFX0 定向结果：publicRuntimeEnvironmentDefault 7、globalConfigPersistence 2、serverQuotaPersistence 4、workerRouting 3、configurationChangeWorkflow 1、autoConnectRealtimeOnPanelOpen 2 项通过。旧静态夹具把新增独立方法切进 applySetupDraft，首轮 1/2 失败；已改用真实 AST 方法边界并保留其他连接/Conda 不写全局的断言。配额回归随后 2/4 暴露完整 Worker 快照也含前缀，现仅显式前缀表单选项允许全局写入，普通项目保存强制使用当前全局值；新增真实行为检查防止旧值回写。原失败日志保留，未改期限或退役覆盖。
+实际隔离页面先未打开设置导致目标缺失；打开后复现前缀 simple→alice 不重绘。compactSetupForSignature 漏字段，已补实际字段并新增行为检查。最终真实 Chrome 的默认提醒、全局范围说明、自定前缀刷新，以及 C3 同步/C2c 自定义布局/重载、原六种首屏/焦点/窄窗口均通过；报告 simple_cluster/reports/product-optimization/pfx0-render-1793631454880.json。实际 HTML 三段脚本通过，compile exit=0，UTF-8 复读通过。冻结 0.5.461，共 8 个非生成文件；最终 package pending。
+
+PFX0 首轮 package：318 作业中 312 通过、6 失败，exit=1、700136ms；凭据 2026-11-02T14-58-36-039Z-19640-package/run.json，未发布新包。tmuxGpuSessionClose 未提供真实已载入 setupConfig；manualLaunchMessage 共用夹具故意让 sessionPrefix 覆盖正式字段，使 gpuMemoryScheduling/schedulerRuntimeUpdate/gpuQuotaScheduling/manualTmuxAdmission 四文件失败；workerPreparationPipeline 同样只提供旧别名。原目标、确认、窗口身份、配额、停止、非变异断言均保留，不改生产代码恢复退役读取。
+插入 PFX-test 纯测试准备批：以上三个夹具改用正式已解析字段；另将两个真实目录方法夹具的起始标记改为方法名，避免绑定旧参数个数。共 5 个测试文件及本计划，无运行版本/包/安装变更。验证受影响的六文件和两目录根绑定文件后独立提交，PFX0 实现仍未提交，继续修正前缀与 Conda 签名关联后重验。
+
+PFX-test 验证：八文件 77 项通过（13+9+2+11+1+8+7+26），所有原边界断言保留。首次 schedulerRuntimeUpdate 输出成功 JSON，但 WSL 子进程在原 10 秒内未退出，status=null/exit=1，原日志保留；既有 prepare-wsl-tests 确认就绪（2476ms）后，该文件 2 项在原期限内通过（主例 5074ms），其余依序通过。未据此宣称偶发根因已证，未改期限/性能断言/退役覆盖。PFX0 整批仍未通过，无 461 发布或安装；当前仅提交测试准备和记录。下一批边界仍为全局前缀来源、提醒、保存与 Conda 不受牵连。
 
 ## 后续定向核查线索（尚未实施）
 

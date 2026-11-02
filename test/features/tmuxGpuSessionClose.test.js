@@ -164,6 +164,7 @@ test('panel host routes GPU card requests through exact confirmation, progress a
       } } });
   vm.runInContext(code, context);
   const host = new context.Host();
+  host.setupConfig = { remoteTmuxSessionPrefix: 'my-user' };
   host.tmuxWorkerId = () => f.request.workerId;
   host.readTmuxListAfterKill = f.ports.read;
   host.performKillTmuxWindow = async (worker, target, identity) => { assert.equal(worker, f.request.workerId);
