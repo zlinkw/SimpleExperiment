@@ -15242,30 +15242,9 @@ def kill_tmux_window_response(payload, mode, mgmt_env=""):
     declared_session = str((payload or {}).get("session") or "").strip()
     if declared_session and declared_session != sess_name:
         return {"error": "session does not match target"}, 400
-    confirmed = (payload or {}).get("confirm") is True or str((payload or {}).get("confirm") or "").strip().lower() in ("true", "1", "yes")
-    if sess_name.endswith("-agent") and not confirmed:
-        return {"schemaVersion": SCHEMA_VERSION, "ok": False, "target": target, "needConfirm": True, "error": "agent window requires confirm"}, 403
-    mgmt_target = str(mgmt_env or os.environ.get("SIMPLE_EXPERIMENT_TMUX_SESSION") or "").strip()
-    if not mgmt_target:
-        try:
-            _pfx = ""
-            try:
-                _pfx = str(_resolve_tmux_prefix() or "").strip()
-            except Exception:
-                _pfx = ""
-            if not _pfx:
-                _pfx = str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower() or "simple"
-            _pfx = re.sub(r"[^a-z0-9._-]+", "-", _pfx.lower()).strip("-")[:32] or "simple"
-            _worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "").strip()
-            if re.fullmatch(r"[A-Za-z0-9._-]+", _worker):
-                mgmt_target = _pfx + "-worker-" + _worker + "-agent"
-        except Exception:
-            mgmt_target = ""
-    if sess_name == mgmt_target:
-        if not confirmed:
-            return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "current Agent window requires confirmation"}, 403
-        threading.Timer(0.3, lambda: subprocess.run(["tmux", "kill-window", "-t", target], capture_output=True, text=True, timeout=5)).start()
-        return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": True, "scheduled": True}, 200
+    if sess_name.endswith("-agent"):
+        return {"schemaVersion": SCHEMA_VERSION, "ok": False, "target": target, "errorCode": "AGENT_WINDOW_PROTECTED",
+                "error": "Agent 窗口受保护；请使用服务器卡片的 Agent 停止/重启或 agents.lifecycle 精确入口。"}, 403
     try:
         expected_id = str((payload or {}).get("windowId") or "").strip()
         expected_name = (payload or {}).get("windowName")
@@ -15281,8 +15260,9 @@ def kill_tmux_window_response(payload, mode, mgmt_env=""):
             err = (before.stderr or "").strip()[-500:]
             return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": err or "target window not found"}, 200
         resolved_id = found[2]
-        if found[3].lower() == "agent" or sess_name.endswith("-agent"):
-            return {"ok": False, "error": "Agent window is protected; use Agent controls"}, 403
+        if re.fullmatch(r"agent(?:-[a-f0-9]{16})?", found[3].lower()) or sess_name.endswith("-agent"):
+            return {"schemaVersion": SCHEMA_VERSION, "ok": False, "target": target, "errorCode": "AGENT_WINDOW_PROTECTED",
+                    "error": "Agent 窗口受保护；请使用服务器卡片的 Agent 停止/重启或 agents.lifecycle 精确入口。"}, 403
         if not re.fullmatch(r"@\d+", resolved_id) or expected_name is not None and str(expected_name) != found[3]:
             return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "window identity changed; not closed"}, 200
         if expected_panes is not None:
@@ -15332,7 +15312,7 @@ def manage_tmux_session_response(payload):
     try:
         rows = inventory("=" + session)
         session_id = rows[0][0]
-        if any(row[0] != session_id or row[2].lower() == "agent" for row in rows):
+        if any(row[0] != session_id or re.fullmatch(r"agent(?:-[a-f0-9]{16})?", row[2].lower()) for row in rows):
             raise ValueError("protected or ambiguous session")
         if len(expected) != len(rows) or len({row.get("windowId") for row in expected}) != len(rows):
             raise ValueError("window set changed; refresh before confirming")

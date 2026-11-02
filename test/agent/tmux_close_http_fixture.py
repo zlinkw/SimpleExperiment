@@ -176,6 +176,8 @@ for mode in ("worker_telemetry", "hub_control"):
             ({"target": "zlk-gpu-0", "confirm": True}, 400),
             ({"target": "zlk-gpu-0:10", "session": "other-gpu-0", "confirm": True}, 400),
             ({"target": "fixture-worker-agent:0", "confirm": False}, 403),
+            ({"target": "fixture-worker-agent:0", "confirm": True}, 403),
+            ({"target": "fixture-worker-agent:1", "confirm": True}, 403),
         ):
             status, body = post(payload)
             assert status == expected, (mode, status, body)

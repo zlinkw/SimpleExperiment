@@ -62,6 +62,11 @@ try:
     tmux('new-session','-d','-s','unusual-name','-n','agent')
     response,status=action('unusual-name','clear')
     assert not response['ok'] and identities('unusual-name'), response
+    tmux('new-session','-d','-s','project-service','-n','agent-0123456789abcdef')
+    protected=identities('project-service')
+    for operation in ('clear','close'):
+        response,status=action('project-service',operation)
+        assert not response['ok'] and identities('project-service')==protected, response
     # Native task evidence remains readable without any worker snapshot file.
     pane=tmux('display-message','-p','-t','unrelated:keep','#{pane_id}')
     job=dict(root='/fixture-project',lifecycleProtocol=2,pane=pane,commandId='native-job',workerId='w1',gpuId='0')

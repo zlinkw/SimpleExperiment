@@ -46,7 +46,7 @@
 | PFX2b | 远端目录和前缀只读取全局传入值 | passed |
 | PFX2c | 移除个人主终端猜测及错误启动兜底 | passed |
 | PFX2d | 调度前缀归一化与真实原队列定位 | passed |
-| PFX2e | 通用关窗不得按 Agent 会话名跳过精确窗口保护 | pending |
+| PFX2e | 通用关窗不得按 Agent 会话名跳过精确窗口保护 | passed |
 | PFX2f | TensorBoard 使用全局前缀及精确项目服务身份 | pending |
 | PFX3 | 远端路径校验和错误品牌迁移的前缀残留 | pending |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
@@ -344,6 +344,16 @@ PFX-test7 验证：tmuxLifecycle 3、schedulerRuntimeUpdate 2、gpuMemoryAdmissi
 PFX2d compile 与 14 项定向检查通过（tmuxLifecycle 3、schedulerUpdate 2、policy 5、gpuMemoryAdmission 1、manualAdmission 1、runtimeLogs 2）。扩展私有原生窗口验证已确认：自定义 A→B 不产生第二队列，原 command/window 身份保留；新作业使用传入的当前全局前缀；未绑定活动控制器、同键归属冲突和多活动队列分别拒绝，问题窗口退出后可重新查询原队列。原 simple→自定义及运行/排队恢复覆盖保留。无现场操作，不改既有性能断言、超时或覆盖；冻结 7 文件内部 0.5.467，开始规定 package。
 
 PFX2d 最终验证：2026-11-02T17-20-31-841Z-25536-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、711633ms。内部 universal/trial 0.5.467：2772260 字节，SHA256 8baa32de3a7828925743778ba6c57afbcd3daf630d62a639e7120b31388949a6；与 receipt 一致，362 项内容门禁零违规，实际 HTML 三段及模块解析通过。无训练服务器操作、自动重跑、产物清理、发布或安装。前缀收口也须包含 D1 中可复制的旧个人前缀占位命令，先修正该入口再公开完整试行，不把它留到收口之后。
+
+## 当前批次 PFX2e
+
+PFX2d 提交 e9d29fd30bee34592c293e335e958df1b754fb74 已普通 push/fetch 一致。通用 kill-window 旧路径按猜测的 Agent 会话名安排延迟关闭，既不核实 windowId，也不能区分同会话下其他项目窗口。移除该猜测和 Timer 快捷路径；通用接口始终拒绝 Agent 会话，明确指向现有 agents.lifecycle/服务器卡片精确控制。原 Agent 和新规范项目 Agent 窗口名在通用单窗/会话操作中均保护。普通任务仍按原 immutable windowId、pane 集与关闭后主动核实执行；不更改公共 lifecycle Python。
+
+原三组夹具增补 confirm=true 仍拒绝、同会话兄弟项目拒绝、规范 Agent 窗口名在普通会话中受保护，并保留普通窗口关闭、编号重排、身份变化、HTTP 路由/授权和真实私有会话操作。一个实现、三夹具、三版本、本计划，共 8 文件；内部 0.5.468，compile/定向/规定 package 待验证，无服务器操作、发布或安装。
+
+PFX2e compile 和 27 项定向检查通过（closeRuntime 1、closeHTTP 2、sessionActions 1、AgentLifecycle 2、HostWindowClose 7、preparation 10、Controls1 4）。原共享 lifecycle 字节一致，当前/兄弟项目 Agent 会话即使 confirm=true 也零子进程、零 Timer；普通会话中规范 Agent 窗口保持原位，原任务精确关闭与查询失败不重发覆盖保留。修改后的源错误码与指向同一精确入口，UTF-8 复读通过。冻结 8 文件内部 0.5.468，开始规定 package；UI 未变，沿用有效隔离渲染，最终包核实实际生成脚本。
+
+PFX2e 最终验证：2026-11-02T17-37-37-693Z-6640-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、698736ms。内部 universal/trial 0.5.468：2771965 字节，SHA256 5698f66e67b3a0f021d35ed243cc5666523b60520a020d56a7df38ec1cb1f4cb；与 receipt 一致，362 项内容门禁零违规，实际 HTML 三段及模块解析通过。无训练服务器操作、自动重跑、产物清理、发布或安装。
 
 ## 后续定向核查线索（尚未实施）
 

@@ -9,13 +9,6 @@ SCHEMA_VERSION = 1
 source = sys.stdin.read()
 start = source.index("def kill_tmux_window_response(")
 end = source.index("\ndef serve_http(", start)
-resolved_prefix = {"value": ""}
-
-
-def resolve_tmux_prefix():
-    return resolved_prefix["value"]
-
-
 namespace = {
     "SCHEMA_VERSION": SCHEMA_VERSION,
     "json": json,
@@ -23,7 +16,6 @@ namespace = {
     "re": re,
     "subprocess": subprocess,
     "threading": threading,
-    "_resolve_tmux_prefix": resolve_tmux_prefix,
 }
 exec(compile(source[start:end], "kill_tmux_window_response", "exec"), namespace)
 kill_tmux_window_response = namespace["kill_tmux_window_response"]
@@ -109,18 +101,27 @@ def forbid_run(*args, **kwargs):
 subprocess.run = forbid_run
 os.environ["SIMPLE_EXPERIMENT_TMUX_SESSION"] = "worker-agent"
 agent_body, agent_status = kill_tmux_window_response({"target": "worker-agent:0", "confirm": True}, "worker_telemetry")
-assert agent_status == 200 and agent_body["ok"] is True and agent_body["scheduled"] is True, agent_body
-assert len(scheduled) == 1 and scheduled[0][0] > 0, scheduled
+assert agent_status == 403 and agent_body["ok"] is False and agent_body["errorCode"] == "AGENT_WINDOW_PROTECTED", agent_body
+assert len(scheduled) == 0, scheduled
 denied, denied_status = kill_tmux_window_response({"target": "worker-agent:0", "confirm": False}, "worker_telemetry")
 assert denied_status == 403 and denied["ok"] is False, denied
 
 os.environ.pop("SIMPLE_EXPERIMENT_TMUX_SESSION", None)
 os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = "simple"
 os.environ["SIMPLE_EXPERIMENT_WORKER_ID"] = "w1"
-resolved_prefix["value"] = "lab"
 scheduled.clear()
 subprocess.run = forbid_run
-configured, configured_status = kill_tmux_window_response({"target": "lab-worker-w1-agent:0", "confirm": True}, "worker_telemetry")
-assert configured_status == 200 and configured["ok"] is True and configured["scheduled"] is True, configured
-assert len(scheduled) == 1, scheduled
+for target in ("lab-worker-w1-agent:0", "lab-worker-w1-agent:1", "lab-worker-w1-agent:agent-0123456789abcdef"):
+    configured, configured_status = kill_tmux_window_response({"target": target, "confirm": True}, "worker_telemetry", "lab-worker-w1-agent")
+    assert configured_status == 403 and configured["ok"] is False, configured
+    assert configured["errorCode"] == "AGENT_WINDOW_PROTECTED" and "agents.lifecycle" in configured["error"], configured
+assert len(scheduled) == 0, scheduled
+subprocess.run = fake_run
+windows = {"0": ("@40", "bash", "%183"), "2": ("@41", "agent-0123456789abcdef", "%184")}
+before_kills = sum(call[:2] == ["tmux", "kill-window"] for call in calls)
+protected, protected_status = kill_tmux_window_response({"target": "zlk-gpu-0:2", "windowId": "@41", "windowName": "agent-0123456789abcdef", "confirm": True}, "worker_telemetry")
+assert protected_status == 403 and protected["ok"] is False, protected
+assert protected["errorCode"] == "AGENT_WINDOW_PROTECTED" and "agents.lifecycle" in protected["error"], protected
+assert sum(call[:2] == ["tmux", "kill-window"] for call in calls) == before_kills
+assert len(scheduled) == 0 and windows["2"][0] == "@41"
 print("ok")
