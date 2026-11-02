@@ -64,7 +64,7 @@
 | D1-test | 日志/低流量夹具隔离附着命令组件边界 | passed |
 | D1a | 移除占位附着命令，复制前主动核实精确 Worker/窗口 | passed |
 | D1b | 零目标/禁用配置与观测分开，错误状态不得显示健康 | passed |
-| D1c | TensorBoard 只读查询和代理绑定当前项目与启用 Worker | pending |
+| D1c | TensorBoard 只读查询与实际浏览器入口绑定当前项目和启用 Worker | running |
 | D1d | 独立旧代理类的调用关系核实 | not-applicable（当前无调用方，不扩改） |
 | D1 | 零目标、禁用、未核实、离线；精确附着与项目绑定查询 | partial（D1a/b passed，D1c pending） |
 | D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | pending |
@@ -505,6 +505,22 @@ PFX-test11 独立准备批仅修改该原 Python 夹具及本计划：注入真�
 PFX-test11 提交 331045141459e0846d31ffb6bd0b5e25bbf1de51 已普通 push/fetch 一致。生产源码及版本在夹具修正前后未变；本批仍为 8 个非生成文件，内部 0.5.476，开始第二轮规定 package。新调用链不依赖旧 job/options 来命名，保留当前 Host 全局传输字段；无公开发行/安装或服务器操作。
 
 PFX3d 最终验证：2026-11-02T20-54-12-564Z-69720-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、714911ms，原失败身份用例在规定入口中通过。内部 universal/trial 0.5.476：2774728 字节，SHA256 f32fc930b372f1b9acbd7b32b30432bfa8d693939a76e64987acc2cc26dfd030；实际字节与 receipt 一致，362 项内容门禁零违规，实际 HTML 三脚本及模块解析通过。源码本批 8 文件，不包括已独立提交的 PFX-test11 夹具。原失败及超时诊断均保留，最终通过不改变它们的真实状态。无公开发行、安装或服务器操作；下一批 D1c 为实际图表读取与浏览器入口的项目身份，未接线代理类不扩改。
+
+## 当前批次 D1c
+
+PFX3d 提交 b56debdfd6fee9320ca423107d06371b8f33db6f 已普通 push/fetch 一致。实际 scalarAgentFetch 和 Agent scalar/native 路由缺少调用项目身份；配置到另一项目的 Agent 时读取其 root。原直接打开/复制的 Agent 浏览器 URL 也不绑定调用项目。未接线 TensorBoardLocalProxy 类不属于当前入口，不扩改。
+
+复用现有本机 LocalApiServer 的项目/窗口/服务器会话及页面。只读 Agent 请求走明确的新项目绑定路径，携带并核对当前项目根和 Worker；旧 Agent 不支持时显示主动准备说明，不回退、不自动部署。保存现有 TensorBoard 用户主动启动/停止及五轮就绪查询；浏览器进入已准备好的原生只读页，不再重复启动服务或隐式读取标量目录。普通曲线页与用户主动切换原生页功能保留。复制链接只生成本机受保护入口，不启动服务。
+
+Host、AgentRuntime、ScalarDashboardHtml 和原 Controls1、三版本及本计划，共 8 文件，内部 0.5.477。覆盖正确/异项目/异 Worker/禁用/项目切换/旧 Agent、实际本机 HTTP 路由、原生页面脚本和隔离 DOM；不读取科研文件或连接训练服务器，不新增性能测试/期限。现有正式命令、日志/指标策略、完整路径审核、全局前缀、自定义布局和共享 GPU 保留。组内继续不公开发行或安装。
+
+D1c 实现与定向检查：Agent 复用服务控制的项目/Worker 校验保护明确的 project 只读路由；GET 重解析、POST query 白名单同时接线，身份不符时不调用标量读取或原生代理。Host 仅选启用 Worker，传递 UTF-8 编码的稳定身份；请求前后核对当前项目、client 和 endpoint，重定向保持相同 Agent 和图表入口，不泄露 token。沿用 [Fetch 标准](https://fetch.spec.whatwg.org/#http-redirect-fetch) 的 20 次重定向界限及 POST→GET 规则，未新增超时/轮询配置。404 如实标明入口或资源不存在，并给旧 Agent 主动准备建议，不把缺失资源断言为旧版本，不回退或自动部署。浏览器复用既有本机会话、单次 60 秒 ticket 和 epoch，不新增代理；复制不调用启动，用户主动打开保留原启动及就绪轮询。
+
+首次 Controls1 4/5：新 proxy 测试未传模拟原生服务随机端口，命中原有端口归属保护而 403；补齐测试 port 后 5/5，原日志 d1c-controls-first.log 保留，未修改生产保护/期限。最终 compile 2026-11-02T21-18-57-237Z-58516 通过；Controls1 5、tensorboardScalar 9、abortSchedulerStopRouting 5 共 19 项通过，完整日志 d1c-final-*.log。新函数反向引用仅以上相关套件，无新增未注入 VM 依赖。真实生成 Scalar 脚本解析通过；隔离 Chrome 的 d1c-native-render-1793654381822.json 证明 ready 链接只请求本机健康、正确显示项目与 Worker、刷新不读 catalog、不调用 native.open，手动切换曲线才查询目录；d1c-ordinary-render-1793654403668.json 证明普通页目录及用户主动原生启动保留，两者脚本异常 0。HTTP/浏览器均为合成数据与隔离页面，不等于训练服务器或真实 Extension Host 验收。冻结候选开始规定 package；前缀文档收口和后续设置/UI 批次仍未完成。
+
+D1c 首轮规定 package：2026-11-02T21-20-25-160Z-5240-package/run.json，316/318 通过、2 项失败、exit=1、701742ms、锁已释放，未组包。tmuxCloseHttp 的手工 Handler 夹具未注入新增 TENSORBOARD_PROJECT_PREFIX，原源码/生成 runtime 两入口均 NameError；这是本批变更依赖，前述“仅以上相关套件”判断不完整，现已按 reject_if_needed 和手工 HTTP 抽取追踪到此夹具，其他 syncScopeAgentIndex stub 掉该方法不受影响。D1c-test1 独立准备批只给原夹具注入该只读协议常量，不改断言/期限/生产行为；修正后源码及生成 runtime 两项通过（d1c-http-fixture-fixed.log），已提交旧 HEAD 同一 Handler 的全部原断言也通过（d1c-http-fixture-committed-baseline.log），不依赖未提交生产修改。
+
+另一失败为原 tmuxTaskLifecycle 的 failed-task-settled-exit：窗口原生 dead=1、exitCode 为空、signal 为空，5 秒观察结束仍未知；该现象在更早 B1 与 PFX3d 已出现，不能声称由图表请求造成或已修好。隔离 verbose 诊断输出成功 JSON，但原 10 秒 WSL 子进程仍 ETIMEDOUT，按失败保留 d1c-native-verbose-diagnostic.json；诊断漏了原入口的 WSL 预热，且临时日志在 WSL 重启后已不可读，不能当作通过或真实 tmux 原因证据。随后继续在原期限和同一私有 fixture 下补完整诊断；不修改生产完成规则、退出码、超时或覆盖。D1c 未通过，禁止提交为完成、组包发行或安装。
 
 ## 发现线索与后续边界（以批次状态为准）
 

@@ -39,6 +39,8 @@ namespace = {
     "WORKER_TENSORBOARD_ACTIONS": literal("WORKER_TENSORBOARD_ACTIONS"),
     "WORKER_ENV_ACTIONS": literal("WORKER_ENV_ACTIONS"),
     "TENSORBOARD_BROWSER_PREFIX": literal("TENSORBOARD_BROWSER_PREFIX"),
+    # The scoped read namespace shares this production authentication boundary.
+    "TENSORBOARD_PROJECT_PREFIX": "/api/tensorboard/project",
     "json": json, "os": os, "re": re, "threading": threading, "urlparse": urlparse,
     "token": "fixture-only-token",
 }
