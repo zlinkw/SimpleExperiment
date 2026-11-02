@@ -1542,7 +1542,8 @@ export function renderPanelHtml(): string {
        </div>
        <details open>
          <summary>实时捕获数据（<span id="tmuxCaptureMeta">选择任务或窗口后读取日志</span><span id="tmuxCaptureNotice" style="color:var(--vscode-descriptionForeground);"></span>）<button type="button" class="mini secondary" data-tmux-refresh="capture" title="手动读取当前窗口最新日志">刷新当前日志</button></summary>
-         <pre id="tmuxCapturePre" style="max-height:320px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:10px;border-radius:4px;white-space:pre-wrap;word-break:break-all;"></pre>
+         <div role="toolbar" aria-label="窗口日志浏览" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;"><button id="tmuxFollowButton" type="button" class="mini secondary" data-tmux-follow="toggle" aria-pressed="true" title="只暂停自动滚动，日志仍可继续读取">暂停跟随</button><button type="button" class="mini secondary" data-tmux-follow="latest" title="滚动到当前日志末尾，不额外读取服务器">跳到最新</button></div>
+         <pre id="tmuxCapturePre" tabindex="0" aria-label="所选 Worker 的精确窗口日志" data-follow="true" style="max-height:320px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:10px;border-radius:4px;white-space:pre-wrap;word-break:break-all;"></pre>
        </details>
       <div id="tmuxInstructions" style="display:grid;gap:6px;margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--subtle-bg);">
         <b style="font-size:12px;">可复制的 tmux 附着指令（当嵌入 xterm 异常时手动打开）</b>
@@ -2603,6 +2604,11 @@ export function renderPanelHtml(): string {
       }
       return "";
     }
+    function setTmuxLogFollow(enabled) {
+      const pre = el("tmuxCapturePre"), button = el("tmuxFollowButton");
+      if (pre) { pre.dataset.follow = enabled ? "true" : "false"; if (enabled) pre.scrollTop = pre.scrollHeight - pre.clientHeight; }
+      if (button) { button.textContent = enabled ? "暂停跟随" : "继续跟随"; button.title = enabled ? "只暂停自动滚动，日志仍可继续读取" : "恢复自动滚动；读取频率保持当前设置"; button.setAttribute("aria-pressed", enabled ? "true" : "false"); }
+    }
     function decodeCapturedText(raw){
       let s = String(raw || "");
       if (!s) return "";
@@ -2681,15 +2687,18 @@ export function renderPanelHtml(): string {
       const now = Date.now();
       const captureKey = tmuxSelectedWorkerId + ":" + win;
       if (document.hidden || tmuxCaptureBusy.has(captureKey)) return;
+      if (pre.dataset.captureTarget !== win || pre.dataset.captureWorkerId !== tmuxSelectedWorkerId) {
+        pre.textContent = ""; pre.dataset.captureTarget = ""; pre.dataset.captureWorkerId = ""; pre.dataset.capturedAt = "";
+      }
       tmuxCaptureBusy.add(captureKey);
       tmuxLastCaptureTarget = win;
       pre.dataset.lastFetch = String(now);
-      meta.textContent = "同步中 " + win + " ...";
+      meta.textContent = "读取中 " + tmuxSelectedWorkerId + " · " + win + " ...";
       try {
         vscode.postMessage({ command: "fetchTmuxCapture", workerId: tmuxSelectedWorkerId, window: win, origin: tmuxCaptureOrigin });
       } catch (e) {
         tmuxCaptureBusy.delete(captureKey);
-        meta.textContent = "同步失败 " + String(e).slice(0,60);
+        meta.textContent = "读取失败 " + String(e);
       }
     }
     function displayAutoAllowed(origin) {
@@ -3524,6 +3533,14 @@ export function renderPanelHtml(): string {
       ...Object.keys(uiCapabilityMap)
     ]);
     document.addEventListener("click", (event) => {
+      const tmuxFollow = event.target.closest("button[data-tmux-follow]");
+      if (tmuxFollow) {
+        event.preventDefault(); event.stopPropagation();
+        const pre = el("tmuxCapturePre");
+        if (tmuxFollow.dataset.tmuxFollow === "toggle") setTmuxLogFollow(pre && pre.dataset.follow === "false");
+        else if (pre) pre.scrollTop = pre.scrollHeight - pre.clientHeight;
+        return;
+      }
       const tmuxRefresh = event.target.closest("button[data-tmux-refresh]");
       if (tmuxRefresh) {
         event.preventDefault(); event.stopPropagation();
@@ -4697,28 +4714,35 @@ export function renderPanelHtml(): string {
         }
         if (item.type === "tmuxCapture") {
           tmuxCaptureBusy.delete(String(item.workerId || "") + ":" + String(item.window || ""));
-          if (tmuxSelectedWorkerId && item.workerId !== tmuxSelectedWorkerId) continue;
+          if (!tmuxSelectedWorkerId || item.workerId !== tmuxSelectedWorkerId) continue;
           if (String(item.window || "") !== tmuxResolveCaptureTarget()) continue;
           const pre = el("tmuxCapturePre");
           const meta = el("tmuxCaptureMeta");
-          if (item.ok !== false) {
+          const sameTarget = pre && pre.dataset.captureTarget === String(item.window || "") && pre.dataset.captureWorkerId === String(item.workerId || "");
+          if (item.ok === false) {
+            if (pre && !sameTarget) { pre.textContent = ""; pre.dataset.captureTarget = ""; pre.dataset.captureWorkerId = ""; pre.dataset.capturedAt = ""; }
+            if (meta) meta.textContent = String(item.workerId) + " · " + String(item.window) + " · 读取失败：" + String(item.error || "未取得日志")
+              + (sameTarget && pre.dataset.capturedAt ? "；保留上次成功内容 @ " + pre.dataset.capturedAt : "；尚无此目标的成功内容");
+            continue;
+          }
+          const fetchedAt = Number.isFinite(Date.parse(String(item.fetchedAt || ""))) ? String(item.fetchedAt) : "";
+          if (fetchedAt) {
             recordDisplaySample("tmuxCapture:" + String(item.workerId || "") + ":" + String(item.window || ""), item.fetchedAt, tmuxCaptureOrigin === "user");
             renderDisplayAutoNotices();
           }
           if (pre) {
-            const targetChanged = pre.dataset.captureTarget !== String(item.window || "");
             const decoded = decodeCapturedText(item.text || item.capture || "");
             const previousTop = pre.scrollTop;
-            const wasNearBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight <= 24;
             if (pre.textContent !== decoded) {
               pre.textContent = decoded;
-              if (targetChanged) pre.scrollTop = pre.scrollHeight - pre.clientHeight;
-              else if (wasNearBottom) pre.scrollTop = pre.scrollHeight - pre.clientHeight;
+              if (!sameTarget || pre.dataset.follow !== "false") pre.scrollTop = pre.scrollHeight - pre.clientHeight;
               else pre.scrollTop = previousTop;
             }
             pre.dataset.captureTarget = String(item.window || "");
+            pre.dataset.captureWorkerId = String(item.workerId || "");
+            pre.dataset.capturedAt = fetchedAt;
           }
-          if (meta) meta.textContent = String(item.window || "") + " @ " + String(item.fetchedAt || new Date().toLocaleTimeString());
+          if (meta) meta.textContent = String(item.workerId) + " · " + String(item.window) + (pre && !pre.textContent ? " · 日志为空" : "") + " @ " + (fetchedAt || "源时间未提供");
           continue;
         }
         if (item.type === "tensorboardSwitchStatus") {

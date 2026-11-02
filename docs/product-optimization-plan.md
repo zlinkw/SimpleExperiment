@@ -24,7 +24,7 @@
 | B1 | UI/API/CLI 本机意图、服务器接收、执行、完成、同步、观测含义 | passed |
 | B2 | 等待原因、自动继续说明、原 job 恢复与中断审核 | passed |
 | B3 | 精确停止与重载恢复，不因未知撤销完成 | passed |
-| C1 | 精确 job 的产物、退出码、异常及日志跟随 | pending |
+| C1 | 精确 job 的产物、退出码、异常及日志跟随 | passed |
 | C2 | 当前/全部 PLAN 范围；任务、完整性、同步、汇总分开 | pending |
 | C3 | 最新 job 产物与用户范围交集、逐 Worker 同步反馈 | pending |
 | D0 | 项目内服务状态与多窗口隔离核查，按证据修正共享路径 | pending |
@@ -122,14 +122,21 @@ B2/B3 首轮 package：317/318 作业通过，overall=failed/exit=1，758355ms�
 
 B2/B3 最终 package：318 作业通过，未运行 0，maxObservedConcurrent=1，exit=0，741753ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T11-45-44-473Z-75912-package/run.json，原 tmux 参数作业本次通过（5469ms）。首败不改签，也不声称其环境现象已消失。VSIX 0.5.454 为 universal/trial、2775769 字节，SHA256 7683c1af82a8219591a2dd710a26b2f864fafcd9227d9c7e938180b728ac262b，与 package receipt 相符，361 项内容门禁零违规。2026-11-02 按用户要求重读实际 C:/Users/ZLK/.codex/AGENTS.md、项目 AGENTS、caveman/build-test-delivery 及交付/测试生命周期、安全路径文档；沿用本任务授权和既有流程，不新增代理/插件、限制或全仓审计。下一批仅处理精确日志读取反馈和跟随，未安装、未部署。
 
+B2/B3 交付：源码 a34419fe8518ef625926f1cf3871e24111861bc7 已 push/fetch 一致；https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.454 为 draft=false/prerelease=true，真实下载及精确文件名校验一致。真实更新客户端仍看到稳定 0.5.440/0.2.117，试行 454 不降级；未安装、无训练服务器操作。
+
+## 当前批次 C1
+
+目标：精确 Worker+窗口的读取失败保留同目标旧日志和原成功时间，不把失败或空日志写成成功；显式暂停/继续跟随及跳到最新，不触发额外读取、指标落盘或科研分析。
+证据：实际 tmuxCapture 处理器即使 ok=false 仍用空 text 覆盖旧文本，并用失败回包时间作普通获取时间；captureTarget 仅记 window，未绑定 Worker。日志区域只有隐式接近底部跟随。原 job→真实窗口定位、退出码/产物/异常分栏已存在且 B2/B3 回归通过，保留。
+范围：实际 PanelHtml.legacy、一处既有 jobTmuxLogNavigation 测试、三处版本及本计划；最多增加原请求需要的页面覆盖说明，合计不超过 8 个非生成文件。无新后端查询、超时、截断、缓存框架或传输。
+验证：实际消息处理器的成功→失败/空文本、跨 Worker/窗口回复、跟随暂停位置；既有日志定位及低流量回归，实际生成 HTML 脚本、隔离渲染、最终 package。未找到窗口与读取失败沿用不同反馈；真实服务器日志和重载后的现场验收仍待验证。
+
+C1 定向证据：补齐原消息夹具的 tmuxCaptureOrigin 后，真实处理器复现失败回包清空旧日志；修正后 jobTmuxLogNavigation 12 项、panelWebviewScriptHealth 9 项通过。暂停/继续/跳到最新只改滚动，不发送新读取；空文本与缺少源时间分别显示，不伪造新成功时间。compile 通过；实际 HTML 三段脚本和隔离 Chrome 的读取失败保留、原时间、暂停位置 50、跳到最新保持暂停、原六种首屏/窄窗口/焦点通过，报告 simple_cluster/reports/product-optimization/c1-render-1793621285019.json。新增原请求要求的 [页面覆盖表](product-ui-coverage.md)，分开源码/隔离和待现场验证；共 7 个非生成文件，冻结版本 0.5.455，最终 package pending。
+
+C1 最终 package：318 作业通过，未运行 0，maxObservedConcurrent=1，exit=0，743608ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T12-08-48-566Z-35976-package/run.json。实际生成 HTML 的三段脚本通过，VSIX 0.5.455 为 universal/trial、2776461 字节，SHA256 e81a79f16bf04bfcb56e86579ebb3d11edf4e4a2ac3d4cd730f20797e81700ed，与 receipt 相符，361 项内容门禁零违规。覆盖文档按 UTF-8 复读通过；未安装、无服务器操作。下一批只修结果操作范围及相应旧 CLI 夹具能力契约，不改结果归属规则或添加分析。
+
 ## 后续定向核查线索（尚未实施）
 
-- A2：项目分支卡位于 PLAN 主操作前；清理与隔离审核在运行同一工具条。可收至同区的次级详情入口，保持命令身份与用户自定义详情组；移走时移除原按钮，避免复制旧入口。
-- B1/B3：TaskLifecycle、WorkerProgressEvidence、VerifiedCompletion 已区分本轮执行/产物/日志观察、持久完成事实及查询错误，不能因 UI 优化重写协议或把旧确认时间当本轮观测；仍需核对 UI/API/CLI 投影及回归。正式协议 2 不走历史自动 retry。
-- B1 新证据：tasks.list 已主动归并并返回 jobLifecycle，但 CLI loadRemoteExperiments 只读取 legacy schedulerStates/workerTasks，不消费 jobLifecycle，随后还会叠加窗口日志观察。需让精确 commandId+Worker+workflow 的协议 2 归并事实优先，并公开完成确证和本轮复查状态；无 API 时历史来源必须明确。当前 jobLifecycle 还缺 Plan/project/输出/时间等关联字段，需要最小补充而非另造查询链。
-- B3 核查补充：storeWorkerTaskSnapshot 已对协议 2 调用 updateVerifiedCompletions 并安排既有持久化，API 主动查询也经过这条链；不能只看 tasks.list 的纯归并返回就误判它没有保存完成事实。精确停止/取消围栏与重载仍按原契约回归。
-- B3 展示待修：UI job 行 blockText 只读 statusQueryError/blockReason，不读 verificationQueryError；已确证完成的复查失败应显示本轮未知且保留完成数。cold Worker 无 capability 的失败也应进入同一诊断通道，不能冒充本轮已观察。
-- C1：tmuxCapture 的失败回包仍会覆盖文本并显示普通时间，易丢失上下文；跟随仅靠接近底部隐式判断，没有显式暂停。需绑定 Worker+精确窗口，分开缺失与读取失败，保留同目标旧文本及原时间。
 - C2：resultPlanActions 标题是“当前 Plan”，两个主按钮实际都核实全部 Plan；parseResults 主按钮还是旧重建别名。应保留一个全范围更新入口，并将当前 PLAN 映射/文件动作清楚分开。
 - D0：agentRuntimeDirs 默认 <父目录>/simple_agent；Agent tmux 默认名仅含前缀和 Worker，不含项目。默认 runtime 应转项目内，并用稳定项目身份分开 Agent 窗口；不迁移或清理旧目录，不改变用户显式目录。用户已选择保留 GPU Collector 的账号/Worker 共享唯一采样源（GpuCollector.ts、AgentLifecycle.ts），其余归项目；当前未改。
 - D1：serverSetupReadiness 在 0 Worker 时 missing 为空导致 ready=true；占位 tmuxCmdAgent/Sch/Gpu 从未填充真实目标，仍可复制。应修正空目标语义，提供真实选定窗口的唯一附着入口。

@@ -42,13 +42,13 @@ test("command receipt changes refresh the log button even when placement and sta
 function fixture(options = {}) {
   const requests = [], navigations = [], notices = [], persisted = [], timers = new Map();
   let nextTimer = 0;
-  const elements = Object.fromEntries(["tmuxOverview", "tmuxWorkersOverview", "tmuxListMeta", "tmuxCaptureMeta", "tmuxCapturePre", "tmuxWorkerSelect"].map(id => [id, { innerHTML: "", textContent: "", value: "", dataset: {} }]));
+  const elements = Object.fromEntries(["tmuxOverview", "tmuxWorkersOverview", "tmuxListMeta", "tmuxCaptureMeta", "tmuxCapturePre", "tmuxWorkerSelect", "tmuxFollowButton"].map(id => [id, { innerHTML: "", textContent: "", value: "", dataset: {}, setAttribute(key,value) { this[key]=value; } }]));
   const sandbox = {
     tmuxJobLogSelection: null, tmuxJobLogJumpTimeout: 0,
     tmuxSelectedWorkerId: "worker-b", tmuxWindowFilter: "all", tmuxSelectedTaskTarget: "", tmuxSelectedPaneTarget: "",
     tmuxLastCaptureTarget: "", tmuxListRequestId: 0, tmuxListBusy: false, tmuxListTimeout: 0,
     tmuxInitialRetryCount: 0, tmuxInitialRetryTimer: 0,
-    tmuxListPendingWorkers: new Set(), tmuxCaptureBusy: new Set(),
+    tmuxListPendingWorkers: new Set(), tmuxCaptureBusy: new Set(), tmuxCaptureOrigin: "user",
     tmuxConfiguredWorkers: [{ id: "worker-a" }, { id: "worker-b" }], tmuxListsByWorker: {},
     tmuxListCache: { workerId: "worker-b", sessions: [], gpuIds: [] }, tmuxClearTaskTabsBusy: false,
     document: { hidden: false },
@@ -79,7 +79,7 @@ function fixture(options = {}) {
     "renderTmuxFilterBar", "renderTmuxOverview", "renderTmuxWorkersOverview", "refreshTmuxList", "scheduleTmuxInitialRetry", "finishTmuxListRequest",
     "resolveJobTmuxWindow", "cancelJobTmuxLogJump", "failJobTmuxLogJump", "jumpToJobTmuxLog", "handleJobTmuxLogList", "tmuxResolveCaptureTarget", "refreshTmuxCapture",
     // r2 display gate helpers live in the same script scope in production, so the fixture loads them too.
-    "lowTrafficModeFromState", "displayAutoAllowed", "displaySampleNotice", "recordDisplaySample", "renderDisplayAutoNotices"].map(fn).join("\n"), sandbox);
+    "lowTrafficModeFromState", "displayAutoAllowed", "displaySampleNotice", "recordDisplaySample", "renderDisplayAutoNotices", "decodeCapturedText", "setTmuxLogFollow"].map(fn).join("\n"), sandbox);
   const clickStart = script.indexOf('const jobTmuxLogButton = event.target.closest("button[data-job-tmux-log]")');
   const clickEnd = script.indexOf('const tmuxClearTaskTabs =', clickStart);
   assert.ok(clickStart >= 0 && clickEnd > clickStart);
@@ -87,6 +87,12 @@ function fixture(options = {}) {
   const listStart = script.indexOf('if (item.type === "tmuxList")');
   const listEnd = script.indexOf('if (item.type === "tmuxCapture")', listStart);
   vm.runInContext("this.deliver = function(input) { for (const item of [input]) {" + script.slice(listStart, listEnd) + "} };", sandbox);
+  const captureStart = script.indexOf('if (item.type === "tmuxCapture")');
+  const captureEnd = script.indexOf('if (item.type === "tensorboardSwitchStatus")', captureStart);
+  vm.runInContext("this.deliverCapture = function(input) { for (const item of [input]) {" + script.slice(captureStart, captureEnd) + "} };", sandbox);
+  const followStart=script.indexOf('const tmuxFollow = event.target.closest("button[data-tmux-follow]")');
+  const followEnd=script.indexOf('const tmuxRefresh =',followStart);
+  vm.runInContext("this.followClick = function(event) {"+script.slice(followStart,followEnd)+"};",sandbox);
   const click = (commandId = "command-new", outputDir = "work_dirs/plan/attempts/new", workerId = "worker-a") => {
     const values = { "data-worker-id": workerId, "data-command-id": commandId, "data-output-dir": outputDir };
     const button = { disabled: false, getAttribute: key => values[key] || "" };
@@ -111,6 +117,41 @@ test("missing real tmux windows send native notification messages without a disa
   assert.equal(f.requests.filter(row => row.command === "webviewNotice").length, 2);
   assert.equal(f.toastNodes.length, 0);
   assert.equal(f.timers.size, 0, "no five-second auto-hide timer survives either failure");
+});
+
+test("capture errors retain only the same Worker's exact window and its original successful sample", () => {
+  const f=fixture(), pre=f.elements.tmuxCapturePre, meta=f.elements.tmuxCaptureMeta;
+  f.sandbox.tmuxSelectedWorkerId='worker-a';f.sandbox.tmuxResolveCaptureTarget=()=>'@1';
+  pre.scrollTop=12;pre.scrollHeight=500;pre.clientHeight=100;
+  const capture={type:'tmuxCapture',workerId:'worker-a',window:'@1',ok:true,text:'line 1\nError: original context',fetchedAt:'2026-11-01T00:00:00.000Z'};
+  f.sandbox.deliverCapture(capture);const first=pre.textContent;
+  f.sandbox.deliverCapture({...capture,ok:false,text:'',error:'read disconnected',fetchedAt:'2026-11-02T00:00:00.000Z'});
+  assert.equal(pre.textContent,first);assert.match(meta.textContent,/读取失败/);assert.match(meta.textContent,/2026-11-01T00:00:00.000Z/);
+  assert.doesNotMatch(meta.textContent,/2026-11-02T00:00:00.000Z/);
+  f.sandbox.deliverCapture({...capture,workerId:'worker-b',text:'foreign worker'});assert.equal(pre.textContent,first);
+  f.sandbox.deliverCapture({...capture,window:'@2',text:'foreign window'});assert.equal(pre.textContent,first);
+  f.sandbox.tmuxSelectedWorkerId='worker-b';
+  f.sandbox.deliverCapture({...capture,workerId:'worker-b',ok:false,error:'new worker unreadable'});
+  assert.equal(pre.textContent,'','a window id from another Worker never borrows old text');assert.doesNotMatch(meta.textContent,/2026-11-01T00:00:00.000Z/);
+  f.sandbox.deliverCapture({...capture,workerId:'worker-b',text:''});assert.match(meta.textContent,/日志为空/);
+});
+
+test("pause, resume and jump-to-latest change log scrolling without making server reads", () => {
+  const f=fixture(),pre=f.elements.tmuxCapturePre,button=f.elements.tmuxFollowButton;
+  f.sandbox.tmuxSelectedWorkerId='worker-a';f.sandbox.tmuxResolveCaptureTarget=()=>'@1';
+  pre.scrollHeight=500;pre.clientHeight=100;
+  const capture={type:'tmuxCapture',workerId:'worker-a',window:'@1',ok:true,text:'first line',fetchedAt:'2026-11-01T00:00:00.000Z'};
+  f.sandbox.deliverCapture(capture);assert.equal(pre.scrollTop,400);
+  const click=action=>f.sandbox.followClick({target:{closest:()=>({dataset:{tmuxFollow:action}})},preventDefault(){},stopPropagation(){}});
+  const reads=f.requests.length;
+  click('toggle');assert.equal(pre.dataset.follow,'false');assert.equal(button['aria-pressed'],'false');assert.equal(button.textContent,'继续跟随');
+  pre.scrollTop=80;pre.scrollHeight=650;
+  f.sandbox.deliverCapture({...capture,text:'first line\nnew line'});assert.equal(pre.scrollTop,80);
+  click('latest');assert.equal(pre.scrollTop,550);assert.equal(pre.dataset.follow,'false');
+  click('toggle');assert.equal(pre.dataset.follow,'true');assert.equal(button['aria-pressed'],'true');
+  f.sandbox.deliverCapture({...capture,text:'third line',fetchedAt:undefined});
+  assert.match(f.elements.tmuxCaptureMeta.textContent,/源时间未提供/);
+  assert.equal(f.requests.length,reads,'browsing controls never trigger log queries or analysis');
 });
 
 test("manual recall keeps the exact command identity and cannot forward a historical attempt override", () => {
