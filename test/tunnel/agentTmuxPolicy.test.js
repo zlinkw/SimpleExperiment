@@ -80,7 +80,7 @@ import json, os, pathlib, sys
 sys.path.insert(0, ${JSON.stringify(path.resolve(__dirname, "../_helpers"))})
 from extractRuntimeFunctions import extract_runtime_functions
 agent = extract_runtime_functions(${JSON.stringify(path.resolve(__dirname, "../../dist/runtime/cluster_agent.py"))},
-    ["agent_install_dir", "_resolve_tmux_prefix", "simple_tmux_name", "fixed_gpu_window_name", "tb_tmux_session_name"])
+    ["agent_install_dir", "_resolve_tmux_prefix", "simple_tmux_name", "fixed_gpu_window_name", "tb_tmux_session_name", "task_session_prefix"])
 scheduler = extract_runtime_functions(${JSON.stringify(path.resolve(__dirname, "../../dist/runtime/cluster_scheduler.py"))},
     ["compute_scheduler_agent_state_dir", "resolve_scheduler_agent_state_dir", "ensure_worker_runtime", "sync_running_console_logs"])
 root = pathlib.Path(__file__).parent / "project"
@@ -96,6 +96,7 @@ for value, expected in json.loads(${JSON.stringify(JSON.stringify(cases))}):
         os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = value
     assert agent._resolve_tmux_prefix({"sessionPrefix": "old-option"}, {"tmuxSessionPrefix": "old-job"}, {"WORK_DIR": str(root)}) == expected
     assert agent.simple_tmux_name("sch-job") == expected + "-sch-job"
+    assert agent.task_session_prefix() == expected
     assert agent.fixed_gpu_window_name(None, "0") == expected + "-gpu-0"
     assert agent.tb_tmux_session_name(None) == expected + "_tb"
     assert pathlib.Path(agent.agent_install_dir(root)) == root / (expected + "_agent")

@@ -45,7 +45,7 @@
 | PFX2a / D0c | Agent 窗口按规范项目身份隔离 | passed |
 | PFX2b | 远端目录和前缀只读取全局传入值 | passed |
 | PFX2c | 移除个人主终端猜测及错误启动兜底 | passed |
-| PFX2d | 调度前缀归一化与真实原队列定位 | pending |
+| PFX2d | 调度前缀归一化与真实原队列定位 | passed |
 | PFX2e | 通用关窗不得按 Agent 会话名跳过精确窗口保护 | pending |
 | PFX2f | TensorBoard 使用全局前缀及精确项目服务身份 | pending |
 | PFX3 | 远端路径校验和错误品牌迁移的前缀残留 | pending |
@@ -331,13 +331,23 @@ PFX2c compile 与 27 项定向检查通过（gpuIdentity 1、AndFence 5、Contro
 
 PFX2c 最终验证：2026-11-02T17-00-40-400Z-30024-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、705916ms。内部 universal/trial 0.5.466：2771923 字节，SHA256 f19199e176ff70d0f95749852e52d9c8c9907dd371842942bc8bbb650fefd1b2；与 receipt 一致，362 项内容门禁零违规，实际 HTML 三段及模块解析通过。无训练服务器操作、自动重跑、产物清理、发布或安装。下一批先补原私有 tmux 夹具的真实前缀依赖，再修改原队列定位，不修改当前已接收任务和窗口。
 
-## 后续定向核查线索（尚未实施）
+## 当前批次 PFX2d
+
+PFX-test7 提交 035907400485c1695443318781d04158c119df27 已普通 push/fetch 一致。旧 locator 只查固定 simple 控制器，无法复用任意自定义 A→B 前缀变更前的原队列。现在只读本轮原生窗口，以既有项目/Worker 命名键筛选候选，再核实 endpoint 精确 root/Worker；复用唯一活动队列，无候选才使用全局前缀生成新名。未绑定活动窗口和多个活动控制器明确未知/冲突，不另建队列；死窗口仅按当前名或唯一候选走既有恢复。原有易失地址缓存及每次 RPC 归属校验保留，不读历史队列文件、不重放任务、不关闭窗口。
+
+task_session_prefix 复用已有共用归一化。原 tmuxSchedulerPrefix 夹具新增自定义 A→B、保留原任务窗口、忽略其他项目队列、新作业携带当前前缀、多活动控制器拒绝；原 schedulerRuntimeUpdate 保留 simple→自定义与运行/排队窗口恢复检查，不减少覆盖。policy 九组真实 runtime 对照补 Scheduler 前缀。一个实现、两测试、三版本、本计划，共 7 文件；内部 0.5.467，compile/定向/规定 package 待验证，不发布/安装。
 
 PFX2c 提交 02f0247bf2061ce5ea58c9653539745f66320724 已普通 push/fetch 一致。PFX-test7 先准备原私有 tmux 夹具：从已生成 runtime 抽取 task_* 的同时加入实际共用前缀函数及其默认常量，避免下一批引用进入函数闭包后缺少绑定；不导入完整 runtime，不替换命名行为。仅原夹具和本计划，真实受影响目标检查后独立提交，不改运行版本。
 
 PFX-test7 验证：tmuxLifecycle 3、schedulerRuntimeUpdate 2、gpuMemoryAdmission 1、manualTmuxAdmission 1，共 7 项通过，均使用原私有 tmux/CPU 夹具、原超时和断言。未修改 task_* 函数字节；其余原生消费者由下一运行批次规定 package 覆盖，不伪记已执行。纯夹具与计划独立提交，不新增包。
 
-- D0：agentRuntimeDirs 默认 <父目录>/simple_agent；Agent tmux 默认名仅含前缀和 Worker，不含项目。默认 runtime 应转项目内，并用稳定项目身份分开 Agent 窗口；不迁移或清理旧目录，不改变用户显式目录。用户已选择保留 GPU Collector 的账号/Worker 共享唯一采样源（GpuCollector.ts、AgentLifecycle.ts），其余归项目；当前未改。
+PFX2d compile 与 14 项定向检查通过（tmuxLifecycle 3、schedulerUpdate 2、policy 5、gpuMemoryAdmission 1、manualAdmission 1、runtimeLogs 2）。扩展私有原生窗口验证已确认：自定义 A→B 不产生第二队列，原 command/window 身份保留；新作业使用传入的当前全局前缀；未绑定活动控制器、同键归属冲突和多活动队列分别拒绝，问题窗口退出后可重新查询原队列。原 simple→自定义及运行/排队恢复覆盖保留。无现场操作，不改既有性能断言、超时或覆盖；冻结 7 文件内部 0.5.467，开始规定 package。
+
+PFX2d 最终验证：2026-11-02T17-20-31-841Z-25536-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、711633ms。内部 universal/trial 0.5.467：2772260 字节，SHA256 8baa32de3a7828925743778ba6c57afbcd3daf630d62a639e7120b31388949a6；与 receipt 一致，362 项内容门禁零违规，实际 HTML 三段及模块解析通过。无训练服务器操作、自动重跑、产物清理、发布或安装。前缀收口也须包含 D1 中可复制的旧个人前缀占位命令，先修正该入口再公开完整试行，不把它留到收口之后。
+
+## 后续定向核查线索（尚未实施）
+
+- D0a–c 已验证：默认 runtime 归项目内全局前缀目录，Agent 窗口按项目身份分开，显式目录与共享 GPU 采样保留。D0d 仍需更新完整指南；未自动迁移、部署或清理旧资源。
 - D1：serverSetupReadiness 在 0 Worker 时 missing 为空导致 ready=true；占位 tmuxCmdAgent/Sch/Gpu 从未填充真实目标，仍可复制。应修正空目标语义，提供真实选定窗口的唯一附着入口。
 - D2：operationEventMaxDelayMs 配置/后端默认 200，面板三处回退 1000；全局读取缺少与保存的 10000 上限一致的约束。Conda label 含“可选，必填”，configInput/configSelect 的 label 没有 for/id。
 - D2/D3：Worker Conda 继承时表单显示全局值；saveWorkerConfigCore 用 effectiveWorkerCondaEnv 作缺值回退，会把继承固化成覆盖。需显式区分继承、系统 Python 与路径，不自动探测/安装科研依赖。

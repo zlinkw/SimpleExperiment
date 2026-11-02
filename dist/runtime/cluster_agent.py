@@ -485,9 +485,9 @@ def remote_agent_directory_name():
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.466"
-RUNTIME_VERSION = "0.5.466"
-PLUGIN_VERSION = "0.5.466"
+AGENT_VERSION = "0.5.467"
+RUNTIME_VERSION = "0.5.467"
+PLUGIN_VERSION = "0.5.467"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -19622,10 +19622,7 @@ def task_query(root, queries=(), selected_only=False, observation_only=False):
                              "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "gpuMemoryBudgetScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1, "gpuCollector": 1}}
 
 def task_session_prefix():
-    prefix = re.sub(r"[^a-z0-9._-]+", "-", str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower()).strip("-")[:32]
-    if not re.match(r"^[a-z0-9]", prefix):
-        prefix = "simple"
-    return prefix
+    return remote_resource_prefix()
 
 def task_queue_session(root, worker_id, refresh=False):
     key = hashlib.sha256((os.path.realpath(root) + "\0" + worker_id).encode("utf-8")).hexdigest()[:16]
@@ -19636,20 +19633,37 @@ def task_queue_session(root, worker_id, refresh=False):
     scope = (os.path.realpath(root), worker_id, prefix)
     if not refresh and scope in locators:
         return locators[scope]
-    legacy = "simple-sch-" + key
-    if prefix != "simple":
-        # Locate an existing pre-prefix controller by its native root/Worker
-        # binding. Naming changes must never create a second queue for it.
-        found = subprocess.run(["tmux", "display-message", "-p", "-t", legacy + ":queue", "#{@se_endpoint}"], capture_output=True, text=True, timeout=3)
-        if found.returncode == 0 and (found.stdout or "").strip():
-            endpoint = json.loads(found.stdout)
-            if endpoint.get("root") != os.path.realpath(root) or endpoint.get("workerId") != worker_id:
-                raise ValueError("SCHEDULER_OWNER_MISMATCH")
-            locators[scope] = legacy
-            return legacy
+    desired = prefix + "-sch-" + key
+    # The existing project/Worker key narrows the current native inventory;
+    # only the live endpoint binding proves ownership. No prior prefix is guessed.
+    matches = {}
+    inventory = task_tmux(["list-windows", "-a", "-F", "#{session_name}\t#{window_name}\t#{window_id}\t#{pane_dead}\t#{@se_endpoint}"], timeout=3)
+    for line in inventory.splitlines():
+        session, name, window_id, dead, encoded = line.split("\t", 4)
+        if name != "queue" or not session.endswith("-sch-" + key):
+            continue
+        if not encoded:
+            if dead != "1":
+                raise RuntimeError("SCHEDULER_QUERY_FAILED: controller identity is not ready")
+            continue
+        endpoint = json.loads(encoded)
+        if endpoint.get("root") != os.path.realpath(root) or endpoint.get("workerId") != worker_id:
+            raise ValueError("SCHEDULER_OWNER_MISMATCH")
+        matches[window_id] = (session, dead)
+    active = [session for session, dead in matches.values() if dead != "1"]
+    if len(active) > 1:
+        raise ValueError("SCHEDULER_OWNER_AMBIGUOUS: multiple active controllers for this project and Worker")
+    if active:
+        desired = active[0]
+    elif matches:
+        sessions = [session for session, _ in matches.values()]
+        if desired not in sessions:
+            if len(sessions) != 1:
+                raise ValueError("SCHEDULER_OWNER_AMBIGUOUS: select the exact controller before recovery")
+            desired = sessions[0]
     if len(locators) >= 128:
         locators.pop(next(iter(locators)))
-    locators[scope] = prefix + "-sch-" + key
+    locators[scope] = desired
     return locators[scope]
 
 def task_describe_plan(root, discovery):
