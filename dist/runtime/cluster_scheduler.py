@@ -37,9 +37,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.464"
-RUNTIME_VERSION = "0.5.464"
-PLUGIN_VERSION = "0.5.464"
+SCHEDULER_VERSION = "0.5.465"
+RUNTIME_VERSION = "0.5.465"
+PLUGIN_VERSION = "0.5.465"
 FORMAL_JOB_PATH_PROTOCOL = 1
 FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1
 EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1
@@ -53,7 +53,7 @@ WORKER_AVAILABILITY_REFRESH_WINDOW_SECONDS = 10.0
 WORKER_AVAILABILITY_CLOCK_SKEW_SECONDS = 300
 ARCHIVE_STATE_PATH = Path("simple_cluster/archive_state.json")
 MAX_AGENT_STATE_DIR_CACHE_RECORDS = 8
-AGENT_STATE_DIR_CACHE: dict[tuple[str, str], Path] = {}
+AGENT_STATE_DIR_CACHE: dict[tuple[str, str, str], Path] = {}
 ATOMIC_WRITE_LOCKS = [threading.Lock() for _ in range(64)]
 
 # === 调度信号化改造：信号类型 / 错误早停 ===
@@ -693,6 +693,17 @@ def has_existing_artifacts(output_dir):
         pass
     occupied = [name for name in names if name != ".formal_job.lock"]
     return {"exists": bool(occupied), "markers": sorted(set(markers or occupied[:8])), "totalFiles": len(names)}
+
+
+REMOTE_RESOURCE_DEFAULT_PREFIX = "simple"
+
+def remote_resource_prefix(value=None):
+    raw = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") if value is None else value
+    prefix = re.sub(r"[^a-z0-9._-]+", "-", str(raw or REMOTE_RESOURCE_DEFAULT_PREFIX).strip().lower()).strip("-")[:32]
+    return prefix if re.match(r"^[a-z0-9]", prefix) else REMOTE_RESOURCE_DEFAULT_PREFIX
+
+def remote_agent_directory_name():
+    return remote_resource_prefix() + "_agent"
 
 
 TASK_SHELL_ENV_FIELDS = (
@@ -3179,7 +3190,7 @@ def scheduler_project_state_namespace(root: Path) -> str:
 
 
 def scheduler_default_agent_state_dir() -> Path:
-    return Path("simple_agent/state/projects") / scheduler_project_state_namespace(Path.cwd())
+    return compute_scheduler_agent_state_dir(Path.cwd())
 
 
 def compute_scheduler_agent_state_dir(project_dir: str | Path = ".", configured: str = "") -> Path:
@@ -3191,7 +3202,7 @@ def compute_scheduler_agent_state_dir(project_dir: str | Path = ".", configured:
     namespace = scheduler_project_state_namespace(root)
     text = str(configured or "").strip()
     if not text:
-        return Path("simple_agent/state/projects") / namespace
+        return root / remote_agent_directory_name() / "state" / "projects" / namespace
     base = Path(text).expanduser()
     try:
         base = base.resolve()
@@ -3209,7 +3220,7 @@ def resolve_scheduler_agent_state_dir(project_dir: str | Path = ".", configured:
     raw = Path(project_dir or ".").expanduser()
     if not raw.is_absolute():
         return compute_scheduler_agent_state_dir(project_dir, configured)
-    cache_key = (str(raw), str(configured or ""))
+    cache_key = (str(raw), str(configured or ""), remote_resource_prefix())
     cached = AGENT_STATE_DIR_CACHE.get(cache_key)
     if cached is not None:
         return cached
@@ -4156,19 +4167,14 @@ def sync_running_console_logs(plan: str, items: list[dict[str, Any]], workers_by
         gid = str(item.get("gpu_id") or item.get("gpuId") or item.get("gpu") or "").strip()
         tmux_target = str(item.get("tmuxTarget") or item.get("tmuxSession") or item.get("window") or "").strip()
         if not tmux_target and gid:
-            try:
-                _pfx = str(item.get("tmuxPrefix") or "") or "simple"
-                import re as _re2
-                tmux_target = _re2.sub(r"[^A-Za-z0-9_.-]+", "-", f"{_pfx}-gpu-{gid}").strip("-").lower() or f"simple-gpu-{gid}"
-            except Exception:
-                tmux_target = f"simple-gpu-{gid}" if gid else ""
+            tmux_target = re.sub(r"[^A-Za-z0-9_.-]+", "-", f"{remote_resource_prefix()}-gpu-{gid}").strip("-").lower()
         tail = ""
         try:
             # window 维度优先：live_output/{tmuxTarget}.json 真实 pane 直链
             if tmux_target:
                 import re as _re3
                 _safe_t = _re3.sub(r"[^A-Za-z0-9_.-]+", "-", tmux_target).strip("-") or tmux_target
-                for _base in [scheduler_agent_state_dir() / "live_output" / f"{_safe_t}.json", Path("simple_agent/state/projects") / "live_output" / f"{_safe_t}.json"]:
+                for _base in [scheduler_agent_state_dir() / "live_output" / f"{_safe_t}.json"]:
                     try:
                         if _base.is_file():
                             _data = safe_read_json(_base, {})
@@ -4183,7 +4189,7 @@ def sync_running_console_logs(plan: str, items: list[dict[str, Any]], workers_by
                         continue
             # 1) 兼容旧路径 live_output/{gid}.json
             if not tail and gid:
-                for _base in [scheduler_agent_state_dir() / "live_output" / f"{gid}.json", Path("simple_agent/state/projects") / "live_output" / f"{gid}.json"]:
+                for _base in [scheduler_agent_state_dir() / "live_output" / f"{gid}.json"]:
                     try:
                         if _base.is_file():
                             _data = safe_read_json(_base, {})
@@ -4241,7 +4247,7 @@ def ensure_worker_runtime(worker: dict[str, Any]) -> str:
         return f"{install_dir}/simple_cluster/runtime/cluster_scheduler.py"
     if worker.get("_runtime_uploaded"):
         return "simple_cluster/runtime/cluster_scheduler.py"
-    return "simple_agent/simple_cluster/runtime/cluster_scheduler.py"
+    return f"{remote_agent_directory_name()}/simple_cluster/runtime/cluster_scheduler.py"
 
 
 def write_state(path: Path, payload: dict[str, Any]) -> None:

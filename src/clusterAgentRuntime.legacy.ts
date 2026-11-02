@@ -7,6 +7,7 @@ import { GPU_COLLECTOR_PYTHON } from "./runtime/GpuCollector";
 import { RUNTIME_LOG_DIAGNOSTICS_PYTHON } from "./runtime/RuntimeLogDiagnostics";
 import { PLAN_CODE_SCOPE_PYTHON } from "./runtime/PlanCodeScope";
 import { SYNC_SCOPE_INDEX_PYTHON } from "./runtime/SyncScopeIndex";
+import { REMOTE_RESOURCE_PREFIX_PYTHON } from "./config/RemoteResourcePrefix";
 export const CLUSTER_AGENT_RUNTIME = String.raw`#!/usr/bin/env python3
 from __future__ import annotations
 import argparse, base64, calendar, copy, csv, errno, fnmatch, glob, hashlib, http.client, importlib.util, io, ipaddress, json, math, os, pathlib, random, re, shutil, shlex, signal, socket, statistics, stat, struct, subprocess, sys, threading, time, traceback, urllib.request, uuid, zipfile
@@ -17,6 +18,7 @@ from urllib.parse import urlparse, parse_qs, unquote
 ${RESULT_LAYOUT_PYTHON}
 ${PLAN_EXISTING_ARTIFACTS_PYTHON}
 ${SYNC_SCOPE_INDEX_PYTHON}
+${REMOTE_RESOURCE_PREFIX_PYTHON}
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
@@ -474,7 +476,7 @@ def agent_install_dir(root):
             return install_dir
     except Exception:
         pass
-    return os.path.join(os.path.abspath(root), "simple_agent")
+    return os.path.join(os.path.abspath(root), remote_agent_directory_name())
 
 def fs_sha256(root, file_path):
     if not file_path:
@@ -4250,15 +4252,7 @@ def _normalize_gpu_id_for_window(value):
     return "0" if not s.isdigit() else s
 
 def fixed_gpu_window_name(prefix, gpu_id):
-    # 前缀按设置自动识别：显式 prefix 优先，否则走 _resolve_tmux_prefix 统一解析
-    if prefix and str(prefix).strip():
-        base = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(prefix).strip()).strip("-").lower()[:32]
-        if not base or not re.match(r"^[a-z0-9]", base):
-            base = _resolve_tmux_prefix(None, None, None)
-    else:
-        base = _resolve_tmux_prefix(None, None, None)
-    if not base or not re.match(r"^[a-z0-9]", base):
-        base = "simple"
+    base = remote_resource_prefix(prefix if prefix and str(prefix).strip() else None)
     gid_raw = _normalize_gpu_id_for_window(gpu_id)
     gid = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(gid_raw or "0").strip().lower()).strip("-").lower() or "0"
     return f"{base}-gpu-{gid}"
@@ -4266,10 +4260,6 @@ def fixed_gpu_window_name(prefix, gpu_id):
 def simple_tmux_name(value):
     text = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "task")).strip("-").lower()
     prefix = _resolve_tmux_prefix(None, None, None)
-    # _resolve 已做归一与合法性校验，此处二次加固与旧逻辑保持一致
-    prefix = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(prefix or _resolve_tmux_prefix(None, None, None))).strip("-").lower()[:32]
-    if not prefix or not re.match(r"^[a-z0-9]", prefix):
-        prefix = "simple"
     return ((prefix + "-" + (text or "task"))[:96])
 
 def worker_tmux_session_name(worker_id, gpu_id, local_worker_id=None):
@@ -12239,13 +12229,7 @@ def progress_action(root, action, operation_id, op_id, status, message, extra=No
     return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "operationId": operation_id, "action": action, "status": status, "message": message, **details}
 
 def tb_tmux_session_name(prefix):
-    # Mirror the extension-side normalizeRemoteTmuxSessionPrefix so the session name is
-    # derived from configuration and never hardcoded; prefix 优先显式传入，否则走 _resolve
-    raw = str(prefix).strip() if prefix and str(prefix).strip() else _resolve_tmux_prefix(None, None, None)
-    p = re.sub(r"[^a-z0-9._-]+", "-", str(raw).strip().lower()).strip("-")[:32]
-    if not p or not re.match(r"^[a-z0-9]", p):
-        p = "simple"
-    return p + "_tb"
+    return remote_resource_prefix(prefix if prefix and str(prefix).strip() else None) + "_tb"
 
 
 def tb_port_listening(port, timeout=2):
@@ -12752,108 +12736,14 @@ def install_rich_action(root, payload, operation_id, op_id):
 
 
 def _resolve_tmux_prefix(options=None, command=None, env=None):
-    # 按优先级：options.tmuxSessionPrefix -> command.tmuxSessionPrefix -> os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") -> 读 $WORK_DIR/.vscode/settings.json 的 tunnel.remoteTmuxSessionPrefix -> 回退 "simple"
-    def _extract_prefix(obj):
-        if obj is None:
-            return ""
-        if isinstance(obj, dict):
-            for k in ("tmuxSessionPrefix", "tmux_session_prefix", "sessionPrefix", "session_prefix", "remoteTmuxSessionPrefix", "remote_tmux_session_prefix"):
-                try:
-                    v = obj.get(k)
-                    if v is not None and str(v).strip() != "":
-                        return str(v).strip()
-                except Exception:
-                    pass
-            return ""
-        # attribute access fallback
-        for k in ("tmuxSessionPrefix", "tmux_session_prefix", "sessionPrefix", "session_prefix", "remoteTmuxSessionPrefix"):
-            try:
-                v = getattr(obj, k, None)
-                if v is not None and str(v).strip() != "":
-                    return str(v).strip()
-            except Exception:
-                pass
-        try:
-            # dict-like via __getitem__
-            for k in ("tmuxSessionPrefix", "tmux_session_prefix"):
-                try:
-                    if hasattr(obj, "__contains__") and k in obj:
-                        v = obj[k]
-                        if v is not None and str(v).strip() != "":
-                            return str(v).strip()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        return ""
-    # 1) options
-    for src in (options, command):
-        if src is not None:
-            raw = _extract_prefix(src)
-            if raw:
-                norm = re.sub(r"[^a-z0-9._-]+", "-", str(raw).strip().lower()).strip("-")[:32]
-                if norm and re.match(r"^[a-z0-9]", norm):
-                    return norm
-                # raw present but invalid -> fallback to simple immediately (保持与 normalizeRemoteTmuxSessionPrefix 一致)
-                return "simple"
-    # 3) env
-    env_candidates = []
-    if isinstance(env, dict):
-        env_candidates.append(env)
-    env_candidates.append(os.environ)
-    for em in env_candidates:
-        try:
-            v = em.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") if hasattr(em, "get") else None
-            if v is not None and str(v).strip() != "":
-                norm = re.sub(r"[^a-z0-9._-]+", "-", str(v).strip().lower()).strip("-")[:32]
-                if norm and re.match(r"^[a-z0-9]", norm):
-                    return norm
-                return "simple"
-        except Exception:
-            pass
-    # 4) read $WORK_DIR/.vscode/settings.json -> tunnel.remoteTmuxSessionPrefix
-    try:
-        work_dir = ""
-        if isinstance(env, dict):
-            work_dir = str(env.get("WORK_DIR") or env.get("WORKDIR") or env.get("SIMPLE_EXPERIMENT_WORK_DIR") or "").strip()
-        if not work_dir:
-            work_dir = str(os.environ.get("WORK_DIR") or os.environ.get("SIMPLE_EXPERIMENT_WORK_DIR") or "").strip()
-        candidates = []
-        if work_dir:
-            candidates.append(os.path.join(str(work_dir), ".vscode", "settings.json"))
-        try:
-            candidates.append(os.path.join(os.getcwd(), ".vscode", "settings.json"))
-        except Exception:
-            pass
-        for cand in candidates:
-            try:
-                if cand and os.path.isfile(cand):
-                    with open(cand, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    val = None
-                    if isinstance(data, dict):
-                        if "tunnel.remoteTmuxSessionPrefix" in data:
-                            val = data.get("tunnel.remoteTmuxSessionPrefix")
-                        tunnel = data.get("tunnel")
-                        if (val is None or str(val).strip() == "") and isinstance(tunnel, dict):
-                            val = tunnel.get("remoteTmuxSessionPrefix") or tunnel.get("remote_tmux_session_prefix")
-                        if (val is None or str(val).strip() == "") and "remoteTmuxSessionPrefix" in data:
-                            val = data.get("remoteTmuxSessionPrefix")
-                    if val is not None and str(val).strip() != "":
-                        norm = re.sub(r"[^a-z0-9._-]+", "-", str(val).strip().lower()).strip("-")[:32]
-                        if norm and re.match(r"^[a-z0-9]", norm):
-                            return norm
-                        return "simple"
-            except Exception:
-                continue
-    except Exception:
-        pass
-    # 5) 回退 "simple"
-    return "simple"
+    # Only the global value carried by the plugin is authoritative.
+    # Project files and old per-job prefix aliases cannot select another owner.
+    if env is not None and env.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") is not None:
+        return remote_resource_prefix(env["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"])
+    return remote_resource_prefix()
 
 
 def _tmux_prefix():
-    # 仅当 settings 缺失时回退到 "simple"（与 _resolve_tmux_prefix 统一），_resolve 内部已处理 env/settings 优先级
     return _resolve_tmux_prefix(None, None, None)
 
 

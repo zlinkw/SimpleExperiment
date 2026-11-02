@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.464",
-  "buildId": "f14e0f2ce838a68657baa97d92270061216ebb075cccb7e8d87803852af81009",
+  "version": "0.5.465",
+  "buildId": "c03f167444c350a9f22739bd794898a1b872cb38ccba9d5ea7224db1385b8991",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -145,7 +145,7 @@
     },
     {
       "path": "dist/config/RemoteResourcePrefix.js",
-      "sha256": "608f014457e78f7103a9410bf8a608437ab8d6e892e16be164b26bcec3e8b8ba"
+      "sha256": "bb99bb40fce3513b7002261b4cb28025880e2d823812f813f67edbda36524776"
     },
     {
       "path": "dist/config/RemoteRootPolicyPrefill.js",
@@ -893,7 +893,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "d799807d26217e56d47235267430c587bef2dedaccbbc67c84b94e6f5ac48302"
+      "sha256": "976ce1399f081c407630724423320d1e3fbfc9f61e64bcc9628c8a0bba2f1461"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1245,7 +1245,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "3dbc6b3c4b19949f7db4bf59332c531da7aa7bf27ee15a3dc78d013ed9dd40ee"
+      "sha256": "39fd400793a79b3e907ee4a92df0a21c57ab0f0f00390d56e16885ac7c78895c"
     },
     {
       "path": "scripts/check-static.js",

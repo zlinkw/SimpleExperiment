@@ -42,10 +42,11 @@
 | PFX-base | 前缀默认值与归一化收敛一处，提供实际目录命名 | passed |
 | PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | passed |
 | PFX2a / D0c | Agent 窗口按规范项目身份隔离 | passed |
-| PFX2b | 远端目录和前缀只读取全局传入值 | running |
+| PFX2b | 远端目录和前缀只读取全局传入值 | passed |
 | PFX2c | 移除个人主终端猜测及错误启动兜底 | pending |
 | PFX2d | 调度前缀归一化与真实原队列定位 | pending |
 | PFX2e | 通用关窗不得按 Agent 会话名跳过精确窗口保护 | pending |
+| PFX2f | TensorBoard 使用全局前缀及精确项目服务身份 | pending |
 | PFX3 | 远端路径校验和错误品牌迁移的前缀残留 | pending |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
@@ -310,6 +311,12 @@ PFX-test5 纯测试修正：tensorboardAndFence 原静态断言要求局部变�
 PFX-test5 提交 56180af95d9b5cef88160bfd0bfb27ab311d5de9 已普通 push/fetch 一致。PFX-test6：Controls5 还有一项只匹配已移除注释中 TS normalizer 名称的静态断言失败（2 通过/1 失败，pfx2b-tensorboardControls5.log），改为在原 Python 子进程中验证真实 TensorBoard 归一化结果，保留原拓扑窗口断言。仅该测试和本计划先提交，policy 新行为测试与 PFX2b 生产修改留在原批；不增性能断言、进程或调整超时。新日志测试首次夹具 Worker 为 Python 空字典导致跳过，补齐 Worker 身份后 policy 5 项（含九组 runtime 与不跨旧目录取日志）通过；失败输入与 pfx-test6-policy.log 保留。
 
 PFX-test6 最终 Controls5 3 项通过，exit=0，pfx-test6-tensorboard-final.log；原 Worker 命名、浏览器隧道、无固定服务器路径覆盖保留。仅测试和计划两文件独立提交；未生成或发布新包。
+
+PFX-test6 提交 2ed62b16722c4eecf02101853040c31b077f0fc9 已普通 push/fetch 一致。PFX2b 定向检查合计 45 项通过：policy 5、stateCache 2、availability 12、AndFence 4、Controls2 4、publicDefault 8、lifecycle 2、gpuStartup 1、Controls1 4、Controls5 3。原性能/缓存/停止覆盖均未改。policy 真实抽取函数九组覆盖前缀、目录、显式路径、忽略旧项目字段，另覆盖本项目 live_output 成功和缺失时不借旧固定目录日志。沿用 PFX2a 未变 UI 渲染证据，生成 HTML 在规定检查中复核。冻结 8 文件内部 0.5.465，开始规定 package。
+
+PFX2b 最终验证：2026-11-02T16-43-13-238Z-80072-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、699573ms。内部 universal/trial 0.5.465：2778221 字节，SHA256 29c3f1c09a460b7aa64ae32fec732ef710a4993f940008e4de0b42806879cb40；与 receipt 一致，362 项内容门禁零违规，实际 HTML 三段及模块解析通过。无训练服务器操作，未发布/安装。
+
+后续相关边界：TensorBoard 仍有旧 payload prefix 别名且服务仅按全局 prefix 命名，跨项目主动打开可能触及其他项目同名服务，列入 PFX2f 精确项目服务身份和端口占用可见反馈。Agent 与 TensorBoard 均保留用户配置的动态隧道/监听端口，不因目录隔离自动改端口；D1/D2 明示项目身份与配置，冲突需修改具体项目配置，不关闭其他项目服务。
 
 PFX-test3 提交 ab8c417e4ad4066f4b467d03150863189fdb9a41 已普通 push/fetch 一致。PFX-test4 纯夹具准备：目录和会话缓存组合夹具加载真实 AgentTmuxPolicy 命名导出，再覆盖原有轻量启动替身，供项目窗口接口使用；不缩减原断言。目录 5、会话缓存 2 项通过，日志 pfx-test4-install.log / pfx-test4-cache.log；仅两测试与本计划独立提交，不改运行版本。
 
