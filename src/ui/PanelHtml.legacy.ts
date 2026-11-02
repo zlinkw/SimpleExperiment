@@ -9574,21 +9574,20 @@ export function renderPanelHtml(): string {
     }
 
     function serverObjectStatusClass(status, conflict, enabled) {
-      if (conflict) return conflict.severity === "error" ? "error" : "warn";
       if (enabled === false) return "disabled";
+      if (conflict) return conflict.severity === "error" ? "error" : "warn";
       const value = String(status || "").toLowerCase();
-      // GPU四态着色：可用→ok，目前无空卡→warn，暂无显卡数据→warn，GPU查询失败→error
-      if (value.includes("gpu") && value.includes("fail")) return "error";
-      if (value.includes("ok") || value.includes("online") || value.includes("connected") || value.includes("agent_ok") || value.includes("已配置")) return "ok";
-      if (value.includes("mismatch") || value.includes("unreachable") || value.includes("closed") || value.includes("failed") || value.includes("error") || value.includes("不可达")) return "error";
+      if (["offline", "disconnected", "timeout", "conflict"].includes(value) || value.includes("invalid") || value.includes("mismatch") || value.includes("unreachable") || value.includes("closed") || value.includes("fail") || value.includes("error") || value.includes("不可达")) return "error";
+      if (["ok", "online", "connected", "agent_ok"].includes(value)) return "ok";
       return "warn";
     }
 
     function serverObjectStatusLabel(status, statusClassValue) {
-      if (statusClassValue === "error") return "异常";
-      if (statusClassValue === "warn") return "待处理";
-      if (statusClassValue === "disabled") return "禁用";
-      return labelStatus(status || "正常");
+      if (statusClassValue === "disabled") return "已禁用";
+      const label = labelStatus(status || "unknown");
+      if (statusClassValue === "error") return "异常：" + label;
+      if (statusClassValue === "warn") return "待核实：" + label;
+      return label;
     }
 
     function serverSessionConfiguredLabel(value, label) {
@@ -9690,18 +9689,18 @@ export function renderPanelHtml(): string {
       const indexes = serverStatusIndexesForState(data);
       const conflicts = indexes.conflicts || [];
       const modeLabel = topology.modeLabel || topologyModeLabel(topology.mode || "single_worker");
-      const connText = conflicts.length ? ("冲突 " + conflicts.length) : setupReady.ready ? "连接就绪" : "连接待配";
+      const connText = conflicts.length ? ("冲突 " + conflicts.length) : setupReady.ready ? "连接配置完整" : setupReady.summary;
       const syncText = syncReady.ready ? "上传就绪" : (syncReady.summary || "待上传");
       const agentText = agent.ready ? "Agent就绪" : agent.status;
-      const connCls = conflicts.length ? "error" : (setupReady.ready ? "ok" : "warn");
+      const connCls = conflicts.length ? "error" : "warn";
       const syncCls = syncReady.ready ? "ok" : "warn";
       const agentCls = agent.ready ? "ok" : "warn";
       const worstCls = connCls === "error" ? "error" : (connCls === "warn" || syncCls === "warn" || agentCls === "warn" ? "warn" : "ok");
-      const badgeText = conflicts.length ? ("冲突 " + conflicts.length) : (worstCls === "ok" ? "全绿" : "待配");
+      const badgeText = conflicts.length ? ("冲突 " + conflicts.length) : (setupReady.ready ? "配置与观测分开核实" : "配置待处理");
       return '<div class="serverChainOverview ' + worstCls + '" data-anchor="settings-chain-overview" title="运行环境准备单链：部署 Agent、上传代码并检测；后续操作由用户选择">' +
         '<b>' + esc(modeLabel) + '</b>' +
         '<span class="chainSteps">' +
-        '<span class="chainStep ' + connCls + '" data-chain-step="connect"><span class="chainStepText" title="' + escAttr(setupReady.summary || connText) + '">' + esc(connText) + '</span></span>' +
+        '<span class="chainStep ' + connCls + '" data-chain-step="connect"><span class="chainStepText" title="' + escAttr((setupReady.summary || connText) + "；配置完整不代表连接成功，请查看每台服务器的观测状态") + '">' + esc(connText) + '</span></span>' +
         '<span class="chainStep ' + syncCls + '" data-chain-step="upload"><span class="chainStepText" title="' + escAttr(syncText) + '">' + esc(syncText) + '</span></span>' +
         '<span class="chainStep ' + agentCls + '" data-chain-step="ready"><span class="chainStepText" title="' + escAttr(agent.detail || agentText) + '">' + esc(agentText) + '</span></span>' +
         '</span>' +
@@ -9820,7 +9819,7 @@ export function renderPanelHtml(): string {
             '<div class="serverBadges">' +
               '<span class="pill">' + esc(formatTunnelAddress(tunnelHost(worker.localForwardHost || assignment.localForwardHost || setup.localForwardHost), worker.localForwardPort || assignment.localForwardPort)) + '</span>' +
               '<span class="pill">Telemetry ' + esc(worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "-") + '</span>' +
-              sessionStatusCell(conflictById?.get(String(worker.id)), status) +
+              sessionStatusCell(conflictById?.get(String(worker.id)), status, worker.enabled !== false) +
             '</div></div>' +
             '<div class="configGrid">' +
               configInput(scope, "displayName", "显示名称", worker.displayName || worker.id) +
@@ -10531,13 +10530,15 @@ export function renderPanelHtml(): string {
       return "";
     }
 
-    function sessionStatusCell(conflict, status) {
-      if (conflict) {
+    function sessionStatusCell(conflict, status, enabled) {
+      if (enabled !== false && conflict) {
         const klass = conflict.severity === "error" ? "status-failed" : "status-warning";
         const label = conflict.severity === "error" ? (conflict.conflictType || "端口冲突") : "注意";
         return '<span class="pill ' + klass + '" title="' + escAttr((conflict.suggestion || conflict.message || "") + "；原始级别：" + (conflict.severity || "warning")) + '">' + esc(label) + '</span>';
       }
-      return '<span class="pill ' + statusClass(status) + '">' + esc(labelStatus(status || "-")) + '</span>';
+      const derived = serverObjectStatusClass(status, conflict, enabled);
+      const klass = derived === "error" ? "status-failed" : derived === "warn" ? "status-warning" : derived === "ok" ? "status-completed" : "";
+      return '<span class="pill ' + klass + '" title="' + escAttr(status || "unknown") + '">' + esc(serverObjectStatusLabel(status, derived)) + '</span>';
     }
 
     function renderWorkerAndPorts(state) {
@@ -18777,24 +18778,21 @@ export function renderPanelHtml(): string {
       const setupSource = (state || {}).setup;
       const setup = setupSource && typeof setupSource === "object" ? setupSource : EMPTY_SERVER_SETUP;
       const workers = enabledWorkerTunnelsForState(state);
-      const topology = (state || {}).topology || {};
       const hubRequired = false;
       if (setup === serverSetupReadinessCacheSetup && workers === serverSetupReadinessCacheWorkers && serverSetupReadinessCacheValue && serverSetupReadinessCacheValue.hubRequired === hubRequired) return serverSetupReadinessCacheValue;
       const missing = [];
-      {}
-      {}
+      if (!workers.length) missing.push((setup.workerTunnels || []).length ? "启用 Worker（当前全部已禁用）" : "添加 Worker（当前未配置）");
       workers.forEach((worker) => {
         const label = String(worker.displayName || worker.id || "Worker");
         if (!meaningfulValue(worker.workerHost || worker.hubHost)) missing.push(label + " 服务器地址");
         if (!meaningfulValue(worker.workerUser || worker.hubUser)) missing.push(label + " 登录用户名");
         if (!meaningfulValue(worker.agentProjectDir)) missing.push(label + " 项目父目录");
       });
-      const workerLabel = workers.length ? "；" + workers.length + " 个 Worker" : "；尚无 Worker";
       const value = {
         ready: missing.length === 0,
         missing,
         hubRequired,
-        summary: missing.length ? "缺少：" + missing.join("、") : ("Worker 模式已配置") + workerLabel
+        summary: missing.length ? "缺少：" + missing.join("、") : workers.length + " 个 Worker 连接配置完整；连接状态待观测核实"
       };
       serverSetupReadinessCacheSetup = setup;
       serverSetupReadinessCacheWorkers = workers;

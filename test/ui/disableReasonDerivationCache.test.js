@@ -172,12 +172,26 @@ test("state-only readiness invalidates when setup, Worker, or blocker sources ar
   const nextWorker = sandbox.workerReadiness(nextState);
   const nextBlockers = sandbox.preparationBlockers(nextState);
   assert.notEqual(nextServer, firstServer);
-  assert.equal(nextServer.ready, true); // no configured Worker fields to validate; executionWorkerReadiness separately requires an enabled Worker
+  assert.equal(nextServer.ready, false);
+  assert.match(nextServer.summary, /未配置/);
   assert.equal(nextWorker.ready, false);
   assert.notEqual(nextWorker, firstWorker);
   assert.equal(nextWorker.ready, false);
   assert.notEqual(nextBlockers, firstBlockers);
   assert.deepEqual(Array.from(nextBlockers), ["新阻断"]);
+});
+
+test("configuration readiness distinguishes no Worker, disabled Workers and complete unverified configuration", () => {
+  const sandbox = loadStateReadiness();
+  const absent = sandbox.serverReadiness({ setup: { workerTunnels: [] } });
+  assert.equal(absent.ready, false); assert.match(absent.summary, /添加 Worker/);
+  const disabled = sandbox.serverReadiness({ setup: { workerTunnels: [{ id: 'a', enabled: false }] } });
+  assert.equal(disabled.ready, false); assert.match(disabled.summary, /全部已禁用/);
+  const incomplete = sandbox.serverReadiness({ setup: { workerTunnels: [{ id: 'a', enabled: true }] } });
+  assert.equal(incomplete.ready, false); assert.match(incomplete.summary, /服务器地址/);
+  const configured = sandbox.serverReadiness({ setup: { workerTunnels: [{ id: 'a', workerHost: 'a.example', workerUser: 'alice', agentProjectDir: '/srv/projects' }] } });
+  assert.equal(configured.ready, true); assert.match(configured.summary, /连接配置完整.*待观测核实/);
+  assert.doesNotMatch(configured.summary, /连接就绪/);
 });
 
 test("command capability gaps cache per source identity and invalidate on nested source replacement", () => {

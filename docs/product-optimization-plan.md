@@ -54,13 +54,15 @@
 | PFX2f2 | Host 传递唯一全局值，展示实际返回的服务目标 | passed |
 | PFX3a | API 路径与策略预填移除品牌推断和旧 Hub 来源 | passed |
 | PFX3b | Host 与实际 UI 路径校验移除固定目录名推断 | passed |
+| PFX3c | 全局前缀的 tmux 旧版名称兼容与输入边界 | pending |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
 | D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | passed |
 | D0d | 更新目录与服务说明，保留完整使用指南 | pending |
 | D1-test | 日志/低流量夹具隔离附着命令组件边界 | passed |
 | D1a | 移除占位附着命令，复制前主动核实精确 Worker/窗口 | passed |
-| D1 | 零目标、禁用、未核实、离线；精确附着命令 | pending |
+| D1b | 零目标/禁用配置与观测分开，错误状态不得显示健康 | passed |
+| D1 | 零目标、禁用、未核实、离线；精确附着命令 | passed |
 | D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | pending |
 | D3 | 保存范围、生效时间与草稿恢复 | pending |
 | E1 | 主次/危险操作、错误、帮助、空态与刷新范围 | pending |
@@ -446,7 +448,23 @@ D1a 定向共 50 项通过（Worker/复制 7、jobLog 12、scriptHealth 9、othe
 
 D1a 最终验证：2026-11-02T19-41-11-457Z-83012-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、705120ms。内部 universal/trial 0.5.473：2773832 字节，SHA256 24ab53226361beaf34fbab3d3709971a5a1707fd19f8e9d1b33e0aac9af9d752；实际字节与 receipt 一致，362 项内容门禁零违规，实际 HTML 三脚本及模块解析通过。无公开发行、安装或服务器操作；下一批只处理服务器配置/观测状态的证据语义。
 
+## 当前批次 D1b
+
+D1a 提交 3bf6b0f07a7612a5d9816bd8121237abae39017f 已普通 push/fetch 一致。复现：零 Worker 的配置校验空集返回 ready=true；实际准备链把字段完整称为连接就绪。旧总览帮助函数按 ok/connected 子串先判成功，使 disconnected 和 agent_token_invalid 误绿；核对当前调用确认该旧总览并未在主渲染链执行，不能声称主页面已复现误绿。当前 V2 状态徽标仍使用另一套 task statusClass，错误/未核实/禁用含义不一致；本批让实际徽标共用修正后的服务器状态规则，旧总览也不再留下错误判定。
+
+只修实际 UI 的配置与状态解释：无配置、全部禁用、字段缺失分别说明；字段完整仍只证明配置。准备链明确不代表连接成功，各服务器保留实际观测状态；正向状态只匹配公开的确定值，错误优先，禁用单独显示，未知状态保留原值。没有增加查询或改变 Host 探测、缓存、采样时间、运行/停止/部署行为。共享 GPU、项目服务目录、前缀和自定义布局均保留。
+
+实际 UI、两个原测试、三版本、本计划和覆盖表共 8 文件，内部 0.5.474。在原进程扩展实际 HTML 状态/准备链与零目标配置断言，保留既有缓存读取计数和期限，不增性能测试。待 compile、相关目标/消费者、真实生成脚本与隔离渲染、规定 package；无服务器操作、发行或安装。
+
+D1b 定向 44 项通过，含原缓存/启用 Worker 消费者、准备/预演门禁、V2 表单、标签与实际生成脚本状态分支，d1b-verified-*.log；最终 compile 2026-11-02T19-56-37-193Z-36264 通过。初次原 serverSettingsClarity 的两项旧 SSH/Hub 文案断言失败，原 d1b-serverSettingsClarity.test.log 保留；改为当前系统 SSH 文案、Worker 地址/路径说明并新增退役 Hub 断言，未放宽原行为目标。
+
+实际隔离渲染 d1b-render-1793649405730.json：原六场景/420px 焦点保留，新增无配置、全禁用、未知、在线、断线及 token 错误六种服务器状态，实际 V2 徽标和准备链均通过，三脚本解析通过。首次浏览器脚本选择了当前未渲染的旧总览卡，返回 undefined 并 exit=1；修正选择实际 server-card 的徽标后通过，没有为截图启用旧入口。无真实 API/服务器。冻结同一 8 文件内部 0.5.474，开始规定 package。
+
+D1b 最终验证：2026-11-02T19-57-17-419Z-58184-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、724038ms。内部 universal/trial 0.5.474：2773948 字节，SHA256 01b76ee291d9e7cc97be23e7c333d1cab1d047616d63edf7ce8202896917cc43；实际字节与 receipt 一致，362 项内容门禁零违规，实际 HTML 三脚本及模块解析通过。D1 本机覆盖完成，真实连接及 Extension Host 重载仍待现场核实；未公开发行、安装或操作服务器。下一边界为 PFX3c，后续仍须 PFX4 说明收口、D2/D3 与 E1/E2。
+
 ## 后续定向核查线索（尚未实施）
+
+- PFX3c 新确证：公共 schema/Host 与唯一归一化均允许 `team.lab`；实际 Agent/Scheduler/GPU 会话名原样携带点号。官方 [tmux 3.4 session_check_name](https://github.com/tmux/tmux/blob/3.4/session.c#L221-L236) 会把 `.` 转成 `_`，与插件后续原名定位不一致；当前 master 已有不同规则，不能凭新版源码排除已支持服务器上的故障。后续独立批统一便携前缀字符范围、沿用同一 TS/Python 归一化和全局输入校验，不新增 tmux 版本门槛，不改用户实际旧目录/窗口或自动迁移。当前 D1b 冻结候选不扩入这项修改，PFX4 收口前必须完成。
 
 PFX2e 提交 b257d66f1fbbab2be699fe7166f589c76defe8e3 已普通 push/fetch 一致。PFX-test8 纯测试准备：Controls5 的共用归一化断言直接验证已存在的真实 normalizer，保留原 Worker 拓扑、URL、脚本路径及全部测试；TB 命名格式继续由 AndFence 六组、policy 九组和 Controls1 实际服务检查负责。函数存在检查不再约束参数个数，供后续加入必需项目身份；不增加进程或降低行为覆盖。仅原测试和本计划独立验证/提交，无新运行版本。PFX2f 按 8 文件上限拆 runtime 与 Host 两批，不提交依赖未入库生产修改才能通过的测试。
 
