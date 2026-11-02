@@ -22,6 +22,8 @@ function harness() {
     tmuxListCache: { workerId: "NWPU5", tmuxSessionPrefix: "zlk", sessions, gpuIds: ["0", "1"], fetchedAt: "t0" },
     tmuxWindowFilter: "all", tmuxSelectedTaskTarget: "", tmuxSelectedPaneTarget: "", tmuxSelectedWorkerId: "NWPU5", tmuxClearTaskTabsBusy: false,
     tmuxLastCaptureTarget: "old", tmuxCaptureBusy: new Set(), document: { hidden: false },
+    // Attachment controls are verified separately; these cases own session selection and capture.
+    renderTmuxAttachControl() {},
     vscode: { postMessage: message => requests.push(message) },
     el: id => elements[id] || (elements[id] = { innerHTML: "", textContent: "", value: "", options: [], open: false, dataset: {} }),
   });

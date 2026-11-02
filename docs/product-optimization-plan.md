@@ -58,6 +58,8 @@
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
 | D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | passed |
 | D0d | 更新目录与服务说明，保留完整使用指南 | pending |
+| D1-test | 日志/低流量夹具隔离附着命令组件边界 | passed |
+| D1a | 移除占位附着命令，复制前主动核实精确 Worker/窗口 | pending |
 | D1 | 零目标、禁用、未核实、离线；精确附着命令 | pending |
 | D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | pending |
 | D3 | 保存范围、生效时间与草稿恢复 | pending |
@@ -421,6 +423,14 @@ PFX3a 提交 6b9b3c574bd8d42aa01c2f38220e7b3ea3c14467 已普通 push/fetch 一�
 PFX3b compile 2026-11-02T19-17-19-863Z-85440 通过；30 项定向通过（Host gate 2、目的地预览 4、rootMap 14、保存后续 2、globalDefault 8）。隔离 Chrome 六场景和 420px 焦点/输入保留通过，真实生成 HTML 三脚本解析通过；新增实际 DOM 的 simple_agent/zlk_agent 草稿路径均展开到当前项目及 alice_agent runtime，.. 草稿显示 error，报告 pfx3b-render-1793647110730.json。无真实 API、服务器或实际保存；冻结同一 8 文件内部 0.5.472，开始规定 package。
 
 PFX3b 最终验证：2026-11-02T19-18-45-699Z-27968-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、704712ms。内部 universal/trial 0.5.472：2772948 字节，SHA256 f08a86b70a12077a461ff25391f641ee561fbd057651539ff852a76784d9fe7a；实际字节与 receipt 一致，362 项内容门禁零违规，真实 HTML 三脚本及模块解析通过。实际映射保护和保存/准备/SFTP 的共享门禁保留，未修改或清理任何服务器目录。下一批为 D1 精确附着及前缀说明收口，继续不公开发行或安装中间包。
+
+## 测试准备 D1-test
+
+PFX3b 提交 d842300a58212933b4fbda89e842298be6993d77 已普通 push/fetch 一致。D1a 将从 capture 刷新同步更新独立的附着命令组件。现有三个手工最小 VM 只提取日志/低流量函数，不加载该组件；先显式注入独立组件边界，不改其列表、capture、失败保留、身份、低流量或超时断言。实际组件和 Host 复制行为由 D1a 原 tmuxWorkerAndRichLog 套件及实际 HTML 隔离渲染负责，不能以这个替身代替验收。
+
+仅三个原测试和本计划，共 4 文件。生产实现及运行输入未变，复用 PFX3b 完整覆盖；只补跑三个受影响套件，无新运行版本、编译、打包、发行或安装。无服务器操作。
+
+D1-test：38 项通过（jobLog 12、scriptHealth 9、otherSessions 17），exit=0，d1-test-*.log。所有原断言与期限保留，未将附着命令组件的替身算作实际复制验收。
 
 ## 后续定向核查线索（尚未实施）
 

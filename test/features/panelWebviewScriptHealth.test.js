@@ -32,6 +32,8 @@ test("low traffic tmux buttons request one manual list/capture round with the se
   for(const kind of ['list','capture'])assert.match(html,new RegExp('data-tmux-refresh="'+kind+'"'));
   const posted=[],elements=new Map(),el=id=>{if(!elements.has(id))elements.set(id,{textContent:'',dataset:{}});return elements.get(id);};
   const sandbox={document:{hidden:false},el,clearTimeout(){},setTimeout:()=>1,vscode:{postMessage:m=>posted.push(m)},
+    // Keep the manual list/capture request boundary isolated from the clipboard component.
+    renderTmuxAttachControl(){},
     tmuxListBusy:false,tmuxListRequestId:0,tmuxListPendingWorkers:new Set(),tmuxListOrigin:'auto',tmuxListTimeout:0,
     tmuxSelectedWorkerId:'worker-a',tmuxCaptureOrigin:'auto',tmuxCaptureBusy:new Set(),tmuxLastCaptureTarget:'',
     tmuxResolveCaptureTarget:()=> 'session:1.0',lowTrafficModeFromState:()=>({displayAutoRefresh:false}),lastState:{}};

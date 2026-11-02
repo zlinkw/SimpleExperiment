@@ -51,6 +51,8 @@ function fixture(options = {}) {
     tmuxListPendingWorkers: new Set(), tmuxCaptureBusy: new Set(), tmuxCaptureOrigin: "user",
     tmuxConfiguredWorkers: [{ id: "worker-a" }, { id: "worker-b" }], tmuxListsByWorker: {},
     tmuxListCache: { workerId: "worker-b", sessions: [], gpuIds: [] }, tmuxClearTaskTabsBusy: false,
+    // Clipboard controls have their own component checks; this fixture owns job-log navigation.
+    renderTmuxAttachControl() {},
     document: { hidden: false },
     vscode: { postMessage: row => requests.push(row) },
     panelDocumentGeneration: "4", console,
