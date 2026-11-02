@@ -485,9 +485,9 @@ def remote_agent_directory_name():
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.468"
-RUNTIME_VERSION = "0.5.468"
-PLUGIN_VERSION = "0.5.468"
+AGENT_VERSION = "0.5.469"
+RUNTIME_VERSION = "0.5.469"
+PLUGIN_VERSION = "0.5.469"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -5847,7 +5847,7 @@ def job_shell_environment_prefix(env, args=None):
             tokens.append(key + "=" + str(env[key]))
     return shlex.join(tokens)
 
-def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=None):
+def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=None, service_window=False):
     task_environment = job_shell_environment_prefix(env, args)
     client_env = tmux_task_client_env(env)
     # Simulate a human operator: open a detached tmux session (login shell so conda/profile
@@ -5871,13 +5871,16 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     # 围栏：显式拒绝主 shell target 作为 session（仅针对调度类 session 名，建窗指令本身可在主 shell 执行）
     if _is_main_shell_target(session):
         raise RuntimeError(f"refusing to create tmux session on main shell target {session!r}; select a dedicated configured task or service target; " + _build_tmux_error_context(session, None, "", "", cwd, 1, env))
-    proc = subprocess.run(["tmux", "new-session", "-d", "-s", session] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=client_env, timeout=20)
+    proc = subprocess.run(["tmux", "new-session", "-d", "-s", session, "-P", "-F", "#{window_id}"] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=client_env, timeout=20)
     if proc.returncode != 0:
         err = (proc.stderr or "") + (proc.stdout or "")
         # A duplicate may belong to a failed run whose console must be retained.
         low = err.lower()
         ctx = _build_tmux_error_context(session, proc.returncode, proc.stderr, proc.stdout, cwd, 1, env)
         raise RuntimeError(f"tmux new-session failed rc={proc.returncode} stderr={_truncate_text(err, 2000)!r} for {session!r}; cwd={str(cwd)!r}; attempts=1; {ctx}")
+    created_window_id = (proc.stdout or "").strip()
+    if service_window and not re.fullmatch(r"@\d+", created_window_id):
+        raise ValueError("TMUX_CREATED_WINDOW_ID_REQUIRED")
     # 新建窗口后等待 5秒让 bashrc 相关脚本执行完毕，再发送 conda 激活等指令（统一 5秒规则）
     time.sleep(5)
     # 日志直显 tmux 窗口：不再 pipe-pane tee，日志直接输出到 pane；log_path 仅用于 info 备份（FileHandler）
@@ -5900,7 +5903,7 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
                 os.makedirs(_ec_dir, exist_ok=True)
         except Exception:
             pass
-    command = task_environment + " " + shlex.join(simple_conda_wrapped_args(args, env))
+    command = ("exec " if service_window else "") + task_environment + " " + shlex.join(simple_conda_wrapped_args(args, env))
     if exit_code_path:
         command = command + "; printf '%s' \"$?\" > " + shlex.quote(str(exit_code_path))
     lines.append(command)
@@ -5941,7 +5944,7 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
             subprocess.run(["tmux", "split-window", "-t", str(session), "-v", "-l", "40%", _watch], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
         except Exception:
             pass
-    return tmux_pane_pid(session, cwd, env) or 0
+    return created_window_id if service_window else tmux_pane_pid(session, cwd, env) or 0
 
 def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
     task_environment = job_shell_environment_prefix(env, args)
@@ -13132,24 +13135,21 @@ def progress_action(root, action, operation_id, op_id, status, message, extra=No
     append_event(root, {"type": "operation_progress", "operationId": operation_id, "payload": body})
     return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "operationId": operation_id, "action": action, "status": status, "message": message, **details}
 
-def tb_tmux_session_name(prefix):
-    return remote_resource_prefix(prefix if prefix and str(prefix).strip() else None) + "_tb"
+def tb_tmux_session_name(root, prefix=None):
+    if not os.path.isabs(str(root or "")):
+        raise ValueError("TENSORBOARD_PROJECT_REQUIRED")
+    project_key = project_state_namespace(os.path.realpath(root)).rsplit(".", 1)[1]
+    return remote_resource_prefix(prefix) + "-" + project_key + "_tb"
 
 
 def tb_port_listening(port, timeout=2):
-    # Cheap server-side check: first ss(1), then a direct HTTP probe to 127.0.0.1.
     try:
-        out = subprocess.run(["ss", "-ltn"], text=True, capture_output=True, timeout=3).stdout or ""
-        if re.search(r":" + str(int(port)) + r"\b", out):
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=timeout):
             return True
-    except Exception:
-        pass
-    try:
-        import urllib.request
-        with urllib.request.urlopen("http://127.0.0.1:%d/" % int(port), timeout=timeout) as resp:
-            return resp.status == 200
-    except Exception:
+    except ConnectionRefusedError:
         return False
+    except OSError as exc:
+        raise RuntimeError("TENSORBOARD_PORT_QUERY_FAILED: " + str(exc)) from exc
 
 
 def tb_find_events_dir(root, max_depth=5):
@@ -13519,94 +13519,111 @@ def tb_discover_launch(root, logdir_hint, port, explicit_script):
     return ["tensorboard", "--logdir", logdir, "--port", str(port), "--host", "127.0.0.1", "--path_prefix", TENSORBOARD_BROWSER_PREFIX, "--load_fast=false"], "tensorboard", logdir
 
 
-def close_tensorboard_window(root, session):
-    """Resolve the configured service to one immutable window; preserve other tabs."""
+def tensorboard_window(root, session, require_binding=True):
+    """Read this project's sole native service window; names alone prove no owner."""
     if not re.fullmatch(r"[A-Za-z0-9._-]+", session):
         raise ValueError("TENSORBOARD_WINDOW_IDENTITY_REQUIRED")
     listed = subprocess.run(["tmux", "list-windows", "-t", "=" + session, "-F",
-                             "#{session_name}|#{window_index}|#{window_id}|#{window_name}"],
-                            cwd=root, capture_output=True, text=True, timeout=5)
+        "#{session_name}|#{window_index}|#{window_id}|#{window_name}|#{pane_dead}|#{@se_tensorboard}"],
+        cwd=root, capture_output=True, text=True, timeout=5)
     if listed.returncode:
         error = (listed.stderr or "").lower()
         if any(value in error for value in ("can't find session", "no such session", "no server running", "no sessions")):
-            return []
+            return None
         raise RuntimeError("TENSORBOARD_WINDOW_QUERY_FAILED: " + error[-500:])
-    rows = [line.split("|", 3) for line in (listed.stdout or "").splitlines()]
-    if len(rows) != 1 or len(rows[0]) != 4 or rows[0][0] != session or not re.fullmatch(r"@\d+", rows[0][2]):
+    rows = [line.split("|", 5) for line in (listed.stdout or "").splitlines()]
+    if len(rows) != 1 or len(rows[0]) != 6 or rows[0][0] != session or not re.fullmatch(r"@\d+", rows[0][2]) or rows[0][4] not in ("0", "1"):
         raise ValueError("TENSORBOARD_WINDOW_AMBIGUOUS: select the exact service window; other tabs were preserved")
     row = rows[0]
+    binding = json.loads(row[5]) if row[5] else {}
+    if not isinstance(binding, dict) or require_binding and (binding.get("root") != os.path.realpath(root) or type(binding.get("port")) is not int or not 1024 <= binding["port"] <= 65535):
+        raise ValueError("TENSORBOARD_OWNER_UNVERIFIED: current project service binding is required; no window was closed")
     panes = subprocess.run(["tmux", "list-panes", "-t", row[2], "-F", "#{pane_id}"],
                            cwd=root, capture_output=True, text=True, timeout=5)
     pane_ids = (panes.stdout or "").splitlines()
     if panes.returncode or not pane_ids or any(not re.fullmatch(r"%\d+", pane) for pane in pane_ids):
         raise ValueError("TENSORBOARD_PANE_IDENTITY_REQUIRED")
-    result, status = kill_tmux_window_response({"target": session + ":" + row[1], "session": session,
-        "windowId": row[2], "windowName": row[3], "paneIds": pane_ids}, "worker_telemetry")
+    return {"session": session, "index": row[1], "windowId": row[2], "windowName": row[3],
+            "dead": row[4] == "1", "paneIds": pane_ids, "binding": binding}
+
+
+def close_tensorboard_window(root, session, window=None):
+    if window is None:
+        window = tensorboard_window(root, session)
+    if window is None:
+        return []
+    result, status = kill_tmux_window_response({"target": session + ":" + window["index"], "session": session,
+        "windowId": window["windowId"], "windowName": window["windowName"], "paneIds": window["paneIds"]}, "worker_telemetry")
     if status != 200 or result.get("ok") is not True or result.get("verified") is not True:
         raise RuntimeError("TENSORBOARD_WINDOW_CLOSE_FAILED: " + str(result.get("error") or status))
-    return [row[2]]
+    return [window["windowId"]]
 
 
 def tensorboard_action(root, action, payload, operation_id, op_id):
-    # The configured service owns one window. Never destroy a containing session
-    # or silently replace an ambiguous window set.
-    prefix = str(payload.get("sessionPrefix") or payload.get("session_prefix")
-                or _resolve_tmux_prefix(None, None, None))
-    # 统一归一：不再信任 payload tmuxSession 原值（避免 ZLK_tb 与 zlk_tb 快照不一致），与 write_snapshots 完全一致
-    tb_session = tb_tmux_session_name(prefix)
+    prefix = remote_resource_prefix()
+    tb_session = tb_tmux_session_name(root)
+    if "session_prefix" in payload or payload.get("sessionPrefix") is not None and remote_resource_prefix(payload["sessionPrefix"]) != prefix:
+        return terminal_action(root, action, operation_id, op_id, "failed",
+            "全局前缀与当前项目 Agent 不一致；请使用当前配置准备该项目 Agent。未更名、停止或重启旧服务。",
+            {"errorCode": "GLOBAL_PREFIX_MISMATCH", "tmuxSession": tb_session})
     port = int(payload.get("port") or 6006)
-    logdir_hint = str(payload.get("logdir") or "work_dirs").strip() or "work_dirs"
-    explicit_script = str(payload.get("startTbScript") or payload.get("startTb") or "").strip()
-    conda_env = str(payload.get("condaEnv") or payload.get("conda_env") or "").strip()
+    if not 1024 <= port <= 65535:
+        raise ValueError("TENSORBOARD_PORT_INVALID")
     log_rel = f"simple_cluster/tmux_logs/{tb_session}.log"
-    log_path = safe_project_path(root, log_rel)
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-
-    if action == "get-tensorboard-status":
-        alive = tmux_session_alive(tb_session, root, None)
-        listening = tb_port_listening(port) if alive else False
-        if listening:
-            TENSORBOARD_PROXY_PORTS[tb_session] = port
-        else:
-            TENSORBOARD_PROXY_PORTS.pop(tb_session, None)
-        return terminal_action(
-            root, action, operation_id, op_id, "completed",
-            ("运行中" if listening else ("会话存在但未监听端口" if alive else "未运行")),
-            {"tmuxSession": tb_session, "port": port, "running": alive, "listening": listening, "logPath": log_rel},
-        )
-
     try:
-        closed_windows = close_tensorboard_window(root, tb_session)
+        window = tensorboard_window(root, tb_session)
+        if action == "get-tensorboard-status":
+            alive = window is not None and not window["dead"]
+            actual_port = window["binding"]["port"] if window else port
+            listening = alive and tb_port_listening(actual_port)
+            if listening:
+                TENSORBOARD_PROXY_PORTS[tb_session] = actual_port
+            else:
+                TENSORBOARD_PROXY_PORTS.pop(tb_session, None)
+            return terminal_action(root, action, operation_id, op_id, "completed",
+                "运行中" if listening else "窗口存在，端口未就绪" if alive else "未运行",
+                {"tmuxSession": tb_session, "port": actual_port, "running": alive, "listening": listening,
+                 "windowId": window["windowId"] if window else "", "logPath": log_rel})
+        if action == "start-tensorboard" and tb_port_listening(port) and not (
+                window and not window["dead"] and window["binding"]["port"] == port):
+            return terminal_action(root, action, operation_id, op_id, "failed",
+                f"端口 {port} 已被其他服务占用；请为当前项目配置独立端口。未关闭任何窗口。",
+                {"errorCode": "TENSORBOARD_PORT_IN_USE", "tmuxSession": tb_session, "port": port})
+        closed_windows = close_tensorboard_window(root, tb_session, window) if window else []
     except Exception as exc:
+        TENSORBOARD_PROXY_PORTS.pop(tb_session, None)
         return terminal_action(root, action, operation_id, op_id, "failed", str(exc),
-                               {"tmuxSession": tb_session, "running": True, "listening": False})
+                               {"tmuxSession": tb_session, "running": None, "listening": None})
     TENSORBOARD_PROXY_PORTS.pop(tb_session, None)
     if action == "stop-tensorboard":
         return terminal_action(root, action, operation_id, op_id, "completed",
-                               f"TensorBoard 窗口已关闭：{tb_session}",
-                               {"tmuxSession": tb_session, "closedWindowIds": closed_windows,
-                                "running": False, "listening": False})
-
+            f"TensorBoard 窗口已关闭：{tb_session}",
+            {"tmuxSession": tb_session, "closedWindowIds": closed_windows, "running": False, "listening": False})
+    log_path = safe_project_path(root, log_rel)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    logdir_hint = str(payload.get("logdir") or "work_dirs").strip() or "work_dirs"
+    explicit_script = str(payload.get("startTbScript") or payload.get("startTb") or "").strip()
+    conda_env = str(payload.get("condaEnv") or payload.get("conda_env") or "").strip()
     launch_args, launch_source, resolved_logdir = tb_discover_launch(root, logdir_hint, port, explicit_script)
     env = simple_runtime_env(os.environ.copy())
     if conda_env:
         env["SIMPLE_EXPERIMENT_CONDA_ENV"] = conda_env
         env["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"] = "1"
     try:
-        start_simple_tmux_command(tb_session, launch_args, root, log_path, env)
+        created_id = start_simple_tmux_command(tb_session, launch_args, root, log_path, env, service_window=True)
+        created = tensorboard_window(root, tb_session, require_binding=False)
+        if created is None or created["windowId"] != created_id:
+            raise ValueError("TENSORBOARD_START_IDENTITY_CHANGED")
+        task_option(created_id, "tensorboard", json.dumps({"root": os.path.realpath(root), "port": port}))
+        if created["dead"]:
+            raise RuntimeError("TENSORBOARD_WINDOW_EXITED: 服务窗口已退出，请查看日志；启动脚本必须以前台方式运行服务。")
     except Exception as exc:
-        return terminal_action(
-            root, action, operation_id, op_id, "failed",
-            f"TensorBoard 会话启动失败：{exc}",
-            {"tmuxSession": tb_session, "port": port, "logPath": log_rel, "launchSource": launch_source, "resolvedLogdir": resolved_logdir},
-        )
-    TENSORBOARD_PROXY_PORTS.clear()
-    TENSORBOARD_PROXY_PORTS[tb_session] = port
-    return terminal_action(
-        root, action, operation_id, op_id, "completed",
-        f"已重启 TensorBoard 会话 {tb_session}（{launch_source}），端口 {port}，等待就绪",
-        {"tmuxSession": tb_session, "port": port, "logPath": log_rel, "launchSource": launch_source, "resolvedLogdir": resolved_logdir, "running": True, "listening": False},
-    )
+        return terminal_action(root, action, operation_id, op_id, "failed", f"TensorBoard 会话启动失败：{exc}",
+            {"tmuxSession": tb_session, "port": port, "logPath": log_rel, "launchSource": launch_source, "resolvedLogdir": resolved_logdir})
+    return terminal_action(root, action, operation_id, op_id, "completed",
+        f"已启动 TensorBoard 会话 {tb_session}（{launch_source}），端口 {port}，等待就绪",
+        {"tmuxSession": tb_session, "port": port, "windowId": created_id, "logPath": log_rel,
+         "launchSource": launch_source, "resolvedLogdir": resolved_logdir, "running": not created["dead"], "listening": False})
 
 
 def install_rich_action(root, payload, operation_id, op_id):
@@ -16758,10 +16775,13 @@ def serve_http(args):
                     target = parsed.path + (("?" + parsed.query) if parsed.query else "")
                 else:
                     port = int((params.get("port") or ["0"])[0])
-                    session = tb_tmux_session_name((params.get("sessionPrefix") or [""])[0])
+                    session = tb_tmux_session_name(root)
                     target = str((params.get("path") or ["/"])[0])
                 if port < 1024 or port > 65535 or TENSORBOARD_PROXY_PORTS.get(session) != port:
                     return self.send_json({"error": "TensorBoard 会话未授权或未运行"}, status=403)
+                window = tensorboard_window(root, session)
+                if window is None or window["dead"] or window["binding"]["port"] != port:
+                    return self.send_json({"error": "当前项目的 TensorBoard 窗口未运行"}, status=403)
                 if not target.startswith("/") or target.startswith("//") or any(ord(ch) < 32 for ch in target):
                     return self.send_json({"error": "invalid TensorBoard path"}, status=400)
                 length = int(self.headers.get("Content-Length") or 0)

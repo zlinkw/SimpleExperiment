@@ -98,7 +98,8 @@ for value, expected in json.loads(${JSON.stringify(JSON.stringify(cases))}):
     assert agent.simple_tmux_name("sch-job") == expected + "-sch-job"
     assert agent.task_session_prefix() == expected
     assert agent.fixed_gpu_window_name(None, "0") == expected + "-gpu-0"
-    assert agent.tb_tmux_session_name(None) == expected + "_tb"
+    key = agent.project_state_namespace(os.path.realpath(root)).rsplit(".", 1)[1]
+    assert agent.tb_tmux_session_name(root) == expected + "-" + key + "_tb"
     assert pathlib.Path(agent.agent_install_dir(root)) == root / (expected + "_agent")
     state = scheduler.compute_scheduler_agent_state_dir(root)
     assert state.parent == root / (expected + "_agent") / "state" / "projects", state

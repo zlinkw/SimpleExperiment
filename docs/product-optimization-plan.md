@@ -48,7 +48,7 @@
 | PFX2c | 移除个人主终端猜测及错误启动兜底 | passed |
 | PFX2d | 调度前缀归一化与真实原队列定位 | passed |
 | PFX2e | 通用关窗不得按 Agent 会话名跳过精确窗口保护 | passed |
-| PFX2f1 | TensorBoard runtime 使用全局前缀及精确项目服务身份 | pending |
+| PFX2f1 | TensorBoard runtime 使用全局前缀及精确项目服务身份 | passed |
 | PFX2f2 | Host 传递唯一全局值，展示实际返回的服务目标 | pending |
 | PFX3 | 远端路径校验和错误品牌迁移的前缀残留 | pending |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
@@ -356,6 +356,22 @@ PFX2d 提交 e9d29fd30bee34592c293e335e958df1b754fb74 已普通 push/fetch 一�
 PFX2e compile 和 27 项定向检查通过（closeRuntime 1、closeHTTP 2、sessionActions 1、AgentLifecycle 2、HostWindowClose 7、preparation 10、Controls1 4）。原共享 lifecycle 字节一致，当前/兄弟项目 Agent 会话即使 confirm=true 也零子进程、零 Timer；普通会话中规范 Agent 窗口保持原位，原任务精确关闭与查询失败不重发覆盖保留。修改后的源错误码与指向同一精确入口，UTF-8 复读通过。冻结 8 文件内部 0.5.468，开始规定 package；UI 未变，沿用有效隔离渲染，最终包核实实际生成脚本。
 
 PFX2e 最终验证：2026-11-02T17-37-37-693Z-6640-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、698736ms。内部 universal/trial 0.5.468：2771965 字节，SHA256 5698f66e67b3a0f021d35ed243cc5666523b60520a020d56a7df38ec1cb1f4cb；与 receipt 一致，362 项内容门禁零违规，实际 HTML 三段及模块解析通过。无训练服务器操作、自动重跑、产物清理、发布或安装。
+
+## 当前批次 PFX2f1
+
+PFX-test8 提交 bf0800f901c71959511d4e949d000883df60968c 已普通 push/fetch 一致。旧 TB 名称仅有前缀、payload 旧别名能换目标，项目之间同名；窗口存在和端口监听也可能混同。使用必需绝对项目根、现有项目身份与全局前缀组成服务名；请求前缀和 Agent 当前全局值不一致时明确失败，旧 session_prefix 不再选择目标。窗口以原生 root/port 绑定证明归属；无绑定、异项目、歧义或读取失败不关闭。状态查询不创建服务日志目录；已有操作回执写入机制保留，不把查询称为完全零写入。
+
+端口冲突不关闭其他服务、不改用户端口。显式启动使用前台 exec，并从 new-session 原子返回本次 windowId，绑定前再次核对该 ID；保留其他调用者的原返回语义。停止冻结首次核实窗口，防止读取间替换后重绑定；代理请求复核当前项目原生窗口和端口，不能把历史映射当现状。旧前缀单独 TB 会话保留，不自动迁移、重启或清理。
+
+一个实现、三个既有测试（AndFence、Controls1、policy）、三版本、本计划，共 8 文件；内部 0.5.469。新增/扩展正确性断言不增压测、进程期限或科研环境检查。Host 仍待 PFX2f2 清除旧 UI 参数和展示猜测；两批完成前不发布/安装。
+
+PFX2f1 定向共 32 项通过（Controls1 4、AndFence 5、policy 5、gpuIdentity 1、Controls5 3、lifecycle 2、Controls2 4、publicDefault 8）。既有进程内覆盖了真实生成函数的原子窗口返回与 exec env 顺序、不读取服务 PID、六类窗口归属/变化、死亡或缺失状态、端口占用/空闲/查询失败、别名拒绝、启动即退出、替换窗口不绑定，以及真实本机 HTTP 代理/鉴权。端口探测改为精确 127.0.0.1 TCP：其他 HTTP 状态不再被误当空闲，非拒绝连接的探测错误向上传递；原 2 秒接口期限不变，无新性能断言。
+
+实际失败保留：compile 2026-11-02T18-03-53-682Z-78332 的 write-agent-runtime ftruncate 返回 UNKNOWN/exit=1，生成文件较预期多 248 字节；磁盘健康且空闲约 693GB、无并发测试进程，未证明具体占用方。未删除/替换文件或修改打包器；同命令复核 18-05-19-434Z-85700 成功，完整内容与对应源码生成值逐字一致。最终服务状态修改后 compile 18-08-07-394Z-87196 及 Controls1 再通过，失败日志均保留；不把早先失败算成功。冻结 8 文件内部 0.5.469，开始规定 package；UI 未变，复用有效渲染，最终包核实实际生成 HTML 脚本。
+
+PFX2f1 最终验证：2026-11-02T18-09-22-156Z-87964-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、708209ms。内部 universal/trial 0.5.469：2773407 字节，SHA256 9c7df4dfc59f7743c9cfb6f8836fd5bba9dbda0815b0a0c2e73c0e6c2c7e9432；与 receipt 一致，362 项内容门禁零违规，实际 HTML 三段及模块解析通过。无训练服务器操作、自动重跑、产物清理、发布或安装。
+
+PFX2f2 必须同时完成请求方项目边界：Host 不能只相信目标 Agent 自己的 root。请求携带精确 projectDir/Worker 并在服务操作前核对；使用旧 Agent 不认识的项目服务路由，保证旧服务即使忽略新参数也不会执行旧前缀操作。不以相同版本号作为停止门禁，不自动部署；旧未知服务仍保留精确 TMUX 窗口人工入口。面板及成功提示使用本轮返回的真实服务名/端口/日志，不再猜 prefix_tb。
 
 ## 后续定向核查线索（尚未实施）
 

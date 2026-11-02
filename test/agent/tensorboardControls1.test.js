@@ -54,45 +54,130 @@ test("tensorboard actions are worker controls with no result ownership requireme
 });
 
 
-test("TensorBoard stop resolves an exact window and rejects ambiguity or changed identity", () => {
-  const script = `
-import pathlib, tempfile, types
-import sys
+test("TensorBoard binds project service identity, preserves foreign windows and rejects occupied ports", () => {
+  const script = String.raw`
+import pathlib, tempfile, types, os, json, sys, shlex
 sys.path.insert(0, ${JSON.stringify(path.resolve(__dirname, "../_helpers"))})
 from extractRuntimeFunctions import extract_runtime_functions
 agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["close_tensorboard_window", "tensorboard_action"])
 calls = []
 mode = "normal"
 list_count = 0
+assigned = None
+start_state = {"dead": False}
+os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = "owner"
+root = tempfile.mkdtemp(prefix="tensorboard-window-identity-")
+session = agent.tb_tmux_session_name(root)
 def run(args, **kwargs):
-    global list_count
+    global list_count, assigned
     calls.append(args)
-    stdout, stderr, code = "", "", 0
     if args[1] == "list-windows":
         if "-a" in args:
-            stdout = "@99\\n"
-        else:
-            list_count += 1
-            stdout = "owner_tb|0|@7|tensorboard\\n"
-            if mode == "ambiguous": stdout += "owner_tb|1|@99|research\\n"
-            if mode == "changed" and list_count > 1: stdout = "owner_tb|0|@8|tensorboard\\n"
-    elif args[1] == "list-panes": stdout = "%12\\n"
+            return types.SimpleNamespace(returncode=0, stdout="@99\n", stderr="")
+        list_count += 1
+        if mode in ("absent", "query-failed"):
+            return types.SimpleNamespace(returncode=1, stdout="", stderr="can't find session" if mode == "absent" else "permission denied")
+        wid = "@8" if mode == "changed" and list_count > 1 else "@12" if mode == "replaced-start" else "@11" if mode == "created" else "@7"
+        stdout = session + "|0|" + wid + "|tensorboard"
+        if "@se_tensorboard" in args[-1]:
+            binding = {"root": os.path.realpath(root) + ("-other" if mode == "foreign" else ""), "port": 6006}
+            encoded = "" if mode in ("unbound", "replaced-start") else json.dumps(assigned or {}) if mode == "created" else json.dumps(binding)
+            dead = "" if mode == "unknown-state" else "1" if mode == "dead" or mode == "created" and start_state["dead"] else "0"
+            stdout += "|" + dead + "|" + encoded
+        stdout += "\n"
+        if mode == "ambiguous": stdout += session + "|1|@99|research|0|\n"
+        return types.SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+    if args[1] == "list-panes": return types.SimpleNamespace(returncode=0, stdout="%12\n", stderr="")
+    if args[1] == "set-option":
+        assert args[5] == "@se_tensorboard", args
+        assigned = json.loads(args[6])
     elif args[1] != "kill-window": raise AssertionError(args)
-    return types.SimpleNamespace(returncode=code, stdout=stdout, stderr=stderr)
+    return types.SimpleNamespace(returncode=0, stdout="", stderr="")
 agent.subprocess.run = run
 agent.terminal_action = lambda root, action, operation_id, op_id, status, message, extra: {"status": status, "message": message, **extra}
-root = tempfile.mkdtemp(prefix="tensorboard-window-identity-")
-for mode in ("normal", "ambiguous", "changed"):
-    calls.clear()
-    list_count = 0
+agent.tb_port_listening = lambda *args: True
+for mode in ("normal", "ambiguous", "changed", "foreign", "unbound", "query-failed", "unknown-state"):
+    calls.clear(); list_count = 0
     result = agent.tensorboard_action(root, "stop-tensorboard", {"sessionPrefix": "Owner"}, "op", "id")
     mutations = [args for args in calls if args[1].startswith("kill-")]
     if mode == "normal":
         assert result["status"] == "completed" and result["closedWindowIds"] == ["@7"], result
         assert mutations == [["tmux", "kill-window", "-t", "@7"]], calls
     else:
-        assert result["status"] == "failed", result
-        assert mutations == [], calls
+        assert result["status"] == "failed" and mutations == [], (result, calls)
+assert not pathlib.Path(root, "simple_cluster/tmux_logs").exists()
+mode = "dead"
+status = agent.tensorboard_action(root, "get-tensorboard-status", {}, "op", "id")
+assert status["running"] is False and status["listening"] is False, status
+assert session not in agent.TENSORBOARD_PROXY_PORTS
+mode = "normal"
+status = agent.tensorboard_action(root, "get-tensorboard-status", {"port": 7000}, "op", "id")
+assert status["running"] is True and status["listening"] is True and status["port"] == 6006, status
+assert not pathlib.Path(root, "simple_cluster/tmux_logs").exists()
+mode = "absent"; calls.clear()
+occupied = agent.tensorboard_action(root, "start-tensorboard", {}, "op", "id")
+assert occupied["status"] == "failed" and occupied["errorCode"] == "TENSORBOARD_PORT_IN_USE", occupied
+assert all(args[1] not in ("kill-window", "new-session", "send-keys") for args in calls), calls
+for payload in ({"sessionPrefix": "intruder"}, {"session_prefix": "old-alias"}):
+    calls.clear()
+    mismatch = agent.tensorboard_action(root, "start-tensorboard", payload, "op", "id")
+    assert mismatch["errorCode"] == "GLOBAL_PREFIX_MISMATCH" and calls == [], mismatch
+agent.tb_port_listening = lambda *args: False
+agent.tb_discover_launch = lambda *args: (["tensorboard", "--logdir", root], "fixture", root)
+agent.simple_runtime_env = lambda env: env
+def start(session_name, args, *rest, **kwargs):
+    global mode
+    assert session_name == session and args[0] == "tensorboard" and kwargs["service_window"] is True
+    mode = "created"
+    return "@11"
+agent.start_simple_tmux_command = start
+mode = "absent"
+created = agent.tensorboard_action(root, "start-tensorboard", {}, "op", "id")
+assert created["status"] == "completed" and created["windowId"] == "@11", created
+assert assigned == {"root": os.path.realpath(root), "port": 6006}, assigned
+agent.tb_port_listening = lambda *args: True
+status = agent.tensorboard_action(root, "get-tensorboard-status", {}, "op", "id")
+assert status["windowId"] == "@11" and status["listening"] is True, status
+start_state["dead"] = True
+agent.tb_port_listening = lambda *args: False
+mode = "absent"
+exited = agent.tensorboard_action(root, "start-tensorboard", {}, "op", "id")
+assert exited["status"] == "failed" and "WINDOW_EXITED" in exited["message"], exited
+assert session not in agent.TENSORBOARD_PROXY_PORTS
+start_state["dead"] = False
+original_query = agent.tensorboard_window
+seen = {"count": 0}
+def replaced_query(*args, **kwargs):
+    global mode
+    seen["count"] += 1
+    mode = "absent" if seen["count"] == 1 else "replaced-start"
+    return original_query(*args, **kwargs)
+agent.tensorboard_window = replaced_query
+agent.tb_port_listening = lambda *args: False
+calls.clear()
+replaced = agent.tensorboard_action(root, "start-tensorboard", {}, "op", "id")
+assert replaced["status"] == "failed" and "IDENTITY_CHANGED" in replaced["message"], replaced
+assert all(args[1] != "set-option" for args in calls), calls
+launch_calls, launch_lines = [], []
+def launch_run(args, **kwargs):
+    launch_calls.append(args)
+    return types.SimpleNamespace(returncode=0, stdout="@31", stderr="")
+def no_pid(*args):
+    raise AssertionError("service startup must return the native window ID, not a PID")
+launcher = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["start_simple_tmux_command"], namespace={
+    "os": os, "re": agent.re, "shlex": shlex,
+    "subprocess": types.SimpleNamespace(run=launch_run), "time": types.SimpleNamespace(sleep=lambda *args: None),
+    "job_shell_environment_prefix": lambda *args: "env", "tmux_task_client_env": lambda env: env,
+    "tmux_session_alive": lambda *args: False, "_is_main_shell_target": lambda *args: False,
+    "_build_tmux_error_context": lambda *args, **kwargs: "fixture", "_truncate_text": lambda value, count: str(value)[:count],
+    "write_atomic_text": lambda *args: None, "simple_conda_wrapped_args": lambda args, env: args,
+    "_wait_tmux_ready": lambda *args, **kwargs: True,
+    "_send_tmux_line": lambda target, line, *args: launch_lines.append(line) or 0,
+    "tmux_pane_pid": no_pid,
+}, include_imports=False)
+assert launcher.start_simple_tmux_command(session, ["tensorboard"], root, "", {}, service_window=True) == "@31"
+assert launch_calls[0][-4:-1] == ["-P", "-F", "#{window_id}"], launch_calls
+assert launch_lines[-1] == "exec env tensorboard", launch_lines
 print("ok")
 `;
   const result = runPython(script);
@@ -101,12 +186,15 @@ print("ok")
 
 test("worker Agent proxies TensorBoard pages only for an active session and valid token", () => {
   const script = `
-import importlib.util, pathlib, tempfile, threading, types, os, urllib.request, urllib.error, json
+import importlib.util, pathlib, tempfile, threading, types, os, urllib.request, urllib.error, json, socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import sys
 sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
 from extractRuntimeFunctions import extract_runtime_functions
 agent = extract_runtime_functions(pathlib.Path(${JSON.stringify(agentPath)}), ["TENSORBOARD_PROXY_PORTS","ThreadingHTTPServer","serve_http","start_gpu_log_tail_sampler","start_worker_hub_uplink","start_worker_local_command_processor","start_worker_telemetry_sampler","tmux_session_alive"])
+os.environ['SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX'] = 'owner'
+native_window = {'current': None}
+agent.tensorboard_window = lambda *args, **kwargs: native_window['current']
 class TensorBoard(BaseHTTPRequestHandler):
     def log_message(self, *args): pass
     def do_GET(self):
@@ -118,6 +206,17 @@ class TensorBoard(BaseHTTPRequestHandler):
         self.wfile.write(body)
 tb = ThreadingHTTPServer(('127.0.0.1', 0), TensorBoard)
 threading.Thread(target=tb.serve_forever, daemon=True).start()
+assert agent.tb_port_listening(tb.server_port) is True
+with socket.socket() as reserved:
+    reserved.bind(('127.0.0.1', 0))
+    assert agent.tb_port_listening(reserved.getsockname()[1]) is False
+from unittest.mock import patch
+with patch.object(agent.socket, 'create_connection', side_effect=TimeoutError('query unavailable')):
+    try:
+        agent.tb_port_listening(tb.server_port)
+        raise AssertionError('failed port query was treated as free')
+    except RuntimeError as failure:
+        assert 'TENSORBOARD_PORT_QUERY_FAILED' in str(failure), failure
 # Service ownership and collector behavior have dedicated runtime tests. This
 # fixture owns only its loopback HTTP servers and temporary state directory.
 agent.lifecycle_service_guard = lambda args, version: (None,{"projectDir":args.project_dir,"workerId":args.worker_id})
@@ -148,12 +247,23 @@ with tempfile.TemporaryDirectory() as root:
     status_req = urllib.request.Request(status_url, data=json.dumps({'opId': 'tb-status', 'sessionPrefix': 'owner'}).encode(), headers={'X-Simple-Agent-Token': 'secret', 'Content-Type': 'application/json'}, method='POST')
     status = json.load(urllib.request.urlopen(status_req, timeout=5))
     assert status['status'] == 'completed' and status['running'] is False, status
-    agent.TENSORBOARD_PROXY_PORTS['owner_tb'] = tb.server_port
+    session = agent.tb_tmux_session_name(root)
+    agent.TENSORBOARD_PROXY_PORTS[session] = tb.server_port
+    native_window['current'] = {'windowId': '@7', 'dead': False, 'binding': {'root': os.path.realpath(root), 'port': tb.server_port}}
     url = f'http://127.0.0.1:{local.server_port}/api/tensorboard/proxy?port={tb.server_port}&sessionPrefix=owner&path=%2Fdata%2Fplugin'
     req = urllib.request.Request(url, headers={'X-Simple-Agent-Token': 'secret'})
     assert urllib.request.urlopen(req, timeout=5).read() == b'tensorboard page'
     browser_url = f'http://127.0.0.1:{local.server_port}/api/tensorboard/ui/'
     assert urllib.request.urlopen(browser_url, timeout=5).read() == b'tensorboard page'
+    foreign_query = urllib.request.Request(url.replace('sessionPrefix=owner', 'sessionPrefix=other-project'), headers={'X-Simple-Agent-Token': 'secret'})
+    assert urllib.request.urlopen(foreign_query, timeout=5).read() == b'tensorboard page'
+    native_window['current']['dead'] = True
+    try:
+        urllib.request.urlopen(req, timeout=5)
+        raise AssertionError('dead native service borrowed a live port')
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 403, exc.code
+    native_window['current']['dead'] = False
     try:
         urllib.request.urlopen(url, timeout=5)
         raise AssertionError('missing token accepted')

@@ -133,11 +133,11 @@ test("legacy Worker task recovers config from its own persisted launch log", () 
 });
 
 
-test("tb_tmux_session_name normalizes prefix to <normalized>_tb", () => {
-  assert.match(agentSource, /def tb_tmux_session_name\(prefix\)/);
+test("TensorBoard naming binds the normalized prefix to one explicit project", () => {
+  assert.match(agentSource, /def tb_tmux_session_name\(root, prefix=None\)/);
   // TS side normalizeRemoteTmuxSessionPrefix lowercases, replaces [^a-z0-9._-] with "-", trims, slices 32
   const py = `
-import importlib.util, pathlib
+import importlib.util, pathlib, os, hashlib
 import sys
 sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
 from extractRuntimeFunctions import extract_runtime_functions
@@ -151,9 +151,20 @@ cases = [
   ("A"*40, "a"*32 + "_tb"),
 ]
 for inp, expected in cases:
-    got = agent.tb_tmux_session_name(inp)
-    assert got == expected, f"{inp!r} -> {got!r} != {expected!r}"
-    assert len(got) <= 35, got
+    root = os.path.abspath("project-a/demo")
+    key = hashlib.sha256(os.path.realpath(root).encode("utf-8")).hexdigest()[:16]
+    got = agent.tb_tmux_session_name(root, inp)
+    scoped = expected[:-3] + "-" + key + "_tb"
+    assert got == scoped, f"{inp!r} -> {got!r} != {scoped!r}"
+    assert len(got) <= 52, got
+    assert got == agent.tb_tmux_session_name(root + os.sep, inp)
+    assert got != agent.tb_tmux_session_name(os.path.abspath("project-b/demo"), inp)
+for root in (None, "", "relative/project"):
+    try:
+        agent.tb_tmux_session_name(root)
+        raise AssertionError("missing explicit project accepted")
+    except ValueError as failure:
+        assert "TENSORBOARD_PROJECT_REQUIRED" in str(failure)
 print("ok")
 `;
   const r = runPython(py);
