@@ -2733,21 +2733,42 @@ class RealtimeTunnelPanelProvider {
             },
             "tasks.analyze": async (params, _server, context) => (0, RuntimeLogAnalysisHost_1.analyzeRuntimeLog)(this, workspaceRoot(), params, context.signal),
             "tasks.list": async (_params, _server, context) => {
+                const projectContext = this.captureProjectContext();
                 const state = this.buildState();
                 const workerIds = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
                 const workerTasks = await Promise.all(workerIds.map((workerId) => this.readWorkerTaskSnapshot(workerId, { fresh: true, signal: context.signal })));
                 context.signal.throwIfAborted();
-                const queue = await this.loadDistributedQueue(workspaceRoot());
-                const live = DistributedPlanQueue.mergeDurableWorkerSnapshots(queue, workerTasks, DistributedPlanQueue.canonicalProjectId(workspaceRoot()), Date.now(), DistributedSchedulingPolicy.PROGRESS_FRESHNESS_MS);
+                if (!this.projectContextIsCurrent(projectContext))
+                    throw new UiCommandCancelled_1.UiCommandCancelled("项目已切换，未返回其他项目的任务状态。");
+                const queue = await this.loadDistributedQueue(projectContext.root);
+                if (!this.projectContextIsCurrent(projectContext))
+                    throw new UiCommandCancelled_1.UiCommandCancelled("项目已切换，未返回其他项目的任务状态。");
+                const projectId = DistributedPlanQueue.canonicalProjectId(projectContext.root);
+                const live = DistributedPlanQueue.mergeDurableWorkerSnapshots(queue, workerTasks, projectId, Date.now(), DistributedSchedulingPolicy.PROGRESS_FRESHNESS_MS);
+                const workerQueryErrors = new Map(workerTasks.map((snapshot) => [snapshot.workerId, String(snapshot.error || snapshot.resultQueryError || snapshot.runtimeQueryError
+                        || (snapshot.capabilities?.taskLifecycle !== 2 ? "本轮未取得 Worker 协议 2 观察" : snapshot.controlIncomplete || snapshot.diagnosticsPending ? "本轮 Worker 查询尚未完整核实" : ""))]));
                 return {
-                    lifecycleProtocol: 2, stateSource: "active_query", jobLifecycle: live.plans.flatMap(plan => plan.jobs.map(job => ({
-                        workflowId: plan.id, commandId: job.commandId, index: job.index, workerId: job.workerId,
-                        status: job.status, executionState: job.executionState, resultState: job.resultState,
-                        completionState: job.completionState, runtimeDiagnostics: job.runtimeDiagnostics, exitCode: job.exitCode,
-                        verifiedCompletion: job.verifiedCompletion, verificationQueryError: job.verificationQueryError,
-                        successful: job.status === "completed" && job.completionState === "verified",
-                        error: job.statusQueryError, message: job.blockReason
-                    }))),
+                    lifecycleProtocol: 2, stateSource: "active_query", projectId, queriedAt: new Date().toISOString(),
+                    queriedWorkerIds: workerIds,
+                    jobLifecycle: live.plans.filter(plan => plan.projectId === projectId).flatMap(plan => plan.jobs.filter(job => job.lifecycleProtocol === 2).map(job => {
+                        const queryError = !job.commandId ? "" : !workerIds.includes(job.workerId) ? "Worker 当前未启用，本轮未查询"
+                            : job.verificationQueryError || job.statusQueryError || workerQueryErrors.get(job.workerId) || (job.observationErrors || []).join("；");
+                        return {
+                            lifecycleProtocol: 2, projectId, planFile: plan.planFile, workflowId: plan.id, commandId: job.commandId, index: job.index, workerId: job.workerId,
+                            expectedJobCount: plan.planJobCount || plan.jobs.length, recoveryMissingCount: plan.recoveryMissingCount, recoveryConflict: plan.recoveryConflict,
+                            outputDir: job.outputDir, collectionResultCsv: job.collectionResultCsv, gpuId: job.gpuId, case: job.case, seed: job.seed,
+                            enqueuedAt: plan.enqueuedAt, finishedAt: job.finishedAt, lastObservedAt: job.lastObservedAt,
+                            queryState: !job.commandId ? "local_intent" : !workerIds.includes(job.workerId) ? "not_queried" : queryError ? "unknown" : "observed", queryError,
+                            localQueueOnly: job.localQueueOnly, stopIntent: job.stopIntent, startIntent: job.startIntent,
+                            status: job.status, executionState: job.executionState, resultState: job.resultState,
+                            completionState: job.completionState, runtimeDiagnostics: job.runtimeDiagnostics, exitCode: job.exitCode,
+                            verifiedCompletion: job.verifiedCompletion, verificationQueryError: job.verificationQueryError,
+                            observationErrors: job.observationErrors, artifactSync: job.latestArtifactSync, artifactError: job.artifactError,
+                            successful: job.status === "completed" && job.completionState === "verified" && job.exitCode === 0
+                                && (job.resultState === "complete" || Boolean(job.verifiedCompletion)),
+                            error: job.statusQueryError, message: job.blockReason
+                        };
+                    })),
                     schedulerStates: state.schedulerStates || [],
                     experimentTraces: state.experimentTraces || [],
                     operations: state.operations || {},

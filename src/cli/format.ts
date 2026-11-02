@@ -80,6 +80,16 @@ export function compactExperiment(source: Record<string, unknown>): Record<strin
   if (worker) out.worker = worker;
   if (gpu) out.gpu = gpu;
   if (progress) out.progress = progress;
+  out.observation_source = source.native_state || source.native_summary ? "active_query" : "legacy_or_history";
+  if (source.native_summary) {
+    out.status_source = source.status_source;
+    out.native_summary = source.native_summary;
+  }
+  if (source.native_state) {
+    out.status_source = source.status_source;
+    // Empty lanes mean unknown/not checked; retain them consistently with status/inspect.
+    out.native_state = source.native_state;
+  }
   return out;
 }
 

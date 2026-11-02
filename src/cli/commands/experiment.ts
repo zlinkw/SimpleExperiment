@@ -19,6 +19,18 @@ export type ExperimentKind = "workflow" | "worker_run";
 export type PublicStatus = "pending" | "queued" | "running" | "success" | "failed" | "cancelled" | "unknown";
 export type HealthStatus = "healthy" | "warning" | "error" | "stalled" | "unknown";
 
+export interface NativeJobState {
+  lifecycle_protocol: 2; project_id: string; workflow_id: string; index: number; command_id: string; worker_id: string;
+  output_dir: string; result_csv: string; execution_state: string; result_state: string; completion_state: string; successful: boolean;
+  exit_code?: number; verified_at: string; observed_at: string; queried_at: string; query_state: string; query_error: string;
+  sync_state: string; sync_checked_at: string; sync_error: string; stop_requested: boolean;
+  expected_job_count: number; recovery_missing_count: number; recovery_conflict: boolean;
+}
+
+export interface NativeWorkflowSummary {
+  workflow_id: string; expected_count: number; observed_count: number; verified_count: number; missing_count: number; query_unknown_count: number; recovery_conflict: boolean;
+}
+
 export interface ExperimentRow {
   id: string;
   type: ExperimentKind;
@@ -40,7 +52,9 @@ export interface ExperimentRow {
   health_status: HealthStatus;
   health_reason: string;
   missing_progress: boolean;
-  status_source: "aggregate" | "scheduler" | "worker" | "log" | "unknown";
+  status_source: "aggregate" | "scheduler" | "worker" | "log" | "unknown" | "native_lifecycle";
+  native_state?: NativeJobState;
+  native_summary?: NativeWorkflowSummary;
   experiment_case: string;
   model: string;
   dataset: string;
@@ -61,6 +75,8 @@ export interface ExperimentRuntimeSnapshot {
   plan: string;
   progress: Record<string, unknown> | null;
   updated_at: string;
+  native_state?: NativeJobState;
+  native_summary?: NativeWorkflowSummary;
 }
 
 export interface RuntimeSnapshotContext {
@@ -162,7 +178,7 @@ export async function experimentList(flags: CliFlags): Promise<number> {
     writeJson(view, flags.compactJson || !flags.full);
     return 0;
   }
-  writeText(table(["id", "type", "name", "status", "health_status", "worker_id", "tmux", "stage"], view));
+  writeText(table(["id", "type", "name", "status", "observation_source", "status_source", "health_status", "worker_id", "tmux", "stage"], view));
   return 0;
 }
 
@@ -321,6 +337,7 @@ export function buildHealthSummary(rows: ExperimentRow[], now = Date.now()): Hea
   if (failures.unresolved.length > 0) return { status: "error", reason: "failed_recent" };
   if (rows.some((row) => row.health_status === "stalled")) return { status: "warning", reason: "stalled" };
   if (rows.some((row) => isMissingProgress(row, now))) return { status: "warning", reason: "missing_progress" };
+  if (rows.some(row => row.native_state && row.health_status === "warning" || row.native_summary && (row.native_summary.query_unknown_count > 0 || row.native_summary.missing_count > 0 || row.native_summary.recovery_conflict))) return { status: "warning", reason: "native_query_unknown" };
   if (failures.running_retry.length > 0) return { status: "warning", reason: "failed_recent" };
   return { status: "healthy", reason: "" };
 }
@@ -347,6 +364,8 @@ function buildRuntimeSnapshot(row: ExperimentRow): ExperimentRuntimeSnapshot {
     plan: row.plan,
     progress: pickProgress(row.progress, row.updated) || null,
     updated_at: toIso(row.updated),
+    ...(row.native_state ? { native_state: row.native_state } : {}),
+    ...(row.native_summary ? { native_summary: row.native_summary } : {}),
   };
 }
 
@@ -366,6 +385,9 @@ function runtimeSnapshotPayload(context: RuntimeSnapshotContext): Record<string,
     progress: snapshot.progress,
     updated_at: snapshot.updated_at || "",
     runtime_version: snapshot.updated_at || "",
+    observation_source: context.row.native_state || context.row.native_summary ? "active_query" : "legacy_or_history",
+    ...(snapshot.native_state ? { native_state: snapshot.native_state } : {}),
+    ...(snapshot.native_summary ? { native_summary: snapshot.native_summary } : {}),
   };
 }
 
@@ -406,8 +428,8 @@ function buildActivePayload(rows: ExperimentRow[], full: boolean): Record<string
 function activeCompactPayload(full: { active_count: number; workflows: Array<Record<string, unknown>>; runs: Array<Record<string, unknown>> }): Record<string, unknown> {
   return {
     active_count: full.active_count,
-    workflows: full.workflows.map((row) => keep({ id: row.id, status: row.status, plan: row.plan, worker: pickId(row.worker), tmux: row.tmux })),
-    runs: full.runs.map((row) => ({ ...keep({ id: row.id, experiment_case: row.experiment_case, stage: row.stage, seed: row.seed }), worker: pickId(row.worker) || null, gpu: pickId(row.gpu) || null, progress: pickProgress(row.progress, String(row.updated || "")) || null, updated_at: toIso(String(row.updated || "")) })),
+    workflows: full.workflows.map((row) => ({ ...keep({ id: row.id, status: row.status, plan: row.plan, worker: pickId(row.worker), tmux: row.tmux }), ...(row.native_summary ? { observation_source: "active_query", native_summary: row.native_summary } : {}) })),
+    runs: full.runs.map((row) => ({ ...keep({ id: row.id, experiment_case: row.experiment_case, stage: row.stage, seed: row.seed }), worker: pickId(row.worker) || null, gpu: pickId(row.gpu) || null, progress: pickProgress(row.progress, String(row.updated || "")) || null, updated_at: toIso(String(row.updated || "")), ...(row.native_state ? { observation_source: "active_query", status: row.status, native_state: row.native_state } : {}) })),
   };
 }
 
@@ -540,6 +562,8 @@ export async function experimentInspect(id: string, flags: CliFlags): Promise<nu
       gpu: snapshot.gpu,
       stage: snapshot.stage,
       updated_at: snapshot.updated_at,
+      ...(snapshot.native_state ? { native_state: snapshot.native_state } : {}),
+      ...(snapshot.native_summary ? { native_summary: snapshot.native_summary } : {}),
     },
     progress: snapshot.progress,
     health: buildHealthSummary([row]),
@@ -801,6 +825,7 @@ export async function loadExperiments(): Promise<ExperimentRow[]> {
     mergeExperimentRow(byId, row);
   }
   await applyRuntimeObservations(byId);
+  applyNativeJobLifecycle(byId, remote.native);
   const rows = Array.from(byId.values());
   backfillWorkflowParents(rows);
   try {
@@ -975,7 +1000,7 @@ function loadWorkerRunHistory(): ExperimentRow[] {
   return rows;
 }
 
-async function loadRemoteExperiments(): Promise<{ rows: ExperimentRow[]; unavailableWorkers: string[] }> {
+async function loadRemoteExperiments(): Promise<{ rows: ExperimentRow[]; unavailableWorkers: string[]; native: unknown }> {
   const rows: ExperimentRow[] = [];
   const tasks = await optionalApi("tasks.list");
   const operations = await optionalApi("operations.list", { limit: 200 });
@@ -1017,8 +1042,61 @@ async function loadRemoteExperiments(): Promise<{ rows: ExperimentRow[]; unavail
   if (Array.isArray(schedulerStates)) {
     for (const item of schedulerStates) rows.push(...workerRunsFromSchedulerState(asRecord(item), rows));
   }
-  rows.push(...workerRunsFromWorkerTaskSnapshots(asRecord(tasks).workerTasks, rows));
-  return { rows, unavailableWorkers: unavailableWorkerIds(asRecord(tasks).workerTasks) };
+  const native = asRecord(tasks);
+  const nativeAuthority = native.lifecycleProtocol === 2 && native.stateSource === "active_query" && Boolean(firstString(native, ["projectId"])) && Array.isArray(native.jobLifecycle);
+  rows.push(...workerRunsFromWorkerTaskSnapshots(native.workerTasks, rows, nativeAuthority));
+  return { rows, unavailableWorkers: unavailableWorkerIds(native.workerTasks), native };
+}
+
+/** Consume the same project-bound merge as the panel. A log/tmux enrichment is
+ * never allowed to overwrite this round's native lifecycle or its durable proof. */
+export function applyNativeJobLifecycle(byId: Map<string, ExperimentRow>, payload: unknown): void {
+  const round = asRecord(payload), projectId = firstString(round, ["projectId"]);
+  if (round.lifecycleProtocol !== 2 || round.stateSource !== "active_query" || !projectId || !Array.isArray(round.jobLifecycle)) return;
+  for (const value of round.jobLifecycle) {
+    const fact = asRecord(value), index = fact.index;
+    const workflow = firstString(fact, ["workflowId"]), command = firstString(fact, ["commandId"]), worker = firstString(fact, ["workerId"]);
+    const plan = firstString(fact, ["planFile"]), output = firstString(fact, ["outputDir"]);
+    if (fact.projectId !== projectId || fact.lifecycleProtocol !== 2 || !workflow || !plan || !output || !Number.isInteger(index) || Number(index) < 0
+      || command && !worker || !command && !["pending", "cancelled"].includes(String(fact.status))) continue;
+    const matches = Array.from(byId.values()).filter(row => (row.id === command || row.run_id === command) && command
+      && row.worker_id === worker && (!row.parent_id || row.parent_id === workflow) && (!row.plan || row.plan === plan)
+      && (!row.raw?.outputDir || row.raw.outputDir === output) && (!row.raw?.projectId || row.raw.projectId === projectId)
+      && (!Number.isInteger(row.raw?.index) || row.raw?.index === index) && (!row.raw?.commandId || row.raw.commandId === command)
+      && (!row.raw?.collectionResultCsv || row.raw.collectionResultCsv === firstString(fact, ["collectionResultCsv"])));
+    const previous = matches.length === 1 ? matches[0] : undefined;
+    let id = previous?.id || command || `${workflow}:${index}`;
+    if (!previous && byId.has(id)) id = `${workflow}:${index}:${worker}`;
+    const sync = asRecord(fact.artifactSync), proof = asRecord(fact.verifiedCompletion);
+    const resultVerified = fact.resultState === "complete" || (!fact.resultState || fact.resultState === "unknown") && proof.exitCode === 0 && Number.isFinite(Date.parse(firstString(proof, ["verifiedAt"])));
+    const successful = fact.status === "completed" && fact.completionState === "verified" && fact.successful === true && fact.exitCode === 0 && resultVerified;
+    const status = fact.status === "completed" ? (successful ? "success" : "unknown") : publicStatus(String(fact.status || "unknown"));
+    const queryError = firstString(fact, ["queryError", "verificationQueryError", "error"]) || (Array.isArray(fact.observationErrors) ? fact.observationErrors.filter(item => typeof item === "string").join("; ") : "");
+    const native: NativeJobState = {
+      lifecycle_protocol: 2, project_id: projectId, workflow_id: workflow, index: Number(index), command_id: command, worker_id: worker, output_dir: output, result_csv: firstString(fact, ["collectionResultCsv"]),
+      execution_state: firstString(fact, ["executionState"]), result_state: firstString(fact, ["resultState"]), completion_state: firstString(fact, ["completionState"]), successful,
+      ...(Number.isInteger(fact.exitCode) ? { exit_code: Number(fact.exitCode) } : {}),
+      verified_at: successful ? firstString(proof, ["verifiedAt"]) : "", observed_at: firstString(fact, ["lastObservedAt"]), queried_at: firstString(round, ["queriedAt"]),
+      query_state: firstString(fact, ["queryState"]) || (queryError ? "unknown" : !command ? "local_intent" : "unreported"), query_error: queryError,
+      sync_state: firstString(sync, ["state"]), sync_checked_at: firstString(sync, ["checkedAt"]), sync_error: firstString(fact, ["artifactError"]) || firstString(sync, ["error"]),
+      stop_requested: asRecord(fact.stopIntent).commandId === command && asRecord(fact.stopIntent).workerId === worker && Boolean(command),
+      expected_job_count: Number.isInteger(fact.expectedJobCount) && Number(fact.expectedJobCount) > 0 ? Number(fact.expectedJobCount) : 0,
+      recovery_missing_count: Number.isInteger(fact.recoveryMissingCount) && Number(fact.recoveryMissingCount) > 0 ? Number(fact.recoveryMissingCount) : 0,
+      recovery_conflict: Boolean(fact.recoveryConflict),
+    };
+    let parentId = workflow;
+    const parent = byId.get(workflow);
+    if (parent && (parent.type !== "workflow" || parent.plan && parent.plan !== plan)) parentId = `${workflow}:native:${projectId}`;
+    if (!byId.has(parentId)) byId.set(parentId, blankRuntime({ id: parentId, type: "workflow", name: plan, plan, status: "unknown", source: "runtime_observation", status_source: "native_lifecycle" }));
+    byId.set(id, blankRuntime({ ...previous, id, type: "worker_run", source: "runtime_observation", status_source: "native_lifecycle", status,
+      name: firstString(fact, ["case"]) || previous?.name || command || `${workflow}:${index}`, plan, run_id: command, parent_id: parentId, worker_id: worker,
+      created: firstString(fact, ["enqueuedAt"]) || previous?.created || "", updated: native.observed_at || native.verified_at,
+      finished_at: firstString(fact, ["finishedAt"]) || (successful ? native.verified_at : ""),
+      gpu: fact.gpuId === undefined ? previous?.gpu : { id: String(fact.gpuId), memory: "", utilization: "" },
+      experiment_case: firstString(fact, ["case"]), seed: fact.seed === undefined ? "" : String(fact.seed), native_state: native,
+      raw: { ...(previous?.raw || {}), ...fact },
+    }));
+  }
 }
 
 function unavailableWorkerIds(value: unknown): string[] {
@@ -1104,7 +1182,7 @@ function compactWorkerRun(row: ExperimentRow): ExperimentRow {
   });
 }
 
-function workerRunsFromWorkerTaskSnapshots(value: unknown, workflows: ExperimentRow[]): ExperimentRow[] {
+function workerRunsFromWorkerTaskSnapshots(value: unknown, workflows: ExperimentRow[], nativeAuthority = false): ExperimentRow[] {
   if (!Array.isArray(value)) return [];
   const rows: ExperimentRow[] = [];
   const operations = new Map(workflows.filter((row) => row.type === "workflow").map((row) => [row.id, row]));
@@ -1116,6 +1194,7 @@ function workerRunsFromWorkerTaskSnapshots(value: unknown, workflows: Experiment
     const workerId = firstString(snapshot, ["workerId"]);
     for (const item of snapshot.tasks) {
       const task = asRecord(item);
+      if (nativeAuthority && (task.lifecycleProtocol === 2 || asRecord(task.observation).lifecycleProtocol === 2)) continue;
       const operationId = firstString(task, ["operationId"]);
       const operation = operationId ? operations.get(operationId) : undefined;
       if (operation) { supplementWorkflow(operation, task, snapshot); continue; }
@@ -1384,6 +1463,7 @@ function publicExperiment(row: ExperimentRow, children: ExperimentRow[] = []): R
     duration: durationSeconds(started, finished),
     status: row.status,
     status_source: row.status_source || "unknown",
+    observation_source: row.native_state || row.native_summary ? "active_query" : "legacy_or_history",
     aggregate_status: row.type === "workflow" ? aggregateStatus(linked) : undefined,
     health_status: row.health_status,
     health_reason: row.health_reason,
@@ -1401,6 +1481,8 @@ function publicExperiment(row: ExperimentRow, children: ExperimentRow[] = []): R
     gpu: row.gpu,
     created: row.created,
     updated: row.updated,
+    ...(row.native_state ? { native_state: row.native_state } : {}),
+    ...(row.native_summary ? { native_summary: row.native_summary } : {}),
   };
 }
 function experimentKind(id: string, row: Partial<ExperimentRow>): ExperimentKind {
@@ -1420,7 +1502,9 @@ function parentWorkflow(item: RuntimeObservation, rows: Map<string, ExperimentRo
 }
 
 function childRuns(parent: ExperimentRow, rows: ExperimentRow[]): ExperimentRow[] {
-  return rows.filter((row) => row.type === "worker_run" && row.parent_id === parent.id);
+  const children = rows.filter((row) => row.type === "worker_run" && row.parent_id === parent.id);
+  const native = children.filter(row => row.native_state);
+  return native.length ? native : children;
 }
 
 function aggregateStatus(children: ExperimentRow[]): Record<string, number> {
@@ -1433,6 +1517,26 @@ function applyWorkflowAggregate(row: ExperimentRow, rows: ExperimentRow[]): void
   if (row.type !== "workflow") return;
   const children = childRuns(row, rows);
   if (!children.length) return;
+  const native = children.filter(child => child.native_state);
+  if (native.length) {
+    const indices = new Set(native.map(child => child.native_state!.index));
+    const expected = Math.max(indices.size, ...native.map(child => child.native_state!.expected_job_count));
+    const missing = Math.max(expected - indices.size, ...native.map(child => child.native_state!.recovery_missing_count));
+    const conflict = indices.size !== native.length || native.some(child => child.native_state!.recovery_conflict);
+    row.native_summary = { workflow_id: native[0].native_state!.workflow_id, expected_count: expected, observed_count: indices.size,
+      verified_count: native.filter(child => child.native_state!.successful).length, missing_count: missing,
+      query_unknown_count: native.filter(child => ["unknown", "not_queried", "unreported"].includes(child.native_state!.query_state)).length, recovery_conflict: conflict };
+    row.status = missing || conflict ? "unknown" : native.some(child => child.status === "failed") ? "failed"
+      : native.some(child => child.status === "unknown") ? "unknown" : native.some(child => child.status === "running") ? "running"
+      : native.some(child => child.status === "queued") ? "queued" : native.some(child => child.status === "pending") ? "pending"
+      : native.every(child => child.status === "success") ? "success" : native.every(child => child.status === "cancelled") ? "cancelled" : "unknown";
+    row.status_source = "native_lifecycle";
+    row.source = "runtime_observation";
+    row.lifecycle = lifecycleOf(row.status);
+    row.updated = native.map(child => child.updated).filter(Boolean).sort().at(-1) || "";
+    row.finished_at = row.status === "success" ? native.map(child => child.finished_at).filter(Boolean).sort().at(-1) || "" : "";
+    return;
+  }
   if (children.some((child) => child.status === "failed")) row.status = "failed";
   else if (children.some((child) => child.status === "running")) row.status = "running";
   else if (children.every((child) => child.status === "success")) row.status = "success";
@@ -1869,6 +1973,19 @@ export function isStalled(row: Pick<ExperimentRow, "status" | "updated" | "raw">
 
 function applyHealth(row: ExperimentRow, now = Date.now()): void {
   const raw = row.raw || {};
+  if (row.native_summary) {
+    const summary = row.native_summary;
+    row.health_status = row.status === "failed" ? "error" : summary.query_unknown_count || summary.missing_count || summary.recovery_conflict || row.status === "unknown" ? "warning" : "healthy";
+    row.health_reason = row.status === "failed" ? "status_failed" : row.health_status === "warning" ? "native_query_unknown" : "";
+    return;
+  }
+  if (row.native_state) {
+    const native = row.native_state;
+    const queryUnknown = ["unknown", "not_queried", "unreported"].includes(native.query_state);
+    row.health_status = row.status === "failed" ? "error" : queryUnknown || native.query_error || native.sync_error || row.status === "unknown" ? "warning" : "healthy";
+    row.health_reason = native.query_error || native.sync_error || (queryUnknown ? "native_query_" + native.query_state : row.status === "unknown" ? "native_completion_unverified" : row.status === "failed" ? "status_failed" : "");
+    return;
+  }
   const stale = isStalled(row, now);
   const errorText = row.status === "running" ? "" : firstString(raw, ["error", "sync_error"]);
   if (row.status === "failed" || errorText) {
