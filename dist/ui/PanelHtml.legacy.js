@@ -4444,6 +4444,7 @@ function renderPanelHtml() {
         serverConfigEditLockUntil = Date.now() + 30000;
         if (input.dataset.configInput === "resultMapping") updateResultMappingExample(input);
       }
+      if (input && input.dataset && input.dataset.key === "condaEnvMode") input.closest("[data-worker-conda]").querySelector("fieldset").disabled = input.value !== "path";
       if (!input || input.dataset?.key !== "savedSessionPath") return;
       const scope = input.dataset.configInput || "";
       const target = scope ? document.querySelector('[data-port-pair-scope="' + cssEscape(scope) + '"]') : null;
@@ -5492,7 +5493,7 @@ function renderPanelHtml() {
 
     function sectionDependencyKey(data, section) {
       if (section === "servers") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations, data.pptPathConfirmations);
-      if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.gpuMemorySchedulingPreview, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig, data.detectedProject, data.remoteRootPolicy, data.pluginUpdate);
+      if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.gpuMemorySchedulingPreview, data.tensorboardPort, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig, data.detectedProject, data.remoteRootPolicy, data.pluginUpdate);
       if (section === "plans") return refListKey(data.planFileInput, data.selection, data.selectedPlan, data.plans, data.localPlans, data.detectedProject, data.planStatusSummaries, data.projectConfig, data.adapterRules, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.codeSync, data.operations, data.resultsSummary, data.schedulerStates, data.capabilities, data.extensionVersion);
       if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation, data.resultOutputConfig?.tables, data.resultOutputConfig?.catalog);
       if (section === "sync") return refListKey(data.topology, data.schedulerConfig, data.codeSync, data.capabilities, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.realtimeDiagnostics);
@@ -5773,6 +5774,7 @@ function renderPanelHtml() {
     function settingsRenderModel(data) {
       return {
         revision: data.sectionRevisions && data.sectionRevisions.settings,
+        tensorboardPort: data.tensorboardPort,
         topology: compactSettingsTopologyForSignature(data.topology),
         schedulerConfig: compactRecordForSignature(data.schedulerConfig || {}, ["dispatchMode", "gpuJobsPerCard", "gpuMinFreeMemoryGb", "pollSeconds", "jitterSeconds", "workerStatusTtlSeconds", "localAvailabilityPushSeconds", "workerAvailabilityPushSeconds", "operationEventMaxDelayMs", "workerActionMinIntervalMs", "workerActionMaxConcurrent"]),
         gpuQuotaPreview: compactObjectMapForSignature((data.gpuMemorySchedulingPreview || {}).workers, SECTION_SIGNATURE_ROW_LIMIT, ["gpuJobsPerCard", "gpuMinFreeMemoryGb", "gpuCardOverrides", "cards"]),
@@ -9553,7 +9555,7 @@ function renderPanelHtml() {
         '<span class="pill" title="状态与结果位置">' + esc(topology.stateOwner || "保存位置待确认") + '</span>',
         '<span class="pill" title="策略基准">策略基准 ' + esc(poll) + '-' + esc(Number(poll) + Number(jitter || 0)) + 's</span>',
         '<span class="pill" title="TTL">TTL ' + esc(configDefault(scheduler.workerStatusTtlSeconds, 45)) + 's</span>',
-        '<span class="pill" title="事件延迟">实时事件 <= ' + esc(configDefault(scheduler.operationEventMaxDelayMs, 1000)) + 'ms</span>',
+        '<span class="pill" title="事件延迟">实时事件 <= ' + esc(configDefault(scheduler.operationEventMaxDelayMs, 200)) + 'ms</span>',
         '<span class="pill" title="不再按请求次数、间隔或请求并发限制操作">请求限流已关闭</span>'
       ];
       if (conflicts.length) riskBand.push('<span class="pill status-failed" title="端口冲突">端口冲突 ' + esc(conflicts.length) + '</span>');
@@ -9763,6 +9765,9 @@ function renderPanelHtml() {
       const hubParticipates = false;
       const scheduler = state.schedulerConfig || {};
       const memoryPreview = state.gpuMemorySchedulingPreview || {};
+      const legacyQuotaValue = (worker, preview) => !worker.gpuQuotaConfigured && worker.gpuJobsPerCard === undefined
+        && (worker.gpuMemoryRatioEnabled === false || worker.gpuMemoryRatioEnabled === true && (preview.cards || []).some(card => card.freeGb !== undefined))
+        ? preview.gpuJobsPerCard : undefined;
       const memoryDescription = (preview) => {
         const cards = preview && preview.cards || [];
         return cards.length ? cards.map(card => "GPU " + esc(card.gpuId) + "：最多 " + esc(card.jobs) + " 个 job，门槛 " + esc(card.minimumFreeGb ?? preview.gpuMinFreeMemoryGb ?? 22) + " GiB，当前剩余 " + esc(card.freeGb === undefined ? "未知" : Number(card.freeGb).toFixed(1) + " GiB")).join("；") : "连接服务器后显示实际卡数。";
@@ -9774,9 +9779,11 @@ function renderPanelHtml() {
         return '<div class="wide" style="grid-column:1 / -1"><b>逐卡配置</b><div class="muted">留空使用服务器默认值；并行数填 0 暂停该卡后续派发。最低余量是整张卡的总剩余显存。</div>' +
           (ids.length ? ids.map(id => {
             const card = observed.get(id), values = configured[id] || {};
+            const jobsSource = values.gpuJobsPerCard !== undefined ? "逐卡覆盖" : worker.gpuJobsPerCard !== undefined ? "服务器覆盖" : legacyQuotaValue(worker, preview) !== undefined ? "旧配额兼容换算" : "全局默认";
+            const memorySource = values.gpuMinFreeMemoryGb !== undefined ? "逐卡覆盖" : worker.gpuMinFreeMemoryGb !== undefined ? "服务器覆盖" : "全局默认";
             return '<div class="server-card"><b>GPU ' + esc(id) + '</b><span class="muted"> · ' + (card ? '当前剩余 ' + esc(card.freeGb === undefined ? "未知" : Number(card.freeGb).toFixed(1) + " GiB") : '当前未检测到，保留配置') + '</span><div class="configGrid">' +
               configInput(scope, "gpuCardOverrides." + id + ".gpuJobsPerCard", "最大并行 job 数（默认 " + String(preview.gpuJobsPerCard ?? scheduler.gpuJobsPerCard ?? 1) + "）", values.gpuJobsPerCard ?? "", "number") +
-              configInput(scope, "gpuCardOverrides." + id + ".gpuMinFreeMemoryGb", "可派发最低总剩余显存 GiB（默认 " + String(preview.gpuMinFreeMemoryGb ?? scheduler.gpuMinFreeMemoryGb ?? 22) + "）", values.gpuMinFreeMemoryGb ?? "", "number") + '</div></div>';
+              configInput(scope, "gpuCardOverrides." + id + ".gpuMinFreeMemoryGb", "可派发最低总剩余显存 GiB（默认 " + String(preview.gpuMinFreeMemoryGb ?? scheduler.gpuMinFreeMemoryGb ?? 22) + "）", values.gpuMinFreeMemoryGb ?? "", "number") + '</div><div class="muted">已保存设置计算：并行 ' + esc(card ? card.jobs : values.gpuJobsPerCard ?? preview.gpuJobsPerCard ?? scheduler.gpuJobsPerCard ?? 1) + '（' + jobsSource + '）；最低余量 ' + esc(card ? card.minimumFreeGb : values.gpuMinFreeMemoryGb ?? preview.gpuMinFreeMemoryGb ?? scheduler.gpuMinFreeMemoryGb ?? 22) + ' GiB（' + memorySource + '）。服务器是否已接收以策略回执为准。</div></div>';
           }).join("") : '<div class="muted">连接并刷新后，按实际 GPU 编号逐卡设置。</div>') + '</div>';
       };
       const agent = state.agentSessions || {};
@@ -9793,13 +9800,14 @@ function renderPanelHtml() {
       const topologyIssues = asArray(topology.issues || []);
       const noHubMode = "worker_pool";
       cards.push('<div class="server-card"><h3>Worker 服务器</h3><p>一台或多台服务器使用同一流程；当前启用 '+esc(String(topology.workerCount||0))+' 台。</p></div>');
+      cards.push('<div class="server-card" data-anchor="servers-tensorboard"><h3>项目图表端口与范围</h3><p>配置生效端口：<b>' + esc(state.tensorboardPort === undefined ? "未取得" : state.tensorboardPort) + '</b>。在 VS Code 设置中搜索 <code>simpleExperiment.tensorboard.port</code>，选择当前工作区可覆盖全局默认；不同项目共用账号时请配置独立端口。</p><p class="muted">设置用于下一次主动启动，不自动改变已运行服务；已运行端口与窗口以服务返回值为准。需要换端口时先主动停止精确服务窗口，再启动。标量曲线聚合本项目全部启用 Worker；原生内容绑定所选 Worker。复制链接只打开只读入口，不启动服务。</p></div>');
       cards.push(
         '<div class="server-card" data-anchor="servers-session-defaults">' +
           '<div class="serverHead"><div class="serverTitle"><h3>远端资源前缀与环境</h3><div class="muted">前缀保存到用户设置，供本机所有项目与窗口共用；Conda 默认值保存在当前项目</div></div>' +
           '<div class="serverBadges"><span class="pill">tmux ' + esc(setup.remoteTmuxSessionPrefix || "simple") + '</span></div></div>' +
           '<div class="configGrid">' +
             configInput("defaults", "remoteTmuxSessionPrefix", "全局远端资源前缀", setup.remoteTmuxSessionPrefix || "simple") +
-            configInput("defaults", "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", setup.condaEnv || "") +
+            configInput("defaults", "condaEnv", "Conda 环境绝对路径（可选，留空使用系统 Python）", setup.condaEnv || "") +
           '</div>' +
           '<div class="toolbar"><button data-command="saveAgentDefaults" data-config-scope="defaults" title="前缀写入全局用户设置；Conda 默认值写入当前项目">保存前缀与环境</button></div>' +
           ((setup.remoteTmuxSessionPrefix || "simple") === "simple" ? '<div class="callout warning" role="status">当前仍为默认前缀 simple。请改为有区分度的名称；未修改时每次打开插件都会提醒。</div>' : '') +
@@ -9824,12 +9832,12 @@ function renderPanelHtml() {
             configInput("scheduler", "jitterSeconds", "正向随机抖动(秒)", configDefault(scheduler.jitterSeconds, 30), "number") +
             configInput("scheduler", "workerStatusTtlSeconds", "可用性缓存 TTL(秒)", configDefault(scheduler.workerStatusTtlSeconds, 45), "number") +
             '<details><summary>旧版兼容参数（不影响当前刷新）</summary><div class="muted">本机汇总上报间隔：' + esc(scheduler.localAvailabilityPushSeconds ?? 10) + ' 秒；Worker 上报间隔：' + esc(scheduler.workerAvailabilityPushSeconds ?? 10) + ' 秒。保留旧值；当前按主动查询与手动刷新执行。</div></details>' +
-            configInput("scheduler", "operationEventMaxDelayMs", "实时事件最多等待(毫秒)", configDefault(scheduler.operationEventMaxDelayMs, 1000), "number") +
+            configInput("scheduler", "operationEventMaxDelayMs", "实时事件最多等待(毫秒)", configDefault(scheduler.operationEventMaxDelayMs, 200), "number") +
             '<div class="muted">请求限流已关闭。旧版操作间隔和请求并发设置不再限制操作；GPU 任务并发仍按调度策略执行。</div>' +
             '</div>' + renderSchedulerGlossary() + '</details>' +
           '</div>' +
           '<div class="toolbar">' +
-            '<button data-command="saveSchedulerConfig" data-config-scope="scheduler" title="保存调度策略&#10;写入并发上限、GPU 空闲阈值与上报周期">保存策略</button>' +
+            '<button data-command="saveSchedulerConfig" data-config-scope="scheduler" title="保存到本机全局用户设置，供所有项目共用；服务器和逐卡覆盖仍属于当前项目，只影响后续派发">保存策略（全局）</button>' +
             '<button data-command="snapshot" class="secondary" title="刷新识别：重新扫描工作区&#10;更新实验计划列表与项目接入状态&#10;不会修改任何文件">刷新数据</button>' +
           '</div>' +
         '</div>'
@@ -9842,6 +9850,9 @@ function renderPanelHtml() {
         const scope = "worker:" + String(worker.id);
         const workerSession = sessionForPath(worker.savedSessionPath);
         const workerMemory = (memoryPreview.workers || {})[worker.id] || {};
+        const condaMode = String(configDraftValue(scope, "condaEnvMode", worker.condaEnv === undefined ? "inherit" : worker.condaEnv ? "path" : "system"));
+        const savedConda = worker.condaEnv === undefined ? setup.condaEnv : worker.condaEnv;
+        const migratedQuota = legacyQuotaValue(worker, workerMemory);
         cards.push(
           '<div class="server-card" data-anchor="' + escAttr(treeAnchorId("servers-worker", worker.id || worker.displayName)) + '">' +
             '<div class="serverHead"><div class="serverTitle"><h3>' + esc(worker.displayName || worker.id) + '</h3><div class="muted">Worker 实时观测 · ' + esc(worker.id) + '</div></div>' +
@@ -9854,13 +9865,17 @@ function renderPanelHtml() {
               configInput(scope, "displayName", "显示名称", worker.displayName || worker.id) +
             configInput(scope, "workerHost", "服务器地址", worker.workerHost || worker.hubHost || "") +
             configInput(scope, "workerUser", "登录用户", worker.workerUser || worker.hubUser || "") +
-            configInput(scope, "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", worker.condaEnv === undefined ? (setup.condaEnv || "") : worker.condaEnv) +
+            '<div class="wide" data-worker-conda style="grid-column:1 / -1"><div class="configGrid">' +
+              configSelect(scope, "condaEnvMode", "科研环境选择", condaMode, [["inherit", "继承项目默认"], ["system", "系统 Python"], ["path", "指定绝对路径"]]) +
+              '<fieldset style="border:0;padding:0;margin:0;min-width:0"' + (condaMode === "path" ? '' : ' disabled') + '>' + configInput(scope, "condaEnv", "指定的环境绝对路径", worker.condaEnv || "") + '</fieldset></div>' +
+              '<div class="muted">已保存生效环境：' + esc(savedConda || "系统 Python") + '；来源：' + (worker.condaEnv === undefined ? '项目默认（继承）' : worker.condaEnv ? '服务器覆盖' : '服务器明确选择系统 Python') + '。编辑后须保存；只选择执行环境，不自动检查或安装科研依赖。</div></div>' +
             configInput(scope, "agentProjectDir", "项目父目录", worker.agentProjectDir || "", "text", "wide") +
             configInput(scope, "gpuMaxConcurrentCards", "服务器最高占卡上限（留空不限，0 暂停）", worker.gpuMaxConcurrentCards ?? "", "number", "wide") +
             '<div class="muted wide" style="grid-column:1 / -1">最高优先级：所有 PLAN 合计同时使用的显卡不能超过此上限；在上限内再按逐卡 job 数和总显存余量派发。已占用的卡计入上限，降低上限不停止现有任务。</div>' +
-            configInput(scope, "gpuJobsPerCard", "服务器默认并行 job 数（留空跟随全局）", worker.gpuJobsPerCard ?? (worker.gpuQuotaConfigured ? "" : workerMemory.gpuJobsPerCard ?? ""), "number") +
+            configInput(scope, "gpuJobsPerCard", "服务器默认并行 job 数（留空跟随全局）", worker.gpuJobsPerCard ?? migratedQuota ?? "", "number") +
             configInput(scope, "gpuMinFreeMemoryGb", "服务器默认最低总剩余显存 GiB（留空跟随全局）", worker.gpuMinFreeMemoryGb ?? "", "number") +
-            '<div class="muted gpuMemorySummary">自动识别全部显卡。' + memoryDescription(workerMemory) + '</div>' +
+            (migratedQuota !== undefined ? '<div class="muted wide" style="grid-column:1 / -1">旧配额兼容换算预填为 ' + esc(migratedQuota) + '；保存将成为服务器覆盖值，清空则恢复全局继承。</div>' : '') +
+            '<div class="muted gpuMemorySummary">已保存设置按 全局 → 服务器 → 逐卡 计算；草稿保存后影响后续派发，不停止现有任务。' + memoryDescription(workerMemory) + '</div>' +
             cardQuotaInputs(worker, workerMemory, scope) +
             '<details class="wide" data-details-key="' + escAttr("worker-advanced-" + worker.id) + '"' + detailsOpenAttr("worker-advanced-" + worker.id, false) + ' style="grid-column:1 / -1"><summary>连接状态刷新</summary><div class="configGrid">' +
             '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '"><div class="label">会话检测最小间隔 秒' + helpBadge(configHelp(scope, "sessionCheckMinSeconds")) + '</div><div class="value"><input data-config-input="' + escAttr(scope) + '" data-key="sessionCheckMinSeconds" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.sessionCheckMinSeconds ?? "") + '" placeholder="默认 5" type="number" min="1" max="60" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '" /></div></div>' +
@@ -9981,7 +9996,7 @@ function renderPanelHtml() {
       const foot = '<div class="workerDenseFoot" title="策略与目录">' +
         '<span class="pill" title="策略基准">策略基准 ' + esc(poll) + '-' + esc(Number(poll) + Number(jitter || 0)) + 's</span>' +
         '<span class="pill" title="TTL">TTL ' + esc(configDefault(scheduler.workerStatusTtlSeconds, 45)) + 's</span>' +
-        '<span class="pill" title="事件延迟">实时 ' + esc(configDefault(scheduler.operationEventMaxDelayMs, 1000)) + 'ms</span>' +
+        '<span class="pill" title="事件延迟">实时 ' + esc(configDefault(scheduler.operationEventMaxDelayMs, 200)) + 'ms</span>' +
         '<span class="pill" title="旧版请求间隔与并发限制不再生效">请求限流已关闭</span>' +
         '<span class="pill" title="状态与结果位置">' + esc(topology.stateOwner || "保存位置待确认") + '</span>' +
       '</div>';
@@ -10008,12 +10023,12 @@ function renderPanelHtml() {
     function renderTensorBoardLinkRow(endpointId, agentLocalPort) {
       return '<div class="tensorBoardLinkRow" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
         '<span class="muted">TensorBoard:</span>' +
-        '<button class="mini secondary" data-command="openScalarViewer" data-endpoint-id="' + escAttr(endpointId) + '" title="打开插件实验曲线页面">打开曲线</button>' +
+        '<button class="mini secondary" data-command="openScalarViewer" data-endpoint-id="' + escAttr(endpointId) + '" title="打开本项目全部启用 Worker 的标量曲线；原生内容以此 Worker 为目标">打开曲线</button>' +
         '<span class="muted" style="font-size:12px;">本机地址由插件启动时分配，复用 Agent 隧道</span>' +
       '</div>';
     }
     function tensorBoardOverviewStatValue(endpointId, agentLocalPort) {
-      return '<button class="mini secondary" data-command="openScalarViewer" data-endpoint-id="' + escAttr(endpointId) + '" title="打开插件实验曲线页面">打开曲线</button>';
+      return '<button class="mini secondary" data-command="openScalarViewer" data-endpoint-id="' + escAttr(endpointId) + '" title="打开本项目全部启用 Worker 的标量曲线；原生内容以此 Worker 为目标">打开曲线</button>';
     }
     function renderTensorBoardLinksForRunning() {
       const st = lastState || {};
@@ -10306,6 +10321,7 @@ function renderPanelHtml() {
       const title = help ? ' title="' + escAttr(help) + '"' : "";
       const bounds = configInputBounds(scope, key);
       value = configDraftValue(scope, key, value);
+      const inputValue = displayValue(value);
       // min/max attributes alone are advisory: the save path reads input.value directly, so an
       // out-of-range value saves silently and the allowed range is never stated anywhere.
       const hint = configBoundsHint(bounds);
@@ -10316,7 +10332,7 @@ function renderPanelHtml() {
       const violationHtml = violation ? '<span class="configBoundsError" title="' + escAttr(label + "：" + violation) + '">' + esc(violation) + '</span>' : "";
       const placeholders = { gpuMemoryPerJobGb: "例如 24", condaEnv: "/path/to/conda_envs/<env_name>", hubHost: "例如 compute.example.org", workerHost: "例如 compute.example.org", agentProjectDir: "例如 /srv/projects" };
       const placeholder = placeholders[key] ? ' placeholder="' + escAttr(placeholders[key]) + '"' : "";
-      return '<div class="field ' + escAttr(cls || "") + (violation ? " is-invalid" : "") + '"' + title + '><label' + title + '>' + esc(label) + helpBadge(help) + hintHtml + '</label><input' + title + configBoundsAttrs(bounds) + placeholder + ' data-config-input="' + escAttr(scope) + '" data-key="' + escAttr(key) + '" type="' + escAttr(type || "text") + '" value="' + escAttr(displayValue(value)) + '"' + (violation ? ' aria-invalid="true"' : "") + '>' + violationHtml + '</div>';
+      return '<div class="field ' + escAttr(cls || "") + (violation ? " is-invalid" : "") + '"' + title + '><label' + title + '>' + esc(label) + helpBadge(help) + hintHtml + '</label><input' + title + configBoundsAttrs(bounds) + placeholder + ' data-config-input="' + escAttr(scope) + '" data-key="' + escAttr(key) + '" type="' + escAttr(type || "text") + '" value="' + (inputValue === "" ? "" : escAttr(inputValue)) + '"' + (violation ? ' aria-invalid="true"' : "") + '>' + violationHtml + '</div>';
     }
 
     function isCondaEnvAbsolutePathValid(value) {
@@ -10506,7 +10522,7 @@ function renderPanelHtml() {
         mode: "统一 Worker 调度流程：启用一台为单 Worker，启用多台为多 Worker；各服务器维护自己的任务窗口和产物。启用范围变化不会迁移已有任务。"
       };
       const schedulerHelp = {
-        gpuJobsPerCard: "本项目每张实际显卡最多并行多少个 job；实际派发还需通过显存预算检查。", gpuMinFreeMemoryGb: "派发前显卡总剩余显存须达到该值，并须覆盖已有任务未申请的预算与新任务预算。",
+        gpuJobsPerCard: "本机所有项目共用的默认每卡并行 job 数，至少 1；当前项目可按服务器和逐卡覆盖，实际派发还需通过显存预算检查。", gpuMinFreeMemoryGb: "本机全局默认最低总剩余显存 GiB；当前项目可按服务器和逐卡覆盖，预算保护仍保留。",
         gpuMemoryPerJobGb: "只需填写每个 job 按多少 G 显存计算。例如填 24，96G 显卡可同时运行 4 个 job；实际显存不足时等待。",
         dispatchMode: "默认全部由本机按逐卡配额派发；旧预排队设置不再自动生效，仅通过运行进度按钮将剩余 job 按配额放入服务器队列。",
         pollSeconds: "Worker 两次常规调度检查之间的基准间隔，单位秒；数值越小检查越频繁。",
@@ -10522,13 +10538,14 @@ function renderPanelHtml() {
         sessionCheckMinSeconds: "全局会话检测最小间隔（秒，默认 5）"
       };
       const workerHelp = {
-        gpuJobsPerCard: "这台服务器每张显卡允许同时运行的 job 数；留空继承全局设置，0 暂停该服务器的新任务，不停止现有任务。",
+        gpuJobsPerCard: "这台服务器每张显卡允许同时运行的 job 数，至少 1；留空继承全局设置。暂停整台服务器的新派发请把服务器最高占卡上限设为 0，不停止现有任务。",
         gpuMinFreeMemoryGb: "这台服务器显卡继续派发所需的总剩余显存 GiB；留空继承全局设置，显存不足时保留排队任务。",
         gpuMemoryPerJobGb: "仅设置这台服务器每个 job 按多少 G 显存计算；不填时使用上面的统一设置。例如填 24，96G 显卡可同时运行 4 个 job。",
         displayName: "仅用于界面展示和识别该 Worker，不用于网络连接。",
         workerHost: "填写该 Worker 的 IP 地址或可直接解析的域名，例如 compute.example.org；SSH 登录和 SFTP 文件传输共用此地址。这里不是文件路径，也不读取其他 SSH 配置文件。",
         workerUser: "登录该 Worker 的 SSH 用户名；SFTP 使用同一用户。",
-        condaEnv: "必填完整路径，以 / 开头，如 /path/to/conda_envs/<env_name> 或 /usr/local/anaconda3/envs/<env_name>，可选以 /bin/python 结尾；留空使用系统 Python；仅环境名如 <env_name> 已废弃",
+        condaEnv: "仅在指定路径模式填写，以 / 开头的完整环境路径，可精确到 /bin/python。继承模式跟随项目默认；系统 Python 模式明确绕过继承。不自动检查或安装环境。",
+        condaEnvMode: "继承项目默认会保留继承关系；系统 Python 明确使用服务器系统解释器；指定路径使用此服务器自己的环境绝对路径。",
         agentProjectDir: "填写服务器上的绝对父目录，例如 /srv/projects；插件自动追加当前本地项目名作为代码目录，并在该父目录下计算 Agent 路径。不要填写单个文件或再次追加项目名。",
         savedSessionPath: "导入服务器信息并保留手动打开 Xshell 的入口；后台连接使用已保存的服务器地址和端口。",
         agentSessionPath: "Agent 会话",
@@ -10545,7 +10562,7 @@ function renderPanelHtml() {
         hubHost: "旧顶层地址已退役，请使用 Worker 地址。",
         hubUser: "旧顶层用户名已退役，请使用 Worker 用户名。",
         remoteTmuxSessionPrefix: "本机所有项目与窗口共用的远端资源前缀，默认 simple；命名插件目录与 tmux 服务以区分归属。建议使用自己稳定且有区分度的名称，保存不会自动迁移已有资源。",
-        condaEnv: "必填完整路径，以 / 开头，如 /path/to/conda_envs/<env_name> 或 /usr/local/anaconda3/envs/<env_name>，可选以 /bin/python 结尾；留空使用系统 Python；仅环境名如 <env_name> 已废弃",
+        condaEnv: "可选，留空使用系统 Python；填写时须为以 / 开头的完整环境路径，可精确到 /bin/python。此默认值保存在当前项目，Worker 可继承或明确覆盖。",
         agentProjectDir: "填写服务器上的绝对父目录，例如 /srv/projects；插件自动追加当前本地项目名作为代码目录，并在该父目录下计算 Agent 路径。不要填写单个文件或再次追加项目名。",
         savedSessionPath: "导入服务器信息并保留手动打开 Xshell 的入口；后台连接使用已保存的服务器地址和端口。",
         agentSessionPath: "Agent 会话",
@@ -10554,6 +10571,7 @@ function renderPanelHtml() {
       };
       if (scope === "topology") return topologyHelp[key] || "";
       if (scope === "scheduler") return schedulerHelp[key] || "";
+      if (scope === "defaults") return hubHelp[key] || "";
       if (scope === "hub") return "旧顶层连接配置已退役；请在当前项目的 Worker 卡片中配置执行服务器。";
       if (String(scope || "").startsWith("worker:")) return workerHelp[key] || "";
       return "";

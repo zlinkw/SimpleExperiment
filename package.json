@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的后台 SSH 隧道实时集群编排面板。",
-  "version": "0.5.478",
+  "version": "0.5.479",
   "simpleExperimentRelease": {
     "channel": "trial",
     "authoritativeVersion": "0.5.440",
@@ -530,8 +530,8 @@
           "default": 6006,
           "minimum": 1024,
           "maximum": 65535,
-          "scope": "application",
-          "description": "TensorBoard 在远端监听的端口。显式打开时重启当前项目的精确服务窗口；共享账号上的不同项目应配置独立端口，端口占用时不会关闭其他服务。"
+          "scope": "resource",
+          "description": "当前项目 TensorBoard 下一次主动启动时使用的远端端口，可在工作区覆盖全局默认。已有服务不会因设置变化自动重启；实际端口与精确窗口以服务返回值为准。共享账号不同项目须配置独立端口，端口占用不会关闭其他服务。"
         },
         "simpleExperiment.tensorboard.logdir": {
           "type": "string",

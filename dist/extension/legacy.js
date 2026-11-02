@@ -19618,6 +19618,22 @@ class RealtimeTunnelPanelProvider {
             void vscode.window.showWarningMessage(`未找到 Worker：${endpointId}`);
             return;
         }
+        const condaMode = patch.condaEnvMode;
+        if (condaMode !== undefined && !["inherit", "system", "path"].includes(condaMode))
+            throw new Error("condaEnvMode 请选择继承项目默认、系统 Python 或环境绝对路径。");
+        let workerCondaEnv = currentWorker.condaEnv;
+        if (condaMode === "inherit")
+            workerCondaEnv = undefined;
+        else if (condaMode === "system")
+            workerCondaEnv = "";
+        else if (condaMode === "path") {
+            if (typeof patch.condaEnv !== "string" || !patch.condaEnv.trim().startsWith("/"))
+                throw new Error("环境路径模式须填写以 / 开头的完整绝对路径。");
+            workerCondaEnv = condaEnvPatch(patch, "condaEnv", "");
+        }
+        else if (Object.prototype.hasOwnProperty.call(patch, "condaEnv")) {
+            workerCondaEnv = condaEnvPatch(patch, "condaEnv", currentWorker.condaEnv);
+        }
         let targetAgentProjectDir = preservedOptionalStringPatch(patch, "agentProjectDir", currentWorker.agentProjectDir);
         assertActualWorkRoot(targetAgentProjectDir, currentWorker.displayName || currentWorker.id, currentWorker);
         if (normalizeRemoteWorkRoot(targetAgentProjectDir) !== normalizeRemoteWorkRoot(currentWorker.agentProjectDir))
@@ -19646,7 +19662,7 @@ class RealtimeTunnelPanelProvider {
                 savedSessionForwardIndex: forwardIndexPatch(patch, "savedSessionForwardIndex", worker.savedSessionForwardIndex),
                 agentSessionPath: preservedOptionalStringPatch(patch, "agentSessionPath", worker.agentSessionPath),
                 agentProjectDir: targetAgentProjectDir,
-                condaEnv: condaEnvPatch(patch, "condaEnv", effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv)),
+                condaEnv: workerCondaEnv,
                 localForwardPort: numberPatch(patch, "localForwardPort", worker.localForwardPort),
                 remoteAgentPort: remoteTelemetryPort,
                 remoteTelemetryPort,
@@ -28289,14 +28305,14 @@ class RealtimeTunnelPanelProvider {
             ...GpuMemoryScheduling.memorySchedulingSettings(Object.fromEntries(Object.entries(GpuMemoryScheduling.memorySchedulingDefaults)
                 .map(([key, value]) => [key, config.get("scheduler." + key, value)]))),
             pollSeconds: Math.max(5, Math.min(3600, Number(config.get("scheduler.pollSeconds", 10)) || 10)),
-            jitterSeconds: Math.max(0, Number(config.get("scheduler.jitterSeconds", 5)) || 0),
+            jitterSeconds: Math.max(0, Math.min(1800, Number(config.get("scheduler.jitterSeconds", 30)) || 0)),
             gpuIdleUtilThreshold: Math.max(0, Math.min(100, Number(config.get("scheduler.gpuIdleUtilThreshold", 5)))),
             gpuIdleMemThresholdMb: Math.max(0, Math.min(8192, Number(config.get("scheduler.gpuIdleMemThresholdMb", 200)))),
             sessionCheckMinSeconds: Math.max(1, Math.min(60, Number(config.get("scheduler.sessionCheckMinSeconds", 5)) || 5)),
             workerStatusTtlSeconds: Math.max(10, Math.min(7200, Number(config.get("scheduler.workerStatusTtlSeconds", 45)) || 45)),
             localAvailabilityPushSeconds: Math.max(5, Math.min(3600, Number(config.get("scheduler.localAvailabilityPushSeconds", 10)) || 10)),
             workerAvailabilityPushSeconds: Math.max(5, Math.min(3600, Number(config.get("scheduler.workerAvailabilityPushSeconds", 10)) || 10)),
-            operationEventMaxDelayMs: Math.max(100, Number(config.get("scheduler.operationEventMaxDelayMs", 200)) || 200),
+            operationEventMaxDelayMs: Math.max(100, Math.min(10000, Number(config.get("scheduler.operationEventMaxDelayMs", 200)) || 200)),
             workerActionMinIntervalMs: Math.max(200, Number(config.get("scheduler.workerActionMinIntervalMs", 500)) || 500),
             workerActionMaxConcurrent: Math.max(1, Number(config.get("scheduler.workerActionMaxConcurrent", 1)) || 1),
         };
@@ -29638,11 +29654,12 @@ class RealtimeTunnelPanelProvider {
         const remoteRootPolicy = remoteRootPolicyConfig();
         const remoteRootPolicyRevision = sha256Text(JSON.stringify(remoteRootPolicy));
         const gpuMemorySchedulingPreview = GpuQuotaScheduling.quotaPreview(schedulerConfig, this.setupConfig?.workerTunnels || [], gpu);
+        const tensorboardPort = Number(vscode.workspace.getConfiguration("simpleExperiment").get("tensorboard.port", 6006)) || 6006;
         const sectionRevisions = this.panelSectionRevisionTracker.update({
             settings: [this.setupConfig, schedulerConfigRevision, this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.resultCsvDirectory,
                 projectAdapterRulesRevision, this.resultCatalogDirtyGeneration, pptPlotConfigRevision, remoteRootPolicyRevision,
                 this.pluginUpdateStatus, this.lastProbe, this.lastWorkerProbes, realtimeState?.health, endpointRegistryState.registry,
-                this.confirmedRemotePaths, this.confirmedPptPaths, JSON.stringify(gpuMemorySchedulingPreview)],
+                this.confirmedRemotePaths, this.confirmedPptPaths, JSON.stringify(gpuMemorySchedulingPreview), tensorboardPort],
             sync: [this.setupConfig, this.lastCodeSyncState, this.lastProbe, this.lastWorkerProbes, endpointRegistryState.registry, realtimeState?.health],
             plans: [this.localPlanMetadata.plans, this.localPlanMetadata.archivedPlans, recentPlansRevision, this.planFileInput, this.selectedPlanId, this.draftPlanState,
                 this.resultsSummary, planStopClearRevision, realtimeState?.operations, snapshot?.operations, offlineSnapshot?.operations,
@@ -29667,6 +29684,7 @@ class RealtimeTunnelPanelProvider {
             setup: compactXshellSetupForWebview(this.setupConfig),
             schedulerConfig,
             gpuMemorySchedulingPreview,
+            tensorboardPort,
             remoteRootPolicy,
             pluginUpdate: require("../updates/Bootstrap").getUpdater() ? require("../updates/Bootstrap").getUpdateStatus() : this.pluginUpdateStatus || { status: "unknown", message: "尚未检查配套更新。", checkedAt: "" },
             pptPlotConfig,

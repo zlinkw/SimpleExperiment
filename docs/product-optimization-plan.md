@@ -72,7 +72,7 @@
 | D1d | 独立旧代理类的调用关系核实 | not-applicable（当前无调用方，不扩改） |
 | D1 | 零目标、禁用、未核实、离线；精确附着与项目绑定查询 | passed（本机覆盖，真实服务器待验证） |
 | D2-test | 原 Conda 标题测试固定真实字段含义，不保留矛盾文案 | passed |
-| D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | running |
+| D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | passed（本机；现场待验证） |
 | D3 | 保存范围、生效时间与草稿恢复 | pending |
 | E1 | 主次/危险操作、错误、帮助、空态与刷新范围 | partial（E1a passed，最终覆盖核对随 E2） |
 | E2 | label、键盘、焦点、窄窗口、长路径、缩放与主题 | pending |
@@ -580,6 +580,12 @@ D2 当前边界：默认值及边界一致、全局→服务器→逐卡/Conda �
 D2-test2 夹具准备：renderServerCardsV2 将直接读取既有 configDraftValue 以保持新 Conda 模式草稿；反向引用发现原 gpuMemoryScheduling 的纯配额渲染 VM 只 stub configInput/configSelect，缺少该现有 helper。给这一空草稿场景注入 fallback 读取，原配额、0 暂停、继承、旧换算、保存及所有字段断言完整保留。实际生产 UI 尚未修改/编译，仍对已提交 0.5.478 的原生成 renderer 执行；原套件 9 项通过、exit=0，d2-gpu-fixture-prep.log（前次记录为 6 的计数笔误在此更正）。仅该测试与计划单独提交，未改版本/包，不依赖未提交 Host 设置变更。
 
 D2-test3 独立测试修正：额外相关 backendActionCommandSets 原 3/4 通过，路由规则的全仓否定匹配误命中既有 postUiCommandStatus 通知分支（验证/预演反馈），该分支不属于所测 runActionCommandCore 路由且本批未改。将两项否定约束限定原已提取的实际路由方法；全部集合、确认、退役 Hub、解析和调度快照断言保留，4/4 通过、exit=0，d2-routing-fixture-fixed.log；首次失败日志保留。仅该测试与计划独立提交，D2 仍在验证，未改产品行为、版本或正式打包输入。
+
+D2 实现与冻结：独立准备 7346ebf65d7e4609512ae8f7beef831098fb3fef 已普通 push/fetch 一致。内部 0.5.479 保留 raw Worker Conda 的 undefined/空值/路径，并增加显式选择；全局事件 200/抖动 30 与上限保持 schema 一致；逐卡展示已保存生效来源，TB port 改为工作区可覆盖，标量聚合范围与原生所选目标明确分开。实际 Chrome 发现通用 configInput 将空值经展示用 escAttr 转为短横线，现仅输入 value 保留真正空串，保留展示层占位行为；该问题并入已定空值/继承语义，不扩功能。最初保存按钮回归要求“保存策略”，最终为“保存策略（全局）”，保留行为断言和可见保存范围。原失败日志保留。
+
+D2 定向 57 项通过：serverQuotaPersistence 8、gpuMemoryScheduling 9、publicRuntimeEnvironmentDefault 8、projectEnvironmentOnboarding 1、settingsSecondaryView 7、serverManagementSchedulerInputs 6、backendActionCommandSets 4、tensorboardScalar 9、tensorboardControls1 5；改空值后的四个受影响渲染/保存套件合计 30 项重新通过，d2-candidate-*.log。compile 最终 2026-11-02T22-51-32-187Z-29344 通过；实际主 HTML 三脚本与标量脚本 vm.Script 通过。d2-render-1793659905536.json 验证三模式、禁用路径切换及草稿、继承空串/旧配额换算、200/30/10000、逐卡来源、端口状态变化及既有自定义布局/首屏/精确附着；d2-scalar-native-render-1793659941057.json 与 d2-scalar-ordinary-render-1793659942805.json 验证实际页面范围、只读/主动启动区分和 420/1120 宽下原生 iframe 可见及无横溢出。Chrome 网络全部隔离，不等同 Extension Host 或服务器验收。当前 8 非生成文件冻结，进入规定 package；未公开发行、安装、操作服务器或指标落盘。
+
+D2 最终验证：2026-11-02T22-52-44-901Z-81624-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、734992ms，锁已释放。内部 universal/trial 0.5.479 为 2778312 字节，SHA256 01f139a8203c73ea8227989e5bf35444ce01f47ce17a38cf65d65a74a6b47174；实际包字节与 receipt、逐包清单一致，362 项内容门禁零违规，实际主 HTML 三脚本与模块解析通过。本批 8 非生成文件，未公开发行或安装，权威版 440/117 不变。下一批 D3 只处理保存期间的新草稿、旧回包与路径选择；E2 与最终说明/交付仍未完成。
 
 ## 发现线索与后续边界（以批次状态为准）
 
