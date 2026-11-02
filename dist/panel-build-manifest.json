@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.463",
-  "buildId": "c8efd5db8065cc41c0c3aca0cf6d466f6aa16d457e98a0ab74faf9df46ec393a",
+  "version": "0.5.464",
+  "buildId": "f14e0f2ce838a68657baa97d92270061216ebb075cccb7e8d87803852af81009",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -249,7 +249,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "cd741603067e9065b495ce75b1dc79398fc81a3ffa6c4166a050a34e3718c519"
+      "sha256": "3edd759e323988490f214d1d3c13c9f27b63a84d1b35d5e04260b566ad7c8dc3"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -893,7 +893,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "07b4923029bd32d4dd2771c7bd5278f2e71659e3c8031f3fb24fbc09e62e40ab"
+      "sha256": "d799807d26217e56d47235267430c587bef2dedaccbbc67c84b94e6f5ac48302"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -929,7 +929,7 @@
     },
     {
       "path": "dist/tunnel/AgentTmuxPolicy.js",
-      "sha256": "d05720278d2e71d960d95b912f659a46b406a99bfe8a9c665d02c153dca4626b"
+      "sha256": "62aaf27c4fb3ae024aa66880367dc9b41e11e6e01dd7adf646716bd2bc65aab3"
     },
     {
       "path": "dist/tunnel/AuthorityMergePolicy.js",
@@ -1121,7 +1121,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "fdfe3b6fc01cb982efbd4e50d5f2c0215f24e86e77a2fbbc01febacb0fe8dc3e"
+      "sha256": "1b296d50be76d758e092f4ea68f608b014bfe540bc71d4203e27421e72c5c89e"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1245,7 +1245,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "eb485da6b0cb3faa3de2f328d9bd91bb71aa812e5f7357d5f5e4d67e99f3e68d"
+      "sha256": "3dbc6b3c4b19949f7db4bf59332c531da7aa7bf27ee15a3dc78d013ed9dd40ee"
     },
     {
       "path": "scripts/check-static.js",

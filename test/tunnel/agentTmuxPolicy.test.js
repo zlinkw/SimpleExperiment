@@ -4,8 +4,25 @@ const assert = require("node:assert/strict");
 const {
   agentTmuxStartupCommand,
   defaultAgentTmuxSessionName,
+  defaultAgentTmuxWindowName,
   isValidRemoteTmuxSessionName,
 } = require("../../dist/tunnel/AgentTmuxPolicy.js");
+
+test("Agent windows are stable per canonical project and separate projects sharing a Worker", () => {
+  const { projectIdentityKey } = require("../../dist/features/ProjectRootMap");
+  const first = defaultAgentTmuxWindowName("/srv/alice/demo");
+  assert.equal(first, "agent-" + projectIdentityKey({ projectDir: "/srv/alice/demo" }).slice(0, 16));
+  assert.equal(first, defaultAgentTmuxWindowName("/srv/alice/demo/"));
+  assert.notEqual(first, defaultAgentTmuxWindowName("/srv/bob/demo"));
+  assert.equal(defaultAgentTmuxWindowName("C:/Projects/demo"), defaultAgentTmuxWindowName("c:\\Projects\\demo"));
+  for (const missing of [undefined, "", "demo", "/"]) assert.throws(() => defaultAgentTmuxWindowName(missing), /AGENT_PROJECT_REQUIRED/);
+  assert.throws(() => agentTmuxStartupCommand({ role: "worker", installDir: "/srv/agent" }), /AGENT_PROJECT_REQUIRED/);
+  const config = (workDir) => JSON.parse(agentTmuxStartupCommand({ role: "worker", endpointId: "shared", sessionPrefix: "alice", installDir: workDir + "/alice_agent", workDir }).split(" --config '")[1].slice(0, -1));
+  const a = config("/srv/alice/demo"), b = config("/srv/bob/demo");
+  assert.equal(a.tmuxSession, b.tmuxSession);
+  assert.notEqual(a.tmuxWindow, b.tmuxWindow);
+  assert.equal(a.projectDir, "/srv/alice/demo");
+});
 
 test("setup, runtime naming and the public setting share one prefix default and normalization", () => {
   const names = require("../../dist/config/RemoteResourcePrefix.js");

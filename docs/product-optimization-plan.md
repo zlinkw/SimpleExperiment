@@ -36,13 +36,17 @@
 | PFX-test | 受影响夹具使用正式前缀字段，目录方法提取不绑定旧参数个数 | passed |
 | PFX-test2 | 根绑定检查覆盖实际安装映射，不强制所有插件路径在项目外 | passed |
 | PFX-test3 | 生命周期组合检查遵循生成目标和已支持窗口协议 | passed |
+| PFX-test4 | 目录与会话组合夹具复用真实命名导出 | passed |
 | PFX-base | 前缀默认值与归一化收敛一处，提供实际目录命名 | passed |
 | PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | passed |
-| PFX2 / D0c | 服务命名与调度前缀统一，消除个人前缀兜底 | pending |
+| PFX2a / D0c | Agent 窗口按规范项目身份隔离 | passed |
+| PFX2b | 远端目录和前缀只读取全局传入值 | pending |
+| PFX2c | 移除个人主终端猜测及错误启动兜底 | pending |
+| PFX2d | 调度前缀归一化与真实原队列定位 | pending |
 | PFX3 | 远端路径校验和错误品牌迁移的前缀残留 | pending |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
-| D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | pending |
+| D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | passed |
 | D0d | 更新目录与服务说明，保留完整使用指南 | pending |
 | D1 | 零目标、禁用、未核实、离线；精确附着命令 | pending |
 | D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | pending |
@@ -279,12 +283,18 @@ PFX1 最终验证：318 作业全部通过、未运行 0、maxObservedConcurrent
 
 ## 当前批次 PFX2 / D0c
 
+PFX-test4 提交 24ecbfbd02c374ba60f4ec1116fa25cfedcc3780 已普通 push/fetch 一致。本批复用原生命周期显式窗口协议和项目规范身份：会话按全局前缀与 Worker 分组，Agent 窗口按项目身份命名；同项目复用，不同目录即使同名项目也不串用。生命周期确认、启动、日志缺省目标和设置预览共用该目标；显式选定日志窗口不被覆盖。无项目拒绝生成猜测目标。公共 lifecycle Python、共享 GPU 采样与科研窗口不变。内部版本 0.5.464，共 8 个非生成文件；定向、真实隔离渲染、规定打包待验证，不发布中间包、不安装。
+
 PFX1 源码 83805e8fb051061f10064d518ae4baf0efc9119b 已普通 push/fetch 一致，0.5.463 仅内部包。
 目标：Agent 的精确窗口以既有稳定项目身份区分；同项目多窗口复用，同账号不同项目各自窗口，继续只关闭指定 windowId。目录已项目内隔离，共享 GPU 采样不变。
 实现选择：沿用全局前缀+Worker 的 tmux 服务会话，将项目身份放到显式 tmuxWindow 参数。现有公共 lifecycle 已支持同会话不同窗口、精确查找/关闭；不改其与 SimpleSFTP 的逐字节共享 Python，不新增进程管理或升级配套协议。会话名保留现有上限，项目窗口只需 22 字符，避免最长合法前缀和 80 位 Worker ID 加会话后缀时超出现有传输上限。
 先做 PFX-test3 纯测试准备：independentAgent 保留会话/端点/无 PID 等断言，窗口验证为已支持的 Agent 窗口格式并绑定实际项目；agentPreparationLifecycle 使用真实生成器比较 Host 的窗口目标，目标夹具补齐实际 projectWorkDir。共两测试和本计划，验证后独立提交，不改运行版本。项目唯一性由随后生成器的独立行为用例验证，不以组合夹具自比冒充。
 后续实现边界：Host 的启动/生命周期审核/查询默认目标和状态投影、既有 AgentTmuxPolicy 项目窗口函数、实际 UI 目标展示、既有 agentTmuxPolicy 用例及版本/计划，最多 8 文件。不操作真实窗口、服务、服务器或科研环境；无项目不生成可执行目标。现场多项目与端口归属仍待验证。
 PFX-test3 验证：independentAgent 4、agentPreparationLifecycle 10 项通过，原自定义登录/静默/动态端点/归属/迁移确认/精确生命周期断言保留。实际 shell 测试仅使用临时轻量输出器，无 Agent、GPU、服务器或 tmux 服务启动；API 组合检查为隔离边界。纯测试与计划三文件独立提交，无新运行版本或 VSIX。
+
+PFX2 定向验证：policy 4、independentAgent 4、preparation 10、installDir 5、sessionCache 2、destination 4、lifecycle 2、jobLog 12、richLog 5，共 48 项通过；lifecycle 仅使用已隔离的本机测试 tmux，公共 Python 字节一致。真实 Chrome 报告 pfx2-render-1793636594667.json 核对同服务器不同项目窗口、只改变窗口字段也重绘、无项目不展示猜测窗口，以及之前目录草稿、显式目录、自定义布局、六种首屏、焦点和窄窗口；实际 HTML 三段脚本合法。首次测试命令将 preparation 文件目录写成 tunnel，文件不存在时立即退出 1；改为实际 features 路径后通过，未调整测试。compile exit=0，冻结 8 文件内部版本 0.5.464，开始规定 package。
+
+PFX2a 最终验证：2026-11-02T16-23-32-774Z-55428-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、712170ms。内部 universal/trial 0.5.464：2780001 字节，SHA256 739e43fa4fbaa224997b07ce453661fe6c023ede9703e3154b183848eb7b9eed；与实际包 receipt 一致，362 项内容门禁零违规，实际 HTML 三段及模块解析通过。无训练服务器操作，未发布/安装。后续拆成 PFX2b 远端来源/目录、PFX2c 旧主终端兜底、PFX2d 原队列定位，各批仍最多 8 非生成文件，不缩减公共协议和既有任务恢复保护。
 
 PFX-test3 提交 ab8c417e4ad4066f4b467d03150863189fdb9a41 已普通 push/fetch 一致。PFX-test4 纯夹具准备：目录和会话缓存组合夹具加载真实 AgentTmuxPolicy 命名导出，再覆盖原有轻量启动替身，供项目窗口接口使用；不缩减原断言。目录 5、会话缓存 2 项通过，日志 pfx-test4-install.log / pfx-test4-cache.log；仅两测试与本计划独立提交，不改运行版本。
 

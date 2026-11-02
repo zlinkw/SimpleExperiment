@@ -1,4 +1,5 @@
 import { assertLocalhost } from "./TunnelGateway";
+import { canonicalRemotePath, projectIdentityKey } from "../features/ProjectRootMap";
 import { DEFAULT_REMOTE_RESOURCE_PREFIX, normalizeRemoteResourcePrefix } from "../config/RemoteResourcePrefix";
 export { remoteAgentDirectoryName } from "../config/RemoteResourcePrefix";
 
@@ -46,13 +47,20 @@ export function agentTmuxStartupCommand(options: AgentTmuxStartupOptions): strin
   const host = normalizeAgentBindHost(options.host);
   const sessionPrefix = normalizeRemoteTmuxSessionPrefix(options.sessionPrefix);
   const session = defaultAgentTmuxSessionName(role, options.endpointId, sessionPrefix);
+  const window = defaultAgentTmuxWindowName(options.workDir);
   const condaEnv = normalizeCondaEnvName(options.condaEnv);
   const requireCondaEnv = condaEnv ? "1" : "0";
-  const config = JSON.stringify({projectDir: options.workDir || options.installDir || "", installDir: options.installDir || "", stateDir: options.stateDir, workerStateDir: options.workerStateDir, mode, workerId: options.endpointId || "", host, port, condaEnv, sessionPrefix, tmuxSession: session, tmuxWindow: "agent"});
+  const config = JSON.stringify({projectDir: options.workDir, installDir: options.installDir || "", stateDir: options.stateDir, workerStateDir: options.workerStateDir, mode, workerId: options.endpointId || "", host, port, condaEnv, sessionPrefix, tmuxSession: session, tmuxWindow: window});
   return [simpleAgentTmuxCommandVersion, "unset TMUX",
     `SESSION=${shellQuote(session)}`, `SIMPLE_EXPERIMENT_CONDA_ENV=${shellQuote(condaEnv)}`,
     `SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV=${shellQuote(requireCondaEnv)}`,
     `python3 ${shellQuote((options.installDir || "").replace(/\/+$/, "") + "/" + simpleAgentRuntimeRelativePath)} lifecycle --action ensure --config ${shellQuote(config)}`].join("; ");
+}
+
+export function defaultAgentTmuxWindowName(projectDir?: string): string {
+  const root = canonicalRemotePath(String(projectDir || ""));
+  if (!root.ok || root.path === "/") throw new Error("AGENT_PROJECT_REQUIRED：项目目录尚未确定。");
+  return `agent-${projectIdentityKey({ projectDir: root.path }).slice(0, 16)}`;
 }
 
 function normalizeAgentBindHost(value?: string): string {

@@ -5,7 +5,9 @@ exports.normalizeRemoteTmuxSessionPrefix = normalizeRemoteTmuxSessionPrefix;
 exports.defaultAgentTmuxSessionName = defaultAgentTmuxSessionName;
 exports.isValidRemoteTmuxSessionName = isValidRemoteTmuxSessionName;
 exports.agentTmuxStartupCommand = agentTmuxStartupCommand;
+exports.defaultAgentTmuxWindowName = defaultAgentTmuxWindowName;
 const TunnelGateway_1 = require("./TunnelGateway");
+const ProjectRootMap_1 = require("../features/ProjectRootMap");
 const RemoteResourcePrefix_1 = require("../config/RemoteResourcePrefix");
 var RemoteResourcePrefix_2 = require("../config/RemoteResourcePrefix");
 Object.defineProperty(exports, "remoteAgentDirectoryName", { enumerable: true, get: function () { return RemoteResourcePrefix_2.remoteAgentDirectoryName; } });
@@ -34,13 +36,20 @@ function agentTmuxStartupCommand(options) {
     const host = normalizeAgentBindHost(options.host);
     const sessionPrefix = normalizeRemoteTmuxSessionPrefix(options.sessionPrefix);
     const session = defaultAgentTmuxSessionName(role, options.endpointId, sessionPrefix);
+    const window = defaultAgentTmuxWindowName(options.workDir);
     const condaEnv = normalizeCondaEnvName(options.condaEnv);
     const requireCondaEnv = condaEnv ? "1" : "0";
-    const config = JSON.stringify({ projectDir: options.workDir || options.installDir || "", installDir: options.installDir || "", stateDir: options.stateDir, workerStateDir: options.workerStateDir, mode, workerId: options.endpointId || "", host, port, condaEnv, sessionPrefix, tmuxSession: session, tmuxWindow: "agent" });
+    const config = JSON.stringify({ projectDir: options.workDir, installDir: options.installDir || "", stateDir: options.stateDir, workerStateDir: options.workerStateDir, mode, workerId: options.endpointId || "", host, port, condaEnv, sessionPrefix, tmuxSession: session, tmuxWindow: window });
     return [exports.simpleAgentTmuxCommandVersion, "unset TMUX",
         `SESSION=${shellQuote(session)}`, `SIMPLE_EXPERIMENT_CONDA_ENV=${shellQuote(condaEnv)}`,
         `SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV=${shellQuote(requireCondaEnv)}`,
         `python3 ${shellQuote((options.installDir || "").replace(/\/+$/, "") + "/" + exports.simpleAgentRuntimeRelativePath)} lifecycle --action ensure --config ${shellQuote(config)}`].join("; ");
+}
+function defaultAgentTmuxWindowName(projectDir) {
+    const root = (0, ProjectRootMap_1.canonicalRemotePath)(String(projectDir || ""));
+    if (!root.ok || root.path === "/")
+        throw new Error("AGENT_PROJECT_REQUIRED：项目目录尚未确定。");
+    return `agent-${(0, ProjectRootMap_1.projectIdentityKey)({ projectDir: root.path }).slice(0, 16)}`;
 }
 function normalizeAgentBindHost(value) {
     const input = String(value || "127.0.0.1").trim() || "127.0.0.1";

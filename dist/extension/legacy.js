@@ -10213,7 +10213,7 @@ class RealtimeTunnelPanelProvider {
             throw confirmationRequired({
                 operation: "agents.lifecycle", requires: ["confirm"], preview: { action, targets: normalizeRemoteWriteTargets(targets),
                     tmuxTargets: targets.map(target => ({ serverId: target.id, host: target.host, port: target.port,
-                        session: AgentTmuxPolicy_1.defaultAgentTmuxSessionName(target.id === "hub" ? "hub" : "worker", target.id === "hub" ? undefined : target.id, this.setupConfig.remoteTmuxSessionPrefix), window: "agent" })) },
+                        session: AgentTmuxPolicy_1.defaultAgentTmuxSessionName(target.id === "hub" ? "hub" : "worker", target.id === "hub" ? undefined : target.id, this.setupConfig.remoteTmuxSessionPrefix), window: AgentTmuxPolicy_1.defaultAgentTmuxWindowName(target.projectWorkDir) })) },
             });
         const runtimeDir = path.join(__dirname, "..", "runtime");
         const [agent, scheduler] = await Promise.all([fs.readFile(path.join(runtimeDir, "cluster_agent.py"), "utf8"), fs.readFile(path.join(runtimeDir, "cluster_scheduler.py"), "utf8")]);
@@ -10271,7 +10271,7 @@ class RealtimeTunnelPanelProvider {
                     host: config.remoteAgentHost, port: config.remoteTelemetryPort || config.remoteAgentPort,
                     sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix,
                     tmuxSession: AgentTmuxPolicy_1.defaultAgentTmuxSessionName(target.id === "hub" ? "hub" : "worker", target.id === "hub" ? undefined : target.id, this.setupConfig.remoteTmuxSessionPrefix),
-                    tmuxWindow: "agent",
+                    tmuxWindow: AgentTmuxPolicy_1.defaultAgentTmuxWindowName(dirs.workDir),
                     agentToken: this.tunnelConfig?.token || "",
                     expectedVersion: manifest?.runtimeVersion || RuntimeManifest_1.CURRENT_RUNTIME_VERSION, files: manifest?.files,
                     migrationDigest,
@@ -26693,11 +26693,13 @@ class RealtimeTunnelPanelProvider {
     }
     async fetchTmuxCaptureRound(message, options = {}) {
         const workerId = this.tmuxWorkerId(message);
-        const _pfxRaw = this.setupConfig?.remoteTmuxSessionPrefix || "simple";
-        const _pfx = (0, AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix)(_pfxRaw);
-        const _wid = workerId;
-        const fallbackWin = _wid ? (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", _wid, _pfx) : `${_pfx}-worker-agent`;
-        const win = String(message?.window || message?.session || message?.name || "").trim() || fallbackWin;
+        let win = String(message?.window || message?.session || message?.name || "").trim();
+        if (!win) {
+            const projectDir = this.expectedWorkerAgentProjectRoot(workerId);
+            if (!projectDir)
+                throw new Error("请先确定项目，或选择该 Worker 的精确窗口后读取日志。");
+            win = AgentTmuxPolicy_1.defaultAgentTmuxSessionName("worker", workerId, this.setupConfig.remoteTmuxSessionPrefix) + ":" + AgentTmuxPolicy_1.defaultAgentTmuxWindowName(projectDir);
+        }
         options.signal?.throwIfAborted();
         try {
             // 优先走 tunnel client 的通用 request，若不可用则回退为直接本机端口探测
@@ -28669,6 +28671,7 @@ class RealtimeTunnelPanelProvider {
                 id: worker.id,
                 filePath,
                 tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id, this.setupConfig.remoteTmuxSessionPrefix),
+                tmuxWindowName: AgentTmuxPolicy_1.defaultAgentTmuxWindowName(dirs.workDir),
                 command: `unset SIMPLE_EXPERIMENT_HUB_UPLINK_URL; ${workerCommand}`,
             });
         }
@@ -28712,6 +28715,7 @@ class RealtimeTunnelPanelProvider {
                     configured: Boolean((worker.workerHost || worker.hubHost) && (worker.workerUser || worker.hubUser)),
                     sessionPath: worker.savedSessionPath,
                     tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id, this.setupConfig.remoteTmuxSessionPrefix),
+                    tmuxWindowName: dirs.workDir ? AgentTmuxPolicy_1.defaultAgentTmuxWindowName(dirs.workDir) : undefined,
                     actualWorkRoot: dirs.workRoot,
                     installDir: dirs.installDir,
                     agentDirectoryName: dirs.agentDirectoryName,

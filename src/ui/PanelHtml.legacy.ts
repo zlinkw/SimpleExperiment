@@ -5788,7 +5788,7 @@ export function renderPanelHtml(): string {
       const agent = agentSessions && typeof agentSessions === "object" ? agentSessions : {};
       return {
         hub: compactRecordForSignature(agent.hub || {}, ["configured", "actualWorkRoot", "installDir", "workDir", "projectName"]),
-        workers: compactRowsForSignature(agent.workers, SECTION_SIGNATURE_ROW_LIMIT, ["id", "displayName", "enabled", "configured", "actualWorkRoot", "installDir", "workDir", "projectName", "agentDirectoryName", "installDirIsExplicit"])
+        workers: compactRowsForSignature(agent.workers, SECTION_SIGNATURE_ROW_LIMIT, ["id", "displayName", "enabled", "configured", "actualWorkRoot", "installDir", "workDir", "projectName", "agentDirectoryName", "installDirIsExplicit", "tmuxSessionName", "tmuxWindowName"])
       };
     }
 
@@ -9626,6 +9626,7 @@ export function renderPanelHtml(): string {
       const codePath = meaningfulValue(item.workDir);
       const installDir = meaningfulValue(item.installDir).replace(/\\/+$/, "");
       const runtimePath = installDir ? installDir + "/simple_cluster/runtime" : "";
+      const agentWindow = meaningfulValue(item.tmuxSessionName) && meaningfulValue(item.tmuxWindowName) ? meaningfulValue(item.tmuxSessionName) + ":" + meaningfulValue(item.tmuxWindowName) : "";
       const projectName = meaningfulValue(item.projectName);
       const hasRoot = Boolean(meaningfulValue(item.actualWorkRoot));
       const codeMissing = hasRoot && !projectName ? "打开本地项目后显示" : "保存项目父目录后显示";
@@ -9634,6 +9635,7 @@ export function renderPanelHtml(): string {
       return '<div class="serverDestinationPreview" data-destination-preview="' + escAttr(scope || "") + '" data-project-name="' + escAttr(projectName) + '" data-agent-directory-name="' + escAttr(meaningfulValue(item.agentDirectoryName)) + '" data-install-dir-is-explicit="' + String(item.installDirIsExplicit === true) + '" data-saved-install-dir="' + escAttr(installDir) + '" title="' + escAttr(title) + '">' +
         '<span>当前项目代码</span><code data-destination-kind="code">' + esc(codePath || codeMissing) + '</code>' +
         '<span>Agent runtime</span><code data-destination-kind="runtime">' + esc(runtimePath || runtimeMissing) + '</code>' +
+        '<span>配置的 Agent 窗口</span><code data-destination-kind="agentWindow">' + esc(agentWindow || (codePath ? "等待读取服务目标" : "打开项目后确定")) + '</code>' +
         '<span class="destinationPreviewStatus" data-destination-status>' + esc(hasRoot && !projectName ? "已保存服务器根目录；等待打开本地项目" : "基于已保存配置") + '</span>' +
       '</div>';
     }
