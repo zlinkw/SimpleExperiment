@@ -555,6 +555,8 @@ PFX3e/E1a 提交 0c4bea2fad144b1df5dbb11d59b0a99989c4c176 已普通 push/fetch �
 
 PFX4-test 独立测试准备：文档消费者 publicCliAliases 原 0/1，pfx4-publicCliAliases.test.js.log，固定要求 package bin=`./dist/cli.js`，但已提交正式入口早已是稳定 shim `./bin/simpleex.cjs`，bin/package/CLI 本批没有改动。改断言为当前既有公开入口并核实文件存在，唯一别名、历史 recorded kernel 导出、require.main、用法及技术说明全部原断言保留；当前原套件 1/1、exit=0，pfx4-cli-entry-fixed.log。仅该测试和计划单独提交，不混入六文档及 guide 测试，避免 8 文件上限；不改生产版本、包、CLI 功能或安装。其他文档回归仍继续，PFX4 生产输入未变，沿用同一个已验证 VSIX。
 
+PFX4-test2 独立测试准备：runConfirmationFingerprintLabelClarity 原 0/1，仍要求早已退役的“同步 Hub/Worker”提示，pfx4-runConfirmationFingerprintLabelClarity.test.js.log。当前真实批量确认已明确“同步全部启用 Worker 的代码并核验代码指纹”，Host 本批未改；更新这一处过时文案断言，指纹字段、实际匹配函数与指南解释的原断言完整保留，pfx4-worker-wording-fixed.log 1/1 通过。仅此测试和计划提交，不改生产代码或恢复 Hub；未改其他测试、版本或重打包。
+
 ## 发现线索与后续边界（以批次状态为准）
 
 - D1c 新确证：Host scalarAgentFetch 直接访问配置隧道，仅附 Agent token；scalar catalog/query 与 native UI proxy 请求未带当前项目/Worker 身份。Agent 相应 GET 直接使用其自己的 root 返回 scalar_catalog，未核对调用窗口预期项目。故将另一项目 Agent 的端口误填到当前项目时，可把其图表当作当前项目数据；已修正的 /api/tensorboard/service 控制路由有 root/Worker 校验，不能冒称覆盖了这些只读路径。后续独立批在支持的新请求路径中核对稳定项目和 Worker、禁用目标不访问，旧 Agent 明确不支持而不回退；不自动启动/重启/部署，不修改指标或科研分析策略。先保留当前 PFX3c 冻结候选，D1c 完成前不声称共享账号隔离已经全部收口。

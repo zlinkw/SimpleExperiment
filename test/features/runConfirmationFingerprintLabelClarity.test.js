@@ -10,7 +10,7 @@ const legacyNotes = fs.readFileSync(path.join(__dirname, "../../docs/technical-n
 
 test("run confirmations explain code fingerprint without renaming the internal field", () => {
   assert.match(extension, /核验代码指纹、校验 Plan、预演调度/);
-  assert.match(extension, /同步 Hub\/Worker 代码并核验代码指纹/);
+  assert.match(extension, /同步全部启用 Worker 的代码并核验代码指纹/);
   assert.match(extension, /const fingerprint = fingerprintFromManifest\(manifest\)/);
   assert.match(extension, /sftpFingerprintMatches\(record, fingerprint\)/);
   assert.match(legacyNotes, /运行确认窗口同样显示“核验代码指纹”/);
