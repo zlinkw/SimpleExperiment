@@ -99,7 +99,7 @@ test("settings and confirmations explain the effective runtime environment", () 
   assert.match(extension, /remoteTmuxSessionPrefix: patch\.remoteTmuxSessionPrefix === undefined \? this\.setupConfig\.remoteTmuxSessionPrefix : patch\.remoteTmuxSessionPrefix/);
   assert.match(agentSource, /conda_declared = any\(key in command/);
   assert.match(agentSource, /env\["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"\] = "1" if conda_env else "0"/);
-  assert.match(panel, /Conda 环境绝对路径（可选，必填完整路径）/);
+  assert.match(panel, /Conda 环境绝对路径/);
   assert.match(panel, /留空使用系统 Python/);
 });
 

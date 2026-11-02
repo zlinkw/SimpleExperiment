@@ -71,6 +71,7 @@
 | D1c | TensorBoard 只读查询与实际浏览器入口绑定当前项目和启用 Worker | passed |
 | D1d | 独立旧代理类的调用关系核实 | not-applicable（当前无调用方，不扩改） |
 | D1 | 零目标、禁用、未核实、离线；精确附着与项目绑定查询 | passed（本机覆盖，真实服务器待验证） |
+| D2-test | 原 Conda 标题测试固定真实字段含义，不保留矛盾文案 | passed |
 | D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | pending |
 | D3 | 保存范围、生效时间与草稿恢复 | pending |
 | E1 | 主次/危险操作、错误、帮助、空态与刷新范围 | partial（E1a passed，最终覆盖核对随 E2） |
@@ -569,6 +570,12 @@ PFX4 提交 ded154f1f14e2c930e9112a354211361a943c771 已普通 push/fetch 一致
 PFX4b 最终检查：现行约束与实际 globalValue、AgentTmuxPolicy、tb_tmux_session_name、LocalApiServer 入口逐项核对一致；两份历史说明原文未替换，仅增加当前契约指向。唯一直接文档消费者 fileTransferBoundaryDocs 1/1、exit=0，pfx4b-fileTransferBoundaryDocs.log；UTF-8 复读与 git diff --check 通过。5 文档，无运行输入或版本变化，未编译、重打包、安装、发布或操作服务器。全局 AGENTS/build-test-delivery/caveman 的实际文件时间再次核对未变化，继续使用当前版本。
 
 前缀组代码与说明收口完成：当前默认 simple、唯一用户级全局来源、每次打开默认提醒、项目内 Agent、共享 GPU 例外及旧资源不自动迁移均已记录；现存历史文本或用户显式 zlk 不是错误配置源，不按零字符串命中抹去历史。公开试行继续等待 D2 已证图表范围标题修正及剩余产品批次，权威版 440/117 与已安装版本均未改变。下一批先独立准备原两 Conda label 测试，随后 D2 按当前 8 文件边界实现、最小回归/实际渲染与规定 package，D3/E2 仍未完成。
+
+## 当前批次 D2
+
+PFX4b 提交 dd853cde7e0e04e68189ce655f1a7d75ccde54d8 已普通 push/fetch 一致。D2-test 独立准备只改原 publicRuntimeEnvironmentDefault/projectEnvironmentOnboarding 的标题匹配，仍要求“Conda 环境绝对路径”，不固定“可选，必填完整路径”矛盾括注；其余系统 Python、显式环境、环境清单非门禁、全局前缀/提醒等断言全部保留。原已提交候选未改，8+1=9 项通过，d2-prep-*.log；仅两测试和计划提交，无版本、编译、组包或现场操作。
+
+D2 当前边界：默认值及边界一致、全局→服务器→逐卡/Conda 继承语义、TB 项目端口及真实读取范围，共 3 相关设置问题。Host/UI legacy/ScalarDashboardHtml、原 serverQuotaPersistence、三版本及计划，共 8 文件，内部版本拟为 0.5.479。默认事件 200、抖动 30，与现有 schema/保存上限一致；不新增性能测试或改采样。Worker Conda 明确继承/系统/绝对路径，缺字段保存不固化继承，API 无 mode 的显式空值仍为系统。GPU 空值/0/不限按真实现有配额含义显示；保留已有旧配额兼容换算，不把它伪装为全局继承。TB port 允许工作区覆盖并显示配置生效值/下次主动启动时机，保留全局默认和已运行服务事实；不自动换端口/停止服务。曲线明确标量全部启用 Worker、原生所选目标，保留原聚合功能与不保存原始指标。失败草稿基础行为保留，保存中输入的精确清理归下一 D3。先复现再实现/定向/隔离脚本/规定 package，生产冻结期间不改输入；不发布中间包或安装。
 
 ## 发现线索与后续边界（以批次状态为准）
 
