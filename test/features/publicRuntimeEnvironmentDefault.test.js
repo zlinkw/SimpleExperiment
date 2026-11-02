@@ -94,11 +94,106 @@ test("settings and confirmations explain the effective runtime environment", () 
   assert.match(extension, /function condaEnvPatch\(patch, key, fallback = ""\)/);
   assert.match(extension, /return condaEnv \? `Conda \$\{condaEnv\}` : "系统 Python（未指定 Conda）"/);
   assert.match(extension, /updateXshellSessionLoginCommand\)\(target\.filePath, target\.command/);
-  assert.match(panel, /configInput\("defaults", "remoteTmuxSessionPrefix", "tmux 会话前缀"/);
+  assert.match(panel, /configInput\("defaults", "remoteTmuxSessionPrefix", "全局远端资源前缀"/);
   assert.match(panel, /cards\.push\([\s\S]{0,500}data-anchor="servers-session-defaults"[\s\S]{0,700}remoteTmuxSessionPrefix/);
-  assert.match(extension, /remoteTmuxSessionPrefix: String\(patch\.remoteTmuxSessionPrefix \|\| this\.setupConfig\.remoteTmuxSessionPrefix \|\| "simple"/);
+  assert.match(extension, /remoteTmuxSessionPrefix: patch\.remoteTmuxSessionPrefix === undefined \? this\.setupConfig\.remoteTmuxSessionPrefix : patch\.remoteTmuxSessionPrefix/);
   assert.match(agentSource, /conda_declared = any\(key in command/);
   assert.match(agentSource, /env\["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"\] = "1" if conda_env else "0"/);
   assert.match(panel, /Conda 环境绝对路径（可选，必填完整路径）/);
   assert.match(panel, /留空使用系统 Python/);
+});
+
+function prefixFixture() {
+  const vm = require("node:vm"), ts = require("typescript");
+  const source = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
+  const ast = ts.createSourceFile("host.ts", source, ts.ScriptTarget.Latest, true);
+  const cls = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === "RealtimeTunnelPanelProvider");
+  const names = ["loadSetupConfig", "sessionDefaultInspections", "sessionDefaultConfigurationSignature", "persistGlobalResourcePrefix", "remindDefaultResourcePrefix", "applySetupDraft"];
+  const members = cls.members.filter(node => names.includes(node.name?.getText(ast))).map(node => node.getText(ast)).join("\n");
+  const state = { prefix: undefined, project: "/local/demo", prompts: 0, choice: "稍后", value: "alice", writes: [],
+    savedConfig: { remoteTmuxSessionPrefix: "zlk", sessionPrefix: "other-old-prefix", workerTunnels: [] } };
+  const config = { inspect: key => key === "tunnel.remoteTmuxSessionPrefix"
+    ? { defaultValue: "simple", globalValue: state.prefix, workspaceValue: "workspace-prefix", workspaceFolderValue: "folder-prefix" }
+    : { defaultValue: "", ...(key === "tunnel.condaEnv" ? { globalValue: state.globalConda } : {}) },
+    update: async (key, value, scope) => { state.writes.push({ key, value, scope }); state.prefix = value; } };
+  const code = ts.transpileModule("class Host {" + members + "}; Host", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const Host = vm.runInNewContext(code, {
+    vscode: { ConfigurationTarget: { Global: 1 }, workspace: { getConfiguration: () => config }, window: {
+      showWarningMessage: async () => { state.prompts++; return state.choice; }, showInputBox: async () => state.value,
+    } },
+    ConfigurationSettings_1: require(path.join(root, "dist/tunnel/ConfigurationSettings.js")),
+    XshellTunnelSetup_1: require(path.join(root, "dist/tunnel/XshellTunnelSetup.js")),
+    AgentTmuxPolicy_1: require(path.join(root, "dist/tunnel/AgentTmuxPolicy.js")),
+    TunnelGateway_1: { normalizeTunnelGatewayConfig: value => value, xshellTunnelConnectionMode: "xshell_realtime" },
+    workspaceRoot: () => state.project, keys: { setupConfig: "setup", setupConfigurationSignature: "signature" },
+    readProjectConnectionValue: (_context, _root, key) => key === "setup" ? state.savedConfig : state.signature,
+    nonEmptyWorkerTunnelConfig: () => [],
+    saveProjectConnectionValues: async () => {},
+  });
+  const host = new Host(); host.context = {}; host.tunnelConfig = {}; host.postState = () => {};
+  host.lastWorkerProbes = {}; host.saveState = async () => {}; host.resetClient = () => {};
+  host.setupConfig = host.loadSetupConfig();
+  return { host, state };
+}
+
+test("resource prefix comes only from global user configuration across projects and without a project", () => {
+  const { host, state } = prefixFixture();
+  assert.equal(host.loadSetupConfig().remoteTmuxSessionPrefix, "simple");
+  state.prefix = "alice";
+  assert.equal(host.loadSetupConfig().remoteTmuxSessionPrefix, "alice");
+  state.project = "/another/project";
+  assert.equal(host.loadSetupConfig().remoteTmuxSessionPrefix, "alice");
+  state.project = "";
+  assert.equal(host.loadSetupConfig().remoteTmuxSessionPrefix, "alice");
+  assert.doesNotMatch(extension, /setupConfig(?:\s+as\s+any)?\)?\??\.sessionPrefix|get\("sessionPrefix"\)|projectSessionPrefixPrompt/);
+});
+
+test("a prefix change preserves saved project Conda with both existing and new signatures", () => {
+  const { host, state } = prefixFixture();
+  state.savedConfig.condaEnv = "/project/env"; state.globalConda = "/global/env"; state.prefix = "alice";
+  const condaInspection = ["", null, null, "/global/env"];
+  for (const signature of [JSON.stringify([["simple", null, null, "old-prefix"], condaInspection]), JSON.stringify([condaInspection])]) {
+    state.signature = signature;
+    assert.equal(host.loadSetupConfig().condaEnv, "/project/env");
+    state.prefix = "bob";
+    assert.equal(host.loadSetupConfig().condaEnv, "/project/env");
+  }
+  state.globalConda = "/changed/global/env";
+  assert.equal(host.loadSetupConfig().condaEnv, "/changed/global/env");
+});
+
+test("ordinary server snapshots cannot write an obsolete project prefix back to global settings", async () => {
+  const { host, state } = prefixFixture(); state.prefix = "alice";
+  await host.applySetupDraft({ remoteTmuxSessionPrefix: "zlk", workerTunnels: [] });
+  assert.equal(host.setupConfig.remoteTmuxSessionPrefix, "alice");
+  assert.equal(state.writes.length, 0);
+  await host.applySetupDraft({ remoteTmuxSessionPrefix: "team", workerTunnels: [] }, { saveGlobalResourcePrefix: true });
+  assert.equal(host.setupConfig.remoteTmuxSessionPrefix, "team");
+  assert.deepEqual(state.writes, [{ key: "tunnel.remoteTmuxSessionPrefix", value: "team", scope: 1 }]);
+});
+
+test("every plugin opening reminds while the default is unchanged and global save works without a project", async () => {
+  const { host, state } = prefixFixture();
+  await host.remindDefaultResourcePrefix(); await host.remindDefaultResourcePrefix();
+  assert.equal(state.prompts, 2);
+  state.choice = "设置全局前缀"; state.project = "";
+  await host.remindDefaultResourcePrefix();
+  assert.equal(state.prefix, "alice");
+  assert.deepEqual(state.writes, [{ key: "tunnel.remoteTmuxSessionPrefix", value: "alice", scope: 1 }]);
+  await host.remindDefaultResourcePrefix();
+  assert.equal(state.prompts, 3);
+  await assert.rejects(host.persistGlobalResourcePrefix("bad prefix"), /全局资源前缀/);
+  assert.equal(state.writes.length, 1);
+  assert.match(extension, /if \(webviewView\.visible\) void this\.remindDefaultResourcePrefix\(\)/);
+  assert.match(extension, /if \(becameVisible\) void this\.remindDefaultResourcePrefix\(\)/);
+  assert.match(panel, /未修改时每次打开插件都会提醒/);
+});
+
+test("a global prefix change participates in the real settings render model", () => {
+  const vm = require("node:vm");
+  const sandbox = { compactRecordForSignature: value => value, compactRowsForSignature: value => value, SECTION_SIGNATURE_ROW_LIMIT: 100 };
+  vm.createContext(sandbox);
+  vm.runInContext(require("../_helpers/panelFunction")("compactSetupForSignature"), sandbox);
+  assert.equal(sandbox.compactSetupForSignature({ remoteTmuxSessionPrefix: "alice" }).remoteTmuxSessionPrefix, "alice");
+  assert.notDeepEqual(sandbox.compactSetupForSignature({ remoteTmuxSessionPrefix: "alice" }), sandbox.compactSetupForSignature({ remoteTmuxSessionPrefix: "simple" }));
 });

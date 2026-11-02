@@ -396,7 +396,6 @@ const keys = {
     firstRunSetupPrompt: "simpleExperiment.firstRunSetupPromptVersion",
     projectOnboardingPrompt: "simpleExperiment.projectOnboardingPromptVersion",
     projectOnboardingCompleted: "simpleExperiment.projectOnboardingCompleted",
-    projectSessionPrefixPrompt: "simpleExperiment.projectSessionPrefixPromptVersion",
     legacySftpNoticeShown: "simpleExperiment.legacySftpNoticeShown",
     pendingWorkspaceContinuation: "simpleExperiment.pendingWorkspaceContinuation",
     pluginUpdateStatus: "simpleExperiment.pluginUpdateStatus",
@@ -418,7 +417,6 @@ const API_STATE_KEYS = {
     firstRunSetupPrompt: { store: "global", label: "首次运行提示版本", writable: true },
     projectOnboardingPrompt: { store: "workspace", label: "项目引导提示版本", writable: true },
     projectOnboardingCompleted: { store: "workspace", label: "项目引导完成标记", writable: true },
-    projectSessionPrefixPrompt: { store: "workspace", label: "项目会话前缀提示版本", writable: true },
     legacySftpNoticeShown: { store: "global", label: "旧 SFTP 插件提示", writable: true },
     pendingWorkspaceContinuation: { store: "global", label: "待续工作区操作", writable: false },
     migrationShown: { store: "global", label: "旧配置迁移提示", writable: true },
@@ -5369,6 +5367,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         this.panelNeedsWebviewReset = false;
         this.view = webviewView;
         this.viewWasVisible = webviewView.visible === true;
+        if (webviewView.visible) void this.remindDefaultResourcePrefix().catch((error) => vscode.window.showErrorMessage(errorMessage(error)));
         this.budget.setHidden(!webviewView.visible);
         this.client.setHidden(!webviewView.visible);
         webviewView.webview.options = { enableScripts: true };
@@ -5390,6 +5389,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             const becameVisible = webviewView.visible === true && !this.viewWasVisible;
             const becameHidden = webviewView.visible !== true && this.viewWasVisible;
             this.viewWasVisible = webviewView.visible === true;
+            if (becameVisible) void this.remindDefaultResourcePrefix().catch((error) => vscode.window.showErrorMessage(errorMessage(error)));
             this.budget.setHidden(!webviewView.visible);
             this.client.setHidden(!webviewView.visible);
             if (becameHidden) {
@@ -9744,7 +9744,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (action !== "inspect" && params.confirm !== true) throw confirmationRequired({
             operation: "agents.lifecycle", requires: ["confirm"], preview: { action, targets: normalizeRemoteWriteTargets(targets),
                 tmuxTargets: targets.map(target => ({ serverId: target.id, host: target.host, port: target.port,
-                    session: AgentTmuxPolicy_1.defaultAgentTmuxSessionName(target.id === "hub" ? "hub" : "worker", target.id === "hub" ? undefined : target.id, (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix), window: "agent" })) },
+                    session: AgentTmuxPolicy_1.defaultAgentTmuxSessionName(target.id === "hub" ? "hub" : "worker", target.id === "hub" ? undefined : target.id, this.setupConfig.remoteTmuxSessionPrefix), window: "agent" })) },
         });
         const runtimeDir = path.join(__dirname, "..", "runtime");
         const [agent, scheduler] = await Promise.all([fs.readFile(path.join(runtimeDir,"cluster_agent.py"),"utf8"), fs.readFile(path.join(runtimeDir,"cluster_scheduler.py"),"utf8")]);
@@ -9794,8 +9794,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             mode: "worker_telemetry", workerId: target.id,
             condaEnv: target.id === "hub" ? config.condaEnv : effectiveWorkerCondaEnv(config, this.setupConfig.condaEnv),
             host: config.remoteAgentHost, port: config.remoteTelemetryPort || config.remoteAgentPort,
-            sessionPrefix: (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix,
-            tmuxSession: AgentTmuxPolicy_1.defaultAgentTmuxSessionName(target.id === "hub" ? "hub" : "worker", target.id === "hub" ? undefined : target.id, (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix),
+            sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix,
+            tmuxSession: AgentTmuxPolicy_1.defaultAgentTmuxSessionName(target.id === "hub" ? "hub" : "worker", target.id === "hub" ? undefined : target.id, this.setupConfig.remoteTmuxSessionPrefix),
             tmuxWindow: "agent",
             agentToken: this.tunnelConfig?.token || "",
             expectedVersion: manifest?.runtimeVersion || RuntimeManifest_1.CURRENT_RUNTIME_VERSION, files: manifest?.files,
@@ -15707,8 +15707,7 @@ this.assertPlanTopologyReady("Plan 调度");
         if (memoryScheduling.gpuCardOverrides && probes?.[workerId]?.capabilities?.endpoints?.gpuCardQuotaScheduling !== 1) throw new Error("GPU_CARD_QUOTA_PROTOCOL_REQUIRED：逐卡配置需要更新 Worker Agent/Scheduler，未发送任务。");
         if (memoryScheduling.gpuMaxConcurrentCards !== undefined && probes?.[workerId]?.capabilities?.endpoints?.gpuCardLimitScheduling !== 1) throw new Error("GPU_CARD_LIMIT_PROTOCOL_REQUIRED：服务器占卡上限需要更新 Worker Agent/Scheduler，未发送任务。");
         const settings = vscode.workspace.getConfiguration("simpleExperiment");
-        const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix
-            || this.setupConfig?.remoteTmuxSessionPrefix || settings.get("sessionPrefix") || settings.get("tunnel.remoteTmuxSessionPrefix") || "simple");
+        const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.remoteTmuxSessionPrefix || "simple");
         const rawMaxConcurrentGpus = workerConfig?.maxConcurrentGpus;
         const maxConcurrentGpus = rawMaxConcurrentGpus === undefined || rawMaxConcurrentGpus === null || rawMaxConcurrentGpus === "auto"
             ? 0 : Number(rawMaxConcurrentGpus);
@@ -18093,9 +18092,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async saveAgentDefaultsFromUi(message) {
         const patch = recordField(message, "patch");
         await this.applySetupDraft({
-            remoteTmuxSessionPrefix: String(patch.remoteTmuxSessionPrefix || this.setupConfig.remoteTmuxSessionPrefix || "simple"),
+            remoteTmuxSessionPrefix: patch.remoteTmuxSessionPrefix === undefined ? this.setupConfig.remoteTmuxSessionPrefix : patch.remoteTmuxSessionPrefix,
             condaEnv: normalizeCondaEnvSetting(patch.condaEnv === undefined ? this.setupConfig.condaEnv : patch.condaEnv),
-        });
+        }, { saveGlobalResourcePrefix: true });
     }
     async saveSchedulerConfigFromUi(message) {
         const patch = recordField(message, "patch");
@@ -20790,21 +20789,6 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (open === "打开服务器设置")
                 await this.openPanelAt("settings", "settings-servers", { userInitiated: true });
             return;
-        }
-        if (Number(this.context.workspaceState.get(keys.projectSessionPrefixPrompt, 0)) < 1) {
-            const configurePrefix = await vscode.window.showInformationMessage(
-                `服务器配置已就绪。可为当前项目统一设置远端 tmux 会话前缀，便于区分不同用户；当前值：${(this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix || "simple"}。`,
-                "设置会话前缀",
-                "使用当前前缀",
-            );
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            await this.context.workspaceState.update(keys.projectSessionPrefixPrompt, 1);
-            if (configurePrefix === "设置会话前缀") {
-                const prefix = await input("tmux 会话前缀", (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix || "simple", "例如 simple、zlk 或用户名缩写", "仅允许小写字母、数字、点、下划线和连字符。");
-                if (prefix !== undefined && prefix.trim())
-                    await this.applySetupDraft({ remoteTmuxSessionPrefix: prefix.trim() });
-            }
         }
         if (!plans.length) {
             await this.generatePlanGuideFromUi(false);
@@ -23889,8 +23873,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         assertRetryRequestCurrent();
         if (method === "files.cleanup.preview" || method === "files.cleanup.execute") {
             const settings = vscode.workspace.getConfiguration("simpleExperiment");
-            const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix
-                || this.setupConfig?.remoteTmuxSessionPrefix || settings.get("sessionPrefix") || settings.get("tunnel.remoteTmuxSessionPrefix") || "simple");
+            const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.remoteTmuxSessionPrefix || "simple");
             params = { ...(params || {}), tmuxSessionPrefix };
         }
         const { fileIndexRound, fileIndexBinding, ...plainRequest } = params || {};
@@ -24553,7 +24536,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const endpoint = (this.client as any)?.endpointById?.get?.(endpointId);
         if (!endpoint) throw new Error(`未找到 ${endpointId} 的 Agent 隧道配置`);
         const cfg = vscode.workspace.getConfiguration("simpleExperiment");
-        const rawPrefix = String((this as any).setupConfig?.sessionPrefix || (this as any).setupConfig?.remoteTmuxSessionPrefix || cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || "simple").trim() || "simple";
+        const rawPrefix = String((this as any).setupConfig?.remoteTmuxSessionPrefix || "simple").trim() || "simple";
         // 统一归一：与 agent 侧 tb_tmux_session_name / write_snapshots 完全一致（小写、非法→-、截32）
         const normPrefix = (() => {
             try {
@@ -24615,7 +24598,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const endpointId = String(message?.endpointId || "").trim();
         if (!endpointId) return;
         const cfg = vscode.workspace.getConfiguration("simpleExperiment");
-        const sessionPrefix = String((this as any).setupConfig?.sessionPrefix || (this as any).setupConfig?.remoteTmuxSessionPrefix || cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || "simple");
+        const sessionPrefix = String((this as any).setupConfig?.remoteTmuxSessionPrefix || "simple");
         try {
             const status = await this.postTensorboardAction(endpointId, "get-tensorboard-status", { sessionPrefix, port: Number(cfg.get("tensorboard.port") as any) || 6006 });
             this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: !!status?.running, listening: !!status?.listening });
@@ -24627,7 +24610,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const endpointId = String(message?.endpointId || "").trim();
         if (!endpointId) throw new Error("缺少服务器 ID");
         const cfg = vscode.workspace.getConfiguration("simpleExperiment");
-        const sessionPrefix = String((this as any).setupConfig?.sessionPrefix || (this as any).setupConfig?.remoteTmuxSessionPrefix || cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || "simple");
+        const sessionPrefix = String((this as any).setupConfig?.remoteTmuxSessionPrefix || "simple");
         const stopped = await this.postTensorboardAction(endpointId, "stop-tensorboard", { sessionPrefix });
         if (stopped?.status === "failed") throw new Error(String(stopped.message || "远端关闭失败"));
         this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: false });
@@ -24815,7 +24798,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
     private async fetchTmuxCaptureRound(message: any, options: { signal?: AbortSignal; publish?: boolean } = {}) {
         const workerId = this.tmuxWorkerId(message);
-        const _pfxRaw = (this.setupConfig as any)?.sessionPrefix || (this.setupConfig as any)?.remoteTmuxSessionPrefix || "simple";
+        const _pfxRaw = (this.setupConfig as any)?.remoteTmuxSessionPrefix || "simple";
         const _pfx = (0, AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix)(_pfxRaw);
         const _wid = workerId;
         const fallbackWin = _wid ? (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", _wid, _pfx) : `${_pfx}-worker-agent`;
@@ -24910,7 +24893,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
     publishTmuxList(workerId: string, result: any, requestId?: number, publish = true) {
         const cfg = vscode.workspace.getConfiguration("simpleExperiment");
-        const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix || this.setupConfig?.remoteTmuxSessionPrefix || cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || "simple");
+        const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.remoteTmuxSessionPrefix || "simple");
         const payload = { type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId, requestId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), tmuxSessionPrefix, sessionActions: result?.sessionActions || [], gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() };
         if (publish) this.view?.webview.postMessage(payload);
         return payload;
@@ -25101,7 +25084,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             this.tmuxClearTaskTabsInFlight = true;
             const prefix = () => {
                 const cfg = vscode.workspace.getConfiguration("simpleExperiment");
-                return AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix || this.setupConfig?.remoteTmuxSessionPrefix || cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || "simple");
+                return AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.remoteTmuxSessionPrefix || "simple");
             };
             try {
                 if (message.sessionAction) {
@@ -25884,13 +25867,23 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         });
     }
     loadSetupConfig() {
-        if (!workspaceRoot()) return XshellTunnelSetup_1.normalizeXshellSetupConfig({ ...XshellTunnelSetup_1.defaultXshellTunnelSetupConfig, workerTunnels: [] });
-        const saved = readProjectConnectionValue(this.context, workspaceRoot(), keys.setupConfig) || {};
         const config = vscode.workspace.getConfiguration("simpleExperiment");
+        const remoteTmuxSessionPrefix = config.inspect("tunnel.remoteTmuxSessionPrefix")?.globalValue ?? XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.remoteTmuxSessionPrefix;
+        if (!workspaceRoot()) return XshellTunnelSetup_1.normalizeXshellSetupConfig({ ...XshellTunnelSetup_1.defaultXshellTunnelSetupConfig, remoteTmuxSessionPrefix, workerTunnels: [] });
+        const saved = readProjectConnectionValue(this.context, workspaceRoot(), keys.setupConfig) || {};
         const sessionDefaults = this.sessionDefaultInspections(config);
         const storedSignature = readProjectConnectionValue(this.context, workspaceRoot(), keys.setupConfigurationSignature);
         const hasStoredSignature = typeof storedSignature === "string";
-        const savedDefaultsWin = hasStoredSignature && storedSignature === this.sessionDefaultConfigurationSignature(sessionDefaults);
+        let savedDefaultsWin = false;
+        if (hasStoredSignature) {
+            try {
+                const previous = JSON.parse(storedSignature);
+                // Older signatures included the prefix before Conda. Prefix changes
+                // must not invalidate the project's saved environment.
+                const condaSignature = Array.isArray(previous) && previous.length === 2 ? JSON.stringify([previous[1]]) : storedSignature;
+                savedDefaultsWin = condaSignature === this.sessionDefaultConfigurationSignature(sessionDefaults);
+            } catch { /* Invalid comparison metadata cannot override user settings. */ }
+        }
         const sessionDefaultValue = (key, savedValue, fallback) => {
             if (savedDefaultsWin)
                 return savedValue === undefined ? fallback : savedValue;
@@ -25907,11 +25900,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             xshellExePath: saved.xshellExePath || this.tunnelConfig.xshellExePath || "",
             hubDisplayName: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.hubDisplayName", saved.hubDisplayName),
             agentLoginPolicy: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.agentLoginPolicy", saved.agentLoginPolicy || "preserve"),
-            remoteTmuxSessionPrefix: sessionDefaultValue(
-                "tunnel.remoteTmuxSessionPrefix",
-                saved.remoteTmuxSessionPrefix,
-                XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.remoteTmuxSessionPrefix,
-            ),
+            remoteTmuxSessionPrefix,
             condaEnv: sessionDefaultValue(
                 "tunnel.condaEnv",
                 saved.condaEnv,
@@ -25926,18 +25915,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
     sessionDefaultInspections(config = vscode.workspace.getConfiguration("simpleExperiment")) {
         return {
-            remoteTmuxSessionPrefix: config.inspect("tunnel.remoteTmuxSessionPrefix"),
             condaEnv: config.inspect("tunnel.condaEnv"),
         };
     }
     sessionDefaultConfigurationSignature(inspections = this.sessionDefaultInspections()) {
         return JSON.stringify([
-            inspections.remoteTmuxSessionPrefix && [
-                inspections.remoteTmuxSessionPrefix.defaultValue,
-                inspections.remoteTmuxSessionPrefix.workspaceFolderValue,
-                inspections.remoteTmuxSessionPrefix.workspaceValue,
-                inspections.remoteTmuxSessionPrefix.globalValue,
-            ],
             inspections.condaEnv && [
                 inspections.condaEnv.defaultValue,
                 inspections.condaEnv.workspaceFolderValue,
@@ -25973,10 +25955,16 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         });
     }
     async applySetupDraft(patch, options = {}) {
+        const globalPrefix = vscode.workspace.getConfiguration("simpleExperiment").inspect("tunnel.remoteTmuxSessionPrefix")?.globalValue ?? XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.remoteTmuxSessionPrefix;
         let next = (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)({
             ...this.setupConfig,
             ...patch,
+            remoteTmuxSessionPrefix: globalPrefix,
         });
+        if (options.saveGlobalResourcePrefix === true) {
+            await this.persistGlobalResourcePrefix(patch.remoteTmuxSessionPrefix);
+            next.remoteTmuxSessionPrefix = String(patch.remoteTmuxSessionPrefix).trim();
+        }
         if (options.syncAssignmentsFromFields)
             next = this.withAssignmentsFromConfigFields(next);
         this.setupConfig = next;
@@ -25997,12 +25985,37 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             allowStreaming: true,
             refreshProfile: "realtime",
         });
-        // A panel save belongs to this project. Explicit user/global settings
-        // remain templates; changing this panel must not rewrite other windows.
+        // Only the explicit prefix form changes the global value. Full connection
+        // snapshots can contain an old prefix and must never publish it globally.
         await this.saveState();
         await saveProjectConnectionValues(this.context, workspaceRoot(), { [keys.setupConfigurationSignature]: this.sessionDefaultConfigurationSignature() });
         this.resetClient();
         this.postState();
+    }
+    async persistGlobalResourcePrefix(value) {
+        const prefix = String(value || "").trim();
+        if (!/^[a-z0-9][a-z0-9._-]{0,31}$/.test(prefix))
+            throw new Error("全局资源前缀须为 1–32 位小写字母、数字、点、下划线或连字符，且以字母或数字开头。");
+        await vscode.workspace.getConfiguration("simpleExperiment").update("tunnel.remoteTmuxSessionPrefix", prefix, vscode.ConfigurationTarget.Global);
+    }
+    async remindDefaultResourcePrefix() {
+        const config = vscode.workspace.getConfiguration("simpleExperiment");
+        const prefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(config.inspect("tunnel.remoteTmuxSessionPrefix")?.globalValue);
+        if (prefix !== AgentTmuxPolicy_1.simpleTmuxSessionPrefix || this.resourcePrefixReminderPending) return;
+        this.resourcePrefixReminderPending = true;
+        try {
+            const choice = await vscode.window.showWarningMessage("全局资源前缀仍为默认 simple，请修改为自己稳定且有区分度的名称。前缀用于命名远端插件目录及 tmux 服务，帮助共享服务器或账号的用户区分归属、降低名称冲突和误操作风险；项目隔离与精确目标校验仍然保留。此设置适用于本机所有项目和窗口，不会自动改名、迁移、重启或清理已有资源。", "设置全局前缀", "稍后");
+            if (choice !== "设置全局前缀") return;
+            const value = await vscode.window.showInputBox({ title: "全局远端资源前缀", value: prefix, prompt: "保存到 VS Code 用户设置，供本机所有项目和窗口共用；例如 alice。保留 simple 时下次打开仍会提醒。", ignoreFocusOut: true,
+                validateInput: (value) => /^[a-z0-9][a-z0-9._-]{0,31}$/.test(value) ? undefined : "仅允许 1–32 位小写字母、数字、点、下划线和连字符，且以字母或数字开头。" });
+            if (value !== undefined) {
+                await this.persistGlobalResourcePrefix(value);
+                this.setupConfig = this.loadSetupConfig();
+                this.postState();
+            }
+        } finally {
+            this.resourcePrefixReminderPending = false;
+        }
     }
     async saveState() {
         const tunnel = persistedTunnelGatewayConfig(this.tunnelConfig);
@@ -26630,11 +26643,11 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
         for (const worker of this.enabledWorkerConfigs()) {
             const filePath = worker.savedSessionPath || "";
             const dirs = this.agentRuntimeDirs(worker.agentProjectDir, worker.agentInstallDir);
-            const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, stateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix });
+            const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, stateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix });
             targets.push({
                 id: worker.id,
                 filePath,
-                tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id, (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix),
+                tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id, this.setupConfig.remoteTmuxSessionPrefix),
                 command: `unset SIMPLE_EXPERIMENT_HUB_UPLINK_URL; ${workerCommand}`,
             });
         }
@@ -26677,13 +26690,13 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
                     enabled: worker.enabled !== false,
                     configured: Boolean((worker.workerHost || worker.hubHost) && (worker.workerUser || worker.hubUser)),
                     sessionPath: worker.savedSessionPath,
-                    tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id, (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix),
+                    tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id, this.setupConfig.remoteTmuxSessionPrefix),
                     actualWorkRoot: dirs.workRoot,
                     installDir: dirs.installDir,
                     workDir: dirs.workDir,
                     projectName: dirs.projectName,
                     condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv),
-                    startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, stateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
+                    startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, stateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix }),
                 };
             }),
             note: "Agent 由 SimpleSFTP 通过后台连接核验归属、准备和启动；隧道由后台系统 SSH 建立。Xshell 保留会话导入和手动打开入口。",

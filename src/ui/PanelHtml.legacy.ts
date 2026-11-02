@@ -5949,6 +5949,7 @@ export function renderPanelHtml(): string {
         transferHost: item.transferHost,
         hubUser: item.hubUser,
         condaEnv: item.condaEnv,
+        remoteTmuxSessionPrefix: item.remoteTmuxSessionPrefix,
         sshConfigAlias: item.sshConfigAlias,
         agentProjectDir: item.agentProjectDir,
         savedSessionPath: item.savedSessionPath,
@@ -9722,14 +9723,15 @@ export function renderPanelHtml(): string {
       cards.push('<div class="server-card"><h3>Worker 服务器</h3><p>一台或多台服务器使用同一流程；当前启用 '+esc(String(topology.workerCount||0))+' 台。</p></div>');
       cards.push(
         '<div class="server-card" data-anchor="servers-session-defaults">' +
-          '<div class="serverHead"><div class="serverTitle"><h3>Agent 会话默认值</h3><div class="muted">仅 Worker 模式共用的远端会话设置</div></div>' +
+          '<div class="serverHead"><div class="serverTitle"><h3>远端资源前缀与环境</h3><div class="muted">前缀保存到用户设置，供本机所有项目与窗口共用；Conda 默认值保存在当前项目</div></div>' +
           '<div class="serverBadges"><span class="pill">tmux ' + esc(setup.remoteTmuxSessionPrefix || "simple") + '</span></div></div>' +
           '<div class="configGrid">' +
-            configInput("defaults", "remoteTmuxSessionPrefix", "tmux 会话前缀", setup.remoteTmuxSessionPrefix || "simple") +
+            configInput("defaults", "remoteTmuxSessionPrefix", "全局远端资源前缀", setup.remoteTmuxSessionPrefix || "simple") +
             configInput("defaults", "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", setup.condaEnv || "") +
           '</div>' +
-          '<div class="toolbar"><button data-command="saveAgentDefaults" data-config-scope="defaults" title="保存 Agent 默认值&#10;写入服务器地址与认证方式等项目级参数">保存默认值</button></div>' +
-          '<div class="muted">前缀应用于新生成的 Agent tmux 会话；已有会话需重新写入启动命令或重新准备 Agent。</div>' +
+          '<div class="toolbar"><button data-command="saveAgentDefaults" data-config-scope="defaults" title="前缀写入全局用户设置；Conda 默认值写入当前项目">保存前缀与环境</button></div>' +
+          ((setup.remoteTmuxSessionPrefix || "simple") === "simple" ? '<div class="callout warning" role="status">当前仍为默认前缀 simple。请改为有区分度的名称；未修改时每次打开插件都会提醒。</div>' : '') +
+          '<div class="muted">前缀用于命名远端插件目录与 tmux 服务，帮助共享服务器或账号的用户区分归属，降低名称冲突与误操作风险。项目隔离和精确目标核验仍保留；保存不自动改名、迁移、重启或清理已有资源。</div>' +
         '</div>'
       );
       cards.push(
@@ -10470,7 +10472,7 @@ export function renderPanelHtml(): string {
         hubDisplayName: "旧显示名已退役，请使用 Worker 显示名。",
         hubHost: "旧顶层地址已退役，请使用 Worker 地址。",
         hubUser: "旧顶层用户名已退役，请使用 Worker 用户名。",
-        remoteTmuxSessionPrefix: "远端 tmux 会话名前缀；多用户共用服务器时建议用稳定用户名，旧 zlk 会话可填 zlk",
+        remoteTmuxSessionPrefix: "本机所有项目与窗口共用的远端资源前缀，默认 simple；命名插件目录与 tmux 服务以区分归属。建议使用自己稳定且有区分度的名称，保存不会自动迁移已有资源。",
         condaEnv: "必填完整路径，以 / 开头，如 /path/to/conda_envs/<env_name> 或 /usr/local/anaconda3/envs/<env_name>，可选以 /bin/python 结尾；留空使用系统 Python；仅环境名如 <env_name> 已废弃",
         agentProjectDir: "填写服务器上的绝对父目录，例如 /srv/projects；插件自动追加当前本地项目名作为代码目录，并在该父目录下计算 Agent 路径。不要填写单个文件或再次追加项目名。",
         savedSessionPath: "导入服务器信息并保留手动打开 Xshell 的入口；后台连接使用已保存的服务器地址和端口。",
