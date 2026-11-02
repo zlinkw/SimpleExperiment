@@ -60,7 +60,7 @@
 | PFX3e / E1a | TMUX 同名前缀不作归属证据，首屏统计真实原生逻辑任务 | passed |
 | E1-test | 两个概况 VM 夹具准备原生数组缓存及真实生成函数 | passed |
 | E1-test2 | 原执行总览夹具展开全部既有逻辑函数模板插值 | passed |
-| PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
+| PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | running |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
 | D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | passed |
 | D0d | 更新目录与服务说明，保留完整使用指南 | pending |
@@ -546,6 +546,14 @@ E1-test2 对照更正：仅对隔离诊断中的 git show 源码读取提供足�
 PFX3e/E1a 最终验证：2026-11-02T22-06-44-290Z-89608-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、711577ms。原 executionCompactOverview 51 项在严格入口通过；原失败与错误记录更正保留。内部 universal/trial 0.5.478 为 2776531 字节，SHA256 7cbd6f0ed713ce8e67e95ead4bfd3d00b5b8902c82ee4b67415c4711ec807c1c，与 receipt 和逐包清单一致；362 项内容门禁零违规，实际主 HTML 三脚本及模块解析通过；渲染使用最终同内容候选的 e1-render-1793656362866.json。源码本批 8 非生成文件，不包括已独立提交的 E1-test2。无公开发行、安装或服务器操作。
 
 UI 路径核实更正：当前 Host 实现 showNativeRunConfirmation，RunConfirmation.ask 因此走 VS Code 原生弹窗，原 planRunRecovery 已验证两个阶段展示全部完整路径、并发排队和取消。ui/RunConfirmation 注入脚本属于当前未走的回退路径，E2 不修改它来冒充实际焦点修复。E2 改为实际配置表单 label 与状态卡片右键菜单（当前鼠标专用、未聚焦菜单项、浅色写死）的键盘/主题/焦点；保留当前原生确认。覆盖表如实区分源码/隔离与真实重载验收。下一批 PFX4/PFX4b 只做前缀及目录说明收口和相关静态测试，不新版本或重打本包；之后才发布完整前缀试行版，不转正、不提前安装。
+
+## 当前批次 PFX4 / D0d
+
+PFX3e/E1a 提交 0c4bea2fad144b1df5dbb11d59b0a99989c4c176 已普通 push/fetch 一致。当前只更新 README、setup、technical-notes、configuration-reference、release-delivery、plugin-project-contract、原 setupGuideDirectorySemantics 测试及计划，共 8 文件。完整指南保留，默认目录更正为项目内 `<全局前缀>_agent`；用户级唯一全局设置、默认 simple、每次打开默认提醒、合法用户 zlk、修改不自动迁移/改名/停止/清理，以及共享 GPU 采样的账号公共例外均明确说明。移除过时 TB 独立 tmuxSession 注册设置说明，当前服务仍以项目/Worker/实际窗口绑定。旧显式路径及历史真实证据保留，不把字面名称本身当非法或当前配置来源。
+
+原目录测试修改前即 0/1，pfx4-guide-before.log：它要求早已过时的章节标题、README 文字及项目外 sibling runtime 默认。按当前实际语义更新原目录/Worker 入口断言并补全局前缀说明检查，未删除当前路径/范围覆盖。六文档 UTF-8 原行尾写入后逐字复读一致；无生产输入、版本、包变化，复用已通过 0.5.478 编译/318 规定覆盖和同一 VSIX，源码指南本来不进入包内 README，后者由 package 元数据独立生成。仅跑新/改测试与真实文档消费者；不重做全量或组包。当前项目约束的旧 TB 端口偏移及来源规则另列 PFX4b（最多 5 文档），不超本批边界；全部收口后才公开试行。
+
+PFX4-test 独立测试准备：文档消费者 publicCliAliases 原 0/1，pfx4-publicCliAliases.test.js.log，固定要求 package bin=`./dist/cli.js`，但已提交正式入口早已是稳定 shim `./bin/simpleex.cjs`，bin/package/CLI 本批没有改动。改断言为当前既有公开入口并核实文件存在，唯一别名、历史 recorded kernel 导出、require.main、用法及技术说明全部原断言保留；当前原套件 1/1、exit=0，pfx4-cli-entry-fixed.log。仅该测试和计划单独提交，不混入六文档及 guide 测试，避免 8 文件上限；不改生产版本、包、CLI 功能或安装。其他文档回归仍继续，PFX4 生产输入未变，沿用同一个已验证 VSIX。
 
 ## 发现线索与后续边界（以批次状态为准）
 
