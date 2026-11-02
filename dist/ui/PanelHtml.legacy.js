@@ -1565,12 +1565,10 @@ function renderPanelHtml() {
          <pre id="tmuxCapturePre" tabindex="0" aria-label="所选 Worker 的精确窗口日志" data-follow="true" style="max-height:320px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:10px;border-radius:4px;white-space:pre-wrap;word-break:break-all;"></pre>
        </details>
       <div id="tmuxInstructions" style="display:grid;gap:6px;margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--subtle-bg);">
-        <b style="font-size:12px;">可复制的 tmux 附着指令（当嵌入 xterm 异常时手动打开）</b>
-        <div style="display:grid;gap:4px;font-family:Consolas,monospace;font-size:11px;">
-          <div>Agent 附着会话：<code id="tmuxCmdAgent">ssh <user>@<host> -t "tmux attach -t zlk-worker-agent"</code> <button class="secondary" type="button" data-copy-target="tmuxCmdAgent" title="把 Agent 附着指令复制到剪贴板">复制</button></div>
-          <div>调度显示会话：<code id="tmuxCmdSch">tmux attach -t zlk-sch-&lt;opId&gt;</code> <button class="secondary" type="button" data-copy-target="tmuxCmdSch" title="把调度显示附着指令复制到剪贴板">复制</button></div>
-          <div>GPU 窗口：<code id="tmuxCmdGpu">tmux attach -t simple-gpu-0</code> <button class="secondary" type="button" data-copy-target="tmuxCmdGpu" title="把 GPU 窗口附着指令复制到剪贴板">复制</button> <code>simple-gpu-0..3</code></div>
-        </div>
+        <b style="font-size:12px;">在所选 Worker 的终端附着精确窗口</b>
+        <code id="tmuxAttachTarget" style="white-space:pre-wrap;overflow-wrap:anywhere;">请选择已启用 Worker 并刷新窗口列表</code>
+        <button id="tmuxAttachCopy" class="secondary" type="button" data-copy-target="tmuxAttachTarget" data-tmux-attach-copy="true" disabled>核实并复制附着命令</button>
+        <span class="muted">复制前重新查询所选窗口；命令只供你在该 Worker 的终端手动执行。</span>
       </div>
     </section>
 
@@ -2248,7 +2246,7 @@ function renderPanelHtml() {
           const miss = c.synthetic ? " missing" : "";
           grid += '<div class="tmuxOverviewItem' + miss + (isActive ? ' is-active' : '') + '" data-tmux-filter="' + escAttr(c.target) + '"><span class="pill">' + esc(c.category) + '</span><b>' + esc(c.label) + '</b><span class="muted">' + esc(c.target) + '</span>' + (c.synthetic ? '<span class="pill" style="border-color:#FDE68A;background:#FFFBEB;color:#B45309;">待创建</span>' : '') + '</div>';
         }
-        if (!grid) grid = '<span class="muted" style="font-size:11px;">提示：含 zlk-sch-* 调度器，zlk-gpu-* / zlk-worker-* / simple-gpu-* / &lt;prefix&gt;_tb 等类型</span>';
+        if (!grid) grid = '<span class="muted" style="font-size:11px;">请选择 Worker 并刷新实际窗口列表；选中窗口后可查看日志或复制精确附着命令。</span>';
         overview.innerHTML = grid;
         return;
       }
@@ -2577,6 +2575,42 @@ function renderPanelHtml() {
         tmuxInitialRetryTimer = 0;
       }
     }
+    function renderTmuxAttachControl() {
+      const label = el("tmuxAttachTarget"), button = el("tmuxAttachCopy");
+      if (!label || !button) return;
+      button.disabled = true;
+      delete button.dataset.tmuxAttach;
+      const workerId = String(tmuxSelectedWorkerId || "");
+      const workers = enabledWorkerTunnelsForState(lastState || {});
+      if (!workers.some(function(worker){ return worker.id === workerId; })) {
+        label.textContent = "请选择已启用 Worker 并刷新窗口列表";
+        return;
+      }
+      if (tmuxListCache.workerId !== workerId || tmuxListCache.ok !== true) {
+        label.textContent = workerId + "：窗口列表未核实" + (tmuxListCache.error ? "，" + String(tmuxListCache.error) : "，请手动刷新");
+        return;
+      }
+      const target = tmuxResolveCaptureTarget();
+      let selected = null;
+      let matches = 0;
+      (tmuxListCache.sessions || []).forEach(function(session){
+        (session.windows || []).forEach(function(win){
+          const address = String(win.target || session.name + ":" + win.index);
+          if (target && (target === address || target === win.windowId || (win.panes || []).some(function(pane){ return pane.target === target || pane.id === target; }))) {
+            matches += 1;
+            selected = { workerId: workerId, target: address, session: String(session.name), windowId: String(win.windowId || ""),
+              windowName: String(win.name || ""), paneIds: (win.panes || []).map(function(pane){ return String(pane.id || ""); }).filter(Boolean) };
+          }
+        });
+      });
+      if (matches !== 1 || !/^@[0-9]+$/.test(selected.windowId)) {
+        label.textContent = workerId + "：请选择有真实身份的窗口，概览和待创建窗口不能附着";
+        return;
+      }
+      label.textContent = workerId + " · " + selected.target + " · " + selected.windowId + " · 上次查询 " + String(tmuxListCache.fetchedAt || "源时间未提供");
+      button.dataset.tmuxAttach = JSON.stringify(selected);
+      button.disabled = false;
+    }
     function tmuxResolveCaptureTarget() {
       const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
       if (activeFilter === "all" || activeFilter.indexOf("gpu-slot:") === 0) return "";
@@ -2689,6 +2723,7 @@ function renderPanelHtml() {
       return lines.slice(-200).map(function(line) { return line.join(""); }).join(String.fromCharCode(10)).trimEnd();
     }
     async function refreshTmuxCapture(origin) {
+      renderTmuxAttachControl();
       const pre = el("tmuxCapturePre");
       const meta = el("tmuxCaptureMeta");
       const win = tmuxResolveCaptureTarget();
@@ -4519,6 +4554,12 @@ function renderPanelHtml() {
       document.addEventListener("click", (ev)=>{
         const t = ev.target.closest("[data-copy-target]");
         if(!t) return;
+        if (t.disabled) return;
+        if (t.dataset.tmuxAttachCopy === "true") {
+          renderTmuxAttachControl();
+          if (!t.disabled && t.dataset.tmuxAttach) vscode.postMessage({ command: "copyText", tmuxAttach: JSON.parse(t.dataset.tmuxAttach) });
+          return;
+        }
         const id = t.getAttribute("data-copy-target");
         const src = id ? document.getElementById(id) : null;
         const text = src ? src.textContent : "";

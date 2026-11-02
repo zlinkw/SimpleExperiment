@@ -33,12 +33,10 @@ class TmuxSection {
          <pre id="tmuxCapturePre" style="max-height:320px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:10px;border-radius:4px;white-space:pre-wrap;word-break:break-all;">尚未同步，请刷新或等待自动轮询...</pre>
        </details>
       <div id="tmuxInstructions" style="display:grid;gap:6px;margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--subtle-bg);">
-        <b style="font-size:12px;">可复制的 tmux 附着指令（当嵌入 xterm 异常时手动打开）</b>
-        <div style="display:grid;gap:4px;font-family:Consolas,monospace;font-size:11px;">
-          <div>Agent 附着会话：<code id="tmuxCmdAgent">ssh &lt;user&gt;@&lt;host&gt; -t "tmux attach -t zlk-worker-&lt;id&gt;-agent"</code> <button class="secondary" type="button" data-copy-target="tmuxCmdAgent">复制</button></div>
-          <div>调度显示会话：<code id="tmuxCmdSch">tmux attach -t zlk-sch-&lt;opId&gt;</code> <button class="secondary" type="button" data-copy-target="tmuxCmdSch">复制</button></div>
-          <div>GPU 窗口：<code id="tmuxCmdGpu">tmux attach -t simple-gpu-0</code> <button class="secondary" type="button" data-copy-target="tmuxCmdGpu">复制</button> <code>simple-gpu-0..3</code></div>
-        </div>
+        <b style="font-size:12px;">在所选 Worker 的终端附着精确窗口</b>
+        <code id="tmuxAttachTarget" style="white-space:pre-wrap;overflow-wrap:anywhere;">请选择已启用 Worker 并刷新窗口列表</code>
+        <button id="tmuxAttachCopy" class="secondary" type="button" data-copy-target="tmuxAttachTarget" data-tmux-attach-copy="true" disabled>核实并复制附着命令</button>
+        <span class="muted">复制前重新查询所选窗口；命令只供你在该 Worker 的终端手动执行。</span>
       </div>
     </section>`;
     }

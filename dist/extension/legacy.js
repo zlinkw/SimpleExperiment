@@ -26524,6 +26524,31 @@ class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`已复制 TensorBoard 链接（${endpointId}）：${targetUrl}`);
     }
     async copyTextFromUi(message) {
+        if (message?.tmuxAttach !== undefined) {
+            const expected = message.tmuxAttach;
+            const workerId = String(expected?.workerId || "");
+            if (!this.enabledWorkerConfigs().some(worker => worker.id === workerId))
+                throw new Error("请选择已启用的 Worker，未复制附着命令。");
+            if (!/^@[0-9]+$/.test(String(expected?.windowId || "")))
+                throw new Error("窗口身份未核实，请刷新列表后重新选择。");
+            const client = this.client;
+            const root = workspaceRoot();
+            const route = `/api/tmux/list?attachCheck=${crypto.randomUUID()}`;
+            const endpointClient = client?.clients?.get(workerId);
+            const listed = endpointClient
+                ? await endpointClient.requestJson(route, "manual_refresh", undefined, { method: "GET", userInitiated: true })
+                : await this.requestTmuxJson(workerId, route, 5000, 512 * 1024);
+            if (this.client !== client || workspaceRoot() !== root || !this.enabledWorkerConfigs().some(worker => worker.id === workerId))
+                throw new Error("项目或 Worker 已切换，未复制附着命令。");
+            if (listed?.workerId !== workerId)
+                throw new Error("窗口列表的 Worker 身份不匹配，未复制附着命令。");
+            const identity = TmuxWindowIdentity.resolveTmuxWindowIdentity(listed, String(expected.target || ""), expected);
+            const target = "=" + identity.session + ":" + identity.windowId;
+            const command = "tmux attach-session -t '" + target.replace(/'/g, "'\"'\"'") + "'";
+            await vscode.env.clipboard.writeText(command);
+            void vscode.window.showInformationMessage(`已核实并复制 ${workerId} 的窗口 ${identity.windowId}：${command}`);
+            return;
+        }
         const text = String(message?.text || message?.tbUrl || message?.url || "").trim();
         if (!text) {
             void vscode.window.showWarningMessage("没有可复制的内容");

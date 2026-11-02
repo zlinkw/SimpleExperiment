@@ -59,7 +59,7 @@
 | D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | passed |
 | D0d | 更新目录与服务说明，保留完整使用指南 | pending |
 | D1-test | 日志/低流量夹具隔离附着命令组件边界 | passed |
-| D1a | 移除占位附着命令，复制前主动核实精确 Worker/窗口 | pending |
+| D1a | 移除占位附着命令，复制前主动核实精确 Worker/窗口 | passed |
 | D1 | 零目标、禁用、未核实、离线；精确附着命令 | pending |
 | D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | pending |
 | D3 | 保存范围、生效时间与草稿恢复 | pending |
@@ -431,6 +431,20 @@ PFX3b 提交 d842300a58212933b4fbda89e842298be6993d77 已普通 push/fetch 一�
 仅三个原测试和本计划，共 4 文件。生产实现及运行输入未变，复用 PFX3b 完整覆盖；只补跑三个受影响套件，无新运行版本、编译、打包、发行或安装。无服务器操作。
 
 D1-test：38 项通过（jobLog 12、scriptHealth 9、otherSessions 17），exit=0，d1-test-*.log。所有原断言与期限保留，未将附着命令组件的替身算作实际复制验收。
+
+## 当前批次 D1a
+
+D1-test 提交 bf13c78d93014a10d50b6a799eb6ec26b9222529 已普通 push/fetch 一致。实际 UI 和未启用 Section 中三条可复制 zlk/simple 占位命令均替换为唯一精确入口。无启用 Worker、未核实列表、概览/待创建或没有稳定 ID 的窗口都不能复制；合法历史前缀窗口仍可显式选择，不用当前前缀猜目标。界面完整显示 Worker、窗口及上次查询时间，复制动作重新主动查询。
+
+复用既有 copyText 和动态隧道客户端，以独立 attachCheck 查询隔离旧合并回执；核对当前项目/客户端、启用 Worker、服务返回 Worker 和窗口 ID/名称/pane 集后才写剪贴板。命令使用精确 session 和原生 windowId 并做 shell 引用，不包含 SSH 账号占位符，不执行命令、不创建或关闭窗口。普通文本复制保留。依据官方 tmux [目标规则](https://man.openbsd.org/tmux.1) 及 [attach 实现](https://raw.githubusercontent.com/tmux/tmux/master/cmd-attach-session.c) 的 target-pane 处理生成精确目标。
+
+Host、实际 UI、未启用 Section、原 tmuxWorkerAndRichLog 测试、三版本及本计划，共 8 文件，内部 0.5.473。待实际组件/Host 行为、旧日志回归、HTML 脚本/隔离渲染及规定 package；无训练服务器操作，组内不公开发行或安装。
+
+D1a 最终接线复用原 data-copy-target 按钮事件，精确入口发送结构化 copyText；不把临时窗口身份注册为新的可固定通用动作，不改自定义布局协议。首次新组件夹具因缺少无关命令分类常量失败（6/7，d1a-tmuxWorkerAndRichLog.log），原失败保留；最终接线不再依赖该分类，原套件七项通过。没有修改生产代码兜底缺失夹具。
+
+D1a 定向共 50 项通过（Worker/复制 7、jobLog 12、scriptHealth 9、otherSessions 17、paneSwitch 2、精确关闭点击 1、清理标签点击 2）。最终 compile 2026-11-02T19-40-05-857Z-66444 及原套件七项再通过；实际 HTML 三脚本解析、隔离 Chrome 六场景/420px 焦点及真实复制按钮事件通过，报告 d1a-render-1793648415328.json。无旧占位 ID，选择的 @44/Worker 被发入结构化请求，离线时复制禁用；Host VM 的异 Worker、身份变化、离线和切换都零剪贴板写入。没有连接真实 API/训练服务器。冻结本批 8 文件内部 0.5.473，开始规定 package。
+
+D1a 最终验证：2026-11-02T19-41-11-457Z-83012-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、705120ms。内部 universal/trial 0.5.473：2773832 字节，SHA256 24ab53226361beaf34fbab3d3709971a5a1707fd19f8e9d1b33e0aac9af9d752；实际字节与 receipt 一致，362 项内容门禁零违规，实际 HTML 三脚本及模块解析通过。无公开发行、安装或服务器操作；下一批只处理服务器配置/观测状态的证据语义。
 
 ## 后续定向核查线索（尚未实施）
 
