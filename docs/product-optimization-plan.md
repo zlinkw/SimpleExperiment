@@ -57,8 +57,9 @@
 | PFX3b | Host 与实际 UI 路径校验移除固定目录名推断 | passed |
 | PFX3c | 全局前缀的 tmux 旧版名称兼容与输入边界 | passed |
 | PFX3d | 清除旧任务字段绕过统一前缀函数的残余 | passed |
-| PFX3e / E1a | TMUX 同名前缀不作归属证据，首屏统计真实原生逻辑任务 | pending |
+| PFX3e / E1a | TMUX 同名前缀不作归属证据，首屏统计真实原生逻辑任务 | running |
 | E1-test | 两个概况 VM 夹具准备原生数组缓存及真实生成函数 | passed |
+| E1-test2 | 原执行总览夹具展开全部既有逻辑函数模板插值 | passed |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
 | D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | passed |
@@ -533,6 +534,12 @@ D1c 最终规定验证：2026-11-02T21-35-53-621Z-79240-package/run.json，318 �
 ## 当前批次 PFX3e / E1a
 
 D1c 提交 475f46e71d049663c2b854f855197318a72bb2e7 已普通 push/fetch 一致。E1-test 独立准备仅改原 taskStats 与 runtimeLogAnalysisHost 两测试及计划：前者抽取真实生成 HTML 的函数，以便包含既有 composeLogicalPlans 的序列化实现；两者注入 upcoming 原生数组缓存变量，旧函数不依赖它，全部原扫描/缓存/异常断言保留。未修改生产候选/版本/打包输入，复用 D1c 全量覆盖，仅重跑两套件 2+19=21 项通过（e1-prep-*.log）；无新版本、全量重跑或组包。下一生产批最多 UI legacy、两个原测试、三版本及计划 7 文件；补当前协议 2 原生逻辑任务统计及同名前缀未核实的实际渲染，保留自定义布局、任务和精准窗口操作。先补复现再实现与相关检查，不处理目录、服务、设置或科研数据。
+
+E1-test 提交 031819a0f429fea60b8620401239efde9b9ab88c 已普通 push/fetch 一致。先补原两套件中的行为复现：taskStats 2/3，原生完成/等待漏计；TMUX 17/18，同名前缀但未绑定项目被判 mine，e1-before-*.log 保留。修正复用 composeLogicalPlans 当前批次/补跑逻辑，同 PLAN 有原生 job 时不叠加旧投影；完成仍须 verified，原生数组改变时刷新统计，原缓存扫描断言未改。TMUX 只凭明确当前项目或其原生任务绑定确定归属，插件服务角色不按名字猜测，未核实会话仍完整保留精确浏览/操作与确认，不改变后端停止或保护。原服务测试明确注入其已核实项目/角色，原选择、折叠、窗口保护、旧前缀真实任务断言保留。内部 0.5.478；待 compile、定向与实际隔离渲染、规定 package，未公开发行或安装。
+
+PFX3e/E1a 定向：compile 2026-11-02T21-51-01-247Z-18688 通过；taskStats 3、TMUX OtherSessions 18、runtimeLogAnalysisHost 19、projectQuickStart 8、resultEvidence 1、jobTmuxLogNavigation 12，共 61 项通过，e1-final-*.log。没有新增性能断言，原扫描/缓存检查逐字保留。实际生成主 HTML 三段脚本解析通过；e1-render-1793656362866.json 覆盖真实 DOM 原生补跑合并、混合旧投影不重复、完成 verified、相同前缀未知窗口/明确控制器/原生任务分别分组，同时复核既有导航、精确附着、输入预览、自定义布局、窄窗口与刷新焦点。首次渲染探针继承前一场景的单窗口 filter，读取总览节点为 null；正确显式切回总览后通过，未为探针修改生产行为。补当前覆盖表，合计 8 非生成文件，冻结内部 0.5.478 进入规定 package。没有服务器操作、公开发行、安装或科研分析。
+
+PFX3e/E1a 首轮 package：2026-11-02T21-53-11-486Z-89836-package/run.json，317/318 通过、executionCompactOverview 一项失败，exit=1、694825ms、锁已释放，未组包。该原夹具手工将 `${logicalPlansSource}` 只替换第一次；新增复用位于其前面，原 renderExecutionPlanList 插值未展开，51 子例出现相同 SyntaxError。实际生成 HTML 与其 61 项定向/浏览器检查无此语法问题，但先前反向引用未覆盖模板变量的手工替换消费者，判断不完整。按 exact logicalPlansSource 搜索只此一个测试消费者，改 replaceAll 展开全部，保留 51 项原断言及期限，未改生产功能迎合夹具。E1-test2 仅该测试及本计划：当前套件 51/51 通过（e1-interpolation-fixture-fixed.log），已提交 HEAD 的原 UI 函数同一 51 项通过（e1-interpolation-committed-baseline.log），证明此准备与未提交 E1 修改无绑定。生产候选不变，包仍未完成；接下来严格检查与组包，不伪造失败 receipt。
 
 ## 发现线索与后续边界（以批次状态为准）
 

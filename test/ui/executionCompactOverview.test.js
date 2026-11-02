@@ -5,7 +5,7 @@ const { readSource } = require("../_helpers/sourceReader");
 require('../_helpers/registerTsRequire');
 const {composeLogicalPlans}=require('../../src/features/LogicalPlanProgress.ts');
 
-const panel = readSource("src/ui/PanelHtml.ts").replace('${logicalPlansSource}', '('+composeLogicalPlans.toString()+')');
+const panel = readSource("src/ui/PanelHtml.ts").replaceAll('${logicalPlansSource}', '('+composeLogicalPlans.toString()+')');
 
 test('native waiting stages explain delivery and never advertise historical automatic retries',()=>{
  for(const [status,label,note] of [['pending','本机待派发','本机须保持打开'],['dispatching','等待接收确认','不代表已经运行'],['queued','服务器已接收','服务器继续']]){
