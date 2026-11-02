@@ -135,7 +135,6 @@ test("legacy Worker task recovers config from its own persisted launch log", () 
 
 test("tb_tmux_session_name normalizes prefix to <normalized>_tb", () => {
   assert.match(agentSource, /def tb_tmux_session_name\(prefix\)/);
-  assert.match(agentSource, /return p \+ "_tb"/);
   // TS side normalizeRemoteTmuxSessionPrefix lowercases, replaces [^a-z0-9._-] with "-", trims, slices 32
   const py = `
 import importlib.util, pathlib

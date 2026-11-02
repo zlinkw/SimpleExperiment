@@ -37,12 +37,14 @@
 | PFX-test2 | 根绑定检查覆盖实际安装映射，不强制所有插件路径在项目外 | passed |
 | PFX-test3 | 生命周期组合检查遵循生成目标和已支持窗口协议 | passed |
 | PFX-test4 | 目录与会话组合夹具复用真实命名导出 | passed |
+| PFX-test5 | TensorBoard 使用真实命名行为，不约束局部变量写法 | passed |
 | PFX-base | 前缀默认值与归一化收敛一处，提供实际目录命名 | passed |
 | PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | passed |
 | PFX2a / D0c | Agent 窗口按规范项目身份隔离 | passed |
-| PFX2b | 远端目录和前缀只读取全局传入值 | pending |
+| PFX2b | 远端目录和前缀只读取全局传入值 | running |
 | PFX2c | 移除个人主终端猜测及错误启动兜底 | pending |
 | PFX2d | 调度前缀归一化与真实原队列定位 | pending |
+| PFX2e | 通用关窗不得按 Agent 会话名跳过精确窗口保护 | pending |
 | PFX3 | 远端路径校验和错误品牌迁移的前缀残留 | pending |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
 | D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
@@ -295,6 +297,14 @@ PFX-test3 验证：independentAgent 4、agentPreparationLifecycle 10 项通过�
 PFX2 定向验证：policy 4、independentAgent 4、preparation 10、installDir 5、sessionCache 2、destination 4、lifecycle 2、jobLog 12、richLog 5，共 48 项通过；lifecycle 仅使用已隔离的本机测试 tmux，公共 Python 字节一致。真实 Chrome 报告 pfx2-render-1793636594667.json 核对同服务器不同项目窗口、只改变窗口字段也重绘、无项目不展示猜测窗口，以及之前目录草稿、显式目录、自定义布局、六种首屏、焦点和窄窗口；实际 HTML 三段脚本合法。首次测试命令将 preparation 文件目录写成 tunnel，文件不存在时立即退出 1；改为实际 features 路径后通过，未调整测试。compile exit=0，冻结 8 文件内部版本 0.5.464，开始规定 package。
 
 PFX2a 最终验证：2026-11-02T16-23-32-774Z-55428-package/run.json，318 作业通过、未运行 0、maxObservedConcurrent=1、exit=0、712170ms。内部 universal/trial 0.5.464：2780001 字节，SHA256 739e43fa4fbaa224997b07ce453661fe6c023ede9703e3154b183848eb7b9eed；与实际包 receipt 一致，362 项内容门禁零违规，实际 HTML 三段及模块解析通过。无训练服务器操作，未发布/安装。后续拆成 PFX2b 远端来源/目录、PFX2c 旧主终端兜底、PFX2d 原队列定位，各批仍最多 8 非生成文件，不缩减公共协议和既有任务恢复保护。
+
+## 当前批次 PFX2b
+
+PFX2a 提交 44278bec9c939921d9a6ae4879ccb728bbcb8b4e 已普通 push/fetch 一致。旧 Agent 还读取远端项目 .vscode/settings.json 及多种任务字段覆盖前缀，Scheduler 的默认状态/日志路径固定 simple_agent，并有固定 simple GPU 名称。共用已存在前缀模块生成 Python 归一化函数；远端只使用插件传入环境的全局值；默认目录归实际项目、保留显式安装/状态目录及脚本实际来源。状态目录缓存包含前缀，日志不再跨到固定默认目录借旧数据。既有 policy 套件新增抽取真实函数的九组行为检查，不启动完整 runtime、服务器或科研命令，不新增性能断言。三实现、一测试、三版本、本计划，共 8 文件；内部 0.5.465，验证待完成，不发布/安装。
+
+调用链新增发现：通用 kill-window 旧自关闭分支只比较 Agent 会话名，即可跳过窗口身份核实；项目共用会话后尤其不可保留。记录为后续 PFX2e，使用精确 Agent 生命周期入口，当前不扩大本批。
+
+PFX-test5 纯测试修正：tensorboardAndFence 原静态断言要求局部变量必须叫 p，与前缀真实行为无关；收敛到共用归一化后该断言失败（3 通过/1 失败，完整日志 pfx2b-tensorboardAndFence.log）。移除该写法约束，保留六组真实函数返回值、长度、其他任务/日志断言和全部测试；不改生产代码来满足内部排版。完整套件 4 项通过，exit=0，日志 pfx-test5-tensorboard.log；测试与计划两文件独立提交。PFX2b policy 5、stateCache 2、availability 12 已通过，后两套保持原有性能/缓存断言。
 
 PFX-test3 提交 ab8c417e4ad4066f4b467d03150863189fdb9a41 已普通 push/fetch 一致。PFX-test4 纯夹具准备：目录和会话缓存组合夹具加载真实 AgentTmuxPolicy 命名导出，再覆盖原有轻量启动替身，供项目窗口接口使用；不缩减原断言。目录 5、会话缓存 2 项通过，日志 pfx-test4-install.log / pfx-test4-cache.log；仅两测试与本计划独立提交，不改运行版本。
 
