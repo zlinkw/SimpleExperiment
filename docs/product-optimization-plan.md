@@ -36,11 +36,11 @@
 | PFX-test | 受影响夹具使用正式前缀字段，目录方法提取不绑定旧参数个数 | passed |
 | PFX-test2 | 根绑定检查覆盖实际安装映射，不强制所有插件路径在项目外 | passed |
 | PFX-base | 前缀默认值与归一化收敛一处，提供实际目录命名 | passed |
-| PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | running |
+| PFX1 / D0b | 默认 Agent 目录使用全局前缀并归项目，预览一致 | passed |
 | PFX2 / D0c | 服务命名与调度前缀统一，消除个人前缀兜底 | pending |
 | PFX3 | 远端路径校验和错误品牌迁移的前缀残留 | pending |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
-| D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | pending |
+| D0b | 默认 Agent 目录归项目，实际值与草稿预览一致 | passed |
 | D0c | Agent 服务窗口按项目身份隔离，共享 GPU 采样保留 | pending |
 | D0d | 更新目录与服务说明，保留完整使用指南 | pending |
 | D1 | 零目标、禁用、未核实、离线；精确附着命令 | pending |
@@ -271,6 +271,10 @@ PFX-base 源码 fa0fb7f61d99dd25b78a891ac88621d5fe4ae8f7 已普通 push/fetch �
 PFX1 定向进展：agentInstallDirIsolation 5 项通过，包含真实版本核实方法的精确 URL 路径、显式路径及无目录零请求；projectRemoteDestinationClarity 首轮 3/4 失败，旧“登录后进入”label 在 fa0fb7f6 基准也不存在，现改为实际渲染的代码/runtime 完整路径断言，4 项通过。首次基准读取因 Node 默认 1MB maxBuffer 不足失败；改用 PowerShell UTF-8 读取后证实旧文案不在基准，不改变产品登录行为。agentRuntimeVerificationLatency 1、projectRootMap 14、completedJobArtifactRootBinding 7 项通过。
 planSubmissionStateGuard 为 25/26：旧第一例强制 prefixes=0，但安装根移入项目后 runtime 和 lifecycle 日志必须被 D0a 保护。插入 PFX-test2 纯测试准备批，仅该已有套件和本计划；按实际安装根相对代码根的关系核对精确两个保护前缀，外部 Agent/GPU 状态仍不误入项目映射，全部原 GET/归属/取消/零写入断言保留。PFX1 源码与 UI 仍未提交，不能宣称本批已完成。
 PFX-test2 验证：planSubmissionStateGuard 26 项、既有 agentSessionStateCache 2 项通过；外部安装仍要求零项目保护前缀，内部安装只接受精确 runtime/日志路径，未删断言、未改期限或生产根保护。纯测试/记录两文件独立提交，无新运行版本、打包或安装；PFX1 继续隔离页面和规定 package。
+
+PFX-test2 提交 31be391fbaa2452b5a6ea8090eb49eaa870fd16b 已普通 push/fetch 一致。PFX1 定向检查合计 59 项通过（目录 5、预览 4、版本核实 1、根映射 14、产物绑定 7、提交根保护 26、会话缓存 2）。新增版本核实行为使用真实 Host 方法，记录精确请求路径；无目录发出零请求，不冒充真实网络。实际 Chrome 验证两个 Worker 的默认/显式同名目录、未保存父目录预览、保存值不变、仅显式意图变化时仍重绘，以及前缀提醒、C3/C2c 与原六种首屏/焦点/窄窗口；报告 simple_cluster/reports/product-optimization/pfx1-render-1793634842926.json。compile 及实际 HTML 三段脚本通过，UTF-8 复读通过。冻结内部版本 0.5.463，PFX1 共 8 个非生成文件，规定 package pending；不发布中间包、不安装。
+
+PFX1 最终验证：318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、707238ms；凭据 2026-11-02T15-55-56-080Z-86432-package/run.json。VSIX 0.5.463 为 universal/trial、2779635 字节，SHA256 07cfaedf18227bb74459aa6781f0d93844ffa5d77d5963cae458a56df0f4e211，与 receipt 一致；362 项内容门禁零违规，实际 HTML 三段/模块脚本通过。无真实迁移或服务器操作，内部包未发布、未安装。下一批复用现有生命周期协议的显式窗口参数，以稳定项目身份区分 Agent 窗口；同项目多窗口复用，其他项目保持各自窗口和目录，共享 GPU 采样不变。SimpleSFTP 与 Agent 的公共 lifecycle Python 必须保持字节相同，不为改名擅自改动一侧协议。
 
 ## 后续定向核查线索（尚未实施）
 

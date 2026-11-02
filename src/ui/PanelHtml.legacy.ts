@@ -5788,7 +5788,7 @@ export function renderPanelHtml(): string {
       const agent = agentSessions && typeof agentSessions === "object" ? agentSessions : {};
       return {
         hub: compactRecordForSignature(agent.hub || {}, ["configured", "actualWorkRoot", "installDir", "workDir", "projectName"]),
-        workers: compactRowsForSignature(agent.workers, SECTION_SIGNATURE_ROW_LIMIT, ["id", "displayName", "enabled", "configured", "actualWorkRoot", "installDir", "workDir", "projectName"])
+        workers: compactRowsForSignature(agent.workers, SECTION_SIGNATURE_ROW_LIMIT, ["id", "displayName", "enabled", "configured", "actualWorkRoot", "installDir", "workDir", "projectName", "agentDirectoryName", "installDirIsExplicit"])
       };
     }
 
@@ -9607,7 +9607,9 @@ export function renderPanelHtml(): string {
       const issue = remoteDestinationRootIssue(root, projectName);
       const warning = remoteDestinationRootWarning(root, projectName);
       const codePath = root && projectName ? root + "/" + projectName : root ? "打开本地项目后显示" : "保存项目父目录后显示";
-      const runtimePath = root ? root + "/simple_agent/simple_cluster/runtime" : "保存项目父目录后显示";
+      const agentDirectoryName = String(preview.dataset.agentDirectoryName || "");
+      const explicitInstallDir = preview.dataset.installDirIsExplicit === "true" ? String(preview.dataset.savedInstallDir || "") : "";
+      const runtimePath = explicitInstallDir ? explicitInstallDir + "/simple_cluster/runtime" : root && projectName ? (agentDirectoryName ? codePath + "/" + agentDirectoryName + "/simple_cluster/runtime" : "等待读取全局前缀") : codePath;
       const code = preview.querySelector('[data-destination-kind="code"]');
       const runtime = preview.querySelector('[data-destination-kind="runtime"]');
       const status = preview.querySelector("[data-destination-status]");
@@ -9627,9 +9629,9 @@ export function renderPanelHtml(): string {
       const projectName = meaningfulValue(item.projectName);
       const hasRoot = Boolean(meaningfulValue(item.actualWorkRoot));
       const codeMissing = hasRoot && !projectName ? "打开本地项目后显示" : "保存项目父目录后显示";
-      const runtimeMissing = "保存项目父目录后显示";
-      const title = projectName ? "按当前本地项目名计算；修改项目父目录后需先保存服务器配置" : "已保存项目父目录；打开本地项目后再计算代码上传位置";
-      return '<div class="serverDestinationPreview" data-destination-preview="' + escAttr(scope || "") + '" data-project-name="' + escAttr(projectName) + '" title="' + escAttr(title) + '">' +
+      const runtimeMissing = codeMissing;
+      const title = item.installDirIsExplicit === true ? "Agent 使用显式安装目录，修改项目父目录不会重写它；修改后需先保存服务器配置" : projectName ? "按当前本地项目名与全局前缀计算项目内 Agent 目录；修改后需先保存服务器配置" : "已保存项目父目录；打开本地项目后再计算代码上传位置";
+      return '<div class="serverDestinationPreview" data-destination-preview="' + escAttr(scope || "") + '" data-project-name="' + escAttr(projectName) + '" data-agent-directory-name="' + escAttr(meaningfulValue(item.agentDirectoryName)) + '" data-install-dir-is-explicit="' + String(item.installDirIsExplicit === true) + '" data-saved-install-dir="' + escAttr(installDir) + '" title="' + escAttr(title) + '">' +
         '<span>当前项目代码</span><code data-destination-kind="code">' + esc(codePath || codeMissing) + '</code>' +
         '<span>Agent runtime</span><code data-destination-kind="runtime">' + esc(runtimePath || runtimeMissing) + '</code>' +
         '<span class="destinationPreviewStatus" data-destination-status>' + esc(hasRoot && !projectName ? "已保存服务器根目录；等待打开本地项目" : "基于已保存配置") + '</span>' +

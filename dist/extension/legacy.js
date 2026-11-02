@@ -10336,17 +10336,13 @@ class RealtimeTunnelPanelProvider {
                 else {
                     const _workRoot = String(target.projectWorkDir || target.remoteRoot || target.agentProjectDir || target.remotePath || "").trim();
                     const _perTargetAgentInstallDir = String(target.agentInstallDir || "").trim();
-                    try {
-                        const _dirs = this.agentRuntimeDirs(_workRoot, _perTargetAgentInstallDir);
-                        installDir = String(_dirs?.installDir || _perTargetAgentInstallDir || "").trim() || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : "");
-                        runtimeDir = installDir ? `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
-                    }
-                    catch {
-                        installDir = _perTargetAgentInstallDir || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : "");
-                        runtimeDir = installDir ? `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
-                    }
-                    if (!runtimeDir && _runtimeHint)
-                        runtimeDir = _runtimeHint;
+                    const _dirs = this.agentRuntimeDirs(_workRoot, _perTargetAgentInstallDir, target.projectWorkDir);
+                    installDir = String(_dirs.installDir || "").trim();
+                    runtimeDir = installDir ? `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
+                }
+                if (!runtimeDir) {
+                    fatal.push(`${target.label}：项目目录尚未确定，无法核实 Agent runtime。`);
+                    return;
                 }
                 const port = target.localForwardPort;
                 if (!port) {
@@ -10362,7 +10358,7 @@ class RealtimeTunnelPanelProvider {
                 ];
                 const effectiveChecks = checks.filter(([, expected]) => Boolean(expected));
                 await Promise.all(effectiveChecks.map(async ([name, expected]) => {
-                    const _effectiveRuntime = (runtimeDir || `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime`).replace(/\/+$/, "");
+                    const _effectiveRuntime = runtimeDir.replace(/\/+$/, "");
                     const remoteAbs = `${_effectiveRuntime}/${name}`;
                     try {
                         const controller = new AbortController();
@@ -10744,19 +10740,13 @@ class RealtimeTunnelPanelProvider {
                     else {
                         const _wr = String(t.projectWorkDir || t.remoteRoot || t.agentProjectDir || t.remotePath || "").trim();
                         const _per = String(t.agentInstallDir || "").trim();
-                        try {
-                            const _d = this.agentRuntimeDirs ? this.agentRuntimeDirs(_wr, _per) : null;
-                            _inst = String(_d?.installDir || _per || "").trim() || (_wr ? `${_wr.replace(/\/+$/, "")}/simple_agent` : "");
-                            _rt = _inst ? `${_inst.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
-                        }
-                        catch {
-                            _inst = _per || (_wr ? `${_wr.replace(/\/+$/, "")}/simple_agent` : "");
-                            _rt = _inst ? `${_inst.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
-                        }
-                        if (!_rt && _hint)
-                            _rt = _hint;
+                        const _d = this.agentRuntimeDirs(_wr, _per, t.projectWorkDir);
+                        _inst = String(_d.installDir || "").trim();
+                        _rt = _inst ? `${_inst.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
                     }
-                    const _effectiveRuntime = (_rt || `${_inst.replace(/\/+$/, "")}/simple_cluster/runtime`).replace(/\/+$/, "");
+                    const _effectiveRuntime = _rt.replace(/\/+$/, "");
+                    if (!_effectiveRuntime)
+                        shaInfo = " | sha256 未检查：项目目录尚未确定";
                     if (_effectiveRuntime && Object.keys(_expectedMap).length) {
                         const checks = [];
                         for (const [fname, exp] of Object.entries(_expectedMap)) {
@@ -10787,7 +10777,9 @@ class RealtimeTunnelPanelProvider {
                             shaInfo = ` | sha256[${checks.join(", ")}]`;
                     }
                 }
-                catch { }
+                catch (error) {
+                    shaInfo = ` | sha256 未检查：${errorMessage(error)}`;
+                }
                 remoteDetails.push(`${t.label}: ${healthInfo}${shaInfo}`);
             }
         }
@@ -10814,8 +10806,8 @@ class RealtimeTunnelPanelProvider {
         const topology = this.assertTopologyReady("部署 Agent runtime");
         return [...([]), ...this.workerActualWorkRootTargets()].map((target) => {
             const dirs = this.agentRuntimeDirs(target.remotePath, target.agentInstallDir);
-            if (!dirs.installDir)
-                throw new Error(`${target.label} 缺少项目父目录，无法计算 simple_agent 安装目录。`);
+            if (!dirs.installDir || !dirs.workDir)
+                throw new Error(`${target.label} 缺少本地项目或服务器项目父目录，无法计算项目内 Agent 安装目录。`);
             return { ...target, remotePath: dirs.installDir, projectWorkDir: dirs.workDir };
         });
     }
@@ -28670,6 +28662,8 @@ class RealtimeTunnelPanelProvider {
         for (const worker of this.enabledWorkerConfigs()) {
             const filePath = worker.savedSessionPath || "";
             const dirs = this.agentRuntimeDirs(worker.agentProjectDir, worker.agentInstallDir);
+            if (!dirs.workDir || !dirs.installDir)
+                continue;
             const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, stateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix });
             targets.push({
                 id: worker.id,
@@ -28720,10 +28714,12 @@ class RealtimeTunnelPanelProvider {
                     tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id, this.setupConfig.remoteTmuxSessionPrefix),
                     actualWorkRoot: dirs.workRoot,
                     installDir: dirs.installDir,
+                    agentDirectoryName: dirs.agentDirectoryName,
+                    installDirIsExplicit: dirs.installDirIsExplicit,
                     workDir: dirs.workDir,
                     projectName: dirs.projectName,
                     condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv),
-                    startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, stateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix }),
+                    startupCommand: dirs.workDir && dirs.installDir ? (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, stateDir: worker.agentStateDir, workerStateDir: worker.workerStateDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix }) : "",
                 };
             }),
             note: "Agent 由 SimpleSFTP 通过后台连接核验归属、准备和启动；隧道由后台系统 SSH 建立。Xshell 保留会话导入和手动打开入口。",
@@ -28736,18 +28732,22 @@ class RealtimeTunnelPanelProvider {
         this.agentSessionStateCacheValue = value;
         return value;
     }
-    agentRuntimeDirs(actualWorkRoot, agentInstallDir) {
+    agentRuntimeDirs(actualWorkRoot, agentInstallDir, projectWorkDir = undefined) {
         const projectName = remoteProjectName();
         const root = normalizeRemoteWorkRoot(actualWorkRoot);
-        if (!root)
-            return { projectName };
+        const workDir = normalizeRemoteWorkRoot(projectWorkDir) || (root && projectName ? `${root}/${projectName}` : undefined);
+        const agentDirectoryName = AgentTmuxPolicy_1.remoteAgentDirectoryName(this.setupConfig?.remoteTmuxSessionPrefix);
+        if (!root && !workDir)
+            return { projectName, agentDirectoryName };
         const override = String(agentInstallDir || "").trim();
-        const installDir = override || `${root}/simple_agent`;
+        const installDir = override || (workDir ? `${workDir}/${agentDirectoryName}` : undefined);
         return {
             workRoot: root,
             installDir,
-            ...(projectName ? { workDir: `${root}/${projectName}` } : {}),
+            workDir,
             projectName,
+            agentDirectoryName,
+            installDirIsExplicit: Boolean(override),
         };
     }
     currentAssignments() {
@@ -41283,7 +41283,7 @@ async function inputActualWorkRoot(title, value, label, server = {}) {
             title,
             value: current,
             placeHolder: "/home/your_name/projects",
-            prompt: "填写项目父目录。SimpleSFTP 会自动追加当前项目名，Agent runtime 会写入同级 simple_agent。",
+            prompt: "填写项目父目录。SimpleSFTP 会自动追加当前项目名，Agent runtime 默认写入该项目内由全局前缀命名的 Agent 目录。",
             ignoreFocusOut: true,
             validateInput: (text) => actualWorkRootValidationMessage(text, remoteProjectName(), label, server, policy),
         });
@@ -41951,7 +41951,7 @@ function actualWorkRootValidationMessage(value, projectName = remoteProjectName(
     const segments = root.split("/").filter(Boolean);
     const lowerSegments = segments.map((item) => item.toLowerCase());
     if (lowerSegments.includes("simple_agent") || lowerSegments.includes("zlk_agent"))
-        return `${displayLabel} 项目父目录不能包含 simple_agent 或 zlk_agent；插件会自动管理同级 Agent runtime。`;
+        return `${displayLabel} 项目父目录不能包含 simple_agent 或 zlk_agent；插件默认管理项目内的 Agent runtime。`;
     if (segments.includes(".."))
         return `${displayLabel} 项目父目录不能包含 ..。`;
     try {

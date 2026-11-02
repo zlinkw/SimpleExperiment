@@ -23,7 +23,12 @@ test("settings show computed code and Agent runtime destinations for every serve
   assert.match(panel, /\.serverDestinationPreview code/);
   assert.match(panel, /Xshell、端口、项目父目录/);
   assert.match(panel, /configInput\(scope, "agentProjectDir", "项目父目录", worker\.agentProjectDir/);
-  assert.match(panel, /登录后进入当前项目代码目录/);
+  const sandbox = { meaningfulValue: value => String(value || ""), esc: String, escAttr: String };
+  vm.createContext(sandbox);
+  vm.runInContext(extractFunction("renderServerDestinationPreview"), sandbox);
+  const rendered = sandbox.renderServerDestinationPreview({ workDir: "/srv/projects/demo", installDir: "/srv/projects/demo/alice_agent", actualWorkRoot: "/srv/projects", projectName: "demo", agentDirectoryName: "alice_agent" }, "worker:one");
+  assert.ok(rendered.includes('<code data-destination-kind="code">/srv/projects/demo</code>'));
+  assert.ok(rendered.includes('<code data-destination-kind="runtime">/srv/projects/demo/alice_agent/simple_cluster/runtime</code>'));
   assert.doesNotMatch(panel, /\["工作目录", compactPath\(setup\.agentProjectDir/);
   assert.match(packageScript, /Invoke-VscePackage \$root \$experimentVsix/);
   assert.doesNotMatch(packageScript, /Set-Content[^\n]*settings\.json|hubAgentProjectDir|workerTunnels/);
@@ -37,7 +42,7 @@ test("editing a project parent root updates unsaved destination preview without 
   assert.match(panel, /function remoteDestinationParentRoot\(value\)/);
   assert.match(panel, /input\.dataset\.key !== "agentProjectDir"/);
   assert.match(panel, /root \+ "\/" \+ projectName/);
-  assert.match(panel, /root \+ "\/simple_agent\/simple_cluster\/runtime"/);
+  assert.match(panel, /codePath \+ "\/" \+ agentDirectoryName \+ "\/simple_cluster\/runtime"/);
   assert.match(panel, /未保存预览；点击保存服务器后生效/);
   assert.match(panel, /上传和 Agent 启动仍使用已保存配置/);
   assert.match(panel, /路径末级与项目名相同；[\s\S]{0,120}否则项目名会重复/);
@@ -56,6 +61,34 @@ test("editing a project parent root updates unsaved destination preview without 
   assert.equal(sandbox.parent("/srv/projects/demo"), "/srv/projects");
   assert.match(sandbox.warn("/srv/projects/demo", "demo"), /建议改为 \/srv\/projects/);
   assert.equal(sandbox.warn("/srv/projects", "demo"), "");
+});
+
+test("draft runtime paths use the resolved global prefix and preserve explicit installation paths", () => {
+  const code = { textContent: "" }, runtime = { textContent: "" }, status = { textContent: "" };
+  const preview = { dataset: { destinationPreview: "worker:one", projectName: "demo", agentDirectoryName: "alice_agent", installDirIsExplicit: "false", savedInstallDir: "/old/demo/alice_agent" },
+    querySelector: selector => selector.includes('="code"') ? code : selector.includes('="runtime"') ? runtime : status,
+    classList: { add() {}, toggle() {} } };
+  const sandbox = { document: { querySelectorAll: () => [preview] }, setNativeTitle() {} };
+  vm.createContext(sandbox);
+  vm.runInContext(["normalizeRemoteDestinationRoot", "remoteDestinationParentRoot", "remoteDestinationRootIssue", "remoteDestinationRootWarning", "updateServerDestinationPreview"].map(extractFunction).join("\n"), sandbox);
+  const input = { dataset: { key: "agentProjectDir", configInput: "worker:one" }, value: "/new" };
+  sandbox.updateServerDestinationPreview(input);
+  assert.equal(code.textContent, "/new/demo");
+  assert.equal(runtime.textContent, "/new/demo/alice_agent/simple_cluster/runtime");
+  assert.match(status.textContent, /未保存预览/);
+  assert.equal(preview.dataset.savedInstallDir, "/old/demo/alice_agent");
+  preview.dataset.installDirIsExplicit = "true";
+  sandbox.updateServerDestinationPreview(input);
+  assert.equal(runtime.textContent, "/old/demo/alice_agent/simple_cluster/runtime");
+  preview.dataset.savedInstallDir = "/custom/zlk_agent";
+  sandbox.updateServerDestinationPreview(input);
+  assert.equal(runtime.textContent, "/custom/zlk_agent/simple_cluster/runtime");
+  preview.dataset.installDirIsExplicit = "false"; preview.dataset.agentDirectoryName = "";
+  sandbox.updateServerDestinationPreview(input);
+  assert.equal(runtime.textContent, "等待读取全局前缀");
+  preview.dataset.projectName = "";
+  sandbox.updateServerDestinationPreview(input);
+  assert.equal(runtime.textContent, "打开本地项目后显示");
 });
 
 test("project quick access summarizes upload destinations and refreshes after project changes", () => {
