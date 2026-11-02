@@ -2028,15 +2028,12 @@ export function renderPanelHtml(): string {
       return "other";
     }
     function tmuxSessionOwnership(session) {
-      const prefix = String(tmuxListCache.tmuxSessionPrefix || "");
-      const name = String(session.name || "");
       if (session.ownership === "project" || (session.windows || []).some(function(win){ return win.task && win.task.commandId; })) return "mine";
-      return prefix && name.indexOf(prefix) === 0 ? "mine" : "foreign";
+      return "foreign";
     }
     function tmuxSessionGroup(session) {
       if (tmuxSessionOwnership(session) !== "mine") return "foreign";
-      const category = classifyTmuxWindow(session.name);
-      return session.role === "scheduler" || category === "scheduler" || category === "worker" ? "services" : "mine";
+      return ["scheduler", "agent", "tensorboard"].includes(session.role) ? "services" : "mine";
     }
     function tmuxGpuIdFromSession(name) {
       const raw = String(name || "");
@@ -2236,7 +2233,7 @@ export function renderPanelHtml(): string {
       const ordinary = list.filter(function(session){ return !tmuxCurrentGpuIdFromSession(session.name); });
       const ownedCount = ordinary.filter(function(session){ return tmuxSessionGroup(session) === "mine"; }).length;
       const foreignCount = ordinary.filter(function(session){ return tmuxSessionGroup(session) === "foreign"; }).length;
-      meta.textContent = "GPU " + gpuCount + " 个 · 任务标签 " + taskCount + " 个 · 我的其他会话 " + ownedCount + " 个 · 其他前缀 " + foreignCount + " 个";
+      meta.textContent = "GPU " + gpuCount + " 个 · 任务标签 " + taskCount + " 个 · 本项目其他会话 " + ownedCount + " 个 · 归属未核实 " + foreignCount + " 个";
       renderTmuxFilterBar(list);
       const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
       let grid = "";
@@ -2245,7 +2242,7 @@ export function renderPanelHtml(): string {
         for (let si = 0; si < ordinary.length; si++) {
           const sess = ordinary[si] || {};
           const group = tmuxSessionGroup(sess);
-          const badge = group === "foreign" ? "归属未核实" : sess.role === "scheduler" ? "调度服务" : classifyTmuxWindow(sess.name) === "worker" ? "Agent" : "我的会话";
+          const badge = group === "foreign" ? "归属未核实" : sess.role === "scheduler" ? "调度服务" : sess.role === "agent" ? "Agent" : sess.role === "tensorboard" ? "TensorBoard" : "本项目会话";
           let sessionGrid = '<div class="tmuxOverviewItem"><span class="pill">' + esc(badge) + '</span><b>' + esc(sess.name || "") + '</b><span class="muted">' + String((sess.windows || []).length) + ' 个窗口</span>';
           const wins = sess.windows || [];
           if (sess.role !== "scheduler") sessionGrid += tmuxSessionCloseButton(sess);
@@ -2267,7 +2264,7 @@ export function renderPanelHtml(): string {
           const id = group === "mine" ? "tmuxMineOverview" : group === "services" ? "tmuxServicesOverview" : "tmuxOtherOverview";
           const previous = document.getElementById ? document.getElementById(id) : el(id);
           const open = previous ? previous.open : group === "mine";
-          const label = group === "mine" ? "我的其他会话" : group === "services" ? "插件服务" : "其他前缀会话（请核对归属）";
+          const label = group === "mine" ? "本项目其他会话" : group === "services" ? "本项目插件服务" : "归属未核实会话（请核对目标）";
           grid += '<details id="' + id + '" class="tmuxSessionGroup ' + group + '"' + (open ? ' open' : '') + '><summary>' + label + ' · ' + counts[group] + '</summary><div class="tmuxOverviewGrid">' + groups[group] + '</div></details>';
         }
       } else {
@@ -3162,6 +3159,7 @@ export function renderPanelHtml(): string {
     let gpuHistoryServerStyleColorUsageCache = null;
     let gpuHistoryServerStylesSaveTimer = 0;
     let overviewTaskStatsCacheRows = null;
+    let overviewTaskStatsCacheNativePlans = null;
     let overviewTaskStatsCacheValue = null;
     let overviewOperationStatsCacheRows = null;
     let overviewOperationStatsCacheValue = null;
@@ -9247,16 +9245,28 @@ export function renderPanelHtml(): string {
 
     function overviewTaskStats(state) {
       const rows = schedulerRowsForState(state);
-      if (rows === overviewTaskStatsCacheRows && overviewTaskStatsCacheValue) return overviewTaskStatsCacheValue;
+      const nativePlans = Array.isArray(state && state.distributedPlans) ? state.distributedPlans : null;
+      if (rows === overviewTaskStatsCacheRows && nativePlans === overviewTaskStatsCacheNativePlans && overviewTaskStatsCacheValue) return overviewTaskStatsCacheValue;
       const stats = { running: 0, queued: 0, failed: 0, completed: 0 };
-      rows.forEach((row) => {
+      const count = (row) => {
         const status = String(row.status || "").toLowerCase();
         if (status === "running" || status === "testing") stats.running += 1;
         else if (status === "queued" || status === "pending") stats.queued += 1;
         else if (taskFailureLikeStatus(status)) stats.failed += 1;
         else if ((status === "completed" || status === "done") && row.completionState === "verified") stats.completed += 1;
+      };
+      const nativeFiles = new Set();
+      if (nativePlans) ${logicalPlansSource}(nativePlans).forEach((plan) => {
+        const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
+        if (!jobs.length) return;
+        nativeFiles.add(executionPlanGroupKey(plan.planFile));
+        jobs.forEach(count);
+      });
+      rows.forEach((row) => {
+        if (!nativeFiles.size || !nativeFiles.has(executionPlanGroupKey(row.planFile || row.plan))) count(row);
       });
       overviewTaskStatsCacheRows = rows;
+      overviewTaskStatsCacheNativePlans = nativePlans;
       overviewTaskStatsCacheValue = stats;
       return stats;
     }

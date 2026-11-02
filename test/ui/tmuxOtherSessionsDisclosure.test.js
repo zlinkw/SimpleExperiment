@@ -16,7 +16,7 @@ function harness() {
     { index: "1", name: "run-" + gpu, windowId: "@" + (gpu * 2 + 1), task: { commandId: "job-" + gpu, case: "case-" + gpu, seed: 42, status: gpu ? "running" : "failed" }, panes: [{ id: "%" + (gpu * 2 + 1), command: "python" }] },
   ] }));
   sessions.push({ name: "m1mechanism", windows: Array.from({ length: 17 }, (_, i) => ({ index: String(i), windowId:'@'+(100+i), name: "mechanism-" + i, panes: [{id:'%'+(100+i), target: "m1mechanism:" + i + ".0", command: "bash" }] })) });
-  sessions.push({ name: "zlk-worker-agent", windows: [{ index: "0", name: "agent", panes: [] }] });
+  sessions.push({ name: "zlk-worker-agent", ownership: "project", role: "agent", windows: [{ index: "0", name: "agent", panes: [] }] });
   const requests = [];
   const context = vm.createContext({
     tmuxListCache: { workerId: "NWPU5", tmuxSessionPrefix: "zlk", sessions, gpuIds: ["0", "1"], fetchedAt: "t0" },
@@ -35,6 +35,18 @@ function harness() {
   const render = () => vm.runInContext("renderTmuxOverview(tmuxListCache.sessions)", context);
   return { context, elements, render, requests };
 }
+
+test("matching prefixes never prove current-project ownership or plugin service identity", () => {
+  const f = harness();
+  for (const name of ["zlk-worker-agent", "zlk-sch-foreign", "zlk-personal-shell"]) {
+    const session = { name, windows: [{ index: "0", windowId: "@99", panes: [] }] };
+    assert.equal(f.context.tmuxSessionOwnership(session), "foreign", name);
+    assert.equal(f.context.tmuxSessionGroup(session), "foreign", name);
+  }
+  assert.equal(f.context.tmuxSessionGroup({ name: "old-other-prefix", ownership: "project", role: "scheduler", windows: [] }), "services");
+  assert.equal(f.context.tmuxSessionOwnership({ name: "original-user-name", windows: [{ task: { commandId: "current-project-job" } }] }), "mine");
+  assert.equal(f.context.tmuxSessionGroup({ name: "zlk-worker-named-task", windows: [{ task: { commandId: "current-project-job" } }] }), "mine", "a name does not prove an Agent service role");
+});
 
 test("GPU overview never downloads pane history and releases previously selected output", async () => {
   const f = harness();
@@ -130,7 +142,7 @@ test("unrelated tmux windows are folded outside the GPU cards and overview", () 
   assert.doesNotMatch(overview.slice(overviewFolded, overview.indexOf(">", overviewFolded) + 1), /\bopen\b/);
   assert.match(overview.slice(overviewFolded), /data-tmux-filter="m1mechanism:16"/);
   assert.match(overview.slice(overviewFolded), /data-tmux-close="m1mechanism:16"/);
-  assert.match(elements.tmuxListMeta.textContent, /GPU 2.*任务标签 2.*我的其他会话 0.*其他前缀 1/);
+  assert.match(elements.tmuxListMeta.textContent, /GPU 2.*任务标签 2.*本项目其他会话 0.*归属未核实 1/);
 });
 
 test('explicit GPU terminal selection captures unbound and related-session tabs without automatic history fallback', async () => {
@@ -237,7 +249,7 @@ test("a Worker with only ordinary sessions still offers their windows without in
   assert.doesNotMatch(elements.tmuxFilterBar.innerHTML, /data-tmux-filter="m1mechanism:0"/);
   assert.match(elements.tmuxOverview.innerHTML, /data-tmux-filter="m1mechanism:0"/);
   assert.match(elements.tmuxOverview.innerHTML, /<details id="tmuxOtherOverview"[^>]*><summary>/);
-  assert.match(elements.tmuxListMeta.textContent, /GPU 0.*任务标签 0.*其他前缀 1/);
+  assert.match(elements.tmuxListMeta.textContent, /GPU 0.*任务标签 0.*归属未核实 1/);
 });
 
 test("empty inventory keeps idle GPU slots and does not leave an empty ordinary-session disclosure", () => {
@@ -277,18 +289,18 @@ test("configured namespace counts physical GPUs once and each raw window appears
   assert.match(elements.tmuxFilterBar.innerHTML, /data-tmux-filter="lwb-gpu-3"/);
 });
 
-test('configured prefixes classify personal sessions while native task and controller ownership survives old prefixes', () => {
+test('unbound personal sessions remain unverified while native task and controller ownership survives old prefixes', () => {
   const f = harness();
   f.context.tmuxListCache.sessions.push({name:'zlk-notes',windows:[{index:'0',name:'notes',windowId:'@800',panes:[]}]},
     {name:'simple-sch-123',ownership:'project',role:'scheduler',windows:[{index:'0',name:'queue',windowId:'@801',panes:[]}]});
   f.render();
   const html = f.elements.tmuxOverview.innerHTML;
-  assert.match(html, /id="tmuxMineOverview"[^>]*>[\s\S]*zlk-notes/);
+  assert.match(html, /id="tmuxOtherOverview"[^>]*>[\s\S]*zlk-notes/);
   assert.match(html, /id="tmuxServicesOverview"[^>]*>[\s\S]*simple-sch-123/);
   assert.doesNotMatch(html, /data-tmux-close-session="simple-sch-123"|data-tmux-close="simple-sch-123:0"/);
-  assert.match(html, /其他前缀会话（请核对归属）/);
+  assert.match(html, /归属未核实会话（请核对目标）/);
   f.context.tmuxListCache.tmuxSessionPrefix = 'm1'; f.render();
-  assert.equal(f.context.tmuxSessionOwnership({name:'m1mechanism'}), 'mine');
+  assert.equal(f.context.tmuxSessionOwnership({name:'m1mechanism'}), 'foreign');
   assert.equal(f.context.tmuxSessionOwnership({name:'zlk-notes'}), 'foreign');
 });
 

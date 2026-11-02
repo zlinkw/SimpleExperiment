@@ -27,7 +27,7 @@ function loadTaskStats() {
     taskFailureLikeStatus(status) { return new Set(["failed", "error", "stalled", "stopped", "cancelled"]).has(status); },
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction("overviewTaskStats")}\nthis.check = overviewTaskStats;`, sandbox);
+  vm.runInContext(`${extractFunction("normalizePlanSelectionKey")}\n${extractFunction("executionPlanGroupKey")}\n${extractFunction("overviewTaskStats")}\nthis.check = overviewTaskStats;`, sandbox);
   return sandbox;
 }
 
@@ -71,4 +71,24 @@ test("Plan run workbench consumes the shared task statistics", () => {
   assert.match(source, /const failed = taskStats\.failed/);
   assert.doesNotMatch(source, /rows\.filter\(/);
   assert.doesNotMatch(source, /const rows = schedulerRowsForState\(state\)/);
+});
+
+test("overview includes current native logical jobs once and reacts to a changed native snapshot", () => {
+  const sandbox = loadTaskStats();
+  const planFile = "experiments/plans/native.yaml";
+  const job = (index, status, completionState) => ({ index, case: "case" + index, seed: 42, outputDir: "work/job" + index, status, completionState });
+  const common = { projectId: "project", planFile, revision: "rev", fullPlanJobCount: 3 };
+  const state = { rows: [
+    { planFile: "./EXPERIMENTS\\plans\\native.yaml", status: "running" },
+    { plan: "experiments/plans/legacy.yaml", status: "failed" },
+  ], distributedPlans: [
+    { ...common, id: "first", enqueuedAt: "2026-11-01T01:00:00Z", planJobCount: 2, jobs: [job(0, "completed", "verified"), job(1, "running")] },
+    { ...common, id: "recovery", enqueuedAt: "2026-11-01T02:00:00Z", planJobCount: 1, jobs: [job(2, "pending")] },
+  ] };
+  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.check(state))), { running: 1, queued: 1, failed: 1, completed: 1 });
+  state.distributedPlans = [{ ...common, id: "current", enqueuedAt: "2026-11-01T03:00:00Z", planJobCount: 3,
+    jobs: [job(0, "completed", "unknown"), job(1, "completed", "review_required"), job(2, "queued")] }];
+  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.check(state))), { running: 0, queued: 1, failed: 1, completed: 0 });
+  state.distributedPlans = [];
+  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.check(state))), { running: 1, queued: 0, failed: 1, completed: 0 });
 });

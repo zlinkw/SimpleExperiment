@@ -57,7 +57,7 @@
 | PFX3b | Host 与实际 UI 路径校验移除固定目录名推断 | passed |
 | PFX3c | 全局前缀的 tmux 旧版名称兼容与输入边界 | passed |
 | PFX3d | 清除旧任务字段绕过统一前缀函数的残余 | passed |
-| PFX3e / E1a | TMUX 同名前缀不作归属证据，首屏统计真实原生逻辑任务 | running |
+| PFX3e / E1a | TMUX 同名前缀不作归属证据，首屏统计真实原生逻辑任务 | passed |
 | E1-test | 两个概况 VM 夹具准备原生数组缓存及真实生成函数 | passed |
 | E1-test2 | 原执行总览夹具展开全部既有逻辑函数模板插值 | passed |
 | PFX4 / D0d | 说明与受影响调用链收口，检查错误前缀机制无残留 | pending |
@@ -72,7 +72,7 @@
 | D1 | 零目标、禁用、未核实、离线；精确附着与项目绑定查询 | passed（本机覆盖，真实服务器待验证） |
 | D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | pending |
 | D3 | 保存范围、生效时间与草稿恢复 | pending |
-| E1 | 主次/危险操作、错误、帮助、空态与刷新范围 | pending |
+| E1 | 主次/危险操作、错误、帮助、空态与刷新范围 | partial（E1a passed，最终覆盖核对随 E2） |
 | E2 | label、键盘、焦点、窄窗口、长路径、缩放与主题 | pending |
 
 ## 已完成 P0
@@ -542,6 +542,10 @@ PFX3e/E1a 定向：compile 2026-11-02T21-51-01-247Z-18688 通过；taskStats 3�
 PFX3e/E1a 首轮 package：2026-11-02T21-53-11-486Z-89836-package/run.json，317/318 通过、executionCompactOverview 一项失败，exit=1、694825ms、锁已释放，未组包。该原夹具手工将 `${logicalPlansSource}` 只替换第一次；新增复用位于其前面，原 renderExecutionPlanList 插值未展开，51 子例出现相同 SyntaxError。实际生成 HTML 与其 61 项定向/浏览器检查无此语法问题，但先前反向引用未覆盖模板变量的手工替换消费者，判断不完整。按 exact logicalPlansSource 搜索只此一个测试消费者，改 replaceAll 展开全部，保留 51 项原断言及期限，未改生产功能迎合夹具。E1-test2 仅该测试及本计划：当前套件 51/51 通过（e1-interpolation-fixture-fixed.log）。额外旧 HEAD 对照在 git show 读取阶段 status=null，未进入断言，e1-interpolation-committed-baseline.log 为失败；主流程没有在失败后停止，误将此项记为通过并随 de42d5f2 提交，此处明确纠正，不将该对照算通过。生产候选不变，包仍未完成；补齐对照的实际源码读取后再验证，不改测试期限或生产代码，不伪造失败 receipt。
 
 E1-test2 对照更正：仅对隔离诊断中的 git show 源码读取提供足够缓冲，原 20 秒 Node/10 秒子进程期限和全部 51 项断言不变；已提交 de42d5f2 的原 UI 函数完整 51/51 通过，exit=0，e1-interpolation-baseline-buffer-fixed.log。此前 status=null 的旧失败日志保留，不覆盖；不把记录修正视为生产候选已完成。该说明单独提交，随后生产 0.5.478 继续原规定 package；未改变生产实现、版本、覆盖、执行器或发行边界。
+
+PFX3e/E1a 最终验证：2026-11-02T22-06-44-290Z-89608-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、711577ms。原 executionCompactOverview 51 项在严格入口通过；原失败与错误记录更正保留。内部 universal/trial 0.5.478 为 2776531 字节，SHA256 7cbd6f0ed713ce8e67e95ead4bfd3d00b5b8902c82ee4b67415c4711ec807c1c，与 receipt 和逐包清单一致；362 项内容门禁零违规，实际主 HTML 三脚本及模块解析通过；渲染使用最终同内容候选的 e1-render-1793656362866.json。源码本批 8 非生成文件，不包括已独立提交的 E1-test2。无公开发行、安装或服务器操作。
+
+UI 路径核实更正：当前 Host 实现 showNativeRunConfirmation，RunConfirmation.ask 因此走 VS Code 原生弹窗，原 planRunRecovery 已验证两个阶段展示全部完整路径、并发排队和取消。ui/RunConfirmation 注入脚本属于当前未走的回退路径，E2 不修改它来冒充实际焦点修复。E2 改为实际配置表单 label 与状态卡片右键菜单（当前鼠标专用、未聚焦菜单项、浅色写死）的键盘/主题/焦点；保留当前原生确认。覆盖表如实区分源码/隔离与真实重载验收。下一批 PFX4/PFX4b 只做前缀及目录说明收口和相关静态测试，不新版本或重打本包；之后才发布完整前缀试行版，不转正、不提前安装。
 
 ## 发现线索与后续边界（以批次状态为准）
 
