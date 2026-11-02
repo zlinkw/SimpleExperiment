@@ -95,7 +95,7 @@ function loadPanelGuard() {
   return sandbox.guard;
 }
 
-function loadPlanRunActions(activity = { active: false }) {
+function loadPlanPreparationContext(activity = { active: false }) {
   const sandbox = {
     escAttr: (value) => String(value || ""),
     planFromContext: () => ({ status: "completed" }),
@@ -107,7 +107,7 @@ function loadPlanRunActions(activity = { active: false }) {
     renderPlanBatchPicker: () => "",
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction(panel, "renderPlanRunActions")}\nthis.render = renderPlanRunActions;`, sandbox);
+  vm.runInContext(`${extractFunction(panel, "renderPlanPreparationContext")}\nthis.render = renderPlanPreparationContext;`, sandbox);
   return sandbox.render;
 }
 
@@ -198,12 +198,12 @@ test("confirmed inactive operation does not block the selected Plan", () => {
   assert.equal(loadPanelGuard()({ operations: [{ ...stale, reconcileEvidenceActive: true }] }, planFile).active, true);
 });
 
-test("completed Plan outputs stay rerunnable while true active evidence keeps the hard guard", () => {
+test("completed outputs keep the main run action while preparation context does not duplicate it", () => {
   const planFile = "experiments/plans/comparison/concatenation.yaml";
-  const render = loadPlanRunActions();
+  const render = loadPlanPreparationContext();
   const html = render({ operations: [], schedulerStates: [] }, planFile, true, undefined, undefined);
-  assert.match(html, /data-command="runPlan"/);
-  assert.doesNotMatch(html, /data-command="runPlan"[^>]*disabled/);
+  assert.doesNotMatch(html, /data-command="(?:runPlan|validatePlan|dryRunPlan)"/);
+  assert.match(panel, /<button data-command="runPlan"[^>]*>校验并提交运行<\/button>/);
   assert.doesNotMatch(html, /overwriteExistingToggle|data-overwrite-toggle/);
 
   const guardSource = extractMethod(extension, "assertPlanNotAlreadyActive");
@@ -307,7 +307,7 @@ test("backend reuses bounded current Plan activity evidence and invalidates sour
   assert.notStrictEqual(guard(state, "plans/0.yaml", { revision: "r0" }), oldest);
 });
 
-test("webview routes active Plans to confirmed restart while the Host duplicate guard remains strict", () => {
+test("webview routes active Plans to progress while the Host duplicate guard remains strict", () => {
   const guard = loadPanelGuard();
   const planFile = "experiments/plans/smoke.yaml";
   const state = { operations: [{ type: "reproduce-plan", status: "submitted", planFile }] };
@@ -321,9 +321,9 @@ test("webview routes active Plans to confirmed restart while the Host duplicate 
   assert.match(planActivity, /for \(const row of operationRowsForState/);
   assert.match(planActivity, /for \(const row of schedulerRowsForState/);
   assert.doesNotMatch(planActivity, /\.filter\(/);
-  const html = loadPlanRunActions(first)(state, planFile, true);
-  assert.match(html, /data-command="runPlan"/);
-  assert.match(html, /停止并重新运行/);
+  const html = loadPlanPreparationContext(first)(state, planFile, true);
+  assert.doesNotMatch(html, /data-command="runPlan"/);
+  assert.match(html, /先核实原任务/);
   assert.match(html, /查看运行进度/);
   assert.match(extension, /assertPlanNotAlreadyActive[\s\S]{0,2600}已阻止重复提交/);
 });

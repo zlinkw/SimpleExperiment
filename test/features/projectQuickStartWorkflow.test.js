@@ -130,7 +130,8 @@ test("project onboarding keeps staged actions and respects readiness order", () 
   }
   assert.match(flow, /const activeIndex = stepSpecs\.findIndex\(\(step\) => !step\.ok\)/);
   assert.match(flow, /pending: activeIndex >= 0 && index > activeIndex/);
-  assert.match(panel, /function renderPlanRunActions\(state, selectedPlan, outputReady, adapterConfig, runtimeContractStage\)/);
+  assert.match(panel, /function renderPlanPreparationContext\(state, selectedPlan, outputReady, adapterConfig, runtimeContractStage\)/);
+  assert.doesNotMatch(panel, /function renderPlanRunActions\(/);
   assert.doesNotMatch(panel, /data-command="runPlan"[^>]*>运行<\/button>/);
 });
 test("configured single-project workspaces keep onboarding visible until explicitly completed", () => {

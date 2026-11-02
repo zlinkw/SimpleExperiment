@@ -1438,12 +1438,45 @@ export function renderPanelHtml(): string {
             <button data-command="snapshot" class="secondary" title="刷新识别：重新扫描工作区&#10;更新实验计划列表与项目接入状态&#10;不会修改任何文件">刷新识别</button>
           </div>
         </div>
-        <div class="branchProjectsCard" data-branch-projects-card="true" style="margin:0 0 10px 0;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--subtle-bg);">
-          <div class="section-head" style="margin-bottom:6px;">
-            <div class="section-title">
-              <h3 style="margin:0;font-size:13px;">项目与分支</h3>
-              <div class="section-desc">本机祖先项目与创新分支登记；副本目录独立，状态按真实 Git 读取，科研验证另计</div>
-            </div>
+        <div id="planDetectedProject" data-anchor="plans-detected"></div>
+        <div id="planQuickGrid" class="planQuickGrid" data-anchor="plans-actions">
+          <div class="planSelectorControls" aria-label="计划筛选与排序">
+            <div class="field"><label for="planSelectorQuery">搜索计划</label><input id="planSelectorQuery" type="search" placeholder="筛选文件名或路径" autocomplete="off"></div>
+            <div class="field"><label for="planSelectorStatusFilter">状态</label><select id="planSelectorStatusFilter"><option value="all">全部状态</option><option value="remaining">未完成</option><option value="not-started">未开始</option><option value="partial">部分完成</option><option value="unknown">待核实</option><option value="submitting">准备提交中</option><option value="queued">排队中</option><option value="running">运行中</option><option value="completed">已完成</option><option value="failed">失败</option></select></div>
+            <div class="field"><label for="planSelectorSortOrder">排序</label><select id="planSelectorSortOrder"><option value="scan">扫描顺序</option><option value="progress-desc">进度从高到低</option><option value="progress-asc">进度从低到高</option><option value="name">名称</option></select></div>
+          </div>
+          <div class="field wide">
+            <label for="planFileInput">当前 PLAN 文件</label>
+            <select id="planFileInput" class="wide" title="从已识别的实验计划中选择；列表来自工作区扫描结果"></select>
+            <div id="planSelectorStatus" class="planSelectorStatus is-not-started" role="status" aria-live="polite"><span>未开始</span></div>
+          </div>
+          <details class="planBatchSelector" data-details-key="plan-batch-selector" open>
+            <summary>批量选择 PLAN · <span id="planBatchCount" role="status" aria-live="polite">已选 0 个</span></summary>
+            <div class="toolbar"><button type="button" id="planBatchSelectVisible" class="mini secondary">全选筛选结果</button><button type="button" id="planBatchClear" class="mini secondary">清空选择</button></div>
+            <div id="planBatchFiles" class="planBatchFiles"></div>
+          </details>
+          <div class="planQuickActions" aria-label="当前 PLAN 与批量运行操作">
+          <button data-command="validatePlan" title="校验实验计划，不会运行任务&#10;检查契约、输出接口与配置完整性&#10;未通过时列出缺失项与修复建议">校验</button>
+          <button data-command="dryRunPlan" class="secondary" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">预演</button>
+          <button data-command="runPlan" title="同步代码、校验并预演；存在历史产物时选择补跑缺失任务、重跑全部或取消">校验并提交运行</button>
+          <button type="button" data-command="runAllPlans" data-plan-batch-run="selected" class="secondary" disabled title="所选 PLAN 每批最多 4 个并发校验与入队；同版本代码统一同步，无需指定服务器；保留逐 Plan 预演与覆盖确认；失败后不启动下一批">运行所选计划</button>
+          <button data-command="runAllPlans" data-confirm="true" class="secondary" title="全部 PLAN 每批最多 4 个并发校验与入队；同版本代码统一同步，无需指定服务器&#10;每批入队后自动派发，保留逐 Plan 预演与覆盖确认；失败后不启动下一批">运行全部计划</button>
+          </div>
+        </div>
+        <div id="planCommandPhaseLine" class="commandPhaseLine muted" role="status" aria-live="polite"></div>
+        <div id="recentPlans" data-anchor="plans-list"></div>
+        <details class="advanced" data-details-key="plan-artifact-review">
+          <summary>产物审核与清理</summary>
+          <p class="sectionNote">由你主动选择审核范围。先展示精确节点和完整路径；永久删除仍须两次确认，不随运行自动执行。</p>
+          <div class="toolbar">
+            <button data-command="cleanupPlan" class="secondary" title="只读预览当前选中 PLAN 的本机及历史关联服务器产物，再核对精确路径">审核当前 PLAN 及关联产物</button>
+            <button data-command="reviewIsolatedPlanBatches" class="secondary" title="审核已登记隔离产物或其删除后留下的空目录；永久删除须显示完整路径并两次确认">审核隔离产物与空目录</button>
+          </div>
+        </details>
+        <details class="advanced" data-details-key="plan-project-tools">
+          <summary>项目与分支工具</summary>
+          <div class="branchProjectsCard" data-branch-projects-card="true" style="margin:8px 0 0;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--subtle-bg);">
+            <p class="sectionNote">本机祖先项目与创新分支登记；副本目录独立，状态按真实 Git 读取，科研验证另计。</p>
             <div class="toolbar">
               <button type="button" data-command="registerAncestorProject" class="secondary" title="登记一个本机已有的祖先项目仓库根&#10;只记录目录、目标分支与 remote，不修改任何文件">登记祖先项目</button>
               <button type="button" data-command="registerBranchProject" class="secondary" title="把已有独立副本（worktree 或 clone）登记为某祖先的创新分支&#10;只登记归属，不合并、不移动提交">登记分支副本</button>
@@ -1453,38 +1486,9 @@ export function renderPanelHtml(): string {
               <button type="button" data-command="refreshBranchRuns" class="secondary" title="逐个已登记项目做真实实例握手并拉取其最近操作记录（只读）">刷新运行状态</button>
               <button type="button" data-command="compareBranchResults" class="secondary" title="读本机各登记项目的队列磁盘投影，对比已确证完成数与运行溯源（只读；不替用户做科研优劣判断）">结果对比与选优</button>
             </div>
+            <div id="branchProjectsList" data-anchor="branch-projects"></div>
           </div>
-          <div id="branchProjectsList" data-anchor="branch-projects"></div>
-        </div>
-        <div id="planDetectedProject" data-anchor="plans-detected"></div>
-        <div id="planQuickGrid" class="planQuickGrid" data-anchor="plans-actions">
-          <div class="planSelectorControls" aria-label="计划筛选与排序">
-            <div class="field"><label for="planSelectorQuery">搜索计划</label><input id="planSelectorQuery" type="search" placeholder="筛选文件名或路径" autocomplete="off"></div>
-            <div class="field"><label for="planSelectorStatusFilter">状态</label><select id="planSelectorStatusFilter"><option value="all">全部状态</option><option value="remaining">未完成</option><option value="not-started">未开始</option><option value="partial">部分完成</option><option value="unknown">待核实</option><option value="submitting">准备提交中</option><option value="queued">排队中</option><option value="running">运行中</option><option value="completed">已完成</option><option value="failed">失败</option></select></div>
-            <div class="field"><label for="planSelectorSortOrder">排序</label><select id="planSelectorSortOrder"><option value="scan">扫描顺序</option><option value="progress-desc">进度从高到低</option><option value="progress-asc">进度从低到高</option><option value="name">名称</option></select></div>
-          </div>
-          <div class="field wide">
-            <label>计划文件</label>
-            <select id="planFileInput" class="wide" title="从已识别的实验计划中选择；列表来自工作区扫描结果"></select>
-            <div id="planSelectorStatus" class="planSelectorStatus is-not-started" role="status" aria-live="polite"><span>未开始</span></div>
-          </div>
-          <details class="planBatchSelector" data-details-key="plan-batch-selector" open>
-            <summary>批量选择 PLAN · <span id="planBatchCount" role="status" aria-live="polite">已选 0 个</span></summary>
-            <div class="toolbar"><button type="button" id="planBatchSelectVisible" class="mini secondary">全选筛选结果</button><button type="button" id="planBatchClear" class="mini secondary">清空选择</button></div>
-            <div id="planBatchFiles" class="planBatchFiles"></div>
-          </details>
-          <div class="planQuickActions">
-          <button data-command="validatePlan" title="校验实验计划，不会运行任务&#10;检查契约、输出接口与配置完整性&#10;未通过时列出缺失项与修复建议">校验</button>
-          <button data-command="dryRunPlan" class="secondary" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">预演</button>
-          <button data-command="runPlan" title="同步代码、校验并预演；存在历史产物时选择补跑缺失任务、重跑全部或取消">校验并提交运行</button>
-          <button type="button" data-command="runAllPlans" data-plan-batch-run="selected" class="secondary" disabled title="所选 PLAN 每批最多 4 个并发校验与入队；同版本代码统一同步，无需指定服务器；保留逐 Plan 预演与覆盖确认；失败后不启动下一批">运行所选计划</button>
-          <button data-command="runAllPlans" data-confirm="true" class="secondary" title="全部 PLAN 每批最多 4 个并发校验与入队；同版本代码统一同步，无需指定服务器&#10;每批入队后自动派发，保留逐 Plan 预演与覆盖确认；失败后不启动下一批">运行全部计划</button>
-          <button data-command="cleanupPlan" class="secondary" title="只读预览选中 PLAN 的本机及历史关联服务器产物，再核对精确路径">清除 PLAN 及关联产物</button>
-          <button data-command="reviewIsolatedPlanBatches" class="secondary" title="审核已登记隔离产物或其删除后留下的空目录；永久删除须显示完整路径并两次确认">审核隔离产物与空目录永久删除</button>
-          </div>
-        </div>
-        <div id="planCommandPhaseLine" class="commandPhaseLine muted" role="status" aria-live="polite"></div>
-        <div id="recentPlans" data-anchor="plans-list"></div>
+        </details>
       </section>
 
         <section class="section-card" data-section="gpu" data-anchor="gpu" data-title="GPU 状态">
@@ -11183,7 +11187,7 @@ export function renderPanelHtml(): string {
       ].join("");
       return '<div class="planRunWorkbench" title="计划运行">' +
         '<table class="planCompactTable gpuDenseTable"><tbody>' + rowsHtml + renderPlanGateList(selectedPlan, syncReady, effectiveOutputReady, preflight, runtimeContractStage) + '</tbody></table>' +
-        renderPlanRunActions(state, selectedPlan, outputReady, project.adapterConfig, runtimeContractStage) +
+        renderPlanPreparationContext(state, selectedPlan, outputReady, project.adapterConfig, runtimeContractStage) +
       '</div>';
     }
 
@@ -11242,9 +11246,9 @@ export function renderPanelHtml(): string {
       return PLAN_EXECUTION_PHASE_LABELS[raw] || raw || "未知";
     }
 
-    function renderPlanRunActions(state, selectedPlan, outputReady, adapterConfig, runtimeContractStage) {
+    function renderPlanPreparationContext(state, selectedPlan, outputReady, adapterConfig, runtimeContractStage) {
       if (!selectedPlan) {
-        return '<div class="planRunActions">' + projectNextAction("选择或创建实验计划", "识别工作区", "bootstrapProject") + '</div>';
+        return '<div class="planRunActions muted">在下方明确选择当前 PLAN；没有计划时先识别工作区。</div>';
       }
       if (runtimeContractStage) {
         return '<div class="planRunActions">' + renderRuntimeContractRecoveryActions(runtimeContractStage, { adapterConfig }, selectedPlan) + '</div>';
@@ -11255,7 +11259,6 @@ export function renderPanelHtml(): string {
           : '<button class="mini secondary" data-command="generateOutputAdapter" title="生成可选的 Python 结果写入适配器；结果路径和列映射可在 Plan 与插件设置中配置">生成接入模板</button>';
         return '<div class="planRunActions">' + projectNextAction("补全输出后再运行", "打开 Plan", "openPlan", { file: selectedPlan }) + adapterAction + '</div>';
       }
-      const executionStage = planExecutionStage(state || {}, selectedPlan);
       const plan = planFromContext(state || {}, { planFile: selectedPlan }) || {};
       const activity = planActiveRunEvidence(state || {}, selectedPlan, plan);
       if (activity.active) {
@@ -11266,9 +11269,9 @@ export function renderPanelHtml(): string {
         const summary = activity.taskCount
           ? (historicalOnly ? "旧 revision 的 " : "") + activity.taskCount + " 个任务仍在排队或运行"
           : (historicalOnly ? "旧 revision 的 " : "") + activity.operationCount + " 个运行提交仍未结束";
-        return '<div class="planRunActions"><button class="mini" data-command="runPlan" data-plan-file="' + escAttr(selectedPlan) + '" title="确认停止这个 Plan 的旧运行，收到停止回执后重新提交；保留已有产物">停止并重新运行</button><button class="mini secondary" type="button" data-section-target="' + target + '" data-anchor-target="' + anchor + '">' + label + '</button><span class="muted">' + esc(summary) + '；重新运行需要确认停止。</span></div>';
+        return '<div class="planRunActions"><button class="mini secondary" type="button" data-section-target="' + target + '" data-anchor-target="' + anchor + '">' + label + '</button><span class="muted">' + esc(summary) + '；先核实原任务。重新提交只从下方当前 PLAN 主操作进入，并需确认停止。</span></div>';
       }
-      return '<div class="planRunActions"><button class="mini" data-command="runPlan" data-plan-file="' + escAttr(selectedPlan) + '" title="同步代码、校验并预演；存在历史产物时必须在模态框选择处理方式">校验并提交运行</button><button class="mini secondary" data-command="validatePlan" data-plan-file="' + escAttr(selectedPlan) + '" title="校验实验计划，不会运行任务&#10;检查契约、输出接口与配置完整性&#10;未通过时列出缺失项与修复建议">单独校验</button><button class="mini secondary" data-command="dryRunPlan" data-plan-file="' + escAttr(selectedPlan) + '" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">单独预演</button><span class="muted" style="font-size:11px;margin-left:6px;" title="调度前会检测输出目录已有产物并由模态框确认补跑或重跑">检测到已有产物时先确认处理方式</span></div>';
+      return '<div class="planRunActions muted">校验、预演和提交统一在下方当前 PLAN 主操作中进行；准备包含自动同步及必要写入。已有产物时先审核处理方式，任务和文件不会因查看此页而改变。</div>';
     }
 
     function renderProjectFirstRunActions(show, planFile) {

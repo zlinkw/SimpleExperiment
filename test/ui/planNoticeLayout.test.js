@@ -42,6 +42,30 @@ test("rendered plan section closes planQuickGrid before the phase line and cards
   assert.doesNotMatch(section.slice(section.indexOf('id="planCommandPhaseLine"'), section.indexOf('id="recentPlans"')), /grid-column:\s*1\s*\/\s*-1/);
 });
 
+test("experiment primary actions precede unique secondary review and project tools", () => {
+  const section = planSection(renderPanelHtml());
+  const actionsAt = section.indexOf('class="planQuickActions"');
+  const actions = section.slice(actionsAt, section.indexOf("</div>", actionsAt));
+  for (const command of ["validatePlan", "dryRunPlan", "runPlan", "runAllPlans"]) assert.ok(actions.includes('data-command="' + command + '"'), command);
+  assert.doesNotMatch(actions, /cleanupPlan|reviewIsolatedPlanBatches|registerAncestorProject/);
+  assert.match(section, /<label for="planFileInput">当前 PLAN 文件<\/label>/);
+  for (const [key, commands] of [
+    ["plan-artifact-review", ["cleanupPlan", "reviewIsolatedPlanBatches"]],
+    ["plan-project-tools", ["registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "refreshUnifiedDispatchPolicy", "refreshBranchRuns", "compareBranchResults"]],
+  ]) {
+    const at = section.indexOf('data-details-key="' + key + '"');
+    assert.ok(at > section.indexOf('id="recentPlans"'), key);
+    const end = section.indexOf("</details>", at);
+    const details = section.slice(at, end);
+    assert.doesNotMatch(details.slice(0, details.indexOf(">")), /\bopen\b/, "secondary tools start collapsed");
+    for (const command of commands) {
+      assert.ok(details.includes('data-command="' + command + '"'), command);
+      assert.equal(section.split('data-command="' + command + '"').length - 1, 1, command + " has no duplicate old entry");
+    }
+  }
+  assert.match(section, /完整路径[\s\S]*两次确认/);
+});
+
 // Requirement change (task ui-plan-gpu-progress-20261024 item 5): the in-flight
 // progress of 运行plan/实验准备 now lives in ONE VS Code Notification per
 // operation, so the card must NOT repeat it as tiny grey phase text. The plan

@@ -19,7 +19,7 @@
 | P0 | 成功回执停止自动删除；冻结项目与迁移保护 | passed |
 | A1a | 默认导航前置实验/进度/产物；不重置自定义顺序 | passed |
 | A1b | 首屏当前项目、PLAN、运行概况、阻断和主操作 | passed |
-| A2 | PLAN 主线、准备上下文、批量范围；移除被替代旧 UI 入口 | pending |
+| A2 | PLAN 主线、准备上下文、批量范围；移除被替代旧 UI 入口 | passed |
 | B1 | UI/API/CLI 本机意图、服务器接收、执行、完成、同步、观测含义 | pending |
 | B2 | 等待原因、自动继续说明、原 job 恢复与中断审核 | pending |
 | B3 | 精确停止与重载恢复，不因未知撤销完成 | pending |
@@ -77,11 +77,23 @@ A1a 交付：源码 8c48ef3d3b57f5b2e71f4264763683d11fd09914 已 push/fetch 一�
 A1b 首轮 build：268 作业中 267 通过，exit=1，564918ms。凭据 simple_cluster/reports/test-workflow/2026-11-02T09-37-36-080Z-85572-build/run.json。gpuCollectorRealTmux 的 phase-c 看到新登记即跳出等待，首帧尚未发布时对 None 取 seq；实际失败为 TypeError（未触发超时）。本批增加最小夹具修正：原 8 秒截止时间内等待同一新 epoch 的首帧，保留 >=1、换代、单会话与精确窗口收尾断言，不改产品采集实现或 10/20 秒期限。共 7 个非生成文件。
 A1b 夹具修正后原单文件 4 项通过，日志 simple_cluster/reports/product-optimization/a1b-collector-20261102-174745/test.log，原失败不改签。隔离浏览器六种状态与 420px 长路径通过，首次焦点检查发现同一状态刷新会丢失首屏按钮焦点，已改为复用相同 HTML、仅对同项目/PLAN/动作恢复焦点；不将焦点跨目标带入新的运行操作。初次 harness 的 DOMStringMap 序列化与预期降级错误判断已校正，未为此改产品。
 A1b 最终 package：318 作业全部通过，未运行 0，maxObservedConcurrent=1，exit=0，707922ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T09-49-35-573Z-91916-package/run.json。隔离 Chrome 六种状态、420px 长路径、同目标焦点刷新与三段实际 HTML 脚本通过，报告 simple_cluster/reports/product-optimization/a1b-render-1793613761200.json；真实 API 未连接。VSIX 0.5.451，2771998 字节，SHA256 249c7c654482d30ed1a519c68f0dc16c29fd0d4bc6d6c8790cb77c58e195e536，内容门禁零违规、universal/trial、权威版 0.5.440/0.2.117 不变。未安装/未部署。
+A1b 源码 2ecadaf859f9ba873b9c9755a6418f16f48e9997 已 push/fetch 一致，https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.451 为预发布，真实下载字节/校验文件一致；实际更新客户端稳定版仍为 0.5.440/0.2.117，试行 451 不降级。未安装。
+
+## 当前批次 A2
+
+目标：PLAN 选择、校验、预演、当前/批量提交是实验区主线；分支运维和产物审核收至明确的次级折叠入口，移除被替代的原按钮。
+范围：实际 legacy 面板及已有布局/流程测试、三处版本元数据、本计划，最多 8 个非生成文件。
+保留：原命令/确认与精确目标绑定、用户详情组/布局和科研分析入口；只调整入口位置，不执行这些操作、不删除科研文件、不缩减审核页双确认。
+验证：实际生成 HTML 的结构、按钮归属与唯一性，原 PLAN 通知/批量运行和自定义组回归；编译/build 链与实际脚本门禁、隔离页面、最终 package。未知现场行为继续单列。
+A2 目标验证：duplicatePlanSubmissionGuard 10、projectQuickStartWorkflow 8、planNoticeLayout 5、uiLayoutSectionLookup 3、workbenchResourceTree 9 项通过；compile exit=0。实际 Chrome 验证主操作不混清理、两个次级详情默认折叠、完整命令保留，六种首屏状态/焦点/窄窗口及三段 HTML 脚本通过，报告 simple_cluster/reports/product-optimization/a2-render-1793614085604.json。只调整入口；旧 renderPlanRunActions 已替换为准备上下文，未结束任务只导向原进度；运行仍从当前 PLAN 主操作主动确认。全量 package pending。
+A2 最终 package：318 作业全部通过，未运行 0，maxObservedConcurrent=1，exit=0，727057ms；凭据 simple_cluster/reports/test-workflow/2026-11-02T10-08-18-753Z-55876-package/run.json。实际生成 HTML 三段脚本通过；VSIX 0.5.452 为 universal/trial、2771863 字节，SHA256 fb6d4bfb5dbcccb033c0d626d8852ef5313a24d7d18180cabed029a13d608a3c，内容门禁零违规，权威版仍为 0.5.440/0.2.117。未安装、未部署、无科研产物操作。
 
 ## 后续定向核查线索（尚未实施）
 
 - A2：项目分支卡位于 PLAN 主操作前；清理与隔离审核在运行同一工具条。可收至同区的次级详情入口，保持命令身份与用户自定义详情组；移走时移除原按钮，避免复制旧入口。
 - B1/B3：TaskLifecycle、WorkerProgressEvidence、VerifiedCompletion 已区分本轮执行/产物/日志观察、持久完成事实及查询错误，不能因 UI 优化重写协议或把旧确认时间当本轮观测；仍需核对 UI/API/CLI 投影及回归。正式协议 2 不走历史自动 retry。
+- B1 新证据：tasks.list 已主动归并并返回 jobLifecycle，但 CLI loadRemoteExperiments 只读取 legacy schedulerStates/workerTasks，不消费 jobLifecycle，随后还会叠加窗口日志观察。需让精确 commandId+Worker+workflow 的协议 2 归并事实优先，并公开完成确证和本轮复查状态；无 API 时历史来源必须明确。当前 jobLifecycle 还缺 Plan/project/输出/时间等关联字段，需要最小补充而非另造查询链。
+- B3 核查补充：storeWorkerTaskSnapshot 已对协议 2 调用 updateVerifiedCompletions 并安排既有持久化，API 主动查询也经过这条链；不能只看 tasks.list 的纯归并返回就误判它没有保存完成事实。精确停止/取消围栏与重载仍按原契约回归。
 - C1：tmuxCapture 的失败回包仍会覆盖文本并显示普通时间，易丢失上下文；跟随仅靠接近底部隐式判断，没有显式暂停。需绑定 Worker+精确窗口，分开缺失与读取失败，保留同目标旧文本及原时间。
 - C2：resultPlanActions 标题是“当前 Plan”，两个主按钮实际都核实全部 Plan；parseResults 主按钮还是旧重建别名。应保留一个全范围更新入口，并将当前 PLAN 映射/文件动作清楚分开。
 - D0：agentRuntimeDirs 默认 <父目录>/simple_agent；Agent tmux 默认名仅含前缀和 Worker，不含项目。默认 runtime 应转项目内，并用稳定项目身份分开 Agent 窗口；不迁移或清理旧目录，不改变用户显式目录。GPU Collector 是按账号/Worker 共享的唯一采样源（GpuCollector.ts、AgentLifecycle.ts），与各项目任务状态不同；已向用户异步确认是否保留这项公共源，当前未改。
