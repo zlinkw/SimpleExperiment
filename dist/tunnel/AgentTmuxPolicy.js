@@ -25,6 +25,7 @@ function defaultAgentTmuxSessionName(role, endpointId, sessionPrefix) {
     return `${prefix}-worker-${slug(endpointId || "worker")}-agent`;
 }
 function isValidRemoteTmuxSessionName(value) {
+    // Explicit existing targets can use historical names; new names use the normalizer.
     return /^[a-z0-9][a-z0-9._-]{0,31}-[a-z0-9][a-z0-9._-]*$/.test(value);
 }
 function agentTmuxStartupCommand(options) {
@@ -64,5 +65,5 @@ function normalizeCondaEnvName(value) {
     return normalized === "-" || normalized === "--" ? "" : normalized;
 }
 function slug(value) {
-    return String(value || "worker").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "worker";
+    return String(value || "worker").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "worker";
 }

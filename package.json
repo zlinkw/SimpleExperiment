@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的后台 SSH 隧道实时集群编排面板。",
-  "version": "0.5.474",
+  "version": "0.5.475",
   "simpleExperimentRelease": {
     "channel": "trial",
     "authoritativeVersion": "0.5.440",
@@ -521,9 +521,9 @@
         "simpleExperiment.tunnel.remoteTmuxSessionPrefix": {
           "type": "string",
           "default": "simple",
-          "pattern": "^[a-z0-9][a-z0-9._-]{0,31}$",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
           "scope": "application",
-          "description": "全局远端资源前缀，供本机所有项目与窗口共用，默认 simple。用于命名远端插件目录与 tmux 服务，帮助共享服务器或账号的用户区分归属、降低名称冲突和误操作风险。未修改默认值时每次打开插件均提醒。仅允许小写字母、数字、点、下划线和连字符；保存不自动迁移、重启或清理已有资源。"
+          "description": "全局远端资源前缀，供本机所有项目与窗口共用，默认 simple。用于命名远端插件目录与 tmux 服务，帮助共享服务器或账号的用户区分归属、降低名称冲突和误操作风险。未修改默认值时每次打开插件均提醒。仅允许小写字母、数字、下划线和连字符；不使用点号，避免旧版 tmux 改写服务名称。保存不自动迁移、重启或清理已有资源。"
         },
         "simpleExperiment.tensorboard.port": {
           "type": "number",

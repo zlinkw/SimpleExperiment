@@ -476,7 +476,7 @@ REMOTE_RESOURCE_DEFAULT_PREFIX = "simple"
 
 def remote_resource_prefix(value=None):
     raw = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") if value is None else value
-    prefix = re.sub(r"[^a-z0-9._-]+", "-", str(raw or REMOTE_RESOURCE_DEFAULT_PREFIX).strip().lower()).strip("-")[:32]
+    prefix = re.sub(r"[^a-z0-9_-]+", "-", str(raw or REMOTE_RESOURCE_DEFAULT_PREFIX).strip().lower()).strip("-")[:32]
     return prefix if re.match(r"^[a-z0-9]", prefix) else REMOTE_RESOURCE_DEFAULT_PREFIX
 
 def remote_agent_directory_name():
@@ -485,9 +485,9 @@ def remote_agent_directory_name():
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.474"
-RUNTIME_VERSION = "0.5.474"
-PLUGIN_VERSION = "0.5.474"
+AGENT_VERSION = "0.5.475"
+RUNTIME_VERSION = "0.5.475"
+PLUGIN_VERSION = "0.5.475"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib

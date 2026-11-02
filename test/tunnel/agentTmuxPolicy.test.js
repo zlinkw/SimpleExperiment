@@ -42,6 +42,32 @@ test("setup, runtime naming and the public setting share one prefix default and 
   }
   assert.equal(names.remoteAgentDirectoryName("zlk"), "zlk_agent");
   assert.equal(names.remoteAgentDirectoryName("alice"), "alice_agent");
+  assert.equal(names.normalizeRemoteResourcePrefix("team.lab"), "team-lab", "older tmux must not rewrite the generated session name");
+  assert.equal(names.remoteAgentDirectoryName("team.lab"), "team-lab_agent");
+  assert.equal(new RegExp(property.pattern).test("team.lab"), false);
+  assert.equal(new RegExp(property.pattern).test("team-lab"), true);
+  assert.equal(policy.defaultAgentTmuxSessionName("worker", "compute.a", "team.lab"), "team-lab-worker-compute-a-agent");
+  const dotted = JSON.parse(policy.agentTmuxStartupCommand({ role: "worker", endpointId: "compute.a", sessionPrefix: "team.lab", installDir: "/srv/project/team-lab_agent", workDir: "/srv/project" }).split(" --config '")[1].slice(0, -1));
+  assert.equal(dotted.workerId, "compute.a", "naming does not rewrite the configured Worker identity");
+  assert.equal(dotted.tmuxSession, "team-lab-worker-compute-a-agent");
+  assert.equal(dotted.sessionPrefix, "team-lab");
+});
+
+test("global prefix save rejects tmux name rewriting without touching settings or existing resources", async () => {
+  const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm"), ts = require("typescript");
+  const source = fs.readFileSync(path.resolve(__dirname, "../../src/extension/legacy.ts"), "utf8");
+  const ast = ts.createSourceFile("host.ts", source, ts.ScriptTarget.Latest, true);
+  const cls = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === "RealtimeTunnelPanelProvider");
+  const method = cls.members.find(node => node.name?.getText(ast) === "persistGlobalResourcePrefix");
+  const writes = [];
+  const Host = vm.runInNewContext(ts.transpileModule("class Host {" + method.getText(ast) + "}; Host", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
+    vscode: { ConfigurationTarget: { Global: 1 }, workspace: { getConfiguration: () => ({ update: async (...args) => writes.push(args) }) } },
+  });
+  const host = new Host();
+  for (const value of ["team.lab", "bad prefix", "UPPER", "-owner", "x".repeat(33)]) await assert.rejects(host.persistGlobalResourcePrefix(value), /全局资源前缀.*tmux/);
+  assert.equal(writes.length, 0);
+  for (const value of ["simple", "zlk", "team-lab_1"]) await host.persistGlobalResourcePrefix(value);
+  assert.deepEqual(writes.map(row => [...row]), ["simple", "zlk", "team-lab_1"].map(value => ["tunnel.remoteTmuxSessionPrefix", value, 1]));
 });
 
 test("agent tmux policy supports configurable remote session prefixes", () => {

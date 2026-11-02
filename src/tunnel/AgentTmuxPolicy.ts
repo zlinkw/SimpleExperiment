@@ -36,6 +36,7 @@ export function defaultAgentTmuxSessionName(role: AgentTmuxRole, endpointId?: st
 }
 
 export function isValidRemoteTmuxSessionName(value: string): boolean {
+  // Explicit existing targets can use historical names; new names use the normalizer.
   return /^[a-z0-9][a-z0-9._-]{0,31}-[a-z0-9][a-z0-9._-]*$/.test(value);
 }
 
@@ -79,5 +80,5 @@ function normalizeCondaEnvName(value: string | undefined): string {
 }
 
 function slug(value: string): string {
-  return String(value || "worker").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "worker";
+  return String(value || "worker").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "worker";
 }

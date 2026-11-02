@@ -26009,8 +26009,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
     async persistGlobalResourcePrefix(value) {
         const prefix = String(value || "").trim();
-        if (!/^[a-z0-9][a-z0-9._-]{0,31}$/.test(prefix))
-            throw new Error("全局资源前缀须为 1–32 位小写字母、数字、点、下划线或连字符，且以字母或数字开头。");
+        if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(prefix))
+            throw new Error("全局资源前缀须为 1–32 位小写字母、数字、下划线或连字符，且以字母或数字开头；不使用点号，避免旧版 tmux 改写服务名称。");
         await vscode.workspace.getConfiguration("simpleExperiment").update("tunnel.remoteTmuxSessionPrefix", prefix, vscode.ConfigurationTarget.Global);
     }
     async remindDefaultResourcePrefix() {
@@ -26022,7 +26022,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const choice = await vscode.window.showWarningMessage("全局资源前缀仍为默认 simple，请修改为自己稳定且有区分度的名称。前缀用于命名远端插件目录及 tmux 服务，帮助共享服务器或账号的用户区分归属、降低名称冲突和误操作风险；项目隔离与精确目标校验仍然保留。此设置适用于本机所有项目和窗口，不会自动改名、迁移、重启或清理已有资源。", "设置全局前缀", "稍后");
             if (choice !== "设置全局前缀") return;
             const value = await vscode.window.showInputBox({ title: "全局远端资源前缀", value: prefix, prompt: "保存到 VS Code 用户设置，供本机所有项目和窗口共用；例如 alice。保留 simple 时下次打开仍会提醒。", ignoreFocusOut: true,
-                validateInput: (value) => /^[a-z0-9][a-z0-9._-]{0,31}$/.test(value) ? undefined : "仅允许 1–32 位小写字母、数字、点、下划线和连字符，且以字母或数字开头。" });
+                validateInput: (value) => /^[a-z0-9][a-z0-9_-]{0,31}$/.test(value) ? undefined : "仅允许 1–32 位小写字母、数字、下划线和连字符，且以字母或数字开头；点号会被旧版 tmux 改写。" });
             if (value !== undefined) {
                 await this.persistGlobalResourcePrefix(value);
                 this.setupConfig = this.loadSetupConfig();
