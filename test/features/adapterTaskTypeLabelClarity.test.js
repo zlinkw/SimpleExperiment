@@ -86,10 +86,13 @@ test('task type changes update only suggestion text and GPU refresh keeps its na
 
 test('trial updates show running and authoritative versions without claiming official promotion',()=>{
  const panelFunction=require('../_helpers/panelFunction'),pkg=require('../../package.json'),policy=require('../../docs/release-policy.json');
- const sandbox={panelReleaseTrack:pkg.simpleExperimentRelease,panelRunningVersion:pkg.version,esc:String,pluginUpdateStatusLabel:String,setHtmlIfChanged:(_id,html)=>sandbox.html=html};
+ const sandbox={panelReleaseTrack:{...pkg.simpleExperimentRelease,channel:'trial'},panelRunningVersion:pkg.version,esc:String,pluginUpdateStatusLabel:String,setHtmlIfChanged:(_id,html)=>sandbox.html=html};
  vm.runInNewContext(panelFunction('renderPluginUpdateSettings'),sandbox);
  sandbox.renderPluginUpdateSettings({pluginUpdate:{status:'up_to_date',experiment:{label:'SimpleExperiment',currentVersion:pkg.version,latestVersion:policy.authoritative.simpleExperiment.version,updateAvailable:false}}});
  assert.ok(sandbox.html.includes('试行版 '+pkg.version));assert.ok(sandbox.html.includes('权威版固定为 '+policy.authoritative.simpleExperiment.version));
  assert.equal(pkg.simpleExperimentRelease.authoritativeSftpVersion,policy.authoritative.simpleSftp.version);
  assert.doesNotMatch(sandbox.html,/已是最新/);assert.match(sandbox.html,/不降级/);
+ sandbox.panelReleaseTrack={...pkg.simpleExperimentRelease,channel:'stable'};
+ sandbox.renderPluginUpdateSettings({pluginUpdate:{status:'up_to_date',experiment:{label:'SimpleExperiment',currentVersion:pkg.version,latestVersion:policy.authoritative.simpleExperiment.version,updateAvailable:false}}});
+ assert.doesNotMatch(sandbox.html,/当前为试行版/);
 });

@@ -4,8 +4,8 @@
   "description": "面向科研实验的后台 SSH 隧道实时集群编排面板。",
   "version": "0.5.482",
   "simpleExperimentRelease": {
-    "channel": "trial",
-    "authoritativeVersion": "0.5.440",
+    "channel": "stable",
+    "authoritativeVersion": "0.5.482",
     "authoritativeSftpVersion": "0.2.118"
   },
   "publisher": "simple-local",

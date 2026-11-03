@@ -4,12 +4,12 @@
   "promotionRequiresExplicitUserAcceptance": true,
   "authoritative": {
     "simpleExperiment": {
-      "version": "0.5.440",
-      "commit": "c6005169d6298d7713c653b34f909268de505bae",
-      "release": "https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.440",
-      "asset": "simple-experiment-0.5.440.vsix",
-      "bytes": 2758045,
-      "sha256": "604839552e76cbc232398786fa17eb66edac4fd4905827f8ac9e29e3b6debc6d"
+      "version": "0.5.482",
+      "commit": "7235742e883d4f8c39b5d7afc0a9c7c33a0ba967",
+      "release": "https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.482",
+      "asset": "simple-experiment-0.5.482.vsix",
+      "bytes": 2780142,
+      "sha256": "44089996f9d45ff8a519461bc0e299d622fb4ddcffddf38d04e7e21b9f2c61e4"
     },
     "simpleSftp": {
       "version": "0.2.118",
