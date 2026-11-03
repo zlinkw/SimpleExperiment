@@ -12,12 +12,12 @@
       "sha256": "604839552e76cbc232398786fa17eb66edac4fd4905827f8ac9e29e3b6debc6d"
     },
     "simpleSftp": {
-      "version": "0.2.117",
-      "commit": "7c136f209bf0fee8a1f98eebdececc02afca02bf",
-      "release": "https://github.com/zlinkw/SimpleSFTP/releases/tag/v0.2.117",
-      "asset": "simple-sftp-0.2.117.vsix",
-      "bytes": 240255,
-      "sha256": "b55df912487a2a91b31a497b3f70af2c7410bf4a25da97ca973f954536436116"
+      "version": "0.2.118",
+      "commit": "23cbf92918c7b63cf4674a4159c3f06120037e5d",
+      "release": "https://github.com/zlinkw/SimpleSFTP/releases/tag/v0.2.118",
+      "asset": "simple-sftp-0.2.118.vsix",
+      "bytes": 242568,
+      "sha256": "edf506aa2b01933eb8a348a42787ad62f0179913109b658753137d29ab21b3ba"
     }
   },
   "trialPublication": {

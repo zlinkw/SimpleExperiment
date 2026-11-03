@@ -4,7 +4,7 @@
 
 **当前只使用 Worker。** 启用一台就是单 Worker，启用多台就是多 Worker，统一使用 `worker_pool`。不配置额外控制节点，不把旧控制节点字段补成运行目标；历史格式与明确拒绝的兼容入口保留。
 
-**权威版固定为 SimpleExperiment 0.5.440 / SimpleSFTP 0.2.117。** 0.5.441 起先作为试行版发布，不进入普通更新通道；只有用户明确认可具体版本并同意提升，才更换权威版。包身份和交付规则见 [版本策略](docs/release-policy.json) 与 [交付说明](docs/release-delivery.md)。
+**当前权威版为 SimpleExperiment 0.5.440 / SimpleSFTP 0.2.118。** 用户于 2026-11-03 明确认可 SimpleSFTP 0.2.118 并同意转正，复用原包提升为正式 Latest。SimpleExperiment 0.5.441 起仍先作为试行版，不进入普通更新通道；只有用户明确认可具体版本并同意提升，才更换其权威版。包身份和交付规则见 [版本策略](docs/release-policy.json) 与 [交付说明](docs/release-delivery.md)。
 
 试行版界面分别标明运行版本与权威版本，正式通道“无需更新”不代表试行版已转正。配置说明与一键复制给 AI 的指南绑定当前安装版本的 tag，避免引用后续开发中的规则。
 

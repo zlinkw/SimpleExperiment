@@ -6,7 +6,7 @@
   "simpleExperimentRelease": {
     "channel": "trial",
     "authoritativeVersion": "0.5.440",
-    "authoritativeSftpVersion": "0.2.117"
+    "authoritativeSftpVersion": "0.2.118"
   },
   "publisher": "simple-local",
   "extensionKind": [
