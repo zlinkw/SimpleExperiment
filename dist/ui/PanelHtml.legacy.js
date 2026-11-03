@@ -402,7 +402,7 @@ function renderPanelHtml() {
     .projectRuleEditor summary { cursor: pointer; font-weight: 850; color: var(--text, #111827); }
     .projectRuleGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; }
     .projectRuleField { display: grid; gap: 4px; min-width: 0; }
-    .projectRuleField label { display: flex; gap: 5px; align-items: center; color: var(--muted, #64748B); font-size: 11px; font-weight: 700; }
+    .projectRuleField > label { display: grid; gap: 4px; min-width: 0; color: var(--muted, #64748B); font-size: 11px; font-weight: 700; }
     .projectRuleField input, .projectRuleField textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border, #CBD5E1); border-radius: 6px; padding: 6px 8px; background: var(--vscode-editor-background, #F8FAFC); color: var(--text, #0F172A); font-family: var(--vscode-font-family); font-size: 12px; }
     .projectRuleField textarea { min-height: 78px; resize: vertical; font-family: Consolas, monospace; }
     .projectRuleField.wide { grid-column: 1 / -1; }
@@ -10196,12 +10196,12 @@ function renderPanelHtml() {
           '<div class="remoteRootPolicyFields">' +
             '<section class="remoteRootPolicyField is-allowed">' +
               '<div class="remoteRootPolicyFieldHead"><label for="remoteAllowedRootsInput" title="每行一个服务器上的绝对目录；只允许在这些目录下设置项目父目录。留空表示不限制。">允许的项目父目录前缀' + helpBadge("每行一个服务器上的绝对目录；只允许在这些目录下设置项目父目录。留空表示不限制。") + '</label><span class="muted">' + esc(remoteRootPolicyCount(allowed)) + ' 项</span></div>' +
-              '<textarea id="remoteAllowedRootsInput" class="remoteRootPolicyInput" spellcheck="false" data-config-input="remotePolicy" data-key="allowedRoots" placeholder="/data/projects" title="每行一个服务器上的绝对目录；只允许在这些目录下设置项目父目录。留空表示不限制。">' + esc(allowed) + '</textarea>' +
+              '<textarea id="remoteAllowedRootsInput" class="remoteRootPolicyInput" spellcheck="false" data-config-input="remotePolicy" data-key="allowedRoots" placeholder="/data/projects" title="每行一个服务器上的绝对目录；只允许在这些目录下设置项目父目录。留空表示不限制。">' + escAttr(allowed) + '</textarea>' +
               '<small class="remoteRootPolicyHint">留空表示不做允许范围限制。</small>' +
             '</section>' +
             '<section class="remoteRootPolicyField is-denied">' +
               '<div class="remoteRootPolicyFieldHead"><label for="remoteDeniedRootsInput" title="每行一个服务器上的绝对目录；这些目录及其子目录禁止作为项目父目录。禁止规则优先。">禁止的项目父目录前缀' + helpBadge("每行一个服务器上的绝对目录；这些目录及其子目录禁止作为项目父目录。禁止规则优先。") + '</label><span class="muted">' + esc(remoteRootPolicyCount(denied)) + ' 项</span></div>' +
-              '<textarea id="remoteDeniedRootsInput" class="remoteRootPolicyInput" spellcheck="false" data-config-input="remotePolicy" data-key="deniedRoots" placeholder="/root/unsafe-root" title="每行一个服务器上的绝对目录；这些目录及其子目录禁止作为项目父目录。禁止规则优先。">' + esc(denied) + '</textarea>' +
+              '<textarea id="remoteDeniedRootsInput" class="remoteRootPolicyInput" spellcheck="false" data-config-input="remotePolicy" data-key="deniedRoots" placeholder="/root/unsafe-root" title="每行一个服务器上的绝对目录；这些目录及其子目录禁止作为项目父目录。禁止规则优先。">' + escAttr(denied) + '</textarea>' +
               '<small class="remoteRootPolicyHint">命中禁止规则时优先拒绝。</small>' +
             '</section>' +
           '</div>' +
@@ -14055,7 +14055,7 @@ function renderPanelHtml() {
     function projectRuleInput(key, label, value, title, cls) {
       value = configDraftValue("projectAdapterRules", key, value);
       const fieldHelp = String(title || label);
-      return '<div class="projectRuleField ' + escAttr(cls || "") + '" title="' + escAttr(fieldHelp) + '"><label title="' + escAttr(fieldHelp) + '">' + esc(label) + helpBadge(fieldHelp) + '</label><input data-config-input="projectAdapterRules" data-key="' + escAttr(key) + '" value="' + escAttr(value || "") + '" title="' + escAttr(fieldHelp) + '"></div>';
+      return '<div class="projectRuleField ' + escAttr(cls || "") + '" title="' + escAttr(fieldHelp) + '"><label title="' + escAttr(fieldHelp) + '"><span class="configFieldLabel">' + esc(label) + helpBadge(fieldHelp) + '</span><input data-config-input="projectAdapterRules" data-key="' + escAttr(key) + '" value="' + escAttr(value || "") + '" title="' + escAttr(fieldHelp) + '"></label></div>';
     }
 
     function projectRuleTextarea(key, label, value, title, cls) {
@@ -14064,7 +14064,7 @@ function renderPanelHtml() {
       const configAttr = readonly ? "" : ' data-config-input="projectAdapterRules" data-key="' + escAttr(key) + '"';
       const lineCount = String(value || "").split(/\\n/).filter(Boolean).length;
       const fieldHelp = String(title || label) + "；当前 " + lineCount + " 行。";
-      return '<div class="projectRuleField ' + escAttr(cls || "") + '" title="' + escAttr(fieldHelp) + '"><label title="' + escAttr(fieldHelp) + '">' + esc(label) + helpBadge(fieldHelp) + '</label><textarea' + configAttr + (readonly ? " readonly" : "") + ' title="' + escAttr(fieldHelp) + '">' + esc(value || "") + '</textarea></div>';
+      return '<div class="projectRuleField ' + escAttr(cls || "") + '" title="' + escAttr(fieldHelp) + '"><label title="' + escAttr(fieldHelp) + '"><span class="configFieldLabel">' + esc(label) + helpBadge(fieldHelp) + '</span><textarea' + configAttr + (readonly ? " readonly" : "") + ' title="' + escAttr(fieldHelp) + '">' + escAttr(value || "") + '</textarea></label></div>';
     }
 
     function asEditorList(values) {
@@ -20027,7 +20027,7 @@ function projectSectionNextAction(status, label, section, anchor) {
       return parts.join("/");
     }
     function esc(value) { return String(value === undefined || value === null || value === "" ? "-" : value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch])); }
-    function escAttr(value) { return esc(value).replace(/"/g, "&quot;"); }
+    function escAttr(value) { return value === undefined || value === null || value === "" ? "" : esc(value); }
     function cssEscape(value) { return String(value || "").replace(/["\\\\]/g, "\\\\$&"); }
   </script>
 </body>

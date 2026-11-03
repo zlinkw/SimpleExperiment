@@ -76,7 +76,7 @@
 | D3 | 保存范围、生效时间与草稿恢复 | passed（本机；真实重载待验证） |
 | E1 | 主次/危险操作、错误、帮助、空态与刷新范围 | passed（本机覆盖；现场待验证） |
 | E2 | label、键盘、焦点、窄窗口、长路径、缩放与主题 | passed（本机；剩余项目表单随 D2b） |
-| D2b | 其余可编辑空值编码及项目接入表单 label | pending（E2 冻结中发现，待实际 DOM 复现） |
+| D2b | 其余可编辑空值编码及项目接入表单 label | passed |
 
 ## 已完成 P0
 
@@ -624,6 +624,10 @@ E2 最终验证：2026-11-02T23-40-52-535Z-44692-package/run.json，318 作业�
 
 补充边界为 2 个相关表单问题：统一保留属性/可编辑 textarea 真空值，以及剩余项目输出接入 helper 的 label 关联。展示区占位保留，用户显式非空短横线不自动改写；不修改既有保存值、输出接入规则或科研数据。UI legacy、原 settingsSecondaryView、三版本、本计划及覆盖表最多七文件，拟内部 0.5.482。完成相关消费者、实际页面及规定 package 后，再做说明/清单收口和最终试行发行/安装，不提前发布已知遗漏的中间包。
 
+D2b 实际复现与实现：E2 提交 09a96532c9c7fc490e0bccae9849914e69fdee1d 已普通 push/fetch 一致。d2b-before-dom.log 直接复现两个根目录值及真实 patch 为短横线、PPT 默认路径及 patch 为短横线，项目接入表单除 taskType 外 10 个字段未关联 label。原 settingsSecondaryView 增加真实编码器/根规则/PPT 控件 3 项，原 10 项通过、新 3 项失败，d2b-before-values.log。现属性空值保持空，非空短横线及 0/false/HTML 转义保留，展示 esc 的占位不变；三处可编辑 textarea 共用保空编码，项目 Input/Textarea 用已有标签样式隐式关联。未改 Host、既有存储配置、输出规则或任何科研数据；内部 0.5.482。
+
+D2b 定向 86 项通过：settingsSecondaryView 13、adapterTaskTypeLabelClarity 5、resultMappingEditor 1、serverWorkerPortAdapterDensity 1、panelWebviewScriptHealth 11、serverManagementSchedulerInputs 6、actionLifecycle 9、tmuxOtherSessionsDisclosure 18、jobTmuxLogNavigation 12、actualWorkRootValidation 2、projectQuickStartWorkflow 8，d2b-final-*.log。compile 2026-11-02T23-55-55-751Z-61316 通过。d2b-render-1793663945172.json 验证真实空值/序列化、11 项目控件标签、4 个可选派生字段空值及标签、1120/420 项目表单无横溢出，复用此前主线/自定义布局/精确身份/草稿回归；派生预览首次在脱离文档的 holder 检查 labels 为 0，挂入实际文档再测后通过，未为此改产品。d2b-keyboard-render-1793663883185.json 重新通过真实菜单按键、焦点、可访问名称、视口及前批页面。实际主 HTML 三脚本解析通过。七文件 diff 检查通过，冻结候选进入规定 package；不安装、不发行、不调用真实配置 API 或服务器。
+
 ## 发现线索与后续边界（以批次状态为准）
 
 - D1c 新确证：Host scalarAgentFetch 直接访问配置隧道，仅附 Agent token；scalar catalog/query 与 native UI proxy 请求未带当前项目/Worker 身份。Agent 相应 GET 直接使用其自己的 root 返回 scalar_catalog，未核对调用窗口预期项目。故将另一项目 Agent 的端口误填到当前项目时，可把其图表当作当前项目数据；已修正的 /api/tensorboard/service 控制路由有 root/Worker 校验，不能冒称覆盖了这些只读路径。后续独立批在支持的新请求路径中核对稳定项目和 Worker、禁用目标不访问，旧 Agent 明确不支持而不回退；不自动启动/重启/部署，不修改指标或科研分析策略。先保留当前 PFX3c 冻结候选，D1c 完成前不声称共享账号隔离已经全部收口。
@@ -644,3 +648,5 @@ PFX-test8：原 Controls5 完整套件 3 项通过，exit=0，pfx-test8-controls
 - D2 端口配置范围：已有 tensorboard.port 目前 scope=application，同电脑多项目无法各自保存不同值。后续允许当前项目覆盖并保留原全局默认/显式值，清楚说明共享账号各项目服务需要独立端口；不自动换端口或停止其他项目。PFX2f 已保证端口占用明确失败、不借用其他服务，配置体验尚未完成。
 - D3：clearConfigDraftsForCommand 收到 completed 后整 scope 删除草稿，缺少对发出时草稿的快照核对；保存期间的新输入及无对应 pending item 的旧成功回包可能清掉新草稿。失败回包不清草稿的现有行为保留。
 - E1 首屏计数返修线索：overviewTaskStats 目前只数 schedulerRowsForState 的兼容任务，没有读取 distributedPlans；协议 2 作业存在时首屏可能仍显示 0。须复用逻辑 PLAN 归并计数且说明记录来源，不能把当前原生 job 与旧任务投影重复累计；E1 实施并补定向回归。
+
+D2b 最终验证：2026-11-03T00-01-01-057Z-81868-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、721997ms，锁已释放。内部 universal/trial 0.5.482 为 2780142 字节，SHA256 44089996f9d45ff8a519461bc0e299d622fb4ddcffddf38d04e7e21b9f2c61e4，与 receipt 和逐包清单一致；362 项内容门禁零违规，实际主 HTML 三脚本与模块解析通过。七个非生成文件完成，运行代码收口；后续仅文档与覆盖索引、最终试行发行和一次安装。未操作训练服务器、部署 Agent、重跑、清理或转正。

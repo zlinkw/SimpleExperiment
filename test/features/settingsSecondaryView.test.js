@@ -204,3 +204,37 @@ test("PPT path selection clears only its original path draft and retains later e
   f.reply("chooseNewPptPath", "completed", "picker-2");
   assert.equal(f.s.configDrafts.ppt.presentationPath, "new-typed.pptx");
 });
+
+test("attribute encoding preserves empty values and explicit user text while display placeholders remain separate", () => {
+  const s = {};
+  vm.runInNewContext(["esc", "escAttr"].map(productionFunction).join("\n"), s);
+  for (const value of [undefined, null, ""]) assert.equal(s.escAttr(value), "");
+  assert.equal(s.escAttr(0), "0");
+  assert.equal(s.escAttr(false), "false");
+  assert.equal(s.escAttr("-"), "-");
+  assert.equal(s.escAttr(String.fromCharCode(34, 60, 38, 39)), "&quot;&lt;&amp;&#39;");
+  assert.equal(s.esc(""), "-");
+});
+
+test("empty remote root rules render empty editable values with the real production encoders", () => {
+  const f = settingsFixture();
+  vm.runInContext(["esc", "escAttr"].map(productionFunction).join("\n"), f.sandbox);
+  f.render({ ...f.state, remoteRootPolicy: { allowedRoots: [], deniedRoots: [] } });
+  assert.deepEqual(f.errors, []);
+  for (const id of ["remoteAllowedRootsInput", "remoteDeniedRootsInput"])
+    assert.match(f.nodes.remoteRootPolicySettings.innerHTML, new RegExp('id="' + id + '"[^>]*></textarea>'));
+});
+
+test("an empty PPT destination stays empty in the actual rendered control", () => {
+  const root = { innerHTML: "", querySelector: () => null };
+  const s = {
+    el: () => root, shouldKeepConfigDraftScope: () => false,
+    pptAutomationReadinessForState: () => ({ ready: false, message: "未启动", label: "未启动" }),
+    finalStatisticsSourcePath: () => "", configDraftValue: (_scope, _key, fallback) => fallback,
+    debugModeDisableReason: () => "", helpBadge: () => "", optionHtml: () => "",
+    setHtmlIfChanged: (_id, html) => { root.innerHTML = html; },
+  };
+  vm.runInNewContext(["esc", "escAttr", "renderPptPlotConfig"].map(productionFunction).join("\n"), s);
+  s.renderPptPlotConfig({ pptPlotConfig: { presentationPath: "" } });
+  assert.match(root.innerHTML, /data-key="presentationPath" value=""/);
+});
