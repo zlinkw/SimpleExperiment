@@ -18,11 +18,11 @@
 
 项目输出接入支持通用、分类、分割、回归与自定义任务。主指标和辅助指标按项目实际输出填写；切换类型不会覆盖已填指标。`metricAliases` 在主动长表/宽表解析与汇总中生效；AP 与 AUPRC、各类 F1 默认分别统计，冲突会阻止相应结果进入汇总。历史显式别名不自动改写，请核对。
 
-结果汇总分别显示 Plan 数、完成/未完成/待核实 job 数和查询问题数。问题按 Worker 与原因折叠，展开可看全部受影响条目。API 使用 `planFile` 或唯一 `planId` 时只查询所选 Plan，返回 `scope: selected_plans`，不覆盖整批表格；整批更新仍从面板“更新结果汇总”或不带 Plan 筛选的结果查询发起。
+结果汇总分别显示 Plan 数、完成/未完成/待核实 job 数和查询问题数。问题按 Worker 与原因折叠，展开可看全部受影响条目。API 使用 `planFile` 或唯一 `planId` 时只查询所选 Plan，返回 `scope: selected_plans`，不覆盖整批表格；整批更新从面板“更新全部 PLAN 结果”或不带 Plan 筛选的结果查询发起，包含全部启用 Worker。
 
 - 面板服务器、Conda 与隧道值按当前项目 workspaceState 保存；旧项目首次迁移一次。资源前缀只读取用户级全局值，所有项目窗口共用，工作区或旧项目别名不覆盖它。
 - VS Code 注册设置是用户/工作区配置模板；下表 scope 是设置声明的范围，不表示面板会把连接写到全局。新拓扑只注册 worker_pool，一台或多台 Worker 均适用。
-- GPU 参数为逐卡覆盖 → Worker 覆盖 → 项目默认；服务器 gpuMaxConcurrentCards 对该服务器全部 PLAN 合计独立限制。逐卡并行 0 或服务器占卡 0 暂停新派发，留空继承/取消该层限制，不停止已有任务。
+- GPU 参数为逐卡覆盖 → 当前项目 Worker 覆盖 → 本机全局默认；服务器 gpuMaxConcurrentCards 对该服务器全部 PLAN 合计独立限制。逐卡并行 0 或服务器占卡 0 暂停新派发，留空继承/取消该层限制，不停止已有任务。面板同时显示已保存生效值及来源，未保存输入不冒充已经生效。
 - “默认值”精确列出 VS Code 注册默认；内部组件自身缺省、服务器启动参数或已有保存值可能不同。实际运行以当前卡片、校验/预演和已生效 Worker 策略为准。
 - 本机上传范围、Worker 间同步范围与本地最终结果目录是不同设置，不能互相代替。
 
@@ -52,20 +52,20 @@
 | `simpleExperiment.tunnel.remoteAgentPort` | number / application | `18765` | 通用远端 Agent 端口默认值；各 Worker 自身 remoteAgentHost/remoteAgentPort 优先。 |
 | `simpleExperiment.tunnel.agentToken` | string / application | `""` | 可选的 Worker Agent token。诊断信息会自动脱敏。 |
 | `simpleExperiment.tunnel.remoteTmuxSessionPrefix` | string / application | `"simple"` | 唯一全局资源前缀；仅用户级 globalValue 生效，用于远端插件目录与 tmux 命名。默认 simple，每次打开仍为默认时提醒修改并说明作用。新输入仅小写字母、数字、下划线和连字符，以字母或数字开头，最多 32 字符。项目/Worker/旧任务字段不覆盖，修改不自动改名、迁移或重启；zlk 仅是合法用户值。 |
-| `simpleExperiment.tensorboard.port` | number / application | `6006` | TensorBoard 在远端监听的端口；服务与当前项目及 Worker 绑定，显示实际返回的会话、窗口和端口。外部服务占用端口时明确失败，不关闭其他项目窗口。 |
+| `simpleExperiment.tensorboard.port` | number / resource | `6006` | TensorBoard 远端端口，允许工作区覆盖用户默认；修改供下次主动启动使用，不自动变更运行服务。以当前服务实际窗口/端口为证据；共享账号的项目须区分端口。外部服务占用时明确失败，不关闭其他项目窗口。 |
 | `simpleExperiment.tensorboard.logdir` | string / application | `"work_dirs"` | 启动 TensorBoard 时优先使用的日志目录（相对于远端项目根目录）。留空或不存在时，agent 会自动探测 events.out.tfevents.* 目录并直接启动 tensorboard。 |
-| `simpleExperiment.tunnel.condaEnv` | string / application | `""` | 正式任务默认 Conda 环境绝对路径，可选以 /bin/python 结尾；留空使用系统 Python。每台 Worker 可覆盖。辅助 Agent 使用独立解释器，不以科研环境相同或依赖已安装作为就绪门禁。 |
+| `simpleExperiment.tunnel.condaEnv` | string / application | `""` | 正式任务 Conda 的用户默认模板；面板项目默认按项目保存。绝对路径可选以 /bin/python 结尾，项目默认留空使用系统 Python。Worker 显式选择继承、系统或路径；辅助 Agent 使用独立解释器，不以科研环境相同或依赖已安装作为就绪门禁。 |
 | `simpleExperiment.tunnel.workerTunnels` | array / application | `[]` | Worker 连接模板数组。推荐在当前项目服务器卡片保存连接；面板配置按项目持久化，不写其他窗口的全局连接。 |
 | `simpleExperiment.scheduler.dispatchMode` | string / window（未另声明） | `"local_idle"` | 默认全部本机调度；旧 server_prequeue 值仅兼容读取，服务器排队必须由用户点击按钮按逐卡 job 配额派发。 |
 | `simpleExperiment.scheduler.pollSeconds` | number / application | `10` | 调度轮询基准，默认10秒，最小5秒；任务结束事件立即触发检查。 |
-| `simpleExperiment.scheduler.jitterSeconds` | number / application | `30` | 随机抖动：0-30秒正向叠加到轮询间隔，避免多节点同时请求造成抖动。 |
+| `simpleExperiment.scheduler.jitterSeconds` | number / application | `30` | 抖动上限默认 30 秒，可设置范围 0–1800 秒；实际在 0 至该上限之间正向叠加到轮询间隔。 |
 | `simpleExperiment.scheduler.gpuIdleUtilThreshold` | number / application | `5` | **已弃用，仅兼容旧值。** 已弃用：新调度仅使用每卡并行 job 配额和总剩余显存门槛。 |
 | `simpleExperiment.scheduler.gpuIdleMemThresholdMb` | number / application | `200` | **已弃用，仅兼容旧值。** 已弃用：新调度仅使用每卡并行 job 配额和总剩余显存门槛。 |
 | `simpleExperiment.scheduler.sessionCheckMinSeconds` | number / application | `5` | 完成检测最小间隔：调度器轮询任务完成事件的最小间隔（秒），默认 5 秒，范围 1-60。越小越灵敏，不参与空卡与否判定。 |
 | `simpleExperiment.scheduler.workerStatusTtlSeconds` | number / application | `45` | Worker 可用性证据有效期，默认45秒，最小10秒。 |
 | `simpleExperiment.scheduler.localAvailabilityPushSeconds` | number / application | `10` | **旧兼容字段。** 历史上报参数，当前 Worker 主动查询流程不靠它推送可用性；不是界面刷新或显存采样间隔。 |
 | `simpleExperiment.scheduler.workerAvailabilityPushSeconds` | number / application | `10` | **旧兼容字段。** 历史上报参数，当前 Worker 主动查询流程不靠它推送可用性；不要据此推算实际网络流量。 |
-| `simpleExperiment.scheduler.operationEventMaxDelayMs` | number / application | `200` | 事件合并延迟，默认200毫秒，最小100毫秒。 |
+| `simpleExperiment.scheduler.operationEventMaxDelayMs` | number / application | `200` | 事件合并延迟，默认 200 毫秒，范围 100–10000 毫秒；面板缺值回退与 schema 一致。 |
 | `simpleExperiment.scheduler.workerActionMinIntervalMs` | number / application | `500` | **旧兼容字段。** 旧版兼容设置；当前控制请求不按它形成旧的逐动作间隔门禁。GPU 并发另由配额控制。 |
 | `simpleExperiment.scheduler.workerActionMaxConcurrent` | number / application | `1` | **已弃用，仅兼容旧值。** 请求限流已关闭，此设置不再生效。 |
 | `simpleExperiment.gpu.currentUser` | string / application | `""` | 用于在 GPU 状态面板高亮自己进程的服务器用户名。为空时不会按本机用户名自动判定。 |
@@ -125,7 +125,7 @@
 | localForwardHost / localForwardPort | 该 Worker 的本机转发入口；动态读取，不能跨 Worker 套用端口。 |
 | remoteAgentHost / remoteAgentPort | 该 Worker 真正监听的 Agent 地址和端口；remoteTelemetryPort 是旧兼容别名。 |
 | agentProjectDir | 用户选择的远端项目父目录；当前工作区名参与最终项目路径计算。 |
-| condaEnv | 正式任务环境绝对路径或精确 Python 路径；空值按项目默认/系统 Python 处理，辅助 Agent 不以科研解释器一致作为门槛。 |
+| condaEnv / condaEnvMode | Worker 选择 inherit（未设置，跟随项目默认）、system（显式空串）或 path（必填绝对环境/精确 Python 路径）。API 未传环境字段保留继承，无 mode 的显式空串仍表示系统 Python；辅助 Agent 不以科研解释器一致作为门槛。 |
 | savedSessionPath / savedSessionForwardIndex | Xshell 导入与手动打开入口；不能证明后台系统 SSH 认证成功。 |
 | agentInstallDir / agentStateDir / workerStateDir | 默认 runtime 与 Agent 状态归当前项目 `<全局前缀>_agent`；只有共享 GPU 采样使用账号公共 Worker 状态目录。已有显式目录保留，部署前核对精确位置；前缀变化不自动迁移。 |
 | sessionPrefix / remoteTmuxSessionPrefix | 历史对象字段，不是独立设置来源；当前全局值来自 `simpleExperiment.tunnel.remoteTmuxSessionPrefix`。Host 向 Agent/Scheduler 传递当前全局值，旧存储任务不覆盖它。 |

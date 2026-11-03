@@ -75,8 +75,10 @@
 | D2 | 默认值、全局→服务器→逐卡继承及 Conda 含义 | passed（本机；现场待验证） |
 | D3 | 保存范围、生效时间与草稿恢复 | passed（本机；真实重载待验证） |
 | E1 | 主次/危险操作、错误、帮助、空态与刷新范围 | passed（本机覆盖；现场待验证） |
-| E2 | label、键盘、焦点、窄窗口、长路径、缩放与主题 | passed（本机；剩余项目表单随 D2b） |
+| E2 | label、键盘、焦点、窄窗口、长路径、缩放与主题 | passed（本机；实际 VS Code 缩放/重载待验证） |
 | D2b | 其余可编辑空值编码及项目接入表单 label | passed |
+| DOC-final | 完整说明、流程覆盖与原生入口索引收口 | passed |
+| DELIVERY-final | 最终试行包发行、真实下载核验及一次本机安装 | pending |
 
 ## 已完成 P0
 
@@ -650,3 +652,9 @@ PFX-test8：原 Controls5 完整套件 3 项通过，exit=0，pfx-test8-controls
 - E1 首屏计数返修线索：overviewTaskStats 目前只数 schedulerRowsForState 的兼容任务，没有读取 distributedPlans；协议 2 作业存在时首屏可能仍显示 0。须复用逻辑 PLAN 归并计数且说明记录来源，不能把当前原生 job 与旧任务投影重复累计；E1 实施并补定向回归。
 
 D2b 最终验证：2026-11-03T00-01-01-057Z-81868-package/run.json，318 作业全部通过、未运行 0、maxObservedConcurrent=1、exit=0、721997ms，锁已释放。内部 universal/trial 0.5.482 为 2780142 字节，SHA256 44089996f9d45ff8a519461bc0e299d622fb4ddcffddf38d04e7e21b9f2c61e4，与 receipt 和逐包清单一致；362 项内容门禁零违规，实际主 HTML 三脚本与模块解析通过。七个非生成文件完成，运行代码收口；后续仅文档与覆盖索引、最终试行发行和一次安装。未操作训练服务器、部署 Agent、重跑、清理或转正。
+
+## 最终说明批次 DOC-final
+
+D2b 提交 58f413eea49e5a85b73d11705e86c577d39a9ec2 已普通 push/fetch 一致。七文档收口：README、使用说明、配置参考、项目契约、流程覆盖、原生入口索引和本计划。修正现行全项目结果入口、全局 GPU 默认、Conda 三模式、TB resource 端口/生效时机及本机保存/远端待同步；历史变更原文保留并标注。332 个原生直接调用位置逐项链接实际源码，按流程给出范围/写入/成功/失败/恢复，未实际走通均标待验证，不把源码定位当实机通过。主覆盖表补齐原九条线索和默认前缀、维护/重载页，区分缺陷、体验及未知风险。
+
+验证：setupGuideDirectorySemantics 2、setupGuideNextStep 1、setupGuideWithoutBundledDocs 13、publicCliAliases 1，共 17 项，exit=0，日志 final-0.5.482/docs-*.log；七文档 UTF-8 严格复读、363 本机链接及全部索引行号存在性、git diff --check 通过。纯文档不改变运行输入，复用最终 0.5.482 包及完整 318 作业证据，不重复 build/package。原始失败与现场未验证项继续保留。所有实施批次完成；仅最终试行发行、实际下载/客户端核对和一次本机安装待执行，用户重载及真实服务器验收独立待验证。
