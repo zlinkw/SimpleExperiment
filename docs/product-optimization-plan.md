@@ -78,7 +78,7 @@
 | E2 | label、键盘、焦点、窄窗口、长路径、缩放与主题 | passed（本机；实际 VS Code 缩放/重载待验证） |
 | D2b | 其余可编辑空值编码及项目接入表单 label | passed |
 | DOC-final | 完整说明、流程覆盖与原生入口索引收口 | passed |
-| DELIVERY-final | 最终试行包发行、真实下载核验及一次本机安装 | pending |
+| DELIVERY-final | 最终试行包发行、真实下载核验及一次本机安装 | passed（用户重载/现场验收待验证） |
 
 ## 已完成 P0
 
@@ -658,3 +658,9 @@ D2b 最终验证：2026-11-03T00-01-01-057Z-81868-package/run.json，318 作业�
 D2b 提交 58f413eea49e5a85b73d11705e86c577d39a9ec2 已普通 push/fetch 一致。七文档收口：README、使用说明、配置参考、项目契约、流程覆盖、原生入口索引和本计划。修正现行全项目结果入口、全局 GPU 默认、Conda 三模式、TB resource 端口/生效时机及本机保存/远端待同步；历史变更原文保留并标注。332 个原生直接调用位置逐项链接实际源码，按流程给出范围/写入/成功/失败/恢复，未实际走通均标待验证，不把源码定位当实机通过。主覆盖表补齐原九条线索和默认前缀、维护/重载页，区分缺陷、体验及未知风险。
 
 验证：setupGuideDirectorySemantics 2、setupGuideNextStep 1、setupGuideWithoutBundledDocs 13、publicCliAliases 1，共 17 项，exit=0，日志 final-0.5.482/docs-*.log；七文档 UTF-8 严格复读、363 本机链接及全部索引行号存在性、git diff --check 通过。纯文档不改变运行输入，复用最终 0.5.482 包及完整 318 作业证据，不重复 build/package。原始失败与现场未验证项继续保留。所有实施批次完成；仅最终试行发行、实际下载/客户端核对和一次本机安装待执行，用户重载及真实服务器验收独立待验证。
+
+## 最终交付完成
+
+DOC-final 提交 7235742e883d4f8c39b5d7afc0a9c7c33a0ba967 已普通 push/fetch 一致。v0.5.482 已发布到既有 GitHub 更新源，公开非 draft/Pre-release，tag 绑定该提交，latest=false；通过真实网页核对提交、资产及 SHA，并实际下载包/清单双向逐字节一致。真实更新客户端的两个公开 Latest 请求 HTTP200，当前版本不降级，旧439/116可看到权威440/117；发布后网页 Latest 仍为440/117。全部发行核验结束后只执行一次 npm run install:latest，exit=0，实际已安装482/117，simpleex 路径及离线帮助exit=0。详细资产指纹、命令证据和适用范围见 release-delivery-0.5.482.md。
+
+所有本机实施和交付批次完成；用户 Developer: Reload Window（约一分钟）及真实 Extension Host/服务器验收独立待验证。安装后不再操作当前面板；未连接训练服务器、部署Agent、重跑、传输、科研分析、清理或转正，也未改用户实际全局前缀。最终记录为纯文档，不改变482包，不重复安装或发行；按小批提交并普通push/fetch核实。
