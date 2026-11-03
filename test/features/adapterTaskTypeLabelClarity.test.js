@@ -84,15 +84,32 @@ test('task type changes update only suggestion text and GPU refresh keeps its na
  assert.doesNotMatch(html,/data-command="snapshot" title="刷新 GPU 状态"/);
 });
 
-test('trial updates show running and authoritative versions without claiming official promotion',()=>{
- const panelFunction=require('../_helpers/panelFunction'),pkg=require('../../package.json'),policy=require('../../docs/release-policy.json');
- const sandbox={panelReleaseTrack:{...pkg.simpleExperimentRelease,channel:'trial'},panelRunningVersion:pkg.version,esc:String,pluginUpdateStatusLabel:String,setHtmlIfChanged:(_id,html)=>sandbox.html=html};
+test('update settings show the running channel and queried versions without frozen authority notices',()=>{
+ const panelFunction=require('../_helpers/panelFunction'),pkg=require('../../package.json');
+ const sandbox={panelReleaseTrack:{channel:'stable',authoritativeVersion:'0.5.440',authoritativeSftpVersion:'0.2.117'},panelRunningVersion:pkg.version,esc:String,pluginUpdateStatusLabel:String,setHtmlIfChanged:(_id,html)=>sandbox.html=html};
  vm.runInNewContext(panelFunction('renderPluginUpdateSettings'),sandbox);
- sandbox.renderPluginUpdateSettings({pluginUpdate:{status:'up_to_date',experiment:{label:'SimpleExperiment',currentVersion:pkg.version,latestVersion:policy.authoritative.simpleExperiment.version,updateAvailable:false}}});
- assert.ok(sandbox.html.includes('试行版 '+pkg.version));assert.ok(sandbox.html.includes('权威版固定为 '+policy.authoritative.simpleExperiment.version));
- assert.equal(pkg.simpleExperimentRelease.authoritativeSftpVersion,policy.authoritative.simpleSftp.version);
- assert.doesNotMatch(sandbox.html,/已是最新/);assert.match(sandbox.html,/不降级/);
- sandbox.panelReleaseTrack={...pkg.simpleExperimentRelease,channel:'stable'};
- sandbox.renderPluginUpdateSettings({pluginUpdate:{status:'up_to_date',experiment:{label:'SimpleExperiment',currentVersion:pkg.version,latestVersion:policy.authoritative.simpleExperiment.version,updateAvailable:false}}});
- assert.doesNotMatch(sandbox.html,/当前为试行版/);
+ const state={pluginUpdate:{status:'up_to_date',experiment:{label:'SimpleExperiment',currentVersion:pkg.version,latestVersion:pkg.version,updateAvailable:false},sftp:{label:'SimpleSFTP',currentVersion:'0.2.118',latestVersion:'0.2.118',updateAvailable:false}}};
+ sandbox.renderPluginUpdateSettings(state);
+ assert.ok(sandbox.html.includes('当前运行：SimpleExperiment '+pkg.version+'（正式版）'));
+ assert.ok(sandbox.html.includes('SimpleSFTP: 0.2.118；正式更新通道 0.2.118'));
+ assert.doesNotMatch(sandbox.html,/试行版|权威版|0\.5\.440|0\.2\.117/);assert.match(sandbox.html,/不降级/);
+ sandbox.panelReleaseTrack.channel='trial';sandbox.renderPluginUpdateSettings(state);
+ assert.ok(sandbox.html.includes('当前运行：SimpleExperiment '+pkg.version+'（预览版）'));
+ assert.doesNotMatch(sandbox.html,/权威版|0\.5\.440|0\.2\.117/);
+ sandbox.panelReleaseTrack.channel='stable';sandbox.renderPluginUpdateSettings({});
+ assert.ok(sandbox.html.includes('（正式版）'));assert.doesNotMatch(sandbox.html,/0\.5\.440|0\.2\.117|权威版/);
+});
+
+test('update settings preserve update actions, busy state and visible errors',()=>{
+ const panelFunction=require('../_helpers/panelFunction');
+ const sandbox={panelReleaseTrack:{channel:'stable'},panelRunningVersion:'0.5.483',esc:String,pluginUpdateStatusLabel:String,setHtmlIfChanged:(_id,html)=>sandbox.html=html};
+ vm.runInNewContext(panelFunction('renderPluginUpdateSettings'),sandbox);
+ sandbox.renderPluginUpdateSettings({pluginUpdate:{status:'update_available',experiment:{label:'SimpleExperiment',currentVersion:'0.5.483',latestVersion:'0.5.484',updateAvailable:true}}});
+ assert.match(sandbox.html,/0\.5\.483 → 0\.5\.484/);assert.match(sandbox.html,/data-command="installPluginUpdates"/);
+ for(const status of ['checking','installing']){
+  sandbox.renderPluginUpdateSettings({pluginUpdate:{status,message:'正在处理'}});
+  assert.match(sandbox.html,/data-command="checkPluginUpdates"[^>]* disabled/);assert.match(sandbox.html,/正在处理/);
+ }
+ sandbox.renderPluginUpdateSettings({pluginUpdate:{status:'error',message:'无法访问更新源'}});
+ assert.match(sandbox.html,/无法访问更新源/);assert.doesNotMatch(sandbox.html,/data-command="installPluginUpdates"/);
 });

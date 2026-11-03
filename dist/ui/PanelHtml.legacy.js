@@ -10159,9 +10159,9 @@ function renderPanelHtml() {
         '<div class="pluginUpdate">' +
           '<div class="pluginUpdateMain">' +
             '<b>插件配套更新 · ' + esc(pluginUpdateStatusLabel(status)) + '</b>' +
-            (track.channel === "trial" ? '<span class="notice warning">' + esc('当前为试行版 ' + (typeof panelRunningVersion === "string" ? panelRunningVersion : state.extensionVersion || "-") + '；权威版固定为 ' + track.authoritativeVersion + '，SimpleSFTP ' + track.authoritativeSftpVersion + '。仅在用户实际认可后提升。') + '</span>' : '') +
+            '<span>' + esc('当前运行：SimpleExperiment ' + (typeof panelRunningVersion === "string" ? panelRunningVersion : (state || {}).extensionVersion || "-") + (track.channel === "trial" ? '（预览版）' : '（正式版）')) + '</span>' +
             '<span>' + esc(status === "up_to_date"
-              ? "正式通道暂无更高版本；试行版不因此转正，也不会自动降级。更新来源为两个仓库的 GitHub Latest Release。"
+              ? "正式更新通道暂无可安装更新，不会自动降级。更新来源为两个仓库的 GitHub Latest Release。"
               : (plan.message || "同时检查 SimpleExperiment 和 SimpleSFTP 的 GitHub Latest Release。")) + '</span>' +
             (rows ? rows : '') +
             (Number.isFinite(checkedAt) ? '<span class="muted">检查时间：' + esc(new Date(checkedAt).toLocaleString()) + '</span>' : '') +
