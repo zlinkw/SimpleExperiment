@@ -2,9 +2,9 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的后台 SSH 隧道实时集群编排面板。",
-  "version": "0.5.483",
+  "version": "0.5.484",
   "simpleExperimentRelease": {
-    "channel": "stable",
+    "channel": "trial",
     "authoritativeVersion": "0.5.483",
     "authoritativeSftpVersion": "0.2.118"
   },

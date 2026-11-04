@@ -25,6 +25,90 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), 
 
 
 const wslPath = file => '/mnt/'+file[0].toLowerCase()+file.slice(2).replace(/\\/g,'/');
+
+test("result policy sync excludes local Plan dataset mappings and preserves Agent validation", async () => {
+  const vm = require("node:vm"), ts = require("typescript");
+  const ast = ts.createSourceFile("host.ts", extensionSource, ts.ScriptTarget.Latest, true);
+  const cls = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === "RealtimeTunnelPanelProvider");
+  const method = cls.members.find(node => node.name?.getText(ast) === "syncProjectAdapterRulesToAgents");
+  const Host = vm.runInNewContext(ts.transpileModule("class Host {" + method.getText(ast) + "}; Host", {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText, { uniqueStrings: values => [...new Set(values)], errorMessage: error => error.message });
+  const host = new Host(), payloads = [];
+  host.isRealtimeMode = () => true;
+  host.projectTopologyAssessment = () => ({});
+  host.enabledWorkerConfigs = () => [{ id: "worker-a" }, { id: "worker-b" }, { id: "worker-a" }];
+  host.postTensorboardAction = async (worker, action, payload) => {
+    assert.equal(action, "save-result-policy"); payloads.push({ worker, ...JSON.parse(JSON.stringify(payload)) });
+    return { status: "completed" };
+  };
+  const policy = { taskType: "classification", primaryMetric: "AUC", candidateCsv: ["work_dirs/results.csv"],
+    csvColumnMapping: { case: "case_name", seed: "seed" }, metricAliases: { auc: "AUC" },
+    derivedMetric: { metric: "AUC", leftEndpoint: "clean", rightEndpoint: "corrupt", scale: 100, outputName: "auc_drop" } };
+  const cases = [
+    { rules: {}, expected: {} },
+    { rules: { planDatasetMapping: {} }, expected: {} },
+    { rules: { ...policy, planDatasetMapping: {} }, expected: policy },
+    { rules: { ...policy, planDatasetMapping: { "experiments/plans/example.yaml": { datasets: ["BUS"], source: "manual" } } }, expected: policy },
+    ...["C:/research/中文项目/work_dirs/results.csv", "/Users/research/project A/work_dirs/results.csv", "/srv/team-b/中文项目/work_dirs/results.csv"].map(file => ({
+      rules: { ...policy, candidateCsv: [file], planDatasetMapping: {} }, expected: { ...policy, candidateCsv: [file] },
+    })),
+  ];
+  const expectedPolicies = [];
+  for (const { rules, expected } of cases) {
+    const original = JSON.stringify(rules);
+    assert.equal((await host.syncProjectAdapterRulesToAgents(rules)).length, 0);
+    assert.equal(JSON.stringify(rules), original, "local mappings must remain unchanged");
+    expectedPolicies.push(expected, expected);
+  }
+  assert.deepEqual(payloads.map(item => item.worker), cases.flatMap(() => ["worker-a", "worker-b"]));
+  host.enabledWorkerConfigs = () => [];
+  assert.equal((await host.syncProjectAdapterRulesToAgents(policy)).length, 0);
+  host.isRealtimeMode = () => false;
+  assert.deepEqual(Array.from(await host.syncProjectAdapterRulesToAgents(policy)), ["离线模式"]);
+  assert.equal(payloads.length, expectedPolicies.length, "offline or no Worker must not send requests");
+  host.isRealtimeMode = () => true;
+  host.enabledWorkerConfigs = () => [{ id: "single-worker" }];
+  assert.equal((await host.syncProjectAdapterRulesToAgents(policy)).length, 0);
+  assert.equal(payloads.at(-1).worker, "single-worker");
+  expectedPolicies.push(policy);
+  const result = runPython(String.raw`
+import ast, json, pathlib, re
+tree = ast.parse(pathlib.Path(${JSON.stringify(agentPath)}).read_text(encoding="utf-8"))
+branch = next(node for node in ast.walk(tree) if isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and isinstance(node.test.left, ast.Name) and node.test.left.id == "action" and len(node.test.comparators) == 1 and isinstance(node.test.comparators[0], ast.Constant) and node.test.comparators[0].value == "save-result-policy")
+function = ast.parse("def receive(root, action, payload, operation_id, op_id):\n    pass\n").body[0]
+function.body = [branch]
+module = ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[]))
+saved = []
+def terminal_action(root, action, operation_id, op_id, status, message, *args, **kwargs):
+    return {"status": status, "message": message}
+def atomic_write(target, value):
+    saved.append(value)
+namespace = {"re": re, "terminal_action": terminal_action, "atomic_write": atomic_write, "path_for": lambda root, name: name}
+exec(compile(module, "isolated-save-result-policy", "exec"), namespace)
+payloads = json.loads(${JSON.stringify(JSON.stringify(payloads))})
+results = [namespace["receive"]("fixture", "save-result-policy", payload, "op", "id") for payload in payloads]
+invalid = {"options": {"projectAdapterRules": {"unknownField": "must-not-be-ignored"}}}
+results.append(namespace["receive"]("fixture", "save-result-policy", invalid, "op", "invalid"))
+invalid_mapping = {"options": {"projectAdapterRules": {"csvColumnMapping": {"case": "invalid\ncolumn"}}}}
+results.append(namespace["receive"]("fixture", "save-result-policy", invalid_mapping, "op", "invalid-mapping"))
+print(json.dumps({"results": results, "saved": saved}))
+`);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const received = JSON.parse(result.stdout.trim());
+  for (const row of received.results.slice(0, payloads.length)) assert.equal(row.status, "completed", row.message);
+  assert.equal(received.results.at(-2).status, "failed");
+  assert.match(received.results.at(-2).message, /invalid projectAdapterRules field/);
+  assert.equal(received.results.at(-1).status, "failed");
+  assert.match(received.results.at(-1).message, /invalid csvColumnMapping field/);
+  assert.equal(received.saved.length, payloads.length);
+  for (const [index, row] of payloads.entries()) assert.deepEqual(row.options.projectAdapterRules, expectedPolicies[index]);
+  for (const [index, row] of received.saved.entries()) assert.deepEqual(row, { ...expectedPolicies[index], schemaVersion: 1, csvColumnMapping: expectedPolicies[index].csvColumnMapping || {}, derivedMetric: expectedPolicies[index].derivedMetric || {} });
+  host.enabledWorkerConfigs = () => [{ id: "worker-a" }, { id: "worker-b" }];
+  host.postTensorboardAction = async () => ({ status: "failed", message: "invalid csvColumnMapping field" });
+  assert.deepEqual(Array.from(await host.syncProjectAdapterRulesToAgents(policy)), ["worker-a: invalid csvColumnMapping field", "worker-b: invalid csvColumnMapping field"]);
+});
+
 function runPython(script) {
   if(process.platform === 'win32') for(const file of [agentPath,root,path.resolve(__dirname,'../_helpers'),path.resolve(__dirname,'../_helpers/extractRuntimeFunctions.py')])
     script=script.replaceAll(JSON.stringify(file),JSON.stringify(wslPath(file)));
