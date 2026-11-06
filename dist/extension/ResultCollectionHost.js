@@ -607,7 +607,7 @@ class ResultCollectionHost {
             unobservedDeclarations: Object.values(coverage).filter(row => !row.included).reduce((sum, row) => sum + row.expected, 0),
             tables: Object.values(tables).map(table => ({ tableKey: table.tableKey, dataset: table.dataset, relativePath: table.relativePath, markdownPath: table.markdownPath })),
             results: result.records.map(row => ({ planFile: row.planFile, workerId: row.workerId, runId: row.runId, dimensions: { case: row.case, seed: row.seed, method: row.method,
-                    dataset: row.dataset, rate_percent: row.rate, eval_protocol: row.endpoint }, metrics: row.metrics, sourceFiles: [{ path: row.jobDir }],
+                    dataset: row.dataset, rate_percent: row.rate, eval_protocol: row.endpoint, split: row.split || "", fold: row.fold || "" }, metrics: (0, ProjectResultTables_1.metricsWithMetadata)(row), sourceFiles: [{ path: row.jobDir }],
                 aggregationState: result.jobs.find(job => job.commandId === row.runId)?.aggregationState,
                 workflowId: row.workflowId, revision: row.revision, codeFingerprint: row.codeFingerprint, executionWorkerId: row.executionWorkerId,
                 completionState: result.jobs.find(job => job.commandId === row.runId)?.completionState,

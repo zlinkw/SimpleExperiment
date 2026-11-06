@@ -15,7 +15,12 @@ export function verifyNativeResult(text: string, sha256: string, job: {
     || !["train", "test", "train_test"].includes(report.mode) || mode && report.mode !== mode
     || report.mode !== "train" && report.resultCsv !== job.collectionResultCsv)
     throw new Error("FINAL_MANIFEST_JOB_MISMATCH");
-  if (!Array.isArray(report.weights) || report.mode !== "test" && !report.weights.length
+  const artifacts = report.schemaVersion === 2 ? report.declaredArtifacts : [];
+  if (!Array.isArray(artifacts) || artifacts.some((item: any) => !item || !["file", "directory"].includes(item.type)
+    || typeof item.path !== "string" || item.path.startsWith("/") || /[:\\\x00-\x1f*?]/.test(item.path)
+    || item.path.split("/").some((part: string) => !part || part === "." || part === ".."))
+    || new Set(artifacts.map((item: any) => item.path)).size !== artifacts.length) throw Error("FINAL_MANIFEST_ARTIFACT_INVALID");
+  if (!Array.isArray(report.weights) || report.mode !== "test" && !report.weights.length && !artifacts.length
     || report.weights.some((file: unknown) => typeof file !== "string" || !file.startsWith(job.outputDir + "/")
       || file.split("/").some(part => !part || part === "." || part === "..") || /[:\\\x00-\x1f]/.test(file)))
     throw new Error("FINAL_MANIFEST_WEIGHT_PATH_INVALID");

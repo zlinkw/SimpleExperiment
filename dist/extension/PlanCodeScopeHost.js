@@ -69,7 +69,21 @@ function workerRead(host, workerId, signal, read) {
         task.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
     });
 }
-const digest = (manifest) => (0, node_crypto_1.createHash)("sha256").update(JSON.stringify(Object.keys(manifest).sort().map(key => [key, { size: manifest[key].size, sha256: manifest[key].sha256 }]))).digest("hex");
+const digest = (manifest, assets) => {
+    if (assets !== undefined && (!assets || typeof assets !== "object" || Array.isArray(assets)))
+        throw Error("PLAN_ASSET_BASELINE_INVALID");
+    const rows = Object.keys(manifest).sort().map(key => [key, { size: manifest[key].size, sha256: manifest[key].sha256 }]);
+    const values = assets && Object.keys(assets).length ? [rows, Object.keys(assets).sort().map(key => {
+            const value = assets[key];
+            if (!value || value.path !== key || !planManifestPathSafe(key) || !Number.isSafeInteger(value.size) || value.size < 0
+                || !/^[a-f0-9]{64}$/.test(value.sha256) || typeof value.allowedRoot !== "string" || typeof value.target !== "string" || !Array.isArray(value.links)
+                || Object.keys(value).sort().join(",") !== "allowedRoot,links,path,sha256,size,target"
+                || value.links.some(link => !link || typeof link.path !== "string" || typeof link.target !== "string" || Object.keys(link).sort().join(",") !== "path,target"))
+                throw Error("PLAN_ASSET_BASELINE_INVALID");
+            return [key, { path: value.path, allowedRoot: value.allowedRoot, target: value.target, sha256: value.sha256, links: value.links, size: value.size }];
+        })] : rows;
+    return (0, node_crypto_1.createHash)("sha256").update(JSON.stringify(values)).digest("hex");
+};
 /** Single source of truth for manifest self-verification (also consumed by the C3 HEAD binding). */
 exports.planExecutionSourceDigest = digest;
 /** Same relative-path safety rules verifyLocalPlanSource enforces before touching the filesystem. */
@@ -115,21 +129,30 @@ function response(plan, value) {
         || value.planFile !== plan.planFile || value.planRevision !== plan.revision || value.codeFingerprint !== plan.codeFingerprint)
         throw Error(value?.error || "PLAN_SOURCE_QUERY_IDENTITY_MISMATCH");
     const source = value.executionSource;
-    if (!source?.manifest || Object.keys(source.manifest).length > 4096 || source.digest !== digest(source.manifest)
+    if (!source?.manifest || Object.keys(source.manifest).length + Object.keys(source.assets || {}).length > 4096 || source.digest !== digest(source.manifest, source.assets)
         || source.manifest[plan.planFile]?.sha256 !== plan.revision)
         throw Error("PLAN_SOURCE_BASELINE_INVALID");
     return source;
 }
 async function inspect(h, workerId, plan, source, signal) {
-    // The HTTP client owns the user-approved 20s inactivity deadline after admission.
+    // Each HTTP request keeps the 20s inactivity deadline; long read-only checks use operation status.
     // A caller's cancellation still covers queueing; queue wait is not network inactivity.
     const options = { signal };
     const target = h.workerActionTargets?.().find((row) => row.id === workerId);
     const index = target && h.projectFileObservationIndex?.(h.sftpServerOptions?.(target));
     const load = async () => {
-        const value = await workerRead(h, workerId, signal, () => h.client.getWorkerPlanCodeScope(workerId, query(plan, source), options));
-        response(plan, value); // Invalid identity or digest is never published into the shared index.
-        return value;
+        const diagnostics = h.planCodeScopeDiagnostics ||= {};
+        try {
+            const value = await workerRead(h, workerId, signal, () => h.client.getWorkerPlanCodeScope(workerId, query(plan, source), options));
+            response(plan, value); // Invalid identity or digest is never published into the shared index.
+            diagnostics[workerId] = { planFile: plan.planFile, checkedAt: new Date().toISOString(), ...value.sourceOperation, timings: value.sourceOperation?.timings || value.timings };
+            return value;
+        }
+        catch (error) {
+            diagnostics[workerId] = { planFile: plan.planFile, checkedAt: new Date().toISOString(), operationId: error.operationId,
+                readOnly: true, remoteExecution: "not_started", error: String(error.message || error), timings: error.timings, progress: error.progress };
+            throw error;
+        }
     };
     const value = index ? await index.read({ method: "plan.source", paths: source ? Object.keys(source.manifest) : [plan.planFile],
         binding: { projectId: plan.projectId, runId: plan.id || "", revision: plan.revision, sourceDigest: source?.digest || "" }, signal: options.signal }, load) : await load();
@@ -138,7 +161,7 @@ async function inspect(h, workerId, plan, source, signal) {
 /** Frozen source hashes are execution inputs. All destination observations are queried again. */
 async function resolvePlanExecutionSource(h, plan, signal) {
     if (plan.executionSource) {
-        if (plan.executionSource.digest !== digest(plan.executionSource.manifest)
+        if (plan.executionSource.digest !== digest(plan.executionSource.manifest, plan.executionSource.assets)
             || plan.executionSource.manifest[plan.planFile]?.sha256 !== plan.revision)
             throw Error("PLAN_SOURCE_BASELINE_INVALID");
         return plan.executionSource;
@@ -176,6 +199,8 @@ async function verifyWorkerPlanSource(h, workerId, plan, signal) {
     return source;
 }
 async function verifyLocalPlanSource(root, source, index) {
+    if (source.digest !== digest(source.manifest, source.assets))
+        throw Error("PLAN_SOURCE_BASELINE_INVALID");
     const load = async () => {
         const canonical = await fs.realpath(root);
         for (const [relative, expected] of Object.entries(source.manifest)) {

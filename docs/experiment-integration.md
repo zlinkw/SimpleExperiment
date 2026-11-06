@@ -90,8 +90,7 @@ my_project/
 suite: build_artifact
 mode: train
 seeds: [42]
-naming:
-  output_dir: "work_dirs/{suite}/{case}/seed_{seed}"
+output_dir: "work_dirs/{suite}/{case}/seed_{seed}"
 runner:
   working_directory: "."
   train_command: 'python tools/build_artifact.py --output "{output_dir}/model.bin"'
@@ -106,6 +105,12 @@ cases:
 
 替换为实际命令；不使用 `data/manifest.json` 的项目应删掉该示例输入或改成真实输入。`train` 在这里表示一个执行阶段，不要求命令必须训练神经网络。输出尚未生成或路径不安全时不能当作成功。没有指标时，不会自动生成有意义的统计表。
 
+Windows 版的最终产物清单支持 `runner.outputs`，以及 PLAN/case 的 `expectedResults`、`resultFiles`、`outputFiles`（也接受对应 snake_case）。声明文件或目录即可，不要求扩展名必须是 `.pt`；例如导出的 `.onnx`、特征 `.bin` 和标签 `.json`。所有声明都必须实际存在，不能仅因退出码为 0 就确认完成。协议自身生成的 `artifact_manifest.json` 不要求项目提前生成；已有项目 manifest 的字段会保留。目录声明只确认目录，若需要逐文件完整性，请逐项声明必需文件。
+
+源码核验只静态读取 PLAN、实际配置和可解析的入口/导入链，不执行项目代码，也不自动读取或哈希数据集与权重。注册器/动态导入无法静态解析时，在 `source_dependencies.code` 中列出精确文件；不要写整个模型库目录。按需核对特定输入或外部共享资产时，显式配置 `source_dependencies.inputs`、`integrity` 或 `assets`，这才启用资源检查；未启用时显示资源未检查。模型与科研环境仍由项目管理。
+
+依赖分析通过异步 operation 查询进度。请求中断后查询原 operation，不重复提交训练；无新进度时显示尚待核验，不冒充源码通过。辅助 Agent/Scheduler 自带离线 PyYAML，不对科研 Conda 环境执行 pip 安装。此能力由 Windows 插件及配套 Worker runtime 提供，更新本机插件不代表远端 runtime 已更新。
+
 ## 4. 路径 B：现有程序已经输出指标 CSV
 
 假设真实入口支持 config、seed、output-dir 与 result-csv，且会把指标写入指定文件：
@@ -116,8 +121,7 @@ suite: baseline
 mode: train_test
 base_config: configs/baseline.yaml
 seeds: [42, 43, 44]
-naming:
-  output_dir: "work_dirs/{suite}/{case}/seed_{seed}"
+output_dir: "work_dirs/{suite}/{case}/seed_{seed}"
 paper:
   result_csv: "{output_dir}/metrics.csv"
 runner:
@@ -198,8 +202,7 @@ suite: adapted
 mode: train
 base_config: configs/baseline.yaml
 seeds: [42, 43, 44]
-naming:
-  output_dir: "work_dirs/{suite}/{case}/seed_{seed}"
+output_dir: "work_dirs/{suite}/{case}/seed_{seed}"
 paper:
   result_csv: "{output_dir}/metrics.csv"
 runner:

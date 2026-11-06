@@ -125,7 +125,7 @@
    "sourceScript": "node --test --test-force-exit --test-timeout 20000 test/features/runtimeLogDiagnostics.test.js && node --test --test-force-exit --test-timeout 20000 test/features/runtimeAnomalyLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/runtimeLogAnalysisHost.test.js"
   },
   "test:plan-code-scope": {
-   "sourceScript": "node --test --test-force-exit --test-timeout 20000 test/features/planCodeScope.test.js"
+   "sourceScript": "node --test --test-force-exit --test-timeout 20000 test/features/planCodeScope.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCodeScopeOperation.test.js && node --test --test-force-exit --test-timeout 20000 test/features/sourceSnapshot.test.js && node --test --test-force-exit --test-timeout 20000 test/features/agentRuntimeDependencies.test.js"
   },
   "test:local-dispatch": {
    "sourceScript": "node --test --test-force-exit --test-timeout 20000 test/features/serverQueueDispatch.test.js && node --test --test-force-exit --test-timeout 20000 test/features/dispatchWake.test.js && node --test --test-force-exit --test-timeout 20000 test/features/staleQueueRoundBehavior.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/tunnelClient.test.js && node --test --test-force-exit --test-timeout 20000 test/features/serverQuotaPersistence.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/globalConfigPersistence.test.js"

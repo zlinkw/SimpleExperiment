@@ -211,7 +211,7 @@ async function bindPlanSourceToCommit(options) {
         return { ...empty, ok: false, reason: "该 PLAN 没有已验 executionSource 清单，无法证明此 HEAD 来自已验源码。" };
     if (Object.keys(source.manifest).length > MANIFEST_MAX_FILES)
         return { ...empty, ok: false, reason: `已验清单 ${Object.keys(source.manifest).length} 个文件超出 ${MANIFEST_MAX_FILES} 上限，按未知处理。` };
-    if (source.digest !== (0, PlanCodeScopeHost_1.planExecutionSourceDigest)(source.manifest))
+    if (source.digest !== (0, PlanCodeScopeHost_1.planExecutionSourceDigest)(source.manifest, source.assets))
         return { ...empty, ok: false, reason: "清单摘要自校验失败（PLAN_SOURCE_BASELINE_INVALID 同口径），拒绝绑定。" };
     if (source.manifest[planFile]?.sha256 !== revision)
         return { ...empty, ok: false, reason: "清单内 PLAN 文件哈希与 plan.revision 不一致，提交身份不可信。" };

@@ -7,6 +7,11 @@ const source=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'
 const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);
 const parser=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='parseDownloadedMetricCsv').getText(ast);
 const parse=new Function('ProjectResultTables',parser+';return parseDownloadedMetricCsv;')(Tables);
+test('Worker CSV parsing and mapping preview retain independent dimensions and metric metadata',()=>{
+  const run=require('node:child_process').spawnSync('python',['-B','-X','utf8',path.join(__dirname,'metricDimensions.fixture.py')],{encoding:'utf8',timeout:10000,windowsHide:true});
+  assert.equal(run.status,0,run.stderr||run.stdout||String(run.error));
+  assert.equal(JSON.parse(run.stdout).dimensionsPreserved,true);
+});
 function setup(){
   const f=fixture(),declarations=[42,43].map((seed,index)=>({index,case:'alpha',seed,output_dir:'work_dirs/alpha'+seed,result_csv:'work_dirs/alpha'+seed+'/metrics.csv',planHash:resultDigest(planText)}));
   for(const job of declarations)f.raw[job.output_dir+'/artifact_manifest.json']=JSON.stringify({simpleExperiment:{runId:'command-'+job.index,status:'completed',mode:'test',job:{index:job.index,case:job.case,seed:job.seed},outputDir:job.output_dir,resultCsv:job.result_csv,weights:[]}});
@@ -43,6 +48,23 @@ test('configured aliases apply to long and wide CSV without conflating AP and AU
   assert.deepEqual(row.metrics,{AUC:{value:.8},AP:{value:.4},AUPRC:{value:.5}});
   assert.throws(()=>parse('score,AUC\n0.8,0.9',{},job,{score:'AUC'}),/冲突/);
   assert.equal(parse('AP\n0.4',{},job,{AP:'AUPRC'})[0].metrics.AUPRC.value,.4);
+});
+
+test('fresh collection keeps split, protocol, fold and metric units independently',async()=>{
+  const f=setup();
+  for(const [name] of Object.entries(f.raw)) if(name.endsWith('/metrics.csv')) {
+    const seed=name.includes('alpha42')?42:43;
+    f.raw[name]=Tables.writeCsv(['case','seed','method','dataset','eval_protocol','split','fold','metric','value','unit','higher_is_better'],
+      [['val','0',1],['test','0',2],['test','1',3]].map(([split,fold,value])=>['alpha',seed,'demo','set','clean',split,fold,'latency',value,'ms','false']));
+  }
+  const report=await f.service.update();
+  assert.equal(report.completed,2);assert.equal(report.results.length,6);
+  assert.deepEqual(new Set(report.results.map(row=>[row.dimensions.eval_protocol,row.dimensions.split,row.dimensions.fold].join('/'))),new Set(['clean/val/0','clean/test/0','clean/test/1']));
+  assert.ok(report.results.every(row=>row.metrics.latency.unit==='ms'&&row.metrics.latency.higherIsBetter===false));
+  const csv=Tables.readCsv(fs.readFileSync(path.join(f.root,'experiments/results/set/final/final.csv'),'utf8'));
+  assert.equal(csv.rows.length,3);assert.ok(csv.header.includes('fold'));assert.ok(csv.header.includes('split'));
+  assert.ok(csv.rows.every(row=>row[csv.header.indexOf('latency_unit')]==='ms'&&row[csv.header.indexOf('latency_higher_is_better')]==='false'));
+  assert.throws(()=>parse('metric,value,higher_is_better\nlatency,1,maybe',{}, {case:'x',seed:42}),/指标方向/);
 });
 test('same-seed alias conflict stays explicit and excludes that seed from the current partial export',async()=>{
   const f=setup();await f.service.update();f.values(true);

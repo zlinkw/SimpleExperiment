@@ -207,8 +207,8 @@ async function collectFreshResults(plans, snapshots, receive, parse, mappings = 
                         const mapped = mappings[plan.planFile]?.datasets;
                         return { planFile: plan.planFile, workerId: source.workerId, case: job.case, seed: String(job.seed),
                             method: dims.method || plan.planFile.split("/").pop().replace(/\.ya?ml$/i, ""),
-                            dataset: dims.dataset || (mapped?.length === 1 ? mapped[0] : ""), rate, endpoint: dims.eval_protocol || dims.split || "",
-                            metrics, runId: source.runId, revision: owner?.revision || report.planRevision || "", jobDir: job.output_dir,
+                            dataset: dims.dataset || (mapped?.length === 1 ? mapped[0] : ""), rate, endpoint: String(dims.eval_protocol ?? ""), split: String(dims.split ?? ""), fold: String(dims.fold ?? ""),
+                            metrics, metricMetadata: Tables.metricMetadataForRow(row.metrics), runId: source.runId, revision: owner?.revision || report.planRevision || "", jobDir: job.output_dir,
                             workflowId: owner?.workflowId, codeFingerprint: owner?.codeFingerprint || report.codeFingerprint,
                             executionWorkerId: owner?.workerId };
                     });

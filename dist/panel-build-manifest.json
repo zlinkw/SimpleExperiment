@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.484",
-  "buildId": "421b8419995e3007ac480918209d56542f81ba614edd257b763cf47d09f78dae",
+  "version": "0.5.485",
+  "buildId": "3ac5b77109cf19839925e4e8a09bf82f37812232e1612782aca5a39b3403e765",
   "files": [
     {
       "path": "bin/simpleex.cjs",
@@ -249,7 +249,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "bc254a6b4f9630a9f5794ec3149f7fc275f0dd493b56b4cfcac15f780bf19088"
+      "sha256": "c01fb086e3530d35bd840f245ebdb1e93a4a607b1c2221e214ad452a8c378e0f"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -289,7 +289,7 @@
     },
     {
       "path": "dist/extension/PlanCodeScopeHost.js",
-      "sha256": "3fd1753132760ed10df9855a9e4e03afc21718c337ba29511471c3e45f8274c0"
+      "sha256": "c9f12e0bda4b09434a23824f121fbb24aff76abd9f2093e1877cf0b9914c2621"
     },
     {
       "path": "dist/extension/PlanRunHost.js",
@@ -305,7 +305,7 @@
     },
     {
       "path": "dist/extension/ResultCollectionHost.js",
-      "sha256": "cc583986888b27d3f3a826a8fe814805899a6cd336e9ba25c8d5bb80a6d82e08"
+      "sha256": "061e91c5f795ab33952a992fc857244e4d9f87093cf3f07dc912aa21fe38bb0c"
     },
     {
       "path": "dist/extension/RunConfirmation.js",
@@ -361,7 +361,7 @@
     },
     {
       "path": "dist/features/ApiWorkflow.legacy.js",
-      "sha256": "709840a61ea55c74bd69992f6b92f50ef17a457c50af90d8bbb6de0eb799476f"
+      "sha256": "9c87f1467c8d5f7ece185e5c7d77cf28554491cb3c2d568bb231627b75bd6043"
     },
     {
       "path": "dist/features/ArtifactBatchTransfer.js",
@@ -401,7 +401,7 @@
     },
     {
       "path": "dist/features/DistributedPlanQueue.js",
-      "sha256": "790026fdbe719aa955c36fe2c4a3527f5064596c7dcc92b36e2f18ef15617c77"
+      "sha256": "97bd1923963e0afe7474e4cac4a7de9143648cc8dc37850471b71bdb55e6ed43"
     },
     {
       "path": "dist/features/DistributedProjectContract.js",
@@ -606,6 +606,10 @@
     {
       "path": "dist/features/PlanCleanupEvidence.js",
       "sha256": "22caa33a0f41e1c9247340ee7ee26a00ca69d331e9b029391d1081e0eb98e550"
+    },
+    {
+      "path": "dist/features/PlanCodeScopeOperation.js",
+      "sha256": "5f5c26d54abf620cffcdd6e96cc9b92cb379fbb12a76d398a34aca8fb1b6a918"
     },
     {
       "path": "dist/features/PlanExecutionMode.js",
@@ -821,7 +825,7 @@
     },
     {
       "path": "dist/project/BranchHeadBinding.js",
-      "sha256": "3e65cf11ea9015c0e0ba1e2cc15ace6efe20d0313dffeef4b6f75dffdd26420b"
+      "sha256": "79c3197d6ae67a2074d43eeda1009d92fa8998b692564e64649678fd55721802"
     },
     {
       "path": "dist/project/BranchPlanDispatch.js",
@@ -853,7 +857,7 @@
     },
     {
       "path": "dist/results/FreshResults.js",
-      "sha256": "7aa32acdc0ba68f0814b790fd205dc94687648fa8b5de7440d8e8e99e9fbbebd"
+      "sha256": "fee9c562abead39c6800b0a10bd4a5d7b96fe38137f606db7b053305f24415a5"
     },
     {
       "path": "dist/results/LatestResultExport.js",
@@ -861,7 +865,7 @@
     },
     {
       "path": "dist/results/NativeResultManifest.js",
-      "sha256": "2f9b76c5932d241915b0306de7757e65018150a5c566648e82ae80d4d72e6957"
+      "sha256": "81cc4b346055a04e94c5c6e6a34620cbf95beebbdf7ee2498507fcc82ddab5fc"
     },
     {
       "path": "dist/results/plan-run-intent-selector.js",
@@ -877,7 +881,7 @@
     },
     {
       "path": "dist/results/ProjectResultTables.js",
-      "sha256": "4754c561a3ff2c074e570933d2fd1e929628a95303f451f4d69862f2a8c1af8c"
+      "sha256": "0791af0e9f327f80f03b8e9aeb0fa881f1fc342cf28e7858ff645d789f5152b9"
     },
     {
       "path": "dist/results/ResultLayout.js",
@@ -893,7 +897,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "fff213b2bfc0b015f2216d05546d69c178434f8be46eaa2f24de7bcf9b8fadef"
+      "sha256": "6e0e7e762019925a971ab7a5a637617446d8e7812ceb05fe67ab8392cfb76fc0"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1017,7 +1021,7 @@
     },
     {
       "path": "dist/tunnel/TunnelClient.legacy.js",
-      "sha256": "700a2b80460df8f30c27fdfc489a397d55d7e1f3da648503dad03a19a1a9ed29"
+      "sha256": "853a2039b25a8598c312f432471e65f95ae7619f00158641667d183651850b92"
     },
     {
       "path": "dist/tunnel/TunnelDiagnostics.js",
@@ -1245,7 +1249,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "a5ab3dd574bd5acd44dd2d85ac1feb743b6f09d623a1de93a1aa9b57b0b5532b"
+      "sha256": "b43740293f382527a9e14ed523368cf3a5a0e7c60450bed61d44edda3d9765a5"
     },
     {
       "path": "scripts/check-static.js",

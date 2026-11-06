@@ -243,6 +243,13 @@ def task_manifest_observation(root, job):
     if not isinstance(weights, list) or any(not isinstance(file, str) or not file.startswith(output + "/") for file in weights):
         raise ValueError("TASK_MANIFEST_WEIGHT_PATH_INVALID")
     files = list(weights)
+    artifacts = report.get("declaredArtifacts", []) if report.get("schemaVersion") == 2 else []
+    if not isinstance(artifacts, list) or any(not isinstance(item, dict) or set(item) != {"path", "type"}
+            or not isinstance(item["path"], str) or item["type"] not in ("file", "directory") for item in artifacts):
+        raise ValueError("TASK_MANIFEST_ARTIFACT_INVALID")
+    artifact_types = {item["path"]: item["type"] for item in artifacts}
+    if len(artifact_types) != len(artifacts): raise ValueError("TASK_MANIFEST_ARTIFACT_DUPLICATE")
+    files.extend(artifact_types)
     mode = report.get("mode")
     result_csv = report.get("resultCsv")
     if mode in ("test", "train_test") and result_csv:
@@ -257,7 +264,8 @@ def task_manifest_observation(root, job):
         except FileNotFoundError:
             infos[file] = None
     present = mode in ("train", "test", "train_test") and bool(files) and all(
-        infos[file] and statmod.S_ISREG(infos[file].st_mode) and infos[file].st_size > 0 for file in files)
+        infos[file] and (statmod.S_ISDIR(infos[file].st_mode) if artifact_types.get(file) == "directory" else
+        statmod.S_ISREG(infos[file].st_mode) and (infos[file].st_size > 0 or file in artifact_types and file not in weights and file != result_csv)) for file in files)
     for file in files:
         expected = (report.get("fileStats") or {}).get(file)
         if expected and infos[file]:
@@ -279,7 +287,7 @@ def task_manifest_observation(root, job):
             raise ValueError("TASK_METRIC_CHANGED_DURING_QUERY")
         if len(content) != after.st_size or hashlib.sha256(content).hexdigest() != metric_hash:
             present = False
-    if mode in ("train", "train_test") and not report.get("weights"):
+    if mode in ("train", "train_test") and not report.get("weights") and not artifacts:
         present = False
     if mode in ("test", "train_test") and (not result_csv or result_csv != job.get("collectionResultCsv")):
         present = False

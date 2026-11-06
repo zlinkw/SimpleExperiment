@@ -2,6 +2,17 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 require('../_helpers/registerTsRequire');
 const X=require('../../src/tunnel/XshellTunnelSetup.ts'),Q=require('../../src/features/GpuQuotaScheduling.ts'),M=require('../../src/features/GpuMemoryScheduling.ts');
 const source=fs.readFileSync('src/extension/legacy.ts','utf8'),ast=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true),cls=ast.statements.find(n=>ts.isClassDeclaration(n)&&n.name?.text==='RealtimeTunnelPanelProvider');
+test('execution environment admission accepts system Python and preserves explicit path validation',()=>{
+ const method=cls.members.find(n=>n.name?.getText(ast)==='assertExecutionCondaEnvReady').getText(ast);
+ const helpers=ast.statements.filter(n=>ts.isFunctionDeclaration(n)&&['normalizeCondaEnvSetting','isCondaEnvAbsolutePathValid','effectiveWorkerCondaEnv'].includes(n.name?.text)).map(n=>n.getText(ast)).join('\n');
+ const c=vm.createContext({});
+ vm.runInContext(ts.transpileModule(helpers+'\nclass Host{'+method+'};this.h=new Host();',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,c);
+ for(const env of ['',undefined,'-','--','/env/train','/env/train/bin/python'])
+  assert.doesNotThrow(()=>c.h.assertExecutionCondaEnvReady([{id:'worker-a',condaEnv:env}]));
+ assert.equal(c.effectiveWorkerCondaEnv({condaEnv:''},'/env/default'),'');
+ assert.equal(c.effectiveWorkerCondaEnv({},'/env/default'),'/env/default');
+ assert.throws(()=>c.h.assertExecutionCondaEnvReady([{id:'worker-a',condaEnv:'relative-env'}]),/worker-a.*完整环境路径/);
+});
 function fixture({events=true,interruptStorage=false}={}){
  const keys={setupConfig:'setup',tunnelConfig:'tunnel',setupConfigurationSignature:'signature'},state=new Map(),settings=new Map(),writes=[];
  let h,interrupted=false;

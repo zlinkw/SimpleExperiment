@@ -9,6 +9,8 @@ const TmuxTaskLifecycle_1 = require("./runtime/TmuxTaskLifecycle");
 const GpuCollector_1 = require("./runtime/GpuCollector");
 const RuntimeLogDiagnostics_1 = require("./runtime/RuntimeLogDiagnostics");
 const PlanCodeScope_1 = require("./runtime/PlanCodeScope");
+const PlanCodeScopeOperations_1 = require("./runtime/PlanCodeScopeOperations");
+const RuntimeDependencies_1 = require("./runtime/RuntimeDependencies");
 const SyncScopeIndex_1 = require("./runtime/SyncScopeIndex");
 const RemoteResourcePrefix_1 = require("./config/RemoteResourcePrefix");
 exports.CLUSTER_AGENT_RUNTIME = String.raw `#!/usr/bin/env python3
@@ -22,6 +24,7 @@ ${ResultLayout_1.RESULT_LAYOUT_PYTHON}
 ${PlanExistingArtifacts_1.PLAN_EXISTING_ARTIFACTS_PYTHON}
 ${SyncScopeIndex_1.SYNC_SCOPE_INDEX_PYTHON}
 ${RemoteResourcePrefix_1.REMOTE_RESOURCE_PREFIX_PYTHON}
+${RuntimeDependencies_1.RUNTIME_DEPENDENCIES_PYTHON}
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
@@ -3000,7 +3003,7 @@ def code_sync_request_state(root, worker_id, operation_id):
     key = (os.path.abspath(root), str(worker_id), str(operation_id))
     with CODE_SYNC_REQUEST_LOCK:
         row = CODE_SYNC_REQUESTS.get(key)
-        return copy.deepcopy({name: value for name, value in row.items() if name != "requestDigest"}) if row else None
+        return {**copy.deepcopy({name: value for name, value in row.items() if name != "requestDigest"}), "operationId": str(operation_id)} if row else None
 
 def register_code_sync_proof_request(root, payload, worker_id):
     operation_id = str(payload.get("opId") or "")
@@ -6602,6 +6605,7 @@ def api_health(root, mode="realtime"):
         "projectRoot": os.path.abspath(root),
         "agentIdentity": AGENT_LIFECYCLE_IDENTITY,
         "agentLifecycleProtocol": 1,
+        "runtimeDependencies": RUNTIME_DEPENDENCIES,
         "schedulerRuntime": task_scheduler_runtime_report(root, os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"),
         "schedulerUpdateError": TASK_SCHEDULER_UPDATE_ERROR,
         "agentInstallDir": agent_install_dir(root),
@@ -6703,6 +6707,8 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
                 "codeSyncProof": True,
                 "codeSyncProofAsync": True,
                 "planCodeScope": 1,
+                "planCodeScopeAsync": 1,
+                "planExternalAssets": 1,
                 "syncScopeIndex": 1,
                 "idleGpuAdmission": True,
                 "manualDispatch": 1,
@@ -7602,7 +7608,7 @@ def parse_csv_result_file(root, source_rel, policy=None):
         if wanted and wanted.lower() in lower_headers:
             return lower_headers[wanted.lower()]
         return next((lower_headers.get(item) for item in fallbacks if lower_headers.get(item)), None)
-    dimension_columns = {name: mapped_col(name, [name, name + "_name", name + "_id", "random_seed" if name == "seed" else name]) for name in ("case", "seed", "split", "dataset", "method", "eval_protocol", "rate_percent", "train_rate", "result_family")}
+    dimension_columns = {name: mapped_col(name, [name, name + "_name", name + "_id", "random_seed" if name == "seed" else name]) for name in ("case", "seed", "split", "fold", "dataset", "method", "eval_protocol", "rate_percent", "train_rate", "result_family")}
     def canonical_row(row):
         result = dict(row)
         for name, column in dimension_columns.items():
@@ -7611,6 +7617,18 @@ def parse_csv_result_file(root, source_rel, policy=None):
         return result
     metric_col = mapped_col("metric", ["metric", "metric_name", "name", "m"])
     value_col = mapped_col("value", ["value", "score", "result"])
+    unit_col = mapped_col("unit", ["unit"])
+    direction_col = mapped_col("higher_is_better", ["higher_is_better"])
+    def assign_metric(metrics, metric, payload, row):
+        if unit_col and str(row.get(unit_col) or "").strip(): payload["unit"] = str(row[unit_col]).strip()
+        direction = str(row.get(direction_col) or "").strip().lower() if direction_col else ""
+        if direction:
+            if direction not in ("true", "false", "1", "0"): raise ValueError("METRIC_DIRECTION_INVALID: " + metric)
+            payload["higherIsBetter"] = direction in ("true", "1")
+        previous = metrics.get(metric)
+        if previous and any(previous.get(key) != payload.get(key) for key in ("value", "unit", "higherIsBetter")):
+            raise ValueError("METRIC_VALUE_OR_METADATA_CONFLICT: " + metric)
+        metrics[metric] = payload
     records = []
     if metric_col and value_col:
         grouped = {}
@@ -7621,15 +7639,15 @@ def parse_csv_result_file(root, source_rel, policy=None):
                 continue
             row = canonical_row(row)
             experiment_id, run_key = record_identity(source_rel, row, i)
-            key = (experiment_id, run_key, *(str(row_dimension_value(row, name) or "") for name in ("case", "seed", "dataset", "method", "eval_protocol", "rate_percent", "train_rate")))
+            key = (experiment_id, run_key, *(str(row_dimension_value(row, name) if row_dimension_value(row, name) is not None else "") for name in ("case", "seed", "dataset", "method", "eval_protocol", "split", "fold", "rate_percent", "train_rate")))
             item = grouped.setdefault(key, {"row": row, "metrics": {}, "index": i})
-            item["metrics"][metric] = metric_value(value, metric, value_col, source_rel)
+            assign_metric(item["metrics"], metric, metric_value(value, metric, value_col, source_rel), row)
         for item in grouped.values():
             if item["metrics"]:
                 records.append(make_result_record(source_rel, item["row"], item["metrics"], item["index"]))
         return records
     metric_headers = []
-    mapped_dimension_headers = {column for column in dimension_columns.values() if column}
+    mapped_dimension_headers = {column for column in [*dimension_columns.values(), unit_col, direction_col] if column}
     for h in headers:
         normalized = metric_name(h, aliases)
         if h in mapped_dimension_headers:
@@ -7644,7 +7662,7 @@ def parse_csv_result_file(root, source_rel, policy=None):
             value = coerce_metric_value(row.get(h))
             if value is None or not is_number(value):
                 continue
-            metrics[metric] = metric_value(row.get(h), metric, h, source_rel)
+            assign_metric(metrics, metric, metric_value(row.get(h), metric, h, source_rel), row)
         if metrics:
             records.append(make_result_record(source_rel, row, metrics, i))
     return records
@@ -7962,6 +7980,7 @@ def result_column_mapping_preview(root, source, policy):
     configured = policy.get("csvColumnMapping") or {}
     defaults = {"case": ("case", "case_name", "case_id"), "seed": ("seed", "random_seed"), "split": ("split", "partition"), "dataset": ("dataset", "data_name"), "method": ("method", "model_name"), "eval_protocol": ("eval_protocol", "evaluation_protocol", "test_endpoint", "endpoint"), "rate_percent": ("rate_percent", "train_rate_percent"), "train_rate": ("train_rate", "training_rate"), "metric": ("metric", "metric_name"), "value": ("value", "score", "result")}
     mapping = {}
+    defaults.update({"fold": ("fold", "fold_id"), "unit": ("unit", "metric_unit"), "higher_is_better": ("higher_is_better",)})
     for name, aliases in defaults.items():
         preferred = str(configured.get(name) or "").lower()
         match = lookup.get(preferred) if preferred else None
@@ -9512,7 +9531,7 @@ def read_project_metric_policy(root):
                 policy[key] = [value.strip() for value in values if isinstance(value, str) and value.strip()][:100]
         mapping = plugin_policy.get("csvColumnMapping")
         if isinstance(mapping, dict):
-            policy["csvColumnMapping"] = {key: value.strip() for key, value in mapping.items() if key in ("case", "seed", "split", "dataset", "method", "eval_protocol", "rate_percent", "train_rate", "metric", "value") and isinstance(value, str) and value.strip()}
+            policy["csvColumnMapping"] = {key: value.strip() for key, value in mapping.items() if key in ("case", "seed", "split", "fold", "dataset", "method", "eval_protocol", "rate_percent", "train_rate", "metric", "value", "unit", "higher_is_better") and isinstance(value, str) and value.strip()}
         derived = plugin_policy.get("derivedMetric")
         if isinstance(derived, dict) and all(derived.get(key) for key in ("metric", "leftEndpoint", "rightEndpoint", "outputName")) and derived.get("scale") in (1, 100):
             policy["derivedMetric"] = derived
@@ -13321,7 +13340,7 @@ def handle_action(root, action, payload, operation_id, op_id):
             mapping = rules.get("csvColumnMapping") or {}
             if not isinstance(mapping, dict):
                 raise ValueError("csvColumnMapping must be an object")
-            allowed = ("case", "seed", "split", "dataset", "method", "eval_protocol", "rate_percent", "train_rate", "metric", "value")
+            allowed = ("case", "seed", "split", "fold", "dataset", "method", "eval_protocol", "rate_percent", "train_rate", "metric", "value", "unit", "higher_is_better")
             if any(key not in allowed or not isinstance(value, str) or len(value) > 120 or any(ch in value for ch in (chr(13), chr(10), chr(0))) for key, value in mapping.items()):
                 raise ValueError("invalid csvColumnMapping field")
             allowed_lists = ("secondaryMetrics", "classificationMetrics", "segmentationMetrics", "candidateCsv", "candidateJson", "consoleLogs", "textLogs")
@@ -15396,6 +15415,7 @@ def manage_tmux_session_response(payload):
 
 def serve_http(args):
     global AGENT_LIFECYCLE_LOCK, AGENT_LIFECYCLE_IDENTITY, TASK_SCHEDULER_UPDATE_ERROR
+    runtime_dependency_prepare()
     AGENT_LIFECYCLE_LOCK, AGENT_LIFECYCLE_IDENTITY = lifecycle_service_guard(args, RUNTIME_VERSION)
     bind_host = str(getattr(args, "host", "") or "127.0.0.1").strip()
     if bind_host.startswith("[") and bind_host.endswith("]"):
@@ -16254,7 +16274,12 @@ def serve_http(args):
                 try:
                     if len(raw) > 1024 * 1024:
                         raise ValueError("PLAN_SOURCE_QUERY_LIMIT")
-                    return self.send_json(inspect_plan_code_scope(root, json.loads(raw.decode("utf-8"))))
+                    payload = json.loads(raw.decode("utf-8"))
+                    if not isinstance(payload, dict): raise ValueError("PLAN_SOURCE_QUERY_INVALID")
+                    if payload.get("operationId"):
+                        worker = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip()
+                        return self.send_json(start_plan_scope_request(root, payload, worker), status=202)
+                    return self.send_json(inspect_plan_code_scope(root, payload))
                 except Exception as exc:
                     return self.send_json({"ok": False, "compatible": False, "readOnly": True, "error": str(exc)}, status=400)
             if route == "/api/actions/configure-gpu-quota":
@@ -16722,6 +16747,12 @@ def add_state_args(parser):
 
 def main():
     global AGENT_STATE_DIR, MAX_EVENTS, MAX_JOURNAL_BYTES, STATE_RETENTION_SECONDS, TMP_RETENTION_SECONDS, MAX_AGENT_STATE_BYTES
+    if len(sys.argv) == 2 and sys.argv[1] == "runtime-check":
+        report = runtime_dependency_check()
+        print(json.dumps(report, ensure_ascii=True))
+        return 0 if report["ok"] else 1
+    if len(sys.argv) > 1 and sys.argv[1] in ("run", "task-queue", "task-runner"):
+        runtime_dependency_prepare()
     if len(sys.argv) > 1 and sys.argv[1] in ("task-queue", "task-runner"):
         parser = argparse.ArgumentParser()
         parser.add_argument("cmd")
@@ -16807,6 +16838,7 @@ def main():
 
 ${RuntimeLogDiagnostics_1.RUNTIME_LOG_DIAGNOSTICS_PYTHON}
 ${PlanCodeScope_1.PLAN_CODE_SCOPE_PYTHON}
+${PlanCodeScopeOperations_1.PLAN_CODE_SCOPE_OPERATIONS_PYTHON}
 ${GpuCollector_1.GPU_COLLECTOR_PYTHON}
 ${TmuxTaskLifecycle_1.TMUX_TASK_LIFECYCLE_PYTHON}
 

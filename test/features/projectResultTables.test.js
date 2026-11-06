@@ -15,6 +15,14 @@ sourceModule._compile(ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
 const tables = sourceModule.exports;
 
 const plan = "experiments/plans/comparison/demo.yaml";
+test('units and directions cannot be silently mixed across seeds or aliases',()=>{
+  const base={planFile:plan,workerId:'w',case:'c',seed:'1',method:'m',dataset:'d',rate:'',endpoint:'clean',split:'test',fold:'0',metrics:{acc:1},metricMetadata:{acc:{unit:'fraction',higherIsBetter:true}}};
+  const registry=tables.emptyTableRegistry();
+  registry.plans[plan]={revision:'r',expectedSeeds:2,records:[base,{...base,seed:'2',metrics:{accuracy:100},metricMetadata:{accuracy:{unit:'percent',higherIsBetter:true}}}]};
+  assert.throws(()=>tables.buildTables(registry),/单位或方向冲突/);
+  registry.plans[plan].records[1]={...base,seed:'2',metricMetadata:{acc:{unit:'fraction',higherIsBetter:false}}};
+  assert.throws(()=>tables.buildTables(registry),/单位或方向冲突/);
+});
 function record(workerId, method, caseName, seed, endpoint, metric, value, rate = "0.3") {
   return {
     workerId,

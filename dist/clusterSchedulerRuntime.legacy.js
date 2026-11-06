@@ -5,6 +5,7 @@ const PlanExistingArtifacts_1 = require("./runtime/PlanExistingArtifacts");
 const TaskShellEnvironment_1 = require("./runtime/TaskShellEnvironment");
 const RuntimeLogDiagnostics_1 = require("./runtime/RuntimeLogDiagnostics");
 const RemoteResourcePrefix_1 = require("./config/RemoteResourcePrefix");
+const RuntimeDependencies_1 = require("./runtime/RuntimeDependencies");
 exports.CLUSTER_SCHEDULER_RUNTIME = String.raw `from __future__ import annotations
 
 import argparse
@@ -36,13 +37,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-try:
-    import yaml
-except ModuleNotFoundError as exc:
-    if exc.name != "yaml":
-        raise
-    yaml = None
-
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
 SCHEDULER_VERSION = "0.4.64"
 RUNTIME_VERSION = "0.4.64"
@@ -53,6 +47,10 @@ EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1
 TASK_SHELL_ENVIRONMENT_PROTOCOL = 1
 FORMAL_JOB_PREFLIGHT_STAGES_PROTOCOL = 1
 PROJECT_MANAGED_VALIDATION_PROTOCOL = 1
+
+${RuntimeDependencies_1.RUNTIME_DEPENDENCIES_PYTHON}
+runtime_dependency_prepare()
+import yaml
 
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
@@ -1281,6 +1279,14 @@ def build_jobs(plan: dict[str, Any], default_result_csv_dir: str = "experiments/
             }
             for alias_key in RESULT_TEMPLATE_ALIAS_KEYS:
                 values.setdefault(alias_key, result_csv)
+            # Result discovery chooses a metric CSV; completion must retain every
+            # explicitly declared artifact, regardless of its name or extension.
+            declared_outputs = tuple(dict.fromkeys([*declared_outputs, *(
+                safe_project_relative_path(Path.cwd(), render_template(item, values), "expectedResults")
+                for record in (plan, case_item)
+                for key in ("expectedResults", "expected_results", "resultFiles", "result_files", "outputFiles", "output_files")
+                for item in declared_path_values(record.get(key))
+            )]))
             result_aliases = {
                 key: str(actual_result_aliases.get(key) or "")
                 for key in RESULT_TEMPLATE_ALIAS_KEYS
@@ -2149,6 +2155,8 @@ def verify_declared_outputs(job: Job) -> None:
     missing: list[str] = []
     root = Path.cwd().resolve()
     for item in job.outputs:
+        if item == job.output_dir + "/artifact_manifest.json" and os.environ.get("SIMPLE_EXPERIMENT_TASK_LIFECYCLE") == "2":
+            continue  # Published by native_job_result after the command exits.
         try:
             relative = safe_project_relative_path(root, item, "runner.outputs", require_exists=True)
         except SystemExit:
@@ -2487,19 +2495,26 @@ def native_job_result(job: Job, identity: dict[str, Any], mode: str, outcome: st
     weights = sorted(file.as_posix() for file in directory.rglob("*") if file.is_file() and not file.is_symlink()
                      and file.suffix in (".pt", ".pth", ".ckpt", ".safetensors"))
     csv_path = formal_job_safe_path(job.result_csv)
+    artifacts = []
+    for relative in job.outputs:
+        if relative == job.output_dir + "/artifact_manifest.json": continue
+        target = formal_job_safe_path(relative)
+        artifacts.append({"path": relative, "type": "directory" if target.is_dir() else "file"})
     file_stats = {file: native_file_stat(Path(file)) for file in weights}
+    file_stats.update({item["path"]: native_file_stat(formal_job_safe_path(item["path"]))
+                       for item in artifacts if item["type"] == "file" and formal_job_safe_path(item["path"]).is_file()})
     file_stats.update(getattr(job, "_native_training", {}).get("checkpointStat", {}))
     if csv_path.is_file():
         file_stats[job.result_csv] = native_file_stat(csv_path)
     # Completion evidence is an output, not a mutable queue/owner snapshot.
-    document["simpleExperiment"] = {"schemaVersion": 1, "runId": identity["commandId"], "status": outcome,
+    document["simpleExperiment"] = {"schemaVersion": 2, "runId": identity["commandId"], "status": outcome,
         "planFile": str(job.template_values.get("plan_file") or ""), "job": {"index": job.index, "case": job.case, "seed": job.seed},
         "mode": mode, "outputDir": job.output_dir, "resultCsv": job.result_csv,
         "fileStats": file_stats,
         "sha256": {**getattr(job, "_native_training", {}).get("checkpointSha256", {}),
                    **getattr(job, "_native_training", {}).get("trainingConfigSha256", {}),
                    **({job.result_csv: formal_job_file_hash(Path(job.result_csv))} if Path(job.result_csv).is_file() else {})},
-        "weights": weights, "runtimeDiagnostics": getattr(job, "_runtime_diagnostics", None),
+        "weights": weights, "declaredArtifacts": artifacts, "runtimeDiagnostics": getattr(job, "_runtime_diagnostics", None),
         "exitCode": 0 if outcome == "completed" else getattr(job, "_execution_exit_code", None)}
     manifest.write_text(json.dumps(document, ensure_ascii=False, sort_keys=True), encoding="utf-8")
 

@@ -25,17 +25,18 @@ PLAN 放在 `experiments/plans/**/*.yaml`；配置、模型、训练、数据处
 
 不能要求项目必须采用某一种日志文本、epoch 文案或训练框架才能调度。通用命令可以没有指标；科研指标必须来自真实输出，不得填默认值冒充计算结果。
 
+CSV 的 `split`、`eval_protocol` 和 `fold` 分别保留并参与分组，fold 0 有效。长表可映射 `unit` 与 `higher_is_better`，方向只接受 true/false 或 1/0；单位与方向随指标导出，同一汇总组口径冲突时明确报错。别名只用于真正同义的名称，AP 与 AUPRC、macro F1 与 weighted F1 不应默认合并；已有用户显式映射仍按配置执行，修改前需核对项目口径。
+
 ## 3. 正式任务协议与结果路径
 
 新正式任务采用协议 2：本机保存启动/停止意图，Worker 的独立 Scheduler 保存已接收队列，前台 tmux 任务窗口承载实际执行，最终 artifact manifest 提供结果身份。状态以主动查询归并，不以“请求已接收”判定运行或完成。
 
-新任务默认 `result_path_policy: declared`。`naming.output_dir` / `output_dir` 与 `paper.result_csv` 等声明展开后就是正式执行和收集路径，不默认追加 `attempts/<n>`，不创建新的 attempt 运行目录或额外正式运行状态文件。旧 attempt 只作历史兼容读取，不作为新项目模板。
+新任务默认 `result_path_policy: declared`。顶层或 case 的 `output_dir` 与 `paper.result_csv` 等声明展开后就是正式执行和收集路径；也可使用 `naming.sweep_dir` 加 `naming.job_name` 构造目录。不默认追加 `attempts/<n>`，不创建新的 attempt 运行目录或额外正式运行状态文件。旧 attempt 只作历史兼容读取，不作为新项目模板。
 
 同一任务的目录和指标路径必须稳定、独立，不能让不同 case、seed 或并发 job 写同一个共享 CSV。推荐：
 
 ~~~yaml
-naming:
-  output_dir: "work_dirs/{suite}/{case}/seed_{seed}"
+output_dir: "work_dirs/{suite}/{case}/seed_{seed}"
 paper:
   result_csv: "{output_dir}/metrics.csv"
 ~~~

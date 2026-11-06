@@ -314,7 +314,7 @@ function hashTree(root, dirs, looseFiles) {
 
 function inputFingerprint(root) {
   const h = crypto.createHash("sha256");
-  h.update(hashTree(root, ["src", "scripts", "test", "bin"], ["package.json", "package-lock.json", "tsconfig.json", ".vscodeignore"]));
+  h.update(hashTree(root, ["src", "scripts", "test", "bin", "vendor"], ["package.json", "package-lock.json", "tsconfig.json", ".vscodeignore"]));
   h.update(`|${process.version}|${process.platform}|${process.arch}`);
   return h.digest("hex");
 }

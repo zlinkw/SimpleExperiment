@@ -3979,14 +3979,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         };
     }
     apiResolveSelectedPlan(params) {
-        const planFile = String(params.planFile || params.file || "").trim();
-        const planId = String(params.planId || "").trim();
-        const plans = this.localPlanMetadata.plans || [];
-        if (planFile)
-            return plans.find((plan) => String(plan.planFile || plan.file || plan.planId || "") === planFile) || null;
-        if (planId)
-            return plans.find((plan) => String(plan.planId || plan.planFile || plan.file || "") === planId || String(plan.planFile || plan.file || "") === planId) || null;
-        return plans.length === 1 ? plans[0] : null;
+        return ApiWorkflow_1.selectWorkflowPlan(this.localPlanMetadata.plans || [], params).plan || null;
     }
     async apiPrepareConfirmationPreview(params = {}) {
         try {
@@ -8805,12 +8798,6 @@ return this.testTunnel(true);
     }
     assertExecutionCondaEnvReady(workers = this.workerActionTargets()) {
         const list = Array.isArray(workers) ? workers : [];
-        const missing = list
-            .filter((worker) => !normalizeCondaEnvSetting(worker?.condaEnv))
-            .map((worker) => String(worker?.workerId || worker?.id || worker?.label || "未命名 Worker"));
-        if (missing.length) {
-            throw new Error(`${missing.join("、")} 未配置 condaEnv。请在“设置 > 服务器”的 Worker Conda 环境中填写完整绝对路径（以 / 开头，如 /path/to/conda_envs/<env_name>），或在 project.prepare 参数 workerTunnels[].condaEnv 中传入；留空表示不激活 Conda。`);
-        }
         const invalid = list
             .filter((worker) => {
                 const v = normalizeCondaEnvSetting(worker?.condaEnv);
@@ -19452,22 +19439,22 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         };
     }
     actionPlanTarget(message) {
-        const messagePlanFile = usableSelectionKey(stringField(message, "planFile") || stringField(message, "file"));
-        const messagePlanId = usableSelectionKey(stringField(message, "selectedPlanId") || stringField(message, "planId"));
+        const selection = ApiWorkflow_1.selectWorkflowPlan(this.localPlanMetadata.plans || [], message);
+        const messagePlanFile = usableSelectionKey(selection.requestedFile || (selection.requestedId ? selection.plan?.planFile || selection.plan?.file || "" : ""));
+        const messagePlanId = usableSelectionKey(selection.requestedId || "");
         const selectedPlanFiles = uniqueStrings(stringArrayField(message, "selectedPlanFiles").map(usableSelectionKey).filter(Boolean));
         const suppressGlobalPlan = Boolean(message && typeof message === "object" && message.suppressGlobalPlan === true);
         const inputPlan = usableSelectionKey(this.planFileInput || "");
         const selectedPlan = usableSelectionKey(this.selectedPlanId || "");
-        const planFile = messagePlanFile || (selectedPlanFiles.length === 1 ? selectedPlanFiles[0] : "") || (!suppressGlobalPlan ? inputPlan || selectedPlan : "") || undefined;
+        const planFile = messagePlanFile || (selectedPlanFiles.length === 1 ? selectedPlanFiles[0] : "") || (!suppressGlobalPlan && !messagePlanId ? inputPlan || selectedPlan : "") || undefined;
         return {
             planFile,
-            selectedPlanId: messagePlanId || messagePlanFile || (!suppressGlobalPlan ? selectedPlan || inputPlan : "") || planFile,
+            selectedPlanId: messagePlanId || messagePlanFile || (selectedPlanFiles.length === 1 ? selectedPlanFiles[0] : "") || (!suppressGlobalPlan ? selectedPlan || inputPlan : "") || planFile,
         };
     }
     localPlanForActionBody(body) {
-        const planFile = usableSelectionKey(String(body.options?.planFile || ""));
-        const planId = usableSelectionKey(body.selectedPlanId || "");
-        return (this.localPlanMetadata.plans || []).find((plan) => Boolean((planFile && (plan.planFile === planFile || plan.file === planFile)) || (planId && (plan.planId === planId || plan.planFile === planId || plan.file === planId))));
+        const selection = ApiWorkflow_1.selectWorkflowPlan(this.localPlanMetadata.plans || [], body);
+        return selection.requestedFile || selection.requestedId ? selection.plan : undefined;
     }
     planVersionForFile(planFile = "") {
         const target = usableSelectionKey(String(planFile || "").trim().replace(/\\/g, "/"));
@@ -21464,7 +21451,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (!context.root)
             throw new Error("请先打开当前实验项目。");
         const patch = recordField(message, "patch");
-        const allowed = ["case", "seed", "split", "dataset", "method", "eval_protocol", "rate_percent", "train_rate", "metric", "value"];
+        const allowed = ["case", "seed", "split", "fold", "dataset", "method", "eval_protocol", "rate_percent", "train_rate", "metric", "value", "unit", "higher_is_better"];
         const mapping = {};
         for (const field of allowed) {
             const value = String(patch[field] || "").trim();
@@ -38175,9 +38162,12 @@ function parseDownloadedMetricCsv(text, columnMapping = {}, jobDefaults = {}, me
     const trainRateIndex = find([mappedName("train_rate", "train_rate")]);
     const protocolIndex = find([mappedName("eval_protocol", "eval_protocol")]);
     const splitIndex = find([mappedName("split", "split")]);
+    const foldIndex = find([mappedName("fold", "fold")]);
+    const unitIndex = find([mappedName("unit", "unit")]);
+    const directionIndex = find([mappedName("higher_is_better", "higher_is_better")]);
     const metricIndex = find([mappedName("metric", "metric")]);
     const valueIndex = find([mappedName("value", "value")]);
-    const reserved = new Set([caseIndex, seedIndex, methodIndex, datasetIndex, ratePercentIndex, trainRateIndex, protocolIndex, splitIndex, metricIndex, valueIndex]);
+    const reserved = new Set([caseIndex, seedIndex, methodIndex, datasetIndex, ratePercentIndex, trainRateIndex, protocolIndex, splitIndex, foldIndex, unitIndex, directionIndex, metricIndex, valueIndex]);
     return parsed.rows.flatMap((cells) => {
         const dimensions = {
             case: caseIndex >= 0 ? cells[caseIndex] : jobDefaults.case || "",
@@ -38188,12 +38178,16 @@ function parseDownloadedMetricCsv(text, columnMapping = {}, jobDefaults = {}, me
             train_rate: trainRateIndex >= 0 ? cells[trainRateIndex] : "",
             eval_protocol: protocolIndex >= 0 ? cells[protocolIndex] : "",
             split: splitIndex >= 0 ? cells[splitIndex] : "",
+            fold: foldIndex >= 0 ? cells[foldIndex] : "",
         };
         const metrics = {};
         const assign = (source, value) => {
             const name = ProjectResultTables.canonicalMetricName(source, metricAliases);
             if (metrics[name] && metrics[name].value !== value) throw new Error("同一行等价指标值冲突：" + source + " / " + name + "。已保留旧表。");
-            metrics[name] = { value };
+            const direction = directionIndex >= 0 ? String(cells[directionIndex]).trim().toLowerCase() : "";
+            if (direction && !["true", "false", "1", "0"].includes(direction)) throw new Error("指标方向必须为 true/false：" + source);
+            metrics[name] = { value, ...(unitIndex >= 0 && cells[unitIndex].trim() ? { unit: cells[unitIndex].trim() } : {}),
+                ...(direction ? { higherIsBetter: direction === "true" || direction === "1" } : {}) };
         };
         if (metricIndex >= 0 && valueIndex >= 0 && cells[metricIndex]) {
             const value = String(cells[valueIndex] || "").trim() ? Number(cells[valueIndex]) : NaN;

@@ -5,6 +5,8 @@ const RequestBudget_1 = require("./RequestBudget");
 const TunnelGateway_1 = require("./TunnelGateway");
 const ProgressInactivity_1 = require("../core/ProgressInactivity");
 const BoundedResponse_1 = require("./BoundedResponse");
+const node_crypto_1 = require("node:crypto");
+const PlanCodeScopeOperation_1 = require("../features/PlanCodeScopeOperation");
 exports.tunnelActions = [
     "run-plan", "stop-experiment", "retry-experiment", "reproduce-plan", "validate-plan", "dry-run-plan",
     "stop-scheduler-operation",
@@ -77,6 +79,7 @@ class HttpTunnelClient {
     lowTrafficMode = false;
     setLowTrafficMode(enabled) { this.lowTrafficMode = enabled === true; }
     snapshotPromise;
+    sourceOperations = new Map();
     reads = new Map();
     constructor(endpoint, budget) {
         this.endpoint = endpoint;
@@ -172,7 +175,23 @@ class HttpTunnelClient {
         });
     }
     getPlanCodeScope(query, options = {}) {
-        return this.requestJson("/api/code-sync/plan-scope", "manual_refresh", query, { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 20000 });
+        options.signal?.throwIfAborted();
+        if (!query || typeof query !== "object" || Array.isArray(query))
+            throw Error("PLAN_SOURCE_QUERY_INVALID");
+        const key = JSON.stringify(query), frozen = JSON.parse(key);
+        let record = this.sourceOperations.get(key);
+        if (!record) {
+            const operationId = "plan-source-" + (0, node_crypto_1.randomUUID)();
+            const submitted = this.requestJson("/api/code-sync/plan-scope", "manual_refresh", { ...frozen, operationId }, { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 20000 });
+            record = { operationId, submitted };
+            this.sourceOperations.set(key, record);
+        }
+        const current = record;
+        return (0, PlanCodeScopeOperation_1.waitForPlanCodeScopeOperation)({ operationId: current.operationId, query: frozen, signal: options.signal,
+            submit: () => current.submitted,
+            observe: () => this.requestJson(`/api/operations/${encodeURIComponent(current.operationId)}`, "operation_status", undefined, { method: "GET", userInitiated: true, signal: options.signal, timeoutMs: 20000 }),
+            terminal: () => { if (this.sourceOperations.get(key) === current)
+                this.sourceOperations.delete(key); } });
     }
     getSyncScopeIndex(query, options = {}) {
         return this.requestJson("/api/sync-scope/index", "manual_refresh", query, { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 5000 });
@@ -331,7 +350,7 @@ class HttpTunnelClient {
                             detail = message;
                     }
                     catch { /* Keep a bounded plain-text reason for non-JSON responses. */ }
-                    throw new Error(`Worker Agent HTTP ${response.status}: ${detail.slice(0, 2000)}`);
+                    throw Object.assign(new Error(`Worker Agent HTTP ${response.status}: ${detail.slice(0, 2000)}`), { httpStatus: response.status });
                 }
                 if (!text.trim())
                     return {};

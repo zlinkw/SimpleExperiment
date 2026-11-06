@@ -34,6 +34,8 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.emptyTableRegistry = exports.planArtifactPath = exports.planDirectoryKey = exports.datasetPathKey = exports.datasetPartitions = void 0;
+exports.metricMetadataForRow = metricMetadataForRow;
+exports.metricsWithMetadata = metricsWithMetadata;
 exports.normalizePlanDatasetKey = normalizePlanDatasetKey;
 exports.resolvePlanDatasetAssignment = resolvePlanDatasetAssignment;
 exports.applyPlanDatasetOverrides = applyPlanDatasetOverrides;
@@ -64,6 +66,35 @@ Object.defineProperty(exports, "planDirectoryKey", { enumerable: true, get: func
 Object.defineProperty(exports, "planArtifactPath", { enumerable: true, get: function () { return ResultLayout_2.planArtifactPath; } });
 const emptyTableRegistry = () => ({ schemaVersion: 1, plans: {} });
 exports.emptyTableRegistry = emptyTableRegistry;
+function metricMetadataForRow(metrics) {
+    const result = {};
+    for (const [name, value] of Object.entries(metrics || {})) {
+        if (!value || typeof value !== "object")
+            continue;
+        const unit = value.unit == null ? "" : String(value.unit).trim();
+        const direction = value.higherIsBetter ?? value.higher_is_better;
+        if (direction !== undefined && typeof direction !== "boolean")
+            throw Error("指标方向必须为布尔值：" + name);
+        if (unit || direction !== undefined)
+            result[name] = { ...(unit ? { unit } : {}), ...(direction !== undefined ? { higherIsBetter: direction } : {}) };
+    }
+    return result;
+}
+function metricsWithMetadata(record) {
+    return Object.fromEntries(Object.entries(record.metrics).map(([name, value]) => [name,
+        record.metricMetadata?.[name] ? { value, ...record.metricMetadata[name] } : value]));
+}
+function mergeMetricMetadata(left = {}, right = {}) {
+    const result = { ...left };
+    for (const [raw, value] of Object.entries(right)) {
+        const name = canonicalMetricName(raw), previous = result[name] || {};
+        for (const key of ["unit", "higherIsBetter"])
+            if (previous[key] !== undefined && value[key] !== undefined && previous[key] !== value[key])
+                throw Error("指标单位或方向冲突：" + name);
+        result[name] = { ...previous, ...value };
+    }
+    return result;
+}
 function normalizePlanDatasetKey(value) {
     return path.posix.normalize(String(value || "").trim().replace(/\\/g, "/")).replace(/^\.\//, "").toLowerCase();
 }
@@ -124,8 +155,8 @@ function registeredPlanSummary(registry, planFile) {
             workerId: row.workerId, runId: row.runId || "", attempt: row.attempt || "", planRevision: row.revision || plan.revision,
             ...(row.jobDir ? { jobDir: row.jobDir } : {}), ...(row.checkpointPath ? { checkpointPath: row.checkpointPath } : {}),
             ...(row.datasetSource ? { datasetSource: row.datasetSource } : {}),
-            dimensions: { case: row.case, seed: row.seed, method: row.method, dataset: row.dataset, rate_percent: row.rate, eval_protocol: row.endpoint },
-            metrics: row.metrics, sourceFiles: [{ path: source }],
+            dimensions: { case: row.case, seed: row.seed, method: row.method, dataset: row.dataset, rate_percent: row.rate, eval_protocol: row.endpoint, split: row.split || "", fold: row.fold || "" },
+            metrics: metricsWithMetadata(row), sourceFiles: [{ path: source }],
         })),
     };
 }
@@ -187,7 +218,7 @@ function attemptOrder(value) {
     return undefined;
 }
 function seedIdentity(record) {
-    return [record.workerId, record.method, record.dataset, record.rate, record.endpoint, record.case, record.seed].join("\0");
+    return [record.workerId, record.method, record.dataset, record.rate, record.endpoint, record.split || "", record.fold || "", record.case, record.seed].join("\0");
 }
 function selectLatestCompletedRun(records, selectedRunId = "") {
     const identified = records.filter((record) => record.runId);
@@ -228,7 +259,7 @@ function selectLatestCompletedRun(records, selectedRunId = "") {
                     throw new Error("同一完成运行的 seed 指标冲突：" + record.case + "/" + record.seed + "/" + name + "。已保留旧表。");
                 metrics[name] = value;
             }
-            bySeed.set(key, { ...record, metrics });
+            bySeed.set(key, { ...record, metrics, metricMetadata: mergeMetricMetadata(previous.metricMetadata, record.metricMetadata) });
             continue;
         }
         if (left && right && (left.rank !== right.rank || left.at !== right.at)) {
@@ -291,7 +322,7 @@ function recordsForSummary(summary, planFile, manualMappings = {}) {
         const mappedDataset = summaryDatasets.length === 1 ? summaryDatasets[0] : summaryDatasets.length ? "" : Array.isArray(mapping?.datasets) && mapping.datasets.length === 1 ? String(mapping.datasets[0] || "").trim() : "";
         const dataset = declaredDataset || mappedDataset;
         const isManual = row?.datasetSource === "manual-plan-mapping" || (!declaredDataset && summaryDatasets.length === 0 && Boolean(mappedDataset));
-        records.push({ planFile, workerId, case: caseName, seed, method: String(dims.method || row.method || "").trim() || path.posix.basename(planFile, path.posix.extname(planFile)), dataset, ...(isManual ? { datasetSource: "manual-plan-mapping" } : {}), rate: ratePercent(dims), endpoint: String(dims.eval_protocol || dims.split || "").trim(), metrics, runId, attempt, revision,
+        records.push({ planFile, workerId, case: caseName, seed, method: String(dims.method || row.method || "").trim() || path.posix.basename(planFile, path.posix.extname(planFile)), dataset, ...(isManual ? { datasetSource: "manual-plan-mapping" } : {}), rate: ratePercent(dims), endpoint: String(dims.eval_protocol || "").trim(), split: String(dims.split ?? "").trim(), fold: String(dims.fold ?? "").trim(), metricMetadata: metricMetadataForRow(row.metrics), metrics, runId, attempt, revision,
             ...(row.jobDir ? { jobDir: row.jobDir } : {}), ...(row.checkpointPath ? { checkpointPath: row.checkpointPath } : {}) });
     }
     if (!records.length)
@@ -352,7 +383,7 @@ function mergeAvailableWorkerResults(registry, summary, planFile, expectedSeeds 
     const sameRevision = !previous?.revision || !revision || previous.revision === revision;
     const covered = (record) => incoming.some((item) => seedIdentity(item) === seedIdentity(record));
     const realIncoming = incoming.filter(record => record.dataset && record.datasetSource !== "manual-plan-mapping");
-    const sameSeedWithoutDataset = (left, right) => [left.workerId, left.method, left.rate, left.endpoint, left.case, left.seed].join("\0") === [right.workerId, right.method, right.rate, right.endpoint, right.case, right.seed].join("\0");
+    const sameSeedWithoutDataset = (left, right) => seedIdentity({ ...left, dataset: "" }) === seedIdentity({ ...right, dataset: "" });
     const belongsToIncomingRun = (record) => incomingRun ? record.runId === incomingRun : !record.runId;
     // A complete recovery is the canonical endpoint set for its verified wrapper generation.
     // Keeping old same-run rows can retain legacy endpoint names without job/checkpoint provenance.
@@ -456,8 +487,9 @@ function buildDatasetTables(registry, options = {}) {
     const grouped = new Map();
     for (const plan of Object.values(registry.plans || {}))
         for (const record of plan.records) {
-            const identity = JSON.stringify([record.planFile, record.method, record.dataset, record.rate, record.endpoint, record.case]);
-            const group = grouped.get(identity) || { record, expected: 0, seeds: new Map(), sources: new Map() };
+            const identity = JSON.stringify([record.planFile, record.method, record.dataset, record.rate, record.endpoint, record.split || "", record.fold || "", record.case]);
+            const group = grouped.get(identity) || { record, expected: 0, seeds: new Map(), sources: new Map(), metadata: {} };
+            group.metadata = mergeMetricMetadata(group.metadata, record.metricMetadata);
             group.sources.set(record.seed, record);
             group.expected = Math.max(group.expected, plan.expectedSeeds);
             const values = group.seeds.get(record.seed) || {};
@@ -476,11 +508,12 @@ function buildDatasetTables(registry, options = {}) {
             throw new Error("派生指标配置无效。");
         for (const group of groups) {
             const base = group.record;
-            const key = (endpoint) => JSON.stringify([base.planFile, base.method, base.dataset, base.rate, endpoint, base.case]);
+            const key = (endpoint) => JSON.stringify([base.planFile, base.method, base.dataset, base.rate, endpoint, base.split || "", base.fold || "", base.case]);
             const left = grouped.get(key(derived.leftEndpoint));
             const right = grouped.get(key(derived.rightEndpoint));
             if (!left || !right)
                 continue;
+            mergeMetricMetadata(left.metadata, right.metadata);
             const values = [];
             for (const [seed, metrics] of left.seeds) {
                 const other = right.seeds.get(seed);
@@ -499,7 +532,7 @@ function buildDatasetTables(registry, options = {}) {
             throw new Error("不同方法映射到同一文件夹：" + previous + "、" + group.record.method);
         methodNames.set(token.toLowerCase(), group.record.method);
     }
-    const shortKeys = groups.map((group) => JSON.stringify([group.record.method, group.record.dataset, group.record.rate, group.record.endpoint]));
+    const shortKeys = groups.map((group) => JSON.stringify([group.record.method, group.record.dataset, group.record.rate, group.record.endpoint, group.record.split || "", group.record.fold || ""]));
     const showCase = new Set(shortKeys).size !== shortKeys.length;
     const make = (chosen) => {
         const metrics = [...new Set(chosen.flatMap((group) => [...group.seeds.values()].flatMap((seed) => Object.keys(seed))))].sort();
@@ -514,8 +547,12 @@ function buildDatasetTables(registry, options = {}) {
         if (derivedName && labels.includes(derivedName))
             throw new Error("派生指标输出列名与原始指标冲突。");
         const showPlan = true;
+        const dimensions = ["split", "fold"].filter(key => chosen.some(group => group.record[key]));
+        const metadataColumns = metrics.flatMap((name, index) => ["unit", "higherIsBetter"]
+            .filter(key => chosen.some(group => group.metadata[name]?.[key] !== undefined))
+            .map(key => ({ name, key, label: labels[index] + (key === "unit" ? "_unit" : "_higher_is_better") })));
         const provenance = chosen.some(group => [...group.sources.values()].some(row => row.codeFingerprint));
-        const header = ["result_family", ...(showPlan ? ["plan_file"] : []), "dataset", "rate_percent", "eval_protocol", ...(showCase ? ["case"] : []), "jobs", ...labels.flatMap((name) => [name + "_mean", name + "_sd"]), ...(derivedName ? [derivedName + "_mean", derivedName + "_sd"] : [])];
+        const header = ["result_family", ...(showPlan ? ["plan_file"] : []), "dataset", "rate_percent", "eval_protocol", ...dimensions, ...(showCase ? ["case"] : []), "jobs", ...labels.flatMap((name) => [name + "_mean", name + "_sd"]), ...(derivedName ? [derivedName + "_mean", derivedName + "_sd"] : []), ...metadataColumns.map(column => column.label)];
         if (provenance)
             header.push("mixed_versions", "job_versions");
         const ordered = [...chosen].sort((a, b) => a.record.method.localeCompare(b.record.method) || a.record.dataset.localeCompare(b.record.dataset) || Number(a.record.rate) - Number(b.record.rate) || a.record.endpoint.localeCompare(b.record.endpoint) || a.record.case.localeCompare(b.record.case));
@@ -524,7 +561,7 @@ function buildDatasetTables(registry, options = {}) {
             const expected = group.expected || seeds.length;
             const counts = metrics.map((name) => seeds.filter((seed) => name in seed).length).filter(Boolean);
             const jobs = counts.length ? Math.min(...counts) : seeds.length;
-            const row = [group.record.method, ...(showPlan ? [group.record.planFile] : []), group.record.dataset, group.record.rate, group.record.endpoint, ...(showCase ? [group.record.case] : []), jobs === expected ? String(jobs) : String(jobs) + "/" + expected];
+            const row = [group.record.method, ...(showPlan ? [group.record.planFile] : []), group.record.dataset, group.record.rate, group.record.endpoint, ...dimensions.map(key => group.record[key] || ""), ...(showCase ? [group.record.case] : []), jobs === expected ? String(jobs) : String(jobs) + "/" + expected];
             for (const name of metrics) {
                 const values = seeds.map((seed) => seed[name]).filter(Number.isFinite);
                 const complete = options.partial ? values.length > 0 : values.length === expected;
@@ -539,6 +576,7 @@ function buildDatasetTables(registry, options = {}) {
                 const sd = complete && values.length > 1 ? Math.sqrt(values.reduce((sum, value) => sum + (value - Number(mean)) ** 2, 0) / (values.length - 1)) : "";
                 row.push(mean, sd);
             }
+            row.push(...metadataColumns.map(column => String(group.metadata[column.name]?.[column.key] ?? "")));
             if (provenance) {
                 const sources = [...group.sources.values()].sort((a, b) => a.seed.localeCompare(b.seed));
                 const versions = new Set(sources.map(source => source.codeFingerprint).filter(Boolean));

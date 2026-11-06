@@ -32,7 +32,7 @@ for (let i = 0; i < args.length; i++) {
 const CATEGORIES = {
   src: { dirs: ["src"], files: [] },
   test: { dirs: ["test"], files: [] },
-  scripts: { dirs: ["scripts"], files: [] },
+  scripts: { dirs: ["scripts", "vendor"], files: [] },
   bin: { dirs: ["bin"], files: [] },
   lock: { dirs: [], files: ["package-lock.json"] },
   config: { dirs: [], files: ["package.json", "tsconfig.json", ".vscodeignore"] },

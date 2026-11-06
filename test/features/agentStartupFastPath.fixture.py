@@ -18,6 +18,7 @@ def forbidden(*args, **kwargs):
     raise AssertionError("historical task reconciliation/cleanup blocked HTTP readiness")
 
 scope = dict(os=os, re=re, sys=sys, RUNTIME_VERSION="test", AGENT_VERSION="test",
+             runtime_dependency_prepare=record("dependencies"),
              lifecycle_service_guard=lambda *args: (object(), {"nonce": "owned"}),
              task_update_scheduler_runtime=record("scheduler"),
              prune_agent_state=forbidden, reconcile_worker_tasks_after_restart=forbidden,
@@ -27,6 +28,6 @@ scope = dict(os=os, re=re, sys=sys, RUNTIME_VERSION="test", AGENT_VERSION="test"
              start_worker_telemetry_sampler=record("telemetry"), start_gpu_log_tail_sampler=record("logs"))
 exec("def startup(args):" + prefix, scope)
 scope["startup"](types.SimpleNamespace(host="127.0.0.1", project_dir="fixture", token="", mode="worker_telemetry", worker_id="test"))
-assert events == ["scheduler", "session", "telemetry", "logs"], events
+assert events == ["dependencies", "scheduler", "session", "telemetry", "logs"], events
 assert scope["AGENT_LIFECYCLE_IDENTITY"]["nonce"] == "owned"
 print("owned startup reaches HTTP without historical task/file scans")

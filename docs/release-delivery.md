@@ -25,7 +25,7 @@
 
 Windows 的实际来源由 `src/updates/ReleaseClient.ts` 和 `src/features/ExtensionUpdates.ts` 确定：分别读取 SimpleExperiment、SimpleSFTP 仓库的公开稳定 Latest Release，选择身份、版本、平台匹配的 VSIX。源码分支推送不能让该入口自动发现更新。
 
-Mac 若采用其他发行索引，按该平台的当前实现核对。禁止将 Mac 的版本号、仓库、扩展身份或包当成 Windows 包发布。若更新客户端以后改变协议，发布和验收规则必须随实际客户端一起更新。
+后续维护和发行仅针对 Windows；Mac 仓库与历史包可作为问题排查参考，不继续更新或交付。禁止将 Mac 的版本号、仓库、扩展身份或包当成 Windows 包发布。若更新客户端以后改变协议，发布和验收规则必须随实际客户端一起更新。
 
 ## 多窗口连接作用域
 

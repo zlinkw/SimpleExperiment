@@ -132,7 +132,7 @@ export type QueuedJob = {
 };
 export type QueuedPlan = {
   gpuMemoryEstimates?: PlanGpuMemoryEstimates;
-  executionSource?: { digest: string; manifest: Record<string, { size: number; sha256: string }> };
+  executionSource?: import("../extension/PlanCodeScopeHost").PlanExecutionSource;
   /** 提交时的本机 Git 溯源（分支/HEAD/脏状态/时间；origin 已剥离凭证）。纯本机展示与绑定用，
    * 绝不参与 completionIdentity、job 身份或 Worker 协议。dirty 缺失=当时未知。 */
   gitProvenance?: { schemaVersion?: number; recordedAt?: string; planFile?: string; branch?: string; localCommit?: string; dirty?: boolean; originUrl?: string };
@@ -1104,7 +1104,9 @@ export function legacyDistributedQueuePath(storageRoot: string, projectRoot: str
 }
 
 export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id" | "enqueuedAt" | "jobs"> & { jobs: Array<Pick<QueuedJob, "index" | "case" | "seed" | "outputDir" | "collectionResultCsv" | "checkpointSource" | "outputIsolationBlocked">> }, id: string, enqueuedAt = new Date().toISOString()): DistributedQueue {
-  if (!plan.revision || !plan.codeFingerprint || !plan.planFile || !id) throw new Error("Plan identity and code fingerprint are required.");
+  const missingIdentity = Object.entries({ revision: plan.revision, codeFingerprint: plan.codeFingerprint, planFile: plan.planFile, id })
+    .filter(([, value]) => !value).map(([field]) => field);
+  if (missingIdentity.length) throw new Error("Plan identity and code fingerprint are required. Missing: " + missingIdentity.join(", "));
   const registered = queue.plans.find(item => item.id === id);
   if (registered) {
     if (registered.planFile !== plan.planFile || registered.revision !== plan.revision || registered.codeFingerprint !== plan.codeFingerprint

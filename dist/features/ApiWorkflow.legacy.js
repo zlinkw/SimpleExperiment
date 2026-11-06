@@ -127,23 +127,40 @@ function filterPlans(plans, filter = {}) {
 }
 function planIdentityValues(plan) {
     return [plan.planFile, plan.file, plan.planId]
-        .map((value) => String(value || "").trim())
+        .map((value) => String(value || "").trim().replace(/\\/g, "/"))
         .filter(Boolean);
 }
 function selectWorkflowPlan(plans, selection = {}) {
     const list = Array.isArray(plans) ? plans.filter((item) => item && typeof item === "object") : [];
-    const requestedFile = String(selection.planFile || selection.file || "").trim();
-    const requestedId = String(selection.planId || "").trim();
-    let plan;
-    if (requestedFile) {
-        plan = list.find((item) => planIdentityValues(item).includes(requestedFile));
-    }
-    else if (requestedId) {
-        plan = list.find((item) => planIdentityValues(item).includes(requestedId));
-    }
-    else if (list.length === 1) {
+    const options = selection.options ?? {};
+    if (typeof options !== "object" || Array.isArray(options))
+        throw Error("PLAN_SELECTION_INVALID: options 必须是对象");
+    const fields = [
+        ["planFile", selection.planFile, true], ["file", selection.file, true],
+        ["options.planFile", options.planFile, true],
+        ["selectedPlanId", selection.selectedPlanId, false], ["planId", selection.planId, false],
+    ];
+    const hints = fields.flatMap(([field, value, file]) => {
+        if (value == null || value === "" || value === "-")
+            return [];
+        if (typeof value !== "string")
+            throw Error("PLAN_SELECTION_INVALID: " + field + " 必须是字符串");
+        const text = value.trim().replace(/\\/g, "/");
+        return text ? [{ field, value: text, file }] : [];
+    });
+    const paths = hints.filter(hint => hint.file), ids = hints.filter(hint => !hint.file);
+    const requestedFile = paths[0]?.value || "", requestedId = ids[0]?.value || "";
+    const conflict = () => { throw Error("PLAN_SELECTION_CONFLICT: " + hints.map(hint => hint.field + "=" + hint.value).join("；")); };
+    if (new Set(paths.map(hint => hint.value)).size > 1)
+        conflict();
+    const matches = hints.map(hint => list.filter(item => planIdentityValues(item).includes(hint.value)));
+    if (matches.some(rows => rows.length > 1))
+        throw Error("PLAN_SELECTION_AMBIGUOUS: 选择匹配多个 PLAN");
+    let plan = matches.find(rows => rows.length)?.[0];
+    if ((plan && matches.some(rows => rows[0] !== plan)) || (!plan && new Set(ids.map(hint => hint.value)).size > 1))
+        conflict();
+    if (!hints.length && list.length === 1)
         plan = list[0];
-    }
     const missing = [];
     if (!plan) {
         if (list.length > 1) {
@@ -178,6 +195,8 @@ function selectWorkflowPlan(plans, selection = {}) {
         total: list.length,
         needsChoice: !plan && list.length > 1,
         missing,
+        requestedFile,
+        requestedId,
     };
 }
 function remoteProjectWorkDir(remoteRoot, projectName) {

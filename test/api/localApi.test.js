@@ -535,15 +535,17 @@ test("SimpleExperiment uses one configured root across workflow, runtime and SFT
   assert.match(mergedBody, /agentProjectDir: worker\.agentProjectDir \|\| worker\.remoteRoot \|\| existing\.agentProjectDir/);
 });
 
-test("SimpleExperiment blocks unconfigured placeholder conda environments before workflow submission", () => {
+test("SimpleExperiment accepts system Python but rejects relative conda environments before workflow submission", () => {
   assert.match(extensionSource, /assertExecutionCondaEnvReady\(this\.workerActionTargets\(\)\)/);
   assert.match(extensionSource, /condaEnv: normalizeCondaEnvSetting\(row\.condaEnv \?\? existing\?\.condaEnv\) \|\| undefined/);
   const start = extensionSource.indexOf("assertExecutionCondaEnvReady(workers = this.workerActionTargets())");
   const end = extensionSource.indexOf("assertHubAgentProjectReady()", start);
   assert.ok(start >= 0 && end > start);
   const method = extensionSource.slice(start, end);
-  assert.match(method, /未配置 condaEnv/);
-  assert.match(method, /workerTunnels\[\]\.condaEnv/);
+  const check = new Function('normalizeCondaEnvSetting', 'isCondaEnvAbsolutePathValid', 'return ({' + method + '}).assertExecutionCondaEnvReady;')(
+    value => String(value || '').trim(), value => value.startsWith('/'));
+  assert.doesNotThrow(() => check([{condaEnv:''}, {condaEnv:'/opt/env'}]));
+  assert.throws(() => check([{condaEnv:'named-environment'}]), /完整环境路径/);
 });
 
 test("SimpleExperiment prepare previews expose the resolved final project path", () => {

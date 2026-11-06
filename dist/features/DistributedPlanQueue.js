@@ -1076,8 +1076,10 @@ function legacyDistributedQueuePath(storageRoot, projectRoot) {
     return path.join(storageRoot, "distributed-plan-queues", key + ".json");
 }
 function enqueuePlan(queue, plan, id, enqueuedAt = new Date().toISOString()) {
-    if (!plan.revision || !plan.codeFingerprint || !plan.planFile || !id)
-        throw new Error("Plan identity and code fingerprint are required.");
+    const missingIdentity = Object.entries({ revision: plan.revision, codeFingerprint: plan.codeFingerprint, planFile: plan.planFile, id })
+        .filter(([, value]) => !value).map(([field]) => field);
+    if (missingIdentity.length)
+        throw new Error("Plan identity and code fingerprint are required. Missing: " + missingIdentity.join(", "));
     const registered = queue.plans.find(item => item.id === id);
     if (registered) {
         if (registered.planFile !== plan.planFile || registered.revision !== plan.revision || registered.codeFingerprint !== plan.codeFingerprint

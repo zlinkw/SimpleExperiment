@@ -52,7 +52,7 @@ for kind in ('normal','warning','callback','failure','early','train-test'):
 command,output,log,kind=sys.argv[1:]
 assert os.environ['SIMPLE_EXPERIMENT_TASK_LIFECYCLE']=='2'
 assert os.environ['SIMPLE_EXPERIMENT_RUNTIME_LOG_PATH']==log
-job=SimpleNamespace(output_dir=output,result_csv=output+'/metric.csv',index=0,case='synthetic',seed=42,template_values={'plan_file':'experiments/plans/cpu.yaml'})
+job=SimpleNamespace(output_dir=output,result_csv=output+'/metric.csv',index=0,case='synthetic',seed=42,outputs=(),template_values={'plan_file':'experiments/plans/cpu.yaml'})
 task_log_marker(command,'begin','prepare')
 with formal_job_writer(job,{'commandId':command},'train_test'):
  runtime_log_phase('train')

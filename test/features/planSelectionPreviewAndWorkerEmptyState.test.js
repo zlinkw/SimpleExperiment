@@ -9,6 +9,40 @@ const root = path.resolve(__dirname, "..", "..");
 const panel = readSource("src/ui/PanelHtml.ts");
 const extension = readSource("src/extension.ts");
 
+test("API and UI PLAN selection stamp the same revision and reject conflicting aliases", () => {
+  require("../_helpers/registerTsRequire");
+  const workflow = require("../../src/features/ApiWorkflow.legacy.ts");
+  const method = require("../_helpers/legacyMethod");
+  const ts = require("typescript");
+  const names = ["apiResolveSelectedPlan", "actionPlanTarget", "localPlanForActionBody", "stampPlanRevision"];
+  const Host = vm.runInNewContext(ts.transpileModule("class Host {" + names.map(name => method(extension, name + "(")).join("\n") + "}; Host", {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText, { ApiWorkflow_1: workflow, usableSelectionKey: value => String(value || "").trim(),
+    stringArrayField: (value, key) => value[key] || [], uniqueStrings: values => [...new Set(values)] });
+  const host = new Host();
+  const plan = { planId: "one", planFile: "experiments/plans/one.yaml", revision: "revision-one" };
+  host.localPlanMetadata = { plans: [plan, { planId: "two", planFile: "experiments/plans/two.yaml", revision: "revision-two" }] };
+  host.selectedPlanId = "two";
+  for (const fields of [{ planFile: plan.planFile }, { options: { planFile: plan.planFile } }, { selectedPlanId: "one" },
+    { planId: "one" }, { file: plan.planFile }, { planFile: plan.planFile.replaceAll("/", "\\") },
+    { planFile: plan.planFile, options: { planFile: plan.planFile }, selectedPlanId: "one", planId: "one" }]) {
+    const body = structuredClone(fields);
+    assert.equal(host.apiResolveSelectedPlan(body), plan);
+    assert.equal(host.actionPlanTarget(body).planFile, plan.planFile);
+    host.stampPlanRevision(body);
+    assert.equal(body.planRevision, plan.revision);
+    assert.equal(body.options.planRevision, plan.revision);
+  }
+  for (const fields of [{ planFile: plan.planFile, options: { planFile: "other.yaml" } },
+    { planFile: plan.planFile, planId: "two" }, { selectedPlanId: "one", planId: "missing" }]) {
+    for (const name of ["apiResolveSelectedPlan", "actionPlanTarget", "localPlanForActionBody"])
+      assert.throws(() => host[name](fields), /PLAN_SELECTION_CONFLICT/);
+  }
+  assert.throws(() => host.apiResolveSelectedPlan({ planFile: 2 }), /PLAN_SELECTION_INVALID/);
+  assert.equal(host.localPlanForActionBody({}), undefined);
+  assert.equal(host.actionPlanTarget({ selectedPlanId: "missing" }).planFile, undefined);
+});
+
 function extractFunction(name) {
   const start = extension.indexOf(`function ${name}(`);
   assert.ok(start >= 0, `missing ${name}`);
