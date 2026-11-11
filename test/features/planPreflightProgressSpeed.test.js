@@ -36,7 +36,7 @@ const manifestApi = manifestFactory(require("node:fs").promises, require("node:f
 
 const DispatchHandoffGateModule = require("../../dist/features/DispatchHandoffGate.js");
 
-const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest", "vscode_1", "LocalCodeManifestCache_1", "SafeRequestRetry_1", "DistributedPlanQueue", "workspaceRoot", "PlanCodeScopeHost", "ProjectRootMap_1", "DispatchHandoffGate", "SshTransportIdentity_1", `
+const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest", "vscode_1", "LocalCodeManifestCache_1", "SafeRequestRetry_1", "DistributedPlanQueue", "workspaceRoot", "PlanCodeScopeHost", "ProjectRootMap_1", "DispatchHandoffGate", "SshTransportIdentity_1", "ConfigurationSettings_1", `
   function stringField(message, key) { return String((message && message[key]) || ""); }
   function operationResultPlanFile(body) { return String((body && (body.planFile || body.selectedPlanId || (body.options && body.options.planFile))) || ""); }
   function errorMessage(error) { return error && error.message ? error.message : String(error || ""); }
@@ -105,7 +105,7 @@ const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpri
   ${compiled("ensureOperationLogChannel")}
   return { syncCodeTargets, checkRunCodeWithoutUploadLocal, safeWorkerCodeSyncTargets, syncManualWorkerCode, uploadProjectToWorkers, distributeCodeToWorkers, publishToGitHub, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs, operationNoticeKey, reportOperationNotice, logOperationFact, ensureOperationLogChannel, boundedPromise, gateStateLocal, targetLeaseTableLocal, beginCodeUploadHandoffLocal, endCodeUploadHandoffLocal, awaitDispatchHandoffSafeLocal, markCodeUploadWorkerReadyLocal, markCodeUploadWorkerFailedLocal, recordDispatchHandoffTimeoutLocal, acquireCodeUploadTargetLeaseLocal, releaseCodeUploadTargetLeaseLocal, markCodeSyncTargetResultLocal, sftpServerOptions, sshTransportIdentity, resolveCodeUploadTargetIdentityLocal, dispatchTargetKeyLocal, noteCodeUploadTargetLocal, retainCodeUploadTargetLeaseLocal, releaseRetainedCodeUploadTargetLeaseLocal, pendingCodeUploadUnknownWriteLocal, resolveCodeUploadUnknownWriteLocal, verifyCodeUploadTargetQuiescentLocal, codeUploadTargetRowsLocal, codeUploadCurrentRoundTargetKeysLocal, withCodeUploadRoundWriteLocal, codeUploadRoundWriteFloorLocal, cancelCodeUploadTargetWriteLocal, takeoverCodeUploadTargetLocal, takeoverCodeUploadTargetLockedLocal, rememberUnknownCodeWriteLocal };
 `);
-function apiFactory(...args) { while(args.length<9)args.push(undefined);return createApi(...args,require("../../dist/extension/PlanCodeScopeHost.js"),require("../../dist/features/ProjectRootMap.js"),DispatchHandoffGateModule,require("../../dist/tunnel/SshTransportIdentity.js")); }
+function apiFactory(...args) { while(args.length<9)args.push(undefined);return createApi(...args,require("../../dist/extension/PlanCodeScopeHost.js"),require("../../dist/features/ProjectRootMap.js"),DispatchHandoffGateModule,require("../../dist/tunnel/SshTransportIdentity.js"),require("../../dist/tunnel/ConfigurationSettings.js")); }
 
 function sha(char) { return char.repeat(64); }
 
@@ -206,7 +206,7 @@ function syncHost(remote) {
     return typeof remote === "function" ? remote(request, host.inventories.length) : remote;
   };
   const vscodeStub = {
-    workspace: { getConfiguration: () => ({ get: (key, fallback) => key.endsWith("includePaths") ? ["src"] : fallback }) },
+    workspace: { getConfiguration: () => ({ get: (key, fallback) => key.endsWith("includePaths") ? ["src"] : fallback, inspect: () => ({}) }) },
     Uri: { file: (value) => ({ fsPath: value }) },
     ProgressLocation: { Notification: 15 },
     window: { setStatusBarMessage() {}, withProgress: async (_options, run) => run({ report: row => host.stages.push(row.message) }),

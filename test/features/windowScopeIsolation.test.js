@@ -3,6 +3,13 @@ require('../_helpers/registerTsRequire');
 const P=require('../../src/core/ProjectConnectionProfiles.ts');
 const {currentWindowSftpDiscovery}=require('../../src/core/SimpleSftpWindow.ts');
 const memo=(initial={})=>{const values=structuredClone(initial),writes=[];return {values,writes,get:key=>values[key],update:async(key,value)=>{writes.push(key);values[key]=structuredClone(value);}};};
+test('explicit log reads surface transport failures instead of empty cached success',async()=>{
+ const vm=require('node:vm'),ts=require('typescript'),method=require('../_helpers/legacyMethod');
+ const source=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
+ const Host=vm.runInNewContext(ts.transpileModule('class Host {'+method(source,'apiLiveOutput(')+'}; Host',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{stringField:(p,k)=>p[k]||''});
+ const host=new Host();host.resolveWorkerEndpointId=x=>x;host.buildState=()=>{throw new Error('must not hide read failure');};host.client={getLiveOutput:async()=>{throw new Error('endpoint unavailable');}};
+ await assert.rejects(host.apiLiveOutput({runKey:'command',workerId:'worker'}),/endpoint unavailable/);
+});
 test('server connections migrate from a configured project and are shared across windows and folder changes',async()=>{
  const setupKey='simpleExperiment.xshellRealtimeTunnelConfig',tunnelKey='simpleExperiment.tunnelGatewayConfig';
  const root='C:/project-A',owner=path.resolve(root).replaceAll('\\','/').toLowerCase();
@@ -69,6 +76,23 @@ test('same-window SFTP exports ignore a foreign global default and reject wrong 
  descriptor.workspace='C:/other';await assert.rejects(currentWindowSftpDiscovery(registry,root,readLegacy),/WORKSPACE_MISMATCH/);
  descriptor.workspace=root;descriptor.pid++;await assert.rejects(currentWindowSftpDiscovery(registry,root,readLegacy),/WINDOW_MISMATCH/);
  await assert.rejects(currentWindowSftpDiscovery(registry,'',readLegacy),/PROJECT_REQUIRED/);
+});
+test('configuration APIs use the workspace resource and read the saved value after updates',async()=>{
+ const vm=require('node:vm'),ts=require('typescript'),method=require('../_helpers/legacyMethod');
+ const source=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
+ const uri={fsPath:'C:/configuration-project'},values={'codeSync.scopePaths':['train.py']},writes=[];
+ const vscode={ConfigurationTarget:{Workspace:2,WorkspaceFolder:3,Global:1},workspace:{workspaceFolders:[{uri}],getConfiguration:(namespace,resource)=>{
+  assert.equal(namespace,'simpleExperiment');assert.equal(resource,uri);
+  const snapshot=structuredClone(values);return {get:(key,fallback)=>snapshot[key]??fallback,update:async(key,value,target)=>{writes.push({key,value,target});values[key]=value;}};
+ }}};
+ const Host=vm.runInNewContext(ts.transpileModule('class Host {'+['apiConfigSchema','apiConfigDefinition','apiConfigValue','apiConfigUpdateTarget','apiConfigList','apiConfigGet','apiConfigSet','apiConfigReset'].map(n=>method(source,n+'(')).join('\n')+'}; Host',{
+  compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{vscode,API_CONFIG_NAMESPACE:'simpleExperiment',API_CONFIG_PREFIX:'simpleExperiment.',API_SECRET_CONFIG_KEYS:new Set(),stringField:(p,k)=>p[k]||'',validateApiConfigValue:()=>{}});
+ const host=new Host();host.context={extension:{packageJSON:{contributes:{configuration:{properties:{'simpleExperiment.codeSync.scopePaths':{type:'array',scope:'resource'}}}}}}};host.postState=()=>{};
+ assert.deepEqual(Array.from((await host.apiConfigGet({key:'simpleExperiment.codeSync.scopePaths'})).value),['train.py']);
+ const saved=await host.apiConfigSet({key:'simpleExperiment.codeSync.scopePaths',value:['train.py','experiments'],scope:'workspaceFolder',confirm:true});
+ assert.equal(saved.scope,'workspaceFolder');assert.deepEqual(Array.from(saved.value),['train.py','experiments']);assert.equal(writes[0].target,3);
+ assert.deepEqual(Array.from((await host.apiConfigList()).keys[0].value),['train.py','experiments']);
+ await host.apiConfigReset({key:'simpleExperiment.codeSync.scopePaths',scope:'workspaceFolder',confirm:true});assert.equal(writes[1].value,undefined);
 });
 test('real Experiment APIs refuse cross-window and changed-workspace RPCs before invoking handlers',async()=>{
  const {LocalApiServer}=require('../../dist/api/LocalApiServer');let workspace=path.join(os.tmpdir(),'scope-A'),calls=0;

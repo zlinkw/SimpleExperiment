@@ -63,6 +63,17 @@ const catalog = {
   legacyTables: [],
 };
 
+test("unlabelled generic results expose existing tables without inventing a dataset", () => {
+  const renderer = createRenderer();
+  const group = { dataset: "", datasetKey: "_unassigned", plans: [plan("experiments/plans/acceptance.yaml", "acceptance")], tables: [finalTable("", 1, "experiments/results/_unassigned/final/final.csv")] };
+  const html = renderer.renderProjectResultTables({ resultOutputConfig: { catalog: { datasets: [group] }, catalogLoadStatus: "ready", tables: group.tables } });
+  assert.match(html, /未标注数据集的结果/);
+  assert.match(html, /data-command="openLocalResultTable"/);
+  assert.match(html, /尚未识别数据集/);
+  assert.doesNotMatch(html, /尚无总表/);
+  assert.equal(group.dataset, "");
+});
+
 test("local results stay visible with failed synchronization and expose an independent offline refresh", () => {
   const renderer = createRenderer();
   const state = { connectionMode: "offline_import", resultSyncReport: { discovered: 20, accepted: 17, failed: 11 },

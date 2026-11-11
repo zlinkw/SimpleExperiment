@@ -10,9 +10,9 @@ const {syncScopeStagingIdentity}=require('../../dist/features/JobArtifactSyncIde
 const ast=ts.createSourceFile('legacy.ts',fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8'),ts.ScriptTarget.Latest,true);
 const targets=[{id:'w1'},{id:'w2'}],file='configs/model.yaml',sha='a'.repeat(64),files={[file]:{sha256:sha,size:3}};
 function method(name,globals={}){let member;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)===name)member=n;ts.forEachChild(n,visit);}visit(ast);assert.ok(member,name);return vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{
- path,safeSyncPath,isUnderMachineStatePrefixes,scopeInventoryPathAllowed,expandSyncScopeBatchSelection,runSyncScopeBatch,planSyncScopeTransferGroups,batchSyncScopeInventoryPaths,scopeInventorySnapshot,syncScopeStagingIdentity,
+ ConfigurationSettings_1:require("../../src/tunnel/ConfigurationSettings.ts"),path,safeSyncPath,isUnderMachineStatePrefixes,scopeInventoryPathAllowed,expandSyncScopeBatchSelection,runSyncScopeBatch,planSyncScopeTransferGroups,batchSyncScopeInventoryPaths,scopeInventorySnapshot,syncScopeStagingIdentity,
  loadSyncHolds:async()=>({[file]:{endpointId:'w2',codeOwned:true,directory:false}}),isLocalCodeOwnedPath:()=>true,
- vscode:{workspace:{getConfiguration:()=>({get:(_key,fallback)=>fallback})},Uri:{file:x=>x}},workerFpsyncTaskLabel:()=>'',...globals});}
+ vscode:{workspace:{getConfiguration:()=>({get:(_key,fallback)=>fallback,inspect:()=>({})})},Uri:{file:x=>x}},workerFpsyncTaskLabel:()=>'',...globals});}
 function host(){const calls=[];return {calls,context:{globalStorageUri:{fsPath:'unused'}},
  // This fixture explicitly maps machine state outside its project on each endpoint.
  localMachineStateGuard:()=>({prefixes:[],unknown:false}),targetRootGuard:()=>({prefixes:[],unknown:false}),machineStatePrefixesById:()=>[],machineStatePrefixesForTarget:()=>[],
@@ -57,7 +57,7 @@ test('Worker batch source picker includes code-owned copies and forwards only co
  h.createSyncScopeBatchIndex=()=>({list:async()=>[{path:file,name:'model.yaml',directory:false,locations:['w1','w2']}],dispose:()=>disposed++});
  h.transferSyncScopeBatch=async(_root,_targets,work,destinations)=>{assert.equal(confirmations.length,1);assert.equal(work[0].endpointId,'w1');assert.deepEqual([...destinations],['w2']);return [file];};
  const run=method('runSyncScopeTreeBatch',{confirmSyncScopePaths:async(...args)=>{confirmations.push(args);return true;},
-  vscode:{workspace:{getConfiguration:()=>({get:(_key,fallback)=>fallback})},Uri:{file:x=>x},window:{showQuickPick:async(options)=>{picks.push(options);return options[0];}}}});
+  vscode:{workspace:{getConfiguration:()=>({get:(_key,fallback)=>fallback,inspect:()=>({})})},Uri:{file:x=>x},window:{showQuickPick:async(options)=>{picks.push(options);return options[0];}}}});
  const result=await run.call(h,'local-root',targets,false,'sync',[file],[],()=>{});
  assert.deepEqual([...result.completed],[file]);assert.deepEqual(Array.from(picks[0],row=>row.endpointId),['w1','w2']);assert.equal(disposed,1);assert.equal(h.syncScopeMutationInFlight,false);
 });

@@ -3254,10 +3254,7 @@ export class RealtimeTunnelPanelProvider {
         const since = params.since === undefined ? 0 : params.since;
         if (!Number.isSafeInteger(since) || since < 0) throw new Error("日志 since 必须是非负整数。");
         const direct = runKey
-            ? await this.client.getLiveOutput(runKey, since, this.resolveWorkerEndpointId(workerId) || workerId || undefined, { userInitiated: true, signal }).catch((error) => {
-                if (signal?.aborted) throw error;
-                return undefined;
-            })
+            ? await this.client.getLiveOutput(runKey, since, this.resolveWorkerEndpointId(workerId) || workerId || undefined, { userInitiated: true, signal })
             : undefined;
         signal?.throwIfAborted();
         if (direct && typeof direct === "object") {
@@ -3320,7 +3317,7 @@ export class RealtimeTunnelPanelProvider {
         return vscode.ConfigurationTarget.Global;
     }
     async apiConfigList() {
-        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE);
+        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri);
         return {
             namespace: API_CONFIG_NAMESPACE,
             secretKeys: [...API_SECRET_CONFIG_KEYS].sort(),
@@ -3339,7 +3336,7 @@ export class RealtimeTunnelPanelProvider {
         const definition = this.apiConfigDefinition(key);
         if (!definition)
             throw new Error(`未知 SimpleExperiment 配置：${key}`);
-        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE);
+        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri);
         return {
             key,
             type: definition.schema.type || "",
@@ -3359,10 +3356,10 @@ export class RealtimeTunnelPanelProvider {
                 operation: "config.set",
                 requires: ["confirm"],
                 key,
-                value: this.apiConfigValue(vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE), key, definition.schema),
+                value: this.apiConfigValue(vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri), key, definition.schema),
             });
         validateApiConfigValue(key, definition.schema, params.value);
-        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE);
+        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri);
         const target = this.apiConfigUpdateTarget(definition.schema, stringField(params, "scope"));
         await config.update(key.slice(API_CONFIG_PREFIX.length), params.value, target);
         this.postState();
@@ -3374,7 +3371,7 @@ export class RealtimeTunnelPanelProvider {
                 : target === vscode.ConfigurationTarget.Workspace
                     ? "workspace"
                     : "global",
-            value: this.apiConfigValue(config, key, definition.schema),
+            value: this.apiConfigValue(vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri), key, definition.schema),
             secret: API_SECRET_CONFIG_KEYS.has(key),
         };
     }
@@ -3388,9 +3385,9 @@ export class RealtimeTunnelPanelProvider {
                 operation: "config.reset",
                 requires: ["confirm"],
                 key,
-                value: this.apiConfigValue(vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE), key, definition.schema),
+                value: this.apiConfigValue(vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri), key, definition.schema),
             });
-        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE);
+        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri);
         const target = this.apiConfigUpdateTarget(definition.schema, stringField(params, "scope"));
         await config.update(key.slice(API_CONFIG_PREFIX.length), undefined, target);
         this.postState();
@@ -10320,7 +10317,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             throw new Error("请先单独打开一个项目工作区，再查看项目同步范围。");
         const root = folder.uri.fsPath;
         const config = vscode.workspace.getConfiguration("simpleExperiment", folder.uri);
-        const savedScope = config.get<string[]>("codeSync.scopePaths");
+        const savedScope = ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(config, "codeSync.scopePaths", undefined);
         const legacyExtra = config.get<string[]>("codeSync.includePaths", []) || [];
         const localSelected = [...new Set(Array.isArray(savedScope) ? savedScope : legacyExtra)].sort();
         const serverSelected = normalizeMirrorScopePaths(config.get<string[]>("serverSync.paths", ["."]));
@@ -10923,7 +10920,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         let preparedHeld = false;
         if (artifactCopy) {
             const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
-            if (selectedPaths.some(file => isLocalCodeOwnedPath(file, true, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"))))
+            if (selectedPaths.some(file => isLocalCodeOwnedPath(file, true, config.get("codeSync.includePaths", []), ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(config, "codeSync.scopePaths", undefined))))
                 throw new Error("产物同步路径与本机代码范围重叠，请先调整同步范围。");
             this.activeArtifactSyncScopes ||= new Map();
             this.activeArtifactSyncScopes.set(copyScope, { root, paths: [...selectedPaths] });
@@ -10996,7 +10993,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     if (foreignRequired[file]) continue;
                     if (isUnderMachineStatePrefixes(file, foreignSourcePrefixes) || isUnderMachineStatePrefixes(file, foreignLocalPrefixes)) continue;
                     if (holds[file]?.codeOwned || isLocalCodeOwnedPath(file, false,
-                        config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths"))) continue;
+                        config.get<string[]>("codeSync.includePaths", []), ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(config, "codeSync.scopePaths", undefined))) continue;
                     foreignOnly.push(file);
                 }
                 foreignOnly.sort();
@@ -11020,7 +11017,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     skipped.push(`${item.path}：所有目标端点的本次冻结机器状态映射均保护该路径，未同步。`);
                 if (!reachable || /(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(item.path))) return false;
                 if (options.completedJob && (holds[item.path]?.codeOwned || isLocalCodeOwnedPath(item.path, false,
-                    config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths")))) {
+                    config.get<string[]>("codeSync.includePaths", []), ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(config, "codeSync.scopePaths", undefined)))) {
                     skipped.push(`${item.path}：代码以本机为准`);
                     return false;
                 }
@@ -11259,7 +11256,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             let commonSources;
             for (const entry of entries) {
                 const codeOwned = holds[entry.path]?.codeOwned || isLocalCodeOwnedPath(entry.path, entry.directory,
-                    config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths"));
+                    config.get<string[]>("codeSync.includePaths", []), ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(config, "codeSync.scopePaths", undefined));
                 const sources = (entry.locations || []).filter((endpointId) => localOnly ? endpointId === "local" || !codeOwned : endpointId !== "local");
                 commonSources = commonSources === undefined ? new Set(sources) : new Set(sources.filter((id) => commonSources.has(id)));
                 work.push({ ...entry });
@@ -11339,7 +11336,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (action === "delete") {
                 report(`正在一次性保存 ${work.length} 条自动同步暂停记录`);
                 const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
-                const includes = config.get<string[]>("codeSync.includePaths", []), scopes = config.get<string[]>("codeSync.scopePaths");
+                const includes = config.get<string[]>("codeSync.includePaths", []), scopes = ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(config, "codeSync.scopePaths", undefined);
                 await this.updateSyncScopeHolds(root, (holds) => {
                     const deletedAt = new Date().toISOString();
                     for (const item of work) holds[item.path] = {
@@ -11412,7 +11409,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const includes = config.get<string[]>("codeSync.includePaths", []);
-        const scopes = config.get<string[]>("codeSync.scopePaths");
+        const scopes = ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(config, "codeSync.scopePaths", undefined);
         for (const item of work) {
             const ancestorHold = Object.entries(holds).find(([held, row]) => row.directory && item.path.startsWith(`${held}/`));
             if (ancestorHold) throw new Error(`请先在目录 ${ancestorHold[0]} 选定保留版本。`);
@@ -11638,7 +11635,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         report("等待核对完整路径并两次确认");
         if (!batchApproved && !await confirmSyncScopePaths("删除同步路径", `永久删除${directory ? "整个目录及其内容" : "单个文件"}。删除后该路径暂停自动补回，直到手动选定保留版本。`, [{ label: location, path: absolute }], "永久删除此路径")) return false;
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
-        const codeOwned = isLocalCodeOwnedPath(relative, directory, config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths"));
+        const codeOwned = isLocalCodeOwnedPath(relative, directory, config.get<string[]>("codeSync.includePaths", []), ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(config, "codeSync.scopePaths", undefined));
         report("正在保存自动同步暂停记录");
         await this.updateSyncScopeHolds(root, (holds) => { holds[relative] = { endpointId, deletedAt: new Date().toISOString(), directory, codeOwned }; });
         try {
@@ -11678,7 +11675,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (!await confirmSyncScopePaths("删除所有 Worker 副本", `永久删除 ${present.length} 台 Worker 的${directory ? "整个目录及其内容" : "文件"}。本机不会删除。该路径暂停自动补回，直到手动选定保留版本。`,
                 present.map(({ target, server }) => ({ label: `${target.id} (${server.user}@${server.host}:${server.port})`, path: path.posix.join(server.remotePath, relative) })), "永久删除所有 Worker 副本")) return false;
             const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
-            const codeOwned = isLocalCodeOwnedPath(relative, directory, config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths"));
+            const codeOwned = isLocalCodeOwnedPath(relative, directory, config.get<string[]>("codeSync.includePaths", []), ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(config, "codeSync.scopePaths", undefined));
             report("正在保存自动同步暂停记录");
             await this.updateSyncScopeHolds(root, (holds) => { holds[relative] = { endpointId: "allWorkers", deletedAt: new Date().toISOString(), directory, codeOwned }; });
             await this.removeSyncScopeCopies(root, targets, relative, present.map(({ target }) => target.id), directory, report);
@@ -11701,7 +11698,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const mirrorLocal = endpointId !== "local" && (!destinationIds || destinationIds.includes("local"));
         if (mirrorLocal) await this.simpleSftpCapability("sync.downloadPaths");
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
-        const codeOwned = isLocalCodeOwnedPath(relative, directory, config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths"));
+        const codeOwned = isLocalCodeOwnedPath(relative, directory, config.get<string[]>("codeSync.includePaths", []), ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(config, "codeSync.scopePaths", undefined));
         if (mirrorLocal && (holds[relative]?.codeOwned || codeOwned)) throw new Error("代码以本机为准；请选择本机版本。");
         if (directory) {
             if (endpointId === "local") {
@@ -13049,7 +13046,7 @@ reportStage("正在准备校验所需代码…");
             throw new Error("没有可用于代码同步的 Worker 目标。");
         const codeSyncConfig = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const includePaths = codeSyncConfig.get<string[]>("codeSync.includePaths", []);
-        const scopePaths = codeSyncConfig.get<string[]>("codeSync.scopePaths");
+        const scopePaths = ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(codeSyncConfig, "codeSync.scopePaths", undefined);
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
         const progressReport = typeof options.progressReport === "function" ? options.progressReport : undefined;
         // Machine-state preparation (bounded read-only re-probe for endpoints
@@ -14067,7 +14064,7 @@ this.assertPlanTopologyReady("Plan 调度");
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
         const includePaths = config.get<string[]>("codeSync.includePaths", []);
-        const scopePaths = config.get<string[]>("codeSync.scopePaths");
+        const scopePaths = ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(config, "codeSync.scopePaths", undefined);
         const built = await buildLocalCodeManifest(root, includePaths, scopePaths,
             { machineStateGuard: this.localMachineStateGuard(root), cacheFile: this.localCodeManifestCacheFile(root), signal, executionOnly: true });
         const manifest = PlanCodeScopeHost.runSourceManifest(filterHeldFiles(built, holds));
@@ -15691,12 +15688,13 @@ this.assertPlanTopologyReady("Plan 调度");
             if (this.selectedDistributedLogRefreshPromise === task) this.selectedDistributedLogRefreshPromise = undefined;
         });
     }
-    async buildDistributedJobCodeManifest(root) {
+    async buildDistributedJobCodeManifest(root, executionOnly = true) {
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
-        return PlanCodeScopeHost.runSourceManifest(filterHeldFiles(await buildLocalCodeManifest(root,
-            config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths"),
-            { machineStateGuard: this.localMachineStateGuard(root), cacheFile: this.localCodeManifestCacheFile(root), executionOnly: true }), holds));
+        const manifest = filterHeldFiles(await buildLocalCodeManifest(root,
+            config.get<string[]>("codeSync.includePaths", []), ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(config, "codeSync.scopePaths", undefined),
+            { machineStateGuard: this.localMachineStateGuard(root), cacheFile: this.localCodeManifestCacheFile(root), executionOnly }), holds);
+        return executionOnly ? PlanCodeScopeHost.runSourceManifest(manifest) : manifest;
     }
     async sendDistributedJob(plan, job, workerId, gpuId, commandId, sharedCodeManifest?) {
         let transmissionStarted = false;
@@ -24170,7 +24168,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (root !== workspaceRoot()) return;
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const includePaths = config.get<string[]>("codeSync.includePaths", []);
-        const scopePaths = config.get<string[]>("codeSync.scopePaths");
+        const scopePaths = ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(config, "codeSync.scopePaths", undefined);
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
         const codeManifest = filterHeldFiles(await buildLocalCodeManifest(root, includePaths, scopePaths,
             { machineStateGuard: this.localMachineStateGuard(root), cacheFile: this.localCodeManifestCacheFile(root) }), holds);

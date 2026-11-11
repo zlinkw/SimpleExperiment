@@ -59,12 +59,16 @@ MultiModal 的独立验收 PLAN 为 experiments/plans/acceptance/windows_mcp_202
 
 通用项目位于 D:/GitRepo/SimpleMcpAcceptance，来自 examples/mcp-dl-acceptance，普通 PyTorch 入口、seed 42，不依赖 MultiModal adapter，训练代码未修改。明确设置项目代码同步范围 train.py、config.yaml、experiments 后预检通过。workflow distributed-plan-1794392812546-3c0hdy、commandId 78e8aab0f09dcad43c5fe305b826d3f4 退出码 0，模型与指标 manifest 完整，后续日志主动核验 clear，completionState=verified。MCP 导出 result-3a0cfd3b0ddd0260f42c7a2d2331615dc9bac95b2974dcbf94942a7df1a938c4，与该任务指标一致；导出在内存返回，未另存原始指标副本。
 
-## 实机发现的待修复问题
+## 实机发现与本轮修复状态
 
-- project_prepare 首次面对不存在的项目远端根时先 inspect，返回 AGENT_LIFECYCLE_FAILED/No such file or directory。上传创建根后才能继续，不满足一步准备。
-- sftp_upload_files 的项目相对路径返回“本地文件不存在”；绝对路径上传成功，但 experiments 下两文件被平铺到远端根。sftp_upload_workspace 在默认根范围返回 MACHINE_STATE_PATH_PROTECTED；sftp_remote_directories 查询 experiments 子目录因请求路径与 server.remotePath 不同被拒。未绕过保护或自动清理误放的验收文件。
-- configuration_set 的 workspaceFolder 写入缺少资源 URI；workspace 写入实际成功，但回执及 configuration_get 仍返回空数组，不能反映保存值。空同步范围曾产生空 manifest，code-sync-proof-1794392704048-2g5513 登记结果未知；明确项目范围后新预检成功。
-- 日志工具传 commandId 返回空；传已知精确相对日志路径可读。首次派发曾返回 HTTP 500/action failed: timed out，但远端实际继续执行；不得据回执自动重发。任务主动查询已正确反映最后退出码。
+0.5.491 首轮完整回归的 322 个作业中，8 个测试文件因模拟配置缺少 inspect 或 ConfigurationSettings 模块绑定失败；首次完整日志保留于 simple_cluster/reports/test-workflow/2026-11-11T11-25-28-974Z-48436-package。仅补齐原测试输入与真实模块，不改断言、超时或生产判断；8 个定向修正回归全部通过。既有 package:assemble 门禁只接收单份完整通过记录，本轮沿用门禁重新运行最终打包，不修改旧失败记录或绕过组装校验。
+
+- 本轮源码修复（配套 SimpleSFTP 0.2.119）：project_prepare 首次面对不存在的项目远端根时先 inspect，返回 AGENT_LIFECYCLE_FAILED/No such file or directory。原来只能先上传创建根再准备；现已允许只读 inspect 不存在的合法项目根，不创建目录，后续正常上传创建。嵌入与配套控制脚本一致，真实 tmux 定向回归通过；新版本实机仍待重载。
+- sftp_upload_files 的项目相对路径返回“本地文件不存在”；绝对路径上传成功，但 experiments 下两文件被平铺到远端根。sftp_upload_workspace 在默认根范围返回 MACHINE_STATE_PATH_PROTECTED；sftp_remote_directories 查询 experiments 子目录因请求路径与 server.remotePath 不同被拒。本轮保留路径层级、生成已选范围 manifest 并关闭删除，子目录绑定与请求一致；定向回归通过，新版本实机待重载。未自动清理误放的验收文件。
+- configuration_set 的 workspaceFolder 写入缺少资源 URI；workspace 写入实际成功，但回执及 configuration_get 仍返回空数组，不能反映保存值。空同步范围曾产生空 manifest，code-sync-proof-1794392704048-2g5513 登记结果未知；明确项目范围后新预检成功。本轮配置读写均绑定工作区资源并重新读取保存值；区分 VS Code 推断的默认空数组和用户显式空范围，保留用户取消全部选择的语义。定向回归通过，新版本实机待重载。
+- 日志工具传 commandId 返回空；传已知精确相对日志路径可读。首次派发曾返回 HTTP 500/action failed: timed out，但远端实际继续执行；不得据回执自动重发。任务主动查询已正确反映最后退出码。本轮增加原生 commandId 日志路径解析，显式读取错误向上传递，CLI 优先使用任务诊断中的路径。accept 原 8 秒等待短于本轮约 18 秒代码核验，改为调用方已有的 30 秒预算，其他控制调用仍为 8 秒；不重发未知任务、不变更队列协议。真实 tmux 定向回归通过，新版本实机待重载。
 - 两个项目复用同一 Agent 隧道端口，本轮按各自授权顺序切换精确辅助服务窗口，任务与 Scheduler 保留。若需同时在线，仍需为项目分别配置端口。
+
+0.5.490 通知按钮已实点验收：两个项目的“已确认，此后不再通知”确认值均已持久保存，切回已确认项目未重复弹出。通用项目结果已生成但因缺少数据集名称被界面隐藏；本轮展示现有未标注数据集表格，保留元数据提醒，不改写结果或虚构数据集，渲染回归通过，新版本实机待重载。
 
 所有有副作用的操作使用专用目标。MultiModal 项目的现行规则禁止 AI 永久删除项目文件；清理验收应在独立通用项目的专用目录由本人完成审核。

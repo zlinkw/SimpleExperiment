@@ -2,6 +2,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { explicitConfigurationValue, nonDefaultConfigurationValue, globalConfigurationValue } = require("../../dist/tunnel/ConfigurationSettings.js");
+test('an inferred empty sync-scope default differs from an explicitly deselected scope', () => {
+  assert.equal(explicitConfigurationValue({inspect:()=>({defaultValue:[]})},'codeSync.scopePaths',undefined),undefined);
+  assert.deepEqual(explicitConfigurationValue({inspect:()=>({defaultValue:[],workspaceFolderValue:[]})},'codeSync.scopePaths',undefined),[]);
+});
 
 test("shared connection settings ignore project overrides and retain explicit global empty values", () => {
   const config = { inspect: key => ({ globalValue: key === "environment" ? "" : undefined, workspaceValue: "/project/override", workspaceFolderValue: "/folder/override" }) };

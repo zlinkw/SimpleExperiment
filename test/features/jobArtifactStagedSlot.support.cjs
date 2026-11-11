@@ -62,7 +62,7 @@ function completedJobEntry(files, options = {}) {
   for (const [id, rows] of Object.entries(options.foreign || {})) { assert.ok(inventory[id], `未知端点 ${id}`); for (const [file, row] of Object.entries(rows)) inventory[id][file] = row; }
   for (const file of options.mirrorFiles || []) for (const id of ids.slice(1)) inventory[id][file] = structuredClone(inventory[ids[0]][file]);
   const transfers = [];
-  const config = { get: (_k, fallback) => fallback };
+  const config = { get: (_k, fallback) => fallback, inspect: () => ({}) };
   const h = {
     context: { globalStorageUri: { fsPath: root } }, workerCodeSyncTargets: () => targets, enabledWorkerConfigs: () => targets,
     loadDistributedQueue: async () => structuredClone({ plans: [plan] }),
@@ -81,7 +81,7 @@ function completedJobEntry(files, options = {}) {
     patchDistributedJob: async (_root, _id, index, _attempt, patch) => { const j = jobs[index]; if (j.commandId !== patch.expectedCommandId) return; const { expectedCommandId, replaceMirroredWorkerIds, ...fields } = patch; Object.assign(j, fields); },
   };
   h.mergeLatestWorkerVersions = vm.runInNewContext(ts.transpileModule("class Host{" + mergeMember.getText(tsAst) + "};Host.prototype.mergeLatestWorkerVersions", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText,
-    { vscode: { workspace: { getConfiguration: () => config }, Uri: { file: x => x } }, scopeInventoryPathAllowed, planLatestWorkerMerge, runSyncScopeBatch, loadSyncHolds: async () => options.holds || {}, isLocalCodeOwnedPath: file => (options.codeOwned || []).includes(file), safeSyncPath, path, workerFpsyncTaskLabel: () => "", UiCommandCancelled: Error, jobArtifactRunGeneration, isUnderMachineStatePrefixes: require("../../src/features/ProjectRootMap.ts").isUnderMachineStatePrefixes });
+    { ConfigurationSettings_1: require("../../src/tunnel/ConfigurationSettings.ts"), vscode: { workspace: { getConfiguration: () => config }, Uri: { file: x => x } }, scopeInventoryPathAllowed, planLatestWorkerMerge, runSyncScopeBatch, loadSyncHolds: async () => options.holds || {}, isLocalCodeOwnedPath: file => (options.codeOwned || []).includes(file), safeSyncPath, path, workerFpsyncTaskLabel: () => "", UiCommandCancelled: Error, jobArtifactRunGeneration, isUnderMachineStatePrefixes: require("../../src/features/ProjectRootMap.ts").isUnderMachineStatePrefixes });
   return {
     jobs, root, inventory, h,
     run: async (selected = ["."], hostOptions = { force: true }) => { await new CompletedJobSyncHost(h, root, () => true).run(selected, hostOptions); return transfers; },

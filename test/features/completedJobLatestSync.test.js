@@ -79,7 +79,7 @@ function fixture(){
  const plan={id:'plan',projectId:canonicalProjectId(root),planFile:'plans/p.yaml',enqueuedAt:'2026-10-14T00:00:00Z',executionMode:'train_test',jobs},queue={plans:[plan]},inventory={a:{},b:{},c:{}},transfers=[],reads={sync:0,inventory:0},errors=[];
  for(const file of ['work_dirs/p/job0/model.pth','work_dirs/p/job0/artifact_manifest.json','tmp/result/job0.csv'])inventory.a[file]={sha256:'a'.repeat(64),size:3,modifiedAtMs:1};
  inventory.b['work_dirs/p/job0/model.pth']={sha256:'b'.repeat(64),size:3,modifiedAtMs:999};
- const config={get:(_k,fallback)=>fallback};let lost=false;const nativeNotes=[];
+ const config={get:(_k,fallback)=>fallback,inspect:()=>({})};let lost=false;const nativeNotes=[];
  const h={context:{globalStorageUri:{fsPath:root}},workerCodeSyncTargets:()=>targets,enabledWorkerConfigs:()=>targets,loadDistributedQueue:async()=>structuredClone(queue),
   showNativePanelMessage:m=>nativeNotes.push(structuredClone(m)),
   // Endpoint machine-state guards: fixture endpoints carry no state mapping.
@@ -93,7 +93,7 @@ function fixture(){
  simpleSftpApiCall:async(method,p)=>{assert.equal(method,'sync.serverToServerFpsync');assert.equal(p.directory,undefined);assert.equal(p.manualRetain,undefined);assert.equal(p.destination.id==='local',false);transfers.push(p);for(const file of p.relativePaths)inventory[p.destination.id][file]=structuredClone(inventory[p.source.id][file]);if(lost){lost=false;throw Error('transport response lost');}},
  patchDistributedJob:async(_root,_id,index,_attempt,patch)=>{const j=jobs[index];if(j.commandId!==patch.expectedCommandId)return;const {expectedCommandId,replaceMirroredWorkerIds,...fields}=patch;Object.assign(j,fields);}};
  h.mergeLatestWorkerVersions=vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(ast)+'};Host.prototype.mergeLatestWorkerVersions',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
- {vscode:{workspace:{getConfiguration:()=>config},Uri:{file:x=>x}},scopeInventoryPathAllowed,planLatestWorkerMerge,runSyncScopeBatch,loadSyncHolds:async()=>({}),isLocalCodeOwnedPath:()=>false,safeSyncPath:require('../../src/features/SyncResolution.ts').safeSyncPath,path,workerFpsyncTaskLabel:()=>'',UiCommandCancelled:Error,jobArtifactRunGeneration:require('../../src/features/JobArtifactSyncIdentity.ts').jobArtifactRunGeneration,isUnderMachineStatePrefixes:require('../../src/features/ProjectRootMap.ts').isUnderMachineStatePrefixes});
+ {ConfigurationSettings_1:require("../../src/tunnel/ConfigurationSettings.ts"),vscode:{workspace:{getConfiguration:()=>config},Uri:{file:x=>x}},scopeInventoryPathAllowed,planLatestWorkerMerge,runSyncScopeBatch,loadSyncHolds:async()=>({}),isLocalCodeOwnedPath:()=>false,safeSyncPath:require('../../src/features/SyncResolution.ts').safeSyncPath,path,workerFpsyncTaskLabel:()=>'',UiCommandCancelled:Error,jobArtifactRunGeneration:require('../../src/features/JobArtifactSyncIdentity.ts').jobArtifactRunGeneration,isUnderMachineStatePrefixes:require('../../src/features/ProjectRootMap.ts').isUnderMachineStatePrefixes});
  // r46 A：最小队列提交成功尾复刻——真实 save 只在提交成功时发布最新 cache 并在锁外同步通知订阅者；
  // 失败/围栏路径不发布不通知（观察者绝不在提交内 await 载入，避免重入写锁）。
  const observers=new Set();

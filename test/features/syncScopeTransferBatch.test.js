@@ -9,7 +9,7 @@ const { batchSyncScopeInventoryPaths, compressSyncScopeInventoryPaths, planSyncS
 const digest = (seed) => String(seed).replace(/[^a-f0-9]/g, "a").padEnd(64, "b").slice(0, 64);
 const vscodeStub = {
   commands: { executeCommand: async () => ({ ok: true }) },
-  workspace: { getConfiguration: () => ({ get: (_key, fallback) => fallback }) },
+  workspace: { getConfiguration: () => ({ get: (_key, fallback) => fallback, inspect: () => ({}) }) },
   window: {},
   Uri: { file: (value) => ({ fsPath: value }) },
 };
@@ -118,7 +118,7 @@ test("three confirmed files use one source inventory, one destination inventory,
   const originalExecute = vscodeStub.commands.executeCommand;
   const originalConfig = vscodeStub.workspace.getConfiguration;
   vscodeStub.commands.executeCommand = async () => { throw new Error("worker sync must not upload"); };
-  vscodeStub.workspace.getConfiguration = () => ({ get: () => [] });
+  vscodeStub.workspace.getConfiguration = () => ({ get: () => [], inspect: () => ({ workspaceFolderValue: [] }) });
   const { __transferSyncScopeBatchForTest } = require("../../dist/extension/legacy.js");
   const work = [
     { path: "artifacts/a.txt", name: "a.txt", directory: false, endpointId: "w1" },
@@ -192,7 +192,7 @@ test("batch lane (:11084 批量保留文件版本) sends the frozen-manifest ide
   const originalExecute = vscodeStub.commands.executeCommand;
   const originalConfig = vscodeStub.workspace.getConfiguration;
   vscodeStub.commands.executeCommand = async () => { throw new Error("worker batch sync must not upload"); };
-  vscodeStub.workspace.getConfiguration = () => ({ get: () => [] });
+  vscodeStub.workspace.getConfiguration = () => ({ get: () => [], inspect: () => ({ workspaceFolderValue: [] }) });
   const { __transferSyncScopeBatchForTest } = require("../../dist/extension/legacy.js");
   try {
     const expectedPaths = ["artifacts/a.txt", "artifacts/b.txt", "artifacts/pack/c.bin", "artifacts/pack/d.bin"];
@@ -249,7 +249,7 @@ test("local files share one upload manifest and a destination hash mismatch does
   const originalExecute = vscodeStub.commands.executeCommand;
   const originalConfig = vscodeStub.workspace.getConfiguration;
   vscodeStub.commands.executeCommand = async (command, params) => { calls.push({ command, params }); return { ok: true }; };
-  vscodeStub.workspace.getConfiguration = () => ({ get: () => [] });
+  vscodeStub.workspace.getConfiguration = () => ({ get: () => [], inspect: () => ({ workspaceFolderValue: [] }) });
   const { __transferSyncScopeBatchForTest } = require("../../dist/extension/legacy.js");
   try {
     await assert.rejects(() => __transferSyncScopeBatchForTest(provider, ROOT, [{ id: "w2", role: "worker" }], [

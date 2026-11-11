@@ -121,6 +121,7 @@ test('file review keeps both human phases and never executes deletion from a con
 });
 test('SFTP calls resolve project roots and preserve independent source/destination bindings', async () => {
   const f = fixture(); await f.authorize(['sync']);
+  fs.mkdirSync(path.join(f.root, 'src'));fs.writeFileSync(path.join(f.root,'src/model.py'),'x','utf8');
   const Module = require('node:module');
   const file = path.resolve(__dirname, '../../dist/extension/McpHost.js');
   const realRequire = Module.createRequire(file), exports = {};
@@ -132,7 +133,8 @@ test('SFTP calls resolve project roots and preserve independent source/destinati
   const host = { context: { workspaceState: f.store }, createLocalApiMethods: () => f.methods, refreshSharedConnectionSettings() {},
     workerCodeSyncTargets: () => [{ id: f.worker.id, host: f.worker.host, user: f.worker.user, port: f.worker.port, remotePath: f.worker.projectRoot }],
     agentRuntimeUploadTargets: () => { throw Error('SFTP must not target the runtime deployment directory'); },
-    readSimpleSftpCapabilities: async () => ({ methods: ['upload.files', 'sync.projectInventory'] }),
+    readSimpleSftpCapabilities: async () => ({ methods: ['upload.files', 'upload.workspace', 'remote.listDirs', 'sync.projectInventory'] }),
+    buildDistributedJobCodeManifest: async (root,executionOnly) => { assert.equal(root,f.root);assert.equal(executionOnly,false);return {'src/model.py':{size:1}}; },
     sftpServerOptions: target => target,
     simpleSftpApiCall: async (method, params) => { captured.push({ method, params }); return { ok: true }; },
   };
@@ -141,9 +143,17 @@ test('SFTP calls resolve project roots and preserve independent source/destinati
   assert.equal(captured[0].params.server.remotePath, '/project/demo');
   assert.equal(captured[0].params.localPath, f.root);
   assert.equal(captured[0].params.pathConfirmed, true);
+  assert.deepEqual(captured[0].params.files,[{localPath:path.join(f.root,'src/model.py'),remoteName:'src/model.py'}]);
   await gateway.call('sftp_inventory', { workerId: 'worker-a', paths: ['src'] });
   assert.deepEqual(captured[1].params.scopePaths, ['src']);
   assert.equal(captured[1].params.metadataOnly, true);
+  await gateway.call('sftp_upload_workspace',{workerId:'worker-a'});
+  assert.deepEqual(Object.keys(captured[2].params.manifest),['src/model.py']);
+  assert.equal(captured[2].params.pruneManagedFiles,false);assert.equal(captured[2].params.transientManifest,true);
+  await gateway.call('sftp_remote_directories',{workerId:'worker-a',relativePath:'src'});
+  assert.equal(captured[3].params.remotePath,'/project/demo/src');assert.equal(captured[3].params.server.remotePath,'/project/demo/src');
+  await assert.rejects(gateway.call('sftp_upload_files',{workerId:'worker-a',files:[__filename]}),/MCP_PROJECT_FILE_REQUIRED/);
+  await assert.rejects(gateway.call('sftp_remote_directories',{workerId:'worker-a',relativePath:'../outside'}),/MCP_PROJECT_DIRECTORY_REQUIRED/);
   host.readSimpleSftpCapabilities = async () => { throw Error('companion unavailable'); };
   assert.equal((await gateway.call('project_status', {})).ok, true);
   assert.match((await gateway.call('sftp_connection', {})).error, /companion unavailable/);

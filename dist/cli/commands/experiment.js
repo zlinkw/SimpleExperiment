@@ -1789,7 +1789,8 @@ async function recentLogsFor(match) {
     const raw = match.raw || {};
     if (String(raw.runtimeLog || "").trim())
         return String(raw.runtimeLog);
-    const logPath = firstString(raw, ["hub_console_log", "log_path", "logPath", "stdout"]);
+    const logPath = firstString(raw, ["hub_console_log", "log_path", "logPath", "stdout"])
+        || firstString(asRecord(raw.runtimeDiagnostics || asRecord(raw.observation).runtimeDiagnostics), ["logPath"]);
     if (logPath && match.worker_id) {
         const remote = await (0, api_1.optionalApi)("live.output", { runKey: logPath, workerId: match.worker_id });
         const remoteText = extractLiveLog(remote, logPath);

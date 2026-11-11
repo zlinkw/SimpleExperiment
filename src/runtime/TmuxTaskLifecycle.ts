@@ -810,7 +810,9 @@ def task_queue_rpc(root, worker_id, action, payload, ensure=False):
     body = json.dumps(request_body, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request("http://" + endpoint["host"] + ":" + str(endpoint["port"]) + "/control", data=body,
                                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + endpoint["secret"]})
-    with urllib.request.urlopen(request, timeout=8) as response:
+    # Accept verifies the synchronized source before acknowledging. Match the
+    # caller's 30-second request budget; the other control calls remain short.
+    with urllib.request.urlopen(request, timeout=30 if action == "accept" else 8) as response:
         result = json.loads(response.read(1024 * 1024))
     if not result.get("ok"):
         raise RuntimeError(result.get("error") or "SCHEDULER_ACTION_FAILED")

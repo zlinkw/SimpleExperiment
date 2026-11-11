@@ -6,7 +6,7 @@ const {ProjectFileIndex}=require('../../src/features/ProjectFileIndex.ts');
 const {expandSyncScopeBatchSelection}=require('../../src/features/SyncScopeBatch.ts');
 const {fileOperationIndexPaths,readLocalFileIndexPaths,sftpFileIndexQuery}=require('../../src/features/ProjectFileIndex.ts');
 let ast;
-async function method(name,globals={}){ast??=ts.createSourceFile('host.ts',await fs.readFile(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8'),ts.ScriptTarget.Latest,true);let found;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)===name)found=n;ts.forEachChild(n,visit);}visit(ast);assert.ok(found,'production method missing: '+name);return vm.runInNewContext(ts.transpileModule('class Host{'+found.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{crypto,path,SyncScopeLocalIndexReader,SyncScopeAgentIndexReader,scopeIndexUnsupported,...globals});}
+async function method(name,globals={}){ast??=ts.createSourceFile('host.ts',await fs.readFile(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8'),ts.ScriptTarget.Latest,true);let found;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)===name)found=n;ts.forEachChild(n,visit);}visit(ast);assert.ok(found,'production method missing: '+name);return vm.runInNewContext(ts.transpileModule('class Host{'+found.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{ConfigurationSettings_1:require("../../src/tunnel/ConfigurationSettings.ts"),crypto,path,SyncScopeLocalIndexReader,SyncScopeAgentIndexReader,scopeIndexUnsupported,...globals});}
 
 test('batch delete and sync share one freshly requested index per node across all expanded parents; the next operation accepts live deletion deltas',async()=>{
  const storage=await fs.mkdtemp(path.join(os.tmpdir(),'scope-operation-index-')),root=path.join(storage,'project');
@@ -33,7 +33,7 @@ test('batch delete and sync share one freshly requested index per node across al
 
 test('batch selection uses the operation index for both actions and releases it when source selection is cancelled',async()=>{
  const run=await method('runSyncScopeTreeBatch',{expandSyncScopeBatchSelection,loadSyncHolds:async()=>({}),isLocalCodeOwnedPath:()=>false,
- vscode:{workspace:{getConfiguration:()=>({get:()=>[]})},Uri:{file:x=>x},window:{showQuickPick:async()=>undefined}}});
+ vscode:{workspace:{getConfiguration:()=>({get:()=>[],inspect:()=>({workspaceFolderValue:[]})})},Uri:{file:x=>x},window:{showQuickPick:async()=>undefined}}});
  for(const action of ['sync','delete']){let reads=0,disposed=0;const host={context:{globalStorageUri:{fsPath:'fixture'}},createSyncScopeBatchIndex(){return {list:async()=>{reads++;return [{path:'data',name:'data',directory:true,locations:['w1']}];},dispose(){disposed++;}};},listSyncScopeUnion:()=>assert.fail('batch bypassed its index')};
  assert.equal(await run.call(host,'root',[{id:'w1'}],false,action,['data'],[],()=>{},[{path:'data',name:'stale',directory:true,locations:['old-worker']}]),false);assert.equal(reads,1);assert.equal(disposed,1);assert.equal(host.syncScopeMutationInFlight,false);}
 });

@@ -14068,6 +14068,11 @@ WORKER_TASK_FAILURE_CACHE = {}
 def worker_task_console_log(command_id):
     return "simple_cluster/tmux_logs/" + hashlib.sha256(str(command_id).encode("utf-8")).hexdigest() + ".console.log"
 
+def worker_live_log_path(root, run_key):
+    if re.fullmatch(r"[0-9a-f]{32}", run_key):
+        run_key = worker_task_console_log(run_key)
+    return safe_project_path(root, run_key) if run_key else ""
+
 def worker_task_failure_diagnostic(root, task):
     command_id = str(task.get("commandId") or "")
     if not command_id or str(task.get("runKey") or command_id) != command_id:
@@ -16033,7 +16038,7 @@ def serve_http(args):
                 params = parse_qs(parsed.query)
                 run_key = (params.get("runKey") or [""])[0]
                 since = int((params.get("since") or ["0"])[0] or 0)
-                log_path = safe_project_path(root, run_key) if run_key else ""
+                log_path = worker_live_log_path(root, run_key)
                 if not log_path or not os.path.isfile(log_path):
                     return self.send_json({"schemaVersion": SCHEMA_VERSION, "runKey": run_key, "offset": since, "text": ""})
                 with open(log_path, "rb") as f:
@@ -16045,7 +16050,7 @@ def serve_http(args):
                 params = parse_qs(parsed.query)
                 run_key = (params.get("runKey") or [""])[0]
                 since = int((params.get("since") or ["0"])[0] or 0)
-                log_path = safe_project_path(root, run_key) if run_key else ""
+                log_path = worker_live_log_path(root, run_key)
                 if not log_path or not os.path.isfile(log_path):
                     return self.send_json({"schemaVersion": SCHEMA_VERSION, "runKey": run_key, "offset": since, "text": ""})
                 size = os.path.getsize(log_path)

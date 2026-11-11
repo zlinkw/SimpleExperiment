@@ -74,6 +74,7 @@ function makeHarness(options = {}) {
     const counts = { expand: 0, collect: 0, walk: 0 };
 
     const sandbox = {
+        ConfigurationSettings_1: require("../../dist/tunnel/ConfigurationSettings.js"),
         console: { log() {}, warn() {}, error() {} },
         JSON, Math, Set, Map, WeakMap, Array, Object, String, Number, Promise, Error, Boolean, Date, RegExp, Symbol, Buffer,
         path, crypto: require("node:crypto"),
@@ -108,6 +109,7 @@ function makeHarness(options = {}) {
             workspace: {
                 get workspaceFolders() { return [{ uri: { fsPath: state.root, toString: () => "file:///" + state.root } }]; },
                 getConfiguration: (_section, scope) => ({
+                    inspect: key => ({ workspaceFolderValue: key === "codeSync.scopePaths" ? savedScope : undefined }),
                     get(key, fallback) {
                         if (key === "codeSync.scopePaths") return Array.isArray(savedScope) ? [...savedScope] : savedScope;
                         if (key === "serverSync.paths") return ["."];

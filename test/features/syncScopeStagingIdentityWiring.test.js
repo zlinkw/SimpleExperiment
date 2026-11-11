@@ -29,7 +29,8 @@ function host(name, h, extra) {
   h[name] = vm.runInNewContext(ts.transpileModule('class Host{' + methods[name].getText(ast) + '};Host.prototype.' + name,
     { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText,
   Object.assign({
-    vscode: { workspace: { getConfiguration: () => ({ get: (_k, f) => f }) }, Uri: { file: x => x },
+    ConfigurationSettings_1: require('../../src/tunnel/ConfigurationSettings.ts'),
+    vscode: { workspace: { getConfiguration: () => ({ get: (_k, f) => f, inspect: () => ({}) }) }, Uri: { file: x => x },
       window: { showWarningMessage: (...a) => Promise.resolve(a.at(-1)) }, commands: { executeCommand: async () => ({ ok: true }) } },
     path, safeSyncPath, scopeInventoryPathAllowed, isUnderMachineStatePrefixes, syncScopeStagingIdentity,
     planSyncScopeTransferGroups, batchSyncScopeInventoryPaths, scopeInventorySnapshot,
@@ -156,7 +157,7 @@ test('directory-restore lane (:11449 恢复手动保留目录) sends the identit
 // provider 只显式给出：网络/SSH 替身、库存数据、状态文件租约透传；规划、目录恢复、状态落盘全走真实代码。
 // 断言不注入假计划：来源 a 有 x+y、目标 b 只有 x → 真实规划只对 y 发一包。
 const distVscodeStub = {
-  workspace: { workspaceFolders: [], getConfiguration: () => ({ get: (_key, fallback) => fallback }) },
+  workspace: { workspaceFolders: [], getConfiguration: () => ({ get: (_key, fallback) => fallback, inspect: () => ({}) }) },
   window: { showWarningMessage: async (...a) => a.at(-1), showInformationMessage: async () => undefined },
   commands: { executeCommand: async () => ({ ok: true }) },
   Uri: { file: value => ({ fsPath: value }) },

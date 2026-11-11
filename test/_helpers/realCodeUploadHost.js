@@ -72,7 +72,7 @@ assert.ok(statusSliceStart > 0, "NON_SUCCESSFUL_SYNC_STATUSES");
 
 const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest",
   "vscode_1", "LocalCodeManifestCache_1", "SafeRequestRetry_1", "DistributedPlanQueue", "workspaceRoot",
-  "PlanCodeScopeHost", "ProjectRootMap_1", "DispatchHandoffGate", "SshTransportIdentity_1", `
+  "PlanCodeScopeHost", "ProjectRootMap_1", "DispatchHandoffGate", "SshTransportIdentity_1", "ConfigurationSettings_1", `
   function stringField(message, key) { return String((message && message[key]) || ""); }
   function errorMessage(error) { return error && error.message ? error.message : String(error || ""); }
   class UiCommandCancelled extends Error {}
@@ -180,7 +180,7 @@ function createRealSyncHost(options = {}) {
   host.workerCodeSyncTargets = () => targets;
   host.lastWorkerProbes = Object.fromEntries(targets.map(row => [row.id, { status: "ok", agentVersion: "agent-1", statusGeneration: 0 }]));
   const vscodeStub = {
-    workspace: { getConfiguration: () => ({ get: (key, fallback) => (key.endsWith("includePaths") ? ["src"] : fallback) }) },
+    workspace: { getConfiguration: () => ({ get: (key, fallback) => (key.endsWith("includePaths") ? ["src"] : fallback), inspect: () => ({}) }) },
     Uri: { file: value => ({ fsPath: value }) },
     ProgressLocation: { Notification: 15 },
     window: { setStatusBarMessage() {}, withProgress: async (_options, run) => run({ report: row => host.stages.push(row.message) }),
@@ -202,7 +202,7 @@ function createRealSyncHost(options = {}) {
     require("../../dist/features/LocalCodeManifestCache.js"), require("../../dist/core/SafeRequestRetry.js"),
     require("../../dist/features/DistributedPlanQueue.js"), () => project,
     require("../../dist/extension/PlanCodeScopeHost.js"), require("../../dist/features/ProjectRootMap.js"), Gate,
-    require("../../dist/tunnel/SshTransportIdentity.js"));
+    require("../../dist/tunnel/SshTransportIdentity.js"), require("../../dist/tunnel/ConfigurationSettings.js"));
   Object.assign(host, api);
   host.localCodeManifestCacheFile = () => path.join(host.context.globalStorageUri.fsPath, "code-manifest.json");
   return host;

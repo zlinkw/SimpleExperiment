@@ -83,6 +83,9 @@ params = dict(action='inspect', projectDir=str(project),installDir=str(install),
               host='127.0.0.1',port=port,condaEnv=str(root/'missing-training-env'),agentToken='fixture-credential',expectedVersion='fixture-v1',files={
                   name:hashlib.sha256((runtime/name).read_bytes()).hexdigest() for name in ('cluster_agent.py','cluster_scheduler.py')})
 tree = sorted(str(p) for p in root.rglob('*'))
+missing_project = root / 'not-created-yet'
+assert module.lifecycle_control(dict(params, projectDir=str(missing_project)))['status'] == 'absent'
+assert not missing_project.exists(), 'first inspection must not create a project'
 assert module.lifecycle_control(params)['status']=='absent'
 assert tree==sorted(str(p) for p in root.rglob('*')), 'inspect wrote files'
 legacy_contract = module.lifecycle_contract(params)

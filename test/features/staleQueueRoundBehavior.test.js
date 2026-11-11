@@ -16,7 +16,7 @@ const ast=ts.createSourceFile('host.ts',legacySource,ts.ScriptTarget.Latest,true
 function hostMethods(names,globals={}){let cls;function visit(n){if(ts.isClassDeclaration(n)&&n.name?.text==='RealtimeTunnelPanelProvider')cls=n;ts.forEachChild(n,visit)}visit(ast);
   const members=cls.members.filter(n=>names.includes(n.name?.getText(ast)));assert.equal(members.length,names.length,names.join(','));
   return vm.runInNewContext(ts.transpileModule('class Host{'+members.map(n=>n.getText(ast)).join('\n')+'};Host',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
-    {AbortController,DispatchHandoffGate:require("../../dist/features/DispatchHandoffGate.js"),workspaceRoot:()=>'project',errorMessage:e=>e.message,compactSensitiveText:s=>String(s).slice(0,240),
+    {ConfigurationSettings_1:require("../../src/tunnel/ConfigurationSettings.ts"),AbortController,DispatchHandoffGate:require("../../dist/features/DispatchHandoffGate.js"),workspaceRoot:()=>'project',errorMessage:e=>e.message,compactSensitiveText:s=>String(s).slice(0,240),
      require:()=>({getUpdater:()=>undefined}),syncGpuQuotaPolicies:async()=>({}),
      UiCommandCancelled:require('../../src/core/UiCommandCancelled.ts').UiCommandCancelled, // r50：忠实绑定生产取消类，schedule 失败回调 instanceof 用，不造假类型
      DistributedPlanQueue:Q,fs:fsPromises,path,atomicWriteText,...globals});}
@@ -199,7 +199,7 @@ test('真实清退保存成功尾必须及时结束排队等待；围栏拒绝�
   const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'se-clearwake-root-'))),project=Q.canonicalProjectId(root);
   const targets=['a','b','c'].map(id=>({id,host:id+'.invalid',port:2222,user:'u',remotePath:'/safe/project'}));
   const Host=hostMethods(['saveDistributedQueue','withQueueWriteResource','loadDistributedQueue','patchDistributedJob','mergeLatestWorkerVersions'],{workspaceRoot:()=>root,ensureProjectSnapshotMigrated,
-    vscode:{workspace:{getConfiguration:()=>({get:(_k,f)=>f})},Uri:{file:x=>x}},scopeInventoryPathAllowed,planLatestWorkerMerge,runSyncScopeBatch,loadSyncHolds:async()=>({}),isLocalCodeOwnedPath:()=>false,
+    vscode:{workspace:{getConfiguration:()=>({get:(_k,f)=>f,inspect:()=>({})})},Uri:{file:x=>x}},scopeInventoryPathAllowed,planLatestWorkerMerge,runSyncScopeBatch,loadSyncHolds:async()=>({}),isLocalCodeOwnedPath:()=>false,
     safeSyncPath:require('../../src/features/SyncResolution.ts').safeSyncPath,workerFpsyncTaskLabel:()=>'',UiCommandCancelled:require('../../src/core/UiCommandCancelled.ts').UiCommandCancelled, // 忠实绑定生产取消类型，不为夹具造假类型
     jobArtifactRunGeneration:require('../../src/features/JobArtifactSyncIdentity.ts').jobArtifactRunGeneration,
     isUnderMachineStatePrefixes:require('../../src/features/ProjectRootMap.ts').isUnderMachineStatePrefixes});

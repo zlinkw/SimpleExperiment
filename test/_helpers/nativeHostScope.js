@@ -19,5 +19,6 @@ module.exports = {
   // 0.5.419 配套：交接门/tick 阶段账本与写租约由真实模块提供；摘出类成员的宿主
   // 一旦经过派发或 tick 路径就会引用该命名空间，必须共享同一真实模块，不做假替身。
   DispatchHandoffGate: require('../../src/features/DispatchHandoffGate.ts'),
-  vscode: { workspace: { getConfiguration: () => ({ get: (_key, fallback) => fallback }) } },
+  ConfigurationSettings_1: require('../../src/tunnel/ConfigurationSettings.ts'),
+  vscode: { workspace: { getConfiguration: () => ({ get: (_key, fallback) => fallback, inspect: () => ({}) }) } },
 };

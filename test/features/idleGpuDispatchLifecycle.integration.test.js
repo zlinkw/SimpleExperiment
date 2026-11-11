@@ -312,7 +312,7 @@ test('native completion ticks mirror every interleaved job across plans once wit
     'syncCompletedPlanArtifacts','mergeLatestWorkerVersions','patchDistributedJob'],context:{
     workspaceRoot:()=>projectRoot,CompletedJobSyncHost,scopeInventoryPathAllowed,planLatestWorkerMerge,runSyncScopeBatch,
     loadSyncHolds,safeSyncPath,path,jobArtifactRunGeneration,isUnderMachineStatePrefixes,normalizeMirrorScopePaths,
-    vscode:{workspace:{getConfiguration:()=>({get:(_key,fallback)=>fallback})},Uri:{file:value=>value}},
+    vscode:{workspace:{getConfiguration:()=>({get:(_key,fallback)=>fallback,inspect:()=>({})})},Uri:{file:value=>value}},
     isLocalCodeOwnedPath:()=>false,workerFpsyncTaskLabel:()=>'',UiCommandCancelled:class extends Error{},
   }});
   const p=f.p,targets=['a','b','c'].map(id=>({id,host:id+'.invalid',port:2222,user:'synthetic',remotePath:'/synthetic/'+id}));

@@ -549,9 +549,9 @@ def runtime_dependency_check():
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.490"
-RUNTIME_VERSION = "0.5.490"
-PLUGIN_VERSION = "0.5.490"
+AGENT_VERSION = "0.5.491"
+RUNTIME_VERSION = "0.5.491"
+PLUGIN_VERSION = "0.5.491"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -628,7 +628,7 @@ def lifecycle_machine():
 
 
 def lifecycle_contract(params):
-    root = lifecycle_canonical(params["projectDir"])
+    root = lifecycle_canonical(params["projectDir"], exists=False)
     install = lifecycle_canonical(params["installDir"], exists=False)
     namespace = os.path.basename(root) + "." + hashlib.sha256(root.encode()).hexdigest()[:16]
     state = lifecycle_canonical(params.get("stateDir") or os.path.join(install, "state", "projects", namespace), exists=False)
@@ -15217,6 +15217,11 @@ WORKER_TASK_FAILURE_CACHE = {}
 def worker_task_console_log(command_id):
     return "simple_cluster/tmux_logs/" + hashlib.sha256(str(command_id).encode("utf-8")).hexdigest() + ".console.log"
 
+def worker_live_log_path(root, run_key):
+    if re.fullmatch(r"[0-9a-f]{32}", run_key):
+        run_key = worker_task_console_log(run_key)
+    return safe_project_path(root, run_key) if run_key else ""
+
 def worker_task_failure_diagnostic(root, task):
     command_id = str(task.get("commandId") or "")
     if not command_id or str(task.get("runKey") or command_id) != command_id:
@@ -17182,7 +17187,7 @@ def serve_http(args):
                 params = parse_qs(parsed.query)
                 run_key = (params.get("runKey") or [""])[0]
                 since = int((params.get("since") or ["0"])[0] or 0)
-                log_path = safe_project_path(root, run_key) if run_key else ""
+                log_path = worker_live_log_path(root, run_key)
                 if not log_path or not os.path.isfile(log_path):
                     return self.send_json({"schemaVersion": SCHEMA_VERSION, "runKey": run_key, "offset": since, "text": ""})
                 with open(log_path, "rb") as f:
@@ -17194,7 +17199,7 @@ def serve_http(args):
                 params = parse_qs(parsed.query)
                 run_key = (params.get("runKey") or [""])[0]
                 since = int((params.get("since") or ["0"])[0] or 0)
-                log_path = safe_project_path(root, run_key) if run_key else ""
+                log_path = worker_live_log_path(root, run_key)
                 if not log_path or not os.path.isfile(log_path):
                     return self.send_json({"schemaVersion": SCHEMA_VERSION, "runKey": run_key, "offset": since, "text": ""})
                 size = os.path.getsize(log_path)
@@ -21018,7 +21023,9 @@ def task_queue_rpc(root, worker_id, action, payload, ensure=False):
     body = json.dumps(request_body, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request("http://" + endpoint["host"] + ":" + str(endpoint["port"]) + "/control", data=body,
                                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + endpoint["secret"]})
-    with urllib.request.urlopen(request, timeout=8) as response:
+    # Accept verifies the synchronized source before acknowledging. Match the
+    # caller's 30-second request budget; the other control calls remain short.
+    with urllib.request.urlopen(request, timeout=30 if action == "accept" else 8) as response:
         result = json.loads(response.read(1024 * 1024))
     if not result.get("ok"):
         raise RuntimeError(result.get("error") or "SCHEDULER_ACTION_FAILED")

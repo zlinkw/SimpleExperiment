@@ -120,7 +120,7 @@ function makeHost({ probes, tunnels, manifest, base, targetOverrides, probeImpl,
     setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout,
     require: legacyRequire,
     workspaceRoot: () => rootState.root,
-    vscode: { workspace: { getConfiguration: () => ({ get: (_key, dflt) => dflt }) }, Uri: { file: p => ({ fsPath: p }) } },
+    vscode: { workspace: { getConfiguration: () => ({ get: (_key, dflt) => dflt, inspect: () => ({}) }) }, Uri: { file: p => ({ fsPath: p }) } },
     // LOCAL fixture stub: the manifest reader walks a real workspace; the test
     // root is virtual. Same shape as the real function: the manifest record
     // itself with stats attached. NOT a network or gate component.

@@ -7,7 +7,7 @@ from closeFixtureTmuxWindows import close_fixture_tmux_windows
 runtime = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 tree = ast.parse(runtime)
 nodes = [node for node in tree.body
-         if isinstance(node, ast.FunctionDef) and (node.name.startswith("task_") or node.name == "remote_resource_prefix")
+         if isinstance(node, ast.FunctionDef) and (node.name.startswith("task_") or node.name in ("remote_resource_prefix", "worker_task_console_log", "worker_live_log_path"))
          or isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "REMOTE_RESOURCE_DEFAULT_PREFIX" for target in node.targets)]
 code = ast.unparse(ast.Module(body=nodes, type_ignores=[]))
 code += r'''
@@ -84,6 +84,12 @@ metrics=pathlib.Path(root)/csv;metrics.parent.mkdir(parents=True,exist_ok=True);
 ''',encoding="utf-8")
 namespace={"__file__":str(program)}
 exec(bootstrap+code,namespace)
+namespace['re'] = re
+namespace['safe_project_path'] = lambda base, relative: str(pathlib.Path(base) / relative)
+command_id = 'bc9df623805ca30d675854c0044f4bd2'
+assert namespace['worker_live_log_path'](root, command_id) == str(pathlib.Path(root) / namespace['worker_task_console_log'](command_id))
+assert namespace['worker_live_log_path'](root, 'logs/train.log') == str(pathlib.Path(root) / 'logs/train.log')
+assert namespace['worker_live_log_path'](root, '') == ''
 def install_fixture_budget_observer(peak_mb):
     # Device-boundary fixture result, published by the Scheduler's sole metadata writer.
     # An external set-option races a live sampling turn and does not model this ownership.

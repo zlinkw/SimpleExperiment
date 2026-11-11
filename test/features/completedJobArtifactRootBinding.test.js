@@ -105,7 +105,7 @@ function fixture({ ids = ["nwpu3", "nwpu2"], probes, probeImpl, verifyOnly, afte
     setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout,
     require: legacyRequire,
     workspaceRoot: () => rootState.root,
-    vscode: { workspace: { getConfiguration: () => ({ get: (_k, dflt) => dflt }) }, Uri: { file: p => ({ fsPath: p }) } },
+    vscode: { workspace: { getConfiguration: () => ({ get: (_k, dflt) => dflt, inspect: () => ({}) }) }, Uri: { file: p => ({ fsPath: p }) } },
   };
   sandbox.XshellTunnelPortProbe_1 = Object.assign({}, legacyNamespaces.XshellTunnelPortProbe_1, {
     probeWorkerTelemetryTunnel: async (config, options) => {
