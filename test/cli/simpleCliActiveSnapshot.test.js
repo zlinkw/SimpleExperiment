@@ -144,12 +144,20 @@ test("actual tasks.list reports a cold Worker query failure without revoking its
   assert.equal(queries, before); assert.equal(noTarget.jobLifecycle[0].queryState, "not_queried");
   assert.equal(noTarget.jobLifecycle[0].successful, true);
   const at = new Date().toISOString();
-  const observed = await call({ ...host, readWorkerTaskSnapshot: async () => ({ workerId: "worker-a", capabilities: { taskLifecycle: 2 }, queryComplete: true, fetchedAt: at, generatedAt: at,
+  const observed = await call({ ...host, readWorkerTaskSnapshot: async () => ({ workerId: "worker-a", capabilities: { taskLifecycle: 2 }, queryComplete: true,
+    controlIncomplete: true, diagnosticsPending: true, fetchedAt: at, generatedAt: at,
     tasks: [{ projectId, commandId: job.commandId, outputDir: job.outputDir, observation: { projectId, commandId: job.commandId, workerId: job.workerId, lifecycleProtocol: 2, observedAt: at,
       tmux: { windowId: "@1", paneId: "%1", dead: true, exitCode: 0 }, result: { runId: job.commandId, status: "completed", present: true, verified: true, artifactsComplete: true, exitCode: 0 },
       runtimeDiagnostics: { schemaVersion: 1, commandId: job.commandId, runId: job.commandId, state: "clear", count: 0, scanComplete: true } } }] }) });
   assert.equal(observed.jobLifecycle[0].queryState, "observed"); assert.equal(observed.jobLifecycle[0].queryError, "");
   assert.equal(observed.jobLifecycle[0].verifiedCompletion.verifiedAt, verifiedAt, "a new query does not refresh the original proof time");
+  const completeSnapshot = observed.workerTasks[0];
+  const partial = await call({ ...host, readWorkerTaskSnapshot: async () => ({ ...completeSnapshot, queryComplete: false }) });
+  assert.equal(partial.jobLifecycle[0].queryState, "unknown", "an incomplete Worker query still stays unknown");
+  const ownFailure = await call({ ...host, readWorkerTaskSnapshot: async () => ({ ...completeSnapshot,
+    tasks: completeSnapshot.tasks.map(task => ({ ...task, observation: { ...task.observation, executionQueryError: 'this task query failed' } })) }) });
+  assert.equal(ownFailure.jobLifecycle[0].queryState, "unknown");
+  assert.match(ownFailure.jobLifecycle[0].queryError, /this task query failed/);
   const previousReads = queueReads;
   await assert.rejects(call({ ...host, readWorkerTaskSnapshot: async () => { current = false; return { workerId: "worker-a", tasks: [] }; } }), /项目已切换/);
   assert.equal(queueReads, previousReads, "a changed workspace never reads the new project's queue");

@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const vm = require("node:vm");
 const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
+const panelFunction = require("../_helpers/panelFunction");
 
 function harness() {
   const html = renderPanelHtml();
@@ -35,6 +36,35 @@ function harness() {
   const render = () => vm.runInContext("renderTmuxOverview(tmuxListCache.sessions)", context);
   return { context, elements, render, requests };
 }
+
+test("manual task, pane and GPU selection read logs while automatic display traffic stays off", async () => {
+  const html = renderPanelHtml();
+  const start = html.indexOf('const tmuxPaneButton = event.target.closest("button[data-tmux-pane]");');
+  const end = html.indexOf('const historyLegend =', start);
+  assert.ok(start >= 0 && end > start);
+  for (const [selector, attribute, target] of [
+    ['button[data-tmux-pane]', 'data-tmux-pane', 'zlk-gpu-0:1.0'],
+    ['button[data-tmux-task-target]', 'data-tmux-task-target', 'zlk-gpu-0:1'],
+    ['[data-tmux-filter]', 'data-tmux-filter', 'zlk-gpu-0'],
+  ]) {
+    const f = harness();
+    f.context.lastState = { trafficMode: { enabled: true, displayAutoRefresh: false } };
+    f.context.tmuxWindowFilter = 'zlk-gpu-0';
+    f.context.tmuxListCache.sessions[0].windows[1].panes[0].target = 'zlk-gpu-0:1.0';
+    f.context.persistWebviewState = () => {};
+    vm.runInContext(panelFunction('lowTrafficModeFromState') + panelFunction('displayAutoAllowed')
+      + 'function manualSelection(event) {' + html.slice(start, end) + '}', f.context);
+    const button = { getAttribute: key => key === attribute ? target : null };
+    f.context.manualSelection({ target: { closest: key => key === selector ? button : null }, preventDefault() {} });
+    assert.equal(f.requests.length, 1, selector);
+    assert.equal(f.requests[0].origin, 'user', selector);
+    assert.equal(f.requests[0].workerId, 'NWPU5');
+    assert.equal(f.requests[0].window, selector.includes('pane') ? 'zlk-gpu-0:1.0' : 'zlk-gpu-0:1');
+    f.context.tmuxCaptureBusy.clear();
+    await f.context.refreshTmuxCapture();
+    assert.equal(f.requests.length, 1, 'background reads remain disabled');
+  }
+});
 
 test("matching prefixes never prove current-project ownership or plugin service identity", () => {
   const f = harness();

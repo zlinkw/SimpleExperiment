@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.496",
-  "buildId": "e04a767fd588c5d1c2da0cdf72f16064cc8f8b77466c59a57d8a2dc6c1dcb012",
+  "version": "0.5.497",
+  "buildId": "3b5fd49e908b598fd20f324f8d8b2b0a801d8f0891d44f705d7218c91003605e",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -257,7 +257,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "d9dc0a5638def39a9298bd693c47317ba3b8a9af7c1bd590d969c284efc5d60d"
+      "sha256": "946a72f4a7108dbd0f17f10f3cdfd8d177789ebecee499ca1ebc976171f7bedd"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -857,11 +857,11 @@
     },
     {
       "path": "dist/mcp/ToolCatalog.js",
-      "sha256": "570a76e17706681e52ba5bd419e08e36c7cbb746b6c88d3a9f79a0ae76c568be"
+      "sha256": "1e88488b48ad41af31975ea3974284ecad3e6b26ed6ba5bf3b0df6c9a9a9f961"
     },
     {
       "path": "dist/mcp/ToolResults.js",
-      "sha256": "c7b196c6d4756f5fee7d6872d4c191673b68c44bbab477e9291fcb7a0a76e70f"
+      "sha256": "d3996ceb54640f2dbdc6828604cf306b1857c5bccc9b164bf760610966bb86eb"
     },
     {
       "path": "dist/PptPlotBridge.js",
@@ -945,7 +945,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "7c9980b88b3749f6de4beea3a2739c70fbaa20f3a1a8171ada5aefa42d5002e9"
+      "sha256": "dc8da5c406a45407aa09965ee1d552a5c016dcf15f0003e77f30669a5353dd92"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1173,7 +1173,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "c84799de7ca3df73392284966c8a2553953f6efd85ef8718dbda7237c6b27272"
+      "sha256": "94487e0f6a43cde9c206041b55f2037b023f6bd019d8c8a25ad5dce8dbac56c3"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1297,7 +1297,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "85376d6a575c9818f181f7f0ce6f44fa705c0e3e2b1c267509a3020d9f4c5611"
+      "sha256": "e53b41fc89a4fddf7f2b95197cd824d19d9042b14c0480676c82b190b50b0369"
     },
     {
       "path": "scripts/check-static.js",

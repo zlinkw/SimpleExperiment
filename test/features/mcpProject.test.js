@@ -386,6 +386,62 @@ test('every advertised output schema validates errors and distinguishes request 
   assert.throws(() => toolOutputSchema('undeclared_tool'), /OUTPUT_SCHEMA_MISSING/);
 });
 
+test('TensorBoard tools use the project Worker grant and cannot turn a forged confirmation into authority', async () => {
+  const f = fixture();
+  await f.gateway.call('tensorboard_status', { workerId: 'worker-a' });
+  await f.gateway.call('tensorboard_viewer', { workerId: 'worker-a', view: 'scalars' });
+  await assert.rejects(f.gateway.call('tensorboard_start', { workerId: 'worker-a' }), /AUTHORIZATION_REQUIRED/);
+  await assert.rejects(f.gateway.call('tensorboard_stop', { workerId: 'worker-a', confirm: true }), /Unknown/);
+  await assert.rejects(f.gateway.call('tensorboard_status', { workerId: 'other-worker' }), /WORKER_UNKNOWN/);
+  await f.authorize(['experiment']);
+  await f.gateway.call('tensorboard_start', { workerId: 'worker-a' });
+  const start = f.calls.find(call => call.method === 'tensorboard.start');
+  assert.equal(start.params.workerId, 'worker-a'); assert.equal(start.params.confirm, true);
+  await f.store.update(AUTHORIZATION_KEY, undefined);
+  await assert.rejects(f.gateway.call('tensorboard_stop', { workerId: 'worker-a' }), /AUTHORIZATION_REQUIRED/);
+});
+
+test('actual TensorBoard API returns service facts and a scoped viewer link without opening a browser', async () => {
+  const ts = require('typescript'), vm = require('node:vm');
+  const source = fs.readFileSync(path.resolve(__dirname, '../../src/extension/legacy.ts'), 'utf8');
+  const ast = ts.createSourceFile('host.ts', source, ts.ScriptTarget.Latest, true), entries = [];
+  const names = new Set(['tensorboard.status', 'tensorboard.start', 'tensorboard.stop', 'tensorboard.viewer']);
+  function visit(node) {
+    if (ts.isPropertyAssignment(node) && ts.isStringLiteral(node.name) && names.has(node.name.text)) entries.push(node.getText(ast));
+    ts.forEachChild(node, visit);
+  }
+  visit(ast); assert.equal(entries.length, names.size);
+  const make = vm.runInNewContext(ts.transpileModule('function make(){return {' + entries.join(',') + '};} make;', {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText, { URL, UiCommandCancelled: Error, vscode: { workspace: { getConfiguration: () => ({ get: () => 6222 }) } } });
+  let current = true, failStatus = false;
+  const calls = [], service = { status: 'completed', windowId: '@41', running: true, listening: true, port: 6222 };
+  const host = {
+    postTensorboardAction: async (id, action, body) => { calls.push({ id, action, body }); return failStatus ? { status: 'failed', message: 'actual service failure' } : service; },
+    openTensorBoardFromUi: async (message, external) => { assert.equal(external, false); calls.push(message); return { ...service, endpointId: message.endpointId, proxyVerified: true }; },
+    stopTensorBoardFromUi: async message => ({ ...service, endpointId: message.endpointId, running: false, listening: false, closedWindowIds: ['@41'] }),
+    captureProjectContext: () => ({ root: 'D:/project-acceptance' }), projectContextIsCurrent: () => current,
+    tensorboardTarget: id => { assert.equal(id, 'worker-a'); },
+    startLocalApiServer: async () => ({ viewerUrl: id => 'http://127.0.0.1:23456/tensorboard/?ticket=fixture&server=' + id }),
+  };
+  const methods = make.call(host);
+  assert.equal((await methods['tensorboard.status']({ workerId: 'worker-a' })).port, 6222);
+  assert.equal(calls[0].action, 'get-tensorboard-status');
+  assert.equal((await methods['tensorboard.start']({ workerId: 'worker-a' })).proxyVerified, true);
+  assert.equal((await methods['tensorboard.stop']({ workerId: 'worker-a' })).closedWindowIds[0], '@41');
+  for (const view of ['scalars', 'native']) {
+    const result = await methods['tensorboard.viewer']({ workerId: 'worker-a', view });
+    const url = new URL(result.url);
+    assert.equal(url.searchParams.get('workspace'), result.workspace);
+    assert.equal(url.searchParams.get('server'), 'worker-a');
+    assert.equal(url.searchParams.get('native'), view === 'native' ? 'ready' : null);
+  }
+  failStatus = true;
+  await assert.rejects(methods['tensorboard.status']({ workerId: 'worker-a' }), /actual service failure/);
+  current = false;
+  await assert.rejects(methods['tensorboard.viewer']({ workerId: 'worker-a' }), /项目已切换/);
+});
+
 test('official MCP client validates named output contracts without losing arrays, extra evidence or errors', async () => {
   const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
   const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');
@@ -395,6 +451,9 @@ test('official MCP client validates named output contracts without losing arrays
     project_status: { ok: true, name: 'SimpleExperiment', version: 'fixture', workspace: '/fixture', pid: 1, extraEvidence: { untouched: true } },
     experiment_list: [{ id: 'job', status: 'cancelled', native_state: { command_id: 'job', exit_code: null } }],
     configuration_get: { key: 'simpleExperiment.showAdvancedCommands', value: false },
+    operation_get: { operationId: 'mcp-result', status: 'succeeded', tool: 'result_show', resultAvailable: true,
+      result: { id: 'result-native', metrics: { accuracy: 0.75 }, time: null, observedAt: null,
+        outputFiles: ['work_dirs/control/metrics.csv', 'work_dirs/control/model.pt'] } },
   };
   let failure;
   const server = createProjectMcpServer('fixture', async (method, params) => {
@@ -410,6 +469,12 @@ test('official MCP client validates named output contracts without losing arrays
     assert.deepEqual((await client.callTool({ name: 'project_status', arguments: {} })).structuredContent, responses.project_status);
     assert.deepEqual((await client.callTool({ name: 'experiment_list', arguments: {} })).structuredContent, { result: responses.experiment_list });
     assert.equal((await client.callTool({ name: 'configuration_get', arguments: { key: 'simpleExperiment.showAdvancedCommands' } })).structuredContent.value, false);
+    assert.deepEqual((await client.callTool({ name: 'operation_get', arguments: { operationId: 'mcp-result' } })).structuredContent, responses.operation_get);
+    responses.operation_get.result.outputFiles = [{ path: 'invalid-object' }];
+    await assert.rejects(client.callTool({ name: 'operation_get', arguments: { operationId: 'mcp-result' } }), /output schema/i);
+    responses.operation_get = { operationId: 'mcp-service', status: 'succeeded', tool: 'tensorboard_start', resultAvailable: true,
+      result: { status: 'completed', endpointId: 'worker-a', windowId: '@41', running: true, listening: true, proxyVerified: true } };
+    assert.equal((await client.callTool({ name: 'operation_get', arguments: { operationId: 'mcp-service' } })).structuredContent.result.windowId, '@41');
     responses.project_status.version = 7;
     await assert.rejects(client.callTool({ name: 'project_status', arguments: {} }), /output schema/i);
     failure = Object.assign(new Error('original business failure'), { apiCode: -32000, apiData: { source: 'fixture' } });

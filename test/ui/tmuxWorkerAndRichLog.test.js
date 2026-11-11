@@ -215,8 +215,8 @@ test("Worker switch immediately replaces stale pane and capture state", () => {
     persistWebviewState: (state) => calls.push(["persist", state.tmuxSelectedWorkerId]),
     renderTmuxOverview: (sessions) => calls.push(["overview", sessions[0]?.name]),
     renderTmuxWorkersOverview: () => calls.push(["workers"]),
-    refreshTmuxCapture: () => calls.push(["capture"]),
-    refreshTmuxList: () => calls.push(["list"]),
+    refreshTmuxCapture: origin => calls.push(["capture", origin]),
+    refreshTmuxList: origin => calls.push(["list", origin]),
   };
   vm.runInNewContext(html.slice(start, end) + "; selectTmuxWorker('nwpu2');", context);
   assert.equal(context.tmuxSelectedWorkerId, "nwpu2");
@@ -226,5 +226,6 @@ test("Worker switch immediately replaces stale pane and capture state", () => {
   assert.equal(context.tmuxSelectedPaneTarget, "");
   assert.equal(context.tmuxWindowFilter, "all");
   assert.deepEqual(calls.map((call) => call[0]), ["persist", "overview", "workers", "capture", "list"]);
+  assert.deepEqual(calls.filter(call => call[0] === "capture" || call[0] === "list"), [["capture", "user"], ["list", "user"]]);
   assert.match(html, /document\.addEventListener\("click", function\(event\)[\s\S]*?button\[data-tmux-worker\]/);
 });

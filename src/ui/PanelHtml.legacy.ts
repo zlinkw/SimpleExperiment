@@ -1065,7 +1065,7 @@ export function renderPanelHtml(): string {
     body.layout-edit #cardDeck, body.resizing-layout #cardDeck, body.tree-pinned #cardDeck { --tree-active-col: var(--tree-col); }
     body.layout-edit #cardDeck, body.resizing-layout #cardDeck, body.inspector-pinned #cardDeck { --inspector-active-col: var(--inspector-col); }
     #cardDeck > [data-section] { grid-column: 3; }
-    .mainColumn { grid-column: 3; min-height: 0; overflow: auto; overscroll-behavior: contain; overflow-anchor: none; scroll-behavior: smooth; scroll-padding-top: 12px; display: grid; align-content: start; gap: 12px; padding-right: 2px; container: main-workflow / inline-size; }
+    .mainColumn { grid-column: 3; min-height: 0; overflow: auto; overscroll-behavior: contain; overflow-anchor: none; scroll-behavior: auto; scroll-padding-top: 12px; display: grid; align-content: start; gap: 12px; padding-right: 2px; container: main-workflow / inline-size; }
     .mainColumn > [data-section], .mainColumn [data-anchor] { scroll-margin-top: 12px; }
     body:not(.main-view-settings) #mainColumn > [data-section="settings"] { display: none; }
     body.main-view-settings #mainColumn > [data-section]:not([data-section="settings"]) { display: none; }
@@ -2492,8 +2492,8 @@ export function renderPanelHtml(): string {
       if (pre) { pre.textContent = ""; pre.dataset.captureTarget = ""; pre.dataset.lastFetch = ""; }
       renderTmuxOverview(tmuxListCache.sessions || []);
       renderTmuxWorkersOverview(tmuxConfiguredWorkers);
-      refreshTmuxCapture();
-      refreshTmuxList();
+      refreshTmuxCapture("user");
+      refreshTmuxList("user");
     }
     async function refreshTmuxList(origin) {
       if (document.hidden || tmuxListBusy) return;
@@ -3759,7 +3759,7 @@ export function renderPanelHtml(): string {
         tmuxSelectedPaneTarget = String(tmuxPaneButton.getAttribute("data-tmux-pane") || "");
         persistWebviewState({ tmuxSelectedPaneTarget: tmuxSelectedPaneTarget });
         renderTmuxOverview(tmuxListCache.sessions || []);
-        refreshTmuxCapture();
+        refreshTmuxCapture("user");
         return;
       }
       const tmuxTaskButton = event.target.closest("button[data-tmux-task-target]");
@@ -3769,7 +3769,7 @@ export function renderPanelHtml(): string {
         tmuxSelectedPaneTarget = "";
         persistWebviewState({ tmuxSelectedTaskTarget: tmuxSelectedTaskTarget, tmuxSelectedPaneTarget: tmuxSelectedPaneTarget });
         renderTmuxOverview(tmuxListCache.sessions || []);
-        refreshTmuxCapture();
+        refreshTmuxCapture("user");
         return;
       }
       const tmuxFilterTarget = event.target.closest("[data-tmux-filter]");
@@ -3785,7 +3785,7 @@ export function renderPanelHtml(): string {
           persistWebviewState({ tmuxWindowFilter: tmuxWindowFilter, tmuxSelectedTaskTarget: tmuxSelectedTaskTarget, tmuxSelectedPaneTarget: tmuxSelectedPaneTarget, tmuxSelectedWorkerId: tmuxSelectedWorkerId });
           renderTmuxOverview(tmuxListCache.sessions || []);
         }
-        refreshTmuxCapture();
+        refreshTmuxCapture("user");
         // sync hidden select for compat
         const sel = el("tmuxWindowSelect");
         if (sel && next !== "all") {
@@ -4537,7 +4537,7 @@ export function renderPanelHtml(): string {
       const workerSel = el("tmuxWorkerSelect");
       const btn = el("tmuxRefreshBtn");
       const listBtn = el("tmuxListBtn");
-      if (sel) sel.addEventListener("change", function() { cancelJobTmuxLogJump(); refreshTmuxCapture(); });
+      if (sel) sel.addEventListener("change", function() { cancelJobTmuxLogJump(); refreshTmuxCapture("user"); });
       document.addEventListener("change", function(event) {
         if (event.target && event.target.id === "tmuxWorkerSelect") { cancelJobTmuxLogJump(); selectTmuxWorker(event.target.value); }
       }, true);
@@ -7039,12 +7039,14 @@ export function renderPanelHtml(): string {
     }
 
     function preserveScroll(work) {
+      const scrollLock = resourceTreeScrollLockUntil;
       const x = window.scrollX || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
       const y = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
       const main = el("mainColumn");
       const mainTop = main ? main.scrollTop : 0;
       work();
       const restore = () => {
+        if (resourceTreeScrollLockUntil !== scrollLock) return;
         window.scrollTo(x, y);
         if (main) main.scrollTop = mainTop;
       };
@@ -7064,9 +7066,14 @@ export function renderPanelHtml(): string {
       }
       const anchor = mainVisibleAnchor(main);
       const beforeScrollTop = main.scrollTop;
+      const scrollLock = resourceTreeScrollLockUntil;
       work();
-      restoreMainColumnAnchor(main, anchor, beforeScrollTop);
-      if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => restoreMainColumnAnchor(main, anchor, beforeScrollTop));
+      const restore = () => {
+        if (resourceTreeScrollLockUntil !== scrollLock) return;
+        restoreMainColumnAnchor(main, anchor, beforeScrollTop);
+      };
+      restore();
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(restore);
     }
 
     function mainVisibleAnchor(main) {

@@ -440,6 +440,7 @@ test("Host uses the global project service route, actual returned facts and visi
     return facts;
   } };
   const Host = vm.runInNewContext(ts.transpileModule("class Host {" + members + "}; Host", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
+    mcpInvocation: require(path.join(root, "dist/mcp/Invocation.js")).mcpInvocation,
     AgentTmuxPolicy_1: require(path.join(root, "dist/tunnel/AgentTmuxPolicy.js")),
     makeOpId: () => "op-" + ++seq,
     tunnelHttpOrigin: (host, port) => `http://${host}:${port}`,
@@ -458,7 +459,8 @@ test("Host uses the global project service route, actual returned facts and visi
     postWorkerAction: async () => { throw new Error("legacy transport was called"); } };
   host.view = { webview: { postMessage: value => messages.push(value) } };
   host.startLocalApiServer = async () => ({ viewerUrl: id => "http://127.0.0.1:34567/viewer?ticket=fixture&server=" + encodeURIComponent(id) });
-  await host.openTensorBoardFromUi({ endpointId: worker.id });
+  const initialStart = await host.openTensorBoardFromUi({ endpointId: worker.id });
+  assert.equal(initialStart.windowId, facts.windowId); assert.equal(initialStart.proxyVerified, true);
   assert.equal(calls.length, 2); assert.equal(waits[0], 2000);
   for (const call of calls) {
     assert.equal(call.route, "/api/tensorboard/service"); assert.equal(call.options.method, "POST");
@@ -479,7 +481,13 @@ test("Host uses the global project service route, actual returned facts and visi
   assert.equal(calls.length, controlsBeforeCopy); assert.equal(opened.at(-1), opened[0]);
   assert.match(notices.at(-1), /60 秒.*复制不会启动服务/);
   assert.equal(messages.at(-1).windowId, "@41");
-  await host.stopTensorBoardFromUi({ endpointId: worker.id }); assert.equal(messages.at(-1).running, false);
+  const stopped = await host.stopTensorBoardFromUi({ endpointId: worker.id }); assert.equal(messages.at(-1).running, false);
+  assert.equal(stopped.running, false); assert.equal(stopped.endpointId, worker.id);
+  const beforeRevokedWrite = calls.length;
+  const invocation = require(path.join(root, "dist/mcp/Invocation.js")).mcpInvocation;
+  await assert.rejects(invocation.run({ permission() { throw Error('MCP_AUTHORIZATION_REQUIRED'); }, workers: () => [] },
+    () => host.postTensorboardAction(worker.id, 'start-tensorboard', {})), /AUTHORIZATION_REQUIRED/);
+  assert.equal(calls.length, beforeRevokedWrite, 'revocation is checked before the actual remote write');
   assert.equal(calls.at(-1).purpose, "stop");
   responseMode = "failed";
   await host.getTensorBoardStatusFromUi({ endpointId: worker.id });

@@ -39,7 +39,7 @@ import { replacePlanOutputs } from "../features/PlanOutputReplacement";
 import * as FailedJobRecovery from "../features/FailedJobRecovery";
 import * as PulledTaskControl from "../features/PulledTaskControl";
 import { stopProjectTask } from "./TaskControl";
-import { authorizedRemoteTargets } from "../mcp/Invocation";
+import { authorizedRemoteTargets, mcpInvocation } from "../mcp/Invocation";
 import * as WorkerTaskQuery from "../features/WorkerTaskQuery";
 import * as WorkerProgressQuery from "../features/WorkerProgressQuery";
 import { hasVerifiedCompletion, trustedTerminalProofFor } from "../features/VerifiedCompletion";
@@ -2578,6 +2578,29 @@ export class RealtimeTunnelPanelProvider {
             "mcp.authorization": () => mcpGateway(this).call("project_authorization", {}),
             "mcp.call": (params) => mcpOperations(this).call(params.tool, params.arguments, { signal: this.activationAbortController.signal }),
             "mcp.operation": (params) => mcpOperations(this).status(params.operationId),
+            "tensorboard.status": async (params) => {
+                const endpointId = String(params.workerId || "");
+                const status = await this.postTensorboardAction(endpointId, "get-tensorboard-status", {
+                    port: Number(vscode.workspace.getConfiguration("simpleExperiment").get("tensorboard.port")) || 6006,
+                });
+                if (status?.status !== "completed") throw new Error(String(status?.message || "远端状态查询未确认"));
+                return { ...status, endpointId };
+            },
+            "tensorboard.start": (params) => this.openTensorBoardFromUi({ endpointId: params.workerId }, false),
+            "tensorboard.stop": (params) => this.stopTensorBoardFromUi({ endpointId: params.workerId }),
+            "tensorboard.viewer": async (params) => {
+                const projectContext = this.captureProjectContext();
+                const workerId = String(params.workerId || "");
+                this.tensorboardTarget(workerId);
+                const server = await this.startLocalApiServer();
+                if (!this.projectContextIsCurrent(projectContext)) throw new UiCommandCancelled("项目已切换，未返回其他项目的图表链接。");
+                const view = params.view || "scalars";
+                if (!["scalars", "native"].includes(view)) throw new Error("未知图表视图");
+                const url = new URL(server.viewerUrl(workerId));
+                url.searchParams.set("workspace", projectContext.root);
+                if (view === "native") url.searchParams.set("native", "ready");
+                return { url: url.href, workspace: projectContext.root, workerId, view };
+            },
             "plans.cleanup.preview": params => this.planCleanupHost().service.preview(params),
             "plans.cleanup.continue": params => this.planCleanupHost().service.continuePreview(String(params.operationId || ""), { verifiedOnly: params.verifiedOnly }),
             "plans.cleanup.recheck": params => this.planCleanupHost().service.recheckNode(String(params.nodeId || "")),
@@ -2661,7 +2684,7 @@ export class RealtimeTunnelPanelProvider {
                 const live = DistributedPlanQueue.mergeDurableWorkerSnapshots(queue, workerTasks, projectId,
                     Date.now(), DistributedSchedulingPolicy.PROGRESS_FRESHNESS_MS);
                 const workerQueryErrors = new Map(workerTasks.map((snapshot: any) => [snapshot.workerId, String(snapshot.error || snapshot.resultQueryError || snapshot.runtimeQueryError
-                    || (snapshot.capabilities?.taskLifecycle !== 2 ? "本轮未取得 Worker 协议 2 观察" : snapshot.controlIncomplete || snapshot.diagnosticsPending ? "本轮 Worker 查询尚未完整核实" : ""))]));
+                    || (snapshot.capabilities?.taskLifecycle !== 2 ? "本轮未取得 Worker 协议 2 观察" : snapshot.queryComplete !== true ? "本轮 Worker 查询尚未完整核实" : ""))]));
                 return {
                     lifecycleProtocol: 2, stateSource: "active_query", projectId, queriedAt: new Date().toISOString(),
                     queriedWorkerIds: workerIds,
@@ -24684,6 +24707,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (openExternal) void vscode.window.showInformationMessage(`TensorBoard 已就绪：${url}（远端 ${status.port} ${status.tmuxSession} ${status.windowId} @ ${endpointId}，日志 ${status.logPath}）`, "复制链接").then((sel) => {
                 if (sel === "复制链接") vscode.env.clipboard.writeText(url);
             });
+            return { ...status, endpointId, proxyVerified: true };
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: remoteReady, listening: null, error: msg });
@@ -24709,6 +24733,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const stopped = await this.postTensorboardAction(endpointId, "stop-tensorboard", {});
         if (stopped?.status !== "completed" || stopped.running !== false) throw new Error(String(stopped?.message || "远端关闭尚未确认"));
         this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, ...stopped });
+        return { ...stopped, endpointId };
     }
 
     private async postTensorboardAction(endpointId: string, action: string, body: any): Promise<any> {
@@ -24720,6 +24745,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const fullBody = { ...body, opId, endpointId, ...(projectService ? { action, projectDir, workerId: endpointId,
             sessionPrefix: AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig.remoteTmuxSessionPrefix) } : {}) };
         for (let attempt = 0; attempt < 4; attempt++) {
+            if (projectService && action !== "get-tensorboard-status") mcpInvocation.getStore()?.permission("experiment");
             try {
                 if (projectService) {
                     const epClient = client.clients?.get?.(endpointId);

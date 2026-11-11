@@ -60,6 +60,12 @@ exports.PROJECT_TOOLS = [
     tool("log_read", "live.output", "Read selected task output; since is the remote service's event cursor", { workerId: task.workerId, runKey: text("Original run key"), since: integer }, ["workerId", "runKey"]),
     tool("tmux_list", "tmux.list", "List actual windows of a configured Worker", { workerId: task.workerId }, ["workerId"]),
     tool("tmux_capture", "tmux.capture", "Read the complete available capture of the exact Worker window", { workerId: task.workerId, window: text("Exact tmux window ID") }, ["workerId", "window"]),
+    tool("tensorboard_status", "tensorboard.status", "Query the configured Worker's project-owned TensorBoard window and listener", { workerId: task.workerId }, ["workerId"]),
+    tool("tensorboard_start", "tensorboard.start", "Start this project's TensorBoard using the configured environment; verify listener and proxy without opening a browser", { workerId: task.workerId }, ["workerId"], "experiment"),
+    tool("tensorboard_stop", "tensorboard.stop", "Close only this project's verified TensorBoard window; preserve Agent, Scheduler and experiment windows", { workerId: task.workerId }, ["workerId"], "experiment"),
+    tool("tensorboard_viewer", "tensorboard.viewer", "Return a short-lived local viewer link bound to this workspace; native view requires a ready TensorBoard service; never opens the browser", {
+        workerId: task.workerId, view: { type: "string", enum: ["scalars", "native"] },
+    }, ["workerId"]),
     tool("result_collect", "results.list", "Actively collect verified results and publish the configured summaries", plan, [], "results"),
     tool("server_test", "server.testAll", "Check all configured enabled Worker connections", { refresh: boolean }),
     tool("agent_inspect", "agents.lifecycle", "Inspect assigned Agent services", { serverIds: texts("Configured Worker ID") }, ["serverIds"]),

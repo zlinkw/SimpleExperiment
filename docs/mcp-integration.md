@@ -30,23 +30,25 @@ args = ["C:/Users/ZLK/AppData/Roaming/npm/simpleex-mcp-launcher.cjs", "--workspa
 
 `sftp_connection` 显示配套实例的实际连接错误和能力。SimpleSFTP 暂不可用时，SimpleExperiment 自身的查询工具仍可使用。
 
-候选 0.5.496 为每个具名工具提供独立 outputSchema。结构来自同一业务返回值，不删减额外字段。顶层列表沿用 `{ "result": [...] }` 包装；`operation_get.result` 保留原始业务类型，按记录中的 `tool` 区分结果列表、停止回执、预检和同步结果。普通任务查询读取 `task_list.jobLifecycle`，包含原 commandId、Worker、执行状态、产物状态、退出码与本轮 queryState；CLI 视图的 `experiment_status.worker` 则是 `{ "id": "..." }`，不能当作同一扁平结构。
+候选 0.5.497 新增 `tensorboard_status`、`tensorboard_start`、`tensorboard_viewer`、`tensorboard_stop`，均显式指定 `workerId`。启动与停止沿用项目 experiment 授权，实际写入前重新核验；查询和获取链接只读。启动、停止先返回操作 ID，随后用 `operation_get` 获取实际窗口、监听和代理核验结果。viewer 返回绑定当前工作区的短期地址，不自动打开浏览器；native 视图要求服务已经就绪。停止只关闭核实归属的专用 TensorBoard 窗口，保留实验、Agent 与 Scheduler。
+
+0.5.496 为每个具名工具提供独立 outputSchema；候选 0.5.497 修正实机发现的结果文件列表类型，路径使用字符串数组，允许原生 observedAt 为 null。结构来自同一业务返回值，不删减额外字段。顶层列表沿用 `{ "result": [...] }` 包装；`operation_get.result` 保留原始业务类型，按记录中的 `tool` 区分结果列表、停止回执、预检和同步结果。普通任务查询读取 `task_list.jobLifecycle`，包含原 commandId、Worker、执行状态、产物状态、退出码与本轮 queryState；CLI 视图的 `experiment_status.worker` 则是 `{ "id": "..." }`，不能当作同一扁平结构。
 
 长工具返回 `operationId`、`status: running`、`nextTool: operation_get` 和 `receiptProvesExperimentCompletion: false`。继续查询该 operationId，只有请求状态为 succeeded 且 resultAvailable 为 true 时才可读取完整请求结果；实验是否完成仍以原任务退出码、声明产物及完成证据判断。失败结果保留 `ok: false`、原 error、数值或字符串 code 和完整 detail。独立 SFTP 工作区目标未配置时，`sftp_target` 会返回实际错误；绑定 Worker 的目录与文件查询使用其明确目标，不要求创建该独立配置。
 
-配置查询、设置和重置都使用目录返回的完整键，如 `simpleExperiment.showAdvancedCommands`；配套插件使用 `simpleSftp.*`。设置还需遵守目录中的 scope。当前 19 项定向回归通过，官方 SDK 已检查错误返回、列表和延迟结果类型。候选结构另对两个运行中 0.5.495 窗口的 55 次响应进行核对，覆盖 51 个工具，结构全部匹配；其中 1 次是未配置独立 SFTP 目标的真实错误，不能记作该业务成功。0.5.496 尚未打包、安装或完成新版本实机核验。
+配置查询、设置和重置都使用目录返回的完整键，如 `simpleExperiment.showAdvancedCommands`；配套插件使用 `simpleSftp.*`。设置还需遵守目录中的 scope。21 项 MCP 定向回归覆盖真实路径列表、可空时间、非法对象拒绝和四个 TensorBoard 工具；另有 6 项 TensorBoard 宿主回归通过，包含撤销授权后写入前拒绝。此前候选结构对 0.5.495 宿主 55 次响应匹配，不等于全部业务通过；0.5.496 新宿主的 result_show 延迟结果被 SDK 拒收，原响应保留，0.5.497 最终候选尚待完整打包和新宿主复验。
 
 ## 当前实现与验收进度
 
 | 工作 | 状态 |
 | --- | --- |
 | 项目 MCP stdio、具名工具、宿主授权、Agent 与实验主入口 | 已实现，包含真实 stdio 的定向回归已通过 |
-| 逐工具输入与返回结构 | 候选 0.5.496 已实现并通过定向及现有宿主响应核对，待最终打包和新宿主实测 |
+| 逐工具输入与返回结构 | 0.5.496 实测发现结果路径类型错误，候选 0.5.497 已修正；138 个工具有声明，21 项 MCP 定向回归通过，待最终打包和新宿主复验 |
 | 同窗口 SFTP 文件树、清单、上传、下载、Worker 间同步 | 0.5.491 已实测相对路径、嵌套文件、子目录查询、整项目上传及专用文件下载，内容和未选文件范围匹配；跨 Worker 等剩余入口未全部通过 |
 | 全量 CLI 能力对应关系、GUI 依赖参数化 | 已建立映射；保留 UI 的交互入口不计为无人操作通过 |
 | 全部静态及动态人工入口实点 | 进行中 |
 | MultiModal 单 seed 与通用项目真实验收 | 两项目均已实际退出码 0；通用项目 MCP 准备、提交、收集、导出及面板结果入口已实测；其余入口仍未全部通过，详见 manual-acceptance-checklist.md |
-| Windows 试行打包、发布、安装与重载 | 0.5.495 已完成包验证、试行发布、单次安装和两窗口重载；rjj8 两项目 Agent/Scheduler 同版，最终服务 MultiModal。新停止按钮和主动查询刷新已实测；配套 0.2.119 不变 |
+| Windows 试行打包、发布、安装与重载 | 0.5.496 已完成包验证、试行发布、单次安装和两窗口重载；rjj8 两项目 Agent/Scheduler 同版，最终服务 MultiModal。0.5.497 为未交付候选；配套 0.2.119 不变 |
 
 生成当前源码入口与 MCP 对应清单可运行 `node scripts/entry-coverage.js <SimpleSFTP源码根>`。清单中的 mapped 只表示路由存在，实点和实际业务效果需另外核实。未验证项目不记为通过。
 

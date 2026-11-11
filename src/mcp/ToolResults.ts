@@ -14,7 +14,7 @@ const outcome = (schema: Schema): Schema => ({ anyOf: [schema, error] });
 export const LONG_TOOLS = new Set(["project_prepare", "project_connect", "plan_preflight", "plan_validate", "result_collect",
   "agent_ensure", "agent_restart", "agent_migrate", "task_stop", "plan_stop", "sftp_upload_files", "sftp_upload_workspace", "sftp_download_paths", "sftp_worker_sync",
   "sftp_worker_directory", "sftp_worker_batch", "sftp_download_mapped", "sftp_handoff", "sftp_from_remote", "file_cleanup_execute",
-  "result_list", "result_show", "result_export", "result_compare", "metric_list", "metric_show", "experiment_results", "artifact_list", "artifact_inspect"]);
+  "result_list", "result_show", "result_export", "result_compare", "metric_list", "metric_show", "experiment_results", "artifact_list", "artifact_inspect", "tensorboard_start", "tensorboard_stop"]);
 
 const operation = { operationId: string, status: string, error: string, startedAt: string, finishedAt: string };
 const receipt = object({ ok: { const: true }, operationId: string, status: { const: "running" }, requestScope: { const: "tool_request" },
@@ -37,7 +37,7 @@ const snapshot = { snapshot_id: string, snapshot_time: string, runtime_version: 
 const config = object({ key: string, type: { anyOf: [string, strings] }, scope: string, default: value, value, secret: boolean }, ["key"]);
 const state = object({ key: string, label: string, store: string, writable: boolean, value }, ["key"]);
 const resultRow = object({ id: string, experimentId: string, status: string, metric: string, value, metrics: record(value),
-  source: string, current: boolean, observedAt: string, updated: string, outputFiles: array(object()) });
+  source: string, current: boolean, observedAt: nullable(string), updated: string, outputFiles: strings });
 const artifact = object({ id: string, path: string, size: value });
 const agent = object({ id: string, ok: boolean, status: string, runningVersion: string, message: string,
   tmuxWindow: object({ server: string, session: string, windowId: string, windowName: string }),
@@ -55,6 +55,8 @@ const fileExecution = object({ ok: boolean, state: string, operationId: string, 
 const fileObservation = object({ rootIdentity: object(), target: object({ relativePath: string, type: string, missing: boolean, fingerprint: string }),
   state: string, executorsChecked: boolean, executors: array(object()), queryError: string });
 const server = object({ id: string, label: string, host: string, port: number, username: string, remotePath: string });
+const tensorboard = object({ status: string, endpointId: string, running: nullable(boolean), listening: nullable(boolean),
+  port: number, tmuxSession: string, windowId: string, closedWindowIds: strings, logPath: string, message: string, proxyVerified: boolean }, ["status", "endpointId"]);
 const transfer = object({ id: string, operationId: string, status: string, error: string });
 const transferResult = object({ ok: boolean, operationId: string, localPath: string, remotePath: string, transferred: number,
   fileCount: number, byteCount: number, skipped: boolean, files: value, errors: array(value), message: string });
@@ -62,6 +64,8 @@ const flow = object({ ok: boolean, flow: object({ schemaVersion: number, current
 
 const results: Record<string, Schema> = {};
 function assign(names: string[], schema: Schema): void { for (const name of names) results[name] = schema; }
+assign(["tensorboard_status", "tensorboard_start", "tensorboard_stop"], tensorboard);
+assign(["tensorboard_viewer"], object({ url: string, workspace: string, workerId: string, view: { enum: ["scalars", "native"] } }, ["url", "workspace", "workerId", "view"]));
 assign(["project_status"], object({ ok: boolean, name: string, version: string, workspace: string, connectionMode: string,
   topology: object(), pid: number, timestamp: string }, ["ok", "name", "version", "workspace", "pid"]));
 assign(["action_catalog"], object({ actions: array(object({ command: string, safe: boolean, confirm: boolean, action: string })), count: number }, ["actions", "count"]));
@@ -171,7 +175,7 @@ assign(["result_show"], object({ ...resultRow.properties as Record<string, Schem
 assign(["metric_list"], object({ metrics: strings }, ["metrics"]));
 assign(["metric_show"], record(number));
 assign(["experiment_results"], object({ experimentId: string, current: boolean, result_ids: strings, metrics: value, output_paths: strings, reason: string }, ["result_ids", "metrics"]));
-assign(["result_export"], object({ id: string, source: string, current: boolean, observedAt: string, format: string, path: string, content: string }, ["id", "format", "content"]));
+assign(["result_export"], object({ id: string, source: string, current: boolean, observedAt: nullable(string), format: string, path: string, content: string }, ["id", "format", "content"]));
 assign(["result_compare"], object({ left: string, right: string, metric_difference: record(object({ left: number, right: number, delta: number })), improvement: strings, regression: strings, reason: string }, ["left", "right", "metric_difference"]));
 assign(["result_parse"], array(object({ runKey: string, metrics: record(value), source: value })));
 assign(["result_paper_table"], { anyOf: [object({ config: object(), rows: array(object()) }, ["config", "rows"]),
