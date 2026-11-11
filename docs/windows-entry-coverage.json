@@ -890,8 +890,8 @@
     {
       "command": "simpleExperiment.checkPluginUpdates",
       "title": "SimpleExperiment：检查配套插件更新",
-      "status": "waiting_external_rate_limit",
-      "evidence": "Live GUI check 2026-11-11T16:08Z: GitHub rate limit, retry 2026-11-11T16:10:16Z, old response explicitly not fresh"
+      "status": "clicked_passed",
+      "evidence": "docs/manual-acceptance-checklist.md: 0.5.494 live command in the bound VS Code window after reload"
     },
     {
       "command": "simpleExperiment.installPluginUpdates",
@@ -1063,8 +1063,8 @@
       "command": "simpleExperiment.testAllTunnels",
       "title": "SimpleExperiment：检测全部隧道",
       "icon": "$(pulse)",
-      "status": "defect_found",
-      "evidence": "0.5.493 live command updated the health observation but omitted progress/toast: factory did not retain testTunnel(true); fixed in pending 0.5.494 candidate"
+      "status": "clicked_passed",
+      "evidence": "docs/manual-acceptance-checklist.md: 0.5.494 live command in the bound VS Code window after reload"
     },
     {
       "command": "simpleExperiment.showTunnelEndpointRegistry",
@@ -1077,8 +1077,8 @@
       "command": "simpleExperiment.testXshellTunnel",
       "title": "SimpleExperiment：检测 Xshell 隧道",
       "icon": "$(pulse)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "clicked_passed",
+      "evidence": "docs/manual-acceptance-checklist.md: 0.5.494 live command in the bound VS Code window after reload"
     },
     {
       "command": "simpleExperiment.restartRealtimeStream",
@@ -1155,7 +1155,7 @@
       "title": "SimpleExperiment：校验 Agent 版本",
       "icon": "$(check)",
       "status": "clicked_passed",
-      "evidence": "Generic live 0.5.493 after reload: exact version/hash native notice or operation-log output channel observed"
+      "evidence": "docs/manual-acceptance-checklist.md: 0.5.494 live command in the bound VS Code window after reload"
     },
     {
       "command": "simpleExperiment.openLastCheckStaticReport",
@@ -1175,8 +1175,8 @@
       "command": "simpleExperiment.runCheckStatic",
       "title": "SimpleExperiment：检查项目接入",
       "icon": "$(checklist)",
-      "status": "defect_found",
-      "evidence": "0.5.492 Generic live report generated: legacy output-format constraints reject supported generic artifacts/metrics; 21 errors, original report 2026-11-11T16:35:13.743Z preserved"
+      "status": "clicked_passed",
+      "evidence": "docs/manual-acceptance-checklist.md: 0.5.494 live command in the bound VS Code window after reload"
     }
   ],
   "staticButtonOccurrences": [
@@ -3743,6 +3743,32 @@
         "observedButtons": 187,
         "observedCommands": 65,
         "evidence": "docs/manual-acceptance-checklist.md; counts describe one live DOM snapshot, not complete coverage"
+      },
+      {
+        "control": "PLAN selector -> experimentSummaryAction run-current-plan",
+        "status": "clicked_passed",
+        "workspace": "SimpleMcpAcceptance",
+        "version": "0.5.494",
+        "plan": "experiments/plans/normal_stop_ui_0_5_494.yaml",
+        "commandId": "8371bcf755cdec1b4492c003f83aa0f5",
+        "workerId": "rjj8",
+        "gpuId": "0",
+        "evidence": "docs/manual-acceptance-checklist.md; actual selected PLAN matched the running task"
+      },
+      {
+        "control": "experimentSummaryAction -> current running PLAN, expand exact job details",
+        "status": "clicked_passed",
+        "workspace": "SimpleMcpAcceptance",
+        "version": "0.5.494",
+        "commandId": "8371bcf755cdec1b4492c003f83aa0f5",
+        "evidence": "docs/manual-acceptance-checklist.md"
+      },
+      {
+        "control": "native distributed job ordinary stop",
+        "status": "missing_entry",
+        "workspace": "SimpleMcpAcceptance",
+        "version": "0.5.494",
+        "evidence": "docs/manual-acceptance-checklist.md; exact MCP stop succeeded, GUI cleanup and redispatch were not used"
       }
     ]
   },

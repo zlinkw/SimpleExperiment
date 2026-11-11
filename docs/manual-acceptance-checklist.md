@@ -1,18 +1,29 @@
 # Windows 日常点击验收
 
-本轮以 Windows 0.5.485 为初始实点基线。两个项目已在 0.5.493 重载，项目绑定、持续授权和通知持久确认保持有效。两个单 seed 实验已有退出码 0 的结果；rjj8 两项目的 Agent 与 Scheduler 已顺序升级至 0.5.493，原任务和 Scheduler 保留。0.5.494 的接入检查、取消 PLAN 显示和手动隧道命令修复已完成定向与完整打包检查；发行、安装及新版实机复验待完成。整体入口验收仍未通过。界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。
+本轮以 Windows 0.5.485 为初始实点基线。0.5.494 已完成打包、源码推送、试行发布、单次安装及两个窗口重载；项目绑定、持续授权和通知持久确认保持有效。rjj8 两项目的 Agent 与 Scheduler 已顺序升级至 0.5.494，最终服务 MultiModal。接入检查、取消任务显示、手动隧道命令及所选 PLAN 的真实启动已实点通过；普通停止入口、冷启动后的面板状态同步及 MCP 返回结构仍需完成。整体入口验收未通过。界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。
 
 ## 0.5.494 当前修复
 
 - 静态检查接受显式 declared 协议及通用 runner.outputs 列表，复用 PlanBuilder 的命令与结果声明解析；通用命令格式不强制旧的 suite/config/seeds 与固定 CSV、日志文件名。旧格式检查保留，真实完成仍由退出码和 artifact manifest 判断。覆盖普通命令、块列表、行内 runner、缺失结果、配置文件与既有路径检查；25 项静态检查回归通过。
 - 主动取消单独统计为已中止，不计失败；取消作业的 unverified 结果和已移除任务窗口不再生成误导的待核实或丢窗提示。宿主汇总、面板投影、PLAN 选择器、任务卡和总计的相关回归通过。初步 build 的 272 项作业通过；该记录早于最终版本与静态检查收尾，不能代替最终 package 记录。
-- 命令面板“检测全部隧道”实点后健康时间与状态更新，但没有手动检测进度和通知。工厂绑定遗漏旧入口的 testTunnel(true)，本轮同时恢复两个手动检测命令的标记；新增行为回归先失败后通过。README 补齐已有高级命令显示开关，保留原文档及原断言。新修复尚待最终打包及实点。
-- 首份 0.5.494 package 的 322 作业、13 gate 全部通过，耗时 820280 ms，记录为 simple_cluster/reports/test-workflow/2026-11-11T17-23-16-168Z-60936-package/run.json。打包期间发现上述命令缺陷，候选未安装、未发布；最终包需重新完成规定检查。
+- 命令面板“检测全部隧道”实点后健康时间与状态更新，但没有手动检测进度和通知。工厂绑定遗漏旧入口的 testTunnel(true)，本轮同时恢复两个手动检测命令的标记；新增行为回归先失败后通过。README 补齐已有高级命令显示开关，保留原文档及原断言。最终打包与实点结果见下一节。
+- 首份 0.5.494 package 的 322 作业、13 gate 全部通过，耗时 820280 ms，记录为 simple_cluster/reports/test-workflow/2026-11-11T17-23-16-168Z-60936-package/run.json。打包期间发现上述命令缺陷，候选未安装、未发布；随后重新完成最终包的规定检查。
 - 最终 0.5.494 package 已通过 322 作业、13 gate，输入前后一致、串行最大并发 1、总耗时 823959 ms，记录 simple_cluster/reports/test-workflow/2026-11-11T17-40-36-511Z-17008-package/run.json。最终 VSIX 为 3071291 字节，SHA256 87a9f01fde3ba97fc080e0843ea5a1fb864c1f55fe6326f9c308981beaa30109；379 归档项、326 runtime 模块的字节闭包、版本、平台、包策略和秘密排除通过。源 README 缺少已有高级命令开关说明的额外检查先失败，补齐说明后 2 项通过；原断言未改。
 - 0.5.493 实点新增：命令面板复制 Panel 诊断后剪贴板为合法 JSON，39774 字符；诊断区两个静态报告按钮分别打开原报告、复制 26501 字符。导航搜索“诊断”与定位可用；刷新按钮审计显示已缓存，当前 DOM 为 187 按钮、65 命令，该快照不等于全部入口验收。
 - 0.5.493 命令“恢复 Panel”实点后重新显示当前项目及所选 PLAN；MCP panel_diagnostics 为 ready、rendererNeedsReset=false、sectionFailures=[]、lastFailure=null。“手动快照”反馈已查询 1/1 台 Worker、69 个任务、核对 0 项原操作。为验高级命令临时打开显示设置，最终复验后恢复原 false。
 - 原静态报告 21 个错误的首次实机证据保留于 simple_cluster/reports/check-static-0.5.492-original-failure.md。当前两个取消任务仍使用原 commandId，不重跑，不改写 MultiModal 结果；其余未实点、授权撤销和用户暂缓删除的状态保留。
-- 新版界面启停使用独立 normal_stop_ui_0_5_494.yaml，seed 42、原软件控制脚本及专用输出 work_dirs/mcp_controls/normal_stop_ui_0_5_494。当前仅完成本机创建与面板选择；MCP state 核对选中路径一致，尚未提交。下一批 MCP 返回结构需按工具细化：当前 Server.ts 仅给所有工具同一宽泛 outputSchema，不能记作每工具返回契约已完成。
+- 新版界面启停使用独立 normal_stop_ui_0_5_494.yaml，seed 42、原软件控制脚本及专用输出 work_dirs/mcp_controls/normal_stop_ui_0_5_494。本机创建与面板选择后，已按下一节完成真实启动及停止；MCP state 与实际执行 PLAN 路径一致。下一批 MCP 返回结构需按工具细化：当前 Server.ts 仅给所有工具同一宽泛 outputSchema，不能记作每工具返回契约已完成。
+
+## 0.5.494 发行与实机复核
+
+- 源码 310e9571f40c5e86fb27314f50c459afb2c0e41e 已普通推送并 fetch 核对 origin/master。试行 Release 为 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.494，tag 精确绑定该提交，draft=false、prerelease=true、latest=false。实际下载的 VSIX 与 97 字节 SHA256 文件均匹配本机验证包；SHA 文件自身摘要为 344f02c5a76259445c720ca9282520c2b94faea6853ded586dd39fe0b524c7bf。实际 ReleaseClient 确认正式更新仍为 0.5.483 / 0.2.118，已装试行版不降级，配套 0.2.119 试行资产仍可取得。
+- install:latest 仅执行一次且成功，code 清单为 SimpleExperiment 0.5.494、SimpleSFTP 0.2.119，稳定 simpleex 入口可用。通过标准 Developer: Reload Window 分别重载两窗口，MultiModal 未保存 final.md 页保留。新 stdio MCP 实际命中 Generic PID 14132 与 MultiModal PID 14508，各自返回正确工作区与 0.5.494；两个窗口未再次弹出已确认的全局复用提醒。Codex 原生 project_status 实际返回 0.5.492→0.5.494 的 API_PLUGIN_VERSION_MISMATCH，明确未发送业务请求，仍需本人重连；不将 SDK 直连测试冒充原生工具已重连。
+- 精确停止 MultiModal 辅助 Agent @31 后，Generic project_prepare 操作 mcp-7758c399-865c-46ac-99e1-e50603d3ac0e 成功，Agent @32、Scheduler @15 均为 0.5.494。结束验收后仅停止 @32，再以 mcp-08b8fd32-b546-486c-91e6-b9cea926043f 恢复 MultiModal，Agent @34、Scheduler @9 为同版。两个项目均主动核对 Agent 哈希 9656609916f4e597928cb724ac009563a46155788003acf493aef1083db1c7eb、Scheduler 哈希 f58db2794f8ffd703d75cbb3fb6875a020739d8be7f2e6a188556d9c4f739a93；MultiModal 命令面板版本核验也提示全部一致。其他禁用 Worker 未更新。
+- Generic 实点“检查项目接入”，实际报告生成于 2026-11-11T18:01:29.208Z，toolVersion=0.5.494，5 个 PLAN、0 错误、1 warning、2 info、overall=passed。原失败报告仍保留。此结果证明静态接入检查通过，不证明训练完成。
+- 面板选择 normal_stop_ui_0_5_494.yaml，MCP state 返回同一路径；从摘要按钮启动后，按已授权的 root@127.0.0.1:15791、/root/autodl-tmp/zlk/SimpleMcpAcceptance 核对一次性上传位置，没有选择永久抑制。实际 workflow distributed-plan-1794420554044-ifyqpn、commandId 8371bcf755cdec1b4492c003f83aa0f5 在 rjj8/GPU 0 运行；revision=934f568dc86dc61fd5bfc03349b13b977cad9aabcfb640287563e9755f77fe9f、codeFingerprint=f3106e82f128f415522e6ed037407f56f85e2a8fdad187cb65da89e97d0d2b71。训练脚本未改。这是软件控制任务，不作科研结果。
+- 原生分布式 job 卡只提供派发/重派和清理等入口，没有独立普通停止按钮，本轮不点清理。MCP task_stop 精确停止上述任务，操作 mcp-85a948f5-5dde-42c6-b5f3-c9d968500a75 succeeded，completionSource=exact_window_observation、paneClosed=true、cacheRetired=true、stoppedPids=[]；原记录保留，后续 MCP 与显式工作区 CLI 均返回 cancelled。面板显示已停止/已中止、已中止 3、失败 0、原确证完成 1，没有将该任务计为成功。实际 tmux 列表保留 @12、@16、@9、@15，@31、@32、测试窗口 @33 已消失，最终辅助窗口为 @34。
+- 两个隧道检测命令分别实点，均返回“隧道检测完成。Worker：rjj8:ok”。高级命令显示开关已通过界面恢复，完整配置键 simpleExperiment.showAdvancedCommands 返回 false、scope=application；首次使用未带命名空间的键被正确拒绝，MCP 参数说明仍需补充完整键示例。Generic 启动时更新检查曾返回 fetch failed，手动检查配套更新后返回 0.5.494 / 0.2.119 已是最新，MultiModal 同样正常；保留首次失败，不由此推断代理实现缺陷。
+- 尚存的一致性问题：重载后、随后 MCP task_list 与 project_state 已返回旧任务 cancelled，但面板手动快照后未选中的旧 PLAN 仍显示待核实；新任务提交/停止触发状态更新后，旧卡又正确显示已中止。下一批核对共享观测与面板缓存更新，并补普通停止入口；MCP 逐工具返回结构随后补齐。现有 UI 入口分母及未实测项保留。永久删除专用文件仍存在且为 49 字节；授权撤销未由 AI 操作。
 
 ## 记录规则
 
