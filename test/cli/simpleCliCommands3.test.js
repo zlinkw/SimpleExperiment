@@ -148,6 +148,35 @@ test("simpleex artifact list from local run dir", async () => {
   assert.equal(fs.existsSync(payload.path || dest), true);
 });
 
+test('remote artifact lookup maps an experiment to its PLAN and keeps the exact run', async () => {
+  const { businessContext } = require('../../dist/cli/ExecutionContext.js');
+  const { artifactCommand } = require('../../dist/cli/commands/artifact.js');
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'simple-cli-remote-art-')),emitted=[],requests=[];
+  const planFile='experiments/plans/a.yaml';let includeRunIds=true,current=true;
+  const facts=['a','b'].map((name,index)=>({lifecycleProtocol:2,projectId:'p',workflowId:'workflow',index,workerId:'worker',commandId:'command-'+name,
+    planFile,outputDir:'work_dirs/'+name,status:'completed',executionState:'exited',resultState:'complete',completionState:'verified',successful:true,exitCode:0}));
+  await businessContext.run({root:dir,emit:value=>emitted.push(value),rpc:async(method,params)=>{
+    if(method==='tasks.list')return {lifecycleProtocol:2,stateSource:'active_query',projectId:'p',jobLifecycle:facts,workerTasks:[]};
+    if(method==='results.list'){
+      requests.push(params);assert.equal(params.planFile,planFile);
+      return {source:'active_query',results:[],summary:{current,results:facts.map(f=>({...(includeRunIds?{runId:f.commandId}:{}),workflowId:f.workflowId,sourceFiles:[{path:f.outputDir}]}))}};
+    }
+    return {};
+  }},async()=>{
+    for(const withIds of [true,false]){
+      includeRunIds=withIds;
+      assert.equal(await artifactCommand('list',['command-a'],{json:true}),0);
+      assert.deepEqual(emitted.at(-1),[{id:'command-a:a',path:'work_dirs/a',size:''}]);
+      assert.equal(await artifactCommand('inspect',[emitted.at(-1)[0].id],{json:true}),0);
+      assert.equal(emitted.at(-1).file,'work_dirs/a');
+      assert.equal(await artifactCommand('list',['workflow'],{json:true}),0);
+      assert.equal(emitted.at(-1).length,2);
+    }
+    current=false;await assert.rejects(artifactCommand('list',['command-a'],{json:true}),/ARTIFACT_QUERY_UNVERIFIED/);
+  });
+  assert.equal(requests.length,7);
+});
+
 
 test("simpleex json errors are strict JSON", async () => {
   const result = await runCli(["experiment", "status", "--json"]);

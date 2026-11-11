@@ -549,9 +549,9 @@ def runtime_dependency_check():
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.497"
-RUNTIME_VERSION = "0.5.497"
-PLUGIN_VERSION = "0.5.497"
+AGENT_VERSION = "0.5.498"
+RUNTIME_VERSION = "0.5.498"
+PLUGIN_VERSION = "0.5.498"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -17062,6 +17062,11 @@ def serve_http(args):
                 return False
             if not self.authorized():
                 self.send_json({"error": "unauthorized"}, status=401)
+                return True
+            expected_project = unquote(self.headers.get("X-Simple-Project-Root") or "")
+            machine_route = browser_path in ("/api/health", "/health", "/api/version", "/version", "/api/capabilities", "/api/openapi.json", "/api/gpu", "/api/gpu/history", "/api/worker/availability") or browser_path.startswith("/api/tmux/")
+            if expected_project and not machine_route and (not os.path.isabs(expected_project) or os.path.realpath(expected_project) != os.path.realpath(root)):
+                self.send_json({"error": "AGENT_PROJECT_MISMATCH: 请求项目与当前 Agent 不一致，未处理项目请求。", "projectRoot": os.path.abspath(root), "expectedProjectRoot": expected_project}, status=403)
                 return True
             return False
 

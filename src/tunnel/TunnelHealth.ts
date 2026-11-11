@@ -19,6 +19,7 @@ export interface TunnelHealth {
   remoteAgentPort?: number;
   latencyMs?: number;
   agentVersion?: string;
+  projectRoot?: string;
   startedAt?: string;
   serverTime?: string;
   snapshotAge?: number;

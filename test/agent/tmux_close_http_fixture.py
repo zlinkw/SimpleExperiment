@@ -9,7 +9,7 @@ import textwrap
 import threading
 import types
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote, quote
 
 source = sys.stdin.read()
 
@@ -41,7 +41,7 @@ namespace = {
     "TENSORBOARD_BROWSER_PREFIX": literal("TENSORBOARD_BROWSER_PREFIX"),
     # The scoped read namespace shares this production authentication boundary.
     "TENSORBOARD_PROJECT_PREFIX": "/api/tensorboard/project",
-    "json": json, "os": os, "re": re, "threading": threading, "urlparse": urlparse,
+    "json": json, "os": os, "re": re, "threading": threading, "urlparse": urlparse, "unquote": unquote,
     "token": "fixture-only-token",
 }
 start = source.index("def kill_tmux_window_response(")
@@ -106,6 +106,21 @@ def fake_run(args, **kwargs):
 namespace["subprocess"] = types.SimpleNamespace(run=fake_run)
 namespace["_resolve_tmux_prefix"] = lambda: "zlk"
 namespace["root"] = "fixture-project"
+
+# Exercise the same guard used before both GET and POST dispatch. Health and
+# machine telemetry still expose the actual Agent so callers can diagnose it.
+for route in ["/api/worker/tasks/query", "/api/live-output", "/api/results/summary", "/api/actions/start-worker-task"]:
+    for project, rejected in [(os.path.abspath(namespace["root"]), False), (os.path.abspath("foreign-project"), True)]:
+        denied = []
+        caller = types.SimpleNamespace(path=route, headers={"X-Simple-Agent-Token": namespace["token"], "X-Simple-Project-Root": quote(project, safe="")},
+            localhost_only=lambda: True, send_json=lambda payload, status=200: denied.append((status, payload)))
+        caller.authorized = types.MethodType(namespace["authorized"], caller)
+        assert namespace["reject_if_needed"](caller) is rejected, (route, project, denied)
+        if rejected:
+            assert denied[0][0] == 403 and "AGENT_PROJECT_MISMATCH" in denied[0][1]["error"], denied
+for route in ["/api/health", "/api/version", "/api/gpu", "/api/tmux/list"]:
+    caller.path = route
+    assert namespace["reject_if_needed"](caller) is False, route
 namespace["tmux_available"] = lambda: True
 namespace["path_for"] = lambda root, path: path
 def read_snapshot(path, default):

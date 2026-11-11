@@ -3,6 +3,26 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 
 const { RequestBudget, defaultRequestBudgetConfig } = require("../../dist/tunnel/RequestBudget.js");
+
+test('project task reads reject another Agent root before accepting missing-output evidence', async () => {
+ const requests=[],expected='/projects/generic 项目';let actual='/projects/multimodal';
+ const server=http.createServer((req,res)=>{
+  requests.push({path:req.url,project:req.headers['x-simple-project-root']});res.setHeader('Content-Type','application/json');
+  res.end(JSON.stringify(req.url==='/api/health'?{state:'agent_ok',projectRoot:actual}: {queryComplete:true,tasks:[],gpu:[]}));
+ });await listen(server);
+ const client=new HttpTunnelClient({localHost:'127.0.0.1',localPort:server.address().port,resourceProjectRoot:expected,timeoutMs:1000},
+  new RequestBudget({...defaultRequestBudgetConfig,minIntervalByPurpose:{},disabledPurposes:[]}));
+ try{
+  await assert.rejects(client.getWorkerTasks({queries:[{commandId:'original',projectId:'generic'}]}),/AGENT_PROJECT_MISMATCH/);
+  assert.deepEqual(requests.map(r=>r.path),['/api/health'],'foreign task query was never sent');
+  actual=expected;const tasks=await client.getWorkerTasks({executionOnly:true});assert.equal(tasks.queryComplete,true);
+  assert.equal(decodeURIComponent(requests.at(-1).project),expected);
+  actual=undefined;await assert.rejects(client.getLiveOutput('original'),/AGENT_PROJECT_MISMATCH/);
+  const stopStart=requests.length;await client.postAction('stop-worker-task',{opId:'exact-stop',commandId:'original'});
+  assert.deepEqual(requests.slice(stopStart).map(r=>r.path),['/api/actions/stop-worker-task'],'precise stop gains no health/version precondition');
+  const before=requests.length;await client.getGpu();assert.deepEqual(requests.slice(before).map(r=>r.path),['/api/gpu'],'machine GPU telemetry remains independent of the project service');
+ }finally{server.closeAllConnections();server.close();}
+});
 const { HttpTunnelClient } = require("../../dist/tunnel/TunnelClient.js");
 test('low traffic reuses the exact fresh carried GPU sample, with stale/generation/manual reads still querying',async()=>{
  const {RealtimeTunnelClient,defaultRealtimeRefreshPolicy}=require('../../dist/tunnel/RealtimeTunnelClient');

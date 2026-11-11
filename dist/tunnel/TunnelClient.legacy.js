@@ -316,6 +316,20 @@ class HttpTunnelClient {
     async executeRequestJson(apiPath, purpose, body, options) {
         if (!apiPath.startsWith("/api/"))
             throw new Error("Only Hub Agent API paths are allowed.");
+        const route = apiPath.split("?")[0];
+        const projectScoped = (options.method === "GET" || ["/api/worker/tasks/query", "/api/worker/tasks/diagnostics", "/api/sync-scope/index", "/api/code-sync/plan-scope"].includes(route))
+            && !["/api/health", "/api/version", "/api/capabilities", "/api/openapi.json", "/api/gpu", "/api/gpu/history", "/api/worker/availability"].includes(route)
+            && !route.startsWith("/api/tmux/");
+        if (projectScoped && this.endpoint.resourceProjectRoot) {
+            // A shared tunnel can now serve another project's Agent without replacing
+            // this client. Never turn that Agent's missing files into counter-evidence.
+            const health = await this.getHealth({ userInitiated: options.userInitiated });
+            const actual = String(health.projectRoot || "").replace(/\/+$/, "");
+            const expected = this.endpoint.resourceProjectRoot.replace(/\/+$/, "");
+            if (!actual || actual !== expected)
+                throw new Error(`AGENT_PROJECT_MISMATCH: 当前 Agent 项目 ${health.projectRoot || "未报告"}；本项目需要 ${this.endpoint.resourceProjectRoot}。未发送项目请求。`);
+            options.signal?.throwIfAborted();
+        }
         const base = (0, TunnelGateway_1.localBaseUrl)(this.endpoint);
         const requestedAt = new Date().toISOString();
         return this.budget.run(purpose, async () => {
@@ -378,6 +392,8 @@ class HttpTunnelClient {
             headers["Content-Type"] = "application/json";
         if (this.endpoint.token)
             headers["X-Simple-Agent-Token"] = this.endpoint.token;
+        if (this.endpoint.resourceProjectRoot)
+            headers["X-Simple-Project-Root"] = encodeURIComponent(this.endpoint.resourceProjectRoot);
         return headers;
     }
 }

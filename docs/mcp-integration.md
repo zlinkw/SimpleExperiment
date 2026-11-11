@@ -24,6 +24,8 @@ args = ["C:/Users/ZLK/AppData/Roaming/npm/simpleex-mcp-launcher.cjs", "--workspa
 
 ## 工具与完成状态
 
+候选 0.5.498 对项目读取核对实际 Agent 根目录，并在服务端处理前检查绑定路径。共享端口指向另一项目时返回明确归属错误，不能把另一目录中缺失的文件当作本项目产物反证。产物查询支持将 experiment ID 映射到 PLAN，限制到原任务，读取完整结果列表；未核实的当前结果明确报错。上述新边界尚待打包与双项目切换实测。
+
 `tools/list` 返回当前 API 支持的具名工具和参数 schema。常用流程为 `project_status`、`project_authorization`、`plan_list`、`plan_preflight`、`plan_run`、`operation_list`、`task_list` 和 `result_collect`。Agent 操作使用精确 `serverIds`。SFTP 文件工具使用配置中的 Worker ID，主机、账号、远端根和本机工作区由宿主填入。
 
 `plan_run` 的操作回执表示提交进度。用主动任务查询取得实际运行和完成证据。结果收集包含汇总写入，属于授权写操作。`project_state` 默认返回摘要，传入 `detail: full` 可以读取完整面板状态。长工具请求先返回 mcp- 操作 ID，通过 operation_get 取得完整结果；状态是工具请求的状态，不能用来证明训练完成。原生 PLAN 提交仍通过 operation_list 与 task_list 查询。完整结果仅保存在本窗口内存，持久记录只保存回执元数据，重载后不会伪装恢复原始指标。业务错误保留原 API 详情，不自动重试写操作。精确停止单个 job 用 task_stop，停止整张 PLAN 用 plan_stop。

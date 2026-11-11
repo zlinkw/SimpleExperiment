@@ -1,5 +1,5 @@
 {
-  "version": "0.5.497",
+  "version": "0.5.498",
   "tools": [
     {
       "name": "project_status",
@@ -3975,6 +3975,27 @@
         "control": "test TensorBoard service restore",
         "status": "clicked_passed",
         "evidence": "Closed only the new viewer tab; Edge returned to the preexisting v0.5.494 integration-guide tab, other tabs retained. Live action catalog and CLI describe selected stop-tensor-board with endpointId rjj8. CLI returned null (UI handler void), not treated as completion proof. A subsequent successful active tmux query proved @40 absent and all original 14 window IDs, including @12,@16,@9,@15,@39, retained. Need named MCP TensorBoard status/start/stop/viewer-link tools to eliminate CLI fallback for this routine service."
+      },
+      {
+        "workspace": "MultiModal",
+        "version": "0.5.497",
+        "control": "GPU root navigation after viewport fix",
+        "status": "clicked_passed",
+        "evidence": "Actual root click moved from results to GPU status; later active refresh kept the GPU section visible."
+      },
+      {
+        "workspace": "MultiModal",
+        "version": "0.5.497",
+        "control": "GPU overview child navigation after viewport fix",
+        "status": "clicked_passed",
+        "evidence": "Actual child click positioned GPU overview and table; subsequent refresh stayed in GPU region, without restoring the old results viewport."
+      },
+      {
+        "workspace": "MultiModal",
+        "version": "0.5.497",
+        "control": "low traffic task tab loads exact log",
+        "status": "clicked_passed",
+        "evidence": "Low traffic remained on. After list refresh, clicking image_only_bus_p100 seed42 alone updated capture at 2026-11-11T21:08:30.050Z; original commandId, done index=0 and dead-pane status0 were present. No separate Refresh Current Log click. Navigation search cleared and original narrow sidebar restored."
       }
     ]
   },

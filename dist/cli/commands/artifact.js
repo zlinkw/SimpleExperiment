@@ -120,14 +120,26 @@ async function listArtifacts(experimentId) {
             }
         }
     }
-    const remote = await (0, api_1.optionalApi)("results.list", { planFile: experimentId });
-    const results = Array.isArray(remote?.results) ? remote.results : [];
+    const remote = await (0, api_1.optionalApi)("results.list", { planFile: experiment?.plan || experimentId });
+    const response = asRecord(remote), summary = asRecord(response.summary);
+    if (response.source === "active_query" && summary.current !== true)
+        throw (0, errors_1.businessError)("ARTIFACT_QUERY_UNVERIFIED：本轮服务器产物未核实，请检查 Worker 的项目归属和查询错误。", JSON.stringify(summary.issueGroups || []));
+    const results = (Array.isArray(summary.results) ? summary.results : Array.isArray(response.results) ? response.results : []);
     for (const result of results) {
+        if (experiment?.type === "worker_run" && result.runId && String(result.runId) !== (experiment.run_id || experiment.id))
+            continue;
+        if (experiment?.type === "workflow" && result.workflowId && result.workflowId !== experiment.id)
+            continue;
         const files = Array.isArray(result.sourceFiles) ? result.sourceFiles : [];
         for (const file of files) {
             const filePath = String(file.path || "");
             if (!filePath)
                 continue;
+            if (experiment?.type === "worker_run" && !result.runId) {
+                const normalized = filePath.replace(/\\/g, "/"), output = outputDir.replace(/\\/g, "/").replace(/\/+$/, "");
+                if (!output || normalized !== output && !normalized.startsWith(output + "/"))
+                    continue;
+            }
             rows.push({ id: `${String(result.resultId || experimentId)}:${path.basename(filePath)}`, path: filePath, size: String(file.size || "") });
         }
     }

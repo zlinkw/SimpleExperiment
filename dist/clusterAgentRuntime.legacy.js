@@ -15917,6 +15917,11 @@ def serve_http(args):
             if not self.authorized():
                 self.send_json({"error": "unauthorized"}, status=401)
                 return True
+            expected_project = unquote(self.headers.get("X-Simple-Project-Root") or "")
+            machine_route = browser_path in ("/api/health", "/health", "/api/version", "/version", "/api/capabilities", "/api/openapi.json", "/api/gpu", "/api/gpu/history", "/api/worker/availability") or browser_path.startswith("/api/tmux/")
+            if expected_project and not machine_route and (not os.path.isabs(expected_project) or os.path.realpath(expected_project) != os.path.realpath(root)):
+                self.send_json({"error": "AGENT_PROJECT_MISMATCH: 请求项目与当前 Agent 不一致，未处理项目请求。", "projectRoot": os.path.abspath(root), "expectedProjectRoot": expected_project}, status=403)
+                return True
             return False
 
         def do_GET(self):
