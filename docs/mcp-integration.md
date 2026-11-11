@@ -35,11 +35,11 @@ args = ["C:/Users/ZLK/AppData/Roaming/npm/simpleex-mcp-launcher.cjs", "--workspa
 | 工作 | 状态 |
 | --- | --- |
 | 项目 MCP stdio、具名工具、宿主授权、Agent 与实验主入口 | 已实现，包含真实 stdio 的定向回归已通过 |
-| 同窗口 SFTP 文件树、清单、上传、下载、Worker 间同步 | 已接入，真实调用待验证 |
+| 同窗口 SFTP 文件树、清单、上传、下载、Worker 间同步 | 已接入；实机发现指定文件路径及子目录目标映射缺陷，未全部通过 |
 | 全量 CLI 能力对应关系、GUI 依赖参数化 | 已建立映射；保留 UI 的交互入口不计为无人操作通过 |
 | 全部静态及动态人工入口实点 | 进行中 |
-| MultiModal 单 seed 与通用项目真实验收 | 待执行 |
-| Windows 试行打包、发布、安装与重载 | 0.5.489 最终 322 项完整回归及相关定向检查通过，已发布并安装一次；0.5.488 的两个项目授权已确认，待重载窗口并重连旧 MCP 进程后复核 |
+| MultiModal 单 seed 与通用项目真实验收 | 两项目均已实际退出码 0；通用项目 MCP 收集导出通过，首次接入与面板结果仍未闭环，详见 manual-acceptance-checklist.md |
+| Windows 试行打包、发布、安装与重载 | 0.5.490 完整 322 项回归、包验证及试行发布通过，已安装一次并核对 simpleex 入口；待本人重载两个项目窗口、重连 MCP 并选择通知确认项 |
 
 生成当前源码入口与 MCP 对应清单可运行 `node scripts/entry-coverage.js <SimpleSFTP源码根>`。清单中的 mapped 只表示路由存在，实点和实际业务效果需另外核实。未验证项目不记为通过。
 
@@ -47,7 +47,9 @@ args = ["C:/Users/ZLK/AppData/Roaming/npm/simpleex-mcp-launcher.cjs", "--workspa
 
 通用项目示例在 examples/mcp-dl-acceptance。日常入口与 CLI 对应矩阵在 windows-entry-coverage.json；当前记录只证明映射，未实测项保持未实测。
 
-Windows 试行版为 [v0.5.489](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.489)，源码提交 d8072745785d92ed0c8fb536f88d7307d6c9b99b。实际发布和安装的 simple-experiment-0.5.489.vsix 为 3067056 字节，SHA256 为 837eb1914345ee6f5dc5353cd61a4ff4abee28d2bf3e1dd9241227ac125eeadf。包含三处最终修复的 322 项完整回归通过；通知跨窗口去重、MCP 正常重载与版本拒绝、稳定入口、顶部运行阶段及实际运行卡片定向检查通过。实际 ZIP 运行闭包、编译字节、秘密排除与 vm.Script 检查通过。远端重新下载与本机包一致，真实更新客户端确认旧版只看到 0.5.483，已安装 0.5.489 不降级。首次发行读取曾返回 EOF / fetch failed，随后同一真实发行源读取、下载及更新客户端复核成功；原始失败和后续结果保留，不覆盖旧证据。本轮实际读取及界面观察确认两个项目运行 0.5.488 且各自 rjj8 五类授权已保存；0.5.489 的真实通知与重载连接效果待本人重载窗口、重连旧 MCP 进程后复核。远端 Agent 本轮未升级，真实验收训练尚未启动。
+Windows 试行版为 [v0.5.490](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.490)，源码提交 656bbf92f698c0f2554563bd632421a799825101。simple-experiment-0.5.490.vsix 为 3067178 字节，SHA256 为 c349078fa29b818bfc4d74fe24ad5c0255b6a0ed8f6c36e03e8e8b841ad8b20a。通知持久确认定向回归、完整 322 项串行回归、实际 ZIP 的 326 个运行模块字节及秘密排除、vm.Script 均通过。远端重下载与本机包一致；普通 Latest 保持 0.5.483，SimpleSFTP 保持 0.2.118。两个项目的五类授权保持独立，本轮实机在 0.5.489 完成真实训练并验证精确 Agent 运维不影响已派发任务；远端服务仍为 0.5.489。新的通知选择需升级后本人操作，MCP 升级版本后需重新连接。0.5.489 首次发行读取的 EOF / fetch failed 及随后成功记录保留，本版未覆盖历史资产。
+
+本机已显式安装 0.5.490 一次，安装器退出码 0，code 扩展列表与稳定 simpleex 帮助入口均核对成功。安装后停止当前 SimpleExperiment 面板/API 验收，等待本人 Developer: Reload Window。实机结束时 rjj8 的共享端口连接 MultiModal 0.5.489 Agent，精确窗口 @19，Scheduler @9；两项目任务及结果保留，通用项目服务已按自身授权关闭，未修改共享端口或远端科研环境。
 
 ## CLI 对应关系
 

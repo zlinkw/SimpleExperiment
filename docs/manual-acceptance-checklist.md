@@ -1,6 +1,6 @@
 # Windows 日常点击验收
 
-本轮以 Windows 0.5.485 为实点基线。MCP 新入口随 0.5.486 引入，全局服务器共享和添加入口修正在 0.5.487 交付，0.5.488 补齐实际授权命令注册、按钮及项目识别提示。两个项目已在 0.5.488 完成授权；本轮验出通知重复、MCP 重载路由和顶部预演误报完成，0.5.489 已修复、发布并安装，待本人重载两个项目窗口及重连旧 MCP 进程后继续实机复核。界面保持侧栏，本轮不迁移编辑区。只验正常条件，不安排断网、断电或异常中断。
+本轮以 Windows 0.5.485 为初始实点基线。两个项目已在 0.5.488 完成授权，实机验收运行 0.5.489，原生 MCP 可分别访问正确项目。两个单 seed 实验均已有退出码 0 的结果；首次接入、MCP 文件/配置及面板结果显示仍有缺陷，整体验收未通过。0.5.490 增加通知的明确持久确认选项，完整回归及试行发布通过，已安装一次；等待本人重载项目窗口、重连 MCP，真实按钮选择待本人操作。界面保持侧栏，只验正常条件。
 
 ## 记录规则
 
@@ -8,7 +8,7 @@
 
 当前源码盘点为 42 个 VS Code 命令（包括新增授权命令）和 174 处静态按钮声明。两者不可相加作为去重分母；动态行和上下文菜单还未完整盘点。当前尚未获得全覆盖结论。
 
-0.5.485 运行中宿主的实际目录为 58 个 API 方法、191 个动作，已保存在入口清单的 liveBaseline。动作目录和 safe 字段都不能证明按钮已点击或具有写入授权。0.5.489 最终 322 项串行回归及相关定向检查通过，不能替代剩余实点及真实训练验收。
+0.5.485 运行中宿主的实际目录为 58 个 API 方法、191 个动作，已保存在入口清单的 liveBaseline。动作目录和 safe 字段都不能证明按钮已点击或具有写入授权。0.5.490 完整 322 项串行回归通过，不能替代剩余实点。原始记录为 simple_cluster/reports/test-workflow/2026-11-11T10-15-41-498Z-38512-package/run.json，退出码 0，总耗时 847421 ms。
 
 ## 实点与效果
 
@@ -29,6 +29,13 @@
 | MCP 连接跨窗口正常重载 | 发现缺陷，已修复源码 | 旧原生 MCP 连接固定了启动时实例，两个项目查询均返回 HTTP 401；重新建立官方 SDK stdio 连接可正确读取各项目与授权。0.5.489 在每次调用前重新核实工作区唯一实例；显式绑定、歧义拒绝及版本门禁回归通过，待长期连接实机复核 |
 | 项目识别与隧道提示 | 发现缺陷，已修复源码 | 0.5.487 通用项目已有 PLAN/接入配置且隧道 TCP 已通，仍依赖旧引导标记；当前 Agent 实际属于 MultiModal。0.5.488 分开本地识别与 Agent 项目归属，明确实际/预期路径，不把端口连通当作本项目就绪；待升级实点 |
 | 顶部总览与当前 PLAN 状态 | 发现缺陷，已修复源码 | 0.5.488 实际界面及只读 API 确认：校验/预演的本机进度记录 type 为 run-plan、localSubmissionProgress 为 true，当前任务数为 0。顶部未排除该标记，误报调度已完成；0.5.489 与下拉框采用同一排除条件，不改写历史记录，待升级实点 |
+| 0.5.489 顶部预演与面板提交 | 实点通过 | 预演后显示可提交；从当前 PLAN 按钮提交独立验收文件，未把准备回执计为完成 |
+| 原生 MCP 与 CLI 指定项目查询 | 实际调用通过 | 两个 MCP 状态分别为正确工作区和 0.5.489；MultiModal 同一 commandId 的 MCP 与 CLI 均查询到真实运行状态 |
+| 项目归属识别 | 实际调用通过 | 通用项目连接 MultiModal Agent 时明确返回 agent_project_mismatch，未当作本项目就绪 |
+| Agent 运维与科研任务隔离 | 实际调用通过 | 仅关闭对应项目的指定 Agent 窗口；MultiModal 任务窗口 @12 和 Scheduler @9 保留，任务随后成功完成 |
+| 通用项目仅 MCP 运行与导出 | 部分通过 | 准备、预检、启动、主动查询、收集及 CSV 导出均经 MCP；退出码 0、manifest 完整、日志检查 clear，completionState=verified。首次准备及同步配置需修正，不能计为首次接入流程通过 |
+| 通用项目面板结果 | 实点未闭环 | 当前 PLAN 显示 1/1 完成；资源树搜索与结果导航、更新结果按钮已点，结果区显示 1 个 PLAN 未识别数据集，尚未完成从面板打开相同指标行 |
+| 通知明确确认 | 回归通过，待实点 | 0.5.490 提供“已确认，此后不再通知”，按规范项目路径保存；新工作区身份、路径大小写及尾斜杠下仍保持确认，关闭通知不保存确认 |
 | 其余命令、按钮、动态菜单和行内动作 | 未实测 | 按当前清单逐项继续，不记通过 |
 
 ## 后续验收范围
@@ -46,8 +53,18 @@
 
 ## 实验边界
 
-MultiModal 的独立验收 PLAN 为 experiments/plans/acceptance/windows_mcp_20261111.yaml，image_only_bus_p100、seed 42、原有 7 项声明产物。独立 work_dirs/plugin_acceptance/20261111/image_only 和 plugin_acceptance_20261111 汇总族，不重写论文历史结果。该 PLAN 已通过本项目全部配置检查，尚未启动。
+MultiModal 的独立验收 PLAN 为 experiments/plans/acceptance/windows_mcp_20261111.yaml，image_only_bus_p100、seed 42、原有 7 项声明产物。首次 commandId 9d807fcc01babe7fce717eb5528897a7 退出码 1：旧验收输出根不满足消费项目自身 quality_paths 规则；失败日志与产物保留。仅将 PLAN 输出改为 work_dirs/quality_composition/all_low_quality_class_joint/plugin_acceptance/20261111/image_only，全部配置检查通过，提交 0ce22674881a1797cacc872005716ef0dae78f7d 已推送。
 
-通用项目源码位于 examples/mcp-dl-acceptance，普通 PyTorch 训练测试入口、seed 42、CSV 和 model.pt，不依赖 MultiModal 目录或 adapter。准备、预检、启动、查询、收集和导出必须通过真实 MCP，尚未运行。
+修正后 workflow distributed-plan-1794392521604-swd6l3、commandId bc9df623805ca30d675854c0044f4bd2 在 rjj8/GPU 1 完成，退出码 0、completionState=verified，日志包含真实 train/test 结束记录。7 个声明文件逐项存在，quality_evaluation_complete.json 的 status=complete。精确 PLAN 结果查询返回 10 条指标记录，exported=false，未发布或重写历史论文结果。本批原始指标只有 roc_auc、f1_score、accuracy、auprc、ece；AP、macro_f1、weighted_f1 没有实际输入，本批不能证明其真实实验别名效果。
+
+通用项目位于 D:/GitRepo/SimpleMcpAcceptance，来自 examples/mcp-dl-acceptance，普通 PyTorch 入口、seed 42，不依赖 MultiModal adapter，训练代码未修改。明确设置项目代码同步范围 train.py、config.yaml、experiments 后预检通过。workflow distributed-plan-1794392812546-3c0hdy、commandId 78e8aab0f09dcad43c5fe305b826d3f4 退出码 0，模型与指标 manifest 完整，后续日志主动核验 clear，completionState=verified。MCP 导出 result-3a0cfd3b0ddd0260f42c7a2d2331615dc9bac95b2974dcbf94942a7df1a938c4，与该任务指标一致；导出在内存返回，未另存原始指标副本。
+
+## 实机发现的待修复问题
+
+- project_prepare 首次面对不存在的项目远端根时先 inspect，返回 AGENT_LIFECYCLE_FAILED/No such file or directory。上传创建根后才能继续，不满足一步准备。
+- sftp_upload_files 的项目相对路径返回“本地文件不存在”；绝对路径上传成功，但 experiments 下两文件被平铺到远端根。sftp_upload_workspace 在默认根范围返回 MACHINE_STATE_PATH_PROTECTED；sftp_remote_directories 查询 experiments 子目录因请求路径与 server.remotePath 不同被拒。未绕过保护或自动清理误放的验收文件。
+- configuration_set 的 workspaceFolder 写入缺少资源 URI；workspace 写入实际成功，但回执及 configuration_get 仍返回空数组，不能反映保存值。空同步范围曾产生空 manifest，code-sync-proof-1794392704048-2g5513 登记结果未知；明确项目范围后新预检成功。
+- 日志工具传 commandId 返回空；传已知精确相对日志路径可读。首次派发曾返回 HTTP 500/action failed: timed out，但远端实际继续执行；不得据回执自动重发。任务主动查询已正确反映最后退出码。
+- 两个项目复用同一 Agent 隧道端口，本轮按各自授权顺序切换精确辅助服务窗口，任务与 Scheduler 保留。若需同时在线，仍需为项目分别配置端口。
 
 所有有副作用的操作使用专用目标。MultiModal 项目的现行规则禁止 AI 永久删除项目文件；清理验收应在独立通用项目的专用目录由本人完成审核。
