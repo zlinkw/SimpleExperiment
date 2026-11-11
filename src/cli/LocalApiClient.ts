@@ -187,6 +187,11 @@ function sameWorkspacePath(a: string, b: string): boolean {
 /** Bounded per-resolve handshake budget; exceeding it refuses instead of probing a prefix. */
 const CANDIDATE_HANDSHAKE_BUDGET = 16;
 
+function localProcessMayExist(pid: number): boolean {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
+}
+
 /**
  * Resolve exactly one LIVE instance for a workspace via real handshakes. Disk status is only a
  * candidate hint: a crashed instance's stale "running" record is probed and excluded (kept on disk,
@@ -199,7 +204,7 @@ const CANDIDATE_HANDSHAKE_BUDGET = 16;
  * pretend the remainder is absent or that the first live hit is unique.
  */
 export async function resolveInstanceByWorkspace(plugin: UnifiedPlugin, workspace: string, expectedInstanceId?: string,
-  options: { signal?: AbortSignal; timeoutMs?: number; onProgress?: (message: string) => void } = {}): Promise<PluginInstanceRow> {
+  options: { signal?: AbortSignal; timeoutMs?: number; onProgress?: (message: string) => void; processMayExist?: (pid: number) => boolean } = {}): Promise<PluginInstanceRow> {
   const timeoutMs = options.timeoutMs ?? 30_000;
   if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30_000) throw Error("实例核实总等待上限必须在 1–30000 毫秒内。");
   const signal = AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)].filter(Boolean) as AbortSignal[]);
@@ -217,6 +222,9 @@ export async function resolveInstanceByWorkspace(plugin: UnifiedPlugin, workspac
     if (candidates.length === 0)
       throw new Error(`--instance ${pin} 在工作区 ${workspace} 的实例记录中不存在；已保留全部历史记录，不做替换或猜测。`);
   }
+  // A record whose local Extension Host PID no longer exists cannot own a listener.
+  // Permission errors remain candidates. Reused/live PIDs still require the full HTTP identity handshake.
+  candidates = candidates.filter(row => (options.processMayExist || localProcessMayExist)(row.pid));
   // 握手预算在 pin 筛选之后、任何握手之前整体判定：绝不做部分握手后再宣称唯一或不存在
   // （17 条候选里第 1 与第 17 条同时存活时，截半握手会把歧义伪装成唯一）。
   if (candidates.length > CANDIDATE_HANDSHAKE_BUDGET)
@@ -349,7 +357,7 @@ export function rpcTimeoutMs(plugin: UnifiedPlugin, method: string): number {
     // 15s cutoff would abort the host request mid-operation. Queries retain their bounded timer.
     // Results use the host's bounded metadata reads / progress inactivity guard.
     // Dispatch must finish on its actual receipt, never a shorter client cutoff.
-    return ["plan.validate", "workflow.plan", "invoke", "agents.lifecycle", "project.prepare", "server.testAll", "results.list", "tasks.dispatch"].includes(method) ? 0 : 15_000;
+    return ["plan.validate", "workflow.plan", "invoke", "agents.lifecycle", "project.prepare", "server.testAll", "results.list", "tasks.dispatch", "mcp.call"].includes(method) ? 0 : 15_000;
   }
   const unbounded = /^(sync\.|upload\.|download\.|remote\.|files\.cleanup\.)/.test(method)
     // agents.lifecycle mutates remote state over one long SSH command with no reconciliation

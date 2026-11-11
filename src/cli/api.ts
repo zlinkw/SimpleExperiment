@@ -1,6 +1,7 @@
 import { asCliError, businessError, envError, networkError } from "./errors";
 import { callPluginRpc, pluginDiscoveryPath } from "./LocalApiClient";
 import * as fs from "node:fs";
+import { businessContext } from "./ExecutionContext";
 
 // CLI --instance wins over SIMPLE_CLI_INSTANCE_ID; set once by runSimpleCli before any dispatch.
 let cliInstancePin = "";
@@ -11,6 +12,7 @@ export function setInstancePin(value: string): void {
 }
 
 export function hasApiDiscovery(): boolean {
+  if (businessContext.getStore()) return true;
   try {
     return fs.existsSync(pluginDiscoveryPath("experiment"));
   } catch {
@@ -33,6 +35,8 @@ export function discoveryOrNull(): Record<string, unknown> | null {
  * timeouts. No A-domain path bypasses it any more.
  */
 export async function callApi(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+  const context = businessContext.getStore();
+  if (context) return context.rpc(method, params);
   try {
     return await callPluginRpc("experiment", method, params, cliInstancePin || undefined, cliWorkspace ? { workspace: cliWorkspace } : undefined);
   } catch (error) {

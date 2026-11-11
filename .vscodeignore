@@ -22,6 +22,7 @@ CONTEXT.md
 scripts/**
 !scripts/check-static.js
 test/**
+examples/**
 # r9 平台归属：Linux 专属验证套件（verification/linux/，POSIX receiver 显式注入必验）仅源码仓保留
 verification/**
 scenarios/**
@@ -44,6 +45,8 @@ msg.txt
 **/msg.txt
 dist/runtime/__pycache__/**
 dist/runtime/.python-dependencies/**
+# The standalone SDK entry is bundled with its dependencies and notices.
+dist/mcp/Server.js
 # Build inputs are embedded in the deployed Python scripts; retain the license.
 vendor/python/PyYAML-6.0.3.zip
 vendor/python/dependencies.lock.json

@@ -53,10 +53,10 @@ test('workspace and instance selection bypass a dead default window with real id
  fs.writeFileSync(path.join(dir,'dist/cli.js'),'throw Error("not executed");','utf8');
  fs.writeFileSync(path.join(dir,'dist/cli/LocalApiClient.js'),'module.exports=require('+JSON.stringify(require.resolve('../../dist/cli/LocalApiClient.js'))+');','utf8');
  const instances=path.join(appdata,'SimpleExperiment/instances');fs.mkdirSync(instances,{recursive:true});
- const workspace=path.join(root,'project'),instanceId='44:2026-01-01T00:00:00Z';let liveWorkspace=workspace;
+ const workspace=path.join(root,'project'),instanceId=process.pid+':2026-01-01T00:00:00Z';let liveWorkspace=workspace;
  const server=http.createServer((req,res)=>res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:[],name:'SimpleExperiment',version:'4.0.0',instanceId,workspace:liveWorkspace})));
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
- const record={name:'SimpleExperiment',version:'4.0.0',pid:44,startedAt:'2026-01-01T00:00:00Z',baseUrl:'http://127.0.0.1:'+server.address().port,token:'test-only',workspace};
+ const record={name:'SimpleExperiment',version:'4.0.0',pid:process.pid,startedAt:'2026-01-01T00:00:00Z',baseUrl:'http://127.0.0.1:'+server.address().port,token:'test-only',workspace};
  const file=path.join(instances,'44.json');fs.writeFileSync(file,JSON.stringify(record),'utf8');
  fs.writeFileSync(path.join(appdata,'SimpleExperiment/api.json'),'invalid dead default','utf8');
  const saved={APPDATA:process.env.APPDATA,SIMPLE_EXPERIMENT_API_FILE:process.env.SIMPLE_EXPERIMENT_API_FILE,SIMPLE_CLI_INSTANCE_ID:process.env.SIMPLE_CLI_INSTANCE_ID};
@@ -86,7 +86,10 @@ test('a missing CLI in the selected running version refuses rather than falling 
 test("stable shims replace recognized npm wrappers and reject unrelated commands before writes",()=>{
  const dest=path.join(root,"commands");fs.mkdirSync(dest);
  fs.writeFileSync(path.join(dest,"simpleex.cmd"),'node "%~dp0node_modules/simple-experiment/dist/cli.js" %*',"utf8");
- const a=installCliShim(dest);assert.equal(a.files.length,4);for(const f of a.files)assert.match(fs.readFileSync(path.join(dest,f),"utf8"),/SIMPLEEX_STABLE_ENTRY_V1/);
+ const a=installCliShim(dest);
+ for(const name of ['simpleex','simpleex.cmd','simpleex.ps1','simpleex-launcher.cjs','simpleex-mcp','simpleex-mcp.cmd','simpleex-mcp.ps1','simpleex-mcp-launcher.cjs'])assert.ok(a.files.includes(name));
+ assert.equal(new Set(a.files).size,a.files.length);
+ for(const f of a.files)assert.match(fs.readFileSync(path.join(dest,f),"utf8"),/SIMPLEEX_STABLE_ENTRY_V1/);
  assert.deepEqual(installCliShim(dest).files,a.files);
  const other=path.join(root,"other");fs.mkdirSync(other);fs.writeFileSync(path.join(other,"simpleex.cmd"),"user-owned command","utf8");
  assert.throws(()=>installCliShim(other),/unrelated command/);assert.equal(fs.existsSync(path.join(other,"simpleex-launcher.cjs")),false);assert.equal(fs.readFileSync(path.join(other,"simpleex.cmd"),"utf8"),"user-owned command");

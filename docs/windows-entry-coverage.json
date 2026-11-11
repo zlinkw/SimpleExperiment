@@ -1,0 +1,6143 @@
+{
+  "version": "0.5.486",
+  "tools": [
+    {
+      "name": "project_status",
+      "method": "status",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "action_catalog",
+      "method": "actions.list",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "project_state",
+      "method": "state",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "project_authorization",
+      "method": "mcp.authorization",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "project_registry",
+      "method": "projects.registry",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "project_instances",
+      "method": "projects.instances",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "project_connect",
+      "method": "invoke",
+      "plugin": "experiment",
+      "action": "startAllConnections",
+      "permission": "agents",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "project_prepare",
+      "method": "project.prepare",
+      "plugin": "experiment",
+      "permission": "agents",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "project_bootstrap",
+      "method": "project.bootstrap",
+      "plugin": "experiment",
+      "permission": "configuration",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "project_bootstrap_operation",
+      "method": "project.bootstrap.operation",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "plan_list",
+      "method": "plans.list",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "plan_preflight",
+      "method": "workflow.plan",
+      "plugin": "experiment",
+      "permission": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "plan_validate",
+      "method": "plan.validate",
+      "plugin": "experiment",
+      "permission": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "plan_run",
+      "method": "workflow.run",
+      "plugin": "experiment",
+      "permission": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "plan_filter",
+      "method": "plans.filter",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "task_list",
+      "method": "tasks.list",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "task_stop",
+      "method": "tasks.stop",
+      "plugin": "experiment",
+      "permission": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "plan_stop",
+      "method": "invoke",
+      "plugin": "experiment",
+      "action": "stopExperiment",
+      "permission": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "task_dispatch",
+      "method": "tasks.dispatch",
+      "plugin": "experiment",
+      "permission": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "task_preflight",
+      "method": "tasks.preflight",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "task_preflight_status",
+      "method": "tasks.preflight.status",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "task_preflight_cancel",
+      "method": "tasks.preflight.cancel",
+      "plugin": "experiment",
+      "permission": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "task_analyze",
+      "method": "tasks.analyze",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "operation_list",
+      "method": "operations.list",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "operation_get",
+      "method": "mcp.operation",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "gpu_status",
+      "method": "gpu.list",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "gpu_history",
+      "method": "gpu.history",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "log_read",
+      "method": "live.output",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "tmux_list",
+      "method": "tmux.list",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "tmux_capture",
+      "method": "tmux.capture",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "result_collect",
+      "method": "results.list",
+      "plugin": "experiment",
+      "permission": "results",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "server_test",
+      "method": "server.testAll",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "agent_inspect",
+      "method": "agents.lifecycle",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "agent_ensure",
+      "method": "agents.lifecycle",
+      "plugin": "experiment",
+      "action": "ensure",
+      "permission": "agents",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "agent_stop",
+      "method": "agents.lifecycle",
+      "plugin": "experiment",
+      "action": "stop",
+      "permission": "agents",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "agent_restart",
+      "method": "agents.lifecycle",
+      "plugin": "experiment",
+      "action": "restart",
+      "permission": "agents",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "agent_migrate",
+      "method": "agents.lifecycle",
+      "plugin": "experiment",
+      "action": "migrate",
+      "permission": "agents",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "configuration_list",
+      "method": "config.list",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "state_keys",
+      "method": "state.list",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "state_value",
+      "method": "state.get",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "state_set",
+      "method": "state.set",
+      "plugin": "experiment",
+      "requiresUserApproval": true
+    },
+    {
+      "name": "state_reset",
+      "method": "state.reset",
+      "plugin": "experiment",
+      "requiresUserApproval": true
+    },
+    {
+      "name": "configuration_get",
+      "method": "config.get",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "configuration_set",
+      "method": "config.set",
+      "plugin": "experiment",
+      "permission": "configuration",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "configuration_reset",
+      "method": "config.reset",
+      "plugin": "experiment",
+      "permission": "configuration",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "worker_configure",
+      "method": "workers.configure",
+      "plugin": "experiment",
+      "permission": "configuration",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "flow_get",
+      "method": "flow.get",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "flow_update",
+      "method": "flow.update",
+      "plugin": "experiment",
+      "permission": "configuration",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "panel_diagnostics",
+      "method": "panel.diagnostics",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "draft_list",
+      "method": "drafts.list",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "draft_validate",
+      "method": "drafts.validate",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "draft_promotion_preview",
+      "method": "drafts.promotionPreview",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "draft_review",
+      "method": "drafts.review",
+      "plugin": "experiment",
+      "permission": "configuration",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "draft_reject",
+      "method": "drafts.reject",
+      "plugin": "experiment",
+      "permission": "configuration",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "draft_cleanup_candidates",
+      "method": "drafts.cleanupCandidates",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "cleanup_list",
+      "method": "plans.cleanup.list",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "cleanup_status",
+      "method": "plans.cleanup.status",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "cleanup_preview",
+      "method": "plans.cleanup.preview",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "cleanup_continue",
+      "method": "plans.cleanup.continue",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "cleanup_recheck",
+      "method": "plans.cleanup.recheck",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "cleanup_cancel",
+      "method": "plans.cleanup.cancel",
+      "plugin": "experiment",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "cleanup_resume",
+      "method": "plans.cleanup.resume",
+      "plugin": "experiment",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "cleanup_restore_preview",
+      "method": "plans.cleanup.restore",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "cleanup_execute",
+      "method": "plans.cleanup.execute",
+      "plugin": "experiment",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "file_cleanup_preview",
+      "method": "files.cleanup.preview",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "file_cleanup_inspect",
+      "method": "files.cleanup.inspect",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "file_cleanup_observe_batch",
+      "method": "files.cleanup.observeBatch",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "file_cleanup_review",
+      "method": "mcp.fileReview",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "file_cleanup_status",
+      "method": "files.cleanup.status",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "file_cleanup_check",
+      "method": "files.cleanup.check",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "file_cleanup_verify",
+      "method": "files.cleanup.verify",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "file_cleanup_execute",
+      "method": "files.cleanup.execute",
+      "plugin": "sftp",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "file_cleanup_settle",
+      "method": "files.cleanup.settle",
+      "plugin": "sftp",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_status",
+      "method": "status",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_connection",
+      "method": "mcp.sftpConnection",
+      "plugin": "experiment",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_servers",
+      "method": "servers.list",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_target",
+      "method": "target.show",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_transfers",
+      "method": "transfers.list",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_configuration_list",
+      "method": "config.list",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_configuration_get",
+      "method": "config.get",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_configuration_set",
+      "method": "config.set",
+      "plugin": "sftp",
+      "requiresUserApproval": true
+    },
+    {
+      "name": "sftp_configuration_reset",
+      "method": "config.reset",
+      "plugin": "sftp",
+      "requiresUserApproval": true
+    },
+    {
+      "name": "sftp_server_activate",
+      "method": "servers.setActive",
+      "plugin": "sftp",
+      "requiresUserApproval": true
+    },
+    {
+      "name": "sftp_server_save",
+      "method": "servers.save",
+      "plugin": "sftp",
+      "requiresUserApproval": true
+    },
+    {
+      "name": "sftp_server_delete",
+      "method": "servers.delete",
+      "plugin": "sftp",
+      "requiresUserApproval": true
+    },
+    {
+      "name": "sftp_server_import",
+      "method": "servers.importSshConfig",
+      "plugin": "sftp",
+      "requiresUserApproval": true
+    },
+    {
+      "name": "sftp_target_update",
+      "method": "target.update",
+      "plugin": "sftp",
+      "requiresUserApproval": true
+    },
+    {
+      "name": "sftp_confirmation_reset",
+      "method": "confirmations.reset",
+      "plugin": "sftp",
+      "requiresUserApproval": true
+    },
+    {
+      "name": "sftp_transfer_reconcile",
+      "method": "transfers.reconcile",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_transfer_cancel",
+      "method": "transfers.cancel",
+      "plugin": "sftp",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_tree",
+      "method": "sync.projectTree",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_tree_state",
+      "method": "sync.projectTreeState",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_inventory",
+      "method": "sync.projectInventory",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_file_stats",
+      "method": "sync.projectFileStats",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_plan_logs",
+      "method": "sync.planLogPaths",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_download_scope",
+      "method": "downloadScope.configure",
+      "plugin": "sftp",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_handoff",
+      "method": "handoff.markReady",
+      "plugin": "sftp",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_from_remote",
+      "method": "sync.fromRemote",
+      "plugin": "sftp",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_remote_directories",
+      "method": "remote.listDirs",
+      "plugin": "sftp",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_download_mapped",
+      "method": "sync.downloadMappedPaths",
+      "plugin": "sftp",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_upload_files",
+      "method": "upload.files",
+      "plugin": "sftp",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_upload_workspace",
+      "method": "upload.workspace",
+      "plugin": "sftp",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_download_paths",
+      "method": "sync.downloadPaths",
+      "plugin": "sftp",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_worker_sync",
+      "method": "sync.serverToServerFpsync",
+      "plugin": "sftp",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_worker_directory",
+      "method": "sync.serverToServer",
+      "plugin": "sftp",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "sftp_worker_batch",
+      "method": "sync.serverToServerBatch",
+      "plugin": "sftp",
+      "permission": "sync",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "experiment_list",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "experiment_list",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "experiment_summary",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "experiment_summary",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "experiment_active",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "experiment_active",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "experiment_tree",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "experiment_tree",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "experiment_overview",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "experiment_overview",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "experiment_health",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "experiment_health",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "experiment_status",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "experiment_status",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "experiment_inspect",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "experiment_inspect",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "experiment_monitor",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "experiment_monitor",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "experiment_diagnose",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "experiment_diagnose",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "experiment_config",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "experiment_config",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "experiment_log",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "experiment_log",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "result_list",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "result_list",
+      "permission": "results",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "metric_list",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "metric_list",
+      "permission": "results",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "result_show",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "result_show",
+      "permission": "results",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "metric_show",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "metric_show",
+      "permission": "results",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "experiment_results",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "experiment_results",
+      "permission": "results",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "result_export",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "result_export",
+      "permission": "results",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "result_compare",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "result_compare",
+      "permission": "results",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "result_parse",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "result_parse",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "result_paper_table",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "result_paper_table",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "metric_leaderboard",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "metric_leaderboard",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "artifact_list",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "artifact_list",
+      "permission": "results",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "artifact_inspect",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "artifact_inspect",
+      "permission": "results",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "resource_available",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "resource_available",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "server_list",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "server_list",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "plan_matrix",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "plan_matrix",
+      "requiresUserApproval": false
+    },
+    {
+      "name": "plan_build",
+      "method": "mcp.query",
+      "plugin": "experiment",
+      "action": "plan_build",
+      "requiresUserApproval": false
+    }
+  ],
+  "commands": [
+    {
+      "command": "simpleExperiment.checkPluginUpdates",
+      "title": "SimpleExperiment：检查配套插件更新",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.installPluginUpdates",
+      "title": "SimpleExperiment：安装或补装配套更新并重载",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.syncToGitHub",
+      "title": "SimpleExperiment：同步到 GitHub",
+      "icon": "$(repo-push)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.publishToGitHub",
+      "title": "SimpleExperiment：发布到 GitHub",
+      "icon": "$(cloud-upload)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.setupGitBackup",
+      "title": "SimpleExperiment：配置提交自动备份",
+      "icon": "$(settings-gear)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.removeGitBackup",
+      "title": "SimpleExperiment：移除提交自动备份",
+      "icon": "$(trash)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.showGitBackupStatus",
+      "title": "SimpleExperiment：查看备份状态",
+      "icon": "$(info)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.openPanel",
+      "title": "SimpleExperiment：打开面板",
+      "icon": "$(server-environment)",
+      "status": "clicked_passed",
+      "evidence": "Windows 0.5.485 MultiModal command palette: opened SimpleExperiment panel; dedicated PLAN selection observed in UI and Local API."
+    },
+    {
+      "command": "simpleExperiment.manageAiAuthorization",
+      "title": "SimpleExperiment：管理 AI 项目授权",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.copyPanelDiagnostics",
+      "title": "SimpleExperiment：复制 Panel 诊断",
+      "icon": "$(copy)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.showOperationLog",
+      "title": "SimpleExperiment：查看操作完整日志",
+      "icon": "$(output)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.restorePanel",
+      "title": "SimpleExperiment：恢复 Panel",
+      "icon": "$(refresh)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.quickSetup",
+      "title": "SimpleExperiment：检查服务器配置",
+      "icon": "$(wand)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.bootstrapProject",
+      "title": "SimpleExperiment：识别工作区",
+      "icon": "$(rocket)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.prepareAgents",
+      "title": "SimpleExperiment：准备 Agent 并启动",
+      "icon": "$(server-process)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.openSetupGuide",
+      "title": "SimpleExperiment：打开配置说明",
+      "icon": "$(book)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.configureXshellSavedSessions",
+      "title": "SimpleExperiment：配置 Xshell 会话文件",
+      "icon": "$(bookmark)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.writeXshellAgentStartupCommands",
+      "title": "SimpleExperiment：写入 Agent 自启动 RemoteCommand",
+      "icon": "$(edit)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.configureWorkerTunnels",
+      "title": "SimpleExperiment：配置 Worker 隧道",
+      "icon": "$(server-process)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.configureTunnelPorts",
+      "title": "SimpleExperiment：配置隧道端口",
+      "icon": "$(ports-view-icon)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.configureXshellRealtimeTunnel",
+      "title": "SimpleExperiment：旧自动隧道配置（不推荐）",
+      "icon": "$(settings-gear)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.startWorkerTunnel",
+      "title": "SimpleExperiment：启动 Worker 隧道",
+      "icon": "$(debug-start)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.startAllXshellRealtimeTunnels",
+      "title": "SimpleExperiment：启动全部后台隧道",
+      "icon": "$(run-all)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.startAllXshellConnections",
+      "title": "SimpleExperiment：启动全部后台连接",
+      "icon": "$(run-all)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.openXshellSessions",
+      "title": "SimpleExperiment：一键打开 Xshell",
+      "icon": "$(terminal)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.testAllTunnels",
+      "title": "SimpleExperiment：检测全部隧道",
+      "icon": "$(pulse)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.showTunnelEndpointRegistry",
+      "title": "SimpleExperiment：显示隧道端点清单",
+      "icon": "$(list-tree)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.testXshellTunnel",
+      "title": "SimpleExperiment：检测 Xshell 隧道",
+      "icon": "$(pulse)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.restartRealtimeStream",
+      "title": "SimpleExperiment：重启实时流",
+      "icon": "$(debug-restart)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.pauseRealtimeStream",
+      "title": "SimpleExperiment：暂停实时流",
+      "icon": "$(debug-pause)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.resumeRealtimeStream",
+      "title": "SimpleExperiment：恢复实时流",
+      "icon": "$(debug-continue)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.pauseAllNetworkActivity",
+      "title": "SimpleExperiment：暂停全部网络活动",
+      "icon": "$(circle-slash)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.generateXshellTunnelScript",
+      "title": "SimpleExperiment：生成 Xshell 会话启动脚本",
+      "icon": "$(file-code)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.openTunnelStatus",
+      "title": "SimpleExperiment：打开隧道状态",
+      "icon": "$(json)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.runXshellRealIntegrationCheck",
+      "title": "SimpleExperiment：运行 Xshell 真实对接检测",
+      "icon": "$(checklist)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.manualRefresh",
+      "title": "SimpleExperiment：手动快照",
+      "icon": "$(refresh)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.importOfflineBundle",
+      "title": "SimpleExperiment：导入离线包",
+      "icon": "$(archive)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.clearCache",
+      "title": "SimpleExperiment：清除缓存",
+      "icon": "$(trash)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.verifyAgentVersion",
+      "title": "SimpleExperiment：校验 Agent 版本",
+      "icon": "$(check)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.openLastCheckStaticReport",
+      "title": "SimpleExperiment：打开静态检查报告",
+      "icon": "$(file)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.copyLastCheckStaticReport",
+      "title": "SimpleExperiment：复制静态检查报告",
+      "icon": "$(copy)",
+      "status": "not_tested",
+      "evidence": null
+    },
+    {
+      "command": "simpleExperiment.runCheckStatic",
+      "title": "SimpleExperiment：检查项目接入",
+      "icon": "$(checklist)",
+      "status": "not_tested",
+      "evidence": null
+    }
+  ],
+  "staticButtonOccurrences": [
+    {
+      "command": "toggleLowTrafficMode",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1361,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6895
+        }
+      ]
+    },
+    {
+      "command": "verifyAgentVersion",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1365,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7356
+        }
+      ]
+    },
+    {
+      "command": "clearCache",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1366,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7234
+        }
+      ]
+    },
+    {
+      "command": "openSetupGuide",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1367,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6981
+        }
+      ]
+    },
+    {
+      "command": "runCheckStatic",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1416,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7353
+        }
+      ]
+    },
+    {
+      "command": "overwriteGithub",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1417,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7252
+        }
+      ]
+    },
+    {
+      "command": "configureCodeSyncIncludes",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1418,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7270
+        }
+      ]
+    },
+    {
+      "command": "prepareAgents",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1422,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "invokeApi",
+          "source": "src/extension/legacy.ts",
+          "line": 4452
+        },
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7017
+        }
+      ]
+    },
+    {
+      "command": "startAll",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1424,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7005
+        }
+      ]
+    },
+    {
+      "command": "openXshell",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1425,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7014
+        }
+      ]
+    },
+    {
+      "command": "publishGithub",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1427,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7246
+        }
+      ]
+    },
+    {
+      "command": "testAll",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1429,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "invokeApi",
+          "source": "src/extension/legacy.ts",
+          "line": 4447
+        },
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7020
+        }
+      ]
+    },
+    {
+      "command": "bootstrapProject",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1441,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7125
+        }
+      ]
+    },
+    {
+      "command": "snapshot",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1442,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7044
+        }
+      ]
+    },
+    {
+      "command": "validatePlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1463,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "postUiCommandStatus",
+          "source": "src/extension/legacy.ts",
+          "line": 7510
+        }
+      ]
+    },
+    {
+      "command": "dryRunPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1464,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "postUiCommandStatus",
+          "source": "src/extension/legacy.ts",
+          "line": 7510
+        },
+        {
+          "function": "runActionCommandCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7820
+        }
+      ]
+    },
+    {
+      "command": "runPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1465,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": []
+    },
+    {
+      "command": "runAllPlans",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1466,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7105
+        },
+        {
+          "function": "withUiCommandStatus",
+          "source": "src/extension/legacy.ts",
+          "line": 7417
+        }
+      ]
+    },
+    {
+      "command": "runAllPlans",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1467,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7105
+        },
+        {
+          "function": "withUiCommandStatus",
+          "source": "src/extension/legacy.ts",
+          "line": 7417
+        }
+      ]
+    },
+    {
+      "command": "cleanupPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1476,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7093
+        }
+      ]
+    },
+    {
+      "command": "reviewIsolatedPlanBatches",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1477,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7096
+        }
+      ]
+    },
+    {
+      "command": "registerAncestorProject",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1485,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7128
+        }
+      ]
+    },
+    {
+      "command": "registerBranchProject",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1486,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7131
+        }
+      ]
+    },
+    {
+      "command": "createBranchFromAncestor",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1487,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7134
+        }
+      ]
+    },
+    {
+      "command": "refreshBranchProjects",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1488,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7137
+        }
+      ]
+    },
+    {
+      "command": "refreshUnifiedDispatchPolicy",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1489,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7140
+        }
+      ]
+    },
+    {
+      "command": "refreshBranchRuns",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1490,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7152
+        }
+      ]
+    },
+    {
+      "command": "compareBranchResults",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1491,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7146
+        }
+      ]
+    },
+    {
+      "command": "manualGpuSnapshot",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1505,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7047
+        }
+      ]
+    },
+    {
+      "command": "manualSchedulerSnapshot",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1564,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7056
+        }
+      ]
+    },
+    {
+      "command": "openLastCheckStaticReport",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1623,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7347
+        }
+      ]
+    },
+    {
+      "command": "copyLastCheckStaticReport",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1624,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7350
+        }
+      ]
+    },
+    {
+      "command": "startWorker",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1633,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6999
+        }
+      ]
+    },
+    {
+      "command": "configurePorts",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1634,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6987
+        }
+      ]
+    },
+    {
+      "command": "repairPorts",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1635,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6990
+        }
+      ]
+    },
+    {
+      "command": "copyText",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1665,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7344
+        }
+      ]
+    },
+    {
+      "command": "resetUiLayout",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1672,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7243
+        }
+      ]
+    },
+    {
+      "command": "openAdvancedCommandsSetting",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 1679,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6984
+        }
+      ]
+    },
+    {
+      "command": "selectExperiment",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 3591,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7219
+        }
+      ]
+    },
+    {
+      "command": "selectExperiment",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 4432,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7219
+        }
+      ]
+    },
+    {
+      "command": "bootstrapProject",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 4991,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7125
+        }
+      ]
+    },
+    {
+      "command": "openBranchProject",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 5022,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7155
+        }
+      ]
+    },
+    {
+      "command": "forgetAncestorProject",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 5023,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7161
+        }
+      ]
+    },
+    {
+      "command": "openBranchProject",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 5033,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7155
+        }
+      ]
+    },
+    {
+      "command": "createBranchPr",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 5034,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7164
+        }
+      ]
+    },
+    {
+      "command": "mergeBranchPr",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 5034,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7167
+        }
+      ]
+    },
+    {
+      "command": "forgetBranchProject",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 5034,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7158
+        }
+      ]
+    },
+    {
+      "command": "submitBranchPlanRun",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 5056,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7143
+        }
+      ]
+    },
+    {
+      "command": "verifyBranchHeadBinding",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 5099,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7149
+        }
+      ]
+    },
+    {
+      "command": "openPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 5216,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7084
+        }
+      ]
+    },
+    {
+      "command": "reloadPanel",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 5479,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6898
+        }
+      ]
+    },
+    {
+      "command": "openSetupGuide",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 9404,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6981
+        }
+      ]
+    },
+    {
+      "command": "openLastCheckStaticReport",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 9788,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7347
+        }
+      ]
+    },
+    {
+      "command": "saveAgentDefaults",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 9850,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6954
+        }
+      ]
+    },
+    {
+      "command": "saveSchedulerConfig",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 9878,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6957
+        }
+      ]
+    },
+    {
+      "command": "snapshot",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 9879,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7044
+        }
+      ]
+    },
+    {
+      "command": "addWorkerConfig",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 9929,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6963
+        }
+      ]
+    },
+    {
+      "command": "saveWorkerConfig",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 9930,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6960
+        }
+      ]
+    },
+    {
+      "command": "startTunnelEndpoint",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 9931,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6969
+        }
+      ]
+    },
+    {
+      "command": "deleteWorkerConfig",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 9932,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6966
+        }
+      ]
+    },
+    {
+      "command": "resetRemotePathConfirmations",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 9945,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7276
+        }
+      ]
+    },
+    {
+      "command": "resetPptPathConfirmations",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 9955,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7279
+        }
+      ]
+    },
+    {
+      "command": "addWorkerConfig",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10053,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6963
+        }
+      ]
+    },
+    {
+      "command": "startAll",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10054,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7005
+        }
+      ]
+    },
+    {
+      "command": "openXshell",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10055,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7014
+        }
+      ]
+    },
+    {
+      "command": "prepareAgents",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10056,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "invokeApi",
+          "source": "src/extension/legacy.ts",
+          "line": 4452
+        },
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7017
+        }
+      ]
+    },
+    {
+      "command": "testAll",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10057,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "invokeApi",
+          "source": "src/extension/legacy.ts",
+          "line": 4447
+        },
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7020
+        }
+      ]
+    },
+    {
+      "command": "openScalarViewer",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10064,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7319
+        }
+      ]
+    },
+    {
+      "command": "openScalarViewer",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10069,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7319
+        }
+      ]
+    },
+    {
+      "command": "openScalarViewer",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10081,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7319
+        }
+      ]
+    },
+    {
+      "command": "checkPluginUpdates",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10151,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "invokeApi",
+          "source": "src/extension/legacy.ts",
+          "line": 4474
+        },
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7191
+        }
+      ]
+    },
+    {
+      "command": "installPluginUpdates",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10152,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "invokeApi",
+          "source": "src/extension/legacy.ts",
+          "line": 4476
+        },
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7193
+        }
+      ]
+    },
+    {
+      "command": "saveRemoteRootPolicy",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10192,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7188
+        }
+      ]
+    },
+    {
+      "command": "chooseResultCsvDir",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10204,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7195
+        }
+      ]
+    },
+    {
+      "command": "saveResultCsvDir",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10204,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7185
+        }
+      ]
+    },
+    {
+      "command": "editResultColumnMapping",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10213,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7310
+        }
+      ]
+    },
+    {
+      "command": "prepareAgents",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10725,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "invokeApi",
+          "source": "src/extension/legacy.ts",
+          "line": 4452
+        },
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7017
+        }
+      ]
+    },
+    {
+      "command": "writeAgentCommands",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10726,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6913
+        }
+      ]
+    },
+    {
+      "command": "startAllConnections",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10727,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7011
+        }
+      ]
+    },
+    {
+      "command": "openXshell",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10728,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7014
+        }
+      ]
+    },
+    {
+      "command": "startTunnelEndpoint",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10742,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6969
+        }
+      ]
+    },
+    {
+      "command": "reviewDraft",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 11094,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7116
+        }
+      ]
+    },
+    {
+      "command": "promoteDraft",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 11095,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7110
+        }
+      ]
+    },
+    {
+      "command": "rejectDraft",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 11096,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7113
+        }
+      ]
+    },
+    {
+      "command": "cleanupDrafts",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 11106,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "invokeApi",
+          "source": "src/extension/legacy.ts",
+          "line": 4464
+        },
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7119
+        }
+      ]
+    },
+    {
+      "command": "archivePlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 11126,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7090
+        }
+      ]
+    },
+    {
+      "command": "generateOutputAdapter",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 11418,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7170
+        }
+      ]
+    },
+    {
+      "command": "runPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 11440,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": []
+    },
+    {
+      "command": "openScalarViewer",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 11784,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7319
+        }
+      ]
+    },
+    {
+      "command": "selectLogRunKey",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 13524,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7062
+        }
+      ]
+    },
+    {
+      "command": "openPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 13596,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7084
+        }
+      ]
+    },
+    {
+      "command": "saveProjectAdapterRules",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 14021,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7173
+        }
+      ]
+    },
+    {
+      "command": "openPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 14364,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7084
+        }
+      ]
+    },
+    {
+      "command": "openPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 14554,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7084
+        }
+      ]
+    },
+    {
+      "command": "analyzeRuntimeLog",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 14706,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6930
+        },
+        {
+          "function": "withUiCommandStatus",
+          "source": "src/extension/legacy.ts",
+          "line": 7427
+        }
+      ]
+    },
+    {
+      "command": "selectExperiment",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 14728,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7219
+        }
+      ]
+    },
+    {
+      "command": "clearLegacyTasks",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 14779,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7222
+        }
+      ]
+    },
+    {
+      "command": "selectLogRunKey",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 14883,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7062
+        }
+      ]
+    },
+    {
+      "command": "manualTracesSnapshot",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 14911,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7059
+        }
+      ]
+    },
+    {
+      "command": "openPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 14968,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7084
+        }
+      ]
+    },
+    {
+      "command": "restoreArchivedPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 14968,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7102
+        }
+      ]
+    },
+    {
+      "command": "openPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 14968,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7084
+        }
+      ]
+    },
+    {
+      "command": "openPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 14968,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7084
+        }
+      ]
+    },
+    {
+      "command": "selectExperiment",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 14980,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7219
+        }
+      ]
+    },
+    {
+      "command": "clearOperations",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15413,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7225
+        }
+      ]
+    },
+    {
+      "command": "retryDistributedJob",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15442,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6922
+        },
+        {
+          "function": "withUiCommandStatus",
+          "source": "src/extension/legacy.ts",
+          "line": 7415
+        }
+      ]
+    },
+    {
+      "command": "retryDistributedJob",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15444,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6922
+        },
+        {
+          "function": "withUiCommandStatus",
+          "source": "src/extension/legacy.ts",
+          "line": 7415
+        }
+      ]
+    },
+    {
+      "command": "recallPlanToLocalQueue",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15447,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6951
+        }
+      ]
+    },
+    {
+      "command": "recheckOutputIsolation",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15450,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6926
+        },
+        {
+          "function": "withUiCommandStatus",
+          "source": "src/extension/legacy.ts",
+          "line": 7411
+        }
+      ]
+    },
+    {
+      "command": "recallFailedJob",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15454,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6934
+        }
+      ]
+    },
+    {
+      "command": "analyzeRuntimeLog",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15470,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6930
+        },
+        {
+          "function": "withUiCommandStatus",
+          "source": "src/extension/legacy.ts",
+          "line": 7427
+        }
+      ]
+    },
+    {
+      "command": "releaseJobStageBlockSlots",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15499,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7302
+        }
+      ]
+    },
+    {
+      "command": "retryDistributedJob",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15503,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6922
+        },
+        {
+          "function": "withUiCommandStatus",
+          "source": "src/extension/legacy.ts",
+          "line": 7415
+        }
+      ]
+    },
+    {
+      "command": "snapshot",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15519,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7044
+        }
+      ]
+    },
+    {
+      "command": "snapshot",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15523,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7044
+        }
+      ]
+    },
+    {
+      "command": "runPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15551,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": []
+    },
+    {
+      "command": "stopAndClearPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15553,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7230
+        }
+      ]
+    },
+    {
+      "command": "recallPlanToLocalQueue",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15556,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6951
+        }
+      ]
+    },
+    {
+      "command": "queueRemainingJobs",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15558,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6928
+        }
+      ]
+    },
+    {
+      "command": "stopAndClearPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15665,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7230
+        }
+      ]
+    },
+    {
+      "command": "stopAllPlans",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15666,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7228
+        }
+      ]
+    },
+    {
+      "command": "stopAndClearPlans",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15668,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7232
+        }
+      ]
+    },
+    {
+      "command": "stopAndClearPlans",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15669,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7232
+        }
+      ]
+    },
+    {
+      "command": "clearOperations",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15670,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7225
+        }
+      ]
+    },
+    {
+      "command": "clearOperations",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15671,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7225
+        }
+      ]
+    },
+    {
+      "command": "clearOperations",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15672,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7225
+        }
+      ]
+    },
+    {
+      "command": "queueRemainingJobs",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15673,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6928
+        }
+      ]
+    },
+    {
+      "command": "snapshot",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15674,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7044
+        }
+      ]
+    },
+    {
+      "command": "abortScheduler",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15675,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7316
+        }
+      ]
+    },
+    {
+      "command": "selectExperiment",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16075,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7219
+        }
+      ]
+    },
+    {
+      "command": "selectExperiment",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16112,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7219
+        }
+      ]
+    },
+    {
+      "command": "retryPlanSubmission",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16235,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6777
+        }
+      ]
+    },
+    {
+      "command": "cancelPlanSubmission",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16235,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 6778
+        }
+      ]
+    },
+    {
+      "command": "clearOperations",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16240,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7225
+        }
+      ]
+    },
+    {
+      "command": "abortScheduler",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16254,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7316
+        }
+      ]
+    },
+    {
+      "command": "stopAndClearPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16538,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7230
+        }
+      ]
+    },
+    {
+      "command": "snapshot",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16543,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7044
+        }
+      ]
+    },
+    {
+      "command": "showLogHistory",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16544,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7338
+        }
+      ]
+    },
+    {
+      "command": "openFullLog",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16545,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7341
+        }
+      ]
+    },
+    {
+      "command": "stopAndClearPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16553,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7230
+        }
+      ]
+    },
+    {
+      "command": "snapshot",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16556,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7044
+        }
+      ]
+    },
+    {
+      "command": "showLogHistory",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16557,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7338
+        }
+      ]
+    },
+    {
+      "command": "openFullLog",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16558,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7341
+        }
+      ]
+    },
+    {
+      "command": "showLogHistory",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16648,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7338
+        }
+      ]
+    },
+    {
+      "command": "openFullLog",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16648,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7341
+        }
+      ]
+    },
+    {
+      "command": "showLogHistory",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16660,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7338
+        }
+      ]
+    },
+    {
+      "command": "openFullLog",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16660,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7341
+        }
+      ]
+    },
+    {
+      "command": "showLogHistory",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16667,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7338
+        }
+      ]
+    },
+    {
+      "command": "openFullLog",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16667,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7341
+        }
+      ]
+    },
+    {
+      "command": "downloadRemoteResult",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16678,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7285
+        },
+        {
+          "function": "withSafeTransferRetry",
+          "source": "src/extension/legacy.ts",
+          "line": 14065
+        }
+      ]
+    },
+    {
+      "command": "choosePptPath",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16828,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7201
+        }
+      ]
+    },
+    {
+      "command": "chooseNewPptPath",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16828,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7204
+        }
+      ]
+    },
+    {
+      "command": "savePptPlotConfig",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16841,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7198
+        }
+      ]
+    },
+    {
+      "command": "plotResultsToPpt",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16843,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7207
+        }
+      ]
+    },
+    {
+      "command": "plotResultsToPpt",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16850,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7207
+        }
+      ]
+    },
+    {
+      "command": "openLocalResultTable",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 17089,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7307
+        }
+      ]
+    },
+    {
+      "command": "openLocalResultTable",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 17089,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7307
+        }
+      ]
+    },
+    {
+      "command": "openLocalResultTable",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 17105,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7307
+        }
+      ]
+    },
+    {
+      "command": "autoMatchPlanDatasets",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 17122,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7182
+        }
+      ]
+    },
+    {
+      "command": "applyPlanDatasetMapping",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 17122,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7179
+        }
+      ]
+    },
+    {
+      "command": "syncPendingPlanArtifacts",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 17128,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7297
+        }
+      ]
+    },
+    {
+      "command": "refreshLocalResults",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 17128,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7295
+        }
+      ]
+    },
+    {
+      "command": "splitProjectResultTable",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 17139,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7304
+        }
+      ]
+    },
+    {
+      "command": "openResultArtifact",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 17319,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7288
+        }
+      ]
+    },
+    {
+      "command": "saveResultColumnMapping",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 17352,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7176
+        }
+      ]
+    },
+    {
+      "command": "plotResultsToPpt",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 17674,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7207
+        }
+      ]
+    },
+    {
+      "command": "snapshot",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 17992,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7044
+        }
+      ]
+    },
+    {
+      "command": "testAll",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 17994,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "invokeApi",
+          "source": "src/extension/legacy.ts",
+          "line": 4447
+        },
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7020
+        }
+      ]
+    },
+    {
+      "command": "testAll",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 17995,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "invokeApi",
+          "source": "src/extension/legacy.ts",
+          "line": 4447
+        },
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7020
+        }
+      ]
+    },
+    {
+      "command": "runPlan",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 19038,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": []
+    },
+    {
+      "command": "selectExperiment",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 19127,
+      "status": "not_tested",
+      "evidence": null,
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7219
+        }
+      ]
+    }
+  ],
+  "dynamicControls": {
+    "status": "requires_live_inventory"
+  },
+  "migration": [
+    {
+      "plugin": "experiment",
+      "method": "actions.list",
+      "tools": [
+        "action_catalog"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "agents.lifecycle",
+      "tools": [
+        "agent_inspect",
+        "agent_ensure",
+        "agent_stop",
+        "agent_restart",
+        "agent_migrate"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "config.get",
+      "tools": [
+        "configuration_get"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "config.list",
+      "tools": [
+        "configuration_list"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "config.reset",
+      "tools": [
+        "configuration_reset"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "config.set",
+      "tools": [
+        "configuration_set"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "drafts.cleanup",
+      "tools": [],
+      "status": "human_review",
+      "reason": "Existing draft cleanup UI; exact path confirmation is not an AI parameter"
+    },
+    {
+      "plugin": "experiment",
+      "method": "drafts.cleanupCandidates",
+      "tools": [
+        "draft_cleanup_candidates"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "drafts.list",
+      "tools": [
+        "draft_list"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "drafts.promote",
+      "tools": [],
+      "status": "retired",
+      "reason": "DRAFT_PROMOTION_RETIRED; do not restore promotion"
+    },
+    {
+      "plugin": "experiment",
+      "method": "drafts.promotionPreview",
+      "tools": [
+        "draft_promotion_preview"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "drafts.reject",
+      "tools": [
+        "draft_reject"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "drafts.review",
+      "tools": [
+        "draft_review"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "drafts.validate",
+      "tools": [
+        "draft_validate"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "flow.get",
+      "tools": [
+        "flow_get"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "flow.update",
+      "tools": [
+        "flow_update"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "gpu.history",
+      "tools": [
+        "gpu_history"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "gpu.list",
+      "tools": [
+        "gpu_status"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "invoke",
+      "tools": [
+        "project_connect",
+        "plan_stop"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "live.output",
+      "tools": [
+        "log_read"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "mcp.authorization",
+      "tools": [
+        "project_authorization"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "mcp.call",
+      "tools": [],
+      "status": "transport_internal",
+      "reason": "Named MCP tools call this shared host boundary"
+    },
+    {
+      "plugin": "experiment",
+      "method": "mcp.catalog",
+      "tools": [],
+      "status": "transport_internal",
+      "reason": "MCP tools/list uses the live host catalog"
+    },
+    {
+      "plugin": "experiment",
+      "method": "mcp.operation",
+      "tools": [
+        "operation_get"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "operations.list",
+      "tools": [
+        "operation_list"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "panel.diagnostics",
+      "tools": [
+        "panel_diagnostics"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "plan.validate",
+      "tools": [
+        "plan_validate"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "plans.cleanup.cancel",
+      "tools": [
+        "cleanup_cancel"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "plans.cleanup.confirm",
+      "tools": [],
+      "status": "human_review",
+      "reason": "Existing PLAN review pages call the confirmation phases"
+    },
+    {
+      "plugin": "experiment",
+      "method": "plans.cleanup.continue",
+      "tools": [
+        "cleanup_continue"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "plans.cleanup.execute",
+      "tools": [
+        "cleanup_execute"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "plans.cleanup.list",
+      "tools": [
+        "cleanup_list"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "plans.cleanup.preview",
+      "tools": [
+        "cleanup_preview"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "plans.cleanup.recheck",
+      "tools": [
+        "cleanup_recheck"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "plans.cleanup.restore",
+      "tools": [
+        "cleanup_restore_preview"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "plans.cleanup.resume",
+      "tools": [
+        "cleanup_resume"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "plans.cleanup.status",
+      "tools": [
+        "cleanup_status"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "plans.filter",
+      "tools": [
+        "plan_filter"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "plans.list",
+      "tools": [
+        "plan_list"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "project.bootstrap",
+      "tools": [
+        "project_bootstrap"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "project.bootstrap.operation",
+      "tools": [
+        "project_bootstrap_operation"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "project.prepare",
+      "tools": [
+        "project_prepare"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "projects.instances",
+      "tools": [
+        "project_instances"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "projects.registry",
+      "tools": [
+        "project_registry"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "results.list",
+      "tools": [
+        "result_collect"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "server.testAll",
+      "tools": [
+        "server_test"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "state",
+      "tools": [
+        "project_state"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "state.get",
+      "tools": [
+        "state_value"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "state.list",
+      "tools": [
+        "state_keys"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "state.reset",
+      "tools": [
+        "state_reset"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "state.set",
+      "tools": [
+        "state_set"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "status",
+      "tools": [
+        "project_status"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "tasks.analyze",
+      "tools": [
+        "task_analyze"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "tasks.dispatch",
+      "tools": [
+        "task_dispatch"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "tasks.list",
+      "tools": [
+        "task_list"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "tasks.preflight",
+      "tools": [
+        "task_preflight"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "tasks.preflight.cancel",
+      "tools": [
+        "task_preflight_cancel"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "tasks.preflight.status",
+      "tools": [
+        "task_preflight_status"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "tasks.stop",
+      "tools": [
+        "task_stop"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "tmux.capture",
+      "tools": [
+        "tmux_capture"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "tmux.list",
+      "tools": [
+        "tmux_list"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "workers.configure",
+      "tools": [
+        "worker_configure"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "workflow.plan",
+      "tools": [
+        "plan_preflight"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "experiment",
+      "method": "workflow.run",
+      "tools": [
+        "plan_run"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "agents.lifecycle",
+      "tools": [],
+      "status": "mapped_via_host",
+      "reason": "agent_inspect/ensure/stop/restart/migrate resolve the host-owned service identity"
+    },
+    {
+      "plugin": "sftp",
+      "method": "config.get",
+      "tools": [
+        "sftp_configuration_get"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "config.list",
+      "tools": [
+        "sftp_configuration_list"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "config.reset",
+      "tools": [
+        "sftp_configuration_reset"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "config.set",
+      "tools": [
+        "sftp_configuration_set"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "confirmations.reset",
+      "tools": [
+        "sftp_confirmation_reset"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "downloadScope.configure",
+      "tools": [
+        "sftp_download_scope"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "files.cleanup.check",
+      "tools": [
+        "file_cleanup_check"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "files.cleanup.confirm",
+      "tools": [],
+      "status": "human_review",
+      "reason": "file_cleanup_review opens two local human review pages; factors are never AI arguments"
+    },
+    {
+      "plugin": "sftp",
+      "method": "files.cleanup.execute",
+      "tools": [
+        "file_cleanup_execute"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "files.cleanup.inspect",
+      "tools": [
+        "file_cleanup_inspect"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "files.cleanup.isolatedMaintenanceDelete",
+      "tools": [],
+      "status": "integration_internal",
+      "reason": "Existing registered isolation lifecycle; no arbitrary maintenance delete tool"
+    },
+    {
+      "plugin": "sftp",
+      "method": "files.cleanup.isolationParentsPreview",
+      "tools": [],
+      "status": "integration_internal",
+      "reason": "Existing PLAN replacement review owns these exact empty-parent previews"
+    },
+    {
+      "plugin": "sftp",
+      "method": "files.cleanup.observeBatch",
+      "tools": [
+        "file_cleanup_observe_batch"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "files.cleanup.preview",
+      "tools": [
+        "file_cleanup_preview"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "files.cleanup.settle",
+      "tools": [
+        "file_cleanup_settle"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "files.cleanup.stagedSlots",
+      "tools": [],
+      "status": "integration_internal",
+      "reason": "Existing staging admission and cache review; no implicit cleanup authorization"
+    },
+    {
+      "plugin": "sftp",
+      "method": "files.cleanup.status",
+      "tools": [
+        "file_cleanup_status"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "files.cleanup.verify",
+      "tools": [
+        "file_cleanup_verify"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "handoff.markReady",
+      "tools": [
+        "sftp_handoff"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "project.create",
+      "tools": [],
+      "status": "human_target_setup",
+      "reason": "Create/open a different workspace through the existing SimpleSFTP UI; then bind a separate MCP connection"
+    },
+    {
+      "plugin": "sftp",
+      "method": "remote.listDirs",
+      "tools": [
+        "sftp_remote_directories"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "servers.delete",
+      "tools": [
+        "sftp_server_delete"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "servers.importSshConfig",
+      "tools": [
+        "sftp_server_import"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "servers.list",
+      "tools": [
+        "sftp_servers"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "servers.save",
+      "tools": [
+        "sftp_server_save"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "servers.setActive",
+      "tools": [
+        "sftp_server_activate"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "status",
+      "tools": [
+        "sftp_status"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "sync.deletePath",
+      "tools": [],
+      "status": "mapped_via_protected_tools",
+      "reason": "file_cleanup_preview/review/execute/status use a frozen typed path and stored confirmations"
+    },
+    {
+      "plugin": "sftp",
+      "method": "sync.downloadMappedPaths",
+      "tools": [
+        "sftp_download_mapped"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "sync.downloadPaths",
+      "tools": [
+        "sftp_download_paths"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "sync.fromRemote",
+      "tools": [
+        "sftp_from_remote"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "sync.planLogPaths",
+      "tools": [
+        "sftp_plan_logs"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "sync.projectFileStats",
+      "tools": [
+        "sftp_file_stats"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "sync.projectInventory",
+      "tools": [
+        "sftp_inventory"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "sync.projectTree",
+      "tools": [
+        "sftp_tree"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "sync.projectTreeState",
+      "tools": [
+        "sftp_tree_state"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "sync.serverToServer",
+      "tools": [
+        "sftp_worker_directory"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "sync.serverToServerBatch",
+      "tools": [
+        "sftp_worker_batch"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "sync.serverToServerFpsync",
+      "tools": [
+        "sftp_worker_sync"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "target.show",
+      "tools": [
+        "sftp_target"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "target.update",
+      "tools": [
+        "sftp_target_update"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "transfers.cancel",
+      "tools": [
+        "sftp_transfer_cancel"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "transfers.list",
+      "tools": [
+        "sftp_transfers"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "transfers.reconcile",
+      "tools": [
+        "sftp_transfer_reconcile"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "upload.files",
+      "tools": [
+        "sftp_upload_files"
+      ],
+      "status": "mapped_requires_validation"
+    },
+    {
+      "plugin": "sftp",
+      "method": "upload.workspace",
+      "tools": [
+        "sftp_upload_workspace"
+      ],
+      "status": "mapped_requires_validation"
+    }
+  ],
+  "note": "Source inventory. Every actual control, contextual menu and dynamic row still needs live evidence. Counts are observations, not fixed acceptance limits.",
+  "liveBaseline": {
+    "observedAt": "2026-11-11T04:55:04.168Z",
+    "workspace": "d:\\GitRepo\\MultiModal",
+    "version": "0.5.485",
+    "methods": [
+      "actions.list",
+      "agents.lifecycle",
+      "config.get",
+      "config.list",
+      "config.reset",
+      "config.set",
+      "drafts.cleanup",
+      "drafts.cleanupCandidates",
+      "drafts.list",
+      "drafts.promote",
+      "drafts.promotionPreview",
+      "drafts.reject",
+      "drafts.review",
+      "drafts.validate",
+      "flow.get",
+      "flow.update",
+      "gpu.history",
+      "gpu.list",
+      "invoke",
+      "live.output",
+      "operations.list",
+      "panel.diagnostics",
+      "plan.validate",
+      "plans.cleanup.cancel",
+      "plans.cleanup.confirm",
+      "plans.cleanup.continue",
+      "plans.cleanup.execute",
+      "plans.cleanup.list",
+      "plans.cleanup.preview",
+      "plans.cleanup.recheck",
+      "plans.cleanup.restore",
+      "plans.cleanup.resume",
+      "plans.cleanup.status",
+      "plans.filter",
+      "plans.list",
+      "project.bootstrap",
+      "project.bootstrap.operation",
+      "project.prepare",
+      "projects.instances",
+      "projects.registry",
+      "results.list",
+      "server.testAll",
+      "state",
+      "state.get",
+      "state.list",
+      "state.reset",
+      "state.set",
+      "status",
+      "tasks.analyze",
+      "tasks.dispatch",
+      "tasks.list",
+      "tasks.preflight",
+      "tasks.preflight.cancel",
+      "tasks.preflight.status",
+      "tmux.capture",
+      "tmux.list",
+      "workflow.plan",
+      "workflow.run"
+    ],
+    "actions": [
+      {
+        "command": "abortScheduler",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "addWorkerConfig",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "analyzeRuntimeLog",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "answerRunConfirmation",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "applyPlanDatasetMapping",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "archiveArtifacts",
+        "action": "archive-artifacts",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "archivePlan",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "archivePlanCopy",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "autoMatchPlanDatasets",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "bootstrapProject",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "cancelPlanSubmission",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "checkClaimEvidence",
+        "action": "check-claim-evidence",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "checkOutputContract",
+        "action": "check-output-contract",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "checkPluginUpdates",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "chooseNewPptPath",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "choosePptPath",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "chooseResultCsvDir",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "cleanupDrafts",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "cleanupPlan",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "clearCache",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "clearLegacyTasks",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "clearOperations",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "clearTmuxTaskTabs",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "compareBranchResults",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "compareWithBestConfig",
+        "action": "compare-with-best-config",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "completeThreeWay",
+        "action": "complete-three-way",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "configure",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "configureAgentSessions",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "configureCodeSyncIncludes",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "configureDownloadScope",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "configurePorts",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "configureServerSyncScope",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "configureSessions",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "configureWorkers",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "copyLastCheckStaticReport",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "copyTensorBoardUrl",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "copyText",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "createBranchFromAncestor",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "createBranchPr",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "createDebugBundle",
+        "action": "create-debug-bundle",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "deleteArtifacts",
+        "action": "delete-artifacts",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "deleteWorkerConfig",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "deployLatestAgent",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "diagnoseResultAnomaly",
+        "action": "diagnose-result-anomaly",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "dispatchJobs",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "distributeCodeToWorkers",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "downloadDebugBundle",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "downloadRemoteResult",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "dryRunPlan",
+        "action": "dry-run-plan",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "editResultColumnMapping",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "excludeResults",
+        "action": "exclude-results",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "exportCaseAnalysis",
+        "action": "export-case-analysis",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "exportPaperTable",
+        "action": "export-paper-table",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "exportPlottingContract",
+        "action": "export-plotting-contract",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "fetchTmuxCapture",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "fetchTmuxList",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "forgetAncestorProject",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "forgetBranchProject",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "generateOutputAdapter",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "generatePlanGuide",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "getTensorBoardStatus",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "gpuWindowSamples",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "inferConfigFromRun",
+        "action": "infer-config-from-run",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "inspectDataset",
+        "action": "inspect-dataset",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "installPluginUpdates",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "killTmuxWindow",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "loadGpuHistory",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "manualGpuSnapshot",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "manualSchedulerSnapshot",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "manualTracesSnapshot",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "markJobUnavailable",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "mergeBranchPr",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "offline",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "openAdvancedCommandsSetting",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "openAuditTail",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "openBranchProject",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "openFullLog",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "openLastCheckStaticReport",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "openLocalResultTable",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "openPlan",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "openPptAutomationGuide",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "openResultArtifact",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "openScalarViewer",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "openSetupGuide",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "openTensorBoard",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "openTensorBoardUrl",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "openXshell",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "overwriteGithub",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "parseCaseLevel",
+        "action": "parse-case-level",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "parseResults",
+        "action": "parse-results",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "pauseAll",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "pauseStream",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "planCheckpointRetention",
+        "action": "plan-checkpoint-retention",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "plotResultsToPpt",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "prepareAgents",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "promoteDraft",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "publishGithub",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "queueRemainingJobs",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "quickSetup",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "realCheck",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "reassignWorkerTask",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "rebuildProjectResultTables",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "recallFailedJob",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "recallPlanToLocalQueue",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "recheckOutputIsolation",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "reconcileDeletions",
+        "action": "reconcile-deletions",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "recoverPlanFromRun",
+        "action": "recover-plan-from-run",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "refreshBranchProjects",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "refreshBranchRuns",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "refreshJobArtifacts",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "refreshLocalResults",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "refreshPptAutomation",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "refreshResults",
+        "action": "refresh-results",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "refreshUnifiedDispatchPolicy",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "registerAncestorProject",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "registerBranchProject",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "rejectDraft",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "releaseJobStageBlockSlots",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "repairPorts",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "reproducePlan",
+        "action": "reproduce-plan",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "resetPptPathConfirmations",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "resetRemotePathConfirmations",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "resetUiLayout",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "restart",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": [
+          "agent_restart"
+        ]
+      },
+      {
+        "command": "restoreArchivedPlan",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "restoreJobAvailability",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "resumeNetwork",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "resumeStream",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "retryDistributedJob",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "retryExperiment",
+        "action": "retry-experiment",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "retryJobArtifactSync",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "retryPlanSubmission",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "reviewDraft",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "reviewIsolatedPlanBatches",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "runAllPlans",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "runCheckStatic",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "runDraftDebug",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "runLeakageCheck",
+        "action": "run-leakage-check",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "runPlan",
+        "action": "run-plan",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "runQualityGate",
+        "action": "run-quality-gate",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "runStatistics",
+        "action": "run-statistics",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "runSubgroupAnalysis",
+        "action": "run-subgroup-analysis",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "saveAgentDefaults",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "savePlan",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "savePptPlotConfig",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "saveProjectAdapterRules",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "saveRemoteRootPolicy",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "saveResultColumnMapping",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "saveResultCsvDir",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "saveSchedulerConfig",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "saveTopologyMode",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "saveUiLayout",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "saveWorkerConfig",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "script",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "selectExperiment",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "selectLogRunKey",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "selectPlan",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "selfCheck",
+        "action": "self-check",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "showLogHistory",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "showRegistry",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "snapshot",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "splitProjectResultTable",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "start",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "startAgentEndpoint",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "startAgents",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "startAll",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "startAllConnections",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": [
+          "project_connect"
+        ]
+      },
+      {
+        "command": "startHub",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "retired",
+        "mappedTools": []
+      },
+      {
+        "command": "startPptAutomation",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "startTensorBoard",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "startTunnelEndpoint",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "startWorker",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "status",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "stopAllPlans",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "stopAndClearPlan",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "stopAndClearPlans",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "stopExperiment",
+        "action": "stop-experiment",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": [
+          "plan_stop"
+        ]
+      },
+      {
+        "command": "stopTensorBoard",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "submitBranchPlanRun",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "syncAllResultArtifacts",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "syncArtifacts",
+        "action": "sync-artifacts",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "syncGithub",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "syncPendingPlanArtifacts",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "test",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "testAll",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "uploadProjectToHub",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "retired",
+        "mappedTools": []
+      },
+      {
+        "command": "uploadProjectToWorkers",
+        "action": "",
+        "safeHint": false,
+        "legacyConfirmHint": true,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "validatePlan",
+        "action": "validate-plan",
+        "safeHint": false,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "verifyAgentVersion",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "verifyBranchHeadBinding",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      },
+      {
+        "command": "writeAgentCommands",
+        "action": "",
+        "safeHint": true,
+        "legacyConfirmHint": false,
+        "status": "requires_live_click_validation",
+        "mappedTools": []
+      }
+    ],
+    "note": "Live directory only; safe/confirm metadata does not grant authorization. Actions without named tools retain their existing UI; they are not claimed as unattended MCP coverage."
+  }
+}

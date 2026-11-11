@@ -6,6 +6,10 @@ function installCliShim(destination){
  if(!fs.statSync(root).isDirectory())throw Error("CLI destination must be an existing command directory");
  const launcher=fs.readFileSync(path.join(__dirname,"../bin/simpleex.cjs"),"utf8");
  const files={
+  "simpleex-mcp-launcher.cjs":fs.readFileSync(path.join(__dirname,"../bin/simpleex-mcp.cjs"),"utf8"),
+  "simpleex-mcp.cmd":'@echo off\r\nrem '+MARKER+'\r\nnode "%~dp0simpleex-mcp-launcher.cjs" %*\r\nexit /b %errorlevel%\r\n',
+  "simpleex-mcp.ps1":'# '+MARKER+'\n& node (Join-Path $PSScriptRoot "simpleex-mcp-launcher.cjs") @args\nexit $LASTEXITCODE\n',
+  "simpleex-mcp":'#!/bin/sh\n# '+MARKER+'\nexec node "$(dirname "$0")/simpleex-mcp-launcher.cjs" "$@"\n',
   "simpleex-launcher.cjs":launcher,
   "simpleex.cmd":'@echo off\r\nrem '+MARKER+'\r\nnode "%~dp0simpleex-launcher.cjs" %*\r\nexit /b %errorlevel%\r\n',
   "simpleex.ps1":'# '+MARKER+'\n& node (Join-Path $PSScriptRoot "simpleex-launcher.cjs") @args\nexit $LASTEXITCODE\n',
@@ -19,7 +23,7 @@ function installCliShim(destination){
    const old=fs.readFileSync(file,"utf8");if(!old.includes(MARKER)&&!old.includes("simple-experiment/dist/cli.js")&&!old.includes("simple-experiment\\dist\\cli.js")&&!old.includes("simple-experiment/bin/simpleex.cjs"))throw Error("Refusing unrelated command: "+file);
   }
  }
- for(const [name,text]of Object.entries(files)){const file=path.join(root,name);fs.writeFileSync(file,text,"utf8");if(process.platform!=="win32"&&name==="simpleex")fs.chmodSync(file,0o755);}
+ for(const [name,text]of Object.entries(files)){const file=path.join(root,name);fs.writeFileSync(file,text,"utf8");if(process.platform!=="win32"&&["simpleex","simpleex-mcp"].includes(name))fs.chmodSync(file,0o755);}
  return {destination:root,files:Object.keys(files),kind:MARKER};
 }
 function commandDirectory(){

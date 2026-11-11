@@ -58,7 +58,11 @@ const missing = [];
 // src/extension/legacy.ts#runCheckStaticFromUi 双候选归一后命中 scripts/check-static.js，
 // 必须随包发布，否则用户侧报“check-static 脚本缺失”。此处断言磁盘存在即必须收录，
 // 并纳入 require 闭包队列做传递验证（P0：不硬编码任何端口/IP，只校验路径收录）。
-const spawnCandidates = ["scripts/check-static.js", "dist/cli.js"];
+const spawnCandidates = ["scripts/check-static.js", "dist/cli.js", "dist/mcp/server.cjs"];
+for (const required of ["bin/simpleex-mcp.cjs", "dist/mcp/server.cjs", "dist/mcp/THIRD-PARTY-NOTICES.txt"]) {
+  if (!fs.existsSync(path.join(root, required)) || !packaged.has(required))
+    missing.push({ importer: "MCP launcher", required, chain: ["MCP launcher", required] });
+}
 for (const candidate of spawnCandidates) {
   const absolute = path.join(root, candidate);
   if (!fs.existsSync(absolute)) continue;

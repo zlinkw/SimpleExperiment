@@ -44,6 +44,7 @@ exports.classifyApiFailure = classifyApiFailure;
 const errors_1 = require("./errors");
 const LocalApiClient_1 = require("./LocalApiClient");
 const fs = __importStar(require("node:fs"));
+const ExecutionContext_1 = require("./ExecutionContext");
 // CLI --instance wins over SIMPLE_CLI_INSTANCE_ID; set once by runSimpleCli before any dispatch.
 let cliInstancePin = "";
 let cliWorkspace = "";
@@ -52,6 +53,8 @@ function setInstancePin(value) {
     cliInstancePin = String(value || "").trim();
 }
 function hasApiDiscovery() {
+    if (ExecutionContext_1.businessContext.getStore())
+        return true;
     try {
         return fs.existsSync((0, LocalApiClient_1.pluginDiscoveryPath)("experiment"));
     }
@@ -74,6 +77,9 @@ function discoveryOrNull() {
  * timeouts. No A-domain path bypasses it any more.
  */
 async function callApi(method, params = {}) {
+    const context = ExecutionContext_1.businessContext.getStore();
+    if (context)
+        return context.rpc(method, params);
     try {
         return await (0, LocalApiClient_1.callPluginRpc)("experiment", method, params, cliInstancePin || undefined, cliWorkspace ? { workspace: cliWorkspace } : undefined);
     }

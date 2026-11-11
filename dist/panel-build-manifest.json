@@ -1,8 +1,12 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.485",
-  "buildId": "3ac5b77109cf19839925e4e8a09bf82f37812232e1612782aca5a39b3403e765",
+  "version": "0.5.486",
+  "buildId": "06a0bc5aad4a3e7115ffefd5dde3a1973487452d7e5009a71b7e57a5f6d9d513",
   "files": [
+    {
+      "path": "bin/simpleex-mcp.cjs",
+      "sha256": "be4e806758223a0b010742260db2c49a64f33a4b9e6020c9ccdd07f08efccd6b"
+    },
     {
       "path": "bin/simpleex.cjs",
       "sha256": "58d67e8aac15442bf6a0222b2c36bf9e2d02d42a67eba1655227c5a37291d750"
@@ -25,7 +29,7 @@
     },
     {
       "path": "dist/cli/api.js",
-      "sha256": "4bd3d2e75a63ced35f9f268f9b282bb48f82fd1c1dafac45bc1af23fd8bc3787"
+      "sha256": "e6be4dc03f0b17d1b6f4bb806659527eecaf8922e7682610a6974c7452f2d36d"
     },
     {
       "path": "dist/cli/commands/action.js",
@@ -105,15 +109,19 @@
     },
     {
       "path": "dist/cli/data.js",
-      "sha256": "56975590d95d97fca94205d0a24025c16d4109e479bf3936b893c183ba36b6b8"
+      "sha256": "4ff9934df779d21dcf6dff94afde581eb70d71e284d5fc3f43a328f7e395bf8a"
     },
     {
       "path": "dist/cli/errors.js",
       "sha256": "5b19b14d8854208f8cdf42420ad2f5cfab30451185a84b7f011a5b8091f26057"
     },
     {
+      "path": "dist/cli/ExecutionContext.js",
+      "sha256": "ff76e2b38a6c3f8bffb5d787460a1c20642f0943f244be9721fac1bbbe699d18"
+    },
+    {
       "path": "dist/cli/format.js",
-      "sha256": "95dee5976bd95271eea2c9fa33afb6e27c40b0c74dd4d7cb339a4707cd5204d8"
+      "sha256": "99551d765bea2767f784147c5e5598ef0dd967149afa02d794c75393de3693ab"
     },
     {
       "path": "dist/cli/help.js",
@@ -125,7 +133,7 @@
     },
     {
       "path": "dist/cli/LocalApiClient.js",
-      "sha256": "048e1f43fc5d5defbf0f392ca1ac6382ec77b248c1bea164dd701deb9218e667"
+      "sha256": "dfb6940aa2d2d61f64a4ca956f17451cc9bf4266670592addb0cb442e3c9652e"
     },
     {
       "path": "dist/cli/parse.js",
@@ -249,11 +257,15 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "c01fb086e3530d35bd840f245ebdb1e93a4a607b1c2221e214ad452a8c378e0f"
+      "sha256": "bca6edf0095c8532f64ab4105ffb6276eda8b8b437030bdc8f6ae856918fb684"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
       "sha256": "ed218bda68aea0e677633925f07c1ac038f582d212cc5d5af90a772ca77eb5b8"
+    },
+    {
+      "path": "dist/extension/McpHost.js",
+      "sha256": "7905fb86807afc165494488d28643de8302da457b5b0c423f4bbe2126d13d79b"
     },
     {
       "path": "dist/extension/OutputIsolationRecoveryHost.js",
@@ -293,7 +305,7 @@
     },
     {
       "path": "dist/extension/PlanRunHost.js",
-      "sha256": "396418b093898bb81393c348dd34f3ba3340ae9aab7be965a6147cdeabba5b54"
+      "sha256": "26094988b9468ae4b5b7a072d6df5930370cdda9daaa905dec8e24fdd4b97504"
     },
     {
       "path": "dist/extension/PlanStopClearBatchHost.js",
@@ -322,6 +334,14 @@
     {
       "path": "dist/extension/ServerQueueHost.js",
       "sha256": "9e29b72d2cc44c96eb7f342cffd1ed936c3499d6966420c6d3e75aea114403b5"
+    },
+    {
+      "path": "dist/extension/SftpCleanupReview.js",
+      "sha256": "5330a2b846ad4094b65a6173b993486f98f7dbc7610832810135a73202b256ad"
+    },
+    {
+      "path": "dist/extension/TaskControl.js",
+      "sha256": "38f7a8d793a460a989a9cd296bedd6b1cad9d86c79c7b4e89759e9e7d049e634"
     },
     {
       "path": "dist/factories/CommandFactory.js",
@@ -541,7 +561,7 @@
     },
     {
       "path": "dist/features/PanelPlanStatusSummary.js",
-      "sha256": "95cb21ae91de33c798cd7c7f03c9f82049a135a0206322adbfd5b8105efdc7b6"
+      "sha256": "63805a344b564f78713e32e2f8fad7f9e18157fd670269d6e7766cfbd9a24edf"
     },
     {
       "path": "dist/features/PanelProgressDom.js",
@@ -816,6 +836,30 @@
       "sha256": "316bce1b5e783b8e52f3710a1c74fb6cc12776188d410e2d75e5a38b44d4cc28"
     },
     {
+      "path": "dist/mcp/Invocation.js",
+      "sha256": "a0d40cad9e70f2ec6bb29ee0473364addcb55a2c1b28c722b80b2fc6afb2a88b"
+    },
+    {
+      "path": "dist/mcp/ProjectAuthorization.js",
+      "sha256": "948f6f8fdb41c3dd38feaaf6f7d90153c363a2eaef1d62c5beb96c1df24dced6"
+    },
+    {
+      "path": "dist/mcp/ProjectGateway.js",
+      "sha256": "d1797a8b3f0e11548c6c9880739013433b8774768fb8d5afd952ba834992467b"
+    },
+    {
+      "path": "dist/mcp/ProjectOperations.js",
+      "sha256": "a0ff4c83c55b20536814a25e8f83acbfbda7fc91c8eeffdf5cc30d3ba76cf256"
+    },
+    {
+      "path": "dist/mcp/ProjectQueries.js",
+      "sha256": "5382b2a36430ad0b17a89ab8a869a82f0fd962b4dd6a279f4105986e9402dd83"
+    },
+    {
+      "path": "dist/mcp/ToolCatalog.js",
+      "sha256": "4eece85a0bb73cdea3b715bf65899581f39d592da3d726f564f1dbd1ae77369d"
+    },
+    {
       "path": "dist/PptPlotBridge.js",
       "sha256": "71a3b068da497ea8928cfe91c5a2377df6584ff27495a7442c99d09f57003d20"
     },
@@ -897,7 +941,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "6e0e7e762019925a971ab7a5a637617446d8e7812ceb05fe67ab8392cfb76fc0"
+      "sha256": "7acfdd4e6399a571c7b3ee704c189a0c011a86ecf484ca81133ccfff4446b3cf"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1125,7 +1169,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "cdf27838c1615131f83252e96085b65eea9ef0c22bdb7b110169d9f89ad9ef00"
+      "sha256": "45a3d8b4b2c2209c75119b9d9273ab8d69d8790f0abb181fedcfe3d481e91022"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1249,7 +1293,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "b43740293f382527a9e14ed523368cf3a5a0e7c60450bed61d44edda3d9765a5"
+      "sha256": "ec25a3cde79bc730ddd5e542b6c68cd0d53b86f925c022ff78889cc980f0ac80"
     },
     {
       "path": "scripts/check-static.js",

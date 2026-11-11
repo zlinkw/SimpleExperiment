@@ -44,6 +44,7 @@ exports.__handleResultUiCommandForTest = __handleResultUiCommandForTest;
 exports.__distributeMappedDownloadsForTest = __distributeMappedDownloadsForTest;
 // @ts-nocheck
 const vscode = __importStar(require("vscode"));
+const McpHost_1 = require("./McpHost");
 const PlanStopClearBatchHost_1 = require("./PlanStopClearBatchHost");
 const RuntimeLogAnalysisHost_1 = require("./RuntimeLogAnalysisHost");
 const SelectedPlanBatchHost_1 = require("./SelectedPlanBatchHost");
@@ -80,6 +81,8 @@ const StaticEntrypointProbe_1 = require("../features/StaticEntrypointProbe");
 const SetupGuideSource_1 = require("../features/SetupGuideSource");
 const FailedJobRecovery = __importStar(require("../features/FailedJobRecovery"));
 const PulledTaskControl = __importStar(require("../features/PulledTaskControl"));
+const TaskControl_1 = require("./TaskControl");
+const Invocation_1 = require("../mcp/Invocation");
 const WorkerTaskQuery = __importStar(require("../features/WorkerTaskQuery"));
 const WorkerProgressQuery = __importStar(require("../features/WorkerProgressQuery"));
 const VerifiedCompletion_1 = require("../features/VerifiedCompletion");
@@ -777,7 +780,7 @@ async function activateExtension(context) {
     provider = new RealtimeTunnelPanelProvider(context);
     const retainPanelContext = provider.retainPanelContextWhenHidden;
     const hostCommand = (commandId, actionType, actionLabel, operation) => vscode.commands.registerCommand(commandId, (...args) => provider?.withHostOperationLease(actionType, actionLabel, () => operation(...args)));
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: retainPanelContext } }), vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)), vscode.commands.registerCommand("simpleExperiment.copyPanelDiagnostics", () => provider?.copyPanelDiagnosticsFromUi()), vscode.commands.registerCommand("simpleExperiment.showOperationLog", () => provider?.showOperationLogFromUi()), vscode.commands.registerCommand("simpleExperiment.restorePanel", () => provider?.restorePanelFromUi()), hostCommand("simpleExperiment.quickSetup", "quick-setup", "检查服务器配置", () => provider?.quickSetup()), hostCommand("simpleExperiment.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()), hostCommand("simpleExperiment.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()), hostCommand("simpleExperiment.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()), hostCommand("simpleExperiment.configureWorkerTunnels", "configure-worker-tunnels", "配置 Worker 隧道", () => provider?.configureWorkerTunnels()), hostCommand("simpleExperiment.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()), hostCommand("simpleExperiment.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()), hostCommand("simpleExperiment.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()), hostCommand("simpleExperiment.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动后台隧道", () => provider?.startXshellRealtimeTunnel()), hostCommand("simpleExperiment.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部后台隧道", () => provider?.startAllXshellRealtimeTunnels()), hostCommand("simpleExperiment.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()), hostCommand("simpleExperiment.startAllXshellConnections", "start-all-connections", "启动全部后台连接", () => provider?.startAllXshellConnections()), hostCommand("simpleExperiment.openXshellSessions", "open-xshell-sessions", "打开 Xshell 会话", () => provider?.openAllXshellSessions()), vscode.commands.registerCommand("simpleExperiment.testAllTunnels", () => provider?.testTunnel(true)), vscode.commands.registerCommand("simpleExperiment.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()), vscode.commands.registerCommand("simpleExperiment.testXshellTunnel", () => provider?.testTunnel(true)), hostCommand("simpleExperiment.restartRealtimeStream", "restart-realtime-stream", "重启实时流", () => provider?.restartRealtimeStream()), hostCommand("simpleExperiment.pauseRealtimeStream", "pause-realtime-stream", "暂停实时流", () => provider?.pauseRealtimeStream()), hostCommand("simpleExperiment.resumeRealtimeStream", "resume-realtime-stream", "恢复实时流", () => provider?.resumeRealtimeStream()), hostCommand("simpleExperiment.pauseAllNetworkActivity", "pause-network", "暂停网络活动", () => provider?.pauseAllNetworkActivity()), hostCommand("simpleExperiment.generateXshellTunnelScript", "write-tunnel-script", "生成 Xshell 启动脚本", () => provider?.generateTunnelScript()), vscode.commands.registerCommand("simpleExperiment.openTunnelStatus", () => provider?.openTunnelStatus()), vscode.commands.registerCommand("simpleExperiment.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()), vscode.commands.registerCommand("simpleExperiment.manualRefresh", () => provider?.manualSnapshot()), hostCommand("simpleExperiment.importOfflineBundle", "import-offline-bundle", "导入离线包", () => provider?.importOffline()), vscode.commands.registerCommand("simpleExperiment.clearCache", () => provider?.clearCacheFromUi()), vscode.commands.registerCommand("simpleExperiment.openLastCheckStaticReport", () => provider?.openLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.copyLastCheckStaticReport", () => provider?.copyLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.runCheckStatic", () => provider?.runCheckStaticFromUi()));
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: retainPanelContext } }), vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)), vscode.commands.registerCommand("simpleExperiment.manageAiAuthorization", () => (0, McpHost_1.manageAiAuthorization)(provider)), vscode.commands.registerCommand("simpleExperiment.copyPanelDiagnostics", () => provider?.copyPanelDiagnosticsFromUi()), vscode.commands.registerCommand("simpleExperiment.showOperationLog", () => provider?.showOperationLogFromUi()), vscode.commands.registerCommand("simpleExperiment.restorePanel", () => provider?.restorePanelFromUi()), hostCommand("simpleExperiment.quickSetup", "quick-setup", "检查服务器配置", () => provider?.quickSetup()), hostCommand("simpleExperiment.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()), hostCommand("simpleExperiment.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()), hostCommand("simpleExperiment.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()), hostCommand("simpleExperiment.configureWorkerTunnels", "configure-worker-tunnels", "配置 Worker 隧道", () => provider?.configureWorkerTunnels()), hostCommand("simpleExperiment.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()), hostCommand("simpleExperiment.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()), hostCommand("simpleExperiment.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()), hostCommand("simpleExperiment.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动后台隧道", () => provider?.startXshellRealtimeTunnel()), hostCommand("simpleExperiment.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部后台隧道", () => provider?.startAllXshellRealtimeTunnels()), hostCommand("simpleExperiment.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()), hostCommand("simpleExperiment.startAllXshellConnections", "start-all-connections", "启动全部后台连接", () => provider?.startAllXshellConnections()), hostCommand("simpleExperiment.openXshellSessions", "open-xshell-sessions", "打开 Xshell 会话", () => provider?.openAllXshellSessions()), vscode.commands.registerCommand("simpleExperiment.testAllTunnels", () => provider?.testTunnel(true)), vscode.commands.registerCommand("simpleExperiment.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()), vscode.commands.registerCommand("simpleExperiment.testXshellTunnel", () => provider?.testTunnel(true)), hostCommand("simpleExperiment.restartRealtimeStream", "restart-realtime-stream", "重启实时流", () => provider?.restartRealtimeStream()), hostCommand("simpleExperiment.pauseRealtimeStream", "pause-realtime-stream", "暂停实时流", () => provider?.pauseRealtimeStream()), hostCommand("simpleExperiment.resumeRealtimeStream", "resume-realtime-stream", "恢复实时流", () => provider?.resumeRealtimeStream()), hostCommand("simpleExperiment.pauseAllNetworkActivity", "pause-network", "暂停网络活动", () => provider?.pauseAllNetworkActivity()), hostCommand("simpleExperiment.generateXshellTunnelScript", "write-tunnel-script", "生成 Xshell 启动脚本", () => provider?.generateTunnelScript()), vscode.commands.registerCommand("simpleExperiment.openTunnelStatus", () => provider?.openTunnelStatus()), vscode.commands.registerCommand("simpleExperiment.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()), vscode.commands.registerCommand("simpleExperiment.manualRefresh", () => provider?.manualSnapshot()), hostCommand("simpleExperiment.importOfflineBundle", "import-offline-bundle", "导入离线包", () => provider?.importOffline()), vscode.commands.registerCommand("simpleExperiment.clearCache", () => provider?.clearCacheFromUi()), vscode.commands.registerCommand("simpleExperiment.openLastCheckStaticReport", () => provider?.openLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.copyLastCheckStaticReport", () => provider?.copyLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.runCheckStatic", () => provider?.runCheckStaticFromUi()));
     context.subscriptions.push(hostCommand("simpleExperiment.bootstrapProject", "bootstrap-project", "识别工作区", () => provider?.bootstrapProjectFromUi()), hostCommand("simpleExperiment.prepareAgents", "prepare-agents", "准备 Agent 并启动", () => provider?.prepareAgentsForFirstRun()), hostCommand("simpleExperiment.verifyAgentVersion", "verify-agent-version", "校验 Agent 版本", () => provider?.verifyAgentVersionManually()));
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => void provider?.handleConfigurationChanged(event)));
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
@@ -2659,6 +2662,10 @@ class RealtimeTunnelPanelProvider {
     }
     createLocalApiMethods() {
         return {
+            "mcp.catalog": () => (0, McpHost_1.mcpGateway)(this).catalog(),
+            "mcp.authorization": () => (0, McpHost_1.mcpGateway)(this).call("project_authorization", {}),
+            "mcp.call": (params) => (0, McpHost_1.mcpOperations)(this).call(params.tool, params.arguments, { signal: this.activationAbortController.signal }),
+            "mcp.operation": (params) => (0, McpHost_1.mcpOperations)(this).status(params.operationId),
             "plans.cleanup.preview": params => this.planCleanupHost().service.preview(params),
             "plans.cleanup.continue": params => this.planCleanupHost().service.continuePreview(String(params.operationId || ""), { verifiedOnly: params.verifiedOnly }),
             "plans.cleanup.recheck": params => this.planCleanupHost().service.recheckNode(String(params.nodeId || "")),
@@ -2721,6 +2728,7 @@ class RealtimeTunnelPanelProvider {
                 source: "local_metadata",
             }),
             "results.list": async (params, _server, context) => this.apiResultsList(params, context.signal),
+            "tasks.stop": async (params) => (0, TaskControl_1.stopProjectTask)(this, workspaceRoot(), params),
             "tasks.dispatch": async (params) => {
                 if (params.confirm !== true)
                     throw confirmationRequired({ operation: "tasks.dispatch", requires: ["confirm"],
@@ -2829,6 +2837,13 @@ class RealtimeTunnelPanelProvider {
             "config.get": async (params) => this.apiConfigGet(params),
             "config.set": async (params) => this.apiConfigSet(params),
             "config.reset": async (params) => this.apiConfigReset(params),
+            "workers.configure": async (params) => {
+                if (params.confirm !== true)
+                    throw confirmationRequired({ operation: "workers.configure", requires: ["confirm"], params });
+                if (!this.enabledWorkerConfigs().some(worker => worker.id === params.workerId))
+                    throw new Error("MCP_WORKER_UNKNOWN");
+                return this.saveWorkerConfigFromUi({ endpointId: params.workerId, patch: params.patch, apiMode: true });
+            },
             "state.list": async () => this.apiStateList(),
             "state.get": async (params) => this.apiStateGet(params),
             "state.set": async (params) => this.apiStateSet(params),
@@ -3364,8 +3379,11 @@ class RealtimeTunnelPanelProvider {
     async apiLiveOutput(params = {}, signal) {
         const runKey = stringField(params, "runKey") || stringField(params, "run_key") || "";
         const workerId = stringField(params, "workerId") || stringField(params, "worker_id") || "";
+        const since = params.since === undefined ? 0 : params.since;
+        if (!Number.isSafeInteger(since) || since < 0)
+            throw new Error("日志 since 必须是非负整数。");
         const direct = runKey
-            ? await this.client.getLiveOutput(runKey, 0, this.resolveWorkerEndpointId(workerId) || workerId || undefined, { userInitiated: true, signal }).catch((error) => {
+            ? await this.client.getLiveOutput(runKey, since, this.resolveWorkerEndpointId(workerId) || workerId || undefined, { userInitiated: true, signal }).catch((error) => {
                 if (signal?.aborted)
                     throw error;
                 return undefined;
@@ -3691,9 +3709,8 @@ class RealtimeTunnelPanelProvider {
             await this.deployLatestAgentRuntime(false, true, serverIds, true, { migrationDigests: params.legacyMigrationDigests });
         if (params.startSessions === true)
             await this.startAllXshellConnections(false, false, serverIds);
-        const test = params.autoTest === true
-            ? await this.apiServerTestAll({ refresh: true })
-            : await this.apiServerTestAll({ refresh: false });
+        const infrastructureChanged = params.deployRuntime !== false || params.startSessions === true;
+        const test = await this.apiServerTestAll({ refresh: params.autoTest === true || infrastructureChanged });
         await this.apiAdvanceFlow("select_servers", { completed: true });
         if (topology.mode)
             await this.apiAdvanceFlow("select_mode", { completed: true });
@@ -14636,6 +14653,8 @@ class RealtimeTunnelPanelProvider {
                 throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，远端路径确认已取消。");
         };
         assertCurrent();
+        if ((0, Invocation_1.authorizedRemoteTargets)(targets))
+            return;
         const localProjectRoot = projectContext?.root || assertSingleProjectWorkspace(operation);
         await this.loadProjectRemotePathConfirmationsState();
         assertCurrent();
@@ -19590,7 +19609,7 @@ class RealtimeTunnelPanelProvider {
         const task = (this.workerConfigSavePromise || Promise.resolve()).catch(() => { }).then(() => this.saveWorkerConfigCore(message));
         this.workerConfigSavePromise = task;
         try {
-            await task;
+            return await task;
         }
         finally {
             if (this.workerConfigSavePromise === task)
@@ -19673,6 +19692,12 @@ class RealtimeTunnelPanelProvider {
         await this.ensureXshellSessionLoaded(selectedWorker?.savedSessionPath);
         await this.applySetupDraft(this.withImportedXshellFields(manual, sessionPathChanged(currentWorker.savedSessionPath, selectedWorker?.savedSessionPath) ? endpointId : ""), { syncAssignmentsFromFields: true });
         const savedWorker = this.setupConfig.workerTunnels.find((worker) => worker.id === endpointId);
+        if (message.apiMode === true)
+            return { ok: true, workerId: endpointId, worker: {
+                    condaEnv: savedWorker.condaEnv, localForwardPort: savedWorker.localForwardPort, remoteAgentPort: savedWorker.remoteAgentPort,
+                    maxConcurrentGpus: savedWorker.maxConcurrentGpus, gpuJobsPerCard: savedWorker.gpuJobsPerCard,
+                    gpuMinFreeMemoryGb: savedWorker.gpuMinFreeMemoryGb, gpuMaxConcurrentCards: savedWorker.gpuMaxConcurrentCards,
+                } };
         void this.showServerConfigSavedNextStep(savedWorker?.displayName || endpointId, savedWorker?.agentProjectDir).catch((error) => {
             void vscode.window.showErrorMessage(`服务器配置已保存，但后续引导失败：${errorMessage(error)}`);
         });

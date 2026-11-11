@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的后台 SSH 隧道实时集群编排面板。",
-  "version": "0.5.485",
+  "version": "0.5.486",
   "simpleExperimentRelease": {
     "channel": "trial",
     "authoritativeVersion": "0.5.483",
@@ -69,7 +69,8 @@
   ],
   "main": "./dist/updates/Bootstrap.js",
   "bin": {
-    "simpleex": "./bin/simpleex.cjs"
+    "simpleex": "./bin/simpleex.cjs",
+    "simpleex-mcp": "./bin/simpleex-mcp.cjs"
   },
   "contributes": {
     "commands": [
@@ -110,6 +111,10 @@
         "command": "simpleExperiment.openPanel",
         "title": "SimpleExperiment：打开面板",
         "icon": "$(server-environment)"
+      },
+      {
+        "command": "simpleExperiment.manageAiAuthorization",
+        "title": "SimpleExperiment：管理 AI 项目授权"
       },
       {
         "command": "simpleExperiment.copyPanelDiagnostics",
@@ -994,9 +999,11 @@
     "test:local-dispatch": "node scripts/test-workflow.js test:local-dispatch"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.100.0",
     "@vscode/vsce": "4.0.0",
+    "esbuild": "0.28.2",
     "typescript": "^5.8.3"
   },
   "dependencies": {

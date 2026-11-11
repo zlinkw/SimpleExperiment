@@ -47,6 +47,12 @@ function fixture({events=true,interruptStorage=false}={}){
   withAssignmentsFromConfigFields:value=>value,withXshellDerivedFields:value=>value,withImportedXshellFields:value=>value,ensureXshellSessionLoaded:async()=>{},showServerConfigSavedNextStep:async()=>{}});
  return {h,state,writes,settings,reload:()=>h.loadSetupConfig()};
 }
+test('parameterized Worker saves return actual persisted values without opening continuation selectors', async () => {
+ const f=fixture();f.h.showServerConfigSavedNextStep=async()=>assert.fail('API mode must not open a follow-up selector');
+ const result=await f.h.saveWorkerConfigFromUi({endpointId:'a',patch:{condaEnvMode:'system',gpuMaxConcurrentCards:2},apiMode:true});
+ assert.equal(result.ok,true);assert.equal(result.workerId,'a');assert.equal(result.worker.condaEnv,'');
+ assert.equal(result.worker.gpuMaxConcurrentCards,2);assert.equal(f.reload().workerTunnels[0].gpuMaxConcurrentCards,2);
+});
 test('server cap, zero/pause and cleared/inherit survive real save, configuration callbacks and fresh reload',async()=>{
  for(const cap of [2,0,undefined]){const f=fixture(),workers=f.h.setupConfig.workerTunnels.map(w=>w.id==='a'?{...w,gpuMaxConcurrentCards:cap,gpuCardOverrides:{'0':{gpuJobsPerCard:6}}}:w);
   await f.h.applySetupDraft({workerTunnels:workers});

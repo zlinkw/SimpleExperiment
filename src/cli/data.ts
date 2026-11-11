@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { businessContext } from "./ExecutionContext";
 
 export const EXPERIMENT_INDEX_REL = path.join("simple_cluster", "experiment_index.json");
 export const PLAN_REGISTRY_REL = path.join("simple_cluster", "plans", "plan_registry.json");
@@ -33,6 +34,8 @@ export function isExperimentProjectRoot(root: string): boolean {
 }
 
 export function projectRoot(): string {
+  const context = businessContext.getStore();
+  if (context) return context.root;
   if (projectRootOverride) return projectRootOverride;
   const explicit = process.env.SIMPLE_EXPERIMENT_PROJECT_ROOT;
   if (explicit !== undefined) {

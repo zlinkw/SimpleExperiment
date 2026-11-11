@@ -1,0 +1,9 @@
+schemaVersion: 1
+projectName: SimpleMcpAcceptance
+taskType: classification
+resultPathPolicy: declared
+distributedResults: true
+primaryMetric: accuracy
+secondaryMetrics: [loss]
+outputs:
+  candidateCsv: [metrics.csv]

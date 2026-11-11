@@ -10,6 +10,7 @@ exports.writeText = writeText;
 exports.compactJsonValue = compactJsonValue;
 exports.isExperimentLike = isExperimentLike;
 exports.compactExperiment = compactExperiment;
+const ExecutionContext_1 = require("./ExecutionContext");
 const BULKY_KEYS = new Set(["raw", "recentLogs", "runtimeLog", "log", "content", "yaml", "evidence", "checks", "reproducedPlanId", "lifecycle"]);
 function toJson(value) {
     return `${JSON.stringify(value, null, 2)}\n`;
@@ -51,9 +52,19 @@ function stringify(value) {
     return JSON.stringify(value);
 }
 function writeJson(value, compact = false) {
+    const context = ExecutionContext_1.businessContext.getStore();
+    if (context) {
+        context.emit(compact ? compactJsonValue(value) : value);
+        return;
+    }
     process.stdout.write(toJson(compact ? compactJsonValue(value) : value));
 }
 function writeText(value) {
+    const context = ExecutionContext_1.businessContext.getStore();
+    if (context) {
+        context.emit(value);
+        return;
+    }
     process.stdout.write(value.endsWith("\n") ? value : `${value}\n`);
 }
 const NOISY_KEYS = new Set(["raw", "logs", "recentLogs", "runtimeLog", "log", "content", "yaml", "evidence", "debug", "trace", "history", "children"]);

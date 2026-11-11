@@ -7,6 +7,12 @@ const normal = "experiments/plans/comparison/method.yaml";
 const tuning = "experiments/plans/comparison_tuning/method.yaml";
 const plans = [{ file: normal, revision: "normal", jobCount: 6 }, { file: tuning, revision: "tuning", jobCount: 36 }];
 
+test('successful local preflight records do not turn an unstarted PLAN into partial completion', () => {
+  const [row] = summarizePlanStatuses({ plans, operations: [{ planFile: normal, planRevision: 'normal', type: 'run-plan',
+    localSubmissionProgress: true, status: 'succeeded', reconcileEvidenceActive: false }] });
+  assert.equal(row.status, 'not-started'); assert.equal(row.completedCount, 0); assert.equal(row.taskCount, 0);
+});
+
 test('unverified results do not claim partial completion or depend on synchronization receipts',()=>{
  const jobs=Array.from({length:6},(_,index)=>({index,lifecycleProtocol:2,status:index===5?'unknown':'completed',executionState:'exited',resultState:index===5?'unverified':'complete',latestArtifactSync:{status:'synced'}}));
  const input={plans,distributedPlans:[{planFile:normal,revision:'normal',jobs}]};

@@ -1,0 +1,20 @@
+suite: generic_mcp_acceptance
+base_config: config.yaml
+mode: train_test
+seeds: [42]
+runner:
+  train_command: python train.py --config {config} --output-dir {output_dir} --seed {seed} --mode train
+  test_command: python train.py --config {config} --output-dir {output_dir} --seed {seed} --mode test
+  result_path_policy: declared
+naming:
+  sweep_dir: work_dirs/mcp_acceptance
+  job_name: '{index}_{case}_seed{seed}'
+paper:
+  result_csv: '{output_dir}/metrics.csv'
+  result_group: generic_mcp_acceptance
+  table_name: generic_mcp_acceptance
+expectedResults:
+  - '{output_dir}/metrics.csv'
+  - '{output_dir}/model.pt'
+cases:
+  - case: synthetic_classifier

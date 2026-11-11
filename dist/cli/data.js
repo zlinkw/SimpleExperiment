@@ -48,6 +48,7 @@ exports.copyFile = copyFile;
 exports.packageMeta = packageMeta;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const ExecutionContext_1 = require("./ExecutionContext");
 exports.EXPERIMENT_INDEX_REL = path.join("simple_cluster", "experiment_index.json");
 exports.PLAN_REGISTRY_REL = path.join("simple_cluster", "plans", "plan_registry.json");
 exports.RESULT_REGISTRY_REL = path.join("simple_cluster", "results", "result_registry.json");
@@ -78,6 +79,9 @@ function isExperimentProjectRoot(root) {
         || fileExists(path.join(root, "experiments", "simple_project.yaml"));
 }
 function projectRoot() {
+    const context = ExecutionContext_1.businessContext.getStore();
+    if (context)
+        return context.root;
     if (projectRootOverride)
         return projectRootOverride;
     const explicit = process.env.SIMPLE_EXPERIMENT_PROJECT_ROOT;

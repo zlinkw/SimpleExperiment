@@ -1,3 +1,4 @@
+import { businessContext } from "./ExecutionContext";
 const BULKY_KEYS = new Set(["raw", "recentLogs", "runtimeLog", "log", "content", "yaml", "evidence", "checks", "reproducedPlanId", "lifecycle"]);
 
 export function toJson(value: unknown): string {
@@ -41,10 +42,14 @@ export function stringify(value: unknown): string {
 }
 
 export function writeJson(value: unknown, compact = false): void {
+  const context = businessContext.getStore();
+  if (context) { context.emit(compact ? compactJsonValue(value) : value); return; }
   process.stdout.write(toJson(compact ? compactJsonValue(value) : value));
 }
 
 export function writeText(value: string): void {
+  const context = businessContext.getStore();
+  if (context) { context.emit(value); return; }
   process.stdout.write(value.endsWith("\n") ? value : `${value}\n`);
 }
 

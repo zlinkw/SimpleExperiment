@@ -42,6 +42,7 @@ const PlanRunReplacement_1 = require("../features/PlanRunReplacement");
 const TaskLifecycle_1 = require("../features/TaskLifecycle");
 const DistributedPlanQueue_1 = require("../features/DistributedPlanQueue");
 const PlanCodeScopeHost_1 = require("./PlanCodeScopeHost");
+const Invocation_1 = require("../mcp/Invocation");
 const ProjectStatePaths_1 = require("../features/ProjectStatePaths");
 /** Local recoverable inputs, never authority for a remote process or a result. */
 class PlanRunHost {
@@ -243,6 +244,9 @@ class PlanRunHost {
             confirmEmptyParents: (previews, phase) => cleanup.service.confirmEmptyParentCleanup(previews, phase),
             autoDeleteIsolated: (id, parents) => cleanup.autoDeleteIsolated(id, parents),
             ask: (payload) => {
+                const autonomousChoice = (0, Invocation_1.authorizedEmptyRunChoice)(payload);
+                if (autonomousChoice)
+                    return Promise.resolve(autonomousChoice);
                 const work = () => h.askRunConfirmation(payload, body.submissionOperationIdLocal);
                 return body.runConfirmationWaitLocal ? body.runConfirmationWaitLocal(work) : work();
             },

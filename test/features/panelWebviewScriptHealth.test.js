@@ -62,6 +62,9 @@ test("manual Xshell button survives the rendered command guard and forwards its 
     pendingKeyForButton:()=> 'openXshell',pendingButtonKeys:new Set(),retryableTransferCommand:()=>false,commandNeedsLoading:()=>false,vscode:{postMessage:value=>sent.push(value)}};
   vm.createContext(sandbox);vm.runInContext(capabilities+'\n'+commands+'\n'+guard+'\nthis.guard=disableUnsupportedCommandButtons;this.click='+click+';',sandbox);
   sandbox.guard();assert.equal(button.disabled,false,'configured Xshell button must not be disabled as an unsupported client command');
+  button.dataset.command='toggleLowTrafficMode';sandbox.guard();
+  assert.equal(button.disabled,false,'the implemented low traffic toggle must survive the same rendered command guard');
+  button.dataset.command='openXshell';
   sandbox.click({preventDefault(){},stopPropagation(){},target:{closest:selector=>selector==='button[data-command]'?button:null}});
   assert.equal(sent.length,1);assert.equal(sent[0].command,'openXshell');
 });

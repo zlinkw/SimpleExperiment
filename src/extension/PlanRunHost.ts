@@ -6,6 +6,7 @@ import { replaceRunOutputs, runReplacementKey } from "../features/PlanRunReplace
 import { observationMatches, taskLifecycle } from "../features/TaskLifecycle";
 import { canonicalProjectId } from "../features/DistributedPlanQueue";
 import { resolvePlanExecutionSource, verifyLocalPlanSource } from "./PlanCodeScopeHost";
+import { authorizedEmptyRunChoice } from "../mcp/Invocation";
 import { ensureProjectDirectorySnapshotsMigrated, projectStateDir, projectStateFile, withProjectStateMigrationLease } from "../features/ProjectStatePaths";
 
 /** Local recoverable inputs, never authority for a remote process or a result. */
@@ -181,6 +182,8 @@ export class PlanRunHost {
       confirmEmptyParents: (previews: any[], phase: number) => cleanup.service.confirmEmptyParentCleanup(previews, phase),
       autoDeleteIsolated: (id: string, parents: any) => cleanup.autoDeleteIsolated(id, parents),
       ask: (payload: any) => {
+        const autonomousChoice = authorizedEmptyRunChoice(payload);
+        if (autonomousChoice) return Promise.resolve(autonomousChoice);
         const work=()=>h.askRunConfirmation(payload, body.submissionOperationIdLocal);
         return body.runConfirmationWaitLocal ? body.runConfirmationWaitLocal(work) : work();
       },

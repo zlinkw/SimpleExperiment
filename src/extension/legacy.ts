@@ -1,5 +1,6 @@
 // @ts-nocheck
 import * as vscode from "vscode";
+import { mcpGateway, mcpOperations, manageAiAuthorization } from "./McpHost";
 import { runPlanStopClearBatch, planStopBatchSignature } from "./PlanStopClearBatchHost";
 import { analyzeRuntimeLog, runtimeLogAnalysisMessage } from "./RuntimeLogAnalysisHost";
 import { runAllPlans, runSelectedPlans } from "./SelectedPlanBatchHost";
@@ -37,6 +38,8 @@ import { resolveSetupGuideSource, extensionRepositoryUrl } from "../features/Set
 import { replacePlanOutputs } from "../features/PlanOutputReplacement";
 import * as FailedJobRecovery from "../features/FailedJobRecovery";
 import * as PulledTaskControl from "../features/PulledTaskControl";
+import { stopProjectTask } from "./TaskControl";
+import { authorizedRemoteTargets } from "../mcp/Invocation";
 import * as WorkerTaskQuery from "../features/WorkerTaskQuery";
 import * as WorkerProgressQuery from "../features/WorkerProgressQuery";
 import { hasVerifiedCompletion, trustedTerminalProofFor } from "../features/VerifiedCompletion";
@@ -832,6 +835,7 @@ async function activateExtension(context) {
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: retainPanelContext } }),
         vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)),
+        vscode.commands.registerCommand("simpleExperiment.manageAiAuthorization", () => manageAiAuthorization(provider)),
         vscode.commands.registerCommand("simpleExperiment.copyPanelDiagnostics", () => provider?.copyPanelDiagnosticsFromUi()),
         vscode.commands.registerCommand("simpleExperiment.showOperationLog", () => provider?.showOperationLogFromUi()),
         vscode.commands.registerCommand("simpleExperiment.restorePanel", () => provider?.restorePanelFromUi()),
@@ -2561,6 +2565,10 @@ export class RealtimeTunnelPanelProvider {
     }
     createLocalApiMethods() {
         return {
+            "mcp.catalog": () => mcpGateway(this).catalog(),
+            "mcp.authorization": () => mcpGateway(this).call("project_authorization", {}),
+            "mcp.call": (params) => mcpOperations(this).call(params.tool, params.arguments, { signal: this.activationAbortController.signal }),
+            "mcp.operation": (params) => mcpOperations(this).status(params.operationId),
             "plans.cleanup.preview": params => this.planCleanupHost().service.preview(params),
             "plans.cleanup.continue": params => this.planCleanupHost().service.continuePreview(String(params.operationId || ""), { verifiedOnly: params.verifiedOnly }),
             "plans.cleanup.recheck": params => this.planCleanupHost().service.recheckNode(String(params.nodeId || "")),
@@ -2623,6 +2631,7 @@ export class RealtimeTunnelPanelProvider {
                 source: "local_metadata",
             }),
             "results.list": async (params, _server, context) => this.apiResultsList(params, context.signal),
+            "tasks.stop": async (params) => stopProjectTask(this, workspaceRoot(), params),
             "tasks.dispatch": async (params) => {
                 if (params.confirm !== true) throw confirmationRequired({ operation: "tasks.dispatch", requires: ["confirm"],
                     preview: { workflowId: params.workflowId, workflowIds: params.workflowIds, all: params.all, distribution: params.distribution, indices: params.indices, workerId: params.workerId, gpuId: params.gpuId } });
@@ -2728,6 +2737,11 @@ export class RealtimeTunnelPanelProvider {
             "config.get": async (params) => this.apiConfigGet(params),
             "config.set": async (params) => this.apiConfigSet(params),
             "config.reset": async (params) => this.apiConfigReset(params),
+            "workers.configure": async (params) => {
+                if (params.confirm !== true) throw confirmationRequired({ operation: "workers.configure", requires: ["confirm"], params });
+                if (!this.enabledWorkerConfigs().some(worker => worker.id === params.workerId)) throw new Error("MCP_WORKER_UNKNOWN");
+                return this.saveWorkerConfigFromUi({ endpointId: params.workerId, patch: params.patch, apiMode: true });
+            },
             "state.list": async () => this.apiStateList(),
             "state.get": async (params) => this.apiStateGet(params),
             "state.set": async (params) => this.apiStateSet(params),
@@ -3224,8 +3238,10 @@ export class RealtimeTunnelPanelProvider {
     async apiLiveOutput(params = {}, signal?: AbortSignal) {
         const runKey = stringField(params, "runKey") || stringField(params, "run_key") || "";
         const workerId = stringField(params, "workerId") || stringField(params, "worker_id") || "";
+        const since = params.since === undefined ? 0 : params.since;
+        if (!Number.isSafeInteger(since) || since < 0) throw new Error("日志 since 必须是非负整数。");
         const direct = runKey
-            ? await this.client.getLiveOutput(runKey, 0, this.resolveWorkerEndpointId(workerId) || workerId || undefined, { userInitiated: true, signal }).catch((error) => {
+            ? await this.client.getLiveOutput(runKey, since, this.resolveWorkerEndpointId(workerId) || workerId || undefined, { userInitiated: true, signal }).catch((error) => {
                 if (signal?.aborted) throw error;
                 return undefined;
             })
@@ -3546,9 +3562,8 @@ export class RealtimeTunnelPanelProvider {
             await this.deployLatestAgentRuntime(false, true, serverIds, true, { migrationDigests: params.legacyMigrationDigests });
         if (params.startSessions === true)
             await this.startAllXshellConnections(false, false, serverIds);
-        const test = params.autoTest === true
-            ? await this.apiServerTestAll({ refresh: true })
-            : await this.apiServerTestAll({ refresh: false });
+        const infrastructureChanged = params.deployRuntime !== false || params.startSessions === true;
+        const test = await this.apiServerTestAll({ refresh: params.autoTest === true || infrastructureChanged });
         await this.apiAdvanceFlow("select_servers", { completed: true });
         if (topology.mode) await this.apiAdvanceFlow("select_mode", { completed: true });
         if (test.ok === false || targets.some(target => !test.rows.some(row => target.id === row.serverId && row.status === "ok")))
@@ -13642,6 +13657,7 @@ reportStage("正在准备校验所需代码…");
                 throw new UiCommandCancelled("工作区已切换，远端路径确认已取消。");
         };
         assertCurrent();
+        if (authorizedRemoteTargets(targets)) return;
         const localProjectRoot = projectContext?.root || assertSingleProjectWorkspace(operation);
         await this.loadProjectRemotePathConfirmationsState();
         assertCurrent();
@@ -18112,7 +18128,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         // Session loading can otherwise let two full Worker arrays race.
         const task = (this.workerConfigSavePromise || Promise.resolve()).catch(() => {}).then(() => this.saveWorkerConfigCore(message));
         this.workerConfigSavePromise = task;
-        try { await task; }
+        try { return await task; }
         finally { if (this.workerConfigSavePromise === task) this.workerConfigSavePromise = undefined; }
     }
     private async saveWorkerConfigCore(message) {
@@ -18188,6 +18204,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         await this.ensureXshellSessionLoaded(selectedWorker?.savedSessionPath);
         await this.applySetupDraft(this.withImportedXshellFields(manual, sessionPathChanged(currentWorker.savedSessionPath, selectedWorker?.savedSessionPath) ? endpointId : ""), { syncAssignmentsFromFields: true });
         const savedWorker = this.setupConfig.workerTunnels.find((worker) => worker.id === endpointId);
+        if (message.apiMode === true) return { ok: true, workerId: endpointId, worker: {
+            condaEnv: savedWorker.condaEnv, localForwardPort: savedWorker.localForwardPort, remoteAgentPort: savedWorker.remoteAgentPort,
+            maxConcurrentGpus: savedWorker.maxConcurrentGpus, gpuJobsPerCard: savedWorker.gpuJobsPerCard,
+            gpuMinFreeMemoryGb: savedWorker.gpuMinFreeMemoryGb, gpuMaxConcurrentCards: savedWorker.gpuMaxConcurrentCards,
+        } };
         void this.showServerConfigSavedNextStep(savedWorker?.displayName || endpointId, savedWorker?.agentProjectDir).catch((error) => {
             void vscode.window.showErrorMessage(`服务器配置已保存，但后续引导失败：${errorMessage(error)}`);
         });

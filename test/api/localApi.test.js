@@ -11,6 +11,33 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const execFileAsync = promisify(execFile);
 
+test('prepare refreshes health after runtime deployment instead of reusing a pre-deployment failure', async () => {
+  const ts = require('typescript');
+  const source = readSource('src/extension.ts');
+  const ast = ts.createSourceFile('extension.ts', source, ts.ScriptTarget.Latest, true);
+  let method;
+  function visit(node) {
+    if (ts.isMethodDeclaration(node) && node.name?.getText(ast) === 'apiProjectPrepare') method = node.getText(ast);
+    ts.forEachChild(node, visit);
+  }
+  visit(ast); assert.ok(method);
+  const prepare = new Function('workspaceRoot', 'assertSingleProjectWorkspace', 'TopologyMode_1', 'stringArrayField',
+    'simpleSftpIntegrationReadiness', 'ApiWorkflow_1', 'AGENT_STARTUP_BLOCKED_SKIP_REASONS',
+    `return ({${method}}).apiProjectPrepare;`)(() => 'D:/test-project', () => {}, { normalizeTopologyMode: () => 'worker_pool' },
+      (params, key) => params[key] || [], () => ({}),
+      { selectWorkflowPlan: () => ({ missing: [] }), structuredMissingInventory: () => [] }, new Set());
+  let deployed = false;
+  const host = { localPlanMetadata: {}, refreshLocalPlanMetadata: async () => {}, refreshLocalSshConfig: async () => {},
+    apiMergedSetupConfig: () => ({}), apiPrepareTopology: () => ({ mode: 'worker_pool' }),
+    apiPrepareServerTargets: () => [{ id: 'worker-a', enabled: true, role: 'worker' }],
+    apiPublicTopology: value => value, agentRuntimeDirs: () => ({}), apiSetupConfigChanged: () => false,
+    writeSftpManagerServerProfiles: async () => ({ targetCount: 1 }),
+    deployLatestAgentRuntime: async () => { deployed = true; }, apiAdvanceFlow: async () => {},
+    apiServerTestAll: async ({ refresh }) => ({ ok: true, rows: [{ serverId: 'worker-a', status: deployed && refresh ? 'ok' : 'agent_unreachable' }] }),
+  };
+  assert.equal((await prepare.call(host, { confirm: true })).test.rows[0].status, 'ok');
+});
+
 function runCli(args, extraEnv = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, {
@@ -734,6 +761,17 @@ test("multi-window: per-instance discovery records coexist and workspace routing
       const resolvedPastStale = await client.resolveInstanceByWorkspace("experiment", workspaceA);
       assert.equal(resolvedPastStale.instanceId, rowA.instanceId, "旧 running 遗留记录经实际握手被排除，不永久误判双活");
       assert.deepEqual(fs.readFileSync(staleFile), staleBytes, "排除的遗留记录必须原样保留，不自动清理");
+      // More dead records than the live-handshake budget must not block one real window.
+      const oldRecords = [];
+      for (let index = 0; index < 18; index++) {
+        const file = path.join(instDir, `dead-${index}.json`);
+        const bytes = JSON.stringify({ ...JSON.parse(staleBytes.toString('utf8')), pid: 999100 + index,
+          instanceId: `${999100 + index}:2026-01-01T00:00:00.000Z` });
+        fs.writeFileSync(file, bytes, 'utf8'); oldRecords.push({ file, bytes });
+      }
+      const pastDeadBudget = await client.resolveInstanceByWorkspace('experiment', workspaceA, undefined, { processMayExist: pid => pid === process.pid });
+      assert.equal(pastDeadBudget.instanceId, rowA.instanceId);
+      for (const record of oldRecords) assert.equal(fs.readFileSync(record.file, 'utf8'), record.bytes);
       // 已支持 pin 的精确指向也照常工作（pin 先筛后核）。
       const pinned = await client.resolveInstanceByWorkspace("experiment", workspaceA, rowA.instanceId);
       assert.equal(pinned.instanceId, rowA.instanceId);
@@ -790,7 +828,7 @@ test('workspace routing cancellation and total deadline refuse partial uniquenes
       fs.writeFileSync(file,value,'utf8');records.push([file,value]);
     }
     try{
-      await assert.rejects(client.resolveInstanceByWorkspace('experiment',workspace,undefined,{signal:abort.signal,timeoutMs:mode==='deadline'?1000:30000,onProgress:message=>progress.push(message)}),mode==='deadline'?/总等待上限.*无法确认唯一/:/已取消.*未执行命令/);
+      await assert.rejects(client.resolveInstanceByWorkspace('experiment',workspace,undefined,{signal:abort.signal,timeoutMs:mode==='deadline'?1000:30000,processMayExist:()=>true,onProgress:message=>progress.push(message)}),mode==='deadline'?/总等待上限.*无法确认唯一/:/已取消.*未执行命令/);
       assert.equal(requests.length,2);assert.ok(progress.some(message=>message.includes('当前可达 1')));
       for(const [file,value]of records)assert.equal(fs.readFileSync(file,'utf8'),value);
     }finally{
@@ -847,7 +885,7 @@ test("实例握手预算：候选超过16条整体先拒，绝不部分握手后
     const listing = client.listPluginInstances("experiment");
     assert.equal(listing.truncated, false, "17 条不触发 256 枚举上限；这是握手预算层");
     // 候选全部指向不可达端口：若先对前 16 条做半截握手，会把“还有未核验候选”谎报成不存在。
-    await assert.rejects(() => client.resolveInstanceByWorkspace("experiment", workspace), /未完整核验|握手预算/);
+    await assert.rejects(() => client.resolveInstanceByWorkspace("experiment", workspace, undefined, { processMayExist: () => true }), /未完整核验|握手预算/);
     // 显式已知 discoveryPath 不受该拒绝影响：真实实例照常握手。
     const server = new LocalApiServer({ name: "SimpleExperiment", version: "0.5.409-test", preferredPort: await freePort(),
       discoveryPath, workspace: path.join(dir, "other-ws"), methods: { status: async () => ({ ok: true }) } });

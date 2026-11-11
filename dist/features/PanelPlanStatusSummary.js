@@ -135,7 +135,7 @@ function summarizeEntry(entry) {
     const jobEvidenceAt = Math.max(0, ...entry.distributedPlans.map(row => dateValue(row.enqueuedAt) || 0), ...distributedJobs.map(row => dateValue(row.finishedAt || row.updatedAt || row.startedAt) || 0));
     const operations = entry.operations.filter(row => !distributedJobs.length || !jobEvidenceAt
         || (dateValue(row.startedAt || row.updatedAt) || 0) > jobEvidenceAt);
-    const runOperations = operations.filter((row) => PLAN_RUN_OPERATION_TYPES.has(String(row.type || "").toLowerCase()));
+    const runOperations = operations.filter((row) => row.localSubmissionProgress !== true && PLAN_RUN_OPERATION_TYPES.has(String(row.type || "").toLowerCase()));
     const pendingOperation = operations.some((row) => operationPending(row.status));
     const latestOperation = latestOperationRow(operations);
     const latestRun = latestOperationRow(runOperations);

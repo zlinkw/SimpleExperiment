@@ -3550,6 +3550,7 @@ export function renderPanelHtml(): string {
     const explicitPlanFileCommands = new Set(["openPlan", "archivePlan", "restoreArchivedPlan"]);
     const explicitSavePlanCommands = new Set(["savePlan"]);
     const webviewHandledCommands = new Set([
+      "toggleLowTrafficMode",
       "startTensorBoard", "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts", "resetPptPathConfirmations",
       "retryPlanSubmission", "cancelPlanSubmission", "dispatchJobs", "queueRemainingJobs", "refreshJobArtifacts", "retryJobArtifactSync",
       "releaseJobStageBlockSlots",
