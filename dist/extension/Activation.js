@@ -161,6 +161,13 @@ async function activateExtension(context) {
     try {
         const vscode = tryRequire("vscode");
         if (vscode) {
+            context.subscriptions.push(vscode.window.onDidChangeWindowState((event) => {
+                if (event.focused)
+                    void Promise.resolve().then(() => {
+                        provider.refreshSharedConnectionSettings();
+                        return provider.remindSharedConnectionSettings();
+                    }).catch((error) => reportActivationFailure("shared settings refresh", error));
+            }));
             context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
                 void Promise.resolve().then(() => provider?.handleConfigurationChanged?.(e))
                     .catch((error) => reportActivationFailure("configuration change", error));

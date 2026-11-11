@@ -181,3 +181,11 @@ test("reloadWindow is a declared local internal command, outside remote action r
   assert.ok(apiInternal.has("reloadWindow"));
   assert.equal(remoteActions.has("reloadWindow"), false);
 });
+
+test("AI authorization is a visible local button and cannot be invoked by the API", () => {
+  const internal = new Set(quotedValues(block(extension, "const API_INTERNAL_COMMANDS = new Set([", "]);")));
+  assert.ok(webviewCommands().has("manageAiAuthorization"));
+  assert.ok(safeCommands().has("manageAiAuthorization"));
+  assert.ok(internal.has("manageAiAuthorization"));
+  assert.match(panel, /data-command="manageAiAuthorization"[^>]*>管理 AI 项目授权<\/button>/);
+});

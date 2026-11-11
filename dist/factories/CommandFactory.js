@@ -25,6 +25,7 @@ function getVscode() {
 // 与 package.json contributes.commands 单源（生成脚本可覆盖此表）
 exports.COMMAND_MANIFEST = [
     { id: "simpleExperiment.openPanel", title: "SimpleExperiment：打开面板", withLease: false },
+    { id: "simpleExperiment.manageAiAuthorization", title: "SimpleExperiment：管理 AI 项目授权", withLease: false },
     { id: "simpleExperiment.copyPanelDiagnostics", title: "SimpleExperiment：复制 Panel 诊断", withLease: false },
     { id: "simpleExperiment.restorePanel", title: "SimpleExperiment：恢复 Panel", withLease: false },
     { id: "simpleExperiment.quickSetup", title: "SimpleExperiment：检查服务器配置" },

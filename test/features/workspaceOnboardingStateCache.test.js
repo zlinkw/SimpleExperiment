@@ -138,6 +138,59 @@ test("project onboarding derives the filtered missing item list once", () => {
   const onboarding = extractFunction("projectOnboardingStateForWebview");
   assert.equal((onboarding.match(/new Set\(missing\.filter\(Boolean\)\)/g) || []).length, 1);
   assert.match(onboarding, /const missingItems = \[\.\.\.new Set\(missing\.filter\(Boolean\)\)\];/);
-  assert.match(onboarding, /const projectReady = hasProject && missingItems\.length === 0;/);
+  assert.match(onboarding, /const projectReady = hasProject && missingItems\.length === 0 && !mismatchedWorker;/);
   assert.match(onboarding, /\$\{missingItems\.join\("、"\)\}/);
+});
+
+test("recognized local projects do not require an old setup marker, while a connected foreign Agent stays explicit", () => {
+  const sandbox = loadOnboarding();
+  const workspace = { root: "D:/GitRepo/SimpleMcpAcceptance", name: "SimpleMcpAcceptance", singleProject: true };
+  const setup = { savedSessionPath: "legacy.xsh", agentProjectDir: "/root/projects", workerTunnels: [{ id: "rjj8", enabled: true }] };
+  const common = { workspace, setup, simpleSftp: { ready: true }, completed: false, recognized: true };
+  const ready = sandbox.check({ ...common, workerProbes: { rjj8: { status: "ok", tcpOpen: true } } });
+  assert.equal(ready.required, false);
+  assert.equal(ready.completed, true);
+  const workerProbes = { rjj8: {
+    status: "agent_project_mismatch", tcpOpen: true, projectRoot: "/root/projects/MultiModal", expectedProjectRoot: "/root/projects/SimpleMcpAcceptance",
+  } };
+  const mismatch = sandbox.check({ ...common, workerProbes });
+  assert.equal(mismatch.required, true);
+  assert.equal(mismatch.ready, false);
+  assert.match(mismatch.title, /Agent.*项目不匹配/);
+  assert.match(mismatch.detail, /隧道已连通.*MultiModal.*SimpleMcpAcceptance/);
+  assert.equal(mismatch.actionCommand, "prepareAgents");
+  assert.equal(mismatch.actionLabel, "部署本项目 Agent");
+  workerProbes.rjj8 = { status: "ok", tcpOpen: true };
+  const checked = sandbox.check({ ...common, workerProbes });
+  assert.equal(checked.required, false);
+});
+
+test("onboarding renderer uses the host's actual issue and next action", () => {
+  const source = require("../_helpers/panelFunction")("renderProjectOnboardingNotice");
+  let html = "";
+  const target = { classList: { toggle() {} } };
+  const render = vm.runInNewContext(source + ";renderProjectOnboardingNotice", {
+    el: () => target, esc: String, escAttr: String, setHtmlIfChanged: (_, value) => { html = value; },
+  });
+  render({ projectOnboarding: { required: true, title: "Worker Agent 项目不匹配", detail: "隧道已连通", actionCommand: "prepareAgents", actionLabel: "部署本项目 Agent" } });
+  assert.match(html, /Worker Agent 项目不匹配/);
+  assert.match(html, /data-command="prepareAgents"/);
+  assert.doesNotMatch(html, /当前项目待接入|data-command="bootstrapProject"/);
+  render({ projectOnboarding: { required: false } });
+  assert.equal(html, "");
+});
+
+test("local recognition uses scanned plans and adapter, without requiring a tunnel or changing saved flags", () => {
+  const ts = require("typescript"), method = require("../_helpers/legacyMethod");
+  const Host = vm.runInNewContext(ts.transpileModule("class Host {" + method(source, "projectLocallyRecognized(") + "};Host", {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText);
+  const host = new Host();
+  host.localPlanMetadata = { detectedProject: { adapterConfig: "experiments/simple_project.yaml" }, plans: [{ planFile: "acceptance.yaml" }] };
+  assert.equal(host.projectLocallyRecognized(), true);
+  host.localPlanMetadata.error = "scan failed";
+  assert.equal(host.projectLocallyRecognized(), false);
+  delete host.localPlanMetadata.error;
+  host.localPlanMetadata.plans = [];
+  assert.equal(host.projectLocallyRecognized(), false);
 });

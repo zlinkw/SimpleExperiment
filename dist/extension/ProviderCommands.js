@@ -18,6 +18,7 @@ function resolveCommandHandlerMap(provider) {
             map[cmdId] = (...args) => fn.apply(provider, args);
     };
     bind("simpleExperiment.openPanel", "openPanel");
+    bind("simpleExperiment.manageAiAuthorization", "manageAiAuthorizationFromUi");
     bind("simpleExperiment.copyPanelDiagnostics", "copyPanelDiagnosticsFromUi");
     bind("simpleExperiment.restorePanel", "restorePanelFromUi");
     bind("simpleExperiment.quickSetup", "quickSetup");

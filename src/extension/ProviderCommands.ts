@@ -22,6 +22,7 @@ export function resolveCommandHandlerMap(provider: Record<string, (...args: unkn
     if (typeof fn === "function") map[cmdId] = (...args: unknown[]) => (fn as any).apply(provider, args);
   };
   bind("simpleExperiment.openPanel", "openPanel");
+  bind("simpleExperiment.manageAiAuthorization", "manageAiAuthorizationFromUi");
   bind("simpleExperiment.copyPanelDiagnostics", "copyPanelDiagnosticsFromUi");
   bind("simpleExperiment.restorePanel", "restorePanelFromUi");
   bind("simpleExperiment.quickSetup", "quickSetup");

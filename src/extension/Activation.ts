@@ -147,6 +147,12 @@ export async function activateExtension(context: Record<string, unknown> & { sub
   try {
     const vscode = tryRequire<typeof import("vscode")>("vscode");
     if (vscode) {
+      context.subscriptions.push(vscode.window.onDidChangeWindowState((event) => {
+        if (event.focused) void Promise.resolve().then(() => {
+          provider.refreshSharedConnectionSettings();
+          return provider.remindSharedConnectionSettings();
+        }).catch((error) => reportActivationFailure("shared settings refresh", error));
+      }));
       context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e: unknown) => {
         void Promise.resolve().then(() => (provider as { handleConfigurationChanged?: (e: unknown) => unknown })?.handleConfigurationChanged?.(e))
           .catch((error) => reportActivationFailure("configuration change", error));

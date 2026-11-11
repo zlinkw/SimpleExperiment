@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.487",
-  "buildId": "7e7d76eed69d98fbe6097eebb97077c78af4292d67ba5f1c113b1e60323cd9a6",
+  "version": "0.5.488",
+  "buildId": "f1e25a21f25be70a4cc61ab7f6b2432c7d37852d7ee916a55dbaecf977115e7b",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -229,7 +229,7 @@
     },
     {
       "path": "dist/extension/Activation.js",
-      "sha256": "1255849e87f7711635d92400c204f485195ac25b39fb902beeee90d2360751d9"
+      "sha256": "df6e68010cc1d0dbb61b130a6406e922d52b392d3adb2b1a53cdf771ca3a15d6"
     },
     {
       "path": "dist/extension/CacheCleanupPanel.js",
@@ -257,7 +257,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "025fe750cf06835955e13d70353ace3856aa052c792adcfafe3e71e5392f5b39"
+      "sha256": "a3865ac9ec1bcd587e9de18ea2f8035adf6b7d95d6e64c0f9146b47f771e0ebf"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -313,7 +313,7 @@
     },
     {
       "path": "dist/extension/ProviderCommands.js",
-      "sha256": "7c50f45f7a069759e7bd069504a15582b5b0e24a0628426becb9a8f589190a34"
+      "sha256": "57517856517c675ac843f62dd326e1b0410d11965f95c8afe08d32c7179e8682"
     },
     {
       "path": "dist/extension/ResultCollectionHost.js",
@@ -345,7 +345,7 @@
     },
     {
       "path": "dist/factories/CommandFactory.js",
-      "sha256": "ae86cbd520e8f747905ab91dec85587ef343f451eee7e1fc42d139b981a28ea0"
+      "sha256": "6964b3a45e85eaa6803062eb1af0f8181cb3e52128ec70837a0ed90738d171b4"
     },
     {
       "path": "dist/factories/FeatureFactory.js",
@@ -941,7 +941,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "6614265c8e0a35300bf4066cf779c49b2f6447c8e5d83d13ea1e22c6da625a30"
+      "sha256": "23646d389e69e1cda9f9e3f3215485e060b2c038b8c0477e147976c2e3c7031b"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1169,7 +1169,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "6b160cf16128d6ead3dc3358e45916298a4bac673ecfe91f949bd5f9b0cd1027"
+      "sha256": "b7d06cbfc31b4880634586448d4af85080a60a61583388b44b4b07089ffdd65a"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1293,7 +1293,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "172e6af911ce12660eb66367cd458758146f6c42ed102964f8c4336c874a9318"
+      "sha256": "339cb806912ad7d59e091d07f0bef6acdec46382f5d4e6587029d325c06cb8e1"
     },
     {
       "path": "scripts/check-static.js",

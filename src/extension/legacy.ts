@@ -628,6 +628,7 @@ const uiActionCommands = new Set<WebviewActionCommand>([
     "abortScheduler",
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
+    "manageAiAuthorization",
     "refreshJobArtifacts", "retryJobArtifactSync", "releaseJobStageBlockSlots",
     "analyzeRuntimeLog",
     "answerRunConfirmation", "retryPlanSubmission", "cancelPlanSubmission",
@@ -650,6 +651,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
+    "manageAiAuthorization",
     "webviewNotice", "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow", "toggleLowTrafficMode",
 ]);
 const SAFE_TRANSFER_RETRY_COMMANDS = new Set([
@@ -671,6 +673,7 @@ const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
 ]);
 const UI_LAYOUT_SECTION_KEYS = new Set(defaultUiSectionOrder);
 const UI_BUTTON_ACTION_COMMANDS = new Set([
+    "manageAiAuthorization",
     "refreshJobArtifacts", "retryJobArtifactSync", "releaseJobStageBlockSlots",
     "cleanupPlan", "reviewIsolatedPlanBatches",
     "markJobUnavailable", "restoreJobAvailability",
@@ -835,7 +838,7 @@ async function activateExtension(context) {
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: retainPanelContext } }),
         vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)),
-        vscode.commands.registerCommand("simpleExperiment.manageAiAuthorization", () => manageAiAuthorization(provider)),
+        vscode.commands.registerCommand("simpleExperiment.manageAiAuthorization", () => provider?.manageAiAuthorizationFromUi()),
         vscode.commands.registerCommand("simpleExperiment.copyPanelDiagnostics", () => provider?.copyPanelDiagnosticsFromUi()),
         vscode.commands.registerCommand("simpleExperiment.showOperationLog", () => provider?.showOperationLogFromUi()),
         vscode.commands.registerCommand("simpleExperiment.restorePanel", () => provider?.restorePanelFromUi()),
@@ -5724,12 +5727,20 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
     async showFirstRunSetupPromptOnce() {
         return this.firstRunSetupPromptSingleFlight(() => this.showFirstRunSetupPromptOnceCore());
     }
+    projectLocallyRecognized() {
+        return !this.localPlanMetadata.error && Boolean(this.localPlanMetadata.detectedProject.adapterConfig) && this.localPlanMetadata.plans.length > 0;
+    }
+    async manageAiAuthorizationFromUi() {
+        await manageAiAuthorization(this);
+        this.postState();
+    }
     async showFirstRunSetupPromptOnceCore() {
         const simpleSftp = simpleSftpIntegrationReadiness();
         const legacySftp = legacySftpInstallationState();
         const serverSetupComplete = initialServerSetupComplete(this.setupConfig, false);
         const enabledWorkerCount = this.enabledWorkerConfigs().length;
         if (serverSetupComplete && simpleSftp.ready && enabledWorkerCount > 0) {
+            if (this.projectLocallyRecognized()) return;
             const root = workspaceRoot();
             if (!root)
                 return;
@@ -5760,7 +5771,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         const message = needsSftp
             ? `首次使用 SimpleExperiment：配套 SimpleSFTP 未就绪。${simpleSftp.message} 安装并重载窗口后再识别工作区。`
             : needsWorker
-                ? "首次使用 SimpleExperiment：正式运行、复现和批量运行需要至少一个启用的 Worker。请在“设置 > 服务器”添加。"
+                ? "首次使用 SimpleExperiment：正式运行、复现和批量运行还缺少至少一个启用的执行 Worker。请在“设置 > 服务器”添加。"
                 : "首次使用 SimpleExperiment：服务器相关配置不会通过弹窗从零填写。请前往“设置 > 服务器”配置 Xshell 会话和项目父目录；工作区识别时只确认会话前缀等项目参数。";
         const choice = needsSftp
             ? await vscode.window.showInformationMessage(message, "打开配置说明", "打开扩展管理", "不再提示")
@@ -6926,6 +6937,9 @@ return this.testTunnel(true);
                 break;
             case "reloadWindow":
                 await vscode.commands.executeCommand("workbench.action.reloadWindow");
+                break;
+            case "manageAiAuthorization":
+                await this.manageAiAuthorizationFromUi();
                 break;
             case "configureSessions":
                 await this.configureXshellSavedSessions();
@@ -27472,6 +27486,8 @@ return "历史服务器";
             workspace,
             topology,
             setup: this.setupConfig,
+            recognized: this.projectLocallyRecognized(),
+            workerProbes: this.lastWorkerProbes,
             simpleSftp: integrations.simpleSftp,
             promptShown: this.context.workspaceState.get(keys.projectOnboardingPrompt, 0),
             completed: this.context.workspaceState.get(keys.projectOnboardingCompleted, false) === true
@@ -33628,13 +33644,18 @@ function projectOnboardingStateForWebview(options) {
     const topology = item.topology && typeof item.topology === "object" ? item.topology : undefined;
     const hubRequired = topology ? topology.mode === "hub_worker" : true;
     const promptShown = Number(item.promptShown || 0);
-    const completedInput = item.completed === true;
+    const completedInput = item.completed === true || item.recognized === true;
+    const workerProbes = item.workerProbes || EMPTY_PROJECT_ONBOARDING_SOURCE;
+    const mismatchedWorker = (setup.workerTunnels || []).find(worker => worker.enabled !== false && workerProbes[worker.id]?.status === "agent_project_mismatch");
+    const mismatchedProbe = mismatchedWorker && workerProbes[mismatchedWorker.id];
     const cached = projectOnboardingStateForWebviewCache.get(workspace);
     if (cached
         && cached.setup === setup
         && cached.simpleSftp === simpleSftp
         && cached.promptShown === promptShown
         && cached.completedInput === completedInput
+        && cached.mismatchedWorker === mismatchedWorker
+        && cached.mismatchedProbe === mismatchedProbe
         && cached.hubRequired === hubRequired) {
         return cached.value;
     }
@@ -33648,27 +33669,32 @@ function projectOnboardingStateForWebview(options) {
         ...(enabledWorkerCount > 0 ? [] : ["至少一个启用的执行 Worker"]),
     ];
     const missingItems = [...new Set(missing.filter(Boolean))];
-    const projectReady = hasProject && missingItems.length === 0;
+    const projectReady = hasProject && missingItems.length === 0 && !mismatchedWorker;
     const completed = hasProject && completedInput;
     const projectName = String(workspace.name || path.basename(String(workspace.root || "")) || "当前项目").trim();
     const detail = !hasProject
         ? ""
+        : mismatchedWorker
+            ? `${mismatchedWorker.displayName || mismatchedWorker.id} ${mismatchedProbe.tcpOpen === true ? "隧道已连通，" : ""}Agent 当前属于 ${mismatchedProbe.projectRoot}；本项目需要 ${mismatchedProbe.expectedProjectRoot}。请部署本项目 Agent，或为同时使用的项目配置独立隧道端口。`
         : completed
             ? `当前项目 ${projectName} 已完成接入。`
             : projectReady
                 ? `当前项目 ${projectName} 尚未完成接入；点击“识别工作区”继续。`
                 : `当前项目 ${projectName} 尚未完成接入；先补全：${missingItems.join("、")}，然后点击“识别工作区”。`;
     const value = {
-        required: hasProject && !completed,
+        required: hasProject && (!completed || Boolean(mismatchedWorker)),
+        title: mismatchedWorker ? "Worker Agent 项目不匹配" : "项目配置待识别",
+        actionCommand: mismatchedWorker ? "prepareAgents" : "bootstrapProject",
+        actionLabel: mismatchedWorker ? "部署本项目 Agent" : "识别工作区",
         completed,
         ready: projectReady,
-        blocked: hasProject && !projectReady && !completed,
+        blocked: hasProject && (Boolean(mismatchedWorker) || !projectReady && !completed),
         missing: missingItems,
         projectName,
         promptShown,
         detail,
     };
-    projectOnboardingStateForWebviewCache.set(workspace, { setup, simpleSftp, promptShown, completedInput, hubRequired, value });
+    projectOnboardingStateForWebviewCache.set(workspace, { setup, simpleSftp, promptShown, completedInput, mismatchedWorker, mismatchedProbe, hubRequired, value });
     return value;
 }
 function agentSessionReuseBlockers(targets) {

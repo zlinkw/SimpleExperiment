@@ -14,9 +14,11 @@ args = ["C:/Users/ZLK/AppData/Roaming/npm/simpleex-mcp-launcher.cjs", "--workspa
 
 命令目录由安装器读取实际 npm global prefix。上例路径需替换为本机安装器报告的目录。每个 MCP 连接固定一个窗口实例，多个项目分别注册。同项目打开多个窗口时可再传 --instance PID:STARTED_AT；实例身份不一致会拒绝路由。连接仍会核对运行版本、工作区和实例身份。
 
-在目标 VS Code 窗口执行 `SimpleExperiment：管理 AI 项目授权`，选择 Worker 和允许的操作。授权保存于该窗口工作区状态。Worker 的主机、账号、端口或项目根发生变化后需要重新选择授权；可用同一命令撤销。MCP 只能查询授权，不能创建、扩大或恢复授权。
+在目标 VS Code 窗口的“运行环境准备”点击“管理 AI 项目授权”，或执行同名命令，选择 Worker 和允许的操作。授权保存于该窗口工作区状态。Worker 的主机、账号、端口或项目根发生变化后需要重新选择授权；可用同一入口撤销。MCP 只能查询授权，不能创建、扩大或恢复授权，Local API 也不暴露此界面命令。
 
 服务器、隧道、Conda 和 GPU 配额全局共享，项目切换只提醒检查差异。第一次升级时先打开已有服务器配置的项目，配置会自动导入共享存储。队列、结果、同步范围及授权保持项目作用域；`worker_configure` 修改全局共享值，因此需要本人批准实际修改。
+
+本地已扫描到 PLAN 与接入配置时，不要求重新跑一遍旧引导来消除待识别提示。隧道连通不能证明当前项目的 Agent 已准备好；检测到端口连接了其他项目 Agent 时，横幅显示实际与预期项目路径，并提供“部署本项目 Agent”。需要两个项目同时在线时，先为它们配置独立端口；不自动切换、重启或迁移服务。
 
 可运行 node scripts/mcp-codex-config.js <项目绝对路径> <simpleex-mcp-launcher.cjs绝对路径> <服务名> 生成 Codex TOML。生成器对普通具名工具逐项设置 approval_mode = approve，其他工具保留 prompt；不会直接修改用户的全局配置。参数来自当前 [OpenAI MCP 配置文档](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) 与 [配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)。插件宿主仍独立核对实际目标。永久删除与覆盖清理由原有路径审核页确认，MCP 只预览和接续已确认请求。
 

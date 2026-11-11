@@ -1413,6 +1413,7 @@ export function renderPanelHtml(): string {
         <div id="syncChainOverview" data-anchor="settings-chain-overview"></div>
         <div id="syncServerOverview" data-anchor="sync-servers"></div>
         <div class="toolbar" data-anchor="sync-check-actions">
+          <button type="button" data-command="manageAiAuthorization" title="选择当前项目允许 AI 操作的 Worker 和范围；可从这里撤销，授权由本人完成">管理 AI 项目授权</button>
           <button type="button" data-command="runCheckStatic" title="运行静态检查，生成项目接入报告&#10;覆盖实验计划结构、输出接口与路径安全&#10;报告写入 simple_cluster/check_reports/&#10;查看报告：到「诊断与自检」卡片点「打开静态检查报告」">检查项目配置</button>
           <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" data-anchor="sync-actions-danger" title="危险操作：用 GitHub 远端覆盖本机工作区&#10;未提交的改动会丢失，执行前会要求确认">从 GitHub 覆盖本机</button>
           <button type="button" data-command="configureCodeSyncIncludes" class="secondary" title="统一查看项目文件树及文件夹汇总状态；在窗口内分别设置本机与 Worker、Worker 与 Worker 的同步范围。">项目同步范围与状态</button>
@@ -3551,6 +3552,7 @@ export function renderPanelHtml(): string {
     const explicitSavePlanCommands = new Set(["savePlan"]);
     const webviewHandledCommands = new Set([
       "toggleLowTrafficMode",
+      "manageAiAuthorization",
       "startTensorBoard", "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts", "resetPptPathConfirmations",
       "retryPlanSubmission", "cancelPlanSubmission", "dispatchJobs", "queueRemainingJobs", "refreshJobArtifacts", "retryJobArtifactSync",
       "releaseJobStageBlockSlots",
@@ -4987,8 +4989,8 @@ export function renderPanelHtml(): string {
       const projectName = String(item.projectName || ((state || {}).workspace || {}).name || "当前项目");
       const detail = String(item.detail || ("当前项目 " + projectName + " 尚未完成接入；首次上传前仍会确认本地与远端预期位置。"));
       setHtmlIfChanged(target,
-        '<div class="projectOnboardingNoticeBody"><b>当前项目待接入</b><span>' + esc(detail) + '</span></div>' +
-        '<button type="button" data-command="bootstrapProject" title="扫描工作区，识别 experiments/plans 下的实验计划与项目配置&#10;同时检查服务器与 Agent 等前置条件&#10;已有的计划与接入配置不会重复写入">识别工作区</button>'
+        '<div class="projectOnboardingNoticeBody"><b>' + esc(item.title || "项目配置待识别") + '</b><span>' + esc(detail) + '</span></div>' +
+        '<button type="button" data-command="' + escAttr(item.actionCommand || "bootstrapProject") + '">' + esc(item.actionLabel || "识别工作区") + '</button>'
       );
     }
 
