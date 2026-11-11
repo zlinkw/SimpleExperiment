@@ -265,6 +265,28 @@ test('exact task stop records its intent before closing only the selected job', 
   assert.deepEqual(closed, ['second']);
 });
 
+test('confirmed retained cancellation survives serialization, stale live projections and missing remote tasks', () => {
+  const q = require('../../dist/features/DistributedPlanQueue.js');
+  const now = Date.now(), job = { index: 0, case: 'control', seed: 42, status: 'running', lifecycleProtocol: 2,
+    resultPathPolicy: 'declared', commandId: 'stopped-command', workerId: 'worker-a', outputDir: 'work_dirs/control', collectionResultCsv: 'work_dirs/control/metrics.csv' };
+  const plan = { id: 'workflow-stop', projectId: 'project-stop', planFile: 'stop.yaml', resultPathPolicy: 'declared', jobs: [job] };
+  q.confirmRetainedTaskStop(plan, job, now);
+  const serialized = q.serializeDistributedQueue({ plans: [plan] });
+  let restored = q.restoreFormalJobQueue(JSON.parse(serialized));
+  assert.equal(restored.plans[0].jobs[0].status, 'cancelled');
+  assert.equal(restored.plans[0].jobs[0].finishedAt, new Date(now).toISOString());
+  const live = structuredClone(restored);
+  Object.assign(live.plans[0].jobs[0], { status: 'unknown', executionState: 'missing', lastObservedAt: new Date(now).toISOString() });
+  restored = q.keepCurrentObservations(restored, live, now);
+  restored = q.mergeDurableWorkerSnapshots(restored, [{ workerId: 'worker-a', capabilities: { taskLifecycle: 2 }, tasks: [], fetchedAt: new Date(now).toISOString(), generatedAt: new Date(now).toISOString() }], plan.projectId, now);
+  assert.equal(restored.plans[0].jobs[0].status, 'cancelled');
+  assert.equal(restored.plans[0].jobs[0].commandId, 'stopped-command');
+  for (const change of [p => p.projectId = 'another-project', p => p.id = 'another-workflow', p => p.jobs[0].commandId = 'another-command', p => p.jobs[0].outputDir = 'work_dirs/another']) {
+    const changed = JSON.parse(serialized); change(changed.plans[0]);
+    assert.equal(q.restoreFormalJobQueue(changed).plans[0].jobs[0].status, 'unknown', 'cancellation proof cannot cross task identity');
+  }
+});
+
 test('official stdio client connects to the packaged server and preserves live project identity', async () => {
   const http = require('node:http');
   const { Client } = require('@modelcontextprotocol/sdk/client/index.js');

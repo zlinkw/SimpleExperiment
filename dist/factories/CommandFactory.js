@@ -16,9 +16,6 @@ function tryRequire(id) {
         return undefined;
     }
 }
-function getHostOperationLease() {
-    return tryRequire("../core/HostOperationLease");
-}
 function getVscode() {
     return tryRequire("vscode");
 }
@@ -28,6 +25,7 @@ exports.COMMAND_MANIFEST = [
     { id: "simpleExperiment.manageAiAuthorization", title: "SimpleExperiment：管理 AI 项目授权", withLease: false },
     { id: "simpleExperiment.copyPanelDiagnostics", title: "SimpleExperiment：复制 Panel 诊断", withLease: false },
     { id: "simpleExperiment.restorePanel", title: "SimpleExperiment：恢复 Panel", withLease: false },
+    { id: "simpleExperiment.showOperationLog", title: "SimpleExperiment：查看操作完整日志", withLease: false },
     { id: "simpleExperiment.quickSetup", title: "SimpleExperiment：检查服务器配置" },
     { id: "simpleExperiment.bootstrapProject", title: "SimpleExperiment：接入当前项目" },
     { id: "simpleExperiment.prepareAgents", title: "SimpleExperiment：准备 Agent 并启动" },
@@ -41,6 +39,7 @@ exports.COMMAND_MANIFEST = [
     { id: "simpleExperiment.startXshellRealtimeTunnel", title: "SimpleExperiment：启动 Worker Xshell 会话" },
     { id: "simpleExperiment.startAllXshellRealtimeTunnels", title: "SimpleExperiment：启动全部 Xshell 会话" },
     { id: "simpleExperiment.startAllXshellConnections", title: "SimpleExperiment：启动全部 Xshell 连接" },
+    { id: "simpleExperiment.openXshellSessions", title: "SimpleExperiment：一键打开 Xshell" },
     { id: "simpleExperiment.testAllTunnels", title: "SimpleExperiment：检测全部隧道", withLease: false },
     { id: "simpleExperiment.showTunnelEndpointRegistry", title: "SimpleExperiment：显示隧道端点清单", withLease: false },
     { id: "simpleExperiment.testXshellTunnel", title: "SimpleExperiment：检测 Xshell 隧道", withLease: false },
@@ -116,9 +115,10 @@ class DefaultCommandFactory {
         if (!ctx.subscriptions || typeof ctx.subscriptions.push !== "function")
             throw new Error("Extension subscriptions are unavailable.");
         const failures = [];
+        const lease = (this.deps["withHostOperationLease"] ?? factoryCtx["withHostOperationLease"]);
         for (const d of descriptors) {
             try {
-                const wrapped = d.withLease ? withLeaseWrapper(d) : d.handler;
+                const wrapped = d.withLease ? withLeaseWrapper(d, lease) : d.handler;
                 const disposable = vscode.commands.registerCommand(d.id, wrapped);
                 if (!disposable || typeof disposable.dispose !== "function")
                     throw new Error("registerCommand returned no disposable.");
@@ -153,11 +153,10 @@ class DefaultCommandFactory {
     }
 }
 exports.DefaultCommandFactory = DefaultCommandFactory;
-function withLeaseWrapper(descriptor) {
+function withLeaseWrapper(descriptor, lease) {
     return async (...args) => {
-        const mod = getHostOperationLease();
-        if (!mod || typeof mod.withHostOperationLease !== "function")
+        if (typeof lease !== "function")
             throw new Error(`命令 ${descriptor.id} 缺少 HostOperationLease，拒绝绕过跨窗口互斥。`);
-        return await mod.withHostOperationLease(descriptor.leaseLabel || descriptor.id, () => descriptor.handler(...args));
+        return await lease(descriptor.leaseLabel || descriptor.id, descriptor.title, () => descriptor.handler(...args));
     };
 }

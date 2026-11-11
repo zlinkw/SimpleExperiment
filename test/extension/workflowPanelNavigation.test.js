@@ -63,3 +63,53 @@ test("the actual factory activation refreshes shared settings when the project w
   focused({ focused: true }); await Promise.resolve(); await Promise.resolve();
   assert.equal(refreshes, 1); assert.equal(reminders, 1);
 });
+
+test("leased factory commands reach the bound project provider and preserve lease rejection", async () => {
+  const Module = require("node:module");
+  const { DefaultCommandFactory, COMMAND_MANIFEST } = require("../../dist/factories/CommandFactory.js");
+  const { registerProviderCommands } = require("../../dist/extension/ProviderCommands.js");
+  const registered = new Map(), calls = [];
+  let denied = false;
+  const provider = new Proxy({
+    async withHostOperationLease(action, label, work) {
+      assert.equal(this, provider);
+      calls.push({ action, label });
+      if (denied) throw new Error("fixture project lease conflict");
+      return work();
+    },
+  }, { get(target, name) { return target[name] || ((...args) => { calls.push({ method: name, args }); return name; }); } });
+  const original = Module._load;
+  Module._load = function(name, parent, isMain) {
+    if (name === "vscode") return { commands: { registerCommand(id, handler) { registered.set(id, handler); return { dispose() {} }; } } };
+    return original.call(this, name, parent, isMain);
+  };
+  try {
+    registerProviderCommands({ factoryContext: {}, commandFactory: new DefaultCommandFactory(), provider }, { subscriptions: [] });
+    for (const descriptor of COMMAND_MANIFEST.filter(row => row.withLease !== false)) {
+      calls.length = 0;
+      await registered.get(descriptor.id)("selected-target");
+      assert.equal(calls[0].action, descriptor.id);
+      assert.equal(calls[0].label, descriptor.title);
+      assert.deepEqual(calls[1].args, ["selected-target"]);
+    }
+    calls.length = 0; denied = true;
+    await assert.rejects(registered.get("simpleExperiment.verifyAgentVersion")(), /fixture project lease conflict/);
+    assert.equal(calls.length, 1, "a rejected lease must not reach the business method");
+    const missing = new Proxy({}, { get: (_, name) => name === "withHostOperationLease" ? undefined : () => undefined });
+    registerProviderCommands({ factoryContext: {}, commandFactory: new DefaultCommandFactory(), provider: missing }, { subscriptions: [] });
+    await assert.rejects(registered.get("simpleExperiment.verifyAgentVersion")(), /缺少 HostOperationLease/);
+  } finally { Module._load = original; }
+});
+
+test("factory registers the existing operation-log and Xshell entry points with their real handlers", async () => {
+  const { DefaultCommandFactory } = require("../../dist/factories/CommandFactory.js");
+  const calls = [];
+  const handlerMap = resolveCommandHandlerMap({ showOperationLogFromUi: () => calls.push("log"), openAllXshellSessions: () => calls.push("xshell") });
+  const factory = new DefaultCommandFactory();
+  for (const id of ["simpleExperiment.showOperationLog", "simpleExperiment.openXshellSessions"]) {
+    const descriptor = factory.createByName(id, { handlerMap });
+    assert.ok(descriptor, id);
+    await descriptor.handler();
+  }
+  assert.deepEqual(calls, ["log", "xshell"]);
+});

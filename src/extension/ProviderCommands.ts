@@ -25,6 +25,7 @@ export function resolveCommandHandlerMap(provider: Record<string, (...args: unkn
   bind("simpleExperiment.manageAiAuthorization", "manageAiAuthorizationFromUi");
   bind("simpleExperiment.copyPanelDiagnostics", "copyPanelDiagnosticsFromUi");
   bind("simpleExperiment.restorePanel", "restorePanelFromUi");
+  bind("simpleExperiment.showOperationLog", "showOperationLogFromUi");
   bind("simpleExperiment.quickSetup", "quickSetup");
   bind("simpleExperiment.configureXshellSavedSessions", "configureXshellSavedSessions");
   bind("simpleExperiment.configureXshellAgentSessions", "configureXshellAgentSessions");
@@ -38,6 +39,7 @@ export function resolveCommandHandlerMap(provider: Record<string, (...args: unkn
   bind("simpleExperiment.startAllXshellRealtimeTunnels", "startAllXshellRealtimeTunnels");
   bind("simpleExperiment.startAllXshellAgentSessions", "startAllXshellAgentSessions");
   bind("simpleExperiment.startAllXshellConnections", "startAllXshellConnections");
+  bind("simpleExperiment.openXshellSessions", "openAllXshellSessions");
   bind("simpleExperiment.testAllTunnels", "testTunnel");
   bind("simpleExperiment.showTunnelEndpointRegistry", "showTunnelEndpointRegistry");
   bind("simpleExperiment.testXshellTunnel", "testTunnel");
@@ -64,7 +66,8 @@ export function resolveCommandHandlerMap(provider: Record<string, (...args: unkn
 export function registerProviderCommands(deps: ProviderCommandDeps, vscodeContext: { subscriptions: { push(...args: unknown[]): unknown } } & Record<string, unknown>): unknown[] {
   // 委托给 CommandFactory.registerAll，保持编排与 extension.ts activate 中一致
   const handlerMap = resolveCommandHandlerMap(deps.provider);
-  const factoryContext = { ...deps.factoryContext, handlerMap } as FactoryContext;
+  const factoryContext = { ...deps.factoryContext, handlerMap,
+    withHostOperationLease: deps.provider?.withHostOperationLease?.bind(deps.provider) } as FactoryContext;
   return (deps.commandFactory.registerAll as (ctx: unknown, fc: unknown) => unknown[])(vscodeContext as unknown, factoryContext);
 }
 

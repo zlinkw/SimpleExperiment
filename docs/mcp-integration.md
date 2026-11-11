@@ -63,6 +63,10 @@ Windows 试行版为 [v0.5.491](https://github.com/zlinkw/SimpleExperiment/relea
 
 ## CLI 对应关系
 
+0.5.492 已重载并完成真实准备：两项目分别经 MCP 建立隧道、升级 Agent/Scheduler，版本与来源哈希匹配，保留原任务和 Scheduler。配置说明、版本核验按钮及通用项目 CSV 打开已实点通过。实机发现的普通停止恢复后 unknown、运行父请求长期 running、ready 预检带 blocker 及命令注册缺陷，已在 0.5.493 修复并通过定向与最终规定回归，现场复验仍待完成。永久删除按本人决定暂不执行；授权撤销仍须本人操作安全设置，未记为通过。详见 manual-acceptance-checklist.md。
+
+0.5.493 最终规定打包范围已通过：322 个串行作业、13 个门禁，输入未变；记录 simple_cluster/reports/test-workflow/2026-11-11T16-20-51-708Z-78620-package/run.json，825319 ms。编译同输入命中、emitted=0，组装消费同一产物。包 simple-experiment-0.5.493.vsix 为 3070455 字节，SHA256 7f3656adf080ec222d3277372b2c465e4c4b21aad0d10eb791166459b945392a；实际 ZIP 379 项、326 个运行模块、两个 Python 组件版本和哈希、秘密排除、包规范及 vm.Script 均通过。附加旧行数门禁的一项既存失败单独保留在验收清单，未算作通过；配套 0.2.119 不变。新版尚未安装，现场复验仍待完成。
+
 | CLI 能力 | MCP 入口或保留方式 |
 | --- | --- |
 | project status、prepare、bootstrap、bootstrap-operation | project_status、project_prepare、project_bootstrap、project_bootstrap_operation |

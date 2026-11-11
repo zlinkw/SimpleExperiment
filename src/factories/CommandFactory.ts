@@ -16,17 +16,11 @@ function tryRequire<T>(id: string): T | undefined {
   }
 }
 
-type HostOperationLeaseMod = {
-  withHostOperationLease?: (label: string, fn: () => unknown | Promise<unknown>) => Promise<unknown>;
-};
+type CommandLease = (action: string, label: string, fn: () => unknown) => unknown;
 
 type VscodeMod = {
   commands?: { registerCommand: (id: string, fn: (...a: unknown[]) => unknown) => unknown };
 };
-
-function getHostOperationLease(): HostOperationLeaseMod | undefined {
-  return tryRequire<HostOperationLeaseMod>("../core/HostOperationLease");
-}
 
 function getVscode(): VscodeMod | undefined {
   return tryRequire<VscodeMod>("vscode");
@@ -48,6 +42,7 @@ export const COMMAND_MANIFEST: ReadonlyArray<Omit<CommandDescriptor, "handler">>
   { id: "simpleExperiment.manageAiAuthorization", title: "SimpleExperiment：管理 AI 项目授权", withLease: false },
   { id: "simpleExperiment.copyPanelDiagnostics", title: "SimpleExperiment：复制 Panel 诊断", withLease: false },
   { id: "simpleExperiment.restorePanel", title: "SimpleExperiment：恢复 Panel", withLease: false },
+  { id: "simpleExperiment.showOperationLog", title: "SimpleExperiment：查看操作完整日志", withLease: false },
   { id: "simpleExperiment.quickSetup", title: "SimpleExperiment：检查服务器配置" },
   { id: "simpleExperiment.bootstrapProject", title: "SimpleExperiment：接入当前项目" },
   { id: "simpleExperiment.prepareAgents", title: "SimpleExperiment：准备 Agent 并启动" },
@@ -61,6 +56,7 @@ export const COMMAND_MANIFEST: ReadonlyArray<Omit<CommandDescriptor, "handler">>
   { id: "simpleExperiment.startXshellRealtimeTunnel", title: "SimpleExperiment：启动 Worker Xshell 会话" },
   { id: "simpleExperiment.startAllXshellRealtimeTunnels", title: "SimpleExperiment：启动全部 Xshell 会话" },
   { id: "simpleExperiment.startAllXshellConnections", title: "SimpleExperiment：启动全部 Xshell 连接" },
+  { id: "simpleExperiment.openXshellSessions", title: "SimpleExperiment：一键打开 Xshell" },
   { id: "simpleExperiment.testAllTunnels", title: "SimpleExperiment：检测全部隧道", withLease: false },
   { id: "simpleExperiment.showTunnelEndpointRegistry", title: "SimpleExperiment：显示隧道端点清单", withLease: false },
   { id: "simpleExperiment.testXshellTunnel", title: "SimpleExperiment：检测 Xshell 隧道", withLease: false },
@@ -153,9 +149,10 @@ export class DefaultCommandFactory implements CommandFactory {
     if (unbound.length) throw new Error(`SimpleExperiment 命令没有实际处理器，拒绝注册不工作的命令：${unbound.slice(0, 12).join("、")}${unbound.length > 12 ? "…" : ""}`);
     if (!ctx.subscriptions || typeof ctx.subscriptions.push !== "function") throw new Error("Extension subscriptions are unavailable.");
     const failures: string[] = [];
+    const lease = (this.deps["withHostOperationLease"] ?? factoryCtx["withHostOperationLease"]) as CommandLease | undefined;
     for (const d of descriptors) {
       try {
-        const wrapped = d.withLease ? withLeaseWrapper(d) : d.handler;
+        const wrapped = d.withLease ? withLeaseWrapper(d, lease) : d.handler;
         const disposable = vscode.commands.registerCommand(d.id, wrapped);
         if (!disposable || typeof (disposable as { dispose?: unknown }).dispose !== "function")
           throw new Error("registerCommand returned no disposable.");
@@ -181,11 +178,10 @@ export class DefaultCommandFactory implements CommandFactory {
   }
 }
 
-function withLeaseWrapper(descriptor: CommandDescriptor): (...args: unknown[]) => unknown {
+function withLeaseWrapper(descriptor: CommandDescriptor, lease: CommandLease | undefined): (...args: unknown[]) => unknown {
   return async (...args: unknown[]) => {
-    const mod = getHostOperationLease();
-    if (!mod || typeof mod.withHostOperationLease !== "function")
+    if (typeof lease !== "function")
       throw new Error(`命令 ${descriptor.id} 缺少 HostOperationLease，拒绝绕过跨窗口互斥。`);
-    return await mod.withHostOperationLease(descriptor.leaseLabel || descriptor.id, () => descriptor.handler(...args));
+    return await lease(descriptor.leaseLabel || descriptor.id, descriptor.title, () => descriptor.handler(...args));
   };
 }

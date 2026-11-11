@@ -21,6 +21,7 @@ function resolveCommandHandlerMap(provider) {
     bind("simpleExperiment.manageAiAuthorization", "manageAiAuthorizationFromUi");
     bind("simpleExperiment.copyPanelDiagnostics", "copyPanelDiagnosticsFromUi");
     bind("simpleExperiment.restorePanel", "restorePanelFromUi");
+    bind("simpleExperiment.showOperationLog", "showOperationLogFromUi");
     bind("simpleExperiment.quickSetup", "quickSetup");
     bind("simpleExperiment.configureXshellSavedSessions", "configureXshellSavedSessions");
     bind("simpleExperiment.configureXshellAgentSessions", "configureXshellAgentSessions");
@@ -34,6 +35,7 @@ function resolveCommandHandlerMap(provider) {
     bind("simpleExperiment.startAllXshellRealtimeTunnels", "startAllXshellRealtimeTunnels");
     bind("simpleExperiment.startAllXshellAgentSessions", "startAllXshellAgentSessions");
     bind("simpleExperiment.startAllXshellConnections", "startAllXshellConnections");
+    bind("simpleExperiment.openXshellSessions", "openAllXshellSessions");
     bind("simpleExperiment.testAllTunnels", "testTunnel");
     bind("simpleExperiment.showTunnelEndpointRegistry", "showTunnelEndpointRegistry");
     bind("simpleExperiment.testXshellTunnel", "testTunnel");
@@ -59,7 +61,8 @@ function resolveCommandHandlerMap(provider) {
 function registerProviderCommands(deps, vscodeContext) {
     // 委托给 CommandFactory.registerAll，保持编排与 extension.ts activate 中一致
     const handlerMap = resolveCommandHandlerMap(deps.provider);
-    const factoryContext = { ...deps.factoryContext, handlerMap };
+    const factoryContext = { ...deps.factoryContext, handlerMap,
+        withHostOperationLease: deps.provider?.withHostOperationLease?.bind(deps.provider) };
     return deps.commandFactory.registerAll(vscodeContext, factoryContext);
 }
 class ProviderCommands {

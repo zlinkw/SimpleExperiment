@@ -1,5 +1,5 @@
 {
-  "version": "0.5.492",
+  "version": "0.5.493",
   "tools": [
     {
       "name": "project_status",
@@ -890,8 +890,8 @@
     {
       "command": "simpleExperiment.checkPluginUpdates",
       "title": "SimpleExperiment：检查配套插件更新",
-      "status": "not_tested",
-      "evidence": null
+      "status": "waiting_external_rate_limit",
+      "evidence": "Live GUI check 2026-11-11T16:08Z: GitHub rate limit, retry 2026-11-11T16:10:16Z, old response explicitly not fresh"
     },
     {
       "command": "simpleExperiment.installPluginUpdates",
@@ -931,15 +931,15 @@
       "command": "simpleExperiment.showGitBackupStatus",
       "title": "SimpleExperiment：查看备份状态",
       "icon": "$(info)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "clicked_passed",
+      "evidence": "Command palette 0.5.492: actual Generic repository, remote unconfigured, backup disabled; no settings changed"
     },
     {
       "command": "simpleExperiment.openPanel",
       "title": "SimpleExperiment：打开面板",
       "icon": "$(server-environment)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "clicked_passed",
+      "evidence": "docs/manual-acceptance-checklist.md: command palette live execution, Generic host 0.5.492"
     },
     {
       "command": "simpleExperiment.manageAiAuthorization",
@@ -958,8 +958,8 @@
       "command": "simpleExperiment.showOperationLog",
       "title": "SimpleExperiment：查看操作完整日志",
       "icon": "$(output)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "defect_fixed_pending_reload",
+      "evidence": "Generic 0.5.492 command palette: command not found; factory omitted legacy command"
     },
     {
       "command": "simpleExperiment.restorePanel",
@@ -993,8 +993,8 @@
       "command": "simpleExperiment.openSetupGuide",
       "title": "SimpleExperiment：打开配置说明",
       "icon": "$(book)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "clicked_passed",
+      "evidence": "Generic command palette 0.5.492 opens actual v0.5.492 GitHub setup document, without onboarding"
     },
     {
       "command": "simpleExperiment.configureXshellSavedSessions",
@@ -1070,8 +1070,8 @@
       "command": "simpleExperiment.showTunnelEndpointRegistry",
       "title": "SimpleExperiment：显示隧道端点清单",
       "icon": "$(list-tree)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "clicked_passed",
+      "evidence": "Generic 0.5.492 palette after temporarily enabling advanced commands: untitled JSON, rjj8 configured port 18770, no hub Agent"
     },
     {
       "command": "simpleExperiment.testXshellTunnel",
@@ -1119,8 +1119,8 @@
       "command": "simpleExperiment.openTunnelStatus",
       "title": "SimpleExperiment：打开隧道状态",
       "icon": "$(json)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "clicked_passed",
+      "evidence": "Generic 0.5.492 palette opens readable JSON state with correct workspace and version; historical localEndpoint is not proof of active Worker endpoint"
     },
     {
       "command": "simpleExperiment.runXshellRealIntegrationCheck",
@@ -1154,8 +1154,8 @@
       "command": "simpleExperiment.verifyAgentVersion",
       "title": "SimpleExperiment：校验 Agent 版本",
       "icon": "$(check)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "defect_fixed_pending_reload",
+      "evidence": "Generic command palette on 0.5.492: missing HostOperationLease; corresponding panel button passes. Factory expects nonexistent module-level wrapper instead of provider method"
     },
     {
       "command": "simpleExperiment.openLastCheckStaticReport",
@@ -1175,8 +1175,8 @@
       "command": "simpleExperiment.runCheckStatic",
       "title": "SimpleExperiment：检查项目接入",
       "icon": "$(checklist)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "defect_found",
+      "evidence": "0.5.492 Generic live report generated: legacy output-format constraints reject supported generic artifacts/metrics; 21 errors, original report 2026-11-11T16:35:13.743Z preserved"
     }
   ],
   "staticButtonOccurrences": [
@@ -1190,7 +1190,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6926
+          "line": 6933
         }
       ]
     },
@@ -1198,13 +1198,13 @@
       "command": "verifyAgentVersion",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1365,
-      "status": "defect_fixed_pending_reload",
-      "evidence": "docs/manual-acceptance-checklist.md: Windows live acceptance 2026-11-11, host 0.5.491",
+      "status": "clicked_passed",
+      "evidence": "docs/manual-acceptance-checklist.md: 0.5.492 live click after reload; version notice nonblocking and guide opens v0.5.492 without onboarding",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7390
+          "line": 7397
         }
       ]
     },
@@ -1218,7 +1218,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7268
+          "line": 7275
         }
       ]
     },
@@ -1226,13 +1226,13 @@
       "command": "openSetupGuide",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1367,
-      "status": "defect_fixed_pending_reload",
-      "evidence": "docs/manual-acceptance-checklist.md: Windows live acceptance 2026-11-11, host 0.5.491",
+      "status": "clicked_passed",
+      "evidence": "docs/manual-acceptance-checklist.md: 0.5.492 live click after reload; version notice nonblocking and guide opens v0.5.492 without onboarding",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7015
+          "line": 7022
         }
       ]
     },
@@ -1246,7 +1246,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6938
+          "line": 6945
         }
       ]
     },
@@ -1260,7 +1260,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7387
+          "line": 7394
         }
       ]
     },
@@ -1274,7 +1274,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7286
+          "line": 7293
         }
       ]
     },
@@ -1288,7 +1288,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7304
+          "line": 7311
         }
       ]
     },
@@ -1302,12 +1302,12 @@
         {
           "function": "invokeApi",
           "source": "src/extension/legacy.ts",
-          "line": 4462
+          "line": 4469
         },
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7051
+          "line": 7058
         }
       ]
     },
@@ -1321,7 +1321,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7039
+          "line": 7046
         }
       ]
     },
@@ -1335,7 +1335,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7048
+          "line": 7055
         }
       ]
     },
@@ -1349,7 +1349,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7280
+          "line": 7287
         }
       ]
     },
@@ -1363,12 +1363,12 @@
         {
           "function": "invokeApi",
           "source": "src/extension/legacy.ts",
-          "line": 4457
+          "line": 4464
         },
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7054
+          "line": 7061
         }
       ]
     },
@@ -1382,7 +1382,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7159
+          "line": 7166
         }
       ]
     },
@@ -1396,7 +1396,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7078
+          "line": 7085
         }
       ]
     },
@@ -1410,7 +1410,7 @@
         {
           "function": "postUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7544
+          "line": 7551
         }
       ]
     },
@@ -1424,12 +1424,12 @@
         {
           "function": "postUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7544
+          "line": 7551
         },
         {
           "function": "runActionCommandCore",
           "source": "src/extension/legacy.ts",
-          "line": 7854
+          "line": 7861
         }
       ]
     },
@@ -1451,12 +1451,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7139
+          "line": 7146
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7451
+          "line": 7458
         }
       ]
     },
@@ -1470,12 +1470,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7139
+          "line": 7146
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7451
+          "line": 7458
         }
       ]
     },
@@ -1489,7 +1489,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7127
+          "line": 7134
         }
       ]
     },
@@ -1503,7 +1503,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7130
+          "line": 7137
         }
       ]
     },
@@ -1517,7 +1517,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7162
+          "line": 7169
         }
       ]
     },
@@ -1531,7 +1531,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7165
+          "line": 7172
         }
       ]
     },
@@ -1545,7 +1545,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7168
+          "line": 7175
         }
       ]
     },
@@ -1559,7 +1559,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7171
+          "line": 7178
         }
       ]
     },
@@ -1573,7 +1573,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7174
+          "line": 7181
         }
       ]
     },
@@ -1587,7 +1587,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7186
+          "line": 7193
         }
       ]
     },
@@ -1601,7 +1601,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7180
+          "line": 7187
         }
       ]
     },
@@ -1615,7 +1615,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7081
+          "line": 7088
         }
       ]
     },
@@ -1629,7 +1629,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7090
+          "line": 7097
         }
       ]
     },
@@ -1643,7 +1643,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7381
+          "line": 7388
         }
       ]
     },
@@ -1657,7 +1657,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7384
+          "line": 7391
         }
       ]
     },
@@ -1671,7 +1671,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7033
+          "line": 7040
         }
       ]
     },
@@ -1685,7 +1685,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7021
+          "line": 7028
         }
       ]
     },
@@ -1699,7 +1699,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7024
+          "line": 7031
         }
       ]
     },
@@ -1713,7 +1713,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7378
+          "line": 7385
         }
       ]
     },
@@ -1727,7 +1727,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7277
+          "line": 7284
         }
       ]
     },
@@ -1741,7 +1741,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7018
+          "line": 7025
         }
       ]
     },
@@ -1755,7 +1755,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7253
+          "line": 7260
         }
       ]
     },
@@ -1769,7 +1769,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7253
+          "line": 7260
         }
       ]
     },
@@ -1783,7 +1783,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7189
+          "line": 7196
         }
       ]
     },
@@ -1797,7 +1797,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7195
+          "line": 7202
         }
       ]
     },
@@ -1811,7 +1811,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7189
+          "line": 7196
         }
       ]
     },
@@ -1825,7 +1825,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7198
+          "line": 7205
         }
       ]
     },
@@ -1839,7 +1839,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7201
+          "line": 7208
         }
       ]
     },
@@ -1853,7 +1853,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7192
+          "line": 7199
         }
       ]
     },
@@ -1867,7 +1867,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7177
+          "line": 7184
         }
       ]
     },
@@ -1881,7 +1881,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7183
+          "line": 7190
         }
       ]
     },
@@ -1895,7 +1895,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7118
+          "line": 7125
         }
       ]
     },
@@ -1909,7 +1909,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6929
+          "line": 6936
         }
       ]
     },
@@ -1923,7 +1923,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7015
+          "line": 7022
         }
       ]
     },
@@ -1937,7 +1937,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7381
+          "line": 7388
         }
       ]
     },
@@ -1951,7 +1951,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7009
+          "line": 7016
         }
       ]
     },
@@ -1965,7 +1965,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6997
+          "line": 7004
         }
       ]
     },
@@ -1973,13 +1973,13 @@
       "command": "saveAgentDefaults",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 9857,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Generic host 0.5.492 live unchanged-value save, current global values reread equal; scheduler native save notice observed",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6988
+          "line": 6995
         }
       ]
     },
@@ -1987,13 +1987,13 @@
       "command": "saveSchedulerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 9885,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Generic host 0.5.492 live unchanged-value save, current global values reread equal; scheduler native save notice observed",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6991
+          "line": 6998
         }
       ]
     },
@@ -2007,7 +2007,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7078
+          "line": 7085
         }
       ]
     },
@@ -2021,7 +2021,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6997
+          "line": 7004
         }
       ]
     },
@@ -2029,13 +2029,13 @@
       "command": "saveWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 9937,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Generic 0.5.492 rjj8 unchanged-value save, native saved notice and setupConfig reread; all Worker fields unchanged, project derived paths correct",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6994
+          "line": 7001
         }
       ]
     },
@@ -2049,7 +2049,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7003
+          "line": 7010
         }
       ]
     },
@@ -2063,7 +2063,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7000
+          "line": 7007
         }
       ]
     },
@@ -2077,7 +2077,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7310
+          "line": 7317
         }
       ]
     },
@@ -2091,7 +2091,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7313
+          "line": 7320
         }
       ]
     },
@@ -2105,7 +2105,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7009
+          "line": 7016
         }
       ]
     },
@@ -2119,7 +2119,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6997
+          "line": 7004
         }
       ]
     },
@@ -2133,7 +2133,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7039
+          "line": 7046
         }
       ]
     },
@@ -2147,7 +2147,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7048
+          "line": 7055
         }
       ]
     },
@@ -2161,12 +2161,12 @@
         {
           "function": "invokeApi",
           "source": "src/extension/legacy.ts",
-          "line": 4462
+          "line": 4469
         },
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7051
+          "line": 7058
         }
       ]
     },
@@ -2180,12 +2180,12 @@
         {
           "function": "invokeApi",
           "source": "src/extension/legacy.ts",
-          "line": 4457
+          "line": 4464
         },
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7054
+          "line": 7061
         }
       ]
     },
@@ -2199,7 +2199,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7353
+          "line": 7360
         }
       ]
     },
@@ -2213,7 +2213,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7353
+          "line": 7360
         }
       ]
     },
@@ -2227,7 +2227,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7353
+          "line": 7360
         }
       ]
     },
@@ -2241,12 +2241,12 @@
         {
           "function": "invokeApi",
           "source": "src/extension/legacy.ts",
-          "line": 4484
+          "line": 4491
         },
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7225
+          "line": 7232
         }
       ]
     },
@@ -2260,12 +2260,12 @@
         {
           "function": "invokeApi",
           "source": "src/extension/legacy.ts",
-          "line": 4486
+          "line": 4493
         },
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7227
+          "line": 7234
         }
       ]
     },
@@ -2279,7 +2279,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7222
+          "line": 7229
         }
       ]
     },
@@ -2293,7 +2293,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7229
+          "line": 7236
         }
       ]
     },
@@ -2307,7 +2307,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7219
+          "line": 7226
         }
       ]
     },
@@ -2321,7 +2321,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7344
+          "line": 7351
         }
       ]
     },
@@ -2335,12 +2335,12 @@
         {
           "function": "invokeApi",
           "source": "src/extension/legacy.ts",
-          "line": 4462
+          "line": 4469
         },
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7051
+          "line": 7058
         }
       ]
     },
@@ -2354,7 +2354,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6947
+          "line": 6954
         }
       ]
     },
@@ -2368,7 +2368,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7045
+          "line": 7052
         }
       ]
     },
@@ -2382,7 +2382,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7048
+          "line": 7055
         }
       ]
     },
@@ -2396,7 +2396,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7003
+          "line": 7010
         }
       ]
     },
@@ -2410,7 +2410,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7150
+          "line": 7157
         }
       ]
     },
@@ -2424,7 +2424,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7144
+          "line": 7151
         }
       ]
     },
@@ -2438,7 +2438,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7147
+          "line": 7154
         }
       ]
     },
@@ -2452,12 +2452,12 @@
         {
           "function": "invokeApi",
           "source": "src/extension/legacy.ts",
-          "line": 4474
+          "line": 4481
         },
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7153
+          "line": 7160
         }
       ]
     },
@@ -2471,7 +2471,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7124
+          "line": 7131
         }
       ]
     },
@@ -2485,7 +2485,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7204
+          "line": 7211
         }
       ]
     },
@@ -2507,7 +2507,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7353
+          "line": 7360
         }
       ]
     },
@@ -2521,7 +2521,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7096
+          "line": 7103
         }
       ]
     },
@@ -2535,7 +2535,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7118
+          "line": 7125
         }
       ]
     },
@@ -2549,7 +2549,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7207
+          "line": 7214
         }
       ]
     },
@@ -2563,7 +2563,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7118
+          "line": 7125
         }
       ]
     },
@@ -2577,7 +2577,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7118
+          "line": 7125
         }
       ]
     },
@@ -2591,12 +2591,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6964
+          "line": 6971
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7461
+          "line": 7468
         }
       ]
     },
@@ -2610,7 +2610,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7253
+          "line": 7260
         }
       ]
     },
@@ -2624,7 +2624,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7256
+          "line": 7263
         }
       ]
     },
@@ -2638,7 +2638,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7096
+          "line": 7103
         }
       ]
     },
@@ -2652,7 +2652,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7093
+          "line": 7100
         }
       ]
     },
@@ -2666,7 +2666,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7118
+          "line": 7125
         }
       ]
     },
@@ -2680,7 +2680,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7136
+          "line": 7143
         }
       ]
     },
@@ -2694,7 +2694,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7118
+          "line": 7125
         }
       ]
     },
@@ -2708,7 +2708,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7118
+          "line": 7125
         }
       ]
     },
@@ -2722,7 +2722,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7253
+          "line": 7260
         }
       ]
     },
@@ -2736,7 +2736,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7259
+          "line": 7266
         }
       ]
     },
@@ -2750,12 +2750,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6956
+          "line": 6963
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7449
+          "line": 7456
         }
       ]
     },
@@ -2769,12 +2769,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6956
+          "line": 6963
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7449
+          "line": 7456
         }
       ]
     },
@@ -2788,7 +2788,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6985
+          "line": 6992
         }
       ]
     },
@@ -2802,12 +2802,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6960
+          "line": 6967
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7445
+          "line": 7452
         }
       ]
     },
@@ -2821,7 +2821,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6968
+          "line": 6975
         }
       ]
     },
@@ -2835,12 +2835,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6964
+          "line": 6971
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7461
+          "line": 7468
         }
       ]
     },
@@ -2854,7 +2854,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7336
+          "line": 7343
         }
       ]
     },
@@ -2868,12 +2868,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6956
+          "line": 6963
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7449
+          "line": 7456
         }
       ]
     },
@@ -2887,7 +2887,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7078
+          "line": 7085
         }
       ]
     },
@@ -2901,7 +2901,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7078
+          "line": 7085
         }
       ]
     },
@@ -2923,7 +2923,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7264
+          "line": 7271
         }
       ]
     },
@@ -2937,7 +2937,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6985
+          "line": 6992
         }
       ]
     },
@@ -2951,7 +2951,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6962
+          "line": 6969
         }
       ]
     },
@@ -2965,7 +2965,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7264
+          "line": 7271
         }
       ]
     },
@@ -2979,7 +2979,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7262
+          "line": 7269
         }
       ]
     },
@@ -2993,7 +2993,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7266
+          "line": 7273
         }
       ]
     },
@@ -3007,7 +3007,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7266
+          "line": 7273
         }
       ]
     },
@@ -3021,7 +3021,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7259
+          "line": 7266
         }
       ]
     },
@@ -3035,7 +3035,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7259
+          "line": 7266
         }
       ]
     },
@@ -3049,7 +3049,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7259
+          "line": 7266
         }
       ]
     },
@@ -3063,7 +3063,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6962
+          "line": 6969
         }
       ]
     },
@@ -3077,7 +3077,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7078
+          "line": 7085
         }
       ]
     },
@@ -3091,7 +3091,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7350
+          "line": 7357
         }
       ]
     },
@@ -3105,7 +3105,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7253
+          "line": 7260
         }
       ]
     },
@@ -3119,7 +3119,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7253
+          "line": 7260
         }
       ]
     },
@@ -3133,7 +3133,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6808
+          "line": 6815
         }
       ]
     },
@@ -3147,7 +3147,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6809
+          "line": 6816
         }
       ]
     },
@@ -3161,7 +3161,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7259
+          "line": 7266
         }
       ]
     },
@@ -3175,7 +3175,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7350
+          "line": 7357
         }
       ]
     },
@@ -3189,7 +3189,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7264
+          "line": 7271
         }
       ]
     },
@@ -3203,7 +3203,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7078
+          "line": 7085
         }
       ]
     },
@@ -3217,7 +3217,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7372
+          "line": 7379
         }
       ]
     },
@@ -3231,7 +3231,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7375
+          "line": 7382
         }
       ]
     },
@@ -3245,7 +3245,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7264
+          "line": 7271
         }
       ]
     },
@@ -3259,7 +3259,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7078
+          "line": 7085
         }
       ]
     },
@@ -3273,7 +3273,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7372
+          "line": 7379
         }
       ]
     },
@@ -3287,7 +3287,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7375
+          "line": 7382
         }
       ]
     },
@@ -3301,7 +3301,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7372
+          "line": 7379
         }
       ]
     },
@@ -3315,7 +3315,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7375
+          "line": 7382
         }
       ]
     },
@@ -3329,7 +3329,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7372
+          "line": 7379
         }
       ]
     },
@@ -3343,7 +3343,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7375
+          "line": 7382
         }
       ]
     },
@@ -3357,7 +3357,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7372
+          "line": 7379
         }
       ]
     },
@@ -3371,7 +3371,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7375
+          "line": 7382
         }
       ]
     },
@@ -3385,12 +3385,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7319
+          "line": 7326
         },
         {
           "function": "withSafeTransferRetry",
           "source": "src/extension/legacy.ts",
-          "line": 14100
+          "line": 14107
         }
       ]
     },
@@ -3404,7 +3404,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7235
+          "line": 7242
         }
       ]
     },
@@ -3418,7 +3418,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7238
+          "line": 7245
         }
       ]
     },
@@ -3432,7 +3432,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7232
+          "line": 7239
         }
       ]
     },
@@ -3446,7 +3446,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7241
+          "line": 7248
         }
       ]
     },
@@ -3460,7 +3460,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7241
+          "line": 7248
         }
       ]
     },
@@ -3474,7 +3474,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7341
+          "line": 7348
         }
       ]
     },
@@ -3488,7 +3488,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7341
+          "line": 7348
         }
       ]
     },
@@ -3502,7 +3502,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7341
+          "line": 7348
         }
       ]
     },
@@ -3516,7 +3516,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7216
+          "line": 7223
         }
       ]
     },
@@ -3530,7 +3530,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7213
+          "line": 7220
         }
       ]
     },
@@ -3544,7 +3544,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7331
+          "line": 7338
         }
       ]
     },
@@ -3558,7 +3558,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7329
+          "line": 7336
         }
       ]
     },
@@ -3572,7 +3572,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7338
+          "line": 7345
         }
       ]
     },
@@ -3586,7 +3586,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7322
+          "line": 7329
         }
       ]
     },
@@ -3600,7 +3600,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7210
+          "line": 7217
         }
       ]
     },
@@ -3614,7 +3614,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7241
+          "line": 7248
         }
       ]
     },
@@ -3628,7 +3628,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7078
+          "line": 7085
         }
       ]
     },
@@ -3642,12 +3642,12 @@
         {
           "function": "invokeApi",
           "source": "src/extension/legacy.ts",
-          "line": 4457
+          "line": 4464
         },
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7054
+          "line": 7061
         }
       ]
     },
@@ -3661,12 +3661,12 @@
         {
           "function": "invokeApi",
           "source": "src/extension/legacy.ts",
-          "line": 4457
+          "line": 4464
         },
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7054
+          "line": 7061
         }
       ]
     },
@@ -3688,7 +3688,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7253
+          "line": 7260
         }
       ]
     }
@@ -3717,6 +3717,15 @@
         "workerId": "rjj8",
         "windowId": "@12",
         "version": "0.5.491",
+        "evidence": "docs/manual-acceptance-checklist.md"
+      },
+      {
+        "control": "result summary final.csv CSV button opens the matching result in editor",
+        "status": "clicked_passed",
+        "workspace": "SimpleMcpAcceptance",
+        "version": "0.5.492",
+        "commandId": "78e8aab0f09dcad43c5fe305b826d3f4",
+        "path": "experiments/results/_unassigned/final/final.csv",
         "evidence": "docs/manual-acceptance-checklist.md"
       }
     ]

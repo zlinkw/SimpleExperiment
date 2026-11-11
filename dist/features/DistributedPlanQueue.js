@@ -126,6 +126,16 @@ function confirmRetainedTaskStop(plan, job, now = Date.now()) {
     if (plan.projectId)
         job.trustedTerminalProof = (0, VerifiedCompletion_1.trustedTerminalProofFor)(plan, job, "cancelled", now);
 }
+function restoreRetainedTaskStop(plan, job) {
+    if (job.stopReason !== "user" || !(0, VerifiedCompletion_1.hasTrustedTerminalProof)(plan, job)
+        || job.trustedTerminalProof.outcome !== "cancelled" || (0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job))
+        return;
+    job.status = "cancelled";
+    job.executionState = "missing";
+    job.trustedTerminalStatus = "cancelled";
+    job.finishedAt = job.trustedTerminalProof.provenAt;
+    job.blockReason = "任务已确认停止，日志与产物保留。";
+}
 const QUEUE_BASE_DISK_SIGNATURE = Symbol("distributedQueueBaseDiskSignature");
 function distributedQueueDiskSignature(source) {
     return (0, node_crypto_1.createHash)("sha256").update(source, "utf8").digest("hex");
@@ -178,6 +188,7 @@ function clearNativeProjection(job, plan) {
         Object.assign(job, (0, VerifiedCompletion_1.verifiedCompletionProjection)(plan, job));
     else
         delete job.verifiedCompletion;
+    restoreRetainedTaskStop(plan, job);
 }
 /** Metadata writes keep the current in-memory observation; disk history never supplies runtime truth. */
 function keepCurrentObservations(queue, live, now = Date.now()) {
@@ -195,6 +206,7 @@ function keepCurrentObservations(queue, live, now = Date.now()) {
                 job[key] = current[key];
             job.gpuMemoryProfile = (0, GpuMemoryBudget_1.mergeBudgetEvidence)(job.gpuMemoryProfile, current.gpuMemoryProfile);
             Object.assign(job, (0, VerifiedCompletion_1.verifiedCompletionProjection)(plan, job));
+            restoreRetainedTaskStop(plan, job);
         }
     return queue;
 }

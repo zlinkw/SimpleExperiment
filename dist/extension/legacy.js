@@ -4364,7 +4364,7 @@ class RealtimeTunnelPanelProvider {
             prepareParams,
             runParams,
         });
-        const blocker = {
+        const blocker = route.ready ? null : {
             code: route.phase === "prepare_agents"
                 ? "INFRASTRUCTURE_NOT_READY"
                 : route.phase === "select_plan"
@@ -4439,7 +4439,7 @@ class RealtimeTunnelPanelProvider {
         WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
         const operationId = makeOpId("workflow-run");
         this.localOperations[operationId] = {
-            operationId, type: "workflow-run", status: "running",
+            operationId, type: "workflow-run", status: "running", localSubmissionProgress: true,
             message: "正在准备、同步并检查；存在旧产物时将在主面板确认路径。", startedAt: new Date().toISOString(),
             planFile: submittedPlanFile, planId: submittedPlanId, debugMode: params.debugMode === true,
         };
@@ -4453,6 +4453,7 @@ class RealtimeTunnelPanelProvider {
             started: true,
             operationId,
             status: "checking_workers",
+            requestScope: "workflow_submission", receiptProvesExperimentCompletion: false,
             confirmation: "main_panel_if_outputs_exist",
             plan: route.plan,
             nextAction: "operations.list",
@@ -4460,25 +4461,15 @@ class RealtimeTunnelPanelProvider {
         };
     }
     async runApiWorkflowOperation(operationId, route, binding) {
-        const operations = this.localOperations;
+        const generation = this.projectContextGeneration;
+        const submissionOperationId = "plan-submit-" + operationId;
         const assertCurrent = () => {
             if (!binding)
                 return;
-            WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
-            if (this.localOperations !== operations)
-                throw new Error("workflow 操作归属已变化，未继续提交。");
+            WorkflowBinding.assertWorkflowContext(binding, workspaceRoot(), this.projectContextGeneration, generation);
         };
         const knownOperationIds = new Set(Object.keys(this.localOperations || {}));
         const finish = (patch = {}) => {
-            operations[operationId] = {
-                ...(operations[operationId] || {}),
-                operationId,
-                type: "workflow-run",
-                finishedAt: new Date().toISOString(),
-                ...patch,
-            };
-            if (this.localOperations !== operations)
-                return;
             if (binding) {
                 try {
                     assertCurrent();
@@ -4487,6 +4478,18 @@ class RealtimeTunnelPanelProvider {
                     return;
                 }
             }
+            const current = this.localOperations[operationId];
+            if (!current)
+                return;
+            this.localOperations[operationId] = {
+                ...current,
+                operationId,
+                type: "workflow-run",
+                localSubmissionProgress: true,
+                receiptProvesExperimentCompletion: false,
+                finishedAt: new Date().toISOString(),
+                ...patch,
+            };
             this.markLocalOperationsDirty();
             this.postState();
         };
@@ -4501,9 +4504,10 @@ class RealtimeTunnelPanelProvider {
             this.postState();
             const submitted = await this.runActionCommand("runPlan", route.calls[0].params);
             assertCurrent();
-            let evidence = this.runSubmissionEvidence(submitted, knownOperationIds);
+            let evidence = this.runSubmissionEvidence(this.localOperations[submissionOperationId], knownOperationIds)
+                || this.runSubmissionEvidence(submitted, knownOperationIds);
             if (!evidence)
-                evidence = await this.waitForRunSubmissionEvidence({ knownOperationIds, timeoutMs: 20_000 });
+                evidence = await this.waitForRunSubmissionEvidence({ operationId: submissionOperationId, knownOperationIds, timeoutMs: 20_000 });
             assertCurrent();
             if (!evidence) {
                 finish({
@@ -4515,21 +4519,21 @@ class RealtimeTunnelPanelProvider {
             }
             finish({
                 status: "succeeded",
-                message: "实验已按标准路线提交，并确认新的运行操作进入 accepted/submitted/running 状态。",
+                message: "运行请求已处理；实际任务执行状态与产物请通过 task_list 主动查询。",
                 ...evidence,
             });
         }
         catch (error) {
             if (isUiCommandRemotePending(error)) {
                 const match = /operationId=([^\s；;]+)/.exec(errorMessage(error));
-                const evidence = match?.[1]
+                const evidence = this.runSubmissionEvidence(this.localOperations[submissionOperationId], knownOperationIds) || (match?.[1]
                     ? this.runSubmissionEvidence(this.localOperations[match[1]], knownOperationIds)
                         || await this.waitForRunSubmissionEvidence({
                             operationId: match[1],
                             knownOperationIds,
                             timeoutMs: 20_000,
                         })
-                    : null;
+                    : null);
                 if (evidence) {
                     finish({ status: "succeeded", message: errorMessage(error), ...evidence });
                     return;
@@ -4556,7 +4560,8 @@ class RealtimeTunnelPanelProvider {
         const activeStatuses = new Set(["accepted", "submitted", "operation_started", "queued", "running", "progress", "in_progress"]);
         const localRow = operationId ? this.localOperations?.[operationId] : undefined;
         const localType = String(localRow?.type || type).toLowerCase();
-        if (!operationId || !activeStatuses.has(status))
+        const handledLocalRequest = row.localSubmissionProgress === true && status === "succeeded";
+        if (!operationId || !activeStatuses.has(status) && !handledLocalRequest)
             return null;
         if (knownOperationIds?.has(operationId))
             return null;
@@ -4569,6 +4574,7 @@ class RealtimeTunnelPanelProvider {
             submissionStatus: status,
             submissionType: localType || type,
             submissionEvidenceAt: new Date().toISOString(),
+            receiptProvesExperimentCompletion: false,
         };
     }
     async waitForRunSubmissionEvidence(options = {}) {
@@ -31384,6 +31390,16 @@ function mergeOperationRecords(...records) {
         const payloadTail = tailPreferred(payloadRaw);
         if (!String(out[key].logTail || out[key].log_tail || "").trim() && payloadTail) {
             out[key] = { ...out[key], logTail: payloadTail, log_tail: payloadTail };
+        }
+        const child = out[row.submissionOperationId];
+        if (row.type === "workflow-run" && !operationTerminal(row)
+            && row.submissionOperationId === "plan-submit-" + String(row.operationId || key)
+            && child?.localSubmissionProgress === true && ["run-plan", "reproduce-plan"].includes(child.type)
+            && child.planFile === row.planFile && ["succeeded", "failed", "cancelled"].includes(child.status)) {
+            out[key] = { ...out[key], status: child.status, localSubmissionProgress: true,
+                finishedAt: child.finishedAt || child.updatedAt, submissionStatus: child.status, receiptProvesExperimentCompletion: false,
+                message: child.status === "succeeded" ? "运行请求已处理；实际任务执行状态与产物请主动查询。"
+                    : child.message || (child.status === "cancelled" ? "运行请求已取消。" : "运行请求未完成。") };
         }
     }
     return out;

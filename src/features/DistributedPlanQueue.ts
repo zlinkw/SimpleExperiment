@@ -4,7 +4,7 @@ import { PlanExecutionMode } from "./PlanExecutionMode";
 import { observationMatches, taskLifecycle, TaskObservation } from "./TaskLifecycle";
 import type { RuntimeDiagnostics, CompletionState } from "./RuntimeDiagnostics";
 import { freshTaskObservation } from "./WorkerProgressEvidence";
-import { hasVerifiedCompletion, nextVerifiedCompletion, verifiedCompletionProjection, trustedTerminalProofFor, type TrustedTerminalProof, type VerifiedCompletion } from "./VerifiedCompletion";
+import { hasVerifiedCompletion, hasTrustedTerminalProof, nextVerifiedCompletion, verifiedCompletionProjection, trustedTerminalProofFor, type TrustedTerminalProof, type VerifiedCompletion } from "./VerifiedCompletion";
 import { projectStateFile, projectStateId } from "./ProjectStatePaths";
 import { budgetEvidence, mergeBudgetEvidence, retainPlanMemoryEstimates, type PlanGpuMemoryEstimates, type GpuBudgetEvidence, type GpuBudgetReservation } from "./GpuMemoryBudget";
 
@@ -142,6 +142,16 @@ export function confirmRetainedTaskStop(plan: QueuedPlan, job: QueuedJob, now = 
   if (plan.projectId) job.trustedTerminalProof = trustedTerminalProofFor(plan, job, "cancelled", now);
 }
 
+function restoreRetainedTaskStop(plan: QueuedPlan, job: QueuedJob): void {
+  if (job.stopReason !== "user" || !hasTrustedTerminalProof(plan, job)
+    || job.trustedTerminalProof!.outcome !== "cancelled" || hasVerifiedCompletion(plan, job)) return;
+  job.status = "cancelled";
+  job.executionState = "missing";
+  job.trustedTerminalStatus = "cancelled";
+  job.finishedAt = job.trustedTerminalProof!.provenAt;
+  job.blockReason = "任务已确认停止，日志与产物保留。";
+}
+
 export type QueuedPlan = {
   gpuMemoryEstimates?: PlanGpuMemoryEstimates;
   executionSource?: import("../extension/PlanCodeScopeHost").PlanExecutionSource;
@@ -251,6 +261,7 @@ function clearNativeProjection(job: QueuedJob, plan: QueuedPlan) {
   if (job.outputIsolationBlocked) job.blockReason = outputIsolationNotice(job);
   if (hasVerifiedCompletion(plan, job)) Object.assign(job, verifiedCompletionProjection(plan, job));
   else delete job.verifiedCompletion;
+  restoreRetainedTaskStop(plan, job);
 }
 
 /** Metadata writes keep the current in-memory observation; disk history never supplies runtime truth. */
@@ -265,6 +276,7 @@ export function keepCurrentObservations(queue: DistributedQueue, live: Distribut
     for (const key of keys) (job as any)[key] = current[key];
     job.gpuMemoryProfile = mergeBudgetEvidence(job.gpuMemoryProfile, current.gpuMemoryProfile);
     Object.assign(job, verifiedCompletionProjection(plan, job));
+    restoreRetainedTaskStop(plan, job);
   }
   return queue;
 }
