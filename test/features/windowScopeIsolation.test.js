@@ -27,11 +27,12 @@ test('server connections migrate from a configured project and are shared across
 test('shared connection refresh updates a background project without changing its queue or grant, and project switches only remind',async()=>{
  const vm=require('node:vm'),ts=require('typescript'),method=require('../_helpers/legacyMethod');
  const source=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
- let root='C:/project-A';const global=memo(),messages=[],opened=[];
+ let root='C:/project-A',choice;const global=memo(),messages=[],opened=[],actions=[];
  const Host=vm.runInNewContext(ts.transpileModule('class Host {'+['refreshSharedConnectionSettings','remindSharedConnectionSettings'].map(n=>method(source,n+'(')).join('\n')+'}; Host',{
   compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{
   sharedConnectionProfile:P.sharedConnectionProfile,workspaceRoot:()=>root,path,
-  vscode:{window:{state:{focused:true},showInformationMessage:async(message)=>{messages.push(message);return undefined;},showErrorMessage:error=>{throw Error(error);}}},
+  canonicalComparablePath:require('../../src/project/BranchProjectStore.ts').canonicalComparablePath,
+  vscode:{window:{state:{focused:true},showInformationMessage:async(message,...options)=>{messages.push(message);actions.push(options);return choice;},showErrorMessage:error=>{throw Error(error);}}},
  });
  const context={globalState:global,workspaceState:memo()},h=new Host();h.context=context;
  h.loadSetupConfig=()=>P.readProjectConnectionValue(context,root,'simpleExperiment.xshellRealtimeTunnelConfig')||{workerTunnels:[]};
@@ -50,6 +51,15 @@ test('shared connection refresh updates a background project without changing it
  const reloaded=new Host();reloaded.context=context;reloaded.enabledWorkerConfigs=h.enabledWorkerConfigs;await reloaded.remindSharedConnectionSettings();
  assert.equal(messages.length,2,'reloading the same project retains the reminder decision');
  root='C:/project-C';await h.remindSharedConnectionSettings();assert.equal(messages.length,3,'a genuinely different project still receives its first reminder');
+ assert.deepEqual(Array.from(actions[2]),['检查项目差异','已确认，此后不再通知']);
+ choice='已确认，此后不再通知';root='C:/project-D';await h.remindSharedConnectionSettings();
+ await new Promise(resolve=>setImmediate(resolve));
+ const acknowledged=new Host();acknowledged.context={globalState:global,workspaceState:memo()};acknowledged.enabledWorkerConfigs=second.enabledWorkerConfigs;
+ root='c:/PROJECT-d/';await acknowledged.remindSharedConnectionSettings();
+ assert.equal(messages.length,4,'explicit acknowledgement survives a fresh workspace identity and Windows path spelling changes');
+ choice=undefined;root='C:/project-E';await acknowledged.remindSharedConnectionSettings();assert.equal(messages.length,5,'acknowledgement only applies to the chosen project');
+ const dismissed=new Host();dismissed.context={globalState:global,workspaceState:memo()};dismissed.enabledWorkerConfigs=second.enabledWorkerConfigs;
+ await dismissed.remindSharedConnectionSettings();assert.equal(messages.length,6,'closing a notification does not persist explicit acknowledgement');
 });
 test('same-window SFTP exports ignore a foreign global default and reject wrong PID/project or missing project',async()=>{
  let legacy=0,activated=0;const root='C:/project-A',descriptor={pid:process.pid,workspace:root,baseUrl:'http://127.0.0.1:1234'};
