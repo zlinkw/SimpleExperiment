@@ -1,6 +1,6 @@
 # Windows 日常点击验收
 
-本轮以 Windows 0.5.485 为初始实点基线。两个项目已在 0.5.492 重载，项目绑定、持续授权和通知持久确认保持有效。两个单 seed 实验已有退出码 0 的结果；rjj8 两项目的 Agent 与 Scheduler 已顺序升级至 0.5.492，原任务和 Scheduler 保留。0.5.493 已修复本轮实机发现的停止状态恢复、请求终态、预检回执和命令注册问题，最终规定打包范围已通过，现场复验仍待完成，整体验收未通过。界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。
+本轮以 Windows 0.5.485 为初始实点基线。两个项目已在 0.5.493 重载，项目绑定、持续授权和通知持久确认保持有效。两个单 seed 实验已有退出码 0 的结果；rjj8 两项目的 Agent 与 Scheduler 已顺序升级至 0.5.493，原任务和 Scheduler 保留。停止状态恢复、请求终态、预检回执和两个命令注册修复已完成 API/命令实机复验；旧接入检查和取消 PLAN 的界面误判进入下一批，整体入口验收仍未通过。界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。
 
 ## 记录规则
 
@@ -75,6 +75,16 @@
 - 通用项目设置页可见手动添加与 Xshell 导入按钮，无遮挡。按原值实点保存共享前缀/默认环境、全局调度策略及 rjj8 服务器，重新读取值一致；调度和服务器原生保存通知正常，rjj8 的 SSH/隧道、Conda、项目父目录及所有其他 Worker 配置未变。面板计算的代码与 Agent runtime 路径均属于 SimpleMcpAcceptance，没有自动准备服务或启动实验。此项只证明现有值保存，不代替新增服务器完整接入。
 - 高级命令开关经 VS Code 设置临时打开后，端点清单命令实际打开 JSON，包含 rjj8 和实际 18770 端口，没有 Hub Agent；隧道状态命令打开当前项目的 JSON 状态。验收后已实点恢复开关为 false，API 回读一致，未改授权。
 - 命令面板“检查项目接入”实际生成报告并通知 failed（3 个 PLAN）。原始报告位于验收项目 simple_cluster/check_reports/check-static-latest.md，2026-11-11T16:35:13.743Z，21 errors、7 warnings、2 infos。检查器仍强制旧模板的 metrics_summary/metrics_case、双日志、大表追加及固定 test --result-csv 接口，将已被当前正式预检接受、退出码 0 且 manifest 完整的普通训练项目判错。这是下一批通用性修复项，不改通用训练代码迁就检查器；不把该入口记为业务通过，也不覆盖首次失败报告。0.5.493 已冻结，不为这个新发现改写其已完成打包证据。
+
+## 0.5.493 实机复验
+
+- 源码 3a1c79e918ce30a50f5fa98f51ccd4184e4e9f06 已普通推送并 fetch 核对主线一致。试行 v0.5.493 的真实 tag 绑定该提交、prerelease=true/draft=false；VSIX 3070455 字节、SHA256 7f3656adf080ec222d3277372b2c465e4c4b21aad0d10eb791166459b945392a，远端重下载与本机一致。直接读取曾遇到真实 GitHub EOF/ECONNRESET；使用现有 Windows 系统代理 127.0.0.1:7897 后读取成功，未改系统设置。实际原生 ReleaseClient 在该进程代理环境下检查为 up_to_date；另以同一解析器、真实认证网络传输确认正式 Latest 仍为 0.5.483/0.2.118，试行 0.5.493/0.2.119 不降级。原始检查位于 simple_cluster/release-verification/0.5.493。
+- 显式 install:latest 一次成功，已安装版本与 CLI 核对为 0.5.493/0.2.119；随后通过普通 VS Code Reload Window 重载两个项目，保留 MultiModal 已修改文档。新官方 SDK stdio MCP 分别返回正确项目根、0.5.493、PID 7344/53456。Codex 旧原生 MCP 连接仍为 0.5.492，按门禁拒绝版本不符且未发送业务请求；该连接需本人在 Codex 重连，AI 未操作 Codex UI。
+- 通用项目 project_prepare 请求 mcp-2c88c159-7787-4152-8763-b4901b884aca 成功；Agent @29 和 Scheduler @15 实测 0.5.493、来源哈希匹配。命令面板版本核验实际通知 0.5.493 和两个 sha256 ok，没有缺少租约错误；操作完整日志命令实际打开 SimpleExperiment 操作日志输出频道。两个修复命令实点通过。
+- 旧 commandId b54246b8cb31eabd2109a02f39e91f9e 重载后仍为 cancelled；原运行父请求 workflow-run-1794411835137-lc9vcv 主动查询为 succeeded，绑定原精确子请求，receiptProvesExperimentCompletion=false。原通用成功任务 78e8aab0f09dcad43c5fe305b826d3f4 仍 completed。
+- 新 normal_stop_0_5_493.yaml 沿用软件控制脚本、seed 42、专用输出。预检 mcp-d0da6dbe-ceba-4e6a-a271-7f0105721d1b 返回 ready=true/blocker=null；父请求 workflow-run-1794415655426-zpz5wo 已真实结算 succeeded。workflow distributed-plan-1794415663332-cq34v8、commandId 5e436d7c18a271d95e8ab7129d356b7d 实际在 rjj8/GPU 0、窗口 @30 运行，task_stop 请求 mcp-a225f228-536d-41ad-a73f-6829001497fe 成功，主动 exact_window_observation 确认 paneClosed=true/cacheRetired=true。后续主动查询新旧两条均 cancelled，原成功任务和日志产物保留。
+- 新发现的界面余项：停止后任务 API 正确，但 PLAN 下拉将旧取消记录标失败、新记录仍标准备提交中；两张运行卡优先显示“远端未发现执行窗口”，而非“已中止”。与旧接入检查误判一起纳入下一批展示/检查修复，不把 0.5.493 当作所有界面已完成验收。API 的真实任务终态与请求终态复验已通过。
+- 通用项目结束后精确关闭 Agent @29，MultiModal 准备请求 mcp-3a1b827c-a4b9-4441-bda2-df3cd90b09f9 成功，Agent @31、Scheduler @9 实测 0.5.493、两个来源哈希匹配。当前共享端口恢复 MultiModal。实际 tmux 列表仍有 @12/@16 原任务与 @9/@15 两个 Scheduler，@29/@30 已消失；未清除队列、日志或产物，专用删除文件仍为 49 字节。普通通知确认未重复弹出；未修改安全授权。
 
 ## 后续验收范围
 

@@ -958,8 +958,8 @@
       "command": "simpleExperiment.showOperationLog",
       "title": "SimpleExperiment：查看操作完整日志",
       "icon": "$(output)",
-      "status": "defect_fixed_pending_reload",
-      "evidence": "Generic 0.5.492 command palette: command not found; factory omitted legacy command"
+      "status": "clicked_passed",
+      "evidence": "Generic live 0.5.493 after reload: exact version/hash native notice or operation-log output channel observed"
     },
     {
       "command": "simpleExperiment.restorePanel",
@@ -1154,22 +1154,22 @@
       "command": "simpleExperiment.verifyAgentVersion",
       "title": "SimpleExperiment：校验 Agent 版本",
       "icon": "$(check)",
-      "status": "defect_fixed_pending_reload",
-      "evidence": "Generic command palette on 0.5.492: missing HostOperationLease; corresponding panel button passes. Factory expects nonexistent module-level wrapper instead of provider method"
+      "status": "clicked_passed",
+      "evidence": "Generic live 0.5.493 after reload: exact version/hash native notice or operation-log output channel observed"
     },
     {
       "command": "simpleExperiment.openLastCheckStaticReport",
       "title": "SimpleExperiment：打开静态检查报告",
       "icon": "$(file)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "clicked_passed",
+      "evidence": "Generic live 0.5.492: actual check-static-latest.md opened, or native copied notice 26501 characters; checker business false-positive separately retained"
     },
     {
       "command": "simpleExperiment.copyLastCheckStaticReport",
       "title": "SimpleExperiment：复制静态检查报告",
       "icon": "$(copy)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "clicked_passed",
+      "evidence": "Generic live 0.5.492: actual check-static-latest.md opened, or native copied notice 26501 characters; checker business false-positive separately retained"
     },
     {
       "command": "simpleExperiment.runCheckStatic",
