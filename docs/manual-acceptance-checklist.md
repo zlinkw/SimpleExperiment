@@ -61,6 +61,8 @@ MultiModal 的独立验收 PLAN 为 experiments/plans/acceptance/windows_mcp_202
 
 ## 实机发现与本轮修复状态
 
+最终 0.5.491 完整打包检查已通过：322 项串行作业全部通过，记录 simple_cluster/reports/test-workflow/2026-11-11T11-39-45-090Z-11984-package/run.json；包内容与远端试行资产核验通过。0.5.491 与配套 SimpleSFTP 0.2.119 均已安装一次；新修复仍需本人重载两个窗口并重连 MCP 后实机复核，本页待实测项保持原状态。
+
 0.5.491 首轮完整回归的 322 个作业中，8 个测试文件因模拟配置缺少 inspect 或 ConfigurationSettings 模块绑定失败；首次完整日志保留于 simple_cluster/reports/test-workflow/2026-11-11T11-25-28-974Z-48436-package。仅补齐原测试输入与真实模块，不改断言、超时或生产判断；8 个定向修正回归全部通过。既有 package:assemble 门禁只接收单份完整通过记录，本轮沿用门禁重新运行最终打包，不修改旧失败记录或绕过组装校验。
 
 - 本轮源码修复（配套 SimpleSFTP 0.2.119）：project_prepare 首次面对不存在的项目远端根时先 inspect，返回 AGENT_LIFECYCLE_FAILED/No such file or directory。原来只能先上传创建根再准备；现已允许只读 inspect 不存在的合法项目根，不创建目录，后续正常上传创建。嵌入与配套控制脚本一致，真实 tmux 定向回归通过；新版本实机仍待重载。
