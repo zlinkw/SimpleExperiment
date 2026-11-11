@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的后台 SSH 隧道实时集群编排面板。",
-  "version": "0.5.486",
+  "version": "0.5.487",
   "simpleExperimentRelease": {
     "channel": "trial",
     "authoritativeVersion": "0.5.483",
@@ -711,7 +711,7 @@
               }
             }
           },
-          "description": "Worker 连接模板数组。推荐在当前项目服务器卡片保存连接；面板配置按项目持久化，不写其他窗口的全局连接。"
+          "description": "全局共享的 Worker 连接设置。推荐在服务器卡片保存，供本机所有项目复用；切换项目时检查环境、远端项目父目录和端口。"
         },
         "simpleExperiment.scheduler.dispatchMode": {
           "type": "string",

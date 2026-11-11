@@ -29,7 +29,9 @@ Windows 的实际来源由 `src/updates/ReleaseClient.ts` 和 `src/features/Exte
 
 ## 多窗口连接作用域
 
-SimpleExperiment 的服务器、Conda 与隧道面板配置保存到当前项目的 workspaceState，按规范根目录分开。资源前缀仅保存为用户级全局设置 `simpleExperiment.tunnel.remoteTmuxSessionPrefix`，默认 simple，所有项目共用；每次打开仍为默认时提醒修改并解释作用，旧项目/Worker/任务别名不覆盖。Agent runtime、状态、日志和锁默认归服务器项目目录，GPU 采样保留账号公共目录；已有显式路径不自动改名、迁移或清理。已有项目首次更新时复制旧配置一次；之后面板保存不会改全局连接模板，虚拟工作区不会借用其他项目配置。切换项目重新加载其配置与 API 身份。安装版本和用户主动设置的全局偏好仍沿用 VS Code 的共用机制。
+2026-11-11 用户决定：SimpleExperiment 的服务器、SSH/Xshell、隧道、默认及 Worker Conda 环境和 GPU 配额改为全局共享，保存一次供本机各项目使用。首次从已配置项目导入共享配置；空项目不会抢先冻结空配置，旧项目配置保留但不会覆盖后续共享修改。切换项目时以非阻塞消息提醒检查 Conda、远端项目父目录和隧道端口；不要求重新填写服务器。共享修改在其他窗口再次获得焦点或下一次 UI/API 请求时读取。资源前缀继续使用全局用户设置 `simpleExperiment.tunnel.remoteTmuxSessionPrefix`。
+
+PLAN、任务队列、运行记录、结果目录、同步范围和 AI 项目授权继续按项目保存。远端代码和 Agent 目录按当前项目重新计算，已运行服务、任务及文件不随共享设置改动而自动迁移、重启或清理。每次操作仍核对工作区、Worker、精确窗口和实际服务归属；端口被其他项目占用时必须检查并修改配置，不能把其他项目的 Agent 当作当前项目服务。
 
 SimpleSFTP 为每个窗口发布独立实例记录，并通过当前 Extension Host 的扩展导出提供发现信息。SimpleExperiment 优先读取同窗口导出；旧版全局发现文件只允许 PID 一致的兼容读取。RPC 同时绑定窗口实例和项目根目录，排队后再次检查；不会因为另一个窗口改写 api.json 而转发到该窗口。统一 CLI 使用 `--workspace` 或 `--instance` 明确选择；默认入口与当前目录不匹配时拒绝执行。两个已打开窗口均须重载后生效。
 

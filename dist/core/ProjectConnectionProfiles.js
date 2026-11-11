@@ -33,63 +33,67 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.sharedConnectionProfile = sharedConnectionProfile;
+exports.flushSharedConnections = flushSharedConnections;
 exports.readProjectConnectionValue = readProjectConnectionValue;
 exports.saveProjectConnectionValues = saveProjectConnectionValues;
 const node_crypto_1 = require("node:crypto");
 const path = __importStar(require("node:path"));
-const profiles = new WeakMap();
+const STORAGE_KEY = "simpleExperiment.sharedConnections.v1";
+const SETUP_KEY = "simpleExperiment.xshellRealtimeTunnelConfig";
+const CONNECTION_KEYS = [SETUP_KEY, "simpleExperiment.tunnelGatewayConfig", "simpleExperiment.setupConfigurationSignature"];
+const migrations = new WeakMap();
+const pendingWrites = new WeakMap();
+const empty = { schemaVersion: 1, values: {} };
 function identity(root) {
     if (!root)
         return "";
     const normalized = path.resolve(root).replace(/\\/g, "/");
     return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
-function state(context, root) {
+/** Shared server settings, including parent directories. Queues, results, derived project directories and AI grants stay local. */
+function sharedConnectionProfile(context, root) {
+    const saved = context.globalState.get(STORAGE_KEY);
+    if (saved !== undefined) {
+        if (saved?.schemaVersion !== 1 || !saved.values || typeof saved.values !== "object" || Array.isArray(saved.values))
+            throw new Error("SHARED_CONNECTION_CONFIG_INVALID：全局连接配置格式无效。");
+        return saved;
+    }
+    const migrating = migrations.get(context);
+    if (migrating)
+        return migrating;
     const owner = identity(root);
-    if (!owner)
-        throw new Error("PROJECT_CONNECTION_REQUIRED：当前窗口没有受支持的项目，不能保存或启用项目连接。");
-    const key = "simpleExperiment.projectConnections.v1." + (0, node_crypto_1.createHash)("sha256").update(owner).digest("hex");
-    let cached = profiles.get(context);
-    if (!cached) {
-        cached = new Map();
-        profiles.set(context, cached);
-    }
-    let entry = cached.get(key);
-    if (!entry) {
-        const saved = context.workspaceState.get(key);
-        const legacyOwner = context.workspaceState.get("simpleExperiment.projectConnections.legacyOwner");
-        if (saved && (saved.schemaVersion !== 1 || saved.root !== owner || !saved.values || typeof saved.values !== "object"))
-            throw new Error("PROJECT_CONNECTION_OWNER_MISMATCH：项目连接归属不匹配，未借用其他项目配置。");
-        entry = { profile: saved ? structuredClone(saved) : { schemaVersion: 1, root: owner, values: {} },
-            legacy: !saved && (legacyOwner === owner || !legacyOwner && !cached.size) && Boolean(context.workspaceState.get("simpleExperiment.localApiPort")), pending: Promise.resolve() };
-        if (!legacyOwner && !cached.size)
-            entry.pending = entry.pending.then(() => context.workspaceState.update("simpleExperiment.projectConnections.legacyOwner", owner));
-        cached.set(key, entry);
-        if (!saved)
-            persist(context, key, entry);
-    }
-    return { key, entry };
+    // This existing key is used only to migrate the old per-project format.
+    const old = owner && context.workspaceState.get("simpleExperiment.projectConnections.v1." + (0, node_crypto_1.createHash)("sha256").update(owner).digest("hex"));
+    if (old && (old.schemaVersion !== 1 || old.root !== owner || !old.values || typeof old.values !== "object"))
+        throw new Error("PROJECT_CONNECTION_OWNER_MISMATCH：旧项目连接归属不匹配，未导入。");
+    const legacyGlobal = Object.fromEntries(CONNECTION_KEYS.map(key => [key, context.globalState.get(key)]));
+    const source = old?.values[SETUP_KEY]?.workerTunnels?.length ? old.values : legacyGlobal[SETUP_KEY] ? legacyGlobal : undefined;
+    // Opening an unconfigured project first must not hide the configured project's servers.
+    if (!source)
+        return empty;
+    const profile = { schemaVersion: 1, values: Object.fromEntries(CONNECTION_KEYS.filter(key => Object.hasOwn(source, key)).map(key => [key, structuredClone(source[key])])) };
+    migrations.set(context, profile);
+    const pending = Promise.resolve().then(() => context.globalState.update(STORAGE_KEY, profile));
+    pendingWrites.set(context, pending);
+    void pending.catch(() => undefined); // Activation and explicit saves await the same failure.
+    return profile;
 }
-function persist(context, key, entry) {
-    const snapshot = structuredClone(entry.profile);
-    entry.pending = entry.pending.then(() => context.workspaceState.update(key, snapshot));
-    // Reads can seed a legacy profile synchronously. Explicit saves still await and
-    // surface this same rejection; a failed migration never becomes a global write.
-    void entry.pending.catch(() => undefined);
-    return entry.pending;
+async function flushSharedConnections(context, root) {
+    sharedConnectionProfile(context, root);
+    await pendingWrites.get(context);
 }
+/** Existing entry names remain available; storage is now shared across projects. */
 function readProjectConnectionValue(context, root, key) {
-    if (!root)
-        return undefined;
-    const { key: storageKey, entry } = state(context, root);
-    if (!Object.hasOwn(entry.profile.values, key) && entry.legacy) {
-        entry.profile.values[key] = structuredClone(context.globalState.get(key));
-        persist(context, storageKey, entry);
-    }
-    return entry.profile.values[key];
+    return sharedConnectionProfile(context, root).values[key];
 }
 async function saveProjectConnectionValues(context, root, values) {
-    const { key, entry } = state(context, root);
-    entry.profile = { ...entry.profile, values: { ...entry.profile.values, ...structuredClone(values) } };
-    await persist(context, key, entry);
+    sharedConnectionProfile(context, root);
+    const changed = structuredClone(values);
+    const pending = (pendingWrites.get(context) || Promise.resolve()).then(async () => {
+        const current = sharedConnectionProfile(context, root);
+        await context.globalState.update(STORAGE_KEY, { schemaVersion: 1, values: { ...current.values, ...changed } });
+    });
+    pendingWrites.set(context, pending);
+    await pending;
 }

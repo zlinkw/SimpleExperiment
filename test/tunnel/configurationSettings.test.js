@@ -1,7 +1,13 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { explicitConfigurationValue, nonDefaultConfigurationValue } = require("../../dist/tunnel/ConfigurationSettings.js");
+const { explicitConfigurationValue, nonDefaultConfigurationValue, globalConfigurationValue } = require("../../dist/tunnel/ConfigurationSettings.js");
+
+test("shared connection settings ignore project overrides and retain explicit global empty values", () => {
+  const config = { inspect: key => ({ globalValue: key === "environment" ? "" : undefined, workspaceValue: "/project/override", workspaceFolderValue: "/folder/override" }) };
+  assert.equal(globalConfigurationValue(config, "environment", "/saved/shared"), "");
+  assert.equal(globalConfigurationValue(config, "server", "saved-server"), "saved-server");
+});
 
 test("configuration defaults do not override saved tunnel setup", () => {
   const config = {

@@ -30,6 +30,7 @@ function fixture({events=true,interruptStorage=false}={}){
   recordField:(message,key)=>message[key],stringField:(message,key)=>message[key],
   workspaceRoot:()=> 'C:/quota-project',
   readProjectConnectionValue:(_context,_root,key)=>structuredClone(state.get(key)),
+  sharedConnectionProfile:()=>({values:Object.fromEntries(state)}),
   saveProjectConnectionValues:async(_context,_root,values)=>{for(const [key,value] of Object.entries(values)){
    if(interruptStorage&&key==='tunnel'&&!interrupted){interrupted=true;await h.handleConfigurationChanged({affectsConfiguration:prefix=>prefix==='simpleExperiment'||prefix==='simpleExperiment.tunnel'});}
    state.set(key,structuredClone(value));writes.push(key);

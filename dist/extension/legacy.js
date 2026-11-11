@@ -357,8 +357,8 @@ const API_CONFIG_NAMESPACE = "simpleExperiment";
 const API_CONFIG_PREFIX = `${API_CONFIG_NAMESPACE}.`;
 const API_SECRET_CONFIG_KEYS = new Set([`${API_CONFIG_NAMESPACE}.tunnel.agentToken`]);
 const API_STATE_KEYS = {
-    tunnelConfig: { store: "workspace", label: "当前项目隧道网关配置", writable: true },
-    setupConfig: { store: "workspace", label: "当前项目 Xshell 会话与服务器配置", writable: true },
+    tunnelConfig: { store: "global", label: "全局共享隧道网关配置", writable: true },
+    setupConfig: { store: "global", label: "全局共享 Xshell 会话与服务器配置", writable: true },
     pptPlotConfig: { store: "global", label: "PPT 绘图配置（项目优先）", writable: true },
     uiLayout: { store: "global", label: "SimpleExperiment 面板布局", writable: true },
     hiddenLegacyTaskUiKeys: { store: "global", label: "隐藏旧任务 UI 键", writable: true },
@@ -784,6 +784,13 @@ async function activateExtension(context) {
     context.subscriptions.push(hostCommand("simpleExperiment.bootstrapProject", "bootstrap-project", "识别工作区", () => provider?.bootstrapProjectFromUi()), hostCommand("simpleExperiment.prepareAgents", "prepare-agents", "准备 Agent 并启动", () => provider?.prepareAgentsForFirstRun()), hostCommand("simpleExperiment.verifyAgentVersion", "verify-agent-version", "校验 Agent 版本", () => provider?.verifyAgentVersionManually()));
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => void provider?.handleConfigurationChanged(event)));
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
+    context.subscriptions.push(vscode.window.onDidChangeWindowState(event => {
+        if (event.focused)
+            void Promise.resolve().then(() => {
+                provider?.refreshSharedConnectionSettings();
+                return provider?.remindSharedConnectionSettings();
+            }).catch(error => vscode.window.showErrorMessage(errorMessage(error)));
+    }));
     void RemoteRootPolicyPrefill_1.prefillRemoteRootPolicy(context, (0, ProjectConnectionProfiles_1.readProjectConnectionValue)(context, workspaceRoot(), keys.setupConfig), vscode).catch(() => undefined);
     void provider.startLocalApiServer().catch((error) => {
         console.warn(`SimpleExperiment local API failed to start: ${errorMessage(error)}`);
@@ -2661,7 +2668,7 @@ class RealtimeTunnelPanelProvider {
         });
     }
     createLocalApiMethods() {
-        return {
+        const methods = {
             "mcp.catalog": () => (0, McpHost_1.mcpGateway)(this).catalog(),
             "mcp.authorization": () => (0, McpHost_1.mcpGateway)(this).call("project_authorization", {}),
             "mcp.call": (params) => (0, McpHost_1.mcpOperations)(this).call(params.tool, params.arguments, { signal: this.activationAbortController.signal }),
@@ -2879,6 +2886,10 @@ class RealtimeTunnelPanelProvider {
             "workflow.run": async (params) => this.apiWorkflowRun(params),
             invoke: async (params) => this.invokeApi(params),
         };
+        return Object.fromEntries(Object.entries(methods).map(([name, handler]) => [name, (...args) => {
+                this.refreshSharedConnectionSettings();
+                return handler(...args);
+            }]));
     }
     async currentResultPlanInputs() {
         const root = workspaceRoot();
@@ -4655,10 +4666,12 @@ class RealtimeTunnelPanelProvider {
     async runActivationOnboarding() {
         await runOnboardingSteps([
             { name: "legacyConfigMigration", run: () => this.migrateLegacyConfigOnce() },
+            { name: "sharedConnections", run: () => (0, ProjectConnectionProfiles_1.flushSharedConnections)(this.context, workspaceRoot()) },
             { name: "workspaceContinuation", run: () => this.resumePendingWorkspaceContinuation() },
             { name: "projectStateBootstrap", run: () => this.projectBootstrapPromise },
             { name: "distributedQueueContinuation", run: () => this.resumePersistedDistributedQueue() },
             { name: "firstRunPrompt", run: () => this.showFirstRunSetupPromptOnce() },
+            { name: "sharedSettingsReminder", run: () => this.remindSharedConnectionSettings() },
         ], (step, error) => this.recordOnboardingBackgroundError(step, error), this.activationAbortController.signal);
     }
     async recordOnboardingBackgroundError(step, error) {
@@ -4814,6 +4827,7 @@ class RealtimeTunnelPanelProvider {
         const previous = this.workspaceChangePromise || Promise.resolve();
         const current = previous.catch(() => undefined)
             .then(() => this.reloadProjectContextAfterWorkspaceChange())
+            .then(() => this.remindSharedConnectionSettings())
             .then(() => this.showFirstRunSetupPromptOnce())
             .catch((error) => {
             const message = errorMessage(error);
@@ -5019,6 +5033,13 @@ class RealtimeTunnelPanelProvider {
         const resultCsvDirChanged = event.affectsConfiguration("simpleExperiment.resultCsvDir");
         const connectionChanged = event.affectsConfiguration("simpleExperiment.connectionMode")
             || event.affectsConfiguration("simpleExperiment.tunnel");
+        if (event.affectsConfiguration("simpleExperiment.tunnel.workerTunnels")) {
+            const configured = vscode.workspace.getConfiguration("simpleExperiment").inspect("tunnel.workerTunnels")?.globalValue;
+            if (Array.isArray(configured)) {
+                const saved = (0, ProjectConnectionProfiles_1.readProjectConnectionValue)(this.context, workspaceRoot(), keys.setupConfig) || {};
+                await (0, ProjectConnectionProfiles_1.saveProjectConnectionValues)(this.context, workspaceRoot(), { [keys.setupConfig]: { ...saved, workerTunnels: configured } });
+            }
+        }
         if (resultCsvDirChanged)
             this.refreshResultCsvDirectory();
         if (event.affectsConfiguration("simpleExperiment.gpu"))
@@ -5571,7 +5592,10 @@ class RealtimeTunnelPanelProvider {
         this.viewLifetimeDisposables.push(webviewView.webview.onDidReceiveMessage((message) => {
             if (this.view !== webviewView || this.viewGeneration !== viewGeneration)
                 return;
-            void this.handleMessage(message).catch((e) => {
+            void Promise.resolve().then(() => {
+                this.refreshSharedConnectionSettings();
+                return this.handleMessage(message);
+            }).catch((e) => {
                 if (this.view !== webviewView || this.viewGeneration !== viewGeneration)
                     return;
                 console.error("[legacy] handleMessage unhandled", e);
@@ -19719,7 +19743,7 @@ class RealtimeTunnelPanelProvider {
         await this.ensureXshellSessionLoaded(worker.savedSessionPath);
         await this.applySetupDraft(this.withImportedXshellFields(manual, worker.id), { syncAssignmentsFromFields: true });
         if (showMessage)
-            void vscode.window.showInformationMessage(`${worker.displayName || worker.id} 已导入并保存到当前项目。`);
+            void vscode.window.showInformationMessage(`${worker.displayName || worker.id} 已导入并保存为全局共享服务器。`);
         return true;
     }
     async deleteWorkerConfigFromUi(message) {
@@ -27959,17 +27983,49 @@ class RealtimeTunnelPanelProvider {
         return (0, TunnelGateway_1.normalizeTunnelGatewayConfig)({
             ...TunnelGateway_1.defaultTunnelGatewayConfig,
             ...saved,
-            connectionMode: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "connectionMode", (0, TunnelGateway_1.isRealtimeConnectionMode)(saved.connectionMode) ? saved.connectionMode : TunnelGateway_1.xshellTunnelConnectionMode),
-            localPort: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.localForwardPort", saved.localPort || TunnelGateway_1.defaultTunnelGatewayConfig.localPort),
-            remotePort: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.remoteAgentPort", saved.remotePort || TunnelGateway_1.defaultTunnelGatewayConfig.remotePort),
-            token: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.agentToken", saved.token),
+            connectionMode: (0, ConfigurationSettings_1.globalConfigurationValue)(config, "connectionMode", (0, TunnelGateway_1.isRealtimeConnectionMode)(saved.connectionMode) ? saved.connectionMode : TunnelGateway_1.xshellTunnelConnectionMode),
+            localPort: (0, ConfigurationSettings_1.globalConfigurationValue)(config, "tunnel.localForwardPort", saved.localPort || TunnelGateway_1.defaultTunnelGatewayConfig.localPort),
+            remotePort: (0, ConfigurationSettings_1.globalConfigurationValue)(config, "tunnel.remoteAgentPort", saved.remotePort || TunnelGateway_1.defaultTunnelGatewayConfig.remotePort),
+            token: (0, ConfigurationSettings_1.globalConfigurationValue)(config, "tunnel.agentToken", saved.token),
         });
+    }
+    refreshSharedConnectionSettings() {
+        const profile = (0, ProjectConnectionProfiles_1.sharedConnectionProfile)(this.context, workspaceRoot());
+        if (profile === this.sharedConnectionSnapshot)
+            return;
+        this.sharedConnectionSnapshot = profile;
+        const tunnel = this.loadTunnelConfig(), setup = this.loadSetupConfig();
+        if (JSON.stringify(tunnel) === JSON.stringify(this.tunnelConfig) && JSON.stringify(setup) === JSON.stringify(this.setupConfig))
+            return;
+        this.tunnelConfig = tunnel;
+        this.setupConfig = setup;
+        this.resetClient();
+        this.postState();
+    }
+    async remindSharedConnectionSettings() {
+        const root = workspaceRoot();
+        if (!root || !vscode.window.state.focused || !this.enabledWorkerConfigs().length || this.sharedConnectionReminderPending)
+            return;
+        const key = "simpleExperiment.sharedConnections.lastProject";
+        if (this.context.globalState.get(key) === root)
+            return;
+        this.sharedConnectionReminderPending = true;
+        try {
+            await this.context.globalState.update(key, root);
+            if (workspaceRoot() !== root)
+                return;
+            void vscode.window.showInformationMessage(`已为 ${path.basename(root)} 复用全局服务器、隧道、环境与 GPU 配额。请检查 Conda 环境、远端项目父目录和隧道端口；项目代码目录按当前项目计算，PLAN、同步范围及结果目录仍属于当前项目。修改共享设置会影响其他项目。`, "检查项目差异").then(choice => {
+                if (choice === "检查项目差异" && workspaceRoot() === root)
+                    return this.openPanelAt("settings", "settings-servers", { userInitiated: true });
+            }).catch(error => vscode.window.showErrorMessage(errorMessage(error)));
+        }
+        finally {
+            this.sharedConnectionReminderPending = false;
+        }
     }
     loadSetupConfig() {
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         const remoteTmuxSessionPrefix = config.inspect("tunnel.remoteTmuxSessionPrefix")?.globalValue ?? XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.remoteTmuxSessionPrefix;
-        if (!workspaceRoot())
-            return XshellTunnelSetup_1.normalizeXshellSetupConfig({ ...XshellTunnelSetup_1.defaultXshellTunnelSetupConfig, remoteTmuxSessionPrefix, workerTunnels: [] });
         const saved = (0, ProjectConnectionProfiles_1.readProjectConnectionValue)(this.context, workspaceRoot(), keys.setupConfig) || {};
         const sessionDefaults = this.sessionDefaultInspections(config);
         const storedSignature = (0, ProjectConnectionProfiles_1.readProjectConnectionValue)(this.context, workspaceRoot(), keys.setupConfigurationSignature);
@@ -27988,7 +28044,7 @@ class RealtimeTunnelPanelProvider {
         const sessionDefaultValue = (key, savedValue, fallback) => {
             if (savedDefaultsWin)
                 return savedValue === undefined ? fallback : savedValue;
-            const explicit = (0, ConfigurationSettings_1.explicitConfigurationValue)(config, key, savedValue === undefined ? fallback : savedValue);
+            const explicit = (0, ConfigurationSettings_1.globalConfigurationValue)(config, key, savedValue === undefined ? fallback : savedValue);
             return !hasStoredSignature && explicit === fallback && savedValue !== undefined && savedValue !== fallback
                 ? savedValue
                 : explicit;
@@ -27996,23 +28052,24 @@ class RealtimeTunnelPanelProvider {
         return (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)({
             ...XshellTunnelSetup_1.defaultXshellTunnelSetupConfig,
             ...saved,
-            localForwardPort: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.localForwardPort", saved.localForwardPort || this.tunnelConfig.localPort),
-            remoteAgentPort: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.remoteAgentPort", saved.remoteAgentPort || this.tunnelConfig.remotePort),
+            localForwardPort: (0, ConfigurationSettings_1.globalConfigurationValue)(config, "tunnel.localForwardPort", saved.localForwardPort || this.tunnelConfig.localPort),
+            remoteAgentPort: (0, ConfigurationSettings_1.globalConfigurationValue)(config, "tunnel.remoteAgentPort", saved.remoteAgentPort || this.tunnelConfig.remotePort),
             xshellExePath: saved.xshellExePath || this.tunnelConfig.xshellExePath || "",
-            hubDisplayName: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.hubDisplayName", saved.hubDisplayName),
-            agentLoginPolicy: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.agentLoginPolicy", saved.agentLoginPolicy || "preserve"),
+            hubDisplayName: (0, ConfigurationSettings_1.globalConfigurationValue)(config, "tunnel.hubDisplayName", saved.hubDisplayName),
+            agentLoginPolicy: (0, ConfigurationSettings_1.globalConfigurationValue)(config, "tunnel.agentLoginPolicy", saved.agentLoginPolicy || "preserve"),
             remoteTmuxSessionPrefix,
             condaEnv: sessionDefaultValue("tunnel.condaEnv", saved.condaEnv, XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.condaEnv),
-            workerRealtimeMode: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.workerRealtimeMode", saved.workerRealtimeMode || (saved.workerTunnels?.some((worker) => worker.enabled !== false) ? "hub_plus_workers" : "hub_only")),
+            workerRealtimeMode: (0, ConfigurationSettings_1.globalConfigurationValue)(config, "tunnel.workerRealtimeMode", saved.workerRealtimeMode || (saved.workerTunnels?.some((worker) => worker.enabled !== false) ? "hub_plus_workers" : "hub_only")),
             workerTelemetryMode: saved.workerTelemetryMode || (saved.workerTunnels?.some((worker) => worker.enabled !== false) ? "hub_plus_worker_telemetry" : "hub_only"),
-            workerTunnels: saved.workerTunnels?.length
+            workerTunnels: Array.isArray(saved.workerTunnels)
                 ? saved.workerTunnels
-                : nonEmptyWorkerTunnelConfig((0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.workerTunnels", undefined)),
+                : nonEmptyWorkerTunnelConfig((0, ConfigurationSettings_1.globalConfigurationValue)(config, "tunnel.workerTunnels", undefined)),
         });
     }
     sessionDefaultInspections(config = vscode.workspace.getConfiguration("simpleExperiment")) {
+        const inspected = config.inspect("tunnel.condaEnv");
         return {
-            condaEnv: config.inspect("tunnel.condaEnv"),
+            condaEnv: inspected && { defaultValue: inspected.defaultValue, globalValue: inspected.globalValue },
         };
     }
     sessionDefaultConfigurationSignature(inspections = this.sessionDefaultInspections()) {
@@ -28121,6 +28178,7 @@ class RealtimeTunnelPanelProvider {
         const tunnel = persistedTunnelGatewayConfig(this.tunnelConfig);
         const setup = persistedXshellSetupConfig(this.setupConfig);
         await (0, ProjectConnectionProfiles_1.saveProjectConnectionValues)(this.context, workspaceRoot(), { [keys.tunnelConfig]: tunnel, [keys.setupConfig]: setup });
+        this.sharedConnectionSnapshot = (0, ProjectConnectionProfiles_1.sharedConnectionProfile)(this.context, workspaceRoot());
     }
     async refreshLocalSshConfig(force = false) {
         const fingerprint = localMetadataFingerprint([LocalSshConfig_1.defaultSshConfigPath()]);
@@ -28954,7 +29012,7 @@ class RealtimeTunnelPanelProvider {
         if (this.configurationSourceStateCacheKey === cacheKey && this.configurationSourceStateCacheValue)
             return this.configurationSourceStateCacheValue;
         const value = {
-            primary: "当前项目 workspaceState",
+            primary: "全局共享服务器设置",
             endpointProfiles: savedWorkerCount || saved.savedSessionPath ? "已导入" : "未导入",
             savedHubSession: Boolean(saved.savedSessionPath),
             savedHubAgentSession: Boolean(saved.agentSessionPath),

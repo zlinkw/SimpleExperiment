@@ -6,6 +6,7 @@ import { openSftpCleanupReview } from "./SftpCleanupReview";
 import { AUTHORIZATION_KEY, PERMISSIONS, createProjectAuthorization, type AuthorizedWorker } from "../mcp/ProjectAuthorization";
 
 function currentWorkers(host: any): AuthorizedWorker[] {
+  host.refreshSharedConnectionSettings();
   return host.workerCodeSyncTargets().map((worker: any) => ({ id: worker.id, host: worker.host,
     port: worker.port, user: worker.user, projectRoot: worker.remotePath }));
 }

@@ -1,7 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.globalConfigurationValue = globalConfigurationValue;
 exports.explicitConfigurationValue = explicitConfigurationValue;
 exports.nonDefaultConfigurationValue = nonDefaultConfigurationValue;
+function globalConfigurationValue(config, section, fallback) {
+    const value = config.inspect(section)?.globalValue;
+    return value === undefined ? fallback : value;
+}
 function explicitConfigurationValue(config, section, fallback) {
     const inspected = config.inspect(section);
     if (!inspected)

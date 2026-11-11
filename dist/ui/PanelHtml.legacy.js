@@ -9856,17 +9856,21 @@ function renderPanelHtml() {
       const cards = [];
       const topologyIssues = asArray(topology.issues || []);
       const noHubMode = "worker_pool";
-      cards.push('<div class="server-card"><h3>Worker 服务器</h3><p>一台或多台服务器使用同一流程；当前启用 '+esc(String(topology.workerCount||0))+' 台。</p></div>');
+      cards.push('<div class="server-card"><h3>Worker 服务器</h3><p>一台或多台服务器使用同一流程；当前启用 '+esc(String(topology.workerCount||0))+' 台。</p>' +
+        '<div class="toolbar">' +
+          '<button type="button" data-command="configureWorkers" title="手动填写服务器地址、登录端口和隧道端口，不需要 Xshell 会话；在列表中选择新增 Worker">手动添加服务器</button>' +
+          '<button type="button" data-command="addWorkerConfig" class="secondary" title="选择 Xshell 会话并导入服务器地址和隧道端口，确认后全局共享">从 Xshell 导入</button>' +
+        '</div><div class="muted">服务器、隧道、环境和 GPU 配额为全局共享设置。添加后在下方填写项目父目录和环境，再保存；切换项目时请检查需要调整的项。</div></div>');
       cards.push('<div class="server-card" data-anchor="servers-tensorboard"><h3>项目图表端口与范围</h3><p>配置生效端口：<b>' + esc(state.tensorboardPort === undefined ? "未取得" : state.tensorboardPort) + '</b>。在 VS Code 设置中搜索 <code>simpleExperiment.tensorboard.port</code>，选择当前工作区可覆盖全局默认；不同项目共用账号时请配置独立端口。</p><p class="muted">设置用于下一次主动启动，不自动改变已运行服务；已运行端口与窗口以服务返回值为准。需要换端口时先主动停止精确服务窗口，再启动。标量曲线聚合本项目全部启用 Worker；原生内容绑定所选 Worker。复制链接只打开只读入口，不启动服务。</p></div>');
       cards.push(
         '<div class="server-card" data-anchor="servers-session-defaults">' +
-          '<div class="serverHead"><div class="serverTitle"><h3>远端资源前缀与环境</h3><div class="muted">前缀保存到用户设置，供本机所有项目与窗口共用；Conda 默认值保存在当前项目</div></div>' +
+          '<div class="serverHead"><div class="serverTitle"><h3>远端资源前缀与环境</h3><div class="muted">前缀、Conda 默认环境和服务器配置供本机所有项目与窗口共用</div></div>' +
           '<div class="serverBadges"><span class="pill">tmux ' + esc(setup.remoteTmuxSessionPrefix || "simple") + '</span></div></div>' +
           '<div class="configGrid">' +
             configInput("defaults", "remoteTmuxSessionPrefix", "全局远端资源前缀", setup.remoteTmuxSessionPrefix || "simple") +
             configInput("defaults", "condaEnv", "Conda 环境绝对路径（可选，留空使用系统 Python）", setup.condaEnv || "") +
           '</div>' +
-          '<div class="toolbar"><button data-command="saveAgentDefaults" data-config-scope="defaults" title="前缀写入全局用户设置；Conda 默认值写入当前项目">保存前缀与环境</button></div>' +
+          '<div class="toolbar"><button data-command="saveAgentDefaults" data-config-scope="defaults" title="保存全局前缀和共享默认环境，供所有项目使用">保存前缀与环境</button></div>' +
           ((setup.remoteTmuxSessionPrefix || "simple") === "simple" ? '<div class="callout warning" role="status">当前仍为默认前缀 simple。请改为有区分度的名称；未修改时每次打开插件都会提醒。</div>' : '') +
           '<div class="muted">前缀用于命名远端插件目录与 tmux 服务，帮助共享服务器或账号的用户区分归属，降低名称冲突与误操作风险。项目隔离和精确目标核验仍保留；保存不自动改名、迁移、重启或清理已有资源。</div>' +
         '</div>'
@@ -9894,7 +9898,7 @@ function renderPanelHtml() {
             '</div>' + renderSchedulerGlossary() + '</details>' +
           '</div>' +
           '<div class="toolbar">' +
-            '<button data-command="saveSchedulerConfig" data-config-scope="scheduler" title="保存到本机全局用户设置，供所有项目共用；服务器和逐卡覆盖仍属于当前项目，只影响后续派发">保存策略（全局）</button>' +
+            '<button data-command="saveSchedulerConfig" data-config-scope="scheduler" title="保存到本机全局用户设置；服务器和逐卡覆盖也全局共享，只影响后续派发">保存策略（全局）</button>' +
             '<button data-command="snapshot" class="secondary" title="刷新识别：重新扫描工作区&#10;更新实验计划列表与项目接入状态&#10;不会修改任何文件">刷新数据</button>' +
           '</div>' +
         '</div>'
@@ -9923,9 +9927,9 @@ function renderPanelHtml() {
             configInput(scope, "workerHost", "服务器地址", worker.workerHost || worker.hubHost || "") +
             configInput(scope, "workerUser", "登录用户", worker.workerUser || worker.hubUser || "") +
             '<div class="wide" data-worker-conda style="grid-column:1 / -1"><div class="configGrid">' +
-              configSelect(scope, "condaEnvMode", "科研环境选择", condaMode, [["inherit", "继承项目默认"], ["system", "系统 Python"], ["path", "指定绝对路径"]]) +
+              configSelect(scope, "condaEnvMode", "科研环境选择", condaMode, [["inherit", "继承共享默认"], ["system", "系统 Python"], ["path", "指定绝对路径"]]) +
               '<fieldset style="border:0;padding:0;margin:0;min-width:0"' + (condaMode === "path" ? '' : ' disabled') + '>' + configInput(scope, "condaEnv", "指定的环境绝对路径", worker.condaEnv || "") + '</fieldset></div>' +
-              '<div class="muted">已保存生效环境：' + esc(savedConda || "系统 Python") + '；来源：' + (worker.condaEnv === undefined ? '项目默认（继承）' : worker.condaEnv ? '服务器覆盖' : '服务器明确选择系统 Python') + '。编辑后须保存；只选择执行环境，不自动检查或安装科研依赖。</div></div>' +
+              '<div class="muted">已保存生效环境：' + esc(savedConda || "系统 Python") + '；来源：' + (worker.condaEnv === undefined ? '共享默认（继承）' : worker.condaEnv ? '服务器覆盖' : '服务器明确选择系统 Python') + '。编辑后须保存；修改会影响所有项目，只选择执行环境，不自动检查或安装科研依赖。</div></div>' +
             configInput(scope, "agentProjectDir", "项目父目录", worker.agentProjectDir || "", "text", "wide") +
             configInput(scope, "gpuMaxConcurrentCards", "服务器最高占卡上限（留空不限，0 暂停）", worker.gpuMaxConcurrentCards ?? "", "number", "wide") +
             '<div class="muted wide" style="grid-column:1 / -1">最高优先级：所有 PLAN 合计同时使用的显卡不能超过此上限；在上限内再按逐卡 job 数和总显存余量派发。已占用的卡计入上限，降低上限不停止现有任务。</div>' +
@@ -9945,7 +9949,7 @@ function renderPanelHtml() {
           renderServerDestinationPreview(workerAgent, scope) +
           renderSchedulerDependencyStatus((((state.workerProbes || {})[worker.id] || {}).schedulerDependencies), worker.displayName || worker.id) +
           '<div class="toolbar">' +
-            '<button data-command="addWorkerConfig" class="secondary" title="选择 Xshell 会话，确认后立即导入并保存到当前项目">导入服务器</button>' +
+            '<button data-command="addWorkerConfig" class="secondary" title="选择 Xshell 会话，确认后立即导入并全局共享">导入服务器</button>' +
             '<button data-command="saveWorkerConfig" data-endpoint-id="' + escAttr(worker.id) + '" data-config-scope="' + escAttr(scope) + '" title="保存该 Worker 的配置&#10;含远端路径、Conda 环境与并发占卡上限">保存服务器</button>' +
             '<button data-command="startTunnelEndpoint" data-endpoint-id="' + escAttr(worker.id) + '" data-confirm="true" class="secondary" title="启动该端点的隧道&#10;建立本机到服务器的端口转发">启动隧道</button>' +
             '<button data-command="deleteWorkerConfig" data-endpoint-id="' + escAttr(worker.id) + '" data-danger="true" class="secondary" title="删除该 Worker 配置&#10;已上传到远端的文件不会被删除">删除</button>' +
@@ -10069,7 +10073,8 @@ function renderPanelHtml() {
         renderServerObjectOverview(state))) +
         '<div class="toolbar">' +
           '<button type="button" data-section-target="settings" title="跳转到设置区" data-anchor-target="settings-servers">设置</button>' +
-          '<button data-command="addWorkerConfig" title="在设置区追加一块空白服务器表单&#10;填写远端路径与环境后，需再点「保存」才会生效">新增服务器</button>' +
+          '<button data-command="configureWorkers" title="手动添加或编辑服务器连接，不需要 Xshell 会话">手动添加服务器</button>' +
+          '<button data-command="addWorkerConfig" title="选择 Xshell 会话，确认后导入并保存服务器配置">从 Xshell 导入</button>' +
           '<button data-command="startAll" class="secondary" title="后台建立全部 Worker 的 SSH 端口转发">' + esc("启动 Worker 隧道") + '</button>' +
           '<button data-command="openXshell" class="secondary" title="打开导入的 Xshell 会话供手动操作">一键打开 Xshell</button>' +
           '<button data-command="prepareAgents" title="第 1 步 · 先部署&#10;上传最新版 Agent 到全部服务器并启动&#10;无需隧道在线">' + esc("部署 Worker Agent") + '</button>' +
@@ -10594,8 +10599,8 @@ function renderPanelHtml() {
         displayName: "仅用于界面展示和识别该 Worker，不用于网络连接。",
         workerHost: "填写该 Worker 的 IP 地址或可直接解析的域名，例如 compute.example.org；SSH 登录和 SFTP 文件传输共用此地址。这里不是文件路径，也不读取其他 SSH 配置文件。",
         workerUser: "登录该 Worker 的 SSH 用户名；SFTP 使用同一用户。",
-        condaEnv: "仅在指定路径模式填写，以 / 开头的完整环境路径，可精确到 /bin/python。继承模式跟随项目默认；系统 Python 模式明确绕过继承。不自动检查或安装环境。",
-        condaEnvMode: "继承项目默认会保留继承关系；系统 Python 明确使用服务器系统解释器；指定路径使用此服务器自己的环境绝对路径。",
+        condaEnv: "仅在指定路径模式填写，以 / 开头的完整环境路径，可精确到 /bin/python。继承模式跟随共享默认；环境设置全局共享，不自动检查或安装环境。",
+        condaEnvMode: "继承共享默认会保留继承关系；系统 Python 明确使用服务器系统解释器；指定路径使用此服务器全局共享的环境绝对路径。",
         agentProjectDir: "填写服务器上的绝对父目录，例如 /srv/projects；插件自动追加当前本地项目名作为代码目录，并在该父目录下计算 Agent 路径。不要填写单个文件或再次追加项目名。",
         savedSessionPath: "导入服务器信息并保留手动打开 Xshell 的入口；后台连接使用已保存的服务器地址和端口。",
         agentSessionPath: "Agent 会话",

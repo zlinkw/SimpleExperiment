@@ -3,20 +3,48 @@ require('../_helpers/registerTsRequire');
 const P=require('../../src/core/ProjectConnectionProfiles.ts');
 const {currentWindowSftpDiscovery}=require('../../src/core/SimpleSftpWindow.ts');
 const memo=(initial={})=>{const values=structuredClone(initial),writes=[];return {values,writes,get:key=>values[key],update:async(key,value)=>{writes.push(key);values[key]=structuredClone(value);}};};
-test('project connections migrate once and stay isolated across other windows, reloads and folder changes',async()=>{
- const global=memo({setup:{worker:'A'},tunnel:{port:1234}}),local=memo({'simpleExperiment.localApiPort':12345}),a={globalState:global,workspaceState:local};
- assert.deepEqual(P.readProjectConnectionValue(a,'C:/project-A','setup'),{worker:'A'});
- await P.saveProjectConnectionValues(a,'C:/project-A',{setup:{worker:'own-A'}});
- global.values.setup={worker:'OTHER-WINDOW'};
- const reloaded={globalState:global,workspaceState:local};
- assert.deepEqual(P.readProjectConnectionValue(reloaded,'C:/project-A','setup'),{worker:'own-A'});
- assert.equal(P.readProjectConnectionValue(reloaded,'C:/project-B','setup'),undefined,'folder switch cannot import the old project global template');
- const b={globalState:global,workspaceState:memo()};assert.equal(P.readProjectConnectionValue(b,'C:/new-project','setup'),undefined);
- await P.saveProjectConnectionValues(b,'C:/new-project',{setup:{worker:'B'}});
- assert.deepEqual(P.readProjectConnectionValue(a,'C:/project-A','setup'),{worker:'own-A'});
- assert.equal(P.readProjectConnectionValue(b,'','setup'),undefined);
- await assert.rejects(P.saveProjectConnectionValues(b,'',{setup:{worker:'bad'}}),/PROJECT_CONNECTION_REQUIRED/);
- assert.equal(global.writes.length,0,'project panel and migration never rewrite global connections');
+test('server connections migrate from a configured project and are shared across windows and folder changes',async()=>{
+ const setupKey='simpleExperiment.xshellRealtimeTunnelConfig',tunnelKey='simpleExperiment.tunnelGatewayConfig';
+ const root='C:/project-A',owner=path.resolve(root).replaceAll('\\','/').toLowerCase();
+ const oldKey='simpleExperiment.projectConnections.v1.'+require('node:crypto').createHash('sha256').update(owner).digest('hex');
+ const setup={workerTunnels:[{id:'rjj8',workerHost:'worker.example',workerSshPort:22,agentProjectDir:'/research',enabled:true}],condaEnv:'/env/shared'};
+ const local=memo({[oldKey]:{schemaVersion:1,root:owner,values:{[setupKey]:setup,[tunnelKey]:{localPort:1234}}}}),global=memo();
+ const empty={globalState:global,workspaceState:memo()};
+ assert.equal(P.readProjectConnectionValue(empty,'C:/empty',setupKey),undefined,'an empty project must not freeze an empty global migration');
+ const a={globalState:global,workspaceState:local};
+ assert.deepEqual(P.readProjectConnectionValue(a,root,setupKey),setup);
+ await P.saveProjectConnectionValues(a,root,{[setupKey]:{...setup,condaEnv:'/env/updated'}});
+ const b={globalState:global,workspaceState:memo()};
+ assert.equal(P.readProjectConnectionValue(b,'C:/project-B',setupKey).condaEnv,'/env/updated');
+ assert.equal(P.readProjectConnectionValue(empty,'C:/empty',setupKey).condaEnv,'/env/updated');
+ assert.equal(P.readProjectConnectionValue(b,'',tunnelKey).localPort,1234);
+ await P.saveProjectConnectionValues(b,'C:/project-B',{[setupKey]:{...setup,workerTunnels:[]}});
+ assert.deepEqual(P.readProjectConnectionValue(a,root,setupKey).workerTunnels,[],'old project settings cannot resurrect a deliberately emptied shared list');
+ assert.equal(local.writes.length,0,'legacy project configuration is retained without rewriting');
+ await P.saveProjectConnectionValues(b,'',{[setupKey]:setup});
+ assert.deepEqual(P.readProjectConnectionValue(a,root,setupKey),setup);
+});
+test('shared connection refresh updates a background project without changing its queue or grant, and project switches only remind',async()=>{
+ const vm=require('node:vm'),ts=require('typescript'),method=require('../_helpers/legacyMethod');
+ const source=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
+ let root='C:/project-A';const global=memo(),messages=[],opened=[];
+ const Host=vm.runInNewContext(ts.transpileModule('class Host {'+['refreshSharedConnectionSettings','remindSharedConnectionSettings'].map(n=>method(source,n+'(')).join('\n')+'}; Host',{
+  compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{
+  sharedConnectionProfile:P.sharedConnectionProfile,workspaceRoot:()=>root,path,
+  vscode:{window:{state:{focused:true},showInformationMessage:async(message)=>{messages.push(message);return undefined;},showErrorMessage:error=>{throw Error(error);}}},
+ });
+ const context={globalState:global,workspaceState:memo()},h=new Host();h.context=context;
+ h.loadSetupConfig=()=>P.readProjectConnectionValue(context,root,'simpleExperiment.xshellRealtimeTunnelConfig')||{workerTunnels:[]};
+ h.loadTunnelConfig=()=>P.readProjectConnectionValue(context,root,'simpleExperiment.tunnelGatewayConfig')||{};
+ h.enabledWorkerConfigs=()=>h.setupConfig.workerTunnels.filter(w=>w.enabled!==false);h.resetClient=()=>{};h.postState=()=>{};h.openPanelAt=(...args)=>opened.push(args);
+ const queue=h.queue={jobs:[{commandId:'running-original'}]},grant={workspace:'C:/project-A'};await context.workspaceState.update('simpleExperiment.mcp.authorization.v1',grant);
+ await P.saveProjectConnectionValues(context,root,{'simpleExperiment.xshellRealtimeTunnelConfig':{workerTunnels:[{id:'worker-one',enabled:true}],condaEnv:'/first'}});
+ h.refreshSharedConnectionSettings();assert.equal(h.setupConfig.condaEnv,'/first');
+ const other={globalState:global,workspaceState:memo()};await P.saveProjectConnectionValues(other,'C:/project-B',{'simpleExperiment.xshellRealtimeTunnelConfig':{workerTunnels:[{id:'worker-one',enabled:true}],condaEnv:'/changed'}});
+ h.refreshSharedConnectionSettings();assert.equal(h.setupConfig.condaEnv,'/changed');assert.equal(h.queue,queue);
+ assert.deepEqual(context.workspaceState.get('simpleExperiment.mcp.authorization.v1'),grant);
+ await h.remindSharedConnectionSettings();await h.remindSharedConnectionSettings();assert.equal(messages.length,1);assert.equal(opened.length,0);
+ root='C:/project-B';await h.remindSharedConnectionSettings();assert.equal(messages.length,2);assert.match(messages[1],/project-B.*全局服务器/);assert.match(messages[1],/Conda.*项目父目录.*隧道端口/);assert.equal(opened.length,0);
 });
 test('same-window SFTP exports ignore a foreign global default and reject wrong PID/project or missing project',async()=>{
  let legacy=0,activated=0;const root='C:/project-A',descriptor={pid:process.pid,workspace:root,baseUrl:'http://127.0.0.1:1234'};

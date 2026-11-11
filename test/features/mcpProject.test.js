@@ -129,7 +129,7 @@ test('SFTP calls resolve project roots and preserve independent source/destinati
   new Function('require', 'exports', fs.readFileSync(path.join(path.dirname(file), 'SftpCleanupReview.js'), 'utf8'))(name => name === 'vscode' ? fakeVscode : realRequire(name), reviewExports);
   new Function('require', 'exports', fs.readFileSync(file, 'utf8'))(name => name === 'vscode' ? fakeVscode : name === './SftpCleanupReview' ? reviewExports : realRequire(name), exports);
   const captured = [];
-  const host = { context: { workspaceState: f.store }, createLocalApiMethods: () => f.methods,
+  const host = { context: { workspaceState: f.store }, createLocalApiMethods: () => f.methods, refreshSharedConnectionSettings() {},
     workerCodeSyncTargets: () => [{ id: f.worker.id, host: f.worker.host, user: f.worker.user, port: f.worker.port, remotePath: f.worker.projectRoot }],
     agentRuntimeUploadTargets: () => { throw Error('SFTP must not target the runtime deployment directory'); },
     readSimpleSftpCapabilities: async () => ({ methods: ['upload.files', 'sync.projectInventory'] }),

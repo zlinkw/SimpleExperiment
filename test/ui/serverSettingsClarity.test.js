@@ -16,6 +16,36 @@ assert.ok(helpStart >= 0 && helpEnd > helpStart);
 const cards = source.slice(cardsStart, cardsEnd);
 const help = vm.runInNewContext(source.slice(helpStart, helpEnd) + "\nconfigHelp;");
 
+test("server settings expose manual creation and Xshell import before other settings even without Workers", () => {
+  const render = require("../_helpers/panelFunction")("renderServerCardsV2");
+  for (const workers of [[], [{ id: "disabled", enabled: false }], [{ id: "enabled", enabled: true }]]) {
+    const output = new Map();
+    const sandbox = {
+      esc: String, escAttr: String, asArray: value => value,
+      serverStatusIndexesForState: () => ({ conflicts: [], workerStatus: new Map(), assignmentById: new Map(), conflictById: new Map(), agentWorkerById: new Map() }),
+      sessionForPath: () => undefined, configDefault: (value, fallback) => value ?? fallback,
+      configDraftValue: (_scope, _key, fallback) => fallback, configInput: () => "", configSelect: () => "",
+      configSessionSelect: () => "", configPortPair: () => "", configHelp: () => "", helpBadge: () => "",
+      renderSchedulerGlossary: () => "", detailsOpenAttr: () => "",
+      tunnelHost: value => value, formatTunnelAddress: (host, port) => `${host}:${port}`, treeAnchorId: (...values) => values.join("-"),
+      sessionStatusCell: () => "", renderServerDestinationPreview: () => "", renderSchedulerDependencyStatus: () => "",
+      renderXshellSessionBudgetNote: () => "", renderServerChainOverview: () => "",
+      setHtmlIfChanged: (id, html) => output.set(id, html),
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(render, sandbox);
+    sandbox.renderServerCardsV2({ setup: { workerTunnels: workers }, topology: { workerCount: workers.filter(row => row.enabled).length } });
+    const html = output.get("serverSettingsCards");
+    const buttons = [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)];
+    assert.match(buttons[0][1], /data-command="configureWorkers"/);
+    assert.equal(buttons[0][2], "手动添加服务器");
+    assert.match(buttons[1][1], /data-command="addWorkerConfig"/);
+    assert.equal(buttons[1][2], "从 Xshell 导入");
+    assert.ok(html.indexOf(buttons[1][0]) < html.indexOf("项目图表端口与范围"));
+    for (const button of buttons.slice(0, 2)) assert.doesNotMatch(button[1], /\bdisabled\b/);
+  }
+});
+
 test("server form has one network address and one remote parent directory per endpoint", () => {
   assert.doesNotMatch(cards, /configInput\("hub"/);
   assert.match(cards, /configInput\(scope, "workerHost", "服务器地址"/);

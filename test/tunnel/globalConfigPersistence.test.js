@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const { readSource } = require("../_helpers/sourceReader");
 
-test("tunnel setup is persisted per project and never writes another window's global connection", () => {
+test("tunnel setup uses the shared profile boundary while preserving existing API entry names", () => {
   const source = readSource("src/extension.ts");
   assert.match(source, /readProjectConnectionValue\(this\.context, workspaceRoot\(\), keys\.setupConfig\)/);
   assert.match(source, /const setup = persistedXshellSetupConfig\(this\.setupConfig\)/);
@@ -11,12 +11,12 @@ test("tunnel setup is persisted per project and never writes another window's gl
   assert.doesNotMatch(source, /globalState\.update\(keys\.(?:setupConfig|tunnelConfig)/);
 });
 
-test("project Conda defaults retain their save while resource prefix is explicitly global", () => {
+test("shared Conda defaults retain their save while resource prefix is explicitly global", () => {
   const source = readSource("src/extension.ts");
   assert.match(source, /setupConfigurationSignature: "simpleExperiment\.setupConfigurationSignature"/);
   assert.match(source, /savedDefaultsWin = condaSignature === this\.sessionDefaultConfigurationSignature\(sessionDefaults\)/);
   assert.doesNotMatch(source.slice(source.indexOf("sessionDefaultInspections(config ="), source.indexOf("gpuOwnerConfig() {", source.indexOf("sessionDefaultInspections(config ="))), /remoteTmuxSessionPrefix/);
-  assert.match(source, /const explicit = \(0, ConfigurationSettings_1\.explicitConfigurationValue\)\(config, key, savedValue === undefined \? fallback : savedValue\)/);
+  assert.match(source, /const explicit = \(0, ConfigurationSettings_1\.globalConfigurationValue\)\(config, key, savedValue === undefined \? fallback : savedValue\)/);
   assert.match(source, /!hasStoredSignature && explicit === fallback && savedValue !== undefined && savedValue !== fallback\s*\?\s*savedValue\s*:\s*explicit/);
   const ts = require("typescript");
   const ast = ts.createSourceFile("host.ts", source, ts.ScriptTarget.Latest, true);

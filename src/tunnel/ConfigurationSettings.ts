@@ -9,6 +9,11 @@ export interface InspectableConfiguration {
   inspect<T>(section: string): ConfigurationInspection<T> | undefined;
 }
 
+export function globalConfigurationValue<T>(config: InspectableConfiguration, section: string, fallback: T): T {
+  const value = config.inspect<T>(section)?.globalValue;
+  return value === undefined ? fallback : value;
+}
+
 export function explicitConfigurationValue<T>(
   config: InspectableConfiguration,
   section: string,

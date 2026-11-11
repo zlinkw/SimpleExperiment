@@ -78,12 +78,12 @@ export const PROJECT_TOOLS: ProjectTool[] = [
   tool("configuration_get", "config.get", "Read one configuration value", { key: text("Configuration key") }, ["key"]),
   tool("configuration_set", "config.set", "Set a workspace configuration value", { key: text("Configuration key"), value: {}, scope: { type: "string", enum: ["workspace", "workspaceFolder"] } }, ["key", "value", "scope"], "configuration"),
   tool("configuration_reset", "config.reset", "Reset a workspace configuration value", { key: text("Configuration key"), scope: { type: "string", enum: ["workspace", "workspaceFolder"] } }, ["key", "scope"], "configuration"),
-  tool("worker_configure", "workers.configure", "Save the selected Worker's project-local environment and GPU settings without interactive selectors; returns actual saved values", {
+  { ...tool("worker_configure", "workers.configure", "Save the selected Worker's globally shared environment and GPU settings; affects every project and requires user approval", {
     workerId: task.workerId, patch: { type: "object", properties: {
       condaEnvMode: { type: "string", enum: ["inherit", "system", "path"] }, condaEnv: text("Absolute research environment path"),
       maxConcurrentGpus: {}, gpuJobsPerCard: integer, gpuMinFreeMemoryGb: { type: "number" }, gpuMaxConcurrentCards: integer,
     }, additionalProperties: false },
-  }, ["workerId", "patch"], "configuration"),
+  }, ["workerId", "patch"], "configuration"), requiresUserApproval: true },
   tool("flow_get", "flow.get", "Inspect the current workflow steps"),
   tool("flow_update", "flow.update", "Update a workflow step", { step: text("Workflow step"), completed: boolean, blocked: boolean, appliedAt: text("Evidence timestamp") }, ["step"], "configuration"),
   tool("panel_diagnostics", "panel.diagnostics", "Inspect current panel health and render evidence"),

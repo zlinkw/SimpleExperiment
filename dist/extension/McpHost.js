@@ -43,6 +43,7 @@ const ProjectOperations_1 = require("../mcp/ProjectOperations");
 const SftpCleanupReview_1 = require("./SftpCleanupReview");
 const ProjectAuthorization_1 = require("../mcp/ProjectAuthorization");
 function currentWorkers(host) {
+    host.refreshSharedConnectionSettings();
     return host.workerCodeSyncTargets().map((worker) => ({ id: worker.id, host: worker.host,
         port: worker.port, user: worker.user, projectRoot: worker.remotePath }));
 }

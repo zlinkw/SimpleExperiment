@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.486",
-  "buildId": "06a0bc5aad4a3e7115ffefd5dde3a1973487452d7e5009a71b7e57a5f6d9d513",
+  "version": "0.5.487",
+  "buildId": "7e7d76eed69d98fbe6097eebb97077c78af4292d67ba5f1c113b1e60323cd9a6",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -193,7 +193,7 @@
     },
     {
       "path": "dist/core/ProjectConnectionProfiles.js",
-      "sha256": "8e787ff5704d749b6a271eb8d022fb16ddaae09b4dd92ce7b7d9571c09a20e46"
+      "sha256": "029096837beda13d95f999c06f868e68b9ff8cda9833b548a10b22e977c363ff"
     },
     {
       "path": "dist/core/ResourceOperationLease.js",
@@ -257,7 +257,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "bca6edf0095c8532f64ab4105ffb6276eda8b8b437030bdc8f6ae856918fb684"
+      "sha256": "025fe750cf06835955e13d70353ace3856aa052c792adcfafe3e71e5392f5b39"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -265,7 +265,7 @@
     },
     {
       "path": "dist/extension/McpHost.js",
-      "sha256": "7905fb86807afc165494488d28643de8302da457b5b0c423f4bbe2126d13d79b"
+      "sha256": "efabd7cfd2ce453bfd9f736a9a1f0d9fa3f8905fcfe014f3c6279ccf337381a7"
     },
     {
       "path": "dist/extension/OutputIsolationRecoveryHost.js",
@@ -857,7 +857,7 @@
     },
     {
       "path": "dist/mcp/ToolCatalog.js",
-      "sha256": "4eece85a0bb73cdea3b715bf65899581f39d592da3d726f564f1dbd1ae77369d"
+      "sha256": "a7cda1c3c005158d05c36f3e6dfc0ad437b9a0080b7e2477a323ec6e5db053d0"
     },
     {
       "path": "dist/PptPlotBridge.js",
@@ -941,7 +941,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "7acfdd4e6399a571c7b3ee704c189a0c011a86ecf484ca81133ccfff4446b3cf"
+      "sha256": "6614265c8e0a35300bf4066cf779c49b2f6447c8e5d83d13ea1e22c6da625a30"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -997,7 +997,7 @@
     },
     {
       "path": "dist/tunnel/ConfigurationSettings.js",
-      "sha256": "f47f3de0e3ac497cd0952e3a33b55cea4be481802f02f8f06239f6404703c9d7"
+      "sha256": "cdc306c7311bba205b629f5ea26d9625c5945c07180c763e7d07850e2d6b128d"
     },
     {
       "path": "dist/tunnel/FileTransferClient.js",
@@ -1169,7 +1169,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "45a3d8b4b2c2209c75119b9d9273ab8d69d8790f0abb181fedcfe3d481e91022"
+      "sha256": "6b160cf16128d6ead3dc3358e45916298a4bac673ecfe91f949bd5f9b0cd1027"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1293,7 +1293,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "ec25a3cde79bc730ddd5e542b6c68cd0d53b86f925c022ff78889cc980f0ac80"
+      "sha256": "172e6af911ce12660eb66367cd458758146f6c42ed102964f8c4336c874a9318"
     },
     {
       "path": "scripts/check-static.js",
