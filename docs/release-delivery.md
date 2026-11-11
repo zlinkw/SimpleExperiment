@@ -29,7 +29,7 @@ Windows 的实际来源由 `src/updates/ReleaseClient.ts` 和 `src/features/Exte
 
 ## 多窗口连接作用域
 
-2026-11-11 用户决定：SimpleExperiment 的服务器、SSH/Xshell、隧道、默认及 Worker Conda 环境和 GPU 配额改为全局共享，保存一次供本机各项目使用。首次从已配置项目导入共享配置；空项目不会抢先冻结空配置，旧项目配置保留但不会覆盖后续共享修改。切换项目时以非阻塞消息提醒检查 Conda、远端项目父目录和隧道端口；不要求重新填写服务器。共享修改在其他窗口再次获得焦点或下一次 UI/API 请求时读取。资源前缀继续使用全局用户设置 `simpleExperiment.tunnel.remoteTmuxSessionPrefix`。
+2026-11-11 用户决定：SimpleExperiment 的服务器、SSH/Xshell、隧道、默认及 Worker Conda 环境和 GPU 配额改为全局共享，保存一次供本机各项目使用。首次从已配置项目导入共享配置；空项目不会抢先冻结空配置，旧项目配置保留但不会覆盖后续共享修改。首次复用或当前窗口改为另一项目时，以非阻塞消息提醒检查 Conda、远端项目父目录和隧道端口；提醒记录按项目保存，同项目重载及跨窗口切换焦点不重复弹出，不要求重新填写服务器。共享修改在其他窗口再次获得焦点或下一次 UI/API 请求时读取。资源前缀继续使用全局用户设置 `simpleExperiment.tunnel.remoteTmuxSessionPrefix`。
 
 PLAN、任务队列、运行记录、结果目录、同步范围和 AI 项目授权继续按项目保存。远端代码和 Agent 目录按当前项目重新计算，已运行服务、任务及文件不随共享设置改动而自动迁移、重启或清理。每次操作仍核对工作区、Worker、精确窗口和实际服务归属；端口被其他项目占用时必须检查并修改配置，不能把其他项目的 Agent 当作当前项目服务。
 

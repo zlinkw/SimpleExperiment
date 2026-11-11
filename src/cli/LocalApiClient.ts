@@ -375,7 +375,7 @@ export function rpcTimeoutMs(plugin: UnifiedPlugin, method: string): number {
  * the legacy single-slot behavior is unchanged when no target is given.
  */
 export async function callPluginRpc(plugin: UnifiedPlugin, method: string, params: Record<string, unknown>, expectedInstanceId?: string,
-  target?: { discoveryPath?: string; workspace?: string }): Promise<unknown> {
+  target?: { discoveryPath?: string; workspace?: string; expectedVersion?: string }): Promise<unknown> {
   if (typeof method !== "string" || !method || !params || typeof params !== "object" || Array.isArray(params)) throw new Error("API method and object params required");
   let preflight: PluginPreflight;
   const bindingText = plugin === "experiment" ? process.env.SIMPLE_CLI_RESOLVED_EXPERIMENT : undefined;
@@ -409,6 +409,8 @@ export async function callPluginRpc(plugin: UnifiedPlugin, method: string, param
     preflight = await preflightPlugin(plugin);
   }
   assertInstancePin(expectedInstanceId, preflight);
+  if (target?.expectedVersion && preflight.capabilities.version !== target.expectedVersion)
+    throw new Error(`API_PLUGIN_VERSION_MISMATCH：运行插件版本已从 ${target.expectedVersion} 变为 ${String(preflight.capabilities.version)}，请重新连接 MCP 以加载配套版本；未发送业务请求。`);
   if (binding?.requireCwd || !binding && !target && !expectedInstanceId && !process.env.SIMPLE_CLI_INSTANCE_ID && !process.env[PLUGIN_ENDPOINTS[plugin].env]) {
     const workspace = String(preflight.capabilities.workspace || "");
     const relative = workspace ? path.relative(path.resolve(workspace), process.cwd()) : "..";

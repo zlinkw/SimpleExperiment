@@ -488,6 +488,8 @@ async function callPluginRpc(plugin, method, params, expectedInstanceId, target)
         preflight = await preflightPlugin(plugin);
     }
     assertInstancePin(expectedInstanceId, preflight);
+    if (target?.expectedVersion && preflight.capabilities.version !== target.expectedVersion)
+        throw new Error(`API_PLUGIN_VERSION_MISMATCH：运行插件版本已从 ${target.expectedVersion} 变为 ${String(preflight.capabilities.version)}，请重新连接 MCP 以加载配套版本；未发送业务请求。`);
     if (binding?.requireCwd || !binding && !target && !expectedInstanceId && !process.env.SIMPLE_CLI_INSTANCE_ID && !process.env[PLUGIN_ENDPOINTS[plugin].env]) {
         const workspace = String(preflight.capabilities.workspace || "");
         const relative = workspace ? path.relative(path.resolve(workspace), process.cwd()) : "..";

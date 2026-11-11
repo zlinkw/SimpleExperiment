@@ -261,3 +261,39 @@ test('official stdio client connects to the packaged server and preserves live p
   } catch (error) { error.message += '\nMCP stderr: ' + stderr; throw error; }
   finally { await client.close(); api.closeAllConnections(); await new Promise(resolve => api.close(resolve)); }
 });
+
+test('workspace MCP connection rebinds after a normal host reload, refuses ambiguity and never bypasses its version', async () => {
+  const { LocalApiServer } = require('../../dist/api/LocalApiServer');
+  const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+  const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
+  const f = fixture(), discovery = path.join(f.root, 'SimpleExperiment', 'api.json');
+  fs.mkdirSync(path.dirname(discovery));
+  const instances = [];
+  let calls = 0;
+  async function host(version = '0.5.485') {
+    const api = new LocalApiServer({ name: 'SimpleExperiment', version, preferredPort: 0, workspace: f.root, discoveryPath: discovery,
+      methods: { 'mcp.catalog': () => PROJECT_TOOLS, 'mcp.call': () => ({ ok: true, calls: ++calls }) } });
+    instances.push(api); await api.start(); return api;
+  }
+  const env = { ...process.env, APPDATA: f.root };
+  for (const key of ['SIMPLE_EXPERIMENT_API_FILE', 'SIMPLE_CLI_INSTANCE_ID', 'SIMPLE_CLI_RESOLVED_EXPERIMENT']) delete env[key];
+  const original = await host();
+  const transport = new StdioClientTransport({ command: process.execPath,
+    args: [path.resolve(__dirname, '../../dist/mcp/server.cjs'), '--workspace', f.root], env, stderr: 'pipe' });
+  const client = new Client({ name: 'reload-acceptance', version: '1.0.0' });
+  try {
+    await client.connect(transport);
+    assert.equal((await client.callTool({ name: 'project_status', arguments: {} })).isError, false);
+    await original.dispose();
+    const reloaded = await host();
+    const resumed = await client.callTool({ name: 'project_status', arguments: {} });
+    assert.equal(resumed.isError, false, resumed.structuredContent?.error);
+    assert.equal(calls, 2);
+    const duplicate = await host();
+    const ambiguous = await client.callTool({ name: 'project_status', arguments: {} });
+    assert.equal(ambiguous.isError, true); assert.match(ambiguous.structuredContent.error, /多个|多于|实例|ambiguous/i); assert.equal(calls, 2);
+    await duplicate.dispose(); await reloaded.dispose(); await host('0.5.486');
+    const changed = await client.callTool({ name: 'project_status', arguments: {} });
+    assert.equal(changed.isError, true); assert.match(changed.structuredContent.error, /VERSION.*MISMATCH|版本/); assert.equal(calls, 2);
+  } finally { await client.close(); for (const api of instances) await api.dispose(); }
+});

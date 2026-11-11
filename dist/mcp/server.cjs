@@ -17411,6 +17411,8 @@ async function callPluginRpc(plugin, method, params, expectedInstanceId2, target
     preflight = await preflightPlugin(plugin);
   }
   assertInstancePin(expectedInstanceId2, preflight);
+  if (target?.expectedVersion && preflight.capabilities.version !== target.expectedVersion)
+    throw new Error(`API_PLUGIN_VERSION_MISMATCH\uFF1A\u8FD0\u884C\u63D2\u4EF6\u7248\u672C\u5DF2\u4ECE ${target.expectedVersion} \u53D8\u4E3A ${String(preflight.capabilities.version)}\uFF0C\u8BF7\u91CD\u65B0\u8FDE\u63A5 MCP \u4EE5\u52A0\u8F7D\u914D\u5957\u7248\u672C\uFF1B\u672A\u53D1\u9001\u4E1A\u52A1\u8BF7\u6C42\u3002`);
   if (binding?.requireCwd || !binding && !target && !expectedInstanceId2 && !process.env.SIMPLE_CLI_INSTANCE_ID && !process.env[PLUGIN_ENDPOINTS[plugin].env]) {
     const workspace = String(preflight.capabilities.workspace || "");
     const relative2 = workspace ? path.relative(path.resolve(workspace), process.cwd()) : "..";
@@ -17451,15 +17453,16 @@ async function startMcpServer(argv = process.argv.slice(2)) {
   const workspace = flags["--workspace"];
   if (!workspace) throw Error("MCP_WORKSPACE_REQUIRED: pass --workspace ABSOLUTE_PROJECT_PATH");
   const pin = flags["--instance"] || process.env.SIMPLE_CLI_INSTANCE_ID;
-  const discoveryPath = process.env.SIMPLE_EXPERIMENT_API_FILE || (await resolveInstanceByWorkspace("experiment", workspace, pin)).discoveryPath;
+  const explicitDiscoveryPath = process.env.SIMPLE_EXPERIMENT_API_FILE;
+  const discoveryPath = explicitDiscoveryPath || (await resolveInstanceByWorkspace("experiment", workspace, pin)).discoveryPath;
   const instance = await preflightPluginAt("experiment", discoveryPath, workspace);
   assertInstancePin(pin, instance);
   const rpc = (method, params = {}) => callPluginRpc(
     "experiment",
     method,
     params,
-    instance.instanceId,
-    { workspace, discoveryPath }
+    pin,
+    { workspace, ...explicitDiscoveryPath ? { discoveryPath: explicitDiscoveryPath } : {}, expectedVersion: String(instance.capabilities.version) }
   );
   await createProjectMcpServer(String(instance.capabilities.version), rpc).connect(new StdioServerTransport());
 }

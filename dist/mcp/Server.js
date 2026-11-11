@@ -18,11 +18,14 @@ async function startMcpServer(argv = process.argv.slice(2)) {
     if (!workspace)
         throw Error("MCP_WORKSPACE_REQUIRED: pass --workspace ABSOLUTE_PROJECT_PATH");
     const pin = flags["--instance"] || process.env.SIMPLE_CLI_INSTANCE_ID;
-    const discoveryPath = process.env.SIMPLE_EXPERIMENT_API_FILE
+    const explicitDiscoveryPath = process.env.SIMPLE_EXPERIMENT_API_FILE;
+    const discoveryPath = explicitDiscoveryPath
         || (await (0, LocalApiClient_1.resolveInstanceByWorkspace)("experiment", workspace, pin)).discoveryPath;
     const instance = await (0, LocalApiClient_1.preflightPluginAt)("experiment", discoveryPath, workspace);
     (0, LocalApiClient_1.assertInstancePin)(pin, instance);
-    const rpc = (method, params = {}) => (0, LocalApiClient_1.callPluginRpc)("experiment", method, params, instance.instanceId, { workspace, discoveryPath });
+    // Workspace connections follow a normal host reload; explicit instance/file pins remain fixed.
+    // Resolution happens before the business request, never as a retry of a submitted write.
+    const rpc = (method, params = {}) => (0, LocalApiClient_1.callPluginRpc)("experiment", method, params, pin, { workspace, ...(explicitDiscoveryPath ? { discoveryPath: explicitDiscoveryPath } : {}), expectedVersion: String(instance.capabilities.version) });
     await createProjectMcpServer(String(instance.capabilities.version), rpc).connect(new stdio_js_1.StdioServerTransport());
 }
 function createProjectMcpServer(version, rpc) {

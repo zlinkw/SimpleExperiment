@@ -108,3 +108,24 @@ test("entry follows the running version across an upgrade, never the highest ins
   write("stopped");await assert.rejects(resolveCli({extensionsRoot:extensions,discoveryFile:file}),/running/);
  }finally{server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
+
+test('MCP launcher selects the matching installed entry without turning workspace routing into a permanent instance pin',async()=>{
+ const vm=require('node:vm'),source=fs.readFileSync(path.resolve(__dirname,'../../bin/simpleex-mcp.cjs'),'utf8');
+ for(const argv of [['--workspace',root],['--workspace',root,'--instance','explicit-instance']]){
+  let spawned;
+  const modules={
+   'node:fs':{statSync:()=>({isFile:()=>true})},'node:path':path,
+   'node:child_process':{spawn:(command,args,options)=>{spawned={command,args,options};return {on(){}};}},
+  };
+  const fakeRequire=name=>modules[name]||{resolveCli:async options=>{
+   assert.deepEqual(Array.from(options.argv),argv);
+   options.onResolved?.('/old-record.json',{instanceId:'automatically-selected',discoveryPath:'/old-record.json'});
+   return path.join(root,'dist','cli.js');
+  }};
+  const module={exports:{}};
+  await vm.runInNewContext(source+'\nmain();',{require:fakeRequire,module,__filename:'simpleex-mcp.cjs',__dirname:path.join(root,'bin'),
+   process:{argv:['node','simpleex-mcp.cjs',...argv],execPath:process.execPath,env:{},stderr:{write:message=>assert.fail(message)}}});
+  assert.deepEqual(Array.from(spawned.args),[path.join(root,'dist','mcp','server.cjs'),...argv]);
+  assert.equal(spawned.options.env,undefined,'the child inherits explicit environment choices rather than an automatic startup pin');
+ }
+});

@@ -44,7 +44,12 @@ test('shared connection refresh updates a background project without changing it
  h.refreshSharedConnectionSettings();assert.equal(h.setupConfig.condaEnv,'/changed');assert.equal(h.queue,queue);
  assert.deepEqual(context.workspaceState.get('simpleExperiment.mcp.authorization.v1'),grant);
  await h.remindSharedConnectionSettings();await h.remindSharedConnectionSettings();assert.equal(messages.length,1);assert.equal(opened.length,0);
- root='C:/project-B';await h.remindSharedConnectionSettings();assert.equal(messages.length,2);assert.match(messages[1],/project-B.*全局服务器/);assert.match(messages[1],/Conda.*项目父目录.*隧道端口/);assert.equal(opened.length,0);
+ const second=new Host();second.context=other;second.enabledWorkerConfigs=()=>[{id:'worker-one',enabled:true}];second.openPanelAt=(...args)=>opened.push(args);
+ root='C:/project-B';await second.remindSharedConnectionSettings();assert.equal(messages.length,2);assert.match(messages[1],/project-B.*全局服务器/);assert.match(messages[1],/Conda.*项目父目录.*隧道端口/);assert.equal(opened.length,0);
+ root='C:/project-A';await h.remindSharedConnectionSettings();assert.equal(messages.length,2,'returning focus from another project cannot repeat its existing reminder');
+ const reloaded=new Host();reloaded.context=context;reloaded.enabledWorkerConfigs=h.enabledWorkerConfigs;await reloaded.remindSharedConnectionSettings();
+ assert.equal(messages.length,2,'reloading the same project retains the reminder decision');
+ root='C:/project-C';await h.remindSharedConnectionSettings();assert.equal(messages.length,3,'a genuinely different project still receives its first reminder');
 });
 test('same-window SFTP exports ignore a foreign global default and reject wrong PID/project or missing project',async()=>{
  let legacy=0,activated=0;const root='C:/project-A',descriptor={pid:process.pid,workspace:root,baseUrl:'http://127.0.0.1:1234'};

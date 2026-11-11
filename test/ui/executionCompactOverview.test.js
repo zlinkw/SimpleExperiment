@@ -878,6 +878,10 @@ test("production operation projection and normalization retain submission identi
     startedAt: "2026-10-10T09:35:16Z", updatedAt: "2026-10-10T09:36:00Z" };
   const render = () => sandbox.render({ distributedPlans: [plan],
     operations: projected.exports.compactOperationsForWebview({ operation: { ...row } }) });
+  row.localSubmissionProgress = true;
+  assert.equal(sandbox.normalizeOperationRows(projected.exports.compactOperationsForWebview({ operation: { ...row } }))[0].localSubmissionProgress, true,
+    "the real compacting and normalization chain preserves the local preparation marker");
+  delete row.localSubmissionProgress;
   render();
   assert.match(sandbox.html, /live seed 42/, "restored workflow survives large optional diagnostics");
   assert.doesNotMatch(sandbox.html, /待生成 job/);

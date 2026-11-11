@@ -18722,7 +18722,7 @@ function renderPanelHtml() {
           command: "dryRunPlan"
         });
       }
-      const latestRun = rows.find((row) => PLAN_RUN_OPERATION_TYPES.has(String(row.type || "").toLowerCase()) && operationAtOrAfter(row, latestDryRun));
+      const latestRun = rows.find((row) => row.localSubmissionProgress !== true && PLAN_RUN_OPERATION_TYPES.has(String(row.type || "").toLowerCase()) && operationAtOrAfter(row, latestDryRun));
       const runAccepted = Boolean(latestRun && (latestRun.submissionAccepted || latestRun.schedulerStarted));
       if (operationPending(latestRun)) {
         if (runAccepted) {

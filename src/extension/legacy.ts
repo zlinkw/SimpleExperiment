@@ -25991,11 +25991,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async remindSharedConnectionSettings() {
         const root = workspaceRoot();
         if (!root || !vscode.window.state.focused || !this.enabledWorkerConfigs().length || this.sharedConnectionReminderPending) return;
-        const key = "simpleExperiment.sharedConnections.lastProject";
-        if (this.context.globalState.get(key) === root) return;
+        const key = "simpleExperiment.sharedConnections.remindedProject";
+        if (this.context.workspaceState.get(key) === root) return;
         this.sharedConnectionReminderPending = true;
         try {
-            await this.context.globalState.update(key, root);
+            await this.context.workspaceState.update(key, root);
             if (workspaceRoot() !== root) return;
             void vscode.window.showInformationMessage(`已为 ${path.basename(root)} 复用全局服务器、隧道、环境与 GPU 配额。请检查 Conda 环境、远端项目父目录和隧道端口；项目代码目录按当前项目计算，PLAN、同步范围及结果目录仍属于当前项目。修改共享设置会影响其他项目。`, "检查项目差异").then(choice => {
                 if (choice === "检查项目差异" && workspaceRoot() === root) return this.openPanelAt("settings", "settings-servers", { userInitiated: true });

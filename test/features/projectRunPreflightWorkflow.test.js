@@ -140,6 +140,21 @@ test("Plan execution stage uses scoped terminal operations", () => {
   assert.equal(stage({ plan, operations: [{ ...op("validate-plan", "completed", "2026-07-16T02:01:00.000Z"), planFile: "other.yaml" }] }, planFile).phase, "ready");
 });
 
+test("successful local validation and dry-run progress cannot claim that training completed", () => {
+  const stage = loadPlanExecutionStage(), planFile = "experiments/plans/acceptance.yaml";
+  const plan = { revision: "acceptance-revision", updatedAt: "2026-11-11T00:00:00Z" };
+  const operations = [
+    { operationId: "plan-submit-preview", type: "run-plan", status: "succeeded", localSubmissionProgress: true, updatedAt: "2026-11-11T01:03:00Z" },
+    { operationId: "dry-run-remote", type: "dry-run-plan", status: "completed", updatedAt: "2026-11-11T01:02:00Z" },
+    { operationId: "plan-submit-validation", type: "run-plan", status: "succeeded", localSubmissionProgress: true, updatedAt: "2026-11-11T01:01:30Z" },
+    { operationId: "validate-remote", type: "validate-plan", status: "completed", updatedAt: "2026-11-11T01:01:00Z" },
+  ].map(row => ({ ...row, planFile, planRevision: plan.revision }));
+  const next = stage({ plan, operations, tasks: [] }, planFile);
+  assert.equal(next.phase, "run");
+  assert.equal(next.command, "runPlan");
+  assert.doesNotMatch(next.status, /调度已完成|结果解析/);
+});
+
 test("Plan execution stage reuses bounded per-state cache entries", () => {
   const stage = loadPlanExecutionStage();
   const planFile = "experiments/plans/smoke.yaml";
