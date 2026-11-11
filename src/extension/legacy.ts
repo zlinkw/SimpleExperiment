@@ -7774,6 +7774,11 @@ return this.testTunnel(true);
         });
     }
     async runActionCommandCore(command, message) {
+        if (command === "stopExperiment" && stringField(message, "commandId")) {
+            assertSingleProjectWorkspace("停止任务");
+            return stopProjectTask(this, workspaceRoot(), { commandId: stringField(message, "commandId"),
+                workerId: stringField(message, "workerId"), workflowId: stringField(message, "planId"), confirm: true });
+        }
         const batch = this.planSubmissionBatchFor?.(message);
         if (command === "parseResults" || command === "refreshResults") return resultCollectionHost(this).update();
         const workflowBinding = PLAN_SUBMISSION_COMMANDS.has(command)
@@ -27698,7 +27703,7 @@ return "历史服务器";
             gpu: [offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu, gpuOwnership, gpuHistory, this.setupConfig, includePanelGpuHistory],
             execution: [offlineSnapshot?.schedulerStates, snapshot?.schedulerStates, realtimeState?.schedulerStates, offlineSnapshot?.operations, snapshot?.operations,
                 realtimeState?.operations, distributedQueueStateRevision, planStopClearRevision, this.lastRealtimeState?.fileTransfers, this.planArtifactSyncStatuses,
-                this.selectedPlanId, this.planFileInput, includePanelExecutionHistory],
+                this.selectedPlanId, this.planFileInput, includePanelExecutionHistory, this.workerTaskSnapshotRevision, this.distributedQueueGeneration],
             diagnostics: [this.lastHealth, this.lastProbe, this.lastWorkerProbes, this.lastIntegrationReport, endpointRegistryState.registry,
                 this.tunnelConfig, this.actionErrors.length, actionErrorRevision, this.lastSnapshot?.diagnostics, this.lastRealtimeState?.diagnostics],
         });

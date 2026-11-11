@@ -7,6 +7,60 @@ const {composeLogicalPlans}=require('../../src/features/LogicalPlanProgress.ts')
 
 const panel = readSource("src/ui/PanelHtml.ts").replaceAll('${logicalPlansSource}', '('+composeLogicalPlans.toString()+')');
 
+test('native stop button carries only its original job identity into the shared stop service', async () => {
+  const ts = require('typescript');
+  const html = require('../../src/ui/PanelHtml.ts').renderPanelHtml();
+  const script = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]).join('\n');
+  const ast = ts.createSourceFile('panel.js', script, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let payloadSource;
+  function visit(n) { if (ts.isFunctionDeclaration(n) && n.name?.text === 'payloadFromButton') payloadSource = n.getText(ast); ts.forEachChild(n, visit); }
+  visit(ast);
+  const payloadContext = vm.createContext({ RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS: new Set(), ARTIFACT_SCOPE_COMMANDS: new Set() });
+  vm.runInContext(payloadSource, payloadContext);
+  const hostAst = ts.createSourceFile('host.ts', readSource('src/extension.ts'), ts.ScriptTarget.Latest, true);
+  let routeSource;
+  function findRoute(n) { if (ts.isMethodDeclaration(n) && n.name.getText(hostAst) === 'runActionCommandCore') routeSource = n.getText(hostAst); ts.forEachChild(n, findRoute); }
+  findRoute(hostAst);
+  const calls = [], host = {};
+  const route = vm.runInNewContext(ts.transpileModule('class Host {' + routeSource + '}; Host.prototype.runActionCommandCore',
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
+    assertSingleProjectWorkspace() {}, workspaceRoot: () => '/current-project', stringField: (row, key) => String(row[key] || ''),
+    stopProjectTask: async (owner, root, params) => { calls.push({ owner, root, params }); return { ok: true }; },
+  });
+  for (const status of ['running', 'queued', 'dispatching', 'unknown', 'completed', 'failed', 'cancelled']) {
+    const sandbox = clickSandbox();
+    sandbox.render({ distributedPlans: [{ id: 'original-workflow', planFile: 'plans/original.yaml', jobs: [{ index: 0,
+      status, lifecycleProtocol: 2, workerId: 'original-worker', commandId: 'original-command', outputDir: 'work/job' }] }] });
+    const button = sandbox.html.match(/<button\b[^>]*data-command="stopExperiment"[^>]*data-command-id="original-command"[^>]*>/)?.[0];
+    if (['completed', 'failed', 'cancelled'].includes(status)) { assert.equal(button, undefined); continue; }
+    assert.ok(button, status);
+    const dataset = {};
+    for (const m of button.matchAll(/data-([a-z-]+)="([^"]*)"/g)) dataset[m[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = m[2];
+    const payload = payloadContext.payloadFromButton({ dataset });
+    await route.call(host, 'stopExperiment', payload);
+    const call = calls.at(-1);
+    assert.equal(call.owner, host); assert.equal(call.root, '/current-project');
+    assert.deepEqual(JSON.parse(JSON.stringify(call.params)), {
+      commandId: 'original-command', workerId: 'original-worker', workflowId: 'original-workflow', confirm: true,
+    });
+  }
+  assert.equal(calls.length, 4);
+});
+
+test('PLAN render model changes when only a nonselected PLAN status summary changes', () => {
+  const html = require('../../src/ui/PanelHtml.ts').renderPanelHtml();
+  const start = html.indexOf('function sectionRenderModel('), end = html.indexOf('function ', start + 9);
+  const source = html.slice(start, end);
+  const helpers = [...new Set([...source.matchAll(/\b(compact\w+)\(/g)].map(m => m[1]))];
+  const context = { SECTION_SIGNATURE_ROW_LIMIT: 100, currentResultOutputContractCheck: () => ({}),
+    planExecutionStage: () => 'unchanged', ...Object.fromEntries(helpers.map(name => [name, value => value])) };
+  vm.createContext(context); vm.runInContext(source, context);
+  const state = { planFileInput: 'plans/current.yaml', planStatusSummaries: [{ planFile: 'plans/other.yaml', status: 'unknown' }] };
+  const before = JSON.stringify(context.sectionRenderModel(state, 'plans'));
+  state.planStatusSummaries = [{ planFile: 'plans/other.yaml', status: 'cancelled' }];
+  assert.notEqual(JSON.stringify(context.sectionRenderModel(state, 'plans')), before);
+});
+
 test('a cancelled exact-window job is stopped without a missing-window warning', () => {
   const sandbox = clickSandbox();
   sandbox.render({ distributedPlans: [{ id: 'stopped', planFile: 'plans/stopped.yaml', jobs: [{ index: 0,

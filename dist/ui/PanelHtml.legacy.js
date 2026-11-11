@@ -5705,6 +5705,7 @@ function renderPanelHtml() {
           selectedPlan: compactPlanRecordForSignature(data.selectedPlan),
           plans: compactPlansForSignature(data.plans),
           localPlans: compactPlansForSignature(data.localPlans),
+          planStatusSummaries: data.planStatusSummaries,
           projectConfig: compactProjectConfigForSignature(data.projectConfig),
           adapterRules: compactAdapterRulesForSignature(data.adapterRules),
           integrations: data.integrations,
@@ -15462,6 +15463,8 @@ function renderPanelHtml() {
           const retryView = automaticJobRetryView(job);
           const blocked = status === "pending" && fingerprintBlocked(job);
           const jobActive = ["pending", "dispatching", "queued", "running", ...(job.lifecycleProtocol === 2 ? [] : ["unknown"])].includes(status) && !blocked && !job.outputIsolationBlocked;
+          const stopJobButton = job.commandId && job.workerId && manualPlan && !["completed", "failed", "cancelled", "stopped"].includes(status)
+            ? '<button type="button" class="mini secondary" data-command="stopExperiment" data-plan-id="' + escAttr(manualPlan) + '" data-worker-id="' + escAttr(job.workerId) + '" data-command-id="' + escAttr(job.commandId) + '" data-confirm="true" title="停止此任务，保留任务记录、日志和产物。">停止此任务</button>' : '';
           const unavailable = job.unavailable && status === "cancelled";
           const preflightRejected = Boolean(job.admissionRejection && status === "failed");
           const needsReview = status === "completed" && job.completionState !== "verified";
@@ -15560,7 +15563,7 @@ function renderPanelHtml() {
             ? '<div class="muted">下一步：点本行“跳转到日志”查看对应 TMUX 任务窗口。这是已提交 job 的失败，不会自动清理。确认需要停止后，再点本 Plan 的“终止并清除该 Plan”（两次确认）。</div><span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度，查看本 Plan 的状态">运行进度</button><button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button></span>'
             : "";
           return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '">'+(manualControls?'<div class="executionManualDispatch">'+manualControls+'</div>':'')+'<span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (needsReview || blocked || unavailable ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + failedRecallButton + availabilityButton + logButton + trainingRecoveryButton
-            + lifecycleStates + diagnosticSummary + analyzeButton + anomalyRerunButton + artifactButtons
+            + stopJobButton + lifecycleStates + diagnosticSummary + analyzeButton + anomalyRerunButton + artifactButtons
             + (artifactButtons ? '<div class="muted" style="overflow-wrap:anywhere;">产物操作范围：此 job 声明产物与当前勾选范围的交集；目标为全部启用 Worker：' + esc(artifactTargets) + '；不重跑训练。</div>' : '')
             + (waitNote ? '<div class="muted">' + esc(waitNote) + '</div>' : '')
             + (stopPending ? '<div class="muted">停止请求待确认；仍显示服务器实际执行状态。连接恢复后可重试原任务停止，不创建新任务。</div>' : '')
@@ -18524,6 +18527,7 @@ function renderPanelHtml() {
       else if (planCommand && el("planFileInput")) payload.planFile = el("planFileInput").value;
       if (!payload.planFile && command === "archivePlan" && el("planFileInput")) payload.planFile = el("planFileInput").value;
       if (button.dataset.planId) payload.planId = button.dataset.planId;
+      if (command === "stopExperiment" && button.dataset.commandId) payload.commandId = button.dataset.commandId;
       if (["refreshJobArtifacts", "retryJobArtifactSync", "releaseJobStageBlockSlots"].includes(command)) {
         if (button.dataset.planIds) { try { payload.planIds = JSON.parse(button.dataset.planIds); } catch {} }
         if (button.dataset.commandId) payload.commandId = button.dataset.commandId;

@@ -231,3 +231,27 @@ test("host section revisions advance only when that section's bounded input chan
   assert.equal(changed.gpu, same.gpu);
   assert.deepEqual(Object.keys(changed).sort(), ["diagnostics", "execution", "gpu", "plans", "results", "settings", "sync"]);
 });
+
+test('active Worker observations invalidate execution even if an API read already consumed the snapshot', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../../src/extension/legacy.ts'), 'utf8');
+  const ast = ts.createSourceFile('host.ts', source, ts.ScriptTarget.Latest, true);
+  let executionInputs;
+  function visit(n) {
+    if (ts.isCallExpression(n) && n.expression.getText(ast) === 'this.panelSectionRevisionTracker.update')
+      executionInputs = n.arguments[0].properties.find(p => p.name.getText(ast) === 'execution').initializer.getText(ast);
+    ts.forEachChild(n, visit);
+  }
+  visit(ast);
+  const context = vm.createContext({ offlineSnapshot: {}, snapshot: {}, realtimeState: {}, distributedQueueStateRevision: 'same-disk',
+    planStopClearRevision: 0, includePanelExecutionHistory: true, workerTaskSnapshotRevision: 1, distributedQueueGeneration: 1 });
+  const tracker = new projection.PanelSectionRevisionTracker();
+  const read = () => Array.from(vm.runInContext(executionInputs, context));
+  const before = tracker.update({ execution: read() }).execution;
+  assert.equal(tracker.update({ execution: read() }).execution, before);
+  context.workerTaskSnapshotRevision += 1;
+  tracker.update({ execution: read() }); // API state read before the panel post.
+  const after = tracker.update({ execution: read() }).execution;
+  assert.ok(after > before);
+  context.distributedQueueGeneration += 1;
+  assert.ok(tracker.update({ execution: read() }).execution > after);
+});
