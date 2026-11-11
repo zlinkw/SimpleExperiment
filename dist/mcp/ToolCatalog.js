@@ -2,11 +2,14 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PROJECT_TOOLS = void 0;
 exports.validateToolArguments = validateToolArguments;
+const ToolResults_1 = require("./ToolResults");
 const text = (description) => ({ type: "string", description });
 const texts = (description) => ({ type: "array", items: text(description) });
 const boolean = { type: "boolean" };
 const integer = { type: "integer" };
 const object = { type: "object" };
+const configurationKey = text("Fully qualified simpleExperiment.* key from configuration_list, for example simpleExperiment.showAdvancedCommands; respect its declared scope");
+const sftpConfigurationKey = text("Fully qualified simpleSftp.* key returned by sftp_configuration_list");
 const plan = { planFile: text("Saved project-relative PLAN YAML path") };
 const task = { workerId: text("Configured enabled Worker ID"), commandId: text("Original command ID") };
 const operation = { operationId: text("Existing operation ID, returned by the host") };
@@ -16,7 +19,7 @@ const fileTarget = { type: "object", properties: { relativePath: text("Exact pro
 function tool(name, method, description, properties = {}, required = [], permission, action, plugin = "experiment") {
     const additionalPermissions = ["workflow.plan", "workflow.run", "plan.validate", "project.bootstrap"].includes(method) ? ["sync", "agents"] : [];
     return { name, method, description, plugin, permission, action, additionalPermissions,
-        inputSchema: { type: "object", properties, required, additionalProperties: false } };
+        inputSchema: { type: "object", properties, required, additionalProperties: false }, outputSchema: (0, ToolResults_1.toolOutputSchema)(name) };
 }
 function approvalTool(name, method, description, properties, required = [], plugin = "sftp") {
     return { ...tool(name, method, description + "; requires an exact-target user approval in VS Code", properties, required, undefined, undefined, plugin), requiresUserApproval: true };
@@ -66,9 +69,9 @@ exports.PROJECT_TOOLS = [
     tool("state_value", "state.get", "Read one plugin state value", { key: text("Declared state key") }, ["key"]),
     approvalTool("state_set", "state.set", "Change an explicitly declared writable plugin state key", { key: text("Declared writable state key"), value: {} }, ["key", "value"], "experiment"),
     approvalTool("state_reset", "state.reset", "Reset an explicitly declared writable plugin state key", { key: text("Declared writable state key") }, ["key"], "experiment"),
-    tool("configuration_get", "config.get", "Read one configuration value", { key: text("Configuration key") }, ["key"]),
-    tool("configuration_set", "config.set", "Set a workspace configuration value", { key: text("Configuration key"), value: {}, scope: { type: "string", enum: ["workspace", "workspaceFolder"] } }, ["key", "value", "scope"], "configuration"),
-    tool("configuration_reset", "config.reset", "Reset a workspace configuration value", { key: text("Configuration key"), scope: { type: "string", enum: ["workspace", "workspaceFolder"] } }, ["key", "scope"], "configuration"),
+    tool("configuration_get", "config.get", "Read one configuration value", { key: configurationKey }, ["key"]),
+    tool("configuration_set", "config.set", "Set a workspace configuration value", { key: configurationKey, value: {}, scope: { type: "string", enum: ["workspace", "workspaceFolder"] } }, ["key", "value", "scope"], "configuration"),
+    tool("configuration_reset", "config.reset", "Reset a workspace configuration value", { key: configurationKey, scope: { type: "string", enum: ["workspace", "workspaceFolder"] } }, ["key", "scope"], "configuration"),
     { ...tool("worker_configure", "workers.configure", "Save the selected Worker's globally shared environment and GPU settings; affects every project and requires user approval", {
             workerId: task.workerId, patch: { type: "object", properties: {
                     condaEnvMode: { type: "string", enum: ["inherit", "system", "path"] }, condaEnv: text("Absolute research environment path"),
@@ -117,9 +120,9 @@ exports.PROJECT_TOOLS = [
     tool("sftp_target", "target.show", "Inspect the current workspace transfer target", {}, [], undefined, undefined, "sftp"),
     tool("sftp_transfers", "transfers.list", "Observe the current window's transfers", {}, [], undefined, undefined, "sftp"),
     tool("sftp_configuration_list", "config.list", "Inspect companion plugin configuration", {}, [], undefined, undefined, "sftp"),
-    tool("sftp_configuration_get", "config.get", "Read one companion plugin configuration", { key: text("Configuration key") }, ["key"], undefined, undefined, "sftp"),
-    approvalTool("sftp_configuration_set", "config.set", "Change a global companion plugin setting", { key: text("Configuration key"), value: {} }, ["key", "value"]),
-    approvalTool("sftp_configuration_reset", "config.reset", "Reset a global companion plugin setting", { key: text("Configuration key") }, ["key"]),
+    tool("sftp_configuration_get", "config.get", "Read one companion plugin configuration", { key: sftpConfigurationKey }, ["key"], undefined, undefined, "sftp"),
+    approvalTool("sftp_configuration_set", "config.set", "Change a global companion plugin setting", { key: sftpConfigurationKey, value: {} }, ["key", "value"]),
+    approvalTool("sftp_configuration_reset", "config.reset", "Reset a global companion plugin setting", { key: sftpConfigurationKey }, ["key"]),
     approvalTool("sftp_server_activate", "servers.setActive", "Change the global active server profile", { id: text("Configured SimpleSFTP profile ID") }, ["id"]),
     approvalTool("sftp_server_save", "servers.save", "Create or update a server profile", { server: {
             type: "object", properties: { id: text("Profile ID"), label: text("Display name"), host: text("SSH host"), port: integer,

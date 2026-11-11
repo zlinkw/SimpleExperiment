@@ -13,6 +13,9 @@ function fixture() {
   const calls = [];
   const methods = Object.fromEntries([...new Set(PROJECT_TOOLS.map(tool => tool.method))].map(method => [method,
     async params => { calls.push({ method, params }); return { ok: true, operationId: 'operation-1', status: 'checking_workers' }; }]));
+  methods.status = async params => { calls.push({ method: 'status', params }); return {
+    ok: true, name: 'SimpleExperiment', version: '0.5.485', workspace: root, pid: process.pid,
+  }; };
   const store = { get: () => grant, update: async (key, value) => { assert.equal(key, AUTHORIZATION_KEY); grant = value; } };
   return { root, worker, calls, methods, store,
     gateway: new ProjectGateway({ root: () => root, workers: () => [worker], store, methods: () => methods }),
@@ -331,7 +334,8 @@ test('workspace MCP connection rebinds after a normal host reload, refuses ambig
   let calls = 0;
   async function host(version = '0.5.485') {
     const api = new LocalApiServer({ name: 'SimpleExperiment', version, preferredPort: 0, workspace: f.root, discoveryPath: discovery,
-      methods: { 'mcp.catalog': () => PROJECT_TOOLS, 'mcp.call': () => ({ ok: true, calls: ++calls }) } });
+      methods: { 'mcp.catalog': () => PROJECT_TOOLS, 'mcp.call': () => ({ ok: true, name: 'SimpleExperiment', version,
+        workspace: f.root, pid: process.pid, calls: ++calls }) } });
     instances.push(api); await api.start(); return api;
   }
   const env = { ...process.env, APPDATA: f.root };
@@ -355,4 +359,63 @@ test('workspace MCP connection rebinds after a normal host reload, refuses ambig
     const changed = await client.callTool({ name: 'project_status', arguments: {} });
     assert.equal(changed.isError, true); assert.match(changed.structuredContent.error, /VERSION.*MISMATCH|版本/); assert.equal(calls, 2);
   } finally { await client.close(); for (const api of instances) await api.dispose(); }
+});
+
+test('every advertised output schema validates errors and distinguishes request receipts from native results', () => {
+  const { AjvJsonSchemaValidator } = require('@modelcontextprotocol/sdk/validation/ajv');
+  const { LONG_TOOLS, toolOutputSchema } = require('../../dist/mcp/ToolResults.js');
+  const ajv = new AjvJsonSchemaValidator();
+  const validators = new Map(PROJECT_TOOLS.map(tool => [tool.name, ajv.getValidator(tool.outputSchema)]));
+  for (const tool of PROJECT_TOOLS) {
+    assert.equal(tool.outputSchema.type, 'object', tool.name);
+    for (const code of [-32000, 'MCP_WORKSPACE_CHANGED'])
+      assert.equal(validators.get(tool.name)({ ok: false, error: 'actual business error', code, detail: { reason: 'fixture' } }).valid, true, tool.name);
+  }
+  for (const name of LONG_TOOLS) {
+    const receipt = { ok: true, operationId: 'mcp-request', status: 'running', requestScope: 'tool_request',
+      receiptProvesExperimentCompletion: false, nextTool: 'operation_get', nextArguments: { operationId: 'mcp-request' } };
+    assert.equal(validators.get(name)(receipt).valid, true, name);
+    assert.equal(validators.get(name)({ ...receipt, receiptProvesExperimentCompletion: true }).valid, false, name);
+  }
+  assert.equal(validators.get('project_status')({ ok: true }).valid, false);
+  assert.equal(validators.get('task_list')({ projectId: 'project', jobLifecycle: [{ commandId: 'running', exitCode: null }], workerTasks: [] }).valid, true);
+  const operation = { operationId: 'mcp-result', status: 'succeeded', tool: 'result_list', resultAvailable: true, result: [{ id: 'result' }] };
+  assert.equal(validators.get('operation_get')(operation).valid, true);
+  assert.equal(validators.get('operation_get')({ ...operation, result: [7] }).valid, false, 'the original tool determines the delayed result type');
+  assert.equal(validators.get('operation_get')({ ...operation, result: { ok: false, error: 'query failed', code: -32000 } }).valid, true);
+  assert.throws(() => toolOutputSchema('undeclared_tool'), /OUTPUT_SCHEMA_MISSING/);
+});
+
+test('official MCP client validates named output contracts without losing arrays, extra evidence or errors', async () => {
+  const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+  const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');
+  const { createProjectMcpServer } = require('../../dist/mcp/Server.js');
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const responses = {
+    project_status: { ok: true, name: 'SimpleExperiment', version: 'fixture', workspace: '/fixture', pid: 1, extraEvidence: { untouched: true } },
+    experiment_list: [{ id: 'job', status: 'cancelled', native_state: { command_id: 'job', exit_code: null } }],
+    configuration_get: { key: 'simpleExperiment.showAdvancedCommands', value: false },
+  };
+  let failure;
+  const server = createProjectMcpServer('fixture', async (method, params) => {
+    if (method === 'mcp.catalog') return PROJECT_TOOLS;
+    if (failure) throw failure;
+    return responses[params.tool];
+  });
+  const client = new Client({ name: 'output-contract-test', version: '1' });
+  try {
+    await server.connect(serverTransport); await client.connect(clientTransport);
+    const catalog = await client.listTools();
+    assert.equal(catalog.tools.length, PROJECT_TOOLS.length);
+    assert.deepEqual((await client.callTool({ name: 'project_status', arguments: {} })).structuredContent, responses.project_status);
+    assert.deepEqual((await client.callTool({ name: 'experiment_list', arguments: {} })).structuredContent, { result: responses.experiment_list });
+    assert.equal((await client.callTool({ name: 'configuration_get', arguments: { key: 'simpleExperiment.showAdvancedCommands' } })).structuredContent.value, false);
+    responses.project_status.version = 7;
+    await assert.rejects(client.callTool({ name: 'project_status', arguments: {} }), /output schema/i);
+    failure = Object.assign(new Error('original business failure'), { apiCode: -32000, apiData: { source: 'fixture' } });
+    const rejected = await client.callTool({ name: 'project_status', arguments: {} });
+    assert.equal(rejected.isError, true); assert.equal(rejected.structuredContent.code, -32000);
+    assert.equal(rejected.structuredContent.error, 'original business failure');
+    assert.deepEqual(rejected.structuredContent.detail, { source: 'fixture' });
+  } finally { await client.close(); await server.close(); }
 });

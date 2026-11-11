@@ -32,8 +32,7 @@ export function createProjectMcpServer(version: string, rpc: (method: string, pa
   const server = new Server({ name: "simple-experiment", version }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: (await catalog()).map(tool => ({
     name: tool.name, description: tool.description, inputSchema: tool.inputSchema as any,
-    outputSchema: { type: "object", properties: { ok: { type: "boolean" }, operationId: { type: "string" }, status: { description: "Native host status; an MCP request receipt does not prove experiment completion" },
-      error: { type: "string" }, result: {}, nextTool: { type: "string" } }, additionalProperties: true },
+    outputSchema: tool.outputSchema as any,
     annotations: { readOnlyHint: !tool.permission && !tool.requiresUserApproval,
       destructiveHint: ["cleanup_execute", "file_cleanup_execute"].includes(tool.name) || !!tool.requiresUserApproval, openWorldHint: false },
   })) }));

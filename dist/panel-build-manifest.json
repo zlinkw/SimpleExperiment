@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.495",
-  "buildId": "b8adea4919577f0a541c8b228d0c3168fa64559469f901eded0b17692452f809",
+  "version": "0.5.496",
+  "buildId": "e04a767fd588c5d1c2da0cdf72f16064cc8f8b77466c59a57d8a2dc6c1dcb012",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -849,7 +849,7 @@
     },
     {
       "path": "dist/mcp/ProjectOperations.js",
-      "sha256": "a0ff4c83c55b20536814a25e8f83acbfbda7fc91c8eeffdf5cc30d3ba76cf256"
+      "sha256": "909aebcf5862389ed299500c9f9a3558d01cb681a3a65cab4aa03cb25ecb51b1"
     },
     {
       "path": "dist/mcp/ProjectQueries.js",
@@ -857,7 +857,11 @@
     },
     {
       "path": "dist/mcp/ToolCatalog.js",
-      "sha256": "a7cda1c3c005158d05c36f3e6dfc0ad437b9a0080b7e2477a323ec6e5db053d0"
+      "sha256": "570a76e17706681e52ba5bd419e08e36c7cbb746b6c88d3a9f79a0ae76c568be"
+    },
+    {
+      "path": "dist/mcp/ToolResults.js",
+      "sha256": "c7b196c6d4756f5fee7d6872d4c191673b68c44bbab477e9291fcb7a0a76e70f"
     },
     {
       "path": "dist/PptPlotBridge.js",
@@ -941,7 +945,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "dd6e9827bdb4a74a0cdb3452d5e50091484d67750b0f633e1861e453093cf891"
+      "sha256": "7c9980b88b3749f6de4beea3a2739c70fbaa20f3a1a8171ada5aefa42d5002e9"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1293,7 +1297,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "55b37d60c01eb3bd98f0fcb8415ccc715903774b1e605958c2629ac7268592ff"
+      "sha256": "85376d6a575c9818f181f7f0ce6f44fa705c0e3e2b1c267509a3020d9f4c5611"
     },
     {
       "path": "scripts/check-static.js",

@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ProjectGateway } from "./ProjectGateway";
-
-const LONG_TOOLS = new Set(["project_prepare", "project_connect", "plan_preflight", "plan_validate", "result_collect",
-  "agent_ensure", "agent_restart", "agent_migrate", "task_stop", "plan_stop", "sftp_upload_files", "sftp_upload_workspace", "sftp_download_paths", "sftp_worker_sync",
-  "sftp_worker_directory", "sftp_worker_batch", "sftp_download_mapped", "sftp_handoff", "sftp_from_remote", "file_cleanup_execute",
-  "result_list", "result_show", "result_export", "result_compare", "metric_list", "metric_show", "experiment_results", "artifact_list", "artifact_inspect"]);
+import { LONG_TOOLS } from "./ToolResults";
 /** Stores receipt metadata in the host's existing operation log; query payloads stay in memory. */
 export class ProjectMcpOperations {
   private readonly results = new Map<string, { root: string; result: unknown }>();

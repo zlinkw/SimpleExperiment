@@ -30,22 +30,31 @@ args = ["C:/Users/ZLK/AppData/Roaming/npm/simpleex-mcp-launcher.cjs", "--workspa
 
 `sftp_connection` 显示配套实例的实际连接错误和能力。SimpleSFTP 暂不可用时，SimpleExperiment 自身的查询工具仍可使用。
 
+候选 0.5.496 为每个具名工具提供独立 outputSchema。结构来自同一业务返回值，不删减额外字段。顶层列表沿用 `{ "result": [...] }` 包装；`operation_get.result` 保留原始业务类型，按记录中的 `tool` 区分结果列表、停止回执、预检和同步结果。普通任务查询读取 `task_list.jobLifecycle`，包含原 commandId、Worker、执行状态、产物状态、退出码与本轮 queryState；CLI 视图的 `experiment_status.worker` 则是 `{ "id": "..." }`，不能当作同一扁平结构。
+
+长工具返回 `operationId`、`status: running`、`nextTool: operation_get` 和 `receiptProvesExperimentCompletion: false`。继续查询该 operationId，只有请求状态为 succeeded 且 resultAvailable 为 true 时才可读取完整请求结果；实验是否完成仍以原任务退出码、声明产物及完成证据判断。失败结果保留 `ok: false`、原 error、数值或字符串 code 和完整 detail。独立 SFTP 工作区目标未配置时，`sftp_target` 会返回实际错误；绑定 Worker 的目录与文件查询使用其明确目标，不要求创建该独立配置。
+
+配置查询、设置和重置都使用目录返回的完整键，如 `simpleExperiment.showAdvancedCommands`；配套插件使用 `simpleSftp.*`。设置还需遵守目录中的 scope。当前 19 项定向回归通过，官方 SDK 已检查错误返回、列表和延迟结果类型。候选结构另对两个运行中 0.5.495 窗口的 55 次响应进行核对，覆盖 51 个工具，结构全部匹配；其中 1 次是未配置独立 SFTP 目标的真实错误，不能记作该业务成功。0.5.496 尚未打包、安装或完成新版本实机核验。
+
 ## 当前实现与验收进度
 
 | 工作 | 状态 |
 | --- | --- |
 | 项目 MCP stdio、具名工具、宿主授权、Agent 与实验主入口 | 已实现，包含真实 stdio 的定向回归已通过 |
+| 逐工具输入与返回结构 | 候选 0.5.496 已实现并通过定向及现有宿主响应核对，待最终打包和新宿主实测 |
 | 同窗口 SFTP 文件树、清单、上传、下载、Worker 间同步 | 0.5.491 已实测相对路径、嵌套文件、子目录查询、整项目上传及专用文件下载，内容和未选文件范围匹配；跨 Worker 等剩余入口未全部通过 |
 | 全量 CLI 能力对应关系、GUI 依赖参数化 | 已建立映射；保留 UI 的交互入口不计为无人操作通过 |
 | 全部静态及动态人工入口实点 | 进行中 |
-| MultiModal 单 seed 与通用项目真实验收 | 两项目均已实际退出码 0；通用项目 MCP 收集导出通过，首次接入与面板结果仍未闭环，详见 manual-acceptance-checklist.md |
-| Windows 试行打包、发布、安装与重载 | 0.5.492 最终回归、包验证及试行发布通过，已安装一次；配套 0.2.119 不变。等待本人重载两个窗口并重连 MCP；远端仍为 0.5.491，新版实机未完成 |
+| MultiModal 单 seed 与通用项目真实验收 | 两项目均已实际退出码 0；通用项目 MCP 准备、提交、收集、导出及面板结果入口已实测；其余入口仍未全部通过，详见 manual-acceptance-checklist.md |
+| Windows 试行打包、发布、安装与重载 | 0.5.495 已完成包验证、试行发布、单次安装和两窗口重载；rjj8 两项目 Agent/Scheduler 同版，最终服务 MultiModal。新停止按钮和主动查询刷新已实测；配套 0.2.119 不变 |
 
 生成当前源码入口与 MCP 对应清单可运行 `node scripts/entry-coverage.js <SimpleSFTP源码根>`。清单中的 mapped 只表示路由存在，实点和实际业务效果需另外核实。未验证项目不记为通过。
 
 独立文件清理使用 file_cleanup_preview → file_cleanup_review，由本人逐页核对完整节点与路径；file_cleanup_execute 只接续后端已存确认，MCP 无 confirm/pathConfirmed/secondConfirmation 入参。PLAN 的原审核页保持不变。
 
 通用项目示例在 examples/mcp-dl-acceptance。日常入口与 CLI 对应矩阵在 windows-entry-coverage.json；当前记录只证明映射，未实测项保持未实测。
+
+### 首轮历史发行证据
 
 Windows 试行版为 [v0.5.491](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.491)，源码提交 1c6c28543eda5f3f85f6358165c3d885451aad45。simple-experiment-0.5.491.vsix 为 3069307 字节，SHA256 为 967a174d54ea64f6f484c9d714211cd5dcff4bfd0ff3505834a5f0036a723fcc。最终 322 项串行回归、实际 ZIP 的 326 个运行模块及两个 Python 运行组件字节/版本/哈希、秘密排除和 vm.Script 均通过。完整记录为 simple_cluster/reports/test-workflow/2026-11-11T11-39-45-090Z-11984-package/run.json，实际总耗时 817771 ms；编译同输入命中且无重新发射，组装复用该产物。首轮 8 个测试模拟配置缺项失败日志保留，定向修正及最终完整检查通过，未修改测试期限或放宽生产校验。
 

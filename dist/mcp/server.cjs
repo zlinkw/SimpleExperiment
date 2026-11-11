@@ -17473,14 +17473,7 @@ function createProjectMcpServer(version2, rpc) {
     name: tool.name,
     description: tool.description,
     inputSchema: tool.inputSchema,
-    outputSchema: { type: "object", properties: {
-      ok: { type: "boolean" },
-      operationId: { type: "string" },
-      status: { description: "Native host status; an MCP request receipt does not prove experiment completion" },
-      error: { type: "string" },
-      result: {},
-      nextTool: { type: "string" }
-    }, additionalProperties: true },
+    outputSchema: tool.outputSchema,
     annotations: {
       readOnlyHint: !tool.permission && !tool.requiresUserApproval,
       destructiveHint: ["cleanup_execute", "file_cleanup_execute"].includes(tool.name) || !!tool.requiresUserApproval,
