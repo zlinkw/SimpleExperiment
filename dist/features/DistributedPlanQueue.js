@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AUTOMATIC_JOB_RETRY_BASE_DELAY_MS = exports.AUTOMATIC_JOB_RETRY_MAX_FAILURES = exports.emptyDistributedQueue = exports.DISPATCH_RECONCILIATION_DELAY_MS = exports.CODE_FINGERPRINT_WAITING = exports.CODE_FINGERPRINT_MISMATCH = void 0;
+exports.confirmRetainedTaskStop = confirmRetainedTaskStop;
 exports.distributedQueueDiskSignature = distributedQueueDiskSignature;
 exports.distributedQueueBaseSignature = distributedQueueBaseSignature;
 exports.setDistributedQueueBaseSignature = setDistributedQueueBaseSignature;
@@ -112,6 +113,19 @@ const WorkerProgressEvidence_1 = require("./WorkerProgressEvidence");
 const VerifiedCompletion_1 = require("./VerifiedCompletion");
 const ProjectStatePaths_1 = require("./ProjectStatePaths");
 const GpuMemoryBudget_1 = require("./GpuMemoryBudget");
+/** Call only after an exact window observation confirms cancellation. */
+function confirmRetainedTaskStop(plan, job, now = Date.now()) {
+    job.stopIntent = undefined;
+    if (job.status === "completed" || job.status === "failed")
+        return;
+    job.status = "cancelled";
+    job.executionState = "missing";
+    job.stopReason = "user";
+    job.finishedAt ||= new Date(now).toISOString();
+    job.trustedTerminalStatus = "cancelled";
+    if (plan.projectId)
+        job.trustedTerminalProof = (0, VerifiedCompletion_1.trustedTerminalProofFor)(plan, job, "cancelled", now);
+}
 const QUEUE_BASE_DISK_SIGNATURE = Symbol("distributedQueueBaseDiskSignature");
 function distributedQueueDiskSignature(source) {
     return (0, node_crypto_1.createHash)("sha256").update(source, "utf8").digest("hex");

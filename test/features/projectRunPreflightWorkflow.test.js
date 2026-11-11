@@ -22,7 +22,7 @@ function extractFunction(source, name) {
 }
 
 function loadPlanExecutionStage() {
-  const names = ["normalizePlanSelectionKey", "selectedPlanDistributedRun", "planExecutionStage", "planExecutionStageCacheKey", "cachePlanExecutionStage", "taskMatchesPlanVersion", "terminalPlanTaskExecutionStage", "debugRunRecord", "ensurePlanVersionRowsCache", "planVersionRowsCacheKey", "cachePlanVersionRows", "planVersionOperationRows", "planVersionTaskRows", "operationMatchesPlanVersion", "operationAtOrAfter", "operationSucceeded", "operationPending", "operationIsActive", "operationIsFailureLike", "operationIsCompleted", "operationIsCancelled", "taskStatusToken", "taskFailureLikeStatus", "taskTerminalStatus"];
+  const names = ["distributedPlanRecoveryView", "normalizePlanSelectionKey", "selectedPlanDistributedRun", "planExecutionStage", "planExecutionStageCacheKey", "cachePlanExecutionStage", "taskMatchesPlanVersion", "terminalPlanTaskExecutionStage", "debugRunRecord", "ensurePlanVersionRowsCache", "planVersionRowsCacheKey", "cachePlanVersionRows", "planVersionOperationRows", "planVersionTaskRows", "operationMatchesPlanVersion", "operationAtOrAfter", "operationSucceeded", "operationPending", "operationIsActive", "operationIsFailureLike", "operationIsCompleted", "operationIsCancelled", "taskStatusToken", "taskFailureLikeStatus", "taskTerminalStatus"];
   const sandbox = {
     OPERATION_ACTIVE_MATCH_TOKENS: Object.freeze(["accepted", "submitted", "pending", "queued", "running", "in_progress", "started", "progress"]),
     OPERATION_FAILURE_MATCH_TOKENS: Object.freeze(["failed", "failure", "stalled", "timeout", "unsupported", "error"]),
@@ -55,6 +55,23 @@ test('Plan stage distinguishes queued, starting and running windows', () => {
     assert.equal(result.executionLabel,label);
     if(status !== 'running') assert.doesNotMatch(result.status,/运行中/);
   }
+});
+
+test('terminal distributed Plans never retain a queued execution label', () => {
+  const stage = loadPlanExecutionStage(), file = 'plans/native.yaml';
+  for (const [status,label,phase] of [['completed','已完成','results'],['failed','失败','review'],['stopped','已停止','review'],['cancelled','已停止','review']]) {
+    const result = stage({distributedPlans:[{planFile:file,jobs:[{status,executionState:'exited',workerId:'w'}]}]},file);
+    assert.equal(result.executionLabel,label);
+    assert.equal(result.phase,phase);
+    assert.doesNotMatch(result.status,/排队中/);
+  }
+});
+
+test('automatic capacity without telemetry distinguishes configured Workers from no Workers', () => {
+  const context = { enabledWorkerTunnelsForState: state => state.workers || [] };
+  vm.runInNewContext(['planConfiguredWorkerCapacity','planQueueCapacitySummary'].map(name=>extractFunction(renderedPanel,name)).join('\n')+';this.summary=planQueueCapacitySummary',context);
+  assert.equal(context.summary({workers:[]},{}),'静态容量：未配置 Worker');
+  assert.equal(context.summary({workers:[{id:'w',maxConcurrentGpus:'auto'}]},{}),'静态容量：已配置 1 台 Worker，容量按实时 GPU 确定');
 });
 
 test("project next action uses Worker preparation before validation and submission", () => {

@@ -7,12 +7,12 @@ const format_1 = require("../format");
 async function serverCommand(action, _rest, flags) {
     if (action !== "list")
         throw (0, errors_1.usageError)(`unknown server action: ${action || "(missing)"}`);
-    const [status, gpu, config] = await Promise.all([
+    const [status, gpu, servers] = await Promise.all([
         (0, api_1.optionalApi)("status"),
         (0, api_1.optionalApi)("gpu.list"),
-        (0, api_1.optionalApi)("config.list"),
+        (0, api_1.optionalApi)("server.testAll", { refresh: false }),
     ]);
-    const rows = collectServers(status, gpu, config);
+    const rows = collectServers(status, gpu, servers);
     if (flags.json) {
         (0, format_1.writeJson)(rows, flags.compactJson);
         return 0;
@@ -20,7 +20,7 @@ async function serverCommand(action, _rest, flags) {
     (0, format_1.writeText)((0, format_1.table)(["id", "online", "ssh", "gpu"], rows));
     return 0;
 }
-function collectServers(status, gpu, config) {
+function collectServers(status, gpu, servers) {
     const byId = new Map();
     const upsert = (id, patch) => {
         if (!id)
@@ -44,12 +44,12 @@ function collectServers(status, gpu, config) {
         const count = Array.isArray(gpus) ? gpus.length : (value ? 1 : 0);
         upsert(id, { gpu: count ? `${count}` : "unknown", online: count ? "online" : "unknown" });
     }
-    const configRecord = asRecord(config);
-    for (const item of arrayOf(configRecord.servers || configRecord.workerTunnels || configRecord.values)) {
+    for (const item of arrayOf(asRecord(servers).rows)) {
         const record = asRecord(item);
-        const id = String(record.id || record.key || record.displayName || "");
+        const id = String(record.serverId || record.id || "");
         upsert(id, {
-            ssh: String(record.sshConfigAlias || record.savedSessionPath || record.host || record.ssh || "configured"),
+            online: record.status === "ok" ? "online" : String(record.status || "unknown"),
+            ssh: record.host ? `${record.user ? String(record.user) + "@" : ""}${record.host}:${record.port}` : "configured",
         });
     }
     if (!byId.size) {

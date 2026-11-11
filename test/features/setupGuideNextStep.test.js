@@ -27,6 +27,34 @@ function nextStep(options) {
   return JSON.parse(JSON.stringify(sandbox.check(options)));
 }
 
+test("opening documentation for a recognized project does not restart onboarding", async () => {
+  const start = source.indexOf("async openSetupGuide()");
+  const end = source.indexOf("async openPanel()", start);
+  assert.ok(start >= 0 && end > start);
+  for (const recognized of [false, true]) {
+    const prompts = [], displayed = [];
+    const sandbox = {
+      SETUP_GUIDE_MAX_STEPS: 4,
+      simpleSftpIntegrationReadiness: () => ({ ready: true }),
+      initialServerSetupComplete: () => true,
+      workspaceRoot: () => "project",
+      vscode: { window: { showInformationMessage: async (...args) => { prompts.push(args); } } },
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(extractFunction("setupGuideNextStep"), sandbox);
+    const open = vm.runInContext("({" + source.slice(start, end) + "}).openSetupGuide", sandbox);
+    await open.call({
+      showSetupGuideDocument: async () => displayed.push(true),
+      projectLocallyRecognized: () => recognized,
+      enabledWorkerConfigs: () => [{ id: "worker" }],
+      setupConfig: {},
+    });
+    assert.equal(displayed.length, 1);
+    assert.equal(prompts.length, recognized ? 0 : 1);
+    if (!recognized) assert.equal(prompts[0][1], "识别工作区");
+  }
+});
+
 test("setup guide offers the only next action supported by current readiness", () => {
   assert.deepEqual(nextStep({ setupComplete: false }), {
     message: "配置说明已打开。下一步：在“设置 > 服务器”填写 Worker 连接和项目父目录。",

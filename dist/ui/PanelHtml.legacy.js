@@ -4075,7 +4075,8 @@ function renderPanelHtml() {
             pendingActionsById[clientActionId] = pendingItem;
             setButtonLoading(button, pendingKey);
             renderCommandPhaseLine();
-            if (command !== "prepareAgents" && command !== "rebuildProjectResultTables") {
+            // These commands may deliberately wait for a user's selection in VS Code.
+            if (command !== "prepareAgents" && command !== "rebuildProjectResultTables" && command !== "openSetupGuide" && command !== "verifyAgentVersion") {
             if (planPhaseCommand(command)) {
               pendingActionTimeouts[clientActionId] = setInterval(() => {
                 const item = pendingActionsById[clientActionId];
@@ -11403,7 +11404,10 @@ function renderPanelHtml() {
 
     function planQueueCapacitySummary(state, plan) {
       const capacity = planConfiguredWorkerCapacity(state);
-      if (!capacity) return "静态容量：未配置 Worker";
+      if (!capacity) {
+        const workers = enabledWorkerTunnelsForState(state);
+        return workers.length ? "静态容量：已配置 " + workers.length + " 台 Worker，容量按实时 GPU 确定" : "静态容量：未配置 Worker";
+      }
       const item = plan && typeof plan === "object" ? plan : {};
       const jobValue = Number(item.jobCount || item.job_count || 0);
       const explicitJobs = Number.isFinite(jobValue) && jobValue > 0 ? Math.trunc(jobValue) : 0;
@@ -18669,11 +18673,13 @@ function renderPanelHtml() {
         const sample = distributedRun.activeJobs.find((job) => job.logPath || job.workerId) || distributedRun.activeJobs[0] || {};
         const source = sample.logPath ? "运行日志：" + sample.workerId + " " + sample.logPath : "可主动查询对应 Worker 的任务窗口日志。";
         const failed = distributedRun.jobs.some((job) => String(job.status || "").toLowerCase() === "failed");
-        const phase = distributedRun.active ? "monitor" : failed ? "review" : "results";
-        const executionLabel = distributedRun.jobs.some(job => job.status === "running") ? "运行中"
+        const stopped = distributedRun.jobs.some((job) => ["stopped", "cancelled"].includes(String(job.status || "").toLowerCase()));
+        const phase = distributedRun.active ? "monitor" : failed || stopped ? "review" : "results";
+        const executionLabel = !distributedRun.active ? failed ? "失败" : stopped ? "已停止" : "已完成"
+          : distributedRun.jobs.some(job => job.status === "running") ? "运行中"
           : distributedRun.jobs.some(job => job.executionState === "starting") ? "正在启动命令"
           : distributedRun.jobs.some(job => job.status === "unknown") ? "待核实" : "排队中";
-        const status = distributedRun.active ? executionLabel + "。" + source : failed ? "分布式任务失败；请查看对应 Worker 的运行日志。" : "分布式任务已完成；可查看各 Worker 的运行日志。";
+        const status = distributedRun.active ? executionLabel + "。" + source : failed ? "分布式任务失败；请查看对应 Worker 的运行日志。" : stopped ? "分布式任务已停止；已有日志与产物保留。" : "分布式任务已完成；可查看各 Worker 的运行日志。";
         return { phase, executionLabel, status: status + " 校验日志只属于提交前校验。", label: "查看运行日志", section: "execution", anchor: "execution" };
       }
       const plan = planFromContext(data, { planFile }) || {};

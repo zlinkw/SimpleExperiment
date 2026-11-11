@@ -18,11 +18,22 @@ async function stopProjectTask(host, root, params) {
                 throw Error("TASK_EXACT_IDENTITY_REQUIRED");
             selected = matches[0];
             selected.job.stopIntent ||= { commandId: params.commandId, workerId: params.workerId, requestedAt: new Date().toISOString(), state: "pending" };
+            selected.job.stopIntent.retainTask = true;
             return { ...queue };
         } });
     if (!host.projectContextIsCurrent(context))
         throw Error("MCP_WORKSPACE_CHANGED");
     const result = await host.stopDistributedJobForClear(selected.plan, selected.job, true);
+    await host.saveDistributedQueue(root, undefined, { controlMutation: true, mutateLatest: (queue) => {
+            if (!host.projectContextIsCurrent(context))
+                throw Error("MCP_WORKSPACE_CHANGED");
+            const plan = queue.plans.find((plan) => plan.id === selected.plan.id);
+            const job = plan?.jobs.find((job) => job.workerId === params.workerId && job.commandId === params.commandId);
+            if (!job)
+                throw Error("TASK_EXACT_IDENTITY_REQUIRED");
+            (0, DistributedPlanQueue_1.confirmRetainedTaskStop)(plan, job);
+            return { ...queue };
+        } });
     return { ok: true, workerId: params.workerId, commandId: params.commandId, workflowId: selected.plan.id,
         receipt: result, completionSource: "exact_window_observation", nextTool: "task_list" };
 }

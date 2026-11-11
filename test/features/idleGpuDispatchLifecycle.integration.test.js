@@ -80,6 +80,20 @@ function nativeFixture(options={}){
 }
 function queuedFixture(){const f=nativeFixture();f.own(0,'completed');f.own(1,'queued');return f;}
 
+test('a plain stop retains its cancelled task while explicit stop-and-clear still removes only its target',async()=>{
+  for(const retainTask of [true,false]){
+    const f=nativeFixture();f.own(0,'running');f.own(1,'completed');
+    f.stored().plans[0].jobs[0].stopIntent={commandId:'original-0',workerId:'a',requestedAt:new Date().toISOString(),state:'pending',...(retainTask?{retainTask:true}:{})};
+    f.p.stopDistributedJobForClear=async(plan,job)=>{assert.equal(job.commandId,'original-0');return {status:'completed'};};
+    await f.p.tickDistributedQueueCore();
+    const jobs=f.stored().plans[0].jobs;
+    assert.equal(jobs.find(j=>j.index===1).status,'completed');
+    if(retainTask){const stopped=jobs.find(j=>j.index===0);assert.equal(stopped.status,'cancelled');assert.equal(stopped.commandId,'original-0');assert.equal(stopped.stopIntent,undefined);assert.equal(stopped.trustedTerminalStatus,'cancelled');}
+    else assert.equal(jobs.some(j=>j.index===0),false);
+    assert.equal(f.sent.length,0);
+  }
+});
+
 test('G1 real native tick persists identity and admits only a Worker with current GPU quota evidence',async()=>{
   const f=nativeFixture();f.setGpu({a:[gpu(0)],b:[gpu(0,16)]});
   let gpuStarted=false,release;const gate=new Promise(r=>{release=r;}),read=f.p.readWorkerTaskSnapshotBatch;

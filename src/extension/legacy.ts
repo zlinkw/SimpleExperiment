@@ -8918,6 +8918,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
     async openSetupGuide() {
         await this.showSetupGuideDocument();
+        if (this.projectLocallyRecognized()) return;
         const seen = new Set();
         for (let step = 0; step < SETUP_GUIDE_MAX_STEPS; step += 1) {
             const enabledWorkers = this.enabledWorkerConfigs();
@@ -10140,7 +10141,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const pluginVersion = String(this.context?.extension?.packageJSON?.version || "");
         const runtimeVersion = (RuntimeManifest_1 as any).CURRENT_RUNTIME_VERSION || "";
         let result: any = { fatal: [], warnings: [] };
-        try { result = await this.checkRemoteAgentVersionAndNotify(true); } catch (e) { result = { fatal: [String((e as any)?.message || e)], warnings: [] }; }
+        try { result = await this.checkRemoteAgentVersionAndNotify(false); } catch (e) { result = { fatal: [String((e as any)?.message || e)], warnings: [] }; }
         let remoteDetails: string[] = [];
         // 轻量预检：先走 /api/capabilities 1.5s 超时，隧道未建立时更快提示，不走 4s health 超时
         const _capPrecheck = async (base: string, headers: any): Promise<{ok: boolean, error?: string}> => {
@@ -10249,13 +10250,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const localInfo = `本地统一版本=${pluginVersion || runtimeVersion}（单源 package.json#version，plugin/runtime/scheduler/agent 均对齐）`;
         const remoteInfo = remoteDetails.length ? remoteDetails.join("； ") : "请先配置服务器并启动 tunnel";
         if (result.fatal && result.fatal.length) {
-            const msg = `远端 Agent 版本不一致：${result.fatal.join("；")}。${localInfo} vs ${remoteInfo}。已尝试自动覆盖，仍不一致时需一键部署。`;
+            const msg = `远端 Agent 版本不一致：${result.fatal.join("；")}。${localInfo} vs ${remoteInfo}。请选择是否部署 Agent。`;
             const choice = await vscode.window.showInformationMessage(msg, "部署 Agent", "忽略");
             if (choice === "部署 Agent") await this.deployLatestAgentRuntime(true, true);
         } else if (result.warnings && result.warnings.length) {
-            await vscode.window.showInformationMessage(`校验完成（有警告）：${result.warnings.join("；")}。${localInfo} vs ${remoteInfo}`);
+            void vscode.window.showInformationMessage(`校验完成（有警告）：${result.warnings.join("；")}。${localInfo} vs ${remoteInfo}`);
         } else {
-            await vscode.window.showInformationMessage(`Agent 版本一致：${localInfo} vs ${remoteInfo}`);
+            void vscode.window.showInformationMessage(`Agent 版本一致：${localInfo} vs ${remoteInfo}`);
         }
         // 透传 remoteDetails 供调用方与日志二次核验
         (result as any).remoteDetails = remoteDetails;
@@ -16043,6 +16044,10 @@ this.assertPlanTopologyReady("Plan 调度");
             try {
                 await this.stopDistributedJobForClear(plan, job, true);
                 if (!queueWriteCurrent()) return;
+                if (job.stopIntent?.retainTask === true) {
+                    DistributedPlanQueue.confirmRetainedTaskStop(plan, job);
+                    continue;
+                }
                 const key = DistributedPlanQueue.distributedJobControlKey(plan, job);
                 queue = DistributedPlanQueue.removeConfirmedDistributedPlan(queue, plan.planFile,
                     { jobKeys: new Set([key]), localControlJobKeys: new Set([key]), deferredIds: new Set() });

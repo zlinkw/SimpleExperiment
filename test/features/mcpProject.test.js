@@ -45,6 +45,29 @@ test('Agent operations require the correct grant and exact configured Worker ide
   f.worker.projectRoot = '/another-project';
   await assert.rejects(f.gateway.call('agent_restart', { serverIds: ['worker-a'] }), /WORKER_NOT_AUTHORIZED/);
 });
+
+test('MCP project preparation starts its configured connections before verification', async () => {
+  const f = fixture(); await f.authorize(['agents']);
+  await f.gateway.call('project_prepare', {});
+  assert.equal(f.calls[0].method, 'project.prepare');
+  assert.equal(f.calls[0].params.startSessions, true);
+});
+
+test('server list reports configured Workers even before GPU telemetry arrives', async () => {
+  const f = fixture();
+  f.methods.status = async () => ({ topology: { mode: 'worker_pool', workerCount: 1 } });
+  f.methods['gpu.list'] = async () => ({});
+  f.methods['config.list'] = async () => ({ keys: [] });
+  f.methods['server.testAll'] = async params => {
+    assert.equal(params.refresh, false);
+    return { rows: [{ serverId: 'worker-a', host: 'example.invalid', port: 22, user: 'research', status: 'local_port_closed' }] };
+  };
+  const rows = await f.gateway.call('server_list', {});
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, 'worker-a');
+  assert.equal(rows[0].online, 'local_port_closed');
+  assert.equal(rows[0].ssh, 'research@example.invalid:22');
+});
 test('project authorization skips ordinary empty-run/path prompts but never confirms real cleanup targets', async () => {
   const { authorizedEmptyRunChoice, authorizedRemoteTargets } = require('../../dist/mcp/Invocation.js');
   const f = fixture(); await f.authorize(['experiment', 'sync', 'agents']);
@@ -225,7 +248,7 @@ test('paper exports return every CLI format as structured content and routine cl
 test('exact task stop records its intent before closing only the selected job', async () => {
   const { stopProjectTask } = require('../../dist/extension/TaskControl.js');
   const { canonicalProjectId } = require('../../dist/features/DistributedPlanQueue.js');
-  const f = fixture(), jobs = [{ workerId: 'worker-a', commandId: 'first' }, { workerId: 'worker-a', commandId: 'second' }];
+  const f = fixture(), jobs = [0,1].map(index=>({index,case:'control',seed:42,outputDir:'work_dirs/'+index,status:'running',workerId:'worker-a',commandId:index?'second':'first'}));
   const plan = { id: 'workflow-1', projectId: canonicalProjectId(f.root), jobs };
   const closed = [];
   const host = { captureProjectContext: () => f.root, projectContextIsCurrent: value => value === f.root,
@@ -234,6 +257,10 @@ test('exact task stop records its intent before closing only the selected job', 
   };
   await stopProjectTask(host, f.root, { workerId: 'worker-a', commandId: 'second', confirm: true });
   assert.deepEqual(closed, ['second']); assert.equal(jobs[0].stopIntent, undefined);
+  assert.equal(jobs[0].status,'running');
+  assert.equal(jobs[1].status,'cancelled');
+  assert.equal(jobs[1].commandId,'second');
+  assert.equal(jobs[1].stopIntent,undefined);
   await assert.rejects(stopProjectTask(host, f.root, { workerId: 'worker-a', commandId: 'other', confirm: true }), /EXACT_IDENTITY/);
   assert.deepEqual(closed, ['second']);
 });

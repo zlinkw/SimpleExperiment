@@ -5,12 +5,12 @@ import { CliFlags } from "../parse";
 
 export async function serverCommand(action: string, _rest: string[], flags: CliFlags): Promise<number> {
   if (action !== "list") throw usageError(`unknown server action: ${action || "(missing)"}`);
-  const [status, gpu, config] = await Promise.all([
+  const [status, gpu, servers] = await Promise.all([
     optionalApi("status"),
     optionalApi("gpu.list"),
-    optionalApi("config.list"),
+    optionalApi("server.testAll", { refresh: false }),
   ]);
-  const rows = collectServers(status, gpu, config);
+  const rows = collectServers(status, gpu, servers);
   if (flags.json) {
     writeJson(rows, flags.compactJson);
     return 0;
@@ -19,7 +19,7 @@ export async function serverCommand(action: string, _rest: string[], flags: CliF
   return 0;
 }
 
-function collectServers(status: unknown, gpu: unknown, config: unknown): Array<{ id: string; online: string; ssh: string; gpu: string }> {
+function collectServers(status: unknown, gpu: unknown, servers: unknown): Array<{ id: string; online: string; ssh: string; gpu: string }> {
   const byId = new Map<string, { id: string; online: string; ssh: string; gpu: string }>();
   const upsert = (id: string, patch: Partial<{ online: string; ssh: string; gpu: string }>) => {
     if (!id) return;
@@ -41,12 +41,12 @@ function collectServers(status: unknown, gpu: unknown, config: unknown): Array<{
     const count = Array.isArray(gpus) ? gpus.length : (value ? 1 : 0);
     upsert(id, { gpu: count ? `${count}` : "unknown", online: count ? "online" : "unknown" });
   }
-  const configRecord = asRecord(config);
-  for (const item of arrayOf(configRecord.servers || configRecord.workerTunnels || configRecord.values)) {
+  for (const item of arrayOf(asRecord(servers).rows)) {
     const record = asRecord(item);
-    const id = String(record.id || record.key || record.displayName || "");
+    const id = String(record.serverId || record.id || "");
     upsert(id, {
-      ssh: String(record.sshConfigAlias || record.savedSessionPath || record.host || record.ssh || "configured"),
+      online: record.status === "ok" ? "online" : String(record.status || "unknown"),
+      ssh: record.host ? `${record.user ? String(record.user) + "@" : ""}${record.host}:${record.port}` : "configured",
     });
   }
   if (!byId.size) {

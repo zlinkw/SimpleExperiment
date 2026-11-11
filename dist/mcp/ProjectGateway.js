@@ -68,6 +68,7 @@ class ProjectGateway {
         // cleanup keeps its original stored double-confirmation state and receives no factors.
         const cleanup = tool.method.startsWith("plans.cleanup.") || tool.method.startsWith("files.cleanup.");
         const params = { ...args, ...((tool.permission || tool.requiresUserApproval) && !cleanup ? { confirm: true } : {}),
+            ...(tool.method === "project.prepare" ? { startSessions: true } : {}),
             ...(tool.method.startsWith("workflow.") ? { workspace: this.ports.root() } : {}),
             ...(tool.method === "operations.list" ? { filtered: true } : {}),
             ...(tool.method === "invoke" ? { command: tool.action } : {}),

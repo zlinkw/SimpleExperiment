@@ -5,6 +5,33 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const source = readSource("src/extension/legacy.ts");
 
+test("manual version verification returns without waiting for informational notification dismissal", async () => {
+  const compiled = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const start = compiled.indexOf("async verifyAgentVersionManually("), end = compiled.indexOf("agentRuntimeDeployTargets()", start);
+  assert.ok(start >= 0 && end > start);
+  const calls = [], notifications = [];
+  const verify = vm.runInNewContext("({" + compiled.slice(start, end) + "}).verifyAgentVersionManually", {
+    require, __dirname: require("node:path").join(__dirname, "../../dist/extension"),
+    RuntimeManifest_1: { CURRENT_RUNTIME_VERSION: "test" },
+    vscode: { window: { showInformationMessage: message => {
+      notifications.push(message);
+      return new Promise(() => {});
+    } } },
+  });
+  let settled = false;
+  const request = verify.call({
+    context: { extension: { packageJSON: { version: "test" } } },
+    checkRemoteAgentVersionAndNotify: async showUi => { calls.push(showUi); return { fatal: [], warnings: [] }; },
+    agentRuntimeUploadTargets: () => [], tunnelConfig: {},
+  }).then(result => { settled = true; return result; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, [false]);
+  assert.equal(settled, true, "a completed check must not remain pending behind a notification");
+  const result = await request;
+  assert.equal(result.fatal.length, 0);
+  assert.equal(notifications.length, 1);
+});
+
 function method(name) {
   const start = new RegExp(`^\\s*${name}\\(`, "m").exec(source)?.index;
   assert.notEqual(start, undefined, `missing ${name}`);

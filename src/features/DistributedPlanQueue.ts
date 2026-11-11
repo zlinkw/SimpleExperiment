@@ -126,10 +126,22 @@ export type QueuedJob = {
   lastReconciliationAt?: string;
   blockReason?: string;
   stopReason?: string;
-  stopIntent?: { commandId: string; workerId: string; requestedAt: string; state: "pending" };
+  stopIntent?: { commandId: string; workerId: string; requestedAt: string; state: "pending"; retainTask?: true };
   automaticRetry?: AutomaticJobRetry;
   history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; logPath?: string; tmuxSession?: string; finishedAt?: string; stopReason?: string; error?: string; outputRetiredAt?: string; admissionRejection?: QueuedJob["admissionRejection"]; cleanupOperationId?: string }>;
 };
+/** Call only after an exact window observation confirms cancellation. */
+export function confirmRetainedTaskStop(plan: QueuedPlan, job: QueuedJob, now = Date.now()): void {
+  job.stopIntent = undefined;
+  if (job.status === "completed" || job.status === "failed") return;
+  job.status = "cancelled";
+  job.executionState = "missing";
+  job.stopReason = "user";
+  job.finishedAt ||= new Date(now).toISOString();
+  job.trustedTerminalStatus = "cancelled";
+  if (plan.projectId) job.trustedTerminalProof = trustedTerminalProofFor(plan, job, "cancelled", now);
+}
+
 export type QueuedPlan = {
   gpuMemoryEstimates?: PlanGpuMemoryEstimates;
   executionSource?: import("../extension/PlanCodeScopeHost").PlanExecutionSource;
