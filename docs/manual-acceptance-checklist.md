@@ -1,13 +1,19 @@
 # Windows 日常点击验收
 
-本轮以 Windows 0.5.485 为初始实点基线。当前已安装 0.5.497，完整打包、试行发行及两窗口重载完成。已实测返修后的结果解析、日志点击及 TensorBoard MCP，但双项目共用端口切换后发现查询未核实 Agent 项目归属，会错误撤销通用项目完成确认，下一批必须修复。整体入口验收未通过。界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。
+本轮以 Windows 0.5.485 为初始实点基线。当前已安装 0.5.498，完整打包、试行发行及两窗口重载完成。结果解析、日志点击、TensorBoard MCP、产物对象映射及双项目切换后的归属拒绝与完成保持已实测；原 0.5.497 归属缺陷已修复，首次错误与 Generic 重新确认的时间均保留。整体入口尚未全覆盖。界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。
 
-## 0.5.498 项目归属与产物查询候选
+## 0.5.498 项目归属与产物查询实机复核
 
-- 最终 package 已通过 322 作业、13 gate，实际最大并发 1、输入前后一致、总耗时 819784 ms，记录 simple_cluster/reports/test-workflow/2026-11-11T21-23-50-562Z-73632-package/run.json。vm.Script、包策略、身份、平台、327 模块字节闭包和秘密排除通过；380 归档项。VSIX 3079479 字节，SHA256 408b3198575ea5103dea4e6f67b391df49af834aee01db4a3483e43043181052。发行、单次安装和新宿主复验待完成。
+- 源码 4ca277e85facc328fe184eb0351c25eeae854846 已普通推送并 fetch 确认，试行 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.498 精确绑定该提交，draft=false、prerelease=true、latest=false。VSIX 和 97 字节 SHA 文件均经真实下载核对；SHA 文件自身摘要 a1752965f2c67e996dc6a878fc58556d0b2e5fd01df823e7a676204cd8470c32。原生 ReleaseClient 为 up_to_date，旧版仍只看到正式 0.5.483 / 0.2.118，试行不降级。install:latest 仅执行一次，稳定 simpleex 入口有效；两窗口标准重载后 MultiModal PID 27108、Generic PID 83360 均为 0.5.498，原未保存页保留，未再次弹出已确认的共享配置提醒。
+- Generic 准备 mcp-e7f99115-d66f-41d7-bd38-76fe0973297b 成功，Agent @44 / Scheduler @15 为 0.5.498；此时 MultiModal 的 task_list 与 experiment_list 明确拒绝另一项目的 Agent 查询，原 completed/verified/exitCode=0 及 verifiedAt=2026-11-11T10:28:00.155Z 保留。Generic 的 138 声明、30 次真实 SDK 调用通过，结果详情、CSV 导出、按原 commandId 查询产物及按返回 ID 检查产物均成功；目录元数据的 size/mtime/hash 为空，不冒充逐文件内容核验。
+- Generic 原任务以新鲜的退出码、完整产物及日志观察重新确认为完成，新的 verifiedAt 为 2026-11-11T21:39:45.642Z，没有手工写回旧证明或重跑训练。精确停止 @44 后，MultiModal 准备 mcp-f8430383-5d54-46ca-b1c4-e9eb8277e4af 成功，最终 Agent @45 / Scheduler @9 为同版；Agent 哈希 f44a9f56a06f445f48fcf66a3f91903349ea5abdf59a66cd1a6aefd4c17e900f、Scheduler 哈希 1b2249691f428bacc31bdd83f0e73c2794bdbaa58dee9183e414d3191034f971 均与最终包匹配，其他 Worker 未更新。
+- 反向切换后 Generic 的 task_list 和 experiment_list 保持新确证完成、原 commandId 和相同新确证时间，queryState=unknown 并附明确 AGENT_PROJECT_MISMATCH；artifact_list 以 failed/ARTIFACT_QUERY_UNVERIFIED 结束，不再假装空列表成功。另按实际配置 http://localhost:18770 发送只读的错误项目绑定请求，新 Agent 在处理前返回 403；同一错误绑定的健康查询仍返回实际 MultiModal 根目录，未隐藏诊断。MultiModal 新宿主的 138 声明和 9 次查询也通过。
+- TensorBoard 在新边界下另行实测 19 次调用通过：mcp-ffc6276e-c86a-4f12-858f-5c9f80fb6372 实际建立 @46，running/listening/proxyVerified 均 true；两种 viewer 链接绑定本项目且未自动打开浏览器。mcp-b2b1aed4-1ee8-42e2-abfb-1c02c7eb9049 精确停止后主动确认 @46 不存在、原 @12/@16/@9/@15/@45 保留，保存链接已去除凭证。最后 Generic 面板实际显示已完成、确证完成 1，所选 acceptance.yaml 未改变；MultiModal 恢复原窄侧栏。
+- Codex 原生 MCP 仍绑定 0.5.494，实际返回 0.5.494→0.5.498 版本不符并明确未发送业务请求；新 SDK stdio 的成功不能冒充旧原生连接已重连。需要本人回来后重连两路 MCP。授权撤销未由 AI 代选，永久删除按本人决定暂缓。当前清单为 42 命令、175 静态 data-command 位置（实点 16、预览 2、未测 157）、138 MCP 工具、115 迁移项及 34 条动态观察；不以目录映射、自动测试或上述局部实机通过宣称所有入口通过。
+- 最终 package 已通过 322 作业、13 gate，实际最大并发 1、输入前后一致、总耗时 819784 ms，记录 simple_cluster/reports/test-workflow/2026-11-11T21-23-50-562Z-73632-package/run.json。vm.Script、包策略、身份、平台、327 模块字节闭包和秘密排除通过；380 归档项。VSIX 3079479 字节，SHA256 408b3198575ea5103dea4e6f67b391df49af834aee01db4a3483e43043181052。发行、单次安装和新宿主复验已完成，详情见本节实机记录。
 - 范围仅为上批两个实机缺陷：项目请求错误命中另一 Agent，以及 commandId 的产物列表为空。项目读取先读取同一端点健康信息，核对配置中的远端项目根；服务端再在实际处理前核对请求绑定路径，防止切换服务后处理其他项目的数据。健康、版本、GPU 与精确 tmux 查询保留各自用途；精确停止没有新增健康/版本前置条件。未添加新重试、超时、缓存或任务重放。
 - 产物查询先将 experiment 映射到其 PLAN，再按确切 runId 或声明输出路径筛选。读取 summary.results 完整列表，不使用前 200 行预览；现代查询 current=false 明确返回 ARTIFACT_QUERY_UNVERIFIED，不把失败当空列表。旧路径元数据与本机产物入口保留。
-- 新增回归先在原实现失败，修复后 TunnelClient 13 项、原生 HTTP handler 2 项、产物/CLI 7 项、原生完成投影 10 项及 Worker API 契约 8 项通过；MCP 21 项通过。修改均在 GUI/CLI/MCP 共用边界。最终 package、新 Agent 实机及双项目切换后的完成保持尚待完成；不手工恢复 Generic 已被上版错误撤销的旧证明，需用真实新观察重新确认，并保留首次错误与原确证时间记录。
+- 新增回归先在原实现失败，修复后 TunnelClient 13 项、原生 HTTP handler 2 项、产物/CLI 7 项、原生完成投影 10 项及 Worker API 契约 8 项通过；MCP 21 项通过。修改均在 GUI/CLI/MCP 共用边界。最终 package、新 Agent 实机及双项目切换后的完成保持已完成；未手工恢复 Generic 已被上版错误撤销的旧证明，已用真实新观察重新确认，并保留首次错误与原确证时间记录。
 
 ## 0.5.496 返回结构与打包
 
@@ -15,7 +21,7 @@
 - rjj8 的 Generic 准备 mcp-5c00407d-078c-4f6e-9d93-dd02a46dc367 成功，Agent @38 / Scheduler @15 均为 0.5.496；精确停止 @38 后 MultiModal 准备 mcp-c6edbb2b-3689-4c8f-9232-6df9fb446ad7 成功，最终 Agent @39 / Scheduler @9 为同版。Agent 哈希 4de1fdb718b27fa56f2fedc1945a0303ab8c6d08047fed8a0b8a480bba1137fa、Scheduler 哈希 7a85205746d41df4e30afd4b6eab9a42043e0ba258ce5d443dcf91bdefc19d57；未更新其他 Worker。
 - 新宿主 SDK 已确认 134 个实际声明与候选逐项一致；Generic 前 9 次状态、授权、任务、GPU、tmux、诊断和准备结果查询通过。随后 result_show mcp-f04758b7-8d6b-4265-9464-d6aff3194fcb 的延迟结果被 SDK 以 outputFiles/0 must be object 拒收，实机核验失败。原始结果 outputFiles 是字符串路径数组；诊断捕获只读取该既有回执，旧声明确实拒绝，新候选通过，不把诊断绕过输出校验当作客户端验收通过。证据 simple_cluster/mcp-advertised-generic-0.5.496.log 与 mcp-rejected-native-result-0.5.496.json。
 
-- 当前 134 个具名 MCP 工具均有独立 outputSchema。长操作目录与宿主请求调度共用同一声明，operation_get 按原 tool 校验延迟结果；顶层列表包装、原生附加字段、数值或字符串错误代码及 detail 均保留。没有修改授权、清理确认或实验业务。
+- 当时 134 个具名 MCP 工具均有独立 outputSchema。长操作目录与宿主请求调度共用同一声明，operation_get 按原 tool 校验延迟结果；顶层列表包装、原生附加字段、数值或字符串错误代码及 detail 均保留。没有修改授权、清理确认或实验业务。
 - 官方 SDK 19 项定向回归通过；候选结构对两项目当前 0.5.495 宿主的 55 次只读响应核对全部匹配，覆盖 51 个工具。54 次业务成功；1 次为 sftp_target 未配置独立 .vscode/sftp.json 的真实错误，原错误保存在 simple_cluster/mcp-output-sftp-target-0.5.496.json，未改写消费项目设置。绑定 Worker 的目录、树、清单、文件属性查询均正常。
 - 配置参数明确要求目录返回的完整命名空间键；更新 MCP 接入文档的当前版本及历史记录标识。最终 package 的 322 作业、13 gate 全通过，输入前后一致、实际测试并发 1、827510 ms；记录 simple_cluster/reports/test-workflow/2026-11-11T19-26-10-193Z-28624-package/run.json。vm.Script、包策略及 ZIP 身份检查通过，380 项、327 runtime 模块、秘密命中 0。VSIX 3077462 字节，SHA256 31c6d2a38ccc5067c9de541218244cfadfa270389ec2af3680855298b1de066d。发布、安装及新宿主实机核验仍待完成。
 - 打包冻结期间在 0.5.495 MultiModal 面板实点发现 GPU 导航子项与主项没有定位到对应标题，后续视口还发生漂移。此项尚未定位原因、未混入本批；保留为后续修复，整体界面验收仍未通过。
@@ -83,9 +89,9 @@
 
 入口清单由 scripts/entry-coverage.js 从当前 package、面板和两插件 API 生成，保存在 [windows-entry-coverage.json](windows-entry-coverage.json)。静态清单不包括所有动态菜单，必须用真实面板补充。每个入口分别记录实点通过、发现缺陷、未实测或已退役。只打开审核页记为预览通过。源码可达、自动回归和 API 成功均不能冒充人工点击。
 
-当前源码盘点为 42 个 VS Code 命令（包括新增授权命令）和 174 处静态按钮声明。两者不可相加作为去重分母；动态行和上下文菜单还未完整盘点。当前尚未获得全覆盖结论。
+当前源码盘点为 42 个 VS Code 命令（包括新增授权命令）和 175 处静态按钮声明。两者不可相加作为去重分母；动态行和上下文菜单还未完整盘点。当前尚未获得全覆盖结论。
 
-当前按具体静态声明绑定了 13 处实点记录：12 处通过、1 处仅预览；其余 161 处仍未实测。42 个命令面板入口尚未全部核验，不能把同业务按钮或 MCP 的通过转记为命令面板通过。动态控件盘点未结束，不计算整体覆盖率；默认隐藏的高级命令须在启用对应设置后单独验收。
+当前静态声明位置中实点通过 16 处、预览通过 2 处，其余 157 处仍未实测。42 个命令面板入口尚未全部核验，不能把同业务按钮或 MCP 的通过转记为命令面板通过。动态控件盘点未结束，不计算整体覆盖率；默认隐藏的高级命令须在启用对应设置后单独验收。
 
 0.5.485 运行中宿主的实际目录为 58 个 API 方法、191 个动作，已保存在入口清单的 liveBaseline。动作目录和 safe 字段都不能证明按钮已点击或具有写入授权。0.5.490 完整 322 项串行回归通过，不能替代剩余实点。原始记录为 simple_cluster/reports/test-workflow/2026-11-11T10-15-41-498Z-38512-package/run.json，退出码 0，总耗时 847421 ms。
 
