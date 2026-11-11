@@ -51,13 +51,13 @@ test("overview task statistics reuse stable scheduler rows and preserve status g
   const first = sandbox.check(state);
 
   assert.strictEqual(sandbox.check(state), first);
-  assert.deepEqual(JSON.parse(JSON.stringify(first)), { running: 2, queued: 2, failed: 5, completed: 2 });
+  assert.deepEqual(JSON.parse(JSON.stringify(first)), { running: 2, queued: 2, failed: 3, cancelled: 2, completed: 2 });
   assert.equal(scans.count, 1);
 
   state.rows = trackedRows(["running", "completed"], scans);
   const refreshed = sandbox.check(state);
   assert.notStrictEqual(refreshed, first);
-  assert.deepEqual(JSON.parse(JSON.stringify(refreshed)), { running: 1, queued: 0, failed: 0, completed: 1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(refreshed)), { running: 1, queued: 0, failed: 0, cancelled: 0, completed: 1 });
   assert.equal(scans.count, 2);
   state.rows = trackedRows(["completed", "done"], scans, false);
   assert.equal(sandbox.check(state).completed, 0, "unverified historical completion cannot count as confirmed success");
@@ -85,10 +85,10 @@ test("overview includes current native logical jobs once and reacts to a changed
     { ...common, id: "first", enqueuedAt: "2026-11-01T01:00:00Z", planJobCount: 2, jobs: [job(0, "completed", "verified"), job(1, "running")] },
     { ...common, id: "recovery", enqueuedAt: "2026-11-01T02:00:00Z", planJobCount: 1, jobs: [job(2, "pending")] },
   ] };
-  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.check(state))), { running: 1, queued: 1, failed: 1, completed: 1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.check(state))), { running: 1, queued: 1, failed: 1, cancelled: 0, completed: 1 });
   state.distributedPlans = [{ ...common, id: "current", enqueuedAt: "2026-11-01T03:00:00Z", planJobCount: 3,
     jobs: [job(0, "completed", "unknown"), job(1, "completed", "review_required"), job(2, "queued")] }];
-  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.check(state))), { running: 0, queued: 1, failed: 1, completed: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.check(state))), { running: 0, queued: 1, failed: 1, cancelled: 0, completed: 0 });
   state.distributedPlans = [];
-  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.check(state))), { running: 1, queued: 0, failed: 1, completed: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.check(state))), { running: 1, queued: 0, failed: 1, cancelled: 0, completed: 0 });
 });

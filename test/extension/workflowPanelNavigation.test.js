@@ -14,6 +14,20 @@ test("workflow panel command is bound and navigation does not call an unbound co
   assert.match(openPanel, /await this\.openPanel\(\)/);
 });
 
+test("manual tunnel commands retain the user-initiated probe and feedback flag", async () => {
+  const { DefaultCommandFactory } = require("../../dist/factories/CommandFactory.js");
+  const calls = [];
+  const provider = { testTunnel(userInitiated) { assert.equal(this, provider); calls.push(userInitiated); return userInitiated; } };
+  const handlerMap = resolveCommandHandlerMap(provider), factory = new DefaultCommandFactory();
+  for (const id of ["simpleExperiment.testAllTunnels", "simpleExperiment.testXshellTunnel"]) {
+    const descriptor = factory.createByName(id, { handlerMap });
+    assert.ok(descriptor, id);
+    assert.equal(await descriptor.handler(), true, id);
+  }
+  assert.deepEqual(calls, [true, true]);
+  assert.equal(resolveCommandHandlerMap({})["simpleExperiment.testAllTunnels"], undefined, "missing business methods must remain unbound");
+});
+
 test("factory activation registers the user-facing AI authorization command and reaches the current provider", async () => {
   const Module = require("node:module");
   const { DefaultCommandFactory } = require("../../dist/factories/CommandFactory.js");

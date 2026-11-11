@@ -61,6 +61,38 @@ function runCheckText(projectDir) {
   }
 }
 
+test("declared generic outputs accept ordinary commands while preserving validation and path checks", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cs-declared-"));
+  write(path.join(dir, "config.yaml"), "epochs: 1\n");
+  const file = path.join(dir, "experiments", "plans", "generic.yaml");
+  const plan = ["suite: generic", "mode: train_test", "base_config: config.yaml", "seeds: [42]",
+    "runner:", "  result_path_policy: declared",
+    "  train_command: python train.py --output-dir {output_dir}",
+    "  test_command: python train.py --mode test --output-dir {output_dir}",
+    "expectedResults:", "  - '{output_dir}/metrics.csv'", "  - '{output_dir}/model.pt'",
+    "cases:", "  - name: classifier", ""].join("\n");
+  write(file, plan);
+  const report = runCheck(dir);
+  assert.deepEqual(report.errors, [], "generic project must not require MultiModal fixed filenames or adapter calls");
+  write(file, plan.replace("  result_path_policy: declared\n", "  outputs: [metrics.csv, model.pt]\n"));
+  assert.deepEqual(runCheck(dir).errors, [], "supported generic runner contract needs no redundant policy flag");
+  write(file, "runner:\n  command: python train.py --output-dir {output_dir}\n  outputs: [metrics.csv, model.pt]\ncases:\n  - name: classifier\n");
+  assert.deepEqual(runCheck(dir).errors, [], "generic command/output plans follow the shared optional suite/config/seed contract");
+  write(file, "runner:\n  command: python train.py\n  outputs:\n    - metrics.csv\n    - model.pt\ncases:\n  - name: classifier\n");
+  assert.deepEqual(runCheck(dir).errors, [], "block output lists use the same generic contract");
+  write(file, "runner: {command: python train.py, outputs: [metrics.csv, model.pt]}\ncases:\n  - name: classifier\n");
+  assert.deepEqual(runCheck(dir).errors, [], "inline runner outputs use the same contract");
+  write(file, plan.replace(/runner:[\s\S]*?(?=expectedResults:)/,
+    "runner: {result_path_policy: declared, train_command: 'python train.py --output-dir {output_dir}', test_command: 'python train.py --mode test --output-dir {output_dir}'}\n"));
+  assert.deepEqual(runCheck(dir).errors, [], "inline policy is supported alongside the existing command parser");
+  write(file, plan.replace("  - '{output_dir}/metrics.csv'", "  - '../outside.csv'").replace("config.yaml", "missing.yaml"));
+  const bad = runCheck(dir);
+  assert.ok(bad.errors.some(row => row.id === "base_config_not_found"));
+  assert.ok(bad.errors.some(row => row.id === "path_invalid"));
+  write(file, plan.replace("expectedResults:\n  - '{output_dir}/metrics.csv'\n  - '{output_dir}/model.pt'\n", "").replaceAll(" --output-dir {output_dir}", ""));
+  assert.ok(runCheck(dir).errors.some(row => row.id === "result_output"), "policy alone cannot invent declared results");
+});
+
 test("0回归门：EXCLUDE/双条件/train聚合/suite去重", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cs0-"));
   write(path.join(dir, "configs", "base.yaml"), "lr: 0.01\n");

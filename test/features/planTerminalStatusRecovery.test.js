@@ -7,6 +7,19 @@ const normal = "experiments/plans/comparison/method.yaml";
 const tuning = "experiments/plans/comparison_tuning/method.yaml";
 const plans = [{ file: normal, revision: "normal", jobCount: 6 }, { file: tuning, revision: "tuning", jobCount: 36 }];
 
+test("cancelled native jobs have their own terminal status without false failure or missing-result warnings", () => {
+  const input = { plans: [{ file: normal, revision: "normal", jobCount: 1 }],
+    distributedPlans: [{ id: "stopped-run", planFile: normal, revision: "normal", jobs: [{ index: 0,
+      status: "cancelled", lifecycleProtocol: 2, executionState: "missing", resultState: "unverified" }] }] };
+  const row = summarizePlanStatuses(input)[0];
+  assert.equal(row.status, "cancelled");
+  assert.equal(row.failedCount, 0);
+  assert.equal(row.cancelledCount, 1);
+  assert.equal(row.completedCount, 0);
+  input.distributedPlans[0].jobs.push({ index: 1, status: "failed" });
+  assert.equal(summarizePlanStatuses(input)[0].status, "failed", "real failures remain failures");
+});
+
 test('successful local preflight records do not turn an unstarted PLAN into partial completion', () => {
   const [row] = summarizePlanStatuses({ plans, operations: [{ planFile: normal, planRevision: 'normal', type: 'run-plan',
     localSubmissionProgress: true, status: 'succeeded', reconcileEvidenceActive: false }] });

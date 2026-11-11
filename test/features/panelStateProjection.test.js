@@ -161,7 +161,7 @@ test("Plan status summaries preserve selector rules while remaining scalar and p
   assert.equal(byFile.get("experiments/plans/hidden-history.yaml").status, "not-started");
   assert.equal(byFile.get("experiments/plans/cutoff-history.yaml").status, "not-started");
 
-  const allowedKeys = ["activeCount", "completedCount", "failedCount", "planFile", "queuedCount", "revision", "status", "taskCount", "totalCount", "unavailableCount"];
+  const allowedKeys = ["activeCount", "cancelledCount", "completedCount", "failedCount", "planFile", "queuedCount", "revision", "status", "taskCount", "totalCount", "unavailableCount"];
   for (const summary of summaries) {
     assert.deepEqual(Object.keys(summary).sort(), allowedKeys);
     assert.equal("jobs" in summary, false);

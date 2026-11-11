@@ -70,6 +70,18 @@ test('submission and queued jobs stay distinct from running commands', () => {
   assert.equal(sandbox.selector.summary({plans:state.plans,operations:[{planFile:file,planRevision:'r',type:'run-plan',status:'running'}]},file).status,'submitting');
 });
 
+test('cancelled jobs are stopped in both fallback and host-projected PLAN summaries', () => {
+  const sandbox = selectorSandbox(), file = 'plans/stopped.yaml';
+  const state = { plans: [{ file, revision: 'r', jobCount: 1 }], distributedPlans: [{ id: 'stop', planFile: file,
+    revision: 'r', jobs: [{ index: 0, status: 'cancelled', lifecycleProtocol: 2, executionState: 'missing', resultState: 'unverified' }] }] };
+  const summary = sandbox.selector.summary(state, file);
+  assert.equal(summary.status, 'cancelled');
+  assert.equal(summary.statusLabel, '已中止');
+  const projected = { ...state, planStatusSummaries: [{ planFile: file, revision: 'r', status: 'cancelled',
+    completedCount: 0, totalCount: 1, taskCount: 1, failedCount: 0, cancelledCount: 1, activeCount: 0, queuedCount: 0 }] };
+  assert.equal(sandbox.selector.summary(projected, file).statusLabel, '已中止');
+});
+
 test("selector derives task progress from the selected Plan revision only", () => {
   const sandbox = selectorSandbox();
   const state = {

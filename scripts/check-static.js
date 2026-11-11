@@ -10,10 +10,9 @@
  *   （src/tunnel/FileTransferTypes.ts:79-90）
  * - 工程内写路径边界：dist/security/RemotePathPolicy.js#safeRemoteProjectChild
  *   （src/security/RemotePathPolicy.ts:5-12）
- * - 输出接口三通道封闭判定（仅 run_wrapper / collect_outputs|write_metrics_summary
- *   显式调用 / TensorBoard SummaryWriter 算通过；result_csv/output_dir/expectedResults
- *   单声明永不算通过；语义基准 src/clusterSchedulerRuntime.legacy.ts:742-789）：
- *   本脚本为静态文本启发式（不做 AST），发现缺失即 failed 并给出修复文案。
+ * - declared 输出协议及通用 runner.outputs 复用 PlanBuilder 的产物声明解析；
+ *   旧格式保留 wrapper / adapter / TensorBoard 检查。静态通过只证明声明可解析，
+ *   实际完成仍由运行退出码及 artifact manifest 确认。
  *
  * 用法：
   *   node scripts/check-static.js [--project <dir>] [--fail-on-warning] [--json] [--write-md|--report-md] [--quiet-wrapper] [--quiet-info]
@@ -61,6 +60,7 @@ function planLineOf(text, re) {
   return 1;
 }
 const { validatePlan } = require("../dist/features/PlanBuilder/PlanValidator");
+const { parsePlanSummary, parsePlanOutputEvidence } = require("../dist/features/PlanBuilder");
 const { isSafeRemotePath } = require("../dist/tunnel/FileTransferTypes");
 const { safeRemoteProjectChild } = require("../dist/security/RemotePathPolicy");
 
@@ -305,11 +305,23 @@ function extractTopScalar(clean, ...keys) {
   return "";
 }
 
+function hasGenericRunnerOutputs(clean, summary) {
+  if (!summary.hasGenericRunnerContract) return false;
+  const lines = clean.split(/\r?\n/);
+  const start = lines.findIndex(line => /^runner\s*:/.test(line));
+  if (start < 0) return false;
+  let end = start + 1;
+  while (end < lines.length && (!lines[end].trim() || /^[ \t]/.test(lines[end]))) end += 1;
+  const runner = lines.slice(start, end).join("\n").replace(/^runner\s*:/, "");
+  return /(?:^|[\n{,])[ \t]*outputs[ \t]*:[ \t]*(?:\[|(?:\n[ \t]*)+-)/.test(runner);
+}
+
 /** G1 补项：mode 非法 / seeds 缺空 / cases 双空 / base_config 不存在 / 按 mode 缺命令 → critical。 */
-function checkPlanContractHardening(planText, projectDir) {
+function checkPlanContractHardening(planText, projectDir, { genericRunner = false, mode: effectiveMode } = {}) {
   const out = [];
   const clean = stripYamlComments(planText);
-  const { raw, mode, valid } = planModeOf(planText);
+  const { raw, mode: declaredMode, valid } = planModeOf(planText);
+  const mode = effectiveMode || declaredMode;
   if (raw && !valid) {
     out.push({
       severity: "critical", id: "mode_invalid",
@@ -319,9 +331,9 @@ function checkPlanContractHardening(planText, projectDir) {
   }
   // seeds 缺/空
   const seedsBlock = /^\s*seeds\s*:\s*(\[[^\]]*\]|["']?[^\s"'#][^\n#]*)/im.exec(clean);
-  if (!/^\s*seeds\s*:/m.test(clean)) {
+  if (!/^\s*seeds\s*:/m.test(clean) && !genericRunner) {
     out.push({ severity: "critical", id: "seeds_missing", message: "缺少随机种子列表 seeds", suggestion: "补充 seeds: [0]（即使只跑一次也要写）" });
-  } else if (seedsBlock && /^\[\s*\]/.test(seedsBlock[1].trim())) {
+  } else if (seedsBlock && /^\[\s*\]/.test(seedsBlock[1].trim()) && !genericRunner) {
     out.push({ severity: "critical", id: "seeds_empty", message: "seeds 为空列表", suggestion: "补充 seeds: [0, 1, 2]；单次写 seeds: [0]" });
   }
   // cases 双空：cases 与 experiments 同时缺（或显式空）
@@ -338,7 +350,7 @@ function checkPlanContractHardening(planText, projectDir) {
   // base_config 不存在：有声明但磁盘无文件 → critical；无声明 → critical（与 legacy 对齐）
   const baseVal = extractTopScalar(clean, "base_config", "config");
   if (!baseVal) {
-    if (!/^\s*(base_config|config)\s*:/m.test(clean)) {
+    if (!/^\s*(base_config|config)\s*:/m.test(clean) && !genericRunner) {
       out.push({ severity: "critical", id: "base_config_missing", message: "缺少 base_config/config", suggestion: "在 plan 顶层补充 base_config: configs/base.yaml" });
     }
   } else if (!/^\{/.test(baseVal)) {
@@ -350,7 +362,7 @@ function checkPlanContractHardening(planText, projectDir) {
     }
   }
   // 按 mode 缺命令
-  const hasTrain = /(train_command|trainCommand)\s*:/i.test(clean) || /(^|\n)\s*command\s*:/i.test(clean);
+  const hasTrain = /(train_command|trainCommand)\s*:/i.test(clean) || /(?:^|[\n{,])\s*command\s*:/i.test(clean);
   const hasTest = /(test_command|testCommand)\s*:/i.test(clean);
   if (mode !== "test" && !hasTrain) {
     out.push({ severity: "critical", id: "train_command_missing", message: "train 模式缺少 train_command", suggestion: "在 runner.train_command 中写明训练命令（含 --output-dir {output_dir}）" });
@@ -1130,7 +1142,14 @@ function main() {
       return 1;
     };
     const pushPlan = (bucket, f) => pushDedup(bucket, { ...f, file: rel, line: anchorFor(f) });
-    const { mode } = planModeOf(text);
+    const summary = parsePlanSummary(text);
+    const clean = stripYamlComments(text);
+    const genericRunner = hasGenericRunnerOutputs(clean, summary);
+    const { mode: legacyMode } = planModeOf(text);
+    const mode = genericRunner ? summary.mode : legacyMode;
+    const declaredContract = genericRunner
+      || extractTopScalar(clean, "result_path_policy", "resultPathPolicy") === "declared"
+      || /[{,][ \t]*(?:result_path_policy|resultPathPolicy)[ \t]*:[ \t]*["']?declared["']?(?=[ \t]*[,}])/.test(clean);
     let result;
     try {
       result = validatePlan(text);
@@ -1143,7 +1162,7 @@ function main() {
     for (const e of upgraded.errors) pushDedup(errors, e);
     for (const w of upgraded.warnings) pushDedup(warnings, w);
     // G1 补项（mode 非法 / seeds / cases / base_config / 按 mode 缺命令）
-    for (const f of checkPlanContractHardening(text, projectDir)) {
+    for (const f of checkPlanContractHardening(text, projectDir, { genericRunner, mode })) {
       pushPlan(f.severity === "critical" ? errors : warnings, { ...f });
     }
     // G2 模板变量
@@ -1152,7 +1171,7 @@ function main() {
     for (const w of tpl.warnings) pushPlan(warnings, { ...w });
     // G3+G4 输出契约（run_wrapper 豁免 stdout/stderr：项目级 wrapper 或 plan 内显式 run_wrapper 均算覆盖；透传 projectWrapperOk 注明来源）
     const planHasRunWrapper = projectWrapper.ok || /run_wrapper(\.py)?/i.test(text) || /runWrapper\s*:/i.test(text);
-    for (const f of checkOutputContract(text, mode, { hasRunWrapper: planHasRunWrapper, projectWrapperOk: projectWrapper.ok })) {
+    for (const f of declaredContract ? [] : checkOutputContract(text, mode, { hasRunWrapper: planHasRunWrapper, projectWrapperOk: projectWrapper.ok })) {
       pushPlan(f.severity === "critical" ? errors : f.severity === "info" ? infos : warnings, { ...f });
     }
     // W1 展示层折叠：同 plan 的 5 条 via_wrapper info（case_csv/stdout/stderr/env/config）折叠为 1 条
@@ -1206,7 +1225,7 @@ function main() {
     }
     // 强契约基线：suite 为唯一必填顶层字段（PlanValidator.ts:57 正则基线 suite_missing=critical；
     // legacy 契约路径无 severity 字段会被降级为 warning，此处显式升级为 critical 并去重）。
-    if (!/^\s*suite\s*:/m.test(stripYamlComments(text))) {
+    if (!genericRunner && !/^\s*suite\s*:/m.test(clean)) {
       const kept = [];
       for (const w of warnings) {
         if (w.file === rel && (w.id === "suite" || /套件名/.test(w.message))) continue;
@@ -1216,7 +1235,9 @@ function main() {
       warnings.push(...kept);
       pushPlan(errors, { severity: "critical", id: "suite_missing", message: "缺少 suite 字段", suggestion: "在 plan 顶层补充 suite，例如 suite: cls_smoke。" });
     }
-    const iface = checkOutputInterface(text);
+    const evidence = declaredContract ? parsePlanOutputEvidence(text) : null;
+    const iface = declaredContract && (evidence.evidenceCandidates.length || evidence.declaredOutputs.length)
+      ? { ok: true, channel: "declared_outputs" } : checkOutputInterface(text);
     if (!iface.ok) {
       const isTestPlan = /test_command\s*:|testCommandTemplate\s*:/i.test(text) || /^\s*mode\s*:\s*["']?(test|train_test|test_only)/im.test(text);
       if (!isTestPlan) {
@@ -1233,7 +1254,7 @@ function main() {
         pushPlan(infos, { severity: "info", id: "output_interface_tensorboard", message: iface.note, suggestion: "在远端执行 pip show tensorboard 确认，或改用 run_wrapper 捕获；如需抑制此提醒，示例：node scripts/check-static.js --project <dir> --write-md --quiet-info" });
       }
     }
-    const testCmdFinding = checkTestCommand(text);
+    const testCmdFinding = declaredContract ? null : checkTestCommand(text);
     if (testCmdFinding) {
       pushPlan(testCmdFinding.severity === "critical" ? errors : testCmdFinding.severity === "info" ? infos : warnings, { ...testCmdFinding });
     }
@@ -1355,7 +1376,7 @@ function main() {
   // ID_SRC 行号：静态表为兜底锚点（已重锚到本次实际行号），运行时由 resolveCheckStaticIdSrc
   // 动态提取优先（构造位 `id: "<id>"` > `=== "<id>"` 判定位 > 首个含引号 id 的行），
   // 兜底锚 CHECK_STATIC_ID_SRC_FALLBACK（落盘 writeFileSync 行，随源码移动重锚），未注册 id 直接抛错，禁止静默指向旧行号。
-  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1843";
+  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1864";
   const CHECK_STATIC_ID_SRC = {
     test_command_via_injection: "scripts/check-static.js:149",
     test_command_missing_result_csv: "scripts/check-static.js:159",

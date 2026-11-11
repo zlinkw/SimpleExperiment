@@ -596,6 +596,7 @@ function renderPanelHtml() {
     .planSelectorStatus.is-running { --task-status-color: #2563EB; }
     .planSelectorStatus.is-completed { --task-status-color: #16A34A; }
     .planSelectorStatus.is-failed { --task-status-color: #DC2626; }
+    .planSelectorStatus.is-cancelled { --task-status-color: var(--muted); }
     #planFileInput option.planOption.is-not-started { color: var(--muted, #64748B); }
     #planFileInput option.planOption.is-partial { color: var(--warning, #D97706); }
     #planFileInput option.planOption.is-running { color: var(--vscode-charts-blue, #2563EB); }
@@ -1466,7 +1467,7 @@ function renderPanelHtml() {
         <div id="planQuickGrid" class="planQuickGrid" data-anchor="plans-actions">
           <div class="planSelectorControls" aria-label="计划筛选与排序">
             <div class="field"><label for="planSelectorQuery">搜索计划</label><input id="planSelectorQuery" type="search" placeholder="筛选文件名或路径" autocomplete="off"></div>
-            <div class="field"><label for="planSelectorStatusFilter">状态</label><select id="planSelectorStatusFilter"><option value="all">全部状态</option><option value="remaining">未完成</option><option value="not-started">未开始</option><option value="partial">部分完成</option><option value="unknown">待核实</option><option value="submitting">准备提交中</option><option value="queued">排队中</option><option value="running">运行中</option><option value="completed">已完成</option><option value="failed">失败</option></select></div>
+            <div class="field"><label for="planSelectorStatusFilter">状态</label><select id="planSelectorStatusFilter"><option value="all">全部状态</option><option value="remaining">未完成</option><option value="not-started">未开始</option><option value="partial">部分完成</option><option value="unknown">待核实</option><option value="submitting">准备提交中</option><option value="queued">排队中</option><option value="running">运行中</option><option value="completed">已完成</option><option value="failed">失败</option><option value="cancelled">已中止</option></select></div>
             <div class="field"><label for="planSelectorSortOrder">排序</label><select id="planSelectorSortOrder"><option value="scan">扫描顺序</option><option value="progress-desc">进度从高到低</option><option value="progress-asc">进度从低到高</option><option value="name">名称</option></select></div>
           </div>
           <div class="field wide">
@@ -9303,7 +9304,7 @@ function renderPanelHtml() {
       const restoreFocus = previous && document.activeElement === previous && previous.dataset.summaryActionKey === actionKey;
       setHtmlIfChanged(target, '<div class="experimentSummaryContext"><div><b>当前项目</b>' + esc(model.project) + (model.path ? ' · ' + esc(model.path) : '') + '</div><div><b>当前 PLAN</b>' + esc(model.planFile || "未选择") + '</div><div><b>' + esc(model.status) + '</b>' + esc(model.detail) + '</div></div>' +
         '<button id="experimentSummaryAction" type="button" class="experimentSummaryAction" data-summary-action-key="' + escAttr(actionKey) + '"' + attrs + ' title="' + escAttr(title) + '"' + (reason ? ' disabled aria-label="' + escAttr(action.label + "：" + reason) + '"' : '') + '>' + esc(action.label) + '</button>' +
-        '<div class="experimentSummaryEvidence">本机任务记录：运行 ' + stats.running + ' · 排队 ' + stats.queued + ' · 失败 ' + stats.failed + ' · 已确证完成 ' + stats.completed + '。记录不代表本轮服务器观测；在运行进度中主动查询。</div>');
+        '<div class="experimentSummaryEvidence">本机任务记录：运行 ' + stats.running + ' · 排队 ' + stats.queued + ' · 失败 ' + stats.failed + ' · 已中止 ' + stats.cancelled + ' · 已确证完成 ' + stats.completed + '。记录不代表本轮服务器观测；在运行进度中主动查询。</div>');
       const next = el("experimentSummaryAction");
       if (restoreFocus && next && !next.disabled && document.activeElement !== next) next.focus({ preventScroll: true });
     }
@@ -9328,11 +9329,12 @@ function renderPanelHtml() {
       const rows = schedulerRowsForState(state);
       const nativePlans = Array.isArray(state && state.distributedPlans) ? state.distributedPlans : null;
       if (rows === overviewTaskStatsCacheRows && nativePlans === overviewTaskStatsCacheNativePlans && overviewTaskStatsCacheValue) return overviewTaskStatsCacheValue;
-      const stats = { running: 0, queued: 0, failed: 0, completed: 0 };
+      const stats = { running: 0, queued: 0, failed: 0, cancelled: 0, completed: 0 };
       const count = (row) => {
         const status = String(row.status || "").toLowerCase();
         if (status === "running" || status === "testing") stats.running += 1;
         else if (status === "queued" || status === "pending") stats.queued += 1;
+        else if (status === "stopped" || status === "cancelled") stats.cancelled += 1;
         else if (taskFailureLikeStatus(status)) stats.failed += 1;
         else if ((status === "completed" || status === "done") && row.completionState === "verified") stats.completed += 1;
       };
@@ -10844,7 +10846,7 @@ function renderPanelHtml() {
       }
       return "";
     }
-    const PLAN_SELECTOR_STATUS_LABELS = Object.freeze({ "not-started": "未开始", partial: "部分完成", unknown: "待核实", submitting: "准备提交中", queued: "排队中", running: "运行中", completed: "已完成", failed: "失败" });
+    const PLAN_SELECTOR_STATUS_LABELS = Object.freeze({ "not-started": "未开始", partial: "部分完成", unknown: "待核实", submitting: "准备提交中", queued: "排队中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止" });
     let planSelectorStatusIndexState = null;
     let planSelectorStatusIndexValue = null;
     function planSelectorTrustedSummary(state, planFile, plan) {
@@ -10878,6 +10880,7 @@ function renderPanelHtml() {
           totalCount: Number(summary.totalCount),
           taskCount: Number(summary.taskCount),
           failedCount: Number(summary.failedCount),
+          cancelledCount: Number(summary.cancelledCount || 0),
           unavailableCount: Number(summary.unavailableCount || 0),
           activeCount: Number(summary.activeCount),
           queuedCount: Number(summary.queuedCount),
@@ -10987,14 +10990,16 @@ function renderPanelHtml() {
       const countRows = distributedJobs.length ? distributedJobs : tasks;
       const taskStatuses = tasks.map((row) => taskStatusToken((row || {}).status));
       const completedCount = taskStatuses.filter((status) => ["completed", "done", "archived"].includes(status)).length;
-      const failedCount = taskStatuses.filter((status) => taskFailureLikeStatus(status)).length;
+      const failedCount = taskStatuses.filter((status) => !["stopped", "cancelled"].includes(status) && taskFailureLikeStatus(status)).length;
+      const cancelledCount = taskStatuses.filter((status) => ["stopped", "cancelled"].includes(status)).length;
       const activeCount = taskStatuses.filter((status) => ["running", "testing", "progress", "in_progress", "operation_started", "started"].includes(status)).length;
       const queuedCount = taskStatuses.filter((status) => ["accepted", "submitted", "queued", "pending"].includes(status)).length;
       const distributedUnavailable = distributedJobs.filter((row) => row.unavailable && row.status === "cancelled").length;
       const distributedStatuses = distributedJobs.filter((row) => !(row.unavailable && row.status === "cancelled"))
         .map((row) => taskStatusToken((row || {}).status));
       const distributedCompleted = distributedStatuses.filter((status) => ["completed", "done", "archived"].includes(status)).length;
-      const distributedFailed = distributedStatuses.filter((status) => taskFailureLikeStatus(status)).length;
+      const distributedFailed = distributedStatuses.filter((status) => !["stopped", "cancelled"].includes(status) && taskFailureLikeStatus(status)).length;
+      const distributedCancelled = distributedStatuses.filter((status) => ["stopped", "cancelled"].includes(status)).length;
       const distributedActive = distributedStatuses.filter((status) => ["running", "testing", "progress", "in_progress", "operation_started", "started"].includes(status)).length;
       const distributedQueued = distributedStatuses.filter((status) => ["accepted", "submitted", "queued", "pending"].includes(status)).length;
       const caseCount = Array.isArray(plan.cases) ? plan.cases.length : Number(plan.caseCount || plan.case_count || 0);
@@ -11011,6 +11016,7 @@ function renderPanelHtml() {
       const latestRunFailed = operationIsFailureLike((latestRun || {}).status || (latestRun || {}).state);
       const shownCompletedCount = distributedJobs.length ? distributedCompleted : completedCount;
       const shownFailedCount = distributedJobs.length ? distributedFailed : failedCount;
+      const shownCancelledCount = distributedJobs.length ? distributedCancelled : cancelledCount;
       const shownActiveCount = distributedJobs.length ? distributedActive : activeCount;
       const shownQueuedCount = distributedJobs.length ? distributedQueued : queuedCount;
       const allTasksCompleted = countRows.length > 0 && totalCount > 0 && shownCompletedCount >= totalCount;
@@ -11020,7 +11026,8 @@ function renderPanelHtml() {
       else if (pendingOperation) status = "submitting";
       else if (shownQueuedCount && !shownCompletedCount) status = "queued";
       else if (allTasksCompleted) status = "completed";
-      else if (countRows.some(row => row.lifecycleProtocol === 2 && (row.status === "unknown" || row.resultState === "unverified"))) status = "unknown";
+      else if (countRows.some(row => !["stopped", "cancelled"].includes(taskStatusToken(row.status)) && row.lifecycleProtocol === 2 && (row.status === "unknown" || row.resultState === "unverified"))) status = "unknown";
+      else if (shownCancelledCount && shownCancelledCount + shownCompletedCount >= totalCount) status = "cancelled";
       else if (countRows.length || runOperations.length) status = "partial";
       const shownCompleted = status === "completed" && !shownCompletedCount && totalCount ? totalCount : shownCompletedCount;
       return { status, statusLabel: PLAN_SELECTOR_STATUS_LABELS[status], completedCount: shownCompleted, unavailableCount: distributedUnavailable, totalCount, taskCount: countRows.length, revision };
@@ -15362,7 +15369,7 @@ function renderPanelHtml() {
         const blockedCount = currentJobs.filter((job) => String(job.status || "") === "pending" && fingerprintBlocked(job)).length;
         const blockedOnly = currentJobs.length > 0 && blockedCount === currentJobs.filter((job) => String(job.status || "") === "pending" || ["dispatching", "queued", "running", "unknown"].includes(String(job.status || ""))).length && blockedCount > 0 && !currentJobs.some((job) => ["dispatching", "queued", "running", "unknown", "failed"].includes(String(job.status || "")));
         const queued = currentJobs.filter((job) => ["pending", "queued"].includes(String(job.status || "")) && !job.outputIsolationBlocked && !fingerprintBlocked(job)).length;
-        const missingWindows = currentJobs.filter((job) => job.lifecycleProtocol === 2 && job.executionState === "missing" && !job.statusQueryError).length;
+        const missingWindows = currentJobs.filter((job) => job.lifecycleProtocol === 2 && job.executionState === "missing" && !["cancelled", "stopped", "completed", "failed"].includes(String(job.status || "")) && !job.statusQueryError).length;
         const unknown = currentJobs.filter((job) => String(job.status || "") === "unknown").length;
         const dispatching = currentJobs.filter((job) => String(job.status || "") === "dispatching").length;
         const running = currentJobs.length ? currentJobs.filter((job) => String(job.status || "") === "running").length

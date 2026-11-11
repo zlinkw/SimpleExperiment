@@ -36,9 +36,13 @@ function resolveCommandHandlerMap(provider) {
     bind("simpleExperiment.startAllXshellAgentSessions", "startAllXshellAgentSessions");
     bind("simpleExperiment.startAllXshellConnections", "startAllXshellConnections");
     bind("simpleExperiment.openXshellSessions", "openAllXshellSessions");
-    bind("simpleExperiment.testAllTunnels", "testTunnel");
     bind("simpleExperiment.showTunnelEndpointRegistry", "showTunnelEndpointRegistry");
-    bind("simpleExperiment.testXshellTunnel", "testTunnel");
+    const manualTunnelTest = provider.testTunnel;
+    if (typeof manualTunnelTest === "function") {
+        for (const id of ["simpleExperiment.testAllTunnels", "simpleExperiment.testXshellTunnel"]) {
+            map[id] = () => manualTunnelTest.call(provider, true);
+        }
+    }
     bind("simpleExperiment.restartRealtimeStream", "restartRealtimeStream");
     bind("simpleExperiment.pauseRealtimeStream", "pauseRealtimeStream");
     bind("simpleExperiment.resumeRealtimeStream", "resumeRealtimeStream");

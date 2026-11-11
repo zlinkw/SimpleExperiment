@@ -7,6 +7,15 @@ const {composeLogicalPlans}=require('../../src/features/LogicalPlanProgress.ts')
 
 const panel = readSource("src/ui/PanelHtml.ts").replaceAll('${logicalPlansSource}', '('+composeLogicalPlans.toString()+')');
 
+test('a cancelled exact-window job is stopped without a missing-window warning', () => {
+  const sandbox = clickSandbox();
+  sandbox.render({ distributedPlans: [{ id: 'stopped', planFile: 'plans/stopped.yaml', jobs: [{ index: 0,
+    status: 'cancelled', lifecycleProtocol: 2, executionState: 'missing', resultState: 'unverified',
+    workerId: 'worker', commandId: 'cancelled-command', outputDir: 'work_dirs/stopped' }] }] });
+  assert.match(sandbox.html, /已中止/);
+  assert.doesNotMatch(sandbox.html, /远端未发现执行窗口|未发现执行窗口 1/);
+});
+
 test('native waiting stages explain delivery and never advertise historical automatic retries',()=>{
  for(const [status,label,note] of [['pending','本机待派发','本机须保持打开'],['dispatching','等待接收确认','不代表已经运行'],['queued','服务器已接收','服务器继续']]){
   const sandbox=clickSandbox();sandbox.render({distributedPlans:[{id:'wf',planFile:'plans/wait.yaml',jobs:[{

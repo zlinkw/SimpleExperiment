@@ -13,7 +13,8 @@ const SCHEDULER_BUCKETS = {
     stopped_experiments: "stopped",
 };
 const TASK_COMPLETED = new Set(["completed", "done", "archived"]);
-const TASK_FAILED = new Set(["stopped", "cancelled", "failed", "error", "stalled"]);
+const TASK_FAILED = new Set(["failed", "error", "stalled"]);
+const TASK_CANCELLED = new Set(["stopped", "cancelled"]);
 const TASK_ACTIVE = new Set(["running", "testing", "progress", "in_progress", "operation_started", "started"]);
 const TASK_QUEUED = new Set(["accepted", "submitted", "queued", "pending"]);
 const OPERATION_ACTIVE_TOKENS = ["accepted", "submitted", "pending", "queued", "running", "in_progress", "started", "progress"];
@@ -171,8 +172,10 @@ function summarizeEntry(entry) {
         status = "queued";
     else if (allTasksCompleted)
         status = "completed";
-    else if (countRows.some(row => row.lifecycleProtocol === 2 && (row.status === "unknown" || row.resultState === "unverified")))
+    else if (countRows.some(row => !TASK_CANCELLED.has(taskStatusToken(row.status)) && row.lifecycleProtocol === 2 && (row.status === "unknown" || row.resultState === "unverified")))
         status = "unknown";
+    else if (displayedCounts.cancelledCount && displayedCounts.cancelledCount + displayedCounts.completedCount >= totalCount)
+        status = "cancelled";
     else if (countRows.length || runOperations.length)
         status = "partial";
     const updatedAt = firstText(entry.plan.updatedAt);
@@ -184,6 +187,7 @@ function summarizeEntry(entry) {
         totalCount: boundedCount(totalCount),
         taskCount: boundedCount(countRows.length),
         failedCount: boundedCount(displayedCounts.failedCount),
+        cancelledCount: boundedCount(displayedCounts.cancelledCount),
         unavailableCount: boundedCount(displayedCounts.unavailableCount),
         activeCount: boundedCount(displayedCounts.activeCount),
         queuedCount: boundedCount(displayedCounts.queuedCount),
@@ -203,6 +207,7 @@ function countTaskStatuses(rows) {
         unavailableCount: rows.filter(row => row.unavailable === true).length,
         completedCount: statuses.filter((status) => TASK_COMPLETED.has(status)).length,
         failedCount: statuses.filter((status) => TASK_FAILED.has(status)).length,
+        cancelledCount: statuses.filter((status) => TASK_CANCELLED.has(status)).length,
         activeCount: statuses.filter((status) => TASK_ACTIVE.has(status)).length,
         queuedCount: statuses.filter((status) => TASK_QUEUED.has(status)).length,
     };
