@@ -39,7 +39,7 @@ args = ["C:/Users/ZLK/AppData/Roaming/npm/simpleex-mcp-launcher.cjs", "--workspa
 | 全量 CLI 能力对应关系、GUI 依赖参数化 | 已建立映射；保留 UI 的交互入口不计为无人操作通过 |
 | 全部静态及动态人工入口实点 | 进行中 |
 | MultiModal 单 seed 与通用项目真实验收 | 两项目均已实际退出码 0；通用项目 MCP 收集导出通过，首次接入与面板结果仍未闭环，详见 manual-acceptance-checklist.md |
-| Windows 试行打包、发布、安装与重载 | 0.5.491 / 0.2.119 已重载并重连，两项目 Agent 与 Scheduler 实际升级至 0.5.491。实机新增缺陷已在 0.5.492 修复，最终打包及交付尚待完成 |
+| Windows 试行打包、发布、安装与重载 | 0.5.492 最终回归、包验证及试行发布通过，已安装一次；配套 0.2.119 不变。等待本人重载两个窗口并重连 MCP；远端仍为 0.5.491，新版实机未完成 |
 
 生成当前源码入口与 MCP 对应清单可运行 `node scripts/entry-coverage.js <SimpleSFTP源码根>`。清单中的 mapped 只表示路由存在，实点和实际业务效果需另外核实。未验证项目不记为通过。
 
@@ -53,9 +53,13 @@ Windows 试行版为 [v0.5.491](https://github.com/zlinkw/SimpleExperiment/relea
 
 0.5.491 和 0.2.119 已各安装一次且用户已重载两个窗口、重连 MCP。本轮确认两项目绑定及五类持续授权有效，通知“不再提醒”确认值保持为 true。rjj8 两项目的 Agent 与 Scheduler 已顺序升级并核对 0.5.491 和实际源码哈希；共享端口最终恢复 MultiModal Agent @24，Scheduler @9/@15 与已完成任务 @12/@16 均保留。未更新其他 Worker，未改写 MultiModal 历史结果。
 
-0.5.492 修复 MCP 准备未启动隧道、无 GPU 遥测时服务器列表缺失、普通停止丢失任务记录、终态 PLAN 标签及自动 GPU 容量提示，并修正配置说明和版本核验等待通知。新增定向回归通过；尚未安装及实机复核。普通停止的首次实机失败、剩余界面入口、清理本人双确认及授权撤销验收保留在 manual-acceptance-checklist.md，不能据既有两个成功实验宣称完整接入或全入口通过。
+0.5.492 修复 MCP 准备未启动隧道、无 GPU 遥测时服务器列表缺失、普通停止丢失任务记录、终态 PLAN 标签及自动 GPU 容量提示，并修正配置说明和版本核验等待通知。新增定向回归通过；已安装，尚待本人重载后实机复核。普通停止的首次实机失败、剩余界面入口、清理本人双确认及授权撤销验收保留在 manual-acceptance-checklist.md，不能据既有两个成功实验宣称完整接入或全入口通过。
 
-0.5.492 最终打包记录为 simple_cluster/reports/test-workflow/2026-11-11T13-03-31-166Z-48492-package/run.json：322 个串行作业及 13 个门禁全部通过，输入指纹未变，总耗时 835749 ms。编译同输入命中、emitted=0，组装复用已验证产物。simple-experiment-0.5.492.vsix 为 3069809 字节，SHA256 为 3e3682da568706e1520dd4cdeb5aaa130d7a6e55bcc802458777e57205c8878a；实际 ZIP 的 326 个运行模块、runtime 版本和哈希、秘密排除、包内容规范及 vm.Script 均通过。当前尚待发布与安装；本轮没有再次修改配套 0.2.119。
+0.5.492 最终打包记录为 simple_cluster/reports/test-workflow/2026-11-11T13-03-31-166Z-48492-package/run.json：322 个串行作业及 13 个门禁全部通过，输入指纹未变，总耗时 835749 ms。编译同输入命中、emitted=0，组装复用已验证产物。simple-experiment-0.5.492.vsix 为 3069809 字节，SHA256 为 3e3682da568706e1520dd4cdeb5aaa130d7a6e55bcc802458777e57205c8878a；实际 ZIP 的 326 个运行模块、runtime 版本和哈希、秘密排除、包内容规范及 vm.Script 均通过。本轮没有再次修改配套 0.2.119。
+
+[v0.5.492 试行 Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.492) 与实际 tag 均绑定源码 f04f2dab99e25e5cf51b217448509f6d5f374f5e，draft=false、prerelease=true；VSIX 和精确同名 SHA256 清单均已上传，远端重新下载与本机字节一致。默认未登录 ReleaseClient 的真实检查遇到 GitHub HTTP 403 限流，返回等待至 2026-11-11T13:59:12Z，未改等待策略或伪记通过。使用现有 GitHub 登录凭据进行真实网络请求、交由同一 ReleaseClient 解析，确认 Latest 仍为 0.5.483 / 0.2.118，对 0.5.492 / 0.2.119 不降级；记录 simple_cluster/release-verification/0.5.492/client-check.json 明确标注认证传输，不能当作默认未登录连接已解除限流。
+
+随后显式执行一次 npm run install:latest，退出码 0，code 扩展列表为 0.5.492 / 0.2.119，稳定 simpleex --help 返回成功。安装后停止 SimpleExperiment 面板/API 操作；等待本人 Developer: Reload Window 重载两个项目窗口并重连 MCP。远端已完成本轮授权升级的是 0.5.491，MultiModal Agent @24、Scheduler @9/@15、原任务 @12/@16 保留；没有直接向运行中的 0.5.491 宿主混入 0.5.492 runtime。重载后继续新修复实机复核和剩余入口，不提前记为通过。
 
 ## CLI 对应关系
 
