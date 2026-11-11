@@ -1,12 +1,20 @@
 # Windows 日常点击验收
 
-本轮以 Windows 0.5.485 为初始实点基线。0.5.494 已完成打包、源码推送、试行发布、单次安装及两个窗口重载；项目绑定、持续授权和通知持久确认保持有效。rjj8 两项目的 Agent 与 Scheduler 已顺序升级至 0.5.494，最终服务 MultiModal。接入检查、取消任务显示、手动隧道命令及所选 PLAN 的真实启动已实点通过；普通停止入口、冷启动后的面板状态同步及 MCP 返回结构仍需完成。整体入口验收未通过。界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。
+本轮以 Windows 0.5.485 为初始实点基线。0.5.495 已完成打包、源码推送、试行发布、单次安装及两个窗口重载；项目绑定、持续授权和通知持久确认保持有效。rjj8 两项目的 Agent 与 Scheduler 已顺序升级至 0.5.495，最终服务 MultiModal。独立普通停止按钮已实点通过；主动查询后的 PLAN 和执行状态刷新已核对。逐工具 MCP 返回结构与其余未实点入口仍待完成，整体入口验收未通过。界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。
 
-## 0.5.495 待交付修复
+## 0.5.495 修复与实机核验
 
 - 原生 job 卡新增“停止此任务”，仅携带原 Worker、commandId 和 workflow，调用 GUI/MCP 共用的精确停止逻辑；保留原派发、清理和旧停止入口。终态任务不显示该按钮。新增渲染、按钮参数和真实宿主分支回归，与既有覆盖合计 54 项通过。
 - 冷面板状态不同步的两个遗漏已定位：PLAN 渲染模型没有纳入未选中 PLAN 的状态摘要，执行区域刷新标识没有纳入 Worker 观测与队列代次。补齐后，摘要单独变化、API 先读状态及随后面板刷新有行为回归；投影套件 6 项通过。旧停止路由与结果解析 12 项通过，compile 通过。
-- 本批不调整 MCP 业务或授权；逐工具返回结构留待下一批完成。0.5.495 尚未完成 package、发行、安装和实机验证，不能记为已交付或实点通过。
+- 最终 package 的 322 作业、13 gate 全通过，输入前后一致、最大实际测试并发 1、823941 ms；记录 simple_cluster/reports/test-workflow/2026-11-11T18-40-46-116Z-55520-package/run.json。vm.Script、包策略及实际 ZIP 身份检查通过，379 项、326 runtime 模块，秘密命中 0。VSIX 3071499 字节，SHA256 5623d0ca8010b8d8d287c34bdc289bceb47894466bf8c30cff49b4b9f90697cd。
+- 源码 07d3e092a64148c4871fb0a54f7a3f3916418d4d 普通推送并 fetch 确认等于 origin/master；试行 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.495 的 tag 精确绑定该提交，draft=false、prerelease=true、latest=false。下载的两资产与本机包逐字节一致；SHA 文件 97 字节，自身 SHA256 aa85866534a59e14c2afbb8775c611df37c0fae88f0004161d91c4a6004b3137。首次实际更新客户端请求返回 GitHub 403，提示限流至 2026-11-11T19:03:54Z；后续实际原生客户端返回 up_to_date，真实发布客户端分别核对正式 Latest 0.5.483 / 0.2.118、旧版可见更新、试行版不降级。未更改发布渠道或生产网络逻辑。
+- install:latest 仅执行一次，清单为 SimpleExperiment 0.5.495 / SimpleSFTP 0.2.119，稳定 simpleex 入口可用。两窗口通过标准 Reload Window 重载，MultiModal 未保存 final.md 页仍为已修改。新 stdio MCP 分别返回 Generic PID 15680、MultiModal PID 61172、各自根目录及 0.5.495；没有再次弹出已确认的全局复用提醒。原生 MultiModal MCP 在升级前已实际确认 0.5.494，不能把新 SDK 连接的 0.5.495 证明当作旧持久连接已重连。
+- 原生 MultiModal MCP inspect 确认旧 Agent @34 后，agent_stop 返回 stopped。Generic 准备操作 mcp-6a06b654-f34a-4e8e-bb00-9211d46f731e 成功，Agent @35、原 Scheduler @15 均为 0.5.495。Generic 精确停止后，MultiModal 恢复操作 mcp-e72ffa10-cab1-40da-894d-dca13bc85357 成功，最终 Agent @37、原 Scheduler @9 均为 0.5.495。主动返回的 Agent 哈希 88cdacfb6e45b9f3a13174deb8bccff3a2663d3621b4d3e4084a0815a968fca1、Scheduler 哈希 31d59f0b01360d25bcc9ee0f3bc6ea6985b7f3890cfb7d47fb72a0ffa42fc3a2。停止旧 Agent 后 tmux API 曾返回 fetch failed/空 sessions，未将其当作窗口已消失；新 Agent 下主动列表核对 @12、@16、@9、@15 保留，@34、测试任务窗口及随后 @35 不再存在。其他 Worker 未更新。
+- 新控制 PLAN normal_stop_ui_0_5_495.yaml 保留同一软件脚本、seed 42、独立输出 work_dirs/mcp_controls/normal_stop_ui_0_5_495；预检 mcp-fce67fa3-0ee6-4008-86c4-353f74820849 succeeded、ready=true。面板选择与 MCP state 均为该精确路径；MCP plan_run 的父回执 workflow-run-1794423699281-wk6jkf 不作为训练完成。实际 workflow distributed-plan-1794423706074-rpryha、commandId 87daf103e2ca8b69d1bd5fb4d9a69e10 在 rjj8/GPU 0 运行，revision=6c908e0a570b8d1c9cb0bbb35f671642b755c5adc0c6d1592a2441979d21bf14、codeFingerprint=dc790bf0199658ebf3426acd3bc284aa15016e249e1d4ee1f34d6034fe0db121。
+- 主动 task_list 确认 running 后，不再提交写动作，面板摘要、PLAN 选择器和卡片随后自行更新为运行中；旧三个 PLAN 保持已中止，原 acceptance 保持已完成。点击摘要进入运行进度、展开该新卡，实点“停止此任务”。未点清理或重派。共享 stopProjectTask 确认精确停止，原队列留下 trustedTerminalProof，outcome=cancelled、provenAt=2026-11-11T19:02:34.755Z；nativeStartProof 仍记录 windowSeen=true、observedAt=2026-11-11T19:01:55.295Z。MCP 与显式工作区 CLI 随后均为 cancelled；面板显示运行 0、失败 0、已中止 4、原确证完成 1，停止按钮从终态卡消失，日志与产物入口保留。
+- 停止控制任务没有最终 manifest，远端原始观察仍是 missing/incomplete、日志无正常结束标记；本轮 Worker snapshot 的 controlIncomplete/diagnosticsPending 为 true，jobLifecycle/CLI 如实保留 queryState=unknown。该复查状态不推翻本机精确停止证明，也未把控制任务计为成功。MultiModal 恢复后原 bc9df623805ca30d675854c0044f4bd2 仍为 completed/verified/exitCode=0，面板选择器已完成 1/1；未刷新其既有完成证据时间、未重跑或重写论文结果。
+- 设置齿轮与关闭设置可往返同一项目和 PLAN。手动添加入口无遮挡，实点至新 Worker 名称页后退出，列表仍为原五个配置、仅 rjj8 启用；Xshell 导入可显示实际本地到远端端口对，取消后未导入，两项仅记预览。接入任务复制得到 969 字符及两条精确 v0.5.494 指南链接；设置中的指南链接实际在 Edge 打开对应 GitHub 页面。专用 cleanup_20261111.txt 仍存在、49 字节，未继续删除审核。
+- 当前清单为 42 命令、175 静态按钮出现位置、134 MCP 工具、111 迁移项；静态实点通过 14、预览通过 2、未实测 159，另有 11 条动态观察。保留 0.5.494 缺少停止入口的历史发现，并新增 0.5.495 修复实点证据。本批不调整 MCP 业务或授权；逐工具返回结构留待下一批完成。
 
 ## 0.5.494 当前修复
 
