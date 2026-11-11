@@ -32,16 +32,18 @@ args = ["C:/Users/ZLK/AppData/Roaming/npm/simpleex-mcp-launcher.cjs", "--workspa
 | --- | --- |
 | 项目 MCP stdio、具名工具、宿主授权、Agent 与实验主入口 | 已实现，包含真实 stdio 的定向回归已通过 |
 | 同窗口 SFTP 文件树、清单、上传、下载、Worker 间同步 | 已接入，真实调用待验证 |
-| 全量 CLI 能力对应关系、GUI 依赖参数化 | 进行中 |
+| 全量 CLI 能力对应关系、GUI 依赖参数化 | 已建立映射；保留 UI 的交互入口不计为无人操作通过 |
 | 全部静态及动态人工入口实点 | 进行中 |
 | MultiModal 单 seed 与通用项目真实验收 | 待执行 |
-| Windows 试行打包、发布、安装与重载 | 待执行 |
+| Windows 试行打包、发布、安装与重载 | 0.5.486 已通过 322 项回归并发布、安装一次；等待本人重载及项目授权 |
 
 生成当前源码入口与 MCP 对应清单可运行 `node scripts/entry-coverage.js <SimpleSFTP源码根>`。清单中的 mapped 只表示路由存在，实点和实际业务效果需另外核实。未验证项目不记为通过。
 
 独立文件清理使用 file_cleanup_preview → file_cleanup_review，由本人逐页核对完整节点与路径；file_cleanup_execute 只接续后端已存确认，MCP 无 confirm/pathConfirmed/secondConfirmation 入参。PLAN 的原审核页保持不变。
 
 通用项目示例在 examples/mcp-dl-acceptance。日常入口与 CLI 对应矩阵在 windows-entry-coverage.json；当前记录只证明映射，未实测项保持未实测。
+
+Windows 试行版为 [v0.5.486](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.486)，源码提交 033a914dbe3d773eb5c6e794652bce6249e84d16。实际发布和安装的 simple-experiment-0.5.486.vsix 为 3064882 字节，SHA256 为 c81ee022a6d1c1fdb24f56bee4f7587da738426c3e1bb1616481d3159cc6a015。远端重新下载核对一致。真实更新客户端确认旧版只看到 0.5.483，已安装 0.5.486 不降级。远端 Agent 当前仍为 0.5.485，尚未升级或启动验收训练。
 
 ## CLI 对应关系
 
