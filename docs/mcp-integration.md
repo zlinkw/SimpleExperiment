@@ -39,7 +39,7 @@ args = ["C:/Users/ZLK/AppData/Roaming/npm/simpleex-mcp-launcher.cjs", "--workspa
 | 全量 CLI 能力对应关系、GUI 依赖参数化 | 已建立映射；保留 UI 的交互入口不计为无人操作通过 |
 | 全部静态及动态人工入口实点 | 进行中 |
 | MultiModal 单 seed 与通用项目真实验收 | 待执行 |
-| Windows 试行打包、发布、安装与重载 | 0.5.488 已通过 322 项完整回归及 4 个定向测试文件并发布、安装一次；等待本人重载两个项目窗口，再完成各自项目授权及实点 |
+| Windows 试行打包、发布、安装与重载 | 0.5.489 最终 322 项完整回归及相关定向检查通过，已发布并安装一次；0.5.488 的两个项目授权已确认，待重载窗口并重连旧 MCP 进程后复核 |
 
 生成当前源码入口与 MCP 对应清单可运行 `node scripts/entry-coverage.js <SimpleSFTP源码根>`。清单中的 mapped 只表示路由存在，实点和实际业务效果需另外核实。未验证项目不记为通过。
 
@@ -47,7 +47,7 @@ args = ["C:/Users/ZLK/AppData/Roaming/npm/simpleex-mcp-launcher.cjs", "--workspa
 
 通用项目示例在 examples/mcp-dl-acceptance。日常入口与 CLI 对应矩阵在 windows-entry-coverage.json；当前记录只证明映射，未实测项保持未实测。
 
-Windows 试行版为 [v0.5.488](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.488)，源码提交 5c43f36f8d3acd0bcf6db2fca28827bfd99ed33b。实际发布和安装的 simple-experiment-0.5.488.vsix 为 3066887 字节，SHA256 为 be79f46ea53727e6a3e81c01af040ded8cd4957218cc2f20fd95606c8cfb0516。322 项完整回归、4 个定向测试文件、实际 ZIP 运行闭包、编译字节、秘密排除与 vm.Script 检查均通过。远端重新下载核对一致。真实更新客户端确认旧版只看到 0.5.483，已安装 0.5.488 不降级。0.5.487 的首次失败与附加枚举超时继续保留于原日志及该版 Release，不覆盖旧证据。本轮实机读取确认两个窗口运行 0.5.487、通用项目已共享 rjj8，但其已连通端口的 Agent 属于 MultiModal；0.5.488 新提示及授权按钮尚待重载实点。远端 Agent 上次读取仍为 0.5.485，尚未升级或启动验收训练。
+Windows 试行版为 [v0.5.489](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.489)，源码提交 d8072745785d92ed0c8fb536f88d7307d6c9b99b。实际发布和安装的 simple-experiment-0.5.489.vsix 为 3067056 字节，SHA256 为 837eb1914345ee6f5dc5353cd61a4ff4abee28d2bf3e1dd9241227ac125eeadf。包含三处最终修复的 322 项完整回归通过；通知跨窗口去重、MCP 正常重载与版本拒绝、稳定入口、顶部运行阶段及实际运行卡片定向检查通过。实际 ZIP 运行闭包、编译字节、秘密排除与 vm.Script 检查通过。远端重新下载与本机包一致，真实更新客户端确认旧版只看到 0.5.483，已安装 0.5.489 不降级。首次发行读取曾返回 EOF / fetch failed，随后同一真实发行源读取、下载及更新客户端复核成功；原始失败和后续结果保留，不覆盖旧证据。本轮实际读取及界面观察确认两个项目运行 0.5.488 且各自 rjj8 五类授权已保存；0.5.489 的真实通知与重载连接效果待本人重载窗口、重连旧 MCP 进程后复核。远端 Agent 本轮未升级，真实验收训练尚未启动。
 
 ## CLI 对应关系
 
