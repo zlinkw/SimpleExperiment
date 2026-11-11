@@ -1,6 +1,6 @@
 # Windows 日常点击验收
 
-本轮以 Windows 0.5.485 为初始实点基线。当前已安装 0.5.496，0.5.497 最终候选已通过完整打包与包验证，发行、安装和新宿主复验待完成。项目绑定、持续授权和通知持久确认保持有效；独立普通停止按钮已实点通过。逐工具返回结构的实机返修与其余未实点入口仍待完成，整体入口验收未通过。界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。
+本轮以 Windows 0.5.485 为初始实点基线。当前已安装 0.5.497，完整打包、试行发行及两窗口重载完成。已实测返修后的结果解析、日志点击及 TensorBoard MCP，但双项目共用端口切换后发现查询未核实 Agent 项目归属，会错误撤销通用项目完成确认，下一批必须修复。整体入口验收未通过。界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。
 
 ## 0.5.496 返回结构与打包
 
@@ -15,6 +15,12 @@
 
 ## 0.5.497 返修候选
 
+- 实机与发行：源码 ee5ab4166a4a879986e51d113b5b2d6933964ac1 已普通推送并 fetch 确认；试行 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.497 精确绑定该提交，prerelease=true、latest=false。两资产真实下载匹配，SHA 文件 97 字节、自身摘要 eda6ebf0e2d0a6987bcf1eb097dc9a1ebfab9609d1acf10a87428d209f6a061d；实际原生 ReleaseClient 为 up_to_date，正式 Latest 保持 0.5.483 / 0.2.118。单次安装后两窗口标准重载，Generic PID 62900、MultiModal PID 80352 均为 0.5.497；未保存 final.md 页保留。Codex 旧原生 MCP 连接仍绑定 0.5.494，明确返回版本不符且未发业务请求，需本人重新连接；以下成功均为官方 SDK 新 stdio 连接，不冒充旧连接已重连。
+- rjj8 Generic 准备 mcp-e48c8dfe-68c6-4d5b-aa48-4eea62172bee 成功，Agent @41 / Scheduler @15 为 0.5.497。精确停止 @41 后 MultiModal 准备 mcp-64ff70d3-41bc-4f51-8cd1-895ae5da77fa 成功，最终 Agent @42 / Scheduler @9 同版；Agent 哈希 29ec99de7984a96e989e5006e34dac1c3a050b472529e77dac748db602022531、Scheduler 哈希 52598b34d3c49c7617832aab0a9b4ac25c93ce5c90c0094594fa469c029497b9。原 @12/@16/@9/@15 均保留，其余 Worker 未更新。
+- 两个新宿主实际声明均为 138 项，SDK 与逐工具 schema 匹配。Generic 20 次调用无 schema/业务错误，result_show 和 CSV 导出的真实路径、指标、来源及可空时间通过；artifact_list 传 commandId 返回空数组，只证明返回契约，不能计作产物业务通过，正确 experiment/PLAN 映射待修。MultiModal 9 次查询通过，原 bc9df623805ca30d675854c0044f4bd2 为 observed/completed/verified/exitCode=0，原 verifiedAt 仍为 2026-11-11T10:28:00.155Z；Worker 的其他历史待核实提示仍保留。
+- 四个 TensorBoard MCP 工具共 19 次真实调用通过：启动操作 mcp-74e4e1d5-9549-4d42-996b-d86b7fad2567 取得实际 @43、running/listening/proxyVerified 均 true，两个 viewer 地址绑定本项目且未自动开浏览器；停止 mcp-af8baf75-afe5-4e0b-bee7-b866c3b79929 后服务 running=false。成功 tmux 主动查询确认 @43 不存在，原 @12/@16/@9/@15/@42 保留；保存证据已去除链接凭证。两项目新增普通工具的逐项批准配置已补齐，默认 prompt 和专项审核项未变。
+- 新版实点：GPU 主项定位状态标题，子项定位 GPU 总览，后续刷新保持在对应 GPU 区域，未回跳原结果页。低流量保持开启，刷新窗口列表后仅点击原 image_only_bus_p100 seed 42 标签，日志获取时间自动更新为 2026-11-11T21:08:30.050Z，无需点击“刷新当前日志”；实际 commandId、done index=0 与 Pane dead status 0 匹配。曲线测试窗口已关闭，未重训或改写 MultiModal 历史表。
+- 剩余真实缺陷：共享端口恢复 MultiModal 后，Generic 的 task_list/experiment_list 从 MultiModal 根目录读取该 Generic commandId 的日志和声明产物，并将缺失当作真实反证；原 Generic 完成确认已错误降级。原远端任务窗口 @16 保留，先前同版本 Generic Agent 下退出码、完整产物与原证明已实测。下一批限制为修复 Worker 查询的项目归属边界、正确映射产物查询对象，并复验两项目；不手工改写旧证据、不重跑训练。原始前后快照见 simple_cluster/generic-tasks-after-other-agent-0.5.497.json 与 mcp-advertised-generic-0.5.497.json。
 - 最终候选 package 的 322 作业、13 gate 全部通过，输入前后一致、实际最大并发 1、总耗时 822099 ms；记录 simple_cluster/reports/test-workflow/2026-11-11T20-49-09-563Z-15836-package/run.json。此前失败的原生 tmux 场景本轮通过，首次失败仍保留。vm.Script、包策略、身份、平台和 327 模块字节闭包均通过，380 归档项、秘密命中 0。VSIX 3078315 字节，SHA256 1c1a0c3adef1026d1b7d168f4b79598439a8c6720bd7c73e9cf00d1483b5a1e1。
 - 结果声明遵循既有 ResultRow.outputFiles:string[] 和 observedAt:string|null；不改业务值。官方 SDK 回归先失败后通过，19 项通过，覆盖真实延迟结果、路径字符串和非法对象拒绝。
 - 两个滚动保留回调记录现有导航锁，在新导航取代旧视口后不再恢复旧位置；常规视口恢复改为即时，保留显式平滑跳转。新增行为回归复现旧回调将 900 覆盖为 100，修复后通过。导航相关 4+7+3+3+9 项回归及 compile、vm.Script 通过；首次 CSS 断言取到被覆盖的早期样式，已修正夹具选择，未改生产行为迁就断言。GPU 真正实点仍待新版安装。

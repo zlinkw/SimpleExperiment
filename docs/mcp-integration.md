@@ -48,7 +48,7 @@ args = ["C:/Users/ZLK/AppData/Roaming/npm/simpleex-mcp-launcher.cjs", "--workspa
 | 全量 CLI 能力对应关系、GUI 依赖参数化 | 已建立映射；保留 UI 的交互入口不计为无人操作通过 |
 | 全部静态及动态人工入口实点 | 进行中 |
 | MultiModal 单 seed 与通用项目真实验收 | 两项目均已实际退出码 0；通用项目 MCP 准备、提交、收集、导出及面板结果入口已实测；其余入口仍未全部通过，详见 manual-acceptance-checklist.md |
-| Windows 试行打包、发布、安装与重载 | 0.5.496 已完成包验证、试行发布、单次安装和两窗口重载；rjj8 两项目 Agent/Scheduler 同版，最终服务 MultiModal。0.5.497 为未交付候选；配套 0.2.119 不变 |
+| Windows 试行打包、发布、安装与重载 | 0.5.497 已完成包验证、试行发布、单次安装和两窗口重载；rjj8 两项目 Agent/Scheduler 同版，最终服务 MultiModal。新 stdio 连接通过，旧 Codex 连接仍需本人重连；共享端口切换后的项目归属查询缺陷待修，整体未验收通过 |
 
 生成当前源码入口与 MCP 对应清单可运行 `node scripts/entry-coverage.js <SimpleSFTP源码根>`。清单中的 mapped 只表示路由存在，实点和实际业务效果需另外核实。未验证项目不记为通过。
 
