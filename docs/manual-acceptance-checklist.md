@@ -1,16 +1,22 @@
 # Windows 日常点击验收
 
-本轮以 Windows 0.5.485 为初始实点基线。当前两个窗口均已安装、重载并运行 SimpleExperiment 0.5.506 与 SimpleSFTP 0.2.120。入口状态以 windows-entry-coverage.json 为准，静态源码位置不等同当前可达控件分母，动态行和菜单单独记载。整体入口尚未全覆盖，不以自动回归或局部修复替代实点验收。四个停止任务和两个成功实验的原证明保持；界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。下文旧版本段落保留当时事实，其“待核验”不替代本节当前状态。
+本轮以 Windows 0.5.485 为初始实点基线。当前两个窗口均已安装、重载并运行 SimpleExperiment 0.5.507 与 SimpleSFTP 0.2.120。入口状态以 windows-entry-coverage.json 为准，静态源码位置不等同当前可达控件分母，动态行和菜单单独记载。整体入口尚未全覆盖，不以自动回归或局部修复替代实点验收。四个停止任务和两个成功实验的原证明保持；界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。下文旧版本段落保留当时事实，其“待核验”不替代本节当前状态。
 
-## 0.5.507 结果状态返修候选
+## 0.5.507 结果状态修复与实机复核
 
 继续实点 Generic“重建本机表格”时发现：MCP 返回 resultOutputConfig.catalogLoadStatus=ready、catalogLoadError 为空，但实际结果页长期保留“结果目录正在刷新”，面板诊断 lifecycle=ready、无 section failure。只依据文件时间未变不能判断重建未执行：既有实现会比较内容并跳过相同字节写入。实际目录读取走 latestResultCatalog，本机按钮没有连接 Worker；未改这条业务逻辑。
 
-原因是结果区域的依赖键、渲染模型与证据区 HTML 缓存键都遗漏 catalogLoadStatus/catalogLoadError。现将两项实际展示输入补到三层既有键中，不增加新缓存或刷新计时器。既有 resultSectionRefreshDependencies 行为回归在旧实现复现 3/4，修后 4/4，覆盖同一目录对象的 ready/loading/error/publicationPending 及错误文本变化。该既有套件加入 build 域。0.5.507 尚待定向 runner、整包、发行安装及实际页面复核；不能用 506 的打包证明替代。
+原因是结果区域的依赖键、渲染模型与证据区 HTML 缓存键都遗漏 catalogLoadStatus/catalogLoadError。现将两项实际展示输入补到三层既有键中，不增加新缓存或刷新计时器。既有 resultSectionRefreshDependencies 行为回归在旧实现复现 3/4，修后 4/4，覆盖同一目录对象的 ready/loading/error/publicationPending 及错误文本变化。该既有套件加入 build 域；定向、整包和实机结果如下。
 
-首次定向 runner 2026-11-12T14-07-24-192Z-53288-test 为 2/3、exit1、16663 ms；脚本语法健康与状态回归通过，结果分组套件 10/11。唯一失败是旧断言要求三个初始化语句相邻，正常新增的 pendingResultMappingOpen 变量使其失效。未修改生产初始化；原断言改为执行真实初始化片段，核对两个分组重置为 false、无关展开状态保持，11/11 通过。结果分组套件同步纳入既有 build 域，原失败完整日志保留。最终完整 package 尚待完成。
+首次定向 runner 2026-11-12T14-07-24-192Z-53288-test 为 2/3、exit1、16663 ms；脚本语法健康与状态回归通过，结果分组套件 10/11。唯一失败是旧断言要求三个初始化语句相邻，正常新增的 pendingResultMappingOpen 变量使其失效。未修改生产初始化；原断言改为执行真实初始化片段，核对两个分组重置为 false、无关展开状态保持，11/11 通过。结果分组套件同步纳入既有 build 域，原失败完整日志保留。
 
-最终 package 2026-11-12T14-08-47-921Z-89464-package 为 332 作业、13 门禁通过，exit0、877553 ms、输入首尾一致、单测试进程、锁正常释放。VSIX 3091925 字节、SHA256 630515f679176d4cee94b7e697dd1b0167f3221fc5f2edb228aa5066a59f5346，382 项、329 运行模块、秘密排除零命中；独立 vm.Script 通过。发行、安装和新版实点仍待完成。
+最终 package 2026-11-12T14-08-47-921Z-89464-package 为 332 作业、13 门禁通过，exit0、877553 ms、输入首尾一致、单测试进程、锁正常释放。VSIX 3091925 字节、SHA256 630515f679176d4cee94b7e697dd1b0167f3221fc5f2edb228aa5066a59f5346，382 项、329 运行模块、秘密排除零命中；独立 vm.Script 通过。
+
+源码 7f9bef8e2fbafd5457f3fa1d5f2c23a43818ebb5 已普通推送并 fetch 核对 origin/master。试行 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.507 的真实 tag、提交、draft=false、prerelease=true、两项资产及重新下载字节均已核实；97 字节 SHA 文件自身摘要 ede1e58efd5f348e4d98a9642a428c49ce830f50c1c9d3689c58c3ae3be61ae1。实际原生及认证更新客户端均保持正式 0.5.483 / 0.2.118，试行不降级。install:latest 仅执行一次，安装清单和 stable simpleex 均为 507；两个原窗口已标准重载，新 SDK 确认为 Generic/PID2392、MM/PID75764/507。首次 MM 原生重载的元素点击因 geometry unavailable 未执行；重新观察后点击正确命令成功，未重装。显式 --workspace 的 CLI project status 同时返回 Generic 的正确 root、API workspace、507 与 ready。
+
+安装版 Generic 结果页首次显示加载中，随后自动显示两张原有单行表格，旧“正在刷新”提示消失。再次实点“重建本机表格”，最终截图与公开状态 catalogLoadStatus=ready、catalogLoadError 为空、行数 [1,1] 一致，无新增重建错误。MM 两份原有未保存 final.md 在重载后仍显示修改状态，没有保存、关闭或重写。两个项目未再次弹出已确认的共享配置提醒。Codex 持久 MCP 实测仍为 499→507 的版本拒绝，明确未发业务请求，仍需本人重连；新 SDK 不替代这项未完成条件。
+
+已授权 rjj8 的 MM prepare mcp-efcd4220-ebc5-47f6-923e-677962983ea9 先核实 Agent @62/Scheduler @9 为 507。随后 Generic prepare mcp-21174494-a460-4681-b784-89a0081cfc01 核实 @63/Scheduler @15 为 507；精确停止辅助 @63 后，MM prepare mcp-3a4d179f-0b81-4974-991d-6ab89905b01e 恢复最终 Agent @64/Scheduler @9 为 507。两项目 Agent 哈希 31bc76d96ca593e869953e80d3ae622f73da3d5af916b09189c7de20ff915a03，Scheduler 哈希 5fb96b5fb057b3b53a3c9046c2c9c4d1fa47aea5b3ec2a65cd2b6b34d0b92064；原任务 @12/@16 与 Scheduler @9/@15 保留。新任务查询仍为原 Generic completed1/cancelled4、MM completed/verified/exit0，没有重跑训练。
 
 冻结打包期间继续实点 506：自动匹配明确恢复 0 项、待手动映射 1 项；展开精确 PLAN 的数据集选择仅有占位项，未虚构候选或保存映射，只记预览。final 表行 Markdown 打开正确本机汇总文档，无编辑。设置里的 Xshell 导入打开真实完整隧道端口对选择页后取消，无新 Worker；手动添加入口保持可见。Generic prepare mcp-b28d3ab7-727b-45ef-895b-b69cf1c3dcef 恢复 Agent @61/506，原窗口保留；运行区主刷新与另一“刷新状态”分别执行并恢复按钮，原 completed1/cancelled4 不变。此前识别提示等待选择期间产生一条 bootstrapProject 项目资源冲突（13:56:51Z），保留实际记录；它不同于已经修复的连接配置误占项目资源，未删除锁或放开项目写保护。
 

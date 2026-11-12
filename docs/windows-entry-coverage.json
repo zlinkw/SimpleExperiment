@@ -1033,7 +1033,7 @@
       "title": "SimpleExperiment：发布到 GitHub",
       "icon": "$(cloud-upload)",
       "status": "not_tested",
-      "evidence": null
+      "evidence": "No authorization to create/publish a new consumer GitHub repository; dedicated Git fixture has a local-only remote. Plugin source releases are a separate authorized workflow and do not prove this consumer-project command."
     },
     {
       "command": "simpleExperiment.setupGitBackup",
@@ -1179,7 +1179,7 @@
       "title": "SimpleExperiment：一键打开 Xshell",
       "icon": "$(terminal)",
       "status": "not_tested",
-      "evidence": null
+      "evidence": "Computer Use safety denies terminal-app/terminal-command automation. Saved-session picker and authorized background tunnels/Agent operations are separately tested; they do not count as actual Xshell terminal UI acceptance."
     },
     {
       "command": "simpleExperiment.testAllTunnels",
@@ -3704,8 +3704,8 @@
       "command": "autoMatchPlanDatasets",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 17213,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Actual506 Generic automatic matching completed and explicitly reports restored0/unassigned1; existing unlabelled tables remain visible. No fabricated dataset or training. Nonempty recovery not covered.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3746,8 +3746,8 @@
       "command": "refreshLocalResults",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 17219,
-      "status": "found_defect",
-      "evidence": "Actual506 Generic rebuild local tables click leaves rendered catalogRefreshing text although public host catalogLoadStatus=ready/error empty and panel diagnostics ready/no failures. Identical files intentionally skip writes; mtime alone is not failure. Candidate507 adds status/error to three existing render cache keys; regression red3/4 -> green4/4, runtime acceptance pending.",
+      "status": "clicked_passed",
+      "evidence": "Actual507 installed/reloaded Generic: initial loading changes to both existing one-row tables without stale/loading text. Rebuild local tables clicked; final fresh screenshot agrees public catalogLoadStatus=ready/error empty/tableRows[1,1]. No new rebuild error. Three cache layers have red3/4 -> green4/4 regression; full package332 passed. No MM scientific result rewrite.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3892,6 +3892,12 @@
   "dynamicControls": {
     "status": "requires_live_inventory",
     "observations": [
+      {
+        "control": "resultCatalogReady507",
+        "status": "clicked_passed",
+        "version": "0.5.507",
+        "evidence": "Installed507 Generic standard Reload Window; actual results header navigation initially shows background loading, fresh UI then removes status and displays both existing one-row unlabelled tables. Actual 重建本机表格 clicked; final fresh UI has no stale/loading text, public catalogLoadStatus ready/error empty/tableRows[1,1]. Last actionError remains historical bootstrap conflict13:56:51Z, no new rebuild error. No new training or MM summary rewrite."
+      },
       {
         "control": "autoMatchPlanDatasets506",
         "status": "clicked_passed",
