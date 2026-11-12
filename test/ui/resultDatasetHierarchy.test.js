@@ -284,6 +284,14 @@ test("Plan labels use enough parent directories to distinguish deeper name colli
 });
 
 test("split tool is reset only at fresh document initialization", () => {
-  assert.match(source, /let detailsOpenState = restoredTransientPanelState\.detailsOpenState \|\| \{\};\s*detailsOpenState\["execution-full-records"\] = false;\s*detailsOpenState\["result-split-tables"\] = false;/);
+  const start = source.indexOf("let detailsOpenState =");
+  const end = source.indexOf("let workbenchInspectorInteractionLockUntil", start);
+  assert.ok(start >= 0 && end > start);
+  const restored = { "execution-full-records": true, "result-split-tables": true, "unrelated-details": true };
+  const context = { restoredTransientPanelState: { detailsOpenState: restored } };
+  vm.runInNewContext(source.slice(start, end) + "; this.initialDetails = detailsOpenState;", context);
+  assert.equal(context.initialDetails["execution-full-records"], false);
+  assert.equal(context.initialDetails["result-split-tables"], false);
+  assert.equal(context.initialDetails["unrelated-details"], true);
   assert.match(source, /\.resultDatasetGroup > summary \{ display: grid;/);
 });

@@ -5514,7 +5514,7 @@ export function renderPanelHtml(): string {
       if (section === "servers") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations, data.pptPathConfirmations);
       if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.gpuMemorySchedulingPreview, data.tensorboardPort, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig, data.detectedProject, data.remoteRootPolicy, data.pluginUpdate);
       if (section === "plans") return refListKey(data.planFileInput, data.selection, data.selectedPlan, data.plans, data.localPlans, data.detectedProject, data.planStatusSummaries, data.projectConfig, data.adapterRules, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.codeSync, data.operations, data.resultsSummary, data.schedulerStates, data.capabilities, data.extensionVersion);
-      if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation, data.resultOutputConfig?.tables, data.resultOutputConfig?.catalog);
+      if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation, data.resultOutputConfig?.tables, data.resultOutputConfig?.catalog, data.resultOutputConfig?.catalogLoadStatus, data.resultOutputConfig?.catalogLoadError);
       if (section === "sync") return refListKey(data.topology, data.schedulerConfig, data.codeSync, data.capabilities, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.realtimeDiagnostics);
       if (section === "gpu") return refListKey(data.gpu, data.gpuHistory, data.setup, data.gpuOwnerConfig);
       if (section === "execution" || section === "tasks" || section === "operations") return refListKey(data.schedulerStates, data.distributedPlans, data.deferredPlans, data.planStopClearByFile, data.selection, data.selectedLogRunKey, data.capabilities, data.resultsSummary, data.operations);
@@ -5730,6 +5730,8 @@ export function renderPanelHtml(): string {
           resultsSummary: compactResultsSummaryForSignature(data.resultsSummary),
           resultTables: data.resultOutputConfig?.tables || [],
           resultCatalog: data.resultOutputConfig?.catalog || {},
+          resultCatalogStatus: data.resultOutputConfig?.catalogLoadStatus,
+          resultCatalogError: data.resultOutputConfig?.catalogLoadError,
           resultSyncReport: data.resultSyncReport || null,
           autoParseReadiness: resultAutoParseReadinessForState(data, data.resultsSummary || {}),
           outputContractCheck: compactOutputContractCheckForSignature(currentResultOutputContractCheck(data)),
@@ -17236,7 +17238,7 @@ export function renderPanelHtml(): string {
       const autoParseReadiness = resultAutoParseReadinessForState(state, summary);
       const outputContractCheck = currentResultOutputContractCheck(state);
       const analysisArtifacts = resultAnalysisArtifactsForState(state, summary);
-      const cacheKey = resultEvidenceWorkbenchCacheKeyFor(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness) + stableSectionSignature((((state || {}).resultOutputConfig || {}).adapterRules) || {}) + stableSectionSignature((((state || {}).resultOutputConfig || {}).tables) || []) + stableSectionSignature((((state || {}).resultOutputConfig || {}).catalog) || {}) + stableSectionSignature((state || {}).resultSyncReport || {}) + resultSplitTableKey + resultSplitFieldName;
+      const cacheKey = resultEvidenceWorkbenchCacheKeyFor(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness) + stableSectionSignature((((state || {}).resultOutputConfig || {}).adapterRules) || {}) + stableSectionSignature((((state || {}).resultOutputConfig || {}).tables) || []) + stableSectionSignature((((state || {}).resultOutputConfig || {}).catalog) || {}) + stableSectionSignature(compactRecordForSignature((state || {}).resultOutputConfig || {}, ["catalogLoadStatus", "catalogLoadError"])) + stableSectionSignature((state || {}).resultSyncReport || {}) + resultSplitTableKey + resultSplitFieldName;
       if (cacheKey === resultEvidenceWorkbenchCacheKey && resultEvidenceWorkbenchCacheHtml) return resultEvidenceWorkbenchCacheHtml;
       const parseFailed = pick(summary, ["parseFailed", "parse_failed"], "-");
       const qualityWarnings = pick(summary, ["qualityWarnings", "quality_warnings"], "-");

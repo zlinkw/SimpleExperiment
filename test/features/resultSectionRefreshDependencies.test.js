@@ -2,9 +2,51 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const vm = require("node:vm");
 const { readSource } = require("../_helpers/sourceReader");
 
 const panel = readSource("src/ui/PanelHtml.ts");
+
+test("catalog status and error changes invalidate every results render cache", () => {
+  const extract = (name, next) => panel.slice(panel.indexOf(`function ${name}(`), panel.indexOf(`function ${next}(`));
+  const record = (value, keys) => Object.fromEntries(keys.map(key => [key, value[key]]));
+  const context = {
+    objectReferenceIds: new WeakMap(), nextObjectReferenceId: 1,
+    compactSelectedResultPlanForSignature: () => ({}), compactResultsSummaryForSignature: () => ({}),
+    compactOutputContractCheckForSignature: value => value, currentResultOutputContractCheck: () => ({}),
+    resultAutoParseReadinessForState: () => ({}), resultAnalysisArtifactsForState: () => ({}),
+    compactRecordForSignature: record, compactTracesForSignature: () => ({}),
+    compactResultSelectionForSignature: () => ({}), compactPlanArchiveForSignature: () => ({}),
+    traceRowsForPlanScope: () => ({ rows: [] }), experimentTraceRowsForState: () => [],
+    resultEvidenceTraceStatsForRows: () => ({}), meaningfulValue: value => value,
+    pick: (value, keys, fallback) => keys.map(key => value[key]).find(item => item !== undefined) ?? fallback,
+    resultEvidenceWorkbenchCacheKeyFor: () => "unchanged-evidence",
+    stableSectionSignature: JSON.stringify, resultSplitTableKey: "", resultSplitFieldName: "",
+  };
+  const workbenchStart = panel.indexOf("function renderResultEvidenceWorkbench(");
+  const cacheCheck = panel.indexOf("if (cacheKey === resultEvidenceWorkbenchCacheKey", workbenchStart);
+  assert.ok(workbenchStart >= 0 && cacheCheck > workbenchStart);
+  vm.createContext(context);
+  vm.runInContext([
+    extract("sectionDependencyKey", "sectionLocalPreKey"),
+    extract("refListKey", "sectionRenderSignature"),
+    extract("sectionRenderModel", "compactRowsForSignature"),
+    panel.slice(workbenchStart, cacheCheck) + "return cacheKey; }",
+  ].join("\n"), context);
+  const config = { tables: [], catalog: {}, catalogLoadStatus: "stale", catalogLoadError: "" };
+  const state = { resultOutputConfig: config };
+  const keys = () => [context.sectionDependencyKey(state, "results"),
+    JSON.stringify(context.sectionRenderModel(state, "results")), context.renderResultEvidenceWorkbench(state, {})];
+  let previous = keys();
+  for (const status of ["ready", "loading", "error", "publicationPending"]) {
+    config.catalogLoadStatus = status;
+    const current = keys();
+    current.forEach((key, index) => assert.notEqual(key, previous[index], `cache ${index} must observe ${status}`));
+    previous = current;
+  }
+  config.catalogLoadError = "读取汇总失败";
+  keys().forEach((key, index) => assert.notEqual(key, previous[index], `cache ${index} must observe the error`));
+});
 
 test("results section pre-key includes relevant Plan selection and operation changes", () => {
   const start = panel.indexOf("function sectionDependencyKey(");

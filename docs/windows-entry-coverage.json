@@ -1,5 +1,5 @@
 {
-  "version": "0.5.506",
+  "version": "0.5.507",
   "tools": [
     {
       "name": "project_status",
@@ -1143,8 +1143,8 @@
       "command": "simpleExperiment.configureTunnelPorts",
       "title": "SimpleExperiment：配置隧道端口",
       "icon": "$(ports-view-icon)",
-      "status": "found_defect",
-      "evidence": "Actual505 native input held over30s reproduces distributedPlanQueue conflict at12:27:08/43Z; candidate506 recognizes factory command IDs, targeted behavior passed; live candidate pending."
+      "status": "clicked_passed",
+      "evidence": "Installed506 native input held from13:35:51Z for at least79seconds; actual queue persisted13:37:05Z while held, fresh MCP and explicit-workspace CLI succeeded, no new distributedPlanQueue conflict. Esc cancelled original18766; ports unchanged. Historical505 failures retained in observations."
     },
     {
       "command": "simpleExperiment.configureXshellRealtimeTunnel",
@@ -1498,8 +1498,8 @@
       "command": "bootstrapProject",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1447,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "preview_passed",
+      "evidence": "Installed506 actual preparation identifies six existing PLANs; notification center View Existing returns their list/current acceptance.yaml. No new files or experiment; fresh-project onboarding not covered.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1587,7 +1587,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1473,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Actual installed506 click immediately enters batch preflight. Shared Agent currently serves MM; Generic rejects AGENT_PROJECT_MISMATCH, dispatched0/6, completed1/cancelled4 unchanged. Successful batch not covered; no replay just for entry coverage.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1647,8 +1647,8 @@
       "command": "registerBranchProject",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1492,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "preview_passed",
+      "evidence": "Installed506 actual branch toolbar opens native ancestor selector with dedicated git_ui_source_501; Esc cancelled before selecting folder or saving registration. Existing registry preserved.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1759,8 +1759,8 @@
       "command": "checkOutputContract",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1604,
-      "status": "found_defect",
-      "evidence": "Generic504 declared files passed; MM505 operation check-output-contract-1794487288011-yc2ikc incorrectly counts administrative JSON numbers. Candidate506 metadata exclusion awaits final runtime acceptance.",
+      "status": "clicked_passed",
+      "evidence": "Installed506 actual MM output-contract operation check-output-contract-1794490986545-ev9hpk completed: exact acceptance PLAN, seven declared artifacts, four result files, six rows. Operational JSON files excluded from metrics; case CSV warning remains explicit. Original task completed/verified/exit0 retained; no paper results rewritten.",
       "handlers": []
     },
     {
@@ -1933,8 +1933,8 @@
       "command": "openBranchProject",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5044,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Installed506 ancestor card Open -> exact path native confirmation -> independent Code window3414076, git_ui_source_501/master/plugin506. Cancelled onboarding and closed only this owned test window; original two windows retained. No bootstrap, Agent preparation or authorization change.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3746,8 +3746,8 @@
       "command": "refreshLocalResults",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 17219,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "found_defect",
+      "evidence": "Actual506 Generic rebuild local tables click leaves rendered catalogRefreshing text although public host catalogLoadStatus=ready/error empty and panel diagnostics ready/no failures. Identical files intentionally skip writes; mtime alone is not failure. Candidate507 adds status/error to three existing render cache keys; regression red3/4 -> green4/4, runtime acceptance pending.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3892,6 +3892,75 @@
   "dynamicControls": {
     "status": "requires_live_inventory",
     "observations": [
+      {
+        "control": "autoMatchPlanDatasets506",
+        "status": "clicked_passed",
+        "evidence": "Actual Generic result header 自动匹配可确定项 clicked, native completion reports restored0, unresolved1. Existing unlabelled tables remain visible. No invented dataset metadata or training."
+      },
+      {
+        "control": "datasetMappingPreview506",
+        "status": "preview_passed",
+        "evidence": "Actual Generic unassigned PLAN details expanded; exact acceptance.yaml mapping dropdown contains only placeholder because no trusted dataset names configured. No candidate invented, mapping/apply not saved. Existing unlabelled result tables remain; nonempty mapping execution not tested."
+      },
+      {
+        "control": "genericFinalMarkdown506",
+        "status": "clicked_passed",
+        "evidence": "Actual Generic unlabelled final table row Markdown clicked; editor final.md exact breadcrumb experiments/results/_unassigned/final/final.md shows existing one row for acceptance.yaml, accuracy0.9531/loss0.1079 and original command identity. No typing/save/new metric copy; opening file restores editor width as designed."
+      },
+      {
+        "control": "settingsXshellImport506",
+        "status": "preview_passed",
+        "evidence": "Actual settings 从Xshell导入 button opens native Worker tunnel endpoint pair picker populated from real saved sessions; full local->remote pairs and no-forward entries distinguished. Esc cancelled before selecting profile, no new Worker or credentials edited; five original profiles/one enabled retained."
+      },
+      {
+        "control": "executionManualRefresh506",
+        "status": "clicked_passed",
+        "evidence": "Actual506 Generic running section main 刷新运行状态 clicked with Agent@61 serving correct project. Spinner returned; completed1/cancelled4 facts retained. Separate executionControls 刷新状态 button then clicked, no new jobs or cleanup; Both spinners returned to normal on fresh UI; original terminal task facts retained."
+      },
+      {
+        "control": "nativePortsLongWait506",
+        "status": "clicked_passed",
+        "evidence": "Actual installed506 native configureTunnelPorts first input held from13:35:51Z for at least79seconds, original18766; multiple fresh MCP task_list and explicit-workspace CLI queries succeeded. Actual distributed queue file modified13:37:05Z while prompt held. No new distributedPlanQueue action errors; old12:27 failures retained. Esc cancelled, no port change. Main completed+fourcancelled facts and original verifiedAt retained.",
+        "checkedAt": "2026-11-12T13:38:06.594Z"
+      },
+      {
+        "control": "tmuxFollowAccessibility506",
+        "status": "clicked_passed",
+        "evidence": "Actual installed506 Generic window refreshed exactrjj8 tmux list and selected original synthetic_classifier seed42 @16, full real log read without new training. Pausing shows visual继续跟随 and refreshed accessibility继续跟随：恢复自动滚动；读取频率保持当前设置. 跳到最新 retains pause. Continue clicked; final refreshed label is暂停跟随：只暂停自动滚动，日志仍可继续读取; follow restored."
+      },
+      {
+        "control": "multimodalOutputContract506",
+        "status": "clicked_passed",
+        "version": "0.5.506",
+        "workspace": "MultiModal",
+        "evidence": "Actual installed506 result-tools OutputContract click, check-output-contract-1794490986545-ev9hpk started2026-11-12T13:43:06.545Z completed. Exact acceptance windows_mcp_20261111 PLAN: 7 declared artifacts complete, 4 parsed result files,6 result rows. Administrative operation_audit.json/quality_evaluation_complete.json still required artifacts but excluded metrics; case CSV warning remains explicit. Original command bc9df623805ca30d675854c0044f4bd2 remains completed/verified/exit0. No result_collect/export or historical paper result rewrite."
+      },
+      {
+        "control": "registerBranchPreview506",
+        "status": "preview_passed",
+        "evidence": "Installed506 Generic search 分支 matched 项目与分支工具 and navigated to actual registered ancestor/branch cards. Actual 登记分支副本 opens native ancestor selector with dedicated git_ui_source_501; Esc cancelled before folder selection or registration; existing two registry objects preserved."
+      },
+      {
+        "control": "openAncestorWindow506",
+        "status": "clicked_passed",
+        "version": "0.5.506",
+        "evidence": "Actual Generic registered ancestor Open button→native exact path confirmation→open. New Code window3414076 shows git_ui_source_501 exact fixture root/master, plugin506. Shared rjj8/tunnel reused; current MM Agent mismatch correctly displayed; no bootstrap/prepare/authorization. Original Generic/MM windows retained."
+      },
+      {
+        "control": "preparationSnapshot506",
+        "status": "clicked_passed",
+        "evidence": "Actual installed506 Generic preparation top 刷新识别 clicked after 项目识别 navigation. Spinner returned to normal; six PLANs retained, selected acceptance.yaml unchanged, original completed1/cancelled4 task facts preserved. No new snapshot action error; no new training, config edits or file cleanup."
+      },
+      {
+        "control": "bootstrapExistingButton506",
+        "status": "preview_passed",
+        "evidence": "Actual installed506 preparation 识别工作区 clicked. Native notification recognizes6existingPLANs, offers继续/查看现有; 查看现有 clicked, returns existingPLAN list/current acceptance.yaml. No duplicate onboarding files generated or new experiment launched; fresh-project initialization not covered by this existing-project preview."
+      },
+      {
+        "control": "runAllPlans506",
+        "status": "not_tested",
+        "evidence": "Actual installed506 GUI RunAll starts full batch preflight immediately, not a preview dialog. Current Agent intentionally serves MM; Generic batch six plans receives AGENT_PROJECT_MISMATCH and reports 0/6 dispatched. Preserve actual failed operation; no successful multi-PLAN submission claim. Do not rerun expensive original experiments for entry coverage."
+      },
       {
         "control": "completed PLAN history -> exact job TMUX log",
         "source": "src/ui/PanelHtml.legacy.ts",
