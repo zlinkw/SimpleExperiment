@@ -129,12 +129,13 @@ function confirmRetainedTaskStop(plan, job, now = Date.now()) {
 function restoreRetainedTaskStop(plan, job) {
     if (job.stopReason !== "user" || !(0, VerifiedCompletion_1.hasTrustedTerminalProof)(plan, job)
         || job.trustedTerminalProof.outcome !== "cancelled" || (0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job))
-        return;
+        return false;
     job.status = "cancelled";
     job.executionState = "missing";
     job.trustedTerminalStatus = "cancelled";
     job.finishedAt = job.trustedTerminalProof.provenAt;
     job.blockReason = "任务已确认停止，日志与产物保留。";
+    return true;
 }
 const QUEUE_BASE_DISK_SIGNATURE = Symbol("distributedQueueBaseDiskSignature");
 function distributedQueueDiskSignature(source) {
@@ -528,6 +529,9 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
     queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => {
                 if (plan.projectId !== projectId || job.lifecycleProtocol !== 2 || !job.workerId || !job.commandId)
                     return job;
+                const retained = { ...job };
+                if (restoreRetainedTaskStop(plan, retained))
+                    return retained;
                 const snapshot = snapshots.find(row => row.workerId === job.workerId);
                 const pending = snapshot?.pending === true;
                 if (pulled.some(row => row.workerId === job.workerId) && !pending)

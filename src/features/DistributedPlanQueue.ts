@@ -142,14 +142,15 @@ export function confirmRetainedTaskStop(plan: QueuedPlan, job: QueuedJob, now = 
   if (plan.projectId) job.trustedTerminalProof = trustedTerminalProofFor(plan, job, "cancelled", now);
 }
 
-function restoreRetainedTaskStop(plan: QueuedPlan, job: QueuedJob): void {
+function restoreRetainedTaskStop(plan: QueuedPlan, job: QueuedJob): boolean {
   if (job.stopReason !== "user" || !hasTrustedTerminalProof(plan, job)
-    || job.trustedTerminalProof!.outcome !== "cancelled" || hasVerifiedCompletion(plan, job)) return;
+    || job.trustedTerminalProof!.outcome !== "cancelled" || hasVerifiedCompletion(plan, job)) return false;
   job.status = "cancelled";
   job.executionState = "missing";
   job.trustedTerminalStatus = "cancelled";
   job.finishedAt = job.trustedTerminalProof!.provenAt;
   job.blockReason = "任务已确认停止，日志与产物保留。";
+  return true;
 }
 
 export type QueuedPlan = {
@@ -601,6 +602,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
   }
   queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => {
     if (plan.projectId !== projectId || job.lifecycleProtocol !== 2 || !job.workerId || !job.commandId) return job;
+    const retained = { ...job };
+    if (restoreRetainedTaskStop(plan, retained)) return retained;
     const snapshot = snapshots.find(row => row.workerId === job.workerId);
     const pending = (snapshot as any)?.pending === true;
     if (pulled.some(row => row.workerId === job.workerId) && !pending) return job;

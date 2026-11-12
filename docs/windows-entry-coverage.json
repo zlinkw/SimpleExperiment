@@ -1,5 +1,5 @@
 {
-  "version": "0.5.498",
+  "version": "0.5.499",
   "tools": [
     {
       "name": "project_status",
@@ -998,8 +998,8 @@
       "command": "simpleExperiment.quickSetup",
       "title": "SimpleExperiment：检查服务器配置",
       "icon": "$(wand)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "clicked_passed",
+      "evidence": "0.5.498 Generic command palette actual Check Server Configuration; native sftp_servers returned rjj8 with the exact Generic remote project path; setup unchanged. No Agent start selected."
     },
     {
       "command": "simpleExperiment.bootstrapProject",
@@ -1117,8 +1117,8 @@
       "command": "simpleExperiment.pauseRealtimeStream",
       "title": "SimpleExperiment：暂停实时流",
       "icon": "$(debug-pause)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "clicked_passed",
+      "evidence": "0.5.498 Generic command palette actual Pause Stream; native MCP project_state returned realtime.streamStatus=paused."
     },
     {
       "command": "simpleExperiment.resumeRealtimeStream",
@@ -1341,8 +1341,8 @@
       "command": "startAll",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1426,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "0.5.498 MultiModal main environment toolbar: confirmed the configured rjj8 SSH and localhost:18770 -> localhost:18765, started the tunnel; native server_test returned ok. A repeat preview was cancelled without closing it.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1383,8 +1383,8 @@
       "command": "testAll",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1431,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "0.5.498 MultiModal main environment toolbar: clicked the visible Detect All button; actual notification returned Worker rjj8:ok, panel remained in environment section.",
       "handlers": [
         {
           "function": "invokeApi",
@@ -1761,8 +1761,8 @@
       "command": "openAdvancedCommandsSetting",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1681,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "0.5.498 Generic settings: opened the exact showAdvancedCommands setting, temporarily enabled it, then restored default off after command tests.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3996,6 +3996,27 @@
         "control": "low traffic task tab loads exact log",
         "status": "clicked_passed",
         "evidence": "Low traffic remained on. After list refresh, clicking image_only_bus_p100 seed42 alone updated capture at 2026-11-11T21:08:30.050Z; original commandId, done index=0 and dead-pane status0 were present. No separate Refresh Current Log click. Navigation search cleared and original narrow sidebar restored."
+      },
+      {
+        "workspace": "SimpleMcpAcceptance",
+        "version": "0.5.498",
+        "control": "diagnostic DOM audit refresh",
+        "status": "clicked_passed",
+        "evidence": "Actual refresh returned 43 buttons, 40 commands, payload0, Worker0 and wiring24. Wiring warning details remain unresolved; this is not proof of all controls passing."
+      },
+      {
+        "workspace": "SimpleMcpAcceptance",
+        "version": "0.5.498",
+        "control": "Agent project mismatch banner prepares this project",
+        "status": "preview_passed",
+        "evidence": "Opened exact rjj8 and Generic remote-root confirmation, then exited; no deployment from this occurrence."
+      },
+      {
+        "workspace": "SimpleMcpAcceptance",
+        "version": "0.5.498",
+        "control": "Resume Stream command with shared Agent serving MultiModal",
+        "status": "not_tested",
+        "evidence": "Command invoked and paused changed to disconnected; healthy reconnection remains unverified until this project Agent serves the endpoint."
       }
     ]
   },

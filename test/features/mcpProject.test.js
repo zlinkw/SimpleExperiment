@@ -284,10 +284,33 @@ test('confirmed retained cancellation survives serialization, stale live project
   restored = q.mergeDurableWorkerSnapshots(restored, [{ workerId: 'worker-a', capabilities: { taskLifecycle: 2 }, tasks: [], fetchedAt: new Date(now).toISOString(), generatedAt: new Date(now).toISOString() }], plan.projectId, now);
   assert.equal(restored.plans[0].jobs[0].status, 'cancelled');
   assert.equal(restored.plans[0].jobs[0].commandId, 'stopped-command');
+  const at = new Date(now + 1000).toISOString();
+  for (const snapshots of [
+    [],
+    [{ workerId: 'worker-a', error: 'AGENT_PROJECT_MISMATCH', tasks: [], fetchedAt: at }],
+    [{ workerId: 'worker-a', pending: true, tasks: [] }],
+    [{ workerId: 'worker-a', capabilities: { taskLifecycle: 2 }, error: 'Worker query failed', tasks: [], fetchedAt: at }],
+    [{ workerId: 'worker-a', capabilities: { taskLifecycle: 2 }, queryComplete: true, tasks: [], fetchedAt: at, generatedAt: at }],
+  ]) {
+    const input = q.restoreFormalJobQueue(JSON.parse(serialized));
+    input.plans[0].jobs[0].status = 'unknown';
+    const merged = q.mergeDurableWorkerSnapshots(input, snapshots, plan.projectId, now + 1000);
+    const stopped = merged.plans[0].jobs[0];
+    assert.equal(stopped.status, 'cancelled', JSON.stringify(snapshots));
+    assert.equal(stopped.executionState, 'missing');
+    assert.equal(stopped.finishedAt, new Date(now).toISOString());
+    assert.deepEqual(stopped.trustedTerminalProof, job.trustedTerminalProof);
+    assert.equal(input.plans[0].jobs[0].status, 'unknown', 'query projection must not mutate its input');
+  }
   for (const change of [p => p.projectId = 'another-project', p => p.id = 'another-workflow', p => p.jobs[0].commandId = 'another-command', p => p.jobs[0].outputDir = 'work_dirs/another']) {
     const changed = JSON.parse(serialized); change(changed.plans[0]);
     assert.equal(q.restoreFormalJobQueue(changed).plans[0].jobs[0].status, 'unknown', 'cancellation proof cannot cross task identity');
+    assert.equal(q.mergeDurableWorkerSnapshots(changed, [], changed.plans[0].projectId, now + 1000).plans[0].jobs[0].status,
+      'unknown', 'live queries cannot restore another identity\'s cancellation');
   }
+  const unconfirmed = JSON.parse(serialized);
+  delete unconfirmed.plans[0].jobs[0].trustedTerminalProof;
+  assert.equal(q.mergeDurableWorkerSnapshots(unconfirmed, [], plan.projectId, now + 1000).plans[0].jobs[0].status, 'unknown');
 });
 
 test('official stdio client connects to the packaged server and preserves live project identity', async () => {

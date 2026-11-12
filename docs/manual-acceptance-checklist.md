@@ -2,6 +2,17 @@
 
 本轮以 Windows 0.5.485 为初始实点基线。当前已安装 0.5.498，完整打包、试行发行及两窗口重载完成。结果解析、日志点击、TensorBoard MCP、产物对象映射及双项目切换后的归属拒绝与完成保持已实测；原 0.5.497 归属缺陷已修复，首次错误与 Generic 重新确认的时间均保留。整体入口尚未全覆盖。界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。
 
+## 0.5.499 停止状态刷新修复
+
+- 本人重连后，Codex 原生 MCP 两路均实际返回 0.5.498 和正确项目根，MultiModal PID 89272、Generic PID 64844；面板 lifecycle=ready、lastFailure=null。此前原生连接版本不符的阻塞已解除。
+- 面板运行环境区的启动全部隧道实际核对 rjj8、root@127.0.0.1:15791、localhost:18770 → localhost:18765 并启动成功；同一区域检测全部实际返回 rjj8:ok。重复打开隧道确认页后取消，环境区位置保留；此前一次跳到结果区的现象暂未稳定复现，不宣称已修复。
+- Generic 四个已停止控制任务在本轮查询中错误显示 unknown，磁盘仍保留精确取消证明。87daf103e2ca8b69d1bd5fb4d9a69e10 的取消时间仍为 2026-11-11T19:02:34.755Z。原因是实时查询缺失或拒绝另一项目 Agent 时，共享归并未恢复已有取消证明。现复用同一身份核验恢复逻辑，未刷新证明时间、未重发或重新停止任务。
+- 回归先在原实现因空 Worker 查询返回 unknown 失败；修复后 mcpProject、verifiedCompletion、distributedPlanQueue、distributedQueueCacheStability 四个串行套件通过，记录 simple_cluster/reports/test-workflow/2026-11-12T03-24-12-130Z-60552-test_features/run.json。新增断言覆盖查询缺失、项目不符、查询错误、查询进行中及完整空清单，并拒绝另一身份或无证明的取消恢复；不修改调用方输入。
+- 最终 package 322 项串行作业及 13 个门禁全部通过，输入前后一致（ab450dd4ab2d0064be9e8441257cdaf08525b5d1be114b3d19ecee0d18aadf6a）、801308 ms，记录 simple_cluster/reports/test-workflow/2026-11-12T03-25-28-115Z-61368-package/run.json。vm.Script 与实际 ZIP 的 380 项、327 个运行模块、版本、平台、runtime 字节及秘密排除通过。simple-experiment-0.5.499.vsix 为 3079508 字节，SHA256 dd893b4fd2455fb29be4793e22aba9265871ea571faf8fa65fdf885b0ba07b09。首次定向失败的完整输出保留在本轮工具记录，后续 runner 的定向和完整检查日志已落盘。
+- 设置中的打开命令设置实际定位 showAdvancedCommands；临时开启后执行暂停实时流，原生 MCP 读回 streamStatus=paused。恢复命令执行后为 disconnected，当前仍是另一项目 Agent，不能算作健康连接恢复通过。显示选项已恢复默认关闭。命令面板检查服务器配置实际保存 rjj8 → /root/autodl-tmp/zlk/SimpleMcpAcceptance 的目标，MCP sftp_servers 读回一致，setup 前后相同；未启动新 Agent 或训练。
+- 通用项目功能可用性审计实际刷新为按钮 43、命令 40、payload 0、Worker 0、接线 24。接线数混合处理器、说明和悬浮提示，明细仍需核对，不能据此宣称 24 个按钮失效或全部接线正常。诊断入口待后续检查。部署本项目 Agent 横幅可进入当前项目和 rjj8 的准确准备确认页，本轮退出，暂记预览。
+- 0.5.499 尚待试行发行、安装重载及原任务实机复核。永久删除继续暂缓，授权撤销仍需本人操作，不计为通过。
+
 ## 0.5.498 项目归属与产物查询实机复核
 
 - 源码 4ca277e85facc328fe184eb0351c25eeae854846 已普通推送并 fetch 确认，试行 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.498 精确绑定该提交，draft=false、prerelease=true、latest=false。VSIX 和 97 字节 SHA 文件均经真实下载核对；SHA 文件自身摘要 a1752965f2c67e996dc6a878fc58556d0b2e5fd01df823e7a676204cd8470c32。原生 ReleaseClient 为 up_to_date，旧版仍只看到正式 0.5.483 / 0.2.118，试行不降级。install:latest 仅执行一次，稳定 simpleex 入口有效；两窗口标准重载后 MultiModal PID 27108、Generic PID 83360 均为 0.5.498，原未保存页保留，未再次弹出已确认的共享配置提醒。
