@@ -2370,8 +2370,8 @@
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 10116,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "This source occurrence is inside declaration-only renderTensorBoardLinkRow, with no production call. Other native scalar viewer controls remain active and separately inventoried; no command or feature removed.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3262,8 +3262,8 @@
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15763,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Actual506 executionControls bottom Refresh State/重新拉取调度状态与操作记录 clicked independently after main scheduler refresh. Spinner returned; completed1/cancelled4 retained, no new job or cleanup. Source button in executionControls verified.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3892,6 +3892,13 @@
   "dynamicControls": {
     "status": "requires_live_inventory",
     "observations": [
+      {
+        "control": "localFreshProjectOnboarding507",
+        "status": "clicked_passed",
+        "version": "0.5.507",
+        "workspace": "D:/GitRepo/SimpleMcpAcceptance/acceptance_files/artifacts/gui_onboarding_507",
+        "evidence": "Fresh dedicated local folder contains only unmodified toy train.py/config.yaml. Actual welcome Recognize Workspace -> train+test mode -> explicit valid train/test --mode commands -> real {output_dir}/metrics.csv -> native full review -> Create PLAN. Actual generated experiments/plans/guided_plan.yaml UTF8: train_test, one baseline case, seed42, config.yaml, exact commands and result contract. No training. Completion explicitly says local PLAN/result contract ready but rjj8 Agent does not match this project and offers Prepare/later. Selected later, no new project/Worker authorization or remote deploy/upload. Template generation passed, remote end-to-end for this third local UI fixture not claimed."
+      },
       {
         "control": "resultCatalogReady507",
         "status": "clicked_passed",

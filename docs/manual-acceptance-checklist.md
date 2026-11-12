@@ -20,6 +20,12 @@
 
 冻结打包期间继续实点 506：自动匹配明确恢复 0 项、待手动映射 1 项；展开精确 PLAN 的数据集选择仅有占位项，未虚构候选或保存映射，只记预览。final 表行 Markdown 打开正确本机汇总文档，无编辑。设置里的 Xshell 导入打开真实完整隧道端口对选择页后取消，无新 Worker；手动添加入口保持可见。Generic prepare mcp-b28d3ab7-727b-45ef-895b-b69cf1c3dcef 恢复 Agent @61/506，原窗口保留；运行区主刷新与另一“刷新状态”分别执行并恢复按钮，原 completed1/cancelled4 不变。此前识别提示等待选择期间产生一条 bootstrapProject 项目资源冲突（13:56:51Z），保留实际记录；它不同于已经修复的连接配置误占项目资源，未删除锁或放开项目写保护。
 
+## 0.5.507 本地新项目向导实点
+
+专用目录 D:/GitRepo/SimpleMcpAcceptance/acceptance_files/artifacts/gui_onboarding_507 只复制既有通用样例的 train.py/config.yaml，两文件与原样例内容核对一致，未修改训练代码。实际欢迎页“识别工作区”进入运行模式向导，选训练并评估；训练入口自动识别为 train.py，评估命令留给用户明确填写。实际补齐两个命令各自的 --mode train/test，并把静态推断的 metrics_summary.csv 改为脚本真实的 {output_dir}/metrics.csv。完整创建审核显示 1 case × seed42、config.yaml、两条命令及结果路径，确认仅创建本地 experiments/plans/guided_plan.yaml；内容 UTF-8 读回复核一致。
+
+创建后面板正确选择该 PLAN，明确提示隧道已通但当前 Agent 归属 MultiModal，未假报新项目 Agent 就绪。选择“稍后”，没有部署、上传、授权新项目或启动实验。CLI 显式工作区命中嵌套验收目录而非其父 Git 仓库；新官方 SDK 的 plan_matrix 返回 suite=gui_onboarding_507、count=1、cases=1、seeds=1。新项目依然需要消费方确认命令必需参数、真实结果路径及其他声明产物；这一项只证明本地初始化，不替代新的远端实验。快捷菜单仅查看后取消，未保存布局。验收窗口已关闭，生成文件保留，没有清理。
+
 ## 0.5.506 安装版正式复核
 
 - 最终包 330 作业、13 门禁通过，证据见下节。源码 371c32a6ec1365215b4b12f2920e0504e553cd34 已推送并核对 origin/master。试行 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.506 实际绑定该提交，prerelease=true、latest=false；真实下载的 VSIX 与本机 3091880 字节及 SHA256 81eb13b370bdf6074509c632281a0ec7a661002e243f8bc22fa7dd9b2340b226 一致，97 字节校验文件绑定精确包名。实际更新客户端仍读取权威 0.5.483 / 0.2.118，试行不降级。只安装一次，stable simpleex 入口正常。
