@@ -86,6 +86,19 @@ function loadActualFilterCache() {
   return sandbox;
 }
 
+test("active result collection survives PLAN scoping without becoming a stale legacy summary", () => {
+  const sandbox = loadActualFilterCache(), plan = "experiments/plans/current.yaml";
+  const preview = { source: "work_dirs/current/metrics.csv", headers: ["case", "seed", "accuracy"] };
+  const summary = { source: "active_query", jobs: [{ planFile: plan, state: "complete", aggregationState: "eligible" }],
+    results: [{ planFile: plan, metrics: { accuracy: .9 } }], columnMappingPreviews: { [plan]: preview } };
+  const result = sandbox.compactForPlan(summary, plan, "current-revision", "2026-11-12T00:00:00Z");
+  assert.equal(result.source, "active_query");
+  assert.equal(result.results.length, 1);
+  assert.equal(result.completed, 1);
+  assert.equal(result.stalePlanVersionSuppressed, undefined);
+  assert.deepEqual(result.columnMappingPreview, preview);
+});
+
 test("results summary Webview cache reuses one Plan version derivation", () => {
   const sandbox = loadCache();
   const summary = { results: [{ id: "a" }] };

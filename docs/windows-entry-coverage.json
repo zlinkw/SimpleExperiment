@@ -1,5 +1,5 @@
 {
-  "version": "0.5.500",
+  "version": "0.5.501",
   "tools": [
     {
       "name": "project_status",
@@ -1138,8 +1138,8 @@
       "command": "simpleExperiment.generateXshellTunnelScript",
       "title": "SimpleExperiment：生成 Xshell 会话启动脚本",
       "icon": "$(file-code)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "clicked_passed",
+      "evidence": "0.5.500 actual command palette and Save dialog created acceptance_files/artifacts/start-xshell-acceptance-500.bat. UTF-8 read verifies the exact rjj8卡.xsh session, SSH15791 and configured forward18770->18765; script generation only, script execution untested."
     },
     {
       "command": "simpleExperiment.openTunnelStatus",
@@ -1152,8 +1152,8 @@
       "command": "simpleExperiment.runXshellRealIntegrationCheck",
       "title": "SimpleExperiment：运行 Xshell 真实对接检测",
       "icon": "$(checklist)",
-      "status": "not_tested",
-      "evidence": null
+      "status": "clicked_passed",
+      "evidence": "0.5.500 actual command palette selected Run Xshell Real Integration Check, terminal result notification: 隧道检测完成。Worker：rjj8:ok. No Xshell terminal automation or other Workers touched."
     },
     {
       "command": "simpleExperiment.manualRefresh",
@@ -1266,8 +1266,8 @@
       "command": "manageAiAuthorization",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1421,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "preview_passed",
+      "evidence": "0.5.500 actual environment button opened AI project authorization picker for d:/GitRepo/SimpleMcpAcceptance. Escaped without granting or revoking.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1280,8 +1280,8 @@
       "command": "runCheckStatic",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1422,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "0.5.500 environment button produced this Generic project check-static-latest.md at 2026-11-12T05:21:46.523Z: passed, errors0, warnings1, plans6.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1308,8 +1308,8 @@
       "command": "configureCodeSyncIncludes",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1424,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "0.5.500 actual environment Project Sync Scope opened a separate editor; both tabs loaded real inventories. Local Edit and Save retained config.yaml/experiments/train.py. Worker tab default whole-project selection includes work_dirs; only one enabled Worker, so cross-Worker execution remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1322,8 +1322,8 @@
       "command": "prepareAgents",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1428,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "0.5.500 actual environment Deploy Agent, exact rjj8 project path confirmation, completion notification. Fresh named MCP inspection confirms healthy same @49 Agent/@15 Scheduler version0.5.500; all protected windows retained. No new deployment or training was inferred from the receipt alone.",
       "handlers": [
         {
           "function": "invokeApi",
@@ -1774,7 +1774,7 @@
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 3598,
+      "line": 3599,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -1788,7 +1788,7 @@
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 4440,
+      "line": 4441,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -1802,7 +1802,7 @@
     {
       "command": "openBranchProject",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 5030,
+      "line": 5031,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -1816,7 +1816,7 @@
     {
       "command": "forgetAncestorProject",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 5031,
+      "line": 5032,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -1830,7 +1830,7 @@
     {
       "command": "openBranchProject",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 5041,
+      "line": 5042,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -1844,7 +1844,7 @@
     {
       "command": "createBranchPr",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 5042,
+      "line": 5043,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -1858,7 +1858,7 @@
     {
       "command": "mergeBranchPr",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 5042,
+      "line": 5043,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -1872,7 +1872,7 @@
     {
       "command": "forgetBranchProject",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 5042,
+      "line": 5043,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -1886,7 +1886,7 @@
     {
       "command": "submitBranchPlanRun",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 5064,
+      "line": 5065,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -1900,7 +1900,7 @@
     {
       "command": "verifyBranchHeadBinding",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 5107,
+      "line": 5108,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -1914,7 +1914,7 @@
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 5224,
+      "line": 5225,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -1928,7 +1928,7 @@
     {
       "command": "reloadPanel",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 5487,
+      "line": 5488,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -1942,7 +1942,7 @@
     {
       "command": "openSetupGuide",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9426,
+      "line": 9428,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -1956,7 +1956,7 @@
     {
       "command": "openLastCheckStaticReport",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9810,
+      "line": 9812,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -1970,7 +1970,7 @@
     {
       "command": "configureWorkers",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9864,
+      "line": 9866,
       "status": "preview_passed",
       "evidence": "docs/manual-acceptance-checklist.md: Windows live acceptance 0.5.495; unobscured manual server entry -> new Worker name prompt -> cancel; original five profiles and one enabled Worker retained",
       "handlers": [
@@ -1984,7 +1984,7 @@
     {
       "command": "addWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9865,
+      "line": 9867,
       "status": "preview_passed",
       "evidence": "docs/manual-acceptance-checklist.md: Windows live acceptance 0.5.495; Xshell endpoint-pair picker opened then cancelled without importing a profile",
       "handlers": [
@@ -1998,7 +1998,7 @@
     {
       "command": "saveAgentDefaults",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9876,
+      "line": 9878,
       "status": "clicked_passed",
       "evidence": "Generic host 0.5.492 live unchanged-value save, current global values reread equal; scheduler native save notice observed",
       "handlers": [
@@ -2012,7 +2012,7 @@
     {
       "command": "saveSchedulerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9904,
+      "line": 9906,
       "status": "clicked_passed",
       "evidence": "Generic host 0.5.492 live unchanged-value save, current global values reread equal; scheduler native save notice observed",
       "handlers": [
@@ -2026,7 +2026,7 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9905,
+      "line": 9907,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2040,7 +2040,7 @@
     {
       "command": "addWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9955,
+      "line": 9957,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2054,7 +2054,7 @@
     {
       "command": "saveWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9956,
+      "line": 9958,
       "status": "clicked_passed",
       "evidence": "Generic 0.5.492 rjj8 unchanged-value save, native saved notice and setupConfig reread; all Worker fields unchanged, project derived paths correct",
       "handlers": [
@@ -2068,7 +2068,7 @@
     {
       "command": "startTunnelEndpoint",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9957,
+      "line": 9959,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2082,7 +2082,7 @@
     {
       "command": "deleteWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9958,
+      "line": 9960,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2096,7 +2096,7 @@
     {
       "command": "resetRemotePathConfirmations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9971,
+      "line": 9973,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2110,7 +2110,7 @@
     {
       "command": "resetPptPathConfirmations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9981,
+      "line": 9983,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2124,7 +2124,7 @@
     {
       "command": "configureWorkers",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10079,
+      "line": 10081,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2138,7 +2138,7 @@
     {
       "command": "addWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10080,
+      "line": 10082,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2152,7 +2152,7 @@
     {
       "command": "startAll",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10081,
+      "line": 10083,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2166,7 +2166,7 @@
     {
       "command": "openXshell",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10082,
+      "line": 10084,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2180,7 +2180,7 @@
     {
       "command": "prepareAgents",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10083,
+      "line": 10085,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2199,7 +2199,7 @@
     {
       "command": "testAll",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10084,
+      "line": 10086,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2218,7 +2218,7 @@
     {
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10091,
+      "line": 10093,
       "status": "clicked_passed",
       "evidence": "docs/manual-acceptance-checklist.md: 0.5.496 rjj8 button -> MultiModal browser viewer -> actual single-seed acceptance curves and native embedded TensorBoard; test-only @40 subsequently stopped and absence verified",
       "handlers": [
@@ -2232,7 +2232,7 @@
     {
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10096,
+      "line": 10098,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2246,7 +2246,7 @@
     {
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10108,
+      "line": 10110,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2260,9 +2260,9 @@
     {
       "command": "checkPluginUpdates",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10178,
-      "status": "not_tested",
-      "evidence": null,
+      "line": 10180,
+      "status": "clicked_passed",
+      "evidence": "0.5.500 Generic settings actual Check Updates click completed with a real up-to-date notification; installed500/119 remained and authoritative483/118 shown without downgrade. Original checkedAt retained by the client.",
       "handlers": [
         {
           "function": "invokeApi",
@@ -2279,7 +2279,7 @@
     {
       "command": "installPluginUpdates",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10179,
+      "line": 10181,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2298,7 +2298,7 @@
     {
       "command": "saveRemoteRootPolicy",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10219,
+      "line": 10221,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2312,9 +2312,9 @@
     {
       "command": "chooseResultCsvDir",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10231,
-      "status": "not_tested",
-      "evidence": null,
+      "line": 10233,
+      "status": "clicked_passed",
+      "evidence": "0.5.500 Generic settings actual UI: saved a dedicated result directory, fresh MCP configuration_get read it back; restored experiments/results and read it back. Browse dialog opened at the exact current project directory and selecting it persisted the same relative path.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2326,9 +2326,9 @@
     {
       "command": "saveResultCsvDir",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10231,
-      "status": "not_tested",
-      "evidence": null,
+      "line": 10233,
+      "status": "clicked_passed",
+      "evidence": "0.5.500 Generic settings actual UI: saved a dedicated result directory, fresh MCP configuration_get read it back; restored experiments/results and read it back. Browse dialog opened at the exact current project directory and selecting it persisted the same relative path.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2340,9 +2340,9 @@
     {
       "command": "editResultColumnMapping",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10240,
-      "status": "not_tested",
-      "evidence": null,
+      "line": 10242,
+      "status": "found_defect",
+      "evidence": "0.5.500 actual settings navigation does not open lazy editor; after manual expansion successful native result collection still supplies no column preview. Fixed candidate0.5.501 awaiting live verification.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2354,7 +2354,7 @@
     {
       "command": "prepareAgents",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10752,
+      "line": 10756,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2373,7 +2373,7 @@
     {
       "command": "writeAgentCommands",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10753,
+      "line": 10757,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2387,7 +2387,7 @@
     {
       "command": "startAllConnections",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10754,
+      "line": 10758,
       "status": "clicked_passed",
       "evidence": "docs/manual-acceptance-checklist.md: Windows live acceptance 2026-11-11, host 0.5.491",
       "handlers": [
@@ -2401,7 +2401,7 @@
     {
       "command": "openXshell",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10755,
+      "line": 10759,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2415,7 +2415,7 @@
     {
       "command": "startTunnelEndpoint",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10769,
+      "line": 10773,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2429,7 +2429,7 @@
     {
       "command": "reviewDraft",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11126,
+      "line": 11130,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2443,7 +2443,7 @@
     {
       "command": "promoteDraft",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11127,
+      "line": 11131,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2457,7 +2457,7 @@
     {
       "command": "rejectDraft",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11128,
+      "line": 11132,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2471,7 +2471,7 @@
     {
       "command": "cleanupDrafts",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11138,
+      "line": 11142,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2490,7 +2490,7 @@
     {
       "command": "archivePlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11158,
+      "line": 11162,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2504,7 +2504,7 @@
     {
       "command": "generateOutputAdapter",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11453,
+      "line": 11457,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2518,7 +2518,7 @@
     {
       "command": "runPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11475,
+      "line": 11479,
       "status": "not_tested",
       "evidence": null,
       "handlers": []
@@ -2526,7 +2526,7 @@
     {
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11819,
+      "line": 11823,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2540,7 +2540,7 @@
     {
       "command": "selectLogRunKey",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 13559,
+      "line": 13563,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2554,7 +2554,7 @@
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 13631,
+      "line": 13635,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2568,7 +2568,7 @@
     {
       "command": "saveProjectAdapterRules",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14056,
+      "line": 14060,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2582,7 +2582,7 @@
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14399,
+      "line": 14403,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2596,7 +2596,7 @@
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14589,
+      "line": 14593,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2610,7 +2610,7 @@
     {
       "command": "analyzeRuntimeLog",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14741,
+      "line": 14745,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2629,7 +2629,7 @@
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14763,
+      "line": 14767,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2643,7 +2643,7 @@
     {
       "command": "clearLegacyTasks",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14814,
+      "line": 14818,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2657,7 +2657,7 @@
     {
       "command": "selectLogRunKey",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14918,
+      "line": 14922,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2671,7 +2671,7 @@
     {
       "command": "manualTracesSnapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14946,
+      "line": 14950,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2685,7 +2685,7 @@
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15003,
+      "line": 15007,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2699,7 +2699,7 @@
     {
       "command": "restoreArchivedPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15003,
+      "line": 15007,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2713,7 +2713,7 @@
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15003,
+      "line": 15007,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2727,7 +2727,7 @@
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15003,
+      "line": 15007,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2741,7 +2741,7 @@
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15015,
+      "line": 15019,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2755,7 +2755,7 @@
     {
       "command": "clearOperations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15448,
+      "line": 15452,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2769,7 +2769,7 @@
     {
       "command": "stopExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15464,
+      "line": 15468,
       "status": "clicked_passed",
       "evidence": "docs/manual-acceptance-checklist.md: Windows live acceptance 0.5.495; original command 87daf103e2ca8b69d1bd5fb4d9a69e10 cancelled; other jobs and original windows retained",
       "handlers": [
@@ -2783,7 +2783,7 @@
     {
       "command": "retryDistributedJob",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15479,
+      "line": 15483,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2802,7 +2802,7 @@
     {
       "command": "retryDistributedJob",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15481,
+      "line": 15485,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2821,7 +2821,7 @@
     {
       "command": "recallPlanToLocalQueue",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15484,
+      "line": 15488,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2835,7 +2835,7 @@
     {
       "command": "recheckOutputIsolation",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15487,
+      "line": 15491,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2854,7 +2854,7 @@
     {
       "command": "recallFailedJob",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15491,
+      "line": 15495,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2868,7 +2868,7 @@
     {
       "command": "analyzeRuntimeLog",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15507,
+      "line": 15511,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2887,7 +2887,7 @@
     {
       "command": "releaseJobStageBlockSlots",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15536,
+      "line": 15540,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2901,7 +2901,7 @@
     {
       "command": "retryDistributedJob",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15540,
+      "line": 15544,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2920,7 +2920,7 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15556,
+      "line": 15560,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2934,7 +2934,7 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15560,
+      "line": 15564,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2948,7 +2948,7 @@
     {
       "command": "runPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15588,
+      "line": 15592,
       "status": "not_tested",
       "evidence": null,
       "handlers": []
@@ -2956,7 +2956,7 @@
     {
       "command": "stopAndClearPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15590,
+      "line": 15594,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2970,7 +2970,7 @@
     {
       "command": "recallPlanToLocalQueue",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15593,
+      "line": 15597,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2984,7 +2984,7 @@
     {
       "command": "queueRemainingJobs",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15595,
+      "line": 15599,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -2998,7 +2998,7 @@
     {
       "command": "stopAndClearPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15702,
+      "line": 15706,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3012,7 +3012,7 @@
     {
       "command": "stopAllPlans",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15703,
+      "line": 15707,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3026,7 +3026,7 @@
     {
       "command": "stopAndClearPlans",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15705,
+      "line": 15709,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3040,7 +3040,7 @@
     {
       "command": "stopAndClearPlans",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15706,
+      "line": 15710,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3054,7 +3054,7 @@
     {
       "command": "clearOperations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15707,
+      "line": 15711,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3068,7 +3068,7 @@
     {
       "command": "clearOperations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15708,
+      "line": 15712,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3082,7 +3082,7 @@
     {
       "command": "clearOperations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15709,
+      "line": 15713,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3096,7 +3096,7 @@
     {
       "command": "queueRemainingJobs",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15710,
+      "line": 15714,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3110,7 +3110,7 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15711,
+      "line": 15715,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3124,7 +3124,7 @@
     {
       "command": "abortScheduler",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15712,
+      "line": 15716,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3138,7 +3138,7 @@
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16112,
+      "line": 16116,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3152,7 +3152,7 @@
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16149,
+      "line": 16153,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3166,7 +3166,7 @@
     {
       "command": "retryPlanSubmission",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16272,
+      "line": 16276,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3180,7 +3180,7 @@
     {
       "command": "cancelPlanSubmission",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16272,
+      "line": 16276,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3194,7 +3194,7 @@
     {
       "command": "clearOperations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16277,
+      "line": 16281,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3208,7 +3208,7 @@
     {
       "command": "abortScheduler",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16291,
+      "line": 16295,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3222,7 +3222,7 @@
     {
       "command": "stopAndClearPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16575,
+      "line": 16579,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3236,7 +3236,7 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16580,
+      "line": 16584,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3250,7 +3250,7 @@
     {
       "command": "showLogHistory",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16581,
+      "line": 16585,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3264,7 +3264,7 @@
     {
       "command": "openFullLog",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16582,
+      "line": 16586,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3278,7 +3278,7 @@
     {
       "command": "stopAndClearPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16590,
+      "line": 16594,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3292,7 +3292,7 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16593,
+      "line": 16597,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3306,7 +3306,7 @@
     {
       "command": "showLogHistory",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16594,
+      "line": 16598,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3320,7 +3320,7 @@
     {
       "command": "openFullLog",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16595,
+      "line": 16599,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3334,7 +3334,7 @@
     {
       "command": "showLogHistory",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16685,
+      "line": 16689,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3348,7 +3348,7 @@
     {
       "command": "openFullLog",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16685,
+      "line": 16689,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3362,7 +3362,7 @@
     {
       "command": "showLogHistory",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16697,
+      "line": 16701,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3376,7 +3376,7 @@
     {
       "command": "openFullLog",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16697,
+      "line": 16701,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3390,7 +3390,7 @@
     {
       "command": "showLogHistory",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16704,
+      "line": 16708,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3404,7 +3404,7 @@
     {
       "command": "openFullLog",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16704,
+      "line": 16708,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3418,7 +3418,7 @@
     {
       "command": "downloadRemoteResult",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16715,
+      "line": 16719,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3430,14 +3430,14 @@
         {
           "function": "withSafeTransferRetry",
           "source": "src/extension/legacy.ts",
-          "line": 14135
+          "line": 14156
         }
       ]
     },
     {
       "command": "choosePptPath",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16865,
+      "line": 16870,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3451,7 +3451,7 @@
     {
       "command": "chooseNewPptPath",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16865,
+      "line": 16870,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3465,7 +3465,7 @@
     {
       "command": "savePptPlotConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16878,
+      "line": 16883,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3479,7 +3479,7 @@
     {
       "command": "plotResultsToPpt",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16880,
+      "line": 16885,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3493,7 +3493,7 @@
     {
       "command": "plotResultsToPpt",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16887,
+      "line": 16892,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3507,9 +3507,9 @@
     {
       "command": "openLocalResultTable",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17126,
-      "status": "not_tested",
-      "evidence": null,
+      "line": 17131,
+      "status": "clicked_passed",
+      "evidence": "0.5.500 actual Generic final table CSV click opened experiments/results/_unassigned/final/final.csv in this workspace. Original command/seed42 and metrics accuracy0.953125/loss0.10787482559680939 matched prior MCP export.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3521,9 +3521,9 @@
     {
       "command": "openLocalResultTable",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17126,
-      "status": "not_tested",
-      "evidence": null,
+      "line": 17131,
+      "status": "clicked_passed",
+      "evidence": "0.5.500 Generic final table actual Markdown button opened this project experiments/results/_unassigned/final/final.md, paired with the verified CSV table; no MultiModal file was opened or regenerated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3535,7 +3535,7 @@
     {
       "command": "openLocalResultTable",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17142,
+      "line": 17147,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3549,7 +3549,7 @@
     {
       "command": "autoMatchPlanDatasets",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17160,
+      "line": 17165,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3563,7 +3563,7 @@
     {
       "command": "applyPlanDatasetMapping",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17160,
+      "line": 17165,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3577,9 +3577,9 @@
     {
       "command": "syncPendingPlanArtifacts",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17166,
-      "status": "not_tested",
-      "evidence": null,
+      "line": 17171,
+      "status": "clicked_passed",
+      "evidence": "0.5.500 Generic results actual Update All PLAN Results completed: six PLANs found, one collected and one successful job verified; four stopped jobs remained incomplete and were not counted as success. Actual summary CSV retains accuracy0.953125 and loss0.10787482559680939 for original seed42 command.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3591,7 +3591,7 @@
     {
       "command": "refreshLocalResults",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17166,
+      "line": 17171,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3605,9 +3605,9 @@
     {
       "command": "splitProjectResultTable",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17177,
-      "status": "not_tested",
-      "evidence": null,
+      "line": 17182,
+      "status": "clicked_passed",
+      "evidence": "0.5.500 actual Generic final-table row Split -> result_family -> acceptance; clear/select-all, exclude plan_file, generate. New by_result_family/acceptance.csv exists with exact original accuracy/loss and no plan_file column; source table unchanged.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3619,7 +3619,7 @@
     {
       "command": "openResultArtifact",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17357,
+      "line": 17362,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3633,7 +3633,7 @@
     {
       "command": "saveResultColumnMapping",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17390,
+      "line": 17395,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3647,7 +3647,7 @@
     {
       "command": "plotResultsToPpt",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17712,
+      "line": 17717,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3661,7 +3661,7 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 18031,
+      "line": 18036,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3675,7 +3675,7 @@
     {
       "command": "testAll",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 18033,
+      "line": 18038,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3694,7 +3694,7 @@
     {
       "command": "testAll",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 18034,
+      "line": 18039,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -3713,7 +3713,7 @@
     {
       "command": "runPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 19080,
+      "line": 19085,
       "status": "not_tested",
       "evidence": null,
       "handlers": []
@@ -3721,7 +3721,7 @@
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 19169,
+      "line": 19174,
       "status": "not_tested",
       "evidence": null,
       "handlers": [
@@ -4024,6 +4024,30 @@
         "control": "four retained cancellations after reload and active Worker queries",
         "status": "clicked_passed",
         "evidence": "Actual PLAN dropdown shows four existing controls cancelled and acceptance.yaml completed1/1. Named SDK task_list and project_state preserve four cancellations and exact original proof timestamps with a healthy project Agent and with AGENT_PROJECT_MISMATCH; explicit-workspace CLI confirms the same original commandIds. Original selection retained."
+      },
+      {
+        "workspace": "SimpleMcpAcceptance",
+        "version": "0.5.500",
+        "control": "final table row Split, column selector, clear/select-all, keep-column checkbox and generation",
+        "status": "clicked_passed",
+        "path": "experiments/results/_unassigned/final/by_result_family/acceptance.csv",
+        "evidence": "docs/manual-acceptance-checklist.md"
+      },
+      {
+        "workspace": "SimpleMcpAcceptance",
+        "version": "0.5.500",
+        "control": "file tree row local retain/upload",
+        "status": "clicked_passed",
+        "path": "acceptance_files/transfer_20261111.txt",
+        "evidence": "Both actual path pages confirmed. Remote sample changed to52bytes and matching SHA in UI; unselected cleanup stayed missing. Original47byte sample restored by named MCP upload and verified completion receipt mcp-f310ab3e-f14c-4bbc-81c2-0b21ebb3ecd9."
+      },
+      {
+        "workspace": "SimpleMcpAcceptance",
+        "version": "0.5.500",
+        "control": "file tree row Worker artifact download",
+        "status": "found_defect",
+        "path": "acceptance_files/artifacts/ui_transfer_0_5_500.txt",
+        "evidence": "Both actual path pages confirmed, but SimpleSFTP sync.downloadPaths refused the same-window parent writer scope. Local29byte sentinel remained; remote57byte source preserved. SE0.5.501/SFTP0.2.120 candidate fixes shared in-process entry, live retest pending."
       }
     ]
   },

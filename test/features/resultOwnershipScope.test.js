@@ -14,6 +14,21 @@ test('anonymous aggregate paths do not inherit a selected PLAN; only owned child
   assert.equal(out.results.length, 1); assert.equal(out.results[0].seed, 42); assert.equal(out.rawResultCsvPath, undefined); assert.deepEqual(out.sources, []);
   assert.equal(JSON.stringify(summary), before);
 });
+
+test('active-query summaries keep their protocol and only the selected PLAN preview and jobs', () => {
+  const preview = { source: 'work_dirs/current/metrics.csv', headers: ['case', 'seed', 'accuracy'] };
+  const summary = { source: 'active_query', observedAt: '2026-11-12T00:00:00Z',
+    jobs: [{ planFile: plan, state: 'complete' }, { planFile: foreign, state: 'complete' }],
+    results: [{ planFile: plan, metrics: { accuracy: .9 } }, { planFile: foreign, metrics: { accuracy: .1 } }],
+    columnMappingPreviews: { [plan]: preview, [foreign]: { source: 'foreign.csv' } } };
+  const before = JSON.stringify(summary), out = scopeResultSummary(summary, plan);
+  assert.equal(out.source, 'active_query');
+  assert.equal(out.jobs.length, 1);
+  assert.equal(out.results.length, 1);
+  assert.deepEqual(out.columnMappingPreview, preview);
+  assert.equal(JSON.stringify(summary), before);
+  assert.equal(scopeResultSummary(summary, 'experiments/plans/absent.yaml').columnMappingPreview, undefined);
+});
 test('foreign nested tables and contradictory provenance cannot authorize CSV/claim inspection', () => {
   const out = scopeResultSummary({ planFile: plan, workerResultTables: [{ rawResultCsvPath: 'x.csv', completedJob: { planFile: foreign } }, { rawResultCsvPath: 'y.csv' }],
     results: [{ planFile: plan, provenance: { plan_file: foreign } }, { seed: 42 }], claimEvidence: { planFile: foreign, evidenceCsvPath: 'evidence.csv' } }, plan);

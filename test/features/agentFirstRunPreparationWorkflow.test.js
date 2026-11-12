@@ -42,8 +42,8 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   assert.match(flow, /reportStage: message => progress\.report\(\{ message \}\)/);
   assert.match(flow, /当前拓扑端点健康检测未通过/);
   assert.match(flow, /if \(showMessage\) \{[\s\S]{0,420}"识别工作区", "打开面板"/);
-  assert.doesNotMatch(flow, /const next = await vscode\.window\.showInformationMessage\(`Agent 首次准备完成/);
-  assert.match(flow, /void vscode\.window\.showInformationMessage\(`Agent 首次准备完成[\s\S]{0,250}\.then\(/);
+  assert.doesNotMatch(flow, /const next = await vscode\.window\.showInformationMessage\(`Agent 准备完成/);
+  assert.match(flow, /void vscode\.window\.showInformationMessage\(`Agent 准备完成[\s\S]{0,250}\.then\(/);
   assert.match(flow, /next === "识别工作区"\)[\s\S]{0,120}simpleExperiment\.bootstrapProject/);
   assert.match(flow, /if\s*\(!workspaceRoot\(\)\)\s*\{[\s\S]{0,180}openWorkspaceFolderForContinuation\("准备 Agent",\s*"prepareAgents"\)[\s\S]{0,120}UiCommandCancelled/);
   assert.match(extension, /pending\.action === "prepareAgents"[\s\S]{0,100}prepareAgentsForFirstRun\(true\)/);

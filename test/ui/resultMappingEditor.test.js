@@ -33,3 +33,29 @@ test("result mapping opens in the result area with column examples and optional 
   assert.match(rendered, /保存映射/);
   assert.doesNotMatch(rendered, /<input list=/);
 });
+
+test("cold result navigation opens the mapping after lazy render only once", () => {
+  const panelFunction = require("../_helpers/panelFunction");
+  let editor, scrolls = 0;
+  const sandbox = { detailsOpenState: {}, pendingResultMappingOpen: false, activeResourceSection: "results",
+    el: () => editor, renderPptPlotConfig() {}, renderWorkerResultAggregateWarning: () => "",
+    renderResultEvidenceWorkbench: () => "editor", setHtmlIfChanged() {
+      editor ||= { open: false, scrollIntoView() { scrolls++; } };
+    } };
+  vm.createContext(sandbox);
+  vm.runInContext(panelFunction("openResultColumnMappingEditor") + panelFunction("renderResultSummary"), sandbox);
+  sandbox.openResultColumnMappingEditor();
+  assert.equal(sandbox.detailsOpenState["result-column-mapping-editor"], true);
+  sandbox.renderResultSummary({});
+  assert.equal(editor.open, true);
+  assert.equal(scrolls, 1);
+  sandbox.renderResultSummary({});
+  assert.equal(scrolls, 1, "later state refreshes cannot replay the navigation");
+  editor = undefined;
+  sandbox.openResultColumnMappingEditor();
+  sandbox.currentMainView = "workspace";
+  sandbox.document = { body: { classList: { toggle() {} } } };
+  vm.runInContext(panelFunction("applyMainViewForSection"), sandbox);
+  sandbox.applyMainViewForSection("gpu");
+  assert.equal(sandbox.pendingResultMappingOpen, false, "leaving results cancels the pending jump");
+});

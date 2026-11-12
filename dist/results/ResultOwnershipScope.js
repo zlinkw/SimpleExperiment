@@ -64,6 +64,14 @@ function scopeResultSummary(summary, selectedPlan) {
                 return false;
             }
         };
+        if (summary.source === "active_query") {
+            const previews = summary.columnMappingPreviews || {};
+            const preview = Object.entries(previews).find(([file]) => key(resultPlanPath(file)) === key(plan))?.[1];
+            return { ...summary, planFile: plan,
+                jobs: (summary.jobs || []).filter((row) => owned(row, false)),
+                results: (summary.results || []).filter((row) => owned(row, false)),
+                columnMappingPreviews: preview ? { [plan]: preview } : {}, columnMappingPreview: preview };
+        }
         let changed = !rootOwned;
         const arrays = {};
         for (const name of [...records, ...datasets]) {

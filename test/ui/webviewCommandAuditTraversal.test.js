@@ -111,7 +111,19 @@ test("audit presentation separates handlers from help and exposes every detail w
   const details = vm.runInContext("featureAuditPill('接线',6,'error',detail)", sandbox);
   assert.match(details, /<details\b/);
   assert.match(details, /<summary\b/);
-  assert.match(details, /<span class="featureAuditPill error">/, "existing card-menu surface stays available");
+  assert.match(details, /<span class="featureAuditPill error"(?:\s[^>]*)?>/, "existing card-menu surface stays available");
   assert.match(details, /error-6/);
   assert.doesNotMatch(details, / title=/);
+});
+
+test("audit cards with the same value have independent stable collapse identities", () => {
+  const renderedFunction = require("../_helpers/panelFunction");
+  const sandbox = { esc: String, escAttr: String, compactText: String };
+  vm.createContext(sandbox);
+  vm.runInContext(renderedFunction("featureAuditPill"), sandbox);
+  const key = (label, value) => sandbox.featureAuditPill(label, value, "good", [])
+    .match(/data-status-card-key="([^"]+)"/)?.[1];
+  assert.ok(key("接线", 0), "every audit card needs an explicit identity");
+  assert.notEqual(key("接线", 0), key("说明", 0));
+  assert.equal(key("接线", 0), key("接线", 1), "refreshing the count preserves this card's identity");
 });

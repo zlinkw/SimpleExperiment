@@ -142,6 +142,13 @@ test("actual UI entry reads native manifests and alias metrics into memory witho
   f.host.parseFreshResultMetric=RealtimeTunnelPanelProvider.prototype.parseFreshResultMetric;
   const report=await __syncPendingResultMetricsForTest(f.host);
   assert.equal(report.current,true,JSON.stringify(report.skipped));assert.equal(report.included.length,1);
+  const preview=report.columnMappingPreviews[planFile];
+  assert.equal(preview.source,'work_dirs/alpha42/metrics.csv');
+  assert.ok(preview.headers.includes('metric'));
+  assert.equal(preview.mapping.case,'case');
+  assert.equal(preview.mapping.seed,'seed');
+  assert.equal(preview.mapping.metric,'metric');
+  assert.deepEqual(preview.sampleValues.metric,['AUC','roc_auc']);
   const table=tablesModule.exports.readCsv(fs.readFileSync(path.join(f.root,'experiments/results/set/final/final.csv'),'utf8'));
   assert.equal(table.rows[0][table.header.indexOf('roc_auc_mean')],'0.4');
   assert.equal(fs.existsSync(path.join(f.root,'simple_cluster/results/project_table_registry.json')),false);

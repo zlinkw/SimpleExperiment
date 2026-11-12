@@ -2939,7 +2939,7 @@ class RealtimeTunnelPanelProvider {
         });
     }
     resultAdapterRules() { return pluginProjectAdapterRules(workspaceRoot()); }
-    parseFreshResultMetric(text, job) { const rules = this.resultAdapterRules(); return parseDownloadedMetricCsv(text, rules.csvColumnMapping || {}, job, rules.metricAliases || {}); }
+    parseFreshResultMetric(text, job, onPreview) { const rules = this.resultAdapterRules(); return parseDownloadedMetricCsv(text, rules.csvColumnMapping || {}, job, rules.metricAliases || {}, onPreview); }
     async apiResultsList(params = {}, signal) {
         const selected = stringField(params, "planFile") || stringField(params, "planId") || "";
         const report = await (0, ResultCollectionHost_1.resultCollectionHost)(this).update(signal, { planFiles: selected ? [selected] : undefined });
@@ -6318,8 +6318,8 @@ class RealtimeTunnelPanelProvider {
                 throw new Error(`Agent runtime 部署校验失败：${[...verification.fatal, ...verification.warnings].join("；")}`);
         });
         if (showMessage) {
-            const topologySummary = `${expectedTargets} 个 Worker（无 Hub）`;
-            void vscode.window.showInformationMessage(`Agent 首次准备完成：${topologySummary} 已部署、启动并通过检测。下一步可直接识别工作区。`, "识别工作区", "打开面板")
+            const topologySummary = `${expectedTargets} 个 Worker`;
+            void vscode.window.showInformationMessage(`Agent 准备完成：${topologySummary} 服务已就绪，运行版本与来源核验通过。`, "识别工作区", "打开面板")
                 .then((next) => {
                 if (next === "识别工作区")
                     return vscode.commands.executeCommand("simpleExperiment.bootstrapProject");
@@ -11204,6 +11204,9 @@ class RealtimeTunnelPanelProvider {
         const build = value => {
             const rows = (0, SyncScopeStatus_2.buildScopeStatuses)(value, mode, ["."], new Set(), ledger, new Set(unavailable.keys()), holds);
             for (const [name, row] of Object.entries(rows)) {
+                // This comparison indexes every file, independently of the saved transfer selection.
+                if (row.copies)
+                    row.detail = row.detail.replace("同步范围内 ", "目录内 ");
                 row.basis = "content";
                 if (!row.copies) {
                     row.metadata = metadata[name]?.metadata;
@@ -12260,11 +12263,7 @@ class RealtimeTunnelPanelProvider {
         }
         if (mirrorLocal) {
             report(`正在把 ${selectedFiles.length} 个文件同步到本机`);
-            await (0, SyncScopeLocalMirror_1.mirrorChosenWorkerVersionToLocal)(selectedFiles[0], false, plan.files, () => this.simpleSftpApiCall("sync.downloadPaths", {
-                localPath: root, server: this.sftpServerOptions(sourceRow),
-                paths: [...plan.directoryDeletes, ...work.filter((item) => !item.directory).map((item) => item.path)],
-                confirm: true, pathConfirmed: true,
-            }), () => (0, SyncScopeStatus_2.hashLocalScopeNames)(root, selectedFiles, undefined, this.localScopeHashCacheFile(root), {}, this.localMachineStateGuard(root).prefixes), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report, selectedFiles, async (files) => {
+            await (0, SyncScopeLocalMirror_1.mirrorChosenWorkerVersionToLocal)(selectedFiles[0], false, plan.files, () => this.downloadSyncScopePaths(root, this.sftpServerOptions(sourceRow), [...plan.directoryDeletes, ...work.filter((item) => !item.directory).map((item) => item.path)]), () => (0, SyncScopeStatus_2.hashLocalScopeNames)(root, selectedFiles, undefined, this.localScopeHashCacheFile(root), {}, this.localMachineStateGuard(root).prefixes), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report, selectedFiles, async (files) => {
                 const accepted = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("清理本机同步目录旧文件", `以下 ${files.length} 个本机文件不在所选来源版本中，将在下载并校验新版本后永久删除。逐项核对完整路径；取消会停止本次同步。`, files.map((file) => ({ label: "本机旧文件（将永久删除）", path: path.resolve(root, ...file.split("/")) })), `永久删除 ${files.length} 个本机旧文件`);
                 if (!accepted)
                     throw new UiCommandCancelled_1.UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
@@ -12485,6 +12484,31 @@ class RealtimeTunnelPanelProvider {
             this.syncScopeMutationInFlight = false;
         }
     }
+    async downloadSyncScopePaths(root, server, paths) {
+        const context = this.captureProjectContext();
+        const assertCurrent = () => {
+            if (context.root !== root || !this.projectContextIsCurrent(context))
+                throw new Error("项目已变化，未转交同步范围下载。");
+        };
+        await this.simpleSftpCapability("sync.downloadPaths");
+        assertCurrent();
+        if (!(await vscode.commands.getCommands(true)).includes("simpleSftp.downloadPaths"))
+            throw new Error("请升级并重载 SimpleSFTP 0.2.120 或更新版本，以支持同步范围内的本机下载。");
+        const request = { localPath: root, server, paths, apiMode: true, confirm: true, pathConfirmed: true };
+        await this.refreshProjectFileIndexesBeforeOperation?.("sync.downloadPaths", request);
+        await this.invalidateProjectFileIndexes?.("文件写入开始：sync.downloadPaths", paths);
+        try {
+            assertCurrent();
+            const result = await vscode.commands.executeCommand("simpleSftp.downloadPaths", request);
+            if (!result || result.ok !== true)
+                throw new Error("SimpleSFTP 未返回同步范围下载完成结果。");
+            return result;
+        }
+        finally {
+            await this.invalidateProjectFileIndexes?.("文件写入结束，需重新查询：sync.downloadPaths", paths);
+            await this.refreshProjectFileIndexesBeforeOperation?.("sync.downloadPaths", request, "after-operation");
+        }
+    }
     async retainSyncScopeVersion(root, targets, relative, endpointId, directory = false, report = (_stage) => { }, batchApproved = false, destinationIds = undefined) {
         this.assertArtifactSyncPathsIdle?.(root, [relative]);
         (0, SyncResolution_1.safeSyncPath)(relative);
@@ -12609,7 +12633,7 @@ class RealtimeTunnelPanelProvider {
                     || (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(relative, mirrorGuard.prefixes, directory))
                     throw new Error("本机机器状态路径不可作为镜像目标。");
                 report("正在同步到本机对应路径");
-                await (0, SyncScopeLocalMirror_1.mirrorChosenWorkerVersionToLocal)(relative, directory, sourceInventory, () => this.simpleSftpApiCall("sync.downloadPaths", { localPath: root, server: this.sftpServerOptions(sourceRow), paths: [relative], confirm: true, pathConfirmed: true }), () => (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root), this.localMachineStateGuard(root).prefixes), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report, undefined, async (files) => {
+                await (0, SyncScopeLocalMirror_1.mirrorChosenWorkerVersionToLocal)(relative, directory, sourceInventory, () => this.downloadSyncScopePaths(root, this.sftpServerOptions(sourceRow), [relative]), () => (0, SyncScopeStatus_2.collectLocalScopeInventory)(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root), this.localMachineStateGuard(root).prefixes), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report, undefined, async (files) => {
                     const accepted = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("清理本机同步目录旧文件", `以下 ${files.length} 个本机文件不在所选来源版本中，将在下载并校验新版本后永久删除。逐项核对完整路径；取消会停止本次同步。`, files.map((file) => ({ label: "本机旧文件（将永久删除）", path: path.resolve(root, ...file.split("/")) })), `永久删除 ${files.length} 个本机旧文件`);
                     if (!accepted)
                         throw new UiCommandCancelled_1.UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
@@ -40567,7 +40591,7 @@ async function distributeMappedDownloads(root, entries, transfers, overwrite, ho
         throw new Error(`映射下载已接收，但本机分发留下暂存文件：${residues.join("、")}`);
     return delivered;
 }
-function parseDownloadedMetricCsv(text, columnMapping = {}, jobDefaults = {}, metricAliases = {}) {
+function parseDownloadedMetricCsv(text, columnMapping = {}, jobDefaults = {}, metricAliases = {}, onPreview) {
     const parsed = ProjectResultTables.readCsv(String(text || "").replace(/^\uFEFF/, ""));
     const mappedName = (field, fallback) => {
         const configured = String(columnMapping?.[field] || "").trim();
@@ -40588,6 +40612,18 @@ function parseDownloadedMetricCsv(text, columnMapping = {}, jobDefaults = {}, me
     const metricIndex = find([mappedName("metric", "metric")]);
     const valueIndex = find([mappedName("value", "value")]);
     const reserved = new Set([caseIndex, seedIndex, methodIndex, datasetIndex, ratePercentIndex, trainRateIndex, protocolIndex, splitIndex, foldIndex, unitIndex, directionIndex, metricIndex, valueIndex]);
+    if (onPreview) {
+        const indices = { case: caseIndex, seed: seedIndex, method: methodIndex, dataset: datasetIndex, rate_percent: ratePercentIndex,
+            train_rate: trainRateIndex, eval_protocol: protocolIndex, split: splitIndex, fold: foldIndex, unit: unitIndex,
+            higher_is_better: directionIndex, metric: metricIndex, value: valueIndex };
+        const samples = parsed.rows.slice(0, 20);
+        onPreview({ source: jobDefaults.result_csv, headers: parsed.header,
+            mapping: Object.fromEntries(Object.entries(indices).map(([field, index]) => [field, index >= 0 ? parsed.header[index] : ""])),
+            sampleValues: Object.fromEntries(parsed.header.map((header, index) => [header,
+                [...new Set(samples.map(row => String(row[index] || "").trim()).filter(Boolean))].slice(0, 2)])),
+            metricColumns: parsed.header.flatMap((column, index) => !reserved.has(index) && samples.some(row => String(row[index] || "").trim() && Number.isFinite(Number(row[index])))
+                ? [{ column, metric: ProjectResultTables.canonicalMetricName(column, metricAliases) }] : []) });
+    }
     return parsed.rows.flatMap((cells) => {
         const dimensions = {
             case: caseIndex >= 0 ? cells[caseIndex] : jobDefaults.case || "",

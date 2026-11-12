@@ -722,7 +722,7 @@ export function renderPanelHtml(): string {
     .featureReadinessName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 750; }
     .featureReadinessStatus { color: var(--text, #0F172A); font-weight: 850; white-space: nowrap; }
     .featureReadinessMetric { color: var(--muted, #64748B); white-space: nowrap; }
-    .featureAuditBar { display: flex; flex-wrap: wrap; gap: 5px; }
+    .featureAuditBar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 5px; }
     .featureAuditPill { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--border, #E2E8F0); border-left: 3px solid #94A3B8; border-radius: 6px; background: var(--vscode-editor-background, #FFFFFF); color: var(--text, #0F172A); font-size: 11px; }
     .featureAuditPill.good { border-left-color: #16A34A; }
     .featureAuditPill.warn { border-left-color: #D97706; background: color-mix(in srgb, var(--vscode-editor-background, #FFF) 88%, var(--warning, #FFFBEB) 12%); }
@@ -2965,6 +2965,7 @@ export function renderPanelHtml(): string {
     let serverConfigEditLockUntil = 0;
     let planPreviewEditLockUntil = 0;
     let detailsOpenState = restoredTransientPanelState.detailsOpenState || {};
+    let pendingResultMappingOpen = false;
     detailsOpenState["execution-full-records"] = false;
     detailsOpenState["result-split-tables"] = false;
     let workbenchInspectorInteractionLockUntil = 0;
@@ -8218,6 +8219,7 @@ export function renderPanelHtml(): string {
     }
 
     function applyMainViewForSection(section) {
+      if (section !== "results") pendingResultMappingOpen = false;
       const nextView = section === "settings" ? "settings" : "workspace";
       if (nextView === "settings" && currentMainView !== "settings" && activeResourceSection !== "settings") {
         lastWorkspaceResource = { section: activeResourceSection || "overview", anchor: activeResourceAnchor || activeResourceSection || "overview" };
@@ -10242,10 +10244,12 @@ export function renderPanelHtml(): string {
     }
 
     function openResultColumnMappingEditor() {
+      detailsOpenState["result-column-mapping-editor"] = true;
+      pendingResultMappingOpen = true;
       const editor = el("resultColumnMappingEditor");
       if (!editor) return;
       editor.open = true;
-      detailsOpenState["result-column-mapping-editor"] = true;
+      pendingResultMappingOpen = false;
       editor.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
 
@@ -16824,6 +16828,7 @@ export function renderPanelHtml(): string {
       const report = state.resultSyncReport || summary;
       const coverage = report.source === "active_query" ? '<div class="notice ' + (report.current && !report.reviewRequired && !(report.missing || []).length ? '' : 'warning') + '"><b>' + (report.current ? '本轮产物可汇总 ' + Number(report.completed || 0) + '/' + Number(report.expected || 0) + ' 个 job · 产物待复核 ' + Number(report.reviewRequired || 0) : '本轮查询失败，现有导出不是本轮结果') + '</b><span class="muted"> · ' + esc(report.observedAt || '') + '</span>' + (report.unobservedDeclarations ? '<div class="muted">另有 ' + Number(report.unobservedDeclarations) + ' 项声明尚未发现运行记录，未纳入本轮汇总分母；查询未知不代表未运行。</div>' : '') + ((report.missing || []).length || (report.skipped || []).length ? '<details><summary>查看缺项与查询原因</summary>' + asArray(report.missing).concat(asArray(report.skipped)).map(function(message) { return '<div>' + esc(String(message)) + '</div>'; }).join('') + '</details>' : '') + '</div>' : '';
       setHtmlIfChanged("resultSummary", coverage + renderWorkerResultAggregateWarning(summary) + historyPreview + renderResultEvidenceWorkbench(state, summary));
+      if (pendingResultMappingOpen && activeResourceSection === "results") openResultColumnMappingEditor();
     }
 
     function renderWorkerResultAggregateWarning(summary) {
@@ -17836,7 +17841,7 @@ export function renderPanelHtml(): string {
     function featureAuditPill(label, value, tone, detail) {
       const content = '<span>' + esc(label) + '</span><b>' + esc(compactText(value, 24)) + '</b>';
       const className = 'featureAuditPill ' + escAttr(tone || "");
-      const pill = '<span class="' + className + '">' + content + '</span>';
+      const pill = '<span class="' + className + '" data-status-card-key="command-audit:' + escAttr(label) + '">' + content + '</span>';
       if (!Array.isArray(detail) || !detail.length) return pill;
       return '<div class="featureAuditDetails">' + pill + '<details><summary>明细</summary><ul>' +
         detail.map((item) => '<li>' + esc(item) + '</li>').join("") + '</ul></details></div>';

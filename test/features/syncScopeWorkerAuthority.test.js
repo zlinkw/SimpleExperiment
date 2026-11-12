@@ -52,6 +52,28 @@ test('both transfer entry points still reject remote code overwriting local copi
  }
 });
 
+test('scope download calls the bound companion command within the genuine parent writer',async()=>{
+ const os=require('node:os'),{HostOperationLeaseManager}=require('../../dist/core/HostOperationLease.legacy');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'scope-download-')),leasePath=path.join(root,'lease.json');
+ const parent=new HostOperationLeaseManager({leasePath,windowId:'scope-window',heartbeatMs:0});
+ const companion=new HostOperationLeaseManager({leasePath,windowId:'scope-window',heartbeatMs:0});
+ const input={pluginId:'test',workspaceUri:root,hostProjectPath:root,actionType:'retain',resources:[{server:'local',project:root,target:root}]};
+ let calls=0;
+ const run=method('downloadSyncScopePaths',{vscode:{commands:{getCommands:async()=>['simpleSftp.downloadPaths'],executeCommand:async(id,args)=>{
+   assert.equal(id,'simpleSftp.downloadPaths');assert.equal(args.localPath,root);assert.equal(args.server.id,'w1');
+   assert.deepEqual([...args.paths],['artifacts/sample.txt']);assert.equal(args.confirm,true);assert.equal(args.pathConfirmed,true);
+   return companion.run(input,async()=>{calls++;return{ok:true};});
+ }}}});
+ const h={captureProjectContext:()=>({root}),projectContextIsCurrent:()=>true,simpleSftpCapability:async()=>({})};
+ await parent.run(input,()=>run.call(h,root,{id:'w1'},['artifacts/sample.txt']));
+ assert.equal(calls,1);
+ h.projectContextIsCurrent=()=>false;
+ await assert.rejects(run.call(h,root,{id:'w1'},['artifacts/sample.txt']),/项目.*变化/);assert.equal(calls,1);
+ h.projectContextIsCurrent=()=>true;
+ const missing=method('downloadSyncScopePaths',{vscode:{commands:{getCommands:async()=>[],executeCommand:()=>assert.fail('old companion cannot receive a download')}}});
+ await assert.rejects(missing.call(h,root,{id:'w1'},['artifacts/sample.txt']),/0\.2\.120/);assert.equal(calls,1);
+});
+
 test('Worker batch source picker includes code-owned copies and forwards only confirmed Worker targets',async()=>{
  const h=host(),picks=[],confirmations=[];let disposed=0;
  h.createSyncScopeBatchIndex=()=>({list:async()=>[{path:file,name:'model.yaml',directory:false,locations:['w1','w2']}],dispose:()=>disposed++});

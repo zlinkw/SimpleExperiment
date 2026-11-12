@@ -541,7 +541,10 @@ class ResultCollectionHost {
         // Queue metadata supplies provenance/ownership only, never result bytes or proof.
         const queued = queuedPlans(), bindings = runBindings();
         snapshotOwners = new Map(bindings.map(row => [ownerKey(row), JSON.stringify(row)]));
-        const result = await (0, FreshResults_1.collectFreshResults)(plans, snapshots, receive, (text, job) => h.parseFreshResultMetric(text, job), h.resultAdapterRules().planDatasetMapping || {}, current, bindings);
+        const columnMappingPreviews = {};
+        const result = await (0, FreshResults_1.collectFreshResults)(plans, snapshots, receive, (text, job) => h.parseFreshResultMetric(text, job, (preview) => {
+            columnMappingPreviews[job.planFile] ||= preview;
+        }), h.resultAdapterRules().planDatasetMapping || {}, current, bindings);
         check();
         timing.metricsMs = Date.now() - receiveStarted;
         // A failed declaration cannot make an entire PLAN silently disappear from a new export.
@@ -588,7 +591,7 @@ class ResultCollectionHost {
                 groups.set(key, group);
                 return groups;
             }, new Map()).values()];
-        const report = { source: "active_query", scope: scoped ? "selected_plans" : "all_plans", exported: published,
+        const report = { source: "active_query", scope: scoped ? "selected_plans" : "all_plans", exported: published, columnMappingPreviews,
             observedAt: result.observedAt, current: scoped ? result.querySucceeded : published, merged: published, downloaded: result.records.length > 0, planCoverage: coverage,
             issueGroups, counts: { plans: inputs.length, includedPlans: new Set(result.records.map(row => row.planFile)).size,
                 completeJobs: result.jobs.filter(job => job.state === "complete").length,
@@ -614,7 +617,7 @@ class ResultCollectionHost {
                 runtimeDiagnostics: result.jobs.find(job => job.commandId === row.runId)?.runtimeDiagnostics })) };
         if (!scoped)
             h.resultsSummary = report;
-        const { results: _records, tables: _tables, jobs: _jobs, ...brief } = report;
+        const { results: _records, tables: _tables, jobs: _jobs, columnMappingPreviews: _previews, ...brief } = report;
         if (!scoped)
             h.resultSyncReport = brief;
         if (published)

@@ -37,6 +37,14 @@ export function scopeResultSummary(summary: unknown, selectedPlan: unknown): any
       if (!object(r)) return false;
       try { const id = identity(r); return id ? id === key(plan) : inherit; } catch { return false; }
     };
+    if (summary.source === "active_query") {
+      const previews = summary.columnMappingPreviews || {};
+      const preview = Object.entries(previews).find(([file]) => key(resultPlanPath(file)) === key(plan))?.[1];
+      return { ...summary, planFile: plan,
+        jobs: (summary.jobs || []).filter((row: unknown) => owned(row, false)),
+        results: (summary.results || []).filter((row: unknown) => owned(row, false)),
+        columnMappingPreviews: preview ? { [plan]: preview } : {}, columnMappingPreview: preview };
+    }
     let changed = !rootOwned; const arrays: Row = {};
     for (const name of [...records, ...datasets]) {
       if (summary[name] === undefined) continue;
