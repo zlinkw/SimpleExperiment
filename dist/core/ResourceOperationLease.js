@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ResourceOperationLeaseManager = void 0;
+exports.runOutsideResourceLease = runOutsideResourceLease;
 exports.normalizeResourceTarget = normalizeResourceTarget;
 exports.resourceTargetsConflict = resourceTargetsConflict;
 exports.readResourceLeaseRegistrySecure = readResourceLeaseRegistrySecure;
@@ -50,6 +51,10 @@ const contextKey = Symbol.for("simple-local.resource-lease-context.v2");
 const globals = globalThis;
 const contexts = globals[contextKey] ||= new async_hooks_1.AsyncLocalStorage();
 const pools = globals[poolKey] ||= new Map();
+/** Background timers start new operations; they must not inherit a completed request's lease. */
+function runOutsideResourceLease(operation) {
+    return contexts.exit(operation);
+}
 const LEASE_POLL_BASE_MS = 20;
 const LEASE_POLL_MAX_MS = 250;
 function waitForLeaseRetry(attempt, signal) {

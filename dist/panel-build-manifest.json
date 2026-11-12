@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.502",
-  "buildId": "9c66b440d7cdbf91d9c00492493652b935aa626d411360c04404968f9ec4dc54",
+  "version": "0.5.503",
+  "buildId": "71e4c2c9075bfc90f1e0b90a692f8bea3e42c674f4fa96959a0eb4c1f8177562",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -129,7 +129,7 @@
     },
     {
       "path": "dist/cli/index.js",
-      "sha256": "0fc4d957c0606db43a65338f21f2bb7393cd6ecf3842a5c096a10216e5dbfcdc"
+      "sha256": "7053a5d21a366920f7bf72ab0cdb15433afb3b0b17c90c893dca65eae6a01b25"
     },
     {
       "path": "dist/cli/LocalApiClient.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/core/ResourceOperationLease.js",
-      "sha256": "fa77df46bebfa767429ee6ca5b2016ce2e289249cd7f9fa50071c9a116dddb0b"
+      "sha256": "0c4f1f4745f5958fe9f0d59ac3030e4468d57f7af34180048d25cc4030350c2d"
     },
     {
       "path": "dist/core/SafeRequestRetry.js",
@@ -257,7 +257,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "50fc6effd213f26ba8f309508d31b830519304f69cf2158056b794bc4d2c090d"
+      "sha256": "aa9c5a1ad4995f2c8c266bc2dd9574024b7bfdc7d15573e8a6aa37973e52622e"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -945,7 +945,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "d110b18f6197b10c3f8496114d0ab4337fff8e867f96af95a94df37822a65c57"
+      "sha256": "3251cf81eda4f543eebaf38e8dd3c61c41bbec10e4a5c50247e76b6b87cdd55e"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1173,7 +1173,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "4eb86b6ff1004d84999136a77ecacc0f0eb0cdb8254bfc216542fbc07b8bda7f"
+      "sha256": "eff1419a42d148651df6fa82708197155c850db0e0354d4cb87560b655bc468e"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1297,7 +1297,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "446dca04dbebf08410b2159e481cb6a85773d2cb811dca3da861c5994383318a"
+      "sha256": "17f623170d0bf50cf20b84a73bfadada20077e658c32ccf2c7753d6aa026f509"
     },
     {
       "path": "scripts/check-static.js",

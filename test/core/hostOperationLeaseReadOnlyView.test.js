@@ -156,8 +156,13 @@ test("只读豁免只包含两个查看入口，同步范围写入口走统一�
   for (const mutating of ["publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent",
     "configureDownloadScope", "runAllPlans", "stopAndClearPlan", "clearOperations", "cleanupPlan"])
     assert.ok(!exempt.includes(mutating), mutating + " 会写目标，必须继续持独占租约");
-  assert.equal((source.match(/readOnly: readOnlyHostLeaseUiCommand\(command\)/g) || []).length, 2,
-    "两个 webview 租约入口必须用同一套分类");
+  const dispatch = source.slice(source.indexOf("async handleMessage(message)"), source.indexOf("async handleMessageCore("));
+  assert.match(dispatch, /readOnly: readOnlyHostLeaseUiCommand\(command\)/,
+    "共用 webview 工作函数必须传递既有只读分类");
+  assert.match(dispatch, /withUiCommandStatus[\s\S]*withSafeTransferRetry\(command, message, work\)/,
+    "带状态的入口必须调用同一工作函数");
+  assert.match(dispatch, /await work\(\);/,
+    "无状态的入口也必须调用同一工作函数；两条真实分类路径另由 panelMessageDispatch 行为回归覆盖");
   assert.match(source, /readOnly: options\.readOnly === true,/, "provider 必须把只读意图传给真实租约管理器");
 
   // 行为回归在 test/features/syncScopeWriteLease.test.js；这里只卡住两个结构前提：

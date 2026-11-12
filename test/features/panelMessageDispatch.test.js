@@ -72,21 +72,22 @@ assert.match(handleMessageCore, /case "stopAndClearPlan"/);
 assert.match(handleMessageCore, /case "configureSessions"/);
 assert.ok(handleMessageCore.length > 8000, "handleMessageCore must stay complete");
 
-const factory = new Function("OperationOutcome_1", `
+const factory = new Function("OperationOutcome_1", "UiCommandCancelled_1", "pickWorker", `
   class UiCommandRemotePending extends Error {}
   class UiCommandCancelled extends Error {}
   function compactSensitiveText(value, max = 480) { return String(value || "").slice(0, max); }
   ${constants}
   ${helpers}
   ${sliceBetween("function resultSyncCommandOutcome(", "function resultMetricMergeScopePaths(")}
-  const vscode = { window: { showInformationMessage() {}, showWarningMessage() { return Promise.resolve(); }, showErrorMessage() { return Promise.resolve(); } } };
+  const vscode = { window: { showInformationMessage() {}, showWarningMessage() { return Promise.resolve(); }, showErrorMessage() { return Promise.resolve(); }, showQuickPick: pickWorker } };
   ${handleMessage}
   ${handleMessageCore}
   ${withUiCommandStatus}
   return { handleMessage, handleMessageCore, withUiCommandStatus, uiCommandWatchdogMs, postUiCommandStatus,
     getSafeCommand, commandNeedsUiStatus, hostOperationLeaseActionForUiCommand };
 `);
-const api = factory(require("../../dist/core/OperationOutcome.js"));
+let pickWorker = () => assert.fail("unexpected Worker picker");
+const api = factory(require("../../dist/core/OperationOutcome.js"), require("../../dist/core/UiCommandCancelled.js"), (...args) => pickWorker(...args));
 
 function createHost(overrides = {}) {
   const calls = {
@@ -274,6 +275,55 @@ test("unknown command does not enter a handler", async () => {
   assert.equal(host.calls.errors[0].command, "notARealCommand");
   assert.deepEqual(host.calls.states, [false]);
   assert.deepEqual(host.calls.statuses, []);
+});
+
+test("related result checks resolve a Worker before acquiring a UI lease and keep cancellation terminal", async () => {
+  for (const command of ["checkOutputContract", "inspectDataset", "planCheckpointRetention", "exportPlottingContract"]) {
+    for (const mode of ["single", "multiple", "explicit", "cancel"]) {
+      let selectedMessage, picks = 0;
+      const host = createHost({
+        enabledWorkerConfigs: () => mode === "single" ? [{ id: "w1" }] : [{ id: "w1" }, { id: "w2" }],
+        resultActionWorkerIds: message => message.workerId ? [message.workerId] : [],
+        runActionCommand: async (_command, message) => { selectedMessage = message; },
+      });
+      pickWorker = async choices => {
+        picks++;
+        assert.equal(host.calls.lease.length, 0, "manual selection must not hold the project write lease");
+        return mode === "cancel" ? undefined : choices[1];
+      };
+      const message = { command, clientActionId: `related-${command}-${mode}`, ...(mode === "explicit" ? { workerId: "w1" } : {}) };
+      await api.handleMessage.call(host, message);
+      assert.equal(picks, ["multiple", "cancel"].includes(mode) ? 1 : 0);
+      if (mode === "cancel") {
+        assert.equal(selectedMessage, undefined);
+        assert.equal(host.calls.statuses.at(-1).status, "cancelled");
+        assert.equal(host.calls.lease.length, 0);
+      } else {
+        assert.equal(selectedMessage.workerId, mode === "multiple" ? "w2" : "w1");
+        assert.equal(host.calls.statuses.at(-1).status, "completed");
+      }
+    }
+  }
+});
+
+test("both status and status-free dispatch preserve read-only scope views and exclusive writes", async () => {
+  for (const command of ["configureCodeSyncIncludes", "configureServerSyncScope", "configurePorts"]) {
+    for (const withStatus of [false, true]) {
+      const leases = [], handled = [];
+      const host = createHost({
+        withHostOperationLease: async (actionType, _label, operation, options) => {
+          leases.push({actionType, readOnly:options.readOnly});
+          return operation();
+        },
+        handleMessageCore: async (message, selectedCommand) => handled.push([message.command,selectedCommand]),
+      });
+      await api.handleMessage.call(host,{command,...(withStatus?{clientActionId:'scope-'+command}:{})});
+      assert.deepEqual(leases,[{actionType:command,readOnly:command!=="configurePorts"}]);
+      assert.deepEqual(handled,[[command,command]]);
+      if(withStatus) assert.equal(host.calls.statuses.at(-1).status,"completed");
+      else assert.equal(host.calls.statuses.length,0);
+    }
+  }
 });
 
 test("stopAndClearPlan with clientActionId keeps failed cancelled and completed outcomes", async () => {

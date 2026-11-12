@@ -44,7 +44,7 @@ test("project root uses Local API workspace from unrelated cwd and explicit env 
   writeProject(override, { "experiments/plans/plan.yaml": "name: override\n" });
   const server = http.createServer((req, res) => {
     if (req.url === "/api/v1/capabilities") {
-      res.end(JSON.stringify({ schemaVersion: 1, rpc: "json-rpc-2.0", name: "SimpleExperiment", version: "0.5.60", instanceId: "4242:2026-01-01T00:00:00.000Z", methods: ["status"] }));
+      res.end(JSON.stringify({ schemaVersion: 1, rpc: "json-rpc-2.0", name: "SimpleExperiment", version: "0.5.60", workspace: project, instanceId: `${process.pid}:2026-01-01T00:00:00.000Z`, methods: ["status"] }));
       return;
     }
     const chunks = [];
@@ -59,7 +59,9 @@ test("project root uses Local API workspace from unrelated cwd and explicit env 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); });
   const apiFile = path.join(parent, "api.json");
-  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test", name: "SimpleExperiment", version: "0.5.60", pid: 4242, startedAt: "2026-01-01T00:00:00.000Z" }), "utf8");
+  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test", name: "SimpleExperiment", version: "0.5.60", workspace: project, pid: process.pid, startedAt: "2026-01-01T00:00:00.000Z" }), "utf8");
+  fs.mkdirSync(path.join(parent, "instances"));
+  fs.copyFileSync(apiFile, path.join(parent, "instances", "root-scope.json"));
   const resolved = await runCli(["project", "status", "--json"], { cwd: parent, apiFile });
   assert.equal(resolved.code, 0);
   assert.equal(JSON.parse(resolved.stdout).root, project);
@@ -70,6 +72,13 @@ test("project root uses Local API workspace from unrelated cwd and explicit env 
   });
   assert.equal(explicit.code, 0);
   assert.equal(JSON.parse(explicit.stdout).root, override);
+  const pinned = await runCli(["project", "status", "--workspace", project, "--json"], {
+    cwd: override, apiFile, env: { SIMPLE_EXPERIMENT_PROJECT_ROOT: override },
+  });
+  assert.equal(pinned.code, 0);
+  assert.equal(JSON.parse(pinned.stdout).root, project, "the explicit workspace owns local status as well as RPC routing");
+  assert.equal(JSON.parse(pinned.stdout).name, path.basename(project));
+  assert.equal(JSON.parse(pinned.stdout).api.workspace, project);
   const invalid = await runCli(["project", "status", "--json"], {
     cwd: parent, apiFile, env: { SIMPLE_EXPERIMENT_PROJECT_ROOT: path.join(parent, "missing") },
   });

@@ -5,6 +5,8 @@ const ts = require("typescript");
 require("../_helpers/registerTsRequire");
 const { readSource } = require("../_helpers/sourceReader");
 const legacyMethod = require("../_helpers/legacyMethod");
+const { AsyncResource } = require("node:async_hooks");
+const ResourceOperationLease = require("../../dist/core/ResourceOperationLease");
 
 // Normal mode must stay byte-for-byte on the pre-existing schedule; that is a hard requirement of
 // the task and does not depend on the pending r2 rules. The low traffic table itself is still
@@ -72,9 +74,10 @@ function createFixture() {
       uiBatchMs: 100, logTailEnabledByDefault: false, logTailOnlyForSelectedExperiment: true,
       logTailIntervalSeconds: 1, pauseWhenWebviewHidden: false, keepAgentStreamWhenHidden: true,
     } },
-    setInterval: (fn, ms) => { const timer = { id: ++nextId, fn, ms, unref() {} }; timers.push(timer); return timer; },
+    setInterval: (fn, ms) => { const timer = { id: ++nextId, fn: AsyncResource.bind(fn), ms, unref() {} }; timers.push(timer); return timer; },
     clearInterval: (timer) => { if (timer) cleared.push(timer.id); },
     console,
+    ResourceOperationLease_1: ResourceOperationLease,
   };
   vm.runInNewContext(code, sandbox);
   const api = sandbox.trafficApi;
@@ -125,6 +128,36 @@ function findTimer(timers, ms) {
   assert.equal(found.length, 1, "exactly one timer may use cadence " + ms);
   return found[0];
 }
+
+test("traffic timers scheduled inside a completed UI lease acquire their own queue lease", async () => {
+  const fs = require("node:fs/promises"), os = require("node:os"), path = require("node:path");
+  const { HostOperationLeaseManager } = require("../../dist/core/HostOperationLease");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "traffic-lease-"));
+  const manager = new HostOperationLeaseManager({ leasePath: path.join(directory, "lease.json"), windowId: "traffic-test", heartbeatMs: 0 });
+  const broad = { pluginId: "test", workspaceUri: directory, hostProjectPath: directory, actionType: "configure" };
+  const narrow = { ...broad, actionType: "queue-write", resources: [{ server: "local", project: directory, target: path.join(directory, "queue.json") }] };
+  const { host, api, timers, state } = createFixture();
+  const writes = [];
+  const write = () => {
+    const task = manager.run(narrow, async () => "written");
+    writes.push(task);
+    return task;
+  };
+  host.tickDistributedQueue = write;
+  host.refreshServerPlanProgress = write;
+  let lateForeground;
+  await manager.run(broad, async () => {
+    api.scheduleTrafficTimers.call(host);
+    lateForeground = AsyncResource.bind(() => manager.run(narrow, async () => "must remain fenced"));
+  });
+  await assert.rejects(lateForeground(), /租约已失效/, "ordinary late foreground writes must remain fenced");
+  for (const timer of timers) {
+    timer.fn();
+    assert.equal(await writes.at(-1), "written");
+  }
+  assert.equal(writes.length, 2);
+  assert.equal(state.recorded, undefined);
+});
 
 test("normal mode keeps the original 500ms queue and 2s progress cadence", () => {
   const { host, api, timers } = createFixture();

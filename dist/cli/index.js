@@ -167,7 +167,7 @@ async function runSimpleCli(argv) {
         (0, data_1.setProjectRoot)(root);
     }
     else
-        await initializeProjectRoot();
+        await initializeProjectRoot(flags.workspace);
     if (domain === "project") {
         if (action && action !== "status")
             throw (0, errors_2.usageError)(`unknown project action: ${action}`);
@@ -213,12 +213,12 @@ async function runSimpleCli(argv) {
     }
     throw (0, errors_2.usageError)(`unknown domain: ${domain}`);
 }
-async function initializeProjectRoot() {
-    const explicit = process.env.SIMPLE_EXPERIMENT_PROJECT_ROOT;
+async function initializeProjectRoot(requestedWorkspace) {
+    const explicit = requestedWorkspace ?? process.env.SIMPLE_EXPERIMENT_PROJECT_ROOT;
     if (explicit !== undefined) {
         const root = (0, data_1.validProjectRoot)(explicit);
         if (!root)
-            throw (0, errors_2.envError)("SIMPLE_EXPERIMENT_PROJECT_ROOT must be an existing absolute directory");
+            throw (0, errors_2.envError)(`${requestedWorkspace !== undefined ? "--workspace" : "SIMPLE_EXPERIMENT_PROJECT_ROOT"} must be an existing absolute directory`);
         (0, data_1.setProjectRoot)(root);
         return;
     }

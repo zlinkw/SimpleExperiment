@@ -147,6 +147,7 @@ import TunnelPortConflict_1 = require("../tunnel/TunnelPortConflict");
 import ConfigurationSettings_1 = require("../tunnel/ConfigurationSettings");
 import WorkspacePathMapper_1 = require("../core/WorkspacePathMapper");
 import HostOperationLease_1 = require("../core/HostOperationLease");
+import ResourceOperationLease_1 = require("../core/ResourceOperationLease");
 import BoundedTimestampMap_1 = require("../core/BoundedTimestampMap");
 import Results_1 = require("../features/Results");
 import DraftPlans_1 = require("../features/DraftPlans");
@@ -1443,13 +1444,13 @@ export class RealtimeTunnelPanelProvider {
         const intervals = this.effectiveTrafficPolicy().intervals;
         if (!this.queueTrafficTimer || this.queueTrafficTimerMs !== intervals.queueMs) {
             if (this.queueTrafficTimer) clearInterval(this.queueTrafficTimer);
-            this.queueTrafficTimer = setInterval(() => { void this.tickDistributedQueue().catch((error) => { if (error?.code === "STALE_QUEUE_ROUND") return; this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) }); }); }, intervals.queueMs);
+            this.queueTrafficTimer = ResourceOperationLease_1.runOutsideResourceLease(() => setInterval(() => { void this.tickDistributedQueue().catch((error) => { if (error?.code === "STALE_QUEUE_ROUND") return; this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) }); }); }, intervals.queueMs));
             this.queueTrafficTimer.unref?.();
             this.queueTrafficTimerMs = intervals.queueMs;
         }
         if (!this.progressTrafficTimer || this.progressTrafficTimerMs !== intervals.progressMs) {
             if (this.progressTrafficTimer) clearInterval(this.progressTrafficTimer);
-            this.progressTrafficTimer = setInterval(() => {
+            this.progressTrafficTimer = ResourceOperationLease_1.runOutsideResourceLease(() => setInterval(() => {
                 if (!this.distributedQueueCache?.plans.length || this.distributedQueueRoot !== workspaceRoot()) return;
                 // r2: this round is B (necessary terminal confirmation), not a display refresh, so a
                 // hidden panel must still run it - remote completions have to become local confirmed
@@ -1458,7 +1459,7 @@ export class RealtimeTunnelPanelProvider {
                 // (progressRefreshWorkerIds + excludeVerifiedCompleted), and it shares the in-flight
                 // inventory read with the queue round instead of issuing a second RPC.
                 void this.refreshServerPlanProgress({ automatic: true });
-            }, intervals.progressMs);
+            }, intervals.progressMs));
             this.progressTrafficTimer.unref?.();
             this.progressTrafficTimerMs = intervals.progressMs;
         }
@@ -6827,20 +6828,28 @@ return this.testTunnel(true);
             this.postState();
             return;
         }
-        if (clientActionId && commandNeedsUiStatus(command)) {
+        const work = async () => {
+            let scopedMessage = message;
+            if (["checkOutputContract", "inspectDataset", "planCheckpointRetention", "exportPlottingContract"].includes(command)
+                && !this.resultActionWorkerIds(message).length) {
+                const workers = this.enabledWorkerConfigs();
+                if (!workers.length) throw new Error("请先配置并启用执行此检查的 Worker。");
+                const worker = workers.length === 1 ? workers[0] : (await vscode.window.showQuickPick(workers.map(worker => ({
+                    label: worker.displayName || worker.id, description: worker.id, worker,
+                })), { title: "选择执行 Worker", ignoreFocusOut: true }))?.worker;
+                if (!worker) throw new UiCommandCancelled("未选择执行 Worker，操作已取消。");
+                scopedMessage = { ...message, workerId: worker.id };
+            }
             const leaseAction = hostOperationLeaseActionForUiCommand(command);
-            const work = leaseAction
-                ? () => this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command), { planFile: message.planFile || message.path, readOnly: readOnlyHostLeaseUiCommand(command) })
-                : () => this.handleMessageCore(message, command);
+            return leaseAction
+                ? this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(scopedMessage, command), { planFile: scopedMessage.planFile || scopedMessage.path, readOnly: readOnlyHostLeaseUiCommand(command) })
+                : this.handleMessageCore(scopedMessage, command);
+        };
+        if (clientActionId && commandNeedsUiStatus(command)) {
             await this.withUiCommandStatus(clientActionId, command, message, () => this.withSafeTransferRetry(command, message, work));
             return;
         }
-        const leaseAction = hostOperationLeaseActionForUiCommand(command);
-        if (leaseAction) {
-            await this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command), { planFile: message.planFile || message.path, readOnly: readOnlyHostLeaseUiCommand(command) });
-            return;
-        }
-        await this.handleMessageCore(message, command);
+        await work();
     }
     async handleMessageCore(message, command = getSafeCommand(message)) {
         if (command === "answerRunConfirmation") { this.runConfirmation.answer(message); return; }

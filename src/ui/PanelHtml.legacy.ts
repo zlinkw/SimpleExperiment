@@ -1636,7 +1636,7 @@ export function renderPanelHtml(): string {
       <details class="advanced">
         <summary>高级诊断</summary>
         <div class="toolbar" title="Worker 隧道在后台建立；Xshell 提供服务器导入和手动终端">
-          <button data-command="startWorker" type="button" title="启动 Worker&#10;在 Worker 服务器上启动 Agent&#10;接收调度任务并上报 GPU 状态">启动 Worker</button>
+          <button data-command="startWorker" type="button" title="启动 Worker 隧道&#10;后台建立所选 Worker 的 SSH 端口转发">启动 Worker 隧道</button>
           <button data-command="configurePorts" class="secondary" type="button" title="配置隧道端口&#10;分配或调整 Worker 的本机转发端口">配置端口</button>
           <button data-command="repairPorts" class="secondary" type="button" title="处理端口冲突&#10;检测被占用的隧道端口并重新分配">处理端口冲突</button>
         </div>
@@ -3157,6 +3157,7 @@ export function renderPanelHtml(): string {
     let gpuHistoryOverviewCacheValue = [];
     let gpuHistoryMeta = {};
     let gpuHistoryLastStateStatus = "idle";
+    let gpuHistoryContextKey = "";
     let expandedGpuHistoryKeys = new Set();
     const GPU_HISTORY_REQUEST_COOLDOWN_MS = 5000;
     const GPU_HISTORY_SERVER_STYLE_LIMIT = 128;
@@ -4852,6 +4853,7 @@ export function renderPanelHtml(): string {
           pendingRenderSeq = incomingSeq;
           pendingRenderState = lastState;
           awaitingVisibleStateRefresh = false;
+          rememberGpuHistoryContext(lastState);
           rememberGpuHistoryState(lastState.gpuHistory);
           invalidateSelectedTaskPayload();
           clearCompletedPendingButtons(lastState);
@@ -5511,7 +5513,7 @@ export function renderPanelHtml(): string {
       if (section === "execution" || section === "tasks" || section === "operations") return refListKey(data.schedulerStates, data.distributedPlans, data.deferredPlans, data.planStopClearByFile, data.selection, data.selectedLogRunKey, data.capabilities, data.resultsSummary, data.operations);
       if (section === "tasks") return refListKey(data.schedulerStates, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary);
       if (section === "operations") return refListKey(data.operations);
-      if (section === "diagnostics") return refListKey(data.diagnostics, data.capabilities, data.actionErrors, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.realtimeDiagnostics, data.health);
+      if (section === "diagnostics") return refListKey(data.diagnostics, data.setup, data.configurationSources, data.workerProbes, data.workerTelemetryStatus, data.actionErrors, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.realtimeDiagnostics, data.health);
       return refListKey(data);
     }
 
@@ -5770,7 +5772,10 @@ export function renderPanelHtml(): string {
       if (section === "diagnostics") {
         return {
           diagnostics: compactDiagnosticsForSignature(data.diagnostics),
-          capabilities: compactCapabilitiesForSignature(data.capabilities),
+          setup: compactSetupForSignature(data.setup),
+          configurationSources: data.configurationSources,
+          workerProbes: compactObjectMapForSignature(data.workerProbes, SECTION_SIGNATURE_ROW_LIMIT, ["status", "message", "capabilities"]),
+          workerTelemetryStatus: data.workerTelemetryStatus,
           actionErrors: compactActionErrorsForSignature(data.actionErrors),
           endpointRegistry: compactEndpointRegistryForSignature(data.endpointRegistry),
           tunnelPortAssignments: compactRowsForSignature(data.tunnelPortAssignments, SECTION_SIGNATURE_ROW_LIMIT, ["id", "endpointId", "role", "localForwardPort", "remoteForwardPort", "status", "message"]),
@@ -6397,6 +6402,7 @@ export function renderPanelHtml(): string {
     }
 
     function renderDiagnosticSection(state) {
+      renderWorkerAndPorts(state);
       renderDiagnosticOverview(state);
       renderTargetCompletionMatrix(state);
       renderFeatureReadiness(state);
@@ -12214,10 +12220,16 @@ export function renderPanelHtml(): string {
         applied += points.length;
       });
       if (applied) {
-        const lastAt = samples[samples.length - 1] && Number(samples[samples.length - 1].collectedAt);
+        const lastAt = Math.max(...Array.from(byGpu.values()).flat().map(function(point) { return Date.parse(point.timestamp); }));
+        const stamp = new Date(lastAt).toISOString();
+        byGpu.forEach(function(points, gpuId) {
+          recordDisplaySample("gpuHistory:" + gpuHistorySeriesKey(workerId, gpuId), points[points.length - 1].timestamp, entry.origin === "user");
+        });
         gpuHistoryMeta = Object.assign({}, gpuHistoryMeta, { liveFineFrames: applied,
-          liveUpdatedAt: Number.isFinite(lastAt) ? new Date(lastAt).toISOString() : gpuHistoryMeta.updatedAt || "" });
+          liveUpdatedAt: stamp, updatedAt: stamp });
+        gpuHistoryLastStateStatus = "ready";
         gpuHistorySeriesRevision += 1;
+        renderDisplayAutoNotices();
         scheduleGpuHistoryDraw();
       }
     }
@@ -12286,16 +12298,39 @@ export function renderPanelHtml(): string {
       } catch (e) {}
     }
 
-    function rememberGpuHistoryState(history) {
-      const item = history && typeof history === "object" ? history : {};
-      const status = String(item.status || "idle");
-      gpuHistoryLastStateStatus = status;
-      if (status === "idle") {
+    function rememberGpuHistoryContext(state) {
+      const workers = asArray((state.setup || {}).workerTunnels).filter(function(worker) { return worker.enabled !== false; });
+      const key = JSON.stringify([state.workspace, state.localEndpoint, workers.map(function(worker) {
+        return [worker.id, worker.host, worker.workerHost, worker.localForwardHost, worker.localForwardPort, worker.remoteAgentHost, worker.remoteAgentPort, worker.agentProjectDir];
+      })]);
+      if (gpuHistoryContextKey && gpuHistoryContextKey !== key) {
         gpuHistorySeriesCache.clear();
         gpuHistorySeriesRevision += 1;
         gpuHistoryMeta = {};
         expandedGpuHistoryKeys.clear();
         gpuHistoryRequestLastAt.clear();
+        gpuWindowPending.forEach(function(entry) { if (entry.timer) clearTimeout(entry.timer); });
+        gpuWindowPending.clear();
+        gpuWindowPendingByKey.clear();
+        Array.from(displayRefreshAt.keys()).forEach(function(name) { if (name.startsWith("gpuHistory:")) displayRefreshAt.delete(name); });
+        gpuHistoryLastStateStatus = "idle";
+      }
+      gpuHistoryContextKey = key;
+    }
+
+    function rememberGpuHistoryState(history) {
+      const item = history && typeof history === "object" ? history : {};
+      const status = String(item.status || "idle");
+      // Idle means no remote history query; it does not invalidate host-ring samples.
+      if (status === "idle") {
+        return;
+      }
+      gpuHistoryLastStateStatus = status;
+      const remoteKey = JSON.stringify([item.fetchedAt, item.data && item.data.updatedAt, item.query || {}]);
+      if (["ready", "stale"].includes(status) && item.data && Array.isArray(item.data.series)
+        && item.fetchedAt && gpuHistoryMeta.remoteKey === remoteKey) {
+        gpuHistoryMeta.status = status;
+        gpuHistoryMeta.error = item.error || "";
         return;
       }
       gpuHistoryMeta = Object.assign({}, gpuHistoryMeta, {
@@ -12307,6 +12342,7 @@ export function renderPanelHtml(): string {
         retentionHours: item.data && item.data.retentionHours || gpuHistoryMeta.retentionHours || 24
       });
       if (!["ready", "stale"].includes(status) || !item.data || !Array.isArray(item.data.series)) return;
+      gpuHistoryMeta.remoteKey = remoteKey;
       const query = item.query || {};
       const detailed = Boolean(query.serverId || query.gpuId);
       if (!detailed) gpuHistorySeriesCache.clear();
@@ -17974,21 +18010,24 @@ export function renderPanelHtml(): string {
     }
 
     function renderCapabilities(state) {
-      const caps = state.capabilities || {};
-      const endpoints = caps.endpoints || {};
-      const realtimeRaw = endpoints.websocketEvents ? "WebSocket" : (endpoints.sseEvents ? "SSE" : "snapshot");
-      const realtime = labelStatus(realtimeRaw);
-      const fileList = hasCapability(state, "endpoints.fileList");
-      const fileDownload = hasCapability(state, "endpoints.fileDownload");
-      const fileUploadChunk = hasCapability(state, "endpoints.fileUploadChunk");
-      const items = [
-        capabilityItem("动作接口", endpoints.actions ? "可用" : "需升级", endpoints.actions),
-        capabilityItem("实时通道", realtime, Boolean(endpoints.websocketEvents || endpoints.sseEvents), "原始通道：" + realtimeRaw),
-        capabilityItem("文件列表", fileList ? "可用" : "需升级", fileList),
-        capabilityItem("下载", fileDownload ? "可用" : "需升级", fileDownload),
-        capabilityItem("上传", fileUploadChunk ? "可用" : "需升级", fileUploadChunk)
-      ];
-      setHtmlIfChanged("capabilities", '<div class="capabilityBar">' + items.join("") + '</div>');
+      const workers = enabledWorkerTunnelsForState(state);
+      const html = workers.map(function(worker) {
+        const probe = (state.workerProbes || {})[worker.id] || {};
+        const title = '<b>' + esc(worker.displayName || worker.id) + '</b>';
+        if (probe.status !== "ok" || !probe.capabilities) return title + '<div class="muted">能力待检测</div>';
+        const endpoints = probe.capabilities.endpoints || {};
+        const realtimeRaw = endpoints.websocketEvents ? "WebSocket" : (endpoints.sseEvents ? "SSE" : "snapshot");
+        const realtime = labelStatus(realtimeRaw);
+        const items = [
+          capabilityItem("动作接口", endpoints.actions ? "可用" : "未提供", Boolean(endpoints.actions)),
+          capabilityItem("实时通道", realtime, true, "原始通道：" + realtimeRaw),
+          capabilityItem("文件列表", endpoints.fileList ? "可用" : "未提供", Boolean(endpoints.fileList)),
+          capabilityItem("下载", endpoints.fileDownload ? "可用" : "未提供", Boolean(endpoints.fileDownload)),
+          capabilityItem("上传", endpoints.fileUploadChunk ? "可用" : "未提供", Boolean(endpoints.fileUploadChunk))
+        ];
+        return title + '<div class="capabilityBar">' + items.join("") + '</div>';
+      }).join("");
+      setHtmlIfChanged("capabilities", html || '<div class="muted">未配置已启用的 Worker。</div>');
     }
 
     function capabilityItem(label, value, ok, valueTitle) {

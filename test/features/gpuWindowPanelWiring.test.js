@@ -12,7 +12,7 @@ const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), ts = require('typescript'), vm = require('node:vm');
 require('../_helpers/registerTsRequire');
 
-const source = fs.readFileSync(require.resolve('../../src/ui/PanelHtml.legacy.ts'), 'utf8');
+const source = fs.readFileSync(require.resolve('../../src/ui/PanelHtml.legacy.ts'), 'utf8').replace(/\r\n/g, '\n');
 assert.match(source, /if \(item\.type === "gpuWindowSamples"\) \{\s*applyGpuWindowSamples\(item\);/, 'the panel message router must dispatch gpuWindowSamples to the ring consumer');
 assert.ok(source.includes('"manualGpuSnapshot", "loadGpuHistory", "gpuWindowSamples"'), 'gpuWindowSamples must be an allowed outgoing panel command');
 
@@ -28,7 +28,9 @@ const code = ['"use strict";',
   // harness as well; otherwise the merge path would only be exercised by a stub.
   extractFunction('gpuHistorySegmentGapLimit'), extractFunction('historyExpectedStepFromSortedTimes'),
   extractFunction('mergeGpuHistorySegments'),
-  extractFunction('requestGpuHistoryRemote'),
+  extractFunction('requestGpuHistoryRemote'), extractFunction('recordDisplaySample'),
+  extractFunction('rememberGpuHistoryState'),
+  extractFunction('rememberGpuHistoryContext'),
   extractFunction('applyGpuWindowSamples'), extractFunction('requestGpuHistory')].join('\n');
 const compiled = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 
@@ -40,7 +42,8 @@ function harness() {
     vscode: { postMessage: message => posted.push(message) },
     gpuWindowRequestSeq: 0, gpuWindowPending: new Map(), gpuWindowPendingByKey: new Map(),
     gpuHistorySeriesCache: new Map(), gpuHistoryRequestLastAt: new Map(),
-    gpuHistoryMeta: {}, gpuHistorySeriesRevision: 0,
+    gpuHistoryMeta: {}, gpuHistorySeriesRevision: 0, gpuHistoryLastStateStatus: 'idle',
+    expandedGpuHistoryKeys: new Set(), displayRefreshAt: new Map(), gpuHistoryContextKey: '',
     GPU_HISTORY_GAP_FACTOR: 1.75,
     asArray: (value) => (Array.isArray(value) ? value : (!value || typeof value !== "object" ? [] : Object.values(value))),
     GPU_HISTORY_REQUEST_COOLDOWN_MS: 0, GPU_HISTORY_SERIES_CACHE_LIMIT: 8,
@@ -73,6 +76,41 @@ const t0Ms = Date.now();
 const t0 = Math.round(t0Ms / 1000);
 const fineSample = { seq: 9, epoch: 'e2', collectedAt: t0Ms, source: 'worker_telemetry',
   gpus: [{ index: 0, memoryUsedMb: 3000, memoryTotalMb: 8192, utilizationPercent: 61 }, { index: 1, memoryUsedMb: 100, memoryTotalMb: 8192, utilizationPercent: 0 }] };
+
+test('a manual ring sample keeps its real time and curve through ordinary idle host projections', () => {
+  const h = harness();
+  h.context.SAMPLES = [fineSample];
+  vm.runInNewContext('requestGpuHistory({serverId:"srv1",gpuId:"0"},true,"user"); applyGpuWindowSamples({requestId:1,workerId:"srv1",samples:SAMPLES}); rememberGpuHistoryState({status:"idle"});', h.context);
+  assert.equal(h.context.gpuHistorySeriesCache.get('srv1::0')?.points[0].bucketEpoch, t0);
+  assert.equal(h.context.displayRefreshAt.get('gpuHistory:srv1::0|manual'), new Date(t0Ms).toISOString());
+  assert.equal(h.context.gpuHistoryLastStateStatus, 'ready');
+  assert.ok(h.notices.length > 0);
+});
+
+test('changing the actual workspace or Worker endpoint clears old curves and pending replies', () => {
+  for (const change of ['workspace', 'endpoint']) {
+    const h = harness();
+    h.context.STATE = { workspace: {root:'project-a'}, setup:{workerTunnels:[{id:'srv1',localForwardPort:19001}]} };
+    h.context.SAMPLES = [fineSample];
+    vm.runInNewContext('rememberGpuHistoryContext(STATE); requestGpuHistory({serverId:"srv1",gpuId:"0"},true,"user"); applyGpuWindowSamples({requestId:1,workerId:"srv1",samples:SAMPLES}); requestGpuHistory({serverId:"srv1",gpuId:"0"},true,"user"); rememberGpuHistoryContext(JSON.parse(JSON.stringify(STATE)));', h.context);
+    assert.equal(h.context.gpuHistorySeriesCache.size, 2, 'ordinary equivalent state keeps the real samples');
+    if(change === 'workspace') h.context.STATE.workspace.root = 'project-b';
+    else h.context.STATE.setup.workerTunnels[0].localForwardPort = 19002;
+    vm.runInNewContext('rememberGpuHistoryContext(STATE); applyGpuWindowSamples({requestId:2,workerId:"srv1",samples:SAMPLES});', h.context);
+    assert.equal(h.context.gpuHistorySeriesCache.size, 0);
+    assert.equal(h.context.gpuWindowPending.size, 0);
+    assert.equal(h.context.displayRefreshAt.size, 0);
+    assert.equal(h.timers.size, 0);
+  }
+});
+
+test('repeated projection of the same remote history cannot replace newer ring samples', () => {
+  const h = harness();
+  h.context.HISTORY = {status:'ready',fetchedAt:'2026-11-12T08:00:00Z',data:{updatedAt:'2026-11-12T07:59:00Z',series:[{serverId:'srv1',gpuId:'0',points:[{bucketEpoch:t0-300,gpuUtilPercent:10}]}]}};
+  h.context.SAMPLES = [fineSample];
+  vm.runInNewContext('rememberGpuHistoryState(HISTORY); requestGpuHistory({serverId:"srv1",gpuId:"0"},true,"user"); applyGpuWindowSamples({requestId:1,workerId:"srv1",samples:SAMPLES}); rememberGpuHistoryState(JSON.parse(JSON.stringify(HISTORY)));',h.context);
+  assert.equal(h.context.gpuHistorySeriesCache.get('srv1::0').points.at(-1).bucketEpoch,t0);
+});
 
 test('a GPU window request first asks the host ring for fine frames with a unique requestId instead of re-requesting remote history', () => {
   const h = harness();

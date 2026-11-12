@@ -87,12 +87,23 @@ test("target completion matrix keeps static rows out of the render path", () => 
   }
 });
 
-test("capability bar probes each file capability once", () => {
-  const renderer = extractFunction("renderCapabilities");
-  for (const key of ["endpoints.fileList", "endpoints.fileDownload", "endpoints.fileUploadChunk"]) {
-    const occurrences = renderer.split(`hasCapability(state, "${key}")`).length - 1;
-    assert.equal(occurrences, 1, `${key} must be probed once`);
-  }
-  assert.match(renderer, /const fileList = hasCapability/);
-  assert.match(renderer, /capabilityItem\("上传", fileUploadChunk \? "可用" : "需升级", fileUploadChunk\)/);
+test("capability bar reflects only enabled Worker probes and distinguishes unprovided from untested", () => {
+  const writes = new Map();
+  const sandbox = {setHtmlIfChanged:(key,value)=>writes.set(key,value),esc:String,escAttr:String,labelStatus:String,
+    enabledWorkerTunnelsCacheSource:null,enabledWorkerTunnelsCacheValue:[],EMPTY_WORKER_TUNNELS_FOR_ALIAS:[]};
+  vm.runInNewContext(['enabledWorkerTunnelsForState','capabilityItem','renderCapabilities'].map(extractFunction).join('\n'),sandbox);
+  const state={setup:{workerTunnels:[{id:'active'},{id:'disabled',enabled:false}]},
+    capabilities:{endpoints:{fileUploadChunk:true}},
+    workerProbes:{active:{status:'ok',capabilities:{endpoints:{actions:true,fileDownload:true,sseEvents:true}}},disabled:{status:'ok',capabilities:{endpoints:{}}}}};
+  sandbox.renderCapabilities(state);
+  let html=writes.get('capabilities');
+  assert.match(html,/active/); assert.doesNotMatch(html,/disabled|需升级/);
+  assert.match(html,/动作接口[\s\S]*?可用/); assert.match(html,/下载[\s\S]*?可用/);
+  assert.match(html,/上传[\s\S]*?未提供/); assert.match(html,/原始通道：SSE/);
+  state.workerProbes={}; sandbox.renderCapabilities(state);
+  assert.match(writes.get('capabilities'),/能力待检测/);
+  sandbox.renderCapabilities({setup:{workerTunnels:[]}});
+  assert.match(writes.get('capabilities'),/未配置已启用的 Worker/);
+  sandbox.renderCapabilities({});
+  assert.match(writes.get('capabilities'),/未配置已启用的 Worker/);
 });

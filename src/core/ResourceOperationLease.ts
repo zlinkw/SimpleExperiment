@@ -13,6 +13,11 @@ const contextKey = Symbol.for("simple-local.resource-lease-context.v2");
 const globals = globalThis as any;
 const contexts: AsyncLocalStorage<any[]> = globals[contextKey] ||= new AsyncLocalStorage();
 const pools: Map<string, any> = globals[poolKey] ||= new Map();
+
+/** Background timers start new operations; they must not inherit a completed request's lease. */
+export function runOutsideResourceLease<T>(operation: () => T): T {
+  return contexts.exit(operation);
+}
 const LEASE_POLL_BASE_MS = 20;
 const LEASE_POLL_MAX_MS = 250;
 

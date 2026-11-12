@@ -70,6 +70,7 @@ const FUNCTION_NAMES = [
   "gpuHistorySeriesKey", "rememberGpuHistoryState", "applyGpuWindowSamples",
   "mergeGpuHistorySegments", "gpuHistorySegmentGapLimit",
   "gpuHistorySeriesFor", "gpuHistoryOverviewSeries",
+  "recordDisplaySample",
 ];
 
 function chartContext() {
@@ -77,6 +78,8 @@ function chartContext() {
     GPU_HISTORY_GAP_FACTOR: 1.75,
     GPU_HISTORY_SERIES_CACHE_LIMIT: 8,
     gpuHistoryMeta: {},
+    displayRefreshAt: new Map(),
+    renderDisplayAutoNotices: () => {},
     gpuHistorySeriesCache: new Map(),
     gpuHistorySeriesRevision: 0,
     gpuHistoryLastStateStatus: "idle",
