@@ -1,6 +1,6 @@
 # Windows 日常点击验收
 
-本轮以 Windows 0.5.485 为初始实点基线。当前已安装 0.5.498，完整打包、试行发行及两窗口重载完成。结果解析、日志点击、TensorBoard MCP、产物对象映射及双项目切换后的归属拒绝与完成保持已实测；原 0.5.497 归属缺陷已修复，首次错误与 Generic 重新确认的时间均保留。整体入口尚未全覆盖。界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。
+本轮以 Windows 0.5.485 为初始实点基线。当前已安装 0.5.499，完整打包、试行发行、两窗口重载及本批停止状态实机复核完成。四个停止任务在正常查询和另一项目 Agent 下保持原取消事实，两个成功实验的完成证明保留。结果解析、日志点击、TensorBoard MCP、产物对象映射及项目归属拒绝已有实测。整体入口尚未全覆盖；Codex 原生 MCP 需要重连加载 0.5.499。界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。
 
 ## 0.5.499 停止状态刷新修复
 
@@ -11,7 +11,12 @@
 - 最终 package 322 项串行作业及 13 个门禁全部通过，输入前后一致（ab450dd4ab2d0064be9e8441257cdaf08525b5d1be114b3d19ecee0d18aadf6a）、801308 ms，记录 simple_cluster/reports/test-workflow/2026-11-12T03-25-28-115Z-61368-package/run.json。vm.Script 与实际 ZIP 的 380 项、327 个运行模块、版本、平台、runtime 字节及秘密排除通过。simple-experiment-0.5.499.vsix 为 3079508 字节，SHA256 dd893b4fd2455fb29be4793e22aba9265871ea571faf8fa65fdf885b0ba07b09。首次定向失败的完整输出保留在本轮工具记录，后续 runner 的定向和完整检查日志已落盘。
 - 设置中的打开命令设置实际定位 showAdvancedCommands；临时开启后执行暂停实时流，原生 MCP 读回 streamStatus=paused。恢复命令执行后为 disconnected，当前仍是另一项目 Agent，不能算作健康连接恢复通过。显示选项已恢复默认关闭。命令面板检查服务器配置实际保存 rjj8 → /root/autodl-tmp/zlk/SimpleMcpAcceptance 的目标，MCP sftp_servers 读回一致，setup 前后相同；未启动新 Agent 或训练。
 - 通用项目功能可用性审计实际刷新为按钮 43、命令 40、payload 0、Worker 0、接线 24。接线数混合处理器、说明和悬浮提示，明细仍需核对，不能据此宣称 24 个按钮失效或全部接线正常。诊断入口待后续检查。部署本项目 Agent 横幅可进入当前项目和 rjj8 的准确准备确认页，本轮退出，暂记预览。
-- 0.5.499 尚待试行发行、安装重载及原任务实机复核。永久删除继续暂缓，授权撤销仍需本人操作，不计为通过。
+- 源码 6e45afed00592734dc5016126ee6cf2aad912ce5 已普通推送并 fetch 确认。试行 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.499 精确绑定该提交，draft=false、prerelease=true、latest=false；3079508 字节 VSIX 与 97 字节 SHA 文件均实际下载核对一致，SHA 文件自身摘要 4eb1ed721d4969236a59af320edc54dbe9171a32d70a07882f3cc1a9306707fc。真实 ReleaseClient 返回 up_to_date，正式 Latest 保持 0.5.483 / 0.2.118，不降级已装试行版。install:latest 仅执行一次，已安装清单为 0.5.499 / 0.2.119，simpleex 稳定入口有效。
+- 两窗口标准重载后 Generic PID 46976、MultiModal PID 15068 均实际返回 0.5.499，未保存的 final.md 页保留，未再次出现已确认的全局配置提醒。新 SDK stdio 对 Generic 原四个停止任务在隧道未连通、正常连通和另一项目 Agent 三种本轮实际查询中均确认 cancelled，原 provenAt/finishedAt 保持，未修改落盘证明。正常连通的完整响应另存 simple_cluster/mcp-retained-stop-connected-0.5.499.json，另一项目响应存 simple_cluster/mcp-retained-stop-live-0.5.499.json，明确保留 AGENT_PROJECT_MISMATCH。
+- CLI 指定 Generic 工作区实际查询四个原 commandId 为 cancelled、原成功任务为 success。面板实际打开 PLAN 下拉框，四张控制 PLAN 均显示已中止，原 acceptance.yaml 为已完成 1/1；退出下拉后原选择未变。未重跑训练、重新停止任务或执行清理。
+- rjj8 的 Generic 准备 mcp-5775c82e-f554-47ea-97e7-d5afd4e6a2af 完成，Agent @47 / Scheduler @15 为 0.5.499；精确停止 @47 后 MultiModal 准备 mcp-bb4b92b7-69f5-40b1-b277-b438ab070da3 完成，最终 Agent @48 / Scheduler @9 为 0.5.499。实际 Agent 哈希 8e8b5c619585ce700b803feb7682359de126902c5292af09d76e669342464323、Scheduler 哈希 5982db6c0c465203204ef339975b73f8f5417ec7412bff1b28d9137887c45d5d，原 @12/@16/@9/@15 保留，未更新其他 Worker。
+- 两个方向共享端口切换后的原成功完成保持均通过，MultiModal verifiedAt=2026-11-11T10:28:00.155Z、Generic verifiedAt=2026-11-11T21:39:45.642Z 未变。最终 MultiModal 新 SDK 连接核对 138 项声明和 9 次实际调用通过，原任务主动查询 observed、completed/verified/exitCode=0，面板 ready 且无当前失败；未调用其结果收集或导出来重写历史结果。MultiModal 最终保留原窄侧栏。
+- Codex 两路原生连接本轮均实际拒绝 0.5.498→0.5.499 版本不符，未发送业务请求；新 SDK 成功不能替代原生重连。当前覆盖为 42 命令（实点 18、预览 2、未测 22）、175 静态 data-command 位置（实点 19、预览 2、未测 154）、138 MCP 工具、115 迁移项及 38 条动态观察。剩余入口和诊断接线提示待继续；永久删除继续暂缓，授权撤销仍需本人操作，不计为通过。
 
 ## 0.5.498 项目归属与产物查询实机复核
 

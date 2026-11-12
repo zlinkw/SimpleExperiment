@@ -4017,6 +4017,13 @@
         "control": "Resume Stream command with shared Agent serving MultiModal",
         "status": "not_tested",
         "evidence": "Command invoked and paused changed to disconnected; healthy reconnection remains unverified until this project Agent serves the endpoint."
+      },
+      {
+        "workspace": "SimpleMcpAcceptance",
+        "version": "0.5.499",
+        "control": "four retained cancellations after reload and active Worker queries",
+        "status": "clicked_passed",
+        "evidence": "Actual PLAN dropdown shows four existing controls cancelled and acceptance.yaml completed1/1. Named SDK task_list and project_state preserve four cancellations and exact original proof timestamps with a healthy project Agent and with AGENT_PROJECT_MISMATCH; explicit-workspace CLI confirms the same original commandIds. Original selection retained."
       }
     ]
   },
