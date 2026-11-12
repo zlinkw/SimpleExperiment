@@ -52,6 +52,14 @@ class MultiEndpointRealtimeClient {
         await mapLimitAllSettled([...this.clients.values()], 8, (client) => client.disconnect(reason));
         this.updateMergedState();
     }
+    pauseAll() {
+        for (const budget of this.budgets.values())
+            budget.pauseAll();
+    }
+    resume() {
+        for (const budget of this.budgets.values())
+            budget.resume();
+    }
     async reconnect(reason = "reconnect") {
         const clients = [...this.clients.values()].filter(client => client.diagnostics().requiresManualReconnect || ["disconnected", "paused"].includes(client.diagnostics().streamStatus));
         await mapLimitAllSettled(clients, 8, (client) => client.reconnect(reason));

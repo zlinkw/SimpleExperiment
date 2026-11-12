@@ -11,4 +11,8 @@ test("result contract links render as compact inline entries", () => {
   assert.match(html, /data-anchor="results-checkpoints"/);
   assert.match(html, /data-anchor="results-plotting"/);
   assert.doesNotMatch(html, /summaryCard/);
+  for (const [id, command] of [["results-contract", "checkOutputContract"], ["results-dataset", "inspectDataset"],
+    ["results-checkpoints", "planCheckpointRetention"], ["results-plotting", "exportPlottingContract"]]) {
+    assert.ok(new RegExp('<button[^>]+id="' + id + '"[^>]+data-command="' + command + '"').test(html), `${id} invokes its existing action`);
+  }
 });

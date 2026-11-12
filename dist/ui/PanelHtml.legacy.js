@@ -1620,10 +1620,10 @@ function renderPanelHtml() {
         <div class="resultRelatedTools" data-anchor="results-contract">
           <span class="resultRelatedToolsLabel">相关检查</span>
           <div class="contractQuickLinks">
-            <a id="results-contract" class="summaryLink" href="#results-contract" title="metrics/case/env/artifact">输出契约</a>
-            <a id="results-dataset" class="summaryLink" data-anchor="results-dataset" href="#results-dataset" title="CSV/split/leakage">数据集画像</a>
-            <a id="results-checkpoints" class="summaryLink" data-anchor="results-checkpoints" href="#results-checkpoints" title="dry-run/retention">检查点清理预案</a>
-            <a id="results-plotting" class="summaryLink" data-anchor="results-plotting" href="#results-plotting" title="registry/statistics/table">PPT 绘图契约</a>
+            <button type="button" id="results-contract" class="summaryLink" data-command="checkOutputContract" title="检查当前 PLAN 声明的指标、环境和产物">输出契约</button>
+            <button type="button" id="results-dataset" class="summaryLink" data-anchor="results-dataset" data-command="inspectDataset" title="按当前项目配置生成数据集画像">数据集画像</button>
+            <button type="button" id="results-checkpoints" class="summaryLink" data-anchor="results-checkpoints" data-command="planCheckpointRetention" title="只生成检查点保留与清理预案，不执行删除">检查点清理预案</button>
+            <button type="button" id="results-plotting" class="summaryLink" data-anchor="results-plotting" data-command="exportPlottingContract" title="导出当前结果的 PPT 绘图契约">PPT 绘图契约</button>
           </div>
         </div>
       </div>
@@ -2496,6 +2496,7 @@ function renderPanelHtml() {
       tmuxSelectedTaskTarget = matched.target;
       tmuxSelectedPaneTarget = "";
       persistWebviewState({ tmuxSelectedWorkerId: selected.workerId, tmuxWindowFilter: tmuxWindowFilter, tmuxSelectedTaskTarget: matched.target, tmuxSelectedPaneTarget: "" });
+      return true;
     }
     function selectTmuxWorker(workerId) {
       const id = String(workerId || "");
@@ -4768,7 +4769,7 @@ function renderPanelHtml() {
           if (listedWorkers.length) tmuxConfiguredWorkers = listedWorkers;
           if (item.workerId) tmuxListsByWorker[item.workerId] = { sessions: item.sessions || [], gpuIds: item.gpuIds || [], tmuxSessionPrefix: item.tmuxSessionPrefix || "", workerId: item.workerId, fetchedAt: item.fetchedAt || new Date().toLocaleTimeString(), ok: item.ok !== false, error: item.error || "" };
           finishTmuxListRequest(item);
-          handleJobTmuxLogList(item);
+          const jobLogJumpSelected = handleJobTmuxLogList(item);
           if (!tmuxSelectedWorkerId || (listedWorkers.length && !listedWorkers.some(function(worker){ return worker.id === tmuxSelectedWorkerId; }))) tmuxSelectedWorkerId = item.workerId || tmuxSelectedWorkerId;
           persistWebviewState({ tmuxSelectedWorkerId: tmuxSelectedWorkerId });
           const workerSel = el("tmuxWorkerSelect");
@@ -4785,8 +4786,11 @@ function renderPanelHtml() {
             if (String(item.status).toLowerCase() === "stalled") meta.textContent = "列举超时（stalled），按钮已恢复，后台可能仍在继续";
             else if (item.ok === false || item.error || String(item.status).toLowerCase() === "failed") meta.textContent = "列举失败 " + String(item.error || "Worker Agent 无响应").slice(0,80);
           }
-          // 自动刷新选中窗口的 capture，保持与筛选卡片同步
-          try { refreshTmuxCapture(); } catch (e) {}
+          // A task-card click carries its manual read through the first exact window match.
+          try {
+            if (jobLogJumpSelected) refreshTmuxCapture("user");
+            else refreshTmuxCapture();
+          } catch (e) {}
           continue;
         }
         if (item.type === "gpuHistoryResult") {
@@ -11999,7 +12003,7 @@ function renderPanelHtml() {
           if(isExpanded){
             var colspan = visibleCols.length + 1;
             var chartId = "gpuDenseChart-" + row.key.replace(/[^a-zA-Z0-9_-]+/g, "_");
-             bodyHtml += '<tr class="expandRow expandChartRow" data-expand-for="' + escAttr(row.key) + '"><td colspan="' + colspan + '" style="background:' + bg + '; padding:10px;"><div class="expandChartWrap"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;"><b>最近 24 小时（线性时间）</b><span class="muted">服务器 ' + esc(row.serverId) + ' GPU ' + esc(String(row.gpu.index)) + '</span></div><div id="' + escAttr(chartId) + '" class="gpuDenseChartHost" data-server-id="' + escAttr(row.serverId) + '" data-gpu-id="' + escAttr(String(row.gpu.index)) + '"><canvas class="gpuHistoryCanvas" data-chart-kind="gpu" tabindex="0"></canvas><div class="gpuHistoryTooltip" hidden></div></div><div class="muted">GPU 利用率 (%) · 显存已用 (MB)</div></div></td></tr>';
+             bodyHtml += '<tr class="expandRow expandChartRow" data-expand-for="' + escAttr(row.key) + '"><td colspan="' + colspan + '" style="background:' + bg + '; padding:10px;"><div class="expandChartWrap"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;"><b>最近 24 小时（线性时间）</b><span class="muted">服务器 ' + esc(row.serverId) + ' GPU ' + esc(String(row.gpu.index)) + '</span></div>' + gpuLowTrafficControlsMarkup(gpuHistorySeriesKey(row.serverId, String(row.gpu.index))) + '<div id="' + escAttr(chartId) + '" class="gpuDenseChartHost" data-server-id="' + escAttr(row.serverId) + '" data-gpu-id="' + escAttr(String(row.gpu.index)) + '"><canvas class="gpuHistoryCanvas" data-chart-kind="gpu" tabindex="0"></canvas><div class="gpuHistoryTooltip" hidden></div></div><div class="muted">GPU 利用率 (%) · 显存已用 (MB)</div></div></td></tr>';
             var procs = row.gpu.processes || [];
             var procRows = procs.length ? procs.map(function(p){
               return '<tr><td>' + esc(p.pid||"-") + '</td><td>' + esc(p.user||"-") + '</td><td>' + esc(String(p.memoryMb||"-")) + '</td><td>' + esc(p.submittedJobCommandId||"未匹配本机 job") + '</td><td class="cmd" style="white-space:pre-wrap; word-break:break-all;">' + esc(p.command||p.name||"-") + '</td></tr>';
@@ -14761,7 +14765,7 @@ function renderPanelHtml() {
       const checked = isTaskRowSelected(row, selected);
       const pending = taskActionPending(row);
       const pendingDelete = Boolean(taskActionPending(row, "deleteArtifacts"));
-      const analyzeAction = row.commandId && row.serverId && row.artifactPath ? '<button type="button" class="mini secondary" data-command="analyzeRuntimeLog" data-command-id="' + escAttr(row.commandId) + '" data-worker-id="' + escAttr(row.serverId) + '" data-artifact-path="' + escAttr(row.artifactPath) + '">重新分析运行日志</button>' : '';
+      const analyzeAction = row.commandId && row.serverId && row.artifactPath ? '<button type="button" class="mini secondary" data-command="analyzeRuntimeLog" title="重新读取并分析当前任务运行日志，不会重跑任务" data-command-id="' + escAttr(row.commandId) + '" data-worker-id="' + escAttr(row.serverId) + '" data-artifact-path="' + escAttr(row.artifactPath) + '">重新分析运行日志</button>' : '';
       const actions = [
         ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS?.has(row.status), true],
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
@@ -15527,7 +15531,7 @@ function renderPanelHtml() {
           const firstException = asArray(diagnostic.exceptions)[0];
           const diagnosticSummary = firstException ? '<div class="muted">' + esc(String(firstException.summary || '').split(String.fromCharCode(10)).filter(Boolean).slice(-1)[0] || firstException.type).slice(0, 240) + ' · ' + esc(firstException.logPath || diagnostic.logPath || '') + ' · 行 ' + esc(String(firstException.lineStart || '?')) + '–' + esc(String(firstException.lineEnd || '?')) + '</div>' : '';
           const lifecycleStates = '<div class="muted executionLifecycleStates"><span>执行：' + esc(executionLabel) + (job.exitCode == null ? '' : ' · 退出码 ' + esc(String(job.exitCode))) + '</span> · <span>产物：' + esc(resultLabel) + '</span> · <span>' + esc(diagnosticLabel) + '</span></div>';
-          const analyzeButton = job.commandId && job.workerId ? '<button type="button" class="mini secondary" data-command="analyzeRuntimeLog" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '">重新分析运行日志</button>' : '';
+          const analyzeButton = job.commandId && job.workerId ? '<button type="button" class="mini secondary" data-command="analyzeRuntimeLog" title="重新读取并分析当前任务运行日志，不会重跑任务" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '">重新分析运行日志</button>' : '';
           const artifactButtons = artifactSyncRequired && status === "completed" && job.lifecycleProtocol === 2 && job.workerId && job.commandId && !unavailable
             ? ['refreshJobArtifacts', 'retryJobArtifactSync'].map((command, index) => '<button type="button" class="mini secondary" data-command="' + command + '" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="' + escAttr('范围为此 job 声明产物与当前勾选范围的交集；目标为全部启用 Worker：' + artifactTargets + '；保留训练完成状态，不重跑。') + '">' + (index ? '重试产物同步' : '刷新产物状态') + '</button>').join('') : '';
           const syncReceipt = job.latestArtifactSync;
@@ -17181,7 +17185,7 @@ function renderPanelHtml() {
       const datasetOptions = view.datasets.map(row => '<option value="' + escAttr(row.dataset) + '">' + esc(row.dataset) + '</option>').join("");
       const unassignedRows = view.unassigned.plans.map(plan => '<label class="resultPlanMapRow"><input type="checkbox" data-plan-map-check value="' + escAttr(plan.planFile || "") + '"><span title="' + escAttr(plan.planFile || "") + '">' + esc(planLabels.get(resultCatalogPlanPath(plan))) + '<small class="muted">' + esc(plan.planFile || "") + '</small></span><select data-plan-map-dataset aria-label="映射 ' + escAttr(plan.planFile || "") + '"><option value="">请选择数据集</option>' + datasetOptions + '</select></label>').join("");
       const unassignedTablesHtml = view.unassigned.tables.length ? '<section><h4 class="resultDatasetSectionTitle">未标注数据集的结果</h4>' + view.unassigned.tables.map(row => tableRow(row, row.kind)).join("") + '</section>' : "";
-      const unassignedHtml = view.unassigned.planCount || view.unassigned.tables.length ? '<section class="resultSpecialSection"><h4 class="resultDatasetSectionTitle">待处理</h4><div class="resultSpecialGroup resultUnassigned"><div class="resultUnassignedLead">⚠ ' + view.unassigned.planCount + ' 个 Plan 尚未识别数据集</div><div class="muted">这些现有结果缺少数据集元数据；应用映射只重新整理本地已有结果，不会重新训练。</div><div class="resultTopActions"><button type="button" class="secondary mini" data-command="autoMatchPlanDatasets">自动匹配可确定项（已恢复 ' + view.autoRecoverableCount + '）</button><button type="button" class="secondary mini" data-open-result-mapping>设置结果列映射</button><details data-details-key="result-unassigned"' + detailsOpenAttr("result-unassigned", false) + '><summary>尚未识别 Plan（' + view.unassigned.planCount + '）</summary><div class="resultPlanMapList">' + unassignedRows + '<button type="button" data-command="applyPlanDatasetMapping">应用映射并重新整理已有结果</button><div class="muted">从本地已有逐 seed 结果重新汇总；原始 CSV 保持不变。</div></div></details></div>' + unassignedTablesHtml + '</div></section>' : "";
+      const unassignedHtml = view.unassigned.planCount || view.unassigned.tables.length ? '<section class="resultSpecialSection"><h4 class="resultDatasetSectionTitle">待处理</h4><div class="resultSpecialGroup resultUnassigned"><div class="resultUnassignedLead">⚠ ' + view.unassigned.planCount + ' 个 Plan 尚未识别数据集</div><div class="muted">这些现有结果缺少数据集元数据；应用映射只重新整理本地已有结果，不会重新训练。</div><div class="resultTopActions"><button type="button" class="secondary mini" data-command="autoMatchPlanDatasets" title="根据当前项目已有结果自动匹配可确定的数据集，只重新整理本机汇总">自动匹配可确定项（已恢复 ' + view.autoRecoverableCount + '）</button><button type="button" class="secondary mini" data-open-result-mapping>设置结果列映射</button><details data-details-key="result-unassigned"' + detailsOpenAttr("result-unassigned", false) + '><summary>尚未识别 Plan（' + view.unassigned.planCount + '）</summary><div class="resultPlanMapList">' + unassignedRows + '<button type="button" data-command="applyPlanDatasetMapping" title="保存当前数据集映射并重新整理本机已有结果，不会重跑训练">应用映射并重新整理已有结果</button><div class="muted">从本地已有逐 seed 结果重新汇总；原始 CSV 保持不变。</div></div></details></div>' + unassignedTablesHtml + '</div></section>' : "";
       const sharedHtml = specialHtml(view.shared, "shared-sources", "跨数据集 Plan 与共享产物");
       const legacyTables = asArray(catalog.legacyTables);
       const legacyHtml = legacyTables.length ? '<details class="resultSpecialGroup" data-details-key="result-legacy-tables"' + detailsOpenAttr("result-legacy-tables", false) + '><summary>旧版结果结构（' + legacyTables.length + '）</summary><div class="resultSpecialBody"><div class="muted">旧结构只读保留；重新汇总后会生成按数据集组织的结果。</div>' + legacyTables.map(row => '<div class="resultTableName" title="' + escAttr(row.path || "") + '">' + esc(resultCatalogBasename(row.path)) + '</div>').join("") + '</div></details>' : "";

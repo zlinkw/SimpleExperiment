@@ -42,7 +42,7 @@ function hostFixture(members) {
     projectContextGeneration: 1,
     lastHealth: undefined,
     lastError: undefined,
-    budget: { isPaused: () => false },
+    budget: { paused: false, isPaused() { return this.paused; }, pauseAll() { this.paused = true; }, resume() { this.paused = false; } },
     tunnelConfig: { refreshProfile: "realtime", pauseAllBackgroundTraffic: false, allowStreaming: true, pauseWhenWebviewHidden: true },
     view: { visible: true, webview: { postMessage: (payload) => { (host.posted || (host.posted = [])).push(payload); return true; } } },
     client: {
@@ -194,6 +194,29 @@ test("r4: pause, resume and a client reset converge the strategy on the current 
   assert.match(resetBody, /this\.displayReadInFlight\.clear\(\);/, "a reset must not let a new round join an older display read");
   assert.match(legacyMethod(source, "ensureRealtimeConnected(_reason)"), /this\.applyTrafficScheduling\(\);/,
     "the connection path must converge the strategy on fresh evidence");
+});
+
+test("normal pause and resume use the real Worker clients and both host and Worker request budgets", async () => {
+  const { MultiEndpointRealtimeClient } = require("../../dist/tunnel/MultiEndpointRealtimeClient");
+  const { RequestBudget, defaultRequestBudgetConfig } = require("../../dist/tunnel/RequestBudget");
+  const members = [legacyMethod(source, "pauseAllNetworkActivity()"), legacyMethod(source, "resumeNetwork()"), legacyMethod(source, "resumeRealtimeStream()")];
+  const { host, api } = hostFixture(members), workerBudgets = [];
+  host.budget = new RequestBudget(defaultRequestBudgetConfig);
+  host.client = new MultiEndpointRealtimeClient(["w1", "w2"].map(id => ({ id, role: "worker", localHost: "localhost", localPort: 19000 })), () => {
+    const budget = new RequestBudget(defaultRequestBudgetConfig); workerBudgets.push(budget); return budget;
+  });
+  host.resumeNetwork = api.resumeNetwork;
+  host.ensureRealtimeConnected = async () => undefined;
+  try {
+    await api.pauseAllNetworkActivity.call(host);
+    assert.equal(host.budget.isPaused(), true);
+    assert.ok(workerBudgets.every(budget => budget.isPaused()));
+    assert.equal(host.client.diagnostics().streamStatus, "paused");
+    await api.resumeRealtimeStream.call(host);
+    assert.equal(host.budget.isPaused(), false);
+    assert.ok(workerBudgets.every(budget => !budget.isPaused()));
+    assert.notEqual(host.lastHealth?.state, "paused");
+  } finally { await host.client.disconnect("dispose"); }
 });
 
 test("r1: automatic GPU history entries produce no request under the guard, a manual key still gets its round", () => {

@@ -211,6 +211,22 @@ test("closed historical windows and ambiguous identities cannot fall back to ano
   assert.equal(match({ workerId: "worker-a", commandId: "command-new" }, { workerId: "worker-a", sessions: duplicated }), null);
 });
 
+test("a job log jump reads its exact window once in low traffic without enabling automatic capture", () => {
+  const f = fixture();
+  f.sandbox.lastState = { trafficMode: { enabled: true, displayAutoRefresh: false } };
+  f.sandbox.tmuxDisplayAutoHint = false;
+  f.click();
+  f.deliver("worker-b", windows());
+  assert.equal(f.requests.filter(row => row.command === "fetchTmuxCapture").length, 0);
+  f.deliver("worker-a", windows());
+  const captures = () => f.requests.filter(row => row.command === "fetchTmuxCapture");
+  assert.deepEqual(captures().map(row => [row.workerId, row.window, row.origin]), [["worker-a", "custom-gpu-0:2", "user"]]);
+  assert.match(f.elements.tmuxCaptureMeta.textContent, /读取中/);
+  f.sandbox.tmuxCaptureBusy.clear();
+  f.deliver("worker-a", windows());
+  assert.equal(captures().length, 1, "later list updates cannot reuse the manual jump's permission");
+});
+
 test("a targeted jump supersedes pre-click polls and old replies cannot resolve a newer jump", () => {
   const f = fixture();
   f.sandbox.refreshTmuxList();

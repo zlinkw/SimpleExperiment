@@ -6,6 +6,35 @@ const path = require("node:path");
 
 const { importOfflineBundle } = require("../../dist/tunnel/OfflineImport.js");
 
+test("the Windows UI selects either a JSON file or a directory, never both picker modes", async () => {
+  const vm = require("node:vm"), ts = require("typescript");
+  const legacyMethod = require("../_helpers/legacyMethod"), { readSource } = require("../_helpers/sourceReader");
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "offline-picker-"));
+  const file = path.join(root, "cluster_snapshot.json");
+  await fs.writeFile(file, JSON.stringify({ schemaVersion: 1, schedulerStates: [] }), "utf8");
+  for (const kind of ["file", "directory"]) {
+    let shown = 0, imported = 0;
+    const sandbox = { workspaceRoot: () => root, keys: { offlineBundle: "offline" },
+      OfflineImport_1: { importOfflineBundle: async source => { imported++; return importOfflineBundle(source); } },
+      vscode: { window: {
+        showQuickPick: async choices => choices.find(choice => choice.kind === kind),
+        showOpenDialog: async options => {
+          shown++;
+          assert.equal(options.canSelectFiles, kind === "file");
+          assert.equal(options.canSelectFolders, kind === "directory");
+          return [{ fsPath: kind === "file" ? file : root }];
+        }, showErrorMessage: message => assert.fail(message),
+      } } };
+    vm.runInNewContext(ts.transpileModule("globalThis.api = {" + legacyMethod(readSource("src/extension/legacy.ts"), "importOffline()") + "};", {
+      compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, sandbox);
+    const host = { projectContextGeneration: 1, pauseRealtimeStream: async () => undefined,
+      refreshExperimentTracesProjectionForCurrentInterest() {}, mergeRecentPlansFromRuntime() {}, applyOfflineResultsSummaryFromBundle() {},
+      persistProjectOfflineBundleState: async () => undefined, context: { workspaceState: { update: async () => undefined } }, resetClient() {}, postState() {} };
+    await sandbox.api.importOffline.call(host);
+    assert.equal(shown, 1); assert.equal(imported, 1); assert.equal(host.offlineBundle.schemaVersion, 1);
+  }
+});
+
 test("offline import reads json bundle without network", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-offline-"));
   const file = path.join(dir, "bundle.json");

@@ -5683,7 +5683,10 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 actionLabel,
                 resources: options.resources,
                 readOnly: options.readOnly === true,
-                waitForConflict: options.waitForConflict === true,
+                // Port configuration can overlap a short background queue commit.
+                // Other workflows retain their immediate busy rejection.
+                waitForConflict: options.waitForConflict === true || options.waitForConflict !== false
+                    && ["configure-tunnel-ports", "configurePorts"].includes(actionType),
                 signal: options.signal,
             }, operation);
             console.log("[diag] withHostOperationLease acquired", { actionType, actionLabel });
@@ -6424,12 +6427,12 @@ return this.testTunnel(true);
             this.postState();
     }
     async resumeRealtimeStream() {
-        await this.clearOfflineImport();
-        await this.ensureRealtimeConnected("resume stream");
+        await this.resumeNetwork();
     }
     async pauseAllNetworkActivity() {
         const generation = this.projectContextGeneration;
         const client = this.client;
+        this.budget.pauseAll();
         client.pauseAll();
         await client.disconnect("paused");
         if (generation !== this.projectContextGeneration || client !== this.client)
@@ -6451,9 +6454,10 @@ return this.testTunnel(true);
         // diverge from the persisted toggle. ensureRealtimeConnected converges again on fresh evidence.
         if (this.lastHealth?.state === "paused" || this.lastHealth?.status === "paused")
             this.lastHealth = undefined;
+        this.budget.resume();
         this.client.resume();
         this.applyTrafficScheduling();
-        void this.ensureRealtimeConnected("resume network");
+        await this.ensureRealtimeConnected("resume network");
         this.postState();
     }
     async refreshPendingWorkerOperations() {
@@ -6770,12 +6774,17 @@ return this.testTunnel(true);
     async importOffline() {
         const generation = this.projectContextGeneration;
         const root = workspaceRoot();
+        const kind = await vscode.window.showQuickPick([
+            { label: "JSON 文件", kind: "file" },
+            { label: "导出目录", kind: "directory" },
+        ], { title: "选择离线包格式" });
+        if (!kind) return;
         const picked = await vscode.window.showOpenDialog({
-            canSelectFiles: true,
-            canSelectFolders: true,
+            canSelectFiles: kind.kind === "file",
+            canSelectFolders: kind.kind === "directory",
             canSelectMany: false,
-            title: "选择离线 bundle JSON 或目录",
-            filters: { "离线 bundle": ["json"], "所有文件": ["*"] },
+            title: kind.kind === "file" ? "选择离线 bundle JSON" : "选择离线导出目录",
+            filters: kind.kind === "file" ? { "离线 bundle": ["json"], "所有文件": ["*"] } : undefined,
         });
         const source = picked?.[0]?.fsPath;
         if (!source)
