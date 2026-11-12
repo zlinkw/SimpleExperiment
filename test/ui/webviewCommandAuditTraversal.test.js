@@ -24,7 +24,7 @@ function button(command, options = {}) {
   return {
     dataset: { command },
     disabled: Boolean(options.disabled),
-    getAttribute(name) { return name === "title" ? (options.title || "") : ""; },
+    getAttribute(name) { return name === "title" ? (options.title || "") : name === "data-tip" ? (options.tip || "") : ""; },
   };
 }
 
@@ -67,7 +67,7 @@ test("Webview command audit derives button facts in one traversal with cached he
   assert.equal(helpCalls, 4);
   assert.deepEqual(Array.from(facts.commands), ["handledNoHelp", "known", "missing"]);
   assert.deepEqual(Array.from(facts.missingHandler), ["missing"]);
-  assert.deepEqual(Array.from(facts.missingHelp), ["handledNoHelp", "missing"]);
+  assert.deepEqual(Array.from(facts.missingHelp), ["missing"]);
   assert.equal(facts.withoutTooltip, 3);
   assert.deepEqual(Array.from(facts.disabledWithoutReason), ["missing", "unknown"]);
 });
@@ -79,4 +79,39 @@ test("Webview DOM audit consumes shared button facts and preserves adjacent audi
   assert.match(source, /auditButtonPayloadWarnings\(buttons\)/);
   assert.match(source, /buttonSurfaceAudit\(buttons\)/);
   assert.match(source, /uniqueText\(facts\.disabledWithoutReason\)\.slice\(0, 12\)/);
+});
+
+test("command audit recognizes rendered custom tips and keeps unexplained occurrences visible", () => {
+  const sandbox = { webviewHandledCommands: new Set(["custom", "mixed", "unexplained"]), commandHelp: () => "" };
+  vm.createContext(sandbox);
+  vm.runInContext(extractFunction("webviewCommandButtonFacts") + ";this.audit=webviewCommandButtonFacts;", sandbox);
+  const facts = sandbox.audit([
+    button("custom", { tip: "Actual custom tooltip", disabled: true }),
+    button("mixed"),
+    button("mixed", { title: "Explanation on another occurrence" }),
+    button("unexplained", { disabled: true }),
+  ]);
+  assert.deepEqual(Array.from(facts.missingHandler), []);
+  assert.deepEqual(Array.from(facts.missingHelp), ["unexplained"]);
+  assert.equal(facts.withoutTooltip, 2);
+  assert.deepEqual(Array.from(facts.disabledWithoutReason), ["unexplained"]);
+});
+
+test("audit presentation separates handlers from help and exposes every detail without native titles", () => {
+  const renderedFunction = require("../_helpers/panelFunction");
+  const sandbox = { esc: String, escAttr: String, compactText: String,
+    audit: { buttonCount: 3, commandCount: 2, missingHandler: [], missingHelp: ["undocumented"], withoutTooltip: 1 },
+    detail: ["error-1", "error-2", "error-3", "error-4", "error-5", "error-6"] };
+  vm.createContext(sandbox);
+  vm.runInContext(renderedFunction("featureAuditPill") + renderedFunction("renderFeatureAuditPills"), sandbox);
+  const html = vm.runInContext("renderFeatureAuditPills(audit)", sandbox);
+  assert.match(html, /<span>接线<\/span><b>0<\/b>/);
+  assert.match(html, /<span>说明<\/span><b>1<\/b>/);
+  assert.match(html, /<span>悬浮<\/span><b>1<\/b>/);
+  const details = vm.runInContext("featureAuditPill('接线',6,'error',detail)", sandbox);
+  assert.match(details, /<details\b/);
+  assert.match(details, /<summary\b/);
+  assert.match(details, /<span class="featureAuditPill error">/, "existing card-menu surface stays available");
+  assert.match(details, /error-6/);
+  assert.doesNotMatch(details, / title=/);
 });

@@ -729,6 +729,10 @@ export function renderPanelHtml(): string {
     .featureAuditPill.error { border-left-color: #DC2626; background: color-mix(in srgb, var(--vscode-editor-background, #FFF) 88%, var(--danger, #FEF2F2) 12%); }
     .featureAuditPill span { color: var(--muted, #64748B); white-space: nowrap; }
     .featureAuditPill b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 850; }
+    .featureAuditDetails { display: inline-flex; align-items: flex-start; gap: 4px; min-width: 0; max-width: 100%; }
+    .featureAuditDetails > details { min-width: 0; max-width: 100%; }
+    .featureAuditDetails summary { cursor: pointer; color: var(--muted, #64748B); font-size: 11px; }
+    .featureAuditDetails ul { margin: 6px 0; padding-left: 18px; overflow-wrap: anywhere; }
     .targetMatrix { display: grid; gap: 4px; margin: 6px 0 10px; }
     .targetMatrixList { display: grid; gap: 4px; }
     .targetMatrixRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; min-width: 0; padding: 4px 7px; border: 1px solid var(--border, #E2E8F0); border-left: 3px solid var(--border, #CBD5E1); border-radius: 6px; background: var(--vscode-editor-background, #FFFFFF); color: var(--text, #0F172A); font-size: 11px; }
@@ -7359,6 +7363,7 @@ export function renderPanelHtml(): string {
 
     function webviewCommandButtonFacts(buttons) {
       const commandSet = new Set();
+      const explainedCommands = new Set();
       const helpByCommand = new Map();
       const disabledWithoutReason = [];
       let withoutTooltip = 0;
@@ -7370,7 +7375,11 @@ export function renderPanelHtml(): string {
       for (const button of buttons) {
         const command = String(button.dataset.command || "");
         if (command) commandSet.add(command);
-        if (String(button.getAttribute("title") || "").trim() || hasHelp(command)) continue;
+        const explained = hasHelp(command) || String(button.getAttribute("title") || button.getAttribute("data-tip") || "").trim();
+        if (explained) {
+          if (command) explainedCommands.add(command);
+          continue;
+        }
         withoutTooltip += 1;
         if (button.disabled) disabledWithoutReason.push(command || "unknown");
       }
@@ -7379,7 +7388,7 @@ export function renderPanelHtml(): string {
       const missingHelp = [];
       commands.forEach((command) => {
         if (!webviewHandledCommands?.has(command)) missingHandler.push(command);
-        if (!hasHelp(command)) missingHelp.push(command);
+        if (!explainedCommands.has(command)) missingHelp.push(command);
       });
       return { commands, missingHandler, missingHelp, withoutTooltip, disabledWithoutReason };
     }
@@ -17811,25 +17820,26 @@ export function renderPanelHtml(): string {
     }
 
     function renderFeatureAuditPills(audit) {
-      const wiringIssues = (audit.missingHandler || []).length + (audit.missingHelp || []).length + Number(audit.withoutTooltip || 0);
-      const wiringDetail = []
-        .concat((audit.missingHandler || []).map((item) => "缺 handler " + item))
-        .concat((audit.missingHelp || []).map((item) => "缺说明 " + item))
-        .concat(audit.withoutTooltip ? ["缺悬浮 " + String(audit.withoutTooltip)] : []);
+      const missingHandlers = audit.missingHandler || [];
+      const missingHelp = audit.missingHelp || [];
       return [
         featureAuditPill("按钮", audit.buttonCount, "good"),
         featureAuditPill("命令", audit.commandCount, "good"),
-        featureAuditPill("接线", wiringIssues ? String(wiringIssues) : "0", (audit.missingHandler || []).length ? "error" : wiringIssues ? "warn" : "good", wiringDetail),
+        featureAuditPill("接线", missingHandlers.length, missingHandlers.length ? "error" : "good", missingHandlers.map((item) => "未绑定处理：" + item)),
+        featureAuditPill("说明", missingHelp.length, missingHelp.length ? "warn" : "good", missingHelp.map((item) => "缺说明：" + item)),
+        featureAuditPill("悬浮", audit.withoutTooltip || 0, audit.withoutTooltip ? "warn" : "good"),
         featureAuditPill("payload", (audit.payloadWarnings || []).length ? String(audit.payloadWarnings.length) : "0", (audit.payloadWarnings || []).length ? "error" : "good", audit.payloadWarnings),
         featureAuditPill("Worker", (audit.directWorkerWarnings || []).length ? String(audit.directWorkerWarnings.length) : "0", (audit.directWorkerWarnings || []).length ? "error" : "good", (audit.directWorkerWarnings || []).concat(audit.surfaceCounts || [], audit.disabledWithoutReason || []))
       ].join("");
     }
 
     function featureAuditPill(label, value, tone, detail) {
-      const hasDetail = Array.isArray(detail) && detail.length;
-      const detailText = hasDetail ? detail.slice(0, 4).join("；") + (detail.length > 4 ? "；+" + String(detail.length - 4) : "") : "";
-      const title = hasDetail ? ' title="' + escAttr(detailText) + '"' : "";
-      return '<span class="featureAuditPill ' + escAttr(tone || "") + '"' + title + '><span>' + esc(label) + '</span><b>' + esc(compactText(value, 24)) + '</b></span>';
+      const content = '<span>' + esc(label) + '</span><b>' + esc(compactText(value, 24)) + '</b>';
+      const className = 'featureAuditPill ' + escAttr(tone || "");
+      const pill = '<span class="' + className + '">' + content + '</span>';
+      if (!Array.isArray(detail) || !detail.length) return pill;
+      return '<div class="featureAuditDetails">' + pill + '<details><summary>明细</summary><ul>' +
+        detail.map((item) => '<li>' + esc(item) + '</li>').join("") + '</ul></details></div>';
     }
 
     function featureReadinessRow(state, title, commands) {

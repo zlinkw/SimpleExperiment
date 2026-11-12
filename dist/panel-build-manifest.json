@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.499",
-  "buildId": "12cfe9f2bc5a32ebe4f33d240d53bc839934d1e535cc78c67142172009ea4950",
+  "version": "0.5.500",
+  "buildId": "9e2d80cb43bb8cc2a3d1e7e513b2d34e70a43e8ca3e8b01886252fd6b7b65cd9",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -945,7 +945,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "ae457cdc72cf893b3f9532978a103733c6580b37d9097b54087c89e638f213fa"
+      "sha256": "9556686682c5412e9b384894c94ccfd153f338c6a28bd04005277a80da2fd994"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1173,7 +1173,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "94487e0f6a43cde9c206041b55f2037b023f6bd019d8c8a25ad5dce8dbac56c3"
+      "sha256": "e40de01978fe36b9bd2853b12bde994697e829534da8bfb950c8da9a7f7e80b2"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1297,7 +1297,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "f92783b2354d39ccb686e745b4ceae61deca3087051201e9cae8aed9ac024be0"
+      "sha256": "f06107e1f3621fda97b74ed4d720c193aa96039c106d5bc6badb9bdb6a517a2a"
     },
     {
       "path": "scripts/check-static.js",
