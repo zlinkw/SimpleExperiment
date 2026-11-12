@@ -2668,7 +2668,14 @@ function renderPanelHtml() {
     function setTmuxLogFollow(enabled) {
       const pre = el("tmuxCapturePre"), button = el("tmuxFollowButton");
       if (pre) { pre.dataset.follow = enabled ? "true" : "false"; if (enabled) pre.scrollTop = pre.scrollHeight - pre.clientHeight; }
-      if (button) { button.textContent = enabled ? "暂停跟随" : "继续跟随"; button.title = enabled ? "只暂停自动滚动，日志仍可继续读取" : "恢复自动滚动；读取频率保持当前设置"; button.setAttribute("aria-pressed", enabled ? "true" : "false"); }
+      if (button) {
+        button.textContent = enabled ? "暂停跟随" : "继续跟随";
+        const help = enabled ? "只暂停自动滚动，日志仍可继续读取" : "恢复自动滚动；读取频率保持当前设置";
+        setNativeTitle(button, help);
+        button.setAttribute("data-tip", help);
+        button.setAttribute("aria-label", button.textContent + "：" + help);
+        button.setAttribute("aria-pressed", enabled ? "true" : "false");
+      }
     }
     function decodeCapturedText(raw){
       let s = String(raw || "");
@@ -3364,7 +3371,7 @@ function renderPanelHtml() {
     });
     // 单链第二步：SYNC_COMMAND_ANCHORS 8映射无DOM承接（sync-publish-github/sync-github-push/sync-github-overwrite/sync-upload-hub/sync-upload-workers/sync-distribute-workers/sync-deploy-agent/sync-download-scope 均无 data-anchor 卡），仅作 inspector 排序键保留，后端 case 全保留；syncCommandAnchor 回退 settings-chain-overview。
     const SYNC_COMMAND_ANCHORS = Object.freeze({ publishGithub: "sync-publish-github", syncGithub: "sync-github-push", overwriteGithub: "sync-github-overwrite", uploadProjectToHub: "sync-upload-hub", uploadProjectToWorkers: "sync-upload-workers", distributeCodeToWorkers: "sync-distribute-workers", deployLatestAgent: "sync-deploy-agent", configureServerSyncScope: "sync-server-scope", configureDownloadScope: "sync-download-scope" });
-    const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
+    const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml", "operation_audit.json", "quality_evaluation_complete.json"]);
     const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
     const EMPTY_OUTPUT_DERIVATION_VALUES = Object.freeze([]);
     const EMPTY_OUTPUT_DERIVATION_SOURCE = Object.freeze({});
@@ -8073,7 +8080,7 @@ function renderPanelHtml() {
         try { var inspectorGotoSections = inspectorSectionsForCustomGroup(title); if (inspectorGotoSections && inspectorGotoSections.length) inspectorGotoSection = String(inspectorGotoSections[0] || ""); } catch (e) {}
         var inspectorGotoAttr = inspectorGotoSection ? ' data-inspector-goto="' + escAttr(inspectorGotoSection) + '"' : "";
         var inspectorGotoTip = inspectorGotoSection ? ' title="点击定位到主列' + escAttr(inspectorGotoSection) + '卡片"' : "";
-        return '<div class="pinnedActions inspectorCustomGroup" data-custom-group="' + escAttr(title) + '"><div class="inspectorCustomGroupHead"' + inspectorGotoAttr + inspectorGotoTip + '><div class="inspectorEyebrow"' + inspectorGotoAttr + '>' + esc(title) + '（' + String(items.length) + '）</div><button type="button" class="mini secondary inspectorCustomRowBtn" data-inspector-add title="添加一行新按钮到自定义操作组"="' + escAttr(title) + '">+ 添加</button></div><div class="workflowActions">' + buttons + '</div>' + emptyHint + '</div>';
+        return '<div class="pinnedActions inspectorCustomGroup" data-custom-group="' + escAttr(title) + '"><div class="inspectorCustomGroupHead"' + inspectorGotoAttr + inspectorGotoTip + '><div class="inspectorEyebrow"' + inspectorGotoAttr + '>' + esc(title) + '（' + String(items.length) + '）</div><button type="button" class="mini secondary inspectorCustomRowBtn" data-inspector-add="' + escAttr(title) + '" title="添加一行新按钮到自定义操作组">+ 添加</button></div><div class="workflowActions">' + buttons + '</div>' + emptyHint + '</div>';
       }).join("");
     }
 
@@ -8131,7 +8138,7 @@ function renderPanelHtml() {
       menu.id = "inspectorAddMenu";
       menu.className = "inspectorAddMenu is-open";
       menu.setAttribute("data-inspector-menu-group", groupTitle);
-      menu.innerHTML = '<div class="inspectorEyebrow">添加按钮到 ' + esc(groupTitle) + '</div><div style="display:grid;gap:4px;max-height:220px;overflow:auto;">' + rows + '</div><div style="display:flex;gap:6px;"><button type="button" data-inspector-confirm title="确认添加按钮到当前操作组"="' + escAttr(groupTitle) + '">确定</button><button type="button" class="secondary" data-inspector-cancel title="取消添加按钮，关闭弹窗"="1">取消</button></div>';
+      menu.innerHTML = '<div class="inspectorEyebrow">添加按钮到 ' + esc(groupTitle) + '</div><div style="display:grid;gap:4px;max-height:220px;overflow:auto;">' + rows + '</div><div style="display:flex;gap:6px;"><button type="button" data-inspector-confirm="' + escAttr(groupTitle) + '" title="确认添加按钮到当前操作组">确定</button><button type="button" class="secondary" data-inspector-cancel="1" title="取消添加按钮，关闭弹窗">取消</button></div>';
       document.body.appendChild(menu);
       try { document.body.classList.add("inspector-menu-open"); } catch (e) {}
       try {
@@ -8774,7 +8781,8 @@ function renderPanelHtml() {
       return [
         treeObjectItem("plans", "项目识别", "入口", "", "查看当前项目、配置、输出捕获和指标接入状态。", "plans-detected", "", "分类 指标 CSV JSON 控制台 输出接入"),
         treeObjectItem("plans", "计划操作", "入口", "", "定位到计划文件输入和运行按钮。", "plans-actions", "", "validate dry-run runPlan"),
-        treeObjectItem("plans", "参数预览", "入口", "", "查看实验计划参数展开、配置预览和运行前检查。", "plans-list", "", "参数 预览 config plan")
+        treeObjectItem("plans", "参数预览", "入口", "", "查看实验计划参数展开、配置预览和运行前检查。", "plans-list", "", "参数 预览 config plan"),
+        treeObjectItem("plans", "项目与分支工具", "入口", "", "登记祖先项目与独立副本，查看真实 Git 状态和分支运行入口。", "branch-projects", "", "分支 祖先 副本 worktree clone GitHub PR 登记 创建 结果对比")
       ];
     }
 

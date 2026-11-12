@@ -23,6 +23,8 @@ function metadataPlan(extraResults = []) {
     "      - work_dirs/metadata_only/status.json",
     "      - work_dirs/metadata_only/artifact_manifest.json",
     "      - experiments/results/jobs.csv",
+    "      - work_dirs/metadata_only/operation_audit.json",
+    "      - work_dirs/metadata_only/quality_evaluation_complete.json",
     ...extraResults.map((item) => `      - ${item}`),
   ].join("\n");
 }
@@ -73,16 +75,27 @@ test("Hub Agent output gate and adapter policy reject metadata-only candidates",
     "  candidateJson:",
     "    - work_dirs/metadata_only/status.json",
     "    - work_dirs/metadata_only/artifact_manifest.json",
+    "    - work_dirs/metadata_only/operation_audit.json",
+    "    - work_dirs/metadata_only/quality_evaluation_complete.json",
   ].join("\n"), "utf8");
 
   const source = readSource("src/clusterAgentRuntime.ts");
   const agentPath = path.join(tmp, "cluster_agent.py");
   fs.writeFileSync(agentPath, extractAgent(source), "utf8");
+  const adapterPath = path.join(tmp, 'result_writer.py'), outputs = path.join(root, 'work_dirs', 'metadata_only');
+  fs.writeFileSync(adapterPath, Templates.outputAdapterTemplate('metadata_test'), 'utf8');
+  fs.mkdirSync(outputs, {recursive:true});
+  fs.writeFileSync(path.join(outputs,'operation_audit.json'),JSON.stringify({sample_count:100,patient_count:90}), 'utf8');
+  fs.writeFileSync(path.join(outputs,'quality_evaluation_complete.json'),JSON.stringify({status:'complete',metric_rows:10}), 'utf8');
+  fs.writeFileSync(path.join(outputs,'metrics.json'),JSON.stringify({metrics:{custom_score:12.5}}), 'utf8');
   const script = path.join(tmp, "check.py");
   fs.writeFileSync(script, [
     "import importlib.util, json",
     `spec = (lambda _name, _file: __import__("runpy").run_path(${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers/extractRuntimeFunctions.py"))})["extract_runtime_functions"](_file, ["default_result_candidates_for_dir", "discover_result_files", "discover_result_files_under", "parse_results_action", "parseable_result_candidate", "plan_declared_result_candidates", "plan_output_capture_evidence", "policy_explicit_result_candidates", "read_project_metric_policy", "structured_result_candidate"]))('agent', ${JSON.stringify(agentPath)})`,
     "agent = spec",
+    `adapter = __import__('runpy').run_path(${JSON.stringify(path.resolve(__dirname, '../_helpers/extractRuntimeFunctions.py'))})['extract_runtime_functions'](${JSON.stringify(adapterPath)}, ['discover_json_metrics'])`,
+    `adapter_rows = adapter.discover_json_metrics(${JSON.stringify(outputs)}, {'extra_json_paths':['operation_audit.json','quality_evaluation_complete.json']})`,
+    "assert len(adapter_rows) == 1 and adapter_rows[0]['metric'] == 'custom_score', adapter_rows",
     `scheduler = __import__("runpy").run_path(${JSON.stringify(path.resolve(__dirname, '../_helpers/extractRuntimeFunctions.py'))})['extract_runtime_functions'](${JSON.stringify(path.resolve(__dirname, '../../dist/runtime/cluster_scheduler.py'))}, ['load_plan', 'build_jobs', 'safe_project_relative_path'])`,
     "agent.scalar_scheduler_module = lambda: scheduler",
     "pass",

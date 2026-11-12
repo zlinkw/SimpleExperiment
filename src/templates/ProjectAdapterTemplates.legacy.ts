@@ -370,7 +370,7 @@ export function outputAdapterTemplate(projectName) {
         "    seen = set()",
         "    for path in iter_candidate_json_paths(output_dir, context):",
         "        base = Path(path).name.lower()",
-        "        if base in {\"artifact_manifest.json\", \"checkpoint_manifest.json\", \"manifest.json\", \"metadata.json\", \"status.json\", \"state.json\", \"progress.json\", \"job.json\", \"jobs.json\", \"env_snapshot.json\", \"config_snapshot.json\"} or re.search(r\"(?:_snapshot|_manifest|_status|_state|_progress)\\.json$\", base):",
+        "        if base in {\"artifact_manifest.json\", \"checkpoint_manifest.json\", \"manifest.json\", \"metadata.json\", \"status.json\", \"state.json\", \"progress.json\", \"job.json\", \"jobs.json\", \"env_snapshot.json\", \"config_snapshot.json\", \"operation_audit.json\", \"quality_evaluation_complete.json\"} or re.search(r\"(?:_snapshot|_manifest|_status|_state|_progress)\\.json$\", base):",
         "            continue",
         "        key = str(Path(path).resolve())",
         "        if key in seen:",

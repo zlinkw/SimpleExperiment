@@ -106,6 +106,13 @@ test("output contract accepts declared CSV, JSON, and text results without cross
   ].join('\n'));
   for (const file of multimodalOutputs) write(root, `work_dirs/nested/multimodal/0_smoke_seed42/${file}`,
     file.endsWith('.csv') ? 'accuracy,loss\n0.9,0.1\n' : JSON.stringify({status:'complete'}));
+  write(root, 'work_dirs/nested/multimodal/0_smoke_seed42/test_results/operation_audit.json', JSON.stringify({
+    status:'SEEDED_STRATIFIED_RANDOM', sample_count:100, patient_count:90, image_operation_count_delta:0,
+    text_operation_count_delta:0, text_donor_max_reuse:2, operations:{image:'noise'}, actual_counts:{noise:100},
+  }));
+  write(root, 'work_dirs/nested/multimodal/0_smoke_seed42/test_results/quality_evaluation_complete.json', JSON.stringify({
+    status:'complete', metric_rows:10, evaluation_contract:{protocol:'test'}, artifacts_sha256:{},
+  }));
   write(root, 'experiments/plans/declared_snapshot.yaml', [
     plan('declared_snapshot', cases.declared_snapshot), 'expectedResults:',
     `  - ${cases.declared_snapshot}`, '  - work_dirs/declared_snapshot/config_snapshot.yaml',
@@ -176,6 +183,10 @@ test("output contract accepts declared CSV, JSON, and text results without cross
   assert.deepEqual(reports.multimodal.requiredSnapshots, []);
   for (const file of multimodalOutputs) assert.ok(reports.multimodal.files.includes(`work_dirs/nested/multimodal/0_smoke_seed42/${file}`));
   assert.ok(reports.multimodal.resultFiles.every(file => file.startsWith('work_dirs/nested/multimodal/')));
+  assert.deepEqual(reports.multimodal.resultFiles, multimodalOutputs.filter(file => file.endsWith('.csv'))
+    .map(file => 'work_dirs/nested/multimodal/0_smoke_seed42/' + file).sort());
+  assert.ok(reports.multimodal.parseableResultFiles.every(file => file.endsWith('.csv')));
+  assert.ok(reports.multimodal.unparseableFiles.every(file => file.endsWith('.csv')));
   assert.deepEqual(reports.declared_snapshot.requiredSnapshots, ['config_snapshot.yaml']);
   assert.deepEqual(reports.declared_snapshot.missing, ['work_dirs/declared_snapshot/config_snapshot.yaml']);
 });

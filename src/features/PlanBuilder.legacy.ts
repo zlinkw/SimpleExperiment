@@ -1267,7 +1267,7 @@ function isNonResultMetadataPath(value) {
     const text = String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
     const base = text.split("/").pop() || "";
     return /^simple_cluster\/results\//i.test(text)
-        || /^(?:jobs\.csv|artifact_manifest\.json|checkpoint_manifest\.json|manifest\.json|metadata\.json|status\.json|state\.json|progress\.json|job\.json|jobs\.json|env_snapshot\.json|config_snapshot\.(?:json|ya?ml))$/i.test(base)
+        || /^(?:jobs\.csv|artifact_manifest\.json|checkpoint_manifest\.json|manifest\.json|metadata\.json|status\.json|state\.json|progress\.json|job\.json|jobs\.json|env_snapshot\.json|config_snapshot\.(?:json|ya?ml)|operation_audit\.json|quality_evaluation_complete\.json)$/i.test(base)
         || /(?:_snapshot|_manifest|_status|_state|_progress)\.json$/i.test(base);
 }
 function isPlanAllowedResultCandidate(value) {

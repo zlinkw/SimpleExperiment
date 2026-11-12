@@ -21,3 +21,24 @@ test("status info uses details popover with close scheduling", () => {
   assert.match(panel, /<details class="statusInfoPopover">/);
   assert.match(panel, /\.statusInfoPopoverBody \{ position: absolute/);
 });
+
+test('custom inspector buttons keep their group through rendered HTML, menu selection and save', async () => {
+  const vm=require('node:vm'),inline=require('../_helpers/panelFunction'),{parseFragment}=await import('parse5');
+  const group='实验准备',groups={[group]:[]};let menu,saved;
+  const context={inspectorCustomGroupTitles:()=>[group],inspectorCustomGroupsState:()=>groups,
+    inspectorSectionsForCustomGroup:()=>['plans'],escAttr:String,esc:String,inspectorSavedActionButton:()=>'',
+    el:()=>menu,closeInspectorAddMenu:()=>{menu=undefined;},commandHelp:()=>'',markWorkbenchInspectorInteraction(){},
+    inspectorCustomCandidatePool:title=>title===group?[['刷新识别','snapshot',{}]]:[],
+    document:{createElement:()=>({style:{},setAttribute(){}}),body:{appendChild:value=>{menu=value;},classList:{add(){}}}},
+    window:{innerWidth:1200,innerHeight:800},normalizeSavedButtonAction:spec=>({...spec,id:spec.command}),savedActionSame:(a,b)=>a.id===b.id,
+    saveInspectorCustomGroups:value=>{saved=value;}};
+  vm.createContext(context);vm.runInContext(['renderInspectorCustomGroups','openInspectorAddMenu','confirmInspectorAddMenu'].map(inline).join('\n'),context);
+  const find=(html,name)=>{let found;const walk=node=>{if(node.attrs?.some(a=>a.name===name))found=node;for(const child of node.childNodes||[])walk(child);};walk(parseFragment(html));assert(found,'missing '+name);return found;};
+  const attr=(node,key)=>node.attrs.find(a=>a.name===key)?.value;
+  const add=find(context.renderInspectorCustomGroups(),'data-inspector-add');assert.equal(attr(add,'data-inspector-add'),group);
+  context.openInspectorAddMenu(attr(add,'data-inspector-add'));
+  const confirm=find(menu.innerHTML,'data-inspector-confirm'),cancel=find(menu.innerHTML,'data-inspector-cancel');
+  assert.equal(attr(confirm,'data-inspector-confirm'),group);assert.equal(attr(cancel,'data-inspector-cancel'),'1');
+  const pick=find(menu.innerHTML,'data-inspector-pick');menu.querySelectorAll=()=>[{getAttribute:key=>attr(pick,key)}];
+  context.confirmInspectorAddMenu(attr(confirm,'data-inspector-confirm'));assert.equal(saved[group][0].command,'snapshot');assert.equal(saved[''],undefined);
+});

@@ -1028,6 +1028,7 @@ NON_RESULT_METADATA_FILES = {
     "metadata.json", "status.json", "state.json", "progress.json", "job.json",
     "jobs.json", "jobs.csv", "env_snapshot.json", "config_snapshot.json",
     "config_snapshot.yaml", "config_snapshot.yml",
+    "operation_audit.json", "quality_evaluation_complete.json",
 }
 
 def allowed_result_candidate(value):

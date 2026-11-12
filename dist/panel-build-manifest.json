@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.505",
-  "buildId": "7488cd51410b32af9b96321efc8b85e9e814bcb6e5e9d2cdcc14e5c992d56344",
+  "version": "0.5.506",
+  "buildId": "57885a540b7ad8736d4164c55717e9af0c5adf4bb5d6be10728b16e0e17ff1ff",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -248,6 +248,10 @@
       "sha256": "6438a83ce501a79cba26a8b49dbab295609e4570f1c41d9d9ecdfacdfcef6117"
     },
     {
+      "path": "dist/extension/GitOverwriteReview.js",
+      "sha256": "03ef70aefd35596f1fe847fa8b69ac87f33106a167ce627aff4170b89074d39d"
+    },
+    {
       "path": "dist/extension/GpuQuotaPolicyHost.js",
       "sha256": "eb8f9608b3fc2b0194aabde42e76a0a4bac1f5f35bc43aac459d8e7ad71df19b"
     },
@@ -257,7 +261,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "f1f16ac83ad1d4ca4c7fd9ad58317160a4bf47db402ec50afaed1551c25d96c2"
+      "sha256": "6661212bf8f7c65325e2352e93def4f0bd58ec09a55e0f66e6570ef7ea6b3081"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -613,7 +617,7 @@
     },
     {
       "path": "dist/features/PlanBuilder.legacy.js",
-      "sha256": "ab0d288b270d647819e4e71fcc22355deedb100e9aaaa3126a5c1c9bb935763a"
+      "sha256": "e86e0b13ea5e3b0afb3c9f25bffc1625eeabbc7de38eccf99a7f4c47ad9fc76a"
     },
     {
       "path": "dist/features/PlanBuilder/PlanValidator.js",
@@ -857,7 +861,7 @@
     },
     {
       "path": "dist/mcp/ToolCatalog.js",
-      "sha256": "e71ca8f0019e79ebe2da54b17b9ff3d8b77768c5b940b4f8b56a2e58e4a056af"
+      "sha256": "a033616271376e49c1131b27e9cf688a221f8adb9f91592c39beb0fd68f76455"
     },
     {
       "path": "dist/mcp/ToolResults.js",
@@ -894,6 +898,10 @@
     {
       "path": "dist/project/GitIdentityProbe.js",
       "sha256": "3df38d6e61e1dcf81f5d8a4afde4fc21126eeff7a92e6ddb14947db93ff17d56"
+    },
+    {
+      "path": "dist/project/GitOverwrite.js",
+      "sha256": "ddf02ed78bf44dc3caa5b0f562f6ae4dc2d0c4fc2cc37da3487e50f030be41f3"
     },
     {
       "path": "dist/project/UnifiedDispatchAdmission.js",
@@ -945,7 +953,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "fea021ecb4dfa1911cb93ec90ff9b82a14c0daf3f1493fb00366957ab6fd903e"
+      "sha256": "250362db9cd4e402a0a17446e6cf8bc7e6f9db86d8f1fe1e22691ee2108745c4"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -961,7 +969,7 @@
     },
     {
       "path": "dist/templates/ProjectAdapterTemplates.legacy.js",
-      "sha256": "2ac0054bae68830df908dcf54041435b31dbb2512c60fa0d9964f4dcc58aa37a"
+      "sha256": "529d10c0a70a7f28bd03d1423e112643d25753f1bfa24c42f9a91792129965d8"
     },
     {
       "path": "dist/tensorboard/ScalarAggregation.js",
@@ -1173,7 +1181,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "dc873a9b2251da09453e22d301569c8ee58cf97e0adaf86147ed28a5b725c60c"
+      "sha256": "8a72b63a28ca69ad478b127c5b29b9f8c89e20d0ca2fe013730e146ae7618981"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1297,7 +1305,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "49939d750d2b11d9899304d2301e6e1da8bf9862928dc0223f414a92ff856cd6"
+      "sha256": "3221552271eb6736fc9918abeb6a245f8cef0c34619627b3a12d0fdf19df969e"
     },
     {
       "path": "scripts/check-static.js",

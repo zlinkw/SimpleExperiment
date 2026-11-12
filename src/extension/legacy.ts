@@ -21,6 +21,7 @@ import * as OperationOutcome_1 from "../core/OperationOutcome";
 import { atomicWriteText } from "../state/StateStore";
 import { LatestSnapshotWriter } from "../core/LatestSnapshotWriter";
 import { runProjectStaticCheck } from "../features/ProjectStaticCheck";
+import { reviewGitOverwrite } from "./GitOverwriteReview";
 import * as TmuxWindowIdentity from "../features/TmuxWindowIdentity";
 import * as GpuMemoryScheduling from "../features/GpuMemoryScheduling";
 import * as GpuQuotaScheduling from "../features/GpuQuotaScheduling";
@@ -5672,12 +5673,15 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         // Preflight, reads, transfer orchestration and cancellation use their target-level guards.
         if (/^(runPlan|reproducePlan|runAllPlans|validatePlan|dryRunPlan|parseResults|stop|abort|cancel|kill|clearTmux|sync|upload|download|distribute|prepareAgents|deploy|refresh|fetch|get|check|plot|startPpt)/i.test(actionType)) return operation();
         const leaseContext = currentHostOperationLeaseContext();
+        const connectionAction = String(actionType).replace(/^simpleExperiment[.]/, "");
         // These dialogs edit shared connections or start their guarded SSH tunnels;
         // holding the experiment directory also blocks unrelated queue commits.
         if (!options.resources && ["configure-worker-tunnels", "configure-tunnel-ports", "configure-xshell-tunnel",
             "configureWorkers", "configurePorts", "repairPorts", "start-worker-tunnel", "start-xshell-tunnel",
             "start-all-tunnels", "start-all-connections", "startTunnelEndpoint", "startWorker", "startAll",
-            "startAllConnections"].includes(actionType)) {
+            "startAllConnections", "configureWorkerTunnels", "configureTunnelPorts", "configureXshellSavedSessions",
+            "configureXshellRealtimeTunnel", "startWorkerTunnel", "startXshellRealtimeTunnel",
+            "startAllXshellRealtimeTunnels", "startAllXshellConnections"].includes(connectionAction)) {
             const shared = this.context.globalStorageUri.fsPath;
             options.resources = [{ server: "local", project: shared, target: path.join(shared, "shared-connections") }];
         }
@@ -5696,7 +5700,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 // Port configuration can overlap a short background queue commit.
                 // Other workflows retain their immediate busy rejection.
                 waitForConflict: options.waitForConflict === true || options.waitForConflict !== false
-                    && ["configure-tunnel-ports", "configurePorts"].includes(actionType),
+                    && ["configure-tunnel-ports", "configurePorts", "configureTunnelPorts"].includes(connectionAction),
                 signal: options.signal,
             }, operation);
             console.log("[diag] withHostOperationLease acquired", { actionType, actionLabel });
@@ -9591,11 +9595,10 @@ return false;
         });
     }
     async overwriteFromGitHub() {
-        await confirmUiCommand("从 GitHub 覆盖本机", "将执行 git reset --hard 和 git clean，删除本地未提交改动。", true);
         const root = workspaceRoot();
         if (!root)
             throw new Error("请先打开一个工作区，再从 GitHub 覆盖本机。");
-        await runVsCodeShellTask("SimpleExperiment GitHub overwrite", "git fetch --all --prune && git reset --hard @{u} && git clean -fd", root);
+        await reviewGitOverwrite(root, (method, params) => this.simpleSftpApiCall(method, params));
         void vscode.window.showInformationMessage("已从 GitHub 覆盖本地工作区。");
     }
     async uploadProjectToHub() {

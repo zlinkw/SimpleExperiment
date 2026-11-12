@@ -69,7 +69,8 @@ exports.PROJECT_TOOLS = [
     tool("result_collect", "results.list", "Actively collect verified results and publish the configured summaries", plan, [], "results"),
     tool("server_test", "server.testAll", "Check all configured enabled Worker connections", { refresh: boolean }),
     tool("agent_inspect", "agents.lifecycle", "Inspect assigned Agent services", { serverIds: texts("Configured Worker ID") }, ["serverIds"]),
-    ...["ensure", "stop", "restart", "migrate"].map(action => tool("agent_" + action, "agents.lifecycle", `${action} only the configured Workers' assigned Agent windows`, { serverIds: texts("Configured Worker ID"), ...(action === "migrate" ? { migrationDigests: object } : {}) }, ["serverIds"], "agents", action)),
+    ...["ensure", "stop", "restart", "migrate"].map(action => tool("agent_" + action, "agents.lifecycle", `${action} only the configured Workers' assigned Agent windows` +
+        (["ensure", "restart"].includes(action) ? "; requires the packaged runtime to be deployed: run project_prepare first after a plugin upgrade or runtime hash mismatch" : ""), { serverIds: texts("Configured Worker ID"), ...(action === "migrate" ? { migrationDigests: object } : {}) }, ["serverIds"], "agents", action)),
     tool("configuration_list", "config.list", "Inspect plugin configuration"),
     tool("state_keys", "state.list", "Inspect available plugin state keys and their storage scope"),
     tool("state_value", "state.get", "Read one plugin state value", { key: text("Declared state key") }, ["key"]),

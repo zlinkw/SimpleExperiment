@@ -18,16 +18,23 @@ test('connection dialogs retain shared exclusion while experiment queue writes c
   const host=id=>{const lease=manager(id);return {...context.operations,context:{globalStorageUri:{fsPath:shared}},
     // Waiting is irrelevant to resource independence; reject a wrong scope immediately.
     hostOperationLease:{run:(input,work)=>lease.run({...input,waitForConflict:false},work)}};};
-  const left=host('left'),right=host('right');let release,enter;
+  const left=host('left'),right=host('right');
+  for (const action of ['startTunnelEndpoint', 'configure-tunnel-ports',
+    'simpleExperiment.configureTunnelPorts', 'simpleExperiment.configureWorkerTunnels',
+    'simpleExperiment.configureXshellSavedSessions', 'simpleExperiment.configureXshellRealtimeTunnel',
+    'simpleExperiment.startWorkerTunnel', 'simpleExperiment.startXshellRealtimeTunnel',
+    'simpleExperiment.startAllXshellRealtimeTunnels', 'simpleExperiment.startAllXshellConnections']) {
+  let release,enter;
   const entered=new Promise(resolve=>enter=resolve),held=new Promise(resolve=>release=resolve);
-  const prompt=left.withHostOperationLease('startTunnelEndpoint','启动隧道端点',async()=>{enter();await held;});
+  const prompt=left.withHostOperationLease(action,'连接配置或隧道',async()=>{enter();await held;});
   await entered;
   try {
     let wrote=false;await right.withQueueWriteResource(project,async()=>{wrote=true;});
-    assert.equal(wrote,true,'human connection prompt must not block the experiment queue');
+    assert.equal(wrote,true,action+': human connection prompt must not block the experiment queue');
     await assert.rejects(right.withHostOperationLease('startTunnelEndpoint','启动另一隧道',async()=>{}),/正在由另一个操作修改/);
   } finally {release();await prompt;}
   assert.equal(await right.withHostOperationLease('startTunnelEndpoint','启动隧道',async()=>42),42);
+  }
 });
 test('cross-window queue writes merge fresh disk state and reject duplicate Plans',async()=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'queue-resource-evidence-'));
