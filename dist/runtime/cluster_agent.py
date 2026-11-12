@@ -549,9 +549,9 @@ def runtime_dependency_check():
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.503"
-RUNTIME_VERSION = "0.5.503"
-PLUGIN_VERSION = "0.5.503"
+AGENT_VERSION = "0.5.504"
+RUNTIME_VERSION = "0.5.504"
+PLUGIN_VERSION = "0.5.504"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -10497,7 +10497,36 @@ def discover_plan_files(root, plan_dir=None, limit=500):
                 return out
     return out
 
-def plan_declared_result_candidates(root, plan=None, limit=240):
+def plan_output_declarations(root, plan, text):
+    keys = ("expectedResults", "expected_results", "resultFiles", "result_files", "outputFiles", "output_files")
+    if "{" not in text and not re.search(r"\b(?:expectedResults|expected_results|resultFiles|result_files|outputFiles|output_files|outputs)\s*:", text):
+        return None
+    scheduler = scalar_scheduler_module()
+    parsed = scheduler.load_plan(safe_project_path(root, plan))
+    records = [parsed, *scheduler.normalize_case_items(parsed)]
+    raw = []
+    explicit = False
+    for record in records:
+        for key in keys:
+            if key in record:
+                explicit = True
+                raw.extend(scheduler.declared_path_values(record[key]))
+        runner = record.get("runner") or {}
+        if "outputs" in runner:
+            explicit = True
+            raw.extend(scheduler.declared_path_values(runner["outputs"]))
+    resolved = None
+    if any("{" + key + "}" in text for key in scheduler.OUTPUT_TEMPLATE_ALIAS_KEYS) or any("{" in value for value in raw):
+        # The Agent's assigned tmux window starts in this project. Reuse the
+        # scheduler's real case/seed/naming expansion without writing job configs.
+        _, jobs = scheduler.build_jobs(parsed)
+        paths = unique_values(path for job in jobs for path in job.outputs)
+        resolved = unique_values(path for job in jobs for path in [job.result_csv, *job.result_aliases.values(), *job.outputs])
+    else:
+        paths = unique_values(scheduler.safe_project_relative_path(pathlib.Path(root), value, "declared output") for value in raw)
+    return {"explicit": explicit, "paths": paths, "resolvedCandidates": resolved}
+
+def plan_declared_result_candidates(root, plan=None, limit=240, declaration=None):
     plans = []
     if plan:
         plans.append(plan)
@@ -10510,6 +10539,12 @@ def plan_declared_result_candidates(root, plan=None, limit=240):
             text = open(plan_path, "r", encoding="utf-8", errors="replace").read()
             cleaned = uncommented_yaml_text(text)
         except Exception:
+            continue
+        outputs = declaration if declaration is not None and plan else plan_output_declarations(root, item, cleaned)
+        if outputs is not None and outputs["resolvedCandidates"] is not None:
+            out.extend(outputs["resolvedCandidates"])
+            if len(out) >= limit:
+                break
             continue
         suite = str(yaml_scalar(cleaned, "suite", "") or "").strip()
         resolved = cleaned.replace("{suite}", suite) if suite else cleaned
@@ -11896,7 +11931,7 @@ def inspect_dataset_action(root, payload=None):
     for case_id, splits in by_case.items():
         if case_id and len(splits) > 1:
             issues.append({"severity": "critical", "type": "case_overlap", "message": f"同一 case_id 出现在多个 split: {case_id}", "affectedIds": [case_id], "splits": sorted(splits)})
-    leakage = {"schemaVersion": 1, "status": "failed" if any(i["severity"] == "critical" for i in issues) else "warning" if issues else "ok", "issues": issues, "checkedAt": now_iso()}
+    leakage = {"schemaVersion": 1, "status": "not_checked" if not cases else "failed" if any(i["severity"] == "critical" for i in issues) else "warning" if issues else "ok", "checked": bool(cases), "issues": issues, "checkedAt": now_iso() if cases else ""}
     plan_file = action_plan_file(payload or {})
     plan_norm = normalize_result_candidate(plan_file) if plan_file else ""
     profile_rel = plan_datasets_artifact_relpath(plan_norm, "profile.json")
@@ -11907,7 +11942,8 @@ def inspect_dataset_action(root, payload=None):
     atomic_write(profile_path, profile)
     if plan_norm:
         atomic_write(safe_project_path(root, "simple_cluster/datasets/profile.json"), profile)
-    md = ["# Dataset Inspector", "", f"生成时间：{profile['generatedAt']}", f"样本数：{profile['totalRows']}", f"泄漏状态：{leakage['status']}", "", "## Split 分布"]
+    leakage_label = "未检查（没有可读取的样本）" if not cases else leakage["status"]
+    md = ["# Dataset Inspector", "", f"生成时间：{profile['generatedAt']}", f"样本数：{profile['totalRows']}", f"泄漏状态：{leakage_label}", "", "## Split 分布"]
     md.extend([f"- {k}: {v}" for k, v in split_dist.items()] or ["- 无"])
     md.extend(["", "## Class 分布"])
     md.extend([f"- {k}: {v}" for k, v in class_dist.items()] or ["- 无"])
@@ -12463,14 +12499,34 @@ def output_contract_unparseable_error(value):
 def check_output_contract_action(root, plan=None):
     plan_norm = normalize_result_candidate(plan) if plan else ""
     required = list(OUTPUT_CONTRACT_SNAPSHOT_FILES)
+    declaration = None
+    declared_missing = []
+    declared_present = []
     if plan_norm:
-        declared = plan_declared_result_candidates(root, plan_norm)
+        text = open(safe_project_path(root, plan_norm), "r", encoding="utf-8").read()
+        declaration = plan_output_declarations(root, plan_norm, uncommented_yaml_text(text))
+        if declaration is not None and declaration["explicit"]:
+            required = [name for name in required if any(os.path.basename(value).lower() == name for value in declaration["paths"])]
+            for value in declaration["paths"]:
+                matches = glob.glob(safe_project_path(root, value), recursive=True) if any(ch in value for ch in "*?[]") else [safe_project_path(root, value)]
+                existing = []
+                for filename in matches:
+                    relative = relpath(root, filename)
+                    if os.path.exists(safe_project_path(root, relative)):
+                        existing.append(relative)
+                if existing:
+                    declared_present.extend(existing)
+                else:
+                    declared_missing.append(value)
+        declared = plan_declared_result_candidates(root, plan_norm, declaration=declaration)
         jobs = job_result_candidates(root, plan=plan_norm)
+        discovered = plan_scoped_discover_candidates(root, plan_norm) if declaration is None or declaration["resolvedCandidates"] is None else []
         files = sorted(dict.fromkeys([
             *expand_result_candidates(root, declared),
             *expand_result_candidates(root, jobs),
-            *expand_result_candidates(root, plan_scoped_discover_candidates(root, plan_norm)),
+            *expand_result_candidates(root, discovered),
         ]))
+        files = sorted(dict.fromkeys([*files, *declared_present]))
         search_roots = output_contract_search_roots([*declared, *jobs, *files])
     else:
         files = discover_result_files(root)
@@ -12511,7 +12567,7 @@ def check_output_contract_action(root, plan=None):
         if required and all(name in present for name in required):
             break
     files = sorted(dict.fromkeys(files))
-    missing = [name for name in required if name not in present]
+    missing = declared_missing if declaration is not None and declaration["explicit"] else [name for name in required if name not in present]
     result_files = sorted(dict.fromkeys(filter(None, (output_contract_result_candidate(item) for item in files))))
     metric_files = [item for item in result_files if os.path.basename(str(item)).lower() == "metrics_summary.csv"]
     if not result_files:
@@ -12540,7 +12596,8 @@ def check_output_contract_action(root, plan=None):
     elif parseable_result_count <= 0:
         message = "候选结果文件存在，但未解析到数值指标：" + ("、".join(unparseable_files) or "未找到可解析文件")
     else:
-        message = f"输出契约完整：已确认 {len(required)} 个快照文件，并从 {len(parseable_files)} 个结果文件解析到 {parseable_result_count} 条结果"
+        evidence_label = f"{len(declaration['paths'])} 项声明产物" if declaration is not None and declaration["explicit"] else f"{len(required)} 个快照文件"
+        message = f"输出契约完整：已确认 {evidence_label}，并从 {len(parseable_files)} 个结果文件解析到 {parseable_result_count} 条结果"
     report = {"schemaVersion": 1, "status": "failed" if issue_type else "ok", "issueType": issue_type, "files": files, "missing": missing, "missingCount": len(missing), "requiredSnapshots": required, "resultFiles": result_files, "metricFiles": metric_files, "parseableResultFiles": parseable_files, "parseableResultCount": parseable_result_count, "unparseable": unparseable, "unparseableFiles": unparseable_files, "unparseableCount": len(unparseable_files), "checkedAt": now_iso(), "planFile": plan_norm or "", "message": message}
     report_rel = f"simple_cluster/contracts/contract_check_reports/by_plan/{plan_summary_slug(plan_norm)}/latest.json" if plan_norm else "simple_cluster/contracts/contract_check_reports/latest.json"
     report["path"] = report_rel
@@ -15064,7 +15121,8 @@ def handle_action(root, action, payload, operation_id, op_id):
         report = inspect_dataset_action(root, payload)
         status = "failed" if (report.get("leakage") or {}).get("status") == "failed" else "completed"
         outputs = (report.get("outputFiles") or {}) if isinstance(report, dict) else {}
-        return terminal_action(root, action, operation_id, op_id, status, f"Dataset 画像完成：{report.get('totalRows', 0)} 行，泄漏状态 {(report.get('leakage') or {}).get('status')}", {"datasetProfile": report, "planFile": report.get("planFile") or action_plan_file(payload) or "", "datasetProfilePath": outputs.get("profileJson") or "simple_cluster/datasets/profile.json", "datasetProfileMarkdownPath": outputs.get("profileMarkdown") or "simple_cluster/datasets/profile.md", "leakageReportCsvPath": outputs.get("leakageReportCsv") or "simple_cluster/datasets/leakage_report.csv"}, request=payload)
+        message = "数据画像已查询，未发现可读取的样本；泄漏检查未执行。" if (report.get("leakage") or {}).get("status") == "not_checked" else f"Dataset 画像完成：{report.get('totalRows', 0)} 行，泄漏状态 {(report.get('leakage') or {}).get('status')}"
+        return terminal_action(root, action, operation_id, op_id, status, message, {"datasetProfile": report, "planFile": report.get("planFile") or action_plan_file(payload) or "", "datasetProfilePath": outputs.get("profileJson") or "simple_cluster/datasets/profile.json", "datasetProfileMarkdownPath": outputs.get("profileMarkdown") or "simple_cluster/datasets/profile.md", "leakageReportCsvPath": outputs.get("leakageReportCsv") or "simple_cluster/datasets/leakage_report.csv"}, request=payload)
     if action == "export-plotting-contract":
         report = export_plotting_contract_action(root, action_plan_file(payload))
         return terminal_action(root, action, operation_id, op_id, "completed", f"PPT 绘图契约已导出：{report.get('path')}", {"plottingContract": report.get("contract"), "plottingContractPath": report.get("path"), "plottingContractMarkdownPath": report.get("markdownPath")}, request=payload)

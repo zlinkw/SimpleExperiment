@@ -292,6 +292,28 @@ test("opening a plan cannot select it in a replacement workspace", () => {
   assert.ok(open.indexOf("await openWorkspaceFile(file)") < open.indexOf("this.selectPlanFromUi"));
 });
 
+test("opening configuration and result links preserves the selected PLAN", async () => {
+  const body = methodBody("async openWorkspacePlanFromUi", "async refreshDraftPlans");
+  const root = path.resolve("acceptance-project");
+  const opened = [];
+  const open = new Function("workspaceRoot", "stringField", "path", "planDirSafe", "openWorkspaceFile",
+    `return ({${body}}).openWorkspacePlanFromUi;`)(
+    () => root, (message, key) => message[key] || "", path, () => "experiments/plans",
+    async file => opened.push(file));
+  const selected = "experiments/plans/acceptance.yaml";
+  const host = {projectContextGeneration: 1, selectedPlan: selected,
+    selectPlanFromUi(message) { this.selectedPlan = message.planFile; }};
+  for (const file of ["config.yaml", "outputs/metrics.csv", "configs/base.yml", "experiments/plans/../../config.yaml"]) {
+    await open.call(host, {file});
+    assert.equal(opened.at(-1), file);
+    assert.equal(host.selectedPlan, selected, file);
+  }
+  for (const file of ["experiments/plans/nested/next.yaml", "experiments/plans/next.yml"]) {
+    await open.call(host, {file});
+    assert.equal(host.selectedPlan, file);
+  }
+});
+
 test("output adapter generation cannot continue in a replacement workspace", () => {
   const generate = methodBody("async generateOutputAdapterFromUi", "async savePptPlotConfigFromUi");
   assert.match(generate, /const projectContext = this\.captureProjectContext\(\)/);

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.503",
-  "buildId": "71e4c2c9075bfc90f1e0b90a692f8bea3e42c674f4fa96959a0eb4c1f8177562",
+  "version": "0.5.504",
+  "buildId": "45927d26ab3a8df98e0dcb13a4144091e83256e1616cb1838008f55cfefe8374",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -257,7 +257,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "aa9c5a1ad4995f2c8c266bc2dd9574024b7bfdc7d15573e8a6aa37973e52622e"
+      "sha256": "bd38e7f7f2399be80de09cddb09a910768247465477c637f3acbc81cb6ecc569"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -613,7 +613,7 @@
     },
     {
       "path": "dist/features/PlanBuilder.legacy.js",
-      "sha256": "c0a1dbc0d2aad35e85e232fcb7cf1d07021f0d6d6663c249b35bde2def5a5941"
+      "sha256": "ab0d288b270d647819e4e71fcc22355deedb100e9aaaa3126a5c1c9bb935763a"
     },
     {
       "path": "dist/features/PlanBuilder/PlanValidator.js",
@@ -945,7 +945,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "3251cf81eda4f543eebaf38e8dd3c61c41bbec10e4a5c50247e76b6b87cdd55e"
+      "sha256": "006fbc13a19137588a3e053dcda07cb66d87eab30ce6acfd2dae9081e969716b"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1297,7 +1297,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "17f623170d0bf50cf20b84a73bfadada20077e658c32ccf2c7753d6aa026f509"
+      "sha256": "a903cd15934bad11fcdd1385351c0bb6e1c2ab1b7a84183aa8c448fa4b6b0874"
     },
     {
       "path": "scripts/check-static.js",

@@ -29,6 +29,27 @@ function metadataPlan(extraResults = []) {
 
 function extractAgent() { return readBuiltAgentRuntime(); }
 
+test("explicit generic result paths replace inferred canonical filenames in PLAN previews", () => {
+  const declaredPlan = (resultPath, command = "python test.py --output-dir {output_dir}") => [
+    "suite: generic", "mode: test", "base_config: config.yaml", "seeds: [42]",
+    "runner:", `  test_command: '${command}'`, "naming:", "  sweep_dir: work_dirs/generic",
+    "paper:", `  result_csv: '${resultPath}'`, "expectedResults:",
+    `  - '${resultPath}'`, "  - '{output_dir}/model.pt'", "cases:", "  - case: smoke",
+  ].join("\n");
+  for (const resultPath of ["{output_dir}/metrics.csv", "{output_dir}/test_results/job_metrics.csv", "tmp/result/scores.json", "reports/summary.txt"]) {
+    const plan = declaredPlan(resultPath);
+    const expected = resultPath.replace("{output_dir}", "*");
+    assert.deepEqual(PlanBuilder.parsePlanOutputEvidence(plan).outputCandidates, [expected]);
+    assert.deepEqual(PlanBuilder.parsePlanSummary(plan).outputCandidates, [expected]);
+    assert.equal(PlanBuilder.validateDeepLearningPlanContract(plan).ok, true);
+  }
+  for (const invalid of ["../metrics.csv", "/outside/metrics.csv", "C:/outside/metrics.csv", "s3://bucket/metrics.csv", "work_dirs/status.json"]) {
+    const plan = declaredPlan(invalid, "python test.py");
+    assert.deepEqual(PlanBuilder.parsePlanOutputEvidence(plan).evidenceCandidates, []);
+    assert.equal(PlanBuilder.validateDeepLearningPlanContract(plan).ok, false);
+  }
+});
+
 test("Plan evidence rejects metadata-only outputs and keeps real result candidates", () => {
   const metadata = PlanBuilder.parsePlanOutputEvidence(metadataPlan());
   assert.deepEqual(metadata.evidenceCandidates, []);
@@ -62,6 +83,8 @@ test("Hub Agent output gate and adapter policy reject metadata-only candidates",
     "import importlib.util, json",
     `spec = (lambda _name, _file: __import__("runpy").run_path(${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers/extractRuntimeFunctions.py"))})["extract_runtime_functions"](_file, ["default_result_candidates_for_dir", "discover_result_files", "discover_result_files_under", "parse_results_action", "parseable_result_candidate", "plan_declared_result_candidates", "plan_output_capture_evidence", "policy_explicit_result_candidates", "read_project_metric_policy", "structured_result_candidate"]))('agent', ${JSON.stringify(agentPath)})`,
     "agent = spec",
+    `scheduler = __import__("runpy").run_path(${JSON.stringify(path.resolve(__dirname, '../_helpers/extractRuntimeFunctions.py'))})['extract_runtime_functions'](${JSON.stringify(path.resolve(__dirname, '../../dist/runtime/cluster_scheduler.py'))}, ['load_plan', 'build_jobs', 'safe_project_relative_path'])`,
+    "agent.scalar_scheduler_module = lambda: scheduler",
     "pass",
     `root = ${JSON.stringify(root)}`,
     "plan = 'experiments/plans/metadata.yaml'",

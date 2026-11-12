@@ -368,18 +368,7 @@ const planResultRootFiles = new Set([
     "stdout.log",
     "stderr.log",
 ]);
-// 白名单收敛：TopDirs 仅保留 output_dir 常用宿主（work_dirs/results/outputs），其余
-// lightning_logs/test_results/custom_results/reports/artifacts/evals/predictions 等一律走声明，不再默认放行。
-// PrefixPairs 仅保留 experiments/results（终版第5文件大表前缀）；simple_cluster/* 与 experiments/runs 走声明。
-const planResultTopDirs = new Set([
-    "work_dirs",
-    "results",
-    "outputs",
-]);
-const planResultPrefixPairs = new Set([
-    "experiments/results",
-]);
-const planResultExactPairs = new Set(["experiments/results.csv"]);
+// Explicit result fields are independent of project layout and metric filenames.
 function parsePlanOutputEvidence(yaml, commands = {}) {
     const clean = stripYamlComments(yaml);
     const trainCommand = commands.trainCommand || firstPlanCommand(clean, ["train_command", "trainCommand", "command"]);
@@ -409,11 +398,10 @@ function parsePlanOutputEvidence(yaml, commands = {}) {
         ...extractYamlStringValues(clean, key),
         ...extractYamlFlowMapValues(clean, key),
     ]).map(normalizePlanCandidateDir).filter(Boolean);
+    const declaredCandidates = [...direct, ...listed, ...outputRules];
     const outputCandidates = dedupOutputCandidates([
-        ...direct.map((item) => item.value),
-        ...listed.map((item) => item.value),
-        ...outputRules.map((item) => item.value),
-        ...dirs.flatMap((dir) => defaultResultCandidatesForDir(dir)),
+        ...declaredCandidates.map((item) => item.value),
+        ...(declaredCandidates.length ? [] : dirs.flatMap((dir) => defaultResultCandidatesForDir(dir))),
     ]);
     const signals = new Set();
     for (const item of [...direct, ...listed]) {
@@ -436,7 +424,8 @@ function parsePlanOutputEvidence(yaml, commands = {}) {
         ...extractYamlCommandValues(clean, commandKeys),
         ...extractYamlFlowMapValues(clean, ...commandKeys),
     ]);
-    const commandCandidates = extractCommandResultCandidates(commandValues);
+    const commandCandidates = extractCommandResultCandidates(commandValues)
+        .filter((item) => !declaredCandidates.length || !item.inferred);
     const knownOutputKeys = new Set(outputCandidates.map((item) => normalizeOutputCandidateKey(item)));
     for (const item of dedupOutputCandidates(commandCandidates.map((entry) => entry.value))) {
         const key = normalizeOutputCandidateKey(item);
@@ -970,25 +959,25 @@ function extractCommandResultCandidates(commands) {
             if (key) {
                 const value = normalizePlanCandidatePath(raw);
                 if (isPlanParseableResultCandidate(value))
-                    out.push({ key, value });
+                    out.push({ key, value, inferred: false });
                 continue;
             }
             if (commandResultDirFlags.has(flag) || commandResultDirFlags.has(normalizedFlag)) {
                 for (const value of defaultResultCandidatesForDir(raw))
-                    out.push({ key: flag, value });
+                    out.push({ key: flag, value, inferred: true });
             }
         }
         for (const match of text.matchAll(commandDirAssignmentPattern())) {
             const key = String(match[1] || "").trim();
             const raw = match[2] || match[3] || match[4] || "";
             for (const value of defaultResultCandidatesForDir(raw))
-                out.push({ key, value });
+                out.push({ key, value, inferred: true });
         }
         const redirectPattern = /(?:^|[\s;&|])(?:1?>|2>)[ \t]*(?:"([^"]+)"|'([^']+)'|([^\s;&|<>]+))/g;
         for (const match of text.matchAll(redirectPattern)) {
             const value = normalizePlanCandidatePath(match[1] || match[2] || match[3] || "");
             if (isPlanCommandResultLikePath(value))
-                out.push({ key: "redirect", value });
+                out.push({ key: "redirect", value, inferred: false });
         }
     }
     const seen = new Set();
@@ -1075,26 +1064,16 @@ function isNonResultMetadataPath(value) {
         || /(?:_snapshot|_manifest|_status|_state|_progress)\.json$/i.test(base);
 }
 function isPlanAllowedResultCandidate(value) {
-    const text = expandPlanPathPlaceholders(String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, ""));
+    const raw = String(value || "").trim().replace(/\\/g, "/");
+    if (/^(?:[A-Za-z]:|\/)/.test(raw) || raw.includes("://"))
+        return false;
+    const text = expandPlanPathPlaceholders(raw.replace(/^\.\//, ""));
     const parts = text.split("/").filter((part) => part && part !== ".");
     if (!parts.length || parts.includes(".."))
         return false;
-    const lowerParts = parts.map((part) => part.toLowerCase());
-    const lower = lowerParts.join("/");
-    const base = lowerParts[lowerParts.length - 1];
-    // 终版契约判定同步：4种契约 basename 在任意目录深度直接放行（{output_dir}/…）；
-    // 第5文件 experiments/results/<method>.csv 走声明前缀（任意 basename）；其余一律拒绝。
-    if (planResultRootFiles.has(base))
-        return true;
-    if (planResultExactPairs.has(lower))
-        return true;
-    if (planResultTopDirs.has(lowerParts[0])) {
-        // 收敛补丁：TopDirs 宿主目录下也只放行契约 basename + experiments/results 前缀，大表/杂散文件走声明
-        if (planResultRootFiles.has(base))
-            return true;
-        return planResultPrefixPairs.has(lowerParts.slice(0, 2).join("/"));
-    }
-    return planResultPrefixPairs.has(lowerParts.slice(0, 2).join("/"));
+    // Explicit PLAN fields and result flags may use any project-relative result
+    // filename. Directory inference still uses the existing canonical defaults.
+    return true;
 }
 function uniquePlanStrings(values) {
     return [...new Set(values.map((item) => String(item || "").trim()).filter(Boolean))];

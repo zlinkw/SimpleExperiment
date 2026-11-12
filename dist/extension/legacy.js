@@ -21356,7 +21356,11 @@ class RealtimeTunnelPanelProvider {
         await openWorkspaceFile(file);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
-        // Opening a workspace plan should also become the active selected plan for closed-loop parse/run.
+        // Config and result links share this opener. Only PLAN YAML changes the
+        // experiment selection; opening a related file must preserve its owner.
+        const relativePlan = path.relative(path.resolve(root, planDirSafe()), path.resolve(root, file)).replace(/\\/g, "/");
+        if (!relativePlan || relativePlan === ".." || relativePlan.startsWith("../") || path.isAbsolute(relativePlan) || !/\.ya?ml$/i.test(relativePlan))
+            return;
         this.selectPlanFromUi({ planFile: file, planId: file });
     }
     async refreshDraftPlans(force = false) {

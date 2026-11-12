@@ -1,11 +1,17 @@
 {
-  "version": "0.5.503",
+  "version": "0.5.504",
   "tools": [
     {
       "name": "project_status",
       "method": "status",
       "plugin": "experiment",
-      "requiresUserApproval": false
+      "requiresUserApproval": false,
+      "liveValidation": {
+        "version": "0.5.503",
+        "workspace": "D:/GitRepo/SimpleMcpAcceptance",
+        "status": "read_passed",
+        "evidence": "mcpReadCatalog503; structured response retained; empty draft/transfer lists only prove scoped reads."
+      }
     },
     {
       "name": "action_catalog",
@@ -29,13 +35,25 @@
       "name": "project_registry",
       "method": "projects.registry",
       "plugin": "experiment",
-      "requiresUserApproval": false
+      "requiresUserApproval": false,
+      "liveValidation": {
+        "version": "0.5.503",
+        "workspace": "D:/GitRepo/SimpleMcpAcceptance",
+        "status": "read_passed",
+        "evidence": "mcpReadCatalog503; structured response retained; empty draft/transfer lists only prove scoped reads."
+      }
     },
     {
       "name": "project_instances",
       "method": "projects.instances",
       "plugin": "experiment",
-      "requiresUserApproval": false
+      "requiresUserApproval": false,
+      "liveValidation": {
+        "version": "0.5.503",
+        "workspace": "D:/GitRepo/SimpleMcpAcceptance",
+        "status": "read_passed",
+        "evidence": "mcpReadCatalog503; structured response retained; empty draft/transfer lists only prove scoped reads."
+      }
     },
     {
       "name": "project_connect",
@@ -344,13 +362,25 @@
       "name": "panel_diagnostics",
       "method": "panel.diagnostics",
       "plugin": "experiment",
-      "requiresUserApproval": false
+      "requiresUserApproval": false,
+      "liveValidation": {
+        "version": "0.5.503",
+        "workspace": "D:/GitRepo/SimpleMcpAcceptance",
+        "status": "read_passed",
+        "evidence": "mcpReadCatalog503; structured response retained; empty draft/transfer lists only prove scoped reads."
+      }
     },
     {
       "name": "draft_list",
       "method": "drafts.list",
       "plugin": "experiment",
-      "requiresUserApproval": false
+      "requiresUserApproval": false,
+      "liveValidation": {
+        "version": "0.5.503",
+        "workspace": "D:/GitRepo/SimpleMcpAcceptance",
+        "status": "read_passed",
+        "evidence": "mcpReadCatalog503; structured response retained; empty draft/transfer lists only prove scoped reads."
+      }
     },
     {
       "name": "draft_validate",
@@ -382,7 +412,13 @@
       "name": "draft_cleanup_candidates",
       "method": "drafts.cleanupCandidates",
       "plugin": "experiment",
-      "requiresUserApproval": false
+      "requiresUserApproval": false,
+      "liveValidation": {
+        "version": "0.5.503",
+        "workspace": "D:/GitRepo/SimpleMcpAcceptance",
+        "status": "read_passed",
+        "evidence": "mcpReadCatalog503; structured response retained; empty draft/transfer lists only prove scoped reads."
+      }
     },
     {
       "name": "cleanup_list",
@@ -501,13 +537,25 @@
       "name": "sftp_status",
       "method": "status",
       "plugin": "sftp",
-      "requiresUserApproval": false
+      "requiresUserApproval": false,
+      "liveValidation": {
+        "version": "0.5.503",
+        "workspace": "D:/GitRepo/SimpleMcpAcceptance",
+        "status": "read_passed",
+        "evidence": "mcpReadCatalog503; structured response retained; empty draft/transfer lists only prove scoped reads."
+      }
     },
     {
       "name": "sftp_connection",
       "method": "mcp.sftpConnection",
       "plugin": "experiment",
-      "requiresUserApproval": false
+      "requiresUserApproval": false,
+      "liveValidation": {
+        "version": "0.5.503",
+        "workspace": "D:/GitRepo/SimpleMcpAcceptance",
+        "status": "read_passed",
+        "evidence": "mcpReadCatalog503; structured response retained; empty draft/transfer lists only prove scoped reads."
+      }
     },
     {
       "name": "sftp_servers",
@@ -519,13 +567,25 @@
       "name": "sftp_target",
       "method": "target.show",
       "plugin": "sftp",
-      "requiresUserApproval": false
+      "requiresUserApproval": false,
+      "liveValidation": {
+        "version": "0.5.503",
+        "workspace": "D:/GitRepo/SimpleMcpAcceptance",
+        "status": "not_configured",
+        "evidence": "mcpReadCatalog503; structured response retained; empty draft/transfer lists only prove scoped reads."
+      }
     },
     {
       "name": "sftp_transfers",
       "method": "transfers.list",
       "plugin": "sftp",
-      "requiresUserApproval": false
+      "requiresUserApproval": false,
+      "liveValidation": {
+        "version": "0.5.503",
+        "workspace": "D:/GitRepo/SimpleMcpAcceptance",
+        "status": "read_passed",
+        "evidence": "mcpReadCatalog503; structured response retained; empty draft/transfer lists only prove scoped reads."
+      }
     },
     {
       "name": "sftp_configuration_list",
@@ -604,7 +664,13 @@
       "name": "sftp_tree",
       "method": "sync.projectTree",
       "plugin": "sftp",
-      "requiresUserApproval": false
+      "requiresUserApproval": false,
+      "liveValidation": {
+        "version": "0.5.503",
+        "workspace": "D:/GitRepo/SimpleMcpAcceptance",
+        "status": "read_passed",
+        "evidence": "mcpReadCatalog503; structured response retained; empty draft/transfer lists only prove scoped reads."
+      }
     },
     {
       "name": "sftp_tree_state",
@@ -616,7 +682,13 @@
       "name": "sftp_inventory",
       "method": "sync.projectInventory",
       "plugin": "sftp",
-      "requiresUserApproval": false
+      "requiresUserApproval": false,
+      "liveValidation": {
+        "version": "0.5.503",
+        "workspace": "D:/GitRepo/SimpleMcpAcceptance",
+        "status": "read_passed",
+        "evidence": "mcpReadCatalog503; structured response retained; empty draft/transfer lists only prove scoped reads."
+      }
     },
     {
       "name": "sftp_file_stats",
@@ -902,7 +974,13 @@
       "method": "mcp.query",
       "plugin": "experiment",
       "action": "plan_matrix",
-      "requiresUserApproval": false
+      "requiresUserApproval": false,
+      "liveValidation": {
+        "version": "0.5.503",
+        "workspace": "D:/GitRepo/SimpleMcpAcceptance",
+        "status": "read_passed",
+        "evidence": "mcpReadCatalog503; structured response retained; empty draft/transfer lists only prove scoped reads."
+      }
     },
     {
       "name": "plan_build",
@@ -1416,8 +1494,8 @@
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1448,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Actual503 MultiModal 实验准备 navigation loads local13PLANs including selectedacceptance and proper completed1/1. 刷新识别 (snapshot source1448) clicked, preserving currentPLANrevision116256343a24193e0f0d64328d0d9f0c8e5e0ec28ec424e0d70d5b22b21db07f, oldproof and completed1/1. Initial offscreen lazily-rendered Plans before sectionnavigation had stale未开始/currentmissing; after normalpageentry+snapshot current selectedcorrect. No new training, no paperresultcollection, originalmodifiedfinal.md kept.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1649,8 +1727,8 @@
       "command": "manualSchedulerSnapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1570,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Actual503 execution header 刷新运行状态 clicked in lowTraffic on; spinner reached terminal and 4cancelled+1verifiedcompleted maintained. Fresh host no new actionErrors. No start/dispatch/stop sent.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1779,8 +1857,8 @@
       "command": "resetUiLayout",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1678,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Actual502 settings button restored defaults; host read-back and precise scope in settingsResetUiLayout observation.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2462,8 +2540,8 @@
       "command": "reviewDraft",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 11140,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "Actual503 resource search草稿 returns没有匹配条目. Source renderDraftPlanSection intentionally no-op, renderDraftCards has no caller (rg src). Four dormant source positions reviewDraft/promoteDraft/rejectDraft/cleanupDrafts are not current reachable GUI controls. Existing external commands remain; promotion/execute explicitly retired.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2476,8 +2554,8 @@
       "command": "promoteDraft",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 11141,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "Actual503 resource search草稿 returns没有匹配条目. Source renderDraftPlanSection intentionally no-op, renderDraftCards has no caller (rg src). Four dormant source positions reviewDraft/promoteDraft/rejectDraft/cleanupDrafts are not current reachable GUI controls. Existing external commands remain; promotion/execute explicitly retired.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2490,8 +2568,8 @@
       "command": "rejectDraft",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 11142,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "Actual503 resource search草稿 returns没有匹配条目. Source renderDraftPlanSection intentionally no-op, renderDraftCards has no caller (rg src). Four dormant source positions reviewDraft/promoteDraft/rejectDraft/cleanupDrafts are not current reachable GUI controls. Existing external commands remain; promotion/execute explicitly retired.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2504,8 +2582,8 @@
       "command": "cleanupDrafts",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 11152,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "Actual503 resource search草稿 returns没有匹配条目. Source renderDraftPlanSection intentionally no-op, renderDraftCards has no caller (rg src). Four dormant source positions reviewDraft/promoteDraft/rejectDraft/cleanupDrafts are not current reachable GUI controls. Existing external commands remain; promotion/execute explicitly retired.",
       "handlers": [
         {
           "function": "invokeApi",
@@ -2615,8 +2693,8 @@
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 14443,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Actual503 current Generic PLAN card acceptance.yaml button opens native YAML editor at D:/GitRepo/SimpleMcpAcceptance/experiments/plans/acceptance.yaml. Editor shows suite generic_mcp_acceptance/seed42/expectedResults metrics.csv+model.pt. No edit/save. Aux view restored and maximized normally afterward.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2901,8 +2979,8 @@
       "command": "analyzeRuntimeLog",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15551,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Actual503 task-card 重新分析运行日志 clicked independently on cancelled normal_stop_0_5_492 and completed acceptance.yaml. Cancelled missing execution evidence explicitly says 日志仍待核实/退出码未知 and remains cancelled. Completed synthetic_classifier seed42/rjj8/GPU1 returns 日志分析完成：完整日志未检出异常，退出码0; original proof2026-11-11T21:39:45.642Z retained, no training rerun.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -4393,6 +4471,106 @@
         "control": "branchPolicyRefreshRunsCompare",
         "status": "clicked_passed",
         "evidence": "Actual502 refreshed统一策略 explicitreviewshowskeep127.0.0.1:15791identical; confirmed, saved替换新增0(nodrift). 刷新运行状态 returns09:15:43.376Z bothdedicatedreposclosed/noMatchinginstances/operations[],notusingotherprojectjobs. 结果对比09:16:13.653Z bothqueueStatemissing/plans[],UI队列为空. Actualbranchrow打开 exactnewrootconfirmed/VSCodewindow104469516created. Noexperimentstarted, noGitHubPRcreated."
+      },
+      {
+        "control": "planArtifactCleanupEntryPreview",
+        "status": "preview_passed",
+        "evidence": "Actual502 plans高级产物审核与清理→审核当前PLAN及关联产物 opens审核并清理PLAN文件 for exactexperiments/plans/acceptance.yaml,currentrjj8 SSH15791. Auto readonlyreviewfinishes3sec, completepaths/retainedsharedconfigshown; defaultmove-to-clean_dir, execute disableduntilconfirmation. No pathsconfirmed/moved/deleted; originalPLAN/tasks/artifactsprotected. Realfinaleffectnotpassed."
+      },
+      {
+        "control": "isolatedAndEmptyDirectoryAuditEntry",
+        "status": "preview_passed",
+        "evidence": "Actual502 plan高级审核隔离产物与空目录 clickedbothscopes:审核隔离产物 reports暂无已核实全部初始PLAN启动且仍待审核的隔离产物;审核已删除产物留下的空目录 reports未发现已登记产物删除后留下的空目录. Both no deletion. Noartificialcleanupfixturescreated/noactualpermanentdeletepassed."
+      },
+      {
+        "control": "settingsResetUiLayout",
+        "status": "clicked_passed",
+        "evidence": "Actual502 Genericsettings恢复默认布局 clicked; freshproject_state confirmsdefaultorder,tree280/inspector360/manualfalse/unpinned, GPU+diagnosticscollapsedtrue, othersfalse/customGroupsempty. Preclickglobalgeometryalreadydefault, onlyGenericlocalcollapsedstateschanged; noMMsource/plan/results touched."
+      },
+      {
+        "control": "manualAddWorkerSettings",
+        "status": "preview_passed",
+        "evidence": "Actual502 settingsWorker服务器card unobscured,手动添加服务器→配置Worker隧道→新增Worker→Worker显示名称(defaultworker-6) reachable. Cancellednameandlistwithoutsave. FreshMCPexact5existingconfigs,onlyrjj8enabled/dynamic18770; no6thWorkeradded/noadditionalserverorAgenttouched. Fullnewservercreationnotpassed."
+      },
+      {
+        "control": "advancedCommandsPreferenceRestored",
+        "status": "clicked_passed",
+        "evidence": "Actual502 settings打开命令设置 opens nativeUserSettings exactsimpleExperiment.showAdvancedCommands. Uncheckedprevious temporarytrue; nativecheckboxunchecked,settingsfilecontainsnooverride(defaultfalse). ClosednativeSettings; noauth/trust/securitysettingschanged."
+      },
+      {
+        "control": "reload503AndCliScope",
+        "status": "clicked_passed",
+        "evidence": "Installed503once/Codeextension503+SFTP120/stableCLIhelpvalid; standardReloadGeneric&MM, MMoriginalmodifiedfinal.mdkept. FreshofficialSDKGenericPID68616/MM81276both503/correctroots. CLIfrompluginrepo --workspaceGeneric returnsrootGeneric/nameGeneric/api.workspaceGeneric/services.experimentready (old502rootmismatchfixed). FirstSDKrequestduringGenericreloadwasConnectionclosed, subsequentactualreadpassed; noconfigackrepeatedtoastobserved."
+      },
+      {
+        "control": "agentUpgradeGeneric503",
+        "status": "clicked_passed",
+        "evidence": "Firstagent_ensure mcp16412257 failedhashmismatchagainst502files (notpretendeddeployed). project_prepare mcp7412fccd succeeded09:41:01.554Z,enabledonlyrjj8, nodependencycheck/noexperimentstart/deferredPLANselection. ActualAgent@52/Scheduler@15both503+sourcehashlocalmanifestmatch:Agent e4b3d8adfb1123f1cd9615163ffd45582db42e4c01b3752ac58e4babb1a60511,Scheduler1a471670e28c84447ba902fb7d072fa8d37fa2e7ea727557e9ab1fd742bca7e8. Repeatagent_ensure mcp0cc6c2eb succeeded09:41:27.350Z/reusedtrue/norestart."
+      },
+      {
+        "control": "resultRelatedTools503ActualBusiness",
+        "status": "found_defect",
+        "evidence": "Allfour503buttonsactualclickedandnowWorkerboundrjj8/selectedacceptancePLAN/revisioncorrect. check-output-contract1794476499008 failswithnewsemanticproblem:neverfindsdeclared{output_dir}/metrics.csvandforcesenv_snapshot/config_snapshotsnotdeclaredbygenericPLAN. inspect-dataset1794476538420completed0rowsyetmessage泄漏状态ok, misleadinguntestedscientificcheck. checkpoint-retention1794476594263completeddelete0/keep0/skip0,noactualdelete. plotting-contract1794476645733completedactualpathsimple_cluster/results/by_plan/experiments_plans_acceptance.yaml/plotting_contract.json; contentnotyetdownloaded/verified. Wire/scopingfixverified, firsttworesultsNOTpassed."
+      },
+      {
+        "control": "gpuManualHistory503",
+        "status": "clicked_passed",
+        "evidence": "Actual503 rjj8GPU0denseexpand→manualhistorybutton clicked(afterwaitinglayoutsettle,earlierpointlandednotice/notrequest). Noticechangedto上次手动刷新2026-11-12T09:47:42.000Z, fullactualcurve17:41–17:47util0%/memory10MBvisible (not暂无有效点). Ordinaryfreshhostproject_state stillgpuHistoryidlewhilecurve+manualtimekeptafterpolls/navigation/scroll. CorrectWorkerGPU0/noautoqueryenabled."
+      },
+      {
+        "control": "backgroundQueueLease503",
+        "status": "clicked_passed",
+        "evidence": "After503project_prepare09:41:01 andordinaryhealthyAgent/progressqueries/resultsbuttons/GPUmanualuntil09:48+, freshactionErrors has0distributedPlanQueueerrorsafterupgrade. Previous502busyrecord09:29:19retainedashistory. Newtimersactuallyoperateoutsideexpiredpreparelease; no stale-leaseerrorrecurrenceobserved."
+      },
+      {
+        "control": "diagnosticsWorkerCards503",
+        "status": "clicked_passed",
+        "evidence": "Actual503高级诊断 expanded andscrolledthrough rendered主配置/globalsharedcounts,Workerendpointcards/rjj8online/heartbeat, actualrjj8localhost18770→localhost18765 assignment,暂无端口冲突, andrjj8capabilitybaractions可用/SSE本地转发/download可用/list+upload未提供. No需升级fromretiredtopcaps; label启动Worker隧道correct. Disabledconfiguredcardsnotusedastargets."
+      },
+      {
+        "control": "manualSchedulerSnapshot503",
+        "status": "clicked_passed",
+        "evidence": "Actual503 execution header 刷新运行状态 clicked in lowTraffic on; spinner reached terminal and 4cancelled+1verifiedcompleted maintained. Fresh host no new actionErrors. No start/dispatch/stop sent."
+      },
+      {
+        "control": "runtimeLogAnalysis503",
+        "status": "clicked_passed",
+        "evidence": "Actual503 task-card 重新分析运行日志 clicked independently on cancelled normal_stop_0_5_492 and completed acceptance.yaml. Cancelled missing execution evidence explicitly says 日志仍待核实/退出码未知 and remains cancelled. Completed synthetic_classifier seed42/rjj8/GPU1 returns 日志分析完成：完整日志未检出异常，退出码0; original proof2026-11-11T21:39:45.642Z retained, no training rerun."
+      },
+      {
+        "control": "advancedOperationHistory503",
+        "status": "preview_passed",
+        "evidence": "Actual503 高级：完整操作记录 opened 82rows,62hiddenminor,8running. Top historical project_prepare mcp-9fb933e1-a86f-4fc6-9204-b6e7dcdff3e7 started07:58:06.441Z remains running/resultAvailablefalse after prior normalreload. 本条历史记录 opens latest50 picker with one无日志; 打开完整日志 explicitly says baseline-* not found. No nonexistent log presented as success; nonempty full-log opening not proven. Native operation_get agrees stale receipt running; must distinguish transport receipt from scheduler job. Red warning visible despite API scoped record lacking evidence; cause not yet diagnosed."
+      },
+      {
+        "control": "plottingContract503Content",
+        "status": "clicked_passed",
+        "evidence": "Fresh official SDK project_state full returned actual completed export-plotting-contract-1794476645733-5d35a7 payload, schemaVersion1/selectedPLANacceptance.yaml and correct scoped resultRegistry/statistics/caseLevel/datasetProfile paths. Paper table path explicitly empty; source files only lightweight; no actual PPT render proven."
+      },
+      {
+        "control": "retiredDraftUi503",
+        "status": "retired",
+        "evidence": "Actual503 resource search草稿 returns没有匹配条目. Source renderDraftPlanSection intentionally no-op, renderDraftCards has no caller (rg src). Four dormant source positions reviewDraft/promoteDraft/rejectDraft/cleanupDrafts are not current reachable GUI controls. Existing external commands remain; promotion/execute explicitly retired."
+      },
+      {
+        "control": "openSelectedPlanCard503",
+        "status": "clicked_passed",
+        "evidence": "Actual503 current Generic PLAN card acceptance.yaml button opens native YAML editor at D:/GitRepo/SimpleMcpAcceptance/experiments/plans/acceptance.yaml. Editor shows suite generic_mcp_acceptance/seed42/expectedResults metrics.csv+model.pt. No edit/save. Aux view restored and maximized normally afterward."
+      },
+      {
+        "control": "planOutputPreview503",
+        "status": "found_defect",
+        "evidence": "Actual503 Generic selected PLAN outputcapture card shows work_dirs/mcp_acceptance/{metrics_summary.csv,metrics_case.csv,stdout.log,stderr.log}; actual selected YAML explicitly declares {output_dir}/metrics.csv and model.pt. PlanBuilder isPlanAllowedResultCandidate still accepts only 4canonical basenames or experiments/results prefix, discards declared generic metric CSV, and infers defaults from outputdir. MultiModal selected metadata similarly omits job_metrics.csv/main/supplemental metrics. Need honor explicitly declared safe result paths and separate inferred defaults without changing job execution."
+      },
+      {
+        "control": "multimodalLocalRefresh503",
+        "status": "clicked_passed",
+        "evidence": "Actual503 MultiModal 实验准备 navigation loads local13PLANs including selectedacceptance and proper completed1/1. 刷新识别 (snapshot source1448) clicked, preserving currentPLANrevision116256343a24193e0f0d64328d0d9f0c8e5e0ec28ec424e0d70d5b22b21db07f, oldproof and completed1/1. Initial offscreen lazily-rendered Plans before sectionnavigation had stale未开始/currentmissing; after normalpageentry+snapshot current selectedcorrect. No new training, no paperresultcollection, originalmodifiedfinal.md kept."
+      },
+      {
+        "control": "mcpReadCatalog503",
+        "status": "clicked_passed",
+        "evidence": "OfficialSDK live listTools and 13structuredcalls retained simple_cluster/mcp-read-catalog-0.5.503.json. 12normalreads succeeded:project_status/instances/registry,draft_list/cleanup_candidates,panel_diagnostics,plan_matrix,sftp_status/connection/transfers/tree/inventory. Current68616Generic and81276MM version503; matrix acceptance1case/1seed/1task; panelready. Independent sftp_target returns expectedmissingworkspace.vscode/sftp.json error(-32000), notcounted as targetworkflowpass. ExplicitWorkerrjj8 tree/inventorysucceed; no targetconfigchanged, nofiledeleted."
       }
     ]
   },
