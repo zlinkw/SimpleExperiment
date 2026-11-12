@@ -1,5 +1,5 @@
 {
-  "version": "0.5.504",
+  "version": "0.5.505",
   "tools": [
     {
       "name": "project_status",
@@ -1294,7 +1294,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6974
+          "line": 6983
         }
       ]
     },
@@ -1308,7 +1308,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7438
+          "line": 7447
         }
       ]
     },
@@ -1322,7 +1322,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7316
+          "line": 7325
         }
       ]
     },
@@ -1336,7 +1336,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7063
+          "line": 7072
         }
       ]
     },
@@ -1350,7 +1350,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6986
+          "line": 6995
         }
       ]
     },
@@ -1364,7 +1364,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7435
+          "line": 7444
         }
       ]
     },
@@ -1378,7 +1378,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7334
+          "line": 7343
         }
       ]
     },
@@ -1392,7 +1392,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7352
+          "line": 7361
         }
       ]
     },
@@ -1411,7 +1411,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7099
+          "line": 7108
         }
       ]
     },
@@ -1425,7 +1425,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7087
+          "line": 7096
         }
       ]
     },
@@ -1439,7 +1439,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7096
+          "line": 7105
         }
       ]
     },
@@ -1453,7 +1453,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7328
+          "line": 7337
         }
       ]
     },
@@ -1472,7 +1472,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7102
+          "line": 7111
         }
       ]
     },
@@ -1486,7 +1486,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7207
+          "line": 7216
         }
       ]
     },
@@ -1500,7 +1500,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7126
+          "line": 7135
         }
       ]
     },
@@ -1514,7 +1514,7 @@
         {
           "function": "postUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7592
+          "line": 7601
         }
       ]
     },
@@ -1528,12 +1528,12 @@
         {
           "function": "postUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7592
+          "line": 7601
         },
         {
           "function": "runActionCommandCore",
           "source": "src/extension/legacy.ts",
-          "line": 7907
+          "line": 7916
         }
       ]
     },
@@ -1555,12 +1555,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7187
+          "line": 7196
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7499
+          "line": 7508
         }
       ]
     },
@@ -1574,12 +1574,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7187
+          "line": 7196
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7499
+          "line": 7508
         }
       ]
     },
@@ -1593,7 +1593,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7175
+          "line": 7184
         }
       ]
     },
@@ -1607,7 +1607,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7178
+          "line": 7187
         }
       ]
     },
@@ -1621,7 +1621,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7210
+          "line": 7219
         }
       ]
     },
@@ -1635,7 +1635,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7213
+          "line": 7222
         }
       ]
     },
@@ -1649,7 +1649,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7216
+          "line": 7225
         }
       ]
     },
@@ -1663,7 +1663,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7219
+          "line": 7228
         }
       ]
     },
@@ -1677,7 +1677,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7222
+          "line": 7231
         }
       ]
     },
@@ -1691,7 +1691,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7234
+          "line": 7243
         }
       ]
     },
@@ -1705,7 +1705,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7228
+          "line": 7237
         }
       ]
     },
@@ -1719,7 +1719,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7129
+          "line": 7138
         }
       ]
     },
@@ -1733,7 +1733,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7138
+          "line": 7147
         }
       ]
     },
@@ -1741,32 +1741,32 @@
       "command": "checkOutputContract",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1604,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Actual504 results-contract click; check-output-contract-1794481463992-zcm9al completed on rjj8/experiments/plans/acceptance.yaml. Checked 2026-11-12T11:04:32Z, exact metrics.csv/model.pt, missing[], requiredSnapshots[], one parseable result. No rerun.",
       "handlers": []
     },
     {
       "command": "inspectDataset",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1605,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Actual504 results-dataset click; inspect-dataset-1794481490352-0kclq6 completed on rjj8/acceptance.yaml at11:04:58Z. totalRows0/files[], leakage not_checked/checkedfalse/checkedAt empty; no false leakage pass.",
       "handlers": []
     },
     {
       "command": "planCheckpointRetention",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1606,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Actual results-checkpoints click completed plan-checkpoint-retention-1794484163078-f820ae, rjj8, exact Generic acceptance.yaml,11:49:23Z; planneddelete0/keep0/skip0. Dry-run feature only; no filedeleted, no nonemptycheckpointpolicyclaim.",
       "handlers": []
     },
     {
       "command": "exportPlottingContract",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1607,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Actual results-plotting click completed export-plotting-contract-1794484190313-b9hyjh, rjj8/Generic acceptance.yaml at11:49:50Z, exact by_plan contract path. No PowerPoint drawing, no new experiment or paper resultrewrite.",
       "handlers": []
     },
     {
@@ -1779,7 +1779,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7429
+          "line": 7438
         }
       ]
     },
@@ -1793,7 +1793,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7432
+          "line": 7441
         }
       ]
     },
@@ -1807,7 +1807,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7081
+          "line": 7090
         }
       ]
     },
@@ -1821,7 +1821,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7069
+          "line": 7078
         }
       ]
     },
@@ -1835,7 +1835,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7072
+          "line": 7081
         }
       ]
     },
@@ -1849,7 +1849,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7426
+          "line": 7435
         }
       ]
     },
@@ -1863,7 +1863,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7325
+          "line": 7334
         }
       ]
     },
@@ -1877,7 +1877,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7066
+          "line": 7075
         }
       ]
     },
@@ -1886,28 +1886,30 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 3601,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7301
+          "line": 7310
         }
-      ]
+      ],
+      "entryKind": "selector_reference"
     },
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 4443,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7301
+          "line": 7310
         }
-      ]
+      ],
+      "entryKind": "selector_reference"
     },
     {
       "command": "openBranchProject",
@@ -1919,7 +1921,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7237
+          "line": 7246
         }
       ]
     },
@@ -1933,7 +1935,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7243
+          "line": 7252
         }
       ]
     },
@@ -1947,7 +1949,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7237
+          "line": 7246
         }
       ]
     },
@@ -1961,7 +1963,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7246
+          "line": 7255
         }
       ]
     },
@@ -1975,7 +1977,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7249
+          "line": 7258
         }
       ]
     },
@@ -1989,7 +1991,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7240
+          "line": 7249
         }
       ]
     },
@@ -2003,7 +2005,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7225
+          "line": 7234
         }
       ]
     },
@@ -2017,7 +2019,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7231
+          "line": 7240
         }
       ]
     },
@@ -2031,7 +2033,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7166
+          "line": 7175
         }
       ]
     },
@@ -2045,7 +2047,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6977
+          "line": 6986
         }
       ]
     },
@@ -2053,15 +2055,16 @@
       "command": "openSetupGuide",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 9438,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: legacySftpNoticeForState has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7063
+          "line": 7072
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "openLastCheckStaticReport",
@@ -2073,7 +2076,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7429
+          "line": 7438
         }
       ]
     },
@@ -2087,7 +2090,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7057
+          "line": 7066
         }
       ]
     },
@@ -2101,7 +2104,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7045
+          "line": 7054
         }
       ]
     },
@@ -2115,7 +2118,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7036
+          "line": 7045
         }
       ]
     },
@@ -2129,7 +2132,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7039
+          "line": 7048
         }
       ]
     },
@@ -2143,7 +2146,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7126
+          "line": 7135
         }
       ]
     },
@@ -2157,7 +2160,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7045
+          "line": 7054
         }
       ]
     },
@@ -2171,7 +2174,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7042
+          "line": 7051
         }
       ]
     },
@@ -2179,13 +2182,13 @@
       "command": "startTunnelEndpoint",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 9969,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Actual rjj8 settings card 启动隧道 clicked, native confirmation showed root@127.0.0.1:15791 http://localhost:18770→http://localhost:18765. Authorized normal startup confirmed. Actual notification 已监听1/待确认0/失败0, existing verified forward retained/no duplicate process.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7051
+          "line": 7060
         }
       ]
     },
@@ -2199,7 +2202,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7048
+          "line": 7057
         }
       ]
     },
@@ -2213,7 +2216,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7358
+          "line": 7367
         }
       ]
     },
@@ -2227,7 +2230,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7361
+          "line": 7370
         }
       ]
     },
@@ -2235,64 +2238,68 @@
       "command": "configureWorkers",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 10091,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7057
+          "line": 7066
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "addWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 10092,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7045
+          "line": 7054
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "startAll",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 10093,
-      "status": "not_tested",
-      "evidence": null,
-      "handlers": [
-        {
-          "function": "handleMessageCore",
-          "source": "src/extension/legacy.ts",
-          "line": 7087
-        }
-      ]
-    },
-    {
-      "command": "openXshell",
-      "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10094,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7096
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
+    },
+    {
+      "command": "openXshell",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 10094,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7105
+        }
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "prepareAgents",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 10095,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "invokeApi",
@@ -2302,16 +2309,17 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7099
+          "line": 7108
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "testAll",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 10096,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "invokeApi",
@@ -2321,9 +2329,10 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7102
+          "line": 7111
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "openScalarViewer",
@@ -2335,7 +2344,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7401
+          "line": 7410
         }
       ]
     },
@@ -2349,7 +2358,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7401
+          "line": 7410
         }
       ]
     },
@@ -2363,7 +2372,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7401
+          "line": 7410
         }
       ]
     },
@@ -2382,7 +2391,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7273
+          "line": 7282
         }
       ]
     },
@@ -2401,7 +2410,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7275
+          "line": 7284
         }
       ]
     },
@@ -2415,7 +2424,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7270
+          "line": 7279
         }
       ]
     },
@@ -2429,7 +2438,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7277
+          "line": 7286
         }
       ]
     },
@@ -2443,7 +2452,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7267
+          "line": 7276
         }
       ]
     },
@@ -2457,7 +2466,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7392
+          "line": 7401
         }
       ]
     },
@@ -2465,8 +2474,8 @@
       "command": "prepareAgents",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 10766,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderAgentSessions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "invokeApi",
@@ -2476,23 +2485,25 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7099
+          "line": 7108
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "writeAgentCommands",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 10767,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderAgentSessions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6995
+          "line": 7004
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "startAllConnections",
@@ -2504,7 +2515,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7093
+          "line": 7102
         }
       ]
     },
@@ -2512,29 +2523,31 @@
       "command": "openXshell",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 10769,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderAgentSessions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7096
+          "line": 7105
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "startTunnelEndpoint",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 10783,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: agentSessionCard/renderAgentSessions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7051
+          "line": 7060
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "reviewDraft",
@@ -2546,7 +2559,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7198
+          "line": 7207
         }
       ]
     },
@@ -2560,7 +2573,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7192
+          "line": 7201
         }
       ]
     },
@@ -2574,7 +2587,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7195
+          "line": 7204
         }
       ]
     },
@@ -2593,7 +2606,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7201
+          "line": 7210
         }
       ]
     },
@@ -2602,14 +2615,15 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 11172,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7172
+          "line": 7181
         }
-      ]
+      ],
+      "entryKind": "selector_reference"
     },
     {
       "command": "generateOutputAdapter",
@@ -2621,7 +2635,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7252
+          "line": 7261
         }
       ]
     },
@@ -2629,9 +2643,10 @@
       "command": "runPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 11489,
-      "status": "not_tested",
-      "evidence": null,
-      "handlers": []
+      "status": "retired",
+      "evidence": "No current rendered entry: renderProjectFirstRunActions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
+      "handlers": [],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "openScalarViewer",
@@ -2643,7 +2658,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7401
+          "line": 7410
         }
       ]
     },
@@ -2651,15 +2666,16 @@
       "command": "selectLogRunKey",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 13603,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderTaskPlanCompletionNext has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7144
+          "line": 7153
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "openPlan",
@@ -2671,7 +2687,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7166
+          "line": 7175
         }
       ]
     },
@@ -2685,7 +2701,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7255
+          "line": 7264
         }
       ]
     },
@@ -2699,7 +2715,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7166
+          "line": 7175
         }
       ]
     },
@@ -2707,13 +2723,13 @@
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 14633,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Actual504 Generic selected PLAN card config.yaml opens correct editor; fresh SDK selectedPlanId remains experiments/plans/acceptance.yaml. PLAN preview shows metrics.csv. MultiModal preview starts test_results/job_metrics.csv. No files edited.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7166
+          "line": 7175
         }
       ]
     },
@@ -2727,12 +2743,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7012
+          "line": 7021
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7509
+          "line": 7518
         }
       ]
     },
@@ -2746,7 +2762,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7301
+          "line": 7310
         }
       ]
     },
@@ -2760,7 +2776,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7304
+          "line": 7313
         }
       ]
     },
@@ -2768,99 +2784,106 @@
       "command": "selectLogRunKey",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 14962,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderTaskProgressCard has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7144
+          "line": 7153
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "manualTracesSnapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 14990,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderTraceSection has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7141
+          "line": 7150
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15047,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderArchivedPlanCard has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7166
+          "line": 7175
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "restoreArchivedPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15047,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderArchivedPlanCard has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7184
+          "line": 7193
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15047,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderArchivedPlanCard has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7166
+          "line": 7175
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15047,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderArchivedPlanCard has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7166
+          "line": 7175
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15059,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "retired",
+      "evidence": "No current rendered entry: renderTraceCard has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7301
+          "line": 7310
         }
-      ]
+      ],
+      "entryKind": "dormant_markup"
     },
     {
       "command": "clearOperations",
@@ -2872,7 +2895,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7307
+          "line": 7316
         }
       ]
     },
@@ -2886,7 +2909,7 @@
         {
           "function": "runActionCommandCore",
           "source": "src/extension/legacy.ts",
-          "line": 7818
+          "line": 7827
         }
       ]
     },
@@ -2900,12 +2923,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7004
+          "line": 7013
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7497
+          "line": 7506
         }
       ]
     },
@@ -2919,12 +2942,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7004
+          "line": 7013
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7497
+          "line": 7506
         }
       ]
     },
@@ -2938,7 +2961,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7033
+          "line": 7042
         }
       ]
     },
@@ -2952,12 +2975,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7008
+          "line": 7017
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7493
+          "line": 7502
         }
       ]
     },
@@ -2971,7 +2994,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7016
+          "line": 7025
         }
       ]
     },
@@ -2985,12 +3008,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7012
+          "line": 7021
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7509
+          "line": 7518
         }
       ]
     },
@@ -3004,7 +3027,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7384
+          "line": 7393
         }
       ]
     },
@@ -3018,12 +3041,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7004
+          "line": 7013
         },
         {
           "function": "withUiCommandStatus",
           "source": "src/extension/legacy.ts",
-          "line": 7497
+          "line": 7506
         }
       ]
     },
@@ -3037,7 +3060,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7126
+          "line": 7135
         }
       ]
     },
@@ -3051,7 +3074,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7126
+          "line": 7135
         }
       ]
     },
@@ -3073,7 +3096,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7312
+          "line": 7321
         }
       ]
     },
@@ -3087,7 +3110,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7033
+          "line": 7042
         }
       ]
     },
@@ -3101,7 +3124,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7010
+          "line": 7019
         }
       ]
     },
@@ -3115,7 +3138,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7312
+          "line": 7321
         }
       ]
     },
@@ -3129,7 +3152,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7310
+          "line": 7319
         }
       ]
     },
@@ -3143,7 +3166,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7314
+          "line": 7323
         }
       ]
     },
@@ -3157,7 +3180,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7314
+          "line": 7323
         }
       ]
     },
@@ -3171,7 +3194,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7307
+          "line": 7316
         }
       ]
     },
@@ -3185,7 +3208,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7307
+          "line": 7316
         }
       ]
     },
@@ -3199,7 +3222,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7307
+          "line": 7316
         }
       ]
     },
@@ -3213,7 +3236,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7010
+          "line": 7019
         }
       ]
     },
@@ -3227,7 +3250,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7126
+          "line": 7135
         }
       ]
     },
@@ -3241,7 +3264,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7398
+          "line": 7407
         }
       ]
     },
@@ -3250,28 +3273,30 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16156,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7301
+          "line": 7310
         }
-      ]
+      ],
+      "entryKind": "selector_reference"
     },
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16193,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7301
+          "line": 7310
         }
-      ]
+      ],
+      "entryKind": "selector_reference"
     },
     {
       "command": "retryPlanSubmission",
@@ -3283,7 +3308,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6856
+          "line": 6865
         }
       ]
     },
@@ -3297,7 +3322,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 6857
+          "line": 6866
         }
       ]
     },
@@ -3311,7 +3336,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7307
+          "line": 7316
         }
       ]
     },
@@ -3325,7 +3350,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7398
+          "line": 7407
         }
       ]
     },
@@ -3339,7 +3364,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7312
+          "line": 7321
         }
       ]
     },
@@ -3353,7 +3378,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7126
+          "line": 7135
         }
       ]
     },
@@ -3367,7 +3392,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7420
+          "line": 7429
         }
       ]
     },
@@ -3381,7 +3406,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7423
+          "line": 7432
         }
       ]
     },
@@ -3395,7 +3420,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7312
+          "line": 7321
         }
       ]
     },
@@ -3409,7 +3434,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7126
+          "line": 7135
         }
       ]
     },
@@ -3423,7 +3448,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7420
+          "line": 7429
         }
       ]
     },
@@ -3437,7 +3462,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7423
+          "line": 7432
         }
       ]
     },
@@ -3451,7 +3476,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7420
+          "line": 7429
         }
       ]
     },
@@ -3465,7 +3490,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7423
+          "line": 7432
         }
       ]
     },
@@ -3479,7 +3504,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7420
+          "line": 7429
         }
       ]
     },
@@ -3493,7 +3518,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7423
+          "line": 7432
         }
       ]
     },
@@ -3507,7 +3532,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7420
+          "line": 7429
         }
       ]
     },
@@ -3521,7 +3546,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7423
+          "line": 7432
         }
       ]
     },
@@ -3535,12 +3560,12 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7367
+          "line": 7376
         },
         {
           "function": "withSafeTransferRetry",
           "source": "src/extension/legacy.ts",
-          "line": 14174
+          "line": 14183
         }
       ]
     },
@@ -3554,7 +3579,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7283
+          "line": 7292
         }
       ]
     },
@@ -3568,7 +3593,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7286
+          "line": 7295
         }
       ]
     },
@@ -3576,13 +3601,13 @@
       "command": "savePptPlotConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16923,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Actual save PPT configuration clicked. Native savedcurrentproject notification; freshSDK pptPlotConfig path empty/chartauto/styleactivePpt matches original. No presentationfile created or changed.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7280
+          "line": 7289
         }
       ]
     },
@@ -3596,7 +3621,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7289
+          "line": 7298
         }
       ]
     },
@@ -3605,14 +3630,15 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16932,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7289
+          "line": 7298
         }
-      ]
+      ],
+      "entryKind": "selector_reference"
     },
     {
       "command": "openLocalResultTable",
@@ -3624,7 +3650,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7389
+          "line": 7398
         }
       ]
     },
@@ -3638,7 +3664,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7389
+          "line": 7398
         }
       ]
     },
@@ -3652,7 +3678,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7389
+          "line": 7398
         }
       ]
     },
@@ -3666,7 +3692,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7264
+          "line": 7273
         }
       ]
     },
@@ -3680,7 +3706,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7261
+          "line": 7270
         }
       ]
     },
@@ -3694,7 +3720,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7379
+          "line": 7388
         }
       ]
     },
@@ -3708,7 +3734,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7377
+          "line": 7386
         }
       ]
     },
@@ -3722,7 +3748,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7386
+          "line": 7395
         }
       ]
     },
@@ -3736,7 +3762,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7370
+          "line": 7379
         }
       ]
     },
@@ -3750,7 +3776,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7258
+          "line": 7267
         }
       ]
     },
@@ -3764,7 +3790,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7289
+          "line": 7298
         }
       ]
     },
@@ -3778,7 +3804,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7126
+          "line": 7135
         }
       ]
     },
@@ -3797,7 +3823,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7102
+          "line": 7111
         }
       ]
     },
@@ -3816,7 +3842,7 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7102
+          "line": 7111
         }
       ]
     },
@@ -3825,22 +3851,24 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 19128,
       "status": "not_tested",
-      "evidence": null,
-      "handlers": []
+      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
+      "handlers": [],
+      "entryKind": "selector_reference"
     },
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 19217,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
-          "line": 7301
+          "line": 7310
         }
-      ]
+      ],
+      "entryKind": "selector_reference"
     }
   ],
   "dynamicControls": {
@@ -4571,6 +4599,101 @@
         "control": "mcpReadCatalog503",
         "status": "clicked_passed",
         "evidence": "OfficialSDK live listTools and 13structuredcalls retained simple_cluster/mcp-read-catalog-0.5.503.json. 12normalreads succeeded:project_status/instances/registry,draft_list/cleanup_candidates,panel_diagnostics,plan_matrix,sftp_status/connection/transfers/tree/inventory. Current68616Generic and81276MM version503; matrix acceptance1case/1seed/1task; panelready. Independent sftp_target returns expectedmissingworkspace.vscode/sftp.json error(-32000), notcounted as targetworkflowpass. ExplicitWorkerrjj8 tree/inventorysucceed; no targetconfigchanged, nofiledeleted."
+      },
+      {
+        "control": "genericOutputContract504",
+        "status": "clicked_passed",
+        "evidence": "Actual504 results-contract click; check-output-contract-1794481463992-zcm9al completed on rjj8/experiments/plans/acceptance.yaml. Checked 2026-11-12T11:04:32Z, exact metrics.csv/model.pt, missing[], requiredSnapshots[], one parseable result. No rerun."
+      },
+      {
+        "control": "genericDataset504",
+        "status": "clicked_passed",
+        "evidence": "Actual504 results-dataset click; inspect-dataset-1794481490352-0kclq6 completed on rjj8/acceptance.yaml at11:04:58Z. totalRows0/files[], leakage not_checked/checkedfalse/checkedAt empty; no false leakage pass."
+      },
+      {
+        "control": "multimodalOutputContract504",
+        "status": "clicked_passed",
+        "evidence": "Actual504 results-contract click; check-output-contract-1794481753496-8l3yu6 completed on rjj8/current acceptance PLAN at11:09:21Z. Seven declarations present, missing[], requiredSnapshots[]. metrics_case.csv warning retained. Operational JSON metric semantics still unverified; no paper result collection."
+      },
+      {
+        "control": "openRelatedFilePreservesPlan504",
+        "status": "clicked_passed",
+        "evidence": "Actual504 Generic selected PLAN card config.yaml opens correct editor; fresh SDK selectedPlanId remains experiments/plans/acceptance.yaml. PLAN preview shows metrics.csv. MultiModal preview starts test_results/job_metrics.csv. No files edited."
+      },
+      {
+        "control": "mcpMappedRead504",
+        "status": "found_defect",
+        "evidence": "Actual sftp_download_mapped lacks required backend bytes/SHA256 while advertised optional; unprotected two declared JSON paths failed mcp-a9db7e32-87ef-4ae0-a1e8-8459c55e0c1f. Earlier plugin-state report path correctly refused; no bypass/no raw metrics saved. Candidate505 requires identity and exposes explicitly scoped includeHashes inventory."
+      },
+      {
+        "control": "pptStartupDiagnosis504",
+        "status": "not_configured",
+        "evidence": "Existing POWERPNT.EXE registry path exists; Start-Process bare powerpnt.exe succeeded, native PowerPoint/iSlide windows observed2026-11-12. Original launch-failure hypothesis not established. RoughPptAddin automation discovery absent; final plotting unavailable, no addin installation/auth/security action or presentation change."
+      },
+      {
+        "control": "openRelatedFilePreservesPlan503",
+        "status": "found_defect",
+        "evidence": "Actual503 Generic card config.yaml opened correct editor but fresh project_state.summary selectedPlanId became config.yaml while selector continued acceptance.yaml. Opened original acceptance PLAN card to restore; freshSDK confirmed selectedPlanId experiments/plans/acceptance.yaml. No filesedited/runsstarted. Candidate504 opener now selects only YAML within normalized configured PLANdirectory; real-method20tests red19/20→green20/20, bothpre/postworkspacechecks retained."
+      },
+      {
+        "control": "mcpTaskReads503",
+        "status": "clicked_passed",
+        "evidence": "FreshofficialSDK named task_list/tensorboard_status/tmux_list/tmux_capture/sftp_tree_state/action_catalog allreturnnormal. ExactGenericcommand78e8... completed/exit0/originalverifiedAt2026-11-11T21:39:45.642Z. Capture exactrjj8/@16 has accuracy output; currentwindows @12/@16/@9/@15 retained. Artifactdirectoryexists; task proof notrefreshed. Full structured responses retained simple_cluster/mcp-task-reads-0.5.503.json."
+      },
+      {
+        "control": "mcpArtifactList503",
+        "status": "found_defect",
+        "evidence": "Actualartifact_list id78e8aab0f09dcad43c5fe305b826d3f4 receiptab004cd8-b640-4958-8242-3b5486a63b22 reaches succeeded but resultonlyoutputdirectorywork_dirs/mcp_acceptance/0_synthetic_classifier_seed42 with emptysize, notdeclaredfiles. SameactualWorker SFTPtree returns sixfiles including metrics.csv53bytes/model.pt2560bytes/artifact_manifest.json1786bytes. NeedCLI/MCP sharedartifactview exposeproject/Worker-scoped declaredartifactmetadata ratherthanusingdirectoryasfile. Separatefollowup after504frozenbatch; notcounted as fullartifact workflowpassed."
+      },
+      {
+        "control": "pptStartup503",
+        "status": "not_tested",
+        "evidence": "Actual503 结果→高级证据与分析→绘图到PPT panel expanded; savedpath empty. 启动PowerPoint button clicked, full existing30s wait endednot_running/OPERATION_FAILED at2026-11-12T10:55:55.785Z, missing automation discovery. Nativewindow inventorybefore/aftercontainsnoPowerPointwindow. No PPTfilecreated, no drawingpassed, no install/authdialogautomated. Startuphelperusespwsh Start-Process powerpnt.exe; underlying launch outcome not yet diagnosed; companionisOfficeaddin notVSCodeextension (my_ppt_app package rough-ppt-addin)."
+      },
+      {
+        "control": "settingsWorkerSave504",
+        "status": "clicked_passed",
+        "evidence": "Actual settings last rjj8 card SaveWorkerConfig clicked unchanged. Native notification rjj8配置已全局保存, code root /root/autodl-tmp/zlk/SimpleMcpAcceptance, runtime child zlk_agent/simple_cluster/runtime. Disabled four profiles untouched; onlyrjj8 enabled; no experiment rerun."
+      },
+      {
+        "control": "settingsWorkerTunnel504",
+        "status": "clicked_passed",
+        "evidence": "Actual rjj8 settings card 启动隧道 clicked, native confirmation showed root@127.0.0.1:15791 http://localhost:18770→http://localhost:18765. Authorized normal startup confirmed. Actual notification 已监听1/待确认0/失败0, existing verified forward retained/no duplicate process."
+      },
+      {
+        "control": "manualWorkerPicker504",
+        "status": "preview_passed",
+        "evidence": "Actual settings 手动添加服务器 opens 配置Worker隧道 picker with 新增Worker/完成/five currentprofiles, onlyrjj8 enabled. Escape saves existing unchanged list per current handler; notification1启用. No newprofile or auth prompt touched."
+      },
+      {
+        "control": "dormantServerCardControls504",
+        "status": "retired",
+        "evidence": "Source renderServerCards() has declaration only; its parent section display:none hidden data-legacy=servers-hidden-merged-into-sync. Positions10091..10096 are compatibility markup, absent actualsettings/livepreparation; real settings uses renderServerCardsV2. renderTensorBoardLinkRow declaration-only; tensorBoardOverviewStatValue remains used, not retired."
+      },
+      {
+        "control": "manageAuthorizationButton504",
+        "status": "preview_passed",
+        "evidence": "Actual visible preparation button 管理AI项目授权 opened native AI项目持续授权 picker for d:/GitRepo/SimpleMcpAcceptance with Grant/Revoke choices. Command registered/no notfound. Only preview; no grant/revoke attempted. Initial UIA click occluded by navigation did not count; after drawer dismissal actual buttonclick confirmed."
+      },
+      {
+        "control": "checkpointRetention504",
+        "status": "clicked_passed",
+        "evidence": "Actual results-checkpoints click completed plan-checkpoint-retention-1794484163078-f820ae, rjj8, exact Generic acceptance.yaml,11:49:23Z; planneddelete0/keep0/skip0. Dry-run feature only; no filedeleted, no nonemptycheckpointpolicyclaim."
+      },
+      {
+        "control": "plottingContract504",
+        "status": "clicked_passed",
+        "evidence": "Actual results-plotting click completed export-plotting-contract-1794484190313-b9hyjh, rjj8/Generic acceptance.yaml at11:49:50Z, exact by_plan contract path. No PowerPoint drawing, no new experiment or paper resultrewrite."
+      },
+      {
+        "control": "pptConfigSave504",
+        "status": "clicked_passed",
+        "evidence": "Actual save PPT configuration clicked. Native savedcurrentproject notification; freshSDK pptPlotConfig path empty/chartauto/styleactivePpt matches original. No presentationfile created or changed."
+      },
+      {
+        "control": "diagnosticButtonAudit504",
+        "status": "clicked_passed",
+        "evidence": "Actual diagnostics→全部检查记录与工具→刷新按钮审计. DOM121buttons/76commands/missingHandlers0/payload0/Worker0;missingHelp1/tooltip1 detail editResultColumnMapping. Candidate505 adds title; manual refreshed rendering not yet verified. No fullclick denominator claim."
       }
     ]
   },

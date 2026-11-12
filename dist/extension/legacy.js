@@ -5908,6 +5908,15 @@ class RealtimeTunnelPanelProvider {
         if (/^(runPlan|reproducePlan|runAllPlans|validatePlan|dryRunPlan|parseResults|stop|abort|cancel|kill|clearTmux|sync|upload|download|distribute|prepareAgents|deploy|refresh|fetch|get|check|plot|startPpt)/i.test(actionType))
             return operation();
         const leaseContext = currentHostOperationLeaseContext();
+        // These dialogs edit shared connections or start their guarded SSH tunnels;
+        // holding the experiment directory also blocks unrelated queue commits.
+        if (!options.resources && ["configure-worker-tunnels", "configure-tunnel-ports", "configure-xshell-tunnel",
+            "configureWorkers", "configurePorts", "repairPorts", "start-worker-tunnel", "start-xshell-tunnel",
+            "start-all-tunnels", "start-all-connections", "startTunnelEndpoint", "startWorker", "startAll",
+            "startAllConnections"].includes(actionType)) {
+            const shared = this.context.globalStorageUri.fsPath;
+            options.resources = [{ server: "local", project: shared, target: path.join(shared, "shared-connections") }];
+        }
         if (options.planFile)
             options.resources = [{ server: "local", project: leaseContext.hostProjectPath,
                     target: path.resolve(leaseContext.hostProjectPath, options.planFile) }];

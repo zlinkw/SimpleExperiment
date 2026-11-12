@@ -159,7 +159,7 @@ test('SFTP calls resolve project roots and preserve independent source/destinati
   const host = { context: { workspaceState: f.store }, createLocalApiMethods: () => f.methods, refreshSharedConnectionSettings() {},
     workerCodeSyncTargets: () => [{ id: f.worker.id, host: f.worker.host, user: f.worker.user, port: f.worker.port, remotePath: f.worker.projectRoot }],
     agentRuntimeUploadTargets: () => { throw Error('SFTP must not target the runtime deployment directory'); },
-    readSimpleSftpCapabilities: async () => ({ methods: ['upload.files', 'upload.workspace', 'remote.listDirs', 'sync.projectInventory'] }),
+    readSimpleSftpCapabilities: async () => ({ methods: ['upload.files', 'upload.workspace', 'remote.listDirs', 'sync.projectInventory', 'sync.downloadMappedPaths'] }),
     buildDistributedJobCodeManifest: async (root,executionOnly) => { assert.equal(root,f.root);assert.equal(executionOnly,false);return {'src/model.py':{size:1}}; },
     sftpServerOptions: target => target,
     simpleSftpApiCall: async (method, params) => { captured.push({ method, params }); return { ok: true }; },
@@ -173,6 +173,11 @@ test('SFTP calls resolve project roots and preserve independent source/destinati
   await gateway.call('sftp_inventory', { workerId: 'worker-a', paths: ['src'] });
   assert.deepEqual(captured[1].params.scopePaths, ['src']);
   assert.equal(captured[1].params.metadataOnly, true);
+  await gateway.call('sftp_inventory', { workerId: 'worker-a', paths: ['src/model.py'], includeHashes: true });
+  assert.equal(captured.pop().params.metadataOnly, false);
+  await assert.rejects(gateway.call('sftp_inventory', { workerId: 'worker-a', includeHashes: true }), /MCP_HASH_PATHS_REQUIRED/);
+  await assert.rejects(gateway.call('sftp_download_mapped', { workerId: 'worker-a', entries: [{ remotePath: 'metrics.csv', localRelativePath: 'metrics.csv' }] }), /bytes|sha256/);
+  await assert.rejects(gateway.call('sftp_download_mapped', { workerId: 'worker-a', entries: [{ remotePath: 'metrics.csv', localRelativePath: 'metrics.csv', bytes: 53 }] }), /sha256/);
   await gateway.call('sftp_upload_workspace',{workerId:'worker-a'});
   assert.deepEqual(Object.keys(captured[2].params.manifest),['src/model.py']);
   assert.equal(captured[2].params.pruneManagedFiles,false);assert.equal(captured[2].params.transientManifest,true);

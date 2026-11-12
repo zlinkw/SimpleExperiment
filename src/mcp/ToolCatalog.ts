@@ -159,6 +159,7 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     ["sftp_file_stats", "sync.projectFileStats", "Inspect selected project file metadata"],
   ].map(([name, method, description]) => tool(name, method, description, {
     workerId: task.workerId, relativePath: text("Project-relative directory"), paths: texts("Project-relative path"),
+    ...(method === "sync.projectInventory" ? { includeHashes: { type: "boolean", description: "Hash only the explicitly supplied paths to obtain identities for memory reads; metadata is returned by default" } } : {}),
   }, ["workerId", ...(method === "sync.projectFileStats" ? ["paths"] : [])], undefined, undefined, "sftp")),
   tool("sftp_plan_logs", "sync.planLogPaths", "List log paths belonging to the exact PLAN state", {
     workerId: task.workerId, ...plan, statePath: text("Project-relative Scheduler state path"),
@@ -172,8 +173,8 @@ export const PROJECT_TOOLS: ProjectTool[] = [
   tool("sftp_download_mapped", "sync.downloadMappedPaths", "Read exact mapped metric files into memory without saving raw metrics locally", {
     workerId: task.workerId, entries: { type: "array", items: { type: "object", properties: {
       remotePath: text("Source path within the configured Worker project"), localRelativePath: text("Project-relative logical destination"),
-      bytes: integer, sha256: text("Expected content identity if supplied by the source manifest"),
-    }, required: ["remotePath", "localRelativePath"], additionalProperties: false } },
+      bytes: integer, sha256: text("Required SHA256 from sftp_inventory with includeHashes or the source manifest"),
+    }, required: ["remotePath", "localRelativePath", "bytes", "sha256"], additionalProperties: false } },
   }, ["workerId", "entries"], "sync", undefined, "sftp"),
   tool("sftp_upload_files", "upload.files", "Upload exact workspace files to the configured Worker", {
     workerId: task.workerId, files: texts("Project-relative source file"),

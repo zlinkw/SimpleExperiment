@@ -152,29 +152,33 @@ test('remote artifact lookup maps an experiment to its PLAN and keeps the exact 
   const { businessContext } = require('../../dist/cli/ExecutionContext.js');
   const { artifactCommand } = require('../../dist/cli/commands/artifact.js');
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'simple-cli-remote-art-')),emitted=[],requests=[];
-  const planFile='experiments/plans/a.yaml';let includeRunIds=true,current=true;
+  const planFile='experiments/plans/a.yaml';let current=true,unverified=false,outside=false;
   const facts=['a','b'].map((name,index)=>({lifecycleProtocol:2,projectId:'p',workflowId:'workflow',index,workerId:'worker',commandId:'command-'+name,
     planFile,outputDir:'work_dirs/'+name,status:'completed',executionState:'exited',resultState:'complete',completionState:'verified',successful:true,exitCode:0}));
   await businessContext.run({root:dir,emit:value=>emitted.push(value),rpc:async(method,params)=>{
     if(method==='tasks.list')return {lifecycleProtocol:2,stateSource:'active_query',projectId:'p',jobLifecycle:facts,workerTasks:[]};
-    if(method==='results.list'){
-      requests.push(params);assert.equal(params.planFile,planFile);
-      return {source:'active_query',results:[],summary:{current,results:facts.map(f=>({...(includeRunIds?{runId:f.commandId}:{}),workflowId:f.workflowId,sourceFiles:[{path:f.outputDir}]}))}};
+    if(method==='mcp.call'){
+      requests.push(params);assert.equal(params.tool,'sftp_inventory');
+      assert.equal(params.arguments.workerId,'worker');
+      if(!current)throw Error('inventory unavailable');
+      const dir=params.arguments.paths[0],file=dir.endsWith('.csv')?dir:dir+'/nested/metrics.csv';
+      return {ok:true,files:{[outside?'work_dirs/other/metrics.csv':file]:{size:53,modifiedAtMs:1700000000000,...(params.arguments.includeHashes?{sha256:'a'.repeat(64)}:{})}},...(unverified?{unverifiedFiles:{'work_dirs/a/model.pt':'permission denied'}}:{})};
     }
-    return {};
+    throw Error('unexpected API: '+method);
   }},async()=>{
-    for(const withIds of [true,false]){
-      includeRunIds=withIds;
       assert.equal(await artifactCommand('list',['command-a'],{json:true}),0);
-      assert.deepEqual(emitted.at(-1),[{id:'command-a:a',path:'work_dirs/a',size:''}]);
+      assert.deepEqual(emitted.at(-1),[{id:'command-a:work_dirs/a/nested/metrics.csv',path:'work_dirs/a/nested/metrics.csv',size:'53',workerId:'worker',mtime:'2023-11-14T22:13:20.000Z'}]);
       assert.equal(await artifactCommand('inspect',[emitted.at(-1)[0].id],{json:true}),0);
-      assert.equal(emitted.at(-1).file,'work_dirs/a');
+      assert.equal(emitted.at(-1).file,'work_dirs/a/nested/metrics.csv');
+      assert.equal(emitted.at(-1).hash,'a'.repeat(64));
+      assert.equal(emitted.at(-1).workerId,'worker');
       assert.equal(await artifactCommand('list',['workflow'],{json:true}),0);
       assert.equal(emitted.at(-1).length,2);
-    }
-    current=false;await assert.rejects(artifactCommand('list',['command-a'],{json:true}),/ARTIFACT_QUERY_UNVERIFIED/);
+    unverified=true;await assert.rejects(artifactCommand('list',['command-a'],{json:true}),/ARTIFACT_QUERY_UNVERIFIED/);unverified=false;
+    outside=true;await assert.rejects(artifactCommand('list',['command-a'],{json:true}),/ARTIFACT_PATH_OUTSIDE_RUN/);outside=false;
+    current=false;await assert.rejects(artifactCommand('list',['command-a'],{json:true}),/inventory unavailable/);
   });
-  assert.equal(requests.length,7);
+  assert.ok(requests.some(row=>row.arguments.includeHashes===true));
 });
 
 

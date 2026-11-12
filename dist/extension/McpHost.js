@@ -93,6 +93,8 @@ function mcpGateway(host) {
                     return scopedFileCall(method, args);
                 const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "";
                 const { workerId, sourceWorkerId, destinationWorkerId, ...params } = args;
+                if (method === "sync.projectInventory" && params.includeHashes === true && !params.paths?.length)
+                    throw Error("MCP_HASH_PATHS_REQUIRED: 请指定要核验内容的项目内路径。");
                 const target = (id) => {
                     const row = host.workerCodeSyncTargets().find((worker) => worker.id === id);
                     if (!row)
@@ -100,7 +102,7 @@ function mcpGateway(host) {
                     return host.sftpServerOptions(row);
                 };
                 const request = { ...params, localPath: root, localBase: root,
-                    ...(method === "sync.projectInventory" ? { scopePaths: params.paths, metadataOnly: true } : {}),
+                    ...(method === "sync.projectInventory" ? { scopePaths: params.paths, metadataOnly: params.includeHashes !== true } : {}),
                     ...(method === "sync.serverToServerFpsync" ? { relativePaths: params.paths } : {}),
                     ...(method === "sync.serverToServer" ? { directory: true } : {}),
                     ...(method === "sync.downloadMappedPaths" ? { memoryOnly: true, metricsOnly: true } : {}),

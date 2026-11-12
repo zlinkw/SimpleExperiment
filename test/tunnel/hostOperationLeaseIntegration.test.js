@@ -7,7 +7,7 @@ const { readSource } = require("../_helpers/sourceReader");
 const source = readSource("src/extension/legacy.ts");
 const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
 
-test("a native host action waits for an ordinary background queue write before opening its workflow", async () => {
+test("a native connection action waits for another shared connection edit before opening its workflow", async () => {
   const vm = require("node:vm"), ts = require("typescript"), os = require("node:os");
   const legacyMethod = require("../_helpers/legacyMethod");
   const { ResourceOperationLeaseManager } = require("../../dist/core/ResourceOperationLease");
@@ -17,9 +17,9 @@ test("a native host action waits for an ordinary background queue write before o
   const held = new Promise(resolve => { release = resolve; });
   const seen = new Promise(resolve => { conflict = resolve; });
   const manager = new ResourceOperationLeaseManager({ leasePath: path.join(root, "lease.json"), windowId: "same-window", heartbeatMs: 0,
-    conflictError: () => { conflict(); return new Error("queue writer still owns its exact file"); } });
-  const queue = manager.run({ pluginId: "test", workspaceUri: root, hostProjectPath: root, actionType: "queue-write",
-    resources: [{ server: "local", project: root, target: path.join(root, "queue.json") }] }, async () => { entered(); await held; });
+    conflictError: () => { conflict(); return new Error("connection editor still owns its shared resource"); } });
+  const queue = manager.run({ pluginId: "test", workspaceUri: root, hostProjectPath: root, actionType: "configureWorkers",
+    resources: [{ server: "local", project: root, target: path.join(root, "shared-connections") }] }, async () => { entered(); await held; });
   await ready;
   const sandbox = { currentHostOperationLeaseContext: () => ({ workspaceUri: root, hostProjectPath: root }),
     HostOperationLease_1: { HostOperationLeaseConflictError: class extends Error {} },
@@ -27,7 +27,7 @@ test("a native host action waits for an ordinary background queue write before o
   vm.runInNewContext(ts.transpileModule("globalThis.action = {" + legacyMethod(source, "withHostOperationLease(actionType, actionLabel, operation, options = {})") + "};", {
     compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, sandbox);
   let ran = false;
-  const result = sandbox.action.withHostOperationLease.call({ hostOperationLease: manager }, "configure-tunnel-ports", "配置隧道端口", async () => { ran = true; return "opened"; })
+  const result = sandbox.action.withHostOperationLease.call({ hostOperationLease: manager, context: { globalStorageUri: { fsPath: root } } }, "configure-tunnel-ports", "配置隧道端口", async () => { ran = true; return "opened"; })
     .then(value => ({ value }), error => ({ error }));
   await seen;
   assert.equal(ran, false);

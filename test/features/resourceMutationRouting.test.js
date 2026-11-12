@@ -4,6 +4,31 @@ const queueApi=require('../../dist/features/DistributedPlanQueue');
 const {HostOperationLeaseManager}=require('../../dist/core/HostOperationLease');
 const source=syncFs.readFileSync(require.resolve('../../dist/extension/legacy.js'),'utf8');
 function methods(from,to) { const a=source.indexOf(from),b=source.indexOf(to,a);assert.ok(a>=0&&b>a);return source.slice(a,b); }
+
+test('connection dialogs retain shared exclusion while experiment queue writes can proceed',async()=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'connection-resource-evidence-'));
+  const shared=path.join(root,'shared'),project=path.join(root,'experiment');await fs.mkdir(project);
+  const context={path,DistributedPlanQueue:queueApi,HostOperationLease_1:require('../../dist/core/HostOperationLease'),
+    currentHostOperationLeaseContext:()=>({workspaceUri:project,hostProjectPath:project}),
+    require:()=>({assertBusinessAllowed(){}}),console:{log(){}},vscode:{window:{showErrorMessage:async()=>undefined}}};
+  vm.createContext(context);
+  vm.runInContext('this.operations={'+methods('async withHostOperationLease(', 'async ensureRealtimeConnected(').trim()+','+
+    methods('async withQueueWriteResource(', 'async saveDistributedQueue(').trim()+'};',context);
+  const manager=id=>new HostOperationLeaseManager({leasePath:path.join(root,'leases.json'),windowId:id,heartbeatMs:0});
+  const host=id=>{const lease=manager(id);return {...context.operations,context:{globalStorageUri:{fsPath:shared}},
+    // Waiting is irrelevant to resource independence; reject a wrong scope immediately.
+    hostOperationLease:{run:(input,work)=>lease.run({...input,waitForConflict:false},work)}};};
+  const left=host('left'),right=host('right');let release,enter;
+  const entered=new Promise(resolve=>enter=resolve),held=new Promise(resolve=>release=resolve);
+  const prompt=left.withHostOperationLease('startTunnelEndpoint','启动隧道端点',async()=>{enter();await held;});
+  await entered;
+  try {
+    let wrote=false;await right.withQueueWriteResource(project,async()=>{wrote=true;});
+    assert.equal(wrote,true,'human connection prompt must not block the experiment queue');
+    await assert.rejects(right.withHostOperationLease('startTunnelEndpoint','启动另一隧道',async()=>{}),/正在由另一个操作修改/);
+  } finally {release();await prompt;}
+  assert.equal(await right.withHostOperationLease('startTunnelEndpoint','启动隧道',async()=>42),42);
+});
 test('cross-window queue writes merge fresh disk state and reject duplicate Plans',async()=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'queue-resource-evidence-'));
   const context={DistributedPlanQueue:queueApi,fs,fsNode:syncFs,path,process,crypto,workspaceRoot:()=> 'D:/project',UiCommandRemotePending:class extends Error {},

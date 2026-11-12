@@ -10268,7 +10268,7 @@ function renderPanelHtml() {
       setHtmlIfChanged("resultColumnMappingSettings",
         '<div class="settingsLayoutTools"><b>结果列映射</b>' +
           '<span class="muted">列映射在当前 Plan 的结果区编辑，可直接查看 CSV 列名和样例值。配置保存在插件工作区设置。</span>' +
-          '<button data-command="editResultColumnMapping" type="button">转到结果区编辑</button>' +
+          '<button data-command="editResultColumnMapping" type="button" title="打开当前项目的结果列映射编辑区">转到结果区编辑</button>' +
         '</div>');
     }
 

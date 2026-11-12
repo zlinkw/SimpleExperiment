@@ -1,7 +1,7 @@
 import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
-import { optionalApi } from "../api";
+import { callApi, optionalApi } from "../api";
 import { copyFile, fileExists, listFilesRecursive, projectRoot, readJsonFile, resolveProjectPath } from "../data";
 import { businessError, envError, usageError } from "../errors";
 import { table, writeJson, writeText } from "../format";
@@ -44,20 +44,51 @@ export async function artifactInspect(id: string, flags: CliFlags): Promise<numb
   if (!artifact) throw businessError(`artifact not found: ${id}`);
   const local = artifact.local && fileExists(artifact.local) ? artifact.local : "";
   const stat = local ? fs.statSync(local) : null;
+  const remote = artifact.workerId ? (await workerInventory(artifact.workerId, artifact.path, true))[artifact.path] : undefined;
+  if (artifact.workerId && !remote) throw businessError(`artifact not found on Worker: ${artifact.path}`);
   const payload = {
     id,
     file: artifact.path,
-    size: stat ? stat.size : (artifact.size || ""),
-    mtime: stat ? stat.mtime.toISOString() : "",
-    hash: local ? crypto.createHash("sha256").update(fs.readFileSync(local)).digest("hex") : "",
+    size: stat ? stat.size : remote ? remote.size : (artifact.size || ""),
+    mtime: stat ? stat.mtime.toISOString() : remote ? new Date(remote.modifiedAtMs).toISOString() : "",
+    hash: local ? crypto.createHash("sha256").update(fs.readFileSync(local)).digest("hex") : remote?.sha256 || "",
+    ...(artifact.workerId ? { workerId: artifact.workerId } : {}),
   };
   if (flags.json) writeJson(payload, flags.compactJson);
   else writeText(`${payload.file} size=${payload.size} mtime=${payload.mtime} hash=${payload.hash}`);
   return 0;
 }
 
-async function listArtifacts(experimentId: string): Promise<Array<{ id: string; path: string; size: string; local?: string }>> {
-  const experiment = (await loadExperiments()).find((row) => row.id === experimentId || row.name === experimentId);
+interface ArtifactRow { id: string; path: string; size: string; local?: string; workerId?: string; mtime?: string }
+interface FileIdentity { size: number; modifiedAtMs: number; sha256?: string }
+
+async function workerInventory(workerId: string, filePath: string, includeHashes = false): Promise<Record<string, FileIdentity>> {
+  const response = asRecord(await callApi("mcp.call", { tool: "sftp_inventory", arguments: { workerId, paths: [filePath], ...(includeHashes ? { includeHashes: true } : {}) } }));
+  if (response.ok === false || !response.files || typeof response.files !== "object" || Array.isArray(response.files))
+    throw businessError("ARTIFACT_QUERY_UNVERIFIED：Worker 未返回有效文件清单。", String(response.error || ""));
+  if (Object.keys(asRecord(response.unverifiedFiles)).length)
+    throw businessError("ARTIFACT_QUERY_UNVERIFIED：部分文件未能核实。", JSON.stringify(response.unverifiedFiles));
+  return response.files as Record<string, FileIdentity>;
+}
+
+async function listArtifacts(experimentId: string): Promise<ArtifactRow[]> {
+  const experiments = await loadExperiments();
+  const experiment = experiments.find((row) => row.id === experimentId || row.name === experimentId);
+  const jobs = experiment?.type === "worker_run" ? [experiment] : experiment?.type === "workflow"
+    ? experiments.filter(row => row.type === "worker_run" && row.parent_id === experiment.id) : [];
+  if (jobs.some(row => row.native_state)) {
+    const rows: ArtifactRow[] = [];
+    for (const job of jobs) {
+      const output = job.native_state?.output_dir;
+      if (!output || !job.worker_id) throw businessError("ARTIFACT_WORKER_REQUIRED：任务缺少明确的 Worker 或输出路径。");
+      for (const [filePath, info] of Object.entries(await workerInventory(job.worker_id, output))) {
+        if (!filePath.startsWith(output.replace(/\/+$/, "") + "/")) throw businessError("ARTIFACT_PATH_OUTSIDE_RUN: " + filePath);
+        rows.push({ id: `${job.id}:${filePath}`, path: filePath, size: String(info.size), workerId: job.worker_id,
+          mtime: new Date(info.modifiedAtMs).toISOString() });
+      }
+    }
+    return rows;
+  }
   const outputDir = experiment?.raw ? String(experiment.raw.hub_job_dir || experiment.raw.outputDir || experiment.raw.runDir || runDirFromLog(experiment.raw.stdout) || "") : "";
   const rows: Array<{ id: string; path: string; size: string; local?: string }> = [];
   if (outputDir) {
@@ -99,12 +130,13 @@ async function listArtifacts(experimentId: string): Promise<Array<{ id: string; 
   return rows;
 }
 
-async function findArtifact(id: string): Promise<{ path: string; size?: string; local?: string } | null> {
+async function findArtifact(id: string): Promise<{ path: string; size?: string; local?: string; workerId?: string } | null> {
   const [experimentId, ...rest] = id.split(":");
   const name = rest.join(":") || experimentId;
   const listed = await listArtifacts(experimentId);
   const match = listed.find((row) => row.id === id || row.path.endsWith(name) || path.basename(row.path) === id);
   if (match) {
+    if (match.workerId) return match;
     const abs = match.local || (path.isAbsolute(match.path) ? match.path : resolveProjectPath(match.path));
     const local = fileExists(abs) ? abs : undefined;
     return { path: match.path, size: local ? String(fs.statSync(local).size) : match.size, local };
