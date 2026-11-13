@@ -3908,7 +3908,8 @@
         "control": "mcpTerminalPersistence507",
         "status": "found_defect",
         "version": "0.5.507",
-        "evidence": "Native operation_list and operation_get both show prior prepare mcp-3a4d179f-0b81-4974-991d-6ab89905b01e running/resultAvailable=false despite actual Agent507 prepared. Host normally replaces localOperations during persistence; ProjectMcpOperations final callback required captured dictionary identity and did not persist current row. Existing mcpProject regression reproduced22/23, then23/23 after current-row update. Original old request not rewritten;508 package/live verification pending."
+        "evidence": "Native operation_list and operation_get both show prior prepare mcp-3a4d179f-0b81-4974-991d-6ab89905b01e running/resultAvailable=false despite actual Agent507 prepared. Host normally replaces localOperations during persistence; ProjectMcpOperations final callback required captured dictionary identity and did not persist current row. Existing mcpProject regression reproduced22/23, then23/23 after current-row update. Original old request not rewritten.",
+        "fix": "508 trial c392dae0:332jobs/13gates passed, actual downloaded VSIX matches local SHA9c50d230aad298384de8cb5766c502a2ed3cf0c05f811dfd786a5dd1d7e89fc0, installed once. Host/new MCP terminal persistence live check still pending user's reload; old running receipt not retrospectively declared successful."
       },
       {
         "control": "localFreshProjectOnboarding507",
