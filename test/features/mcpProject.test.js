@@ -112,6 +112,64 @@ test('long tool requests return observable receipts and never persist raw result
   assert.equal(ops.status(failed.operationId).status, 'failed');
   assert.deepEqual(ops.status(failed.operationId).result.detail.targets, ['exact-path']);
 });
+test('long MCP outcomes persist into the current operation dictionary after host compaction', async () => {
+  const { ProjectMcpOperations } = require('../../dist/mcp/ProjectOperations.js');
+  const f = fixture(); await f.authorize(['results']);
+  let records = {}, persisted, changes = 0, release;
+  const ops = new ProjectMcpOperations({ root: () => f.root, gateway: () => f.gateway,
+    records: () => records, changed: () => {
+      changes++;
+      persisted = structuredClone(records);
+      records = structuredClone(records);
+    } });
+  for (const failure of [false, true]) {
+    f.methods['results.list'] = () => new Promise((resolve, reject) => {
+      release = () => failure ? reject(Error('actual collection failure')) : resolve({ ok: true, privateRawMetric: 0.25 });
+    });
+    const receipt = await ops.call('result_collect', {});
+    await new Promise(resolve => setImmediate(resolve));
+    records = structuredClone(records);
+    const beforeFinish = changes;
+    release();
+    await new Promise(resolve => setImmediate(resolve));
+    const expected = failure ? 'failed' : 'succeeded';
+    assert.equal(ops.status(receipt.operationId).status, expected);
+    assert.equal(persisted[receipt.operationId].status, expected);
+    assert.ok(persisted[receipt.operationId].finishedAt);
+    assert.equal(changes, beforeFinish + 1);
+    assert.equal(JSON.stringify(persisted).includes('privateRawMetric'), false);
+    assert.equal(ops.status(receipt.operationId).resultAvailable, true);
+    const reloaded = new ProjectMcpOperations({ root: () => f.root, gateway: () => f.gateway,
+      records: () => persisted, changed: () => {} });
+    assert.equal(reloaded.status(receipt.operationId).status, expected);
+    assert.equal(reloaded.status(receipt.operationId).resultAvailable, false);
+  }
+});
+
+test('late MCP completion cannot restore retired requests or write another workspace', async () => {
+  const { ProjectMcpOperations } = require('../../dist/mcp/ProjectOperations.js');
+  const f = fixture(); await f.authorize(['results']);
+  let root = f.root, records = {}, release, changes = 0;
+  f.methods['results.list'] = () => new Promise(resolve => { release = resolve; });
+  const ops = new ProjectMcpOperations({ root: () => root, gateway: () => f.gateway,
+    records: () => records, changed: () => { changes++; records = structuredClone(records); } });
+  for (const workspaceChanged of [false, true]) {
+    root = f.root;
+    const receipt = await ops.call('result_collect', {});
+    await new Promise(resolve => setImmediate(resolve));
+    const beforeFinish = changes;
+    if (workspaceChanged) root = f.root + '-other';
+    else records = {};
+    release({ ok: true });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(changes, beforeFinish);
+    if (workspaceChanged) {
+      assert.equal(records[receipt.operationId].status, 'running');
+      assert.throws(() => ops.status(receipt.operationId), /MCP_WORKSPACE_CHANGED/);
+    } else assert.throws(() => ops.status(receipt.operationId), /MCP_OPERATION_NOT_FOUND/);
+  }
+});
+
 test('cleanup execution retains the original human confirmation state and cannot accept invented factors', async () => {
   const f = fixture(); await f.authorize(['sync']);
   await f.gateway.call('cleanup_execute', { operationId: 'operation-1' });

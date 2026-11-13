@@ -41,8 +41,14 @@ class ProjectMcpOperations {
             this.results.set(operationId, { root, result: { ok: false, error: record.error, code: error.apiCode, detail: error.apiData } });
         }).finally(() => {
             record.finishedAt = new Date().toISOString();
-            if (root === this.ports.root() && records === this.ports.records())
-                this.ports.changed();
+            if (root !== this.ports.root())
+                return;
+            const current = this.ports.records();
+            if (!current[operationId])
+                return;
+            // Host persistence can replace the dictionary and its rows while the request runs.
+            current[operationId] = { ...current[operationId], ...record };
+            this.ports.changed();
         });
         return { ok: true, operationId, status: "running", requestScope: "tool_request", receiptProvesExperimentCompletion: false,
             nextTool: "operation_get", nextArguments: { operationId } };

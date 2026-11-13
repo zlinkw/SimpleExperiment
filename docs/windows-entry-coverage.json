@@ -1605,8 +1605,8 @@
       "command": "cleanupPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1482,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "preview_passed",
+      "evidence": "Existing actual502 observation planArtifactCleanupEntryPreview: plans 高级产物审核与清理 > 审核当前PLAN及关联产物 opened exact Generic acceptance.yaml review and completed read-only target discovery. No path confirmation or deletion; source-control mapping corrected during508 audit, not a new execution.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1619,8 +1619,8 @@
       "command": "reviewIsolatedPlanBatches",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1483,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "preview_passed",
+      "evidence": "Existing actual502 observation isolatedAndEmptyDirectoryAuditEntry: both isolated-artifact and deleted-output-empty-directory scopes opened and returned explicit empty findings. No deletion. Source-control mapping corrected during508 audit; actual nonempty cleanup execution remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1819,8 +1819,8 @@
       "command": "startWorker",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1639,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Installed507 native MultiModal diagnostics > 高级诊断 > 启动 Worker 隧道 clicked; chose only configured rjj8 http://localhost:18770. Existing tunnel reused, button enabled again, diagnostic Agent 已连接. Agent @64 and original jobs preserved; no Xshell terminal automation.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2158,8 +2158,8 @@
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 9925,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Installed507 actual settings > 调度与上报策略 > 刷新数据 clicked after scrolling into view. Current acceptance PLAN/completed1 retained; panel diagnostics running/installed507 lifecycle ready, no lastFailure/sectionFailures. No configuration fields saved or changed.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2384,8 +2384,8 @@
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 10128,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Installed507 actual execution > 高级完整操作记录 > exact mcp-3a4d179f card > rjj8打开曲线 clicked separately from GPU control. New Edge page shows 实验曲线·MultiModal, native Worker rjj8 and actual acceptance single-seed catalog. Own tab closed; no training/result collection.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2670,8 +2670,8 @@
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 11841,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Installed507 actual GPU rjj8 打开曲线 button opened local viewer MultiModal/rjj8. Acceptance image_only_bus_p100 seed42 displayed7 metrics/60steps/last1of1. Compared same-name case from image_only_final separately(3seeds/145steps/last1of3); actual curves both rendered. Single-row/grid, extrema checkbox,2/3columns,autoRefresh,selected-only,clear-comparison exercised and restored. Native TensorBoard tab connected/rendered; actual MCP running/listening true, project window @65/port6006. No training or scientific results rewritten; temporary browser tab closed.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3390,8 +3390,8 @@
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16632,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Installed507 actual stale running MCP card mcp-3a4d179f-0b81-4974-991d-6ab89905b01e warning-row 刷新状态 clicked independently. State re-rendered and button returned; original unresolved request remained running without invented completion. Terminal-persistence defect separately reproduced and fixed for future requests in508; original completed experiment unchanged.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3892,6 +3892,24 @@
   "dynamicControls": {
     "status": "requires_live_inventory",
     "observations": [
+      {
+        "control": "nativeMcpReconnect507",
+        "status": "clicked_passed",
+        "version": "0.5.507",
+        "evidence": "After user's restart, actual connected MultiModal native project_status returns workspace d:/GitRepo/MultiModal,507/PID26332; project_authorization preserves rjj8 and original five permissions. Native project_connect mcp-76fe51fe-583d-45ba-9c21-1e9eddc2e8e6 queried succeeded/result.ok=true. This resolves original499 mismatch for MM; Generic native namespace absent, not claimed. Original acceptance task remains completed/verified/exit0 with original verifiedAt."
+      },
+      {
+        "control": "scalarViewerControls507",
+        "status": "clicked_passed",
+        "version": "0.5.507",
+        "evidence": "Actual GPU curve entry and single-seed selection, grid/single-row,maxima,2/3columns,auto-refresh, same-name cross-PLAN1/3seed comparison,selected-only/clear exercised and restored. Both actual canvases rendered. Native TensorBoard rendered actual charts; MCP confirms running/listening @65/port6006/project session zlk-6686260cd5e675e3_tb. Browser tabs created by these checks closed; no source/result rewrite."
+      },
+      {
+        "control": "mcpTerminalPersistence507",
+        "status": "found_defect",
+        "version": "0.5.507",
+        "evidence": "Native operation_list and operation_get both show prior prepare mcp-3a4d179f-0b81-4974-991d-6ab89905b01e running/resultAvailable=false despite actual Agent507 prepared. Host normally replaces localOperations during persistence; ProjectMcpOperations final callback required captured dictionary identity and did not persist current row. Existing mcpProject regression reproduced22/23, then23/23 after current-row update. Original old request not rewritten;508 package/live verification pending."
+      },
       {
         "control": "localFreshProjectOnboarding507",
         "status": "clicked_passed",
