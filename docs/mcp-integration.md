@@ -50,7 +50,7 @@ args = ["C:/Users/ZLK/AppData/Roaming/npm/simpleex-mcp-launcher.cjs", "--workspa
 | 全量 CLI 能力对应关系、GUI 依赖参数化 | 已建立映射；保留 UI 的交互入口不计为无人操作通过 |
 | 全部静态及动态人工入口实点 | 当前静态来源位置为72实点、28预览、54未实测、25退役；未实测含8个选择器引用。两个失败任务恢复入口均已实点进入完整路径审核页并取消，只计预览。永久删除、本人安全设置及缺少真实外部目标的入口不计通过 |
 | MultiModal 单 seed 与通用项目真实验收 | 两项目均已实际退出码 0；通用项目 MCP 准备、提交、收集、导出及面板结果入口已实测；其余入口仍未全部通过，详见 manual-acceptance-checklist.md |
-| Windows 试行打包、发布、安装与重载 | 0.5.512完整330作业、10门禁及VSIX核验通过；包3093143字节，SHA256 f14519d1db830b2a5bb1705334b5c0233734649e089ec75f191ca0c1f48c30bf。通用验收项目已通过源码宿主与真实Agent512核验失败退出码和恢复预览；最终共享端口恢复MultiModal508 Agent @30，Generic Scheduler @6及原实验完成证明保留。最终安装后仍须本人重载原窗口、重连MCP并核验MultiModal新版Agent |
+| Windows 试行打包、发布、安装与重载 | 0.5.512完整330作业、10门禁及VSIX核验通过；包3093143字节，SHA256 f14519d1db830b2a5bb1705334b5c0233734649e089ec75f191ca0c1f48c30bf。源码ea66876e已推送，试行Release远端同字节核验通过，已单次安装512；正式Latest仍483。通用验收项目已通过源码宿主与真实Agent512核验失败退出码和恢复预览；共享端口恢复MultiModal508 Agent @30，Generic Scheduler @6及原实验完成证明保留。仍须本人重载两个原窗口、重连MCP并核验MultiModal新版Agent，未计为全部入口通过 |
 
 生成当前源码入口与 MCP 对应清单可运行 `node scripts/entry-coverage.js <SimpleSFTP源码根>`。清单中的 mapped 只表示路由存在，实点和实际业务效果需另外核实。未验证项目不记为通过。
 

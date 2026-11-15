@@ -1,5 +1,7 @@
 # Windows 日常点击验收
 
+0.5.512交付状态：源码ea66876e381e3c61c7bb1918a9a570d660f8fefa已普通推送并fetch核对一致；https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.512 的tag和targetCommitish绑定该提交，draft=false/prerelease=true。VSIX及98字节SHA文件远端重下载与本机逐字节一致；SHA文件为合法CRLF，最初仅接受LF的核对断言失败，按实际格式核对精确文件名与摘要后通过，未覆写资产。原生ReleaseClient经本进程代理真实查询确认Latest仍483/118，512/120均不降级。install:latest仅执行一次且exit0，实际扩展清单、安装manifest/runtime均512，稳定simpleex --help和MCP启动器检查通过；配套SFTP120不变。安装后已停止SimpleExperiment面板/API操作，没有自动重载或覆盖未保存final.md。下一阶段仍须本人重载两个原窗口、重连MCP，继续新版宿主及MultiModal新版Agent核验；当前远端MultiModal仍508，不能记为512部署完成。
+
 0.5.512统一组装通过：2026-11-15T17-43-18-484Z-85092-package_assemble/exit0/47637ms，逐项对账复用上述最终完整回归，不重新编译或训练。simple-experiment-0.5.512.vsix为3093143字节、SHA256 f14519d1db830b2a5bb1705334b5c0233734649e089ec75f191ca0c1f48c30bf；382归档项，dist/bin/scripts的375个文件与磁盘源字节一致，MCP服务和稳定启动器齐全，ZIP身份/CRC/平台universal/VSCode引擎^1.100.0、秘密路径排除及必需资源门禁通过。源码指南保留，未包含验收工作区状态。发行与本机单次安装随后执行；新版原窗口和MultiModal Agent实机尚待本人重载。
 
 候选0.5.512最终完整回归通过：2026-11-15T17-29-08-142Z-13848-check_full，include-ondemand all，330作业、10门禁、exit0、835926ms，输入起止一致、串行、锁释放；独立vm.Script检查通过。实机两个失败恢复入口均展示完整路径并取消，仍只计预览。当前来源位置72实点、28预览、54未测、25退役；42命令中33实点、7预览、2未测。未测含8个选择器引用，不是可达控件总数。授权内正常场景已覆盖的入口按清单保留证据，永久删除、本人安全设置、缺少外部目标和其他条件分支没有冒充通过。最终共享端口恢复MultiModal508 Agent @30，Generic Scheduler @6保留；MultiModal原完成证明时间未变，本次日志复查过期仅记复查未知。安装后仍须本人重载原窗口、重连MCP并核验MultiModal新版Agent。
