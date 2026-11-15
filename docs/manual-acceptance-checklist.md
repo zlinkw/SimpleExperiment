@@ -1,5 +1,11 @@
 # Windows 日常点击验收
 
+第十项最终 check:full 已结束：2026-11-15T15-44-04-993Z-77132-check_full，324 项作业和全部门禁通过，exit0、815422 ms、maxObservedConcurrent=1、锁释放；6 项按需未运行不计通过。独立 vm.Script 检查通过，尚未组装、安装或发行。后续发现取消重跑预览后旧停止任务登记缺失，正在独立双任务夹具定位；该问题未解决前不能最终交付。
+
+第十项实机复验通过：重载源码宿主后原正常首次提交条件再次出现，workflow-run-1794757483493-2mgget 与其 plan-submit 子项都在15:44:43Z failed，错误和 finishedAt 完整一致。此前旧孤立 running 请求保留，不追改历史；未派新 job。随后 project_connect mcp-54a0f064-e254-4577-ae63-b35c07f55dd0 恢复正常监听，继续其他入口检查。
+
+第十项定向回归先在 15-43-12-502Z-82532-test 复现 running 而非 failed；现共享 runActionCommand 只在仍未终结的本机 PLAN 请求异常退出时写入 failed/cancelled 和真实错误，保持 queued、成功、取消与远端 pending 状态，原异常继续传给调用方。扩展既有通知套件，同一 Node 进程验证六种退出，不新增测试文件或改变期限。15-43-41-237Z-59924-test 通过/exit0/10918 ms，锁已释放。最终候选 check:full 15-44-04-993Z-77132-check_full 进行中，实机收口复验继续。
+
 510 第九项修复后的冻结整包回归：2026-11-15T15-27-49-430Z-20192-check_full，330 作业、10 门禁全部通过，exit0，850721 ms，maxObservedConcurrent=1，输入起止一致、锁正常释放。此证明不包含随后第十项修改，最终打包须等待其适用回归；本次没有组装、安装或发布。
 
 后续实点完成：510 新完成任务的“重新分析运行日志”通知为完整日志无异常/退出码0；“更新全部 PLAN 结果”实际返回2/8 job 可汇总、1 项声明无运行记录、六项未完成，不把取消项计成功。新结果 result-79e80da808d080c0306f266d8425aa589acad3097209a5fc25ddad4caaa0ebe2 的 control_completed=1。实点其 Markdown、CSV 均打开 daily_stop_510 的正确本机汇总；原始服务器指标没有下载到本机。MCP result_export 同一结果返回 CSV/count1/value1；artifact_list 使用真实 commandId 返回六项，精确 model.pt artifact ID 的 inspect 成功/23bytes/hash9d054ae23062ea8132652b660576fc927bdfd44a01f197017716449839c889ef。误把 resultId 传给 artifact_inspect 时如实 failed，原错误保留，不计产物通过。两个 MCP 项目状态和已安装 CLI 的 MultiModal 指向各自正确工作区，MM 仍运行508且 dirty final.md 保留；不能声称最终510稳定启动入口已验。

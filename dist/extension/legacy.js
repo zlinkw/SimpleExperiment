@@ -8016,6 +8016,11 @@ class RealtimeTunnelPanelProvider {
             return result;
         }
         catch (error) {
+            if (PLAN_SUBMISSION_COMMANDS.has(command) && !isUiCommandRemotePending(error)) {
+                const submission = this.localOperations[this.planSubmissionOperationId(message)];
+                if (submission && !["succeeded", "failed", "cancelled", "queued"].includes(String(submission.status)))
+                    this.finishPlanSubmissionProgress(message, isUiCommandCancelled(error) ? "cancelled" : "failed", errorMessage(error));
+            }
             if (noticeKey) {
                 const cancelled = error instanceof UiCommandCancelled_1.UiCommandCancelled;
                 this.finishOperationProgressNotice(noticeKey, cancelled ? "cancelled" : "failed", error instanceof Error ? error.message : String(error));

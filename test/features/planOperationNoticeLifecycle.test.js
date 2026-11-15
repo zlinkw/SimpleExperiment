@@ -396,6 +396,41 @@ test('r82 red: the isolation notice states 未启动+下一步 and never claims 
   const notice = Queue.outputIsolationNotice({ index: 3, outputIsolationBlocked: { reason: 'nwpu3：ACTIVE_TRANSFER SimpleSFTP files.cleanup.execute：[ACTIVE_TRANSFER]', stage: 'execute', code: 'ACTIVE_TRANSFER', declarationKey: 'work/j3', observedAt: '2026-10-26T03:13:15.000Z' } });
   assert.match(notice, /未启动/); assert.match(notice, /重新审核/); assert.doesNotMatch(notice, /已成功|已完成本次/);
 });
+test('direct API plan actions settle early failures without retiring a submitted or terminal request', async () => {
+  class UiCommandCancelled extends Error {}
+  const sandbox = { setTimeout, UiCommandCancelled,
+    require: name => { assert.equal(name, '../updates/Bootstrap'); return { assertBusinessAllowed() {} }; },
+    RESULT_PARSE_COMMANDS: new Set(), PLAN_SUBMISSION_COMMANDS: new Set(['runPlan']), OPERATION_NOTICE_COMMANDS: new Set(),
+    stringField: (row, key) => row[key] || '', workspaceRoot: () => '/project',
+    normalizePlanSelectionKey: value => value, operationResultPlanFile: row => row.planFile,
+    isUiCommandCancelled: error => error instanceof UiCommandCancelled,
+    isUiCommandRemotePending: error => error.remotePending === true,
+    errorMessage: error => error.message,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`this.run = { ${method('async runActionCommand(command, message)', 'async runActionCommandLeased(')} }.runActionCommand;`, sandbox);
+  for (const [initial, error, expected] of [
+    ['running', new Error('adapter sync failed'), 'failed'],
+    ['running', new UiCommandCancelled('user cancelled'), 'cancelled'],
+    ['running', Object.assign(new Error('remote accepted'), { remotePending: true }), 'running'],
+    ['queued', new Error('later query failed'), 'queued'],
+    ['succeeded', new Error('later feedback failed'), 'succeeded'],
+    ['cancelled', new Error('late failure'), 'cancelled'],
+  ]) {
+    const record = { status: initial }, originalError = error;
+    const host = { localOperations: { submission: record }, planRetryInFlight: new Set(), actionBody: value => value,
+      planSubmissionOperationId: () => 'submission', beginPlanSubmissionProgress() {}, reportPlanStage() {},
+      runActionCommandLeased: async () => { throw originalError; },
+      finishPlanSubmissionProgress(_message, status, text) { record.status = status; record.message = text; record.finishedAt = 'now'; },
+    };
+    await assert.rejects(sandbox.run.call(host, 'runPlan', { planFile: 'plans/a.yaml' }), thrown => thrown === originalError);
+    assert.equal(record.status, expected);
+    if (expected !== initial) { assert.equal(record.message, error.message); assert.equal(record.finishedAt, 'now'); }
+    else assert.equal(record.finishedAt, undefined);
+    assert.equal(host.planRetryInFlight.size, 0);
+  }
+});
+
 test('r82 red: an expired preview token notice demands a fresh preview with exact paths', () => {
   const Queue = require('../../dist/features/DistributedPlanQueue.js');
   const expired = Queue.outputIsolationNotice({ index: 3, outputIsolationBlocked: { reason: 'PREVIEW_EXPIRED', stage: 'execute', code: 'PREVIEW_EXPIRED', declarationKey: 'work/j3', observedAt: '2026-10-26T03:13:15.000Z' } });

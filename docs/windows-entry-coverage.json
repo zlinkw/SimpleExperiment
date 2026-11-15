@@ -1567,8 +1567,8 @@
       "command": "runAllPlans",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1472,
-      "status": "not_tested",
-      "evidence": "All-PLAN success remains untested: existing six PLANs contain preserved experiments and older stop probes; no authorized new batch target was substituted.",
+      "status": "preview_passed",
+      "evidence": "2026-11-15 devhost510 actual Run Selected Plans: only daily_stop_510 checked; current dropdown daily_ui_508 unchanged. First attempt before Worker preparation failed honestly. After project_prepare succeeded, exact code path confirmed once, real2-job validation completed and native existing-output choice named only daily_stop_510. Escape cancelled before overwrite/requeue; no new jobs, no isolation/deletion and original result preserved. This is preview/cancel only.",
       "handlers": [
         {
           "function": "handleMessageCore",

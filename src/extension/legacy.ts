@@ -7704,6 +7704,11 @@ return this.testTunnel(true);
             if (noticeKey) this.finishOperationProgressNotice(noticeKey, this.submissionNoticeTone(message, result), this.submissionNoticeText(message, result));
             return result;
         } catch (error) {
+            if (PLAN_SUBMISSION_COMMANDS.has(command) && !isUiCommandRemotePending(error)) {
+                const submission = this.localOperations[this.planSubmissionOperationId(message)];
+                if (submission && !["succeeded", "failed", "cancelled", "queued"].includes(String(submission.status)))
+                    this.finishPlanSubmissionProgress(message, isUiCommandCancelled(error) ? "cancelled" : "failed", errorMessage(error));
+            }
             if (noticeKey) {
                 const cancelled = error instanceof UiCommandCancelled;
                 this.finishOperationProgressNotice(noticeKey, cancelled ? "cancelled" : "failed",
