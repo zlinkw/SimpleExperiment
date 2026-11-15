@@ -1,5 +1,13 @@
 # Windows 日常点击验收
 
+2026-11-15 后续恢复：本人明确授权只改 rjj8 上两项目 agent.owner.json 的 machine。重新核对 root@127.0.0.1:15791、规范根 /root/autodl-tmp/zlk、8 张原 GPU UUID 与两份原完整 owner；在既有控制锁/服务锁内精确替换 machine，原始字节其余内容、inode 和权限均保留，两个项目 inspect 均通过且显示 absent。新 machine 为 b3fd29ca2560ab43c22e56fc9e8128c9173a82a1d665749fbf722905ed9a4108，未清队列、删除状态或改写结果。首次粘贴误入正在运行隧道脚本的 ssh_zlk/%0，没有执行；已仅清除本轮排队输入，保留原隧道，再按精确授权直接完成文件修复。
+
+Generic 候选源码宿主 509/PID4852 的 project_prepare 请求 mcp-f50ee37c-2bb8-4064-80cf-cc2c03689b44 succeeded；Agent @2/509，源码哈希匹配。daily_ui_508 的结构校验 mcp-d6c545b1-9eb5-47a2-b987-4c8e838e29a6 通过，workers=ready/remoteExecution=not_started；面板实际选择同一 PLAN 后预演 succeeded，metrics.csv 不再被固定文件名门禁拒绝。只对原明确项目代码路径确认一次上传，未保存“不再提醒”状态，未启动作业。
+
+新发现第八项：共享 GPU 采集器 @3 正常运行且序列前进，Agent 却长期 gpu_collector_stale。精确 Agent 重启 mcp-eae356aa-69b2-42e9-8c18-eda37e9afb10 成功，仅 @2→@4，同一 @3 继续运行，随后实机返回 8 张 GPU；GPU7 有用户作业，未操作它。源码 reader 在校验时间有效性前推进排序水位，启动时读取旧机器的未来时间会污染后续合法帧。扩展既有 gpuCollectorFrame 的 reads 组合复现未来帧之后的正常帧及新机器 generation，使用原进程和超时，不新增性能测试或改采样阈值；修复和最后实机仍待继续。
+
+GPU 水位回归在 2026-11-15T15-12-54-523Z-29132-test 如实失败，旧 reader 在未来时间帧后拒绝正常帧；原日志保留。现仅把排序水位写入移到时间有效性检查之后，保留 generation、UID、单写者、采样阈值与请求因果门禁，部分帧仍参与有效时间范围内的排序校验。15-13-47-106Z-35884-test 的 gpuCollectorFrame 与真实 tmux 两套件均通过、exit0、28549 ms、锁正常释放；没有新增测试进程或改任何超时。附带指定的 gpuAdmissionBoundary 文件不存在，未被执行，不计作覆盖。候选实机更新继续中，尚未统一打包安装。
+
 本轮以 Windows 0.5.485 为初始实点基线。当前磁盘已安装 SimpleExperiment 0.5.508 与 SimpleSFTP 0.2.120；两项目已核实运行 508，2026-11-15 通用项目另以当前源码开发宿主验收集中修复，尚未统一打包或安装新版本。入口状态以 windows-entry-coverage.json 为准，静态源码位置不等同当前可达控件分母，动态行和菜单单独记载。整体入口尚未全覆盖，不以自动回归或局部修复替代实点验收。四个停止任务和两个成功实验的原证明保持；界面保持侧栏。本人暂不执行永久删除；不继续该文件的确认或执行。下文旧版本段落保留当时事实，其“待核验”不替代本节当前状态。
 
 ## 0.5.508 MCP 请求终态返修与 507 重连后实点

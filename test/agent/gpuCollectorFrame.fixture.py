@@ -157,6 +157,17 @@ def main():
         assert agent.read_gpu_collector_frame(worker, root)["mode"] == "stale"
         write_frame(worker, root, "gen-1", 9, mono=int(time.monotonic() * 1000) + 60000)
         assert agent.read_gpu_collector_frame(worker, root)["mode"] == "stale"
+        # A rejected future timestamp must not poison subsequent valid frames.
+        write_frame(worker, root, "gen-1", 10)
+        assert agent.read_gpu_collector_frame(worker, root)["mode"] == "fresh"
+        recovered = "worker-recovered"
+        future = int(time.monotonic() * 1000) + 60000
+        publish_generation(recovered, root, "previous-machine", genStartedMonotonicMs=future)
+        write_frame(recovered, root, "previous-machine", 99, mono=future)
+        assert agent.read_gpu_collector_frame(recovered, root)["mode"] == "stale"
+        publish_generation(recovered, root, "current-machine")
+        write_frame(recovered, root, "current-machine", 1)
+        assert agent.read_gpu_collector_frame(recovered, root)["mode"] == "fresh"
         # Late OLD-generation frame under a current registration: never fresh.
         publish_generation(worker, root, "gen-2")
         write_frame(worker, root, "gen-1", 999, gpus=[{"index": 0}])

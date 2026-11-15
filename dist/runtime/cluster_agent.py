@@ -19975,10 +19975,11 @@ def read_gpu_collector_frame(worker_id, root=""):
             epoch == previous[0] and (seq < previous[2] or float(mono) < previous[3])
             or epoch != previous[0] and gen_start <= previous[1]):
         return {"mode": "stale", "frame": frame, "ageMs": None, "reason": "ordering"}
-    _GPU_FRAME_WATERMARKS[frame_path] = (epoch, gen_start, seq, float(mono))
     age_ms = time.monotonic() * 1000.0 - float(mono)
     if age_ms < 0.0 or age_ms > GPU_COLLECTOR_FRESH_MS:
         return {"mode": "stale", "frame": frame, "ageMs": age_ms}
+    # Rejected timestamps cannot advance the ordering watermark.
+    _GPU_FRAME_WATERMARKS[frame_path] = (epoch, gen_start, seq, float(mono))
     if frame.get("completeness") != "full" or frame.get("status") != "ok" or not gpus:
         return {"mode": "partial", "frame": frame, "ageMs": age_ms}
     return {"mode": "fresh", "frame": frame, "ageMs": age_ms}
