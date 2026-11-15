@@ -107,3 +107,30 @@ test('each close verification bypasses an older coalesced tmux list request', as
   assert.equal(paths.every(p => p.startsWith('/api/tmux/list?closeCheck=')), true);
   assert.notEqual(paths[0], paths[1]);
 });
+
+test('closing a live project task tab records the shared exact stop instead of losing task identity', async () => {
+  const live = { ...old, task: { commandId: 'live-command', status: 'running' } };
+  const c = hostContext([live, sibling], async () => assert.fail('managed task must use the task stop boundary'));
+  const job = { commandId: 'live-command', workerId: 'nwpu2', status: 'running' };
+  c.workspaceRoot = () => '/project';
+  c.loadDistributedQueue = async root => { assert.equal(root, '/project'); return { plans: [{ id: 'workflow', jobs: [job] }] }; };
+  c.stopProjectTask = async (host, root, params) => {
+    assert.equal(host, c); assert.equal(root, '/project');
+    assert.equal(params.commandId, job.commandId); assert.equal(params.workerId, 'nwpu2');
+    assert.equal(params.workflowId, 'workflow'); assert.equal(params.confirm, true);
+    job.status = 'cancelled'; c.windows = [sibling];
+  };
+  await c.perform.call(c, 'nwpu2', live.target);
+  assert.equal(job.status, 'cancelled'); assert.equal(c.calls.length, 0);
+  assert.equal(c.windows[0].windowId, sibling.windowId);
+  c.windows = [live, sibling]; job.status = 'running';
+  c.stopProjectTask = async () => { throw new Error('TASK_CANCEL_UNCONFIRMED'); };
+  await assert.rejects(c.perform.call(c, 'nwpu2', live.target), /TASK_CANCEL_UNCONFIRMED/);
+  assert.equal(c.calls.length, 0); assert.equal(c.windows[0].windowId, old.windowId);
+  job.status = 'completed';
+  c.requestKillTmuxWindow = async (_worker, body) => {
+    c.calls.push(body); c.windows = [sibling]; return { ok: true, verified: true, windowId: old.windowId };
+  };
+  await c.perform.call(c, 'nwpu2', live.target);
+  assert.equal(job.status, 'completed'); assert.equal(c.calls.length, 1);
+});

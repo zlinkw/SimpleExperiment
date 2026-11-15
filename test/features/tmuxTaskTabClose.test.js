@@ -50,6 +50,7 @@ test("GPU task tab close uses the requested Worker and exact session:index", asy
     warnings,
     progressMessages,
     posted,
+    setupConfig: { remoteTmuxSessionPrefix: "zlk" },
     workers: [{ id: "worker-a", enabled: true }, { id: "worker-b", enabled: true }],
     windows: [
       { index: "2", target: "zlk-gpu-0:2", windowId: '@2', name: 'run-old', panes: [{ id: '%2' }] },

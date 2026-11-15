@@ -1,5 +1,19 @@
 # Windows 日常点击验收
 
+510 第九项修复后的冻结整包回归：2026-11-15T15-27-49-430Z-20192-check_full，330 作业、10 门禁全部通过，exit0，850721 ms，maxObservedConcurrent=1，输入起止一致、锁正常释放。此证明不包含随后第十项修改，最终打包须等待其适用回归；本次没有组装、安装或发布。
+
+后续实点完成：510 新完成任务的“重新分析运行日志”通知为完整日志无异常/退出码0；“更新全部 PLAN 结果”实际返回2/8 job 可汇总、1 项声明无运行记录、六项未完成，不把取消项计成功。新结果 result-79e80da808d080c0306f266d8425aa589acad3097209a5fc25ddad4caaa0ebe2 的 control_completed=1。实点其 Markdown、CSV 均打开 daily_stop_510 的正确本机汇总；原始服务器指标没有下载到本机。MCP result_export 同一结果返回 CSV/count1/value1；artifact_list 使用真实 commandId 返回六项，精确 model.pt artifact ID 的 inspect 成功/23bytes/hash9d054ae23062ea8132652b660576fc927bdfd44a01f197017716449839c889ef。误把 resultId 传给 artifact_inspect 时如实 failed，原错误保留，不计产物通过。两个 MCP 项目状态和已安装 CLI 的 MultiModal 指向各自正确工作区，MM 仍运行508且 dirty final.md 保留；不能声称最终510稳定启动入口已验。
+
+新发现第十项：首次 workflow-run-1794756430503-v2qp14 已 failed，但其 plan-submit-workflow-run-1794756430503-v2qp14 仍 running，消息仍是“正在准备计划与插件接入规则”。GUI 的 withUiCommandStatus 会收口进度，MCP 直接调用 runActionCommand 却缺少同一异常收口。当前 check:full 冻结输入不改动，完成后在共享 runActionCommand 异常边界修复并补现有通知套件；不改写这个旧失败现场，不把重试成功当作旧请求已修复。
+
+2026-11-15 恢复后继续：509 准备请求 mcp-3a5b729b-b4ff-4640-b07e-c4cc7d8989e3 如实 failed/AGENT_RUNTIME_VERSION_REUSED，没有覆盖同版本字节。集中候选改为 510，仅编译并重载开发宿主，未生成 VSIX 或安装。mcp-9f12471b-6b19-45a4-823c-60d6286dedd4 实际 succeeded，Generic Agent @5/510，GPU 八卡正常；保留用户 GPU7 作业、隧道 @0/@1 和采集器 @3。
+
+面板选择 daily_ui_508，实际“校验并提交运行”后 command 3e00fafcb1974679fd36b5e6966c8cf5 在 GPU0/@7 运行，源码配套 MCP 与 dist/cli.js 均查询到同一身份。任务卡“查看窗口日志”实际定位同一窗口并显示 tick。第九项真实缺陷：日志标签 × 精确关闭了 @7，却未记录 Scheduler 取消围栏和本机停止意图，主动查询变成 missing/unknown。现对当前项目已登记的非终态任务复用 stopProjectTask，再核实原稳定 windowId 消失；已完成任务仍只关闭窗口并保留完成事实。既有 tmuxWindowCloseIdentity 套件先复现失败再通过，并补取消未确认不得退化为普通 kill、已完成状态保留。15-26-17-590Z-4540-test 六套件通过，一套旧 fixture 缺少 setupConfig 前缀而失败；仅补真实配置后，15-26-53-929Z-16504-test 通过，首次失败日志保留。原 daily_ui_508 后续用精确 task_stop mcp-0fc88da6-3274-4be0-abb8-c86a02dba2ec 收口 succeeded，没有重跑或删除。
+
+独立软件控制 PLAN daily_stop_510.yaml 使用原脚本和 seed42，专用两个输出，不涉及科研结论。开发宿主重载后本机监听关闭，第一次 MCP workflow-run-1794756430503-v2qp14 如实 failed，未派任务；project_connect succeeded 后，workflow-run-1794756467678-twqtxh 正常提交。job0/703677855deda38808b2def7d0057a8c 在 GPU0/@11，job1/d4b3aee99fc203598f265046c6407f01 在 GPU1/@9。实点 job0 标签 × 并确认后，@11 消失、job0 cancelled；job1 继续运行。运行中 Agent restart mcp-f99b3ae8-f7c3-46f3-a2a7-af0b4d13c5fd succeeded，只换 @5→@12，Scheduler @6、job1 @9 和用户窗口保留；job1 最终 completed/verified/exit0，日志 clear/scanComplete=true、声明结果 complete。这验证软件调度、停止和产物链路，不代表新增科研实验。
+
+实点进度区一键中止清除、勾选批次、全部批次三个入口，确认页显示实际所选 normal_stop_0_5_492 和全部八个 PLAN 的精确任务范围；全部 Escape，未确认批次、未发送停止清理命令。只能记预览通过，原实验与队列保留。当前任务无活动时，“中止当前/全部”不产生执行，不能记真实停止通过。最后集中 check:full 已启动，结果待结算，仍未统一打包安装。
+
 2026-11-15 后续恢复：本人明确授权只改 rjj8 上两项目 agent.owner.json 的 machine。重新核对 root@127.0.0.1:15791、规范根 /root/autodl-tmp/zlk、8 张原 GPU UUID 与两份原完整 owner；在既有控制锁/服务锁内精确替换 machine，原始字节其余内容、inode 和权限均保留，两个项目 inspect 均通过且显示 absent。新 machine 为 b3fd29ca2560ab43c22e56fc9e8128c9173a82a1d665749fbf722905ed9a4108，未清队列、删除状态或改写结果。首次粘贴误入正在运行隧道脚本的 ssh_zlk/%0，没有执行；已仅清除本轮排队输入，保留原隧道，再按精确授权直接完成文件修复。
 
 Generic 候选源码宿主 509/PID4852 的 project_prepare 请求 mcp-f50ee37c-2bb8-4064-80cf-cc2c03689b44 succeeded；Agent @2/509，源码哈希匹配。daily_ui_508 的结构校验 mcp-d6c545b1-9eb5-47a2-b987-4c8e838e29a6 通过，workers=ready/remoteExecution=not_started；面板实际选择同一 PLAN 后预演 succeeded，metrics.csv 不再被固定文件名门禁拒绝。只对原明确项目代码路径确认一次上传，未保存“不再提醒”状态，未启动作业。

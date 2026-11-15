@@ -27401,6 +27401,21 @@ class RealtimeTunnelPanelProvider {
         const session = this.tmuxKillSessionFromTarget(target);
         const before = await this.readTmuxListAfterKill(workerId);
         const identity = TmuxWindowIdentity.resolveTmuxWindowIdentity(before, target, expected);
+        const task = before.sessions.flatMap(row => row.windows || []).find(row => row.windowId === identity.windowId)?.task;
+        if (task?.commandId) {
+            const root = workspaceRoot();
+            const queue = await this.loadDistributedQueue(root);
+            const matches = queue.plans.flatMap(plan => plan.jobs.filter(job => job.workerId === workerId && job.commandId === task.commandId)
+                .map(job => ({ plan, job })));
+            if (matches.length > 1)
+                throw new Error("TASK_EXACT_IDENTITY_REQUIRED");
+            if (matches.length && !["completed", "failed", "cancelled", "stopped"].includes(matches[0].job.status)) {
+                await (0, TaskControl_1.stopProjectTask)(this, root, { workerId, commandId: task.commandId, workflowId: matches[0].plan.id, confirm: true });
+                if (TmuxWindowIdentity.tmuxWindowIdentityPresent(await this.readTmuxListAfterKill(workerId), identity))
+                    throw new Error(`关闭未生效：原窗口仍在 tmux 列表 ${identity.target}`);
+                return;
+            }
+        }
         const body = { ...identity, window: identity.target, session, confirm: true };
         let result;
         try {

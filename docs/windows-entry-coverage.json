@@ -3150,8 +3150,8 @@
       "command": "stopAndClearPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15755,
-      "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "status": "preview_passed",
+      "evidence": "2026-11-15 source devhost510: actual selected PLAN, checked PLAN batch and all8 PLAN batch native scope previews opened independently. Exact targets listed; Escape cancelled before confirmation. No stop/cleanup command sent; original queues/results retained. Preview only.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3178,8 +3178,8 @@
       "command": "stopAndClearPlans",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15758,
-      "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "status": "preview_passed",
+      "evidence": "2026-11-15 source devhost510: actual selected PLAN, checked PLAN batch and all8 PLAN batch native scope previews opened independently. Exact targets listed; Escape cancelled before confirmation. No stop/cleanup command sent; original queues/results retained. Preview only.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3192,8 +3192,8 @@
       "command": "stopAndClearPlans",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15759,
-      "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "status": "preview_passed",
+      "evidence": "2026-11-15 source devhost510: actual selected PLAN, checked PLAN batch and all8 PLAN batch native scope previews opened independently. Exact targets listed; Escape cancelled before confirmation. No stop/cleanup command sent; original queues/results retained. Preview only.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -4924,6 +4924,31 @@
         "control": "plan-selector-terminal-state-dev509",
         "status": "clicked_passed",
         "evidence": "2026-11-15: after source-only devhost reload, actual dropdown shows acceptance.yaml completed1/1, four stopped PLANs cancelled, old no-job failed PLAN still failed. Native selection restored acceptance.yaml; paired-source MCP full state agrees. Six rejected batch requests remain failed; no job dispatched or original result rewritten."
+      },
+      {
+        "control": "owner-machine-and-agent-recovery-dev510",
+        "status": "clicked_passed",
+        "evidence": "2026-11-15 exact authorized two owner machine fields repaired, all other bytes/inodes/modes preserved. Both inspect valid. Same-version509 byte mutation rejected, not overwritten. Source510 prepare mcp-9f12471b-6b19-45a4-823c-60d6286dedd4 succeeded; actual Agent510/@5 hashes match and8 GPUs healthy, GPU7 external user job preserved. No VSIX/install."
+      },
+      {
+        "control": "panel-plan-start-and-task-log-dev510",
+        "status": "clicked_passed",
+        "evidence": "Actual panel daily_ui_508 validation/run, approved exact project code upload path once. Command3e00fafcb1974679fd36b5e6966c8cf5 GPU0/@7 running seed42; paired-source MCP and dist/cli.js agree. Card window-log button selected exact task tag with tick output. Stable installed CLI rightly rejects source-only510 mismatch; final installed launcher still pending."
+      },
+      {
+        "control": "tmux-task-close-intent-dev510",
+        "status": "clicked_passed",
+        "evidence": "Original tab close left daily_ui_508 unknown/missing: real defect retained. Fixed current project live-task tab closure to shared exact task stop. Actual independent daily_stop_510 job0/703677855deda38808b2def7d0057a8c GPU0/@11 tab x, exact native confirmation, then @11 absent/cancelled. Job1/d4b3aee99fc203598f265046c6407f01 GPU1/@9 remained running, then verified completed/exit0/clear log/complete declared artifacts. Original successful/cancelled jobs not rerun."
+      },
+      {
+        "control": "agent-restart-preserves-live-job-dev510",
+        "status": "clicked_passed",
+        "evidence": "MCP restart mcp-f99b3ae8-f7c3-46f3-a2a7-af0b4d13c5fd succeeded, only Agent@5→@12; Scheduler@6, running job1@9, collector@3, user tunnels@0/@1 retained. Same job later verified completed. No PID stops, queue clearing or replay."
+      },
+      {
+        "control": "execution-clear-batch-previews-dev510",
+        "status": "preview_passed",
+        "evidence": "Actual one-click selected PLAN cleanup, checked PLAN batch, and all8 PLAN batch entries each opened exact native scope preview. All Escape before confirmation; explicit cancelled notice says no stop/cleanup command sent. History, output files and original completed proof retained. Terminal current/all normal-stop controls had no eligible active task, not counted as completed stop actions."
       }
     ]
   },
