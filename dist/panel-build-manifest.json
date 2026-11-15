@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.508",
-  "buildId": "eda8d8330fa8aa759ebff3eb2b5b6fa352f29d1697a8670f15a14a712e1dbee0",
+  "version": "0.5.509",
+  "buildId": "78a05fd1d7aeb838294153d6b3b5f1c6f5ca9badd94073e3d5480df2a86c3517",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -261,7 +261,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "6661212bf8f7c65325e2352e93def4f0bd58ec09a55e0f66e6570ef7ea6b3081"
+      "sha256": "b6d077c7a337a9aaada4b68fd8d7a418501b969165c85c84833006546bcc498a"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -617,7 +617,7 @@
     },
     {
       "path": "dist/features/PlanBuilder.legacy.js",
-      "sha256": "e86e0b13ea5e3b0afb3c9f25bffc1625eeabbc7de38eccf99a7f4c47ad9fc76a"
+      "sha256": "4dc3d70de174a69bc8cc2f8112d265a0c3d27d4d47a8c2c13ffe0def366b2b82"
     },
     {
       "path": "dist/features/PlanBuilder/PlanValidator.js",
@@ -953,7 +953,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "9f8ccc1a91a7c16c011d22de5a7dadd650519af86a58e8704ed0231fedfafd5b"
+      "sha256": "1bd69f47477bbb9643c1b95b60a47506a37b60be262b9abb8898cabfcaecd00c"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -969,7 +969,7 @@
     },
     {
       "path": "dist/templates/ProjectAdapterTemplates.legacy.js",
-      "sha256": "529d10c0a70a7f28bd03d1423e112643d25753f1bfa24c42f9a91792129965d8"
+      "sha256": "a8c78ab06d410002be5ab0af62e51db7b38b8461977d9bf31165cc8706865fb2"
     },
     {
       "path": "dist/tensorboard/ScalarAggregation.js",
@@ -1181,7 +1181,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "95cded9d4c247bad4a553b6279cce80fa65c1092d91a628878bb6c1a413a2f4f"
+      "sha256": "ed4367c68512509ad9058a5167efa4242ec4ecacf784ce2f0c898a08934d0559"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1305,7 +1305,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "f4f6754e5fa2d1c8b28ada474790016c61a9cf9b01aed5fe31fff961e47a75e5"
+      "sha256": "9ec09faf24c685392dce9a18e100d67dd35fe40d157c19c8f5c82d4dae8949a4"
     },
     {
       "path": "scripts/check-static.js",

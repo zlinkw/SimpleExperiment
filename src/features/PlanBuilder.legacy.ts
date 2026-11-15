@@ -1118,7 +1118,7 @@ function yamlFlowMapBodies(text) {
     }
     return bodies;
 }
-function splitTopLevelYamlList(text) {
+export function splitTopLevelYamlList(text) {
     const out = [];
     let quote = "";
     let depth = 0;
@@ -1142,13 +1142,13 @@ function splitTopLevelYamlList(text) {
 function stripYamlComments(text) {
     return text.split(/\r?\n/).map(stripYamlLineComment).join("\n");
 }
-function stripYamlLineComment(value) {
+export function stripYamlLineComment(value) {
     let quote = "";
     for (let i = 0; i < value.length; i++) {
         const ch = value[i];
         if ((ch === "\"" || ch === "'") && value[i - 1] !== "\\")
             quote = quote === ch ? "" : quote || ch;
-        if (ch === "#" && !quote)
+        if (ch === "#" && !quote && (i === 0 || /\s/.test(value[i - 1])))
             return value.slice(0, i);
     }
     return value;

@@ -140,7 +140,7 @@ test("training recovery clicks track each job and send a correlated status reque
     textContent: "核验并恢复训练完成", disabled: false, closest: () => null, getAttribute: () => null });
   function press(target) {
     sandbox.click({ preventDefault() {}, stopPropagation() {}, target: { closest(selector) {
-      if (selector === "button[data-distributed-retry]") return target;
+      if (selector === "button[data-distributed-retry]" && target.dataset.distributedRetry) return target;
       if (selector === "button[data-command]" && target.dataset.command) return target;
       return null;
     } } });
@@ -163,6 +163,14 @@ test("training recovery clicks track each job and send a correlated status reque
   }
   assert.match(loading[0].key, /jobIndex=0/);
   assert.notEqual(loading[0].key, loading[1].key);
+  let timers = 0;
+  sandbox.setTimeout = () => { timers += 1; return 1; };
+  const template = { dataset: {command: 'generateOutputAdapter'}, textContent: '生成接入模板', disabled: false,
+    closest: () => null, getAttribute: () => null };
+  press(template);
+  assert.equal(sent.at(-1).command, 'generateOutputAdapter');
+  assert.equal(timers, 0, 'waiting for the real template write confirmation must not be declared stalled');
+  assert.equal(sandbox.pendingActionsById[sent.at(-1).clientActionId].status, 'running');
 });
 
 test("manual single and batch buttons send the selected job identities without a busy-card filter", () => {

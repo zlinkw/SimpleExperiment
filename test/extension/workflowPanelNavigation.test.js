@@ -127,3 +127,52 @@ test("factory registers the existing operation-log and Xshell entry points with 
   }
   assert.deepEqual(calls, ["log", "xshell"]);
 });
+
+test('operation log actions keep exact identity, nested evidence and full-file provenance', async () => {
+  const ts = require('typescript'), vm = require('node:vm');
+  const source = readSource('src/extension/legacy.ts');
+  const ast = ts.createSourceFile('log-actions.ts', source, ts.ScriptTarget.Latest, true);
+  const names = new Set(['operationLogSource', 'showLogHistoryFromUi', 'openFullLogFromUi']);
+  const methods = []; let redact;
+  function visit(node) {
+    if (ts.isMethodDeclaration(node) && names.has(node.name?.getText(ast))) methods.push(node.getText(ast));
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'redactSensitiveText') redact = node.getText(ast);
+    ts.forEachChild(node, visit);
+  }
+  visit(ast); assert.equal(methods.length, names.size); assert.ok(redact);
+  const notices = [], documents = [], picks = [], reads = [];
+  const context = vm.createContext({
+    vscode: {window: {showInformationMessage: text => notices.push(text),
+      showQuickPick: async (items, options) => {picks.push({items, options});}, showTextDocument: async doc => documents.push(doc)},
+      workspace: {openTextDocument: async doc => doc}, env: {clipboard: {writeText: async () => assert.fail('no row selected')}}},
+    normalizeRemoteResultInspectionPath: value => value.startsWith('work_dirs/') ? value : '',
+  });
+  const code = ts.transpileModule(redact + '\nthis.Host = class {\n' + methods.join('\n') + '\n};',
+    {compilerOptions: {target: ts.ScriptTarget.ES2022}}).outputText;
+  vm.runInContext(code, context);
+  const rows = {one: {operationId: 'exact', planFile: 'plans/one.yaml', payload: {evidence: {
+    liveLogTail: 'epoch 1\ntoken=secret-value\nepoch 2', logPath: 'work_dirs/one/train.log', workerId: 'worker-a'}}},
+    other: {operationId: 'other', planFile: 'plans/one.yaml', logTail: 'WRONG LOG', logPath: 'work_dirs/other/train.log'}};
+  const host = new context.Host(); let current = true;
+  Object.assign(host, {buildState: () => ({operations: rows}), captureProjectContext: () => ({root: 'test-project'}),
+    projectContextIsCurrent: () => current, client: {}, resultInspectionContent: file => file.text,
+    downloadMetricMemoryBatch: async (scope, client, batch) => {reads.push({scope, client, batch}); return {metricFiles: [{text: 'complete file\npassword=private-value'}]};}});
+  await host.showLogHistoryFromUi({operationId: 'exact', planFile: 'wrong.yaml'});
+  assert.match(picks[0].options.title, /exact/);
+  assert.equal(picks[0].items.length, 3); assert.match(picks[0].items[1].detail, /已脱敏/);
+  assert.doesNotMatch(JSON.stringify(picks), /secret-value|WRONG LOG/);
+  await host.openFullLogFromUi({operationId: 'exact'});
+  assert.equal(reads[0].batch.workerId, 'worker-a'); assert.equal(reads[0].batch.entries[0].remotePath, 'work_dirs/one/train.log');
+  assert.equal(reads[0].scope.resultInspection, true);
+  assert.match(documents[0].content, /操作：exact/); assert.match(documents[0].content, /complete file/);
+  assert.doesNotMatch(documents[0].content, /private-value|epoch 1|WRONG LOG/);
+  await assert.rejects(host.openFullLogFromUi({operationId: 'missing', planFile: 'plans/one.yaml'}), /无法唯一定位/);
+  await assert.rejects(host.openFullLogFromUi({planFile: 'plans/one.yaml'}), /无法唯一定位/);
+  rows.empty = {operationId: 'empty'};
+  await host.showLogHistoryFromUi({operationId: 'empty'}); await host.openFullLogFromUi({operationId: 'empty'});
+  assert.ok(notices.every(text => text.includes('empty'))); assert.equal(reads.length, 1);
+  current = false; await host.openFullLogFromUi({operationId: 'exact'});
+  assert.equal(documents.length, 1, 'a completed read cannot open a log in another project');
+  current = true; host.downloadMetricMemoryBatch = async () => {throw new Error('real read failed');};
+  await assert.rejects(host.openFullLogFromUi({operationId: 'exact'}), /real read failed/);
+});

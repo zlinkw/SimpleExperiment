@@ -1,6 +1,10 @@
 {
  "boundedNodeTests": true,
- "caseGroups": ["test/features/testWorkflowRunner.test.js", "test/project/branchProjectRegistry.test.js", "test/features/tmuxTaskLifecycle.test.js"],
+ "caseGroups": [
+  "test/features/testWorkflowRunner.test.js",
+  "test/project/branchProjectRegistry.test.js",
+  "test/features/tmuxTaskLifecycle.test.js"
+ ],
  "schemaVersion": 1,
  "notes": {
   "proven": "r22/r29 单一测试清单。domains.sourceScript 逐字保留改造前 npm 正文（planner 运行时递归展开，等价性由 test/features/testWorkflowRunner.test.js 强制）；entries 保存旧→新入口对应；final=true 的最终 profile 拒绝 --only/--reuse 类过滤。",
@@ -27,7 +31,7 @@
  ],
  "domains": {
   "build": {
-   "sourceScript": "npm run compact:plan && node scripts/tsc-cached.js --verify-only && node scripts/bundle-semver.js && node scripts/bundle-mcp.js && node scripts/write-agent-runtime.js && node scripts/write-panel-build-manifest.js && node -c dist/extension.js && node -c dist/ui/PanelHtml.js && node --test --test-force-exit --test-timeout 20000 test/features/mcpProject.test.js && node --test --test-force-exit --test-timeout 20000 test/features/panelWebviewScriptHealth.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupPanelBridge.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/workerTelemetryApiContract.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/xshellPortProbe.test.js && node --test --test-force-exit --test-timeout 20000 test/features/completedPlanWorkerMirror.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightProgress.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightStructure.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightEnvironment.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightFailure.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightRejections.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightApi.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobRejectedRecovery.test.js && npm run test:preflight-stages && npm run test:execution-shell && npm run test:failed-job-review && npm run test:terminal-history && npm run test:agent-lifecycle && npm run test:tmux-lifecycle && npm run test:worker-mode && npm run test:plan-run && npm run test:latest-artifacts && npm run test:submission-truth && npm run test:fresh-results && npm run test:sync-gpu && npm run test:runtime-diagnostics && npm run test:plan-code-scope && npm run test:host-lease && node --test --test-force-exit --test-timeout 20000 test/features/gitOverwrite.test.js && node --test --test-force-exit --test-timeout 20000 test/features/resourceMutationRouting.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/hostOperationLeaseIntegration.test.js && node --test --test-force-exit --test-timeout 20000 test/features/multiFormatOutputContract.test.js && node --test --test-force-exit --test-timeout 20000 test/features/resultCandidateMetadataExclusion.test.js && node --test --test-force-exit --test-timeout 20000 test/features/nestedJsonResultParsing.test.js && node --test --test-force-exit --test-timeout 20000 test/extension/workflowPanelNavigation.test.js && node --test --test-force-exit --test-timeout 20000 test/features/inspectorWorkflowDensity.test.js && node --test --test-force-exit --test-timeout 20000 test/features/resultSectionRefreshDependencies.test.js && node --test --test-force-exit --test-timeout 20000 test/ui/resultDatasetHierarchy.test.js"
+   "sourceScript": "npm run compact:plan && node scripts/tsc-cached.js --verify-only && node scripts/bundle-semver.js && node scripts/bundle-mcp.js && node scripts/write-agent-runtime.js && node scripts/write-panel-build-manifest.js && node -c dist/extension.js && node -c dist/ui/PanelHtml.js && node --test --test-force-exit --test-timeout 20000 test/features/mcpProject.test.js && node --test --test-force-exit --test-timeout 20000 test/features/panelWebviewScriptHealth.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupPanelBridge.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/workerTelemetryApiContract.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/xshellPortProbe.test.js && node --test --test-force-exit --test-timeout 20000 test/features/completedPlanWorkerMirror.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightProgress.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightStructure.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightEnvironment.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightFailure.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightRejections.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightApi.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobRejectedRecovery.test.js && npm run test:preflight-stages && npm run test:execution-shell && npm run test:failed-job-review && npm run test:terminal-history && npm run test:agent-lifecycle && npm run test:tmux-lifecycle && npm run test:worker-mode && npm run test:plan-run && npm run test:latest-artifacts && npm run test:submission-truth && npm run test:fresh-results && npm run test:sync-gpu && npm run test:runtime-diagnostics && npm run test:plan-code-scope && npm run test:host-lease && node --test --test-force-exit --test-timeout 20000 test/features/gitOverwrite.test.js && node --test --test-force-exit --test-timeout 20000 test/features/resourceMutationRouting.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/hostOperationLeaseIntegration.test.js && node --test --test-force-exit --test-timeout 20000 test/features/multiFormatOutputContract.test.js && node --test --test-force-exit --test-timeout 20000 test/features/resultCandidateMetadataExclusion.test.js && node --test --test-force-exit --test-timeout 20000 test/features/nestedJsonResultParsing.test.js && node --test --test-force-exit --test-timeout 20000 test/extension/workflowPanelNavigation.test.js && node --test --test-force-exit --test-timeout 20000 test/features/inspectorWorkflowDensity.test.js && node --test --test-force-exit --test-timeout 20000 test/features/resultSectionRefreshDependencies.test.js && node --test --test-force-exit --test-timeout 20000 test/ui/resultDatasetHierarchy.test.js && node --test --test-force-exit --test-timeout 20000 test/features/distributedProjectContract.test.js && node --test --test-force-exit --test-timeout 20000 test/features/metricAliasRebuildWorkflow.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planOutputGateAlignment.test.js && node --test --test-force-exit --test-timeout 20000 test/features/prepareAgentsProgressWatchdog.test.js"
   },
   "test:tmux-lifecycle": {
    "sourceScript": "node --test --test-force-exit --test-timeout 20000 test/features/taskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tmuxTaskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pulledTaskControl.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planJobDeleteRequeue.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planJobDeleteRequeueCoverage.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planJobDeleteRequeueProduction.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manifestCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/nativeResultManifest.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobExecution.test.js && node --test --test-force-exit --test-timeout 20000 test/features/codeSyncProofWaiter.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tmuxGpuSessionClose.test.js && node --test --test-force-exit --test-timeout 20000 test/ui/tmuxOtherSessionsDisclosure.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxCloseRuntime.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxCloseHttp.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxSessionActions.test.js && node --test --test-force-exit --test-timeout 20000 test/features/gpuMemoryScheduling.test.js && node --test --test-force-exit --test-timeout 20000 test/features/gpuMemoryAdmission.test.js && node --test --test-force-exit --test-timeout 20000 test/features/schedulerRuntimeUpdate.test.js && node --test --test-force-exit --test-timeout 20000 test/features/gpuQuotaScheduling.test.js"
@@ -167,10 +171,34 @@
       "test:plan-code-scope",
       "test:host-lease"
      ],
-      "extraFiles": [
-      { "file": "test/features/gpuMemoryBudget.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "gpu-memory-budget-admission" },
-      { "file": "test/features/outputIsolationRecovery.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "transfer-busy-auto-recovery" },
-      { "file": "test/features/windowScopeIsolation.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "window-scope-isolation" },
+     "extraFiles": [
+      {
+       "file": "test/features/gpuMemoryBudget.test.js",
+       "argv": [
+        "--test-force-exit",
+        "--test-timeout",
+        "20000"
+       ],
+       "source": "gpu-memory-budget-admission"
+      },
+      {
+       "file": "test/features/outputIsolationRecovery.test.js",
+       "argv": [
+        "--test-force-exit",
+        "--test-timeout",
+        "20000"
+       ],
+       "source": "transfer-busy-auto-recovery"
+      },
+      {
+       "file": "test/features/windowScopeIsolation.test.js",
+       "argv": [
+        "--test-force-exit",
+        "--test-timeout",
+        "20000"
+       ],
+       "source": "window-scope-isolation"
+      },
       {
        "file": "test/project/branchProjectRegistry.test.js",
        "argv": [],
@@ -231,21 +259,21 @@
        ],
        "source": "r22-new-runner-regression"
       },
-       {
-        "file": "test/project/branchProjectRegistry.test.js",
-        "argv": [],
-        "source": "block-a-project-registry-domain-final"
-       },
-       {
-        "file": "test/api/localApi.test.js",
-        "argv": [],
-        "source": "block-a-api-instances-domain-final"
-       },
-       {
-        "file": "test/project/unifiedDispatchAdmission.test.js",
-        "argv": [],
-        "source": "block-b-unified-dispatch-domain-final"
-       }
+      {
+       "file": "test/project/branchProjectRegistry.test.js",
+       "argv": [],
+       "source": "block-a-project-registry-domain-final"
+      },
+      {
+       "file": "test/api/localApi.test.js",
+       "argv": [],
+       "source": "block-a-api-instances-domain-final"
+      },
+      {
+       "file": "test/project/unifiedDispatchAdmission.test.js",
+       "argv": [],
+       "source": "block-b-unified-dispatch-domain-final"
+      }
      ]
     }
    }
@@ -288,27 +316,75 @@
        ],
        "source": "r22-new-runner-regression"
       },
-        {"file": "test/features/gpuMemoryBudget.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "gpu-memory-budget-admission"},
-        {"file": "test/features/outputIsolationRecovery.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "transfer-busy-auto-recovery"},
-        {"file": "test/features/windowScopeIsolation.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "window-scope-isolation"},
-        {"file": "test/features/buildProcessLock.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "plugin-audit-20261028"},
-        {"file": "test/features/taskIdentityBoundary.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "plugin-audit-20261028"},
-        {"file": "test/features/stateWriterIsolation.test.js", "argv": ["--test-force-exit", "--test-timeout", "20000"], "source": "plugin-audit-20261028"},
-       {
-        "file": "test/project/branchProjectRegistry.test.js",
-        "argv": [],
-        "source": "block-a-project-registry-domain-final"
-       },
-       {
-        "file": "test/api/localApi.test.js",
-        "argv": [],
-        "source": "block-a-api-instances-domain-final"
-       },
-       {
-        "file": "test/project/unifiedDispatchAdmission.test.js",
-        "argv": [],
-        "source": "block-b-unified-dispatch-domain-final"
-       }
+      {
+       "file": "test/features/gpuMemoryBudget.test.js",
+       "argv": [
+        "--test-force-exit",
+        "--test-timeout",
+        "20000"
+       ],
+       "source": "gpu-memory-budget-admission"
+      },
+      {
+       "file": "test/features/outputIsolationRecovery.test.js",
+       "argv": [
+        "--test-force-exit",
+        "--test-timeout",
+        "20000"
+       ],
+       "source": "transfer-busy-auto-recovery"
+      },
+      {
+       "file": "test/features/windowScopeIsolation.test.js",
+       "argv": [
+        "--test-force-exit",
+        "--test-timeout",
+        "20000"
+       ],
+       "source": "window-scope-isolation"
+      },
+      {
+       "file": "test/features/buildProcessLock.test.js",
+       "argv": [
+        "--test-force-exit",
+        "--test-timeout",
+        "20000"
+       ],
+       "source": "plugin-audit-20261028"
+      },
+      {
+       "file": "test/features/taskIdentityBoundary.test.js",
+       "argv": [
+        "--test-force-exit",
+        "--test-timeout",
+        "20000"
+       ],
+       "source": "plugin-audit-20261028"
+      },
+      {
+       "file": "test/features/stateWriterIsolation.test.js",
+       "argv": [
+        "--test-force-exit",
+        "--test-timeout",
+        "20000"
+       ],
+       "source": "plugin-audit-20261028"
+      },
+      {
+       "file": "test/project/branchProjectRegistry.test.js",
+       "argv": [],
+       "source": "block-a-project-registry-domain-final"
+      },
+      {
+       "file": "test/api/localApi.test.js",
+       "argv": [],
+       "source": "block-a-api-instances-domain-final"
+      },
+      {
+       "file": "test/project/unifiedDispatchAdmission.test.js",
+       "argv": [],
+       "source": "block-b-unified-dispatch-domain-final"
+      }
      ]
     },
     "post": {
@@ -555,21 +631,21 @@
        ],
        "source": "r22-new-runner-regression"
       },
-       {
-        "file": "test/project/branchProjectRegistry.test.js",
-        "argv": [],
-        "source": "block-a-project-registry-domain-final"
-       },
-       {
-        "file": "test/api/localApi.test.js",
-        "argv": [],
-        "source": "block-a-api-instances-domain-final"
-       },
-       {
-        "file": "test/project/unifiedDispatchAdmission.test.js",
-        "argv": [],
-        "source": "block-b-unified-dispatch-domain-final"
-       }
+      {
+       "file": "test/project/branchProjectRegistry.test.js",
+       "argv": [],
+       "source": "block-a-project-registry-domain-final"
+      },
+      {
+       "file": "test/api/localApi.test.js",
+       "argv": [],
+       "source": "block-a-api-instances-domain-final"
+      },
+      {
+       "file": "test/project/unifiedDispatchAdmission.test.js",
+       "argv": [],
+       "source": "block-b-unified-dispatch-domain-final"
+      }
      ]
     },
     "post": {

@@ -10,6 +10,18 @@ const panel = fs.readFileSync(path.join(root, "src/ui/PanelHtml.legacy.ts"), "ut
 test("Agent preparation stays pending while its real deployment continues", () => {
   const watchdog = extension.slice(extension.indexOf("uiCommandWatchdogMs(command)"), extension.indexOf("private postUiCommandStatus("));
   assert.match(watchdog, /return 0/);
-  assert.match(panel, /if \(command !== "prepareAgents" && command !== "rebuildProjectResultTables"\) \{[\s\S]{0,180}pendingActionTimeouts\[clientActionId\] = setInterval/);
-  assert.match(panel, /if \(command !== "prepareAgents" && command !== "rebuildProjectResultTables"\) \{[\s\S]{0,900}pendingActionTimeouts\[clientActionId\] = setTimeout/);
+  const ts = require('typescript');
+  const html = require('../../dist/ui/PanelHtml').renderPanelHtml();
+  const script = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map(match => match[1]).join('\n');
+  const ast = ts.createSourceFile('panel.js', script, ts.ScriptTarget.Latest, true);
+  let condition;
+  function visit(node) {
+    if (ts.isIfStatement(node) && node.expression.getText(ast).includes('command !== "prepareAgents"')) condition = node.expression.getText(ast);
+    ts.forEachChild(node, visit);
+  }
+  visit(ast); assert.ok(condition);
+  const usesDeadline = new Function('command', 'return ' + condition);
+  for (const command of ['prepareAgents', 'rebuildProjectResultTables', 'openSetupGuide', 'verifyAgentVersion', 'generateOutputAdapter'])
+    assert.equal(usesDeadline(command), false, command);
+  assert.equal(usesDeadline('snapshot'), true);
 });

@@ -549,9 +549,9 @@ def runtime_dependency_check():
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.508"
-RUNTIME_VERSION = "0.5.508"
-PLUGIN_VERSION = "0.5.508"
+AGENT_VERSION = "0.5.509"
+RUNTIME_VERSION = "0.5.509"
+PLUGIN_VERSION = "0.5.509"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -8375,20 +8375,21 @@ METRIC_ALIASES = {
     "roc_auc": "AUC",
     "pr_auc": "AUPRC",
     "auprc": "AUPRC",
-    "average_precision": "AUPRC",
-    "ap": "AUPRC",
-    "macro_f1": "F1",
-    "micro_f1": "F1",
-    "weighted_f1": "F1",
-    "f1_macro": "F1",
-    "f1_micro": "F1",
-    "f1_weighted": "F1",
-    "macro_precision": "precision",
-    "micro_precision": "precision",
-    "weighted_precision": "precision",
-    "macro_recall": "recall",
-    "micro_recall": "recall",
-    "weighted_recall": "recall",
+    "average_precision": "AP",
+    "ap": "AP",
+    "f1_score": "F1",
+    "macro_f1": "macro_f1",
+    "micro_f1": "micro_f1",
+    "weighted_f1": "weighted_f1",
+    "f1_macro": "macro_f1",
+    "f1_micro": "micro_f1",
+    "f1_weighted": "weighted_f1",
+    "macro_precision": "macro_precision",
+    "micro_precision": "micro_precision",
+    "weighted_precision": "weighted_precision",
+    "macro_recall": "macro_recall",
+    "micro_recall": "micro_recall",
+    "weighted_recall": "weighted_recall",
     "sensitivity": "recall",
     "tpr": "recall",
     "tnr": "specificity",
@@ -8420,14 +8421,16 @@ METRIC_ALIASES = {
     "r2": "R2",
 }
 KNOWN_METRICS = {
-    "AUC", "AUPRC", "accuracy", "top1_accuracy", "top5_accuracy", "F1", "precision", "recall",
+    "AUC", "AP", "AUPRC", "accuracy", "top1_accuracy", "top5_accuracy", "F1", "precision", "recall",
+    "macro_f1", "micro_f1", "weighted_f1", "macro_precision", "micro_precision", "weighted_precision",
+    "macro_recall", "micro_recall", "weighted_recall",
     "specificity", "balanced_accuracy", "NPV", "PPV", "FPR", "FNR", "MCC", "kappa", "ECE", "brier", "loss",
     "DSC", "Dice", "IoU", "HD95", "ASD", "MAE", "MSE", "RMSE", "R2",
 }
 LOWER_IS_BETTER = {"loss", "ECE", "brier", "HD95", "ASD", "FPR", "FNR", "MAE", "MSE", "RMSE"}
 CLASSIFICATION_METRIC_PRIORITY = ["AUC", "accuracy", "F1", "AUPRC", "precision", "recall", "specificity", "balanced_accuracy", "NPV", "PPV", "MCC", "kappa", "ECE", "brier", "loss"]
 SEGMENTATION_METRIC_PRIORITY = ["DSC", "Dice", "IoU", "HD95", "ASD"]
-METRIC_DECORATORS = {"train", "val", "valid", "validation", "test", "external", "ext", "best", "final", "last", "mean", "avg", "average", "eval", "score", "metric", "macro", "micro", "weighted"}
+METRIC_DECORATORS = {"train", "val", "valid", "validation", "test", "external", "ext", "best", "final", "last", "mean", "avg", "average", "eval", "score", "metric"}
 DIMENSION_COLUMNS = {"experiment_id", "experimentId", "run_key", "runKey", "suite", "method", "dataset", "split", "fold", "seed", "case", "case_name", "model", "tag"}
 NON_METRIC_COLUMNS = {"index", "experiment_index", "job_index", "job_count", "gpu_id", "gpu", "pid", "exit_code", "status", "state", "output_dir", "log_path"}
 RESULT_FILE_NAMES = {"results.csv", "metrics.csv", "metrics_summary.csv", "metrics_case.csv", "summary.csv", "scores.csv", "score.csv", "detailed_metrics.csv", "test_metrics.csv", "classification_report.csv", "result.csv"}

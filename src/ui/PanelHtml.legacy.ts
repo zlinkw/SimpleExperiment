@@ -4072,7 +4072,7 @@ export function renderPanelHtml(): string {
             setButtonLoading(button, pendingKey);
             renderCommandPhaseLine();
             // These commands may deliberately wait for a user's selection in VS Code.
-            if (command !== "prepareAgents" && command !== "rebuildProjectResultTables" && command !== "openSetupGuide" && command !== "verifyAgentVersion") {
+            if (command !== "prepareAgents" && command !== "rebuildProjectResultTables" && command !== "openSetupGuide" && command !== "verifyAgentVersion" && command !== "generateOutputAdapter") {
             if (planPhaseCommand(command)) {
               pendingActionTimeouts[clientActionId] = setInterval(() => {
                 const item = pendingActionsById[clientActionId];
@@ -13898,8 +13898,6 @@ export function renderPanelHtml(): string {
       const planReady = Boolean(planSignals.length && (planCandidates.length || declaredTaskOutputs));
       const ruleCandidateCount = actionableAdapterRuleSignals(rules) ? adapterRuleResultCandidates(rules).length : 0;
       const candidateCount = ruleCandidateCount + planCandidates.length;
-      const projectContractCount = asArray(outputContractFiles).length;
-      const planContractCount = planCandidates.filter((file) => new RegExp("(^|/)(metrics_summary\\.csv|metrics_case\\.csv)$", "i").test(file)).length;
       const parseableCount = validResultPreviewCount(resultParsePreviews);
       const explicitAdapterReady = adapterReady && ruleCandidateCount > 0;
       const accessReady = planReady || ruleCandidateCount > 0;
@@ -13910,7 +13908,7 @@ export function renderPanelHtml(): string {
         { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: "在当前 Plan 声明结果位置，或在插件设置中配置输出接入规则。" },
         { label: "计划输出", ok: planReady || ruleCandidateCount > 0, fix: "在 plan 的 paper.result_csv、runner.test_command --result-csv/--output-dir 或 expectedResults 中写明可解析结果位置。" },
         { label: "候选结果规则", ok: candidateCount > 0 || planReady, fix: "在候选 CSV/JSON/控制台日志/文本 summary 中至少填写一类，或配置 metricRegex。" },
-        { label: "标准结果契约", ok: planContractCount > 0 || ruleCandidateCount > 0 || (projectContractCount > 0 && planReady), fix: "推荐让测试代码输出 metrics_summary.csv，列为 experiment_id,suite,method,dataset,split,seed,metric,value。" },
+        { label: "标准结果契约", ok: planReady || ruleCandidateCount > 0, fix: "在 Plan 声明实际结果或任务产物；也可配置结果解析规则。" },
         { label: "解析预览", ok: parseableCount > 0 || planReady || ruleCandidateCount > 0, fix: "保存接入规则后点击“刷新识别”，确认至少一个结果文件或控制台日志可解析。" }
       ];
       const diagnostics = { ok: contractReady && configReady && accessReady && outputReady, rows, missing: rows.filter((row) => !row.ok).map((row) => row.label) };

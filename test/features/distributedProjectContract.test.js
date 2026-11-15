@@ -27,11 +27,22 @@ test("project file parser preserves an explicit checkpoint opt-out", () => {
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);
   const method=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='parseProjectAdapterRules').getText(ast);
   const {parseDistributedResultsFlag}=require('../../src/features/DistributedAdapterFlag.ts');
-  const c=vm.createContext({parseDistributedResultsFlag,escapeRegExp:value=>value,uniqueStrings:values=>[...new Set(values)]});
+  const c=vm.createContext({parseDistributedResultsFlag,PlanBuilder_1:require('../../src/features/PlanBuilder.ts'),escapeRegExp:value=>value,uniqueStrings:values=>[...new Set(values)]});
   vm.runInContext(ts.transpileModule(method,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,c);
   const parsed=c.parseProjectAdapterRules('distributed:\n  checkpointRequired: false\n');
   assert.equal(parsed.distributed.checkpointRequired,false);
   assert.equal(c.parseProjectAdapterRules('').distributed.checkpointRequired,undefined);
+  const flow=c.parseProjectAdapterRules('secondaryMetrics: [loss, "score,custom"] # metrics\noutputs:\n  candidateCsv: [metrics.csv, "results/#score.csv"] # files\n  candidateJson:\n    - result.json # a block item\ndistributed:\n  requiredPaths: [model.pt, metrics.csv]\n');
+  assert.deepEqual(Array.from(flow.secondaryMetrics),['loss','score,custom']);
+  assert.deepEqual(Array.from(flow.candidateCsv),['metrics.csv','results/#score.csv']);
+  assert.deepEqual(Array.from(flow.candidateJson),['result.json']);
+  assert.deepEqual(Array.from(flow.distributed.requiredPaths),['model.pt','metrics.csv']);
+  const annotated=c.parseProjectAdapterRules('taskType: classification # task\nprimaryMetric: accuracy # score\noutputs: # existing annotated project\n  candidateCsv: [metrics.csv, results#1.csv, "quoted#2.csv"] # paths\n  metricAliases: # retain metric meanings\n    average_precision: AP # distinct from AUPRC\n    macro_f1: macro_f1 # macro\n    weighted_f1: weighted_f1 # weighted\n');
+  assert.equal(annotated.taskType,'classification'); assert.equal(annotated.primaryMetric,'accuracy');
+  assert.deepEqual(Array.from(annotated.candidateCsv),['metrics.csv','results#1.csv','quoted#2.csv']);
+  assert.equal(annotated.metricAliases.average_precision,'AP');
+  assert.equal(annotated.metricAliases.macro_f1,'macro_f1');
+  assert.equal(annotated.metricAliases.weighted_f1,'weighted_f1');
 });
 
 test("project contract accepts a different Plan family and protects the checkpoint", () => {

@@ -1,8 +1,48 @@
 # Windows 日常点击验收
 
-本轮以 Windows 0.5.485 为初始实点基线。当前磁盘已安装 SimpleExperiment 0.5.508 与 SimpleSFTP 0.2.120；MultiModal 与通用项目宿主仍运行 0.5.507，需本人重载窗口并重连 MCP 后核验新修复。本人重新打开的 gui_onboarding_507 窗口也保留。入口状态以 windows-entry-coverage.json 为准，静态源码位置不等同当前可达控件分母，动态行和菜单单独记载。整体入口尚未全覆盖，不以自动回归或局部修复替代实点验收。四个停止任务和两个成功实验的原证明保持；界面保持侧栏，只验正常条件。本人暂不执行永久删除；不继续该文件的确认或执行。下文旧版本段落保留当时事实，其“待核验”不替代本节当前状态。
+本轮以 Windows 0.5.485 为初始实点基线。当前磁盘已安装 SimpleExperiment 0.5.508 与 SimpleSFTP 0.2.120；两项目已核实运行 508，2026-11-15 通用项目另以当前源码开发宿主验收集中修复，尚未统一打包或安装新版本。入口状态以 windows-entry-coverage.json 为准，静态源码位置不等同当前可达控件分母，动态行和菜单单独记载。整体入口尚未全覆盖，不以自动回归或局部修复替代实点验收。四个停止任务和两个成功实验的原证明保持；界面保持侧栏。本人暂不执行永久删除；不继续该文件的确认或执行。下文旧版本段落保留当时事实，其“待核验”不替代本节当前状态。
 
 ## 0.5.508 MCP 请求终态返修与 507 重连后实点
+
+### 508 集中验收继续中
+
+本人最新要求：先检查全部当前可实点入口，集中修复后统一打包安装；本轮不得发现一个问题就递增版本、发行或安装。当前基线继续使用已安装 508，不改变正式 Latest。已重新核实两项目均运行 508（MM PID780、Generic PID70096）。本会话没有原生 SimpleExperiment 工具命名空间，使用同一稳定启动入口和官方 SDK stdio 实际连接，不能据此声称 Codex 原生连接已验证。
+
+新请求 mcp-ed11b3d1-58cc-4537-9123-63f43278a337（project_connect）、mcp-1ce46f6f-6e38-4d00-85e4-21eb63812205（MM prepare）、mcp-7313cadd-5921-42ff-b1a8-f2a4e6ec8210（Generic prepare）均实际 succeeded，完成时间及终态已在原 local_operations.json 中核实，原始 result 不落盘。artifact_inspect 误传 commandId 后 mcp-d40a3f27-0248-4c03-83f7-e253ab564035 如实 failed/artifact not found，并保存错误和终态；这是失败回执保存通过，不是产物查询通过。508 的请求终态缺陷实机复验通过，不改写旧 running 记录。
+
+MM prepare 核实 rjj8 Agent @66/Scheduler @9 为 508；按既有项目授权精确停止 @66 后，Generic prepare 核实 Agent @67/Scheduler @15 为 508。原任务与 Scheduler 保留，未重跑科研实验。专用 daily_ui_508.yaml 沿用原软件控制脚本、seed42、独立 work_dirs/mcp_controls/daily_ui_508，尚未派发：plan_preflight 和 plan_validate 均因“标准结果契约”误索要 metrics_summary.csv 被拦；它已经声明 metrics.csv/model.pt。新增短任务链路在集中修复前保持未完成，不通过附加确认绕过。
+
+实际补验了配置文件跳转（打开 config.yaml 后当前 PLAN 仍为 acceptance.yaml）、接入规则保存（原生通知同步 Agent 成功、完整配置键回读一致）及已中止控制任务的日志分析（退出码未知/日志待核实仍明确提示，取消状态保持）。保存测试的 projectAdapterRules 覆盖已恢复原两个空映射，未修改共享服务器或原项目 YAML。结果页短暂刷新后正常消失，不能把中间加载截图当成复现缺陷。
+
+集中待修：① 旧项目 YAML 的 secondaryMetrics: [loss] 与 candidateCsv: [metrics.csv] 真实抽取函数解析为空，设置表单因此丢失既有列表；② 默认 f1_macro→F1 与 macro_f1→macro_f1 不一致，Agent 和生成适配器仍包含 AP/AUPRC、macro/weighted F1 合并；③ 新普通声明结果 PLAN 被主 API 校验误卡在标准文件名；④ 运行卡日志按钮的完整日志处理仍以 baseline 路径查找，忽略精确 operationId，历史入口也没有读取实际嵌套日志。只在相关调用链修复，不改变确认或重试授权，不重写历史科研结果。其余入口继续检查，尚未开始统一打包。
+
+11 月 13 日继续实点专用 gui_missing_output_508：选择缺少产物声明的 PLAN，生成接入模板经过写入预览和实际“写入模板”按钮，11 个文件落在该本机专用目录，并打开 README；未部署或运行该项目。等候确认期间实际出现 stalled 通知，列为第五项缺陷；模板后来正常完成，不把通知误判当成写入失败。补充空接入配置并刷新识别后，“打开接入配置”实际打开 experiments/simple_project.yaml，当前 PLAN 仍为 missing_output.yaml。中断后的 11 月 15 日原窗口标题和原文件均核实，未重复生成。
+
+五项源码修复已集中完成，尚未打包：复用 PlanBuilder 的 flow-list/comment 解析；Host、Agent、生成适配器保持 AP/AUPRC 和各 F1 聚合独立，显式用户别名仍优先；两端输出门禁接受实际声明的结果/模型，不索要固定指标文件名；日志入口只按精确操作 ID 解析嵌套证据，完整文件走既有 SimpleSFTP 内存读取并脱敏，不将尾部冒充完整文件；模板等待本人确认不再触发前端总时长误报。
+
+定向回归实际记录：2026-11-13T03-48-57-465Z-38504-test 的 distributedProjectContract 通过；03-49-34-480Z-50988-test 的五套件中 workflowPanelNavigation、planOutputGateAlignment、projectOutputGateDiagnosticsCache 通过，两套件因测试夹具不完整失败，日志保留。实际 click 替身错误匹配 distributed-retry、旧 CSV 抽取遗漏 TS 转译及新用例缺少 case 已分别修正，未改产品校验迁就测试；03-50-00-333Z-62472-test 的 panelWebviewScriptHealth 通过，03-50-55-106Z-81156-test 的 metricAliasRebuildWorkflow 六项通过。Agent 实际 CSV 和生成 Python normalizer 均验证独立指标；这不是科研实验结果。11 月 15 日 13-31-16-806Z-63472-test 的旧 watchdog 套件改为执行实际渲染条件并通过，所有 runner exit0 或失败原码均保留、锁已正常释放。独立 vm.Script 检查通过；首次手写渲染脚本命令因正则 shell 转义出错 exit1，不记产品语法失败，实际渲染脚本由通过的现有套件覆盖。
+
+11 月 15 日 rjj8 恢复连接后，官方 SDK 经稳定入口连接通用项目开发宿主 PID75316/508。project_connect 请求 mcp-6c2d2903-dd65-411e-9fc1-24488857a45d 真实 succeeded；原授权仍为 rjj8 和五类权限。开发宿主读出 loss/metrics.csv 原列表。实点该请求“历史记录”“打开完整日志”均明确提示本请求未记录日志及无文件地址，不再查找 baseline，不打开其他 PLAN。实际有文件的完整日志仍待远端验收。
+
+恢复连接后 agent_inspect 返回 AGENT_STATE_OWNER_CONFLICT: machine。只读 SSH 核实两项目目录和原 owner 文件仍在，8 张 GPU UUID 与原 worker_availability 一致；目前只有 ssh_lwb/@1、ssh_zlk/@0，旧 Agent、Scheduler 和任务窗口已不在，不能声称本轮保留了不存在的窗口。未改 owner、清队列或重跑任务；针对两个精确 owner 文件的 machine 更新已请求本人确认。新 PLAN 校验现如实被 Agent 未就绪阻止，本轮远端短任务尚未开始。
+
+继续核对真实 MultiModal YAML 发现第六项问题：outputs 标题本身带行尾注释，旧 sectionRange 完全漏读该段，AP、macro_f1、weighted_f1 三项均为 undefined。现复用同一 YAML 注释处理，在分段前去除真正的注释；保留引号和非空白后 # 文件名。真实文件只读重解析已返回 classification、AP、macro_f1、weighted_f1 和 36 个候选 CSV，没有修改项目 YAML 或科研结果。2026-11-15T13-49-44-748Z-24544-test 的 distributedProjectContract 通过；13-50-10-613Z-47688-test 的 planOutputEvidenceSignals、planOutputGateAlignment 均通过，均 exit0、锁正常释放。源码仍未发行或安装。
+
+源码开发宿主新建本机 gui_template_wait_515 夹具，当前 PLAN 为 missing_output.yaml；实际点击生成模板后等待超过 90 秒，原生通知中心仍只有写入确认、已有 PLAN 和首次共享设置三项，没有 stalled，按钮保持正在执行。再点击“写入模板”后原生通知新增 11，打开 README，result_writer.py 为 21786 字节且包含独立 AP/F1 归一逻辑，按钮不再等待。该夹具没有项目 AI 授权，未部署 Agent、同步或启动训练；只是本机模板功能验收。两个日志无地址分支、单服务器卡片导入选择框均已补录入口清单；有实际文件的完整日志及短任务仍待远端恢复准备。
+
+继续实点分支卡片“打开”：精确路径确认后实际打开 git_ui_source_501--codex-ui-acceptance-503 窗口，Git 读数为 codex/ui-acceptance-503 / c47f0acf17f4624f2ed5ef94880fb418cf6740cd、分支工作树干净；取消无关初始化并关闭本轮窗口。创建/合并 PR 各实点一次，均在写入前因登记祖先 remoteName/remoteUrl 为空而明确拒绝；现存 CLI origin 只是本机验收裸仓库，未改登记来伪造 GitHub 授权，不计 PR 全流程通过。祖先和分支“移除登记”分别打开精确路径模态页后 Escape，project_registry 仍有原两项。最近错误行的“刷新状态”实点后按钮恢复，面板 ready、零 sectionFailures，原成功/取消事实保持，Worker 未就绪仍明确显示。
+
+两项目 SDK 与 SimpleSFTP 原路径只读核对：MultiModal 的 7 项声明文件本轮查询全部存在；Generic 模型 2560 字节、指标 53 字节和 manifest 1786 字节存在，指标清单摘要 f605806dae7f6e8d4ea57f870a7ca8182517782d67a89d874f4a035d64f40c76 与原基准一致。本轮 inventory 对三文件复用已验证摘要（hashedFiles=0、reusedFiles=3），不冒称重新读全文件计算；没有原始指标落盘或改写结果。
+
+当前静态来源 179 处为实点 68、预览 14、未测 72、退役 25；未测含 8 个不生成按钮的选择器引用，故原 146 个来源位置为 68 实点、14 预览、64 未测。未测已逐项写明条件/依赖/授权或无实际对象的原因，并非全部不可达。源码行号按当前候选重建、相同命令的控件顺序逐项匹配，未丢入口；42 个命令仍是 33 实点、7 预览、2 未测。
+
+集中源码冻结为候选 0.5.509（磁盘安装仍为 508、未打包安装）。四个相关既有套件 distributedProjectContract、metricAliasRebuildWorkflow、planOutputGateAlignment、prepareAgentsProgressWatchdog 补进原 build 域，保留全部旧门禁。准备使用 check:full 完整执行原 build 和 package 所需回归；仅通过后才能提交，最终 VSIX 仍等剩余可执行实机核验结束后统一组装一次。
+
+509 开发宿主继续实点：禁用 NWPU3 卡片“删除”打开正确全局配置确认框，Escape 取消；同版本源码 MCP 回读五个配置仍在，只有 rjj8 启用。只计预览，静态覆盖现为 68 实点、15 预览、71 未测、25 退役；未测含 8 个引用，原 146 个位置中尚有 63 个未测。稳定 MCP 启动器因没有已安装 509 CLI 而明确拒绝；随后仅使用本仓同版本 dist/mcp/server.cjs 连接开发宿主，不将其记作安装交付通过。面板选择 daily_ui_508.yaml 后 MCP selection 完全一致，输出闭环接受其 metrics.csv，Agent 未就绪仍明确提示；没有派发任务。
+
+继续实点发现第七项真实不一致：acceptance.yaml 的下拉显示“失败 · 1/1 已完成”，原任务仍 completed/verified；四个取消任务也被后来未成功派发的 run-plan 失败记录覆盖为失败。真实来源为 2026-11-12T13:50:38Z 批量预检失败请求，未产生新运行。宿主及前端备用状态汇总都把请求失败放在实际任务终态之前，待本轮活动回归结束后集中修复；请求失败记录保留，不改写原任务、科研结果或旧日志。
+
+六项修复的 check:full 实际通过：2026-11-15T14-08-32-149Z-44912-check_full/run.json，330 作业和 10 门禁均通过，815227 ms，输入首尾一致，单测试进程；lock-release.json 与 released 所有权记录已核实。独立 vm.Script 检查通过。该记录只覆盖六项修复的源码和测试，不含尚待实施的第七项状态修复、VSIX 组装或远端实机，不能冒充最终包通过。
 
 2026-11-13 本人重启后，Codex 原生 MultiModal MCP 已真实返回 0.5.507、正确工作区及 PID26332，旧 499 版本拒绝已解除。原项目授权仍只包括 rjj8 和原五类操作。project_connect 请求 mcp-76fe51fe-583d-45ba-9c21-1e9eddc2e8e6 查询为 succeeded/result.ok=true，只恢复已有隧道。Agent @64 与 Scheduler 仍为 507；原完成任务 bc9df623805ca30d675854c0044f4bd2 保持 verified/exit0 和原证据时间，没有重跑。当前另一个窗口是本人重新打开的 gui_onboarding_507，未改它的授权；不能据此声称 Generic 原生连接同时验收通过。
 

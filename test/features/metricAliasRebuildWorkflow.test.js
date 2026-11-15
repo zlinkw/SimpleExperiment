@@ -6,11 +6,22 @@ const {resultDigest}=require('../../src/results/FreshResults.ts');
 const source=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
 const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);
 const parser=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='parseDownloadedMetricCsv').getText(ast);
-const parse=new Function('ProjectResultTables',parser+';return parseDownloadedMetricCsv;')(Tables);
+const parse=new Function('ProjectResultTables',ts.transpileModule(parser,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText+';return parseDownloadedMetricCsv;')(Tables);
 test('Worker CSV parsing and mapping preview retain independent dimensions and metric metadata',()=>{
-  const run=require('node:child_process').spawnSync('python',['-B','-X','utf8',path.join(__dirname,'metricDimensions.fixture.py')],{encoding:'utf8',timeout:10000,windowsHide:true});
+  const writer=require('../../src/templates/ProjectAdapterTemplates.ts').outputAdapterTemplate('acceptance');
+  const run=require('node:child_process').spawnSync('python',['-B','-X','utf8',path.join(__dirname,'metricDimensions.fixture.py')],{input:writer,encoding:'utf8',timeout:10000,windowsHide:true});
   assert.equal(run.status,0,run.stderr||run.stdout||String(run.error));
   assert.equal(JSON.parse(run.stdout).dimensionsPreserved,true);
+});
+
+test('default project aliases preserve AP and each F1 aggregation in long and wide CSV',()=>{
+  const fn=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='defaultMetricAliases').getText(ast);
+  const aliases=new Function(fn+';return defaultMetricAliases();')();
+  const metrics={AP:.1,AUPRC:.2,macro_f1:.3,micro_f1:.4,weighted_f1:.5};
+  const wide=parse('average_precision,auprc,f1_macro,f1_micro,f1_weighted\n0.1,0.2,0.3,0.4,0.5',{}, {case:'x',seed:42},aliases);
+  assert.deepEqual(wide[0].metrics,Object.fromEntries(Object.entries(metrics).map(([k,v])=>[k,{value:v}])));
+  const long=parse('metric,value\nAP,0.1\nAUPRC,0.2\nmacro_f1,0.3\nmicro_f1,0.4\nweighted_f1,0.5',{}, {case:'x',seed:42},aliases);
+  assert.deepEqual(Object.assign({},...long.map(row=>row.metrics)),wide[0].metrics);
 });
 function setup(){
   const f=fixture(),declarations=[42,43].map((seed,index)=>({index,case:'alpha',seed,output_dir:'work_dirs/alpha'+seed,result_csv:'work_dirs/alpha'+seed+'/metrics.csv',planHash:resultDigest(planText)}));

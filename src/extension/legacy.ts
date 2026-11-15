@@ -25453,28 +25453,50 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const endpointId = String(message?.endpointId || message?.endpoint_id || "").trim();
         await this.openTensorBoardFromUi({ endpointId });
     }
-    async showLogHistoryFromUi(message: any) {
+    operationLogSource(message: any) {
         const opId = String(message?.operationId || message?.id || "").trim();
         const planFile = String(message?.planFile || "").trim();
-        const ops: any[] = (this as any).lastState?.operations ? Object.values((this as any).lastState.operations) : [];
-        const row = ops.find((r: any) => String(r.operationId || r.id || "") === opId) || ops.find((r: any) => String(r.planFile || r.plan || "").includes(planFile || "baseline.yaml")) || null;
-        const raw = String(row?.logTail || row?.consoleTail || row?.liveOutput || "").trim() || "无日志";
+        const ops: any[] = Object.values(this.buildState().operations || {});
+        const matches = ops.filter(row => opId ? String(row.operationId || row.id || "") === opId
+            : planFile && String(row.planFile || row.plan || "") === planFile);
+        if (matches.length !== 1) throw new Error("无法唯一定位所选操作的日志，请刷新后选择具体操作。");
+        const row = matches[0];
+        const sources = [row.evidence, row.payload?.evidence, row, row.payload].filter(Boolean);
+        const tail = sources.flatMap(source => [source.liveLogTailRedacted, source.logTailRedacted,
+            source.liveLogTail, source.live_log_tail, source.logTail, source.log_tail, source.consoleTail, source.liveOutput])
+            .find(value => typeof value === "string" && value.trim()) || "";
+        const logPath = sources.map(source => source.logPath || source.log_path).find(value => typeof value === "string" && value.trim()) || "";
+        const workerId = sources.map(source => source.workerId || source.worker_id || source.schedulerOwnerWorkerId || source.resultOwnerWorkerId)
+            .find(value => typeof value === "string" && value.trim()) || "";
+        return { operationId: String(row.operationId || row.id), tail: redactSensitiveText(tail), logPath, workerId };
+    }
+    async showLogHistoryFromUi(message: any) {
+        const source = this.operationLogSource(message);
+        const raw = source.tail.trim();
+        if (!raw) {
+            void vscode.window.showInformationMessage(`操作 ${source.operationId} 未记录日志尾部。${source.logPath ? "可打开本条完整日志。" : "没有可用的日志文件地址。"}`);
+            return;
+        }
         const lines = raw.split(/\r?\n/).slice(-50);
-        const picked = await vscode.window.showQuickPick(lines.map((l, i) => ({ label: `${String(i+1).padStart(2,"0")}: ${l.slice(0,120)}`, description: l.length>120 ? l.slice(0,200) : "", detail: l })), { title: `历史记录 ${lines.length} 条（仅最新50）`, placeHolder: "选择一行复制，或选“打开完整日志”" });
+        const picked = await vscode.window.showQuickPick(lines.map((l, i) => ({ label: `${String(i+1).padStart(2,"0")}: ${l.slice(0,120)}`, description: l.length>120 ? l.slice(0,200) : "", detail: l })), { title: `${source.operationId} · 日志尾部 ${lines.length} 条（最多50）`, placeHolder: "选择一行复制；完整文件请使用本条“打开完整日志”" });
         if (picked) await vscode.env.clipboard.writeText(String((picked as any).detail || (picked as any).label || ""));
     }
     async openFullLogFromUi(message: any) {
-        const planFile = String(message?.planFile || "baseline.yaml").trim();
-        const base = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "";
-        const candidates = [
-            require("path").join(base, "simple_cluster", "console_logs", "baseline-yaml"),
-            require("path").join(base, "simple_cluster", "tmp", "cluster_scheduler", `${planFile.replace(/[^a-z0-9]/gi,"_")}.log`),
-            require("path").join(base, "simple_cluster", "console_logs"),
-        ];
-        for (const p of candidates) {
-            try { const stat = require("fs").statSync(p); if (stat.isDirectory()) { const files = require("fs").readdirSync(p).filter((f:string)=>f.includes("baseline")).slice(0,5); if (files.length) { const pick = await vscode.window.showQuickPick(files, { title: "选择完整日志文件" }); if (pick) await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(require("path").join(p, pick))); return; } } else if (stat.isFile()) { await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(p)); return; } } catch {}
+        const context = this.captureProjectContext();
+        const source = this.operationLogSource(message);
+        if (!source.logPath) {
+            void vscode.window.showInformationMessage(`操作 ${source.operationId} 没有完整日志文件地址。${source.tail ? "可查看本条日志尾部。" : "此请求未记录日志。"}`);
+            return;
         }
-        void vscode.window.showInformationMessage("未找到 simple_cluster/console_logs/baseline-* 完整日志，请检查远端同步或本地 simple_cluster 目录。");
+        const remotePath = normalizeRemoteResultInspectionPath(source.logPath);
+        if (!remotePath || !source.workerId) throw new Error("所选操作缺少可核验的 Worker 或项目内日志路径，请刷新本条状态。");
+        const result = await this.downloadMetricMemoryBatch({ ...context, resultInspection: true }, this.client,
+            { sourceId: source.workerId, workerId: source.workerId, entries: [{ remotePath, localRelativePath: remotePath }] },
+            "查看所选操作完整日志（内存读取，最大4MB）", undefined);
+        if (!this.projectContextIsCurrent(context)) return;
+        const content = redactSensitiveText(this.resultInspectionContent(result.metricFiles[0]));
+        const doc = await vscode.workspace.openTextDocument({ language: "plaintext", content: `操作：${source.operationId}\nWorker：${source.workerId}\n日志：${remotePath}\n\n${content}` });
+        if (this.projectContextIsCurrent(context)) await vscode.window.showTextDocument(doc, { preview: true });
     }
     hasResultsSummaryEndpointCapability() {
         const topology = this.projectTopologyAssessment();
@@ -32936,8 +32958,6 @@ function projectOutputGateDiagnostics(project, plan) {
     const planReady = planSignals.length > 0 && (planCandidates.length > 0 || declaredTaskOutputs);
     const ruleCandidateCount = actionableAdapterRuleSignals(rules) ? adapterRuleResultCandidates(rules).length : 0;
     const candidateCount = ruleCandidateCount + planCandidates.length;
-    const projectContractCount = arrayFromRecord(project || {}, "outputContractFiles").length;
-    const planContractCount = planCandidates.filter((file) => /(^|\/)(metrics_summary\.csv|metrics_case\.csv)$/i.test(file)).length;
     const parseablePreview = planScopedResultParsePreviews(arrayFromRecord(project || {}, "resultParsePreviews"), plan, rules).items.some(resultPreviewHasRecords);
     const adapterReady = Boolean(stringPatch(project || {}, "adapterConfig"));
     const explicitAdapterReady = adapterReady && ruleCandidateCount > 0;
@@ -32949,7 +32969,7 @@ function projectOutputGateDiagnostics(project, plan) {
         { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: "在当前 Plan 声明结果位置，或在插件设置中配置输出接入规则" },
         { label: "计划输出", ok: planReady || ruleCandidateCount > 0, fix: "在 plan 的 paper.result_csv、当前 mode 实际执行命令的结果参数或 expectedResults 中写明可解析结果位置" },
         { label: "候选结果规则", ok: candidateCount > 0 || planReady, fix: "补充 candidateCsv / candidateJson / consoleLogs / textLogs / metricRegex，或点击“保存接入规则”写入推断结果" },
-        { label: "标准结果契约", ok: planContractCount > 0 || ruleCandidateCount > 0 || (projectContractCount > 0 && planReady), fix: "推荐让测试代码输出 metrics_summary.csv，或使用 run_wrapper 捕获 stdout/stderr 后归一化" },
+        { label: "标准结果契约", ok: planReady || ruleCandidateCount > 0, fix: "在 Plan 声明实际结果或任务产物；也可配置结果解析规则" },
         { label: "解析预览", ok: parseablePreview || planReady || ruleCandidateCount > 0, fix: "保存接入规则后点击“刷新识别”，确认至少一个候选输出能解析出指标" },
     ];
     const missing = checks.filter((item) => !item.ok).map((item) => item.label);
@@ -35097,7 +35117,7 @@ async function readProjectAdapterRules(root, relative) {
     return parseProjectAdapterRules(text);
 }
 function parseProjectAdapterRules(text) {
-    const lines = text.split(/\r?\n/);
+    const lines = text.split(/\r?\n/).map(PlanBuilder_1.stripYamlLineComment);
     const strip = (value) => value.trim().replace(/^["']|["']$/g, "");
     const sectionRange = (section) => {
         const start = lines.findIndex((line) => new RegExp(`^${escapeRegExp(section)}:\\s*$`).test(line));
@@ -35125,6 +35145,9 @@ function parseProjectAdapterRules(text) {
         const lineIndex = findKeyLine(name, indent, start, end);
         if (lineIndex < 0)
             return out;
+        const inline = lines[lineIndex].slice(lines[lineIndex].indexOf(":") + 1).trim();
+        if (inline.startsWith("[") && inline.endsWith("]"))
+            return PlanBuilder_1.splitTopLevelYamlList(inline.slice(1, -1)).map(strip);
         const itemIndent = indent + 2;
         const nextKey = new RegExp(`^\\s{${indent}}[A-Za-z0-9_-]+:\\s*`);
         for (let index = lineIndex + 1; index < end; index += 1) {
@@ -35550,9 +35573,9 @@ function defaultMetricAliases() {
         auc_roc: "AUC",
         "roc-auc": "AUC",
         "pr-auc": "AUPRC",
-        f1_macro: "F1",
-        f1_micro: "F1",
-        f1_weighted: "F1",
+        f1_macro: "macro_f1",
+        f1_micro: "micro_f1",
+        f1_weighted: "weighted_f1",
         matthews_corrcoef: "MCC",
         cohen_kappa: "kappa",
         dice: "DSC",

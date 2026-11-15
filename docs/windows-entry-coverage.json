@@ -1,5 +1,5 @@
 {
-  "version": "0.5.507",
+  "version": "0.5.508",
   "tools": [
     {
       "name": "project_status",
@@ -1452,7 +1452,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1431,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Xshell terminal UI automation is prohibited by the current Computer Use policy; background tunnels are separately verified.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1466,7 +1466,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1433,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Consumer GitHub publication has no approved GitHub target; no new repository is created.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1568,7 +1568,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1472,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "All-PLAN success remains untested: existing six PLANs contain preserved experiments and older stop probes; no authorized new batch target was substituted.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1947,8 +1947,8 @@
       "command": "forgetAncestorProject",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5045,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "preview_passed",
+      "evidence": "2026-11-15 source Generic devhost: actual dedicated Git ancestor/branch row Remove Registration opens modal with the exact root and explicit no file/branch/worktree deletion. Escape cancels; both registry objects remain. No metadata removal confirmed, full mutation not tested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1961,8 +1961,8 @@
       "command": "openBranchProject",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5055,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "2026-11-15 Generic source devhost: navigation search Branch Tools, actual branch-row Open, exact-path modal confirmed. New ordinary VSCode window24974178 has git_ui_source_501--codex-ui-acceptance-503 root. Read-only Git proves codex/ui-acceptance-503 HEADc47f0acf17f4624f2ed5ef94880fb418cf6740cd and clean tracked state. Cancelled unrelated onboarding, no deployment/training/PR. Original Generic and modified MM windows retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1976,7 +1976,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5056,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "2026-11-15 source devhost: actual branch-row button clicked. Native notification refused PR because registered ancestor remote binding is missing. Read-only Git: fixture has a local-only origin, not an authorized GitHub target. No push or PR performed; full effect remains not tested, not counted as passed.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1990,7 +1990,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5056,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "2026-11-15 source devhost: actual branch-row button clicked. Native notification refused PR because registered ancestor remote binding is missing. Read-only Git: fixture has a local-only origin, not an authorized GitHub target. No push or PR performed; full effect remains not tested, not counted as passed.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2003,8 +2003,8 @@
       "command": "forgetBranchProject",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5056,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "preview_passed",
+      "evidence": "2026-11-15 source Generic devhost: actual dedicated Git ancestor/branch row Remove Registration opens modal with the exact root and explicit no file/branch/worktree deletion. Escape cancels; both registry objects remain. No metadata removal confirmed, full mutation not tested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2018,7 +2018,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5078,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "The registered branch has no selected authorized experiment PLAN; no branch training is submitted just to expose this entry.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2032,7 +2032,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5121,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "No branch execution binding exists for this dedicated Git-only worktree; do not invent a successful job.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2046,7 +2046,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5238,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Current source has only textarea[data-plan-preview] queries and no producer of that textarea; this compatibility markup is not generated in the current panel. Existing openPlan API retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2060,7 +2060,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5501,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "This button is generated only after a section-render failure. Current diagnostics has zero sectionFailures; normal-condition acceptance does not inject a render error.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2072,7 +2072,7 @@
     {
       "command": "openSetupGuide",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9446,
+      "line": 9448,
       "status": "retired",
       "evidence": "No current rendered entry: legacySftpNoticeForState has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2087,7 +2087,7 @@
     {
       "command": "openLastCheckStaticReport",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9830,
+      "line": 9832,
       "status": "clicked_passed",
       "evidence": "Actual501 运行环境准备报告文件名与诊断页打开静态检查报告分别点击，打开同一真实文件；新报告2026-11-12T07:41:32.408Z/tool501/pass6Plan。",
       "handlers": [
@@ -2101,7 +2101,7 @@
     {
       "command": "configureWorkers",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9884,
+      "line": 9886,
       "status": "preview_passed",
       "evidence": "docs/manual-acceptance-checklist.md: Windows live acceptance 0.5.495; unobscured manual server entry -> new Worker name prompt -> cancel; original five profiles and one enabled Worker retained",
       "handlers": [
@@ -2115,7 +2115,7 @@
     {
       "command": "addWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9885,
+      "line": 9887,
       "status": "preview_passed",
       "evidence": "docs/manual-acceptance-checklist.md: Windows live acceptance 0.5.495; Xshell endpoint-pair picker opened then cancelled without importing a profile",
       "handlers": [
@@ -2129,7 +2129,7 @@
     {
       "command": "saveAgentDefaults",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9896,
+      "line": 9898,
       "status": "clicked_passed",
       "evidence": "Generic host 0.5.492 live unchanged-value save, current global values reread equal; scheduler native save notice observed",
       "handlers": [
@@ -2143,7 +2143,7 @@
     {
       "command": "saveSchedulerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9924,
+      "line": 9926,
       "status": "clicked_passed",
       "evidence": "Generic host 0.5.492 live unchanged-value save, current global values reread equal; scheduler native save notice observed",
       "handlers": [
@@ -2157,7 +2157,7 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9925,
+      "line": 9927,
       "status": "clicked_passed",
       "evidence": "Installed507 actual settings > 调度与上报策略 > 刷新数据 clicked after scrolling into view. Current acceptance PLAN/completed1 retained; panel diagnostics running/installed507 lifecycle ready, no lastFailure/sectionFailures. No configuration fields saved or changed.",
       "handlers": [
@@ -2171,9 +2171,9 @@
     {
       "command": "addWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9975,
-      "status": "not_tested",
-      "evidence": null,
+      "line": 9977,
+      "status": "preview_passed",
+      "evidence": "2026-11-15 candidate source devhost: first Worker card bottom Import Server opened the real Xshell session/forward picker. Escape cancelled; enabled server_list remains only rjj8. No profile imported or configuration changed.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2185,7 +2185,7 @@
     {
       "command": "saveWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9976,
+      "line": 9978,
       "status": "clicked_passed",
       "evidence": "Generic 0.5.492 rjj8 unchanged-value save, native saved notice and setupConfig reread; all Worker fields unchanged, project derived paths correct",
       "handlers": [
@@ -2199,7 +2199,7 @@
     {
       "command": "startTunnelEndpoint",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9977,
+      "line": 9979,
       "status": "clicked_passed",
       "evidence": "Actual rjj8 settings card 启动隧道 clicked, native confirmation showed root@127.0.0.1:15791 http://localhost:18770→http://localhost:18765. Authorized normal startup confirmed. Actual notification 已监听1/待确认0/失败0, existing verified forward retained/no duplicate process.",
       "handlers": [
@@ -2213,9 +2213,9 @@
     {
       "command": "deleteWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9978,
-      "status": "not_tested",
-      "evidence": null,
+      "line": 9980,
+      "status": "preview_passed",
+      "evidence": "2026-11-15 source devhost509: actual disabled NWPU3 Delete button opened the native confirmation naming NWPU3 and global configuration removal. Esc cancelled; project_state still contains all five profiles with only rjj8 enabled. Actual removal remains untested; no profile or remote file deleted.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2227,9 +2227,9 @@
     {
       "command": "resetRemotePathConfirmations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9991,
+      "line": 9993,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Path-consent records are security-related settings; AI did not reset human confirmations.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2241,9 +2241,9 @@
     {
       "command": "resetPptPathConfirmations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10001,
+      "line": 10003,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "PPT path-consent reset is not automated; no human confirmation history changed.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2255,7 +2255,7 @@
     {
       "command": "configureWorkers",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10099,
+      "line": 10101,
       "status": "retired",
       "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2270,7 +2270,7 @@
     {
       "command": "addWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10100,
+      "line": 10102,
       "status": "retired",
       "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2285,7 +2285,7 @@
     {
       "command": "startAll",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10101,
+      "line": 10103,
       "status": "retired",
       "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2300,7 +2300,7 @@
     {
       "command": "openXshell",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10102,
+      "line": 10104,
       "status": "retired",
       "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2315,7 +2315,7 @@
     {
       "command": "prepareAgents",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10103,
+      "line": 10105,
       "status": "retired",
       "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2335,7 +2335,7 @@
     {
       "command": "testAll",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10104,
+      "line": 10106,
       "status": "retired",
       "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2355,7 +2355,7 @@
     {
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10111,
+      "line": 10113,
       "status": "clicked_passed",
       "evidence": "docs/manual-acceptance-checklist.md: 0.5.496 rjj8 button -> MultiModal browser viewer -> actual single-seed acceptance curves and native embedded TensorBoard; test-only @40 subsequently stopped and absence verified",
       "handlers": [
@@ -2369,7 +2369,7 @@
     {
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10116,
+      "line": 10118,
       "status": "retired",
       "evidence": "This source occurrence is inside declaration-only renderTensorBoardLinkRow, with no production call. Other native scalar viewer controls remain active and separately inventoried; no command or feature removed.",
       "handlers": [
@@ -2383,7 +2383,7 @@
     {
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10128,
+      "line": 10130,
       "status": "clicked_passed",
       "evidence": "Installed507 actual execution > 高级完整操作记录 > exact mcp-3a4d179f card > rjj8打开曲线 clicked separately from GPU control. New Edge page shows 实验曲线·MultiModal, native Worker rjj8 and actual acceptance single-seed catalog. Own tab closed; no training/result collection.",
       "handlers": [
@@ -2397,7 +2397,7 @@
     {
       "command": "checkPluginUpdates",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10198,
+      "line": 10200,
       "status": "clicked_passed",
       "evidence": "0.5.500 Generic settings actual Check Updates click completed with a real up-to-date notification; installed500/119 remained and authoritative483/118 shown without downgrade. Original checkedAt retained by the client.",
       "handlers": [
@@ -2416,9 +2416,9 @@
     {
       "command": "installPluginUpdates",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10199,
+      "line": 10201,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Installed508 is newer than official483. No eligible official update is offered and no downgrade/redundant install is forced.",
       "handlers": [
         {
           "function": "invokeApi",
@@ -2435,9 +2435,9 @@
     {
       "command": "saveRemoteRootPolicy",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10239,
+      "line": 10241,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Remote allowed/denied root policy is an app security setting; AI did not alter it.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2449,7 +2449,7 @@
     {
       "command": "chooseResultCsvDir",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10251,
+      "line": 10253,
       "status": "clicked_passed",
       "evidence": "0.5.500 Generic settings actual UI: saved a dedicated result directory, fresh MCP configuration_get read it back; restored experiments/results and read it back. Browse dialog opened at the exact current project directory and selecting it persisted the same relative path.",
       "handlers": [
@@ -2463,7 +2463,7 @@
     {
       "command": "saveResultCsvDir",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10251,
+      "line": 10253,
       "status": "clicked_passed",
       "evidence": "0.5.500 Generic settings actual UI: saved a dedicated result directory, fresh MCP configuration_get read it back; restored experiments/results and read it back. Browse dialog opened at the exact current project directory and selecting it persisted the same relative path.",
       "handlers": [
@@ -2477,7 +2477,7 @@
     {
       "command": "editResultColumnMapping",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10260,
+      "line": 10262,
       "status": "clicked_passed",
       "evidence": "Actual501 settings jump opens lazy mapping before initial result render; after actual GUI full collection1/5, editor correctly shows owned metrics.csv3cols, seed42 and accuracy0.953125/loss0.10787482559680939 samples. Save enabled and succeeded, readback projectAdapterRules csvColumnMapping{} derivedMetric{}. No raw CSV persisted or MM results regenerated.",
       "handlers": [
@@ -2491,7 +2491,7 @@
     {
       "command": "prepareAgents",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10774,
+      "line": 10776,
       "status": "retired",
       "evidence": "No current rendered entry: renderAgentSessions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2511,7 +2511,7 @@
     {
       "command": "writeAgentCommands",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10775,
+      "line": 10777,
       "status": "retired",
       "evidence": "No current rendered entry: renderAgentSessions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2526,7 +2526,7 @@
     {
       "command": "startAllConnections",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10776,
+      "line": 10778,
       "status": "clicked_passed",
       "evidence": "docs/manual-acceptance-checklist.md: Windows live acceptance 2026-11-11, host 0.5.491",
       "handlers": [
@@ -2540,7 +2540,7 @@
     {
       "command": "openXshell",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10777,
+      "line": 10779,
       "status": "retired",
       "evidence": "No current rendered entry: renderAgentSessions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2555,7 +2555,7 @@
     {
       "command": "startTunnelEndpoint",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10791,
+      "line": 10793,
       "status": "retired",
       "evidence": "No current rendered entry: agentSessionCard/renderAgentSessions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2570,7 +2570,7 @@
     {
       "command": "reviewDraft",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11148,
+      "line": 11150,
       "status": "retired",
       "evidence": "Actual503 resource search草稿 returns没有匹配条目. Source renderDraftPlanSection intentionally no-op, renderDraftCards has no caller (rg src). Four dormant source positions reviewDraft/promoteDraft/rejectDraft/cleanupDrafts are not current reachable GUI controls. Existing external commands remain; promotion/execute explicitly retired.",
       "handlers": [
@@ -2584,7 +2584,7 @@
     {
       "command": "promoteDraft",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11149,
+      "line": 11151,
       "status": "retired",
       "evidence": "Actual503 resource search草稿 returns没有匹配条目. Source renderDraftPlanSection intentionally no-op, renderDraftCards has no caller (rg src). Four dormant source positions reviewDraft/promoteDraft/rejectDraft/cleanupDrafts are not current reachable GUI controls. Existing external commands remain; promotion/execute explicitly retired.",
       "handlers": [
@@ -2598,7 +2598,7 @@
     {
       "command": "rejectDraft",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11150,
+      "line": 11152,
       "status": "retired",
       "evidence": "Actual503 resource search草稿 returns没有匹配条目. Source renderDraftPlanSection intentionally no-op, renderDraftCards has no caller (rg src). Four dormant source positions reviewDraft/promoteDraft/rejectDraft/cleanupDrafts are not current reachable GUI controls. Existing external commands remain; promotion/execute explicitly retired.",
       "handlers": [
@@ -2612,7 +2612,7 @@
     {
       "command": "cleanupDrafts",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11160,
+      "line": 11162,
       "status": "retired",
       "evidence": "Actual503 resource search草稿 returns没有匹配条目. Source renderDraftPlanSection intentionally no-op, renderDraftCards has no caller (rg src). Four dormant source positions reviewDraft/promoteDraft/rejectDraft/cleanupDrafts are not current reachable GUI controls. Existing external commands remain; promotion/execute explicitly retired.",
       "handlers": [
@@ -2631,7 +2631,7 @@
     {
       "command": "archivePlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11180,
+      "line": 11182,
       "status": "not_tested",
       "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
       "handlers": [
@@ -2646,9 +2646,9 @@
     {
       "command": "generateOutputAdapter",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11475,
-      "status": "not_tested",
-      "evidence": null,
+      "line": 11477,
+      "status": "clicked_passed",
+      "evidence": "Installed508 gui_missing_output_508: selected missing_output.yaml, clicked Generate Adapter, reviewed all11 new local files, clicked Write Template; result_writer.py21670bytes and README editor verified. No remote deployment or training. Waiting for confirmation incorrectly showed stalled; candidate source excludes this wait from the deadline, targeted rendered-click regression passed.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2660,7 +2660,7 @@
     {
       "command": "runPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11497,
+      "line": 11499,
       "status": "retired",
       "evidence": "No current rendered entry: renderProjectFirstRunActions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [],
@@ -2669,7 +2669,7 @@
     {
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11841,
+      "line": 11843,
       "status": "clicked_passed",
       "evidence": "Installed507 actual GPU rjj8 打开曲线 button opened local viewer MultiModal/rjj8. Acceptance image_only_bus_p100 seed42 displayed7 metrics/60steps/last1of1. Compared same-name case from image_only_final separately(3seeds/145steps/last1of3); actual curves both rendered. Single-row/grid, extrema checkbox,2/3columns,autoRefresh,selected-only,clear-comparison exercised and restored. Native TensorBoard tab connected/rendered; actual MCP running/listening true, project window @65/port6006. No training or scientific results rewritten; temporary browser tab closed.",
       "handlers": [
@@ -2683,7 +2683,7 @@
     {
       "command": "selectLogRunKey",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 13611,
+      "line": 13613,
       "status": "retired",
       "evidence": "No current rendered entry: renderTaskPlanCompletionNext has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2698,9 +2698,9 @@
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 13683,
-      "status": "not_tested",
-      "evidence": null,
+      "line": 13685,
+      "status": "clicked_passed",
+      "evidence": "Installed508 dedicated gui_missing_output_508: after empty simple_project.yaml and Refresh Identification, actual Open Integration Config button opened experiments/simple_project.yaml. Current PLAN remained missing_output.yaml; no server writes. Final observed window title verified on2026-11-15 after interrupted click.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2713,8 +2713,8 @@
       "command": "saveProjectAdapterRules",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 14108,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "Installed508 Generic Save Integration Rules: actual native saved-and-synced-Agent notice and configuration_get on simpleExperiment.projectAdapterRules matched written values. Restored only original empty csvColumnMapping/derivedMetric workspace override. Legacy inline list parsing defect separately reproduced and fixed in candidate; development host now reads secondaryMetrics[loss]/candidateCsv[metrics.csv].",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2756,7 +2756,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 14793,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2775,7 +2775,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 14815,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Current protocol2 execution cards use per-job selection controls. This alternate task-card checkbox requires a real legacy/task row, which was not fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2789,7 +2789,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 14866,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "History/legacy-record removal not executed without an exact confirmed target; original operation and artifact ownership evidence retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2908,7 +2908,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15500,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "History/legacy-record removal not executed without an exact confirmed target; original operation and artifact ownership evidence retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2936,7 +2936,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15531,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2955,7 +2955,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15533,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2974,7 +2974,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15536,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2988,7 +2988,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15539,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3007,7 +3007,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15543,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3040,7 +3040,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15588,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3054,7 +3054,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15592,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3073,7 +3073,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15608,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3087,7 +3087,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15612,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3101,7 +3101,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15640,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": []
     },
     {
@@ -3109,7 +3109,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15642,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3123,7 +3123,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15645,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3137,7 +3137,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15647,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3151,7 +3151,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15754,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3165,7 +3165,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15755,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3179,7 +3179,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15757,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3193,7 +3193,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15758,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3207,7 +3207,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15759,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "History/legacy-record removal not executed without an exact confirmed target; original operation and artifact ownership evidence retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3221,7 +3221,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15760,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "History/legacy-record removal not executed without an exact confirmed target; original operation and artifact ownership evidence retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3235,7 +3235,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15761,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "History/legacy-record removal not executed without an exact confirmed target; original operation and artifact ownership evidence retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3249,7 +3249,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15762,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3277,7 +3277,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15764,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3321,7 +3321,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16324,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3335,7 +3335,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16324,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3349,7 +3349,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16329,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "History/legacy-record removal not executed without an exact confirmed target; original operation and artifact ownership evidence retained.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3363,7 +3363,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16343,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3377,7 +3377,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16627,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3405,7 +3405,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16633,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "This alternate row is conditional on stale/error/nonempty log evidence. Current empty-request branch is clicked separately; no fabricated operation/log source is inserted.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3419,7 +3419,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16634,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "This alternate row is conditional on stale/error/nonempty log evidence. Current empty-request branch is clicked separately; no fabricated operation/log source is inserted.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3433,7 +3433,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16642,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3447,7 +3447,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16645,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3461,7 +3461,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16646,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "This alternate row is conditional on stale/error/nonempty log evidence. Current empty-request branch is clicked separately; no fabricated operation/log source is inserted.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3475,7 +3475,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16647,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "This alternate row is conditional on stale/error/nonempty log evidence. Current empty-request branch is clicked separately; no fabricated operation/log source is inserted.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3488,8 +3488,8 @@
       "command": "showLogHistory",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16737,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "2026-11-15 source candidate development host: clicked empty-log buttons on exact successful connect request mcp-6c2d2903-dd65-411e-9fc1-24488857a45d. Native notices identify this request and missing tail/full-file address. No baseline search or other PLAN opened. Actual nonempty full-file branch still pending remote readiness.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3502,8 +3502,8 @@
       "command": "openFullLog",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16737,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "2026-11-15 source candidate development host: clicked empty-log buttons on exact successful connect request mcp-6c2d2903-dd65-411e-9fc1-24488857a45d. Native notices identify this request and missing tail/full-file address. No baseline search or other PLAN opened. Actual nonempty full-file branch still pending remote readiness.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3517,7 +3517,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16749,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "This alternate row is conditional on stale/error/nonempty log evidence. Current empty-request branch is clicked separately; no fabricated operation/log source is inserted.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3531,7 +3531,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16749,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "This alternate row is conditional on stale/error/nonempty log evidence. Current empty-request branch is clicked separately; no fabricated operation/log source is inserted.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3545,7 +3545,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16756,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "This alternate row is conditional on stale/error/nonempty log evidence. Current empty-request branch is clicked separately; no fabricated operation/log source is inserted.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3559,7 +3559,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16756,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "This alternate row is conditional on stale/error/nonempty log evidence. Current empty-request branch is clicked separately; no fabricated operation/log source is inserted.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3573,7 +3573,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16767,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "No currently returned unparseable Generic result file is available for this conditional memory-view button; original MM raw data is not copied to disk.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3634,7 +3634,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16933,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "External rough-ppt-addin is not configured; no PowerPoint target or plugin was invented/installed.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3691,7 +3691,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 17195,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Raw/detail/trace artifact subgroup has no current Generic catalog entry. Existing CSV/Markdown export table openers were independently clicked.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3719,7 +3719,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 17213,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "The current Generic dataset-mapping selector has no real target dataset metadata. Existing successful PLAN/revision/results are not relabeled for acceptance.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3775,7 +3775,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 17410,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "No current result-summary file button has a freshly validated remote summary while Agent is unavailable. Remote declared artifacts were queried read-only via SFTP.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3803,7 +3803,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 17765,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "External rough-ppt-addin is not configured; this alternate PPT menu entry remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3816,8 +3816,8 @@
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 18087,
-      "status": "not_tested",
-      "evidence": null,
+      "status": "clicked_passed",
+      "evidence": "2026-11-15 actual recent-error first row Refresh State clicked independently. Button returned enabled; panel_diagnostics ready/no lastFailure/no sectionFailures, rendered sequence caught up. Current PLAN preserved, original completed/cancelled facts retained. Worker unavailable remains explicit; not counted as Agent health success.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3831,7 +3831,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 18089,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "No current capability-classified error row renders this testAll variant; no artificial error record was injected.",
       "handlers": [
         {
           "function": "invokeApi",
@@ -3850,7 +3850,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 18090,
       "status": "not_tested",
-      "evidence": null,
+      "evidence": "Current retained errors classify as unknown/version-hold rather than a tunnel/token error row; this conditional testAll variant remains untested.",
       "handlers": [
         {
           "function": "invokeApi",
@@ -4884,6 +4884,36 @@
         "control": "inspectorCustomDev506",
         "status": "clicked_passed",
         "evidence": "Actual candidate506 devhost rightdrawer +添加 opens 添加按钮到 实验准备 with candidate checkboxes. Selected only 单独校验+单独预演, confirmed save shows2; first down arrow swaps order to预演/校验; both are correctly disabled with missing PLAN reason. Removed only two temporary shortcuts via existing × layout controls, restored group0. No files deleted, PLAN/Agent not started; candidate search 分支 returns项目与分支工具 and opens registered real Git tools."
+      },
+      {
+        "control": "template-generation-installed508",
+        "status": "clicked_passed",
+        "evidence": "gui_missing_output_508: preview then Write Template created11 local files and opened README. No remote action. Open Integration Config later opened exact simple_project.yaml while selected PLAN remained missing_output.yaml."
+      },
+      {
+        "control": "template-confirm-wait-installed508",
+        "status": "found_defect",
+        "evidence": "While real template-write confirmation remained pending, UI emitted stalled although writing later succeeded. Candidate excludes this explicit user wait; rendered click and watchdog regressions passed, post-fix live wait remains pending."
+      },
+      {
+        "control": "log-empty-operation-dev508",
+        "status": "clicked_passed",
+        "evidence": "2026-11-15 candidate development host Generic: both history and full-log buttons name exact mcp-6c2d2903-dd65-411e-9fc1-24488857a45d and explain absent logs. No unrelated baseline file lookup."
+      },
+      {
+        "control": "legacy-flow-list-dev508",
+        "status": "clicked_passed",
+        "evidence": "2026-11-15 candidate Generic project_state detectedProject.adapterRules and real settings show secondaryMetrics loss and candidateCsv metrics.csv, read from untouched legacy YAML. No workspace override or shared setting saved."
+      },
+      {
+        "control": "worker-card-import-dev508",
+        "status": "preview_passed",
+        "evidence": "2026-11-15 first Worker card Import Server opened the Xshell forward picker. Escape cancelled. Only rjj8 remains enabled; no profile imported."
+      },
+      {
+        "control": "template-confirm-wait-dev508-verified",
+        "status": "clicked_passed",
+        "evidence": "2026-11-15 candidate source devhost gui_template_wait_515: selected missing_output.yaml, generated11 local files. Kept native Write Template confirmation pending beyond90seconds; UI stayed running, notification center had no stalled entry. Then clicked Write Template; actual native Added11 notice and README editor, result_writer.py21786bytes. No remote auth/deployment/experiment. Original installed508 defect observation retained."
       }
     ]
   },

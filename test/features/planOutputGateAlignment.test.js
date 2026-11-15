@@ -54,3 +54,45 @@ test("isParseableResultCandidate accepts nested plan result paths", () => {
   assert.equal(fn("path/to/jobs.csv"), false);
   assert.equal(fn("readme.md"), false);
 });
+
+test("host and rendered panel accept ordinary declared results and model-only tasks without a standard filename", () => {
+  const ts = require('typescript');
+  const host = readSource('src/extension/legacy.ts');
+  const script = loadRenderedPanelScript();
+  const extract = source => {
+    const ast = ts.createSourceFile('gate.ts', source, ts.ScriptTarget.Latest, true);
+    let fn;
+    function visit(node) {
+      if (ts.isFunctionDeclaration(node) && node.name?.text === 'projectOutputGateDiagnostics') fn = node.getText(ast);
+      ts.forEachChild(node, visit);
+    }
+    visit(ast); assert.ok(fn); return fn;
+  };
+  for (const [source, ui] of [[host, false], [script, true]]) {
+    const context = vm.createContext({
+      nestedRecord: (record, key) => record[key] || {}, arrayFromRecord: (record, key) => record[key] || [],
+      stringPatch: (record, key) => record[key] || '', asArray: value => Array.isArray(value) ? value : [],
+      planOutputEvidenceSignals: plan => plan?.outputSignals || [], planOutputEvidenceCandidates: plan => plan?.outputCandidates || [],
+      actionableAdapterRuleSignals: rules => Boolean(rules.candidateCsv?.length), adapterRuleResultCandidates: rules => rules.candidateCsv || [],
+      planScopedResultParsePreviews: () => ({items: []}), resultPreviewHasRecords: () => false,
+      validResultPreviewCount: () => 0, planContractFixText: () => '补齐计划契约',
+      EMPTY_OUTPUT_DERIVATION_SOURCE: {}, EMPTY_OUTPUT_DERIVATION_VALUES: [],
+      projectOutputGateDiagnosticsCache: new WeakMap(), PROJECT_OUTPUT_GATE_DIAGNOSTICS_VARIANT_LIMIT: 3,
+      refListKey: () => 'one-plan',
+    });
+    vm.runInContext(extract(source), context);
+    const call = (project, plan) => ui ? context.projectOutputGateDiagnostics(project, {}, plan) : context.projectOutputGateDiagnostics(project, plan);
+    for (const output of ['metrics.csv', 'reports/custom.json', 'model.pt']) {
+      const plan = {planContractOk: true, outputSignals: [output === 'model.pt' ? '任务产物:model.pt' : 'paper.result_csv'],
+        outputCandidates: output === 'model.pt' ? [] : [output]};
+      const result = call({}, plan);
+      assert.equal(result.ok, true, output);
+      assert.deepEqual(Array.from(result.missing), [], output);
+      assert.ok(result.rows.every(row => row.ok), output);
+    }
+    const missing = call({}, {planContractOk: true});
+    assert.equal(missing.ok, false); assert.ok(missing.missing.includes('计划输出'));
+    const invalid = call({}, {planContractOk: false, outputSignals: ['paper.result_csv'], outputCandidates: ['metrics.csv']});
+    assert.equal(invalid.ok, false); assert.ok(invalid.missing.includes('计划强契约'));
+  }
+});

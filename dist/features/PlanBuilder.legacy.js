@@ -8,6 +8,8 @@ exports.parsePlanOutputEvidence = parsePlanOutputEvidence;
 exports.parsePlanSummary = parsePlanSummary;
 exports.normalizePlanMode = normalizePlanMode;
 exports.validateDeepLearningPlanContract = validateDeepLearningPlanContract;
+exports.splitTopLevelYamlList = splitTopLevelYamlList;
+exports.stripYamlLineComment = stripYamlLineComment;
 exports.normalizeOutputCandidateKey = normalizeOutputCandidateKey;
 exports.expandPlanMatrix = expandPlanMatrix;
 exports.renderPlanTemplate = renderPlanTemplate;
@@ -941,7 +943,7 @@ function stripYamlLineComment(value) {
         const ch = value[i];
         if ((ch === "\"" || ch === "'") && value[i - 1] !== "\\")
             quote = quote === ch ? "" : quote || ch;
-        if (ch === "#" && !quote)
+        if (ch === "#" && !quote && (i === 0 || /\s/.test(value[i - 1])))
             return value.slice(0, i);
     }
     return value;
