@@ -839,10 +839,11 @@ test('workspace routing cancellation and total deadline refuse partial uniquenes
   }
 });
 
-test("instance enumeration: over-cap directory is reported truncated, never silently partial", async () => {
+test("instance enumeration retains history and resolves a live window beyond the former record cap", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-instances-trunc-"));
   const discoveryPath = path.join(dir, "api.json");
   process.env.SIMPLE_EXPERIMENT_API_FILE = discoveryPath;
+  let server;
   try {
     const client = require("../../dist/cli/LocalApiClient.js");
     const instDir = path.join(dir, "instances");
@@ -855,11 +856,20 @@ test("instance enumeration: over-cap directory is reported truncated, never sile
         workspace: path.join(dir, "ws"), status: "stopped",
       }), "utf8");
     }
+    server = new LocalApiServer({ name: "SimpleExperiment", version: "0.5.409-test", preferredPort: await freePort(),
+      discoveryPath, workspace: path.join(dir, "ws"), methods: { status: async () => ({ ok: true }) } });
+    await server.start();
     const listing = client.listPluginInstances("experiment");
-    assert.equal(listing.rows.length, 256);
-    assert.equal(listing.truncated, true, "超出 256 条上限必须显式报告未完整枚举，不得静默省略");
-    await assert.rejects(() => client.resolveInstanceByWorkspace("experiment", path.join(dir, "ws")), /未完整枚举|枚举上限/);
+    assert.equal(listing.rows.length, 258);
+    assert.equal(listing.truncated, false, "历史记录数量不能阻止读取真实当前窗口");
+    const live = listing.rows.find(row => row.pid === process.pid);
+    assert.ok(live);assert.ok(listing.rows.indexOf(live) >= 257, "真实窗口位于旧枚举范围之后");
+    const resolved = await client.resolveInstanceByWorkspace("experiment", path.join(dir, "ws"), undefined,
+      { processMayExist: pid => pid === process.pid });
+    assert.equal(resolved.instanceId, live.instanceId);
+    assert.equal(fs.readdirSync(instDir).length, listing.rows.length, "路由不清除历史记录");
   } finally {
+    if (server) await server.dispose();
     delete process.env.SIMPLE_EXPERIMENT_API_FILE;
     console.log(`[fixtures retained, no cleanup] ${dir}`);
   }

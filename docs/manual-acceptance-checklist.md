@@ -1,5 +1,13 @@
 # Windows 日常点击验收
 
+第十二项最终完整回归通过：2026-11-15T16-21-07-987Z-74948-check_full，include-ondemand all，330 作业、10 门禁通过、exit0、839057 ms、锁释放。后续排队实点发现召回本机后的提示误写“等待手动派发，不会自动派发”，资源恢复后真实本机调度会继续；按实际调度行为修正此处显示，不修改调度规则。
+
+排队入口真实效果：daily_queue_510 / distributed-plan-1794760131200-wfevum 两个独立 seed42 软件控制；rjj8 原 gpuMinFreeMemoryGb=12，临时1024使它们保持本机 pending。全局剩余按钮实点后 job0/e966e62a7836456e82884a424c892137、job1/9d42a29c5fb342be8b3a6ff50ee856df 服务器 queued；单行召回只使 job0 回本机，job1 身份不变；单 PLAN 剩余按钮重入 job0/b49c2d4af6cf4a9a83fe630e003734b9；PLAN整体召回后两项均 pending/无远端身份。两次共享 GPU 配置确认页均实点，12 已恢复，完整 Worker 对象与修改前相等。首次配置请求因等待确认使控制工具30秒超时重建连接，未重发原写入；核实旧确认页及原值后继续。第二次恢复请求已确认 RPC 结算，没有遗留配置写入。资源恢复后自动派发 job0/ad13eb1b9419483a8ecd2127df3842be、job1/779d5fcc30cb4e54bb08f7166294b1e9；误点时已取消手动派发选择框，没有另发手动任务。实点 job0“停止此任务”后 cancelled，job1仍running。未占用或关闭用户GPU7窗口，未删除文件。
+
+第十二项修复：真实实例目录261条，旧 MCP 按工作区启动在完整枚举前因256条上限失败。listPluginInstances 改为完整读取当前记录，保留逐文件大小、进程存活、身份、工作区、16个候选握手预算和原总等待检查，不清理历史文件。既有 localApi 257历史+1实时窗口断言先复现256≠258（16-19-36-180Z-66520-test），修复后34/34通过（16-20-15-354Z-83000-test/exit0）。实际 source510 stdio 不带 discoveryPath 或 instance 覆盖，成功从261记录定位原 MultiModal/508/PID49940；不能当作已安装508启动器或最终510安装验收。
+
+MultiModal 原授权窗口恢复：mcp-b89a273c-3034-4a06-af08-5b1fd32174b3 ensure succeeded，精确 Agent @18、版本508、原508 runtime来源匹配；没有重跑实验或创建 Scheduler。原 bc9df623805ca30d675854c0044f4bd2 仍 completed/verified/exit0，verifiedAt=2026-11-11T10:28:00.155Z 不变。当前共享端口服务 MultiModal，Generic510 Agent @13 已精确关闭，Generic Scheduler @6、完成任务与用户窗口保留。MultiModal510远端核验仍需最终安装、原窗口重载后的对应宿主；没有复制授权到临时工作区或修改未保存 final.md。
+
 第十一项最终完整回归通过：2026-11-15T16-05-01-277Z-91620-check_full，显式 include-ondemand all，330 作业、10 门禁通过，exit0、827358 ms、串行、锁已释放。随后真实 MCP 发现目录超过256条历史记录时启动拒绝，作为第十二项修复；此问题不靠删除历史记录规避。临时代码工作区没有原工作区安全授权，MCP 准备正确拒绝，未更改授权；原 MultiModal 窗口和未保存 final.md 保留。
 
 第十一项已定位并修复：NativePlanRetry 在产物选择确认前移除了全部旧 job，完成项由远端重新发现，而已停止项不再出现。独立 daily_retained_stop_510 双任务实机复现：收集和重载后两条均在，再次运行尚未确认产物时停止项消失；随后取消，没有移动或删除文件。现保留 completed/failed/cancelled 和原完成、停止证据，只有未结束输入沿原精确停止流程撤出；全部终态时不写队列。既有 nativePlanRetry 新断言先失败后通过（16-02-55-147Z-77616-test → 16-03-26-767Z-68688-test），4 个受影响消费者 16-04-27-826Z-8328-test 通过。此前一次逗号拼接 --only 选中0文件，只能记未执行，不计回归。最终 check:full 16-05-01-277Z-91620-check_full 包含全部按需组，正在运行。

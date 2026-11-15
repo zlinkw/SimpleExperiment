@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.510",
-  "buildId": "737af751cfd31afcc58d21154783bb141e5e947849ab8610e61b5c23428a600c",
+  "buildId": "3da489fb3163231ba250e37e1f4801f811fca7186c4779f5feed3c3ea1c4d6dd",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -133,7 +133,7 @@
     },
     {
       "path": "dist/cli/LocalApiClient.js",
-      "sha256": "c42381425d6a6617a55e8307fffe8a6fc590c5665611a350c5d7d72c1d62ef46"
+      "sha256": "25df52bf7c612924d08f8d3ea84f3f59231c495e0a2f709a3c36a2a2543dc9a9"
     },
     {
       "path": "dist/cli/parse.js",

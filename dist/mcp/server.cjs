@@ -17238,7 +17238,7 @@ function listPluginInstances(plugin) {
     if (code === "ENOENT") return { rows: [], truncated: false };
     throw error2;
   }
-  return { rows: names.slice(0, 256).map((name) => readInstanceRecord(path.join(dir, name))), truncated: names.length > 256 };
+  return { rows: names.map((name) => readInstanceRecord(path.join(dir, name))), truncated: false };
 }
 function sameWorkspacePath(a, b) {
   const normalize = (value) => String(value || "").trim().replace(/[\\/]+$/, "").replace(/\\/g, "/");
@@ -17271,8 +17271,6 @@ async function resolveInstanceByWorkspace(plugin, workspace, expectedInstanceId2
   check();
   if (!workspace || !String(workspace).trim()) throw new Error("\u6309\u5DE5\u4F5C\u533A\u8DEF\u7531\u5FC5\u987B\u63D0\u4F9B\u660E\u786E\u7684 workspace\u3002");
   const listing = listPluginInstances(plugin);
-  if (listing.truncated)
-    throw new Error(`\u5B9E\u4F8B\u8BB0\u5F55\u76EE\u5F55\u8D85\u8FC7\u5355\u6B21\u679A\u4E3E\u4E0A\u9650\uFF08256 \u6761\u4E14\u4ECD\u6709\u66F4\u591A\u8BB0\u5F55\uFF09\uFF0C\u65E0\u6CD5\u5B89\u5168\u679A\u4E3E ${workspace} \u7684\u5B58\u6D3B\u5B9E\u4F8B\uFF1B\u622A\u65AD\u4E0D\u5F53\u4F5C\u5B8C\u6574\uFF0C--instance \u4E5F\u4E0D\u53EF\u9760\uFF08\u76EE\u6807\u8BB0\u5F55\u53EF\u80FD\u4E0D\u5728\u5DF2\u679A\u4E3E\u524D 256 \u6761\u5185\uFF09\uFF0C\u8BF7\u7528\u5DF2\u77E5\u7684 discoveryPath \u660E\u786E\u6307\u5B9A\uFF0C\u4E0D\u81EA\u52A8\u6E05\u7406\u5386\u53F2\u8BB0\u5F55\u3002`);
   const pin = String(expectedInstanceId2 ?? process.env.SIMPLE_CLI_INSTANCE_ID ?? "").trim();
   let candidates = listing.rows.filter((row) => !row.error && !!(row.instanceId || row.pid > 0) && sameWorkspacePath(row.workspace, workspace));
   if (pin) {

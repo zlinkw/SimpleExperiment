@@ -162,8 +162,8 @@ function readInstanceRecord(file: string): PluginInstanceRow {
 export interface PluginInstanceListing { rows: PluginInstanceRow[]; truncated: boolean; }
 
 /**
- * Enumeration is bounded; `truncated` means MORE records exist beyond the cap, so callers must not
- * claim an unseen instance does not exist. Nothing is ever cleaned up here.
+ * Read every record so retained history cannot hide a current window. Individual records remain
+ * size-bounded and live handshakes retain their separate budget. Nothing is cleaned up here.
  */
 export function listPluginInstances(plugin: UnifiedPlugin): PluginInstanceListing {
   const dir = pluginInstancesDir(plugin);
@@ -174,7 +174,7 @@ export function listPluginInstances(plugin: UnifiedPlugin): PluginInstanceListin
     if (code === "ENOENT") return { rows: [], truncated: false };
     throw error;
   }
-  return { rows: names.slice(0, 256).map((name) => readInstanceRecord(path.join(dir, name))), truncated: names.length > 256 };
+  return { rows: names.map((name) => readInstanceRecord(path.join(dir, name))), truncated: false };
 }
 
 function sameWorkspacePath(a: string, b: string): boolean {
@@ -213,8 +213,6 @@ export async function resolveInstanceByWorkspace(plugin: UnifiedPlugin, workspac
   check();
   if (!workspace || !String(workspace).trim()) throw new Error("按工作区路由必须提供明确的 workspace。");
   const listing = listPluginInstances(plugin);
-  if (listing.truncated)
-    throw new Error(`实例记录目录超过单次枚举上限（256 条且仍有更多记录），无法安全枚举 ${workspace} 的存活实例；截断不当作完整，--instance 也不可靠（目标记录可能不在已枚举前 256 条内），请用已知的 discoveryPath 明确指定，不自动清理历史记录。`);
   const pin = String(expectedInstanceId ?? process.env.SIMPLE_CLI_INSTANCE_ID ?? "").trim();
   let candidates = listing.rows.filter((row) => !row.error && !!(row.instanceId || row.pid > 0) && sameWorkspacePath(row.workspace, workspace));
   if (pin) {

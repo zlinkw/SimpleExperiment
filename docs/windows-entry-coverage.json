@@ -2973,8 +2973,8 @@
       "command": "recallPlanToLocalQueue",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15537,
-      "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "status": "clicked_passed",
+      "evidence": "2026-11-15 source510 real daily_queue_510 software control: both unassigned pending tasks entered server queue from global Remaining Jobs button; single-job recall returned only index0 to local pending while index1 retained its commandId/queued state; per-PLAN remaining button requeued only index0 with new commandId; whole-PLAN recall returned both to local pending. Exact confirmations accepted, no files deleted. Original shared Worker minimum12GB restored exactly after temporary1024GB wait condition. Restoring capacity resumes local auto scheduling; misleading manual-only text is a separately tracked UI defect.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3122,8 +3122,8 @@
       "command": "recallPlanToLocalQueue",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15646,
-      "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "status": "clicked_passed",
+      "evidence": "2026-11-15 source510 real daily_queue_510 software control: both unassigned pending tasks entered server queue from global Remaining Jobs button; single-job recall returned only index0 to local pending while index1 retained its commandId/queued state; per-PLAN remaining button requeued only index0 with new commandId; whole-PLAN recall returned both to local pending. Exact confirmations accepted, no files deleted. Original shared Worker minimum12GB restored exactly after temporary1024GB wait condition. Restoring capacity resumes local auto scheduling; misleading manual-only text is a separately tracked UI defect.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3136,8 +3136,8 @@
       "command": "queueRemainingJobs",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15648,
-      "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "status": "clicked_passed",
+      "evidence": "2026-11-15 source510 real daily_queue_510 software control: both unassigned pending tasks entered server queue from global Remaining Jobs button; single-job recall returned only index0 to local pending while index1 retained its commandId/queued state; per-PLAN remaining button requeued only index0 with new commandId; whole-PLAN recall returned both to local pending. Exact confirmations accepted, no files deleted. Original shared Worker minimum12GB restored exactly after temporary1024GB wait condition. Restoring capacity resumes local auto scheduling; misleading manual-only text is a separately tracked UI defect.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3248,8 +3248,8 @@
       "command": "queueRemainingJobs",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15763,
-      "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "status": "clicked_passed",
+      "evidence": "2026-11-15 source510 real daily_queue_510 software control: both unassigned pending tasks entered server queue from global Remaining Jobs button; single-job recall returned only index0 to local pending while index1 retained its commandId/queued state; per-PLAN remaining button requeued only index0 with new commandId; whole-PLAN recall returned both to local pending. Exact confirmations accepted, no files deleted. Original shared Worker minimum12GB restored exactly after temporary1024GB wait condition. Restoring capacity resumes local auto scheduling; misleading manual-only text is a separately tracked UI defect.",
       "handlers": [
         {
           "function": "handleMessageCore",
