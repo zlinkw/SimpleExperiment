@@ -209,13 +209,15 @@ function summarizeEntry(entry: PlanEntry): PanelPlanStatusSummary {
     : [];
 
   let status: PlanSelectorStatus = "not-started";
-  if (displayedCounts.failedCount || failedOperation || latestRunFailed) status = "failed";
+  if (displayedCounts.failedCount) status = "failed";
   else if (displayedCounts.activeCount) status = "running";
   else if (pendingOperation) status = "submitting";
   else if (displayedCounts.queuedCount && !displayedCounts.completedCount) status = "queued";
   else if (allTasksCompleted) status = "completed";
   else if (countRows.some(row => !TASK_CANCELLED.has(taskStatusToken(row.status)) && row.lifecycleProtocol === 2 && (row.status === "unknown" || row.resultState === "unverified"))) status = "unknown";
   else if (displayedCounts.cancelledCount && displayedCounts.cancelledCount + displayedCounts.completedCount >= totalCount) status = "cancelled";
+  // A rejected request has no new execution evidence; keep the actual job state.
+  else if (!countRows.length && (failedOperation || latestRunFailed)) status = "failed";
   else if (countRows.length || runOperations.length) status = "partial";
 
   const updatedAt = firstText(entry.plan.updatedAt);

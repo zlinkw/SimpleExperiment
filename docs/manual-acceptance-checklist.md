@@ -44,6 +44,24 @@ MM prepare 核实 rjj8 Agent @66/Scheduler @9 为 508；按既有项目授权精
 
 六项修复的 check:full 实际通过：2026-11-15T14-08-32-149Z-44912-check_full/run.json，330 作业和 10 门禁均通过，815227 ms，输入首尾一致，单测试进程；lock-release.json 与 released 所有权记录已核实。独立 vm.Script 检查通过。该记录只覆盖六项修复的源码和测试，不含尚待实施的第七项状态修复、VSIX 组装或远端实机，不能冒充最终包通过。
 
+六项修复已提交 e6c81a2fac625b48f6a8f5bb5e626871d3420c3d，普通推送并 fetch 核对等于 origin/master，尚无 509 安装包或 Release。第七项新增真实状态回归先在 2026-11-15T14-23-58-839Z-52484-test 复现 failed 而非 completed，exit1；将宿主与前端备用汇总的请求失败优先级放到实际任务状态之后，原失败请求不变。14-24-25-352Z-57052-test 的目标套件通过，14-24-58-266Z-67684-test 的九个消费者/界面套件通过，均 exit0、锁正常释放。真实未派发失败、实际任务失败及新提交等待继续保留对应状态，未放宽完成判据。
+
+开发宿主同版本源码重载后实点下拉：acceptance.yaml 为已完成 1/1，四个停止 PLAN 为已中止，原没有作业的失败 PLAN 仍失败；恢复选择 acceptance.yaml，源码 MCP 返回相同状态。六个旧批量请求仍为 failed，原任务与结果未改写，未发起新训练。再次 vm.Script 通过。第七项按项目要求运行原 npm run build -- --max-parallel 1 中；最终统一组装仍等待远端归属确认及剩余可执行实机检查，不能复用第七项之前的 fullCheck 凭据来证明最终包。
+
+补验全部五处历史清理入口的确认页：单卡 normal_stop_0_5_493、顶部所选 normal_stop_0_5_492、全部 PLAN、勾选单条连接请求与同请求行内“清理此条”。每处实际显示对应 PLAN 或一条/全部范围后 Escape；MCP 回读 cutoffs={}、hiddenOperationIds=[]，连接请求 mcp-6c2d2903-dd65-411e-9fc1-24488857a45d 仍 succeeded，原完成 1/取消 4 未变。只计预览，不计最终隐藏效果。71 未测中这五处转为预览，当前静态 179 为 68 实点、20 预览、66 未测、25 退役；排除 8 个引用后的 146 位置仍有 58 未测。PLAN 勾选恢复原 normal_stop_0_5_492，未触发停止、重派或历史写入。
+
+标准重载开发宿主后，本轮单条操作的临时勾选归零，未再次弹出已确认的共享配置通知，MultiModal 未保存窗口保留。按既有 rjj8 授权恢复隧道的 project_connect 请求 mcp-db3de82c-63c6-4fdd-8a0b-2546aaf1596c 于 2026-11-15T14:34:53.428Z 实际 succeeded/listening，端点 localhost:18770 → localhost:18765；原 local_operations.json 保存相同 finishedAt、无原始 result。随后只读 agent_inspect 仍明确返回 AGENT_STATE_OWNER_CONFLICT: machine，没有改写 owner、准备服务或派发任务。新连接成功不能作为 Agent 已运行的证据。
+
+同版本源码 CLI project status 命中 Generic/PID17776/509；按精确 commandId 查询原成功任务返回 success/verified/exit0，原 b54246b8cb31eabd2109a02f39e91f9e 返回 cancelled，与 MCP/界面一致。两者本轮远端 query_state=unknown/fetch failed，成功只沿用原 2026-11-11T21:39:45.642Z 确证，不冒称当前服务器重新确认。前两次 CLI 调用分别缺 domain 和 experiment id，被 USAGE 如实拒绝；按当前帮助使用完整命令后 exit0，不将调用错误当作插件缺陷或通过。
+
+第七项首个 build 2026-11-15T14-25-54-337Z-54204-build 为 286 作业、10 门禁通过，exit0、696240 ms、输入未变、锁正常释放。提交前补核同一问题的多 job 正常输入：completed+queued 的部分进度仍被失败请求盖住，新增既有套件断言于 14-39-07-277Z-86896-test 如实复现 exit1。现只在没有任何实际 job 时用请求失败推导 PLAN 失败；有任务时沿用任务状态，保留失败请求本身。14-39-38-167Z-39124-test 的十个目标与消费者套件全部通过，exit0、19578 ms、锁正常释放。最终源码重新运行项目要求的 build，首份 build 不冒充这次最后修改后的结果。
+
+本机开发实点结束后关闭本轮临时开发宿主，重新打开原 Generic 普通窗口；磁盘未安装任何新版。稳定 MCP 启动入口的官方 SDK 分别核对 Generic/PID19736 和 MultiModal/PID49940，均为已安装 508、各自精确工作区，不留下无法匹配已安装 CLI 的开发宿主。MultiModal 已修改 final.md 窗口仍在；新修复只在候选源码中，普通 508 窗口不冒称已获得 509 修复。当前仍等待两个 owner 文件 machine 更新的本人决定，尚未更新 Worker Agent 或运行新控制任务。
+
+最后源码 build 2026-11-15T14-40-23-828Z-56168-build 出现真实失败：executionShellPreflight 的 python 变体子进程约 10312 ms 返回 status=null，测试文件为 2/3、19175 ms，完整 stdout/stderr 保留；20 秒文件限制未触发，未重跑原命令或修改任何超时。该夹具同一 Python 进程依次执行 Agent 与 Scheduler 两次各 8 秒 shell，另有最多 3 秒路径转换，外层却合计 10 秒。原覆盖组合为 Agent/prefix、Scheduler/prefix、Agent/python、Scheduler/python、Scheduler/missing；待活动回归全部收尾后，仅拆为每进程一个原组合并明确断言组件身份，保留全部覆盖、10 秒外层与 20 秒文件限制，不改生产执行代码、不新增性能阈值。其余作业继续结算，失败不隐藏。
+
+最终 build 结算为 285 作业通过、1 个上述夹具失败，10 门禁通过，真实 exit1、679704 ms、输入首尾相同，锁已正常释放。随后仅修改 executionShellPreflight.test.js：复用一次 Bash 路径发现，五个原组合各自一个 Python 进程，新增返回组件身份断言，所有原断言与 10/20 秒限制保留。2026-11-15T14-52-33-217Z-89260-test 五组合全部通过，runner exit0、22626 ms，单测试进程、锁正常释放；文件自身约 13 秒，未触发 20 秒限制。按仅改测试的增量覆盖规则复用其余 285 项，本轮规定覆盖已补齐；不改写失败 build 为通过，也不把该组合证据送入要求单份完整凭据的 VSIX 组装门禁。最终 vm.Script 和 diff 检查通过。远端归属更新、控制任务和条件入口仍待继续，统一打包、试行发行与安装均未执行。
+
 2026-11-13 本人重启后，Codex 原生 MultiModal MCP 已真实返回 0.5.507、正确工作区及 PID26332，旧 499 版本拒绝已解除。原项目授权仍只包括 rjj8 和原五类操作。project_connect 请求 mcp-76fe51fe-583d-45ba-9c21-1e9eddc2e8e6 查询为 succeeded/result.ok=true，只恢复已有隧道。Agent @64 与 Scheduler 仍为 507；原完成任务 bc9df623805ca30d675854c0044f4bd2 保持 verified/exit0 和原证据时间，没有重跑。当前另一个窗口是本人重新打开的 gui_onboarding_507，未改它的授权；不能据此声称 Generic 原生连接同时验收通过。
 
 实际 GPU 刷新显示 8 张 3090；GPU 区 rjj8“打开曲线”进入正确项目浏览器。验收 PLAN 的 image_only_bus_p100 显示单 seed、7 项指标、60 steps、末步 1/1。单行/网格、最大值开关、每行 2/3 曲线、自动刷新均实点并恢复。加入 image_only_final 中同名 case 后，两条曲线按 PLAN 分开，后者为 3 seeds、145 steps、末步 1/3；仅看已选、清空对比实点后恢复原主 case。只证明界面与来源对应，不推断科学结论。原生“图像·直方图·网络图”页实际连接并渲染 TensorBoard；主动查询确认本项目服务 running/listening=true、窗口 @65、端口 6006。只关闭本轮曲线浏览器页，用户原标签保留。

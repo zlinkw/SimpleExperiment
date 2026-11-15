@@ -175,6 +175,25 @@ test("completed jobs suppress old operation activity while a newer rerun stays a
   assert.equal(sandbox.selector.summary(newer, file).status, "submitting");
 });
 
+test("fallback selector keeps job truth after a newer request is rejected", () => {
+  const sandbox = selectorSandbox(), file = "plans/rejected.yaml";
+  for (const status of ["completed", "cancelled", "running", "queued", "unknown", "failed"]) {
+    const state = { plans: [{ file, revision: "r1", jobCount: 1 }],
+      distributedPlans: [{ id: "actual-run", planFile: file, revision: "r1", enqueuedAt: "2026-10-09T00:00:00Z",
+        jobs: [{ index: 0, status, lifecycleProtocol: 2, updatedAt: "2026-10-09T02:00:00Z" }] }],
+      operations: [{ planFile: file, planRevision: "r1", type: "run-plan", status: "failed", startedAt: "2026-10-09T03:00:00Z" }] };
+    const row = sandbox.selector.summary(state, file);
+    assert.equal(row.status, status, status);
+    assert.equal(row.completedCount, status === "completed" ? 1 : 0);
+    assert.equal(sandbox.selector.summary({ ...state, distributedPlans: [] }, file).status, "failed");
+  }
+  const partial = { plans: [{ file, revision: "r1", jobCount: 2 }],
+    distributedPlans: [{ planFile: file, revision: "r1", jobs: [{ index: 0, status: "completed" }, { index: 1, status: "queued" }] }] };
+  assert.equal(sandbox.selector.summary(partial, file).status, "partial");
+  assert.equal(sandbox.selector.summary({ ...partial, operations: [{ planFile: file, planRevision: "r1",
+    type: "run-plan", status: "failed" }] }, file).status, "partial");
+});
+
 test("latest successful retry supersedes an older failure for the same job", () => {
   const sandbox = selectorSandbox();
   const state = {

@@ -162,7 +162,7 @@ function summarizeEntry(entry) {
         ? [...new Set(carriedRows.map(row => firstText(row.runOwner)).filter(Boolean))].sort().slice(0, 8)
         : [];
     let status = "not-started";
-    if (displayedCounts.failedCount || failedOperation || latestRunFailed)
+    if (displayedCounts.failedCount)
         status = "failed";
     else if (displayedCounts.activeCount)
         status = "running";
@@ -176,6 +176,9 @@ function summarizeEntry(entry) {
         status = "unknown";
     else if (displayedCounts.cancelledCount && displayedCounts.cancelledCount + displayedCounts.completedCount >= totalCount)
         status = "cancelled";
+    // A rejected request has no new execution evidence; keep the actual job state.
+    else if (!countRows.length && (failedOperation || latestRunFailed))
+        status = "failed";
     else if (countRows.length || runOperations.length)
         status = "partial";
     const updatedAt = firstText(entry.plan.updatedAt);

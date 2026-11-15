@@ -54,6 +54,28 @@ test("a newer actual submission still takes precedence over an older completed r
   assert.equal(rows[0].status, "submitting", "submission progress alone is not a running task window");
 });
 
+test("a rejected later request preserves actual job state and remains a failed operation", () => {
+  for (const status of ["completed", "cancelled", "running", "queued", "unknown", "failed"]) {
+    const operation = { planFile: normal, planRevision: "normal", type: "run-plan", status: "failed",
+      startedAt: "2026-10-09T03:00:00Z", updatedAt: "2026-10-09T03:01:00Z" };
+    const input = { plans: [{ file: normal, revision: "normal", jobCount: 1 }], operations: [operation],
+      distributedPlans: [{ id: "actual-run", planFile: normal, revision: "normal", enqueuedAt: "2026-10-09T00:00:00Z",
+        jobs: [{ index: 0, status, lifecycleProtocol: 2, updatedAt: "2026-10-09T02:00:00Z" }] }] };
+    const row = summarizePlanStatuses(input)[0];
+    assert.equal(row.status, status, status);
+    assert.equal(row.completedCount, status === "completed" ? 1 : 0);
+    assert.equal(operation.status, "failed", "request failure remains visible separately");
+    assert.equal(summarizePlanStatuses({ ...input, distributedPlans: [] })[0].status, "failed",
+      "a failed request without any actual job is still a failure");
+  }
+  const partial = { plans: [{ file: normal, revision: "normal", jobCount: 2 }],
+    distributedPlans: [{ id: "partial-run", planFile: normal, revision: "normal",
+      jobs: [{ index: 0, status: "completed" }, { index: 1, status: "queued" }] }] };
+  assert.equal(summarizePlanStatuses(partial)[0].status, "partial");
+  assert.equal(summarizePlanStatuses({ ...partial, operations: [{ planFile: normal, planRevision: "normal",
+    type: "run-plan", status: "failed" }] })[0].status, "partial");
+});
+
 test("qualified paths and ambiguous legacy basenames do not mix normal and tuning plans", () => {
   const sharedRevision = plans.map(plan => ({ ...plan, revision: "shared" }));
   const qualified = summarizePlanStatuses({ plans: sharedRevision, operations: [{ planFile: normal, planRevision: "shared", type: "run-plan", status: "running" }] });

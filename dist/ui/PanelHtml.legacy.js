@@ -11062,13 +11062,14 @@ function renderPanelHtml() {
       const shownQueuedCount = distributedJobs.length ? distributedQueued : queuedCount;
       const allTasksCompleted = countRows.length > 0 && totalCount > 0 && shownCompletedCount >= totalCount;
       let status = "not-started";
-      if (shownFailedCount || failedOperation || latestRunFailed) status = "failed";
+      if (shownFailedCount) status = "failed";
       else if (shownActiveCount) status = "running";
       else if (pendingOperation) status = "submitting";
       else if (shownQueuedCount && !shownCompletedCount) status = "queued";
       else if (allTasksCompleted) status = "completed";
       else if (countRows.some(row => !["stopped", "cancelled"].includes(taskStatusToken(row.status)) && row.lifecycleProtocol === 2 && (row.status === "unknown" || row.resultState === "unverified"))) status = "unknown";
       else if (shownCancelledCount && shownCancelledCount + shownCompletedCount >= totalCount) status = "cancelled";
+      else if (!countRows.length && (failedOperation || latestRunFailed)) status = "failed";
       else if (countRows.length || runOperations.length) status = "partial";
       const shownCompleted = status === "completed" && !shownCompletedCount && totalCount ? totalCount : shownCompletedCount;
       return { status, statusLabel: PLAN_SELECTOR_STATUS_LABELS[status], completedCount: shownCompleted, unavailableCount: distributedUnavailable, totalCount, taskCount: countRows.length, revision };

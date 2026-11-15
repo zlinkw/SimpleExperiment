@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.509",
-  "buildId": "78a05fd1d7aeb838294153d6b3b5f1c6f5ca9badd94073e3d5480df2a86c3517",
+  "buildId": "4ba0dac9b9e3b344156884aef1ae5af64fef7db7f56c61b2032cda3dc5a9f7ee",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -565,7 +565,7 @@
     },
     {
       "path": "dist/features/PanelPlanStatusSummary.js",
-      "sha256": "8e679031c3347b4442082524f5643e43cbb7de46e0c25bacedcb21bf7b68d024"
+      "sha256": "9a27f4556e07e048df4ed2b8e96544be8cd602ea049abb524d8e63befca25663"
     },
     {
       "path": "dist/features/PanelProgressDom.js",
@@ -1181,7 +1181,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "ed4367c68512509ad9058a5167efa4242ec4ecacf784ce2f0c898a08934d0559"
+      "sha256": "e80ef9856d58b128e0360fd7103e99ad0e18c0c98bf23a3d5d98421b8871af47"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",

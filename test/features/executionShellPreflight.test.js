@@ -12,12 +12,17 @@ function bashPath() {
   assert.ok(fs.existsSync(bash), 'a real local Git Bash is required');
   return bash;
 }
-for (const variant of ['prefix', 'python', 'missing']) test('real clean task shell: ' + variant + ', without a conda CLI', () => {
+const bash = bashPath();
+// Each Python process owns one shell probe within the unchanged 10-second budget.
+for (const variant of ['prefix', 'python', 'missing'])
+for (const component of variant === 'missing' ? ['scheduler'] : ['agent', 'scheduler'])
+test('real clean task shell: ' + component + '/' + variant + ', without a conda CLI', () => {
   const proc = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-B', '-X', 'utf8',
-    path.join(__dirname, 'executionShellPreflight.fixture.py'), bashPath(), variant,
-    ...(variant === 'missing' ? ['scheduler'] : [])], { cwd: root, encoding: 'utf8', timeout: 10000, windowsHide: true });
-  assert.equal(proc.status, 0, proc.stderr || proc.stdout);
+    path.join(__dirname, 'executionShellPreflight.fixture.py'), bash, variant, component],
+    { cwd: root, encoding: 'utf8', timeout: 10000, windowsHide: true });
+  assert.equal(proc.status, 0, proc.error?.message || proc.stderr || proc.stdout);
   const results = JSON.parse(proc.stdout);
+  assert.deepEqual(Object.keys(results), [component]);
   for (const [component, result] of Object.entries(results)) {
     if (variant === 'missing') { assert.notEqual(result.returncode, 0, component); assert.doesNotMatch(result.stdout, /"selected"/); }
     else { assert.equal(result.returncode, 0, component + ': ' + JSON.stringify(result)); assert.ok(JSON.parse(result.stdout).selected); }
