@@ -171,6 +171,13 @@ test("training recovery clicks track each job and send a correlated status reque
   assert.equal(sent.at(-1).command, 'generateOutputAdapter');
   assert.equal(timers, 0, 'waiting for the real template write confirmation must not be declared stalled');
   assert.equal(sandbox.pendingActionsById[sent.at(-1).clientActionId].status, 'running');
+  sandbox.document = {querySelectorAll: () => [{value:'plans/software.yaml',closest: () => ({
+    querySelector: selector => selector === '[data-plan-map-dataset]' ? {value:'software_acceptance_only'} : null,
+  })}]};
+  const mapping = {dataset:{command:'applyPlanDatasetMapping'},textContent:'应用映射',disabled:false,closest:()=>null,getAttribute:()=>null};
+  press(mapping);
+  assert.equal(sent.at(-1).command,'applyPlanDatasetMapping');
+  assert.deepEqual({...sent.at(-1).mappings},{'plans/software.yaml':'software_acceptance_only'},'custom dataset input must reach the shared host handler');
 });
 
 test("manual single and batch buttons send the selected job identities without a busy-card filter", () => {

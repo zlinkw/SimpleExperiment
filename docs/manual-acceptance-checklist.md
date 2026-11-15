@@ -1,5 +1,78 @@
 # Windows 日常点击验收
 
+## 2026-11-16：剩余 50 处核对
+
+本批保持 SimpleExperiment 0.5.512、SimpleSFTP 0.2.120 和原 MCP 配置，没有递增版本、打包、发行或安装。50 处源码命中已逐项核对，新增 **1 处完整实点、2 处预览**；其余 **47 处未实测**，原因见下表及 windows-entry-coverage.json 的 remainingEntryReview。当前静态来源合计为 **77 实点、30 预览、47 未测、25 退役，共179处**。179含8处选择器引用，不能当作179个实际按钮；另有3处兼容模板没有当前数据生产方。没有把未测入口改成退役或通过。
+
+本批修复结果映射保存后不重排、全部结果都未标注时无法输入新数据集、名称冲突失败仍保存错误配置，以及停止清除预览把已完成 job 写成“将取消排队”。映射直接重排最新导出的汇总行，保留指标、均值/标准差、来源、观测时间和待复核分区，不连接服务器或重建逐 seed 原始记录；旧文件保留。已有可信数据集的 PLAN 不进入人工覆盖列表。重排成功后才保存映射配置；拒绝目录名称冲突时，导出和设置均保持原值。
+
+### 已实际补测
+
+| 入口 | 实际结果 |
+| --- | --- |
+| 应用映射并重新整理已有结果 | 源码宿主输入新名称 software_acceptance_only，仅勾选 daily_stop_510 软件控制 PLAN，点击成功；未标注 PLAN 从5降到4，新总表和方法表立即出现。实点 CSV 打开 experiments/results/software_acceptance_only/final/final.csv，control_completed=1，来源仍为 d4b3aee99fc203598f265046c6407f01，原观测时间仍为2026-11-15T17:07:09.918Z。原 acceptance 指标仍为 accuracy=0.953125、loss=0.10787482559680939，没有给科研结果重标数据集。 |
+| running 远端证据告警行的“终止并清除该 Plan” | 原窗口实点 plan-submit-workflow-run-1794756430503-v2qp14 对应入口，首个预览精确列出 daily_stop_510 的5条进度和1条分布式记录；Escape 后通知 confirm-cancelled，队列和进度均未改。只计预览，未清除已有成功记录。 |
+| 运行异常专用“覆盖产物并重跑此 job” | 独立 remaining_runtime_anomaly_512.yaml、seed42 使用软件控制脚本，真实捕获并打印 RuntimeError。commandId fa313499af4324cdbca14c74d039150a 在 rjj8 正常执行，退出0、产物完整，完整1867字节日志检出异常1次，completionState=review_required，未计为已确证成功。源码卡片实点专用按钮，审核页显示该 job 的完整目录；点击取消后通知“未删除文件，未重新排队”，主动查询仍只有原1批、同一原命令。没有代本人完成路径确认。 |
+
+异常控制的 PLAN、配置和输出使用独立目标。预检 mcp-3b3f52fd-dfb7-4f58-8d58-8f8b34b21745 实际 ready=true；提交 workflow-run-1794776653343-s0jto5，队列 distributed-plan-1794776660600-pjw3iu。首次本机 pending 等待新鲜 GPU，project_connect 后正常派发，没有重复提交。该软件控制不产生科研结论。已在当前源码宿主实际找到并展开新卡，初次未定位到卡片不作为已确认的刷新缺陷，也没有为此增加刷新补丁。
+
+### 本人操作或确认
+
+以下4处仍未实测。依据 [computer-use SKILL](C:/Users/ZLK/.codex/plugins/cache/openai-bundled/computer-use/26.1111.21308/skills/computer-use/SKILL.md) 要求读取的 guidance：明确禁止 “Do not automate terminal applications”，并禁止 “Do not change Windows security settings, Windows privacy settings, or any in-app security or privacy settings.” 本轮没有绕过这些限制。
+
+| 入口及源码行 | 原因 |
+| --- | --- |
+| openXshell，1432 | 终端 UI 由本人打开；后台隧道功能已有独立实测，不等同点击终端入口。 |
+| resetRemotePathConfirmations，9995 | 清除路径授权历史属于应用安全设置。 |
+| resetPptPathConfirmations，10005 | 清除 PPT 路径授权历史属于应用安全设置。 |
+| saveRemoteRootPolicy，10243 | 修改允许/禁止远端根目录属于应用安全设置。 |
+
+以上行号均指 src/ui/PanelHtml.legacy.ts。另有两类已预览事项不等同执行通过：永久删除/覆盖仍需本人在两个路径审核页确认；本轮两个停止/覆盖预览均已取消。此前本人明确“暂不执行删除”的 D:/GitRepo/SimpleMcpAcceptance/acceptance_files/cleanup_20261111.txt 仍为49字节，SHA256与原基准一致，没有重新索取或代为确认。真实撤销项目 AI 授权后的写入拒绝仍须本人操作授权界面后核验；AI 未修改授权状态。
+
+### 缺少外部目标或条件
+
+| 入口及源码行 | 缺少的实际条件 |
+| --- | --- |
+| publishGithub，1434 | 消费项目已批准的 GitHub 仓库。插件自身更新源的授权不能用于新增消费项目仓库。 |
+| createBranchPr、mergeBranchPr，5057，两处 | 登记祖先的真实 GitHub remote 绑定。两个按钮曾实点后明确拒绝，当前仅有本机裸仓库，不计 PR 全流程通过。 |
+| submitBranchPlanRun，5079 | Git 专用工作树的实验 PLAN、Worker 目标和项目授权。 |
+| verifyBranchHeadBinding，5122 | 分支的真实实验提交及 HEAD 绑定，不能只用 Git HEAD 冒充。 |
+| releaseJobStageBlockSlots，15591 | 实际 Worker 间传输、双暂存槽占用和受控释放能力。当前只启用 rjj8，不启用其他 Worker 或制造锁；真实文件释放仍需精确路径确认。 |
+| plotResultsToPpt，16936、17768，两处 | rough-ppt-addin 可用连接及本人指定的 PowerPoint 目标。16943另为选择器引用，不是第三个 PPT 按钮。 |
+
+以上共8处。installPluginUpdates，10203，另外按本人“暂不升级”要求保留未测，不安装、降级或强制制造更新目标。
+
+### 当前不会产生的来源和条件入口
+
+| 类别 | 源码行与具体条件 |
+| --- | --- |
+| 选择器引用，8处 | 3609、4451、11185、16167、16204、16943、19141、19230；不生成独立按钮。 |
+| 当前无生产方的兼容模板，3处 | 5239的 textarea[data-plan-preview] 没有生成方；17198的 raw/detail/trace 子组对应 latestResultCatalog 中恒为空的 artifacts；17413的旧分析摘要文件字段不由当前 ResultCollectionHost 生成。现有打开 PLAN、CSV/Markdown、声明文件和只读内存预览各有独立实点记录。 |
+| 缺少旧任务对象，3处 | 14796分析、14818复选框要求独立 taskRows；当前协议2卡片有 currentJobs，按契约不同时生成旧任务卡。14869仅隐藏无可操作标识的旧 UI 行，不是文件删除；当前没有该对象，已纠正原先“必须确认删除”的理由。 |
+| 旧本机调度条件，2处 | 15767、16346要求活动运行记录且 reconcileEvidenceActive!==false；当前协议2提交进度明确设为false，不启用这两个入口。协议2实际停止已有精确任务/PLAN实测。 |
+| 渲染异常回退，3处 | 5502仅区域渲染失败时出现；16759的两个日志入口仅在日志渲染抛错的 catch 分支出现。当前源码面板 ready、sectionFailures=[]，未注入前端异常。 |
+| 特定训练错误，1处 | 15536只处理 failed 且原错误含 Validation-only tuning cannot access test patients；退出7任务已预览的普通重跑按钮是15534，不能混记。 |
+| 产物隔离待审核，1处 | 15542要求 outputIsolationBlocked、pending、未绑定 Worker/commandId 的真实冲突；当前正常任务无该状态。 |
+| 代码阻塞与普通错误，2处 | 15611要求 queued且code-sync proof错误；15615要求错误且没有更具体重试/失败召回入口。当前未出现，不破坏同步或版本来造状态。 |
+| 等待/恢复提交，3处 | 15643要求 waitingSubmission/deferredCurrent；16327的两个入口要求恢复上下文保存后的 retryableSubmission 失败。缺入口/无效配置软件控制均在此前被拒绝，不能冒充可恢复提交。 |
+| 独立操作错误块，4处 | 16645、16648、16649、16650要求 scheduler/program/独立结构化错误块；真实普通失败摘要和 running 证据告警不等同此分支。 |
+| 非空请求日志，2处 | 16752的两个入口要求请求回执自身的日志尾部。协议2任务日志按原命令主动读取，不往提交回执塞入原始日志。空回执日志入口已另行实点。 |
+| 能力或隧道/token错误，2处 | 18093、18094要求对应分类错误行；本轮“检测全部”实点返回真实 agent_project_mismatch，未关闭隧道、改 token 或伪造能力。 |
+
+上述错误/等待条件合计18处，均保留未测；没有把单测、相同命令的另一按钮或未出现的控件记成实点通过。
+
+### 验证及保留状态
+
+- 映射保存不重排回归先失败：2026-11-15T20-30-18-626Z-42728-test；修复后 datasetResultCatalog 的9项通过，20-32-18-112Z-88036-test，exit0。
+- 映射主体完整回归：2026-11-15T20-32-49-591Z-34204-check_full，330作业、10门禁通过，exit0，835594ms，输入起止一致，串行、锁正常释放。
+- 表单和停止预览修正后的 npm run build：2026-11-15T20-47-35-038Z-52332-build，286作业、10门禁通过，exit0，706771ms。不是打包命令，没有安装。
+- 最后补验发现名称冲突仍写设置：21-00-07-301Z-3148-test 真实失败。仅调整映射配置提交顺序，21-00-50-324Z-8488-test 的 datasetResultCatalog、panelResultCatalogCache、panelWebviewScriptHealth 三套件全部通过，exit0，17400ms。最终证据为前述完整覆盖加末次受影响补跑，没有改写旧回归输入或宣称最后又跑了330项。独立 vm.Script、语法和10890门禁通过。
+- 最终源宿主关闭，原生 MCP 回到唯一 Generic 窗口，仍为512；同项目两个窗口同时存在时会明确拒绝未绑定实例的调用，指定真实 PID:startedAt 的 SDK 连接成功，没有改全局 MCP 配置。原 Generic Untitled 和 MultiModal 未保存 final.md 保留。
+- 按既有授权只切换指定 Agent 窗口：MM@39关闭，Generic512@40准备成功，Scheduler@6保留；补测后关闭@40，MM512@42恢复，mcp-8ded7c80-b47e-4d0b-9f92-2c9089446ffe succeeded，两个 runtime 哈希未变。没有升级 Agent 字节、清队列或重放任务。
+- 原 Generic 成功命令仍 verified/exit0，verifiedAt=2026-11-11T21:39:45.642Z；原MM命令仍 verified/exit0，verifiedAt=2026-11-11T10:28:00.155Z。本轮MM复查日志过期显示query_state=unknown，未冒充新日志检查通过，也没有撤销完成事实。原退出7失败记录保留，软件异常控制没有作为科研成功证据。
+
+## 上一批记录
+
 2026-11-16本批继续实点，保持安装版/MCP为0.5.512，未递增、组装、发行或安装。新软件控制均单seed42，无科研结论。把扫描目录临时限制为两个独立PLAN后，实点“运行全部计划”，两个原命令1f712e9a08a886eee89a430c2b525457、09129d08aa4985fa4b8a71ee3f94faaa均completed/verified/exit0；收集batch_a请求mcp-b966239d-3593-4ed6-9b40-ddea6fc2b1de实际succeeded，指标entry_control=1来自声明CSV，仅内存读取。缺失入口、无效配置和畸形JSON控制均真实失败，不冒充成功或生成提交重试状态。
 
 本批修复四项：保存planDir后目录/监听器未刷新；仅含一个项目文件夹的工作区仍忽略该文件夹的PLAN/结果目录设置；用户取消被渲染为红色错误及未知原因建议；原始结果内存查看创建脏Untitled文档。前两项统一刷新目录、监听器及公开plans.list，并按实际项目URI读取资源设置；取消记录保留为普通记录；两个原始结果查看入口共用只读虚拟文档，关闭时释放内存内容。开发宿主实测7个临时PLAN、新增监听探针立即发现、恢复默认目录后13个原PLAN正确出现。真实取消记录灰色显示，真实错误仍为红色。畸形JSON查看经原确认后打开metrics_bad.json预览，输入被VSCode明确拒绝“无法在只读编辑器中编辑”，内容未变、未新增待保存文件，关闭无保存提示；原窗口旧Untitled和MultiModal未保存final.md未动。查看提示文案统一说明临时读取、不保存原始文件。

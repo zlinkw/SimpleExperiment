@@ -346,6 +346,19 @@ export function readCsv(text: string, delimiter = ","): { header: string[]; rows
 }
 
 export type ResultTable = { header: string[]; rows: (string | number)[][]; markdown: string };
+export function resultTableMarkdown(header: string[], rows: (string | number)[][]): string {
+  const columns = header.filter(field => !field.endsWith("_sd"));
+  const cells = rows.map(row => columns.map(field => {
+    const value = row[header.indexOf(field)];
+    if (field.endsWith("_mean")) {
+      const sd = row[header.indexOf(field.slice(0, -5) + "_sd")];
+      return value === "" ? "—" : Number(value).toFixed(4) + (sd === "" || sd === undefined ? "" : " ± " + Number(sd).toFixed(4));
+    }
+    return String(value).replace(/\|/g, "\\|");
+  }));
+  return "| " + columns.join(" | ") + " |\n| " + columns.map(() => "---").join(" | ") + " |\n"
+    + cells.map(row => "| " + row.join(" | ") + " |").join("\n") + "\n";
+}
 const METRIC_EQUIVALENCE_GROUPS: Record<string, string[]> = {
   AUC: ["auc", "auroc", "roc_auc"],
   AP: ["ap", "average_precision"],
@@ -473,16 +486,7 @@ function buildDatasetTables(registry: TableRegistry, options: { partial?: boolea
       }
       return row;
     });
-    const mdHeader = header.filter((field) => !field.endsWith("_sd"));
-    const mdRows = rows.map((row) => mdHeader.map((field) => {
-      const index = header.indexOf(field);
-      if (field.endsWith("_mean")) {
-        const mean = row[index], sd = row[header.indexOf(field.slice(0, -5) + "_sd")];
-        return mean === "" ? "—" : Number(mean).toFixed(4) + (sd === "" ? "" : " ± " + Number(sd).toFixed(4));
-      }
-      return String(row[index]).replace(/\|/g, "\\|");
-    }));
-    const markdown = "| " + mdHeader.join(" | ") + " |\n| " + mdHeader.map(() => "---").join(" | ") + " |\n" + mdRows.map((row) => "| " + row.join(" | ") + " |").join("\n") + "\n";
+    const markdown = resultTableMarkdown(header, rows);
     return { header, rows, markdown };
   };
   const out: Record<string, ResultTable> = {};

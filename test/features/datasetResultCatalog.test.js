@@ -64,10 +64,44 @@ test('manual dataset mapping is workspace scoped and applies only to unassigned 
   h.loadProjectTableRegistry=RealtimeTunnelPanelProvider.prototype.loadProjectTableRegistry;
   const original=f.storage.get('w1').get(p.jobs[0].result_csv);await h.applyPlanDatasetMappingFromUi({mappings:{[p.planFile]:'PAD'}});
   assert.equal(savedRules.planDatasetMapping[p.planFile].datasets[0],'PAD');
+  assert.equal((await f.catalog()).unassignedPlans.length,0,'applying the mapping reorganizes the saved export immediately');
+  assert.match(f.read('PAD/final/final.csv'),/PAD/);
   f.rules.planDatasetMapping=savedRules.planDatasetMapping;await f.update();
   assert.equal((await f.catalog()).unassignedPlans.length,0);assert.match(f.read('PAD/final/final.csv'),/PAD/);
   assert.deepEqual(f.storage.get('w1').get(p.jobs[0].result_csv),original);
   await assert.rejects(h.applyPlanDatasetMappingFromUi({mappings:{[p.planFile]:'BUS'}}),/不能通过人工映射覆盖/);
+});
+
+test('local dataset mapping merges aggregate schemas and preserves review, provenance and source evidence without querying',async()=>{
+  const f=scenario(),a=f.addPlan('experiments/plans/unassigned.yaml',{seeds:[42,43]}),b=f.addPlan('experiments/plans/labelled.yaml',{seeds:[42]});
+  f.put(a,0,{dataset:'',metric:.7});f.put(a,1,{dataset:'',metric:.9});
+  f.put(b,0,{dataset:'PAD',text:'case,seed,method,dataset,split,metric,value\nalpha,42,method,PAD,test,accuracy,0.5\n'});
+  const review=f.addPlan('experiments/plans/review.yaml',{seeds:[42]});f.put(review,0,{dataset:'',outcome:'failed',exitCode:7});
+  await f.update();const before=f.snapshot();f.calls.length=0;
+  await exportsApi.mapLatestResultDatasets(f.root,'artifacts/results',{[a.planFile]:'PAD',[review.planFile]:'PAD'});
+  const after=f.snapshot();assert.deepEqual(after.jobs,before.jobs);assert.equal(after.observedAt,before.observedAt);assert.deepEqual(f.calls,[]);
+  const final=after.tables.find(t=>t.tableKey==='PAD/final');assert.equal(final.rows.length,2);
+  const row=final.rows.find(r=>r[final.header.indexOf('plan_file')]===a.planFile);
+  assert.equal(row[final.header.indexOf('roc_auc_mean')],.8);assert.ok(Math.abs(row[final.header.indexOf('roc_auc_sd')] - Math.sqrt(.02))<1e-12);
+  assert.equal(row[final.header.indexOf('split')],'');assert.equal(row[final.header.indexOf('accuracy_mean')],'');
+  assert.match(final.markdown,/0.8000 ± 0.1414/);assert.ok(after.tables.find(t=>t.tableKey==='review/PAD/final').markdown.startsWith('> 待复核结果'));
+  assert.equal((await f.catalog()).unassignedPlans.length,0);
+  await assert.rejects(exportsApi.mapLatestResultDatasets(f.root,'artifacts/results',{[b.planFile]:'BUS'}),/不能通过人工映射覆盖/);
+  assert.deepEqual(f.snapshot(),after);
+});
+
+test('a Plan with any trusted dataset is excluded from manual mapping and dataset directory collisions reject before publishing',async()=>{
+  const f=scenario(),p=f.addPlan(undefined,{seeds:[42],cases:['known','blank']});
+  f.put(p,0,{dataset:'known'});f.put(p,1,{dataset:''});await f.update();
+  assert.equal((await f.catalog()).unassignedPlans.length,0);
+  const a=f.addPlan('experiments/plans/a.yaml',{seeds:[42]}),b=f.addPlan('experiments/plans/b.yaml',{seeds:[42]});
+  f.put(a,0,{dataset:''});f.put(b,0,{dataset:'A B'});await f.update();const before=f.snapshot();
+  await assert.rejects(exportsApi.mapLatestResultDatasets(f.root,'artifacts/results',{[a.planFile]:'A_B'}),/同一目录/);
+  assert.deepEqual(f.snapshot(),before);
+  savedRules={};const h=Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype),f.host);
+  await assert.rejects(h.applyPlanDatasetMappingFromUi({mappings:{[a.planFile]:'A_B'}}),/同一目录/);
+  assert.deepEqual(savedRules,{},'a rejected dataset collision must not persist a conflicting mapping');
+  assert.deepEqual(f.snapshot(),before);
 });
 
 test('result catalog stays within dataset, plan, table and artifact response limits at stress scale', (t) => {

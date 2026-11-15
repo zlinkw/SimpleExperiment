@@ -1452,28 +1452,32 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1432,
       "status": "not_tested",
-      "evidence": "Xshell terminal UI automation is prohibited by the current Computer Use policy; background tunnels are separately verified.",
+      "evidence": "Computer Use 技能禁止操作 Xshell 等终端应用；后台隧道已另行实测。本入口需本人打开终端，AI 不通过其他 UI 绕过。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7116
         }
-      ]
+      ],
+      "acceptanceClass": "requires_human",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "publishGithub",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 1434,
       "status": "not_tested",
-      "evidence": "Consumer GitHub publication has no approved GitHub target; no new repository is created.",
+      "evidence": "消费项目没有已批准的 GitHub 发布仓库；插件自身既有更新源的发行授权不能扩展到消费项目。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7348
         }
-      ]
+      ],
+      "acceptanceClass": "requires_external",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "testAll",
@@ -1904,7 +1908,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 3609,
       "status": "not_tested",
-      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
+      "evidence": "选择器、事件或状态恢复引用，不生成独立控件；保留兼容代码，不计当前可点击入口分母。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1912,14 +1916,16 @@
           "line": 7321
         }
       ],
-      "entryKind": "selector_reference"
+      "entryKind": "selector_reference",
+      "acceptanceClass": "selector_reference",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 4451,
       "status": "not_tested",
-      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
+      "evidence": "选择器、事件或状态恢复引用，不生成独立控件；保留兼容代码，不计当前可点击入口分母。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -1927,7 +1933,9 @@
           "line": 7321
         }
       ],
-      "entryKind": "selector_reference"
+      "entryKind": "selector_reference",
+      "acceptanceClass": "selector_reference",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "openBranchProject",
@@ -1976,28 +1984,32 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5057,
       "status": "not_tested",
-      "evidence": "2026-11-15 source devhost: actual branch-row button clicked. Native notification refused PR because registered ancestor remote binding is missing. Read-only Git: fixture has a local-only origin, not an authorized GitHub target. No push or PR performed; full effect remains not tested, not counted as passed.",
+      "evidence": "创建/合并 PR 的真实按钮已各点一次，均在写入前拒绝：登记祖先缺少 GitHub remote 绑定，现有 origin 只是本机验收裸仓库。缺少真实批准仓库，未创建或合并 PR，不计全流程通过。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7266
         }
-      ]
+      ],
+      "acceptanceClass": "requires_external",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "mergeBranchPr",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5057,
       "status": "not_tested",
-      "evidence": "2026-11-15 source devhost: actual branch-row button clicked. Native notification refused PR because registered ancestor remote binding is missing. Read-only Git: fixture has a local-only origin, not an authorized GitHub target. No push or PR performed; full effect remains not tested, not counted as passed.",
+      "evidence": "创建/合并 PR 的真实按钮已各点一次，均在写入前拒绝：登记祖先缺少 GitHub remote 绑定，现有 origin 只是本机验收裸仓库。缺少真实批准仓库，未创建或合并 PR，不计全流程通过。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7269
         }
-      ]
+      ],
+      "acceptanceClass": "requires_external",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "forgetBranchProject",
@@ -2018,56 +2030,64 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5079,
       "status": "not_tested",
-      "evidence": "The registered branch has no selected authorized experiment PLAN; no branch training is submitted just to expose this entry.",
+      "evidence": "登记的 Git 专用分支工作树没有实验 PLAN、Worker 项目授权及远端项目目标；原项目授权不能扩展到该工作树，未提交分支实验。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7245
         }
-      ]
+      ],
+      "acceptanceClass": "requires_external",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "verifyBranchHeadBinding",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5122,
       "status": "not_tested",
-      "evidence": "No branch execution binding exists for this dedicated Git-only worktree; do not invent a successful job.",
+      "evidence": "Git 专用分支没有真实实验提交/HEAD 绑定，无法核验运行来源；未将本机 Git HEAD 冒充实验绑定。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7251
         }
-      ]
+      ],
+      "acceptanceClass": "requires_external",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5239,
       "status": "not_tested",
-      "evidence": "Current source has only textarea[data-plan-preview] queries and no producer of that textarea; this compatibility markup is not generated in the current panel. Existing openPlan API retained.",
+      "evidence": "当前源码仅查询 textarea[data-plan-preview]，没有生成该 textarea 的路径；保留 openPlan API，未伪造 DOM。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7186
         }
-      ]
+      ],
+      "acceptanceClass": "compatibility_no_current_producer",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "reloadPanel",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5502,
       "status": "not_tested",
-      "evidence": "This button is generated only after a section-render failure. Current diagnostics has zero sectionFailures; normal-condition acceptance does not inject a render error.",
+      "evidence": "仅 section-render failure 时出现；源码开发宿主 panel_diagnostics 实际 ready、sectionFailures=[]。正常条件验收不注入渲染异常。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 6997
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "openSetupGuide",
@@ -2229,28 +2249,32 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 9995,
       "status": "not_tested",
-      "evidence": "Path-consent records are security-related settings; AI did not reset human confirmations.",
+      "evidence": "清除路径授权/确认历史属于应用安全设置；Computer Use 技能禁止 AI 修改。需本人操作，本轮未重置任何确认记录。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7378
         }
-      ]
+      ],
+      "acceptanceClass": "requires_human",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "resetPptPathConfirmations",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 10005,
       "status": "not_tested",
-      "evidence": "PPT path-consent reset is not automated; no human confirmation history changed.",
+      "evidence": "清除路径授权/确认历史属于应用安全设置；Computer Use 技能禁止 AI 修改。需本人操作，本轮未重置任何确认记录。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7381
         }
-      ]
+      ],
+      "acceptanceClass": "requires_human",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "configureWorkers",
@@ -2418,7 +2442,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 10203,
       "status": "not_tested",
-      "evidence": "Installed508 is newer than official483. No eligible official update is offered and no downgrade/redundant install is forced.",
+      "evidence": "本人明确要求暂不升级 MCP 和插件；已安装 SimpleExperiment0.5.512/SimpleSFTP0.2.120，无本轮允许执行的更新目标，未安装或降级。",
       "handlers": [
         {
           "function": "invokeApi",
@@ -2430,21 +2454,25 @@
           "source": "src/extension/legacy.ts",
           "line": 7295
         }
-      ]
+      ],
+      "acceptanceClass": "deferred_by_user",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "saveRemoteRootPolicy",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 10243,
       "status": "not_tested",
-      "evidence": "Remote allowed/denied root policy is an app security setting; AI did not alter it.",
+      "evidence": "服务器允许/禁止根目录属于应用安全设置；Computer Use 技能禁止 AI 修改。需本人核对并保存，本轮未改安全根。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7290
         }
-      ]
+      ],
+      "acceptanceClass": "requires_human",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "chooseResultCsvDir",
@@ -2633,7 +2661,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 11185,
       "status": "not_tested",
-      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
+      "evidence": "选择器、事件或状态恢复引用，不生成独立控件；保留兼容代码，不计当前可点击入口分母。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2641,7 +2669,9 @@
           "line": 7192
         }
       ],
-      "entryKind": "selector_reference"
+      "entryKind": "selector_reference",
+      "acceptanceClass": "selector_reference",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "generateOutputAdapter",
@@ -2756,7 +2786,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 14796,
       "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "evidence": "renderTaskCard 的分析和复选框要求独立 taskRows，且分析须有 commandId/serverId/artifactPath；当前协议2运行卡已有 currentJobs，按契约不同时渲染旧任务卡。未制造旧任务。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2768,35 +2798,41 @@
           "source": "src/extension/legacy.ts",
           "line": 7529
         }
-      ]
+      ],
+      "acceptanceClass": "requires_task_card_object",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 14818,
       "status": "not_tested",
-      "evidence": "Current protocol2 execution cards use per-job selection controls. This alternate task-card checkbox requires a real legacy/task row, which was not fabricated.",
+      "evidence": "renderTaskCard 的分析和复选框要求独立 taskRows，且分析须有 commandId/serverId/artifactPath；当前协议2运行卡已有 currentJobs，按契约不同时渲染旧任务卡。未制造旧任务。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7321
         }
-      ]
+      ],
+      "acceptanceClass": "requires_task_card_object",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "clearLegacyTasks",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 14869,
       "status": "not_tested",
-      "evidence": "History/legacy-record removal not executed without an exact confirmed target; original operation and artifact ownership evidence retained.",
+      "evidence": "该入口仅隐藏没有可操作标识的旧任务 UI 记录，不删除文件；当前没有符合条件的旧任务行。原先“必须确认删除”理由不准确，已更正；未伪造无标识任务。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7324
         }
-      ]
+      ],
+      "acceptanceClass": "requires_task_card_object",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "selectLogRunKey",
@@ -2955,7 +2991,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15536,
       "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "evidence": "这是第二个训练恢复分支，要求 failed 且原错误含 Validation-only tuning cannot access test patients。协议2退出7任务的“重跑此 job”是15534的另一入口，已有双页预览证据，不能误计到本行。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2967,7 +3003,9 @@
           "source": "src/extension/legacy.ts",
           "line": 7517
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "recallPlanToLocalQueue",
@@ -2988,7 +3026,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15542,
       "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "evidence": "要求 outputIsolationBlocked、pending、未绑定 Worker/commandId 的真实旧产物冲突。当前正常任务无此状态；覆盖/删除不能由 AI 制造并代确认。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3000,7 +3038,9 @@
           "source": "src/extension/legacy.ts",
           "line": 7513
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "recallFailedJob",
@@ -3040,21 +3080,23 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15591,
       "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "evidence": "当前仅启用 rjj8，没有 Worker 间实际传输的双暂存槽占用和 releaseCandidate + stageBlockReleaseCapable 证明；不启用其他 Worker 或制造锁，且释放真实文件仍须精确路径确认。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7404
         }
-      ]
+      ],
+      "acceptanceClass": "requires_external",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "retryDistributedJob",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15595,
-      "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "status": "preview_passed",
+      "evidence": "2026-11-16 独立软件控制 remaining_runtime_anomaly_512.yaml、seed42 在 rjj8 正常运行，原 commandId fa313499af4324cdbca14c74d039150a 实际退出0、声明产物完整，test 阶段捕获的真实 RuntimeError 被完整日志扫描检出1次，completionState=review_required。源码宿主实点“覆盖产物并重跑此 job”，首个审核页列明该 job 精确远端目录；点击取消，原生通知“未删除文件，未重新排队”，主动查询仍为同一原命令且只有1批。仅记预览，未代本人确认删除或覆盖。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3066,43 +3108,51 @@
           "source": "src/extension/legacy.ts",
           "line": 7517
         }
-      ]
+      ],
+      "acceptanceClass": "preview_requires_confirmation",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15611,
       "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "evidence": "要求服务器已排队任务报 code-sync proof 校验阻塞。正常512 Agent/Scheduler与代码核验没有该状态；未改 runtime 版本或破坏代码同步。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7146
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15615,
       "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "evidence": "要求 job 有错误且没有重试说明/不可用标记/失败召回等更具体恢复入口；实际退出7控制走精确失败恢复分支，不能据共享命令冒充此入口已点。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7146
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "runPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15643,
       "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
-      "handlers": []
+      "evidence": "要求等待提交或 deferredCurrent 组；当前正常提交已进入服务器/终态，没有这项前序版本等待。未恢复源码冻结或制造旧队列。",
+      "handlers": [],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "stopAndClearPlan",
@@ -3277,21 +3327,23 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15767,
       "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "evidence": "中止入口要求活动运行记录且 reconcileEvidenceActive !== false；当前协议2 beginPlanSubmissionProgress 明确设为 false，不启用这两个旧本机调度入口。真正运行中的协议2任务使用已实测的精确任务/PLAN停止；未把旧 running 回执改成活动状态。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7418
         }
-      ]
+      ],
+      "acceptanceClass": "requires_legacy_local_scheduler",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16167,
       "status": "not_tested",
-      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
+      "evidence": "选择器、事件或状态恢复引用，不生成独立控件；保留兼容代码，不计当前可点击入口分母。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3299,14 +3351,16 @@
           "line": 7321
         }
       ],
-      "entryKind": "selector_reference"
+      "entryKind": "selector_reference",
+      "acceptanceClass": "selector_reference",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16204,
       "status": "not_tested",
-      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
+      "evidence": "选择器、事件或状态恢复引用，不生成独立控件；保留兼容代码，不计当前可点击入口分母。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3314,35 +3368,41 @@
           "line": 7321
         }
       ],
-      "entryKind": "selector_reference"
+      "entryKind": "selector_reference",
+      "acceptanceClass": "selector_reference",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "retryPlanSubmission",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16327,
       "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "evidence": "两个入口只在 finishDistributedPlanSubmission 保存恢复上下文后的失败设置 retryableSubmission 时出现。缺失Python入口与无效配置控制在此前被明确拒绝，不会生成它们；当前没有此类可重试提交，不改历史回执伪造。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 6876
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "cancelPlanSubmission",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16327,
       "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "evidence": "两个入口只在 finishDistributedPlanSubmission 保存恢复上下文后的失败设置 retryableSubmission 时出现。缺失Python入口与无效配置控制在此前被明确拒绝，不会生成它们；当前没有此类可重试提交，不改历史回执伪造。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 6877
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "clearOperations",
@@ -3363,28 +3423,32 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16346,
       "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "evidence": "中止入口要求活动运行记录且 reconcileEvidenceActive !== false；当前协议2 beginPlanSubmissionProgress 明确设为 false，不启用这两个旧本机调度入口。真正运行中的协议2任务使用已实测的精确任务/PLAN停止；未把旧 running 回执改成活动状态。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7418
         }
-      ]
+      ],
+      "acceptanceClass": "requires_legacy_local_scheduler",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "stopAndClearPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16630,
-      "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "status": "preview_passed",
+      "evidence": "2026-11-16 原Generic512窗口：执行中筛选定位 plan-submit-workflow-run-1794756430503-v2qp14，实点远端证据告警的“终止并清除该 Plan”。首个预览列明 daily_stop_510 的5条本机进度和1条分布式调度；Escape 后原生通知 confirm-cancelled，队列和进度均未改。只计预览，不执行已有成功记录的清除。另修复已完成job被误写为“将取消排队”的预览文案。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7332
         }
-      ]
+      ],
+      "acceptanceClass": "preview_requires_confirmation",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "snapshot",
@@ -3433,56 +3497,64 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16645,
       "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "evidence": "operationEvidenceNextActions 只在请求含独立 scheduler/program/结构化错误块时渲染；当前真实请求是普通失败摘要或 running 证据告警，后者的刷新/日志/停止预览另有独立证据，未把不同来源按钮混计。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7332
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16648,
       "status": "not_tested",
-      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
+      "evidence": "operationEvidenceNextActions 只在请求含独立 scheduler/program/结构化错误块时渲染；当前真实请求是普通失败摘要或 running 证据告警，后者的刷新/日志/停止预览另有独立证据，未把不同来源按钮混计。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7146
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "showLogHistory",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16649,
       "status": "not_tested",
-      "evidence": "This alternate row is conditional on stale/error/nonempty log evidence. Current empty-request branch is clicked separately; no fabricated operation/log source is inserted.",
+      "evidence": "operationEvidenceNextActions 只在请求含独立 scheduler/program/结构化错误块时渲染；当前真实请求是普通失败摘要或 running 证据告警，后者的刷新/日志/停止预览另有独立证据，未把不同来源按钮混计。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7440
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "openFullLog",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16650,
       "status": "not_tested",
-      "evidence": "This alternate row is conditional on stale/error/nonempty log evidence. Current empty-request branch is clicked separately; no fabricated operation/log source is inserted.",
+      "evidence": "operationEvidenceNextActions 只在请求含独立 scheduler/program/结构化错误块时渲染；当前真实请求是普通失败摘要或 running 证据告警，后者的刷新/日志/停止预览另有独立证据，未把不同来源按钮混计。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7443
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "showLogHistory",
@@ -3517,56 +3589,64 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16752,
       "status": "not_tested",
-      "evidence": "This alternate row is conditional on stale/error/nonempty log evidence. Current empty-request branch is clicked separately; no fabricated operation/log source is inserted.",
+      "evidence": "非空请求日志尾部分支；当前正式协议2任务日志通过 task_analyze/TMUX 主动读取，不作为本机提交回执的 logTail 缓存。空请求日志两个入口已另行实点，未往回执塞入伪造日志。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7440
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "openFullLog",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16752,
       "status": "not_tested",
-      "evidence": "This alternate row is conditional on stale/error/nonempty log evidence. Current empty-request branch is clicked separately; no fabricated operation/log source is inserted.",
+      "evidence": "非空请求日志尾部分支；当前正式协议2任务日志通过 task_analyze/TMUX 主动读取，不作为本机提交回执的 logTail 缓存。空请求日志两个入口已另行实点，未往回执塞入伪造日志。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7443
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "showLogHistory",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16759,
       "status": "not_tested",
-      "evidence": "This alternate row is conditional on stale/error/nonempty log evidence. Current empty-request branch is clicked separately; no fabricated operation/log source is inserted.",
+      "evidence": "仅日志渲染 JavaScript 抛错的 catch 回退分支；当前实际渲染无 section failure。按本轮正常条件范围不注入前端异常。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7440
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "openFullLog",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16759,
       "status": "not_tested",
-      "evidence": "This alternate row is conditional on stale/error/nonempty log evidence. Current empty-request branch is clicked separately; no fabricated operation/log source is inserted.",
+      "evidence": "仅日志渲染 JavaScript 抛错的 catch 回退分支；当前实际渲染无 section failure。按本轮正常条件范围不注入前端异常。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7443
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "downloadRemoteResult",
@@ -3634,21 +3714,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16936,
       "status": "not_tested",
-      "evidence": "External rough-ppt-addin is not configured; no PowerPoint target or plugin was invented/installed.",
-      "handlers": [
-        {
-          "function": "handleMessageCore",
-          "source": "src/extension/legacy.ts",
-          "line": 7309
-        }
-      ]
-    },
-    {
-      "command": "plotResultsToPpt",
-      "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16943,
-      "status": "not_tested",
-      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
+      "evidence": "缺少 rough-ppt-addin 的真实可用连接和本人指定的 PowerPoint 目标，未安装外部插件或虚构绘图结果。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3656,7 +3722,25 @@
           "line": 7309
         }
       ],
-      "entryKind": "selector_reference"
+      "acceptanceClass": "requires_external",
+      "reviewedAt": "2026-11-16"
+    },
+    {
+      "command": "plotResultsToPpt",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16943,
+      "status": "not_tested",
+      "evidence": "选择器、事件或状态恢复引用，不生成独立控件；保留兼容代码，不计当前可点击入口分母。",
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7309
+        }
+      ],
+      "entryKind": "selector_reference",
+      "acceptanceClass": "selector_reference",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "openLocalResultTable",
@@ -3691,14 +3775,16 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 17198,
       "status": "not_tested",
-      "evidence": "Raw/detail/trace artifact subgroup has no current Generic catalog entry. Existing CSV/Markdown export table openers were independently clicked.",
+      "evidence": "当前 latestResultCatalog 只从 active_query 导出构造表格，plans.artifacts 恒为空；此 raw/detail/trace 文件分组无当前生产方。真实 CSV/Markdown 表格入口已另行实点。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7409
         }
-      ]
+      ],
+      "acceptanceClass": "compatibility_no_current_producer",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "autoMatchPlanDatasets",
@@ -3718,15 +3804,17 @@
       "command": "applyPlanDatasetMapping",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 17216,
-      "status": "not_tested",
-      "evidence": "The current Generic dataset-mapping selector has no real target dataset metadata. Existing successful PLAN/revision/results are not relabeled for acceptance.",
+      "status": "clicked_passed",
+      "evidence": "2026-11-16 源码开发宿主实际输入自定义 software_acceptance_only，仅勾选 daily_stop_510 软件控制PLAN后点击应用。成功通知；未标注PLAN5→4，新数据集总表/方法表立即出现；CSV实点打开正确本机路径，control_completed=1，原 commandId d4b3aee99fc203598f265046c6407f01、观测时间2026-11-15T17:07:09.918Z与来源不变。没有新训练、远端读取、原始指标落盘或科研结果重标。修复保存映射不重排和全部未标注时无法输入新名称。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7281
         }
-      ]
+      ],
+      "acceptanceClass": "normal_clicked",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "syncPendingPlanArtifacts",
@@ -3775,14 +3863,16 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 17413,
       "status": "not_tested",
-      "evidence": "No current result-summary file button has a freshly validated remote summary while Agent is unavailable. Remote declared artifacts were queried read-only via SFTP.",
+      "evidence": "此 resultFileButton 依赖旧 previewCsvPath/effectiveResultsCsvPath 等分析文件；当前 ResultCollectionHost 报告不生成这些字段。声明结果下载和只读内存预览另有已实点入口；未伪造旧摘要文件。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7390
         }
-      ]
+      ],
+      "acceptanceClass": "compatibility_no_current_producer",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "saveResultColumnMapping",
@@ -3803,14 +3893,16 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 17768,
       "status": "not_tested",
-      "evidence": "External rough-ppt-addin is not configured; this alternate PPT menu entry remains untested.",
+      "evidence": "缺少 rough-ppt-addin 的真实可用连接和本人指定的 PowerPoint 目标，未安装外部插件或虚构绘图结果。",
       "handlers": [
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7309
         }
-      ]
+      ],
+      "acceptanceClass": "requires_external",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "snapshot",
@@ -3831,7 +3923,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 18093,
       "status": "not_tested",
-      "evidence": "No current capability-classified error row renders this testAll variant; no artificial error record was injected.",
+      "evidence": "仅 capability 分类错误行提供该检测按钮；当前配套能力已满足，未禁用或伪造接口能力。",
       "handlers": [
         {
           "function": "invokeApi",
@@ -3843,14 +3935,16 @@
           "source": "src/extension/legacy.ts",
           "line": 7122
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "testAll",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 18094,
       "status": "not_tested",
-      "evidence": "Current retained errors classify as unknown/version-hold rather than a tunnel/token error row; this conditional testAll variant remains untested.",
+      "evidence": "仅 tunnel/token 分类错误行提供该检测按钮。本轮运行环境“检测全部”实际报告 agent_project_mismatch，近期错误行仍是其他类型；不关闭隧道、不改 token 或插入错误记录来制造按钮。",
       "handlers": [
         {
           "function": "invokeApi",
@@ -3862,23 +3956,27 @@
           "source": "src/extension/legacy.ts",
           "line": 7122
         }
-      ]
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "runPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 19141,
       "status": "not_tested",
-      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
+      "evidence": "选择器、事件或状态恢复引用，不生成独立控件；保留兼容代码，不计当前可点击入口分母。",
       "handlers": [],
-      "entryKind": "selector_reference"
+      "entryKind": "selector_reference",
+      "acceptanceClass": "selector_reference",
+      "reviewedAt": "2026-11-16"
     },
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 19230,
       "status": "not_tested",
-      "evidence": "Existing selector/event/persistence reference, not a generated control; excluded from actual reachable-entry denominator. Corresponding real controls retain their separate entries.",
+      "evidence": "选择器、事件或状态恢复引用，不生成独立控件；保留兼容代码，不计当前可点击入口分母。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3886,7 +3984,9 @@
           "line": 7321
         }
       ],
-      "entryKind": "selector_reference"
+      "entryKind": "selector_reference",
+      "acceptanceClass": "selector_reference",
+      "reviewedAt": "2026-11-16"
     }
   ],
   "dynamicControls": {
@@ -4983,6 +5083,30 @@
         "version": "0.5.512",
         "observedAt": "2026-11-15T19:14:00Z",
         "evidence": "No version update/package/install. Source devhost verified project-scoped plan/result directories, new-dir file watcher7 PLANs and restored default13, neutral user cancellation and read-only metric document without new dirty buffer. 330-job final regression18-58-55-936Z-13460-check_full passed; later preview wording-only3 suites19-14-09-705Z-83092-test passed. Generic Agent@34 precisely closed, MM512@39 restored via mcp-217ff986-70d5-4814-ab14-bb838ff4eb2b, Generic Scheduler@6 retained. Both original completion proof times unchanged. Personal deletion/security/external/conditional branches remain untested."
+      },
+      {
+        "control": "local dataset mapping immediate repartition and custom name",
+        "status": "clicked_passed",
+        "version": "0.5.512",
+        "evidence": "2026-11-16 源码开发宿主实际输入自定义 software_acceptance_only，仅勾选 daily_stop_510 软件控制PLAN后点击应用。成功通知；未标注PLAN5→4，新数据集总表/方法表立即出现；CSV实点打开正确本机路径，control_completed=1，原 commandId d4b3aee99fc203598f265046c6407f01、观测时间2026-11-15T17:07:09.918Z与来源不变。没有新训练、远端读取、原始指标落盘或科研结果重标。修复保存映射不重排和全部未标注时无法输入新名称。"
+      },
+      {
+        "control": "running evidence warning exact stop-clear scope",
+        "status": "preview_passed",
+        "version": "0.5.512",
+        "evidence": "2026-11-16 原Generic512窗口：执行中筛选定位 plan-submit-workflow-run-1794756430503-v2qp14，实点远端证据告警的“终止并清除该 Plan”。首个预览列明 daily_stop_510 的5条本机进度和1条分布式调度；Escape 后原生通知 confirm-cancelled，队列和进度均未改。只计预览，不执行已有成功记录的清除。另修复已完成job被误写为“将取消排队”的预览文案。"
+      },
+      {
+        "control": "handled runtime anomaly precise overwrite review",
+        "status": "preview_passed",
+        "version": "0.5.512",
+        "evidence": "2026-11-16 独立软件控制 remaining_runtime_anomaly_512.yaml、seed42 在 rjj8 正常运行，原 commandId fa313499af4324cdbca14c74d039150a 实际退出0、声明产物完整，test 阶段捕获的真实 RuntimeError 被完整日志扫描检出1次，completionState=review_required。源码宿主实点“覆盖产物并重跑此 job”，首个审核页列明该 job 精确远端目录；点击取消，原生通知“未删除文件，未重新排队”，主动查询仍为同一原命令且只有1批。仅记预览，未代本人确认删除或覆盖。"
+      },
+      {
+        "control": "same-project dual instance guard and explicit instance binding",
+        "status": "clicked_passed",
+        "version": "0.5.512",
+        "evidence": "原窗口与源码宿主同时存在时，未指定实例的原生 MCP 明确拒绝，不按启动时间猜测。官方SDK用真实 PID:startedAt 绑定对应宿主成功；关闭源码宿主后原生 MCP 自动命中唯一原项目实例。没有改全局 MCP 配置。"
       }
     ]
   },
@@ -7503,5 +7627,331 @@
       }
     ],
     "note": "Live directory only; safe/confirm metadata does not grant authorization. Actions without named tools retain their existing UI; they are not claimed as unattended MCP coverage."
+  },
+  "remainingEntryReview": {
+    "observedAt": "2026-11-16",
+    "requestedSourceOccurrences": 50,
+    "newlyClickedPassed": 1,
+    "newlyPreviewPassed": 2,
+    "notTested": 47,
+    "remainingByClass": {
+      "requires_human": 4,
+      "requires_external": 8,
+      "selector_reference": 8,
+      "compatibility_no_current_producer": 3,
+      "conditional_error_state": 18,
+      "deferred_by_user": 1,
+      "requires_task_card_object": 3,
+      "requires_legacy_local_scheduler": 2
+    },
+    "staticSourceStatuses": {
+      "clicked_passed": 77,
+      "preview_passed": 30,
+      "not_tested": 47,
+      "retired": 25
+    },
+    "sourceEntries": [
+      {
+        "command": "openXshell",
+        "line": 1432,
+        "status": "not_tested",
+        "acceptanceClass": "requires_human"
+      },
+      {
+        "command": "publishGithub",
+        "line": 1434,
+        "status": "not_tested",
+        "acceptanceClass": "requires_external"
+      },
+      {
+        "command": "selectExperiment",
+        "line": 3609,
+        "status": "not_tested",
+        "acceptanceClass": "selector_reference"
+      },
+      {
+        "command": "selectExperiment",
+        "line": 4451,
+        "status": "not_tested",
+        "acceptanceClass": "selector_reference"
+      },
+      {
+        "command": "createBranchPr",
+        "line": 5057,
+        "status": "not_tested",
+        "acceptanceClass": "requires_external"
+      },
+      {
+        "command": "mergeBranchPr",
+        "line": 5057,
+        "status": "not_tested",
+        "acceptanceClass": "requires_external"
+      },
+      {
+        "command": "submitBranchPlanRun",
+        "line": 5079,
+        "status": "not_tested",
+        "acceptanceClass": "requires_external"
+      },
+      {
+        "command": "verifyBranchHeadBinding",
+        "line": 5122,
+        "status": "not_tested",
+        "acceptanceClass": "requires_external"
+      },
+      {
+        "command": "openPlan",
+        "line": 5239,
+        "status": "not_tested",
+        "acceptanceClass": "compatibility_no_current_producer"
+      },
+      {
+        "command": "reloadPanel",
+        "line": 5502,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "resetRemotePathConfirmations",
+        "line": 9995,
+        "status": "not_tested",
+        "acceptanceClass": "requires_human"
+      },
+      {
+        "command": "resetPptPathConfirmations",
+        "line": 10005,
+        "status": "not_tested",
+        "acceptanceClass": "requires_human"
+      },
+      {
+        "command": "installPluginUpdates",
+        "line": 10203,
+        "status": "not_tested",
+        "acceptanceClass": "deferred_by_user"
+      },
+      {
+        "command": "saveRemoteRootPolicy",
+        "line": 10243,
+        "status": "not_tested",
+        "acceptanceClass": "requires_human"
+      },
+      {
+        "command": "archivePlan",
+        "line": 11185,
+        "status": "not_tested",
+        "acceptanceClass": "selector_reference"
+      },
+      {
+        "command": "analyzeRuntimeLog",
+        "line": 14796,
+        "status": "not_tested",
+        "acceptanceClass": "requires_task_card_object"
+      },
+      {
+        "command": "selectExperiment",
+        "line": 14818,
+        "status": "not_tested",
+        "acceptanceClass": "requires_task_card_object"
+      },
+      {
+        "command": "clearLegacyTasks",
+        "line": 14869,
+        "status": "not_tested",
+        "acceptanceClass": "requires_task_card_object"
+      },
+      {
+        "command": "retryDistributedJob",
+        "line": 15536,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "recheckOutputIsolation",
+        "line": 15542,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "releaseJobStageBlockSlots",
+        "line": 15591,
+        "status": "not_tested",
+        "acceptanceClass": "requires_external"
+      },
+      {
+        "command": "retryDistributedJob",
+        "line": 15595,
+        "status": "preview_passed",
+        "acceptanceClass": "preview_requires_confirmation"
+      },
+      {
+        "command": "snapshot",
+        "line": 15611,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "snapshot",
+        "line": 15615,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "runPlan",
+        "line": 15643,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "abortScheduler",
+        "line": 15767,
+        "status": "not_tested",
+        "acceptanceClass": "requires_legacy_local_scheduler"
+      },
+      {
+        "command": "selectExperiment",
+        "line": 16167,
+        "status": "not_tested",
+        "acceptanceClass": "selector_reference"
+      },
+      {
+        "command": "selectExperiment",
+        "line": 16204,
+        "status": "not_tested",
+        "acceptanceClass": "selector_reference"
+      },
+      {
+        "command": "retryPlanSubmission",
+        "line": 16327,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "cancelPlanSubmission",
+        "line": 16327,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "abortScheduler",
+        "line": 16346,
+        "status": "not_tested",
+        "acceptanceClass": "requires_legacy_local_scheduler"
+      },
+      {
+        "command": "stopAndClearPlan",
+        "line": 16630,
+        "status": "preview_passed",
+        "acceptanceClass": "preview_requires_confirmation"
+      },
+      {
+        "command": "stopAndClearPlan",
+        "line": 16645,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "snapshot",
+        "line": 16648,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "showLogHistory",
+        "line": 16649,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "openFullLog",
+        "line": 16650,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "showLogHistory",
+        "line": 16752,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "openFullLog",
+        "line": 16752,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "showLogHistory",
+        "line": 16759,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "openFullLog",
+        "line": 16759,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "plotResultsToPpt",
+        "line": 16936,
+        "status": "not_tested",
+        "acceptanceClass": "requires_external"
+      },
+      {
+        "command": "plotResultsToPpt",
+        "line": 16943,
+        "status": "not_tested",
+        "acceptanceClass": "selector_reference"
+      },
+      {
+        "command": "openLocalResultTable",
+        "line": 17198,
+        "status": "not_tested",
+        "acceptanceClass": "compatibility_no_current_producer"
+      },
+      {
+        "command": "applyPlanDatasetMapping",
+        "line": 17216,
+        "status": "clicked_passed",
+        "acceptanceClass": "normal_clicked"
+      },
+      {
+        "command": "openResultArtifact",
+        "line": 17413,
+        "status": "not_tested",
+        "acceptanceClass": "compatibility_no_current_producer"
+      },
+      {
+        "command": "plotResultsToPpt",
+        "line": 17768,
+        "status": "not_tested",
+        "acceptanceClass": "requires_external"
+      },
+      {
+        "command": "testAll",
+        "line": 18093,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "testAll",
+        "line": 18094,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "runPlan",
+        "line": 19141,
+        "status": "not_tested",
+        "acceptanceClass": "selector_reference"
+      },
+      {
+        "command": "selectExperiment",
+        "line": 19230,
+        "status": "not_tested",
+        "acceptanceClass": "selector_reference"
+      }
+    ],
+    "note": "源码匹配不是全部已显示控件分母。8处选择器引用、3处当前无生产方兼容模板单列；保留原入口，不将未实测自动退役。预览不等于确认或执行。"
   }
 }

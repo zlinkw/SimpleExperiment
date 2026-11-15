@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.512",
-  "buildId": "17e7dc3a95f625c29e82338f66c08dc425e82c653f72f60d35b0a964662185ce",
+  "buildId": "c4127b9ad49918e74ca4f36c758913e6a62de73499665ea1bc480f407b5bf743",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -261,7 +261,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "4e0a4cc9041f8b2cfdc8560e88603766cdecb92d78cb546fa3993593815b6f86"
+      "sha256": "a9f2537736199fbceb4a5b6b2624cbeebfc443ed10d18dd11c9e8df0c07340ae"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -665,7 +665,7 @@
     },
     {
       "path": "dist/features/PlanStopClear.js",
-      "sha256": "447a654a282317c773317cae9532732a8ec728ba94561887edec7eea34da8615"
+      "sha256": "0fa0eca6779b35ce71d3b42fa56c5da5cffcf64b866535ede80b5b77b2e31b38"
     },
     {
       "path": "dist/features/PlanSubmissionBatch.js",
@@ -917,7 +917,7 @@
     },
     {
       "path": "dist/results/LatestResultExport.js",
-      "sha256": "fd6d24efa4035a5549496a97097edf55d93a3267a9247f754e877bf2d353269f"
+      "sha256": "f354f6f42aca46aee3db56295ca14634034506468f8d4c95d8f28d6e4e8986c8"
     },
     {
       "path": "dist/results/NativeResultManifest.js",
@@ -937,7 +937,7 @@
     },
     {
       "path": "dist/results/ProjectResultTables.js",
-      "sha256": "0791af0e9f327f80f03b8e9aeb0fa881f1fc342cf28e7858ff645d789f5152b9"
+      "sha256": "d3f5223307918ad5077b65c30940ca7cbc17de06cd1e8b1e4b7b64a25e8dcf5c"
     },
     {
       "path": "dist/results/ResultLayout.js",
@@ -1181,7 +1181,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "62344ef3b8cba9127275d7afa54617dbebeb4ed3299ba76d75d7cbc0f3c8fb87"
+      "sha256": "ad74e29f268429078eaf37ead3ff521ea0e0b7253176f8ae26726d965f10235c"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",

@@ -329,7 +329,7 @@ function planStopClearUiResult(feedback) {
 function planStopClearPreview(planFile, targets, distributed = []) {
     const label = text(planFile) || "所选 Plan";
     const lines = targets.map((target) => `${target.planFile} · ${target.operationId}${target.active ? " · 仍在运行，将先中止" : " · 已结束"}${target.tmuxTarget ? " · tmux " + target.workerId + ":" + target.tmuxTarget : (target.tmuxSession ? " · tmux 窗口未定位：" + target.tmuxSession : "")}`);
-    const queueLines = distributed.map((row) => `${row.planFile} · ${row.planId} · ${row.label}${row.active ? " · 将先按 job 身份停止，并只关闭该 job 的 tmux 标签" : " · 将取消排队"}`);
+    const queueLines = distributed.map((row) => `${row.planFile} · ${row.planId} · ${row.label}${row.active ? " · 将先按 job 身份停止，并只关闭该 job 的 tmux 标签" : " · 将核实并清除本机队列记录"}`);
     return [
         `一键中止并清除 ${label}`,
         `将处理 ${targets.length} 条运行进度、${distributed.length} 条分布式调度：仍在运行的先向对应 Worker 发送停止，再从本机进度和队列清除已确认条目。`,

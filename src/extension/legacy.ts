@@ -48,7 +48,7 @@ import { PlanRunHost } from "./PlanRunHost";
 import { WorkerPreparation } from "../features/WorkerPreparation";
 import { CompletedJobSyncHost } from "./CompletedJobSyncHost";
 import { resultCollectionHost } from "./ResultCollectionHost";
-import { latestResultCatalog, readLatestResultExport, regenerateLatestResultTables } from "../results/LatestResultExport";
+import { latestResultCatalog, readLatestResultExport, regenerateLatestResultTables, mapLatestResultDatasets } from "../results/LatestResultExport";
 import { RunConfirmation } from "./RunConfirmation";
 import { jobEvidenceName, verifyNativeResult } from "../results/NativeResultManifest";
 import * as JobAvailability from "../features/JobAvailability";
@@ -21584,7 +21584,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const mappings = { ...(rules.planDatasetMapping || {}) };
         const catalog = await this.readProjectResultCatalog(root, mappings);
         const unresolved = new Map(catalog.unassignedPlans.map(plan => [ProjectResultTables.normalizePlanDatasetKey(plan.planFile), plan]));
-        const registry = await this.loadProjectTableRegistry(root);
+        const selected = {};
         for (const [rawPlan, rawDataset] of Object.entries(requested)) {
             const planFile = ProjectResultTables.normalizePlanDatasetKey(rawPlan);
             const plan = unresolved.get(planFile);
@@ -21592,20 +21592,17 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const dataset = String(rawDataset || "").trim();
             if (!dataset) throw new Error("请为每个选中的 Plan 选择数据集。");
             ProjectResultTables.datasetPathKey(dataset);
-            const records = Object.entries(registry.plans || {}).find(([file]) => ProjectResultTables.normalizePlanDatasetKey(file) === planFile)?.[1]?.records || [];
-            const existing = ProjectResultTables.resolvePlanDatasetAssignment({ historicalRecords: records.filter(row => row.dataset && row.datasetSource !== "manual-plan-mapping") });
-            if (existing.kind !== "unassigned") throw new Error("该 Plan 已有可信结果数据集 " + existing.datasets.join("、") + "，不能用人工映射覆盖。");
             mappings[plan.planFile] = { datasets: [dataset], source: "manual", updatedAt: new Date().toISOString() };
+            selected[plan.planFile] = dataset;
         }
-        await vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).update("projectAdapterRules", { ...rules, planDatasetMapping: mappings }, vscode.ConfigurationTarget.WorkspaceFolder);
-        const normalized = ProjectResultTables.applyPlanDatasetOverrides(registry, mappings);
-        const changed = JSON.stringify(registry.plans || {}) !== JSON.stringify(normalized.plans || {});
-        if (changed) await this.writeProjectTableRegistry(root, normalized);
+        const changed = await mapLatestResultDatasets(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, selected, () => this.projectContextIsCurrent(context));
         if (!this.projectContextIsCurrent(context)) return;
+        await vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).update("projectAdapterRules", { ...rules, planDatasetMapping: mappings }, vscode.ConfigurationTarget.WorkspaceFolder);
+        await this.refreshLocalResultCatalogForProject(context);
         this.postState();
         const count = Object.keys(requested).length;
         void vscode.window.showInformationMessage(changed
-            ? "已保存 " + count + " 个 Plan 的数据集映射，并从本地逐 seed 结果重新整理总表；不会重新训练。"
+            ? "已保存 " + count + " 个 Plan 的数据集映射，并重新整理本机已有汇总；指标值保持不变，不会重新训练。"
             : "已保存 " + count + " 个 Plan 的数据集映射；当前没有可重新汇总的本地结果记录。后续同一 Plan 的无 dataset 结果会沿用映射。");
     }
     async saveResultColumnMappingFromUi(message) {

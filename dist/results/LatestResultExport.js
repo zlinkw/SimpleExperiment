@@ -43,12 +43,14 @@ exports.assertResultLockDirectory = assertResultLockDirectory;
 exports.readLatestResultExport = readLatestResultExport;
 exports.regenerateLatestResultTables = regenerateLatestResultTables;
 exports.publishLatestResult = publishLatestResult;
+exports.mapLatestResultDatasets = mapLatestResultDatasets;
 exports.latestResultCatalog = latestResultCatalog;
 const fs = __importStar(require("node:fs/promises"));
 const path = __importStar(require("node:path"));
 const net = __importStar(require("node:net"));
 const StateStore_1 = require("../state/StateStore");
 const ProjectResultTables_1 = require("./ProjectResultTables");
+const ResultLayout_1 = require("./ResultLayout");
 const FreshResults_1 = require("./FreshResults");
 const ProjectStatePaths_1 = require("../features/ProjectStatePaths");
 exports.LATEST_RESULT_FILE = "latest-results.json";
@@ -283,6 +285,54 @@ async function publishLatestResult(root, directory, result, tables, current = ()
         return true;
     });
 }
+/** Repartition existing aggregate rows only. Preserve metrics and their original observation;
+ * no remote read, raw metric cache, old registry, or reconstruction of individual seeds. */
+async function mapLatestResultDatasets(root, directory, mappings, current = () => true) {
+    return withResultWriter(root, directory, current, async () => {
+        const value = await readLatestResultExport(root, directory);
+        if (!value)
+            return false;
+        const requested = new Map(Object.entries(mappings).map(([plan, dataset]) => [(0, ProjectResultTables_1.normalizePlanDatasetKey)(plan), dataset.trim()]));
+        const slices = value.tables.flatMap(table => table.rows.map(row => {
+            const plan = (0, ProjectResultTables_1.normalizePlanDatasetKey)(String(row[table.header.indexOf("plan_file")]));
+            const dataset = String(row[table.header.indexOf("dataset")] ?? "");
+            if (dataset && requested.has(plan))
+                throw Error("该 Plan 已有可信数据集，不能通过人工映射覆盖：" + plan);
+            return { table, row, dataset: requested.get(plan) || dataset };
+        }));
+        const partitions = new Map((0, ResultLayout_1.datasetPartitions)(slices.map(slice => slice.dataset)).map(item => [item.dataset, item.datasetKey]));
+        const grouped = new Map();
+        for (const { table, row, dataset } of slices) {
+            const review = table.tableKey.startsWith("review/"), prefix = review ? "review/" : "";
+            const paths = (0, ResultLayout_1.tablePaths)(partitions.get(dataset), review ? table.name.replace(/^待复核 · /, "") : table.name, table.kind);
+            const key = prefix + paths.tableKey;
+            const group = grouped.get(key) || { table: { ...table, dataset, datasetKey: partitions.get(dataset),
+                    tableKey: key, relativePath: prefix + paths.relativePath, markdownPath: prefix + paths.markdownPath }, chunks: [] };
+            const mapped = [...row];
+            mapped[table.header.indexOf("dataset")] = dataset;
+            group.chunks.push({ header: table.header, row: mapped });
+            grouped.set(key, group);
+        }
+        const tables = [...grouped.values()].map(({ table, chunks }) => {
+            const header = [...new Set(chunks.flatMap(chunk => chunk.header))];
+            const rows = chunks.map(chunk => header.map(field => {
+                const index = chunk.header.indexOf(field);
+                return index < 0 ? "" : chunk.row[index];
+            }));
+            const notice = table.markdown.startsWith("> ") ? table.markdown.split("\n\n")[0] + "\n\n" : "";
+            return { ...table, header, rows, markdown: notice + (0, ProjectResultTables_1.resultTableMarkdown)(header, rows) };
+        });
+        const mapped = { ...value, tables };
+        const file = await safeFile(root, directory, exports.LATEST_RESULT_FILE);
+        await (0, StateStore_1.atomicWriteText)(file, JSON.stringify(mapped, null, 2) + "\n", { beforeRename: async () => {
+                if (!current())
+                    throw Error("结果导出已取消或工作区已变化");
+                await safeFile(root, directory, exports.LATEST_RESULT_FILE);
+            } });
+        await writeTables(root, directory, mapped, current);
+        return slices.some(slice => requested.has((0, ProjectResultTables_1.normalizePlanDatasetKey)(String(slice.row[slice.table.header.indexOf("plan_file")]))));
+    });
+}
 /** The saved export lists its own tables. Neither a directory scan nor an old registry can add rows. */
 async function latestResultCatalog(root, directory) {
     const value = await readLatestResultExport(root, directory);
@@ -314,7 +364,7 @@ async function latestResultCatalog(root, directory) {
             if (names.length > 1)
                 plan.assignment = { kind: "multiple", datasets: names, source: "result-record" };
         }
-    return { datasets: [...datasets.values()], legacyTables: [], unassignedPlans: [...datasets.values()].filter(row => !row.dataset).flatMap(row => row.plans),
+    return { datasets: [...datasets.values()], legacyTables: [], unassignedPlans: [...datasets.values()].filter(row => !row.dataset).flatMap(row => row.plans).filter(plan => !planDatasets.get(plan.planFile).size),
         multiDatasetPlans: [...planDatasets].filter(([, names]) => names.size > 1).map(([planFile, names]) => ({ planFile, datasets: [...names] })),
         mappingConflicts: [], autoRecoverableCount: 0, observedAt: value?.observedAt, source: "local_export" };
 }

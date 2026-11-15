@@ -46,6 +46,9 @@ test("cleanup targets include failed and finished plan rows and keep unrelated p
   assert.equal(targets[1].tmuxTarget, "zlk-sch-op-fail:3");
   assert.match(planner.planStopClearPreview("plans/dpl.yaml", targets), /两次|再次/);
   assert.doesNotMatch(planner.planStopClearPreview("plans/dpl.yaml", targets), /op-same/);
+  const completedPreview = planner.planStopClearPreview("plans/dpl.yaml", [], [{planId:'done',planFile:'plans/dpl.yaml',label:'seed 42 · completed',active:false}]);
+  assert.match(completedPreview,/seed 42 · completed/);
+  assert.doesNotMatch(completedPreview,/将取消排队|将先按 job 身份停止/,'a finished job must not be described as a pending cancellation');
 });
 
 test("missing local progress can be recovered from one trusted worker task", () => {
