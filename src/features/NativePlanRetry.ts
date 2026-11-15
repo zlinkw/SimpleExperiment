@@ -51,7 +51,7 @@ export async function prepareNativePlanRetry(host: any, planFile: string,
     const key = job.workerId + "\0" + job.commandId;
     if (!controlled.has(key)) controlled.set(key, { plan: { ...plan, projectId: plan.projectId || projectId }, job });
   }
-  if (!plans.length && !live.length && !deferred.length) return false;
+  if (!controlled.size && !unassigned.length && !deferred.length) return false;
   if (host.distributedPlanStopEpoch) throw Error("另一个停止操作尚未结束，请稍后重试。");
   const epoch = host.distributedPlanStopEpoch = (host.distributedQueueGeneration || 0) + 1;
   stopEpoch = epoch;
@@ -75,7 +75,10 @@ export async function prepareNativePlanRetry(host: any, planFile: string,
     if (rejected) throw rejected.reason;
     const identities = new Map(plans.map(plan => [plan.id, new Set(plan.jobs.map(job => Queue.distributedJobControlKey(plan, job)))]));
     await host.saveDistributedQueue(context.root, undefined, { queueGeneration: epoch, mutateLatest: (latest: Queue.DistributedQueue) => ({ ...latest,
-      plans: latest.plans.map(plan => ({ ...plan, jobs: plan.jobs.filter(job => !identities.get(plan.id)?.has(Queue.distributedJobControlKey(plan, job))) }))
+      // A new-run preview is not history cleanup. Preserve terminal evidence,
+      // including jobs that finished while the original start intent was fenced.
+      plans: latest.plans.map(plan => ({ ...plan, jobs: plan.jobs.filter(job => ["completed", "failed", "cancelled"].includes(job.status)
+        || !identities.get(plan.id)?.has(Queue.distributedJobControlKey(plan, job))) }))
         .filter(plan => plan.jobs.length || !identities.has(plan.id)),
       deferred: (latest.deferred || []).filter(row => !deferred.some(old => old.id === row.id)),
     }) });

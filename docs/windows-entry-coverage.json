@@ -2756,7 +2756,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 14794,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2936,7 +2936,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15532,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2955,7 +2955,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15534,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2974,7 +2974,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15537,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2988,7 +2988,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15540,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3007,7 +3007,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15544,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3040,7 +3040,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15589,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3054,7 +3054,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15593,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3073,7 +3073,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15609,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3087,7 +3087,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15613,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3101,15 +3101,15 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15641,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": []
     },
     {
       "command": "stopAndClearPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15643,
-      "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "status": "preview_passed",
+      "evidence": "2026-11-15 source510 actual per-PLAN Terminate and Clean on normal_stop_0_5_493 opened exact one-PLAN/task preview. Escape at first confirmation; no control or cleanup sent.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3123,7 +3123,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15646,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3137,7 +3137,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15648,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3164,8 +3164,8 @@
       "command": "stopAllPlans",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15756,
-      "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "status": "preview_passed",
+      "evidence": "2026-11-15 source510 actual Stop All while daily_retained_fixed_510 job1 was running opened batch confirmation for only that active PLAN and its exact commandIds/output paths. Escape; no stop/cleanup sent, job1 later completed exit0.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3249,7 +3249,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15763,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3277,7 +3277,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15765,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3321,7 +3321,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16325,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3335,7 +3335,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16325,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3363,7 +3363,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16344,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3377,7 +3377,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16628,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3433,7 +3433,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16643,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3447,7 +3447,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16646,
       "status": "not_tested",
-      "evidence": "Requires an actual eligible queued/running/failed control task or exact review target. New short control has not started: recovered rjj8 Agent is blocked by machine-owner conflict, pending explicit two-file repair confirmation. No original experiment is rerun or state fabricated.",
+      "evidence": "2026-11-15 owner machine repaired and Agent510 restored. This conditional control was not rendered for the normal completed/cancelled software controls: it requires pending/server-queued/failed/isolation/stage-block or retryable submission state. No state was fabricated, no original experiment rerun; full effect remains untested.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -4949,6 +4949,12 @@
         "control": "execution-clear-batch-previews-dev510",
         "status": "preview_passed",
         "evidence": "Actual one-click selected PLAN cleanup, checked PLAN batch, and all8 PLAN batch entries each opened exact native scope preview. All Escape before confirmation; explicit cancelled notice says no stop/cleanup command sent. History, output files and original completed proof retained. Terminal current/all normal-stop controls had no eligible active task, not counted as completed stop actions."
+      },
+      {
+        "control": "rerun-preview-terminal-retention-dev510",
+        "status": "clicked_passed",
+        "version": "0.5.510",
+        "evidence": "Source11 real independent2-job fixture daily_retained_fixed_510: selected command14ef592161b05e2eb632053db4486d9e cancelled; command2c2f49791dada7736043ea8423104919 completed/verified/exit0. Reopening PLAN run then Escape at existing-output choice retained both commandIds, exact stop proof and original verifiedAt2026-11-15T16:07:18.982Z. Source10 actual early PLAN errors also settle matching parent/child failed with finishedAt. Older lost records remain disclosed and are not forged."
       }
     ]
   },

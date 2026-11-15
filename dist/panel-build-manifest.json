@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.510",
-  "buildId": "d6756de73d7fac016d836b07d345683d2830d16c86e23ffc1dae97bd0724c50a",
+  "buildId": "737af751cfd31afcc58d21154783bb141e5e947849ab8610e61b5c23428a600c",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -541,7 +541,7 @@
     },
     {
       "path": "dist/features/NativePlanRetry.js",
-      "sha256": "36f039a28473b3fd7f5bdfd4325d392fa6504db83484258b395b21309473cbcf"
+      "sha256": "27aae0d898e5c5ec67970e3bfac2b555875a4e8f0680045a5e7f75c4e2c8e834"
     },
     {
       "path": "dist/features/ObservationRound.js",

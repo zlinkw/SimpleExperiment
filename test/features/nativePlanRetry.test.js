@@ -51,6 +51,19 @@ test('real live bindings take precedence over incompatible cached revision and a
  let confirmed=0;await preparePlanSafeRetry(f.host,file,async text=>{confirmed++;assert.match(text,/窗口：1/);return true;},()=>Error('cancelled'));
  assert.equal(confirmed,1);assert.equal(f.posts[0].outputDir,'work/live');assert.deepEqual(f.queue().plans.map(row=>row.id),['other']);
 });
+test('opening another run retains terminal jobs and their original completion and stop evidence',async()=>{
+ const f=fixture(), queue= f.queue();
+ const stopped={index:1,commandId:'stopped-c',workerId:'w',status:'cancelled',lifecycleProtocol:2,outputDir:'work/stopped',stopReason:'user',finishedAt:'original-stop',trustedTerminalProof:{outcome:'cancelled'}};
+ const completed={index:2,commandId:'completed-c',workerId:'w',status:'completed',lifecycleProtocol:2,outputDir:'work/completed',verifiedCompletion:{verifiedAt:'original-completion',exitCode:0}};
+ queue.plans[0].jobs.push(stopped,completed);
+ await preparePlanSafeRetry(f.host,file,async()=>true,()=>Error('cancelled'));
+ assert.deepEqual(f.queue().plans.find(row=>row.id==='old').jobs,[stopped,completed]);
+ assert.deepEqual(f.posts.map(row=>row.targetCommandId),['old-c']);
+ const terminalOnly=fixture(); terminalOnly.queue().plans[0].jobs=[structuredClone(stopped),structuredClone(completed)];
+ const original=structuredClone(terminalOnly.queue());
+ assert.equal(await preparePlanSafeRetry(terminalOnly.host,file,async()=>assert.fail('terminal jobs are not live windows'),()=>Error('cancelled')),false);
+ assert.deepEqual(terminalOnly.queue(),original);assert.equal(terminalOnly.posts.length,0);assert.equal(terminalOnly.host.distributedQueueGeneration,0);
+});
 test('cancel, query failure and a foreign project leave inputs and server tasks untouched',async()=>{
  for(const kind of ['cancel','offline','foreign']){
   const f=fixture();if(kind==='offline')f.host.queryError=true;

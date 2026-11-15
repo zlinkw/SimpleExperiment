@@ -1,5 +1,11 @@
 # Windows 日常点击验收
 
+第十一项最终完整回归通过：2026-11-15T16-05-01-277Z-91620-check_full，显式 include-ondemand all，330 作业、10 门禁通过，exit0、827358 ms、串行、锁已释放。随后真实 MCP 发现目录超过256条历史记录时启动拒绝，作为第十二项修复；此问题不靠删除历史记录规避。临时代码工作区没有原工作区安全授权，MCP 准备正确拒绝，未更改授权；原 MultiModal 窗口和未保存 final.md 保留。
+
+第十一项已定位并修复：NativePlanRetry 在产物选择确认前移除了全部旧 job，完成项由远端重新发现，而已停止项不再出现。独立 daily_retained_stop_510 双任务实机复现：收集和重载后两条均在，再次运行尚未确认产物时停止项消失；随后取消，没有移动或删除文件。现保留 completed/failed/cancelled 和原完成、停止证据，只有未结束输入沿原精确停止流程撤出；全部终态时不写队列。既有 nativePlanRetry 新断言先失败后通过（16-02-55-147Z-77616-test → 16-03-26-767Z-68688-test），4 个受影响消费者 16-04-27-826Z-8328-test 通过。此前一次逗号拼接 --only 选中0文件，只能记未执行，不计回归。最终 check:full 16-05-01-277Z-91620-check_full 包含全部按需组，正在运行。
+
+第十一项真实修复复验：daily_retained_fixed_510 / distributed-plan-1794758706189-i725c3，seed42，job0/14ef592161b05e2eb632053db4486d9e 精确停止 cancelled，job1/2c2f49791dada7736043ea8423104919 completed/verified/exit0。再次进入同一 PLAN 的产物处理页并 Escape，两个原 commandId 均保留，停止证明逐字段一致，原 verifiedAt=2026-11-15T16:07:18.982Z 未刷新。仅验证软件控制，无科研结论。早先两次旧逻辑已经丢失的停止登记不伪造恢复；原停止回执、日志和产物保留。另实点单卡“终止并清理”及运行中“中止所有 Plan”，预览分别命中 normal_stop_0_5_493 与唯一活动 daily_retained_fixed_510，均 Escape；未发送停止清理或删除。
+
 第十项最终 check:full 已结束：2026-11-15T15-44-04-993Z-77132-check_full，324 项作业和全部门禁通过，exit0、815422 ms、maxObservedConcurrent=1、锁释放；6 项按需未运行不计通过。独立 vm.Script 检查通过，尚未组装、安装或发行。后续发现取消重跑预览后旧停止任务登记缺失，正在独立双任务夹具定位；该问题未解决前不能最终交付。
 
 第十项实机复验通过：重载源码宿主后原正常首次提交条件再次出现，workflow-run-1794757483493-2mgget 与其 plan-submit 子项都在15:44:43Z failed，错误和 finishedAt 完整一致。此前旧孤立 running 请求保留，不追改历史；未派新 job。随后 project_connect mcp-54a0f064-e254-4577-ae63-b35c07f55dd0 恢复正常监听，继续其他入口检查。
