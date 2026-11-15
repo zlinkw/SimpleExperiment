@@ -2758,14 +2758,17 @@ class RealtimeTunnelPanelProvider {
                     count: rows.length,
                 };
             },
-            "plans.list": async () => ({
-                planDir: this.localPlanMetadata.planDir || "",
-                detectedProject: this.localPlanMetadata.detectedProject || {},
-                plans: this.localPlanMetadata.plans || [],
-                archivedPlans: this.localPlanMetadata.archivedPlans || [],
-                error: this.localPlanMetadata.error || "",
-                source: "local_metadata",
-            }),
+            "plans.list": async () => {
+                await this.refreshLocalPlanMetadata(false);
+                return {
+                    planDir: this.localPlanMetadata.planDir || "",
+                    detectedProject: this.localPlanMetadata.detectedProject || {},
+                    plans: this.localPlanMetadata.plans || [],
+                    archivedPlans: this.localPlanMetadata.archivedPlans || [],
+                    error: this.localPlanMetadata.error || "",
+                    source: "local_metadata",
+                };
+            },
             "results.list": async (params, _server, context) => this.apiResultsList(params, context.signal),
             "tasks.stop": async (params) => (0, TaskControl_1.stopProjectTask)(this, workspaceRoot(), params),
             "tasks.dispatch": async (params) => {
@@ -5078,6 +5081,10 @@ class RealtimeTunnelPanelProvider {
             this.refreshResultCsvDirectory();
         if (event.affectsConfiguration("simpleExperiment.gpu"))
             this.gpuOwnerConfigCache = undefined;
+        if (event.affectsConfiguration("simpleExperiment.planDir")) {
+            this.ensureSelectedPlanFileWatchers("plan directory changed");
+            await this.refreshLocalPlanMetadata({ force: true, post: false });
+        }
         if (connectionChanged) {
             this.tunnelConfig = this.loadTunnelConfig();
             this.setupConfig = this.loadSetupConfig();
@@ -21281,6 +21288,8 @@ class RealtimeTunnelPanelProvider {
         }
         if (this.localPlanMetadataRefreshPromise) {
             await this.localPlanMetadataRefreshPromise;
+            if (this.localPlanMetadataKey !== key)
+                return this.refreshLocalPlanMetadata(options);
             if (post)
                 this.postState();
             return;
@@ -24487,7 +24496,7 @@ class RealtimeTunnelPanelProvider {
         const inspectionResult = await this.downloadMetricMemoryBatch({ ...this.captureProjectContext(), resultInspection: true }, client, { sourceId: workerId, workerId, entries: [{ remotePath, localRelativePath: localRelative }] }, "临时查看远端结果", undefined);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
             return;
-        const doc = await vscode.workspace.openTextDocument({ language: "plaintext", content: this.resultInspectionContent(inspectionResult.metricFiles[0]) });
+        const doc = await this.openResultInspectionDocument({ remotePath, text: this.resultInspectionContent(inspectionResult.metricFiles[0]) });
         if (generation === this.projectContextGeneration && root === workspaceRoot() && client === this.client)
             await vscode.window.showTextDocument(doc, { preview: true });
     }
@@ -24496,6 +24505,29 @@ class RealtimeTunnelPanelProvider {
             throw new Error("临时读取未返回预期文件。");
         return file.encoding === "base64" ? JSON.stringify({ remotePath: file.remotePath, sha256: file.sha256,
             bytes: file.bytes, message: "二进制原始产物仅核验指纹，不创建本机副本。" }, null, 2) : file.text;
+    }
+    async openResultInspectionDocument(file) {
+        if (!this.resultInspectionDocuments) {
+            const documents = this.resultInspectionDocuments = new Map();
+            this.context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider("simple-experiment-result", {
+                provideTextDocumentContent(uri) {
+                    const text = documents.get(uri.toString());
+                    if (text === undefined)
+                        throw new Error("结果预览已关闭，请重新读取。");
+                    return text;
+                },
+            }), vscode.workspace.onDidCloseTextDocument(document => documents.delete(document.uri.toString())));
+        }
+        const uri = vscode.Uri.from({ scheme: "simple-experiment-result", path: "/" + path.posix.basename(file.remotePath), query: crypto.randomUUID() });
+        const key = uri.toString();
+        this.resultInspectionDocuments.set(key, file.text);
+        try {
+            return await vscode.workspace.openTextDocument(uri);
+        }
+        catch (error) {
+            this.resultInspectionDocuments.delete(key);
+            throw error;
+        }
     }
     async openResultArtifactFromUi(message) {
         const projectContext = this.captureProjectContext();
@@ -24573,7 +24605,7 @@ class RealtimeTunnelPanelProvider {
             entries: [{ remotePath: artifactPath, localRelativePath: localRelative }] }, "临时查看结果", undefined);
         if (!isCurrent())
             return;
-        const doc = await vscode.workspace.openTextDocument({ language: "plaintext", content: this.resultInspectionContent(result.metricFiles[0]) });
+        const doc = await this.openResultInspectionDocument({ remotePath: artifactPath, text: this.resultInspectionContent(result.metricFiles[0]) });
         if (isCurrent())
             await vscode.window.showTextDocument(doc, { preview: true });
     }
@@ -35809,7 +35841,7 @@ function stringFromRecord(item, keys) {
 }
 function planDirSafe() {
     try {
-        return vscode.workspace.getConfiguration("simpleExperiment").get("planDir", "experiments/plans").replace(/\\/g, "/");
+        return vscode.workspace.getConfiguration("simpleExperiment", vscode.workspace.workspaceFolders?.[0]?.uri).get("planDir", "experiments/plans").replace(/\\/g, "/");
     }
     catch {
         return "experiments/plans";
@@ -35829,7 +35861,7 @@ function normalizeResultCsvDir(value) {
 }
 function resultCsvDirSafe() {
     try {
-        const configured = vscode.workspace.getConfiguration("simpleExperiment").get("resultCsvDir", DEFAULT_RESULT_CSV_DIR);
+        const configured = vscode.workspace.getConfiguration("simpleExperiment", vscode.workspace.workspaceFolders?.[0]?.uri).get("resultCsvDir", DEFAULT_RESULT_CSV_DIR);
         return normalizeResultCsvDir(configured);
     }
     catch {

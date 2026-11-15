@@ -763,6 +763,7 @@ function renderPanelHtml() {
     .targetEvidenceCount { color: var(--muted, #64748B); white-space: nowrap; }
     .errorList { display: grid; gap: 4px; margin: 6px 0 10px; }
     .errorRow { display: grid; grid-template-columns: minmax(90px, 150px) auto minmax(0, 1fr); gap: 8px; align-items: center; min-width: 0; padding: 4px 7px; border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border)); border-left: 3px solid var(--danger); border-radius: 6px; background: color-mix(in srgb, var(--danger) 6%, var(--vscode-editor-background)); color: var(--text, #0F172A); font-size: 11px; }
+    .errorRow.is-cancelled { border-color: var(--border); border-left-color: var(--muted); background: var(--vscode-editor-background); }
     .errorRowSuggestion { grid-column: 1 / -1; color: var(--muted); overflow-wrap: anywhere; }
     .errorRowCommand { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 850; }
     .errorRowTime { color: var(--muted, #64748B); white-space: nowrap; }
@@ -6459,6 +6460,7 @@ function renderPanelHtml() {
         if (String((conflict || {}).severity || "").toLowerCase() === "error") issues.push("端口：" + String(conflict.message || conflict.suggestion || "检测到冲突"));
       });
       asArray(state.actionErrors).filter((row) => {
+        if (row?.operationOutcome?.category === "user_cancelled") return false;
         const when = Date.parse((row || {}).timestamp || "");
         return when && Date.now() - when < 15 * 60 * 1000;
       }).slice(-2).forEach((row) => issues.push("最近操作：" + String(row.message || "未知错误")));
@@ -7615,7 +7617,7 @@ function renderPanelHtml() {
         selfCheck: "自检",
         createDebugBundle: "生成调试包",
         downloadDebugBundle: "下载调试包",
-        downloadRemoteResult: "下载并打开当前 Plan 的轻量远端结果副本",
+        downloadRemoteResult: "临时查看当前 Plan 的轻量远端结果，不保存原始文件",
         status: "状态详情",
         openAuditTail: "审计日志",
         quickSetup: "一键配置",
@@ -16783,8 +16785,8 @@ function renderPanelHtml() {
       const visible = rows.slice(0, Math.max(1, Number(limit || 3)));
       const entries = visible.map((file) => {
         const name = file.replace(/\\\\/g, "/").split("/").pop() || "结果文件";
-        const error = detailMap?.get(file) || "未返回具体解析原因；可下载原文件检查内容。";
-        return '<div class="operationFileEntry"><div class="operationFileReason" title="' + escAttr(file + "：" + error) + '"><b>' + esc(compactText(name, 44)) + '</b><span>' + esc(compactText(error, 120)) + '</span></div><button class="mini secondary" data-command="downloadRemoteResult" data-worker-id="' + escAttr(workerId || "") + '" data-remote-path="' + escAttr(file) + '" data-plan-file="' + escAttr(planFile) + '" title="' + escAttr("下载只读副本并打开：" + file) + '">查看文件</button></div>';
+        const error = detailMap?.get(file) || "未返回具体解析原因；可临时查看原文件内容。";
+        return '<div class="operationFileEntry"><div class="operationFileReason" title="' + escAttr(file + "：" + error) + '"><b>' + esc(compactText(name, 44)) + '</b><span>' + esc(compactText(error, 120)) + '</span></div><button class="mini secondary" data-command="downloadRemoteResult" data-worker-id="' + escAttr(workerId || "") + '" data-remote-path="' + escAttr(file) + '" data-plan-file="' + escAttr(planFile) + '" title="' + escAttr("临时只读查看，不保存原始文件：" + file) + '">查看文件</button></div>';
       }).join("");
       const omitted = rows.length - visible.length;
       return '<div class="operationFileActions"><span>不可解析的远端原文件</span>' + entries + (omitted ? '<span>其余 ' + esc(String(omitted)) + ' 个见操作详情</span>' : "") + '</div>';
@@ -17427,7 +17429,7 @@ function renderPanelHtml() {
     function resultFileButton(label, file, planFile, workerId, help, showUnavailable) {
       const path = meaningfulValue(file);
       if (!path) return showUnavailable ? '<button class="taskActionButton secondary" type="button" disabled title="当前 PLAN 尚未生成此文件。可点击“更新全部 PLAN 结果”核实已有产物；文件是否生成由实验输出决定。">' + esc(label) + ' · 未生成</button>' : "";
-      return '<button class="taskActionButton' + (/^查看简洁汇总/.test(label) ? '' : ' secondary') + '" data-command="openResultArtifact" data-remote-path="' + escAttr(path) + '" data-plan-file="' + escAttr(planFile || "") + '"' + (workerId ? ' data-worker-id="' + escAttr(workerId) + '"' : "") + ' title="' + escAttr((help || "点击后同步结果文件到本机项目并打开。") + String.fromCharCode(10) + "远端文件：" + path) + '">' + esc(label) + '</button>';
+      return '<button class="taskActionButton' + (/^查看简洁汇总/.test(label) ? '' : ' secondary') + '" data-command="openResultArtifact" data-remote-path="' + escAttr(path) + '" data-plan-file="' + escAttr(planFile || "") + '"' + (workerId ? ' data-worker-id="' + escAttr(workerId) + '"' : "") + ' title="' + escAttr((help || "临时只读查看，不保存原始文件。") + String.fromCharCode(10) + "远端文件：" + path) + '">' + esc(label) + '</button>';
     }
 
     function renderResultColumnMappingEditor(state, preview) {
@@ -18070,6 +18072,7 @@ function renderPanelHtml() {
     }
 
     function actionErrorGuide(row) {
+      if (row?.operationOutcome?.category === "user_cancelled") return { cancelled: true, text: "", links: "" };
       const message = String((row && row.message) || "");
       const suggestion = String((row && row.suggestion) || "");
       const capability = row && Array.isArray(row.capabilityMissing) && row.capabilityMissing.length ? row.capabilityMissing.join(", ") : "";
@@ -18134,13 +18137,14 @@ function renderPanelHtml() {
       const guide = actionErrorGuide(row);
       const suggestion = guide.text;
       const diagnosticSummary = actionErrorDiagnosticSummary(row);
-      return '<div class="errorRow" title="' + escAttr(suggestion) + '">' +
+      const tone = guide.cancelled ? "status-cancelled" : "status-failed";
+      return '<div class="errorRow' + (guide.cancelled ? ' is-cancelled' : '') + '" title="' + escAttr(suggestion) + '">' +
         '<span class="errorRowCommand" title="原始命令：' + escAttr(rawCommand) + '">' + esc(commandLabel) + '</span>' +
-        '<span class="errorRowTime status-failed">' + esc(row.timestamp || "-") + '</span>' +
-        '<span class="errorRowMessage status-failed">' + esc(row.message || "未知错误") + '</span>' +
+        '<span class="errorRowTime ' + tone + '">' + esc(row.timestamp || "-") + '</span>' +
+        '<span class="errorRowMessage ' + tone + '">' + esc(row.message || "未知错误") + '</span>' +
         (diagnosticSummary ? '<span class="errorRowSuggestion">诊断：' + esc(compactText(diagnosticSummary, 320)) + '</span>' : '') +
-        '<span class="errorRowSuggestion" title="' + escAttr(suggestion) + '">下一步：' + esc(compactText(suggestion, 220)) + '</span>' +
-        '<span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;">' + guide.links + '</span>' +
+        (suggestion ? '<span class="errorRowSuggestion" title="' + escAttr(suggestion) + '">下一步：' + esc(compactText(suggestion, 220)) + '</span>' : '') +
+        (guide.links ? '<span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;">' + guide.links + '</span>' : '') +
       '</div>';
     }
 

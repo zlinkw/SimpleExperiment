@@ -85,7 +85,8 @@ test("guided Plan uses the configured directory only for injectable defaults", (
 test("Provider reuses one normalized result directory until config or workspace changes", () => {
   assert.match(extension, /resultCsvDirectory = resultCsvDirSafe\(\)/);
   assert.match(extension, /refreshResultCsvDirectory\(\) \{\s*this\.resultCsvDirectory = resultCsvDirSafe\(\)/);
-  assert.match(extension, /affectsConfiguration\("simpleExperiment\.resultCsvDir"\)[\s\S]{0,220}this\.refreshResultCsvDirectory\(\)/);
+  assert.match(extension, /const resultCsvDirChanged = event\.affectsConfiguration\("simpleExperiment\.resultCsvDir"\)/);
+  assert.match(extension, /if \(resultCsvDirChanged\)\s*this\.refreshResultCsvDirectory\(\)/);
   assert.match(extension, /resetProjectContextInMemory\(\)[\s\S]*this\.refreshResultCsvDirectory\(\)/);
   assert.match(extension, /defaultResultCsvDir: this\.resultCsvDirectory/);
   assert.match(extension, /csvDirectory: this\.resultCsvDirectory/);

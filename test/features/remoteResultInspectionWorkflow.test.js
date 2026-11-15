@@ -70,6 +70,23 @@ function loadPanelDetailHelper() {
   return sandbox.api;
 }
 
+test('memory result viewers use a clean virtual document and release content on close', async () => {
+  const method=require('../_helpers/legacyMethod')(extension,'openResultInspectionDocument(');
+  let provider,closed,registrations=0;
+  const vscode={Uri:{from:parts=>({...parts,toString:()=>parts.scheme+':'+parts.path+'?'+parts.query})},workspace:{
+    registerTextDocumentContentProvider:(_scheme,value)=>{provider=value;registrations++;return{};},
+    onDidCloseTextDocument:callback=>{closed=callback;return{};},
+    openTextDocument:async uri=>({uri,isUntitled:false,isDirty:false,getText:()=>provider.provideTextDocumentContent(uri)})}};
+  const run=new Function('vscode','crypto','path','return ({'+method+'}).openResultInspectionDocument;')(vscode,crypto,path);
+  const host={context:{subscriptions:[]}};
+  const a=await run.call(host,{remotePath:'work_dirs/a/metrics.csv',text:'accuracy\n0.9'});
+  const b=await run.call(host,{remotePath:'work_dirs/b/metrics.csv',text:'accuracy\n0.8'});
+  assert.equal(a.isDirty,false);assert.equal(a.isUntitled,false);assert.equal(registrations,1);
+  assert.equal(a.getText(),'accuracy\n0.9');assert.equal(b.getText(),'accuracy\n0.8');
+  assert.notEqual(a.uri.toString(),b.uri.toString());
+  closed(a);assert.throws(()=>a.getText(),/已关闭/);assert.equal(b.getText(),'accuracy\n0.8');
+});
+
 test("remote result inspection accepts only lightweight project files", () => {
   const helpers = loadHelpers();
   assert.equal(helpers.REMOTE_RESULT_INSPECTION_MAX_BYTES, 5 * 1024 * 1024);
@@ -373,7 +390,7 @@ test("confirmed temporary reads bind the selected enabled Worker and never borro
     planVersionForFile:()=>({revision:'rev',updatedAt:''}),captureProjectContext:()=>({root:'/fixture'}),
     localOperations:{a:operation('a','work_dirs/a.csv'),b:operation('b','work_dirs/b.csv')},
     downloadMetricMemoryBatch:async(ctx,client,source)=>{reads.push({ctx,client,source});return{metricFiles:[{text:'fixture'}]};},
-    resultInspectionContent:file=>file.text};
+    resultInspectionContent:file=>file.text,openResultInspectionDocument:async file=>file};
   await run.call(host,{workerId:'b',remotePath:'work_dirs/b.csv'});
   assert.equal(reads.length,1);assert.equal(reads[0].client,host.client);assert.equal(reads[0].source.sourceId,'b');
   assert.equal(reads[0].source.workerId,'b');assert.equal(reads[0].ctx.resultInspection,true);assert.equal(opened.length,1);

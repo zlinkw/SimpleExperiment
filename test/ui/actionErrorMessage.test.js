@@ -95,6 +95,19 @@ test("rendered diagnostic rows expose real navigation and keep the original mess
   assert.match(unknown, /data-section-target="diagnostics"/);
   assert.match(unknown, /data-anchor-target="diagnostics-errors"/);
   assert.doesNotMatch(unknown, /data-command="stopAndClearPlan"/);
+  const cancelled = sandbox.render({ command: 'recallFailedJob', message: '已取消：未删除文件，未重新排队。',
+    suggestion: '原因还不明确，请诊断错误。', operationOutcome: {category:'user_cancelled'} });
+  assert.match(cancelled, /未删除文件/);
+  assert.doesNotMatch(cancelled, /status-failed|原因还不明确|下一步：|data-command="snapshot"/);
+  sandbox.asArray = value => Array.isArray(value) ? value : Object.values(value || {});
+  sandbox.workerName = String;
+  let overview;
+  sandbox.setHtmlIfChanged = (_id, html) => { overview = html; };
+  vm.runInContext(extractFunction(panel, 'renderDiagnosticOverview') + '\nthis.overview = renderDiagnosticOverview;', sandbox);
+  sandbox.overview({actionErrors:[{message:'cancelled-fixture',timestamp:new Date().toISOString(),operationOutcome:{category:'user_cancelled'}},
+    {message:'actual-failure',timestamp:new Date().toISOString()}]});
+  assert.doesNotMatch(overview,/cancelled-fixture/);
+  assert.match(overview,/actual-failure/);
   const heartbeat = sandbox.render({
     command: "panelLifecycle",
     message: "Webview heartbeat timeout",
@@ -154,6 +167,7 @@ test("panel lifecycle diagnostics survive persistence with bounded, non-sensitiv
   vm.runInContext([
     extractFunction(source, "redactSensitiveText"),
     extractFunction(source, "compactSensitiveText"),
+    extractFunction(source, "compactDispatchHandoffEvidence"),
     extractFunction(source, "compactPanelLifecycleDetails"),
     extractFunction(source, "compactPanelRenderEvidence"),
     extractFunction(source, "panelLifecycleDiagnosticMessage"),
