@@ -175,6 +175,31 @@ def fixture_jobs():
     a["distributedResults"] = {"label": "中文 'quoted' $literal \\ value\n" * 12}
     return a,b,c
 
+def inventory_status_recovery_case():
+    native = namespace["task_tmux"]
+    binding = dict(job(3,"failure"),root=os.path.realpath(root),lifecycleProtocol=2,pane="%9")
+    encoded = base64.urlsafe_b64encode(json.dumps(binding).encode("utf-8")).decode("ascii")
+    for first_dead, first_exit, second_exit, expected_reads in (("1","","7",2),("1","","",2),("1","0","7",1),("0","","7",1)):
+        calls=[]
+        def observed(args, **kwargs):
+            calls.append(args)
+            if args[0] == "run-shell":
+                assert args == ["run-shell","-t","%9","true"], args
+                return ""  # This no-op is never evidence for the task exit.
+            assert args[:2] == ["list-panes","-a"], args
+            reads=sum(call[0]=="list-panes" for call in calls)
+            return "\t".join(["%9","@9","fixture-gpu-0",first_dead,first_exit if reads==1 else second_exit,encoded,"running","0","",""])
+        namespace["task_tmux"] = observed
+        try:
+            rows=namespace["task_inventory"](root,execution_only=True)
+            assert sum(call[0]=="list-panes" for call in calls)==expected_reads, calls
+            assert sum(call[0]=="run-shell" for call in calls)==expected_reads-1, calls
+            actual=second_exit if expected_reads==2 else first_exit
+            assert rows[0]["exitCode"]==(int(actual) if actual else None), rows
+            assert rows[0]["commandId"]==binding["commandId"] and rows[0]["tmuxPane"]=="%9"
+        finally:
+            namespace["task_tmux"] = native
+
 def recovery_case():
     a,b,c=fixture_jobs()
     namespace["task_queue_rpc"](root,"worker","accept",a,ensure=True)
@@ -205,6 +230,10 @@ def recovery_case():
     assert namespace["task_queue_endpoint"](root,"worker")["epoch"]!=epoch
     stopped=namespace["task_stop"](root,{"targetCommandId":c["commandId"],"projectId":"project","workflowId":"workflow"},"worker")
     assert stopped["stoppedTasks"][0]["paneClosed"]
+    for snapshot in (namespace["task_execution_inventory"](root,[c]), namespace["task_query"](root,[c],selected_only=True)):
+        cancelled=next(row for row in snapshot["tasks"] if row["commandId"]==c["commandId"])
+        assert cancelled["observation"]["cancelled"] is True
+        assert cancelled["observation"]["tmux"] is None, cancelled
     # Only the pane death is awaited here: a live tmux build can leave
     # pane_dead_status unpublished for the whole 5 second budget, and production
     # completion for that case is defined by verified artifacts, not by a number.
@@ -350,6 +379,7 @@ def failure_case(a=None,b=None):
     assert rerun_observed["status"]=="completed", rerun_observed
 
 try:
+    inventory_status_recovery_case()
     # Deliberately corrupt legacy state: none of the native functions can read it.
     for name in ("worker_task_snapshot.json","distributed_plan_queue.json","worker_start_claims.json"):
         (pathlib.Path(root)/name).write_text("corrupt legacy state",encoding="utf-8")

@@ -79,7 +79,10 @@ test('native waiting stages explain delivery and never advertise historical auto
   assert.ok(sandbox.html.includes(label));assert.ok(sandbox.html.includes(note));assert.match(sandbox.html,/等待 GPU 显存预算/);
   assert.doesNotMatch(sandbox.html,/等待自动重试|连续失败 2/);
  }
- const manual=clickSandbox();manual.render({distributedPlans:[{id:'wf',planFile:'plans/wait.yaml',jobs:[{index:0,status:'pending',lifecycleProtocol:2,localQueueOnly:true,outputDir:'work/job'}]}]});
+ const recalled=clickSandbox();recalled.render({distributedPlans:[{id:'wf',planFile:'plans/wait.yaml',jobs:[{index:0,status:'pending',lifecycleProtocol:2,localQueueOnly:true,outputDir:'work/job'}]}]});
+ assert.match(recalled.html,/自动调度开启且 Worker\/GPU 满足准入后继续/);
+ assert.doesNotMatch(recalled.html,/不会自动派发/);
+ const manual=clickSandbox();manual.render({distributedPlans:[{id:'wf',planFile:'plans/wait.yaml',jobs:[{index:0,status:'pending',lifecycleProtocol:2,manualDispatch:{stage:'preparing'},outputDir:'work/job'}]}]});
  assert.match(manual.html,/不会自动派发/);
 });
 

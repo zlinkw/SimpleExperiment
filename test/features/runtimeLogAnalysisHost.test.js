@@ -115,8 +115,9 @@ test('native anomaly rerun checks fresh evidence, honors cancelled permanent del
  const other={...job,index:1,commandId:'other',status:'running',outputDir:'work/other'};
  const plan={id:'wf',projectId:'project',planFile:'plans/p.yaml',revision:crypto.createHash('sha256').update('plan').digest('hex'),codeFingerprint:'fp',executionMode:'train_test',jobs:[job,other]};
  let cancel=false,missing=false,deleted=false,state={execution:'exited',status:'completed',completionState:'review_required'},stored,executes=0,dialogs=0;
+ const reviewWindow={showWarningMessage:async msg=>{dialogs++;return cancel?'取消':(String(msg).includes('第 1/2 次确认')?'确认删除（1/2）':'永久删除（2/2）');}};
  const retry=hostMethod('retryPulledJob',{fs:{readFile:async()=> 'plan'},path,crypto,
-  vscode:{window:{showWarningMessage:async msg=>{dialogs++;return cancel?'取消':(String(msg).includes('第 1/2 次确认')?'确认删除（1/2）':'永久删除（2/2）');}}},UiCommandCancelled:class extends Error{},errorMessage:e=>e.message,
+  vscode:{window:reviewWindow},confirmSyncScopePaths:require('../_helpers/pathReviewAnswers.cjs')(reviewWindow),UiCommandCancelled:class extends Error{},errorMessage:e=>e.message,
   PulledTaskControl:{queryTask:async()=>({state,task:{observation:{cancelled:true,tmux:null,result:null}}}),stopPulledTask:async(_c,p,j)=>{assert.equal(j.commandId,'c');events.push('fence');},returnPulledJobToLocal:P.returnPulledJobToLocal},
   makeOpId:()=>'rerun'});
  const h={client:{},manualDispatchInFlight:new Set(),assertPlanSubmissionWorkers:async()=>events.push('query'),

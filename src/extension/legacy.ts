@@ -17413,8 +17413,6 @@ this.assertPlanTopologyReady("Plan 调度");
         const deletable = actionable.filter((row: any) => row.disposition === "delete" && row.missing !== true);
         let deletedNow = false;
         if (deletable.length) {
-            const detail = [plan.planFile + " / " + job.case + " / seed " + job.seed, "Worker 与精确路径：",
-                ...deletable.map((row: any) => "- " + (row.node?.host || "本机") + "：" + row.absolutePath)].join("\n");
             // 返修（2026-10-22 P0-1 修正）：previewToken/previewDigest/backendToken/destination 本来就会随
             // 每次预览变化，不变性绝不能用完整 PreviewResult 或完整 digest 比较来保证。冻结的是 canonical
             // 会话快照：exactTargets（删除行的 节点:绝对路径）+ 声明路径集合（节点×相对路径×类型）
@@ -17440,11 +17438,10 @@ this.assertPlanTopologyReady("Plan 调度");
                     + drift.slice(0, 3).join("；") + "）；未删除文件，未重新排队。");
                 return fresh;
             };
-            if (await vscode.window.showWarningMessage(`永久删除该 job 的旧产物（第 1/2 次确认）\n${detail}\n仅影响这一个 job 的声明产物；PLAN、其他 job 与这张卡片本身保留。取消不删除任何文件，也不排队。`,
-                { modal: true }, "确认删除（1/2）", "取消") !== "确认删除（1/2）" || !isCurrent())
-                throw new UiCommandCancelled("已取消：未删除文件，未重新排队。");
-            if (await vscode.window.showWarningMessage(`不可恢复：永久删除以上全部路径（第 2/2 次确认）\n${detail}`,
-                { modal: true }, "永久删除（2/2）", "取消") !== "永久删除（2/2）" || !isCurrent())
+            if (!await confirmSyncScopePaths("永久删除该 job 的旧产物",
+                `${plan.planFile} / ${job.case} / seed ${job.seed}\n仅影响这一个 job 的声明产物；PLAN、其他 job 与这张卡片本身保留。取消不删除任何文件，也不排队。`,
+                deletable.map((row: any) => ({ label: `${row.node?.id || row.nodeId || "本机"} (${row.node?.host || "本机"}) / ${row.type}`,
+                    path: row.absolutePath })), "永久删除已核对产物") || !isCurrent())
                 throw new UiCommandCancelled("已取消：未删除文件，未重新排队。");
             const exactTargets = deletable.map((row: any) => rowNode(row) + ":" + row.absolutePath);
             await fenceOriginalIdentity("第 1 次确认前");

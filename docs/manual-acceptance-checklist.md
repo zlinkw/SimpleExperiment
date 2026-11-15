@@ -1,5 +1,19 @@
 # Windows 日常点击验收
 
+0.5.512统一组装通过：2026-11-15T17-43-18-484Z-85092-package_assemble/exit0/47637ms，逐项对账复用上述最终完整回归，不重新编译或训练。simple-experiment-0.5.512.vsix为3093143字节、SHA256 f14519d1db830b2a5bb1705334b5c0233734649e089ec75f191ca0c1f48c30bf；382归档项，dist/bin/scripts的375个文件与磁盘源字节一致，MCP服务和稳定启动器齐全，ZIP身份/CRC/平台universal/VSCode引擎^1.100.0、秘密路径排除及必需资源门禁通过。源码指南保留，未包含验收工作区状态。发行与本机单次安装随后执行；新版原窗口和MultiModal Agent实机尚待本人重载。
+
+候选0.5.512最终完整回归通过：2026-11-15T17-29-08-142Z-13848-check_full，include-ondemand all，330作业、10门禁、exit0、835926ms，输入起止一致、串行、锁释放；独立vm.Script检查通过。实机两个失败恢复入口均展示完整路径并取消，仍只计预览。当前来源位置72实点、28预览、54未测、25退役；42命令中33实点、7预览、2未测。未测含8个选择器引用，不是可达控件总数。授权内正常场景已覆盖的入口按清单保留证据，永久删除、本人安全设置、缺少外部目标和其他条件分支没有冒充通过。最终共享端口恢复MultiModal508 Agent @30，Generic Scheduler @6保留；MultiModal原完成证明时间未变，本次日志复查过期仅记复查未知。安装后仍须本人重载原窗口、重连MCP并核验MultiModal新版Agent。
+
+第十六项修复：同一失败任务恢复预览的原生Windows弹窗把绝对路径截断为省略号。单job恢复改用已有confirmSyncScopePaths双确认页，保留原token、两相位后端确认、身份与路径复查及path_absence门禁。真实重跑入口已显示完整可换行的/root/autodl-tmp/zlk/SimpleMcpAcceptance/work_dirs/mcp_controls/daily_failure_511/0_intentional_exit_7_seed42；实点取消后未删除、未入队。新增业务连线断言先复现旧弹窗未调用审核页（17-23-52-001Z-31504-test/6通过1失败）；修复后重排、覆盖、真实清理适配链、日志恢复和长路径双确认5作业通过（17-24-41-275Z-58308-test/exit0）。没有确认或执行永久删除。
+
+第十五项修复：专用seed42软件控制daily_failure_511实际command16cb6d2cd642e9f5cb44352b536fc1ce、workflow distributed-plan-1794762869365-ld9y7i、rjj8/GPU0返回原生exit7，面板与MCP均failed/未计成功。实点“重新排队此job”复现TASK_TERMINATION_UNVERIFIED：原窗口已关闭且cancelled=true，但执行查询和完整查询省略tmux字段。候选0.5.512在这两处已验证无窗口的观测明确返回tmux:null，保留未知/查询错误门禁，类型同步。真实fixture先KeyError复现（17-17-53-061Z-57324-test），修复并更新旧“字段省略”断言后6作业通过（17-19-12-267Z-91468-test）；nativePlanRetry/workerProgressResults两项补跑通过（17-20-39-050Z-77064-test）。原17-18-33定向运行的旧tmuxStopRace断言失败原文保留；17-19-47选择到0项不算覆盖。实机已进入产物审核并取消，未重复实验，原command保留。Generic Agent @29和Scheduler @6均512且来源哈希一致，GPU7用户任务未操作。511完整330作业、10门禁、exit0证据为17-03-33-272Z-18936-check_full/823758ms；后续512尚未完成最终整包回归，未打包安装。
+
+第十四项修复：候选0.5.511处理旧版启用utempter的tmux漏收SIGCHLD（上游tmux#4559）。仅对当前项目已结束但退出码未知的窗口执行一次原生true空命令，让tmux回收后重新读取完整绑定；空命令退出码不用于推断任务状态，仍未知则保留未知。既有fixture补充原生读取边界，先复现缺少复查（17-01-52-035Z-75996-test），修复后tmux三个场景、召回提示与完整页面渲染共5作业通过（17-02-27-675Z-55476-test/exit0）；真实WSL/tmux失败任务仍要求原生退出码7。没有修改5秒/10秒/20秒期限、伪造退出码或启用PID停止。临时详细日志诊断已从代码移除。尚未打包安装。
+
+第十三项修复：召回本机的 localQueueOnly 表示本机调度，不是手动暂停；UI 现在仅对真实 manualDispatch 显示手动等待，普通召回显示资源满足后自动调度。既有 prequeueRecallLifecycle 渲染断言先失败（16-36-09-221Z-23584-test/8通过1失败），修复后9/9通过（16-36-48-540Z-14844-test），没有新增进程或期限。完整回归16-37-34-545Z-35924-check_full实际退出1，330作业中2项失败：旧完整页面断言错误地把localQueueOnly视为手动；tmux原生失败任务退出码为空。首次完整日志保留；旧断言修正后16-54-50-869Z-61812-test/exit0，tmux修复见上一段。
+
+第十三项实机：重载源码宿主，独立单 seed42 PLAN daily_queue_notice_510 / distributed-plan-1794760747498-ta2aqx 在临时1024GB门槛下先pending，实点服务器入队 command953e62bc8d4846b0a17f10b35757c1fe，再实点召回，页面实际显示“自动调度开启且 Worker/GPU 满足准入后继续；本机须保持打开，无需重复提交”。之后以“专用界面提示验收已完成，保持未执行”为原因，实点标记不可用并确认，只排除此未派发控制任务；没有训练、删除或清除历史。共享门槛再次恢复12，完整Worker数组与原值相等。先前daily_queue_510 job0已cancelled，job1最终completed/verified/exit0；原始实验完成证明保留。当前静态来源72实点、26预览、56未测、25退役；未测含8选择器引用，不代表全部条件分支可在正常场景产生。
+
 第十二项最终完整回归通过：2026-11-15T16-21-07-987Z-74948-check_full，include-ondemand all，330 作业、10 门禁通过、exit0、839057 ms、锁释放。后续排队实点发现召回本机后的提示误写“等待手动派发，不会自动派发”，资源恢复后真实本机调度会继续；按实际调度行为修正此处显示，不修改调度规则。
 
 排队入口真实效果：daily_queue_510 / distributed-plan-1794760131200-wfevum 两个独立 seed42 软件控制；rjj8 原 gpuMinFreeMemoryGb=12，临时1024使它们保持本机 pending。全局剩余按钮实点后 job0/e966e62a7836456e82884a424c892137、job1/9d42a29c5fb342be8b3a6ff50ee856df 服务器 queued；单行召回只使 job0 回本机，job1 身份不变；单 PLAN 剩余按钮重入 job0/b49c2d4af6cf4a9a83fe630e003734b9；PLAN整体召回后两项均 pending/无远端身份。两次共享 GPU 配置确认页均实点，12 已恢复，完整 Worker 对象与修改前相等。首次配置请求因等待确认使控制工具30秒超时重建连接，未重发原写入；核实旧确认页及原值后继续。第二次恢复请求已确认 RPC 结算，没有遗留配置写入。资源恢复后自动派发 job0/ad13eb1b9419483a8ecd2127df3842be、job1/779d5fcc30cb4e54bb08f7166294b1e9；误点时已取消手动派发选择框，没有另发手动任务。实点 job0“停止此任务”后 cancelled，job1仍running。未占用或关闭用户GPU7窗口，未删除文件。

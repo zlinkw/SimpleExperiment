@@ -45,7 +45,7 @@ queries = [dict(commandId="command-0", projectId="project", workerId="w", output
 selected = ns["task_execution_inventory"](root, queries)
 assert len(selected["tasks"]) == 2
 assert selected["tasks"][0]["observation"]["tmux"]["paneId"] == "%0"
-assert selected["tasks"][1]["observation"]["cancelled"] and "tmux" not in selected["tasks"][1]["observation"]
+assert selected["tasks"][1]["observation"]["cancelled"] and selected["tasks"][1]["observation"]["tmux"] is None
 assert all("result" not in task["observation"] for task in selected["tasks"])
 ns["local_stop_tmux_inventory"] = lambda root: [dict(command="missing-old", project="project", pane="%legacy", window="@legacy", session="mine", dead="0", exitCode="")]
 legacy = ns["task_execution_inventory"](root, [queries[1]])["tasks"][0]["observation"]

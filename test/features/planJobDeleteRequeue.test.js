@@ -22,7 +22,7 @@ const ts=require('typescript');// 与 confirmedFastDeleteWiring 等既有套件�
 const legacySource=fsNode.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
 const retryBody=ts.transpileModule(extractMethodBody(legacySource,'async retryPulledJob(plan, job, root, isCurrent, anomalyOnly = false) {'),
   {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
-const makeRetry=new Function('fs','path','crypto','PlanCodeScopeHost','PulledTaskControl','vscode','UiCommandCancelled','makeOpId','errorMessage','PlanRunHost',
+const makeRetry=new Function('fs','path','crypto','PlanCodeScopeHost','PulledTaskControl','vscode','UiCommandCancelled','makeOpId','errorMessage','PlanRunHost','confirmSyncScopePaths',
   'return async function (plan, job, root, isCurrent, anomalyOnly = false) {'+retryBody+'};');
 
 class UiCommandCancelled extends Error {}
@@ -84,11 +84,14 @@ function makeWorld({answers=['确认删除（1/2）','永久删除（2/2）'],de
   const vscode={window:{showWarningMessage:async()=>answersQueue.shift()||'取消'}};
   const PlanRunHostProbe=class{constructor(){isolateProbes.push('constructed');}async replace(){isolateProbes.push('replace');
     body:{throw Error('MUST_NOT_RENAME_ISOLATE');}}};
+  const reviews=[];
+  const reviewAnswers=require('../_helpers/pathReviewAnswers.cjs')(vscode.window);
   const retry=makeRetry(fs,path,crypto,{resolvePlanExecutionSource:async()=>undefined,verifyLocalPlanSource:async()=>{}},
-    PulledTaskControl,vscode,UiCommandCancelled,()=>'op-'+Math.random(),String,PlanRunHostProbe);
+    PulledTaskControl,vscode,UiCommandCancelled,()=>'op-'+Math.random(),String,PlanRunHostProbe,
+    async(...args)=>{reviews.push(args);return reviewAnswers(...args);});
   const plan={id:'plan-a',projectId:'p-1',planFile,revision,codeFingerprint:'fp-1',executionMode:'train',jobs:JSON.parse(JSON.stringify(jobs)),planJobCount:2};
   return {root,plan,planFile,host,client,queue:()=>queue,writes,isolateProbes,cleanupCalls,deleteMode:mode=>{deleteMode=mode;},
-    deletedCount:()=>deleteExecutions,setPreviewGate:promise=>{inPreviewGate=promise;},previewEntered,
+    reviews,deletedCount:()=>deleteExecutions,setPreviewGate:promise=>{inPreviewGate=promise;},previewEntered,
     retry:isCurrent=>retry.call(host,plan,plan.jobs[0],root,isCurrent??(()=>true))};
 }
 
@@ -96,6 +99,8 @@ test('删除并重新排队：两次确认→永久删除核实 path_absence→�
   const world=makeWorld();
   const result=await world.retry();
   assert.equal(result.status,'queued');
+  assert.equal(world.reviews.length,1,'永久删除必须交给可完整展示路径的双确认页');
+  assert.deepEqual(world.reviews[0][2].map(row=>row.path),['/srv/proj/work_dirs/a0','/srv/proj/work_dirs/a0/m.csv']);
   assert.match(result.message,/永久删除并核实源路径不存在/);
   assert.match(result.message,/等待正常资源调度/);
   assert.deepEqual(world.isolateProbes,[],'用户要求先精确删除，不得再走 rename 隔离（当前候选仍调用 PlanRunHost.replace 即此处红）');
@@ -151,7 +156,7 @@ test('删后入队失败可恢复：重试直接入队，零重复删除；双�
   world.host.loadDistributedQueue=async()=>JSON.parse(JSON.stringify(overridden||original()));
   const retry2=makeRetry(fs,path,crypto,{resolvePlanExecutionSource:async()=>undefined,verifyLocalPlanSource:async()=>{}},
     PulledTaskControl,{window:{showWarningMessage:async()=>'取消'}},UiCommandCancelled,()=>'op-r2',String,
-    class{async replace(){throw Error('MUST_NOT_RENAME_ISOLATE');}});
+    class{async replace(){throw Error('MUST_NOT_RENAME_ISOLATE');}},async()=>false);
   world.host.saveDistributedQueue=async(_root,_queue,options)=>{const latest=JSON.parse(JSON.stringify(original()));
     const next=options.mutateLatest(latest);if(next!==latest){overridden=next;world.writes.push(JSON.parse(JSON.stringify(next)));}};
   const result=await retry2.call(world.host,world.plan,world.plan.jobs[0],world.root,()=>true);

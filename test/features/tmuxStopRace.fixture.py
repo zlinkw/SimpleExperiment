@@ -53,7 +53,7 @@ try:
     assert result["queryComplete"] and not any(row["observation"].get("queryError") for row in result["tasks"]), result
     ns["local_stop_tmux_inventory"] = inventory
     result = ns["task_query"](root, [query])
-    assert result["tasks"][0]["observation"]["cancelled"] and "tmux" not in result["tasks"][0]["observation"]
+    assert result["tasks"][0]["observation"]["cancelled"] and result["tasks"][0]["observation"]["tmux"] is None
     print(json.dumps({"ok": True, "realTmux": True, "stateFilesRead": 0}))
 finally:
     close_fixture_tmux_windows(lambda args: Tmux.run(["tmux", *args], capture_output=True, text=True, timeout=2), socket_name=socket)

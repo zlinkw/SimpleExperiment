@@ -11,7 +11,7 @@ export type TaskObservation = {
   artifactIssue?: string;
   runtimeDiagnostics?: RuntimeDiagnostics;
   cancelled?: boolean;
-  tmux?: { windowId: string; paneId: string; dead: boolean; exitCode?: number | null; phase?: string };
+  tmux?: { windowId: string; paneId: string; dead: boolean; exitCode?: number | null; phase?: string } | null;
   result?: { runId: string; status: string; present: boolean; verified: boolean; identityMatches?: boolean; artifactsComplete?: boolean; exitCode?: number | null } | null;
 };
 export function taskLifecycle(value: TaskObservation): { execution: TaskExecution; result: TaskResult;

@@ -15594,7 +15594,7 @@ export function renderPanelHtml(): string {
           const blockText = job.lifecycleProtocol === 2 ? String(job.statusQueryError || job.blockReason || job.gpuMemoryWaitReason || "") : job.outputIsolationBlocked || blocked ? String(job.blockReason || "") : "";
           const stopPending = job.lifecycleProtocol === 2 && job.commandId && job.stopIntent && job.stopIntent.commandId === job.commandId && job.stopIntent.workerId === job.workerId;
           const waitNote = job.lifecycleProtocol !== 2 || stopPending || job.outputIsolationBlocked ? "" : status === "pending"
-            ? job.localQueueOnly || job.manualDispatch ? "等待手动派发，不会自动派发。" : "自动调度开启且 Worker/GPU 满足准入后继续；本机须保持打开，无需重复提交。"
+            ? job.manualDispatch ? "等待手动派发，不会自动派发。" : "自动调度开启且 Worker/GPU 满足准入后继续；本机须保持打开，无需重复提交。"
             : status === "dispatching" ? "本机已发出提交意图，等待主动查询确认接收；不代表已经运行，请勿重复提交。"
             : status === "queued" ? "服务器已接收；Scheduler 与 GPU 满足准入后由服务器继续，本机退出不撤回已接收任务。" : "";
           const recheckNote = job.lifecycleProtocol === 2 && job.completionState === "verified" && job.verificationQueryError

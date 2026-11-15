@@ -24,7 +24,7 @@ function extractMethodBody(source,name){
 const legacySource=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
 const retryBody=ts.transpileModule(extractMethodBody(legacySource,'async retryPulledJob(plan, job, root, isCurrent, anomalyOnly = false) {'),
   {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
-const makeRetry=new Function('fs','path','crypto','PlanCodeScopeHost','PulledTaskControl','vscode','UiCommandCancelled','makeOpId','errorMessage','PlanRunHost',
+const makeRetry=new Function('fs','path','crypto','PlanCodeScopeHost','PulledTaskControl','vscode','UiCommandCancelled','makeOpId','errorMessage','PlanRunHost','confirmSyncScopePaths',
   'return async function (plan, job, root, isCurrent, anomalyOnly = false) {'+retryBody+'};');
 class UiCommandCancelled extends Error {}
 
@@ -174,7 +174,7 @@ function world(options={}){
   const seedPlan=queue().plans.find(row=>row.id==='plan-a');
   const runner=makeRetry(fsPromises,path,crypto,{resolvePlanExecutionSource:async()=>undefined,verifyLocalPlanSource:async()=>{}},
     PulledTaskControl,vscode,UiCommandCancelled,()=>'op-'+Math.random(),e=>e.message,
-    class{async replace(){throw Error('MUST_NOT_RENAME_ISOLATE');}});
+    class{async replace(){throw Error('MUST_NOT_RENAME_ISOLATE');}},require('../_helpers/pathReviewAnswers.cjs')(vscode.window));
   return {root,storage,serverRoot,planFile,revision,projectId,node,scope,stats,service,host,buildHost,queue,queueFile,dialogs,posted,actionErrors,
     plan:seedPlan,job:seedPlan.jobs[0],
     sibling:()=>queue().plans.find(row=>row.id==='plan-a').jobs.find(row=>row.index===1),

@@ -60,6 +60,20 @@ function providerState(stored) {
   return instance;
 }
 
+test('recalled local work shows automatic admission waiting instead of a manual-only promise', () => {
+  const html = require('../../dist/ui/PanelHtml.legacy.js').renderPanelHtml();
+  const script = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map(match => match[1]).join('\n');
+  const start = script.indexOf('const waitNote ='), end = script.indexOf('const recheckNote =', start);
+  assert.ok(start >= 0 && end > start);
+  const note = new Function('job', 'status', 'stopPending', script.slice(start, end) + ';return waitNote;');
+  const recalled = { lifecycleProtocol: 2, localQueueOnly: true };
+  assert.match(note(recalled, 'pending', false), /自动调度/);
+  assert.doesNotMatch(note(recalled, 'pending', false), /不会自动派发/);
+  assert.match(note({ ...recalled, manualDispatch: { stage: 'preparing' } }, 'pending', false), /手动派发/);
+  assert.equal(note({ ...recalled, outputIsolationBlocked: {} }, 'pending', false), '');
+  assert.equal(note(recalled, 'pending', true), '');
+});
+
 test('lost stop ACK preserves native recall intent; restart settles only from an active exact query',async()=>{
   const at=new Date().toISOString();
   const queue=queueApi.enqueuePlan(queueApi.emptyDistributedQueue(),{projectId:queueApi.canonicalProjectId(root),schedulingMode:'server_prequeue',

@@ -549,9 +549,9 @@ def runtime_dependency_check():
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.510"
-RUNTIME_VERSION = "0.5.510"
-PLUGIN_VERSION = "0.5.510"
+AGENT_VERSION = "0.5.512"
+RUNTIME_VERSION = "0.5.512"
+PLUGIN_VERSION = "0.5.512"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -20357,7 +20357,7 @@ def task_safe_path(root, relative):
         raise ValueError("UNSAFE_TASK_PATH")
     return full
 
-def task_inventory(root, execution_only=False):
+def task_inventory(root, execution_only=False, _settle_exit=True):
     fmt = "#{pane_id}\t#{window_id}\t#{session_name}\t#{pane_dead}\t#{pane_dead_status}\t#{@se_job}\t#{@se_phase}\t#{@se_gpu}\t#{@se_log}\t#{@se_gpu_budget}"
     rows = []
     for line in task_tmux(["list-panes", "-a", "-F", fmt]).splitlines():
@@ -20382,6 +20382,13 @@ def task_inventory(root, execution_only=False):
         except (ValueError, TypeError):
             row["_gpuBudget"] = {}
         rows.append(row)
+    unsettled = next((row for row in rows if row["dead"] and row["exitCode"] is None), None)
+    if _settle_exit and unsettled:
+        # Older utempter-enabled tmux can lose SIGCHLD while closing the PTY
+        # (tmux#4559). A native no-op lets tmux reap its children; its own exit
+        # never substitutes for the task's status. Read the original bindings anew.
+        task_tmux(["run-shell", "-t", unsettled["tmuxPane"], "true"])
+        return task_inventory(root, execution_only, _settle_exit=False)
     return rows
 
 def task_execution_inventory(root, queries=()):
@@ -20416,7 +20423,7 @@ def task_execution_inventory(root, queries=()):
                   "executionMode", "mode", "checkpointTestOnly", "runKey", "case", "seed", "configPath", "tmuxPane", "tmuxWindowId", "tmuxSession", "gpuId") if key in row}
         observed = {
             "lifecycleProtocol": 2, "commandId": row["commandId"], "projectId": row["projectId"], "workerId": row["workerId"],
-            "observedAt": now_iso()}
+            "observedAt": now_iso(), "tmux": None}
         if row.get("tmuxPane"):
             observed["tmux"] = {"windowId": row["tmuxWindowId"], "paneId": row["tmuxPane"],
                                 "dead": row["dead"], "exitCode": row["exitCode"], "phase": row["phase"]}
@@ -20584,7 +20591,7 @@ def task_public_observation(root, job, row=None):
     except Exception as exc:
         result, result_error = None, str(exc)
     observed = {"lifecycleProtocol": 2, "commandId": job["commandId"], "projectId": job["projectId"],
-                "workerId": job["workerId"], "observedAt": now_iso(), "result": result}
+                "workerId": job["workerId"], "observedAt": now_iso(), "tmux": None, "result": result}
     if result_error:
         observed["resultQueryError"] = result_error
     if row:
