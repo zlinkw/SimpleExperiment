@@ -2936,7 +2936,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15532,
       "status": "preview_passed",
-      "evidence": "Source512 actual dedicated seed42 control daily_failure_511 / distributed-plan-1794762869365-ld9y7i / 16cb6d2cd642e9f5cb44352b536fc1ce returned native exit7. Both job retry/requeue entry buttons were clicked. Missing tmux:null after proven closure was reproduced and fixed; both now open the existing scrollable, wrapped two-stage path review for the exact output directory. Cancel clicked on the first page; no deletion, second approval or new execution. Full destructive/requeue effect remains untested. See docs/manual-acceptance-checklist.md.",
+      "evidence": "Installed0.5.512 actual original Generic workspace host12008, native Codex MCP, Agent@32 and retained Scheduler@6 all512. Both retry and requeue buttons for command16cb6d2cd642e9f5cb44352b536fc1ce opened the complete wrapped first path-review page; Cancel clicked on each. No personal approval, deletion, new run or fake completion. Failure remains exit7; job_config.yaml2195B and artifact_manifest.json1139B retained with original inodes. Original Generic success remains verifiedAt2026-11-11T21:39:45.642Z. Final service restored to MultiModal512 Agent@33.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3007,7 +3007,7 @@
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15544,
       "status": "preview_passed",
-      "evidence": "Source512 actual dedicated seed42 control daily_failure_511 / distributed-plan-1794762869365-ld9y7i / 16cb6d2cd642e9f5cb44352b536fc1ce returned native exit7. Both job retry/requeue entry buttons were clicked. Missing tmux:null after proven closure was reproduced and fixed; both now open the existing scrollable, wrapped two-stage path review for the exact output directory. Cancel clicked on the first page; no deletion, second approval or new execution. Full destructive/requeue effect remains untested. See docs/manual-acceptance-checklist.md.",
+      "evidence": "Installed0.5.512 actual original Generic workspace host12008, native Codex MCP, Agent@32 and retained Scheduler@6 all512. Both retry and requeue buttons for command16cb6d2cd642e9f5cb44352b536fc1ce opened the complete wrapped first path-review page; Cancel clicked on each. No personal approval, deletion, new run or fake completion. Failure remains exit7; job_config.yaml2195B and artifact_manifest.json1139B retained with original inodes. Original Generic success remains verifiedAt2026-11-11T21:39:45.642Z. Final service restored to MultiModal512 Agent@33.",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -4969,6 +4969,13 @@
         "version": "0.5.512",
         "commandId": "16cb6d2cd642e9f5cb44352b536fc1ce",
         "evidence": "Actual MCP/panel failed exit7. Both current job recovery buttons open the complete path review and cancel without deletion or redispatch. Fresh SFTP inventory retains job_config.yaml 2195B and artifact_manifest.json 1139B. Declined local cleanup_20261111.txt remains49B with its original SHA256. Agent@29/Scheduler@6 current512; original success and stop evidence retained."
+      },
+      {
+        "control": "installed512 dual workspace, Agent recovery and failure reviews",
+        "status": "preview_passed",
+        "version": "0.5.512",
+        "observedAt": "2026-11-15T18:13:00.020Z",
+        "evidence": "Installed0.5.512 actual original Generic workspace host12008, native Codex MCP, Agent@32 and retained Scheduler@6 all512. Both retry and requeue buttons for command16cb6d2cd642e9f5cb44352b536fc1ce opened the complete wrapped first path-review page; Cancel clicked on each. No personal approval, deletion, new run or fake completion. Failure remains exit7; job_config.yaml2195B and artifact_manifest.json1139B retained with original inodes. Original Generic success remains verifiedAt2026-11-11T21:39:45.642Z. Final service restored to MultiModal512 Agent@33. Both CLI workspace queries match their respective actual512 hosts. MM project_prepare mcp-7676eff8-5bd6-4cbc-9254-8ef36eba3631 and Generic mcp-bdba78eb-58f1-4d3a-9e72-263eab33236c succeeded. MM original commandbc9df623805ca30d675854c0044f4bd2 remains exit0/verifiedAt2026-11-11T10:28:00.155Z; final explicit task_analyze read1476710B complete log, no exceptions, historyRewritten:false. GUI focus switching did not repeat acknowledged shared-settings notice. No repackage or reinstall."
       }
     ]
   },
