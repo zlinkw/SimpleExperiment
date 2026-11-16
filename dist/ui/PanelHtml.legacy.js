@@ -16849,7 +16849,7 @@ function renderPanelHtml() {
       const expandedDataset = view.datasets.find(row => detailsOpenState["result-dataset-" + row.datasetKey] === true) || view.datasets.find(row => row.datasetKey === view.defaultDatasetKey);
       const selected = tables.find(row => row.tableKey === resultSplitTableKey) || expandedDataset?.finalTable || view.datasets.find(row => row.finalTable)?.finalTable || tables[0];
       const field = selected && selected.header.includes(resultSplitFieldName) ? resultSplitFieldName : selected && selected.header.includes("rate_percent") ? "rate_percent" : selected?.header?.[0] || "";
-      const choices = selected ? asArray((selected.values || {})[field]).slice(0, 100) : [];
+      const choices = selected ? asArray((selected.values || {})[field]) : [];
       const options = (items, chosen) => items.map(item => '<option value="' + escAttr(item) + '"' + (item === chosen ? ' selected' : '') + '>' + esc(item) + '</option>').join("");
       const tableOptions = tables.map(row => '<option value="' + escAttr(row.tableKey) + '"' + (row.tableKey === selected?.tableKey ? ' selected' : '') + '>' + esc((row.dataset || "未识别数据集") + " / " + row.name) + '</option>').join("");
       const fields = selected?.header || [];

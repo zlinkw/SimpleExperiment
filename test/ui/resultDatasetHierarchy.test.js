@@ -63,6 +63,19 @@ const catalog = {
   legacyTables: [],
 };
 
+test("result split can search and select a value after the first hundred", () => {
+  const renderer = createRenderer();
+  const values = Array.from({ length: 101 }, (_, index) => `case-${index + 1}`);
+  const table = { ...finalTable("synthetic", 101, "experiments/results/synthetic/final.csv"),
+    header: ["case"], values: { case: values } };
+  const state = { resultOutputConfig: { catalog: { datasets: [{ dataset: "synthetic", datasetKey: "synthetic", tables: [table], plans: [] }] }, tables: [table] } };
+  renderer.resultSplitSearchQuery = "case-101";
+  renderer.resultSplitSelectedValues = ["case-101"];
+  const html = renderer.renderProjectResultTables(state);
+  assert.match(html, /data-result-split-value-row="case-101"><input type="checkbox" data-result-split-value value="case-101" checked>/);
+  assert.match(html, /data-result-split-value-row="case-1" style="display:none"/);
+});
+
 test("unlabelled generic results expose existing tables without inventing a dataset", () => {
   const renderer = createRenderer();
   const group = { dataset: "", datasetKey: "_unassigned", plans: [plan("experiments/plans/acceptance.yaml", "acceptance")], tables: [finalTable("", 1, "experiments/results/_unassigned/final/final.csv")] };
