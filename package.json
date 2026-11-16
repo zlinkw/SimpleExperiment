@@ -489,7 +489,7 @@
           "type": "object",
           "default": {},
           "scope": "resource",
-          "description": "当前工作区的结果捕获规则、指标别名及 CSV 列映射。通过 SimpleExperiment 面板交互式维护；插件同步到 Agent 自有状态目录，不要求项目存在 experiments/simple_project.yaml。"
+          "description": "当前工作区的结果捕获规则、指标别名及 CSV 列映射，由 AI 根据实际任务通过 MCP 配置；Agent 同步状态以实际回执为准。"
         },
         "simpleExperiment.connectionMode": {
           "type": "string",

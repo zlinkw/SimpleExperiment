@@ -14,6 +14,7 @@ import * as fsNode from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 import * as os from "os";
+import { isDeepStrictEqual } from "util";
 import { monitorEventLoopDelay } from "perf_hooks";
 import { Worker } from "worker_threads";
 import { ProgressInactivity } from "../core/ProgressInactivity";
@@ -1233,6 +1234,7 @@ export class RealtimeTunnelPanelProvider {
     localPlanMetadataKey = "";
     localPlanMetadataFullRefresh = false;
     projectContextGeneration = 0;
+    projectAdapterSyncState = undefined;
     localPlanMetadataRefreshMinIntervalMs = 5_000;
     localPlanMetadataActionRefreshMaxAgeMs = 60_000;
     draftPlanState = { enabled: false, drafts: [], cleanupCandidates: [], error: "", updatedAt: "" };
@@ -3299,6 +3301,8 @@ export class RealtimeTunnelPanelProvider {
         if (!definition)
             throw new Error(`未知 SimpleExperiment 配置：${key}`);
         const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri);
+        const root = key === "simpleExperiment.projectAdapterRules" ? workspaceRoot() : undefined;
+        const rules = key === "simpleExperiment.projectAdapterRules" && root ? pluginProjectAdapterRules(root) : undefined;
         return {
             key,
             type: definition.schema.type || "",
@@ -3306,6 +3310,10 @@ export class RealtimeTunnelPanelProvider {
             default: definition.schema.default,
             value: this.apiConfigValue(config, key, definition.schema),
             secret: API_SECRET_CONFIG_KEYS.has(key),
+            ...(rules ? { sync: this.projectAdapterSyncState?.root === root && this.projectAdapterSyncState?.rules === JSON.stringify(rules)
+                && this.projectAdapterSyncState?.workers === JSON.stringify(this.enabledWorkerConfigs()) && this.projectAdapterSyncState?.realtime === this.isRealtimeMode()
+                ? { status: this.projectAdapterSyncState.status, errors: this.projectAdapterSyncState.errors }
+                : { status: "unknown", errors: [] } } : {}),
         };
     }
     async apiConfigSet(params = {}) {
@@ -3321,6 +3329,78 @@ export class RealtimeTunnelPanelProvider {
                 value: this.apiConfigValue(vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri), key, definition.schema),
             });
         validateApiConfigValue(key, definition.schema, params.value);
+        if (key === "simpleExperiment.projectAdapterRules") {
+            assertSingleProjectWorkspace("项目接入配置");
+            const projectContext = this.captureProjectContext();
+            if (!projectContext.root) throw new Error("需要先打开工作区。");
+            if (stringField(params, "scope") !== "workspaceFolder") throw new Error("项目接入配置必须使用 workspaceFolder 范围。");
+            for (const field of ["taskType", "primaryMetric", "metricRegex"]) {
+                if (field in params.value && typeof params.value[field] !== "string") throw new Error(`接入配置 ${field} 必须为字符串。`);
+            }
+            for (const field of ["secondaryMetrics", "classificationMetrics", "segmentationMetrics", "candidateCsv", "candidateJson", "consoleLogs", "textLogs"]) {
+                if (field in params.value && (!Array.isArray(params.value[field]) || params.value[field].some(item => typeof item !== "string"))) throw new Error(`接入配置 ${field} 必须为字符串数组。`);
+            }
+            for (const field of ["csvColumnMapping", "metricAliases", "derivedMetric", "planDatasetMapping"]) {
+                if (field in params.value && (!params.value[field] || typeof params.value[field] !== "object" || Array.isArray(params.value[field]))) throw new Error(`接入配置 ${field} 必须为对象。`);
+            }
+            const mappingFields = ["case", "seed", "split", "fold", "dataset", "method", "eval_protocol", "rate_percent", "train_rate", "metric", "value", "unit", "higher_is_better"];
+            if (params.value.csvColumnMapping && Object.entries(params.value.csvColumnMapping).some(([field, value]) => !mappingFields.includes(field) || typeof value !== "string"))
+                throw new Error("结果列映射包含无效字段或非字符串列名。");
+            if (params.value.metricAliases && Object.values(params.value.metricAliases).some(value => typeof value !== "string"))
+                throw new Error("指标别名必须映射到字符串。");
+            const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.Uri.file(projectContext.root));
+            const existing = pluginProjectAdapterRules(projectContext.root);
+            const rules = { ...existing, ...params.value };
+            for (const field of ["csvColumnMapping", "metricAliases", "derivedMetric", "planDatasetMapping"]) {
+                if (field in params.value) {
+                    if (existing[field] && (typeof existing[field] !== "object" || Array.isArray(existing[field]))) throw new Error(`已有接入配置 ${field} 不是对象，无法安全合并。`);
+                    rules[field] = field === "derivedMetric" && !Object.keys(params.value[field]).length
+                        ? {} : { ...(existing[field] || {}), ...params.value[field] };
+                }
+            }
+            if ("planDatasetMapping" in params.value && !isDeepStrictEqual(rules.planDatasetMapping, existing.planDatasetMapping || {}))
+                throw new Error("数据集归类需要使用现有结果归类流程，不能通过接入配置直接更改。");
+            if ("derivedMetric" in params.value && Object.keys(rules.derivedMetric).length) {
+                const derived = rules.derivedMetric;
+                if (!["metric", "leftEndpoint", "rightEndpoint", "outputName"].every(field => typeof derived[field] === "string" && derived[field].trim())
+                    || !/^[A-Za-z][A-Za-z0-9_]*$/.test(derived.outputName) || derived.leftEndpoint === derived.rightEndpoint
+                    || ![1, 100].includes(derived.scale) || Object.keys(derived).length !== 5)
+                    throw new Error("派生指标需要不同的两个端点、有效输出列名和 1 或 100 的倍率。");
+            }
+            await config.update("projectAdapterRules", rules, vscode.ConfigurationTarget.WorkspaceFolder);
+            if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；接入配置已写入原工作区，后续操作未执行。");
+            const readback = pluginProjectAdapterRules(projectContext.root);
+            if (!isDeepStrictEqual(readback, rules)) throw new Error("接入配置已写入，但回读与请求不一致；未同步 Agent。");
+            const workers = JSON.stringify(this.enabledWorkerConfigs());
+            const realtime = this.isRealtimeMode();
+            let syncErrors = [];
+            if (!realtime) syncErrors = ["离线模式，待同步"];
+            else if (!this.enabledWorkerConfigs().length) syncErrors = ["没有启用的 Worker，待同步"];
+            else {
+                try {
+                    const invocation = mcpInvocation.getStore();
+                    if (!invocation) throw new Error("缺少 AI 项目同步授权上下文");
+                    invocation.permission("sync");
+                    invocation.permission("agents");
+                    for (const worker of this.enabledWorkerConfigs())
+                        assertAgentProjectProbeReady(this.lastWorkerProbes[worker.id], this.expectedWorkerAgentProjectRoot(worker.id), worker.displayName || worker.id);
+                    syncErrors = await this.syncProjectAdapterRulesToAgents(readback, () => this.projectContextIsCurrent(projectContext)
+                        && workers === JSON.stringify(this.enabledWorkerConfigs()) && realtime === this.isRealtimeMode());
+                }
+                catch (error) { syncErrors = [errorMessage(error)]; }
+            }
+            if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；原工作区配置已保存，同步结果请在原项目核查。");
+            if (!isDeepStrictEqual(pluginProjectAdapterRules(projectContext.root), readback)) throw new Error("接入配置在同步期间发生变化；请重新读取并核查同步状态。");
+            if (workers !== JSON.stringify(this.enabledWorkerConfigs()) || realtime !== this.isRealtimeMode()) throw new Error("Worker 配置或连接模式在同步期间发生变化；请重新核查同步状态。");
+            this.projectAdapterSyncState = { root: projectContext.root, rules: JSON.stringify(readback), workers, realtime, status: syncErrors.length ? "pending" : "synced", errors: syncErrors };
+            await this.refreshLocalPlanMetadata({ post: false, force: true });
+            if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；原工作区配置已保存，刷新结果请在原项目核查。");
+            if (!isDeepStrictEqual(pluginProjectAdapterRules(projectContext.root), readback) || workers !== JSON.stringify(this.enabledWorkerConfigs()) || realtime !== this.isRealtimeMode())
+                throw new Error("刷新期间配置或 Worker 发生变化；请重新读取并核查同步状态。");
+            this.invalidateResultCatalogCache("adapterRules");
+            this.postState();
+            return { ok: true, key, scope: "workspaceFolder", value: readback, secret: false, sync: { status: syncErrors.length ? "pending" : "synced", errors: syncErrors } };
+        }
         const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri);
         const target = this.apiConfigUpdateTarget(definition.schema, stringField(params, "scope"));
         await config.update(key.slice(API_CONFIG_PREFIX.length), params.value, target);
@@ -3349,6 +3429,8 @@ export class RealtimeTunnelPanelProvider {
                 key,
                 value: this.apiConfigValue(vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri), key, definition.schema),
             });
+        if (key === "simpleExperiment.projectAdapterRules" && Object.keys(pluginProjectAdapterRules(workspaceRoot() || "").planDatasetMapping || {}).length)
+            throw new Error("数据集归类需要使用现有结果归类流程，不能通过重置接入配置直接更改。");
         const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri);
         const target = this.apiConfigUpdateTarget(definition.schema, stringField(params, "scope"));
         await config.update(key.slice(API_CONFIG_PREFIX.length), undefined, target);
@@ -21267,7 +21349,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             ? `列映射已保存；Agent 待同步：${syncErrors.join("；")}`
             : "列映射已保存到插件设置并同步到 Agent，可点击“重建汇总”。");
     }
-    async syncProjectAdapterRulesToAgents(rules) {
+    async syncProjectAdapterRulesToAgents(rules, isCurrent = () => true) {
         if (!this.isRealtimeMode())
             return ["离线模式"];
         // PLAN 数据集映射仅供本机结果目录使用，不属于 Agent 结果接入协议。
@@ -21278,12 +21360,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             ...([]),
             ...this.enabledWorkerConfigs().map((worker) => worker.id),
         ];
+        if (!endpoints.length) return ["没有启用的 Worker"];
         const errors = [];
         for (const endpointId of uniqueStrings(endpoints)) {
+            if (!isCurrent()) throw new Error("项目已切换，停止同步剩余 Worker。");
             try {
                 const result = await this.postTensorboardAction(endpointId, "save-result-policy", { options: { projectAdapterRules: agentRules } });
-                if (result?.status === "failed")
-                    throw new Error(String(result.message || result.error || "Agent 保存失败"));
+                if (result?.status !== "completed")
+                    throw new Error(String(result?.message || result?.error || "Agent 保存未确认完成"));
             }
             catch (error) {
                 errors.push(`${endpointId}: ${errorMessage(error)}`);
@@ -27443,7 +27527,7 @@ return "历史服务器";
         const tensorboardPort = Number(vscode.workspace.getConfiguration("simpleExperiment").get("tensorboard.port", 6006)) || 6006;
         const sectionRevisions = this.panelSectionRevisionTracker.update({
             settings: [this.setupConfig, schedulerConfigRevision, this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.resultCsvDirectory,
-                projectAdapterRulesRevision, this.resultCatalogDirtyGeneration,  remoteRootPolicyRevision,
+                projectAdapterRulesRevision, this.projectAdapterSyncState, this.resultCatalogDirtyGeneration,  remoteRootPolicyRevision,
                 this.pluginUpdateStatus, this.lastProbe, this.lastWorkerProbes, realtimeState?.health, endpointRegistryState.registry,
                 this.confirmedRemotePaths,  JSON.stringify(gpuMemorySchedulingPreview), tensorboardPort],
             sync: [this.setupConfig, this.lastCodeSyncState, this.lastProbe, this.lastWorkerProbes, endpointRegistryState.registry, realtimeState?.health],
@@ -27485,6 +27569,10 @@ return "历史服务器";
                 defaultDirectory: DEFAULT_RESULT_CSV_DIR,
                 columnMapping: projectAdapterRules.csvColumnMapping || {},
                 adapterRules: projectAdapterRules,
+                adapterSync: this.projectAdapterSyncState?.root === resultRoot && this.projectAdapterSyncState?.rules === projectAdapterRulesRevision
+                    && this.projectAdapterSyncState?.workers === JSON.stringify(this.enabledWorkerConfigs()) && this.projectAdapterSyncState?.realtime === this.isRealtimeMode()
+                    ? { status: this.projectAdapterSyncState.status, errors: this.projectAdapterSyncState.errors }
+                    : { status: "unknown", errors: [] },
                 ...(includePanelResults ? { catalogLoadStatus: this.resultCatalogStatus, catalogLoadError: this.resultCatalogRefreshError } : {}),
                 ...(includePanelResults ? { catalog: resultCatalog, tables: compactResultTables } : {}),
                 pendingPlanSyncCount: (() => {
@@ -34749,32 +34837,12 @@ async function inferProjectAdapterRules(root, configFiles, factory, planFiles = 
     const taskType = hasSegmentationTask && !hasClassificationTask ? "segmentation" : hasClassificationTask ? "classification" : hasRegressionTask ? "regression" : "generic";
     const normalizedMetrics = uniqueStrings([...metrics].map(normalizeMetricName).filter(Boolean));
     const metricGroups = partitionProjectMetrics(normalizedMetrics);
-    const classification = uniqueStrings([
-        ...metricGroups.classification,
-        "AUC",
-        "accuracy",
-        "F1",
-        "AUPRC",
-        "precision",
-        "recall",
-        "specificity",
-        "balanced_accuracy",
-        "loss",
-    ]);
-    const segmentation = uniqueStrings([
-        ...metricGroups.segmentation,
-        "Dice",
-        "DSC",
-        "IoU",
-        "HD95",
-        "ASD",
-    ]);
     return {
         taskType,
-        primaryMetric: taskType === "classification" ? "AUC" : taskType === "segmentation" ? "DSC" : taskType === "regression" ? "RMSE" : normalizedMetrics[0] || "",
-        secondaryMetrics: taskType === "classification" ? classification.filter((item) => item !== "AUC").slice(0, 8) : taskType === "segmentation" ? segmentation.filter(item => !["DSC", "Dice"].includes(item)) : taskType === "regression" ? ["MAE", "R2"] : normalizedMetrics.slice(1, 9),
-        classificationMetrics: taskType === "classification" ? classification : metricGroups.classification,
-        segmentationMetrics: taskType === "segmentation" ? segmentation : metricGroups.segmentation,
+        primaryMetric: "",
+        secondaryMetrics: [],
+        classificationMetrics: metricGroups.classification,
+        segmentationMetrics: metricGroups.segmentation,
         candidateCsv: uniqueStrings([...csv].map((item) => item.replace(/\\/g, "/"))),
         candidateJson: uniqueStrings([...json]),
         consoleLogs: uniqueStrings([...consoleLogs]),
@@ -34800,9 +34868,7 @@ function mergeProjectAdapterRules(explicitRules, inferredRules) {
     const hasMap = (value) => Object.keys(value || {}).length > 0;
     const unionList = (...lists) => uniqueStrings(lists.flatMap((list) => Array.isArray(list) ? list : []).map((item) => String(item || "").trim().replace(/\\/g, "/")).filter(Boolean));
     const taskType = explicitRules.taskType || inferredRules.taskType;
-    const defaults = taskType === inferredRules.taskType ? inferredRules : taskType === "classification" ? {primaryMetric:"AUC",secondaryMetrics:["accuracy","F1","AUPRC"]}
-        : taskType === "segmentation" ? {primaryMetric:"DSC",secondaryMetrics:["IoU","HD95","ASD"]}
-        : taskType === "regression" ? {primaryMetric:"RMSE",secondaryMetrics:["MAE","R2"]} : {primaryMetric:"",secondaryMetrics:[]};
+    const defaults = inferredRules;
     return {
         distributedResults: explicitRules.distributedResults === true,
         distributed: explicitRules.distributed || {},

@@ -47,13 +47,26 @@ test("project metrics split classification and segmentation in one traversal", (
   assert.deepEqual(Array.from(groups.segmentation), ["Dice", "mean_IoU", "HD95", "hausdorff95", "ASD_score", "DSC"]);
 });
 
-test("project adapter inference consumes partitioned metrics before default completion", () => {
+test("project adapter inference retains observed groups without guessing primary or additional metrics", async () => {
   const source = extractFunction("inferProjectAdapterRules");
   assert.match(source, /const metricGroups = partitionProjectMetrics\(normalizedMetrics\)/);
-  assert.match(source, /\.\.\.metricGroups\.classification/);
-  assert.match(source, /\.\.\.metricGroups\.segmentation/);
-  assert.doesNotMatch(source, /normalizedMetrics\.filter\(/);
-  for (const metric of ["AUC", "accuracy", "F1", "Dice", "DSC", "IoU", "HD95", "ASD"]) {
-    assert.match(source, new RegExp(`"${metric}"`), metric);
+  const sandbox = { path, readUtf8Preview: async () => 'data', configEvidenceText: () => 'data',
+    task: '', extractYamlStringValues: (_text, key) => key === 'task' ? [sandbox.task] : [],
+    extractYamlListValues: () => ['AP', 'weighted_f1', 'Dice'], inferResultFileCandidatesFromConfig: () => [],
+    uniqueStrings: rows => [...new Set(rows)], normalizeMetricName: value => value,
+    partitionProjectMetrics: rows => ({ classification: rows.filter(x => x !== 'Dice'), segmentation: rows.filter(x => x === 'Dice') }),
+    defaultMetricAliases: () => ({}), PlanBuilder_1: {}, dedupOutputCandidates: rows => rows };
+  vm.createContext(sandbox);
+  vm.runInContext(`async ${source}\n${extractFunction('mergeProjectAdapterRules')}\nthis.infer = inferProjectAdapterRules; this.merge = mergeProjectAdapterRules;`, sandbox);
+  for (const task of ['classification', 'segmentation', 'regression']) {
+    sandbox.task = task;
+    const inferred = await sandbox.infer('/project', ['config.yaml'], { files: [], symbols: [], multimodalHints: [] }, []);
+    assert.equal(inferred.primaryMetric, '');
+    assert.deepEqual(Array.from(inferred.secondaryMetrics), []);
+    assert.deepEqual(Array.from(inferred.classificationMetrics), ['AP', 'weighted_f1']);
+    assert.deepEqual(Array.from(inferred.segmentationMetrics), ['Dice']);
+    const explicit = sandbox.merge({ taskType: task, primaryMetric: 'macro_f1', secondaryMetrics: ['AP'] }, inferred);
+    assert.equal(explicit.primaryMetric, 'macro_f1');
+    assert.deepEqual(Array.from(explicit.secondaryMetrics), ['AP']);
   }
 });

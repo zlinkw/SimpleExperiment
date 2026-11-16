@@ -6,6 +6,150 @@ const os = require('node:os');
 const { ProjectGateway } = require('../../dist/mcp/ProjectGateway.js');
 const { createProjectAuthorization, AUTHORIZATION_KEY } = require('../../dist/mcp/ProjectAuthorization.js');
 const { PROJECT_TOOLS } = require('../../dist/mcp/ToolCatalog.js');
+const vm = require('node:vm');
+const { isDeepStrictEqual } = require('node:util');
+
+function adapterConfigHost({ online = false, permissionError, probeError, workspaceError, readbackMismatch = false, changeOnUpdate = false, syncResult = [] } = {}) {
+  const source = fs.readFileSync(path.join(__dirname, '../../src/extension/legacy.ts'), 'utf8');
+  const method = source.slice(source.indexOf('    async apiConfigSet('), source.indexOf('    async apiConfigReset('));
+  const getMethod = source.slice(source.indexOf('    async apiConfigGet('), source.indexOf('    async apiConfigSet('));
+  const resetMethod = source.slice(source.indexOf('    async apiConfigReset('), source.indexOf('    apiStateValue('));
+  const values = { '/one': { csvColumnMapping: { fold: 'fold_id' }, derivedMetric: { metric: 'AP' }, planDatasetMapping: { a: 'dataset' } }, '/two': {} };
+  let root = '/one';
+  const events = [];
+  const config = uri => ({ get: () => values[uri], update: async (_key, value) => {
+    values[uri] = readbackMismatch ? { ...value, primaryMetric: 'wrong' } : value;
+    if (changeOnUpdate) root = '/two';
+  } });
+  const context = { vscode: { workspace: { workspaceFolders: [{ uri: '/one' }], getConfiguration: (_name, uri) => config(uri) }, Uri: { file: x => x }, ConfigurationTarget: { WorkspaceFolder: 3 } },
+    API_CONFIG_NAMESPACE: 'simpleExperiment', API_CONFIG_PREFIX: 'simpleExperiment.', API_SECRET_CONFIG_KEYS: new Set(),
+    stringField: (obj, key) => obj[key] || '', validateApiConfigValue: () => {}, pluginProjectAdapterRules: uri => values[uri],
+    isDeepStrictEqual: (a, b) => isDeepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b))),
+    mcpInvocation: { getStore: () => ({ permission: name => { events.push(name); if (permissionError) throw Error(permissionError); } }) },
+    errorMessage: e => e.message, confirmationRequired: () => Error('confirmation required'), workspaceRoot: () => root,
+    assertSingleProjectWorkspace: () => { if (workspaceError) throw Error(workspaceError); return root; },
+    assertAgentProjectProbeReady: () => { if (probeError) throw Error(probeError); } };
+  const api = vm.runInNewContext(`({${method}}).apiConfigSet`, context);
+  const get = vm.runInNewContext(`({${getMethod}}).apiConfigGet`, context);
+  const reset = vm.runInNewContext(`({${resetMethod}}).apiConfigReset`, context);
+  const host = { apiConfigDefinition: () => ({ schema: { type: 'object' } }), captureProjectContext: () => ({ root }),
+    apiConfigValue: config => config.get(),
+    projectContextIsCurrent: c => c.root === root, isRealtimeMode: () => online, enabledWorkerConfigs: () => [{ id: 'worker' }], lastWorkerProbes: {}, expectedWorkerAgentProjectRoot: () => '/remote/project',
+    syncProjectAdapterRulesToAgents: async () => { events.push('agent-write'); return syncResult; },
+    refreshLocalPlanMetadata: async () => events.push('refresh'), invalidateResultCatalogCache: () => events.push('catalog'), postState: () => events.push('post') };
+  return { call: value => api.call(host, { key: 'simpleExperiment.projectAdapterRules', scope: 'workspaceFolder', confirm: true, value }),
+    read: () => get.call(host, { key: 'simpleExperiment.projectAdapterRules' }),
+    reset: () => reset.call(host, { key: 'simpleExperiment.projectAdapterRules', scope: 'workspaceFolder', confirm: true }), values, events, host };
+}
+
+test('MCP adapter configuration preserves existing mappings and reports offline synchronization', async () => {
+  const f = adapterConfigHost();
+  const result = await f.call({ taskType: 'classification', primaryMetric: 'AP', secondaryMetrics: ['macro_f1'] });
+  assert.equal(result.value.primaryMetric, 'AP');
+  assert.equal(result.value.csvColumnMapping.fold, 'fold_id');
+  assert.equal(result.value.derivedMetric.metric, 'AP');
+  assert.equal(result.value.planDatasetMapping.a, 'dataset');
+  assert.equal(result.sync.status, 'pending');
+  assert.match(result.sync.errors[0], /离线/);
+  assert.deepEqual(f.events, ['refresh', 'catalog', 'post']);
+});
+
+test('adapter configuration requires sync authorization and reports actual Agent outcome', async () => {
+  const denied = adapterConfigHost({ online: true, permissionError: 'not authorized' });
+  assert.equal((await denied.call({ primaryMetric: 'AP' })).sync.status, 'pending');
+  assert.ok(!denied.events.includes('agent-write'));
+  const wrongProject = adapterConfigHost({ online: true, probeError: 'project mismatch' });
+  assert.match((await wrongProject.call({ primaryMetric: 'AP' })).sync.errors[0], /project mismatch/);
+  assert.ok(!wrongProject.events.includes('agent-write'));
+  const failed = adapterConfigHost({ online: true, syncResult: ['worker: failed'] });
+  assert.equal((await failed.call({ primaryMetric: 'AP' })).sync.status, 'pending');
+  const success = adapterConfigHost({ online: true });
+  assert.equal((await success.call({ primaryMetric: 'AP' })).sync.status, 'synced');
+  assert.deepEqual(success.events, ['sync', 'agents', 'agent-write', 'refresh', 'catalog', 'post']);
+});
+
+test('Agent policy synchronization accepts only completed Worker responses', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '../../src/extension/legacy.ts'), 'utf8');
+  const method = source.slice(source.indexOf('    async syncProjectAdapterRulesToAgents('), source.indexOf('    async loadProjectAdapterTemplateFiles('));
+  const sandbox = { uniqueStrings: rows => [...new Set(rows)], errorMessage: e => e.message };
+  const sync = vm.runInNewContext(`({${method}}).syncProjectAdapterRulesToAgents`, sandbox);
+  const calls = [];
+  const host = { isRealtimeMode: () => true, projectTopologyAssessment: () => ({}), enabledWorkerConfigs: () => [{ id: 'worker' }],
+    postTensorboardAction: async (id, action, body) => { calls.push({ id, action, body }); return { status: host.status }; } };
+  for (const status of ['submitted', 'failed', 'completed']) {
+    host.status = status;
+    const errors = await sync.call(host, { primaryMetric: 'AP', planDatasetMapping: { plan: 'dataset' } });
+    assert.equal(errors.length, status === 'completed' ? 0 : 1);
+  }
+  assert.equal(calls.length, 3);
+  assert.equal(calls[0].body.options.projectAdapterRules.primaryMetric, 'AP');
+  assert.equal('planDatasetMapping' in calls[0].body.options.projectAdapterRules, false);
+  await assert.rejects(sync.call(host, {}, () => false), /停止同步/);
+  assert.equal(calls.length, 3);
+  host.enabledWorkerConfigs = () => [];
+  assert.match((await sync.call(host, {}))[0], /没有启用/);
+});
+
+test('adapter configuration stops on mismatched readback or workspace switch', async () => {
+  for (const option of [{ readbackMismatch: true }, { changeOnUpdate: true }, { workspaceError: '多个工作区' }]) {
+    const f = adapterConfigHost(option);
+    await assert.rejects(f.call({ primaryMetric: 'AP' }), /回读|切换|多个工作区/);
+    assert.deepEqual(f.events, []);
+    assert.deepEqual(f.values['/two'], {});
+  }
+});
+
+test('MCP validates result mappings and permits evidence-based derived metrics', async () => {
+  const f = adapterConfigHost();
+  await assert.rejects(f.call({ csvColumnMapping: { invalid: 'column' } }), /映射包含无效/);
+  await assert.rejects(f.call({ derivedMetric: { metric: 'AP', leftEndpoint: 'clean', rightEndpoint: 'clean', scale: 1, outputName: 'ap_delta' } }), /派生指标/);
+  const result = await f.call({ derivedMetric: { metric: 'AP', leftEndpoint: 'clean', rightEndpoint: 'test', scale: 1, outputName: 'ap_delta' } });
+  assert.equal(result.value.derivedMetric.metric, 'AP');
+  assert.equal(result.value.derivedMetric.outputName, 'ap_delta');
+  assert.deepEqual(Object.keys((await f.call({ derivedMetric: {} })).value.derivedMetric), []);
+});
+
+test('MCP preserves dataset assignments and refuses bypassing the existing result classification flow', async () => {
+  const f = adapterConfigHost();
+  await assert.rejects(f.call({ planDatasetMapping: { b: { datasets: ['other'] } } }), /结果归类流程/);
+  await assert.rejects(f.reset(), /结果归类流程/);
+  assert.equal(f.values['/one'].planDatasetMapping.a, 'dataset');
+  assert.deepEqual(f.events, []);
+  const result = await f.call({ planDatasetMapping: { a: 'dataset' }, primaryMetric: 'AP', csvColumnMapping: { metric: 'score_name' } });
+  assert.equal(result.value.planDatasetMapping.a, 'dataset');
+  assert.equal(result.value.csvColumnMapping.fold, 'fold_id');
+  assert.equal(result.value.csvColumnMapping.metric, 'score_name');
+});
+
+test('MCP gateway reads, writes and rereads the project adapter configuration', async () => {
+  const f = fixture(); await f.authorize(['configuration']);
+  const adapter = adapterConfigHost();
+  f.methods['config.get'] = () => adapter.read();
+  f.methods['config.set'] = params => adapter.call(params.value);
+  assert.equal((await f.gateway.call('configuration_get', { key: 'simpleExperiment.projectAdapterRules' })).value.csvColumnMapping.fold, 'fold_id');
+  const written = await f.gateway.call('configuration_set', { key: 'simpleExperiment.projectAdapterRules', scope: 'workspaceFolder', value: { primaryMetric: 'AP', candidateCsv: ['results/metrics.csv'] } });
+  assert.equal(written.sync.status, 'pending');
+  const read = await f.gateway.call('configuration_get', { key: 'simpleExperiment.projectAdapterRules' });
+  assert.equal(read.value.primaryMetric, 'AP');
+  assert.equal(read.value.csvColumnMapping.fold, 'fold_id');
+  assert.equal(read.sync.status, 'pending');
+});
+
+test('saved MCP configuration is consumed by the real result CSV parser without merging metrics', async () => {
+  const adapter = adapterConfigHost();
+  await adapter.call({ csvColumnMapping: { case: 'case_id', seed: 'seed_id', metric: 'metric_name', value: 'metric_value' }, metricAliases: {} });
+  const rules = (await adapter.read()).value;
+  assert.equal(rules.csvColumnMapping.fold, 'fold_id');
+  const source = fs.readFileSync(path.join(__dirname, '../../src/extension/legacy.ts'), 'utf8');
+  const snippet = source.slice(source.indexOf('function parseDownloadedMetricCsv('), source.indexOf('function isResultMetricFile('));
+  const javascript = require('typescript').transpileModule(snippet, { compilerOptions: { target: 99 } }).outputText;
+  const sandbox = { ProjectResultTables: require('../../dist/results/ProjectResultTables.js') };
+  vm.runInNewContext(javascript + '\nthis.parse = parseDownloadedMetricCsv;', sandbox);
+  const csv = 'case_id,seed_id,metric_name,metric_value\na,1,AP,0.7\na,1,AUPRC,0.8\na,1,macro_f1,0.6\na,1,weighted_f1,0.9\n';
+  const rows = sandbox.parse(csv, rules.csvColumnMapping, {}, rules.metricAliases);
+  assert.deepEqual(Array.from(rows, row => Object.keys(row.metrics)[0]), ['AP', 'AUPRC', 'macro_f1', 'weighted_f1']);
+  assert.deepEqual(Array.from(rows, row => Object.values(row.metrics)[0].value), [0.7, 0.8, 0.6, 0.9]);
+});
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'simple-mcp-'));
   const worker = { id: 'worker-a', host: 'example.invalid', port: 22, user: 'research', projectRoot: '/project/demo' };

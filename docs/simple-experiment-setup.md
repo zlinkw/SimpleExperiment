@@ -2,6 +2,10 @@
 
 > **置顶：让 AI 接入其他项目。** 先读 [实验最小接入指南 · AI 执行契约](experiment-integration.md)，再参考 [MultiModal 最佳实践](multimodal-integration-best-practice.md)。插件 **设置** 顶部提供 **打开接入指南** 和 **复制接入任务给 AI**：后者复制可直接粘贴的任务提示词、完整指南链接与验收要求。它不会自动执行接入、上传或训练；接收任务的 AI 应在目标项目核实实际入口，并先读取完整指南。
 
+任务指标和输出接入由 AI 根据当前项目、PLAN、实际命令及结果格式核实，通过 MCP 的 `configuration_get` 读取 `simpleExperiment.projectAdapterRules`，再以 `configuration_set` 的 `workspaceFolder` 范围写入有依据的字段并回读。未提供的已有映射保留；事实不足时询问任务事实，不猜指标含义。写入结果中的 `sync` 单独报告 Agent 同步状态，离线、缺少授权或远端失败均为待同步。本机保存不代表远端完成。
+
+`csvColumnMapping` 和 `metricAliases` 使用已有对象字段合并；`derivedMetric` 使用 `metric`、`leftEndpoint`、`rightEndpoint`、`scale`、`outputName`，显式空对象关闭该派生项。PLAN 数据集归类属于独立结果维护，普通接入配置写入会保留原值并拒绝绕过归类流程更改。
+
 本说明以当前 Windows 插件实现为准。只配置执行服务器 Worker：启用一台就是单 Worker，启用多台就是多 Worker；二者使用同一套 `worker_pool` 流程。旧 `single_worker` 值可兼容读取，不需要另建控制服务器。旧控制节点配置不会生成连接、调度或结果汇总目标。
 
 快速入口见 [README](../README.md)，接入其他项目见 [最小实验接入指南](experiment-integration.md)，全部注册设置见 [配置字段参考](configuration-reference.md)，接口边界见 [项目契约](plugin-project-contract.md)。
