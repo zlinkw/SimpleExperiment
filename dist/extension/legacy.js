@@ -6801,15 +6801,25 @@ class RealtimeTunnelPanelProvider {
     }
     async manualSnapshot() {
         const generation = this.projectContextGeneration;
+        let localRefreshError = "";
         await this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
             if (generation !== this.projectContextGeneration)
                 return;
-            this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
+            localRefreshError = errorMessage(error);
+            this.localPlanMetadata = { ...this.localPlanMetadata, error: localRefreshError };
         });
         if (generation !== this.projectContextGeneration)
             return;
         if (this.effectiveConnectionMode() === "offline_import") {
-            void vscode.window.showInformationMessage("离线模式不会访问网络。请导入离线 bundle。");
+            const message = localRefreshError
+                ? `本机项目识别刷新失败：${localRefreshError}。离线模式不会访问网络。${this.offlineBundle ? "" : "请导入离线 bundle。"}`
+                : this.offlineBundle
+                    ? "本机项目识别已刷新，已导入离线 bundle；离线模式不会访问网络。"
+                    : "本机项目识别已刷新；离线模式不会访问网络。请导入离线 bundle。";
+            if (localRefreshError)
+                void vscode.window.showWarningMessage(message);
+            else
+                void vscode.window.showInformationMessage(message);
             this.postState();
             return;
         }
@@ -22490,19 +22500,8 @@ class RealtimeTunnelPanelProvider {
             if (!this.projectContextIsCurrent(projectContext))
                 return;
         }
-        let project = this.localPlanMetadata.detectedProject || {};
-        let gateDiagnostics = projectOutputGateDiagnostics(project, selected);
-        const gateReason = projectOutputGateReason(project, selected);
-        if (gateReason && gateDiagnostics.nextLabel === "接入配置" && !project.adapterConfig) {
-            await this.generateOutputAdapterFromUi();
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            await this.refreshLocalPlanMetadata({ post: false, force: true });
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            project = this.localPlanMetadata.detectedProject || {};
-            gateDiagnostics = projectOutputGateDiagnostics(project, selected);
-        }
+        const project = this.localPlanMetadata.detectedProject || {};
+        const gateDiagnostics = projectOutputGateDiagnostics(project, selected);
         const finalGateReason = projectOutputGateReason(project, selected);
         const simpleSftp = simpleSftpIntegrationReadiness();
         const enabledWorkers = this.enabledWorkerConfigs();
@@ -22620,6 +22619,10 @@ class RealtimeTunnelPanelProvider {
             return this.addWorkerConfigFromUi(false);
         if (next === "打开配置说明") {
             await this.openSetupGuide();
+            return false;
+        }
+        if (next === "查看接入说明") {
+            await this.openPanelAt("settings", "settings-integration-guide", { userInitiated: true });
             return false;
         }
         if (next === "打开连接设置") {
@@ -32757,7 +32760,7 @@ function compactAdapterRulesForWebview(rules) {
     if (omittedFields > 0) {
         out.adapterRulesPartial = true;
         out.adapterRulesOmittedFieldCount = omittedFields;
-        out.adapterRulesPartialReason = "自动推断规则较多，仅显示摘要；可在插件设置中调整明确规则。";
+        out.adapterRulesPartialReason = "自动推断规则较多，仅显示摘要；请 AI 根据实际任务通过 MCP 核实配置。";
     }
     return out;
 }
@@ -34742,11 +34745,11 @@ function projectOutputGateDiagnostics(project, plan) {
     const checks = [
         { label: "计划强契约", ok: contractReady, fix: planContractFixText(plan) },
         { label: "配置文件", ok: configReady, fix: `在工作区创建或在 Plan 中改为可用配置：${configFile || "configs/*.yaml"}` },
-        { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: "在当前 Plan 声明结果位置，或在插件设置中配置输出接入规则" },
+        { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: "在当前 Plan 声明结果位置，或请 AI 根据实际任务通过 MCP 配置输出接入规则" },
         { label: "计划输出", ok: planReady || ruleCandidateCount > 0, fix: "在 plan 的 paper.result_csv、当前 mode 实际执行命令的结果参数或 expectedResults 中写明可解析结果位置" },
-        { label: "候选结果规则", ok: candidateCount > 0 || planReady, fix: "补充 candidateCsv / candidateJson / consoleLogs / textLogs / metricRegex，或点击“保存接入规则”写入推断结果" },
+        { label: "候选结果规则", ok: candidateCount > 0 || planReady, fix: "请 AI 核实实际结果位置和格式，通过 MCP 配置候选结果规则" },
         { label: "标准结果契约", ok: planReady || ruleCandidateCount > 0, fix: "在 Plan 声明实际结果或任务产物；也可配置结果解析规则" },
-        { label: "解析预览", ok: parseablePreview || planReady || ruleCandidateCount > 0, fix: "保存接入规则后点击“刷新识别”，确认至少一个候选输出能解析出指标" },
+        { label: "解析预览", ok: parseablePreview || planReady || ruleCandidateCount > 0, fix: "请 AI 核实候选输出能否解析出指标" },
     ];
     const missing = checks.filter((item) => !item.ok).map((item) => item.label);
     const next = checks.find((item) => !item.ok);
@@ -34829,11 +34832,11 @@ function projectOutputGateFixes(missing, plan, project) {
     const fixes = {
         计划强契约: planContractFixText(plan),
         配置文件: `在工作区创建或在 Plan 中改为可用配置：${String(plan?.baseConfig || plan?.base_config || "configs/*.yaml")}`,
-        接入配置: "在当前 Plan 声明结果位置，或在插件设置中配置输出接入规则",
+        接入配置: "在当前 Plan 声明结果位置，或请 AI 根据实际任务通过 MCP 配置输出接入规则",
         计划输出: "在 plan 的 paper.result_csv、当前 mode 实际执行命令的结果参数或 expectedResults 中写明可解析结果位置",
-        候选结果规则: "补充 candidateCsv / candidateJson / consoleLogs / textLogs / metricRegex，或点击“保存接入规则”写入推断结果",
+        候选结果规则: "请 AI 核实实际结果位置和格式，通过 MCP 配置候选结果规则",
         标准结果契约: "推荐让测试代码输出 metrics_summary.csv，或使用 run_wrapper 捕获 stdout/stderr 后归一化",
-        解析预览: "保存接入规则后点击“刷新识别”，确认至少一个候选输出能解析出指标",
+        解析预览: "请 AI 核实候选输出能否解析出指标",
     };
     return uniqueStrings(missing.map((item) => fixes[item] || "").filter(Boolean));
 }
@@ -35900,12 +35903,11 @@ function projectBootstrapCompletion(options) {
     }
     const outputGateReason = String(options.outputGateReason || "").trim();
     if (outputGateReason) {
-        const adapterConfig = String(options.adapterConfig || "").trim();
-        const openAdapter = String(options.outputGateNextLabel || "").trim() === "接入配置" && Boolean(adapterConfig);
+        const needsAdapter = String(options.outputGateNextLabel || "").trim() === "接入配置";
         return {
             state: "output_incomplete",
             message: `项目基础接入已完成；当前 Plan 仍未通过结果输出门禁。下一步：${outputGateReason}`,
-            action: openAdapter ? "打开接入配置" : "打开当前 Plan",
+            action: needsAdapter ? "查看接入说明" : "打开当前 Plan",
         };
     }
     const simpleSftp = options.simpleSftp && typeof options.simpleSftp === "object" ? options.simpleSftp : undefined;
@@ -36587,18 +36589,15 @@ function projectOnboardingSuggestions(options) {
     options = options || {};
     const planCount = Math.max(0, Math.trunc(Number(options.planCount || 0) || 0));
     const hasActionableOutput = options.hasActionableOutput === true;
-    const adapterConfig = String(options.adapterConfig || "").trim();
     const resultFileCount = Math.max(0, Math.trunc(Number(options.resultFileCount || 0) || 0));
     const parseableResultCount = Math.max(0, Math.trunc(Number(options.parseableResultCount || 0) || 0));
     if (!planCount)
         return ["在 experiments/plans 下创建或放入 YAML Plan；也可点击“新建模板”。"];
     if (!hasActionableOutput) {
-        return [adapterConfig
-                ? "当前 Plan 尚未声明可解析结果位置；请补充 Plan 输出，或在插件设置中配置接入规则。"
-                : "当前 Plan 尚未声明可解析结果位置；请补充 Plan 输出，或点击“生成模板”创建接入配置。"];
+        return ["当前 Plan 尚未声明可解析结果位置；请补充 Plan 输出，或请 AI 根据实际任务通过 MCP 配置接入规则。"];
     }
     if (resultFileCount > 0 && parseableResultCount === 0)
-        return ["已发现结果文件但未解析出指标；请检查列映射、metric 别名或文本指标规则后刷新识别。"];
+        return ["已发现结果文件但未解析出指标；请 AI 核实结果格式，并通过 MCP 检查接入规则。"];
     return [];
 }
 const EMPTY_PROJECT_ONBOARDING_SELECTION_PROJECT = Object.freeze({});
