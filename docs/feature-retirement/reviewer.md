@@ -10,4 +10,4 @@
 
 原 MM/Generic未保存文档、GPU7、旧任务/产物/日志、拒删文件与 MM @54 保护。R12-I 隔离阶段自验归 Terra，最终只审已有隔离证据和跨模块缺口。当前不升级 MCP/插件/旧 Worker、不打包安装发行、不训练、不清理，不从存储的较宽权限扩张本次 configuration 授权；Trust/安全许可本人处理，未知原子动作不重放。
 
-通用接续和正确启动唯一引用 [全局会话总规则](C:/Users/ZLK/.codex/skills/global-session-rules/SKILL.md) 及 [完整交班模板](C:/Users/ZLK/.codex/skills/global-session-rules/references/handover.md)，分工引用 [多会话实现](C:/Users/ZLK/.codex/skills/multi-session-implementation/SKILL.md)。不在项目复制阈值/算法，不为规则迁移新建角色或重做有效验收。
+通用接续和正确启动唯一引用 [统一会话接续入口](C:/Users/ZLK/.agents/skills/caveman/SKILL.md) 及 [完整交班模板](C:/Users/ZLK/.agents/skills/caveman/references/handover.md)，分工引用 [多会话实现](C:/Users/ZLK/.codex/skills/multi-session-implementation/SKILL.md)。不在项目复制阈值/算法，不为规则迁移新建角色或重做有效验收。

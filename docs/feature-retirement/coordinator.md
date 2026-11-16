@@ -6,7 +6,7 @@
 
 仍有授权内可执行工作就连续推进；CUA completion_summary 只结束当次 UI 子流程。局部 R12/对象/通知/GUI 条件不足不阻断独立工作，尊重真实用户输入和安全停止。仅用户暂停、全部剩余确受阻且精确升级、或正确同角色接替完成才可中途暂停。最终失败和通过都须真实工具发 Terra，不能双方无接续 idle。
 
-启动、计数器、模型/强度/default 实核和完整同角色交班唯一遵循 [全局会话总规则](C:/Users/ZLK/.codex/skills/global-session-rules/SKILL.md) 及其 [模板](C:/Users/ZLK/.codex/skills/global-session-rules/references/handover.md)；多角色分工遵循 [多会话实现](C:/Users/ZLK/.codex/skills/multi-session-implementation/SKILL.md)。项目不另定通用阈值或复制算法，已有正确角色不重建。
+启动、计数器、模型/强度/default 实核和完整同角色交班唯一遵循 [统一会话接续入口](C:/Users/ZLK/.agents/skills/caveman/SKILL.md) 及其 [模板](C:/Users/ZLK/.agents/skills/caveman/references/handover.md)；多角色分工遵循 [多会话实现](C:/Users/ZLK/.codex/skills/multi-session-implementation/SKILL.md)。项目不另定通用阈值或复制算法，已有正确角色不重建。
 
 UI/manual/coverage 单写，检查/生成全局互斥；包括总控在内冻结受检 docs/src/test/scripts/dist，结束再写。总控实际大验收前从 Terra 明确接管租约，结束明确归还。G001/G002、原291组合、R10子集和R13十位置证据按有效基线保留，不因迁移重跑；失败/退出码、未测/未知不抹除。
 

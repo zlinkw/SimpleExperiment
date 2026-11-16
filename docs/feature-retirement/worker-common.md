@@ -19,8 +19,8 @@ UI 观察→单动作→刷新；Esc 后未知先重新观察。当前源码宿�
 
 基本 PLAN 同步/校验/预演/调度/精确停止、GPU/tmux、日志/真实退出码、产物声明/完成证明、指标解析、基础比较/导出、列映射/归类、用户授权/删除审核保持，AP/macro_f1/weighted_f1 分开。已退役入口不复活，历史配置/科研文件不清理。任何真实文件删除仍遵守专属规则与精确授权，不将历史 G001 删除指令当 G003 新授权。
 
-正常工具/交付边界使用 [全局会话总规则](C:/Users/ZLK/.codex/skills/global-session-rules/SKILL.md) 的唯一 scripts/context_status.py，传自己真实 ID、expected-model gpt-6.1-terra、expected-effort high。通用接续条件、计数和完整同角色交班只引用该技能，不在项目另定阈值或复制算法；历史事实保留，不主动压缩/填充、不重放未知操作或强停在途动作。
+正常工具/交付边界使用 [统一会话接续入口](C:/Users/ZLK/.agents/skills/caveman/SKILL.md) 的唯一 scripts/context_status.py，传自己真实 ID、expected-model gpt-6.1-terra、expected-effort high。通用接续条件、计数和完整同角色交班只引用该技能，不在项目另定阈值或复制算法；历史事实保留，不主动压缩/填充、不重放未知操作或强停在途动作。
 
-新角色正确启动/同 thread 校准及实际模型/强度/default 接管门槛，只引用 [全局完整交班模板](C:/Users/ZLK/.codex/skills/global-session-rules/references/handover.md)。执行者保持 Terra/high、Standard；旧停写释放、新核完整背景和实际设置后才更新唯一现任，待旧 turn 结束归档。已有正确角色不重建，不创建独立验收者。
+新角色正确启动/同 thread 校准及实际模型/强度/default 接管门槛，只引用 [全局完整交班模板](C:/Users/ZLK/.agents/skills/caveman/references/handover.md)。执行者保持 Terra/high、Standard；旧停写释放、新核完整背景和实际设置后才更新唯一现任，待旧 turn 结束归档。已有正确角色不重建，不创建独立验收者。
 
 普通开工/阶段完成/计划内返修/等待/安全换班只登记，不消息总控；仅必须改计划、用户决定/新授权、整份完成联系总控，合并同一事项。当前源 Git 基线实际读取，不硬绑历史 HEAD；沿既有 master/origin scoped 普通提交、push、fetch 对齐，远端前进或凭据/保护阻断即报，不 rebase/merge/force。最终由总控统一用户汇报真实完成边界和剩余时间。
