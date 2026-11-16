@@ -1428,7 +1428,7 @@ export function renderPanelHtml(): string {
           </div>
           <div class="toolbar">
             <button data-command="bootstrapProject" title="扫描工作区，识别 experiments/plans 下的实验计划与项目配置&#10;同时检查服务器与 Agent 等前置条件&#10;已有的计划与接入配置不会重复写入">识别工作区</button>
-            <button data-command="snapshot" class="secondary" title="刷新识别：重新扫描工作区&#10;更新实验计划列表与项目接入状态&#10;不会修改任何文件">刷新识别</button>
+            <button data-command="snapshot" class="secondary" title="刷新识别：重新扫描工作区&#10;更新实验计划列表与项目接入状态&#10;可能保存本机项目状态">刷新识别</button>
           </div>
         </div>
         <div id="planDetectedProject" data-anchor="plans-detected"></div>
@@ -9843,7 +9843,7 @@ export function renderPanelHtml(): string {
           '</div>' +
           '<div class="toolbar">' +
             '<button data-command="saveSchedulerConfig" data-config-scope="scheduler" title="保存到本机全局用户设置；服务器和逐卡覆盖也全局共享，只影响后续派发">保存策略（全局）</button>' +
-            '<button data-command="snapshot" class="secondary" title="刷新识别：重新扫描工作区&#10;更新实验计划列表与项目接入状态&#10;不会修改任何文件">刷新数据</button>' +
+            '<button data-command="snapshot" class="secondary" title="刷新识别：重新扫描工作区&#10;更新实验计划列表与项目接入状态&#10;可能保存本机项目状态">刷新数据</button>' +
           '</div>' +
         '</div>'
       );
