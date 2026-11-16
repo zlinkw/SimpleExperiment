@@ -33,6 +33,7 @@ test("command palette exposes the three primary new-project entry points", () =>
   assert.match(extension, /void provider\.runActivationOnboarding\(\)/);
   assert.match(extension, /name: "workspaceContinuation"[\s\S]{0,180}resumePendingWorkspaceContinuation\(\)/);
   assert.match(extension, /name: "projectStateBootstrap"[\s\S]{0,160}projectBootstrapPromise/);
+  assert.match(extension, /next === "查看接入说明"[\s\S]{0,140}openPanelAt\("settings", "settings-integration-guide"/);
   assert.match(extension, /name: "firstRunPrompt"[\s\S]{0,140}showFirstRunSetupPromptOnce\(\)/);
   assert.match(extension, /pending\.action === "bootstrapProject"[\s\S]{0,100}bootstrapProjectFromUi\(\)/);
   assert.match(extension, /pending\.action === "quickSetup"[\s\S]{0,140}completeQuickSetupAfterWorkspace/);

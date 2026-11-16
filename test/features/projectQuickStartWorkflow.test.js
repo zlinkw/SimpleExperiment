@@ -185,8 +185,10 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   assert.match(extension, /title: "选择新 Plan 使用的配置"/);
   assert.match(extension, /if \(list\.length <= 1\)/);
   assert.match(extension, /if \(!plans\.length\) \{\s*await this\.generatePlanGuideFromUi\(false\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return;\s*await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);/);
-  assert.match(extension, /let gateDiagnostics = projectOutputGateDiagnostics\(project, selected\)/);
-  assert.match(extension, /if \(gateReason && gateDiagnostics\.nextLabel === "接入配置" && !project\.adapterConfig\) \{\s*await this\.generateOutputAdapterFromUi\(\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return;\s*await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);/);
+  assert.match(extension, /const gateDiagnostics = projectOutputGateDiagnostics\(project, selected\)/);
+  const bootstrapGenerationStart = extension.indexOf("async bootstrapProjectFromUi()");
+  const bootstrapGenerationEnd = extension.indexOf("async handleProjectBootstrapAction", bootstrapGenerationStart);
+  assert.doesNotMatch(extension.slice(bootstrapGenerationStart, bootstrapGenerationEnd), /generateOutputAdapterFromUi\(/);
   assert.match(extension, /return projectBootstrapCompletion\(/);
   assert.match(extension, /adapterConfig: project\.adapterConfig/);
   assert.match(extension, /offlineBundleActive: Boolean\(this\.offlineBundle\)/);
@@ -264,7 +266,8 @@ test("quick project onboarding reports only the next action proven by current re
   const outputIncomplete = bootstrapCompletion({ outputGateReason: "缺少结果路径", realtimeMode: true, setupComplete: true, workers: [{ status: "ok" }], hubStatus: "ok" });
   assert.equal(outputIncomplete.state, "output_incomplete");
   assert.equal(outputIncomplete.action, "打开当前 Plan");
-  assert.equal(bootstrapCompletion({ outputGateReason: "缺少结果路径", outputGateNextLabel: "接入配置", adapterConfig: "experiments/simple_project.yaml" }).action, "打开接入配置");
+  assert.equal(bootstrapCompletion({ outputGateReason: "缺少结果路径", outputGateNextLabel: "接入配置", adapterConfig: "experiments/simple_project.yaml" }).action, "查看接入说明");
+  assert.equal(bootstrapCompletion({ outputGateReason: "缺少结果路径", outputGateNextLabel: "接入配置" }).action, "查看接入说明");
   assert.equal(bootstrapCompletion({ outputGateReason: "配置文件缺失", outputGateNextLabel: "配置文件", adapterConfig: "experiments/simple_project.yaml" }).action, "打开当前 Plan");
   assert.match(panel, /请 AI 根据当前任务和实际输出配置接入/);
   assert.equal(bootstrapCompletion({ setupComplete: false }).action, "打开服务器设置");
@@ -297,6 +300,18 @@ test("quick project onboarding reports only the next action proven by current re
   assert.equal(ready.state, "ready");
   assert.equal(ready.action, "校验并提交运行");
   assert.match(ready.message, /校验并提交运行/);
+});
+
+test("missing output offers AI integration guidance without generating or opening an adapter", () => {
+  const sandbox = { projectNextAction: () => '<button>打开 Plan</button>' };
+  vm.createContext(sandbox);
+  vm.runInContext(`${extractFunction(panel, "renderPlanPreparationContext")}\nthis.render = renderPlanPreparationContext;`, sandbox);
+  for (const adapter of ['', 'experiments/simple_project.yaml']) {
+    const html = sandbox.render({}, 'plan.yaml', false, adapter);
+    assert.match(html, /查看 AI 接入说明/);
+    assert.match(html, /data-section-target="settings" data-anchor-target="settings-integration-guide"/);
+    assert.doesNotMatch(html, /generateOutputAdapter|打开接入配置/);
+  }
 });
 
 test("quick project onboarding opens the exact panel destination", () => {

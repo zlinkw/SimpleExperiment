@@ -20915,19 +20915,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (!this.projectContextIsCurrent(projectContext))
                 return;
         }
-        let project = this.localPlanMetadata.detectedProject || {};
-        let gateDiagnostics = projectOutputGateDiagnostics(project, selected);
-        const gateReason = projectOutputGateReason(project, selected);
-        if (gateReason && gateDiagnostics.nextLabel === "接入配置" && !project.adapterConfig) {
-            await this.generateOutputAdapterFromUi();
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            await this.refreshLocalPlanMetadata({ post: false, force: true });
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            project = this.localPlanMetadata.detectedProject || {};
-            gateDiagnostics = projectOutputGateDiagnostics(project, selected);
-        }
+        const project = this.localPlanMetadata.detectedProject || {};
+        const gateDiagnostics = projectOutputGateDiagnostics(project, selected);
         const finalGateReason = projectOutputGateReason(project, selected);
         const simpleSftp = simpleSftpIntegrationReadiness();
         const enabledWorkers = this.enabledWorkerConfigs();
@@ -21045,6 +21034,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             return this.addWorkerConfigFromUi(false);
         if (next === "打开配置说明") {
             await this.openSetupGuide();
+            return false;
+        }
+        if (next === "查看接入说明") {
+            await this.openPanelAt("settings", "settings-integration-guide", { userInitiated: true });
             return false;
         }
         if (next === "打开连接设置") {
@@ -33668,12 +33661,11 @@ function projectBootstrapCompletion(options) {
     }
     const outputGateReason = String(options.outputGateReason || "").trim();
     if (outputGateReason) {
-        const adapterConfig = String(options.adapterConfig || "").trim();
-        const openAdapter = String(options.outputGateNextLabel || "").trim() === "接入配置" && Boolean(adapterConfig);
+        const needsAdapter = String(options.outputGateNextLabel || "").trim() === "接入配置";
         return {
             state: "output_incomplete",
             message: `项目基础接入已完成；当前 Plan 仍未通过结果输出门禁。下一步：${outputGateReason}`,
-            action: openAdapter ? "打开接入配置" : "打开当前 Plan",
+            action: needsAdapter ? "查看接入说明" : "打开当前 Plan",
         };
     }
     const simpleSftp = options.simpleSftp && typeof options.simpleSftp === "object" ? options.simpleSftp : undefined;

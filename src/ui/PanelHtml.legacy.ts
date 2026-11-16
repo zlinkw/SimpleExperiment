@@ -7441,7 +7441,7 @@ export function renderPanelHtml(): string {
         testAll: "检测全部",
         snapshot: "刷新快照",
         resetUiLayout: "恢复布局",
-        bootstrapProject: "识别当前项目；缺少计划时生成 Plan 模板，输出门禁缺失时生成接入模板，已有配置不会重复写入",
+        bootstrapProject: "识别当前项目；缺少计划时生成 Plan 模板，输出接入由 AI 根据实际任务通过 MCP 配置",
         generatePlanGuide: "生成 Plan 模板",
         generateOutputAdapter: "生成输出接入模板",
         saveProjectAdapterRules: "保存插件接入规则",
@@ -8633,8 +8633,8 @@ export function renderPanelHtml(): string {
       return [
         treeObjectItem("settings", "界面布局", "设置", "", "管理卡片顺序、折叠状态和默认布局。", "settings-layout", "", "布局 排序 折叠 展开 恢复默认"),
         treeObjectItem("settings", "结果 CSV 目录", "设置", "", "配置新 Plan 和默认结果 CSV 的工作区相对目录。", "settings-result-csv", "", "结果 CSV 文件夹 路径 浏览 result_csv"),
-        treeObjectItem("settings", "结果列映射", "设置", "", "交互式关联标准字段和结果 CSV 列，保存到插件设置。", "settings-result-mapping", "", "列映射 case seed metric value"),
-        treeObjectItem("settings", "输出接入规则", "设置", "", "按需配置结果文件、日志和指标别名。", "settings-result-rules", "", "结果接入 指标 别名"),
+        treeObjectItem("settings", "结果列映射", "设置", "", "查看 AI 通过 MCP 配置的结果列映射。", "settings-result-mapping", "", "列映射 case seed metric value"),
+        treeObjectItem("settings", "输出接入规则", "设置", "", "查看 AI 通过 MCP 配置的输出接入摘要。", "settings-result-rules", "", "结果接入 指标 别名"),
         treeObjectItem("settings", "调度与上报", "设置", "", "配置调度轮询、TTL 和可用性上报；控制与传输使用独立并发预算。", "servers-scheduler", "", "pollSeconds jitterSeconds workerStatusTtlSeconds"),
 
         treeObjectItem("settings", "Worker 设置", "设置", "", "配置 Worker、GPU 上限、会话和端口。", "settings-servers", "", "Worker GPU 上限 maxConcurrentGpus localForwardPort")
@@ -11363,9 +11363,7 @@ export function renderPanelHtml(): string {
         return '<div class="planRunActions muted">在下方明确选择当前 PLAN；没有计划时先识别工作区。</div>';
       }
       if (!outputReady) {
-        const adapterAction = adapterConfig
-          ? projectPathButton("打开接入配置", adapterConfig)
-          : '<button class="mini secondary" data-command="generateOutputAdapter" title="生成可选的 Python 结果写入适配器；AI 可根据实际任务配置结果接入">生成接入模板</button>';
+        const adapterAction = '<button type="button" class="mini secondary" data-section-target="settings" data-anchor-target="settings-integration-guide">查看 AI 接入说明</button>';
         return '<div class="planRunActions">' + projectNextAction("补全输出后再运行", "打开 Plan", "openPlan", { file: selectedPlan }) + adapterAction + '</div>';
       }
       const plan = planFromContext(state || {}, { planFile: selectedPlan }) || {};
