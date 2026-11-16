@@ -2070,15 +2070,15 @@
           "line": 7186
         }
       ],
-      "acceptanceClass": "compatibility_no_current_producer",
+      "acceptanceClass": "compatibility_no_current_entry",
       "reviewedAt": "2026-11-16"
     },
     {
       "command": "reloadPanel",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 5502,
-      "status": "not_tested",
-      "evidence": "仅 section-render failure 时出现；源码开发宿主 panel_diagnostics 实际 ready、sectionFailures=[]。正常条件验收不注入渲染异常。",
+      "status": "clicked_passed",
+      "evidence": "真实源码执行区因旧 payload 多读一层而降级时实点“重新加载面板”，documentGeneration 1→2、同一项目/PLAN保留；重载不能修复代码错误。随后修正并重载最终源码宿主，lifecycle=ready、sectionFailures=[]，真实重试流程完成。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -2086,13 +2086,13 @@
           "line": 6997
         }
       ],
-      "acceptanceClass": "conditional_error_state",
+      "acceptanceClass": "normal_clicked",
       "reviewedAt": "2026-11-16"
     },
     {
       "command": "openSetupGuide",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9450,
+      "line": 9451,
       "status": "retired",
       "evidence": "No current rendered entry: legacySftpNoticeForState has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2107,7 +2107,7 @@
     {
       "command": "openLastCheckStaticReport",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9834,
+      "line": 9835,
       "status": "clicked_passed",
       "evidence": "Actual501 运行环境准备报告文件名与诊断页打开静态检查报告分别点击，打开同一真实文件；新报告2026-11-12T07:41:32.408Z/tool501/pass6Plan。",
       "handlers": [
@@ -2121,7 +2121,7 @@
     {
       "command": "configureWorkers",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9888,
+      "line": 9889,
       "status": "preview_passed",
       "evidence": "docs/manual-acceptance-checklist.md: Windows live acceptance 0.5.495; unobscured manual server entry -> new Worker name prompt -> cancel; original five profiles and one enabled Worker retained",
       "handlers": [
@@ -2135,7 +2135,7 @@
     {
       "command": "addWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9889,
+      "line": 9890,
       "status": "preview_passed",
       "evidence": "docs/manual-acceptance-checklist.md: Windows live acceptance 0.5.495; Xshell endpoint-pair picker opened then cancelled without importing a profile",
       "handlers": [
@@ -2149,7 +2149,7 @@
     {
       "command": "saveAgentDefaults",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9900,
+      "line": 9901,
       "status": "clicked_passed",
       "evidence": "Generic host 0.5.492 live unchanged-value save, current global values reread equal; scheduler native save notice observed",
       "handlers": [
@@ -2163,7 +2163,7 @@
     {
       "command": "saveSchedulerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9928,
+      "line": 9929,
       "status": "clicked_passed",
       "evidence": "Generic host 0.5.492 live unchanged-value save, current global values reread equal; scheduler native save notice observed",
       "handlers": [
@@ -2177,7 +2177,7 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9929,
+      "line": 9930,
       "status": "clicked_passed",
       "evidence": "Installed507 actual settings > 调度与上报策略 > 刷新数据 clicked after scrolling into view. Current acceptance PLAN/completed1 retained; panel diagnostics running/installed507 lifecycle ready, no lastFailure/sectionFailures. No configuration fields saved or changed.",
       "handlers": [
@@ -2191,7 +2191,7 @@
     {
       "command": "addWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9979,
+      "line": 9980,
       "status": "preview_passed",
       "evidence": "2026-11-15 candidate source devhost: first Worker card bottom Import Server opened the real Xshell session/forward picker. Escape cancelled; enabled server_list remains only rjj8. No profile imported or configuration changed.",
       "handlers": [
@@ -2205,7 +2205,7 @@
     {
       "command": "saveWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9980,
+      "line": 9981,
       "status": "clicked_passed",
       "evidence": "Generic 0.5.492 rjj8 unchanged-value save, native saved notice and setupConfig reread; all Worker fields unchanged, project derived paths correct",
       "handlers": [
@@ -2219,7 +2219,7 @@
     {
       "command": "startTunnelEndpoint",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9981,
+      "line": 9982,
       "status": "clicked_passed",
       "evidence": "Actual rjj8 settings card 启动隧道 clicked, native confirmation showed root@127.0.0.1:15791 http://localhost:18770→http://localhost:18765. Authorized normal startup confirmed. Actual notification 已监听1/待确认0/失败0, existing verified forward retained/no duplicate process.",
       "handlers": [
@@ -2233,7 +2233,7 @@
     {
       "command": "deleteWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9982,
+      "line": 9983,
       "status": "preview_passed",
       "evidence": "2026-11-15 source devhost509: actual disabled NWPU3 Delete button opened the native confirmation naming NWPU3 and global configuration removal. Esc cancelled; project_state still contains all five profiles with only rjj8 enabled. Actual removal remains untested; no profile or remote file deleted.",
       "handlers": [
@@ -2247,7 +2247,7 @@
     {
       "command": "resetRemotePathConfirmations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 9995,
+      "line": 9996,
       "status": "not_tested",
       "evidence": "清除路径授权/确认历史属于应用安全设置；Computer Use 技能禁止 AI 修改。需本人操作，本轮未重置任何确认记录。",
       "handlers": [
@@ -2263,7 +2263,7 @@
     {
       "command": "resetPptPathConfirmations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10005,
+      "line": 10006,
       "status": "not_tested",
       "evidence": "清除路径授权/确认历史属于应用安全设置；Computer Use 技能禁止 AI 修改。需本人操作，本轮未重置任何确认记录。",
       "handlers": [
@@ -2279,7 +2279,7 @@
     {
       "command": "configureWorkers",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10103,
+      "line": 10104,
       "status": "retired",
       "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2294,7 +2294,7 @@
     {
       "command": "addWorkerConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10104,
+      "line": 10105,
       "status": "retired",
       "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2309,7 +2309,7 @@
     {
       "command": "startAll",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10105,
+      "line": 10106,
       "status": "retired",
       "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2324,7 +2324,7 @@
     {
       "command": "openXshell",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10106,
+      "line": 10107,
       "status": "retired",
       "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2339,7 +2339,7 @@
     {
       "command": "prepareAgents",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10107,
+      "line": 10108,
       "status": "retired",
       "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2359,7 +2359,7 @@
     {
       "command": "testAll",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10108,
+      "line": 10109,
       "status": "retired",
       "evidence": "No current rendered entry: renderServerCards has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2379,7 +2379,7 @@
     {
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10115,
+      "line": 10116,
       "status": "clicked_passed",
       "evidence": "docs/manual-acceptance-checklist.md: 0.5.496 rjj8 button -> MultiModal browser viewer -> actual single-seed acceptance curves and native embedded TensorBoard; test-only @40 subsequently stopped and absence verified",
       "handlers": [
@@ -2393,7 +2393,7 @@
     {
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10120,
+      "line": 10121,
       "status": "retired",
       "evidence": "This source occurrence is inside declaration-only renderTensorBoardLinkRow, with no production call. Other native scalar viewer controls remain active and separately inventoried; no command or feature removed.",
       "handlers": [
@@ -2407,7 +2407,7 @@
     {
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10132,
+      "line": 10133,
       "status": "clicked_passed",
       "evidence": "Installed507 actual execution > 高级完整操作记录 > exact mcp-3a4d179f card > rjj8打开曲线 clicked separately from GPU control. New Edge page shows 实验曲线·MultiModal, native Worker rjj8 and actual acceptance single-seed catalog. Own tab closed; no training/result collection.",
       "handlers": [
@@ -2421,7 +2421,7 @@
     {
       "command": "checkPluginUpdates",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10202,
+      "line": 10203,
       "status": "clicked_passed",
       "evidence": "0.5.500 Generic settings actual Check Updates click completed with a real up-to-date notification; installed500/119 remained and authoritative483/118 shown without downgrade. Original checkedAt retained by the client.",
       "handlers": [
@@ -2440,7 +2440,7 @@
     {
       "command": "installPluginUpdates",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10203,
+      "line": 10204,
       "status": "not_tested",
       "evidence": "本人明确要求暂不升级 MCP 和插件；已安装 SimpleExperiment0.5.512/SimpleSFTP0.2.120，无本轮允许执行的更新目标，未安装或降级。",
       "handlers": [
@@ -2461,7 +2461,7 @@
     {
       "command": "saveRemoteRootPolicy",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10243,
+      "line": 10244,
       "status": "not_tested",
       "evidence": "服务器允许/禁止根目录属于应用安全设置；Computer Use 技能禁止 AI 修改。需本人核对并保存，本轮未改安全根。",
       "handlers": [
@@ -2477,7 +2477,7 @@
     {
       "command": "chooseResultCsvDir",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10255,
+      "line": 10256,
       "status": "clicked_passed",
       "evidence": "0.5.500 Generic settings actual UI: saved a dedicated result directory, fresh MCP configuration_get read it back; restored experiments/results and read it back. Browse dialog opened at the exact current project directory and selecting it persisted the same relative path.",
       "handlers": [
@@ -2491,7 +2491,7 @@
     {
       "command": "saveResultCsvDir",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10255,
+      "line": 10256,
       "status": "clicked_passed",
       "evidence": "0.5.500 Generic settings actual UI: saved a dedicated result directory, fresh MCP configuration_get read it back; restored experiments/results and read it back. Browse dialog opened at the exact current project directory and selecting it persisted the same relative path.",
       "handlers": [
@@ -2505,7 +2505,7 @@
     {
       "command": "editResultColumnMapping",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10264,
+      "line": 10265,
       "status": "clicked_passed",
       "evidence": "Actual501 settings jump opens lazy mapping before initial result render; after actual GUI full collection1/5, editor correctly shows owned metrics.csv3cols, seed42 and accuracy0.953125/loss0.10787482559680939 samples. Save enabled and succeeded, readback projectAdapterRules csvColumnMapping{} derivedMetric{}. No raw CSV persisted or MM results regenerated.",
       "handlers": [
@@ -2519,7 +2519,7 @@
     {
       "command": "prepareAgents",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10778,
+      "line": 10779,
       "status": "retired",
       "evidence": "No current rendered entry: renderAgentSessions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2539,7 +2539,7 @@
     {
       "command": "writeAgentCommands",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10779,
+      "line": 10780,
       "status": "retired",
       "evidence": "No current rendered entry: renderAgentSessions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2554,7 +2554,7 @@
     {
       "command": "startAllConnections",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10780,
+      "line": 10781,
       "status": "clicked_passed",
       "evidence": "docs/manual-acceptance-checklist.md: Windows live acceptance 2026-11-11, host 0.5.491",
       "handlers": [
@@ -2568,7 +2568,7 @@
     {
       "command": "openXshell",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10781,
+      "line": 10782,
       "status": "retired",
       "evidence": "No current rendered entry: renderAgentSessions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2583,7 +2583,7 @@
     {
       "command": "startTunnelEndpoint",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 10795,
+      "line": 10796,
       "status": "retired",
       "evidence": "No current rendered entry: agentSessionCard/renderAgentSessions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2598,7 +2598,7 @@
     {
       "command": "reviewDraft",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11153,
+      "line": 11154,
       "status": "retired",
       "evidence": "Actual503 resource search草稿 returns没有匹配条目. Source renderDraftPlanSection intentionally no-op, renderDraftCards has no caller (rg src). Four dormant source positions reviewDraft/promoteDraft/rejectDraft/cleanupDrafts are not current reachable GUI controls. Existing external commands remain; promotion/execute explicitly retired.",
       "handlers": [
@@ -2612,7 +2612,7 @@
     {
       "command": "promoteDraft",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11154,
+      "line": 11155,
       "status": "retired",
       "evidence": "Actual503 resource search草稿 returns没有匹配条目. Source renderDraftPlanSection intentionally no-op, renderDraftCards has no caller (rg src). Four dormant source positions reviewDraft/promoteDraft/rejectDraft/cleanupDrafts are not current reachable GUI controls. Existing external commands remain; promotion/execute explicitly retired.",
       "handlers": [
@@ -2626,7 +2626,7 @@
     {
       "command": "rejectDraft",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11155,
+      "line": 11156,
       "status": "retired",
       "evidence": "Actual503 resource search草稿 returns没有匹配条目. Source renderDraftPlanSection intentionally no-op, renderDraftCards has no caller (rg src). Four dormant source positions reviewDraft/promoteDraft/rejectDraft/cleanupDrafts are not current reachable GUI controls. Existing external commands remain; promotion/execute explicitly retired.",
       "handlers": [
@@ -2640,7 +2640,7 @@
     {
       "command": "cleanupDrafts",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11165,
+      "line": 11166,
       "status": "retired",
       "evidence": "Actual503 resource search草稿 returns没有匹配条目. Source renderDraftPlanSection intentionally no-op, renderDraftCards has no caller (rg src). Four dormant source positions reviewDraft/promoteDraft/rejectDraft/cleanupDrafts are not current reachable GUI controls. Existing external commands remain; promotion/execute explicitly retired.",
       "handlers": [
@@ -2659,7 +2659,7 @@
     {
       "command": "archivePlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11185,
+      "line": 11186,
       "status": "not_tested",
       "evidence": "选择器、事件或状态恢复引用，不生成独立控件；保留兼容代码，不计当前可点击入口分母。",
       "handlers": [
@@ -2676,7 +2676,7 @@
     {
       "command": "generateOutputAdapter",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11480,
+      "line": 11481,
       "status": "clicked_passed",
       "evidence": "Installed508 gui_missing_output_508: selected missing_output.yaml, clicked Generate Adapter, reviewed all11 new local files, clicked Write Template; result_writer.py21670bytes and README editor verified. No remote deployment or training. Waiting for confirmation incorrectly showed stalled; candidate source excludes this wait from the deadline, targeted rendered-click regression passed.",
       "handlers": [
@@ -2690,7 +2690,7 @@
     {
       "command": "runPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11502,
+      "line": 11503,
       "status": "retired",
       "evidence": "No current rendered entry: renderProjectFirstRunActions has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [],
@@ -2699,7 +2699,7 @@
     {
       "command": "openScalarViewer",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 11846,
+      "line": 11847,
       "status": "clicked_passed",
       "evidence": "Installed507 actual GPU rjj8 打开曲线 button opened local viewer MultiModal/rjj8. Acceptance image_only_bus_p100 seed42 displayed7 metrics/60steps/last1of1. Compared same-name case from image_only_final separately(3seeds/145steps/last1of3); actual curves both rendered. Single-row/grid, extrema checkbox,2/3columns,autoRefresh,selected-only,clear-comparison exercised and restored. Native TensorBoard tab connected/rendered; actual MCP running/listening true, project window @65/port6006. No training or scientific results rewritten; temporary browser tab closed.",
       "handlers": [
@@ -2713,7 +2713,7 @@
     {
       "command": "selectLogRunKey",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 13616,
+      "line": 13617,
       "status": "retired",
       "evidence": "No current rendered entry: renderTaskPlanCompletionNext has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2728,7 +2728,7 @@
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 13688,
+      "line": 13689,
       "status": "clicked_passed",
       "evidence": "Installed508 dedicated gui_missing_output_508: after empty simple_project.yaml and Refresh Identification, actual Open Integration Config button opened experiments/simple_project.yaml. Current PLAN remained missing_output.yaml; no server writes. Final observed window title verified on2026-11-15 after interrupted click.",
       "handlers": [
@@ -2742,7 +2742,7 @@
     {
       "command": "saveProjectAdapterRules",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14111,
+      "line": 14112,
       "status": "clicked_passed",
       "evidence": "Installed508 Generic Save Integration Rules: actual native saved-and-synced-Agent notice and configuration_get on simpleExperiment.projectAdapterRules matched written values. Restored only original empty csvColumnMapping/derivedMetric workspace override. Legacy inline list parsing defect separately reproduced and fixed in candidate; development host now reads secondaryMetrics[loss]/candidateCsv[metrics.csv].",
       "handlers": [
@@ -2756,7 +2756,7 @@
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14454,
+      "line": 14455,
       "status": "clicked_passed",
       "evidence": "Actual503 current Generic PLAN card acceptance.yaml button opens native YAML editor at D:/GitRepo/SimpleMcpAcceptance/experiments/plans/acceptance.yaml. Editor shows suite generic_mcp_acceptance/seed42/expectedResults metrics.csv+model.pt. No edit/save. Aux view restored and maximized normally afterward.",
       "handlers": [
@@ -2770,7 +2770,7 @@
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14644,
+      "line": 14645,
       "status": "clicked_passed",
       "evidence": "Actual504 Generic selected PLAN card config.yaml opens correct editor; fresh SDK selectedPlanId remains experiments/plans/acceptance.yaml. PLAN preview shows metrics.csv. MultiModal preview starts test_results/job_metrics.csv. No files edited.",
       "handlers": [
@@ -2784,7 +2784,7 @@
     {
       "command": "analyzeRuntimeLog",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14796,
+      "line": 14797,
       "status": "not_tested",
       "evidence": "renderTaskCard 的分析和复选框要求独立 taskRows，且分析须有 commandId/serverId/artifactPath；当前协议2运行卡已有 currentJobs，按契约不同时渲染旧任务卡。未制造旧任务。",
       "handlers": [
@@ -2805,7 +2805,7 @@
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14818,
+      "line": 14819,
       "status": "not_tested",
       "evidence": "renderTaskCard 的分析和复选框要求独立 taskRows，且分析须有 commandId/serverId/artifactPath；当前协议2运行卡已有 currentJobs，按契约不同时渲染旧任务卡。未制造旧任务。",
       "handlers": [
@@ -2821,7 +2821,7 @@
     {
       "command": "clearLegacyTasks",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14869,
+      "line": 14870,
       "status": "not_tested",
       "evidence": "该入口仅隐藏没有可操作标识的旧任务 UI 记录，不删除文件；当前没有符合条件的旧任务行。原先“必须确认删除”理由不准确，已更正；未伪造无标识任务。",
       "handlers": [
@@ -2837,7 +2837,7 @@
     {
       "command": "selectLogRunKey",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 14973,
+      "line": 14974,
       "status": "retired",
       "evidence": "No current rendered entry: renderTaskProgressCard has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2852,7 +2852,7 @@
     {
       "command": "manualTracesSnapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15001,
+      "line": 15002,
       "status": "retired",
       "evidence": "No current rendered entry: renderTraceSection has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2867,7 +2867,7 @@
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15058,
+      "line": 15059,
       "status": "retired",
       "evidence": "No current rendered entry: renderArchivedPlanCard has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2882,7 +2882,7 @@
     {
       "command": "restoreArchivedPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15058,
+      "line": 15059,
       "status": "retired",
       "evidence": "No current rendered entry: renderArchivedPlanCard has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2897,7 +2897,7 @@
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15058,
+      "line": 15059,
       "status": "retired",
       "evidence": "No current rendered entry: renderArchivedPlanCard has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2912,7 +2912,7 @@
     {
       "command": "openPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15058,
+      "line": 15059,
       "status": "retired",
       "evidence": "No current rendered entry: renderArchivedPlanCard has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2927,7 +2927,7 @@
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15070,
+      "line": 15071,
       "status": "retired",
       "evidence": "No current rendered entry: renderTraceCard has no active renderer call; trace subtree has no traceTable DOM container, archived/agent children are reachable only from that dormant renderer. Compatibility source and external commands retained.",
       "handlers": [
@@ -2942,7 +2942,7 @@
     {
       "command": "clearOperations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15503,
+      "line": 15504,
       "status": "preview_passed",
       "evidence": "2026-11-15 devhost509: Per-PLAN card normal_stop_0_5_493.yaml opened the correct native confirmation and Esc cancelled. No history hidden or cleared. MCP still reports cutoffs={}, hiddenOperationIds=[], original completed1/cancelled4 and the selected request succeeded.",
       "handlers": [
@@ -2956,7 +2956,7 @@
     {
       "command": "stopExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15519,
+      "line": 15520,
       "status": "clicked_passed",
       "evidence": "docs/manual-acceptance-checklist.md: Windows live acceptance 0.5.495; original command 87daf103e2ca8b69d1bd5fb4d9a69e10 cancelled; other jobs and original windows retained",
       "handlers": [
@@ -2970,7 +2970,7 @@
     {
       "command": "retryDistributedJob",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15534,
+      "line": 15535,
       "status": "preview_passed",
       "evidence": "Installed0.5.512 actual original Generic workspace host12008, native Codex MCP, Agent@32 and retained Scheduler@6 all512. Both retry and requeue buttons for command16cb6d2cd642e9f5cb44352b536fc1ce opened the complete wrapped first path-review page; Cancel clicked on each. No personal approval, deletion, new run or fake completion. Failure remains exit7; job_config.yaml2195B and artifact_manifest.json1139B retained with original inodes. Original Generic success remains verifiedAt2026-11-11T21:39:45.642Z. Final service restored to MultiModal512 Agent@33.",
       "handlers": [
@@ -2989,7 +2989,7 @@
     {
       "command": "retryDistributedJob",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15536,
+      "line": 15537,
       "status": "not_tested",
       "evidence": "这是第二个训练恢复分支，要求 failed 且原错误含 Validation-only tuning cannot access test patients。协议2退出7任务的“重跑此 job”是15534的另一入口，已有双页预览证据，不能误计到本行。",
       "handlers": [
@@ -3010,7 +3010,7 @@
     {
       "command": "recallPlanToLocalQueue",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15539,
+      "line": 15540,
       "status": "clicked_passed",
       "evidence": "2026-11-15 source510 real daily_queue_510 software control: both unassigned pending tasks entered server queue from global Remaining Jobs button; single-job recall returned only index0 to local pending while index1 retained its commandId/queued state; per-PLAN remaining button requeued only index0 with new commandId; whole-PLAN recall returned both to local pending. Exact confirmations accepted, no files deleted. Original shared Worker minimum12GB restored exactly after temporary1024GB wait condition. Restoring capacity resumes local auto scheduling; misleading manual-only text is a separately tracked UI defect.",
       "handlers": [
@@ -3024,7 +3024,7 @@
     {
       "command": "recheckOutputIsolation",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15542,
+      "line": 15543,
       "status": "not_tested",
       "evidence": "要求 outputIsolationBlocked、pending、未绑定 Worker/commandId 的真实旧产物冲突。当前正常任务无此状态；覆盖/删除不能由 AI 制造并代确认。",
       "handlers": [
@@ -3045,7 +3045,7 @@
     {
       "command": "recallFailedJob",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15546,
+      "line": 15547,
       "status": "preview_passed",
       "evidence": "Installed0.5.512 actual original Generic workspace host12008, native Codex MCP, Agent@32 and retained Scheduler@6 all512. Both retry and requeue buttons for command16cb6d2cd642e9f5cb44352b536fc1ce opened the complete wrapped first path-review page; Cancel clicked on each. No personal approval, deletion, new run or fake completion. Failure remains exit7; job_config.yaml2195B and artifact_manifest.json1139B retained with original inodes. Original Generic success remains verifiedAt2026-11-11T21:39:45.642Z. Final service restored to MultiModal512 Agent@33.",
       "handlers": [
@@ -3059,7 +3059,7 @@
     {
       "command": "analyzeRuntimeLog",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15562,
+      "line": 15563,
       "status": "clicked_passed",
       "evidence": "Actual503 task-card 重新分析运行日志 clicked independently on cancelled normal_stop_0_5_492 and completed acceptance.yaml. Cancelled missing execution evidence explicitly says 日志仍待核实/退出码未知 and remains cancelled. Completed synthetic_classifier seed42/rjj8/GPU1 returns 日志分析完成：完整日志未检出异常，退出码0; original proof2026-11-11T21:39:45.642Z retained, no training rerun.",
       "handlers": [
@@ -3078,7 +3078,7 @@
     {
       "command": "releaseJobStageBlockSlots",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15591,
+      "line": 15592,
       "status": "not_tested",
       "evidence": "当前仅启用 rjj8，没有 Worker 间实际传输的双暂存槽占用和 releaseCandidate + stageBlockReleaseCapable 证明；不启用其他 Worker 或制造锁，且释放真实文件仍须精确路径确认。",
       "handlers": [
@@ -3094,7 +3094,7 @@
     {
       "command": "retryDistributedJob",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15595,
+      "line": 15596,
       "status": "preview_passed",
       "evidence": "2026-11-16 独立软件控制 remaining_runtime_anomaly_512.yaml、seed42 在 rjj8 正常运行，原 commandId fa313499af4324cdbca14c74d039150a 实际退出0、声明产物完整，test 阶段捕获的真实 RuntimeError 被完整日志扫描检出1次，completionState=review_required。源码宿主实点“覆盖产物并重跑此 job”，首个审核页列明该 job 精确远端目录；点击取消，原生通知“未删除文件，未重新排队”，主动查询仍为同一原命令且只有1批。仅记预览，未代本人确认删除或覆盖。",
       "handlers": [
@@ -3115,7 +3115,7 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15611,
+      "line": 15612,
       "status": "not_tested",
       "evidence": "要求服务器已排队任务报 code-sync proof 校验阻塞。正常512 Agent/Scheduler与代码核验没有该状态；未改 runtime 版本或破坏代码同步。",
       "handlers": [
@@ -3131,9 +3131,9 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15615,
+      "line": 15616,
       "status": "not_tested",
-      "evidence": "要求 job 有错误且没有重试说明/不可用标记/失败召回等更具体恢复入口；实际退出7控制走精确失败恢复分支，不能据共享命令冒充此入口已点。",
+      "evidence": "只读调用链核对：generic error 的 jobNext 分支生成该按钮，但 jobNext 唯一实际插入点要求 preflightRejected 或 codeProofBlocked；这些状态选择了更早分支，故此泛化错误按钮没有渲染出口。保留代码，不伪造故障、不计按钮未点击或退役。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3141,13 +3141,13 @@
           "line": 7146
         }
       ],
-      "acceptanceClass": "conditional_error_state",
+      "acceptanceClass": "compatibility_no_current_entry",
       "reviewedAt": "2026-11-16"
     },
     {
       "command": "runPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15643,
+      "line": 15644,
       "status": "not_tested",
       "evidence": "要求等待提交或 deferredCurrent 组；当前正常提交已进入服务器/终态，没有这项前序版本等待。未恢复源码冻结或制造旧队列。",
       "handlers": [],
@@ -3157,7 +3157,7 @@
     {
       "command": "stopAndClearPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15645,
+      "line": 15646,
       "status": "preview_passed",
       "evidence": "2026-11-15 source510 actual per-PLAN Terminate and Clean on normal_stop_0_5_493 opened exact one-PLAN/task preview. Escape at first confirmation; no control or cleanup sent.",
       "handlers": [
@@ -3171,7 +3171,7 @@
     {
       "command": "recallPlanToLocalQueue",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15648,
+      "line": 15649,
       "status": "clicked_passed",
       "evidence": "2026-11-15 source510 real daily_queue_510 software control: both unassigned pending tasks entered server queue from global Remaining Jobs button; single-job recall returned only index0 to local pending while index1 retained its commandId/queued state; per-PLAN remaining button requeued only index0 with new commandId; whole-PLAN recall returned both to local pending. Exact confirmations accepted, no files deleted. Original shared Worker minimum12GB restored exactly after temporary1024GB wait condition. Restoring capacity resumes local auto scheduling; misleading manual-only text is a separately tracked UI defect.",
       "handlers": [
@@ -3185,7 +3185,7 @@
     {
       "command": "queueRemainingJobs",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15650,
+      "line": 15651,
       "status": "clicked_passed",
       "evidence": "2026-11-15 source510 real daily_queue_510 software control: both unassigned pending tasks entered server queue from global Remaining Jobs button; single-job recall returned only index0 to local pending while index1 retained its commandId/queued state; per-PLAN remaining button requeued only index0 with new commandId; whole-PLAN recall returned both to local pending. Exact confirmations accepted, no files deleted. Original shared Worker minimum12GB restored exactly after temporary1024GB wait condition. Restoring capacity resumes local auto scheduling; misleading manual-only text is a separately tracked UI defect.",
       "handlers": [
@@ -3199,7 +3199,7 @@
     {
       "command": "stopAndClearPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15757,
+      "line": 15758,
       "status": "preview_passed",
       "evidence": "2026-11-15 source devhost510: actual selected PLAN, checked PLAN batch and all8 PLAN batch native scope previews opened independently. Exact targets listed; Escape cancelled before confirmation. No stop/cleanup command sent; original queues/results retained. Preview only.",
       "handlers": [
@@ -3213,7 +3213,7 @@
     {
       "command": "stopAllPlans",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15758,
+      "line": 15759,
       "status": "preview_passed",
       "evidence": "2026-11-15 source510 actual Stop All while daily_retained_fixed_510 job1 was running opened batch confirmation for only that active PLAN and its exact commandIds/output paths. Escape; no stop/cleanup sent, job1 later completed exit0.",
       "handlers": [
@@ -3221,20 +3221,6 @@
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
           "line": 7330
-        }
-      ]
-    },
-    {
-      "command": "stopAndClearPlans",
-      "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15760,
-      "status": "preview_passed",
-      "evidence": "2026-11-15 source devhost510: actual selected PLAN, checked PLAN batch and all8 PLAN batch native scope previews opened independently. Exact targets listed; Escape cancelled before confirmation. No stop/cleanup command sent; original queues/results retained. Preview only.",
-      "handlers": [
-        {
-          "function": "handleMessageCore",
-          "source": "src/extension/legacy.ts",
-          "line": 7334
         }
       ]
     },
@@ -3253,9 +3239,23 @@
       ]
     },
     {
-      "command": "clearOperations",
+      "command": "stopAndClearPlans",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15762,
+      "status": "preview_passed",
+      "evidence": "2026-11-15 source devhost510: actual selected PLAN, checked PLAN batch and all8 PLAN batch native scope previews opened independently. Exact targets listed; Escape cancelled before confirmation. No stop/cleanup command sent; original queues/results retained. Preview only.",
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
+          "line": 7334
+        }
+      ]
+    },
+    {
+      "command": "clearOperations",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 15763,
       "status": "preview_passed",
       "evidence": "2026-11-15 devhost509: Selected PLAN history, actual normal_stop_0_5_492.yaml opened the correct native confirmation and Esc cancelled. No history hidden or cleared. MCP still reports cutoffs={}, hiddenOperationIds=[], original completed1/cancelled4 and the selected request succeeded.",
       "handlers": [
@@ -3269,7 +3269,7 @@
     {
       "command": "clearOperations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15763,
+      "line": 15764,
       "status": "preview_passed",
       "evidence": "2026-11-15 devhost509: All PLAN history opened the correct native confirmation and Esc cancelled. No history hidden or cleared. MCP still reports cutoffs={}, hiddenOperationIds=[], original completed1/cancelled4 and the selected request succeeded.",
       "handlers": [
@@ -3283,7 +3283,7 @@
     {
       "command": "clearOperations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15764,
+      "line": 15765,
       "status": "preview_passed",
       "evidence": "2026-11-15 devhost509: Selected one ended connection request mcp-6c2d2903-dd65-411e-9fc1-24488857a45d opened the correct native confirmation and Esc cancelled. No history hidden or cleared. MCP still reports cutoffs={}, hiddenOperationIds=[], original completed1/cancelled4 and the selected request succeeded.",
       "handlers": [
@@ -3297,7 +3297,7 @@
     {
       "command": "queueRemainingJobs",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15765,
+      "line": 15766,
       "status": "clicked_passed",
       "evidence": "2026-11-15 source510 real daily_queue_510 software control: both unassigned pending tasks entered server queue from global Remaining Jobs button; single-job recall returned only index0 to local pending while index1 retained its commandId/queued state; per-PLAN remaining button requeued only index0 with new commandId; whole-PLAN recall returned both to local pending. Exact confirmations accepted, no files deleted. Original shared Worker minimum12GB restored exactly after temporary1024GB wait condition. Restoring capacity resumes local auto scheduling; misleading manual-only text is a separately tracked UI defect.",
       "handlers": [
@@ -3311,7 +3311,7 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15766,
+      "line": 15767,
       "status": "clicked_passed",
       "evidence": "Actual506 executionControls bottom Refresh State/重新拉取调度状态与操作记录 clicked independently after main scheduler refresh. Spinner returned; completed1/cancelled4 retained, no new job or cleanup. Source button in executionControls verified.",
       "handlers": [
@@ -3325,7 +3325,7 @@
     {
       "command": "abortScheduler",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 15767,
+      "line": 15768,
       "status": "not_tested",
       "evidence": "中止入口要求活动运行记录且 reconcileEvidenceActive !== false；当前协议2 beginPlanSubmissionProgress 明确设为 false，不启用这两个旧本机调度入口。真正运行中的协议2任务使用已实测的精确任务/PLAN停止；未把旧 running 回执改成活动状态。",
       "handlers": [
@@ -3341,7 +3341,7 @@
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16167,
+      "line": 16168,
       "status": "not_tested",
       "evidence": "选择器、事件或状态恢复引用，不生成独立控件；保留兼容代码，不计当前可点击入口分母。",
       "handlers": [
@@ -3358,7 +3358,7 @@
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16204,
+      "line": 16205,
       "status": "not_tested",
       "evidence": "选择器、事件或状态恢复引用，不生成独立控件；保留兼容代码，不计当前可点击入口分母。",
       "handlers": [
@@ -3375,9 +3375,9 @@
     {
       "command": "retryPlanSubmission",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16327,
-      "status": "not_tested",
-      "evidence": "两个入口只在 finishDistributedPlanSubmission 保存恢复上下文后的失败设置 retryableSubmission 时出现。缺失Python入口与无效配置控制在此前被明确拒绝，不会生成它们；当前没有此类可重试提交，不改历史回执伪造。",
+      "line": 16328,
+      "status": "clicked_passed",
+      "evidence": "源码宿主实点 plan-submit-workflow-run-1794804746965-o9eg29 的重试；修正漏选的单个入口同步范围，单次确认已授权上传位置后沿用原提交标识成功。仅一批 distributed-plan-1794805337154-kheqn9、原生 commandId 4cbfcd190f4f70cb4f101311881d3c18，seed42、rjj8/GPU0，exit0/result complete/completion verified，完整日志 clear。未重新发起另一条恢复请求、未覆盖已有产物。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3385,15 +3385,15 @@
           "line": 6876
         }
       ],
-      "acceptanceClass": "conditional_error_state",
+      "acceptanceClass": "normal_clicked",
       "reviewedAt": "2026-11-16"
     },
     {
       "command": "cancelPlanSubmission",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16327,
-      "status": "not_tested",
-      "evidence": "两个入口只在 finishDistributedPlanSubmission 保存恢复上下文后的失败设置 retryableSubmission 时出现。缺失Python入口与无效配置控制在此前被明确拒绝，不会生成它们；当前没有此类可重试提交，不改历史回执伪造。",
+      "line": 16328,
+      "status": "clicked_passed",
+      "evidence": "源码宿主实点专用 plan-submit-workflow-run-1794803708081-70vkj3 的取消按钮；精确回执 recovery.cancelled=true，操作 cancelled/retryableSubmission=false；按钮消失，没有派发任务。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -3401,13 +3401,13 @@
           "line": 6877
         }
       ],
-      "acceptanceClass": "conditional_error_state",
+      "acceptanceClass": "normal_clicked",
       "reviewedAt": "2026-11-16"
     },
     {
       "command": "clearOperations",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16332,
+      "line": 16333,
       "status": "preview_passed",
       "evidence": "2026-11-15 devhost509: The same exact connection request single-row history action opened the correct native confirmation and Esc cancelled. No history hidden or cleared. MCP still reports cutoffs={}, hiddenOperationIds=[], original completed1/cancelled4 and the selected request succeeded.",
       "handlers": [
@@ -3421,7 +3421,7 @@
     {
       "command": "abortScheduler",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16346,
+      "line": 16347,
       "status": "not_tested",
       "evidence": "中止入口要求活动运行记录且 reconcileEvidenceActive !== false；当前协议2 beginPlanSubmissionProgress 明确设为 false，不启用这两个旧本机调度入口。真正运行中的协议2任务使用已实测的精确任务/PLAN停止；未把旧 running 回执改成活动状态。",
       "handlers": [
@@ -3437,7 +3437,7 @@
     {
       "command": "stopAndClearPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16630,
+      "line": 16631,
       "status": "preview_passed",
       "evidence": "2026-11-16 原Generic512窗口：执行中筛选定位 plan-submit-workflow-run-1794756430503-v2qp14，实点远端证据告警的“终止并清除该 Plan”。首个预览列明 daily_stop_510 的5条本机进度和1条分布式调度；Escape 后原生通知 confirm-cancelled，队列和进度均未改。只计预览，不执行已有成功记录的清除。另修复已完成job被误写为“将取消排队”的预览文案。",
       "handlers": [
@@ -3453,7 +3453,7 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16635,
+      "line": 16636,
       "status": "clicked_passed",
       "evidence": "Installed507 actual stale running MCP card mcp-3a4d179f-0b81-4974-991d-6ab89905b01e warning-row 刷新状态 clicked independently. State re-rendered and button returned; original unresolved request remained running without invented completion. Terminal-persistence defect separately reproduced and fixed for future requests in508; original completed experiment unchanged.",
       "handlers": [
@@ -3467,7 +3467,7 @@
     {
       "command": "showLogHistory",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16636,
+      "line": 16637,
       "status": "clicked_passed",
       "evidence": "Actual source devhost76964 stale remote-evidence warning row for plan-submit-workflow-run-1794756430503-v2qp14. Clicked history; native notice named this exact request and missing log tail/file address. No other task opened. Nonempty log branch not covered.",
       "handlers": [
@@ -3481,7 +3481,7 @@
     {
       "command": "openFullLog",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16637,
+      "line": 16638,
       "status": "clicked_passed",
       "evidence": "Actual source devhost76964 same remote-evidence warning row. Clicked full log; native notice named plan-submit-workflow-run-1794756430503-v2qp14 and explained this request has no complete log address. Nonempty file branch not covered.",
       "handlers": [
@@ -3495,7 +3495,7 @@
     {
       "command": "stopAndClearPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16645,
+      "line": 16646,
       "status": "not_tested",
       "evidence": "operationEvidenceNextActions 只在请求含独立 scheduler/program/结构化错误块时渲染；当前真实请求是普通失败摘要或 running 证据告警，后者的刷新/日志/停止预览另有独立证据，未把不同来源按钮混计。",
       "handlers": [
@@ -3511,7 +3511,7 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16648,
+      "line": 16649,
       "status": "not_tested",
       "evidence": "operationEvidenceNextActions 只在请求含独立 scheduler/program/结构化错误块时渲染；当前真实请求是普通失败摘要或 running 证据告警，后者的刷新/日志/停止预览另有独立证据，未把不同来源按钮混计。",
       "handlers": [
@@ -3527,22 +3527,6 @@
     {
       "command": "showLogHistory",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16649,
-      "status": "not_tested",
-      "evidence": "operationEvidenceNextActions 只在请求含独立 scheduler/program/结构化错误块时渲染；当前真实请求是普通失败摘要或 running 证据告警，后者的刷新/日志/停止预览另有独立证据，未把不同来源按钮混计。",
-      "handlers": [
-        {
-          "function": "handleMessageCore",
-          "source": "src/extension/legacy.ts",
-          "line": 7440
-        }
-      ],
-      "acceptanceClass": "conditional_error_state",
-      "reviewedAt": "2026-11-16"
-    },
-    {
-      "command": "openFullLog",
-      "source": "src/ui/PanelHtml.legacy.ts",
       "line": 16650,
       "status": "not_tested",
       "evidence": "operationEvidenceNextActions 只在请求含独立 scheduler/program/结构化错误块时渲染；当前真实请求是普通失败摘要或 running 证据告警，后者的刷新/日志/停止预览另有独立证据，未把不同来源按钮混计。",
@@ -3550,6 +3534,22 @@
         {
           "function": "handleMessageCore",
           "source": "src/extension/legacy.ts",
+          "line": 7440
+        }
+      ],
+      "acceptanceClass": "conditional_error_state",
+      "reviewedAt": "2026-11-16"
+    },
+    {
+      "command": "openFullLog",
+      "source": "src/ui/PanelHtml.legacy.ts",
+      "line": 16651,
+      "status": "not_tested",
+      "evidence": "operationEvidenceNextActions 只在请求含独立 scheduler/program/结构化错误块时渲染；当前真实请求是普通失败摘要或 running 证据告警，后者的刷新/日志/停止预览另有独立证据，未把不同来源按钮混计。",
+      "handlers": [
+        {
+          "function": "handleMessageCore",
+          "source": "src/extension/legacy.ts",
           "line": 7443
         }
       ],
@@ -3559,7 +3559,7 @@
     {
       "command": "showLogHistory",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16740,
+      "line": 16741,
       "status": "clicked_passed",
       "evidence": "2026-11-15 source candidate development host: clicked empty-log buttons on exact successful connect request mcp-6c2d2903-dd65-411e-9fc1-24488857a45d. Native notices identify this request and missing tail/full-file address. No baseline search or other PLAN opened. Actual nonempty full-file branch still pending remote readiness.",
       "handlers": [
@@ -3573,7 +3573,7 @@
     {
       "command": "openFullLog",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16740,
+      "line": 16741,
       "status": "clicked_passed",
       "evidence": "2026-11-15 source candidate development host: clicked empty-log buttons on exact successful connect request mcp-6c2d2903-dd65-411e-9fc1-24488857a45d. Native notices identify this request and missing tail/full-file address. No baseline search or other PLAN opened. Actual nonempty full-file branch still pending remote readiness.",
       "handlers": [
@@ -3587,7 +3587,7 @@
     {
       "command": "showLogHistory",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16752,
+      "line": 16753,
       "status": "not_tested",
       "evidence": "非空请求日志尾部分支；当前正式协议2任务日志通过 task_analyze/TMUX 主动读取，不作为本机提交回执的 logTail 缓存。空请求日志两个入口已另行实点，未往回执塞入伪造日志。",
       "handlers": [
@@ -3603,7 +3603,7 @@
     {
       "command": "openFullLog",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16752,
+      "line": 16753,
       "status": "not_tested",
       "evidence": "非空请求日志尾部分支；当前正式协议2任务日志通过 task_analyze/TMUX 主动读取，不作为本机提交回执的 logTail 缓存。空请求日志两个入口已另行实点，未往回执塞入伪造日志。",
       "handlers": [
@@ -3619,7 +3619,7 @@
     {
       "command": "showLogHistory",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16759,
+      "line": 16760,
       "status": "not_tested",
       "evidence": "仅日志渲染 JavaScript 抛错的 catch 回退分支；当前实际渲染无 section failure。按本轮正常条件范围不注入前端异常。",
       "handlers": [
@@ -3635,7 +3635,7 @@
     {
       "command": "openFullLog",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16759,
+      "line": 16760,
       "status": "not_tested",
       "evidence": "仅日志渲染 JavaScript 抛错的 catch 回退分支；当前实际渲染无 section failure。按本轮正常条件范围不注入前端异常。",
       "handlers": [
@@ -3651,7 +3651,7 @@
     {
       "command": "downloadRemoteResult",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16770,
+      "line": 16771,
       "status": "clicked_passed",
       "evidence": "Installed512 actual malformed JSON view exposed dirty Untitled. Source fix was clicked on devhost76964, exact bad_only_result contract check-output-contract-1794769359278-3mhap4/rjj8. Confirmed temporary read opened metrics_bad.json preview, VS Code rejected editing as read-only, content unchanged, unsaved count unchanged, close without save prompt. Original dirty buffer retained.",
       "handlers": [
@@ -3663,14 +3663,14 @@
         {
           "function": "withSafeTransferRetry",
           "source": "src/extension/legacy.ts",
-          "line": 14198
+          "line": 14199
         }
       ]
     },
     {
       "command": "choosePptPath",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16921,
+      "line": 16922,
       "status": "preview_passed",
       "evidence": "Actual501 Generic result PPT panel: opened the correct existing PowerPoint file picker / new PPT save-path dialog, then cancelled. No PPT written; final plotting not tested.",
       "handlers": [
@@ -3684,7 +3684,7 @@
     {
       "command": "chooseNewPptPath",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16921,
+      "line": 16922,
       "status": "preview_passed",
       "evidence": "Actual501 Generic result PPT panel: opened the correct existing PowerPoint file picker / new PPT save-path dialog, then cancelled. No PPT written; final plotting not tested.",
       "handlers": [
@@ -3698,7 +3698,7 @@
     {
       "command": "savePptPlotConfig",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16934,
+      "line": 16935,
       "status": "clicked_passed",
       "evidence": "Actual save PPT configuration clicked. Native savedcurrentproject notification; freshSDK pptPlotConfig path empty/chartauto/styleactivePpt matches original. No presentationfile created or changed.",
       "handlers": [
@@ -3712,7 +3712,7 @@
     {
       "command": "plotResultsToPpt",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16936,
+      "line": 16937,
       "status": "not_tested",
       "evidence": "缺少 rough-ppt-addin 的真实可用连接和本人指定的 PowerPoint 目标，未安装外部插件或虚构绘图结果。",
       "handlers": [
@@ -3728,7 +3728,7 @@
     {
       "command": "plotResultsToPpt",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 16943,
+      "line": 16944,
       "status": "not_tested",
       "evidence": "选择器、事件或状态恢复引用，不生成独立控件；保留兼容代码，不计当前可点击入口分母。",
       "handlers": [
@@ -3745,7 +3745,7 @@
     {
       "command": "openLocalResultTable",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17182,
+      "line": 17183,
       "status": "clicked_passed",
       "evidence": "0.5.500 actual Generic final table CSV click opened experiments/results/_unassigned/final/final.csv in this workspace. Original command/seed42 and metrics accuracy0.953125/loss0.10787482559680939 matched prior MCP export.",
       "handlers": [
@@ -3759,7 +3759,7 @@
     {
       "command": "openLocalResultTable",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17182,
+      "line": 17183,
       "status": "clicked_passed",
       "evidence": "0.5.500 Generic final table actual Markdown button opened this project experiments/results/_unassigned/final/final.md, paired with the verified CSV table; no MultiModal file was opened or regenerated.",
       "handlers": [
@@ -3773,7 +3773,7 @@
     {
       "command": "openLocalResultTable",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17198,
+      "line": 17199,
       "status": "not_tested",
       "evidence": "当前 latestResultCatalog 只从 active_query 导出构造表格，plans.artifacts 恒为空；此 raw/detail/trace 文件分组无当前生产方。真实 CSV/Markdown 表格入口已另行实点。",
       "handlers": [
@@ -3783,13 +3783,13 @@
           "line": 7409
         }
       ],
-      "acceptanceClass": "compatibility_no_current_producer",
+      "acceptanceClass": "compatibility_no_current_entry",
       "reviewedAt": "2026-11-16"
     },
     {
       "command": "autoMatchPlanDatasets",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17216,
+      "line": 17217,
       "status": "clicked_passed",
       "evidence": "Actual506 Generic automatic matching completed and explicitly reports restored0/unassigned1; existing unlabelled tables remain visible. No fabricated dataset or training. Nonempty recovery not covered.",
       "handlers": [
@@ -3803,7 +3803,7 @@
     {
       "command": "applyPlanDatasetMapping",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17216,
+      "line": 17217,
       "status": "clicked_passed",
       "evidence": "2026-11-16 源码开发宿主实际输入自定义 software_acceptance_only，仅勾选 daily_stop_510 软件控制PLAN后点击应用。成功通知；未标注PLAN5→4，新数据集总表/方法表立即出现；CSV实点打开正确本机路径，control_completed=1，原 commandId d4b3aee99fc203598f265046c6407f01、观测时间2026-11-15T17:07:09.918Z与来源不变。没有新训练、远端读取、原始指标落盘或科研结果重标。修复保存映射不重排和全部未标注时无法输入新名称。",
       "handlers": [
@@ -3819,7 +3819,7 @@
     {
       "command": "syncPendingPlanArtifacts",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17222,
+      "line": 17223,
       "status": "clicked_passed",
       "evidence": "0.5.500 Generic results actual Update All PLAN Results completed: six PLANs found, one collected and one successful job verified; four stopped jobs remained incomplete and were not counted as success. Actual summary CSV retains accuracy0.953125 and loss0.10787482559680939 for original seed42 command.",
       "handlers": [
@@ -3833,7 +3833,7 @@
     {
       "command": "refreshLocalResults",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17222,
+      "line": 17223,
       "status": "clicked_passed",
       "evidence": "Actual507 installed/reloaded Generic: initial loading changes to both existing one-row tables without stale/loading text. Rebuild local tables clicked; final fresh screenshot agrees public catalogLoadStatus=ready/error empty/tableRows[1,1]. No new rebuild error. Three cache layers have red3/4 -> green4/4 regression; full package332 passed. No MM scientific result rewrite.",
       "handlers": [
@@ -3847,7 +3847,7 @@
     {
       "command": "splitProjectResultTable",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17233,
+      "line": 17234,
       "status": "clicked_passed",
       "evidence": "0.5.500 actual Generic final-table row Split -> result_family -> acceptance; clear/select-all, exclude plan_file, generate. New by_result_family/acceptance.csv exists with exact original accuracy/loss and no plan_file column; source table unchanged.",
       "handlers": [
@@ -3861,7 +3861,7 @@
     {
       "command": "openResultArtifact",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17413,
+      "line": 17414,
       "status": "not_tested",
       "evidence": "此 resultFileButton 依赖旧 previewCsvPath/effectiveResultsCsvPath 等分析文件；当前 ResultCollectionHost 报告不生成这些字段。声明结果下载和只读内存预览另有已实点入口；未伪造旧摘要文件。",
       "handlers": [
@@ -3871,13 +3871,13 @@
           "line": 7390
         }
       ],
-      "acceptanceClass": "compatibility_no_current_producer",
+      "acceptanceClass": "compatibility_no_current_entry",
       "reviewedAt": "2026-11-16"
     },
     {
       "command": "saveResultColumnMapping",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17446,
+      "line": 17447,
       "status": "clicked_passed",
       "evidence": "Actual501 settings jump opens lazy mapping before initial result render; after actual GUI full collection1/5, editor correctly shows owned metrics.csv3cols, seed42 and accuracy0.953125/loss0.10787482559680939 samples. Save enabled and succeeded, readback projectAdapterRules csvColumnMapping{} derivedMetric{}. No raw CSV persisted or MM results regenerated.",
       "handlers": [
@@ -3891,7 +3891,7 @@
     {
       "command": "plotResultsToPpt",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 17768,
+      "line": 17769,
       "status": "not_tested",
       "evidence": "缺少 rough-ppt-addin 的真实可用连接和本人指定的 PowerPoint 目标，未安装外部插件或虚构绘图结果。",
       "handlers": [
@@ -3907,7 +3907,7 @@
     {
       "command": "snapshot",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 18091,
+      "line": 18092,
       "status": "clicked_passed",
       "evidence": "2026-11-15 actual recent-error first row Refresh State clicked independently. Button returned enabled; panel_diagnostics ready/no lastFailure/no sectionFailures, rendered sequence caught up. Current PLAN preserved, original completed/cancelled facts retained. Worker unavailable remains explicit; not counted as Agent health success.",
       "handlers": [
@@ -3921,7 +3921,7 @@
     {
       "command": "testAll",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 18093,
+      "line": 18094,
       "status": "not_tested",
       "evidence": "仅 capability 分类错误行提供该检测按钮；当前配套能力已满足，未禁用或伪造接口能力。",
       "handlers": [
@@ -3942,7 +3942,7 @@
     {
       "command": "testAll",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 18094,
+      "line": 18095,
       "status": "not_tested",
       "evidence": "仅 tunnel/token 分类错误行提供该检测按钮。本轮运行环境“检测全部”实际报告 agent_project_mismatch，近期错误行仍是其他类型；不关闭隧道、不改 token 或插入错误记录来制造按钮。",
       "handlers": [
@@ -3963,7 +3963,7 @@
     {
       "command": "runPlan",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 19141,
+      "line": 19142,
       "status": "not_tested",
       "evidence": "选择器、事件或状态恢复引用，不生成独立控件；保留兼容代码，不计当前可点击入口分母。",
       "handlers": [],
@@ -3974,7 +3974,7 @@
     {
       "command": "selectExperiment",
       "source": "src/ui/PanelHtml.legacy.ts",
-      "line": 19230,
+      "line": 19231,
       "status": "not_tested",
       "evidence": "选择器、事件或状态恢复引用，不生成独立控件；保留兼容代码，不计当前可点击入口分母。",
       "handlers": [
@@ -5107,6 +5107,24 @@
         "status": "clicked_passed",
         "version": "0.5.512",
         "evidence": "原窗口与源码宿主同时存在时，未指定实例的原生 MCP 明确拒绝，不按启动时间猜测。官方SDK用真实 PID:startedAt 绑定对应宿主成功；关闭源码宿主后原生 MCP 自动命中唯一原项目实例。没有改全局 MCP 配置。"
+      },
+      {
+        "control": "cancelPlanSubmission remaining47 live control",
+        "status": "clicked_passed",
+        "version": "0.5.512",
+        "evidence": "源码宿主实点专用 plan-submit-workflow-run-1794803708081-70vkj3 的取消按钮；精确回执 recovery.cancelled=true，操作 cancelled/retryableSubmission=false；按钮消失，没有派发任务。"
+      },
+      {
+        "control": "retryPlanSubmission remaining47 live control",
+        "status": "clicked_passed",
+        "version": "0.5.512",
+        "evidence": "源码宿主实点 plan-submit-workflow-run-1794804746965-o9eg29 的重试；修正漏选的单个入口同步范围，单次确认已授权上传位置后沿用原提交标识成功。仅一批 distributed-plan-1794805337154-kheqn9、原生 commandId 4cbfcd190f4f70cb4f101311881d3c18，seed42、rjj8/GPU0，exit0/result complete/completion verified，完整日志 clear。未重新发起另一条恢复请求、未覆盖已有产物。"
+      },
+      {
+        "control": "reloadPanel remaining47 live control",
+        "status": "clicked_passed",
+        "version": "0.5.512",
+        "evidence": "真实源码执行区因旧 payload 多读一层而降级时实点“重新加载面板”，documentGeneration 1→2、同一项目/PLAN保留；重载不能修复代码错误。随后修正并重载最终源码宿主，lifecycle=ready、sectionFailures=[]，真实重试流程完成。"
       }
     ]
   },
@@ -7630,328 +7648,537 @@
   },
   "remainingEntryReview": {
     "observedAt": "2026-11-16",
-    "requestedSourceOccurrences": 50,
-    "newlyClickedPassed": 1,
-    "newlyPreviewPassed": 2,
-    "notTested": 47,
+    "requestedSourceOccurrences": 47,
+    "newlyClickedPassed": 3,
+    "newlyPreviewPassed": 0,
+    "notTested": 44,
+    "pendingInteractiveSourceOccurrences": 32,
+    "nonInteractiveSourceOccurrences": 12,
     "remainingByClass": {
       "requires_human": 4,
       "requires_external": 8,
       "selector_reference": 8,
-      "compatibility_no_current_producer": 3,
-      "conditional_error_state": 18,
+      "compatibility_no_current_entry": 4,
       "deferred_by_user": 1,
       "requires_task_card_object": 3,
+      "conditional_error_state": 14,
       "requires_legacy_local_scheduler": 2
     },
     "staticSourceStatuses": {
-      "clicked_passed": 77,
+      "clicked_passed": 80,
       "preview_passed": 30,
-      "not_tested": 47,
+      "not_tested": 44,
       "retired": 25
     },
     "sourceEntries": [
       {
         "command": "openXshell",
+        "source": "src/ui/PanelHtml.legacy.ts",
         "line": 1432,
         "status": "not_tested",
         "acceptanceClass": "requires_human"
       },
       {
         "command": "publishGithub",
+        "source": "src/ui/PanelHtml.legacy.ts",
         "line": 1434,
         "status": "not_tested",
         "acceptanceClass": "requires_external"
       },
       {
         "command": "selectExperiment",
+        "source": "src/ui/PanelHtml.legacy.ts",
         "line": 3609,
         "status": "not_tested",
         "acceptanceClass": "selector_reference"
       },
       {
         "command": "selectExperiment",
+        "source": "src/ui/PanelHtml.legacy.ts",
         "line": 4451,
         "status": "not_tested",
         "acceptanceClass": "selector_reference"
       },
       {
         "command": "createBranchPr",
+        "source": "src/ui/PanelHtml.legacy.ts",
         "line": 5057,
         "status": "not_tested",
         "acceptanceClass": "requires_external"
       },
       {
         "command": "mergeBranchPr",
+        "source": "src/ui/PanelHtml.legacy.ts",
         "line": 5057,
         "status": "not_tested",
         "acceptanceClass": "requires_external"
       },
       {
         "command": "submitBranchPlanRun",
+        "source": "src/ui/PanelHtml.legacy.ts",
         "line": 5079,
         "status": "not_tested",
         "acceptanceClass": "requires_external"
       },
       {
         "command": "verifyBranchHeadBinding",
+        "source": "src/ui/PanelHtml.legacy.ts",
         "line": 5122,
         "status": "not_tested",
         "acceptanceClass": "requires_external"
       },
       {
         "command": "openPlan",
+        "source": "src/ui/PanelHtml.legacy.ts",
         "line": 5239,
         "status": "not_tested",
-        "acceptanceClass": "compatibility_no_current_producer"
+        "acceptanceClass": "compatibility_no_current_entry"
       },
       {
         "command": "reloadPanel",
+        "source": "src/ui/PanelHtml.legacy.ts",
         "line": 5502,
-        "status": "not_tested",
-        "acceptanceClass": "conditional_error_state"
+        "status": "clicked_passed",
+        "acceptanceClass": "normal_clicked"
       },
       {
         "command": "resetRemotePathConfirmations",
-        "line": 9995,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 9996,
         "status": "not_tested",
         "acceptanceClass": "requires_human"
       },
       {
         "command": "resetPptPathConfirmations",
-        "line": 10005,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 10006,
         "status": "not_tested",
         "acceptanceClass": "requires_human"
       },
       {
         "command": "installPluginUpdates",
-        "line": 10203,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 10204,
         "status": "not_tested",
         "acceptanceClass": "deferred_by_user"
       },
       {
         "command": "saveRemoteRootPolicy",
-        "line": 10243,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 10244,
         "status": "not_tested",
         "acceptanceClass": "requires_human"
       },
       {
         "command": "archivePlan",
-        "line": 11185,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 11186,
         "status": "not_tested",
         "acceptanceClass": "selector_reference"
       },
       {
         "command": "analyzeRuntimeLog",
-        "line": 14796,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 14797,
         "status": "not_tested",
         "acceptanceClass": "requires_task_card_object"
       },
       {
         "command": "selectExperiment",
-        "line": 14818,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 14819,
         "status": "not_tested",
         "acceptanceClass": "requires_task_card_object"
       },
       {
         "command": "clearLegacyTasks",
-        "line": 14869,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 14870,
         "status": "not_tested",
         "acceptanceClass": "requires_task_card_object"
       },
       {
         "command": "retryDistributedJob",
-        "line": 15536,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 15537,
         "status": "not_tested",
         "acceptanceClass": "conditional_error_state"
       },
       {
         "command": "recheckOutputIsolation",
-        "line": 15542,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 15543,
         "status": "not_tested",
         "acceptanceClass": "conditional_error_state"
       },
       {
         "command": "releaseJobStageBlockSlots",
-        "line": 15591,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 15592,
         "status": "not_tested",
         "acceptanceClass": "requires_external"
       },
       {
-        "command": "retryDistributedJob",
-        "line": 15595,
-        "status": "preview_passed",
-        "acceptanceClass": "preview_requires_confirmation"
-      },
-      {
         "command": "snapshot",
-        "line": 15611,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 15612,
         "status": "not_tested",
         "acceptanceClass": "conditional_error_state"
       },
       {
         "command": "snapshot",
-        "line": 15615,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 15616,
         "status": "not_tested",
-        "acceptanceClass": "conditional_error_state"
+        "acceptanceClass": "compatibility_no_current_entry"
       },
       {
         "command": "runPlan",
-        "line": 15643,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 15644,
         "status": "not_tested",
         "acceptanceClass": "conditional_error_state"
       },
       {
         "command": "abortScheduler",
-        "line": 15767,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 15768,
         "status": "not_tested",
         "acceptanceClass": "requires_legacy_local_scheduler"
       },
       {
         "command": "selectExperiment",
-        "line": 16167,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 16168,
         "status": "not_tested",
         "acceptanceClass": "selector_reference"
       },
       {
         "command": "selectExperiment",
-        "line": 16204,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 16205,
         "status": "not_tested",
         "acceptanceClass": "selector_reference"
       },
       {
         "command": "retryPlanSubmission",
-        "line": 16327,
-        "status": "not_tested",
-        "acceptanceClass": "conditional_error_state"
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 16328,
+        "status": "clicked_passed",
+        "acceptanceClass": "normal_clicked"
       },
       {
         "command": "cancelPlanSubmission",
-        "line": 16327,
-        "status": "not_tested",
-        "acceptanceClass": "conditional_error_state"
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 16328,
+        "status": "clicked_passed",
+        "acceptanceClass": "normal_clicked"
       },
       {
         "command": "abortScheduler",
-        "line": 16346,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 16347,
         "status": "not_tested",
         "acceptanceClass": "requires_legacy_local_scheduler"
       },
       {
         "command": "stopAndClearPlan",
-        "line": 16630,
-        "status": "preview_passed",
-        "acceptanceClass": "preview_requires_confirmation"
-      },
-      {
-        "command": "stopAndClearPlan",
-        "line": 16645,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 16646,
         "status": "not_tested",
         "acceptanceClass": "conditional_error_state"
       },
       {
         "command": "snapshot",
-        "line": 16648,
-        "status": "not_tested",
-        "acceptanceClass": "conditional_error_state"
-      },
-      {
-        "command": "showLogHistory",
+        "source": "src/ui/PanelHtml.legacy.ts",
         "line": 16649,
         "status": "not_tested",
         "acceptanceClass": "conditional_error_state"
       },
       {
-        "command": "openFullLog",
+        "command": "showLogHistory",
+        "source": "src/ui/PanelHtml.legacy.ts",
         "line": 16650,
         "status": "not_tested",
         "acceptanceClass": "conditional_error_state"
       },
       {
-        "command": "showLogHistory",
-        "line": 16752,
-        "status": "not_tested",
-        "acceptanceClass": "conditional_error_state"
-      },
-      {
         "command": "openFullLog",
-        "line": 16752,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 16651,
         "status": "not_tested",
         "acceptanceClass": "conditional_error_state"
       },
       {
         "command": "showLogHistory",
-        "line": 16759,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 16753,
         "status": "not_tested",
         "acceptanceClass": "conditional_error_state"
       },
       {
         "command": "openFullLog",
-        "line": 16759,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 16753,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "showLogHistory",
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 16760,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
+        "command": "openFullLog",
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 16760,
         "status": "not_tested",
         "acceptanceClass": "conditional_error_state"
       },
       {
         "command": "plotResultsToPpt",
-        "line": 16936,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 16937,
         "status": "not_tested",
         "acceptanceClass": "requires_external"
       },
       {
         "command": "plotResultsToPpt",
-        "line": 16943,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 16944,
         "status": "not_tested",
         "acceptanceClass": "selector_reference"
       },
       {
         "command": "openLocalResultTable",
-        "line": 17198,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 17199,
         "status": "not_tested",
-        "acceptanceClass": "compatibility_no_current_producer"
-      },
-      {
-        "command": "applyPlanDatasetMapping",
-        "line": 17216,
-        "status": "clicked_passed",
-        "acceptanceClass": "normal_clicked"
+        "acceptanceClass": "compatibility_no_current_entry"
       },
       {
         "command": "openResultArtifact",
-        "line": 17413,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 17414,
         "status": "not_tested",
-        "acceptanceClass": "compatibility_no_current_producer"
+        "acceptanceClass": "compatibility_no_current_entry"
       },
       {
         "command": "plotResultsToPpt",
-        "line": 17768,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 17769,
         "status": "not_tested",
         "acceptanceClass": "requires_external"
       },
       {
         "command": "testAll",
-        "line": 18093,
-        "status": "not_tested",
-        "acceptanceClass": "conditional_error_state"
-      },
-      {
-        "command": "testAll",
+        "source": "src/ui/PanelHtml.legacy.ts",
         "line": 18094,
         "status": "not_tested",
         "acceptanceClass": "conditional_error_state"
       },
       {
+        "command": "testAll",
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 18095,
+        "status": "not_tested",
+        "acceptanceClass": "conditional_error_state"
+      },
+      {
         "command": "runPlan",
-        "line": 19141,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 19142,
         "status": "not_tested",
         "acceptanceClass": "selector_reference"
       },
       {
         "command": "selectExperiment",
-        "line": 19230,
+        "source": "src/ui/PanelHtml.legacy.ts",
+        "line": 19231,
         "status": "not_tested",
         "acceptanceClass": "selector_reference"
       }
     ],
-    "note": "源码匹配不是全部已显示控件分母。8处选择器引用、3处当前无生产方兼容模板单列；保留原入口，不将未实测自动退役。预览不等于确认或执行。"
+    "separateInventories": {
+      "selectorReferences": [
+        {
+          "command": "selectExperiment",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 3609,
+          "status": "not_tested",
+          "acceptanceClass": "selector_reference"
+        },
+        {
+          "command": "selectExperiment",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 4451,
+          "status": "not_tested",
+          "acceptanceClass": "selector_reference"
+        },
+        {
+          "command": "archivePlan",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 11186,
+          "status": "not_tested",
+          "acceptanceClass": "selector_reference"
+        },
+        {
+          "command": "selectExperiment",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 16168,
+          "status": "not_tested",
+          "acceptanceClass": "selector_reference"
+        },
+        {
+          "command": "selectExperiment",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 16205,
+          "status": "not_tested",
+          "acceptanceClass": "selector_reference"
+        },
+        {
+          "command": "plotResultsToPpt",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 16944,
+          "status": "not_tested",
+          "acceptanceClass": "selector_reference"
+        },
+        {
+          "command": "runPlan",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 19142,
+          "status": "not_tested",
+          "acceptanceClass": "selector_reference"
+        },
+        {
+          "command": "selectExperiment",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 19231,
+          "status": "not_tested",
+          "acceptanceClass": "selector_reference"
+        }
+      ],
+      "compatibilityWithoutCurrentEntry": [
+        {
+          "command": "openPlan",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 5239,
+          "status": "not_tested",
+          "acceptanceClass": "compatibility_no_current_entry"
+        },
+        {
+          "command": "snapshot",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 15616,
+          "status": "not_tested",
+          "acceptanceClass": "compatibility_no_current_entry"
+        },
+        {
+          "command": "openLocalResultTable",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 17199,
+          "status": "not_tested",
+          "acceptanceClass": "compatibility_no_current_entry"
+        },
+        {
+          "command": "openResultArtifact",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 17414,
+          "status": "not_tested",
+          "acceptanceClass": "compatibility_no_current_entry"
+        }
+      ],
+      "requiresHuman": [
+        {
+          "command": "openXshell",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 1432,
+          "status": "not_tested",
+          "acceptanceClass": "requires_human"
+        },
+        {
+          "command": "resetRemotePathConfirmations",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 9996,
+          "status": "not_tested",
+          "acceptanceClass": "requires_human"
+        },
+        {
+          "command": "resetPptPathConfirmations",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 10006,
+          "status": "not_tested",
+          "acceptanceClass": "requires_human"
+        },
+        {
+          "command": "saveRemoteRootPolicy",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 10244,
+          "status": "not_tested",
+          "acceptanceClass": "requires_human"
+        }
+      ],
+      "requiresExternal": [
+        {
+          "command": "publishGithub",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 1434,
+          "status": "not_tested",
+          "acceptanceClass": "requires_external"
+        },
+        {
+          "command": "createBranchPr",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 5057,
+          "status": "not_tested",
+          "acceptanceClass": "requires_external"
+        },
+        {
+          "command": "mergeBranchPr",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 5057,
+          "status": "not_tested",
+          "acceptanceClass": "requires_external"
+        },
+        {
+          "command": "submitBranchPlanRun",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 5079,
+          "status": "not_tested",
+          "acceptanceClass": "requires_external"
+        },
+        {
+          "command": "verifyBranchHeadBinding",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 5122,
+          "status": "not_tested",
+          "acceptanceClass": "requires_external"
+        },
+        {
+          "command": "releaseJobStageBlockSlots",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 15592,
+          "status": "not_tested",
+          "acceptanceClass": "requires_external"
+        },
+        {
+          "command": "plotResultsToPpt",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 16937,
+          "status": "not_tested",
+          "acceptanceClass": "requires_external"
+        },
+        {
+          "command": "plotResultsToPpt",
+          "source": "src/ui/PanelHtml.legacy.ts",
+          "line": 17769,
+          "status": "not_tested",
+          "acceptanceClass": "requires_external"
+        }
+      ]
+    },
+    "note": "179是源码命中数，含25退役、8选择器引用和4无当前入口代码；剔除后三类后142处控件模板来源为80实点、30预览、32待补测，不是当前屏幕唯一按钮数量。保留引用及兼容入口，不把未测自动退役。当前源码行号已按命中顺序核对并更新；旧手测段落的行号属于其当时版本。完整验证为286项build加最终4套件补跑，并非最终源码重新执行330项。"
   }
 }

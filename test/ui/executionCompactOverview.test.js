@@ -945,6 +945,44 @@ test("production operation projection and normalization retain submission identi
   const render = () => sandbox.render({ distributedPlans: [plan],
     operations: projected.exports.compactOperationsForWebview({ operation: { ...row } }) });
   row.localSubmissionProgress = true;
+  row.retryableSubmission = true;
+  row.evidence = { liveLogTail: "software control log", programError: "software control traceback", failureSourceKind: "program" };
+  const recoveryRow = sandbox.normalizeOperationRows(projected.exports.compactOperationsForWebview({ operation: { ...row } }))[0];
+  assert.equal(recoveryRow.retryableSubmission, true, "a saved recoverable submission must reach its real panel buttons");
+  assert.equal(recoveryRow.evidence.liveLogTail, row.evidence.liveLogTail, "operation diagnostics must reach the existing log renderer");
+  assert.equal(recoveryRow.evidence.programError, row.evidence.programError);
+  Object.assign(sandbox, {
+    operationOutcomePendingHistory: () => false, operationIsCancelled: () => false, operationIsCompleted: () => false,
+    planPathButtonForMetric: () => "", operationDisplayMessage: () => "submission failed", operationErrorLine: () => "",
+    operationRunningEvidenceWarning: () => "", renderOperationDetailPills: () => "", renderRemoteResultInspectionActions: () => "",
+    operationTypeLabel: String, operationStatusLabel: String, operationTimestampView: () => ({ label: "终态", raw: "", relative: "刚刚" }),
+    PLAN_RUN_OPERATION_TYPES: new Set(), renderTensorBoardLinksForRunning: () => "", renderOperationLogsWindowed: () => "",
+    treeAnchorId: String, taskRowStatusClass: String, compactIdentifier: String, meaningfulValue: () => false,
+    firstPathLike: (...values) => values.find(value => typeof value === "string" && value) || "",
+  });
+  vm.runInContext(extract("renderOperationItem", "redactUiText"), sandbox);
+  const recoveryHtml = sandbox.renderOperationItem(recoveryRow, false);
+  assert.match(recoveryHtml, /data-command="retryPlanSubmission" data-operation-id="operation"/);
+  assert.match(recoveryHtml, /data-command="cancelPlanSubmission" data-operation-id="operation"/);
+  const withoutEvidence = { ...row, evidence: undefined, payload: {} };
+  const plainRow = sandbox.normalizeOperationRows(projected.exports.compactOperationsForWebview({ operation: withoutEvidence }))[0];
+  assert.doesNotThrow(() => sandbox.renderOperationItem(plainRow, false), "ordinary operation payloads have no nested payload or evidence");
+  Object.assign(sandbox, { decodeCapturedText: String, terminalDisplayText: String, planLogSourceLabel: String,
+    redactUiText: String, compactText: String, operationEvidenceNextActions: () => "" });
+  vm.runInContext(extract("renderOperationLogsWindowed", "renderRemoteResultInspectionActions")
+    + extract("operationErrorLine", "operationRunningEvidenceWarning"), sandbox);
+  const payloadRow = { ...plainRow, payload: { evidence: { liveLogTail: "Error: software control log" } } };
+  assert.match(sandbox.renderOperationLogsWindowed(payloadRow), /Error: software control log/);
+  const programRow = { ...plainRow, payload: { programError: "software control traceback" } };
+  assert.match(sandbox.operationErrorLine(programRow, "failed"), /software control traceback/);
+  vm.runInContext(extract("compactOperationRowsForSignature", "operationRenderStructureStatus"), sandbox);
+  sandbox.OPERATION_RENDER_LIMIT = 20;
+  sandbox.operationRenderStructureStatus = String;
+  assert.notEqual(JSON.stringify(sandbox.compactOperationRowsForSignature([recoveryRow])),
+    JSON.stringify(sandbox.compactOperationRowsForSignature([{ ...recoveryRow, retryableSubmission: false }])),
+    "the recovery buttons must redraw even if the failed status and error remain unchanged");
+  delete row.retryableSubmission;
+  delete row.evidence;
   assert.equal(sandbox.normalizeOperationRows(projected.exports.compactOperationsForWebview({ operation: { ...row } }))[0].localSubmissionProgress, true,
     "the real compacting and normalization chain preserves the local preparation marker");
   delete row.localSubmissionProgress;

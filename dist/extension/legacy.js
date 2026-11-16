@@ -9201,7 +9201,7 @@ class RealtimeTunnelPanelProvider {
         this.markLocalOperationsDirty();
         this.postState();
         void this.finishDistributedPlanSubmission("runPlan", message, this.localPlanForActionBody(body), body)
-            .catch(error => this.recordActionError({ command: "runPlan", message: errorMessage(error) }))
+            .catch(error => this.recordActionError({ command: "runPlan", message: errorMessage(error), operationOutcome: OperationOutcome_1.operationOutcomeFor(error) }))
             .finally(() => this.resumedSubmissions.delete(id));
         return { ok: true, operationId: id, status: "checking_workers", nextAction: "operations.list" };
     }
@@ -9214,6 +9214,8 @@ class RealtimeTunnelPanelProvider {
             this.activeRetentionClaims.delete(String(saved.input?.retentionSubmissionId || ""));
         void releaseRetentionClaim(workspaceRoot(), String(saved.input?.retentionSubmissionId || ""), this.hostOperationLease);
         this.runConfirmation.cancel(id);
+        if (this.localOperations[id])
+            this.localOperations[id].retryableSubmission = false;
         this.finishPlanSubmissionProgress({ clientActionId: id.slice("plan-submit-".length) }, "cancelled", "本次提交已取消；已完成的文件处理不回滚，未发送的任务不再提交。");
         return { status: "cancelled", operationId: id };
     }

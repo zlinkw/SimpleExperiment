@@ -6391,6 +6391,7 @@ function renderPanelHtml() {
         action: row.action,
         status: operationRenderStructureStatus(row.status || row.state),
         error: row.error,
+        retryableSubmission: row.retryableSubmission,
         targetCount: row.targetCount,
         fileCount: row.fileCount,
         deletedCount: row.deletedCount,
@@ -16366,7 +16367,7 @@ function renderPanelHtml() {
       const tbLinkForRunning = renderTensorBoardLinksForRunning();
       const logWindow = renderOperationLogsWindowed(row);
       // LENIENT_RUN 软门禁 Badge 协同：若后端标记 lenient/软门禁，卡片头部追加黄色 Badge，不与调度/程序报错色块冲突
-      const evForBadge = (row && typeof row === "object" && ((row || {}).evidence || ((row || {}).payload && (row.payload || {}).payload.evidence) || {})) || {};
+      const evForBadge = row.evidence || row.payload?.evidence || {};
       const rawLenient = row.lenientRun ?? row.lenient ?? row.softGate ?? row.LENIENT_RUN ?? (row.payload && (row.payload.lenientRun ?? row.payload.lenient ?? row.payload.LENIENT_RUN)) ?? evForBadge.lenientRun ?? evForBadge.LENIENT_RUN ?? evForBadge.softGate;
       const modeStr = String(row.executionMode || row.mode || evForBadge.executionMode || "").toLowerCase();
       const isLenient = rawLenient === true || String(rawLenient).toLowerCase() === "true" || modeStr.includes("lenient") || String(row.executionMode || "").toLowerCase() === "lenient_run";
@@ -16410,8 +16411,8 @@ function renderPanelHtml() {
       const redact = typeof redactUiText === "function" ? redactUiText : (value) => String(value || "");
       const ev = (row && typeof row === "object" && ((row || {}).evidence || ((row || {}).payload && (row || {}).payload.evidence))) || {};
       const rawKind = String(ev.failureSourceKind || (row || {}).failureSourceKind || ((row || {}).payload && (row.payload || {}).evidence && (row.payload || {}).evidence.failureSourceKind) || "").toLowerCase();
-      const schedulerZhRaw = String(ev.schedulerErrorZh || (row || {}).schedulerErrorZh || ((row || {}).payload && (row.payload || {}).payload && (row.payload.schedulerErrorZh || row.payload.scheduler_error_zh)) || "").trim();
-      const programErrRaw = String(ev.programError || (row || {}).programError || ((row || {}).payload && (row.payload || {}).payload && (row.payload.programError || row.payload.program_error)) || "").trim();
+      const schedulerZhRaw = String(ev.schedulerErrorZh || row.schedulerErrorZh || row.payload?.schedulerErrorZh || row.payload?.scheduler_error_zh || "").trim();
+      const programErrRaw = String(ev.programError || row.programError || row.payload?.programError || row.payload?.program_error || "").trim();
       const failuresRaw = Array.isArray(ev.failures) ? ev.failures : Array.isArray((row || {}).failures) ? (row || {}).failures : Array.isArray((row && row.payload && row.payload.failures)) ? row.payload.failures : [];
       const schedulerFromFailures = failuresRaw.filter((f) => f && String(f.kind).toLowerCase() === "scheduler").map((f) => String(f.messageZh || f.message || "").trim()).filter(Boolean).join("\\n");
       const programFromFailures = failuresRaw.filter((f) => f && String(f.kind).toLowerCase() === "program").map((f) => String(f.message || f.traceback || "").trim()).filter(Boolean).join("\\n");
@@ -16733,7 +16734,7 @@ function renderPanelHtml() {
     function renderOperationLogsWindowed(row) {
       try {
         const redact = typeof redactUiText === "function" ? redactUiText : (value) => String(value || "");
-        const ev = (row && typeof row === "object" && ((row || {}).evidence || ((row || {}).payload && (row.payload || {}).payload.evidence))) || {};
+        const ev = row.evidence || row.payload?.evidence || {};
         const redactedTail = String((row || {}).liveLogTailRedacted || (row || {}).logTailRedacted || (row || {}).logTail_redacted || ev.liveLogTailRedacted || ev.logTailRedacted || ev.live_log_tail_redacted || ev.log_tail_redacted || (row.payload && (row.payload.liveLogTailRedacted || row.payload.logTailRedacted)) || "").trim();
         const rawFallbackCandidates = [
           String((row.evidence && (row.evidence.liveLogTail || row.evidence.live_log_tail || row.evidence.logTail || row.evidence.log_tail)) || ""),
@@ -19869,6 +19870,9 @@ function projectSectionNextAction(status, label, section, anchor) {
         const unparseableFileList = asArray(pick(row, ["unparseableFiles", "unparseable_files"], pick(payload, ["unparseableFiles", "unparseable_files"], pick(contract, ["unparseableFiles"], [])))).map((item) => String(item || "").trim()).filter(Boolean).slice(0, 20);
         const unparseableDetails = normalizeUnparseableDetails(pick(row, ["unparseable"], pick(payload, ["unparseable"], pick(contract, ["unparseable"], []))), unparseableFileList);
         return {
+          // Keep the host's diagnostic fields for the existing evidence and log renderers.
+          ...row,
+          payload,
           operationId: pick(row, ["operationId", "operation_id", "opId", "id"], pick(payload, ["operationId", "operation_id", "opId", "id"], "-")),
           type: type !== "-" ? type : pick(payload, ["action", "type"], "-"),
           status: pick(row, ["status", "state"], pick(payload, ["status", "state"], operationStatusFromType(type))),
@@ -19880,6 +19884,7 @@ function projectSectionNextAction(status, label, section, anchor) {
           enqueuedAt: pick(row, ["enqueuedAt", "enqueued_at"], pick(payload, ["enqueuedAt", "enqueued_at"], "")),
           finishedAt: pick(row, ["finishedAt", "finished_at"], pick(payload, ["finishedAt", "finished_at"], "")),
           localSubmissionProgress: row.localSubmissionProgress === true,
+          retryableSubmission: row.retryableSubmission === true,
           debugMode: pick(row, ["debugMode", "debug_mode"], pick(payload, ["debugMode", "debug_mode"], pick(options, ["debugMode", "debug_mode"], false))) === true,
           debugRunId: pick(row, ["debugRunId", "debug_run_id"], pick(payload, ["debugRunId", "debug_run_id"], "")),
           debugOutputDir: pick(row, ["debugOutputDir", "debug_output_dir"], pick(payload, ["debugOutputDir", "debug_output_dir"], "")),

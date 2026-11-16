@@ -13,6 +13,51 @@ const ExecutionMode = require('../../src/features/PlanExecutionMode.ts');
 const globals = { ApiWorkflow_1:require('../../src/features/ApiWorkflow.ts'), stringField:(row,key)=>row[key] || '', stringArrayField:(row,key)=>Array.isArray(row[key])?row[key]:[],
   numberField:(row,key)=>row[key], booleanField:(row,key)=>row[key], usableSelectionKey:value=>value || '', uniqueStrings:rows=>[...new Set(rows)], taskActionTargetsField:()=>[] };
 
+test('cancelling a recoverable submission clears only its recovery buttons and retains its exact receipt', async () => {
+  const id = 'plan-submit-recovery-control', saved = { input: { planFile: 'plans/control.yaml' }, recovery: {}, replacement: {} };
+  let persisted, cancelled;
+  const h = host(['cancelPlanRunSubmission'], { workspaceRoot: () => '/fixture',
+    PlanRunHost: class { async load(actual) { assert.equal(actual, id); return saved; } async save(body) { persisted = body; } },
+    releaseRetentionClaim: async () => {}, UiCommandCancelled: Error,
+  });
+  h.localOperations = { [id]: { retryableSubmission: true, status: 'failed' }, other: { retryableSubmission: true, status: 'failed' } };
+  h.distributedSubmissionAborts = new Map();
+  h.runConfirmation = { cancel(actual) { cancelled = actual; } };
+  h.finishPlanSubmissionProgress = (_message, status) => { h.localOperations[id].status = status; };
+  await h.cancelPlanRunSubmission(id);
+  assert.equal(persisted.submissionOperationIdLocal, id);
+  assert.equal(persisted.planFile, 'plans/control.yaml');
+  assert.equal(persisted.runRecovery.cancelled, true);
+  assert.equal(cancelled, id);
+  assert.equal(h.localOperations[id].status, 'cancelled');
+  assert.equal(h.localOperations[id].retryableSubmission, false, 'a cancelled request cannot keep offering recovery');
+  assert.equal(h.localOperations.other.retryableSubmission, true);
+});
+
+test('asynchronous resume records typed cancellation without masking a real submission failure', async () => {
+  const id = 'plan-submit-resume-control';
+  for (const [error, category] of [[Object.assign(Error('path confirmation cancelled'), { name: 'UiCommandCancelled' }), 'user_cancelled'],
+    [Error('real source verification failed'), 'failed']]) {
+    let recorded;
+    const h = host(['resumePlanSubmission'], { workspaceRoot: () => '/fixture', AbortController,
+      stringField: (row, key) => row[key] || '', errorMessage: error => error.message,
+      OperationOutcome_1: require('../../src/core/OperationOutcome.ts'),
+      PlanRunHost: class { async load(actual) { assert.equal(actual, id); return { input: { planFile: 'plans/control.yaml', planRevision: 'same' }, recovery: {}, replacement: {} }; } },
+    });
+    Object.assign(h, { localOperations: { [id]: { status: 'failed' } }, resumedSubmissions: new Set(),
+      distributedSubmissionEpochs: new Map(), distributedSubmissionAborts: new Map(),
+      stampPlanRevision: body => { body.planRevision = 'same'; }, beginSimpleSftpCapabilityLaunch() {},
+      markLocalOperationsDirty() {}, postState() {}, localPlanForActionBody: () => ({}),
+      finishDistributedPlanSubmission: async () => { throw error; }, recordActionError: row => { recorded = row; } });
+    const reply = await h.resumePlanSubmission(id);
+    await new Promise(setImmediate);
+    assert.equal(reply.operationId, id);
+    assert.equal(recorded.message, error.message);
+    assert.equal(recorded.operationOutcome?.category, category);
+    assert.equal(h.resumedSubmissions.size, 0);
+  }
+});
+
 test('only a provably unsent native preparation can release its original intent, including a stale tick', async()=>{
   const root='/fixture', projectId=Q.canonicalProjectId(root);
   const scope={supportsPlanCodeScope:()=>true,verifyWorkerPlanSource:async()=>{throw Error('source query timeout');}};
