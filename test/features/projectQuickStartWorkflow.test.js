@@ -130,7 +130,7 @@ test("project onboarding keeps staged actions and respects readiness order", () 
   }
   assert.match(flow, /const activeIndex = stepSpecs\.findIndex\(\(step\) => !step\.ok\)/);
   assert.match(flow, /pending: activeIndex >= 0 && index > activeIndex/);
-  assert.match(panel, /function renderPlanPreparationContext\(state, selectedPlan, outputReady, adapterConfig, runtimeContractStage\)/);
+  assert.match(panel, /function renderPlanPreparationContext\(state, selectedPlan, outputReady, adapterConfig\)/);
   assert.doesNotMatch(panel, /function renderPlanRunActions\(/);
   assert.doesNotMatch(panel, /data-command="runPlan"[^>]*>运行<\/button>/);
 });
@@ -266,7 +266,7 @@ test("quick project onboarding reports only the next action proven by current re
   assert.equal(outputIncomplete.action, "打开当前 Plan");
   assert.equal(bootstrapCompletion({ outputGateReason: "缺少结果路径", outputGateNextLabel: "接入配置", adapterConfig: "experiments/simple_project.yaml" }).action, "打开接入配置");
   assert.equal(bootstrapCompletion({ outputGateReason: "配置文件缺失", outputGateNextLabel: "配置文件", adapterConfig: "experiments/simple_project.yaml" }).action, "打开当前 Plan");
-  assert.match(panel, /在当前 Plan 声明结果位置，或在插件设置中配置输出接入规则/);
+  assert.match(panel, /请 AI 根据当前任务和实际输出配置接入/);
   assert.equal(bootstrapCompletion({ setupComplete: false }).action, "打开服务器设置");
   const workerRequired = bootstrapCompletion({ setupComplete: true, workers: [] });
   assert.equal(workerRequired.state, "worker_required");

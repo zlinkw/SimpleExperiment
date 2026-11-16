@@ -54,6 +54,20 @@ function loadSuggestions() {
   return sandbox;
 }
 
+test("onboarding guidance directs result configuration to AI and MCP", () => {
+  const sandbox = vm.createContext({});
+  vm.runInContext(`${extractFunction("projectOnboardingSuggestions")}\nthis.suggest = projectOnboardingSuggestions;`, sandbox);
+  for (const options of [
+    { planCount: 1, hasActionableOutput: false, adapterConfig: "existing.yaml" },
+    { planCount: 1, hasActionableOutput: false },
+    { planCount: 1, hasActionableOutput: true, resultFileCount: 1, parseableResultCount: 0 },
+  ]) {
+    const text = sandbox.suggest(options).join(" ");
+    assert.match(text, /AI/); assert.match(text, /MCP/);
+    assert.doesNotMatch(text, /插件设置中配置|生成模板|请检查列映射/);
+  }
+});
+
 function fixtures() {
   return {
     project: {

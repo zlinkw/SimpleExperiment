@@ -30567,7 +30567,7 @@ function compactAdapterRulesForWebview(rules) {
     if (omittedFields > 0) {
         out.adapterRulesPartial = true;
         out.adapterRulesOmittedFieldCount = omittedFields;
-        out.adapterRulesPartialReason = "自动推断规则较多，仅显示摘要；可在插件设置中调整明确规则。";
+        out.adapterRulesPartialReason = "自动推断规则较多，仅显示摘要；请 AI 根据实际任务通过 MCP 核实配置。";
     }
     return out;
 }
@@ -32520,11 +32520,11 @@ function projectOutputGateDiagnostics(project, plan) {
     const checks = [
         { label: "计划强契约", ok: contractReady, fix: planContractFixText(plan) },
         { label: "配置文件", ok: configReady, fix: `在工作区创建或在 Plan 中改为可用配置：${configFile || "configs/*.yaml"}` },
-        { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: "在当前 Plan 声明结果位置，或在插件设置中配置输出接入规则" },
+        { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: "在当前 Plan 声明结果位置，或请 AI 根据实际任务通过 MCP 配置输出接入规则" },
         { label: "计划输出", ok: planReady || ruleCandidateCount > 0, fix: "在 plan 的 paper.result_csv、当前 mode 实际执行命令的结果参数或 expectedResults 中写明可解析结果位置" },
-        { label: "候选结果规则", ok: candidateCount > 0 || planReady, fix: "补充 candidateCsv / candidateJson / consoleLogs / textLogs / metricRegex，或点击“保存接入规则”写入推断结果" },
+        { label: "候选结果规则", ok: candidateCount > 0 || planReady, fix: "请 AI 核实实际结果位置和格式，通过 MCP 配置候选结果规则" },
         { label: "标准结果契约", ok: planReady || ruleCandidateCount > 0, fix: "在 Plan 声明实际结果或任务产物；也可配置结果解析规则" },
-        { label: "解析预览", ok: parseablePreview || planReady || ruleCandidateCount > 0, fix: "保存接入规则后点击“刷新识别”，确认至少一个候选输出能解析出指标" },
+        { label: "解析预览", ok: parseablePreview || planReady || ruleCandidateCount > 0, fix: "请 AI 核实候选输出能否解析出指标" },
     ];
     const missing = checks.filter((item) => !item.ok).map((item) => item.label);
     const next = checks.find((item) => !item.ok);
@@ -32607,11 +32607,11 @@ function projectOutputGateFixes(missing, plan, project) {
     const fixes = {
         计划强契约: planContractFixText(plan),
         配置文件: `在工作区创建或在 Plan 中改为可用配置：${String(plan?.baseConfig || plan?.base_config || "configs/*.yaml")}`,
-        接入配置: "在当前 Plan 声明结果位置，或在插件设置中配置输出接入规则",
+        接入配置: "在当前 Plan 声明结果位置，或请 AI 根据实际任务通过 MCP 配置输出接入规则",
         计划输出: "在 plan 的 paper.result_csv、当前 mode 实际执行命令的结果参数或 expectedResults 中写明可解析结果位置",
-        候选结果规则: "补充 candidateCsv / candidateJson / consoleLogs / textLogs / metricRegex，或点击“保存接入规则”写入推断结果",
+        候选结果规则: "请 AI 核实实际结果位置和格式，通过 MCP 配置候选结果规则",
         标准结果契约: "推荐让测试代码输出 metrics_summary.csv，或使用 run_wrapper 捕获 stdout/stderr 后归一化",
-        解析预览: "保存接入规则后点击“刷新识别”，确认至少一个候选输出能解析出指标",
+        解析预览: "请 AI 核实候选输出能否解析出指标",
     };
     return uniqueStrings(missing.map((item) => fixes[item] || "").filter(Boolean));
 }
@@ -34354,18 +34354,15 @@ function projectOnboardingSuggestions(options) {
     options = options || {};
     const planCount = Math.max(0, Math.trunc(Number(options.planCount || 0) || 0));
     const hasActionableOutput = options.hasActionableOutput === true;
-    const adapterConfig = String(options.adapterConfig || "").trim();
     const resultFileCount = Math.max(0, Math.trunc(Number(options.resultFileCount || 0) || 0));
     const parseableResultCount = Math.max(0, Math.trunc(Number(options.parseableResultCount || 0) || 0));
     if (!planCount)
         return ["在 experiments/plans 下创建或放入 YAML Plan；也可点击“新建模板”。"];
     if (!hasActionableOutput) {
-        return [adapterConfig
-                ? "当前 Plan 尚未声明可解析结果位置；请补充 Plan 输出，或在插件设置中配置接入规则。"
-                : "当前 Plan 尚未声明可解析结果位置；请补充 Plan 输出，或点击“生成模板”创建接入配置。"];
+        return ["当前 Plan 尚未声明可解析结果位置；请补充 Plan 输出，或请 AI 根据实际任务通过 MCP 配置接入规则。"];
     }
     if (resultFileCount > 0 && parseableResultCount === 0)
-        return ["已发现结果文件但未解析出指标；请检查列映射、metric 别名或文本指标规则后刷新识别。"];
+        return ["已发现结果文件但未解析出指标；请 AI 核实结果格式，并通过 MCP 检查接入规则。"];
     return [];
 }
 const EMPTY_PROJECT_ONBOARDING_SELECTION_PROJECT = Object.freeze({});

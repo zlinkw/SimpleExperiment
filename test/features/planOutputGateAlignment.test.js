@@ -59,11 +59,11 @@ test("host and rendered panel accept ordinary declared results and model-only ta
   const ts = require('typescript');
   const host = readSource('src/extension/legacy.ts');
   const script = loadRenderedPanelScript();
-  const extract = source => {
+  const extract = (source, name = 'projectOutputGateDiagnostics') => {
     const ast = ts.createSourceFile('gate.ts', source, ts.ScriptTarget.Latest, true);
     let fn;
     function visit(node) {
-      if (ts.isFunctionDeclaration(node) && node.name?.text === 'projectOutputGateDiagnostics') fn = node.getText(ast);
+      if (ts.isFunctionDeclaration(node) && node.name?.text === name) fn = node.getText(ast);
       ts.forEachChild(node, visit);
     }
     visit(ast); assert.ok(fn); return fn;
@@ -92,6 +92,17 @@ test("host and rendered panel accept ordinary declared results and model-only ta
     }
     const missing = call({}, {planContractOk: true});
     assert.equal(missing.ok, false); assert.ok(missing.missing.includes('计划输出'));
+    const adapterHint = missing.rows.find(row => row.label === '接入配置').fix;
+    assert.match(adapterHint, /AI/);
+    assert.doesNotMatch(adapterHint, /插件设置中配置/);
+    if (!ui) assert.match(adapterHint, /MCP/);
+    if (!ui) {
+      context.uniqueStrings = values => [...new Set(values)];
+      vm.runInContext(extract(source, 'projectOutputGateFixes'), context);
+      const fixes = Array.from(context.projectOutputGateFixes(['接入配置', '候选结果规则', '解析预览'], {}, {}));
+      assert.ok(fixes.every(text => /AI/.test(text)));
+      assert.doesNotMatch(fixes.join(' '), /插件设置中配置|保存接入规则/);
+    }
     const invalid = call({}, {planContractOk: false, outputSignals: ['paper.result_csv'], outputCandidates: ['metrics.csv']});
     assert.equal(invalid.ok, false); assert.ok(invalid.missing.includes('计划强契约'));
   }
