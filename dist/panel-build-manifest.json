@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.512",
-  "buildId": "7a851f1f21d2b46befd407fc318bfb027afa2530750f594f7d15e68f01aa93fc",
+  "buildId": "6cb2a992bb6c4d7e98db8554fd9784a0f28a4ecc67fba7fa0fea98a2f3ed6ad8",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -737,7 +737,7 @@
     },
     {
       "path": "dist/features/SetupGuideSource.js",
-      "sha256": "75889c8050e811915f342d899ecce20927b6cd0383a5bdc7754cc0effa189196"
+      "sha256": "d4bb1a7867cbbafb48f94eca57d2ad753d8674187ff6564d020d5ffdc9003ae7"
     },
     {
       "path": "dist/features/StaticEntrypointProbe.js",

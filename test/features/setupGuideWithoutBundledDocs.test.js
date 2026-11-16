@@ -250,6 +250,8 @@ test("AI integration entry is pinned in settings and its full multiline task rea
   assert.ok(payload.includes('/blob/master/docs/'));
   assert.ok(payload.includes('当前插件版本：'+version));
   assert.match(payload, /MultiModal/); assert.match(payload, /不凭记忆/); assert.match(payload, /confirm\/pathConfirmed/);
+  assert.match(payload, /按项目规则和授权选择适用的脚本、CLI、scheduler、SSH\/tmux、标准传输工具或插件/);
+  assert.match(payload, /使用插件 API 时先读取匹配工作区\/实例的 discovery 和 capabilities\/OpenAPI/);
   const copied = [];
   const vscode = { env: { clipboard: { writeText: async text => copied.push(text) } }, window: { showInformationMessage() {}, showWarningMessage: () => assert.fail("nonempty task") } };
   const target = new Function("vscode", `return { ${extractMethodText("copyTextFromUi", "message")} };`)(vscode);

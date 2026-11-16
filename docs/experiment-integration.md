@@ -40,7 +40,7 @@
 ### 0.3 必须保留的边界
 
 - 项目维护自己的模型、数据、训练和指标；插件维护连接、调度、任务身份、窗口、传输与最终产物核实。不要在项目里重写第二套 Scheduler/SFTP/UI。
-- 所有正式实验运行与服务器文件操作走当前 SimpleExperiment / SimpleSFTP API。每次调用先读匹配工作区/实例的 discovery 与 capabilities/OpenAPI，使用实际工作流和参数；统一 CLI 是 `simpleex`，不猜固定端口或旧方法名。
+- 正式实验运行与服务器文件操作按项目规则、授权和实际工作流选择适用的脚本、CLI、scheduler、SSH/tmux、标准传输工具或插件。使用 SimpleExperiment / SimpleSFTP API 时，先读匹配工作区/实例的 discovery 与 capabilities/OpenAPI；统一 CLI 是 `simpleex`，不猜固定端口或旧方法名。
 - 有 PLAN 和配置后先校验、预演，再按明确授权调试或运行。完整校验可能包含代码同步及目录准备，是有写入的流程；“只读接入审查”不能偷偷启动它。
 - 真实训练、传输、覆盖及删除按当前授权执行。不能因本文给出模板就自动设置 confirm/pathConfirmed；危险操作保留精确目标与所需确认。
 - 不修改正在运行任务的输出、原生 manifest、旧结果或身份；不因断线自动重跑。命令失败、部分结果和未验证状态必须如实交付。
@@ -143,7 +143,7 @@ expectedResults:
 case,seed,dataset,method,metric,value
 ~~~
 
-数据行必须写本次实际计算值。不同 seed 与 case 的 CSV 互不共享，禁止所有任务并发追加同一个最终大表。数据集、方法等列按项目需要提供；字段名称不同可在“项目输出接入”中配置 CSV 列映射及指标别名。已有宽表（例如 accuracy、loss 列）也可走相应项目解析规则，不必为了插件改变科研指标定义。
+数据行必须写本次实际计算值。不同 seed 与 case 的 CSV 互不共享，禁止所有任务并发追加同一个最终大表。数据集、方法等列按项目需要提供；字段名称不同时，由 AI 根据真实任务通过 MCP 配置并回读 CSV 列映射及指标别名。已有宽表（例如 accuracy、loss 列）也可走相应项目解析规则，不必为了插件改变科研指标定义。
 
 ## 5. 路径 C：添加一个轻量 Python 入口
 
