@@ -6017,7 +6017,9 @@ return this.configureWorkerTunnels();
                     index,
                 })),
             ], { title: "配置 Worker 隧道", placeHolder: "默认密码登录；只有选择密钥登录才会使用私钥。", ignoreFocusOut: true });
-            if (!picked || picked.action === "done")
+            if (!picked)
+                return;
+            if (picked.action === "done")
                 break;
             if (picked.action === "add") {
                 const worker = await promptWorkerTunnel(undefined, workers.length, this.setupConfig);
