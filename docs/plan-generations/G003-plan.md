@@ -78,6 +78,8 @@ AI 从当前项目/任务/PLAN、实际训练/测试入口、已声明输出及�
 
 接入配置包含结果区及设置区的 CSV 列映射和 derivedMetric。它们的手填/保存表单及“转到结果区编辑”等引导同样改为 AI/MCP 管理，允许导航到只读来源/映射/派生配置摘要，不留下另一处必经手动编辑入口。MCP 须能读取并按任务更新这些配置，不仅保留旧值；已有 host/API、持久化数据、解析/派生消费者和项目隔离继续保留。结果浏览、来源切换、筛选、拆表及导出属于正常结果操作，保持原功能，不能连同配置表单一起删除。
 
+PLAN 与数据集归类 planDatasetMapping 是改变已有汇总归属的独立结果维护，本次保留自动匹配、历史显示及可选修正入口，不作为指标/输出接入的前置。原“只处理未识别 PLAN、禁止覆盖可信/跨数据集归属、整理现有汇总并保留来源”的语义边界保持。MCP 普通接入配置写入仅保留/读取该字段；如请求会改变其有效映射，须在任何写入前明确拒绝并提示使用原结果归类流程，不能直接对象合并、静默忽略或以配置权限绕过结果操作授权。本次不新增自动重归类业务或移除该独立 UI。
+
 退役残留限定 G001 已明确退役功能的专属设置 schema/default、面板/设置 UI、导航/动作/菜单、提示和仍让用户填写退役参数的链路，按真实 producer/consumer 追到当前源和生成界面；保留基础 CSV/Markdown/JSON 解析、普通指标聚合/比较/导出、TensorBoard、PLAN/调度/精确停止/路径安全。历史结果字段或共享函数不能仅凭含 paper/leaderboard 等名字删除。只移除实现片段和配置定义，不删除用户 settings.json、历史布局/科研数据/日志/安装目录或完整源码文件；如发现确需完整文件删除，另按精确目标及既有删除安全规则处理，当前不授权整文件清理。
 
 本轮只读已核：src/ui/PanelHtml.legacy.ts:13918 附近仍渲染手填编辑器，package.json 的 projectAdapterRules 描述仍要求面板交互；MCP 已有 configuration_get/set，host apiConfigSet 当前只 config.update/postState，需核其与既有 saveProjectAdapterRulesFromUi/Agent 同步、metadata/结果解析的真实闭包，不能以通用写设置成功代替完整接入。PPT 两项 simpleExperiment.ppt.chartType/styleMode 在当前源码 package.json 已不存在，但本机安装 C:/Users/ZLK/.vscode/extensions/simple-local.simple-experiment-0.5.512/package.json 仍声明，说明安装字节与当前源存在差异；这部分先如实记录，不为凑修改重新删除已经不存在的源码。新版源码开发宿主验证必须绑定本轮生成物，不能拿旧安装版 UI 判断新源未删净。
