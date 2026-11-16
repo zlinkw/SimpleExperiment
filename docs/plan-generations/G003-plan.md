@@ -14,11 +14,11 @@
 
 启动模型/强度必须按全局 references/handoffs.md“正确启动代码模板”显式传 model 与 thinking：实现 gpt-6.1-terra/high，最终验收 gpt-6.1-sol/high，Standard。正常成功只创建一次，不额外校准。仅 create_thread 明确返回 could not validate reasoning effort 组合校验错误时，才可创建显式正确 model 的只读待命会话，并立即对同一 thread 调用 send_message_to_thread，显式设置同一 model/thinking；这不是省 thinking 即成功，禁止删除 model 回退默认或连续另开替代角色。其他错误保留原因停止。新会话第一步以自己真实 ID 运行 context_status.py --expected-model <本角色模型> --expected-effort high，只有 role_settings_status=match、next_action=continue、thread_settings 与实际 turn_context 均证明期望模型/强度且 service_tier=default，才有资格接管，仍须旧角色停写并明确交租约。await_role_settings 等实际 turn 记录，fix_role_settings 原位修同一 thread，均不得写入/UI/测试。已有正确会话不重建，标题/提示词/请求字段不能冒充实际核实；未使用的错误 Sol 接替会话仅保留归档，不成为执行者。
 
-本次只修角色结构和验收分工，不增加代次或产品目标；G001/G002 与已有效 291 项组合、R10 子集和 R13 十位置结论保留，不因流程文档重跑。纯执行事实由 Terra 单写，不覆盖历史失败、未知或未测。共同入口见 docs/feature-retirement/coordinator.md、reviewer.md、worker-common.md。
+G003 继续保留 G001/G002 已交付事实、有效 291 项组合及 R10 子集/R13 十位置限定证据。2026-11-16 用户对当前被验入口追加的 MCP 接入配置和退役设置残留修订，按下文 R14D1/D2 在本代同一 Terra 连续实施；不是重开旧代或另建执行会话。只有真实受影响输入/对象的证据失效才定向补验，纯流程文档不重跑产品。纯执行事实由 Terra 单写，保留历史失败、未知及未测。共同入口见 docs/feature-retirement/coordinator.md、reviewer.md、worker-common.md。
 
 ### 连续执行、最终验收与允许暂停
 
-G003 的授权终点是整份计划实现和 S01–S07 小验收通过，由 Terra 通过真实会话工具把完整包交唯一 Sol 进行 B01–B03 最终大验收；失败直接详细回 Terra，Terra 返修并定向自验后再次真实交付，直至 Sol 对明确最终基线给出通过，再由 Terra 完成既有授权交付、总控最终结案。没有 Sol 最终通过不得将计划标完成、结束或整体归档；当前授权正常部分的限定通过也不等于全部入口目标结束。真实未测、本人/外部条件和阻塞不得改成通过，用户未调整目标前继续保留。
+G003 的授权终点是整份计划实现和 S01–S09 小验收通过，由 Terra 通过真实会话工具把完整包交唯一 Sol 进行 B01–B03 最终大验收；失败直接详细回 Terra，Terra 返修并定向自验后再次真实交付，直至 Sol 对明确最终基线给出通过，再由 Terra 完成既有授权交付、总控最终结案。没有 Sol 最终通过不得将计划标完成、结束或整体归档；当前授权正常部分的限定通过也不等于全部入口目标结束。真实未测、本人/外部条件和阻塞不得改成通过，用户未调整目标前继续保留。
 
 当前负责阶段的 Terra 在仍有授权内可执行项时必须完成当前动作后继续下一项，不能把范围缩为几个按钮、一次导航/记录/提交或一个 UI 子流程。不得以“G003 尚未完成”“剩余时间无法估算”“下一步继续”的 final 结束并等用户再说继续。CUA completion_summary 仅结束当次电脑操作子流程；JSON/diff/文档或 Git 检查通过不替代业务完成。结束轮次前核整份实现、小验收、实际交 Sol 和最终结论；小验收已齐须实际交付并以 <=60 秒 wait_threads/cursor 有界等结果，不能只记“待验收”。
 
@@ -68,6 +68,20 @@ Sol 最终失败必须通过真实会话工具把复现、期望/实际、错误
 
 只有 Terra 按下表 S04 阶段自验完整证明隔离后，才能恢复R12既定的最小软件控制同步/预检/预演/派发/精确停止及只读UI验收。新profile的所有启用目标必须仅本次专用目标，scope仅登记的无敏感软件代码/PLAN与新输出；不自动加入旧消费项目/原始指标。新Agent和forward准备失败或归属未知时停止受影响步骤，不反复试写或默默改现有配置；只可经原归属校验停止本批确证新建的专用窗口/本机受管forward，绝不关闭整个tmux session/server、发PID信号或触及MM/旧科研窗口。保留新目录/文件/日志/实际失败、不自动删除；工作完成后的专用环境状态由 Terra 明确登记。仅新profile启动/配置可能影响操作窗口时不动原未保存文档；任何需要扩大本节目标/权限或修改产品来绕隔离的选择再次报总控，其他本机补验继续。
 
+### 用户追加：MCP 管理接入配置与退役设置残留
+
+用户明确要求“任务指标与输出接入配置完全交给 MCP，让 AI 根据任务配置，不要求用户手动配置”，并要求将已删除的 PPT 等功能在设置里残留的参数、界面一起删除。这是对 G003 当前设置/接入入口的明确修订，新增 R14D1/D2，原 R14 仅限真实缺陷的约束对这两个命名步骤作精确例外；其余产品范围、现有基础能力、专项权限和保护不变。原实点补验继续，当前原子动作明确后进入本追加范围；不重跑即将替换的手填表单、不另建代次或执行者。
+
+AI 从当前项目/任务/PLAN、实际训练/测试入口、已声明输出及允许读取的结果格式获取任务类型、主/辅助指标、输出路径/格式、别名/日志解析依据，通过 MCP 读取、写入并回读当前项目的接入配置。优先补齐现有 project_state、configuration_get/configuration_set 和共享配置/解析链，只有具体缺口确需时才新增最小接口，不新增插件内模型调用、后台 AI 调度或通用自动配置框架。项目/任务实际语义不足时只询问缺失的任务事实，不让用户手填配置表、正则或 JSON；不以分类/分割默认模板覆盖任务含义，不臆造指标或将 AP/AUPRC、macro_f1/weighted_f1 混同。
+
+原“任务指标与输出接入配置”手填输入、选择器和保存按钮不再作为用户操作流程；该区域展示已配置/待 AI 配置、当前任务/输出与解析摘要、来源及真实同步状态。去掉引导用户到插件设置填写规则、手编 YAML/映射/正则的提示和必经门禁，必要语义校验仍在负责边界；无配置/格式不明不能冒充可运行。保留供 MCP 使用的必要配置存储、项目绑定、现有结果列映射/归类值和兼容读取，不能整块清空已有对象。写入失败/回读不一致/Agent 未同步须准确可见，本机保存不能冒“Agent 已同步”；在线同步沿原权限及配置目标，离线本机写入明确待同步，不为配置更新旧 MM Worker 或借其端点。新 MCP 结果不能把请求接收写成真正完成，不绕现有项目授权或真实 API 确认。
+
+退役残留限定 G001 已明确退役功能的专属设置 schema/default、面板/设置 UI、导航/动作/菜单、提示和仍让用户填写退役参数的链路，按真实 producer/consumer 追到当前源和生成界面；保留基础 CSV/Markdown/JSON 解析、普通指标聚合/比较/导出、TensorBoard、PLAN/调度/精确停止/路径安全。历史结果字段或共享函数不能仅凭含 paper/leaderboard 等名字删除。只移除实现片段和配置定义，不删除用户 settings.json、历史布局/科研数据/日志/安装目录或完整源码文件；如发现确需完整文件删除，另按精确目标及既有删除安全规则处理，当前不授权整文件清理。
+
+本轮只读已核：src/ui/PanelHtml.legacy.ts:13918 附近仍渲染手填编辑器，package.json 的 projectAdapterRules 描述仍要求面板交互；MCP 已有 configuration_get/set，host apiConfigSet 当前只 config.update/postState，需核其与既有 saveProjectAdapterRulesFromUi/Agent 同步、metadata/结果解析的真实闭包，不能以通用写设置成功代替完整接入。PPT 两项 simpleExperiment.ppt.chartType/styleMode 在当前源码 package.json 已不存在，但本机安装 C:/Users/ZLK/.vscode/extensions/simple-local.simple-experiment-0.5.512/package.json 仍声明，说明安装字节与当前源存在差异；这部分先如实记录，不为凑修改重新删除已经不存在的源码。新版源码开发宿主验证必须绑定本轮生成物，不能拿旧安装版 UI 判断新源未删净。
+
+本次授权实现/必要 build 和源码宿主验证，不撤销“暂不升级 MCP/插件/原 Worker、不打包安装发行”的限制，不改运行版本来制造安装、不直接改安装目录；当前安装中的旧设置在未授权更新前仍可能可见，最终明确这一真实状态。保持新 profile/远端隔离限制和全部原现场，产品改动使哪些证据失效就定向补哪些。
+
 ### 批次、写入边界与依赖
 
 | 批次 | 工作与写入边界 | 前置与通过条件 |
@@ -81,9 +95,11 @@ Sol 最终失败必须通过真实会话工具把复现、期望/实际、错误
 | R14A 面板/对象传递缺陷返修 | 仅src/ui/PanelHtml.legacy.ts、src/ui/PanelHtml.ts、src/extension/legacy.ts、test/features/panelMessageDispatch.test.js、test/features/resultSectionRefreshDependencies.test.js、test/ui/resultActionWorkflow.test.js、test/ui/resultMappingEditor.test.js | 只修本补验真实发现问题，最多7文件；共享monolith独占，不加新功能/兼容框架，不改科研语义，必要目标回归和原入口复点 |
 | R14B 命令注册缺陷返修 | 仅src/extension/ProviderCommands.ts、src/factories/CommandFactory.ts、test/factories_integration.test.js、test/features/windowsWorkflowContract.test.js | 真实正常命令缺绑定/对象传递问题才启用，保留旧入口与原断言/时限；不恢复获准退役行数门禁 |
 | R14C 基础结果消费者缺陷返修 | 仅src/ui/sections/ResultsSection.ts、src/extension/ResultCollectionHost.ts、src/cli/commands/result.ts、test/cli/simpleCli.test.js、test/features/archivedOnlyResultCsvViews.test.js、test/ui/currentPlanWorkflowResultCache.test.js | 真实保存/列映射/拆表/导出或当前消费者缺陷才启用；保留AP/macro_f1/weighted_f1、真实维度/来源/身份，不改旧结果，不以修测试代修产品 |
+| R14D1 MCP 接入配置闭环 | 仅 src/extension/legacy.ts、src/mcp/ToolCatalog.ts、src/mcp/ToolResults.ts、package.json、test/features/mcpProject.test.js、test/features/projectWorkspaceChangeIsolation.test.js、docs/simple-experiment-setup.md；实际无需修改的文件不制造差量 | 用户上述追加授权；同一 Terra 当前原子动作明确后，复用现有 MCP/共享配置边界，补齐读配置→据任务写入→回读/必要解析刷新与真实同步状态；不写旧 Worker/消费项目、不加框架 |
+| R14D2 接入展示与退役设置收口 | 仅 src/ui/PanelHtml.legacy.ts、src/ui/PanelHtml.ts、src/ui/sections/SettingsSection.ts、package.json、test/features/adapterTaskTypeLabelClarity.test.js、test/features/settingsSecondaryView.test.js、test/features/windowsWorkflowContract.test.js、docs/simple-experiment-setup.md；最多8文件，和 D1 顺序执行 | D1 共享契约确定后移除手填表单/保存必经流程，保留 MCP 状态/只读摘要；核实并移除 G001 退役项专属残留，更新受影响原测试至新行为，保留基础断言；原 build/生成 HTML script VM及专用源码宿主复点，不拿旧安装界面当新源 |
 | R15 生成、复核与最终交接 | dist/由原生成器独占，manual/coverage两文件、必要根使用说明README.md；Terra 独占执行登记和Git，总控独占索引 | 继承有效原回归，产品改动按真实闭包恢复必要覆盖；源码HTML/script VM及相关入口复点，Sol 仅最终按 B01–B03 审核整体分母、跨模块证据和交付一致性，不重复阶段实点，不打包安装发行 |
 
-每批最多 2–3 个强相关问题、最多 8 个源码/测试/文档文件；R14A/B/C 仍由唯一 Terra 在原文件边界分批完成，不新建执行会话。边界外源码、共享协议变化、完整文件删除或新权限才合并交总控修订。R09–R13 共用 manual/coverage 和 UI，Terra 单写单操作；测试/生成及最终大验收期间冻结受检 docs/src/test/scripts/dist，计划写入者也遵守。R01–R08 保持归档。
+每批最多 2–3 个强相关问题、最多 8 个源码/测试/文档文件；R14A/B/C/D1/D2 仍由唯一 Terra 在原文件边界分批完成，不新建执行会话。边界外源码、共享协议变化、完整文件删除或新权限才合并交总控修订。R09–R13 共用 manual/coverage 和 UI，Terra 单写单操作；测试/生成及最终大验收期间冻结受检 docs/src/test/scripts/dist，计划写入者也遵守。R01–R08 保持归档。
 
 ### 验收唯一分工与证据契约
 
@@ -98,7 +114,9 @@ Sol 最终失败必须通过真实会话工具把复现、期望/实际、错误
 | S05 / R12 | 隔离实例各同步范围、上传/下载、校验/预演、提交/队列/派发/精确停止入口单独证实对象、最终状态、产物/日志/真实退出码；不把接收回执当完成 | Terra | S04 自验通过，全部启用目标仅专用目标；新最小软件控制任务合法 | manual/coverage R12、PLAN/commandId/window/manifest 的原证据与 execution 引用 |
 | S06 / R13 | 常用/高级命令、设置、诊断、草稿、维护及重复位置各自最终效果；无 producer/selector/本人/外部/暂缓准确分类；已有十位置不重验 | Terra | S01 可执行清单；沿用通知已消失事实，不重跑造通知 | manual/coverage R13、旧 Sol 十位置限定结论及新增原工具证据 |
 | S07 / R14、R15 开发检查 | 仅真实缺陷最小修复及受影响消费者回归/原入口复点；产品变更才必要 build/node-c/生成 HTML 每个 script VM；仅文档复用 291 组合，保留首次失败 | Terra | 真实缺陷和原文件边界；全局单 node/python 检查租约 | 原 runner 完整日志/退出码、输入及产物身份，manual/coverage、execution 返修引用 |
-| B01 / R15 最终覆盖审核 | 审实际 diff、必要调用链及 S01–S07 原证据：每个当前实例恰有真实类别，正常授权项无遗漏，历史/观察/preview/selector不混算；确定“授权正常部分”与“全部”结论边界 | Sol | Terra 整份交付包、最终基线和冻结租约；不重新逐按钮或重跑小验收 | Sol 原结论/具体缺口，Terra 引用到 execution；复用 manual/coverage 和原日志 |
+| S08 / R14D1 | AI 不通过手填表单完成当前任务配置的 MCP 读取/写入/回读及现有解析消费者验证；项目隔离、已有映射保留、未知任务事实不猜、失败与离线/Agent同步状态真实；此项明确是 MCP 能力测试，不冒鼠标实点 | Terra | D1 当前源与许可项目；软件合成任务/结果，零科研训练/旧远端写入；全局单检查租约 | 原 MCP/host 正确性测试及明确实例工具回执、配置回读/解析证据，manual/coverage/execution 既有结构 |
+| S09 / R14D2 | 本轮真实生成面板不再要求手填任务/指标/输出规则，MCP配置后展示正确来源/状态；当前源码设置与运行生成物不暴露已退役专属参数/界面。旧布局数据不复活已退役项；源已删除与旧安装残留分清，不删用户历史数据 | Terra | D1/D2开发检查与生成HTML各script VM，重新核专用开发宿主来源；未改输入证据复用 | 必要原测试、build/VM日志与专用源码宿主实点、package配置定义核对；安装版未升级事实保持 |
+| B01 / R15 最终覆盖审核 | 审实际 diff、必要调用链及 S01–S09 原证据：每个当前实例恰有真实类别，正常授权项无遗漏，历史/观察/preview/selector不混算；确定“授权正常部分”与“全部”结论边界 | Sol | Terra 整份交付包、最终基线和冻结租约；不重新逐按钮或重跑小验收 | Sol 原结论/具体缺口，Terra 引用到 execution；复用 manual/coverage 和原日志 |
 | B02 / R15 项目跨模块审核 | 将已有 UI→host→Worker/PLAN→窗口/产物→结果消费者证据按同一项目/Worker/commandId/输出身份对账，证明跨模块接续无串项目或错对象；隔离前置与保护证据完整。仅补尚未覆盖的跨模块关联断言，不再执行 S02/S04/S05 的单入口场景 | Sol | B01 证据可用；若隔离阻塞，相关结论仍 blocked；实际操作前 Terra 明确移交 UI/检查/冻结租约 | Sol 对账原结论、原证据边和具体补查记录，execution 引用；无新正常对象不伪造闭环 |
 | B03 / R15 最终交付一致性 | 审最终源码/生成物/界面证据适用同一候选，scoped Git 不含脏业务/秘密/运行输出，提交推送与源身份真实；无安装/发布/远端更新冒报 | Sol | B01/B02 结论和 Terra 交付状态；Git 后仅核新增提交关系，不重跑产品 | Sol 最终结论、实际 Git 回执及 execution；既有有效大验收直接复用 |
 
