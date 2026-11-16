@@ -1,5 +1,30 @@
 # Windows 日常点击验收
 
+## 2026-11-16：R09 只读核对（未完成全入口清单）
+
+窗口清单唯一匹配 `[扩展开发宿主] final.csv - remaining-source-check-512 (工作区) - Visual Studio Code`；只读取其可访问状态，没有点击或执行产品命令。当前项目为 `D:\GitRepo\SimpleMcpAcceptance`，当前 PLAN 为 `experiments/plans/daily_stop_510.yaml`，宿主显示 0.5.512。界面显示本机队列运行 0、排队 2、已确证完成 3，这不是本轮远端任务查询。设置显示启用 1 个 Worker；`rjj8` 卡显示 `localhost:18770`、Telemetry 18765、`异常：conflict`，配置账号 root、服务器地址 127.0.0.1、项目父目录 `/root/autodl-tmp/zlk`，当前项目路径 `/root/autodl-tmp/zlk/SimpleMcpAcceptance`，配置的 Agent 窗口 `zlk-worker-rjj8-agent:agent-ad5c4760c37348da`。这些是界面配置和状态，不证明当前服务归属、远端权限、窗口实际存在或 Agent 版本。其他四台卡片显示禁用。没有直接 SSH、端点切换、准备或部署。
+
+校验和预演暂不能安全实点。需调度确认现成且经授权的隔离项目及全部启用 Worker 的实际服务器/账号、项目根、动态隧道两端、同步范围及写权限，主动核实同版 Agent 的项目归属和精确窗口、任务窗口及共享端点冲突；还须确认同步影响与恢复责任。当前没有上述完整证据，不能使用旧 SimpleMcpAcceptance 路径覆盖，也不能依赖历史 MM Agent 状态。若需创建隔离路径、调整端点或准备 Agent，须先确定精确动作、范围、对 MM 和任务的影响及恢复方式并取得专项授权；本批不执行。独立本机检查不依赖远端条件。
+
+| 入口位置与对象 | producer / handler 和实际效果 | 后续条件 |
+| --- | --- | --- |
+| 设置页“实验结果 CSV 目录 / 保存”，`PanelHtml.legacy.ts:10162`，当前可访问文本显示 `experiments/results` | `saveResultCsvDirFromUi`（`legacy.ts:21080`）校验工作区内相对路径，只更新首个 WorkspaceFolder 的 `simpleExperiment.resultCsvDir`，刷新本地 catalog 状态；不是写远端 | 后批在系统 Temp 全新唯一 `simpleex-normal-ui-*` 工作区保存并回读配置；不改旧项目设置 |
+| 结果区“生成所选子表”，`PanelHtml.legacy.ts:16964`；来源选择器对应本机 catalog 的 tableKey、字段、勾选值及保留列 | `splitProjectResultTableFromUi`（`legacy.ts:24035`）读取本机源 CSV，生成同目录 `by_<field>/<value>.csv`；已有同名目标需确认覆盖，源表不变 | 后批仅在全新唯一 Temp 项目放置标明合成的最小 catalog 可识别 CSV，至少一列、两个值及可核对数据；先核清目录结构与 catalog 实际识别条件，再验输出、源表和同名确认；不覆盖旧数据 |
+| 计划区“校验”，`PanelHtml.legacy.ts:1452`；对象为选中 PLAN 和全部启用 Worker | `runActionCommandCore`（`legacy.ts:7781`）刷新 PLAN、核拓扑和 Agent，再经 `ensureWorkerCodeReadyForPlanCheck`（11872）调用 `prepareSftpTargets` 及 `syncCodeTargets`；可能远端写入 | 需上述隔离与权限条件，单独记录实际入口、PLAN、各 Worker 同步和最终结果；不因旧实点或更换 PLAN 算通过 |
+| 计划区“预演”，`PanelHtml.legacy.ts:1453`；对象同上 | 同一 preflight 同步链；不提交任务不等于无写入 | 与校验分开执行、分开记录 |
+
+计划自定义动作 `PanelHtml.legacy.ts:8981` 还可产生“单独校验/单独预演”，概览就绪动作 `:9229` 可按状态生成相应操作；这些是条件性 producer，须先在真实渲染中确认各实例，不能用上述两个静态位置代替。结果表每个总表、方法表和产物行的 CSV/Markdown/拆表入口由 `:16913`、`:16929` 按对象生成；每个实际位置分别绑定 tableKey 或 artifactKey，不以同命令覆盖。当前自定义分组显示均为 0。现有 167 是源码命中，39 静态标记、121 动态模板、7 selector；42 命令和 137 工具为独立源码清单，均不是实际渲染实例分母。历史 179、31/32 不作为当前分母。当前只读观察无法确定全入口真实实例总数，不能宣称逐入口映射完成；历史 clicked、preview、selector 和无 producer 项均不得转成当前 clicked。
+
+本批未运行测试、build、产品写命令、部署、训练、清理或 Git 操作。还需逐区观察和逐项建立真实位置、producer、对象及副作用映射，并核对远端现有授权与状态；本节不替代既有历史证据。
+
+### G003 接续：本轮实时只读接口与 R10 本机夹具建议
+
+通过实时 discovery 和 capabilities 绑定开发宿主 PID 41716，`status` 返回工作区 `D:\GitRepo\SimpleMcpAcceptance`、0.5.512、明确启用 Worker 仅 `rjj8`。`state.list` 显示 SSH 配置 `root@127.0.0.1:15791`，转发 `localhost:18770 → localhost:18765`，项目父目录 `/root/autodl-tmp/zlk`；`config.list` 给出本项目代码同步候选 `config.yaml`、`experiments`、`train.py`、`acceptance_files/remaining_submission_scope_512.py`，跨服务器同步配置 `["."]`。这不是文件清单、写权限证明或新夹具同步授权。SimpleSFTP 当前活动 profile `rjj8` 指向旧项目 `/root/autodl-tmp/zlk/SimpleMcpAcceptance`，不能覆盖。
+
+本轮 `agents.lifecycle` 请求 `{action:"inspect",serverIds:["rjj8"]}` 返回 `AGENT_TMUX_WINDOW_MISSING: zlk-worker-rjj8-agent`。`tasks.list` 的实际查询返回 `AGENT_PROJECT_MISMATCH`：端点 Agent 属于 `/root/autodl-tmp/zlk/MultiModal`，旧项目请求未发送；因此旧项目的任务窗口本轮未知，不能把历史队列或空任务列表当作远端状态。另在已连接 MM 实例只读 `agent_inspect(rjj8)`，返回项目 MultiModal、Agent 0.5.512、`zlk-worker-rjj8-agent` 窗口 `@54`、Scheduler `absent`；不可据此推断旧项目 Scheduler 或训练窗口。远端权限和新隔离路径仍未核实，也没有针对新项目的同版 Agent/独立端点及同步授权。需要调度先明确新项目实际服务器、账号、远端目录与端点、目录写入/同步范围、专用服务窗口和恢复责任，并在不改变 MM 的前提下核查；任何建立目录、修改共享配置或准备 Agent 均须另行明确授权。
+
+R10 本机可独立安排：在系统 Temp 下新建唯一 `simpleex-normal-ui-<唯一值>` 工作区，先核对路径不存在。结果目录设置保存使用该工作区自己的 `.vscode/settings.json`，回读 `simpleExperiment.resultCsvDir`。拆表不能只放 CSV：`src/results/LatestResultExport.ts:141,241` 显示 catalog 只读取所选结果目录的 `latest-results.json`，不扫描目录。最小合成样本建议同时放置 `experiments/results/latest-results.json` 和 `experiments/results/synthetic/final.csv`；JSON 需 `schemaVersion:1`、`source:"active_query"`、`jobs:[]`、`tables` 数组，每个表具备 `dataset`、`datasetKey`、`name`、`kind:"final"`、`tableKey`、`relativePath:"synthetic/final.csv"`、`markdownPath:"synthetic/final.md"`、`header`、`rows`、`markdown`；CSV 与 JSON 的表头和两条不同值行一致。用项目外说明或 fixture 内容明确标记为合成数据，`source` 仅为格式契约，不代表真实 Worker 查询。目录保存与拆表分别记录页面位置、输入对象、执行后配置和每个输出；同名覆盖验证只针对这个新夹具的精确文件。此处只是建议，尚未创建或实测夹具；具体 catalog 渲染和项目识别仍需 R10 首次验证。
+
 ## 2026-11-16：功能精简源码界面检查
 
 独立扩展开发宿主重载后加载当前源码。结果导航进入结果区，打开已有 `software_acceptance_only/final/final.csv` 并看到一行结果；“设置结果列映射”展开映射面板，但当前源未提供列名预览，未保存映射。拆表入口可打开，来源表从总表切换到 `software_acceptance_only/daily_stop_510`；未生成子表。结果自定义动作添加菜单仅显示“更新全部 PLAN 结果”，预览后取消。设置页可打开，未修改安全设置。
@@ -710,3 +735,21 @@ MultiModal 的独立验收 PLAN 为 experiments/plans/acceptance/windows_mcp_202
 0.5.490 通知按钮已实点验收：两个项目的“已确认，此后不再通知”确认值均已持久保存，切回已确认项目未重复弹出。通用项目结果已生成但因缺少数据集名称被界面隐藏；本轮展示现有未标注数据集表格，保留元数据提醒，不改写结果或虚构数据集，渲染回归通过，新版本实机待重载。
 
 所有有副作用的操作使用专用目标。MultiModal 项目的现行规则禁止 AI 永久删除项目文件；清理验收应在独立通用项目的专用目录由本人完成审核。
+
+## G003-R10 本机合成结果补验（进行中）
+
+- 当前源码开发宿主在隔离项目 `C:/Users/ZLK/AppData/Local/Temp/simpleex-normal-ui-g003-20261116-a7c39e2f`；VS Code window9 renderer.log 于 17:42:18.757 记录从 `D:/GitRepo/MCP/zlk-cluster-orchestrator` 加载开发扩展。用户手动信任后重载该隔离宿主，面板与运行扩展列表显示扩展已激活；未操作原 MultiModal/通用窗口。
+- 初始 CSV 为合成数据：dataset `synthetic`、method `synthetic_a`/`synthetic_b`、seed 42，AP/macro_f1/weighted_f1 分别为 0.11/0.22/0.33 和 0.44/0.55/0.66；`latest-results.json` 的 `synthetic_fixture` 明确表示合成，`source=active_query` 仅为文件格式字段，不代表真实 Worker 查询。
+- `PanelHtml.legacy.ts:16913` 的 synthetic 数据集总表显示 2 行；行内 CSV 打开隔离项目 `experiments/results/synthetic/final.csv`，编辑器显示上述两行。行内 Markdown 打开 `synthetic/final.md`，内容同表；程序加载时生成此文件，未手动点击重建。CSV 127 字节，Markdown 204 字节。行内空白处右键只显示系统剪切/复制/粘贴菜单，未观察到结果专用动作。
+- 同一行“拆表”选择来源 `synthetic / final`，按 `method`、保留全部 6 列，两项均选中；预查目标不存在后点击生成，提示 2 张。`synthetic/by_method/synthetic_a.csv` 与 `synthetic_b.csv` 各 86 字节，各一行，分别回读对应六列与数值；原 `final.csv` 内容未变。未重复生成或覆盖。
+- `PanelHtml.legacy.ts:10162` 结果目录浏览选择当前项目 `experiments/results`，选择后提示已保存；独立“保存”按钮亦提示保存成功，`.vscode/settings.json` 回读 `simpleExperiment.resultCsvDir=experiments/results`。两个位置均为项目 WorkspaceFolder 设置，未操作服务器设置。
+- 右侧“结果文件”组添加保留动作 `syncPendingPlanArtifacts`，未执行该按钮；项目 `simple_cluster/ui/ui_layout.json` 回读该项，重载后仍显示“结果文件（1）”及“更新全部 PLAN 结果”。另在本合成布局保留该项并追加 `plotResultsToPpt` / `synthetic_retired_ppt`，写后和重载后文件均含两项，面板仅显示保留动作一项；这是加载时过滤，不表示删除了原配置。
+- 合成 `offline-fixture.json` 从当前源码 `parseDownloadedMetricCsv` 提取并转译函数、使用真实 `dist/results/ProjectResultTables.js` 解析上述 CSV 生成 preview 和两条记录；`case=synthetic_fixture` 是合成默认值，不是任务或 Worker 证据。文件 2485 字节。经批准仅临时启用 application 级 `showAdvancedCommands`：设置 UI 标注“适用于所有配置文件”，初始未勾选，用户设置文件无该显式键；启用后通过命令面板“导入离线包”选择此文件，项目离线包状态回读来源和合成标记，面板预览显示原 CSV 的 6 列。选择 seed 源列保存后提示“列映射已保存；Agent 待同步：离线模式”，WorkspaceFolder 设置回读 `csvColumnMapping={"seed":"seed"}`；这是离线本机效果，不证明实时 Worker 链。随后用设置 UI 的“重置此设置”撤销本次覆盖，用户设置文件回读无该键，UI 未勾选；未调用其他高级动作。
+- 补验两处资源树导航：父节点实际显示“结果文件”（无障碍名称“结果分析”）与子节点“结果摘要”（无障碍名称“查看项目结果表及原始文件”）分别实点，均定位当前 synthetic 结果总表。synthetic 数据集折叠后再展开，显示 final 总表 2 行、selection 方法表 1 行；任务卡和批量任务入口因无真实任务对象未测。
+- 仅在本夹具新增 `experiments/results/synthetic/selection.csv`，一行六列为 `synthetic,synthetic_selector,43,0.77,0.88,0.99`；用项目真实 `writeCsv` 和 `resultTableMarkdown` 生成内容，向 `latest-results.json` 增加 `synthetic/selection` 表并保留 final 项。预查新 CSV/MD 不存在且 final CSV/MD 与重建期望字节一致，重载后两个 CSV 及原 final Markdown 回读匹配，selection.md 仍不存在；未点击重建或生成。
+- `PanelHtml.legacy.ts:16934` 数据集展开及 `:16960` 来源表下拉分别实点：final 的 method 词条为 synthetic_a/synthetic_b，取消与全选后搜索 synthetic_a 仅显示该项；切换到 selection 清空搜索并将字段重置为 dataset，选 method 显示 synthetic_selector；切回 final 同样重置字段。取消 final 的 AP 保留列后切到 selection，展开保留列见六列均重新勾选；未生成或覆盖子表。
+- selection 方法行补验：点击前原 final CSV/Markdown 和 selection CSV 均与 catalog 重建期望字节一致，selection.md 不存在；行内 CSV 实点打开精确 `synthetic/selection.csv`，编辑器显示 `synthetic,synthetic_selector,43,0.77,0.88,0.99`。打开 CSV 后 selection.md 被程序自动生成，回读与 catalog Markdown 一致，原三文件仍匹配；经调度确认该文件为本批已登记的新产物，复核四个 CSV/Markdown 均与 catalog 预期一致后，selection 行 Markdown 实点打开精确 `synthetic/selection.md`，编辑器显示相同一行六列；随后回读 final CSV/MD（127/204 字节）和 selection CSV/MD（93/157 字节）均与 catalog 字节一致。打开入口按源码可能触发正常再生，不能记为纯只读；未删除或覆盖不同内容。先将拆表来源切为 final，再点 selection 行“拆表”，界面来源变为 `synthetic / selection`；未生成子表。
+- 设置页“转到结果区编辑”（`:10171`）单独实点后打开结果区映射表单，来源为 `experiments/results/synthetic/final.csv`，重载后 seed 映射仍显示 `seed · 例：42`。该 handler 仅发送本机导航消息。
+- 当前结果界面有本机 CSV 拆表生成及现有 CSV/Markdown 打开入口；未发现结果 GUI JSON 导出生产入口，未将离线输入 JSON 或 CLI 当作 GUI 导出。数据集按 `synthetic` 显示为一组；人工 Plan 归类没有合成待归类 Plan，未执行。未出现的任务卡/批量任务导航、跨数据集共享产物、实时 Worker 列映射与其他未完成项均不记通过。本批无测试/build、训练、主动 Worker 请求、清理或 Git 提交；等待独立验收，不自签。
+
+R10独立验收限定结论：当前授权、现有合成对象可执行的本机子集通过，selection三入口缺口已关闭；18条为本批观察记录，不是全入口分母，也不是18项全部实点通过。上述generic右键、无GUI JSON producer、缺任务/跨数据集/Plan归类对象及实时Worker隔离条件继续分别保留，未执行同步按钮。整G003仍在继续。
