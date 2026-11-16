@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.512",
-  "buildId": "51181cdbcf4e43e128ce1a735b15d89816de63dd67d9f35a07af81983e21b4d9",
+  "buildId": "59760d20266f17bc45af412311b89c37b85e65b2bdbaf5865f4f9c4863655318",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -293,7 +293,7 @@
     },
     {
       "path": "dist/extension/PlanCleanupPanel.js",
-      "sha256": "4229336e1092397175ecd07449bd56c6a0ff3e2424b16b2ff16264157155d2cd"
+      "sha256": "1f6631834c125653963ae46d4f8ea6376771d3c600e6497321c0b42793c9b63a"
     },
     {
       "path": "dist/extension/PlanCleanupSftpGuard.js",
@@ -425,7 +425,7 @@
     },
     {
       "path": "dist/features/DistributedPlanQueue.js",
-      "sha256": "54d64d7de08444afa5b1154c71d7bc7804b25f08789b62bab7878cb351916586"
+      "sha256": "a404b0cb825e3c613c73199b64ed7966f5acb28051c27e99435bd4593dc3970d"
     },
     {
       "path": "dist/features/DistributedProjectContract.js",
@@ -529,7 +529,7 @@
     },
     {
       "path": "dist/features/ManifestCleanup.js",
-      "sha256": "8836498c73a2f5a0a6b5512014514f97900b6be7ee3a4a2448f3328a082b54ae"
+      "sha256": "2b2b2ffa309d4d24dfa885613bbbb7d6e21ac9f79640f2197f44f151bcedad4c"
     },
     {
       "path": "dist/features/ManualJobDispatch.js",

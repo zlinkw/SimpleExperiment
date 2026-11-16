@@ -23,6 +23,7 @@ async function fixture({retiredWithoutCsv=false}={}){
       if(method==='files.cleanup.inspect'){
         if(params.node.kind==='local'||!sources.has(params.target.relativePath))return {target:{missing:true}};
         const declaration=declarations.find(row=>row.output_dir===params.target.relativePath);
+        if(!declaration)return {target:{type:'file',size:1,fingerprint:'fp-'+params.target.relativePath}};
         return {target:{manifests:retiredWithoutCsv?[
           {relativePath:declaration.output_dir+'/artifact_manifest.json',sha256:'a'.repeat(64),binding:{outputDir:declaration.output_dir},planHints:[file]},
           {relativePath:declaration.output_dir+'/formal_job_owner.json',sha256:'b'.repeat(64),binding:{runId:'retired-command',outputDir:declaration.output_dir,
@@ -139,7 +140,7 @@ test('manifest discovery bounds concurrent reads, deduplicates outputs and ignor
       assert.ok(!calls.includes(key));calls.push(key);active.add(key);peak=Math.max(peak,active.size);
       await new Promise(resolve=>setImmediate(resolve));active.delete(key);return {target:{missing:true}};}};
   const result=await discoverManifestCandidates(host,'/p','experiments/plans/p.yaml',nodes,{plans:[{planFile:'experiments/plans/p.yaml',jobs:[{outputDir:'obsolete/output'}]}]});
-  assert.equal(calls.length,9);assert.ok(peak>1&&peak<=4);assert.ok(!calls.some(key=>key.includes('obsolete')));
+  assert.equal(calls.length,27);assert.ok(peak>1&&peak<=4);assert.ok(!calls.some(key=>key.includes('obsolete')));
   assert.equal(result.blockers.length,0);assert.equal(result.candidates.length,0);
 });
 test('PLAN and real manifests authorize exact multi-job replacement without retained job/receipt state',async()=>{
@@ -147,7 +148,8 @@ test('PLAN and real manifests authorize exact multi-job replacement without reta
   assert.equal(f.mutations,0);await assert.rejects(f.adapter.execute(p.token));
   await f.confirm(p);const result=await f.adapter.execute(p.token);assert.equal(result.state,'completed');assert.equal(f.mutations,4);
   assert.equal((await f.adapter.service.status(p.token)).state,'completed');await f.adapter.execute(p.token);assert.equal(f.mutations,4);
-  assert.ok(f.calls.filter(row=>row.method==='files.cleanup.inspect').every(row=>row.params.manifestOnly));
+  assert.ok(f.calls.filter(row=>row.method==='files.cleanup.inspect').every(row=>row.params.manifestOnly
+    || row.params.target.type==='file'&&f.declarations.some(job=>job.result_csv===row.params.target.relativePath)));
   const checked=f.calls.length;
   f.fail(true);assert.equal((await f.adapter.service.status(p.token)).state,'completed');f.fail(false);
   f.change();assert.equal((await f.adapter.service.status(p.token)).state,'completed');assert.equal(f.calls.length,checked);
@@ -198,6 +200,27 @@ test('unsafe nonempty result paths name the actual invalid field and remain bloc
   const p=await f.preview();
   assert.ok(p.blockers.some(row=>row.code==='UNSAFE_DECLARED_PATH'&&row.detail.includes('result_csv')&&row.detail.includes('../outside.csv')));
   await assert.rejects(f.confirm(p));assert.equal(f.mutations,0);
+});
+
+test('missing output directory does not hide its separately declared CSV from explicit path review',async()=>{
+  const f=await fixture();
+  f.sources.delete(f.declarations[0].output_dir);
+  const p=await f.preview('delete',false,true);
+  const csv=p.rows.find(row=>row.node.id==='worker'&&row.relativePath===f.declarations[0].result_csv);
+  assert.ok(csv,'the surviving external CSV must remain in the exact-path preview');
+  assert.equal(csv.type,'file');assert.equal(csv.disposition,'delete');
+  assert.equal(f.mutations,0);assert.equal(p.confirmations,0);
+  const unconfirmed=await f.preview('delete',false,false);
+  const protectedCsv=unconfirmed.rows.find(row=>row.node.id==='worker'&&row.relativePath===f.declarations[0].result_csv);
+  assert.equal(protectedCsv.disposition,'protected','missing ownership must not authorize ordinary cleanup');
+  const changed=await f.adapter.service.preview({planFile:p.scope.planFile,action:'delete',job:p.scope.job,
+    authorizationMode:'confirmed_paths',reuseToken:unconfirmed.token});
+  assert.ok(changed.rows.some(row=>row.node.id==='worker'&&row.relativePath===f.declarations[0].result_csv&&row.disposition==='delete'));
+  assert.equal(changed.confirmations,0);assert.equal(f.mutations,0);
+  f.sources.delete(f.declarations[0].result_csv);
+  const absent=await f.preview('delete',false,true);
+  assert.ok(!absent.rows.some(row=>row.node.id==='worker'&&row.relativePath===f.declarations[0].result_csv));
+  assert.equal(absent.blockers.length,0);assert.equal(f.mutations,0);
 });
 
 test('path-confirmed deletion in both pages is independent of missing ownership, old state and later PLAN changes',async()=>{

@@ -85,6 +85,13 @@ test('slow preflight responds immediately; blocked preview reports its reason an
   assert.match(f.element('status').textContent, /审核|读取/);
   assert.equal(f.element('preview').disabled, true);
   assert.equal(f.element('confirm').disabled, true);
+  const requestId=f.requests.at(-1).requestId;
+  f.deliver({type:'progress',requestId,message:'只读预检精确目标',total:2});
+  assert.match(f.element('progress').textContent,/共 2 项/);
+  assert.doesNotMatch(f.element('progress').textContent,/undefined/);
+  f.deliver({type:'progress',requestId,message:'节点预检已结束',total:2,completed:1});
+  assert.match(f.element('progress').textContent,/1\/2/);
+  assert.equal(f.element('execute').disabled,true);
   release(preview()); await flush();
   assert.equal(f.element('preview').disabled, false);
   assert.equal(f.element('confirm').disabled, false);

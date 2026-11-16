@@ -273,7 +273,8 @@ test('automatic isolation recheck uses current windows plus all physical paths, 
 });
 test('外置 CSV 核验未知（后端应答错误）：按缺项拒绝，不得把 error 当不存在',async()=>{
   const w=await world({externalCsv:true,onRemote:false,inspectErrorFor:'w1\0experiments/results/a0.csv'});await w.build();
-  await assert.rejects(()=>w.run(),error=>/CLEANUP_PROOF_INCOMPLETE/.test(String(error&&error.message))&&/核验=error/.test(String(error&&error.message)));
+  await assert.rejects(()=>w.run(),error=>/CLEANUP_INCOMPLETE/.test(String(error&&error.message))
+    &&/w1 NODE_UNREACHABLE/.test(String(error&&error.message))&&/未删除文件，未重新排队/.test(String(error&&error.message)));
   assert.equal(w.stats.deletes,0);assert.deepEqual(w.dialogs,[]);
   assert.equal(w.jobRow().commandId,'cmd-old');
 });

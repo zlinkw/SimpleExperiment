@@ -3025,8 +3025,8 @@
       "command": "recheckOutputIsolation",
       "source": "src/ui/PanelHtml.legacy.ts",
       "line": 15543,
-      "status": "not_tested",
-      "evidence": "要求 outputIsolationBlocked、pending、未绑定 Worker/commandId 的真实旧产物冲突。当前正常任务无此状态；覆盖/删除不能由 AI 制造并代确认。",
+      "status": "preview_passed",
+      "evidence": "独立 remaining32_declaration_512.yaml 的真实 job0 因外置结果符号链接暂停；实点重新核实/审核旧产物，真实预检再次明确拒绝 LINK_OR_REPARSE_POINT，未移动文件、未提交该 job，按钮恢复可点。job1 e72d7de2ae8ce9c4111410e07608cf10 exit0/result complete/log clear/verified 保留。只覆盖拒绝预览分支，未证明解除阻塞或重新派发。",
       "handlers": [
         {
           "function": "handleMessageCore",
@@ -5125,6 +5125,24 @@
         "status": "clicked_passed",
         "version": "0.5.512",
         "evidence": "真实源码执行区因旧 payload 多读一层而降级时实点“重新加载面板”，documentGeneration 1→2、同一项目/PLAN保留；重载不能修复代码错误。随后修正并重载最终源码宿主，lifecycle=ready、sectionFailures=[]，真实重试流程完成。"
+      },
+      {
+        "control": "recheckOutputIsolation remaining32 protected-path control",
+        "status": "preview_passed",
+        "version": "0.5.512",
+        "evidence": "独立 remaining32_declaration_512.yaml 的真实 job0 因外置结果符号链接暂停；实点重新核实/审核旧产物，真实预检再次明确拒绝 LINK_OR_REPARSE_POINT，未移动文件、未提交该 job，按钮恢复可点。job1 e72d7de2ae8ce9c4111410e07608cf10 exit0/result complete/log clear/verified 保留。只覆盖拒绝预览分支，未证明解除阻塞或重新派发。"
+      },
+      {
+        "control": "external CSV review with missing output directory and mode switch",
+        "status": "preview_passed",
+        "version": "0.5.512",
+        "evidence": "源码宿主实点 remaining32_csv_review_512.yaml，目录不存在、独立远端 fresh.txt 24字节。普通模式保留关联保护，切换永久删除复用同一路径、仍须第一次确认且执行禁用；关闭审核页，零确认零删除。"
+      },
+      {
+        "control": "partial submission counts and physical missing CSV source-host control",
+        "status": "clicked_passed",
+        "version": "0.5.512",
+        "evidence": "最终源码提交 remaining32_source_counts_512.yaml，仅使用不与原待派发意图重复的独立结果路径。真实通知为1可执行、1隔离暂停并指向复核按钮；workflow distributed-plan-1794809735780-qxa5h9 的 job1 commandId2756ffce0c0ae29a5afca1421cd5f467/rjj8/GPU0/seed42/exit0/result complete/log clear/verifiedAt2026-11-16T06:15:49.920Z；job0无Worker/commandId，链接检查拒绝，不自动派发。此前MISSING_TARGET和FORMAL_JOB_CONFLICT失败保留，没有重写为成功。此为已覆盖模板的追加实测，不重复增加静态入口分母。"
       }
     ]
   },
@@ -7648,11 +7666,11 @@
   },
   "remainingEntryReview": {
     "observedAt": "2026-11-16",
-    "requestedSourceOccurrences": 47,
-    "newlyClickedPassed": 3,
-    "newlyPreviewPassed": 0,
-    "notTested": 44,
-    "pendingInteractiveSourceOccurrences": 32,
+    "requestedSourceOccurrences": 32,
+    "newlyClickedPassed": 0,
+    "newlyPreviewPassed": 1,
+    "notTested": 43,
+    "pendingInteractiveSourceOccurrences": 31,
     "nonInteractiveSourceOccurrences": 12,
     "remainingByClass": {
       "requires_human": 4,
@@ -7661,13 +7679,13 @@
       "compatibility_no_current_entry": 4,
       "deferred_by_user": 1,
       "requires_task_card_object": 3,
-      "conditional_error_state": 14,
+      "conditional_error_state": 13,
       "requires_legacy_local_scheduler": 2
     },
     "staticSourceStatuses": {
       "clicked_passed": 80,
-      "preview_passed": 30,
-      "not_tested": 44,
+      "preview_passed": 31,
+      "not_tested": 43,
       "retired": 25
     },
     "sourceEntries": [
@@ -7801,13 +7819,6 @@
         "command": "retryDistributedJob",
         "source": "src/ui/PanelHtml.legacy.ts",
         "line": 15537,
-        "status": "not_tested",
-        "acceptanceClass": "conditional_error_state"
-      },
-      {
-        "command": "recheckOutputIsolation",
-        "source": "src/ui/PanelHtml.legacy.ts",
-        "line": 15543,
         "status": "not_tested",
         "acceptanceClass": "conditional_error_state"
       },
@@ -8179,6 +8190,6 @@
         }
       ]
     },
-    "note": "179是源码命中数，含25退役、8选择器引用和4无当前入口代码；剔除后三类后142处控件模板来源为80实点、30预览、32待补测，不是当前屏幕唯一按钮数量。保留引用及兼容入口，不把未测自动退役。当前源码行号已按命中顺序核对并更新；旧手测段落的行号属于其当时版本。完整验证为286项build加最终4套件补跑，并非最终源码重新执行330项。"
+    "note": "179为源码命中数；剔除25退役、8选择器引用和4无入口兼容代码后，142处控件模板来源为80实点、31预览、31待测。新增复核仅证明真实保护拒绝，不等于解除阻塞和重新派发通过。未升级或安装；最终受影响套件证据及失败保留见manual-acceptance-checklist.md。"
   }
 }

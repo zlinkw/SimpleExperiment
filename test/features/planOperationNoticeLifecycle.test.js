@@ -391,6 +391,23 @@ test('r82 red: a partial submission with isolation-paused jobs is never announce
   assert.match(progress.message, /隔离未完成/); assert.match(progress.message, /2/);
   assert.match(progress.message, /重新审核/);
 });
+
+test('partial submission counts launchable jobs separately and names the visible isolation review button', () => {
+  const Queue = require('../../dist/features/DistributedPlanQueue.js');
+  const plan={planJobCount:2,jobs:[
+    {index:0,status:'pending',outputIsolationBlocked:{reason:'LINK_OR_REPARSE_POINT'}},
+    {index:1,status:'pending'}]};
+  const result=Queue.distributedSubmissionResult(plan);
+  assert.equal(result.pendingCount,1);assert.equal(result.blockedCount,1);
+  const progress=Queue.distributedSubmissionProgress({enqueued:true,...result});
+  assert.match(progress.message,/1 个可执行 job/);
+  assert.match(progress.message,/另有 1 个 job/);
+  assert.match(progress.message,/重新核实\/审核旧产物/);
+  assert.doesNotMatch(progress.message,/重新排队此 job/);
+  plan.jobs[1].status='completed';
+  const settled=Queue.distributedSubmissionProgress({enqueued:true,...Queue.distributedSubmissionResult(plan)});
+  assert.match(settled.message,/没有可立即派发/);
+});
 test('r82 red: the isolation notice states 未启动+下一步 and never claims success', () => {
   const Queue = require('../../dist/features/DistributedPlanQueue.js');
   const notice = Queue.outputIsolationNotice({ index: 3, outputIsolationBlocked: { reason: 'nwpu3：ACTIVE_TRANSFER SimpleSFTP files.cleanup.execute：[ACTIVE_TRANSFER]', stage: 'execute', code: 'ACTIVE_TRANSFER', declarationKey: 'work/j3', observedAt: '2026-10-26T03:13:15.000Z' } });

@@ -130,8 +130,30 @@ async function discoverManifestCandidates(host, root, file, nodes, queue, explic
                 continue;
             }
             const info = observed.info;
-            if (info.target?.missing)
+            if (info.target?.missing) {
+                // Keep the same path inventory across mode changes. Without a matching
+                // manifest this CSV is visible but protected until exact-path review.
+                if (csv && !csv.startsWith(output + "/")) {
+                    try {
+                        const result = await host.simpleSftpApiCall("files.cleanup.inspect", {
+                            node, target: { relativePath: csv, type: "file" }, allowMissing: true
+                        });
+                        if (result.target.missing)
+                            continue;
+                    }
+                    catch (error) {
+                        // This is a failed physical-path observation, not an ownership
+                        // hint that confirmed_paths may discard.
+                        blockers.push({ code: "NODE_UNREACHABLE", nodeId: node.id,
+                            detail: csv + "：" + String(error.message || error) });
+                        continue;
+                    }
+                    candidates.push({ nodeId: node.id, relativePath: csv, type: "file", category: "用户确认的结果文件",
+                        owners: pathOnly ? [planKey] : [], evidence: ["声明结果路径=" + declaration.result_csv], dependencies: [],
+                        ...(!pathOnly ? { protectedReason: "结果清单关联未核实，只报告" } : {}) });
+                }
                 continue;
+            }
             const records = info.target?.manifests || [];
             const linkedOwners = records.filter((record) => {
                 const binding = record.binding || {};

@@ -205,7 +205,7 @@ function normalizePoll(m){if(!String(m.requestId||'').startsWith('poll-'))return
 get('action').onchange=get('partial').onchange=()=>send('changeMode');
 window.addEventListener('message',event=>{
 const m=event.data;normalizePoll(m);
-if(m.type==='progress'){if(!busy&&!executing||(m.operationId?m.operationId!==operationId:m.requestId&&m.requestId!==requestId))return;const targets=Object.values(m.operation?.targets||{});progressText=m.operation?stateName(m.operation.state)+' · 已处理 '+targets.filter(t=>t.state==='completed').length+'/'+targets.length+' 项'+(m.operation.error?' · '+m.operation.error:''):m.message;progressCount=typeof m.total==='number'&&m.total>0?m.completed+'/'+m.total:'';get('status').textContent=progressText;renderProgress();return}
+if(m.type==='progress'){if(!busy&&!executing||(m.operationId?m.operationId!==operationId:m.requestId&&m.requestId!==requestId))return;const targets=Object.values(m.operation?.targets||{});progressText=m.operation?stateName(m.operation.state)+' · 已处理 '+targets.filter(t=>t.state==='completed').length+'/'+targets.length+' 项'+(m.operation.error?' · '+m.operation.error:''):m.message;progressCount=typeof m.total==='number'&&m.total>0?(typeof m.completed==='number'?m.completed+'/'+m.total:'共 '+m.total+' 项'):'';get('status').textContent=progressText;renderProgress();return}
 if(m.requestId&&m.requestId!==requestId)return;busy=false;renderProgress();
 if(m.type==='history'){
 get('history').innerHTML='<option value="">选择清理记录</option>'+m.rows.filter(row=>!(row.action==='delete'&&row.state==='completed')).map(row=>'<option value="'+esc(row.id)+'">'+esc(row.planFile+' · '+actionName(row.action)+(row.action==='isolate'?'待删 ':'')+' · '+stateName(row.state)+' · '+row.updatedAt)+'</option>').join('');controls();

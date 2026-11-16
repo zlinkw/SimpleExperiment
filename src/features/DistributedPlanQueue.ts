@@ -975,7 +975,9 @@ export function distributedSubmissionResult(plan: QueuedPlan | undefined, dispat
   const unresolved = plan?.jobs.find((job) => !["queued", "running", "completed", "failed", "cancelled"].includes(job.status)
     && !(job.status === "pending" && !job.workerId && !job.commandId && !job.blockReason));
   // r82：隔离暂停 job 必须计入提交结果，否则部分提交会被呈现成无等待的全量接收（现场 r81d）。
-  return { ...disposition, blockedCount: plan?.jobs.filter((job) => job.outputIsolationBlocked).length || 0,
+  return { ...disposition,
+    pendingCount: plan?.jobs.filter(job => job.status === "pending" && !job.workerId && !job.commandId && !job.outputIsolationBlocked).length || 0,
+    blockedCount: plan?.jobs.filter((job) => job.outputIsolationBlocked).length || 0,
     dispatchError: dispatchError || (!disposition.durableAccepted && unresolved
       ? unresolved.blockReason || "持久接收状态仍待核对" : "") };
 }
@@ -1037,7 +1039,7 @@ export function distributedSubmissionProgress(submission: { enqueued?: boolean; 
     const skipped = Number(submission.skippedCount || 0) > 0 ? `，${submission.skippedCount} 个按所选沿用完成产物` : "";
     const detail = submission.dispatchError ? `状态核对仍有待处理项：${submission.dispatchError}。` : "";
     return { status: "succeeded" as const, waiting: true,
-      message: `本机调度队列已保存：${pending}${skipped}；另有 ${submission.blockedCount} 个 job 旧产物隔离未完成，训练未启动、不会自动重派，请在 Plan 卡片通过“重新排队此 job”重新审核产物处理。${detail}刷新状态可查看进度。` };
+      message: `本机调度队列已保存：${pending}${skipped}；另有 ${submission.blockedCount} 个 job 旧产物隔离未完成，训练未启动、不会自动重派，请在 Plan 卡片通过“重新核实/审核旧产物”重新审核产物处理。${detail}刷新状态可查看进度。` };
   }
   if (Number(submission.pendingCount || 0) > 0 || Boolean(submission.dispatchError)) {
     const pending = Number(submission.pendingCount || 0) > 0 ? ` ${submission.pendingCount} 个 job 保持未绑定，等待新鲜空闲 GPU。` : "";
