@@ -6507,15 +6507,23 @@ return this.testTunnel(true);
     }
     async manualSnapshot() {
         const generation = this.projectContextGeneration;
+        let localRefreshError = "";
         await this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
             if (generation !== this.projectContextGeneration)
                 return;
-            this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
+            localRefreshError = errorMessage(error);
+            this.localPlanMetadata = { ...this.localPlanMetadata, error: localRefreshError };
         });
         if (generation !== this.projectContextGeneration)
             return;
         if (this.effectiveConnectionMode() === "offline_import") {
-            void vscode.window.showInformationMessage("离线模式不会访问网络。请导入离线 bundle。");
+            const message = localRefreshError
+                ? `本机项目识别刷新失败：${localRefreshError}。离线模式不会访问网络。${this.offlineBundle ? "" : "请导入离线 bundle。"}`
+                : this.offlineBundle
+                    ? "本机项目识别已刷新，已导入离线 bundle；离线模式不会访问网络。"
+                    : "本机项目识别已刷新；离线模式不会访问网络。请导入离线 bundle。";
+            if (localRefreshError) void vscode.window.showWarningMessage(message);
+            else void vscode.window.showInformationMessage(message);
             this.postState();
             return;
         }

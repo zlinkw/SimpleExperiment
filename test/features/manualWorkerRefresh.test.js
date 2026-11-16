@@ -13,6 +13,18 @@ const helperEnd=source.indexOf('function operationTerminal(value) {', helperStar
 const helpers=helperStart>=0&&helperEnd>helperStart?source.slice(helperStart,helperEnd):'';
 assert.ok(helpers.includes('Worker Agent HTTP 404: ')&&helpers.includes('eventCount')&&helpers.includes('operationExpiryDedupeStillApplies'),'the authoritative no-record contract and the dedupe guard must stay in src');
 function proto(names,globals={}){return vm.runInNewContext(ts.transpileModule(helpers+';class Host{'+names.map(n=>members.get(n)).join('\n')+'};Host.prototype', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{workspaceRoot:()=>'/project',errorMessage:e=>e.message||String(e),planSubmitProgress:{isLocal:r=>r.localSubmissionProgress===true},operationTerminal:terminal,resultStatus:r=>r?.status,stringFromRecord:(r,keys)=>keys.map(k=>r[k]).find(Boolean)||'',planCheckAccepted:r=>r.status==='completed',RunOperations_1:require('../../dist/features/RunOperations.js'),...globals});}
+test('offline refresh reports the actual bundle and preserves local errors without network calls',async()=>{
+ for(const [bundle,fail] of [[{},false],[undefined,false],[{},true],[undefined,true]]){
+  const messages=[],warnings=[],calls=[];
+  const p=proto(['manualSnapshot'],{vscode:{window:{showInformationMessage:t=>messages.push(t),showWarningMessage:t=>warnings.push(t)}}});
+  const h={projectContextGeneration:1,offlineBundle:bundle,localPlanMetadata:{},effectiveConnectionMode:()=> 'offline_import',
+   refreshLocalPlanMetadata:async()=>{calls.push('refresh');if(fail)throw Error('local failure')},postState:()=>calls.push('post'),
+   testTunnel:()=>{throw Error('network should not run')}};
+  await p.manualSnapshot.call(h);assert.deepEqual(calls,['refresh','post']);
+  if(fail){assert.match(warnings[0],/local failure/);assert.equal(warnings[0].includes('请导入'),!bundle);assert.equal(h.localPlanMetadata.error,'local failure');assert.equal(messages.length,0);}
+  else {assert.match(messages[0],/本机项目识别已刷新/);assert.match(messages[0],/不会访问网络/);assert.equal(messages[0].includes('请导入'),!bundle);assert.equal(warnings.length,0);}
+ }
+});
 test('manual refresh queries real Workers and original pending operations, never the retired scheduler count',async()=>{
  const messages=[],calls=[];const p=proto(['manualSnapshot'],{vscode:{window:{showInformationMessage:t=>messages.push(t),showWarningMessage:t=>messages.push(t)}}});
  const h={projectContextGeneration:1,taskLifecycleProtocol:2,client:{getGpu:async()=>calls.push('gpu')},refreshLocalPlanMetadata:async()=>{},effectiveConnectionMode:()=> 'realtime',workerActionTargets:()=>[{id:'a'},{id:'b'}],
