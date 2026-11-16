@@ -92,3 +92,8 @@ R08目录浏览预览后取消，值未变记preview；其余4未点：validate/
 167来源最终分类为click1、preview1、history96（68/28）、未执行4、本人3、条件26、暂缓1、selector7、无producer28，manual/coverage一致。10022声明-only兼容、10027Worker条件，原历史不改。目录框仅取消预览；映射未保存/拆表未生成，旧自定义无样本；4写入/同步入口未执行。通过不等于167项现版全实点，既有边界和外部条件继续保留。
 
 R01-R08八实现会话已按独立通过归档，原会话/证据不删除；G002实现已独立通过归档。调度准备统一scope提交并普通ff push/fetch，版本512/SFTP120不变，无打包安装发行或MCP/Worker更新。
+## Git交付事实
+
+2026-11-16 源码与G001/G002授权资料统一提交0712388ffe21310e560a35c1f6d56baa232e9d6f（Retire advanced experiment tooling and preserve basic result workflows），133个范围内路径。普通git push origin master成功，随后fetch核HEAD与origin/master均为该提交，ahead/behind为0/0；无跟踪文件剩余改动。无关VSIX sha256保持未跟踪未删除，未混入提交。此次Git成功事实与索引状态作为纯文档交付登记提交，不改变已验产品，不重复产品回归。
+
+G001已独立验收并同步，无剩余本轮实现/验收/Git工作；外部条件及本人操作/未执行分支保留为明确限制，不等于全入口现版实点通过。不打包安装发行，现用户安装与Worker仍原版本，源码变化未部署。
