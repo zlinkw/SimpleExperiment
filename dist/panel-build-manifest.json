@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.512",
-  "buildId": "b0818733eb1661cca1d0273bf8b5fd249627a56c5a465c3b9f8005794c09e0a2",
+  "buildId": "655cf4c36de4b22409f7db070fc484c79f807bf95f090103062249020ea8bbdc",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -261,7 +261,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "2298d4dbd69758fd007ad6b97c7c600822b55acbf76802bef3149bfca6a7767e"
+      "sha256": "303228fd10487454ff1106cfc76352307e4a397ac5c4ff991997540cad62ccf4"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -857,11 +857,11 @@
     },
     {
       "path": "dist/mcp/ToolCatalog.js",
-      "sha256": "3514fbff0be58c589887f11f3488894f37eeb200810650602ed066c12a4885c7"
+      "sha256": "f52ddb9066e591dad8ac1669249d51a56bcdfc917ae373aa43243cbfe4952462"
     },
     {
       "path": "dist/mcp/ToolResults.js",
-      "sha256": "cb10e8e98616a0b464c19dfee048ba7f806587ed0f7457392295ae01dcac7bbc"
+      "sha256": "8a19d7b1123f835e378bc0dbfcee08dac125fe37eeac76659f9637a8ce72ccb6"
     },
     {
       "path": "dist/project/BranchHeadBinding.js",
@@ -1169,7 +1169,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "631e05d4f5c2da3c5007069a9f2f9d66a58c52c2c5a298f54baa7d4b2d4731b1"
+      "sha256": "01181cba6d2a7bef919b745a79b7965a2ec7ead4036551d171d4f6cff68e4b63"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1293,7 +1293,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "7fb256873d6ee78e20931f3654f28f841ae3a18820b0400cb4c723f650013442"
+      "sha256": "e4f1ae718a524304a25ce9cd074eb5871cd577314498405660af0fda79c25ff6"
     },
     {
       "path": "scripts/check-static.js",

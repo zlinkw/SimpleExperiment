@@ -32,7 +32,8 @@ const experiment = object({ id: string, type: string, name: string, status: stri
     stage: string, progress: nullable(object()), native_state: nativeState, native_summary: object(), observation_source: string,
     updated_at: string, recentLogs: string });
 const snapshot = { snapshot_id: string, snapshot_time: string, runtime_version: string, observation_source: string };
-const config = object({ key: string, type: { anyOf: [string, strings] }, scope: string, default: value, value, secret: boolean }, ["key"]);
+const config = object({ key: string, type: { anyOf: [string, strings] }, scope: string, default: value, value, secret: boolean,
+    sync: object({ status: string, errors: strings }, ["status", "errors"]) }, ["key"]);
 const state = object({ key: string, label: string, store: string, writable: boolean, value }, ["key"]);
 const resultRow = object({ id: string, experimentId: string, status: string, metric: string, value, metrics: record(value),
     source: string, current: boolean, observedAt: nullable(string), updated: string, outputFiles: strings });
@@ -110,7 +111,8 @@ assign(["server_test"], object({ ok: boolean, topology: object(), rows: array(ob
 assign(["agent_inspect", "agent_ensure", "agent_stop", "agent_restart", "agent_migrate"], object({ ok: boolean, results: array(agent) }, ["results"]));
 assign(["configuration_list", "sftp_configuration_list"], object({ namespace: string, keys: array(config), secretKeys: strings }, ["namespace", "keys"]));
 assign(["configuration_get", "sftp_configuration_get"], config);
-assign(["configuration_set", "sftp_configuration_set"], object({ ok: boolean, key: string, scope: string, value, secret: boolean }, ["ok", "key"]));
+assign(["configuration_set", "sftp_configuration_set"], object({ ok: boolean, key: string, scope: string, value, secret: boolean,
+    sync: object({ status: string, errors: strings }, ["status", "errors"]) }, ["ok", "key"]));
 assign(["configuration_reset", "sftp_configuration_reset", "state_reset"], object({ ok: boolean, key: string, reset: boolean }, ["ok", "key"]));
 assign(["state_keys"], object({ keys: array(state) }, ["keys"]));
 assign(["state_value"], state);
