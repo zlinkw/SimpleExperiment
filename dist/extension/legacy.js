@@ -6919,8 +6919,10 @@ class RealtimeTunnelPanelProvider {
     async manualGpuSnapshot() {
         const generation = this.projectContextGeneration;
         const client = this.client;
-        if (this.effectiveConnectionMode() === "offline_import")
+        if (this.effectiveConnectionMode() === "offline_import") {
+            void vscode.window.showInformationMessage("离线模式无法刷新实时 GPU 状态。");
             return;
+        }
         try {
             await client.getGpu();
             if (generation !== this.projectContextGeneration || client !== this.client)
@@ -7021,8 +7023,10 @@ class RealtimeTunnelPanelProvider {
     async manualSchedulerSnapshot() {
         const generation = this.projectContextGeneration;
         const client = this.client;
-        if (this.effectiveConnectionMode() === "offline_import")
+        if (this.effectiveConnectionMode() === "offline_import") {
+            void vscode.window.showInformationMessage("离线模式无法刷新实时调度状态。");
             return;
+        }
         try {
             await client.getScheduler();
             if (generation !== this.projectContextGeneration || client !== this.client)

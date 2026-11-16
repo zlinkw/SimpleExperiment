@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.512",
-  "buildId": "8187765a41abd7c898055c677b61c74810ed43145e586d06d252e18bb6443b08",
+  "buildId": "3b604951e5a46908094f31c1eeed9c16af66a4f517147037804a1db7db01f559",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -261,7 +261,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "1c442c96a4fce82f77bdcbf6970b8addfc0004dd0ad0f5b9d1f841eff1b4ae20"
+      "sha256": "47cc7109773fb946d0219aa51059c555280576326329bac7d203524dd3d32fb3"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
