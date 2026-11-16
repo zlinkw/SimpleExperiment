@@ -154,6 +154,41 @@ test("tmux overview requests and retains all Worker session lists", () => {
   assert.match(host, /private displayReadOnce<T>\(key: string, reader: \(\) => Promise<T>, signal\?: AbortSignal\)/);
 });
 
+test("tmux overview preserves the actual query outcome across redraws", () => {
+  const source = readSource("src/ui/PanelHtml.legacy.ts");
+  const start = source.indexOf("    function renderTmuxOverview(sessions)");
+  const end = source.indexOf("    function ", start + 14);
+  const branchStart = source.indexOf('        if (item.type === "tmuxList") {');
+  const branchEnd = source.indexOf('        if (item.type === "gpuHistoryResult")', branchStart);
+  assert.ok(start >= 0 && end > start && branchStart >= 0 && branchEnd > branchStart);
+  const meta = { textContent: "" }, overview = { innerHTML: "" };
+  const sandbox = {
+    el: id => id === "tmuxListMeta" ? meta : id === "tmuxOverview" ? overview : null,
+    tmuxListCache: { sessions: [] }, tmuxListsByWorker: {}, tmuxSelectedWorkerId: "worker",
+    tmuxListRequestId: 1, tmuxConfiguredWorkers: [], tmuxWindowFilter: "all",
+    getTmuxWindowCandidates: () => [], renderTmuxFilterBar: () => {},
+    finishTmuxListRequest: () => {}, handleJobTmuxLogList: () => false,
+    persistWebviewState: () => {}, renderTmuxWorkersOverview: () => {}, refreshTmuxCapture: () => {},
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source.slice(start, end) + '\nfunction receive(item) { for (const ignored of [0]) {\n' + source.slice(branchStart, branchEnd) + '\n} }', sandbox);
+  sandbox.renderTmuxOverview([]);
+  assert.match(meta.textContent, /未查询|未核实/);
+  const cases = [
+    [{ ok: false, available: true, error: "connection refused" }, /列举失败.*connection refused/],
+    [{ ok: true, available: false, error: "tmux not found" }, /不可用.*tmux not found/],
+    [{ ok: true, available: true, error: "no tmux server" }, /已查询.*无.*会话/],
+    [{ ok: true, available: true }, /已查询.*无.*会话/],
+    [{ ok: true, available: true, status: "stalled" }, /超时.*stalled/],
+  ];
+  for (const [fields, expected] of cases) {
+    sandbox.receive({ type: "tmuxList", workerId: "worker", sessions: [], ...fields });
+    assert.match(meta.textContent, expected);
+    sandbox.renderTmuxOverview([]);
+    assert.match(meta.textContent, expected);
+  }
+});
+
 test("tmux refresh releases only after every Worker replies and ignores stale replies", () => {
   const html = renderPanelHtml();
   const start = html.indexOf("function scheduleTmuxInitialRetry()");

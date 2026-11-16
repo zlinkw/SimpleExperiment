@@ -2171,6 +2171,12 @@ export function renderPanelHtml(): string {
       const sel = el("tmuxWindowSelect");
       if (!meta || !overview) return;
       const list = Array.isArray(sessions) ? sessions : [];
+      const status = String(tmuxListCache.status || "").toLowerCase();
+      let queryMessage = "";
+      if (status === "stalled") queryMessage = "列举超时（stalled），按钮已恢复，后台可能仍在继续";
+      else if (tmuxListCache.ok === false || status === "failed") queryMessage = "列举失败 " + String(tmuxListCache.error || "Worker Agent 无响应").slice(0,80);
+      else if (tmuxListCache.available === false) queryMessage = "tmux 不可用 " + String(tmuxListCache.error || "Worker 未提供 tmux").slice(0,80);
+      else if (tmuxListCache.ok !== true || tmuxListCache.available !== true) queryMessage = "tmux 会话尚未查询或未核实";
       if (sel) {
         let html = "";
         const candidates = getTmuxWindowCandidates(list);
@@ -2194,7 +2200,7 @@ export function renderPanelHtml(): string {
         }
       }
       if (!list.length) {
-        meta.textContent = "未检测到 tmux 会话：没有 tmux server / 权限不足 / 终端为空。";
+        meta.textContent = queryMessage || "已查询，无 tmux 会话";
         renderTmuxFilterBar(list);
         const cands = getTmuxWindowCandidates(list);
         let grid = "";
@@ -2213,7 +2219,7 @@ export function renderPanelHtml(): string {
       const ordinary = list.filter(function(session){ return !tmuxCurrentGpuIdFromSession(session.name); });
       const ownedCount = ordinary.filter(function(session){ return tmuxSessionGroup(session) === "mine"; }).length;
       const foreignCount = ordinary.filter(function(session){ return tmuxSessionGroup(session) === "foreign"; }).length;
-      meta.textContent = "GPU " + gpuCount + " 个 · 任务标签 " + taskCount + " 个 · 本项目其他会话 " + ownedCount + " 个 · 归属未核实 " + foreignCount + " 个";
+      meta.textContent = "GPU " + gpuCount + " 个 · 任务标签 " + taskCount + " 个 · 本项目其他会话 " + ownedCount + " 个 · 归属未核实 " + foreignCount + " 个" + (queryMessage ? " · " + queryMessage : "");
       renderTmuxFilterBar(list);
       const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
       let grid = "";
@@ -4706,7 +4712,7 @@ export function renderPanelHtml(): string {
           if (item.requestId !== undefined && Number(item.requestId) !== tmuxListRequestId) continue;
           const listedWorkers = Array.isArray(item.workers) ? item.workers : [];
           if (listedWorkers.length) tmuxConfiguredWorkers = listedWorkers;
-          if (item.workerId) tmuxListsByWorker[item.workerId] = { sessions: item.sessions || [], gpuIds: item.gpuIds || [], tmuxSessionPrefix: item.tmuxSessionPrefix || "", workerId: item.workerId, fetchedAt: item.fetchedAt || new Date().toLocaleTimeString(), ok: item.ok !== false, error: item.error || "" };
+          if (item.workerId) tmuxListsByWorker[item.workerId] = { sessions: item.sessions || [], gpuIds: item.gpuIds || [], tmuxSessionPrefix: item.tmuxSessionPrefix || "", workerId: item.workerId, fetchedAt: item.fetchedAt || new Date().toLocaleTimeString(), ok: item.ok, available: item.available, status: item.status, error: item.error || "" };
           finishTmuxListRequest(item);
           const jobLogJumpSelected = handleJobTmuxLogList(item);
           if (!tmuxSelectedWorkerId || (listedWorkers.length && !listedWorkers.some(function(worker){ return worker.id === tmuxSelectedWorkerId; }))) tmuxSelectedWorkerId = item.workerId || tmuxSelectedWorkerId;
@@ -4720,11 +4726,6 @@ export function renderPanelHtml(): string {
           if (item.workerId !== tmuxSelectedWorkerId) continue;
           tmuxListCache = tmuxListsByWorker[tmuxSelectedWorkerId];
           renderTmuxOverview(tmuxListCache.sessions || []);
-          const meta = el("tmuxListMeta");
-          if (meta && (item.status || item.ok === false || item.error)) {
-            if (String(item.status).toLowerCase() === "stalled") meta.textContent = "列举超时（stalled），按钮已恢复，后台可能仍在继续";
-            else if (item.ok === false || item.error || String(item.status).toLowerCase() === "failed") meta.textContent = "列举失败 " + String(item.error || "Worker Agent 无响应").slice(0,80);
-          }
           // A task-card click carries its manual read through the first exact window match.
           try {
             if (jobLogJumpSelected) refreshTmuxCapture("user");
