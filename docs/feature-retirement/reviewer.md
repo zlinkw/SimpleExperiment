@@ -12,4 +12,6 @@
 
 不触碰 MM/Generic 未保存文档、GPU7、旧任务/产物/日志、拒删文件或原 MM @54。不升级/安装/发布/训练/删除/绕受控链。R12-I 新根专项授权保持，阶段隔离自验归 Terra，最终只审现有隔离证据及跨模块缺口。原子动作未知不重放；新 profile Trust/安全许可由本人处理。
 
-在正常工具边界用全局 context_status.py 核自己真实上下文；240000 token 或第二次原生压缩先到即同角色安全轮换，未达阈值复用，不 fork。交班完整保留证据、权限、租约、失败/未知与真实返修计数，旧停写、新接管后归档，现任由 Terra 登记。最近三代与长期踩坑按全局生命周期，当前不淘汰删除。最终给 Terra 独立结论，必要检查失败/未知不能签全部完成。
+在正常工具边界用全局 context_status.py --thread-id <自己真实ID> --expected-model gpt-6.1-sol --expected-effort high 核实际模型/强度/Standard和轮换。先完成至少两次原生压缩，第二次之后再次报告上下文 >=300000 才安全交班；第二次前峰值不计，刚完成第二次不立即换，后续压缩不撤销第二次后已达300K事实。新 thread 从0计，不主动压缩/填充、不因旧24万规则换班，不 fork。交班完整保留证据、权限、租约、失败/未知与真实返修计数，旧停写、新实核后接管并归档，现任由 Terra 登记。最近三代与长期踩坑按全局生命周期，当前不淘汰删除。最终给 Terra 独立结论，必要检查失败/未知不能签全部完成。
+
+新角色按全局 references/handoffs.md“正确启动代码模板”显式 model=gpt-6.1-sol、thinking=high。正常成功只创建一次；仅明确组合校验错误允许正确 model 的只读待命后，同一 thread 显式 model/thinking 原位校准，不能删 model 或把省 thinking 视作成功，其他错误停止。新会话第一步运行上述核验命令；仅 role_settings_status=match 且 next_action=continue，并由真实 thread_settings/turn_context 证实 Sol/high/default 后，才进入资源交接。await_role_settings 等实际运行记录，fix_role_settings 修同一 thread，均不得操作业务；不能靠标题/提示词放行。现有正确角色保持，不新建验收者；本次规则同步不启动项目大验收。

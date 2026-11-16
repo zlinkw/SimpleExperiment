@@ -14,6 +14,8 @@ UI 观察→单动作→刷新；Esc 后未知先重新观察。当前源码宿�
 
 基本 PLAN 同步/校验/预演/调度/精确停止、GPU/tmux、日志/真实退出码、产物声明/完成证明、指标解析、基础比较/导出、列映射/归类、用户授权/删除审核保持，AP/macro_f1/weighted_f1 分开。已退役入口不复活，历史配置/科研文件不清理。任何真实文件删除仍遵守专属规则与精确授权，不将历史 G001 删除指令当 G003 新授权。
 
-正常工具/交付边界调用全局 context_status.py --thread-id <自己真实ID>；240000 token 或第二次原生 compacted 先到即同角色安全交班。缓存计入，不用累计消耗，触发不撤销；未达阈值尽量复用，完整背景交接，不 fork。旧停写释放、新只读核对后更新唯一现任、待旧 turn 结束归档；未知操作不重放/强停。生命周期和真实返修计数按全局技能，当前 G001/G002/G003 不发生淘汰删除。
+正常工具/交付边界调用全局 context_status.py --thread-id <自己真实ID> --expected-model gpt-6.1-terra --expected-effort high。轮换是顺序 AND：同一 thread 完成至少两次原生 compacted，第二次之后再次报告上下文 >=300000 才安全交班；二次之前峰值不计，第二次刚完成不立即换，二次后达300K的触发不因后续压缩下降撤销。新 thread 从0次计；不主动压缩/填充，不因旧24万规则提前换班。缓存计入，不用累计消耗，未触发尽量复用、完整背景交接、不 fork。旧停写释放、新只读核对并实核模型后更新唯一现任，待旧 turn 结束归档；未知操作不重放/强停，历史交班记录保留原事实。生命周期和真实返修计数按全局技能，当前 G001/G002/G003 不发生淘汰删除。
+
+新角色按全局 references/handoffs.md“正确启动代码模板”显式 model=gpt-6.1-terra、thinking=high，正常成功只创建一次。仅明确 could not validate reasoning effort 组合校验错误，才可显式正确 model 建只读待命会话，立即同一 thread 显式 model/thinking 校准；禁止删 model 回退默认、把省 thinking 当成功或连续开替代角色。其他错误保留原因停止。新会话第一步运行上述核验命令，仅 role_settings_status=match、next_action=continue，真实 thread_settings/turn_context 均为 Terra/high、service_tier=default 后，才能按旧停写/租约交接协议接管。await_role_settings 等实际 turn 记录，fix_role_settings 原位修同一 thread，均不能写入/UI/测试。现有正确角色不重建，标题/提示词不算证明。当前 Terra 已原位校准且实核，未使用的错误 Sol 仅保留归档。
 
 普通开工/阶段完成/计划内返修/等待/安全换班只登记，不消息总控；仅必须改计划、用户决定/新授权、整份完成联系总控，合并同一事项。当前源 Git 基线实际读取，不硬绑历史 HEAD；沿既有 master/origin scoped 普通提交、push、fetch 对齐，远端前进或凭据/保护阻断即报，不 rebase/merge/force。最终由总控统一用户汇报真实完成边界和剩余时间。

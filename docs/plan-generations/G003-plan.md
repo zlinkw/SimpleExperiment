@@ -4,13 +4,15 @@
 
 本计划及索引、共同角色说明由现任总控《项目总控与长期规划 · C方案接替》01a1e412-ead7-7710-acd7-c475abb8b41a/local 独占；G003-execution.md、资源租约、现任身份、返修事实、踩坑及 Git 由唯一 Terra 独占。总控交接后空闲，仅处理必须改计划、用户决定/新授权、整份计划最终交付。取消 Luna 和所有额外调度/监控层，不按 Rxx、按钮或小进度另建执行者。
 
-唯一实现复用 01a1e3f9-1e9b-7011-b924-bc7355160ba3/local，gpt-6.1-terra/high；唯一最终验收复用 01a1e3ec-f6ca-7723-922c-8f38449f87c8/local，gpt-6.1-sol/high。二者均 Standard，禁止 Fast/Ultrafast；实际 rollout 嵌套 thread_settings 的 service_tier=default 已核，配置与运行证据分清。安全轮换后的现任以执行登记为准，旧初始身份不永久绑定角色。旧总控、Luna、R09/R10/R13 均已停新业务和释放租约，旧主已通过官方工具安全归档五者；聊天、交班和成果保留，不重复归档或唤醒。
+唯一实现现为 01a1e428-ce3e-7542-a6bd-0e4b7ca7ba4a/local，gpt-6.1-terra/high，原位校准后已实核；旧 Terra 01a1e3f9 的交班及原进度保留；唯一最终验收复用 01a1e3ec-f6ca-7723-922c-8f38449f87c8/local，gpt-6.1-sol/high。二者均 Standard，禁止 Fast/Ultrafast；实际 rollout 嵌套 thread_settings 的 service_tier=default 已核，配置与运行证据分清。安全轮换后的现任以执行登记为准，旧初始身份不永久绑定角色。旧总控、Luna、R09/R10/R13 均已停新业务和释放租约，旧主已通过官方工具安全归档五者；聊天、交班和成果保留，不重复归档或唤醒。
 
 每份完整计划由同一 Terra 连续推进 R09–R15；它获得整份计划和所有有效原交班，旧“只读自身批次/不读总计划/只交调度”限制废止。每批仍最多 2–3 个强相关问题、8 个源码/测试/文档文件，按依赖和共享资源分批提交。Terra 自行完成所有阶段小验收，阶段完成不找 Sol 签字；Sol 常态空闲，仅最终完整交付前审核实际实现及证据，并完成下表独占大验收。两者直接交付和返修，不经第三层调度。
 
 同一验收项只由一位负责人执行一次。Sol 不重跑 Terra 已完成且输入未变的小验收、同清单/同场景/同范围测试；已有有效大验收也复用，不能改名重验。先核真实性、适用基线和覆盖，发现缺口只补该缺口；新修改使原证据失效才按新基线定向重验并说明原因。Terra 不提前执行 Sol 独占项目级审核。Sol 需实际操作时，先由 Terra 明确交接测试/UI/文件冻结租约，仍全局单检查执行者；结束后明确交还。阶段自验不等于整代最终通过。
 
-C 方案在正常响应/较大工具结果/交付边界调用全局 scripts/context_status.py --thread-id <真实ID>：已报告当前上下文达到 240000 token，或第二次原生 compacted 完成记录，任一先到即停新业务安全交班；缓存计入，不用累计消耗，不重复加 reasoning，已触发不因压缩下降撤销。未达阈值优先复用；同角色全新 project/local、同模型/推理强度/Standard，不 fork。新角色先只读核完整背景，旧角色停写释放后新角色更新现任并接管，待旧 turn 结束再归档；未知操作不重放、不强停、不删除数据。计数缺失如实未知，不伪报为零。
+轮换现按顺序 AND 条件：同一 thread 先完成至少两次原生 compacted，再在第二次压缩之后再次报告上下文达到 300000 token，才停新业务安全交班。两次之前即使超过 300K 也不人为换班，第二次刚完成不立即换，第二次之前的峰值不计；第二次之后达到 300K 的触发事实不因第三次及后续压缩下降撤销。新 thread 从零次计，不主动压缩或填充输入凑条件。正常响应/较大工具结果/交付边界调用全局 scripts/context_status.py --thread-id <真实ID> 并传本角色 --expected-model 和 --expected-effort high；缓存计入，不用累计消耗，不重复加 reasoning，不另开 AI/定时监控。旧 240000 或二次压缩任一先到规则已被本条替代，旧执行日志按当时事实保留，不倒改或撤销已发生交班。未触发者保留现有会话；新角色核完整背景、正确运行设置及旧停写释放后才接管，待旧 turn 结束再归档；不 fork、不重放未知操作、不强停或删除数据。
+
+启动模型/强度必须按全局 references/handoffs.md“正确启动代码模板”显式传 model 与 thinking：实现 gpt-6.1-terra/high，最终验收 gpt-6.1-sol/high，Standard。正常成功只创建一次，不额外校准。仅 create_thread 明确返回 could not validate reasoning effort 组合校验错误时，才可创建显式正确 model 的只读待命会话，并立即对同一 thread 调用 send_message_to_thread，显式设置同一 model/thinking；这不是省 thinking 即成功，禁止删除 model 回退默认或连续另开替代角色。其他错误保留原因停止。新会话第一步以自己真实 ID 运行 context_status.py --expected-model <本角色模型> --expected-effort high，只有 role_settings_status=match、next_action=continue、thread_settings 与实际 turn_context 均证明期望模型/强度且 service_tier=default，才有资格接管，仍须旧角色停写并明确交租约。await_role_settings 等实际 turn 记录，fix_role_settings 原位修同一 thread，均不得写入/UI/测试。已有正确会话不重建，标题/提示词/请求字段不能冒充实际核实；未使用的错误 Sol 接替会话仅保留归档，不成为执行者。
 
 本次只修角色结构和验收分工，不增加代次或产品目标；G001/G002 与已有效 291 项组合、R10 子集和 R13 十位置结论保留，不因流程文档重跑。纯执行事实由 Terra 单写，不覆盖历史失败、未知或未测。共同入口见 docs/feature-retirement/coordinator.md、reviewer.md、worker-common.md。
 
