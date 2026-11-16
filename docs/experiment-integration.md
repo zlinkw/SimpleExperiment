@@ -246,7 +246,7 @@ cases:
 
 ## 8. 第一次实际接入的操作顺序
 
-1. 本机识别项目，填写真实训练/评估命令和输出接入规则。
+1. AI 核实本机项目的真实训练/评估命令和输出，通过 MCP 读取、配置并回读当前项目接入规则；信息不足时询问任务事实，不要求用户手填规则、正则或 JSON。
 2. 配置并检查全部启用 Worker；由用户准备相应环境、数据与必要权重。
 3. 将 PLAN、入口、配置与小输入纳入代码同步范围；检查大数据没有被误选。
 4. 通过插件进行 PLAN 校验和预演，核对 job 数、展开参数、路径与服务器。
@@ -493,30 +493,28 @@ def write_metrics(path, rows):
 
 ### 14.3 列映射、别名和重复值
 
-已有字段例如 `score_name` / `score_value`，可在当前项目输出接入中明确配置：
+已有字段例如 `score_name` / `score_value` 时，AI 根据真实表头通过 MCP 的 `configuration_get` 和 `configuration_set` 配置当前项目。以下片段说明设置键 `simpleExperiment.projectAdapterRules` 的 `value` 结构，具体列名必须以项目实际输出为准：
 
 ~~~json
 {
-  "simpleExperiment.projectAdapterRules": {
-    "csvColumnMapping": {
-      "case": "case_name",
-      "seed": "random_seed",
-      "method": "model_name",
-      "dataset": "dataset_name",
-      "split": "split",
-      "eval_protocol": "evaluation_endpoint",
-      "metric": "score_name",
-      "value": "score_value"
-    }
+  "csvColumnMapping": {
+    "case": "case_name",
+    "seed": "random_seed",
+    "method": "model_name",
+    "dataset": "dataset_name",
+    "split": "split",
+    "eval_protocol": "evaluation_endpoint",
+    "metric": "score_name",
+    "value": "score_value"
   }
 }
 ~~~
 
-这是一段工作区设置示例，合并到已有对象，不覆盖服务器配置或其他规则。映射方向是“插件规范字段 → 原 CSV 列名”。缺失列应补充真实输出或去掉不适用映射，不造空字符串来假装维度齐全。
+映射方向是“插件规范字段 → 原 CSV 列名”。AI 保留已有映射和其他规则，写入后回读，并如实报告 Agent 同步结果；离线保存不代表远端同步。缺失列应核实真实输出或去掉不适用映射，不造空字符串来假装维度齐全。
 
 `metricAliases` 同时用于捕获/预览和主动汇总的长表、宽表 CSV。例如 `custom_score: AUC` 会进入规范 AUC 列；同一行或同一 seed 的等价指标值不一致时明确报冲突，不覆盖旧表。默认将 AP/average_precision 与 AUPRC/pr_auc 分开，也将普通、macro、micro、weighted F1 分开；只有项目确认含义相同后才显式配置合并。历史已保存别名保留，应核对是否含旧的 AP→AUPRC 或 macro_f1→F1。不同阈值、单位或协议下的指标不要合并。
 
-接入编辑器支持通用、分类、分割、回归和自定义类型。通用项目不强制 AUC；分割可用 DSC、IoU、HD95、ASD，回归可用 RMSE、MAE、R2。类型建议不会覆盖已有主指标、辅助指标或自定义类型；实际输出名、单位和指标方向仍由消费项目确定。
+接入摘要展示当前任务、指标、输出及同步状态。AI 应依据项目事实确定主指标、辅助指标、单位和方向；任务类型本身不能证明某个指标存在，也不能覆盖已有显式配置。
 
 同一个 case、seed、method、dataset、split、eval_protocol、metric 应有明确唯一的最终结果。多 checkpoint 或多个聚合口径不要靠重复行的先后顺序“最后一个覆盖”。每个 seed 输出单次值；重复实验的均值/标准差由正确分组的汇总产生，不让某行混填 `mean ± std` 字符串或跨端点平均。
 

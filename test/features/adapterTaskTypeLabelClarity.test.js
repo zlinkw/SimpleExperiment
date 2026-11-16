@@ -42,46 +42,58 @@ test("project adapter summaries translate common task types", () => {
   assert.equal(sandbox.taskTypeLabel("object-detection"), "目标检测");
   assert.equal(Object.isFrozen(sandbox.taskTypeLabels), true);
   assert.match(panel, /const PROJECT_TASK_TYPE_LABELS = Object\.freeze\(\{/);
-  assert.match(panel, /"任务 " \+ projectTaskTypeLabel\(rules\.taskType \|\| "generic"\)/);
+  assert.match(panel, /"任务 " \+ projectTaskTypeLabel\(rules\.taskType \|\| ""\)/);
+  assert.match(panel, /"主指标 " \+ \(rules\.primaryMetric \|\| "未指定"\)/);
 });
 
-test("project adapter editor and unknown task types remain compatible", () => {
+test("unknown task types remain visible in summaries", () => {
   const sandbox = loadTaskTypeLabel();
-  assert.match(panel, /configSelect\("projectAdapterRules", "taskType", "任务类型", taskType/);
   assert.equal(sandbox.taskTypeLabel("future-task"), "future-task");
   assert.equal(sandbox.taskTypeLabel(""), "未指定");
   assert.match(extractFunction("projectTaskTypeLabel"), /PROJECT_TASK_TYPE_LABELS\[key\] \|\| raw \|\| "未指定"/);
   assert.doesNotMatch(extractFunction("projectTaskTypeLabel"), /const labels =/);
 });
 
-test("rendered integration editor supports generic, regression and custom projects without forced AUC", () => {
-  const panelFunction = require('../_helpers/panelFunction');
-  const sandbox = { configDraftValue: (_scope, _key, value) => value, configHelp: () => '', helpBadge: () => '',
-    esc: String, escAttr: String, detailsOpenAttr: () => '', adapterRulesArePartial: () => false,
-    uniqueText: rows => [...new Set(rows)], asArray: value => Array.isArray(value) ? value : [],
-    isParseableResultCandidate: () => true, renderAdapterRuleSummary: () => '' };
-  for (const name of ['configSelect','projectRuleInput','projectRuleTextarea','asEditorList','mapToLines','projectTaskTypeHint','renderProjectRuleEditor'])
-    vm.runInNewContext(panelFunction(name), sandbox);
+test("integration summary reports configuration and synchronization without a manual form", () => {
+  const sandbox = { esc: String, detailsOpenAttr: () => '', asArray: value => Array.isArray(value) ? value : [],
+    adapterRuleText: (rules, key, fallback) => (rules[key] || []).join('、') || fallback,
+    renderAdapterRuleSummary: rules => `${rules.taskType || ''} ${rules.primaryMetric || ''}` };
+  vm.runInNewContext(extractFunction('renderProjectRuleEditor'), sandbox);
   for (const taskType of ['generic','classification','segmentation','regression','future-task']) {
-    const html = sandbox.renderProjectRuleEditor({ taskType, primaryMetric: 'project_score', secondaryMetrics: ['custom'], metricAliases: { raw_score: 'project_score' } });
-    assert.ok(html.includes('value="' + taskType + '" selected'));
-    assert.match(html,/data-key="primaryMetric" value="project_score"/);
-    assert.match(html,/raw_score: project_score/);
-    assert.doesNotMatch(html,/分割只保留兼容入口|默认分类任务/);
+    const rules = { taskType, primaryMetric: 'AP', candidateCsv: ['metrics.csv'] };
+    const html = sandbox.renderProjectRuleEditor(rules, rules, { status: 'pending', errors: ['离线模式'] });
+    assert.match(html, /已配置/); assert.ok(html.includes(taskType)); assert.match(html, /AP/); assert.match(html, /metrics\.csv/);
+    assert.match(html, /Agent 待同步.*离线模式/);
+    assert.doesNotMatch(html, /<input|<select|<textarea|保存接入规则/);
   }
-  const generic = sandbox.renderProjectRuleEditor({});
-  assert.match(generic,/data-key="primaryMetric" value=""/);
-  assert.match(generic,/value="generic" selected/);
+  assert.match(sandbox.renderProjectRuleEditor({}, {}, {}), /待 AI 配置.*项目识别线索/);
+  assert.match(sandbox.renderProjectRuleEditor({taskType:'classification'}, {taskType:'classification'}, {}), /待 AI 配置/);
+  assert.match(sandbox.renderProjectRuleEditor({primaryMetric:'weighted_f1'}, {primaryMetric:'weighted_f1'}, {status:'synced'}), /Agent 已同步/);
 });
 
-test('task type changes update only suggestion text and GPU refresh keeps its narrow command',()=>{
- const panelFunction=require('../_helpers/panelFunction'),hint={textContent:''};
- const sandbox={};for(const name of ['projectTaskTypeHint','updateProjectTaskTypeHint'])vm.runInNewContext(panelFunction(name),sandbox);
- sandbox.updateProjectTaskTypeHint({value:'regression',closest:()=>({querySelector:selector=>{assert.equal(selector,'[data-project-task-type-hint]');return hint;}})});
- assert.match(hint.textContent,/RMSE.*MAE.*R2/);
+test('GPU refresh keeps its narrow command',()=>{
  const html=require('../../dist/ui/PanelHtml').renderPanelHtml();
  assert.match(html,/data-command="manualGpuSnapshot" title="仅刷新当前启用 Worker 的 GPU 状态"/);
  assert.doesNotMatch(html,/data-command="snapshot" title="刷新 GPU 状态"/);
+});
+
+test('result mapping source renders a read-only summary of existing configuration', () => {
+ const sandbox={asArray:value=>Array.isArray(value)?value:[],detailsOpenAttr:()=>'',esc:String};
+ vm.runInNewContext(extractFunction('renderResultColumnMappingEditor'),sandbox);
+ const html=sandbox.renderResultColumnMappingEditor({resultOutputConfig:{columnMapping:{case:'specimen'},adapterRules:{derivedMetric:{metric:'AP',leftEndpoint:'a',rightEndpoint:'b',outputName:'delta',scale:1}}}},
+   {source:'results.csv',mapping:{seed:'rng'},sampleValues:{specimen:['case1']}});
+ assert.match(html,/results\.csv.*case → specimen.*seed → rng.*case1.*AP · a · b · delta · 1/);
+ assert.doesNotMatch(html,/<input|<select|<textarea|保存映射/);
+});
+
+test('result summary dependencies change when configured mapping or derived metric changes', () => {
+ const sandbox={compactSelectedResultPlanForSignature:()=>({}),compactResultsSummaryForSignature:()=>({}),resultAutoParseReadinessForState:()=>({}),
+   compactTracesForSignature:()=>({}),compactResultSelectionForSignature:()=>({}),compactPlanArchiveForSignature:()=>({})};
+ vm.runInNewContext(extractFunction('sectionRenderModel'),sandbox);
+ const model=state=>JSON.stringify(sandbox.sectionRenderModel(state,'results'));
+ const before=model({resultOutputConfig:{columnMapping:{case:'old'},adapterRules:{derivedMetric:{metric:'AP'}}}});
+ assert.notEqual(model({resultOutputConfig:{columnMapping:{case:'new'},adapterRules:{derivedMetric:{metric:'AP'}}}}),before);
+ assert.notEqual(model({resultOutputConfig:{columnMapping:{case:'old'},adapterRules:{derivedMetric:{metric:'AUPRC'}}}}),before);
 });
 
 test('update settings show the running channel and queried versions without frozen authority notices',()=>{

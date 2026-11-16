@@ -202,19 +202,18 @@ test("runtime: openExternal=false surfaces a warning containing the URL (no sile
   }
 });
 
-// —— 两个原入口源码契约与控制流 ——
+// —— 现有入口源码契约与控制流 ——
 
 const legacy = readSource("src/extension.ts");
 
-for (const entry of ["openSetupGuide", "openPptAutomationGuide"]) {
-  test(`${entry} opens the guide only through showSetupGuideDocument (no direct docs path)`, () => {
-    const start = legacy.indexOf(`async ${entry}()`);
-    assert.ok(start >= 0, `missing method ${entry}`);
-    const body = legacy.slice(start, start + 400);
-    assert.match(body, /this\.showSetupGuideDocument\(\)/);
-    assert.doesNotMatch(body, /path\.join\(this\.context\.extensionPath,\s*"docs"/);
-  });
-}
+test("openSetupGuide uses the shared guide and the retired PPT entry stays absent", () => {
+  const start = legacy.indexOf('async openSetupGuide()');
+  assert.ok(start >= 0, 'missing method openSetupGuide');
+  const body = legacy.slice(start, start + 400);
+  assert.match(body, /this\.showSetupGuideDocument\(\)/);
+  assert.doesNotMatch(body, /path\.join\(this\.context\.extensionPath,\s*"docs"/);
+  assert.doesNotMatch(legacy, /async openPptAutomationGuide\(\)/);
+});
 
 test("showSetupGuideDocument reads context.extension?.packageJSON and keeps preview inside the file branch", () => {
   const body = extractMethodText("showSetupGuideDocument");
@@ -246,9 +245,9 @@ test("AI integration entry is pinned in settings and its full multiline task rea
   assert.ok(match, "one-click copy must use the existing clipboard command");
   const payload = match[1].replace(/&#10;/g, "\n").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
   const version = require('../../package.json').version;
-  assert.equal(payload, guides.experimentIntegrationAiTask(repository, version));
-  assert.ok(html.includes('href="' + guides.experimentIntegrationGuideUrl(repository, version) + '"'));
-  assert.ok(payload.includes('/blob/v'+version+'/docs/'));
+  assert.equal(payload, guides.experimentIntegrationAiTask(repository) + '\n\n当前插件版本：' + version + '。任务指标与输出接入由 AI 核实真实任务后通过 MCP configuration_get / configuration_set 配置并回读；保留已有映射，报告 Agent 实际同步状态。事实不足时询问任务事实，不要求用户填写规则表、正则或 JSON，也不猜测主指标。');
+  assert.ok(html.includes('href="' + guides.experimentIntegrationGuideUrl(repository) + '"'));
+  assert.ok(payload.includes('/blob/master/docs/'));
   assert.ok(payload.includes('当前插件版本：'+version));
   assert.match(payload, /MultiModal/); assert.match(payload, /不凭记忆/); assert.match(payload, /confirm\/pathConfirmed/);
   const copied = [];

@@ -10,8 +10,8 @@ export function renderPanelHtml(): string {
     const logicalPlansSource = "(" + composeLogicalPlans.toString() + ")";
     const guideRepository = (() => { try { return extensionRepositoryUrl(require("../../package.json")); } catch { return undefined; } })();
     const guideAttribute = (value: string) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "&#10;");
-    const integrationGuideHref = guideAttribute(experimentIntegrationGuideUrl(guideRepository, PLUGIN_VERSION));
-    const integrationAiTask = guideAttribute(experimentIntegrationAiTask(guideRepository, PLUGIN_VERSION));
+    const integrationGuideHref = guideAttribute(experimentIntegrationGuideUrl(guideRepository));
+    const integrationAiTask = guideAttribute(experimentIntegrationAiTask(guideRepository) + "\n\n当前插件版本：" + PLUGIN_VERSION + "。任务指标与输出接入由 AI 核实真实任务后通过 MCP configuration_get / configuration_set 配置并回读；保留已有映射，报告 Agent 实际同步状态。事实不足时询问任务事实，不要求用户填写规则表、正则或 JSON，也不猜测主指标。");
     return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -3229,7 +3229,7 @@ export function renderPanelHtml(): string {
       endpointId: "endpoint-id", planFile: "plan-file", planRevision: "plan-revision", planId: "plan-id", file: "file", runKey: "run-key", taskUiKey: "task-ui-key", experimentId: "experiment-id",
       archiveKey: "archive-key", experimentIndex: "experiment-index", gpuId: "gpu-id", workerId: "worker-id", remotePath: "remote-path", confirmationPath: "confirmation-path",
       artifactPath: "artifact-path", resultPath: "result-path", logPath: "log-path", savePlan: "save-plan", deferredPlanId: "deferred-plan-id", sourcePath: "source-path", sourceLabel: "source-label",
-      presentationPath: "presentation-path", chartType: "chart-type", styleMode: "style-mode", branchProjectId: "branch-project-id", branchRoot: "branch-root"
+      branchProjectId: "branch-project-id", branchRoot: "branch-root"
     });
     const BUTTON_PAYLOAD_ATTRIBUTE_KEYS = Object.freeze(Object.keys(BUTTON_PAYLOAD_ATTRIBUTE_NAMES));
     const PENDING_SCOPE_KEYS = Object.freeze(["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "workerId", "configScope", "savePlan", "batchSelected"]);
@@ -4343,8 +4343,6 @@ export function renderPanelHtml(): string {
         updateConfigDraft(input);
         updateServerDestinationPreview(input);
         serverConfigEditLockUntil = Date.now() + 30000;
-        if (input.dataset.configInput === "resultMapping") updateResultMappingExample(input);
-        if (input.dataset.configInput === "projectAdapterRules" && input.dataset.key === "taskType") updateProjectTaskTypeHint(input);
       }
       if (isPlanPreviewEditor(input)) planPreviewEditLockUntil = Date.now() + 45000;
       if (input && input.id === "resourceTreeSearch") {
@@ -5679,6 +5677,8 @@ export function renderPanelHtml(): string {
           selectedPlan: compactSelectedResultPlanForSignature(data),
           resultsSummary: compactResultsSummaryForSignature(data.resultsSummary),
           resultTables: data.resultOutputConfig?.tables || [],
+          resultColumnMapping: data.resultOutputConfig?.columnMapping || {},
+          resultDerivedMetric: data.resultOutputConfig?.adapterRules?.derivedMetric || {},
           resultCatalog: data.resultOutputConfig?.catalog || {},
           resultCatalogStatus: data.resultOutputConfig?.catalogLoadStatus,
           resultCatalogError: data.resultOutputConfig?.catalogLoadError,
@@ -5765,16 +5765,15 @@ export function renderPanelHtml(): string {
         resultOutputConfig: compactRecordForSignature(data.resultOutputConfig || {}, ["csvDirectory", "columnMapping"]),
         remoteRootPolicy: compactRecordForSignature(data.remoteRootPolicy || {}, ["allowedRoots", "deniedRoots"]),
         pluginUpdate: compactRecordForSignature(data.pluginUpdate || {}, ["status", "checkedAt", "message", "experiment", "sftp"]),
-        projectAdapterRules: settingsAdapterRulesSignature(Object.assign({}, (data.detectedProject || {}).adapterRules, (data.resultOutputConfig || {}).adapterRules))
+        projectAdapterRules: settingsAdapterRulesSignature(Object.assign({}, (data.detectedProject || {}).adapterRules, (data.resultOutputConfig || {}).adapterRules)),
+        adapterSync: (data.resultOutputConfig || {}).adapterSync
       };
     }
 
     function settingsAdapterRulesSignature(rules) {
-      const entries = Object.entries(rules || {});
-      return { count: entries.length, fields: Object.fromEntries(entries.slice(0, SECTION_SIGNATURE_ROW_LIMIT).map(([key, value]) => [key,
-        Array.isArray(value) ? { count: value.length, values: value.slice(0, SECTION_SIGNATURE_ROW_LIMIT) }
-          : value && typeof value === "object" ? { count: Object.keys(value).length, entries: Object.entries(value).slice(0, SECTION_SIGNATURE_ROW_LIMIT) }
-          : value])) };
+      const source = rules || {};
+      const fields = ["taskType", "primaryMetric", "secondaryMetrics", "classificationMetrics", "segmentationMetrics", "candidateCsv", "candidateJson", "consoleLogs", "textLogs", "metricRegex", "metricAliases", "csvColumnMapping", "inferredFromProject", "adapterRulesPartial"];
+      return Object.fromEntries(Object.entries(source).filter(([key]) => fields.includes(key) || key.endsWith("TotalCount") || key.endsWith("OmittedCount")));
     }
 
     function compactSettingsTopologyForSignature(topology) {
@@ -6499,7 +6498,7 @@ export function renderPanelHtml(): string {
 
     function pendingKeyFromButtonDataset(button) {
       const payload = {};
-      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "attempt", "commandId", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "session", "window", "branchProjectId"].forEach((key) => {
+      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "attempt", "commandId", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "target", "session", "window", "branchProjectId"].forEach((key) => {
         if (key === "attempt" && button.dataset.command === "recallFailedJob") return;
         if (button.dataset[key]) payload[key] = button.dataset[key];
       });
@@ -6509,7 +6508,7 @@ export function renderPanelHtml(): string {
 
     function pendingKeyForAction(command, payload) {
       const parts = [command];
-      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "attempt", "commandId", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "batchSelected", "branchProjectId"].forEach((key) => {
+      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "attempt", "commandId", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "target", "batchSelected", "branchProjectId"].forEach((key) => {
         const value = payload && payload[key];
         if (value || (key === "jobIndex" && value === 0)) parts.push(key + "=" + String(value));
       });
@@ -10063,7 +10062,7 @@ export function renderPanelHtml(): string {
       const configuredRules = ((state || {}).resultOutputConfig || {}).adapterRules || {};
       const detectedRules = (((state || {}).detectedProject || {}).adapterRules) || {};
       if (!configContainerHasEditor("projectAdapterRuleSettings"))
-        setHtmlIfChanged("projectAdapterRuleSettings", renderProjectRuleEditor(Object.assign({}, detectedRules, configuredRules)));
+        setHtmlIfChanged("projectAdapterRuleSettings", renderProjectRuleEditor(Object.assign({}, detectedRules, configuredRules), configuredRules, ((state || {}).resultOutputConfig || {}).adapterSync));
       if (!configContainerHasEditor("serverSettingsCards")) renderServerCardsV2(state);
     }
 
@@ -10167,8 +10166,8 @@ export function renderPanelHtml(): string {
     function renderResultColumnMappingSettings(state) {
       setHtmlIfChanged("resultColumnMappingSettings",
         '<div class="settingsLayoutTools"><b>结果列映射</b>' +
-          '<span class="muted">列映射在当前 Plan 的结果区编辑，可直接查看 CSV 列名和样例值。配置保存在插件工作区设置。</span>' +
-          '<button data-command="editResultColumnMapping" type="button" title="打开当前项目的结果列映射编辑区">转到结果区编辑</button>' +
+          '<span class="muted">AI 根据真实结果通过 MCP 配置；结果区可查看来源、映射和派生指标。</span>' +
+          '<button data-command="editResultColumnMapping" type="button" title="查看当前项目的结果列映射摘要">查看结果映射</button>' +
         '</div>');
     }
 
@@ -10180,15 +10179,6 @@ export function renderPanelHtml(): string {
       editor.open = true;
       pendingResultMappingOpen = false;
       editor.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }
-
-    function updateResultMappingExample(input) {
-      if (!input || !input.dataset) return;
-      const example = document.querySelector('[data-result-mapping-example="' + cssEscape(input.dataset.key || "") + '"]');
-      if (!example) return;
-      const preview = (((lastState || {}).resultsSummary || {}).columnMappingPreview) || {};
-      const values = (preview.sampleValues || {})[input.value] || [];
-      example.textContent = input.value ? (values.length ? "样例：" + values.join(" / ") : "该列暂无非空样例") : "使用自动识别结果";
     }
 
     function updateConfigDraft(input) {
@@ -11375,7 +11365,7 @@ export function renderPanelHtml(): string {
       if (!outputReady) {
         const adapterAction = adapterConfig
           ? projectPathButton("打开接入配置", adapterConfig)
-          : '<button class="mini secondary" data-command="generateOutputAdapter" title="生成可选的 Python 结果写入适配器；结果路径和列映射可在 Plan 与插件设置中配置">生成接入模板</button>';
+          : '<button class="mini secondary" data-command="generateOutputAdapter" title="生成可选的 Python 结果写入适配器；AI 可根据实际任务配置结果接入">生成接入模板</button>';
         return '<div class="planRunActions">' + projectNextAction("补全输出后再运行", "打开 Plan", "openPlan", { file: selectedPlan }) + adapterAction + '</div>';
       }
       const plan = planFromContext(state || {}, { planFile: selectedPlan }) || {};
@@ -13735,11 +13725,11 @@ export function renderPanelHtml(): string {
       const rows = [
         { label: "计划强契约", ok: contractReady, fix: planContractFixText(plan) },
         { label: "配置文件", ok: configReady, fix: "在工作区创建或在当前 Plan 中改为可用配置。" },
-        { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: "在当前 Plan 声明结果位置，或在插件设置中配置输出接入规则。" },
+        { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: "请 AI 根据当前任务和实际输出配置接入。" },
         { label: "计划输出", ok: planReady || ruleCandidateCount > 0, fix: "在 plan 的 paper.result_csv、runner.test_command --result-csv/--output-dir 或 expectedResults 中写明可解析结果位置。" },
-        { label: "候选结果规则", ok: candidateCount > 0 || planReady, fix: "在候选 CSV/JSON/控制台日志/文本 summary 中至少填写一类，或配置 metricRegex。" },
+        { label: "候选结果规则", ok: candidateCount > 0 || planReady, fix: "请 AI 核实实际结果位置和格式。" },
         { label: "标准结果契约", ok: planReady || ruleCandidateCount > 0, fix: "在 Plan 声明实际结果或任务产物；也可配置结果解析规则。" },
-        { label: "解析预览", ok: parseableCount > 0 || planReady || ruleCandidateCount > 0, fix: "保存接入规则后点击“刷新识别”，确认至少一个结果文件或控制台日志可解析。" }
+        { label: "解析预览", ok: parseableCount > 0 || planReady || ruleCandidateCount > 0, fix: "请 AI 核实结果文件或日志能否解析。" }
       ];
       const diagnostics = { ok: contractReady && configReady && accessReady && outputReady, rows, missing: rows.filter((row) => !row.ok).map((row) => row.label) };
       if (!projectCache) {
@@ -13898,80 +13888,24 @@ export function renderPanelHtml(): string {
       return scoped;
     }
 
-    function renderProjectRuleEditor(rules) {
-      const partial = adapterRulesArePartial(rules);
-      const taskType = configDraftValue("projectAdapterRules", "taskType", rules.taskType || "generic");
-      const classificationMetrics = uniqueText(rules.classificationMetrics || []);
-      const segmentationMetrics = uniqueText(rules.segmentationMetrics || []);
-      const suggestions = projectTaskTypeHint(taskType);
-      const candidateCsv = uniqueText(rules.candidateCsv || ["metrics_summary.csv", "work_dirs/*/metrics_summary.csv", "experiments/results/*.csv", "test_results/summary.csv"]);
-      const configuredJson = uniqueText(asArray(rules.candidateJson).filter(isParseableResultCandidate));
-      const candidateJson = configuredJson.length ? configuredJson : ["metrics.json", "result.json", "results.json"];
-      const consoleLogs = uniqueText(rules.consoleLogs || ["stdout.log", "stderr.log"]);
-      const textLogs = uniqueText(rules.textLogs || ["summary.txt", "console.log"]);
-      const aliases = mapToLines(rules.metricAliases || {});
-      const summary = renderAdapterRuleSummary(Object.assign({}, rules, { classificationMetrics, segmentationMetrics, candidateCsv, candidateJson, consoleLogs, textLogs }));
-      const partialNotice = partial
-        ? '<div class="notice warning" title="规则摘要">自动识别规则只显示摘要；保存前请核对下方字段。已保存的插件配置仍完整保留。</div>'
-        : "";
-      return '<details class="projectRuleEditor" data-details-key="project-rule-editor"' + detailsOpenAttr("project-rule-editor", false) + ' title="接入规则">' +
-        '<summary>任务指标与输出接入配置<span class="muted">' + esc(summary) + '</span></summary>' +
-        (partialNotice + '<div class="projectRuleGrid">' +
-          configSelect("projectAdapterRules", "taskType", "任务类型", taskType, [["generic","通用"],["classification","分类"],["segmentation","分割"],["regression","回归"],["custom","自定义"]].concat(["generic","classification","segmentation","regression","custom"].includes(taskType) ? [] : [[taskType,taskType]])) +
-          '<div class="muted wide" data-project-task-type-hint>' + esc(suggestions) + '</div>' +
-          projectRuleInput("primaryMetric", "主指标", rules.primaryMetric || "", "填写实际输出的主指标名称；通用任务可留空。") +
-          projectRuleTextarea("secondaryMetrics", "辅助指标", asEditorList(rules.secondaryMetrics || []), "每行或逗号分隔，用于结果扫读。") +
-          '<details class="wide"><summary>兼容指标池（可选，保留已有配置）</summary>' +
-          projectRuleTextarea("classificationMetrics", "分类指标池", asEditorList(classificationMetrics), "分类任务常用指标范围；其他任务可留空。") +
-          projectRuleTextarea("segmentationMetrics", "分割指标池", asEditorList(segmentationMetrics), "分割项目可填写 DSC、IoU、HD95、ASD；其他任务可留空。") + '</details>' +
-          projectRuleTextarea("candidateCsv", "候选 CSV", asEditorList(candidateCsv), "优先使用 metrics_summary.csv 长表（含 work_dirs 通配）。") +
-          projectRuleTextarea("candidateJson", "候选 JSON", asEditorList(candidateJson), "已有结构化结果文件可在这里登记。") +
-          projectRuleTextarea("consoleLogs", "控制台日志", asEditorList(consoleLogs), "run_wrapper 会捕获 stdout/stderr；正则可从日志提取指标。") +
-          projectRuleTextarea("textLogs", "文本 summary", asEditorList(textLogs), "summary.txt 或 console.log 等轻量文本结果。") +
-          projectRuleInput("metricRegex", "控制台指标正则", rules.metricRegex || "", "留空使用默认深度学习指标正则；仅在项目输出格式特殊时填写。", "wide") +
-          '<div class="projectRuleField wide"><span>CSV 列映射请使用上方“结果列映射”表单。</span></div>' +
-          projectRuleTextarea("metricAliases", "指标别名", aliases, "格式：项目输出名: 标准指标名，例如 auroc: AUC。", "wide") +
-          projectRuleTextarea("inferredSignalsReadonly", "自动推断线索", asEditorList(rules.inferredSignals || []), "只读参考：从配置、工厂模式、结果脚本和指标名推断出的线索。", "wide readonly") +
-        '</div>' +
-        '<div class="projectRuleActions">' +
-          '<span class="muted">接入规则保存于插件工作区设置</span>' +
-          '<button data-command="saveProjectAdapterRules" data-config-scope="projectAdapterRules" title="保存输出接入配置到插件工作区设置并同步 Agent">保存接入规则</button>' +
-        '</div>') +
-      '</details>';
-    }
-
-    function projectTaskTypeHint(taskType) {
-      const suggestion = taskType === "classification" ? "分类示例：主指标 AUC；辅助 accuracy、F1、AUPRC。AP 与 AUPRC 分开统计。" : taskType === "segmentation" ? "分割示例：主指标 DSC；辅助 IoU、HD95、ASD。距离类指标通常越小越好，由项目明确。" : taskType === "regression" ? "回归示例：主指标 RMSE；辅助 MAE、R2。指标方向和单位由项目明确。" : "通用或自定义任务：填写项目实际输出的指标名，不要求分类指标。";
-      return suggestion + " 切换类型不覆盖已填写指标；建议值请按项目实际输出填写。";
-    }
-
-    function updateProjectTaskTypeHint(input) {
-      const editor = input.closest?.(".projectRuleEditor");
-      const hint = editor?.querySelector("[data-project-task-type-hint]");
-      if (hint) hint.textContent = projectTaskTypeHint(input.value);
-    }
-
-    function projectRuleInput(key, label, value, title, cls) {
-      value = configDraftValue("projectAdapterRules", key, value);
-      const fieldHelp = String(title || label);
-      return '<div class="projectRuleField ' + escAttr(cls || "") + '" title="' + escAttr(fieldHelp) + '"><label title="' + escAttr(fieldHelp) + '"><span class="configFieldLabel">' + esc(label) + helpBadge(fieldHelp) + '</span><input data-config-input="projectAdapterRules" data-key="' + escAttr(key) + '" value="' + escAttr(value || "") + '" title="' + escAttr(fieldHelp) + '"></label></div>';
-    }
-
-    function projectRuleTextarea(key, label, value, title, cls) {
-      const readonly = String(cls || "").includes("readonly");
-      if (!readonly) value = configDraftValue("projectAdapterRules", key, value);
-      const configAttr = readonly ? "" : ' data-config-input="projectAdapterRules" data-key="' + escAttr(key) + '"';
-      const lineCount = String(value || "").split(/\\n/).filter(Boolean).length;
-      const fieldHelp = String(title || label) + "；当前 " + lineCount + " 行。";
-      return '<div class="projectRuleField ' + escAttr(cls || "") + '" title="' + escAttr(fieldHelp) + '"><label title="' + escAttr(fieldHelp) + '"><span class="configFieldLabel">' + esc(label) + helpBadge(fieldHelp) + '</span><textarea' + configAttr + (readonly ? " readonly" : "") + ' title="' + escAttr(fieldHelp) + '">' + escAttr(value || "") + '</textarea></label></div>';
-    }
-
-    function asEditorList(values) {
-      return (values || []).filter(Boolean).join("\\n");
-    }
-
-    function mapToLines(map) {
-      return Object.entries(map || {}).map(([key, value]) => key + ": " + value).join("\\n");
+    function renderProjectRuleEditor(rules, configured, sync) {
+      configured = configured || {};
+      sync = sync || { status: "unknown", errors: [] };
+      const configuredKeys = ["taskType", "primaryMetric", "secondaryMetrics", "candidateCsv", "candidateJson", "consoleLogs", "textLogs", "metricRegex"];
+      const configuredAny = configuredKeys.some((key) => Array.isArray(configured[key]) ? configured[key].length : Boolean(configured[key]));
+      const hasOutput = ["candidateCsv", "candidateJson", "consoleLogs", "textLogs"].some((key) => asArray(configured[key]).length);
+      const status = configuredAny && hasOutput && (configured.taskType || configured.primaryMetric) ? "已配置" : "待 AI 配置";
+      const source = configuredAny ? "工作区接入配置；其余摘要可能来自项目识别" : "项目识别线索，尚未确认配置";
+      const syncText = sync.status === "synced" ? "Agent 已同步" : sync.status === "pending" ? "Agent 待同步" : "Agent 同步状态未知";
+      const errors = asArray(sync.errors).filter(Boolean).join("；");
+      return '<details class="projectRuleEditor" data-details-key="project-rule-editor"' + detailsOpenAttr("project-rule-editor", false) + ' title="接入摘要">' +
+        '<summary>任务指标与输出接入 · ' + esc(status) + '</summary>' +
+        '<div class="muted">' + esc(renderAdapterRuleSummary(rules)) + '</div>' +
+        '<div class="muted">输出：' + esc(["candidateCsv", "candidateJson", "consoleLogs", "textLogs"].map((key) => adapterRuleText(rules, key, "")).filter(Boolean).join("、") || "未指定") + '</div>' +
+        '<div class="muted">辅助指标：' + esc(adapterRuleText(rules, "secondaryMetrics", "未指定")) + '；解析：' + esc(rules.metricRegex ? "已配置日志规则" : "按结果格式识别") + '</div>' +
+        '<div class="muted">来源：' + esc(source) + '</div>' +
+        '<div class="muted">' + esc(syncText + (errors ? "：" + errors : "")) + '</div>' +
+        '<div class="muted">AI 根据当前任务和实际输出通过 MCP 配置；信息不足时会询问任务事实。</div></details>';
     }
 
     function adapterRulesArePartial(rules) {
@@ -14118,8 +14052,8 @@ export function renderPanelHtml(): string {
 
     function renderAdapterRuleSummary(rules) {
       const parts = [
-        "任务 " + projectTaskTypeLabel(rules.taskType || "generic"),
-        "主指标 " + (rules.primaryMetric || "AUC"),
+        "任务 " + projectTaskTypeLabel(rules.taskType || ""),
+        "主指标 " + (rules.primaryMetric || "未指定"),
         "分类 " + adapterRuleCount(rules, "classificationMetrics"),
         "分割 " + adapterRuleCount(rules, "segmentationMetrics"),
         "CSV " + adapterRuleCount(rules, "candidateCsv"),
@@ -16944,7 +16878,7 @@ export function renderPanelHtml(): string {
       const datasetOptions = view.datasets.map(row => '<option value="' + escAttr(row.dataset) + '">' + esc(row.dataset) + '</option>').join("");
       const unassignedRows = '<datalist id="result-map-datasets">' + datasetOptions + '</datalist>' + view.unassigned.plans.map(plan => '<label class="resultPlanMapRow"><input type="checkbox" data-plan-map-check value="' + escAttr(plan.planFile || "") + '"><span title="' + escAttr(plan.planFile || "") + '">' + esc(planLabels.get(resultCatalogPlanPath(plan))) + '<small class="muted">' + esc(plan.planFile || "") + '</small></span><input type="text" list="result-map-datasets" data-plan-map-dataset placeholder="输入或选择数据集" aria-label="映射 ' + escAttr(plan.planFile || "") + '"></label>').join("");
       const unassignedTablesHtml = view.unassigned.tables.length ? '<section><h4 class="resultDatasetSectionTitle">未标注数据集的结果</h4>' + view.unassigned.tables.map(row => tableRow(row, row.kind)).join("") + '</section>' : "";
-      const unassignedHtml = view.unassigned.planCount || view.unassigned.tables.length ? '<section class="resultSpecialSection"><h4 class="resultDatasetSectionTitle">待处理</h4><div class="resultSpecialGroup resultUnassigned"><div class="resultUnassignedLead">⚠ ' + view.unassigned.planCount + ' 个 Plan 尚未识别数据集</div><div class="muted">这些现有结果缺少数据集元数据；应用映射只重新整理本地已有结果，不会重新训练。</div><div class="resultTopActions"><button type="button" class="secondary mini" data-command="autoMatchPlanDatasets" title="根据当前项目已有结果自动匹配可确定的数据集，只重新整理本机汇总">自动匹配可确定项（已恢复 ' + view.autoRecoverableCount + '）</button><button type="button" class="secondary mini" data-open-result-mapping>设置结果列映射</button><details data-details-key="result-unassigned"' + detailsOpenAttr("result-unassigned", false) + '><summary>尚未识别 Plan（' + view.unassigned.planCount + '）</summary><div class="resultPlanMapList">' + unassignedRows + '<button type="button" data-command="applyPlanDatasetMapping" title="保存当前数据集映射并重新整理本机已有结果，不会重跑训练">应用映射并重新整理已有结果</button><div class="muted">重新整理本机已有汇总，保留指标值和来源；原始 CSV 保持不变。</div></div></details></div>' + unassignedTablesHtml + '</div></section>' : "";
+      const unassignedHtml = view.unassigned.planCount || view.unassigned.tables.length ? '<section class="resultSpecialSection"><h4 class="resultDatasetSectionTitle">待处理</h4><div class="resultSpecialGroup resultUnassigned"><div class="resultUnassignedLead">⚠ ' + view.unassigned.planCount + ' 个 Plan 尚未识别数据集</div><div class="muted">这些现有结果缺少数据集元数据；应用映射只重新整理本地已有结果，不会重新训练。</div><div class="resultTopActions"><button type="button" class="secondary mini" data-command="autoMatchPlanDatasets" title="根据当前项目已有结果自动匹配可确定的数据集，只重新整理本机汇总">自动匹配可确定项（已恢复 ' + view.autoRecoverableCount + '）</button><button type="button" class="secondary mini" data-open-result-mapping>查看结果列映射</button><details data-details-key="result-unassigned"' + detailsOpenAttr("result-unassigned", false) + '><summary>尚未识别 Plan（' + view.unassigned.planCount + '）</summary><div class="resultPlanMapList">' + unassignedRows + '<button type="button" data-command="applyPlanDatasetMapping" title="保存当前数据集映射并重新整理本机已有结果，不会重跑训练">应用映射并重新整理已有结果</button><div class="muted">重新整理本机已有汇总，保留指标值和来源；原始 CSV 保持不变。</div></div></details></div>' + unassignedTablesHtml + '</div></section>' : "";
       const sharedHtml = specialHtml(view.shared, "shared-sources", "跨数据集 Plan 与共享产物");
       const legacyTables = asArray(catalog.legacyTables);
       const legacyHtml = legacyTables.length ? '<details class="resultSpecialGroup" data-details-key="result-legacy-tables"' + detailsOpenAttr("result-legacy-tables", false) + '><summary>旧版结果结构（' + legacyTables.length + '）</summary><div class="resultSpecialBody"><div class="muted">旧结构只读保留；重新汇总后会生成按数据集组织的结果。</div>' + legacyTables.map(row => '<div class="resultTableName" title="' + escAttr(row.path || "") + '">' + esc(resultCatalogBasename(row.path)) + '</div>').join("") + '</div></details>' : "";
@@ -16967,7 +16901,7 @@ export function renderPanelHtml(): string {
       const resultPlanFile = pick(summary, ["planFile", "plan_file"], state.planFileInput || (state.selection || {}).selectedPlanId || "");
       return '<div class="resultEvidenceWorkbench">' + renderProjectResultTables(state) +
         '<section class="resultPlanActions"><div class="resultPlanActionsTitle"><strong>项目结果配置</strong><small>对本项目全部 PLAN 生效</small></div>' +
-        '<div class="resultPlanActionButtons"><button class="taskActionButton secondary" data-open-result-mapping type="button" title="对本项目全部 PLAN 生效；保存后主动更新全部 PLAN 结果。">项目结果列映射</button></div>' +
+        '<div class="resultPlanActionButtons"><button class="taskActionButton secondary" data-open-result-mapping type="button" title="查看本项目的结果列映射摘要">查看结果列映射</button></div>' +
         '<div class="resultPlanActionsHelp">核实本项目全部 PLAN 与全部启用 Worker；指标在内存读取，原始指标不保存为本机副本。</div></section>' +
         '<div class="resultPlanActionsHelp" style="overflow-wrap:anywhere;">PLAN 上下文：' + esc(resultPlanFile || "尚未选择 PLAN") + '。列映射保存范围为本项目。</div>' +
         renderResultColumnMappingEditor(state, summary.columnMappingPreview) + '</div>';
@@ -16977,36 +16911,21 @@ export function renderPanelHtml(): string {
 
     function renderResultColumnMappingEditor(state, preview) {
       const item = preview && typeof preview === "object" ? preview : {};
-      const detected = item.mapping && typeof item.mapping === "object" ? item.mapping : {};
       const configured = (((state || {}).resultOutputConfig || {}).columnMapping) || {};
-      const headers = asArray(item.headers).map(String).filter(Boolean);
+      const detected = item.mapping || {};
       const samples = item.sampleValues || {};
-      const fieldRow = (field, label, help) => {
-        const value = String(configDraftValue("resultMapping", field, configured[field] || ""));
-        const auto = String(detected[field] || "");
-        const options = '<option value="">自动识别' + (auto ? '（' + esc(auto) + '）' : '（未识别）') + '</option>' +
-          (value && !headers.includes(value) ? '<option value="' + escAttr(value) + '" selected>' + esc(value) + '（当前配置，未出现在预览中）</option>' : "") +
-          headers.map((header) => '<option value="' + escAttr(header) + '"' + (header === value ? ' selected' : '') + '>' + esc(header) + (asArray(samples[header]).length ? ' · 例：' + esc(String(samples[header][0])) : "") + '</option>').join("");
-        const sample = value ? (asArray(samples[value]).length ? '样例：' + asArray(samples[value]).join(' / ') : '该列暂无非空样例') : '使用自动识别结果';
-        return '<label class="resultMappingField" title="' + escAttr(help) + '"><span><b>' + esc(label) + '</b><span class="muted" title="' + escAttr(help) + '"> ⓘ</span></span><select data-config-input="resultMapping" data-key="' + escAttr(field) + '" aria-label="' + escAttr(label) + '" title="' + escAttr(help) + '">' + options + '</select><span class="resultMappingSample" data-result-mapping-example="' + escAttr(field) + '">' + esc(sample) + '</span></label>';
-      };
-      const main = fieldRow("case", "实验 case", "用来匹配当前 Plan 的实验 case") + fieldRow("seed", "随机 seed", "用来跨 seed 计算均值和样本标准差") + fieldRow("metric", "指标名称", "长表的指标名称列；宽表留空") + fieldRow("value", "指标值", "长表的数值列；宽表留空");
-      const advanced = fieldRow("split", "数据划分", "例如 train、val 或 test") + fieldRow("dataset", "数据集", "数据集标识") + fieldRow("method", "方法", "模型或方法标识") + fieldRow("eval_protocol", "评估端点", "例如 clean 或 p100_low；不同端点必须分行") + fieldRow("rate_percent", "比例百分数", "已经是 0 至 100 的比例") + fieldRow("train_rate", "训练比例", "0 至 1 的小数会转为百分数");
       const derived = ((((state || {}).resultOutputConfig || {}).adapterRules) || {}).derivedMetric || {};
-      const derivedInput = (key, label, current, placeholder) => '<label class="resultMappingField" title="同一 case 和 seed 下配对计算时使用的' + escAttr(label) + '；全部留空则关闭派生指标。"><span><b>' + esc(label) + '</b></span><input data-config-input="resultMapping" data-key="' + escAttr(key) + '" value="' + escAttr(configDraftValue("resultMapping", key, current || "")) + '" placeholder="' + escAttr(placeholder) + '" title="同一 case 和 seed 下配对计算时使用的' + escAttr(label) + '；全部留空则关闭派生指标。"></label>';
-      const derivedForm = '<details class="resultMappingAdvanced" data-details-key="result-derived-metric"' + detailsOpenAttr("result-derived-metric", false) + '><summary>可选：同 seed 配对派生指标</summary><p class="muted">全部留空即关闭。只有同一 case、同一 seed 的两个端点都有指标时才计算；默认不会生成 BA drop。</p><div class="resultMappingGrid">' +
-        derivedInput("derivedMetricName", "指标名", derived.metric, "balanced_accuracy") + derivedInput("derivedLeftEndpoint", "左端点", derived.leftEndpoint, "clean") + derivedInput("derivedRightEndpoint", "右端点", derived.rightEndpoint, "p100_low") + derivedInput("derivedOutputName", "输出列名", derived.outputName, "balanced_accuracy_drop_pp") +
-        '<label class="resultMappingField" title="派生差值乘以 1 保留原单位，乘以 100 转为百分点评估。"><span><b>倍率</b></span><select data-config-input="resultMapping" data-key="derivedScale" title="派生差值乘以 1 保留原单位，乘以 100 转为百分点评估。"><option value="1"' + (String(configDraftValue("resultMapping", "derivedScale", derived.scale || 1)) === "1" ? ' selected' : '') + '>1，原单位</option><option value="100"' + (String(configDraftValue("resultMapping", "derivedScale", derived.scale || 1)) === "100" ? ' selected' : '') + '>100，百分点评估</option></select></label></div></details>';
-      const metrics = asArray(item.metricColumns).slice(0, 12).map((entry) => esc((entry || {}).column || "")).filter(Boolean).join("、");
+      const mapping = Object.entries(configured).map(([field, column]) => field + " → " + column).join("、");
+      const observed = Object.entries(detected).map(([field, column]) => field + " → " + column).join("、");
+      const examples = Object.entries(samples).map(([column, values]) => column + "： " + asArray(values).join(" / ")).join("；");
+      const derivedText = derived.metric ? [derived.metric, derived.leftEndpoint, derived.rightEndpoint, derived.outputName, derived.scale].filter((value) => value !== undefined && value !== "").join(" · ") : "未配置";
       return '<details id="resultColumnMappingEditor" class="resultMappingEditor" data-details-key="result-column-mapping-editor"' + detailsOpenAttr("result-column-mapping-editor", false) + '>' +
         '<summary>项目结果列映射 · ' + esc(item.source || "尚无结果表预览") + '</summary>' +
-        '<div class="resultMappingHelp">选择原始 CSV 中对应的列；留在“自动识别”即可沿用当前识别结果。case 和 seed 用于匹配 Plan；长表设置指标名称与指标值，宽表把这两项留空，由数值列自动形成指标。</div>' +
-        (headers.length ? '<div class="muted">已读取 ' + headers.length + ' 列，候选项展示前 20 行中的样例值。保存后对本项目全部 PLAN 生效。</div>' : '<div class="muted">当前结果源尚未提供列名预览，请核对源文件与输出接入规则；保存范围为本项目。</div>') +
-        '<div class="resultMappingGrid">' + main + '</div>' +
-        '<details class="resultMappingAdvanced" data-details-key="result-column-mapping-advanced"' + detailsOpenAttr("result-column-mapping-advanced", false) + '><summary>其他字段：数据集、方法、比例、评估端点</summary><div class="resultMappingGrid">' + advanced + '</div></details>' + derivedForm +
-        (metrics ? '<div class="muted">当前识别的宽表数值列：' + metrics + '</div>' : "") +
-        '<div class="resultMappingActions"><button data-command="saveResultColumnMapping" data-config-scope="resultMapping" type="button"' + (!headers.length ? ' disabled' : '') + '>保存映射</button><span class="muted">保存到本项目后，点击“更新全部 PLAN 结果”按映射重新收集。</span></div>' +
-        '</details>';
+        '<div class="muted">已配置映射：' + esc(mapping || "未配置") + '</div>' +
+        '<div class="muted">识别映射：' + esc(observed || "尚未识别") + '</div>' +
+        '<div class="muted">列样例：' + esc(examples || "暂无") + '</div>' +
+        '<div class="muted">派生指标：' + esc(derivedText) + '</div>' +
+        '<div class="muted">AI 根据实际任务通过 MCP 配置，原始结果保持不变。</div></details>';
     }
 
 
@@ -17727,11 +17646,11 @@ export function renderPanelHtml(): string {
     function projectOutputGateFixes(missing, project) {
       const adapterReady = Boolean((project || {}).adapterConfig);
       const fixes = {
-        "接入配置": "在当前 Plan 声明结果位置，或在插件设置中配置输出接入规则",
+        "接入配置": "请 AI 根据当前任务和实际输出配置接入",
         "计划输出": "在 plan 的 paper.result_csv、runner.test_command --result-csv/--output-dir 或 expectedResults 中写明可解析结果位置",
-        "候选结果规则": "补充 candidateCsv / candidateJson / consoleLogs / textLogs / metricRegex，或点击“保存接入规则”写入推断结果",
+        "候选结果规则": "请 AI 核实实际结果位置和格式",
         "标准结果契约": "推荐让测试代码输出 metrics_summary.csv，或使用 run_wrapper 捕获 stdout/stderr 后归一化",
-        "解析预览": "保存接入规则后点击“刷新识别”，确认至少一个候选输出能解析出指标"
+        "解析预览": "请 AI 核实候选输出能否解析出指标"
       };
       return uniqueText((missing || []).map((item) => fixes[item] || ""));
     }
@@ -17904,9 +17823,6 @@ export function renderPanelHtml(): string {
       if (button.dataset.logPath) payload.logPath = button.dataset.logPath;
       if (button.dataset.sourcePath) payload.sourcePath = button.dataset.sourcePath;
       if (button.dataset.sourceLabel) payload.sourceLabel = button.dataset.sourceLabel;
-      if (button.dataset.presentationPath) payload.presentationPath = button.dataset.presentationPath;
-      if (button.dataset.chartType) payload.chartType = button.dataset.chartType;
-      if (button.dataset.styleMode) payload.styleMode = button.dataset.styleMode;
       if (button.dataset.tbUrl) { payload.tbUrl = button.dataset.tbUrl; payload.url = button.dataset.tbUrl; }
       if (button.dataset.tburl) { payload.tbUrl = button.dataset.tburl; payload.url = button.dataset.tburl; }
       if (button.dataset.url) payload.url = button.dataset.url;

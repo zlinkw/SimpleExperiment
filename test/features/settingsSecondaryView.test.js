@@ -39,7 +39,7 @@ function settingsFixture(drafts = {}) {
     configHelp: () => "", helpBadge: () => "", configInputBounds: () => null, configBoundsHint: () => "", configBoundsViolation: () => "", configCondaEnvViolation: () => "", configBoundsAttrs: () => "", displayValue: value => value,
     configSessionSelect: () => "", configPortPair: () => "", tunnelHost: value => value, formatTunnelAddress: () => "", sessionStatusCell: () => "",
     treeAnchorId: (prefix, id) => prefix + id, topologyModeLabel: value => value,
-    renderProjectRuleEditor: () => '<input data-config-input="projectAdapterRules" data-key="primaryMetric">',
+    renderProjectRuleEditor: () => '<div>任务指标与输出接入摘要</div>',
   };
   for (const name of ["renderSchedulerGlossary", "renderServerDestinationPreview", "renderSchedulerDependencyStatus", "renderTensorBoardLinkRow", "renderXshellSessionBudgetNote", "renderServerChainOverview"]) sandbox[name] = () => "";
   const names = ["detailIsOpen", "detailsOpenAttr", "navigateToResourceTarget", "renderSectionIfVisible", "renderServerSettings", "renderServerCardsV2", "renderPluginUpdateSettings", "pluginUpdateStatusLabel", "renderRemoteRootPolicySettings", "remoteRootPolicyText", "remoteRootPolicyCount", "renderResultCsvDirectorySettings", "renderResultColumnMappingSettings", "configInput", "configSelect", "activeConfigScope", "configScopeHasDraft", "shouldKeepConfigDraftScope", "isServerConfigScope", "shouldKeepServerConfigDraft", "configDraftValue"];
@@ -193,16 +193,16 @@ test("failed, cancelled, orphaned and wrong-command settings receipts preserve d
   assert.equal(f.s.persisted, 0);
 });
 
-test("PPT path selection clears only its original path draft and retains later edits", () => {
-  const f = draftReceiptFixture({ ppt: { presentationPath: "old.pptx", chartType: "genericTable", styleMode: "default" } });
-  f.pending("choosePptPath", "ppt", { presentationPath: "old.pptx" });
-  f.reply("choosePptPath", "completed");
-  assert.deepEqual(f.drafts(), { ppt: { chartType: "genericTable", styleMode: "default" } });
-  f.s.configDrafts.ppt.presentationPath = "typed.pptx";
-  f.pending("chooseNewPptPath", "ppt", { presentationPath: "typed.pptx" }, "picker-2");
-  f.s.configDrafts.ppt.presentationPath = "new-typed.pptx";
-  f.reply("chooseNewPptPath", "completed", "picker-2");
-  assert.equal(f.s.configDrafts.ppt.presentationPath, "new-typed.pptx");
+test("result directory selection clears only its original draft and retains later edits", () => {
+  const f = draftReceiptFixture({ resultOutput: { csvDirectory: "old/results", another: "preserved" } });
+  f.pending("chooseResultCsvDir", "resultOutput", { csvDirectory: "old/results" });
+  f.reply("chooseResultCsvDir", "completed");
+  assert.deepEqual(f.drafts(), { resultOutput: { another: "preserved" } });
+  f.s.configDrafts.resultOutput.csvDirectory = "typed/results";
+  f.pending("chooseResultCsvDir", "resultOutput", { csvDirectory: "typed/results" }, "picker-2");
+  f.s.configDrafts.resultOutput.csvDirectory = "new/results";
+  f.reply("chooseResultCsvDir", "completed", "picker-2");
+  assert.equal(f.s.configDrafts.resultOutput.csvDirectory, "new/results");
 });
 
 test("attribute encoding preserves empty values and explicit user text while display placeholders remain separate", () => {

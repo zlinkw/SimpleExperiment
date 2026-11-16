@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const vm = require("node:vm");
 const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
 
-test("result mapping opens in the result area with column examples and optional fields", () => {
+test("result mapping summary shows source, configured and detected columns, examples and derived metrics", () => {
   const html = renderPanelHtml();
   const script = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1])
     .find((candidate) => candidate.includes("function renderResultColumnMappingEditor(")) || "";
@@ -19,19 +19,16 @@ test("result mapping opens in the result area with column examples and optional 
   };
   vm.runInNewContext(script.slice(start, end), context);
   const rendered = context.renderResultColumnMappingEditor(
-    { resultOutputConfig: { columnMapping: { case: "specimen" } } },
+    { resultOutputConfig: { columnMapping: { case: "specimen" }, adapterRules: { derivedMetric: { metric: "AP", leftEndpoint: "clean", rightEndpoint: "test", outputName: "ap_delta", scale: 1 } } } },
     { source: "experiments/results/raw.csv", headers: ["specimen", "rng", "accuracy"], mapping: { case: "specimen", seed: "rng" }, sampleValues: { specimen: ["alpha", "beta"], rng: ["42"], accuracy: ["0.9"] }, metricColumns: [{ column: "accuracy", metric: "accuracy" }] },
   );
   assert.match(rendered, /id="resultColumnMappingEditor"/);
-  assert.match(rendered, /data-key="case"/);
-  assert.match(rendered, /data-key="seed"/);
-  assert.match(rendered, /data-key="metric"/);
-  assert.match(rendered, /data-key="value"/);
-  assert.match(rendered, /样例：alpha \/ beta/);
-  assert.match(rendered, /其他字段：数据集、方法、比例、评估端点/);
-  assert.match(rendered, /<select data-config-input="resultMapping"/);
-  assert.match(rendered, /保存映射/);
-  assert.doesNotMatch(rendered, /<input list=/);
+  assert.match(rendered, /experiments\/results\/raw\.csv/);
+  assert.match(rendered, /case → specimen/);
+  assert.match(rendered, /seed → rng/);
+  assert.match(rendered, /specimen： alpha \/ beta/);
+  assert.match(rendered, /AP · clean · test · ap_delta · 1/);
+  assert.doesNotMatch(rendered, /<input|<select|<textarea|保存映射|data-config-input="resultMapping"/);
 });
 
 test("cold result navigation opens the mapping after lazy render only once", () => {
