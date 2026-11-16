@@ -207,9 +207,8 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     id: text("Exact result ID"), format: { type: "string", enum: ["csv", "json"] },
   }, ["id"], "results", "result_export"),
   tool("result_compare", "mcp.query", "Compare two exact result rows using the same CLI comparison logic", { left: text("Left result ID"), right: text("Right result ID") }, ["left", "right"], "results", "result_compare"),
-  ...["result_parse", "result_paper_table", "metric_leaderboard"].map(name => tool(name, "mcp.query", "Parse an existing project file through the shared " + name + " implementation", {
+  ...["result_parse", "metric_leaderboard"].map(name => tool(name, "mcp.query", "Parse an existing project file through the shared " + name + " implementation", {
     file: text("Existing project-relative input file"), metrics: texts("Metric name"), primary: text("Primary metric"), preset: text("Existing parser preset ID"),
-    ...(name === "result_paper_table" ? { format: { type: "string", enum: ["json", "markdown", "csv", "latex"] } } : {}),
   }, ["file"], undefined, name)),
   ...["artifact_list", "artifact_inspect"].map(name => tool(name, "mcp.query", "Inspect artifact metadata through the shared CLI business view", { id: text("Exact experiment or artifact ID") }, ["id"], "results", name)),
   tool("resource_available", "mcp.query", "Inspect current GPU availability and observed task allocations", {}, [], undefined, "resource_available"),

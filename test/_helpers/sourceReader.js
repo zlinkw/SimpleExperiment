@@ -17,7 +17,6 @@ const ROOT = path.join(__dirname, "../..");
 
 /** 门面路径 → 实际实现路径（相对仓库根，正斜杠） */
 const IMPLEMENTATION_OF = {
-  "src/PptPlotBridge.ts": "src/PptPlotBridge.legacy.ts",
   "src/api/LocalApiServer.ts": "src/api/LocalApiServer.legacy.ts",
   "src/cli.ts": "src/cli.legacy.ts",
   "src/clusterAgentRuntime.ts": "src/clusterAgentRuntime.legacy.ts",
@@ -28,12 +27,10 @@ const IMPLEMENTATION_OF = {
   "src/features/ApiWorkflow.ts": "src/features/ApiWorkflow.legacy.ts",
   "src/features/Comparison.ts": "src/features/Comparison.legacy.ts",
   "src/features/DraftPlans.ts": "src/features/DraftPlans.legacy.ts",
-  "src/features/ExperimentConfigRecovery.ts": "src/features/ExperimentConfigRecovery.legacy.ts",
   "src/features/GpuHistoryState.ts": "src/features/GpuHistoryState.legacy.ts",
   "src/features/PlanArchive.ts": "src/features/PlanArchive.legacy.ts",
   "src/features/PlanBuilder.ts": "src/features/PlanBuilder.legacy.ts",
   "src/features/Quality.ts": "src/features/Quality.legacy.ts",
-  "src/features/ResultAnomaly.ts": "src/features/ResultAnomaly.legacy.ts",
   "src/features/Results.ts": "src/features/Results.legacy.ts",
   "src/features/RunOperations.ts": "src/features/RunOperations.legacy.ts",
   "src/features/SmallScale.ts": "src/features/SmallScale.legacy.ts",

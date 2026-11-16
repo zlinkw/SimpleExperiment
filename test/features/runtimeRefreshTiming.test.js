@@ -6,7 +6,6 @@ const path = require("node:path");
 const vm = require("node:vm");
 const test = require("node:test");
 const { readSource } = require("../_helpers/sourceReader");
-const { PptPlotBridge } = require("../../dist/PptPlotBridge.js");
 
 const root = path.join(__dirname, "../..");
 
@@ -81,19 +80,4 @@ print(json.dumps({
   // Global dispatch is retired. The extracted timing/signal helpers remain compatibility contracts.
   assert.match(scheduler, /GLOBAL_SCHEDULER_REMOVED: use the Worker native tmux task queue/);
 
-});
-
-test("PowerPoint launch can repeat after completion and still shares an in-flight launch", async () => {
-  let calls = 0;
-  let release;
-  const gate = new Promise((resolve) => { release = resolve; });
-  const bridge = new PptPlotBridge({ launchPowerPoint: () => { calls += 1; return gate; } });
-  const first = bridge.launchPowerPointOnce("first.pptx");
-  const second = bridge.launchPowerPointOnce("second.pptx");
-  await Promise.resolve();
-  release();
-  await Promise.all([first, second]);
-  bridge.launchPowerPoint = () => { calls += 1; };
-  await bridge.launchPowerPointOnce("later.pptx");
-  assert.equal(calls, 2);
 });

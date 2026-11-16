@@ -44,11 +44,11 @@ test("diagnostics readiness groups are a hoisted fixed table", () => {
 
   const groups = sandbox.groups;
   assert.equal(groups.length, 5);
-  assert.equal(groups.map((group) => group[0]).join("|"), "发布同步|计划运行链路|Worker 手动控制|结果证据闭环|诊断与恢复");
+  assert.equal(groups.map((group) => group[0]).join("|"), "发布同步|计划运行链路|Worker 手动控制|结果文件|诊断与恢复");
   const commands = groups.flatMap((group) => group[1]);
   assert.equal(commands.length, new Set(commands).size, "readiness commands must not repeat across groups");
   assert.ok(commands.includes("runPlan"));
-  assert.ok(commands.includes("plotResultsToPpt"));
+  assert.ok(commands.includes("parseResults"));
   assert.ok(commands.includes("reconcileDeletions"));
 
   const renderer = extractFunction("renderFeatureReadiness");

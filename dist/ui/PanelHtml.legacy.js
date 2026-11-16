@@ -93,9 +93,6 @@ function renderPanelHtml() {
     .toolbar[data-anchor="sync-actions"] { padding: 10px; border: 1px solid #BFD4EA; border-left: 4px solid #1F4E79; border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background, #FFF) 88%, var(--vscode-charts-blue, #EEF4FB) 12%); flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
     .toolbar[data-anchor="sync-actions"] button { flex: 1 1 0; min-width: 0; width: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .contractQuickLinks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
-    .resultRelatedTools { display: grid; gap: 7px; margin-top: 10px; padding: 9px 11px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 8px; background: var(--vscode-editor-background); }
-    .resultRelatedToolsLabel { color: var(--muted); font-size: 11px; font-weight: 700; }
-    .resultRelatedTools .contractQuickLinks { margin: 0; }
     .syncPublishPanel { display: grid; gap: 8px; min-width: 0; }
     .summaryLink { display: inline-flex; align-items: center; min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--subtle-bg); color: var(--text); text-decoration: none; font-size: 12px; }
     .summaryLink:hover, .summaryLink:focus-visible { border-color: var(--vscode-focusBorder); color: var(--vscode-textLink-foreground, var(--text)); outline: none; }
@@ -712,20 +709,9 @@ function renderPanelHtml() {
     .resultEvidenceMini { display: grid; gap: 2px; min-width: 0; padding: 5px 6px; border: 1px solid var(--border, #E2E8F0); border-radius: 6px; background: var(--vscode-editor-background, #FFFFFF); }
     .resultEvidenceMini span { color: var(--muted, #64748B); font-size: 11px; }
     .resultEvidenceMini b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text, #0F172A); font-size: 12px; }
-    .pptPlotConfig { display: grid; gap: 8px; margin: 8px 0 10px; padding: 10px; border: 1px solid var(--border); border-radius: 7px; background: color-mix(in srgb, var(--card-bg) 90%, var(--vscode-input-background) 10%); }
-    .pptPlotConfigGrid { display: grid; grid-template-columns: minmax(180px, 1fr) 110px 130px; gap: 8px; align-items: end; }
-    .pptPathInputRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; align-items: center; }
-    .pptPathInputRow button { white-space: nowrap; padding: 5px 8px; }
-    .pptPlotActions { display: flex; flex-wrap: wrap; gap: 6px; }
-    .pptPlotInline { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; vertical-align: middle; }
-    .pptPlotInline button { padding: 3px 7px; font-size: 11px; }
-    .claimEvidenceList { display: grid; gap: 6px; }
-    .claimEvidenceRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 7px 9px; border: 1px solid var(--border, #E2E8F0); border-left: 3px solid #94A3B8; border-radius: 6px; background: var(--vscode-editor-background, #FFFFFF); color: var(--text, #0F172A); }
-    .claimEvidenceRow.supported { border-left-color: #16A34A; }
-    .claimEvidenceRow.unsupported { border-left-color: #DC2626; background: color-mix(in srgb, var(--vscode-editor-background, #FFF) 88%, var(--danger, #FEF2F2) 12%); }
-    .claimEvidenceRow.needs { border-left-color: #D97706; background: color-mix(in srgb, var(--vscode-editor-background, #FFF) 88%, var(--warning, #FFFBEB) 12%); }
-    .claimEvidenceText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
-    .claimEvidenceMeta { color: var(--muted, #64748B); font-size: 11px; white-space: nowrap; }
+    .resultPathInputRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; align-items: center; }
+    .resultPathInputRow button { white-space: nowrap; padding: 5px 8px; }
+    .resultTableActions { display: flex; flex-wrap: wrap; gap: 6px; }
     .capabilityBar { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0 10px; }
     .capabilityItem { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; max-width: 100%; padding: 4px 7px; border: 1px solid var(--border, #E2E8F0); border-left: 3px solid #94A3B8; border-radius: 6px; background: var(--vscode-editor-background, #FFFFFF); color: var(--text, #0F172A); font-size: 11px; }
     .capabilityItem.ok { border-left-color: #16A34A; }
@@ -1160,16 +1146,13 @@ function renderPanelHtml() {
     .resultPlanActionsTitle small, .resultPlanActionsHelp { color: var(--muted); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
     .resultPlanActionButtons { display: flex; flex-wrap: wrap; gap: 6px; }
     .resultPlanActionButtons button { font-size: 12px; }
-    .resultFinalCard .pptPlotActions { margin: 0; }
+    .resultFinalCard .resultTableActions { margin: 0; }
     .resultArtifactGroup { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 8px; background: var(--vscode-editor-background); }
     .resultArtifactGroup[data-details-key="result-split-tables"] { border-left-color: var(--info); }
-    .resultArtifactGroup[data-details-key="results-ppt-plot"] { border-left-color: #7C3AED; margin-top: 10px; }
     .resultArtifactGroup summary { cursor: pointer; font-size: 13px; font-weight: 700; line-height: 1.35; }
     .resultArtifactGroup[open] > summary { margin-bottom: 9px; }
     .resultArtifactGroup .muted { font-size: 11px; line-height: 1.45; }
-    .resultArtifactGroup .pptPlotActions { margin: 8px 0 0; }
-    .resultEvidenceWorkbench > details[data-details-key="result-advanced"] { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 8px; background: var(--vscode-editor-background); }
-    .resultEvidenceWorkbench > details[data-details-key="result-advanced"] > summary { cursor: pointer; font-size: 13px; font-weight: 700; }
+    .resultArtifactGroup .resultTableActions { margin: 8px 0 0; }
     .resultTableBrowser { display: grid; gap: 10px; }
     .resultTableBrowser .resultTableRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .resultTableBrowser select, .resultTableBrowser input[type="search"] { min-width: 130px; max-width: 100%; }
@@ -1259,7 +1242,6 @@ function renderPanelHtml() {
     .endpointStatusCard.ok, .endpointStatusCard.warn, .endpointStatusCard.error,
     .operationStatusCard.failed, .operationStatusCard.accepted,
     .traceReadinessItem.warn, .traceReadinessItem.error,
-    .claimEvidenceRow.unsupported, .claimEvidenceRow.needs,
     .featureReadinessRow.good, .featureReadinessRow.warn, .featureReadinessRow.error,
     .targetMatrixRow.done, .targetMatrixRow.partial,
     .inspectorEvent.failed, .inspectorEvent.stalled { background: var(--vscode-editor-background, rgba(255,255,255,.88)); }
@@ -1618,20 +1600,7 @@ function renderPanelHtml() {
       <div class="resultMainPane">
         <div id="resultCommandPhaseLine" class="commandPhaseLine muted" role="status" aria-live="polite"></div>
         <div id="resultSummary" data-anchor="results-summary"></div>
-        <div class="resultRelatedTools" data-anchor="results-contract">
-          <span class="resultRelatedToolsLabel">相关检查</span>
-          <div class="contractQuickLinks">
-            <button type="button" id="results-contract" class="summaryLink" data-command="checkOutputContract" title="检查当前 PLAN 声明的指标、环境和产物">输出契约</button>
-            <button type="button" id="results-dataset" class="summaryLink" data-anchor="results-dataset" data-command="inspectDataset" title="按当前项目配置生成数据集画像">数据集画像</button>
-            <button type="button" id="results-checkpoints" class="summaryLink" data-anchor="results-checkpoints" data-command="planCheckpointRetention" title="只生成检查点保留与清理预案，不执行删除">检查点清理预案</button>
-            <button type="button" id="results-plotting" class="summaryLink" data-anchor="results-plotting" data-command="exportPlottingContract" title="导出当前结果的 PPT 绘图契约">PPT 绘图契约</button>
-          </div>
-        </div>
       </div>
-      <details class="resultArtifactGroup" data-details-key="results-ppt-plot">
-        <summary>绘图到 PPT（可选）</summary>
-        <div id="pptPlotConfig" data-anchor="results-ppt-plot"></div>
-      </details>
     </section>
 
     <section class="section-card" data-section="diagnostics" data-anchor="diagnostics" data-title="诊断与自检">
@@ -3127,20 +3096,11 @@ function renderPanelHtml() {
     let resultAutoParseReadinessCacheState = null;
     let resultAutoParseReadinessCacheSummary = null;
     let resultAutoParseReadinessCacheValue = null;
-    let currentResultOutputContractCheckCacheState = null;
-    let currentResultOutputContractCheckCacheValue = null;
-    let resultAnalysisArtifactsCacheState = null;
-    let resultAnalysisArtifactsCacheSummary = null;
-    let resultAnalysisArtifactsCacheValue = null;
-    let resultEvidenceWorkbenchCacheKey = "";
     let resultSplitTableKey = "";
     let resultSplitFieldName = "rate_percent";
     let resultSplitSelectedValues = null;
     let resultSplitSelectedColumns = null;
     let resultSplitSearchQuery = "";
-    let resultEvidenceWorkbenchCacheHtml = "";
-    let claimEvidencePreviewHtmlCacheKey = "";
-    let claimEvidencePreviewHtmlCache = "";
     let planLookupIndexCacheSource = null;
     let planLookupIndexCacheValue = new Map();
     const planFileEquivalenceCache = new Map();
@@ -3243,9 +3203,9 @@ function renderPanelHtml() {
     const TASK_ARCHIVABLE_STATUSES = new Set(["completed", "done"]);
     const PLAN_RUN_OPERATION_TYPES = new Set(["run-plan", "reproduce-plan"]);
     const GPU_OWNER_MATCH_MODES = new Set(["username", "command_contains", "both"]);
-    const PPT_AUTOMATION_ACTION_COMMANDS = new Set(["refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide"]);
-    const PPT_CHART_TYPE_LABELS = Object.freeze({ auto: "自动", leaderboardBar: "柱状", meanStdErrorBar: "误差图", genericTable: "表格" });
-    const PPT_STYLE_MODE_LABELS = Object.freeze({ activePpt: "跟随当前 PPT", default: "默认样式" });
+
+
+
     const PLAN_EXECUTION_PHASE_LABELS = Object.freeze({
       select: "选择计划", ready: "可提交", validating: "校验中", validate: "校验待修复", "dry-running": "预演中", "dry-run": "预演待处理",
       submitting: "提交中", run: "提交待处理", monitor: "任务状态", results: "结果待处理", review: "任务需处理"
@@ -3297,30 +3257,30 @@ function renderPanelHtml() {
       gpuId: "data-gpu-id", endpointId: "data-endpoint-id", remotePath: "data-remote-path", file: "data-file", planFile: "data-plan-file", workerId: "data-worker-id",
       configScope: "data-config-scope", savePlan: "data-save-plan", batchSelected: "data-batch-selected"
     });
-    const PINNED_COMMAND_VALUES = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "syncPendingPlanArtifacts", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "publishGithub", "syncGithub", "overwriteGithub",  "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
+    const PINNED_COMMAND_VALUES = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "syncPendingPlanArtifacts",                  "publishGithub", "syncGithub", "overwriteGithub",  "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
     const SIMPLE_SFTP_GATED_COMMANDS = new Set(["prepareAgents", "deployLatestAgent",  "uploadProjectToWorkers", "distributeCodeToWorkers", "configureDownloadScope", "configureServerSyncScope", "runPlan", "reproducePlan", "runAllPlans", "downloadDebugBundle", "downloadRemoteResult"]);
-    const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
+    const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults",            "createOfflineBundle",     ]);
     const COMMAND_ACTION_NAMES = Object.freeze({
       validatePlan: "validate-plan", dryRunPlan: "dry-run-plan", runPlan: "run-plan", stopExperiment: "stop-experiment", retryExperiment: "retry-experiment", reproducePlan: "reproduce-plan",
-      parseResults: "parse-results", refreshResults: "refresh-results", runQualityGate: "run-quality-gate", runStatistics: "run-statistics", exportPaperTable: "export-paper-table", checkClaimEvidence: "check-claim-evidence",
-      checkOutputContract: "check-output-contract", parseCaseLevel: "parse-case-level", runLeakageCheck: "run-leakage-check", runSubgroupAnalysis: "run-subgroup-analysis", exportCaseAnalysis: "export-case-analysis",
-      planCheckpointRetention: "plan-checkpoint-retention", inspectDataset: "inspect-dataset", exportPlottingContract: "export-plotting-contract", inferConfigFromRun: "infer-config-from-run", recoverPlanFromRun: "recover-plan-from-run",
-      diagnoseResultAnomaly: "diagnose-result-anomaly", compareWithBestConfig: "compare-with-best-config", archiveArtifacts: "archive-artifacts", excludeResults: "exclude-results", syncArtifacts: "sync-artifacts",
+      parseResults: "parse-results", refreshResults: "refresh-results",
+
+
+        archiveArtifacts: "archive-artifacts", excludeResults: "exclude-results", syncArtifacts: "sync-artifacts",
       completeThreeWay: "complete-three-way", deleteArtifacts: "delete-artifacts", reconcileDeletions: "reconcile-deletions", selfCheck: "self-check", createDebugBundle: "create-debug-bundle"
     });
     const PENDING_ACTION_LABELS = Object.freeze({
       stopExperiment: "停止中", retryExperiment: "重试中", reassignWorkerTask: "转移中", parseResults: "解析中",
       syncPendingPlanArtifacts: "更新项目结果中",
       archiveArtifacts: "归档中", syncArtifacts: "检查中", completeThreeWay: "校验中", deleteArtifacts: "删除中",
-      runPlan: "准备提交中", dryRunPlan: "预演中", validatePlan: "校验中", checkClaimEvidence: "检查中"
+      runPlan: "准备提交中", dryRunPlan: "预演中", validatePlan: "校验中"
     });
     const OPERATION_TYPE_LABELS = Object.freeze({
       "validate-plan": "校验计划", "dry-run-plan": "预演计划", "run-plan": "运行计划", "reproduce-plan": "复现实验", "run-all-plans": "运行全部计划", "queued": "历史记录",
-      "parse-results": "解析结果", "refresh-results": "刷新结果", "check-output-contract": "检查输出契约", "archive-plan": "归档计划", "restore-archived-plan": "恢复归档 Plan",
+      "parse-results": "解析结果", "refresh-results": "刷新结果",  "archive-plan": "归档计划", "restore-archived-plan": "恢复归档 Plan",
       "archive-artifacts": "归档实验产物", "delete-artifacts": "删除实验产物", "sync-artifacts": "检查同步清单", "complete-three-way": "三方一致校验",
-      "run-quality-gate": "质量门禁", "run-statistics": "统计分析", "check-claim-evidence": "检查论文证据", "export-paper-table": "导出论文表格", "export-plotting-contract": "导出 PPT 绘图契约", "plot-results-to-ppt": "绘图到 PPT",
-      "parse-case-level": "样本级解析", "run-leakage-check": "泄漏检查", "run-subgroup-analysis": "子组分析", "export-case-analysis": "导出样本级报告", "inspect-dataset": "检查数据集",
-      "plan-checkpoint-retention": "检查点清理预案", "infer-config-from-run": "反推配置", "recover-plan-from-run": "恢复 Plan", "diagnose-result-anomaly": "异常诊断", "compare-with-best-config": "对比最优配置",
+
+
+
       "publish-github": "发布 GitHub", "sync-github": "同步 GitHub", "overwrite-github": "覆盖 GitHub", "upload-project-to-hub": "旧上传入口（已退役）", "upload-project-to-workers": "上传到 Worker", "distribute-code-to-workers": "分发 Worker 代码", "deploy-latest-agent": "部署 Agent",
       "configure-download-scope": "设置下载文件范围", "prepare-agents": "准备 Agent", "test-all": "检测全部连接", "start-all-connections": "启动全部连接", "start-all": "启动全部隧道", "self-check": "运行自检", "create-debug-bundle": "生成调试包"
     });
@@ -3342,10 +3302,10 @@ function renderPanelHtml() {
       refreshLocalResults: "results", syncPendingPlanArtifacts: "results", rebuildProjectResultTables: "results", syncAllResultArtifacts: "results",
       prepareAgents: "sync", startAllConnections: "sync", pauseAll: "sync", resumeNetwork: "sync", saveTopologyMode: "sync", saveSchedulerConfig: "sync", startAll: "sync", testAll: "sync", snapshot: "gpu",
       validatePlan: "plans", dryRunPlan: "plans", runPlan: "plans", runAllPlans: "plans", cleanupPlan: "plans", archivePlan: "plans", generateOutputAdapter: "plans",
-      stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results",       deleteArtifacts: "execution", clearOperations: "execution", parseResults: "results", refreshResults: "results", checkOutputContract: "results",
-      inferConfigFromRun: "results", recoverPlanFromRun: "results", diagnoseResultAnomaly: "results", compareWithBestConfig: "results", inspectDataset: "results", planCheckpointRetention: "results",
-      parseCaseLevel: "results", runLeakageCheck: "results", runSubgroupAnalysis: "results", exportCaseAnalysis: "results", runQualityGate: "results", runStatistics: "results", checkClaimEvidence: "results",
-      exportPaperTable: "results", exportPlottingContract: "results", plotResultsToPpt: "results", publishGithub: "sync", syncGithub: "sync", overwriteGithub: "sync", uploadProjectToHub: "sync",
+      stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results",       deleteArtifacts: "execution", clearOperations: "execution", parseResults: "results", refreshResults: "results",
+
+
+         publishGithub: "sync", syncGithub: "sync", overwriteGithub: "sync", uploadProjectToHub: "sync",
       uploadProjectToWorkers: "sync", distributeCodeToWorkers: "sync", deployLatestAgent: "sync", configureDownloadScope: "sync", configureCodeSyncIncludes: "sync", configureServerSyncScope: "sync", fetchTmuxList: "tmux", fetchTmuxCapture: "tmux", selfCheck: "diagnostics", createDebugBundle: "diagnostics", downloadDebugBundle: "diagnostics", openAuditTail: "diagnostics"
     });
     const INSPECTOR_ACTION_PRIORITY_COMMON = new Map([["prepareAgents", 0], ["startAllConnections", 1], ["testAll", 2], ["snapshot", 3], ["pauseAll", 4]]);
@@ -3355,7 +3315,7 @@ function renderPanelHtml() {
       gpu: new Map([["snapshot", 0], ["testAll", 1]]),
       plans: new Map([["validatePlan", 0], ["dryRunPlan", 1], ["runPlan", 2], ["runAllPlans", 3], ["archivePlan", 4], ["generateOutputAdapter", 5]]),
       execution: new Map([["retryExperiment", 0], ["reassignWorkerTask", 1], ["archiveArtifacts", 2], ["deleteArtifacts", 3], ["selfCheck", 4], ["createDebugBundle", 5], ["clearOperations", 6], ["snapshot", 7]]),
-      results: new Map([["parseResults", 0], ["refreshResults", 1], ["runQualityGate", 2], ["checkOutputContract", 3], ["runStatistics", 4], ["checkClaimEvidence", 5], ["exportPaperTable", 6], ["exportPlottingContract", 7], ["plotResultsToPpt", 8]]),
+      results: new Map([["parseResults", 0], ["refreshResults", 1],      ]),
       sync: new Map([["saveSchedulerConfig", 0], ["prepareAgents", 1], ["startAll", 2], ["startAllConnections", 3], ["publishGithub", 4], ["testAll", 5], ["syncGithub", 6], ["overwriteGithub", 7], [ 8], ["uploadProjectToWorkers", 9], ["distributeCodeToWorkers", 10], ["deployLatestAgent", 11], ["configureCodeSyncIncludes", 12], ["configureServerSyncScope", 13], ["configureDownloadScope", 14]]),
       tmux: new Map([["fetchTmuxList", 0], ["fetchTmuxCapture", 1], ["testAll", 2]]),
       diagnostics: INSPECTOR_ACTION_PRIORITY_OPERATIONS
@@ -3364,9 +3324,9 @@ function renderPanelHtml() {
       saveTopologyMode: "settings-servers", saveRemoteRootPolicy: "settings-remote-root-policy", saveSchedulerConfig: "servers-scheduler", startAll: "sync-actions", startAllConnections: "sync-actions", prepareAgents: "sync-actions", testAll: "sync-actions", snapshot: "gpu-summary",
       validatePlan: "plans-actions", dryRunPlan: "plans-actions", runPlan: "plans-actions", runAllPlans: "plans-actions", cleanupPlan: "plans-actions", archivePlan: "plans-actions", generateOutputAdapter: "plans-detected",
       stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results-traces",       deleteArtifacts: "execution", clearOperations: "execution", parseResults: "results-summary", refreshResults: "results-summary",
-      runQualityGate: "results-summary", runStatistics: "results-summary", checkClaimEvidence: "results-summary", exportPaperTable: "results-summary", checkOutputContract: "results-contract", inspectDataset: "results-dataset",
-      planCheckpointRetention: "results-checkpoints", inferConfigFromRun: "results-recovery", recoverPlanFromRun: "results-recovery", diagnoseResultAnomaly: "results-anomaly", compareWithBestConfig: "results-anomaly",
-      parseCaseLevel: "results-traces", runLeakageCheck: "results-traces", runSubgroupAnalysis: "results-traces", exportCaseAnalysis: "results-traces", exportPlottingContract: "results-plotting",
+
+
+
       selfCheck: "diagnostics-targets", createDebugBundle: "diagnostics-json", downloadDebugBundle: "diagnostics-json", openAuditTail: "diagnostics-errors",
       fetchTmuxList: "tmux-overview", fetchTmuxCapture: "tmux-overview"
     });
@@ -3473,7 +3433,7 @@ function renderPanelHtml() {
       ["发布同步", ["publishGithub", "syncGithub", "overwriteGithub",  "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureCodeSyncIncludes", "configureServerSyncScope"]],
       ["计划运行链路", ["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"]],
       ["Worker 手动控制", ["stopExperiment", "retryExperiment", "reassignWorkerTask", "archiveArtifacts", "deleteArtifacts"]],
-      ["结果证据闭环", ["parseResults", "refreshResults", "excludeResults", "checkOutputContract", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "exportPlottingContract", "plotResultsToPpt"]],
+      ["结果文件", ["parseResults", "refreshResults", "excludeResults"]],
       ["诊断与恢复", ["selfCheck", "createDebugBundle", "downloadDebugBundle", "openAuditTail", "reconcileDeletions"]]
     ];
     const TARGET_MATRIX_BASELINE_ROWS = [
@@ -3512,18 +3472,12 @@ function renderPanelHtml() {
     const PLAN_ARCHIVE_READINESS_CACHE_LIMIT = 64;
     const PROJECT_OUTPUT_GATE_DIAGNOSTICS_VARIANT_LIMIT = 16;
     const EMPTY_PLAN_FILE_EQUIVALENCE_ENTRY = Object.freeze({ keys: Object.freeze([]), keySet: new Set() });
-    const RESULT_ANALYSIS_ARTIFACT_FIELDS = Object.freeze({
-      "export-plotting-contract": "plottingContractPath",
-      "parse-case-level": "caseLevelPath",
-      "recover-plan-from-run": "recoveredPlanReportPath",
-      "diagnose-result-anomaly": "anomalyPath"
-    });
     const NATIVE_TITLE_MAX_CHARS = 56;
     const LOW_VALUE_NATIVE_TITLES = new Set([
       "详情", "工作流", "对象状态", "通信矩阵", "通信拓扑", "调度参数", "服务器管理",
       "任务详情", "记录详情", "详情分区", "任务检查", "任务事件", "记录检查", "记录事件",
       "常用操作", "当前操作", "最近操作", "固定操作", "操作进度", "操作明细",
-      "结果证据", "论文证据", "目标验收矩阵", "功能可用性", "PPT 绘图", "发布同步",
+      "结果文件", "目标验收矩阵", "功能可用性",  "发布同步",
       "快捷操作", "工作详情", "中间状态与结果列", "集群运行态", "可用性",
       "运行门禁", "项目接入", "接入规则", "建议", "说明", "提示", "修复"
     ]);
@@ -3539,22 +3493,22 @@ function renderPanelHtml() {
       reproducePlan: ["actions.reproduce-plan"],
       parseResults: ["actions.parse-results"],
       refreshResults: ["actions.refresh-results", "endpoints.resultsSummary"],
-      runQualityGate: ["actions.run-quality-gate"],
-      runStatistics: ["actions.run-statistics"],
-      exportPaperTable: ["actions.export-paper-table"],
-      checkClaimEvidence: ["actions.check-claim-evidence"],
-      checkOutputContract: ["actions.check-output-contract"],
-      parseCaseLevel: ["actions.parse-case-level"],
-      runLeakageCheck: ["actions.run-leakage-check"],
-      runSubgroupAnalysis: ["actions.run-subgroup-analysis"],
-      exportCaseAnalysis: ["actions.export-case-analysis"],
-      planCheckpointRetention: ["actions.plan-checkpoint-retention"],
-      inspectDataset: ["actions.inspect-dataset"],
-      exportPlottingContract: ["actions.export-plotting-contract"],
-      inferConfigFromRun: ["actions.infer-config-from-run"],
-      recoverPlanFromRun: ["actions.recover-plan-from-run"],
-      diagnoseResultAnomaly: ["actions.diagnose-result-anomaly"],
-      compareWithBestConfig: ["actions.compare-with-best-config"],
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         archiveArtifacts: ["actions.archive-artifacts"],
         excludeResults: ["actions.exclude-results"],
       syncArtifacts: ["actions.sync-artifacts"],
@@ -3568,10 +3522,10 @@ function renderPanelHtml() {
       openAuditTail: ["endpoints.auditTail"]
     };
     const noHubWorkerResultCommands = new Set([
-      "refreshResults", "parseResults", "runQualityGate", "runStatistics", "exportPaperTable",
-      "checkClaimEvidence", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis",
-      "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "inferConfigFromRun",
-      "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "archiveArtifacts", "excludeResults",
+      "refreshResults", "parseResults",
+
+
+         "archiveArtifacts", "excludeResults",
       "syncArtifacts", "completeThreeWay"
     ]);
     const directWorkerActionMap = {
@@ -3588,7 +3542,7 @@ function renderPanelHtml() {
     const webviewHandledCommands = new Set([
       "toggleLowTrafficMode",
       "manageAiAuthorization",
-      "startTensorBoard", "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts", "resetPptPathConfirmations",
+      "startTensorBoard", "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
       "retryPlanSubmission", "cancelPlanSubmission", "dispatchJobs", "queueRemainingJobs", "refreshJobArtifacts", "retryJobArtifactSync",
       "releaseJobStageBlockSlots",
       "analyzeRuntimeLog",
@@ -3600,7 +3554,7 @@ function renderPanelHtml() {
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveAgentDefaults", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "recallPlanToLocalQueue", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure",  "startWorker", "start", "startAll", "startAgents", "startAllConnections", "openXshell",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "gpuWindowSamples", "manualSchedulerSnapshot", "manualTracesSnapshot",
-      "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
+      "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir",        "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
       "cleanupPlan", "reviewIsolatedPlanBatches",
       "publishGithub", "syncGithub", "overwriteGithub",  "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "refreshLocalResults", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
       "selectPlan", "selectExperiment",
@@ -4078,14 +4032,11 @@ function renderPanelHtml() {
             payload.clientActionId = clientActionId;
             pendingButtonKeys.add(pendingKey);
             const pendingItem = Object.assign({ command, pendingKey, clientActionId, actionSection: button.dataset.actionSection || "", startedAt: Date.now(), label: button.textContent.trim(), status: "running", message: command === "runPlan" ? "已收到请求，正在准备计划校验…" : "" }, payload);
-            const pathPicker = command === "choosePptPath" || command === "chooseNewPptPath";
-            const draftScope = payload.configScope || (pathPicker ? "ppt" : "");
+            const draftScope = payload.configScope || "";
             if (draftScope) {
               const draft = configDrafts[draftScope] || {};
               pendingItem.configScope = draftScope;
-              pendingItem.configDraftSnapshot = pathPicker
-                ? (Object.prototype.hasOwnProperty.call(draft, "presentationPath") ? { presentationPath: draft.presentationPath } : {})
-                : Object.assign({}, draft);
+              pendingItem.configDraftSnapshot = Object.assign({}, draft);
             }
             pendingActions[pendingKey] = pendingItem;
             pendingActionsById[clientActionId] = pendingItem;
@@ -5076,7 +5027,7 @@ function renderPanelHtml() {
             '<button class="mini secondary" type="button" data-command="createBranchPr" data-branch-project-id="' + escAttr(String(b.id || "")) + '" title="推送该分支到登记祖先真实 origin 并创建 PR（modal 确认、普通快推、不 force、未知不重放）">创建PR</button>&#32;' + '<button class="mini secondary" type="button" data-command="mergeBranchPr" data-branch-project-id="' + escAttr(String(b.id || "")) + '" title="仅当存在远端头＝本机HEAD的开放PR时 --merge＋match-head 合并；真实 MERGED 后才 ff-only 更新干净祖先">合并PR</button>&#32;' + '<button class="mini secondary" type="button" data-command="forgetBranchProject" data-branch-project-id="' + escAttr(String(b.id || "")) + '" title="仅移除插件内登记，不删除目录、分支或 worktree">移除登记</button></div>' +
             '<div class="muted" style="font-size:11px;word-break:break-all;">' + esc(String(b.workspaceRoot || "")) + ' · ' + esc(String(bgit.branch || b.branch || "")) + ' @ ' + esc(shortSha(bgit.headCommit)) + ' · 登记来源：' + esc(String(b.source === "created-worktree" ? "本机创建 worktree" : "登记已有副本")) + '</div>' +
             ((branchRow.errors || []).length ? '<div class="status-warn" style="font-size:11px;">' + esc(String((branchRow.errors || []).join("；")).slice(0, 400)) + '</div>' : '') +
-            '<div class="muted" style="font-size:11px;">科研验证状态：未在本卡自动执行，需在该分支窗口另行计划/运行与质量门禁。</div>' +
+            '<div class="muted" style="font-size:11px;">科研验证状态：未在本卡自动执行，需在该分支窗口另行计划和运行。</div>' +
             '</div>');
         }
       }
@@ -5531,10 +5482,10 @@ function renderPanelHtml() {
     }
 
     function sectionDependencyKey(data, section) {
-      if (section === "servers") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations, data.pptPathConfirmations);
-      if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.gpuMemorySchedulingPreview, data.tensorboardPort, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig, data.detectedProject, data.remoteRootPolicy, data.pluginUpdate);
+      if (section === "servers") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations);
+      if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.gpuMemorySchedulingPreview, data.tensorboardPort, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.resultOutputConfig, data.detectedProject, data.remoteRootPolicy, data.pluginUpdate);
       if (section === "plans") return refListKey(data.planFileInput, data.selection, data.selectedPlan, data.plans, data.localPlans, data.detectedProject, data.planStatusSummaries, data.projectConfig, data.adapterRules, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.codeSync, data.operations, data.resultsSummary, data.schedulerStates, data.capabilities, data.extensionVersion);
-      if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation, data.resultOutputConfig?.tables, data.resultOutputConfig?.catalog, data.resultOutputConfig?.catalogLoadStatus, data.resultOutputConfig?.catalogLoadError);
+      if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.resultOutputConfig?.tables, data.resultOutputConfig?.catalog, data.resultOutputConfig?.catalogLoadStatus, data.resultOutputConfig?.catalogLoadError);
       if (section === "sync") return refListKey(data.topology, data.schedulerConfig, data.codeSync, data.capabilities, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.realtimeDiagnostics);
       if (section === "gpu") return refListKey(data.gpu, data.gpuHistory, data.setup, data.gpuOwnerConfig);
       if (section === "execution" || section === "tasks" || section === "operations") return refListKey(data.schedulerStates, data.distributedPlans, data.deferredPlans, data.planStopClearByFile, data.selection, data.selectedLogRunKey, data.capabilities, data.resultsSummary, data.operations);
@@ -5548,7 +5499,7 @@ function renderPanelHtml() {
       if (section === "plans") return stableSectionJson({ detailsOpenState });
       if (section === "settings") return [shouldKeepServerConfigDraft() ? "draft" : "stable", activeConfigScope()].join("|");
       if (section === "execution" || section === "tasks" || section === "operations") return stableSectionJson({ expandedTaskLogs });
-      if (section === "results") return stableSectionJson({ pptDraft: shouldKeepConfigDraftScope("ppt"), tracePlanScope, resultSplitTableKey, resultSplitFieldName });
+      if (section === "results") return stableSectionJson({  tracePlanScope, resultSplitTableKey, resultSplitFieldName });
       if (section === "diagnostics") return diagnosticDetailsOpen() ? "details-open" : "details-closed";
       return "";
     }
@@ -5668,7 +5619,7 @@ function renderPanelHtml() {
       }
       if (section === "settings") return [shouldKeepServerConfigDraft() ? "draft" : "stable", activeConfigScope()].join("|");
       if (section === "execution" || section === "tasks" || section === "operations") return stableSectionJson({ expandedTaskLogs: pruneExpandedTaskLogs(state || {}) });
-      if (section === "results") return stableSectionJson({ pptDraft: shouldKeepConfigDraftScope("ppt"), tracePlanScope, resultSplitTableKey, resultSplitFieldName });
+      if (section === "results") return stableSectionJson({  tracePlanScope, resultSplitTableKey, resultSplitFieldName });
       if (section === "diagnostics") return diagnosticDetailsOpen() ? "details-open" : "details-closed";
       return "";
     }
@@ -5711,8 +5662,7 @@ function renderPanelHtml() {
           workerTelemetryStatus: compactRowsForSignature(data.workerTelemetryStatus, SECTION_SIGNATURE_ROW_LIMIT, ["workerId", "status", "state"]),
           capabilities: compactCapabilitiesForSignature(data.capabilities),
           realtimeDiagnostics: compactRealtimeDiagnosticsForSignature(data.realtimeDiagnostics),
-          remotePathConfirmations: data.remotePathConfirmations,
-          pptPathConfirmations: data.pptPathConfirmations
+          remotePathConfirmations: data.remotePathConfirmations
         };
       }
       if (section === "settings") return settingsRenderModel(data);
@@ -5737,7 +5687,6 @@ function renderPanelHtml() {
           codeSync: data.codeSync,
           executionStage: selectedPlanFile ? planExecutionStage(data, selectedPlanFile) : undefined,
           resultsSummary: compactResultsSummaryForSignature(data.resultsSummary),
-          outputContractCheck: compactOutputContractCheckForSignature(currentResultOutputContractCheck(data)),
           capabilities: compactCapabilitiesForSignature(data.capabilities),
           detectedProject: compactDetectedProjectForSignature(data.detectedProject),
           extensionVersion: data.extensionVersion
@@ -5754,10 +5703,8 @@ function renderPanelHtml() {
           resultCatalogError: data.resultOutputConfig?.catalogLoadError,
           resultSyncReport: data.resultSyncReport || null,
           autoParseReadiness: resultAutoParseReadinessForState(data, data.resultsSummary || {}),
-          outputContractCheck: compactOutputContractCheckForSignature(currentResultOutputContractCheck(data)),
-          analysisArtifacts: resultAnalysisArtifactsForState(data, data.resultsSummary || {}),
-          pptPlotConfig: compactRecordForSignature(data.pptPlotConfig || {}, ["presentationPath", "chartType", "styleMode"]),
-          pptAutomation: compactRecordForSignature(data.pptAutomation || {}, ["state", "ready", "message", "actionCommand", "actionLabel", "schemaVersion", "endpoint"]),
+
+
           traces: compactTracesForSignature(data),
           selection: compactResultSelectionForSignature(data.selection),
           planArchive: compactPlanArchiveForSignature(data.planArchive)
@@ -5833,7 +5780,7 @@ function renderPanelHtml() {
         workerProbes: compactObjectMapForSignature(data.workerProbes, SECTION_SIGNATURE_ROW_LIMIT, ["status", "schedulerDependencies"]),
         workerTelemetryStatus: compactRowsForSignature(data.workerTelemetryStatus, SECTION_SIGNATURE_ROW_LIMIT, ["workerId", "status", "state"]),
         remotePathConfirmations: compactRecordForSignature(data.remotePathConfirmations || {}, ["count", "stateFile"]),
-        pptPathConfirmations: compactRecordForSignature(data.pptPathConfirmations || {}, ["count", "stateFile"]),
+
         resultOutputConfig: compactRecordForSignature(data.resultOutputConfig || {}, ["csvDirectory", "columnMapping"]),
         remoteRootPolicy: compactRecordForSignature(data.remoteRootPolicy || {}, ["allowedRoots", "deniedRoots"]),
         pluginUpdate: compactRecordForSignature(data.pluginUpdate || {}, ["status", "checkedAt", "message", "experiment", "sftp"]),
@@ -6287,15 +6234,11 @@ function renderPanelHtml() {
 
     function compactResultsSummaryForSignature(summary) {
       const item = summary && typeof summary === "object" ? summary : {};
-      const claimEvidence = item.claimEvidence || item.claim_evidence || {};
       return {
         planFile: pick(item, ["planFile", "plan_file"], ""),
         planRevision: pick(item, ["planRevision", "plan_revision"], ""),
         lastParsedAt: pick(item, ["lastParsedAt", "last_parsed_at"], ""),
         parseFailed: pick(item, ["parseFailed", "parse_failed"], ""),
-        qualityWarnings: pick(item, ["qualityWarnings", "quality_warnings"], ""),
-        qualityGatePath: pick(item, ["qualityGatePath", "quality_gate_path"], ""),
-        qualityGateResultCount: pick(item, ["qualityGateResultCount", "quality_gate_result_count"], ""),
         previewCsvPath: pick(item, ["previewCsvPath", "preview_csv_path"], ""),
         rawResultCsvPath: pick(item, ["rawResultCsvPath"], ""),
         aggregateCsvPath: pick(item, ["aggregateCsvPath"], ""),
@@ -6315,15 +6258,8 @@ function renderPanelHtml() {
         effectiveArchivedResultCount: pick(item, ["effectiveArchivedResultCount", "effective_archived_result_count", "finalResultCount", "final_result_count"], ""),
         pendingReviewCount: pick(item, ["pendingReviewCount", "pending_review_count"], ""),
         excludedResultCount: pick(item, ["excludedResultCount", "excluded_result_count"], ""),
-        statisticsUpdatedAt: pick(item, ["statisticsUpdatedAt", "statistics_updated_at"], ""),
-        statisticsPath: pick(item, ["statisticsPath", "statistics_path"], ""),
-        statisticsResultCount: pick(item, ["statisticsResultCount", "statistics_result_count"], ""),
-        paperTablePath: pick(item, ["paperTablePath", "paper_table_path", "exportPath"], ""),
-        paperTableResultCount: pick(item, ["paperTableResultCount", "paper_table_result_count"], ""),
         missingResults: pick(item, ["missingResults", "missing_results"], ""),
-        leakageStatus: pick(item, ["leakageStatus", "leakage_status"], ""),
         inclusionPolicy: pick(item, ["inclusionPolicy", "inclusion_policy"], ""),
-        significanceStatus: pick(item, ["significanceStatus", "significance_status"], ""),
         stalePlanVersionSuppressed: item.stalePlanVersionSuppressed,
         incompleteAggregate: item.incompleteAggregate,
         aggregateCoverage: item.aggregateCoverage,
@@ -6331,17 +6267,9 @@ function renderPanelHtml() {
         availableWorkerIds: asArray(item.availableWorkerIds),
         unavailableWorkerIds: asArray(item.unavailableWorkerIds),
         message: item.message,
-        claimEvidenceStatus: pick(item, ["claimEvidenceStatus", "claim_evidence_status"], pick(claimEvidence, ["status"], "")),
-        claimEvidencePath: pick(item, ["claimEvidencePath", "claim_evidence_path"], pick(claimEvidence, ["path"], "")),
-        claimCount: pick(item, ["claimCount", "claim_count"], pick(claimEvidence, ["claimCount", "claim_count"], "")),
-        claimSupportedCount: pick(item, ["claimSupportedCount", "claim_supported_count"], pick(claimEvidence, ["supportedCount", "supported_count"], "")),
-        claimUnsupportedCount: pick(item, ["claimUnsupportedCount", "claim_unsupported_count"], pick(claimEvidence, ["unsupportedCount", "unsupported_count"], "")),
-        claimNeedsExperimentCount: pick(item, ["claimNeedsExperimentCount", "claim_needs_experiment_count"], pick(claimEvidence, ["needsExperimentCount", "needs_experiment_count"], "")),
-        unverifiedResults: compactRowsForSignature(item.unverifiedResults, 30, ["experiment_id", "experimentId", "suite", "method", "dataset", "split", "seed", "metric", "value", "status"]),
+        unverifiedResults: compactRowsForSignature(item.unverifiedResults, 30, ["experiment_id", "experimentId", "suite", "method", "dataset", "split", "seed", "metric", "value", "status", "dimensions", "metrics"]),
         results: compactRowsForSignature(item.results, 40, ["experiment_id", "experimentId", "suite", "method", "dataset", "split", "seed", "metric", "value", "status"]),
         leaderboard: compactRowsForSignature(item.leaderboard, 40, ["method", "dataset", "metric", "mean", "std", "rank", "status"]),
-        pairedComparisons: compactRowsForSignature(item.pairedComparisons || item.paired_comparisons, 20, ["baseline", "candidate", "metric", "pValue", "p_value", "effect", "status"]),
-        claimEvidencePreview: compactRowsForSignature(item.claimEvidencePreview || item.claim_evidence_preview || (item.claimEvidence || {}).preview || (item.claim_evidence || {}).preview, 20, ["text", "claim", "status", "evidence", "reason", "evidenceRefs", "evidence_refs", "matchedKeys", "matched_keys", "missingRefs", "missing_refs", "line"])
       };
     }
 
@@ -7579,34 +7507,34 @@ function renderPanelHtml() {
         reproducePlan: "复现实验",
         parseResults: "解析结果",
         refreshResults: "刷新结果",
-        runQualityGate: "质量门禁",
-        runStatistics: "统计汇总",
-        exportPaperTable: "导出论文表格",
-        checkClaimEvidence: "检查论文证据",
-        checkOutputContract: "检查输出契约",
-        parseCaseLevel: "解析样本级结果（Case）",
-        runLeakageCheck: "泄漏检查",
-        planCheckpointRetention: "检查点清理预案",
-        inspectDataset: "检查数据集",
-        exportPlottingContract: "导出绘图契约",
-        plotResultsToPpt: "绘图到 PPT",
-        refreshPptAutomation: "检测 PPT 插件",
-        startPptAutomation: "启动 PowerPoint",
-        openPptAutomationGuide: "查看 PPT 修复说明",
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         chooseResultCsvDir: "浏览项目内结果 CSV 文件夹",
         saveRemoteRootPolicy: "保存远端根目录安全边界",
         checkPluginUpdates: "检查配套插件更新",
         installPluginUpdates: "安装配套插件更新",
         saveResultCsvDir: "保存项目级结果 CSV 默认目录",
-        choosePptPath: "选择 PPT",
-        chooseNewPptPath: "新建 PPT 路径",
-        savePptPlotConfig: "保存 PPT 配置",
-        inferConfigFromRun: "反推配置",
-        recoverPlanFromRun: "恢复 Plan",
-        diagnoseResultAnomaly: "异常诊断",
-        compareWithBestConfig: "对比最优配置",
-        runSubgroupAnalysis: "子组分析",
-        exportCaseAnalysis: "导出样本级分析",
+
+
+
+
+
+
+
+
+
         archiveArtifacts: "准备归档",
         excludeResults: "排除结果并保留预览",
         syncArtifacts: "检查同步清单",
@@ -7624,7 +7552,7 @@ function renderPanelHtml() {
         quickSetup: "一键配置",
         openSetupGuide: "打开配置说明",
         openAdvancedCommandsSetting: "打开高级命令显示设置",
-        resetPptPathConfirmations: "恢复当前项目的 PPT 路径确认提醒",
+
         configureWorkers: "配置 Worker",
         configurePorts: "配置端口",
         repairPorts: "检查端口冲突并选择新的 Worker 端口范围；不会自动改写 Xshell 会话",
@@ -8522,7 +8450,7 @@ function renderPanelHtml() {
         tmux: { label: "TMUX 会话 / 窗口 / 窗格", icon: RESOURCE_TREE_SECTION_ICONS.tmux || "⬢", node: withResourceTreeChildren(item("tmux", "TMUX 会话 / 窗口 / 窗格", "TMUX 会话 / 窗口 / 窗格", RESOURCE_TREE_SECTION_ICONS.tmux || "⬢", "会话/窗口/窗格", "tmux 会话 窗口 窗格 会话总览"), tmuxTreeObjects()) },
         plans: { label: "实验准备", node: withResourceTreeChildren(item("plans", "实验准备", "实验计划", "◇", "计划/校验/运行", "计划 参数 校验 预演 运行"), planTreeObjects()) },
         execution: { label: "运行进度", node: withResourceTreeChildren(item("execution", "运行进度", "调度操作与实验任务统一视图", "▣", "操作+任务/日志/终态", "任务 日志 停止 重试 删除 归档 排队 运行 操作 进度 已提交 执行中 失败 卡住 已完成 accepted running failed stalled completed"), executionTreeObjects()) },
-        results: { label: "结果文件", node: withResourceTreeChildren(item("results", "结果文件", "结果分析", "▤", "总表/方法表/原始数据", "结果 统计 质量门禁 论文 表格 CSV JSON"), resultTreeObjects()) },
+        results: { label: "结果文件", node: withResourceTreeChildren(item("results", "结果文件", "结果分析", "▤", "总表/方法表/原始数据", "结果 表格 CSV JSON"), resultTreeObjects()) },
         sync: { label: "运行环境准备", node: withResourceTreeChildren(item("sync", "运行环境准备", "运行环境准备 发布同步", "⇅", "三步链/三步动作/总览 + GitHub/SFTP/Agent", "运行环境准备 部署Agent 启动隧道 检测 三步链 三步动作 Git GitHub SFTP 上传 分发 Agent 部署 发布 同步"), syncTreeObjects()) },
         diagnostics: { label: "诊断与自检", node: withResourceTreeChildren(item("diagnostics", "诊断与自检", "诊断", "⌁", "能力/端口/审计", "诊断 自检 调试 审计 能力 端口"), diagnosticTreeObjects()) }
       };
@@ -8809,13 +8737,7 @@ function renderPanelHtml() {
 
     function resultTreeObjects() {
       return [
-        treeObjectItem("results", "结果摘要", "入口", "", "CSV、JSON、summary 或日志中发现的结果文件。", "results-summary", "", "结果 解析 统计 质量门禁"),
-        treeObjectItem("results", "输出契约", "入口", "", "metrics_summary.csv 或输出接入模板线索。", "results-contract", "", "输出接入 adapter metrics_summary.csv"),
-        treeObjectItem("results", "数据集画像", "入口", "", "检查 CSV 的类别分布、数据划分、patient_id/case_id 泄漏和文件存在性。", "results-dataset", "", "dataset split patient_id case_id leakage profile"),
-        treeObjectItem("results", "检查点清理预案", "入口", "", "生成检查点清理预演和保留报告。", "results-checkpoints", "", "checkpoint manifest delete_plan retention_report dry-run"),
-        treeObjectItem("results", "配置反推", "入口", "", "从 run 目录、日志、manifest 和 snapshot 反推出可复现实验配置与 recovered plan。", "results-recovery", "", "recovered plan config snapshot env_snapshot command"),
-        treeObjectItem("results", "异常定位", "入口", "", "把异常结果与同组最优 run/config 对比，输出排序原因和配置差异。", "results-anomaly", "", "anomaly best config diff OOM NaN Traceback"),
-        treeObjectItem("results", "PPT 绘图契约", "入口", "", "查看结果索引、统计结果、论文表格、样本级结果和数据集画像稳定字段。", "results-plotting", "", "PPT plotting contract my_ppt_app statistics paper table case level")
+        treeObjectItem("results", "结果摘要", "入口", "", "查看项目结果表及原始文件。", "results-summary", "", "结果 解析 CSV")
       ];
     }
 
@@ -9077,7 +8999,7 @@ function renderPanelHtml() {
         gpu: [["刷新", "snapshot"], ["检测全部", "testAll"]],
         plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan"], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
         execution: [["重试", "retryExperiment", { confirm: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["清空历史", "clearOperations"], ["刷新运行状态", "snapshot"]],
-        results: [["更新全部 PLAN 结果", "syncPendingPlanArtifacts"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
+        results: [["更新全部 PLAN 结果", "syncPendingPlanArtifacts"],                ],
         sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["发布到git并上传worker", "publishGithub", { confirm: true }], ["检测全部", "testAll"], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }],  ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["项目同步范围与状态", "configureCodeSyncIncludes"]],
         tmux: [["刷新会话", "fetchTmuxList"], ["同步窗口", "fetchTmuxCapture"], ["检测全部", "testAll"]],
         diagnostics: [["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["下载调试包", "downloadDebugBundle"], ["审计尾部", "openAuditTail"]]
@@ -9530,11 +9452,6 @@ function renderPanelHtml() {
         return planCount
           ? result("待选择 Plan", "已发现 " + planCount + " 个 Plan；必须明确选择本次运行目标。")
           : result("待创建 Plan", "当前项目尚无实验 Plan；使用“识别工作区”创建首个可运行计划。");
-      }
-      const contractStage = currentPlanRuntimeContractStage(state, planFile);
-      if (contractStage) {
-        const tone = contractStage.section === "execution" || contractStage.section === "operations" ? "info" : "warn";
-        return result(contractStage.label, contractStage.message, { tone });
       }
       if (!outputGate.ok) return result("待补输出", "当前 Plan 输出门禁缺少：" + outputGate.missing.join("、") + "。");
       if (!workerReadiness.ready) return result("待添加 Worker", workerReadiness.summary || "正式运行至少需要一个启用的执行 Worker。");
@@ -10014,16 +9931,6 @@ function renderPanelHtml() {
           : '当前项目没有关闭提醒的远端路径') + '</span>' +
         '<button type="button" class="secondary" data-command="resetRemotePathConfirmations"' + (pathConfirmationCount ? '' : ' disabled') + ' title="清除远端路径确认记录&#10;下次上传前会重新确认本机与远端的对应位置">恢复提醒</button>' +
       '</div>';
-      const pptPathConfirmationState = state.pptPathConfirmations || {};
-      const pptPathConfirmationCount = Math.max(0, Number(pptPathConfirmationState.count || 0));
-      const pptPathConfirmationStateFile = String(pptPathConfirmationState.stateFile || "simple_cluster/ui/ppt_path_confirmations.json");
-      const pptPathConfirmationTools = '<div class="settingsLayoutTools" data-anchor="settings-ppt-path-confirmations" title="' + escAttr("当前项目状态文件：" + pptPathConfirmationStateFile) + '">' +
-        '<b>PPT 路径提醒</b>' +
-        '<span class="muted">' + (pptPathConfirmationCount
-          ? '当前项目已记住 ' + esc(String(pptPathConfirmationCount)) + ' 个 PPT 目标'
-          : '当前项目没有关闭提醒的 PPT 目标') + '</span>' +
-        '<button type="button" class="secondary" data-command="resetPptPathConfirmations"' + (pptPathConfirmationCount ? '' : ' disabled') + ' title="清除 PPT 路径确认记录&#10;下次绘图前会重新确认输出位置">恢复提醒</button>' +
-      '</div>';
       // 冲突仅连接步：settings 区不再重复 conflictNote，冲突只进单链第1步(连接)。
       const xshellBudgetNote = renderXshellSessionBudgetNote(state);
       const chainHtml = renderServerChainOverview(state);
@@ -10032,7 +9939,6 @@ function renderPanelHtml() {
         chainHtml +
         '<div class="serverStack">' + cards.join("") + '</div>' +
         pathConfirmationTools +
-        pptPathConfirmationTools +
         xshellBudgetNote +
         '<div class="muted">Xshell 会话文件配置源。</div>');
     }
@@ -10272,7 +10178,7 @@ function renderPanelHtml() {
       setHtmlIfChanged("resultCsvDirectorySettings",
         '<div class="settingsLayoutTools" title="设置工作区内结果 CSV 的默认目录；已有 Plan 显式填写的结果路径优先。">' +
           '<label for="resultCsvDirectoryInput"><b title="工作区相对目录，例如 experiments/results；已有 Plan 显式填写的结果路径优先。">实验结果 CSV 目录' + helpBadge("工作区相对目录，例如 experiments/results；已有 Plan 显式填写的结果路径优先。") + '</b></label>' +
-          '<div class="pptPathInputRow"><input id="resultCsvDirectoryInput" class="wide" data-config-input="resultOutput" data-key="csvDirectory" value="' + escAttr(value) + '" placeholder="experiments/results" title="填写工作区相对目录，例如 experiments/results；不要填写服务器 IP 或单个 CSV 文件路径。"><button data-command="chooseResultCsvDir" data-config-scope="resultOutput" class="secondary" type="button" title="选择结果表格文件所在目录（项目级设置）&#10;后续结果解析与绘图会按此目录查找">浏览</button><button data-command="saveResultCsvDir" data-config-scope="resultOutput" type="button" title="保存结果表格文件目录设置&#10;后续结果解析与绘图会按此查找">保存</button></div>' +
+          '<div class="resultPathInputRow"><input id="resultCsvDirectoryInput" class="wide" data-config-input="resultOutput" data-key="csvDirectory" value="' + escAttr(value) + '" placeholder="experiments/results" title="填写工作区相对目录，例如 experiments/results；不要填写服务器 IP 或单个 CSV 文件路径。"><button data-command="chooseResultCsvDir" data-config-scope="resultOutput" class="secondary" type="button" title="选择结果表格文件所在目录（项目级设置）&#10;后续结果解析会按此目录查找">浏览</button><button data-command="saveResultCsvDir" data-config-scope="resultOutput" type="button" title="保存结果表格文件目录设置&#10;后续结果解析会按此查找">保存</button></div>' +
           '<span class="muted">新 Plan 与未显式声明结果路径的任务使用；已有 Plan 路径不变</span>' +
         '</div>');
     }
@@ -11398,16 +11304,15 @@ function renderPanelHtml() {
       const previewScope = planScopedResultParsePreviews(project.resultParsePreviews || [], selectedPlan ? selectedPlanMeta : undefined, project.adapterRules || {});
       const outputGate = projectOutputGateDiagnostics(project, { outputContractFiles: project.outputContractFiles || [], adapterRules: project.adapterRules || {}, resultParsePreviews: previewScope.items }, selectedPlanMeta);
       const outputReady = Boolean(outputGate.ok);
-      const runtimeContractStage = currentPlanRuntimeContractStage(state, selectedPlan);
-      const effectiveOutputReady = outputReady && !runtimeContractStage;
+      const effectiveOutputReady = outputReady;
       const validPreviewCount = validResultPreviewCount(previewScope.items);
       const running = taskStats.running;
       const queued = taskStats.queued;
       const failed = taskStats.failed;
       const outputSummary = planEvidenceCandidates.length ? compactText(planEvidenceCandidates.join("、"), 44) : (planOutputSignals.length ? "命令/日志证据" : "未声明");
-      const outputStatus = runtimeContractStage ? runtimeContractStage.message : (outputReady ? "可运行 / " + outputSummary : "待规则 / " + outputSummary);
-      const outputBadge = runtimeContractStage ? runtimeContractStage.label : "预览 " + validPreviewCount;
-      const outputTone = runtimeContractStage ? (runtimeContractStage.section === "execution" || runtimeContractStage.section === "operations" || runtimeContractStage.command === "parseResults" ? "info" : "warn") : (outputReady ? "good" : "warn");
+      const outputStatus = outputReady ? "可运行 / " + outputSummary : "待规则 / " + outputSummary;
+      const outputBadge = "预览 " + validPreviewCount;
+      const outputTone = outputReady ? "good" : "warn";
       const executionStage = selectedPlan ? planExecutionStage(state, selectedPlan) : { phase: "select", status: "未选择计划" };
       const preflight = selectedPlan ? planPreflightSummary(state, selectedPlan) : { ready: false, tone: "warn", message: "未选择计划", badge: "待选择" };
       const rowsHtml = [
@@ -11419,8 +11324,8 @@ function renderPanelHtml() {
         planRunRow("输出闭环", outputTone, outputStatus, outputBadge)
       ].join("");
       return '<div class="planRunWorkbench" title="计划运行">' +
-        '<table class="planCompactTable gpuDenseTable"><tbody>' + rowsHtml + renderPlanGateList(selectedPlan, syncReady, effectiveOutputReady, preflight, runtimeContractStage) + '</tbody></table>' +
-        renderPlanPreparationContext(state, selectedPlan, outputReady, project.adapterConfig, runtimeContractStage) +
+        '<table class="planCompactTable gpuDenseTable"><tbody>' + rowsHtml + renderPlanGateList(selectedPlan, syncReady, effectiveOutputReady, preflight) + '</tbody></table>' +
+        renderPlanPreparationContext(state, selectedPlan, outputReady, project.adapterConfig) +
       '</div>';
     }
 
@@ -11482,17 +11387,9 @@ function renderPanelHtml() {
       return PLAN_EXECUTION_PHASE_LABELS[raw] || raw || "未知";
     }
 
-    function renderPlanPreparationContext(state, selectedPlan, outputReady, adapterConfig, runtimeContractStage) {
+    function renderPlanPreparationContext(state, selectedPlan, outputReady, adapterConfig) {
       if (!selectedPlan) {
         return '<div class="planRunActions muted">在下方明确选择当前 PLAN；没有计划时先识别工作区。</div>';
-      }
-      if (runtimeContractStage) {
-        const stage = runtimeContractStage;
-        const recovery = stage.command === "parseResults"
-          ? projectSectionNextAction("结果更新核实本项目全部 PLAN 与全部启用 Worker。", "前往项目结果", "results", "results-summary")
-          : stage.section ? projectSectionNextAction(stage.message, stage.label, stage.section, stage.anchor || stage.section)
-          : projectNextAction(stage.message, stage.label, stage.command, { planFile: selectedPlan, file: stage.file });
-        return '<div class="planRunActions">' + recovery + '</div>';
       }
       if (!outputReady) {
         const adapterAction = adapterConfig
@@ -11539,12 +11436,11 @@ function renderPanelHtml() {
       return "";
     }
 
-    function renderPlanGateList(selectedPlan, syncReady, outputReady, preflight, runtimeContractStage) {
-      const runtimeOutputTone = runtimeContractStage && (runtimeContractStage.section === "execution" || runtimeContractStage.section === "operations" || runtimeContractStage.command === "parseResults") ? "info" : "warn";
+    function renderPlanGateList(selectedPlan, syncReady, outputReady, preflight) {
       const gates = [
         ["选择计划", selectedPlan ? "good" : "warn", selectedPlan ? "已选择" : "需要选择计划"],
         ["同步代码", syncReady ? "good" : "info", syncReady ? "代码指纹已确认" : "运行时自动同步"],
-        ["输出接入", outputReady ? "good" : runtimeContractStage ? runtimeOutputTone : "warn", outputReady ? "可运行" : runtimeContractStage ? runtimeContractStage.label : "待规则"],
+        ["输出接入", outputReady ? "good" : "warn", outputReady ? "可运行" : "待规则"],
         ["校验预演", (preflight || {}).tone || ((preflight || {}).ready ? "good" : "info"), (preflight || {}).badge || "运行时自动执行"]
       ];
       return gates.map((gate) => planRunRow(gate[0], gate[1], gate[2], gate[2])).join("");
@@ -11623,10 +11519,10 @@ function renderPanelHtml() {
         return { tone: "error", status: "解析失败 " + parseFailed, detail: "存在无法解析的结果文件；请查看结果区的真实失败原因和文件位置。" };
       }
       if (archivedCount > 0 && pendingCount > 0) {
-        return { tone: "warn", status: "有效 " + archivedCount + " / 待筛选 " + pendingCount, detail: "已归档结果可进入质量门禁和统计；其余预览记录需决定归档或排除。" };
+        return { tone: "warn", status: "有效 " + archivedCount + " / 待筛选 " + pendingCount, detail: "已归档结果可查看；其余预览记录需决定归档或排除。" };
       }
       if (archivedCount > 0) {
-        return { tone: "good", status: "有效结果 " + archivedCount, detail: "已归档结果是质量门禁、统计、论文表格和 PPT 的唯一有效输入。" };
+        return { tone: "good", status: "有效结果 " + archivedCount, detail: "已归档结果可在结果区查看。" };
       }
       if (previewCount > 0 || pendingCount > 0) {
         const count = Math.max(previewCount, pendingCount);
@@ -13790,8 +13686,11 @@ function renderPanelHtml() {
       const summary = scopedState.resultsSummary || {};
       const autoParse = resultAutoParseReadinessForState(scopedState, summary);
       if (autoParse.status === "parsed") {
-        const workflowStatus = currentPlanResultWorkflowStatus(scopedState, summary, autoParse);
-        return cacheCurrentPlanWorkflowResult(cacheKey, projectWorkflowResultStep(resultWorkflowStage(workflowStatus)));
+        const failed = Number(pick(summary, ["parseFailed", "parse_failed"], 0)) || 0;
+        const count = Number(pick(summary, ["parsedResultCount", "parsed_result_count", "resultCount", "result_count"], asArray(summary.results).length)) || 0;
+        return cacheCurrentPlanWorkflowResult(cacheKey, failed
+          ? { tone: "warn", status: "解析失败 " + failed, detail: "查看结果文件与失败原因" }
+          : { tone: "good", status: "结果已解析", detail: "当前 Plan revision 已解析 " + count + " 条结果" });
       }
       if (autoParse.status === "run-evidence") return cacheCurrentPlanWorkflowResult(cacheKey, { tone: "info", status: "等待当前结果", detail: "当前 Plan revision 已运行，等待解析、筛选与归档" });
       if (autoParse.status === "plan-unavailable") return cacheCurrentPlanWorkflowResult(cacheKey, { tone: "warn", status: "等待 Plan 元数据", detail: "当前 Plan 元数据尚未加载完成" });
@@ -13806,80 +13705,7 @@ function renderPanelHtml() {
       return value;
     }
 
-    function currentPlanResultWorkflowStatus(state, summary, autoParse) {
-      const data = state || {};
-      const item = summary || {};
-      const traceScope = traceRowsForPlanScope(experimentTraceRowsForState(data), data, "selected");
-      const traceStats = resultEvidenceTraceStatsForRows(traceScope.rows);
-      const outputContractCheck = currentResultOutputContractCheck(data);
-      const analysisArtifacts = resultAnalysisArtifactsForState(data, item);
-      const archivedCount = Number(pick(item, ["effectiveArchivedResultCount", "effective_archived_result_count", "finalResultCount", "final_result_count"], 0)) || 0;
-      const pendingCount = Number(pick(item, ["pendingReviewCount", "pending_review_count"], 0)) || 0;
-      const excludedCount = Number(pick(item, ["excludedResultCount", "excluded_result_count"], 0)) || 0;
-      const previewCount = Number(pick(item, ["previewResultCount", "preview_result_count", "resultCount", "result_count"], asArray(item.results).length)) || 0;
-      const qualityGatePath = meaningfulValue(pick(item, ["qualityGatePath", "quality_gate_path"], ""));
-      const qualityResultCount = Number(pick(item, ["qualityGateResultCount", "quality_gate_result_count"], 0)) || 0;
-      const statisticsPath = meaningfulValue(pick(item, ["statisticsPath", "statistics_path"], ""));
-      const statisticsResultCount = Number(pick(item, ["statisticsResultCount", "statistics_result_count"], 0)) || 0;
-      const paperTablePath = meaningfulValue(pick(item, ["paperTablePath", "paper_table_path", "exportPath"], ""));
-      const paperTableResultCount = Number(pick(item, ["paperTableResultCount", "paper_table_result_count"], 0)) || 0;
-      const claimEvidence = item.claimEvidence || item.claim_evidence || {};
-      const claimStatus = pick(item, ["claimEvidenceStatus", "claim_evidence_status"], pick(claimEvidence, ["status"], "待检查"));
-      const claimPreview = asArray(item.claimEvidencePreview || item.claim_evidence_preview || claimEvidence.preview || claimEvidence.claims);
-      const previewIssues = claimEvidenceIssueCounts(claimPreview);
-      const claimStatusText = String(claimStatus || "").toLowerCase();
-      const unsupported = Math.max(Number(pick(item, ["claimUnsupportedCount", "claim_unsupported_count"], pick(claimEvidence, ["unsupportedCount", "unsupported_count"], 0))) || 0, previewIssues.unsupported, claimStatusText.includes("unsupported") ? 1 : 0);
-      const needsExperiment = Math.max(Number(pick(item, ["claimNeedsExperimentCount", "claim_needs_experiment_count"], pick(claimEvidence, ["needsExperimentCount", "needs_experiment_count"], 0))) || 0, previewIssues.needsExperiment, claimStatusText.includes("need") ? 1 : 0);
-      return {
-        parsed: meaningfulValue(pick(item, ["lastParsedAt", "last_parsed_at"], "")),
-        parsedRows: Math.max(traceStats.parsedRows, Number(pick(item, ["parsedResultCount", "parsed_result_count"], 0)) || 0),
-        qualityGatePath: archivedCount > 0 && qualityResultCount === archivedCount ? qualityGatePath : "",
-        statisticsPath: archivedCount > 0 && statisticsResultCount === archivedCount ? statisticsPath : "",
-        claimStatus,
-        claimIssueCount: unsupported + needsExperiment,
-        paperTablePath: archivedCount > 0 && paperTableResultCount === archivedCount ? paperTablePath : "",
-        plottingContractPath: analysisArtifacts.plottingContractPath,
-        effectiveArchivedResultCount: archivedCount,
-        pendingReviewCount: pendingCount,
-        excludedResultCount: excludedCount,
-        previewResultCount: previewCount,
-        previewCsvPath: meaningfulValue(pick(item, ["previewCsvPath", "preview_csv_path"], "")),
-        archivableCount: traceStats.archivable,
-        archiveBlockedCount: traceStats.archiveBlocked,
-        outputContractStatus: outputContractCheck.status,
-        outputContractMissingFiles: outputContractCheck.missingFiles,
-        outputContractUnparseableFiles: outputContractCheck.unparseableFiles,
-        outputContractUnparseableFileList: outputContractCheck.unparseableFileList,
-        outputContractUnparseableDetails: outputContractCheck.unparseableDetails,
-        outputContractMessage: outputContractCheck.message,
-        autoParseStatus: (autoParse || {}).status,
-        planFile: (autoParse || {}).planFile,
-      };
-    }
 
-    function projectWorkflowResultStep(stage) {
-      const item = stage || {};
-      if (item.kind === "archive") return { tone: "warn", status: "待归档 " + Number(item.count || 0), detail: "选择要纳入最终结果的实验记录" };
-      if (item.kind === "archive-blocked") return { tone: "warn", status: "归档受阻 " + Number(item.count || 0), detail: "实验记录缺少 Worker 来源，先检查任务记录" };
-      if (item.kind === "review") return { tone: "warn", status: "待筛选 " + Number(item.count || 0), detail: "完整预览不会自动进入统计；请决定归档或排除" };
-      if (item.kind === "section") return { tone: "warn", status: String(item.label || "待处理"), detail: String(item.message || "打开对应区域处理") };
-      const commandStatus = {
-        parseResults: "待解析",
-        checkOutputContract: "待输出检查",
-        runQualityGate: "待质量门禁",
-        runStatistics: "待统计",
-        checkClaimEvidence: "待论文证据",
-        openPlan: "论文证据待修复",
-        exportPaperTable: "待论文表格",
-        exportPlottingContract: "待绘图契约",
-        plotResultsToPpt: "可绘图",
-      };
-      return {
-        tone: item.command === "plotResultsToPpt" ? "good" : "warn",
-        status: commandStatus[item.command] || String(item.label || "待处理"),
-        detail: String(item.message || "继续当前 Plan 结果流程"),
-      };
-    }
 
     function renderOutputGateChecklist(project, meta, plan) {
       const diagnostics = (meta && meta.outputGate) || projectOutputGateDiagnostics(project, meta, plan);
@@ -15100,60 +14926,6 @@ function renderPanelHtml() {
       '</div>';
     }
 
-    function renderTraceDetailPane(row, count) {
-      const pane = el("traceDetailPane");
-      if (!pane) return;
-      if (!row) {
-        setHtmlIfChanged(pane, '<h3>记录详情</h3><div class="muted">暂无实验记录。完成任务、解析结果或归档后会显示详情。</div>');
-        return;
-      }
-      const headlineStage = meaningfulValue(row.executionStatus) ? "执行" : "归档";
-      const headlineStatus = meaningfulValue(row.executionStatus) ? row.executionStatus : row.status;
-      const detailTone = traceTone(headlineStatus) === "good" ? "good" : (traceTone(headlineStatus) === "error" ? "error" : "warn");
-      const traceStatisticsSourcePath = finalStatisticsSourcePath((lastState || {}).resultsSummary || {});
-      const traceTime = relativeTimestampView(row.updatedAt, "更新");
-      setHtmlIfChanged(pane,
-        '<div class="detailHeader" title="记录详情">' +
-          '<div class="detailHeaderText"><h3>记录详情</h3><span>' + esc(compactIdentifier(row.id)) + '</span></div>' +
-          '<span class="detailBadge ' + escAttr(detailTone) + '" title="' + escAttr(headlineStage + "原始状态：" + headlineStatus) + '">' + esc(headlineStage + " · " + labelStatus(headlineStatus || "-")) + '</span>' +
-        '</div>' +
-        '<div class="detailTabs" title="详情分区">' +
-          detailTab("执行", labelStatus(row.executionStatus || "未知")) +
-          detailTab("解析", labelStatus(row.resultStatus || "待解析")) +
-          detailTab("取舍", reviewStateLabel(row.reviewState)) +
-          detailTab("归档", labelStatus(row.status || "待筛选")) +
-          detailTab("删除", labelStatus(row.deleteStatus || "未删除")) +
-        '</div>' +
-        '<div class="taskDetailMeta">' +
-          taskDetailLine("记录数", esc(count || 0)) +
-          taskDetailLine("实验", '<span title="' + escAttr(row.id) + '">' + esc(compactIdentifier(row.id)) + '</span>') +
-          taskDetailLine("Plan", '<span title="' + escAttr(row.planFile || "") + '">' + esc(compactPath(row.planFile || "未归属")) + '</span>') +
-          taskDetailLine("版本", esc(row.planRevision || "未记录")) +
-          taskDetailLine("Worker", esc(workerName(row.workerId || "-"))) +
-          taskDetailLine("执行", '<span title="原始状态：' + escAttr(row.executionStatus) + '">' + esc(labelStatus(row.executionStatus)) + '</span>') +
-          taskDetailLine("归档", '<span class="' + taskRowStatusClass(row) + '" title="原始状态：' + escAttr(row.status) + '">' + esc(labelStatus(row.status)) + '</span>') +
-          taskDetailLine("结果取舍", '<span title="' + escAttr(row.reviewReason || "") + '">' + esc(reviewStateLabel(row.reviewState)) + '</span>') +
-          taskDetailLine("删除", '<span title="原始状态：' + escAttr(row.deleteStatus) + '">' + esc(labelStatus(row.deleteStatus)) + '</span>') +
-          taskDetailLine("解析", '<span title="原始状态：' + escAttr(row.resultStatus) + '">' + esc(labelStatus(row.resultStatus)) + '</span>') +
-          taskDetailLine("标签", esc(row.tags || "-")) +
-          taskDetailLine("更新", '<span title="' + escAttr("更新时间：" + traceTime.raw) + '">' + esc(traceTime.relative) + '</span>') +
-        '</div>' +
-        '<div class="taskActions">' +
-          '<button type="button" class="taskActionButton secondary" data-section-target="results" data-anchor-target="results-summary" title="查看项目结果总表；更新范围不限定于这条历史记录">查看项目结果</button>' +
-          traceActionButton("反推配置", "inferConfigFromRun", row) +
-          traceActionButton("恢复 Plan", "recoverPlanFromRun", row) +
-          traceActionButton("异常诊断", "diagnoseResultAnomaly", row) +
-          traceActionButton("对比最优配置", "compareWithBestConfig", row) +
-          traceActionButton("检查同步清单", "syncArtifacts", row, true) +
-          traceActionButton("三方校验", "completeThreeWay", row, true) +
-          traceActionButton("排除但保留预览", "excludeResults", row, true) +
-        '</div>' +
-        renderTraceReadiness(row) +
-        renderTraceTimeline(row) +
-        '<div><b>产物路径</b><pre class="tracePath" title="' + escAttr(row.artifactPath) + '">' + esc(row.artifactPath || "-") + '</pre></div>' +
-        '<div><b>结果路径</b>' + (row.resultPath ? '<span class="pptPlotInline">' + pptPlotButton("聚合绘图", traceStatisticsSourcePath, "SCI 聚合统计", { runKey: row.id || "", experimentId: row.id || "", archiveKey: row.archiveKey || "", planFile: row.planFile || "" }) + '</span>' : "") + '<pre class="tracePath" title="' + escAttr(row.resultPath) + '">' + esc(row.resultPath || "-") + '</pre></div>');
-    }
-
     function traceActionButton(label, command, row, confirmFlag, dangerFlag) {
       const runKey = usableTaskKey(row.id) ? row.id : "";
       const archiveKey = usableTaskKey(row.archiveKey) ? row.archiveKey : runKey;
@@ -15222,6 +14994,61 @@ function renderPanelHtml() {
       return '<div class="traceTimeline" title="记录事件">' +
         events.map((event) => traceTimelineItem(event[0], event[1], event[2], event[3])).join("") +
       '</div>';
+    }
+
+    function traceTimelineItem(title, status, tone, rawStatus) {
+      const cls = tone === "good" ? "good" : (tone === "error" ? "error" : (tone === "warn" ? "warn" : ""));
+      const detail = rawStatus ? (title === "更新" ? "原始时间：" : title + "原始状态：") + rawStatus : title + "：" + (status || "-");
+      return '<div class="traceTimelineItem ' + cls + '" title="' + escAttr(detail) + '"><b>' + esc(title) + ' · ' + esc(status || "-") + '</b></div>';
+    }
+
+    function renderTraceDetailPane(row, count) {
+      const pane = el("traceDetailPane");
+      if (!pane) return;
+      if (!row) {
+        setHtmlIfChanged(pane, '<h3>记录详情</h3><div class="muted">暂无实验记录。完成任务、解析结果或归档后会显示详情。</div>');
+        return;
+      }
+      const headlineStage = meaningfulValue(row.executionStatus) ? "执行" : "归档";
+      const headlineStatus = meaningfulValue(row.executionStatus) ? row.executionStatus : row.status;
+      const detailTone = traceTone(headlineStatus) === "good" ? "good" : (traceTone(headlineStatus) === "error" ? "error" : "warn");
+      const traceTime = relativeTimestampView(row.updatedAt, "更新");
+      setHtmlIfChanged(pane,
+        '<div class="detailHeader" title="记录详情">' +
+          '<div class="detailHeaderText"><h3>记录详情</h3><span>' + esc(compactIdentifier(row.id)) + '</span></div>' +
+          '<span class="detailBadge ' + escAttr(detailTone) + '" title="' + escAttr(headlineStage + "原始状态：" + headlineStatus) + '">' + esc(headlineStage + " · " + labelStatus(headlineStatus || "-")) + '</span>' +
+        '</div>' +
+        '<div class="detailTabs" title="详情分区">' +
+          detailTab("执行", labelStatus(row.executionStatus || "未知")) +
+          detailTab("解析", labelStatus(row.resultStatus || "待解析")) +
+          detailTab("取舍", reviewStateLabel(row.reviewState)) +
+          detailTab("归档", labelStatus(row.status || "待筛选")) +
+          detailTab("删除", labelStatus(row.deleteStatus || "未删除")) +
+        '</div>' +
+        '<div class="taskDetailMeta">' +
+          taskDetailLine("记录数", esc(count || 0)) +
+          taskDetailLine("实验", '<span title="' + escAttr(row.id) + '">' + esc(compactIdentifier(row.id)) + '</span>') +
+          taskDetailLine("Plan", '<span title="' + escAttr(row.planFile || "") + '">' + esc(compactPath(row.planFile || "未归属")) + '</span>') +
+          taskDetailLine("版本", esc(row.planRevision || "未记录")) +
+          taskDetailLine("Worker", esc(workerName(row.workerId || "-"))) +
+          taskDetailLine("执行", '<span title="原始状态：' + escAttr(row.executionStatus) + '">' + esc(labelStatus(row.executionStatus)) + '</span>') +
+          taskDetailLine("归档", '<span class="' + taskRowStatusClass(row) + '" title="原始状态：' + escAttr(row.status) + '">' + esc(labelStatus(row.status)) + '</span>') +
+          taskDetailLine("结果取舍", '<span title="' + escAttr(row.reviewReason || "") + '">' + esc(reviewStateLabel(row.reviewState)) + '</span>') +
+          taskDetailLine("删除", '<span title="原始状态：' + escAttr(row.deleteStatus) + '">' + esc(labelStatus(row.deleteStatus)) + '</span>') +
+          taskDetailLine("解析", '<span title="原始状态：' + escAttr(row.resultStatus) + '">' + esc(labelStatus(row.resultStatus)) + '</span>') +
+          taskDetailLine("标签", esc(row.tags || "-")) +
+          taskDetailLine("更新", '<span title="' + escAttr("更新时间：" + traceTime.raw) + '">' + esc(traceTime.relative) + '</span>') +
+        '</div>' +
+        '<div class="taskActions">' +
+          '<button type="button" class="taskActionButton secondary" data-section-target="results" data-anchor-target="results-summary" title="查看项目结果总表；更新范围不限定于这条历史记录">查看项目结果</button>' +
+          traceActionButton("检查同步清单", "syncArtifacts", row, true) +
+          traceActionButton("三方校验", "completeThreeWay", row, true) +
+          traceActionButton("排除但保留预览", "excludeResults", row, true) +
+        '</div>' +
+        renderTraceReadiness(row) +
+        renderTraceTimeline(row) +
+        '<div><b>产物路径</b><pre class="tracePath" title="' + escAttr(row.artifactPath) + '">' + esc(row.artifactPath || "-") + '</pre></div>' +
+      '</div>');
     }
 
     function traceTimelineItem(title, status, tone, rawStatus) {
@@ -16891,10 +16718,9 @@ function renderPanelHtml() {
 
     function renderResultSummary(state) {
       const summary = state.resultsSummary || {};
-      renderPptPlotConfig(state);
       const unverified = Array.isArray(summary.unverifiedResults) ? summary.unverifiedResults : [];
       const historyPreview = unverified.length ? '<details class="muted"><summary>历史指标归属待核实 · ' + unverified.length + ' 条预览</summary><p>仅显示历史指标，不作为当前 job 完成证明。</p><table><tbody>' + unverified.map(function(row) {
-        return '<tr><td>' + escapeHtml(String(row.experimentId || '历史记录')) + '</td><td>' + escapeHtml(JSON.stringify(row.dimensions || {})) + '</td><td>' + escapeHtml(JSON.stringify(row.metrics || {})) + '</td></tr>';
+        return '<tr><td>' + esc(String(row.experimentId || '历史记录')) + '</td><td>' + esc(JSON.stringify(row.dimensions || {})) + '</td><td>' + esc(JSON.stringify(row.metrics || {})) + '</td></tr>';
       }).join('') + '</tbody></table></details>' : '';
       const report = state.resultSyncReport || summary;
       const coverage = report.source === "active_query" ? '<div class="notice ' + (report.current && !report.reviewRequired && !(report.missing || []).length ? '' : 'warning') + '"><b>' + (report.current ? '本轮产物可汇总 ' + Number(report.completed || 0) + '/' + Number(report.expected || 0) + ' 个 job · 产物待复核 ' + Number(report.reviewRequired || 0) : '本轮查询失败，现有导出不是本轮结果') + '</b><span class="muted"> · ' + esc(report.observedAt || '') + '</span>' + (report.unobservedDeclarations ? '<div class="muted">另有 ' + Number(report.unobservedDeclarations) + ' 项声明尚未发现运行记录，未纳入本轮汇总分母；查询未知不代表未运行。</div>' : '') + ((report.missing || []).length || (report.skipped || []).length ? '<details><summary>查看缺项与查询原因</summary>' + asArray(report.missing).concat(asArray(report.skipped)).map(function(message) { return '<div>' + esc(String(message)) + '</div>'; }).join('') + '</details>' : '') + '</div>' : '';
@@ -16912,96 +16738,10 @@ function renderPanelHtml() {
       return '<div class="notice warning" title="缺少 Worker：' + escAttr(missing) + '"><b>结果摘要不完整</b> 已读取 ' + esc(coverage) + '；缺少 ' + esc(missing) + '。当前数字仅代表可用 Worker 的只读部分视图。</div>';
     }
 
-    function renderPptPlotConfig(state) {
-      const pathInput = el("pptPlotConfig").querySelector('input[data-config-input="ppt"][data-key="presentationPath"]');
-      if (shouldKeepConfigDraftScope("ppt") && pathInput) {
-        if (!Object.prototype.hasOwnProperty.call(configDrafts.ppt || {}, "presentationPath") && document.activeElement !== pathInput)
-          pathInput.value = String((state.pptPlotConfig || {}).presentationPath || "");
-        refreshPptPlotConfigDebugState(state);
-        return;
-      }
-      const config = state.pptPlotConfig || {};
-      const automation = pptAutomationReadinessForState(state);
-      const resultSummary = (state || {}).resultsSummary || {};
-      const statisticsSourcePath = finalStatisticsSourcePath(resultSummary);
-      const pathValue = String(configDraftValue("ppt", "presentationPath", config.presentationPath || ""));
-      const chartType = String(configDraftValue("ppt", "chartType", config.chartType || "auto") || "auto");
-      const styleMode = String(configDraftValue("ppt", "styleMode", config.styleMode || "activePpt") || "activePpt");
-      const automationAction = !automation.ready && automation.actionCommand
-        ? '<button data-command="' + escAttr(automation.actionCommand) + '" class="secondary" title="' + escAttr(automation.message) + '">' + esc(automation.actionLabel) + '</button>'
-        : "";
-      const plotDisabled = !statisticsSourcePath || !automation.ready;
-      const debugReason = debugModeDisableReason("plotResultsToPpt");
-      const plotActionDisabled = Boolean(debugReason || plotDisabled);
-      const plotTitle = debugReason || (!statisticsSourcePath ? "请先归档结果并运行统计" : automation.ready ? statisticsSourcePath : automation.message);
-      setHtmlIfChanged("pptPlotConfig",
-        '<div class="pptPlotConfig" title="PPT 绘图">' +
-          '<div class="gpuServerHead"><b>绘图到 PPT</b><span class="' + (automation.ready ? "good" : "muted") + '" title="' + escAttr(automation.message) + '">' + esc(automation.label) + '</span></div>' +
-          '<div class="pptPlotConfigGrid">' +
-            '<label class="field" title="选择已有 PPT 文件追加图表，或指定要新建的 PPT 文件位置。"><span>PPT 路径' + helpBadge("选择已有 PPT 文件追加图表，或指定要新建的 PPT 文件位置。") + '</span><div class="pptPathInputRow"><input class="wide" data-config-input="ppt" data-key="presentationPath" value="' + escAttr(pathValue) + '" placeholder="留空表示新建 PPT" title="选择已有 PPT 文件追加图表，或指定要新建的 PPT 文件位置。"><button data-command="choosePptPath" class="secondary" title="选择一个已存在的 PPT&#10;结果图表会追加写入该文件">浏览</button><button data-command="chooseNewPptPath" class="secondary" title="指定一个新建 PPT 文件的位置&#10;后续结果图表会写入这个新文件">新建路径</button></div></label>' +
-            '<label class="field" title="选择结果绘图形式；自动模式根据统计结果挑选图形。"><span>图类型' + helpBadge("选择结果绘图形式；自动模式根据统计结果挑选图形。") + '</span><select data-config-input="ppt" data-key="chartType" title="选择结果绘图形式；自动模式根据统计结果挑选图形。">' +
-              optionHtml("auto", "自动", chartType === "auto") +
-              optionHtml("leaderboardBar", "柱状", chartType === "leaderboardBar") +
-              optionHtml("meanStdErrorBar", "误差图", chartType === "meanStdErrorBar") +
-              optionHtml("genericTable", "表格", chartType === "genericTable") +
-            '</select></label>' +
-            '<label class="field" title="跟随当前 PPT 使用现有主题；默认样式使用插件预设图表样式。"><span>样式' + helpBadge("跟随当前 PPT 使用现有主题；默认样式使用插件预设图表样式。") + '</span><select data-config-input="ppt" data-key="styleMode" title="跟随当前 PPT 使用现有主题；默认样式使用插件预设图表样式。">' +
-              optionHtml("activePpt", "跟随当前 PPT", styleMode === "activePpt") +
-              optionHtml("default", "默认样式", styleMode === "default") +
-            '</select></label>' +
-          '</div>' +
-          '<div class="pptPlotActions">' +
-            '<button data-command="savePptPlotConfig" data-config-scope="ppt" class="secondary" title="保存 PPT 绘图配置&#10;含图表映射、输出位置与自动绘图开关">保存绘图配置</button>' +
-            automationAction +
-            '<button data-command="plotResultsToPpt" data-source-path="' + escAttr(statisticsSourcePath) + '" data-source-label="SCI 聚合统计"' + (plotActionDisabled ? " disabled" : "") + ' title="' + escAttr(plotTitle) + '" aria-label="绘图到 PPT：' + escAttr(plotTitle) + '">绘图到 PPT</button>' +
-          '</div>' +
-        '</div>');
-    }
 
-    function refreshPptPlotConfigDebugState(state) {
-      const root = el("pptPlotConfig");
-      const button = root && root.querySelector ? root.querySelector('button[data-command="plotResultsToPpt"]') : null;
-      if (!button) return;
-      const automation = pptAutomationReadinessForState(state || {});
-      const statisticsSourcePath = finalStatisticsSourcePath((state || {}).resultsSummary || {});
-      const debugReason = debugModeDisableReason("plotResultsToPpt");
-      const prerequisiteReason = !statisticsSourcePath ? "请先归档结果并运行统计" : automation.ready ? statisticsSourcePath : automation.message;
-      const title = debugReason || prerequisiteReason;
-      button.disabled = Boolean(debugReason || !statisticsSourcePath || !automation.ready);
-      setNativeTitle(button, title);
-      button.setAttribute("aria-label", "绘图到 PPT：" + title);
-    }
 
-    function pptAutomationReadinessForState(state) {
-      const item = (state || {}).pptAutomation || {};
-      const status = String(item.state || "unknown");
-      const labels = {
-        unknown: "PPT 插件待检测",
-        not_running: "PPT 插件未启动",
-        busy: "PPT 插件忙碌",
-        token_missing: "PPT 令牌缺失",
-        token_invalid: "PPT 令牌失效",
-        incompatible: "PPT 版本不兼容",
-        unavailable: "PPT 插件不可用",
-        ready: "PPT 插件已就绪"
-      };
-      return {
-        state: status,
-        ready: item.ready === true && status === "ready",
-        label: labels[status] || labels.unknown,
-        message: String(item.message || "尚未检测 PPT automation。"),
-        actionCommand: PPT_AUTOMATION_ACTION_COMMANDS?.has(String(item.actionCommand || "")) ? String(item.actionCommand) : "",
-        actionLabel: String(item.actionLabel || "")
-      };
-    }
 
-    function chartTypeLabel(value) {
-      return PPT_CHART_TYPE_LABELS[String(value || "")] || String(value || "未知");
-    }
 
-    function styleModeLabel(value) {
-      return PPT_STYLE_MODE_LABELS[String(value || "")] || String(value || "未知");
-    }
 
     function currentPlanRevisionRunEvidenceForState(state, planFile, plan) {
       const data = state || {};
@@ -17065,16 +16805,6 @@ function renderPanelHtml() {
 
     // An artifact produced against a smaller archived set is stale, not missing; without saying so
     // the row reads "待运行" and the user has to diff two counts that live in different rows.
-    function evidenceCoverageState(artifactPath, coveredCount, archivedCount) {
-      const archived = Number(archivedCount) || 0;
-      const covered = Number(coveredCount) || 0;
-      const hasArtifact = Boolean(meaningfulValue(artifactPath));
-      if (!archived) return { tone: "warn", label: "等待归档", detail: "尚无已归档结果" };
-      if (!hasArtifact) return { tone: "warn", label: "待运行", detail: "尚未生成产物；已归档 " + archived + " 条" };
-      if (covered === archived) return { tone: "good", label: "已生成", detail: "覆盖全部 " + archived + " 条已归档结果" };
-      if (covered > archived) return { tone: "warn", label: "需重跑", detail: "产物含 " + covered + " 条，多于当前已归档 " + archived + " 条；归档已变更" };
-      return { tone: "warn", label: "需重跑", detail: "产物覆盖 " + covered + " 条，已归档 " + archived + " 条；" + (archived - covered) + " 条未纳入" };
-    }
 
     function resultCatalogViewModel(catalog, state) {
       const normal = [], unassignedGroups = [], sharedGroups = [];
@@ -17250,188 +16980,19 @@ function renderPanelHtml() {
         '<div class="muted">勾选需要的词条，每个词条生成一张 CSV。输出放在所选表的 by_列名 子目录。</div>' +
         '<div class="resultTableRow"><button type="button" class="secondary mini" data-result-split-toggle="all">全选当前词条</button><button type="button" class="secondary mini" data-result-split-toggle="none">取消当前词条</button></div>' +
         '<div id="resultSplitValues" class="resultSplitChoices">' + valueChoices + '</div><details><summary>选择子表保留的列（默认全部）</summary><div id="resultSplitColumns" class="resultSplitChoices">' + columns + '</div></details>' +
-        '<div class="pptPlotActions"><button type="button" class="secondary" data-command="splitProjectResultTable" title="按勾选词条分别写入 CSV；源表不变。">生成所选子表</button></div></details></div>';
+        '<div class="resultTableActions"><button type="button" class="secondary" data-command="splitProjectResultTable" title="按勾选词条分别写入 CSV；源表不变。">生成所选子表</button></div></details></div>';
     }
     function renderResultEvidenceWorkbench(state, summary) {
-      const traceScope = traceRowsForPlanScope(experimentTraceRowsForState(state), state, "selected");
-      const traceStats = resultEvidenceTraceStatsForRows(traceScope.rows);
-      const parsed = meaningfulValue(pick(summary, ["lastParsedAt", "last_parsed_at"], ""));
-      const autoParseReadiness = resultAutoParseReadinessForState(state, summary);
-      const outputContractCheck = currentResultOutputContractCheck(state);
-      const analysisArtifacts = resultAnalysisArtifactsForState(state, summary);
-      const cacheKey = resultEvidenceWorkbenchCacheKeyFor(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness) + stableSectionSignature((((state || {}).resultOutputConfig || {}).adapterRules) || {}) + stableSectionSignature((((state || {}).resultOutputConfig || {}).tables) || []) + stableSectionSignature((((state || {}).resultOutputConfig || {}).catalog) || {}) + stableSectionSignature(compactRecordForSignature((state || {}).resultOutputConfig || {}, ["catalogLoadStatus", "catalogLoadError"])) + stableSectionSignature((state || {}).resultSyncReport || {}) + resultSplitTableKey + resultSplitFieldName;
-      if (cacheKey === resultEvidenceWorkbenchCacheKey && resultEvidenceWorkbenchCacheHtml) return resultEvidenceWorkbenchCacheHtml;
-      const parseFailed = pick(summary, ["parseFailed", "parse_failed"], "-");
-      const qualityWarnings = pick(summary, ["qualityWarnings", "quality_warnings"], "-");
-      const qualityGatePath = pick(summary, ["qualityGatePath", "quality_gate_path"], "-");
-      const previewCsvPath = pick(summary, ["previewCsvPath", "preview_csv_path"], "-");
-      const projectAggregateCsvPath = pick(summary, ["projectAggregateCsvPath"], "");
-      const finalCsvPath = pick(summary, ["finalCsvPath"], "");
-      const finalMarkdownPath = pick(summary, ["finalMarkdownPath"], "");
-      const projectFinalCsvPath = pick(summary, ["projectFinalCsvPath"], "");
-      const projectFinalMarkdownPath = pick(summary, ["projectFinalMarkdownPath"], "");
-      const aggregateMessage = pick(summary, ["aggregateMessage"], "");
-      const workerResultTables = asArray(summary.workerResultTables);
-      const multiWorkerTables = workerResultTables.length > 1;
       const resultPlanFile = pick(summary, ["planFile", "plan_file"], state.planFileInput || (state.selection || {}).selectedPlanId || "");
-      const previewResultCount = Number(pick(summary, ["previewResultCount", "preview_result_count", "resultCount", "result_count"], asArray(summary.results).length)) || 0;
-      const effectiveResultsCsvPath = pick(summary, ["effectiveResultsCsvPath", "effective_results_csv_path"], "-");
-      const effectiveArchivedResultCount = Number(pick(summary, ["effectiveArchivedResultCount", "effective_archived_result_count", "finalResultCount", "final_result_count"], 0)) || 0;
-      const pendingReviewCount = Number(pick(summary, ["pendingReviewCount", "pending_review_count"], 0)) || 0;
-      const excludedResultCount = Number(pick(summary, ["excludedResultCount", "excluded_result_count"], 0)) || 0;
-      const qualityGateResultCount = pick(summary, ["qualityGateResultCount", "quality_gate_result_count"], "");
-      const qualityReady = Boolean(meaningfulValue(qualityGatePath)) && effectiveArchivedResultCount > 0 && Number(qualityGateResultCount) === effectiveArchivedResultCount;
-      const statisticsUpdatedAt = pick(summary, ["statisticsUpdatedAt", "statistics_updated_at"], "-");
-      const statisticsPath = pick(summary, ["statisticsPath", "statistics_path"], "-");
-      const statisticsResultCount = pick(summary, ["statisticsResultCount", "statistics_result_count"], "");
-      const statisticsReady = Boolean(meaningfulValue(statisticsPath)) && effectiveArchivedResultCount > 0 && Number(statisticsResultCount) === effectiveArchivedResultCount;
-      const statisticsSourcePath = statisticsReady ? meaningfulValue(statisticsPath) : "";
-      const pairedComparisons = asArray(summary.pairedComparisons || summary.paired_comparisons);
-      const firstComparison = pairedComparisons[0] || {};
-      const paperTablePath = pick(summary, ["paperTablePath", "paper_table_path", "exportPath"], "-");
-      const paperTableCsvPath = pick(summary, ["paperTableCsvPath", "paper_table_csv_path"], "-");
-      const paperTableResultCount = pick(summary, ["paperTableResultCount", "paper_table_result_count"], "");
-      const paperTableReady = Boolean(meaningfulValue(paperTablePath)) && effectiveArchivedResultCount > 0 && Number(paperTableResultCount) === effectiveArchivedResultCount;
-      const paperTableSourcePath = paperTableReady ? (meaningfulValue(paperTableCsvPath) || meaningfulValue(paperTablePath)) : "";
-      const pptReady = Boolean(statisticsSourcePath || paperTableSourcePath || analysisArtifacts.plottingContractPath || analysisArtifacts.caseLevelPath || analysisArtifacts.recoveredPlanReportPath || analysisArtifacts.anomalyPath);
-      const claimEvidence = summary.claimEvidence || summary.claim_evidence || {};
-      const claimStatus = pick(summary, ["claimEvidenceStatus", "claim_evidence_status"], pick(claimEvidence, ["status"], "待检查"));
-      const claimPath = pick(summary, ["claimEvidencePath", "claim_evidence_path"], pick(claimEvidence, ["path"], "simple_cluster/results/claim_evidence.json"));
-      const claimCount = pick(summary, ["claimCount", "claim_count"], pick(claimEvidence, ["claimCount", "claim_count"], 0));
-      const claimSupported = pick(summary, ["claimSupportedCount", "claim_supported_count"], pick(claimEvidence, ["supportedCount", "supported_count"], 0));
-      const claimPreview = asArray(summary.claimEvidencePreview || summary.claim_evidence_preview || claimEvidence.preview || claimEvidence.claims);
-      const previewIssueCounts = claimEvidenceIssueCounts(claimPreview);
-      const claimStatusText = String(claimStatus || "").toLowerCase();
-      const claimUnsupported = Math.max(
-        Number(pick(summary, ["claimUnsupportedCount", "claim_unsupported_count"], pick(claimEvidence, ["unsupportedCount", "unsupported_count"], 0))) || 0,
-        previewIssueCounts.unsupported,
-        claimStatusText.includes("unsupported") ? 1 : 0
-      );
-      const claimNeeds = Math.max(
-        Number(pick(summary, ["claimNeedsExperimentCount", "claim_needs_experiment_count"], pick(claimEvidence, ["needsExperimentCount", "needs_experiment_count"], 0))) || 0,
-        previewIssueCounts.needsExperiment,
-        claimStatusText.includes("need") ? 1 : 0
-      );
-      const claimIssueCount = Number(claimUnsupported || 0) + Number(claimNeeds || 0);
-      const claimDisplayStatus = claimIssueCount ? "缺证据" : meaningfulValue(claimStatus) ? claimEvidenceStatusLabel(claimStatus) : "待检查";
-      const archived = traceStats.archived;
-      const deleted = traceStats.deleted;
-      const parsedRows = traceStats.parsedRows;
-      const qualityCoverage = evidenceCoverageState(qualityGatePath, qualityGateResultCount, effectiveArchivedResultCount);
-      const statisticsCoverage = evidenceCoverageState(statisticsPath, statisticsResultCount, effectiveArchivedResultCount);
-      const paperTableCoverage = evidenceCoverageState(paperTablePath, paperTableResultCount, effectiveArchivedResultCount);
-      const evidenceJoin = (items) => (items || []).map((item) => String(item[0] || "") + "：" + String(item[1] === undefined || item[1] === null || item[1] === "" ? "-" : item[1])).join("；");
-      const evidencePlanRow = (title, tone, status, items) => {
-        const joined = evidenceJoin(items);
-        const full = String(title || "") + "：" + String(status || "-") + "；" + joined;
-        return planRunRow(title, tone, joined, status, full);
-      };
-      const parseTone = parsed || parsedRows ? (qualityReady && !hasWarningValue(qualityWarnings) ? "good" : "warn") : "warn";
-      const parseStatus = parsed || parsedRows ? (qualityReady ? (hasWarningValue(qualityWarnings) ? "有警告" : "已检查") : "待质量门禁") : "待解析";
-      const parseItems = [
-        ["最近解析", parsed || "-", ""],
-        ["失败数", parseFailed, ""],
-        ["警告", qualityWarnings, ""],
-        ["质量报告", compactPath(qualityGatePath), qualityGatePath],
-        ["检查结果", String(qualityGateResultCount || 0), "仅检查已归档结果"],
-        ["覆盖", qualityCoverage.detail, "质量门禁覆盖范围与当前已归档结果的对照"]
-      ];
-      const statisticsItems = [
-        ["更新时间", statisticsUpdatedAt, ""],
-        ["统计文件", compactPath(statisticsPath), statisticsPath],
-        ["纳入结果", String(statisticsResultCount || 0), "仅统计已归档结果"],
-        ["覆盖", statisticsCoverage.detail, "统计覆盖范围与当前已归档结果的对照"],
-        ["配对比较", pairedComparisons.length ? String(pairedComparisons.length) + " 组" : "待生成", pairedComparisonTitle(firstComparison)],
-        ["显著性", analysisStatusLabel(pick(summary, ["significanceStatus", "significance_status"], "待检查")), "原始值：" + String(pick(summary, ["significanceStatus", "significance_status"], "待检查"))]
-      ];
-      const filterItems = [
-        ["完整预览", compactPath(previewCsvPath), previewCsvPath],
-        ["预览条数", String(previewResultCount), "包含全部解析记录，归档前不进入最终分析"],
-        ["有效结果", compactPath(effectiveResultsCsvPath), effectiveResultsCsvPath],
-        ["纳入规则", "仅已归档", "临时预览不会进入统计、论文表或 PPT"],
-        ["有效条数", String(effectiveArchivedResultCount), ""],
-        ["待筛选", String(pendingReviewCount), "未决定的记录保留在完整预览中，不进入质量门禁、统计、论文表或 PPT"],
-        ["已排除", String(excludedResultCount), "排除只改变结果取舍状态，不删除任务、产物或完整预览"]
-      ];
-      const paperTone = claimIssueCount ? "warn" : meaningfulValue(claimStatus) && claimStatus !== "待检查" ? "mine" : "warn";
-      const paperItems = [
-        ["论文表格", compactPath(paperTablePath), paperTablePath || ""],
-        ["表格覆盖", paperTableCoverage.detail, "论文表格覆盖范围与当前已归档结果的对照"],
-        ["论文声明", String(claimCount), ""],
-        ["缺证据", String(claimUnsupported), ""],
-        ["已归档", String(archived), ""]
-      ];
-      const analysisItems = [
-        ["恢复报告", compactPath(analysisArtifacts.recoveredPlanReportPath), analysisArtifacts.recoveredPlanReportPath],
-        ["异常报告", compactPath(analysisArtifacts.anomalyPath), analysisArtifacts.anomalyPath],
-        ["日志规则", "OOM/NaN/CUDA", ""],
-        ["安全", "不执行命令", ""]
-      ];
-      const pptTone = pptReady ? "good" : "warn";
-      const pptStatus = pptReady ? "已有可用文件" : "等待分析文件";
-      const pptItems = [
-        ["契约", compactPath(analysisArtifacts.plottingContractPath), analysisArtifacts.plottingContractPath],
-        ["统计结果", compactPath(statisticsSourcePath), statisticsSourcePath],
-        ["论文表格", compactPath(paperTableSourcePath), paperTableSourcePath],
-        ["样本级结果", compactPath(analysisArtifacts.caseLevelPath), analysisArtifacts.caseLevelPath]
-      ];
-      const rows = [
-        evidencePlanRow("解析与质量", parseTone, parseStatus, parseItems),
-        evidencePlanRow("SCI 统计", statisticsCoverage.tone, statisticsCoverage.label, statisticsItems),
-        evidencePlanRow("结果筛选", "info", "预览与有效结果分离", filterItems),
-        evidencePlanRow("论文与归档", paperTone, claimDisplayStatus, paperItems),
-        evidencePlanRow("按需分析", "", "按需运行", analysisItems),
-        evidencePlanRow("PPT 绘图", pptTone, pptStatus, pptItems)
-      ];
-      const tableActions = [
-        pptPlotButton("统计绘图", statisticsSourcePath, "SCI 统计"),
-        resultFileButton("打开完整预览", previewCsvPath, resultPlanFile),
-        resultFileButton("打开有效结果", effectiveResultsCsvPath, resultPlanFile),
-        pptPlotButton("论文表格绘图", paperTableSourcePath, "论文表格"),
-        ...asArray(summary.paperDatasetTables).map(table => pptPlotButton((table.dataset || "未识别数据集") + " 论文表格绘图", table.paperTableCsvPath || table.paperTablePath, "论文表格", {workerId: table.workerId || "", planFile: resultPlanFile})),
-        pptPlotButton("恢复报告页", analysisArtifacts.recoveredPlanReportPath, "配置反推报告", { unavailableReason: "请先运行恢复 Plan" }),
-        pptPlotButton("异常报告页", analysisArtifacts.anomalyPath, "异常定位报告", { unavailableReason: "请先运行异常诊断" }),
-        pptPlotButton("均值绘图", statisticsSourcePath, "SCI 聚合统计"),
-        pptPlotButton("契约页", analysisArtifacts.plottingContractPath, "PPT 绘图契约", { unavailableReason: "请先导出 PPT 绘图契约" }),
-        pptPlotButton("统计结果", statisticsSourcePath, "statistics"),
-        pptPlotButton("论文表格", paperTableSourcePath, "paper table"),
-        pptPlotButton("样本级结果", analysisArtifacts.caseLevelPath, "case_level", { unavailableReason: "请先运行样本级解析" }),
-        pptPlotButton("异常原因", analysisArtifacts.anomalyPath, "root cause/storyline", { unavailableReason: "请先运行异常诊断" })
-      ].filter(Boolean).join("");
-      const tableRows = rows.join("");
-      const html = '<div class="resultEvidenceWorkbench" title="结果证据">' +
-        renderProjectResultTables(state) +
-        '<section class="resultPlanActions"><div class="resultPlanActionsTitle"><strong>项目结果配置</strong><small>对本项目全部 PLAN 生效</small></div><div class="resultPlanActionButtons">' +
-          '<button class="taskActionButton secondary" data-open-result-mapping type="button" title="对本项目全部 PLAN 生效；列名样例以映射面板标出的源文件为准。保存后主动更新全部 PLAN 结果。">项目结果列映射</button>' +
-        '</div><div class="resultPlanActionsHelp">' + esc("更新入口在上方结果总表：核实本项目全部 PLAN 与全部启用 Worker；指标在内存读取，原始指标不保存为本机副本，不触发科研分析。" + (multiWorkerTables ? "多 Worker 结果按服务器分别保存；各项目总表只覆盖对应 Worker。" : aggregateMessage || "原始结果保留。")) + '</div></section>' +
-        '<div class="resultPlanActionsHelp" style="overflow-wrap:anywhere;">PLAN 上下文：' + esc(resultPlanFile || "尚未选择 PLAN") + '。列名样例以映射面板标出的源文件为准；列映射保存范围为本项目。</div>' +
-        renderResultColumnMappingEditor(state, summary.columnMappingPreview) +
-        '<details data-details-key="result-advanced"' + detailsOpenAttr("result-advanced", false) + '><summary>高级证据与分析</summary>' +
-          renderResultNextAction({ parsed, parsedRows, qualityGatePath: qualityReady ? qualityGatePath : "", statisticsPath: statisticsReady ? statisticsPath : "", claimStatus, claimIssueCount, paperTablePath: paperTableReady ? paperTablePath : "", plottingContractPath: analysisArtifacts.plottingContractPath, effectiveArchivedResultCount, pendingReviewCount, excludedResultCount, previewCsvPath, archivableCount: traceStats.archivable, archiveBlockedCount: traceStats.archiveBlocked, previewResultCount, outputContractStatus: outputContractCheck.status, outputContractMissingFiles: outputContractCheck.missingFiles, outputContractUnparseableFiles: outputContractCheck.unparseableFiles, outputContractMessage: outputContractCheck.message, autoParseStatus: autoParseReadiness.status, planFile: autoParseReadiness.planFile }) +
-          '<table class="planCompactTable gpuDenseTable"><tbody>' + tableRows + '</tbody></table>' +
-          (tableActions ? '<div class="pptPlotActions">' + tableActions + '</div>' : "") +
-          renderClaimEvidencePreviewCached(claimPreview) +
-        '</details>' +
-      '</div>';
-      resultEvidenceWorkbenchCacheKey = cacheKey;
-      resultEvidenceWorkbenchCacheHtml = html;
-      return html;
+      return '<div class="resultEvidenceWorkbench">' + renderProjectResultTables(state) +
+        '<section class="resultPlanActions"><div class="resultPlanActionsTitle"><strong>项目结果配置</strong><small>对本项目全部 PLAN 生效</small></div>' +
+        '<div class="resultPlanActionButtons"><button class="taskActionButton secondary" data-open-result-mapping type="button" title="对本项目全部 PLAN 生效；保存后主动更新全部 PLAN 结果。">项目结果列映射</button></div>' +
+        '<div class="resultPlanActionsHelp">核实本项目全部 PLAN 与全部启用 Worker；指标在内存读取，原始指标不保存为本机副本。</div></section>' +
+        '<div class="resultPlanActionsHelp" style="overflow-wrap:anywhere;">PLAN 上下文：' + esc(resultPlanFile || "尚未选择 PLAN") + '。列映射保存范围为本项目。</div>' +
+        renderResultColumnMappingEditor(state, summary.columnMappingPreview) + '</div>';
     }
 
-    function claimEvidenceIssueCounts(rows) {
-      return asArray(rows).reduce((counts, row) => {
-        const status = String((row || {}).status || "").trim().toLowerCase();
-        if (status.includes("need")) counts.needsExperiment += 1;
-        else if (status.includes("unsupported")) counts.unsupported += 1;
-        return counts;
-      }, { unsupported: 0, needsExperiment: 0 });
-    }
 
-    function resultFileButton(label, file, planFile, workerId, help, showUnavailable) {
-      const path = meaningfulValue(file);
-      if (!path) return showUnavailable ? '<button class="taskActionButton secondary" type="button" disabled title="当前 PLAN 尚未生成此文件。可点击“更新全部 PLAN 结果”核实已有产物；文件是否生成由实验输出决定。">' + esc(label) + ' · 未生成</button>' : "";
-      return '<button class="taskActionButton' + (/^查看简洁汇总/.test(label) ? '' : ' secondary') + '" data-command="openResultArtifact" data-remote-path="' + escAttr(path) + '" data-plan-file="' + escAttr(planFile || "") + '"' + (workerId ? ' data-worker-id="' + escAttr(workerId) + '"' : "") + ' title="' + escAttr((help || "临时只读查看，不保存原始文件。") + String.fromCharCode(10) + "远端文件：" + path) + '">' + esc(label) + '</button>';
-    }
 
     function renderResultColumnMappingEditor(state, preview) {
       const item = preview && typeof preview === "object" ? preview : {};
@@ -17467,140 +17028,15 @@ function renderPanelHtml() {
         '</details>';
     }
 
-    function renderResultNextAction(status) {
-      const stage = resultWorkflowStage(status);
-      if (stage.kind === "await-run") return projectSectionNextAction(stage.message, "查看 PLAN 与运行进度", "plans", "plans-local");
-      if (stage.command === "parseResults") return projectSectionNextAction("结果更新会核实本项目全部 PLAN 与全部启用 Worker。", "前往结果总表", "results", "results-summary");
-      if (["archive", "archive-blocked", "review"].includes(stage.kind)) return "";
-      if (stage.kind === "section") return projectSectionNextAction(stage.message, stage.label, stage.section, stage.anchor || stage.section);
-      if (stage.command === "plotResultsToPpt") {
-        const automation = pptAutomationReadinessForState(lastState || {});
-        if (!automation.ready) return projectNextAction(automation.message, automation.actionLabel, automation.actionCommand);
-      }
-      return projectNextAction(stage.message, stage.label, stage.command, { file: stage.file, planFile: stage.planFile });
-    }
 
-    function resultWorkflowStage(status) {
-      if (!status.parsed && status.autoParseStatus === "waiting-run") {
-        return { kind: "await-run", message: "当前版本尚无运行证据，自动解析已跳过", planFile: status.planFile };
-      }
-      if (!status.parsed && ["no-plan", "plan-unavailable"].includes(status.autoParseStatus)) {
-        return { kind: "section", message: status.autoParseStatus === "no-plan" ? "尚未选择 Plan" : "当前 Plan 元数据尚未就绪", label: "选择 Plan", section: "plans", anchor: "plans-local" };
-      }
-      if (!status.parsed && !status.parsedRows) {
-        return { kind: "command", message: status.autoParseStatus === "run-evidence" ? "已检测到当前版本运行记录，等待结果解析" : "尚未生成结果摘要", label: "解析结果", command: "parseResults", planFile: status.planFile };
-      }
-      const archivedCount = Number(status.effectiveArchivedResultCount || 0);
-      const pendingCount = Number(status.pendingReviewCount || 0);
-      const excludedCount = Number(status.excludedResultCount || 0);
-      const parsedCount = Math.max(Number(status.previewResultCount || 0), Number(status.parsedRows || 0), archivedCount + pendingCount);
-      if (archivedCount <= 0 && Number(status.archivableCount || 0) > 0) {
-        return { kind: "archive", count: Number(status.archivableCount || 0) };
-      }
-      if (archivedCount <= 0 && Number(status.archiveBlockedCount || 0) > 0) {
-        return { kind: "archive-blocked", count: Number(status.archiveBlockedCount || 0) };
-      }
-      if (archivedCount <= 0 && pendingCount > 0) {
-        return { kind: "review", count: pendingCount };
-      }
-      if (archivedCount <= 0 && parsedCount > 0) {
-        return { kind: "review", count: parsedCount };
-      }
-      if (archivedCount <= 0) {
-        return zeroResultOutputContractStage(status);
-      }
-      if (!meaningfulValue(status.qualityGatePath)) {
-        return { kind: "command", message: "已归档 " + archivedCount + " 条未纳入 " + (pendingCount + excludedCount) + " 条（待筛选 " + pendingCount + " 条；已排除 " + excludedCount + " 条）", label: "检查已归档结果", command: "runQualityGate" };
-      }
-      if (!meaningfulValue(status.statisticsPath)) {
-        return { kind: "command", message: "结果已归档，等待最终统计", label: "运行统计", command: "runStatistics" };
-      }
-      if (status.claimIssueCount) {
-        return { kind: "command", message: "论文声明仍有 " + Number(status.claimIssueCount) + " 项缺失证据", label: "打开 claims.md", command: "openPlan", file: "paper/claims.md" };
-      }
-      if (!meaningfulValue(status.claimStatus) || String(status.claimStatus) === "待检查") {
-        return { kind: "command", message: "统计已完成，等待证据检查", label: "检查论文证据", command: "checkClaimEvidence" };
-      }
-      if (!meaningfulValue(status.paperTablePath)) {
-        return { kind: "command", message: "证据检查已完成", label: "导出论文表格", command: "exportPaperTable" };
-      }
-      if (!meaningfulValue(status.plottingContractPath)) {
-        return { kind: "command", message: "论文表格已生成，等待 PPT 绘图契约", label: "导出绘图契约", command: "exportPlottingContract" };
-      }
-      return { kind: "command", message: "结果证据与绘图契约均已完成", label: "绘图到 PPT", command: "plotResultsToPpt" };
-    }
 
-    function resultAwaitRunNextAction(stage) {
-      const planFile = String((stage || {}).planFile || "");
-      const planAttr = planFile ? ' data-plan-file="' + escAttr(planFile) + '"' : "";
-      const state = lastState || {};
-      const runReason = disableReason(state, "runPlan", { planFile });
-      const parseReason = disableReason(state, "parseResults", { planFile });
-      const actionButton = (command, label, reason, confirm) => {
-        const title = reason || commandHelp(command);
-        return '<button class="mini' + (command === "parseResults" ? ' secondary' : '') + '" data-command="' + command + '"' + planAttr + (confirm ? ' data-confirm="true"' : '') + (reason ? ' disabled' : '') + ' title="' + escAttr(title) + '" aria-label="' + escAttr(label + "：" + title) + '">' + esc(label) + '</button>';
-      };
-      return '<div class="projectQuickNext"><span>自动解析</span><b>' + esc((stage || {}).message || "当前版本尚无运行证据") + '</b><div class="projectQuickActions">' + actionButton("runPlan", runModeActionLabel(runMode, "校验并提交运行"), runReason, true) + actionButton("parseResults", "解析已有结果", parseReason, false) + '</div></div>';
-    }
 
-    function zeroResultOutputContractStage(status) {
-      const contractStatus = String(status.outputContractStatus || "").toLowerCase();
-      if (/accepted|pending|queued|running|in_progress|started|progress/.test(contractStatus)) {
-        return { kind: "section", message: "正在检查输出契约", label: "查看检查进度", section: "execution", anchor: "execution" };
-      }
-      if (/failed|failure|error|stalled|unsupported/.test(contractStatus)) {
-        const missingFiles = meaningfulValue(status.outputContractMissingFiles);
-        const unparseableFiles = meaningfulValue(status.outputContractUnparseableFiles);
-        const rawUnparseableFileList = Array.isArray(status.outputContractUnparseableFileList) ? status.outputContractUnparseableFileList : [];
-        const unparseableFileList = [...new Set(rawUnparseableFileList.map((item) => String(item || "").trim()).filter(Boolean))];
-        const unparseableDetails = Array.isArray(status.outputContractUnparseableDetails) ? status.outputContractUnparseableDetails : [];
-        const failureMessage = missingFiles ? "输出契约缺失：" + missingFiles : unparseableFiles ? "结果文件不可解析：" + unparseableFiles : meaningfulValue(status.outputContractMessage) || "输出契约检查失败";
-        return { kind: "section", message: failureMessage, label: "修复输出接入", section: "plans", anchor: "plans-detected", unparseableFileList, unparseableDetails };
-      }
-      if (/completed|complete|done|success|succeeded/.test(contractStatus)) {
-        return { kind: "command", message: "输出契约完整，重新读取结果文件", label: "重新解析结果", command: "parseResults" };
-      }
-      return { kind: "command", message: "解析已完成，但未发现结果记录", label: "检查输出契约", command: "checkOutputContract" };
-    }
 
-    function outputContractStageForCheck(check) {
-      const item = check || {};
-      return zeroResultOutputContractStage({ outputContractStatus: item.status, outputContractMissingFiles: item.missingFiles, outputContractUnparseableFiles: item.unparseableFiles, outputContractUnparseableFileList: item.unparseableFileList, outputContractUnparseableDetails: item.unparseableDetails, outputContractMessage: item.message });
-    }
 
-    function currentPlanRuntimeContractStage(state, planFile) {
-      const data = state || {};
-      const selectedPlan = meaningfulValue(planFile);
-      if (!selectedPlan) return undefined;
-      const summary = data.resultsSummary || {};
-      const summaryPlan = meaningfulValue(pick(summary, ["planFile", "plan_file"], ""));
-      if (summaryPlan && !samePlanSelection(summaryPlan, selectedPlan)) return undefined;
-      return resultSummaryNeedsOutputContractRecovery(summary)
-        ? outputContractStageForCheck(currentResultOutputContractCheck(data))
-        : undefined;
-    }
 
-    function resultSummaryNeedsOutputContractRecovery(summary) {
-      const item = summary || {};
-      const parsedAt = meaningfulValue(pick(item, ["lastParsedAt", "last_parsed_at"], ""));
-      if (!parsedAt) return false;
-      const previewCount = Number(pick(item, ["previewResultCount", "preview_result_count", "resultCount", "result_count"], asArray(item.results).length)) || 0;
-      const archivedCount = Number(pick(item, ["effectiveArchivedResultCount", "effective_archived_result_count", "finalResultCount", "final_result_count"], 0)) || 0;
-      const pendingCount = Number(pick(item, ["pendingReviewCount", "pending_review_count"], 0)) || 0;
-      return Math.max(previewCount, archivedCount + pendingCount) <= 0;
-    }
 
-    function resultArchiveNextAction(count) {
-      return '<div class="projectQuickNext"><span>下一步</span><b>待归档 ' + esc(String(count)) + ' 条实验记录</b><button class="mini" type="button" data-section-target="results" data-anchor-target="results-traces" title="跳转到结果与归档，选择要归档的实验记录">选择实验记录</button></div>';
-    }
 
-    function resultArchiveBlockedNextAction(count) {
-      return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(String(count)) + ' 条记录缺少 Worker，暂不可归档</b><button class="mini" type="button" data-section-target="results" data-anchor-target="results-traces" title="跳转到结果与归档，查看缺少 Worker 的实验记录">查看记录</button></div>';
-    }
 
-    function resultReviewNextAction(count) {
-      return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(String(count)) + ' 条预览结果尚未决定</b><button class="mini" type="button" data-section-target="results" data-anchor-target="results-traces" title="跳转到结果与归档，决定预览结果的归档与排除">归档或排除</button></div>';
-    }
 
     function resultEvidenceTraceStatsForRows(rows) {
       const list = asArray(rows);
@@ -17633,186 +17069,21 @@ function renderPanelHtml() {
       return /completed|done|failed|error|stalled|stopped|cancelled|canceled|已完成|失败|停滞|停止|取消/.test(String(status || "").toLowerCase());
     }
 
-    function latestResultOutputContractCheck(state, planFile, parsedAt, planRevision, planUpdatedAt) {
-      const parsedAtMs = Date.parse(String(parsedAt || ""));
-      return operationRowsForState(state || {}).find((row) => {
-        if (String((row || {}).type || "").toLowerCase() !== "check-output-contract") return false;
-        if (planFile && !samePlanSelection(row.planFile, planFile)) return false;
-        if (!operationMatchesPlanVersion(row, planRevision, planUpdatedAt)) return false;
-        if (!Number.isFinite(parsedAtMs)) return true;
-        const operationAtMs = Date.parse(String((row || {}).updatedAt || ""));
-        return Number.isFinite(operationAtMs) && operationAtMs >= parsedAtMs;
-      }) || {};
-    }
 
-    function currentResultOutputContractCheck(state) {
-      const data = state || {};
-      if (currentResultOutputContractCheckCacheState === data && currentResultOutputContractCheckCacheValue) return currentResultOutputContractCheckCacheValue;
-      const summary = data.resultsSummary || {};
-      const parsedAt = meaningfulValue(pick(summary, ["lastParsedAt", "last_parsed_at"], ""));
-      const planFile = meaningfulValue(data.planFileInput || (data.selection || {}).selectedPlanId || pick(summary, ["planFile", "plan_file"], ""));
-      const plan = planFromContext(data, { planFile }) || {};
-      const value = latestResultOutputContractCheck(data, planFile, parsedAt, String(plan.revision || ""), Date.parse(String(plan.updatedAt || "")));
-      currentResultOutputContractCheckCacheState = data;
-      currentResultOutputContractCheckCacheValue = value;
-      return value;
-    }
 
-    function resultAnalysisArtifactsForState(state, summary) {
-      const data = state || {};
-      const item = summary || {};
-      if (resultAnalysisArtifactsCacheState === data && resultAnalysisArtifactsCacheSummary === item && resultAnalysisArtifactsCacheValue) {
-        return resultAnalysisArtifactsCacheValue;
-      }
-      const planFile = meaningfulValue(data.planFileInput || (data.selection || {}).selectedPlanId || pick(item, ["planFile", "plan_file"], ""));
-      const summaryPlanFile = meaningfulValue(pick(item, ["planFile", "plan_file"], ""));
-      const plan = planFromContext(data, { planFile }) || {};
-      const planRevision = String(plan.revision || "");
-      const planUpdatedAt = Date.parse(String(plan.updatedAt || ""));
-      const summaryMatchesPlan = !planFile || Boolean(summaryPlanFile && samePlanSelection(summaryPlanFile, planFile));
-      const summaryMatchesVersion = resultSummaryMatchesPlanVersion(item, planRevision, planUpdatedAt);
-      const rows = planVersionOperationRows(data, planFile, planRevision, planUpdatedAt);
-      if (rows.some((row) => row.outcomePending)) return cachePlanExecutionStage(cacheKey, { phase: "monitor", status: "执行结果待确认；实时连接会自动重试，可刷新运行状态核对", label: "刷新运行状态", command: "snapshot" });
-      const artifacts = latestResultAnalysisArtifactPaths(rows, planFile, planRevision, planUpdatedAt);
-      const value = {
-        plottingContractPath: (summaryMatchesPlan && summaryMatchesVersion ? meaningfulValue(pick(item, ["plottingContractPath", "plotting_contract_path"], "")) : "") || artifacts.plottingContractPath,
-        caseLevelPath: artifacts.caseLevelPath,
-        recoveredPlanReportPath: artifacts.recoveredPlanReportPath,
-        anomalyPath: artifacts.anomalyPath
-      };
-      resultAnalysisArtifactsCacheState = data;
-      resultAnalysisArtifactsCacheSummary = item;
-      resultAnalysisArtifactsCacheValue = value;
-      return value;
-    }
 
-    function latestResultAnalysisArtifactPaths(rows, planFile, planRevision, planUpdatedAt) {
-      const out = { plottingContractPath: "", caseLevelPath: "", recoveredPlanReportPath: "", anomalyPath: "" };
-      const seenActions = new Set();
-      for (const row of asArray(rows)) {
-        const action = String((row || {}).type || "").toLowerCase();
-        const field = RESULT_ANALYSIS_ARTIFACT_FIELDS[action];
-        if (!field || seenActions?.has(action) || !operationSucceeded(row)) continue;
-        if ((planFile && !samePlanSelection(row.planFile, planFile)) || !operationMatchesPlanVersion(row, planRevision, planUpdatedAt)) continue;
-        seenActions.add(action);
-        out[field] = meaningfulValue(row[field]);
-        if (seenActions.size === Object.keys(RESULT_ANALYSIS_ARTIFACT_FIELDS).length) break;
-      }
-      return out;
-    }
 
-    function compactOutputContractCheckForSignature(check) {
-      return compactRecordForSignature(check || {}, ["operationId", "status", "updatedAt", "planFile", "message", "missingFiles", "unparseableFiles", "unparseableDetails", "parseableResultCount", "contractReportPath"]);
-    }
 
-    function resultEvidenceWorkbenchCacheKeyFor(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness) {
-      return stableSectionSignature({
-        runMode: String(typeof runMode === "undefined" ? "formal" : runMode),
-        summary: compactResultsSummaryForSignature(summary),
-        traceStats,
-        outputContractCheck: compactOutputContractCheckForSignature(outputContractCheck),
-        analysisArtifacts,
-        autoParseReadiness
-      });
-    }
 
-    function renderClaimEvidencePreviewCached(rows) {
-      const key = stableSectionSignature(compactRowsForSignature(rows, 8, ["text", "claim", "status", "evidenceRefs", "evidence_refs", "matchedKeys", "matched_keys", "missingRefs", "missing_refs", "line"]));
-      if (key === claimEvidencePreviewHtmlCacheKey) return claimEvidencePreviewHtmlCache;
-      claimEvidencePreviewHtmlCacheKey = key;
-      claimEvidencePreviewHtmlCache = renderClaimEvidencePreview(rows);
-      return claimEvidencePreviewHtmlCache;
-    }
 
-    function renderClaimEvidencePreview(rows) {
-      const list = asArray(rows).filter(Boolean).slice(0, 8);
-      if (!list.length) return "";
-      return '<div class="claimEvidenceList" title="论文证据">' +
-        list.map((row) => {
-          const status = String(row.status || "unknown").toLowerCase();
-          const tone = status.includes("support") && !status.includes("unsupported") ? "supported" : status.includes("need") ? "needs" : status.includes("unsupported") ? "unsupported" : "";
-          const refs = asArray(row.evidenceRefs || row.evidence_refs || row.matchedKeys || row.matched_keys).join(", ") || asArray(row.missingRefs || row.missing_refs).join(", ") || "无证据";
-          const line = row.line ? "L" + row.line + " · " : "";
-          return '<div class="claimEvidenceRow ' + tone + '" title="' + escAttr(row.text || "") + '">' +
-            '<div class="claimEvidenceText">' + esc(row.text || "-") + '</div>' +
-            '<div class="claimEvidenceMeta" title="' + escAttr((row.status || "-") + "；" + refs) + '">' + esc(line + claimEvidenceStatusLabel(row.status || "-")) + '</div>' +
-          '</div>';
-        }).join("") +
-      '</div>';
-    }
 
-    function claimEvidenceStatusLabel(status) {
-      const text = String(status || "").toLowerCase();
-      if (text.includes("unsupported")) return "缺证据";
-      if (text.includes("need")) return "需实验";
-      if (text.includes("support") || text === "passed" || text === "ok") return "已支持";
-      if (text.includes("fail")) return "未通过";
-      if (text.includes("pending") || text.includes("waiting")) return "待检查";
-      return String(status || "-");
-    }
 
-    function analysisStatusLabel(status) {
-      const raw = String(status || "").trim();
-      const key = raw.toLowerCase().replace(/[\\s-]+/g, "_");
-      const labels = {
-        significant: "显著", not_significant: "不显著", pending: "待检查", waiting: "待检查", passed: "已通过", ok: "已通过", supported: "已支持",
-        insufficient: "样本不足", needs_experiment: "需实验", unsupported: "不支持", unavailable: "不可用", failed: "失败", error: "错误"
-      };
-      return labels[key] || raw || "待检查";
-    }
 
-    function resultEvidenceRow(title, tone, status, detail, items, actions) {
-      const facts = (items || []).slice(0, 3).map((item) => resultEvidenceFact(item[0], item[1], item[2])).join("");
-      const fullFacts = '<div class="resultEvidenceMiniGrid">' + (items || []).map((item) => resultEvidenceMini(item[0], item[1], item[2])).join("") + '</div>';
-      const actionHtml = actions && actions.length ? '<div class="pptPlotActions">' + actions.join("") + '</div>' : "";
-      const summary = title + "：" + (status || "-");
-      return '<div class="resultEvidenceRow ' + escAttr(tone || "") + '" title="' + escAttr(summary) + '">' +
-        '<span class="resultEvidenceName">' + esc(title) + '</span>' +
-        '<span class="resultEvidenceFacts">' + facts + '</span>' +
-        '<span class="' + statusToneClass(tone) + '">' + esc(status) + '</span>' +
-        '<details class="statusInfoPopover resultEvidenceMore"><summary title="' + escAttr(summary) + '">i</summary><div class="statusInfoPopoverBody">' + fullFacts + actionHtml + '</div></details>' +
-      '</div>';
-    }
 
-    function pptPlotButton(label, sourcePath, sourceLabel, extra) {
-      const source = String(sourcePath || "").trim();
-      const automation = pptAutomationReadinessForState(lastState || {});
-      const pendingKey = pendingKeyForAction("plotResultsToPpt", { sourcePath: source });
-      const pending = pendingButtonKeys?.has(pendingKey);
-      const debugReason = debugModeDisableReason("plotResultsToPpt");
-      const unavailable = Boolean(debugReason || !source || !automation.ready);
-      const unavailableReason = debugReason || (!source
-        ? String((extra || {}).unavailableReason || "请先归档结果并运行统计")
-        : automation.message);
-      const titleText = pending ? "绘图中" : unavailable ? unavailableReason : source;
-      return '<button class="taskActionButton secondary" data-command="plotResultsToPpt" data-pending-key="' + escAttr(pendingKey) + '" data-source-path="' + escAttr(source) + '" data-source-label="' + escAttr(sourceLabel || label) + '"' + buttonPayloadAttributes(extra || {}) + (pending || unavailable ? " disabled" : "") + ' title="' + escAttr(titleText) + '">' + loadingPrefix(pending) + esc(label) + '</button>';
-    }
 
-    function finalStatisticsSourcePath(summary) {
-      const item = summary && typeof summary === "object" ? summary : {};
-      const path = meaningfulValue(pick(item, ["statisticsPath", "statistics_path"], ""));
-      const count = pick(item, ["statisticsResultCount", "statistics_result_count"], "");
-      const archivedCount = Number(pick(item, ["effectiveArchivedResultCount", "effective_archived_result_count", "finalResultCount", "final_result_count"], 0)) || 0;
-      return path && archivedCount > 0 && Number(count) === archivedCount ? path : "";
-    }
 
-    function resultEvidenceMini(label, value, title) {
-      return '<div class="resultEvidenceMini" title="' + escAttr(title || (label + "：" + (value || "-"))) + '"><span>' + esc(label) + '</span><b>' + esc(value) + '</b></div>';
-    }
 
-    function resultEvidenceFact(label, value, title) {
-      return '<span class="resultEvidenceFact" title="' + escAttr(title || (label + "：" + (value || "-"))) + '"><span>' + esc(label) + '</span><b>' + esc(value) + '</b></span>';
-    }
 
-    function pairedComparisonTitle(item) {
-      if (!item || !Object.keys(item).length) return "缺配对结果";
-      const metric = item.metric || "-";
-      const baseline = item.baseline || "-";
-      const candidate = item.candidate || "-";
-      const pairedN = item.pairedN || 0;
-      const pValue = item.pValueApprox === undefined || item.pValueApprox === null ? "无" : Number(item.pValueApprox).toPrecision(3);
-      return metric + "；" + candidate + " vs " + baseline + "；n=" + pairedN + "；p=" + pValue;
-    }
 
     function meaningfulValue(value) {
       const text = String(value === undefined || value === null ? "" : value).trim();
@@ -17978,28 +17249,28 @@ function renderPanelHtml() {
         syncPendingPlanArtifacts: "更新全部 PLAN 结果",
         parseResults: "解析结果",
         refreshResults: "刷新结果",
-        runQualityGate: "质量门禁",
-        runStatistics: "统计",
-        checkClaimEvidence: "论文证据",
-        exportPaperTable: "论文表格",
-        checkOutputContract: "输出契约",
-        parseCaseLevel: "样本级解析",
-        runLeakageCheck: "泄漏检查",
-        inspectDataset: "数据集画像",
-        planCheckpointRetention: "检查点清理预案",
-        exportPlottingContract: "PPT 绘图契约",
-        plotResultsToPpt: "绘图到 PPT",
+
+
+
+
+
+
+
+
+
+
+
         chooseResultCsvDir: "浏览结果 CSV 目录",
         saveResultCsvDir: "保存结果 CSV 目录",
-        choosePptPath: "选择 PPT",
-        chooseNewPptPath: "新建 PPT 路径",
-        savePptPlotConfig: "保存 PPT 配置",
-        inferConfigFromRun: "反推配置",
-        recoverPlanFromRun: "恢复 Plan",
-        diagnoseResultAnomaly: "异常诊断",
-        compareWithBestConfig: "对比最优配置",
-        runSubgroupAnalysis: "子组分析",
-        exportCaseAnalysis: "Case 报告",
+
+
+
+
+
+
+
+
+
         selfCheck: "自检",
         createDebugBundle: "调试包",
         downloadDebugBundle: "下载调试包",
@@ -18677,7 +17948,7 @@ function renderPanelHtml() {
 
     function debugModeDisableReason(command, mode) {
       const activeMode = mode === undefined ? (typeof runMode === "undefined" ? "formal" : runMode) : mode;
-      return String(activeMode || "formal") === "debug" && debugModeBlockedUiCommand(command) ? "Debug 模式禁止归档、删除、结果、统计、论文和 PPT 操作" : "";
+      return String(activeMode || "formal") === "debug" && debugModeBlockedUiCommand(command) ? "Debug 模式禁止归档、删除和结果操作" : "";
     }
 
     function planActiveRunEvidence(state, planFile, selectedPlanRecord) {

@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, "..", "..");
 
 test("result workflow actions and evidence summary are wired without duplicated middle-column buttons", async () => {
   const extension = readSource("src/extension.ts");
-  for (const action of ["parse-results", "refresh-results", "run-quality-gate", "run-statistics", "export-paper-table", "check-claim-evidence"]) {
+  for (const action of ["parse-results", "refresh-results"]) {
     assert.match(extension, new RegExp(action));
   }
   assert.match(extension, /getResultsSummary/);
@@ -54,7 +54,7 @@ test("result workflow actions and evidence summary are wired without duplicated 
   assert.doesNotMatch(html, /id="resultActions"/);
   assert.doesNotMatch(html, /id="artifactActions"/);
   assert.match(html, /results: \[\["更新全部 PLAN 结果", "syncPendingPlanArtifacts"\]/);
-  for (const command of ["syncPendingPlanArtifacts", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable"]) {
+  for (const command of ["syncPendingPlanArtifacts"]) {
     assert.match(html, new RegExp(`"${command}"`));
   }
 
@@ -67,22 +67,6 @@ test("result workflow actions and evidence summary are wired without duplicated 
   assert.match(html, /PLAN 上下文：/);
   assert.match(html, /对本项目全部 PLAN 生效/);
   assert.doesNotMatch(html, /data-command="(?:parseResults|refreshResults|syncAllResultArtifacts)"/);
-  assert.match(html, /pairedComparisons/);
-  assert.match(html, /function pairedComparisonTitle/);
-  assert.match(html, /return "缺配对结果"/);
-  assert.match(html, /candidate \+ " vs " \+ baseline/);
-  assert.match(html, /statisticsResultCount/);
-  assert.match(html, /unsupported/);
-  assert.match(html, /needsExperiment/);
-  assert.match(html, /function claimEvidenceStatusLabel/);
-  assert.match(html, /claimDisplayStatus/);
-  assert.match(html, /claimEvidenceStatus/);
-  assert.match(html, /claimUnsupportedCount/);
-  assert.match(html, /claimNeedsExperimentCount/);
-  assert.match(html, /claimEvidencePath/);
-  assert.match(html, /claimEvidenceList/);
-  assert.match(html, /title="论文证据"/);
-  assert.match(html, /renderClaimEvidencePreview/);
   assert.doesNotMatch(html, /论文证据明细：显示/);
   assert.doesNotMatch(html, /正式论文建议复核统计检验/);
   assert.doesNotMatch(html, /需要至少两个方法在相同/);

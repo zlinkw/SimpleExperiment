@@ -300,8 +300,8 @@ test("排除表与保留闭包不相交：required/动态锚/legacy 运行部件
     "dist/extension/Activation.js", "dist/factories/ServiceFactory.js", "dist/api/LocalApiServer.js", "dist/api/LocalApiServer.legacy.js",
     "dist/cli.js", "dist/cli.legacy.js", "dist/runCli.js", "dist/panel.js", "dist/syncState.js", "dist/syncState.legacy.js",
     "dist/clusterAgentRuntime.js", "dist/clusterAgentRuntime.legacy.js", "dist/clusterSchedulerRuntime.js", "dist/clusterSchedulerRuntime.legacy.js",
-    "dist/workerProbeRuntime.js", "dist/PptPlotBridge.js", "dist/PptPlotBridge.legacy.js", "scripts/check-static.js",
-    "dist/features/Comparison.legacy.js", "dist/features/SmallScale.legacy.js", "dist/features/ResultAnomaly.legacy.js", "dist/features/ExperimentConfigRecovery.legacy.js", "dist/ui/WebviewRenderState.legacy.js",
+    "dist/workerProbeRuntime.js", "scripts/check-static.js",
+    "dist/features/Comparison.legacy.js", "dist/features/SmallScale.legacy.js", "dist/ui/WebviewRenderState.legacy.js",
     ...policy.POLICY.markdown_runtime_allow_files,
   ];
   for (const k of kept) assert.ok(!set.has(policy.normalizePath(k)), `保留项 ${k} 不得进入排除表`);

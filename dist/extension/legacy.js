@@ -196,7 +196,6 @@ const DraftPlans_1 = require("../features/DraftPlans");
 const PlanBuilder_1 = require("../features/PlanBuilder");
 const PlanArchive_1 = require("../features/PlanArchive");
 const ProjectAdapterTemplates_1 = require("../templates/ProjectAdapterTemplates");
-const PptPlotBridge_1 = require("../PptPlotBridge");
 const GpuHistoryState_1 = require("../features/GpuHistoryState");
 const GpuSampleRing_1 = require("../features/GpuSampleRing");
 const OperationPayload_1 = require("../ui/OperationPayload");
@@ -231,12 +230,10 @@ const PROJECT_PERSISTENCE_PATHS = {
     offlineBundle: "simple_cluster/ui/offline_bundle.json",
     actionErrors: "simple_cluster/ui/action_errors.json",
     panelLifecycleDiagnostics: "simple_cluster/ui/panel_lifecycle.json",
-    pptPlotConfig: "simple_cluster/ui/ppt_plot_config.json",
     uiLayout: "simple_cluster/ui/ui_layout.json",
     debugBundle: "simple_cluster/ui/debug_bundle.json",
     codeSync: "simple_cluster/ui/code_sync.json",
     remotePathConfirmations: "simple_cluster/ui/remote_path_confirmations.json",
-    pptPathConfirmations: "simple_cluster/ui/ppt_path_confirmations.json",
     localPlanMetadata: "simple_cluster/ui/local_plan_metadata.json",
 };
 // Update commands are intentionally local-only and do not enter the remote action map.
@@ -345,7 +342,6 @@ const keys = {
     executionHistoryCutoffs: "simpleExperiment.executionHistoryCutoffs",
     executionHistoryHiddenOperationIds: "simpleExperiment.executionHistoryHiddenOperationIds",
     retiredOperationIds: "simpleExperiment.retiredOperationIds",
-    pptPlotConfig: "simpleExperiment.pptPlotConfig",
     firstRunSetupPrompt: "simpleExperiment.firstRunSetupPromptVersion",
     projectOnboardingPrompt: "simpleExperiment.projectOnboardingPromptVersion",
     projectOnboardingCompleted: "simpleExperiment.projectOnboardingCompleted",
@@ -361,7 +357,6 @@ const API_SECRET_CONFIG_KEYS = new Set([`${API_CONFIG_NAMESPACE}.tunnel.agentTok
 const API_STATE_KEYS = {
     tunnelConfig: { store: "global", label: "全局共享隧道网关配置", writable: true },
     setupConfig: { store: "global", label: "全局共享 Xshell 会话与服务器配置", writable: true },
-    pptPlotConfig: { store: "global", label: "PPT 绘图配置（项目优先）", writable: true },
     uiLayout: { store: "global", label: "SimpleExperiment 面板布局", writable: true },
     hiddenLegacyTaskUiKeys: { store: "global", label: "隐藏旧任务 UI 键", writable: true },
     offlineBundle: { store: "workspace", label: "离线导入包", writable: false },
@@ -400,8 +395,6 @@ function normalizeApiStateValue(name, value) {
             return TunnelGateway_1.normalizeTunnelGatewayConfig({ ...TunnelGateway_1.defaultTunnelGatewayConfig, ...apiStateRecord(value) });
         case "setupConfig":
             return XshellTunnelSetup_1.normalizeXshellSetupConfig({ ...XshellTunnelSetup_1.defaultXshellTunnelSetupConfig, ...apiStateRecord(value) });
-        case "pptPlotConfig":
-            return normalizePptPlotConfig(value);
         case "uiLayout":
         case "uiProjectLayout":
             return normalizeUiLayout(apiStateRecord(value));
@@ -532,23 +525,6 @@ const uiActionCommands = new Set([
     "reproducePlan",
     "parseResults",
     "refreshResults",
-    "runQualityGate",
-    "runStatistics",
-    "exportPaperTable",
-    "checkClaimEvidence",
-    "checkOutputContract",
-    "parseCaseLevel",
-    "runLeakageCheck",
-    "runSubgroupAnalysis",
-    "exportCaseAnalysis",
-    "planCheckpointRetention",
-    "inspectDataset",
-    "exportPlottingContract",
-    "plotResultsToPpt",
-    "inferConfigFromRun",
-    "recoverPlanFromRun",
-    "diagnoseResultAnomaly",
-    "compareWithBestConfig",
     "archiveArtifacts",
     "excludeResults",
     "syncArtifacts",
@@ -592,9 +568,9 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "refreshLocalResults",
     "webviewNotice", "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveAgentDefaults", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "openXshell", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "toggleLowTrafficMode", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "gpuWindowSamples", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
-    "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
+    "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
-    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
+    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
     "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject", "refreshUnifiedDispatchPolicy",
     "submitBranchPlanRun", "refreshBranchRuns", "compareBranchResults", "verifyBranchHeadBinding", "createBranchPr", "mergeBranchPr",
@@ -617,9 +593,8 @@ const COMMANDS_WITHOUT_UI_STATUS = new Set(["webviewNotice", "selectPlan", "sele
 const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER = new Set(["startAllConnections", "testAll", "snapshot"]);
 const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
     "runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions",
-    "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract",
-    "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "exportPlottingContract",
-    "inspectDataset", "createOfflineBundle", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig",
+    "parseResults", "refreshResults",
+    "createOfflineBundle",
 ]);
 const UI_LAYOUT_SECTION_KEYS = new Set(defaultUiSectionOrder);
 const UI_BUTTON_ACTION_COMMANDS = new Set([
@@ -638,7 +613,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot",
     "manualGpuSnapshot", "gpuWindowSamples", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "script",
     "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "editResultColumnMapping", "runAllPlans",
-    "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
+    "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "saveUiLayout", "resetUiLayout",
     "downloadDebugBundle", "downloadRemoteResult", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "openAuditTail", "selectPlan", "selectExperiment",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
     "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject", "refreshUnifiedDispatchPolicy",
@@ -664,22 +639,6 @@ const actionCommandMap = {
     reproducePlan: "reproduce-plan",
     parseResults: "parse-results",
     refreshResults: "refresh-results",
-    runQualityGate: "run-quality-gate",
-    runStatistics: "run-statistics",
-    exportPaperTable: "export-paper-table",
-    checkClaimEvidence: "check-claim-evidence",
-    checkOutputContract: "check-output-contract",
-    parseCaseLevel: "parse-case-level",
-    runLeakageCheck: "run-leakage-check",
-    runSubgroupAnalysis: "run-subgroup-analysis",
-    exportCaseAnalysis: "export-case-analysis",
-    planCheckpointRetention: "plan-checkpoint-retention",
-    inspectDataset: "inspect-dataset",
-    exportPlottingContract: "export-plotting-contract",
-    inferConfigFromRun: "infer-config-from-run",
-    recoverPlanFromRun: "recover-plan-from-run",
-    diagnoseResultAnomaly: "diagnose-result-anomaly",
-    compareWithBestConfig: "compare-with-best-config",
     archiveArtifacts: "archive-artifacts",
     excludeResults: "exclude-results",
     syncArtifacts: "sync-artifacts",
@@ -718,9 +677,7 @@ const PLAN_SCHEDULER_COMMANDS = new Set([...PLAN_PREFLIGHT_COMMANDS, ...PLAN_SUB
 const RESULT_PARSE_COMMANDS = new Set(["parseResults", "refreshResults"]);
 const IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS = new Set([
     ...RESULT_PARSE_COMMANDS,
-    "runQualityGate", "runStatistics", "exportPaperTable", "checkClaimEvidence", "checkOutputContract", "parseCaseLevel",
-    "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset",
-    "exportPlottingContract", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "excludeResults",
+    "excludeResults",
 ]);
 const TUNNEL_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", "retryExperiment", ...NO_HUB_RESULT_CONFIRM_COMMANDS, "deleteArtifacts", "reconcileDeletions"]);
 const API_PARAMETERIZED_CONNECTION_COMMANDS = new Set(["prepareAgents", "startAllConnections"]);
@@ -750,10 +707,8 @@ const API_CONFIRM_COMMANDS = new Set([
     "cleanupDrafts",
 ]);
 const noHubWorkerResultActions = new Set([
-    "refresh-results", "rescan-results", "parse-results", "run-quality-gate", "run-statistics", "export-paper-table",
-    "check-claim-evidence", "check-output-contract", "parse-case-level", "run-leakage-check", "run-subgroup-analysis",
-    "export-case-analysis", "plan-checkpoint-retention", "inspect-dataset", "export-plotting-contract", "infer-config-from-run",
-    "recover-plan-from-run", "diagnose-result-anomaly", "compare-with-best-config", "archive-artifacts", "exclude-results",
+    "refresh-results", "rescan-results", "parse-results",
+    "archive-artifacts", "exclude-results",
     "sync-artifacts", "complete-three-way",
 ]);
 const workerPoolResultFanoutActions = new Set(["refresh-results", "rescan-results", "parse-results"]);
@@ -1133,9 +1088,6 @@ class RealtimeTunnelPanelProvider {
     auditTail;
     debugBundlePath;
     actionErrors = [];
-    projectPptPlotConfig;
-    pptAutomationReadiness = (0, PptPlotBridge_1.defaultPptAutomationReadiness)();
-    pptAutomationRefreshPromise;
     projectUiLayout;
     pluginUpdateStatus;
     pluginUpdateInstalling = false;
@@ -1189,7 +1141,6 @@ class RealtimeTunnelPanelProvider {
     completedPlanMirrorRescan = false;
     planSyncSummaryRetries = new Map();
     confirmedRemotePaths = [];
-    confirmedPptPaths = [];
     localApiServer;
     localApiServerPromise;
     apiFlowState = ApiWorkflow_1.defaultFlowState();
@@ -4729,12 +4680,10 @@ class RealtimeTunnelPanelProvider {
             this.loadProjectOfflineBundleState().catch(() => undefined),
             this.loadProjectActionErrorsState().catch(() => undefined),
             this.loadProjectPanelLifecycleDiagnosticsState().catch(() => undefined),
-            this.loadProjectPptPlotConfigState().catch(() => undefined),
             this.loadProjectUiLayoutState().catch(() => undefined),
             this.loadProjectDebugBundleState().catch(() => undefined),
             this.loadProjectCodeSyncState().catch(() => undefined),
             this.loadProjectRemotePathConfirmationsState().catch(() => undefined),
-            this.loadProjectPptPathConfirmationsState().catch(() => undefined),
             this.loadProjectLocalOperationsState().catch(() => undefined),
             this.loadProjectLocalPlanMetadataState().catch(() => undefined),
             projectContext.root ? this.loadPlanSyncLedger(projectContext.root).catch(() => undefined) : Promise.resolve(undefined),
@@ -4963,13 +4912,11 @@ class RealtimeTunnelPanelProvider {
         this.historicalLastFailure = null;
         this.apiFlowState = ApiWorkflow_1.defaultFlowState();
         this.apiFlowStateDirty = false;
-        this.projectPptPlotConfig = undefined;
         this.projectUiLayout = undefined;
         this.localOperations = {};
         this.localOperationsDirty = false;
         this.lastCodeSyncState = {};
         this.confirmedRemotePaths = [];
-        this.confirmedPptPaths = [];
         this.refreshResultCsvDirectory();
         this.localPlanMetadata = { planDir: planDirSafe(), detectedProject: {}, plans: [], archivedPlans: [] };
         this.localPlanMetadataRefreshPromise = undefined;
@@ -5029,11 +4976,6 @@ class RealtimeTunnelPanelProvider {
         else if (legacyOffline) {
             await this.context.workspaceState.update(keys.offlineBundle, undefined);
         }
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        const legacyPpt = this.context.globalState.get(keys.pptPlotConfig);
-        if (legacyPpt)
-            await this.context.globalState.update(keys.pptPlotConfig, undefined);
         if (!this.projectContextIsCurrent(projectContext))
             return;
         const legacyLayout = this.context.workspaceState.get(keys.uiProjectLayout)
@@ -5325,15 +5267,6 @@ class RealtimeTunnelPanelProvider {
     async persistProjectPanelLifecycleDiagnosticsState() {
         await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("panelLifecycleDiagnostics"), () => this.panelLifecycleDiagnostics, writeProjectPanelLifecycleDiagnosticsState);
     }
-    async loadProjectPptPlotConfigState() {
-        const loaded = await this.readCurrentProjectState(readProjectPptPlotConfigState);
-        const config = loaded.value;
-        if (loaded.current && config)
-            this.projectPptPlotConfig = config;
-    }
-    async persistProjectPptPlotConfigState() {
-        await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("pptPlotConfig"), () => this.projectPptPlotConfig, writeProjectPptPlotConfigState);
-    }
     async loadProjectUiLayoutState() {
         const loaded = await this.readCurrentProjectState(readProjectUiLayoutState);
         const layout = loaded.value;
@@ -5369,35 +5302,6 @@ class RealtimeTunnelPanelProvider {
     async persistProjectRemotePathConfirmationsState() {
         await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("remotePathConfirmations"), () => this.confirmedRemotePaths, writeProjectRemotePathConfirmationsState);
         await this.context.workspaceState.update(REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY, mergeRemotePathConfirmations(this.confirmedRemotePaths));
-    }
-    async loadProjectPptPathConfirmationsState() {
-        const loaded = await this.readCurrentProjectState(readProjectPptPathConfirmationsState);
-        if (loaded.current)
-            this.confirmedPptPaths = mergePptPathConfirmations(loaded.value);
-    }
-    async persistProjectPptPathConfirmationsState() {
-        await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("pptPathConfirmations"), () => this.confirmedPptPaths, writeProjectPptPathConfirmationsState);
-    }
-    async resetPptPathConfirmationsFromUi() {
-        const root = assertSingleProjectWorkspace("恢复 PPT 路径提醒");
-        const generation = this.projectContextGeneration;
-        await this.loadProjectPptPathConfirmationsState();
-        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-            return;
-        const count = this.confirmedPptPaths.length;
-        if (!count) {
-            void vscode.window.showInformationMessage("当前项目没有已关闭提醒的 PPT 目标路径。");
-            return;
-        }
-        const answer = await vscode.window.showWarningMessage(`将清除当前项目已记住的 ${count} 个 PPT 目标路径。后续绘图会重新显示完整确认；PPT 文件、结果文件和绘图配置不会改变。`, { modal: true }, "恢复 PPT 路径提醒");
-        if (answer !== "恢复 PPT 路径提醒" || generation !== this.projectContextGeneration || root !== workspaceRoot())
-            return;
-        this.confirmedPptPaths = [];
-        await this.persistProjectPptPathConfirmationsState();
-        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-            return;
-        this.postState(true);
-        void vscode.window.showInformationMessage(`已恢复当前项目 ${count} 个 PPT 目标路径的确认提醒。`);
     }
     async resetRemotePathConfirmationsFromUi() {
         const root = assertSingleProjectWorkspace("恢复上传路径提醒");
@@ -5913,7 +5817,7 @@ class RealtimeTunnelPanelProvider {
         if (["rebuildProjectResultTables", "syncAllResultArtifacts", "syncPendingPlanArtifacts", "refreshLocalResults", "openLocalResultTable"].includes(actionType))
             return operation();
         // Preflight, reads, transfer orchestration and cancellation use their target-level guards.
-        if (/^(runPlan|reproducePlan|runAllPlans|validatePlan|dryRunPlan|parseResults|stop|abort|cancel|kill|clearTmux|sync|upload|download|distribute|prepareAgents|deploy|refresh|fetch|get|check|plot|startPpt)/i.test(actionType))
+        if (/^(runPlan|reproducePlan|runAllPlans|validatePlan|dryRunPlan|parseResults|stop|abort|cancel|kill|clearTmux|sync|upload|download|distribute|prepareAgents|deploy|refresh|fetch|get|check)/i.test(actionType))
             return operation();
         const leaseContext = currentHostOperationLeaseContext();
         const connectionAction = String(actionType).replace(/^simpleExperiment[.]/, "");
@@ -7124,18 +7028,6 @@ class RealtimeTunnelPanelProvider {
         }
         const work = async () => {
             let scopedMessage = message;
-            if (["checkOutputContract", "inspectDataset", "planCheckpointRetention", "exportPlottingContract"].includes(command)
-                && !this.resultActionWorkerIds(message).length) {
-                const workers = this.enabledWorkerConfigs();
-                if (!workers.length)
-                    throw new Error("请先配置并启用执行此检查的 Worker。");
-                const worker = workers.length === 1 ? workers[0] : (await vscode.window.showQuickPick(workers.map(worker => ({
-                    label: worker.displayName || worker.id, description: worker.id, worker,
-                })), { title: "选择执行 Worker", ignoreFocusOut: true }))?.worker;
-                if (!worker)
-                    throw new UiCommandCancelled_1.UiCommandCancelled("未选择执行 Worker，操作已取消。");
-                scopedMessage = { ...message, workerId: worker.id };
-            }
             const leaseAction = hostOperationLeaseActionForUiCommand(command);
             return leaseAction
                 ? this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(scopedMessage, command), { planFile: scopedMessage.planFile || scopedMessage.path, readOnly: readOnlyHostLeaseUiCommand(command) })
@@ -7167,7 +7059,7 @@ class RealtimeTunnelPanelProvider {
             && !["reloadWindow", "webviewReady"].includes(command))
             return;
         if (booleanField(message, "debugMode") && debugModeBlockedUiCommand(command))
-            throw new Error("Debug 模式仅用于隔离运行和实时日志，禁止归档、删除、结果、统计、论文或 PPT 操作。请切回正式运行后再执行。");
+            throw new Error("Debug 模式仅用于隔离运行和实时日志，禁止归档、删除及结果操作。请切回正式运行后再执行。");
         switch (command) {
             case "webviewNotice":
                 this.showNativePanelMessage(message);
@@ -7188,7 +7080,6 @@ class RealtimeTunnelPanelProvider {
                 this.clearPanelReadyWatchdog();
                 this.schedulePanelHeartbeat();
                 this.postState(true, true);
-                void this.refreshPptAutomationReadiness(false).catch(() => undefined);
                 this.scheduleBranchProjectsVerify("webview-ready");
                 break;
             case "webviewHeartbeatAck":
@@ -7581,27 +7472,6 @@ class RealtimeTunnelPanelProvider {
             case "chooseResultCsvDir":
                 await this.chooseResultCsvDirFromUi();
                 break;
-            case "savePptPlotConfig":
-                await this.savePptPlotConfigFromUi(message);
-                break;
-            case "choosePptPath":
-                await this.choosePptPathFromUi();
-                break;
-            case "chooseNewPptPath":
-                await this.chooseNewPptPathFromUi();
-                break;
-            case "plotResultsToPpt":
-                await this.plotResultsToPptFromUi(message);
-                break;
-            case "refreshPptAutomation":
-                await this.refreshPptAutomationReadiness(false);
-                break;
-            case "startPptAutomation":
-                await this.refreshPptAutomationReadiness(true);
-                break;
-            case "openPptAutomationGuide":
-                await this.openPptAutomationGuide();
-                break;
             case "selectExperiment":
                 this.selectExperimentFromUi(message);
                 break;
@@ -7661,9 +7531,6 @@ class RealtimeTunnelPanelProvider {
                 break;
             case "resetRemotePathConfirmations":
                 await this.resetRemotePathConfirmationsFromUi();
-                break;
-            case "resetPptPathConfirmations":
-                await this.resetPptPathConfirmationsFromUi();
                 break;
             case "downloadDebugBundle":
                 await this.downloadDebugBundle();
@@ -8179,7 +8046,7 @@ class RealtimeTunnelPanelProvider {
             WorkflowBinding.assertPlanSeedContract(this.actionBody(message));
         const action = actionCommandMap[command];
         if (!action)
-            return;
+            throw new Error(`未知或未放行的动作：${command}`);
         assertSingleProjectWorkspace("远端实验操作");
         if (["runPlan", "reproducePlan", "parseResults"].includes(command)) {
             const root = workspaceRoot();
@@ -21914,7 +21781,6 @@ class RealtimeTunnelPanelProvider {
             "预期证据文件位置：",
             ...evidenceLines,
             "",
-            "未纳入记录不会进入有效 CSV、统计或 PPT，但会按原状态完整保存到结果取舍清单。",
             "确认后才会创建归档包、同步轻量证据并迁移 Plan/独占配置；远端实验产物不会被删除。",
         ].join("\n"), { modal: true }, confirmLabel);
         assertCurrent();
@@ -22297,7 +22163,7 @@ class RealtimeTunnelPanelProvider {
         const resultCommand = resultStage === "train" ? trainCommand : testCommand;
         const resultSuggestion = resultStage === "train" ? trainSuggestion : testSuggestion;
         const resultReview = guidedPlanResultPathReview(resultCommand, suite, resultSuggestion.resultExtension, this.resultCsvDirectory);
-        const resultPath = await inputPlanResultPath("确认最终结果文件", resultReview.path, "例如 {output_dir}/metrics_summary.csv", `建议来源：${resultReview.source}。${resultReview.needsReview ? "当前文件名包含静态推断，必须核对命令真实写出的文件。" : "已从命令中识别到明确结果位置，仍需确认与实际实现一致。"} 必须填写${resultStage === "train" ? "训练" : "评估"}命令实际生成的项目内结果文件。使用 {result_csv} 时该路径会注入命令；固定输出路径必须与命令完全一致。CSV、JSON、TXT、LOG 均可解析，后续归档、统计和 PPT 只读取此结果链路。`);
+        const resultPath = await inputPlanResultPath("确认最终结果文件", resultReview.path, "例如 {output_dir}/metrics_summary.csv", `建议来源：${resultReview.source}。${resultReview.needsReview ? "当前文件名包含静态推断，必须核对命令真实写出的文件。" : "已从命令中识别到明确结果位置，仍需确认与实际实现一致。"} 必须填写${resultStage === "train" ? "训练" : "评估"}命令实际生成的项目内结果文件。使用 {result_csv} 时该路径会注入命令；固定输出路径必须与命令完全一致。CSV、JSON、TXT、LOG 均可解析，后续归档只读取此结果链路。`);
         if (!this.projectContextIsCurrent(projectContext))
             return;
         if (resultPath === undefined)
@@ -22837,119 +22703,6 @@ class RealtimeTunnelPanelProvider {
         this.postState(true);
         void vscode.window.showInformationMessage(`实验结果 CSV 默认目录已保存：${resultCsvDir}`);
     }
-    async savePptPlotConfigFromUi(message) {
-        const projectContext = this.captureProjectContext();
-        const patch = recordField(message, "patch");
-        const current = this.pptPlotConfig();
-        const presentationPath = stringPatch(patch, "presentationPath", current.presentationPath);
-        const chartType = stringPatch(patch, "chartType", current.chartType || "auto") || "auto";
-        const styleMode = stringPatch(patch, "styleMode", current.styleMode || "activePpt") || "activePpt";
-        this.projectPptPlotConfig = normalizePptPlotConfig({ presentationPath, chartType, styleMode });
-        await this.persistProjectPptPlotConfigState();
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        await this.context.globalState.update(keys.pptPlotConfig, undefined);
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        this.postState();
-        void vscode.window.showInformationMessage(presentationPath ? "PPT 绘图配置已保存到当前项目：将追加到指定 PPT。" : "PPT 绘图配置已保存到当前项目：空路径会新建 PPT。");
-    }
-    async choosePptPathFromUi() {
-        const generation = this.projectContextGeneration;
-        const root = workspaceRoot();
-        const current = this.pptPlotConfig().presentationPath;
-        const picked = await vscode.window.showOpenDialog({
-            title: "从资源管理器选择 PPT 文件",
-            defaultUri: await pptDialogDefaultUri(current),
-            canSelectFiles: true,
-            canSelectFolders: false,
-            canSelectMany: false,
-            openLabel: "选择 PPT",
-            filters: { "PowerPoint": ["pptx", "pptm", "ppt"], "所有文件": ["*"] },
-        });
-        if (!picked)
-            throw new UiCommandCancelled_1.UiCommandCancelled("选择 PPT 路径已取消。");
-        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-            return;
-        await this.updatePptPresentationPath(picked[0]?.fsPath || "");
-    }
-    async chooseNewPptPathFromUi() {
-        const generation = this.projectContextGeneration;
-        const root = workspaceRoot();
-        const current = this.pptPlotConfig().presentationPath;
-        const picked = await vscode.window.showSaveDialog({
-            title: "选择新 PPT 保存位置",
-            defaultUri: await pptDialogDefaultUri(current),
-            saveLabel: "使用此路径",
-            filters: { "PowerPoint": ["pptx", "pptm", "ppt"], "所有文件": ["*"] },
-        });
-        if (!picked)
-            throw new UiCommandCancelled_1.UiCommandCancelled("选择新 PPT 路径已取消。");
-        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-            return;
-        await this.updatePptPresentationPath(picked.fsPath);
-    }
-    async updatePptPresentationPath(presentationPath) {
-        const projectContext = this.captureProjectContext();
-        if (!presentationPath)
-            throw new UiCommandCancelled_1.UiCommandCancelled("选择 PPT 路径已取消。");
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        this.projectPptPlotConfig = normalizePptPlotConfig({ ...this.pptPlotConfig(), presentationPath });
-        await this.persistProjectPptPlotConfigState();
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        await this.context.globalState.update(keys.pptPlotConfig, undefined);
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        this.postState();
-        void vscode.window.showInformationMessage(`PPT 路径已更新到当前项目：${presentationPath}`);
-    }
-    async refreshPptAutomationReadiness(start) {
-        const projectContext = this.captureProjectContext();
-        const generation = projectContext.generation;
-        const signal = AbortSignal.any([projectContext.signal, this.activationAbortController.signal]);
-        const presentationPath = this.pptPlotConfig().presentationPath;
-        const previous = this.pptAutomationRefreshPromise || Promise.resolve();
-        const current = previous.catch(() => undefined).then(async () => {
-            if (generation !== this.projectContextGeneration)
-                return this.pptAutomationReadiness;
-            const bridge = new PptPlotBridge_1.PptPlotBridge();
-            try {
-                const readiness = start
-                    ? await bridge.prepareAutomation(presentationPath, signal)
-                    : await bridge.inspectAutomation(signal);
-                if (generation !== this.projectContextGeneration)
-                    return this.pptAutomationReadiness;
-                this.pptAutomationReadiness = readiness;
-                return this.pptAutomationReadiness;
-            }
-            catch (error) {
-                if (generation !== this.projectContextGeneration)
-                    return this.pptAutomationReadiness;
-                this.pptAutomationReadiness = (0, PptPlotBridge_1.pptAutomationReadinessFromError)(error);
-                if (start)
-                    throw error;
-                return this.pptAutomationReadiness;
-            }
-            finally {
-                if (generation === this.projectContextGeneration)
-                    this.postState(true);
-            }
-        });
-        this.pptAutomationRefreshPromise = current;
-        try {
-            return await current;
-        }
-        finally {
-            if (this.pptAutomationRefreshPromise === current)
-                this.pptAutomationRefreshPromise = undefined;
-        }
-    }
-    async openPptAutomationGuide() {
-        await this.showSetupGuideDocument();
-        void vscode.window.showInformationMessage("PPT automation 修复说明已打开。请按“结果绘图与 PPT 插件”检查安装、PowerPoint 进程和 schemaVersion=1。");
-    }
     /** 发行包不含 docs/：本地存在指南时保持原预览/文本打开行为，否则打开仓库在线文档链接。 */
     async showSetupGuideDocument() {
         const guide = (0, SetupGuideSource_1.resolveSetupGuideSource)(this.context.extensionPath, (0, SetupGuideSource_1.extensionRepositoryUrl)(this.context.extension?.packageJSON), undefined, this.context.extension?.packageJSON?.version);
@@ -22967,125 +22720,6 @@ class RealtimeTunnelPanelProvider {
         const opened = await vscode.env.openExternal(vscode.Uri.parse(guide.url));
         if (!opened)
             void vscode.window.showWarningMessage(`无法打开配置指南链接，请手动访问：${guide.url}`);
-    }
-    async confirmPptPlotTarget(input) {
-        const root = assertSingleProjectWorkspace("绘图到 PPT");
-        const generation = this.projectContextGeneration;
-        await this.loadProjectPptPathConfirmationsState();
-        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-            throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，PPT 绘图确认已取消。");
-        const target = normalizePptPathConfirmationTarget(input.presentationPath, root);
-        if (target.presentationPath)
-            input.presentationPath = target.presentationPath;
-        if (pptPathTargetConfirmed(this.confirmedPptPaths, target))
-            return;
-        const rememberLabel = target.presentationPath ? "确认，此后不再提醒该路径" : "确认，此后不再提醒新建 PPT";
-        const answer = await vscode.window.showWarningMessage(pptPlotConfirmationDetail(input, target), { modal: true }, "确认位置并绘图", rememberLabel);
-        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-            throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，PPT 绘图确认已取消。");
-        if (!["确认位置并绘图", rememberLabel].includes(String(answer || "")))
-            throw new UiCommandCancelled_1.UiCommandCancelled("PPT 绘图已取消，未调用 PPT 插件，也未写入绘图请求审计。");
-        if (answer === rememberLabel) {
-            this.confirmedPptPaths = mergePptPathConfirmations(this.confirmedPptPaths, [{ ...target, confirmedAt: new Date().toISOString() }]);
-            await this.persistProjectPptPathConfirmationsState();
-            if (generation === this.projectContextGeneration && root === workspaceRoot())
-                this.postState(true);
-        }
-    }
-    async plotResultsToPptFromUi(message) {
-        const projectContext = this.captureProjectContext();
-        const root = projectContext.root;
-        if (!root)
-            throw new Error("需要先打开工作区，才能把结果绘图到 PPT。");
-        const generation = projectContext.generation;
-        const signal = AbortSignal.any([projectContext.signal, this.activationAbortController.signal]);
-        const config = this.pptPlotConfig();
-        const planTarget = this.actionPlanTarget(message);
-        const planFile = this.resolveSelectedPlanFile(planTarget.planFile || this.planFileInput || this.selectedPlanId || "") || planTarget.planFile || this.planFileInput || this.selectedPlanId || "";
-        await this.refreshLocalPlanMetadataForAction(this.actionBody({ planFile }));
-        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-            return;
-        const rawSummary = this.resultsSummary && typeof this.resultsSummary === "object" ? this.resultsSummary : {};
-        const summary = this.filterResultsSummaryForPlan(rawSummary, planFile);
-        const validFinalSources = finalPlotSourcesFromSummary(summary);
-        const requestedSources = uniqueStrings([
-            stringField(message, "sourcePath"),
-            ...stringArrayField(message, "sourcePaths"),
-        ].map((item) => String(item || "").trim()).filter(Boolean));
-        const sourcePaths = requestedSources.filter((item) => !isFinalStatisticsOrPaperPath(item) || validFinalSources.some((valid) => sameProjectRelativePath(valid, item)));
-        if (!sourcePaths.length)
-            sourcePaths.push(...validFinalSources);
-        if (!sourcePaths.length)
-            throw new Error("没有可用的最终结果。请先选择并归档有效记录，再运行统计或导出论文表格。");
-        for (let index = 0; index < sourcePaths.length; index++) {
-            const source = sourcePaths[index];
-            if (await fs.stat(safeWorkspaceChildPath(root, source)).then(stat => stat.isFile()).catch(() => false))
-                continue;
-            const owned = (summary.paperDatasetTables || []).filter(table => [table.paperTableCsvPath, table.paperTablePath].includes(source));
-            const selectedWorker = stringField(message, "workerId");
-            const owners = uniqueStrings(owned.map(table => table.workerId).filter(Boolean));
-            if (owners.length > 1 && !selectedWorker)
-                throw new Error("请选择该数据集的 Worker 论文表格。");
-            const worker = (summary.workerResultTables || []).length > 1 ? (selectedWorker || owners[0] || "") : "";
-            sourcePaths[index] = methodResultArtifactLocalRelativePath(source, planFile, summary, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, worker);
-        }
-        const preferredContract = stringFromRecord(summary, ["plottingContractPath", "plotting_contract_path"]);
-        const contractPath = preferredContract || await (0, PptPlotBridge_1.ensureLocalPlottingContract)(root, planFile);
-        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-            return;
-        const input = {
-            projectRoot: root,
-            planFile,
-            sourcePaths,
-            planRevision: this.planVersionForFile(planFile).revision,
-            plottingContractPath: contractPath,
-            selectedResultId: stringField(message, "resultId") || stringField(message, "experimentId") || stringField(message, "runKey"),
-            runKey: stringField(message, "runKey"),
-            archiveKey: stringField(message, "archiveKey"),
-            chartType: stringField(message, "chartType") || config.chartType || "auto",
-            presentationPath: stringField(message, "presentationPath") || config.presentationPath,
-            styleMode: stringField(message, "styleMode") || config.styleMode || "activePpt",
-            sourceLabel: stringField(message, "sourceLabel") || "SimpleExperiment 结果",
-        };
-        await this.confirmPptPlotTarget(input);
-        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-            return;
-        try {
-            const result = await new PptPlotBridge_1.PptPlotBridge().plot(input, signal);
-            if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-                return;
-            this.pptAutomationReadiness = {
-                state: "ready",
-                ready: true,
-                message: "PPT automation schemaVersion=1 已就绪。",
-                actionCommand: "",
-                actionLabel: "",
-                schemaVersion: 1,
-            };
-            this.postState(true);
-            const requestAuditPath = pptPlotAuditRelativePath(root, result.requestPath);
-            const responseAuditPath = pptPlotAuditRelativePath(root, result.responsePath);
-            void vscode.window.showInformationMessage(`绘图到 PPT 已提交：${result.requestId}。最近一次请求审计：${requestAuditPath}；响应：${responseAuditPath}`, "打开请求审计", "打开响应审计")
-                .then((choice) => {
-                if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-                    return undefined;
-                const auditPath = choice === "打开请求审计" ? requestAuditPath : choice === "打开响应审计" ? responseAuditPath : "";
-                if (auditPath)
-                    return openWorkspaceFile(auditPath);
-                return undefined;
-            })
-                .catch((error) => {
-                if (generation === this.projectContextGeneration && root === workspaceRoot())
-                    void vscode.window.showErrorMessage(`打开 PPT 绘图审计失败：${errorMessage(error)}`);
-            });
-        }
-        catch (error) {
-            if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-                return;
-            this.pptAutomationReadiness = (0, PptPlotBridge_1.pptAutomationReadinessFromError)(error);
-            this.postState(true);
-            throw error;
-        }
     }
     async saveProjectAdapterRulesFromUi(message) {
         const projectContext = this.captureProjectContext();
@@ -28275,17 +27909,6 @@ class RealtimeTunnelPanelProvider {
         this.gpuOwnerConfigCache = value;
         return value;
     }
-    pptPlotConfig() {
-        if (this.projectPptPlotConfig)
-            return normalizePptPlotConfig(this.projectPptPlotConfig);
-        // Target presentation is project-local. Global preferences may only seed non-path defaults.
-        const config = vscode.workspace.getConfiguration("simpleExperiment");
-        return normalizePptPlotConfig({
-            presentationPath: "",
-            chartType: config.get("ppt.chartType", "auto") || "auto",
-            styleMode: config.get("ppt.styleMode", "activePpt") || "activePpt",
-        });
-    }
     async applySetupDraft(patch, options = {}) {
         const globalPrefix = vscode.workspace.getConfiguration("simpleExperiment").inspect("tunnel.remoteTmuxSessionPrefix")?.globalValue ?? XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.remoteTmuxSessionPrefix;
         let next = (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)({
@@ -29730,8 +29353,6 @@ class RealtimeTunnelPanelProvider {
         const resultRoot = workspaceRoot();
         const projectAdapterRules = pluginProjectAdapterRules(resultRoot || "");
         const projectAdapterRulesRevision = JSON.stringify(projectAdapterRules);
-        const pptPlotConfig = this.pptPlotConfig();
-        const pptPlotConfigRevision = JSON.stringify(pptPlotConfig);
         const schedulerConfigRevision = JSON.stringify(schedulerConfig);
         const recentPlansRevision = JSON.stringify(recentPlans);
         const planStopClearRevision = JSON.stringify(this.planStopClearByFile || {});
@@ -29910,15 +29531,15 @@ class RealtimeTunnelPanelProvider {
         const tensorboardPort = Number(vscode.workspace.getConfiguration("simpleExperiment").get("tensorboard.port", 6006)) || 6006;
         const sectionRevisions = this.panelSectionRevisionTracker.update({
             settings: [this.setupConfig, schedulerConfigRevision, this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.resultCsvDirectory,
-                projectAdapterRulesRevision, this.resultCatalogDirtyGeneration, pptPlotConfigRevision, remoteRootPolicyRevision,
+                projectAdapterRulesRevision, this.resultCatalogDirtyGeneration, remoteRootPolicyRevision,
                 this.pluginUpdateStatus, this.lastProbe, this.lastWorkerProbes, realtimeState?.health, endpointRegistryState.registry,
-                this.confirmedRemotePaths, this.confirmedPptPaths, JSON.stringify(gpuMemorySchedulingPreview), tensorboardPort],
+                this.confirmedRemotePaths, JSON.stringify(gpuMemorySchedulingPreview), tensorboardPort],
             sync: [this.setupConfig, this.lastCodeSyncState, this.lastProbe, this.lastWorkerProbes, endpointRegistryState.registry, realtimeState?.health],
             plans: [this.localPlanMetadata.plans, this.localPlanMetadata.archivedPlans, recentPlansRevision, this.planFileInput, this.selectedPlanId, this.draftPlanState,
                 this.resultsSummary, planStopClearRevision, realtimeState?.operations, snapshot?.operations, offlineSnapshot?.operations,
                 realtimeState?.schedulerStates, snapshot?.schedulerStates, offlineSnapshot?.schedulerStates, planStatusSummaryRevision],
             results: [this.resultCatalogDirtyGeneration, this.resultCatalogCache?.key, this.resultCatalogCache?.catalog, this.resultsSummary, this.resultSyncReport,
-                this.resultCatalogStatus, this.resultCatalogRefreshError, projectAdapterRulesRevision, pptPlotConfigRevision,
+                this.resultCatalogStatus, this.resultCatalogRefreshError, projectAdapterRulesRevision,
                 offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces, includePanelResults],
             gpu: [offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu, gpuOwnership, gpuHistory, this.setupConfig, includePanelGpuHistory],
             execution: [offlineSnapshot?.schedulerStates, snapshot?.schedulerStates, realtimeState?.schedulerStates, offlineSnapshot?.operations, snapshot?.operations,
@@ -29940,8 +29561,6 @@ class RealtimeTunnelPanelProvider {
             tensorboardPort,
             remoteRootPolicy,
             pluginUpdate: require("../updates/Bootstrap").getUpdater() ? require("../updates/Bootstrap").getUpdateStatus() : this.pluginUpdateStatus || { status: "unknown", message: "尚未检查配套更新。", checkedAt: "" },
-            pptPlotConfig,
-            pptAutomation: this.pptAutomationReadiness,
             integrations,
             projectOnboarding,
             branchProjects: this.branchProjectsProjectionWithUnified(),
@@ -29998,10 +29617,6 @@ class RealtimeTunnelPanelProvider {
             remotePathConfirmations: {
                 count: this.confirmedRemotePaths.length,
                 stateFile: PROJECT_REMOTE_PATH_CONFIRMATIONS_PATH,
-            },
-            pptPathConfirmations: {
-                count: this.confirmedPptPaths.length,
-                stateFile: PROJECT_PPT_PATH_CONFIRMATIONS_PATH,
             },
             uiLayout: this.currentUiLayoutState(),
             selection: {
@@ -30728,8 +30343,6 @@ class RealtimeTunnelPanelProvider {
             workspace,
             setup,
             schedulerConfig: {},
-            pptPlotConfig: {},
-            pptAutomation: {},
             integrations: { simpleSftp },
             projectOnboarding,
             branchProjects: this.branchProjectsProjectionWithUnified(),
@@ -30752,7 +30365,6 @@ class RealtimeTunnelPanelProvider {
             fileTransfers: {},
             codeSync: {},
             remotePathConfirmations: { count: 0, stateFile: "" },
-            pptPathConfirmations: { count: 0, stateFile: "" },
             uiLayout: { order: [], collapsed: {}, resourceTreeChildren: {}, manual: false, treePinned: false, inspectorPinned: false },
             selection: { selectedPlanId: "", selectedExperimentIds: [], selectedRunKeys: [], selectedRunKey: "", selectedArchiveKeys: [], hiddenLegacyTaskUiKeys: [], selectedLogRunKey: "" },
             planFileInput: "",
@@ -31616,22 +31228,6 @@ const RESULT_REPARSE_ACTIONS = new Set(["archive-artifacts", "exclude-results", 
 const RESULT_SUMMARY_AFFECTING_ACTIONS = new Set([
     "parse-results",
     "refresh-results",
-    "run-quality-gate",
-    "run-statistics",
-    "export-paper-table",
-    "check-claim-evidence",
-    "check-output-contract",
-    "parse-case-level",
-    "run-leakage-check",
-    "run-subgroup-analysis",
-    "export-case-analysis",
-    "plan-checkpoint-retention",
-    "inspect-dataset",
-    "export-plotting-contract",
-    "infer-config-from-run",
-    "recover-plan-from-run",
-    "diagnose-result-anomaly",
-    "compare-with-best-config",
     "archive-artifacts",
     "exclude-results",
     "sync-artifacts",
@@ -32341,165 +31937,6 @@ async function writeProjectPanelLifecycleDiagnosticsState(root, events) {
         .slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await writeAtomicPluginStateJson(fullPath, { schemaVersion: 1, updatedAt: new Date().toISOString(), events: rows });
-}
-const PROJECT_PPT_PLOT_CONFIG_PATH = "simple_cluster/ui/ppt_plot_config.json";
-function normalizePptPlotConfig(value) {
-    const row = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-    const chartType = String(row.chartType || row.chart_type || "auto").trim() || "auto";
-    const styleMode = String(row.styleMode || row.style_mode || "activePpt").trim() || "activePpt";
-    return {
-        presentationPath: String(row.presentationPath || row.presentation_path || "").trim(),
-        chartType,
-        styleMode,
-    };
-}
-async function readProjectPptPlotConfigState(root) {
-    if (!root)
-        return undefined;
-    const fullPath = path.join(root, ...PROJECT_PPT_PLOT_CONFIG_PATH.split("/"));
-    try {
-        const text = await fs.readFile(fullPath, "utf8");
-        const data = JSON.parse(text);
-        if (!data || typeof data !== "object")
-            return undefined;
-        if (data.cleared === true)
-            return undefined;
-        const raw = data.config && typeof data.config === "object" ? data.config : data;
-        return normalizePptPlotConfig(raw);
-    }
-    catch {
-        return undefined;
-    }
-}
-async function writeProjectPptPlotConfigState(root, config) {
-    if (!root)
-        return;
-    const fullPath = path.join(root, ...PROJECT_PPT_PLOT_CONFIG_PATH.split("/"));
-    if (!config) {
-        await writeAtomicPluginStateJson(fullPath, null);
-        return;
-    }
-    await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    const payload = {
-        schemaVersion: 1,
-        updatedAt: new Date().toISOString(),
-        config: normalizePptPlotConfig(config),
-    };
-    await writeAtomicPluginStateJson(fullPath, payload);
-}
-const PROJECT_PPT_PATH_CONFIRMATIONS_PATH = "simple_cluster/ui/ppt_path_confirmations.json";
-const PPT_PLOT_REQUEST_AUDIT_DIR = "simple_cluster/results/ppt_plot_requests";
-const PPT_CHART_TYPE_LABELS = Object.freeze({ auto: "自动", leaderboardBar: "柱状", meanStdErrorBar: "误差图", genericTable: "表格" });
-const PPT_STYLE_MODE_LABELS = Object.freeze({ activePpt: "跟随当前 PPT", default: "默认样式" });
-function normalizePptPathConfirmationTarget(presentationPath, projectRoot = "") {
-    const raw = String(presentationPath || "").trim();
-    if (!raw) {
-        return {
-            key: "ppt:<new-presentation>",
-            presentationPath: "",
-            displayPath: "新建 PPT（文件位置由 PPT 插件生成）",
-            confirmedAt: "",
-        };
-    }
-    const resolved = path.resolve(String(projectRoot || process.cwd()), raw);
-    const canonical = (process.platform === "win32" ? resolved.toLowerCase() : resolved).replace(/\\/g, "/");
-    return {
-        key: `ppt:${canonical}`,
-        presentationPath: resolved,
-        displayPath: resolved,
-        confirmedAt: "",
-    };
-}
-function normalizePptPathConfirmations(rows) {
-    const byKey = new Map();
-    for (const raw of Array.isArray(rows) ? rows : []) {
-        if (!raw || typeof raw !== "object" || Array.isArray(raw))
-            continue;
-        const target = normalizePptPathConfirmationTarget(raw.presentationPath || raw.presentation_path || "", "");
-        const key = String(raw.key || target.key).trim();
-        if (!key)
-            continue;
-        byKey.set(key, {
-            key,
-            presentationPath: target.presentationPath,
-            displayPath: String(raw.displayPath || raw.display_path || target.displayPath).trim() || target.displayPath,
-            confirmedAt: String(raw.confirmedAt || raw.confirmed_at || "").trim(),
-        });
-    }
-    return [...byKey.values()];
-}
-function mergePptPathConfirmations(...groups) {
-    return normalizePptPathConfirmations(groups.flatMap((group) => Array.isArray(group) ? group : []))
-        .sort((left, right) => String(right.confirmedAt || "").localeCompare(String(left.confirmedAt || "")))
-        .slice(0, 100);
-}
-function pptPathTargetConfirmed(confirmations, target) {
-    const key = String(target?.key || "").trim();
-    return Boolean(key) && normalizePptPathConfirmations(confirmations).some((item) => item.key === key);
-}
-function pptPlotConfirmationDetail(input, target) {
-    const sourcePaths = uniqueStrings((Array.isArray(input?.sourcePaths) ? input.sourcePaths : []).map((item) => String(item || "").trim()).filter(Boolean));
-    const chartType = String(input?.chartType || "auto").trim() || "auto";
-    const styleMode = String(input?.styleMode || "activePpt").trim() || "activePpt";
-    const auditDir = path.join(String(input?.projectRoot || "").trim(), ...PPT_PLOT_REQUEST_AUDIT_DIR.split("/"));
-    return [
-        "【强制确认】绘图到 PPT",
-        "",
-        "请核对当前 Plan、最终结果源和完整 PPT 目标位置。确认前不会调用 PPT 插件，也不会生成绘图请求审计。",
-        `本地项目目录：${String(input?.projectRoot || "未打开").trim() || "未打开"}`,
-        `当前 Plan：${String(input?.planFile || "未选择").trim() || "未选择"}`,
-        `Plan revision：${String(input?.planRevision || "未记录").trim() || "未记录"}`,
-        "",
-        "最终结果源文件：",
-        ...(sourcePaths.length ? sourcePaths.map((item) => `  - ${item}`) : ["  - 未找到"]),
-        `PPT 绘图契约：${String(input?.plottingContractPath || "未找到").trim() || "未找到"}`,
-        `目标 PPT：${String(target?.displayPath || "新建 PPT").trim() || "新建 PPT"}`,
-        `本地请求审计目录：${auditDir || PPT_PLOT_REQUEST_AUDIT_DIR}`,
-        `图类型：${PPT_CHART_TYPE_LABELS[chartType] || chartType}`,
-        `样式：${PPT_STYLE_MODE_LABELS[styleMode] || styleMode}`,
-        "",
-        "仅已归档结果生成的最终统计或论文表可作为数值绘图输入；临时预览 CSV 不会提交。",
-        "执行绘图请求时会在上述目录写入轻量 JSON 请求和响应审计；取消不会创建请求审计或调用 PPT 插件。",
-        "选择“不再提醒”只对当前本地项目和完全相同的 PPT 目标生效；目标路径变化后会再次确认。",
-    ].join("\n");
-}
-function pptPlotAuditRelativePath(projectRoot, auditPath) {
-    const root = path.resolve(String(projectRoot || ""));
-    const fullPath = path.resolve(String(auditPath || ""));
-    const relative = path.relative(root, fullPath);
-    if (!relative || relative.startsWith(`..${path.sep}`) || relative === ".." || path.isAbsolute(relative))
-        throw new Error(`PPT 绘图审计路径不在当前项目内：${String(auditPath || "未提供")}`);
-    return relative.replace(/\\/g, "/");
-}
-async function readProjectPptPathConfirmationsState(root) {
-    if (!root)
-        return [];
-    const fullPath = path.join(root, ...PROJECT_PPT_PATH_CONFIRMATIONS_PATH.split("/"));
-    try {
-        const text = await fs.readFile(fullPath, "utf8");
-        const data = JSON.parse(text);
-        return normalizePptPathConfirmations(Array.isArray(data) ? data : data?.confirmations);
-    }
-    catch {
-        return [];
-    }
-}
-async function writeProjectPptPathConfirmationsState(root, confirmations) {
-    if (!root)
-        return;
-    const fullPath = path.join(root, ...PROJECT_PPT_PATH_CONFIRMATIONS_PATH.split("/"));
-    const normalized = mergePptPathConfirmations(confirmations);
-    if (!normalized.length) {
-        await writeAtomicPluginStateJson(fullPath, { schemaVersion: 1, updatedAt: new Date().toISOString(), confirmations: [] });
-        return;
-    }
-    await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    const payload = {
-        schemaVersion: 1,
-        updatedAt: new Date().toISOString(),
-        confirmations: normalized,
-    };
-    await writeAtomicPluginStateJson(fullPath, payload);
 }
 const PROJECT_UI_LAYOUT_PATH = "simple_cluster/ui/ui_layout.json";
 async function readProjectUiLayoutState(root) {
@@ -34604,8 +34041,8 @@ const hostOperationUiCommands = new Set([
     "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "openXshell", "prepareAgents",
     "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "script", "offline",
     "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject",
-    "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath",
-    "plotResultsToPpt", "startPptAutomation", "publishGithub", "syncGithub", "overwriteGithub",
+    "generateOutputAdapter", "saveProjectAdapterRules",
+    "publishGithub", "syncGithub", "overwriteGithub",
     "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope",
     "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact",
 ]);
@@ -35904,33 +35341,6 @@ function numberFromRecord(item, keys) {
 function sameProjectRelativePath(left, right) {
     return String(left || "").trim().replace(/\\/g, "/").toLowerCase() === String(right || "").trim().replace(/\\/g, "/").toLowerCase();
 }
-function isFinalStatisticsOrPaperPath(value) {
-    const pathValue = String(value || "").trim().replace(/\\/g, "/").toLowerCase();
-    return /(^|\/)statistics\.json$/.test(pathValue) || /(^|\/)simple_results_table(?:__[^/]+)?\.(?:csv|md)$/.test(pathValue);
-}
-function finalPlotSourcesFromSummary(summary) {
-    const item = summary && typeof summary === "object" ? summary : {};
-    const archivedCount = numberFromRecord(item, ["effectiveArchivedResultCount", "effective_archived_result_count", "finalResultCount", "final_result_count"]);
-    if (archivedCount <= 0)
-        return [];
-    const out = [];
-    const statisticsPath = stringFromRecord(item, ["statisticsPath", "statistics_path"]);
-    const statisticsCount = numberFromRecord(item, ["statisticsResultCount", "statistics_result_count"]);
-    if (statisticsPath && statisticsCount === archivedCount)
-        out.push(statisticsPath);
-    const paperTablePath = stringFromRecord(item, ["paperTableCsvPath", "paper_table_csv_path", "paperTablePath", "paper_table_path", "exportPath"]);
-    const paperTableCount = numberFromRecord(item, ["paperTableResultCount", "paper_table_result_count"]);
-    if (paperTableCount === archivedCount) {
-        if (paperTablePath)
-            out.push(paperTablePath);
-        for (const table of item.paperDatasetTables || []) {
-            const source = table.paperTableCsvPath || table.paperTablePath;
-            if (source)
-                out.push(source);
-        }
-    }
-    return uniqueStrings(out);
-}
 function serverSetupMissingItems(setup, hubRequired = true) {
     const config = setup && typeof setup === "object" ? setup : {};
     const missing = [];
@@ -36903,7 +36313,6 @@ function planArchiveEvidencePlan(summary, planFile) {
         { label: "claim 证据", keys: ["claimEvidencePath", "claim_evidence_path"] },
         { label: "论文表格", keys: ["paperTablePath", "paper_table_path"] },
         { label: "论文表格 CSV", keys: ["paperTableCsvPath", "paper_table_csv_path"] },
-        { label: "PPT 绘图契约", keys: ["plottingContractPath", "plotting_contract_path"] },
         { label: "完整预览 CSV", keys: ["previewCsvPath", "preview_csv_path"], required: true },
         { label: "有效结果 CSV", keys: ["effectiveResultsCsvPath", "effective_results_csv_path"], required: true },
     ];
@@ -38492,7 +37901,7 @@ function planRunConfirmationDetail(command, plan, remoteTargets) {
         "结果路径中的 {output_dir} 会按每个任务展开为实际任务输出目录；固定相对路径按 Plan 原样保留，并相对于远端项目执行目录解析。",
         "任务规模来自本地 Plan 的实验项（case）与随机种子（seed）展开；静态配置容量不代表当前空闲 GPU，实时分配和实际排队以预演和任务页为准。",
         "结果在执行 Worker 的项目目录生成；服务器间同步以当前勾选范围和实际文件为准。“检查同步清单”只查询事实，不传输文件。",
-        debugMode ? "确认后将同步代码、校验并预演，只提交首个任务；调试产物不能归档、解析为有效结果或用于统计、论文和 PPT。" : `确认后将同步目标 Worker代码、核验代码指纹、校验 Plan、预演调度，全部通过后才提交正式任务。`,
+        debugMode ? "确认后将同步代码、校验并预演，只提交首个任务；调试产物不能归档、解析为有效结果或用于正式结果。" : `确认后将同步目标 Worker代码、核验代码指纹、校验 Plan、预演调度，全部通过后才提交正式任务。`,
     ].join("\n");
 }
 function planBatchRunConfirmationDetail(plans, remoteTargets) {
@@ -42268,29 +41677,6 @@ function workspaceEditorUriForFile(file) {
         return vscode.Uri.joinPath(folder.uri, ...segments);
     }
     return vscode.Uri.file(path.resolve(location.hostPath, relative));
-}
-async function pptDialogDefaultUri(currentPath) {
-    const fallbackName = "simple-experiment-results.pptx";
-    const root = workspaceRoot() || os.homedir();
-    const current = String(currentPath || "").trim();
-    if (!current)
-        return vscode.Uri.file(path.join(root, fallbackName));
-    try {
-        const stat = await fs.stat(current);
-        return vscode.Uri.file(stat.isDirectory() ? path.join(current, fallbackName) : current);
-    }
-    catch {
-        const dir = path.dirname(current);
-        try {
-            const stat = await fs.stat(dir);
-            if (stat.isDirectory())
-                return vscode.Uri.file(path.join(dir, path.basename(current) || fallbackName));
-        }
-        catch {
-            // Fall through to workspace default when the saved path no longer exists.
-        }
-        return vscode.Uri.file(path.join(root, path.basename(current) || fallbackName));
-    }
 }
 function remoteProjectName() {
     const root = workspaceRoot();

@@ -844,18 +844,6 @@
           "scope": "application",
           "description": "GPU 进程归属高亮方式。username 按用户名，command_contains 按命令关键词，both 任一匹配。"
         },
-        "simpleExperiment.ppt.chartType": {
-          "type": "string",
-          "default": "auto",
-          "scope": "application",
-          "description": "绘图类型。默认 auto，由 PPT 插件按结果契约自动选择。"
-        },
-        "simpleExperiment.ppt.styleMode": {
-          "type": "string",
-          "default": "activePpt",
-          "scope": "application",
-          "description": "绘图样式模式。默认 activePpt，使用 PPT 插件当前正在使用的绘图方案。"
-        },
         "simpleExperiment.manualPanelLayout": {
           "type": "boolean",
           "default": false,

@@ -44,12 +44,10 @@ test("workspace folder changes reload isolated project context", () => {
     /projectStatePersistenceQueues\.values\(\)/,
     /offlineBundle = undefined/,
     /resultsSummary = undefined/,
-    /projectPptPlotConfig = undefined/,
     /projectUiLayout = undefined/,
     /localOperations = \{\}/,
     /lastCodeSyncState = \{\}/,
     /confirmedRemotePaths = \[\]/,
-    /confirmedPptPaths = \[\]/,
     /lastSnapshot = undefined/,
     /lastRealtimeState = undefined/,
     /gpuHistoryState\.reset\(\)/,
@@ -79,12 +77,10 @@ test("all remaining project JSON states use independent coalesced queues", () =>
   const cases = [
     ["OfflineBundle", "offlineBundle", "writeProjectOfflineBundleState"],
     ["ActionErrors", "actionErrors", "writeProjectActionErrorsState"],
-    ["PptPlotConfig", "pptPlotConfig", "writeProjectPptPlotConfigState"],
     ["UiLayout", "uiLayout", "writeProjectUiLayoutState"],
     ["DebugBundle", "debugBundle", "writeProjectDebugBundleState"],
     ["CodeSync", "codeSync", "writeProjectCodeSyncState"],
     ["RemotePathConfirmations", "remotePathConfirmations", "writeProjectRemotePathConfirmationsState"],
-    ["PptPathConfirmations", "pptPathConfirmations", "writeProjectPptPathConfirmationsState"],
     ["LocalPlanMetadata", "localPlanMetadata", "writeProjectLocalPlanMetadataState"],
   ];
   for (const [name, key, writer] of cases) {
@@ -142,12 +138,10 @@ test("stale project-local state reads cannot overwrite the new workspace", () =>
     "readProjectTaskSelectionState",
     "readProjectOfflineBundleState",
     "readProjectActionErrorsState",
-    "readProjectPptPlotConfigState",
     "readProjectUiLayoutState",
     "readProjectDebugBundleState",
     "readProjectCodeSyncState",
     "readProjectRemotePathConfirmationsState",
-    "readProjectPptPathConfirmationsState",
     "readProjectLocalOperationsState",
     "readProjectLocalPlanMetadataState",
   ]) {
@@ -315,7 +309,7 @@ test("opening configuration and result links preserves the selected PLAN", async
 });
 
 test("output adapter generation cannot continue in a replacement workspace", () => {
-  const generate = methodBody("async generateOutputAdapterFromUi", "async savePptPlotConfigFromUi");
+  const generate = methodBody("async generateOutputAdapterFromUi", "async saveProjectAdapterRulesFromUi");
   assert.match(generate, /const projectContext = this\.captureProjectContext\(\)/);
   assert.match(generate, /const root = projectContext\.root/);
   assert.ok([...generate.matchAll(/projectContextIsCurrent\(projectContext\)/g)].length >= 7);

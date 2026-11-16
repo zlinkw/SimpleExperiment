@@ -176,8 +176,6 @@ assign(["experiment_results"], object({ experimentId: string, current: boolean, 
 assign(["result_export"], object({ id: string, source: string, current: boolean, observedAt: nullable(string), format: string, path: string, content: string }, ["id", "format", "content"]));
 assign(["result_compare"], object({ left: string, right: string, metric_difference: record(object({ left: number, right: number, delta: number })), improvement: strings, regression: strings, reason: string }, ["left", "right", "metric_difference"]));
 assign(["result_parse"], array(object({ runKey: string, metrics: record(value), source: value })));
-assign(["result_paper_table"], { anyOf: [object({ config: object(), rows: array(object()) }, ["config", "rows"]),
-        object({ content: string, format: string, source: string }, ["content", "format", "source"])] });
 assign(["metric_leaderboard"], object({ metrics: strings, board: array(object()) }, ["metrics", "board"]));
 assign(["artifact_list"], array(artifact));
 assign(["artifact_inspect"], object({ id: string, file: string, size: value, mtime: string, hash: string }, ["id", "file", "size"]));

@@ -112,19 +112,14 @@ function loadPlanPreparationContext(activity = { active: false }) {
   return sandbox.render;
 }
 
-test("zero-result preparation uses real recovery controls with explicit project scope", () => {
+test("plan preparation directs completed work to the main Plan controls", () => {
   const render = loadPlanPreparationContext();
-  const plan = "plans/recovery.yaml";
-  const update = render({}, plan, true, "", { kind: "command", command: "parseResults", message: "输出契约完整", label: "重新解析结果" });
-  assert.match(update, /data-section-target="results" data-anchor-target="results-summary"/);
-  assert.match(update, /本项目全部 PLAN 与全部启用 Worker/);
-  assert.doesNotMatch(update, /data-command="(?:parseResults|runPlan)"/);
-  const running = render({}, plan, true, "", { kind: "section", section: "execution", anchor: "execution", message: "正在检查输出契约", label: "查看检查进度" });
-  assert.match(running, /data-section-target="execution"/);
-  assert.doesNotMatch(running, /data-command=/);
-  const check = render({}, plan, true, "", { kind: "command", command: "checkOutputContract", message: "未发现结果记录", label: "检查输出契约" });
-  assert.match(check, /data-command="checkOutputContract"/);
-  assert.match(check, /data-plan-file="plans\/recovery.yaml"/);
+  const ready = render({}, "plans/recovery.yaml", true, "");
+  assert.match(ready, /校验、预演和提交统一在下方当前 PLAN 主操作/);
+  assert.doesNotMatch(ready, /data-command="runPlan"/);
+  const missing = render({}, "plans/recovery.yaml", false, "");
+  assert.match(missing, /data-command="openPlan"/);
+  assert.match(missing, /data-command="generateOutputAdapter"/);
 });
 
 function loadPlanRuntimeEvidenceCache() {

@@ -21,7 +21,7 @@ function extractFunction(name) {
 }
 
 test("current Plan result workflow derivation is bounded and isolated by state and Plan", () => {
-  const calls = { readiness: 0, workflow: 0 };
+  const calls = { readiness: 0 };
   const sandbox = {
     CURRENT_PLAN_WORKFLOW_RESULT_CACHE_LIMIT: 2,
     currentPlanWorkflowResultCacheState: null,
@@ -31,12 +31,8 @@ test("current Plan result workflow derivation is bounded and isolated by state a
       calls.readiness += 1;
       return { status: "parsed", planFile: state.planFileInput };
     },
-    currentPlanResultWorkflowStatus: (state) => {
-      calls.workflow += 1;
-      return { planFile: state.planFileInput };
-    },
-    resultWorkflowStage: (status) => ({ kind: "done", planFile: status.planFile }),
-    projectWorkflowResultStep: (stage) => ({ tone: "good", status: stage.planFile, detail: "done" }),
+    pick: (item, keys, fallback) => keys.map(key => item[key]).find(value => value !== undefined) ?? fallback,
+    asArray: value => Array.isArray(value) ? value : [],
   };
   vm.createContext(sandbox);
   vm.runInContext(
@@ -49,11 +45,10 @@ test("current Plan result workflow derivation is bounded and isolated by state a
   const first = sandbox.readiness(firstState, "plans/A.yaml");
   assert.equal(sandbox.readiness(firstState, "plans/A.yaml"), first);
   assert.equal(calls.readiness, 1);
-  assert.equal(calls.workflow, 1);
 
   const secondPlan = sandbox.readiness(firstState, "plans/B.yaml");
   assert.notEqual(secondPlan, first);
-  assert.equal(secondPlan.status, "plans/B.yaml");
+  assert.equal(secondPlan.status, "结果已解析");
   sandbox.readiness(firstState, "plans/C.yaml");
   assert.ok(sandbox.currentPlanWorkflowResultCache.size <= 2);
 
@@ -61,5 +56,4 @@ test("current Plan result workflow derivation is bounded and isolated by state a
   const refreshed = sandbox.readiness(secondState, "plans/A.yaml");
   assert.notEqual(refreshed, first);
   assert.equal(calls.readiness, 4);
-  assert.equal(calls.workflow, 4);
 });

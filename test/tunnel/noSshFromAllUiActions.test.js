@@ -11,7 +11,7 @@ test("all new ui actions use the current transport boundaries", () => {
   const panel = readSource("src/ui/PanelHtml.ts");
   const commands = [
     "validatePlan", "dryRunPlan", "runPlan", "stopExperiment", "retryExperiment", "reproducePlan",
-    "parseResults", "refreshResults", "runQualityGate", "runStatistics", "exportPaperTable",
+    "parseResults", "refreshResults",
     "archiveArtifacts", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions",
     "selfCheck", "createDebugBundle", "downloadDebugBundle", "openAuditTail", "downloadRemoteResult"
   ];

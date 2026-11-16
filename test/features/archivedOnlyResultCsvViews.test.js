@@ -21,28 +21,20 @@ test("preview CSV keeps all parsed records while effective CSV keeps archived re
   const script = path.join(tmp, "check.py");
   fs.writeFileSync(script, [
     "import importlib.util, json, os, csv",
-    ("spec = (lambda _name, _file: __import__(\"runpy\").run_path(" + JSON.stringify(require("node:path").resolve(__dirname, "../_helpers/extractRuntimeFunctions.py")) + ")[\"extract_runtime_functions\"](_file, [\"archive_state_relpath\",\"atomic_write\",\"compute_statistics_action\",\"export_paper_table_action\",\"parse_results_action\",\"read_results_summary\",\"result_final_evidence_decision\",\"run_quality_gate_action\",\"safe_project_path\"]))('agent', ") + JSON.stringify(agentPath) + ")",
+    ("spec = (lambda _name, _file: __import__(\"runpy\").run_path(" + JSON.stringify(require("node:path").resolve(__dirname, "../_helpers/extractRuntimeFunctions.py")) + ")[\"extract_runtime_functions\"](_file, [\"archive_state_relpath\",\"atomic_write\",\"parse_results_action\",\"read_results_summary\",\"result_final_evidence_decision\",\"safe_project_path\"]))('agent', ") + JSON.stringify(agentPath) + ")",
     "agent = spec",
     "pass",
     "root = " + JSON.stringify(root),
     "plan = 'experiments/plans/smoke.yaml'",
     "initial = agent.parse_results_action(root, None, plan)",
-    "emptyStatisticsError = ''",
-    "try:",
-    "  agent.compute_statistics_action(root, plan)",
-    "except Exception as exc:",
-    "  emptyStatisticsError = str(exc)",
     "key = initial['results'][0]['resultId']",
     "state_path = agent.safe_project_path(root, agent.archive_state_relpath(plan))",
     "agent.atomic_write(state_path, {'entries': {key: {'status': 'archived', 'archived': True}}})",
     "summary = agent.parse_results_action(root, None, plan)",
-    "quality = agent.run_quality_gate_action(root, plan)",
-    "paper = agent.export_paper_table_action(root, plan)",
-    "final_summary = agent.read_results_summary(root, plan)",
     "manual = agent.result_final_evidence_decision({'manualReviewState': 'approved'}, {})",
     "preview = agent.safe_project_path(root, summary['previewCsvPath'])",
     "effective = agent.safe_project_path(root, summary['effectiveResultsCsvPath'])",
-    "print(json.dumps({'previewRows': len(list(csv.DictReader(open(preview, encoding='utf-8')))), 'effectiveRows': len(list(csv.DictReader(open(effective, encoding='utf-8')))), 'manualEligible': manual.get('eligibleForFinalAnalysis'), 'policy': summary.get('inclusionPolicy'), 'previewPath': summary.get('previewCsvPath'), 'effectivePath': summary.get('effectiveResultsCsvPath'), 'qualitySource': quality.get('source'), 'qualityRows': quality.get('resultCount'), 'qualityPending': quality.get('pendingReviewCount'), 'emptyStatisticsError': emptyStatisticsError, 'paperRows': paper.get('resultCount'), 'paperSummaryRows': final_summary.get('paperTableResultCount')}))",
+    "print(json.dumps({'previewRows': len(list(csv.DictReader(open(preview, encoding='utf-8')))), 'effectiveRows': len(list(csv.DictReader(open(effective, encoding='utf-8')))), 'manualEligible': manual.get('eligibleForFinalAnalysis'), 'policy': summary.get('inclusionPolicy'), 'previewPath': summary.get('previewCsvPath'), 'effectivePath': summary.get('effectiveResultsCsvPath')}))",
   ].join("\n"), "utf8");
   const result = spawnSync("python", [script], { encoding: "utf8", timeout: 10000, windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -51,23 +43,14 @@ test("preview CSV keeps all parsed records while effective CSV keeps archived re
   assert.equal(payload.effectiveRows, 1);
   assert.equal(payload.manualEligible, false);
   assert.equal(payload.policy, "archived_only");
-  assert.equal(payload.qualitySource, "archived_only");
-  assert.equal(payload.qualityRows, 1);
-  assert.equal(payload.qualityPending, 1);
-  assert.match(payload.emptyStatisticsError, /没有已归档结果/);
-  assert.equal(payload.paperRows, 1);
-  assert.equal(payload.paperSummaryRows, 1);
   assert.match(payload.previewPath, /by_plan\/.*results_preview_all\.csv/);
   assert.match(payload.effectivePath, /by_plan\/.*results_effective_archived\.csv/);
 });
 
-test("result consumers and PPT reject preview CSV as a final plot source", () => {
+test("result views distinguish preview and archived CSV", () => {
   const agent = readSource("src/clusterAgentRuntime.ts");
-  const ppt = readSource("src/PptPlotBridge.ts");
   assert.match(agent, /summary\["inclusionPolicy"\] = "archived_only"/);
   assert.match(agent, /str\(record\.get\("finalEvidenceState"\) or ""\)\.lower\(\) == "archived"/);
   assert.match(agent, /results_preview_all\.csv/);
   assert.match(agent, /results_effective_archived\.csv/);
-  assert.match(ppt, /results_preview_all\\\.csv/);
-  assert.match(ppt, /return true;/);
 });

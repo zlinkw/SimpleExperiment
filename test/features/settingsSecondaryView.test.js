@@ -224,17 +224,3 @@ test("empty remote root rules render empty editable values with the real product
   for (const id of ["remoteAllowedRootsInput", "remoteDeniedRootsInput"])
     assert.match(f.nodes.remoteRootPolicySettings.innerHTML, new RegExp('id="' + id + '"[^>]*></textarea>'));
 });
-
-test("an empty PPT destination stays empty in the actual rendered control", () => {
-  const root = { innerHTML: "", querySelector: () => null };
-  const s = {
-    el: () => root, shouldKeepConfigDraftScope: () => false,
-    pptAutomationReadinessForState: () => ({ ready: false, message: "未启动", label: "未启动" }),
-    finalStatisticsSourcePath: () => "", configDraftValue: (_scope, _key, fallback) => fallback,
-    debugModeDisableReason: () => "", helpBadge: () => "", optionHtml: () => "",
-    setHtmlIfChanged: (_id, html) => { root.innerHTML = html; },
-  };
-  vm.runInNewContext(["esc", "escAttr", "renderPptPlotConfig"].map(productionFunction).join("\n"), s);
-  s.renderPptPlotConfig({ pptPlotConfig: { presentationPath: "" } });
-  assert.match(root.innerHTML, /data-key="presentationPath" value=""/);
-});

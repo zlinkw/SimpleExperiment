@@ -18,7 +18,7 @@ test("Extension Host reuses one fixed Debug command deny set", () => {
   assert.match(source, /const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set\(\[/);
   assert.match(gate, /DEBUG_MODE_BLOCKED_UI_COMMANDS\.has/);
   assert.doesNotMatch(gate, /new Set\(/);
-  for (const command of ["archivePlan", "deleteArtifacts", "runStatistics", "checkClaimEvidence", "plotResultsToPpt"]) {
+  for (const command of ["archivePlan", "deleteArtifacts", "parseResults", "refreshResults"]) {
     assert.match(source, new RegExp('"' + command + '"'));
   }
 });

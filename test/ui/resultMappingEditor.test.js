@@ -38,7 +38,7 @@ test("cold result navigation opens the mapping after lazy render only once", () 
   const panelFunction = require("../_helpers/panelFunction");
   let editor, scrolls = 0;
   const sandbox = { detailsOpenState: {}, pendingResultMappingOpen: false, activeResourceSection: "results",
-    el: () => editor, renderPptPlotConfig() {}, renderWorkerResultAggregateWarning: () => "",
+    el: () => editor, renderWorkerResultAggregateWarning: () => "",
     renderResultEvidenceWorkbench: () => "editor", setHtmlIfChanged() {
       editor ||= { open: false, scrollIntoView() { scrolls++; } };
     } };

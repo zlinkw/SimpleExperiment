@@ -248,14 +248,12 @@ test("extension and workbench expose confirmed memory-only result inspection", (
   assert.doesNotMatch(extension.slice(extension.indexOf("async downloadRemoteResultFromUi"), extension.indexOf("async openAuditTail")), /openWorkspaceFile\(remotePath\)/);
   assert.match(panel, /downloadRemoteResult: \[\]/);
   assert.match(panel, /data-command="downloadRemoteResult" data-worker-id=[^>]+ data-remote-path=/);
-  assert.match(panel, /outputContractUnparseableFileList: item\.unparseableFileList/);
   assert.match(panel, /renderRemoteResultInspectionActions\(row\.unparseableFileList, row\.planFile, 3, row\.unparseableDetails, row\.workerId\)/);
   assert.match(panel, /class="operationFileReason"/);
   assert.match(panel, /compactText\(error, 120\)/);
-  assert.match(panel, /outputContractUnparseableDetails: item\.unparseableDetails/);
 });
 
-test("preview and effective CSV buttons open result artifacts without changing Plan selection", () => {
+test("result artifact handler opens authorized files without changing Plan selection", () => {
   const handler = extension.slice(extension.indexOf("async openResultArtifactFromUi"), extension.indexOf("async openAuditTail"));
   assert.match(extension, /case "openResultArtifact":\s*await this\.openResultArtifactFromUi\(message\)/);
   assert.match(extension, /"downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail"/);
@@ -278,12 +276,6 @@ test("preview and effective CSV buttons open result artifacts without changing P
   assert.ok([...opener.matchAll(/isCurrent\(\)/g)].length >= 5);
   assert.ok(opener.indexOf("await vscode.workspace.openTextDocument(editorUri)") < opener.indexOf("await vscode.window.showTextDocument(doc"));
   assert.doesNotMatch(handler, /selectPlanFromUi|this\.selectedPlanId\s*=/);
-  assert.match(panel, /resultFileButton\("打开完整预览", previewCsvPath, resultPlanFile\)/);
-  assert.match(panel, /resultFileButton\("打开有效结果", effectiveResultsCsvPath, resultPlanFile\)/);
-  assert.match(panel, /function resultFileButton\(label, file, planFile, workerId, help, showUnavailable\)/);
-  assert.match(panel, /data-command="openResultArtifact" data-remote-path=/);
-  const buttonHelper = panel.slice(panel.indexOf("function resultFileButton"), panel.indexOf("function renderResultNextAction"));
-  assert.doesNotMatch(buttonHelper, /data-command="openPlan"/);
 });
 
 test("project result table is the primary entry with explicit all-Plan scope", () => {
@@ -322,7 +314,10 @@ test("operation details retain each parser error and add file-only fallbacks", (
     { path: "work_dirs/a/metrics_summary.csv", error: "value 列不是数值" },
     { path: "work_dirs/b/metrics_summary.csv", error: "" },
   ]);
-  assert.match(agent, /"unparseable": report\.get\("unparseable"\) or \[\]/);
+  const parse = agent.slice(agent.indexOf("def parse_results_action("), agent.indexOf("def result_record_matches_plan("));
+  assert.match(parse, /failures\.append\(\{"path": source_rel, "error": str\(exc\)\}\)/);
+  assert.match(parse, /"parseFailed": len\(failures\)/);
+  assert.match(parse, /"failures": failures/);
 });
 
 test("file transfer enforces the inspection size cap before streaming", () => {

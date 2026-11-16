@@ -48,7 +48,7 @@ const server_1 = require("../cli/commands/server");
 const resource_1 = require("../cli/commands/resource");
 /** Reuse structured business results before CLI rendering, with an isolated project and API context. */
 async function queryProject(root, rpc, name, args) {
-    const flags = { json: !(name === "result_paper_table" && ["markdown", "csv", "latex"].includes(args.format)), full: args.full === true,
+    const flags = { json: true, full: args.full === true,
         ...(args.status ? { status: args.status } : {}), ...(args.type ? { type: args.type } : {}), ...(args.limit !== undefined ? { limit: args.limit } : {}),
         ...(args.format ? { format: args.format } : {}),
         ...(args.metrics ? { metrics: args.metrics.join(",") } : {}), ...(args.primary ? { primary: args.primary } : {}),
@@ -71,7 +71,7 @@ async function queryProject(root, rpc, name, args) {
         experiment_monitor: () => experiments.experimentMonitor(args.id, flags), experiment_diagnose: () => experiments.experimentDiagnose(args.id, flags),
         experiment_config: () => experiments.experimentConfig(args.id, flags), experiment_results: () => experiments.experimentResults(args.id, flags),
         result_list: () => (0, result_1.resultList)(flags), result_show: () => (0, result_1.resultShow)(args.id, flags), result_export: () => (0, result_1.resultExport)(args.id, flags),
-        result_parse: () => (0, result_1.resultParse)(flags), result_paper_table: () => (0, result_1.resultPaperTable)(flags),
+        result_parse: () => (0, result_1.resultParse)(flags),
         metric_list: () => (0, metric_1.metricList)(flags), metric_show: () => (0, metric_1.metricShow)(args.id, flags), metric_leaderboard: () => (0, metric_1.metricLeaderboard)(flags),
         result_compare: () => (0, compare_1.compareCommand)([args.left, args.right], flags),
         experiment_log: () => args.lines === undefined ? (0, log_1.logShow)(args.id, flags) : (0, log_1.logTail)(args.id, flags),

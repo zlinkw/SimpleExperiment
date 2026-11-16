@@ -766,88 +766,6 @@ function checkResultSchema(projectDir) {
 }
 
 // ---------------------------------------------------------------------------
-// G7 checkPlottingContract：绘图五文件存在 + 字段（无声明跳过；扁平/by_plan 双轨放行；
-//   文档 ⊆ 代码子集策略：缺文件 → warning，字段缺 → critical）
-// 五文件：result_registry.json / statistics.json / paperTable CSV /
-//   case_level_index.json / dataset profile.json
-// ---------------------------------------------------------------------------
-const PLOTTING_KEYWORDS_RE = /plotting_contract|result_registry|statistics\.json|case_level|paper_table|simple_results_table|dataset.*profile/i;
-const G7_REGISTRY_NEED = ["resultId", "experimentId", "suite", "method", "dataset", "split", "seed"];
-const G7_STATISTICS_NEED = ["suite", "metric", "mean", "std"];
-const G7_PAPERTABLE_NEED = ["method", "dataset", "split", "metric", "mean", "std"];
-const G7_CASELEVEL_NEED = ["case_id", "method", "dataset", "split", "metric", "value"];
-const G7_PROFILE_NEED = ["dataset", "split"];
-
-function plottingCandidates(projectDir, rel, flat, byPlan) {
-  const slug = planSlugOf(rel);
-  const cands = [];
-  if (flat) cands.push(path.join(projectDir, flat));
-  if (slug && byPlan) cands.push(path.join(projectDir, byPlan.replace("<slug>", slug)));
-  // 无 slug 时 byPlan 退化为 flat（去重）
-  return [...new Set(cands)];
-}
-
-function readJsonKeys(file) {
-  try {
-    const obj = JSON.parse(fs.readFileSync(file, "utf8"));
-    const keys = new Set();
-    const walk = (o, depth) => {
-      if (!o || depth > 2) return;
-      if (Array.isArray(o)) { o.slice(0, 3).forEach((x) => walk(x, depth + 1)); return; }
-      if (typeof o === "object") {
-        for (const k of Object.keys(o)) keys.add(k);
-        for (const v of Object.values(o)) {
-          if (v && typeof v === "object") walk(v, depth + 1);
-        }
-      }
-    };
-    walk(obj, 0);
-    return keys;
-  } catch { return null; }
-}
-
-// G7 注：无绘图声明跳过；扁平/by_plan 双轨放行；缺文件 warning、字段缺 critical；五文件共用 missing_file 同 id，各块 message 内 key 区分（[DUP] 仅去重标记）。
-function checkPlottingContract(planText, projectDir, rel) {
-  const out = [];
-  const clean = stripYamlComments(planText);
-  if (!PLOTTING_KEYWORDS_RE.test(clean)) return out; // 无声明跳过（同 G6 无样例跳过）
-  const slug = planSlugOf(rel);
-  const specs = [
-    { key: "result_registry", need: G7_REGISTRY_NEED, cands: plottingCandidates(projectDir, rel, "simple_cluster/results/result_registry.json", "simple_cluster/results/by_plan/<slug>/result_registry.json") },
-    { key: "statistics", need: G7_STATISTICS_NEED, cands: plottingCandidates(projectDir, rel, "simple_cluster/results/statistics.json", "simple_cluster/results/by_plan/<slug>/statistics.json") },
-    { key: "paper_table", need: G7_PAPERTABLE_NEED, cands: plottingCandidates(projectDir, rel, "paper/tables/simple_results_table.csv", "paper/tables/simple_results_table__<slug>.csv") },
-    { key: "case_level", need: G7_CASELEVEL_NEED, cands: plottingCandidates(projectDir, rel, "simple_cluster/results/case_level_index.json", "simple_cluster/results/by_plan/<slug>/case_level_index.json") },
-    { key: "dataset_profile", need: G7_PROFILE_NEED, cands: plottingCandidates(projectDir, rel, "simple_cluster/datasets/profile.json", "simple_cluster/datasets/by_plan/<slug>/profile.json") },
-  ];
-  void slug;
-  for (const s of specs) {
-    const hit = s.cands.find((f) => { try { return fs.statSync(f).isFile(); } catch { return false; } });
-    if (!hit) {
-      const want = s.cands.map((f) => path.relative(projectDir, f).replace(/\\/g, "/")).join(" 或 ");
-      out.push({ file: rel, severity: "warning", id: "plotting_contract_missing_file", message: `绘图契约缺 ${s.key}（期望 ${want}）`, suggestion: "按 docs/output-contract-for-plotting.md 落盘五文件，或经 Scheduler 归档产出 result_registry/statistics/paperTable/caseLevel/profile" });
-      continue;
-    }
-    if (/\.csv$/i.test(hit)) {
-      const parsed = parseCsvHeaderAndRows(hit);
-      if (!parsed) continue;
-      const lower = parsed.header.map((h) => h.toLowerCase());
-      const missing = s.need.filter((c) => !lower.includes(c.toLowerCase()));
-      if (missing.length) {
-        out.push({ file: rel, severity: "critical", id: "plotting_contract_bad_fields", message: `绘图契约 ${s.key} 缺字段: ${missing.join(", ")}（文件 ${path.relative(projectDir, hit).replace(/\\/g, "/")}）`, suggestion: `按 src/features/PlottingContract.ts#${s.key} 补齐字段（${s.need.join(", ")}，ci/pValue 可空不强制）` });
-      }
-    } else {
-      const keys = readJsonKeys(hit);
-      if (!keys) continue;
-      const lower = new Set([...keys].map((k) => String(k).toLowerCase()));
-      const missing = s.need.filter((c) => !lower.has(c.toLowerCase()));
-      if (missing.length) {
-        out.push({ file: rel, severity: "critical", id: "plotting_contract_bad_fields", message: `绘图契约 ${s.key} 缺字段: ${missing.join(", ")}（文件 ${path.relative(projectDir, hit).replace(/\\/g, "/")}）`, suggestion: `按 src/features/PlottingContract.ts#${s.key} 补齐字段（${s.need.join(", ")}，ci/pValue 可空不强制）` });
-      }
-    }
-  }
-  return out;
-}
-
 // O1 候选收敛：仅提取候选键域内的产物值（同行行内值/数组 + 后续 `- item` 列表块），
 // 供 G8-4 扩展名判定；cases/secondaryMetrics 等非候选列表不再计入。
 // 三键复用：summaryCsv/caseCsv/manifest 并入同一键正则，统一经 extractCandidateValues 提取，不再另起三路单值正则（防双轨漂移）。
@@ -1219,10 +1137,6 @@ function main() {
     for (const f of checkScpForbidden(text, rel)) {
       pushDedup(errors, f);
     }
-    // G7 绘图契约（无声明跳过；五文件存在 + 字段）
-    for (const f of checkPlottingContract(text, projectDir, rel)) {
-      pushDedup(f.severity === "critical" ? errors : warnings, f);
-    }
     // 强契约基线：suite 为唯一必填顶层字段（PlanValidator.ts:57 正则基线 suite_missing=critical；
     // legacy 契约路径无 severity 字段会被降级为 warning，此处显式升级为 critical 并去重）。
     if (!genericRunner && !/^\s*suite\s*:/m.test(clean)) {
@@ -1376,7 +1290,7 @@ function main() {
   // ID_SRC 行号：静态表为兜底锚点（已重锚到本次实际行号），运行时由 resolveCheckStaticIdSrc
   // 动态提取优先（构造位 `id: "<id>"` > `=== "<id>"` 判定位 > 首个含引号 id 的行），
   // 兜底锚 CHECK_STATIC_ID_SRC_FALLBACK（落盘 writeFileSync 行，随源码移动重锚），未注册 id 直接抛错，禁止静默指向旧行号。
-  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1864";
+  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1764";
   const CHECK_STATIC_ID_SRC = {
     test_command_via_injection: "scripts/check-static.js:149",
     test_command_missing_result_csv: "scripts/check-static.js:159",
@@ -1418,8 +1332,6 @@ function main() {
     result_schema_case_bad_value: "scripts/check-static.js:587",
     result_schema_summary_missing_columns: "scripts/check-static.js:601",
     result_schema_summary_bad_value: "scripts/check-static.js:610",
-    plotting_contract_missing_file: "scripts/check-static.js:696",
-    plotting_contract_bad_fields: "scripts/check-static.js:705",
     simple_project_no_tensorboard: "scripts/check-static.js:821",
     simple_project_no_manifest: "scripts/check-static.js:779",
     simple_project_version_old: "scripts/check-static.js:789",
@@ -1672,14 +1584,6 @@ function main() {
         "E1,c1,cls,train,svm",
       ];
     }
-    if (/^plotting_contract_/.test(refId)) {
-      return [
-        "# 按 docs/output-contract-for-plotting.md 落盘五文件",
-        "outputs:",
-        "  registry: \"simple_cluster/results/result_registry.json\"",
-        "  stats: \"simple_cluster/results/statistics.json\"",
-      ];
-    }
     if (/^simple_project_/.test(refId)) {
       return [
         "projectName: demo",
@@ -1812,10 +1716,6 @@ function main() {
       lines.push(`- message: ${msgFull}`);
       lines.push(`- suggestion: ${sugFull}`);
       if (isDup) lines.push("- 去重: [DUP] 与首现块同 finding，详见首个同 id 全量块。");
-      // plotting 说明：绘图契约五文件（result_registry/statistics/paper_table/case_level/dataset_profile）
-      // 共用同一 id（plotting_contract_missing_file），五缺项各为独立缺文件；
-      // [DUP] 仅为同 id 去重标记，不代表重复计数，定位以各块 message 中的 key 为准。
-      if (refId === "plotting_contract_missing_file") lines.push("- 说明: 绘图契约五文件共用同一 id，五缺项各为独立缺文件，[DUP] 仅为同 id 去重标记（key 见 message）。");
       lines.push(`#### 参考模板 (\`${refId}\`)`);
       lines.push(`${FENCE}yaml`);
       // O4 折叠 + G9 不编造：先照常取模板（未注册照抛错），同 id 首个块全量、之后折叠为指向首块块号+MD行号的单行引用。

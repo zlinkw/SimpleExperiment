@@ -277,32 +277,14 @@ test("unknown command does not enter a handler", async () => {
   assert.deepEqual(host.calls.statuses, []);
 });
 
-test("related result checks resolve a Worker before acquiring a UI lease and keep cancellation terminal", async () => {
-  for (const command of ["checkOutputContract", "inspectDataset", "planCheckpointRetention", "exportPlottingContract"]) {
-    for (const mode of ["single", "multiple", "explicit", "cancel"]) {
-      let selectedMessage, picks = 0;
-      const host = createHost({
-        enabledWorkerConfigs: () => mode === "single" ? [{ id: "w1" }] : [{ id: "w1" }, { id: "w2" }],
-        resultActionWorkerIds: message => message.workerId ? [message.workerId] : [],
-        runActionCommand: async (_command, message) => { selectedMessage = message; },
-      });
-      pickWorker = async choices => {
-        picks++;
-        assert.equal(host.calls.lease.length, 0, "manual selection must not hold the project write lease");
-        return mode === "cancel" ? undefined : choices[1];
-      };
-      const message = { command, clientActionId: `related-${command}-${mode}`, ...(mode === "explicit" ? { workerId: "w1" } : {}) };
-      await api.handleMessage.call(host, message);
-      assert.equal(picks, ["multiple", "cancel"].includes(mode) ? 1 : 0);
-      if (mode === "cancel") {
-        assert.equal(selectedMessage, undefined);
-        assert.equal(host.calls.statuses.at(-1).status, "cancelled");
-        assert.equal(host.calls.lease.length, 0);
-      } else {
-        assert.equal(selectedMessage.workerId, mode === "multiple" ? "w2" : "w1");
-        assert.equal(host.calls.statuses.at(-1).status, "completed");
-      }
-    }
+test("result actions preserve the selected Worker during dispatch", async () => {
+  for (const command of ["parseResults", "refreshResults"]) {
+    let dispatched;
+    const host = createHost({ runActionCommand: async (action, message) => { dispatched = { action, message }; } });
+    await api.handleMessage.call(host, { command, workerId: "w2", clientActionId: `result-${command}` });
+    assert.equal(dispatched.action, command);
+    assert.equal(dispatched.message.workerId, "w2");
+    assert.equal(host.calls.statuses.at(-1).status, "completed");
   }
 });
 

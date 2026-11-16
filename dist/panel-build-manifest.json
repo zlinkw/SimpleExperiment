@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.512",
-  "buildId": "59760d20266f17bc45af412311b89c37b85e65b2bdbaf5865f4f9c4863655318",
+  "buildId": "b0818733eb1661cca1d0273bf8b5fd249627a56c5a465c3b9f8005794c09e0a2",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -25,7 +25,7 @@
     },
     {
       "path": "dist/cli.legacy.js",
-      "sha256": "bded5d52886778007273e64179182be99694299a102877dc38183abb3cd17dcf"
+      "sha256": "c286a1645c882e7f96478498ec55bebca3cd36a852016a20dffc80a80daf58e4"
     },
     {
       "path": "dist/cli/api.js",
@@ -101,7 +101,7 @@
     },
     {
       "path": "dist/cli/commands/result.js",
-      "sha256": "68ff6e378cf54ac9efb829b8627a8fee92a16874a6f0ad5b4c63dc8c9f22f7fa"
+      "sha256": "9eca1154ed9a47477c15bbe932ebc502a972f993799275d2c718da50dc8ccbe3"
     },
     {
       "path": "dist/cli/commands/server.js",
@@ -125,11 +125,11 @@
     },
     {
       "path": "dist/cli/help.js",
-      "sha256": "75b52de37103a1115d2b624216f9fcbfecb24a273d370e77fb5ed0a86dc97621"
+      "sha256": "d0d73c7f1d385532fb59f1c594397f13189de954c27998337e20c73efa9d0211"
     },
     {
       "path": "dist/cli/index.js",
-      "sha256": "7053a5d21a366920f7bf72ab0cdb15433afb3b0b17c90c893dca65eae6a01b25"
+      "sha256": "a8d2dc0cf2304038e600e728c5339b38bdafc86b6b7f4c9561e6d493bcc0f34a"
     },
     {
       "path": "dist/cli/LocalApiClient.js",
@@ -261,7 +261,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "7c32f1e655c5a35e5f3521fac9ea60bb6f95ce9e6939fc723167041d14c5b88d"
+      "sha256": "2298d4dbd69758fd007ad6b97c7c600822b55acbf76802bef3149bfca6a7767e"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -353,7 +353,7 @@
     },
     {
       "path": "dist/factories/FeatureFactory.js",
-      "sha256": "2060c61af3a7679a83f27ea4c8b47432744518cf07926f5551af3a73ca7e4a89"
+      "sha256": "36fa625237b61681bb16e20b11e164c41b6e46b7afd58e79330fd40274611771"
     },
     {
       "path": "dist/factories/PanelSectionFactory.js",
@@ -397,7 +397,7 @@
     },
     {
       "path": "dist/features/Checkpoint.js",
-      "sha256": "b9ced91e3bb7d8b9a54010f4943015346e6a32fad4c4548a8a0ac0f494e2fa24"
+      "sha256": "21024c6c46a60ed9d8e68ecb74e6a9e1b9b92c9ed3fe20fb28b389e842dfd1ae"
     },
     {
       "path": "dist/features/CodeSyncDelta.js",
@@ -676,10 +676,6 @@
       "sha256": "b48e2b9a28cc037c4434e47d84cfef8d42512e528474c07d2f06b49cb91faf3a"
     },
     {
-      "path": "dist/features/PlottingContract.js",
-      "sha256": "e1a009ff8c0bb2db8ae2c14b90332620bfc955e9a3cf977882592cf63fbbc5f6"
-    },
-    {
       "path": "dist/features/PluginLogRetention.js",
       "sha256": "96acf7fba536ccd76334fcf6eb599bd5db4469e4f809f95bc5147a7971e8b891"
     },
@@ -713,7 +709,7 @@
     },
     {
       "path": "dist/features/Quality.legacy.js",
-      "sha256": "5cb4797b823f70af9b328071900ecc6a836f42818c70b7821cf0b748dffae432"
+      "sha256": "462738bb94d2ff104e5804c45eff9c692f754fa25e4e41ba6a6880593eef768a"
     },
     {
       "path": "dist/features/Results.js",
@@ -857,23 +853,15 @@
     },
     {
       "path": "dist/mcp/ProjectQueries.js",
-      "sha256": "5382b2a36430ad0b17a89ab8a869a82f0fd962b4dd6a279f4105986e9402dd83"
+      "sha256": "442912e9bb8c26b620d36d324196fb25feab47c9b7aa159dcb02bd5912d5c759"
     },
     {
       "path": "dist/mcp/ToolCatalog.js",
-      "sha256": "a033616271376e49c1131b27e9cf688a221f8adb9f91592c39beb0fd68f76455"
+      "sha256": "3514fbff0be58c589887f11f3488894f37eeb200810650602ed066c12a4885c7"
     },
     {
       "path": "dist/mcp/ToolResults.js",
-      "sha256": "d3996ceb54640f2dbdc6828604cf306b1857c5bccc9b164bf760610966bb86eb"
-    },
-    {
-      "path": "dist/PptPlotBridge.js",
-      "sha256": "71a3b068da497ea8928cfe91c5a2377df6584ff27495a7442c99d09f57003d20"
-    },
-    {
-      "path": "dist/PptPlotBridge.legacy.js",
-      "sha256": "0c54eaab98f0c0108c0a1ac651e3fbc042e25ee1bbe51c02cbc2dfc722064860"
+      "sha256": "cb10e8e98616a0b464c19dfee048ba7f806587ed0f7457392295ae01dcac7bbc"
     },
     {
       "path": "dist/project/BranchHeadBinding.js",
@@ -969,7 +957,7 @@
     },
     {
       "path": "dist/templates/ProjectAdapterTemplates.legacy.js",
-      "sha256": "a8c78ab06d410002be5ab0af62e51db7b38b8461977d9bf31165cc8706865fb2"
+      "sha256": "841dd5cca3eaffd10a9475bed3726bef4c49e7e1d1c50d19ac4180bce89e9019"
     },
     {
       "path": "dist/tensorboard/ScalarAggregation.js",
@@ -1077,7 +1065,7 @@
     },
     {
       "path": "dist/tunnel/TunnelClient.legacy.js",
-      "sha256": "8a40b857b552d3cf11a4767de36a9598f054b51c56e4a272555614e9b0a45c86"
+      "sha256": "0d73bfadf210ac806db3666d1f55c824d850ea0cc95fe3205b0a6e0246131da0"
     },
     {
       "path": "dist/tunnel/TunnelDiagnostics.js",
@@ -1113,7 +1101,7 @@
     },
     {
       "path": "dist/tunnel/WorkerTelemetryApi.js",
-      "sha256": "e44c472f3925ef7df828f165f39bd711f8a592804dfc0f0ebdc7fe0a64e1f889"
+      "sha256": "58995861a94d057a907c92f3bbebfa7eff6f43daaf557c1a1cf720f4435b4c24"
     },
     {
       "path": "dist/tunnel/XshellProcessLauncher.js",
@@ -1181,7 +1169,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "e02c71cab61dfbbcd5aa75fa5a9c771725ff2286a465c122dcaae5178a45f427"
+      "sha256": "631e05d4f5c2da3c5007069a9f2f9d66a58c52c2c5a298f54baa7d4b2d4731b1"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1305,11 +1293,11 @@
     },
     {
       "path": "package.json",
-      "sha256": "d7805d4bed4bc529b38e46ad4210f15a10141801597819fab5d2f345a78f1fe8"
+      "sha256": "7fb256873d6ee78e20931f3654f28f841ae3a18820b0400cb4c723f650013442"
     },
     {
       "path": "scripts/check-static.js",
-      "sha256": "86b20e9f34533730495ad5cd8603f8139b9eda84ccdaad2bec9fb06fe1e2090c"
+      "sha256": "fd1c963b212465866c555d2726f55d7c9a719d9c199d91ea1ea3e37fe3d8cd54"
     }
   ]
 }

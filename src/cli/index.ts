@@ -19,8 +19,8 @@ const REMOVED_ENTRIES: Record<string, string> = {
   agent: "old agent health stub removed (it never reported live data): use simpleex experiment health or simpleex project status",
   experiments: "old experiments alias removed: use simpleex experiment list",
   metrics: "old metrics alias removed: use simpleex metric list | metric show <id> | metric leaderboard --file <metrics>",
-  results: "old results alias removed: use simpleex result list | result parse --file <f> | result paper-table --file <registry.json>",
-  run: "recorded local run removed: it executed arbitrary local commands outside the API. Experiment execution goes through simpleex experiment run (workflow.plan dry-run/upload then workflow.run); local metric/result analysis is available as metric leaderboard / result parse / result paper-table with --file",
+  results: "old results alias removed: use simpleex result list | result parse --file <f>",
+  run: "recorded local run removed: it executed arbitrary local commands outside the API. Experiment execution goes through simpleex experiment run (workflow.plan dry-run/upload then workflow.run); local metric/result analysis is available as metric leaderboard / result parse with --file",
 };
 const SIMPLE_DOMAINS = new Set(["project", "experiment", "plan", "result", "log", "metric", "compare", "gpu", "resource", "server", "artifact", "task", "draft", "agents", "actions", "sftp", "config", "state", "flow", "tmux", "panel"]);
 

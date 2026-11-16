@@ -5,7 +5,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 
-test('isolated Agent partitions Plan, project and paper tables and retains same-basename Plans', () => {
+test('isolated Agent partitions Plan and project tables and retains same-basename Plans', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dataset-agent-'));
   const script = path.join(temp, 'check.py');
   const root = path.join(temp, 'project');
@@ -14,7 +14,7 @@ test('isolated Agent partitions Plan, project and paper tables and retains same-
   fs.writeFileSync(script, `import sys, os, csv, json, math
 sys.path.insert(0, ${JSON.stringify(helpers)})
 from extractRuntimeFunctions import extract_runtime_functions
-a = extract_runtime_functions(${JSON.stringify(runtime)}, ['parse_results_action', 'write_plan_seed_aggregate', 'write_project_seed_aggregate', 'write_project_final_summary', 'paper_dataset_output', 'publish_dataset_outputs', 'export_paper_table_action'])
+a = extract_runtime_functions(${JSON.stringify(runtime)}, ['parse_results_action', 'write_plan_seed_aggregate', 'write_project_seed_aggregate', 'write_project_final_summary', 'publish_dataset_outputs'])
 root = ${JSON.stringify(root)}
 os.makedirs(root, exist_ok=True)
 source = 'experiments/results/raw.csv'
@@ -74,20 +74,9 @@ try:
 except ValueError:
     pass
 assert open(a.safe_project_path(root, two['finalCsvPath']), 'rb').read() == before
-stats = {'resultCount': 4, 'rows': [{'dimensions': {'dataset': d, 'method': 'demo'}, 'group': 'demo', 'metrics': {'accuracy': {'mean': .7, 'std': .1, 'n': 2}}} for d in ['BUS', 'PAD']]}
-a.compute_statistics_action = lambda *args: stats
-a.read_project_metric_policy = lambda *args: policy
-a.read_current_results_summary = lambda *args: {}
-a.build_claim_evidence_report = lambda *args: {}
-a.write_results_summary_v2 = lambda *args: None
-paper = a.export_paper_table_action(root, one['planFile'])
-assert len(paper['paperDatasetTables']) == 2 and paper['path'] == '' and paper['csvPath'] == ''
-for table in paper['paperDatasetTables']:
-    assert {r['dataset'] for r in rows(table['paperTableCsvPath'])} == {table['dataset']}
-    assert '/tables/' + table['datasetKey'] + '/' in table['paperTableCsvPath']
-print(json.dumps({'planTables': len(one['datasetResultTables']), 'projectTables': len(final_tables), 'paperTables': len(paper['paperDatasetTables'])}))
+print(json.dumps({'planTables': len(one['datasetResultTables']), 'projectTables': len(final_tables)}))
 `, 'utf8');
   const result = spawnSync('python', ['-X', 'utf8', '-B', script], {encoding: 'utf8', timeout: 10000, windowsHide: true});
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.deepEqual(JSON.parse(result.stdout.trim()), {planTables: 2, projectTables: 2, paperTables: 2});
+  assert.deepEqual(JSON.parse(result.stdout.trim()), {planTables: 2, projectTables: 2});
 });

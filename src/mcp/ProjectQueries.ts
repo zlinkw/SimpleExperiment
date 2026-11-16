@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { businessContext } from "../cli/ExecutionContext";
 import * as experiments from "../cli/commands/experiment";
-import { resultList, resultShow, resultExport, resultParse, resultPaperTable } from "../cli/commands/result";
+import { resultList, resultShow, resultExport, resultParse } from "../cli/commands/result";
 import { metricList, metricShow, metricLeaderboard } from "../cli/commands/metric";
 import { compareCommand } from "../cli/commands/compare";
 import { logShow, logTail } from "../cli/commands/log";
@@ -14,7 +14,7 @@ import { resourceCommand } from "../cli/commands/resource";
 /** Reuse structured business results before CLI rendering, with an isolated project and API context. */
 export async function queryProject(root: string, rpc: (method: string, params: Record<string, unknown>) => Promise<unknown>,
   name: string, args: Record<string, any>): Promise<unknown> {
-  const flags: any = { json: !(name === "result_paper_table" && ["markdown", "csv", "latex"].includes(args.format)), full: args.full === true,
+  const flags: any = { json: true, full: args.full === true,
     ...(args.status ? { status: args.status } : {}), ...(args.type ? { type: args.type } : {}), ...(args.limit !== undefined ? { limit: args.limit } : {}),
     ...(args.format ? { format: args.format } : {}),
     ...(args.metrics ? { metrics: args.metrics.join(",") } : {}), ...(args.primary ? { primary: args.primary } : {}),
@@ -35,7 +35,7 @@ export async function queryProject(root: string, rpc: (method: string, params: R
     experiment_monitor: () => experiments.experimentMonitor(args.id, flags), experiment_diagnose: () => experiments.experimentDiagnose(args.id, flags),
     experiment_config: () => experiments.experimentConfig(args.id, flags), experiment_results: () => experiments.experimentResults(args.id, flags),
     result_list: () => resultList(flags), result_show: () => resultShow(args.id, flags), result_export: () => resultExport(args.id, flags),
-    result_parse: () => resultParse(flags), result_paper_table: () => resultPaperTable(flags),
+    result_parse: () => resultParse(flags),
     metric_list: () => metricList(flags), metric_show: () => metricShow(args.id, flags), metric_leaderboard: () => metricLeaderboard(flags),
     result_compare: () => compareCommand([args.left, args.right], flags),
     experiment_log: () => args.lines === undefined ? logShow(args.id, flags) : logTail(args.id, flags),

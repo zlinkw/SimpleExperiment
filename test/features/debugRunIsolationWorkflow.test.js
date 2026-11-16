@@ -111,7 +111,7 @@ test("Debug worker execution is rejected before any output is written", () => {
   assert.equal(fs.existsSync(path.join(project, "experiments", "results", "jobs.csv")), false);
 });
 
-test("Debug requests cannot enter formal result, archive, delete, or PPT actions", () => {
+test("Debug requests cannot enter formal result, archive, or delete actions", () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-debug-block-"));
   fs.mkdirSync(path.join(project, "work_dirs", "keep"), { recursive: true });
   fs.writeFileSync(path.join(project, "work_dirs", "keep", "result.csv"), "metric,value\nAUC,0.9\n", "utf8");
@@ -121,7 +121,7 @@ test("Debug requests cannot enter formal result, archive, delete, or PPT actions
     "agent = spec",
     "pass",
     `root = r'${project.replace(/\\/g, "/")}'`,
-    "actions = ['archive-artifacts', 'delete-artifacts', 'parse-results', 'run-statistics', 'export-plotting-contract']",
+    "actions = ['archive-artifacts', 'delete-artifacts', 'parse-results']",
     "out = {}",
     "for action in actions:",
     "    payload = {'debugMode': True, 'selectedArchiveKeys': ['work_dirs/keep'], 'planFile': 'experiments/plans/smoke.yaml'}",

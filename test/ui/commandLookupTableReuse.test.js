@@ -35,12 +35,12 @@ test("webview command routing reuses frozen lookup tables", () => {
 
   assert.equal(sandbox.api.commandActionName("runPlan"), "run-plan");
   assert.equal(sandbox.api.commandActionName("futureCommand"), "futureCommand");
-  assert.equal(sandbox.api.commandInspectorSection("plotResultsToPpt"), "results");
+  assert.equal(sandbox.api.commandInspectorSection("parseResults"), "results");
   assert.equal(sandbox.api.commandInspectorSection("futureCommand"), "overview");
   assert.equal(sandbox.api.syncCommandAnchor("deployLatestAgent"), "sync-deploy-agent");
   // 单链第二步：未知命令回退到新链锚点
   assert.equal(sandbox.api.syncCommandAnchor("futureCommand"), "settings-chain-overview");
-  assert.equal(sandbox.api.actionResourceAnchor("results", "runStatistics"), "results-summary");
+  assert.equal(sandbox.api.actionResourceAnchor("results", "parseResults"), "results-summary");
   assert.equal(sandbox.api.actionResourceAnchor("sync", "publishGithub"), "sync-publish-github");
   for (const name of names) assert.match(declaration(name), /Object\.freeze\(/);
   for (const name of functions) assert.doesNotMatch(functionSource(name), /const map = \{/);

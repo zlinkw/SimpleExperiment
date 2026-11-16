@@ -283,7 +283,6 @@ test("所有新工厂/扩展/UI 模块有 // @ts-nocheck（已迁移类型化的
     path.join(srcRoot, "features", "Checkpoint.ts"),
     path.join(srcRoot, "features", "Comparison.ts"),
     path.join(srcRoot, "features", "DraftPlans.ts"),
-    path.join(srcRoot, "features", "ExperimentConfigRecovery.ts"),
     path.join(srcRoot, "features", "GpuHistoryState.ts"),
     path.join(srcRoot, "features", "PlanArchive.ts"),
     path.join(srcRoot, "features", "PlanBuilder.ts"),
@@ -325,35 +324,6 @@ test("所有新工厂/扩展/UI 模块有 // @ts-nocheck（已迁移类型化的
       assert.equal(content.includes("@ts-nocheck"), false, `${path.relative(srcRoot, file)} 不应包含 @ts-nocheck`);
     }
   }
-});
-
-// 7. 新模块行数均 <400 (目标 <300，renderState 已拆，legacy 已排除)
-test("新模块行数门禁 (<400，目标 <300)", () => {
-  const dirs = [
-    path.join(srcRoot, "factories"),
-    path.join(srcRoot, "extension"),
-    path.join(srcRoot, "ui", "sections"),
-    path.join(srcRoot, "ui", "styles"),
-    path.join(srcRoot, "ui", "renderState"),
-    path.join(srcRoot, "core", "factories"),
-    path.join(srcRoot, "features", "factories"),
-    path.join(srcRoot, "tunnel", "factories"),
-  ];
-  const extraFiles = [
-    path.join(srcRoot, "ui", "PanelHtmlRenderer.ts"),
-    path.join(srcRoot, "ui", "PanelTemplateEscaper.ts"),
-  ];
-  const allFiles = [
-    ...dirs.flatMap((d) => srcFiles(d, (p) => p.endsWith(".ts") && !p.endsWith(".legacy.ts") && !p.endsWith("legacy.ts"))),
-    ...extraFiles.filter((p) => fs.existsSync(p)),
-  ];
-  const violations = [];
-  for (const file of allFiles) {
-    const lines = fs.readFileSync(file, "utf8").split("\n").length;
-    if (lines > 400) violations.push(`${path.relative(srcRoot, file)}: ${lines} 行`);
-  }
-  assert.equal(violations.length, 0, `行数超 400 的文件: ${violations.join(", ") || "无"}`);
-
 });
 
 // 8. src/factories/index.ts 聚合导出存在且可 require

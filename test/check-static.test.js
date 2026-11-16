@@ -403,44 +403,6 @@ test("G6单根禁scp/debug隔离 + G8并发job_name缺失", () => {
   assert.ok(!r2.errors.some((e) => e.id === "concurrency_job_name_missing"), "好模板不报 job_name 缺失");
 });
 
-test("G7绘图五文件存在+字段（无声明跳过）", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cs7-"));
-  write(path.join(dir, "configs", "base.yaml"), "x: 1\n");
-  // 无声明跳过：goodPlan 不提 plotting → 无 plotting findings
-  write(path.join(dir, "experiments", "plans", "p.yaml"), goodPlan("ok"));
-  let r = runCheck(dir);
-  assert.ok(![...r.errors, ...r.warnings].some((f) => String(f.id || "").startsWith("plotting_contract")), "无声明应跳过");
-  // 有声明缺文件 → 5 个 warning（五文件）
-  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "cs7m-"));
-  write(path.join(dir2, "configs", "base.yaml"), "x: 1\n");
-  write(path.join(dir2, "experiments", "plans", "myplan.yaml"), [
-    "suite: s", "mode: train", "base_config: configs/base.yaml", "seeds: [0]",
-    "cases:", "  - name: a",
-    "naming:", '  job_name: "{index}_{case}_seed{seed}"',
-    'runner: { train_command: "python train.py --config {config} --output-dir {output_dir}" }',
-    "outputs:",
-    '  registry: "simple_cluster/results/result_registry.json"',
-    '  stats: "simple_cluster/results/statistics.json"',
-    "",
-  ].join("\n"));
-  r = runCheck(dir2);
-  assert.equal(r.warnings.filter((w) => w.id === "plotting_contract_missing_file").length, 5, "缺五文件应 5 warnings");
-  // 补齐五文件且字段合规 → warnings 消除
-  const slug = "myplan";
-  write(path.join(dir2, "simple_cluster", "results", "by_plan", slug, "result_registry.json"), JSON.stringify({ resultId: "r", experimentId: "e", suite: "s", method: "m", dataset: "d", split: "tr", fold: 0, seed: 0, metrics: {}, dimensions: [], sourceFiles: [] }));
-  write(path.join(dir2, "simple_cluster", "results", "by_plan", slug, "statistics.json"), JSON.stringify({ suite: "s", metric: "acc", mean: 1, std: 0.1 }));
-  write(path.join(dir2, "paper", "tables", `simple_results_table__${slug}.csv`), "method,dataset,split,metric,mean,std\nM,D,tr,acc,1,0.1\n");
-  write(path.join(dir2, "simple_cluster", "results", "by_plan", slug, "case_level_index.json"), JSON.stringify([{ case_id: "c", method: "m", dataset: "d", split: "tr", metric: "acc", value: 1 }]));
-  write(path.join(dir2, "simple_cluster", "datasets", "by_plan", slug, "profile.json"), JSON.stringify({ dataset: "d", split: "tr" }));
-  r = runCheck(dir2);
-  assert.ok(!r.warnings.some((w) => w.id === "plotting_contract_missing_file"), "补齐后无缺文件 warning");
-  assert.ok(!r.errors.some((e) => e.id === "plotting_contract_bad_fields"), "字段合规无 critical");
-  // 坏字段 → critical
-  write(path.join(dir2, "simple_cluster", "results", "by_plan", slug, "statistics.json"), JSON.stringify({ suite: "s" }));
-  r = runCheck(dir2);
-  assert.ok(r.errors.some((e) => e.id === "plotting_contract_bad_fields"), "缺字段应 critical");
-});
-
 test("验证：空项目无plan warning + overall/summary/三参数/去重/exit码 + 6类critical", () => {
   const empty = fs.mkdtempSync(path.join(os.tmpdir(), "csempty-"));
   const r0 = runCheck(empty);
@@ -627,29 +589,22 @@ test("MD增强：每finding一###块+参考模板+行号映射+去重标记+path
   // validate_crash 正例映射在源码侧兜底（难经外部输入稳定触发 crash，走白盒校验模板存在）
   const scriptSrc = fs.readFileSync(SCRIPT, "utf8");
   assert.ok(/validate_crash[\s\S]{0,600}正例/.test(scriptSrc), "validate_crash 补正例");
-  // 去重标记 [DUP]：绘图五缺文件 → 同 file+id ×5，首 [NEW] 后 [DUP]
+  // 两个计划触发同一保留规则，验证报告去重及定位。
   const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "csmdx-dup-"));
-  write(path.join(dir2, "configs", "base.yaml"), "x: 1\n");
-  write(path.join(dir2, "experiments", "plans", "myplan.yaml"), [
-    "suite: s", "mode: train", "base_config: configs/base.yaml", "seeds: [0]",
-    "cases:", "  - name: a",
-    "naming:", '  job_name: "{index}_{case}_seed{seed}"',
-    'runner: { train_command: "python train.py --config {config} --output-dir {output_dir}" }',
-    "outputs:",
-    '  registry: "simple_cluster/results/result_registry.json"',
-    '  stats: "simple_cluster/results/statistics.json"',
-    "",
-  ].join("\n"));
+  for (const name of ["one", "two"]) {
+    write(path.join(dir2, "experiments", "plans", `${name}.yaml`), "mode: train\ncases:\n  - name: a\n");
+  }
   const r2 = runCheck(dir2);
-  assert.equal(r2.warnings.filter((w) => w.id === "plotting_contract_missing_file").length, 5, "缺五文件应 5 warnings（同 file+id）");
+  assert.equal(r2.errors.filter((e) => e.id === "suite_missing").length, 2);
   const md2 = fs.readFileSync(path.join(dir2, REL), "utf8");
-  assert.ok(md2.includes("plotting_contract_missing_file") && md2.includes("[NEW]"), "同 file+id 首 [NEW]");
-  assert.ok(md2.includes("[DUP]"), "同 file+id 后 [DUP]");
-  assert.ok(!/#L0/.test(md2), "无行号标题省略#L0（bare file）");
-  assert.ok(/^### \[warnings\][\[`plotting_contract_missing_file`[\]`]+ [^#\s]+ \[(NEW|DUP)\]/m.test(md2), "无行号标题为 bare file（不带#L）");
+  assert.ok(md2.includes("suite_missing") && md2.includes("[NEW]"));
+  assert.ok(md2.includes("[DUP]"));
+  assert.ok(!/#L0/.test(md2));
+  assert.match(md2, /scripts\/check-static\.js:\d+/);
+
 });
 
-test("ID_SRC动态锚点+未注册抛错+plotting DUP说明", () => {
+test("ID_SRC动态锚点+未注册抛错", () => {
   const scriptSrc = fs.readFileSync(SCRIPT, "utf8");
   const scriptLines = scriptSrc.split(/\r?\n/);
   // 白盒（与 validate_crash 正例断言同风格）：动态提取优先断言保留，静态表允许±漂移，兜底随 writeFileSync 行移动重锚
@@ -689,22 +644,7 @@ test("ID_SRC动态锚点+未注册抛错+plotting DUP说明", () => {
   assert.ok(/^### \[errors\]\[`mode`\] \S+#L\d+ \[NEW\]|^### \[errors\]\[`mode`\] \S+ \[(NEW|DUP)\]/m.test(md), "MD 标题为 ### [severity][id] file#Lx [NEW/DUP]（有行号带#L，无行号时 bare file 省略#L0）");
   assert.ok(!/#L0/.test(md), "有行号标题带#Lx，无#L0 残留");
   assert.ok(/scripts\/check-static\.js:\d+/.test(md), "MD 行号锚点动态生成");
-  // plotting DUP 说明：五缺文件块均带五文件共用 id 解释
-  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "csid-plot-"));
-  write(path.join(dir2, "configs", "base.yaml"), "x: 1\n");
-  write(path.join(dir2, "experiments", "plans", "myplan.yaml"), [
-    "suite: s", "mode: train", "base_config: configs/base.yaml", "seeds: [0]",
-    "cases:", "  - name: a",
-    "naming:", '  job_name: "{index}_{case}_seed{seed}"',
-    'runner: { train_command: "python train.py --config {config} --output-dir {output_dir}" }',
-    "outputs:",
-    '  registry: "simple_cluster/results/result_registry.json"',
-    '  stats: "simple_cluster/results/statistics.json"',
-    "",
-  ].join("\n"));
-  runCheck(dir2);
-  const md2 = fs.readFileSync(path.join(dir2, "simple_cluster/check_reports/check-static-latest.md"), "utf8");
-  assert.ok(md2.includes("五文件共用同一 id"), "plotting 缺文件块带 DUP 说明");
+
 });
 
 test("O1候选收敛：仅候选键域判扩展名，非候选列表不再误伤", () => {
@@ -776,19 +716,11 @@ test("O2选b：metricAliases 未落主次保持 warning（不升级 critical）"
 
 test("O4渲染归一折叠+G9抛错保留：DUP 模板折叠但块数/字段/抛错不断链", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cso4-"));
-  write(path.join(dir, "configs", "base.yaml"), "x: 1\n");
-  write(path.join(dir, "experiments", "plans", "myplan.yaml"), [
-    "suite: s", "mode: train", "base_config: configs/base.yaml", "seeds: [0]",
-    "cases:", "  - name: a",
-    "naming:", '  job_name: "{index}_{case}_seed{seed}"',
-    'runner: { train_command: "python train.py --config {config} --output-dir {output_dir}" }',
-    "outputs:",
-    '  registry: "simple_cluster/results/result_registry.json"',
-    '  stats: "simple_cluster/results/statistics.json"',
-    "",
-  ].join("\n"));
+  for (const name of ["one", "two"]) {
+    write(path.join(dir, "experiments", "plans", `${name}.yaml`), "mode: train\ncases:\n  - name: a\n");
+  }
   const r = runCheck(dir);
-  assert.equal(r.warnings.filter((w) => w.id === "plotting_contract_missing_file").length, 5, "缺五文件应 5 warnings");
+  assert.equal(r.errors.filter((e) => e.id === "suite_missing").length, 2);
   const md = fs.readFileSync(path.join(dir, "simple_cluster/check_reports/check-static-latest.md"), "utf8");
   const total = r.summary.errors + r.summary.warnings + r.summary.infos;
   assert.equal(md.split("\n").filter((l) => l.startsWith("### ")).length, total, "块数==finding数（折叠不断链）");

@@ -293,16 +293,8 @@ test('shared CLI views isolate concurrent projects and return objects before ter
   assert.match(exported.content, /AP/);
   await assert.rejects(queryProject(a.root, rpc(a.root, 'AP'), 'result_parse', { file: path.join(__dirname, 'mcpProject.test.js') }), /PROJECT_FILE_REQUIRED/);
 });
-test('paper exports return every CLI format as structured content and routine cleanup queries need no extra Codex prompt', async () => {
-  const { queryProject } = require('../../dist/mcp/ProjectQueries.js');
-  const f = fixture(), input = path.join(f.root, 'registry.json');
-  fs.writeFileSync(input, '[]', 'utf8');
-  for (const format of ['markdown', 'csv', 'latex']) {
-    const value = await queryProject(f.root, async () => assert.fail('local table rendering must not call a remote service'), 'result_paper_table', {
-      file: 'registry.json', metrics: ['accuracy'], format,
-    });
-    assert.equal(value.format, format); assert.match(value.content, /accuracy/); assert.equal(value.source, input);
-  }
+test('routine cleanup queries need no extra Codex prompt', async () => {
+  const f = fixture();
   const config = require('../../scripts/mcp-codex-config.js').configuration(f.root, path.join(f.root, 'simpleex-mcp-launcher.cjs'));
   for (const name of ['plan_run', 'cleanup_status', 'file_cleanup_execute', 'draft_review'])
     assert.ok(config.includes('[mcp_servers.simple_experiment.tools.' + name + ']\napproval_mode = "approve"'));

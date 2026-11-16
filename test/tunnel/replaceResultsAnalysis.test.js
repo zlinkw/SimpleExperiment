@@ -5,7 +5,7 @@ const http = require("node:http");
 const { RequestBudget, defaultRequestBudgetConfig } = require("../../dist/tunnel/RequestBudget.js");
 const { HttpTunnelClient } = require("../../dist/tunnel/TunnelClient.js");
 
-test("results quality statistics paper and case analysis use Hub Agent API", async () => {
+test("result parsing and archive actions use Worker Agent API", async () => {
   const calls = [];
   const server = http.createServer((req, res) => {
     calls.push(req.url);
@@ -19,21 +19,13 @@ test("results quality statistics paper and case analysis use Hub Agent API", asy
     for (const action of [
       "parse-results",
       "refresh-results",
-      "run-quality-gate",
-      "run-statistics",
-      "export-paper-table",
-      "check-output-contract",
-      "parse-case-level",
-      "run-leakage-check",
-      "run-subgroup-analysis",
-      "export-case-analysis",
+      "archive-artifacts",
     ]) {
       await client.postAction(action, { opId: `op-${action}` });
     }
     await client.getResultsSummary();
     assert.equal(calls.includes("/api/actions/parse-results"), true);
-    assert.equal(calls.includes("/api/actions/run-quality-gate"), true);
-    assert.equal(calls.includes("/api/actions/export-case-analysis"), true);
+    assert.equal(calls.includes("/api/actions/archive-artifacts"), true);
     assert.equal(calls.at(-1), "/api/results/summary");
   } finally {
     server.close();

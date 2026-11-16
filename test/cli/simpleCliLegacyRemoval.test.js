@@ -65,28 +65,8 @@ test("metric leaderboard parses a metrics file locally with strict JSON mode", a
   assert.equal(gone.code, 3);
 });
 
-test("result paper-table reads a registry locally with strict JSON mode", async () => {
-  const dir = fixtureDir("paper");
-  const registry = path.join(dir, "registry.json");
-  fs.writeFileSync(registry, JSON.stringify({ records: [
-    { runKey: "a_s1", suite: "s", dataset: "d", seed: 1, metrics: { AUC: 0.8, accuracy: 0.7 }, status: "success" },
-    { runKey: "a_s2", suite: "s", dataset: "d", seed: 2, metrics: { AUC: 0.9, accuracy: 0.8 }, status: "success" },
-  ] }), "utf8");
-  const table = await runCli(["result", "paper-table", "--file", registry, "--metrics", "AUC,accuracy"], { cwd: dir });
-  assert.equal(table.code, 0, table.stderr);
-  assert.match(table.stdout, /AUC/);
-
-  const csv = await runCli(["result", "paper-table", "--file", registry, "--format", "csv"], { cwd: dir });
-  assert.equal(csv.code, 0, csv.stderr);
-  assert.match(csv.stdout, /AUC/);
-
-  const json = await runCli(["result", "paper-table", "--file", registry, "--json"], { cwd: dir });
-  assert.equal(json.code, 0, json.stderr);
-  assert.ok(Array.isArray(JSON.parse(json.stdout).rows));
-
-  const conflict = await runCli(["result", "paper-table", "--file", registry, "--format", "csv", "--json"], { cwd: dir });
-  assert.equal(conflict.code, 1);
-
+test("result parse reports missing and nonexistent files", async () => {
+  const dir = fixtureDir("result-parse");
   const parseMissing = await runCli(["result", "parse", "--json"], { cwd: dir });
   assert.equal(parseMissing.code, 1);
   const parseGone = await runCli(["result", "parse", "--file", path.join(dir, "absent.csv"), "--json"], { cwd: dir });

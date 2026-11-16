@@ -135,3 +135,8 @@ D:\GitRepo\MCP\zlk-cluster-orchestrator
 - 权限、网络、上传、配套包、校验或 Latest 可见性任一失败，记录“源码已推送，远端发行未完成”及具体阻断，不得报告“已发布/全部完成”，不得跳过完整性门禁或偷偷更换发行源。
 - `npm run package` 继续只构建/打包，不自动上传 Release 或安装。源提交、远端发行、本机安装均显式执行；本机每版本最多安装一次，重载及远端 Agent 更新仍按原规则办理。
 - 纯文档/约束变更无需递增运行版本、重打 VSIX、重复安装或发布空版本；仍须完成适用检查并提交、推送。开发发布详见 [docs/release-delivery.md](docs/release-delivery.md)。最终说明源码提交、发行链接/资产/指纹、安装/重载和远端部署的真实状态。
+
+## 多会话资料入口
+
+- 需求代次及原计划、执行登记见 [代次索引](docs/plan-generations/README.md)；长期核实踩坑见 [大踩坑](docs/major-pitfalls.md)。写入权、保留及删除边界按当前代计划执行。
+- 明确要求多会话实现时使用本机全局技能 `C:/Users/ZLK/.codex/skills/multi-session-implementation/SKILL.md`；仅讨论流程不启动会话。

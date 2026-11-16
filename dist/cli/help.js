@@ -10,7 +10,7 @@ Domains:
   project      status | prepare | bootstrap | bootstrap-operation
   experiment   list | summary | active | overview | health | tree | status | monitor | diagnose | inspect | config | results | batch | run | stop | resume | retry (pause unsupported)
   plan         list | validate <planFile> [--workspace ABS] | filter --file filter.json | cleanup | matrix | build
-  result       list | show | export | parse | paper-table
+  result       list | show | export | parse
   log          show | tail
   metric       list | show | leaderboard
   compare      <id> <id>
@@ -136,7 +136,6 @@ function domainHelp(domain) {
   simpleex result show <id> [--history] [--json]
   simpleex result export <id> [--format csv|json] [--out <file>] [--history] [--json]
   simpleex result parse --file <f> [--preset <id>] [--json]
-  simpleex result paper-table --file <registry.json> [--metrics AUC,accuracy] [--format markdown|csv|latex]
   默认通过当前项目 API 主动核实结果，失败不会混入历史；--history 仅查看本机旧记录（current=false），可用 --workspace 指定本机目录。`,
         log: `Usage:
   simpleex log show <id> [--json]

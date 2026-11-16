@@ -11,10 +11,8 @@ export const tunnelActions = [
   "stop-scheduler-operation",
   "preflight-worker-task",
   "archive-artifacts", "archive-plan-copy", "exclude-results", "sync-artifacts", "complete-three-way", "delete-artifacts", "reconcile-deletions",
-  "parse-results", "save-result-policy", "refresh-results", "self-check", "rescan-results", "run-quality-gate", "run-statistics", "export-paper-table",
-  "check-claim-evidence", "deploy-runtime", "restart-agent", "create-debug-bundle", "create-offline-bundle", "cancel-operation",
-  "check-output-contract", "parse-case-level", "run-leakage-check", "run-subgroup-analysis", "export-case-analysis", "plan-checkpoint-retention",
-  "inspect-dataset", "export-plotting-contract", "infer-config-from-run", "recover-plan-from-run", "diagnose-result-anomaly", "compare-with-best-config",
+  "parse-results", "save-result-policy", "refresh-results", "self-check", "rescan-results",
+  "deploy-runtime", "restart-agent", "create-debug-bundle", "create-offline-bundle", "cancel-operation",
   "start-worker-task", "register-code-sync-proof", "stop-worker-task", "retry-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "finalize-worker-operation",
   "rebuild-distributed-results",
   "configure-gpu-quota",
@@ -141,9 +139,6 @@ const actionPurpose: Partial<Record<TunnelAction, TunnelRequestPurpose>> = {
   "parse-results": "parse_results",
   "save-result-policy": "manual_refresh",
   "refresh-results": "manual_refresh",
-  "run-quality-gate": "parse_results",
-  "run-statistics": "parse_results",
-  "export-paper-table": "parse_results",
   "archive-artifacts": "manual_refresh",
   "sync-artifacts": "manual_refresh",
   "complete-three-way": "manual_refresh",
@@ -321,6 +316,9 @@ export class HttpTunnelClient implements TunnelClient {
   }
 
   async postAction<T>(action: TunnelAction, body: unknown, options: { signal?: AbortSignal } = {}): Promise<T> {
+    if (!(tunnelActions as readonly string[]).includes(action)) {
+      throw new Error(`Unknown tunnel action: ${action}`);
+    }
     if (!body || typeof body !== "object" || !("opId" in body) || !String((body as { opId?: unknown }).opId || "").trim()) {
       throw new Error("Tunnel action requires opId.");
     }

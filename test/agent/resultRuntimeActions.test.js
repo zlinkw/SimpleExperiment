@@ -35,19 +35,13 @@ agent_path = pathlib.Path(${JSON.stringify(path.join(root, "dist", "runtime", "c
 import sys
 sys.path.insert(0, ${JSON.stringify(require("node:path").resolve(__dirname, "../_helpers"))})
 from extractRuntimeFunctions import extract_runtime_functions
-agent = extract_runtime_functions(agent_path, ["handle_action", "paired_metric_comparisons"])
+agent = extract_runtime_functions(agent_path, ["handle_action"])
 out = {
     "parse-results": agent.handle_action(str(root), "parse-results", {"opId": "parse-results", "operationId": "parse-results"}, "parse-results", "parse-results"),
     "archive-artifacts": agent.handle_action(str(root), "archive-artifacts", {"opId": "archive-artifacts", "operationId": "archive-artifacts", "selectedArchiveKeys": ["experiments/results/metrics.csv"]}, "archive-artifacts", "archive-artifacts"),
-    "duplicate-pairs": agent.paired_metric_comparisons([
-        {"runKey": "baseline", "dimensions": {"method": "baseline", "dataset": "d", "split": "test", "seed": "1"}, "metrics": {"AUC": {"value": 0.8}}},
-        {"runKey": "baseline", "dimensions": {"method": "baseline", "dataset": "d", "split": "test", "seed": "1"}, "metrics": {"AUC": {"value": 0.81}}},
-        {"runKey": "ours", "dimensions": {"method": "ours", "dataset": "d", "split": "test", "seed": "1"}, "metrics": {"AUC": {"value": 0.9}}},
-        {"runKey": "baseline", "dimensions": {"method": "baseline", "dataset": "d", "split": "test"}, "metrics": {"AUC": {"value": 0.7}}},
-        {"runKey": "ours", "dimensions": {"method": "ours", "dataset": "d", "split": "test"}, "metrics": {"AUC": {"value": 0.8}}},
-    ], "AUC"),
+    "parse-after-archive": agent.handle_action(str(root), "parse-results", {"opId": "parse-after-archive", "operationId": "parse-after-archive"}, "parse-after-archive", "parse-after-archive"),
 }
-for action in ["run-quality-gate", "run-statistics", "export-paper-table", "create-debug-bundle"]:
+for action in ["create-debug-bundle"]:
     out[action] = agent.handle_action(str(root), action, {"opId": action, "operationId": action}, action, action)
 print(json.dumps(out, ensure_ascii=False))
 `, "utf8");
@@ -56,19 +50,17 @@ print(json.dumps(out, ensure_ascii=False))
   const result = JSON.parse(run.stdout.trim());
   assert.equal(result["parse-results"].status, "completed");
   assert.equal(result["parse-results"].resultCount, 1);
+  assert.equal(result["archive-artifacts"].status, "completed");
+  assert.equal(result["parse-after-archive"].status, "completed");
+  assert.equal(result["parse-after-archive"].resultCount, 1);
   const summary = JSON.parse(fs.readFileSync(path.join(project, "simple_cluster", "results", "summary.json"), "utf8"));
   assert.equal(summary.results[0].experimentId, "e1");
-  assert.equal(result["duplicate-pairs"][0].pairedN, 0);
-  assert.deepEqual(result["duplicate-pairs"][0].duplicateKeys, ["d|test||1|"]);
-  assert.equal(result["archive-artifacts"].status, "completed");
-  assert.equal(result["run-quality-gate"].qualityGate.status, "passed");
-  assert.equal(result["run-statistics"].statistics.rows.length, 1);
-  assert.match(result["export-paper-table"].paperTablePath, /paper\/tables\/VinDr\/simple_results_table__[^/]+\.md/);
+  assert.equal(summary.results[0].finalEvidenceState, "archived");
+  assert.equal(summary.results[0].eligibleForFinalAnalysis, true);
   assert.match(result["create-debug-bundle"].debugBundlePath, /simple_cluster\/debug\/debug_bundle_/);
   assert.equal(fs.existsSync(path.join(project, "simple_cluster", "results", "summary.json")), true);
   assert.match(
     fs.readFileSync(path.join(project, "simple_cluster", "results", "results_effective_archived.csv"), "utf8"),
     /,archived,True/,
   );
-  assert.equal(fs.existsSync(path.join(project, "paper", "tables", "VinDr", path.basename(result["export-paper-table"].paperTablePath))), true);
 });

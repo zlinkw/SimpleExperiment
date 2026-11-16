@@ -109,13 +109,10 @@ dist/extension/ProviderState.js
 dist/factories/types.js
 dist/features/Anomaly.js
 dist/features/Comparison.js
-dist/features/DatasetInspector.js
-dist/features/ExperimentConfigRecovery.js
 dist/features/GpuScore.js
 dist/features/Notifications.js
 dist/features/PlanBuilder/MatrixGenerator.js
 dist/features/RecycleBin.js
-dist/features/ResultAnomaly.js
 dist/features/Results/EvidenceCollector.js
 dist/features/Results/ResultParser.js
 dist/features/SearchTags.js

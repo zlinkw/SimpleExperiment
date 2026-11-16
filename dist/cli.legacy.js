@@ -89,28 +89,6 @@ async function main(argv) {
         console.log(JSON.stringify(records, null, 2));
         return 0;
     }
-    if (cmd === "results" && sub === "paper-table") {
-        const file = option(rest, "--file");
-        if (!file)
-            throw new Error("--file required");
-        const records = finalPaperTableRecords(JSON.parse(fs.readFileSync(file, "utf8")));
-        const metrics = (option(rest, "--metrics") || "AUC,accuracy,F1,AUPRC").split(",").filter(Boolean);
-        const config = {
-            id: "cli",
-            name: "CLI",
-            filter: { includeWarnings: true },
-            groupBy: ["suite", "dataset"],
-            metrics: metrics.map((key) => ({ key, higherIsBetter: !["ASD", "HD95", "loss"].includes(key), decimals: 4 })),
-            aggregate: "mean_std",
-            primarySortMetric: metrics[0],
-        };
-        const rows = (0, Results_1.buildResultLeaderboard)(records, config, []);
-        if (option(rest, "--format") === "csv")
-            console.log((0, Results_1.leaderboardToCsv)(rows, config));
-        else
-            console.log((0, Results_1.exportPaperTable)(rows, config, { id: "cli", title: "Results", leaderboardId: "cli", rowDimension: "suite", metrics, boldBest: true, showMeanStd: true, decimals: {}, metricDisplayNames: {} }, option(rest, "--format") === "latex" ? "latex_booktabs" : "markdown"));
-        return 0;
-    }
     if (cmd === "plan" && sub === "build") {
         const suite = option(rest, "--suite") || "suite";
         const baseConfig = option(rest, "--base") || "config.yaml";
@@ -119,7 +97,7 @@ async function main(argv) {
         console.log(result.yaml);
         return 0;
     }
-    console.error("Usage: simpleex status | agent health | self-check | experiments list --file x | metrics leaderboard --file x | results parse --file x | results paper-table --file registry.json | plan build | run --name x -- command");
+    console.error("Usage: simpleex status | agent health | self-check | experiments list --file x | metrics leaderboard --file x | results parse --file x | plan build | run --name x -- command");
     return 2;
 }
 async function runApiCommand(argv) {
@@ -275,22 +253,6 @@ function runRecordedCli(argv) {
 function option(args, name) {
     const index = args.indexOf(name);
     return index >= 0 ? args[index + 1] : undefined;
-}
-function finalPaperTableRecords(input) {
-    if (Array.isArray(input))
-        return (0, Results_1.filterByInclusionPolicy)(input, [], Results_1.finalResultInclusionPolicy);
-    const record = input && typeof input === "object" ? input : {};
-    if (Array.isArray(record.finalResults))
-        return (0, Results_1.filterByInclusionPolicy)(record.finalResults, [], Results_1.finalResultInclusionPolicy);
-    if (Array.isArray(record.records)) {
-        const rows = record.records;
-        if (String(record.inclusionPolicy || "").includes("archived") || String(record.path || "").includes("result_registry")) {
-            const archivedRows = rows.map((row) => ({ ...row, finalEvidenceState: row.finalEvidenceState || "archived", eligibleForFinalAnalysis: row.eligibleForFinalAnalysis ?? true }));
-            return (0, Results_1.filterByInclusionPolicy)(archivedRows, [], Results_1.finalResultInclusionPolicy);
-        }
-        return (0, Results_1.filterByInclusionPolicy)(rows, [], Results_1.finalResultInclusionPolicy);
-    }
-    return [];
 }
 if (require.main === module) {
     main(process.argv.slice(2))

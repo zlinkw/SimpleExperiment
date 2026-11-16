@@ -72,8 +72,6 @@
 | `simpleExperiment.gpu.currentUserAliases` | array / application | `[]` | 用于高亮自己 GPU 进程的服务器用户名别名。 |
 | `simpleExperiment.gpu.myCommandKeywords` | array / application | `[]` | 按命令行关键词辅助高亮自己的 GPU 进程，例如实验目录、项目名、conda 环境名或脚本名。 |
 | `simpleExperiment.gpu.myProcessMatchMode` | string / application | `"both"` | GPU 进程归属高亮方式。username 按用户名，command_contains 按命令关键词，both 任一匹配。 |
-| `simpleExperiment.ppt.chartType` | string / application | `"auto"` | 绘图类型。默认 auto，由 PPT 插件按结果契约自动选择。 |
-| `simpleExperiment.ppt.styleMode` | string / application | `"activePpt"` | 绘图样式模式。默认 activePpt，使用 PPT 插件当前正在使用的绘图方案。 |
 | `simpleExperiment.manualPanelLayout` | boolean / application | `false` | 启用 SimpleExperiment 面板分区的手动排序。 |
 | `simpleExperiment.panelSectionOrder` | array / application | `[]` | SimpleExperiment 面板分区的手动顺序。 |
 | `simpleExperiment.tunnel.agentLoginPolicy` | string / application | `"preserve"` | Agent 独立运行。preserve 保留原登录命令；managed 经用户确认维护独立启动段，并保留原登录行为。 |
@@ -152,7 +150,7 @@ simpleex result export <历史结果id> --history --format csv --out historical-
 
 历史查询只读取本机项目目录，`--workspace` 必须指向实际存在的本机目录；不使用 `--instance`。历史行标记 `source=history`、`current=false`，并向 stderr 输出未核实提醒；旧状态和时间仅作历史信息。默认结果的 `current=true` 表示该行来自本次主动查询，不表示整批所有任务已完成。现代行的 ID 绑定 PLAN、Worker、运行 ID、版本身份、全部维度及来源路径；种子、评测协议或运行不同不会覆盖另一行，查询排序变化不会改变同一行的 ID。单次查询的完整结果不受 API 顶层预览 200 行限制。
 
-`metric list/show`、`compare` 和 `experiment results` 同样默认查询当前结果；显式添加 `--history` 才查看历史。`experiment results <id> --history` 仅按历史结果自身精确 ID、experimentId 或 runKey 匹配，不连接服务器补配置或推断归属。`result parse --file`、`result paper-table --file` 和 `metric leaderboard --file` 保留原本的本地文件分析方式。
+`metric list/show`、`compare` 和 `experiment results` 同样默认查询当前结果；显式添加 `--history` 才查看历史。`experiment results <id> --history` 仅按历史结果自身精确 ID、experimentId 或 runKey 匹配，不连接服务器补配置或推断归属。`result parse --file` 和 `metric leaderboard --file` 保留原本的本地文件分析方式。
 
 “剩余 job 入服务器队列”严格按产物审核结果区分已通过、隔离受阻和用户保留：只将通过的子集按配额分配；受阻 job 持久保存真实原因，重载后可继续核实，用户保留的产物不派发。手动派发的服务器/GPU 选择框不暂停自动队列；确认后重新核对当前任务身份、连接和停止意图，再执行原有同步、产物审核与派发。选择期间若任务已变化，需重新选择，不会凭旧选择覆盖当前状态。
 

@@ -251,6 +251,86 @@ test("simpleex result list show export reuse Results", async () => {
   assert.equal(exportPayload.id, "res-1");
 });
 
+test("history ignores the control snapshot while retaining CSV, JSON, and registry results", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-history-results-"));
+  const controlOnly = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-history-control-"));
+  const snapshot = JSON.stringify({ schemaVersion: 1, runtimeDiagnosticsProtocol: 1, source: "active_query", jobs: [], tables: [] });
+  const registry = { records: [{
+    schemaVersion: 1, resultId: "registry-row", experimentId: "registry-exp", runKey: "registry-run",
+    suite: "history", experimentName: "registry", status: "parsed", sourceFiles: [],
+    metrics: { accuracy: { value: 0.7 } }, dimensions: {}, primaryMetric: "accuracy",
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", provenance: {},
+  }] };
+  writeProject(dir, {
+    "experiments/results/metrics.csv": "experiment_id,run_key,suite,metric,value\ncsv-exp,csv-run,history,accuracy,0.9\n",
+    "experiments/results/metrics-latest-results.json": JSON.stringify({ experiment_id: "json-exp", run_key: "json-run", suite: "history", metrics: { accuracy: 0.8 } }),
+    "experiments/results/latest-results.json": snapshot,
+    "simple_cluster/results/LATEST-RESULTS.JSON": snapshot,
+    "simple_cluster/results/result_registry.json": JSON.stringify(registry),
+  });
+  writeProject(controlOnly, {
+    "experiments/results/latest-results.json": snapshot,
+    "simple_cluster/results/latest-results.json": snapshot,
+  });
+  const history = ["--json", "--history"];
+  const listed = await runCli(["result", "list", ...history], { cwd: dir });
+  assert.equal(listed.code, 0, listed.stderr);
+  const rows = JSON.parse(listed.stdout);
+  assert.equal(rows.length, 3);
+  const csv = rows.find(row => row.experimentId === "csv-exp");
+  const json = rows.find(row => row.experimentId === "json-exp");
+  const saved = rows.find(row => row.experimentId === "registry-exp");
+  assert.ok(csv && json && saved);
+  assert.equal(saved.id, "registry-row");
+  assert.equal(csv.id, "csv-exp:attempt-1:csv-run");
+  assert.equal(json.id, "json-exp:attempt-1:json-run");
+  assert.equal(csv.value, 0.9);
+  assert.equal(json.value, 0.8);
+  assert.ok(rows.every(row => row.source === "history" && row.current === false));
+  assert.doesNotMatch(listed.stdout, /schemaVersion|runtimeDiagnosticsProtocol/);
+  for (const [row, value] of [[csv, 0.9], [json, 0.8]]) {
+    const shown = await runCli(["result", "show", row.id, ...history], { cwd: dir });
+    assert.equal(shown.code, 0, shown.stderr);
+    const detail = JSON.parse(shown.stdout);
+    assert.equal(detail.id, row.id);
+    assert.equal(detail.experimentId, row.experimentId);
+    assert.equal(detail.metrics.accuracy, value);
+    assert.doesNotMatch(shown.stdout, /schemaVersion|runtimeDiagnosticsProtocol/);
+    for (const format of ["csv", "json"]) {
+      const exported = await runCli(["result", "export", row.id, "--format", format, ...history], { cwd: dir });
+      assert.equal(exported.code, 0, exported.stderr);
+      const payload = JSON.parse(exported.stdout);
+      assert.equal(payload.id, row.id);
+      assert.equal(payload.format, format);
+      assert.ok(payload.content.includes(row.id));
+      assert.match(payload.content, /accuracy/);
+      assert.match(payload.content, new RegExp(String(value).replace(".", "\\.")));
+      assert.doesNotMatch(payload.content, /schemaVersion|runtimeDiagnosticsProtocol/);
+      if (format === "json") {
+        const content = JSON.parse(payload.content);
+        assert.equal(content.id, row.id);
+        assert.equal(content.metrics.accuracy, value);
+      }
+    }
+  }
+  const names = await runCli(["metric", "list", ...history], { cwd: dir });
+  assert.equal(names.code, 0, names.stderr);
+  assert.deepEqual(JSON.parse(names.stdout).metrics, ["accuracy"]);
+  const metric = await runCli(["metric", "show", csv.id, ...history], { cwd: dir });
+  assert.equal(metric.code, 0, metric.stderr);
+  assert.deepEqual(JSON.parse(metric.stdout), { accuracy: 0.9 });
+  const compared = await runCli(["compare", csv.id, json.id, ...history], { cwd: dir });
+  assert.equal(compared.code, 0, compared.stderr);
+  assert.deepEqual(JSON.parse(compared.stdout).metric_difference.accuracy, { left: 0.9, right: 0.8, delta: -0.1 });
+  const explicit = await runCli(["result", "parse", "--file", path.join(dir, "experiments", "results", "metrics-latest-results.json"), "--json"], { cwd: dir });
+  assert.equal(explicit.code, 0, explicit.stderr);
+  assert.equal(JSON.parse(explicit.stdout)[0].experimentId, "json-exp");
+  assert.equal(JSON.parse(explicit.stdout)[0].metrics.accuracy.value, 0.8);
+  const onlyControl = await runCli(["result", "list", ...history], { cwd: controlOnly });
+  assert.equal(onlyControl.code, 0, onlyControl.stderr);
+  assert.deepEqual(JSON.parse(onlyControl.stdout), []);
+});
+
 test("loadResults uses only the active query and excludes diagnostic log records", async () => {
   const api = require("../../dist/cli/api.js");
   const { loadResults } = require("../../dist/cli/commands/result.js");
