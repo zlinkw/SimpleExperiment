@@ -6515,7 +6515,7 @@ class RealtimeTunnelPanelProvider {
         if (requireConfirm) {
             const answer = await vscode.window.showWarningMessage(`将后台启动 ${endpoints.length} 个 Worker SSH 隧道，使用与 SimpleSFTP 相同的系统密钥或 ssh-agent 认证。\n\n${endpoints.map(item => `${item.id}: ${item.user}@${item.host}:${item.sshPort}；${tunnelHttpEndpoint(item.localForwardHost, item.localForwardPort)} → ${tunnelHttpEndpoint(item.remoteAgentHost, item.remoteAgentPort)}`).join("\n")}`, { modal: true }, "启动后台隧道");
             if (answer !== "启动后台隧道")
-                return false;
+                throw new UiCommandCancelled_1.UiCommandCancelled("已取消启动后台隧道。");
         }
         assertCurrent();
         const manager = this.backgroundTunnels();
@@ -6540,6 +6540,14 @@ class RealtimeTunnelPanelProvider {
             this.schedulePostLaunchAutoTest();
         else
             void this.ensureRealtimeConnected("background tunnels launched");
+        if (requireConfirm) {
+            if (!outcomes.length || outcomes.some(row => row.state === "failed"))
+                throw new Error(summary);
+            if (outcomes.some(row => row.state === "cancelled"))
+                throw new UiCommandCancelled_1.UiCommandCancelled(summary);
+            if (pending.length)
+                throw new UiCommandRemotePending(summary);
+        }
         return outcomes.length > 0 && outcomes.every(row => row.state === "verified" || row.state === "existing_tunnel");
     }
     async startAllXshellRealtimeTunnels(requireConfirm = true) {
@@ -7352,7 +7360,8 @@ class RealtimeTunnelPanelProvider {
                 await this.saveWorkerConfigFromUi(message);
                 break;
             case "addWorkerConfig":
-                await this.addWorkerConfigFromUi();
+                if (!await this.addWorkerConfigFromUi())
+                    throw new UiCommandCancelled_1.UiCommandCancelled("已取消导入服务器。");
                 break;
             case "deleteWorkerConfig":
                 await this.deleteWorkerConfigFromUi(message);
@@ -19859,7 +19868,7 @@ class RealtimeTunnelPanelProvider {
             return;
         const ok = await vscode.window.showWarningMessage(`删除 Worker ${worker.displayName || worker.id}？配置会从全局状态移除。`, { modal: true }, "删除");
         if (ok !== "删除")
-            return;
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消删除 Worker 配置。");
         const workers = this.setupConfig.workerTunnels.filter((item) => item.id !== endpointId);
         const manual = (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)({
             ...this.setupConfig,

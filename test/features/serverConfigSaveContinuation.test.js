@@ -39,3 +39,31 @@ test("retired Hub saves reject while Worker saves persist before continuation", 
   assert.doesNotMatch(worker,/Promise\.all\(manual\.workerTunnels\.map/);
   assert.match(worker,/void this\.showServerConfigSavedNextStep\(/);
 });
+
+test("deleting a Worker confirms and changes only the selected configuration", async () => {
+  const method = require('../_helpers/legacyMethod')(source, 'deleteWorkerConfigFromUi(');
+  const workers = ['NWPU3', 'NWPU2', 'NWPU5', 'jqg_h20_zlk', 'rjj8'].map(id => ({ id, enabled: true }));
+  for (const endpointId of workers.map(worker => worker.id)) {
+    for (const confirmed of [false, true]) {
+      const prompts = [], writes = [];
+      const vscode = { window: { showWarningMessage: async (...args) => {
+        prompts.push(args); return confirmed ? '删除' : undefined;
+      } } };
+      const UiCommandCancelled = require('../../dist/core/UiCommandCancelled.js').UiCommandCancelled;
+      const remove = new Function('stringField', 'vscode', 'XshellTunnelSetup_1', 'UiCommandCancelled',
+        'return ({' + method + '}).deleteWorkerConfigFromUi;')(
+        (message, key) => message[key], vscode, { normalizeXshellSetupConfig: value => value }, UiCommandCancelled);
+      const host = { setupConfig: { workerTunnels: workers }, applySetupDraft: async (...args) => writes.push(args) };
+      if (confirmed) await remove.call(host, { endpointId });
+      else await assert.rejects(remove.call(host, { endpointId }), UiCommandCancelled);
+      assert.equal(prompts.length, 1);
+      assert.match(prompts[0][0], new RegExp(endpointId));
+      assert.equal(writes.length, confirmed ? 1 : 0);
+      if (confirmed) {
+        assert.deepEqual(writes[0][0].workerTunnels.map(worker => worker.id),
+          workers.filter(worker => worker.id !== endpointId).map(worker => worker.id));
+        assert.deepEqual(writes[0][1], { syncAssignmentsFromFields: true });
+      }
+    }
+  }
+});

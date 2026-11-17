@@ -78,6 +78,57 @@ function extractScripts(html) {
   return scripts;
 }
 
+test('a failed section offers a retry bound to that section and current state', () => {
+  const script = extractScripts(renderPanelHtml()).join('\n');
+  const ast = ts.createSourceFile('section-failure.js', script, ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
+  let failure;
+  function visit(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'renderSectionFailure') failure = node.getText(ast);
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(failure);
+  let click;
+  const host = { innerHTML: '', querySelector: () => ({ addEventListener: (_event, fn) => { click = fn; } }) };
+  const calls = [], state = { id: 'current' };
+  const sandbox = { document: { querySelector: selector => selector === '[data-section="results"]' ? host : null },
+    esc: String, escAttr: String, lastState: state, renderSectionIfVisible: (...args) => calls.push(args) };
+  vm.createContext(sandbox);
+  vm.runInContext(failure + '\nthis.showFailure = renderSectionFailure;', sandbox);
+  sandbox.showFailure('results', new Error('render failed'));
+  assert.match(host.innerHTML, /data-section-retry="results"/);
+  assert.match(host.innerHTML, /data-command="reloadPanel"/);
+  click();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], state);
+  assert.equal(calls[0][1], 'results');
+  assert.equal(calls[0][2].force, true);
+});
+
+test('Worker card payloads keep each endpoint and its own configuration scope', () => {
+  const script = extractScripts(renderPanelHtml()).join('\n');
+  const ast = ts.createSourceFile('worker-card-payload.js', script, ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
+  let payloadFunction;
+  function visit(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'payloadFromButton') payloadFunction = node.getText(ast);
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(payloadFunction);
+  const sandbox = { RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS: new Set(), ARTIFACT_SCOPE_COMMANDS: new Set(),
+    document: { querySelectorAll: selector => [{ dataset: { key: 'displayName' }, value: selector }] },
+    configInputValue: input => input.value };
+  vm.createContext(sandbox);
+  vm.runInContext(payloadFunction, sandbox);
+  for (const endpointId of ['NWPU3', 'NWPU2', 'NWPU5', 'jqg_h20_zlk', 'rjj8']) {
+    const scope = `worker:${endpointId}`;
+    const payload = sandbox.payloadFromButton({ dataset: { command: 'saveWorkerConfig', endpointId, configScope: scope } });
+    assert.equal(payload.endpointId, endpointId);
+    assert.equal(payload.configScope, scope);
+    assert.equal(payload.patch.displayName, `[data-config-input="${scope}"]`);
+  }
+});
+
 test("panel webview script parses and keeps config commands", () => {
   const html = renderPanelHtml();
   const scripts = extractScripts(html);

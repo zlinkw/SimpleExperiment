@@ -72,6 +72,26 @@ test('manual dataset mapping is workspace scoped and applies only to unassigned 
   await assert.rejects(h.applyPlanDatasetMappingFromUi({mappings:{[p.planFile]:'BUS'}}),/不能通过人工映射覆盖/);
 });
 
+test('automatic dataset matching refreshes only the current project result view', async () => {
+  savedRules = { planDatasetMapping: { 'plans/a.yaml': { datasets: ['A'] } } };
+  for (const current of [true, false]) {
+    const calls = [], context = { root: 'fixture-project' };
+    const host = {
+      captureProjectContext: () => context,
+      projectContextIsCurrent: value => value === context && current,
+      readProjectResultCatalog: async (root, mappings) => {
+        calls.push({ root, mappings });
+        return { autoRecoverableCount: 1, unassignedPlans: [], multiDatasetPlans: [] };
+      },
+      invalidateResultCatalogCache: reason => calls.push(reason),
+      postState: () => calls.push('state'),
+    };
+    await RealtimeTunnelPanelProvider.prototype.autoMatchPlanDatasetsFromUi.call(host);
+    assert.deepEqual(calls[0], { root: context.root, mappings: savedRules.planDatasetMapping });
+    assert.deepEqual(calls.slice(1), current ? ['planDatasetMapping', 'state'] : []);
+  }
+});
+
 test('local dataset mapping merges aggregate schemas and preserves review, provenance and source evidence without querying',async()=>{
   const f=scenario(),a=f.addPlan('experiments/plans/unassigned.yaml',{seeds:[42,43]}),b=f.addPlan('experiments/plans/labelled.yaml',{seeds:[42]});
   f.put(a,0,{dataset:'',metric:.7});f.put(a,1,{dataset:'',metric:.9});

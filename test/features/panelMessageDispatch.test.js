@@ -83,7 +83,7 @@ const factory = new Function("OperationOutcome_1", "UiCommandCancelled_1", "pick
   ${handleMessage}
   ${handleMessageCore}
   ${withUiCommandStatus}
-  return { handleMessage, handleMessageCore, withUiCommandStatus, uiCommandWatchdogMs, postUiCommandStatus,
+  return { handleMessage, handleMessageCore, withUiCommandStatus, uiCommandWatchdogMs, postUiCommandStatus, UiCommandRemotePending,
     getSafeCommand, commandNeedsUiStatus, hostOperationLeaseActionForUiCommand };
 `);
 let pickWorker = () => assert.fail("unexpected Worker picker");
@@ -285,6 +285,91 @@ test("result actions preserve the selected Worker during dispatch", async () => 
     assert.equal(dispatched.action, command);
     assert.equal(dispatched.message.workerId, "w2");
     assert.equal(host.calls.statuses.at(-1).status, "completed");
+  }
+});
+
+test("Worker card commands route each endpoint and surface handler failures", async () => {
+  const handlers = {
+    saveWorkerConfig: "saveWorkerConfigFromUi",
+    startTunnelEndpoint: "startTunnelEndpointFromUi",
+    deleteWorkerConfig: "deleteWorkerConfigFromUi",
+  };
+  for (const endpointId of ["NWPU3", "NWPU2", "NWPU5", "jqg_h20_zlk", "rjj8"]) {
+    for (const [command, handler] of Object.entries(handlers)) {
+      for (const outcome of ['completed', 'failed', 'cancelled']) {
+        const received = [];
+        const message = { command, endpointId,
+          ...(command === 'saveWorkerConfig' ? { configScope: `worker:${endpointId}`, patch: { displayName: endpointId } } : {}),
+          clientActionId: `${command}-${endpointId}-${outcome}`, documentGeneration: 4 };
+        const host = createHost({ [handler]: async value => {
+          received.push(value);
+          if (outcome === 'failed') throw new Error(`failure for ${endpointId}`);
+          if (outcome === 'cancelled') throw new (require('../../dist/core/UiCommandCancelled.js').UiCommandCancelled)(`cancelled ${endpointId}`);
+        } });
+        await api.handleMessage.call(host, message);
+        assert.deepEqual(received, [message]);
+        const terminal = host.calls.statuses.at(-1);
+        assert.equal(terminal.clientActionId, message.clientActionId);
+        assert.equal(terminal.status, outcome);
+        if (outcome === 'failed') assert.match(terminal.message, new RegExp(`failure for ${endpointId}`));
+      }
+    }
+  }
+});
+
+test("cancelling Worker deletion reports cancellation without saving", async () => {
+  const source = require('../_helpers/sourceReader').readSource('src/extension.ts');
+  const method = require('../_helpers/legacyMethod')(source, 'deleteWorkerConfigFromUi(');
+  const UiCommandCancelled = require('../../dist/core/UiCommandCancelled.js').UiCommandCancelled;
+  const remove = new Function('stringField', 'vscode', 'UiCommandCancelled',
+    'return ({' + method + '}).deleteWorkerConfigFromUi;')(
+    (message, key) => message[key], { window: { showWarningMessage: async () => undefined } }, UiCommandCancelled);
+  let writes = 0;
+  const host = createHost({
+    setupConfig: { workerTunnels: [{ id: 'rjj8', enabled: true }] },
+    applySetupDraft: async () => { writes++; },
+    deleteWorkerConfigFromUi: remove,
+  });
+  await api.handleMessage.call(host, { command: 'deleteWorkerConfig', endpointId: 'rjj8', clientActionId: 'cancel-delete' });
+  assert.equal(writes, 0);
+  assert.equal(host.calls.statuses.at(-1).status, 'cancelled');
+});
+
+test("cancelling server import reports cancellation and retains the existing configuration", async () => {
+  for (const added of [false, true]) {
+    const host = createHost({ addWorkerConfigFromUi: async () => added });
+    await api.handleMessage.call(host, { command: 'addWorkerConfig', clientActionId: `import-${added}` });
+    assert.equal(host.calls.statuses.at(-1).status, added ? 'completed' : 'cancelled');
+  }
+});
+
+test('a pending tunnel request remains submitted rather than completed', async () => {
+  const host = createHost({ startTunnelEndpointFromUi: async () => { throw new api.UiCommandRemotePending('w2: 等待确认'); } });
+  await api.handleMessage.call(host, { command: 'startTunnelEndpoint', endpointId: 'w2', clientActionId: 'pending-tunnel' });
+  assert.equal(host.calls.statuses.at(-1).status, 'submitted');
+  assert.match(host.calls.statuses.at(-1).message, /等待确认/);
+});
+
+test("job and result actions retain their selected object through host dispatch", async () => {
+  for (const [command, handler, selection] of [
+    ['retryDistributedJob', 'retryDistributedJobFromUi', { planId: 'plan-a', planFile: 'plans/a.yaml', jobIndex: 3, commandId: 'cmd-a', workerId: 'w1' }],
+    ['applyPlanDatasetMapping', 'applyPlanDatasetMappingFromUi', { mappings: { 'plans/a.yaml': 'dataset-a' } }],
+    ['openResultArtifact', 'openResultArtifactFromUi', { planFile: 'plans/a.yaml', remotePath: 'results/a.csv', workerId: 'w1' }],
+  ]) {
+    for (const fail of [false, true]) {
+      const received = [];
+      const message = { command, ...selection, clientActionId: `${command}-${fail}`, documentGeneration: 4 };
+      const host = createHost({ [handler]: async value => {
+        received.push(value);
+        if (fail) throw new Error(`cannot ${command}`);
+      } });
+      await api.handleMessage.call(host, message);
+      assert.deepEqual(received, [message]);
+      const terminal = host.calls.statuses.at(-1);
+      assert.equal(terminal.clientActionId, message.clientActionId);
+      assert.equal(terminal.status, fail ? 'failed' : 'completed');
+      if (fail) assert.match(terminal.message, new RegExp(`cannot ${command}`));
+    }
   }
 });
 

@@ -31,6 +31,60 @@ test('per-Worker launch uses the same current-configuration confirmation as batc
   await assert.rejects(proto.startTunnelEndpointFromUi.call(host,{}),/明确的 Worker/);
 });
 
+test('cancelling tunnel confirmation does not start a selected Worker', async () => {
+  class Cancelled extends Error {}
+  const entries = [item('w1'), item('w2')], calls = [];
+  const proto = methods(['startBackgroundTunnels'], {
+    BackgroundSshTunnels_1: transport, UiCommandCancelled: Cancelled,
+    AgentRuntimeScope_1: { selectAgentRuntimeTargets: (rows, selected) => rows.filter(row => selected.includes(row.id)) },
+    tunnelHttpEndpoint: (host, port) => `${host}:${port}`,
+    vscode: { window: { showWarningMessage: async message => { calls.push(message); return undefined; } } },
+  });
+  const host = { captureProjectContext: () => ({ signal: new AbortController().signal }), projectContextIsCurrent: () => true,
+    syncXshellConfigBeforeNetwork: async () => {}, currentTunnelLaunchBlockers: () => [], tunnelLaunchItems: () => entries,
+    tunnelConfig: {}, backgroundTunnels: () => assert.fail('cancelled request must not start a tunnel') };
+  await assert.rejects(proto.startBackgroundTunnels.call(host, true, true, ['w2']), Cancelled);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0], /w2:/);
+  assert.doesNotMatch(calls[0], /w1:/);
+});
+
+test('confirmed Worker launch preserves verified, failed, cancelled and pending outcomes', async () => {
+  class Cancelled extends Error {}
+  class Pending extends Error {}
+  for (const state of ['verified', 'existing_tunnel', 'failed', 'cancelled', 'requested']) {
+    const entries = [item('w1'), item('w2')], launches = [], notices = [];
+    const proto = methods(['startBackgroundTunnels', 'startTunnelEndpointFromUi'], {
+      BackgroundSshTunnels_1: transport, UiCommandCancelled: Cancelled, UiCommandRemotePending: Pending,
+      AgentRuntimeScope_1: { selectAgentRuntimeTargets: (rows, selected) => rows.filter(row => selected.includes(row.id)) },
+      stringField: (row, key) => row[key], tunnelHttpEndpoint: (host, port) => `${host}:${port}`,
+      vscode: { ProgressLocation: { Notification: 1 }, window: {
+        showWarningMessage: async message => { notices.push(message); return '启动后台隧道'; },
+        showInformationMessage: message => notices.push(message),
+        withProgress: async (_options, work) => work({ report() {} }),
+      } },
+    });
+    const host = { ...proto, captureProjectContext: () => ({ signal: new AbortController().signal }), projectContextIsCurrent: () => true,
+      syncXshellConfigBeforeNetwork: async () => {}, currentTunnelLaunchBlockers: () => [], tunnelLaunchItems: () => entries,
+      tunnelConfig: {}, setupConfig: { autoTestTunnelAfterStart: false }, enabledWorkerConfigs: () => entries,
+      backgroundTunnels: () => ({ running: () => [], launchAll: async targets => {
+        launches.push(...targets.map(target => target.id)); return [{ id: 'w2', state, message: `w2 ${state}` }];
+      } }), ensureRealtimeConnected: async () => {} };
+    Object.setPrototypeOf(host, proto);
+    const launch = () => proto.startTunnelEndpointFromUi.call(host, { endpointId: 'w2' });
+    if (state === 'failed') await assert.rejects(launch(), /w2 failed/);
+    else if (state === 'cancelled') await assert.rejects(launch(), Cancelled);
+    else if (state === 'requested') await assert.rejects(launch(), Pending);
+    else await launch();
+    assert.deepEqual(launches, ['w2']);
+    assert.ok(notices.some(message => message.includes(`w2 ${state}`)));
+    if (state === 'failed' || state === 'requested') {
+      assert.equal(await proto.startBackgroundTunnels.call(host, false, true, ['w2']), false,
+        'automatic callers keep the existing boolean contract');
+    }
+  }
+});
+
 test('confirmation cannot start an endpoint changed or disabled while the modal was open', async () => {
   for(const change of ['endpoint','disabled','project']) {
     let entries=[item()],current=true,spawns=0;
