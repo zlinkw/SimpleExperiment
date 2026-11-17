@@ -1,71 +1,123 @@
-# G003 全入口正常操作补验执行登记
+# G003 全入口补验执行登记
 
-唯一写入者：调度《Windows 功能精简调度与持续验收》01a1e34e-e63d-79a2-9175-7a1afa97578d / local。完整计划 G003-plan.md 仅总控维护。用户显式新代裁决优先，原在途R09-R15一次承接，G001/G002已交付结论与有效证据保持，不重建/回滚/重测。本文件预算16000字符，90%非冻结时语义压缩保留当前边界/待决/失败与原证据引用，不硬截断或删除原记录。
+总控B01–B03通过当前插件代码与按钮逻辑范围：源码ad31204a、buildId 1a33b6e4a9c9ca5642ddcdce4c5c81ad3f5fb581dca96bc1d7b749787218df7a；最终build 280/280、6按需未运行，旧失败保留。真实按钮逻辑剩余总数未知，预览/历史/受控与实机外部未测不混算；旧R13提示终态未知。本人授权一次只读查询已成功，旧R12-I退出范围而非通过。已安装版未包含本轮源码；无版本递增、打包、安装、发行或Worker更新。G001/G002已交付；next=4仅计数。计划由总控独占，本登记由Terra独占，预算16000字符。
 
-## 身份、租约与当前状态
+## 当前角色、接管与租约（C方案）
 
-总控01a1e357-73d1-7f50-9411-ecf216540430/local，Sol high；原独立验收《功能精简独立验收》01a1e34f-5e2d-7661-83b8-01190466df99/local，Sol high，已恢复只读职责。旧R01-R08保持归档，未新建总控/验收角色。
+R14D1/D2 计划及边界提交并 push/fetch：ce9f813、ab6a80a、73087d2、71c7e4c、64bc4d4、f8e915d。实现MCP配置保存/回读、项目隔离及真实同步状态，结果映射和derivedMetric为只读摘要，保留PLAN数据集归类及结果操作；指南指当前master/MCP，移除PPT专属转发，旧安装版未改。MCP 31/31 含受控替身和CSV解析，不等于真实实例回执；AP/AUPRC、macro_f1/weighted_f1独立。
 
-R09《R09 真实入口与隔离条件核对》01a1e3a9-6cca-7fc2-8b9d-3de5eae3cd86/local，Terra high，当前仅只读来源核对、无UI/文档租约；全入口实例分母尚未闭合。R10《R10 隔离本机界面与结果闭环实点》01a1e3b4-27fd-7662-bc90-b9d1d5bb6b26/local，Terra high，当前授权合成本机子集已独立验收，全部租约交回，只读待命；R13身份见下，当前只读准备、尚无UI/写租约，R11/R12/R14/R15未启动。当前无测试/build/产品源码修改。
+早期build编译及语法门禁后 Ctrl+C 退出1，日志 `simple_cluster/reports/test-workflow/2026-11-16T12-34-03-480Z-20800-build/`：job001失败、002–004通过、005无汇总。MCP事件断言修后26/26；遗留 `BUILD_LOCK_UNSETTLED` 致compile退出1。D2摘要读旧dist失败，读源码后6/6；移除默认主指标后旧断言1/2、退出1，保留单遍历并修语义后2/2。`applyProjectAdapterRulesPatch` 仅定义无调用。
 
-最近已同步基线9e96e2c134b95261652110066316525609afe0b4；原产品/交付886139eb及291任务组合按输入有效性复用，不能代本代实点。当前G003显隐例外及R10已验证本机子集记录准备普通Git同步；仅子集通过，整代分母/其他入口和条件仍未完成。原工作区有无关未跟踪VSIX sha256，保护不stage/删除。Fast无接口字段未显式设置。
+中断后宿主需重载。本人仅批准旧锁 `simple_cluster/locks/simple-experiment/test-workflow/process-owner.json`；总控核身份和直接父目录后删除并确认不存在，其他锁未授权。后已构建重载；R12待决。
 
-## 已取得证据与界限
+旧候选 compile 八门禁通过，日志 `simple_cluster/reports/test-workflow/2026-11-16T14-51-34-593Z-51644-compile/`。指南测试原12/13、退出1，修后12/12；不冒完整build。
 
-R09原工具记录在上述会话，未复制日志。源码独立开发宿主最近真实标题为[扩展开发宿主] final.csv - remaining-source-check-512 (工作区)，PID69956仅线索，后续必须重新观察窗口/工作区/build绑定。原MM final.md、Generic Untitled-1未保存文档，训练GPU7、旧任务/日志/产物与拒删cleanup_20261111.txt保护。
+首次完整build 286项、284通过、2失败、退出1、锁释放；日志 `simple_cluster/reports/test-workflow/2026-11-16T14-52-42-010Z-69916-build/`。job044 映射文案修后15/15；job248 普通配置误依赖项目根，修后7/7，均退出0。
 
-本轮实际已连接API只读project_status/agent_inspect返回MultiModal、SimpleExperiment0.5.512、唯一启用Worker rjj8；MM专用Agent窗口@54，Scheduler absent，不证明旧验收项目独立Agent或其他任务状态。SimpleSFTP活动配置root@127.0.0.1:15791和/root/autodl-tmp/zlk/SimpleMcpAcceptance是当前配置事实，非同步覆盖授权。现尚无与MM隔离的同版现成Agent/端点完整证明，实际权限、同步范围及任务窗口需继续只读核。没有ensure/prepare/deploy/升级/切换/SSH/同步写入，不能把未完成查询变通过。
+旧候选build 286/286、退出0、锁释放，日志 `simple_cluster/reports/test-workflow/2026-11-16T15-03-36-550Z-61468-build/`；Panel及3 script VM通过，首次引号错误退出1后修正。
 
-四入口调用事实已查：saveResultCsvDir只写WorkspaceFolder配置；split从本机catalog生成by_<field>/<value>.csv，已存在则提示覆盖。后批可在核实系统Temp根内全新唯一simpleex-normal-ui项目用标明合成fixture及新输出实点，须调度执行前登记精确路径/文件，不覆盖/清理旧对象。当前未创建该项目。validate/dryRun会prepareSftpTargets并全启用Worker同步/proof，不能仅换PLAN宣称隔离；远端缺项需服务器/root/端点/归属/权限/最小动作影响与可继续工作一次合并提请。
+旧 PID54144 的 configuration_get 为seed、空derivedMetric、同步unknown；configuration_set 返回 `MCP_AUTHORIZATION_REQUIRED: configuration`、未写入，后续授权及验证见下。摘要显示AP/macro_f1/weighted_f1分列；就绪提示选“打开面板”，不同于旧R13提示。MCP保存范围无需手填。
 
-旧167来源/42命令/137工具、history96和旧179都仅原资料分类，非本代当前按钮通过。真实渲染位置/producer/handler/对象与最终效果清单仍待R09完整冻结。只能将本代实际点击和已证同候选对象链真实效果记通过；preview/history/selector/无producer/本人/条件独立，不靠列条件宣布全部完成。
+R14E Worker配置取消误保存；受控方法测试先3/4、退出1，修后4/4，覆盖草稿、子菜单取消、两个Xshell入口和明确完成。build 286/286、退出0、并发1、锁释放，日志 `simple_cluster/reports/test-workflow/2026-11-16T15-28-00-415Z-16188-build/`；Panel及三script VM通过。专用宿主首层Esc无保存提示，零保存由受控测试证明，共享配置未保存。计划 a645046、修复 6228baf；首次暂存补丁格式失败且无暂存，修后提交。
 
-## 分代交接检查
+GUI 曾检测用户输入，返回拆表点击未执行、不重放；本人授权完成后经总控通知恢复。synthetic 两表、拆表覆盖取消、指南及命令结果见 manual/coverage，同名拆表未覆盖。
 
-总控已原样承接计划到G003-plan并纠正G001计划/共同提示；G001执行只留本代指针。本次索引登记G001已交付、G002已交付、G003补验中，next=4仅计数，无第四代资料，无轮换/删除。全局SKILL及lifecycle显式新代优先两段待原独立验收定向核，不重做其余有效七场景。普通日常只写本登记，不向总控逐项汇报；此分代纠正完成仅一次核对回执，后续仍三类消息门槛。
+现任Terra 01a1e793-a4a0-7630-8157-24c920746d1a/local，接管时实核 gpt-6.1-terra/high/default、match、0次压缩、continue。总控交付UI、检查/生成、manual、coverage、执行登记、身份、返修、踩坑及授权scoped Git单写租约。旧Terra 01a1e428-ce3e-7542-a6bd-0e4b7ca7ba4a/local 已停写，turn completed/idle；实核6次压缩、第五次后峰值447303、rotation_due=true。原R13提示终态未知。
 
-独立验收已明确通过本次分代/引用定向核对：三代/next4、同一Junction全局两段优先级、两核心/旧指针/现身份均一致，未重做旧七场景或产品测试。此结论不等于G003产品通过；现等待R09清单及后续实点。
+总控已归档旧Terra。计划身份提交 fd070c2a0c71d190fb89eda50ed567e35e178403 已push/fetch；三份未闭合记录未提交。彼时专用宿主 PID82112 与旧构建匹配；当前构建身份及后续提交见文末。
 
-## R09部分确定与R10执行前登记
+五卡Xshell导入预览取消，NWPU5首次索引失效后重观成功；保存/隧道/删除未执行。六卡折叠、分组预览/定位、左右固定和GPU合并已恢复，无真实GPU行。分支/队列/实例/登记及产物审核见coverage；Xshell/授权只预览。布局新增校验、预演并换序复原未运行，保存亦写空全局模板。selection新建 `by_seed/43.csv` 与合成源一致，见 `g003CurrentSelectionRowSeedSplit`；无覆盖或远端写入。
 
-R09已冻结manual/coverage并交回UI及两文档租约，原会话仅余只读源码建议，不再并写/并点。API隔离事实已一次合并提请总控，R12远端阻塞待专项决定，本机可执行部分不等待。R09尚未完成全入口实例分母，不能归档为通过；其对象链线索保留在原会话与manual的R09段，后续各实际渲染场景逐位置补证。
+用户决定唯一Terra实现及小验收，总控兼B01–B03；旧Sol已归档。旧角色3次、264534、match、continue。
 
-2026-11-16只读验证系统TEMP物理根 C:/Users/ZLK/AppData/Local/Temp，已核新直接子目录 simpleex-normal-ui-g003-20261116-a7c39e2f 不存在，未创建。授权R10仅在该全新根内创建最小明确合成夹具，不建Git、不拷秘密/消费数据、不连接准备Worker、不清理。初始精确文件：README.md（合成标记）、config.yaml、train.py（纯软件说明/print，不执行训练）、.vscode/settings.json（仅本项目设置）、experiments/results/latest-results.json（标记为synthetic fixture的catalog格式）、experiments/results/synthetic/final.csv（合成两行，AP/macro_f1/weighted_f1分列）。不得写这些路径外的新夹具，需额外来源文件先给调度登记；UI正常新输出只在该根内预查不存在的experiments/results/synthetic/by_dataset/synthetic_a.csv、synthetic_b.csv及synthetic/final.md（若真实producer有Markdown导出）。记录实际创建/输出，未创建的不得写已存在。
+2026-11-17 恢复：本人完成配置授权；专用Temp项目 PID86804、offline_import、Panel running/disk 655cf4c36de4…一致。project_authorization 记录 experiment、sync、agents、configuration、results；本人本轮只许可 configuration，总控确认按子集执行，其他权限不使用。R12独立待决。首次 MCP 请求误填 name 而非 tool，返回 MCP_TOOL_UNAVAILABLE: undefined；正确请求随后成功，此前无写入。
 
-本机操作限定新项目WorkspaceFolder配置/支持格式自定义动作/列映射/归类/浏览保存/选表/拆表及真实存在的GUI导出，不碰全局服务器/安全授权。原宿主窗口先重新观察绑定；可打开新独立验收项目，不保存/丢弃或重载原MM/Generic文档。不覆盖旧项目/旧产物或真实科研指标。出现覆盖/安全授权/远端写入提示停对应项，不代确认；合成source=active_query仅满足文件格式，不声称真实Worker查询。每重复可达位置分别核对象与最终效果，CLI不代GUI。当前尚未创建目录或执行R10。
-R10《R10 隔离本机界面与结果闭环实点》01a1e3b4-27fd-7662-bc90-b9d1d5bb6b26/local/Terra high已启动并接UI/manual/coverage唯一租约，执行前登记夹具边界见上；R09无此租约，仅只读来源/独立端点候选核对。总控已裁定MM原端点/窗口/训练不动，R12 blocked；只读补原512字节来源与既存隔离配置候选，不部署/探测写入/旁路SSH/猜端口，精确缺项一次合并后供用户决定。本机不等远端授权。
+实际 `mcp.call(configuration_set)` 仅在该工作区保存 generic、candidateCsv `experiments/results/synthetic/final.csv` 及 dataset/method/seed 映射，保留 seed 和空 derivedMetric；`configuration_get` 与本地设置一致，sync=pending。现有解析器识别两行中 AP、macro_f1、weighted_f1 独立列；无 case 列返回0病例，未虚构病例、主指标或派生端点。源码 GUI 显示三项映射、路径、主/辅助指标未指定及离线待同步；无真实 Agent 同步。写前拒绝及受控读写回执保留原会话。
 
-R10已实际创建登记的6个初始夹具文件，尚无新增实点通过。发现合成表身份需校正：同一dataset表不应混两个dataset。授权原R10仅修自己新建CSV/对应controlJSON/fixture说明，dataset两行统一synthetic、method分别synthetic_a/synthetic_b，AP等确定值保持；拆分按method验证，新输出登记改为该根下experiments/results/synthetic/by_method/synthetic_a.csv与synthetic_b.csv（原by_dataset两候选尚未生成，不删除）。其他源/路径不扩张。宿主启动/文件框定位为本机UI工具问题，先安全取消弹框、用真实VSCode CLI及新窗口/源路径绑定继续，不把两次定位错误当外部权限阻塞。无产品源码变化、测试、部署或旧项目写入。
+D1 七文件提交 136aac7fcedd50c6cabb59c509644f2cccc592af，D2 六文件 e9b88f32eae28d8fc55546af1f50bb6bc0c988c9；经最终构建、实际 MCP/写后面板及 scoped diff。五个已跟踪 dist 另提交 86bafbccce1df6ad333b168b6e2aa2b076d00f35；首次 `git add` 报 dist 被忽略但已暂存，后 `git add -u` 退出0并核精确列表。三批 push/fetch 对齐；未闭合记录保留本地。
 
-## 当前安全前置与专项待决
+最终源码/生成物 `rg -F 10890 src dist` 零命中（rg 退出1表示无匹配）；D1/D2 源码 diff 未新增固定 `127.0.0.1:18765` 探测。当前 Temp 项目的已有结果目录保存入口实点并回读，路径和 MCP 映射保留；未进行远端同步。
 
-R09一次只读候选补充已交总控：本机安装原512两个runtime hash与MM基准匹配，可作原字节来源；旧远端runtime stats仅证存在/大小1349575和291630，不证内容版本。当前唯一启用rjj8仍共端点服务MM，新增/启用Worker是共享globalState配置会影响各项目目标，不能承诺零影响。总控保持R12 blocked，已向用户提出隔离user-data/目录/端口/forward/专用窗口的具体范围选择，尚未授权任何配置、准备或部署。原512字节保留备用，不将同版号当前源码冒原版。
+R14F 手填引导改AI/MCP，保留门禁/缓存断言；`projectQuickStartWorkflow` 原6/8、退出1，修旧签名及提示断言后8/8，缓存5/5、门禁3/3，均退出0；提交 d321af2f0db5655d95c044a73dca93e943661942。
 
-R10已按登记创建并纠正6个合成初始文件，新项目现已在开发宿主打开；无结果实点通过。VSCode受限模式明确阻止SimpleSFTP依赖激活，故SimpleExperiment无法激活。Computer-use guidance的强制安全规则禁止代理改应用安全设置/响应安全许可；已一次交总控协调用户只对精确该根亲自决定Workspace Trust，不信任Temp父目录、不改trustedUri、不禁用trust/绕安全。当前本机UI激活前blocked，R10保留原会话/夹具/宿主，不重建/清理，不将用户反馈消息当实际激活证据；收到反馈后由调度安排原R10重新观察再恢复。R09/R10只读源码或夹具核对仍可继续，不计GUI通过。
+R14G 移除自动生成模板和手编必经，保留主动入口、门禁及项目隔离；测试首次变量重名 SyntaxError 退出1，修后9/9、命令3/3、隔离20/20，提交 39dbb53f610edca0aec25852f54a86573a5db65c。R14H 准确反馈离线包及错误，`manualWorkerRefresh` 7/7、退出0，原Python fixture不变；提交 8aaeab755e59ebc209b363923747a055de5acd15。F/G/H build 286/286、退出0、锁释放，日志 `simple_cluster/reports/test-workflow/2026-11-16T16-59-25-115Z-35692-build/`，模块及三script VM通过；生成物 a54833be2a211aeba2000c3583c5b05ab6822fc1。宿主实点有包刷新且不联网；无包/错误仅受控测试，空PLAN不冒正式门禁。
 
-当前没有测试/build/产品源码修改/训练/部署/真实删除，MM/@54/原端点和保护对象保持。本机信任与远端隔离是两项独立前置，均由总控向用户统一协调，调度不重复发同问题。G003仍执行中/待安全条件，不能称全按钮或授权正常部分完成。
-R10安全前置解除新事实：用户在R10会话直接告知已手动信任；执行者未代点安全许可，实际观察受限标志消失，重载仅该隔离宿主后就绪项目名/路径吻合。renderer.log window9 17:42:18.757显示开发扩展源d:/GitRepo/MCP/zlk-cluster-orchestrator、hostPID85400，运行列表Activation247ms。原R10继续UI，旧错误通知不当当前未激活证据；启动自动生成夹具内simple_cluster状态属于应用输出，非新增初始源文件，保留不清理。总控只获本待决改变决定的一次事实更新；R12仍blocked/未授权部署，MM不动。
+R14A 两处刷新提示改为可能保存本机状态；`manualWorkerRefresh` 7/7，build 286/286、退出0、并发1、锁释放，日志 `simple_cluster/reports/test-workflow/2026-11-16T17-14-35-679Z-33128-build/`；模块/两script VM通过、10890零命中，提交cf11daf8已push/fetch。专用宿主 PID2736 实点两位置，running/disk/manifest 为 `7a851f1f21d2b46befd407fc318bfb027afa2530750f594f7d15e68f01aa93fc`。首次诊断日期自动转换致实例头不匹配，原字符串只读重试成功；首次 `git add` 因跟踪dist忽略提示退出1，后 `git add -u` 精确暂存。
 
-R10已真实打开合成总表/行内CSV，按method生成登记两新子表，各一行六列，源表内容不变；程序自动生成已登记final.md，非手工假结果。目录浏览已选择并保存，WorkspaceFolder resultCsvDir回读一致。列映射因无真实preview暂未保存；源码证实实时模式保存会同步Agent，但离线公开导入模式会由syncProjectAdapterRulesToAgents首部跳过远端并如实返回离线模式，不是所有模式无条件写远端，未将此误判产品缺陷。
+R14I 修复复制任务及指南强制运行/传输使用插件 API，与用户规则一致；指标映射仍经MCP配置回读。计划 05b02ca9，compile 八门禁及 `setupGuideWithoutBundledDocs` 12/12、退出0。build 280/280、退出0、并发1、锁释放，6按需文件未运行，日志 `simple_cluster/reports/test-workflow/2026-11-16T17-39-39-973Z-44100-build/`；Panel及三script VM通过、10890无命中。源码生成物 1c1895f2 已 push/fetch。宿主 PID82184 running/disk/manifest 均为 `6cb2a992bb6c4d7e98db8554fd9784a0f28a4ecc67fba7fa0fea98a2f3ed6ad8`；实际复制并回读新任务，未外传、安装、发行或远端操作。
 
-登记新增合成公开输入文件，仅本根 offline-fixture.json，创建前核不存在；无额外源脚本/目录。允许R10用当前parseDownloadedMetricCsv真实实现（TS AST提取/既有依赖、仅读本批CSV）生成preview/records，再包装为OfflineImport.ts公开schemaVersion/results格式，明确synthetic_fixture，无snapshot/任务/错误/实时Worker状态。仅以正常导入离线包UI导入本地文件，不设置Provider私有字段/注入内部状态，不声称真实远端查询或完整实时链通过；再在offline_import模式确认后保存WorkspaceFolder映射并回读，远端guard必须保持。此为本机合成fixture生产链/结果闭环的最小准备，无产品代码变化/构建/测试/性能基准。任何函数依赖/格式缺失明确报错，不用mock假成功。输出与原CSV头/维度/数值核对，其他覆盖/安全许可/同步边界不变。
-当前R10进一步实点：行内Markdown打开final.md与源CSV两行六列一致；结果文件自定义组经+添加syncPendingPlanArtifacts（未执行该同步动作），ui_layout.json落盘并在仅本隔离宿主重载后仍显示。行内CSV右键实际为系统剪切/复制/粘贴菜单，不冒记结果专用动作。offline-fixture.json已由真实parser生成并经独立验收只读核对2记录/6列/三指标，尚未UI导入/保存映射。
+R14J 修复 catalog 列值截100：测试先11/12、退出1，修后12/12；build 286/286、退出0、并发1、锁释放，日志 `simple_cluster/reports/test-workflow/2026-11-16T17-57-49-770Z-36476-build/`，模块及三script VM通过、10890无命中。计划 ca737b59、源码生成物 267161c0 已 push/fetch。合成101行表实选 case-101 生成子表并回读正确；宿主 PID37532 的 running/disk/manifest 均为 `8187765a41abd7c898055c677b61c74810ed43145e586d06d252e18bb6443b08`。旧兼容截200分支无当前调用。
 
-离线导入新边界：真实命令被application级showAdvancedCommands=false隐藏，面板未见直接producer，自定义候选依赖已有可见按钮；不私有注入/不改全局设置。已一次向总控提交仅此显示设置的可逆临时启用范围决定，未获得前保持该项待条件，其他本机继续。R10可按计划修改本夹具既有ui_layout.json加入退役动作合成输入验证过滤，先关闭本专用面板终止布局写入、保留原结构和已保存保留动作，再UTF8写入/回读/重开；此为已有支持配置输入范围，不新增产品源码或全局设置。
+R14K 修复离线 GPU/调度刷新静默：计划 24128833，测试先4/5失败后5/5，覆盖离线零查询/保留错误及在线成功、失败、项目切换。build 280/280、退出0、并发1、锁释放，6按需文件未运行，日志 `simple_cluster/reports/test-workflow/2026-11-16T18-27-31-858Z-24744-build/`；模块及三script VM通过、10890无命中。宿主 PID25684 running/disk/manifest 均为 `3b604951e5a46908094f31c1eeed9c16af66a4f517147037804a1db7db01f559`，两入口实点提示离线无法刷新；源码生成物 d5f229a9 已 push/fetch，未访问远端。
 
-总控已在G003-plan正式加入唯一application显隐例外并释放单文件窗口：仅当前隔离宿主profile的showAdvancedCommands临时启用，先核原显式值/来源，公开设置+命令面板导入本批合成offline-fixture，确认offline_import再映射保存回读，完成/失败恢复原值或公开复位撤销本次覆盖；不覆盖期间用户新改值。已交原R10同UI租约及原验收只读核真实操作/恢复，未扩大其他全局/安全/端点/R12权限。
-R10追加本批manual/coverage独立g003R10SyntheticObservation共9项in_progress_not_independent_acceptance，旧历史/统计未改；本批仍待离线映射，未交租。合成布局运行时过滤已观察：文件保留syncPendingPlanArtifacts及plotResultsToPpt输入，重载后仅显示保留动作（未执行同步）；目录“保存”和“浏览”分别核WorkspaceFolder值。R09只读补充已完成：当前offline面板无producer，旧renderHtml未被调用；静态报告/说明可只读，检查项目配置会写报告、识别工作区可能写PLAN模板，保存调度策略/重置布局涉及共享全局，不可擅点；草稿模板无调用点，不计当前实例。全入口真实分母仍待后续逐区补齐。
+R14L 计划 8be333af：区分 tmux 未查询、失败、不可用和成功空并保留重绘状态。目标先7/8失败后8/8；首轮 build 退出1（摘要消费者17/19），修后该文件19/19，第二轮 build 286/286、退出0、并发1、锁释放；日志 `simple_cluster/reports/test-workflow/2026-11-16T18-52-52-630Z-26264-build/` 和 `2026-11-16T19-04-54-843Z-56564-build/`。模块与三脚本VM通过、10890零命中。宿主 PID82112 running/disk/manifest 均为 `bcdd2c8f45348fe6909b965beec6adecb96072e16bae4308c4e897c8a741ae9d`，离线实见未查询；远端失败/成功仅受控测试。源码生成物 ec58414a 已 push/fetch。
 
-R10已交回冻结，原验收接受已验证合成子集：前6项实际本机效果、公开离线导入/6列三指标preview/seed映射WorkspaceFolder回读/公开重置后无显式显隐键成立；对应原工具定位由验收保留，未重跑测试或冒称重启持久/实时链。实际application设置UI标注适用于所有配置文件，原计划同profile披露偏窄，已一次交总控作事实修正，不重复启用；当前显式覆盖已撤销。R10整体仍不通过/不归档：本机结果导航多位置尚可执行，不能统归blocked。已恢复原R10 UI/manual/coverage唯一租约补这一强相关组，并让原R09只读定向查真实producer/handler/副作用；实时链和缺合成Plan归类分别待条件，未扩大Worker权限。
+总控《项目总控与长期规划 · C方案接替》01a1e412-ead7-7710-acd7-c475abb8b41a/local 独占计划、索引及共同角色说明，兼最终B01–B03；Terra独占执行登记和授权Git并连续自验。原Sol已归档，均为Standard。
 
-R09导航定向链已查：资源树父/子结果导航可分别补证；任务卡/批量查看结果需真实任务对象，dataset展开与本机来源表/列词条选择可补。为实际切换至少两来源，执行前登记本夹具新增experiments/results/synthetic/selection.csv（synthetic/synthetic_selector/seed43及.77/.88/.99明确软件合成一行六列），以及仅若程序正常生成的selection.md；创建前核不存在。原R10可仅在自己支持格式latest-results.json追加synthetic/selection并保留final输入/输出，不改offline-fixture/Provider或真实项目，正常刷新/本宿主重载后切换验证，遇自动覆盖风险停止。不开重建/生成/远端更新，无真实任务/跨datasetPlan对象的导航准确列条件，不注入历史登记。总控已更正application所有配置文件显隐影响，无再执行权限需求，原已完成公开复位不重做。
+旧总控、Luna、R01–R10及R13旧角色已归档，不唤醒。检查互斥、冻结输入；未知UI先重观。R10合成子集及R13十位置非整代完成；按最新插件范围继续，不重跑有效成果。
 
-新R13《R13 剩余命令与本机维护入口补验》01a1e3d6-cb03-76b1-83a6-4ccfeb479895/local，Terra high，已启动仅只读准备当前常用命令/设置说明报告/诊断草稿维护2-3组producer/handler/副作用；无UI/文件/设置/测试/Git租约。R10仍独占UI及两明细文档，R13等调度明确交接，不启用其他高级显隐、共享设置或远端操作。
+## 权限、保护与远端待决
 
-R10导航补证已完成并再次冻结交回租约：父/子结果树分别定位、dataset折叠展开、设置转映射、两来源双向切换/搜索清空/字段与保留列重置已实际观察，coverage独立组15项。selection.csv实际93字节，selection.md未生成；原final与两86字节子表未改，seed映射重载显示例42。已交原验收只定向核新增组与R10当前可执行缺项；两文档在该复核期间冻结。任务卡/批量/跨dataset共享无真实对象、实时Worker链缺隔离仍单列；不签整G003。R13只读准备完成，拟接配置说明双入口及操作完整日志/复制Panel诊断两组，尚未交UI/写租约；正常复制系统剪贴板已在本次入口授权内，不读旧剪贴板/不外传，其他全局/远端/静态检查未许执行。
+本人最新要求只查插件功能和按钮逻辑，服务器健康及R12-I隔离准备退出范围；真实UI、受控测试、预览和未测分别记录，不重复有效检查。
 
-原验收接受新增导航组与15项证据、关闭application影响措辞项；但新selection方法行有CSV/MD/拆表3个独立当前实例尚未操作，不能签R10当前可执行子集。已恢复原R10仅该组UI/两文档租约：预核原finalCSV/MD及selectionCSV与catalog程序预期字节一致、已注册selection.md仍不存在，再正常行内打开CSV/MD核一行六列并从该行进拆表核来源key，不点生成；MD正常重建可能生成登记新MD，保留原内容边界不放宽。R13继续仅只读等待，不与之并点/并写；其他有效证据不重做。
+唯一UI/两明细写租约；node/python测试串行并冻结受检输入。无产品改动复用291身份组合，不重跑全量或另起审计。新缺陷按R14边界，每批最多2-3问题/8文件；边界外找总控。
 
-selection行CSV实际先正常生成登记selection.md且四表内容均匹配catalog，原R10按不存在前置暂停MD；调度明确改为复用本批已合法生成新产物，MD打开前仍核四文件内容一致，差异/覆盖提示停，不删文件造不存在，不允许替换不同内容。行CSV/MD处理均会正常再生相同字节须如实披露，不当纯只读；selection行拆表直入已观察绑定synthetic/selection且未生成。最终MD操作及三入口仍待独立核。
+保护原MM final.md、Generic Untitled-1未保存文档、GPU7训练/旧任务结果日志、旧验收根及拒删D:/GitRepo/SimpleMcpAcceptance/acceptance_files/cleanup_20261111.txt（49bytes，hash b2abf3f4fd027aaa463ae58c18d89b59d1f3bebfa847459b43dbc7d41b74cd7b）。原R12-I专项准备授权现退出范围；不更新旧Worker、训练、升级、打包安装发行或清理。
 
-R10最终独立验收通过“当前授权、现有合成对象可执行本机子集”，selection三入口缺口关闭，无该子集待返修；coverage18条仅观察记录，含generic/无producer/条件项，绝非全入口分母或18项全部点击通过。原操作定位与四表127/204/93/157字节经验收核一致，正常再生副作用如实保留；未测试/build/UI重跑。R10交回全部租约，后续原会话只读待命，不签整G003。两明细元状态更新为独立接受本机子集/条件仍待，原历史统计不改。当前4份范围内文档diff --check通过，准备仅该批记录普通Git同步，不含夹具/无关sha256或产品代码。
+唯一启用rjj8配置root@127.0.0.1:15791，localforward localhost:18770→remote localhost:18765；旧验收根/root/autodl-tmp/zlk/SimpleMcpAcceptance。此前Agent归属MM /root/autodl-tmp/zlk/MultiModal、原0.5.512，专用tmux zlk-worker-rjj8-agent/@54；Scheduler absent不证明训练停。旧验收agent_inspect报AGENT_TMUX_WINDOW_MISSING，task_list报AGENT_PROJECT_MISMATCH，未发写请求。新增启用Worker为共享globalState，不能擅改。
+
+旧验收 mcp__simple_generic_acceptance 为0.5.512/PID15552，端点在线不证明Agent身份或窗口存活；历史队列EPERM最近17:35:39北京时间。原安装512 Agent hash 55cd300460f2b2aee184c78934e2d8210f7434c6bcbf163240f8c492894078bf、Scheduler 870e733728aa8d68bc1b92863b1ea133a6bb6ef0139f60772fe91dbec7d76f92，匹配MM原基准；旧远端仅stats大小1349575/291630，不证版本。
+
+原R12-I批准独立user-data、远端新根/root/autodl-tmp/zlk/SimpleMcpAcceptance_G003及runtime/隧道/窗口；本人随后明确停止服务器排查和部署，不作为本轮前置，也不记通过。本机候选根 C:/Users/ZLK/AppData/Local/Temp/simpleex-r12-isolated-20261116-83e670c4 曾查不存在、未创建；新远端根未创建。旧MM端点不动；validate/dryRun含同步与写入，不是只读。
+
+## 唯一合成夹具与UI来源
+
+已核TEMP物理根后新建保留 C:/Users/ZLK/AppData/Local/Temp/simpleex-normal-ui-g003-20261116-a7c39e2f，非Git/科研数据。初始README.md/config.yaml/train.py/.vscode/settings.json、experiments/results/latest-results.json及synthetic/final.csv；train.py只print。final两行synthetic_a/b、seed42、三指标.11/.22/.33与.44/.55/.66；AP/macro_f1/weighted_f1独立。catalog的active_query仅为格式，synthetic_fixture明确合成。
+
+追加offline-fixture.json由真实parseDownloadedMetricCsv AST函数与dist/ProjectResultTables解析finalCSV生成2records/6cols/preview，再包装公开OfflineImport schema；无snapshot/任务/Worker/错误状态。经公开命令面板导入，offline_bundle来源为此文件，effectiveConnectionMode=offline_import。
+
+selection.csv为synthetic/synthetic_selector/43/.77/.88/.99（1行6列），真实写入/Markdown生成追加 catalog，原 final 保留。final CSV/MD 127/204字节、selection 93/157字节、by_method 两子表各86字节；行入口可重生成相同字节，不冒只读。不同内容或覆盖提示停，生成文件保留。
+
+启动生成 simple_cluster 状态；初始ui_layout.json保留 syncPendingPlanArtifacts 与合成退役 plotResultsToPpt，界面仅显示保留动作，未同步。首次静态检查新建已预查不存在的 check_reports/check-static-latest.md；passed、errors0、warnings1、infos0、plans0，唯一 no_plan_files，checkerSourceAbs 指本仓脚本。未见子进程退出码，不冒实验通过；报告及offline/ui状态保留。
+
+专用宿主窗口60232374须重观；renderer.log window9加载本仓。用户R10信任该根，未改trust或原MM/Generic。
+
+## 有效验收与原证据
+
+唯一明细docs/windows-entry-coverage.json、人工说明docs/manual-acceptance-checklist.md，不覆盖旧统计。G001首次build 08-18-32-672Z-76172-build为286项284pass/2fail、10gates通过；后续按输入替换/补充组合291身份通过，不冒一次全绿。JSON消费者08-37-02-776Z-41728-test/08-37-24-119Z-57944-test；history消费者08-55-54-117Z-67916-test/08-56-28-732Z-66492-test共43子测试；原Panel及两script VM通过。日志在simple_cluster/reports/test-workflow，后续变更见上文及文末。
+
+R10旧验收仅签当前授权、合成对象可执行本机子集；18条观察及对象/目录/布局/离线映射/资源树/筛选见 `g003R10SyntheticObservation`。generic右键非结果专用动作；无当前GUI JSON producer，CLI不冒GUI导出；任务卡/批量/跨dataset共享/人工Plan归类缺对象，实时Worker链缺隔离，sync未执行。
+
+R10唯一application例外showAdvancedCommands经批准由无显式覆盖→true→离线导入/映射保存（Agent待同步）→复位；Code/User/settings.json无键/UI未勾选，不再启用。适用所有profiles已披露，不扩其他权限。工具exec-20e835a2、bf4a4bc7、13a030c6、32c0b8f5；selection三入口d720569d/ad92b711/5e29e4af/499b6aa4及结论见R10原线程01a1e34f...。
+
+R13旧验收签10位置本机子集：原9含说明双入口、空日志、Panel诊断、首次静态检查及报告打开/复制；第10为Temp同步区报告，plans0/warnings1/no_plan_files。原工具exec-6c4302ba、ac6c7318、438f3e82/c4c72d10；running/disk b0818733…一致不证明项目身份。第10项见旧线程01a1e3ec-f6ca-7723-922c-8f38449f87c8、`g003R13ReportListFollowup`。通知独立复制因对象消失未测，不重造通知；不签整代。
+
+## 未完成与下一动作
+
+空PLAN“按钮终态”“三步动作”仅导航，首次屏外点击失败后展开成功，见 `g003CResumeNavigation`；GPU齿轮见 `g003CGpuDisplayOptions`。离线诊断与rjj8转发已配置未检测见 `g003CDiagnosticDetailFollowup`；其余诊断/DOM审计/矩阵/指南见 `g003CDiagnosticStatusFollowup`、`g003CDiagnosticAuditFollowup`、`g003CIntegrationGuideLink`、`g003CSettingsGuideCopy`、`g003CSettingsOpenClose`、`g003CProjectRulePreview`。audit 101/70非分母，旧选择器仅预览；规则提交0f597afc已push/fetch。
+
+`showGitBackupStatus` 因用户输入暂停后，非Git专用项目提示不适用，见 `g003CBackupStatusCurrent`；高级入口受显隐约束。
+
+受控 `sftp_remote_directories`/`sftp_tree` 曾仅列配置根，`sftp_target` 曾报无sftp.json。SimpleSFTP 0.2.120 discovery/health/capabilities/OpenAPI 与rjj8身份核对成功；首次列 `/root/autodl-tmp/zlk` 返回2001 `CONFIRM_REQUIRED`。本人精确授权后，以候选本机项目和同一目标传confirm/pathConfirmed，`remote.listDirs` 返回ok=true、9个目录，含MM及旧验收根，未列新验收目录；不证明同名文件/链接不存在或隔离。未远端写入，随后按本人新要求停止排查。
+
+本人最新要求先用既有中英文记录、源码位置和有效结果对账，不重复有效实点/回归；同文件必要改动按阶段集中，预算先在内存核对，非冻结时一次落盘。当前164处静态命令文本已关联原位置证据、条件或未知；动态已知实例分组见coverage `g003DynamicEvidenceReconciliation`。静态待关联0不等于未查逻辑0；真实未查完按钮逻辑数未知。五张Worker卡有5个导入仅预览、15个保存/启动/删除未执行，20仅为未完成流程实例举例，不是剩余总数。
+
+空PLAN导航、筛选、选择和设置观察见 `g003CPlanNavigationFollowup`、`g003CNavigationAdditional`、`g003CDiagnosticNavigation`、`g003CEmptyPlanSelectors`、`g003CEmptyPlanBatch`；无对象不证明非空任务链。早前原R13配置说明提示未代选，其终态未知；重载后四选项启动引导为另一代码路径，按既有授权只选打开面板，不能当旧提示恢复或完成。用户输入中断后未重放旧动作；未改共享设置。
+
+R12-I退出范围而非通过；R10/R13限定子集有效，整代未签。R11/R12以插件受控逻辑证据为准，最终由总控B01–B03判断。
+
+## Git与消息门槛
+
+规则 f542b072、f9e6d682、35d5ba42 与“先对账”计划74abc8e7已scoped push/fetch。origin 为 https://github.com/zlinkw/SimpleExperiment.git 的master；约60个无关VSIX摘要不stage/删，远端前进/保护/凭据阻断则停止，不merge/rebase/force。计划预算首检21623失败，总控压缩后21589、diff check通过；三份未闭合记录未混提交。
+
+计划修订、用户决定、新授权及交付联系总控。
+
+旧布局退役保存动作过滤：隔离渲染复现，首诊断缺 uiCapabilityMap 退出1；目标测试先2/4失败后4/4，消费者3/3。compile 八门禁通过；build 286/286、退出0、并发1、锁释放，日志 `simple_cluster/reports/test-workflow/2026-11-17T04-41-10-623Z-26892-build/`，模块及三script VM通过、10890无命中。专用项目追加合成旧动作并重载，界面仅见两个保留动作，实点跨隐藏项换序并恢复，回读四项保留。重载后四选项启动提示按既有授权选打开面板；此前误认作旧R13两选项，现已纠正，旧提示终态未知。源码和生成物提交 1550f583f85a66c47b5d4cf764ead787cb5f83c9，push/fetch 后 HEAD=origin/master。无安装或远端操作。
+
+彼时专用 workspace panel diagnostics 的 running/disk/manifest 均为 `c3480f58718bac767c398c587c72d5290e775bf8360f9b4da0244043ae854e95`、ready；Panel/资源树空态见manual/coverage，Worker配置仅预览取消。
+
+资源树运行进度误高亮操作列表：共享锚点导致选择首项。目标测试先1/2失败，修后2/2；消费者3/3、9/9；build 286/286、退出0、并发1、锁释放，日志 `simple_cluster/reports/test-workflow/2026-11-17T05-10-33-780Z-52856-build/`；模块和三script VM通过、10890零命中。专用宿主逐点两项均高亮对应入口，running/disk/manifest 均为 `cd25fbc3d3bbeeb793603c9318be8dfd00a859c625a7156d1743c6da14ccd8dc`、ready；空态不证明任务链。源码生成物 b225fdf2f8e9ff42b89f6ccde10413ca2dee5d8f 已 push/fetch 对齐。
+
+GPU 自定义刷新候选误用 snapshot，改为 manualGpuSnapshot；TMUX 无可添加命令时的误导提示改准确。目标先4/5失败后5/5，消费者3/3；中间 build 286/286、退出0，日志 `simple_cluster/reports/test-workflow/2026-11-17T05-36-15-253Z-39956-build/`；文案修改后最终 build 286/286、退出0、并发1、锁释放，日志 `simple_cluster/reports/test-workflow/2026-11-17T05-49-58-655Z-40444-build/`；模块及三script VM通过、10890无命中。专用宿主实见GPU正确候选和TMUX新提示；GPU动作另保存、重载并实点，反馈离线无法刷新；未访问远端。running/disk/manifest 均为 `8f012b75bc3d94b87c1c28af05db748b26bca130e555124c4aa766abdfc813fa`、ready；源码生成物 0b484088cc10af9f4dec3e82b138676d31f59668 已push/fetch对齐。
+
+本人要求集中查修后统一验证，流程提交037df731、970106fa已push/fetch。M/N/O修复导入、删除配置、启动隧道取消误报completed；删除取消首次复现16/17退出1、实际completed，修后通过。总控核出启动失败/待确认亦误报completed；手动启动按实际outcome报failed/cancelled/submitted，自动调用保留原布尔契约。串行 panelMessageDispatch 20/20、serverConfigSaveContinuation 3/3、backgroundTunnelHost 9/9、panelWebviewScriptHealth 13/13、datasetResultCatalog 10/10，均exit0；受控五卡身份/状态、确认取消、任务/结果路由、映射与区域重试不冒实机，输出见本聊天工具记录。中间compile及build日志 `simple_cluster/reports/test-workflow/2026-11-17T07-14-31-691Z-13112-compile/`、`2026-11-17T06-58-02-272Z-84304-build/`，不冒最终候选。最终build 280/280、exit0、并发1、锁释放，6按需未运行；日志 `2026-11-17T07-21-58-237Z-59720-build/`。Panel模块及3个生成script VM通过，10890零命中，生成物与manifest匹配、buildId `1a33b6e4a9c9ca5642ddcdce4c5c81ad3f5fb581dca96bc1d7b749787218df7a`。源码/五测试/生成物提交ad31204a已push/fetch；无安装、发行或远端操作，总控B01–B03通过。
