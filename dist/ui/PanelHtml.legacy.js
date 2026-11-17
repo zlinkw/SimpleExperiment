@@ -8000,7 +8000,7 @@ function renderPanelHtml() {
       var titles = inspectorCustomGroupTitles();
       var groups = inspectorCustomGroupsState();
       return titles.map(function(title) {
-        var items = (groups[title] || []).filter(function(spec) { return !["archiveArtifacts", "deleteArtifacts", "archivePlanCopy"].includes(spec.command); });
+        var items = (groups[title] || []).filter(function(spec) { return !["archiveArtifacts", "deleteArtifacts", "archivePlanCopy", "saveProjectAdapterRules", "saveResultColumnMapping"].includes(spec.command); });
         var buttons = items.map(function(spec) {
           var btn = inspectorSavedActionButton(spec);
           var upBtn = '<button type="button" class="mini secondary inspectorCustomRowBtn" data-inspector-move="up" data-inspector-group="' + escAttr(title) + '" data-inspector-id="' + escAttr(spec.id) + '" title="上移">↑</button>';
@@ -8032,6 +8032,7 @@ function renderPanelHtml() {
       for (var i = 0; i < list.length; i++) { if (String(list[i].id) === String(actionId)) { idx = i; break; } }
       if (idx === -1) return;
       var nextIdx = idx + delta;
+      while (nextIdx >= 0 && nextIdx < list.length && ["archiveArtifacts", "deleteArtifacts", "archivePlanCopy", "saveProjectAdapterRules", "saveResultColumnMapping"].includes(list[nextIdx].command)) nextIdx += delta;
       if (nextIdx < 0 || nextIdx >= list.length) return;
       var tmp = list[idx];
       list[idx] = list[nextIdx];

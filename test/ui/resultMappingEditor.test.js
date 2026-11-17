@@ -56,3 +56,52 @@ test("cold result navigation opens the mapping after lazy render only once", () 
   sandbox.applyMainViewForSection("gpu");
   assert.equal(sandbox.pendingResultMappingOpen, false, "leaving results cancels the pending jump");
 });
+
+test("saved legacy manual configuration actions stay hidden without changing the saved layout", () => {
+  const panelFunction = require("../_helpers/panelFunction");
+  const groups = {
+    "实验准备": [
+      { id: "old-rules", command: "saveProjectAdapterRules" },
+      { id: "plan", command: "validatePlan" },
+    ],
+    "结果文件": [
+      { id: "old-mapping", command: "saveResultColumnMapping" },
+      { id: "result", command: "syncPendingPlanArtifacts" },
+    ],
+  };
+  const original = JSON.stringify(groups);
+  const context = {
+    inspectorCustomGroupTitles: () => Object.keys(groups),
+    inspectorCustomGroupsState: () => groups,
+    inspectorSectionsForCustomGroup: () => [],
+    inspectorSavedActionButton: (item) => `<button data-command="${item.command}"></button>`,
+    esc: String,
+    escAttr: String,
+  };
+  vm.createContext(context);
+  vm.runInContext(panelFunction("renderInspectorCustomGroups"), context);
+  const rendered = context.renderInspectorCustomGroups();
+  assert.doesNotMatch(rendered, /saveProjectAdapterRules|saveResultColumnMapping|old-rules|old-mapping/);
+  assert.match(rendered, /data-command="validatePlan"/);
+  assert.match(rendered, /data-command="syncPendingPlanArtifacts"/);
+  assert.equal(JSON.stringify(groups), original);
+});
+
+test("moving visible saved actions skips hidden legacy actions", () => {
+  const panelFunction = require("../_helpers/panelFunction");
+  const groups = { "实验准备": [
+    { id: "first", command: "validatePlan" },
+    { id: "hidden", command: "saveProjectAdapterRules" },
+    { id: "last", command: "dryRunPlan" },
+  ] };
+  let saved;
+  const context = {
+    inspectorCustomGroupsState: () => groups,
+    markWorkbenchInspectorInteraction() {},
+    saveInspectorCustomGroups: (value) => { saved = value; },
+  };
+  vm.createContext(context);
+  vm.runInContext(panelFunction("moveInspectorCustomButton"), context);
+  context.moveInspectorCustomButton("实验准备", "first", 1);
+  assert.deepEqual(Array.from(saved["实验准备"], (item) => item.id), ["last", "hidden", "first"]);
+});
