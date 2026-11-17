@@ -1,20 +1,16 @@
 # G003 插件功能与按钮正确性检查
 
-## 本轮结论
+## 当前状态与已完成检查点
 
-本轮已按用户最新“只查插件功能/按钮，先集中查修再统一验证”范围完成源码检查、修复及最终B01–B03验收。下文保留本轮范围、权限和必要原证据，不是新的待办清单。结论不覆盖所有按钮实机流程或服务器工作状态，真实按钮逻辑总数仍未知。
+执行中。本人最新明确总体目标是查完所有按钮逻辑、整个PLAN运行和结果汇总正确性，把剩下的全部做完；并要求优先修影响整个实验流程的大问题，尽可能以更大的连续修改计划减少迭代。先前对子范围的结案不能代替总体目标完成，现沿同一G003继续，不重开已完成任务或另建代次。
 
-- 最终源码/五测试/生成物提交 `ad31204a6d438420601132d22eb55a1346e081fc` 已普通push/fetch对齐。buildId `1a33b6e4a9c9ca5642ddcdce4c5c81ad3f5fb581dca96bc1d7b749787218df7a`。
-- B01通过：实际diff与必要调用链无新增具体阻塞缺口；MCP配置/回读/解析/只读摘要、退役残留及按钮绑定/取消/失败/待确认反馈具备当前范围证据，保留原生产保护。旧有效证据按未变闭包复用，未重复实点。
-- B02通过：既有UI/真实函数受控输入→host→API参数、确认和状态的身份对应一致；自动调用布尔契约保留。受控用例不冒真实服务器操作，真实外部效果未测、旧R13操作未知和旧隔离准备退出范围均明确披露。
-- B03通过：最终build的280个已选任务及10道门禁通过、退出0，实际并发1、输入起止一致、锁已释放；6按需文件未运行不计通过。模块及实际HTML三段script VM沿用本候选有效证据，源码/生成物/manifest一致。原日志 `simple_cluster/reports/test-workflow/2026-11-17T07-21-58-237Z-59720-build/`；早期复现/失败保留execution及原输出。
-- 本轮仅源码检查与修复交付，不做运行版本升级交付；按“非必要不构建安装”，不再构建/打包/安装/发行或更新Worker。日常已安装版尚未应用本轮源码修复，旧安装设置残留不冒已消失。没有本轮范围内剩余必要产品工作；后续安装或新增需求单独按具体目标处理。
+已完成检查点：源码 `ad31204a6d438420601132d22eb55a1346e081fc`、收尾 `af2697f249289db0604ca34fdbb40d4f1b6a4104` 已push/fetch。此前B01–B03仅签当时已识别插件子范围；MCP接入/退役残留、UI绑定与取消/失败/待确认反馈等证据保留。buildId `1a33b6e4a9c9ca5642ddcdce4c5c81ad3f5fb581dca96bc1d7b749787218df7a`，280已选任务及10门禁通过、并发1、锁释放，6按需未运行，模块及三script VM有效；原日志 `simple_cluster/reports/test-workflow/2026-11-17T07-21-58-237Z-59720-build/`，失败/实机外部未测/旧R13未知见execution。未安装升级，日常安装版未应用修复。
 
-收尾仅更新既有计划/索引及三份事实记录，集中验证后普通scoped提交推送；最终提交身份记execution及Git，不新建报告、不重复产品验证。
+当前未完成重点是同一真实PLAN/job身份跨预检、入队、派发、协议2完成证据、采集、正式汇总、展示/导出的连续性，以及既有记录里尚无正确性证据的支持入口。P/Q/R是从现有源码/测试识别的跨段断言缺口，不是已复现故障，也不能自动代表全部剩余逻辑；必须把其余支持逻辑的真实缺口一起收齐。
 
 ## 当前目标与用户裁决
 
-2026-11-17 本人明确：“我只是为了查插件功能和按钮是否正确，不关心worker是否工作正常，所以不需要查这些服务器，使用rjj服务器也只是为了配合检查插件”。本条替代旧的“先证明独立Worker环境再验所有真实流程”前置。本轮目标是插件入口、对象/参数传递、权限与确认、处理函数、成功/取消/错误反馈及状态正确；不是服务器运维或科研运行验收。
+2026-11-17 本人明确：“我只是为了查插件功能和按钮是否正确，不关心worker是否工作正常，所以不需要查这些服务器，使用rjj服务器也只是为了配合检查插件”。本条替代旧的“先证明独立Worker环境再验所有真实流程”前置。总体目标包括所有支持的按钮逻辑与完整PLAN运行/结果汇总链：插件入口、对象/参数、权限确认、预检/调度/重试停止、产物与指标的归属及统计展示/导出正确；不是服务器运维或科研训练结果验收。跨段检查必须串接实际生产函数，不能将互不关联的局部用例相加冒完整链路。
 
 停止把Worker健康、科研环境、父目录写权限、独立认证/端口/窗口、Agent部署和新隔离环境准备列为结案前置。不再为了覆盖按钮创建/运行真实任务、检查其他服务器或修改现有项目。rjj8仅在具体插件用例确需且已有精确许可时作为配合环境；依赖不满足可用受控替身验证插件契约，不能改生产门禁制造成功。
 
@@ -26,11 +22,11 @@
 
 - 总控兼最终验收：《项目总控与长期规划 · C方案接替》01a1e412-ead7-7710-acd7-c475abb8b41a/local，Sol/high/Standard，独占本计划、索引、共同角色说明及B01–B03结论，不实现产品后自签。
 - 唯一Terra：01a1e793-a4a0-7630-8157-24c920746d1a/local，Terra/high/Standard，独占execution、manual/coverage、现任指针、UI/检查/生成租约、返修事实/踩坑及授权scopedGit。旧Terra因真实接续条件交班归档；旧独立Sol已完整移交R13十位置等有效结论并归档，不唤醒或新增替代角色、Luna、调度/监控。
-- 唯一事实：[执行登记](G003-execution.md)、[覆盖记录](../windows-entry-coverage.json)、[人工原记录](../manual-acceptance-checklist.md)。已完成过程与原日志不复制进新报告。原G003基线886139eb9ba3c3e94f383916daaeb096074c5108仅历史；当前源码修复0b484088、最近计划74abc8e7，Git/运行身份以实际读取及execution最新事实为准，不重提交旧成果。
+- 唯一事实：[执行登记](G003-execution.md)、[覆盖记录](../windows-entry-coverage.json)、[人工原记录](../manual-acceptance-checklist.md)。已完成过程与原日志不复制进新报告。原G003基线886139eb9ba3c3e94f383916daaeb096074c5108仅历史；当前继续基线af2697f（含源码ad31204a），Git/运行身份以实际读取及execution最新事实为准，不重提交旧成果。
 - 通用接续、计数、正确模型/强度/default实核及自动同角色新建/消息/归档唯一遵循[统一入口](C:/Users/ZLK/.agents/skills/caveman/SKILL.md)及[交班模板](C:/Users/ZLK/.agents/skills/caveman/references/handover.md)；分工遵循[多会话实现](C:/Users/ZLK/.codex/skills/multi-session-implementation/SKILL.md)。不在项目复制阈值或算法，不为小进度换角色。
 - 预算：计划24000字符、execution16000、长期踩坑12000；90%时在正常非冻结窗口整份语义归并，保留全部未决/授权/失败/原证据，不能只削到阈值、硬截断或另造存档搬文字。相同文件先汇总本阶段已知改动，内存核预算，一次写入/集中回读；有新事实/真实失败再增量，不为标点措辞反复编辑计数。
 
-Terra完成全部当前范围实现和S01–S10及M/N/O必要补缺→真实工具交总控完整包→总控独占B01–B03→失败真实工具详返原Terra修复/定向自验/再交→最终明确通过及既有授权交付→总控结案。完整包给最终基线/diff、原命令与真实退出码/日志、证据适用输入与含义、真实失败/未知/未测、权限保护和租约。常态总控空闲，Terra普通进度记execution，仅真实新决策或完整交包联系。
+Terra完成全部当前范围实现和S01–S13、M/N/O/P/Q/R及其余实际逻辑补缺→真实工具交总控完整包→总控独占B01–B03→失败真实工具详返原Terra修复/定向自验/再交→最终明确通过及既有授权交付→总控结案。完整包给最终基线/diff、原命令与真实退出码/日志、证据适用输入与含义、真实失败/未知/未测、权限保护和租约。常态总控空闲，Terra普通进度记execution，仅真实新决策或完整交包联系。
 
 有效证据按所涉输入、对象和调用链是否变化判断，不能因全仓提交变化、换角色或重新统计而重做。总控先核实际diff/必要调用链/原证据，仅补未覆盖项目级关联，不重复Terra小验收或已有大验收。实际UI/检查前明确移交单一租约；受检docs/src/test/scripts/dist冻结包括总控，结束才记事实。
 
@@ -76,9 +72,17 @@ AI依据当前项目/任务/PLAN、真实训练评估入口及允许读取的结
 
 构建和安装留在最后且仅在必要时执行，修复过程中不逐次打包安装/升级；最终必要安装由总控结合明确成品版本、验证及既有精确权限统一安排，不自动扩大到发行、旧Worker更新或远端操作。本人未要求此刻安装，现阶段继续源码排查修复。
 
+## 优先级与本次完整连续阶段
+
+本次P/Q/R和其余已确认缺口一次性交唯一Terra连续处理，不按按钮/单测试反复请示。先处理会导致错任务派发、身份丢失、错误产物入汇总、指标串组/错误统计的问题，再处理恢复/取消/次要反馈；无关文案不抢优先级。内部按共享状态和下表文件边界组织，不因此拆多轮用户确认、重复编译/测试/构建。先集中查修所有可独立项，最终统一验证；超边界或真实权限/协议改变才一次合并报总控。
+
+以既有中英文对账、当前生产命令/动态producer/公开命令与handler为集合，复用其有效断言。原记录仅有history/preview/缺对象时，要明确其插件逻辑是否已有受控生产函数证据；缺真实对象不自动等于已验证，也不必为此建真实服务器任务。不重新人工盘点164项或重做有效实点；可在现有coverage批量归并入口等价对象族、断言/原日志与剩余逻辑状态。源文件名或测试绿灯本身不证明某跨段断言已覆盖。
+
+每个已识别的受支持入口逻辑最终须有实际断言或未变有效证据，或准确判为退役/无producer/纯selector/不属于本轮插件契约；不能以服务器不可用或统计总数未知为理由掩掉尚未查明的支持逻辑。P/Q/R之外若出现具体缺口，继续按原源码修复边界处理；确需新文件/协议范围则合并提交后续有界scope，不提前结案。
+
 ## 批次与文件写入边界
 
-每批2–3强相关问题、最多8个源码/测试/文档文件，生成dist不计；同一Terra连续，不另建代次/执行者。R14M/N/O先对照原断言与有效日志，仅确缺才写，不为名字相似先重跑全部文件。测试专用补缺若暴露真实缺陷，可在R14A/B/C对应源码最小修复并计本批总文件数；其他边界/共享协议/整文件删除或新权限由总控先修订。产品保护/支持入口不因测试替身移除。未需修改的文件不制造差量。
+每批2–3强相关问题、最多8个源码/测试/文档文件，生成dist不计；同一Terra连续，不另建代次/执行者。R14M/N/O/P/Q/R先对照原断言与有效日志，仅确缺才写，不为名字相似先重跑全部文件。测试专用补缺若暴露真实缺陷，可在R14A/B/C对应源码最小修复并计本批总文件数；其他边界/共享协议/整文件删除或新权限由总控先修订。产品保护/支持入口不因测试替身移除。未需修改的文件不制造差量。
 
 | 步骤 | 写入边界 | 目标与终点 |
 | --- | --- | --- |
@@ -104,6 +108,9 @@ AI依据当前项目/任务/PLAN、真实训练评估入口及允许读取的结
 | R14M Worker按钮绑定补缺 | 仅 test/features/serverConfigSaveContinuation.test.js、test/tunnel/backgroundTunnelHost.test.js、test/features/resourceMutationRouting.test.js、test/features/panelMessageDispatch.test.js；最多4个测试文件 | 先核已有断言/原有效日志；仅确缺时补五卡共用导入/保存/启动/删除的endpointId、scope、确认取消、成功/失败和状态。真实方法/renderer与受控依赖，禁止写共享配置或启停隧道；同通路对象差异用参数化用例，不逐卡重做有效实点 |
 | R14N 任务及操作按钮补缺 | 仅 test/features/panelMessageDispatch.test.js、test/features/failedJobRecovery.test.js、test/features/runtimeLogAnalysisHost.test.js、test/features/planStopClear.test.js；最多4个测试文件 | 仅补现有任务/job重跑、审核、分析、精确停止/清理、日志入口的对象绑定/确认/取消/终态缺口；受控替身不接远端、不造真实队列或执行删除，不要求新任务/训练；复用原有效调度/产物/取消围栏证据 |
 | R14O 结果归类与渲染恢复补缺 | 仅 test/features/datasetResultCatalog.test.js、test/ui/resultCommandPhaseRouting.test.js、test/features/panelMessageDispatch.test.js、test/features/panelWebviewScriptHealth.test.js；最多4个测试文件 | 仅补autoMatchPlanDatasets/applyPlanDatasetMapping、PLAN原始/追溯入口及渲染失败重试/重载的绑定/授权/反馈缺口；复用现有parser/renderer，异常只在受控测试，不破坏实际UI或改旧结果 |
+| R14P PLAN预检至派发连续性 | 仅 test/features/planValidationOperationPayload.test.js、test/features/idleGpuDispatchLifecycle.integration.test.js、src/extension/legacy.ts、src/features/DistributedPlanQueue.ts、src/clusterSchedulerRuntime.legacy.ts；最多5文件 | 将真实runPlanPreflight/确认/入队输出传入真实分配/dispatch，核同一PLAN/revision、稀疏index、case/seed、output_dir/result_csv、Worker与commandId，至少两个作业不互换；取消/失败预检零入队/零派发。复用原断言，传递实际前段结果，不另造独立队列冒跨段；不连接Worker或改变协议 |
+| R14Q 协议2完成至正式汇总 | 仅 test/features/freshResultHost.test.js、test/features/nativeResultManifest.test.js、test/_helpers/resultCollectionScenario.js、src/extension/ResultCollectionHost.ts、src/results/FreshResults.ts、src/results/LatestResultExport.ts、src/results/NativeResultManifest.ts、src/extension/legacy.ts；最多8文件 | 用实际入队/分配身份构成受控协议2观察/manifest输入，走真实fresh collection→latest export/catalog，核plan/job/index/case/seed/worker/command/output/result；错command或路径不得进入正式汇总，非零/异常沿原review契约。不以delete lifecycleProtocol的旧owner流程代协议2，不写远端或造真实任务 |
+| R14R 指标维度至展示导出 | 仅 test/features/datasetResultCatalog.test.js、test/features/freshResults.test.js、test/_helpers/resultCollectionScenario.js、src/extension/ResultCollectionHost.ts、src/results/FreshResults.ts、src/results/LatestResultExport.ts、src/results/ProjectResultTables.ts；最多7文件 | 优先共用Q既有最小夹具，将同一实收CSV的AP/macro_f1/weighted_f1经真实收集、汇总、catalog及JSON/CSV/Markdown/拆表贯通。两个seed、三项不相等指标，核现有契约的均值/样本数/seed、dataset/method/PLAN归属，另PLAN同名case不串组；不新增未承诺统计字段或科研结论，不改指标语义或性能阈值 |
 | R15 生成与最终交包 | 原生成器独占dist；Terra维护执行证据和scopedGit，总控维护计划/索引 | 只因产品输入变化做规定build/VM及受影响验证；完整插件逻辑小验收后交总控B01–B03，不重复有效检查；当前不打包/安装/发行 |
 
 ## 小验收与最终验收分工
@@ -123,8 +130,11 @@ AI依据当前项目/任务/PLAN、真实训练评估入口及允许读取的结
 | S09/D2 | 各位置不要求手填接入，退役专属UI/schema不复活，正常结果功能保持 | 已核源码宿主/旧布局/设置及原目标；安装版旧残留如实披露 |
 | S10/F–I | 引导、bootstrap、离线刷新和复制指南无手配必经/不实承诺 | 现有目标与真实复制/反馈，空PLAN不冒正式运行 |
 | M/N/O补缺 | 三组中具体未覆盖的绑定、确认/取消、反馈/终态断言齐备 | 优先原有效证据，缺口才新增真实生产函数的受控断言；不写共享项目/远端 |
-| B01 | 审最终diff/必要调用链及小项证据，插件范围每个已识别逻辑类别恰当；不把源计数、preview、替身混成全按钮实点 | 总控只补实际关联缺口，未知总数不伪造；历史未测实机与本轮范围区分 |
-| B02 | UI/消息→host→现有API契约的同一项目/Worker/commandId/路径关联正确，权限确认和错误不丢；生产安全门禁保留 | 用已有受控/真实证据对账，不以真实Worker部署/训练/远端产物闭环为前置，不重跑S项 |
+| S11/P | 同一预检/确认产出的PLAN/job身份实际贯穿入队、分配、派发；取消/失败不得入队派发 | 前段真实输出作后段实际输入；正确性软件夹具，无训练/性能实验，既有队列保护断言复用 |
+| S12/Q | 协议2完成证据到真实收集/正式导出的同身份闭环，错command/路径拒收，不覆盖/串旧结果 | 真实生产函数与受控transport；completion与采集契约分开，旧owner用例不冒协议2 |
+| S13/R | 同一实收指标的类型/数值/seed与PLAN/dataset/method归属在汇总/目录/展示导出一致 | 各格式与拆表按现有真实schema独立算期望，解析/拆表各自绿不相加冒全链 |
+| B01 | 审最终diff/必要调用链及小项证据，所有当前支持入口逻辑均有明确有效证据或真实类别，P/Q/R与其他剩余缺口闭合；不把源计数、preview、替身混成全按钮实点 | 总控只补实际关联缺口，未知总数不伪造；历史未测实机与本轮范围区分 |
+| B02 | UI/消息→预检/入队/派发→协议2完成证据→收集/汇总/catalog/导出的同一项目/PLAN/job/Worker/commandId/路径与指标维度关联正确，权限确认/取消/错误不丢，生产门禁保留 | 用已有受控/真实证据对账，不以真实Worker部署/训练/远端产物闭环为前置，不重跑S项 |
 | B03 | 最终源码/生成物/界面与测试证据适用候选一致，scopedGit真实，发行/安装/部署状态不冒报 | Git后仅核新增提交关系，不做包后冒烟或额外全仓审计 |
 
 B项失败须真实工具把复现、期望/实际、影响、原证据、保护/修法边界及定向重验标准交Terra，不在final列完缺陷让双方idle；通过也明确基线、结论、真实未测/范围及交付边界。根因与真实返修按既有生命周期，不新建审查代理或冗余报告。最终仍由总控判断。
@@ -139,4 +149,4 @@ B项失败须真实工具把复现、期望/实际、影响、原证据、保护
 
 集中验证覆盖最终候选后，Terra核实际diff/status，再按原批次scope分别只暂存已验证文件；没有本批适用有效检查时不提交为成功批次，不为早提交反复构建。不混三份未闭合记录、runtime输出/报告/秘密/无关约60个VSIX摘要，不删除它们。既有master→origin/master普通ff提交/push/fetch等值；远端前进/凭据/保护/hook阻断停报，不rebase/merge/force/改remote/覆盖历史。源码、发行、安装、远端部署分别报告；修复阶段不发包/安装/升级，最终必要安装统一安排，不自动发布或更新远端Worker。
 
-本轮结案是当前已识别插件入口/调用链的必要正确性证据齐、真实缺陷修好、B01–B03明确通过、适用scopedGit完成；不再等待Worker正常运行/新服务器或准确按钮总数。报告清楚真实UI、受控测试、preview、历史与实际外部效果未测；范围退出不写测试通过。旧G001/G002结论保留，不宣称所有服务器/真实训练/所有按钮实机流程均完成。全部当前条件齐后才能标本轮完成，否则报精确插件缺口与下一动作。
+总体结案须当前支持按钮逻辑集合及整个PLAN运行、结果汇总链的剩余正确性缺口全部闭合，含S11–S13；真实缺陷修好、B01–B03针对总体范围明确通过、适用scopedGit完成。不能再以局部已识别项通过宣布总体完成。动态实机实例总数可未知，但受支持逻辑仍未知/待查不能结案；不等待服务器运维通过或强造实际训练。报告清楚真实UI、受控测试、preview、历史与实际外部效果未测；范围退出不写测试通过。旧G001/G002结论保留，不宣称所有服务器/真实训练/所有按钮实机流程均完成。全部当前条件齐后才能标本轮完成，否则报精确插件缺口与下一动作。
