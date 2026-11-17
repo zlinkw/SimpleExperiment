@@ -26,7 +26,7 @@
 - 通用接续、计数、正确模型/强度/default实核及自动同角色新建/消息/归档唯一遵循[统一入口](C:/Users/ZLK/.agents/skills/caveman/SKILL.md)及[交班模板](C:/Users/ZLK/.agents/skills/caveman/references/handover.md)；分工遵循[多会话实现](C:/Users/ZLK/.codex/skills/multi-session-implementation/SKILL.md)。不在项目复制阈值或算法，不为小进度换角色。
 - 预算：计划24000字符、execution16000、长期踩坑12000；90%时在正常非冻结窗口整份语义归并，保留全部未决/授权/失败/原证据，不能只削到阈值、硬截断或另造存档搬文字。相同文件先汇总本阶段已知改动，内存核预算，一次写入/集中回读；有新事实/真实失败再增量，不为标点措辞反复编辑计数。
 
-Terra完成全部当前范围实现和S01–S13、M/N/O/P/Q/R/S及其余实际逻辑补缺→真实工具交总控完整包→总控独占B01–B03→失败真实工具详返原Terra修复/定向自验/再交→最终明确通过及既有授权交付→总控结案。完整包给最终基线/diff、原命令与真实退出码/日志、证据适用输入与含义、真实失败/未知/未测、权限保护和租约。常态总控空闲，Terra普通进度记execution，仅真实新决策或完整交包联系。
+Terra完成全部当前范围实现和S01–S13、M/N/O/P/Q/R/S/T及其余实际逻辑补缺→真实工具交总控完整包→总控独占B01–B03→失败真实工具详返原Terra修复/定向自验/再交→最终明确通过及既有授权交付→总控结案。完整包给最终基线/diff、原命令与真实退出码/日志、证据适用输入与含义、真实失败/未知/未测、权限保护和租约。常态总控空闲，Terra普通进度记execution，仅真实新决策或完整交包联系。
 
 有效证据按所涉输入、对象和调用链是否变化判断，不能因全仓提交变化、换角色或重新统计而重做。总控先核实际diff/必要调用链/原证据，仅补未覆盖项目级关联，不重复Terra小验收或已有大验收。实际UI/检查前明确移交单一租约；受检docs/src/test/scripts/dist冻结包括总控，结束才记事实。
 
@@ -112,7 +112,12 @@ AI依据当前项目/任务/PLAN、真实训练评估入口及允许读取的结
 | R14Q 协议2完成至正式汇总 | 仅 test/features/freshResultHost.test.js、test/features/nativeResultManifest.test.js、test/_helpers/resultCollectionScenario.js、src/extension/ResultCollectionHost.ts、src/results/FreshResults.ts、src/results/LatestResultExport.ts、src/results/NativeResultManifest.ts、src/extension/legacy.ts；最多8文件 | 用实际入队/分配身份构成受控协议2观察/manifest输入，走真实fresh collection→latest export/catalog，核plan/job/index/case/seed/worker/command/output/result；错command或路径不得进入正式汇总，非零/异常沿原review契约。不以delete lifecycleProtocol的旧owner流程代协议2，不写远端或造真实任务 |
 | R14R 指标维度至展示导出 | 仅 test/features/datasetResultCatalog.test.js、test/features/freshResults.test.js、test/_helpers/resultCollectionScenario.js、src/extension/ResultCollectionHost.ts、src/results/FreshResults.ts、src/results/LatestResultExport.ts、src/results/ProjectResultTables.ts；最多7文件 | 优先共用Q既有最小夹具，将同一实收CSV的AP/macro_f1/weighted_f1经真实收集、汇总、catalog及JSON/CSV/Markdown/拆表贯通。两个seed、三项不相等指标，核现有契约的均值/样本数/seed、dataset/method/PLAN归属，另PLAN同名case不串组；不新增未承诺统计字段或科研结论，不改指标语义或性能阈值 |
 | R14S 分支项目打开与移除登记补缺 | 仅 test/project/branchProjectRegistry.test.js、src/extension/legacy.ts；最多2文件 | 现有登记服务/PR用例不证明openBranchProjectFromUi与forgetBranchProjectRegistrationFromUi行为。复用原AST方法夹具，用受控projection/service/vscode/lease核精确id及祖先/分支对象、当前项目不重复打开、确认取消零动作、确认后正确root及forceNewWindow、forget的kind/id及刷新反馈；取消不调用forget。保留原选择/缺失对象语义，只在真实可达缺陷时最小修生产方法。不得打开真实窗口、改真实登记或执行Git/文件删除；不把移除登记扩成目录清理，不增性能/超时/框架。P/Q/R优先，此项与其余补缺连续完成后统一验证，不单独构建安装 |
+| R14T1 分支登记与创建余项 | 仅 test/project/branchProjectRegistry.test.js、src/extension/legacy.ts；最多2文件 | 同一阶段集中归并registerAncestorProjectFromUi/registerBranchProjectFromUi/createBranchFromAncestorFromUi的既有真实行为证据，确缺才以原AST夹具补对象/目录选择、Git身份拒绝、确认取消零服务写调用、确认后参数/preview digest/lease与刷新反馈。所有service/Git/窗口依赖受控，不创建真实worktree或登记 |
+| R14T2 分支提交与状态结果余项 | 同T1两文件；最多2文件 | submitBranchPlanRunFromUi的登记根与所选PLAN贯穿route/list/preview/submit，空列表/选择取消/预览拒绝/最终取消零提交，started/notStarted/unknown反馈和刷新正确；refreshBranchRunsFromUi/compareBranchResultsFromUi只补现有调用链尚未证明的对象/状态身份、空与错误呈现。复用localApi等既有RPC/队列证据，不启动真实任务或窗口，不把请求接收冒完成 |
+| R14T3 分支源码核验与PR余项 | 同T1两文件；最多2文件 | verifyBranchHeadBindingFromUi核登记根、损坏/无清单、选择取消、所选PLAN/revision/executionSource与HEAD传递、绑定成功/失败的state及反馈；核验不宣称科研完成。createBranchPrFromUi/mergeBranchPrFromUi仅归并或补真实UI接线缺口，已有PR/快进有效证据不重做。不得stage/commit、真实RPC/Git/PR或放宽原确认/源码/收据门禁 |
 | R15 生成与最终交包 | 原生成器独占dist；Terra维护执行证据和scopedGit，总控维护计划/索引 | 只因产品输入变化做规定build/VM及受影响验证；完整插件逻辑小验收后交总控B01–B03，不重复有效检查；当前不打包/安装/发行 |
+
+T1–T3为同一连续分支UI收口阶段的内部有界组，P/Q/R优先；先汇总同两文件内所有已知缺口，一次集中实现后统一目标验证，不逐方法请求计划、逐小组构建或重跑有效服务测试。生产文件仅修本家族实际可达缺陷，不改其他功能、协议、权限、性能断言/时限或引入框架；新文件/协议边界仍升级总控。
 
 ## 小验收与最终验收分工
 
@@ -132,6 +137,7 @@ AI依据当前项目/任务/PLAN、真实训练评估入口及允许读取的结
 | S10/F–I | 引导、bootstrap、离线刷新和复制指南无手配必经/不实承诺 | 现有目标与真实复制/反馈，空PLAN不冒正式运行 |
 | M/N/O补缺 | 三组中具体未覆盖的绑定、确认/取消、反馈/终态断言齐备 | 优先原有效证据，缺口才新增真实生产函数的受控断言；不写共享项目/远端 |
 | S补缺 | 分支项目打开与移除登记的真实UI方法正确绑定对象、确认/取消与成功反馈 | 原AST夹具接真实方法，依赖受控，核命令/服务调用及零动作边界；不操作真实项目，不重跑已有效服务/PR场景 |
+| T补缺 | 分支登记创建、提交状态结果、源码核验/PR的支持UI逻辑已有真实有效行为证据，剩余缺口闭合 | 同文件集中归并后仅补缺；受控服务/RPC/Git不代表真实外部操作成功，既有PR/服务证据继续复用 |
 | S11/P | 同一预检/确认产出的PLAN/job身份实际贯穿入队、分配、派发；取消/失败不得入队派发 | 前段真实输出作后段实际输入；正确性软件夹具，无训练/性能实验，既有队列保护断言复用 |
 | S12/Q | 协议2完成证据到真实收集/正式导出的同身份闭环，错command/路径拒收，不覆盖/串旧结果 | 真实生产函数与受控transport；completion与采集契约分开，旧owner用例不冒协议2 |
 | S13/R | 同一实收指标的类型/数值/seed与PLAN/dataset/method归属在汇总/目录/展示导出一致 | 各格式与拆表按现有真实schema独立算期望，解析/拆表各自绿不相加冒全链 |
