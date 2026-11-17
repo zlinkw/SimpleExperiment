@@ -6,6 +6,21 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 
+test("operation list and run progress keep distinct resource-tree selections with real targets", () => {
+  const vm = require("node:vm");
+  const panelFunction = require("../_helpers/panelFunction");
+  const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
+  const context = { treeObjectItem: (section, label, _status, _tone, _title, anchor) => ({ section, label, anchor }) };
+  vm.createContext(context);
+  vm.runInContext(panelFunction("executionTreeObjects"), context);
+  const nodes = context.executionTreeObjects();
+  const operations = nodes.find((node) => node.label === "操作列表");
+  const progress = nodes.find((node) => node.label === "运行进度");
+  assert.notEqual(operations.anchor, progress.anchor);
+  const html = renderPanelHtml();
+  for (const node of [operations, progress]) assert.ok(html.includes(`data-anchor="${node.anchor}"`), node.label);
+});
+
 test("result workflow actions and evidence summary are wired without duplicated middle-column buttons", async () => {
   const extension = readSource("src/extension.ts");
   for (const action of ["parse-results", "refresh-results"]) {

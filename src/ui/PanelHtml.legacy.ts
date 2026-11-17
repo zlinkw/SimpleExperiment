@@ -1559,7 +1559,7 @@ export function renderPanelHtml(): string {
       </div>
       <div id="executionControls" class="executionControls"></div>
       <div id="commandPhaseLine" class="commandPhaseLine muted" role="status" aria-live="polite"></div>
-      <div id="executionPlanList" data-anchor="execution-operations"></div>
+      <div data-anchor="execution-plan-runs"><div id="executionPlanList" data-anchor="execution-operations"></div></div>
       <div id="taskBatchActions" class="actionGrid"></div>
       <details class="executionFullRecords" data-details-key="execution-full-records">
         <summary>高级：完整操作记录</summary>
@@ -8712,7 +8712,7 @@ export function renderPanelHtml(): string {
       return [
         treeObjectItem("execution", "操作列表", "入口", "", "查看已提交、执行中、已完成和异常操作。", "execution-operations", "", "已提交 执行中 已完成 异常 accepted running completed failed stalled"),
         treeObjectItem("execution", "异常操作", "入口", "", "失败或卡住的操作需要查看错误和残留。", "execution-failed", "", "失败 卡住 failed stalled"),
-        treeObjectItem("execution", "运行进度", "入口", "", "查看运行中、排队、失败、停止、取消和已完成任务。", "execution-operations", "", "running testing queued pending failed stalled stopped cancelled completed"),
+        treeObjectItem("execution", "运行进度", "入口", "", "查看运行中、排队、失败、停止、取消和已完成任务。", "execution-plan-runs", "", "running testing queued pending failed stalled stopped cancelled completed"),
         treeObjectItem("execution", "按钮终态", "入口", "", "确认耗时按钮在完成、失败、取消或超时后恢复可点击。", "execution-terminal", "", "按钮 加载 终态 loading terminal uiCommandStatus completed failed cancelled stalled")
       ];
     }
