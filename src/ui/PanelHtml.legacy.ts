@@ -8048,7 +8048,7 @@ export function renderPanelHtml(): string {
         try { help = commandHelp(command) || ""; } catch (e) { help = ""; }
         return '<label title="' + escAttr(help || command) + '"><input type="checkbox" data-inspector-pick="' + escAttr(command) + '" data-inspector-label="' + escAttr(label) + '" value="' + String(index) + '"' + checked + '> ' + esc(label) + ' <span class="muted">' + esc(command) + '</span></label>';
       }).join("");
-      if (!rows) rows = '<div class="muted">主列暂无可见按钮（未渲染或已折叠），请先展开主列对应卡片。</div>';
+      if (!rows) rows = '<div class="muted">当前没有可添加的命令按钮。</div>';
       var menu = document.createElement("div");
       menu.id = "inspectorAddMenu";
       menu.className = "inspectorAddMenu is-open";
@@ -8978,7 +8978,7 @@ export function renderPanelHtml(): string {
         overview: [["部署Agent", "prepareAgents"], ["检测全部", "testAll"], ["刷新数据", "snapshot"], ["暂停网络", "pauseAll"]],
         servers: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["检测全部", "testAll"]],
         settings: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["检测全部", "testAll"]],
-        gpu: [["刷新", "snapshot"], ["检测全部", "testAll"]],
+        gpu: [["刷新", "manualGpuSnapshot"], ["检测全部", "testAll"]],
         plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan"], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
         execution: [["重试", "retryExperiment", { confirm: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["清空历史", "clearOperations"], ["刷新运行状态", "snapshot"]],
         results: [["更新全部 PLAN 结果", "syncPendingPlanArtifacts"],                ],

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.512",
-  "buildId": "cd25fbc3d3bbeeb793603c9318be8dfd00a859c625a7156d1743c6da14ccd8dc",
+  "buildId": "8f012b75bc3d94b87c1c28af05db748b26bca130e555124c4aa766abdfc813fa",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -1169,7 +1169,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "462d747bd8dc6d0edbed490895006995012ea5fe8d68bd820b134ff83359b0a1"
+      "sha256": "c384f4b4cb1fcd6fa42ba7db394f2cd4a14239c3765a9208e24d8dfbe8716f3c"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",

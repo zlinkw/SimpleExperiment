@@ -3,6 +3,23 @@ const assert = require("node:assert/strict");
 const vm = require("node:vm");
 const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
 
+test("visible GPU refresh is offered as the matching inspector action", () => {
+  const panelFunction = require("../_helpers/panelFunction");
+  const context = {
+    inspectorSectionsForCustomGroup: () => ["gpu"],
+    inspectorVisibleCommandsForSection: () => new Set(["manualGpuSnapshot"]),
+    inspectorActionSection: (section) => section,
+    orderInspectorActionsByResourceTree: (_section, actions) => actions,
+    featureCommandLabel: (command) => command,
+    webviewHandledCommands: new Set(["manualGpuSnapshot"]),
+  };
+  vm.createContext(context);
+  vm.runInContext(panelFunction("workbenchInspectorActions") + panelFunction("inspectorCustomCandidatePool"), context);
+  const choices = context.inspectorCustomCandidatePool("GPU 状态");
+  assert.equal(choices.length, 1);
+  assert.equal(choices[0][1], "manualGpuSnapshot");
+});
+
 test("result mapping summary shows source, configured and detected columns, examples and derived metrics", () => {
   const html = renderPanelHtml();
   const script = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1])
