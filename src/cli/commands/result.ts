@@ -14,7 +14,6 @@ import {
   buildResultLeaderboard,
   builtInResultPresets,
   exportPaperTable,
-  leaderboardToCsv,
   parseResultFile,
 } from "../../features/Results";
 
@@ -96,8 +95,15 @@ export async function resultExport(id: string, flags: CliFlags): Promise<number>
     primarySortMetric: metricKeys[0],
   };
   const rows = buildResultLeaderboard(records, config, []);
+  const dimensions = match.record.dimensions || {};
+  const csvCell = (value: unknown): string => {
+    const text = value == null ? "" : String(value);
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
   const body = format === "csv"
-    ? leaderboardToCsv(rows, config)
+    ? [["group", "count", ...metricKeys, "bestResultId", ...Object.keys(dimensions).map(key => `dimension:${key}`)],
+      [rows[0]?.groupKey || match.record.suite, rows[0]?.count ?? 1, ...Object.values(match.metrics), rows[0]?.bestResultId || "", ...Object.values(dimensions)]]
+      .map(row => row.map(csvCell).join(",")).join("\n")
     : exportPaperTable(rows, config, {
       id: "cli",
       title: "Results",
@@ -110,7 +116,7 @@ export async function resultExport(id: string, flags: CliFlags): Promise<number>
       metricDisplayNames: {},
     }, "markdown");
   const evidence = { source: match.source, current: match.current, observedAt: match.observedAt };
-  const output = format === "json" ? JSON.stringify({ id: match.id, ...evidence, metrics: match.metrics, rows }, null, 2) : body;
+  const output = format === "json" ? JSON.stringify({ id: match.id, ...evidence, dimensions, metrics: match.metrics, rows }, null, 2) : body;
   if (flags.out) {
     fs.mkdirSync(path.dirname(path.resolve(flags.out)), { recursive: true });
     fs.writeFileSync(path.resolve(flags.out), output.endsWith("\n") ? output : `${output}\n`, "utf8");

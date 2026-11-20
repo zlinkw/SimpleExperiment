@@ -661,6 +661,31 @@ test('shared CLI views isolate concurrent projects and return objects before ter
   assert.match(exported.content, /AP/);
   await assert.rejects(queryProject(a.root, rpc(a.root, 'AP'), 'result_parse', { file: path.join(__dirname, 'mcpProject.test.js') }), /PROJECT_FILE_REQUIRED/);
 });
+test('MCP result comparison respects declared directions and export preserves the selected row', async () => {
+  const { queryProject } = require('../../dist/mcp/ProjectQueries.js');
+  const f = fixture();
+  const make = (runId, seed, metrics) => ({ planFile: 'plans/p.yaml', workerId: 'worker-a', runId,
+    completionState: 'verified', aggregationState: 'eligible', dimensions: { seed, dataset: 'data,"A"', fold: 'fold\n1' },
+    metrics, sourceFiles: [{ path: 'work_dirs/metrics.csv' }] });
+  const records = [make('run-left', 0, { RMSE: 2, custom: { value: 5, higherIsBetter: false }, unknown_metric: 0.123456789 }),
+    make('run-right', 1, { RMSE: 1, custom: { value: 3, higherIsBetter: false }, unknown_metric: 0 })];
+  const rpc = async method => { assert.equal(method, 'results.list'); return { source: 'active_query', summary: { current: true, results: records } }; };
+  const rows = await queryProject(f.root, rpc, 'result_list', {});
+  const compared = await queryProject(f.root, rpc, 'result_compare', { left: rows[0].id, right: rows[1].id });
+  assert.ok(compared.improvement.includes('RMSE')); assert.ok(compared.improvement.includes('custom'));
+  const exported = JSON.parse((await queryProject(f.root, rpc, 'result_export', { id: rows[0].id, format: 'json' })).content);
+  assert.deepEqual(exported.dimensions, records[0].dimensions);
+  assert.equal(exported.metrics.unknown_metric, 0.123456789);
+  const csv = (await queryProject(f.root, rpc, 'result_export', { id: rows[0].id, format: 'csv' })).content;
+  assert.match(csv, /0\.123456789/); assert.match(csv, /"data,""A"""/); assert.match(csv, /"fold\n1"/);
+  assert.ok(!compared.improvement.includes('unknown_metric') && !compared.regression.includes('unknown_metric'));
+  records[1].metrics = { RMSE: 2, custom: { value: 3, higherIsBetter: true }, ignored: 'not numeric' };
+  const conflicting = await queryProject(f.root, rpc, 'result_compare', { left: rows[0].id, right: rows[1].id });
+  assert.deepEqual(conflicting.improvement, []); assert.deepEqual(conflicting.regression, []);
+  assert.deepEqual(conflicting.metric_difference.RMSE, { left: 2, right: 2, delta: 0 });
+  records[1].metrics = { other: 1 };
+  assert.deepEqual((await queryProject(f.root, rpc, 'result_compare', { left: rows[0].id, right: rows[1].id })).metric_difference, {});
+});
 test('routine cleanup queries need no extra Codex prompt', async () => {
   const f = fixture();
   const config = require('../../scripts/mcp-codex-config.js').configuration(f.root, path.join(f.root, 'simpleex-mcp-launcher.cjs'));
