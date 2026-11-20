@@ -310,6 +310,66 @@ function fixture() {
     gateway: new ProjectGateway({ root: () => root, workers: () => [worker], store, methods: () => methods }),
     authorize: async permissions => store.update(AUTHORIZATION_KEY, createProjectAuthorization(root, [worker], permissions)) };
 }
+test('MCP log reads preserve the exact Worker and remote cursor, including empty responses', async () => {
+  const ts = require('typescript');
+  const source = fs.readFileSync(path.join(__dirname, '../../src/extension/legacy.ts'), 'utf8');
+  const method = source.slice(source.indexOf('    async apiLiveOutput('), source.indexOf('    apiConfigSchema()'));
+  const javascript = ts.transpileModule('const hostMethod = ({' + method + '}).apiLiveOutput;', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const read = vm.runInNewContext(javascript + '\nhostMethod;', { stringField: (value, key) => typeof value[key] === 'string' ? value[key] : '' });
+  const f = fixture(), calls = [];
+  let response = { text: 'first\n', offset: 7 }, failure;
+  const host = { client: { getLiveOutput: async (...args) => { calls.push(args); if (failure) throw failure; return response; } },
+    resolveWorkerEndpointId: id => id, buildState: () => ({ logs: { 'run-1-other': { text: 'other task' }, 'run-1': { text: 'stale cache' } } }) };
+  f.methods['live.output'] = (params, _server, context) => read.call(host, params, context?.signal);
+  const first = await f.gateway.call('log_read', { workerId: 'worker-a', runKey: 'run-1', since: 0 });
+  assert.equal(first.logs[0].text, 'first\n'); assert.equal(first.logs[0].offset, 7);
+  response = { text: 'next\n', offset: 12 };
+  const next = await f.gateway.call('log_read', { workerId: 'worker-a', runKey: 'run-1', since: 7 });
+  assert.equal(next.logs[0].text, 'next\n'); assert.equal(next.logs[0].offset, 12);
+  assert.deepEqual(calls.map(args => args.slice(0, 3)), [['run-1', 0, 'worker-a'], ['run-1', 7, 'worker-a']]);
+  response = { text: '', offset: 12 };
+  const empty = await f.gateway.call('log_read', { workerId: 'worker-a', runKey: 'run-1', since: 12 });
+  assert.equal(empty.count, 0);
+  assert.equal(empty.offset, 12);
+  const schema = PROJECT_TOOLS.find(tool => tool.name === 'log_read').outputSchema;
+  assert.equal(new (require('@modelcontextprotocol/sdk/validation/ajv').AjvJsonSchemaValidator)().getValidator(schema)(empty).valid, true);
+  failure = Error('Worker unavailable');
+  await assert.rejects(f.gateway.call('log_read', { workerId: 'worker-a', runKey: 'run-1', since: 12 }), /Worker unavailable/);
+});
+
+test('experiment_log returns all local lines, requested tail, and remote errors', async () => {
+  const { queryProject } = require('../../dist/mcp/ProjectQueries.js');
+  const f = fixture(), cluster = path.join(f.root, 'simple_cluster');
+  fs.mkdirSync(cluster, { recursive: true });
+  const logFile = path.join(f.root, 'experiment.log');
+  fs.writeFileSync(logFile, Array.from({ length: 240 }, (_, i) => `line ${i + 1}`).join('\n'), 'utf8');
+  fs.writeFileSync(path.join(cluster, 'experiment_index.json'), JSON.stringify([
+    { id: 'local-run', status: 'completed', log_path: logFile },
+    { id: 'remote-run', status: 'completed', worker_id: 'worker-a', log_path: '/remote/log' },
+  ]), 'utf8');
+  const rpc = async (method) => {
+    if (method === 'live.output') throw Object.assign(Error('Worker log unavailable'), { exitCode: 4 });
+    return {};
+  };
+  const all = await queryProject(f.root, rpc, 'experiment_log', { id: 'local-run' });
+  assert.equal(all.length, 240); assert.equal(all[0].message, 'line 1');
+  const tail = await queryProject(f.root, rpc, 'experiment_log', { id: 'local-run', lines: 2 });
+  assert.deepEqual(tail.map(row => row.message), ['line 239', 'line 240']);
+  assert.deepEqual(await queryProject(f.root, rpc, 'experiment_log', { id: 'local-run', lines: 0 }), []);
+  await assert.rejects(queryProject(f.root, rpc, 'experiment_log', { id: 'remote-run' }), /Worker log unavailable/);
+  await assert.rejects(queryProject(f.root, rpc, 'experiment_log', { id: 'missing' }), /experiment not found/);
+  const requests = [];
+  const remote = async (method, params) => {
+    if (method !== 'live.output') return {};
+    requests.push(params);
+    return { runKey: '/remote/log', logs: [{ key: '/remote/log', text: 'first\nsecond\n' }], count: 1 };
+  };
+  const remoteTail = await queryProject(f.root, remote, 'experiment_log', { id: 'remote-run', lines: 1 });
+  assert.deepEqual(remoteTail.map(row => row.message), ['second']);
+  assert.deepEqual(requests, [{ runKey: '/remote/log', workerId: 'worker-a' }]);
+  assert.deepEqual(await queryProject(f.root, async method => method === 'live.output' ? { logs: [], count: 0 } : {}, 'experiment_log', { id: 'remote-run' }), []);
+});
+
 test('read tools work without a write grant and forged confirmation factors never become authorization', async () => {
   const f = fixture();
   assert.equal((await f.gateway.call('project_status', {})).ok, true);

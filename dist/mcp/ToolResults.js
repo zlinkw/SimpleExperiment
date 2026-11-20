@@ -102,7 +102,7 @@ assign(["task_analyze"], object({ commandId: string, workerId: string, status: s
 assign(["operation_list"], object({ operations: array(object(operation)), records: array(object(operation)), total: number, offset: number, limit: number, source: string }, ["operations", "records", "total"]));
 assign(["gpu_status"], object({ gpu: object(), source: string, gpuHistory: object() }, ["gpu", "source"]));
 assign(["gpu_history"], object({ status: string, query: object(), data: object({ series: array(object()), totalPointCount: number }), fetchedAt: string, error: string }));
-assign(["log_read"], object({ runKey: string, workerId: string, logs: array(object({ key: string, text: string, offset: number })), count: number }, ["logs", "count"]));
+assign(["log_read"], object({ runKey: string, workerId: string, offset: number, logs: array(object({ key: string, text: string, offset: number })), count: number }, ["logs", "count"]));
 assign(["tmux_list"], object({ type: string, ok: boolean, available: boolean, workerId: string, workers: array(object()),
     sessions: array(object({ name: string, windows: array(object({ windowId: string, name: string, panes: array(object()) })) })), error: string, fetchedAt: string }, ["ok", "sessions"]));
 assign(["tmux_capture"], object({ type: string, workerId: string, window: string, text: string, ok: boolean, error: string, fetchedAt: string }, ["ok", "workerId", "window", "text"]));

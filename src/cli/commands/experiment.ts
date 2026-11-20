@@ -1848,8 +1848,18 @@ export async function logRecordsForExperiment(id: string): Promise<LogRecord[] |
   const rows = await loadExperiments();
   const match = rows.find((row) => row.id === id || row.name === id || row.run_id === id);
   if (!match) return null;
-  const loaded = await loadExperimentDetail(match.id);
-  return parseLogRecords(loaded.recentLogs);
+  const raw = match.raw || {};
+  const logPath = firstString(raw, ["hub_console_log", "log_path", "logPath", "stdout"])
+    || firstString(asRecord(raw.runtimeDiagnostics || asRecord(raw.observation).runtimeDiagnostics), ["logPath"]);
+  if (match.worker_id) {
+    const runKey = logPath || match.run_id || match.id;
+    return parseLogRecords(extractLiveLog(await callApi("live.output", { runKey, workerId: match.worker_id }), runKey));
+  }
+  if (logPath) {
+    const absolute = path.isAbsolute(logPath) ? logPath : resolveProjectPath(logPath);
+    if (fileExists(absolute)) return parseLogRecords(readTextFile(absolute));
+  }
+  return parseLogRecords(await recentLogsFor(match));
 }
 
 async function configPayload(match: ExperimentRow): Promise<Record<string, unknown>> {

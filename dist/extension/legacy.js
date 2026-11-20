@@ -3394,13 +3394,15 @@ class RealtimeTunnelPanelProvider {
             : undefined;
         signal?.throwIfAborted();
         if (direct && typeof direct === "object") {
-            const directText = [direct.text, direct.output, direct.tail].find((value) => typeof value === "string" && value.trim());
-            if (directText) {
+            const directText = [direct.text, direct.output, direct.tail].find((value) => typeof value === "string");
+            if (directText !== undefined) {
+                const offset = Number(direct.offset || 0);
                 return {
                     runKey,
                     workerId,
-                    logs: [{ key: stringField(direct, "runKey") || runKey, text: directText, offset: Number(direct.offset || 0) }],
-                    count: 1,
+                    offset,
+                    logs: directText ? [{ key: stringField(direct, "runKey") || runKey, text: directText, offset }] : [],
+                    count: directText ? 1 : 0,
                 };
             }
             const directRows = Array.isArray(direct.logs) ? direct.logs : Array.isArray(direct.rows) ? direct.rows : [];
@@ -3413,8 +3415,7 @@ class RealtimeTunnelPanelProvider {
                 const text = [item.text, item.output, item.tail, item.log].find((value) => typeof value === "string" && value.trim());
                 return text ? [{ ...item, key, text }] : [];
             });
-            if (exactRows.length)
-                return { runKey, workerId, logs: exactRows, count: exactRows.length };
+            return { runKey, workerId, logs: exactRows, count: exactRows.length };
         }
         const logs = this.buildState().logs || {};
         const rows = Object.entries(logs).map(([key, value]) => ({

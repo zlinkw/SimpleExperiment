@@ -1943,8 +1943,19 @@ async function logRecordsForExperiment(id) {
     const match = rows.find((row) => row.id === id || row.name === id || row.run_id === id);
     if (!match)
         return null;
-    const loaded = await loadExperimentDetail(match.id);
-    return parseLogRecords(loaded.recentLogs);
+    const raw = match.raw || {};
+    const logPath = firstString(raw, ["hub_console_log", "log_path", "logPath", "stdout"])
+        || firstString(asRecord(raw.runtimeDiagnostics || asRecord(raw.observation).runtimeDiagnostics), ["logPath"]);
+    if (match.worker_id) {
+        const runKey = logPath || match.run_id || match.id;
+        return parseLogRecords(extractLiveLog(await (0, api_1.callApi)("live.output", { runKey, workerId: match.worker_id }), runKey));
+    }
+    if (logPath) {
+        const absolute = path.isAbsolute(logPath) ? logPath : (0, data_1.resolveProjectPath)(logPath);
+        if ((0, data_1.fileExists)(absolute))
+            return parseLogRecords((0, data_1.readTextFile)(absolute));
+    }
+    return parseLogRecords(await recentLogsFor(match));
 }
 async function configPayload(match) {
     const raw = match.raw || {};
