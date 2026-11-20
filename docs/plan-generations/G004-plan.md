@@ -42,13 +42,15 @@
 | B | 04 | src/mcp/ProjectOperations.ts、src/mcp/ToolResults.ts、src/mcp/Server.ts、test/features/mcpProject.test.js |
 | C | 05–06 | src/cli/commands/compare.ts、src/cli/commands/metric.ts、src/cli/commands/result.ts、src/mcp/ProjectQueries.ts、test/cli/simpleCli.test.js、test/features/mcpProject.test.js |
 | D | 07–08 | src/features/Metrics.ts、src/features/Results.legacy.ts、src/cli/commands/result.ts、src/cli/commands/metric.ts、src/mcp/ProjectQueries.ts、test/features/mcpProject.test.js、test/cli/simpleCli.test.js |
-| E | 09–10 | src/cli/commands/plan.ts、src/features/PlanBuilder.legacy.ts、src/mcp/ProjectQueries.ts、src/mcp/ToolCatalog.ts、test/features/mcpProject.test.js、test/cli/simpleCli.test.js |
+| E | 09–10 | src/cli/commands/plan.ts、src/features/PlanBuilder.legacy.ts、src/mcp/ProjectQueries.ts、src/mcp/ToolCatalog.ts、test/features/mcpProject.test.js、test/cli/simpleCli.test.js、test/experimentPlatform.test.js |
 | F | 11 | src/features/ApiWorkflow.legacy.ts、src/extension/legacy.ts、test/features/mcpProject.test.js、test/features/projectWorkspaceChangeIsolation.test.js |
 | G | 12 | src/extension/legacy.ts、src/extension/ResultCollectionHost.ts、src/results/ProjectResultTables.ts、test/features/projectResultTables.test.js、test/features/datasetResultCatalog.test.js、test/features/metricAliasRebuildWorkflow.test.js |
 
 先读实际必要消费者。若真实修复需要未列文件/新公开接口或突破8文件，汇总同根因全部缺口一次升级总控修订，继续不依赖部分；不逐方法索计划，也不能擅扩同步/调度架构。真实新缺陷连同原失败保留，不因G003通过压掉，也不把偏好/假想未来变成必修。
 
 03边界修订：真实共享函数recentLogsFor/logRecordsForExperiment位于experiment.ts，纳入H；ProjectQueries.ts仅沿现有参数路由读取，本组不修改。ToolResults.ts保留，用于空logs时顶层offset的实际输出契约，ToolCatalog.ts可准确说明远端尾段语义。现有Worker /api/live-output自since=0读取文件末尾最多256 KiB（src/clusterAgentRuntime.legacy.ts原实现）是当前真实协议边界，本轮不改Agent、不升级部署、不擅调上限；用当前响应可证明的信息披露范围，不编造总行数/完整标记，不自动追加无限请求。远端尾段/增量、显式tail和本机完整show分别验证；复用已完成的空日志修复1/1阶段证据，新增函数消费者按实际影响定向核验，不重复整仓检查。
+
+统一回归裁定：experimentPlatform.test.js首次14/15、exit1，失败旧断言以2026-09固定basename排除expectedResults明确声明的classification_report.json及output.out；当前解析器未因本代更改该行为，现行精确声明契约及resultCandidateMetadataExclusion.test.js均支持任意项目相对合法结果路径。只更新该对象式声明测试的旧说明/标签及三条精确路径预期，保留命令信号、note不作为结果、元数据和越界拒绝覆盖，不恢复生产basename限制、不删测试。E组加此文件后连execution共8文件。先完整单文件按原20秒门禁重验；仅测试修正不重编，其他适用消费者证据复用。首次统一npm run build因默认maxParallel=2与本项目单测试进程P0冲突主动中止、exit1，前8编译/语法门禁和前9exclusive测试通过只记实际阶段；不是build通过。目标文件修正通过后，集中构建必须显式npm run build -- --max-parallel 1，不改执行器默认值、超时或覆盖以处理本次命令参数问题；原始失败与中止日志保留execution。
 
 ## 保护与检查
 
@@ -58,7 +60,7 @@
 
 全局一个node/python检查者，Terra独占检查/生成和受检输入冻结（含总控文档）。先单目标node --test --test-force-exit --test-timeout 20000，20秒未退停报不重试；Python只提被测函数，spawnSync≤10000、windowsHide并断言真实status0，不全import scheduler/agent。无性能用例/压力阈值，不调整既有超时、覆盖或退役。必要错误边界测试是受控软件场景，不向实际项目注入故障。原build-test-delivery适用，真实首次失败和原日志保留。
 
-12项全部完成且已识别必修问题解决后统一目标消费者/规定build、Panel模块及实际生成script VM、10890业务零命中；复用仍有效检查，不机械重复341或额外包后冒烟。仅测试/记录变化不打包或递运行版本。内部validated scope可普通commit/push/fetch，不因Git拆组重build；仅暂存本组已验证文件，不混runtime输出、秘密、无关摘要。origin仍https://github.com/zlinkw/SimpleExperiment.git、master追踪origin/master；不force/rebase/merge/amend，远端前进/凭据/hook阻断明确上报。
+12项全部完成且已识别必修问题解决后统一目标消费者/显式npm run build -- --max-parallel 1、Panel模块及实际生成script VM、10890业务零命中；复用仍有效检查，不机械重复341或额外包后冒烟。仅测试/记录变化不打包或递运行版本。内部validated scope可普通commit/push/fetch，不因Git拆组重build；仅暂存本组已验证文件，不混runtime输出、秘密、无关摘要。origin仍https://github.com/zlinkw/SimpleExperiment.git、master追踪origin/master；不force/rebase/merge/amend，远端前进/凭据/hook阻断明确上报。
 
 ## 最终验收与集中交付
 
