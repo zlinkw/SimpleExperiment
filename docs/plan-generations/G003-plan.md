@@ -6,7 +6,9 @@
 
 原ad31204a/af2697f子范围、280已选任务/10门禁/6按需未运行、旧失败及R13说明操作未知均保留execution，不代总体完成；R12-I退出而非通过，安装版未含修复。最新build日志2026-11-20T07-10-36-534Z-612-build为291/291、10门禁、退出0、并发1、锁释放，无按需未运行；buildId a86b0eb9962f29fa3128f9beac223a21965a52ae41eca41651ec51b3618051f8。总控已核原run/起止指纹/实际并发/对应dist字节、同commandId贯穿预检至采集导出、R两PLAN两seed三指标均值/样本SD/拆表及Y独占link发布。noReplace成功保留一个.writing硬链接，失败暂存可能保留，不自动清理。
 
-总体B01仍未通过：新证据对象尚写“其余入口继续归并”，部分组仍build_pending；需支持逻辑真实闭合而非只改文字，动态实例分母未知本身不阻塞。新增固定字符窗口断言已改精确persist→guard→update，remotePathConfirmation 8/8退出0，原失败保留。高级入口又发现generateTunnelScript无启用Worker时[0].config抛TypeError，以及writeXshellAgentStartupCommands缺直接方法确认/反馈断言，按Z统一补齐后再交总体包。原P–Y各命令/失败/复验/范围在execution、coverage和Terra工具记录，不重复有效检查。
+2026-11-20 总控最终核对：Z空Worker和确认后会话/项目/远端路径漂移已修，目标首次1/2、9/10失败均保留，复验2/2、10/10通过。coverage现有新对象的六个families已将五组静态、动态producer和公开/高级命令关联到真实方法断言或准确的selector/退役/无producer/范围退出类别；历史实机未测不改成通过。B01支持逻辑及B02完整链路通过，未发现当前必修缺口；动态实例分母/真实外部效果未测不冒全实机。固定字符窗口已改精确persist→guard→update并8/8通过，原P–Y证据复用。
+
+最终功能候选073a6126df30b334a3d2e26a95e6ff67f9bb32f9047cf9c15f4dd50c5791fb86，日志2026-11-20T07-38-05-835Z-6712-build：291/291、10门禁、实际并发1、起止输入相同、锁released，Panel模块及真实三script VM有效，dist当前字节与manifest吻合。B03功能输入/产物部分已核，scoped源码同步和R16试行交付仍待完成，不能标全部完成。本人此前要求本轮最终统一测试、构建和安装，现只按R16与既有发布规则集中交付0.5.513；保留0.5.483权威版，不更新Worker。
 
 ## 当前目标与用户裁决
 
@@ -52,7 +54,7 @@ MCP本人实际授权仅当前Temp项目configuration；产品五项存储不扩
 
 保护原MM final.md、旧Generic Untitled-1未保存稿，不重载/保存/丢弃原窗口；GPU7/所有旧任务/产物/结果/日志、原MM目录/root/autodl-tmp/zlk/MultiModal、tmux zlk-worker-rjj8-agent/@54、旧Agent及localhost:18770→localhost:18765均不动。rjj8旧SSH身份root@127.0.0.1:15791仅已核线索，不当Agent端点、不猜其他Worker。D:/GitRepo/SimpleMcpAcceptance及拒删acceptance_files/cleanup_20261111.txt不覆盖/删除。先前精确旧build锁已按本人单次授权删除，不能用来删除新锁。
 
-不安装/升级MCP或插件/旧Worker、不递版本、不打包安装发行、不新训练、不自动重跑/同步科研结果、不新增外部服务/终端动作或清理。所有完整文件/目录删除仍须精确许可及safe-delete-paths/manual-cleanup-only；生产插件永久删除的路径/节点/类型与双确认、规范安全根、direct-parent cd、./直接子项等保护不变，受控测试不执行真实删除。版本号不替代字节身份，已有包/运行/部署分别如实报告。
+源码检查修复阶段不安装/升级MCP或插件/旧Worker、不递版本或打包发行；B01/B02通过后仅R16是本轮最终交付例外。不新训练、不自动重跑/同步科研结果、不新增外部服务或清理。所有完整文件/目录删除仍须精确许可及safe-delete-paths/manual-cleanup-only；生产插件永久删除的路径/节点/类型与双确认、规范安全根、direct-parent cd、./直接子项等保护不变，受控测试不执行真实删除。版本号不替代字节身份，源码/包/运行/部署分别如实报告。
 
 ## MCP接入与退役残留契约
 
@@ -104,7 +106,8 @@ AI依据当前项目/任务/PLAN、真实训练评估入口及允许读取的结
 | R14Z1 高级脚本生成入口 | 仅 src/extension/legacy.ts、test/tunnel/multiXshellCommandBuilder.test.js；最多2文件 | 真实generateTunnelScript无启用Worker时明确提示且零保存/写入，不解引用空数组或读取旧Hub。核配置无效、保存取消、单/多Worker、bat/ps1选择及实际host/port/目标；原生成器有效证据复用。不执行脚本/连接或写真实设置，仅最小修现存缺陷 |
 | R14Z2 高级Agent登录写入入口 | 仅 src/extension/legacy.ts、test/features/agentPreparationLifecycle.test.js、test/tunnel/backgroundTunnelHost.test.js、test/features/panelMessageDispatch.test.js；最多4文件 | writeXshellAgentStartupCommands真实方法核显式Worker筛选、空目标、路径/最终确认取消零patch/策略写、成功/跳过/失败返回与准确反馈；单Worker失败不误写其他Worker或报全成功。保留managed/preserveUnmanaged/精确会话备份，受控patcher/vscode/配置，不实际改xsh或更新Agent |
 | R14Z3 高级入口同族归并 | 仅 src/extension/legacy.ts、test/features/lowTrafficDisplayRework.test.js、test/features/agentPreparationLifecycle.test.js、test/features/projectWorkspaceChangeIsolation.test.js、test/tunnel/xshellIntegrationCheck.test.js、test/tunnel/backgroundTunnelHost.test.js、test/tunnel/multiXshellCommandBuilder.test.js、test/features/panelMessageDispatch.test.js；最多8文件，内部按流控/诊断/连接3类有界处理 | 15高级命令及同族公开入口先复用真实行为/原日志，缺口才补选中目标/参数/取消/错误反馈。流控不停止科研任务，诊断只受控路由、不探真实服务器，连接不实际启动。菜单隐藏/无对象非逻辑通过；无缺口不造差量，超文件/协议/权限范围一次合并升级 |
-| R15 生成与最终交包 | 原生成器独占dist；Terra维护执行证据和scopedGit，总控维护计划/索引 | 只因产品输入变化做规定build/VM及受影响验证；完整插件逻辑小验收后交总控B01–B03，不重复有效检查；当前不打包/安装/发行 |
+| R15 生成与最终交包 | 原生成器独占dist；Terra维护执行证据和scopedGit，总控维护计划/索引 | 只因产品输入变化做规定build/VM及受影响验证；完整插件逻辑小验收后交总控B01–B03，不重复有效检查；R16准入前不打包/安装/发行 |
+| R16 集中试行交付 | 版本源码仅 package.json、package-lock.json、src/runtime/RuntimeManifest.ts；最多3文件，原生成器独占对应dist/runtime/manifest/VSIX。原已验证产品/test按原命名scope提交，Terra执行 | 递增一个patch至0.5.513，三处版本一致；复用有效产物/规定检查，显式npm run package只构建打包，核VSIX身份/版本/平台/运行闭包与秘密排除。同一确定包与SHA按docs/release-delivery.md发布到当前origin的prerelease=true/latest=false试行版，tag绑定已验证源码提交，不覆盖资产、不提升权威；核真实tag/资产/哈希及实际更新解析普通通道仍0.5.483且不降级试行版。全部通过后显式npm run install:latest一次，同版本跳过、不force/不降级，核已装版本/simpleex后停止面板操作，等待本人Reload Window，不重载MM/Generic未保存稿。必要打包修正只按既有收包规范真实缺口升级，不借机加功能/依赖/渠道或改旧包/Worker |
 
 原285/285（6按需未运行）和a86b候选291/291按原输入保留。P/Q同commandId与Y真实无覆盖发布已补并经总控核；Z产品输入变化后集中必要验证，不拿旧fingerprint冒新候选，仅文档/测试返修按增量复用。
 
