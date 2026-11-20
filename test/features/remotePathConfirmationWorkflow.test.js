@@ -12,6 +12,48 @@ const readme = fs.readFileSync(path.join(__dirname, "../../README.md"), "utf8");
 const legacyNotes = fs.readFileSync(path.join(__dirname, "../../docs/technical-notes.md"), "utf8");
 const guide = fs.readFileSync(path.join(__dirname, "../../docs/simple-experiment-setup.md"), "utf8");
 
+test('reset remembered paths respects the current project and confirmation', async () => {
+  const ts=require('typescript'), sourceTs=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',sourceTs,ts.ScriptTarget.Latest,true);
+  const cls=ast.statements.find(node=>ts.isClassDeclaration(node)&&node.name?.text==='RealtimeTunnelPanelProvider');
+  const method=cls.members.find(node=>node.name?.getText(ast)==='resetRemotePathConfirmationsFromUi').getText(ast);
+  for(const mode of ['empty','cancel','loadSwitch','confirmSwitch','persistSwitch','success']) {
+    let root='C:/fixture/a';const events=[];
+    const vscode={window:{showInformationMessage:async text=>events.push(['info',text]),showWarningMessage:async()=>{
+      if(mode==='confirmSwitch')root='C:/fixture/b';return mode==='cancel'?undefined:'恢复路径提醒';}}};
+    const Host=vm.runInNewContext(ts.transpileModule(`class Host {${method}}; Host`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
+      {vscode,workspaceRoot:()=>root,assertSingleProjectWorkspace:()=>root,REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY:'old-key'});
+    const h=new Host();Object.assign(h,{projectContextGeneration:1,confirmedRemotePaths:mode==='empty'?[]:['/remote/a','/remote/b'],
+      loadProjectRemotePathConfirmationsState:async()=>{if(mode==='loadSwitch')root='C:/fixture/b';},
+      persistProjectRemotePathConfirmationsState:async()=>{events.push(['persist',[...h.confirmedRemotePaths]]);if(mode==='persistSwitch')root='C:/fixture/b';},
+      context:{workspaceState:{update:async(...args)=>events.push(['workspace',...args])}},postState:()=>events.push(['state'])});
+    await h.resetRemotePathConfirmationsFromUi();
+    if(['empty','cancel','loadSwitch','confirmSwitch'].includes(mode)) assert.equal(events.some(row=>row[0]==='persist'||row[0]==='workspace'),false,mode);
+    if(mode==='persistSwitch') assert.equal(events.some(row=>row[0]==='workspace'||row[0]==='state'),false);
+    if(mode==='success') {
+      assert.deepEqual(events.find(row=>row[0]==='persist'),['persist',[]]);
+      assert.deepEqual(events.find(row=>row[0]==='workspace'),['workspace','old-key',undefined]);
+      assert.ok(events.some(row=>row[0]==='info'&&row[1].includes('2 个远端路径')));
+    }
+  }
+});
+
+test('persisting remembered paths does not update a replacement workspace after an asynchronous switch', async () => {
+  const ts=require('typescript'),sourceTs=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',sourceTs,ts.ScriptTarget.Latest,true);
+  const cls=ast.statements.find(node=>ts.isClassDeclaration(node)&&node.name?.text==='RealtimeTunnelPanelProvider');
+  const method=cls.members.find(node=>node.name?.getText(ast)==='persistProjectRemotePathConfirmationsState').getText(ast);
+  const Host=vm.runInNewContext(ts.transpileModule(`class Host {${method}}; Host`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
+    {writeProjectRemotePathConfirmationsState:()=>{},mergeRemotePathConfirmations:value=>value,REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY:'old-key'});
+  for(const switched of [false,true]) {
+    let current=true;const updates=[];const h=new Host();Object.assign(h,{confirmedRemotePaths:['/project/a'],
+      captureProjectContext:()=>({root:'a'}),projectContextIsCurrent:()=>current,projectStatePersistenceQueue:()=>({}),
+      persistCoalescedProjectState:async()=>{if(switched)current=false;},context:{workspaceState:{update:async(...args)=>updates.push(args)}}});
+    await h.persistProjectRemotePathConfirmationsState();
+    assert.equal(updates.length,switched?0:1);
+  }
+});
+
 function loadHelpers() {
   const start = source.indexOf("const PROJECT_REMOTE_PATH_CONFIRMATIONS_PATH");
   const end = source.indexOf("function normalizeCodeSyncState", start);
@@ -209,7 +251,7 @@ test("remembered remote paths can be reset from project settings", () => {
   assert.match(reset, /const root = assertSingleProjectWorkspace\("恢复上传路径提醒"\)/);
   assert.match(reset, /const generation = this\.projectContextGeneration/);
   assert.ok([...reset.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 3);
-  assert.match(source, /this\.confirmedRemotePaths = \[\];\s*await this\.persistProjectRemotePathConfirmationsState\(\);\s*await this\.context\.workspaceState\.update\(REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY, undefined\)/);
+  assert.match(reset, /this\.confirmedRemotePaths = \[\];\s*await this\.persistProjectRemotePathConfirmationsState\(\);\s*if \(generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)\)\s*return;\s*await this\.context\.workspaceState\.update\(REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY, undefined\)/);
   assert.match(source, /服务器配置、SimpleSFTP 配置和远端文件不会改变/);
   assert.match(panel, /data-anchor="settings-path-confirmations"/);
   assert.match(panel, /当前项目状态文件/);

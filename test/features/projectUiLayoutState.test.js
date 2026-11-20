@@ -7,6 +7,29 @@ const vm = require("node:vm");
 const ts = require("typescript");
 const { readSource } = require("../_helpers/sourceReader");
 
+test('reset UI layout saves the default template and does not post to a changed project', async () => {
+  const source=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);
+  const cls=ast.statements.find(node=>ts.isClassDeclaration(node)&&node.name?.text==='RealtimeTunnelPanelProvider');
+  const method=cls.members.find(node=>node.name?.getText(ast)==='resetUiLayoutFromUi').getText(ast);
+  const funcs=ast.statements.filter(node=>ts.isFunctionDeclaration(node)&&['globalUiLayoutState','projectUiLayoutState'].includes(node.name?.text));
+  const defaults={order:['plans','results'],collapsed:{plans:false},resourceTreeChildren:{},manual:false,columns:{},treePinned:false,inspectorPinned:false,inspectorCustomGroups:{}};
+  const keys={uiLayout:'global',uiProjectLayout:'project',uiProjectActions:'actions'};
+  const Host=vm.runInNewContext(ts.transpileModule(funcs.map(row=>row.getText(ast)).join('\n')+`\nclass Host {${method}}; Host`,
+    {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{defaultUiLayout:defaults,keys});
+  for(const switched of [false,true]) {
+    const events=[];let current=true;const h=new Host();
+    Object.assign(h,{captureProjectContext:()=>({root:'C:/fixture'}),projectContextIsCurrent:()=>current,
+      context:{globalState:{update:async(key,value)=>events.push(['global',key,JSON.stringify(value)])},workspaceState:{update:async(key,value)=>events.push(['workspace',key,value])}},
+      persistProjectUiLayoutState:async()=>{events.push(['persist',JSON.stringify(h.projectUiLayout)]);if(switched)current=false;},postState:()=>events.push(['post'])});
+    await h.resetUiLayoutFromUi();
+    assert.deepEqual(events.find(row=>row[0]==='global'),['global','global','{}']);
+    assert.deepEqual(JSON.parse(events.find(row=>row[0]==='persist')[1]),defaults);
+    assert.deepEqual(events.filter(row=>row[0]==='workspace').map(row=>row[1]).sort(),['actions','project']);
+    assert.equal(events.some(row=>row[0]==='post'),!switched);
+  }
+});
+
 function loadHelpers() {
   const source = readSource("src/extension.ts");
   const start = source.indexOf("const PROJECT_UI_LAYOUT_PATH");

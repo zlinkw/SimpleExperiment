@@ -5200,7 +5200,9 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             );
     }
     async persistProjectRemotePathConfirmationsState() {
+        const context = this.captureProjectContext();
         await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("remotePathConfirmations"), () => this.confirmedRemotePaths, writeProjectRemotePathConfirmationsState);
+        if (!this.projectContextIsCurrent(context)) return;
         await this.context.workspaceState.update(
             REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY,
             mergeRemotePathConfirmations(this.confirmedRemotePaths),
@@ -5222,6 +5224,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             return;
         this.confirmedRemotePaths = [];
         await this.persistProjectRemotePathConfirmationsState();
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot()) return;
         await this.context.workspaceState.update(REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY, undefined);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
