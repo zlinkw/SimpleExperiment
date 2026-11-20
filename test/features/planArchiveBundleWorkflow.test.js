@@ -96,10 +96,10 @@ test("plan archive evidence plan is Plan-scoped and requires preview plus effect
   assert.deepEqual(Array.from(ready.files), [
     "simple_cluster/results/by_plan/smoke/statistics.json",
     "simple_cluster/results/by_plan/smoke/paper_table.md",
-    "simple_cluster/results/by_plan/smoke/plotting_contract.json",
     "simple_cluster/results/by_plan/smoke/results_preview_all.csv",
     "simple_cluster/results/by_plan/smoke/results_effective_archived.csv",
   ]);
+  assert.equal(ready.files.includes(summary.plottingContractPath), false);
   assert.deepEqual(Array.from(ready.missingRequired), []);
   assert.deepEqual(Array.from(ready.invalid), []);
   const missing = sandbox.plan({ planFile: summary.planFile, previewCsvPath: summary.previewCsvPath }, summary.planFile);

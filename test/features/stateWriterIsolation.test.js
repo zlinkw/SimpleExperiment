@@ -6,6 +6,25 @@ const path = require('node:path');
 const os = require('node:os');
 const vm = require('node:vm');
 const { LocalApiServer } = require('../../dist/api/LocalApiServer');
+test('no-replace publishes complete bytes without replacing a concurrent destination', async () => {
+  require('../_helpers/registerTsRequire');
+  const { atomicWriteText } = require('../../src/state/StateStore.ts');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'state-no-replace-'));
+  const target = path.join(root, 'state.json');
+  await assert.rejects(atomicWriteText(target, 'new payload', { noReplace: true,
+    beforeRename: async () => { await fsp.writeFile(target, 'concurrent bytes', { flag: 'wx' }); } }), { code: 'EEXIST' });
+  assert.equal(await fsp.readFile(target, 'utf8'), 'concurrent bytes');
+  const another = path.join(root, 'new.json');
+  await atomicWriteText(another, 'complete first payload', { noReplace: true });
+  assert.equal(await fsp.readFile(another, 'utf8'), 'complete first payload');
+  await assert.rejects(atomicWriteText(another, 'second payload', { noReplace: true }), { code: 'EEXIST' });
+  assert.equal(await fsp.readFile(another, 'utf8'), 'complete first payload');
+  const third = path.join(root, 'third.json');
+  await atomicWriteText(third, 'independent payload', { noReplace: true });
+  assert.equal(await fsp.readFile(another, 'utf8'), 'complete first payload');
+  await atomicWriteText(target, 'ordinary update');
+  assert.equal(await fsp.readFile(target, 'utf8'), 'ordinary update');
+});
 test('independent writers never mutate another writer published inode', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'state-writer-isolation-'));
   const target = path.join(root, 'state.json');

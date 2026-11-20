@@ -20516,7 +20516,21 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const restoredFile = path.relative(root, target).replace(/\\/g, "/");
         const planVersion = path.basename(target, parsed.ext).match(/__v(\d+)$/)?.[1] || "1";
         const outputNamespace = `__restored_v${planVersion}`;
-        const restoredAssetRoot = path.posix.join("experiments", "restored_assets", safePlanToken(restoredFile));
+        const restorePathExists = async (file) => {
+            try { await fs.lstat(file); return true; }
+            catch (error: any) { if (error?.code === "ENOENT") return false; throw error; }
+        };
+        const baseToken = safePlanToken(restoredFile);
+        let restoreToken = baseToken, tokenIndex = 1;
+        let restoredAssetRoot, restoreRecordFile;
+        while (true) {
+            restoredAssetRoot = path.posix.join("experiments", "restored_assets", restoreToken);
+            restoreRecordFile = safeWorkspaceChildPath(root, path.posix.join("simple_cluster", "plan_restores", `${restoreToken}.json`));
+            if (!(await restorePathExists(safeWorkspaceChildPath(root, restoredAssetRoot))) && !(await restorePathExists(restoreRecordFile))) break;
+            assertCurrent();
+            restoreToken = `${baseToken}_${++tokenIndex}`;
+        }
+        assertCurrent();
         const configBundleFiles = archiveManifestFileList(bundle.configs);
         const environmentBundleFiles = archiveManifestFileList(bundle.environment);
         const parameterBundle = bundle.parameters && typeof bundle.parameters === "object" && !Array.isArray(bundle.parameters) ? bundle.parameters : {};
@@ -20549,7 +20563,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const configPathMap = new Map();
         for (const relative of configBundleFiles) {
             const configSource = safeArchiveBundleChildPath(path.join(bundleDir, "configs"), relative);
-            const configTarget = safeWorkspaceChildPath(root, path.posix.join("experiments", "restored_assets", safePlanToken(restoredFile), "configs", relative));
+            const configTarget = safeWorkspaceChildPath(root, path.posix.join(restoredAssetRoot, "configs", relative));
             const stat = await fs.stat(configSource).catch(() => undefined);
             assertCurrent();
             if (!stat?.isFile()) {
@@ -20558,18 +20572,18 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             }
             await fs.mkdir(path.dirname(configTarget), { recursive: true });
             assertCurrent();
-            await fs.copyFile(configSource, configTarget);
+            await fs.copyFile(configSource, configTarget, fs.constants.COPYFILE_EXCL);
             assertCurrent();
             configPathMap.set(relative, path.relative(root, configTarget).replace(/\\/g, "/"));
             restoredConfigs += 1;
         }
         const environmentFiles = environmentBundleFiles;
-        const restoredEnvironmentDir = environmentFiles.length ? path.posix.join("experiments", "restored_assets", safePlanToken(restoredFile), "environment") : "";
+        const restoredEnvironmentDir = environmentFiles.length ? path.posix.join(restoredAssetRoot, "environment") : "";
         const restoredEnvironmentFiles = [];
         let missingEnvironmentFiles = 0;
         for (const relative of environmentFiles) {
             const environmentSource = safeArchiveBundleChildPath(path.join(bundleDir, "environment"), relative);
-            const environmentTarget = safeWorkspaceChildPath(root, path.posix.join("experiments", "restored_assets", safePlanToken(restoredFile), "environment", relative));
+            const environmentTarget = safeWorkspaceChildPath(root, path.posix.join(restoredAssetRoot, "environment", relative));
             const stat = await fs.stat(environmentSource).catch(() => undefined);
             assertCurrent();
             if (!stat?.isFile()) {
@@ -20578,13 +20592,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             }
             await fs.mkdir(path.dirname(environmentTarget), { recursive: true });
             assertCurrent();
-            await fs.copyFile(environmentSource, environmentTarget);
+            await fs.copyFile(environmentSource, environmentTarget, fs.constants.COPYFILE_EXCL);
             assertCurrent();
             restoredEnvironmentFiles.push({ original: relative, restored: path.relative(root, environmentTarget).replace(/\\/g, "/") });
         }
         const parameterSnapshotFile = stringField(parameterBundle, "snapshot");
         const parameterEntryScripts = archiveManifestFileList(parameterBundle.entryScripts);
-        const restoredParameterDir = parameterSnapshotFile || parameterEntryScripts.length ? path.posix.join("experiments", "restored_assets", safePlanToken(restoredFile), "parameters") : "";
+        const restoredParameterDir = parameterSnapshotFile || parameterEntryScripts.length ? path.posix.join(restoredAssetRoot, "parameters") : "";
         const restoredParameterFiles = [];
         let missingParameterFiles = 0;
         if (parameterSnapshotFile) {
@@ -20595,7 +20609,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (stat?.isFile()) {
                 await fs.mkdir(path.dirname(parameterTarget), { recursive: true });
                 assertCurrent();
-                await fs.copyFile(parameterSource, parameterTarget);
+                await fs.copyFile(parameterSource, parameterTarget, fs.constants.COPYFILE_EXCL);
                 assertCurrent();
                 restoredParameterFiles.push({ original: parameterSnapshotFile, restored: path.relative(root, parameterTarget).replace(/\\/g, "/") });
             }
@@ -20614,15 +20628,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             }
             await fs.mkdir(path.dirname(parameterTarget), { recursive: true });
             assertCurrent();
-            await fs.copyFile(parameterSource, parameterTarget);
+            await fs.copyFile(parameterSource, parameterTarget, fs.constants.COPYFILE_EXCL);
             assertCurrent();
             restoredParameterFiles.push({ original: relative, restored: path.relative(root, parameterTarget).replace(/\\/g, "/") });
         }
         await fs.mkdir(path.dirname(target), { recursive: true });
         assertCurrent();
-        await atomicWriteText(target, restorePlanText(planText, { originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap, restoredEnvironmentDir, restoredParameterDir }));
+        await atomicWriteText(target, restorePlanText(planText, { originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap, restoredEnvironmentDir, restoredParameterDir }), { beforeRename: async () => assertCurrent(), noReplace: true });
         assertCurrent();
-        const restoreRecordFile = safeWorkspaceChildPath(root, path.posix.join("simple_cluster", "plan_restores", `${safePlanToken(restoredFile)}.json`));
         await fs.mkdir(path.dirname(restoreRecordFile), { recursive: true });
         assertCurrent();
         await atomicWriteText(restoreRecordFile, JSON.stringify({
@@ -20642,7 +20655,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             restoredParameterDir,
             restoredParameterFiles,
             missingParameterFiles,
-        }, null, 2) + "\n");
+        }, null, 2) + "\n", { beforeRename: async () => assertCurrent(), noReplace: true });
         assertCurrent();
         this.planFileInput = restoredFile;
         this.selectedPlanId = restoredFile;

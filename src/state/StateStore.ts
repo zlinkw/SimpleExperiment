@@ -13,6 +13,8 @@ export type StateReadResult<T> =
 export type AtomicWriteOptions = {
   /** Recheck optimistic-concurrency/ownership gates before every publication attempt. */
   beforeRename?: () => Promise<void>;
+  /** Publish a new file only; keep the flushed staging link for recovery. */
+  noReplace?: boolean;
   /** Larger durable journals may briefly be held by Windows indexers; ordinary state keeps its short retry limit. */
   renameRetryBudgetMs?: number;
 };
@@ -35,7 +37,7 @@ async function writeFixedSlot(file: string, text: string, options: AtomicWriteOp
   if (budget != null && (!Number.isFinite(budget) || budget < 0 || budget > 5000)) throw new Error("状态重命名重试预算无效");
   const parent = path.dirname(file);
   await fs.mkdir(parent, { recursive: true });
-  const staging = `${file}.${writerIdentity}.writing`;
+  const staging = `${file}.${writerIdentity}${options.noReplace ? `-${randomUUID()}` : ""}.writing`;
   let existing: Awaited<ReturnType<typeof fs.lstat>> | undefined;
   try {
     existing = await fs.lstat(staging);
@@ -72,10 +74,11 @@ async function writeFixedSlot(file: string, text: string, options: AtomicWriteOp
     // Guard failures are not sharing violations and must not enter the rename retry loop.
     await options.beforeRename?.();
     try {
-      await fs.rename(staging, file);
+      if (options.noReplace) await fs.link(staging, file);
+      else await fs.rename(staging, file);
       break;
     } catch (error: any) {
-      if (!error || !["EACCES", "EPERM", "EBUSY"].includes(error.code) || attempt >= 5 && (budget == null || Date.now() >= deadline) || attempt >= 25) throw error;
+      if (options.noReplace || !error || !["EACCES", "EPERM", "EBUSY"].includes(error.code) || attempt >= 5 && (budget == null || Date.now() >= deadline) || attempt >= 25) throw error;
       await new Promise(resolve => setTimeout(resolve, Math.max(1, Math.min(250, 20 * (2 ** attempt), budget == null ? 250 : deadline - Date.now()))));
     }
   }

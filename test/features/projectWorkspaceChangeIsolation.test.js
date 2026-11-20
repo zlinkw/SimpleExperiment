@@ -221,7 +221,7 @@ test("archived Plan restore cannot continue in a replacement workspace", () => {
   assert.match(restore, /throw new UiCommandCancelled\("工作区已切换，归档 Plan 恢复已取消。"\)/);
   assert.ok([...restore.matchAll(/assertCurrent\(\)/g)].length >= 20);
   assert.match(restore, /const bundle = await readPlanArchiveBundle\(source\);\s*assertCurrent\(\)/);
-  assert.match(restore, /await fs\.copyFile\(configSource, configTarget\);\s*assertCurrent\(\)/);
+  assert.match(restore, /await fs\.copyFile\(configSource, configTarget, fs\.constants\.COPYFILE_EXCL\);\s*assertCurrent\(\)/);
   assert.match(restore, /await atomicWriteText\(target, restorePlanText[\s\S]{0,380}assertCurrent\(\)/);
   assert.match(restore, /await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);\s*assertCurrent\(\);\s*await this\.persistProjectPlanSelectionState\(\);\s*assertCurrent\(\)/);
 });
