@@ -2,15 +2,11 @@
 
 ## 当前状态与已完成检查点
 
-2026-11-20 本人明确“继续吧”，恢复G003全按钮逻辑、PLAN运行和结果汇总正确性工作；2026-11-17的本批后暂停及暂不发Terra消息限制已随此次恢复解除。复用原总控和唯一Terra，继续高影响优先、同文件集中修改和最终统一验证，不另建代次或重做有效证据。
+2026-11-20本人“继续吧”已恢复G003，替代11/17暂停及暂不发Terra消息；目标仍是所有支持按钮逻辑、完整PLAN运行和结果汇总正确性，高影响优先、同文件集中修改、最终统一验证。当前范围基线0d1862243128e479e54e98d9c0f22e210f5330f7，全部源码/生成物/测试和明细dirty保留未提交。
 
-恢复基线92bd566c4e25c3184e0385ac845f3d44a5159c23，实际Git仍有暂停时九个tracked文件改动，全部保留。P/Q/R及入口单文件检查13/13、26/26、11/11、4/4、21/21退出0；S/T五个名称筛选用例先4/5（夹具异步刷新污染），修夹具后5/5退出0。legacy.ts已增加两处登记表错误提示，尚未完成源码变更后的规定build/VM；源码、六测试及execution/coverage未提交，总体核查与B01–B03未完成，不冒成功交付。原命令、失败和适用范围见execution及Terra原工具记录。
+原ad31204a/af2697f子范围、280已选任务/10门禁/6按需未运行、旧失败及R13说明操作未知均保留execution，不代总体完成；R12-I退出而非通过，安装版未含修复。最新build日志2026-11-20T07-10-36-534Z-612-build为291/291、10门禁、退出0、并发1、锁释放，无按需未运行；buildId a86b0eb9962f29fa3128f9beac223a21965a52ae41eca41651ec51b3618051f8。总控已核原run/起止指纹/实际并发/对应dist字节、同commandId贯穿预检至采集导出、R两PLAN两seed三指标均值/样本SD/拆表及Y独占link发布。noReplace成功保留一个.writing硬链接，失败暂存可能保留，不自动清理。
 
-当前一次连续交付包含原M–T剩余证据闭合、U/V和W/X设置维护入口补缺、全部必要修复、最终候选统一检查及完整交包。共享配置保存与已充分覆盖的分支PR/服务/RPC直接复用，不能拿局部绿灯冒完整链路。2026-11-20 U/V受控目标已通过tensorboardScalar 10/10、archivedPlanRestoreWorkflow 3/3，退出0；路径断言追加后复验通过，未连接Worker或写消费项目。先修X安全规则非空输入被静默丢弃等高影响问题，再处理普通重置反馈；同legacy已知改动汇总后一次实现。
-
-已完成检查点：源码 `ad31204a6d438420601132d22eb55a1346e081fc`、收尾 `af2697f249289db0604ca34fdbb40d4f1b6a4104` 已push/fetch。此前B01–B03仅签当时已识别插件子范围；MCP接入/退役残留、UI绑定与取消/失败/待确认反馈等证据保留。buildId `1a33b6e4a9c9ca5642ddcdce4c5c81ad3f5fb581dca96bc1d7b749787218df7a`，280已选任务及10门禁通过、并发1、锁释放，6按需未运行，模块及三script VM有效；原日志 `simple_cluster/reports/test-workflow/2026-11-17T07-21-58-237Z-59720-build/`，失败/实机外部未测/旧R13未知见execution。未安装升级，日常安装版未应用修复。
-
-当前未完成重点是同一真实PLAN/job身份跨预检、入队、派发、协议2完成证据、采集、正式汇总、展示/导出的连续性，以及既有记录里尚无正确性证据的支持入口。P/Q/R是从现有源码/测试识别的跨段断言缺口，不是已复现故障，也不能自动代表全部剩余逻辑；必须把其余支持逻辑的真实缺口一起收齐。
+总体B01仍未通过：新证据对象尚写“其余入口继续归并”，部分组仍build_pending；需支持逻辑真实闭合而非只改文字，动态实例分母未知本身不阻塞。新增固定字符窗口断言已改精确persist→guard→update，remotePathConfirmation 8/8退出0，原失败保留。高级入口又发现generateTunnelScript无启用Worker时[0].config抛TypeError，以及writeXshellAgentStartupCommands缺直接方法确认/反馈断言，按Z统一补齐后再交总体包。原P–Y各命令/失败/复验/范围在execution、coverage和Terra工具记录，不重复有效检查。
 
 ## 当前目标与用户裁决
 
@@ -30,7 +26,7 @@
 - 通用接续、计数、正确模型/强度/default实核及自动同角色新建/消息/归档唯一遵循[统一入口](C:/Users/ZLK/.agents/skills/caveman/SKILL.md)及[交班模板](C:/Users/ZLK/.agents/skills/caveman/references/handover.md)；分工遵循[多会话实现](C:/Users/ZLK/.codex/skills/multi-session-implementation/SKILL.md)。不在项目复制阈值或算法，不为小进度换角色。
 - 预算：计划24000字符、execution16000、长期踩坑12000；90%时在正常非冻结窗口整份语义归并，保留全部未决/授权/失败/原证据，不能只削到阈值、硬截断或另造存档搬文字。相同文件先汇总本阶段已知改动，内存核预算，一次写入/集中回读；有新事实/真实失败再增量，不为标点措辞反复编辑计数。
 
-Terra完成全部当前范围实现和S01–S13、M/N/O/P/Q/R/S/T/U/V/W/X/Y及其余实际逻辑补缺→真实工具交总控完整包→总控独占B01–B03→失败真实工具详返原Terra修复/定向自验/再交→最终明确通过及既有授权交付→总控结案。完整包给最终基线/diff、原命令与真实退出码/日志、证据适用输入与含义、真实失败/未知/未测、权限保护和租约。常态总控空闲，Terra普通进度记execution，仅真实新决策或完整交包联系。
+Terra完成全部当前范围实现和S01–S13、M/N/O/P/Q/R/S/T/U/V/W/X/Y/Z及其余实际逻辑补缺→真实工具交总控完整包→总控独占B01–B03→失败真实工具详返原Terra修复/定向自验/再交→最终明确通过及既有授权交付→总控结案。完整包给最终基线/diff、原命令与真实退出码/日志、证据适用输入与含义、真实失败/未知/未测、权限保护和租约。常态总控空闲，Terra普通进度记execution，仅真实新决策或完整交包联系。
 
 有效证据按所涉输入、对象和调用链是否变化判断，不能因全仓提交变化、换角色或重新统计而重做。总控先核实际diff/必要调用链/原证据，仅补未覆盖项目级关联，不重复Terra小验收或已有大验收。实际UI/检查前明确移交单一租约；受检docs/src/test/scripts/dist冻结包括总控，结束才记事实。
 
@@ -66,23 +62,13 @@ AI依据当前项目/任务/PLAN、真实训练评估入口及允许读取的结
 
 只移除G001明确退役功能的专属schema/default、动作/UI/导航/提示，不因字段含paper/leaderboard删除共享解析或历史结果；不删用户settings、布局、数据/日志/安装目录或整源码文件。PPT chartType/styleMode当前源码已无、旧安装0.5.512仍有，按源码宿主验证，不直接改安装目录。指南当前master保留插件版本与完整多行剪贴板任务；一般科研运行/传输可选已有适用脚本/CLI/scheduler/SSH/tmux/标准工具，实际选插件才发现其接口，本次指标/输出配置仍AI经MCP。
 
-## 集中修复与统一验证
+## 集中修复、优先级与统一验证
 
-本人最新要求“非必要不构建和安装，先尽量把能查能修的做完，再统一测试、构建和安装”。先完成当前范围内可独立推进的排查、现有断言对照和必要源码/测试修改，同文件集中完成，再冻结最终候选统一验证。此顺序统领下表全部内部批次；表中的目标测试/build/VM是最终覆盖标准，不要求每个小步立即执行。
+本人要求非必要不构建安装，先把可查可修的独立项尽量做完，同文件汇总一次修改，再冻结最终候选统一验证。只有最小复现会改变定位/修法、代码状态阻断后续或真实安全/完整性需要时提前最小检查并说明原因；内部步骤不增人工确认/逐小改build，已在途原子构建正常完成、不强停清锁。真实新修改/失败才增量返修，不预承诺只准一次。
 
-仅当最小复现会实质改变定位/修法、现有代码状态不能继续实现或真实安全/数据完整性需要时，才提前执行最小必要检查并记录原因；不以习惯、自签局部完成或每批提交为由反复测试/compile/build。已经运行的原子构建完成后再切换，不强停或清锁。期间各批保持原文件/问题边界，未验证源码留本地，不冒成功提交。
+优先错任务派发、身份丢失、错误收集/统计/覆盖数据，再恢复取消与反馈，不做无关润色。以既有中英文对账、当前静态/动态producer及公开命令/handler为集合，按等价对象族关联实际断言/日志，或准确退役、无producer、selector、契约外分类。缺真实对象可用受控生产函数证据，不能当通过；不重盘164项/有效实点，文件名或绿色构建不能证明跨段断言。
 
-统一测试阶段仍先单目标文件、全局串行，按最终diff的影响闭包顺序运行必要文件/消费者；不是直接npm test/并行全量。已有未变证据复用。测试专用修改复用有效dist，不自动build；确需构建时一次覆盖全部当前产品修改，按最终输入履行原语法/VM门禁。只有新失败/新改动才返修和定向复验，不能预先承诺“只准一次”而跳过真实失败。
-
-构建和安装留在最后且仅在必要时执行，修复过程中不逐次打包安装/升级；最终必要安装由总控结合明确成品版本、验证及既有精确权限统一安排，不自动扩大到发行、旧Worker更新或远端操作。本人未要求此刻安装，现阶段继续源码排查修复。
-
-## 优先级与本次完整连续阶段
-
-本次P/Q/R和其余已确认缺口一次性交唯一Terra连续处理，不按按钮/单测试反复请示。先处理会导致错任务派发、身份丢失、错误产物入汇总、指标串组/错误统计的问题，再处理恢复/取消/次要反馈；无关文案不抢优先级。内部按共享状态和下表文件边界组织，不因此拆多轮用户确认、重复编译/测试/构建。先集中查修所有可独立项，最终统一验证；超边界或真实权限/协议改变才一次合并报总控。
-
-以既有中英文对账、当前生产命令/动态producer/公开命令与handler为集合，复用其有效断言。原记录仅有history/preview/缺对象时，要明确其插件逻辑是否已有受控生产函数证据；缺真实对象不自动等于已验证，也不必为此建真实服务器任务。不重新人工盘点164项或重做有效实点；可在现有coverage批量归并入口等价对象族、断言/原日志与剩余逻辑状态。源文件名或测试绿灯本身不证明某跨段断言已覆盖。
-
-每个已识别的受支持入口逻辑最终须有实际断言或未变有效证据，或准确判为退役/无producer/纯selector/不属于本轮插件契约；不能以服务器不可用或统计总数未知为理由掩掉尚未查明的支持逻辑。P/Q/R之外若出现具体缺口，继续按原源码修复边界处理；确需新文件/协议范围则合并提交后续有界scope，不提前结案。
+仅测试/文档改变复用有效dist/全量，单目标及实际消费者串行；真实产品最终统一build/VM。未验证源码留本地，不因分scope提交重复构建。最终必要安装由总控结合明确版本、验证及原精确权限统一安排；现阶段不打包/安装/发行/旧Worker更新。
 
 ## 批次与文件写入边界
 
@@ -99,9 +85,7 @@ AI依据当前项目/任务/PLAN、真实训练评估入口及允许读取的结
 | R14A 面板/对象传递缺陷返修 | 仅src/ui/PanelHtml.legacy.ts、src/ui/PanelHtml.ts、src/extension/legacy.ts、test/features/panelMessageDispatch.test.js、test/features/resultSectionRefreshDependencies.test.js、test/ui/resultActionWorkflow.test.js、test/ui/resultMappingEditor.test.js | 只修本补验真实发现问题，最多7文件；共享monolith独占，不加新功能/兼容框架，不改科研语义，必要目标回归和原入口复点 |
 | R14B 命令注册缺陷返修 | 仅src/extension/ProviderCommands.ts、src/factories/CommandFactory.ts、test/factories_integration.test.js、test/features/windowsWorkflowContract.test.js | 真实正常命令缺绑定/对象传递问题才启用，保留旧入口与原断言/时限；不恢复获准退役行数门禁 |
 | R14C 基础结果消费者缺陷返修 | 仅src/ui/sections/ResultsSection.ts、src/extension/ResultCollectionHost.ts、src/cli/commands/result.ts、test/cli/simpleCli.test.js、test/features/archivedOnlyResultCsvViews.test.js、test/ui/currentPlanWorkflowResultCache.test.js | 真实保存/列映射/拆表/导出或当前消费者缺陷才启用；保留AP/macro_f1/weighted_f1、真实维度/来源/身份，不改旧结果，不以修测试代修产品 |
-| 已完成R14D1/D2 接入与退役展示 | 当前成品复用；历史精确文件边界见92bd566c版计划及execution，非新写入许可 | MCP按真实任务读写回读与项目隔离，不按任务类型补默认指标；面板任务/输出/CSV映射/derivedMetric改只读摘要与AI任务，保留配置存储/解析、结果操作、PLAN独立归类和剪贴板。指南指当前master、插件版本；退役PPT源码残留移除，旧安装残留不直接编辑。原CSV/映射/遍历/性能契约、build及生成script VM/宿主证据复用，失败/未测保留 |
-| 已完成R14E–I 配置取消、引导与离线/工具说明 | 同上，仅复用已验证成品；必要新缺陷按当前命名边界 | E configureWorkerTunnels及两别名取消丢草稿零保存，明确完成保存一次。F/G输出门禁与onboarding改AI经MCP，不自动生成adapter/要求手编；保留主动兼容命令、原输出就绪/项目切换/缓存/遍历门禁。H offlineBundle已存在时准确本机刷新，确无才提示导入，离线不联网且错误可见。I一般运行/传输按项目选择现有脚本/CLI/scheduler/SSH/tmux/标准工具或插件，实际选插件才发现接口；本次指标接入仍AI经MCP回读，不绕受控确认/授权。完整多行指南、原版本与性能断言保留 |
-| 已完成R14J–L 选择与刷新状态 | 同上，成品与原日志见execution | J移除当前renderer截100，101值可搜索/选择，保留选择/切源/拆表，旧不在链的200兼容分支未改；软件正确性夹具非压测。K离线GPU/运行进度刷新明确不能实时查，保留不联网/状态/在线错误及generation/client身份，无producer的manualTracesSnapshot未扩改。L tmux空不等于已查：ok:false/failed失败、available:false不可用、ok:true且available:true空为查询成功，其他未知；成功message可在error，非空error不能单判失败。缓存保留available/status供重绘一致，stalled、Worker/真实列表、原生命周期/重试/超时/窗口动作不变 |
+| 已完成R14D–L成品复用 | 历史精确scope见92bd566c版计划，成品/失败/原日志见execution，非新写入许可 | D接入及退役契约见前文，原CSV/遍历/性能/剪贴板保持。E连接配置取消丢草稿零保存、明确完成一次。F/G引导AI/MCP、不自动生成adapter或必经手编，主动兼容入口和输出/项目门禁保留。H offlineBundle本机刷新如实且离线不联网。I一般科研/传输工具可选，实际用插件才发现接口，不绕受控确认。J101值完整可选，旧不在链200分支未改。KGPU/进度离线反馈准确，generation/client保持，无producer的manualTracesSnapshot不扩改。Ltmux空非已查：ok:false/failed失败、available:false不可用、ok:true且available:true空为查询成功，其他未知；成功message可在error，非空error不能单判失败。缓存available/status重绘一致，stalled/Worker/列表及原生命周期/重试/超时/窗口契约不变 |
 | R14M Worker按钮绑定补缺 | 仅 test/features/serverConfigSaveContinuation.test.js、test/tunnel/backgroundTunnelHost.test.js、test/features/resourceMutationRouting.test.js、test/features/panelMessageDispatch.test.js；最多4个测试文件 | 先核已有断言/原有效日志；仅确缺时补五卡共用导入/保存/启动/删除的endpointId、scope、确认取消、成功/失败和状态。真实方法/renderer与受控依赖，禁止写共享配置或启停隧道；同通路对象差异用参数化用例，不逐卡重做有效实点 |
 | R14N 任务及操作按钮补缺 | 仅 test/features/panelMessageDispatch.test.js、test/features/failedJobRecovery.test.js、test/features/runtimeLogAnalysisHost.test.js、test/features/planStopClear.test.js；最多4个测试文件 | 仅补现有任务/job重跑、审核、分析、精确停止/清理、日志入口的对象绑定/确认/取消/终态缺口；受控替身不接远端、不造真实队列或执行删除，不要求新任务/训练；复用原有效调度/产物/取消围栏证据 |
 | R14O 结果归类与渲染恢复补缺 | 仅 test/features/datasetResultCatalog.test.js、test/ui/resultCommandPhaseRouting.test.js、test/features/panelMessageDispatch.test.js、test/features/panelWebviewScriptHealth.test.js；最多4个测试文件 | 仅补autoMatchPlanDatasets/applyPlanDatasetMapping、PLAN原始/追溯入口及渲染失败重试/重载的绑定/授权/反馈缺口；复用现有parser/renderer，异常只在受控测试，不破坏实际UI或改旧结果 |
@@ -117,9 +101,12 @@ AI依据当前项目/任务/PLAN、真实训练评估入口及允许读取的结
 | R14W 设置与维护行为补缺 | 仅 test/features/remotePathConfirmationWorkflow.test.js、test/features/projectUiLayoutState.test.js、test/tunnel/tunnelPortConflict.test.js、src/extension/legacy.ts；最多4文件、3个相关问题 | 一次集中补resetRemotePathConfirmationsFromUi/resetUiLayoutFromUi/repairTunnelPorts真实方法断言。路径提醒核当前项目、空/取消零清除与持久化、异步切项目停止后续效果、确认后仅清当前项目提醒及旧兼容键；布局核既有global模板与项目布局/动作重置及切项目不向新面板post旧状态；端口核实际Worker冲突host/port/目标、无冲突/取消零configure、明确选择只路由configureTunnelPorts，保留不自动改Xshell/不启停连接。依赖受控、不写真实共享设置/文件、不联网；只修实际可达缺陷，保留原配置scope，不能给application操作强加项目门禁，不恢复Hub、不新增确认/性能/重试/超时/框架，原探测/分配器/渲染有效证据复用 |
 | R14X 远端路径安全规则保存与消费 | 仅 test/features/remoteRootPolicyUi.test.js、test/api/localApi.test.js、src/extension/legacy.ts、src/features/ApiWorkflow.legacy.ts；最多4文件，独立W的内部组 | 已核UI承诺每行绝对POSIX目录、禁止优先，但saveRemoteRootPolicyFromUi及normalizedRemoteRootList静默滤掉normalizeApiRemotePath不能表示的非空项，deniedRoots为/会变空。先受控复现，保存前验证整组allowed/denied，任何无效项零配置写且不报成功；直接配置消费同样明确拒绝，不能继续按空策略放行。按既有契约处理非绝对/含..等实际无效项；空行/空列表及正常规范化保持，合法禁止前缀优先于允许，父/子/相邻目录语义保持。不扩展/为允许或禁止全盘的新含义，不改通用normalizeApiRemotePath消费者、不新增安全策略/配置/框架。核当前folder.uri和WorkspaceFolder目标、切项目反馈及错误上抛；所有配置/fs/外部调用受控，不写真实安全设置。共享helper只按真实边界复用，不为测试改产品导出 |
 | R14Y 恢复文件无覆盖发布 | 仅 src/state/StateStore.ts、src/extension/legacy.ts、test/features/stateWriterIsolation.test.js、test/features/archivedPlanRestoreWorkflow.test.js、test/features/projectWorkspaceChangeIsolation.test.js、test/features/planArchiveBundleWorkflow.test.js；最多6文件，未需修改者复用 | 已核beforeRename查不存在后fs.rename仍可覆盖期间新出现目标，进程内队列/合作host租约不能证明文件系统无覆盖。复用StateStore提供最小显式无覆盖发布，仅恢复新Plan/记录使用，普通写默认/串行/来源身份/重试不变。完整内容发布且目标已存在则失败保留原字节，不再靠一次存在性检查，不退化为先删/覆盖或静默回退；错误/暂存如实保留，不自动清理。受控注入检查后目标出现并接真实文件系统核旧内容不变，成功新文件完整、默认写仍保持原契约，恢复预览/身份/项目切换与COPYFILE_EXCL保护继续有效；无性能测试/新通用框架 |
+| R14Z1 高级脚本生成入口 | 仅 src/extension/legacy.ts、test/tunnel/multiXshellCommandBuilder.test.js；最多2文件 | 真实generateTunnelScript无启用Worker时明确提示且零保存/写入，不解引用空数组或读取旧Hub。核配置无效、保存取消、单/多Worker、bat/ps1选择及实际host/port/目标；原生成器有效证据复用。不执行脚本/连接或写真实设置，仅最小修现存缺陷 |
+| R14Z2 高级Agent登录写入入口 | 仅 src/extension/legacy.ts、test/features/agentPreparationLifecycle.test.js、test/tunnel/backgroundTunnelHost.test.js、test/features/panelMessageDispatch.test.js；最多4文件 | writeXshellAgentStartupCommands真实方法核显式Worker筛选、空目标、路径/最终确认取消零patch/策略写、成功/跳过/失败返回与准确反馈；单Worker失败不误写其他Worker或报全成功。保留managed/preserveUnmanaged/精确会话备份，受控patcher/vscode/配置，不实际改xsh或更新Agent |
+| R14Z3 高级入口同族归并 | 仅 src/extension/legacy.ts、test/features/lowTrafficDisplayRework.test.js、test/features/agentPreparationLifecycle.test.js、test/features/projectWorkspaceChangeIsolation.test.js、test/tunnel/xshellIntegrationCheck.test.js、test/tunnel/backgroundTunnelHost.test.js、test/tunnel/multiXshellCommandBuilder.test.js、test/features/panelMessageDispatch.test.js；最多8文件，内部按流控/诊断/连接3类有界处理 | 15高级命令及同族公开入口先复用真实行为/原日志，缺口才补选中目标/参数/取消/错误反馈。流控不停止科研任务，诊断只受控路由、不探真实服务器，连接不实际启动。菜单隐藏/无对象非逻辑通过；无缺口不造差量，超文件/协议/权限范围一次合并升级 |
 | R15 生成与最终交包 | 原生成器独占dist；Terra维护执行证据和scopedGit，总控维护计划/索引 | 只因产品输入变化做规定build/VM及受影响验证；完整插件逻辑小验收后交总控B01–B03，不重复有效检查；当前不打包/安装/发行 |
 
-2026-11-20阶段build日志见execution：285已选任务、10门禁及VM通过，6按需未运行；仅为当时输入。P/Q仍须在原范围内以P实际派发的同一commandId及路径接入Q采集/正式导出，不许重新enqueue独立夹具冒连续链。Y是真实新产品修复，完成后集中补适用检查及最终build；仅P/Q测试变化不机械重复全仓。
+原285/285（6按需未运行）和a86b候选291/291按原输入保留。P/Q同commandId与Y真实无覆盖发布已补并经总控核；Z产品输入变化后集中必要验证，不拿旧fingerprint冒新候选，仅文档/测试返修按增量复用。
 
 T1–T3为同一连续分支UI收口阶段的内部有界组，P/Q/R优先；先汇总同两文件内所有已知缺口，一次集中实现后统一目标验证，不逐方法请求计划、逐小组构建或重跑有效服务测试。生产文件仅修本家族实际可达缺陷，不改其他功能、协议、权限、性能断言/时限或引入框架；新文件/协议边界仍升级总控。
 
@@ -129,26 +116,20 @@ T1–T3为同一连续分支UI收口阶段的内部有界组，P/Q/R优先；先
 
 | 项 | 必须证明 | 证据与边界 |
 | --- | --- | --- |
-| S01/R09 | 现有中英文记录与入口/对象/handler正确对应，类别/未知可定位；不重复盘点164条 | manual/coverage原记录、现有diff和必要差量；动态总数未知照实保留 |
-| S02/R10/J | 本机结果入口对象、映射摘要、来源/字段切换、101值搜索选择、拆表导出及必要最终文件正确 | 既有合成实点/renderer/解析证据，未变不重做；API/CLI与GUI分开 |
-| S03/R11/K/L | Worker/GPU/tmux按钮请求目标、离线/未查询/失败/不可用/成功空与非空反馈正确 | 复用K/L真实方法测试及离线UI；不要求服务器健康、真实GPU或新服务 |
-| S04/R12-I | 旧隔离准备退出本轮验收 | 已读目录结果和未验证事实保留，不再要求部署/认证/端口等证明，不记通过 |
-| S05/R12 | 同步/校验/预演/运行/停止/清理插件链的身份、参数、确认取消、状态与错误契约正确 | 既有协议/host/renderer受控证据；不执行真实任务或文件破坏，不冒远端完成 |
-| S06/R13 | 命令、动态条件、草稿/维护、渲染恢复入口可定位且反馈契约正确 | 真实存在UI证据与受控分支分别引用；无producer与selector不冒可执行按钮 |
-| S07/R14/R15 | 仅必要缺陷修复/消费者覆盖与生成语法门禁 | 原runner/退出码/输入身份/VM，首次失败保留；无产品变化不重跑build |
-| S08/D1 | MCP按任务读写回读、项目隔离/已有映射保护、真实解析与同步状态 | 实际configuration回执及受控测试，不冒Agent同步/鼠标入口 |
-| S09/D2 | 各位置不要求手填接入，退役专属UI/schema不复活，正常结果功能保持 | 已核源码宿主/旧布局/设置及原目标；安装版旧残留如实披露 |
-| S10/F–I | 引导、bootstrap、离线刷新和复制指南无手配必经/不实承诺 | 现有目标与真实复制/反馈，空PLAN不冒正式运行 |
-| M/N/O补缺 | 三组中具体未覆盖的绑定、确认/取消、反馈/终态断言齐备 | 优先原有效证据，缺口才新增真实生产函数的受控断言；不写共享项目/远端 |
-| S补缺 | 分支项目打开与移除登记的真实UI方法正确绑定对象、确认/取消与成功反馈 | 原AST夹具接真实方法，依赖受控，核命令/服务调用及零动作边界；不操作真实项目，不重跑已有效服务/PR场景 |
-| T补缺 | 分支登记创建、提交状态结果、源码核验/PR的支持UI逻辑已有真实有效行为证据，剩余缺口闭合 | 同文件集中归并后仅补缺；受控服务/RPC/Git不代表真实外部操作成功，既有PR/服务证据继续复用 |
-| U/V补缺 | 曲线入口绑定当前Worker/项目，归档恢复正确确认、独立输出及项目切换停止 | 真实生产函数及受控外部依赖；底层解析/统计/归档有效证据复用，外部真实效果未测明示 |
-| W补缺 | 路径提醒和布局按既有项目/global作用域重置，端口冲突正确反馈与配置路由 | 真实方法、受控存储/vscode/配置依赖，核取消/空/切换/成功效果；不修改真实共享配置或把application操作改为项目专用 |
-| X补缺 | 非空非法安全规则不能被UI或持久化消费静默丢弃，合法规则/作用域/错误反馈保留 | 原生产方法与规则解析器受控复现，再核整组无效零保存、消费明确失败及合法允许/禁止路径行为；保留原失败，不碰真实配置 |
-| Y补缺 | 恢复新Plan/记录发布时并发出现的文件不会被覆盖，普通StateStore写语义不变 | 真实文件系统与受控发布时序，保留旧字节及失败；与原V恢复身份/配置独占复制证据合并 |
-| S11/P | 同一预检/确认产出的PLAN/job身份实际贯穿入队、分配、派发；取消/失败不得入队派发 | 前段真实输出作后段实际输入；正确性软件夹具，无训练/性能实验，既有队列保护断言复用 |
-| S12/Q | 协议2完成证据到真实收集/正式导出的同身份闭环，错command/路径拒收，不覆盖/串旧结果 | 真实生产函数与受控transport；completion与采集契约分开，旧owner用例不冒协议2 |
-| S13/R | 同一实收指标的类型/数值/seed与PLAN/dataset/method归属在汇总/目录/展示导出一致 | 各格式与拆表按现有真实schema独立算期望，解析/拆表各自绿不相加冒全链 |
+| S01/R09 | 已有中英文证据对应真实入口/对象/handler，静态/动态/命令类别与未知不混算 | 复用原记录，不重盘164项 |
+| S02/R10/J | 结果导航/映射摘要、来源字段、101值、拆表各格式及最终文件正确 | 原合成实点/renderer/解析证据；API不冒GUI |
+| S03/R11/K/L | Worker/GPU/tmux目标、未查/离线/失败/不可用/成功空非空反馈正确 | 不要求服务器健康/真实GPU |
+| S04/R12-I | 原隔离准备退出当前必要范围 | 历史已查未查均保留，不记通过 |
+| S05/R12 | 同步/校验/预演/运行/停止/清理插件身份、参数、确认取消及错误契约正确 | 原协议/host/renderer受控；无真实任务/删除 |
+| S06/R13 | 命令、条件/维护/渲染恢复可定位且反馈正确 | 有效行为证据与selector/无producer/退役分类分开 |
+| S07/R14/R15 | 真实缺陷及必要消费者、生成门禁覆盖最终输入 | 原runner/真实码/首次失败/VM；无产品变化不build |
+| S08/D1 | MCP按真实任务读写回读、项目隔离/原映射保护、解析和同步状态准确 | 实际configuration及受控证据，不冒Agent同步 |
+| S09/D2 | 接入不要求手填，退役专属UI/schema不复活，结果基本功能保持 | 源码宿主/旧布局/设置证据，安装版残留明示 |
+| S10/F–I | 引导、bootstrap、离线刷新和复制指南无手配必经/不实承诺 | 原复制全文和反馈；空PLAN不冒运行 |
+| M–O与S–Z | 各命名步骤的对象绑定、确认取消、状态/错误和必要发布安全全部闭合 | 按上表精确契约/文件；共享证明复用，不碰真实项目/Worker/配置 |
+| S11/P | 同一真实预检/确认输出贯穿入队、分配和派发，取消/失败零入队派发 | 前段实际结果作后段输入；非训练/性能实验 |
+| S12/Q | 协议2完成身份进入真实采集/正式导出，错command/path拒收且不串旧结果 | completion和采集契约分开，旧owner流程不冒协议2 |
+| S13/R | 同一实收指标在汇总/catalog/各格式拆表的值、seed及PLAN/dataset/method归属一致 | 独立算现有schema期望，局部绿灯不冒全链 |
 | B01 | 审最终diff/必要调用链及小项证据，所有当前支持入口逻辑均有明确有效证据或真实类别，P/Q/R与其他剩余缺口闭合；不把源计数、preview、替身混成全按钮实点 | 总控只补实际关联缺口，未知总数不伪造；历史未测实机与本轮范围区分 |
 | B02 | UI/消息→预检/入队/派发→协议2完成证据→收集/汇总/catalog/导出的同一项目/PLAN/job/Worker/commandId/路径与指标维度关联正确，权限确认/取消/错误不丢，生产门禁保留 | 用已有受控/真实证据对账，不以真实Worker部署/训练/远端产物闭环为前置，不重跑S项 |
 | B03 | 最终源码/生成物/界面与测试证据适用候选一致，scopedGit真实，发行/安装/部署状态不冒报 | Git后仅核新增提交关系，不做包后冒烟或额外全仓审计 |
