@@ -2158,6 +2158,7 @@ export class RealtimeTunnelPanelProvider {
     }
     async refreshBranchRunsFromUi() {
         const state = await this.refreshBranchRuns("ui");
+        if (state.error) { void vscode.window.showWarningMessage(state.error); return; }
         if (!state.roots.length) void vscode.window.showInformationMessage("尚未登记任何项目，没有运行状态可刷新。");
     }
     /* —— 块C3：结果对比（本机队列磁盘窄读）＋ 用户选优后的精确 HEAD↔manifest 绑定核对（纯只读） —— */
@@ -2223,6 +2224,7 @@ export class RealtimeTunnelPanelProvider {
     }
     async compareBranchResultsFromUi() {
         const state = await this.compareBranchResults("ui");
+        if (state.error) { void vscode.window.showWarningMessage(state.error); return; }
         if (!state.roots.length) void vscode.window.showInformationMessage("尚未登记任何项目，没有可比对的结果。");
     }
     /** 用户选优的“核对”：当前提交树必须逐文件（类型/大小/blob 字节 SHA）等于已验清单；只读，绝不 stage/commit。 */

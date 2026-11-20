@@ -1231,6 +1231,192 @@ test("C5 R5a/b/c：跨 cwd/大小写语义身份拒绝与精确结算；专用�
  * 提取实际方法体进隔离 vm，外部 git/gh 一律注入 stub（不联网）；真实仓/真实租约/真实模块另各占用例。 */
 const DPQ = require("../../dist/features/DistributedPlanQueue.js");
 
+function branchUiWorld() {
+  const ts = require('typescript'), vm = require('node:vm');
+  const source = fs.readFileSync(path.join(__dirname, '../../src/extension/legacy.ts'), 'utf8');
+  const ast = ts.createSourceFile('legacy.ts', source, ts.ScriptTarget.Latest, true);
+  const cls = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === 'RealtimeTunnelPanelProvider');
+  const names = ['registerAncestorProjectFromUi', 'registerBranchProjectFromUi', 'createBranchFromAncestorFromUi',
+    'assertBranchDispatchRoot', 'branchDispatchRouteFor', 'submitBranchPlanRunFromUi', 'refreshBranchRuns',
+    'refreshBranchRunsFromUi', 'compareBranchResults', 'compareBranchResultsFromUi', 'verifyBranchHeadBindingFromUi'];
+  const methods = cls.members.filter(node => names.includes(node.name?.getText(ast)));
+  assert.equal(methods.length, names.length);
+  const events = [], state = { answer: '', input: 'exp/new', picked: 'first', roots: ['C:/fixture/a','C:/fixture/b'],
+    plans: [{planFile:'plans/a.yaml',revision:'rev-a'}], preview: {ready:true,guidance:'ready'}, outcome: {kind:'started',operationId:'op-a'},
+    snapshot: {state:'missing',queue:{plans:[]}}, binding: {ok:true,coveredFiles:1,coveredBytes:4,failures:[],note:'ok'}, identity: {toplevel:'C:/fixture/b',headCommit:'abcdef012345',branch:'main',dirty:false} };
+  const api = {
+    resolveBranchRoute: async root => { events.push(['route',root]); if (root === state.routeFailure) throw Error('route failed'); return {root}; },
+    branchRpc: route => route,
+    listBranchPlans: async rpc => { events.push(['list',rpc.root]); return state.plans; },
+    previewBranchRun: async (rpc,root,plan) => { events.push(['preview',root,plan.planFile,rpc.root]); return state.preview; },
+    submitBranchRun: async (rpc,root,plan) => { events.push(['submit',root,plan.planFile,rpc.root]); return state.outcome; },
+    branchRunProgress: async rpc => [{operationId:'op-'+rpc.root}],
+  };
+  const vscode = {window:{
+    showInformationMessage: async (message,options) => { events.push(['info',message,options?.detail]); return state.answer; },
+    showWarningMessage: async (message,options) => { events.push(['warn',message,options?.detail]); return state.answer; },
+    showInputBox: async () => state.input,
+    showQuickPick: async items => state.picked === 'first' ? items[0] : undefined,
+  }};
+  const service = {
+    registryInventory: () => { if (state.inventoryError) throw Error('registry broken'); return {ancestors:state.roots.slice(0,1),branches:state.roots.slice(1)}; },
+    registerAncestor: async payload => events.push(['ancestor',payload.gitRoot]),
+    registerBranch: async payload => events.push(['branch',payload.ancestorId,payload.workspaceRoot]),
+    previewCreateBranch: payload => { events.push(['createPreview',payload.ancestorId,payload.branch,payload.targetParentDir]);
+      return {ancestorLabel:'a',ancestorRoot:'C:/fixture/a',branch:payload.branch,baseRef:'main',baseCommit:'abc',targetPath:'C:/fixture/new',warnings:[],digest:'preview-digest'}; },
+    confirmCreateBranch: async payload => { events.push(['create',payload.ancestorId,payload.branch,payload.targetParentDir,payload.confirmDigest]); return {message:'created'}; },
+  };
+  const Host = vm.runInNewContext(ts.transpileModule('class Host {' + methods.map(row=>row.getText(ast)).join('\n') + '}; Host',
+    {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText, {
+    vscode, path, BranchPlanDispatch:api, stringField:(message,key)=>message[key] || '',
+    canonicalComparablePath:value=>String(value).toLowerCase(), errorMessage:error=>error.message,
+    readGitIdentityProbe:()=>state.identity, hasVerifiedCompletion:(_plan,job)=>Boolean(job.verified),
+    BranchHeadBinding:{runGitBinary:()=>{},bindPlanSourceToCommit:async request=>{events.push(['bind',request.cwd,request.headCommit,request.planFile,request.revision,request.executionSource]);return state.binding;}},
+    UiCommandCancelled:class UiCommandCancelled extends Error {},
+  });
+  const h = new Host();
+  Object.assign(h, { branchProjectService:()=>service, pickBranchProject:async()=>({id:'a1',label:'ancestor'}),
+    pickBranchProjectDirectory:async()=>state.identity.toplevel, withUnifiedAdmissionLease:async (_label,run)=>run(),
+    scheduleBranchProjectsVerify:reason=>events.push(['verify',reason]),
+    refreshUnifiedDispatchPolicyAfterRegistryChange:reason=>events.push(['refresh',reason]),
+    branchQueueSnapshotFor:async root=>{events.push(['snapshot',root]);return state.snapshots?.[root] || state.snapshot;},
+    postState:()=>events.push(['state']), recordActionError:error=>events.push(['error',error.message]), });
+  return {h,state,events};
+}
+
+test('branch registration and creation UI confirms the selected identities and frozen preview', async () => {
+  for (const [method,kind] of [['registerAncestorProjectFromUi','ancestor'],['registerBranchProjectFromUi','branch'],['createBranchFromAncestorFromUi','create']]) {
+    const {h,state,events}=branchUiWorld(); state.answer='';
+    await assert.rejects(h[method](), /已取消/);
+    assert.equal(events.some(row=>row[0]===kind),false);
+    state.answer=kind==='create'?'确认创建':'确认登记';
+    await h[method]();
+    const call=events.find(row=>row[0]===kind);
+    if(kind==='ancestor') assert.deepEqual(call,['ancestor',state.identity.toplevel]);
+    if(kind==='branch') assert.deepEqual(call,['branch','a1',state.identity.toplevel]);
+    if(kind==='create') assert.deepEqual(call,['create','a1','exp/new',state.identity.toplevel,'preview-digest']);
+    assert.ok(events.some(row=>row[0]==='verify')); assert.ok(events.some(row=>row[0]==='refresh'));
+  }
+});
+
+test('branch submission UI binds the selected root and Plan and never resends unknown outcomes', async () => {
+  for (const variant of ['empty','cancelPick','notReady','cancelConfirm','started','notStarted','unknown']) {
+    const {h,state,events}=branchUiWorld(); state.answer='确认提交';
+    h.refreshBranchRuns=async reason=>events.push(['refreshRuns',reason]);
+    if(variant==='empty') state.plans=[];
+    if(variant==='cancelPick') state.picked='none';
+    if(variant==='notReady') state.preview={ready:false,guidance:'blocked'};
+    if(variant==='cancelConfirm') state.answer='';
+    if(variant==='notStarted') state.outcome={kind:'notStarted',reason:'refused'};
+    if(variant==='unknown') state.outcome={kind:'unknown',error:'transport lost'};
+    if(['cancelPick','cancelConfirm'].includes(variant)) await assert.rejects(h.submitBranchPlanRunFromUi({branchRoot:'C:/fixture/b'}),/已取消/);
+    else await h.submitBranchPlanRunFromUi({branchRoot:'C:/fixture/b'});
+    const sends=events.filter(row=>row[0]==='submit');
+    assert.equal(sends.length,['started','notStarted','unknown'].includes(variant)?1:0,variant);
+    if(sends.length) assert.deepEqual(sends[0],['submit','C:/fixture/b','plans/a.yaml','C:/fixture/b']);
+    if(variant==='unknown') assert.ok(events.some(row=>row[0]==='warn' && row[1].includes('提交结果未知')));
+    if(variant==='notStarted') assert.ok(events.some(row=>row[0]==='error' && row[1].includes('refused')));
+    if(variant==='started') { assert.ok(events.some(row=>row[0]==='info' && row[1].includes('op-a'))); assert.ok(events.some(row=>row[0]==='refreshRuns')); }
+    events.length=0; await assert.rejects(h.submitBranchPlanRunFromUi({branchRoot:'C:/unregistered'}),/不在.*登记/);
+    assert.equal(events.some(row=>row[0]==='route'||row[0]==='submit'),false);
+  }
+});
+
+test('branch status and comparison UI distinguish broken registry, empty registry and per-root failures', async () => {
+  for (const [method,field] of [['refreshBranchRunsFromUi','branchRunsState'],['compareBranchResultsFromUi','branchResultsState']]) {
+    const {h,state,events}=branchUiWorld();
+    state.inventoryError=true; await h[method]();
+    assert.match(h[field].error,/registry broken/);
+    assert.ok(events.some(row=>row[0]==='warn' && row[1].includes('registry broken')));
+    assert.equal(events.some(row=>row[0]==='info' && row[1].includes('尚未登记')),false);
+    events.length=0; state.inventoryError=false; state.roots=[]; await h[method]();
+    assert.ok(events.some(row=>row[0]==='info' && row[1].includes('尚未登记')));
+    events.length=0; state.roots=['C:/fixture/a','C:/fixture/b']; state.routeFailure='C:/fixture/a';
+    state.snapshot={state:'ok',queue:{plans:[{id:'p',planFile:'plans/a.yaml',revision:'rev',codeFingerprint:'fp',jobs:[{status:'completed',verified:true}]}]}};
+    if(field==='branchResultsState') state.snapshots={'C:/fixture/a':{state:'corrupt',error:'queue broken'}};
+    await h[method](); assert.equal(h[field].roots.length,2);
+    assert.equal(h[field].roots[0].root,'C:/fixture/a'); assert.equal(h[field].roots[1].root,'C:/fixture/b');
+    if(field==='branchRunsState') { assert.match(h[field].roots[0].error,/route failed/); assert.equal(h[field].roots[1].operations[0].operationId,'op-C:/fixture/b'); }
+    else { assert.equal(h[field].roots[0].error,'queue broken'); assert.equal(h[field].roots[1].plans[0].revision,'rev'); assert.equal(h[field].roots[1].plans[0].jobsConfirmed,1); }
+  }
+});
+
+test('branch HEAD UI binds selected Plan source and revision to the actual Git identity', async () => {
+  const {h,state,events}=branchUiWorld();
+  state.snapshot={state:'corrupt',error:'broken'};
+  await assert.rejects(h.verifyBranchHeadBindingFromUi({branchRoot:'C:/fixture/b'}),/broken/);
+  state.snapshot={state:'ok',queue:{plans:[]}}; await h.verifyBranchHeadBindingFromUi({branchRoot:'C:/fixture/b'});
+  assert.equal(events.some(row=>row[0]==='bind'),false);
+  const plan={id:'p1',planFile:'plans/a.yaml',revision:'rev-a',executionSource:{manifest:{'a.py':{sha256:'abc'}}}};
+  state.snapshot={state:'ok',queue:{plans:[plan,{...plan,id:'p2',planFile:'plans/b.yaml'}]}}; state.picked='none';
+  await assert.rejects(h.verifyBranchHeadBindingFromUi({branchRoot:'C:/fixture/b'}),/已取消/);
+  state.picked='first'; const result=await h.verifyBranchHeadBindingFromUi({branchRoot:'C:/fixture/b'});
+  const call=events.find(row=>row[0]==='bind');
+  assert.equal(call[1],state.identity.toplevel); assert.equal(call[2],state.identity.headCommit); assert.equal(call[3],plan.planFile);
+  assert.equal(call[4],plan.revision); assert.equal(call[5],plan.executionSource); assert.equal(result.planId,'p1'); assert.equal(result.ok,true);
+  state.binding={ok:false,coveredFiles:0,coveredBytes:0,failures:[{path:'a.py',reason:'changed'}],reason:'mismatch',note:''};
+  const failed=await h.verifyBranchHeadBindingFromUi({branchRoot:'C:/fixture/b'});
+  assert.equal(failed.ok,false); assert.ok(events.some(row=>row[0]==='warn' && row[1].includes('无法证明')));
+});
+
+test('branch project opening and registration removal preserve selection and confirmation', async () => {
+  const ts = require('typescript'), vm = require('node:vm');
+  const source = fs.readFileSync(path.join(__dirname, '../../src/extension/legacy.ts'), 'utf8');
+  const ast = ts.createSourceFile('legacy.ts', source, ts.ScriptTarget.Latest, true);
+  const cls = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === 'RealtimeTunnelPanelProvider');
+  const names = ['openBranchProjectFromUi', 'forgetBranchProjectRegistrationFromUi'];
+  const members = cls.members.filter(node => names.includes(node.name?.getText(ast)));
+  assert.equal(members.length, names.length);
+  const events = [], rows = { ancestors: [{record:{id:'a1',gitRoot:'C:/fixture/ancestor'}}],
+    branches: [{record:{id:'b1',workspaceRoot:'C:/fixture/branch'}}] };
+  let answer, current = 'C:/fixture/current', liveRows = rows;
+  const vscode = { window: {
+    showInformationMessage: async text => { events.push(['info', text]); return answer; },
+    showWarningMessage: async text => { events.push(['warning', text]); return answer; },
+  }, Uri: { file: root => ({fsPath:root}) }, commands: { executeCommand: async (...args) => events.push(['command', ...args]) } };
+  const Host = vm.runInNewContext(ts.transpileModule('class Host {' + members.map(row => row.getText(ast)).join('\n') + '}; Host',
+    {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText, {
+    vscode, stringField: (message, key) => message[key] || '', workspaceRoot: () => current,
+    sameComparablePathProbe: (a,b) => a.toLowerCase() === b.toLowerCase(),
+    UiCommandCancelled: class UiCommandCancelled extends Error {},
+  });
+  const h = new Host();
+  Object.assign(h, {
+    branchProjectsProjection: () => rows,
+    branchProjectPickItems: projection => [...projection.ancestors, ...projection.branches].map(item => item.record),
+    pickBranchProject: async () => { throw Error('unexpected picker'); },
+    branchProjectService: () => ({ verifyAll: () => liveRows, forget: async (kind,id) => events.push(['forget',kind,id]) }),
+    withUnifiedAdmissionLease: async (label, run) => { events.push(['lease',label]); return run(); },
+    scheduleBranchProjectsVerify: reason => events.push(['verify',reason]),
+    refreshUnifiedDispatchPolicyAfterRegistryChange: reason => events.push(['refresh',reason]),
+  });
+  for (const [id,root] of [['a1','C:/fixture/ancestor'],['b1','C:/fixture/branch']]) {
+    events.length = 0; answer = undefined;
+    await assert.rejects(h.openBranchProjectFromUi({branchProjectId:id}), /已取消打开/);
+    assert.equal(events.filter(row => row[0] === 'command').length, 0);
+    answer = '打开'; await h.openBranchProjectFromUi({branchProjectId:id});
+    const call = events.find(row => row[0] === 'command');
+    assert.equal(call[1], 'vscode.openFolder'); assert.equal(call[2].fsPath, root); assert.equal(call[3].forceNewWindow, true);
+    current = root; events.length = 0;
+    await h.openBranchProjectFromUi({branchProjectId:id});
+    assert.equal(events.filter(row => row[0] === 'command').length, 0);
+    current = 'C:/fixture/current';
+  }
+  liveRows = {ancestors:[],branches:[]}; events.length = 0;
+  await assert.rejects(h.openBranchProjectFromUi({branchProjectId:'b1'}), /登记项已不存在/);
+  assert.equal(events.filter(row => row[0] === 'command').length, 0); liveRows = rows;
+  for (const [kind,id] of [['ancestor','a1'],['branch','b1']]) {
+    events.length = 0; answer = undefined;
+    await assert.rejects(h.forgetBranchProjectRegistrationFromUi({branchProjectId:id},kind), /已取消移除/);
+    assert.equal(events.filter(row => row[0] === 'forget' || row[0] === 'lease').length, 0);
+    answer = '移除登记'; await h.forgetBranchProjectRegistrationFromUi({branchProjectId:id},kind);
+    assert.deepEqual(events.find(row => row[0] === 'forget'), ['forget',kind,id]);
+    assert.ok(events.some(row => row[0] === 'verify' && row[1] === 'forget-' + kind));
+    assert.ok(events.some(row => row[0] === 'refresh'));
+    assert.ok(events.some(row => row[0] === 'info' && row[1].includes('已移除登记')));
+  }
+});
+
 function makeLegacyUiHost(env) {
   const ts = require("typescript");
   const vm = require("node:vm");
