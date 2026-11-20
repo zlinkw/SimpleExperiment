@@ -335,6 +335,15 @@ export function normalizeApiRemotePath(value: unknown): string | undefined {
   return text.replace(/\/+$/, "");
 }
 
+export function normalizeApiRemotePolicyRoot(value: unknown): string | undefined {
+  if (typeof value !== "string") throw new Error("远端安全边界必须是目录字符串。");
+  if (!value.trim()) return undefined;
+  const root = normalizeApiRemotePath(value);
+  if (!root || !root.startsWith("/") || root.split("/").some(part => part === "." || part === ".."))
+    throw new Error("远端安全边界须为非根目录的绝对路径，不能包含 . 或 ..。");
+  return root;
+}
+
 export interface RemoteRootPolicy {
   allowedRoots?: unknown;
   deniedRoots?: unknown;
@@ -345,8 +354,9 @@ export function resolveApiRemoteRoot(value: unknown, server: unknown = {}): stri
 }
 
 function normalizedRemoteRootList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => normalizeApiRemotePath(item)).filter((item): item is string => Boolean(item));
+  if (value == null) return [];
+  if (!Array.isArray(value)) throw new Error("远端安全边界必须是目录列表。");
+  return value.map((item) => normalizeApiRemotePolicyRoot(item)).filter((item): item is string => Boolean(item));
 }
 
 function containsRootOrDescendant(root: string, roots: string[]): boolean {

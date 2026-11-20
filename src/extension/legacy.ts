@@ -21234,7 +21234,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const patch = recordField(message, "patch");
         const parseRootList = (value) => String(value || "")
             .split(/\r?\n/)
-            .map((item) => ApiWorkflow_1.normalizeApiRemotePath(item))
+            .map((item) => ApiWorkflow_1.normalizeApiRemotePolicyRoot(item))
             .filter((item) => Boolean(item));
         const allowedRoots = parseRootList(patch.allowedRoots);
         const deniedRoots = parseRootList(patch.deniedRoots);
@@ -39477,8 +39477,8 @@ function remoteParentWorkRoot(value) {
 function remoteRootPolicyConfig() {
     const config = vscode.workspace.getConfiguration("simpleExperiment");
     return {
-        allowedRoots: stringArrayConfig(config.get("remote.allowedRoots", [])),
-        deniedRoots: stringArrayConfig(config.get("remote.deniedRoots", [])),
+        allowedRoots: config.get("remote.allowedRoots", []),
+        deniedRoots: config.get("remote.deniedRoots", []),
     };
 }
 function actualWorkRootValidationMessage(value, projectName = remoteProjectName(), label = "服务器", server, policy) {
