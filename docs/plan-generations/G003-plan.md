@@ -30,7 +30,7 @@
 - 通用接续、计数、正确模型/强度/default实核及自动同角色新建/消息/归档唯一遵循[统一入口](C:/Users/ZLK/.agents/skills/caveman/SKILL.md)及[交班模板](C:/Users/ZLK/.agents/skills/caveman/references/handover.md)；分工遵循[多会话实现](C:/Users/ZLK/.codex/skills/multi-session-implementation/SKILL.md)。不在项目复制阈值或算法，不为小进度换角色。
 - 预算：计划24000字符、execution16000、长期踩坑12000；90%时在正常非冻结窗口整份语义归并，保留全部未决/授权/失败/原证据，不能只削到阈值、硬截断或另造存档搬文字。相同文件先汇总本阶段已知改动，内存核预算，一次写入/集中回读；有新事实/真实失败再增量，不为标点措辞反复编辑计数。
 
-Terra完成全部当前范围实现和S01–S13、M/N/O/P/Q/R/S/T/U/V/W/X及其余实际逻辑补缺→真实工具交总控完整包→总控独占B01–B03→失败真实工具详返原Terra修复/定向自验/再交→最终明确通过及既有授权交付→总控结案。完整包给最终基线/diff、原命令与真实退出码/日志、证据适用输入与含义、真实失败/未知/未测、权限保护和租约。常态总控空闲，Terra普通进度记execution，仅真实新决策或完整交包联系。
+Terra完成全部当前范围实现和S01–S13、M/N/O/P/Q/R/S/T/U/V/W/X/Y及其余实际逻辑补缺→真实工具交总控完整包→总控独占B01–B03→失败真实工具详返原Terra修复/定向自验/再交→最终明确通过及既有授权交付→总控结案。完整包给最终基线/diff、原命令与真实退出码/日志、证据适用输入与含义、真实失败/未知/未测、权限保护和租约。常态总控空闲，Terra普通进度记execution，仅真实新决策或完整交包联系。
 
 有效证据按所涉输入、对象和调用链是否变化判断，不能因全仓提交变化、换角色或重新统计而重做。总控先核实际diff/必要调用链/原证据，仅补未覆盖项目级关联，不重复Terra小验收或已有大验收。实际UI/检查前明确移交单一租约；受检docs/src/test/scripts/dist冻结包括总控，结束才记事实。
 
@@ -116,7 +116,10 @@ AI依据当前项目/任务/PLAN、真实训练评估入口及允许读取的结
 | R14V 归档恢复入口补缺 | 仅 test/features/archivedPlanRestoreWorkflow.test.js、test/features/projectWorkspaceChangeIsolation.test.js、test/features/planArchiveBundleWorkflow.test.js、src/extension/legacy.ts；最多4文件，未需修改者复用 | 真实restoreArchivedPlanFromUi接现有恢复/安全路径函数，以受控fs/确认/项目上下文核归档来源、新版本目标与独立输出/资产命名空间，确认取消零mkdir/copy/write/persist，选择期间或后续异步边界换项目停止后续写入/选择落盘，成功目标/恢复记录/resultScope及PLAN选择一致；不把已发生的先前写入冒零写。保留归档/原结果、不覆盖用户文件，不实际恢复消费项目或清理，不以源码正则代行为。必要时只最小修真实可达缺陷，不改恢复协议/权限/指标语义 |
 | R14W 设置与维护行为补缺 | 仅 test/features/remotePathConfirmationWorkflow.test.js、test/features/projectUiLayoutState.test.js、test/tunnel/tunnelPortConflict.test.js、src/extension/legacy.ts；最多4文件、3个相关问题 | 一次集中补resetRemotePathConfirmationsFromUi/resetUiLayoutFromUi/repairTunnelPorts真实方法断言。路径提醒核当前项目、空/取消零清除与持久化、异步切项目停止后续效果、确认后仅清当前项目提醒及旧兼容键；布局核既有global模板与项目布局/动作重置及切项目不向新面板post旧状态；端口核实际Worker冲突host/port/目标、无冲突/取消零configure、明确选择只路由configureTunnelPorts，保留不自动改Xshell/不启停连接。依赖受控、不写真实共享设置/文件、不联网；只修实际可达缺陷，保留原配置scope，不能给application操作强加项目门禁，不恢复Hub、不新增确认/性能/重试/超时/框架，原探测/分配器/渲染有效证据复用 |
 | R14X 远端路径安全规则保存与消费 | 仅 test/features/remoteRootPolicyUi.test.js、test/api/localApi.test.js、src/extension/legacy.ts、src/features/ApiWorkflow.legacy.ts；最多4文件，独立W的内部组 | 已核UI承诺每行绝对POSIX目录、禁止优先，但saveRemoteRootPolicyFromUi及normalizedRemoteRootList静默滤掉normalizeApiRemotePath不能表示的非空项，deniedRoots为/会变空。先受控复现，保存前验证整组allowed/denied，任何无效项零配置写且不报成功；直接配置消费同样明确拒绝，不能继续按空策略放行。按既有契约处理非绝对/含..等实际无效项；空行/空列表及正常规范化保持，合法禁止前缀优先于允许，父/子/相邻目录语义保持。不扩展/为允许或禁止全盘的新含义，不改通用normalizeApiRemotePath消费者、不新增安全策略/配置/框架。核当前folder.uri和WorkspaceFolder目标、切项目反馈及错误上抛；所有配置/fs/外部调用受控，不写真实安全设置。共享helper只按真实边界复用，不为测试改产品导出 |
+| R14Y 恢复文件无覆盖发布 | 仅 src/state/StateStore.ts、src/extension/legacy.ts、test/features/stateWriterIsolation.test.js、test/features/archivedPlanRestoreWorkflow.test.js、test/features/projectWorkspaceChangeIsolation.test.js、test/features/planArchiveBundleWorkflow.test.js；最多6文件，未需修改者复用 | 已核beforeRename查不存在后fs.rename仍可覆盖期间新出现目标，进程内队列/合作host租约不能证明文件系统无覆盖。复用StateStore提供最小显式无覆盖发布，仅恢复新Plan/记录使用，普通写默认/串行/来源身份/重试不变。完整内容发布且目标已存在则失败保留原字节，不再靠一次存在性检查，不退化为先删/覆盖或静默回退；错误/暂存如实保留，不自动清理。受控注入检查后目标出现并接真实文件系统核旧内容不变，成功新文件完整、默认写仍保持原契约，恢复预览/身份/项目切换与COPYFILE_EXCL保护继续有效；无性能测试/新通用框架 |
 | R15 生成与最终交包 | 原生成器独占dist；Terra维护执行证据和scopedGit，总控维护计划/索引 | 只因产品输入变化做规定build/VM及受影响验证；完整插件逻辑小验收后交总控B01–B03，不重复有效检查；当前不打包/安装/发行 |
+
+2026-11-20阶段build日志见execution：285已选任务、10门禁及VM通过，6按需未运行；仅为当时输入。P/Q仍须在原范围内以P实际派发的同一commandId及路径接入Q采集/正式导出，不许重新enqueue独立夹具冒连续链。Y是真实新产品修复，完成后集中补适用检查及最终build；仅P/Q测试变化不机械重复全仓。
 
 T1–T3为同一连续分支UI收口阶段的内部有界组，P/Q/R优先；先汇总同两文件内所有已知缺口，一次集中实现后统一目标验证，不逐方法请求计划、逐小组构建或重跑有效服务测试。生产文件仅修本家族实际可达缺陷，不改其他功能、协议、权限、性能断言/时限或引入框架；新文件/协议边界仍升级总控。
 
@@ -142,6 +145,7 @@ T1–T3为同一连续分支UI收口阶段的内部有界组，P/Q/R优先；先
 | U/V补缺 | 曲线入口绑定当前Worker/项目，归档恢复正确确认、独立输出及项目切换停止 | 真实生产函数及受控外部依赖；底层解析/统计/归档有效证据复用，外部真实效果未测明示 |
 | W补缺 | 路径提醒和布局按既有项目/global作用域重置，端口冲突正确反馈与配置路由 | 真实方法、受控存储/vscode/配置依赖，核取消/空/切换/成功效果；不修改真实共享配置或把application操作改为项目专用 |
 | X补缺 | 非空非法安全规则不能被UI或持久化消费静默丢弃，合法规则/作用域/错误反馈保留 | 原生产方法与规则解析器受控复现，再核整组无效零保存、消费明确失败及合法允许/禁止路径行为；保留原失败，不碰真实配置 |
+| Y补缺 | 恢复新Plan/记录发布时并发出现的文件不会被覆盖，普通StateStore写语义不变 | 真实文件系统与受控发布时序，保留旧字节及失败；与原V恢复身份/配置独占复制证据合并 |
 | S11/P | 同一预检/确认产出的PLAN/job身份实际贯穿入队、分配、派发；取消/失败不得入队派发 | 前段真实输出作后段实际输入；正确性软件夹具，无训练/性能实验，既有队列保护断言复用 |
 | S12/Q | 协议2完成证据到真实收集/正式导出的同身份闭环，错command/路径拒收，不覆盖/串旧结果 | 真实生产函数与受控transport；completion与采集契约分开，旧owner用例不冒协议2 |
 | S13/R | 同一实收指标的类型/数值/seed与PLAN/dataset/method归属在汇总/目录/展示导出一致 | 各格式与拆表按现有真实schema独立算期望，解析/拆表各自绿不相加冒全链 |
