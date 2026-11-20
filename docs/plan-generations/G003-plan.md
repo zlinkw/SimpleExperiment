@@ -2,11 +2,11 @@
 
 ## 当前状态与已完成检查点
 
-2026-11-17 本人要求本批改完先记录，过几天再继续；暂不给Terra发消息，本批后不再派新任务。总体目标仍是全按钮逻辑、PLAN运行和结果汇总正确性，高影响优先、集中修改；此前子范围结案不代表总体完成。同一G003保留，待本人恢复。
+2026-11-20 本人明确“继续吧”，恢复G003全按钮逻辑、PLAN运行和结果汇总正确性工作；2026-11-17的本批后暂停及暂不发Terra消息限制已随此次恢复解除。复用原总控和唯一Terra，继续高影响优先、同文件集中修改和最终统一验证，不另建代次或重做有效证据。
 
-暂停接续点：范围基线66d63f4b010e58d5d8b3a8930963f9ffc1dea1bd。T1–T3实现及受控目标检查已报完成：legacy.ts两个FromUi保留并提示登记表读取错误，不再误报未登记；S/T五个名称筛选用例首次4/5（夹具异步刷新污染）、隔离夹具后5/5，退出0。P/Q/R及入口单文件检查见execution：13/13、26/26、11/11、4/4、21/21，退出0；仅为原范围受控证据。当前源码、六测试和execution/coverage仍为未提交工作，不回滚、不混入此次状态提交；源码变更后的规定build/VM、整体剩余核查和总体B01–B03尚未完成，不标成功交付。未安装、发行、访问服务器或改真实项目。
+恢复基线92bd566c4e25c3184e0385ac845f3d44a5159c23，实际Git仍有暂停时九个tracked文件改动，全部保留。P/Q/R及入口单文件检查13/13、26/26、11/11、4/4、21/21退出0；S/T五个名称筛选用例先4/5（夹具异步刷新污染），修夹具后5/5退出0。legacy.ts已增加两处登记表错误提示，尚未完成源码变更后的规定build/VM；源码、六测试及execution/coverage未提交，总体核查与B01–B03未完成，不冒成功交付。原命令、失败和适用范围见execution及Terra原工具记录。
 
-Terra提出openScalarViewerFromUi与restoreArchivedPlanFromUi缺少UI行为断言，仅保存为下一候选，未划范围或授权实施；共享配置保存复用原证据。总控不再回复派单、不启动新检查；Terra仍active的观察不冒充已停止。下次本人恢复时先核本批最终状态、实际Git/diff及既有日志，再安排未完成验证和后续范围；保留原租约与失败/未测，不重跑有效证据。
+当前一次连续交付包含原M–T剩余证据闭合、新U/V入口行为补缺、全部必要修复、最终候选统一检查及完整交包。共享配置保存与已充分覆盖的分支PR/服务/RPC直接复用，不能拿局部绿灯冒完整链路。曲线打开和归档恢复仅核插件契约，不需真实Worker或修改消费项目；先补高影响身份/取消/输出隔离，再处理次要反馈。
 
 已完成检查点：源码 `ad31204a6d438420601132d22eb55a1346e081fc`、收尾 `af2697f249289db0604ca34fdbb40d4f1b6a4104` 已push/fetch。此前B01–B03仅签当时已识别插件子范围；MCP接入/退役残留、UI绑定与取消/失败/待确认反馈等证据保留。buildId `1a33b6e4a9c9ca5642ddcdce4c5c81ad3f5fb581dca96bc1d7b749787218df7a`，280已选任务及10门禁通过、并发1、锁释放，6按需未运行，模块及三script VM有效；原日志 `simple_cluster/reports/test-workflow/2026-11-17T07-21-58-237Z-59720-build/`，失败/实机外部未测/旧R13未知见execution。未安装升级，日常安装版未应用修复。
 
@@ -30,7 +30,7 @@ Terra提出openScalarViewerFromUi与restoreArchivedPlanFromUi缺少UI行为断�
 - 通用接续、计数、正确模型/强度/default实核及自动同角色新建/消息/归档唯一遵循[统一入口](C:/Users/ZLK/.agents/skills/caveman/SKILL.md)及[交班模板](C:/Users/ZLK/.agents/skills/caveman/references/handover.md)；分工遵循[多会话实现](C:/Users/ZLK/.codex/skills/multi-session-implementation/SKILL.md)。不在项目复制阈值或算法，不为小进度换角色。
 - 预算：计划24000字符、execution16000、长期踩坑12000；90%时在正常非冻结窗口整份语义归并，保留全部未决/授权/失败/原证据，不能只削到阈值、硬截断或另造存档搬文字。相同文件先汇总本阶段已知改动，内存核预算，一次写入/集中回读；有新事实/真实失败再增量，不为标点措辞反复编辑计数。
 
-Terra完成全部当前范围实现和S01–S13、M/N/O/P/Q/R/S/T及其余实际逻辑补缺→真实工具交总控完整包→总控独占B01–B03→失败真实工具详返原Terra修复/定向自验/再交→最终明确通过及既有授权交付→总控结案。完整包给最终基线/diff、原命令与真实退出码/日志、证据适用输入与含义、真实失败/未知/未测、权限保护和租约。常态总控空闲，Terra普通进度记execution，仅真实新决策或完整交包联系。
+Terra完成全部当前范围实现和S01–S13、M/N/O/P/Q/R/S/T/U/V及其余实际逻辑补缺→真实工具交总控完整包→总控独占B01–B03→失败真实工具详返原Terra修复/定向自验/再交→最终明确通过及既有授权交付→总控结案。完整包给最终基线/diff、原命令与真实退出码/日志、证据适用输入与含义、真实失败/未知/未测、权限保护和租约。常态总控空闲，Terra普通进度记execution，仅真实新决策或完整交包联系。
 
 有效证据按所涉输入、对象和调用链是否变化判断，不能因全仓提交变化、换角色或重新统计而重做。总控先核实际diff/必要调用链/原证据，仅补未覆盖项目级关联，不重复Terra小验收或已有大验收。实际UI/检查前明确移交单一租约；受检docs/src/test/scripts/dist冻结包括总控，结束才记事实。
 
@@ -99,16 +99,9 @@ AI依据当前项目/任务/PLAN、真实训练评估入口及允许读取的结
 | R14A 面板/对象传递缺陷返修 | 仅src/ui/PanelHtml.legacy.ts、src/ui/PanelHtml.ts、src/extension/legacy.ts、test/features/panelMessageDispatch.test.js、test/features/resultSectionRefreshDependencies.test.js、test/ui/resultActionWorkflow.test.js、test/ui/resultMappingEditor.test.js | 只修本补验真实发现问题，最多7文件；共享monolith独占，不加新功能/兼容框架，不改科研语义，必要目标回归和原入口复点 |
 | R14B 命令注册缺陷返修 | 仅src/extension/ProviderCommands.ts、src/factories/CommandFactory.ts、test/factories_integration.test.js、test/features/windowsWorkflowContract.test.js | 真实正常命令缺绑定/对象传递问题才启用，保留旧入口与原断言/时限；不恢复获准退役行数门禁 |
 | R14C 基础结果消费者缺陷返修 | 仅src/ui/sections/ResultsSection.ts、src/extension/ResultCollectionHost.ts、src/cli/commands/result.ts、test/cli/simpleCli.test.js、test/features/archivedOnlyResultCsvViews.test.js、test/ui/currentPlanWorkflowResultCache.test.js | 真实保存/列映射/拆表/导出或当前消费者缺陷才启用；保留AP/macro_f1/weighted_f1、真实维度/来源/身份，不改旧结果，不以修测试代修产品 |
-| R14D1 MCP 接入配置闭环 | 仅 src/extension/legacy.ts、src/mcp/ToolCatalog.ts、src/mcp/ToolResults.ts、package.json、test/features/mcpProject.test.js、test/features/projectWorkspaceChangeIsolation.test.js、test/features/projectMetricPartition.test.js、docs/simple-experiment-setup.md；批准边界8文件，实际无需修改的文件不制造差量 | 用户上述追加授权；复用现有 MCP/共享配置边界，补齐读配置→据任务写入→回读/必要解析刷新与真实同步状态；指标分组测试改为保留真实指标、不按类型补默认，原单遍历断言保持，不新增/修改性能断言；保留旧失败，不写旧 Worker/消费项目、不加框架 |
-| R14D2 接入展示与退役设置收口 | 仅 src/ui/PanelHtml.legacy.ts、src/ui/PanelHtml.ts、test/features/adapterTaskTypeLabelClarity.test.js、test/features/settingsSecondaryView.test.js、test/ui/resultMappingEditor.test.js、test/features/setupGuideWithoutBundledDocs.test.js、docs/simple-experiment-setup.md、docs/experiment-integration.md；批准边界8文件，和 D1 顺序执行；package.json 仅保留 D1 修改，SettingsSection.ts 与未改的 windowsWorkflowContract.test.js 不纳入本批写入 | 移除各位置任务/输出规则及列映射/derivedMetric 手填保存流程，保留 MCP 状态和可导航只读摘要、正常结果操作；指南指向当前仓库 master 并明示插件版本、复制 MCP 任务；保留剪贴板、CSV/映射契约及基础断言；移除退役专属残留，原 build/生成 script VM和源码宿主复点，旧安装残留分清 |
-| R14E 取消连接配置零写入 | 仅 src/extension/legacy.ts、test/features/workerRouting.test.js；最多2文件，独立D1/D2 | configureWorkerTunnels取消与完成共用break后错误保存；取消丢弃草稿，无持久化或已保存提示，明确完成才保存一次；configureXshellSavedSessions/configureXshellRealtimeTunnel共用别名同样覆盖。受控替身核首层取消/草稿后取消/明确完成，不写真实共享Worker配置；连接/拓扑/授权保持 |
-| R14F 接入引导文案修正 | 仅 src/extension/legacy.ts、test/features/planOutputGateAlignment.test.js、test/features/projectOnboardingSuggestionsCache.test.js、test/features/projectQuickStartWorkflow.test.js；最多4文件，同一 Terra 顺序实施 | 修正 output gate diagnostics/fixes、onboarding 和 adapterRulesPartialReason 的旧手填规则/映射/正则提示，改由 AI 根据实际任务通过 MCP 配置；保留原判定、输出契约、摘要限制及缓存/遍历/性能断言，不制造无关测试差量。真实函数定向验证提示与原门禁，空 PLAN 不冒正式运行证据 |
-| R14G 输出接入非必经手填 | 仅 src/extension/legacy.ts、src/ui/PanelHtml.legacy.ts、test/features/projectQuickStartWorkflow.test.js、test/features/projectCommandPaletteWorkflow.test.js；最多4文件，F 后顺序实施 | bootstrap 缺输出时不再自动 generateOutputAdapterFromUi，不以打开接入文件手编作为必经；completion 与未就绪提示/动作改到现有 AI/MCP 配置说明或只读摘要导航，复用当前已有入口，不新增配置框架。保留明确主动调用的生成/打开兼容命令及 handler、现有输出就绪校验和项目切换防护；定向回归未修改的 projectWorkspaceChangeIsolation 消费者。无输出不能冒可运行，旧失败留存 |
-| R14H 离线刷新准确反馈 | 仅 src/extension/legacy.ts、test/features/manualWorkerRefresh.test.js；最多2文件，同一 Terra 顺序实施 | manualSnapshot 已存在 offlineBundle 时准确反馈本机刷新/已导入，不继续无条件要求导入；确无 bundle 时仍提示导入。保留离线不联网、刷新本机元数据/选择与 postState、真实错误呈现及原 Python fixture/P0 时限。基于真实 bundle 状态，不加探测/回退/性能阈值 |
-| R14I 接入任务工具选择准确性 | 仅 src/features/SetupGuideSource.ts、test/features/setupGuideWithoutBundledDocs.test.js、docs/experiment-integration.md；最多3文件 | 修正复制任务/指南0.3的插件API强制要求；按消费项目规则、已有授权与工作流选择脚本/CLI/scheduler/SSH/tmux/标准传输或插件。实际用插件才发现匹配实例与capabilities/OpenAPI，不猜参数。指标/输出/列映射/别名仍由AI经MCP配置回读，指南字段段落同步；保留启用Worker、真实退出码、多行复制、版本/指南、授权及confirm/pathConfirmed边界，不擅自训练/上传/覆盖/删除、不借换工具绕R12受控确认。原检查/生成门禁及专用宿主复制全文回读 |
-| R14J 拆表完整值选择 | 仅 src/ui/PanelHtml.legacy.ts、test/ui/resultDatasetHierarchy.test.js；最多2文件 | latestResultCatalog已保留完整唯一值；去掉renderer的slice(0,100)，使第101值可搜索/选择。保留搜索、选择持久、可见项全选/清选、来源/字段切换及拆表对象。复用createRenderer核101唯一值末项展示/搜索/选择，属正确性，不增性能阈值/压测或改原断言/时限。旧兼容catalog的200分支不在当前链，不扩改；原目标/build/HTML VM及专用夹具门禁，不改旧结果 |
-| R14K 离线实时刷新反馈 | 仅 src/extension/legacy.ts、test/tunnel/manualGpuSchedulerSnapshot.test.js；最多2文件 | 运行进度/GPU当前刷新入口在offline_import静默return；仅两分支明示无法实时刷新，保留不联网、现有状态、在线成功/失败、发起generation/client绑定。真实方法替身核消息与零远端调用，旧断言/超时保留、不增性能测试；原目标/build/VM及两处专用宿主复点。无producer的manualTracesSnapshot不扩改 |
-| R14L tmux查询状态准确性 | 仅 src/ui/PanelHtml.legacy.ts、test/ui/tmuxWorkerAndRichLog.test.js；最多2文件 | 空sessions不证明已查；ok:false/failed为失败，available:false不可用，ok:true且available:true为空查询成功，其余未核实。host把成功message放入error，非空不能单独判失败。缓存保留已有available/必要status，使即时消息与重绘一致，保留stalled、真实错误、成功列表/Worker绑定。不改缓存生命周期/重试/超时/附着/窗口动作。真实renderer及消息分支核初始/失败/不可用/成功空含no tmux server说明与重绘；原门禁及专用离线复点保持，不联网/改runtime |
+| 已完成R14D1/D2 接入与退役展示 | 当前成品复用；历史精确文件边界见92bd566c版计划及execution，非新写入许可 | MCP按真实任务读写回读与项目隔离，不按任务类型补默认指标；面板任务/输出/CSV映射/derivedMetric改只读摘要与AI任务，保留配置存储/解析、结果操作、PLAN独立归类和剪贴板。指南指当前master、插件版本；退役PPT源码残留移除，旧安装残留不直接编辑。原CSV/映射/遍历/性能契约、build及生成script VM/宿主证据复用，失败/未测保留 |
+| 已完成R14E–I 配置取消、引导与离线/工具说明 | 同上，仅复用已验证成品；必要新缺陷按当前命名边界 | E configureWorkerTunnels及两别名取消丢草稿零保存，明确完成保存一次。F/G输出门禁与onboarding改AI经MCP，不自动生成adapter/要求手编；保留主动兼容命令、原输出就绪/项目切换/缓存/遍历门禁。H offlineBundle已存在时准确本机刷新，确无才提示导入，离线不联网且错误可见。I一般运行/传输按项目选择现有脚本/CLI/scheduler/SSH/tmux/标准工具或插件，实际选插件才发现接口；本次指标接入仍AI经MCP回读，不绕受控确认/授权。完整多行指南、原版本与性能断言保留 |
+| 已完成R14J–L 选择与刷新状态 | 同上，成品与原日志见execution | J移除当前renderer截100，101值可搜索/选择，保留选择/切源/拆表，旧不在链的200兼容分支未改；软件正确性夹具非压测。K离线GPU/运行进度刷新明确不能实时查，保留不联网/状态/在线错误及generation/client身份，无producer的manualTracesSnapshot未扩改。L tmux空不等于已查：ok:false/failed失败、available:false不可用、ok:true且available:true空为查询成功，其他未知；成功message可在error，非空error不能单判失败。缓存保留available/status供重绘一致，stalled、Worker/真实列表、原生命周期/重试/超时/窗口动作不变 |
 | R14M Worker按钮绑定补缺 | 仅 test/features/serverConfigSaveContinuation.test.js、test/tunnel/backgroundTunnelHost.test.js、test/features/resourceMutationRouting.test.js、test/features/panelMessageDispatch.test.js；最多4个测试文件 | 先核已有断言/原有效日志；仅确缺时补五卡共用导入/保存/启动/删除的endpointId、scope、确认取消、成功/失败和状态。真实方法/renderer与受控依赖，禁止写共享配置或启停隧道；同通路对象差异用参数化用例，不逐卡重做有效实点 |
 | R14N 任务及操作按钮补缺 | 仅 test/features/panelMessageDispatch.test.js、test/features/failedJobRecovery.test.js、test/features/runtimeLogAnalysisHost.test.js、test/features/planStopClear.test.js；最多4个测试文件 | 仅补现有任务/job重跑、审核、分析、精确停止/清理、日志入口的对象绑定/确认/取消/终态缺口；受控替身不接远端、不造真实队列或执行删除，不要求新任务/训练；复用原有效调度/产物/取消围栏证据 |
 | R14O 结果归类与渲染恢复补缺 | 仅 test/features/datasetResultCatalog.test.js、test/ui/resultCommandPhaseRouting.test.js、test/features/panelMessageDispatch.test.js、test/features/panelWebviewScriptHealth.test.js；最多4个测试文件 | 仅补autoMatchPlanDatasets/applyPlanDatasetMapping、PLAN原始/追溯入口及渲染失败重试/重载的绑定/授权/反馈缺口；复用现有parser/renderer，异常只在受控测试，不破坏实际UI或改旧结果 |
@@ -119,6 +112,8 @@ AI依据当前项目/任务/PLAN、真实训练评估入口及允许读取的结
 | R14T1 分支登记与创建余项 | 仅 test/project/branchProjectRegistry.test.js、src/extension/legacy.ts；最多2文件 | 同一阶段集中归并registerAncestorProjectFromUi/registerBranchProjectFromUi/createBranchFromAncestorFromUi的既有真实行为证据，确缺才以原AST夹具补对象/目录选择、Git身份拒绝、确认取消零服务写调用、确认后参数/preview digest/lease与刷新反馈。所有service/Git/窗口依赖受控，不创建真实worktree或登记 |
 | R14T2 分支提交与状态结果余项 | 同T1两文件；最多2文件 | submitBranchPlanRunFromUi的登记根与所选PLAN贯穿route/list/preview/submit，空列表/选择取消/预览拒绝/最终取消零提交，started/notStarted/unknown反馈和刷新正确；refreshBranchRunsFromUi/compareBranchResultsFromUi只补现有调用链尚未证明的对象/状态身份、空与错误呈现。复用localApi等既有RPC/队列证据，不启动真实任务或窗口，不把请求接收冒完成 |
 | R14T3 分支源码核验与PR余项 | 同T1两文件；最多2文件 | verifyBranchHeadBindingFromUi核登记根、损坏/无清单、选择取消、所选PLAN/revision/executionSource与HEAD传递、绑定成功/失败的state及反馈；核验不宣称科研完成。createBranchPrFromUi/mergeBranchPrFromUi仅归并或补真实UI接线缺口，已有PR/快进有效证据不重做。不得stage/commit、真实RPC/Git/PR或放宽原确认/源码/收据门禁 |
+| R14U 曲线打开入口补缺 | 仅 test/tensorboardScalar.test.js、src/extension/legacy.ts；最多2文件 | 核openScalarViewerFromUi真实方法：选中endpointId先验证目标，无可用Worker拒绝、合法viewer URL精确绑定endpoint及workspace，启动等待期间换workspace/client不得打开，openExternal拒绝/异常准确上抛、成功一次返回。受控本机API/vscode/timer，不启动真实服务/浏览器或连接Worker；保留既有20次/100ms契约，不新增性能/重试/超时或改底层曲线统计；现有查询/渲染有效证据复用 |
+| R14V 归档恢复入口补缺 | 仅 test/features/archivedPlanRestoreWorkflow.test.js、test/features/projectWorkspaceChangeIsolation.test.js、test/features/planArchiveBundleWorkflow.test.js、src/extension/legacy.ts；最多4文件，未需修改者复用 | 真实restoreArchivedPlanFromUi接现有恢复/安全路径函数，以受控fs/确认/项目上下文核归档来源、新版本目标与独立输出/资产命名空间，确认取消零mkdir/copy/write/persist，选择期间或后续异步边界换项目停止后续写入/选择落盘，成功目标/恢复记录/resultScope及PLAN选择一致；不把已发生的先前写入冒零写。保留归档/原结果、不覆盖用户文件，不实际恢复消费项目或清理，不以源码正则代行为。必要时只最小修真实可达缺陷，不改恢复协议/权限/指标语义 |
 | R15 生成与最终交包 | 原生成器独占dist；Terra维护执行证据和scopedGit，总控维护计划/索引 | 只因产品输入变化做规定build/VM及受影响验证；完整插件逻辑小验收后交总控B01–B03，不重复有效检查；当前不打包/安装/发行 |
 
 T1–T3为同一连续分支UI收口阶段的内部有界组，P/Q/R优先；先汇总同两文件内所有已知缺口，一次集中实现后统一目标验证，不逐方法请求计划、逐小组构建或重跑有效服务测试。生产文件仅修本家族实际可达缺陷，不改其他功能、协议、权限、性能断言/时限或引入框架；新文件/协议边界仍升级总控。
@@ -142,6 +137,7 @@ T1–T3为同一连续分支UI收口阶段的内部有界组，P/Q/R优先；先
 | M/N/O补缺 | 三组中具体未覆盖的绑定、确认/取消、反馈/终态断言齐备 | 优先原有效证据，缺口才新增真实生产函数的受控断言；不写共享项目/远端 |
 | S补缺 | 分支项目打开与移除登记的真实UI方法正确绑定对象、确认/取消与成功反馈 | 原AST夹具接真实方法，依赖受控，核命令/服务调用及零动作边界；不操作真实项目，不重跑已有效服务/PR场景 |
 | T补缺 | 分支登记创建、提交状态结果、源码核验/PR的支持UI逻辑已有真实有效行为证据，剩余缺口闭合 | 同文件集中归并后仅补缺；受控服务/RPC/Git不代表真实外部操作成功，既有PR/服务证据继续复用 |
+| U/V补缺 | 曲线入口绑定当前Worker/项目，归档恢复正确确认、独立输出及项目切换停止 | 真实生产函数及受控外部依赖；底层解析/统计/归档有效证据复用，外部真实效果未测明示 |
 | S11/P | 同一预检/确认产出的PLAN/job身份实际贯穿入队、分配、派发；取消/失败不得入队派发 | 前段真实输出作后段实际输入；正确性软件夹具，无训练/性能实验，既有队列保护断言复用 |
 | S12/Q | 协议2完成证据到真实收集/正式导出的同身份闭环，错command/路径拒收，不覆盖/串旧结果 | 真实生产函数与受控transport；completion与采集契约分开，旧owner用例不冒协议2 |
 | S13/R | 同一实收指标的类型/数值/seed与PLAN/dataset/method归属在汇总/目录/展示导出一致 | 各格式与拆表按现有真实schema独立算期望，解析/拆表各自绿不相加冒全链 |
