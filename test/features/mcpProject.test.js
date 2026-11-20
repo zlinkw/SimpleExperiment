@@ -495,6 +495,25 @@ test('long MCP outcomes persist into the current operation dictionary after host
   }
 });
 
+test('MCP receipt preserves nested native status separately from request completion', async () => {
+  const { ProjectMcpOperations } = require('../../dist/mcp/ProjectOperations.js');
+  const f = fixture(); await f.authorize(['results']);
+  const records = {}, calls = [];
+  const ops = new ProjectMcpOperations({ root: () => f.root, gateway: () => f.gateway, records: () => records, changed: () => {} });
+  for (const status of ['running', 'unknown', 'failed']) {
+    const native = { ok: true, operationId: `native-${status}`, status, message: `native ${status}` };
+    f.methods['results.list'] = async () => { calls.push(status); return native; };
+    const receipt = await ops.call('result_collect', {});
+    await new Promise(resolve => setImmediate(resolve));
+    const view = await ops.call('operation_get', { operationId: receipt.operationId });
+    assert.equal(view.status, 'succeeded');
+    assert.equal(view.requestScope, 'tool_request');
+    assert.equal(view.receiptProvesExperimentCompletion, false);
+    assert.deepEqual(view.result, native);
+  }
+  assert.deepEqual(calls, ['running', 'unknown', 'failed']);
+});
+
 test('late MCP completion cannot restore retired requests or write another workspace', async () => {
   const { ProjectMcpOperations } = require('../../dist/mcp/ProjectOperations.js');
   const f = fixture(); await f.authorize(['results']);
