@@ -5,6 +5,43 @@ const { normalizeXshellSetupConfig } = require("../../dist/tunnel/XshellTunnelSe
 const { buildTunnelEndpointRegistry } = require("../../dist/tunnel/TunnelEndpointRegistry.js");
 const { buildMultiEndpointXshellTunnelCommands, generateXshellStartAllBatScript } = require("../../dist/tunnel/XshellTunnelCommandBuilder.js");
 
+test('script entry handles empty, invalid, cancelled and configured Worker choices', async () => {
+  const vm = require('node:vm'), ts = require('typescript'), path = require('node:path');
+  const { readSource } = require('../_helpers/sourceReader');
+  const method = require('../_helpers/legacyMethod')(readSource('src/extension.ts'), 'generateTunnelScript(');
+  for (const mode of ['empty', 'invalid', 'cancel', 'single-bat', 'single-ps1', 'multi-bat', 'multi-ps1']) {
+    const writes = [], notices = [], calls = [];
+    const workers = mode === 'empty' ? [] : [{ id: 'w1', config: { host: 'first.example', port: 24567 } },
+      ...(mode.startsWith('multi') ? [{ id: 'w2', config: { host: 'second.example', port: 24568 } }] : [])];
+    const ext = mode.endsWith('ps1') ? 'ps1' : 'bat';
+    const vscode = { Uri: { file: fsPath => ({ fsPath }) }, window: {
+      showErrorMessage: message => notices.push(message),
+      showSaveDialog: async () => mode === 'cancel' ? undefined : { fsPath: `C:/fixture/output.${ext}` },
+    } };
+    const builder = {};
+    for (const name of ['generateXshellStartAllPs1Script', 'generateXshellPs1Script', 'generateXshellStartAllBatScript', 'generateXshellBatScript'])
+      builder[name] = (...args) => { calls.push([name, ...args]); return 'script:' + name; };
+    const code = ts.transpileModule('class Host {' + method + '}; Host', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+    const Host = vm.runInNewContext(code, { vscode, path, process, workspaceRoot: () => 'C:/fixture',
+      fs: { writeFile: async (...args) => writes.push(args) },
+      XshellTunnelSetup_1: { validateXshellSetupConfig: config => mode === 'invalid' ? ['invalid setup'] : [] },
+      TunnelEndpointRegistry_1: { buildTunnelEndpointRegistry: () => ({ endpoints: workers.map(item => ({ ...item, enabled: true })) }) },
+      XshellTunnelCommandBuilder_1: builder });
+    const host = new Host(); host.tunnelLaunchItems = () => workers; host.setupConfig = {}; host.lastWorkerProbes = {};
+    await host.generateTunnelScript();
+    if (['empty', 'invalid', 'cancel'].includes(mode)) {
+      assert.equal(writes.length, 0, mode); assert.equal(calls.length, 0, mode);
+      if (mode !== 'cancel') assert.equal(notices.length, 1, mode);
+      continue;
+    }
+    const expected = mode.startsWith('multi') ? `generateXshellStartAll${ext === 'ps1' ? 'Ps1' : 'Bat'}Script` : `generateXshell${ext === 'ps1' ? 'Ps1' : 'Bat'}Script`;
+    assert.equal(calls[0][0], expected); assert.equal(writes[0][0], `C:/fixture/output.${ext}`);
+    assert.equal(writes[0][1], 'script:' + expected); assert.equal(writes[0][2], 'utf8');
+    if (mode.startsWith('single')) assert.deepEqual(calls[0][1], { host: 'first.example', port: 24567 });
+    else assert.deepEqual(Array.from(calls[0][2], row => [row.config.host, row.config.port]), [['first.example', 24567], ['second.example', 24568]]);
+  }
+});
+
 test("multi endpoint command builder emits only configured Worker tunnel commands", () => {
   const setup = normalizeXshellSetupConfig({
     xshellExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",

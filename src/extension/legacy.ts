@@ -5944,26 +5944,40 @@ return this.configureWorkerTunnels();
         await this.writeXshellAgentStartupCommands(true);
     }
     async writeXshellAgentStartupCommands(showMessage = true, requireConfirm = true, serverIds = []) {
-        assertSingleProjectWorkspace("写入 Agent 自启动路径");
+        const root = assertSingleProjectWorkspace("写入 Agent 自启动路径");
+        const generation = this.projectContextGeneration;
         this.assertTopologyActualWorkRoots("写入 Agent 自启动路径");
         const targets = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentStartupTargets().filter((target) => target.filePath), serverIds);
         if (!targets.length) {
             void vscode.window.showWarningMessage("没有可写入的 Xshell Agent 会话。请先配置或复用 Worker 会话。");
             return [];
         }
+        const runtimeTargets = requireConfirm ? this.agentRuntimeUploadTargets() : [];
+        const runtimeIdentity = (target) => [target.id, target.host, target.user, target.port, target.remotePath, target.projectWorkDir];
+        const confirmedRuntimeIdentity = JSON.stringify(runtimeTargets.map(runtimeIdentity));
+        const assertCurrentTargets = () => {
+            const current = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentStartupTargets().filter((target) => target.filePath), serverIds);
+            if (generation !== this.projectContextGeneration || root !== workspaceRoot() || current.length !== targets.length ||
+                targets.some((target, index) => current[index].id !== target.id || current[index].filePath !== target.filePath || current[index].command !== target.command) ||
+                (requireConfirm && JSON.stringify(this.agentRuntimeUploadTargets().map(runtimeIdentity)) !== confirmedRuntimeIdentity))
+                throw new UiCommandCancelled("项目或 Worker 会话已变化，请重新确认写入目标。");
+        };
         if (requireConfirm) {
-            const runtimeTargets = this.agentRuntimeUploadTargets();
             await this.confirmRemoteWriteTargets("写入 Agent 自启动路径", runtimeTargets);
+            assertCurrentTargets();
             const confirm = await vscode.window.showWarningMessage(agentStartupWriteConfirmationDetail(targets, runtimeTargets, false), { modal: true }, "确认写入");
             if (confirm !== "确认写入")
                 return [];
         }
+        assertCurrentTargets();
         const results = [];
         for (const target of targets) {
+            assertCurrentTargets();
             try {
                 const policy = target.id === "hub" ? this.setupConfig.agentLoginPolicy : this.setupConfig.workerTunnels.find(row => row.id === target.id)?.agentLoginPolicy;
                 const result = await (0, XshellSessionPatcher_1.updateXshellSessionLoginCommand)(target.filePath, target.command,
                     { backup: true, managedAgentLogin: requireConfirm || policy === "managed", preserveUnmanaged: !requireConfirm && policy !== "managed" });
+                assertCurrentTargets();
                 results.push({ id: target.id, ...result, summary: `${target.id}: ${xshellLoginCommandUpdateLabel(result.skippedReason, result.changed)}${result.backupPath ? `，备份 ${path.basename(result.backupPath)}` : ""}` });
                 if (requireConfirm && !result.skippedReason) {
                     if (target.id === "hub") await this.applySetupDraft({ agentLoginPolicy: "managed" });
@@ -5971,11 +5985,12 @@ return this.configureWorkerTunnels();
                 }
             }
             catch (error) {
+                if (isUiCommandCancelled(error)) throw error;
                 results.push({ id: target.id, error: errorMessage(error), summary: `${target.id}: ${errorMessage(error)}` });
             }
         }
         if (showMessage)
-            void vscode.window.showInformationMessage(`Xshell Agent 自启动命令写入完成：${results.map((item) => item.summary).join("；")}`);
+            void vscode.window.showInformationMessage(`Xshell Agent 自启动命令处理完成：${results.map((item) => item.summary).join("；")}`);
         this.postState();
         return results;
     }
@@ -6762,7 +6777,12 @@ return this.testTunnel(true);
             this.postState();
     }
     async generateTunnelScript() {
-        const hubConfig = this.tunnelLaunchItems()[0].config;
+        const item = this.tunnelLaunchItems()[0];
+        if (!item) {
+            void vscode.window.showErrorMessage("没有启用的 Worker，请先配置并启用 Worker 隧道。");
+            return;
+        }
+        const hubConfig = item.config;
         const errors = (0, XshellTunnelSetup_1.validateXshellSetupConfig)(hubConfig);
         if (errors.length) {
             void vscode.window.showErrorMessage(`${errors.join(" ")} 请先配置隧道。`);

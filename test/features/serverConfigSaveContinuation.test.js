@@ -67,3 +67,31 @@ test("deleting a Worker confirms and changes only the selected configuration", a
     }
   }
 });
+
+test('Worker import cancellation writes nothing and confirmation saves the selected session', async () => {
+  const method = require('../_helpers/legacyMethod')(source, 'addWorkerConfigFromUi(');
+  for (const selected of [undefined, { id: 'new-worker', displayName: 'New', savedSessionPath: 'sessions/new.xsh' }]) {
+    const calls = [];
+    const add = new Function('promptSavedSessionWorker', 'XshellTunnelSetup_1', 'vscode',
+      'return ({' + method + '}).addWorkerConfigFromUi;')(
+      async (...args) => { calls.push(['prompt', ...args]); return selected; },
+      { normalizeXshellSetupConfig: value => value }, { window: { showInformationMessage: async () => {} } });
+    const host = {
+      setupConfig: { workerTunnels: [{ id: 'existing' }], remoteAgentPort: 1, localForwardPort: 2 },
+      xshellLibrary: { existingDirs: ['sessions'], searchedDirs: [], sessions: ['new.xsh'] },
+      refreshXshellSessionLibrary: async options => calls.push(['refresh', options]),
+      ensureXshellSessionLoaded: async path => calls.push(['load', path]),
+      withImportedXshellFields: (config, id) => { calls.push(['scope', id]); return config; },
+      applySetupDraft: async (config, options) => calls.push(['save', config, options]),
+    };
+    assert.equal(await add.call(host, false), Boolean(selected));
+    assert.equal(calls.filter(row => row[0] === 'save').length, selected ? 1 : 0);
+    if (selected) {
+      assert.deepEqual(calls.find(row => row[0] === 'load'), ['load', selected.savedSessionPath]);
+      assert.deepEqual(calls.find(row => row[0] === 'scope'), ['scope', selected.id]);
+      const save = calls.find(row => row[0] === 'save');
+      assert.deepEqual(save[1].workerTunnels.map(row => row.id), ['existing', selected.id]);
+      assert.deepEqual(save[2], { syncAssignmentsFromFields: true });
+    }
+  }
+});

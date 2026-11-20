@@ -15,6 +15,44 @@ function methods(names, globals = {}) {
 const item = (id = 'w1') => ({ id, role: 'worker', config: { hubHost: id+'.example.org', hubUser:'science',hubSshPort:2222,
   localForwardHost:'localhost',localForwardPort:29001,remoteAgentHost:'worker.internal',remoteAgentPort:29201 } });
 
+test('Agent login command honors selected Workers, confirmation and target changes', async () => {
+  for (const mode of ['empty', 'path-cancel', 'modal-cancel', 'changed', 'project-change', 'runtime-change', 'success', 'selected', 'skip', 'failure', 'unmanaged']) {
+    const calls = [], notices = [], configured = [{ id: 'w1', filePath: 'C:/fixture/w1.xsh', command: 'start-w1' },
+      { id: 'w2', filePath: 'C:/fixture/w2.xsh', command: 'start-w2' }];
+    let targets = mode === 'empty' ? [] : configured, currentRoot = 'C:/fixture', remotePath = '/one';
+    class Cancelled extends Error {}
+    const proto = methods(['writeXshellAgentStartupCommands'], {
+      assertSingleProjectWorkspace: () => currentRoot, workspaceRoot: () => currentRoot, UiCommandCancelled: Cancelled, isUiCommandCancelled: error => error instanceof Cancelled,
+      AgentRuntimeScope_1: { selectAgentRuntimeTargets: (rows, ids) => ids.length ? rows.filter(row => ids.includes(row.id)) : rows },
+      agentStartupWriteConfirmationDetail: () => 'confirm paths', path: require('node:path'), errorMessage: error => error.message,
+      xshellLoginCommandUpdateLabel: (reason, changed) => reason || (changed ? 'changed' : 'unchanged'),
+      XshellSessionPatcher_1: { updateXshellSessionLoginCommand: async (file, command, options) => {
+        calls.push(['patch', file, command, options]);
+        if (mode === 'failure' && file.endsWith('w1.xsh')) throw Error('patch failed');
+        return mode === 'skip' ? { changed: false, skippedReason: 'preserved' } : { changed: true, backupPath: file + '.bak' };
+      } },
+      vscode: { window: { showWarningMessage: async () => { if (mode === 'changed') targets = [{ ...configured[0], filePath: 'C:/fixture/replaced.xsh' }, configured[1]];
+        if (mode === 'project-change') currentRoot = 'C:/other'; if (mode === 'runtime-change') remotePath = '/changed';
+        return mode === 'modal-cancel' ? undefined : '确认写入'; }, showInformationMessage: message => notices.push(message) } },
+    });
+    const host = { setupConfig: { workerTunnels: [{ id: 'w1' }, { id: 'w2' }] },
+      assertTopologyActualWorkRoots() {}, agentStartupTargets: () => targets, agentRuntimeUploadTargets: () => [{ id: 'w1', remotePath }, { id: 'w2', remotePath: '/two' }],
+      confirmRemoteWriteTargets: async () => { calls.push(['confirm']); if (mode === 'path-cancel') throw new Cancelled('cancelled'); },
+      applySetupDraft: async value => { calls.push(['save', value]); host.setupConfig.workerTunnels = value.workerTunnels; }, postState: () => calls.push(['state']) };
+    Object.setPrototypeOf(host, proto);
+    if (['path-cancel', 'changed', 'project-change', 'runtime-change'].includes(mode)) await assert.rejects(host.writeXshellAgentStartupCommands(true, true), Cancelled);
+    else await host.writeXshellAgentStartupCommands(true, mode !== 'unmanaged', mode === 'selected' ? ['w2'] : []);
+    const patched = calls.filter(row => row[0] === 'patch'), saved = calls.filter(row => row[0] === 'save');
+    if (['empty', 'path-cancel', 'modal-cancel', 'changed', 'project-change', 'runtime-change'].includes(mode)) { assert.equal(patched.length, 0, mode); assert.equal(saved.length, 0, mode); continue; }
+    assert.equal(patched.length, mode === 'selected' ? 1 : 2, mode);
+    if (mode === 'selected') assert.equal(patched[0][1], 'C:/fixture/w2.xsh');
+    for (const patch of patched) assert.deepEqual(JSON.parse(JSON.stringify(patch[3])), { backup: true, managedAgentLogin: mode !== 'unmanaged', preserveUnmanaged: mode === 'unmanaged' });
+    assert.equal(saved.length, ['skip', 'unmanaged'].includes(mode) ? 0 : mode === 'success' ? 2 : 1, mode);
+    if (mode === 'failure') assert.ok(notices.some(text => text.includes('处理完成') && text.includes('patch failed')));
+    assert.ok(calls.some(row => row[0] === 'state'));
+  }
+});
+
 test('production manager uses TCP listening evidence and the current business gate', () => {
   let options, gates=0;
   const proto=methods(['backgroundTunnels'],{BackgroundSshTunnels_1:{...transport,BackgroundSshTunnelManager:class{constructor(value){options=value;}}},
