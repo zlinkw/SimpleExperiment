@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.512",
-  "buildId": "1a33b6e4a9c9ca5642ddcdce4c5c81ad3f5fb581dca96bc1d7b749787218df7a",
+  "version": "0.5.513",
+  "buildId": "5a394a6d58fe27541b5bfc171879f83ff19184848ed7eb22dee74518a7322f2f",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -261,7 +261,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "258edfdea5f41d5486d4a0ed82a6d160a3cd9921a14846b878393e51722edfc6"
+      "sha256": "1037b0cc09f815020f84e89de2c70d1305b3c26b0f8adbc1149b9749d8594a36"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -385,7 +385,7 @@
     },
     {
       "path": "dist/features/ApiWorkflow.legacy.js",
-      "sha256": "9c87f1467c8d5f7ece185e5c7d77cf28554491cb3c2d568bb231627b75bd6043"
+      "sha256": "30ce926bc025b5c60c06e2961efbde245c3d94188ad236e8a281f7c746d7806e"
     },
     {
       "path": "dist/features/ArtifactBatchTransfer.js",
@@ -941,7 +941,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "e5cb52bf42992d488a6e037c61e4718eed808b3925b7083f83f74a3f91549b28"
+      "sha256": "aed13244826c5f13947e5c91810cc6d09e0e65d946dc8150944b6d1eb8dbaf29"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -949,7 +949,7 @@
     },
     {
       "path": "dist/state/StateStore.js",
-      "sha256": "1eab1d8888743a7a39bb6948dd73086dfc32f8ea4c6ac8061c24e3eebba8f837"
+      "sha256": "bed9f15c839e000a71e2e7794c826dbd48039f87da3596fd40fbc3f83904c732"
     },
     {
       "path": "dist/templates/ProjectAdapterTemplates.js",
@@ -1293,7 +1293,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "e4f1ae718a524304a25ce9cd074eb5871cd577314498405660af0fda79c25ff6"
+      "sha256": "a5597b964710b1604696dc060606a1a0a33dc817326fd11ba76a71b190669b62"
     },
     {
       "path": "scripts/check-static.js",

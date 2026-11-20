@@ -62,7 +62,7 @@ async function writeFixedSlot(file, text, options) {
         throw new Error("状态重命名重试预算无效");
     const parent = path.dirname(file);
     await fs.mkdir(parent, { recursive: true });
-    const staging = `${file}.${writerIdentity}.writing`;
+    const staging = `${file}.${writerIdentity}${options.noReplace ? `-${(0, node_crypto_1.randomUUID)()}` : ""}.writing`;
     let existing;
     try {
         existing = await fs.lstat(staging);
@@ -104,11 +104,14 @@ async function writeFixedSlot(file, text, options) {
         // Guard failures are not sharing violations and must not enter the rename retry loop.
         await options.beforeRename?.();
         try {
-            await fs.rename(staging, file);
+            if (options.noReplace)
+                await fs.link(staging, file);
+            else
+                await fs.rename(staging, file);
             break;
         }
         catch (error) {
-            if (!error || !["EACCES", "EPERM", "EBUSY"].includes(error.code) || attempt >= 5 && (budget == null || Date.now() >= deadline) || attempt >= 25)
+            if (options.noReplace || !error || !["EACCES", "EPERM", "EBUSY"].includes(error.code) || attempt >= 5 && (budget == null || Date.now() >= deadline) || attempt >= 25)
                 throw error;
             await new Promise(resolve => setTimeout(resolve, Math.max(1, Math.min(250, 20 * (2 ** attempt), budget == null ? 250 : deadline - Date.now()))));
         }

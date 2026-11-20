@@ -2226,6 +2226,10 @@ class RealtimeTunnelPanelProvider {
     }
     async refreshBranchRunsFromUi() {
         const state = await this.refreshBranchRuns("ui");
+        if (state.error) {
+            void vscode.window.showWarningMessage(state.error);
+            return;
+        }
         if (!state.roots.length)
             void vscode.window.showInformationMessage("尚未登记任何项目，没有运行状态可刷新。");
     }
@@ -2307,6 +2311,10 @@ class RealtimeTunnelPanelProvider {
     }
     async compareBranchResultsFromUi() {
         const state = await this.compareBranchResults("ui");
+        if (state.error) {
+            void vscode.window.showWarningMessage(state.error);
+            return;
+        }
         if (!state.roots.length)
             void vscode.window.showInformationMessage("尚未登记任何项目，没有可比对的结果。");
     }
@@ -5399,7 +5407,10 @@ class RealtimeTunnelPanelProvider {
             this.confirmedRemotePaths = mergeRemotePathConfirmations(loaded.value, this.context.workspaceState.get(REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY, []));
     }
     async persistProjectRemotePathConfirmationsState() {
+        const context = this.captureProjectContext();
         await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("remotePathConfirmations"), () => this.confirmedRemotePaths, writeProjectRemotePathConfirmationsState);
+        if (!this.projectContextIsCurrent(context))
+            return;
         await this.context.workspaceState.update(REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY, mergeRemotePathConfirmations(this.confirmedRemotePaths));
     }
     async resetRemotePathConfirmationsFromUi() {
@@ -5418,6 +5429,8 @@ class RealtimeTunnelPanelProvider {
             return;
         this.confirmedRemotePaths = [];
         await this.persistProjectRemotePathConfirmationsState();
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         await this.context.workspaceState.update(REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY, undefined);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
@@ -6211,25 +6224,39 @@ class RealtimeTunnelPanelProvider {
         await this.writeXshellAgentStartupCommands(true);
     }
     async writeXshellAgentStartupCommands(showMessage = true, requireConfirm = true, serverIds = []) {
-        assertSingleProjectWorkspace("写入 Agent 自启动路径");
+        const root = assertSingleProjectWorkspace("写入 Agent 自启动路径");
+        const generation = this.projectContextGeneration;
         this.assertTopologyActualWorkRoots("写入 Agent 自启动路径");
         const targets = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentStartupTargets().filter((target) => target.filePath), serverIds);
         if (!targets.length) {
             void vscode.window.showWarningMessage("没有可写入的 Xshell Agent 会话。请先配置或复用 Worker 会话。");
             return [];
         }
+        const runtimeTargets = requireConfirm ? this.agentRuntimeUploadTargets() : [];
+        const runtimeIdentity = (target) => [target.id, target.host, target.user, target.port, target.remotePath, target.projectWorkDir];
+        const confirmedRuntimeIdentity = JSON.stringify(runtimeTargets.map(runtimeIdentity));
+        const assertCurrentTargets = () => {
+            const current = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentStartupTargets().filter((target) => target.filePath), serverIds);
+            if (generation !== this.projectContextGeneration || root !== workspaceRoot() || current.length !== targets.length ||
+                targets.some((target, index) => current[index].id !== target.id || current[index].filePath !== target.filePath || current[index].command !== target.command) ||
+                (requireConfirm && JSON.stringify(this.agentRuntimeUploadTargets().map(runtimeIdentity)) !== confirmedRuntimeIdentity))
+                throw new UiCommandCancelled_1.UiCommandCancelled("项目或 Worker 会话已变化，请重新确认写入目标。");
+        };
         if (requireConfirm) {
-            const runtimeTargets = this.agentRuntimeUploadTargets();
             await this.confirmRemoteWriteTargets("写入 Agent 自启动路径", runtimeTargets);
+            assertCurrentTargets();
             const confirm = await vscode.window.showWarningMessage(agentStartupWriteConfirmationDetail(targets, runtimeTargets, false), { modal: true }, "确认写入");
             if (confirm !== "确认写入")
                 return [];
         }
+        assertCurrentTargets();
         const results = [];
         for (const target of targets) {
+            assertCurrentTargets();
             try {
                 const policy = target.id === "hub" ? this.setupConfig.agentLoginPolicy : this.setupConfig.workerTunnels.find(row => row.id === target.id)?.agentLoginPolicy;
                 const result = await (0, XshellSessionPatcher_1.updateXshellSessionLoginCommand)(target.filePath, target.command, { backup: true, managedAgentLogin: requireConfirm || policy === "managed", preserveUnmanaged: !requireConfirm && policy !== "managed" });
+                assertCurrentTargets();
                 results.push({ id: target.id, ...result, summary: `${target.id}: ${xshellLoginCommandUpdateLabel(result.skippedReason, result.changed)}${result.backupPath ? `，备份 ${path.basename(result.backupPath)}` : ""}` });
                 if (requireConfirm && !result.skippedReason) {
                     if (target.id === "hub")
@@ -6239,11 +6266,13 @@ class RealtimeTunnelPanelProvider {
                 }
             }
             catch (error) {
+                if (isUiCommandCancelled(error))
+                    throw error;
                 results.push({ id: target.id, error: errorMessage(error), summary: `${target.id}: ${errorMessage(error)}` });
             }
         }
         if (showMessage)
-            void vscode.window.showInformationMessage(`Xshell Agent 自启动命令写入完成：${results.map((item) => item.summary).join("；")}`);
+            void vscode.window.showInformationMessage(`Xshell Agent 自启动命令处理完成：${results.map((item) => item.summary).join("；")}`);
         this.postState();
         return results;
     }
@@ -7069,7 +7098,12 @@ class RealtimeTunnelPanelProvider {
             this.postState();
     }
     async generateTunnelScript() {
-        const hubConfig = this.tunnelLaunchItems()[0].config;
+        const item = this.tunnelLaunchItems()[0];
+        if (!item) {
+            void vscode.window.showErrorMessage("没有启用的 Worker，请先配置并启用 Worker 隧道。");
+            return;
+        }
+        const hubConfig = item.config;
         const errors = (0, XshellTunnelSetup_1.validateXshellSetupConfig)(hubConfig);
         if (errors.length) {
             void vscode.window.showErrorMessage(`${errors.join(" ")} 请先配置隧道。`);
@@ -22067,7 +22101,29 @@ class RealtimeTunnelPanelProvider {
         const restoredFile = path.relative(root, target).replace(/\\/g, "/");
         const planVersion = path.basename(target, parsed.ext).match(/__v(\d+)$/)?.[1] || "1";
         const outputNamespace = `__restored_v${planVersion}`;
-        const restoredAssetRoot = path.posix.join("experiments", "restored_assets", safePlanToken(restoredFile));
+        const restorePathExists = async (file) => {
+            try {
+                await fs.lstat(file);
+                return true;
+            }
+            catch (error) {
+                if (error?.code === "ENOENT")
+                    return false;
+                throw error;
+            }
+        };
+        const baseToken = safePlanToken(restoredFile);
+        let restoreToken = baseToken, tokenIndex = 1;
+        let restoredAssetRoot, restoreRecordFile;
+        while (true) {
+            restoredAssetRoot = path.posix.join("experiments", "restored_assets", restoreToken);
+            restoreRecordFile = safeWorkspaceChildPath(root, path.posix.join("simple_cluster", "plan_restores", `${restoreToken}.json`));
+            if (!(await restorePathExists(safeWorkspaceChildPath(root, restoredAssetRoot))) && !(await restorePathExists(restoreRecordFile)))
+                break;
+            assertCurrent();
+            restoreToken = `${baseToken}_${++tokenIndex}`;
+        }
+        assertCurrent();
         const configBundleFiles = archiveManifestFileList(bundle.configs);
         const environmentBundleFiles = archiveManifestFileList(bundle.environment);
         const parameterBundle = bundle.parameters && typeof bundle.parameters === "object" && !Array.isArray(bundle.parameters) ? bundle.parameters : {};
@@ -22100,7 +22156,7 @@ class RealtimeTunnelPanelProvider {
         const configPathMap = new Map();
         for (const relative of configBundleFiles) {
             const configSource = safeArchiveBundleChildPath(path.join(bundleDir, "configs"), relative);
-            const configTarget = safeWorkspaceChildPath(root, path.posix.join("experiments", "restored_assets", safePlanToken(restoredFile), "configs", relative));
+            const configTarget = safeWorkspaceChildPath(root, path.posix.join(restoredAssetRoot, "configs", relative));
             const stat = await fs.stat(configSource).catch(() => undefined);
             assertCurrent();
             if (!stat?.isFile()) {
@@ -22109,18 +22165,18 @@ class RealtimeTunnelPanelProvider {
             }
             await fs.mkdir(path.dirname(configTarget), { recursive: true });
             assertCurrent();
-            await fs.copyFile(configSource, configTarget);
+            await fs.copyFile(configSource, configTarget, fs.constants.COPYFILE_EXCL);
             assertCurrent();
             configPathMap.set(relative, path.relative(root, configTarget).replace(/\\/g, "/"));
             restoredConfigs += 1;
         }
         const environmentFiles = environmentBundleFiles;
-        const restoredEnvironmentDir = environmentFiles.length ? path.posix.join("experiments", "restored_assets", safePlanToken(restoredFile), "environment") : "";
+        const restoredEnvironmentDir = environmentFiles.length ? path.posix.join(restoredAssetRoot, "environment") : "";
         const restoredEnvironmentFiles = [];
         let missingEnvironmentFiles = 0;
         for (const relative of environmentFiles) {
             const environmentSource = safeArchiveBundleChildPath(path.join(bundleDir, "environment"), relative);
-            const environmentTarget = safeWorkspaceChildPath(root, path.posix.join("experiments", "restored_assets", safePlanToken(restoredFile), "environment", relative));
+            const environmentTarget = safeWorkspaceChildPath(root, path.posix.join(restoredAssetRoot, "environment", relative));
             const stat = await fs.stat(environmentSource).catch(() => undefined);
             assertCurrent();
             if (!stat?.isFile()) {
@@ -22129,13 +22185,13 @@ class RealtimeTunnelPanelProvider {
             }
             await fs.mkdir(path.dirname(environmentTarget), { recursive: true });
             assertCurrent();
-            await fs.copyFile(environmentSource, environmentTarget);
+            await fs.copyFile(environmentSource, environmentTarget, fs.constants.COPYFILE_EXCL);
             assertCurrent();
             restoredEnvironmentFiles.push({ original: relative, restored: path.relative(root, environmentTarget).replace(/\\/g, "/") });
         }
         const parameterSnapshotFile = stringField(parameterBundle, "snapshot");
         const parameterEntryScripts = archiveManifestFileList(parameterBundle.entryScripts);
-        const restoredParameterDir = parameterSnapshotFile || parameterEntryScripts.length ? path.posix.join("experiments", "restored_assets", safePlanToken(restoredFile), "parameters") : "";
+        const restoredParameterDir = parameterSnapshotFile || parameterEntryScripts.length ? path.posix.join(restoredAssetRoot, "parameters") : "";
         const restoredParameterFiles = [];
         let missingParameterFiles = 0;
         if (parameterSnapshotFile) {
@@ -22146,7 +22202,7 @@ class RealtimeTunnelPanelProvider {
             if (stat?.isFile()) {
                 await fs.mkdir(path.dirname(parameterTarget), { recursive: true });
                 assertCurrent();
-                await fs.copyFile(parameterSource, parameterTarget);
+                await fs.copyFile(parameterSource, parameterTarget, fs.constants.COPYFILE_EXCL);
                 assertCurrent();
                 restoredParameterFiles.push({ original: parameterSnapshotFile, restored: path.relative(root, parameterTarget).replace(/\\/g, "/") });
             }
@@ -22165,15 +22221,14 @@ class RealtimeTunnelPanelProvider {
             }
             await fs.mkdir(path.dirname(parameterTarget), { recursive: true });
             assertCurrent();
-            await fs.copyFile(parameterSource, parameterTarget);
+            await fs.copyFile(parameterSource, parameterTarget, fs.constants.COPYFILE_EXCL);
             assertCurrent();
             restoredParameterFiles.push({ original: relative, restored: path.relative(root, parameterTarget).replace(/\\/g, "/") });
         }
         await fs.mkdir(path.dirname(target), { recursive: true });
         assertCurrent();
-        await (0, StateStore_1.atomicWriteText)(target, (0, PlanArchive_1.restorePlanText)(planText, { originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap, restoredEnvironmentDir, restoredParameterDir }));
+        await (0, StateStore_1.atomicWriteText)(target, (0, PlanArchive_1.restorePlanText)(planText, { originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap, restoredEnvironmentDir, restoredParameterDir }), { beforeRename: async () => assertCurrent(), noReplace: true });
         assertCurrent();
-        const restoreRecordFile = safeWorkspaceChildPath(root, path.posix.join("simple_cluster", "plan_restores", `${safePlanToken(restoredFile)}.json`));
         await fs.mkdir(path.dirname(restoreRecordFile), { recursive: true });
         assertCurrent();
         await (0, StateStore_1.atomicWriteText)(restoreRecordFile, JSON.stringify({
@@ -22193,7 +22248,7 @@ class RealtimeTunnelPanelProvider {
             restoredParameterDir,
             restoredParameterFiles,
             missingParameterFiles,
-        }, null, 2) + "\n");
+        }, null, 2) + "\n", { beforeRename: async () => assertCurrent(), noReplace: true });
         assertCurrent();
         this.planFileInput = restoredFile;
         this.selectedPlanId = restoredFile;
@@ -22776,7 +22831,7 @@ class RealtimeTunnelPanelProvider {
         const patch = recordField(message, "patch");
         const parseRootList = (value) => String(value || "")
             .split(/\r?\n/)
-            .map((item) => ApiWorkflow_1.normalizeApiRemotePath(item))
+            .map((item) => ApiWorkflow_1.normalizeApiRemotePolicyRoot(item))
             .filter((item) => Boolean(item));
         const allowedRoots = parseRootList(patch.allowedRoots);
         const deniedRoots = parseRootList(patch.deniedRoots);
@@ -41802,8 +41857,8 @@ function remoteParentWorkRoot(value) {
 function remoteRootPolicyConfig() {
     const config = vscode.workspace.getConfiguration("simpleExperiment");
     return {
-        allowedRoots: stringArrayConfig(config.get("remote.allowedRoots", [])),
-        deniedRoots: stringArrayConfig(config.get("remote.deniedRoots", [])),
+        allowedRoots: config.get("remote.allowedRoots", []),
+        deniedRoots: config.get("remote.deniedRoots", []),
     };
 }
 function actualWorkRootValidationMessage(value, projectName = remoteProjectName(), label = "服务器", server, policy) {

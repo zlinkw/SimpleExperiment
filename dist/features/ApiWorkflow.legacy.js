@@ -11,6 +11,7 @@ exports.remoteProjectWorkDir = remoteProjectWorkDir;
 exports.buildWorkflowRoute = buildWorkflowRoute;
 exports.isWorkerServer = isWorkerServer;
 exports.normalizeApiRemotePath = normalizeApiRemotePath;
+exports.normalizeApiRemotePolicyRoot = normalizeApiRemotePolicyRoot;
 exports.resolveApiRemoteRoot = resolveApiRemoteRoot;
 exports.resolveApiRemoteRootWithPolicy = resolveApiRemoteRootWithPolicy;
 exports.structuredMissingInventory = structuredMissingInventory;
@@ -282,13 +283,25 @@ function normalizeApiRemotePath(value) {
         return undefined;
     return text.replace(/\/+$/, "");
 }
+function normalizeApiRemotePolicyRoot(value) {
+    if (typeof value !== "string")
+        throw new Error("远端安全边界必须是目录字符串。");
+    if (!value.trim())
+        return undefined;
+    const root = normalizeApiRemotePath(value);
+    if (!root || !root.startsWith("/") || root.split("/").some(part => part === "." || part === ".."))
+        throw new Error("远端安全边界须为非根目录的绝对路径，不能包含 . 或 ..。");
+    return root;
+}
 function resolveApiRemoteRoot(value, server = {}) {
     return resolveApiRemoteRootWithPolicy(value, server, {});
 }
 function normalizedRemoteRootList(value) {
-    if (!Array.isArray(value))
+    if (value == null)
         return [];
-    return value.map((item) => normalizeApiRemotePath(item)).filter((item) => Boolean(item));
+    if (!Array.isArray(value))
+        throw new Error("远端安全边界必须是目录列表。");
+    return value.map((item) => normalizeApiRemotePolicyRoot(item)).filter((item) => Boolean(item));
 }
 function containsRootOrDescendant(root, roots) {
     const lower = root.toLowerCase();
