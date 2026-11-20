@@ -2,13 +2,15 @@
 
 ## 当前状态与已完成检查点
 
-2026-11-20本人“继续吧”已恢复G003，替代11/17暂停及暂不发Terra消息；目标仍是所有支持按钮逻辑、完整PLAN运行和结果汇总正确性，高影响优先、同文件集中修改、最终统一验证。当前范围基线0d1862243128e479e54e98d9c0f22e210f5330f7，全部源码/生成物/测试和明细dirty保留未提交。
+2026-11-20本人“继续吧”恢复G003并取代11/17暂停；本轮支持按钮逻辑、完整PLAN运行及结果汇总检查与修复现经总控B01–B03通过，0.5.513试行交付完成，待本人Developer: Reload Window生效，约1–2分钟。无剩余已识别插件逻辑必修项；动态实机实例总数未知，真实外部效果未测，旧R13提示终态未知，R12-I退出而非通过。历史实点、preview、受控证据及首次失败保留原类别，不宣称全部按钮实机操作通过。
 
-原ad31204a/af2697f子范围、280已选任务/10门禁/6按需未运行、旧失败及R13说明操作未知均保留execution，不代总体完成；R12-I退出而非通过，安装版未含修复。最新build日志2026-11-20T07-10-36-534Z-612-build为291/291、10门禁、退出0、并发1、锁释放，无按需未运行；buildId a86b0eb9962f29fa3128f9beac223a21965a52ae41eca41651ec51b3618051f8。总控已核原run/起止指纹/实际并发/对应dist字节、同commandId贯穿预检至采集导出、R两PLAN两seed三指标均值/样本SD/拆表及Y独占link发布。noReplace成功保留一个.writing硬链接，失败暂存可能保留，不自动清理。
+B01/B02核实际diff/必要调用链和六入口家族，确认同一项目/PLAN/job/Worker/commandId/路径贯穿预检、确认、入队、派发、协议2完成、采集及导出；两PLAN两seed三指标的均值、样本SD和拆表归属正确。Y独占link发布防覆盖，成功保留.writing硬链接、失败暂存可能保留，不自动清理。Z空Worker与确认后目标漂移已修；首次1/2、9/10失败及后续2/2、10/10、固定字符窗口返修8/8均保留execution/coverage。
 
-2026-11-20 总控最终核对：Z空Worker和确认后会话/项目/远端路径漂移已修，目标首次1/2、9/10失败均保留，复验2/2、10/10通过。coverage现有新对象的六个families已将五组静态、动态producer和公开/高级命令关联到真实方法断言或准确的selector/退役/无producer/范围退出类别；历史实机未测不改成通过。B01支持逻辑及B02完整链路通过，未发现当前必修缺口；动态实例分母/真实外部效果未测不冒全实机。固定字符窗口已改精确persist→guard→update并8/8通过，原P–Y证据复用。
+功能候选buildId 073a6126df30b334a3d2e26a95e6ff67f9bb32f9047cf9c15f4dd50c5791fb86，原日志2026-11-20T07-38-05-835Z-6712-build：291/291、10门禁、并发1、起止输入相同、锁released；Panel模块及实际三script VM有效。旧ad31204a子范围、285/285与a86b阶段证据按原输入保留execution，不混为最终版本包。
 
-最终功能候选073a6126df30b334a3d2e26a95e6ff67f9bb32f9047cf9c15f4dd50c5791fb86，日志2026-11-20T07-38-05-835Z-6712-build：291/291、10门禁、实际并发1、起止输入相同、锁released，Panel模块及真实三script VM有效，dist当前字节与manifest吻合。B03功能输入/产物部分已核，scoped源码同步和R16试行交付仍待完成，不能标全部完成。本人此前要求本轮最终统一测试、构建和安装，现只按R16与既有发布规则集中交付0.5.513；保留0.5.483权威版，不更新Worker。
+R16最终源码8c8090d5368ca3e0745f149960ebc8955e73da96，已普通push/fetch对齐；v0.5.513 tag绑定此提交。[试行Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.513)为prerelease=true/draft=false，普通Latest保持0.5.483；实际客户端证旧版可更新至权威版且试行不降级，Worker未更新。package原日志2026-11-20T08-03-38-838Z-82536-package/run.json：341/341、退出0、并发1、起止输入相同、锁released。包simple-experiment-0.5.513.vsix为2982124字节，SHA256 84ce03a081621cadef694e7e7013953f23a4546a9cb4bb527d759e437c48e2f9；真实manifest/ZIP/身份/engine/内容与README策略通过，远端资产、下载副本和本机安装对应同一确定包。
+
+B03接受同源闭包对实际VSIX的等价核验：collectLocalRuntimeClosure使用原entrypoints/spawn candidates，加panel manifest及MCP必需项，共326文件存在且字节一致；原内容/README策略另由verify-vsix-manifest真实命令通过。verify:package-runtime两次vsce ls 30秒ETIMEDOUT仍为退出1，不改成通过、不调超时；替代检查首次./未归一误报3项后修正。旧版更新查询首次fetch failed后重试通过；已装package.json仅VS Code追加__metadata，其余核对入口一致。npm run install:latest仅一次，已装0.5.513及simpleex入口已核，安装后停止面板操作，未重载原MM/Generic未保存稿。最后记录提交与运行版tag区分，不重打包、重装或新派功能任务。
 
 ## 当前目标与用户裁决
 
