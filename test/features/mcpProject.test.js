@@ -704,6 +704,28 @@ test('MCP file parsing rejects unknown presets and ranks known loss in the corre
   const parsed = require('../../dist/features/Metrics.js').parseMetricsFile(fs.readFileSync(json, 'utf8'), json);
   assert.equal(parsed[0].primaryMetric, 'quality'); assert.equal(parsed[0].higherIsBetter, false);
 });
+test('MCP plan build requires valid explicit seeds and its saved matrix matches', async () => {
+  const { queryProject } = require('../../dist/mcp/ProjectQueries.js');
+  const f = fixture(), rpc = async () => { throw Error('unexpected remote call'); };
+  const base = { suite: 'demo', base: 'config.yaml' };
+  for (const seeds of [[], [''], ['1', '1'], ['not-an-integer']])
+    await assert.rejects(queryProject(f.root, rpc, 'plan_build', { ...base, seeds }), /seed/i);
+  const built = await queryProject(f.root, rpc, 'plan_build', { ...base, seeds: ['0', '2'] });
+  assert.deepEqual(built.seeds, ['0', '2']);
+  const plan = path.join(f.root, 'demo.yaml'); fs.writeFileSync(plan, built.yaml, 'utf8');
+  const matrix = await queryProject(f.root, rpc, 'plan_matrix', { planFile: plan });
+  assert.equal(matrix.seeds, 2); assert.equal(matrix.cases, 1); assert.equal(matrix.count, 2);
+  fs.writeFileSync(plan, 'suite: demo\nseeds: [1, 2]\ncases: []\n', 'utf8');
+  assert.equal((await queryProject(f.root, rpc, 'plan_matrix', { planFile: plan })).count, 0);
+  fs.writeFileSync(plan, 'suite: demo\nseeds: [1, 2]\ncases:\n  - case: first\n    overrides: {model: A}\n  - case: second\n    overrides: {model: B}\n', 'utf8');
+  const cases = await queryProject(f.root, rpc, 'plan_matrix', { planFile: plan });
+  assert.equal(cases.count, 4); assert.equal(cases.cases, 2);
+  fs.writeFileSync(plan, 'suite: demo\nseeds: [1, 2]\ncases:\n  - overrides: {model: A}\n  - overrides: {model: B}\n', 'utf8');
+  const unnamed = await queryProject(f.root, rpc, 'plan_matrix', { planFile: plan });
+  assert.equal(unnamed.count, 4); assert.equal(unnamed.cases, 2);
+  fs.writeFileSync(plan, 'suite: demo\nseeds: [1, 2]\ncases: [{overrides: {model: A}}, {overrides: {model: B}}]\n', 'utf8');
+  assert.equal((await queryProject(f.root, rpc, 'plan_matrix', { planFile: plan })).count, 4);
+});
 test('routine cleanup queries need no extra Codex prompt', async () => {
   const f = fixture();
   const config = require('../../scripts/mcp-codex-config.js').configuration(f.root, path.join(f.root, 'simpleex-mcp-launcher.cjs'));

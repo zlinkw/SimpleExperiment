@@ -200,7 +200,7 @@ exports.PROJECT_TOOLS = [
     ...["artifact_list", "artifact_inspect"].map(name => tool(name, "mcp.query", "Inspect artifact metadata through the shared CLI business view", { id: text("Exact experiment or artifact ID") }, ["id"], "results", name)),
     tool("resource_available", "mcp.query", "Inspect current GPU availability and observed task allocations", {}, [], undefined, "resource_available"),
     tool("server_list", "mcp.query", "Inspect configured servers through the shared CLI view", {}, [], undefined, "server_list"),
-    tool("plan_matrix", "mcp.query", "Expand a saved project PLAN without submitting it", plan, ["planFile"], undefined, "plan_matrix"),
+    tool("plan_matrix", "mcp.query", "Preview the saved PLAN's declared case and seed combinations without submitting it", plan, ["planFile"], undefined, "plan_matrix"),
     tool("plan_build", "mcp.query", "Generate PLAN YAML content from explicit seeds; does not save or run it", { suite: text("Suite"), base: text("Project-relative base config"), seeds: texts("Explicit seed") }, ["suite", "base", "seeds"], undefined, "plan_build"),
 ];
 function validateToolArguments(schema, value, location = "arguments") {

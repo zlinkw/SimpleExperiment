@@ -64,7 +64,11 @@ async function planCommand(action, rest, flags) {
 function planBuild(flags) {
     const suite = flags.suite || "suite";
     const baseConfig = flags.base || "config.yaml";
-    const seeds = (flags.seeds || "1").split(",");
+    const seeds = (flags.seeds === undefined ? "1" : flags.seeds).split(",").map(seed => seed.trim());
+    if (seeds.some(seed => !/^[+-]?\d+$/.test(seed)))
+        throw (0, errors_1.usageError)("seeds must contain explicit integers");
+    if (new Set(seeds.map(seed => BigInt(seed).toString())).size !== seeds.length)
+        throw (0, errors_1.usageError)("seeds must not contain duplicates");
     const result = (0, PlanBuilder_1.buildExperimentMatrix)({ suite, baseConfig, seeds, variables: [] });
     if (flags.json)
         (0, format_1.writeJson)({ suite, baseConfig, seeds, yaml: result.yaml }, flags.compactJson);
@@ -90,6 +94,7 @@ async function planMatrix(fileArg, flags) {
     const file = resolveExisting(fileArg);
     const yaml = (0, data_1.readTextFile)(file);
     const summary = (0, PlanBuilder_1.parsePlanSummary)(yaml);
+    const emptyCases = /^(?:cases|experiments)\s*:\s*(?:\[\s*\]|\{\s*\})\s*(?:#.*)?$/m.test(yaml);
     const result = (0, PlanBuilder_1.expandPlanMatrix)({
         variables: [
             ...(summary.cases.length ? [{ key: "case", mode: "grid", values: summary.cases }] : []),
@@ -97,7 +102,7 @@ async function planMatrix(fileArg, flags) {
         ],
         namingRule: { pattern: "{suite}_{case}", sanitize: true },
     }, [], summary.suite || "suite");
-    const count = Array.isArray(result.experiments) ? result.experiments.length : 0;
+    const count = emptyCases ? 0 : Array.isArray(result.experiments) ? result.experiments.length : 0;
     const payload = { count, suite: summary.suite, cases: summary.cases.length, seeds: summary.seeds.length, filteredCount: result.filteredCount || 0 };
     if (flags.json)
         (0, format_1.writeJson)(payload, flags.compactJson);

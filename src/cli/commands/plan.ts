@@ -22,7 +22,9 @@ export async function planCommand(action: string, rest: string[], flags: CliFlag
 export function planBuild(flags: CliFlags): number {
   const suite = flags.suite || "suite";
   const baseConfig = flags.base || "config.yaml";
-  const seeds = (flags.seeds || "1").split(",");
+  const seeds = (flags.seeds === undefined ? "1" : flags.seeds).split(",").map(seed => seed.trim());
+  if (seeds.some(seed => !/^[+-]?\d+$/.test(seed))) throw usageError("seeds must contain explicit integers");
+  if (new Set(seeds.map(seed => BigInt(seed).toString())).size !== seeds.length) throw usageError("seeds must not contain duplicates");
   const result = buildExperimentMatrix({ suite, baseConfig, seeds, variables: [] });
   if (flags.json) writeJson({ suite, baseConfig, seeds, yaml: result.yaml }, flags.compactJson);
   else writeText(result.yaml);
@@ -48,6 +50,7 @@ export async function planMatrix(fileArg: string, flags: CliFlags): Promise<numb
   const file = resolveExisting(fileArg);
   const yaml = readTextFile(file);
   const summary = parsePlanSummary(yaml);
+  const emptyCases = /^(?:cases|experiments)\s*:\s*(?:\[\s*\]|\{\s*\})\s*(?:#.*)?$/m.test(yaml);
   const result = expandPlanMatrix({
     variables: [
       ...(summary.cases.length ? [{ key: "case", mode: "grid" as const, values: summary.cases }] : []),
@@ -55,7 +58,7 @@ export async function planMatrix(fileArg: string, flags: CliFlags): Promise<numb
     ],
     namingRule: { pattern: "{suite}_{case}", sanitize: true },
   }, [], summary.suite || "suite");
-  const count = Array.isArray(result.experiments) ? result.experiments.length : 0;
+  const count = emptyCases ? 0 : Array.isArray(result.experiments) ? result.experiments.length : 0;
   const payload = { count, suite: summary.suite, cases: summary.cases.length, seeds: summary.seeds.length, filteredCount: result.filteredCount || 0 };
   if (flags.json) writeJson(payload, flags.compactJson);
   else writeText(block("Plan matrix", payload));

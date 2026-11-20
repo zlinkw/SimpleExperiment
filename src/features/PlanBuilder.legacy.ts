@@ -363,10 +363,13 @@ function planYamlCaseName(matrix, overrides) {
 }
 export function parsePlanCases(yaml) {
     const cases = [];
+    const clean = stripYamlComments(yaml);
+    const seedsPerCase = planStringList(clean, collectYamlScalarAnchors(clean), "seeds").length || 1;
     let sectionIndent = -1;
     let inPlanList = false;
     let currentItemIndent = -1;
     let currentItemHasLabel = false;
+    let currentPlaceholder = -1;
     let mapItemIndent = -1;
     let sawCaseSection = false;
     for (const rawLine of yaml.split(/\r?\n/)) {
@@ -377,7 +380,7 @@ export function parsePlanCases(yaml) {
         const inlineSection = line.match(/^(\s*)(cases|experiments)\s*:\s*(\[[^\r\n]*\])\s*(?:#.*)?$/);
         if (inlineSection) {
             sawCaseSection = true;
-            cases.push(...planCaseInlineListValues(inlineSection[3]));
+            cases.push(...planCaseInlineListValues(inlineSection[3], seedsPerCase));
             inPlanList = false;
             currentItemIndent = -1;
             currentItemHasLabel = false;
@@ -409,6 +412,7 @@ export function parsePlanCases(yaml) {
                 continue;
             currentItemIndent = listItem[1].length;
             currentItemHasLabel = false;
+            currentPlaceholder = -1;
             mapItemIndent = -1;
             const inlineLabel = planCaseLabelValue(listItem[2]);
             if (inlineLabel) {
@@ -422,12 +426,17 @@ export function parsePlanCases(yaml) {
                     currentItemHasLabel = true;
                 }
             }
+            if (!currentItemHasLabel) {
+                currentPlaceholder = cases.length;
+                cases.push(`case_${cases.length * seedsPerCase}`);
+            }
             continue;
         }
         if (currentItemIndent >= 0 && indent === currentItemIndent + 2 && !currentItemHasLabel) {
             const nestedLabel = planCaseLabelValue(line.trim());
             if (nestedLabel) {
-                cases.push(nestedLabel);
+                if (currentPlaceholder >= 0) cases[currentPlaceholder] = nestedLabel;
+                else cases.push(nestedLabel);
                 currentItemHasLabel = true;
             }
             continue;
@@ -1690,11 +1699,11 @@ function renderTemplate(text, values) {
     return text.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, key) => String(values[key] ?? ""));
 }
 function planCaseLabelValue(text) {
-    const match = text.match(/^(?:case|name|id)\s*:\s*(.+)$/);
+    const match = text.match(/^(?:case|name|id|experiment_id|experimentId)\s*:\s*(.+)$/);
     if (match)
         return stripYamlScalar(match[1]);
     const inlineMap = text.match(/^\{\s*(.+?)\s*\}$/)?.[1] || text;
-    for (const key of ["case", "name", "id"]) {
+    for (const key of ["case", "name", "id", "experiment_id", "experimentId"]) {
         const inline = inlineMap.match(new RegExp(`(?:^|,)\\s*${key}\\s*:\\s*("[^"]+"|'[^']+'|[^,#{}]+)`));
         if (inline)
             return stripYamlScalar(inline[1]);
@@ -1710,13 +1719,13 @@ function planCaseScalarListValue(text) {
     const value = stripYamlScalar(trimmed);
     return value && !/^\s*(expectedResults|expected_results|resultFiles|result_files|outputFiles|output_files)\s*$/i.test(value) ? value : "";
 }
-function planCaseInlineListValues(text) {
+function planCaseInlineListValues(text, seedsPerCase = 1) {
     const trimmed = text.trim();
     if (!trimmed.startsWith("[") || !trimmed.endsWith("]"))
         return [];
     return splitYamlFlowItems(trimmed.slice(1, -1))
-        .map((item) => planCaseLabelValue(item) || planCaseScalarListValue(item))
-        .filter(Boolean);
+        .filter((item) => item.trim())
+        .map((item, index) => planCaseLabelValue(item) || planCaseScalarListValue(item) || `case_${index * seedsPerCase}`);
 }
 function splitYamlFlowItems(text) {
     const items = [];
