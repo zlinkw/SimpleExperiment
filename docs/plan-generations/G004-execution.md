@@ -60,3 +60,7 @@ A组首次目标测试3项0/3、exit1：确认期间项目变化未拒绝；另�
 
 12复用现有真实收集/多PLAN/数据集/旧导出证据，补实际面板重建入口的选中PLAN、项目切换和写入失败受控路径；只使用独立合成目录。
 12目标测试1/1、exit0：面板入口从新查询生成两PLAN结果，选中PLAN只返回该范围且不覆盖完整导出；查询中项目变化和写入失败均保留原导出。无生产修改。12项均已完成受控检查，剩余本轮按钮/MCP功能项0；统一验证、总控验收、试行发行安装及用户重载尚未完成。
+
+统一消费者回归：`node --test --test-force-exit --test-timeout 20000 test/features/mcpProject.test.js` 43/43、exit0；`test/experimentPlatform.test.js` 14/15、exit1，旧测试期望排除PLAN显式声明的classification_report.json与output.out，实际均保留；测试及对应输出证据解析函数与基线相同，本轮仅改case解析。此失败未隐藏，已交总控按现行声明规则裁定，不擅退役或修改断言。
+
+总控裁定旧固定basename测试与现行PLAN显式声明契约冲突；仅将该用例期望修正为三条实际声明路径，保留其他拒绝与命令信号断言。完整 `test/experimentPlatform.test.js` 15/15、exit0。首次 `npm run build` 发现执行器默认并发上限2，主动Ctrl+C中止、exit1；前8门禁及9项exclusive测试通过，未推断实际有并发，进程已退出。后续构建/打包显式 `--max-parallel 1`，不改20秒测试限制。
