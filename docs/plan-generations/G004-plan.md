@@ -6,15 +6,17 @@
 
 只查真实支持的调用和输入。优先证明下表新增场景是否已由现有断言覆盖；有效证据直接复用，不能重复341检查或逐按钮刷数。每项记录入口、既有证据、新场景、实际结论和真实未测；正确则通过，不为凑12个修复制造改动。源码可疑处只是候选，不冒已复现。任务指标仍由AI据事实经MCP配置；不恢复手填必经、退役PPT/Hub或自动科研检查。
 
+2026-11-20追加范围裁决：单台电脑最多两个项目，限定个人日常使用；不新增多项目/高并发矩阵、压测、锁队列或规模化架构。用户要求将超范围待修点移出并补新项：已定位approve替身任意修改内部args的断言及structuredClone/isDeepStrictEqual参数防护无真实入口依据，移出本轮并由原Terra撤回对应未提交改动；不删除整个文件或回滚其他改动。原03的正常确认/取消与两个项目切换归入01，新增03为MCP任务日志读取及游标续读，仍为12个独立功能检查。正常撤权、已选Worker目标变化及双项目隔离保留，不扩为理论竞态系统；既有历史测试不借此擅自退役。A组曾首次0/3（含夹具缺vscode），修后3/3只是旧范围阶段证据，移除超范围断言后按受影响目标核对，不能冒修订后全部通过。
+
 计划预算18000字符，执行登记12000字符；到90%由各自写者整体语义归并，保留失败/授权/未知/原证据，不碎削或新建报告。原覆盖记录继续docs/windows-entry-coverage.json，本代仅追加独立G004对象，不重建旧记录。G001已交付，无活动/待决/在途交接，退出索引最近三代窗口；文件及原证据全部保留，不删除或搬移。
 
 ## 十二项检查与验收
 
 | 项 | 真实入口及新增检查重点 | 通过标准 |
 | --- | --- | --- |
-| 01 AI授权按钮 | manageAiAuthorization命令和卡片共用方法，授权/撤销选择期间切换工作区、取消、空Worker、授权范围变化 | 不把旧项目意图保存到新项目；取消零写，现有项目权限/Worker选择如实回读；仅受控窗口与store |
+| 01 AI授权及设置确认按钮 | manageAiAuthorization命令/卡片授权撤销及MCP设置确认，日常两个项目间切换、取消、空Worker和选中Worker变化 | 不把旧项目意图保存到新项目；取消零写，现有scope及选中对象准确；仅受控窗口与store，不假设内部args被任意突变 |
 | 02 MCP同步授权 | ProjectGateway→McpHost的upload.files/upload.workspace/Worker互传；目录/manifest异步准备期间撤权或Worker身份变化 | 最终调用仍绑定原授权项目及精确源/目标；拒绝后零传输，不把旧确认用于新目标；正常同一目标可用 |
-| 03 MCP全局设置批准 | requiresUserApproval的SFTP设置/服务器档案/target及state_set/reset；等待用户确认时目标或项目变化 | 展示并冻结获批对象，取消及漂移不写；不改变合法global作用域，不引入重复普通确认；仅替身 |
+| 03 MCP任务日志读取 | log_read→live.output和experiment_log→CLI logShow/logTail；精确Worker/runKey、since游标、用户指定lines、空日志与真实错误 | 首次和续读返回正确任务日志及原游标，不串任务、重复整段或漏掉声明范围；完整读取与显式末尾行数区分，错误不冒空成功；单任务正常交互/受控RPC，不造高并发或轮询服务 |
 | 04 异步MCP回执 | LONG_TOOLS→ProjectMcpOperations→operation_get及SDK结构化结果；嵌套原生操作、失败、返回未知、重载后结果不可用 | 请求收执与真实任务完成分清，原错误/结果不丢；不误报成功，不重复派发，不把已清记录复活或跨项目返回 |
 | 05 结果比较方向 | MCP result_compare→CLI compareCommand；同名指标升降、RMSE等已知方向、无共同指标、同值、非数值 | 数值差与改善/退步含义正确；优先既有显式方向契约，不为未知任务推定主指标；保留缺行已有reason及精确ID歧义契约 |
 | 06 精确结果导出 | MCP result_show/export与CLI resultExport；多维同行、特殊CSV字符、零/负值/小数及完整指标 | 同一精确ID的JSON/CSV与原值/维度对应，不串seed/PLAN、截断或本机落原始指标；已有200行完整查询证据复用 |
@@ -25,7 +27,7 @@
 | 11 配置重置及读回 | configuration_reset/get→apiConfigReset；projectAdapterRules与普通项目/全局共享配置，取消/中途换项目、保存失败 | 合法scope保持，reset后get及面板摘要反映实际继承值；不得清另一项目/全局Worker设置或隐式改PLAN归类；真实store替身 |
 | 12 重建结果表按钮 | rebuildProjectResultTablesFromUi→ResultCollectionHost/ProjectResultTables；当前与历史summary、已选PLAN/数据集、工作区变化及写入失败 | 按当前声明重建对应表，旧summary不冒实时，错误可见，目标及指标归属不串；仅新Temp合成文件，不覆盖用户表 |
 
-01–03优先，04–06紧随，07–12连续完成；12项是不同用户行为/语义，不把同一测试的多个断言拆成12项。发现已有覆盖充分就引用通过，新增检查只补具体缺口。涉及清理的旧正常链仅复用，不设计/执行新删除逻辑。
+01–02现有真实修复及超范围撤回先收口，03–06紧随，07–12连续完成；12项是不同用户行为/语义，不把同一测试的多个断言拆成12项。发现已有覆盖充分就引用通过，新增检查只补具体缺口。涉及清理的旧正常链仅复用，不设计/执行新删除逻辑。
 
 ## 唯一角色、文件与内部批次
 
@@ -35,7 +37,8 @@
 
 | 内部组 | 项 | 允许的源码/测试，另含execution；coverage集中最后记 |
 | --- | --- | --- |
-| A | 01–03 | src/mcp/ProjectGateway.ts、src/mcp/Invocation.ts、src/mcp/ProjectAuthorization.ts、src/extension/McpHost.ts、test/features/mcpProject.test.js、test/features/projectWorkspaceChangeIsolation.test.js |
+| A | 01–02 | src/mcp/ProjectGateway.ts、src/mcp/Invocation.ts、src/mcp/ProjectAuthorization.ts、src/extension/McpHost.ts、test/features/mcpProject.test.js、test/features/projectWorkspaceChangeIsolation.test.js |
+| H | 03 | src/mcp/ProjectQueries.ts、src/cli/commands/log.ts、src/mcp/ToolCatalog.ts、src/mcp/ToolResults.ts、src/extension/legacy.ts、test/features/mcpProject.test.js、test/cli/simpleCli.test.js |
 | B | 04 | src/mcp/ProjectOperations.ts、src/mcp/ToolResults.ts、src/mcp/Server.ts、test/features/mcpProject.test.js |
 | C | 05–06 | src/cli/commands/compare.ts、src/cli/commands/metric.ts、src/cli/commands/result.ts、src/mcp/ProjectQueries.ts、test/cli/simpleCli.test.js、test/features/mcpProject.test.js |
 | D | 07–08 | src/features/Metrics.ts、src/features/Results.legacy.ts、src/cli/commands/result.ts、src/cli/commands/metric.ts、src/mcp/ProjectQueries.ts、test/features/mcpProject.test.js、test/cli/simpleCli.test.js |
