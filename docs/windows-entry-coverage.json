@@ -5,7 +5,7 @@
     "boundary": "12项为本轮计划范围，非全插件按钮总数；均为受控场景，不代表真实Worker或已安装版本的实机效果。",
     "evidence": "01–02授权及同步、03日志、04回执、05–06比较与导出、07–08解析与排行榜、09–10 PLAN生成与预览、11配置重置、12结果表重建；入口、首次失败和各项验证见G004-execution.md。统一MCP测试43/43；experimentPlatform原14/15，旧断言按PLAN声明契约修正后15/15。",
     "remainingPlannedFeatureChecks": 0,
-    "delivery": "统一构建、总体验收、试行发行安装及用户重载尚未完成。"
+    "delivery": "单进程统一构建被本轮中止遗留的BUILD_LOCK_UNSETTLED阻挡；总体验收、试行发行安装及用户重载尚未完成。"
   },
   "g003WorkflowAndConditionalLogicReconciliation": {
     "status": "b01_b03_passed_trial_delivered_reload_pending",

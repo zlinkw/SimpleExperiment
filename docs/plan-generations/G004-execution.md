@@ -64,3 +64,5 @@ A组首次目标测试3项0/3、exit1：确认期间项目变化未拒绝；另�
 统一消费者回归：`node --test --test-force-exit --test-timeout 20000 test/features/mcpProject.test.js` 43/43、exit0；`test/experimentPlatform.test.js` 14/15、exit1，旧测试期望排除PLAN显式声明的classification_report.json与output.out，实际均保留；测试及对应输出证据解析函数与基线相同，本轮仅改case解析。此失败未隐藏，已交总控按现行声明规则裁定，不擅退役或修改断言。
 
 总控裁定旧固定basename测试与现行PLAN显式声明契约冲突；仅将该用例期望修正为三条实际声明路径，保留其他拒绝与命令信号断言。完整 `test/experimentPlatform.test.js` 15/15、exit0。首次 `npm run build` 发现执行器默认并发上限2，主动Ctrl+C中止、exit1；前8门禁及9项exclusive测试通过，未推断实际有并发，进程已退出。后续构建/打包显式 `--max-parallel 1`，不改20秒测试限制。
+
+单进程 `npm run build -- --max-parallel 1` exit1：`BUILD_LOCK_UNSETTLED`，本轮中止批的process-owner记录仍为active；仅核实当前无test-workflow或node --test进程，不能据此断言完整子进程树已确认。保留锁记录，不改删、不绕过；已交总控判断合法恢复。独立门禁：PanelHtml模块vm.Script exit0，实际渲染的2个脚本均vm.Script通过；src/dist中10890搜索无匹配（rg exit1）。统一build、最终验收和交付仍未完成。
