@@ -22,6 +22,7 @@ const planFile = "experiments/plans/comparison/ebmc.yaml";
 const revision = "52e776e5f9f455939795596b803a86e33e71333b55355b793c4d64accd946580";
 const root = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "wrapped-formal-"));
 const operationId = "validate-plan-1790619402512-cc0n8y";
+const globalRoot = root, globalPlanFile = planFile, globalRevision = revision;
 // The affected NWPU3 operation returned these six jobs inside payload.validation.
 const jobs = ["ebmc_bus_p100", "ebmc_pad_p100"].flatMap((caseName, caseIndex) =>
   [42, 43, 44].map((seed, seedIndex) => {
@@ -39,7 +40,10 @@ function completedOperation(shape = "payload", validationOverrides = {}) {
   return { ...operation, payload, latestEvent: { type: "operation_completed", payload } };
 }
 
-function hostFor(operation, accepted = true, outputChoice) {
+function hostFor(operation, accepted = true, outputChoice, fixture = {}) {
+  const root = fixture.root || globalRoot;
+  const planFile = fixture.planFile || globalPlanFile;
+  const revision = fixture.revision || globalRevision;
   const notices = [];
   const dialogs = [];
   const context = {
@@ -52,6 +56,10 @@ function hostFor(operation, accepted = true, outputChoice) {
     path, AbortController, assertRetryRequestCurrent() {},
     WorkflowBinding: require("../../dist/features/WorkflowWorkspaceBinding"),
     PlanExecutionMode: require("../../dist/features/PlanExecutionMode"),
+    GpuQuotaScheduling: require("../../dist/features/GpuQuotaScheduling"),
+    AgentTmuxPolicy_1: require("../../dist/tunnel/AgentTmuxPolicy"),
+    PlanCodeScopeHost: { supportsPlanCodeScope: () => false },
+    durableCodeProofRequestFields: () => ({}),
     cleanupStablePlanId: require("../../dist/features/PlanCleanupEvidence").cleanupStablePlanId,
     replacementJobGroups: require("../../dist/features/PlanOutputReplacement").replacementJobGroups,
     fs: {readFile: async () => "plan_id: fixture\n"},
@@ -64,7 +72,7 @@ function hostFor(operation, accepted = true, outputChoice) {
     isUiCommandCancelled: (error) => error.name === "UiCommandCancelled",
     isUiCommandRemotePending: () => false,
     actionAffectsResultsSummary: () => false,
-    vscode: { window: {
+    vscode: { workspace: { getConfiguration: () => ({ get: (_key, fallback) => fallback }) }, window: {
       showWarningMessage: async (message, _options, ...choices) => { notices.push(message); dialogs.push(choices); return outputChoice === null ? undefined : choices.includes(outputChoice) ? outputChoice : choices[0]; },
       showInformationMessage: async (message) => { notices.push(message); },
     } },
@@ -76,7 +84,7 @@ function hostFor(operation, accepted = true, outputChoice) {
   // commitIsolatedEnqueueLocal 是入队落盘后的真实批次账本 producer（新主线接线）：本夹具无隔离批次上下文，
   // 真实方法在 currentIsolatedBatchLocal 缺失时即返回 false 早退——提取真身而非 stub（同 distributedPlanExecutionMode 口径）。
   // 块C：真实 enqueue 含队列窄溯源收敛（queueGitProvenance/stripGitUrlCredentials 纯法身一并提取）。
-  const methodNames = ["runPlanPreflight", "waitForOperationTerminalResult", "refreshOperationStatus", "confirmPlanExistingOutputs", "confirmPlanExistingOutputsFromValidation", "confirmDeclaredPlanOutputs", "confirmDistributedPlanExistingOutputs", "enqueueDistributedPlan", "commitIsolatedEnqueueLocal", "queueGitProvenance", "stripGitUrlCredentials"];
+  const methodNames = ["runPlanPreflight", "waitForOperationTerminalResult", "refreshOperationStatus", "confirmPlanExistingOutputs", "confirmPlanExistingOutputsFromValidation", "confirmDeclaredPlanOutputs", "confirmDistributedPlanExistingOutputs", "enqueueDistributedPlan", "commitIsolatedEnqueueLocal", "queueGitProvenance", "stripGitUrlCredentials", "sendDistributedJob"];
   const emitted = ts.transpileModule(
     helperNames.map((name) => functions.get(name)).join("\n") + "\nthis.production = {\n" + methodNames.map((name) => methods.get(name)).join(",\n") + "\n}; this.accepted = planCheckAccepted;",
     { compilerOptions: { target: ts.ScriptTarget.ES2022 } },
@@ -151,6 +159,131 @@ for (const shape of ["payload", "latestEvent", "direct", "result"]) test(shape +
   assert.equal(notices.length,0);
 });
 
+test('sparse validated jobs keep their identity from preflight through real allocation', async () => {
+  const selected = [jobs[1], jobs[4]];
+  const {host} = hostFor(completedOperation('payload', { jobs: selected, job_count: selected.length }));
+  const body = { planFile, planRevision: revision, options: {} };
+  const checked = await host.runPlanPreflight(body, '当前计划');
+  await host.confirmDistributedPlanExistingOutputs({}, body, checked);
+  assert.equal((await host.enqueueDistributedPlan(body, checked, true)).enqueued, true);
+  const allocated = DistributedPlanQueue.allocateAvailable(host.queue, [{ workerId: 'nwpu3', online: true,
+    idleGpuIds: ['0', '1'], codeFingerprint: 'verified-code', declaredJobPaths: true, idleGpuAdmission: true, weight: 1 }]);
+  assert.equal(allocated.dispatches.length, 2);
+  const row = allocated.queue.plans[0];
+  assert.equal(row.planFile, planFile);
+  assert.equal(row.revision, revision);
+  for (const original of selected) {
+    const job = row.jobs.find(item => item.index === original.index);
+    const dispatch = allocated.dispatches.find(item => item.jobIndex === original.index);
+    assert.ok(job && dispatch);
+    assert.equal(job.case, original.case);
+    assert.equal(job.seed, original.seed);
+    assert.equal(job.outputDir, original.output_dir);
+    assert.equal(job.collectionResultCsv, original.result_csv);
+    assert.equal(job.workerId, dispatch.workerId);
+    assert.equal(job.commandId, dispatch.commandId);
+    assert.ok(job.commandId);
+    assert.equal(dispatch.planId, row.id);
+  }
+  assert.notEqual(allocated.dispatches[0].commandId, allocated.dispatches[1].commandId);
+  const sent = [];
+  host.queue = allocated.queue;
+  host.taskLifecycleProtocol = 2;
+  host.distributedQueueGeneration = 0;
+  host.distributedPlanStopEpoch = 0;
+  host.setupConfig = {};
+  host.unifiedDomainState = () => ({ active: false, blocked: '' });
+  Object.assign(host.lastWorkerProbes.nwpu3.capabilities.endpoints, { gpuQuotaScheduling: 1, gpuMemoryBudgetScheduling: 1 });
+  host.lastWorkerProbes.nwpu3.capabilities.actionEndpoints = { 'register-code-sync-proof': true };
+  host.lastCodeSyncState.workerVersions.nwpu3.codeSyncProofId = 'fixture-proof';
+  host.submissionWorkerProbes = async () => host.lastWorkerProbes;
+  host.lastWorkerTaskSnapshots = new Map([[`${root}\0nwpu3`, { capabilities: { taskLifecycle: 2 } }]]);
+  host.client.postWorkerAction = async (worker, action, request) => { sent.push({ worker, action, request }); return {}; };
+  for (const dispatch of allocated.dispatches) {
+    const job = row.jobs.find(item => item.index === dispatch.jobIndex);
+    const receipt = await host.sendDistributedJob(row, job, dispatch.workerId, dispatch.gpuId, dispatch.commandId);
+    assert.equal(receipt.status, 'unknown');
+  }
+  assert.equal(sent.length, 2);
+  for (const call of sent) {
+    const job = row.jobs.find(item => item.index === call.request.experimentIndex);
+    assert.equal(call.action, 'start-worker-task');
+    assert.equal(call.worker, job.workerId);
+    assert.equal(call.request.commandId, job.commandId);
+    assert.equal(call.request.planFile, planFile);
+    assert.equal(call.request.planRevision, revision);
+    assert.equal(call.request.case, job.case);
+    assert.equal(call.request.seed, job.seed);
+    assert.equal(call.request.outputDir, job.outputDir);
+    assert.equal(call.request.collectionResultCsv, job.collectionResultCsv);
+  }
+});
+
+test('one preflight and dispatch identity reaches the current result export', async () => {
+  const { scenario } = require('../_helpers/resultCollectionScenario');
+  const f = scenario({ workerIds: ['nwpu3'] });
+  const plan = f.addPlan('experiments/plans/identity.yaml', { seeds: [42, 43, 44], cases: ['alpha', 'beta'] });
+  const selected = [plan.jobs[1], plan.jobs[4]];
+  const validation = { ok: true, result_path_policy: 'declared', execution_mode: 'test', job_count: selected.length, jobs: selected, existing: [] };
+  const operation = { operationId, type: 'validate-plan', status: 'completed', workerId: 'nwpu3', planFile: plan.planFile,
+    planRevision: plan.revision, payload: { status: 'completed', workerId: 'nwpu3', planFile: plan.planFile, planRevision: plan.revision, validation } };
+  const { host } = hostFor(operation, true, undefined, { root: f.root, planFile: plan.planFile, revision: plan.revision });
+  const body = { planFile: plan.planFile, planRevision: plan.revision, options: {} };
+  const checked = await host.runPlanPreflight(body, '当前计划');
+  await host.confirmDistributedPlanExistingOutputs({}, body, checked);
+  assert.equal((await host.enqueueDistributedPlan(body, checked, true)).enqueued, true);
+  const allocated = DistributedPlanQueue.allocateAvailable(host.queue, [{ workerId: 'nwpu3', online: true, idleGpuIds: ['0', '1'],
+    codeFingerprint: 'verified-code', declaredJobPaths: true, idleGpuAdmission: true, weight: 1 }]);
+  assert.equal(allocated.dispatches.length, 2);
+  const row = allocated.queue.plans[0], sent = [];
+  assert.equal(row.projectId, DistributedPlanQueue.canonicalProjectId(f.root));
+  host.queue = allocated.queue; host.taskLifecycleProtocol = 2; host.distributedQueueGeneration = 0; host.distributedPlanStopEpoch = 0;
+  host.setupConfig = {}; host.unifiedDomainState = () => ({ active: false, blocked: '' });
+  Object.assign(host.lastWorkerProbes.nwpu3.capabilities.endpoints, { gpuQuotaScheduling: 1, gpuMemoryBudgetScheduling: 1 });
+  host.lastWorkerProbes.nwpu3.capabilities.actionEndpoints = { 'register-code-sync-proof': true };
+  host.lastCodeSyncState.workerVersions.nwpu3.codeSyncProofId = 'fixture-proof';
+  host.submissionWorkerProbes = async () => host.lastWorkerProbes;
+  host.lastWorkerTaskSnapshots = new Map([[`${f.root}\0nwpu3`, { capabilities: { taskLifecycle: 2 } }]]);
+  host.client.postWorkerAction = async (worker, action, request) => { sent.push({ worker, action, request }); return {}; };
+  for (const dispatch of allocated.dispatches) {
+    const job = row.jobs.find(item => item.index === dispatch.jobIndex);
+    await host.sendDistributedJob(row, job, dispatch.workerId, dispatch.gpuId, dispatch.commandId);
+  }
+  assert.equal(sent.length, 2);
+  f.host.distributedQueueCache = allocated.queue;
+  for (const original of selected) {
+    const call = sent.find(item => item.request.experimentIndex === original.index);
+    const job = row.jobs.find(item => item.index === original.index);
+    assert.ok(call && job); assert.equal(call.action, 'start-worker-task');
+    assert.equal(call.worker, job.workerId); assert.equal(call.request.commandId, job.commandId);
+    assert.equal(call.request.planFile, plan.planFile); assert.equal(call.request.planRevision, plan.revision);
+    assert.equal(call.request.case, original.case); assert.equal(call.request.seed, original.seed);
+    assert.equal(call.request.outputDir, original.output_dir); assert.equal(call.request.collectionResultCsv, original.result_csv);
+    f.put(plan, original.index, { workerId: call.worker, runId: call.request.commandId, metric: original.case === 'alpha' ? .7 : .9 });
+  }
+  const report = await f.update();
+  assert.equal(report.current, true); assert.equal(report.results.length, 2);
+  for (const original of selected) {
+    const call = sent.find(item => item.request.experimentIndex === original.index);
+    const result = report.results.find(item => item.runId === call.request.commandId);
+    assert.ok(result); assert.equal(result.workerId, call.worker); assert.equal(result.planFile, plan.planFile);
+    assert.equal(result.revision, plan.revision); assert.equal(result.workflowId, row.id); assert.equal(result.dimensions.case, original.case);
+    assert.equal(Number(result.dimensions.seed), original.seed); assert.equal(result.sourceFiles[0].path, original.output_dir);
+  }
+  assert.ok((await f.catalog()).datasets.some(item => item.datasetKey === 'set'));
+  assert.ok(f.snapshot().tables.some(item => item.tableKey === 'set/final'));
+  const first = selected[0], call = sent.find(item => item.request.experimentIndex === first.index);
+  f.put(plan, first.index, { workerId: call.worker, runId: 'wrong-command', metric: .99 });
+  assert.ok(!(await f.update()).results.some(item => item.runId === 'wrong-command'));
+  f.put(plan, first.index, { workerId: call.worker, runId: call.request.commandId, metric: .99 });
+  const files = f.storage.get(call.worker), manifestPath = first.output_dir + '/artifact_manifest.json';
+  const manifest = JSON.parse(files.get(manifestPath).toString('utf8'));
+  manifest.simpleExperiment.resultCsv = 'tmp/result/wrong.csv';
+  files.set(manifestPath, Buffer.from(JSON.stringify(manifest)));
+  assert.ok(!(await f.update()).results.some(item => item.runId === call.request.commandId));
+  assert.ok(!f.snapshot().tables.flatMap(table => table.rows).some(row => row.includes(.99)));
+});
+
 function historical(host, selectedJobs=jobs.slice(0,4), current=true) {
   host.queue = DistributedPlanQueue.enqueuePlan(host.queue,{
     projectId:DistributedPlanQueue.canonicalProjectId(root), planFile, revision: current ? revision : "old",
@@ -187,6 +320,7 @@ test("keep and cancel preserve all historical records without new submission",as
     const before=JSON.stringify(host.queue), body={planFile,planRevision:revision}, checked=await host.runPlanPreflight(body,"当前计划");
     await assert.rejects(host.confirmDistributedPlanExistingOutputs({},body,checked),/已取消/);
     assert.equal(JSON.stringify(host.queue),before);
+    assert.equal(DistributedPlanQueue.allocateAvailable(host.queue, [{workerId:'nwpu3',online:true,idleGpuIds:['0']}]).dispatches.length, 0);
   }
 });
 test("unowned outputs cannot authorize overwrite or an attempt fallback",async()=>{
@@ -201,6 +335,7 @@ test("missing jobs still block preview and never create a queue entry", async ()
   const { host } = hostFor(completedOperation("payload", { jobs: [] }));
   await assert.rejects(() => host.runPlanPreflight({ planFile, planRevision: revision }, "当前计划"), /Agent 校验未返回逐 job 清单/);
   assert.equal(host.queue.plans.length, 0);
+  assert.equal(DistributedPlanQueue.allocateAvailable(host.queue, [{workerId:'nwpu3',online:true,idleGpuIds:['0']}]).dispatches.length, 0);
 });
 
 test("terminal failure and wrapped validation rejection cannot be accepted", async () => {
@@ -212,6 +347,7 @@ test("terminal failure and wrapped validation rejection cannot be accepted", asy
   const { host } = hostFor(completedOperation("payload", { ok: false }));
   await assert.rejects(() => host.runPlanPreflight({ planFile }, "当前计划"), /计划校验.*失败|计划校验失败/);
   assert.equal(host.queue.plans.length, 0);
+  assert.equal(DistributedPlanQueue.allocateAvailable(host.queue, [{workerId:'nwpu3',online:true,idleGpuIds:['0']}]).dispatches.length, 0);
 });
 
 test("latest validation evidence overrides a stale root or payload validation", async () => {

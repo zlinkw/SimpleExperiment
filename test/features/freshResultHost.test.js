@@ -4,7 +4,63 @@ const { ResultCollectionHost } = require('../../src/extension/ResultCollectionHo
 const { resultDigest } = require('../../src/results/FreshResults.ts');
 const { readLatestResultExport, latestResultCatalog, regenerateLatestResultTables } = require('../../src/results/LatestResultExport.ts');
 const { fixture, planFile, planText } = require('../_helpers/freshResultHost');
+const { scenario } = require('../_helpers/resultCollectionScenario');
+const Queue = require('../../dist/features/DistributedPlanQueue');
 function files(root) { return fs.readdirSync(root, { withFileTypes: true }).flatMap(row => row.isDirectory() ? files(path.join(root,row.name)).map(item => row.name+'/'+item) : [row.name]); }
+
+test('protocol 2 collection follows allocated job identities into the current export', async () => {
+  const f = scenario({ workerIds: ['w1'] });
+  const plan = f.addPlan('experiments/plans/identity.yaml', { seeds: [42, 43], cases: ['alpha'] });
+  const queue = Queue.enqueuePlan(Queue.emptyDistributedQueue(), {
+    projectId: Queue.canonicalProjectId(f.root), planFile: plan.planFile, revision: plan.revision,
+    codeFingerprint: 'fixture-code', executionMode: 'test',
+    jobs: plan.jobs.map(job => ({ index: job.index, case: job.case, seed: job.seed,
+      outputDir: job.output_dir, collectionResultCsv: job.result_csv })),
+  }, 'fixture-workflow');
+  const allocated = Queue.allocateAvailable(queue, [{ workerId: 'w1', online: true, idleGpuIds: ['0', '1'],
+    codeFingerprint: 'fixture-code', declaredJobPaths: true, idleGpuAdmission: true, weight: 1 }]);
+  assert.equal(allocated.dispatches.length, 2);
+  f.host.distributedQueueCache = allocated.queue;
+  for (const job of allocated.queue.plans[0].jobs) {
+    assert.equal(job.lifecycleProtocol, 2);
+    f.put(plan, job.index, { workerId: job.workerId, runId: job.commandId, metric: job.seed === 42 ? .7 : .9 });
+  }
+  const report = await f.update();
+  assert.equal(report.current, true);
+  assert.equal(report.results.length, 2);
+  for (const job of allocated.queue.plans[0].jobs) {
+    const result = report.results.find(row => row.runId === job.commandId);
+    assert.ok(result);
+    assert.equal(result.planFile, plan.planFile);
+    assert.equal(Number(result.dimensions.seed), job.seed);
+    assert.equal(result.dimensions.case, job.case);
+    assert.equal(result.workerId, job.workerId);
+    assert.equal(result.workflowId, allocated.queue.plans[0].id);
+    assert.equal(result.revision, plan.revision);
+    assert.equal(result.sourceFiles[0].path, job.outputDir);
+    assert.equal(report.jobs.find(row => row.index === job.index).outputDir, job.outputDir);
+  }
+  const catalog = await f.catalog();
+  assert.ok(catalog.datasets.some(row => row.datasetKey === 'set'));
+  const output = f.snapshot();
+  assert.ok(output.tables.some(table => table.tableKey === 'set/final'));
+
+  const first = allocated.queue.plans[0].jobs[0];
+  f.put(plan, first.index, { workerId: first.workerId, runId: 'wrong-command', metric: .99 });
+  const mismatch = await f.update();
+  assert.ok(!mismatch.results.some(row => row.runId === 'wrong-command'));
+  assert.ok(!f.snapshot().tables.flatMap(table => table.rows).some(row => row.includes(.99)));
+
+  f.put(plan, first.index, { workerId: first.workerId, runId: first.commandId, metric: .99 });
+  const manifestPath = first.outputDir + '/artifact_manifest.json';
+  const files = f.storage.get(first.workerId);
+  const manifest = JSON.parse(files.get(manifestPath).toString('utf8'));
+  manifest.simpleExperiment.resultCsv = 'tmp/result/wrong.csv';
+  files.set(manifestPath, Buffer.from(JSON.stringify(manifest)));
+  const wrongPath = await f.update();
+  assert.ok(!wrongPath.results.some(row => row.runId === first.commandId));
+  assert.ok(!f.snapshot().tables.flatMap(table => table.rows).some(row => row.includes(.99)));
+});
 
 test('silent memory reads expire without replacing export bytes; genuine progress extends the read and a fresh query recovers',async()=>{
   const f=fixture();await f.service.update();

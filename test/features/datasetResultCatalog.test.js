@@ -92,6 +92,64 @@ test('automatic dataset matching refreshes only the current project result view'
   }
 });
 
+test('collected metrics keep Plan and seed groups through tables, catalog and split export', async () => {
+  const f = scenario({ workerIds: ['w1'] });
+  const plans = [
+    f.addPlan('experiments/plans/a.yaml', { seeds: [42, 43], cases: ['same-case'] }),
+    f.addPlan('experiments/plans/b.yaml', { seeds: [42, 43], cases: ['same-case'] }),
+  ];
+  const values = [ [[.2, .4, .6], [.4, .6, .8]], [[.8, .2, .4], [.9, .4, .6]] ];
+  for (const [planIndex, plan] of plans.entries()) for (const job of plan.jobs) {
+    const csv = 'case,seed,method,dataset,eval_protocol,AP,macro_f1,weighted_f1\n' +
+      `${job.case},${job.seed},method,set,clean,${values[planIndex][job.index].join(',')}\n`;
+    f.put(plan, job.index, { workerId: 'w1', runId: `p${planIndex}-job${job.index}`, text: csv });
+  }
+  const report = await f.update();
+  assert.equal(report.results.length, 4);
+  assert.deepEqual(report.results.map(row => Number(row.dimensions.seed)).sort(), [42, 42, 43, 43]);
+  const table = f.snapshot().tables.find(row => row.tableKey === 'set/final');
+  assert.ok(table);
+  const byPlan = new Map(table.rows.map(row => [row[table.header.indexOf('plan_file')], row]));
+  assert.equal(byPlan.size, 2);
+  for (const [planIndex, plan] of plans.entries()) {
+    const row = byPlan.get(plan.planFile);
+    assert.ok(row);
+    assert.equal(row[table.header.indexOf('dataset')], 'set');
+    assert.equal(row[table.header.indexOf('result_family')], 'method');
+    assert.equal(String(row[table.header.indexOf('jobs')]), '2');
+    for (const [index, name] of ['ap_mean', 'macro_f1_mean', 'weighted_f1_mean'].entries()) {
+      const expected = (values[planIndex][0][index] + values[planIndex][1][index]) / 2;
+      assert.ok(Math.abs(row[table.header.indexOf(name)] - expected) < 1e-12, name);
+      const sd = Math.abs(values[planIndex][0][index] - values[planIndex][1][index]) / Math.sqrt(2);
+      assert.ok(Math.abs(row[table.header.indexOf(name.replace('_mean', '_sd'))] - sd) < 1e-12, name);
+    }
+  }
+  const catalog = await f.catalog();
+  assert.ok(catalog.datasets.some(row => row.datasetKey === 'set' && row.tables.some(item => item.tableKey === 'set/final')));
+  const csv = f.read(table.relativePath), markdown = f.read(table.markdownPath);
+  const parsed = tables.readCsv(csv);
+  assert.equal(parsed.rows.length, 2);
+  for (const plan of plans) {
+    const csvRow = parsed.rows.find(row => row[parsed.header.indexOf('plan_file')] === plan.planFile);
+    const jsonRow = byPlan.get(plan.planFile);
+    for (const name of ['ap_mean', 'macro_f1_mean', 'weighted_f1_mean']) {
+      assert.equal(Number(csvRow[parsed.header.indexOf(name)]), Number(jsonRow[table.header.indexOf(name)]));
+      assert.ok(markdown.includes(Number(jsonRow[table.header.indexOf(name)]).toFixed(4)));
+    }
+  }
+  assert.ok(markdown.includes(plans[0].planFile) && markdown.includes(plans[1].planFile));
+  const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), f.host, { invalidateResultCatalogCache() {} });
+  await host.splitProjectResultTableFromUi({ tableKey: 'set/final', splitField: 'plan_file',
+    splitValues: [plans[0].planFile], keepColumns: ['plan_file', 'ap_mean', 'macro_f1_mean', 'weighted_f1_mean'] });
+  const split = tables.readCsv(f.read(`set/final/by_plan_file/${tables.safeTableName(plans[0].planFile)}.csv`));
+  assert.equal(split.rows.length, 1);
+  assert.equal(split.rows[0][split.header.indexOf('plan_file')], plans[0].planFile);
+  for (const name of ['ap_mean', 'macro_f1_mean', 'weighted_f1_mean']) {
+    assert.equal(Number(split.rows[0][split.header.indexOf(name)]), Number(byPlan.get(plans[0].planFile)[table.header.indexOf(name)]));
+  }
+  assert.ok(!JSON.stringify(split.rows).includes(plans[1].planFile));
+});
+
 test('local dataset mapping merges aggregate schemas and preserves review, provenance and source evidence without querying',async()=>{
   const f=scenario(),a=f.addPlan('experiments/plans/unassigned.yaml',{seeds:[42,43]}),b=f.addPlan('experiments/plans/labelled.yaml',{seeds:[42]});
   f.put(a,0,{dataset:'',metric:.7});f.put(a,1,{dataset:'',metric:.9});
