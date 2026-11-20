@@ -6,7 +6,7 @@
 
 恢复基线92bd566c4e25c3184e0385ac845f3d44a5159c23，实际Git仍有暂停时九个tracked文件改动，全部保留。P/Q/R及入口单文件检查13/13、26/26、11/11、4/4、21/21退出0；S/T五个名称筛选用例先4/5（夹具异步刷新污染），修夹具后5/5退出0。legacy.ts已增加两处登记表错误提示，尚未完成源码变更后的规定build/VM；源码、六测试及execution/coverage未提交，总体核查与B01–B03未完成，不冒成功交付。原命令、失败和适用范围见execution及Terra原工具记录。
 
-当前一次连续交付包含原M–T剩余证据闭合、新U/V入口行为补缺、全部必要修复、最终候选统一检查及完整交包。共享配置保存与已充分覆盖的分支PR/服务/RPC直接复用，不能拿局部绿灯冒完整链路。曲线打开和归档恢复仅核插件契约，不需真实Worker或修改消费项目；先补高影响身份/取消/输出隔离，再处理次要反馈。
+当前一次连续交付包含原M–T剩余证据闭合、U/V和W/X设置维护入口补缺、全部必要修复、最终候选统一检查及完整交包。共享配置保存与已充分覆盖的分支PR/服务/RPC直接复用，不能拿局部绿灯冒完整链路。2026-11-20 U/V受控目标已通过tensorboardScalar 10/10、archivedPlanRestoreWorkflow 3/3，退出0；路径断言追加后复验通过，未连接Worker或写消费项目。先修X安全规则非空输入被静默丢弃等高影响问题，再处理普通重置反馈；同legacy已知改动汇总后一次实现。
 
 已完成检查点：源码 `ad31204a6d438420601132d22eb55a1346e081fc`、收尾 `af2697f249289db0604ca34fdbb40d4f1b6a4104` 已push/fetch。此前B01–B03仅签当时已识别插件子范围；MCP接入/退役残留、UI绑定与取消/失败/待确认反馈等证据保留。buildId `1a33b6e4a9c9ca5642ddcdce4c5c81ad3f5fb581dca96bc1d7b749787218df7a`，280已选任务及10门禁通过、并发1、锁释放，6按需未运行，模块及三script VM有效；原日志 `simple_cluster/reports/test-workflow/2026-11-17T07-21-58-237Z-59720-build/`，失败/实机外部未测/旧R13未知见execution。未安装升级，日常安装版未应用修复。
 
@@ -30,7 +30,7 @@
 - 通用接续、计数、正确模型/强度/default实核及自动同角色新建/消息/归档唯一遵循[统一入口](C:/Users/ZLK/.agents/skills/caveman/SKILL.md)及[交班模板](C:/Users/ZLK/.agents/skills/caveman/references/handover.md)；分工遵循[多会话实现](C:/Users/ZLK/.codex/skills/multi-session-implementation/SKILL.md)。不在项目复制阈值或算法，不为小进度换角色。
 - 预算：计划24000字符、execution16000、长期踩坑12000；90%时在正常非冻结窗口整份语义归并，保留全部未决/授权/失败/原证据，不能只削到阈值、硬截断或另造存档搬文字。相同文件先汇总本阶段已知改动，内存核预算，一次写入/集中回读；有新事实/真实失败再增量，不为标点措辞反复编辑计数。
 
-Terra完成全部当前范围实现和S01–S13、M/N/O/P/Q/R/S/T/U/V及其余实际逻辑补缺→真实工具交总控完整包→总控独占B01–B03→失败真实工具详返原Terra修复/定向自验/再交→最终明确通过及既有授权交付→总控结案。完整包给最终基线/diff、原命令与真实退出码/日志、证据适用输入与含义、真实失败/未知/未测、权限保护和租约。常态总控空闲，Terra普通进度记execution，仅真实新决策或完整交包联系。
+Terra完成全部当前范围实现和S01–S13、M/N/O/P/Q/R/S/T/U/V/W/X及其余实际逻辑补缺→真实工具交总控完整包→总控独占B01–B03→失败真实工具详返原Terra修复/定向自验/再交→最终明确通过及既有授权交付→总控结案。完整包给最终基线/diff、原命令与真实退出码/日志、证据适用输入与含义、真实失败/未知/未测、权限保护和租约。常态总控空闲，Terra普通进度记execution，仅真实新决策或完整交包联系。
 
 有效证据按所涉输入、对象和调用链是否变化判断，不能因全仓提交变化、换角色或重新统计而重做。总控先核实际diff/必要调用链/原证据，仅补未覆盖项目级关联，不重复Terra小验收或已有大验收。实际UI/检查前明确移交单一租约；受检docs/src/test/scripts/dist冻结包括总控，结束才记事实。
 
@@ -114,6 +114,8 @@ AI依据当前项目/任务/PLAN、真实训练评估入口及允许读取的结
 | R14T3 分支源码核验与PR余项 | 同T1两文件；最多2文件 | verifyBranchHeadBindingFromUi核登记根、损坏/无清单、选择取消、所选PLAN/revision/executionSource与HEAD传递、绑定成功/失败的state及反馈；核验不宣称科研完成。createBranchPrFromUi/mergeBranchPrFromUi仅归并或补真实UI接线缺口，已有PR/快进有效证据不重做。不得stage/commit、真实RPC/Git/PR或放宽原确认/源码/收据门禁 |
 | R14U 曲线打开入口补缺 | 仅 test/tensorboardScalar.test.js、src/extension/legacy.ts；最多2文件 | 核openScalarViewerFromUi真实方法：选中endpointId先验证目标，无可用Worker拒绝、合法viewer URL精确绑定endpoint及workspace，启动等待期间换workspace/client不得打开，openExternal拒绝/异常准确上抛、成功一次返回。受控本机API/vscode/timer，不启动真实服务/浏览器或连接Worker；保留既有20次/100ms契约，不新增性能/重试/超时或改底层曲线统计；现有查询/渲染有效证据复用 |
 | R14V 归档恢复入口补缺 | 仅 test/features/archivedPlanRestoreWorkflow.test.js、test/features/projectWorkspaceChangeIsolation.test.js、test/features/planArchiveBundleWorkflow.test.js、src/extension/legacy.ts；最多4文件，未需修改者复用 | 真实restoreArchivedPlanFromUi接现有恢复/安全路径函数，以受控fs/确认/项目上下文核归档来源、新版本目标与独立输出/资产命名空间，确认取消零mkdir/copy/write/persist，选择期间或后续异步边界换项目停止后续写入/选择落盘，成功目标/恢复记录/resultScope及PLAN选择一致；不把已发生的先前写入冒零写。保留归档/原结果、不覆盖用户文件，不实际恢复消费项目或清理，不以源码正则代行为。必要时只最小修真实可达缺陷，不改恢复协议/权限/指标语义 |
+| R14W 设置与维护行为补缺 | 仅 test/features/remotePathConfirmationWorkflow.test.js、test/features/projectUiLayoutState.test.js、test/tunnel/tunnelPortConflict.test.js、src/extension/legacy.ts；最多4文件、3个相关问题 | 一次集中补resetRemotePathConfirmationsFromUi/resetUiLayoutFromUi/repairTunnelPorts真实方法断言。路径提醒核当前项目、空/取消零清除与持久化、异步切项目停止后续效果、确认后仅清当前项目提醒及旧兼容键；布局核既有global模板与项目布局/动作重置及切项目不向新面板post旧状态；端口核实际Worker冲突host/port/目标、无冲突/取消零configure、明确选择只路由configureTunnelPorts，保留不自动改Xshell/不启停连接。依赖受控、不写真实共享设置/文件、不联网；只修实际可达缺陷，保留原配置scope，不能给application操作强加项目门禁，不恢复Hub、不新增确认/性能/重试/超时/框架，原探测/分配器/渲染有效证据复用 |
+| R14X 远端路径安全规则保存与消费 | 仅 test/features/remoteRootPolicyUi.test.js、test/api/localApi.test.js、src/extension/legacy.ts、src/features/ApiWorkflow.legacy.ts；最多4文件，独立W的内部组 | 已核UI承诺每行绝对POSIX目录、禁止优先，但saveRemoteRootPolicyFromUi及normalizedRemoteRootList静默滤掉normalizeApiRemotePath不能表示的非空项，deniedRoots为/会变空。先受控复现，保存前验证整组allowed/denied，任何无效项零配置写且不报成功；直接配置消费同样明确拒绝，不能继续按空策略放行。按既有契约处理非绝对/含..等实际无效项；空行/空列表及正常规范化保持，合法禁止前缀优先于允许，父/子/相邻目录语义保持。不扩展/为允许或禁止全盘的新含义，不改通用normalizeApiRemotePath消费者、不新增安全策略/配置/框架。核当前folder.uri和WorkspaceFolder目标、切项目反馈及错误上抛；所有配置/fs/外部调用受控，不写真实安全设置。共享helper只按真实边界复用，不为测试改产品导出 |
 | R15 生成与最终交包 | 原生成器独占dist；Terra维护执行证据和scopedGit，总控维护计划/索引 | 只因产品输入变化做规定build/VM及受影响验证；完整插件逻辑小验收后交总控B01–B03，不重复有效检查；当前不打包/安装/发行 |
 
 T1–T3为同一连续分支UI收口阶段的内部有界组，P/Q/R优先；先汇总同两文件内所有已知缺口，一次集中实现后统一目标验证，不逐方法请求计划、逐小组构建或重跑有效服务测试。生产文件仅修本家族实际可达缺陷，不改其他功能、协议、权限、性能断言/时限或引入框架；新文件/协议边界仍升级总控。
@@ -138,6 +140,8 @@ T1–T3为同一连续分支UI收口阶段的内部有界组，P/Q/R优先；先
 | S补缺 | 分支项目打开与移除登记的真实UI方法正确绑定对象、确认/取消与成功反馈 | 原AST夹具接真实方法，依赖受控，核命令/服务调用及零动作边界；不操作真实项目，不重跑已有效服务/PR场景 |
 | T补缺 | 分支登记创建、提交状态结果、源码核验/PR的支持UI逻辑已有真实有效行为证据，剩余缺口闭合 | 同文件集中归并后仅补缺；受控服务/RPC/Git不代表真实外部操作成功，既有PR/服务证据继续复用 |
 | U/V补缺 | 曲线入口绑定当前Worker/项目，归档恢复正确确认、独立输出及项目切换停止 | 真实生产函数及受控外部依赖；底层解析/统计/归档有效证据复用，外部真实效果未测明示 |
+| W补缺 | 路径提醒和布局按既有项目/global作用域重置，端口冲突正确反馈与配置路由 | 真实方法、受控存储/vscode/配置依赖，核取消/空/切换/成功效果；不修改真实共享配置或把application操作改为项目专用 |
+| X补缺 | 非空非法安全规则不能被UI或持久化消费静默丢弃，合法规则/作用域/错误反馈保留 | 原生产方法与规则解析器受控复现，再核整组无效零保存、消费明确失败及合法允许/禁止路径行为；保留原失败，不碰真实配置 |
 | S11/P | 同一预检/确认产出的PLAN/job身份实际贯穿入队、分配、派发；取消/失败不得入队派发 | 前段真实输出作后段实际输入；正确性软件夹具，无训练/性能实验，既有队列保护断言复用 |
 | S12/Q | 协议2完成证据到真实收集/正式导出的同身份闭环，错command/路径拒收，不覆盖/串旧结果 | 真实生产函数与受控transport；completion与采集契约分开，旧owner用例不冒协议2 |
 | S13/R | 同一实收指标的类型/数值/seed与PLAN/dataset/method归属在汇总/目录/展示导出一致 | 各格式与拆表按现有真实schema独立算期望，解析/拆表各自绿不相加冒全链 |
