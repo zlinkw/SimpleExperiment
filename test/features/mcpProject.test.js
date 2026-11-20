@@ -686,6 +686,24 @@ test('MCP result comparison respects declared directions and export preserves th
   records[1].metrics = { other: 1 };
   assert.deepEqual((await queryProject(f.root, rpc, 'result_compare', { left: rows[0].id, right: rows[1].id })).metric_difference, {});
 });
+test('MCP file parsing rejects unknown presets and ranks known loss in the correct direction', async () => {
+  const { queryProject } = require('../../dist/mcp/ProjectQueries.js');
+  const f = fixture();
+  const csv = path.join(f.root, 'metrics.csv');
+  fs.writeFileSync(csv, 'experimentId,runKey,loss\nfirst,group,0.8\nsecond,group,0.2\n', 'utf8');
+  const rpc = async () => { throw Error('unexpected remote call'); };
+  await assert.rejects(queryProject(f.root, rpc, 'result_parse', { file: csv, preset: 'missing-preset' }), /preset/i);
+  await assert.rejects(queryProject(f.root, rpc, 'result_parse', { file: csv, preset: '' }), /preset/i);
+  assert.ok(Array.isArray(await queryProject(f.root, rpc, 'result_parse', { file: csv, preset: 'classification_wide_csv' })));
+  const board = await queryProject(f.root, rpc, 'metric_leaderboard', { file: csv, primary: 'loss' });
+  assert.equal(board.board[0].bestExperimentId, 'second');
+  const unknown = await queryProject(f.root, rpc, 'metric_leaderboard', { file: csv, primary: 'experimentId' });
+  assert.equal(unknown.board[0].bestExperimentId, undefined);
+  const json = path.join(f.root, 'metrics.json');
+  fs.writeFileSync(json, JSON.stringify({ experimentId: 'json', metrics: { quality: 0.6 }, primaryMetric: 'quality', higherIsBetter: false }), 'utf8');
+  const parsed = require('../../dist/features/Metrics.js').parseMetricsFile(fs.readFileSync(json, 'utf8'), json);
+  assert.equal(parsed[0].primaryMetric, 'quality'); assert.equal(parsed[0].higherIsBetter, false);
+});
 test('routine cleanup queries need no extra Codex prompt', async () => {
   const f = fixture();
   const config = require('../../scripts/mcp-codex-config.js').configuration(f.root, path.join(f.root, 'simpleex-mcp-launcher.cjs'));

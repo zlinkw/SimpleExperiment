@@ -21,7 +21,9 @@ export function parseMetricsFile(text: string, sourceFile: string, runKey = sour
   if (sourceFile.endsWith(".json")) {
     const json = JSON.parse(text);
     const metrics = numericEntries(json.metrics || json);
-    return [{ experimentId: String(json.experimentId || runKey), runKey, metrics, sourceFile, parsedAt }];
+    return [{ experimentId: String(json.experimentId || runKey), runKey, metrics,
+      ...(typeof json.primaryMetric === "string" ? { primaryMetric: json.primaryMetric } : {}),
+      ...(typeof json.higherIsBetter === "boolean" ? { higherIsBetter: json.higherIsBetter } : {}), sourceFile, parsedAt }];
   }
   const lines = text.trim().split(/\r?\n/).filter(Boolean);
   if (lines.length < 2) return [];

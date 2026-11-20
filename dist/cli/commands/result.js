@@ -69,7 +69,9 @@ function resultParse(flags) {
         throw (0, errors_1.usageError)("result parse needs --file <result file>");
     if (!fs.existsSync(flags.file))
         throw (0, errors_1.businessError)(`result file not found: ${flags.file}`);
-    const preset = Results_1.builtInResultPresets.find((item) => item.id === flags.preset) || Results_1.builtInResultPresets[0];
+    const preset = flags.preset === undefined ? Results_1.builtInResultPresets[0] : Results_1.builtInResultPresets.find((item) => item.id === flags.preset);
+    if (!preset)
+        throw (0, errors_1.usageError)(`unknown result preset: ${flags.preset}`);
     const records = (0, Results_1.parseResultFile)(fs.readFileSync(flags.file, "utf8"), { path: flags.file, type: flags.file.endsWith(".json") ? "json" : "csv", endpoint: "local" }, preset);
     (0, format_1.writeJson)(records, flags.compactJson);
     return 0;

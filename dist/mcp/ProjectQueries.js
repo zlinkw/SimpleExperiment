@@ -52,7 +52,7 @@ async function queryProject(root, rpc, name, args) {
         ...(args.status ? { status: args.status } : {}), ...(args.type ? { type: args.type } : {}), ...(args.limit !== undefined ? { limit: args.limit } : {}),
         ...(args.format ? { format: args.format } : {}),
         ...(args.metrics ? { metrics: args.metrics.join(",") } : {}), ...(args.primary ? { primary: args.primary } : {}),
-        ...(args.preset ? { preset: args.preset } : {}), ...(args.lines !== undefined ? { lines: args.lines } : {}) };
+        ...(args.preset !== undefined ? { preset: args.preset } : {}), ...(args.lines !== undefined ? { lines: args.lines } : {}) };
     if (name === "plan_build")
         Object.assign(flags, { suite: args.suite, base: args.base, seeds: args.seeds.join(",") });
     const projectFile = args.file || (name === "plan_matrix" ? args.planFile : undefined);

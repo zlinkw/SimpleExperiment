@@ -3,6 +3,7 @@ import { writeJson, writeText } from "../format";
 import { CliFlags, requirePositional } from "../parse";
 import { loadResults, ResultRow, selectResult } from "./result";
 import { buildLeaderboard, leaderboardToMarkdown, parseMetricsFile } from "../../features/Metrics";
+import { builtInResultPresets } from "../../features/Results";
 
 export async function metricCommand(action: string, rest: string[], flags: CliFlags): Promise<number> {
   if (action === "list") return metricList(flags);
@@ -18,7 +19,12 @@ export function metricLeaderboard(flags: CliFlags): number {
   if (!fs.existsSync(flags.file)) throw businessError(`metrics file not found: ${flags.file}`);
   const metrics = parseMetricsFile(fs.readFileSync(flags.file, "utf8"), flags.file);
   if (!metrics.length) throw businessError("metrics file parsed no rows");
-  const board = buildLeaderboard(metrics, (row) => row.runKey, flags.primary || undefined);
+  const primary = flags.primary || undefined;
+  const directions = metrics.filter(row => row.primaryMetric === primary && typeof row.higherIsBetter === "boolean").map(row => row.higherIsBetter!);
+  const presetDirection = primary && builtInResultPresets.flatMap(item => Object.entries(item.metricDirections || {}))
+    .find(([name]) => name.toLowerCase() === primary.toLowerCase())?.[1];
+  const direction = new Set(directions).size > 1 ? undefined : directions[0] ?? (presetDirection ? presetDirection === "higher" : undefined);
+  const board = buildLeaderboard(metrics, (row) => row.runKey, direction === undefined ? undefined : primary, direction);
   if (flags.json) writeJson({ metrics: Object.keys(metrics[0]?.metrics || {}), board }, flags.compactJson);
   else writeText(leaderboardToMarkdown(board, Object.keys(metrics[0]?.metrics || {})));
   return 0;

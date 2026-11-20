@@ -11,6 +11,7 @@ const format_1 = require("../format");
 const parse_1 = require("../parse");
 const result_1 = require("./result");
 const Metrics_1 = require("../../features/Metrics");
+const Results_1 = require("../../features/Results");
 async function metricCommand(action, rest, flags) {
     if (action === "list")
         return metricList(flags);
@@ -30,7 +31,12 @@ function metricLeaderboard(flags) {
     const metrics = (0, Metrics_1.parseMetricsFile)(fs.readFileSync(flags.file, "utf8"), flags.file);
     if (!metrics.length)
         throw (0, errors_1.businessError)("metrics file parsed no rows");
-    const board = (0, Metrics_1.buildLeaderboard)(metrics, (row) => row.runKey, flags.primary || undefined);
+    const primary = flags.primary || undefined;
+    const directions = metrics.filter(row => row.primaryMetric === primary && typeof row.higherIsBetter === "boolean").map(row => row.higherIsBetter);
+    const presetDirection = primary && Results_1.builtInResultPresets.flatMap(item => Object.entries(item.metricDirections || {}))
+        .find(([name]) => name.toLowerCase() === primary.toLowerCase())?.[1];
+    const direction = new Set(directions).size > 1 ? undefined : directions[0] ?? (presetDirection ? presetDirection === "higher" : undefined);
+    const board = (0, Metrics_1.buildLeaderboard)(metrics, (row) => row.runKey, direction === undefined ? undefined : primary, direction);
     if (flags.json)
         (0, format_1.writeJson)({ metrics: Object.keys(metrics[0]?.metrics || {}), board }, flags.compactJson);
     else
