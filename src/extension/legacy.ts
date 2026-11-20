@@ -3433,13 +3433,27 @@ export class RealtimeTunnelPanelProvider {
                 key,
                 value: this.apiConfigValue(vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri), key, definition.schema),
             });
-        if (key === "simpleExperiment.projectAdapterRules" && Object.keys(pluginProjectAdapterRules(workspaceRoot() || "").planDatasetMapping || {}).length)
-            throw new Error("数据集归类需要使用现有结果归类流程，不能通过重置接入配置直接更改。");
-        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri);
+        const projectContext = this.captureProjectContext();
+        if (key === "simpleExperiment.projectAdapterRules") {
+            assertSingleProjectWorkspace("项目接入配置");
+            if (!projectContext.root) throw new Error("需要先打开工作区。");
+            if (stringField(params, "scope") !== "workspaceFolder") throw new Error("项目接入配置必须使用 workspaceFolder 范围。");
+            if (Object.keys(pluginProjectAdapterRules(projectContext.root).planDatasetMapping || {}).length)
+                throw new Error("数据集归类需要使用现有结果归类流程，不能通过重置接入配置直接更改。");
+        }
+        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, projectContext.root ? vscode.Uri.file(projectContext.root) : undefined);
         const target = this.apiConfigUpdateTarget(definition.schema, stringField(params, "scope"));
         await config.update(key.slice(API_CONFIG_PREFIX.length), undefined, target);
+        if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；原工作区配置已重置，请在原项目核查。");
+        if (key === "simpleExperiment.projectAdapterRules") {
+            await this.refreshLocalPlanMetadata({ post: false, force: true });
+            if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；原工作区配置已重置，请在原项目核查。");
+            this.invalidateResultCatalogCache("adapterRules");
+        }
         this.postState();
-        return { ok: true, key, reset: true };
+        return { ok: true, key, reset: true,
+            scope: target === vscode.ConfigurationTarget.WorkspaceFolder ? "workspaceFolder" : target === vscode.ConfigurationTarget.Workspace ? "workspace" : "global",
+            value: this.apiConfigValue(config, key, definition.schema), secret: API_SECRET_CONFIG_KEYS.has(key) };
     }
     apiStateValue(name) {
         const meta = API_STATE_KEYS[name];

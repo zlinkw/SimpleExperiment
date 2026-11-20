@@ -266,6 +266,38 @@ test('MCP preserves dataset assignments and refuses bypassing the existing resul
   assert.equal(result.value.csvColumnMapping.metric, 'score_name');
 });
 
+test('configuration reset stays bound to its project and returns the inherited value', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '../../src/extension/legacy.ts'), 'utf8');
+  const method = source.slice(source.indexOf('    async apiConfigReset('), source.indexOf('    apiStateValue('));
+  let root = '/one', mode = 'normal';
+  const values = { '/one': { primaryMetric: 'AP' }, '/two': { primaryMetric: 'other' } }, calls = [];
+  const config = uri => ({ get: () => values[uri] || { primaryMetric: 'inherited' }, update: async (_key, value, target) => {
+    calls.push({ uri, value, target }); if (mode === 'fail') throw Error('save failed');
+    values[uri] = value; if (mode === 'switch') root = '/two';
+  } });
+  const sandbox = { vscode: { workspace: { workspaceFolders: [{ uri: '/one' }], getConfiguration: (_ns, uri) => config(uri) },
+      Uri: { file: value => value }, ConfigurationTarget: { WorkspaceFolder: 3, Workspace: 2, Global: 1 } },
+    API_CONFIG_NAMESPACE: 'simpleExperiment', API_CONFIG_PREFIX: 'simpleExperiment.', API_SECRET_CONFIG_KEYS: new Set(),
+    stringField: (obj, key) => obj[key] || '', confirmationRequired: () => Error('confirmation required'),
+    workspaceRoot: () => root, pluginProjectAdapterRules: uri => values[uri] || { primaryMetric: 'inherited' },
+    assertSingleProjectWorkspace: () => root };
+  const reset = vm.runInNewContext(`({${method}}).apiConfigReset`, sandbox);
+  const host = { apiConfigDefinition: () => ({ schema: {} }), apiConfigUpdateTarget: (_schema, scope) => scope === 'workspaceFolder' ? 3 : 2,
+    apiConfigValue: cfg => cfg.get(), captureProjectContext: () => ({ root }), projectContextIsCurrent: context => context.root === root,
+    refreshLocalPlanMetadata: async () => {}, invalidateResultCatalogCache: () => {}, postState: () => {} };
+  const args = { key: 'simpleExperiment.projectAdapterRules', scope: 'workspaceFolder', confirm: true };
+  await assert.rejects(reset.call(host, { ...args, confirm: false }), /confirmation required/); assert.equal(calls.length, 0);
+  await assert.rejects(reset.call(host, { ...args, scope: 'workspace' }), /workspaceFolder/); assert.equal(calls.length, 0);
+  mode = 'fail'; await assert.rejects(reset.call(host, args), /save failed/); assert.equal(values['/one'].primaryMetric, 'AP');
+  mode = 'normal'; const result = await reset.call(host, args);
+  assert.equal(result.value.primaryMetric, 'inherited'); assert.equal(result.scope, 'workspaceFolder');
+  values['/one'] = { primaryMetric: 'AP' }; mode = 'switch';
+  await assert.rejects(reset.call(host, args), /切换/); assert.equal(values['/two'].primaryMetric, 'other');
+  root = '/one'; mode = 'normal'; values['/one'] = { primaryMetric: 'AP' };
+  const ordinary = await reset.call(host, { key: 'simpleExperiment.showAdvancedCommands', scope: 'workspace', confirm: true });
+  assert.equal(ordinary.scope, 'workspace'); assert.equal(calls.at(-1).target, 2);
+});
+
 test('MCP gateway reads, writes and rereads the project adapter configuration', async () => {
   const f = fixture(); await f.authorize(['configuration']);
   const adapter = adapterConfigHost();
