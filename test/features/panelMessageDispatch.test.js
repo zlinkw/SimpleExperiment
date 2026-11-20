@@ -373,6 +373,16 @@ test("job and result actions retain their selected object through host dispatch"
   }
 });
 
+test('submission recovery routes the selected operation to the matching producer', async () => {
+  for (const [command, method] of [['retryPlanSubmission', 'resumePlanSubmission'], ['cancelPlanSubmission', 'cancelPlanRunSubmission']]) {
+    const received = [];
+    const host = createHost({ [method]: async id => { received.push(id); return { operationId: id }; } });
+    const result = await api.handleMessageCore.call(host, { command, operationId: 'operation-selected' }, command);
+    assert.deepEqual(received, ['operation-selected']);
+    assert.equal(result.operationId, 'operation-selected');
+  }
+});
+
 test("both status and status-free dispatch preserve read-only scope views and exclusive writes", async () => {
   for (const command of ["configureCodeSyncIncludes", "configureServerSyncScope", "configurePorts"]) {
     for (const withStatus of [false, true]) {

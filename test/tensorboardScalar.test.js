@@ -8,6 +8,42 @@ const { smoothScalarValues, scalarExtreme, scalarStdSegments } = require("../dis
 const { scalarDashboardHtml } = require("../dist/tensorboard/ScalarDashboardHtml");
 const { LocalApiServer } = require("../dist/api/LocalApiServer.legacy");
 
+test('scalar viewer opens the selected Worker and workspace only while the project stays current', async () => {
+  const ts = require('typescript'), vm = require('node:vm');
+  const source = fs.readFileSync(path.join(__dirname, '../src/extension/legacy.ts'), 'utf8');
+  const ast = ts.createSourceFile('legacy.ts', source, ts.ScriptTarget.Latest, true);
+  const cls = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === 'RealtimeTunnelPanelProvider');
+  const method = cls.members.find(node => node.name?.getText(ast) === 'openScalarViewerFromUi').getText(ast);
+  let workspace = 'C:/project one', external = async () => true, wait = async () => {}, calls = [];
+  const vscode = { Uri: { parse: value => value }, env: { openExternal: url => { calls.push(['open',url]); return external(url); } } };
+  const Host = vm.runInNewContext(ts.transpileModule(`class Host {${method}}; Host`, {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
+    {vscode, URL, workspaceRoot:()=>workspace, setTimeout:fn=>fn()});
+  const host = new Host(); host.client = {};
+  host.tensorboardTarget = id => { calls.push(['target',id]); if(id==='invalid') throw Error('invalid endpoint'); };
+  host.scalarEndpoints = () => [];
+  host.startLocalApiServer = async () => { calls.push(['server']); await wait(); return {viewerUrl:id=>'http://localhost/view?endpoint='+encodeURIComponent(id)}; };
+  await assert.rejects(host.openScalarViewerFromUi({endpointId:'invalid'}),/invalid endpoint/);
+  await assert.rejects(host.openScalarViewerFromUi({}),/没有已启用/);
+  assert.equal(calls.some(row=>row[0]==='server'),false);
+  calls=[]; await host.openScalarViewerFromUi({endpointId:'worker-b'});
+  assert.equal(calls[0][1],'worker-b');
+  const opened=new URL(calls.find(row=>row[0]==='open')[1]);
+  assert.equal(opened.searchParams.get('endpoint'),'worker-b'); assert.equal(opened.searchParams.get('workspace'),workspace);
+  assert.equal(calls.filter(row=>row[0]==='open').length,1);
+  for(const change of ['workspace','client']) {
+    calls=[]; workspace='C:/project one'; host.client={};
+    wait=async()=>{if(change==='workspace')workspace='C:/other';else host.client={};};
+    await assert.rejects(host.openScalarViewerFromUi({endpointId:'worker-b'}),/项目已切换/);
+    assert.equal(calls.some(row=>row[0]==='open'),false);
+  }
+  wait=async()=>{}; workspace='C:/project one';
+  for(const failure of ['false','throw']) {
+    calls=[]; external=async()=>{if(failure==='throw')throw Error('browser failure');return false;};
+    await assert.rejects(host.openScalarViewerFromUi({endpointId:'worker-b'}),failure==='throw'?/browser failure/:/浏览器未接受/);
+    assert.equal(calls.filter(row=>row[0]==='open').length,20);
+  }
+});
+
 test("exact-step mean, sample SD, missing values and cross-Worker seed deduplication", () => {
   const result = aggregateSeedScalars([
     { seed: "42", serverId: "a", updatedAt: 1, points: [[1, 1], [2, 3]] },
