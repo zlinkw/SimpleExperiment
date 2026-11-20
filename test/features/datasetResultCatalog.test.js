@@ -9,13 +9,29 @@ const tables = require('../../dist/results/ProjectResultTables');
 let savedRules = {};
 const originalLoad = Module._load;
 Module._load = function(request, parent, main) {
-  if (request === 'vscode') return {Uri: {file: value => ({fsPath: value})}, ConfigurationTarget: {WorkspaceFolder: 2}, window: {showInformationMessage() {}, showWarningMessage: async () => '覆盖已有子表'}, workspace: {workspaceFolders: [], getConfiguration: () => ({get: () => savedRules, update: async (_key, value) => { savedRules = value; }})}};
+  if (request === 'vscode') return {Uri: {file: value => ({fsPath: value})}, ConfigurationTarget: {WorkspaceFolder: 2}, ProgressLocation: {Notification: 1}, window: {withProgress: async (_options, work) => work({report() {}}, {isCancellationRequested: false}), showInformationMessage() {}, showWarningMessage: async () => '覆盖已有子表'}, workspace: {workspaceFolders: [], getConfiguration: () => ({get: () => savedRules, update: async (_key, value) => { savedRules = value; }})}};
   return originalLoad.call(this, request, parent, main);
 };
 const {RealtimeTunnelPanelProvider} = require('../../dist/extension/legacy');
 Module._load = originalLoad;
 
 const {scenario,exportsApi}=require('../_helpers/resultCollectionScenario');
+
+test('rebuild button respects selected plans and preserves prior export on project change or write failure', async () => {
+  const f = scenario(), a = f.addPlan('experiments/plans/a.yaml', { seeds: [42] }), b = f.addPlan('experiments/plans/b.yaml', { seeds: [43] });
+  f.put(a, 0, { dataset: 'A', runId: 'a-run' }); f.put(b, 0, { dataset: 'B', runId: 'b-run' });
+  const rebuild = options => RealtimeTunnelPanelProvider.prototype.rebuildProjectResultTablesFromUi.call(f.host, options);
+  const all = await rebuild({}); assert.equal(all.current, true); assert.equal(all.completed, 2);
+  const prior = JSON.stringify(f.snapshot());
+  const selected = await rebuild({ planFiles: [a.planFile] });
+  assert.equal(selected.scope, 'selected_plans'); assert.ok(selected.results.every(row => row.planFile === a.planFile));
+  assert.equal(JSON.stringify(f.snapshot()), prior);
+  f.receive((_params, value) => { f.current(false); return value; });
+  await assert.rejects(rebuild({}), /变化|取消/); assert.equal(JSON.stringify(f.snapshot()), prior);
+  f.current(true); f.receive((_params, value) => value);
+  f.host.resultCsvDirectory = a.planFile;
+  await assert.rejects(rebuild({})); assert.equal(JSON.stringify(f.snapshot()), prior);
+});
 
 test('active writer, catalog, opening and splitting bind dataset keys and the configured root',async()=>{
   const f=scenario({directory:'artifacts/results'}),p=f.addPlan(undefined,{seeds:[1],cases:['bus','pad','unassigned']});
