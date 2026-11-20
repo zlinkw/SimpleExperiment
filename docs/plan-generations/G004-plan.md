@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | 01 AI授权及设置确认按钮 | manageAiAuthorization命令/卡片授权撤销及MCP设置确认，日常两个项目间切换、取消、空Worker和选中Worker变化 | 不把旧项目意图保存到新项目；取消零写，现有scope及选中对象准确；仅受控窗口与store，不假设内部args被任意突变 |
 | 02 MCP同步授权 | ProjectGateway→McpHost的upload.files/upload.workspace/Worker互传；目录/manifest异步准备期间撤权或Worker身份变化 | 最终调用仍绑定原授权项目及精确源/目标；拒绝后零传输，不把旧确认用于新目标；正常同一目标可用 |
-| 03 MCP任务日志读取 | log_read→live.output和experiment_log→CLI logShow/logTail；精确Worker/runKey、since游标、用户指定lines、空日志与真实错误 | 首次和续读返回正确任务日志及原游标，不串任务、重复整段或漏掉声明范围；完整读取与显式末尾行数区分，错误不冒空成功；单任务正常交互/受控RPC，不造高并发或轮询服务 |
+| 03 MCP任务日志读取 | log_read→live.output和experiment_log→CLI logShow/logTail/logRecordsForExperiment；精确Worker/runKey、since字节游标、用户指定lines、本机完整日志、远端尾段、空日志与真实错误 | 空响应不得回退其他任务缓存；原游标在空logs时仍可返回/发现/校验。显式日志查询不吞真实远端错误，本机show不无声截为200行，tail按用户行数；共享概览的既有可选读取契约不随之改坏。远端since=0仅首读末尾最多256 KiB，明确告知尾段及续读边界，不能声称全文件。单任务正常交互/受控RPC，不造高并发或自动轮询 |
 | 04 异步MCP回执 | LONG_TOOLS→ProjectMcpOperations→operation_get及SDK结构化结果；嵌套原生操作、失败、返回未知、重载后结果不可用 | 请求收执与真实任务完成分清，原错误/结果不丢；不误报成功，不重复派发，不把已清记录复活或跨项目返回 |
 | 05 结果比较方向 | MCP result_compare→CLI compareCommand；同名指标升降、RMSE等已知方向、无共同指标、同值、非数值 | 数值差与改善/退步含义正确；优先既有显式方向契约，不为未知任务推定主指标；保留缺行已有reason及精确ID歧义契约 |
 | 06 精确结果导出 | MCP result_show/export与CLI resultExport；多维同行、特殊CSV字符、零/负值/小数及完整指标 | 同一精确ID的JSON/CSV与原值/维度对应，不串seed/PLAN、截断或本机落原始指标；已有200行完整查询证据复用 |
@@ -38,7 +38,7 @@
 | 内部组 | 项 | 允许的源码/测试，另含execution；coverage集中最后记 |
 | --- | --- | --- |
 | A | 01–02 | src/mcp/ProjectGateway.ts、src/mcp/Invocation.ts、src/mcp/ProjectAuthorization.ts、src/extension/McpHost.ts、test/features/mcpProject.test.js、test/features/projectWorkspaceChangeIsolation.test.js |
-| H | 03 | src/mcp/ProjectQueries.ts、src/cli/commands/log.ts、src/mcp/ToolCatalog.ts、src/mcp/ToolResults.ts、src/extension/legacy.ts、test/features/mcpProject.test.js、test/cli/simpleCli.test.js |
+| H | 03 | src/cli/commands/experiment.ts、src/cli/commands/log.ts、src/mcp/ToolCatalog.ts、src/mcp/ToolResults.ts、src/extension/legacy.ts、test/features/mcpProject.test.js、test/cli/simpleCli.test.js |
 | B | 04 | src/mcp/ProjectOperations.ts、src/mcp/ToolResults.ts、src/mcp/Server.ts、test/features/mcpProject.test.js |
 | C | 05–06 | src/cli/commands/compare.ts、src/cli/commands/metric.ts、src/cli/commands/result.ts、src/mcp/ProjectQueries.ts、test/cli/simpleCli.test.js、test/features/mcpProject.test.js |
 | D | 07–08 | src/features/Metrics.ts、src/features/Results.legacy.ts、src/cli/commands/result.ts、src/cli/commands/metric.ts、src/mcp/ProjectQueries.ts、test/features/mcpProject.test.js、test/cli/simpleCli.test.js |
@@ -47,6 +47,8 @@
 | G | 12 | src/extension/legacy.ts、src/extension/ResultCollectionHost.ts、src/results/ProjectResultTables.ts、test/features/projectResultTables.test.js、test/features/datasetResultCatalog.test.js、test/features/metricAliasRebuildWorkflow.test.js |
 
 先读实际必要消费者。若真实修复需要未列文件/新公开接口或突破8文件，汇总同根因全部缺口一次升级总控修订，继续不依赖部分；不逐方法索计划，也不能擅扩同步/调度架构。真实新缺陷连同原失败保留，不因G003通过压掉，也不把偏好/假想未来变成必修。
+
+03边界修订：真实共享函数recentLogsFor/logRecordsForExperiment位于experiment.ts，纳入H；ProjectQueries.ts仅沿现有参数路由读取，本组不修改。ToolResults.ts保留，用于空logs时顶层offset的实际输出契约，ToolCatalog.ts可准确说明远端尾段语义。现有Worker /api/live-output自since=0读取文件末尾最多256 KiB（src/clusterAgentRuntime.legacy.ts原实现）是当前真实协议边界，本轮不改Agent、不升级部署、不擅调上限；用当前响应可证明的信息披露范围，不编造总行数/完整标记，不自动追加无限请求。远端尾段/增量、显式tail和本机完整show分别验证；复用已完成的空日志修复1/1阶段证据，新增函数消费者按实际影响定向核验，不重复整仓检查。
 
 ## 保护与检查
 
