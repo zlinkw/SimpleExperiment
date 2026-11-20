@@ -9,6 +9,151 @@ const { PROJECT_TOOLS } = require('../../dist/mcp/ToolCatalog.js');
 const vm = require('node:vm');
 const { isDeepStrictEqual } = require('node:util');
 
+function loadMcpHost(vscode, overrides = {}) {
+  const Module = require('node:module');
+  const file = path.resolve(__dirname, '../../dist/extension/McpHost.js');
+  const nativeRequire = Module.createRequire(file), exported = {};
+  new Function('require', 'exports', fs.readFileSync(file, 'utf8'))(
+    name => name === 'vscode' ? vscode : name === './SftpCleanupReview' ? {} : overrides[name] || nativeRequire(name), exported);
+  return exported;
+}
+
+test('authorization chooser rejects changed workspace or selected Worker before writing', async () => {
+  const f = fixture(), writes = [];
+  let root = f.root, worker = { ...f.worker }, step = 0, scenario = '';
+  const vscode = { workspace: { workspaceFolders: [{ uri: { get fsPath() { return root; } } }] }, window: {
+    showQuickPick: async items => {
+      if (++step === 1) {
+        if (scenario === 'cancel') return undefined;
+        if (scenario === 'revoke-switch') { root += '-other'; return { value: 'revoke' }; }
+        return { value: 'grant' };
+      }
+      if (step === 2) return scenario === 'no-workers' ? [] : [items[0]];
+      if (scenario === 'cancel-permissions') return undefined;
+      if (scenario === 'worker-change') worker = { ...worker, host: 'other.invalid' };
+      if (scenario === 'grant-switch') root += '-other';
+      return [items[0]];
+    }, showInformationMessage() {},
+  } };
+  const host = { context: { workspaceState: { update: async (...args) => writes.push(args) } }, refreshSharedConnectionSettings() {},
+    workerCodeSyncTargets: () => [{ ...worker, remotePath: worker.projectRoot }] };
+  const { manageAiAuthorization } = loadMcpHost(vscode);
+  for (scenario of ['revoke-switch', 'grant-switch', 'worker-change']) {
+    root = f.root; worker = { ...f.worker }; step = 0;
+    await assert.rejects(manageAiAuthorization(host), /MCP_WORKSPACE_CHANGED|MCP_WORKER.*CHANGED/);
+    assert.equal(writes.length, 0);
+  }
+  for (scenario of ['cancel', 'no-workers', 'cancel-permissions']) {
+    root = f.root; worker = { ...f.worker }; step = 0;
+    await manageAiAuthorization(host);
+    assert.equal(writes.length, 0);
+  }
+  root = f.root; worker = { ...f.worker }; step = 0; scenario = 'normal';
+  await manageAiAuthorization(host);
+  assert.equal(writes.length, 1);
+  assert.deepEqual(writes[0][1].workers, [worker]);
+});
+
+test('MCP approval rejects cancellation or a changed project before writing', async () => {
+  const f = fixture(), calls = [];
+  let root = f.root, mode = 'cancel';
+  const args = { key: 'simpleSftp.test', value: 'approved' };
+  const gateway = new ProjectGateway({ root: () => root, workers: () => [], store: f.store, methods: () => ({}),
+    approve: async (_tool, shown) => {
+      if (mode === 'switch') root += '-other';
+      return mode !== 'cancel';
+    }, sftp: { methods: async () => ['config.set'], call: async (method, params) => { calls.push({ method, params }); } } });
+  for (mode of ['cancel', 'switch']) {
+    root = f.root; args.value = 'approved';
+    await assert.rejects(gateway.call('sftp_configuration_set', args));
+    assert.equal(calls.length, 0);
+  }
+  root = f.root; args.value = 'approved'; mode = 'normal';
+  await gateway.call('sftp_configuration_set', args);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].params.value, 'approved');
+});
+
+test('MCP file upload rechecks authorization after resolving selected project files', async () => {
+  const f = fixture(), captured = [];
+  let worker = { ...f.worker }, drift = 'none';
+  const file = path.join(f.root, 'selected.py');
+  fs.writeFileSync(file, 'print(1)', 'utf8');
+  const nativeFs = require('node:fs/promises');
+  const fsStub = { ...nativeFs, realpath: async target => {
+    const result = await nativeFs.realpath(target);
+    if (path.resolve(target) === file) {
+      if (drift === 'revoke') await f.store.update(AUTHORIZATION_KEY, undefined);
+      if (drift === 'worker') worker = { ...worker, host: 'changed.invalid' };
+    }
+    return result;
+  } };
+  const vscode = { workspace: { workspaceFolders: [{ uri: { fsPath: f.root } }] } };
+  const host = { context: { workspaceState: f.store }, createLocalApiMethods: () => f.methods, refreshSharedConnectionSettings() {},
+    workerCodeSyncTargets: () => [{ ...worker, remotePath: worker.projectRoot }],
+    readSimpleSftpCapabilities: async () => ({ methods: ['upload.files'] }), sftpServerOptions: target => target,
+    simpleSftpApiCall: async (method, params) => { captured.push({ method, params }); return { ok: true }; },
+  };
+  const gateway = loadMcpHost(vscode, { 'node:fs/promises': fsStub }).mcpGateway(host);
+  for (drift of ['revoke', 'worker']) {
+    worker = { ...f.worker }; await f.authorize(['sync']);
+    await assert.rejects(gateway.call('sftp_upload_files', { workerId: worker.id, files: ['selected.py'] }), /AUTHORIZATION|NOT_AUTHORIZED|CHANGED/);
+    assert.equal(captured.length, 0);
+  }
+  drift = 'none'; worker = { ...f.worker }; await f.authorize(['sync']);
+  await gateway.call('sftp_upload_files', { workerId: worker.id, files: ['selected.py'] });
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].params.files[0].localPath, file);
+});
+
+test('MCP upload rechecks authorization and exact Worker after manifest preparation', async () => {
+  const f = fixture(), captured = [];
+  let worker = { ...f.worker }, drift = 'none';
+  const vscode = { workspace: { workspaceFolders: [{ uri: { fsPath: f.root } }] } };
+  const host = { context: { workspaceState: f.store }, createLocalApiMethods: () => f.methods, refreshSharedConnectionSettings() {},
+    workerCodeSyncTargets: () => [{ ...worker, remotePath: worker.projectRoot }],
+    readSimpleSftpCapabilities: async () => ({ methods: ['upload.workspace'] }),
+    buildDistributedJobCodeManifest: async () => {
+      if (drift === 'revoke') await f.store.update(AUTHORIZATION_KEY, undefined);
+      if (drift === 'worker') worker = { ...worker, host: 'different.invalid' };
+      return { 'main.py': { size: 1 } };
+    },
+    sftpServerOptions: target => target,
+    simpleSftpApiCall: async (method, params) => { captured.push({ method, params }); return { ok: true }; },
+  };
+  const gateway = loadMcpHost(vscode).mcpGateway(host);
+  for (drift of ['revoke', 'worker']) {
+    worker = { ...f.worker }; await f.authorize(['sync']);
+    await assert.rejects(gateway.call('sftp_upload_workspace', { workerId: worker.id }), /AUTHORIZATION|NOT_AUTHORIZED|CHANGED/);
+    assert.equal(captured.length, 0);
+  }
+  drift = 'none'; worker = { ...f.worker }; await f.authorize(['sync']);
+  await gateway.call('sftp_upload_workspace', { workerId: worker.id });
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].params.server.host, worker.host);
+});
+
+test('MCP Worker-to-Worker sync binds both selected authorized targets', async () => {
+  const f = fixture(), sent = [];
+  const second = { id: 'worker-b', host: 'second.invalid', port: 22, user: 'research', projectRoot: '/project/second' };
+  const workers = [f.worker, second];
+  await f.store.update(AUTHORIZATION_KEY, createProjectAuthorization(f.root, workers, ['sync']));
+  const vscode = { workspace: { workspaceFolders: [{ uri: { fsPath: f.root } }] } };
+  const host = { context: { workspaceState: f.store }, createLocalApiMethods: () => f.methods, refreshSharedConnectionSettings() {},
+    workerCodeSyncTargets: () => workers.map(worker => ({ ...worker, remotePath: worker.projectRoot })),
+    readSimpleSftpCapabilities: async () => ({ methods: ['sync.serverToServerFpsync'] }), sftpServerOptions: target => target,
+    simpleSftpApiCall: async (method, params) => { sent.push({ method, params }); return { ok: true }; },
+  };
+  const gateway = loadMcpHost(vscode).mcpGateway(host);
+  await gateway.call('sftp_worker_sync', { sourceWorkerId: 'worker-a', destinationWorkerId: 'worker-b', paths: ['work_dirs/run'] });
+  assert.equal(sent[0].params.source.host, f.worker.host);
+  assert.equal(sent[0].params.destination.host, second.host);
+  assert.deepEqual(sent[0].params.relativePaths, ['work_dirs/run']);
+  second.host = 'changed.invalid';
+  await assert.rejects(gateway.call('sftp_worker_sync', { sourceWorkerId: 'worker-a', destinationWorkerId: 'worker-b', paths: ['work_dirs/run'] }), /NOT_AUTHORIZED/);
+  assert.equal(sent.length, 1);
+});
+
 function adapterConfigHost({ online = false, permissionError, probeError, workspaceError, readbackMismatch = false, changeOnUpdate = false, syncResult = [] } = {}) {
   const source = fs.readFileSync(path.join(__dirname, '../../src/extension/legacy.ts'), 'utf8');
   const method = source.slice(source.indexOf('    async apiConfigSet('), source.indexOf('    async apiConfigReset('));

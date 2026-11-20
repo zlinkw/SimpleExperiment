@@ -5,6 +5,8 @@ import { ProjectGateway } from "../mcp/ProjectGateway";
 import { ProjectMcpOperations } from "../mcp/ProjectOperations";
 import { openSftpCleanupReview } from "./SftpCleanupReview";
 import { AUTHORIZATION_KEY, PERMISSIONS, createProjectAuthorization, type AuthorizedWorker } from "../mcp/ProjectAuthorization";
+import { mcpInvocation } from "../mcp/Invocation";
+import { isDeepStrictEqual } from "node:util";
 
 function currentWorkers(host: any): AuthorizedWorker[] {
   host.refreshSharedConnectionSettings();
@@ -84,7 +86,6 @@ export function mcpGateway(host: any): ProjectGateway {
           request.manifest = await host.buildDistributedJobCodeManifest(root, false);
           request.pruneManagedFiles = false;
           request.transientManifest = true;
-          if (!Object.keys(request.manifest).length) return { ok: true, skipped: true, files: [], message: "当前代码同步范围没有文件。" };
         }
         if (method === "remote.listDirs") {
           const remoteRoot = target(workerId).remotePath;
@@ -93,6 +94,10 @@ export function mcpGateway(host: any): ProjectGateway {
           Object.assign(request, { remotePath, server: { ...request.server, remotePath }, confirm: true, pathConfirmed: true });
         }
         if (root !== (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "")) throw Error("MCP_WORKSPACE_CHANGED");
+        if (["upload.files", "upload.workspace", "sync.serverToServerFpsync", "sync.serverToServer", "sync.serverToServerBatch"].includes(method))
+          mcpInvocation.getStore()?.permission("sync");
+        if (method === "upload.workspace" && !Object.keys(request.manifest).length)
+          return { ok: true, skipped: true, files: [], message: "当前代码同步范围没有文件。" };
         return host.simpleSftpApiCall(method, request);
       },
     } });
@@ -105,6 +110,7 @@ export async function manageAiAuthorization(host: any): Promise<void> {
     { label: "授权当前项目", value: "grant" }, { label: "撤销当前项目授权", value: "revoke" },
   ], { title: "AI 项目持续授权", placeHolder: root });
   if (!choice) return;
+  if (root !== vscode.workspace.workspaceFolders?.[0]?.uri.fsPath) throw Error("MCP_WORKSPACE_CHANGED");
   if (choice.value === "revoke") {
     await host.context.workspaceState.update(AUTHORIZATION_KEY, undefined);
     void vscode.window.showInformationMessage("已撤销当前项目的 AI 写操作授权。");
@@ -119,6 +125,8 @@ export async function manageAiAuthorization(host: any): Promise<void> {
     { title: "选择 AI 可自主执行的项目操作", canPickMany: true, ignoreFocusOut: true });
   if (!permissions?.length) return;
   if (root !== vscode.workspace.workspaceFolders?.[0]?.uri.fsPath) throw Error("MCP_WORKSPACE_CHANGED");
+  const current = currentWorkers(host);
+  if (workers.some(row => !current.some(worker => isDeepStrictEqual(worker, row.worker)))) throw Error("MCP_WORKER_TARGET_CHANGED");
   await host.context.workspaceState.update(AUTHORIZATION_KEY,
     createProjectAuthorization(root, workers.map(row => row.worker), permissions.map(row => row.permission)));
   void vscode.window.showInformationMessage("AI 项目授权已保存，可通过同一命令撤销。永久删除与覆盖清理继续使用路径审核页。");

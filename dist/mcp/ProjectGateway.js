@@ -5,6 +5,7 @@ const ToolCatalog_1 = require("./ToolCatalog");
 const ProjectAuthorization_1 = require("./ProjectAuthorization");
 const ProjectQueries_1 = require("./ProjectQueries");
 const Invocation_1 = require("./Invocation");
+const node_util_1 = require("node:util");
 class ProjectGateway {
     ports;
     constructor(ports) {
@@ -62,8 +63,19 @@ class ProjectGateway {
             return this.ports.reviewFiles(args);
         if (tool.method === "mcp.query")
             return (0, ProjectQueries_1.queryProject)(root, async (method, params) => this.ports.methods()[method](params, undefined, context), tool.action, args);
+        const scopedWorkers = () => {
+            const workers = this.ports.workers();
+            const ids = args.location === "local" ? [] : args.serverIds || (args.workerId ? [args.workerId] : args.sourceWorkerId
+                ? [args.sourceWorkerId, args.destinationWorkerId] : workers.map(row => row.id));
+            if (ids.some((id) => !workers.some(row => row.id === id)))
+                throw Error("MCP_WORKER_UNKNOWN");
+            return workers.filter(row => ids.includes(row.id));
+        };
+        const selectedWorkers = tool.permission || tool.additionalPermissions?.length ? structuredClone(scopedWorkers()) : [];
         if (tool.requiresUserApproval && !await this.ports.approve?.(tool, args))
             throw Error("MCP_USER_APPROVAL_REQUIRED: " + tool.description);
+        if (root !== this.ports.root())
+            throw Error("MCP_WORKSPACE_CHANGED");
         // Confirmation factors originate from the host's verified user grant. Destructive
         // cleanup keeps its original stored double-confirmation state and receives no factors.
         const cleanup = tool.method.startsWith("plans.cleanup.") || tool.method.startsWith("files.cleanup.");
@@ -73,22 +85,21 @@ class ProjectGateway {
             ...(tool.method === "operations.list" ? { filtered: true } : {}),
             ...(tool.method === "invoke" ? { command: tool.action } : {}),
             ...(tool.method === "agents.lifecycle" ? { action: tool.action || "inspect" } : {}) };
-        if (tool.plugin === "sftp")
-            return this.ports.sftp.call(tool.method, params);
-        const scopedWorkers = () => {
-            const workers = this.ports.workers();
-            const ids = args.location === "local" ? [] : args.serverIds || (args.workerId ? [args.workerId] : workers.map(row => row.id));
-            if (ids.some((id) => !workers.some(row => row.id === id)))
-                throw Error("MCP_WORKER_UNKNOWN");
-            return workers.filter(row => ids.includes(row.id));
-        };
-        const result = await Invocation_1.mcpInvocation.run({
+        const invocation = {
             permission: permission => {
                 if (root !== this.ports.root())
                     throw Error("MCP_WORKSPACE_CHANGED");
-                (0, ProjectAuthorization_1.assertProjectAuthorization)(this.ports.store.get(ProjectAuthorization_1.AUTHORIZATION_KEY), root, scopedWorkers(), permission);
+                const workers = scopedWorkers();
+                if (!(0, node_util_1.isDeepStrictEqual)(selectedWorkers, workers))
+                    throw Error("MCP_WORKER_TARGET_CHANGED");
+                (0, ProjectAuthorization_1.assertProjectAuthorization)(this.ports.store.get(ProjectAuthorization_1.AUTHORIZATION_KEY), root, workers, permission);
             }, workers: scopedWorkers,
-        }, () => this.ports.methods()[tool.method](params, undefined, context));
+        };
+        for (const permission of [tool.permission, ...(tool.additionalPermissions || [])].filter(Boolean))
+            invocation.permission(permission);
+        const result = await Invocation_1.mcpInvocation.run(invocation, () => tool.plugin === "sftp"
+            ? this.ports.sftp.call(tool.method, params)
+            : this.ports.methods()[tool.method](params, undefined, context));
         if (tool.name === "project_state" && args.detail !== "full") {
             const fields = ["workspace", "extensionVersion", "topology", "health", "selection", "projectOnboarding", "workerTelemetryStatus", "actionErrors"];
             return { ...Object.fromEntries(fields.filter(key => Object.hasOwn(result, key)).map(key => [key, result[key]])),
