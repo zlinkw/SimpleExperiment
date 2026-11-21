@@ -21391,9 +21391,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             mappings[plan.planFile] = { datasets: [dataset], source: "manual", updatedAt: new Date().toISOString() };
             selected[plan.planFile] = dataset;
         }
-        const changed = await mapLatestResultDatasets(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, selected, () => this.projectContextIsCurrent(context));
+        const changed = await mapLatestResultDatasets(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, selected, () => this.projectContextIsCurrent(context), async () => {
+            if (!this.projectContextIsCurrent(context)) throw new Error("工作区已变化，未保存数据集映射。");
+            await vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).update("projectAdapterRules", { ...rules, planDatasetMapping: mappings }, vscode.ConfigurationTarget.WorkspaceFolder);
+        });
         if (!this.projectContextIsCurrent(context)) return;
-        await vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).update("projectAdapterRules", { ...rules, planDatasetMapping: mappings }, vscode.ConfigurationTarget.WorkspaceFolder);
         await this.refreshLocalResultCatalogForProject(context);
         this.postState();
         const count = Object.keys(requested).length;

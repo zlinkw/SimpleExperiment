@@ -197,10 +197,13 @@ export async function publishLatestResult(root: string, directory: string, resul
 
 /** Repartition existing aggregate rows only. Preserve metrics and their original observation;
  * no remote read, raw metric cache, old registry, or reconstruction of individual seeds. */
-export async function mapLatestResultDatasets(root: string, directory: string, mappings: Record<string, string>, current = () => true) {
+export async function mapLatestResultDatasets(root: string, directory: string, mappings: Record<string, string>, current = () => true, saveMapping = async () => {}) {
   return withResultWriter(root, directory, current, async () => {
     const value = await readLatestResultExport(root, directory);
-    if (!value) return false;
+    if (!value) {
+      await saveMapping();
+      return false;
+    }
     const requested = new Map(Object.entries(mappings).map(([plan, dataset]) => [normalizePlanDatasetKey(plan), dataset.trim()]));
     const slices = value.tables.flatMap(table => table.rows.map(row => {
       const plan = normalizePlanDatasetKey(String(row[table.header.indexOf("plan_file")]));
@@ -229,6 +232,8 @@ export async function mapLatestResultDatasets(root: string, directory: string, m
     });
     const mapped = { ...value, tables };
     const file = await safeFile(root, directory, LATEST_RESULT_FILE);
+    if (!current()) throw Error("结果导出已取消或工作区已变化");
+    await saveMapping();
     await atomicWriteText(file, JSON.stringify(mapped, null, 2) + "\n", { beforeRename: async () => {
       if (!current()) throw Error("结果导出已取消或工作区已变化"); await safeFile(root, directory, LATEST_RESULT_FILE);
     } });
