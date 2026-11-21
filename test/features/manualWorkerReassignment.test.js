@@ -53,3 +53,30 @@ test("Worker runtime retains manual reassignment provenance and target ownership
   assert.match(agent, /"reassignmentRunKey": reassignment_run_key or command_id/);
   assert.match(agent, /append_event\(root, \{"type": "worker_task_started"[\s\S]*\{\*\*task, \*\*result\}/);
 });
+
+test("confirmation is followed by a fresh exact source queue check before submission", async () => {
+  const ts = require("typescript"), vm = require("node:vm");
+  const tree = ts.createSourceFile("legacy.ts", extension, ts.ScriptTarget.Latest, true);
+  let method;
+  const visit = node => { if (ts.isMethodDeclaration(node) && node.name.getText(tree) === "reassignWorkerTaskFromUi") method = node.getText(tree); ts.forEachChild(node, visit); };
+  visit(tree); assert.ok(method);
+  const sandbox = { vscode: { window: { showQuickPick: async () => ({ workerId: "target" }), showWarningMessage: async () => "确认手动转移" } },
+    stringField: (row, key) => row[key] || "", usableSelectionKey: value => value,
+    samePlanSelection: (a, b) => a === b, DistributedPlanQueue: { hasFreshDurableSnapshot: snapshot => snapshot.fresh === true }, UiCommandCancelled: Error };
+  vm.runInNewContext(ts.transpileModule(`class Host { ${method} }; this.Host = Host;`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, sandbox);
+  const host = new sandbox.Host(); let task, sent = 0;
+  Object.assign(host, { assertTopologyReady() {}, resolveWorkerEndpointId: id => id, enabledWorkerConfigs: () => [{ id: "target" }],
+    lastWorkerProbes: { target: { status: "ok" } }, missingWorkerActionCapabilities: () => [], actionBody: () => ({}),
+    refreshLocalPlanMetadataForAction: async () => {}, stampPlanRevision() {},
+    readWorkerTaskSnapshot: async id => ({ workerId: id, fresh: true, tasks: task ? [task] : [] }),
+    postWorkerTunnelAction: async (_worker, _action, body) => { sent++; assert.equal(body.sourceWorkerId, "source"); assert.equal(body.originalRunKey, "run:0"); },
+    throwIfRemoteActionPending() {}, postState() {} });
+  const message = { taskStatus: "queued", workerId: "source", runKey: "run:0", planFile: "plan.yaml", experimentIndex: 0 };
+  for (const status of ["running", "completed", "unknown"]) {
+    task = { runKey: "run:0", experimentIndex: 0, status }; await assert.rejects(host.reassignWorkerTaskFromUi(message), /未确认仍在排队/);
+  }
+  task = { runKey: "other", experimentIndex: 0, status: "queued" };
+  await assert.rejects(host.reassignWorkerTaskFromUi(message), /未确认仍在排队/);
+  task = { runKey: "run:0", experimentIndex: 0, status: "queued" };
+  await host.reassignWorkerTaskFromUi(message); assert.equal(sent, 1);
+});

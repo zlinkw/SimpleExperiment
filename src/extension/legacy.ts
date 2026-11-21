@@ -18229,6 +18229,15 @@ this.assertPlanTopologyReady("Plan 调度");
             manualReassignment: true,
             reassignmentRunKey,
         };
+        const snapshot: any = await this.readWorkerTaskSnapshot(sourceWorkerId, { fresh: true });
+        const matches = (snapshot?.tasks || []).filter((task) => String(task.runKey || task.commandId || "") === runKey
+            && (!task.workerId || task.workerId === sourceWorkerId)
+            && (task.experimentIndex ?? task.jobIndex) !== undefined
+            && Number(task.experimentIndex ?? task.jobIndex) === experimentIndex
+            && (!task.planFile || samePlanSelection(task.planFile, planFile)));
+        if (snapshot?.workerId !== sourceWorkerId || !DistributedPlanQueue.hasFreshDurableSnapshot(snapshot, Date.now(), 5000)
+            || matches.length !== 1 || !["queued", "pending"].includes(String(matches[0].status || "").toLowerCase()))
+            throw new Error("来源任务当前状态未确认仍在排队，未提交新的转移尝试。请刷新后重试。");
         const result = await this.postWorkerTunnelAction(picked.workerId, "retry-worker-task", body, { title: "手动转移 Worker 任务", confirm: false, danger: false });
         this.throwIfRemoteActionPending("reassignWorkerTask", "retry-worker-task", result);
         this.postState();
