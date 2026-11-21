@@ -153,6 +153,29 @@ test("draft rejection updates only the requested draft and preserves its identit
   assert.equal(result.draftPlanPath,'tmp/plan/a.yaml');assert.equal(records['tmp/plan/a.yaml'].status,'rejected');assert.equal(records['tmp/plan/a.yaml'].reviewedBy,'reviewer');assert.equal(records['tmp/plan/b.yaml'].status,'draft');
 });
 
+test("PLAN filtering can include the separate archive without selecting it", async () => {
+  require('../_helpers/registerTsRequire');const workflow=require('../../src/features/ApiWorkflow.ts');
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='apiPlansFilter')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const sandbox={ApiWorkflow_1:workflow};vm.runInNewContext(ts.transpileModule('class Host {'+method+'}; this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const h=new sandbox.Host();h.localPlanMetadata={planDir:'plans',plans:[{planFile:'plans/a.yaml',status:'ready'}],archivedPlans:[{planFile:'plans/_archived/b.yaml',status:'archived'}]};
+  let r=await h.apiPlansFilter({query:'b.yaml',archived:true});assert.equal(r.count,1);assert.equal(r.plans[0].archived,true);
+  r=await h.apiPlansFilter({query:'b.yaml'});assert.equal(r.count,0);assert.equal(h.localPlanMetadata.archivedPlans[0].archived,undefined);
+});
+
+test("MCP PLAN filter exposes supported identity and choice parameters", () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/mcp/ToolCatalog.ts'),'utf8');
+  const resultsSource=fs.readFileSync(path.resolve(__dirname,'../../src/mcp/ToolResults.ts'),'utf8'),results={exports:{}};
+  vm.runInNewContext(ts.transpileModule(resultsSource,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,{module:results,exports:results.exports});
+  const module={exports:{}},sandbox={module,exports:module.exports,require:()=>results.exports};
+  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,sandbox);
+  const schema=module.exports.PROJECT_TOOLS.find(item=>item.name==='plan_filter').inputSchema;
+  assert.equal(schema.additionalProperties,false);assert.equal(schema.properties.planId.type,'string');assert.equal(schema.properties.limit.type,'integer');assert.equal(schema.properties.needsChoice.type,'boolean');
+  const output=module.exports.PROJECT_TOOLS.find(item=>item.name==='plan_filter').outputSchema;
+  assert.equal(output.anyOf[0].properties.needsChoice.type,'boolean');
+});
+
 test("webview terminal uiCommandStatus clears button loading by client action", () => {
   const root = path.resolve(__dirname, "..", "..");
   const source = readSource("src/ui/PanelHtml.ts");

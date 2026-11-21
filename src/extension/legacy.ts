@@ -4193,7 +4193,9 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         return { ok: true, flow: this.apiFlowState, nextStep: ApiWorkflow_1.nextFlowStep(this.apiFlowState) };
     }
     async apiPlansFilter(params = {}) {
-        const filtered = ApiWorkflow_1.filterPlans(this.localPlanMetadata.plans || [], params);
+        const plans = this.localPlanMetadata.plans || [];
+        const archived = params.archived === true ? (this.localPlanMetadata.archivedPlans || []).map((plan) => ({ ...plan, archived: true })) : [];
+        const filtered = ApiWorkflow_1.filterPlans([...plans, ...archived], params);
         return {
             ok: true,
             source: "local_metadata",
