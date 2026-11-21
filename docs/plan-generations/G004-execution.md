@@ -1,6 +1,6 @@
 # G004 执行登记
 
-U04 排查基线 HEAD 与 origin/master 为 b7c0b42c27227a8ec49d42d1f21346900a274ae4；U04开始时 tracked clean，执行登记和 coverage 随排查更新，计划由总控独占。默认 legacy 面板、辅助审核页和 MCP Server → ProjectGateway → Host 的入口正在归并；旧脚本只统计 legacy 静态 data-command 且使用 dist 工具目录，不能作为完整母集。显式 factory 的实际渲染缺少四项必要门禁，当前会回退 legacy；内存转译及 VM 点击核实恢复页四种消息和需重载页消息共5/5，exit 0，未实际重载或写剪贴板。逐项证据和受限范围见 coverage 的 g004U04RemainingInventory；历史家族证据须映射具体动作，不能整组算通过。完整按钮总数和剩余数尚未知，未完成全部排查，也未修改产品、构建、安装或访问服务器。旧执行聊天 turn 已结束并归档。
+U04基线HEAD及origin/master为b7c0b42c27227a8ec49d42d1f21346900a274ae4，开始时tracked clean；计划由总控独占。legacy、辅助页和MCP入口证据见coverage.g004U04RemainingInventory；旧静态脚本不能代表完整母集。factory实际输出缺四项门禁并回退legacy；恢复页VM消息5/5 exit0，未实际重载或写剪贴板。按钮总数及剩余仍未知；未改产品、构建、安装或访问服务器。旧执行聊天已归档。
 
 版本审核13/13 exit0及分页、取消受控检查，详见4a80c627与coverage。
 
@@ -202,4 +202,4 @@ U04新增单项目问题47：模板预览对假EACCES标记created并进入确�
 
 U04新增单项目问题48：PLAN归档本轮假刷新失败后旧已归档结果通过真实结果门禁，后续假选择处终止；内存exit0，无实际归档或Worker。现39项，单项目35、跨项目延期4。
 
-条件草稿审核补核：实际审核与状态包装器配假持久化EACCES，报告failed并记录原因，exit0；未写真实草稿。
+条件草稿审核/拒绝各配假持久化EACCES，实际方法与状态包装器均报告failed并记录原因，各exit0；未写真实草稿。
