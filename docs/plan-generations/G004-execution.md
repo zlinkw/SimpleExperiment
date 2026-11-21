@@ -180,3 +180,5 @@ U04新增单项目问题40：公开中位数排行未按主指标方向排序；
 问题21补充metric_show/result_compare：真实消费者与numericMetrics配内存记录，__proto__指标被遗漏而accuracy保留，exit0；无真实查询。
 
 问题21补充比较：仅左侧有constructor指标时实际compare误认右侧存在，产生NaN（JSON为null），内存复现exit0；accuracy正常。
+
+U04新增单项目问题41：LaTeX结果表对普通method_a与val_loss直接输出未转义下划线；真实导出函数内存复现exit0，未编译或改论文。现40项，单项目36、跨项目延期4。
