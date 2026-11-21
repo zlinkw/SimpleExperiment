@@ -125,7 +125,9 @@ assign(["panel_diagnostics"], object({ lifecycle: string, visualMode: string, ru
   rendererNeedsReset: boolean, sectionFailures: strings, lastFailure: nullable(object()), stateDelivery: object(), statePostTraffic: object() }, ["lifecycle", "runningVersion", "sectionFailures"]));
 assign(["draft_list"], object({ drafts: array(object()), cleanupCandidates: array(object()), error: string, updatedAt: string }));
 assign(["draft_validate"], object({ draftPlanPath: string, status: string, configRefs: strings, issues: array(object()) }, ["draftPlanPath", "status"]));
-assign(["draft_promotion_preview"], object({ draftPlanPath: string, status: string, debugRunId: string, metricsSummary: object(), targetPlanPath: string }));
+assign(["draft_promotion_preview"], object({ schemaVersion: number, draftPlanPath: string, contentHash: string, debugRunId: string, debugStatus: string, metricsSummary: object(),
+  targets: array(object({ kind: string, sourcePath: string, targetPath: string, exists: boolean, sourceHash: string, diff: object({ added: strings, removed: strings }) })),
+  conflicts: array(object({ path: string, kind: string })), status: string, targetPlanPath: string }));
 assign(["draft_review", "draft_reject"], object({ ok: boolean, draftPlanPath: string, status: string }, ["ok", "draftPlanPath", "status"]));
 assign(["draft_cleanup_candidates"], object({ candidates: array(object()) }, ["candidates"]));
 assign(["cleanup_list"], array(object({ id: string, state: string, planFile: string, action: string, pendingNodes: strings, updatedAt: string })));

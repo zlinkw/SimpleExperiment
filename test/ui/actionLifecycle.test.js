@@ -78,6 +78,32 @@ test("failure notification links to the full operation log without duplicating l
   facts.length=0; host.postUiCommandStatus('action-4','completed','splitProjectResultTable','completed'); assert.equal(facts.length,0);
 });
 
+test("PLAN registry keeps an explicitly empty case list empty", () => {
+  require('../_helpers/registerTsRequire');const plans=require('../../src/features/PlanBuilder.ts');
+  const empty=plans.importLegacyPlanYamlToRegistry('empty.yaml','suite: example\nseeds: [0, 42]\ncases: []\n');
+  assert.equal(empty.experimentCount,0);assert.equal(empty.plannedExperiments.length,0);
+  const implicit=plans.importLegacyPlanYamlToRegistry('implicit.yaml','suite: example\ncommand: python train.py\nseeds: [0, 42]\n');
+  assert.equal(implicit.experimentCount,2);assert.equal(implicit.plannedExperiments.length,2);
+  const emptyMap=plans.importLegacyPlanYamlToRegistry('map.yaml','suite: example\nexperiments: {}\n');assert.equal(emptyMap.experimentCount,0);
+  const nullCases=plans.importLegacyPlanYamlToRegistry('null.yaml','suite: example\ncases: null\nexperiments: []\n');assert.equal(nullCases.experimentCount,1);
+});
+
+test("draft promotion preview schema describes the actual targets and conflicts", async () => {
+  const ts=require('typescript'),root=path.resolve(__dirname,'../..'),source=fs.readFileSync(path.join(root,'src/features/DraftPlans.legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('draft.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
+  const visit=node=>{if(ts.isFunctionDeclaration(node)&&node.name?.getText(ast)==='buildPromotionPreview')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const files={'tmp/plan/a.yaml':'config: tmp/config/a.yaml','tmp/config/a.yaml':'value: 1','experiments/plans/a.yaml':'old'};
+  const sandbox={normalizeWorkspacePath:x=>x,isDraftPlanPath:x=>x.startsWith('tmp/plan/'),isDraftConfigPath:x=>x.startsWith('tmp/config/'),readFileIfExists:async(_root,file)=>files[file],
+    extractDraftConfigRefs:()=>[{path:'tmp/config/a.yaml'}],unique:items=>[...new Set(items)],promotionTargetFor:x=>x.replace('tmp/plan/','experiments/plans/').replace('tmp/config/','configs/'),
+    sha256Text:()=> 'hash',draftContentHash:()=> 'content',diffLines:()=>[]};
+  vm.runInNewContext(ts.transpileModule(method.replace(/^export /,'')+';this.preview=buildPromotionPreview;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const preview=await sandbox.preview('/project','tmp/plan/a.yaml',{debugRunId:'r',debugStatus:'completed'});
+  const module={exports:{}},schemaSource=fs.readFileSync(path.join(root,'src/mcp/ToolResults.ts'),'utf8');
+  vm.runInNewContext(ts.transpileModule(schemaSource,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,{module,exports:module.exports});
+  const schema=module.exports.toolOutputSchema('draft_promotion_preview').anyOf[0];assert.equal(preview.targets.length,2);assert.equal(preview.conflicts.length,1);
+  assert.equal(schema.properties.targets.type,'array');assert.equal(schema.properties.conflicts.type,'array');assert.equal(schema.properties.debugStatus.type,'string');
+});
+
 test("flow updates report persistence failure instead of claiming success", async () => {
   const ts=require('typescript'), source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS); let method;

@@ -94,3 +94,5 @@ U02整份对账：28项逐项结论与证据见 `docs/windows-entry-coverage.jso
 总控新鲜只读证据更新J01：专用实例56788经capabilities核根后读取projects.registry，2026-11-21T06:55:31.752Z祖先及分支仍报错，排除旧卡缓存。该扩展宿主环境COUNT=10、KEY_0..9均存在，而VALUE_0和VALUE_5缺失，其余8值存在且非空；父Code进程无COUNT，工具子进程对应两个值存在但为空。直接Git及cmd.exe路径只读调用均exit0，不能归罪cmd。真实故障为扩展宿主indexed配置不完整；具体哪个启动或传递环节丢失空值仍未知，Chromium过滤空值源码只是机制线索。未修改进程、全局Git配置或恢复环境，未读取或输出配置值；构建、安装和真实Worker检查仍未执行。
 
 U03 R组两项新增（累计待打包12）：普通configuration_set写入A期间切B，旧代码回读B并报告成功；state_set/reset写连接配置期间切B，旧代码在B加载连接并返回成功。真实host方法及受控store/config复现首测0/2、exit1，均为缺少拒绝；现捕获原项目并在写完后检查上下文，保留原scope并提示写入已完成、切换后需核查；正常回读重新取得原项目配置对象。修正时误改config_get一次导致既有windowScope目标ReferenceError、exit1，已恢复并重跑1/1、exit0。完整actionLifecycle当前源码内存转译32/32、exit0；旧dist相关断言只证明原范围。未修改真实配置或连接。X候选listWorktrees的branch字段会截短，但当前registerBranch仅使用路径判归属，尚无实际消费者缺陷，不计数。
+
+U03 S组两项新增（累计14）：PLAN登记将显式空cases扩成两个虚假实验（首测2而非0、exit1），修正登记计数和记录，保留隐式单case及null优先语义；历史草稿转正预览实际返回targets/conflicts/debugStatus，但MCP输出schema漏声明，首测缺字段exit1，补充真实结构。当前源码定向2/2、exit0；两者均为受控文本及替身，未写用户PLAN或启用退役转正。

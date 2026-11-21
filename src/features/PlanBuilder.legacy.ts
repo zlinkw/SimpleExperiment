@@ -1393,7 +1393,10 @@ export function importLegacyPlanYamlToRegistry(planFile, text, existing = []) {
     const planId = stablePlanId(planFile, suite);
     const previous = existing.find((item) => item.planId === planId);
     const now = new Date().toISOString();
-    const plannedExperiments = expandPlannedExperiments(suite, cases, seeds);
+    const clean = stripYamlComments(text);
+    const explicitCaseLine = clean.match(/^cases[ \t]*:[ \t]*(.*)$/m) || clean.match(/^experiments[ \t]*:[ \t]*(.*)$/m);
+    const emptyExplicitCases = !cases.length && /^(?:\[\s*\]|\{\s*\})$/.test(explicitCaseLine?.[1].trim() || "");
+    const plannedExperiments = emptyExplicitCases ? [] : expandPlannedExperiments(suite, cases, seeds);
     return {
         schemaVersion: 1,
         planId,
@@ -1405,7 +1408,7 @@ export function importLegacyPlanYamlToRegistry(planFile, text, existing = []) {
         planSha256: sha256(text),
         variables: seeds.length ? { seeds } : {},
         dimensions: { suite },
-        experimentCount: plannedExperiments.length || Number(scalar(text, "job_count") || 0) || 1,
+        experimentCount: emptyExplicitCases ? 0 : plannedExperiments.length || Number(scalar(text, "job_count") || 0) || 1,
         plannedExperiments,
         createdAt: previous?.createdAt || now,
         updatedAt: now,
