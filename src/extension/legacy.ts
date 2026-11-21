@@ -19857,7 +19857,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             this.draftPlanState = { enabled: false, drafts: [], cleanupCandidates: [], error: "", updatedAt: new Date().toISOString() };
             return;
         }
-        const planDirExists = await fs.stat(path.join(root, "tmp", "plan")).then((item) => item.isDirectory()).catch(() => false);
+        const planDirExists = await fs.stat(path.join(root, "tmp", "plan")).then((item) => item.isDirectory()).catch((error) => {
+            if (error?.code === "ENOENT") return false;
+            throw error;
+        });
         if (!planDirExists) {
             this.draftPlanState = { enabled: false, drafts: [], cleanupCandidates: [], error: "", updatedAt: new Date().toISOString() };
             return;
@@ -24752,7 +24755,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             rel = `${CHECK_STATIC_REPORT_DIR_REL}/${base}`;
         }
         const full = safeWorkspaceChildPath(root, rel);
-        const stat = await fs.stat(full).catch(() => undefined);
+        const stat = await fs.stat(full).catch((error) => {
+            if (error?.code === "ENOENT") return undefined;
+            throw error;
+        });
         if (!stat || !stat.isFile())
             throw new Error(`静态检查报告不存在：${rel}（即 ${CHECK_STATIC_REPORT_REL_PATH}），请先运行 npm run check:static（failed 自动落盘，passed 加 --write-md/--report-md）。`);
         await openWorkspaceFile(rel);
@@ -24763,7 +24769,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             throw new Error("需要先打开工作区。");
         const rel = CHECK_STATIC_REPORT_REL_PATH;
         const full = safeWorkspaceChildPath(root, rel);
-        const stat = await fs.stat(full).catch(() => undefined);
+        const stat = await fs.stat(full).catch((error) => {
+            if (error?.code === "ENOENT") return undefined;
+            throw error;
+        });
         if (!stat || !stat.isFile())
             throw new Error(`静态检查报告不存在：${rel}（即 ${CHECK_STATIC_REPORT_REL_PATH}），请先运行 npm run check:static（failed 自动落盘，passed 加 --write-md/--report-md）。`);
         const text = await fs.readFile(full, "utf8");
@@ -37199,7 +37208,10 @@ async function previewAndConfirmWorkspaceWrites(root, writes, title) {
         const relative = path.relative(root, path.resolve(write.fullPath)).replace(/\\/g, "/");
         if (relative.startsWith("..") || path.isAbsolute(relative))
             throw new Error(`只能写入工作区内文件：${write.fullPath}`);
-        const previous = await fs.readFile(write.fullPath, "utf8").catch(() => undefined);
+        const previous = await fs.readFile(write.fullPath, "utf8").catch((error) => {
+            if (error?.code === "ENOENT") return undefined;
+            throw error;
+        });
         const status = previous === undefined ? "created" : previous === write.text ? "unchanged" : "updated";
         return {
             ...write,
