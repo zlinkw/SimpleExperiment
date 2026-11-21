@@ -78,3 +78,22 @@ test("WARN and WARNING map to WARNING without altering other levels", () => {
   assert.equal(rows[0].timestamp, "2026-01-01 01:02:03");
   assert.equal(rows[1].message, "WARNING second");
 });
+test("experiment references prefer exact IDs and reject ambiguous aliases", () => {
+  const { pickExperiment } = require("../../src/cli/commands/experiment.ts");
+  const rows = [{ id: "one", name: "target", run_id: "r1" }, { id: "target", name: "shared", run_id: "r2" },
+    { id: "worker:3", name: "shared", run_id: "r3" }];
+  assert.equal(pickExperiment(rows, "target").id, "target");
+  assert.equal(pickExperiment(rows, "r3").id, "worker:3");
+  assert.throws(() => pickExperiment(rows, "shared"), /EXPERIMENT_SELECTION_AMBIGUOUS/);
+});
+test("qualified artifact IDs do not fall back to suffixes from another identity", async () => {
+  const { businessError } = require("../../src/cli/errors.ts");
+  const rows = [{ id: "worker:1", name: "old", run_id: "r1" }, { id: "worker:2", name: "worker", run_id: "r2" }];
+  const find = extract("cli/commands/artifact.ts", "findArtifact", { path, businessError,
+    loadExperiments: async () => rows,
+    listArtifacts: async id => id === "worker:1" ? [{ id: "worker:1:dir/file.csv", path: "dir/file.csv" }] : [],
+    resolveProjectPath: value => value, fileExists: () => false, fs });
+  assert.equal((await find("worker:1:dir/file.csv")).path, "dir/file.csv");
+  assert.equal((await find("worker:1:file.csv")).path, "dir/file.csv");
+  assert.equal(await find("worker:2:file.csv"), null);
+});

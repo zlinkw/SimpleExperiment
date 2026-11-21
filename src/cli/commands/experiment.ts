@@ -743,7 +743,7 @@ export async function experimentPause(id: string, flags: CliFlags): Promise<numb
 
 export async function experimentRetry(id: string, flags: CliFlags, action = "retry"): Promise<number> {
   const rows = await loadExperiments();
-  const match = rows.find((row) => row.id === id || row.name === id);
+  const match = pickExperiment(rows, id);
   if (!match) throw businessError(`experiment not found: ${id}`);
   const from = flags.from || (action === "resume" ? "resume_checkpoint" : "failed_stage");
   const command = "retryExperiment";
@@ -1661,14 +1661,11 @@ async function resolveExperimentReference(value: string): Promise<ExperimentRow>
   }));
 }
 
-function pickExperiment(rows: ExperimentRow[], wanted: string): ExperimentRow | undefined {
-  let best: ExperimentRow | undefined;
-  let bestRank = 0;
-  for (const row of rows) {
-    const rank = referenceRank(row, wanted);
-    if (rank && (!bestRank || rank < bestRank)) { best = row; bestRank = rank; }
-  }
-  return best;
+export function pickExperiment(rows: ExperimentRow[], wanted: string): ExperimentRow | undefined {
+  const exact = rows.filter(row => row.id === wanted);
+  const matches = exact.length ? exact : rows.filter(row => referenceRank(row, wanted) > 0);
+  if (matches.length > 1) throw businessError("EXPERIMENT_SELECTION_AMBIGUOUS：存在多个匹配的实验，请使用精确实验 ID。", JSON.stringify({ requested: wanted, candidates: matches.map(row => row.id) }));
+  return matches[0];
 }
 
 export function resolveRuntimeObservation(value: string, observed: RuntimeObservation[]): RuntimeObservation | undefined {
@@ -1690,7 +1687,7 @@ function referenceRank(row: ExperimentRow, wanted: string): number {
 
 async function findExperiment(id: string): Promise<ExperimentRow> {
   const rows = await loadExperiments();
-  const match = rows.find((row) => row.id === id || row.name === id || row.run_id === id);
+  const match = pickExperiment(rows, id);
   if (!match) throw businessError(`experiment not found: ${id}`);
   return match;
 }
@@ -1719,7 +1716,7 @@ async function recentLogsFor(match: ExperimentRow): Promise<string> {
 
 async function loadExperimentDetail(id: string): Promise<{ match: ExperimentRow; rows: ExperimentRow[]; recentLogs: string }> {
   const rows = await loadExperiments();
-  const match = rows.find((row) => row.id === id || row.name === id || row.run_id === id);
+  const match = pickExperiment(rows, id);
   if (!match) throw businessError(`experiment not found: ${id}`);
   return { match, rows, recentLogs: await recentLogsFor(match) };
 }
@@ -1847,7 +1844,7 @@ export function parseLogRecords(text: string): LogRecord[] {
 
 export async function logRecordsForExperiment(id: string): Promise<LogRecord[] | null> {
   const rows = await loadExperiments();
-  const match = rows.find((row) => row.id === id || row.name === id || row.run_id === id);
+  const match = pickExperiment(rows, id);
   if (!match) return null;
   const raw = match.raw || {};
   const logPath = firstString(raw, ["hub_console_log", "log_path", "logPath", "stdout"])

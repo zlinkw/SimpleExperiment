@@ -6,7 +6,7 @@ import { copyFile, fileExists, listFilesRecursive, projectRoot, readJsonFile, re
 import { businessError, envError, usageError } from "../errors";
 import { table, writeJson, writeText } from "../format";
 import { CliFlags, requirePositional } from "../parse";
-import { loadExperiments, type ExperimentRow } from "./experiment";
+import { loadExperiments, pickExperiment, type ExperimentRow } from "./experiment";
 
 export async function artifactCommand(action: string, rest: string[], flags: CliFlags): Promise<number> {
   if (action === "list") return artifactList(requirePositional(rest, 0, "experiment id"), flags);
@@ -73,7 +73,7 @@ async function workerInventory(workerId: string, filePath: string, includeHashes
 
 async function listArtifacts(experimentId: string, knownExperiments?: ExperimentRow[]): Promise<ArtifactRow[]> {
   const experiments = knownExperiments || await loadExperiments();
-  const experiment = experiments.find((row) => row.id === experimentId || row.name === experimentId);
+  const experiment = pickExperiment(experiments, experimentId);
   const jobs = experiment?.type === "worker_run" ? [experiment] : experiment?.type === "workflow"
     ? experiments.filter(row => row.type === "worker_run" && row.parent_id === experiment.id) : [];
   if (jobs.some(row => row.native_state)) {
@@ -132,8 +132,9 @@ async function listArtifacts(experimentId: string, knownExperiments?: Experiment
 
 async function findArtifact(id: string): Promise<{ path: string; size?: string; local?: string; workerId?: string } | null> {
   const experiments = await loadExperiments();
-  const identities = experiments.flatMap(row => [row.id, row.name]).filter((value): value is string => Boolean(value));
-  const experimentId = identities.filter(value => id.startsWith(`${value}:`)).sort((a, b) => b.length - a.length)[0] || id.split(":")[0];
+  const prefixes = (values: Array<string | undefined>) => values.filter((value): value is string => Boolean(value) && id.startsWith(`${value}:`)).sort((a, b) => b.length - a.length);
+  const prefix = prefixes(experiments.map(row => row.id))[0] || prefixes(experiments.flatMap(row => [row.name, row.run_id]))[0];
+  const experimentId = prefix || id.split(":")[0];
   const name = id.startsWith(`${experimentId}:`) ? id.slice(experimentId.length + 1) : experimentId;
   const listed = await listArtifacts(experimentId, experiments);
   const exact = listed.filter((row) => row.id === id);
@@ -146,6 +147,7 @@ async function findArtifact(id: string): Promise<{ path: string; size?: string; 
     const local = fileExists(abs) ? abs : undefined;
     return { path: match.path, size: local ? String(fs.statSync(local).size) : match.size, local };
   }
+  if (prefix) return null;
   const abs = path.isAbsolute(id) ? id : resolveProjectPath(id);
   if (fileExists(abs)) return { path: id, size: String(fs.statSync(abs).size), local: abs };
   return null;
