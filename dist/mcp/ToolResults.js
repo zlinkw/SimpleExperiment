@@ -86,7 +86,7 @@ assign(["plan_preflight"], object({ ok: boolean, workspace: string, plan, planSe
 assign(["plan_validate"], object({ ok: boolean, plan, planFile: string, missing: array(object()), validation: object(), nextAction: string }, ["ok"]));
 assign(["plan_run"], object({ ok: boolean, started: boolean, ...operation, requestScope: string, receiptProvesExperimentCompletion: boolean,
     plan, confirmation: string, nextAction: string, calls: array(object()) }, ["ok", "operationId", "status"]));
-assign(["plan_filter"], object({ ok: boolean, source: string, planDir: string, plans: array(object()), count: number, total: number }, ["ok"]));
+assign(["plan_filter"], object({ ok: boolean, source: string, planDir: string, plans: array(object()), count: number, total: number, needsChoice: boolean }, ["ok"]));
 assign(["task_list"], object({ lifecycleProtocol: number, stateSource: string, projectId: string, queriedAt: string, queriedWorkerIds: strings,
     jobLifecycle: array(task), workerTasks: array(object({ workerId: string, queryComplete: boolean, controlIncomplete: boolean, diagnosticsPending: boolean,
         error: string, tasks: array(task) })), schedulerStates: value, experimentTraces: array(object()), operations: value }, ["jobLifecycle", "workerTasks", "projectId"]));
@@ -123,7 +123,9 @@ assign(["panel_diagnostics"], object({ lifecycle: string, visualMode: string, ru
     rendererNeedsReset: boolean, sectionFailures: strings, lastFailure: nullable(object()), stateDelivery: object(), statePostTraffic: object() }, ["lifecycle", "runningVersion", "sectionFailures"]));
 assign(["draft_list"], object({ drafts: array(object()), cleanupCandidates: array(object()), error: string, updatedAt: string }));
 assign(["draft_validate"], object({ draftPlanPath: string, status: string, configRefs: strings, issues: array(object()) }, ["draftPlanPath", "status"]));
-assign(["draft_promotion_preview"], object({ draftPlanPath: string, status: string, debugRunId: string, metricsSummary: object(), targetPlanPath: string }));
+assign(["draft_promotion_preview"], object({ schemaVersion: number, draftPlanPath: string, contentHash: string, debugRunId: string, debugStatus: string, metricsSummary: object(),
+    targets: array(object({ kind: string, sourcePath: string, targetPath: string, exists: boolean, sourceHash: string, diff: object({ added: strings, removed: strings }) })),
+    conflicts: array(object({ path: string, kind: string })), status: string, targetPlanPath: string }));
 assign(["draft_review", "draft_reject"], object({ ok: boolean, draftPlanPath: string, status: string }, ["ok", "draftPlanPath", "status"]));
 assign(["draft_cleanup_candidates"], object({ candidates: array(object()) }, ["candidates"]));
 assign(["cleanup_list"], array(object({ id: string, state: string, planFile: string, action: string, pendingNodes: strings, updatedAt: string })));

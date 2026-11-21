@@ -111,8 +111,8 @@ async function workerInventory(workerId, filePath, includeHashes = false) {
         throw (0, errors_1.businessError)("ARTIFACT_QUERY_UNVERIFIED：部分文件未能核实。", JSON.stringify(response.unverifiedFiles));
     return response.files;
 }
-async function listArtifacts(experimentId) {
-    const experiments = await (0, experiment_1.loadExperiments)();
+async function listArtifacts(experimentId, knownExperiments) {
+    const experiments = knownExperiments || await (0, experiment_1.loadExperiments)();
     const experiment = experiments.find((row) => row.id === experimentId || row.name === experimentId);
     const jobs = experiment?.type === "worker_run" ? [experiment] : experiment?.type === "workflow"
         ? experiments.filter(row => row.type === "worker_run" && row.parent_id === experiment.id) : [];
@@ -142,7 +142,7 @@ async function listArtifacts(experimentId) {
                 : (0, data_1.listFilesRecursive)(abs, () => true, 2).map((file) => ({ path: file, size: fs.statSync(file).size }));
             for (const file of files) {
                 rows.push({
-                    id: `${experimentId}:${path.basename(file.path)}`,
+                    id: `${experimentId}:${path.relative(abs, file.path).replace(/\\/g, "/")}`,
                     path: path.relative((0, data_1.projectRoot)(), file.path).replace(/\\/g, "/") || file.path,
                     size: String(file.size ?? ""),
                     local: file.path,
@@ -170,16 +170,22 @@ async function listArtifacts(experimentId) {
                 if (!output || normalized !== output && !normalized.startsWith(output + "/"))
                     continue;
             }
-            rows.push({ id: `${String(result.resultId || experimentId)}:${path.basename(filePath)}`, path: filePath, size: String(file.size || "") });
+            rows.push({ id: `${experimentId}:${filePath}`, path: filePath, size: String(file.size ?? "") });
         }
     }
     return rows;
 }
 async function findArtifact(id) {
-    const [experimentId, ...rest] = id.split(":");
-    const name = rest.join(":") || experimentId;
-    const listed = await listArtifacts(experimentId);
-    const match = listed.find((row) => row.id === id || row.path.endsWith(name) || path.basename(row.path) === id);
+    const experiments = await (0, experiment_1.loadExperiments)();
+    const identities = experiments.flatMap(row => [row.id, row.name]).filter((value) => Boolean(value));
+    const experimentId = identities.filter(value => id.startsWith(`${value}:`)).sort((a, b) => b.length - a.length)[0] || id.split(":")[0];
+    const name = id.startsWith(`${experimentId}:`) ? id.slice(experimentId.length + 1) : experimentId;
+    const listed = await listArtifacts(experimentId, experiments);
+    const exact = listed.filter((row) => row.id === id);
+    const matches = exact.length ? exact : listed.filter((row) => row.path.endsWith(name) || path.basename(row.path) === id);
+    if (matches.length > 1)
+        throw (0, errors_1.businessError)("ARTIFACT_SELECTION_AMBIGUOUS：存在多个同名产物，请使用精确产物 ID。", JSON.stringify({ id, candidates: matches.map(row => row.id) }));
+    const match = matches[0];
     if (match) {
         if (match.workerId)
             return match;

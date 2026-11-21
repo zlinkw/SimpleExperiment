@@ -72,3 +72,5 @@ U03最终源审结论：08d0e02d修复带冒号实验身份回读及空块式cas
 统一交付按build-test-delivery和docs/release-delivery.md。当前package profile已经包含compile及build所需测试/gates，授权直接一次 `npm run package -- --max-parallel 1 --cancel-stdin`，复用本轮有效定向证据，不先单独build再无依据重跑同一全量；不改选择、覆盖或超时。冻结前补受影响抽取夹具闭包，最终保留Panel模块及真实生成script VM、src/dist业务10890零命中、真实失败及按需未运行。先核实际远端版本/tag后选未用的新patch，同步package.json/package-lock/runtime，package只构建打包不安装。核实际VSIX身份/版本/平台/闭包/同源字节/秘密排除及精确SHA，普通提交FF push/fetch绑定确定版本后，既有GitHub更新源发布prerelease=true/latest=false的同字节VSIX和精确文件名sha；不能提升0.5.483权威、覆盖tag/历史资产或降级。真实Release身份/资产/下载指纹及更新客户端按原门禁验，不用mock代发行。
 
 全部修改/验证/打包/发行完成，才显式install:latest一次；同版跳过、不force/降级，每目标版最多安装一次。核已装版本/simpleex后停止面板，待本人Reload Window再验新版本界面；不自动更新Worker。源码、生成包、远端试行Release、本机安装、运行重载及真实外部未测分别报告。用户最新目标尚在执行，不以派单、两处修复、对账完、一次检查或CUA子步骤完成结束整轮。
+
+0.5.516统一交付续接裁决：首轮package回执 `2026-11-21T08-06-01-643Z-33540-package/run.json` 实际exit1、340/341通过，唯一失败为旧planOperationNoticeLifecycle断言与已审U01失败日志契约冲突；仅修该测试后单文件22/22、exit0，生产实现未变。已核现有validateReceiptForAssemble仅接受overall=passed、同inputFingerprint、同矩阵及全部逐项通过，首轮只有聚合输入摘要，不能安全证明测试差量组合。总控因此批准原完整package入口再执行一次，生成当前候选的真实可接纳回执，保留首轮失败和定向补测；不伪改回执、不绕过门禁、不为本次交付新增通用恢复框架或跨任务缓存，也不把此次工具限制变成以后仅补测试的默认全量重跑规则。后续仍按实际失败及影响范围判断。

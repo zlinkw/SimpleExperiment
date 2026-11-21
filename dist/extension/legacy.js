@@ -3594,9 +3594,12 @@ class RealtimeTunnelPanelProvider {
             this.postState();
             return { ok: true, key, scope: "workspaceFolder", value: readback, secret: false, sync: { status: syncErrors.length ? "pending" : "synced", errors: syncErrors } };
         }
-        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri);
+        const projectContext = this.captureProjectContext();
+        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, projectContext.root ? vscode.Uri.file(projectContext.root) : undefined);
         const target = this.apiConfigUpdateTarget(definition.schema, stringField(params, "scope"));
         await config.update(key.slice(API_CONFIG_PREFIX.length), params.value, target);
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new Error("项目已切换；配置已更新，请核查原项目及配置范围。");
         this.postState();
         return {
             ok: true,
@@ -3606,7 +3609,7 @@ class RealtimeTunnelPanelProvider {
                 : target === vscode.ConfigurationTarget.Workspace
                     ? "workspace"
                     : "global",
-            value: this.apiConfigValue(vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri), key, definition.schema),
+            value: this.apiConfigValue(vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, projectContext.root ? vscode.Uri.file(projectContext.root) : undefined), key, definition.schema),
             secret: API_SECRET_CONFIG_KEYS.has(key),
         };
     }
@@ -3701,12 +3704,15 @@ class RealtimeTunnelPanelProvider {
             });
         const value = normalizeApiStateValue(key, params.value);
         const stateKey = keys[key];
+        const projectContext = this.captureProjectContext();
         if (key === "setupConfig" || key === "tunnelConfig")
-            await (0, ProjectConnectionProfiles_1.saveProjectConnectionValues)(this.context, workspaceRoot(), { [stateKey]: value });
+            await (0, ProjectConnectionProfiles_1.saveProjectConnectionValues)(this.context, projectContext.root, { [stateKey]: value });
         else if (meta.store === "global")
             await this.context.globalState.update(stateKey, value);
         else
             await this.context.workspaceState.update(stateKey, value);
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new Error("项目已切换；状态已更新，请核查原项目及状态范围。");
         if (key === "tunnelConfig" || key === "setupConfig") {
             this.tunnelConfig = this.loadTunnelConfig();
             this.setupConfig = this.loadSetupConfig();
@@ -3735,12 +3741,15 @@ class RealtimeTunnelPanelProvider {
                 current: redactApiStateValue(key, this.apiStateValue(key)),
             });
         const stateKey = keys[key];
+        const projectContext = this.captureProjectContext();
         if (key === "setupConfig" || key === "tunnelConfig")
-            await (0, ProjectConnectionProfiles_1.saveProjectConnectionValues)(this.context, workspaceRoot(), { [stateKey]: undefined });
+            await (0, ProjectConnectionProfiles_1.saveProjectConnectionValues)(this.context, projectContext.root, { [stateKey]: undefined });
         else if (meta.store === "global")
             await this.context.globalState.update(stateKey, undefined);
         else
             await this.context.workspaceState.update(stateKey, undefined);
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new Error("项目已切换；状态已重置，请核查原项目及状态范围。");
         if (key === "tunnelConfig" || key === "setupConfig") {
             this.tunnelConfig = this.loadTunnelConfig();
             this.setupConfig = this.loadSetupConfig();
@@ -4376,23 +4385,28 @@ class RealtimeTunnelPanelProvider {
         return { ok: true, flow: this.apiFlowState, nextStep: ApiWorkflow_1.nextFlowStep(this.apiFlowState) };
     }
     async apiFlowUpdate(params = {}) {
+        const projectContext = this.captureProjectContext();
         const step = String(params.step || "").trim();
         const completed = params.completed === true;
         const blocked = params.blocked === true;
         if (completed && blocked)
             throw new Error("flow.update 不能同时设置 completed 和 blocked。");
         this.apiFlowState = ApiWorkflow_1.advanceFlowStep(this.apiFlowState, step, {
-            ...(completed ? { completed: true } : {}),
-            ...(blocked ? { blocked: true } : {}),
+            ...(typeof params.completed === "boolean" ? { completed: params.completed } : blocked ? { completed: false } : {}),
+            ...(typeof params.blocked === "boolean" ? { blocked: params.blocked } : completed ? { blocked: false } : {}),
             appliedAt: String(params.appliedAt || ""),
         });
         this.apiFlowStateDirty = true;
-        void this.persistProjectFlowState().catch(() => undefined);
+        await this.persistProjectFlowState();
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new Error("项目已切换；原项目流程写入结果请在原项目核查。");
         this.postState();
         return { ok: true, flow: this.apiFlowState, nextStep: ApiWorkflow_1.nextFlowStep(this.apiFlowState) };
     }
     async apiPlansFilter(params = {}) {
-        const filtered = ApiWorkflow_1.filterPlans(this.localPlanMetadata.plans || [], params);
+        const plans = this.localPlanMetadata.plans || [];
+        const archived = params.archived === true ? (this.localPlanMetadata.archivedPlans || []).map((plan) => ({ ...plan, archived: true })) : [];
+        const filtered = ApiWorkflow_1.filterPlans([...plans, ...archived], params);
         return {
             ok: true,
             source: "local_metadata",
@@ -7965,6 +7979,9 @@ class RealtimeTunnelPanelProvider {
         if (["retryJobArtifactSync", "refreshJobArtifacts", "syncPendingPlanArtifacts", "syncAllResultArtifacts", "releaseJobStageBlockSlots"].includes(command)) {
             this.logOperationFact(`[${clientActionId}] ${command} ${status}：${String(message || "")}`);
             this.reportOperationNotice(clientActionId, `${status}：${String(message || "")}`);
+        }
+        else if (status === "failed" && !OPERATION_NOTICE_COMMANDS.has(command)) {
+            this.logOperationFact(`[${clientActionId}] ${command} ${status}：${String(message || "")}`);
         }
         if (!this.view || !clientActionId)
             return;
@@ -21490,7 +21507,12 @@ class RealtimeTunnelPanelProvider {
         }));
     }
     async requireDraftRecord(planFile) {
+        const projectContext = this.captureProjectContext();
         await this.refreshDraftPlans(true);
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new Error("项目已切换；未读取其他项目的草稿。");
+        if (this.draftPlanState.error)
+            throw new Error(this.draftPlanState.error);
         const normalized = String(planFile || "").replace(/\\/g, "/");
         const record = (this.draftPlanState.drafts || []).find((item) => sameProjectRelativePath(item.draftPlanPath, normalized));
         if (!record)
@@ -21504,7 +21526,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error("需要先打开工作区。");
         const text = await fs.readFile(safeWorkspaceChildPath(root, record.draftPlanPath), "utf8");
         const validation = DraftPlans_1.validateDraftReferences(record.draftPlanPath, text);
-        return { ok: validation.ok, status: validation.status, configRefs: validation.configRefs, issues: validation.issues };
+        return { ok: validation.ok, draftPlanPath: record.draftPlanPath, status: validation.status, configRefs: validation.configRefs, issues: validation.issues };
     }
     async draftMetricsSummary(record) {
         const root = workspaceRoot();
@@ -21516,11 +21538,15 @@ class RealtimeTunnelPanelProvider {
         const base = path.join(root, "simple_cluster", "debug_runs", `${stem}-${digest}`, String(record.lastDebugRunId));
         const files = ["results.csv", "jobs.csv", "scheduler.log"];
         for (const file of files) {
-            const text = await fs.readFile(path.join(base, file), "utf8").catch(() => "");
+            const text = await fs.readFile(path.join(base, file), "utf8").catch((error) => {
+                if (error?.code === "ENOENT")
+                    return "";
+                throw error;
+            });
             if (!text)
                 continue;
-            const lines = text.trim().split(/\r?\n/).slice(0, 101);
-            return { source: file, previewLines: lines, truncated: lines.length >= 101 };
+            const lines = text.trim().split(/\r?\n/);
+            return { source: file, previewLines: lines.slice(0, 101), truncated: lines.length > 101 };
         }
         return { source: "remote_debug_bundle", debugRunId: record.lastDebugRunId };
     }
@@ -21545,21 +21571,36 @@ class RealtimeTunnelPanelProvider {
     }
     async apiDraftReject(params = {}) {
         const record = await this.requireDraftRecord(stringField(params, "draftPlanPath") || stringField(params, "planFile"));
+        const projectContext = this.captureProjectContext();
         const root = workspaceRoot();
         if (!root)
             throw new Error("需要先打开工作区。");
         await this.withDraftMetadataLease(root, () => DraftPlans_1.rejectDraft(root, record.draftPlanPath, stringField(params, "reviewedBy") || "local-user"));
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new Error("项目已切换；草稿拒绝已写入原项目，请在原项目核查。");
         await this.refreshDraftPlans(true);
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new Error("项目已切换；草稿拒绝已写入原项目，请在原项目核查。");
         return { ok: true, status: "rejected", draftPlanPath: record.draftPlanPath };
     }
     async apiDraftReview(params = {}) {
         const record = await this.requireDraftRecord(stringField(params, "draftPlanPath") || stringField(params, "planFile"));
+        const projectContext = this.captureProjectContext();
         const root = workspaceRoot();
         if (!root)
             throw new Error("需要先打开工作区。");
         await this.withDraftMetadataLease(root, () => DraftPlans_1.markDraftReviewed(root, record.draftPlanPath, stringField(params, "reviewedBy") || "local-user"));
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new Error("项目已切换；草稿审核已写入原项目，请在原项目核查。");
         await this.refreshDraftPlans(true);
-        return { ok: true, status: "ready_for_review", draftPlanPath: record.draftPlanPath };
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new Error("项目已切换；草稿审核已写入原项目，请在原项目核查。");
+        if (this.draftPlanState.error)
+            throw new Error(`草稿审核已写入，但刷新失败：${this.draftPlanState.error}`);
+        const updated = (this.draftPlanState.drafts || []).find((item) => sameProjectRelativePath(item.draftPlanPath, record.draftPlanPath));
+        if (!updated)
+            throw new Error(`草稿审核已写入，但刷新后未找到：${record.draftPlanPath}`);
+        return { ok: true, status: updated.status, draftPlanPath: updated.draftPlanPath };
     }
     async apiDraftCleanup(params = {}) {
         await this.refreshDraftPlans(true);
@@ -39191,7 +39232,7 @@ function parseLocalPlanText(file, text) {
         planContractOk: contract.ok,
         planContractMissing: contract.missing,
         planContractIssues: contract.issues,
-        jobCount: Math.max(1, seeds.length || 1) * Math.max(1, cases.length),
+        jobCount: Math.max(1, seeds.length || 1) * cases.length,
         parseError,
         text,
     };

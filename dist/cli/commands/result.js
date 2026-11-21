@@ -72,7 +72,7 @@ function resultParse(flags) {
     const preset = flags.preset === undefined ? Results_1.builtInResultPresets[0] : Results_1.builtInResultPresets.find((item) => item.id === flags.preset);
     if (!preset)
         throw (0, errors_1.usageError)(`unknown result preset: ${flags.preset}`);
-    const records = (0, Results_1.parseResultFile)(fs.readFileSync(flags.file, "utf8"), { path: flags.file, type: flags.file.endsWith(".json") ? "json" : "csv", endpoint: "local" }, preset);
+    const records = (0, Results_1.parseResultFile)(fs.readFileSync(flags.file, "utf8"), { path: flags.file, type: path.extname(flags.file).toLowerCase() === ".json" ? "json" : "csv", endpoint: "local" }, preset);
     (0, format_1.writeJson)(records, flags.compactJson);
     return 0;
 }

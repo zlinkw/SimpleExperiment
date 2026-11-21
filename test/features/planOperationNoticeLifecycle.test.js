@@ -131,15 +131,17 @@ test('notice tone follows real result facts when no plan-submit row exists', asy
   assert.equal(f.host.submissionNoticeTone({ clientActionId: 'v6' }, { status: 'completed' }), 'failed', 'a failed submission row outranks the wrapper return');
 });
 
-test('full validation/dry-run feedback lands in the same operation log channel, out-of-scope commands stay out', async () => {
+test('full validation/dry-run feedback and other command failures reach the operation log', async () => {
   const f = fixture();
   f.host.postUiCommandStatus('c9', 'failed', 'validatePlan', '校验失败：GPU 不足');
   f.host.postUiCommandStatus('c9', 'completed', 'dryRunPlan', '预演完成');
   f.host.postUiCommandStatus('c9', 'failed', 'fetchTmuxList', '范围外命令');
+  f.host.postUiCommandStatus('c9', 'completed', 'fetchTmuxList', '范围外成功');
   assert.ok(f.logLines.some(line => line.includes('[c9] validatePlan failed：校验失败：GPU 不足')));
   assert.ok(f.logLines.some(line => line.includes('[c9] dryRunPlan completed：预演完成')));
-  assert.ok(!f.logLines.some(line => line.includes('范围外命令')));
-  assert.equal(f.posts.length, 3, 'webview routing itself is unchanged');
+  assert.ok(f.logLines.some(line => line.includes('[c9] fetchTmuxList failed：范围外命令')));
+  assert.ok(!f.logLines.some(line => line.includes('范围外成功')));
+  assert.equal(f.posts.length, 4, 'webview routing itself is unchanged');
 });
 
 test('a validation status longer than 400 characters is preserved in full in the log', async () => {

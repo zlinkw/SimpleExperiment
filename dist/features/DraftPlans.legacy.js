@@ -376,7 +376,7 @@ async function reconcileDraftPlansCore(root, activity) {
             status,
             issues: validation.issues,
             suite: summary.suite || "",
-            jobCount: Math.max(1, summary.seeds.length || 1) * Math.max(1, summary.cases.length),
+            jobCount: Math.max(1, summary.seeds.length || 1) * summary.cases.length,
             missing: false,
         };
         drafts.push(record);

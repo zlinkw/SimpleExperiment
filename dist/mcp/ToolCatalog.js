@@ -39,7 +39,7 @@ exports.PROJECT_TOOLS = [
     tool("plan_preflight", "workflow.plan", "Run the complete PLAN preflight, including required synchronization and directory creation", plan, ["planFile"], "experiment"),
     tool("plan_validate", "plan.validate", "Validate one saved PLAN through the normal host workflow", plan, ["planFile"], "experiment"),
     tool("plan_run", "workflow.run", "Submit a saved PLAN. Returns an operation receipt; query tasks to establish actual execution", { ...plan, ...operation }, ["planFile"], "experiment"),
-    tool("plan_filter", "plans.filter", "Preview PLAN selection by structured criteria", { query: text("Search text"), status: texts("PLAN status"), ...plan, archived: boolean }),
+    tool("plan_filter", "plans.filter", "Preview PLAN selection by structured criteria", { query: text("Search text"), status: texts("PLAN status"), ...plan, planId: text("Exact PLAN identity"), archived: boolean, limit: integer, needsChoice: boolean }),
     tool("task_list", "tasks.list", "Actively query Worker tasks and their native completion evidence"),
     tool("task_stop", "tasks.stop", "Stop exactly one job by its original command ID; preserve other jobs, logs and artifacts", {
         ...task, workflowId: text("Original workflow ID, when present"),
