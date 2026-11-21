@@ -21,9 +21,9 @@ U01/U02/U03分别2/8/10项已修；U03末轮42/42 exit0。J01宿主缺GIT_CONFIG
 0.5.516首轮package 340/341 exit1，旧断言修后单测22/22、再341/341及13门禁exit0；已安装一次、用户尚未确认Reload，权威Latest仍0.5.483。完整回执及包身份保留于b7c0b42c与计划。
 U04-03 resource_available吞业务错误，真实编译链2/2 exit0；首轮错误夹具exit1保留于coverage及4a80c627。
 
-U04日志导航目标文件 `node --test --test-force-exit --test-timeout 20000 test/ui/jobTmuxLogNavigation.test.js`：12/13、exit1；失败为跟随/暂停测试的提取夹具缺 `setNativeTitle`，不是现阶段已证实产品缺陷。精确Worker/任务窗口、错身份拒绝、取消等12项断言通过，仅受控替身；旧2026-11-12回执早于87127cd7对此测试及面板的修改，因此补当前检查。保留失败，不重试，不宣称整套通过；真实Worker未查询。
+U04日志导航目标文件12/13 exit1，夹具缺setNativeTitle；未重试或宣称整套通过，完整证据见coverage。
 
-U04-04 metric_show不存在的精确ID与存在但无数字指标混淆；真实CLI配空结果2/2 exit0，未查真实Worker。须保留空指标、数值0及歧义拒绝，见coverage。
+U04-04 metric_show空结果与无指标混淆，受控2/2 exit0，见coverage。
 
 U04日志跟随补充：将真实渲染的点击处理、`setTmuxLogFollow` 与页面自身 `setNativeTitle` 同装入受控VM，暂停、跳到底部、恢复3/3、exit0，未发宿主消息。首次补充夹具漏页面全局 `nativeTitleMutationVersion`，ReferenceError、exit1；补齐后通过。原目标文件12/13、exit1仍保留，补充检查不改称整套通过。
 
@@ -184,3 +184,7 @@ U04新增单项目问题40：公开中位数排行未按主指标方向排序；
 U04新增单项目问题41：LaTeX结果表对普通method_a与val_loss直接输出未转义下划线；真实导出函数内存复现exit0，未编译或改论文。现40项，单项目36、跨项目延期4。
 
 问题21补充catalog：实际latestResultCatalog配内存结果表，__proto__列词条序列化后丢失，accuracy保留，exit0；无真实文件。
+
+U04新增单项目问题42：公开结果工厂以字符串JSON文件名解析0条而预览1条，大小写扩展均受影响；实际工厂及解析器内存复现exit0，无真实文件。现41项，单项目37、跨项目延期4。
+
+U04新增单项目问题43：工厂指定regression_wide_csv实际沿用long_csv规则，普通宽表少1条；真实工厂与指定预设内存对照exit0。现42项，单项目38、跨项目延期4。
