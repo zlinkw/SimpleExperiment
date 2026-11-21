@@ -7614,6 +7614,9 @@ return this.testTunnel(true);
             this.logOperationFact(`[${clientActionId}] ${command} ${status}：${String(message || "")}`);
             this.reportOperationNotice(clientActionId, `${status}：${String(message || "")}`);
         }
+        else if (status === "failed" && !OPERATION_NOTICE_COMMANDS.has(command)) {
+            this.logOperationFact(`[${clientActionId}] ${command} ${status}：${String(message || "")}`);
+        }
         if (!this.view || !clientActionId)
             return;
         void this.view.webview.postMessage({
@@ -36917,7 +36920,7 @@ function parseLocalPlanText(file, text) {
         planContractOk: contract.ok,
         planContractMissing: contract.missing,
         planContractIssues: contract.issues,
-        jobCount: Math.max(1, seeds.length || 1) * Math.max(1, cases.length),
+        jobCount: Math.max(1, seeds.length || 1) * cases.length,
         parseError,
         text,
     };

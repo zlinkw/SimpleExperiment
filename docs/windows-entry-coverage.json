@@ -1,11 +1,47 @@
 {
   "version": "0.5.512",
+  "g004ReloadedUiU01": {
+    "status": "24_local_ui_scenarios_reviewed_two_source_fixes_validated_delivery_deferred",
+    "workspace": "C:/Users/ZLK/AppData/Local/Temp/simpleex-normal-ui-g003-20261116-a7c39e2f",
+    "runningVersion": "0.5.515",
+    "sourceBaseline": "f0bf04c5b5724d55de2d6c7e3904ddf957dd2c66",
+    "boundary": "2026-11-21本人确认重载后，总控用真实Windows界面续验；offline_import、低流量开，未查询服务器或执行连接、同步、运行、停止、清理、授权/共享配置变更。24项包含只读观察、真实操作和错误反馈，不代表24项全部成功，也不是24个修改点。未构建、打包或安装。",
+    "scenarios": [
+      {"id":1,"check":"专用窗口启动及运行身份","result":"原生提示准确显示测试项目，实点打开面板；面板及状态栏均显示515/SFTP120，完整渲染，无当前重载专页。"},
+      {"id":2,"check":"设置内AI接入摘要","result":"实点设置；任务指标与输出接入显示已配置、generic、CSV1、列映射3，说明AI根据实际任务通过MCP配置，未要求手填必经项。"},
+      {"id":3,"check":"退役PPT设置残留","result":"读取本轮真实渲染的完整设置文档，未见PPT/PowerPoint入口及参数；不是全仓文本不存在的证明。"},
+      {"id":4,"check":"设置到结果映射导航","result":"实点查看结果映射，退出设置并定位结果区；显示final.csv及原seed/method/dataset映射、原始样例和未配置派生指标。首次滚动尚未结束的坐标未触发，重新观察后实际点击成功。"},
+      {"id":5,"check":"本机结果表重建","result":"实点标题明确不连接服务器的重建本机表格；按钮可继续操作，随后全部13个既有本机结果文件的SHA与操作前一致，未将旧表冒本轮服务器查询。不是主动更新全部PLAN结果按钮。"},
+      {"id":6,"check":"实际结果目录索引","result":"synthetic数据集真实显示final2行、cardinality101行、selection1行，三组文件入口与原本机对象一致。未重复此前已有效的九个行内导出验收。"},
+      {"id":7,"check":"拆表取消当前词条","result":"实际取消dataset唯一词条，synthetic复选框未选中，源表保持。"},
+      {"id":8,"check":"拆表空选择错误与按钮恢复","result":"滚动使生成按钮实际可见后提交，原生明确提示请选择1至100个拆表值，源SimpleExperiment、按钮恢复。此前对屏外无障碍索引的点击不算提交证据。"},
+      {"id":9,"check":"拆表切来源与维度选项","result":"来源下拉列出final/selection/cardinality；实际切到cardinality，维度为dataset/case/metric，选择case后显示词条。原生弹出层一次被工具拒绝，重观察并键盘确认后完成。"},
+      {"id":10,"check":"拆表词条无匹配搜索","result":"输入u01-no-such-case后当前词条列表为空，没有显示伪造匹配；未点生成隐藏选择或写文件。"},
+      {"id":11,"check":"拆表末尾词条恢复","result":"搜索case-101后真实显示该末尾词条，未因表超过100行而截掉末尾值。"},
+      {"id":12,"check":"拆表过滤内取消选择","result":"case-101过滤下实点取消当前词条，该复选框变未选；未生成或改写原by_case文件。"},
+      {"id":13,"check":"拆表保留列展开","result":"实际展开，cardinality来源仅显示dataset/case/metric三个原字段，初始全选；未把final表字段沿用到新来源。"},
+      {"id":14,"check":"本机PLAN自动发现","result":"新增3个明确不执行的ui_u01_*_515.yaml合成文件后自动识别3计划，未自动选定或运行，本机运行/排队均0。"},
+      {"id":15,"check":"正常PLAN矩阵与seed0","result":"选择2个case（含一个无名项）、seeds[0,42]的cases夹具，顶栏及列表正确显示2×2=4，当前文件与输出路径准确；未校验、预演或提交。"},
+      {"id":16,"check":"显式空cases的界面规模","result":"失败：ui_u01_empty_515.yaml明确cases: []、seeds[0,42]，列表0/2、顶栏及当前卡显示2任务，虽另有缺契约提示；Scheduler及MCP矩阵实际契约应0。根因候选parseLocalPlanText的Math.max(1,cases.length)，已交Terra修复必要消费者。"},
+      {"id":17,"check":"PLAN筛选保留当前选择","result":"当前cases计划下搜索ui_u01_empty，列表只留empty，当前下拉保留原cases并明确标注当前/不符合筛选；没有暗换当前PLAN。"},
+      {"id":18,"check":"按筛选结果批选PLAN","result":"实点全选筛选结果，已选数0变1，只选择筛出的empty夹具，当前cases身份保持。"},
+      {"id":19,"check":"清空PLAN批选","result":"实点清空选择，已选数回0；未执行运行或清理。"},
+      {"id":20,"check":"PLAN搜索无匹配与恢复","result":"搜索u01-no-plan显示没有匹配的PLAN，仍保留原当前选择说明；清空搜索后3项恢复。"},
+      {"id":21,"check":"功能树搜索及参数导航","result":"展开本机功能树、搜索参数并实点参数预览，定位当前PLAN摘要，空cases夹具的suite/config/seeds/output及缺契约原因可见；只覆盖本机导航，不冒远端预演。"},
+      {"id":22,"check":"当前PLAN打开文件精确归属","result":"实点ui_u01_empty_515.yaml，编辑器打开本测试根experiments/plans下准确文件；实际可见cases: []和seeds[0,42]，无未保存修改标记。未点不存在结果路径，避免远端回退查询。"},
+      {"id":23,"check":"失败通知查看日志","result":"失败：空词条错误通知的查看日志真实打开SimpleExperiment操作日志，但两次新观察及UIA确认内容为空。withUiCommandStatus通用通知与postUiCommandStatus限定命令记日志脱节，已交Terra补本次完整错误和身份，保留已有日志路由。"},
+      {"id":24,"check":"无运行对象的完整操作区","result":"实际展开高级完整操作记录，显示暂无PLAN运行记录及尚无操作记录；备用中止调度器禁用。未点击停止、历史清除、剩余job入队或刷新服务器按钮。"}
+    ],
+    "localEnvironmentObservation": "分支卡只读Git状态显示missing config value GIT_CONFIG_VALUE_0，明确读取失败而未冒未登记/通过。工具宿主进程具有完整GIT_CONFIG_COUNT/KEY/VALUE变量名，VSCode进程来源尚未核清；仅记环境限制，不剥离Git配置或改原仓库。",
+    "sourceResolution": "总控复核通过：正式及草稿元数据改用现有parser的cases.length，显式空为0、隐式单项保持1；通用failed状态写完整错误和clientActionId/command，已有PLAN/产物路径不重复。当前源码内存转译定向先0/2失败、修后2/2，完整actionLifecycle.test.js 11/11、exit0。未改dist/版本，不能当作安装界面已修。",
+    "pending": "两项源修复已通过定向检查及总控源码审查；完整生成、集中包与新版本界面复验按用户要求延后，本轮不构建安装。后续尽量积累20个以上真实修改点统一交付，禁止为凑数制造修复。"
+  },
   "g004FeatureAndMcpChecks": {
-    "status": "b01_b03_passed_trial_delivered_reload_pending",
+    "status": "b01_b03_passed_trial_reloaded_u01_source_fixes_delivery_deferred",
     "boundary": "12项为本轮计划范围，非全插件按钮总数；均为受控场景，不代表真实Worker或已安装版本的实机效果。",
     "evidence": "01–02授权及同步、03日志、04回执、05–06比较与导出、07–08解析与排行榜、09–10 PLAN生成与预览、11配置重置、12结果表重建；入口、首次失败和各项验证见G004-execution.md。统一MCP测试43/43；experimentPlatform原14/15，旧断言按PLAN声明契约修正后15/15。",
     "remainingPlannedFeatureChecks": 0,
-    "delivery": "B01–B03通过；0.5.514校验清单错误及0.5.515修正版交付证据见G004-execution.md。0.5.515试行已安装，用户重载及其后界面验收待完成；真实Worker未测。"
+    "delivery": "原B01–B03通过；0.5.514清单错误及0.5.515修正版交付证据见G004-execution.md。用户已重载，专用窗口实际运行515，U01的24项本机界面场景及两项新增源修复见g004ReloadedUiU01；新增修改尚未构建安装，真实Worker未测。"
   },
   "g003WorkflowAndConditionalLogicReconciliation": {
     "status": "b01_b03_passed_trial_delivered_reload_pending",

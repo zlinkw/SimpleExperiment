@@ -26,6 +26,58 @@ function extractConst(source, name) {
   return source.slice(start, end + 1);
 }
 
+test("local and draft PLAN counts preserve explicitly empty cases", async () => {
+  require('../_helpers/registerTsRequire');
+  const ts = require('typescript');
+  const builder = require('../../src/features/PlanBuilder.ts');
+  const declaration = (file, name) => {
+    const text = fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+    const ast = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    let found; const visit = node => { if (ts.isFunctionDeclaration(node) && node.name?.text === name) found = node.getText(ast); ts.forEachChild(node, visit); }; visit(ast);
+    assert.ok(found, name); return found;
+  };
+  const localCode = ts.transpileModule(declaration('src/extension/legacy.ts', 'parseLocalPlanText') + '\nthis.parse = parseLocalPlanText;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+  const local = {PlanBuilder_1: builder, path, sha256Text: () => 'revision'}; vm.runInNewContext(localCode, local);
+  const plans = [
+    ['suite: s\nbase_config: config.yaml\nseeds: [0, 42]\ncases: []\n', 0],
+    ['suite: s\nbase_config: config.yaml\nseeds: [0, 42]\n', 2],
+    ['suite: s\nbase_config: config.yaml\nseeds: [0, 42]\ncases: [a, b]\n', 4],
+  ];
+  for (const [yaml, expected] of plans) assert.equal(local.parse('plan.yaml', yaml).jobCount, expected);
+  const draftCode = ts.transpileModule(declaration('src/features/DraftPlans.legacy.ts', 'reconcileDraftPlansCore') + '\nthis.reconcile = reconcileDraftPlansCore;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+  for (const [yaml, expected] of plans) {
+    const sandbox = { walkYamlFiles: async () => ['root/tmp/plan/p.yaml'], DRAFT_PLAN_ROOT: 'tmp/plan', loadMetadata: async () => new Map(),
+      path, fs: {stat: async () => ({birthtime:new Date(),mtime:new Date()})}, readSafeWorkspaceText: async () => yaml, MAX_DRAFT_TEXT_BYTES: 1,
+      validateDraftReferences: () => ({configRefs:[],issues:[],ok:true}), draftContentHash: () => 'hash', baseRecord: () => ({}),
+      normalizeWorkspacePath: x => x, TERMINAL_DRAFT_STATUSES: new Set(), DRAFT_STATUSES: [], parsePlanSummary: builder.parsePlanSummary,
+      unique: x => x, promotionTargetFor: () => '', saveMetadata: async () => {}, Date };
+    vm.runInNewContext(draftCode, sandbox);
+    const result = await sandbox.reconcile('root', []); assert.equal(result.drafts[0].jobCount, expected);
+  }
+});
+
+test("failure notification links to the full operation log without duplicating logged commands", async () => {
+  const ts = require('typescript'), source = fs.readFileSync(path.resolve(__dirname, '../../src/extension/legacy.ts'), 'utf8');
+  const ast = ts.createSourceFile('legacy.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const wanted = new Set(['withUiCommandStatus', 'postUiCommandStatus']); const methods = [];
+  const visit = node => { if (ts.isMethodDeclaration(node) && wanted.has(node.name.getText(ast))) methods.push(node.getText(ast).replace(/^private /, '')); ts.forEachChild(node, visit); }; visit(ast);
+  assert.equal(methods.length, 2);
+  const facts = [], alerts = [], shown = [];
+  const sandbox = { PLAN_SUBMISSION_COMMANDS:new Set(), OPERATION_NOTICE_COMMANDS:new Set(['validatePlan']),
+    OperationOutcome_1:{operationOutcomeFor:()=> 'failed'}, localCommandReleasesAfterTrigger:()=>false, isUiCommandRemotePending:()=>false,
+    isUiCommandCancelled:()=>false, errorMessage:e=>e.message, actionErrorSuggestion:()=>'', hostOperationLeaseActionLabel:x=>x,
+    compactSensitiveText:s=>s, vscode:{window:{showErrorMessage:async (...args)=>{alerts.push(args);return '查看日志';}}} };
+  const code=ts.transpileModule('class Host {'+methods.join('\n')+'}; this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+  vm.runInNewContext(code,sandbox); const host=new sandbox.Host();
+  Object.assign(host,{logOperationFact:x=>facts.push(x),showOperationLogFromUi:()=>shown.push(true),beginSimpleSftpCapabilityLaunch(){},finishPlanSubmissionProgress(){},recordActionError(){},postState(){},reportOperationNotice(){}});
+  const message='请选择1至100个拆表值。'+'详情'.repeat(3000);
+  await host.withUiCommandStatus('action-1','splitProjectResultTable',{},async()=>{throw new Error(message)}); await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(facts.length,1); assert.equal(facts[0],`[action-1] splitProjectResultTable failed：${message}`); assert.equal(alerts.length,1); assert.equal(shown.length,1);
+  facts.length=0; host.postUiCommandStatus('action-2','failed','validatePlan','validation error'); assert.equal(facts.length,1);
+  facts.length=0; host.postUiCommandStatus('action-3','failed','syncAllResultArtifacts','sync error'); assert.equal(facts.length,1);
+  facts.length=0; host.postUiCommandStatus('action-4','completed','splitProjectResultTable','completed'); assert.equal(facts.length,0);
+});
+
 test("webview terminal uiCommandStatus clears button loading by client action", () => {
   const root = path.resolve(__dirname, "..", "..");
   const source = readSource("src/ui/PanelHtml.ts");
