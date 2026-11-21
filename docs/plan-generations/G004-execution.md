@@ -21,11 +21,11 @@ U04-02跨项目缓存审核被宿主拒绝后页面仍推进并显示删除中�
 U01两项、U02八项、U03十项为真实独立修复，共20，已进入0.5.516，首次失败、返修及证据详见原登记与计划。U03末轮42/42 exit0，源码提取分别验证带冒号实验身份/产物回读及空块cases；不把不同进程冒充端到端。J01已证扩展宿主缺GIT_CONFIG_VALUE_0/5，传递环节未知，未恢复；CLI默认绑定项目不符，`simpleex --version` exit2。
 
 0.5.516首轮package 340/341、exit1，旧planOperationNoticeLifecycle断言不符新失败日志契约；修测试后单文件22/22 exit0。总控批准原入口重新执行，回执 `simple_cluster/reports/test-workflow/2026-11-21T08-23-22-440Z-42280-package/run.json` 为341/341、13门禁通过、exit0、并发1；首轮失败及路径规范化初次假缺失保留。包2,984,671字节、SHA256 a19398b5542d382a3606984125f2549d3a0721a86d10b96ecef582fe8861212d，源码/tag 6e3e9421，试行发布并安装一次，尚待用户本人Reload；未验新界面或真实Worker。实际包闭包及发行身份证据详见G004-plan。
-U04新增问题3：`resource_available` 的任务查询发生业务拒绝时，`resourceCommand` 将 `loadExperiments` 全部异常吞成空集合；GPU替身返回利用率及进程数均为0时，仍输出 available=true 且无失败提示。当前0.5.516真实查询链与受控RPC对照：`experiment_list` 明确抛出相同拒绝，资源入口却报告可用，2/2、exit0；首次使用普通Error附exitCode属性并非真实CliError，触发可选网络降级、断言失败exit1，修正夹具后复现。仅授权离线根读取及内存替身，无实际GPU/Worker查询；完整问题及修后标准见coverage的U04-03。累计新问题3，按钮总数及剩余数仍未知。
+U04-03 resource_available吞任务查询业务拒绝并在GPU替身空闲时误报可用，真实编译链2/2 exit0；首次夹具错误用普通Error导致断言exit1，改用真实CliError后复现。无真实GPU/Worker查询，完整证据见coverage。
 
 U04日志导航目标文件 `node --test --test-force-exit --test-timeout 20000 test/ui/jobTmuxLogNavigation.test.js`：12/13、exit1；失败为跟随/暂停测试的提取夹具缺 `setNativeTitle`，不是现阶段已证实产品缺陷。精确Worker/任务窗口、错身份拒绝、取消等12项断言通过，仅受控替身；旧2026-11-12回执早于87127cd7对此测试及面板的修改，因此补当前检查。保留失败，不重试，不宣称整套通过；真实Worker未查询。
 
-U04新增问题4：`metric_show` 对当前已核实结果中不存在的精确ID返回空对象，与存在但无数字指标的结果无法区分；相同ID的 `result_show` 明确返回未找到。当前编译查询链及真实CLI消费者配受控 `results.list` 空结果，2/2、exit0；没有查询真实结果或Worker。修后须同时保留已有行的空指标、数字0及歧义拒绝；完整记录见coverage的U04-04。累计新问题4，按钮总数及剩余数仍未知。
+U04-04 metric_show不存在的精确ID与存在但无数字指标混淆；真实CLI配空结果2/2 exit0，未查真实Worker。须保留空指标、数值0及歧义拒绝，见coverage。
 
 U04日志跟随补充：将真实渲染的点击处理、`setTmuxLogFollow` 与页面自身 `setNativeTitle` 同装入受控VM，暂停、跳到底部、恢复3/3、exit0，未发宿主消息。首次补充夹具漏页面全局 `nativeTitleMutationVersion`，ReferenceError、exit1；补齐后通过。原目标文件12/13、exit1仍保留，补充检查不改称整套通过。
 
@@ -59,7 +59,7 @@ U04产物按钮补查：artifactSyncFromUi 当前源码内存转译配假队列�
 
 U04手动转移受控检查：当前源码假宿主4/4、exit0，运行中拒绝、选择或确认取消不发请求，确认后向目标传递来源、原runKey及索引0。原排队任务是否由其他队列围栏撤销仍待核，暂不列确认缺陷；未运行实际任务或访问Worker。按钮总数及剩余数仍未知。
 
-U04新增单项目问题9：手动转移读取点击时的 queued/pending 后等待目标选择及用户确认，期间来源任务已转 running，仍向目标Worker发起新尝试。当前真实方法源码内存转译，假确认Promise及假Worker消费者受控复现，exit0；原运行任务未真实查询或启动。修后应重新核实来源和原runKey的当前状态，运行/终态/无法核实时不发目标请求；原排队项是否另有撤销围栏仍未证实，不冒称已发生重复运行。详情见coverage U04-09。累计确认新问题9，其中单项目4、跨项目延期5；按钮总数及剩余数仍未知。
+U04-09手动转移在确认等待期间来源任务从排队转运行，仍向假目标发起尝试，当前源码内存替身复现exit0；无真实任务操作，不声称已重复运行。须重新核实精确来源身份和状态，见coverage。
 
 U04入口归并补充：workbenchInspectorActions只是候选元数据，添加菜单还要求主列已有可见同命令；无调用的inspectorActionButton不生成默认按钮，历史自定义项仍可显示，保留条件而非直接计默认。GitBackup原生命令状态选择以假后端覆盖关闭、配置、移除及取消4/4、exit0，无实际Git、hook、删除或网络；单项目日志选择假宿主覆盖精确Worker/runKey、主动从0读取、续读offset和错误记录。已确认新问题9，其中单项目4、跨项目延期5；总按钮、已查及剩余仍未核定。
 
@@ -112,3 +112,9 @@ U04新增单项目问题19：结果拆表以普通对象保存词条，__proto__
 U04-20撤回：先前200词条上限复现的是ProjectResultTables.resultCatalog旧扫描，不是当前结果面板读取路径；当前readProjectResultCatalog及拆表catalog使用latestResultCatalog，其真实源码配201条内存导出返回201、exit0。先前错误结论、两次受控检查和原因完整保留于coverage withdrawnFindings及af88f88f，不再计确认缺陷。
 
 原旧扫描产物目录200项受控结果保留，但当前面板不走该扫描，不算当前面板缺陷；未读取真实目录。当前确认19项，其中单项目优先15、跨项目延期4。
+
+U04新增单项目问题21：正常摘要含自定义指标constructor时，注册成功但汇总因普通对象原型键误报等价指标冲突；实际编译updateRegistry/buildTables以内存结果摘要复现、exit0，无真实文件或Worker。修复应支持普通指标名且保留真实冲突检查。U04-20已撤回且编号不复用；现确认20项，单项目优先16、跨项目延期4。
+
+问题21同类变体：含__proto__和accuracy的假摘要经实际updateRegistry后仅保留accuracy，exit0；无真实结果读取。两处指标字典均须保留合法数据键，按同类汇总缺陷合并计数。
+
+问题18产物查询同类变体：当前listArtifacts按精确run-B调用时，较早同名行导致假inventory查询worker-A及其目录，exit0；首次假清单漏modifiedAtMs导致Invalid time value、exit1，补齐后复现。未调用真实Worker；与既有身份选择问题合并计数。
