@@ -25,13 +25,13 @@ U04日志导航目标文件12/13 exit1，夹具缺setNativeTitle；未重试或�
 
 U04-04 metric_show空结果与无指标混淆，受控2/2 exit0，见coverage。
 
-U04日志跟随补充：将真实渲染的点击处理、`setTmuxLogFollow` 与页面自身 `setNativeTitle` 同装入受控VM，暂停、跳到底部、恢复3/3、exit0，未发宿主消息。首次补充夹具漏页面全局 `nativeTitleMutationVersion`，ReferenceError、exit1；补齐后通过。原目标文件12/13、exit1仍保留，补充检查不改称整套通过。
+U04日志跟随补充：真实页面VM 3/3 exit0，首次夹具缺nativeTitleMutationVersion exit1；原目标12/13 exit1仍保留，详见coverage及4a80c627。
 
 U04-05跨项目替身等待错误见coverage，延期。
 
 U04假SFTP配置、项目代理及清理观察分别9/9、11/11、7/7 exit0，无真实服务器或删除；方法与精确边界见coverage及4a80c627。
 
-U04-06跨项目PLAN校验等待后误读另一项目，必填PLAN路径的受控复现exit0；无真实读取。完整证据见coverage。
+U04-06跨项目替身等待错误见coverage，延期。
 
 U04-07跨项目bootstrap等待后启动另一项目假后台消费者，受控复现exit0；无真实后台工作。完整证据见coverage。
 
@@ -185,3 +185,5 @@ U04新增单项目问题45：映射结果时假JSON提交后假表写EACCES，�
 问题21补充JSON排行榜：解析保留__proto__=0.5但实际聚合mean丢失，accuracy保留；内存复现exit0。
 
 复核0.5.516包回执：currentSubmissionTruth、selectedPlanBatch、serverQueueDispatch均passed/exit0，限定PLAN显式身份、全部PLAN刷新去重及队列按钮payload等原断言；未重跑或操作真实任务。
+
+项目摘要动态动作补查：projectQuickStartWorkflow.test.js单文件9/9 exit0，覆盖项目/PLAN/准备状态及导航的受控生成；无真实Worker或UI。
