@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.513",
-  "buildId": "5a394a6d58fe27541b5bfc171879f83ff19184848ed7eb22dee74518a7322f2f",
+  "buildId": "bb9a4e6e3f88978b656165b695a051f298717dbbf6af25af2d7c3f585957ab44",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -49,7 +49,7 @@
     },
     {
       "path": "dist/cli/commands/compare.js",
-      "sha256": "17efc245e494e432ab6f010db582b9403dc097bd8fa5ad619bcb94e7e9d75ada"
+      "sha256": "12a32d8e082fd5903023e611485cfcd6106f3b7c102a3f88a92c0b6006dc6b64"
     },
     {
       "path": "dist/cli/commands/control.js",
@@ -61,7 +61,7 @@
     },
     {
       "path": "dist/cli/commands/experiment.js",
-      "sha256": "dee0147d3addcc756464cf8e85033e620eb10dc502c804fffda1807fe2f250bf"
+      "sha256": "f19479589b82edb3773794a7b472484d9ca3c3dbaa8f4f3e3aee991fdf7f9ef6"
     },
     {
       "path": "dist/cli/commands/gpu.js",
@@ -77,11 +77,11 @@
     },
     {
       "path": "dist/cli/commands/metric.js",
-      "sha256": "e8068bf620a3c41831e26ff2c6cf815da2d20e571dd6dbaaaf2de1b73f762dc1"
+      "sha256": "f806181c6d41c1ea0bb8610a65835f75bdba242fe264814dffc3099c3d631848"
     },
     {
       "path": "dist/cli/commands/plan.js",
-      "sha256": "d9d50ff2b5fc94eb1be12ee2490f329d22f333e05004de52dcde8a83ba4058c8"
+      "sha256": "a3941ee63be20e9e59d9802e703639f06bae9d692bbd92f1d76ba7dc313bfa73"
     },
     {
       "path": "dist/cli/commands/planCleanup.js",
@@ -101,7 +101,7 @@
     },
     {
       "path": "dist/cli/commands/result.js",
-      "sha256": "9eca1154ed9a47477c15bbe932ebc502a972f993799275d2c718da50dc8ccbe3"
+      "sha256": "0f14502aeca4b75eab416d7ee78780ef683c4bfab0947055aad9abba10874c76"
     },
     {
       "path": "dist/cli/commands/server.js",
@@ -261,7 +261,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "1037b0cc09f815020f84e89de2c70d1305b3c26b0f8adbc1149b9749d8594a36"
+      "sha256": "ae672453836dd5c820730248fc339e75531aff24465787ff66bd35914e140f40"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -269,7 +269,7 @@
     },
     {
       "path": "dist/extension/McpHost.js",
-      "sha256": "570024c8fa58a1abc2e4b4f7c5b7ab8d9ec238ef65e741783ae252d0cf2a8ac9"
+      "sha256": "b2f5071030df97dc135e216bb577aaa32adf6b695d74d064175a0a3cae20e025"
     },
     {
       "path": "dist/extension/OutputIsolationRecoveryHost.js",
@@ -537,7 +537,7 @@
     },
     {
       "path": "dist/features/Metrics.js",
-      "sha256": "ee634a956e1f3d1b7163499b17fa2af9aa7ce9068c33e95b34c1833b2353c0f4"
+      "sha256": "45481ed0b34c3c78be8d7abaace4a31d362b39c94cd659b72738eedd9f5606a7"
     },
     {
       "path": "dist/features/NativePlanRetry.js",
@@ -617,7 +617,7 @@
     },
     {
       "path": "dist/features/PlanBuilder.legacy.js",
-      "sha256": "4dc3d70de174a69bc8cc2f8112d265a0c3d27d4d47a8c2c13ffe0def366b2b82"
+      "sha256": "696f56cbf5cfdf0890a15c554858f19d2c3b58a2f3bf34329d6516750b09a362"
     },
     {
       "path": "dist/features/PlanBuilder/PlanValidator.js",
@@ -845,7 +845,7 @@
     },
     {
       "path": "dist/mcp/ProjectGateway.js",
-      "sha256": "57a17614a66c9e4827752f952c1cf521e14856dc6c7da4178ebe1fdfef0ff84b"
+      "sha256": "944b25d21d88f869a0c2408c0a122bd7859c1b97290f027ce470f55d08dde6f8"
     },
     {
       "path": "dist/mcp/ProjectOperations.js",
@@ -853,15 +853,15 @@
     },
     {
       "path": "dist/mcp/ProjectQueries.js",
-      "sha256": "442912e9bb8c26b620d36d324196fb25feab47c9b7aa159dcb02bd5912d5c759"
+      "sha256": "2f776aecbd7ab86cf9bff5b269d5b06b1e49e884ad1bfa505d24ac61af5a79de"
     },
     {
       "path": "dist/mcp/ToolCatalog.js",
-      "sha256": "f52ddb9066e591dad8ac1669249d51a56bcdfc917ae373aa43243cbfe4952462"
+      "sha256": "e7f53ff4042f5340824f493347f1d8c7c7cdaa11df98e3cd2f8783e174da7525"
     },
     {
       "path": "dist/mcp/ToolResults.js",
-      "sha256": "8a19d7b1123f835e378bc0dbfcee08dac125fe37eeac76659f9637a8ce72ccb6"
+      "sha256": "64901539fdfc8ec067a5e898a496162973f6ee01340aa7b18ac043477e8b5e7f"
     },
     {
       "path": "dist/project/BranchHeadBinding.js",

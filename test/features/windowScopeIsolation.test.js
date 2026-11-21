@@ -81,13 +81,13 @@ test('configuration APIs use the workspace resource and read the saved value aft
  const vm=require('node:vm'),ts=require('typescript'),method=require('../_helpers/legacyMethod');
  const source=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
  const uri={fsPath:'C:/configuration-project'},values={'codeSync.scopePaths':['train.py']},writes=[];
- const vscode={ConfigurationTarget:{Workspace:2,WorkspaceFolder:3,Global:1},workspace:{workspaceFolders:[{uri}],getConfiguration:(namespace,resource)=>{
+ const vscode={Uri:{file:root=>{assert.equal(root,uri.fsPath);return uri;}},ConfigurationTarget:{Workspace:2,WorkspaceFolder:3,Global:1},workspace:{workspaceFolders:[{uri}],getConfiguration:(namespace,resource)=>{
   assert.equal(namespace,'simpleExperiment');assert.equal(resource,uri);
   const snapshot=structuredClone(values);return {get:(key,fallback)=>snapshot[key]??fallback,update:async(key,value,target)=>{writes.push({key,value,target});values[key]=value;}};
  }}};
  const Host=vm.runInNewContext(ts.transpileModule('class Host {'+['apiConfigSchema','apiConfigDefinition','apiConfigValue','apiConfigUpdateTarget','apiConfigList','apiConfigGet','apiConfigSet','apiConfigReset'].map(n=>method(source,n+'(')).join('\n')+'}; Host',{
   compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{vscode,API_CONFIG_NAMESPACE:'simpleExperiment',API_CONFIG_PREFIX:'simpleExperiment.',API_SECRET_CONFIG_KEYS:new Set(),stringField:(p,k)=>p[k]||'',validateApiConfigValue:()=>{}});
- const host=new Host();host.context={extension:{packageJSON:{contributes:{configuration:{properties:{'simpleExperiment.codeSync.scopePaths':{type:'array',scope:'resource'}}}}}}};host.postState=()=>{};
+ const host=new Host();host.context={extension:{packageJSON:{contributes:{configuration:{properties:{'simpleExperiment.codeSync.scopePaths':{type:'array',scope:'resource'}}}}}}};host.postState=()=>{};host.captureProjectContext=()=>({root:uri.fsPath});host.projectContextIsCurrent=context=>context.root===uri.fsPath;
  assert.deepEqual(Array.from((await host.apiConfigGet({key:'simpleExperiment.codeSync.scopePaths'})).value),['train.py']);
  const saved=await host.apiConfigSet({key:'simpleExperiment.codeSync.scopePaths',value:['train.py','experiments'],scope:'workspaceFolder',confirm:true});
  assert.equal(saved.scope,'workspaceFolder');assert.deepEqual(Array.from(saved.value),['train.py','experiments']);assert.equal(writes[0].target,3);

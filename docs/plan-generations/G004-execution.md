@@ -66,3 +66,5 @@ A组首次目标测试3项0/3、exit1：确认期间项目变化未拒绝；另�
 总控裁定旧固定basename测试与现行PLAN显式声明契约冲突；仅将该用例期望修正为三条实际声明路径，保留其他拒绝与命令信号断言。完整 `test/experimentPlatform.test.js` 15/15、exit0。首次 `npm run build` 发现执行器默认并发上限2，主动Ctrl+C中止、exit1；前8门禁及9项exclusive测试通过，未推断实际有并发，进程已退出。后续构建/打包显式 `--max-parallel 1`，不改20秒测试限制。
 
 单进程 `npm run build -- --max-parallel 1` exit1：`BUILD_LOCK_UNSETTLED`，本轮中止批的process-owner记录仍为active；仅核实当前无test-workflow或node --test进程，不能据此断言完整子进程树已确认。保留锁记录，不改删、不绕过；已交总控判断合法恢复。独立门禁：PanelHtml模块vm.Script exit0，实际渲染的2个脚本均vm.Script通过；src/dist中10890搜索无匹配（rg exit1）。统一build、最终验收和交付仍未完成。
+
+2026-11-21用户明确批准删除本次唯一残留的 `simple_cluster/locks/simple-experiment/test-workflow/process-owner.json`；总控核对身份、直接父目录及安全根后删除该文件并确认不存在，未扩大清理范围。单进程构建随后成功获取锁。首轮完整执行285个任务，`windowScopeIsolation.test.js` 中配置测试替身缺少新增项目上下文方法，6/7、构建exit1；其他任务通过，锁已释放。补齐该替身及资源URI后，目标文件7/7、exit0。重新执行 `npm run build -- --max-parallel 1 --cancel-stdin`：285个任务通过、exit0，最大并发1，锁已释放；6个按需测试文件未运行，不计为通过。原始回执分别保留于 `simple_cluster/reports/test-workflow/2026-11-21T04-07-52-212Z-67468-build/run.json` 和 `simple_cluster/reports/test-workflow/2026-11-21T04-18-18-128Z-69044-build/run.json`。总体验收、试行发行安装和用户重载仍待完成。
