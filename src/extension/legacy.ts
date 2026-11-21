@@ -4183,12 +4183,12 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         if (completed && blocked)
             throw new Error("flow.update 不能同时设置 completed 和 blocked。");
         this.apiFlowState = ApiWorkflow_1.advanceFlowStep(this.apiFlowState, step, {
-            ...(completed ? { completed: true } : {}),
-            ...(blocked ? { blocked: true } : {}),
+            ...(typeof params.completed === "boolean" ? { completed: params.completed } : blocked ? { completed: false } : {}),
+            ...(typeof params.blocked === "boolean" ? { blocked: params.blocked } : completed ? { blocked: false } : {}),
             appliedAt: String(params.appliedAt || ""),
         });
         this.apiFlowStateDirty = true;
-        void this.persistProjectFlowState().catch(() => undefined);
+        await this.persistProjectFlowState();
         this.postState();
         return { ok: true, flow: this.apiFlowState, nextStep: ApiWorkflow_1.nextFlowStep(this.apiFlowState) };
     }

@@ -78,6 +78,31 @@ test("failure notification links to the full operation log without duplicating l
   facts.length=0; host.postUiCommandStatus('action-4','completed','splitProjectResultTable','completed'); assert.equal(facts.length,0);
 });
 
+test("flow updates report persistence failure instead of claiming success", async () => {
+  const ts=require('typescript'), source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS); let method;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='apiFlowUpdate')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  assert.ok(method); const sandbox={ApiWorkflow_1:{advanceFlowStep:(_state,step,patch)=>({step,...patch}),nextFlowStep:()=> 'next'}};
+  vm.runInNewContext(ts.transpileModule('class Host {'+method+'}; this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const host=new sandbox.Host();host.apiFlowState={};host.postState=()=>{};host.persistProjectFlowState=async()=>{throw new Error('save failed')};
+  await assert.rejects(host.apiFlowUpdate({step:'prepare',completed:true}),/save failed/);
+  host.persistProjectFlowState=async()=>true; const result=await host.apiFlowUpdate({step:'prepare',completed:true});
+  assert.equal(result.ok,true);assert.equal(result.flow.step,'prepare');assert.equal(result.flow.completed,true);
+});
+
+test("flow updates can unblock and complete the same step", async () => {
+  require('../_helpers/registerTsRequire'); const workflow=require('../../src/features/ApiWorkflow.ts');
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS), methods=[];
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&['apiFlowUpdate','apiFlowGet'].includes(node.name.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
+  const sandbox={ApiWorkflow_1:workflow};vm.runInNewContext(ts.transpileModule('class Host {'+methods.join('\n')+'}; this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const h=new sandbox.Host();h.apiFlowState=workflow.defaultFlowState();h.persistProjectFlowState=async()=>true;h.postState=()=>{};
+  await h.apiFlowUpdate({step:'select_servers',blocked:true});let r=await h.apiFlowUpdate({step:'select_servers',completed:true});
+  assert.equal(r.flow.steps.select_servers.blocked,false);assert.equal(r.flow.steps.select_servers.completed,true);assert.equal(r.nextStep,'select_mode');
+  r=await h.apiFlowUpdate({step:'select_servers',completed:false});assert.equal(r.flow.steps.select_servers.completed,false);assert.equal(r.nextStep,'select_servers');
+  const readback=await h.apiFlowGet();assert.equal(readback.flow.steps.select_servers.completed,false);assert.equal(readback.nextStep,'select_servers');
+});
+
 test("webview terminal uiCommandStatus clears button loading by client action", () => {
   const root = path.resolve(__dirname, "..", "..");
   const source = readSource("src/ui/PanelHtml.ts");
