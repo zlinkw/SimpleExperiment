@@ -245,6 +245,24 @@ test("multi-dataset plans are logical references for each dataset and shared art
   assert.match(source, /@container main-workflow \(max-width: 520px\)[\s\S]*?\.resultDatasetStats \{ grid-column: 2 \/ -1;/);
 });
 
+test("multi-dataset references do not offer an empty shared artifact action", () => {
+  const shared = { ...plan("experiments/plans/multi.yaml", "multi"), assignment: { kind: "multiple", datasets: ["肺", "肝"] } };
+  const groups = ["肺", "肝"].map(dataset => ({ dataset, datasetKey: dataset, tables: [], plans: [] }));
+  const state = { resultOutputConfig: { catalog: { datasets: groups, multiDatasetPlans: [shared] }, tables: [] } };
+  const html = createRenderer().renderProjectResultTables(state);
+  assert.equal((html.match(/暂无共享产物/g) || []).length, 2);
+  assert.doesNotMatch(html, /data-open-result-shared-plan/);
+  assert.match(html, /跨数据集 · 肺、肝/);
+});
+
+test("generated panel script remains syntactically valid", () => {
+  require("../_helpers/registerTsRequire");
+  const html = require("../../src/ui/PanelHtml.legacy.ts").renderPanelHtml();
+  const script = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/i);
+  assert.ok(script);
+  assert.doesNotThrow(() => new vm.Script(script[1]));
+});
+
 test("shared Plan link opens and scrolls to its advanced artifact detail", () => {
   let scrolled = false;
   const key = "cross-plan-01";

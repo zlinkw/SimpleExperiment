@@ -16854,7 +16854,9 @@ export function renderPanelHtml(): string {
         if (referenceOnly) {
           const assignmentLabel = isMultiDataset ? '<span class="muted">跨数据集 · ' + esc(assignmentDatasets.join("、")) + '</span>' : "";
           const sharedPlanKey = "result-plan-shared-sources-" + stablePlanKey;
-          return '<div class="resultPlanReference" title="' + escAttr(plan.planFile || plan.label || "") + '"><span class="resultPlanReferenceName">' + esc(planName) + '</span>' + assignmentLabel + (isMultiDataset ? '<button type="button" class="secondary mini" data-open-result-shared-plan data-plan-key="' + escAttr(stablePlanKey) + '" aria-controls="' + escAttr(sharedPlanKey) + '">查看共享产物</button>' : "") + '</div>';
+          const sharedPlan = view.shared.plans.find(item => resultCatalogPlanPath(item) === resultCatalogPlanPath(plan));
+          const hasSharedArtifacts = asArray(sharedPlan?.artifacts).some(item => ["raw", "detail", "trace"].includes(item.kind) && item.artifactKey);
+          return '<div class="resultPlanReference" title="' + escAttr(plan.planFile || plan.label || "") + '"><span class="resultPlanReferenceName">' + esc(planName) + '</span>' + assignmentLabel + (isMultiDataset ? (hasSharedArtifacts ? '<button type="button" class="secondary mini" data-open-result-shared-plan data-plan-key="' + escAttr(stablePlanKey) + '" aria-controls="' + escAttr(sharedPlanKey) + '">查看共享产物</button>' : '<span class="muted">暂无共享产物</span>') : "") + '</div>';
         }
         const files = ["raw", "detail", "trace"].map(kind => {
           const artifacts = asArray(plan.artifacts).filter(file => file.kind === kind);
