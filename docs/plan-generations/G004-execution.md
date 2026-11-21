@@ -181,8 +181,7 @@ U04新增单项目问题45：映射结果时假JSON提交后假表写EACCES，�
 问题45补充：失败后的假JSON经真实catalog读取显示D、待映射列表为0，exit0；未实际执行恢复。
 问题45补充常规结果生成：真实publishLatestResult配假数据及写入，先提交JSON再遇假表写EACCES，exit0；生产调用按源码核对。
 
-问题21补充metric_list：实际列表消费者配内存指标对象遗漏__proto__、保留accuracy，exit0；无真实查询。
-问题21补充JSON排行榜：解析保留__proto__=0.5但实际聚合mean丢失，accuracy保留；内存复现exit0。
+问题21的metric_list及JSON排行榜原型键遗漏均以内存替身复现exit0，详见coverage。
 
 复核0.5.516包回执：currentSubmissionTruth、selectedPlanBatch、serverQueueDispatch均passed/exit0，限定PLAN显式身份、全部PLAN刷新去重及队列按钮payload等原断言；未重跑或操作真实任务。
 
@@ -205,3 +204,5 @@ U04新增单项目问题48：PLAN归档本轮假刷新失败后旧已归档结�
 条件草稿审核/拒绝各配假持久化EACCES，实际方法与状态包装器均报告failed并记录原因，各exit0；未写真实草稿。
 
 291条源码markup候选均已逐位置关联动作或排除说明；含动态模板及非按钮，不是总数或通过数。日志分析任务行payload复用516包回执，旧trace模板仍属退役生产链；无真实Worker查询。
+
+U04新增单项目问题49：宽表首行accuracy=N/A时后续合法0.9被整列丢弃且预览无告警；行顺序倒转则0.9保留，实际解析器内存断言exit0。未读写真实数据。现40项，单项目36、跨项目延期4。
