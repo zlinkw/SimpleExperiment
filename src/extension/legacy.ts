@@ -2761,7 +2761,7 @@ export class RealtimeTunnelPanelProvider {
         const root = workspaceRoot();
         if (!root) throw new Error("请先打开当前实验项目。");
         const dir = planDirSafe();
-        const files = (await walkYaml(path.join(root, dir))).filter(file => !isArchivedPlanFile(root, dir, file));
+        const files = (await walkYaml(path.join(root, dir), { requireComplete: true })).filter(file => !isArchivedPlanFile(root, dir, file));
         if (files.length > 500) throw new Error("结果查询最多支持 500 个当前 PLAN，请缩小项目范围。");
         return mapLimited(files, 4, async file => {
             const relative = path.relative(root, file).replace(/\\/g, "/");
@@ -33289,7 +33289,7 @@ const localPlanSummaryReadBudgetBytes = 512 * 1024;
 const localPlanSummaryConcurrency = 8;
 async function readLocalPlans(root, planDir) {
     const dir = path.join(root, planDir);
-    const files = await walkYaml(dir);
+    const files = await walkYaml(dir, { requireComplete: true });
     return mapLimited(files.filter((fullPath) => !isArchivedPlanFile(root, planDir, fullPath)), localPlanSummaryConcurrency, async (fullPath) => {
         const text = await readUtf8Preview(fullPath, localPlanSummaryReadBudgetBytes);
         const stat = await fs.stat(fullPath).catch(() => undefined);
@@ -33299,7 +33299,7 @@ async function readLocalPlans(root, planDir) {
 }
 async function readArchivedLocalPlans(root, planDir) {
     const dir = path.join(root, planDir, "_archived");
-    const files = await walkYaml(dir);
+    const files = await walkYaml(dir, { requireComplete: true });
     const rows = await mapLimited(files, localPlanSummaryConcurrency, async (fullPath) => {
         const bundle = await readPlanArchiveBundle(fullPath);
         if (bundle.schemaVersion && path.basename(fullPath).toLowerCase() !== "plan.yaml")
@@ -36883,7 +36883,7 @@ async function walkYaml(dir, options = {}) {
     const out = [];
     const stack = [{ dir: path.resolve(dir), depth: 0 }];
     let visitedDirs = 0;
-    while (stack.length && out.length < budget.maxFiles && visitedDirs < budget.maxDirs) {
+    while (stack.length && (out.length < budget.maxFiles || options.requireComplete) && visitedDirs < budget.maxDirs) {
         const current = stack.pop();
         if (!current)
             break;
@@ -36900,20 +36900,27 @@ async function walkYaml(dir, options = {}) {
             const full = path.join(current.dir, entry.name);
             const relative = path.relative(budget.root, full).replace(/\\/g, "/");
             if (entry.isDirectory()) {
-                if (current.depth + 1 > budget.maxDepth)
-                    continue;
                 if (budget.skipHeavyDirs && isHeavyProjectDir(relative))
                     continue;
+                if (current.depth + 1 > budget.maxDepth) {
+                    if (options.requireComplete) throw new Error("PLAN 扫描达到目录深度上限，列表不完整；请缩小计划目录范围后重试。");
+                    continue;
+                }
                 stack.push({ dir: full, depth: current.depth + 1 });
                 continue;
             }
             if (entry.isFile() && (/\.ya?ml$/i.test(entry.name) || (budget.includeJson && /\.json$/i.test(entry.name)) || (budget.includePython && /\.py$/i.test(entry.name)))) {
+                if (out.length >= budget.maxFiles) {
+                    if (options.requireComplete) throw new Error("PLAN 扫描达到文件数量上限，列表不完整；请缩小计划目录范围后重试。");
+                    break;
+                }
                 out.push(full);
-                if (out.length >= budget.maxFiles)
+                if (out.length >= budget.maxFiles && !options.requireComplete)
                     break;
             }
         }
     }
+    if (options.requireComplete && stack.length) throw new Error("PLAN 扫描达到目录数量上限，列表不完整；请缩小计划目录范围后重试。");
     return out;
 }
 function parseLocalPlanText(file, text) {

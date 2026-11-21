@@ -28,6 +28,19 @@ test("optional missing PLAN directories are empty, but permissions and child err
   readdir = async dir => { if (dir.endsWith("plans")) return [{ name: "child", isDirectory: () => true }]; throw failure("EACCES"); };
   await assert.rejects(walk("project/plans"), /EACCES/);
 });
+test("PLAN scan budgets expose incomplete files, depth and directory limits", async () => {
+  const file = name => ({ name, isDirectory: () => false, isFile: () => true });
+  const dir = name => ({ name, isDirectory: () => true, isFile: () => false });
+  let entries = [file("a.yaml"), file("b.yaml")];
+  const walk = vm.runInNewContext(extract("walkYaml"), { path, fs: { readdir: async () => entries },
+    defaultYamlScanBudget: { maxFiles: 2, maxDirs: 1, maxDepth: 1 }, isHeavyProjectDir: () => false });
+  assert.equal((await walk("project/plans", { requireComplete: true })).length, 2);
+  entries = [file("a.yaml"), file("b.yaml"), file("c.yaml")];
+  await assert.rejects(walk("project/plans", { requireComplete: true }), /文件数量上限.*列表不完整/);
+  entries = [dir("child")];
+  await assert.rejects(walk("project/plans", { requireComplete: true }), /目录数量上限.*列表不完整/);
+  await assert.rejects(walk("project/plans", { requireComplete: true, maxDirs: 3 }), /目录深度上限.*列表不完整/);
+});
 test("unreadable PLAN is not parsed as an empty file", async () => {
   const read = vm.runInNewContext(extract("readUtf8Preview"), { fs: { open: async () => { throw failure("EACCES"); } }, Buffer,
     localTextReadBudgetBytes: 1024 });
