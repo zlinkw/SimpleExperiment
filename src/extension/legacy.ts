@@ -20154,13 +20154,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async savePlanFromUi(message) {
         const generation = this.projectContextGeneration;
         const file = stringField(message, "file") || stringField(message, "planFile");
-        const text = stringField(message, "text");
-        if (!file || !text) {
+        const text = typeof message?.text === "string" ? message.text : "";
+        if (!file || !text.trim()) {
             if (generation !== this.projectContextGeneration)
                 return;
-            this.recordActionError({ command: "savePlan", message: "缺少 plan 文件或内容" });
-            this.postState();
-            return;
+            throw new Error("缺少 plan 文件或内容");
         }
         const root = workspaceRoot();
         if (!root)
