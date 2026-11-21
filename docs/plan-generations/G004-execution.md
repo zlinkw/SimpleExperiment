@@ -6,7 +6,7 @@ U04 排查基线 HEAD 与 origin/master 为 b7c0b42c27227a8ec49d42d1f21346900a27
 
 U04-01清理状态变化后仍发假请求，含首次夹具失败；无真实删除，见coverage及4a80c627。
 
-U04-02跨项目缓存审核拒绝后页面仍显示删除中，替身exit0；无真实删除，详见coverage。
+U04-02跨项目缓存审核错误见coverage，未真实删除。
 
 缓存及同步范围页局部受控检查分别4/4及3/3 exit0；无真实删除。细节见4a80c627及coverage。
 
@@ -29,11 +29,7 @@ U04日志跟随补充：将真实渲染的点击处理、`setTmuxLogFollow` 与�
 
 U04-05跨项目等待期间取消被吞并读到另一项目替身数据，受控复现exit0；无真实切换或Worker。完整证据及验收见coverage。
 
-U04 SFTP配置代理假能力/确认/RPC核8项精确方法与拒绝、false/0保留，9/9 exit0；未操作真实配置、SFTP或服务器，详情见coverage。
-
-U04 SFTP项目代理假Worker/RPC核10项方法、项目节点参数、0及未知节点拒绝，11/11 exit0；无真实传输或写入，详情见coverage。
-
-U04文件清理观察代理6项方法、精确节点token及索引0等假SFTP受控7/7 exit0，未查询或删除真实文件；U04-01保留。
+U04假SFTP配置、项目代理及清理观察分别9/9、11/11、7/7 exit0，无真实服务器或删除；方法与精确边界见coverage及4a80c627。
 
 U04-06跨项目PLAN校验等待后误读另一项目，必填PLAN路径的受控复现exit0；无真实读取。完整证据见coverage。
 
@@ -182,3 +178,5 @@ U04新增单项目问题40：公开中位数排行未按主指标方向排序；
 问题40同类排序：best越小越好时缺失指标组排在有效0.1前，实际函数内存复现exit0。
 
 问题21补充metric_show/result_compare：真实消费者与numericMetrics配内存记录，__proto__指标被遗漏而accuracy保留，exit0；无真实查询。
+
+问题21补充比较：仅左侧有constructor指标时实际compare误认右侧存在，产生NaN（JSON为null），内存复现exit0；accuracy正常。
