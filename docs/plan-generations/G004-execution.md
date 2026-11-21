@@ -18,7 +18,7 @@ U04-02跨项目缓存审核错误见coverage，未真实删除。
 
 U01/U02/U03分别2/8/10项已修；U03末轮42/42 exit0。J01宿主缺GIT_CONFIG_VALUE_0/5且传递未知；simpleex --version绑定不符exit2。完整记录见b7c0b42c及计划。
 
-0.5.516首轮package 340/341 exit1，旧断言修后单测22/22、再341/341及13门禁exit0；已安装一次、用户尚未确认Reload，权威Latest仍0.5.483。完整回执及包身份保留于b7c0b42c与计划。
+0.5.516 package首轮340/341 exit1，断言修后22/22及341/341 exit0；安装一次、未获用户Reload确认，证据见计划及b7c0b42c。
 U04-03 resource_available吞业务错误，真实编译链2/2 exit0；首轮错误夹具exit1保留于coverage及4a80c627。
 
 U04日志导航目标文件12/13 exit1，夹具缺setNativeTitle；未重试或宣称整套通过，完整证据见coverage。
@@ -187,3 +187,5 @@ U04新增单项目问题45：映射结果时假JSON提交后假表写EACCES，�
 复核0.5.516包回执：currentSubmissionTruth、selectedPlanBatch、serverQueueDispatch均passed/exit0，限定PLAN显式身份、全部PLAN刷新去重及队列按钮payload等原断言；未重跑或操作真实任务。
 
 项目摘要动态动作补查：projectQuickStartWorkflow.test.js单文件9/9 exit0，覆盖项目/PLAN/准备状态及导航的受控生成；无真实Worker或UI。
+
+原候选中35条按源码确认为宿主向webview的状态消息、1条为定时查询，不计独立按钮；此分类不代表关联动作通过。
