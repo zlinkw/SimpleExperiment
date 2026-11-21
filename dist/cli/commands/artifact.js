@@ -113,7 +113,7 @@ async function workerInventory(workerId, filePath, includeHashes = false) {
 }
 async function listArtifacts(experimentId, knownExperiments) {
     const experiments = knownExperiments || await (0, experiment_1.loadExperiments)();
-    const experiment = experiments.find((row) => row.id === experimentId || row.name === experimentId);
+    const experiment = (0, experiment_1.pickExperiment)(experiments, experimentId);
     const jobs = experiment?.type === "worker_run" ? [experiment] : experiment?.type === "workflow"
         ? experiments.filter(row => row.type === "worker_run" && row.parent_id === experiment.id) : [];
     if (jobs.some(row => row.native_state)) {
@@ -177,8 +177,9 @@ async function listArtifacts(experimentId, knownExperiments) {
 }
 async function findArtifact(id) {
     const experiments = await (0, experiment_1.loadExperiments)();
-    const identities = experiments.flatMap(row => [row.id, row.name]).filter((value) => Boolean(value));
-    const experimentId = identities.filter(value => id.startsWith(`${value}:`)).sort((a, b) => b.length - a.length)[0] || id.split(":")[0];
+    const prefixes = (values) => values.filter((value) => Boolean(value) && id.startsWith(`${value}:`)).sort((a, b) => b.length - a.length);
+    const prefix = prefixes(experiments.map(row => row.id))[0] || prefixes(experiments.flatMap(row => [row.name, row.run_id]))[0];
+    const experimentId = prefix || id.split(":")[0];
     const name = id.startsWith(`${experimentId}:`) ? id.slice(experimentId.length + 1) : experimentId;
     const listed = await listArtifacts(experimentId, experiments);
     const exact = listed.filter((row) => row.id === id);
@@ -193,6 +194,8 @@ async function findArtifact(id) {
         const local = (0, data_1.fileExists)(abs) ? abs : undefined;
         return { path: match.path, size: local ? String(fs.statSync(local).size) : match.size, local };
     }
+    if (prefix)
+        return null;
     const abs = path.isAbsolute(id) ? id : (0, data_1.resolveProjectPath)(id);
     if ((0, data_1.fileExists)(abs))
         return { path: id, size: String(fs.statSync(abs).size), local: abs };

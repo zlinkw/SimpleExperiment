@@ -399,7 +399,7 @@ test('active result rows retain exact identities across order changes and failed
   output='';await resultExport(zero.id,{json:true,format:'json'});const exported=JSON.parse(output);assert.equal(exported.current,true);assert.equal(JSON.parse(exported.content).metrics.auc,0.8);assert.equal(JSON.parse(exported.content).rows.length,1);
   records=[make('a','unique-command',0,'clean')];await resultShow('unique-command',{json:true});assert.equal(JSON.parse(output).experimentId,'unique-command');
   await metricShow('unique-command',{json:true});assert.equal(JSON.parse(output).auc,0.8);
-  await metricShow('missing',{json:true});assert.deepEqual(JSON.parse(output),{});
+  await assert.rejects(metricShow('missing',{json:true}),/result not found: missing/);
   await compareCommand(['missing','unique-command'],{json:true});assert.match(JSON.parse(output).reason,/no results recorded for missing/);
   const dest=path.join(dir,'existing-export.json');fs.writeFileSync(dest,'keep existing export','utf8');current=false;
   await assert.rejects(resultExport(zero.id,{json:true,out:dest}),/RESULT_QUERY_UNVERIFIED/);assert.equal(fs.readFileSync(dest,'utf8'),'keep existing export');

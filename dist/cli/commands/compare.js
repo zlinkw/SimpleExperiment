@@ -16,18 +16,20 @@ async function compareCommand(rest, flags) {
     const leftRow = (0, result_1.selectResult)(rows, leftId), rightRow = (0, result_1.selectResult)(rows, rightId);
     const left = leftRow ? (0, metric_1.numericMetrics)(leftRow) : {};
     const right = rightRow ? (0, metric_1.numericMetrics)(rightRow) : {};
-    const difference = {};
+    const difference = Object.create(null);
     const improvement = [];
     const regression = [];
-    const reason = !Object.keys(left).length && !Object.keys(right).length
+    const reason = !leftRow && !rightRow
         ? "no results recorded for either experiment"
-        : !Object.keys(left).length
+        : !leftRow
             ? `no results recorded for ${leftId}`
-            : !Object.keys(right).length
+            : !rightRow
                 ? `no results recorded for ${rightId}`
-                : "";
+                : !Object.keys(left).length || !Object.keys(right).length
+                    ? "no numeric metrics available for comparison"
+                    : "";
     for (const key of Object.keys(left)) {
-        if (!(key in right))
+        if (!Object.hasOwn(right, key))
             continue;
         const delta = Math.round((right[key] - left[key]) * 1e12) / 1e12;
         difference[key] = { left: left[key], right: right[key], delta };

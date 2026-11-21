@@ -41,6 +41,7 @@ function extensionHost(rows, choices = [], onConfirm) {
   let posted = 0;
   const sandbox = {
     RunOperations_1: RunOperations,
+    UiCommandCancelled: class UiCommandCancelled extends Error {},
     workspaceRoot: () => "/workspace/fixture-project",
     uniqueStrings: (values) => [...new Set(values.filter(Boolean))],
     stringArrayField: (row, key) => (Array.isArray(row?.[key]) ? row[key].map(String) : []),
@@ -112,7 +113,7 @@ test("outcome-pending result rebuild without PLAN path is hideable and cancelled
   assert.deepEqual(accepted.state.get("hidden"), [PENDING_REBUILD.operationId]);
 
   const declined = extensionHost(rows, ["取消"]);
-  await declined.host.clearOperationHistoryFromUi({ operationIds: [PENDING_REBUILD.operationId] });
+  await assert.rejects(declined.host.clearOperationHistoryFromUi({ operationIds: [PENDING_REBUILD.operationId] }), /已取消清除/);
   assert.equal(declined.state.get("hidden"), undefined);
   assert.equal(declined.posts(), 0);
 });

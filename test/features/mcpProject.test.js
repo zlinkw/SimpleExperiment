@@ -716,7 +716,7 @@ test('MCP result comparison respects declared directions and export preserves th
   assert.deepEqual(conflicting.improvement, []); assert.deepEqual(conflicting.regression, []);
   assert.deepEqual(conflicting.metric_difference.RMSE, { left: 2, right: 2, delta: 0 });
   records[1].metrics = { other: 1 };
-  assert.deepEqual((await queryProject(f.root, rpc, 'result_compare', { left: rows[0].id, right: rows[1].id })).metric_difference, {});
+  assert.deepEqual(JSON.parse(JSON.stringify((await queryProject(f.root, rpc, 'result_compare', { left: rows[0].id, right: rows[1].id })).metric_difference)), {});
 });
 test('MCP file parsing rejects unknown presets and ranks known loss in the correct direction', async () => {
   const { queryProject } = require('../../dist/mcp/ProjectQueries.js');

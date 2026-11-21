@@ -1252,7 +1252,7 @@ class RealtimeTunnelPanelProvider {
         // realtimeRefreshPolicy() snapshot already carries the right cadence.
         this.lowTrafficMode = this.context.globalState.get(keys.lowTrafficMode) === true;
         this.projectBootstrapPromise = this.bootstrapProjectLocalUiState()
-            .catch(() => undefined)
+            .catch((error) => this.recordOnboardingBackgroundError("projectStateMigration", error))
             .finally(() => {
             this.ensureSelectedPlanFileWatchers("bootstrap");
         });
@@ -2892,7 +2892,7 @@ class RealtimeTunnelPanelProvider {
         if (!root)
             throw new Error("请先打开当前实验项目。");
         const dir = planDirSafe();
-        const files = (await walkYaml(path.join(root, dir))).filter(file => !isArchivedPlanFile(root, dir, file));
+        const files = (await walkYaml(path.join(root, dir), { requireComplete: true })).filter(file => !isArchivedPlanFile(root, dir, file));
         if (files.length > 500)
             throw new Error("结果查询最多支持 500 个当前 PLAN，请缩小项目范围。");
         return mapLimited(files, 4, async (file) => {
@@ -4408,9 +4408,10 @@ class RealtimeTunnelPanelProvider {
         const archived = params.archived === true ? (this.localPlanMetadata.archivedPlans || []).map((plan) => ({ ...plan, archived: true })) : [];
         const filtered = ApiWorkflow_1.filterPlans([...plans, ...archived], params);
         return {
-            ok: true,
+            ok: !this.localPlanMetadata.error,
             source: "local_metadata",
             planDir: this.localPlanMetadata.planDir || "",
+            ...(this.localPlanMetadata.error ? { error: this.localPlanMetadata.error } : {}),
             ...filtered,
         };
     }
@@ -4833,7 +4834,7 @@ class RealtimeTunnelPanelProvider {
         ]);
         if (!this.projectContextIsCurrent(projectContext))
             return;
-        await this.migrateLegacyProjectUiStateFromVsCode(projectContext).catch(() => undefined);
+        await this.migrateLegacyProjectUiStateFromVsCode(projectContext);
     }
     captureProjectContext() {
         return { generation: this.projectContextGeneration, root: workspaceRoot(), signal: this.projectContextAbortController.signal };
@@ -5089,7 +5090,7 @@ class RealtimeTunnelPanelProvider {
         this.lastPostedStateSignature = "";
     }
     async migrateLegacyProjectUiStateFromVsCode(projectContext = this.captureProjectContext()) {
-        if (!this.projectContextIsCurrent(projectContext))
+        if (!projectContext.root || !this.projectContextIsCurrent(projectContext))
             return;
         const workspaceHiddenLegacyKeys = stringArrayConfig(this.context.workspaceState.get(keys.hiddenLegacyTaskUiKeys, []));
         const globalHiddenLegacyKeys = stringArrayConfig(this.context.globalState.get(keys.hiddenLegacyTaskUiKeys, []));
@@ -5097,7 +5098,7 @@ class RealtimeTunnelPanelProvider {
         if (legacyHidden.length) {
             for (const key of legacyHidden)
                 this.hiddenLegacyTaskUiKeys.add(key);
-            await this.persistProjectTaskSelectionState().catch(() => undefined);
+            await this.persistProjectTaskSelectionState();
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             await this.context.workspaceState.update(keys.hiddenLegacyTaskUiKeys, undefined);
@@ -5106,29 +5107,24 @@ class RealtimeTunnelPanelProvider {
                 return;
         }
         const legacyOffline = this.context.workspaceState.get(keys.offlineBundle);
-        if (!this.offlineBundle && legacyOffline) {
-            this.offlineBundle = legacyOffline;
-            await this.persistProjectOfflineBundleState().catch(() => undefined);
+        if (legacyOffline) {
+            if (!this.offlineBundle)
+                this.offlineBundle = legacyOffline;
+            await this.persistProjectOfflineBundleState();
             if (!this.projectContextIsCurrent(projectContext))
                 return;
-            await this.context.workspaceState.update(keys.offlineBundle, undefined);
-        }
-        else if (legacyOffline) {
             await this.context.workspaceState.update(keys.offlineBundle, undefined);
         }
         if (!this.projectContextIsCurrent(projectContext))
             return;
         const legacyLayout = this.context.workspaceState.get(keys.uiProjectLayout)
             || this.context.workspaceState.get(keys.uiProjectActions);
-        if (!this.projectUiLayout && legacyLayout && typeof legacyLayout === "object") {
-            this.projectUiLayout = normalizeUiProjectLayoutState(legacyLayout, defaultUiLayout);
-            await this.persistProjectUiLayoutState().catch(() => undefined);
+        if (legacyLayout && typeof legacyLayout === "object") {
+            if (!this.projectUiLayout)
+                this.projectUiLayout = normalizeUiProjectLayoutState(legacyLayout, defaultUiLayout);
+            await this.persistProjectUiLayoutState();
             if (!this.projectContextIsCurrent(projectContext))
                 return;
-            await this.context.workspaceState.update(keys.uiProjectLayout, undefined);
-            await this.context.workspaceState.update(keys.uiProjectActions, undefined);
-        }
-        else if (legacyLayout) {
             await this.context.workspaceState.update(keys.uiProjectLayout, undefined);
             await this.context.workspaceState.update(keys.uiProjectActions, undefined);
         }
@@ -10382,10 +10378,25 @@ class RealtimeTunnelPanelProvider {
         const action = String(params.action || "inspect");
         if (!["inspect", "ensure", "stop", "restart", "migrate"].includes(action))
             throw new Error("AGENT_ACTION_INVALID");
+        const projectContext = this.captureProjectContext();
+        const configs = structuredClone(ids.map(id => this.setupConfig.workerTunnels.find(row => row.id === id)));
+        const shared = structuredClone({ prefix: this.setupConfig.remoteTmuxSessionPrefix, condaEnv: this.setupConfig.condaEnv, tunnel: this.tunnelConfig });
+        const assertCurrent = () => {
+            if (!this.projectContextIsCurrent(projectContext))
+                throw new Error("MCP_WORKSPACE_CHANGED");
+            const current = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentRuntimeUploadTargets(), ids);
+            if (!(0, util_1.isDeepStrictEqual)(targets, current)
+                || !(0, util_1.isDeepStrictEqual)(configs, ids.map(id => this.setupConfig.workerTunnels.find(row => row.id === id)))
+                || !(0, util_1.isDeepStrictEqual)(shared, { prefix: this.setupConfig.remoteTmuxSessionPrefix, condaEnv: this.setupConfig.condaEnv, tunnel: this.tunnelConfig }))
+                throw new Error("MCP_WORKER_TARGET_CHANGED");
+            if (action !== "inspect")
+                Invocation_1.mcpInvocation.getStore()?.permission("agents");
+        };
         if (action === "migrate") {
             const preview = [];
             for (const target of targets) {
-                const before = await this.agentLifecycleForTarget(target, "inspect");
+                assertCurrent();
+                const before = await this.agentLifecycleForTarget(target, "inspect", undefined, false, undefined, assertCurrent);
                 if (before.status !== "legacy")
                     throw new Error(`AGENT_MIGRATION_NOT_REQUIRED: ${target.id}`);
                 preview.push({ serverId: target.id, host: target.host, user: target.user, port: target.port, ...before.legacyMigration });
@@ -10408,8 +10419,10 @@ class RealtimeTunnelPanelProvider {
                 "cluster_agent.py": RuntimeManifest_1.sha256Text(agent), "cluster_scheduler.py": RuntimeManifest_1.sha256Text(scheduler)
             } };
         const results = [];
-        for (const target of targets)
-            results.push({ id: target.id, ...await this.agentLifecycleForTarget(target, action, manifest, params.confirm === true, params.migrationDigests?.[target.id]) });
+        for (const target of targets) {
+            assertCurrent();
+            results.push({ id: target.id, ...await this.agentLifecycleForTarget(target, action, manifest, params.confirm === true, params.migrationDigests?.[target.id], assertCurrent) });
+        }
         return { ok: true, action, results };
     }
     async agentLifecycleServer(target) {
@@ -10434,7 +10447,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error(`AGENT_SSH_ALIAS_MISMATCH: ${target.id} / ${alias}; expected=${expectedUser}@${expectedHost}:${expectedPort}; resolved=${resolved.user}@${resolved.hostname}:${resolved.port}; ${resolved.message || ""}`);
         return { ...server, host: alias, sftpHost: alias, sshHost: alias, transferHost: alias, resolvedHost: alias, networkHost: expectedHost };
     }
-    async agentLifecycleForTarget(target, action, manifest, confirmed = false, migrationDigest) {
+    async agentLifecycleForTarget(target, action, manifest, confirmed = false, migrationDigest, assertCurrent) {
         const installed = vscode.extensions.getExtension(SIMPLE_SFTP_EXTENSION_ID);
         if (require("../features/ExtensionUpdates").compareSemanticVersions(String(installed?.packageJSON?.version || "0.0.0"), "0.2.78") < 0)
             throw new Error("AGENT_LIFECYCLE_CAPABILITY_REQUIRED: 需要 SimpleSFTP 0.2.78，未修改远端或自定义登录命令。");
@@ -10450,8 +10463,10 @@ class RealtimeTunnelPanelProvider {
         const result = await (async () => {
             await this.invalidateProjectFileIndexes?.("文件操作开始：simpleSftp.agentLifecycle");
             try {
+                const server = await this.agentLifecycleServer(target);
+                assertCurrent?.();
                 return await vscode.commands.executeCommand("simpleSftp.agentLifecycle", {
-                    action, server: await this.agentLifecycleServer(target), projectDir: dirs.workDir, installDir: dirs.installDir,
+                    action, server, projectDir: dirs.workDir, installDir: dirs.installDir,
                     stateDir: config.agentStateDir, workerStateDir: config.workerStateDir,
                     mode: "worker_telemetry", workerId: target.id,
                     condaEnv: target.id === "hub" ? config.condaEnv : effectiveWorkerCondaEnv(config, this.setupConfig.condaEnv),
@@ -10486,7 +10501,7 @@ class RealtimeTunnelPanelProvider {
             // already queried and verified server-local health over the SSH channel.
             const health = result;
             if (health.schedulerRuntime?.status === "update_required" || health.schedulerUpdateError) {
-                return this.agentLifecycleForTarget(target, "restart", manifest, confirmed);
+                return this.agentLifecycleForTarget(target, "restart", manifest, confirmed, migrationDigest, assertCurrent);
             }
             if (health.schedulerRuntime?.protocol !== 1 || !["current", "absent"].includes(health.schedulerRuntime.status))
                 throw new Error(`${target.id}: SCHEDULER_RUNTIME_UNVERIFIED: ${health.schedulerRuntime?.error || "部署通道未返回独立调度器证据，请更新配套 SimpleSFTP 至 0.2.90 或更高版本"}`);
@@ -19777,6 +19792,15 @@ class RealtimeTunnelPanelProvider {
             manualReassignment: true,
             reassignmentRunKey,
         };
+        const snapshot = await this.readWorkerTaskSnapshot(sourceWorkerId, { fresh: true });
+        const matches = (snapshot?.tasks || []).filter((task) => String(task.runKey || task.commandId || "") === runKey
+            && (!task.workerId || task.workerId === sourceWorkerId)
+            && (task.experimentIndex ?? task.jobIndex) !== undefined
+            && Number(task.experimentIndex ?? task.jobIndex) === experimentIndex
+            && (!task.planFile || samePlanSelection(task.planFile, planFile)));
+        if (snapshot?.workerId !== sourceWorkerId || !DistributedPlanQueue.hasFreshDurableSnapshot(snapshot, Date.now(), 5000)
+            || matches.length !== 1 || !["queued", "pending"].includes(String(matches[0].status || "").toLowerCase()))
+            throw new Error("来源任务当前状态未确认仍在排队，未提交新的转移尝试。请刷新后重试。");
         const result = await this.postWorkerTunnelAction(picked.workerId, "retry-worker-task", body, { title: "手动转移 Worker 任务", confirm: false, danger: false });
         this.throwIfRemoteActionPending("reassignWorkerTask", "retry-worker-task", result);
         this.postState();
@@ -19798,7 +19822,7 @@ class RealtimeTunnelPanelProvider {
         const updates = [
             ...Object.entries(GpuQuotaScheduling.quotaSettings({ ...settings, ...patch })).map(([key, value]) => config.update("scheduler." + key, value, vscode.ConfigurationTarget.Global)),
             config.update("scheduler.dispatchMode", "local_idle", vscode.ConfigurationTarget.Global),
-            config.update("scheduler.pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 5, 3600), vscode.ConfigurationTarget.Global),
+            config.update("scheduler.pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 5, 3600, true), vscode.ConfigurationTarget.Global),
             config.update("scheduler.jitterSeconds", numberRangePatch(patch, "jitterSeconds", settings.jitterSeconds, 0, 1800), vscode.ConfigurationTarget.Global),
             config.update("scheduler.workerStatusTtlSeconds", numberRangePatch(patch, "workerStatusTtlSeconds", settings.workerStatusTtlSeconds, 10, 7200), vscode.ConfigurationTarget.Global),
             config.update("scheduler.localAvailabilityPushSeconds", numberRangePatch(patch, "localAvailabilityPushSeconds", settings.localAvailabilityPushSeconds, 5, 3600), vscode.ConfigurationTarget.Global),
@@ -21378,6 +21402,13 @@ class RealtimeTunnelPanelProvider {
                 void this.persistProjectPlanSelectionState().catch(() => undefined);
                 void this.persistProjectLocalPlanMetadataState().catch(() => undefined);
             }
+            catch (error) {
+                if (generation === this.projectContextGeneration && root === workspaceRoot()) {
+                    this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
+                    this.localPlanMetadataFullRefresh = false;
+                }
+                throw error;
+            }
             finally {
                 if (this.localPlanMetadataRefreshPromise === refresh)
                     this.localPlanMetadataRefreshPromise = undefined;
@@ -21405,8 +21436,8 @@ class RealtimeTunnelPanelProvider {
             this.localPlanMetadataKey === key &&
             !this.localPlanMetadata.error;
         const [plans, selectedPlan, detectedProject] = await Promise.all([
-            options.allPlans || !planFile || !actionRecent ? readLocalPlans(root, dir).catch(() => this.localPlanMetadata.plans || []) : Promise.resolve(this.localPlanMetadata.plans || []),
-            planFile ? readLocalPlanSummary(root, dir, planFile).catch(() => undefined) : Promise.resolve(undefined),
+            options.allPlans || !planFile || !actionRecent ? readLocalPlans(root, dir) : Promise.resolve(this.localPlanMetadata.plans || []),
+            planFile ? readLocalPlanSummary(root, dir, planFile) : Promise.resolve(undefined),
             detectLocalProjectForActionGate(root, dir, this.localPlanMetadata.detectedProject).catch((error) => ({
                 ...this.localPlanMetadata.detectedProject,
                 metadataRefreshMode: "action_gate_failed",
@@ -21455,7 +21486,11 @@ class RealtimeTunnelPanelProvider {
             this.draftPlanState = { enabled: false, drafts: [], cleanupCandidates: [], error: "", updatedAt: new Date().toISOString() };
             return;
         }
-        const planDirExists = await fs.stat(path.join(root, "tmp", "plan")).then((item) => item.isDirectory()).catch(() => false);
+        const planDirExists = await fs.stat(path.join(root, "tmp", "plan")).then((item) => item.isDirectory()).catch((error) => {
+            if (error?.code === "ENOENT")
+                return false;
+            throw error;
+        });
         if (!planDirExists) {
             this.draftPlanState = { enabled: false, drafts: [], cleanupCandidates: [], error: "", updatedAt: new Date().toISOString() };
             return;
@@ -21747,13 +21782,11 @@ class RealtimeTunnelPanelProvider {
     async savePlanFromUi(message) {
         const generation = this.projectContextGeneration;
         const file = stringField(message, "file") || stringField(message, "planFile");
-        const text = stringField(message, "text");
-        if (!file || !text) {
+        const text = typeof message?.text === "string" ? message.text : "";
+        if (!file || !text.trim()) {
             if (generation !== this.projectContextGeneration)
                 return;
-            this.recordActionError({ command: "savePlan", message: "缺少 plan 文件或内容" });
-            this.postState();
-            return;
+            throw new Error("缺少 plan 文件或内容");
         }
         const root = workspaceRoot();
         if (!root)
@@ -21936,8 +21969,10 @@ class RealtimeTunnelPanelProvider {
         const runGate = planArchiveRunGate(this.lastRealtimeState || this.lastSnapshot || client.currentState(), file);
         if (!runGate.ok)
             throw new Error(`暂不可归档 Plan：${runGate.reason}`);
-        await this.refreshResultsSummary(file);
+        const refreshed = await this.refreshResultsSummary(file);
         assertCurrent();
+        if (!refreshed.ok)
+            throw new Error(`暂不可归档 Plan：本轮结果未刷新：${refreshed.reason}。`);
         const resultSummary = this.filterResultsSummaryForPlan(this.resultsSummary, file);
         const archiveGate = planArchiveGateFromResults(resultSummary, file);
         if (!archiveGate.ok)
@@ -22922,8 +22957,10 @@ class RealtimeTunnelPanelProvider {
             openLabel: "选择结果 CSV 文件夹",
             title: "选择当前项目内的实验结果 CSV 文件夹",
         });
-        if (!this.projectContextIsCurrent(projectContext) || !selected?.[0])
+        if (!this.projectContextIsCurrent(projectContext))
             return;
+        if (!selected?.[0])
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消选择结果目录。");
         const relative = path.relative(folder.uri.fsPath, selected[0].fsPath).replace(/\\/g, "/");
         const resultCsvDir = normalizeResultCsvDir(relative);
         safeWorkspaceChildPath(folder.uri.fsPath, resultCsvDir);
@@ -23013,10 +23050,13 @@ class RealtimeTunnelPanelProvider {
             mappings[plan.planFile] = { datasets: [dataset], source: "manual", updatedAt: new Date().toISOString() };
             selected[plan.planFile] = dataset;
         }
-        const changed = await (0, LatestResultExport_1.mapLatestResultDatasets)(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, selected, () => this.projectContextIsCurrent(context));
+        const changed = await (0, LatestResultExport_1.mapLatestResultDatasets)(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, selected, () => this.projectContextIsCurrent(context), async () => {
+            if (!this.projectContextIsCurrent(context))
+                throw new Error("工作区已变化，未保存数据集映射。");
+            await vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).update("projectAdapterRules", { ...rules, planDatasetMapping: mappings }, vscode.ConfigurationTarget.WorkspaceFolder);
+        });
         if (!this.projectContextIsCurrent(context))
             return;
-        await vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).update("projectAdapterRules", { ...rules, planDatasetMapping: mappings }, vscode.ConfigurationTarget.WorkspaceFolder);
         await this.refreshLocalResultCatalogForProject(context);
         this.postState();
         const count = Object.keys(requested).length;
@@ -23285,7 +23325,10 @@ class RealtimeTunnelPanelProvider {
         this.planFileInput = nextPlanFile;
         if (changed)
             this.refreshExperimentTracesProjectionForCurrentInterest();
-        void this.persistProjectPlanSelectionState().catch(() => undefined);
+        void this.persistProjectPlanSelectionState().catch((error) => {
+            this.recordActionError({ command: "selectPlan", message: `保存计划选择失败：${errorMessage(error)}` });
+            this.postState();
+        });
         this.ensureSelectedPlanFileWatchers(changed ? "切换计划" : "选择计划");
         this.postState();
         if (changed)
@@ -23332,7 +23375,10 @@ class RealtimeTunnelPanelProvider {
                 this.selectedArchiveKeys.delete(archiveKey);
         }
         this.markTaskSelectionChanged();
-        void this.persistProjectTaskSelectionState().catch(() => undefined);
+        void this.persistProjectTaskSelectionState().catch((error) => {
+            this.recordActionError({ command: "selectExperiment", message: `保存任务选择失败：${errorMessage(error)}` });
+            this.postState();
+        });
         this.postState();
     }
     async clearLegacyTasksFromUi(message) {
@@ -23351,8 +23397,8 @@ class RealtimeTunnelPanelProvider {
         for (const key of taskUiKeys)
             this.selectedTaskUiKeys.delete(key);
         this.markTaskSelectionChanged();
-        void this.persistProjectTaskSelectionState().catch(() => undefined);
         this.postState();
+        await this.persistProjectTaskSelectionState();
         void vscode.window.showInformationMessage(`已从本机面板隐藏 ${taskUiKeys.length} 条旧任务残留；未删除任何远端文件。`);
     }
     async clearCacheFromUi() {
@@ -23471,7 +23517,9 @@ class RealtimeTunnelPanelProvider {
             const confirmed = await vscode.window.showWarningMessage(unknownOutcome
                 ? `从本机面板隐藏 ${operationIds.length} 条记录？其中含“执行结果待确认”的旧记录：隐藏只表示本机面板不再显示，不代表远端已结束。当前运行的 Plan 和 job、远端审计、日志及产物均保留。`
                 : `从本机面板隐藏 ${operationIds.length} 条已结束操作记录？当前运行的 Plan 和 job、远端审计、日志及产物均保留。`, { modal: true }, "清理所选记录", "取消");
-            if (confirmed !== "清理所选记录" || root !== workspaceRoot())
+            if (confirmed !== "清理所选记录")
+                throw new UiCommandCancelled_1.UiCommandCancelled("已取消清除所选历史。");
+            if (root !== workspaceRoot())
                 return;
             // 确认弹窗挂起期间同一身份可能已被远端回成 running/queued；写隐藏前重新取当前行复校，
             // 绝不拿 await 前的旧快照授权，也不能因复校失败而碰任何远端、队列或产物。
@@ -23489,7 +23537,7 @@ class RealtimeTunnelPanelProvider {
         const label = planFile ? `Plan ${planFile}` : "所有 Plan";
         const confirmed = await vscode.window.showWarningMessage(`清除 ${label} 的已结束运行历史？运行中的任务继续显示；远端审计、日志和训练产物保留。`, { modal: true }, "清除历史", "取消");
         if (confirmed !== "清除历史")
-            return;
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消清除历史。");
         if (root !== workspaceRoot())
             return;
         const saved = this.context.workspaceState.get(keys.executionHistoryCutoffs, {});
@@ -26205,6 +26253,8 @@ class RealtimeTunnelPanelProvider {
                 return;
             this.lastError = errorMessage(error);
             this.recordActionError({ command: "openAuditTail", message: this.lastError, suggestion: actionErrorSuggestion(this.lastError) });
+            this.postState();
+            throw error;
         }
         if (isCurrent())
             this.postState();
@@ -26740,7 +26790,11 @@ class RealtimeTunnelPanelProvider {
             rel = `${CHECK_STATIC_REPORT_DIR_REL}/${base}`;
         }
         const full = safeWorkspaceChildPath(root, rel);
-        const stat = await fs.stat(full).catch(() => undefined);
+        const stat = await fs.stat(full).catch((error) => {
+            if (error?.code === "ENOENT")
+                return undefined;
+            throw error;
+        });
         if (!stat || !stat.isFile())
             throw new Error(`静态检查报告不存在：${rel}（即 ${CHECK_STATIC_REPORT_REL_PATH}），请先运行 npm run check:static（failed 自动落盘，passed 加 --write-md/--report-md）。`);
         await openWorkspaceFile(rel);
@@ -26751,7 +26805,11 @@ class RealtimeTunnelPanelProvider {
             throw new Error("需要先打开工作区。");
         const rel = CHECK_STATIC_REPORT_REL_PATH;
         const full = safeWorkspaceChildPath(root, rel);
-        const stat = await fs.stat(full).catch(() => undefined);
+        const stat = await fs.stat(full).catch((error) => {
+            if (error?.code === "ENOENT")
+                return undefined;
+            throw error;
+        });
         if (!stat || !stat.isFile())
             throw new Error(`静态检查报告不存在：${rel}（即 ${CHECK_STATIC_REPORT_REL_PATH}），请先运行 npm run check:static（failed 自动落盘，passed 加 --write-md/--report-md）。`);
         const text = await fs.readFile(full, "utf8");
@@ -27427,13 +27485,13 @@ class RealtimeTunnelPanelProvider {
         });
     }
     async refreshResultsSummary(planHint = "", manualRetry = false) {
-        if (this.lowTrafficMode && !manualRetry)
-            return;
         if (this.effectiveConnectionMode() === "offline_import") {
             this.applyOfflineResultsSummaryFromBundle(this.offlineBundle);
             this.postState();
-            return;
+            return { ok: true };
         }
+        if (this.lowTrafficMode && !manualRetry)
+            return { ok: false, reason: "低流量模式未刷新，请先手动刷新结果" };
         try {
             await (0, ResultCollectionHost_1.resultCollectionHost)(this).update();
             this.lastError = undefined;
@@ -27441,8 +27499,11 @@ class RealtimeTunnelPanelProvider {
         catch (error) {
             this.lastError = errorMessage(error);
             this.recordActionError({ command: "refreshResults", message: this.lastError });
+            this.postState();
+            return { ok: false, reason: this.lastError };
         }
         this.postState();
+        return { ok: true };
     }
     scheduleResultsSummaryRefreshFromRealtime(state) {
         void state;
@@ -35324,13 +35385,13 @@ function numberPatch(patch, key, fallback) {
     const value = Number(patch[key]);
     return Number.isFinite(value) && value >= 1 && value <= 65535 ? Math.trunc(value) : fallback;
 }
-function numberRangePatch(patch, key, fallback, min, max) {
+function numberRangePatch(patch, key, fallback, min, max, allowFraction = false) {
     if (!hasNumericPatchValue(patch, key))
         return fallback;
     const value = Number(patch[key]);
     if (!Number.isFinite(value))
         return fallback;
-    return Math.max(min, Math.min(max, Math.trunc(value)));
+    return Math.max(min, Math.min(max, allowFraction ? value : Math.trunc(value)));
 }
 function autoOrNumberRangePatch(patch, key, fallback, min, max) {
     if (!Object.prototype.hasOwnProperty.call(patch, key))
@@ -35546,7 +35607,7 @@ const localPlanSummaryReadBudgetBytes = 512 * 1024;
 const localPlanSummaryConcurrency = 8;
 async function readLocalPlans(root, planDir) {
     const dir = path.join(root, planDir);
-    const files = await walkYaml(dir).catch(() => []);
+    const files = await walkYaml(dir, { requireComplete: true });
     return mapLimited(files.filter((fullPath) => !isArchivedPlanFile(root, planDir, fullPath)), localPlanSummaryConcurrency, async (fullPath) => {
         const text = await readUtf8Preview(fullPath, localPlanSummaryReadBudgetBytes);
         const stat = await fs.stat(fullPath).catch(() => undefined);
@@ -35556,7 +35617,7 @@ async function readLocalPlans(root, planDir) {
 }
 async function readArchivedLocalPlans(root, planDir) {
     const dir = path.join(root, planDir, "_archived");
-    const files = await walkYaml(dir).catch(() => []);
+    const files = await walkYaml(dir, { requireComplete: true });
     const rows = await mapLimited(files, localPlanSummaryConcurrency, async (fullPath) => {
         const bundle = await readPlanArchiveBundle(fullPath);
         if (bundle.schemaVersion && path.basename(fullPath).toLowerCase() !== "plan.yaml")
@@ -36677,7 +36738,11 @@ async function copyPlanArchiveFiles(root, bundleDir, category, files) {
 }
 async function readLocalPlanSummary(root, planDir, file) {
     const fullPath = safeWorkspacePlanPath(root, file, planDir);
-    const stat = await fs.stat(fullPath).catch(() => undefined);
+    const stat = await fs.stat(fullPath).catch((error) => {
+        if (error?.code === "ENOENT")
+            return undefined;
+        throw error;
+    });
     if (!stat || !stat.isFile())
         return undefined;
     const text = await readUtf8Preview(fullPath, localPlanSummaryReadBudgetBytes);
@@ -38918,9 +38983,7 @@ const localConfigParamLimit = 80;
 const localConfigParamValueLimit = 180;
 const JSON_PRIMITIVE_TYPES = new Set(["string", "number", "boolean"]);
 async function readUtf8Preview(file, maxBytes = localTextReadBudgetBytes) {
-    const handle = await fs.open(file, "r").catch(() => undefined);
-    if (!handle)
-        return "";
+    const handle = await fs.open(file, "r");
     try {
         const buffer = Buffer.alloc(Math.max(1, maxBytes));
         const result = await handle.read(buffer, 0, buffer.length, 0);
@@ -39156,30 +39219,48 @@ async function walkYaml(dir, options = {}) {
     const out = [];
     const stack = [{ dir: path.resolve(dir), depth: 0 }];
     let visitedDirs = 0;
-    while (stack.length && out.length < budget.maxFiles && visitedDirs < budget.maxDirs) {
+    while (stack.length && (out.length < budget.maxFiles || options.requireComplete) && visitedDirs < budget.maxDirs) {
         const current = stack.pop();
         if (!current)
             break;
         visitedDirs += 1;
-        const entries = await fs.readdir(current.dir, { withFileTypes: true }).catch(() => []);
+        let entries;
+        try {
+            entries = await fs.readdir(current.dir, { withFileTypes: true });
+        }
+        catch (error) {
+            if (current.dir === path.resolve(dir) && error?.code === "ENOENT")
+                return out;
+            throw error;
+        }
         for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
             const full = path.join(current.dir, entry.name);
             const relative = path.relative(budget.root, full).replace(/\\/g, "/");
             if (entry.isDirectory()) {
-                if (current.depth + 1 > budget.maxDepth)
-                    continue;
                 if (budget.skipHeavyDirs && isHeavyProjectDir(relative))
                     continue;
+                if (current.depth + 1 > budget.maxDepth) {
+                    if (options.requireComplete)
+                        throw new Error("PLAN 扫描达到目录深度上限，列表不完整；请缩小计划目录范围后重试。");
+                    continue;
+                }
                 stack.push({ dir: full, depth: current.depth + 1 });
                 continue;
             }
             if (entry.isFile() && (/\.ya?ml$/i.test(entry.name) || (budget.includeJson && /\.json$/i.test(entry.name)) || (budget.includePython && /\.py$/i.test(entry.name)))) {
+                if (out.length >= budget.maxFiles) {
+                    if (options.requireComplete)
+                        throw new Error("PLAN 扫描达到文件数量上限，列表不完整；请缩小计划目录范围后重试。");
+                    break;
+                }
                 out.push(full);
-                if (out.length >= budget.maxFiles)
+                if (out.length >= budget.maxFiles && !options.requireComplete)
                     break;
             }
         }
     }
+    if (options.requireComplete && stack.length)
+        throw new Error("PLAN 扫描达到目录数量上限，列表不完整；请缩小计划目录范围后重试。");
     return out;
 }
 function parseLocalPlanText(file, text) {
@@ -39469,7 +39550,11 @@ async function previewAndConfirmWorkspaceWrites(root, writes, title) {
         const relative = path.relative(root, path.resolve(write.fullPath)).replace(/\\/g, "/");
         if (relative.startsWith("..") || path.isAbsolute(relative))
             throw new Error(`只能写入工作区内文件：${write.fullPath}`);
-        const previous = await fs.readFile(write.fullPath, "utf8").catch(() => undefined);
+        const previous = await fs.readFile(write.fullPath, "utf8").catch((error) => {
+            if (error?.code === "ENOENT")
+                return undefined;
+            throw error;
+        });
         const status = previous === undefined ? "created" : previous === write.text ? "unchanged" : "updated";
         return {
             ...write,

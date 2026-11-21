@@ -19,6 +19,7 @@ function fixture(state='absent', inspection, options={}) {
  let host;
  const Host=vm.runInNewContext(code,{require:specifier=>require(path.resolve(__dirname,'../../dist/extension',specifier)),console:{log(){},warn(){}},fs:fs.promises,path,__dirname:path.resolve(__dirname,'../../dist/extension'),
   AgentRuntimeScope_1:scope,RuntimeManifest_1:manifest,SIMPLE_SFTP_EXTENSION_ID:'simple-local.simple-sftp',
+  structuredClone,isDeepStrictEqual:(a,b)=>require('node:util').isDeepStrictEqual(structuredClone(a),structuredClone(b)),mcpInvocation:require('../../dist/mcp/Invocation').mcpInvocation,
   AbortSignal, tunnelHttpOrigin:(host,port)=>`http://${host}:${port}`,
   fetch:async()=>{if(options.closedTunnel)throw new TypeError('fetch failed');return {ok:true,json:async()=>({schedulerRuntime:{protocol:1,status:state==='healthy-stale-scheduler'?'update_required':'absent'}})};},
   AgentTmuxPolicy_1:require('../../dist/tunnel/AgentTmuxPolicy'),
@@ -40,6 +41,7 @@ function fixture(state='absent', inspection, options={}) {
      ...(options.missingEvidence?{}:{schedulerRuntime:{protocol:1,status:state==='healthy-stale-scheduler'?'update_required':'absent'}})};
   }}}});
  host=new Host();Object.assign(host,{context:{extension:{packageJSON:{version:manifest.CURRENT_RUNTIME_VERSION}}},setupConfig:{workerTunnels:[{id:'container',agentProjectDir:'/srv',agentInstallDir:'/srv/agent',condaEnv:'/srv/env',remoteAgentHost:'127.0.0.2',remoteAgentPort:23065}],remoteTmuxSessionPrefix:'user'},
+  captureProjectContext:()=>({generation:1,root:'/fixture-project'}),projectContextIsCurrent:context=>context.generation===1&&context.root==='/fixture-project',
   prepareSftpTargets:async()=>{},sftpSharedTargets:()=>[target],agentRuntimeUploadTargets:()=>[target],agentRuntimeDirs:()=>({workDir:'/srv/project',installDir:'/srv/agent'}),sftpServerOptions:()=>({host:'configured-host',port:23094,user:'user'}),tunnelConfig:{},
   confirmRemoteWriteTargets:async()=>{},writeSftpManagerServerProfiles:async()=>{},verifyDeployedAgentRuntime:async()=>({fatal:[],warnings:[]})});
  return {host,calls};

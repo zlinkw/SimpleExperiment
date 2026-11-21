@@ -37,10 +37,11 @@ function metricLeaderboard(flags) {
         .find(([name]) => name.toLowerCase() === primary.toLowerCase())?.[1];
     const direction = new Set(directions).size > 1 ? undefined : directions[0] ?? (presetDirection ? presetDirection === "higher" : undefined);
     const board = (0, Metrics_1.buildLeaderboard)(metrics, (row) => row.runKey, direction === undefined ? undefined : primary, direction);
+    const metricNames = Array.from(new Set(metrics.flatMap((row) => Object.keys(row.metrics))));
     if (flags.json)
-        (0, format_1.writeJson)({ metrics: Object.keys(metrics[0]?.metrics || {}), board }, flags.compactJson);
+        (0, format_1.writeJson)({ metrics: metricNames, board }, flags.compactJson);
     else
-        (0, format_1.writeText)((0, Metrics_1.leaderboardToMarkdown)(board, Object.keys(metrics[0]?.metrics || {})));
+        (0, format_1.writeText)((0, Metrics_1.leaderboardToMarkdown)(board, metricNames));
     return 0;
 }
 async function metricList(flags) {
@@ -58,7 +59,9 @@ async function metricList(flags) {
 }
 async function metricShow(id, flags) {
     const row = (0, result_1.selectResult)(await (0, result_1.loadResults)(flags), id);
-    const metrics = row ? numericMetrics(row) : {};
+    if (!row)
+        throw (0, errors_1.businessError)(`result not found: ${id}`);
+    const metrics = numericMetrics(row);
     if (flags.json)
         (0, format_1.writeJson)(metrics, flags.compactJson);
     else
@@ -66,7 +69,7 @@ async function metricShow(id, flags) {
     return 0;
 }
 function numericMetrics(row) {
-    const out = {};
+    const out = Object.create(null);
     for (const [key, value] of Object.entries(row.metrics || {})) {
         const numeric = metricNumber(value);
         if (numeric !== null)

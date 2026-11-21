@@ -69,3 +69,7 @@ B3 U04-09：确认及本地准备后重新读取来源任务快照，唯一精�
 B3 U04-01/08：既有等待后、原调用前重新核对项目、选定目标配置和适用授权；保留原确认及路径保护。两处TS转译语法检查exit0；依收敛边界未重放平台拦截、授权撤销或Agent生命周期专项，未连接真实服务。三批39项源码变更及各组定向检查完成，待总控完整源审与后续集中构建；四项跨项目及89项入口延期不变。
 
 首次源审返修：U04-30只过滤平面行的维度，显式metrics桶保留seed、epoch、0及特殊自有键；metricLeaderboardInput 5/5 exit0。日志导航夹具加载真实setNativeTitle及初始状态，原套件在既有516 dist上13/13 exit0；原12/13 exit1和另行3/3补测保留，新生成脚本尚待集中构建后门禁。
+
+0.5.517首轮package exit1，337/341作业通过、4失败，10前置门禁通过，输入与结束指纹一致，锁已释放；未执行post/assemble。完整日志及receipt见`simple_cluster/reports/test-workflow/2026-11-21T14-48-56-521Z-480-package/run.json`。合作取消因执行会话stdin已关闭失败，原runner自然结算。四处仅修现有测试断言/夹具：MCP 42/43→43/43，CLI 18/19→19/19，历史取消12/13→13/13，Agent夹具9/10→首补后9/10（VM跨realm对象原型比较差异）→标准库克隆归一后10/10；均保留真实退出码及业务断言。未改产品源码、依赖或运行配置；原337项证据与补测分别记录，runner不接受失败receipt或改变后的输入直接组装，待总控决定门禁。
+
+总控授权后第二次package exit0，341/341、13门禁通过，实际并发1、按需0、锁释放，输入与结束指纹相同；receipt `simple_cluster/reports/test-workflow/2026-11-21T15-08-06-325Z-28880-package/run.json`。生成0.5.517 VSIX大小2986729、SHA256 `2fa2ecb3e0d890d47653ee8b7f5ffe29317c22d692659ae4cd8d34336a6989e5`；身份simple-local.simple-experiment，universal包由更新客户端识别为Windows兼容，engine ^1.100.0；ZIP中370项dist/bin/vendor与本机相同，禁止项路径检查无命中。Panel模块及3个生成脚本VM通过；首个VM命令转义错误exit1后修正exit0；业务src/dist搜索10890无命中（rg exit1）。日志导航不在本次package矩阵，另对新dist定向13/13 exit0；首轮12/13及旧dist补测保留。后续发行安装尚待完成。

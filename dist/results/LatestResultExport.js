@@ -287,11 +287,13 @@ async function publishLatestResult(root, directory, result, tables, current = ()
 }
 /** Repartition existing aggregate rows only. Preserve metrics and their original observation;
  * no remote read, raw metric cache, old registry, or reconstruction of individual seeds. */
-async function mapLatestResultDatasets(root, directory, mappings, current = () => true) {
+async function mapLatestResultDatasets(root, directory, mappings, current = () => true, saveMapping = async () => { }) {
     return withResultWriter(root, directory, current, async () => {
         const value = await readLatestResultExport(root, directory);
-        if (!value)
+        if (!value) {
+            await saveMapping();
             return false;
+        }
         const requested = new Map(Object.entries(mappings).map(([plan, dataset]) => [(0, ProjectResultTables_1.normalizePlanDatasetKey)(plan), dataset.trim()]));
         const slices = value.tables.flatMap(table => table.rows.map(row => {
             const plan = (0, ProjectResultTables_1.normalizePlanDatasetKey)(String(row[table.header.indexOf("plan_file")]));
@@ -324,6 +326,9 @@ async function mapLatestResultDatasets(root, directory, mappings, current = () =
         });
         const mapped = { ...value, tables };
         const file = await safeFile(root, directory, exports.LATEST_RESULT_FILE);
+        if (!current())
+            throw Error("结果导出已取消或工作区已变化");
+        await saveMapping();
         await (0, StateStore_1.atomicWriteText)(file, JSON.stringify(mapped, null, 2) + "\n", { beforeRename: async () => {
                 if (!current())
                     throw Error("结果导出已取消或工作区已变化");
@@ -343,7 +348,7 @@ async function latestResultCatalog(root, directory) {
             dataset = { dataset: table.dataset, datasetKey: table.datasetKey, tables: [], plans: [] };
             datasets.set(table.datasetKey, dataset);
         }
-        const values = {};
+        const values = Object.create(null);
         table.header.forEach((field, index) => { values[field] = [...new Set(table.rows.map(row => String(row[index] ?? "")))]; });
         dataset.tables.push({ ...table, path: path.posix.join(directory, table.relativePath), markdownPath: path.posix.join(directory, table.markdownPath), values, rowCount: table.rows.length });
         for (const planFile of values.plan_file || [])

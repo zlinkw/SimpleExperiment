@@ -94,7 +94,8 @@ async function planMatrix(fileArg, flags) {
     const file = resolveExisting(fileArg);
     const yaml = (0, data_1.readTextFile)(file);
     const summary = (0, PlanBuilder_1.parsePlanSummary)(yaml);
-    const emptyCases = /^(?:cases|experiments)\s*:\s*(?:\[\s*\]|\{\s*\})\s*(?:#.*)?$/m.test(yaml);
+    const emptyMatrix = hasExplicitEmptyMatrix(yaml, /^(?:cases|experiments)[ \t]*:[ \t]*(.*)$/)
+        || hasExplicitEmptyMatrix(yaml, /^seeds[ \t]*:[ \t]*(.*)$/);
     const result = (0, PlanBuilder_1.expandPlanMatrix)({
         variables: [
             ...(summary.cases.length ? [{ key: "case", mode: "grid", values: summary.cases }] : []),
@@ -102,13 +103,32 @@ async function planMatrix(fileArg, flags) {
         ],
         namingRule: { pattern: "{suite}_{case}", sanitize: true },
     }, [], summary.suite || "suite");
-    const count = emptyCases ? 0 : Array.isArray(result.experiments) ? result.experiments.length : 0;
+    const count = emptyMatrix ? 0 : Array.isArray(result.experiments) ? result.experiments.length : 0;
     const payload = { count, suite: summary.suite, cases: summary.cases.length, seeds: summary.seeds.length, filteredCount: result.filteredCount || 0 };
     if (flags.json)
         (0, format_1.writeJson)(payload, flags.compactJson);
     else
         (0, format_1.writeText)((0, format_1.block)("Plan matrix", payload));
     return 0;
+}
+function hasExplicitEmptyMatrix(yaml, key) {
+    const lines = yaml.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+        const match = lines[i].match(key);
+        if (!match)
+            continue;
+        const inline = (0, PlanBuilder_1.stripYamlLineComment)(match[1]).trim();
+        if (inline)
+            return /^(?:\[\s*\]|\{\s*\})$/.test(inline);
+        for (const line of lines.slice(i + 1)) {
+            const value = (0, PlanBuilder_1.stripYamlLineComment)(line);
+            if (!value.trim())
+                continue;
+            return /^[ \t]+(?:\[\s*\]|\{\s*\})[ \t]*$/.test(value);
+        }
+        return false;
+    }
+    return false;
 }
 async function loadPlans() {
     const rows = [];

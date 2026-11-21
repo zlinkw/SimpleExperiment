@@ -12,10 +12,14 @@ def dataset_path_key(value):
         return "_unassigned"
     if ".." in raw or any(char in raw for char in ("/", chr(92), ":")) or raw.lower() in ("_unassigned", "_shared"):
         raise ValueError("Unsafe or reserved dataset name: " + raw)
-    key = re.sub("[^A-Za-z0-9._-]+", "_", raw).strip(".")[:80]
+    key = re.sub(r"[^\w.-]+", "_", raw).strip(".")[:80]
     if not key or re.search("^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:[.]|$)", key, re.I):
         raise ValueError("Unsafe dataset directory: " + raw)
     return key
+
+def legacy_dataset_path_key(value):
+    raw = str(value if value is not None else "").strip()
+    return re.sub("[^A-Za-z0-9._-]+", "_", raw).strip(".")[:80]
 
 def dataset_partitions(values):
     keys = {}
@@ -549,9 +553,9 @@ def runtime_dependency_check():
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.516"
-RUNTIME_VERSION = "0.5.516"
-PLUGIN_VERSION = "0.5.516"
+AGENT_VERSION = "0.5.517"
+RUNTIME_VERSION = "0.5.517"
+PLUGIN_VERSION = "0.5.517"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -9136,7 +9140,7 @@ def project_dataset_table_outputs(root, current_summary, kind):
                     if total >= 50000:
                         raise ValueError("Project aggregate row budget exceeded")
                     dataset = str(row.get("dataset") or "").strip()
-                    if "datasetKey" in table and (dataset != table.get("dataset", "") or dataset_path_key(dataset) != table["datasetKey"]):
+                    if "datasetKey" in table and (dataset != table.get("dataset", "") or table["datasetKey"] not in (dataset_path_key(dataset), legacy_dataset_path_key(dataset))):
                         raise ValueError("Dataset table does not match its directory metadata")
                     group = groups.setdefault(dataset, {"headers": ["plan_file", "dataset"], "rows": []})
                     for header in reader.fieldnames or []:

@@ -30,6 +30,7 @@ exports.exportResultBundle = exportResultBundle;
 exports.importResultBundle = importResultBundle;
 exports.checkResultConsistency = checkResultConsistency;
 const crypto_1 = require("crypto");
+const ProjectResultTables_1 = require("../results/ProjectResultTables");
 exports.RESULT_REGISTRY_PATH = "simple_cluster/results/result_registry.json";
 exports.RESULT_REGISTRY_LOCAL_PATH = "simple_cluster/results/result_registry.local.json";
 exports.RESULT_EXPORT_DIR = "simple_cluster/results/exports";
@@ -285,16 +286,16 @@ function buildResultLeaderboard(records, config, issues = []) {
         groups.set(groupKey, [...(groups.get(groupKey) || []), record]);
     }
     return Array.from(groups.entries()).map(([groupKey, items]) => {
-        const values = {};
+        const values = Object.create(null);
         for (const metric of config.metrics) {
-            const nums = items.map((item) => Number(item.metrics[metric.key]?.value)).filter(Number.isFinite);
+            const nums = items.map((item) => finiteMetricNumber(item.metrics[metric.key]?.value)).filter((value) => value !== undefined);
             values[metric.key] = aggregate(nums, config.aggregate);
         }
         const primary = config.primarySortMetric || config.metrics[0]?.key;
         const primaryCfg = config.metrics.find((metric) => metric.key === primary);
-        const best = primary ? [...items].filter((item) => Number.isFinite(Number(item.metrics[primary]?.value))).sort((a, b) => {
-            const av = Number(a.metrics[primary]?.value);
-            const bv = Number(b.metrics[primary]?.value);
+        const best = primary ? [...items].filter((item) => finiteMetricNumber(item.metrics[primary]?.value) !== undefined).sort((a, b) => {
+            const av = finiteMetricNumber(a.metrics[primary]?.value);
+            const bv = finiteMetricNumber(b.metrics[primary]?.value);
             return primaryCfg?.higherIsBetter === false ? av - bv : bv - av;
         })[0] : undefined;
         return {
@@ -402,7 +403,7 @@ function detectMetricAliasConflicts(schema) {
     return Array.from(aliases.entries()).filter(([, targets]) => targets.size > 1).map(([aliasValue, targets]) => ({ alias: aliasValue, targets: Array.from(targets) }));
 }
 function applyResultSchema(record, schema, context = {}) {
-    const metrics = {};
+    const metrics = Object.create(null);
     for (const [key, value] of Object.entries(record.metrics)) {
         const normalized = normalizeMetricKey(key, schema);
         const def = schema.metrics.find((item) => item.key === normalized);
@@ -708,8 +709,7 @@ function inferWideMetricColumns(headers, rows, dimensionColumns, preset, parserC
     return headers.filter((header) => {
         if (dimensionColumns.has(header))
             return false;
-        const sample = rows.find((row) => row[header] !== undefined && row[header] !== "")?.[header];
-        if (!Number.isFinite(Number(sample)))
+        if (!rows.some((row) => finiteMetricNumber(row[header]) !== undefined))
             return false;
         if (!configured.size)
             return true;
@@ -910,7 +910,7 @@ function baseRecord(ids, sourceFile, preset, parserConfig, row, m) {
         sourceFiles: [{ ...sourceFile, sha256: sourceFile.sha256 || sha256(sourceFile.path) }],
         parserPresetId: preset.id,
         parserConfig,
-        metrics: {},
+        metrics: Object.create(null),
         dimensions: standardDimensions(row, m),
         primaryMetric: preset.primaryMetric,
         higherIsBetter: preset.primaryMetric ? directionFor(preset.primaryMetric, preset) !== "lower" : true,
@@ -935,7 +935,7 @@ function idsFromRow(row, m, sourcePath, index = 0) {
 }
 function explicitResultVariantSuffix(row, m) {
     const parts = [];
-    for (const key of ["method", "dataset", "split", "fold", "seed"]) {
+    for (const key of ["method", "dataset", "split", "fold", "seed", "case", "model", "tag"]) {
         const mapped = m[key];
         const value = row[mapped || key] ?? row[key] ?? row[key.replace(/_([a-z])/g, (_, char) => String(char).toUpperCase())];
         if (value !== undefined && value !== "")
@@ -1114,29 +1114,7 @@ function isLongFormat(headers, preset) {
     return preset.format === "long_csv" || (headers.includes(preset.columnMapping.metric || "metric") && headers.includes(preset.columnMapping.value || "value"));
 }
 function csvRows(text) {
-    return text.trim().split(/\r?\n/).filter(Boolean).map(parseCsvLine);
-}
-function parseCsvLine(line) {
-    const out = [];
-    let cur = "";
-    let quote = false;
-    for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"' && line[i + 1] === '"') {
-            cur += '"';
-            i++;
-        }
-        else if (ch === '"')
-            quote = !quote;
-        else if (ch === "," && !quote) {
-            out.push(cur.trim());
-            cur = "";
-        }
-        else
-            cur += ch;
-    }
-    out.push(cur.trim());
-    return out;
+    return (0, ProjectResultTables_1.readCsvRows)(text.trim()).filter((row) => row.length > 1 || row[0].trim()).map((row) => row.map((cell) => cell.trim()));
 }
 function parseValue(value) {
     if (value === "" || value === undefined)
@@ -1163,7 +1141,7 @@ function compileTextMetricPattern(pattern) {
 function normalizeTextMetricName(metric, aliases = {}) {
     const value = metric.trim();
     const lower = value.toLowerCase();
-    const custom = aliases[value] || Object.entries(aliases).find(([key]) => key.toLowerCase() === lower)?.[1];
+    const custom = (Object.hasOwn(aliases, value) ? aliases[value] : undefined) || Object.entries(aliases).find(([key]) => key.toLowerCase() === lower)?.[1];
     if (custom)
         return custom;
     if (lower === "acc")
@@ -1216,16 +1194,16 @@ function coerceDimension(value, type) {
         return value === true || String(value).toLowerCase() === "true";
     return String(value);
 }
-const splitNameMap = {
+const splitNameMap = Object.assign(Object.create(null), {
     train: "train", val: "val", valid: "val", validation: "val", test: "test", external: "external", ext: "external",
-};
+});
 const metricDecorators = new Set(["best", "final", "last", "mean", "avg", "average", "eval", "score", "metric", "macro", "micro", "weighted"]);
 const segmentationMetricNames = new Set(["DSC", "Dice", "IoU", "HD95", "ASD"]);
 function normalizeMetricToken(metric, aliases = {}) {
     const value = metric.trim();
     if (!value)
         return { metric: "" };
-    const direct = aliases[value] || Object.entries(aliases).find(([key]) => key.toLowerCase() === value.toLowerCase())?.[1];
+    const direct = (Object.hasOwn(aliases, value) ? aliases[value] : undefined) || Object.entries(aliases).find(([key]) => key.toLowerCase() === value.toLowerCase())?.[1];
     if (direct && direct !== value) {
         const sourceSplit = splitFromMetricName(value);
         const normalized = normalizeMetricToken(direct);
@@ -1335,7 +1313,13 @@ function metricAlias(metric) {
 }
 function directionFor(metric, preset) {
     const normalized = normalizeMetricToken(metric, preset.metricAliases || {}).metric;
-    return preset.metricDirections?.[metric] || preset.metricDirections?.[normalized] || exports.classificationMetricDirections[metric] || exports.classificationMetricDirections[normalized] || exports.segmentationMetricDirections[metric] || exports.segmentationMetricDirections[normalized] || "higher";
+    for (const directions of [preset.metricDirections, exports.classificationMetricDirections, exports.segmentationMetricDirections]) {
+        if (directions && Object.hasOwn(directions, metric))
+            return directions[metric];
+        if (directions && Object.hasOwn(directions, normalized))
+            return directions[normalized];
+    }
+    return "higher";
 }
 function isCaseLevelMetricsFile(sourcePath) {
     return sourcePath.replace(/\\/g, "/").split("/").pop()?.toLowerCase() === "metrics_case.csv";

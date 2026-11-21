@@ -50,6 +50,7 @@ exports.updateRegistry = updateRegistry;
 exports.summaryForWorker = summaryForWorker;
 exports.mergeAvailableWorkerResults = mergeAvailableWorkerResults;
 exports.writeCsv = writeCsv;
+exports.readCsvRows = readCsvRows;
 exports.readCsv = readCsv;
 exports.resultTableMarkdown = resultTableMarkdown;
 exports.canonicalMetricName = canonicalMetricName;
@@ -68,7 +69,7 @@ Object.defineProperty(exports, "planArtifactPath", { enumerable: true, get: func
 const emptyTableRegistry = () => ({ schemaVersion: 1, plans: {} });
 exports.emptyTableRegistry = emptyTableRegistry;
 function metricMetadataForRow(metrics) {
-    const result = {};
+    const result = Object.create(null);
     for (const [name, value] of Object.entries(metrics || {})) {
         if (!value || typeof value !== "object")
             continue;
@@ -86,7 +87,7 @@ function metricsWithMetadata(record) {
         record.metricMetadata?.[name] ? { value, ...record.metricMetadata[name] } : value]));
 }
 function mergeMetricMetadata(left = {}, right = {}) {
-    const result = { ...left };
+    const result = Object.assign(Object.create(null), left);
     for (const [raw, value] of Object.entries(right)) {
         const name = canonicalMetricName(raw), previous = result[name] || {};
         for (const key of ["unit", "higherIsBetter"])
@@ -167,8 +168,8 @@ function summaryMatchesPlanRevision(summary, plan) {
     return !current || !reported || current === reported;
 }
 function safeTableName(value) {
-    const token = String(value || "").trim().replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^\.+|\.+$/g, "").slice(0, 80);
-    if (!token || token === "." || token === "..")
+    const token = Array.from(String(value || "").trim().replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^\.+|\.+$/g, "")).slice(0, 80).join("");
+    if (!token || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:[.]|$)/i.test(token))
         throw new Error("结果名称不能映射到安全文件夹。");
     return token;
 }
@@ -304,7 +305,7 @@ function recordsForSummary(summary, planFile, manualMappings = {}) {
         const seed = String(dims.seed ?? "").trim();
         if (!caseName || !seed)
             throw new Error("原始结果缺少可信 case 或 seed，请先设置列映射。");
-        const metrics = {};
+        const metrics = Object.create(null);
         for (const [name, payload] of Object.entries(row?.metrics || {})) {
             const raw = payload?.value ?? payload;
             if (raw === "" || raw === null || raw === undefined)
@@ -406,7 +407,7 @@ function csvCell(value) {
 function writeCsv(header, rows) {
     return [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }
-function readCsv(text, delimiter = ",") {
+function readCsvRows(text, delimiter = ",") {
     if (delimiter !== "," && delimiter !== "\t")
         throw new Error("结果表分隔符不支持。");
     const rows = [];
@@ -447,7 +448,10 @@ function readCsv(text, delimiter = ",") {
         row.push(cell.replace(/\r$/, ""));
         rows.push(row);
     }
-    const [header = [], ...data] = rows;
+    return rows;
+}
+function readCsv(text, delimiter = ",") {
+    const [header = [], ...data] = readCsvRows(text, delimiter);
     if (!header.length || new Set(header).size !== header.length || data.some((item) => item.length !== header.length))
         throw new Error("CSV 表头或列数无效。");
     return { header, rows: data };
@@ -486,7 +490,7 @@ function canonicalMetricName(value, aliases = {}) {
     return METRIC_EQUIVALENCE.get(name.toLowerCase()) || name;
 }
 function canonicalMetricValues(metrics) {
-    const values = {};
+    const values = Object.create(null);
     const sources = new Map();
     for (const [source, value] of Object.entries(metrics || {})) {
         const name = canonicalMetricName(source);
@@ -506,7 +510,7 @@ function buildDatasetTables(registry, options = {}) {
             group.metadata = mergeMetricMetadata(group.metadata, record.metricMetadata);
             group.sources.set(record.seed, record);
             group.expected = Math.max(group.expected, plan.expectedSeeds);
-            const values = group.seeds.get(record.seed) || {};
+            const values = group.seeds.get(record.seed) || Object.create(null);
             for (const [name, value] of Object.entries(canonicalMetricValues(record.metrics))) {
                 if (values[name] !== undefined && values[name] !== value)
                     throw new Error("重复 seed 的指标冲突：" + record.method + "/" + record.case + "/" + record.seed + "/" + name);
@@ -552,7 +556,7 @@ function buildDatasetTables(registry, options = {}) {
         const metrics = [...new Set(chosen.flatMap((group) => [...group.seeds.values()].flatMap((seed) => Object.keys(seed))))].sort();
         const label = (name) => {
             const preferred = { AUC: "roc_auc", AUPRC: "auprc", accuracy: "accuracy", F1: "f1_score", macro_f1: "macro_f1", micro_f1: "micro_f1", weighted_f1: "weighted_f1", ECE: "ece", brier: "brier_score", recall: "recall" };
-            return (preferred[name] || name).replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "metric";
+            return (Object.hasOwn(preferred, name) ? preferred[name] : name).replace(/[^\p{L}\p{N}_]+/gu, "_").replace(/^_+|_+$/g, "").toLowerCase() || "metric";
         };
         const labels = metrics.map(label);
         if (new Set(labels).size !== labels.length)
@@ -601,7 +605,7 @@ function buildDatasetTables(registry, options = {}) {
         const markdown = resultTableMarkdown(header, rows);
         return { header, rows, markdown };
     };
-    const out = {};
+    const out = Object.create(null);
     if (groups.length)
         out.final = make(groups);
     const methods = new Set(groups.map((group) => methodTableName(group.record.method)));
@@ -634,7 +638,7 @@ function splitCsvByValues(csv, field, values, columns) {
     if (!kept.length || kept.some((name) => !header.includes(name)) || new Set(kept).size !== kept.length)
         throw new Error("保留列无效。");
     const indices = kept.map((name) => header.indexOf(name));
-    const output = {};
+    const output = Object.create(null);
     for (const value of selected) {
         const matches = rows.filter((row) => row[index] === value);
         if (matches.length)
@@ -719,7 +723,7 @@ function resultCatalog(root, resultDir, manualMappings = {}) {
                 throw new Error("结果表数据集与目录不一致：" + paths.relativePath);
             if (names.length)
                 dataset = names[0];
-            const values = {};
+            const values = Object.create(null);
             for (const [i, field] of parsed.header.entries())
                 values[field] = [...new Set(parsed.rows.map(row => row[i]))].slice(0, 200);
             tables.push({ tableKey: paths.tableKey, dataset, datasetKey, ...candidate, path: path.posix.join(resultDir, paths.relativePath), markdownPath: path.posix.join(resultDir, paths.markdownPath), header: parsed.header, values, rowCount: parsed.rows.length });

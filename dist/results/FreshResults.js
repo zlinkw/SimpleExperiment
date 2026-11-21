@@ -195,7 +195,7 @@ async function collectFreshResults(plans, snapshots, receive, parse, mappings = 
                         const dims = row.dimensions || {};
                         if (String(dims.case) !== job.case || String(dims.seed) !== String(job.seed))
                             throw Error("RESULT_METRIC_JOB_MISMATCH");
-                        const metrics = {};
+                        const metrics = Object.create(null);
                         for (const [key, raw] of Object.entries(row.metrics || {})) {
                             const value = raw?.value ?? raw;
                             if (value !== "" && value != null && Number.isFinite(Number(value)))

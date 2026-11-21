@@ -86,7 +86,7 @@ assign(["plan_preflight"], object({ ok: boolean, workspace: string, plan, planSe
 assign(["plan_validate"], object({ ok: boolean, plan, planFile: string, missing: array(object()), validation: object(), nextAction: string }, ["ok"]));
 assign(["plan_run"], object({ ok: boolean, started: boolean, ...operation, requestScope: string, receiptProvesExperimentCompletion: boolean,
     plan, confirmation: string, nextAction: string, calls: array(object()) }, ["ok", "operationId", "status"]));
-assign(["plan_filter"], object({ ok: boolean, source: string, planDir: string, plans: array(object()), count: number, total: number, needsChoice: boolean }, ["ok"]));
+assign(["plan_filter"], object({ ok: boolean, source: string, planDir: string, plans: array(object()), count: number, total: number, needsChoice: boolean, error: string }, ["ok"]));
 assign(["task_list"], object({ lifecycleProtocol: number, stateSource: string, projectId: string, queriedAt: string, queriedWorkerIds: strings,
     jobLifecycle: array(task), workerTasks: array(object({ workerId: string, queryComplete: boolean, controlIncomplete: boolean, diagnosticsPending: boolean,
         error: string, tasks: array(task) })), schedulerStates: value, experimentTraces: array(object()), operations: value }, ["jobLifecycle", "workerTasks", "projectId"]));
@@ -176,7 +176,7 @@ assign(["result_list"], array(resultRow));
 assign(["result_show"], object({ ...resultRow.properties, time: nullable(string), config: value, seed: value, checkpoint: value }, ["id", "metrics"]));
 assign(["metric_list"], object({ metrics: strings }, ["metrics"]));
 assign(["metric_show"], record(number));
-assign(["experiment_results"], object({ experimentId: string, current: boolean, result_ids: strings, metrics: value, output_paths: strings, reason: string }, ["result_ids", "metrics"]));
+assign(["experiment_results"], object({ experiment_id: string, current: boolean, result_ids: strings, metrics: value, output_paths: strings, reason: string }, ["experiment_id", "result_ids", "metrics"]));
 assign(["result_export"], object({ id: string, source: string, current: boolean, observedAt: nullable(string), format: string, path: string, content: string }, ["id", "format", "content"]));
 assign(["result_compare"], object({ left: string, right: string, metric_difference: record(object({ left: number, right: number, delta: number })), improvement: strings, regression: strings, reason: string }, ["left", "right", "metric_difference"]));
 assign(["result_parse"], array(object({ runKey: string, metrics: record(value), source: value })));

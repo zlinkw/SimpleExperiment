@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.516",
-  "buildId": "8bbf9813ad7fab22e0fc20c443aa025979585f24e290e95eedd8ec984d5de44f",
+  "version": "0.5.517",
+  "buildId": "07b58b1d66729ef9e068dd53eb1bdd889e9a26859c66c77e01b826962882169d",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -45,11 +45,11 @@
     },
     {
       "path": "dist/cli/commands/artifact.js",
-      "sha256": "c2018399796f0cf1e90d13ab32dce6ca9f10d15e47cdc8d7c350aa073de2766b"
+      "sha256": "093c205c69408bed5a7a93ef612e379fc09793c749f79cb8785adcde2c5cfa23"
     },
     {
       "path": "dist/cli/commands/compare.js",
-      "sha256": "12a32d8e082fd5903023e611485cfcd6106f3b7c102a3f88a92c0b6006dc6b64"
+      "sha256": "98e79b3835eaf5b6d0f0e39370dde486320dfc36279b75f15caa7987a54a929b"
     },
     {
       "path": "dist/cli/commands/control.js",
@@ -61,7 +61,7 @@
     },
     {
       "path": "dist/cli/commands/experiment.js",
-      "sha256": "f19479589b82edb3773794a7b472484d9ca3c3dbaa8f4f3e3aee991fdf7f9ef6"
+      "sha256": "43f4f7bd547faf4ed9bcf235673bab97ab8a0b1ab6c6e1f14e6f4fc15c8f9962"
     },
     {
       "path": "dist/cli/commands/gpu.js",
@@ -77,11 +77,11 @@
     },
     {
       "path": "dist/cli/commands/metric.js",
-      "sha256": "f806181c6d41c1ea0bb8610a65835f75bdba242fe264814dffc3099c3d631848"
+      "sha256": "6f6d97f69dd60e7baae370b600257ae8dd093cb81e4bbfe1381febf0373a4c07"
     },
     {
       "path": "dist/cli/commands/plan.js",
-      "sha256": "a3941ee63be20e9e59d9802e703639f06bae9d692bbd92f1d76ba7dc313bfa73"
+      "sha256": "246704e6930c810029cfc905e9c4d1283db79d1f7aff264575fbb45a90fe7d29"
     },
     {
       "path": "dist/cli/commands/planCleanup.js",
@@ -97,7 +97,7 @@
     },
     {
       "path": "dist/cli/commands/resource.js",
-      "sha256": "7142f0aaec471b81400b4740b70a01fbc42972e958dc4f27cccc3abf0689e4f8"
+      "sha256": "c8cc5c8703133223ce0e82e7d2c9ce288ae9ae3370ba519f59341f24bd39be8a"
     },
     {
       "path": "dist/cli/commands/result.js",
@@ -261,7 +261,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "96e96de59171a26f8dcedb2c8465d5ad39c47c0b9ab6b15c39e852851862c36e"
+      "sha256": "9f1f1b9cac9928ead5bd5ea56f428c203804a13e1e13787c2b848449abe3b61c"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -269,7 +269,7 @@
     },
     {
       "path": "dist/extension/McpHost.js",
-      "sha256": "b2f5071030df97dc135e216bb577aaa32adf6b695d74d064175a0a3cae20e025"
+      "sha256": "c0c53d1cf98b530c5c0bc726e7a535018e9397eeeba0adee99b7d7836f167e09"
     },
     {
       "path": "dist/extension/OutputIsolationRecoveryHost.js",
@@ -537,7 +537,7 @@
     },
     {
       "path": "dist/features/Metrics.js",
-      "sha256": "45481ed0b34c3c78be8d7abaace4a31d362b39c94cd659b72738eedd9f5606a7"
+      "sha256": "9e62fee61859113fb13322b4dbf4b4f484947ad28087ba7eeee640551e56675b"
     },
     {
       "path": "dist/features/NativePlanRetry.js",
@@ -717,7 +717,7 @@
     },
     {
       "path": "dist/features/Results.legacy.js",
-      "sha256": "01124152ac03e73aa30158371958c34f8386e7e83e9815b64d6e2ddb54eedc49"
+      "sha256": "0df013de0d00f32033baa9577db93719f99b12cb0ad7dd75565d22fffc06e7fc"
     },
     {
       "path": "dist/features/RunOperations.js",
@@ -853,15 +853,15 @@
     },
     {
       "path": "dist/mcp/ProjectQueries.js",
-      "sha256": "2f776aecbd7ab86cf9bff5b269d5b06b1e49e884ad1bfa505d24ac61af5a79de"
+      "sha256": "f6bccb60265adbb34f7aa1960f47f45958e991c286dc95f4d8ba0a8f54fa0e53"
     },
     {
       "path": "dist/mcp/ToolCatalog.js",
-      "sha256": "2609b33ec4edf9ba82218fd48cebd3fac6dcf758b36c624f7a720dd147e05383"
+      "sha256": "f20bd0332c8b1cfa7eda2859df8cfb30da254584b61510ada0022eb43e3931ed"
     },
     {
       "path": "dist/mcp/ToolResults.js",
-      "sha256": "a12e99ed5ab6425cc25cdfd325766589abbd91bcfbaffd217a4940f9fac476b7"
+      "sha256": "7b1b4c89f3df38a60fa24901ea8f9072fbb7cacb2a12596d2a229ec57555ad9d"
     },
     {
       "path": "dist/project/BranchHeadBinding.js",
@@ -901,11 +901,11 @@
     },
     {
       "path": "dist/results/FreshResults.js",
-      "sha256": "fee9c562abead39c6800b0a10bd4a5d7b96fe38137f606db7b053305f24415a5"
+      "sha256": "3f8180d5f5cd19d44ed8dba3e36a8c202c6ce6f3d116559163a83b457c853757"
     },
     {
       "path": "dist/results/LatestResultExport.js",
-      "sha256": "f354f6f42aca46aee3db56295ca14634034506468f8d4c95d8f28d6e4e8986c8"
+      "sha256": "11b6efbb668b0fcab7e54a303ce53aad00ff7dee22708feb776cf8ea820e1a70"
     },
     {
       "path": "dist/results/NativeResultManifest.js",
@@ -925,11 +925,11 @@
     },
     {
       "path": "dist/results/ProjectResultTables.js",
-      "sha256": "d3f5223307918ad5077b65c30940ca7cbc17de06cd1e8b1e4b7b64a25e8dcf5c"
+      "sha256": "7ee2799ff917e049a59ce2a27d84c3750d1cb63f82f922e1d8a5e73440575650"
     },
     {
       "path": "dist/results/ResultLayout.js",
-      "sha256": "5bd3adf9078432b74f2d879157c09c9b47517de74627eab747f1f10b9c4cb090"
+      "sha256": "f49bf4d3e34451f4f0baf4d3f37159a74f0fb1f8baa8c2b4bce9f57ad1136548"
     },
     {
       "path": "dist/results/ResultOwnershipScope.js",
@@ -941,7 +941,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "0ed97803f8ebc4472d577af04dd02679fd8ad39d639b499acbad8eb3e5fa00fa"
+      "sha256": "9a83e448dd784dfd021ca3497ec233d7c84db3ee8a026c50716a4ee481e7b95a"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1169,7 +1169,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "c384f4b4cb1fcd6fa42ba7db394f2cd4a14239c3765a9208e24d8dfbe8716f3c"
+      "sha256": "9376542f3ff7b3efc0a41fc42e0401d1cb8e79efdec4b046476fb3910fae49d7"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1293,7 +1293,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "783ff3cd2415e81cb9c576efc8694eb42c61788f3ad4f6fb43074e10436b8b4d"
+      "sha256": "592e33617497ae109fcbc186039468e47f721cfd5fe936385aa1a079079a015d"
     },
     {
       "path": "scripts/check-static.js",

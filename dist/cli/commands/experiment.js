@@ -67,6 +67,7 @@ exports.backfillWorkflowParents = backfillWorkflowParents;
 exports.applyObservationFields = applyObservationFields;
 exports.runtimeRow = runtimeRow;
 exports.lifecycleOf = lifecycleOf;
+exports.pickExperiment = pickExperiment;
 exports.resolveRuntimeObservation = resolveRuntimeObservation;
 exports.findLatestTrainingMessage = findLatestTrainingMessage;
 exports.extractTrainingMessages = extractTrainingMessages;
@@ -753,7 +754,7 @@ async function experimentPause(id, flags) {
 }
 async function experimentRetry(id, flags, action = "retry") {
     const rows = await loadExperiments();
-    const match = rows.find((row) => row.id === id || row.name === id);
+    const match = pickExperiment(rows, id);
     if (!match)
         throw (0, errors_1.businessError)(`experiment not found: ${id}`);
     const from = flags.from || (action === "resume" ? "resume_checkpoint" : "failed_stage");
@@ -1744,16 +1745,11 @@ async function resolveExperimentReference(value) {
     }));
 }
 function pickExperiment(rows, wanted) {
-    let best;
-    let bestRank = 0;
-    for (const row of rows) {
-        const rank = referenceRank(row, wanted);
-        if (rank && (!bestRank || rank < bestRank)) {
-            best = row;
-            bestRank = rank;
-        }
-    }
-    return best;
+    const exact = rows.filter(row => row.id === wanted);
+    const matches = exact.length ? exact : rows.filter(row => referenceRank(row, wanted) > 0);
+    if (matches.length > 1)
+        throw (0, errors_1.businessError)("EXPERIMENT_SELECTION_AMBIGUOUS：存在多个匹配的实验，请使用精确实验 ID。", JSON.stringify({ requested: wanted, candidates: matches.map(row => row.id) }));
+    return matches[0];
 }
 function resolveRuntimeObservation(value, observed) {
     const wanted = String(value || "").trim();
@@ -1780,7 +1776,7 @@ function referenceRank(row, wanted) {
 }
 async function findExperiment(id) {
     const rows = await loadExperiments();
-    const match = rows.find((row) => row.id === id || row.name === id || row.run_id === id);
+    const match = pickExperiment(rows, id);
     if (!match)
         throw (0, errors_1.businessError)(`experiment not found: ${id}`);
     return match;
@@ -1812,7 +1808,7 @@ async function recentLogsFor(match) {
 }
 async function loadExperimentDetail(id) {
     const rows = await loadExperiments();
-    const match = rows.find((row) => row.id === id || row.name === id || row.run_id === id);
+    const match = pickExperiment(rows, id);
     if (!match)
         throw (0, errors_1.businessError)(`experiment not found: ${id}`);
     return { match, rows, recentLogs: await recentLogsFor(match) };
@@ -1934,13 +1930,14 @@ function diagnoseReasons(status, evidence) {
 function parseLogRecords(text) {
     return String(text || "").replace(/\r\n/g, "\n").split("\n").filter((line) => line.trim()).map((line) => {
         const timestamp = line.match(/^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)/)?.[1] || "";
-        const level = line.match(/\b(ERROR|WARNING|WARN|INFO|DEBUG|CRITICAL)\b/i)?.[1].toUpperCase().replace("WARN", "WARNING") || "";
+        const rawLevel = line.match(/\b(ERROR|WARNING|WARN|INFO|DEBUG|CRITICAL)\b/i)?.[1].toUpperCase() || "";
+        const level = rawLevel === "WARN" ? "WARNING" : rawLevel;
         return { timestamp, level, message: line.trim() };
     });
 }
 async function logRecordsForExperiment(id) {
     const rows = await loadExperiments();
-    const match = rows.find((row) => row.id === id || row.name === id || row.run_id === id);
+    const match = pickExperiment(rows, id);
     if (!match)
         return null;
     const raw = match.raw || {};
