@@ -3,12 +3,13 @@ import * as path from "path";
 
 // Shared path policy and generated Python counterpart. UI consumes catalog keys only.
 const SAFE_RE = "[^A-Za-z0-9._-]+";
+const UNICODE_NAME_RE = /[^\p{L}\p{N}._-]+/gu;
 const DEVICE_RE = "^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:[.]|$)";
 export function datasetPathKey(value: unknown): string {
   const raw = String(value ?? "").trim();
   if (!raw) return "_unassigned";
   if (raw.includes("..") || /[/\\:]/.test(raw) || ["_unassigned", "_shared"].includes(raw.toLowerCase())) throw new Error("数据集名称不安全或使用了保留分区：" + raw);
-  const key = raw.replace(new RegExp(SAFE_RE, "g"), "_").replace(/^\.+|\.+$/g, "").slice(0, 80);
+  const key = Array.from(raw.replace(UNICODE_NAME_RE, "_").replace(/^\.+|\.+$/g, "")).slice(0, 80).join("");
   if (!key || new RegExp(DEVICE_RE, "i").test(key)) throw new Error("数据集名称不能映射到安全目录：" + raw);
   return key;
 }
@@ -49,10 +50,14 @@ def dataset_path_key(value):
         return "_unassigned"
     if ".." in raw or any(char in raw for char in ("/", chr(92), ":")) or raw.lower() in ("_unassigned", "_shared"):
         raise ValueError("Unsafe or reserved dataset name: " + raw)
-    key = re.sub(${JSON.stringify(SAFE_RE)}, "_", raw).strip(".")[:80]
+    key = re.sub(r"[^\w.-]+", "_", raw).strip(".")[:80]
     if not key or re.search(${JSON.stringify(DEVICE_RE)}, key, re.I):
         raise ValueError("Unsafe dataset directory: " + raw)
     return key
+
+def legacy_dataset_path_key(value):
+    raw = str(value if value is not None else "").strip()
+    return re.sub(${JSON.stringify(SAFE_RE)}, "_", raw).strip(".")[:80]
 
 def dataset_partitions(values):
     keys = {}

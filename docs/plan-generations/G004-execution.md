@@ -37,3 +37,5 @@ B1 U04-29/30/31：排行识别大小写JSON，已知身份和维度不进入指�
 B1 U04-19及21汇总链：拆表、摘要注册、FreshResults和catalog使用可序列化自有数据键；保留真实指标冲突检查。projectResultTables 21/21、freshResults 10/10、catalog替身1/1，均exit0；U04-21的CLI与排行榜调用链仍待下一组。
 
 B1 U04-21其余链：结果解析、排行榜、CLI指标提取与比较保留特殊名称，比较只使用自有键。CSV解析5/5、排行4/4、缺值及CLI比较3/3，均exit0；均为内存输入。
+
+B1 U04-22：中文数据集、方法、词条和指标保留区分；旧ASCII路径及安全冲突规则保留，Windows设备名拒绝；Python旧索引键可读。projectResultTables 22/22、TS/Python函数对照1/1 exit0，无真实文件迁移或Worker操作。

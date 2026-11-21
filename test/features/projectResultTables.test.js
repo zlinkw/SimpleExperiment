@@ -60,6 +60,24 @@ test("special data keys survive splitting and metric aggregation", () => {
   assert.ok(table.header.includes("proto_mean"));
 });
 
+test("Chinese datasets, methods, split values and metric columns stay distinct", () => {
+  assert.notEqual(tables.safeTableName("肺"), tables.safeTableName("肝"));
+  assert.notEqual(tables.datasetPathKey("肺"), tables.datasetPathKey("肝"));
+  assert.equal(tables.datasetPathKey("BUS"), "BUS");
+  assert.throws(() => tables.safeTableName("CON.txt"), /安全/);
+  const first = record("w1", "方法甲", "c1", 1, "clean", "准确率", 0.8);
+  first.dimensions.dataset = "肺";
+  first.metrics["召回率"] = { value: 0.7 };
+  const second = record("w1", "方法乙", "c2", 1, "clean", "准确率", 0.6);
+  second.dimensions.dataset = "肝";
+  const result = tables.buildTables(tables.updateRegistry(tables.emptyTableRegistry(), summary([first, second]), plan, 1));
+  assert.ok(Object.values(result).some(table => table.relativePath.includes("肺/methods/方法甲")));
+  assert.ok(Object.values(result).some(table => table.relativePath.includes("肝/methods/方法乙")));
+  const lung = Object.values(result).find(table => table.relativePath === "肺/final/final.csv");
+  assert.ok(lung.header.includes("准确率_mean"));
+  assert.ok(lung.header.includes("召回率_mean"));
+});
+
 test("stale Agent result revision cannot replace a revised local Plan", () => {
   assert.equal(tables.summaryMatchesPlanRevision({ planRevision: "old" }, { revision: "new" }), false);
   assert.equal(tables.summaryMatchesPlanRevision({ planRevision: "new" }, { revision: "new" }), true);

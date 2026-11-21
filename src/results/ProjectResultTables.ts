@@ -104,8 +104,8 @@ export function summaryMatchesPlanRevision(summary: any, plan: any): boolean {
 }
 
 export function safeTableName(value: string): string {
-  const token = String(value || "").trim().replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^\.+|\.+$/g, "").slice(0, 80);
-  if (!token || token === "." || token === "..") throw new Error("结果名称不能映射到安全文件夹。");
+  const token = Array.from(String(value || "").trim().replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^\.+|\.+$/g, "")).slice(0, 80).join("");
+  if (!token || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:[.]|$)/i.test(token)) throw new Error("结果名称不能映射到安全文件夹。");
   return token;
 }
 export function methodTableName(value: string): string {
@@ -446,7 +446,7 @@ function buildDatasetTables(registry: TableRegistry, options: { partial?: boolea
     const metrics = [...new Set(chosen.flatMap((group) => [...group.seeds.values()].flatMap((seed) => Object.keys(seed))))].sort();
     const label = (name: string) => {
       const preferred: Record<string, string> = { AUC: "roc_auc", AUPRC: "auprc", accuracy: "accuracy", F1: "f1_score", macro_f1: "macro_f1", micro_f1: "micro_f1", weighted_f1: "weighted_f1", ECE: "ece", brier: "brier_score", recall: "recall" };
-      return (Object.hasOwn(preferred, name) ? preferred[name] : name).replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "metric";
+      return (Object.hasOwn(preferred, name) ? preferred[name] : name).replace(/[^\p{L}\p{N}_]+/gu, "_").replace(/^_+|_+$/g, "").toLowerCase() || "metric";
     };
     const labels = metrics.map(label);
     if (new Set(labels).size !== labels.length) throw new Error("多个原始指标映射到同一结果列。");
@@ -493,7 +493,7 @@ function buildDatasetTables(registry: TableRegistry, options: { partial?: boolea
     const markdown = resultTableMarkdown(header, rows);
     return { header, rows, markdown };
   };
-  const out: Record<string, ResultTable> = {};
+  const out: Record<string, ResultTable> = Object.create(null);
   if (groups.length) out.final = make(groups);
   const methods = new Set(groups.map((group) => methodTableName(group.record.method)));
   for (const method of methods) out[method] = make(groups.filter((group) => methodTableName(group.record.method) === method));

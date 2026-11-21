@@ -7987,7 +7987,7 @@ def project_dataset_table_outputs(root, current_summary, kind):
                     if total >= 50000:
                         raise ValueError("Project aggregate row budget exceeded")
                     dataset = str(row.get("dataset") or "").strip()
-                    if "datasetKey" in table and (dataset != table.get("dataset", "") or dataset_path_key(dataset) != table["datasetKey"]):
+                    if "datasetKey" in table and (dataset != table.get("dataset", "") or table["datasetKey"] not in (dataset_path_key(dataset), legacy_dataset_path_key(dataset))):
                         raise ValueError("Dataset table does not match its directory metadata")
                     group = groups.setdefault(dataset, {"headers": ["plan_file", "dataset"], "rows": []})
                     for header in reader.fieldnames or []:
