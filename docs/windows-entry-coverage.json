@@ -8450,5 +8450,39 @@
       ]
     },
     "note": "179为源码命中数；剔除25退役、8选择器引用和4无入口兼容代码后，142处控件模板来源为80实点、31预览、31待测。新增复核仅证明真实保护拒绝，不等于解除阻塞和重新派发通过。未升级或安装；最终受影响套件证据及失败保留见manual-acceptance-checklist.md。"
+  },
+  "g004U02Reconciliation": {
+    "scope": "28项功能族，非全插件按钮数；复用已有效证据，仅以本轮源码受控检查证明新增路径。",
+    "items": [
+      {"id":"J01","status":"blocked","evidence":"Git仅缺VALUE_0时复现exit128；真实扩展宿主的缺项来源未知。"},
+      {"id":"J02","status":"checked","evidence":"当前源码只读核对祖先及分支根、共同Git目录和分支身份。"},
+      {"id":"J03","status":"checked","evidence":"复用branchProjectRegistry既有选择、取消和失败恢复证据。"},
+      {"id":"J04","status":"checked","evidence":"复用branchProjectRegistry及窗口项目隔离证据。"},
+      {"id":"K05","status":"checked","evidence":"当前源码受控验证summary/full。"},
+      {"id":"K06","status":"checked","evidence":"目录静态标记与未公开命令拒绝经受控调用核对；目录不宣称实时可用性。"},
+      {"id":"K07","status":"checked","evidence":"复用配置scope及双项目隔离既有证据。"},
+      {"id":"K08","status":"checked","evidence":"当前源码受控验证只读键拒绝及取消零写。"},
+      {"id":"L09","status":"fixed","evidence":"流程状态布尔更新与持久化失败传播，源代码定向测试。"},
+      {"id":"L10","status":"fixed","evidence":"草稿验证补精确路径；刷新失败拒绝使用旧记录。"},
+      {"id":"L11","status":"fixed","evidence":"审核返回实际状态；受控拒绝只更新指定草稿。"},
+      {"id":"L12","status":"checked","evidence":"当前源码明确拒绝退役promotion。"},
+      {"id":"M13","status":"checked","evidence":"正式与归档列表分开返回，受控调用。"},
+      {"id":"M14","status":"fixed","evidence":"归档过滤纳入独立归档列表且不改变选择。"},
+      {"id":"M15","status":"checked","evidence":"写失败保留原内容，打开失败不改变选择；复用项目切换隔离。"},
+      {"id":"M16","status":"checked","evidence":"复用projectWorkspaceChangeIsolation项目选择持久化及隔离证据。"},
+      {"id":"N17","status":"checked","evidence":"当前源码操作筛选先于分页，保留原操作ID。"},
+      {"id":"N18","status":"checked","evidence":"复用G004操作回执及精确身份证据。"},
+      {"id":"N19","status":"checked","evidence":"复用workflowPanelNavigation及resultDatasetHierarchy精确导航证据；无真实Worker查询。"},
+      {"id":"N20","status":"checked","evidence":"复用U01失败日志及原按钮状态生命周期证据，未知不作为完成；未实测远端。"},
+      {"id":"P21","status":"checked","evidence":"复用datasetResultCatalog受控配置及目录证据，保存与读取按项目范围。"},
+      {"id":"P22","status":"checked","evidence":"复用U01真实来源切换和resultDatasetHierarchy，以及既有拆表字段证据。"},
+      {"id":"P23","status":"checked","evidence":"复用515的freshResults及freshResultHost回执，区分失败和旧结果。"},
+      {"id":"P24","status":"checked","evidence":"重建失败不打开旧文件；复用旧表写入失败和打开证据。"},
+      {"id":"Q25","status":"fixed","evidence":"PLAN过滤schema补支持的planId、limit、needsChoice及输出声明。"},
+      {"id":"Q26","status":"checked","evidence":"复用G004 MCP结构化结果及错误的SDK验证。"},
+      {"id":"Q27","status":"checked","evidence":"复用CLI和本机API项目绑定验证。"},
+      {"id":"Q28","status":"checked","evidence":"当前源码受控验证离线拒绝先于Worker端点请求；本机入口复用U01。"}
+    ],
+    "boundary": "当前源码新增测试29/29通过；部分旧测试依赖旧dist，不用于证明本轮源码修复。未构建、安装、查询服务器或实测远端；Git实际缺项来源仍未知。"
   }
 }

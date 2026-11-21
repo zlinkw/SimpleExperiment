@@ -176,6 +176,118 @@ test("MCP PLAN filter exposes supported identity and choice parameters", () => {
   assert.equal(output.anyOf[0].properties.needsChoice.type,'boolean');
 });
 
+test("MCP project state returns consistent summary and full state without a grant", async () => {
+  require('../_helpers/registerTsRequire');const {ProjectGateway}=require('../../src/mcp/ProjectGateway.ts');
+  const state={workspace:{root:'/project'},extensionVersion:'v',topology:{mode:'offline'},health:{ok:true},selection:{plan:'a'},other:'full'};
+  const gateway=new ProjectGateway({root:()=>'/project',workers:()=>[],store:{get:()=>undefined},methods:()=>({state:async()=>state})});
+  const summary=await gateway.call('project_state',{}),full=await gateway.call('project_state',{detail:'full'});
+  assert.equal(summary.workspace,state.workspace);assert.equal(summary.selection,state.selection);assert.equal(summary.other,undefined);
+  assert.equal(summary.detail,'summary');assert.equal(full.other,'full');assert.equal(full.selection,state.selection);
+});
+
+test("state API rejects read-only keys and cancellation before writing", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);const methods=[];let declaration;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&['apiStateValue','apiStateList','apiStateGet','apiStateSet'].includes(node.name.getText(ast)))methods.push(node.getText(ast));
+    if(ts.isVariableStatement(node)&&node.declarationList.declarations.some(d=>d.name.getText(ast)==='API_STATE_KEYS'))declaration=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const values=new Map(),writes=[];const store={get:k=>values.get(k),update:async(k,v)=>{writes.push([k,v]);values.set(k,v)}};
+  const sandbox={keys:new Proxy({}, {get:(_target,key)=>String(key)}),workspaceRoot:()=>'/project',readProjectConnectionValue:()=>undefined,stringField:(p,k)=>p[k]||'',redactApiStateValue:(_k,v)=>v,
+    normalizeApiStateValue:(_k,v)=>v,confirmationRequired:()=>new Error('CONFIRM_REQUIRED')};
+  vm.runInNewContext(ts.transpileModule(declaration+'\nclass Host {'+methods.join('\n')+'}; this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const h=new sandbox.Host();h.context={workspaceState:store,globalState:store};h.postState=()=>{};
+  await assert.rejects(h.apiStateSet({key:'offlineBundle',value:{},confirm:true}),/只读/);
+  await assert.rejects(h.apiStateSet({key:'uiProjectActions',value:['one']}),/CONFIRM_REQUIRED/);assert.equal(writes.length,0);
+  await h.apiStateSet({key:'uiProjectActions',value:['one'],confirm:true});assert.deepEqual((await h.apiStateGet({key:'uiProjectActions'})).value,['one']);
+  const listed=await h.apiStateList();assert.equal(listed.keys.find(x=>x.key==='offlineBundle').writable,false);
+});
+
+test("MCP operations list applies filters before pagination and preserves request identity", async () => {
+  require('../_helpers/registerTsRequire');const {ProjectGateway}=require('../../src/mcp/ProjectGateway.ts');
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let arrow;
+  const visit=node=>{if(ts.isPropertyAssignment(node)&&node.name.getText(ast)==='"operations.list"')arrow=node.initializer.getText(ast);ts.forEachChild(node,visit)};visit(ast);assert.ok(arrow);
+  const sandbox={stringField:(p,k)=>p[k]||'',usableSelectionKey:x=>x,operationStatusToken:x=>String(x||'').toLowerCase(),
+    operationResultPlanFile:x=>x.planFile||'',samePlanSelection:(a,b)=>a===b,operationTime:x=>Date.parse(x.startedAt)};
+  vm.runInNewContext(ts.transpileModule('class Host { make(){return '+arrow+'} };this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const h=new sandbox.Host();h.effectiveConnectionMode=()=> 'offline_import';h.buildPlanRuntimeEvidenceState=()=>({operations:{
+    first:{type:'mcp-call',status:'running',planFile:'a',startedAt:'2026-01-01'},
+    second:{type:'mcp-call',status:'running',planFile:'a',startedAt:'2026-01-02'},
+    third:{type:'mcp-call',status:'failed',planFile:'a',startedAt:'2026-01-03'}}});
+  const gateway=new ProjectGateway({root:()=>'/project',workers:()=>[],store:{get:()=>undefined},methods:()=>({'operations.list':h.make()})});
+  const r=await gateway.call('operation_list',{status:'running',offset:1,limit:1});assert.equal(r.total,2);assert.equal(r.offset,1);assert.equal(r.limit,1);assert.equal(r.operations[0].operationId,'first');
+});
+
+test("retired draft promotion returns an explicit error", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='apiDraftPromote')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const sandbox={};vm.runInNewContext(ts.transpileModule('class Host {'+method+'}; this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  await assert.rejects(new sandbox.Host().apiDraftPromote({}),/DRAFT_PROMOTION_RETIRED/);
+});
+
+test("action catalog and invoke reject an unexposed command", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let arrow,method;
+  const visit=node=>{if(ts.isPropertyAssignment(node)&&node.name.getText(ast)==='"actions.list"')arrow=node.initializer.getText(ast);
+    if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='invokeApi')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const sandbox={API_EXECUTABLE_COMMANDS:new Set(['openPlan','runPlan']),uiActionCommands:new Set(['runPlan']),API_CONFIRM_COMMANDS:new Set(['runPlan']),
+    actionCommandMap:{runPlan:'plan/run'},stringField:(p,k)=>p[k]||''};
+  vm.runInNewContext(ts.transpileModule('class Host {'+method+' makeCatalog(){return '+arrow+'} };this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const host=new sandbox.Host(),catalog=await host.makeCatalog()();assert.equal(catalog.count,2);assert.equal(catalog.actions.find(x=>x.command==='runPlan').confirm,true);
+  await assert.rejects(host.invokeApi({command:'invented'}),/not exposed/);
+});
+
+test("PLAN list returns formal and archived metadata separately", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let arrow;
+  const visit=node=>{if(ts.isPropertyAssignment(node)&&node.name.getText(ast)==='"plans.list"')arrow=node.initializer.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const sandbox={};vm.runInNewContext(ts.transpileModule('class Host { make(){return '+arrow+'} };this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const h=new sandbox.Host();h.refreshLocalPlanMetadata=async()=>{h.localPlanMetadata={plans:[{planFile:'live'}],archivedPlans:[{planFile:'archive'}]}};
+  const r=await h.make()();assert.equal(r.plans[0].planFile,'live');assert.equal(r.archivedPlans[0].planFile,'archive');assert.equal(r.source,'local_metadata');
+});
+
+test("PLAN save surfaces write failure after preserving the prior content", async () => {
+  const source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const start=source.indexOf('async function writeWorkspaceTextWithBackup('),end=source.indexOf('// Backups are plugin-owned',start);assert.ok(start>=0&&end>start);
+  const root=path.resolve('fixture-project'),calls=[];let previous='old';const sandbox={path,workspaceRoot:()=>root,
+    fs:{mkdir:async()=>{},readFile:async()=>previous,writeFile:async(_file,text)=>{calls.push(text)}},
+    nextWorkspaceBackupSlot:async()=>path.join(root,'history.bak'),atomicWriteText:async()=>{throw new Error('write failed')}};
+  vm.runInNewContext(source.slice(start,end)+';this.save=writeWorkspaceTextWithBackup;',sandbox);
+  await assert.rejects(sandbox.save(path.join(root,'plan.yaml'),'new'),/write failed/);assert.equal(previous,'old');assert.deepEqual(calls,['old']);
+});
+
+test("opening a PLAN propagates failure without changing selection", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='openWorkspacePlanFromUi')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const sandbox={workspaceRoot:()=>'/project',stringField:(p,k)=>p[k]||'',openWorkspaceFile:async()=>{throw new Error('open failed')},path};
+  vm.runInNewContext(ts.transpileModule('class Host {'+method+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const host=new sandbox.Host();host.projectContextGeneration=1;let selected=false;host.selectPlanFromUi=()=>{selected=true};
+  await assert.rejects(host.openWorkspacePlanFromUi({file:'experiments/plans/a.yaml'}),/open failed/);assert.equal(selected,false);
+});
+
+test("result table reconstruction failure prevents opening stale output", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='openLocalResultTableFromUi')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const sandbox={pluginProjectAdapterRules:()=>({}),DEFAULT_RESULT_CSV_DIR:'results',readLatestResultExport:async()=>({tables:[{tableKey:'a'}]}),
+    regenerateLatestResultTables:async()=>{throw new Error('rebuild failed')}};
+  vm.runInNewContext(ts.transpileModule('class Host {'+method+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const host=new sandbox.Host();host.captureProjectContext=()=>({root:'/project'});host.readProjectResultCatalog=async()=>({datasets:[{tables:[{tableKey:'a',path:'a.csv'}]}]});
+  host.withProjectResultPublicationLease=async(_root,_dir,fn)=>fn();let opened=false;host.openWorkspaceFileForProjectContext=async()=>{opened=true};
+  await assert.rejects(host.openLocalResultTableFromUi({tableKey:'a'}),/rebuild failed/);assert.equal(opened,false);
+});
+
+test("offline worker action fails before any endpoint request", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='postWorkerTunnelAction')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const sandbox={};vm.runInNewContext(ts.transpileModule('class Host {'+method+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const host=new sandbox.Host();host.assertActionAuthorityCurrent=()=>{};host.resolveWorkerEndpointId=id=>id;host.isRealtimeMode=()=>false;
+  let endpointRead=false,error;host.workerAgentUrl=()=>{endpointRead=true};host.recordActionError=e=>{error=e};host.postState=()=>{};
+  await assert.rejects(host.postWorkerTunnelAction('worker','query',{}),/offline_import/);assert.equal(endpointRead,false);assert.match(error.message,/offline_import/);
+});
+
 test("webview terminal uiCommandStatus clears button loading by client action", () => {
   const root = path.resolve(__dirname, "..", "..");
   const source = readSource("src/ui/PanelHtml.ts");
