@@ -51,7 +51,7 @@ export async function metricShow(id: string, flags: CliFlags): Promise<number> {
 }
 
 export function numericMetrics(row: Pick<ResultRow, "metrics">): Record<string, number> {
-  const out: Record<string, number> = {};
+  const out: Record<string, number> = Object.create(null);
   for (const [key, value] of Object.entries(row.metrics || {})) {
     const numeric = metricNumber(value);
     if (numeric !== null) out[key] = numeric;

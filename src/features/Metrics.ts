@@ -31,7 +31,7 @@ export function parseMetricsFile(text: string, sourceFile: string, runKey = sour
   if (lines.length < 2) return [];
   const headers = lines[0];
   return lines.slice(1).map((cols, index) => {
-    const row: Record<string, string> = {};
+    const row: Record<string, string> = Object.create(null);
     headers.forEach((h, i) => row[h] = cols[i] || "");
     return {
       experimentId: row.experimentId || row.runKey || `${runKey}-${index}`,
@@ -48,8 +48,8 @@ export function buildLeaderboard(rows: ExperimentMetrics[], groupBy: (row: Exper
   for (const row of rows) groups.set(groupBy(row), [...(groups.get(groupBy(row)) || []), row]);
   return Array.from(groups.entries()).map(([groupKey, items]) => {
     const keys = Array.from(new Set(items.flatMap((item) => Object.keys(item.metrics))));
-    const mean: Record<string, number> = {};
-    const std: Record<string, number> = {};
+    const mean: Record<string, number> = Object.create(null);
+    const std: Record<string, number> = Object.create(null);
     for (const key of keys) {
       const values = items.map((item) => item.metrics[key]).filter((value) => Number.isFinite(value));
       mean[key] = avg(values);

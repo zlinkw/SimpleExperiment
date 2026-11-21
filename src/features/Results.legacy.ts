@@ -587,7 +587,7 @@ export function buildResultLeaderboard(records: ExperimentResultRecord[], config
     groups.set(groupKey, [...(groups.get(groupKey) || []), record]);
   }
   return Array.from(groups.entries()).map(([groupKey, items]) => {
-    const values: ResultLeaderboardRow["values"] = {};
+    const values: ResultLeaderboardRow["values"] = Object.create(null);
     for (const metric of config.metrics) {
       const nums = items.map((item) => finiteMetricNumber(item.metrics[metric.key]?.value)).filter((value): value is number => value !== undefined);
       values[metric.key] = aggregate(nums, config.aggregate);
@@ -707,7 +707,7 @@ export function detectMetricAliasConflicts(schema: ResultSchema): Array<{ alias:
 }
 
 export function applyResultSchema(record: ExperimentResultRecord, schema: ResultSchema, context: { row?: Record<string, unknown>; sourcePath?: string; config?: unknown; planVariables?: Record<string, unknown> } = {}): ExperimentResultRecord {
-  const metrics: Record<string, ResultMetricValue> = {};
+  const metrics: Record<string, ResultMetricValue> = Object.create(null);
   for (const [key, value] of Object.entries(record.metrics)) {
     const normalized = normalizeMetricKey(key, schema);
     const def = schema.metrics.find((item) => item.key === normalized);
@@ -1175,7 +1175,7 @@ function baseRecord(ids: ReturnType<typeof idsFromRow>, sourceFile: ExperimentRe
     sourceFiles: [{ ...sourceFile, sha256: sourceFile.sha256 || sha256(sourceFile.path) }],
     parserPresetId: preset.id,
     parserConfig,
-    metrics: {},
+    metrics: Object.create(null),
     dimensions: standardDimensions(row, m),
     primaryMetric: preset.primaryMetric,
     higherIsBetter: preset.primaryMetric ? directionFor(preset.primaryMetric, preset) !== "lower" : true,
@@ -1388,7 +1388,7 @@ function compileTextMetricPattern(pattern?: string): RegExp | undefined {
 function normalizeTextMetricName(metric: string, aliases: Record<string, string> = {}): string {
   const value = metric.trim();
   const lower = value.toLowerCase();
-  const custom = aliases[value] || Object.entries(aliases).find(([key]) => key.toLowerCase() === lower)?.[1];
+  const custom = (Object.hasOwn(aliases, value) ? aliases[value] : undefined) || Object.entries(aliases).find(([key]) => key.toLowerCase() === lower)?.[1];
   if (custom) return custom;
   if (lower === "acc") return "accuracy";
   if (lower === "dice") return "DSC";
@@ -1437,9 +1437,9 @@ function coerceDimension(value: unknown, type: ResultDimensionConfig["type"]): s
   return String(value);
 }
 
-const splitNameMap: Record<string, string> = {
+const splitNameMap: Record<string, string> = Object.assign(Object.create(null), {
   train: "train", val: "val", valid: "val", validation: "val", test: "test", external: "external", ext: "external",
-};
+});
 
 const metricDecorators = new Set(["best", "final", "last", "mean", "avg", "average", "eval", "score", "metric", "macro", "micro", "weighted"]);
 const segmentationMetricNames = new Set(["DSC", "Dice", "IoU", "HD95", "ASD"]);
@@ -1447,7 +1447,7 @@ const segmentationMetricNames = new Set(["DSC", "Dice", "IoU", "HD95", "ASD"]);
 function normalizeMetricToken(metric: string, aliases: Record<string, string> = {}): { metric: string; split?: string } {
   const value = metric.trim();
   if (!value) return { metric: "" };
-  const direct = aliases[value] || Object.entries(aliases).find(([key]) => key.toLowerCase() === value.toLowerCase())?.[1];
+  const direct = (Object.hasOwn(aliases, value) ? aliases[value] : undefined) || Object.entries(aliases).find(([key]) => key.toLowerCase() === value.toLowerCase())?.[1];
   if (direct && direct !== value) {
     const sourceSplit = splitFromMetricName(value);
     const normalized = normalizeMetricToken(direct);
@@ -1537,7 +1537,11 @@ function metricAlias(metric: string): string {
 
 function directionFor(metric: string, preset: ResultParserPreset): "higher" | "lower" {
   const normalized = normalizeMetricToken(metric, preset.metricAliases || {}).metric;
-  return preset.metricDirections?.[metric] || preset.metricDirections?.[normalized] || classificationMetricDirections[metric] || classificationMetricDirections[normalized] || segmentationMetricDirections[metric] || segmentationMetricDirections[normalized] || "higher";
+  for (const directions of [preset.metricDirections, classificationMetricDirections, segmentationMetricDirections]) {
+    if (directions && Object.hasOwn(directions, metric)) return directions[metric];
+    if (directions && Object.hasOwn(directions, normalized)) return directions[normalized];
+  }
+  return "higher";
 }
 
 function isCaseLevelMetricsFile(sourcePath: string): boolean {

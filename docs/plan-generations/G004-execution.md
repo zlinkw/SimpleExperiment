@@ -35,3 +35,5 @@ B1 U04-32：共享排行榜及result_export不再把null、空串、空白或布
 B1 U04-29/30/31：排行识别大小写JSON，已知身份和维度不进入指标，CLI按所有记录的稳定并集输出列。合成CSV/JSON及CLI替身3/3 exit0；无真实数据读写。
 
 B1 U04-19及21汇总链：拆表、摘要注册、FreshResults和catalog使用可序列化自有数据键；保留真实指标冲突检查。projectResultTables 21/21、freshResults 10/10、catalog替身1/1，均exit0；U04-21的CLI与排行榜调用链仍待下一组。
+
+B1 U04-21其余链：结果解析、排行榜、CLI指标提取与比较保留特殊名称，比较只使用自有键。CSV解析5/5、排行4/4、缺值及CLI比较3/3，均exit0；均为内存输入。

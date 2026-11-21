@@ -58,3 +58,15 @@ test("long CSV handles quoted fields and ordinary rows", () => {
   assert.equal(rows[0].metrics.loss.value, 0);
   assert.equal(rows[0].metrics.accuracy.value, 0.9);
 });
+
+test("result parsing and aggregation preserve special metric names", () => {
+  const preset = { ...wide, format: "wide_csv", finalRowSelector: undefined,
+    metricColumns: ["__proto__", "constructor"], columnMapping: { runKey: "run_key" } };
+  const records = Results.parseResultFile("run_key,__proto__,constructor\nr,0.4,0.5\n", source, preset);
+  assert.equal(records[0].metrics.__proto__.value, 0.4);
+  assert.equal(records[0].metrics.constructor.value, 0.5);
+  const board = Results.buildResultLeaderboard(records, { filter: {}, groupBy: ["suite"], aggregate: "raw",
+    metrics: [{ key: "__proto__" }, { key: "constructor" }] });
+  assert.deepEqual(board[0].values.__proto__.raw, [0.4]);
+  assert.deepEqual(board[0].values.constructor.raw, [0.5]);
+});

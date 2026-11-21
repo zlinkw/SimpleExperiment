@@ -14,7 +14,7 @@ export async function compareCommand(rest: string[], flags: CliFlags): Promise<n
   const leftRow = selectResult(rows, leftId), rightRow = selectResult(rows, rightId);
   const left = leftRow ? numericMetrics(leftRow) : {};
   const right = rightRow ? numericMetrics(rightRow) : {};
-  const difference: Record<string, { left: number; right: number; delta: number }> = {};
+  const difference: Record<string, { left: number; right: number; delta: number }> = Object.create(null);
   const improvement: string[] = [];
   const regression: string[] = [];
   const reason = !Object.keys(left).length && !Object.keys(right).length
@@ -25,7 +25,7 @@ export async function compareCommand(rest: string[], flags: CliFlags): Promise<n
         ? `no results recorded for ${rightId}`
         : "";
   for (const key of Object.keys(left)) {
-    if (!(key in right)) continue;
+    if (!Object.hasOwn(right, key)) continue;
     const delta = Math.round((right[key] - left[key]) * 1e12) / 1e12;
     difference[key] = { left: left[key], right: right[key], delta };
     const directions = [leftRow, rightRow].map(row => {

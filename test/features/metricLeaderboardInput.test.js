@@ -42,3 +42,16 @@ test("CLI outputs the stable union of all actual metric columns", () => {
   assert.match(output, /loss/);
   assert.match(output, /0\.4/);
 });
+
+test("CSV and JSON special metric keys survive leaderboard aggregation", () => {
+  for (const [text, file] of [
+    ["runKey,__proto__,constructor,accuracy\nr,0.4,0.5,0.8\n", "data.csv"],
+    ['{"metrics":{"__proto__":0.4,"constructor":0.5,"accuracy":0.8}}', "data.JSON"],
+  ]) {
+    const rows = Metrics.parseMetricsFile(text, file);
+    const board = Metrics.buildLeaderboard(rows, () => "group")[0];
+    assert.equal(board.mean.__proto__, 0.4);
+    assert.equal(board.mean.constructor, 0.5);
+    assert.equal(JSON.parse(JSON.stringify(board)).mean.__proto__, 0.4);
+  }
+});
