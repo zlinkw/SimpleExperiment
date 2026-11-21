@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.514",
-  "buildId": "eac9afce8f5179321a8a14efa249c671a8470325979339f7beb13a9a4fc6a492",
+  "version": "0.5.515",
+  "buildId": "c99a7c5795981854996f3b94cd1c30be9608c75567f361f4c1714272fa974299",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -941,7 +941,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "389e38243bb16f900d6cb5a6c3497d8a6064a0ce31136d5ff867f3cbbdd02d61"
+      "sha256": "f6f0dac47fbcc0959149143b93655b367aa2cc878e88d63ee04c74fc26a06b45"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1293,7 +1293,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "2425f5ea1049bd984e52c3a9cd0687e24539bb09fc06e31cb121000a9f0650cc"
+      "sha256": "62a9b2cf003d2d63835f414a8f0a3d0671bf307fc462525ba949a0acc2211e5c"
     },
     {
       "path": "scripts/check-static.js",
