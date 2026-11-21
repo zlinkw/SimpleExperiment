@@ -22,7 +22,7 @@ export function parseMetricsFile(text: string, sourceFile: string, runKey = sour
   const parsedAt = new Date().toISOString();
   if (/\.json$/i.test(sourceFile)) {
     const json = JSON.parse(text);
-    const metrics = numericEntries(json.metrics || json);
+    const metrics = numericEntries(json.metrics || json, !json.metrics);
     return [{ experimentId: String(json.experimentId || runKey), runKey, metrics,
       ...(typeof json.primaryMetric === "string" ? { primaryMetric: json.primaryMetric } : {}),
       ...(typeof json.higherIsBetter === "boolean" ? { higherIsBetter: json.higherIsBetter } : {}), sourceFile, parsedAt }];
@@ -69,10 +69,10 @@ export function leaderboardToMarkdown(rows: LeaderboardRow[], metrics: string[])
   return [header, sep, ...body].join("\n");
 }
 
-function numericEntries(value: Record<string, unknown>): Record<string, number> {
+function numericEntries(value: Record<string, unknown>, excludeDimensions = true): Record<string, number> {
   const dimensionNames = new Set(["experimentid", "runkey", "runid", "attemptid", "suite", "method", "dataset", "split", "fold", "seed", "case", "model", "tag", "epoch", "step"]);
   return Object.fromEntries(Object.entries(value).flatMap(([key, raw]) => {
-    if (dimensionNames.has(key.replace(/_/g, "").toLowerCase())) return [];
+    if (excludeDimensions && dimensionNames.has(key.replace(/_/g, "").toLowerCase())) return [];
     if (typeof raw === "number") return Number.isFinite(raw) ? [[key, raw]] : [];
     if (typeof raw !== "string" || !raw.trim()) return [];
     const parsed = Number(raw);

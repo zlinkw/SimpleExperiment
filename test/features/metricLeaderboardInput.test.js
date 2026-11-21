@@ -23,6 +23,12 @@ test("known numeric dimensions are excluded but custom metrics and zero remain",
   assert.deepEqual(row.metrics, { accuracy: 0.9, custom: 0 });
   const json = Metrics.parseMetricsFile('{"experimentId":123,"seed":42,"accuracy":0.9,"custom":0}', "data.JSON")[0];
   assert.deepEqual(json.metrics, { accuracy: 0.9, custom: 0 });
+  const explicit = Metrics.parseMetricsFile('{"seed":42,"metrics":{"seed":0.5,"epoch":0,"score":0.8,"__proto__":1,"constructor":2}}', "data.json")[0];
+  assert.equal(explicit.metrics.seed, 0.5);
+  assert.equal(explicit.metrics.epoch, 0);
+  assert.equal(explicit.metrics.score, 0.8);
+  assert.equal(explicit.metrics.__proto__, 1);
+  assert.equal(explicit.metrics.constructor, 2);
 });
 
 test("CLI outputs the stable union of all actual metric columns", () => {

@@ -44,7 +44,7 @@ function fixture(options = {}) {
   let nextTimer = 0;
   const elements = Object.fromEntries(["tmuxOverview", "tmuxWorkersOverview", "tmuxListMeta", "tmuxCaptureMeta", "tmuxCapturePre", "tmuxWorkerSelect", "tmuxFollowButton"].map(id => [id, { innerHTML: "", textContent: "", value: "", dataset: {}, setAttribute(key,value) { this[key]=value; } }]));
   const sandbox = {
-    tmuxJobLogSelection: null, tmuxJobLogJumpTimeout: 0,
+    tmuxJobLogSelection: null, tmuxJobLogJumpTimeout: 0, nativeTitleMutationVersion: 0,
     tmuxSelectedWorkerId: "worker-b", tmuxWindowFilter: "all", tmuxSelectedTaskTarget: "", tmuxSelectedPaneTarget: "",
     tmuxLastCaptureTarget: "", tmuxListRequestId: 0, tmuxListBusy: false, tmuxListTimeout: 0,
     tmuxInitialRetryCount: 0, tmuxInitialRetryTimer: 0,
@@ -81,7 +81,7 @@ function fixture(options = {}) {
     "renderTmuxFilterBar", "renderTmuxOverview", "renderTmuxWorkersOverview", "refreshTmuxList", "scheduleTmuxInitialRetry", "finishTmuxListRequest",
     "resolveJobTmuxWindow", "cancelJobTmuxLogJump", "failJobTmuxLogJump", "jumpToJobTmuxLog", "handleJobTmuxLogList", "tmuxResolveCaptureTarget", "refreshTmuxCapture",
     // r2 display gate helpers live in the same script scope in production, so the fixture loads them too.
-    "lowTrafficModeFromState", "displayAutoAllowed", "displaySampleNotice", "recordDisplaySample", "renderDisplayAutoNotices", "decodeCapturedText", "setTmuxLogFollow"].map(fn).join("\n"), sandbox);
+    "lowTrafficModeFromState", "displayAutoAllowed", "displaySampleNotice", "recordDisplaySample", "renderDisplayAutoNotices", "decodeCapturedText", "setNativeTitle", "setTmuxLogFollow"].map(fn).join("\n"), sandbox);
   const clickStart = script.indexOf('const jobTmuxLogButton = event.target.closest("button[data-job-tmux-log]")');
   const clickEnd = script.indexOf('const tmuxClearTaskTabs =', clickStart);
   assert.ok(clickStart >= 0 && clickEnd > clickStart);
