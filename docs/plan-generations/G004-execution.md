@@ -183,3 +183,5 @@ U04新增单项目问题45：映射结果时假JSON提交后假表写EACCES，�
 
 问题21补充metric_list：实际列表消费者配内存指标对象遗漏__proto__、保留accuracy，exit0；无真实查询。
 问题21补充JSON排行榜：解析保留__proto__=0.5但实际聚合mean丢失，accuracy保留；内存复现exit0。
+
+复核0.5.516包回执：currentSubmissionTruth、selectedPlanBatch、serverQueueDispatch均passed/exit0，限定PLAN显式身份、全部PLAN刷新去重及队列按钮payload等原断言；未重跑或操作真实任务。
