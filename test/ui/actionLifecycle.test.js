@@ -123,6 +123,36 @@ test("flow update does not return another project's state after a workspace swit
   await assert.rejects(failed,/项目已切换.*原项目/);assert.equal(written[1].project,'/project-a');
 });
 
+test("state writes do not reload or report a different project after switching", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),methods=[];
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&['apiStateSet','apiStateReset'].includes(node.name.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
+  let root='A',release,started;const writes=[];let waiting;
+  const sandbox={API_STATE_KEYS:{tunnelConfig:{writable:true,store:'workspace'}},keys:{tunnelConfig:'tunnelConfig'},workspaceRoot:()=>root,
+    stringField:(p,k)=>p[k]||'',normalizeApiStateValue:(_k,v)=>v,redactApiStateValue:(_k,v)=>v,
+    saveProjectConnectionValues:async(_context,project,value)=>{writes.push({project,value});started();await new Promise(resolve=>{release=resolve})}};
+  vm.runInNewContext(ts.transpileModule('class Host {'+methods.join('\n')+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  for(const method of ['apiStateSet','apiStateReset']) {
+    root='A';waiting=new Promise(resolve=>{started=resolve});const h=new sandbox.Host();let reloads=0;h.context={};h.captureProjectContext=()=>({root});h.projectContextIsCurrent=c=>c.root===root;
+    h.loadTunnelConfig=()=>{reloads++;return {project:root}};h.loadSetupConfig=()=>({});h.resetClient=()=>{};h.postState=()=>{};h.apiStateValue=()=>({project:root});
+    const pending=h[method]({key:'tunnelConfig',confirm:true,value:{x:1}});await waiting;root='B';release();
+    await assert.rejects(pending,/项目已切换.*原项目/);assert.equal(reloads,0);assert.equal(writes.at(-1).project,'A');
+  }
+});
+
+test("configuration set does not report the new project's value after switching", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='apiConfigSet')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  let root='A',release,started;const waiting=new Promise(resolve=>{started=resolve}),writes=[];
+  const sandbox={stringField:(p,k)=>p[k]||'',validateApiConfigValue:()=>{},API_CONFIG_NAMESPACE:'simpleExperiment',API_CONFIG_PREFIX:'simpleExperiment.',API_SECRET_CONFIG_KEYS:new Set(),
+    vscode:{Uri:{file:r=>r},ConfigurationTarget:{WorkspaceFolder:3,Workspace:2},workspace:{get workspaceFolders(){return [{uri:root}]},getConfiguration:(_n,project)=>({project,update:async(_key,value)=>{writes.push({project,value});started();await new Promise(resolve=>{release=resolve})}})}}};
+  vm.runInNewContext(ts.transpileModule('class Host {'+method+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const h=new sandbox.Host();h.apiConfigDefinition=()=>({schema:{}});h.apiConfigUpdateTarget=()=>3;h.apiConfigValue=config=>config.project;h.postState=()=>{};h.captureProjectContext=()=>({root});h.projectContextIsCurrent=c=>c.root===root;
+  const pending=h.apiConfigSet({key:'simpleExperiment.example',scope:'workspaceFolder',value:'x',confirm:true});await waiting;root='B';release();
+  await assert.rejects(pending,/项目已切换.*原项目/);assert.equal(writes[0].project,'A');
+});
+
 test("draft validation returns the exact draft identity required by its MCP schema", async () => {
   const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
@@ -214,7 +244,7 @@ test("state API rejects read-only keys and cancellation before writing", async (
   const sandbox={keys:new Proxy({}, {get:(_target,key)=>String(key)}),workspaceRoot:()=>'/project',readProjectConnectionValue:()=>undefined,stringField:(p,k)=>p[k]||'',redactApiStateValue:(_k,v)=>v,
     normalizeApiStateValue:(_k,v)=>v,confirmationRequired:()=>new Error('CONFIRM_REQUIRED')};
   vm.runInNewContext(ts.transpileModule(declaration+'\nclass Host {'+methods.join('\n')+'}; this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
-  const h=new sandbox.Host();h.context={workspaceState:store,globalState:store};h.postState=()=>{};
+  const h=new sandbox.Host();h.context={workspaceState:store,globalState:store};h.captureProjectContext=()=>({root:'/project'});h.projectContextIsCurrent=()=>true;h.postState=()=>{};
   await assert.rejects(h.apiStateSet({key:'offlineBundle',value:{},confirm:true}),/只读/);
   await assert.rejects(h.apiStateSet({key:'uiProjectActions',value:['one']}),/CONFIRM_REQUIRED/);assert.equal(writes.length,0);
   await h.apiStateSet({key:'uiProjectActions',value:['one'],confirm:true});assert.deepEqual((await h.apiStateGet({key:'uiProjectActions'})).value,['one']);

@@ -3405,9 +3405,11 @@ export class RealtimeTunnelPanelProvider {
             this.postState();
             return { ok: true, key, scope: "workspaceFolder", value: readback, secret: false, sync: { status: syncErrors.length ? "pending" : "synced", errors: syncErrors } };
         }
-        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri);
+        const projectContext = this.captureProjectContext();
+        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, projectContext.root ? vscode.Uri.file(projectContext.root) : undefined);
         const target = this.apiConfigUpdateTarget(definition.schema, stringField(params, "scope"));
         await config.update(key.slice(API_CONFIG_PREFIX.length), params.value, target);
+        if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；配置已更新，请核查原项目及配置范围。");
         this.postState();
         return {
             ok: true,
@@ -3417,7 +3419,7 @@ export class RealtimeTunnelPanelProvider {
                 : target === vscode.ConfigurationTarget.Workspace
                     ? "workspace"
                     : "global",
-            value: this.apiConfigValue(vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, vscode.workspace.workspaceFolders?.[0]?.uri), key, definition.schema),
+            value: this.apiConfigValue(vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE, projectContext.root ? vscode.Uri.file(projectContext.root) : undefined), key, definition.schema),
             secret: API_SECRET_CONFIG_KEYS.has(key),
         };
     }
@@ -3507,12 +3509,14 @@ export class RealtimeTunnelPanelProvider {
             });
         const value = normalizeApiStateValue(key, params.value);
         const stateKey = (keys as Record<string, string>)[key];
+        const projectContext = this.captureProjectContext();
         if (key === "setupConfig" || key === "tunnelConfig")
-            await saveProjectConnectionValues(this.context, workspaceRoot(), { [stateKey]: value });
+            await saveProjectConnectionValues(this.context, projectContext.root, { [stateKey]: value });
         else if (meta.store === "global")
             await this.context.globalState.update(stateKey, value);
         else
             await this.context.workspaceState.update(stateKey, value);
+        if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；状态已更新，请核查原项目及状态范围。");
         if (key === "tunnelConfig" || key === "setupConfig") {
             this.tunnelConfig = this.loadTunnelConfig();
             this.setupConfig = this.loadSetupConfig();
@@ -3541,12 +3545,14 @@ export class RealtimeTunnelPanelProvider {
                 current: redactApiStateValue(key, this.apiStateValue(key)),
             });
         const stateKey = (keys as Record<string, string>)[key];
+        const projectContext = this.captureProjectContext();
         if (key === "setupConfig" || key === "tunnelConfig")
-            await saveProjectConnectionValues(this.context, workspaceRoot(), { [stateKey]: undefined });
+            await saveProjectConnectionValues(this.context, projectContext.root, { [stateKey]: undefined });
         else if (meta.store === "global")
             await this.context.globalState.update(stateKey, undefined);
         else
             await this.context.workspaceState.update(stateKey, undefined);
+        if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；状态已重置，请核查原项目及状态范围。");
         if (key === "tunnelConfig" || key === "setupConfig") {
             this.tunnelConfig = this.loadTunnelConfig();
             this.setupConfig = this.loadSetupConfig();
