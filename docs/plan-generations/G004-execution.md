@@ -182,3 +182,4 @@ U04新增单项目问题45：映射结果时假JSON提交后假表写EACCES，�
 问题45补充常规结果生成：真实publishLatestResult配假数据及写入，先提交JSON再遇假表写EACCES，exit0；生产调用按源码核对。
 
 问题21补充metric_list：实际列表消费者配内存指标对象遗漏__proto__、保留accuracy，exit0；无真实查询。
+问题21补充JSON排行榜：解析保留__proto__=0.5但实际聚合mean丢失，accuracy保留；内存复现exit0。
