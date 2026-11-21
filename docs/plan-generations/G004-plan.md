@@ -2,11 +2,19 @@
 
 ## 当前目标 U03
 
-2026-11-21用户最新要求继续深查，不能仅对账20项，须尽可能扩大有效排查，至少找够20个真实问题并统一修改后再构建安装。当前U01两处、U02八处、U03十处，未打包源码累计20个真实独立修复；必要闭包返修后U03目标源测试42/42、exit0，总控对08d0e02d实际diff及必要调用链最终源审通过，进入统一交付。检查数、测试断言、文件数、同根因的多个位置不计成问题数；Git环境诊断不计产品修复。正确项保留，不能造问题、放宽原语义或以重复断言凑数。达到20后仍完成已识别的必要调用方与回归，再统一交付。
+2026-11-21用户最新要求继续深查，不能仅对账20项，须尽可能扩大有效排查，至少找够20个真实问题并统一修改后再构建安装。本轮U01两处、U02八处、U03十处，累计20个真实独立修复已纳入0.5.516试行包；必要闭包返修后U03目标源测试42/42、exit0，总控对08d0e02d实际diff及必要调用链最终源审通过，统一构建、试行发布及一次本机安装完成；待本人重载后验证新界面。检查数、测试断言、文件数、同根因的多个位置不计成问题数；Git环境诊断不计产品修复。正确项保留，不能造问题、放宽原语义或以重复断言凑数。达到20后仍完成已识别的必要调用方与回归，再统一交付。
 
 U03起点master=origin/master=4edd1da5d057530654e603c3f3c3860799bd45b9，跟踪文件干净，515已安装且本人重载；U01/U02源码尚未进入安装包。原28项对账只是有效阶段证据，不是插件完整分母，不把对账完或再次修两处当本轮终点。用户此次明确要求连续实施及达标后集中构建安装，取代此前先汇报后停的临时终点。总控留在本任务跟进整包、审查及交付，不用派单回执结束本轮。
 
 目标限定个人日常使用、单电脑最多两个项目；只查插件按钮、MCP/API/CLI及必要本机或受控调用链，不查服务器。任务指标与输出接入由AI据真实任务通过MCP配置，不恢复手填必经、PPT/Hub或自动科研依赖/结果结论检查。既有证据按当前改动是否影响判断复用，不机械重跑28项、137工具元数据或341任务。
+
+## 0.5.516 最终交付确认
+
+总控核真实回执、提交/远端tag、Release资产、下载副本及本机安装后确认统一交付通过。运行源码及版本/generated提交 `6e3e9421a6f2bb3bdc8af63e39fe6c5431ee4e72` 已FF推送；远端 `v0.5.516` 精确绑定该提交。package回执 `2026-11-21T08-23-22-440Z-42280-package/run.json` 为341/341作业、13/13门禁、exit0，输入起止相同、实际并发峰值1、日志齐、按需未运行0、锁released；42/42源码小验收复用。真实生成Panel的3段script VM通过，src/dist业务10890无匹配。原首轮package失败、补测及闭包路径规范化首次失败保留，不冒全程无失败。
+
+[试行Release v0.5.516](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.516) 为draft=false、prerelease=true，普通Latest仍0.5.483。资产 `simple-experiment-0.5.516.vsix` 2,984,671字节，SHA256 `a19398b5542d382a3606984125f2549d3a0721a86d10b96ecef582fe8861212d`；97字节同名sha清单精确绑定文件名，本机包、远端digest及真实下载副本一致。实际ZIP政策377项，运行闭包326项存在、373项同源字节一致，秘密/缺失/说明违规0；旧独立verify:package-runtime超时未改写为通过。actual ReleaseClient核482可更新至权威483、515/516与SFTP120不降级。
+
+install:latest仅运行一次、exit0；总控只读核实已装SimpleExperiment0.5.516、SimpleSFTP0.2.120及用户npm目录simpleex/simpleex-mcp入口。`simpleex --version`实际exit2，因默认本机API绑定其他项目报API_WORKSPACE_MISMATCH，未擅自改绑定，不冒CLI调用通过。未重载或操作安装后面板，当前Extension Host运行版本未知，新源码实机待本人Developer: Reload Window后验；未查服务器/Worker/SSH/健康/准备/同步/任务，未部署Agent，全部原窗口/稿件/夹具保留。J01宿主Git VALUE_0/5缺失未恢复、准确丢值环节未知；按钮总分母未建立，20是修复数。安装后重载是当前必要用户动作，不能把待UI验证或J01写成已解决。
 
 ## U03 连续查修范围
 
@@ -29,11 +37,11 @@ U03起点master=origin/master=4edd1da5d057530654e603c3f3c3860799bd45b9，跟踪�
 
 ## 角色、租约与执行规则
 
-总控兼最终验收：《G004 总控接替与集中交付》01a1fd1a-0035-7722-afae-86870b5205c0/local，Sol/high/default，独占本计划、README索引及最终审查。旧总控01a1e412-ead7-7710-acd7-c475abb8b41a自然接替条件已实证，明确释放全部租约且无在途动作；新总控已读完整交班和原材料，模型/强度/default及实际turn实核match、continue，新chat压缩计数0。唯一执行者：《G003 Terra 接续执行》01a1e793-a4a0-7630-8157-24c920746d1a/local，Terra/high/default，已交U03及闭包返修整包，最终源审通过后接回产品/测试、G004-execution.md、新coverage对象、唯一检查及scoped Git，执行统一交付。不新建角色/子代理/审查者。接续只按caveman真实触发，不因阶段或按钮换聊天。必要消息与等待遵循当前全局AGENTS事件协调规则；普通局部进度仅记execution。
+总控兼最终验收：《G004 总控接替与集中交付》01a1fd1a-0035-7722-afae-86870b5205c0/local，Sol/high/default，独占本计划、README索引及最终审查。旧总控01a1e412-ead7-7710-acd7-c475abb8b41a自然接替条件已实证，明确释放全部租约且无在途动作；新总控已读完整交班和原材料，模型/强度/default及实际turn实核match、continue，新chat压缩计数0。唯一执行者：《G003 Terra 接续执行》01a1e793-a4a0-7630-8157-24c920746d1a/local，Terra/high/default，已完成U03及闭包返修、统一交付，并将产品/测试、G004-execution.md、新coverage对象、唯一检查、scoped Git及发行安装租约交回总控；当前无在途动作，等待本人重载。不新建角色/子代理/审查者。接续只按caveman真实触发，不因阶段或按钮换聊天。必要消息与等待遵循当前全局AGENTS事件协调规则；普通局部进度仅记execution。
 
 全局仅一个node/python检查进程，检查冻结含总控文档，不并写受检输入。先单目标 `node --test --test-force-exit --test-timeout 20000 <file>`，20秒未退停止、不重试或改生产超时求绿；Python只提被测函数及import，不全import/exec scheduler/agent，spawnSync≤10000、windowsHide、断言真实status0，禁止Node用python-c长脚本。无新删除许可，夹具保留；既有测试的清理边界另按规则，不能借测试清理用户数据。
 
-源审已通过；原Terra接回产品、测试、execution、coverage、唯一检查和scoped Git租约，连续完成下文统一交付，总控保留计划/索引并在检查冻结时不写。PanelHtml本次未改，集中交付仍保留Panel模块及真实生成脚本VM门禁；旧dist不得证明新源码通过。origin固定https://github.com/zlinkw/SimpleExperiment.git，master追踪origin/master；不amend/reset/rebase/merge/force。远端前进、凭据、hook、缺remote等阻断对应Git动作并如实升级，不擅换分支或remote。
+源审与统一交付已通过；全部租约已由Terra交回总控，当前无在途动作。后续新界面验收以本人明确重载为前提。PanelHtml本次未改，集中交付仍保留Panel模块及真实生成脚本VM门禁；旧dist不得证明新源码通过。origin固定https://github.com/zlinkw/SimpleExperiment.git，master追踪origin/master；不amend/reset/rebase/merge/force。远端前进、凭据、hook、缺remote等阻断对应Git动作并如实升级，不擅换分支或remote。
 
 ## 保护对象及实机边界
 
