@@ -19,7 +19,7 @@ U04-02跨项目缓存审核拒绝后页面仍显示删除中，替身exit0；无
 U01/U02/U03分别2/8/10项已修；U03末轮42/42 exit0。J01宿主缺GIT_CONFIG_VALUE_0/5且传递未知；simpleex --version绑定不符exit2。完整记录见b7c0b42c及计划。
 
 0.5.516首轮package 340/341、exit1，旧planOperationNoticeLifecycle断言不符新失败日志契约；修测试后单文件22/22 exit0。总控批准原入口重新执行，回执 `simple_cluster/reports/test-workflow/2026-11-21T08-23-22-440Z-42280-package/run.json` 为341/341、13门禁通过、exit0、并发1；首轮失败及路径规范化初次假缺失保留。包2,984,671字节、SHA256 a19398b5542d382a3606984125f2549d3a0721a86d10b96ecef582fe8861212d，源码/tag 6e3e9421，试行发布并安装一次，尚待用户本人Reload；未验新界面或真实Worker。实际包闭包及发行身份证据详见G004-plan。
-U04-03 resource_available吞任务查询业务拒绝并在GPU替身空闲时误报可用，真实编译链2/2 exit0；首次夹具错误用普通Error导致断言exit1，改用真实CliError后复现。无真实GPU/Worker查询，完整证据见coverage。
+U04-03 resource_available吞业务错误，真实编译链2/2 exit0；首轮错误夹具exit1保留于coverage及4a80c627。
 
 U04日志导航目标文件 `node --test --test-force-exit --test-timeout 20000 test/ui/jobTmuxLogNavigation.test.js`：12/13、exit1；失败为跟随/暂停测试的提取夹具缺 `setNativeTitle`，不是现阶段已证实产品缺陷。精确Worker/任务窗口、错身份拒绝、取消等12项断言通过，仅受控替身；旧2026-11-12回执早于87127cd7对此测试及面板的修改，因此补当前检查。保留失败，不重试，不宣称整套通过；真实Worker未查询。
 
@@ -173,3 +173,5 @@ U04新增单项目问题35：结果表decimals=0时实际CSV将10显示为1、0�
 U04新增单项目问题36：结果表加粗导出修改输入，复用同一rows再关闭加粗仍输出加粗；实际公开函数内存复现exit0，无真实文件。现35项，单项目31、跨项目延期4。
 
 U04新增单项目问题37：离线审计缺失时真实审计方法记录错误，状态包装器仍发completed；内存替身exit0，无真实文档或Worker。现36项，单项目32、跨项目延期4。
+
+U04新增单项目问题38：公开savePlan处理器使用trim导致PLAN正文尾部换行丢失；真实方法配假写入、|+块文本复现exit0，API路由仅源码核对。现37项，单项目33、跨项目延期4。
