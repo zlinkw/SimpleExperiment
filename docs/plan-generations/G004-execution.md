@@ -1,49 +1,82 @@
 # G004 执行登记
 
+U04 排查基线 HEAD 与 origin/master 为 b7c0b42c27227a8ec49d42d1f21346900a274ae4；U04开始时 tracked clean，执行登记和 coverage 随排查更新，计划由总控独占。默认 legacy 面板、辅助审核页和 MCP Server → ProjectGateway → Host 的入口正在归并；旧脚本只统计 legacy 静态 data-command 且使用 dist 工具目录，不能作为完整母集。显式 factory 的实际渲染缺少四项必要门禁，当前会回退 legacy；内存转译及 VM 点击核实恢复页四种消息和需重载页消息共5/5，exit 0，未实际重载或写剪贴板。逐项证据和受限范围见 coverage 的 g004U04RemainingInventory；历史家族证据须映射具体动作，不能整组算通过。完整按钮总数和剩余数尚未知，未完成全部排查，也未修改产品、构建、安装或访问服务器。旧执行聊天 turn 已结束并归档。
+
+补查结果版本审核：`node --test --test-force-exit --test-timeout 20000 test/features/planVersionComparison.test.js` 13/13、exit 0；核对展示、选择身份、最新/运行中/未核验排除及关闭中断。内存 VM 补核205行分页从200到205及取消消息2/2、exit 0；均使用内存替身，没有真实清理。运行确认注入脚本另以当前源码内存转译及 VM 核取消按钮和 Escape 的关联消息2/2、exit 0；只核消息及宿主路由，未实际提交运行。旧家族、同一 MCP 方法与引用位置本身不证明每个动作，已将不够具体的条目标为待映射，防止虚增已查数。当前按钮总分母与剩余数仍在对账。
+
+U04-01 新确认一处清理边界缺陷：受控替身中，已确认令牌的状态查询挂起期间，分别切换项目、更改同一 Worker 目标、撤销同步授权，查询返回后仍向替身发送原目标的 `files.cleanup.execute`；三种变体各 exit 0。撤销授权的同一场景也会继续转发 `files.cleanup.settle`，exit 0。原因是 `McpHost.scopedFileCall` 在等待状态后没有复核项目、目标和授权，外层检查发生在等待之前。首轮夹具因未替换 `vscode` 依赖而 exit 1，补齐替身后复现；未连接 SFTP、Worker 或删除文件，也不声称真实插件实际执行删除。按同一根因计1项，继续核关联入口及其他剩余逻辑，排查期不修改产品。
+
+U04-02 新确认缓存审核反馈缺陷：候选读取后项目或连接代次变化、刷新消息尚未到达时，真实页面脚本向受控宿主提交审核被拒并收到错误，但页面仍允许走两次确认，随后显示“正在逐台删除”；宿主实际没有发送删除请求。当前源码内存转译、页面 VM 与替身宿主联动复现，exit 0；未操作真实界面、文件或 Worker。根因是页面不等待审核/确认阶段的宿主接受即本地推进，后端拒绝无状态重置。此项与 U04-01 分别计数，修复前须保留完整路径两次确认。
+
+同一缓存审核页补核全选、清空、打开 Plan 历史入口及取消：真实页面脚本和宿主方法配合内存替身4/4、exit 0；全选排除仅预览项，取消后没有发送删除请求。以上是这些限定场景的证据，不代替全部按钮对账。
+
+同步范围页复用原包中已通过的页面与受控宿主测试，并以既有假 DOM 核对取消勾选筛选项、按同类问题筛选、按所选节点发起精确路径请求3/3、exit 0；未执行真实删除。辅助页已识别的控件均关联了对应的旧证据或本轮受控范围，但部分参数及外部效果仍需逐项界定，不代表全插件按钮已查完。
+
 本登记上限12000字符、90%时语义归并；原完整逐项记录保留于 Git 10c0689e:docs/plan-generations/G004-execution.md，项目计划与代次索引为总控独占。执行范围为本人日常单机最多两个项目，不做多项目压力、无入口参数突变或新锁队列；保护真实Worker、训练、消费项目、共享配置、原窗口、未保存文档及全部夹具。源码、旧dist、已安装版本及远端效果分开记录。
 
-原G004的12项均完成受控检查：授权/撤销及同步目标；精确任务日志与游标；异步回执；结果比较/导出；解析/排行榜；PLAN生成/矩阵；配置重置；结果重建。A组首测0/3、exit1含两个缺VS Code夹具；修夹具后旧范围仍0/3，原逻辑修正后3/3，用户排除内部args任意突变测试后修订范围4/4、互传补充1/1、MCP35/35均exit0。日志首测空远端误返其他run缓存、另本机240行仅返200行，分别exit1后修复；Worker since=0首读最多尾部256KiB并续读，不冒完整。PLAN生成首测空seed改默认、矩阵空cases计2、无名case漏计均exit1，修后目标及原解析回归通过。配置reset首测错误允许共享scope、exit1，修后范围/取消/失败/双项目受控通过。其他详细原始失败与路径见上述Git旧记录及G004计划。
+既有G004、U01–U02细节及首次失败保留于 Git `10c0689e:docs/plan-generations/G004-execution.md`，U03及0.5.516记录保留于 `b7c0b42c:docs/plan-generations/G004-execution.md` 和 G004-plan；不把历史测试、修复数当当前按钮分母。原12项受控验证中，A组先0/3含缺VS Code夹具，修后原范围仍0/3、修逻辑后3/3、排除无入口内部参数突变后4/4；日志、空seed/cases及配置reset首次失败后修复。MCP43/43、experimentPlatform旧断言修正后15/15；build先被并发中止exit1，后夹具6/7失败、修后7/7，最终回执 `simple_cluster/reports/test-workflow/2026-11-21T04-18-18-128Z-69044-build/run.json` 为285任务/10门禁通过、并发1，6项按需未运行。唯一旧锁文件经本人精确授权删除，未扩大清理。
 
-统一回归MCP43/43；experimentPlatform原14/15、exit1因旧固定basename与PLAN显式声明契约冲突，总控裁定仅修旧断言后15/15。首次build因默认并发2主动中止exit1，后续BUILD_LOCK_UNSETTLED；本人明确批准仅删除process-owner.json，总控核直接父目录及身份后删除。再构建windowScopeIsolation夹具缺方法导致6/7、exit1，补夹具后7/7；最终build回执 simple_cluster/reports/test-workflow/2026-11-21T04-18-18-128Z-69044-build/run.json 为285任务/10门禁、exit0、最大并发1、锁释放，6按需未运行不冒通过。原中止与失败记录保留。
+0.5.514曾安装一次，Release的sha清单漏4位，包及错误资产保留；独立verify:package-runtime因既定30秒超时exit1，等价ZIP检查获接受。0.5.515版本提交5dda9cf2、包SHA256 8beb78d1663048e9481d386d26c4b25c9b96ed5f2b2f8194ed4bfca9390c76f3，341任务/13门禁通过、试行发布及安装一次，用户随后重载。权威Latest保持0.5.483。
 
-0.5.514试行版本提交53107d12，包实际SHA256 e6f643db488daea13d985a0663c8b9be5011e8e6b24020e35d38c99d75f675a6，但上传清单误写60位缺f675，B03失败；包及错误资产保留不可覆盖。独立verify:package-runtime因vsce ls既定30秒超时exit1，等价实际ZIP闭包和同源字节检查获接受，未改超时。本人重载前已安装514一次；直接版本API曾因项目不符exit1。
+U01两项、U02八项、U03十项为真实独立修复，共20，已进入0.5.516，首次失败、返修及证据详见原登记与计划。U03末轮42/42 exit0，源码提取分别验证带冒号实验身份/产物回读及空块cases；不把不同进程冒充端到端。J01已证扩展宿主缺GIT_CONFIG_VALUE_0/5，传递环节未知，未恢复；CLI默认绑定项目不符，`simpleex --version` exit2。
 
-0.5.515仅版本及生成闭包修正，源码/tag 5dda9cf240ad6d87915a961d76be8efe2d64c09b；package回执 simple_cluster/reports/test-workflow/2026-11-21T04-51-48-484Z-62512-package/run.json 为341任务/13门禁、exit0、并发1、锁释放。试行Release及实际下载包2,983,720字节、SHA256 8beb78d1663048e9481d386d26c4b25c9b96ed5f2b2f8194ed4bfca9390c76f3，两份97字节清单一致；权威Latest保持0.5.483，实际更新客户端确认不降级。515安装一次、本人随后重载并在专用界面确认；SimpleSFTP为0.2.120，真实Worker未检查或更新。
+0.5.516首轮package 340/341、exit1，旧planOperationNoticeLifecycle断言不符新失败日志契约；修测试后单文件22/22 exit0。总控批准原入口重新执行，回执 `simple_cluster/reports/test-workflow/2026-11-21T08-23-22-440Z-42280-package/run.json` 为341/341、13门禁通过、exit0、并发1；首轮失败及路径规范化初次假缺失保留。包2,984,671字节、SHA256 a19398b5542d382a3606984125f2549d3a0721a86d10b96ecef582fe8861212d，源码/tag 6e3e9421，试行发布并安装一次，尚待用户本人Reload；未验新界面或真实Worker。实际包闭包及发行身份证据详见G004-plan。
+U04新增问题3：`resource_available` 的任务查询发生业务拒绝时，`resourceCommand` 将 `loadExperiments` 全部异常吞成空集合；GPU替身返回利用率及进程数均为0时，仍输出 available=true 且无失败提示。当前0.5.516真实查询链与受控RPC对照：`experiment_list` 明确抛出相同拒绝，资源入口却报告可用，2/2、exit0；首次使用普通Error附exitCode属性并非真实CliError，触发可选网络降级、断言失败exit1，修正夹具后复现。仅授权离线根读取及内存替身，无实际GPU/Worker查询；完整问题及修后标准见coverage的U04-03。累计新问题3，按钮总数及剩余数仍未知。
 
-2026-11-21 U01：用户已重载515，总控在专用离线项目复现显式 `cases: []`、两个seed被列表/顶栏/卡片计为2，以及拆表空词条报错后查看操作日志为空。源码级定向复现首测0/2、exit1，分别为计数2而非0和日志0行。正式PLAN与草稿摘要改用已有 `parsePlanSummary` 的case数量：显式空列表为0，隐式单case仍为1；普通UI失败状态写入完整错误及操作ID/命令，已有PLAN和产物命令仍只记原有一次。源代码内存转译及实际摘要解析的完整目标文件 `node --test --test-force-exit --test-timeout 20000 test/ui/actionLifecycle.test.js` 11/11、exit0，覆盖空/隐式/两个case、长错误、查看日志和已有命令不重复；未构建dist或在安装界面实测修复。分支卡 `GIT_CONFIG_VALUE_0` 错误的真实VS Code子进程来源未核清，仅记本机环境受限，未改Git配置。未查服务器，两个源码问题待总控审查，后续统一构建与界面验证尚未执行。
+U04日志导航目标文件 `node --test --test-force-exit --test-timeout 20000 test/ui/jobTmuxLogNavigation.test.js`：12/13、exit1；失败为跟随/暂停测试的提取夹具缺 `setNativeTitle`，不是现阶段已证实产品缺陷。精确Worker/任务窗口、错身份拒绝、取消等12项断言通过，仅受控替身；旧2026-11-12回执早于87127cd7对此测试及面板的修改，因此补当前检查。保留失败，不重试，不宣称整套通过；真实Worker未查询。
 
-U02进行中：旧验收祖先及分支经当前源码 `readGitIdentity` 只读返回预期根、共同Git目录和分支，祖先dirty、分支clean；工具进程counted配置键和值均存在，部分值为空。受控子进程保留完整配置时Git exit0，移除第0个值复现同一missing错误、exit128；VS Code实际扩展宿主缺失来源未核清，不删配置或把猜测写成修复。MCP状态摘要/完整、state只读/取消零写、操作筛选后分页及原ID、流程更新读回、归档PLAN筛选已做当前源码受控检查；配置scope/双项目隔离、请求原生状态、SDK错误与本机API绑定复用先前有效测试。草稿转正退役入口明确报错。
+U04新增问题4：`metric_show` 对当前已核实结果中不存在的精确ID返回空对象，与存在但无数字指标的结果无法区分；相同ID的 `result_show` 明确返回未找到。当前编译查询链及真实CLI消费者配受控 `results.list` 空结果，2/2、exit0；没有查询真实结果或Worker。修后须同时保留已有行的空指标、数字0及歧义拒绝；完整记录见coverage的U04-04。累计新问题4，按钮总数及剩余数仍未知。
 
-U02新增真实修正：flow.update原吞持久化异常（首测缺少拒绝，exit1），改为等待并传出失败；原不能用false清状态、blocked转completed仍阻塞（首测true而非false，exit1），现按显式布尔更新并清除冲突。draft_validate缺少schema必需的精确路径（首测undefined，exit1），现返回实际草稿路径；draft_review将普通draft误报ready_for_review（首测不一致，exit1），现读取刷新后的实际状态并如实报告刷新/项目切换问题。plan_filter带archived时未送入独立归档列表（首测0而非1，exit1），现仅在请求包含归档时纳入并标记归档。各项修复后针对性检查exit0；state只读测试首测夹具缺少状态键导致失败，补齐夹具后exit0。其余检查继续，尚未统一构建或安装新源码。
+U04日志跟随补充：将真实渲染的点击处理、`setTmuxLogFollow` 与页面自身 `setNativeTitle` 同装入受控VM，暂停、跳到底部、恢复3/3、exit0，未发宿主消息。首次补充夹具漏页面全局 `nativeTitleMutationVersion`，ReferenceError、exit1；补齐后通过。原目标文件12/13、exit1仍保留，补充检查不改称整套通过。
 
-续查发现草稿刷新失败时lookup仍使用旧记录（首测缺少拒绝、exit1），现传播实际刷新错误；MCP plan_filter严格schema未暴露host已有的planId、limit、needsChoice（首测缺字段、exit1），已补输入及needsChoice输出声明。当前共7个真实修改点；全部现有目标文件测试28/28、exit0，其中本轮新路径使用当前源码内存转译，原有依赖dist的测试不作为新源码证据。保存PLAN写失败保留原内容、打开失败不改变选择；表格重建失败不打开旧文件；离线Worker入口在端点请求前拒绝，定向测试均exit0。515包原freshResults 9/9、freshResultHost 26/26及resultDatasetHierarchy 12/12回执复用，用于旧/失败摘要与结果源切换；不代表已验证远端现场。其余项目及Git实际缺失来源仍在核对。
+U04新增问题5：`experiment_list` 请求在项目A发起，`tasks.list` 等待时切B并抛出现有项目切换取消；`optionalApi` 将其当可选网络失败吞掉，随后查询B的 `operations.list`，原A请求竟返回B专有运行记录。当前真实编译Gateway、查询与CLI消费者配替身RPC复现，exit0；仅授权离线根下两个不存在路径及内存替身，没有切换真实项目或查询Worker。同一 `loadExperiments` 消费者可能受影响，后续核精确范围；不得将项目B数据当A结果。coverage U04-05记根因与修后标准。累计新问题5，按钮总数及剩余数仍未知。
 
-U02整份对账：28项逐项结论与证据见 `docs/windows-entry-coverage.json#g004U02Reconciliation`，27项在注明的本机或受控范围内查清，J01的真实VS Code扩展宿主缺项来源仍未知；28项不是全插件按钮总数，动态入口的剩余总数未知。增加拒绝草稿精确身份断言后，最终目标文件29/29、exit0；新增路径以当前源码内存转译，旧dist依赖断言仅为旧范围证据。7项修复不代表已安装，构建、打包、发行、安装及重载后界面复验均待统一阶段；真实Worker未检查。首次失败及夹具修正保留上文。
+U04 SFTP配置代理：真实编译McpHost与ProjectGateway配假能力、确认框及RPC，8个需人工批准的配置/服务器操作均转发精确方法、当前项目根及确认参数；拒绝不转发，false与0保留，9/9、exit0。仅软件替身，未操作真实配置、SimpleSFTP、SSH或Worker。
 
-源码按相关问题分组提交：流程 `45739e60`、草稿 `1e97d510`、PLAN过滤及MCP声明 `72b63c4f`；本记录及补充覆盖测试另行提交。最终修改后的目标测试29/29、exit0。旧验收仓库只读；没有取得专用窗口扩展宿主的实际环境或错误是否仍为新鲜结果，不将工具父环境当作其环境。
+U04 SFTP项目代理：真实编译McpHost与ProjectGateway配两个虚拟授权Worker和假RPC，10个树状态、文件元数据、日志路径、下载范围、交接、下载、Worker间目录/批次和传输取消代理，核对精确项目、节点、方法及参数；数字0保留，未知Worker拒绝，11/11、exit0。仅替身，无真实服务器、SFTP、传输或文件写入。
 
-总控复核关联返修：在真实flow更新和原有项目持久化队列的受控测试中，项目A写入挂起时正常切换B，旧请求原返回B流程且ok=true；首次测试缺少拒绝、exit1。现捕获项目上下文，等待持久化后确认原上下文仍有效；若已切换，提示在原项目核查写入结果，不宣称写入成功或失败。成功写入及切换时写入失败两种情况均不返回B状态；同项目正常更新及真实写入失败回归合计3/3、exit0。未新增队列或通用框架。
+U04文件清理观察代理：真实编译McpHost/Gateway配假SFTP，预览、inspect、批量观察、状态、check、verify六条保留精确项目节点、token及索引0，删除预览声明confirmed_paths，false保留，缺Worker拒绝；7/7、exit0。未观察或删除真实文件；U04-01的等待期间上下文变化问题仍保留。
 
-总控新鲜只读证据更新J01：专用实例56788经capabilities核根后读取projects.registry，2026-11-21T06:55:31.752Z祖先及分支仍报错，排除旧卡缓存。该扩展宿主环境COUNT=10、KEY_0..9均存在，而VALUE_0和VALUE_5缺失，其余8值存在且非空；父Code进程无COUNT，工具子进程对应两个值存在但为空。直接Git及cmd.exe路径只读调用均exit0，不能归罪cmd。真实故障为扩展宿主indexed配置不完整；具体哪个启动或传递环节丢失空值仍未知，Chromium过滤空值源码只是机制线索。未修改进程、全局Git配置或恢复环境，未读取或输出配置值；构建、安装和真实Worker检查仍未执行。
+U04新增问题6：`plan_validate` 在项目A校验 `plans/p.yaml` 时，元数据刷新等待中切换B；刷新自身按generation丢弃旧结果后静默返回，调用方未重新核对，读取B的同路径PLAN与就绪状态并返回B身份。当前源码 `apiPlanValidate` 内存转译、受控宿主与文件替身复现；首次用host允许但MCP未开放的空参数，补用MCP必填的精确PLAN路径仍返回B planId，均exit0。无真实项目切换、PLAN读取、命令或Worker；详情见coverage U04-06。累计新问题6，按钮总数及剩余数仍未知。
 
-U03 R组两项新增（累计待打包12）：普通configuration_set写入A期间切B，旧代码回读B并报告成功；state_set/reset写连接配置期间切B，旧代码在B加载连接并返回成功。真实host方法及受控store/config复现首测0/2、exit1，均为缺少拒绝；现捕获原项目并在写完后检查上下文，保留原scope并提示写入已完成、切换后需核查；正常回读重新取得原项目配置对象。修正时误改config_get一次导致既有windowScope目标ReferenceError、exit1，已恢复并重跑1/1、exit0。完整actionLifecycle当前源码内存转译32/32、exit0；旧dist相关断言只证明原范围。未修改真实配置或连接。X候选listWorktrees的branch字段会截短，但当前registerBranch仅使用路径判归属，尚无实际消费者缺陷，不计数。
+U04新增问题7：`project_bootstrap` 在项目A等待准备预览和校验时切到B，方法在 `Promise.all` 后未核原项目便登记并启动后台识别；真实源码内存转译、假预览/校验/操作表和假后台消费者复现，消费者观察B且原请求返回started，exit0。后台真实方法自身跨准备、校验和flow更新亦未保持原项目绑定；没有实际启动准备、同步、任务或修改项目。该问题与U04-06有关联但各有等待边界，子校验修复不能覆盖另一预览或后台等待。详情见coverage U04-07。累计新问题7，按钮总数及剩余数仍未知。
 
-U03 S组两项新增（累计14）：PLAN登记将显式空cases扩成两个虚假实验（首测2而非0、exit1），修正登记计数和记录，保留隐式单case及null优先语义；历史草稿转正预览实际返回targets/conflicts/debugStatus，但MCP输出schema漏声明，首测缺字段exit1，补充真实结构。当前源码定向2/2、exit0；两者均为受控文本及替身，未写用户PLAN或启用退役转正。
+U04新增问题8：Agent生命周期入口取得A的目标后异步读取runtime，再继续调用生命周期消费者前没有重新核验项目、Worker及授权；受控源码内存转译与假读取/假消费者中，等待期间切B后 `agent_ensure` 仍转发并返回ok，exit0。实际Agent消费者还会读取当前 `setupConfig`；迁移检查、停止、重启同处共享边界但未分别实测。无真实runtime读取、Agent、SFTP、SSH或服务器操作；详情见coverage U04-08。累计新问题8，按钮总数及剩余数仍未知。
 
-U03草稿预览另修两项（累计16）：debug摘要读取权限错误原被当文件不存在（首测缺拒绝exit1）；恰好101行原误标截断（第二次首达该断言true而非false、exit1）。现仅缺文件时继续尝试，真实读取错误传播；仅超101行标截断。受控当前源码测试1/1、exit0，覆盖ENOENT、EACCES及101/102行，未访问真实日志。
+U04最新范围裁决：优先完成单项目全部按钮及MCP正常、失败、取消、参数、对象身份和单项目状态；复用有效旧证据，只补真实剩余。单项目查清后完整交包，由总控制定单项目优先的三批修复并逐步实施，单项目确认通过后再扩双项目。已发现跨项目问题保留并降低优先级，停止扩大跨项目、跨窗口与共享设置传播竞态。U04-03/04为单项目问题；U04-01独立复现的同项目Worker配置变化与授权撤销仍按单项目优先，切项目变体延期；U04-02/05/06/07/08当前证据为跨项目，延期处理，不排除以后有证据证明的单项目变体。按钮总数和剩余数仍在对账。
 
-U03草稿项目绑定一项（累计17）：查找期间由A切到含同路径的B时，四个草稿入口可能误读或操作B，首测缺少拒绝、exit1。公共查找现检查原项目上下文；审核/拒绝写入A后若切换则提示原项目核查，不刷新B。受控当前源码关联5/5及写后切换1/1、exit0。
+U04单项目TMUX入口补查：`node --test --test-force-exit --test-timeout 20000 test/ui/tmuxWorkerAndRichLog.test.js` 8/8、exit0；替身覆盖精确窗口附着复制前新鲜身份、目标变更拒绝、刷新回执与Worker切换，不访问真实Worker、不复制实际命令。按钮总数及剩余数仍在对账。
 
-U03产物身份一项（累计18）：同一任务不同子目录同名产物原生成相同ID、查找取首项；首测两ID相同、exit1。现ID保留相对路径，旧简称有歧义时明确拒绝，受控源码定向1/1、exit0。
+U04单项目TMUX按钮：两个无真实服务的单文件受控检查依次通过，tmuxTaskTabCloseClick 1/1、tmuxClearTaskTabsClick 2/2，均exit0；核点击携带Worker/窗口及筛选，不关闭真实窗口。
 
-U03结果产物身份一项（累计19）：结果列表原以resultId生成产物ID，详情却按experimentId查询，真实返回ID无法回读；受控首测未找到、exit1。现以所属实验及完整路径生成ID，并保留空文件的0字节；两项产物定向2/2、exit0。无真实远端查询。
+U04历史自定义按钮补充：旧模板及 pinned 默认表不产生当前控件，但 currentUiLayout.inspectorCustomGroups 的可见分组会接受 webviewHandledCommands 中已保存的操作并重新渲染；原11项不能因默认模板退役直接排除，已改为条件入口待核逻辑。parseResults/refreshResults 映射到 syncPendingPlanArtifacts，五项在自定义列表渲染时过滤；相同操作与支持的 payload 按逻辑归并，历史重复实例不累加。按钮总数和剩余数仍未知。
 
-U03结果解析一项（累计20）：Windows合法大写.JSON扩展名原误作CSV，首测csv而非json、exit1；现按大小写无关扩展名判定，实际Results解析器受控读取指标0.9，定向1/1、exit0。产物三种身份受控回归3/3、exit0。累计20为独立问题，不是按钮检查总数；仍须补必要调用链回归及总控源审。
+U04单项目旧任务隐藏：真实 clearLegacyTasksFromUi 以VM假宿主核无目标拒绝、选中旧任务及直接key去重、保留未选中key、持久化调用与提示 2/2、exit0；无实际文件或Worker操作。旧生成模板0.5.508真实回执、产物隔离0.5.512拒绝预览及协议2不启用旧中止入口按原证据边界映射，不冒充成功/取消全覆盖。按钮总数及剩余数仍在对账。
 
-U03源码小验收：最终 `node --test --test-force-exit --test-timeout 20000 test/ui/actionLifecycle.test.js` 41/41、exit0；仅以当前源码内存转译/提取及受控替身覆盖新路径，既有少数dist断言仍仅证明旧范围。普通配置读回原windowScope目标1/1、exit0。R/S/T及相关MCP调用链见上文，W复用U01及旧生命周期有效证据；X的listWorktrees分支短名当前仅path被用户流程消费，非已证实用户缺陷。Git缺VALUE_0/5实际故障未恢复、传递环节未知；真实Worker、统一build/package/install/发行及新界面均未执行。现交总控最终源审，不把源码小验收当运行交付。
+U04单项目历史视图：executionHistoryControls 单文件3/3、exit0，假状态与确认核精确PLAN cutoff、已结束操作ID、拒绝活动记录及stop-all路由；结果待确认、取消及确认期间状态变化复用0.5.516回执所列 legacyOutcomePendingHistoryClear 测试。全部历史及UI各变体仍需对账；无远端操作，按钮总数和剩余数仍未知。
 
-U03源审必要闭包返修（累计仍20）：真实Scheduler的index_entry_from_manifest受控提取验证保留 `workflow:3` 及目录；真实CLI加载该索引、产物列表及详情回读首测返回错误路径，块式空cases/experiments登记首测2而非0，合计0/2、exit1。详情现由已加载实验身份最长匹配解析，不逐冒号发远端查询；旧唯一简称保留，同名拒绝，native Worker与精确路径保留。空块式及注释按现有摘要的空集合处理，保留隐式case和显式null优先。相关定向5/5、完整当前目标文件42/42，均exit0；仅受控替身及当前源码提取，未运行Scheduler、远端或旧dist来证明新行为。
+U04产物按钮补查：artifactSyncFromUi 当前源码内存转译配假队列和同步消费者，缺失/错误commandId拒绝、jobIndex=0保留，刷新verifyOnly=true与重试false，4/4、exit0；单Worker无需同步和通知终态另复用0.5.516回执。未操作真实文件、传输或Worker。按钮总数和剩余数仍未知。
 
-统一交付首轮：选未占用的0.5.516，同步版本并先运行write-agent-runtime，exit0。`npm run package -- --max-parallel 1 --cancel-stdin` 编译及前置门禁通过，但341作业中旧 `planOperationNoticeLifecycle` 断言仍要求范围外失败不写日志，与U01新契约冲突，首轮exit1，未组包；完整记录见 `simple_cluster/reports/test-workflow/2026-11-21T08-06-01-643Z-33540-package/run.json`。已将该断言改为失败应记录、范围外成功不记录，单文件22/22、exit0。其余340作业通过，按需未运行0；这是原批结果加补测，不是整批新通过。现有package:assemble只接受单次完整通过receipt且输入指纹一致，不能直接表达该组合；未绕过门禁，待总控决定。未发行、安装或重载，版本和生成物保留未提交。
+U04手动转移受控检查：当前源码假宿主4/4、exit0，运行中拒绝、选择或确认取消不发请求，确认后向目标传递来源、原runKey及索引0。原排队任务是否由其他队列围栏撤销仍待核，暂不列确认缺陷；未运行实际任务或访问Worker。按钮总数及剩余数仍未知。
 
-总控裁决后原入口重新执行，341/341及组包门禁通过、exit0，并发峰值1、按需未运行0；receipt位于 `simple_cluster/reports/test-workflow/2026-11-21T08-23-22-440Z-42280-package/run.json`。最终VSIX为0.5.516、2,984,671字节，SHA256 `a19398b5542d382a3606984125f2549d3a0721a86d10b96ecef582fe8861212d`；真实ZIP政策377项、缺失及违规0，运行闭包326项均存在，373项原文件字节一致，包身份simple-local.simple-experiment、通用平台、VS Code ^1.100.0。闭包首次比对未去除路径`./`导致3个假缺失、exit1；规范化后0缺失、exit0。真实生成面板3个script经vm.Script通过，src/dist业务10890零命中。发行和安装结果另依最终回执，不以本段声称完成。
+U04新增单项目问题9：手动转移读取点击时的 queued/pending 后等待目标选择及用户确认，期间来源任务已转 running，仍向目标Worker发起新尝试。当前真实方法源码内存转译，假确认Promise及假Worker消费者受控复现，exit0；原运行任务未真实查询或启动。修后应重新核实来源和原runKey的当前状态，运行/终态/无法核实时不发目标请求；原排队项是否另有撤销围栏仍未证实，不冒称已发生重复运行。详情见coverage U04-09。累计确认新问题9，其中单项目4、跨项目延期5；按钮总数及剩余数仍未知。
+
+U04入口归并补充：workbenchInspectorActions只是候选元数据，添加菜单还要求主列已有可见同命令；无调用的inspectorActionButton不生成默认按钮，历史自定义项仍可显示，保留条件而非直接计默认。GitBackup原生命令状态选择以假后端覆盖关闭、配置、移除及取消4/4、exit0，无实际Git、hook、删除或网络；单项目日志选择假宿主覆盖精确Worker/runKey、主动从0读取、续读offset和错误记录。已确认新问题9，其中单项目4、跨项目延期5；总按钮、已查及剩余仍未核定。
+
+U04-08单项目补充：实际ProjectGateway配当前apiAgentLifecycle源码转译、假授权/目标/runtime读取/生命周期消费者，同一项目等待期间撤销 agents 授权后，假 ensure 仍被调用并返回ok，exit0；无实际Agent、SSH、Worker或runtime文件读取。该单项目变体与原跨项目变体属于同一等待后未复核根因，故U04-08提升单项目优先、不新增问题数；跨项目变体仍延期。现确认新问题9，单项目优先5、仅跨项目延期4；按钮总数、已查和剩余仍未核定。
+
+U04普通单项目功能分项统计：PLAN矩阵/生成、结果/指标/产物、实验配置和日志的固定 mcp.query 子集共15个逻辑工具；其中7个已有适用正常及代表性边界证据或确认缺陷，8个只有局部证据、仍需补查。计数与逐项引用见coverage primaryQueryCensus；此为工具子集而非全部MCP或按钮数，不代表真实外部环境通过。全部按钮总数、已查及剩余仍未核定。
+
+U04常规结果列表补查：当前实际查询及CLI消费者配假 results.list，空结果、0、数字字符串/非数字、排序、请求失败与未核实状态7/7、exit0；没有访问实际结果或网络。15个常规mcp.query子集已查9、剩余6；全部按钮总数、已查及剩余仍未核定。
+
+U04新增单项目问题10：result_parse及metric_leaderboard共用公开输入字段，但对应消费者分别只使用preset或primary；受控CSV下修改已公开的metrics/primary或输入不存在的排行preset仍静默得到同样业务结果。当前编译查询与CLI消费者配内存文件替身复现、exit0；首次比较完整对象因解析时间戳变化断言失败exit1，改比较实际指标/主指标后复现，原失败保留。未读取或写入实际文件。应在三批计划中对齐公开字段与实际行为或明确拒绝不支持字段，不能静默忽略。新问题共10，单项目优先6、仅跨项目延期4；15个常规mcp.query子集已查11、剩余4；全部按钮总数、已查和剩余仍未知。
+
+U04产物查询证据对账：复用U03当前源码42/42中的精确身份、同名歧义、冒号、0字节及Worker路径检查，0.5.516包内CLI本地产物list/inspect回执，以及0.5.505/510历史真实成功和误传ID失败；当前ToolCatalog与ProjectQueries的精确ID路由已核。旧实机结果不冒本轮现场，跨项目共享风险仍延期。15个常规mcp.query子集已查13、剩余experiment_config和experiment_results两个；全部按钮总数、已查及剩余仍未知。
+
+U04新增单项目问题11：experiment_results公开输出声明experimentId，实际返回experiment_id；结果异步由operation_get承载且原字段仍存在，按声明读取却缺少身份。当前源码直接对照schema、路由和CLI输出，复用此前当前编译消费者的受控5/5；未新运行测试，不声称SDK校验失败或身份数据丢失。修复须对齐声明并保持现有实际字段及调用方兼容。累计11项，单项目优先7、跨项目延期4；常规query子集14/15，剩experiment_config；全部按钮总数、已查及剩余仍未知。
+
+U04实验配置查询对账：复用0.5.516包内CLI合成PLAN字段及本机HTTP替身的精确任务窗口、配置路径和内容检查，结合当前真实查询路由、缺失实验拒绝及输出schema源码；未重跑测试或访问真实Worker，远端失败不泛化为通过。常规mcp.query限定子集15/15已完成所列范围核查，其中含确认缺陷；这不是全部MCP或按钮总数，全部按钮总数、已查及剩余仍未知。
+
+U04新增单项目问题12：结果目录输入未保存草稿时浏览并取消，宿主将取消作为普通返回，前端收到completed后清掉未变化草稿，重绘恢复已保存旧值。依据当前源码完整调用链及既有假回执测试源码确认，未运行新测试或打开VS Code；磁盘配置未被该取消动作修改。需保留取消时草稿、成功选择及后续编辑与错误反馈。累计12项，单项目优先8、跨项目延期4；全部按钮总数、已查及剩余仍未知。
+
+U04新增单项目问题13：plan_filter忽略已记录的本地PLAN元数据读取错误，空缓存时仍返回ok=true、零结果而无错误；非空缓存也不提示可能过期。当前源码提取配内存筛选替身复现，exit0；未触发真实读取失败或访问实际项目。应保留错误或明确未核实状态，不改变正常筛选和归档契约。累计13项，单项目优先9、跨项目延期4；全部按钮总数、已查及剩余仍未知。
