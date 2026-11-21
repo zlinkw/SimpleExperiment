@@ -8485,5 +8485,24 @@
     ],
     "controllerReview": "已审42149f30及U02实际diff、MCP schema/host、流程真实持久化队列和草稿刷新消费者；源码范围接受，复用29/29与返修3/3，不重复小验收。8处U02修复，连U01累计10处。J01新鲜registry及精确宿主环境只读实证缺VALUE_0/5；未恢复，不宣称运行交付或界面修复通过。",
     "boundary": "U02目标测试29/29；关联返修另做3/3定向测试。部分旧测试依赖旧dist，不用于证明本轮源码修复。未构建、安装、查询服务器或实测远端；扩展宿主缺项已确认，准确传递环节未知且环境未恢复。"
+  },
+  "g004U03SourceChecks": {
+    "status": "source_checks_complete_controller_review_pending",
+    "newFixedProblems": 10,
+    "cumulativeUnpackagedFixedProblems": 20,
+    "fixes": [
+      "配置写入期间切项目后错误读取另一项目配置",
+      "状态设置或重置期间切项目后错误加载另一项目连接",
+      "显式空cases登记为虚假实验",
+      "草稿转正预览输出schema缺少真实目标及冲突字段",
+      "草稿debug摘要吞掉文件权限等读取错误",
+      "草稿debug摘要恰好101行时误标截断",
+      "草稿查找及写入期间切项目导致跨项目误读或误回执",
+      "同实验不同子目录同名产物共用ID",
+      "结果产物ID绑定resultId导致按实验查询详情找不到",
+      "大写JSON扩展名误按CSV解析"
+    ],
+    "verification": "当前目标文件41/41、exit0；新路径使用源码内存转译或提取及受控store/FS，windowScope配置读回目标1/1。旧dist断言不证明新源码；初次失败与临时夹具/回归失败见G004-execution.md。",
+    "boundary": "这是修复问题数而非按钮总数。旧515不含修复；未构建、安装或实测服务器/Worker。分支Git环境缺VALUE_0/5仍未恢复，listWorktrees截短branch字段但现有用户消费者只用path，未计修复。总控审查、统一构建及试行交付待完成。"
   }
 }
