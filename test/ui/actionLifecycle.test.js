@@ -366,6 +366,31 @@ test("action catalog and invoke reject an unexposed command", async () => {
   await assert.rejects(host.invokeApi({command:'invented'}),/not exposed/);
 });
 
+test("API selection commands reach local handlers while remote confirmation remains required", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS), methods={}, declarations={};
+  const wanted=new Set(['uiActionCommands','SAFE_WEBVIEW_COMMANDS','API_INTERNAL_COMMANDS','API_EXECUTABLE_COMMANDS']);
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&['invokeApi','handleMessageCore'].includes(node.name.getText(ast)))methods[node.name.getText(ast)]=node.getText(ast);
+    if(ts.isVariableStatement(node)) for(const d of node.declarationList.declarations) if(wanted.has(d.name.getText(ast))) declarations[d.name.getText(ast)]=node.getText(ast);
+    ts.forEachChild(node,visit)};visit(ast);
+  for(const key of wanted) assert.ok(declarations[key],key);
+  const sandbox={PLAN_PREFLIGHT_COMMANDS:new Set(),API_PARAMETERIZED_CONNECTION_COMMANDS:new Set(),API_CONFIRM_COMMANDS:new Set(['runPlan']),
+    stringField:(p,k)=>p[k]||'',booleanField:(p,k)=>Boolean(p[k]),confirmationRequired:()=>new Error('CONFIRM_REQUIRED')};
+  const code=[...wanted].map(key=>declarations[key]).join('\n')+'\nclass Host {'+methods.invokeApi+'\n'+methods.handleMessageCore+'};this.Host=Host;';
+  vm.runInNewContext(ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const host=new sandbox.Host(), selected=[], remote=[];
+  host.extensionRuntimeVersionState=()=>({reloadRequired:false});host.panelLifecycleState='ready';
+  host.selectPlanFromUi=m=>selected.push(['plan',m.planFile]);host.selectExperimentFromUi=m=>selected.push(['experiment',m.runKey]);
+  host.withSafeTransferRetry=async(_command,_message,fn)=>fn();host.runActionCommand=async(command,message)=>remote.push([command,message.confirm]);
+  await host.invokeApi({command:'selectPlan',planFile:'plans/a.yaml'});
+  await host.invokeApi({command:'selectExperiment',runKey:'run-a'});
+  assert.deepEqual(selected,[['plan','plans/a.yaml'],['experiment','run-a']]);
+  await assert.rejects(host.invokeApi({}),/invoke.command is required/);
+  await assert.rejects(host.invokeApi({command:'invented'}),/not exposed/);
+  await assert.rejects(host.invokeApi({command:'runPlan'}),/CONFIRM_REQUIRED/);assert.equal(remote.length,0);
+  await host.invokeApi({command:'runPlan',confirm:true});assert.deepEqual(remote,[['runPlan',true]]);
+});
+
 test("PLAN list returns formal and archived metadata separately", async () => {
   const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let arrow;

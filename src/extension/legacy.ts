@@ -4567,6 +4567,8 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         if (command === "installPluginUpdates")
             return await this.installPluginUpdates();
         const message = { command, ...params };
+        if (command === "selectPlan" || command === "selectExperiment")
+            return await this.withSafeTransferRetry(command, message, () => this.handleMessageCore(message, command));
         if (uiActionCommands.has(command))
             return await this.withSafeTransferRetry(command, message, () => this.runActionCommand(command, message));
         return await this.withSafeTransferRetry(command, message, () => this.handleMessageCore(message, command));

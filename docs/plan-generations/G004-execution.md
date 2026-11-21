@@ -1,5 +1,15 @@
 # G004 执行登记
 
+U04-54 原 B3 局部返修：已装 0.5.517 的 `selectPlan` 实机失败保留；同属公开目录和 uiActionCommands 的 `selectExperiment` 也无 actionCommandMap 映射。源码 `invokeApi` 在原授权及确认之后将两项转回既有 `handleMessageCore` 本地选择分支，远端动作路径和确认不变。`node --test --test-force-exit --test-timeout 20000 test/ui/actionLifecycle.test.js` 首次 42/43 exit 1（两个选择未到本地 handler），修后 43/43 exit 0；完整日志分别为 `C:/Users/ZLK/AppData/Local/Temp/g004-54-action-before-ff08.log` 和 `C:/Users/ZLK/AppData/Local/Temp/g004-54-action-after-ff08.log`。测试使用真实 invoke/消息路由和内存 handler，覆盖未公开/缺命令拒绝、远端动作确认及原路由；未运行真实任务。修复仅源码，未 build、打包、安装或实机重验。
+
+0.5.517 重载后隔离实机：专用项目原有离线包、无 `.vscode/sftp.json`；普通共享配置有启用 Worker，源码激活后自动版本探测，未在普通 profile 启动或请求 Worker。经总控裁决新建并保留 `C:/Users/ZLK/AppData/Local/Temp/g004-vscode-0517-acceptance-20261122-ff08`，仅启用已安装 SimpleExperiment/SimpleSFTP、允许既有公开 GitHub 更新检查和自然发现注册。首次误禁必需 SimpleSFTP 导致业务插件未激活；仅关闭隔离窗口后正确重开。真实 Host PID 22928、父进程 77780，health/capabilities 版本 0.5.517、专用项目根，offline_import、启用 Worker 0；界面打开低流量并由 state 读回 enabled/effective=true。SimpleSFTP 状态读取既有共享服务器配置，但本项目无 SFTP 连接配置；未连接服务器。原共享 profile 自动探测问题未执行、未修复。
+
+实际 UI 选择 `ui_u01_cases_515.yaml` 显示 2×2=4；`plans.list` 刷新后原空 cases 为 0 且 seed 0 保留。启动最初 state 曾返回旧缓存空 cases jobCount=2，刷新变 0，不把旧缓存当当前结果。新增并保留 `experiments/plans/g004_0517_acceptance_ff08.yaml`，API `savePlan` 写入后原文、空行和 seed 0 读回，空 cases 为 0。向导实际生成并保留 `experiments/plans/guided_plan.yaml`，1 case/1 seed、合成路径，仅生成未运行；再次生成时 UI Esc，API 返回 USER_CANCELLED。结果目录 `experiments/results` 临时改为 `experiments/results/synthetic`、读回并恢复原值。空计划保存请求返回明确缺参错误。
+
+实际失败：`actions.list` 声明 `selectPlan`，`invoke` 同名返回 -32000「未知或未放行的动作：selectPlan」；UI 已恢复原选择 `ui_u01_empty_515.yaml`。offline_import 下 `results.list` 返回 active_query 空结果、memoryRequests=0、无法核实 PLAN，之后面板显示本轮查询失败而不是原离线摘要；不将该观察扩称根因或修复。隔离 profile 的 `mcp.authorization` 返回 null，未取得 configuration-only；未操作权限设置、未绕过，MCP 解析/导出尚未测。离线结果导入解析及相关剩余修复验证未完成；无真实 Worker/训练、删除、再安装、构建或发行。
+
+补充：本地已有合成结果表在 UI 显示 synthetic 总表 2 行、2 方法；通过 `invoke splitProjectResultTable` 按 AP 拆分，预先确认新目录不存在，新建并保留 `experiments/results/synthetic/by_AP/0.11.csv` 与 `0.44.csv`，回读列和值正确，UI 显示生成 2 张子表。UI 取消全部拆分值后生成，显示「请选择 1 至 100 个拆表值」错误；点击查看日志，输出通道显示时间、操作及错误。随后 UI 选择 dataset 的 synthetic 值，确认新目录不存在后生成并保留 `experiments/results/synthetic/by_dataset/synthetic.csv`，成功提示及回读两行正确。此为本地既有表拆分，不代表 MCP 结果导出。`selectPlan` 必要调用链核对：`actions.list` 使用 `API_EXECUTABLE_COMMANDS`；`invokeApi` 将其归入 `uiActionCommands`，`runActionCommandCore` 依 `actionCommandMap` 拒绝缺项，未到 `handleMessageCore` 的 `selectPlanFromUi`；属实际入口矛盾候选，未修。`results.list` 是主动核实与汇总，不作为读取离线摘要的替代。
+
 U04排查阶段基线HEAD及origin/master为b7c0b42c27227a8ec49d42d1f21346900a274ae4，开始时tracked clean；计划由总控独占。legacy、辅助页和MCP入口证据见coverage.g004U04RemainingInventory；旧静态脚本不能代表完整母集。factory实际输出缺四项门禁并回退legacy；恢复页VM消息5/5 exit0，未实际重载或写剪贴板。当时按钮总数及剩余未知，排查阶段未改产品、构建、安装或访问服务器；后续三批源码包见1ff64a81及下文。旧执行聊天已归档。
 
 版本审核13/13 exit0及分页、取消受控检查，详见4a80c627与coverage。
