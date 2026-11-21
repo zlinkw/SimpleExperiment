@@ -9635,8 +9635,8 @@
     ],
     "confirmationPayloadVariants": [
       {"source":"src/extension/PlanCleanupPanel.ts","name":"confirm","variants":["move phase1","delete phase1","delete phase2"],"status":"prior_evidence_mapped_partial","evidence":"0.5.516 package回执test/features/planCleanupPanelBridge.test.js:136-157在假服务中覆盖删除阶段1/2精确目标一致及确认不触发执行；未据此声称已覆盖move阶段或真实删除。"},
-      {"source":"src/extension/SftpCleanupReview.ts","name":"confirm","variants":["move phase1","delete phase1","delete phase2"],"status":"pending_evidence_mapping"},
-      {"source":"src/extension/GitOverwriteReview.ts","name":"confirm","variants":["phase1","phase2"],"status":"pending_evidence_mapping"}
+      {"source":"src/extension/SftpCleanupReview.ts","name":"confirm","variants":["move phase1","delete phase1","delete phase2"],"status":"destructive_review_deferred","boundary":"用户收敛边界下不追加清理确认专项复现或真实操作；已存在证据原样保留，未映射不视为通过。"},
+      {"source":"src/extension/GitOverwriteReview.ts","name":"confirm","variants":["phase1","phase2"],"status":"external_overwrite_deferred","boundary":"用户收敛边界下不追加覆盖确认专项复现或真实Git覆盖；未映射不视为通过。"}
     ],
     "dynamicPayloadVariants": [
       {"commands":["refreshJobArtifacts","retryJobArtifactSync"],"variants":["single job: planId/jobIndex/commandId","plan: planIds"],"source":"src/ui/PanelHtml.legacy.ts:15325-15326,15413-15414"},
