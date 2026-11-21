@@ -88,7 +88,7 @@ assign(["plan_preflight"], object({ ok: boolean, workspace: string, plan, planSe
 assign(["plan_validate"], object({ ok: boolean, plan, planFile: string, missing: array(object()), validation: object(), nextAction: string }, ["ok"]));
 assign(["plan_run"], object({ ok: boolean, started: boolean, ...operation, requestScope: string, receiptProvesExperimentCompletion: boolean,
   plan, confirmation: string, nextAction: string, calls: array(object()) }, ["ok", "operationId", "status"]));
-assign(["plan_filter"], object({ ok: boolean, source: string, planDir: string, plans: array(object()), count: number, total: number, needsChoice: boolean }, ["ok"]));
+assign(["plan_filter"], object({ ok: boolean, source: string, planDir: string, plans: array(object()), count: number, total: number, needsChoice: boolean, error: string }, ["ok"]));
 assign(["task_list"], object({ lifecycleProtocol: number, stateSource: string, projectId: string, queriedAt: string, queriedWorkerIds: strings,
   jobLifecycle: array(task), workerTasks: array(object({ workerId: string, queryComplete: boolean, controlIncomplete: boolean, diagnosticsPending: boolean,
     error: string, tasks: array(task) })), schedulerStates: value, experimentTraces: array(object()), operations: value }, ["jobLifecycle", "workerTasks", "projectId"]));

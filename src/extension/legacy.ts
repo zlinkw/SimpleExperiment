@@ -4206,9 +4206,10 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         const archived = params.archived === true ? (this.localPlanMetadata.archivedPlans || []).map((plan) => ({ ...plan, archived: true })) : [];
         const filtered = ApiWorkflow_1.filterPlans([...plans, ...archived], params);
         return {
-            ok: true,
+            ok: !this.localPlanMetadata.error,
             source: "local_metadata",
             planDir: this.localPlanMetadata.planDir || "",
+            ...(this.localPlanMetadata.error ? { error: this.localPlanMetadata.error } : {}),
             ...filtered,
         };
     }
@@ -19771,6 +19772,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 void this.persistProjectPlanSelectionState().catch(() => undefined);
                 void this.persistProjectLocalPlanMetadataState().catch(() => undefined);
             }
+            catch (error) {
+                if (generation === this.projectContextGeneration && root === workspaceRoot()) {
+                    this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
+                    this.localPlanMetadataFullRefresh = false;
+                }
+                throw error;
+            }
             finally {
                 if (this.localPlanMetadataRefreshPromise === refresh)
                     this.localPlanMetadataRefreshPromise = undefined;
@@ -19798,8 +19806,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             this.localPlanMetadataKey === key &&
             !this.localPlanMetadata.error;
         const [plans, selectedPlan, detectedProject] = await Promise.all([
-            options.allPlans || !planFile || !actionRecent ? readLocalPlans(root, dir).catch(() => this.localPlanMetadata.plans || []) : Promise.resolve(this.localPlanMetadata.plans || []),
-            planFile ? readLocalPlanSummary(root, dir, planFile).catch(() => undefined) : Promise.resolve(undefined),
+            options.allPlans || !planFile || !actionRecent ? readLocalPlans(root, dir) : Promise.resolve(this.localPlanMetadata.plans || []),
+            planFile ? readLocalPlanSummary(root, dir, planFile) : Promise.resolve(undefined),
             detectLocalProjectForActionGate(root, dir, this.localPlanMetadata.detectedProject).catch((error) => ({
                 ...this.localPlanMetadata.detectedProject,
                 metadataRefreshMode: "action_gate_failed",
@@ -33281,7 +33289,7 @@ const localPlanSummaryReadBudgetBytes = 512 * 1024;
 const localPlanSummaryConcurrency = 8;
 async function readLocalPlans(root, planDir) {
     const dir = path.join(root, planDir);
-    const files = await walkYaml(dir).catch(() => []);
+    const files = await walkYaml(dir);
     return mapLimited(files.filter((fullPath) => !isArchivedPlanFile(root, planDir, fullPath)), localPlanSummaryConcurrency, async (fullPath) => {
         const text = await readUtf8Preview(fullPath, localPlanSummaryReadBudgetBytes);
         const stat = await fs.stat(fullPath).catch(() => undefined);
@@ -33291,7 +33299,7 @@ async function readLocalPlans(root, planDir) {
 }
 async function readArchivedLocalPlans(root, planDir) {
     const dir = path.join(root, planDir, "_archived");
-    const files = await walkYaml(dir).catch(() => []);
+    const files = await walkYaml(dir);
     const rows = await mapLimited(files, localPlanSummaryConcurrency, async (fullPath) => {
         const bundle = await readPlanArchiveBundle(fullPath);
         if (bundle.schemaVersion && path.basename(fullPath).toLowerCase() !== "plan.yaml")
@@ -34411,7 +34419,10 @@ async function copyPlanArchiveFiles(root, bundleDir, category, files) {
 }
 async function readLocalPlanSummary(root, planDir, file) {
     const fullPath = safeWorkspacePlanPath(root, file, planDir);
-    const stat = await fs.stat(fullPath).catch(() => undefined);
+    const stat = await fs.stat(fullPath).catch((error) => {
+        if (error?.code === "ENOENT") return undefined;
+        throw error;
+    });
     if (!stat || !stat.isFile())
         return undefined;
     const text = await readUtf8Preview(fullPath, localPlanSummaryReadBudgetBytes);
@@ -36636,9 +36647,7 @@ const localConfigParamLimit = 80;
 const localConfigParamValueLimit = 180;
 const JSON_PRIMITIVE_TYPES = new Set(["string", "number", "boolean"]);
 async function readUtf8Preview(file, maxBytes = localTextReadBudgetBytes) {
-    const handle = await fs.open(file, "r").catch(() => undefined);
-    if (!handle)
-        return "";
+    const handle = await fs.open(file, "r");
     try {
         const buffer = Buffer.alloc(Math.max(1, maxBytes));
         const result = await handle.read(buffer, 0, buffer.length, 0);
@@ -36879,7 +36888,14 @@ async function walkYaml(dir, options = {}) {
         if (!current)
             break;
         visitedDirs += 1;
-        const entries = await fs.readdir(current.dir, { withFileTypes: true }).catch(() => []);
+        let entries;
+        try {
+            entries = await fs.readdir(current.dir, { withFileTypes: true });
+        }
+        catch (error) {
+            if (current.dir === path.resolve(dir) && error?.code === "ENOENT") return out;
+            throw error;
+        }
         for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
             const full = path.join(current.dir, entry.name);
             const relative = path.relative(budget.root, full).replace(/\\/g, "/");
