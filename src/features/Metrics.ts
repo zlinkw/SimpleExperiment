@@ -20,7 +20,7 @@ export interface LeaderboardRow {
 
 export function parseMetricsFile(text: string, sourceFile: string, runKey = sourceFile): ExperimentMetrics[] {
   const parsedAt = new Date().toISOString();
-  if (sourceFile.endsWith(".json")) {
+  if (/\.json$/i.test(sourceFile)) {
     const json = JSON.parse(text);
     const metrics = numericEntries(json.metrics || json);
     return [{ experimentId: String(json.experimentId || runKey), runKey, metrics,
@@ -70,7 +70,9 @@ export function leaderboardToMarkdown(rows: LeaderboardRow[], metrics: string[])
 }
 
 function numericEntries(value: Record<string, unknown>): Record<string, number> {
+  const dimensionNames = new Set(["experimentid", "runkey", "runid", "attemptid", "suite", "method", "dataset", "split", "fold", "seed", "case", "model", "tag", "epoch", "step"]);
   return Object.fromEntries(Object.entries(value).flatMap(([key, raw]) => {
+    if (dimensionNames.has(key.replace(/_/g, "").toLowerCase())) return [];
     if (typeof raw === "number") return Number.isFinite(raw) ? [[key, raw]] : [];
     if (typeof raw !== "string" || !raw.trim()) return [];
     const parsed = Number(raw);

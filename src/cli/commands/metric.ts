@@ -25,8 +25,9 @@ export function metricLeaderboard(flags: CliFlags): number {
     .find(([name]) => name.toLowerCase() === primary.toLowerCase())?.[1];
   const direction = new Set(directions).size > 1 ? undefined : directions[0] ?? (presetDirection ? presetDirection === "higher" : undefined);
   const board = buildLeaderboard(metrics, (row) => row.runKey, direction === undefined ? undefined : primary, direction);
-  if (flags.json) writeJson({ metrics: Object.keys(metrics[0]?.metrics || {}), board }, flags.compactJson);
-  else writeText(leaderboardToMarkdown(board, Object.keys(metrics[0]?.metrics || {})));
+  const metricNames = Array.from(new Set(metrics.flatMap((row) => Object.keys(row.metrics))));
+  if (flags.json) writeJson({ metrics: metricNames, board }, flags.compactJson);
+  else writeText(leaderboardToMarkdown(board, metricNames));
   return 0;
 }
 
