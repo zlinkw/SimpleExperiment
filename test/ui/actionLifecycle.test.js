@@ -410,6 +410,39 @@ test("offline worker action fails before any endpoint request", async () => {
   await assert.rejects(host.postWorkerTunnelAction('worker','query',{}),/offline_import/);assert.equal(endpointRead,false);assert.match(error.message,/offline_import/);
 });
 
+test("local artifact IDs distinguish same-named files in different directories", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/cli/commands/artifact.ts'),'utf8');
+  const ast=ts.createSourceFile('artifact.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),names=['listArtifacts','findArtifact'],methods=[];
+  const visit=node=>{if(ts.isFunctionDeclaration(node)&&names.includes(node.name?.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
+  const root=path.resolve('artifact-fixture'),output=path.join(root,'run');
+  const sandbox={path,fs:{statSync:()=>({size:5})},loadExperiments:async()=>[{id:'run1',raw:{outputDir:output}}],fileExists:()=>true,projectRoot:()=>root,
+    resolveProjectPath:p=>path.join(root,p),readJsonFile:()=>({files:[{path:'a/metrics.csv',size:1},{path:'b/metrics.csv',size:2}]}),optionalApi:async()=>undefined,asRecord:x=>x||{},businessError:(message)=>new Error(message)};
+  vm.runInNewContext(ts.transpileModule(methods.join('\n')+';this.list=listArtifacts;this.find=findArtifact;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const rows=await sandbox.list('run1');assert.notEqual(rows[0].id,rows[1].id);
+  assert.equal((await sandbox.find(rows[1].id)).path,rows[1].path);await assert.rejects(sandbox.find('run1:metrics.csv'),/AMBIGUOUS/);
+});
+
+test("result artifact IDs can be resolved through their owning experiment", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/cli/commands/artifact.ts'),'utf8');
+  const ast=ts.createSourceFile('artifact.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),names=['listArtifacts','findArtifact'],methods=[];
+  const visit=node=>{if(ts.isFunctionDeclaration(node)&&names.includes(node.name?.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
+  const sandbox={path,fs:{statSync:()=>({size:5})},loadExperiments:async()=>[{id:'run1',plan:'plan1'}],fileExists:()=>false,projectRoot:()=>path.resolve('fixture'),resolveProjectPath:p=>path.resolve('fixture',p),
+    optionalApi:async(_method,params)=>params.planFile==='plan1'?{results:[{resultId:'result1',sourceFiles:[{path:'nested/metrics.csv',size:0}]}]}:undefined,
+    asRecord:x=>x||{},businessError:message=>new Error(message)};
+  vm.runInNewContext(ts.transpileModule(methods.join('\n')+';this.list=listArtifacts;this.find=findArtifact;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const rows=await sandbox.list('run1');assert.equal(rows.length,1);assert.equal(rows[0].size,'0');const found=await sandbox.find(rows[0].id);assert.ok(found);assert.equal(found.path,'nested/metrics.csv');
+});
+
+test("native worker artifact IDs retain exact worker and path", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/cli/commands/artifact.ts'),'utf8');
+  const ast=ts.createSourceFile('artifact.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),names=['listArtifacts','findArtifact'],methods=[];
+  const visit=node=>{if(ts.isFunctionDeclaration(node)&&names.includes(node.name?.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
+  const sandbox={path,loadExperiments:async()=>[{id:'run1',type:'worker_run',worker_id:'worker',native_state:{output_dir:'work/run'}}],
+    workerInventory:async()=>({'work/run/a/metrics.csv':{size:7,modifiedAtMs:1700000000000}}),businessError:message=>new Error(message)};
+  vm.runInNewContext(ts.transpileModule(methods.join('\n')+';this.list=listArtifacts;this.find=findArtifact;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const rows=await sandbox.list('run1'),found=await sandbox.find(rows[0].id);assert.equal(found.workerId,'worker');assert.equal(found.path,'work/run/a/metrics.csv');
+});
+
 test("webview terminal uiCommandStatus clears button loading by client action", () => {
   const root = path.resolve(__dirname, "..", "..");
   const source = readSource("src/ui/PanelHtml.ts");

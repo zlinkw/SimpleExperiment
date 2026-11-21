@@ -100,7 +100,7 @@ async function listArtifacts(experimentId: string): Promise<ArtifactRow[]> {
         : listFilesRecursive(abs, () => true, 2).map((file) => ({ path: file, size: fs.statSync(file).size }));
       for (const file of files) {
         rows.push({
-          id: `${experimentId}:${path.basename(file.path)}`,
+          id: `${experimentId}:${path.relative(abs, file.path).replace(/\\/g, "/")}`,
           path: path.relative(projectRoot(), file.path).replace(/\\/g, "/") || file.path,
           size: String(file.size ?? ""),
           local: file.path,
@@ -124,7 +124,7 @@ async function listArtifacts(experimentId: string): Promise<ArtifactRow[]> {
         const normalized = filePath.replace(/\\/g, "/"), output = outputDir.replace(/\\/g, "/").replace(/\/+$/, "");
         if (!output || normalized !== output && !normalized.startsWith(output + "/")) continue;
       }
-      rows.push({ id: `${String(result.resultId || experimentId)}:${path.basename(filePath)}`, path: filePath, size: String(file.size || "") });
+      rows.push({ id: `${experimentId}:${filePath}`, path: filePath, size: String(file.size ?? "") });
     }
   }
   return rows;
@@ -134,7 +134,10 @@ async function findArtifact(id: string): Promise<{ path: string; size?: string; 
   const [experimentId, ...rest] = id.split(":");
   const name = rest.join(":") || experimentId;
   const listed = await listArtifacts(experimentId);
-  const match = listed.find((row) => row.id === id || row.path.endsWith(name) || path.basename(row.path) === id);
+  const exact = listed.filter((row) => row.id === id);
+  const matches = exact.length ? exact : listed.filter((row) => row.path.endsWith(name) || path.basename(row.path) === id);
+  if (matches.length > 1) throw businessError("ARTIFACT_SELECTION_AMBIGUOUS：存在多个同名产物，请使用精确产物 ID。", JSON.stringify({ id, candidates: matches.map(row => row.id) }));
+  const match = matches[0];
   if (match) {
     if (match.workerId) return match;
     const abs = match.local || (path.isAbsolute(match.path) ? match.path : resolveProjectPath(match.path));
