@@ -16,7 +16,7 @@ U04-02跨项目缓存审核被宿主拒绝后页面仍推进并显示删除中�
 
 既有G004、U01–U02细节及首次失败保留于 Git `10c0689e:docs/plan-generations/G004-execution.md`，U03及0.5.516记录保留于 `b7c0b42c:docs/plan-generations/G004-execution.md` 和 G004-plan；不把历史测试、修复数当当前按钮分母。原12项受控验证中，A组先0/3含缺VS Code夹具，修后原范围仍0/3、修逻辑后3/3、排除无入口内部参数突变后4/4；日志、空seed/cases及配置reset首次失败后修复。MCP43/43、experimentPlatform旧断言修正后15/15；build先被并发中止exit1，后夹具6/7失败、修后7/7，最终回执 `simple_cluster/reports/test-workflow/2026-11-21T04-18-18-128Z-69044-build/run.json` 为285任务/10门禁通过、并发1，6项按需未运行。唯一旧锁文件经本人精确授权删除，未扩大清理。
 
-0.5.514曾安装一次，Release的sha清单漏4位，包及错误资产保留；独立verify:package-runtime因既定30秒超时exit1，等价ZIP检查获接受。0.5.515版本提交5dda9cf2、包SHA256 8beb78d1663048e9481d386d26c4b25c9b96ed5f2b2f8194ed4bfca9390c76f3，341任务/13门禁通过、试行发布及安装一次，用户随后重载。权威Latest保持0.5.483。
+0.5.514安装一次，Release sha清单漏4位、错误资产保留；独立verify:package-runtime既定30秒超时exit1，等价ZIP检查获接受。0.5.515提交5dda9cf2、SHA256 8beb78d1663048e9481d386d26c4b25c9b96ed5f2b2f8194ed4bfca9390c76f3，341任务/13门禁通过并试行安装一次，用户随后重载；权威Latest仍0.5.483。
 
 U01两项、U02八项、U03十项为真实独立修复，共20，已进入0.5.516，首次失败、返修及证据详见原登记与计划。U03末轮42/42 exit0，源码提取分别验证带冒号实验身份/产物回读及空块cases；不把不同进程冒充端到端。J01已证扩展宿主缺GIT_CONFIG_VALUE_0/5，传递环节未知，未恢复；CLI默认绑定项目不符，`simpleex --version` exit2。
 
@@ -49,7 +49,7 @@ U04 TMUX受控单文件tmuxWorkerAndRichLog 8/8、tmuxTaskTabCloseClick 1/1、tm
 
 
 
-U04历史自定义按钮补充：旧模板及 pinned 默认表不产生当前控件，但 currentUiLayout.inspectorCustomGroups 的可见分组会接受 webviewHandledCommands 中已保存的操作并重新渲染；原11项不能因默认模板退役直接排除，已改为条件入口待核逻辑。parseResults/refreshResults 映射到 syncPendingPlanArtifacts，五项在自定义列表渲染时过滤；相同操作与支持的 payload 按逻辑归并，历史重复实例不累加。按钮总数和剩余数仍未知。
+U04历史自定义按钮：旧模板及默认表不生产当前控件，但保存的可见组仍可渲染允许操作；parseResults/refreshResults归并到syncPendingPlanArtifacts，过滤五项及条件见coverage。
 
 U04旧任务隐藏真实方法配假宿主2/2 exit0；不写实际文件或操作Worker。旧模板和产物隔离证据边界见coverage。
 
@@ -57,7 +57,7 @@ U04历史视图受控3/3 exit0及0.5.516回执覆盖精确PLAN cutoff、结束�
 
 U04产物按钮当前方法配假队列/消费者核commandId拒绝、索引0及刷新/重试标志4/4 exit0；其余复用0.5.516精确回执，无真实传输。
 
-U04手动转移受控检查：当前源码假宿主4/4、exit0，运行中拒绝、选择或确认取消不发请求，确认后向目标传递来源、原runKey及索引0。原排队任务是否由其他队列围栏撤销仍待核，暂不列确认缺陷；未运行实际任务或访问Worker。按钮总数及剩余数仍未知。
+U04手动转移旧受控前置4/4 exit0，来源围栏未知；后续发现U04-09，未操作真实任务或Worker。
 
 U04-09手动转移在确认等待期间来源任务从排队转运行，仍向假目标发起尝试，当前源码内存替身复现exit0；无真实任务操作，不声称已重复运行。须重新核实精确来源身份和状态，见coverage。
 
@@ -81,7 +81,7 @@ U04新增单项目问题12：结果目录输入未保存草稿时浏览并取消
 
 U04-13 plan_filter忽略已记录PLAN元数据读取错误，空缓存仍返回ok和零结果；真实方法与编译筛选函数内存替身各exit0，未触发实际读取失败；见coverage。
 
-U04普通入口补充：对齐旧0.5.507合成项目向导生成并回读、0.5.503/508精确文件打开及0.5.516包内关联文件保持PLAN选择的受控测试；当前无PLAN向导前置条件和旧现场分开。报告打开同时区分无参最新及列表中的latest，其他具体报告名只完成源码路由检查。experiment_config及experiment_log公开的full来自共用schema，但各自消费者未用该字段改变输出；日志远端首读限制仍保留，不把该参数描述为全部远端日志。具体条目和证据范围见coverage。
+U04普通入口复用0.5.507合成向导、0.5.503/508打开文件及0.5.516关联PLAN受控证据；报告按latest与其他名称区分。experiment_config/log的full字段未改变消费者输出；远端日志首读限制保留，见coverage。
 
 U04-14日志解析将WARNING误转WARNINGING；WARN和其他级别正常，原message保留。实际编译解析器内存文本exit0，无真实日志或Worker，见coverage。
 
@@ -91,13 +91,13 @@ U04-15 PLAN目录枚举EACCES被walkYaml吞为空；正式与归档读取器的�
 
 U04-16 PLAN扫描500文件/800目录/8层预算不报告截断；501个内存YAML项只返回500、exit0，无文件创建或性能测试。应完整返回或明确可继续查看，见coverage。
 
-旧草稿条件入口：当前review/reject源码配假存储核精确身份及缺失拒绝，promote明确返回退役，共4/4、exit0；reject另核可保存planFile变体exit0。恢复归档复用G003受控5/5及不覆盖3/3，方法与相关测试/StateStore对照17b5286e未变化，其他依赖未全对照。无真实草稿写入或本轮恢复，旧模板无当前默认生产链。
+U04旧草稿条件入口当前review/reject及retired promote受控4/4 exit0，planFile变体exit0；归档恢复复用G003受控5/5及不覆盖3/3，方法及相关文件对照17b5286e未变，其余依赖未全比。无真实写入或恢复，旧模板无当前默认生产链。
 
 任务选择入口：当前宿主及字段解析源码内存核选择、取消与runKey回退3/3、exit0；持久化为替身，历史保存按钮与直接选择消息的payload能力分别记录。
 
-U04新增单项目问题17：已发现的PLAN文件打开失败时，readUtf8Preview吞掉EACCES并返回空字符串，readLocalPlans继续生成摘要，实际计划校验将空内容误判为缺字段的无效计划且不提示读取错误。当前源码提取配内存替身复现空内容输入及metadataTruncated=false，实际编译校验确认空内容缺字段，均exit0；未触碰实际文件。与目录枚举问题15独立；修复须区分真实读取错误和正常空文件。累计17项，单项目优先13、跨项目延期4。
+U04-17 PLAN文件打开EACCES被当空内容，实际校验误判缺字段；当前读取源码及编译校验配内存替身复现exit0，无实际文件。与目录枚举问题15独立，见coverage。
 
-U04新增单项目问题18：较早实验的case/name等于另一实验精确ID时，loadExperimentDetail按行混合匹配，返回错误实验及其日志；实际源码加内存两条记录复现exit0，日志入口同谓词只做源码对照，无真实项目或Worker操作。修复应优先精确ID并对歧义别名消歧。累计18项，单项目优先14、跨项目延期4。
+U04-18较早实验名称与另一实验精确ID相同时，loadExperimentDetail选错实验及假日志；实际方法及内存两条记录复现exit0，日志同谓词源码对照；无实际项目/Worker，见coverage。
 
 按钮候选进一步按markup的静态data-command名称匹配：156条关联现有逻辑动作、其余135条待按非命令/动态/辅助页区分，名称无缺项；候选不等于按钮总数，也不等于通过数。
 
@@ -107,7 +107,7 @@ U04新增单项目问题18：较早实验的case/name等于另一实验精确ID�
 
 余46条legacy候选的定位索引已收束：30条唯一行关联、9条此前解释无匹配、7条按实际属性和动态分支区分；精确动作见coverage，关联不等于所有参数或实例已查。总按钮数、已查和剩余仍未知。
 
-U04新增单项目问题19：结果拆表以普通对象保存词条，__proto__和normal同时选择时仅产生normal子表，却只提示生成1张；实际编译拆表函数及当前宿主源码配内存CSV/假写入复现，均exit0，无实际文件。单独选择__proto__会被误报无对应行；应完整处理有效词条。累计19项，单项目优先15、跨项目延期4。
+U04-19拆表将__proto__词条吞掉；实际编译函数与宿主配内存CSV/假写入复现exit0，无实际文件。单选误报无行，混选遗漏一项，见coverage。
 
 U04-20撤回：先前200词条上限复现的是ProjectResultTables.resultCatalog旧扫描，不是当前结果面板读取路径；当前readProjectResultCatalog及拆表catalog使用latestResultCatalog，其真实源码配201条内存导出返回201、exit0。先前错误结论、两次受控检查和原因完整保留于coverage withdrawnFindings及af88f88f，不再计确认缺陷。
 
@@ -144,3 +144,13 @@ U04新增单项目问题27：面板轮询间隔允许0.5秒步长，实际保存
 U04新增单项目问题28：合法CSV一条记录的引号字段内换行被先行拆分，实际编译解析器生成虚构第二条seed=2/loss=0.7；同一内存输入经真实CSV读取器核为1行，预览显示2行2记录，各exit0。未读取或修改真实数据，不声称真实论文结果受影响。现确认27项，单项目优先23、跨项目延期4。
 
 问题28排行榜同类变体：另一份单行有效多行CSV经实际Metrics解析及排行榜得到count=2、mean=0.8，真实CSV读取器为1行/0.9，exit0；仅内存数据。Results与Metrics是两个独立拆行实现，相关MCP、CLI及预览消费者见coverage，未重跑其他入口。
+
+问题28排行榜另有同类引号逗号缺口：单行runKey="run,a"的内存CSV经实际Metrics解析后把score 0.9错放至note并截断runKey；实际CSV读取器对照，exit0。未读真实文件。
+
+U04新增单项目问题29：指标排行的独立Metrics解析器大小写敏感判断JSON扩展名；相同内存JSON，小写解析1条accuracy=0.9、大写解析0条，exit0，CLI报无行按源码核对。未读取实际文件；区别于U03已修的result_parse消费者。现确认28项，单项目优先24、跨项目延期4。
+
+登记压缩脚本首次因旧段名称不匹配退出1、未写入；修正后完成。
+
+U04新增单项目问题30：指标排行将数字experimentId与seed也纳入metrics并求均值；实际编译解析及排行榜配内存CSV复现，accuracy保留，exit0，未读真实文件。应区分已知身份/维度与真实自定义指标。现确认29项，单项目优先25、跨项目延期4。
+
+U04新增单项目问题31：排行列集合只取第一条，后续行独有loss=0.4虽在board内，metrics清单及文本表不显示；实际编译解析/榜单/格式化以内存两行复现exit0，CLI路由按源码核对，无实际文件。现确认30项，单项目优先26、跨项目延期4。
