@@ -32,6 +32,9 @@ export function mcpGateway(host: any): ProjectGateway {
       if (["id", "kind", "root", "host", "port", "user"].some(key => String(existing.node?.[key] ?? "") !== String((node as any)[key] ?? "")))
         throw Error("MCP_FILE_NODE_CHANGED");
     }
+    if (root !== (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "")) throw Error("MCP_WORKSPACE_CHANGED");
+    if (worker && !isDeepStrictEqual(worker, currentWorkers(host).find(row => row.id === worker.id))) throw Error("MCP_WORKER_TARGET_CHANGED");
+    if (["files.cleanup.execute", "files.cleanup.settle"].includes(method)) mcpInvocation.getStore()?.permission("sync");
     return host.simpleSftpApiCall(method, { ...params, node, consumerRoot: root,
       ...(method === "files.cleanup.preview" && params.action === "delete" ? { authorizationMode: "confirmed_paths" } : {}) });
   };

@@ -9849,10 +9849,23 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const targets = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentRuntimeUploadTargets(), ids);
         const action = String(params.action || "inspect");
         if (!["inspect", "ensure", "stop", "restart", "migrate"].includes(action)) throw new Error("AGENT_ACTION_INVALID");
+        const projectContext = this.captureProjectContext();
+        const configs = structuredClone(ids.map(id => this.setupConfig.workerTunnels.find(row => row.id === id)));
+        const shared = structuredClone({ prefix: this.setupConfig.remoteTmuxSessionPrefix, condaEnv: this.setupConfig.condaEnv, tunnel: this.tunnelConfig });
+        const assertCurrent = () => {
+            if (!this.projectContextIsCurrent(projectContext)) throw new Error("MCP_WORKSPACE_CHANGED");
+            const current = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentRuntimeUploadTargets(), ids);
+            if (!isDeepStrictEqual(targets, current)
+                || !isDeepStrictEqual(configs, ids.map(id => this.setupConfig.workerTunnels.find(row => row.id === id)))
+                || !isDeepStrictEqual(shared, { prefix: this.setupConfig.remoteTmuxSessionPrefix, condaEnv: this.setupConfig.condaEnv, tunnel: this.tunnelConfig }))
+                throw new Error("MCP_WORKER_TARGET_CHANGED");
+            if (action !== "inspect") mcpInvocation.getStore()?.permission("agents");
+        };
         if (action === "migrate") {
             const preview = [];
             for (const target of targets) {
-                const before = await this.agentLifecycleForTarget(target, "inspect");
+                assertCurrent();
+                const before = await this.agentLifecycleForTarget(target, "inspect", undefined, false, undefined, assertCurrent);
                 if (before.status !== "legacy") throw new Error(`AGENT_MIGRATION_NOT_REQUIRED: ${target.id}`);
                 preview.push({ serverId: target.id, host: target.host, user: target.user, port: target.port, ...before.legacyMigration });
             }
@@ -9871,7 +9884,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const manifest = { runtimeVersion: RuntimeManifest_1.CURRENT_RUNTIME_VERSION, files: {
             "cluster_agent.py": RuntimeManifest_1.sha256Text(agent), "cluster_scheduler.py": RuntimeManifest_1.sha256Text(scheduler) } };
         const results = [];
-        for (const target of targets) results.push({ id: target.id, ...await this.agentLifecycleForTarget(target, action, manifest, params.confirm === true, params.migrationDigests?.[target.id]) });
+        for (const target of targets) {
+            assertCurrent();
+            results.push({ id: target.id, ...await this.agentLifecycleForTarget(target, action, manifest, params.confirm === true, params.migrationDigests?.[target.id], assertCurrent) });
+        }
         return { ok: true, action, results };
     }
     async agentLifecycleServer(target) {
@@ -9894,7 +9910,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             throw new Error(`AGENT_SSH_ALIAS_MISMATCH: ${target.id} / ${alias}; expected=${expectedUser}@${expectedHost}:${expectedPort}; resolved=${resolved.user}@${resolved.hostname}:${resolved.port}; ${resolved.message || ""}`);
         return { ...server, host: alias, sftpHost: alias, sshHost: alias, transferHost: alias, resolvedHost: alias, networkHost: expectedHost };
     }
-    async agentLifecycleForTarget(target, action, manifest?, confirmed = false, migrationDigest?: string) {
+    async agentLifecycleForTarget(target, action, manifest?, confirmed = false, migrationDigest?: string, assertCurrent?: () => void) {
         const installed = vscode.extensions.getExtension(SIMPLE_SFTP_EXTENSION_ID);
         if (require("../features/ExtensionUpdates").compareSemanticVersions(String(installed?.packageJSON?.version || "0.0.0"), "0.2.78") < 0)
             throw new Error("AGENT_LIFECYCLE_CAPABILITY_REQUIRED: 需要 SimpleSFTP 0.2.78，未修改远端或自定义登录命令。");
@@ -9908,8 +9924,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const dirs = this.agentRuntimeDirs(config.agentProjectDir, config.agentInstallDir);
         const result: any = await (async () => {
                 await this.invalidateProjectFileIndexes?.("文件操作开始：simpleSftp.agentLifecycle");
-                try { return await vscode.commands.executeCommand("simpleSftp.agentLifecycle", {
-            action, server: await this.agentLifecycleServer(target), projectDir: dirs.workDir, installDir: dirs.installDir,
+                try {
+            const server = await this.agentLifecycleServer(target);
+            assertCurrent?.();
+            return await vscode.commands.executeCommand("simpleSftp.agentLifecycle", {
+            action, server, projectDir: dirs.workDir, installDir: dirs.installDir,
             stateDir: config.agentStateDir, workerStateDir: config.workerStateDir,
             mode: "worker_telemetry", workerId: target.id,
             condaEnv: target.id === "hub" ? config.condaEnv : effectiveWorkerCondaEnv(config, this.setupConfig.condaEnv),
@@ -9940,7 +9959,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             // already queried and verified server-local health over the SSH channel.
             const health: any = result;
             if (health.schedulerRuntime?.status === "update_required" || health.schedulerUpdateError) {
-                return this.agentLifecycleForTarget(target, "restart", manifest, confirmed);
+                return this.agentLifecycleForTarget(target, "restart", manifest, confirmed, migrationDigest, assertCurrent);
             }
             if (health.schedulerRuntime?.protocol !== 1 || !["current", "absent"].includes(health.schedulerRuntime.status))
                 throw new Error(`${target.id}: SCHEDULER_RUNTIME_UNVERIFIED: ${health.schedulerRuntime?.error || "部署通道未返回独立调度器证据，请更新配套 SimpleSFTP 至 0.2.90 或更高版本"}`);
