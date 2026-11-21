@@ -27,7 +27,7 @@ U04-04 metric_show不存在的精确ID与存在但无数字指标混淆；真实
 
 U04日志跟随补充：将真实渲染的点击处理、`setTmuxLogFollow` 与页面自身 `setNativeTitle` 同装入受控VM，暂停、跳到底部、恢复3/3、exit0，未发宿主消息。首次补充夹具漏页面全局 `nativeTitleMutationVersion`，ReferenceError、exit1；补齐后通过。原目标文件12/13、exit1仍保留，补充检查不改称整套通过。
 
-U04-05跨项目等待期间取消被吞并读到另一项目替身数据，受控复现exit0；无真实切换或Worker。完整证据及验收见coverage。
+U04-05跨项目替身等待错误见coverage，延期。
 
 U04假SFTP配置、项目代理及清理观察分别9/9、11/11、7/7 exit0，无真实服务器或删除；方法与精确边界见coverage及4a80c627。
 
@@ -182,3 +182,5 @@ U04新增单项目问题40：公开中位数排行未按主指标方向排序；
 问题21补充比较：仅左侧有constructor指标时实际compare误认右侧存在，产生NaN（JSON为null），内存复现exit0；accuracy正常。
 
 U04新增单项目问题41：LaTeX结果表对普通method_a与val_loss直接输出未转义下划线；真实导出函数内存复现exit0，未编译或改论文。现40项，单项目36、跨项目延期4。
+
+问题21补充catalog：实际latestResultCatalog配内存结果表，__proto__列词条序列化后丢失，accuracy保留，exit0；无真实文件。
