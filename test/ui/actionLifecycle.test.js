@@ -103,6 +103,56 @@ test("flow updates can unblock and complete the same step", async () => {
   const readback=await h.apiFlowGet();assert.equal(readback.flow.steps.select_servers.completed,false);assert.equal(readback.nextStep,'select_servers');
 });
 
+test("draft validation returns the exact draft identity required by its MCP schema", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='apiDraftValidate')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const sandbox={stringField:(p,k)=>p[k]||'',workspaceRoot:()=>'/project',safeWorkspaceChildPath:(root,p)=>root+'/'+p,
+    fs:{readFile:async()=> 'draft'},DraftPlans_1:{validateDraftReferences:()=>({ok:true,status:'validated',configRefs:[],issues:[]})}};
+  vm.runInNewContext(ts.transpileModule('class Host {'+method+'}; this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const h=new sandbox.Host();h.requireDraftRecord=async()=>({draftPlanPath:'tmp/plan/one.yaml'});
+  const result=await h.apiDraftValidate({draftPlanPath:'tmp/plan/one.yaml'});assert.equal(result.draftPlanPath,'tmp/plan/one.yaml');
+});
+
+test("draft review reports the actual state after review", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='apiDraftReview')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const sandbox={stringField:(p,k)=>p[k]||'',workspaceRoot:()=>'/project',sameProjectRelativePath:(a,b)=>a===b,DraftPlans_1:{markDraftReviewed:async()=>{}}};
+  vm.runInNewContext(ts.transpileModule('class Host {'+method+'}; this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const h=new sandbox.Host();h.requireDraftRecord=async()=>({draftPlanPath:'tmp/plan/one.yaml',status:'draft'});
+  h.withDraftMetadataLease=async(_root,work)=>work();h.refreshDraftPlans=async()=>{h.draftPlanState={drafts:[{draftPlanPath:'tmp/plan/one.yaml',status:'draft'}],error:''}};
+  const result=await h.apiDraftReview({draftPlanPath:'tmp/plan/one.yaml'});assert.equal(result.status,'draft');
+});
+
+test("draft lookup does not use stale records after a refresh failure", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='requireDraftRecord')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const sandbox={sameProjectRelativePath:(a,b)=>a===b};
+  vm.runInNewContext(ts.transpileModule('class Host {'+method+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const host=new sandbox.Host();host.draftPlanState={drafts:[{draftPlanPath:'tmp/plan/a.yaml'}],error:''};
+  host.refreshDraftPlans=async()=>{host.draftPlanState.error='metadata read failed'};
+  await assert.rejects(host.requireDraftRecord('tmp/plan/a.yaml'),/metadata read failed/);
+});
+
+test("draft rejection updates only the requested draft and preserves its identity", async () => {
+  const ts=require('typescript'),root=path.resolve(__dirname,'../..');
+  const hostSource=fs.readFileSync(path.join(root,'src/extension/legacy.ts'),'utf8'),draftSource=fs.readFileSync(path.join(root,'src/features/DraftPlans.legacy.ts'),'utf8');
+  const extract=(source,name,kind)=>{const ast=ts.createSourceFile('source.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let found;
+    const visit=node=>{if(kind(node)&&node.name?.getText(ast)===name)found=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);return found};
+  const hostMethod=extract(hostSource,'apiDraftReject',ts.isMethodDeclaration),reject=extract(draftSource,'rejectDraft',ts.isFunctionDeclaration);
+  const records={'tmp/plan/a.yaml':{status:'draft'},'tmp/plan/b.yaml':{status:'draft'}};
+  const sandbox={workspaceRoot:()=>'/project',stringField:(p,k)=>p[k]||'',normalizeWorkspacePath:x=>x,
+    updateDraftMetadata:async(_root,file,change)=>{records[file]=change(records[file])}};
+  vm.runInNewContext(ts.transpileModule(reject.replace(/^export /,'')+';this.rejectDraft=rejectDraft;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  sandbox.DraftPlans_1={rejectDraft:sandbox.rejectDraft};
+  vm.runInNewContext(ts.transpileModule('class Host {'+hostMethod+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const host=new sandbox.Host();host.requireDraftRecord=async file=>({draftPlanPath:file});host.withDraftMetadataLease=async(_root,fn)=>fn();host.refreshDraftPlans=async()=>{};
+  const result=await host.apiDraftReject({draftPlanPath:'tmp/plan/a.yaml',reviewedBy:'reviewer'});
+  assert.equal(result.draftPlanPath,'tmp/plan/a.yaml');assert.equal(records['tmp/plan/a.yaml'].status,'rejected');assert.equal(records['tmp/plan/a.yaml'].reviewedBy,'reviewer');assert.equal(records['tmp/plan/b.yaml'].status,'draft');
+});
+
 test("webview terminal uiCommandStatus clears button loading by client action", () => {
   const root = path.resolve(__dirname, "..", "..");
   const source = readSource("src/ui/PanelHtml.ts");

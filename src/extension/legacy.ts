@@ -19896,6 +19896,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
 
     async requireDraftRecord(planFile) {
         await this.refreshDraftPlans(true);
+        if (this.draftPlanState.error)
+            throw new Error(this.draftPlanState.error);
         const normalized = String(planFile || "").replace(/\\/g, "/");
         const record = (this.draftPlanState.drafts || []).find((item) => sameProjectRelativePath(item.draftPlanPath, normalized));
         if (!record)
@@ -19910,7 +19912,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             throw new Error("需要先打开工作区。");
         const text = await fs.readFile(safeWorkspaceChildPath(root, record.draftPlanPath), "utf8");
         const validation = DraftPlans_1.validateDraftReferences(record.draftPlanPath, text);
-        return { ok: validation.ok, status: validation.status, configRefs: validation.configRefs, issues: validation.issues };
+        return { ok: validation.ok, draftPlanPath: record.draftPlanPath, status: validation.status, configRefs: validation.configRefs, issues: validation.issues };
     }
 
     async draftMetricsSummary(record) {
@@ -19971,7 +19973,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             throw new Error("需要先打开工作区。");
         await this.withDraftMetadataLease(root, () => DraftPlans_1.markDraftReviewed(root, record.draftPlanPath, stringField(params, "reviewedBy") || "local-user"));
         await this.refreshDraftPlans(true);
-        return { ok: true, status: "ready_for_review", draftPlanPath: record.draftPlanPath };
+        if (root !== workspaceRoot()) throw new Error("项目已切换；草稿审核已写入原项目，请在原项目核查。");
+        if (this.draftPlanState.error) throw new Error(`草稿审核已写入，但刷新失败：${this.draftPlanState.error}`);
+        const updated = (this.draftPlanState.drafts || []).find((item) => sameProjectRelativePath(item.draftPlanPath, record.draftPlanPath));
+        if (!updated) throw new Error(`草稿审核已写入，但刷新后未找到：${record.draftPlanPath}`);
+        return { ok: true, status: updated.status, draftPlanPath: updated.draftPlanPath };
     }
 
     async apiDraftCleanup(params = {}) {
