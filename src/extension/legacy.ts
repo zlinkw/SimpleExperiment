@@ -1329,7 +1329,7 @@ export class RealtimeTunnelPanelProvider {
         // realtimeRefreshPolicy() snapshot already carries the right cadence.
         this.lowTrafficMode = this.context.globalState.get(keys.lowTrafficMode) === true;
         this.projectBootstrapPromise = this.bootstrapProjectLocalUiState()
-            .catch(() => undefined)
+            .catch((error) => this.recordOnboardingBackgroundError("projectStateMigration", error))
             .finally(() => {
             this.ensureSelectedPlanFileWatchers("bootstrap");
         });
@@ -4620,7 +4620,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         ]);
         if (!this.projectContextIsCurrent(projectContext))
             return;
-        await this.migrateLegacyProjectUiStateFromVsCode(projectContext).catch(() => undefined);
+        await this.migrateLegacyProjectUiStateFromVsCode(projectContext);
     }
     captureProjectContext() {
         return { generation: this.projectContextGeneration, root: workspaceRoot(), signal: this.projectContextAbortController.signal };
@@ -4874,7 +4874,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         this.lastPostedStateSignature = "";
     }
     async migrateLegacyProjectUiStateFromVsCode(projectContext = this.captureProjectContext()) {
-        if (!this.projectContextIsCurrent(projectContext))
+        if (!projectContext.root || !this.projectContextIsCurrent(projectContext))
             return;
         const workspaceHiddenLegacyKeys = stringArrayConfig(this.context.workspaceState.get(keys.hiddenLegacyTaskUiKeys, []));
         const globalHiddenLegacyKeys = stringArrayConfig(this.context.globalState.get(keys.hiddenLegacyTaskUiKeys, []));
@@ -4882,7 +4882,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         if (legacyHidden.length) {
             for (const key of legacyHidden)
                 this.hiddenLegacyTaskUiKeys.add(key);
-            await this.persistProjectTaskSelectionState().catch(() => undefined);
+            await this.persistProjectTaskSelectionState();
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             await this.context.workspaceState.update(keys.hiddenLegacyTaskUiKeys, undefined);
@@ -4891,29 +4891,24 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 return;
         }
         const legacyOffline = this.context.workspaceState.get(keys.offlineBundle);
-        if (!this.offlineBundle && legacyOffline) {
-            this.offlineBundle = legacyOffline;
-            await this.persistProjectOfflineBundleState().catch(() => undefined);
+        if (legacyOffline) {
+            if (!this.offlineBundle)
+                this.offlineBundle = legacyOffline;
+            await this.persistProjectOfflineBundleState();
             if (!this.projectContextIsCurrent(projectContext))
                 return;
-            await this.context.workspaceState.update(keys.offlineBundle, undefined);
-        }
-        else if (legacyOffline) {
             await this.context.workspaceState.update(keys.offlineBundle, undefined);
         }
         if (!this.projectContextIsCurrent(projectContext))
             return;
         const legacyLayout = this.context.workspaceState.get(keys.uiProjectLayout)
             || this.context.workspaceState.get(keys.uiProjectActions);
-        if (!this.projectUiLayout && legacyLayout && typeof legacyLayout === "object") {
-            this.projectUiLayout = normalizeUiProjectLayoutState(legacyLayout, defaultUiLayout);
-            await this.persistProjectUiLayoutState().catch(() => undefined);
+        if (legacyLayout && typeof legacyLayout === "object") {
+            if (!this.projectUiLayout)
+                this.projectUiLayout = normalizeUiProjectLayoutState(legacyLayout, defaultUiLayout);
+            await this.persistProjectUiLayoutState();
             if (!this.projectContextIsCurrent(projectContext))
                 return;
-            await this.context.workspaceState.update(keys.uiProjectLayout, undefined);
-            await this.context.workspaceState.update(keys.uiProjectActions, undefined);
-        }
-        else if (legacyLayout) {
             await this.context.workspaceState.update(keys.uiProjectLayout, undefined);
             await this.context.workspaceState.update(keys.uiProjectActions, undefined);
         }
@@ -21664,7 +21659,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         this.selectedPlanId = nextPlanId;
         this.planFileInput = nextPlanFile;
         if (changed) this.refreshExperimentTracesProjectionForCurrentInterest();
-        void this.persistProjectPlanSelectionState().catch(() => undefined);
+        void this.persistProjectPlanSelectionState().catch((error) => {
+            this.recordActionError({ command: "selectPlan", message: `保存计划选择失败：${errorMessage(error)}` });
+            this.postState();
+        });
         this.ensureSelectedPlanFileWatchers(changed ? "切换计划" : "选择计划");
         this.postState();
         if (changed)
@@ -21711,7 +21709,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 this.selectedArchiveKeys.delete(archiveKey);
         }
         this.markTaskSelectionChanged();
-        void this.persistProjectTaskSelectionState().catch(() => undefined);
+        void this.persistProjectTaskSelectionState().catch((error) => {
+            this.recordActionError({ command: "selectExperiment", message: `保存任务选择失败：${errorMessage(error)}` });
+            this.postState();
+        });
         this.postState();
     }
     async clearLegacyTasksFromUi(message) {
@@ -21730,8 +21731,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         for (const key of taskUiKeys)
             this.selectedTaskUiKeys.delete(key);
         this.markTaskSelectionChanged();
-        void this.persistProjectTaskSelectionState().catch(() => undefined);
         this.postState();
+        await this.persistProjectTaskSelectionState();
         void vscode.window.showInformationMessage(`已从本机面板隐藏 ${taskUiKeys.length} 条旧任务残留；未删除任何远端文件。`);
     }
     async clearCacheFromUi() {
