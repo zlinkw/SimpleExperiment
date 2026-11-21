@@ -21315,8 +21315,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             openLabel: "选择结果 CSV 文件夹",
             title: "选择当前项目内的实验结果 CSV 文件夹",
         });
-        if (!this.projectContextIsCurrent(projectContext) || !selected?.[0])
+        if (!this.projectContextIsCurrent(projectContext))
             return;
+        if (!selected?.[0]) throw new UiCommandCancelled("已取消选择结果目录。");
         const relative = path.relative(folder.uri.fsPath, selected[0].fsPath).replace(/\\/g, "/");
         const resultCsvDir = normalizeResultCsvDir(relative);
         safeWorkspaceChildPath(folder.uri.fsPath, resultCsvDir);
@@ -21856,7 +21857,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     : `从本机面板隐藏 ${operationIds.length} 条已结束操作记录？当前运行的 Plan 和 job、远端审计、日志及产物均保留。`,
                 { modal: true }, "清理所选记录", "取消",
             );
-            if (confirmed !== "清理所选记录" || root !== workspaceRoot()) return;
+            if (confirmed !== "清理所选记录") throw new UiCommandCancelled("已取消清除所选历史。");
+            if (root !== workspaceRoot()) return;
             // 确认弹窗挂起期间同一身份可能已被远端回成 running/queued；写隐藏前重新取当前行复校，
             // 绝不拿 await 前的旧快照授权，也不能因复校失败而碰任何远端、队列或产物。
             const confirmedRows = lookUpRows(this.buildPlanRuntimeEvidenceState().operations);
@@ -21874,7 +21876,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             `清除 ${label} 的已结束运行历史？运行中的任务继续显示；远端审计、日志和训练产物保留。`,
             { modal: true }, "清除历史", "取消",
         );
-        if (confirmed !== "清除历史") return;
+        if (confirmed !== "清除历史") throw new UiCommandCancelled("已取消清除历史。");
         if (root !== workspaceRoot()) return;
         const saved = this.context.workspaceState.get(keys.executionHistoryCutoffs, {});
         const cutoffs = saved && typeof saved === "object" && !Array.isArray(saved) ? { ...saved as Record<string, string> } : {};
@@ -24298,6 +24300,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 return;
             this.lastError = errorMessage(error);
             this.recordActionError({ command: "openAuditTail", message: this.lastError, suggestion: actionErrorSuggestion(this.lastError) });
+            this.postState();
+            throw error;
         }
         if (isCurrent())
             this.postState();
