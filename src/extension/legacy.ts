@@ -4177,6 +4177,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         return { ok: true, flow: this.apiFlowState, nextStep: ApiWorkflow_1.nextFlowStep(this.apiFlowState) };
     }
     async apiFlowUpdate(params = {}) {
+        const projectContext = this.captureProjectContext();
         const step = String(params.step || "").trim();
         const completed = params.completed === true;
         const blocked = params.blocked === true;
@@ -4189,6 +4190,8 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         });
         this.apiFlowStateDirty = true;
         await this.persistProjectFlowState();
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new Error("项目已切换；原项目流程写入结果请在原项目核查。");
         this.postState();
         return { ok: true, flow: this.apiFlowState, nextStep: ApiWorkflow_1.nextFlowStep(this.apiFlowState) };
     }

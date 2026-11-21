@@ -8454,7 +8454,7 @@
   "g004U02Reconciliation": {
     "scope": "28项功能族，非全插件按钮数；复用已有效证据，仅以本轮源码受控检查证明新增路径。",
     "items": [
-      {"id":"J01","status":"blocked","evidence":"Git仅缺VALUE_0时复现exit128；真实扩展宿主的缺项来源未知。"},
+      {"id":"J01","status":"environment_unrepaired","evidence":"专用实例projects.registry新鲜只读核实仍报错；真实扩展宿主COUNT=10且VALUE_0/5缺失，其余值存在；确切启动传递环节未知，未改环境。"},
       {"id":"J02","status":"checked","evidence":"当前源码只读核对祖先及分支根、共同Git目录和分支身份。"},
       {"id":"J03","status":"checked","evidence":"复用branchProjectRegistry既有选择、取消和失败恢复证据。"},
       {"id":"J04","status":"checked","evidence":"复用branchProjectRegistry及窗口项目隔离证据。"},
@@ -8462,7 +8462,7 @@
       {"id":"K06","status":"checked","evidence":"目录静态标记与未公开命令拒绝经受控调用核对；目录不宣称实时可用性。"},
       {"id":"K07","status":"checked","evidence":"复用配置scope及双项目隔离既有证据。"},
       {"id":"K08","status":"checked","evidence":"当前源码受控验证只读键拒绝及取消零写。"},
-      {"id":"L09","status":"fixed","evidence":"流程状态布尔更新与持久化失败传播，源代码定向测试。"},
+      {"id":"L09","status":"fixed","evidence":"流程状态布尔更新、持久化失败传播及切换项目后不返回另一项目状态，源代码定向测试。"},
       {"id":"L10","status":"fixed","evidence":"草稿验证补精确路径；刷新失败拒绝使用旧记录。"},
       {"id":"L11","status":"fixed","evidence":"审核返回实际状态；受控拒绝只更新指定草稿。"},
       {"id":"L12","status":"checked","evidence":"当前源码明确拒绝退役promotion。"},
@@ -8483,6 +8483,6 @@
       {"id":"Q27","status":"checked","evidence":"复用CLI和本机API项目绑定验证。"},
       {"id":"Q28","status":"checked","evidence":"当前源码受控验证离线拒绝先于Worker端点请求；本机入口复用U01。"}
     ],
-    "boundary": "当前源码新增测试29/29通过；部分旧测试依赖旧dist，不用于证明本轮源码修复。未构建、安装、查询服务器或实测远端；Git实际缺项来源仍未知。"
+    "boundary": "U02目标测试29/29；关联返修另做3/3定向测试。部分旧测试依赖旧dist，不用于证明本轮源码修复。未构建、安装、查询服务器或实测远端；扩展宿主缺项已确认，准确传递环节未知且环境未恢复。"
   }
 }

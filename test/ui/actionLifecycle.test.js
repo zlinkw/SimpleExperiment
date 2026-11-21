@@ -84,7 +84,7 @@ test("flow updates report persistence failure instead of claiming success", asyn
   const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='apiFlowUpdate')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
   assert.ok(method); const sandbox={ApiWorkflow_1:{advanceFlowStep:(_state,step,patch)=>({step,...patch}),nextFlowStep:()=> 'next'}};
   vm.runInNewContext(ts.transpileModule('class Host {'+method+'}; this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
-  const host=new sandbox.Host();host.apiFlowState={};host.postState=()=>{};host.persistProjectFlowState=async()=>{throw new Error('save failed')};
+  const host=new sandbox.Host();host.apiFlowState={};host.captureProjectContext=()=>({});host.projectContextIsCurrent=()=>true;host.postState=()=>{};host.persistProjectFlowState=async()=>{throw new Error('save failed')};
   await assert.rejects(host.apiFlowUpdate({step:'prepare',completed:true}),/save failed/);
   host.persistProjectFlowState=async()=>true; const result=await host.apiFlowUpdate({step:'prepare',completed:true});
   assert.equal(result.ok,true);assert.equal(result.flow.step,'prepare');assert.equal(result.flow.completed,true);
@@ -96,11 +96,31 @@ test("flow updates can unblock and complete the same step", async () => {
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS), methods=[];
   const visit=node=>{if(ts.isMethodDeclaration(node)&&['apiFlowUpdate','apiFlowGet'].includes(node.name.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
   const sandbox={ApiWorkflow_1:workflow};vm.runInNewContext(ts.transpileModule('class Host {'+methods.join('\n')+'}; this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
-  const h=new sandbox.Host();h.apiFlowState=workflow.defaultFlowState();h.persistProjectFlowState=async()=>true;h.postState=()=>{};
+  const h=new sandbox.Host();h.apiFlowState=workflow.defaultFlowState();h.captureProjectContext=()=>({});h.projectContextIsCurrent=()=>true;h.persistProjectFlowState=async()=>true;h.postState=()=>{};
   await h.apiFlowUpdate({step:'select_servers',blocked:true});let r=await h.apiFlowUpdate({step:'select_servers',completed:true});
   assert.equal(r.flow.steps.select_servers.blocked,false);assert.equal(r.flow.steps.select_servers.completed,true);assert.equal(r.nextStep,'select_mode');
   r=await h.apiFlowUpdate({step:'select_servers',completed:false});assert.equal(r.flow.steps.select_servers.completed,false);assert.equal(r.nextStep,'select_servers');
   const readback=await h.apiFlowGet();assert.equal(readback.flow.steps.select_servers.completed,false);assert.equal(readback.nextStep,'select_servers');
+});
+
+test("flow update does not return another project's state after a workspace switch", async () => {
+  require('../_helpers/registerTsRequire');const workflow=require('../../src/features/ApiWorkflow.ts');
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),names=['apiFlowUpdate','persistProjectFlowState','projectStatePersistenceQueue','queueProjectStatePersistence','captureProjectContext','projectContextIsCurrent'],methods=[];
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&names.includes(node.name.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);assert.equal(methods.length,names.length);
+  let root='/project-a',release,started,failWrite=false;const written=[];let startedWrite=new Promise(resolve=>{started=resolve});
+  const sandbox={ApiWorkflow_1:workflow,path,workspaceRoot:()=>root,PROJECT_PERSISTENCE_PATHS:{apiFlowState:'state/flow.json'},
+    writeProjectFlowState:async(project,state)=>{written.push({project,state});started();await new Promise(resolve=>{release=resolve});if(failWrite)throw new Error('write failed')}};
+  vm.runInNewContext(ts.transpileModule('class Host {'+methods.join('\n')+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const h=new sandbox.Host();h.apiFlowState=workflow.defaultFlowState();h.projectContextGeneration=1;h.projectContextAbortController={signal:{}};h.projectStatePersistenceQueues=new Map();h.postState=()=>{};
+  h.withPluginStateFileLease=async(_root,_file,_key,_label,fn)=>fn();
+  const pending=h.apiFlowUpdate({step:'select_servers',completed:true});await startedWrite;
+  root='/project-b';h.projectContextGeneration=2;h.apiFlowState=workflow.defaultFlowState();release();
+  await assert.rejects(pending,/项目已切换.*原项目/);assert.equal(written.length,1);assert.equal(written[0].project,'/project-a');assert.equal(written[0].state.steps.select_servers.completed,true);
+  root='/project-a';h.projectContextGeneration=3;h.apiFlowState=workflow.defaultFlowState();failWrite=true;startedWrite=new Promise(resolve=>{started=resolve});
+  const failed=h.apiFlowUpdate({step:'select_servers',completed:true});await startedWrite;
+  root='/project-b';h.projectContextGeneration=4;h.apiFlowState=workflow.defaultFlowState();release();
+  await assert.rejects(failed,/项目已切换.*原项目/);assert.equal(written[1].project,'/project-a');
 });
 
 test("draft validation returns the exact draft identity required by its MCP schema", async () => {
