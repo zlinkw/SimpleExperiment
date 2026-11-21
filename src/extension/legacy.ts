@@ -18250,7 +18250,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const updates = [
             ...Object.entries(GpuQuotaScheduling.quotaSettings({ ...settings, ...patch })).map(([key, value]) => config.update("scheduler." + key, value, vscode.ConfigurationTarget.Global)),
             config.update("scheduler.dispatchMode", "local_idle", vscode.ConfigurationTarget.Global),
-            config.update("scheduler.pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 5, 3600), vscode.ConfigurationTarget.Global),
+            config.update("scheduler.pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 5, 3600, true), vscode.ConfigurationTarget.Global),
             config.update("scheduler.jitterSeconds", numberRangePatch(patch, "jitterSeconds", settings.jitterSeconds, 0, 1800), vscode.ConfigurationTarget.Global),
             config.update("scheduler.workerStatusTtlSeconds", numberRangePatch(patch, "workerStatusTtlSeconds", settings.workerStatusTtlSeconds, 10, 7200), vscode.ConfigurationTarget.Global),
             config.update("scheduler.localAvailabilityPushSeconds", numberRangePatch(patch, "localAvailabilityPushSeconds", settings.localAvailabilityPushSeconds, 5, 3600), vscode.ConfigurationTarget.Global),
@@ -20340,8 +20340,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const runGate = planArchiveRunGate(this.lastRealtimeState || this.lastSnapshot || client.currentState(), file);
         if (!runGate.ok)
             throw new Error(`暂不可归档 Plan：${runGate.reason}`);
-        await this.refreshResultsSummary(file);
+        const refreshed = await this.refreshResultsSummary(file);
         assertCurrent();
+        if (!refreshed.ok) throw new Error(`暂不可归档 Plan：本轮结果未刷新：${refreshed.reason}。`);
         const resultSummary = this.filterResultsSummaryForPlan(this.resultsSummary, file);
         const archiveGate = planArchiveGateFromResults(resultSummary, file);
         if (!archiveGate.ok)
@@ -25387,13 +25388,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         });
     }
     async refreshResultsSummary(planHint = "", manualRetry = false) {
-        if (this.lowTrafficMode && !manualRetry) return;
         if (this.effectiveConnectionMode() === "offline_import") {
-            this.applyOfflineResultsSummaryFromBundle(this.offlineBundle); this.postState(); return;
+            this.applyOfflineResultsSummaryFromBundle(this.offlineBundle); this.postState(); return { ok: true };
         }
+        if (this.lowTrafficMode && !manualRetry) return { ok: false, reason: "低流量模式未刷新，请先手动刷新结果" };
         try { await resultCollectionHost(this).update(); this.lastError = undefined; }
-        catch (error) { this.lastError = errorMessage(error); this.recordActionError({ command: "refreshResults", message: this.lastError }); }
+        catch (error) { this.lastError = errorMessage(error); this.recordActionError({ command: "refreshResults", message: this.lastError }); this.postState(); return { ok: false, reason: this.lastError }; }
         this.postState();
+        return { ok: true };
 }
     scheduleResultsSummaryRefreshFromRealtime(state) {
         void state;
@@ -33081,13 +33083,13 @@ function numberPatch(patch, key, fallback) {
     const value = Number(patch[key]);
     return Number.isFinite(value) && value >= 1 && value <= 65535 ? Math.trunc(value) : fallback;
 }
-function numberRangePatch(patch, key, fallback, min, max) {
+function numberRangePatch(patch, key, fallback, min, max, allowFraction = false) {
     if (!hasNumericPatchValue(patch, key))
         return fallback;
     const value = Number(patch[key]);
     if (!Number.isFinite(value))
         return fallback;
-    return Math.max(min, Math.min(max, Math.trunc(value)));
+    return Math.max(min, Math.min(max, allowFraction ? value : Math.trunc(value)));
 }
 function autoOrNumberRangePatch(patch, key, fallback, min, max) {
     if (!Object.prototype.hasOwnProperty.call(patch, key))
