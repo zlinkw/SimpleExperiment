@@ -5,7 +5,7 @@ import { DEFAULT_PLAN_DIR, PLAN_REGISTRY_REL, fileExists, listFilesRecursive, pr
 import { businessError, usageError } from "../errors";
 import { block, table, writeJson, writeText } from "../format";
 import { CliFlags, requirePositional } from "../parse";
-import { buildExperimentMatrix, expandPlanMatrix, importLegacyPlanYamlToRegistry, parsePlanSummary, validateDeepLearningPlanContract } from "../../features/PlanBuilder";
+import { buildExperimentMatrix, expandPlanMatrix, importLegacyPlanYamlToRegistry, parsePlanSummary, stripYamlLineComment, validateDeepLearningPlanContract } from "../../features/PlanBuilder";
 import { validatePlan } from "../../features/PlanBuilder/PlanValidator";
 import { planCleanupCommand } from "./planCleanup";
 
@@ -50,7 +50,8 @@ export async function planMatrix(fileArg: string, flags: CliFlags): Promise<numb
   const file = resolveExisting(fileArg);
   const yaml = readTextFile(file);
   const summary = parsePlanSummary(yaml);
-  const emptyCases = /^(?:cases|experiments)\s*:\s*(?:\[\s*\]|\{\s*\})\s*(?:#.*)?$/m.test(yaml);
+  const emptyMatrix = hasExplicitEmptyMatrix(yaml, /^(?:cases|experiments)[ \t]*:[ \t]*(.*)$/)
+    || hasExplicitEmptyMatrix(yaml, /^seeds[ \t]*:[ \t]*(.*)$/);
   const result = expandPlanMatrix({
     variables: [
       ...(summary.cases.length ? [{ key: "case", mode: "grid" as const, values: summary.cases }] : []),
@@ -58,11 +59,28 @@ export async function planMatrix(fileArg: string, flags: CliFlags): Promise<numb
     ],
     namingRule: { pattern: "{suite}_{case}", sanitize: true },
   }, [], summary.suite || "suite");
-  const count = emptyCases ? 0 : Array.isArray(result.experiments) ? result.experiments.length : 0;
+  const count = emptyMatrix ? 0 : Array.isArray(result.experiments) ? result.experiments.length : 0;
   const payload = { count, suite: summary.suite, cases: summary.cases.length, seeds: summary.seeds.length, filteredCount: result.filteredCount || 0 };
   if (flags.json) writeJson(payload, flags.compactJson);
   else writeText(block("Plan matrix", payload));
   return 0;
+}
+
+function hasExplicitEmptyMatrix(yaml: string, key: RegExp): boolean {
+  const lines = yaml.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].match(key);
+    if (!match) continue;
+    const inline = stripYamlLineComment(match[1]).trim();
+    if (inline) return /^(?:\[\s*\]|\{\s*\})$/.test(inline);
+    for (const line of lines.slice(i + 1)) {
+      const value = stripYamlLineComment(line);
+      if (!value.trim()) continue;
+      return /^[ \t]+(?:\[\s*\]|\{\s*\})[ \t]*$/.test(value);
+    }
+    return false;
+  }
+  return false;
 }
 
 async function loadPlans(): Promise<Array<{ name: string; path: string; status: string; validation: string }>> {
