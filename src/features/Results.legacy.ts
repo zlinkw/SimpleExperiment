@@ -981,8 +981,7 @@ function inferWideMetricColumns(headers: string[], rows: Record<string, string>[
   const configured = new Set((preset.metricColumns || []).map((item) => item.toLowerCase()));
   return headers.filter((header) => {
     if (dimensionColumns.has(header)) return false;
-    const sample = rows.find((row) => row[header] !== undefined && row[header] !== "")?.[header];
-    if (!Number.isFinite(Number(sample))) return false;
+    if (!rows.some((row) => finiteMetricNumber(row[header]) !== undefined)) return false;
     if (!configured.size) return true;
     const info = metricFromName(header, preset);
     return configured.has(header.toLowerCase()) || info.metric !== header || configured.has(info.metric.toLowerCase());
@@ -1202,7 +1201,7 @@ function idsFromRow(row: Record<string, any>, m: ResultParserPreset["columnMappi
 
 function explicitResultVariantSuffix(row: Record<string, any>, m: ResultParserPreset["columnMapping"]): string {
   const parts: string[] = [];
-  for (const key of ["method", "dataset", "split", "fold", "seed"]) {
+  for (const key of ["method", "dataset", "split", "fold", "seed", "case", "model", "tag"]) {
     const mapped = (m as Record<string, string | undefined>)[key];
     const value = row[mapped || key] ?? row[key] ?? row[key.replace(/_([a-z])/g, (_, char) => String(char).toUpperCase())];
     if (value !== undefined && value !== "") parts.push(`${key}=${String(value)}`);
