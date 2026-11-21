@@ -244,7 +244,7 @@ export async function latestResultCatalog(root: string, directory: string) {
   for (const table of value?.tables || []) {
     let dataset = datasets.get(table.datasetKey);
     if (!dataset) { dataset = { dataset: table.dataset, datasetKey: table.datasetKey, tables: [], plans: [] }; datasets.set(table.datasetKey, dataset); }
-    const values: Record<string, string[]> = {};
+    const values: Record<string, string[]> = Object.create(null);
     table.header.forEach((field, index) => { values[field] = [...new Set(table.rows.map(row => String(row[index] ?? "")))]; });
     dataset.tables.push({ ...table, path: path.posix.join(directory, table.relativePath), markdownPath: path.posix.join(directory, table.markdownPath), values, rowCount: table.rows.length });
     for (const planFile of values.plan_file || []) if (planFile && !dataset.plans.some((plan: any) => plan.planFile === planFile))

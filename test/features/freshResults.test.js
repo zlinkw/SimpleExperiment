@@ -22,6 +22,14 @@ function fixture(workerId = 'a', runId = 'cmd', metric = '0.4', outcome = 'compl
     receive: async () => Object.entries(texts).map(([remotePath, text]) => ({ remotePath, text })) };
 }
 const parse = text => [{ dimensions: { case: 'alpha', seed: '42', method: 'demo', dataset: 'set' }, metrics: { auc: { value: Number(text) } } }];
+test('fresh result collection preserves a special metric key', async () => {
+  const current = fixture();
+  const parsed = () => [{ dimensions: { case: 'alpha', seed: '42', method: 'demo', dataset: 'set' },
+    metrics: JSON.parse('{"__proto__":{"value":0.4},"accuracy":{"value":0.8}}') }];
+  const result = await collectFreshResults([plan], [current.snapshot], current.receive, parsed);
+  assert.equal(result.records.length, 1);
+  assert.equal(result.records[0].metrics.__proto__, 0.4);
+});
 
 test('a transport failure in a shared result read does not fan out into per-job requests',async()=>{
   const f=fixture(),second={...job,index:1,seed:43,output_dir:job.output_dir+'-43',result_csv:job.output_dir+'-43/metrics.csv'};

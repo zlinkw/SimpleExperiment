@@ -128,7 +128,7 @@ export async function collectFreshResults(plans: ResultPlan[], snapshots: any[],
         const records: Tables.SeedRecord[] = rows.map(row => {
           const dims = row.dimensions || {};
           if (String(dims.case) !== job.case || String(dims.seed) !== String(job.seed)) throw Error("RESULT_METRIC_JOB_MISMATCH");
-          const metrics: Record<string, number> = {};
+          const metrics: Record<string, number> = Object.create(null);
           for (const [key, raw] of Object.entries(row.metrics || {})) {
             const value = (raw as any)?.value ?? raw;
             if (value !== "" && value != null && Number.isFinite(Number(value))) metrics[key] = Number(value);

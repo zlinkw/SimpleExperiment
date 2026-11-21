@@ -10,7 +10,7 @@ export type TableRegistry = { schemaVersion: 1; plans: Record<string, { revision
 export const emptyTableRegistry = (): TableRegistry => ({ schemaVersion: 1, plans: {} });
 
 export function metricMetadataForRow(metrics: Record<string, any>): Record<string, MetricMetadata> {
-  const result: Record<string, MetricMetadata> = {};
+  const result: Record<string, MetricMetadata> = Object.create(null);
   for (const [name, value] of Object.entries(metrics || {})) {
     if (!value || typeof value !== "object") continue;
     const unit = value.unit == null ? "" : String(value.unit).trim();
@@ -25,7 +25,7 @@ export function metricsWithMetadata(record: SeedRecord) {
     record.metricMetadata?.[name] ? { value, ...record.metricMetadata[name] } : value]));
 }
 function mergeMetricMetadata(left: Record<string, MetricMetadata> = {}, right: Record<string, MetricMetadata> = {}) {
-  const result = { ...left };
+  const result: Record<string, MetricMetadata> = Object.assign(Object.create(null), left);
   for (const [raw, value] of Object.entries(right)) {
     const name = canonicalMetricName(raw), previous = result[name] || {};
     for (const key of ["unit", "higherIsBetter"] as const)
@@ -226,7 +226,7 @@ export function recordsForSummary(summary: any, planFile: string, manualMappings
     const caseName = String(dims.case || "").trim();
     const seed = String(dims.seed ?? "").trim();
     if (!caseName || !seed) throw new Error("原始结果缺少可信 case 或 seed，请先设置列映射。");
-    const metrics: Record<string, number> = {};
+    const metrics: Record<string, number> = Object.create(null);
     for (const [name, payload] of Object.entries(row?.metrics || {})) {
       const raw = (payload as any)?.value ?? payload;
       if (raw === "" || raw === null || raw === undefined) continue;
@@ -384,7 +384,7 @@ export function canonicalMetricName(value: string, aliases: Record<string, strin
   return METRIC_EQUIVALENCE.get(name.toLowerCase()) || name;
 }
 function canonicalMetricValues(metrics: Record<string, number>): Record<string, number> {
-  const values: Record<string, number> = {};
+  const values: Record<string, number> = Object.create(null);
   const sources = new Map<string, string>();
   for (const [source, value] of Object.entries(metrics || {})) {
     const name = canonicalMetricName(source);
@@ -404,7 +404,7 @@ function buildDatasetTables(registry: TableRegistry, options: { partial?: boolea
     group.metadata = mergeMetricMetadata(group.metadata, record.metricMetadata);
     group.sources.set(record.seed, record);
     group.expected = Math.max(group.expected, plan.expectedSeeds);
-    const values = group.seeds.get(record.seed) || {};
+    const values = group.seeds.get(record.seed) || Object.create(null);
     for (const [name, value] of Object.entries(canonicalMetricValues(record.metrics))) {
       if (values[name] !== undefined && values[name] !== value) throw new Error("重复 seed 的指标冲突：" + record.method + "/" + record.case + "/" + record.seed + "/" + name);
       values[name] = value;
@@ -446,7 +446,7 @@ function buildDatasetTables(registry: TableRegistry, options: { partial?: boolea
     const metrics = [...new Set(chosen.flatMap((group) => [...group.seeds.values()].flatMap((seed) => Object.keys(seed))))].sort();
     const label = (name: string) => {
       const preferred: Record<string, string> = { AUC: "roc_auc", AUPRC: "auprc", accuracy: "accuracy", F1: "f1_score", macro_f1: "macro_f1", micro_f1: "micro_f1", weighted_f1: "weighted_f1", ECE: "ece", brier: "brier_score", recall: "recall" };
-      return (preferred[name] || name).replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "metric";
+      return (Object.hasOwn(preferred, name) ? preferred[name] : name).replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "metric";
     };
     const labels = metrics.map(label);
     if (new Set(labels).size !== labels.length) throw new Error("多个原始指标映射到同一结果列。");
@@ -524,7 +524,7 @@ export function splitCsvByValues(csv: string, field: string, values: string[], c
   const kept = columns;
   if (!kept.length || kept.some((name) => !header.includes(name)) || new Set(kept).size !== kept.length) throw new Error("保留列无效。");
   const indices = kept.map((name) => header.indexOf(name));
-  const output: Record<string, string> = {};
+  const output: Record<string, string> = Object.create(null);
   for (const value of selected) {
     const matches = rows.filter((row) => row[index] === value);
     if (matches.length) output[value] = writeCsv(kept, matches.map((row) => indices.map((column) => row[column])));
@@ -593,7 +593,7 @@ export function resultCatalog(root: string, resultDir: string, manualMappings: R
       const names = [...new Set(parsed.rows.map(row => String(row[datasetIndex] || "").trim()))];
       if (names.length > 1 || (names.length && datasetPathKey(names[0]) !== datasetKey)) throw new Error("结果表数据集与目录不一致：" + paths.relativePath);
       if (names.length) dataset = names[0];
-      const values: Record<string, string[]> = {};
+      const values: Record<string, string[]> = Object.create(null);
       for (const [i, field] of parsed.header.entries()) values[field] = [...new Set(parsed.rows.map(row => row[i]))].slice(0, 200);
       tables.push({ tableKey: paths.tableKey, dataset, datasetKey, ...candidate, path: path.posix.join(resultDir, paths.relativePath), markdownPath: path.posix.join(resultDir, paths.markdownPath), header: parsed.header, values, rowCount: parsed.rows.length });
     }

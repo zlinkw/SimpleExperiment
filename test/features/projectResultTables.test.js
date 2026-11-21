@@ -45,6 +45,21 @@ function summary(rows) {
   };
 }
 
+test("special data keys survive splitting and metric aggregation", () => {
+  const split = tables.splitCsvByValues("kind,value\n__proto__,a\nnormal,b\n", "kind", ["__proto__", "normal"], ["kind", "value"]);
+  assert.deepEqual(Object.keys(split), ["__proto__", "normal"]);
+  assert.equal(tables.readCsv(split.__proto__).rows[0][1], "a");
+  const row = record("w1", "demo", "c1", 1, "clean", "accuracy", 0.8);
+  row.metrics = JSON.parse('{"constructor":{"value":0.5},"__proto__":{"value":0.4},"accuracy":{"value":0.8}}');
+  const registry = tables.updateRegistry(tables.emptyTableRegistry(), summary([row]), plan, 1);
+  const stored = registry.plans[plan].records[0].metrics;
+  assert.equal(stored.constructor, 0.5);
+  assert.equal(stored.__proto__, 0.4);
+  const table = Object.values(tables.buildTables(registry))[0];
+  assert.ok(table.header.includes("constructor_mean"));
+  assert.ok(table.header.includes("proto_mean"));
+});
+
 test("stale Agent result revision cannot replace a revised local Plan", () => {
   assert.equal(tables.summaryMatchesPlanRevision({ planRevision: "old" }, { revision: "new" }), false);
   assert.equal(tables.summaryMatchesPlanRevision({ planRevision: "new" }, { revision: "new" }), true);
