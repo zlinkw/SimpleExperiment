@@ -2,7 +2,7 @@
 
 ## 当前目标 U03
 
-2026-11-21用户最新要求继续深查，不能仅对账20项，须尽可能扩大有效排查，至少找够20个真实问题并统一修改后再构建安装。当前U01两处、U02八处、U03十处，未打包源码累计20个真实独立修复；U03目标源测试41/41、exit0，最终源审正在核必要调用链，尚未通过或授权构建。检查数、测试断言、文件数、同根因的多个位置不计成问题数；Git环境诊断不计产品修复。正确项保留，不能造问题、放宽原语义或以重复断言凑数。达到20后仍完成已识别的必要调用方与回归，再统一交付。
+2026-11-21用户最新要求继续深查，不能仅对账20项，须尽可能扩大有效排查，至少找够20个真实问题并统一修改后再构建安装。当前U01两处、U02八处、U03十处，未打包源码累计20个真实独立修复；必要闭包返修后U03目标源测试42/42、exit0，总控对08d0e02d实际diff及必要调用链最终源审通过，进入统一交付。检查数、测试断言、文件数、同根因的多个位置不计成问题数；Git环境诊断不计产品修复。正确项保留，不能造问题、放宽原语义或以重复断言凑数。达到20后仍完成已识别的必要调用方与回归，再统一交付。
 
 U03起点master=origin/master=4edd1da5d057530654e603c3f3c3860799bd45b9，跟踪文件干净，515已安装且本人重载；U01/U02源码尚未进入安装包。原28项对账只是有效阶段证据，不是插件完整分母，不把对账完或再次修两处当本轮终点。用户此次明确要求连续实施及达标后集中构建安装，取代此前先汇报后停的临时终点。总控留在本任务跟进整包、审查及交付，不用派单回执结束本轮。
 
@@ -29,11 +29,11 @@ U03起点master=origin/master=4edd1da5d057530654e603c3f3c3860799bd45b9，跟踪�
 
 ## 角色、租约与执行规则
 
-总控兼最终验收：《G004 总控接替与集中交付》01a1fd1a-0035-7722-afae-86870b5205c0/local，Sol/high/default，独占本计划、README索引及最终审查。旧总控01a1e412-ead7-7710-acd7-c475abb8b41a自然接替条件已实证，明确释放全部租约且无在途动作；新总控已读完整交班和原材料，模型/强度/default及实际turn实核match、continue，新chat压缩计数0。唯一执行者：《G003 Terra 接续执行》01a1e793-a4a0-7630-8157-24c920746d1a/local，Terra/high/default，已交U03整包并释放产品/测试、G004-execution.md、新coverage对象、唯一检查及scoped Git，等待最终源审；未授权build。不新建角色/子代理/审查者。接续只按caveman真实触发，不因阶段或按钮换聊天。必要消息与等待遵循当前全局AGENTS事件协调规则；普通局部进度仅记execution。
+总控兼最终验收：《G004 总控接替与集中交付》01a1fd1a-0035-7722-afae-86870b5205c0/local，Sol/high/default，独占本计划、README索引及最终审查。旧总控01a1e412-ead7-7710-acd7-c475abb8b41a自然接替条件已实证，明确释放全部租约且无在途动作；新总控已读完整交班和原材料，模型/强度/default及实际turn实核match、continue，新chat压缩计数0。唯一执行者：《G003 Terra 接续执行》01a1e793-a4a0-7630-8157-24c920746d1a/local，Terra/high/default，已交U03及闭包返修整包，最终源审通过后接回产品/测试、G004-execution.md、新coverage对象、唯一检查及scoped Git，执行统一交付。不新建角色/子代理/审查者。接续只按caveman真实触发，不因阶段或按钮换聊天。必要消息与等待遵循当前全局AGENTS事件协调规则；普通局部进度仅记execution。
 
 全局仅一个node/python检查进程，检查冻结含总控文档，不并写受检输入。先单目标 `node --test --test-force-exit --test-timeout 20000 <file>`，20秒未退停止、不重试或改生产超时求绿；Python只提被测函数及import，不全import/exec scheduler/agent，spawnSync≤10000、windowsHide、断言真实status0，禁止Node用python-c长脚本。无新删除许可，夹具保留；既有测试的清理边界另按规则，不能借测试清理用户数据。
 
-达标且所有已识别必修、定向小验收就绪前，禁止build/tsc写dist/package/递版本/安装/发行。允许既有源码内存转译/函数提取及受控入口；旧dist不得证明新源码通过。PanelHtml若改，最终build及真实生成脚本VM仍为提交该组必需门禁；集中构建前该组不冒验证成功或提交，其余已过源码组可scoped普通commit/push/fetch。origin固定https://github.com/zlinkw/SimpleExperiment.git，master追踪origin/master；不amend/reset/rebase/merge/force。远端前进、凭据、hook、缺remote等阻断对应Git动作并如实升级，不擅换分支或remote。
+源审已通过；原Terra接回产品、测试、execution、coverage、唯一检查和scoped Git租约，连续完成下文统一交付，总控保留计划/索引并在检查冻结时不写。PanelHtml本次未改，集中交付仍保留Panel模块及真实生成脚本VM门禁；旧dist不得证明新源码通过。origin固定https://github.com/zlinkw/SimpleExperiment.git，master追踪origin/master；不amend/reset/rebase/merge/force。远端前进、凭据、hook、缺remote等阻断对应Git动作并如实升级，不擅换分支或remote。
 
 ## 保护对象及实机边界
 
@@ -65,10 +65,10 @@ U02原28项按J–Q逐项对账（coverage g004U02Reconciliation），不是完�
 
 ## 最终审查与统一交付门槛
 
-U03最终源审返修：现有Scheduler声明 `globalJobId=workflow:index`，manifest/index链保留该身份，CLI按global_job_id优先加载；artifact列表可产生带冒号实验ID，详情按首冒号拆分会丢失归属。须由原Terra补真实producer到list/detail的受控回读，保持精确Worker/路径、无歧义旧简称及同名歧义拒绝。PLAN现有parsePlanCases明确识别空块式 `cases:`/`experiments:` 为0，登记新regex只认单行[]/{}仍扩出baseline；补此既有语法，保留隐式case和现有null优先，不新增通用YAML解析器或别名承诺。两项为本轮已修问题的必要闭包返修，不借此膨胀20计数。源审其余U03改动未发现阻断；preview diff真实结构为added/removed数组，先前类型怀疑已排除。上述返修及小验收未交回前不得构建。
+U03最终源审结论：08d0e02d修复带冒号实验身份回读及空块式cases/experiments登记，实际diff及必要调用链通过。真实Scheduler索引生产函数独立受控提取验证身份；CLI真实加载/list/detail是另一条源码受控检查，不冒同进程端到端。首次两项0/2、exit1，修后目标5/5及完整actionLifecycle42/42、exit0证据复用，总控未重复执行。最长已知身份匹配复用一次加载，不逐冒号远端探测；无歧义旧简称、同名拒绝、精确Worker/路径及隐式case、null优先保留。两项为必要闭包返修，累计仍20。preview diff真实结构added/removed数组正确，先前怀疑排除。J01宿主Git环境未恢复及丢值环节未知，不计产品问题、不以此阻断独立交付；新包实机、服务器均未测。
 
 唯一Terra连续完成U03真实查修及小验收，达到未打包累计至少20个独立已修问题且必要调用方/回归齐后，一次整包交总控：实际入口及问题清单/数量、源码基线/真实diff、失败及退出码、有效证据、全部未知/未测/阻塞、生成物差异与租约。总控仅审新增契约/跨模块必要关联和最终身份，不重复有效小验收；发现缺口详细回原Terra返修，未经最终明确通过不做运行交付。原12项/28项通过不自动覆盖新修改。
 
-达标及源审通过后按build-test-delivery和docs/release-delivery.md，统一最小必要消费者回归与 `npm run build -- --max-parallel 1 --cancel-stdin`、Panel模块及真实生成script VM、src/dist业务10890零命中；保留真实失败及按需未运行。同步package.json/package-lock/runtime递一补丁，显式package只构建打包、不安装。核实际VSIX身份/版本/平台/闭包/同源字节/秘密排除及精确SHA，普通提交FF push/fetch绑定确定版本后，既有GitHub更新源发布prerelease=true/latest=false的同字节VSIX和精确文件名sha；不能提升0.5.483权威、覆盖tag/历史资产或降级。真实Release身份/资产/下载指纹及更新客户端按原门禁验，不用mock代发行。
+统一交付按build-test-delivery和docs/release-delivery.md。当前package profile已经包含compile及build所需测试/gates，授权直接一次 `npm run package -- --max-parallel 1 --cancel-stdin`，复用本轮有效定向证据，不先单独build再无依据重跑同一全量；不改选择、覆盖或超时。冻结前补受影响抽取夹具闭包，最终保留Panel模块及真实生成script VM、src/dist业务10890零命中、真实失败及按需未运行。先核实际远端版本/tag后选未用的新patch，同步package.json/package-lock/runtime，package只构建打包不安装。核实际VSIX身份/版本/平台/闭包/同源字节/秘密排除及精确SHA，普通提交FF push/fetch绑定确定版本后，既有GitHub更新源发布prerelease=true/latest=false的同字节VSIX和精确文件名sha；不能提升0.5.483权威、覆盖tag/历史资产或降级。真实Release身份/资产/下载指纹及更新客户端按原门禁验，不用mock代发行。
 
 全部修改/验证/打包/发行完成，才显式install:latest一次；同版跳过、不force/降级，每目标版最多安装一次。核已装版本/simpleex后停止面板，待本人Reload Window再验新版本界面；不自动更新Worker。源码、生成包、远端试行Release、本机安装、运行重载及真实外部未测分别报告。用户最新目标尚在执行，不以派单、两处修复、对账完、一次检查或CUA子步骤完成结束整轮。
