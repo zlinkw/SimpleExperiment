@@ -19906,7 +19906,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
 
     async requireDraftRecord(planFile) {
+        const projectContext = this.captureProjectContext();
         await this.refreshDraftPlans(true);
+        if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；未读取其他项目的草稿。");
         if (this.draftPlanState.error)
             throw new Error(this.draftPlanState.error);
         const normalized = String(planFile || "").replace(/\\/g, "/");
@@ -19936,11 +19938,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const base = path.join(root, "simple_cluster", "debug_runs", `${stem}-${digest}`, String(record.lastDebugRunId));
         const files = ["results.csv", "jobs.csv", "scheduler.log"];
         for (const file of files) {
-            const text = await fs.readFile(path.join(base, file), "utf8").catch(() => "");
+            const text = await fs.readFile(path.join(base, file), "utf8").catch((error) => {
+                if (error?.code === "ENOENT") return "";
+                throw error;
+            });
             if (!text)
                 continue;
-            const lines = text.trim().split(/\r?\n/).slice(0, 101);
-            return { source: file, previewLines: lines, truncated: lines.length >= 101 };
+            const lines = text.trim().split(/\r?\n/);
+            return { source: file, previewLines: lines.slice(0, 101), truncated: lines.length > 101 };
         }
         return { source: "remote_debug_bundle", debugRunId: record.lastDebugRunId };
     }
@@ -19969,22 +19974,27 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
 
     async apiDraftReject(params = {}) {
         const record = await this.requireDraftRecord(stringField(params, "draftPlanPath") || stringField(params, "planFile"));
+        const projectContext = this.captureProjectContext();
         const root = workspaceRoot();
         if (!root)
             throw new Error("需要先打开工作区。");
         await this.withDraftMetadataLease(root, () => DraftPlans_1.rejectDraft(root, record.draftPlanPath, stringField(params, "reviewedBy") || "local-user"));
+        if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；草稿拒绝已写入原项目，请在原项目核查。");
         await this.refreshDraftPlans(true);
+        if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；草稿拒绝已写入原项目，请在原项目核查。");
         return { ok: true, status: "rejected", draftPlanPath: record.draftPlanPath };
     }
 
     async apiDraftReview(params = {}) {
         const record = await this.requireDraftRecord(stringField(params, "draftPlanPath") || stringField(params, "planFile"));
+        const projectContext = this.captureProjectContext();
         const root = workspaceRoot();
         if (!root)
             throw new Error("需要先打开工作区。");
         await this.withDraftMetadataLease(root, () => DraftPlans_1.markDraftReviewed(root, record.draftPlanPath, stringField(params, "reviewedBy") || "local-user"));
+        if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；草稿审核已写入原项目，请在原项目核查。");
         await this.refreshDraftPlans(true);
-        if (root !== workspaceRoot()) throw new Error("项目已切换；草稿审核已写入原项目，请在原项目核查。");
+        if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；草稿审核已写入原项目，请在原项目核查。");
         if (this.draftPlanState.error) throw new Error(`草稿审核已写入，但刷新失败：${this.draftPlanState.error}`);
         const updated = (this.draftPlanState.drafts || []).find((item) => sameProjectRelativePath(item.draftPlanPath, record.draftPlanPath));
         if (!updated) throw new Error(`草稿审核已写入，但刷新后未找到：${record.draftPlanPath}`);

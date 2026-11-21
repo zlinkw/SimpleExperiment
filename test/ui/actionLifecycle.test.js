@@ -104,6 +104,19 @@ test("draft promotion preview schema describes the actual targets and conflicts"
   assert.equal(schema.properties.targets.type,'array');assert.equal(schema.properties.conflicts.type,'array');assert.equal(schema.properties.debugStatus.type,'string');
 });
 
+test("draft debug preview reports read errors and accurate truncation", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='draftMetricsSummary')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  let content='',failure;const sandbox={workspaceRoot:()=>'/project',path,crypto:require('node:crypto'),fs:{readFile:async()=>{if(failure)throw failure;return content}}};
+  vm.runInNewContext(ts.transpileModule('class Host {'+method+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const h=new sandbox.Host(),record={draftPlanPath:'tmp/plan/a.yaml',lastDebugRunId:'run1'};
+  failure=Object.assign(new Error('access denied'),{code:'EACCES'});await assert.rejects(h.draftMetricsSummary(record),/access denied/);
+  failure=Object.assign(new Error('missing'),{code:'ENOENT'});assert.equal((await h.draftMetricsSummary(record)).source,'remote_debug_bundle');
+  failure=undefined;content=Array.from({length:101},(_,i)=>String(i)).join('\n');let r=await h.draftMetricsSummary(record);assert.equal(r.previewLines.length,101);assert.equal(r.truncated,false);
+  content+='\nextra';r=await h.draftMetricsSummary(record);assert.equal(r.previewLines.length,101);assert.equal(r.truncated,true);
+});
+
 test("flow updates report persistence failure instead of claiming success", async () => {
   const ts=require('typescript'), source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS); let method;
@@ -196,7 +209,7 @@ test("draft review reports the actual state after review", async () => {
   const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='apiDraftReview')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
   const sandbox={stringField:(p,k)=>p[k]||'',workspaceRoot:()=>'/project',sameProjectRelativePath:(a,b)=>a===b,DraftPlans_1:{markDraftReviewed:async()=>{}}};
   vm.runInNewContext(ts.transpileModule('class Host {'+method+'}; this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
-  const h=new sandbox.Host();h.requireDraftRecord=async()=>({draftPlanPath:'tmp/plan/one.yaml',status:'draft'});
+  const h=new sandbox.Host();h.captureProjectContext=()=>({});h.projectContextIsCurrent=()=>true;h.requireDraftRecord=async()=>({draftPlanPath:'tmp/plan/one.yaml',status:'draft'});
   h.withDraftMetadataLease=async(_root,work)=>work();h.refreshDraftPlans=async()=>{h.draftPlanState={drafts:[{draftPlanPath:'tmp/plan/one.yaml',status:'draft'}],error:''}};
   const result=await h.apiDraftReview({draftPlanPath:'tmp/plan/one.yaml'});assert.equal(result.status,'draft');
 });
@@ -207,7 +220,7 @@ test("draft lookup does not use stale records after a refresh failure", async ()
   const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='requireDraftRecord')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
   const sandbox={sameProjectRelativePath:(a,b)=>a===b};
   vm.runInNewContext(ts.transpileModule('class Host {'+method+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
-  const host=new sandbox.Host();host.draftPlanState={drafts:[{draftPlanPath:'tmp/plan/a.yaml'}],error:''};
+  const host=new sandbox.Host();host.captureProjectContext=()=>({});host.projectContextIsCurrent=()=>true;host.draftPlanState={drafts:[{draftPlanPath:'tmp/plan/a.yaml'}],error:''};
   host.refreshDraftPlans=async()=>{host.draftPlanState.error='metadata read failed'};
   await assert.rejects(host.requireDraftRecord('tmp/plan/a.yaml'),/metadata read failed/);
 });
@@ -224,9 +237,42 @@ test("draft rejection updates only the requested draft and preserves its identit
   vm.runInNewContext(ts.transpileModule(reject.replace(/^export /,'')+';this.rejectDraft=rejectDraft;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
   sandbox.DraftPlans_1={rejectDraft:sandbox.rejectDraft};
   vm.runInNewContext(ts.transpileModule('class Host {'+hostMethod+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
-  const host=new sandbox.Host();host.requireDraftRecord=async file=>({draftPlanPath:file});host.withDraftMetadataLease=async(_root,fn)=>fn();host.refreshDraftPlans=async()=>{};
+  const host=new sandbox.Host();host.captureProjectContext=()=>({});host.projectContextIsCurrent=()=>true;host.requireDraftRecord=async file=>({draftPlanPath:file});host.withDraftMetadataLease=async(_root,fn)=>fn();host.refreshDraftPlans=async()=>{};
   const result=await host.apiDraftReject({draftPlanPath:'tmp/plan/a.yaml',reviewedBy:'reviewer'});
   assert.equal(result.draftPlanPath,'tmp/plan/a.yaml');assert.equal(records['tmp/plan/a.yaml'].status,'rejected');assert.equal(records['tmp/plan/a.yaml'].reviewedBy,'reviewer');assert.equal(records['tmp/plan/b.yaml'].status,'draft');
+});
+
+test("draft actions refuse another project after a workspace switch during lookup", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),names=['requireDraftRecord','apiDraftValidate','apiDraftPromotionPreview','apiDraftReject','apiDraftReview'],methods=[];
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&names.includes(node.name.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
+  let root='A',release,started;const mutations=[];
+  const sandbox={workspaceRoot:()=>root,stringField:(p,k)=>p[k]||'',sameProjectRelativePath:(a,b)=>a===b,safeWorkspaceChildPath:(r,p)=>r+'/'+p,
+    fs:{readFile:async()=>''},DraftPlans_1:{validateDraftReferences:()=>({ok:true}),rejectDraft:async(r)=>mutations.push(r),markDraftReviewed:async(r)=>mutations.push(r),buildPromotionPreview:async(r)=>({root:r})}};
+  vm.runInNewContext(ts.transpileModule('class Host {'+methods.join('\n')+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  for(const name of names.slice(1)){
+    root='A';const waiting=new Promise(resolve=>{started=resolve}),h=new sandbox.Host();h.captureProjectContext=()=>({root});h.projectContextIsCurrent=c=>c.root===root;
+    h.draftPlanState={error:'',drafts:[]};h.refreshDraftPlans=async()=>{started();await new Promise(resolve=>{release=resolve});h.draftPlanState={error:'',drafts:[{draftPlanPath:'tmp/plan/a.yaml',status:'debug_completed',lastDebugStatus:'completed'}]}};
+    h.withDraftMetadataLease=async(_root,fn)=>fn();h.draftMetricsSummary=async()=>({});
+    const pending=h[name]({draftPlanPath:'tmp/plan/a.yaml'});await waiting;root='B';release();await assert.rejects(pending,/项目已切换/);
+  }
+  assert.equal(mutations.length,0);
+});
+
+test("draft review and rejection report a switch after writing the original project", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),methods=[];
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&['apiDraftReject','apiDraftReview'].includes(node.name.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
+  let root='A',release,started;const writes=[];const write=async project=>{writes.push(project);started();await new Promise(resolve=>{release=resolve})};
+  const sandbox={workspaceRoot:()=>root,stringField:(p,k)=>p[k]||'',DraftPlans_1:{rejectDraft:write,markDraftReviewed:write}};
+  vm.runInNewContext(ts.transpileModule('class Host {'+methods.join('\n')+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  for(const name of ['apiDraftReject','apiDraftReview']){
+    root='A';const waiting=new Promise(resolve=>{started=resolve}),h=new sandbox.Host();let refreshed=false;
+    h.requireDraftRecord=async()=>({draftPlanPath:'tmp/plan/a.yaml'});h.captureProjectContext=()=>({root});h.projectContextIsCurrent=c=>c.root===root;
+    h.withDraftMetadataLease=async(_root,fn)=>fn();h.refreshDraftPlans=async()=>{refreshed=true};
+    const pending=h[name]({draftPlanPath:'tmp/plan/a.yaml'});await waiting;root='B';release();
+    await assert.rejects(pending,/项目已切换.*已写入原项目/);assert.equal(refreshed,false);assert.equal(writes.at(-1),'A');
+  }
 });
 
 test("PLAN filtering can include the separate archive without selecting it", async () => {

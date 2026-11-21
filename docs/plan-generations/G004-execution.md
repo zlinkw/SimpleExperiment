@@ -96,3 +96,7 @@ U02整份对账：28项逐项结论与证据见 `docs/windows-entry-coverage.jso
 U03 R组两项新增（累计待打包12）：普通configuration_set写入A期间切B，旧代码回读B并报告成功；state_set/reset写连接配置期间切B，旧代码在B加载连接并返回成功。真实host方法及受控store/config复现首测0/2、exit1，均为缺少拒绝；现捕获原项目并在写完后检查上下文，保留原scope并提示写入已完成、切换后需核查；正常回读重新取得原项目配置对象。修正时误改config_get一次导致既有windowScope目标ReferenceError、exit1，已恢复并重跑1/1、exit0。完整actionLifecycle当前源码内存转译32/32、exit0；旧dist相关断言只证明原范围。未修改真实配置或连接。X候选listWorktrees的branch字段会截短，但当前registerBranch仅使用路径判归属，尚无实际消费者缺陷，不计数。
 
 U03 S组两项新增（累计14）：PLAN登记将显式空cases扩成两个虚假实验（首测2而非0、exit1），修正登记计数和记录，保留隐式单case及null优先语义；历史草稿转正预览实际返回targets/conflicts/debugStatus，但MCP输出schema漏声明，首测缺字段exit1，补充真实结构。当前源码定向2/2、exit0；两者均为受控文本及替身，未写用户PLAN或启用退役转正。
+
+U03草稿预览另修两项（累计16）：debug摘要读取权限错误原被当文件不存在（首测缺拒绝exit1）；恰好101行原误标截断（第二次首达该断言true而非false、exit1）。现仅缺文件时继续尝试，真实读取错误传播；仅超101行标截断。受控当前源码测试1/1、exit0，覆盖ENOENT、EACCES及101/102行，未访问真实日志。
+
+U03草稿项目绑定一项（累计17）：查找期间由A切到含同路径的B时，四个草稿入口可能误读或操作B，首测缺少拒绝、exit1。公共查找现检查原项目上下文；审核/拒绝写入A后若切换则提示原项目核查，不刷新B。受控当前源码关联5/5及写后切换1/1、exit0。
