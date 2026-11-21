@@ -589,14 +589,14 @@ export function buildResultLeaderboard(records: ExperimentResultRecord[], config
   return Array.from(groups.entries()).map(([groupKey, items]) => {
     const values: ResultLeaderboardRow["values"] = {};
     for (const metric of config.metrics) {
-      const nums = items.map((item) => Number(item.metrics[metric.key]?.value)).filter(Number.isFinite);
+      const nums = items.map((item) => finiteMetricNumber(item.metrics[metric.key]?.value)).filter((value): value is number => value !== undefined);
       values[metric.key] = aggregate(nums, config.aggregate);
     }
     const primary = config.primarySortMetric || config.metrics[0]?.key;
     const primaryCfg = config.metrics.find((metric) => metric.key === primary);
-    const best = primary ? [...items].filter((item) => Number.isFinite(Number(item.metrics[primary]?.value))).sort((a, b) => {
-      const av = Number(a.metrics[primary]?.value);
-      const bv = Number(b.metrics[primary]?.value);
+    const best = primary ? [...items].filter((item) => finiteMetricNumber(item.metrics[primary]?.value) !== undefined).sort((a, b) => {
+      const av = finiteMetricNumber(a.metrics[primary]?.value)!;
+      const bv = finiteMetricNumber(b.metrics[primary]?.value)!;
       return primaryCfg?.higherIsBetter === false ? av - bv : bv - av;
     })[0] : undefined;
     return {
