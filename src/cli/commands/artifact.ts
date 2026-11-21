@@ -6,7 +6,7 @@ import { copyFile, fileExists, listFilesRecursive, projectRoot, readJsonFile, re
 import { businessError, envError, usageError } from "../errors";
 import { table, writeJson, writeText } from "../format";
 import { CliFlags, requirePositional } from "../parse";
-import { loadExperiments } from "./experiment";
+import { loadExperiments, type ExperimentRow } from "./experiment";
 
 export async function artifactCommand(action: string, rest: string[], flags: CliFlags): Promise<number> {
   if (action === "list") return artifactList(requirePositional(rest, 0, "experiment id"), flags);
@@ -71,8 +71,8 @@ async function workerInventory(workerId: string, filePath: string, includeHashes
   return response.files as Record<string, FileIdentity>;
 }
 
-async function listArtifacts(experimentId: string): Promise<ArtifactRow[]> {
-  const experiments = await loadExperiments();
+async function listArtifacts(experimentId: string, knownExperiments?: ExperimentRow[]): Promise<ArtifactRow[]> {
+  const experiments = knownExperiments || await loadExperiments();
   const experiment = experiments.find((row) => row.id === experimentId || row.name === experimentId);
   const jobs = experiment?.type === "worker_run" ? [experiment] : experiment?.type === "workflow"
     ? experiments.filter(row => row.type === "worker_run" && row.parent_id === experiment.id) : [];
@@ -131,9 +131,11 @@ async function listArtifacts(experimentId: string): Promise<ArtifactRow[]> {
 }
 
 async function findArtifact(id: string): Promise<{ path: string; size?: string; local?: string; workerId?: string } | null> {
-  const [experimentId, ...rest] = id.split(":");
-  const name = rest.join(":") || experimentId;
-  const listed = await listArtifacts(experimentId);
+  const experiments = await loadExperiments();
+  const identities = experiments.flatMap(row => [row.id, row.name]).filter((value): value is string => Boolean(value));
+  const experimentId = identities.filter(value => id.startsWith(`${value}:`)).sort((a, b) => b.length - a.length)[0] || id.split(":")[0];
+  const name = id.startsWith(`${experimentId}:`) ? id.slice(experimentId.length + 1) : experimentId;
+  const listed = await listArtifacts(experimentId, experiments);
   const exact = listed.filter((row) => row.id === id);
   const matches = exact.length ? exact : listed.filter((row) => row.path.endsWith(name) || path.basename(row.path) === id);
   if (matches.length > 1) throw businessError("ARTIFACT_SELECTION_AMBIGUOUS：存在多个同名产物，请使用精确产物 ID。", JSON.stringify({ id, candidates: matches.map(row => row.id) }));

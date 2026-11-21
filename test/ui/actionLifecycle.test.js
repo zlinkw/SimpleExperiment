@@ -86,6 +86,11 @@ test("PLAN registry keeps an explicitly empty case list empty", () => {
   assert.equal(implicit.experimentCount,2);assert.equal(implicit.plannedExperiments.length,2);
   const emptyMap=plans.importLegacyPlanYamlToRegistry('map.yaml','suite: example\nexperiments: {}\n');assert.equal(emptyMap.experimentCount,0);
   const nullCases=plans.importLegacyPlanYamlToRegistry('null.yaml','suite: example\ncases: null\nexperiments: []\n');assert.equal(nullCases.experimentCount,1);
+  for(const section of ['cases','experiments']) {
+    const yaml=`suite: example\ncommand: python train.py\nseeds: [0, 42]\n${section}: # no cases\n# end\n`;
+    assert.equal(plans.parsePlanSummary(yaml).cases.length,0);
+    const record=plans.importLegacyPlanYamlToRegistry('block.yaml',yaml);assert.equal(record.experimentCount,0);assert.equal(record.plannedExperiments.length,0);
+  }
 });
 
 test("draft promotion preview schema describes the actual targets and conflicts", async () => {
@@ -414,12 +419,27 @@ test("local artifact IDs distinguish same-named files in different directories",
   const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/cli/commands/artifact.ts'),'utf8');
   const ast=ts.createSourceFile('artifact.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),names=['listArtifacts','findArtifact'],methods=[];
   const visit=node=>{if(ts.isFunctionDeclaration(node)&&names.includes(node.name?.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
-  const root=path.resolve('artifact-fixture'),output=path.join(root,'run');
+  const root=path.resolve('artifact-fixture'),output=path.join(root,'run');let files=[{path:'a/metrics.csv',size:1},{path:'b/metrics.csv',size:2}];
   const sandbox={path,fs:{statSync:()=>({size:5})},loadExperiments:async()=>[{id:'run1',raw:{outputDir:output}}],fileExists:()=>true,projectRoot:()=>root,
-    resolveProjectPath:p=>path.join(root,p),readJsonFile:()=>({files:[{path:'a/metrics.csv',size:1},{path:'b/metrics.csv',size:2}]}),optionalApi:async()=>undefined,asRecord:x=>x||{},businessError:(message)=>new Error(message)};
+    resolveProjectPath:p=>path.join(root,p),readJsonFile:()=>({files}),optionalApi:async()=>undefined,asRecord:x=>x||{},businessError:(message)=>new Error(message)};
   vm.runInNewContext(ts.transpileModule(methods.join('\n')+';this.list=listArtifacts;this.find=findArtifact;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
   const rows=await sandbox.list('run1');assert.notEqual(rows[0].id,rows[1].id);
   assert.equal((await sandbox.find(rows[1].id)).path,rows[1].path);await assert.rejects(sandbox.find('run1:metrics.csv'),/AMBIGUOUS/);
+  files=[files[0]];assert.equal((await sandbox.find('run1:metrics.csv')).path,rows[0].path);
+});
+
+test("artifact list and detail preserve colon-bearing historical experiment identity", async () => {
+  const ts=require('typescript'),root=path.resolve('artifact-fixture'),output=path.join(root,'run');
+  const source=fs.readFileSync(path.resolve(__dirname,'../../src/cli/commands/artifact.ts'),'utf8'),experimentSource=fs.readFileSync(path.resolve(__dirname,'../../src/cli/commands/experiment.ts'),'utf8');
+  const functions=(text,names)=>{const ast=ts.createSourceFile('source.ts',text,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),found=[];const visit=node=>{if(ts.isFunctionDeclaration(node)&&names.includes(node.name?.getText(ast)))found.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);return found.join('\n')};
+  const sandbox={path,EXPERIMENT_INDEX_REL:'index.json',projectRoot:()=>root,resolveProjectPath:p=>path.join(root,p),asRecord:x=>x||{},
+    readJsonFile:file=>file.endsWith('index.json')?[{global_job_id:'workflow:3',hub_job_dir:output,case:'case-a'}]:{files:[{path:'a/metrics.csv',size:1}]},
+    firstString:(obj,keys)=>String(keys.map(key=>obj[key]).find(value=>value!==undefined)||''),blankRuntime:x=>x,normalizeStatus:x=>x,progressValue:()=>undefined,gpuValue:()=>undefined,
+    fs:{statSync:()=>({size:1})},fileExists:()=>true,optionalApi:async()=>undefined,businessError:message=>new Error(message)};
+  const code=functions(experimentSource,['loadLocalExperiments'])+'\n'+functions(source,['listArtifacts','findArtifact'])+'\nthis.loadExperiments=async()=>loadLocalExperiments();this.list=listArtifacts;this.find=findArtifact;';
+  vm.runInNewContext(ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const rows=await sandbox.list('workflow:3');assert.equal(rows[0].id,'workflow:3:a/metrics.csv');
+  const found=await sandbox.find(rows[0].id);assert.ok(found);assert.equal(found.path,rows[0].path);
 });
 
 test("result artifact IDs can be resolved through their owning experiment", async () => {
@@ -437,10 +457,10 @@ test("native worker artifact IDs retain exact worker and path", async () => {
   const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/cli/commands/artifact.ts'),'utf8');
   const ast=ts.createSourceFile('artifact.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),names=['listArtifacts','findArtifact'],methods=[];
   const visit=node=>{if(ts.isFunctionDeclaration(node)&&names.includes(node.name?.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
-  const sandbox={path,loadExperiments:async()=>[{id:'run1',type:'worker_run',worker_id:'worker',native_state:{output_dir:'work/run'}}],
+  const sandbox={path,loadExperiments:async()=>[{id:'workflow:3',type:'worker_run',worker_id:'worker',native_state:{output_dir:'work/run'}}],
     workerInventory:async()=>({'work/run/a/metrics.csv':{size:7,modifiedAtMs:1700000000000}}),businessError:message=>new Error(message)};
   vm.runInNewContext(ts.transpileModule(methods.join('\n')+';this.list=listArtifacts;this.find=findArtifact;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
-  const rows=await sandbox.list('run1'),found=await sandbox.find(rows[0].id);assert.equal(found.workerId,'worker');assert.equal(found.path,'work/run/a/metrics.csv');
+  const rows=await sandbox.list('workflow:3'),found=await sandbox.find(rows[0].id);assert.equal(found.workerId,'worker');assert.equal(found.path,'work/run/a/metrics.csv');
 });
 
 test("result parsing recognizes uppercase JSON file extensions", () => {

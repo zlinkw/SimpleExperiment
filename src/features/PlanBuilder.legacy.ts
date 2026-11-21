@@ -1395,7 +1395,7 @@ export function importLegacyPlanYamlToRegistry(planFile, text, existing = []) {
     const now = new Date().toISOString();
     const clean = stripYamlComments(text);
     const explicitCaseLine = clean.match(/^cases[ \t]*:[ \t]*(.*)$/m) || clean.match(/^experiments[ \t]*:[ \t]*(.*)$/m);
-    const emptyExplicitCases = !cases.length && /^(?:\[\s*\]|\{\s*\})$/.test(explicitCaseLine?.[1].trim() || "");
+    const emptyExplicitCases = !cases.length && Boolean(explicitCaseLine) && /^(?:\[\s*\]|\{\s*\})?$/.test(explicitCaseLine[1].trim());
     const plannedExperiments = emptyExplicitCases ? [] : expandPlannedExperiments(suite, cases, seeds);
     return {
         schemaVersion: 1,

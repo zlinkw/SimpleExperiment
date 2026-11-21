@@ -41,3 +41,5 @@ U03结果产物身份一项（累计19）：结果列表原以resultId生成产�
 U03结果解析一项（累计20）：Windows合法大写.JSON扩展名原误作CSV，首测csv而非json、exit1；现按大小写无关扩展名判定，实际Results解析器受控读取指标0.9，定向1/1、exit0。产物三种身份受控回归3/3、exit0。累计20为独立问题，不是按钮检查总数；仍须补必要调用链回归及总控源审。
 
 U03源码小验收：最终 `node --test --test-force-exit --test-timeout 20000 test/ui/actionLifecycle.test.js` 41/41、exit0；仅以当前源码内存转译/提取及受控替身覆盖新路径，既有少数dist断言仍仅证明旧范围。普通配置读回原windowScope目标1/1、exit0。R/S/T及相关MCP调用链见上文，W复用U01及旧生命周期有效证据；X的listWorktrees分支短名当前仅path被用户流程消费，非已证实用户缺陷。Git缺VALUE_0/5实际故障未恢复、传递环节未知；真实Worker、统一build/package/install/发行及新界面均未执行。现交总控最终源审，不把源码小验收当运行交付。
+
+U03源审必要闭包返修（累计仍20）：真实Scheduler的index_entry_from_manifest受控提取验证保留 `workflow:3` 及目录；真实CLI加载该索引、产物列表及详情回读首测返回错误路径，块式空cases/experiments登记首测2而非0，合计0/2、exit1。详情现由已加载实验身份最长匹配解析，不逐冒号发远端查询；旧唯一简称保留，同名拒绝，native Worker与精确路径保留。空块式及注释按现有摘要的空集合处理，保留隐式case和显式null优先。相关定向5/5、完整当前目标文件42/42，均exit0；仅受控替身及当前源码提取，未运行Scheduler、远端或旧dist来证明新行为。

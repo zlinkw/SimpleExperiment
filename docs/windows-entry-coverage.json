@@ -8502,7 +8502,7 @@
       "结果产物ID绑定resultId导致按实验查询详情找不到",
       "大写JSON扩展名误按CSV解析"
     ],
-    "verification": "当前目标文件41/41、exit0；新路径使用源码内存转译或提取及受控store/FS，windowScope配置读回目标1/1。旧dist断言不证明新源码；初次失败与临时夹具/回归失败见G004-execution.md。",
+    "verification": "源审闭包返修后当前目标文件42/42、exit0；真实Scheduler索引生产函数受控提取核身份，CLI加载、产物list/detail及PLAN解析均用当前源码与受控替身；windowScope配置读回目标1/1。旧dist断言不证明新源码；首次失败和临时夹具/回归失败见G004-execution.md。",
     "boundary": "这是修复问题数而非按钮总数。旧515不含修复；未构建、安装或实测服务器/Worker。分支Git环境缺VALUE_0/5仍未恢复，listWorktrees截短branch字段但现有用户消费者只用path，未计修复。总控审查、统一构建及试行交付待完成。"
   }
 }
