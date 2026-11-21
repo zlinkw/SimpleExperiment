@@ -180,3 +180,5 @@ U04新增单项目问题39：PLAN显式seeds: []且1个case时真实planMatrix�
 
 U04新增单项目问题40：公开中位数排行未按主指标方向排序；单样本两组0.9排在0.1前，实际函数内存复现exit0，避免偶数中位数干扰。现39项，单项目35、跨项目延期4。
 问题40同类排序：best越小越好时缺失指标组排在有效0.1前，实际函数内存复现exit0。
+
+问题21补充metric_show/result_compare：真实消费者与numericMetrics配内存记录，__proto__指标被遗漏而accuracy保留，exit0；无真实查询。
