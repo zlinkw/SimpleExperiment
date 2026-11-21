@@ -178,7 +178,7 @@ assign(["result_list"], array(resultRow));
 assign(["result_show"], object({ ...resultRow.properties as Record<string, Schema>, time: nullable(string), config: value, seed: value, checkpoint: value }, ["id", "metrics"]));
 assign(["metric_list"], object({ metrics: strings }, ["metrics"]));
 assign(["metric_show"], record(number));
-assign(["experiment_results"], object({ experimentId: string, current: boolean, result_ids: strings, metrics: value, output_paths: strings, reason: string }, ["result_ids", "metrics"]));
+assign(["experiment_results"], object({ experiment_id: string, current: boolean, result_ids: strings, metrics: value, output_paths: strings, reason: string }, ["experiment_id", "result_ids", "metrics"]));
 assign(["result_export"], object({ id: string, source: string, current: boolean, observedAt: nullable(string), format: string, path: string, content: string }, ["id", "format", "content"]));
 assign(["result_compare"], object({ left: string, right: string, metric_difference: record(object({ left: number, right: number, delta: number })), improvement: strings, regression: strings, reason: string }, ["left", "right", "metric_difference"]));
 assign(["result_parse"], array(object({ runKey: string, metrics: record(value), source: value })));

@@ -44,7 +44,8 @@ export async function metricList(flags: CliFlags): Promise<number> {
 
 export async function metricShow(id: string, flags: CliFlags): Promise<number> {
   const row = selectResult(await loadResults(flags), id);
-  const metrics = row ? numericMetrics(row) : {};
+  if (!row) throw businessError(`result not found: ${id}`);
+  const metrics = numericMetrics(row);
   if (flags.json) writeJson(metrics, flags.compactJson);
   else writeText(Object.entries(metrics).map(([key, value]) => `${key}: ${String(value)}`).join("\n") || "(no metrics)");
   return 0;

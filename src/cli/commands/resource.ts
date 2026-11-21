@@ -8,7 +8,7 @@ export async function resourceCommand(action: string, _rest: string[], flags: Cl
   if (action !== "available") throw usageError(`unknown resource action: ${action || "(missing)"}`);
   const [snapshot, experiments] = await Promise.all([
     optionalApi("gpu.list"),
-    loadExperiments().catch(() => []),
+    loadExperiments(),
   ]);
   const busy = new Set(experiments.filter((row) => row.status === "running" && row.worker_id).map((row) => row.worker_id));
   const rows = availableResources(snapshot, busy);

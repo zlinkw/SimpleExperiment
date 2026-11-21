@@ -17,12 +17,14 @@ export async function compareCommand(rest: string[], flags: CliFlags): Promise<n
   const difference: Record<string, { left: number; right: number; delta: number }> = Object.create(null);
   const improvement: string[] = [];
   const regression: string[] = [];
-  const reason = !Object.keys(left).length && !Object.keys(right).length
+  const reason = !leftRow && !rightRow
     ? "no results recorded for either experiment"
-    : !Object.keys(left).length
+    : !leftRow
       ? `no results recorded for ${leftId}`
-      : !Object.keys(right).length
+      : !rightRow
         ? `no results recorded for ${rightId}`
+        : !Object.keys(left).length || !Object.keys(right).length
+          ? "no numeric metrics available for comparison"
         : "";
   for (const key of Object.keys(left)) {
     if (!Object.hasOwn(right, key)) continue;
