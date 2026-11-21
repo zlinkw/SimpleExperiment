@@ -31,7 +31,7 @@ export function resultParse(flags: CliFlags): number {
   if (!fs.existsSync(flags.file)) throw businessError(`result file not found: ${flags.file}`);
   const preset = flags.preset === undefined ? builtInResultPresets[0] : builtInResultPresets.find((item) => item.id === flags.preset);
   if (!preset) throw usageError(`unknown result preset: ${flags.preset}`);
-  const records = parseResultFile(fs.readFileSync(flags.file, "utf8"), { path: flags.file, type: flags.file.endsWith(".json") ? "json" : "csv", endpoint: "local" }, preset);
+  const records = parseResultFile(fs.readFileSync(flags.file, "utf8"), { path: flags.file, type: path.extname(flags.file).toLowerCase() === ".json" ? "json" : "csv", endpoint: "local" }, preset);
   writeJson(records, flags.compactJson);
   return 0;
 }

@@ -443,6 +443,17 @@ test("native worker artifact IDs retain exact worker and path", async () => {
   const rows=await sandbox.list('run1'),found=await sandbox.find(rows[0].id);assert.equal(found.workerId,'worker');assert.equal(found.path,'work/run/a/metrics.csv');
 });
 
+test("result parsing recognizes uppercase JSON file extensions", () => {
+  require('../_helpers/registerTsRequire');const results=require('../../src/features/Results.ts');
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/cli/commands/result.ts'),'utf8');
+  const ast=ts.createSourceFile('result.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
+  const visit=node=>{if(ts.isFunctionDeclaration(node)&&node.name?.getText(ast)==='resultParse')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  let parsedType,output;const sandbox={path,fs:{existsSync:()=>true,readFileSync:()=>'{"experiment_id":"e","metrics":{"accuracy":0.9}}'},builtInResultPresets:results.builtInResultPresets,
+    parseResultFile:(content,file,preset)=>{parsedType=file.type;return results.parseResultFile(content,file,preset)},writeJson:value=>{output=value}};
+  vm.runInNewContext(ts.transpileModule(method.replace(/^export /,'')+';this.parse=resultParse;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  assert.equal(sandbox.parse({file:'metrics.JSON'}),0);assert.equal(parsedType,'json');assert.equal(output[0].metrics.accuracy.value,0.9);
+});
+
 test("webview terminal uiCommandStatus clears button loading by client action", () => {
   const root = path.resolve(__dirname, "..", "..");
   const source = readSource("src/ui/PanelHtml.ts");
