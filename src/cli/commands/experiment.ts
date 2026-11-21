@@ -1839,7 +1839,8 @@ export function diagnoseReasons(status: string, evidence: string[]): string[] {
 export function parseLogRecords(text: string): LogRecord[] {
   return String(text || "").replace(/\r\n/g, "\n").split("\n").filter((line) => line.trim()).map((line) => {
     const timestamp = line.match(/^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)/)?.[1] || "";
-    const level = line.match(/\b(ERROR|WARNING|WARN|INFO|DEBUG|CRITICAL)\b/i)?.[1].toUpperCase().replace("WARN", "WARNING") || "";
+    const rawLevel = line.match(/\b(ERROR|WARNING|WARN|INFO|DEBUG|CRITICAL)\b/i)?.[1].toUpperCase() || "";
+    const level = rawLevel === "WARN" ? "WARNING" : rawLevel;
     return { timestamp, level, message: line.trim() };
   });
 }

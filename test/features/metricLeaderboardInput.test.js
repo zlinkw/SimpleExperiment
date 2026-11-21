@@ -55,3 +55,16 @@ test("CSV and JSON special metric keys survive leaderboard aggregation", () => {
     assert.equal(JSON.parse(JSON.stringify(board)).mean.__proto__, 0.4);
   }
 });
+test("the supported primary option selects the best result using its direction", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../../src/cli/commands/metric.ts"), "utf8");
+  const tree = ts.createSourceFile("metric.ts", source, ts.ScriptTarget.ES2022, true);
+  const declaration = tree.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "metricLeaderboard");
+  const code = ts.transpileModule(`${declaration.getText(tree).replace(/^export /, "")}\nmetricLeaderboard`,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  let output;
+  const call = vm.runInNewContext(code, { require: () => ({ existsSync: () => true,
+    readFileSync: () => "runKey,experimentId,accuracy\nr,a,0.2\nr,b,0.8\n" }), ...Metrics,
+    builtInResultPresets: [{ metricDirections: { accuracy: "higher" } }], writeJson: value => { output = value; } });
+  assert.equal(call({ file: "data.csv", primary: "accuracy", json: true }), 0);
+  assert.equal(output.board[0].bestExperimentId, "b");
+});

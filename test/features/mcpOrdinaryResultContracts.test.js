@@ -54,3 +54,27 @@ test("asynchronous experiment result schema names the actual experiment_id", () 
   assert.equal(schema.properties.experiment_id.type, "string");
   assert.ok(schema.required.includes("experiment_id"));
 });
+test("result parsing and metric leaderboard accept only their implemented options", () => {
+  const { PROJECT_TOOLS, validateToolArguments } = require("../../src/mcp/ToolCatalog.ts");
+  const schema = name => PROJECT_TOOLS.find(tool => tool.name === name).inputSchema;
+  assert.doesNotThrow(() => validateToolArguments(schema("result_parse"), { file: "results.csv", preset: "custom" }));
+  assert.doesNotThrow(() => validateToolArguments(schema("metric_leaderboard"), { file: "results.csv", primary: "score" }));
+  for (const [name, args] of [["result_parse", { file: "a.csv", primary: "score" }],
+    ["result_parse", { file: "a.csv", metrics: ["score"] }], ["metric_leaderboard", { file: "a.csv", preset: "x" }],
+    ["metric_leaderboard", { file: "a.csv", metrics: ["score"] }]]) {
+    assert.throws(() => validateToolArguments(schema(name), args), /Unknown arguments/);
+  }
+  let selected;
+  const preset = { id: "custom" };
+  const parse = extract("cli/commands/result.ts", "resultParse", { fs: { existsSync: () => true, readFileSync: () => "score\n1" }, path,
+    builtInResultPresets: [preset], parseResultFile: (_text, _source, chosen) => { selected = chosen; return []; }, writeJson() {} });
+  assert.equal(parse({ file: "a.csv", preset: "custom" }), 0);
+  assert.equal(selected, preset);
+});
+test("WARN and WARNING map to WARNING without altering other levels", () => {
+  const parse = extract("cli/commands/experiment.ts", "parseLogRecords", {});
+  const rows = parse("2026-01-01 01:02:03 WARN first\nWARNING second\nERROR third\nINFO fourth\nDEBUG fifth\nCRITICAL sixth\n");
+  assert.deepEqual(Array.from(rows, row => row.level), ["WARNING", "WARNING", "ERROR", "INFO", "DEBUG", "CRITICAL"]);
+  assert.equal(rows[0].timestamp, "2026-01-01 01:02:03");
+  assert.equal(rows[1].message, "WARNING second");
+});
