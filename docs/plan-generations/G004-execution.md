@@ -2,7 +2,7 @@
 
 U04 排查基线 HEAD 与 origin/master 为 b7c0b42c27227a8ec49d42d1f21346900a274ae4；U04开始时 tracked clean，执行登记和 coverage 随排查更新，计划由总控独占。默认 legacy 面板、辅助审核页和 MCP Server → ProjectGateway → Host 的入口正在归并；旧脚本只统计 legacy 静态 data-command 且使用 dist 工具目录，不能作为完整母集。显式 factory 的实际渲染缺少四项必要门禁，当前会回退 legacy；内存转译及 VM 点击核实恢复页四种消息和需重载页消息共5/5，exit 0，未实际重载或写剪贴板。逐项证据和受限范围见 coverage 的 g004U04RemainingInventory；历史家族证据须映射具体动作，不能整组算通过。完整按钮总数和剩余数尚未知，未完成全部排查，也未修改产品、构建、安装或访问服务器。旧执行聊天 turn 已结束并归档。
 
-补查结果版本审核：`node --test --test-force-exit --test-timeout 20000 test/features/planVersionComparison.test.js` 13/13、exit 0；核对展示、选择身份、最新/运行中/未核验排除及关闭中断。内存 VM 补核205行分页从200到205及取消消息2/2、exit 0；均使用内存替身，没有真实清理。运行确认注入脚本另以当前源码内存转译及 VM 核取消按钮和 Escape 的关联消息2/2、exit 0；只核消息及宿主路由，未实际提交运行。旧家族、同一 MCP 方法与引用位置本身不证明每个动作，已将不够具体的条目标为待映射，防止虚增已查数。当前按钮总分母与剩余数仍在对账。
+版本审核13/13 exit0及分页、取消受控检查，详见4a80c627与coverage。
 
 U04-01清理边界：状态查询期间切项目、同Worker更目标或撤销授权后仍向假服务转发执行；撤销变体也转发settle，各exit0，首轮缺vscode夹具exit1后补齐。未连接SFTP/Worker或删文件；同根因计1项，完整证据、目标和验收见coverage及4a80c627。
 
@@ -159,3 +159,5 @@ U04新增单项目问题31：排行列集合只取第一条，后续行独有los
 
 问题21补充排行榜：实际Metrics解析与榜单配内存CSV，__proto__指标被遗漏、accuracy保留，exit0；无真实文件。
 整理payload映射的脚本首次匹配条件有误退出1、未写入；修正后按旧证据范围登记。
+
+U04新增单项目问题32：合法null指标被当作0参与统计与最佳选择，实际结果汇总及CLI导出内存替身复现exit0；未读取真实结果。现31项，单项目27、跨项目延期4。
