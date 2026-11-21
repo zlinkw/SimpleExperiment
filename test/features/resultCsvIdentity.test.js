@@ -7,6 +7,8 @@ Module._extensions[".ts"] = (mod, file) => mod._compile(ts.transpileModule(fs.re
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText, file);
 const Results = require("../../src/features/Results.legacy.ts");
+const Metrics = require("../../src/features/Metrics.ts");
+const Tables = require("../../src/results/ProjectResultTables.ts");
 const source = { path: "results.csv", type: "csv", endpoint: "local" };
 const wide = Results.selectResultPreset("results.csv");
 
@@ -27,4 +29,32 @@ test("long metrics merge only when case, model and tag also match", () => {
   assert.equal(rows[0].metrics.loss.value, 1);
   assert.equal(rows[0].metrics.accuracy.value, 0.8);
   assert.equal(new Set(rows.map(row => row.resultId)).size, 4);
+});
+
+test("quoted newlines, commas and escaped quotes stay within a single CSV record", () => {
+  const text = 'run_key,note,score\n"run,a","line 1\nline ""2""",0.9\n';
+  const parsed = Tables.readCsv(text);
+  assert.equal(parsed.rows.length, 1);
+  assert.deepEqual(parsed.rows[0], ["run,a", 'line 1\nline "2"', "0.9"]);
+  const preset = { ...wide, format: "wide_csv", finalRowSelector: undefined,
+    metricColumns: ["score"], columnMapping: { runKey: "run_key" } };
+  const rows = Results.parseResultFile(text, source, preset);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].runKey, "run,a");
+  assert.equal(rows[0].metrics.score.value, 0.9);
+  assert.equal(Results.previewResultParse(text, source.path, preset).rows, 1);
+  const metrics = Metrics.parseMetricsFile(text, source.path);
+  assert.equal(metrics.length, 1);
+  assert.equal(metrics[0].metrics.score, 0.9);
+});
+
+test("long CSV handles quoted fields and ordinary rows", () => {
+  const text = 'run_key,note,metric,value\n"r,1","first\nsecond",loss,0\n"r,1",plain,accuracy,0.9\n';
+  const preset = { ...wide, format: "long_csv", finalRowSelector: undefined,
+    columnMapping: { runKey: "run_key", metric: "metric", value: "value" } };
+  const rows = Results.parseResultFile(text, source, preset);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].runKey, "r,1");
+  assert.equal(rows[0].metrics.loss.value, 0);
+  assert.equal(rows[0].metrics.accuracy.value, 0.9);
 });

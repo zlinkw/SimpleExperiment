@@ -1,3 +1,5 @@
+import { readCsvRows } from "../results/ProjectResultTables";
+
 export interface ExperimentMetrics {
   experimentId: string;
   runKey: string;
@@ -25,11 +27,10 @@ export function parseMetricsFile(text: string, sourceFile: string, runKey = sour
       ...(typeof json.primaryMetric === "string" ? { primaryMetric: json.primaryMetric } : {}),
       ...(typeof json.higherIsBetter === "boolean" ? { higherIsBetter: json.higherIsBetter } : {}), sourceFile, parsedAt }];
   }
-  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  const lines = readCsvRows(text.trim()).filter((row) => row.length > 1 || row[0].trim()).map((row) => row.map((cell) => cell.trim()));
   if (lines.length < 2) return [];
-  const headers = splitCsv(lines[0]);
-  return lines.slice(1).map((line, index) => {
-    const cols = splitCsv(line);
+  const headers = lines[0];
+  return lines.slice(1).map((cols, index) => {
     const row: Record<string, string> = {};
     headers.forEach((h, i) => row[h] = cols[i] || "");
     return {
@@ -75,10 +76,6 @@ function numericEntries(value: Record<string, unknown>): Record<string, number> 
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? [[key, parsed]] : [];
   }));
-}
-
-function splitCsv(line = ""): string[] {
-  return line.split(",").map((item) => item.trim());
 }
 
 function avg(values: number[]): number {

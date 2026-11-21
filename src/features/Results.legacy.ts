@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { readCsvRows } from "../results/ProjectResultTables";
 
 export const RESULT_REGISTRY_PATH = "simple_cluster/results/result_registry.json";
 export const RESULT_REGISTRY_LOCAL_PATH = "simple_cluster/results/result_registry.local.json";
@@ -1362,22 +1363,7 @@ function isLongFormat(headers: string[], preset: ResultParserPreset): boolean {
 }
 
 function csvRows(text: string): string[][] {
-  return text.trim().split(/\r?\n/).filter(Boolean).map(parseCsvLine);
-}
-
-function parseCsvLine(line: string): string[] {
-  const out: string[] = [];
-  let cur = "";
-  let quote = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-    else if (ch === '"') quote = !quote;
-    else if (ch === "," && !quote) { out.push(cur.trim()); cur = ""; }
-    else cur += ch;
-  }
-  out.push(cur.trim());
-  return out;
+  return readCsvRows(text.trim()).filter((row) => row.length > 1 || row[0].trim()).map((row) => row.map((cell) => cell.trim()));
 }
 
 function parseValue(value: unknown): ResultMetricValue["value"] {

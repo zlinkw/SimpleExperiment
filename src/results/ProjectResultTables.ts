@@ -323,7 +323,7 @@ function csvCell(value: unknown): string {
 export function writeCsv(header: string[], rows: unknown[][]): string {
   return [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }
-export function readCsv(text: string, delimiter = ","): { header: string[]; rows: string[][] } {
+export function readCsvRows(text: string, delimiter = ","): string[][] {
   if (delimiter !== "," && delimiter !== "\t") throw new Error("结果表分隔符不支持。");
   const rows: string[][] = [];
   let row: string[] = [], cell = "", quoted = false;
@@ -340,7 +340,11 @@ export function readCsv(text: string, delimiter = ","): { header: string[]; rows
   }
   if (quoted) throw new Error("CSV 末尾引号未闭合。");
   if (cell || row.length) { row.push(cell.replace(/\r$/, "")); rows.push(row); }
-  const [header = [], ...data] = rows;
+  return rows;
+}
+
+export function readCsv(text: string, delimiter = ","): { header: string[]; rows: string[][] } {
+  const [header = [], ...data] = readCsvRows(text, delimiter);
   if (!header.length || new Set(header).size !== header.length || data.some((item) => item.length !== header.length)) throw new Error("CSV 表头或列数无效。");
   return { header, rows: data };
 }
