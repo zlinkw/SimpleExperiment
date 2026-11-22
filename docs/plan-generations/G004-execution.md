@@ -110,4 +110,4 @@ T7收包策略：排除旧业务CLI及依赖它的旧MCP启动器，要求独立
 
 T7矩阵：19个已定向验过的MCP迁移、连接和收包测试加入build/check:full/package/smoke，四profile只读规划各19项独占、均非按需；原项目全树输入指纹保持，旧项未减。test/features及acceptance原glob也涵盖新项。B1未纳入上述显式组，仍未运行验证且是交付阻断。训练进度旧文件误重写但内容已恢复，复验9/9 exit0；生成命令首引号错误exit1未写入。
 
-MCP Worker历史生命周期迁测前4项实际queryProject配合独立本机合成API/Worker夹具，4/4 exit0（chunk 252e84），覆盖运行、完成、失败、停止、产物和日志身份；原CLI用例保留，后4项待逐项迁测。新增测试已列四个显式交付profile。
+MCP Worker生命周期迁测：queryProject配独立本机合成API/Worker，4/4 exit0（chunk 252e84）；限流、来源和父级3/3 exit0（702b10）；旧8项的无API离线历史剩1项属CLI专有回退，MCP仍需Host、不新造history，原用例保留待裁决。两新测试纳入四个交付profile。

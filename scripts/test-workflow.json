@@ -190,6 +190,7 @@
       {"file":"test/features/mcpTrainingProgress.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/mcpWorkerObservation.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/mcpWorkerLifecycle.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpWorkerHistory.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
@@ -288,6 +289,7 @@
       {"file":"test/features/mcpTrainingProgress.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/mcpWorkerObservation.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/mcpWorkerLifecycle.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpWorkerHistory.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
@@ -365,6 +367,7 @@
       {"file":"test/features/mcpTrainingProgress.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/mcpWorkerObservation.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/mcpWorkerLifecycle.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpWorkerHistory.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
@@ -700,6 +703,7 @@
       {"file":"test/features/mcpTrainingProgress.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/mcpWorkerObservation.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/mcpWorkerLifecycle.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpWorkerHistory.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
