@@ -120,3 +120,5 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 获用户精确授权后，B1修改后的原文件按原20秒预算唯一一次复验3/3 exit0，日志TEMP/g004-r519-b1-approved-once-20261122-terra.log；此前失败及超时保留，不代表真实识别或现场重验。用户同时批准coverage清单的测试迁移、矩阵及39个精确旧源码文件删除；按依赖分组实施，旧测试路径保留。
 
 获批退休旧CLI PLAN清理、SFTP同步和统一入口测试，保留文件路径；对应MCP业务及旧外壳差异沿用coverage证据，三文件node --check通过，未真实清理或传输。
+
+获批退休旧CLI测试 test/cli/simpleCli.test.js, test/cli/simpleCliControl.test.js, test/cli/simpleCliDraft.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
