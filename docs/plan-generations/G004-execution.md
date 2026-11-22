@@ -71,3 +71,5 @@ taskQueryWideReadRealChain 3/3 exit0：仅提取查询函数，以假清单、�
 planRunHoldClearedChain 3/3 exit0：清理、确认及队列为假回调，状态原子写入自建根并保留；无真实隔离或删除。原事件与依赖见 coverage，待总控终审；planner 152 项待核。
 
 planRunRecovery 7/7 exit0：VM 假对话和 UI，自建恢复状态保留；无真实 UI、Worker、网络或删除。原事件与依赖见 coverage，待总控终审。
+
+误重跑已有继承候选 job 179：jobArtifactSyncIdentity 7/7 exit0，纯函数；新事件和日志保留但 eligible=false，继承原证据。planner 原报证据冲突，排除重复后须重核；两次误跑原因是执行前未同时核 jobs 的 eligible，后续先核原候选再执行。
