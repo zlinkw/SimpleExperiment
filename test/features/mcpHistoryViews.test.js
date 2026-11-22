@@ -233,3 +233,39 @@ test("experiment health reports healthy warning and error", async () => {
   assert.equal(error.alerts.recent_failure, true);
   assert.equal(error.alerts.stalled, true);
 });
+
+test("experiment active returns only running workflows and runs", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-active-"));
+  writeProject(dir, {
+    "simple_cluster/experiment_index.json": JSON.stringify([
+      { global_job_id: "run-plan-1", type: "run-plan", status: "running", plan: "plan.yaml" },
+      { global_job_id: "run-100", type: "run", status: "running", parent_id: "run-plan-1", worker_id: "worker-a" },
+      { global_job_id: "run-200", type: "run", status: "failed", parent_id: "run-plan-1" },
+    ], null, 2),
+  });
+  const active = JSON.parse((await queryFixture(["experiment", "active", "--json"], { cwd: dir })).stdout);
+  assert.equal(active.active_count >= 2, true);
+  assert.ok(Array.isArray(active.workflows));
+  assert.ok(Array.isArray(active.runs));
+  assert.equal(active.runs.some((row) => row.id === "run-200"), false);
+  assert.equal("raw" in active, false);
+  assert.deepEqual(Object.keys(active).sort(), ["active_count", "runs", "schema_version", "snapshot", "workflows"]);
+  assert.equal("children" in active.workflows[0], false);
+  assert.equal("created_at" in active.workflows[0], false);
+  assert.equal("worker" in active.workflows[0] ? active.workflows[0].worker.id.length > 0 : active.workflows[0].id === "run-plan-1", true);
+  const full = JSON.parse((await queryFixture(["experiment", "active", "--json", "--full"], { cwd: dir })).stdout);
+  assert.equal("created_at" in full.workflows[0], true);
+  assert.equal("children" in full.workflows[0], true);
+  assert.equal("health_status" in full.workflows[0], true);
+  assert.equal("model" in full.workflows[0], true);
+  assert.equal("dataset" in full.workflows[0], true);
+  const overview = JSON.parse((await queryFixture(["experiment", "overview", "--json"], { cwd: dir })).stdout);
+  for (const key of ["summary", "active", "alerts"]) assert.equal(key in overview, true, key);
+  for (const key of ["failed_recent", "stalled", "missing_progress"]) assert.equal(key in overview.alerts, true, key);
+  const status = JSON.parse((await queryFixture(["experiment", "status", "run-plan-1", "--json"], { cwd: dir })).stdout);
+  assert.equal("recentLogs" in status, false);
+  assert.equal("children" in status, false);
+  assert.equal(status.updated_at !== undefined, true);
+  const statusFull = JSON.parse((await queryFixture(["experiment", "status", "run-plan-1", "--json", "--full"], { cwd: dir })).stdout);
+  assert.equal("recentLogs" in statusFull, true);
+});
