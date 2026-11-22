@@ -111,3 +111,6 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 当前302旧CLI索引均有精确候选映射，外部导航27项；61份候选联合git apply --check exit0（排除被合并取代的旧localApi导入diff）。39个源码候选初查均为存在的干净常规文件、父目录在项目根内；非删除前最终身份/链接核验，也非删除授权。候选完整性不等于逐断言等价或批准，含未测的真实Worker/传输及生命周期差异。
 
 运行身份补原两项缺口：现runtimeRow+pickExperiment核run ID、tmux窗口、Worker任务ID与runtime别名，单文件14/14 exit0，日志TEMP/g004-mcp-runtime-alias-20261122-terra.log；旧函数返回observation、现返回规范row，未测真实Worker。
+
+综合生命周期逐项映射补现MCP证据：同值PLAN的config字段及历史INFO/ERROR结构经真实queryProject合成数据通过；mcpQueryContext单文件18/18 exit0，日志TEMP/g004-mcp-config-log-20261122-terra.log。diagnose旧同fixture细节、history及真实Worker仍按候选边界处理。
+同一新fixture补failed/OOM诊断证据后再验18/18 exit0，日志TEMP/g004-mcp-diagnose-20261122-terra.log；前次18/18及原限制保留。

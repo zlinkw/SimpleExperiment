@@ -258,6 +258,22 @@ test('MCP experiment views retain real query behavior with project-bound RPC',as
  await assert.rejects(queryProject(root,rpc,'experiment_results',{id:'missing'}),/not found/i);
 });
 
+test('MCP experiment config and logs preserve declared history details',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-config-log-'));
+ for(const dir of ['experiments/plans','experiments/runs/run-plan-1','simple_cluster'])fs.mkdirSync(path.join(root,dir),{recursive:true});
+ fs.writeFileSync(path.join(root,'experiments/plans/bus.yaml'),'suite: bus\nseeds: [42, 43]\ndataset: data/train\nmodel: resnet\noptimizer: adam\nbatch_size: 8\nepochs: 20\n','utf8');
+ fs.writeFileSync(path.join(root,'experiments/runs/run-plan-1/stdout.log'),'2026-01-02T00:00:00Z INFO training started\n2026-01-02T01:00:00Z ERROR CUDA out of memory\n','utf8');
+ fs.writeFileSync(path.join(root,'simple_cluster/experiment_index.json'),JSON.stringify([{global_job_id:'run-plan-1',type:'run-plan',case:'workflow',status:'failed',plan:'experiments/plans/bus.yaml',seed:42,stdout:'experiments/runs/run-plan-1/stdout.log'}]),'utf8');
+ const rpc=async method=>{if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};if(method==='live.output')return {};throw Error('unexpected RPC '+method)};
+ const config=await queryProject(root,rpc,'experiment_config',{id:'run-plan-1',full:true});
+ assert.match(config.config_path,/bus\.yaml/);assert.match(config.yaml,/resnet/);assert.equal(String(config.seed),'42');
+ assert.equal(config.dataset,'data/train');assert.equal(config.model,'resnet');assert.equal(config.optimizer,'adam');assert.equal(config.batch_size,'8');assert.equal(config.epoch,'20');
+ const logs=await queryProject(root,rpc,'experiment_log',{id:'run-plan-1'});
+ assert.ok(logs.some(row=>row.level==='INFO'));assert.ok(logs.some(row=>row.level==='ERROR'));assert.ok(logs.every(row=>['timestamp','level','message'].every(key=>key in row)));
+ const diagnosis=await queryProject(root,rpc,'experiment_diagnose',{id:'run-plan-1',full:true});
+ assert.equal(diagnosis.status,'failed');assert.ok(diagnosis.evidence.some(line=>/out of memory/i.test(line)));
+});
+
 test('neutral query support requires context and preserves optional RPC semantics',async()=>{
  assert.throws(()=>support.emit({}),/MCP_QUERY_CONTEXT_REQUIRED/);
  assert.throws(()=>support.callApi('status'),/MCP_QUERY_CONTEXT_REQUIRED/);
