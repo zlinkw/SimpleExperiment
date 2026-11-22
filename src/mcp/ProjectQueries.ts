@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { businessContext } from "./query/ExecutionContext";
 import * as experiments from "../cli/commands/experiment";
-import { resultList, resultShow, resultExport } from "../cli/commands/result";
+import { resultList, resultShow, resultExport } from "./query/Results";
 import { resultParse } from "./query/ResultParse";
 import { metricList, metricShow, metricLeaderboard } from "../cli/commands/metric";
 import { compareCommand } from "../cli/commands/compare";
@@ -35,7 +35,7 @@ export async function queryProject(root: string, rpc: (method: string, params: R
     experiment_health: () => experiments.experimentHealth(flags), experiment_inspect: () => experiments.experimentInspect(args.id, flags),
     experiment_monitor: () => experiments.experimentMonitor(args.id, flags), experiment_diagnose: () => experiments.experimentDiagnose(args.id, flags),
     experiment_config: () => experiments.experimentConfig(args.id, flags), experiment_results: () => experiments.experimentResults(args.id, flags),
-    result_list: () => resultList(flags), result_show: () => resultShow(args.id, flags), result_export: () => resultExport(args.id, flags),
+    result_list: () => resultList(), result_show: () => resultShow(args.id), result_export: () => resultExport(args.id, flags),
     result_parse: () => resultParse(flags),
     metric_list: () => metricList(flags), metric_show: () => metricShow(args.id, flags), metric_leaderboard: () => metricLeaderboard(flags),
     result_compare: () => compareCommand([args.left, args.right], flags),

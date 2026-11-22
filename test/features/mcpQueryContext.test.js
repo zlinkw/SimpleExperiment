@@ -25,6 +25,22 @@ test('MCP result_parse uses content-selected preset and preserves zero',async()=
  await assert.rejects(queryProject(root,async()=>{},'result_parse',{file:'metrics.csv',preset:'unknown'}),/unknown result preset/);
 });
 
+test('MCP result list, show and export retain the established structured business output',async()=>{
+ const old=require('../../src/cli/commands/result.ts');
+ const inputs=[{planFile:'plans/p.yaml',workerId:'worker-a',runId:'same',completionState:'verified',aggregationState:'eligible',
+   dimensions:{seed:0,dataset:'合成,"A"',fold:'line\n1'},metrics:{AP:0,AUPRC:0.5},sourceFiles:[{path:'result.csv'}]},
+  {planFile:'plans/p.yaml',workerId:'worker-a',runId:'same',completionState:'verified',aggregationState:'eligible',
+   dimensions:{seed:1,dataset:'other'},metrics:{AP:0.25},sourceFiles:[{path:'result.csv'}]}];
+ const rpc=async method=>{assert.equal(method,'results.list');return {source:'active_query',summary:{current:true,observedAt:'2026-01-01',results:inputs}}};
+ async function previous(fn){let value;await neutral.businessContext.run({root:'fixture',rpc,emit:x=>{value=x}},fn);return value}
+ const rows=await queryProject('fixture',rpc,'result_list',{});assert.deepEqual(rows,await previous(()=>old.resultList({json:true})));
+ assert.equal(rows.length,2);assert.notEqual(rows[0].id,rows[1].id);assert.equal(rows[0].value,0);
+ assert.deepEqual(await queryProject('fixture',rpc,'result_show',{id:rows[0].id}),await previous(()=>old.resultShow(rows[0].id,{json:true})));
+ for(const format of ['json','csv'])assert.deepEqual(await queryProject('fixture',rpc,'result_export',{id:rows[0].id,format}),await previous(()=>old.resultExport(rows[0].id,{json:true,format})));
+ await assert.rejects(queryProject('fixture',rpc,'result_show',{id:'same'}),/AMBIGUOUS/);
+ await assert.rejects(queryProject('fixture',async()=>({source:'old'}),'result_list',{}),/RESULT_QUERY_UNVERIFIED/);
+});
+
 test('neutral query support requires context and preserves optional RPC semantics',async()=>{
  assert.throws(()=>support.emit({}),/MCP_QUERY_CONTEXT_REQUIRED/);
  assert.throws(()=>support.callApi('status'),/MCP_QUERY_CONTEXT_REQUIRED/);

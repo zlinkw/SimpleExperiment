@@ -32,7 +32,7 @@ T2中立MCP版本解析器假对象1/1 exit0，`g004-r519-t2-resolver-missing-ff
 
 T3查询上下文与RPC/结构化输出支持迁出，真实queryProject并发及假RPC2/2 exit0；首1/2 exit1因替身用普通Error冒充业务错误，日志 `g004-r519-t3-support-first-ff08.log`、`g004-r519-t3-support-final-ff08.log`。其余消费者待迁。
 
-T4首子组迁出MCP result_parse，真实查询配合成CSV、0及错误3/3 exit0，`g004-r519-t4-parse-first-ff08.log`，未调用Worker。
+T4迁出MCP解析及结果列表/详情/导出；真实查询配合成数据与旧消费者逐值对照、0/中文/多行/错误4/4 exit0，`g004-r519-t4-results-first-ff08.log`；真实Worker未测。
 
 519识别未完成及同窗冲突不能认定锁死；原识别不记完成首0/1 exit1，`g004-519-bootstrap-recognition-ff08.log`。B1保存PLAN及识别事实；假对象2/2、快速9/9、上下文20/20、命令3/3、持久化3/3、投影6/6 exit0；日志 `g004-r519-b1-` 加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 及 `-ff08.log`。未改真实标记。
 
