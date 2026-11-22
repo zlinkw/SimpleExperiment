@@ -1,6 +1,6 @@
 # G004 执行登记
 
-519 重载调查：专用根默认profile实际运行519 PID29888，离线、低流量、5配置/1启用、原PLAN/空任务、结果目录、合成离线包及统一授权均读回；识别原值与现值均未完成，不能冒充已完成状态恢复。默认发现曾指向稿件且未调用；合成宽CSV无预设解析为空、显式宽表改写AP与macro_f1，排行榜保留原字段，详见coverage；未动真实Worker或配置。流程状态读错可能导致覆盖，真实消费者配合成存储原1/2 exit1，`C:/Users/ZLK/AppData/Local/Temp/g004-519-flow-real-workflow-ff08.log`，无真实文件损失。R519 A1源码修复仅读缺失为默认，损坏/拒绝读阻止初始化及覆盖，自动进度保存失败提示此前操作可能已执行；真实源码配内存存储单文件11/11 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-r519-a1-project-state-ff08.log`。其他证据见coverage.g004U04RemainingInventory.g004Reload519LocalAudit。
+519重载：专用根默认profile实测519 PID29888，离线、低流量、5配置/1启用、PLAN、任务选择、结果目录、离线包和授权保持；识别原值与现值均未完成。默认发现曾指向稿件且未调用；宽CSV无预设解析为空、指定预设改写AP及macro_f1，详见coverage。流程读错可能覆盖，合成存储原1/2 exit1，`C:/Users/ZLK/AppData/Local/Temp/g004-519-flow-real-workflow-ff08.log`，无真实损失。R519 A1仅读缺失为默认，其他读错阻止初始化及覆盖，进度保存失败提示此前操作可能已执行；合成存储11/11 exit0，日志同目录 `g004-r519-a1-project-state-ff08.log`。其他证据见coverage.g004U04RemainingInventory.g004Reload519LocalAudit。
 
 布局并行清旧键可能丢值，内存存储首0/2 exit1，日志同上目录 `g004-519-layout-legacy-failure-ff08.log`，无真实损失证据。R519 A2改为成功保存且根匹配后清旧键；项目状态13/13、布局3/3、上下文20/20均exit0，日志同目录 `g004-r519-a2-project-state-ff08.log`、`g004-r519-a2-layout-ff08.log`、`g004-r519-a2-context-ff08.log`。拓扑确认/取消/写失败假对象3/3 exit0，未动真实设置或服务器。
 
@@ -8,7 +8,7 @@
 
 用户报告反复识别仍未完成并提供截图；519专用实例错误记录显示几次点击与同窗识别租约冲突，不能据此认定锁死。源码中本地识别未写完成标记，唯一生产写入在代码同步完成后；真实识别方法配假确认与已选PLAN、输出门槛未完成时验证应记录本地事实，0/1 exit1，`C:/Users/ZLK/AppData/Local/Temp/g004-519-bootstrap-recognition-ff08.log`。用户截图、实际错误与受控边界见coverage；不重放点击、不清锁、不自动连Worker，统一返修时区分本地识别和运行准备。
 
-519本机历史CLI合成列表、详情及CSV导出通过；精确ID经cmd传递失败。另发现Git hook保护及公开invoke错路由问题；完整证据、失败及300/137/45/167分母索引见coverage，四者不相加。
+519本机历史CLI合成列表、详情及CSV导出通过；精确ID经cmd传递失败。Git hook读拒绝及不完整标记可能损伤原脚本，原受控失败与invoke错路由见coverage；R519 A3仅缺失视为空，读错及标记不完整均保留原文件，源码配假fs及启动消费者3/3 exit0，日志同上目录 `g004-r519-a3-git-hook-ff08.log`。300/137/45/167母集重叠，不相加。
 
 519 发行安装：源码/tag `6932321534f3b0c2df3b1983bfede2f88f7b868f`，试行 Release `https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.519`，远端与隔离下载同包同 SHA；正式 Latest 483。真实 ReleaseClient 首次因核验脚本误期待 SFTP Latest 120（实际118）exit1，修正后 exit0：482可见483、519和已装 SFTP120均不降级；120试行资产存在。日志 `C:/Users/ZLK/AppData/Local/Temp/g004-519-client-after-ff08.log`。唯一 install:latest exit0，含 Node DEP0169 warning；磁盘及列表519、SFTP120及两个稳定入口已核，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-519-install-ff08.log`。新版 Host 及持久化尚待本人重载后实机验收。
 

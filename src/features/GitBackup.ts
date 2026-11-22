@@ -84,8 +84,9 @@ export function resolveHookPath(repoRoot: string): string {
 export function readHookFile(hookPath: string): string {
   try {
     return fs.readFileSync(hookPath, "utf8");
-  } catch {
-    return "";
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
+    throw error;
   }
 }
 
@@ -94,8 +95,9 @@ export function stripHookBlock(content: string): string {
   const begin = content.indexOf(HOOK_BLOCK_BEGIN);
   if (begin < 0) return content;
   const end = content.indexOf(HOOK_BLOCK_END, begin);
+  if (end < 0) throw new Error("Git 备份 hook 标记不完整，已保留原文件；请检查后重试。");
   const before = content.slice(0, begin);
-  const after = end < 0 ? "" : content.slice(end + HOOK_BLOCK_END.length);
+  const after = content.slice(end + HOOK_BLOCK_END.length);
   return (before + after).replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
