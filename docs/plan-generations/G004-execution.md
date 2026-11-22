@@ -39,3 +39,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 pairedUpdateTransaction 原文件 8/8、exit0（`%TEMP%/g004-520-paired-update-transaction-20261123.log`，先查不存在）；内存日志及假下载安装/重载，无真实安装、网络或用户状态修改。执行前漏查 job 33 已有有效历史候选，造成不必要重复；保留新日志与事件但不选作覆盖，原历史证据不变。
 
 - 520 后 distributedQueueCacheStability 原文件 19/19、exit0（`%TEMP%/g004-520-distributed-queue-cache-20261123.log`，先查不存在）；真实队列逻辑配合内存文件系统，未写真实队列或操作 Worker，待总控审定。
+
+- 520 后 terminalPlanHistory 原文件 7/7、exit0（`%TEMP%/g004-520-terminal-plan-history-20261123.log`，先查不存在）；VM/假操作，写入并保留自建 checkpoint 夹具，未触及真实历史、Worker 或删除，待总控审定。
