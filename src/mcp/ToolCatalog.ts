@@ -56,11 +56,11 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     workerId: task.workerId, ...plan, ...operation,
     manualStopType: { type: "string", enum: ["manual_stop_bad_code_or_no_effect", "manual_stop_converged"] },
   }, ["workerId", "planFile", "operationId", "manualStopType"], "experiment", "stopExperiment"),
-  tool("task_dispatch", "tasks.dispatch", "Dispatch selected jobs to one Worker or freeze remaining jobs within a PLAN scope for quota allocation", {
-    workflowId: text("Existing workflow ID"), workflowIds: texts("Existing workflow IDs for quota allocation"), all: boolean,
-    distribution: { type: "string", enum: ["explicit_gpu", "quota_remaining"] }, indices: { type: "array", items: integer },
-    workerId: task.workerId, gpuId: text("GPU ID"), gpuSelection: { type: "string", enum: ["automatic", "specific"] },
-    stopRunning: boolean, expectedCommands: object,
+  tool("task_dispatch", "tasks.dispatch", "Dispatch selected jobs to one Worker or freeze remaining jobs within a PLAN scope for quota allocation. Selected jobs require workflowId, nonempty indices, workerId and gpuId, unless gpuSelection is automatic. quota_remaining requires workflowId and/or workflowIds, or all=true, without job or GPU selection.", {
+    workflowId: text("Existing workflow ID"), workflowIds: texts("Existing workflow IDs for quota allocation"), all: { ...boolean, description: "Select all remaining PLANs for quota allocation" },
+    distribution: { type: "string", enum: ["explicit_gpu", "quota_remaining"] }, indices: { type: "array", items: integer, description: "Nonnegative job indices for selected-job dispatch" },
+    workerId: task.workerId, gpuId: text("GPU ID; omit for automatic selection"), gpuSelection: { type: "string", enum: ["automatic", "specific"] },
+    stopRunning: { ...boolean, description: "Explicitly request stopping selected running jobs before dispatch" }, expectedCommands: { ...object, description: "Original command IDs keyed by job index for exact stop review" },
   }, [], "experiment"),
   tool("task_preflight", "tasks.preflight", "Read-only preflight of one existing Worker task", { ...task, environmentOnly: boolean, completedOutputVerify: boolean }, ["workerId", "commandId"]),
   tool("task_preflight_status", "tasks.preflight.status", "Observe the original task preflight", { workerId: task.workerId, ...operation }, ["workerId", "operationId"]),
