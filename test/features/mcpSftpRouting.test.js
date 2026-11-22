@@ -5,12 +5,12 @@ const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-sftp-gateway-'));
 const vscode={workspace:{workspaceFolders:[{uri:{fsPath:root}}]},window:{}};
 const original=Module._load;let mcpGateway;
 try{Module._load=function(id,...args){return id==='vscode'?vscode:original.call(this,id,...args)};({mcpGateway}=require('../../src/extension/McpHost.ts'))}finally{Module._load=original}
-function fixture(){
+function fixture({failureMethod}={}){
  const workers=[{id:'w1',host:'host1',port:22,user:'user',remotePath:'/project/one'},{id:'w2',host:'host2',port:22,user:'user',remotePath:'/project/two'}],calls=[];
  const grant=createProjectAuthorization(root);grant.workers=workers.map(({id,host,port,user,remotePath})=>({id,host,port,user,projectRoot:remotePath}));
  const methods=['sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.observeBatch'];
  const host={context:{workspaceState:{get:()=>grant}},refreshSharedConnectionSettings(){},workerCodeSyncTargets:()=>workers,createLocalApiMethods:()=>({}),
-  readSimpleSftpCapabilities:async()=>({methods}),sftpServerOptions:row=>({...row}),simpleSftpApiCall:async(method,params)=>{calls.push({method,params});return method==='transfers.reconcile'?{status:'notFound',settled:false}:method==='transfers.cancel'?{status:'cancelling'}:{ok:true}}};
+  readSimpleSftpCapabilities:async()=>({methods}),sftpServerOptions:row=>({...row}),simpleSftpApiCall:async(method,params)=>{calls.push({method,params});if(method===failureMethod)throw Error('远端项目清单无效。');return method==='transfers.reconcile'?{status:'notFound',settled:false}:method==='transfers.cancel'?{status:'cancelling'}:{ok:true}}};
  return {gateway:mcpGateway(host),calls,grant,workers};
 }
 
@@ -55,6 +55,12 @@ test('MCP file observation preserves frozen per-target and root identities',asyn
  await assert.rejects(f.gateway.call('file_cleanup_observe_batch',{location:'worker',workerId:'w1',observationId:'obs-9',targets:[{relativePath:'x',type:'file',key:7}]}),/must be string/);
  await assert.rejects(f.gateway.call('file_cleanup_observe_batch',{location:'worker',workerId:'w1',observationId:'obs-9',targets:[{...target,inode:{}}]}),/OBSERVATION_IDENTITY_INVALID/);
  assert.equal(f.calls.length,before);
+});
+
+test('MCP SFTP preserves backend inventory refusal',async()=>{
+ const f=fixture({failureMethod:'sync.projectInventory'});
+ await assert.rejects(f.gateway.call('sftp_inventory',{workerId:'w1'}),/远端项目清单无效/);
+ assert.deepEqual(f.calls.map(row=>row.method),['sync.projectInventory']);
 });
 
 test('MCP SFTP transfers preserve both targets and project authorization',async()=>{
