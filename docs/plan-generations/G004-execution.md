@@ -61,3 +61,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 gpuSampleCarryRealChain 3/3 exit0：串行 Python 函数提取、假采样和 inventory，夹具线程 join，脚本保留；无真实 GPU/nvidia-smi、Worker、tmux 或网络。证据见 coverage，待总控终审。
 
 syncScopeAgentIndex 8/8 exit0：VM 假隧道、Python 索引与提取的假请求处理，删除仅为内存差量标记；自建文件脚本保留，无真实 Worker、网络或删除。证据见 coverage，待总控终审。
+
+operationRetirement 5/5 exit0：Python 抽取函数处理内存状态，VM 假 Worker 与自建进度文件改写并保留；无完整 runtime、真实 Worker/GPU、网络或文件删除。证据见 coverage，待总控终审。
