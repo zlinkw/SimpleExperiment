@@ -24,3 +24,18 @@ test('MCP project operations retain authorization, receipts and observed failure
  assert.equal(calls.filter(row=>row[0]==='bootstrap').length,1);
  await assert.rejects(gateway.call('project_bootstrap',{planFile:'p.yaml',confirm:true}),/Unknown/);
 });
+
+test('MCP PLAN validation forwards host success and in-band failure',async()=>{
+ const root=path.resolve(__dirname,'../..'),calls=[],grant=createProjectAuthorization(root);
+ const gateway=new ProjectGateway({root:()=>root,workers:()=>[],store:{get:()=>grant},methods:()=>({
+  'plan.validate':async params=>{calls.push(params);const ok=params.planFile.endsWith('/valid.yaml');return {ok,missing:ok?[]:[{step:'validate_plan',reason:'invalid server plan'}],validation:{ok},source:'extension-host'}}
+ })});
+ for(const [name,ok] of [['valid',true],['invalid',false]]){
+  const result=await gateway.call('plan_validate',{planFile:`experiments/plans/${name}.yaml`});
+  assert.equal(result.ok,ok);assert.equal(result.validation.ok,ok);assert.equal(result.source,'extension-host');
+  assert.equal(result.missing.length,ok?0:1);
+ }
+ assert.deepEqual(calls,[{planFile:'experiments/plans/valid.yaml',confirm:true},{planFile:'experiments/plans/invalid.yaml',confirm:true}]);
+ grant.permissions=[];await assert.rejects(gateway.call('plan_validate',{planFile:'experiments/plans/valid.yaml'}),/AUTHORIZATION_REQUIRED/);
+ assert.equal(calls.length,2);
+});
