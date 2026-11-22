@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import { callApi, optionalApi, businessError, emit } from "./Support";
-import { fileExists, listFilesRecursive, projectRoot, readJsonFile, resolveProjectPath } from "./ProjectData";
+import { fileExists, projectRoot, readJsonFile } from "./ProjectData";
 import { loadExperiments, pickExperiment, type ExperimentRow } from "./Experiments";
 
 export async function artifactList(experimentId: string): Promise<number> {
@@ -24,6 +24,40 @@ export async function artifactInspect(id: string): Promise<number> {
 }
 interface ArtifactRow { id: string; path: string; size: string; local?: string; workerId?: string; mtime?: string }
 interface FileIdentity { size: number; modifiedAtMs: number; sha256?: string }
+
+function inside(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative);
+}
+
+/** Validate each existing component before following it, including links to outside the project. */
+function localArtifactPath(candidate: string): string {
+  const root = path.resolve(projectRoot()), absolute = path.resolve(root, candidate);
+  if (!inside(root, absolute)) throw businessError("ARTIFACT_PATH_OUTSIDE_PROJECT: " + candidate);
+  const physicalRoot = fs.realpathSync(root);
+  let current = root;
+  for (const part of path.relative(root, absolute).split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    try { fs.lstatSync(current); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") break;
+      throw error;
+    }
+    if (!inside(physicalRoot, fs.realpathSync(current))) throw businessError("ARTIFACT_PATH_OUTSIDE_PROJECT: " + candidate);
+  }
+  return absolute;
+}
+
+function localArtifactFiles(dir: string, depth: number): string[] {
+  if (depth < 0) return [];
+  const files: string[] = [];
+  for (const name of fs.readdirSync(dir)) {
+    const file = localArtifactPath(path.join(dir, name));
+    if (fs.statSync(file).isDirectory()) files.push(...localArtifactFiles(file, depth - 1));
+    else files.push(file);
+  }
+  return files;
+}
 
 async function workerInventory(workerId: string, filePath: string, includeHashes = false): Promise<Record<string, FileIdentity>> {
   const response = asRecord(await callApi("mcp.call", { tool: "sftp_inventory", arguments: { workerId, paths: [filePath], ...(includeHashes ? { includeHashes: true } : {}) } }));
@@ -55,12 +89,12 @@ async function listArtifacts(experimentId: string, knownExperiments?: Experiment
   const outputDir = experiment?.raw ? String(experiment.raw.hub_job_dir || experiment.raw.outputDir || experiment.raw.runDir || runDirFromLog(experiment.raw.stdout) || "") : "";
   const rows: Array<{ id: string; path: string; size: string; local?: string }> = [];
   if (outputDir) {
-    const abs = path.isAbsolute(outputDir) ? outputDir : resolveProjectPath(outputDir);
+    const abs = localArtifactPath(outputDir);
     if (fileExists(abs)) {
-      const manifest = readJsonFile<{ files?: Array<{ path?: string; size?: number }> }>(path.join(abs, "artifact_manifest.json"), {});
+      const manifest = readJsonFile<{ files?: Array<{ path?: string; size?: number }> }>(localArtifactPath(path.join(abs, "artifact_manifest.json")), {});
       const files = Array.isArray(manifest.files) && manifest.files.length
-        ? manifest.files.map((file) => ({ path: path.join(abs, String(file.path || "")), size: file.size }))
-        : listFilesRecursive(abs, () => true, 2).map((file) => ({ path: file, size: fs.statSync(file).size }));
+        ? manifest.files.map((file) => ({ path: localArtifactPath(path.resolve(abs, String(file.path || ""))), size: file.size }))
+        : localArtifactFiles(abs, 2).map((file) => ({ path: file, size: fs.statSync(file).size }));
       for (const file of files) {
         rows.push({
           id: `${experimentId}:${path.relative(abs, file.path).replace(/\\/g, "/")}`,
@@ -106,12 +140,14 @@ async function findArtifact(id: string): Promise<{ path: string; size?: string; 
   const match = matches[0];
   if (match) {
     if (match.workerId) return match;
-    const abs = match.local || (path.isAbsolute(match.path) ? match.path : resolveProjectPath(match.path));
+    const candidate = match.local || path.resolve(projectRoot(), match.path);
+    if (!match.local && !inside(path.resolve(projectRoot()), candidate)) return match;
+    const abs = localArtifactPath(candidate);
     const local = fileExists(abs) ? abs : undefined;
     return { path: match.path, size: local ? String(fs.statSync(local).size) : match.size, local };
   }
   if (prefix) return null;
-  const abs = path.isAbsolute(id) ? id : resolveProjectPath(id);
+  const abs = localArtifactPath(id);
   if (fileExists(abs)) return { path: id, size: String(fs.statSync(abs).size), local: abs };
   return null;
 }

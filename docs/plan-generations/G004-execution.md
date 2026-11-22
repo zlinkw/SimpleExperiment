@@ -54,11 +54,11 @@ MCP训练、健康等迁测及告警首TS加载失败exit1→6/6见Git `a202db2a
 
 运行身份迁测首6/8 exit1（旧CLI助手未迁），修测试后8/8、补捕获13/13；chunk及范围见Git `a202db2a:docs/plan-generations/G004-execution.md`。
 
-MCP终态身份10/10、结果精确身份及导出1/1、日志与配置1/1、合成本机端点的运行观察1/1 exit0；后者不是真实Worker。包排除旧runner并补动态MCP闭包清单，入口3/3、策略12/12 exit0，尚无实际VSIX验证。
+MCP终态、结果、日志及合成观察通过，原文见Git `8249eb4d:docs/plan-generations/G004-execution.md`，无真实Worker。
 
 519识别未完成及同窗冲突不能认定锁死；原识别不记完成首0/1 exit1，`g004-519-bootstrap-recognition-ff08.log`。B1保存PLAN及识别事实；假对象2/2、快速9/9、上下文20/20、命令3/3、持久化3/3、投影6/6 exit0；日志 `g004-r519-b1-` 加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 及 `-ff08.log`。未改真实标记。
 
-519历史CLI合成查询通过、精确ID经cmd失败，详见coverage。A3 Git hook读错及标记不完整保留原文件，假fs及启动消费者3/3 exit0，`g004-r519-a3-git-hook-ff08.log`。300/137/45/167母集重叠，不相加。
+519 CLI查询及A3记录见Git `8249eb4d:docs/plan-generations/G004-execution.md`；母集重叠不相加。
 
 519发行：源码/tag `6932321534f3b0c2df3b1983bfede2f88f7b868f`，[试行Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.519)与下载同SHA、Latest483。ReleaseClient首验误期待SFTP Latest120（实际118）exit1，修后exit0，`g004-519-client-after-ff08.log`。唯一安装exit0含DEP0169，`g004-519-install-ff08.log`。实机见顶部。
 
@@ -70,7 +70,7 @@ MCP终态身份10/10、结果精确身份及导出1/1、日志与配置1/1、合
 
 项目清除状态修复：null/cleared旧值不复活，坏JSON/EACCES报告。内存存储首9/10 exit1、修后及补验各10/10 exit0；TEMP日志 `g004-518-cleared-before-ff08.log`、`g004-518-cleared-after-ff08.log`、`g004-518-cleared-final-ff08.log`。未清真实数据；原文见Git `48062264:docs/plan-generations/G004-execution.md`。
 
-518重载验收：默认profile专用根Host 0.5.518、offline_import、低流量、本人grant及5配置/1启用均实核，未操作Worker。U54公开选择和持久化读回、U55配置保存恢复及MCP合成解析/排行通过；主动results.list/result_export需访问Worker，本轮未测。U56离线包导入/恢复exit0，面板显示2/2及0/中文/引号/空值并标未核实；首次离屏元素、文件框索引和坐标校验失败未输入。完整原证据见 `89498eff:docs/plan-generations/G004-execution.md`，517旧证仅按原范围复用。
+518专用根重载、U54–U56及实机边界详见Git `8249eb4d:docs/plan-generations/G004-execution.md`；active results未测。
 
 518时持久化身份及未识别状态原始调查见 `89498eff:docs/plan-generations/G004-execution.md`；其旧workspaceState引导标记描述只适用于当时运行源码，519已按规范项目根存入同profile globalState。不能借其他profile值或虚构已识别，518未含后续持久化源码修复；四跨项目与89旧延期范围未开放。
 
@@ -112,7 +112,7 @@ T7已定向MCP测试纳入四交付profile，规划确认独占；原glob亦涵�
 
 MCP Worker生命周期迁测：queryProject配独立本机合成API/Worker，4/4 exit0（chunk 252e84）；限流、来源和父级3/3 exit0（702b10）；旧8项的无API离线历史剩1项属CLI专有回退，MCP仍需Host、不新造history，原用例保留待裁决。两新测试纳入四个交付profile。
 
-迁移期mcpQueryContext已脱离全部CLI引用：以旧实现实测结果固定MCP输入、输出、身份和错误断言，实验视图fixture排除动态快照字段；11/11 exit0（0eaa05）。转换时metric及compare的null原型两次10/11 exit1（f7c9b7、2eba9b），修期望后通过；旧CLI测试未动。
+mcpQueryContext脱离CLI，原业务11/11；首两次10/11 exit1及修后详见Git `8249eb4d:docs/plan-generations/G004-execution.md`。
 
 MCP普通结果契约迁至中立实现，8/8 exit0（e1771b），加入交付profile。
 
@@ -201,3 +201,5 @@ MCP下载范围及handoff核精确Worker、配置参数与撤权，假后端11/1
 补发现旧录制Runner外部2项测试：checkpoint及正式PLAN保护须保留；coverage列差异，未运行。登记前两次超阈值断言exit1未写。
 
 源审返修可选RPC：真实Gateway假Host首7/8 exit1（普通拒绝被吞），修改后8/8；真实未声明方法首7/8 exit1（TypeError），明确-32601后8/8。共享消费mcpQueryContext首14/16 exit1（夹具缺operations/live.output），补真实空响应后16/16；WorkerLifecycle 4/4、mcpProject 43/43 exit0（后者部分旧dist），未测真实Worker。保留失败原工具输出，未build。
+
+源审产物路径：合成根首16/17 exit1（绝对外部路径可读）；本地目录、manifest和递归逐层校验项目根及链接，修后及补绝对路径、0字节、冒号ID和嵌套链接各17/17 exit0，远端契约保留。未读用户外部文件、未build；登记压缩首断言exit1未写。
