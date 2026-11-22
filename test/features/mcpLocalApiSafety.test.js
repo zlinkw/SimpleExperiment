@@ -37,6 +37,8 @@ test('legacy Windows workflow routes remain usable without a Mac-specific option
 test('loopback/UTF-8/size gates reject external or stopped listeners without leaking secrets', async t => {
   for (const baseUrl of ['https://127.0.0.1:12', 'http://example.com:12', 'http://user:pass@127.0.0.1:12', 'http://127.0.0.1']) assert.throws(() => validateDiscovery({ baseUrl, token: 'fixture' }), /loopback/);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rpc-discovery-evidence-')), file = path.join(dir, 'api.json');
+  const {preflightPluginAt}=require('../../src/api/LocalApiClient.ts');
+  for(const plugin of ['experiment','sftp']) await assert.rejects(preflightPluginAt(plugin,path.join(dir,'absent.json')),/discovery not found/i);
   fs.writeFileSync(file, Buffer.from([0xff])); assert.throws(() => readLocalDiscovery(file));
   fs.writeFileSync(file, 'fixture-secret-MUSTNOTAPPEAR {', 'utf8');
   assert.throws(() => readLocalDiscovery(file), e => !e.message.includes('MUSTNOTAPPEAR') && /withheld/.test(e.message));

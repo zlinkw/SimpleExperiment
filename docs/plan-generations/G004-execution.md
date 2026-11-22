@@ -176,7 +176,7 @@ MCP远端产物精确身份/越界拒绝、结果缺参/缺文件及主指标方
 
 MCP GPU观测与任务分别保留Worker/GPU0/command并显式传播失败，Gateway假Host 5/5；UI精确导航为既有局部证据，未新造自动匹配视图。
 
-中立客户端保留258记录、定位末尾假监听及双活拒绝/精确pin，单文件8/8 exit0；原LocalApiServer生成/关闭未重跑。
+中立客户端保留258记录、定位末尾假监听、双活拒绝/精确pin及缺失发现错误，单文件8/8 exit0；原LocalApiServer生成/关闭未重跑。
 
 MCP PLAN永久删除预览补界面同用confirmed_paths；假Host 6/6 exit0，未生成确认或操作真实文件，后续双页及路径保护不变。
 

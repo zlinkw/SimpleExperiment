@@ -19,8 +19,8 @@
       {
         "source": "test/api/localApi.test.js:282",
         "name": "simpleex doctor reports missing discovery and listener",
-        "status": "pending_review",
-        "boundary": "旧doctor CLI；错误语义及替代入口待逐项核。"
+        "status": "partial_neutral_consumer_covered",
+        "boundary": "中立客户端缺失发现文件对两插件明确失败，8/8 exit0；旧doctor聚合输出与退出码未迁。"
       },
       {
         "source": "test/api/localApi.test.js:298",
@@ -435,7 +435,7 @@
       {"source":"test/cli/simpleCliTrainingProgress.test.js:109","name":"newer compact Rich evidence replaces stale standard epoch without guessing epoch","sameNameCandidates":["test/features/mcpTrainingProgress.test.js:109"],"status":"business_assertions_migrated_retirement_pending_review","evidence":"test/features/mcpTrainingProgress.test.js 同名用例；9/9 exit0，提交7a47104f","boundary":"原业务断言保留；MCP结构化结果或中立函数的合成证据，不代表真实Worker或旧CLI进程退出；旧测试保留。"},
       {"source":"test/cli/simpleCliTrainingProgress.test.js:132","name":"compact validation is partial progress and test phase is not training","sameNameCandidates":["test/features/mcpTrainingProgress.test.js:132"],"status":"business_assertions_migrated_retirement_pending_review","evidence":"test/features/mcpTrainingProgress.test.js 同名用例；9/9 exit0，提交7a47104f","boundary":"原业务断言保留；MCP结构化结果或中立函数的合成证据，不代表真实Worker或旧CLI进程退出；旧测试保留。"},
       {"source":"test/cli/simpleCliTrainingProgress.test.js:144","name":"training epoch count accepts only positive integers from job config","sameNameCandidates":["test/features/mcpTrainingProgress.test.js:144"],"status":"business_assertions_migrated_retirement_pending_review","evidence":"test/features/mcpTrainingProgress.test.js 同名用例；9/9 exit0，提交7a47104f","boundary":"原业务断言保留；MCP结构化结果或中立函数的合成证据，不代表真实Worker或旧CLI进程退出；旧测试保留。"},
-      {"source":"test/cli/simpleCliUnifiedEntry.test.js:86","name":"doctor reports missing discovery without claiming success","sameNameCandidates":[],"status":"pending_assertion_review"},
+      {"source":"test/cli/simpleCliUnifiedEntry.test.js:86","name":"doctor reports missing discovery without claiming success","sameNameCandidates":[],"status":"partial_neutral_discovery_mapping_pending_review","evidence":"test/features/mcpLocalApiSafety.test.js 中立客户端8/8 exit0","boundary":"两个插件的缺失发现文件均明确报错；旧doctor汇总JSON、空instance和退出码未迁。"},
       {"source":"test/cli/simpleCliUnifiedEntry.test.js:99","name":"sftp capabilities and server list pass through the live API","sameNameCandidates":[],"status":"pending_assertion_review"},
       {"source":"test/cli/simpleCliUnifiedEntry.test.js:117","name":"instance identity mismatch is refused before any RPC is sent","sameNameCandidates":[],"status":"partial_neutral_client_mapping_pending_review","evidence":"test/features/localApiClientSource.test.js，2/2 exit0，真实中立客户端与合成回环Host","boundary":"活实例与发现pid/startedAt不匹配拒绝，零额外RPC；旧CLI退出码/展示未迁。"},
       {"source":"test/cli/simpleCliUnifiedEntry.test.js:129","name":"capabilities without instanceId are refused as an old extension","sameNameCandidates":[],"status":"partial_neutral_client_mapping_pending_review","evidence":"test/features/localApiClientSource.test.js，2/2 exit0，真实中立客户端与合成回环Host","boundary":"缺失instanceId拒绝，零额外RPC；旧CLI退出码/展示未迁。"},
