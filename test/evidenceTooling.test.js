@@ -4,10 +4,6 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const {
-  parseSimpleRunArgs,
-  runRecordedExperiment,
-} = require("../dist/features/ExperimentRunner.js");
 const { checkpointRecordsFromManifest } = require("../dist/features/Checkpoint.js");
 
 test("checkpoint manifest retains metadata", () => {
@@ -18,6 +14,7 @@ test("checkpoint manifest retains metadata", () => {
 });
 
 test("simpleex run creates standard run directory and metrics summary from stdout", () => {
+  const { parseSimpleRunArgs, runRecordedExperiment } = require("../dist/features/ExperimentRunner.js");
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "simpleex-run-"));
   const options = parseSimpleRunArgs(["--name", "baseline", "--seed", "1", "--config", "configs/a.yaml", "--", "node", "-e", "console.log('AUC: 0.932 accuracy: 89.5% F1=0.88')"]);
   const result = runRecordedExperiment({ ...options, cwd });

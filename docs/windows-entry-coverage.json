@@ -152,7 +152,7 @@
         "source": "test/evidenceTooling.test.js:20",
         "name": "simpleex run creates standard run directory and metrics summary from stdout",
         "status": "retired_runner_contract_pending_review",
-        "boundary": "原测试调用仅旧CLI引用的ExperimentRunner真实启动子进程并落盘，产品公开入口已退役；拟撤销录制运行行为须统一裁决。该文件顶层导入Runner，同文件checkpoint独立测试必须保留并转移导入，未运行。"
+        "boundary": "原测试调用仅旧CLI引用的ExperimentRunner真实启动子进程并落盘，产品公开入口已退役；拟撤销录制运行行为须统一裁决。已将Runner导入移至原录制test，checkpoint独立测试保持；完整文件2/2 exit0，原录制断言仍在，未批准退役。"
       },
       {
         "source": "test/features/formalJobExecution.test.js:29",
@@ -206,7 +206,7 @@
       {"path":"D:/GitRepo/MCP/zlk-cluster-orchestrator/src/cli/parse.ts","type":"file","safetyRoot":"D:/GitRepo/MCP/zlk-cluster-orchestrator","parent":"D:/GitRepo/MCP/zlk-cluster-orchestrator/src/cli","trackedDirty":false,"referenceRisk":"旧CLI源码内部引用、tsconfig编译及旧test/cli矩阵；须统一完成引用和测试裁决。","discoveredAt":"2026-11-22T13:40:19+00:00","deletionReady":false},
       {"path":"D:/GitRepo/MCP/zlk-cluster-orchestrator/src/cli/plugins.ts","type":"file","safetyRoot":"D:/GitRepo/MCP/zlk-cluster-orchestrator","parent":"D:/GitRepo/MCP/zlk-cluster-orchestrator/src/cli","trackedDirty":false,"referenceRisk":"旧CLI源码内部引用、tsconfig编译及旧test/cli矩阵；须统一完成引用和测试裁决。","discoveredAt":"2026-11-22T13:40:19+00:00","deletionReady":false},
       {"path":"D:/GitRepo/MCP/zlk-cluster-orchestrator/src/cli/runtime.ts","type":"file","safetyRoot":"D:/GitRepo/MCP/zlk-cluster-orchestrator","parent":"D:/GitRepo/MCP/zlk-cluster-orchestrator/src/cli","trackedDirty":false,"referenceRisk":"旧CLI源码内部引用、tsconfig编译及旧test/cli矩阵；须统一完成引用和测试裁决。","discoveredAt":"2026-11-22T13:40:19+00:00","deletionReady":false},
-      {"path":"D:/GitRepo/MCP/zlk-cluster-orchestrator/src/features/ExperimentRunner.ts","type":"file","safetyRoot":"D:/GitRepo/MCP/zlk-cluster-orchestrator","parent":"D:/GitRepo/MCP/zlk-cluster-orchestrator/src/features","trackedDirty":false,"referenceRisk":"src/cli.legacy.ts及evidenceTooling顶层导入、formalJobExecution正式PLAN保护；先保留checkpoint和安全断言。","discoveredAt":"2026-11-22T13:40:19+00:00","deletionReady":false},
+      {"path":"D:/GitRepo/MCP/zlk-cluster-orchestrator/src/features/ExperimentRunner.ts","type":"file","safetyRoot":"D:/GitRepo/MCP/zlk-cluster-orchestrator","parent":"D:/GitRepo/MCP/zlk-cluster-orchestrator/src/features","trackedDirty":false,"referenceRisk":"src/cli.legacy.ts及evidenceTooling录制用例、formalJobExecution正式PLAN保护；checkpoint导入已隔离，旧测试和安全断言仍保留待裁。","discoveredAt":"2026-11-22T13:40:19+00:00","deletionReady":false},
       {"path":"D:/GitRepo/MCP/zlk-cluster-orchestrator/src/runCli.ts","type":"file","safetyRoot":"D:/GitRepo/MCP/zlk-cluster-orchestrator","parent":"D:/GitRepo/MCP/zlk-cluster-orchestrator/src","trackedDirty":false,"referenceRisk":"旧CLI包装依赖src/cli；旧测试与编译引用待审。","discoveredAt":"2026-11-22T13:40:19+00:00","deletionReady":false}
     ]
   },
