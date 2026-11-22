@@ -104,6 +104,27 @@ function method(start, end, dependencies, values) {
 }
 
 const keys = { hiddenLegacyTaskUiKeys: "hidden", offlineBundle: "offline", uiProjectLayout: "layout", uiProjectActions: "actions" };
+for (const [name, end] of [["saveUiLayoutFromUi", "async resetUiLayoutFromUi"], ["resetUiLayoutFromUi", "resultParseIdempotencyKey"]]) {
+  test(`${name} clears legacy layout only after project persistence in the same project`, async () => {
+    const run = method(`async ${name}`, end, ["keys", "recordField", "normalizeUiLayout", "projectUiLayoutState", "globalUiLayoutState", "defaultUiLayout"],
+      [keys, (m, k) => m[k], x => x, x => x, x => x, {}])[name];
+    const old = new Map([["layout", "old layout"], ["actions", "old actions"]]);
+    let fail = true, current = true, posted = 0;
+    const host = { captureProjectContext: () => ({ root: "project" }), projectContextIsCurrent: () => current,
+      postState: () => { posted++; }, context: { globalState: { update: async () => {} },
+        workspaceState: { update: async key => { old.delete(key); } } },
+      persistProjectUiLayoutState: async () => { if (fail) throw Error("disk full"); } };
+    await assert.rejects(run.call(host, { layout: {} }), /disk full/);
+    assert.equal(old.size, 2);
+    fail = false; current = false;
+    await run.call(host, { layout: {} });
+    assert.equal(old.size, 2);
+    current = true;
+    await run.call(host, { layout: {} });
+    assert.equal(old.size, 0);
+    assert.equal(posted, 1);
+  });
+}
 test("explicitly cleared project offline and layout states do not revive old workspace values", async () => {
   const ts = require("typescript"), path = require("node:path");
   const ast = ts.createSourceFile("legacy.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);

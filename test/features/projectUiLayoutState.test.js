@@ -25,7 +25,7 @@ test('reset UI layout saves the default template and does not post to a changed 
     await h.resetUiLayoutFromUi();
     assert.deepEqual(events.find(row=>row[0]==='global'),['global','global','{}']);
     assert.deepEqual(JSON.parse(events.find(row=>row[0]==='persist')[1]),defaults);
-    assert.deepEqual(events.filter(row=>row[0]==='workspace').map(row=>row[1]).sort(),['actions','project']);
+    assert.deepEqual(events.filter(row=>row[0]==='workspace').map(row=>row[1]).sort(),switched ? [] : ['actions','project']);
     assert.equal(events.some(row=>row[0]==='post'),!switched);
   }
 });

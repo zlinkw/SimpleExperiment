@@ -7694,9 +7694,13 @@ return this.testTunnel(true);
         await Promise.all([
             this.context.globalState.update(keys.uiLayout, globalUiLayoutState(layout)),
             this.persistProjectUiLayoutState(),
-            this.context.workspaceState.update(keys.uiProjectLayout, undefined),
-            this.context.workspaceState.update(keys.uiProjectActions, undefined),
         ]);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
+        await this.context.workspaceState.update(keys.uiProjectLayout, undefined);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
+        await this.context.workspaceState.update(keys.uiProjectActions, undefined);
         if (!this.projectContextIsCurrent(projectContext))
             return;
         this.postState();
@@ -7707,9 +7711,13 @@ return this.testTunnel(true);
         await Promise.all([
             this.context.globalState.update(keys.uiLayout, globalUiLayoutState(defaultUiLayout)),
             this.persistProjectUiLayoutState(),
-            this.context.workspaceState.update(keys.uiProjectLayout, undefined),
-            this.context.workspaceState.update(keys.uiProjectActions, undefined),
         ]);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
+        await this.context.workspaceState.update(keys.uiProjectLayout, undefined);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
+        await this.context.workspaceState.update(keys.uiProjectActions, undefined);
         if (!this.projectContextIsCurrent(projectContext))
             return;
         this.postState();

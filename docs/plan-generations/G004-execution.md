@@ -2,7 +2,7 @@
 
 519 重载调查：专用根默认profile实际运行519 PID29888，离线、低流量、5配置/1启用、原PLAN/空任务、结果目录、合成离线包及统一授权均读回；识别原值与现值均未完成，不能冒充已完成状态恢复。默认发现曾指向稿件且未调用；合成宽CSV无预设解析为空、显式宽表改写AP与macro_f1，排行榜保留原字段，详见coverage；未动真实Worker或配置。流程状态读错可能导致覆盖，真实消费者配合成存储原1/2 exit1，`C:/Users/ZLK/AppData/Local/Temp/g004-519-flow-real-workflow-ff08.log`，无真实文件损失。R519 A1源码修复仅读缺失为默认，损坏/拒绝读阻止初始化及覆盖，自动进度保存失败提示此前操作可能已执行；真实源码配内存存储单文件11/11 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-r519-a1-project-state-ff08.log`。其他证据见coverage.g004U04RemainingInventory.g004Reload519LocalAudit。
 
-布局保存/重置将新项目状态持久化与旧workspace键清除并行执行；迁移失败后若保存也失败，可能先丢旧键。真实方法配内存Memento及合成磁盘失败复现 0/2 exit1，`C:/Users/ZLK/AppData/Local/Temp/g004-519-layout-legacy-failure-ff08.log`；无真实数据损失证据，已通知总控并待统一返修。额外核对保存拓扑的确认、取消及写失败：真实方法配假设置/运行时3/3 exit0，未动实际共享设置或服务器。
+布局并行清旧键可能丢值，内存存储首0/2 exit1，日志同上目录 `g004-519-layout-legacy-failure-ff08.log`，无真实损失证据。R519 A2改为成功保存且根匹配后清旧键；项目状态13/13、布局3/3、上下文20/20均exit0，日志同目录 `g004-r519-a2-project-state-ff08.log`、`g004-r519-a2-layout-ff08.log`、`g004-r519-a2-context-ff08.log`。拓扑确认/取消/写失败假对象3/3 exit0，未动真实设置或服务器。
 
 519内存解析补验：宽CSV同时包含AP和AUPRC时AP未保留，macro/micro/weighted F1名称亦被改写；两次定向各0/1 exit1，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-519-metric-identity-ff08.log` 和 `g004-519-metric-collision-ff08.log`。本轮还核选择操作的持久化回执及保存PLAN后的持久化错误，均为真实方法配合成替身；问题、原始退出码和日志见coverage，未写真实项目文件。
 
