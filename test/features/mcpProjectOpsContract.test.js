@@ -72,3 +72,20 @@ test('MCP PLAN list waits for the real host metadata refresh',async()=>{
  assert.equal(result.planDir,'experiments/plans');assert.equal(result.source,'local_metadata');
  assert.deepEqual(result.plans,host.localPlanMetadata.plans);assert.deepEqual(result.archivedPlans,[]);
 });
+
+test('MCP GPU and task observations retain Worker, GPU zero and command identities',async()=>{
+ const root=path.resolve(__dirname,'../..'),calls=[];let fail=false;
+ const gpu={gpu:{'worker-a':{gpus:[{index:0,utilizationPercent:0}]},'worker-b':{gpus:[{index:0,utilizationPercent:35}]}}};
+ const tasks={workerTasks:[{workerId:'worker-a',gpuId:'0',commandId:'command-a',status:'running'},
+  {workerId:'worker-b',gpuId:'0',commandId:'command-b',status:'running'}]};
+ const methods={'gpu.list':async()=>{calls.push('gpu');if(fail)throw Error('GPU observation failed');return gpu},
+  'tasks.list':async()=>{calls.push('tasks');if(fail)throw Error('task observation failed');return tasks}};
+ const gateway=new ProjectGateway({root:()=>root,workers:()=>[],store:{get:()=>undefined},methods:()=>methods});
+ assert.deepEqual(await gateway.call('gpu_status',{}),gpu);
+ assert.deepEqual(await gateway.call('task_list',{}),tasks);
+ assert.equal(gpu.gpu['worker-a'].gpus[0].index,0);assert.equal(gpu.gpu['worker-a'].gpus[0].utilizationPercent,0);
+ assert.deepEqual(tasks.workerTasks.map(row=>[row.workerId,row.gpuId,row.commandId]),[['worker-a','0','command-a'],['worker-b','0','command-b']]);
+ fail=true;await assert.rejects(gateway.call('gpu_status',{}),/GPU observation failed/);
+ await assert.rejects(gateway.call('task_list',{}),/task observation failed/);
+ assert.deepEqual(calls,['gpu','tasks','gpu','tasks']);
+});
