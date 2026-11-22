@@ -160,3 +160,5 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 获批删除39项之第22–28项：src/cli/commands/metric.ts, src/cli/commands/plan.ts, src/cli/commands/planCleanup.ts, src/cli/commands/project.ts, src/cli/commands/projectOps.ts, src/cli/commands/resource.ts, src/cli/commands/result.ts；全批预检后逐项在直接父目录核身份并以明确相对叶名删除，确认不存在。
 
 获批删除39项之第29–35项：src/cli/commands/server.ts, src/cli/data.ts, src/cli/errors.ts, src/cli/format.ts, src/cli/help.ts, src/cli/index.ts, src/cli/parse.ts；全批预检后逐项在直接父目录核身份并以明确相对叶名删除，确认不存在。
+
+获批删除39项之第36–39项：src/cli/plugins.ts, src/cli/runtime.ts, src/features/ExperimentRunner.ts, src/runCli.ts；全批预检后逐项在直接父目录核身份并以明确相对叶名删除，确认不存在。
