@@ -65,3 +65,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 2026-11-23：distributedQueueStartup 单文件 8/8、exit 0；模拟队列、隧道探测和 Worker 回调，未连接真实 Worker、网络或 UI。证据及输入闭包见 coverage；待总控终审。
 
 - 2026-11-23：distributedQueueStartupMirrors 单文件 6/6、exit 0；VM 与模拟回调验证镜像冲突和重启围栏，未操作真实 Worker、网络、文件覆盖或 GPU。证据及输入闭包见 coverage；待总控终审。
+
+- 2026-11-23：distributedQueueStartupRecovery 单文件 7/7、exit 0；VM tick、内存队列及模拟 Worker/GPU 回调，未触及真实 Worker、GPU、网络或作业。证据及输入闭包见 coverage；待总控终审。
