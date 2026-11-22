@@ -65,3 +65,5 @@ runtimeLogDiagnostics 2/2 exit0：Python 抽取函数、确定性时钟及自建
 freshGpuTelemetry 1/1 exit0：AST 抽取与假采样器，六个夹具线程均 join，自建脚本保留；无真实 GPU、Worker、网络或删除。证据见 coverage，待总控终审。
 
 progressDispatchFreshness 9/9 exit0：AST 选取函数、假 GPU 行与合成队列、VM 宿主/面板函数；无真实 GPU、Worker、tmux、网络或 UI。证据见 coverage，待总控终审。
+
+nestedJsonResultParsing 3/3 exit0：Python 抽取解析函数，自建合成结果项目和脚本保留；无完整 runtime、真实结果、Worker、网络或删除。证据见 coverage，待总控终审。
