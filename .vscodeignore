@@ -52,6 +52,7 @@ dist/cli.legacy.js
 dist/runCli.js
 dist/cli/**
 dist/features/ExperimentRunner.js
+simpleex.cmd
 bin/simpleex.cjs
 bin/simpleex-mcp.cjs
 # Build inputs are embedded in the deployed Python scripts; retain the license.

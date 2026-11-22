@@ -23,6 +23,21 @@
   "markdown_runtime_allow_evidence": "仅这3个已证运行时模板文件豁免 doc-markdown 文档分类；forensics/backup/scratch/log 等安全规则对该目录照常生效。引用证据：src/extension/legacy.ts 与 scripts/write-agent-runtime.js。",
   "forbidden_ordered": [
     {
+      "category": "retired-business-cli",
+      "paths": [
+        "simpleex.cmd",
+        "bin/simpleex.cjs",
+        "bin/simpleex-mcp.cjs",
+        "dist/cli.js",
+        "dist/cli.legacy.js",
+        "dist/runCli.js",
+        "dist/features/ExperimentRunner.js"
+      ],
+      "path_prefixes": [
+        "dist/cli/"
+      ]
+    },
+    {
       "category": "bundled-sftp",
       "path_prefixes": [
         "extensions/simple-sftp/"
@@ -232,7 +247,11 @@
   "required": [
     "package.json",
     "LICENSE.txt",
-    "simpleex.cmd",
+    "bin/mcp-launch.cjs",
+    "bin/simpleex-mcp-resolver.cjs",
+    "dist/api/LocalApiClient.js",
+    "dist/mcp/server.cjs",
+    "dist/mcp/THIRD-PARTY-NOTICES.txt",
     "scripts/check-static.js",
     "dist/runtime/RuntimeManifest.json",
     "dist/runtime/RuntimeManifest.js",

@@ -105,3 +105,5 @@ U04逐项调查、原始退出码与受控证据保留于 Git f72d0066 的本登
 
 B1/B2/B3 39项分组修复、各项受控结果和首失败详见 Git `c37827c8:docs/plan-generations/G004-execution.md`，不将受控结果扩称真实Worker通过；U04-30特殊键、日志导航首12/13及后13/13证据见 `eab27339` 同路径。4跨项目与89入口未开放。
 0.5.517历史完整交付与原日志见 Git `89498eff:docs/plan-generations/G004-execution.md`：首package 337/341 exit1、合作取消因stdin关闭失败，四处仅修测试后补验通过，Agent夹具额外首补失败；第二次341/341、13门禁通过。生成脚本VM首命令转义错误exit1后通过，日志导航首12/13后13/13；其余闭包/同源、远端下载及客户端证据和退出码保留原登记。[试行Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.517)绑定 `a7d2a7275c5d9ea455c2e369cdddaa8e33a198e2`，VSIX SHA256 `2fa2ecb3e0d890d47653ee8b7f5ffe29317c22d692659ae4cd8d34336a6989e5`；一次安装exit0含DEP0169，Latest仍483。旧时未重载状态以随后518实机记录为准；J01和CLI错绑仍未解决。
+
+T7收包策略：排除旧业务CLI及依赖它的旧MCP启动器，要求独立MCP启动器、resolver、服务及客户端；packageContentPolicy 12/12、mcpEntry 3/3均exit0，尚未实际打包。

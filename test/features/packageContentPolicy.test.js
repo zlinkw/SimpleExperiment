@@ -43,7 +43,11 @@ const CASES = [
   ["dist/templates/project-adapter/output_contract_guide.md", undefined],
   ["dist/features/SetupGuideSource.js", undefined],
   ["package.json", undefined],
-  ["simpleex.cmd", undefined],
+  ["simpleex.cmd", "retired-business-cli"],
+  ["bin/simpleex.cjs", "retired-business-cli"],
+  ["dist/cli/commands/result.js", "retired-business-cli"],
+  ["dist/features/ExperimentRunner.js", "retired-business-cli"],
+  ["bin/mcp-launch.cjs", undefined],
   ["extension/dist/runtime/cluster_agent.py.sha256", undefined],
   ["Docs/UPPER.MD", "docs"],
   ["extension/extension/double-prefix.md", "doc-markdown"],
@@ -176,7 +180,11 @@ const GOOD_LISTING = [
   "extension/package.json",
   "extension/README.md",
   "extension/LICENSE.txt",
-  "extension/simpleex.cmd",
+  "extension/bin/mcp-launch.cjs",
+  "extension/bin/simpleex-mcp-resolver.cjs",
+  "extension/dist/api/LocalApiClient.js",
+  "extension/dist/mcp/server.cjs",
+  "extension/dist/mcp/THIRD-PARTY-NOTICES.txt",
   "extension/scripts/check-static.js",
   "extension/dist/extension.js",
   "extension/dist/runtime/RuntimeManifest.json",
@@ -325,8 +333,9 @@ const LOCAL_STATE_GUARDS = [
 
 // 必留发行闭包：任何“排除本地状态”的规则都不得把它们带出去（照现有 VSIX 顶层目录取代表项）。
 const MUST_STAY_PACKAGED = [
-  "package.json", "LICENSE.txt", "simpleex.cmd",
-  "scripts/check-static.js", "bin/simpleex", "dist/extension.js", "dist/extension/legacy.js",
+  "package.json", "LICENSE.txt", "bin/mcp-launch.cjs", "bin/simpleex-mcp-resolver.cjs",
+  "dist/api/LocalApiClient.js", "dist/mcp/server.cjs", "dist/mcp/THIRD-PARTY-NOTICES.txt",
+  "scripts/check-static.js", "dist/extension.js", "dist/extension/legacy.js",
   "dist/runtime/RuntimeManifest.json", "dist/runtime/cluster_agent.py", "dist/panel-build-manifest.json",
 ];
 
