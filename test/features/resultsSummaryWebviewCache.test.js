@@ -7,6 +7,50 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const extension = readSource("src/extension.ts");
 
+test("offline import preview remains read-only and does not show an old active query as current", () => {
+  require('../_helpers/registerTsRequire');
+  const {renderPanelHtml}=require('../../src/ui/PanelHtml.legacy.ts');
+  const html=renderPanelHtml(),scripts=[...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map(match=>match[1]);
+  const script=scripts.find(value=>value.includes('function renderResultSummary('));assert.ok(script);
+  for(const generated of scripts)new vm.Script(generated);
+  const start=script.indexOf('function renderResultSummary('),end=script.indexOf('\n    function renderWorkerResultAggregateWarning(',start);
+  assert.ok(start>=0&&end>start);
+  const escape=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  let output='',workbenchState;
+  const context={esc:escape,asArray:value=>Array.isArray(value)?value:[],renderWorkerResultAggregateWarning:()=>'',
+    renderResultEvidenceWorkbench:state=>{workbenchState=state;return ''},setHtmlIfChanged:(_id,value)=>{output=value},pendingResultMappingOpen:false};
+  vm.runInNewContext(script.slice(start,end),context);
+  const backend={objectRecord:value=>value&&typeof value==='object'&&!Array.isArray(value)?value:undefined,
+    resultsSummaryArrayLimits:{results:30},dropUndefined:row=>Object.fromEntries(Object.entries(row).filter(([_key,value])=>value!==undefined)),
+    firstStringFieldForWebview:(row,...keys)=>keys.map(key=>row[key]).find(value=>typeof value==='string'&&value)||undefined,
+    compactStringArrayForWebview:()=>undefined,compactSourceFilesForWebview:()=>undefined,compactResultProvenanceForWebview:()=>undefined,
+    compactSensitiveText:value=>String(value)};
+  vm.runInNewContext(['compactMetricsRecordForWebview','compactPrimitiveRecordForWebview','compactResultRecordForWebview','offlineResultPreviewForWebview'].map(extractFunction).join('\n')+';this.preview=offlineResultPreviewForWebview;',backend);
+  const bundle={importedFrom:'离线<包>',lastImportedAt:'today',results:{results:[{runKey:'实验<一>',metrics:{score:{value:0},empty:''}}]}};
+  const preview=backend.preview(bundle),summary={resultCount:0,results:[],stalePlanVersionSuppressed:true};
+  const oldReport={source:'active_query',current:false,observedAt:'old',missing:['failed']};
+  context.renderResultSummary({offlineResultPreview:preview,resultsSummary:summary,resultSyncReport:oldReport});
+  assert.match(output,/离线导入预览/);assert.match(output,/离线&lt;包&gt;/);assert.match(output,/实验&lt;一&gt;/);
+  assert.match(output,/&quot;value&quot;:0/);assert.match(output,/&quot;empty&quot;:&quot;&quot;/);
+  assert.doesNotMatch(output,/本轮查询失败/);assert.equal(workbenchState.resultSyncReport,null);
+  assert.equal(summary.resultCount,0);assert.equal(summary.stalePlanVersionSuppressed,true);assert.equal(bundle.results.results.length,1);
+  const otherPlan=backend.preview({results:{planFile:'other.yaml',planRevision:'old',results:bundle.results.results}});
+  context.renderResultSummary({offlineResultPreview:otherPlan,resultsSummary:summary,resultSyncReport:oldReport});
+  assert.match(output,/仅供查看，归属和版本未核实/);assert.equal(summary.resultCount,0);
+  const malformed=backend.preview({results:{results:[null,bundle.results.results[0]]}});
+  assert.doesNotThrow(()=>context.renderResultSummary({offlineResultPreview:malformed,resultsSummary:summary,resultSyncReport:oldReport}));
+  assert.match(output,/第 1 行.*不是对象/);assert.match(output,/实验&lt;一&gt;/);
+  const special=backend.preview({results:{results:[JSON.parse('{"runKey":"特殊","dimensions":{"__proto__":0,"constructor":"值"},"metrics":{"__proto__":{"value":0},"constructor":{"value":0}}}')]}});
+  context.renderResultSummary({offlineResultPreview:special,resultsSummary:summary,resultSyncReport:oldReport});
+  assert.match(output,/&quot;__proto__&quot;:0/);assert.match(output,/&quot;constructor&quot;:&quot;值&quot;/);
+  assert.match(output,/&quot;__proto__&quot;:\{&quot;value&quot;:0\}/);assert.match(output,/&quot;constructor&quot;:\{&quot;value&quot;:0\}/);
+  const aliases=backend.preview({results:{final_results:[{runKey:'最终',metrics:{score:{value:0}}}],pending_review_records:[{runKey:'待核',metrics:{score:{value:0}}}]}});
+  context.renderResultSummary({offlineResultPreview:aliases,resultsSummary:summary,resultSyncReport:oldReport});
+  assert.equal(aliases.totalCount,2);assert.match(output,/最终/);assert.match(output,/待核/);assert.match(output,/&quot;value&quot;:0/);
+  assert.equal(backend.preview({results:{results:[],final_results:[{runKey:'忽略'}]}}).totalCount,0);
+  context.renderResultSummary({resultsSummary:{},resultSyncReport:oldReport});assert.match(output,/本轮查询失败/);assert.equal(workbenchState.resultSyncReport,oldReport);
+});
+
 function extractFunction(name) {
   const start = extension.indexOf(`function ${name}(`);
   assert.ok(start >= 0, `missing ${name}`);

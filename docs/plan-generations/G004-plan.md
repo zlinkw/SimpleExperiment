@@ -72,11 +72,15 @@ U04-55最新方案源审通过：单一授权/撤销当前workspace，无Worker/
 
 U55设置必要链：worker_configure现有schema缺enabled，workers.configure/Gateway只认启用集，导致AI不能启用已禁用的已配置Worker。沿原工具/保存函数补enabled和读回，配置目标可取全部已配置集，实际执行仍限启用集；未知目标拒绝，保存不启动远程。统一grant后正常设置修改不再单独弹Worker/范围授权；必要共享影响说明保留。仅假设置/假Worker回归，不改真实共享配置；每内部组≤3问题/8源测文档文件，受控源审后集中交付裁决。
 
-517真实MCP本地补证：result_parse/metric_leaderboard无需grant，Host22928实际调用成功；长表2结果保留逗号run key/DSC0、空HD95跳过；排行2组保留accuracy0/0.8、loss空/0.4及引号逗号。原final.csv默认长表返回[]不当通用失败。新合成文件保留；纠正旧笼统blocked。尚补离线文件选择→导入→显示正常链；results主动采集/导出仍未获真实授权，不冒通过。
+517 MCP解析/排行实测成功：长表2结果保留逗号run key/DSC0，跳空HD95；排行2组accuracy0/0.8、loss空/0.4及引号逗号正确，夹具保留。原final.csv默认长表返回[]不称通用失败，results授权链未测。真实离线文件导入/持久包读回成功；匹配PLAN/revision的display-only新包state两行正确，UI却无导入行且仍显旧query失败，转56。已同UI恢复原包，空PLAN合成数据不冒真实实验。
 
-## U54/U55 集中试行交付开放
+U04-56原B2返修主体及坏行/特殊键闭包已源审通过：独立只读离线预览与当前PLAN归属/版本/完成/归档分离，不落盘raw、不恢复退役UI；实时错误及后台旧报告保留。原两轮8/8，补边界后首7/8 exit1（null.experimentId）、修后8/8 exit0，全部记录保留。仅待按原结果契约补final_results和pendingReviewRecords/pending_review_records fallback，同用例核压缩/显示及总数，explicit results[]不回退；精确该表达式/测试通过即可scoped FF，不另停审。46确认=39已交付+54/55源修+56本包+4跨项目，撤回10/89延期不变。
 
-A/B源提交及517离线导入缺口完成、无新阻断后，开放54+55必要运行交付，单项目仍非最终通过。先实核未用下一patch/tag，package/lock/runtime同步、write-agent-runtime，复用缓存，不独立build后再package。dry-run核当前选择/按需及组装要求；若现有最终profile仍强制同输入完整passed矩阵，批准本候选一次既有package、max-parallel1/cancel-stdin，按实际清单对账，不伪造组合或硬设数量。失败收完整结果后按实因裁决，不自动第二轮。新dist需mcpProject等受影响消费者及Panel模块/实际生成script VM门禁。按项目规范核VSIX身份/平台/闭包/同源/秘密/SHA，FF源/版本/generated后同字节发布既有GitHub试行prerelease/latest=false，实核tag/资产/下载/实际更新客户端，SFTP120现有包复用、不提Latest483。全部成功才install:latest一次，核磁盘/CLI后停UI待本人Reload，不自动授或部署Worker；随后新版实机核54/55再判断单项目门槛。冻结检查期间总控不写输入。
+56复审已核错误行号/好行保留、null-prototype指标/维度保留__proto__/constructor和0；仅两直接compactor，无新限额或全仓加固。生成script VM有效，结果section/signature跟踪与仅离线屏蔽旧report正确。新别名补验如有其他产品变化/实际失败必须再裁决，不弱化契约求绿。
+
+## U54/U55/U56 集中试行交付有条件开放
+
+A/B已FF同步bc0cc61c/c37827c8，54/55源审有效；56上述精确别名补验及FF后恢复三项集中交付，单项目仍待新包实机最终通过。先实核未用下一patch/tag，package/lock/runtime同步、write-agent-runtime，复用缓存，不独立build后再package。dry-run核当前选择/按需及组装要求；若现有最终profile仍强制同输入完整passed矩阵，批准本候选一次既有package、max-parallel1/cancel-stdin，按实际清单对账，不伪造组合或硬设数量。失败收完整结果后按实因裁决，不自动第二轮。新dist需mcpProject等受影响消费者及Panel模块/实际生成script VM门禁。按项目规范核VSIX身份/平台/闭包/同源/秘密/SHA，FF源/版本/generated后同字节发布既有GitHub试行prerelease/latest=false，实核tag/资产/下载/实际更新客户端，SFTP120现有包复用、不提Latest483。全部成功才install:latest一次，核磁盘/CLI后停UI待本人Reload，不自动授或部署Worker；随后新版实机核54/55再判断单项目门槛。冻结检查期间总控不写输入。
 
 ## 0.5.517 最终交付确认
 
@@ -93,11 +97,11 @@ A/B源提交及517离线导入缺口完成、无新阻断后，开放54+55必要
 516安装一次exit0、SFTP120，simpleex --version因默认其他项目API_WORKSPACE_MISMATCH exit2，未改绑定求绿；用户未确认重载，不能倒推新界面实机。当前安装已到517，历史包/副本均保留；旧任务/窗口/稿件未动，J01未恢复。实际ReleaseClient当时482见483、515/516及SFTP120不降级。
 ## U03 历史范围与复用
 
-U03已完成配置状态、PLAN草稿、结果产物、MCP本机接口、按钮导航及本机分支功能族的连续查修，20项修复及相关证据见下文历史裁决；原详细范围表保存在Git f72d0066同文件。它是历史检查方向，不是U04未完成待办或数量门槛。当前只实施上述已审39项及必要调用方，不重开历史全功能深查，不继续分支/竞态专项，不恢复退役入口。AI指标/输出映射及科研规则仍由消费项目负责，插件只守本身公开支持契约；不添加科研依赖、统计/结论检查或原始指标本机同步。
+U03历史20修复已完成，范围/原表见Git f72d0066同计划及execution，非U04数量要求；不重开旧全功能/分支/竞态或退役入口。科研指标/映射归消费项目，不加依赖/统计/结论检查或原始指标本机同步。
 
 ## 角色、租约与执行规则
 
-总控兼最终验收：《总控·SimpleExperiment G004 集中查修与交付》01a1fdb5-efe6-78c2-ae6c-861ed4028cdc/local，Sol/high/default，独占计划/README及最终审查。唯一执行：《执行·SimpleExperiment G004 集中查修与交付 接续》01a1ff08-4031-7410-a937-c2ba34e6730c/local，Terra/high/default，独占实现、UI/API/CLI小验收、execution/coverage、唯一检查及scoped Git。2026-11-22原执行01a1fdb5-ce28-7ba1-b9b5-3470a33e8d00自然触发接续（实核6次压缩、第五次后峰值300048、safe_handoff），无在途动作并正式释放；新执行资格match/continue，读齐背景后承接。旧turn完成后归档，不删除。此前主动双接替历史见19043154同文件；旧总控及首任执行均已释放归档。计数以caveman真实状态为准，不新建额外角色；局部进度记execution，必要消息遵循全局AGENTS。
+总控兼终审：《总控·SimpleExperiment G004 集中查修与交付》01a1fdb5-efe6-78c2-ae6c-861ed4028cdc/local，Sol/high/default，独占plan/README。唯一执行：《执行·SimpleExperiment G004 集中查修与交付 接续》01a1ff08-4031-7410-a937-c2ba34e6730c/local，Terra/high/default，持实现/UI/API/CLI、execution/coverage、唯一检查/scoped Git。11-22旧执行01a1fdb5-ce28-7ba1-b9b5-3470a33e8d00实核6压缩、峰300048自然safe_handoff，已释放归档无在途；新角色match/continue及背景核验通过。前双接替史见19043154，计数按caveman实核，不加角色，协调按全局AGENTS。
 
 全局仅一个node/python检查进程，检查冻结含总控文档，不并写受检输入。先单目标 `node --test --test-force-exit --test-timeout 20000 <file>`，20秒未退停止、不重试或改生产超时求绿；Python只提被测函数及import，不全import/exec scheduler/agent，spawnSync≤10000、windowsHide、断言真实status0，禁止Node用python-c长脚本。无新删除许可，夹具保留；既有测试的清理边界另按规则，不能借测试清理用户数据。
 
@@ -129,11 +133,11 @@ U02原28项J–Q见coverage.g004U02Reconciliation，非按钮分母。八修复�
 
 旧验收祖先 D:/GitRepo/SimpleMcpAcceptance/acceptance_files/artifacts/git_ui_source_501 与分支同父下git_ui_source_501--codex-ui-acceptance-503，以当前源码只读身份探针分别master dirty、codex/ui-acceptance-503 clean且共同Git目录正确。完整工具环境直接Git及经cmd只读exit0；移除VALUE_0受控复现exit128。
 
-总控对专用实例56788:2026-11-21T05:56:46.995Z先核live capabilities/root，仅projects.registry本机只读查询，verifiedAt=2026-11-21T06:55:31.752Z祖先/分支仍missing config value GIT_CONFIG_VALUE_0，排除旧卡片缓存。精确宿主PID56788环境块仅输出COUNT/存在/空值布尔：COUNT10、KEY_0..9存在，VALUE_0/5缺失，其余非空；工具环境对应两个值存在且为空。父Code进程60564无COUNT，由Explorer62344启动。直接故障已实证为宿主indexed配置不完整（Git规则 https://git-scm.com/docs/git-config），不是仓库损坏；具体哪一窗口启动/传递环节丢空值仍未知。Chromium环境构造会过滤empty仅为机制线索，不冒本机调用栈证明。没有展示或落盘配置值、清空Git变量、修改全局配置、注入运行时或重启受保护窗口；环境尚未恢复、真实卡片未复验。此诊断不计10个产品修复或第11个问题。
+J01专用Host56788经live root/capabilities后只读registry查询，2026-11-21T06:55:31.752Z仍missing GIT_CONFIG_VALUE_0。宿主环境COUNT10、KEY0..9有、VALUE0/5缺，其余非空；工具对应值存在且空，父Code60564无COUNT、来自Explorer62344。已实证宿主indexed Git配置不完整，具体启动/传递丢值环节未知，Chromium过滤仅线索。不输出值、不清环境/注入/改全局/重启保护窗；未恢复、真实卡片未复验、不计U04新bug，完整证据见Git c37827c8同文件。
 
 ## 最终审查与统一交付门槛
 
-U03最终源审结论：08d0e02d修复带冒号实验身份回读及空块式cases/experiments登记，实际diff及必要调用链通过。真实Scheduler索引生产函数独立受控提取验证身份；CLI真实加载/list/detail是另一条源码受控检查，不冒同进程端到端。首次两项0/2、exit1，修后目标5/5及完整actionLifecycle42/42、exit0证据复用，总控未重复执行。最长已知身份匹配复用一次加载，不逐冒号远端探测；无歧义旧简称、同名拒绝、精确Worker/路径及隐式case、null优先保留。两项为必要闭包返修，累计仍20。preview diff真实结构added/removed数组正确，先前怀疑排除。J01宿主Git环境未恢复及丢值环节未知，不计产品问题、不以此阻断独立交付；新包实机、服务器均未测。
+U03最终08d0e02d补冒号身份及空块cases/experiments，累计20；Scheduler函数提取与CLI加载两条受控证据不冒同进程E2E。首0/2 exit1、修后5/5及actionLifecycle42/42 exit0有效。旧唯一简称/歧义拒绝、精确Worker/路径、隐式case/null保留；preview结构正确，J01未恢复。完整身份/契约/失败见Git c37827c8同文件。
 
 原U03以累计20个独立修复收包，已完成，不作为U04数量要求。完整交包继续包含实际入口/问题数量、源码基线/diff、真实失败退出码、有效证据、全部未知/未测/阻塞及租约。总控仅审新增契约/跨模块必要关联和最终身份，不重复有效小验收；缺口回原Terra返修，最终明确通过前不做运行交付。原12项/28项通过不自动覆盖新修改。
 

@@ -1,10 +1,18 @@
 # G004 执行登记
 
+U04-56：隔离517导入成功但结果区优先旧主动查询报告，未展示新离线摘要。源码将 bundle 的结果经现有30行/字段压缩单独传为只读预览，明确归属/版本未核，不改变当前 PLAN 完成/归档证据；离线预览时结果区不把旧同步报告当本次结果，实时视图保留真实报告。真实源生成的 HTML 内脚本 VM 编译及定向 `node --test --test-force-exit --test-timeout 20000 test/features/resultsSummaryWebviewCache.test.js` 首次8/8 exit0；补充真实指标压缩和异 PLAN 预览后8/8 exit0，完整后一轮日志 `C:/Users/ZLK/AppData/Local/Temp/g004-56-offline-preview-ff08.log`。原517仍未包含修复，未 build、安装或新版实机验收。
+
+U56 源审返修：非对象离线行显示行号及错误、保留其余行；指标和维度压缩保留 `__proto__`、`constructor` 与零值。上述单文件增加真实压缩及生成脚本消费断言，修前 7/8 exit1（null 读取 experimentId），修后 8/8 exit0；完整日志分别为 `C:/Users/ZLK/AppData/Local/Temp/g004-56-edge-before-ff08.log` 和 `C:/Users/ZLK/AppData/Local/Temp/g004-56-edge-after-ff08.log`。
+
+补齐既有 final_results 与 pending_review_records 消费，显式空 results 不回退；同文件8/8 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-56-alias-final-ff08.log`。
+
+517 离线导入：专用零 Worker 窗口实际选择原 synthetic `offline-fixture.json`，`invoke offline` exit0，持久包读回两行 AP 0.11/0.44；原包缺 PLAN 归属/版本时选中 PLAN 的摘要被门禁隐藏。新建并保留 `g004_0517_offline_scoped_ff08.json`，明确 synthetic、display-only、未运行，将当前空 PLAN 及实际 revision 作为合成显示身份；再次经实际文件选择导入后，state `__offlineImport=true`、两行及 AP 均正确。随后用相同入口恢复原合成包并核持久 source/两行；导入更新时间变化，原输入未覆盖。结果区仍显示之前主动查询失败提示及既有两行表，计划卡未证明显示此次摘要，界面展示语义待总控裁决，不冒通过。准备查工具帮助 `node scripts/test-workflow.js --help` 实际 exit1，因 runner 不支持该选项；未启动测试或打包，随后只读源码确认参数。
+
 U04-55 后续用户裁决替换此前零 Worker 仅配置方案：本人选择授权当前项目即授现有全部操作类别，不选 Worker 或范围；新 grant 不存 Worker，旧细分/绑定 grant 保留旧约束直到本人重授。设置入口 `worker_configure` 可选已禁用的已配置 Worker 并修改/读回 enabled，执行入口仍限启用目标；共享设置提示其影响所有项目。真实源码转译及内存 UI/store/Gateway/配置保存回归 `node --test --test-force-exit --test-timeout 20000 test/ui/actionLifecycle.test.js` 首轮45/45 exit0；补充保存前目标重核及变更夹具后45/45 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-55-project-grant-first-ff08.log` 与 `C:/Users/ZLK/AppData/Local/Temp/g004-55-project-grant-final-ff08.log`；旧窄方案的首失败和通过记录保留于下段。未操作真实授权、共享 Worker 或远端；旧 dist 测试文件同步了新签名，未以旧 dist 测新源码；尚未 build、安装、实机复验。
 
 517 隔离实例 MCP 本地业务补证：实际 discovery/health 为 Host 22928、0.5.517、专用根，live catalog 中 result_parse/metric_leaderboard 无权限要求，真实 mcp.call 未拒绝。原 synthetic/final.csv 按默认长表解析返回空数组；新建并保留 `experiments/results/synthetic/g004_0517_mcp_long_ff08.csv` 与 `g004_0517_mcp_metrics_ff08.csv`，前者解析两行结果，保留带逗号 run key、DSC=0，跳过空 HD95；后者排行两组，保留 accuracy=0 与引号内逗号，空 loss 不计指标，另一组 accuracy=0.8/loss=0.4。此证修正此前“所有 MCP 解析未测”的记载；result_export 等 results 权限链及新授权版本实机仍未测。
 
-U04-55：517 的人手授权先要求非空 Worker，故隔离零 Worker 项目无法授本地配置；非用户未操作。源码调整为零 Worker 时仅展示「项目配置与草稿」，由本人明确选择；grant 构造禁止零 Worker 含 experiment/sync/agents/results，原有 Worker 选择及精确身份复核保留。真实源码转译与内存 UI/store/Gateway 的 `node --test --test-force-exit --test-timeout 20000 test/ui/actionLifecycle.test.js` 首次 43/44 exit1（零 Worker 未写授权），修后 44/44 exit0；覆盖本地配置可达、取消不写、项目身份不符拒绝、现有 Worker 选择及远端范围拒绝。完整日志保留 `C:/Users/ZLK/AppData/Local/Temp/g004-55-action-before-ff08.log` 与 `C:/Users/ZLK/AppData/Local/Temp/g004-55-action-after-ff08.log`。没有操作真实权限或 Worker；未 build、安装、递版或实机重验。
+U04-55 旧窄方案：517 零 Worker 无法授权，非用户未操作；首43/44 exit1、修后44/44 exit0，日志及完整记录见 Git `156f060b`；后被本人新裁决替换。未操作真实权限或 Worker。
 
 U04-54 原 B3 局部返修：已装 0.5.517 的 `selectPlan` 实机失败保留；同属公开目录和 uiActionCommands 的 `selectExperiment` 也无 actionCommandMap 映射。源码 `invokeApi` 在原授权及确认之后将两项转回既有 `handleMessageCore` 本地选择分支，远端动作路径和确认不变。`node --test --test-force-exit --test-timeout 20000 test/ui/actionLifecycle.test.js` 首次 42/43 exit 1（两个选择未到本地 handler），修后 43/43 exit 0；完整日志分别为 `C:/Users/ZLK/AppData/Local/Temp/g004-54-action-before-ff08.log` 和 `C:/Users/ZLK/AppData/Local/Temp/g004-54-action-after-ff08.log`。测试使用真实 invoke/消息路由和内存 handler，覆盖未公开/缺命令拒绝、远端动作确认及原路由；未运行真实任务。修复仅源码，未 build、打包、安装或实机重验。
 
@@ -18,13 +26,7 @@ U04-54 原 B3 局部返修：已装 0.5.517 的 `selectPlan` 实机失败保留�
 
 U04排查阶段基线HEAD及origin/master为b7c0b42c27227a8ec49d42d1f21346900a274ae4，开始时tracked clean；计划由总控独占。legacy、辅助页和MCP入口证据见coverage.g004U04RemainingInventory；旧静态脚本不能代表完整母集。factory实际输出缺四项门禁并回退legacy；恢复页VM消息5/5 exit0，未实际重载或写剪贴板。当时按钮总数及剩余未知，排查阶段未改产品、构建、安装或访问服务器；后续三批源码包见1ff64a81及下文。旧执行聊天已归档。
 
-版本审核13/13 exit0及分页、取消受控检查，详见4a80c627与coverage。
-
-U04-01清理状态变化后仍发假请求，含首次夹具失败；无真实删除，见coverage及4a80c627。
-
-U04-02跨项目缓存审核错误延期，见coverage。
-
-缓存及同步范围页局部受控检查分别4/4及3/3 exit0；无真实删除。细节见4a80c627及coverage。
+版本审核13/13、缓存及同步页4/4和3/3 exit0；U04-01首夹具失败、U04-02跨项目延期，完整细节见4a80c627及coverage；无真实删除。
 
 本登记上限12000字符、90%时语义归并；原完整逐项记录保留于 Git 10c0689e:docs/plan-generations/G004-execution.md，U04中途记录另见4a80c627同路径，项目计划与代次索引为总控独占。执行范围为本人日常单机最多两个项目，不做多项目压力、无入口参数突变或新锁队列；保护真实Worker、训练、消费项目、共享配置、原窗口、未保存文档及全部夹具。源码、旧dist、已安装版本及远端效果分开记录。
 
@@ -42,15 +44,9 @@ U04逐项调查、原始退出码与受控证据保留于 Git f72d0066 的本登
 
 B1首组 U04-25/26：旧状态写入成功后才清除迁移来源；无项目根目录时保留旧值，同进程失败重试重新写入；选择写失败可见，隐藏任务持久化失败不报成功。内存替身定向检查7/7 exit0，projectWorkspaceChangeIsolation 20/20 exit0；未操作实际VS Code状态。后续组及三批验收仍待完成。
 
-B1 U04-49/50：宽表按所有行识别有效数值并保留0；长表身份加入case/model/tag，同身份不同指标仍合并。定向测试首次1/2 exit1，原因是夹具沿用长表预设；明确宽表预设后2/2 exit0。CSV引号处理仍在下一组。
+B1 U04-49/50、28、32完整修复及定向结果保留于 Git `c37827c8:docs/plan-generations/G004-execution.md`；49/50 首次1/2 exit1（夹具沿用长表预设），修正预设后2/2 exit0。
 
-B1 U04-28：复用项目CSV字符读取逻辑，使结果预览、长宽表和指标解析支持引号内换行、逗号及双引号转义；原拆表的列数校验保持。定向测试4/4、projectResultTables 20/20，均exit0；均为合成输入，未读取真实结果。
-
-B1 U04-32：共享排行榜及result_export不再把null、空串、空白或布尔值当数值；保留合法0及数字字符串。真实函数配内存记录及导出替身2/2 exit0；未恢复退役界面或读取真实结果。
-
-B1 U04-29/30/31：排行识别大小写JSON，已知身份和维度不进入指标，CLI按所有记录的稳定并集输出列。合成CSV/JSON及CLI替身3/3 exit0；无真实数据读写。
-
-B1 U04-19及21汇总链：拆表、摘要注册、FreshResults和catalog使用可序列化自有数据键；保留真实指标冲突检查。projectResultTables 21/21、freshResults 10/10、catalog替身1/1，均exit0；U04-21的CLI与排行榜调用链仍待下一组。
+B1 U04-29/30/31及19/21汇总链证据见 Git `c37827c8:docs/plan-generations/G004-execution.md`；对应合成和替身回归3/3、21/21、10/10、1/1 exit0。
 
 B1 U04-21其余链：结果解析、排行榜、CLI指标提取与比较保留特殊名称，比较只使用自有键。CSV解析5/5、排行4/4、缺值及CLI比较3/3，均exit0；均为内存输入。
 

@@ -27684,7 +27684,7 @@ return "历史服务器";
             plans: [this.localPlanMetadata.plans, this.localPlanMetadata.archivedPlans, recentPlansRevision, this.planFileInput, this.selectedPlanId, this.draftPlanState,
                 this.resultsSummary, planStopClearRevision, realtimeState?.operations, snapshot?.operations, offlineSnapshot?.operations,
                 realtimeState?.schedulerStates, snapshot?.schedulerStates, offlineSnapshot?.schedulerStates, planStatusSummaryRevision],
-            results: [this.resultCatalogDirtyGeneration, this.resultCatalogCache?.key, this.resultCatalogCache?.catalog, this.resultsSummary, this.resultSyncReport,
+            results: [this.resultCatalogDirtyGeneration, this.resultCatalogCache?.key, this.resultCatalogCache?.catalog, this.resultsSummary, this.offlineBundle, this.resultSyncReport,
                 this.resultCatalogStatus, this.resultCatalogRefreshError, projectAdapterRulesRevision,
                 offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces, includePanelResults],
             gpu: [offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu, gpuOwnership, gpuHistory, this.setupConfig, includePanelGpuHistory],
@@ -27780,6 +27780,7 @@ return "历史服务器";
             planFileInput: this.planFileInput,
             recentPlans,
             resultsSummary: compactResultsSummaryForPlanForWebview(this.resultsSummary, selectedResultsPlanFile, selectedResultsPlanVersion.revision, selectedResultsPlanVersion.updatedAt),
+            offlineResultPreview: this.effectiveConnectionMode() === "offline_import" ? offlineResultPreviewForWebview(this.offlineBundle) : undefined,
             resultSyncReport: this.resultSyncReport || null,
             auditTail: this.auditTail,
             debugBundlePath: webviewDebugBundlePath,
@@ -30755,6 +30756,18 @@ const resultsSummaryArrayLimits = {
 };
 const RESULTS_SUMMARY_WEBVIEW_VARIANT_CACHE_LIMIT = 8;
 const resultsSummaryForWebviewCache = new WeakMap();
+function offlineResultPreviewForWebview(bundle) {
+    if (!bundle) return undefined;
+    const raw = objectRecord(bundle.results) || objectRecord(bundle.resultsSummary) || objectRecord(bundle.snapshot?.resultsSummary) || {};
+    const rows = Array.isArray(raw.results) ? raw.results : [
+        ...(Array.isArray(raw.finalResults) ? raw.finalResults : Array.isArray(raw.final_results) ? raw.final_results : []),
+        ...(Array.isArray(raw.pendingReviewRecords) ? raw.pendingReviewRecords : Array.isArray(raw.pending_review_records) ? raw.pending_review_records : []),
+    ];
+    return { source: bundle.importedFrom || "", importedAt: bundle.lastImportedAt || "", totalCount: rows.length,
+        results: rows.slice(0, resultsSummaryArrayLimits.results).map((row, index) => objectRecord(row)
+            ? compactResultRecordForWebview(row)
+            : { previewError: `第 ${index + 1} 行不是对象` }) };
+}
 function compactResultsSummaryForPlanForWebview(summary, selectedPlan, planRevision = "", planUpdatedAt = "") {
     const cacheable = Boolean(summary) && typeof summary === "object" && !Array.isArray(summary);
     if (!cacheable)
@@ -30979,7 +30992,7 @@ function compactMetricsRecordForWebview(value, primaryMetric) {
     if (primaryMetric)
         add(entries.find(([key]) => key === primaryMetric));
     entries.forEach(add);
-    const out = {};
+    const out = Object.create(null);
     for (const [key, item] of picked) {
         const metric = objectRecord(item);
         out[key] = metric ? dropUndefined({
@@ -31001,7 +31014,7 @@ function compactPrimitiveRecordForWebview(value, limit, itemLimit) {
     if (!record)
         return undefined;
     const entries = Object.entries(record).slice(0, limit);
-    const out = {};
+    const out = Object.create(null);
     for (const [key, item] of entries) {
         out[key] = typeof item === "string" ? compactSensitiveText(item, itemLimit) : item;
     }
