@@ -103,3 +103,5 @@ Worker运行与观察合并、旧清理引擎三份未应用diff分别绑定现�
 历史视图与查询schema形成两份旧CLI未应用diff，现MCP合成查询9/9及4/4，旧compact/full组合与错误外壳单列；git apply --check exit0，原文件与矩阵保留。
 
 项目CLI、控制和草稿三份部分候选合并为各自完整文件diff，逐项关联全部原索引及未决边界，取代旧部分diff；三份git apply --check exit0，逐断言审核和退休仍未批准。
+
+PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件diff，逐项关联全部原索引和未决边界；三份git apply --check exit0，未退休。
