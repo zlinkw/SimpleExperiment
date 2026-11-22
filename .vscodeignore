@@ -48,6 +48,8 @@ dist/runtime/.python-dependencies/**
 # The standalone SDK entry is bundled with its dependencies and notices.
 dist/mcp/Server.js
 dist/cli.js
+dist/cli.legacy.js
+dist/runCli.js
 dist/cli/**
 bin/simpleex.cjs
 bin/simpleex-mcp.cjs
