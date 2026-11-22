@@ -108,7 +108,7 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   fs.writeFileSync(receiptPath, JSON.stringify({ schemaVersion: 2, entry: "package", root: ws, overall: "passed", inputFingerprint: "historical", endFingerprint: "historical", artifactFingerprint: "historical-artifact", candidate: { state: "validated" }, jobs: [original] }));
   const sha = f => crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex");
   const row = { ...job, eligible: true, disposition: "controller_reviewed_inheritance_candidate", sourceJob: 1, sourceOutLog: outLog, sourceErrLog: errLog,
-    sourceLogSha256: { outLog: sha(outLog), errLog: sha(errLog) }, review: { decision: "reviewed", dependencies: [file], snapshotSha256: { [file]: sha(path.join(ws, file)) } } };
+    sourceLogSha256: { outLog: sha(outLog), errLog: sha(errLog) }, review: { decision: "reviewed", dependencies: [file], snapshotSha256: { [file]: sha(path.join(ws, file)) }, externalInputs: [] } };
   const coverage = { sourceReceipt: receiptPath, sourceReceiptSha256: sha(receiptPath), jobs: [row] };
   const inspect = c => runner.inspectG004LegacyEvidence(ws, { jobs: [job] }, c);
   const accepted = inspect(coverage);
@@ -121,6 +121,8 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   assert.throws(() => inspect({ ...coverage, sourceReceiptSha256: "incorrect" }), /receipt drift/);
   assert.throws(() => inspect({ ...coverage, jobs: [{ ...row, sourceLogSha256: { ...row.sourceLogSha256, outLog: "incorrect" } }] }), /log drift/);
   assert.throws(() => inspect({ ...coverage, jobs: [{ ...row, review: { ...row.review, snapshotSha256: { [file]: "incorrect" } } }] }), /dependency drift/);
+  assert.throws(() => inspect({ ...coverage, jobs: [{ ...row, review: { ...row.review, externalInputs: [{ path: outLog, sha256: "incorrect" }] } }] }), /external input drift/);
+  assert.throws(() => inspect({ ...coverage, jobs: [{ ...row, review: { ...row.review, externalInputs: undefined } }] }), /external input review missing/);
   assert.throws(() => inspect({ ...coverage, jobs: [{ ...row, argv: ["--other"] }] }), /missing or duplicate/);
   assert.deepEqual(inspect({ ...coverage, jobs: [{ ...row, eligible: false }] }), []);
   const failedReceipt = path.join(ws, "failed-source.json");
@@ -137,7 +139,7 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   const outputLine = JSON.stringify({ payload: { type: "custom_tool_call_output", call_id: callId, output: [{ text: JSON.stringify({ exit_code: 0, output: "ℹ tests 1\nℹ pass 1\nℹ fail 0" }) }] } });
   fs.writeFileSync(rollout, callLine + "\n" + outputLine + "\n");
   const digest = value => crypto.createHash("sha256").update(value).digest("hex");
-  const directEvidence = { ...directJob, eligible: true, cwd: ws, treeStatus: "settled_by_direct_execution", rollout, callId, exactCommandLine: "node --test test/direct.js", commandEventSha256: digest(callLine), outputEventSha256: digest(outputLine), review: { decision: "reviewed", scope: "dependency_scoped", reviewedArgv: directJob.argv, dependencies: [directJob.file], snapshotSha256: { [directJob.file]: sha(path.join(ws, directJob.file)) } } };
+  const directEvidence = { ...directJob, eligible: true, cwd: ws, treeStatus: "settled_by_direct_execution", rollout, callId, exactCommandLine: "node --test test/direct.js", commandEventSha256: digest(callLine), outputEventSha256: digest(outputLine), review: { decision: "reviewed", scope: "dependency_scoped", reviewedArgv: directJob.argv, dependencies: [directJob.file], snapshotSha256: { [directJob.file]: sha(path.join(ws, directJob.file)) }, externalInputs: [] } };
   coverage.currentTargetedEvidence = [directEvidence];
   const coveragePath = path.join(ws, "docs", "windows-entry-coverage.json");
   fs.mkdirSync(path.dirname(coveragePath), { recursive: true });

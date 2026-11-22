@@ -977,6 +977,11 @@ async function releaseOwnedLock(state) {
 
 /* ---------------- receipt validation (r29 #5) ---------------- */
 
+function verifyG004ExternalInputs(review, file) {
+  if (!Array.isArray(review.externalInputs)) throw new Error("G004 external input review missing: " + file);
+  for (const input of review.externalInputs) if (!path.isAbsolute(input.path) || sha256Fresh(input.path) !== input.sha256) throw new Error("G004 external input drift: " + input.path);
+}
+
 // G004 仅接受既有覆盖清单中经逐项审定的旧记录；此函数不改变旧 receipt。
 function inspectG004LegacyEvidence(root, plan, coverage) {
   const sourcePath = coverage.sourceReceipt;
@@ -1007,6 +1012,7 @@ function inspectG004LegacyEvidence(root, plan, coverage) {
       const abs = path.resolve(root, rel), within = path.relative(root, abs);
       if (!within || within.startsWith(".." + path.sep) || path.isAbsolute(within) || sha256Fresh(abs) !== expected) throw new Error("G004 dependency drift: " + rel);
     }
+    verifyG004ExternalInputs(row.review, row.file);
     accepted.push({ file: job.file, identity: job.identity, argv: job.argv, origin: "reused", sourceReceipt: sourcePath, sourceJob: row.sourceJob, sourceInputFingerprint: source.inputFingerprint, sourceEndFingerprint: source.endFingerprint, sourceArtifactFingerprint: source.artifactFingerprint, original });
   }
   return accepted;
@@ -1040,6 +1046,7 @@ function inspectG004DirectEvidence(root, plan, coverage) {
       const abs = path.resolve(root, rel), within = path.relative(root, abs);
       if (!within || within.startsWith(".." + path.sep) || path.isAbsolute(within) || sha256Fresh(abs) !== expected) throw new Error("G004 direct dependency drift: " + rel);
     }
+    verifyG004ExternalInputs(row.review, row.file);
     accepted.push({ file: job.file, identity: job.identity, argv: job.argv, origin: "direct", status: "passed", exitCode: 0, settlement: row.treeStatus, directEvidence: row });
   }
   return accepted;
