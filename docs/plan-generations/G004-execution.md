@@ -79,3 +79,5 @@ Windows工作流混合文件形成未应用diff，仅移旧CLI三项及专用fix
 候选整体可应用性检查25份联合git apply --check exit0，排除已被合并取代的localApi导入diff；修正同文件草稿旧候选残留及来源误归属。更新JSON状态首脚本因原对象为多行格式断言exit1未写，按真实格式修正后UTF8解析通过。此检查不表示候选已批准、测试已退役或最终矩阵完整。
 
 活跃快照及持久运行记录形成两份整文件未应用diff，分别对应中立生命周期4/4＋快照6/6与持久记录4/4；真实Worker和旧CLI进程未测，联合退休及直接job修改须批准。两份git apply --check exit0。
+
+失败告警、健康证据与inspect schema三份旧文件形成未应用候选，分别关联MCP合成queryProject 6/6、6/6、6/6；告警首加载失败保留旧记录，未测真实Worker/旧进程。三份git apply --check exit0，原文件和矩阵保留。
