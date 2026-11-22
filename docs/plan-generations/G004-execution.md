@@ -91,7 +91,7 @@ U04排查基线HEAD=origin/master `b7c0b42c27227a8ec49d42d1f21346900a274ae4`、t
 
 登记上限12000、90%归并；旧记录见Git 10c0689e及4a80c627。保护Worker、训练、消费项目、共享配置、窗口及夹具；源码、旧dist、安装和远端分记。
 
-U01–U03首失败及旧证据见Git 10c0689e、b7c0b42c同文件：A组0/3→3/3及入口4/4，MCP43/43，build首并发失败、夹具6/7→7/7，后285/285、10门禁、并发1、6按需未跑；唯一旧锁经精确授权删除。历史数字非当前按钮分母。
+U01–U03首失败、旧测试及锁授权见Git 10c0689e、b7c0b42c同文件；历史数字非当前按钮分母。
 
 0.5.514/515安装、发行及实际失败见10c0689e与G004-plan，Latest仍0.5.483。
 
@@ -151,3 +151,5 @@ MCP查询身份补充活跃项非空及候选上界，4/4 exit0（9ccf3f）；�
 独立MCP resolver接中立客户端及合成Host，运行版本切换、身份/工作区/发现变化2/2 exit0；未测真实Host。
 
 MCP action_catalog动态表/缺方法无回退，Gateway假Host 1/1 exit0；旧CLI错误包装待审。
+
+Agent MCP经实际Gateway/Host核精确目标、撤权及迁移digest，假Agent 2/2 exit0；未访问Worker。
