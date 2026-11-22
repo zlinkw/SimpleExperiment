@@ -64,7 +64,9 @@ test('neutral plugin transport binds slot, instance and workspace before each RP
     [{...caps,version:'2.0.0'},/version mismatch/i],
     [{...caps,workspace:path.join(root,'other')},/工作区/],
   ];
-  for(const [candidate,reason] of bads){caps=candidate;await assert.rejects(client.callPluginRpc('experiment','status',{},undefined,target),reason)}
+  for(const [candidate,reason] of bads){caps=candidate;await assert.rejects(client.callPluginRpc('experiment','status',{},undefined,target),error=>{
+    assert.match(error.message,reason);assert.ok(!String(error.stack).includes(token));return true;
+  })}
   caps={schemaVersion:1,name:'SimpleExperiment',version:'1.0.0',rpc:'json-rpc-2.0',instanceId:`${pid}:${startedAt}`,workspace,methods:['status']};
   await assert.rejects(client.callPluginRpc('sftp','status',{},undefined,target),/slot mismatch/i);
   assert.equal(calls.filter(url=>url==='/api/v1/rpc').length,1);
