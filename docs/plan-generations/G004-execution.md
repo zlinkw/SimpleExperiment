@@ -1,6 +1,7 @@
 # G004 执行登记
 
 压缩前本轮逐组退休文件、校验和提交见 Git 67f67de4 同文件；49份获批旧CLI测试依原coverage逐项映射分组退休，保留路径、node --check通过，业务证据与已退休外壳差异见coverage；未访问真实Worker。
+获批前各候选生成、逐份apply --check及边界的完整记录见 Git 690be905 同文件；候选证据和逐项映射保留于coverage。
 完整压缩前执行记录、每项日志及失败见 Git `48f7e339:docs/plan-generations/G004-execution.md`；T1–T7更早完整原文见 `32d16ac4` 同路径。该引用保留各测试消费者、退出码、失败和未测边界，非全量通过结论；coverage含逐项证据和候选。519旧版package、安装和真实重载证据以总控计划为准，不能作为本轮新源码build或现场通过。
 
 519专用根重载原识别false→false，无adapter；未重配重授。A1状态11/11、A2状态13/13及布局3/3/上下文20/20、A4指标6/6；首现场流程1/2、布局0/2、指标两次0/1均exit1且原日志保留。B1首断言失败后夹具污染导致原文件20秒超时exit1，日志TEMP/g004-r519-b1-lease-before-ff08.log；生产与finally夹具仍dirty未验，禁止重跑或绕过，统一交包时申请原文件原预算一次复验。B2动作46/46、迁移13/13、上下文20/20，首夹具44/45失败；B3假对象4/4、低流量16/16、关闭决策14/14；B4假对象1/1。各原命令、日志、边界和失败在前述Git原记录。
@@ -29,7 +30,6 @@ MCP项目/控制固定工具缺参、Hub旧字段及不存在pause在业务方�
 
 空target patch依伴随源码由已有配置及后端规则决定；Gateway保持人工批准/工作区并传播模拟后端拒绝，15/15 exit0，未写真实配置。
 
-七项旧CLI发现/身份用例形成未应用精确diff，逐项关联真实中立消费者业务证据；旧退出/doctor外壳拟退休，其他原测试和矩阵保留。
 
 中立握手的身份/版本/槽位错误补断言凭据不出现在错误栈；合成端点3/3 exit0。
 
@@ -47,7 +47,6 @@ PLAN列表保留原valid-plan输入，实际Host摘要解析与Gateway字段/状
 
 四项旧展示/动态动作/CLI清理包装与递归开关按已决产品边界重分；现结构化出口、人工清理及已有证据保留，未修改旧test。
 
-三项旧CLI草稿读取/审阅用例形成未应用精确diff，对照现Gateway 3/3业务与授权；git apply --check字节输入exit0，原测试和矩阵不变。
 
 候选补充：仓内simpleex.cmd列第39个精确文件，未删除；修正矩阵保留glob未来发现、仅拟精确排除的裁决，Agent旧SFTP专属生命周期拟退休而真实后端秘密输出未测。旧动作目录4项形成未应用diff并关联MCP Gateway现有1/1业务证据，CLI错误与无握手不冒等价；git apply --check字节输入exit0，原文件/矩阵不变。
 
@@ -83,17 +82,11 @@ Windows工作流混合文件形成未应用diff，仅移旧CLI三项及专用fix
 
 失败告警、健康证据与inspect schema三份旧文件形成未应用候选，分别关联MCP合成queryProject 6/6、6/6、6/6；告警首加载失败保留旧记录，未测真实Worker/旧进程。三份git apply --check exit0，原文件和矩阵保留。
 
-旧CLI拆分测试1–3形成逐文件未应用diff，逐项引用原索引及边界，不把重复函数体当helper等价；history、旧表面和真实Worker差异仍需裁决。三份git apply --check exit0，现有测试及glob不变。
 
-旧CLI拆分测试4–6各形成未应用精确diff，逐项依索引证据与差异裁决，三份git apply --check exit0；不视为断言等价审核完成。
 
-旧CLI拆分测试7–9形成三份未应用精确diff，逐项沿用索引证据与未决边界；git apply --check均exit0，未退休。
 
-旧CLI拆分测试10–12形成三份未应用精确diff，逐项沿用索引证据与未决边界；git apply --check均exit0，未退休。
 
-旧CLI拆分测试13–15形成三份未应用精确diff，逐项沿用索引证据与未决边界；git apply --check均exit0，未退休。
 
-拆分测试16及运行身份/捕获形成三份未应用diff；运行身份前两项旧直接alias断言未逐项迁，保留待裁决，不称等价；三份git apply --check exit0，原文件及矩阵保留。
 
 三份旧SFTP传输测试形成未应用diff，逐项保留实际Gateway/Host证据与传输、创建、压缩/覆盖及manifest未测差异；git apply --check均exit0，不冒完整等价或真实传输。
 

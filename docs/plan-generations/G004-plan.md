@@ -94,24 +94,18 @@ B1待验候选：src/extension/legacy.ts末尾通知放runOutsideResourceLease�
 518首339/341 exit1，两fixture43/43及10/10后特批341/341+13；独立runtime核验exit丢失未知，以实际ZIP等价325/324/371裁决，不冒原命令通过。517首337/341 exit1/stdin closed取消失败，四定向43/43、19/19、13/13、10/10（Agent补首9/10跨realm）后特批341/341+13。日志原12/13与独立VM3/3及首夹具失败、旧/新dist13/13分别保留。516首340/341→22/22→特批341/341；vsce ls30秒ETIMEDOUT exit1不重跑、actualZIP等价及首./归一假缺保留。514坏60位sha、旧并发中止/BUILD_LOCK_UNSETTLED、其它历史失败及用尽owner精确删除许可按原Git/日志保留，不作通用豁免。原U01/U02计划4edd1da5、执行10c0689e/b7c0b42c/f72d0066/c37827c8/eab27339/4bde7f49/89498eff可取回。
 
 J01未修：Host GIT_CONFIG_COUNT10/KEY全有，VALUE0和5缺、传递环节未知；不sanitize/注入/改全局Git或重启稿件。旧CLI --version API_WORKSPACE_MISMATCH exit2不重放。平台旧systemError cybersecurity risk触发未公开，无Daybreak/扫描/重放或换工具模型聊天绕限，自然接替与绕限无关。所有原失败/未测/真实未知不能被新局部通过覆盖。
-## 0ee444be完整候选包复审与一次集中确认
+## 当前收尾：集中批准后连续实施
 
-执行者01a203b9交齐本轮授权内可做工作，HEAD=origin/master/FETCH_HEAD=0ee444bef20581c3367cc0b20cd60b8872430a9d，已释放全部执行/检查/Git/受限UI租约且无在途。总控接回最终审查，不自动开启真实外部或跨项目。B1两文件仍dirty、未验证/提交；其余tracked clean，未构建/递版/发行/安装。
+完整候选基线0ee444bef20581c3367cc0b20cd60b8872430a9d，审核登记5886c9e2；原完整候选/审批与过程可从Git 11c076f8同计划及当前execution/coverage读取。e4fd93ed file_cleanup_preview显式managed_tmux、缺省保持/非法值拒绝，真实Gateway/Host假后端17/17；c9b2dd99 runtimeRow/pickExperiment精确身份/别名14/14；ca8d012b同值PLAN配置/INFO/ERROR及failed/OOM诊断18/18，均合成，不证明整个CLI接口/真实Worker等价。
 
-e4fd93ed的file_cleanup_preview显式managed_tmux、缺省不变/非法值拒绝，真实Gateway/Host假后端17/17；c9b2dd99现runtimeRow/pickExperiment别名与精确身份14/14；ca8d012b同值PLAN配置、INFO/ERROR和failed/OOM诊断18/18，均限定合成输入。源审通过其当前业务方向，旧函数observation与现row输出不同，不能据此称整个CLI接口等价。
+用户已明确回复“同意1、2、3，按清单执行，保留必要业务和安全检查，复用有效证据，完成后统一验收交付，不要再因局部问题停下整批任务。”一次授权绑定已展示完整39仓内file路径及候选，原测试退休/替代/矩阵/两helper获批，B1改后原文件原20秒唯一复验获批；上文各待批准/未验文字属于当时边界，以本节实际结果为准。不重复问同一许可，不扩路径/其它测试/临时文件/远端效果。总控独占plan/README，唯一执行01a203b9重新持产品/测试/execution/coverage、受限UI、唯一检查/scoped Git；无并行执行者。
 
-当前49个test/cli文件302个顶层用例均有精确未应用候选diff，目录外补localApi:259为27项；61份联合git apply --check exit0只是补丁可应用，非行为通过。旧helper两份及目录外合并/导入候选在原文件处理；checkpoint、正式PLAN/实例/安全等适用断言保留。综合生命周期与stable entry三项原“保留迁移”按assertionMap拆分：当前结构化查询/身份/日志/配置/诊断/shim保护已有对应证据；无Host history、旧CLI自动绑定/默认目标/终端/exit/dry-run等专属行为作为退休申请，不冒称未迁差异已等价。真实Worker/主动结果/传输/Agent后端输出与原生UI未测边界保留。
+49个旧test/cli文件302顶层用例及目录外27项均有未应用精确候选，61份联合git apply --check exit0只是可应用证据。现获批49旧CLI测试与history、两helper、sourceReader和混合消费者已经实施，旧测试路径/fixture/Git历史保留；current业务/安全断言保留，旧无Host history、自动绑定/default-active/argv/exit/dry-run等明确退休差异不冒等价。矩阵精确过滤49旧CLI加resultHistoryReadErrors共50路径，保留glob自动发现、其他argv/caseGroups/20秒，13旧直接job改17现MCP契约、worker-mode移旧manualDispatch；独立oracle/盘面覆盖同步，原分类移除不冻结341总数。
 
-矩阵五文件候选仅精确过滤49个旧CLI文件及resultHistoryReadErrors共50文件，保留glob未来发现、其他argv/caseGroups和20秒；13个旧cli-contract直接job改列17个现MCP契约，worker-mode移旧manualDispatch，移除已退役测试的旧分类并同步独立规划/磁盘对账。当前全部未应用，不能以候选已通过宣称默认覆盖已变或MCP全集已通过；获准后必须按实际变更定向验及规划核对，不强求保持旧341作业数。
+B1唯一复验3/3；Windows消费者4/4、指标3/3、证据1/1、formalJob原5/5（串行Python唯一子进程、10秒spawn/提取函数、不训练/fullimport）、中立LocalApiClient前四项4/4、localApi预算/取消1/1、MCP dispatch5/5，均exit0。规划对账首0/1因盘面要求50已退休路径，修对获批50项反向断言/其余完整覆盖后1/1。完整runner/acceptance安全套件含实际temp删除，windowScope.dispose删发现文件，未运行这些分支；保留原安全断言，复用未改函数和519相同用例证据，不冒完整套件通过或新版本通过。最终凭据不能组合时必须交实际差距裁决，不停所有独立工作或擅减默认覆盖。
 
-总控只读预检39个精确file：当前全存在、均非dirty、根/直接父匹配、祖先及终项无reparse，问题0；不等删除授权或届时身份核验。用户一次确认范围为：①coverage.g004CliRemovalCandidates的39个完整绝对路径，测试/构建依赖迁清且最终预检后才删；②0ee444be基线的302旧CLI用例及27外部项中明确退休/替代/机械迁移的精确候选、上述矩阵与两helper变更，保留不相关断言/夹具/历史；③改后原localWorkspaceRecognition单文件原20秒预算唯一一次定向复验，保留原超时失败，不改时限/换文件/实机复现。任何未批准项不擅自从测试和门禁移除。确认后连续完成获准分组与必要验证，最终统一源码/构建/试行发行/一次安装交付；授权依然不含真实服务器或跨项目。
-## 本人已批准1/2/3，连续实施
+先前为真实dist/api消费者精确放行一次tsc-cached，仅TS类型检查/emit，不是完整build或runtime生成/版本/package。实际incremental/input-drift/TS7.0.2 exit2，旧CLI丢EXIT_OK/jsonErrorBody导出与MCP stopRunning推断类型错误；233f31d3已将params按真实字典契约标注，dispatch5/5。71 emit造成18个tracked dist dirty，全部保留不stage/恢复。日志TEMP/g004-tsc-central-predelete-20261122-terra.log及当前execution保留首失败；不能因有emit声称编译通过。删除后真实输入改变才按现缓存单次重验TS语义，不重放同输入。此必要TS前置许可不开放完整build/package/安装。
 
-2026-11-22本人明确回复“同意1、2、3，按清单执行，保留必要业务和安全检查，复用有效证据，完成后统一验收交付，不要再因局部问题停下整批任务。”此为上述0ee444be冻结候选的一次集中精确授权，取代本计划对应待批准状态，不扩大其它路径、测试或外部效果。39文件精确完整路径已在用户可查看的上一回复列出，不二次确认；原测试退休/替代、矩阵与两helper按已审候选实施，适用业务/安全断言、夹具与Git历史保留。B1仅改后原localWorkspaceRecognition文件、原20秒预算、唯一一次定向复验获批，不是其它超时重试或增加预算许可；原失败仍保留。
+当前HEAD交包002732237ee86e6a1b91430359a54ce0773f9247，39文件预查存在/干净普通/根父及无链接，TS静态import/export集合外引用0；尚未实际删除。原删除大命令在CreateProcess被自动策略拒绝、进程未创建（blocked by policy，精确触发未公开）；原始call_887a6fcce30d45c4a9a7625697e86b55记录完整参数，拒绝输出自身被平台截断。总控核实三处Get-Item含-Force，违反safe-delete-paths明确“只读预检也不带Force”规则；不称已证这是唯一原因。
 
-总控向现任唯一Terra重新开放产品/测试/execution/coverage、唯一Node/Python检查、受限UI和scoped Git租约；plan/README仍总控。先完成获准测试消费者/矩阵及必要闭包变更，按依赖分组与≤8文件约束验证提交，最终严格39目标全批预检后按直接父/./叶名规则删仓内旧CLI，保留新MCP连接器和全局用户入口；清理状态亦在此授权内按既有G004流程scoped提交同步，不用git rm当删除执行器。测试补丁可应用不等通过，必须保留真实退出码与任何失败，普通失败在原范围定位必要修法后继续其它可做项。
-
-整包修复、B1及当前必需定向检查完成后交总控统一最终源码/覆盖复审，随后连续集中构建试行交付；不再请用户重复批准已列动作，也不提前以局部通过发版。最终package矩阵应按批准后的当前真实清单，不冻结旧341。必要源审/构建/VSIX/FF同步/同字节试行发行/真实客户端/一次安装门禁仍全部适用，真实Worker、跨项目和保护稿件权限不变。
-cd9a529c实施中前置裁决：B1本人批准的唯一复验3/3；旧CLI测试/矩阵已提交，四混合消费者需尚不存在的dist/api/LocalApiClient。允许唯一执行者单次node scripts/tsc-cached.js作必要TS类型检查/emit与缓存，不开放完整build/runtime生成/版本/package/安装；后续真实删除/版本输入变更再编译按实际缓存，不重复同输入。formalJobExecution原harness内串行唯一Python子进程按20秒外层/10秒spawn/windowsHide/status0及真实函数提取可验，不是并开第二套测试，不训练或fullimport Agent/Scheduler。
-
-testWorkflowRunner实际锁删除及releaseAcceptanceWorkflow临时目录rm不属39精确批准，不运行这些破坏性分支；保留原断言，复用未改安全函数/旧519对应证据。仅改动的planner过滤/独立oracle/磁盘对账可在原文件原20秒按精确test-name-pattern定向验，先核顶层及所选路径无实际删除；完整套件未重跑须如实记录。混合文件关LocalApiServer若unlink发现文件亦不擅运行；机械导入迁移以编译输出、中立源/握手/隔离/取消既证及必要非删除目标验闭环，不强制重演未改副作用。这些受限旧安全效果不阻断已经迁清依赖的39旧CLI源文件清理；保留最终门禁组合缺口供整包裁决，不现在停全部独立工作或扩临时文件删除权限。
+本次只允许按该明确安全修正同工具重执行一次：整条cleanup去掉Force（含所有读操作），保持pwsh/原Remove-Item/原39路径，不换shell/API/权限/目标规避。先独立全39最终不可变file预检并与用户展示集合核一致；再≤7文件组逐项直接父cd/物理cwd/无Force类型与身份及内容重核，仅./直接叶名删除并确认不存在；删除命令与文档、Git网络、测试分离。每组结算后另按≤8文件scoped记录/commit/FF push/fetch，保留dist与无关资产。若修正后仍policy拒绝，停止相关删除、不再换写法重试，交原始命令/输出且继续其它非破坏性工作。39批准不覆盖temp fixture/旧dist或全局shim。完成39后单次tsc-cached验真，完整源码/覆盖包交总控复审后连续集中试行交付；构建、矩阵、包、发行、安装、新Host仍未完成，所有真实Worker/UI/跨项目限制不变。
