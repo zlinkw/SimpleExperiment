@@ -22,68 +22,16 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 候选资格并行只读查询中，Python元数据读取与code.cmd列已安装扩展可能短暂重叠；实读code.cmd确认Electron以ELECTRON_RUN_AS_NODE模式执行，故按唯一Node/Python约束记录为潜在并发违规，两者均为只读非测试且无安装。后续串行。一次只读版本回读因PowerShell引号解析失败未启动Python、未写文件；改here-string后成功。
 
-最近直接验证与历史证据的完整逐项依据保留在Git `14c77f5e:docs/plan-generations/G004-execution.md` 和coverage。0.5.520 compile后原文件：mcpLocalApiSafety 8/8（TEMP/g004-520-mcp-local-api-20261123.log）、mcpEntry 3/3（TEMP/g004-520-mcp-entry-20261123.log）、packageContentPolicy 12/12（TEMP/g004-520-package-content-20261123.log，原有串行Python 3.14.6、合成zip及fixture保留）、mcpTrainingProgress 9/9（TEMP/g004-520-mcp-training-progress-20261123.log）、mcpRuntimeCapture 3/3（TEMP/g004-520-mcp-runtime-capture-20261123.log）、mcpTerminalIdentity 10/10（TEMP/g004-520-mcp-terminal-identity-20261123.log）、mcpOrdinaryResultContracts 8/8（TEMP/g004-520-mcp-ordinary-contracts-20261123.log），均exit0；仅自建合成文件/回环服务或内存替身，无实际Worker/删除。原call、日志及当前依赖已冻结待总控审，不冒runner tree confirmed。一次Python工具链只读查询误取内建zlib.__file__ exit1，另一次JSON登记脚本因标记空格断言exit1且未写入，修正后成功，均非测试失败；不冒完整标准库已验证。
+## 520 定向与历史候选
 
-历史直接结果按实际调用/变更审定为候选：InspectSchema对照c8466379、QuerySchema对照aa6138d5；ActiveSnapshot、HistoryViews、HealthEvidence、FailureAlerts对照b5a1cd6e、1242c55c、ef465b02、9f59dded；PersistedRuns、LogsAndConfig、ResultIdentity对照1cfcb557、8ed91051、06a5fc03。原rollout真实exit0及首失败保留，合成RPC/本地项目，无实际Worker；旧精确Node未知，依赖范围及源码差异见coverage，待总控最终审。上次规划361执行＋6按需，335项待审，package入口阻断。
+完整逐项原文保留于 Git `afb3ec5c:docs/plan-generations/G004-execution.md`；coverage 保存每项原命令、退出码、日志、依赖快照、假端口边界和历史证据来源。所有下列候选均待总控审定，不代表真实 Worker、真实清理、用户授权或新 UI 已验。原 519 精确 Node/架构未知，不以邻近版本冒充。原 test/fixture 与失败均保留。
 
-新补mcpWorkerHistory原文件3/3 exit0，TEMP/g004-520-mcp-worker-history-20261123.log；自建回环假RPC，测试项目内允许合成历史文件原子rename，保留夹具、关闭监听，无真实Worker或unlink。原call、日志和当前源码/工具链冻结，待总控审；当前入口阻断334项。
+520 编译后单文件 exit0：mcpLocalApiSafety 8/8、mcpEntry 3/3、packageContentPolicy 12/12、mcpTrainingProgress 9/9、mcpRuntimeCapture 3/3、mcpTerminalIdentity 10/10、mcpOrdinaryResultContracts 8/8、mcpSftpRouting 17/17、mcpWorkerObservation 1/1、mcpCleanupEngineContract 5/5、extensionUpdates 7/7、mcpNativeObservation 4/4、serverPlanQueueRecovery 4/4、pulledTaskControl 5/5、workerRouting 4/4、manualDispatchHost 11/11、agentProjectRootReadiness 5/5、projectCodeSyncState 7/7、agentFirstRun 3/3、planRunRerunIntent 14/14、prepareAgentsProgressWatchdog 1/1、globalConfigPersistence 2/2、outputIsolationRecovery 8/8、panelMessageDispatch 21/21、tmuxOtherSessionsDisclosure 19/19、refreshOperationRecordExpiry 11/11、workflowWorkspaceBinding 2/2、staticEntrypointProbe 1/1、xshellSessionPatcher 2/2、panelWebviewScriptHealth 13/13、planCleanupPanelBridge 19/19、completedPlanWorkerMirror 13/13、requestBudget 12/12、pairedUpdateRateLimit 6/6、pairedUpdateClient 5/5。各自真实日志和来源见 coverage，均为合成对象、假服务或受限源码/VM；涉及的合成夹具保留，未操作真实服务器、用户授权、UI 或永久删除。packageContentPolicy 使用现有串行 Python 子进程生成合成 zip；不推广 Python 授权。
 
-路由源码后续发生修改，原mcpSftpRouting按原单文件预算补验17/17 exit0，TEMP/g004-520-mcp-sftp-routing-20261123.log；McpHost使用合成workspace、内存grant及假SFTP端口与假审批，仅保留合成上传文件，没有真实传输、授权变更或删除。原call和当前依赖冻结，待总控审。
+总控专门核准现有完整 mcpProject 合成回归，520 后 43/43 exit0：假授权/Agent/Worker、独立合成工作区及回环/stdio，客户端与服务按原 finally 关闭；不代表真实生命周期或撤权专项。伴随隐私首轮路径规范化失败 0/1，修后 1/1；WorkerObservation 与 CleanupEngine 用假 RPC/内存 fs/store，不代表真实持久化/清理。历史 direct 候选 InspectSchema、QuerySchema、ActiveSnapshot、HistoryViews、HealthEvidence、FailureAlerts、PersistedRuns、LogsAndConfig、ResultIdentity 及 MCP dispatch 的调用链与原具体基线见 coverage 和 `14c77f5e`；519 job 38、87、97、99 属指定假输入或纯函数历史候选，具体条件见 coverage。ProjectOps 的历史 SDK 安装闭包仍不明，不能算通过或擅跑受限专项。
 
-ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与fafa1738逐字相同、fixture未变；后续类型注解、未调用的cleanup preview schema和只用sha256Text的runtime版本变化不影响所测调用。SDK InMemoryTransport及其历史安装闭包仍未判，候选不计通过。当前入口阻断333项。
+数据错误：mcpWorkerLifecycle 4/4 exit0 覆盖了 mcpWorkerHistory 3/3 的同名 TEMP 日志；旧文件未恢复。总控批准使用已核完整原 rollout call `call_88b68b75a83c458c814a7109e11212d6` 的 3/3 exit0 命令/输出事件，旧 SHA `f2b5a80a81824b94b6a35fb3b0134f544a871b89119e70b3479ff5f93bb94f3f` 不冒当前文件；当前文件只属于新 4/4。以后新日志先核路径不存在。旧执行 turn completed/idle 后归档使原 rollout 移至 archived_sessions；曾短暂解除归档保护现有引用，重新归档后修正 coverage 中 42 处实际路径，核 session_meta 及 35 项已有命令/输出事件 SHA 一致，未改事件或重跑。
 
-上述伴随隐私测试首次路径规范化失败0/1（TEMP/g004-520-mcp-sftp-privacy-20261123.log），修正路径后1/1（TEMP/g004-520-mcp-sftp-privacy-pathfix-20261123.log）；登记脚本首误选未完成call exit1未写入后修正。mcpWorkerObservation 1/1、mcpCleanupEngineContract 5/5 exit0（TEMP/g004-520-mcp-worker-observation-20261123.log、TEMP/g004-520-mcp-cleanup-engine-20261123.log）。真实伴随源只读，合成密钥、假RPC/回环服务及内存fs/store，删除仅改内存集合；不代表真实Worker、磁盘持久化或远端清理。详细依据与失败见Git `9995f2fa:docs/plan-generations/G004-execution.md` 和coverage，待总控审。
+登记过程真实非测试失败保留于 `afb3ec5c`：Python 只读查询误取 zlib 内建路径、JSON 登记标记空格/数组格式、sourceJob 与 eligible 缺字段的脚本错误、隐私登记误选未完成 call、tmux 历史复用因 package 版本变化而停写；均未覆盖有效记录。原 compile exit2、B1 失败/20秒 timeout、policy 拒绝、runner oracle 首失败和其余失败详见前文及 Git，不被后续通过抹除。
 
-- 519 job 99：原通过/0/子树确认；审阅实时状态合并调用，只处理合成内存数据，模块真实加载闭包和测试对 5a3 无差异，记录依赖快照供总控审定，不声称真实 Worker。首次记录脚本因未兼容无 sourceJob 条目抛 KeyError、未写文件，修正后登记成功。
-
-- 520 编译后 extensionUpdates 原文件 7/7、exit 0，合成版本和只读源码/本机闭包；无安装、网络或删除。原日志 `%TEMP%/g004-520-extension-updates-20261123.log`。首次登记脚本将格式化数组误当压缩数组，断言失败且未写入；按原格式插入后待总控审定。
-
-- 520 后 MCP native job 状态观察 4/4、exit 0（`%TEMP%/g004-520-mcp-native-observation-20261123.log`）：当前 tasks.list 代码在 VM 使用合成队列与假 Worker 查询；保留合成文件，无真实 Worker、Agent 生命周期动作或删除。覆盖绑定动态提取的 legacy 源及编译器，待总控审定。
-
-- 数据错误：运行 mcpWorkerLifecycle 4/4、exit 0 时误覆盖 mcpWorkerHistory 3/3 的 `%TEMP%/g004-520-mcp-worker-history-20261123.log`（旧 SHA256 `f2b5a80a81824b94b6a35fb3b0134f544a871b89119e70b3479ff5f93bb94f3f`）；旧文件未恢复。已核原 call `call_88b68b75a83c458c814a7109e11212d6` 的完整命令、cwd、exit0、无 live session、3/3 且其余为0及无截断，按总控裁决仅用其原 rollout 事件，当前同名日志只属新的 4/4。后续新日志先核路径不存在。两项均为合成 Worker 观察，未执行真实 Agent/Worker。
-
-- 520 编译后 serverPlanQueueRecovery 4/4、pulledTaskControl 5/5，均 exit0；前者读取源码并用合成内存队列，后者用假客户端及原定时器，无真实 Worker/停止/删除。日志 `%TEMP%/g004-520-server-queue-recovery-20261123.log`、`%TEMP%/g004-520-pulled-task-control-20261123.log`；均先确认路径不存在。
-
-- 519 job 97 拓扑纯函数及 package 实际读取字段复核无变化；job 98 当前原文件 4/4、exit0（`%TEMP%/g004-520-worker-routing-20261123.log`，先查不存在），VM/假配置无真实 Worker、配置修改或删除。均待总控审定。
-
-- 520 编译后 manualDispatchHost 原文件 11/11、exit0（`%TEMP%/g004-520-manual-dispatch-host-20261123.log`，先查不存在）；当前真实编译 Host 配合假 Worker、队列、派发及停止回调，未触及真实服务器/GPU/文件删除。
-
-- 520 后 agentProjectRootReadinessWorkflow 5/5、projectCodeSyncState 7/7，均 exit0；VM 与合成数据，后者只写并保留独立合成夹具，不调用 unlink/真实 Worker。日志分别 `%TEMP%/g004-520-agent-root-readiness-20261123.log`、`%TEMP%/g004-520-code-sync-state-20261123.log`，路径先查不存在。
-
-- 519 job 38 更新启动逻辑：原passed/0/tree confirmed；仅假安装、重载、存储和发布客户端。原测试及实际模块闭包相对5a3不变，package.main及涉及的legacy源码断言逐项比对，候选待总控审定，不代表真实安装。
-
-- MCP task dispatch 原同任务 5/5、exit0、无 live session：原调用先加类型注解、233f31d3 记录该注解，随后测试、源码闭包和动态读取 legacy 均无变化。实际 Gateway/Host 用假授权、队列和停止/派发端口；原含内存授权变化场景，未重跑专项、未更改真实授权或连接 Worker。旧工具精确版本未证，待总控审。
-
-- 520 后 agentFirstRunPreparationWorkflow 3/3、exit0（`%TEMP%/g004-520-agent-first-run-source-20261123.log`，先查不存在）：只检查源码/文档和合成配置归一化，未准备或启动 Agent、打开 UI、访问 Worker。
-
-- 520 后 planRunRerunIntent 14/14、exit0（`%TEMP%/g004-520-plan-rerun-intent-20261123.log`，先查不存在）；纯内存重跑选择、状态及 hold 归一化与源码断言，没有实际重跑、队列写入、Worker 或删除。
-
-- 520 后 prepareAgentsProgressWatchdog 1/1、globalConfigPersistence 2/2，exit0（`%TEMP%/g004-520-watchdog-source-20261123.log`、`%TEMP%/g004-520-global-config-source-20261123.log`，均先查不存在）；只解析源码/内存 HTML，无真实 Agent、窗口或配置写入。
-
-- 520 后 outputIsolationRecovery 8/8、exit0（`%TEMP%/g004-520-output-isolation-recovery-20261123.log`，先查不存在）：真实恢复逻辑仅接假队列、假文件存在性与假审核端口；未查询真实文件或执行清理。
-
-- 520 后 panelMessageDispatch 21/21、exit0；工具输出因长度截断，完整原日志 `%TEMP%/g004-520-panel-message-dispatch-20261123.log`（先查不存在）。生产消息处理切片使用假宿主/假窗口，不打开实际 UI、不改 Worker 配置、不执行删除。
-
-- tmuxOtherSessionsDisclosure 本轮 VM 19/19、exit0（`%TEMP%/g004-520-tmux-disclosure-vm-20261123.log`，先查不存在）；假 DOM/会话仅验证脚本逻辑，不是真实窗口或 tmux。初审历史复用时发现渲染器读取已改版本的 package.json，脚本断言停止且未写登记，改以当前实测证据覆盖。
-
-- 519 job 87：真实逻辑配合内存会话/假确认/假关闭回调，动态提取的 Host 方法与 5a3 一致，编译闭包及原测试未变；原passed/0/tree confirmed，旧Node/TS实际版本未知。仅作假 tmux 场景候选，不代表真实窗口关闭，待总控审。
-
-- 520 后 refreshOperationRecordExpiry 11/11、exit0（`%TEMP%/g004-520-refresh-operation-expiry-20261123.log`，先查不存在）；VM 假端口/内存操作，Agent 源仅作文本读取，不执行 Python/真实 Worker。
-
-- 520 后 workflowWorkspaceBinding 2/2、exit0（`%TEMP%/g004-520-workflow-workspace-binding-20261123.log`，先查不存在）；使用独立合成中文临时目录并保留，另用假身份探针，无删除。一次只读候选列表脚本因缺 eligible 字段 KeyError，未写文件，改用可选字段成功。
-
-- 经总控核准现有完整 mcpProject 合成回归，520 编译后 43/43、exit0（`%TEMP%/g004-520-mcp-project-contract-20261123.log`，先查不存在）；假授权/Agent/Worker 回调、独立合成工作区及回环/stdio，客户端与服务按原 finally 关闭。动态 legacy 源、现行 SDK/TS 加载闭包及 stdio bundle 已绑定，未执行真实授权变更、Agent、Worker或删除。
-
-- 520 后 staticEntrypointProbe 1/1、xshellSessionPatcher 2/2，exit0（`%TEMP%/g004-520-static-entry-probe-20261123.log`、`%TEMP%/g004-520-xshell-synthetic-patch-20261123.log`，先查不存在）；前者只读取合成脚本不启动 Python，后者只修改并备份自建合成 xsh，夹具保留。
-
-- 旧执行会话结束后归档使 rollout 移至 archived_sessions；曾短暂解除归档以保护现有引用，现已重新归档。coverage 中该会话 42 处路径更新为实际位置，session_meta 身份及 35 项有摘要的命令/输出事件原字节 SHA 均核一致；未改原事件或重跑测试。
-
-- 520 后 panelWebviewScriptHealth 原文件 13/13、exit0（`%TEMP%/g004-520-panel-webview-script-20261123.log`，先查不存在）；源渲染器经 TypeScript 转译、假 DOM/VM，未操作真实 UI 或 Worker。原事件、当前依赖和 Node 已登记，待总控审定。
-
-- 520 后 planCleanupPanelBridge 原文件 19/19、exit0（`%TEMP%/g004-520-plan-cleanup-panel-bridge-20261123.log`，先查不存在）；VM 假 DOM、预览和确认/执行回调，未打开真实 UI、删除文件或连接 Worker。原事件与实际依赖已登记，待总控审定。
-
-- 520 后 completedPlanWorkerMirror 原文件 13/13、exit0（`%TEMP%/g004-520-completed-plan-mirror-20261123.log`，先查不存在）；VM、内存队列及假 SFTP 传输，未连接 Worker 或真实传输/删除。原事件及依赖待总控审定。
-
-- 520 后 requestBudget 原文件 12/12、exit0（`%TEMP%/g004-520-request-budget-20261123.log`，先查不存在）；内存预算和自建回环 HTTP，服务正常关闭，无真实 Worker 或删除。原事件及依赖待总控审定。
-
-- 520 后 pairedUpdateRateLimit 原文件 6/6、exit0（`%TEMP%/g004-520-paired-update-rate-20261123.log`，先查不存在）；假 fetch、VS Code 和内存状态，无真实网络、安装或配置写入。原事件及依赖待总控审定。
+当前 361 active、6 onDemand；增量计划仍有未审缺口，具体计数以当前 planner 为准。manualTmuxAdmission 会访问实际 WSL/tmux，planIsolatedReviewBoundaries/Lifecycle 涉及未授权 rename，不运行；其它 Python 子进程先核实际调用与精确授权。最终版本和 runner 稳定后，规划测试原精确 pattern 按原 20 秒一次补验，final dry-run 与完整包交总控审核；总控开放前不得 full package/安装/发行。保护 26 个已生成 dirty dist、历史 VSIX sha、全部夹具与现场，禁止操作真实 Worker/服务器/SSH/tmux/GPU/用户授权配置；真实 UI、active results、跨项目和远端功能仍未测。
