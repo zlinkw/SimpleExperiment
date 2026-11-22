@@ -56,7 +56,12 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     workerId: task.workerId, ...plan, ...operation,
     manualStopType: { type: "string", enum: ["manual_stop_bad_code_or_no_effect", "manual_stop_converged"] },
   }, ["workerId", "planFile", "operationId", "manualStopType"], "experiment", "stopExperiment"),
-  tool("task_dispatch", "tasks.dispatch", "Dispatch selected queued job indices to a configured Worker and GPU", { workflowId: text("Existing workflow ID"), indices: { type: "array", items: integer }, workerId: task.workerId, gpuId: text("GPU ID") }, ["workflowId", "indices", "workerId", "gpuId"], "experiment"),
+  tool("task_dispatch", "tasks.dispatch", "Dispatch selected jobs to one Worker or freeze remaining jobs within a PLAN scope for quota allocation", {
+    workflowId: text("Existing workflow ID"), workflowIds: texts("Existing workflow IDs for quota allocation"), all: boolean,
+    distribution: { type: "string", enum: ["explicit_gpu", "quota_remaining"] }, indices: { type: "array", items: integer },
+    workerId: task.workerId, gpuId: text("GPU ID"), gpuSelection: { type: "string", enum: ["automatic", "specific"] },
+    stopRunning: boolean, expectedCommands: object,
+  }, [], "experiment"),
   tool("task_preflight", "tasks.preflight", "Read-only preflight of one existing Worker task", { ...task, environmentOnly: boolean, completedOutputVerify: boolean }, ["workerId", "commandId"]),
   tool("task_preflight_status", "tasks.preflight.status", "Observe the original task preflight", { workerId: task.workerId, ...operation }, ["workerId", "operationId"]),
   tool("task_preflight_cancel", "tasks.preflight.cancel", "Cancel an existing read-only preflight", { workerId: task.workerId, ...operation }, ["workerId", "operationId"], "experiment"),

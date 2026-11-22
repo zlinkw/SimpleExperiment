@@ -78,7 +78,7 @@ MCP终态身份10/10、结果精确身份及导出1/1、日志与配置1/1、合
 
 518共享连接保存队列失败后可重试且保留旧迁移值；内存测试0/1 exit1→1/1 exit0，TEMP日志 `g004-518-shared-retry-before-ff08.log`、`g004-518-shared-retry-after-ff08.log`。嵌套PowerShell变量展开曾导致解析错误exit1，未启动测试；未改真实连接。原文见Git `48062264:docs/plan-generations/G004-execution.md`。
 
-0.5.518最终交付：源码/tag `20ae86ed32f0baa9106645decb60cf9a299f3518`，试行Release及下载同SHA `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`；Latest483，518/SFTP120不降级，安装一次exit0含DEP0169。第二次package 341/341、13门禁、并发1、锁释放；原闭包核验输出及退出码未知，总控批准实际ZIP等价325闭包/324面板/371同源检查exit0，不覆盖原未知。完整收据、包身份及失败见Git `1242c55c:docs/plan-generations/G004-execution.md`。
+0.5.518试行Release及下载同SHA `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`；Latest483，安装一次exit0含DEP0169。第二次package 341/341、13门禁、并发1、锁释放；原闭包核验输出及退出码未知，总控批准实际ZIP等价检查exit0，不覆盖原未知。完整源码、收据及失败见Git `1242c55c:docs/plan-generations/G004-execution.md`。
 
 518 精确 `git add` exit1 提示 dist 被忽略；回读状态确认指定13个已跟踪生成文件及8个非生成文件均实际暂存，未强制添加或触碰未跟踪项。
 
@@ -144,6 +144,6 @@ MCP查询身份补充活跃项非空及候选上界，4/4 exit0（9ccf3f）；�
 
 草稿MCP网关对假Host读、验证、预览、授权review/reject及force透传和失败传播3/3 exit0；旧草稿清理及CLI退出语义差异见coverage，未新造工具或真实操作。
 
-手动自动GPU与剩余配额依总控裁决补MCP；草稿精确清理保留UI双确认。
+手动派发MCP补自动GPU、精确停止及PLAN/all配额；真实Gateway/宿主假端口4/4 exit0，多Worker授权和坏输入拒绝通过。首0/3因fixture根不存在，次1/3因fixture箭头this错误；修夹具通过，无真实派发。草稿清理保留UI双确认。
 
 中立连接实际合成Host核身份、槽位、工作区、发现变化及零额外RPC，2/2 exit0；旧CLI退出/展示未迁。

@@ -4,6 +4,26 @@ import { queryProject } from "./ProjectQueries";
 import { mcpInvocation } from "./Invocation";
 import { isDeepStrictEqual } from "node:util";
 
+function validateDispatch(args: Record<string, any>): void {
+  const nonempty = (value: unknown) => typeof value === "string" && !!value.trim();
+  if (args.distribution === "quota_remaining") {
+    const ids = args.workflowIds;
+    if (ids !== undefined && (!ids.length || ids.some((id: unknown) => !nonempty(id))) || args.workflowId !== undefined && !nonempty(args.workflowId)
+      || args.all === true && (args.workflowId !== undefined || ids !== undefined)
+      || args.all !== true && args.workflowId === undefined && ids === undefined
+      || ["indices", "workerId", "gpuId", "gpuSelection", "stopRunning", "expectedCommands"].some(key => Object.hasOwn(args, key)))
+      throw Error("MCP_DISPATCH_SCOPE_INVALID: select explicit PLANs or all remaining jobs without a Worker or GPU");
+    return;
+  }
+  if (!nonempty(args.workflowId) || !nonempty(args.workerId) || !Array.isArray(args.indices) || !args.indices.length
+    || args.indices.some((index: number) => !Number.isSafeInteger(index) || index < 0)
+    || ["workflowIds", "all"].some(key => Object.hasOwn(args, key))
+    || (args.gpuSelection === "automatic" ? args.gpuId !== undefined : !nonempty(args.gpuId)))
+    throw Error("MCP_DISPATCH_SELECTION_INVALID: select jobs, a Worker and either a GPU or automatic selection");
+  if (args.expectedCommands !== undefined && Object.values(args.expectedCommands).some(value => typeof value !== "string"))
+    throw Error("MCP_DISPATCH_EXPECTED_COMMANDS_INVALID");
+}
+
 export interface ProjectGatewayPorts {
   root(): string;
   workers(includeDisabled?: boolean): AuthorizedWorker[];
@@ -33,6 +53,7 @@ export class ProjectGateway {
     if (!tool) throw Error("MCP_TOOL_UNAVAILABLE: " + name);
     validateToolArguments(tool.inputSchema, argumentsValue);
     const args = argumentsValue as Record<string, any>;
+    if (tool.name === "task_dispatch") validateDispatch(args);
     if (args.location === "worker" && !args.workerId || args.location === "local" && args.workerId) throw Error("MCP_FILE_NODE_REQUIRED");
     const grant = this.ports.store.get<ProjectAuthorization>(AUTHORIZATION_KEY);
     const needsWorkers = tool.permission || tool.additionalPermissions?.length || args.serverIds || args.workerId || args.sourceWorkerId;
@@ -73,6 +94,7 @@ export class ProjectGateway {
       ...(tool.method === "operations.list" ? { filtered: true } : {}),
       ...(tool.method === "invoke" ? { command: tool.action } : {}),
       ...(tool.method === "agents.lifecycle" ? { action: tool.action || "inspect" } : {}) };
+    if (tool.name === "task_dispatch" && params.stopRunning !== true) delete params.stopRunning;
     const invocation = {
       permission: permission => {
         if (root !== this.ports.root()) throw Error("MCP_WORKSPACE_CHANGED");
