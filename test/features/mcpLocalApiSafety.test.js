@@ -107,3 +107,26 @@ test('instance discovery retains older records and finds a live window beyond th
  const resolved=await client.resolveInstanceByWorkspace('experiment',workspace,undefined,{processMayExist:id=>id===pid});
  assert.equal(resolved.instanceId,live.instanceId);assert.equal(fs.readdirSync(instances).length,258);
 });
+
+test('neutral discovery refuses same-workspace ambiguity and preserves exact instance pins',async t=>{
+ const client=require('../../src/api/LocalApiClient.ts'),dir=fs.mkdtempSync(path.join(os.tmpdir(),'g004-instance-routing-'));
+ const instances=path.join(dir,'instances'),prior=process.env.SIMPLE_EXPERIMENT_API_FILE,startedAt='2026-01-01T00:00:00.000Z';
+ const workspaces={a:path.join(dir,'a'),b:path.join(dir,'b'),c:path.join(dir,'a')};fs.mkdirSync(instances);
+ process.env.SIMPLE_EXPERIMENT_API_FILE=path.join(dir,'api.json');
+ t.after(()=>{if(prior===undefined)delete process.env.SIMPLE_EXPERIMENT_API_FILE;else process.env.SIMPLE_EXPERIMENT_API_FILE=prior});
+ const pids={a:1001,b:1002,c:1003};
+ const server=http.createServer((req,res)=>{const key=String(req.headers.authorization).replace('Bearer secret-','');assert.ok(key in pids);
+  res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:[],name:'SimpleExperiment',version:'1.0.0',instanceId:`${pids[key]}:${startedAt}`,workspace:workspaces[key]}))});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>{server.closeAllConnections();return new Promise(resolve=>server.close(resolve))});
+ const records={};
+ for(const key of ['a','b','c']){const file=path.join(instances,key+'.json');records[key]=JSON.stringify({name:'SimpleExperiment',version:'1.0.0',pid:pids[key],startedAt,
+  workspace:workspaces[key],token:'secret-'+key,baseUrl:`http://127.0.0.1:${server.address().port}`,status:'running'});fs.writeFileSync(file,records[key],'utf8')}
+ const listing=client.listPluginInstances('experiment');assert.equal(listing.rows.length,3);
+ assert.ok(!JSON.stringify(listing).includes('secret-'));
+ const opts={processMayExist:()=>true};
+ assert.equal((await client.resolveInstanceByWorkspace('experiment',workspaces.b,undefined,opts)).instanceId,`${pids.b}:${startedAt}`);
+ await assert.rejects(client.resolveInstanceByWorkspace('experiment',workspaces.a,undefined,opts),/存活实例|可达实例/);
+ assert.equal((await client.resolveInstanceByWorkspace('experiment',workspaces.a,`${pids.c}:${startedAt}`,opts)).instanceId,`${pids.c}:${startedAt}`);
+ await assert.rejects(client.preflightPluginAt('experiment',path.join(instances,'a.json'),workspaces.b),/工作区/);
+ for(const key of ['a','b','c'])assert.equal(fs.readFileSync(path.join(instances,key+'.json'),'utf8'),records[key]);
+});

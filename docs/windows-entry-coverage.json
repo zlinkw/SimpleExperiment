@@ -31,8 +31,8 @@
       {
         "source": "test/api/localApi.test.js:699",
         "name": "multi-window: per-instance discovery records coexist and workspace routing refuses ambiguity without leaking tokens",
-        "status": "pending_review",
-        "boundary": "旧LocalApiClient依赖；真实项目不可触碰，须隔离替身核对。"
+        "status": "partial_neutral_consumer_covered",
+        "boundary": "中立客户端假回环8/8 exit0核多工作区、双活拒绝、实例pin、跨工作区拒绝、token不泄露及记录保留；原LocalApiServer实例生成/关闭和陈旧存活检测未完整重跑。"
       },
       {
         "source": "test/api/localApi.test.js:811",
@@ -127,8 +127,8 @@
       {
         "source": "test/features/windowScopeIsolation.test.js:128",
         "name": "CLI default cannot mutate a foreign window, and explicit workspace routing ignores the overwritten alias",
-        "status": "protected_discovery_cleanup_not_run",
-        "boundary": "旧客户端及LocalApiServer关闭会清理发现文件；本轮禁真实删除，不能直接重试。"
+        "status": "partial_neutral_consumer_covered",
+        "boundary": "中立客户端假回环8/8核精确工作区、同根双活拒绝和pin；旧LocalApiServer别名覆盖/关闭会清理发现文件，本轮未运行，未证明真实别名删除行为。"
       },
       {
         "source": "test/features/metricLeaderboardInput.test.js:34",
