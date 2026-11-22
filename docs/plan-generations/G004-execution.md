@@ -65,3 +65,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 - 520 编译后 serverPlanQueueRecovery 4/4、pulledTaskControl 5/5，均 exit0；前者读取源码并用合成内存队列，后者用假客户端及原定时器，无真实 Worker/停止/删除。日志 `%TEMP%/g004-520-server-queue-recovery-20261123.log`、`%TEMP%/g004-520-pulled-task-control-20261123.log`；均先确认路径不存在。
 
 - 519 job 97 拓扑纯函数及 package 实际读取字段复核无变化；job 98 当前原文件 4/4、exit0（`%TEMP%/g004-520-worker-routing-20261123.log`，先查不存在），VM/假配置无真实 Worker、配置修改或删除。均待总控审定。
+
+- 520 编译后 manualDispatchHost 原文件 11/11、exit0（`%TEMP%/g004-520-manual-dispatch-host-20261123.log`，先查不存在）；当前真实编译 Host 配合假 Worker、队列、派发及停止回调，未触及真实服务器/GPU/文件删除。
