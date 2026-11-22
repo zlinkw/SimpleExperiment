@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const { readSource } = require("../_helpers/sourceReader");
 require('../_helpers/registerTsRequire');
-const { pickExperiment } = require('../../src/cli/commands/experiment.ts');
+const { pickExperiment } = require('../../src/mcp/query/Experiments.ts');
 
 function extractFunction(source, name) {
   const start = source.indexOf(`function ${name}(`);
@@ -599,7 +599,7 @@ test("offline worker action fails before any endpoint request", async () => {
 });
 
 test("local artifact IDs distinguish same-named files in different directories", async () => {
-  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/cli/commands/artifact.ts'),'utf8');
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/mcp/query/Artifacts.ts'),'utf8');
   const ast=ts.createSourceFile('artifact.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),names=['listArtifacts','findArtifact'],methods=[];
   const visit=node=>{if(ts.isFunctionDeclaration(node)&&names.includes(node.name?.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
   const root=path.resolve('artifact-fixture'),output=path.join(root,'run');let files=[{path:'a/metrics.csv',size:1},{path:'b/metrics.csv',size:2}];
@@ -613,7 +613,7 @@ test("local artifact IDs distinguish same-named files in different directories",
 
 test("artifact list and detail preserve colon-bearing historical experiment identity", async () => {
   const ts=require('typescript'),root=path.resolve('artifact-fixture'),output=path.join(root,'run');
-  const source=fs.readFileSync(path.resolve(__dirname,'../../src/cli/commands/artifact.ts'),'utf8'),experimentSource=fs.readFileSync(path.resolve(__dirname,'../../src/cli/commands/experiment.ts'),'utf8');
+  const source=fs.readFileSync(path.resolve(__dirname,'../../src/mcp/query/Artifacts.ts'),'utf8'),experimentSource=fs.readFileSync(path.resolve(__dirname,'../../src/mcp/query/Experiments.ts'),'utf8');
   const functions=(text,names)=>{const ast=ts.createSourceFile('source.ts',text,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),found=[];const visit=node=>{if(ts.isFunctionDeclaration(node)&&names.includes(node.name?.getText(ast)))found.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);return found.join('\n')};
   const sandbox={path,pickExperiment,EXPERIMENT_INDEX_REL:'index.json',projectRoot:()=>root,resolveProjectPath:p=>path.join(root,p),asRecord:x=>x||{},
     readJsonFile:file=>file.endsWith('index.json')?[{global_job_id:'workflow:3',hub_job_dir:output,case:'case-a'}]:{files:[{path:'a/metrics.csv',size:1}]},
@@ -626,7 +626,7 @@ test("artifact list and detail preserve colon-bearing historical experiment iden
 });
 
 test("result artifact IDs can be resolved through their owning experiment", async () => {
-  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/cli/commands/artifact.ts'),'utf8');
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/mcp/query/Artifacts.ts'),'utf8');
   const ast=ts.createSourceFile('artifact.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),names=['listArtifacts','findArtifact'],methods=[];
   const visit=node=>{if(ts.isFunctionDeclaration(node)&&names.includes(node.name?.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
   const sandbox={path,pickExperiment,fs:{statSync:()=>({size:5})},loadExperiments:async()=>[{id:'run1',plan:'plan1'}],fileExists:()=>false,projectRoot:()=>path.resolve('fixture'),resolveProjectPath:p=>path.resolve('fixture',p),
@@ -637,7 +637,7 @@ test("result artifact IDs can be resolved through their owning experiment", asyn
 });
 
 test("native worker artifact IDs retain exact worker and path", async () => {
-  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/cli/commands/artifact.ts'),'utf8');
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/mcp/query/Artifacts.ts'),'utf8');
   const ast=ts.createSourceFile('artifact.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),names=['listArtifacts','findArtifact'],methods=[];
   const visit=node=>{if(ts.isFunctionDeclaration(node)&&names.includes(node.name?.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
   const sandbox={path,pickExperiment,loadExperiments:async()=>[{id:'workflow:3',type:'worker_run',worker_id:'worker',native_state:{output_dir:'work/run'}}],
@@ -648,11 +648,11 @@ test("native worker artifact IDs retain exact worker and path", async () => {
 
 test("result parsing recognizes uppercase JSON file extensions", () => {
   require('../_helpers/registerTsRequire');const results=require('../../src/features/Results.ts');
-  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/cli/commands/result.ts'),'utf8');
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/mcp/query/ResultParse.ts'),'utf8');
   const ast=ts.createSourceFile('result.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
   const visit=node=>{if(ts.isFunctionDeclaration(node)&&node.name?.getText(ast)==='resultParse')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
   let parsedType,output;const sandbox={path,fs:{existsSync:()=>true,readFileSync:()=>'{"experiment_id":"e","metrics":{"accuracy":0.9}}'},builtInResultPresets:results.builtInResultPresets,
-    selectResultPreset:results.selectResultPreset,parseResultFile:(content,file,preset)=>{parsedType=file.type;return results.parseResultFile(content,file,preset)},writeJson:value=>{output=value}};
+    selectResultPreset:results.selectResultPreset,parseResultFile:(content,file,preset)=>{parsedType=file.type;return results.parseResultFile(content,file,preset)},emit:value=>{output=value}};
   vm.runInNewContext(ts.transpileModule(method.replace(/^export /,'')+';this.parse=resultParse;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
   assert.equal(sandbox.parse({file:'metrics.JSON'}),0);assert.equal(parsedType,'json');assert.equal(output[0].metrics.accuracy.value,0.9);
 });
