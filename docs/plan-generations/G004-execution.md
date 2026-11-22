@@ -1,5 +1,6 @@
 # G004 执行登记
 
+压缩前本轮逐组退休文件、校验和提交见 Git 67f67de4 同文件；49份获批旧CLI测试依原coverage逐项映射分组退休，保留路径、node --check通过，业务证据与已退休外壳差异见coverage；未访问真实Worker。
 完整压缩前执行记录、每项日志及失败见 Git `48f7e339:docs/plan-generations/G004-execution.md`；T1–T7更早完整原文见 `32d16ac4` 同路径。该引用保留各测试消费者、退出码、失败和未测边界，非全量通过结论；coverage含逐项证据和候选。519旧版package、安装和真实重载证据以总控计划为准，不能作为本轮新源码build或现场通过。
 
 519专用根重载原识别false→false，无adapter；未重配重授。A1状态11/11、A2状态13/13及布局3/3/上下文20/20、A4指标6/6；首现场流程1/2、布局0/2、指标两次0/1均exit1且原日志保留。B1首断言失败后夹具污染导致原文件20秒超时exit1，日志TEMP/g004-r519-b1-lease-before-ff08.log；生产与finally夹具仍dirty未验，禁止重跑或绕过，统一交包时申请原文件原预算一次复验。B2动作46/46、迁移13/13、上下文20/20，首夹具44/45失败；B3假对象4/4、低流量16/16、关闭决策14/14；B4假对象1/1。各原命令、日志、边界和失败在前述Git原记录。
@@ -121,37 +122,21 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 
 获批退休旧CLI PLAN清理、SFTP同步和统一入口测试，保留文件路径；对应MCP业务及旧外壳差异沿用coverage证据，三文件node --check通过，未真实清理或传输。
 
-获批退休旧CLI测试 test/cli/simpleCli.test.js, test/cli/simpleCliControl.test.js, test/cli/simpleCliDraft.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/simpleCliHistoryViews.test.js, test/cli/simpleCliQuerySchema.test.js, test/cli/manualDispatch.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/simpleCliNamedActions.test.js, test/cli/simpleCliProjectOps.test.js, test/cli/workerRunLifecycle.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/workerRunObservationMerge.test.js, test/cli/simpleCliSftpCleanupEngine.test.js, test/cli/simpleCliSftpTransfer.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/simpleCliSftpTransferMapped.test.js, test/cli/simpleCliSftpTransferServer.test.js, test/cli/simpleCliCommands16.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/simpleCliRuntimeIdentity.test.js, test/cli/simpleCliRuntimeCapture.test.js, test/cli/simpleCliCommands13.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/simpleCliCommands14.test.js, test/cli/simpleCliCommands15.test.js, test/cli/simpleCliCommands10.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/simpleCliCommands11.test.js, test/cli/simpleCliCommands12.test.js, test/cli/simpleCliCommands7.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/simpleCliCommands8.test.js, test/cli/simpleCliCommands9.test.js, test/cli/simpleCliCommands4.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/simpleCliCommands5.test.js, test/cli/simpleCliCommands6.test.js, test/cli/simpleCliCommands1.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/simpleCliCommands2.test.js, test/cli/simpleCliCommands3.test.js, test/cli/simpleCliFailureAlerts.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/simpleCliHealthEvidence.test.js, test/cli/simpleCliInspectSchema.test.js, test/cli/simpleCliActiveSnapshot.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/simpleCliPersistedHistory.test.js, test/cli/simpleCliTerminalIdentity.test.js, test/cli/simpleCliTrainingProgress.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/simpleCliStableEntry.test.js, test/cli/simpleCliLifecycleCommands.test.js, test/cli/simpleCliSftpCleanupAgents.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/simpleCliAgentsLifecycle.test.js, test/cli/simpleCliPreflight.test.js, test/cli/simpleCliLegacyRemoval.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
-获批退休旧CLI测试 test/cli/simpleCliActionsCatalog.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
 
 获批迁移指标、证据工具和旧history读取外部消费者；指标原文件3/3、证据工具1/1定向通过，history原文件保留空占位并node --check通过，旧CLI history明确退休，现MCP结果证据见coverage。
 
