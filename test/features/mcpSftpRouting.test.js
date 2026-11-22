@@ -11,7 +11,7 @@ function fixture({failureMethod,responses={}}={}){
  const methods=['status','servers.list','sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.observeBatch','target.update','upload.files','upload.workspace'];
  const host={context:{workspaceState:{get:()=>grant}},refreshSharedConnectionSettings(){},workerCodeSyncTargets:()=>workers,createLocalApiMethods:()=>({}),
   readSimpleSftpCapabilities:async()=>({methods}),sftpServerOptions:row=>({...row}),simpleSftpApiCall:async(method,params)=>{calls.push({method,params});if(method===failureMethod)throw Error('远端项目清单无效。');return responses[method]??(method==='transfers.reconcile'?{status:'notFound',settled:false}:method==='transfers.cancel'?{status:'cancelling'}:{ok:true})}};
- return {gateway:mcpGateway(host),calls,grant,workers};
+ return {gateway:mcpGateway(host),calls,grant,workers,host};
 }
 
 test('MCP SFTP inventory routes the exact Worker and refuses unscoped hashes',async()=>{
@@ -112,4 +112,15 @@ test('MCP file uploads bind exact workspace paths',async()=>{
  const before=f.calls.length;
  await assert.rejects(f.gateway.call('sftp_upload_files',{workerId:'w1',files:['../outside']}),/MCP_PROJECT_FILE_REQUIRED/);
  assert.equal(f.calls.length,before);
+});
+
+test('MCP workspace upload forwards the scoped manifest without pruning',async()=>{
+ const f=fixture(),manifest={'model.py':{size:7}},builds=[];
+ f.host.buildDistributedJobCodeManifest=async(...args)=>{builds.push(args);return manifest};
+ await f.gateway.call('sftp_upload_workspace',{workerId:'w1'});
+ const call=f.calls.at(-1);assert.equal(call.method,'upload.workspace');
+ assert.deepEqual(builds,[[root,false]]);assert.deepEqual(call.params.manifest,manifest);
+ assert.equal(call.params.server.id,'w1');assert.equal(call.params.pruneManagedFiles,false);assert.equal(call.params.transientManifest,true);
+ f.grant.permissions=[];await assert.rejects(f.gateway.call('sftp_upload_workspace',{workerId:'w1'}),/AUTHORIZATION_REQUIRED/);
+ assert.equal(f.calls.length,1);
 });

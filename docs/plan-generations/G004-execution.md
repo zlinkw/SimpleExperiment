@@ -10,7 +10,7 @@ R519 A5按输入列选择默认长宽预设，保留显式和自定义预设；�
 
 R519 A6历史结果读错/坏JSON反馈原因，缺失仍允许；内存fs联验1/1 exit0，同目录 `g004-r519-a6-history-final-ff08.log`，未调用Worker。
 
-R519 B2选择等待保存并反馈跨项目/持久化失败；已写PLAN失败明确提示。假对象动作46/46、迁移13/13、上下文20/20 exit0，日志 `g004-r519-b2-actions-complete-ff08.log`、`g004-r519-b2-migration-ff08.log`、`g004-r519-b2-context-ff08.log`。首44/45 exit1因抽取夹具缺`selectResultPreset`，已补依赖，`g004-r519-b2-actions-first-ff08.log`。
+R519 B2选择等待保存及错误可见；动作46/46、迁移13/13、上下文20/20 exit0，首44/45因夹具缺依赖exit1；原日志见Git `ff1e0051:docs/plan-generations/G004-execution.md`。
 
 R519 B3手动刷新/重连失败可见，后台容错保留；假对象4/4、低流量16/16、关闭决策14/14 exit0，原日志见Git `7ade1100:docs/plan-generations/G004-execution.md`。
 
@@ -189,3 +189,5 @@ Git同步：0aa6b27c普通push exit0，首次fetch exit1（TLS unexpected eof）
 中立客户端SFTP发现覆盖及默认路径补验，单文件3/3 exit0；未连接真实服务。
 
 MCP文件上传Gateway/Host核工作区规范路径、精确Worker及越界拒绝，假后端8/8 exit0；未上传。
+
+MCP workspace上传核现有范围manifest、禁止裁剪和撤权拒绝，假后端9/9 exit0；未上传。
