@@ -50,7 +50,7 @@ export function readProjectConnectionValue(context: any, root: string, key: stri
 export async function saveProjectConnectionValues(context: any, root: string, values: Record<string, any>) {
   sharedConnectionProfile(context, root);
   const changed = structuredClone(values);
-  const pending = (pendingWrites.get(context) || Promise.resolve()).then(async () => {
+  const pending = (pendingWrites.get(context) || Promise.resolve()).catch(() => undefined).then(async () => {
     const current = sharedConnectionProfile(context, root);
     await context.globalState.update(STORAGE_KEY, { schemaVersion: 1, values: { ...current.values, ...changed } });
   });

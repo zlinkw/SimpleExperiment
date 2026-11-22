@@ -3,6 +3,21 @@ require('../_helpers/registerTsRequire');
 const P=require('../../src/core/ProjectConnectionProfiles.ts');
 const {currentWindowSftpDiscovery}=require('../../src/core/SimpleSftpWindow.ts');
 const memo=(initial={})=>{const values=structuredClone(initial),writes=[];return {values,writes,get:key=>values[key],update:async(key,value)=>{writes.push(key);values[key]=structuredClone(value);}};};
+test('shared connection saves can retry after a failed migration or save',async()=>{
+ const setupKey='simpleExperiment.xshellRealtimeTunnelConfig',sharedKey='simpleExperiment.sharedConnections.v1';
+ const initial={workerTunnels:[{id:'synthetic',enabled:false}],condaEnv:'/env/original'};
+ for(const migrating of [true,false]){
+  const global=memo(migrating?{[setupKey]:initial}:{[sharedKey]:{schemaVersion:1,values:{[setupKey]:initial}}});
+  const update=global.update;let fail=true;global.update=async(...args)=>{if(fail){fail=false;throw Error('storage unavailable');}return update(...args);};
+  const context={globalState:global,workspaceState:memo()};
+  if(migrating){assert.deepEqual(P.readProjectConnectionValue(context,'C:/synthetic',setupKey),initial);await assert.rejects(P.flushSharedConnections(context,'C:/synthetic'),/storage unavailable/);}
+  else await assert.rejects(P.saveProjectConnectionValues(context,'C:/synthetic',{[setupKey]:{...initial,condaEnv:'/env/failed'}}),/storage unavailable/);
+  await P.saveProjectConnectionValues(context,'C:/synthetic',{[setupKey]:{...initial,condaEnv:'/env/retried'}});
+  const restarted={globalState:global,workspaceState:memo()};
+  assert.deepEqual(P.readProjectConnectionValue(restarted,'C:/synthetic',setupKey),{...initial,condaEnv:'/env/retried'});
+  if(migrating)assert.deepEqual(global.values[setupKey],initial);
+ }
+});
 test('explicit log reads surface transport failures instead of empty cached success',async()=>{
  const vm=require('node:vm'),ts=require('typescript'),method=require('../_helpers/legacyMethod');
  const source=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
