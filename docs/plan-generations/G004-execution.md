@@ -149,3 +149,5 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 获批矩阵按50个精确旧路径排除，保留原glob及其余argv/caseGroups，13旧直接job替为17现MCP job；真实planEntry只读检查50项排除、17项、原glob与非退休文件发现均通过，五文件语法/JSON及diff检查通过。完整testWorkflowRunner和releaseAcceptanceWorkflow含真实目录删除与多子进程，按当前禁真实删除边界未运行；非全矩阵或build。
 
 删除前只读预查39项目标均存在、常规文件、跟踪状态干净，祖先及终项无reparse；TypeScript解析当前项目的静态import/export，删除集合外对候选引用0。此非最终预检，混合消费者验证及集中build顺序待总控裁决，未删除任何目标。
+
+按总控精确放行运行tsc-cached一次：input-drift、incremental、TS7.0.2，exit2；71个emit使部分受跟踪dist变dirty，保留不stage、不恢复，日志TEMP/g004-tsc-central-predelete-20261122-terra.log。错误为旧CLI导出缺失及MCP ProjectGateway参数类型stopRunning；旧CLI在获批删除集合，MCP修正params字典类型后实际Gateway派发5/5 exit0。尚未重新编译，删除使输入变化后再验；首次失败未抹去。

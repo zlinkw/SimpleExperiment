@@ -92,7 +92,7 @@ export class ProjectGateway {
     // Confirmation factors originate from the host's verified user grant. Destructive
     // cleanup keeps its original stored double-confirmation state and receives no factors.
     const cleanup = tool.method.startsWith("plans.cleanup.") || tool.method.startsWith("files.cleanup.");
-    const params = { ...args, ...((tool.permission || tool.requiresUserApproval) && !cleanup ? { confirm: true } : {}),
+    const params: Record<string, any> = { ...args, ...((tool.permission || tool.requiresUserApproval) && !cleanup ? { confirm: true } : {}),
       ...(tool.method === "project.prepare" ? { startSessions: true } : {}),
       ...(tool.method === "plans.cleanup.preview" && args.action === "delete" ? { authorizationMode: "confirmed_paths" } : {}),
       ...(tool.method.startsWith("workflow.") ? { workspace: this.ports.root() } : {}),

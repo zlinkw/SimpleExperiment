@@ -112,3 +112,6 @@ e4fd93ed的file_cleanup_preview显式managed_tmux、缺省不变/非法值拒绝
 总控向现任唯一Terra重新开放产品/测试/execution/coverage、唯一Node/Python检查、受限UI和scoped Git租约；plan/README仍总控。先完成获准测试消费者/矩阵及必要闭包变更，按依赖分组与≤8文件约束验证提交，最终严格39目标全批预检后按直接父/./叶名规则删仓内旧CLI，保留新MCP连接器和全局用户入口；清理状态亦在此授权内按既有G004流程scoped提交同步，不用git rm当删除执行器。测试补丁可应用不等通过，必须保留真实退出码与任何失败，普通失败在原范围定位必要修法后继续其它可做项。
 
 整包修复、B1及当前必需定向检查完成后交总控统一最终源码/覆盖复审，随后连续集中构建试行交付；不再请用户重复批准已列动作，也不提前以局部通过发版。最终package矩阵应按批准后的当前真实清单，不冻结旧341。必要源审/构建/VSIX/FF同步/同字节试行发行/真实客户端/一次安装门禁仍全部适用，真实Worker、跨项目和保护稿件权限不变。
+cd9a529c实施中前置裁决：B1本人批准的唯一复验3/3；旧CLI测试/矩阵已提交，四混合消费者需尚不存在的dist/api/LocalApiClient。允许唯一执行者单次node scripts/tsc-cached.js作必要TS类型检查/emit与缓存，不开放完整build/runtime生成/版本/package/安装；后续真实删除/版本输入变更再编译按实际缓存，不重复同输入。formalJobExecution原harness内串行唯一Python子进程按20秒外层/10秒spawn/windowsHide/status0及真实函数提取可验，不是并开第二套测试，不训练或fullimport Agent/Scheduler。
+
+testWorkflowRunner实际锁删除及releaseAcceptanceWorkflow临时目录rm不属39精确批准，不运行这些破坏性分支；保留原断言，复用未改安全函数/旧519对应证据。仅改动的planner过滤/独立oracle/磁盘对账可在原文件原20秒按精确test-name-pattern定向验，先核顶层及所选路径无实际删除；完整套件未重跑须如实记录。混合文件关LocalApiServer若unlink发现文件亦不擅运行；机械导入迁移以编译输出、中立源/握手/隔离/取消既证及必要非删除目标验闭环，不强制重演未改副作用。这些受限旧安全效果不阻断已经迁清依赖的39旧CLI源文件清理；保留最终门禁组合缺口供整包裁决，不现在停全部独立工作或扩临时文件删除权限。
