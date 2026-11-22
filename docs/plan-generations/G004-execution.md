@@ -154,7 +154,7 @@ MCP action_catalog动态表/缺方法无回退，固定命名动作不接受任�
 
 Agent MCP经实际Gateway/Host核目标、撤权及迁移digest，假Agent首2/3 exit1因测试期待错误文案漏an，修后3/3 exit0；未访问Worker。
 
-MCP项目准备/识别授权、原回执及失败重读、PLAN校验和命名控制假Host及PLAN列表真实Host方法4/4；旧CLI细粒度选项及外壳待审。
+MCP项目操作、控制、列表、GPU身份、清理预览及官方客户端错误回执7/7；真实Host方法与假端口，旧CLI外壳待审。
 
 公开入口旧测试依裁决改为MCP契约1/1；误用Delete File使测试瞬时缺失，已立即同路径恢复，未git rm，旧版见Git 0d5cae56。旧CLI目录外24项引用列coverage，实机限制保留。
 

@@ -102,3 +102,21 @@ test('MCP PLAN delete previews use the same confirmed-path mode as the human rev
  await assert.rejects(gateway.call('cleanup_preview',{planFile:'plans/p.yaml',action:'delete',confirm:true}),/Unknown/);
  assert.equal(calls.length,2);
 });
+
+test('MCP transport marks an in-band backend failure as an error',async()=>{
+ const {Client}=require('@modelcontextprotocol/sdk/client/index.js');
+ const {InMemoryTransport}=require('@modelcontextprotocol/sdk/inMemory.js');
+ const {createProjectMcpServer}=require('../../src/mcp/Server.ts');
+ const root=path.resolve(__dirname,'../..');let failTransport=false;
+ const gateway=new ProjectGateway({root:()=>root,workers:()=>[],store:{get:()=>undefined},methods:()=>({}),
+  sftp:{methods:async()=>['status'],call:async()=>{if(failTransport)throw Error('transport unavailable');return {ok:false,error:'backend refused'}}}});
+ const server=createProjectMcpServer('fixture',async(method,params)=>method==='mcp.catalog'?gateway.catalog():gateway.call(params.tool,params.arguments));
+ const client=new Client({name:'mcp-error-test',version:'1.0.0'}),[a,b]=InMemoryTransport.createLinkedPair();
+ try{
+  await server.connect(a);await client.connect(b);
+  const rejected=await client.callTool({name:'sftp_status',arguments:{}});
+  assert.equal(rejected.isError,true);assert.deepEqual(rejected.structuredContent,{ok:false,error:'backend refused'});
+  failTransport=true;const disconnected=await client.callTool({name:'sftp_status',arguments:{}});
+  assert.equal(disconnected.isError,true);assert.match(disconnected.structuredContent.error,/transport unavailable/);
+ }finally{await client.close();await server.close()}
+});
