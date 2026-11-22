@@ -102,7 +102,7 @@ cases:
 
 共享 GPU 采样保留在账号公共目录 `~/.simple-cluster/worker-state`，同一 Worker 共用采样；其余 Agent、任务状态、日志和锁默认位于服务器当前项目内。多个项目窗口使用各自目录，并分别核对 Agent、本机转发及 TensorBoard 端口。
 
-每台 Worker 的本机/远端 Agent 地址和端口动态读取自己的配置，不使用某个固定隧道端口探测所有服务器。服务器、SSH/Xshell、Conda、隧道和 GPU 配额全局共享；切换项目时提醒检查环境、项目父目录与端口，无须重新填写服务器。PLAN、同步范围、队列、结果和 AI 授权仍按项目保存。CLI/API 绑定准确项目与实例，窗口切换后旧请求不能借用新项目执行。
+每台 Worker 的本机/远端 Agent 地址和端口动态读取自己的配置，不使用某个固定隧道端口探测所有服务器。服务器、SSH/Xshell、Conda、隧道和 GPU 配额全局共享；切换项目时提醒检查环境、项目父目录与端口，无须重新填写服务器。PLAN、同步范围、队列、结果和 AI 授权仍按项目保存。MCP/API 绑定准确项目与实例，窗口切换后旧请求不能借用新项目执行。
 
 ## GPU、队列与低流量
 
@@ -112,7 +112,7 @@ cases:
 
 同范围的并发结果请求共享一轮读取，各入口可独立取消；全部入口取消才中止底层读取，已有导出保留。进度显示当前阶段、Worker 和已核实数量。GPU 区域的刷新只调用已有 GPU 查询，全局“刷新状态”入口仍保留。
 
-`simpleex --help` 和 `simpleex help` 不要求 VS Code API 正在运行。业务命令仍必须核对实时实例；使用 `--workspace <绝对路径>` 或 `--instance <实例ID>` 时先定位指定窗口，默认窗口失效不会代替或阻断明确目标。无法确认唯一实例、身份或版本时继续拒绝执行。
+MCP 连接通过 `simpleex-mcp` 启动器核对运行中的 VS Code 实例及版本，无法确认唯一实例、身份或版本时拒绝连接。
 
 按 `planFile` 或唯一 `planId` 查询结果时，仅核实该 PLAN，返回 `scope: selected_plans`、`exported: false`；不会覆盖整批导出或将其他 PLAN 的旧结果冒充本轮结果。更新整批表格请点“更新全部 PLAN 结果”。结果界面分别统计 Plan 和 job，重复查询问题按 Worker 与原因折叠。
 
@@ -126,9 +126,9 @@ cases:
 
 科研环境和数据协议由消费项目负责。插件不自动安装科研依赖，不隐式执行污染、患者/标签、论文结论或全数据集检查。任务完成与指标存在不等于论文结论已经成立。
 
-## CLI 与 AI 调用
+## AI 调用
 
-统一入口是 `simpleex --help`。按当前项目选择 `--workspace` 或 `--instance`；先读取准确实例 discovery 与 capabilities/openapi，再调用实时支持的方法。旧的独立 SimpleSFTP CLI 不作为新教程入口。
+业务操作通过插件界面或 MCP 工具进行。`simpleex-mcp` 只用于 MCP 连接，按当前项目选择 `--workspace` 或 `--instance`，并调用当前实例支持的工具。业务 CLI 入口已退役。
 
 正式实验先有配置和 PLAN，再通过插件 validatePlan、dryRunPlan 和 runPlan 工作流；不要用直接运行 train.py、临时 SSH、scp 或 rsync 绕过插件。危险动作的 `CONFIRM_REQUIRED` 是正常保护，自动化不能静默填入 confirm/pathConfirmed。
 

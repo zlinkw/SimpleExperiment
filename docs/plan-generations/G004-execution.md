@@ -48,6 +48,8 @@ T6产物列表和检查迁出；真实queryProject假RPC及合成文件对照原
 
 T7公开入口与安装改为独立MCP，排除旧CLI包内容；入口3/3、内容策略12/12 exit0，尚未构建或实际安装。
 
+T7主指南改用界面/MCP；配置文档保留旧CLI历史并标明退役。
+
 519识别未完成及同窗冲突不能认定锁死；原识别不记完成首0/1 exit1，`g004-519-bootstrap-recognition-ff08.log`。B1保存PLAN及识别事实；假对象2/2、快速9/9、上下文20/20、命令3/3、持久化3/3、投影6/6 exit0；日志 `g004-r519-b1-` 加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 及 `-ff08.log`。未改真实标记。
 
 519历史CLI合成查询通过、精确ID经cmd失败，详见coverage。A3 Git hook读错及标记不完整保留原文件，假fs及启动消费者3/3 exit0，`g004-r519-a3-git-hook-ff08.log`。300/137/45/167母集重叠，不相加。

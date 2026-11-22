@@ -131,7 +131,9 @@
 | gpuCardOverrides.<GPU编号>.gpuJobsPerCard | 逐卡最大并行 job 数；0 暂停该卡的新派发。 |
 | gpuCardOverrides.<GPU编号>.gpuMinFreeMemoryGb | 逐卡总剩余显存门槛，单位 GiB；预算预留仍继续检查。 |
 
-## CLI 当前结果与离线历史（0.5.445 试行版）
+## 历史记录：CLI 当前结果与离线历史（0.5.445 试行版）
+
+本节及下方 0.5.446、0.5.447 的 CLI 命令仅记录旧版行为；业务 CLI 已退役。当前通过插件界面或 MCP 工具查询结果，MCP 不提供旧 CLI 的历史查询入口。
 
 `simpleex result list`、`result show <id>`、`result export <id>` 默认调用当前项目插件的 `results.list`，只使用本轮核实的结果。插件离线、连接中断或整批结果未核实时返回错误，不会自动读取旧 registry、旧 Worker 汇总或本机 CSV 填补，也不会覆盖指定的已有导出文件。部分任务未完成时仍可列出本轮已经核实的行。
 
