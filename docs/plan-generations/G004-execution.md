@@ -172,4 +172,4 @@ MCP当前结果身份重排不变、歧义拒绝及诊断日志排除，queryPro
 
 MCP预检经实际Gateway及Host假端口核原任务身份、能力拒绝、操作ID与精确取消，2/2 exit0；未访问Worker，旧CLI外层行为待审。
 
-MCP远端产物精确身份/越界拒绝及结果缺参/缺文件核验：新增缺文件断言首14/16 exit1（实际ENOENT而非not found），更正后16/16 exit0；假RPC无Worker。
+MCP远端产物精确身份/越界拒绝、结果缺参/缺文件及主指标方向：新增缺文件断言首14/16 exit1（实际ENOENT而非not found），更正后16/16及方向补验16/16 exit0；假RPC无Worker。

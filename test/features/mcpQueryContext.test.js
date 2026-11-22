@@ -57,6 +57,9 @@ test('MCP metric leaderboard preserves the known loss direction',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-rank-'));fs.writeFileSync(path.join(root,'metrics.csv'),'experimentId,runKey,loss\nfirst,group,0.8\nsecond,group,0.2\n','utf8');
  const result=await queryProject(root,async()=>{throw Error('unexpected RPC')},'metric_leaderboard',{file:'metrics.csv',primary:'loss'});
  assert.equal(result.board[0].bestExperimentId,'second');
+ fs.writeFileSync(path.join(root,'accuracy.csv'),'runKey,experimentId,accuracy\nr,a,0.2\nr,b,0.8\n','utf8');
+ const higher=await queryProject(root,async()=>{throw Error('unexpected RPC')},'metric_leaderboard',{file:'accuracy.csv',primary:'accuracy'});
+ assert.equal(higher.board[0].bestExperimentId,'b');
  const {numericMetrics}=require('../../src/mcp/query/Metrics.ts'),special=numericMetrics({metrics:JSON.parse('{"__proto__":0,"constructor":"2","blank":""}')});
  assert.equal(special.__proto__,0);assert.equal(special.constructor,2);assert.equal(Object.hasOwn(special,'blank'),false);
 });

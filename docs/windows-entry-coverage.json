@@ -133,14 +133,14 @@
       {
         "source": "test/features/metricLeaderboardInput.test.js:34",
         "name": "CLI outputs the stable union of all actual metric columns",
-        "status": "pending_review",
-        "boundary": "旧终端输出依赖，MCP指标列已有独立证据；逐断言及CLI文本区别待审。"
+        "status": "partial_mcp_query_mapping_pending_review",
+        "boundary": "真实queryProject 16/16保留同数据JSON全部指标列和值；旧CLI文本渲染断言未迁，原文件保留待审。"
       },
       {
         "source": "test/features/metricLeaderboardInput.test.js:64",
         "name": "the supported primary option selects the best result using its direction",
-        "status": "pending_review",
-        "boundary": "旧指标CLI依赖；MCP方向已有独立证据，逐断言待审。"
+        "status": "neutral_consumer_covered_original_preserved",
+        "boundary": "真实queryProject使用相同accuracy数据及primary选b，16/16 exit0；旧CLI返回码断言及文件保留待审。"
       },
       {
         "source": "test/features/resultHistoryReadErrors.test.js:8",
