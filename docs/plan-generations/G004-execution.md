@@ -45,3 +45,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 parallelPlanStopClear 原文件 11/11、exit0（`%TEMP%/g004-520-parallel-plan-stop-20261123.log`，先查不存在）；VM、内存队列及假确认/Worker/tmux 回调，无真实停止或删除，待总控审定。
 
 - 520 后 planBatchCodeSyncOnce 原文件 8/8、exit0（`%TEMP%/g004-520-plan-batch-code-sync-20261123.log`，先查不存在）；自建 PLAN 夹具保留，假同步/派发回调，无真实 Worker 或传输，待总控审定。
+
+- 520 后 dispatchWake 原文件 4/4、exit0（`%TEMP%/g004-520-dispatch-wake-20261123.log`，先查不存在）；VM 与合成队列/Worker/GPU 观察，未连接真实 Worker 或 GPU，待总控审定。
