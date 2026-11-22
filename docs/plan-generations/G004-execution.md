@@ -57,3 +57,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - parallelPlanSubmission 单文件 12/12、exit0；合成 PLAN、隔离夹具与模拟预检、同步及派发，夹具保留；无真实 Worker、GPU、网络、删除或重命名。证据见 coverage，待总控终审。
 
 - failedJobCleanup 单文件 5/5、exit0；合成清理候选与内存队列、隔离 PLAN/config 夹具保留，无真实删除、重命名、Worker、网络或 UI。证据见 coverage，待总控终审。
+
+- 总控审核批准的 formalJobPreflightProgress、Structure、Environment 三个原文件各 1/1、exit0；分别仅 grow、fast/pad/duplicate、no-environment，原 20 秒预算及 Python 10 秒约束未改。仅抽取函数和独立合成夹具，子进程已结算、夹具保留；无完整 runtime 执行、真实 Worker/tmux/GPU/训练或删除。Python 3.14.6/PyYAML 6.0.3 为邻近观测，精确旧工具链未知；证据见 coverage，待总控终审。
