@@ -113,6 +113,8 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   const inspect = c => runner.inspectG004LegacyEvidence(ws, { jobs: [job] }, c);
   const accepted = inspect(coverage);
   assert.equal(accepted.length, 1);
+  assert.equal(inspect({ ...coverage, jobs: [{ ...row, disposition: "executor_reviewed_inheritance_candidate" }] }).length, 1);
+  assert.throws(() => inspect({ ...coverage, jobs: [{ ...row, disposition: "unreviewed" }] }), /incomplete review/);
   assert.equal(accepted[0].origin, "reused");
   assert.equal(accepted[0].sourceInputFingerprint, "historical");
   assert.equal(accepted[0].sourceArtifactFingerprint, "historical-artifact");

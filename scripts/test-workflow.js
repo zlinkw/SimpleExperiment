@@ -1019,7 +1019,7 @@ function inspectG004LegacyEvidence(root, plan, coverage) {
     const k = key(row), job = planned.get(k);
     if (!job || seen.has(k) || job.file !== row.file) throw new Error("G004 reviewed job missing or duplicate: " + row.file);
     seen.add(k);
-    if (row.disposition !== "controller_reviewed_inheritance_candidate" || !row.review || !row.review.decision || !row.review.snapshotSha256 || !row.sourceLogSha256) throw new Error("G004 incomplete review: " + row.file);
+    if (!["controller_reviewed_inheritance_candidate", "executor_reviewed_inheritance_candidate"].includes(row.disposition) || !row.review || !row.review.decision || !row.review.snapshotSha256 || !row.sourceLogSha256) throw new Error("G004 incomplete review: " + row.file);
     const original = source.jobs[row.sourceJob - 1];
     if (!original || key(original) !== k || original.file !== row.file || original.status !== "passed" || original.exitCode !== 0 || original.timedOut || original.signal || original.spawnError || original.treeStatus !== "confirmed") throw new Error("G004 original job invalid: " + row.file);
     for (const field of ["outLog", "errLog"]) {

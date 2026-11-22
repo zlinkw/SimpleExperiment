@@ -72,6 +72,6 @@ direct证据无论使用原工具输出还是单独原日志，均要求非空�
 
 ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与fafa1738逐字相同、fixture未变；后续类型注解、未调用的cleanup preview schema和只用sha256Text的runtime版本变化不影响所测调用。SDK InMemoryTransport及其历史安装闭包仍未判，候选不计通过。当前入口阻断333项。
 
-伴随源隐私原文件首用正斜杠绝对路径未满足Windows规范化校验，0/1 exit1，TEMP/g004-520-mcp-sftp-privacy-20261123.log；改为同一已核伴随目录的反斜杠规范路径后1/1 exit0，TEMP/g004-520-mcp-sftp-privacy-pathfix-20261123.log。仅读实际0.2.120的package/extension并提取publicServerRecord，合成密钥及假API，未读取真实凭据或改配置；伴随源及Node字节冻结，待总控审。登记脚本第一次误选自身未完成call导致断言exit1、未写文件，改选实际call后成功。
+上述伴随隐私测试首次路径规范化失败0/1（TEMP/g004-520-mcp-sftp-privacy-20261123.log），修正路径后1/1（TEMP/g004-520-mcp-sftp-privacy-pathfix-20261123.log）；登记脚本首误选未完成call exit1未写入后修正。mcpWorkerObservation 1/1、mcpCleanupEngineContract 5/5 exit0（TEMP/g004-520-mcp-worker-observation-20261123.log、TEMP/g004-520-mcp-cleanup-engine-20261123.log）。真实伴随源只读，合成密钥、假RPC/回环服务及内存fs/store，删除仅改内存集合；不代表真实Worker、磁盘持久化或远端清理。详细依据与失败见Git `9995f2fa:docs/plan-generations/G004-execution.md` 和coverage，待总控审。
 
-最终compile后mcpWorkerObservation 1/1、mcpCleanupEngineContract 5/5均exit0，日志TEMP/g004-520-mcp-worker-observation-20261123.log、TEMP/g004-520-mcp-cleanup-engine-20261123.log。前者仅回环假服务器；后者真实伴随清理引擎搭配受限内存fs/store及假传输，所谓删除仅改变内存集合，不是磁盘原子持久化或真实远端清理。无真实Worker/删除，原call、当前源码及工具链字节冻结，待总控审；入口仍阻断330项。
+旧证区分执行者审定候选与总控已审候选，扩展现有G004 disposition校验而不放宽原日志、依赖和失败门禁；原runner无删除精确pattern 1/1 exit0，TEMP/g004-executor-review-label-20261123.log，日志中的reuse-receipt ERROR为既有预期拒绝。七项总控已审删锁旧场景对应的测试与安全函数未变，更新当前快照，不重跑删除。旧job43仅内存对象、Windows字符串与集合，5a3运行前状态及当前Git证实测试、源码、无导入的dist模块未变，原passed/0/confirmed及日志保留；执行者审定为候选、旧精确Node未知、待总控终审。首次规划发现未显式填写externalInputs，拒绝而非通过；补空数组后dirty规划367执行/335待审，六个按需项因runner源码dirty而实际加入规划。
