@@ -87,6 +87,16 @@ test('MCP target update requires human approval before forwarding a scoped patch
  }finally{vscode.window.showWarningMessage=old}
 });
 
+test('MCP target update preserves the backend decision on an empty patch',async()=>{
+ const f=fixture({failureMethod:'target.update'}),old=vscode.window.showWarningMessage;
+ vscode.window.showWarningMessage=async()=>'确认执行';
+ try{
+  await assert.rejects(f.gateway.call('sftp_target_update',{patch:{}}),/远端项目清单无效/);
+  assert.equal(f.calls.length,1);assert.deepEqual(f.calls[0].params.patch,{});
+  assert.equal(f.calls[0].params.localPath,root);assert.equal(f.calls[0].params.pathConfirmed,true);
+ }finally{vscode.window.showWarningMessage=old}
+});
+
 test('MCP server save requires approval and preserves activation and profile',async()=>{
  const f=fixture(),old=vscode.window.showWarningMessage;let answer;
  const server={label:'fixture',host:'host1',port:22,username:'user',remotePath:'/project/one'};
