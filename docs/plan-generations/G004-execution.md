@@ -209,3 +209,5 @@ PLAN列表保留原valid-plan输入，实际Host摘要解析与Gateway字段/状
 Agent与preflight旧CLI文件形成两份未应用diff，分别对照现Gateway/Host假端口3/3及2/2；显式目标、digest、授权、操作身份和拒绝保留，零握手及终端外壳单列。git apply --check字节输入均exit0；无真实Agent/Worker操作。
 
 MCP文件预览补原有managed_tmux显式选项，仅允许该值并原样透传，未传保持原行为；Gateway/McpHost假后端单文件17/17 exit0，日志TEMP/g004-mcp-observation-20261122-terra.log，未连接Worker或清理。旧SFTP cleanup/Agent文件形成未应用diff并区分旧CLI外壳、现观察和引擎证据，git apply --check exit0；真实后端秘密输出仍未测。
+
+规划器形成六个已具备完整文件候选的有界未应用原子diff：保留glob动态发现，精确过滤所列文件并同步独立规划对账及磁盘覆盖；当前sourceScript无这六个直接job，其他文件仍须逐项核查并并入最终候选。三文件联合git apply --check exit0，未执行规划器测试、不称最终矩阵完整。
