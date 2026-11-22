@@ -6,7 +6,7 @@
 
 优先PLAN读/生成/保存/选择、结果读取/解析/显示/导出、反馈、持久化与MCP契约。跨项目02/05/06/07和89入口延期未开放；不得将其变体冒充单项目优先。仅支持输入/公开契约与必要消费者，不做全仓防御、性能、安全专项或退役入口恢复。
 
-当前HEAD=origin/master=4bde7f49564ad1ecc2bff9409bd939f82918ad67，tracked原clean；安装/运行包仍518源码20ae86ed，持久化f6c3339f/eab27339尚未build/dist/递版/安装。原46确认=39修复已交付517、54–56已交付518、4跨项目延期；本轮新增持久化根因独立记录，不编造或复用编号。撤回10项20、33–36、40–44保留原证据。
+当前HEAD=origin/master=5a3ca8f60a9588ecae542d3526393025dd7f47c6，tracked原clean；安装/运行包仍518源码20ae86ed。本轮f6c3339f/eab27339/19234b6a/5a3ca8f6持久化源码及必要消费者已总控源审通过，未build/dist/递版/安装，现开放下述集中交付。原46确认=39修复已交付517、54–56已交付518、4跨项目延期；本轮新增持久化根因独立记录，不编造或复用编号。撤回10项20、33–36、40–44保留原证据。
 
 ## 518实机结论及持久化源审
 
@@ -20,9 +20,9 @@
 
 源审f6c3339f：共享连接迁移/保存失败令Promise队列永久拒绝，现原失败仍向原调用者报错，后续显式保存可重试，重构消费者读回不丢原旧值。真实源码+内存首0/1 exit1、修后1/1 exit0，日志execution；总控核精确diff及断言，修法通过，未改真实连接。
 
-源审eab27339：PLAN/任务/离线/布局读取原吞损坏JSON/EACCES为不存在，可能旧迁移覆盖并清旧值；现仅ENOENT缺失，格式/读错可见，保存前校验现文件，bootstrap关键读取失败阻止迁移。离线导入/清除保存失败恢复同项目包、不清旧key、错误上传。原7/8 exit1，后9/9及格式/EACCES/ENOENT补验9/9 exit0，见execution。Promise.all任一关键读错即停止本轮迁移合理；导入已pause但失败不自动恢复在线符合不意外联网边界。源审仍需补：null/cleared为合法清除状态，旧workspace键清理失败后重启不得当缺失而复活旧包/布局。先受控核该支持路径，确认后修同一迁移链，非新框架。
+源审eab27339：PLAN/任务/离线/布局读取原吞损坏JSON/EACCES为不存在，可能旧迁移覆盖并清旧值；现仅ENOENT缺失，格式/读错可见，保存前校验现文件，bootstrap关键读取失败阻止迁移。离线导入/清除保存失败恢复同项目包、不清旧key、错误上传。原7/8 exit1，后9/9及格式/EACCES/ENOENT补验9/9 exit0，见execution。Promise.all任一关键读错即停止本轮迁移合理；导入已pause但失败不自动恢复在线符合不意外联网边界。19234b6a补齐null/cleared语义：仅迁移includeCleared区分明确清除和ENOENT，清旧键失败后重试不复活，已有项目值优先、读错保留旧值。真实消费者原9/10 exit1→10/10，补已有值后10/10，原读默认语义不变，总控源审通过。
 
-工作区识别决定：现完成/提示标记只随workspaceState，同根以文件夹或.code-workspace打开可换memento；采用同profile、按规范项目根的现有globalState持久事实，版本变化与workspace容器变化不丢，迁移当前单根旧标记，保留旧入口/API。不得跨profile搬权限/连接，不从空合成项目或目录存在推定已识别。只在原成功识别/同步完成入口保存事实；历史接入事实不替代当前Agent身份、配置/PLAN可用性或健康。state.get/set/reset及面板/首次提示消费同源，显式false/reset不能被旧true复活，读取/保存失败可见且可重试。按2–3相关问题、≤8非生成文件/组实现并源审；有明确必要build门禁先交总控集中安排，不先build再package。
+工作区识别决定：现完成/提示标记只随workspaceState，同根以文件夹或.code-workspace打开可换memento；采用同profile、按规范项目根的现有globalState持久事实，版本变化与workspace容器变化不丢，迁移当前单根旧标记，保留旧入口/API。不得跨profile搬权限/连接，不从空合成项目或目录存在推定已识别。只在原成功识别/同步完成入口保存事实；历史接入事实不替代当前Agent身份、配置/PLAN可用性或健康。state.get/set/reset及面板/首次提示消费同源，显式false/reset不能被旧true复活，读取/保存失败可见且可重试。5a3ca8f6按此完成并源审通过：ProjectOnboardingState复用globalState及localPathKey，完成/提示各按根独立；reset空记录防旧true复活，旧workspace归属根记录阻止本窗口后来项目借值，显式写等待启动迁移。原旧格式无根，首次升级当前单根迁移的历史来源无法追溯，owner写前中断仍有旧格式歧义，不冒已核全历史；无授权/连接搬迁。真实源+合成Memento/API/提示/面板单文件首0/2 exit1（模块未实现）→最终3/3，首次提示1/1、迁移10/10均exit0，不重载用户窗口造证据。
 
 ## 入口母集与原三批
 
@@ -85,3 +85,5 @@ J01仍未修：旧专用Host56788 registry报告missing GIT_CONFIG_VALUE_0；COU
 通过后核实际VSIX身份/版本/Windows兼容/运行闭包/同源/秘密排除/README/SHA；FF提交源码/generated/version并核远端后，精确tag绑定，现有GitHub试行prerelease=true/latest=false，VSIX+精确文件名sha同字节，实际远端资产/tag/digest/隔离下载/真实更新客户端核验。权威SimpleExperiment483=0fd89fa8be6778daad8398d911cd028d713241e4、SFTP118=23cbf92918c7b63cf4674a4159c3f06120037e5d不提升，SFTP120复用不降级；不覆盖历史tag/资产、不自动部署Worker。
 
 全部成功后install:latest显式一次，同版跳过、不force/降级，每目标版至多一次；核磁盘/稳定CLI后停止面板，待本人Reload再验新Host。源码/生成包/远端发行/本机安装/实际重载与真实外部未测分别报告；任何失败停对应交付且保留完整真实证据。
+
+本轮集中交付裁决（持久化）：重新核必要反向引用与抽取/VM夹具闭包，已有源码测试有效不机械重跑；确需修旧fixture则保留原断言/日志，仅补真实受影响项。先核未用patch/tag再同步package/lock/runtime并write-agent-runtime稳定输入，dry-run读取当前矩阵/按需与保护恢复；既有runner因运行版本/共享源码变化要求完整同输入passed矩阵时，批准本候选首次package一次，max-parallel1/cancel-stdin，不先独立build。真实失败收完整结算，定向返修；如runner拒绝组合，交具体差距，不自动第二轮或伪receipt。通过后按下述项目原交付规则连续完成，无需再等普通放行：新dist真实消费者/Panel模块及生成scripts VM、10890零命中；实际VSIX身份/平台/README/内容策略/秘密排除/完整运行闭包和同源字节核验，直接沿518已批准实际ZIP等价方法覆盖本轮新增模块及当前完整入口（不硬设325/371旧数量，不重跑已无证据输出的vsce ls）。FFpush/fetch、tag绑定、既有GitHub同字节试行发行及真实远端/下载/更新客户端后一次安装；停止UI待本人Reload。源码通过不等构建/交付通过，新版Host实机仍待重载；原real Worker/4跨项目/89入口限制不变。plan/README精确审核dirty可随下一适用scoped提交，总控此后冻结输入。

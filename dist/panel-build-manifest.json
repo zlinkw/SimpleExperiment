@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.518",
-  "buildId": "3c5e25d443aec19475edc46c21e7bc739b47d952acea36ec5f50a15b1b61faa6",
+  "version": "0.5.519",
+  "buildId": "f9abcc0cb5388277508a2f887dd148010412ef9d6b167b90e395e27e9708e776",
   "files": [
     {
       "path": "bin/simpleex-mcp.cjs",
@@ -193,7 +193,11 @@
     },
     {
       "path": "dist/core/ProjectConnectionProfiles.js",
-      "sha256": "029096837beda13d95f999c06f868e68b9ff8cda9833b548a10b22e977c363ff"
+      "sha256": "4b0b6473f455adcff7f693e196533b28905588a45fa1c2c27c9803dd4a98aea8"
+    },
+    {
+      "path": "dist/core/ProjectOnboardingState.js",
+      "sha256": "cfbd8dc2930849bbb13501d93f56881210ec56760cce13d3c6b386528793d77a"
     },
     {
       "path": "dist/core/ResourceOperationLease.js",
@@ -261,7 +265,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "64fb47f9e9bb0886c19420c635e8bd34c0d3b3227a08091f3c5a8318b3752500"
+      "sha256": "6f4ad30adc4907dd68594fa1ab1d5402c09af61ce2791386563cf59c533ace6b"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -941,7 +945,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "a47ce634119448cf787d62377ccc19f9e03a9a4640b4efbd2df84aa28c1146ca"
+      "sha256": "1d1269df17f36338c99292edee743393d32f4834f401fb37376baca050e1c76f"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1293,7 +1297,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "cbe44bcd070a041140c5446bf66f982af8a9d001dfdd76bf2c33cb690ac82c15"
+      "sha256": "8549b7e7846453fbe383119d165ea8ac7af8477cb992e5806dcf53d92ffce259"
     },
     {
       "path": "scripts/check-static.js",

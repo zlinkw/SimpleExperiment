@@ -315,12 +315,13 @@ test("MCP project state returns consistent summary and full state without a gran
 });
 
 test("state API rejects read-only keys and cancellation before writing", async () => {
+  require('../_helpers/registerTsRequire'); const {readOnboardingFact}=require('../../src/core/ProjectOnboardingState.ts');
   const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);const methods=[];let declaration;
   const visit=node=>{if(ts.isMethodDeclaration(node)&&['apiStateValue','apiStateList','apiStateGet','apiStateSet'].includes(node.name.getText(ast)))methods.push(node.getText(ast));
     if(ts.isVariableStatement(node)&&node.declarationList.declarations.some(d=>d.name.getText(ast)==='API_STATE_KEYS'))declaration=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
   const values=new Map(),writes=[];const store={get:k=>values.get(k),update:async(k,v)=>{writes.push([k,v]);values.set(k,v)}};
-  const sandbox={keys:new Proxy({}, {get:(_target,key)=>String(key)}),workspaceRoot:()=>'/project',readProjectConnectionValue:()=>undefined,stringField:(p,k)=>p[k]||'',redactApiStateValue:(_k,v)=>v,
+  const sandbox={keys:new Proxy({}, {get:(_target,key)=>String(key)}),workspaceRoot:()=>'/project',projectOnboardingRoot:()=>'/project',readOnboardingFact,readProjectConnectionValue:()=>undefined,stringField:(p,k)=>p[k]||'',redactApiStateValue:(_k,v)=>v,
     normalizeApiStateValue:(_k,v)=>v,confirmationRequired:()=>new Error('CONFIRM_REQUIRED')};
   vm.runInNewContext(ts.transpileModule(declaration+'\nclass Host {'+methods.join('\n')+'}; this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
   const h=new sandbox.Host();h.context={workspaceState:store,globalState:store};h.captureProjectContext=()=>({root:'/project'});h.projectContextIsCurrent=()=>true;h.postState=()=>{};

@@ -45,6 +45,7 @@ exports.__distributeMappedDownloadsForTest = __distributeMappedDownloadsForTest;
 // @ts-nocheck
 const vscode = __importStar(require("vscode"));
 const McpHost_1 = require("./McpHost");
+const ProjectOnboardingState_1 = require("../core/ProjectOnboardingState");
 const PlanStopClearBatchHost_1 = require("./PlanStopClearBatchHost");
 const RuntimeLogAnalysisHost_1 = require("./RuntimeLogAnalysisHost");
 const SelectedPlanBatchHost_1 = require("./SelectedPlanBatchHost");
@@ -364,8 +365,8 @@ const API_STATE_KEYS = {
     uiProjectLayout: { store: "workspace", label: "项目面板布局", writable: true },
     uiProjectActions: { store: "workspace", label: "项目固定操作", writable: true },
     firstRunSetupPrompt: { store: "global", label: "首次运行提示版本", writable: true },
-    projectOnboardingPrompt: { store: "workspace", label: "项目引导提示版本", writable: true },
-    projectOnboardingCompleted: { store: "workspace", label: "项目引导完成标记", writable: true },
+    projectOnboardingPrompt: { store: "global", label: "项目引导提示版本（按项目根隔离）", writable: true },
+    projectOnboardingCompleted: { store: "global", label: "项目引导完成标记（按项目根隔离）", writable: true },
     legacySftpNoticeShown: { store: "global", label: "旧 SFTP 插件提示", writable: true },
     pendingWorkspaceContinuation: { store: "global", label: "待续工作区操作", writable: false },
     migrationShown: { store: "global", label: "旧配置迁移提示", writable: true },
@@ -3658,6 +3659,8 @@ class RealtimeTunnelPanelProvider {
             throw new Error(`未知 SimpleExperiment 状态：${name}`);
         if (name === "setupConfig" || name === "tunnelConfig")
             return (0, ProjectConnectionProfiles_1.readProjectConnectionValue)(this.context, workspaceRoot(), stateKey);
+        if (name === "projectOnboardingPrompt" || name === "projectOnboardingCompleted")
+            return (0, ProjectOnboardingState_1.readOnboardingFact)(this.context, projectOnboardingRoot(), name, this.projectContextGeneration === 0);
         return meta.store === "global" ? this.context.globalState.get(stateKey) : this.context.workspaceState.get(stateKey);
     }
     async apiStateList() {
@@ -3707,6 +3710,12 @@ class RealtimeTunnelPanelProvider {
         const projectContext = this.captureProjectContext();
         if (key === "setupConfig" || key === "tunnelConfig")
             await (0, ProjectConnectionProfiles_1.saveProjectConnectionValues)(this.context, projectContext.root, { [stateKey]: value });
+        else if (key === "projectOnboardingPrompt" || key === "projectOnboardingCompleted") {
+            await this.projectBootstrapPromise;
+            if (!this.projectContextIsCurrent(projectContext))
+                throw new Error("项目已切换；项目引导状态未更新。");
+            await (0, ProjectOnboardingState_1.writeOnboardingFact)(this.context, projectOnboardingRoot(), key, value);
+        }
         else if (meta.store === "global")
             await this.context.globalState.update(stateKey, value);
         else
@@ -3744,6 +3753,12 @@ class RealtimeTunnelPanelProvider {
         const projectContext = this.captureProjectContext();
         if (key === "setupConfig" || key === "tunnelConfig")
             await (0, ProjectConnectionProfiles_1.saveProjectConnectionValues)(this.context, projectContext.root, { [stateKey]: undefined });
+        else if (key === "projectOnboardingPrompt" || key === "projectOnboardingCompleted") {
+            await this.projectBootstrapPromise;
+            if (!this.projectContextIsCurrent(projectContext))
+                throw new Error("项目已切换；项目引导状态未重置。");
+            await (0, ProjectOnboardingState_1.writeOnboardingFact)(this.context, projectOnboardingRoot(), key, undefined);
+        }
         else if (meta.store === "global")
             await this.context.globalState.update(stateKey, undefined);
         else
@@ -4817,13 +4832,15 @@ class RealtimeTunnelPanelProvider {
     }
     async bootstrapProjectLocalUiState() {
         const projectContext = this.captureProjectContext();
+        if (projectContext.generation === 0)
+            await (0, ProjectOnboardingState_1.migrateOnboardingFacts)(this.context, projectOnboardingRoot());
         await Promise.all([
-            this.loadProjectPlanSelectionState().catch(() => undefined),
-            this.loadProjectTaskSelectionState().catch(() => undefined),
-            this.loadProjectOfflineBundleState().catch(() => undefined),
+            this.loadProjectPlanSelectionState(),
+            this.loadProjectTaskSelectionState(),
+            this.loadProjectOfflineBundleState(),
             this.loadProjectActionErrorsState().catch(() => undefined),
             this.loadProjectPanelLifecycleDiagnosticsState().catch(() => undefined),
-            this.loadProjectUiLayoutState().catch(() => undefined),
+            this.loadProjectUiLayoutState(),
             this.loadProjectDebugBundleState().catch(() => undefined),
             this.loadProjectCodeSyncState().catch(() => undefined),
             this.loadProjectRemotePathConfirmationsState().catch(() => undefined),
@@ -5110,9 +5127,14 @@ class RealtimeTunnelPanelProvider {
         }
         const legacyOffline = this.context.workspaceState.get(keys.offlineBundle);
         if (legacyOffline) {
-            if (!this.offlineBundle)
-                this.offlineBundle = legacyOffline;
-            await this.persistProjectOfflineBundleState();
+            const loaded = await this.readCurrentProjectState(root => readProjectOfflineBundleState(root, true));
+            if (!loaded.current)
+                return;
+            if (loaded.value !== null) {
+                if (!this.offlineBundle)
+                    this.offlineBundle = loaded.value || legacyOffline;
+                await this.persistProjectOfflineBundleState();
+            }
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             await this.context.workspaceState.update(keys.offlineBundle, undefined);
@@ -5122,9 +5144,14 @@ class RealtimeTunnelPanelProvider {
         const legacyLayout = this.context.workspaceState.get(keys.uiProjectLayout)
             || this.context.workspaceState.get(keys.uiProjectActions);
         if (legacyLayout && typeof legacyLayout === "object") {
-            if (!this.projectUiLayout)
-                this.projectUiLayout = normalizeUiProjectLayoutState(legacyLayout, defaultUiLayout);
-            await this.persistProjectUiLayoutState();
+            const loaded = await this.readCurrentProjectState(root => readProjectUiLayoutState(root, true));
+            if (!loaded.current)
+                return;
+            if (loaded.value !== null) {
+                if (!this.projectUiLayout)
+                    this.projectUiLayout = loaded.value || normalizeUiProjectLayoutState(legacyLayout, defaultUiLayout);
+                await this.persistProjectUiLayoutState();
+            }
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             await this.context.workspaceState.update(keys.uiProjectLayout, undefined);
@@ -5190,10 +5217,21 @@ class RealtimeTunnelPanelProvider {
     async clearOfflineImport() {
         if (!this.offlineBundle)
             return;
+        const projectContext = this.captureProjectContext();
+        const previous = this.offlineBundle;
         this.offlineBundle = undefined;
+        try {
+            await this.persistProjectOfflineBundleState();
+        }
+        catch (error) {
+            if (this.projectContextIsCurrent(projectContext))
+                this.offlineBundle = previous;
+            throw error;
+        }
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         this.applyOfflineResultsSummaryFromBundle(undefined);
         this.refreshExperimentTracesProjectionForCurrentInterest();
-        await this.persistProjectOfflineBundleState().catch(() => undefined);
         await this.context.workspaceState.update(keys.offlineBundle, undefined);
     }
     async loadProjectPlanSelectionState() {
@@ -6075,21 +6113,26 @@ class RealtimeTunnelPanelProvider {
         const serverSetupComplete = initialServerSetupComplete(this.setupConfig, false);
         const enabledWorkerCount = this.enabledWorkerConfigs().length;
         if (serverSetupComplete && simpleSftp.ready && enabledWorkerCount > 0) {
-            if (this.projectLocallyRecognized())
+            const completed = this.apiStateValue("projectOnboardingCompleted");
+            const explicitlyReset = (0, ProjectOnboardingState_1.hasOnboardingFact)(this.context, projectOnboardingRoot(), "projectOnboardingCompleted") && completed === undefined;
+            if (completed === true || (completed !== false && !explicitlyReset && this.projectLocallyRecognized()))
                 return;
-            const root = workspaceRoot();
+            const root = projectOnboardingRoot();
             if (!root)
                 return;
-            const projectPromptShown = Number(this.context.workspaceState.get(keys.projectOnboardingPrompt, 0));
+            const projectPromptShown = Number(this.apiStateValue("projectOnboardingPrompt") || 0);
             if (projectPromptShown >= 1)
                 return;
+            const projectContext = this.captureProjectContext();
             const choice = await vscode.window.showWarningMessage(`SimpleExperiment 已就绪，当前项目为 ${path.basename(root)}，但尚未完成工作区识别。识别后，首次上传前会再次确认本地与远端预期位置。`, { modal: true }, "识别工作区", "打开面板", "不再提示");
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             if (choice === "识别工作区")
                 await this.bootstrapProjectFromUi();
             else if (choice === "打开面板")
                 await vscode.commands.executeCommand(`${viewId}.focus`);
             else if (choice === "不再提示")
-                await this.context.workspaceState.update(keys.projectOnboardingPrompt, 1);
+                await (0, ProjectOnboardingState_1.writeOnboardingFact)(this.context, root, "projectOnboardingPrompt", 1);
             return;
         }
         if (simpleSftp.ready && legacySftp.installed && !this.context.globalState.get(keys.legacySftpNoticeShown)) {
@@ -6134,11 +6177,12 @@ class RealtimeTunnelPanelProvider {
             if (projectContext && !this.projectContextIsCurrent(projectContext))
                 throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换，识别完成标记已取消。");
         };
+        await this.projectBootstrapPromise;
         assertCurrent();
         if (projectContext?.root || workspaceRoot()) {
-            await this.context.workspaceState.update(keys.projectOnboardingCompleted, true);
+            await (0, ProjectOnboardingState_1.writeOnboardingFact)(this.context, projectOnboardingRoot(), "projectOnboardingCompleted", true);
             assertCurrent();
-            await this.context.workspaceState.update(keys.projectOnboardingPrompt, 1);
+            await (0, ProjectOnboardingState_1.writeOnboardingFact)(this.context, projectOnboardingRoot(), "projectOnboardingPrompt", 1);
             assertCurrent();
         }
     }
@@ -7188,11 +7232,21 @@ class RealtimeTunnelPanelProvider {
         await this.pauseRealtimeStream();
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
+        const previous = this.offlineBundle;
         this.offlineBundle = result.bundle;
+        try {
+            await this.persistProjectOfflineBundleState();
+        }
+        catch (error) {
+            if (generation === this.projectContextGeneration && root === workspaceRoot())
+                this.offlineBundle = previous;
+            throw error;
+        }
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         this.refreshExperimentTracesProjectionForCurrentInterest();
         this.mergeRecentPlansFromRuntime(result.bundle?.snapshot);
         this.applyOfflineResultsSummaryFromBundle(result.bundle);
-        await this.persistProjectOfflineBundleState().catch(() => undefined);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
         await this.context.workspaceState.update(keys.offlineBundle, undefined);
@@ -29640,16 +29694,18 @@ class RealtimeTunnelPanelProvider {
         const integrations = { simpleSftp: simpleSftpIntegrationReadiness() };
         const workspace = workspaceContextForWebview();
         const topology = this.projectTopologyAssessment();
+        const onboardingCompleted = this.apiStateValue("projectOnboardingCompleted");
+        const onboardingStored = (0, ProjectOnboardingState_1.hasOnboardingFact)(this.context, projectOnboardingRoot(), "projectOnboardingCompleted");
+        const onboardingExplicitlyIncomplete = onboardingCompleted === false || (onboardingStored && onboardingCompleted === undefined);
         const projectOnboarding = projectOnboardingStateForWebview({
             workspace,
             topology,
             setup: this.setupConfig,
-            recognized: this.projectLocallyRecognized(),
+            recognized: !onboardingExplicitlyIncomplete && this.projectLocallyRecognized(),
             workerProbes: this.lastWorkerProbes,
             simpleSftp: integrations.simpleSftp,
-            promptShown: this.context.workspaceState.get(keys.projectOnboardingPrompt, 0),
-            completed: this.context.workspaceState.get(keys.projectOnboardingCompleted, false) === true
-                || projectOnboardingCompletedFromCodeSync(this.lastCodeSyncState, false),
+            promptShown: this.apiStateValue("projectOnboardingPrompt") || 0,
+            completed: onboardingCompleted === true || (!onboardingExplicitlyIncomplete && projectOnboardingCompletedFromCodeSync(this.lastCodeSyncState, false)),
         });
         const resultRoot = workspaceRoot();
         const projectAdapterRules = pluginProjectAdapterRules(resultRoot || "");
@@ -31889,8 +31945,8 @@ async function readProjectPlanSelectionState(root) {
     try {
         const text = await fs.readFile(fullPath, "utf8");
         const data = JSON.parse(text);
-        if (!data || typeof data !== "object")
-            return undefined;
+        if (!data || typeof data !== "object" || Array.isArray(data))
+            throw new Error("项目状态格式无效");
         return {
             selectedPlanId: usableSelectionKey(String(data.selectedPlanId || data.selected_plan_id || "")),
             planFileInput: usableSelectionKey(String(data.planFileInput || data.plan_file || data.planFile || "")),
@@ -31898,13 +31954,16 @@ async function readProjectPlanSelectionState(root) {
             updatedAt: String(data.updatedAt || data.updated_at || ""),
         };
     }
-    catch {
-        return undefined;
+    catch (error) {
+        if (error?.code === "ENOENT")
+            return undefined;
+        throw new Error(`读取项目状态失败 ${fullPath}: ${errorMessage(error)}`, { cause: error });
     }
 }
 async function writeProjectPlanSelectionState(root, state) {
     if (!root)
         return;
+    await readProjectPlanSelectionState(root);
     const fullPath = path.join(root, ...PROJECT_PLAN_SELECTION_PATH.split("/"));
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     const payload = {
@@ -31949,8 +32008,8 @@ async function readProjectTaskSelectionState(root) {
     try {
         const text = await fs.readFile(fullPath, "utf8");
         const data = JSON.parse(text);
-        if (!data || typeof data !== "object")
-            return undefined;
+        if (!data || typeof data !== "object" || Array.isArray(data))
+            throw new Error("项目状态格式无效");
         return {
             selectedExperimentIds: normalizeSelectionList(data.selectedExperimentIds || data.selected_experiment_ids),
             selectedRunKeys: normalizeSelectionList(data.selectedRunKeys || data.selected_run_keys),
@@ -31962,13 +32021,16 @@ async function readProjectTaskSelectionState(root) {
             updatedAt: String(data.updatedAt || data.updated_at || ""),
         };
     }
-    catch {
-        return undefined;
+    catch (error) {
+        if (error?.code === "ENOENT")
+            return undefined;
+        throw new Error(`读取项目状态失败 ${fullPath}: ${errorMessage(error)}`, { cause: error });
     }
 }
 async function writeProjectTaskSelectionState(root, state) {
     if (!root)
         return;
+    await readProjectTaskSelectionState(root);
     const fullPath = path.join(root, ...PROJECT_TASK_SELECTION_PATH.split("/"));
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     const selectedRunKeys = normalizeSelectionList(state?.selectedRunKeys);
@@ -31987,30 +32049,35 @@ async function writeProjectTaskSelectionState(root, state) {
     await writeAtomicPluginStateJson(fullPath, payload);
 }
 const PROJECT_OFFLINE_BUNDLE_PATH = "simple_cluster/ui/offline_bundle.json";
-async function readProjectOfflineBundleState(root) {
+async function readProjectOfflineBundleState(root, includeCleared = false) {
     if (!root)
         return undefined;
     const fullPath = path.join(root, ...PROJECT_OFFLINE_BUNDLE_PATH.split("/"));
     try {
         const text = await fs.readFile(fullPath, "utf8");
         const data = JSON.parse(text);
-        if (!data || typeof data !== "object")
-            return undefined;
+        if (data === null)
+            return includeCleared ? null : undefined;
+        if (typeof data !== "object" || Array.isArray(data))
+            throw new Error("项目状态格式无效");
         if (data.cleared === true)
-            return undefined;
+            return includeCleared ? null : undefined;
         if (data.bundle && typeof data.bundle === "object")
             return data.bundle;
         if (data.snapshot || data.lastImportedAt || data.schemaVersion)
             return data;
         return undefined;
     }
-    catch {
-        return undefined;
+    catch (error) {
+        if (error?.code === "ENOENT")
+            return undefined;
+        throw new Error(`读取项目状态失败 ${fullPath}: ${errorMessage(error)}`, { cause: error });
     }
 }
 async function writeProjectOfflineBundleState(root, bundle) {
     if (!root)
         return;
+    await readProjectOfflineBundleState(root);
     const fullPath = path.join(root, ...PROJECT_OFFLINE_BUNDLE_PATH.split("/"));
     if (!bundle) {
         await writeAtomicPluginStateJson(fullPath, null);
@@ -32245,27 +32312,32 @@ async function writeProjectPanelLifecycleDiagnosticsState(root, events) {
     await writeAtomicPluginStateJson(fullPath, { schemaVersion: 1, updatedAt: new Date().toISOString(), events: rows });
 }
 const PROJECT_UI_LAYOUT_PATH = "simple_cluster/ui/ui_layout.json";
-async function readProjectUiLayoutState(root) {
+async function readProjectUiLayoutState(root, includeCleared = false) {
     if (!root)
         return undefined;
     const fullPath = path.join(root, ...PROJECT_UI_LAYOUT_PATH.split("/"));
     try {
         const text = await fs.readFile(fullPath, "utf8");
         const data = JSON.parse(text);
-        if (!data || typeof data !== "object")
-            return undefined;
+        if (data === null)
+            return includeCleared ? null : undefined;
+        if (typeof data !== "object" || Array.isArray(data))
+            throw new Error("项目状态格式无效");
         if (data.cleared === true)
-            return undefined;
+            return includeCleared ? null : undefined;
         const raw = data.layout && typeof data.layout === "object" ? data.layout : data;
         return normalizeUiProjectLayoutState(raw, defaultUiLayout);
     }
-    catch {
-        return undefined;
+    catch (error) {
+        if (error?.code === "ENOENT")
+            return undefined;
+        throw new Error(`读取项目状态失败 ${fullPath}: ${errorMessage(error)}`, { cause: error });
     }
 }
 async function writeProjectUiLayoutState(root, layout) {
     if (!root)
         return;
+    await readProjectUiLayoutState(root);
     const fullPath = path.join(root, ...PROJECT_UI_LAYOUT_PATH.split("/"));
     if (!layout) {
         await writeAtomicPluginStateJson(fullPath, null);
@@ -41905,6 +41977,13 @@ function workspaceRoot() {
     catch {
         return undefined;
     }
+}
+function projectOnboardingRoot() {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!Array.isArray(folders) || folders.length !== 1)
+        return undefined;
+    const root = workspaceRoot();
+    return root ? localPathKey(root) : undefined;
 }
 function currentHostOperationLeaseContext() {
     if (process.platform !== "win32")
