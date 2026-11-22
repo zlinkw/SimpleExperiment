@@ -65,3 +65,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 - 520 后 panelMessageDispatch 21/21、exit0；工具输出因长度截断，完整原日志 `%TEMP%/g004-520-panel-message-dispatch-20261123.log`（先查不存在）。生产消息处理切片使用假宿主/假窗口，不打开实际 UI、不改 Worker 配置、不执行删除。
 
 - tmuxOtherSessionsDisclosure 本轮 VM 19/19、exit0（`%TEMP%/g004-520-tmux-disclosure-vm-20261123.log`，先查不存在）；假 DOM/会话仅验证脚本逻辑，不是真实窗口或 tmux。初审历史复用时发现渲染器读取已改版本的 package.json，脚本断言停止且未写登记，改以当前实测证据覆盖。
+
+- 519 job 87：真实逻辑配合内存会话/假确认/假关闭回调，动态提取的 Host 方法与 5a3 一致，编译闭包及原测试未变；原passed/0/tree confirmed，旧Node/TS实际版本未知。仅作假 tmux 场景候选，不代表真实窗口关闭，待总控审。
