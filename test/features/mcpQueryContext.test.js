@@ -2,20 +2,18 @@ const test=require('node:test'),assert=require('node:assert/strict');
 require('../_helpers/registerTsRequire');
 const {queryProject}=require('../../src/mcp/ProjectQueries.ts');
 const neutral=require('../../src/mcp/query/ExecutionContext.ts');
-const existing=require('../../src/cli/ExecutionContext.ts');
 const support=require('../../src/mcp/query/Support.ts');
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 
 test('concurrent MCP project queries keep RPC and structured output isolated',async()=>{
- assert.equal(neutral.businessContext,existing.businessContext);
  const cwd=process.cwd(),calls=[];
  const make=tag=>async method=>{await new Promise(resolve=>setImmediate(resolve));calls.push([tag,method]);
   if(method==='status')return {topology:{workers:[{id:tag,online:true}]}};
   if(method==='gpu.list')return {};if(method==='server.testAll')return {rows:[]};throw Error('unexpected '+method)};
  const [a,b]=await Promise.all([queryProject('C:/one',make('one'),'server_list',{}),queryProject('C:/two',make('two'),'server_list',{})]);
  assert.equal(a[0].id,'one');assert.equal(b[0].id,'two');assert.equal(calls.length,6);assert.equal(process.cwd(),cwd);
- let old;const {serverCommand}=require('../../src/cli/commands/server.ts');
- await neutral.businessContext.run({root:'C:/one',rpc:make('one'),emit:value=>{old=value}},()=>serverCommand('list',[],{json:true}));assert.deepEqual(a,old);
+ assert.deepEqual(a,[{id:'one',online:'true',ssh:'unknown',gpu:'unknown'}]);
+ assert.deepEqual(b,[{id:'two',online:'true',ssh:'unknown',gpu:'unknown'}]);
  assert.equal(neutral.businessContext.getStore(),undefined);
 });
 
@@ -28,22 +26,26 @@ test('MCP result_parse uses content-selected preset and preserves zero',async()=
 });
 
 test('MCP result list, show and export retain the established structured business output',async()=>{
- const old=require('../../src/cli/commands/result.ts');
- const oldMetric=require('../../src/cli/commands/metric.ts');
- const oldCompare=require('../../src/cli/commands/compare.ts');
  const inputs=[{planFile:'plans/p.yaml',workerId:'worker-a',runId:'same',completionState:'verified',aggregationState:'eligible',
    dimensions:{seed:0,dataset:'合成,"A"',fold:'line\n1'},metrics:{AP:0,AUPRC:0.5},sourceFiles:[{path:'result.csv'}]},
   {planFile:'plans/p.yaml',workerId:'worker-a',runId:'same',completionState:'verified',aggregationState:'eligible',
    dimensions:{seed:1,dataset:'other'},metrics:{AP:0.25},sourceFiles:[{path:'result.csv'}]}];
  const rpc=async method=>{assert.equal(method,'results.list');return {source:'active_query',summary:{current:true,observedAt:'2026-01-01',results:inputs}}};
- async function previous(fn){let value;await neutral.businessContext.run({root:'fixture',rpc,emit:x=>{value=x}},fn);return value}
- const rows=await queryProject('fixture',rpc,'result_list',{});assert.deepEqual(rows,await previous(()=>old.resultList({json:true})));
- assert.equal(rows.length,2);assert.notEqual(rows[0].id,rows[1].id);assert.equal(rows[0].value,0);
- assert.deepEqual(await queryProject('fixture',rpc,'result_show',{id:rows[0].id}),await previous(()=>old.resultShow(rows[0].id,{json:true})));
- for(const format of ['json','csv'])assert.deepEqual(await queryProject('fixture',rpc,'result_export',{id:rows[0].id,format}),await previous(()=>old.resultExport(rows[0].id,{json:true,format})));
- assert.deepEqual(await queryProject('fixture',rpc,'metric_list',{}),await previous(()=>oldMetric.metricList({json:true})));
- assert.deepEqual(await queryProject('fixture',rpc,'metric_show',{id:rows[0].id}),await previous(()=>oldMetric.metricShow(rows[0].id,{json:true})));
- assert.deepEqual(await queryProject('fixture',rpc,'result_compare',{left:rows[0].id,right:rows[1].id}),await previous(()=>oldCompare.compareCommand([rows[0].id,rows[1].id],{json:true})));
+ const ids=['result-2454d4fd5b435fb1be93538cf62d922ed23ad0fa9971bc61d22038c2e1930a94','result-852472ca47e43bfd6ac2ce000bda0e90ca557f71037ee47eb85ef85a2bccc8eb'];
+ const provenance={source:'active_query',current:true,observedAt:'2026-01-01'};
+ const rows=await queryProject('fixture',rpc,'result_list',{});
+ assert.deepEqual(rows,ids.map((id,i)=>({id,experimentId:'same',status:'validated',metric:'AP',value:i?0.25:0,updated:'2026-01-01',...provenance})));
+ const metrics={AP:0,AUPRC:0.5},dimensions={seed:0,dataset:'合成,"A"',fold:'line\n1'};
+ assert.deepEqual(await queryProject('fixture',rpc,'result_show',{id:ids[0]}),{id:ids[0],experimentId:'same',status:'validated',metrics,time:'2026-01-01',config:dimensions,seed:0,checkpoint:null,outputFiles:['result.csv'],...provenance});
+ const exportJson={id:ids[0],...provenance,dimensions,metrics,rows:[{groupKey:'合成,"A"',dimensions:{suite:''},count:1,values:{AP:{raw:[0]},AUPRC:{raw:[0.5]}},bestResultId:ids[0]}]};
+ const csv=['group,count,AP,AUPRC,bestResultId,dimension:seed,dimension:dataset,dimension:fold',`"合成,""A""",1,0,0.5,${ids[0]},0,"合成,""A""","line\n1"`].join('\n');
+ for(const [format,content] of [['json',JSON.stringify(exportJson,null,2)],['csv',csv]])assert.deepEqual(await queryProject('fixture',rpc,'result_export',{id:ids[0],format}),{id:ids[0],...provenance,format,path:'',content});
+ assert.deepEqual(await queryProject('fixture',rpc,'metric_list',{}),{metrics:['AP','AUPRC']});
+ const metric=await queryProject('fixture',rpc,'metric_show',{id:ids[0]});
+ assert.equal(Object.getPrototypeOf(metric),null);assert.deepEqual({...metric},metrics);
+ const compared=await queryProject('fixture',rpc,'result_compare',{left:ids[0],right:ids[1]});
+ assert.equal(Object.getPrototypeOf(compared.metric_difference),null);
+ assert.deepEqual({...compared,metric_difference:{...compared.metric_difference}},{left:ids[0],right:ids[1],metric_difference:{AP:{left:0,right:0.25,delta:0.25}},improvement:['AP'],regression:[],reason:''});
  await assert.rejects(queryProject('fixture',rpc,'result_compare',{left:'',right:rows[1].id}),/missing first experiment id/);
  await assert.rejects(queryProject('fixture',rpc,'result_show',{id:'same'}),/AMBIGUOUS/);
  await assert.rejects(queryProject('fixture',async()=>({source:'old'}),'result_list',{}),/RESULT_QUERY_UNVERIFIED/);
@@ -60,18 +62,24 @@ test('MCP metric leaderboard preserves the known loss direction',async()=>{
 test('MCP plan build and empty matrix retain their established values',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-plan-')),rpc=async()=>{throw Error('unexpected RPC')};
  fs.writeFileSync(path.join(root,'plan.yaml'),'suite: demo\ncases: []\nseeds: [0, 1]\n','utf8');
- const old=require('../../src/cli/commands/plan.ts');let previous;
- await neutral.businessContext.run({root,rpc,emit:value=>{previous=value}},()=>old.planMatrix('plan.yaml',{json:true}));
- const matrix=await queryProject(root,rpc,'plan_matrix',{planFile:'plan.yaml'});assert.deepEqual(matrix,previous);assert.equal(matrix.count,0);
- await neutral.businessContext.run({root,rpc,emit:value=>{previous=value}},()=>old.planBuild({json:true,suite:'demo',base:'x.yaml',seeds:'0,1'}));
- assert.deepEqual(await queryProject(root,rpc,'plan_build',{suite:'demo',base:'x.yaml',seeds:[0,1]}),previous);
+ const matrix=await queryProject(root,rpc,'plan_matrix',{planFile:'plan.yaml'});
+ assert.deepEqual(matrix,{count:0,suite:'demo',cases:0,seeds:2,filteredCount:0});
+ const yaml=['suite: "demo"','mode: train_test','base_config: "x.yaml"','paper:',
+  '  result_csv: "{output_dir}/metrics_summary.csv"','runner:',
+  '  train_command: "python train.py --config {config} --seed {seed} --output-dir {output_dir}"',
+  '  test_command: "python test.py --config {config} --seed {seed} --output-dir {output_dir} --result-csv {result_csv}"',
+  'naming:','  sweep_dir: "work_dirs/multirun/{suite}"','  job_name: "{index}_{case}_seed{seed}"',
+  '  experiment_name: "{suite}/{case}/seed_{seed}"','seeds:','  - "0"','  - "1"','cases:',
+  '  - case: "demo__baseline"','    outputDir: "work_dirs/multirun/{suite}/{case}_seed{seed}"',
+  '    expectedResults:','      - "work_dirs/multirun/{suite}/{case}_seed{seed}/metrics_summary.csv"','    overrides:',''].join('\n');
+ assert.deepEqual(await queryProject(root,rpc,'plan_build',{suite:'demo',base:'x.yaml',seeds:[0,1]}),{suite:'demo',baseConfig:'x.yaml',seeds:['0','1'],yaml});
  await assert.rejects(queryProject(root,rpc,'plan_build',{seeds:[0,0]}),/duplicates/);
 });
 
 test('query runtime parsers retain existing training and identity semantics',()=>{
- const old=require('../../src/cli/runtime.ts'),current=require('../../src/mcp/query/Runtime.ts');
- for(const text of ['', 'Epoch 2/5 loss=0.1', 'Epoch [3/10] loss: 0.4'])assert.deepEqual(current.parseTrainingProgress(text),old.parseTrainingProgress(text));
- for(const yaml of ['', 'training:\n  max_epoch: 10\n', 'max_epochs: 0\n'])assert.equal(current.trainingMaxEpochFromYaml(yaml),old.trainingMaxEpochFromYaml(yaml));
+ const current=require('../../src/mcp/query/Runtime.ts');
+ for(const text of ['', 'Epoch 2/5 loss=0.1', 'Epoch [3/10] loss: 0.4'])assert.equal(current.parseTrainingProgress(text),null);
+ for(const yaml of ['', 'training:\n  max_epoch: 10\n', 'max_epochs: 0\n'])assert.equal(current.trainingMaxEpochFromYaml(yaml),null);
 });
 
 test('MCP resource availability preserves the prior structured query',async()=>{
@@ -81,10 +89,10 @@ test('MCP resource availability preserves the prior structured query',async()=>{
   if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};
   if(method==='state.get')return {value:{workerTunnels:[]}};throw Error('unexpected RPC '+method);
  };
- let previous;const old=require('../../src/cli/commands/resource.ts');
- await neutral.businessContext.run({root,rpc,emit:value=>{previous=value}},()=>old.resourceCommand('available',[],{json:true}));
- assert.deepEqual(await queryProject(root,rpc,'resource_available',{}),previous);
- assert.equal(previous[0].available,'true');assert.equal(previous[1].reason,'process_present');
+ assert.deepEqual(await queryProject(root,rpc,'resource_available',{}),[
+  {server:'workerA',gpu:'0',available:'true',reason:'utilization_below_5',utilization:0},
+  {server:'workerA',gpu:'1',available:'false',reason:'process_present',utilization:''}
+ ]);
  await assert.rejects(queryProject(root,async method=>{
   if(method==='tasks.list')throw support.businessError('task query rejected');
   return rpc(method);
@@ -109,26 +117,27 @@ test('MCP artifact queries retain paths, identities and failures',async()=>{
   if(method==='results.list')return {source:'active_query',summary:{current:true,results:[]}};
   throw Error('unexpected RPC '+method);
  };
- const old=require('../../src/cli/commands/artifact.ts');
- async function previous(fn){let value;await neutral.businessContext.run({root,rpc,emit:x=>{value=x}},fn);return value}
- assert.deepEqual(await queryProject(root,rpc,'artifact_list',{id:'run-a'}),await previous(()=>old.artifactList('run-a',{json:true})));
+ assert.deepEqual(await queryProject(root,rpc,'artifact_list',{id:'run-a'}),[]);
  const listed=await queryProject(root,rpc,'artifact_list',{id:'local-run'});
- assert.deepEqual(listed,await previous(()=>old.artifactList('local-run',{json:true})));
- assert.equal(listed[0].id,'local-run:result.txt');
- assert.deepEqual(await queryProject(root,rpc,'artifact_inspect',{id:'sample.txt'}),await previous(()=>old.artifactInspect('sample.txt',{json:true})));
+ assert.deepEqual(listed,[{id:'local-run:result.txt',path:'output/result.txt',size:'6'}]);
+ assert.deepEqual(await queryProject(root,rpc,'artifact_inspect',{id:'sample.txt'}),{
+  id:'sample.txt',file:'sample.txt',size:13,mtime:fs.statSync(path.join(root,'sample.txt')).mtime.toISOString(),
+  hash:'18eec0cf867e893de3351c2efc679c3b79ceed8a9037eec96db06a50bfd718d3'
+ });
  await assert.rejects(queryProject(root,rpc,'artifact_inspect',{id:'missing'}),/not found/i);
  assert.equal((await queryProject(root,rpc,'artifact_inspect',{id:'worker:1:result.txt'})).file,'output/result.txt');
  await assert.rejects(queryProject(root,rpc,'artifact_inspect',{id:'worker:2:result.txt'}),/not found/i);
 });
 
 test('query compact output preserves the existing structured view',()=>{
- const old=require('../../src/cli/format.ts'),current=require('../../src/mcp/query/Compact.ts');
+ const current=require('../../src/mcp/query/Compact.ts');
  const payload={id:'x',status:'running',zero:0,raw:{secret:'fixture'},rows:[{id:'a',status:'failed',recentLogs:['x']}]};
- assert.deepEqual(current.compactJsonValue(payload),old.compactJsonValue(payload));
+ assert.deepEqual(current.compactJsonValue(payload),{id:'x',status:'running',zero:0,rows:[{id:'a',status:'failed'}]});
 });
 
 test('MCP experiment views retain real query behavior with project-bound RPC',async()=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-experiment-')),old=require('../../src/cli/commands/experiment.ts');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-experiment-'));
+ const baselines=require('../fixtures/g004-mcp-experiment-baseline.json');
  const rpc=async method=>{
   if(method==='tasks.list')return {tasks:[{id:'run-a',status:'running',name:'trial',startedAt:'2026-01-01'}]};
   if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};
@@ -136,20 +145,17 @@ test('MCP experiment views retain real query behavior with project-bound RPC',as
   if(method==='live.output')return {text:'INFO synthetic log'};
   throw Error('unexpected RPC '+method);
  };
- async function previous(fn){let value;await neutral.businessContext.run({root,rpc,emit:x=>{value=x}},fn);return value}
- const flags={json:true,full:true,compactJson:false};
- assert.deepEqual(await queryProject(root,rpc,'experiment_list',{full:true}),await previous(()=>old.experimentList(flags)));
- assert.deepEqual(await queryProject(root,rpc,'experiment_summary',{full:true}),await previous(()=>old.experimentSummary(flags)));
- assert.deepEqual(await queryProject(root,rpc,'experiment_results',{id:'run-a',full:true}),await previous(()=>old.experimentResults('run-a',flags)));
- assert.deepEqual(await queryProject(root,rpc,'experiment_list',{}),await previous(()=>old.experimentList({json:true,full:false})));
- const oldLogs=require('../../src/cli/commands/log.ts');
- assert.deepEqual(await queryProject(root,rpc,'experiment_log',{id:'run-a'}),await previous(()=>oldLogs.logShow('run-a',flags)));
- assert.deepEqual(await queryProject(root,rpc,'experiment_log',{id:'run-a',lines:1}),await previous(()=>oldLogs.logTail('run-a',{...flags,lines:1})));
+ assert.deepEqual(await queryProject(root,rpc,'experiment_list',{full:true}),baselines.list);
+ assert.deepEqual(await queryProject(root,rpc,'experiment_summary',{full:true}),baselines.summary);
+ assert.deepEqual(await queryProject(root,rpc,'experiment_results',{id:'run-a',full:true}),baselines.results);
+ assert.deepEqual(await queryProject(root,rpc,'experiment_list',{}),baselines.listCompact);
+ assert.deepEqual(await queryProject(root,rpc,'experiment_log',{id:'run-a'}),baselines.log);
+ assert.deepEqual(await queryProject(root,rpc,'experiment_log',{id:'run-a',lines:1}),baselines.logTail);
  await assert.rejects(queryProject(root,rpc,'experiment_log',{id:'missing'}),/not found/i);
  const normalized=value=>JSON.parse(JSON.stringify(value,(key,item)=>['snapshot_id','snapshot_time'].includes(key)?undefined:item));
- for(const [name,fn,needsId] of [['active','experimentActive',false],['tree','experimentTree',false],['status','experimentStatus',true],['overview','experimentOverview',false],['health','experimentHealth',false],['inspect','experimentInspect',true],['monitor','experimentMonitor',true],['diagnose','experimentDiagnose',true],['config','experimentConfig',true]]){
+ for(const name of ['active','tree','status','overview','health','inspect','monitor','diagnose','config']){
   const actual=await queryProject(root,rpc,'experiment_'+name,{id:'run-a',full:true});
-  const expected=await previous(()=>needsId?old[fn]('run-a',flags):old[fn](flags));assert.deepEqual(normalized(actual),normalized(expected),name);
+  assert.deepEqual(normalized(actual),baselines[name],name);
  }
  await assert.rejects(queryProject(root,rpc,'experiment_results',{id:'missing'}),/not found/i);
 });

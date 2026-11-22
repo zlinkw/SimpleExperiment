@@ -84,7 +84,7 @@ MCP终态身份10/10、结果精确身份及导出1/1、日志与配置1/1、合
 
 0.5.518首包339/341 exit1、前10门禁通过、并行峰1及锁释放，原回执 `simple_cluster/reports/test-workflow/2026-11-22T03-16-49-272Z-80576-package/run.json`。mcpProject 41/43因夹具共用对象，复制后43/43；serverQuota 9/10因夹具缺`mcpInvocation`，修后10/10，均exit0；补验日志同上临时目录 `g004-518-mcp-project-after-ff08.log`、`g004-518-worker-quota-after-ff08.log`。仅修夹具，后续发行状态见顶部，未动真实权限/Worker。
 
-U54–U56 517实机及源修原始记录见 Git `eab27339:docs/plan-generations/G004-execution.md`：U54调用失败、42/43→43/43；U55旧方案43/44→44/44，新裁决45/45两轮；U56离线摘要不可见、预览8/8，坏行7/8 exit1→8/8，补别名8/8。517本地PLAN/向导/结果拆表/取消、MCP解析及隔离profile零Worker的日志均在原记录。`node scripts/test-workflow.js --help` exit1因不支持；CLI默认绑定不符exit2未重放。
+U54–U56原日志见Git eab27339同路径：U54 42/43→43/43；U55 43/44→44/44、新裁决45/45两轮；U56预览8/8、坏行7/8 exit1→8/8及别名8/8。help不支持exit1，CLI默认绑定不符exit2未重放。
 U04排查基线HEAD=origin/master `b7c0b42c27227a8ec49d42d1f21346900a274ae4`、tracked clean；原材料在Git `48062264:docs/plan-generations/G004-execution.md` 和coverage。factory缺四项门禁回退legacy，恢复页VM 5/5 exit0；未重载、写剪贴板或访问服务器。旧静态脚本不能代表完整母集；后续源码见1ff64a81及下文，旧执行聊天已归档。
 
 版本审核13/13、缓存及同步页4/4和3/3 exit0；U04-01夹具首失败、U04-02延期，见4a80c627及coverage；无真实删除。
@@ -111,3 +111,5 @@ T7收包策略：排除旧业务CLI及依赖它的旧MCP启动器，要求独立
 T7矩阵：19个已定向验过的MCP迁移、连接和收包测试加入build/check:full/package/smoke，四profile只读规划各19项独占、均非按需；原项目全树输入指纹保持，旧项未减。test/features及acceptance原glob也涵盖新项。B1未纳入上述显式组，仍未运行验证且是交付阻断。训练进度旧文件误重写但内容已恢复，复验9/9 exit0；生成命令首引号错误exit1未写入。
 
 MCP Worker生命周期迁测：queryProject配独立本机合成API/Worker，4/4 exit0（chunk 252e84）；限流、来源和父级3/3 exit0（702b10）；旧8项的无API离线历史剩1项属CLI专有回退，MCP仍需Host、不新造history，原用例保留待裁决。两新测试纳入四个交付profile。
+
+迁移期mcpQueryContext已脱离全部CLI引用：以旧实现实测结果固定MCP输入、输出、身份和错误断言，实验视图fixture排除动态快照字段；11/11 exit0（0eaa05）。转换时metric及compare的null原型两次10/11 exit1（f7c9b7、2eba9b），修期望后通过；旧CLI测试未动。
