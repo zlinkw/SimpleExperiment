@@ -391,36 +391,40 @@ test("API selection commands reach local handlers while remote confirmation rema
   await host.invokeApi({command:'runPlan',confirm:true});assert.deepEqual(remote,[['runPlan',true]]);
 });
 
-test("local project configuration authorization works without a Worker", async () => {
+test("project authorization grants the project without binding Workers", async () => {
   const ts=require('typescript'),Module=require('node:module');
   const root=path.resolve(__dirname,'../..'), sourceFile=path.join(root,'src/extension/McpHost.ts');
   const {ProjectGateway}=require('../../src/mcp/ProjectGateway.ts');
-  const {createProjectAuthorization,AUTHORIZATION_KEY}=require('../../src/mcp/ProjectAuthorization.ts');
+  const {createProjectAuthorization,PERMISSIONS}=require('../../src/mcp/ProjectAuthorization.ts');
   const worker={id:'worker-a',host:'example.invalid',port:22,user:'fixture',projectRoot:'/fixture'};
   let currentRoot=root, workers=[], scenario='local', step=0, grant, writes=0;
   const vscode={workspace:{workspaceFolders:[{uri:{get fsPath(){return currentRoot}}}]},window:{
-    showQuickPick:async items=>{step++;if(step===1)return {value:'grant'};
-      if(items.some(row=>row.worker)) return [items[0]];
+    showQuickPick:async items=>{step++;assert.equal(items.length,2);
       if(scenario==='cancel')return undefined;
       if(scenario==='switch')currentRoot=path.join(root,'test');
-      return items.filter(row=>row.permission==='configuration');},showInformationMessage(){}}};
+      return {value:'grant'};},showInformationMessage(){}}};
   const host={context:{workspaceState:{get:()=>grant,update:async(_key,value)=>{grant=value;writes++}}},
     refreshSharedConnectionSettings(){},workerCodeSyncTargets:()=>workers.map(row=>({...row,remotePath:row.projectRoot}))};
   const exported={},nativeRequire=Module.createRequire(sourceFile);
   const code=ts.transpileModule(fs.readFileSync(sourceFile,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
   new Function('require','exports',code)(name=>name==='vscode'?vscode:name==='./SftpCleanupReview'?{}:nativeRequire(name),exported);
   await exported.manageAiAuthorization(host);
-  assert.equal(writes,1);assert.deepEqual(grant.workers,[]);assert.deepEqual(grant.permissions,['configuration']);
+  assert.equal(writes,1);assert.equal(step,1);assert.equal(Object.hasOwn(grant,'workers'),false);assert.deepEqual(grant.permissions,PERMISSIONS);
   const calls=[],methods={'config.set':async params=>{calls.push(params);return {ok:true}},'project.prepare':async()=>{throw Error('unexpected remote call')}};
   const gateway=new ProjectGateway({root:()=>currentRoot,workers:()=>workers,store:host.context.workspaceState,methods:()=>methods});
   await gateway.call('configuration_set',{key:'simpleExperiment.showAdvancedCommands',value:true,scope:'workspace'});assert.equal(calls.length,1);
   currentRoot=path.join(root,'test');await assert.rejects(gateway.call('configuration_set',{key:'simpleExperiment.showAdvancedCommands',value:true,scope:'workspace'}),/AUTHORIZATION_REQUIRED/);
-  currentRoot=root;await assert.rejects(gateway.call('project_prepare',{}),/AUTHORIZATION_REQUIRED/);
-  for(const permission of ['experiment','sync','agents','results'])assert.throws(()=>createProjectAuthorization(root,[],['configuration',permission]),/TARGET_REQUIRED/);
+  currentRoot=root;await assert.rejects(gateway.call('project_prepare',{}),/unexpected remote call/);
   scenario='cancel';step=0;await exported.manageAiAuthorization(host);assert.equal(writes,1);
   scenario='switch';step=0;await assert.rejects(exported.manageAiAuthorization(host),/WORKSPACE_CHANGED/);assert.equal(writes,1);
   currentRoot=root;scenario='worker';step=0;workers=[worker];await exported.manageAiAuthorization(host);
-  assert.equal(writes,2);assert.deepEqual(grant.workers,[worker]);assert.deepEqual(grant.permissions,['configuration']);
+  assert.equal(step,1);assert.equal(writes,2);assert.equal(Object.hasOwn(grant,'workers'),false);assert.deepEqual(grant.permissions,PERMISSIONS);
+  await gateway.call('configuration_set',{key:'simpleExperiment.showAdvancedCommands',value:true,scope:'workspace'});assert.equal(calls.length,2);
+  grant={...createProjectAuthorization(root),permissions:['configuration'],workers:[worker]};
+  workers=[{...worker,host:'changed.invalid'}];
+  await assert.rejects(gateway.call('configuration_set',{key:'simpleExperiment.showAdvancedCommands',value:true,scope:'workspace'}),/WORKER_NOT_AUTHORIZED/);
+  workers=[worker];await assert.rejects(gateway.call('project_prepare',{}),/AUTHORIZATION_REQUIRED/);
+  assert.equal(calls.length,2);
 });
 
 test("PLAN list returns formal and archived metadata separately", async () => {

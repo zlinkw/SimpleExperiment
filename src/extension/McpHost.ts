@@ -4,7 +4,7 @@ import * as fs from "node:fs/promises";
 import { ProjectGateway } from "../mcp/ProjectGateway";
 import { ProjectMcpOperations } from "../mcp/ProjectOperations";
 import { openSftpCleanupReview } from "./SftpCleanupReview";
-import { AUTHORIZATION_KEY, PERMISSIONS, createProjectAuthorization, type AuthorizedWorker } from "../mcp/ProjectAuthorization";
+import { AUTHORIZATION_KEY, createProjectAuthorization, type AuthorizedWorker } from "../mcp/ProjectAuthorization";
 import { mcpInvocation } from "../mcp/Invocation";
 import { isDeepStrictEqual } from "node:util";
 
@@ -119,20 +119,7 @@ export async function manageAiAuthorization(host: any): Promise<void> {
     void vscode.window.showInformationMessage("已撤销当前项目的 AI 写操作授权。");
     return;
   }
-  const availableWorkers = currentWorkers(host);
-  const workers = availableWorkers.length ? await vscode.window.showQuickPick(availableWorkers.map(worker => ({ label: worker.id,
-    description: `${worker.user}@${worker.host}:${worker.port} ${worker.projectRoot}`, worker })),
-  { title: "选择 AI 可操作的 Worker", canPickMany: true, ignoreFocusOut: true }) : [];
-  if (!workers || availableWorkers.length && !workers.length) return;
-  const names = { experiment: "启动、派发和停止实验", sync: "文件同步", agents: "Agent 部署、升级和重启", configuration: "项目配置与草稿", results: "结果收集与汇总" };
-  const availablePermissions = workers.length ? PERMISSIONS : PERMISSIONS.filter(permission => permission === "configuration");
-  const permissions = await vscode.window.showQuickPick(availablePermissions.map(permission => ({ label: names[permission], permission, picked: true })),
-    { title: "选择 AI 可自主执行的项目操作", canPickMany: true, ignoreFocusOut: true });
-  if (!permissions?.length) return;
-  if (root !== vscode.workspace.workspaceFolders?.[0]?.uri.fsPath) throw Error("MCP_WORKSPACE_CHANGED");
-  const current = currentWorkers(host);
-  if (workers.some(row => !current.some(worker => isDeepStrictEqual(worker, row.worker)))) throw Error("MCP_WORKER_TARGET_CHANGED");
   await host.context.workspaceState.update(AUTHORIZATION_KEY,
-    createProjectAuthorization(root, workers.map(row => row.worker), permissions.map(row => row.permission)));
+    createProjectAuthorization(root));
   void vscode.window.showInformationMessage("AI 项目授权已保存，可通过同一命令撤销。永久删除与覆盖清理继续使用路径审核页。");
 }

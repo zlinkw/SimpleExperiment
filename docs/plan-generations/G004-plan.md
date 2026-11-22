@@ -68,9 +68,15 @@ Terra负责所有定向小验收，先单文件20秒入口；旧合成复现应�
 
 单项目阶段已有PLAN选择/刷新空矩阵/保存原文、向导生成取消，配置保存读回恢复、合成结果显示与分表、错误和日志实机证据，未全通过。新增U04-54：catalog列selectPlan但invoke误入远端action映射而拒绝；原B3局部返修417634df已源审通过，两选择复用本地handler，持久化/错误/确认及远端路径保留；定向43/43 exit0，首42/43 exit1保留。源码FF已同步，未build/dist/递版/发行，517尚不含修复。results.list系主动采集，离线空Worker失败暂仅观察；首屏旧cases缓存刷新正确不称持久缺陷。
 
-U04-55：517授权UI/grant均强制Worker，阻断本地配置；已源审两处最小修复，零Worker仅本人亲选configuration，其他权限空目标拒绝，原Worker身份/取消/持久化/撤销保留。src转译+真实Gateway单文件44/44 exit0，首43/44 exit1保留；待FF提交，未build/发行/安装，不冒517已含修复。准确入口为命令面板“SimpleExperiment：管理 AI 项目授权”。授权仍由本人，不操作安全UI或重放专项。
+U04-55最新方案源审通过：单一授权/撤销当前workspace，无Worker/操作范围勾选，统一插件及服务器操作含设置；设置决定启用目标。新grant无Worker，旧细分/绑定grant保留旧约束待本人重授。配置可改disabled并读回enabled，执行仍限enabled，目标变更/路径/删除确认保留。src及真实Gateway/保存核心单文件两次45/45 exit0（后次补保存前目标核对）；旧窄修156f060b及其首43/44失败、44/44通过保留。按A授权8文件、B设置6文件语义hunk分组FF，先无已提交结论，不重写历史；未改真实授权/配置/服务器。
 
-MCP权限纠正：result_parse/metric_leaderboard的公开permission为空，Gateway/Operations无全局grant门禁，grant=null本身不阻断本地文件解析。先在当前517按公开schema实际调用补证，未调用不称被拒；若真实拒绝则停并记准确原因，不绕过。result_export/主动结果采集仍需results权限且未授权。
+U55设置必要链：worker_configure现有schema缺enabled，workers.configure/Gateway只认启用集，导致AI不能启用已禁用的已配置Worker。沿原工具/保存函数补enabled和读回，配置目标可取全部已配置集，实际执行仍限启用集；未知目标拒绝，保存不启动远程。统一grant后正常设置修改不再单独弹Worker/范围授权；必要共享影响说明保留。仅假设置/假Worker回归，不改真实共享配置；每内部组≤3问题/8源测文档文件，受控源审后集中交付裁决。
+
+517真实MCP本地补证：result_parse/metric_leaderboard无需grant，Host22928实际调用成功；长表2结果保留逗号run key/DSC0、空HD95跳过；排行2组保留accuracy0/0.8、loss空/0.4及引号逗号。原final.csv默认长表返回[]不当通用失败。新合成文件保留；纠正旧笼统blocked。尚补离线文件选择→导入→显示正常链；results主动采集/导出仍未获真实授权，不冒通过。
+
+## U54/U55 集中试行交付开放
+
+A/B源提交及517离线导入缺口完成、无新阻断后，开放54+55必要运行交付，单项目仍非最终通过。先实核未用下一patch/tag，package/lock/runtime同步、write-agent-runtime，复用缓存，不独立build后再package。dry-run核当前选择/按需及组装要求；若现有最终profile仍强制同输入完整passed矩阵，批准本候选一次既有package、max-parallel1/cancel-stdin，按实际清单对账，不伪造组合或硬设数量。失败收完整结果后按实因裁决，不自动第二轮。新dist需mcpProject等受影响消费者及Panel模块/实际生成script VM门禁。按项目规范核VSIX身份/平台/闭包/同源/秘密/SHA，FF源/版本/generated后同字节发布既有GitHub试行prerelease/latest=false，实核tag/资产/下载/实际更新客户端，SFTP120现有包复用、不提Latest483。全部成功才install:latest一次，核磁盘/CLI后停UI待本人Reload，不自动授或部署Worker；随后新版实机核54/55再判断单项目门槛。冻结检查期间总控不写输入。
 
 ## 0.5.517 最终交付确认
 
@@ -82,7 +88,7 @@ MCP权限纠正：result_parse/metric_leaderboard的公开permission为空，Gat
 
 ## 0.5.516 历史交付确认
 
-完整516资产/包与原审查细节保留在Git a7d2a727同文件及b7c0b42c执行登记。源码6e3e9421a6f2bb3bdc8af63e39fe6c5431ee4e72，试行v0.5.516绑定同提交，Latest未提升。VSIX2984671字节、SHA256 a19398b5542d382a3606984125f2549d3a0721a86d10b96ecef582fe8861212d；97字节同名清单、本机/真实远端下载一致。最终receipt 2026-11-21T08-23-22-440Z-42280-package/run.json为341/341、13门禁、exit0、输入一致、并发1、锁释放、按需0；Panel3脚本VM、377 ZIP/326闭包/373同源及秘密排除通过。首包340/341 exit1、测试修正22/22、ZIP路径规范化首次误报和独立vsce ls超时均保留，不冒全程无失败。
+516完整身份/资产/源审见Git a7d2a727同计划及b7c0b42c执行登记。源码6e3e9421、试行非Latest；最终package回执2026-11-21T08-23-22-440Z-42280为341/341、13门禁exit0、输入一致、并发1、锁释放、按需0；Panel3脚本VM及377ZIP/326闭包/373同源通过。首包340/341 exit1、补测22/22、ZIP路径假缺及vsce ls超时原失败保留；精确字节/SHA与下载/安装事实不变。
 
 516安装一次exit0、SFTP120，simpleex --version因默认其他项目API_WORKSPACE_MISMATCH exit2，未改绑定求绿；用户未确认重载，不能倒推新界面实机。当前安装已到517，历史包/副本均保留；旧任务/窗口/稿件未动，J01未恢复。实际ReleaseClient当时482见483、515/516及SFTP120不降级。
 ## U03 历史范围与复用
@@ -99,7 +105,7 @@ U03源审与统一交付已通过；U04当前租约按上述现任分工，不�
 
 ## 保护对象及实机边界
 
-唯一专用根 C:/Users/ZLK/AppData/Local/Temp/simpleex-normal-ui-g003-20261116-a7c39e2f，保持offline_import、低流量开启及configuration-only真实授权；不扩sync/results/experiment/agents，不改共享Worker。仅本机/受控替身，禁止服务器SSH、健康/环境/隔离查询、连接准备、同步、真实任务查询/运行/停止/清理、Agent部署及科研依赖安装。先前只读远端目录批准不是本阶段服务器许可。
+唯一专用根 C:/Users/ZLK/AppData/Local/Temp/simpleex-normal-ui-g003-20261116-a7c39e2f，保持offline_import、低流量，实际grant尚空；产品授权按U55本人新裁决，不自动改真实授权/共享Worker。仅本机/受控替身，禁止真实服务器SSH、健康/环境/隔离查询、连接准备、同步、任务查询/运行/停止/清理、Agent部署或科研依赖安装。旧远端目录只读许可不扩本阶段。
 
 保护原MM final.md、Generic Untitled-1、Response to Reviewers.tex等未保存文档；不重载或关闭原窗口、不抢输入。原GPU7、旧任务/结果/日志、远端/root/autodl-tmp/zlk/MultiModal、原Agent精确tmux窗口及隧道均保护。旧验收仓库D:/GitRepo/SimpleMcpAcceptance、拒删cleanup_20261111.txt、全部新旧fixtures/暂存和约60个未跟踪VSIX摘要保留；不stage无关文件、不删除/搬移/自动清理。真实界面只在精确专用项目核身份后操作，不把旧安装界面当新修复通过。
 
@@ -115,9 +121,9 @@ U03源审与统一交付已通过；U04当前租约按上述现任分工，不�
 
 515源码/tag5dda9cf2，试行非Latest，package回执2026-11-21T04-51-48-484Z-62512为341/341、13门禁exit0、并发1、按需0、锁释放。包/远端/下载一致、验证目录保留，精确字节/完整SHA见668c6d54同文件。515本人实际重载过，不倒推513；旧CLI绑定失败exit1保留，记录4c9f420d/f0bf04c5。
 
-U01真实515界面24个本机场景（coverage g004ReloadedUiU01），发现并修复两项：正式/草稿显式cases[]不再计虚假任务；通用失败通知“查看日志”能见完整错误/命令/操作ID，已有PLAN/产物日志不重复。首测0/2 exit1，修后2/2及actionLifecycle11/11 exit0，源码内存转译及实际parser/通知链。提交0eacc46aa665926efb939da4c9b605503ab95734。真实2/101/1三表、映射、搜索/选择、空词条错误和精确文件打开证据复用；新增三个ui_u01_*_515.yaml仅本机合成且从未执行，保留所有文件，不把受控source修复冒已安装界面生效。
+U01真实515本机24场景见coverage.g004ReloadedUiU01；两修复为显式cases[]计数0及通用失败“查看日志”完整回执。首0/2 exit1，修后2/2及actionLifecycle11/11 exit0；提交0eacc46a。真实2/101/1表/映射/搜索/空项/文件打开证据及3个ui_u01_*夹具复用且未运行。完整契约/源身份见Git668c6d54同文件，受控修复不冒已装UI通过。
 
-U02原28项按J–Q逐项对账（coverage g004U02Reconciliation），不是完整按钮分母。八项真实修复：flow保存错误传播、显式false/解除阻塞、切项目后不误返另一项目流程；draft_validate精确路径、review实际状态、刷新错误不沿用旧draft；归档PLAN参与筛选、MCP公开已有planId/limit/needsChoice及输出。初次测试均有真实exit1（缺少拒绝、true状态错误、路径undefined、状态误报、归档计数0、schema缺字段），另state夹具缺键修正；最终目标29/29 exit0。总控沿真实队列发现flow切项目回执，首测缺少拒绝exit1，修后3/3关联检查exit0，覆盖写成/写失败后切换及同项目成功/失败；原项目写入结果未知不误称成功/失败。源码45739e60/1e97d510/72b63c4f，记录2206a498，返修42149f307a259294b7ad0e6aaf7590c8dc8d10c5，总控收口4edd1da5；均普通push/fetch一致。部分旧断言依赖dist仅证明旧范围。
+U02原28项J–Q见coverage.g004U02Reconciliation，非按钮分母。八修复为flow保存/false/项目回执、draft精确路径/状态/失败、归档筛选及MCP已有参数schema。首测真实exit1和state缺键夹具失败保留，修后目标29/29；flow真实队列首拒绝缺失exit1、修后3/3，原项目写入未知不冒成功失败。完整逐项触发、调用链、提交及旧dist限制见Git668c6d54同文件；4edd1da5已FF收口。
 
 ## Git环境未解决项 J01
 
@@ -135,4 +141,4 @@ U03最终源审结论：08d0e02d修复带冒号实验身份回读及空块式cas
 
 全部修改/验证/打包/发行完成，才显式install:latest一次；同版跳过、不force/降级，每目标版最多安装一次。核已装版本/simpleex后停止面板，待本人Reload Window再验新版本界面；不自动更新Worker。源码、生成包、远端试行Release、本机安装、运行重载及真实外部未测分别报告。用户最新目标尚在执行，不以派单、两处修复、对账完、一次检查或CUA子步骤完成结束整轮。
 
-0.5.516统一交付续接裁决：首轮package回执 `2026-11-21T08-06-01-643Z-33540-package/run.json` 实际exit1、340/341通过，唯一失败为旧planOperationNoticeLifecycle断言与已审U01失败日志契约冲突；仅修该测试后单文件22/22、exit0，生产实现未变。已核现有validateReceiptForAssemble仅接受overall=passed、同inputFingerprint、同矩阵及全部逐项通过，首轮只有聚合输入摘要，不能安全证明测试差量组合。总控因此批准原完整package入口再执行一次，生成当前候选的真实可接纳回执，保留首轮失败和定向补测；不伪改回执、不绕过门禁、不为本次交付新增通用恢复框架或跨任务缓存，也不把此次工具限制变成以后仅补测试的默认全量重跑规则。后续仍按实际失败及影响范围判断。
+516历史特批：首package340/341 exit1仅旧日志断言，单文件22/22修正；执行器仅接受同输入完整passed receipt，不能组合覆盖，总控批准当时一次完整重跑。完整原失败/组装依据/真实结果见Git668c6d54同文件，不伪改receipt、不绕门禁、不扩通用runner或把特批当以后纯补测默认全跑。

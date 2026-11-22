@@ -18,7 +18,7 @@ function loadMcpHost(vscode, overrides = {}) {
   return exported;
 }
 
-test('authorization chooser rejects changed workspace or selected Worker before writing', async () => {
+test('authorization chooser binds the workspace without selecting Workers or scopes', async () => {
   const f = fixture(), writes = [];
   let root = f.root, worker = { ...f.worker }, step = 0, scenario = '';
   const vscode = { workspace: { workspaceFolders: [{ uri: { get fsPath() { return root; } } }] }, window: {
@@ -26,24 +26,21 @@ test('authorization chooser rejects changed workspace or selected Worker before 
       if (++step === 1) {
         if (scenario === 'cancel') return undefined;
         if (scenario === 'revoke-switch') { root += '-other'; return { value: 'revoke' }; }
+        if (scenario === 'grant-switch') root += '-other';
         return { value: 'grant' };
       }
-      if (step === 2) return scenario === 'no-workers' ? [] : [items[0]];
-      if (scenario === 'cancel-permissions') return undefined;
-      if (scenario === 'worker-change') worker = { ...worker, host: 'other.invalid' };
-      if (scenario === 'grant-switch') root += '-other';
-      return [items[0]];
+      assert.fail('unexpected additional chooser');
     }, showInformationMessage() {},
   } };
   const host = { context: { workspaceState: { update: async (...args) => writes.push(args) } }, refreshSharedConnectionSettings() {},
     workerCodeSyncTargets: () => [{ ...worker, remotePath: worker.projectRoot }] };
   const { manageAiAuthorization } = loadMcpHost(vscode);
-  for (scenario of ['revoke-switch', 'grant-switch', 'worker-change']) {
+  for (scenario of ['revoke-switch', 'grant-switch']) {
     root = f.root; worker = { ...f.worker }; step = 0;
     await assert.rejects(manageAiAuthorization(host), /MCP_WORKSPACE_CHANGED|MCP_WORKER.*CHANGED/);
     assert.equal(writes.length, 0);
   }
-  for (scenario of ['cancel', 'no-workers', 'cancel-permissions']) {
+  for (scenario of ['cancel']) {
     root = f.root; worker = { ...f.worker }; step = 0;
     await manageAiAuthorization(host);
     assert.equal(writes.length, 0);
@@ -51,7 +48,8 @@ test('authorization chooser rejects changed workspace or selected Worker before 
   root = f.root; worker = { ...f.worker }; step = 0; scenario = 'normal';
   await manageAiAuthorization(host);
   assert.equal(writes.length, 1);
-  assert.deepEqual(writes[0][1].workers, [worker]);
+  assert.equal(Object.hasOwn(writes[0][1], 'workers'), false);
+  assert.deepEqual(writes[0][1].permissions, ['experiment', 'sync', 'agents', 'configuration', 'results']);
 });
 
 test('MCP approval rejects cancellation or a changed project before writing', async () => {
@@ -137,7 +135,7 @@ test('MCP Worker-to-Worker sync binds both selected authorized targets', async (
   const f = fixture(), sent = [];
   const second = { id: 'worker-b', host: 'second.invalid', port: 22, user: 'research', projectRoot: '/project/second' };
   const workers = [f.worker, second];
-  await f.store.update(AUTHORIZATION_KEY, createProjectAuthorization(f.root, workers, ['sync']));
+  await f.store.update(AUTHORIZATION_KEY, { ...createProjectAuthorization(f.root), permissions: ['sync'], workers });
   const vscode = { workspace: { workspaceFolders: [{ uri: { fsPath: f.root } }] } };
   const host = { context: { workspaceState: f.store }, createLocalApiMethods: () => f.methods, refreshSharedConnectionSettings() {},
     workerCodeSyncTargets: () => workers.map(worker => ({ ...worker, remotePath: worker.projectRoot })),
@@ -340,7 +338,7 @@ function fixture() {
   const store = { get: () => grant, update: async (key, value) => { assert.equal(key, AUTHORIZATION_KEY); grant = value; } };
   return { root, worker, calls, methods, store,
     gateway: new ProjectGateway({ root: () => root, workers: () => [worker], store, methods: () => methods }),
-    authorize: async permissions => store.update(AUTHORIZATION_KEY, createProjectAuthorization(root, [worker], permissions)) };
+    authorize: async permissions => store.update(AUTHORIZATION_KEY, { ...createProjectAuthorization(root), permissions, workers: [worker] }) };
 }
 test('MCP log reads preserve the exact Worker and remote cursor, including empty responses', async () => {
   const ts = require('typescript');

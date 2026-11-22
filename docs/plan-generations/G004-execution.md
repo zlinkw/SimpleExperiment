@@ -1,5 +1,9 @@
 # G004 执行登记
 
+U04-55 用户裁决：本人选择授权当前项目即授现有全部操作类别，不选 Worker 或范围；新 grant 不存 Worker，旧细分/绑定 grant 保留旧约束直到本人重授。最终组合源码及内存 UI/store/Gateway 目标回归45/45 exit0，日志见后续设置组记录。未操作真实授权，尚未 build、安装或实机复验。
+
+517 隔离实例 MCP 本地业务补证：实际 discovery/health 为 Host 22928、0.5.517、专用根，live catalog 中 result_parse/metric_leaderboard 无权限要求，真实 mcp.call 未拒绝。原 synthetic/final.csv 按默认长表解析返回空数组；新建并保留 `experiments/results/synthetic/g004_0517_mcp_long_ff08.csv` 与 `g004_0517_mcp_metrics_ff08.csv`，前者解析两行结果，保留带逗号 run key、DSC=0，跳过空 HD95；后者排行两组，保留 accuracy=0 与引号内逗号，空 loss 不计指标，另一组 accuracy=0.8/loss=0.4。此证修正此前“所有 MCP 解析未测”的记载；result_export 等 results 权限链及新授权版本实机仍未测。
+
 U04-55：517 的人手授权先要求非空 Worker，故隔离零 Worker 项目无法授本地配置；非用户未操作。源码调整为零 Worker 时仅展示「项目配置与草稿」，由本人明确选择；grant 构造禁止零 Worker 含 experiment/sync/agents/results，原有 Worker 选择及精确身份复核保留。真实源码转译与内存 UI/store/Gateway 的 `node --test --test-force-exit --test-timeout 20000 test/ui/actionLifecycle.test.js` 首次 43/44 exit1（零 Worker 未写授权），修后 44/44 exit0；覆盖本地配置可达、取消不写、项目身份不符拒绝、现有 Worker 选择及远端范围拒绝。完整日志保留 `C:/Users/ZLK/AppData/Local/Temp/g004-55-action-before-ff08.log` 与 `C:/Users/ZLK/AppData/Local/Temp/g004-55-action-after-ff08.log`。没有操作真实权限或 Worker；未 build、安装、递版或实机重验。
 
 U04-54 原 B3 局部返修：已装 0.5.517 的 `selectPlan` 实机失败保留；同属公开目录和 uiActionCommands 的 `selectExperiment` 也无 actionCommandMap 映射。源码 `invokeApi` 在原授权及确认之后将两项转回既有 `handleMessageCore` 本地选择分支，远端动作路径和确认不变。`node --test --test-force-exit --test-timeout 20000 test/ui/actionLifecycle.test.js` 首次 42/43 exit 1（两个选择未到本地 handler），修后 43/43 exit 0；完整日志分别为 `C:/Users/ZLK/AppData/Local/Temp/g004-54-action-before-ff08.log` 和 `C:/Users/ZLK/AppData/Local/Temp/g004-54-action-after-ff08.log`。测试使用真实 invoke/消息路由和内存 handler，覆盖未公开/缺命令拒绝、远端动作确认及原路由；未运行真实任务。修复仅源码，未 build、打包、安装或实机重验。
