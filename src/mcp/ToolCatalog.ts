@@ -41,7 +41,7 @@ export const PROJECT_TOOLS: ProjectTool[] = [
   tool("project_instances", "projects.instances", "Inspect known project windows; each call still uses its bound live instance"),
   tool("project_connect", "invoke", "Start the configured enabled Workers' background tunnels", {}, [], "agents", "startAllConnections"),
   tool("project_prepare", "project.prepare", "Prepare the current project and configured enabled Workers", {}, [], "agents"),
-  tool("project_bootstrap", "project.bootstrap", "Recognize the current project using existing project defaults", plan, [], "configuration"),
+  tool("project_bootstrap", "project.bootstrap", "Recognize and prepare the current project; after confirmation this may connect to and prepare enabled Workers", plan, [], "configuration"),
   tool("project_bootstrap_operation", "project.bootstrap.operation", "Query project bootstrap", operation, ["operationId"]),
   tool("plan_list", "plans.list", "List current and archived PLANs"),
   tool("plan_preflight", "workflow.plan", "Run the complete PLAN preflight, including required synchronization and directory creation", plan, ["planFile"], "experiment"),
@@ -85,11 +85,11 @@ export const PROJECT_TOOLS: ProjectTool[] = [
   tool("state_value", "state.get", "Read one plugin state value", { key: text("Declared state key") }, ["key"]),
   approvalTool("state_set", "state.set", "Change an explicitly declared writable plugin state key", { key: text("Declared writable state key"), value: {} }, ["key", "value"], "experiment"),
   approvalTool("state_reset", "state.reset", "Reset an explicitly declared writable plugin state key", { key: text("Declared writable state key") }, ["key"], "experiment"),
-  tool("configuration_get", "config.get", "Read one configuration value", { key: configurationKey }, ["key"]),
-  tool("configuration_set", "config.set", "Set a workspace configuration value. For simpleExperiment.projectAdapterRules use workspaceFolder; value may contain taskType, primaryMetric, secondaryMetrics, candidateCsv, candidateJson, consoleLogs, textLogs, metricRegex, metricAliases, csvColumnMapping and derivedMetric. Use facts from the current task and output, retain existing mappings, and inspect sync status. Dataset classification uses its separate result workflow.", { key: configurationKey, value: {}, scope: { type: "string", enum: ["workspace", "workspaceFolder"] } }, ["key", "value", "scope"], "configuration"),
-  tool("configuration_reset", "config.reset", "Reset a workspace configuration value", { key: configurationKey, scope: { type: "string", enum: ["workspace", "workspaceFolder"] } }, ["key", "scope"], "configuration"),
+  tool("configuration_get", "config.get", "Read a VS Code configuration value; effective shared Worker settings are available through state_value setupConfig", { key: configurationKey }, ["key"]),
+  tool("configuration_set", "config.set", "Set a global, workspace or workspaceFolder configuration value. For simpleExperiment.projectAdapterRules use workspaceFolder; value may contain taskType, primaryMetric, secondaryMetrics, candidateCsv, candidateJson, consoleLogs, textLogs, metricRegex, metricAliases, csvColumnMapping and derivedMetric. Use facts from the current task and output, retain existing mappings, and inspect sync status. Dataset classification uses its separate result workflow.", { key: configurationKey, value: {}, scope: { type: "string", enum: ["global", "workspace", "workspaceFolder"] } }, ["key", "value", "scope"], "configuration"),
+  tool("configuration_reset", "config.reset", "Reset a global, workspace or workspaceFolder configuration value; projectAdapterRules requires workspaceFolder", { key: configurationKey, scope: { type: "string", enum: ["global", "workspace", "workspaceFolder"] } }, ["key", "scope"], "configuration"),
   tool("worker_configure", "workers.configure", "Save a configured Worker's globally shared settings; changes affect every project", {
-    workerId: task.workerId, patch: { type: "object", properties: {
+    workerId: text("Configured Worker ID, including a disabled Worker"), patch: { type: "object", properties: {
       condaEnvMode: { type: "string", enum: ["inherit", "system", "path"] }, condaEnv: text("Absolute research environment path"),
       enabled: boolean, maxConcurrentGpus: {}, gpuJobsPerCard: integer, gpuMinFreeMemoryGb: { type: "number" }, gpuMaxConcurrentCards: integer,
     }, additionalProperties: false },

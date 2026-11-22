@@ -3284,6 +3284,8 @@ export class RealtimeTunnelPanelProvider {
         return API_SECRET_CONFIG_KEYS.has(key) && raw ? "***" : raw;
     }
     apiConfigUpdateTarget(schema, scope) {
+        if (scope === "global")
+            return vscode.ConfigurationTarget.Global;
         if (scope === "workspace")
             return vscode.ConfigurationTarget.Workspace;
         if (scope === "workspaceFolder" || schema.scope === "resource")

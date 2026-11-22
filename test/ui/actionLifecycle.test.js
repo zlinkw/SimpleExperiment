@@ -431,6 +431,19 @@ test("API local actions preserve confirmation, leases and business gate", async 
   await assert.rejects(host.invokeApi({command:'invented'}),/not exposed/);
 });
 
+test("configuration scope and tool descriptions match the host targets", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='apiConfigUpdateTarget')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const vscode={ConfigurationTarget:{Global:1,Workspace:2,WorkspaceFolder:3},workspace:{workspaceFolders:[{}]}};
+  const sandbox={vscode};vm.runInNewContext(ts.transpileModule('class Host {'+method+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const host=new sandbox.Host();assert.equal(host.apiConfigUpdateTarget({scope:'resource'},'global'),1);assert.equal(host.apiConfigUpdateTarget({scope:'resource'},'workspace'),2);assert.equal(host.apiConfigUpdateTarget({scope:'resource'},'workspaceFolder'),3);
+  require('../_helpers/registerTsRequire');const {PROJECT_TOOLS}=require('../../src/mcp/ToolCatalog.ts');const get=name=>PROJECT_TOOLS.find(x=>x.name===name);
+  for(const name of ['configuration_set','configuration_reset'])assert.deepEqual(get(name).inputSchema.properties.scope.enum,['global','workspace','workspaceFolder']);
+  assert.match(get('worker_configure').inputSchema.properties.workerId.description,/disabled/);assert.match(get('project_bootstrap').description,/prepare enabled Workers/);assert.match(get('configuration_get').description,/shared Worker/);
+  assert.match(source,/if \(stringField\(params, "scope"\) !== "workspaceFolder"\) throw new Error\("项目接入配置必须使用 workspaceFolder 范围。"\)/);
+});
+
 test("project authorization grants the project without binding Workers", async () => {
   const ts=require('typescript'),Module=require('node:module');
   const root=path.resolve(__dirname,'../..'), sourceFile=path.join(root,'src/extension/McpHost.ts');
