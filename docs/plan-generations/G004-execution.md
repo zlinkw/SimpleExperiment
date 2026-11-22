@@ -157,3 +157,5 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 规划原文件精确用例首0/1 exit1（独立盘面对账仍要求50已退休路径）；修为对获批50项反向断言、对所有其他文件保持覆盖断言，重验1/1 exit0。日志TEMP/g004-runner-planning[-fix]-20261122-terra.log。完整runner/acceptance含未授权删除分支，未重跑；原安全断言保留。
 
 完整39项删除前命令被自动执行策略在进程创建前拒绝（CreateProcess Rejected: blocked by policy，未提供更具体原因）；命令未启动，39文件均未删除。禁止改路径或工具绕过，已向总控升级；不影响保留的原确认，删除尚未完成。
+
+获批删除39项之第1–7项：simpleex.cmd, bin/simpleex-mcp.cjs, bin/simpleex.cjs, scripts/install-cli-shim.js, src/cli.legacy.ts, src/cli.ts, src/cli/ExecutionContext.ts；事先全批预检及内容身份记录，逐项在直接父目录用明确相对叶名删除并确认不存在；修正命令无Force，先前策略拒绝保留。
