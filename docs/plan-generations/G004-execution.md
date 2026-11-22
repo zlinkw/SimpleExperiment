@@ -49,3 +49,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 - 520 编译后 manualDispatchHost 原文件 11/11、exit0（`%TEMP%/g004-520-manual-dispatch-host-20261123.log`，先查不存在）；当前真实编译 Host 配合假 Worker、队列、派发及停止回调，未触及真实服务器/GPU/文件删除。
 
 - 520 后 agentProjectRootReadinessWorkflow 5/5、projectCodeSyncState 7/7，均 exit0；VM 与合成数据，后者只写并保留独立合成夹具，不调用 unlink/真实 Worker。日志分别 `%TEMP%/g004-520-agent-root-readiness-20261123.log`、`%TEMP%/g004-520-code-sync-state-20261123.log`，路径先查不存在。
+
+- 519 job 38 更新启动逻辑：原passed/0/tree confirmed；仅假安装、重载、存储和发布客户端。原测试及实际模块闭包相对5a3不变，package.main及涉及的legacy源码断言逐项比对，候选待总控审定，不代表真实安装。
