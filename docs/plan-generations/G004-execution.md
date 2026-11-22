@@ -65,3 +65,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 progressEvidenceFreshness 原文件 20/20、exit0（`%TEMP%/g004-520-progress-evidence-freshness-20261123.log`，先查不存在）；合成观察、假客户端与 VM，无网络、真实 Worker、结果或文件修改，待总控审定。
 
 - 520 后 planNoticeLayout 原文件 5/5、exit0（`%TEMP%/g004-520-plan-notice-layout-20261123.log`，先查不存在）；HTML、假 DOM 与 VM 计时和消息，无真实 UI、tmux 或 Worker，待总控审定。
+
+- 520 后 resultCommandPhaseRouting 原文件 3/3、exit0（`%TEMP%/g004-520-result-command-phase-20261123.log`，先查不存在）；渲染 HTML、假 DOM 和 VM 操作，无真实 UI、结果或 Worker，待总控审定。
