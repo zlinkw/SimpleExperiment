@@ -279,13 +279,12 @@ test("historical launch config text survives a missing job config and terminal p
   assert.equal(config.body.yaml, yaml);
   assert.deepEqual((await callMcp(root, apiFile, ["results", workerRunId])).body.result_ids.sort(), ["historical-clean", "historical-p100_low"]);
   log += `[runtime] python run_wrapper.py --context-json ${JSON.stringify({ config_path: "work_dirs/other/job_config.yaml", config_text: "experiment_name: wrong\n" })}\n`;
-  const { readWorkerTaskConfig } = require("../../dist/cli/runtime.js");
-  const api = require("../../dist/cli/api.js");
-  const previous = api.optionalApi;
-  api.optionalApi = async () => ({ value: { workerTunnels: [{ id: "worker-a", localForwardHost: "127.0.0.1", localForwardPort: workerServer.address().port }] } });
-  try {
-    assert.equal((await readWorkerTaskConfig("worker-a", workerRunId, "", logPath)).yaml, "");
-  } finally { api.optionalApi = previous; }
+  const { readWorkerTaskConfig } = require("../../src/mcp/query/Runtime.ts");
+  const { businessContext } = require("../../src/mcp/query/ExecutionContext.ts");
+  await businessContext.run({root, emit() {}, rpc: async method => {
+    assert.equal(method, "state.get");
+    return { value: { workerTunnels: [{ id: "worker-a", localForwardHost: "127.0.0.1", localForwardPort: workerServer.address().port }] } };
+  }}, async () => assert.equal((await readWorkerTaskConfig("worker-a", workerRunId, "", logPath)).yaml, ""));
 });
 
 test("failed Worker task retrieves its remote log without persisting logPath", async (t) => {
