@@ -205,3 +205,5 @@ PLAN列表保留原valid-plan输入，实际Host摘要解析与Gateway字段/状
 外部混合测试补三份未应用diff：离线history旧入口、录制Runner及正式准入旧Runner断言；现MCP活跃结果与PLAN边界、checkpoint及其余Scheduler断言保留，真实派发未测。三份git apply --check字节输入均exit0，原测试与矩阵不变。
 
 指标混合文件两项CLI测试和sourceReader旧门面映射各形成未应用diff：原MCP同数据指标/primary证据及其他独立解析断言保留，源码读取器其他映射不变；静态反查旧门面无直接消费者，两份git apply --check exit0，实际应用及原文件验证待批准。
+
+Agent与preflight旧CLI文件形成两份未应用diff，分别对照现Gateway/Host假端口3/3及2/2；显式目标、digest、授权、操作身份和拒绝保留，零握手及终端外壳单列。git apply --check字节输入均exit0；无真实Agent/Worker操作。
