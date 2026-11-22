@@ -4,13 +4,13 @@
 
 2026-11-22用户最新要求：复用已查证据，把剩余单项目界面、按钮、功能及MCP逻辑一次查清修完；先迁出MCP共用逻辑，再彻底退役业务CLI入口/专用代码。所有可独立完成的源码、必要消费者、测试和文档先做到可审，最后集中列出确需本人确认的精确删除、测试退役/替代及复验事项，再统一验收交付。不得因单项发现或普通测试失败停整批，不逐项发版；单项目正常后才处理跨项目延期。这是原G004一个完整业务批次，内部每组≤3强相关问题、≤8非生成源/测试/文档文件，验证后scoped FF提交，不把完整目标缩成一组或巨型提交。
 
-运行基线0.5.519，source/tag6932321534f3b0c2df3b1983bfede2f88f7b868f。R519及T1–T7已分组推进，产品源修完整包最终源审前不build/dist/递版/package/发行/安装。B1通知/租约生产与测试两文件仍是未验证dirty候选，不能算通过。当前必要回报仅完整阶段包、需当前决定的阻塞/数据风险和交班，普通进度/修正写既有execution/coverage，不逐条唤醒总控或索回执。
+运行基线0.5.519，source/tag6932321534f3b0c2df3b1983bfede2f88f7b868f。当前源码97d723e1已完成获批39文件删除及测试退役迁移，B1原文件唯一复验3/3、删除后TS语义检查exit0；不是完整build或单项目通过。当前进入最终门禁与集中试行交付准备，未递版、打包、发行或安装。当前必要回报仅完整阶段包、需当前决定的阻塞/数据风险和交班，普通进度/修正写既有execution/coverage，不逐条唤醒总控或索回执。
 
 本计划集中语义压缩于30a5d6e0后；完整此前计划可从Git 30a5d6e0同路径读取，原调查/修法/失败不被抹除。进一步原材料见59041060、89498eff同计划及下列现行证据；不另建tracker或重复报告。plan cap18000/90%=16200，execution cap12000/90%=10800；接近阈值整体压缩，保留未决与真实失败。
 
 ## 角色、租约与保护
 
-总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付》01a1fdb5-efe6-78c2-ae6c-861ed4028cdc/local，Sol/high，独占本计划与README代次索引。唯一执行现为01a203b9-5495-7092-bca5-fd5610ca2308/local，Terra/high，本人实核resolved/实际turn均match/continue、读完整交班及最新源审裁决；原执行01a202d5在6次压缩/第五次后峰300035自然接续，正式释放全部租约且无在途动作。现执行承接产品/测试/execution/coverage、受限UI/API、唯一Node/Python检查及scoped Git，旧turn实际结束后由接替者核实归档不删除。service_tier只记录实际值，不作为模型/强度门槛，不重置用户界面档位。更早执行01a1ff08、01a1fdb5-ce28及旧总控均已合格交班归档。只保留这两角色，不新建审查者；自然接续仅按caveman实测条件，接替不扩大权限。
+总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high/default，已实跑resolved与实际turn均match/continue，独占本计划与README代次索引。旧总控01a1fdb5在7次原生压缩/第五次后峰302384自然交班，完整背景与资格实核后明确释放全部总控租约；旧turn真实完成、已归档不删除，无在途动作。唯一执行01a203b9-5495-7092-bca5-fd5610ca2308/local，Terra/high，现仅持原A–D只读prep/check/record租约：最终package规划与SFTP输入、实际调度临时删除效果、519逐job复用及组合凭据缺口、更新源与空patch。已通知完整包改报现总控，不重派、不索ack。此准备不含产品/Git/build/fulltest/临时删除。其他产品/检查/UI/Git租约已交包释放，待总控依据prep裁决后明确授予唯一执行者。只保留两个角色；service_tier仅记录，不重置用户选择。更早同角色交班事实及原租约见6a2cf63c与execution；接替不扩大权限。
 
 总控无独立待办、仅等完整包/必要决定时按全局事件协调合法结束本轮，不能轮询/催进度；执行者仍有授权可做工作不得套用空闲。必要消息默认无回执。未知在途动作先核归属与结果，不重放。当前原仓是普通Windows工作区，非Pi/自制容器/项目管理器，不触发worktree PR。master追踪origin/master，origin=https://github.com/zlinkw/SimpleExperiment.git；逐组检查diff、UTF8、必要验证后精确stage，普通commit/push/fetch核HEAD一致。remote前进、认证/hooks/同步失败停相关Git升级，不amend/rebase/reset/merge/force/改remote，不stage日志、夹具、无关未跟踪资产。0aa6b27c push后fetch TLS unexpected EOF exit1，经总控精确一次恢复fetch exit0核一致，非通用重试许可。
 
@@ -106,6 +106,8 @@ B1唯一复验3/3；Windows消费者4/4、指标3/3、证据1/1、formalJob原5/
 
 先前为真实dist/api消费者精确放行一次tsc-cached，仅TS类型检查/emit，不是完整build或runtime生成/版本/package。实际incremental/input-drift/TS7.0.2 exit2，旧CLI丢EXIT_OK/jsonErrorBody导出与MCP stopRunning推断类型错误；233f31d3已将params按真实字典契约标注，dispatch5/5。71 emit造成18个tracked dist dirty，全部保留不stage/恢复。日志TEMP/g004-tsc-central-predelete-20261122-terra.log及当前execution保留首失败；不能因有emit声称编译通过。删除后真实输入改变才按现缓存单次重验TS语义，不重放同输入。此必要TS前置许可不开放完整build/package/安装。
 
-当前HEAD交包002732237ee86e6a1b91430359a54ce0773f9247，39文件预查存在/干净普通/根父及无链接，TS静态import/export集合外引用0；尚未实际删除。原删除大命令在CreateProcess被自动策略拒绝、进程未创建（blocked by policy，精确触发未公开）；原始call_887a6fcce30d45c4a9a7625697e86b55记录完整参数，拒绝输出自身被平台截断。总控核实三处Get-Item含-Force，违反safe-delete-paths明确“只读预检也不带Force”规则；不称已证这是唯一原因。
+当前HEAD=origin/master=97d723e1。获批39文件实际删除已完成，6组提交690be905、4d003cdc、b7d6ce0b、3382fcbd、4a43d1fc、fd593cca，97d723e1登记删除后TS成功。最终全批预检与0ee444be批准集合一致，均tracked clean普通file、根/父/祖先无reparse；逐项直接父cd与物理cwd、类型/内容身份重核，只对./精确叶名Remove-Item无Force，39/39核不存在。不含目录、旧dist、全局shim、fixture或历史资产。
 
-本次只允许按该明确安全修正同工具重执行一次：整条cleanup去掉Force（含所有读操作），保持pwsh/原Remove-Item/原39路径，不换shell/API/权限/目标规避。先独立全39最终不可变file预检并与用户展示集合核一致；再≤7文件组逐项直接父cd/物理cwd/无Force类型与身份及内容重核，仅./直接叶名删除并确认不存在；删除命令与文档、Git网络、测试分离。每组结算后另按≤8文件scoped记录/commit/FF push/fetch，保留dist与无关资产。若修正后仍policy拒绝，停止相关删除、不再换写法重试，交原始命令/输出且继续其它非破坏性工作。39批准不覆盖temp fixture/旧dist或全局shim。完成39后单次tsc-cached验真，完整源码/覆盖包交总控复审后连续集中试行交付；构建、矩阵、包、发行、安装、新Host仍未完成，所有真实Worker/UI/跨项目限制不变。
+首次混合大命令CreateProcess blocked by policy、进程未创建，39当时未删，原call_887a6fcce30d45c4a9a7625697e86b55及execution保留。总控发现Get-Item含Force违反safe-delete-paths，未称唯一策略原因；批准同pwsh/同Remove-Item/同39目标一次安全修正，全部去掉Force并拆只读预检、逐组delete-only、另文档/Git，实际成功，不是换工具或权限绕限。
+
+删除后输入改变，单次tsc-cached TS7.0.2 previous-failed rebuild，391输入、emit2、exit0，日志TEMP/g004-tsc-after-cli-removal-20261123-terra.log。18个tracked dist仍dirty，保留不stage/恢复；首exit2/71 emit不抹去。最终源审5886c9e2..97d723e1确认除39删除外仅B1通知脱离租约及Gateway params字典类型，方向通过；最终构建、实际矩阵、包、发行、安装、新Host仍未完成。原临时删除边界不扩，完整runner/acceptance安全用例的旧证适用性与新门禁等原A–D prep完整包后具体裁决；不伪造组合receipt、不因runner表达不足无据全重跑。全部真实Worker/UI/跨项目限制不变。
