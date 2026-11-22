@@ -8,11 +8,20 @@ try{Module._load=function(id,...args){return id==='vscode'?vscode:original.call(
 function fixture({failureMethod,responses={}}={}){
  const workers=[{id:'w1',host:'host1',port:22,user:'user',remotePath:'/project/one'},{id:'w2',host:'host2',port:22,user:'user',remotePath:'/project/two'}],calls=[];
  const grant=createProjectAuthorization(root);grant.workers=workers.map(({id,host,port,user,remotePath})=>({id,host,port,user,projectRoot:remotePath}));
- const methods=['status','servers.list','servers.save','servers.delete','sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','sync.serverToServer','sync.serverToServerBatch','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.observeBatch','target.update','upload.files','upload.workspace','downloadScope.configure','handoff.markReady'];
+ const methods=['status','servers.list','servers.save','servers.delete','sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','sync.serverToServer','sync.serverToServerBatch','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.preview','files.cleanup.observeBatch','target.update','upload.files','upload.workspace','downloadScope.configure','handoff.markReady'];
  const host={context:{workspaceState:{get:()=>grant}},refreshSharedConnectionSettings(){},workerCodeSyncTargets:()=>workers,createLocalApiMethods:()=>({}),
   readSimpleSftpCapabilities:async()=>({methods}),sftpServerOptions:row=>({...row}),simpleSftpApiCall:async(method,params)=>{calls.push({method,params});if(method===failureMethod)throw Error('远端项目清单无效。');return responses[method]??(method==='transfers.reconcile'?{status:'notFound',settled:false}:method==='transfers.cancel'?{status:'cancelling'}:{ok:true})}};
  return {gateway:mcpGateway(host),calls,grant,workers,host};
 }
+
+test('MCP file cleanup preview preserves explicit managed observation',async()=>{
+ const f=fixture(),args={location:'worker',workerId:'w1',action:'move',targets:[{relativePath:'work/a',type:'directory'}]};
+ await f.gateway.call('file_cleanup_preview',{...args,observationMode:'managed_tmux'});
+ assert.equal(f.calls.at(-1).method,'files.cleanup.preview');assert.equal(f.calls.at(-1).params.observationMode,'managed_tmux');
+ assert.equal(f.calls.at(-1).params.consumerRoot,root);assert.equal(f.calls.at(-1).params.node.id,'w1');
+ await f.gateway.call('file_cleanup_preview',args);assert.equal(Object.hasOwn(f.calls.at(-1).params,'observationMode'),false);
+ const before=f.calls.length;await assert.rejects(f.gateway.call('file_cleanup_preview',{...args,observationMode:'tmux'}),/unsupported value/);assert.equal(f.calls.length,before);
+});
 
 test('MCP SFTP inventory routes the exact Worker and refuses unscoped hashes',async()=>{
  const f=fixture();await f.gateway.call('sftp_inventory',{workerId:'w1',paths:['work/a'],includeHashes:true});

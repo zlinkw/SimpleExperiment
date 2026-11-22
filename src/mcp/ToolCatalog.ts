@@ -118,7 +118,8 @@ export const PROJECT_TOOLS: ProjectTool[] = [
   tool("cleanup_restore_preview", "plans.cleanup.restore", "Preview restoration from the original cleanup operation", operation, ["operationId"]),
   tool("cleanup_execute", "plans.cleanup.execute", "Execute the existing cleanup request after the required human path confirmations", operation, ["operationId"], "sync"),
   tool("file_cleanup_preview", "files.cleanup.preview", "Freeze exact file targets for human review; does not delete or confirm", {
-    ...fileNode, action: { type: "string", enum: ["move", "delete", "restore", "isolate"] }, targets: { type: "array", items: {
+    ...fileNode, action: { type: "string", enum: ["move", "delete", "restore", "isolate"] },
+    observationMode: { type: "string", enum: ["managed_tmux"], description: "Use managed tmux observation for this preview" }, targets: { type: "array", items: {
       ...fileTarget, properties: { ...fileTarget.properties, destination: text("Exact project-relative destination"), archiveBatch: text("Exact archive batch identity") },
     } },
   }, ["location", "action", "targets"], undefined, undefined, "sftp"),

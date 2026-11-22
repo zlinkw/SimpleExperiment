@@ -207,3 +207,5 @@ PLAN列表保留原valid-plan输入，实际Host摘要解析与Gateway字段/状
 指标混合文件两项CLI测试和sourceReader旧门面映射各形成未应用diff：原MCP同数据指标/primary证据及其他独立解析断言保留，源码读取器其他映射不变；静态反查旧门面无直接消费者，两份git apply --check exit0，实际应用及原文件验证待批准。
 
 Agent与preflight旧CLI文件形成两份未应用diff，分别对照现Gateway/Host假端口3/3及2/2；显式目标、digest、授权、操作身份和拒绝保留，零握手及终端外壳单列。git apply --check字节输入均exit0；无真实Agent/Worker操作。
+
+MCP文件预览补原有managed_tmux显式选项，仅允许该值并原样透传，未传保持原行为；Gateway/McpHost假后端单文件17/17 exit0，日志TEMP/g004-mcp-observation-20261122-terra.log，未连接Worker或清理。旧SFTP cleanup/Agent文件形成未应用diff并区分旧CLI外壳、现观察和引擎证据，git apply --check exit0；真实后端秘密输出仍未测。
