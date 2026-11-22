@@ -45,7 +45,12 @@ test('MCP transfer receipts retain unknown and cancelling states without retryin
 });
 
 test('MCP SFTP transfers preserve both targets and project authorization',async()=>{
- const f=fixture();await f.gateway.call('sftp_download_paths',{workerId:'w1',paths:['work/a']});
+ const f=fixture();
+ await f.gateway.call('sftp_from_remote',{workerId:'w1'});
+ assert.equal(f.calls.at(-1).method,'sync.fromRemote');assert.equal(f.calls.at(-1).params.localPath,root);
+ assert.equal(f.calls.at(-1).params.server.id,'w1');assert.equal(f.calls.at(-1).params.confirm,true);assert.equal(f.calls.at(-1).params.pathConfirmed,true);
+ await assert.rejects(f.gateway.call('sftp_from_remote',{}),/workerId is required/);
+ await f.gateway.call('sftp_download_paths',{workerId:'w1',paths:['work/a']});
  let {method,params}=f.calls.at(-1);assert.equal(method,'sync.downloadPaths');assert.deepEqual(params.paths,['work/a']);assert.equal(params.server.id,'w1');assert.equal(params.confirm,true);assert.equal(params.pathConfirmed,true);
  const entries=[{remotePath:'work/a.csv',localRelativePath:'tmp/a.csv',bytes:3,sha256:'a'.repeat(64)}];
  await f.gateway.call('sftp_download_mapped',{workerId:'w1',entries});params=f.calls.at(-1).params;assert.deepEqual(params.entries,entries);assert.equal(params.memoryOnly,true);assert.equal(params.metricsOnly,true);
@@ -53,4 +58,5 @@ test('MCP SFTP transfers preserve both targets and project authorization',async(
  params=f.calls.at(-1).params;assert.equal(params.source.id,'w1');assert.equal(params.destination.id,'w2');assert.deepEqual(params.relativePaths,['work_dirs/run']);
  f.grant.workers=f.grant.workers.filter(row=>row.id!=='w2');const before=f.calls.length;
  await assert.rejects(f.gateway.call('sftp_worker_sync',{sourceWorkerId:'w1',destinationWorkerId:'w2',paths:['work_dirs/run']}),/WORKER_NOT_AUTHORIZED/);assert.equal(f.calls.length,before);
+ f.grant.permissions=[];await assert.rejects(f.gateway.call('sftp_from_remote',{workerId:'w1'}),/AUTHORIZATION_REQUIRED/);assert.equal(f.calls.length,before);
 });

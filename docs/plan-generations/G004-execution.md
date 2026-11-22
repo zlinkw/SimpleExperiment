@@ -158,7 +158,7 @@ MCP项目准备/识别授权、原回执及失败重读、PLAN校验和命名控
 
 公开入口旧测试依裁决改为MCP契约1/1；误用Delete File使测试瞬时缺失，已立即同路径恢复，未git rm，旧版见Git 0d5cae56。旧CLI目录外24项引用列coverage，实机限制保留。
 
-SFTP实际Gateway/McpHost核精确Worker、清单/目录、内存指标、授权及原样转发未知/取消中回执，假后端3/3 exit0；旧CLI选项差异见coverage。
+SFTP实际Gateway/McpHost核精确Worker、清单/目录、内存指标、下载授权及原样转发未知/取消中回执，假后端3/3 exit0；旧CLI选项差异见coverage。
 
 MCP实验列表、筛选及终态别名保留旧业务断言，实际queryProject 13/13 exit0；假RPC无Worker。
 
