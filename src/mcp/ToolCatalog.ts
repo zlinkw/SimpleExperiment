@@ -2,7 +2,7 @@ import { toolOutputSchema } from "./ToolResults";
 /** Shared by the MCP transport and the Extension Host authorization boundary. */
 export type Permission = "experiment" | "sync" | "agents" | "configuration" | "results";
 export interface JsonSchema {
-  type?: string; description?: string; enum?: string[]; items?: JsonSchema;
+  type?: string | string[]; description?: string; enum?: string[]; items?: JsonSchema;
   properties?: Record<string, JsonSchema>; required?: string[]; additionalProperties?: boolean;
 }
 export interface ProjectTool {
@@ -125,7 +125,7 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     ...fileNode, observationId: text("Identity of this observation round"), rootIdentity: object,
     readConcurrency: { type: "integer" }, targets: { type: "array", items: { ...fileTarget, properties: { ...fileTarget.properties,
       key: text("Stable identity of this observation target"), backendToken: text("Original preview token, if observing a frozen request"), backendIndex: integer,
-      backendDigest: text("Original frozen backend digest"), device: { description: "Original device identity, string or number" }, inode: { description: "Original inode identity, string or number" },
+      backendDigest: text("Original frozen backend digest"), device: { type: ["string", "number"], description: "Original device identity" }, inode: { type: ["string", "number"], description: "Original inode identity" },
       isolationRelativePath: text("Original preview isolation path"), fingerprint: text("Original preview content identity"),
     } } },
   }, ["location", "observationId", "targets"], undefined, undefined, "sftp"),
@@ -227,7 +227,10 @@ export const PROJECT_TOOLS: ProjectTool[] = [
 ];
 
 export function validateToolArguments(schema: JsonSchema, value: unknown, location = "arguments"): void {
-  if (schema.type === "object") {
+  if (Array.isArray(schema.type)) {
+    if (!schema.type.some(type => typeof value === type && (type !== "number" || Number.isFinite(value as number))))
+      throw Error(location + " must be " + schema.type.join(" or "));
+  } else if (schema.type === "object") {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw Error(location + " must be an object");
     const row = value as Record<string, unknown>;
     for (const key of schema.required || []) if (!Object.hasOwn(row, key)) throw Error(location + "." + key + " is required");

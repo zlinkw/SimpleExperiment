@@ -109,11 +109,14 @@ test('MCP transport marks an in-band backend failure as an error',async()=>{
  const {createProjectMcpServer}=require('../../src/mcp/Server.ts');
  const root=path.resolve(__dirname,'../..');let failTransport=false;
  const gateway=new ProjectGateway({root:()=>root,workers:()=>[],store:{get:()=>undefined},methods:()=>({}),
-  sftp:{methods:async()=>['status'],call:async()=>{if(failTransport)throw Error('transport unavailable');return {ok:false,error:'backend refused'}}}});
+  sftp:{methods:async()=>['status','files.cleanup.observeBatch'],call:async()=>{if(failTransport)throw Error('transport unavailable');return {ok:false,error:'backend refused'}}}});
  const server=createProjectMcpServer('fixture',async(method,params)=>method==='mcp.catalog'?gateway.catalog():gateway.call(params.tool,params.arguments));
  const client=new Client({name:'mcp-error-test',version:'1.0.0'}),[a,b]=InMemoryTransport.createLinkedPair();
  try{
   await server.connect(a);await client.connect(b);
+  const catalog=await client.listTools();
+  const observe=catalog.tools.find(tool=>tool.name==='file_cleanup_observe_batch');
+  assert.deepEqual(observe.inputSchema.properties.targets.items.properties.device.type,['string','number']);
   const rejected=await client.callTool({name:'sftp_status',arguments:{}});
   assert.equal(rejected.isError,true);assert.deepEqual(rejected.structuredContent,{ok:false,error:'backend refused'});
   failTransport=true;const disconnected=await client.callTool({name:'sftp_status',arguments:{}});

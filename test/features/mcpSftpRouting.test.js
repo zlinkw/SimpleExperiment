@@ -47,13 +47,15 @@ test('MCP transfer receipts retain unknown and cancelling states without retryin
 test('MCP file observation preserves frozen per-target and root identities',async()=>{
  const f=fixture(),target={key:'k1',relativePath:'work_dirs/run1/out',type:'directory',backendToken:'b'.repeat(48),backendIndex:3,
   backendDigest:'digest',device:'42:1',inode:9,isolationRelativePath:'work_dirs/run1/.isolated-out'};
+ const schema=require('../../src/mcp/ToolCatalog.ts').PROJECT_TOOLS.find(row=>row.name==='file_cleanup_observe_batch').inputSchema;
+ assert.deepEqual(schema.properties.targets.items.properties.inode.type,['string','number']);
  await f.gateway.call('file_cleanup_observe_batch',{location:'worker',workerId:'w1',observationId:'obs-9',rootIdentity:{dev:'42:1',ino:'9'},targets:[target]});
  const call=f.calls.at(-1);assert.equal(call.method,'files.cleanup.observeBatch');assert.deepEqual(call.params.targets,[target]);
  assert.deepEqual(call.params.rootIdentity,{dev:'42:1',ino:'9'});assert.equal(call.params.consumerRoot,root);assert.equal(call.params.node.id,'w1');
  assert.ok(!Object.hasOwn(call.params,'confirm'));
  const before=f.calls.length;
  await assert.rejects(f.gateway.call('file_cleanup_observe_batch',{location:'worker',workerId:'w1',observationId:'obs-9',targets:[{relativePath:'x',type:'file',key:7}]}),/must be string/);
- await assert.rejects(f.gateway.call('file_cleanup_observe_batch',{location:'worker',workerId:'w1',observationId:'obs-9',targets:[{...target,inode:{}}]}),/OBSERVATION_IDENTITY_INVALID/);
+ await assert.rejects(f.gateway.call('file_cleanup_observe_batch',{location:'worker',workerId:'w1',observationId:'obs-9',targets:[{...target,inode:{}}]}),/must be string or number/);
  assert.equal(f.calls.length,before);
 });
 
