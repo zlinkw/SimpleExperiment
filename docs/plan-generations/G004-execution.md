@@ -57,3 +57,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 - 519 job 99：原通过/0/子树确认；审阅实时状态合并调用，只处理合成内存数据，模块真实加载闭包和测试对 5a3 无差异，记录依赖快照供总控审定，不声称真实 Worker。首次记录脚本因未兼容无 sourceJob 条目抛 KeyError、未写文件，修正后登记成功。
 
 - 520 编译后 extensionUpdates 原文件 7/7、exit 0，合成版本和只读源码/本机闭包；无安装、网络或删除。原日志 `%TEMP%/g004-520-extension-updates-20261123.log`。首次登记脚本将格式化数组误当压缩数组，断言失败且未写入；按原格式插入后待总控审定。
+
+- 520 后 MCP native job 状态观察 4/4、exit 0（`%TEMP%/g004-520-mcp-native-observation-20261123.log`）：当前 tasks.list 代码在 VM 使用合成队列与假 Worker 查询；保留合成文件，无真实 Worker、Agent 生命周期动作或删除。覆盖绑定动态提取的 legacy 源及编译器，待总控审定。
