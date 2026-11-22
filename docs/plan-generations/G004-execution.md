@@ -41,3 +41,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 本段压缩前逐项日志路径、边界及结果见 Git `f18078f9:docs/plan-generations/G004-execution.md`；每项原始事件及依赖快照见 coverage。以下 520 原文件均真实 exit0：distributedQueueCacheStability 19/19、terminalPlanHistory 7/7、parallelPlanStopClear 11/11、planBatchCodeSyncOnce 8/8、selectedPlanBatch 14/14、distributedSchedulingModes 7/7、projectWorkspaceChangeIsolation 20/20、prequeueRecallBulkSync 3/3、gpuMemoryScheduling 9/9、logicalPlanProgress 4/4、planArtifactSyncStatus 16/16、progressEvidenceFreshness 20/20、planNoticeLayout 5/5、resultCommandPhaseRouting 3/3、planOperationNoticeLifecycle 22/22、workerCodeVersionIsolation 10/10、executionPlanListProgressLagRepro 4/4、executionCompactOverview 54/54、planOutputReplacementHost 7/7、gpuHistoryMixedGranularityScatterRepro 9/9、gpuSampleCarryChannel 5/5、completedJobAutoRecheckSuppression 17/17；均为合成状态、假端口、源码或 VM，夹具保留，不代表真实 UI、Worker、GPU、网络、传输或永久删除；outputReplacement 的删除仅为内存 Set。各项待总控审定。
 
 误运行按需 dispatchWake 原文件 4/4 exit0，合成队列与假观察；保留日志及直接结果，不计 active，计划仍为 on_demand_not_run。
+
+- 520 后 gpuSampleWindowChannel 原文件 4/4、exit0（`%TEMP%/g004-520-gpu-sample-window-20261123.log`，先查不存在）；合成样本环与假 Worker/面板，无真实 Worker、GPU、网络或 UI，待总控审定。
