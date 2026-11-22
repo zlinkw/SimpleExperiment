@@ -55,3 +55,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 - MCP task dispatch 原同任务 5/5、exit0、无 live session：原调用先加类型注解、233f31d3 记录该注解，随后测试、源码闭包和动态读取 legacy 均无变化。实际 Gateway/Host 用假授权、队列和停止/派发端口；原含内存授权变化场景，未重跑专项、未更改真实授权或连接 Worker。旧工具精确版本未证，待总控审。
 
 - 520 后 agentFirstRunPreparationWorkflow 3/3、exit0（`%TEMP%/g004-520-agent-first-run-source-20261123.log`，先查不存在）：只检查源码/文档和合成配置归一化，未准备或启动 Agent、打开 UI、访问 Worker。
+
+- 520 后 planRunRerunIntent 14/14、exit0（`%TEMP%/g004-520-plan-rerun-intent-20261123.log`，先查不存在）；纯内存重跑选择、状态及 hold 归一化与源码断言，没有实际重跑、队列写入、Worker 或删除。
