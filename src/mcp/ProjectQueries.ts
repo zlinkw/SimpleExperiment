@@ -8,7 +8,7 @@ import { metricList, metricShow, metricLeaderboard } from "./query/Metrics";
 import { compareResults } from "./query/Compare";
 import { logShow, logTail } from "../cli/commands/log";
 import { artifactList, artifactInspect } from "../cli/commands/artifact";
-import { planBuild, planMatrix } from "../cli/commands/plan";
+import { planBuild, planMatrix } from "./query/Plans";
 import { serverList } from "./query/Servers";
 import { resourceCommand } from "../cli/commands/resource";
 
@@ -42,7 +42,7 @@ export async function queryProject(root: string, rpc: (method: string, params: R
     experiment_log: () => args.lines === undefined ? logShow(args.id, flags) : logTail(args.id, flags),
     artifact_list: () => artifactList(args.id, flags), artifact_inspect: () => artifactInspect(args.id, flags),
     resource_available: () => resourceCommand("available", [], flags), server_list: () => serverList(),
-    plan_matrix: () => planMatrix(args.planFile, flags), plan_build: () => planBuild(flags),
+    plan_matrix: () => planMatrix(args.planFile), plan_build: () => planBuild(flags),
   };
   if (!handlers[name]) throw Error("MCP_QUERY_UNKNOWN: " + name);
   let result: unknown, emitted = false;

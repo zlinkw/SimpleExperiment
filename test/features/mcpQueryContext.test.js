@@ -57,6 +57,17 @@ test('MCP metric leaderboard preserves the known loss direction',async()=>{
  assert.equal(special.__proto__,0);assert.equal(special.constructor,2);assert.equal(Object.hasOwn(special,'blank'),false);
 });
 
+test('MCP plan build and empty matrix retain their established values',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-plan-')),rpc=async()=>{throw Error('unexpected RPC')};
+ fs.writeFileSync(path.join(root,'plan.yaml'),'suite: demo\ncases: []\nseeds: [0, 1]\n','utf8');
+ const old=require('../../src/cli/commands/plan.ts');let previous;
+ await neutral.businessContext.run({root,rpc,emit:value=>{previous=value}},()=>old.planMatrix('plan.yaml',{json:true}));
+ const matrix=await queryProject(root,rpc,'plan_matrix',{planFile:'plan.yaml'});assert.deepEqual(matrix,previous);assert.equal(matrix.count,0);
+ await neutral.businessContext.run({root,rpc,emit:value=>{previous=value}},()=>old.planBuild({json:true,suite:'demo',base:'x.yaml',seeds:'0,1'}));
+ assert.deepEqual(await queryProject(root,rpc,'plan_build',{suite:'demo',base:'x.yaml',seeds:[0,1]}),previous);
+ await assert.rejects(queryProject(root,rpc,'plan_build',{seeds:[0,0]}),/duplicates/);
+});
+
 test('neutral query support requires context and preserves optional RPC semantics',async()=>{
  assert.throws(()=>support.emit({}),/MCP_QUERY_CONTEXT_REQUIRED/);
  assert.throws(()=>support.callApi('status'),/MCP_QUERY_CONTEXT_REQUIRED/);
