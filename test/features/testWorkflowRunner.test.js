@@ -134,10 +134,10 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   fs.writeFileSync(path.join(ws, directJob.file), "direct fixture\n");
   const rollout = path.join(ws, "rollout.jsonl"), callId = "fixture-call";
   const callLine = JSON.stringify({ payload: { type: "custom_tool_call", call_id: callId, input: "node --test test/direct.js" } });
-  const outputLine = JSON.stringify({ payload: { type: "custom_tool_call_output", call_id: callId, output: [{ text: JSON.stringify({ exit_code: 0, output: "TEST_EXIT=0" }) }] } });
+  const outputLine = JSON.stringify({ payload: { type: "custom_tool_call_output", call_id: callId, output: [{ text: JSON.stringify({ exit_code: 0, output: "ℹ tests 1\nℹ pass 1\nℹ fail 0" }) }] } });
   fs.writeFileSync(rollout, callLine + "\n" + outputLine + "\n");
   const digest = value => crypto.createHash("sha256").update(value).digest("hex");
-  const directEvidence = { ...directJob, eligible: true, treeStatus: "settled_by_direct_execution", rollout, callId, exactCommandLine: "node --test test/direct.js", commandEventSha256: digest(callLine), outputEventSha256: digest(outputLine), log: outLog, logSha256: sha(outLog), review: { decision: "reviewed", scope: "dependency_scoped", reviewedArgv: directJob.argv, dependencies: [directJob.file], snapshotSha256: { [directJob.file]: sha(path.join(ws, directJob.file)) } } };
+  const directEvidence = { ...directJob, eligible: true, treeStatus: "settled_by_direct_execution", rollout, callId, exactCommandLine: "node --test test/direct.js", commandEventSha256: digest(callLine), outputEventSha256: digest(outputLine), review: { decision: "reviewed", scope: "dependency_scoped", reviewedArgv: directJob.argv, dependencies: [directJob.file], snapshotSha256: { [directJob.file]: sha(path.join(ws, directJob.file)) } } };
   coverage.currentTargetedEvidence = [directEvidence];
   const coveragePath = path.join(ws, "docs", "windows-entry-coverage.json");
   fs.mkdirSync(path.dirname(coveragePath), { recursive: true });
@@ -185,6 +185,14 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   const wrongDirect = { ...directEvidence, rollout: wrongRollout, exactCommandLine: "node --test --unexpected test/direct.js", commandEventSha256: digest(wrongCall) };
   fs.writeFileSync(wrongArgvPath, JSON.stringify({ g004IncrementalCoverage: { ...coverage, currentTargetedEvidence: [wrongDirect] } }));
   assert.throws(() => runner.verifyG004Aggregate({ ...state, g004CoveragePath: wrongArgvPath, g004CoverageSha256: sha(wrongArgvPath) }), /direct argv mismatch/);
+  for (const incomplete of [{ exit_code: 0, session_id: 123, output: "ℹ fail 0" }, { exit_code: 0, output: "Warning: truncated output\nℹ fail 0" }, { exit_code: 0, output: "partial output" }]) {
+    const incompleteLine = JSON.stringify({ payload: { type: "custom_tool_call_output", call_id: callId, output: [{ text: JSON.stringify(incomplete) }] } });
+    const incompleteRollout = path.join(ws, "incomplete-rollout.jsonl");
+    fs.writeFileSync(incompleteRollout, callLine + "\n" + incompleteLine + "\n");
+    const incompleteDirect = { ...directEvidence, rollout: incompleteRollout, outputEventSha256: digest(incompleteLine) };
+    fs.writeFileSync(wrongArgvPath, JSON.stringify({ g004IncrementalCoverage: { ...coverage, currentTargetedEvidence: [incompleteDirect] } }));
+    assert.throws(() => runner.verifyG004Aggregate({ ...state, g004CoveragePath: wrongArgvPath, g004CoverageSha256: sha(wrongArgvPath) }), /direct execution did not settle successfully/);
+  }
   const compositePath = path.join(ws, "composite.json");
   const composite = { ...state.receipt, schemaVersion: 3, coverageMode: "g004-incremental", entry: "package", overall: "passed", root: ws,
     coverageSource: { path: coveragePath, sha256: sha(coveragePath) }, toolchain,

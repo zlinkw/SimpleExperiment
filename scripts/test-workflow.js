@@ -1030,8 +1030,10 @@ function inspectG004DirectEvidence(root, plan, coverage) {
     const actualArgv = parts.slice(1, -1).map(part => part.startsWith("'") && part.endsWith("'") ? part.slice(1, -1) : part);
     if (JSON.stringify(actualArgv) !== JSON.stringify(job.argv)) throw new Error("G004 direct argv mismatch: " + row.file);
     const blocks = output.event.payload.output;
-    const toolResult = Array.isArray(blocks) && blocks.map(b => { try { return JSON.parse(b.text); } catch { return null; } }).find(v => v && v.exit_code === 0 && typeof v.output === "string" && v.output.includes("TEST_EXIT=0"));
-    if (!toolResult || sha256Fresh(row.log) !== row.logSha256) throw new Error("G004 direct execution did not settle successfully: " + row.file);
+    const toolResult = Array.isArray(blocks) && blocks.map(b => { try { return JSON.parse(b.text); } catch { return null; } }).find(v => v && v.exit_code === 0 && !v.session_id && typeof v.output === "string");
+    const completeOutput = toolResult && !/Warning: truncated output/i.test(toolResult.output) && /(?:ℹ|#)\s*fail\s+0\b/.test(toolResult.output);
+    const retainedLog = row.log && row.logSha256 && sha256Fresh(row.log) === row.logSha256;
+    if (!toolResult || (row.log || row.logSha256 ? !retainedLog : !completeOutput)) throw new Error("G004 direct execution did not settle successfully: " + row.file);
     const deps = Object.entries(row.review.snapshotSha256);
     if (!deps.length || !Object.hasOwn(row.review.snapshotSha256, row.file) || !Array.isArray(row.review.dependencies) || row.review.dependencies.length !== deps.length || new Set(row.review.dependencies).size !== deps.length || row.review.dependencies.some(dep => !Object.hasOwn(row.review.snapshotSha256, dep))) throw new Error("G004 direct dependencies missing: " + row.file);
     for (const [rel, expected] of deps) {
