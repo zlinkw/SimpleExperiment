@@ -47,3 +47,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 旧证区分执行者审定候选与总控已审候选，扩展现有G004 disposition校验而不放宽原日志、依赖和失败门禁；原runner无删除精确pattern 1/1 exit0，TEMP/g004-executor-review-label-20261123.log，日志中的reuse-receipt ERROR为既有预期拒绝。七项总控已审删锁旧场景对应的测试与安全函数未变，更新当前快照，不重跑删除。旧job43仅内存对象、Windows字符串与集合，5a3运行前状态及当前Git证实测试、源码、无导入的dist模块未变，原passed/0/confirmed及日志保留；执行者审定为候选、旧精确Node未知、待总控终审。首次规划发现未显式填写externalInputs，拒绝而非通过；补空数组后dirty规划367执行/335待审，六个按需项因runner源码dirty而实际加入规划。
 
 旧job63、65、179原passed/0/tree confirmed和原日志，按实际VM假宿主/内存状态及纯SHA-256调用重新审定为执行者候选；相关源码切片或模块相对5a3不变，锁定TS版本及integrity相同，旧精确Node/架构/实际TS安装未知，邻近版本仅佐证。现时依赖已冻结，未证明真实UI、停止、传输或Worker，待总控审核；当前规划361执行＋6按需，326项未审阻断。
+
+旧job33/100/169按实际内存journal与假安装回调、假Worker派发端口、纯内存合并规划审定候选；最终compile后列出的test/dist及相关源码相对5a3均无变化且不属原dirty集合。原passed/0/confirmed和日志保留，旧Node精确值未知，不代表真实安装、派发或传输，待总控审；当前323项未审阻断。
