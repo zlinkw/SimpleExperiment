@@ -348,6 +348,7 @@ export const classificationMetricDirections: Record<string, "higher" | "lower"> 
   AUROC: "higher",
   ROC_AUC: "higher",
   AUPRC: "higher",
+  AP: "higher",
   F1: "higher",
   precision: "higher",
   recall: "higher",
@@ -356,16 +357,21 @@ export const classificationMetricDirections: Record<string, "higher" | "lower"> 
   balanced_accuracy: "higher",
   macro_f1: "higher",
   micro_f1: "higher",
+  weighted_f1: "higher",
+  macro_precision: "higher", micro_precision: "higher", weighted_precision: "higher",
+  macro_recall: "higher", micro_recall: "higher", weighted_recall: "higher",
   mcc: "higher",
   kappa: "higher",
   ece: "lower",
   brier: "lower",
   loss: "lower",
+  log_loss: "lower",
 };
 
+const classificationResultMetrics = ["accuracy", "AUC", "AUROC", "ROC_AUC", "AUPRC", "AP", "F1", "macro_f1", "micro_f1", "weighted_f1", "precision", "macro_precision", "micro_precision", "weighted_precision", "recall", "macro_recall", "micro_recall", "weighted_recall", "sensitivity", "specificity", "balanced_accuracy", "loss", "log_loss"];
 export const builtInResultPresets: ResultParserPreset[] = [
-  preset("classification_long_csv", "Classification long CSV", "long_csv", classificationMetricDirections, ["accuracy", "AUC", "AUROC", "ROC_AUC", "AUPRC", "F1", "precision", "recall", "sensitivity", "specificity", "balanced_accuracy", "loss"]),
-  preset("classification_wide_csv", "Classification wide CSV", "wide_csv", classificationMetricDirections, ["accuracy", "AUC", "AUROC", "ROC_AUC", "AUPRC", "F1", "precision", "recall", "sensitivity", "specificity", "balanced_accuracy", "loss"]),
+  preset("classification_long_csv", "Classification long CSV", "long_csv", classificationMetricDirections, classificationResultMetrics),
+  preset("classification_wide_csv", "Classification wide CSV", "wide_csv", classificationMetricDirections, classificationResultMetrics),
   preset("medical_segmentation_long_csv", "Medical segmentation long CSV", "long_csv", segmentationMetricDirections, ["DSC", "ASD", "HD95", "IoU", "Dice"]),
   preset("medical_segmentation_wide_csv", "Medical segmentation wide CSV", "wide_csv", segmentationMetricDirections, ["DSC", "ASD", "HD95", "IoU", "Dice"]),
   preset("regression_wide_csv", "Regression wide CSV", "wide_csv", { MAE: "lower", MSE: "lower", RMSE: "lower", R2: "higher", loss: "lower" }, ["MAE", "MSE", "RMSE", "R2", "loss"]),
@@ -430,7 +436,7 @@ export const builtInResultSchemas: ResultSchema[] = [
       metricDef("accuracy", "Accuracy", "number", true, 3, "classification", ["acc"], { min: 0, max: 1 }, true),
       metricDef("AUC", "AUC", "number", true, 3, "classification", ["auc", "AUROC", "roc_auc"], { min: 0, max: 1 }),
       metricDef("AUPRC", "AUPRC", "number", true, 3, "classification", ["auprc", "pr_auc"], { min: 0, max: 1 }),
-      metricDef("F1", "F1", "number", true, 3, "classification", ["f1", "macro_f1", "micro_f1"], { min: 0, max: 1 }),
+      metricDef("F1", "F1", "number", true, 3, "classification", ["f1"], { min: 0, max: 1 }),
       metricDef("precision", "Precision", "number", true, 3, "classification", ["ppv"], { min: 0, max: 1 }),
       metricDef("recall", "Recall", "number", true, 3, "classification", ["sensitivity", "tpr"], { min: 0, max: 1 }),
       metricDef("specificity", "Specificity", "number", true, 3, "classification", ["tnr"], { min: 0, max: 1 }),
@@ -655,6 +661,7 @@ export function readResultConfigJson<T>(text: string, validate: (value: unknown)
 
 export function normalizeMetricKey(metric: string, schema?: ResultSchema, extraRules: MetricAliasRule[] = []): string {
   const rules: MetricAliasRule[] = [
+    ...extraRules,
     ...(schema?.metrics.flatMap((item) => (item.aliases || []).map((from) => ({ from, to: item.key, caseInsensitive: true, trim: true }))) || []),
     { from: "dice", to: "DSC", caseInsensitive: true, trim: true },
     { from: "mean_dice", to: "DSC", caseInsensitive: true, trim: true },
@@ -668,22 +675,17 @@ export function normalizeMetricKey(metric: string, schema?: ResultSchema, extraR
     { from: "top5_acc", to: "top5_accuracy", caseInsensitive: true, trim: true },
     { from: "auroc", to: "AUC", caseInsensitive: true, trim: true },
     { from: "roc_auc", to: "AUC", caseInsensitive: true, trim: true },
-    { from: "average_precision", to: "AUPRC", caseInsensitive: true, trim: true },
-    { from: "ap", to: "AUPRC", caseInsensitive: true, trim: true },
+    { from: "average_precision", to: "AP", caseInsensitive: true, trim: true },
+    { from: "ap", to: "AP", caseInsensitive: true, trim: true },
     { from: "pr_auc", to: "AUPRC", caseInsensitive: true, trim: true },
-    { from: "weighted_f1", to: "F1", caseInsensitive: true, trim: true },
-    { from: "f1_macro", to: "F1", caseInsensitive: true, trim: true },
-    { from: "f1_micro", to: "F1", caseInsensitive: true, trim: true },
-    { from: "f1_weighted", to: "F1", caseInsensitive: true, trim: true },
-    { from: "macro_precision", to: "precision", caseInsensitive: true, trim: true },
-    { from: "macro_recall", to: "recall", caseInsensitive: true, trim: true },
+    { from: "f1_macro", to: "macro_f1", caseInsensitive: true, trim: true },
+    { from: "f1_micro", to: "micro_f1", caseInsensitive: true, trim: true },
+    { from: "f1_weighted", to: "weighted_f1", caseInsensitive: true, trim: true },
     { from: "mcc", to: "MCC", caseInsensitive: true, trim: true },
     { from: "matthews_corrcoef", to: "MCC", caseInsensitive: true, trim: true },
     { from: "cohen_kappa", to: "kappa", caseInsensitive: true, trim: true },
-    { from: "log_loss", to: "loss", caseInsensitive: true, trim: true },
-    { from: "cross_entropy", to: "loss", caseInsensitive: true, trim: true },
-    { from: "ce_loss", to: "loss", caseInsensitive: true, trim: true },
-    ...extraRules,
+    { from: "cross_entropy", to: "log_loss", caseInsensitive: true, trim: true },
+    { from: "ce_loss", to: "log_loss", caseInsensitive: true, trim: true },
   ];
   for (const rule of rules) {
     const from = rule.trim ? rule.from.trim() : rule.from;
@@ -963,11 +965,10 @@ function preset(id: string, name: string, format: ResultParserPreset["format"], 
     metricAliases: {
       Dice: "DSC", dice: "DSC", acc: "accuracy", top1: "top1_accuracy", top_1: "top1_accuracy", top1_acc: "top1_accuracy",
       top5: "top5_accuracy", top_5: "top5_accuracy", top5_acc: "top5_accuracy", auc: "AUC", auroc: "AUC", roc_auc: "AUC",
-      average_precision: "AUPRC", ap: "AUPRC", pr_auc: "AUPRC", auprc: "AUPRC", macro_f1: "F1", micro_f1: "F1",
-      weighted_f1: "F1", f1_macro: "F1", f1_micro: "F1", f1_weighted: "F1", macro_precision: "precision", micro_precision: "precision",
-      weighted_precision: "precision", macro_recall: "recall", micro_recall: "recall", weighted_recall: "recall", bal_acc: "balanced_accuracy",
+      average_precision: "AP", ap: "AP", pr_auc: "AUPRC", auprc: "AUPRC", f1_macro: "macro_f1", f1_micro: "micro_f1",
+      f1_weighted: "weighted_f1", bal_acc: "balanced_accuracy",
       balanced_acc: "balanced_accuracy", sensitivity: "recall", tpr: "recall", ppv: "precision", tnr: "specificity", mcc: "MCC",
-      matthews_corrcoef: "MCC", cohen_kappa: "kappa", brier_score: "brier", log_loss: "loss", cross_entropy: "loss", ce_loss: "loss",
+      matthews_corrcoef: "MCC", cohen_kappa: "kappa", brier_score: "brier", cross_entropy: "log_loss", ce_loss: "log_loss",
     },
     metricDirections,
     requiredColumns: format === "long_csv" ? ["metric", "value"] : [],
@@ -1441,7 +1442,7 @@ const splitNameMap: Record<string, string> = Object.assign(Object.create(null), 
   train: "train", val: "val", valid: "val", validation: "val", test: "test", external: "external", ext: "external",
 });
 
-const metricDecorators = new Set(["best", "final", "last", "mean", "avg", "average", "eval", "score", "metric", "macro", "micro", "weighted"]);
+const metricDecorators = new Set(["best", "final", "last", "mean", "avg", "average", "eval", "score", "metric"]);
 const segmentationMetricNames = new Set(["DSC", "Dice", "IoU", "HD95", "ASD"]);
 
 function normalizeMetricToken(metric: string, aliases: Record<string, string> = {}): { metric: string; split?: string } {
@@ -1485,17 +1486,23 @@ function canonicalMetricName(lower: string): string | undefined {
   if (["top1", "top_1", "top1_acc", "top1_accuracy"].includes(lower)) return "top1_accuracy";
   if (["top5", "top_5", "top5_acc", "top5_accuracy"].includes(lower)) return "top5_accuracy";
   if (["auc", "auroc", "roc_auc"].includes(lower)) return "AUC";
-  if (["auprc", "pr_auc", "average_precision", "ap"].includes(lower)) return "AUPRC";
-  if (["f1", "macro_f1", "micro_f1", "weighted_f1", "f1_macro", "f1_micro", "f1_weighted"].includes(lower)) return "F1";
-  if (["precision", "macro_precision", "micro_precision", "weighted_precision", "ppv"].includes(lower)) return "precision";
-  if (["recall", "macro_recall", "micro_recall", "weighted_recall", "sensitivity", "tpr"].includes(lower)) return "recall";
+  if (["auprc", "pr_auc"].includes(lower)) return "AUPRC";
+  if (["average_precision", "ap"].includes(lower)) return "AP";
+  if (lower === "f1") return "F1";
+  for (const aggregation of ["macro", "micro", "weighted"]) {
+    if (lower === `${aggregation}_f1` || lower === `f1_${aggregation}`) return `${aggregation}_f1`;
+    if (lower === `${aggregation}_precision` || lower === `${aggregation}_recall`) return lower;
+  }
+  if (["precision", "ppv"].includes(lower)) return "precision";
+  if (["recall", "sensitivity", "tpr"].includes(lower)) return "recall";
   if (["specificity", "tnr"].includes(lower)) return "specificity";
   if (["balanced_accuracy", "balanced_acc", "bal_acc"].includes(lower)) return "balanced_accuracy";
   if (["mcc", "matthews_corrcoef"].includes(lower)) return "MCC";
   if (lower === "cohen_kappa") return "kappa";
   if (["npv", "ppv", "fpr", "fnr", "ece"].includes(lower)) return lower.toUpperCase();
   if (["brier", "brier_score"].includes(lower)) return "brier";
-  if (["loss", "log_loss", "cross_entropy", "ce_loss"].includes(lower)) return "loss";
+  if (lower === "loss") return "loss";
+  if (["log_loss", "cross_entropy", "ce_loss"].includes(lower)) return "log_loss";
   if (["dice", "dsc", "mean_dice"].includes(lower)) return "DSC";
   if (lower === "iou") return "IoU";
   if (lower === "hd95" || lower === "hausdorff95") return "HD95";

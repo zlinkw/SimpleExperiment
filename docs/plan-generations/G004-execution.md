@@ -4,7 +4,7 @@
 
 布局并行清旧键可能丢值，内存存储首0/2 exit1，日志同上目录 `g004-519-layout-legacy-failure-ff08.log`，无真实损失证据。R519 A2改为成功保存且根匹配后清旧键；项目状态13/13、布局3/3、上下文20/20均exit0，日志同目录 `g004-r519-a2-project-state-ff08.log`、`g004-r519-a2-layout-ff08.log`、`g004-r519-a2-context-ff08.log`。拓扑确认/取消/写失败假对象3/3 exit0，未动真实设置或服务器。
 
-519内存解析补验：宽CSV同时包含AP和AUPRC时AP未保留，macro/micro/weighted F1名称亦被改写；两次定向各0/1 exit1，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-519-metric-identity-ff08.log` 和 `g004-519-metric-collision-ff08.log`。本轮还核选择操作的持久化回执及保存PLAN后的持久化错误，均为真实方法配合成替身；问题、原始退出码和日志见coverage，未写真实项目文件。
+519宽CSV的AP与AUPRC、macro/micro/weighted F1合并，两次各0/1 exit1，同目录 `g004-519-metric-identity-ff08.log`、`g004-519-metric-collision-ff08.log`。R519 A4保留语义及显式别名；宽/长CSV、JSON、预览、schema、分割、0/空值单文件最终6/6 exit0，同目录 `g004-r519-a4-metric-final-ff08.log`。选择及PLAN持久化证据见coverage，未写真实项目文件。
 
 用户报告反复识别仍未完成并提供截图；519专用实例错误记录显示几次点击与同窗识别租约冲突，不能据此认定锁死。源码中本地识别未写完成标记，唯一生产写入在代码同步完成后；真实识别方法配假确认与已选PLAN、输出门槛未完成时验证应记录本地事实，0/1 exit1，`C:/Users/ZLK/AppData/Local/Temp/g004-519-bootstrap-recognition-ff08.log`。用户截图、实际错误与受控边界见coverage；不重放点击、不清锁、不自动连Worker，统一返修时区分本地识别和运行准备。
 
