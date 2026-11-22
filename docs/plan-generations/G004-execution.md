@@ -93,3 +93,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 产物槽位身份合成回归 5/5，exit 0；内存清单和传输替身，临时目录保留，无真实 Worker、传输、清理或 Python receiver。事件与输入快照见 coverage，待总控终审。
 
 - Plan 提交可见预检合成回归 25/25，exit 0；Host 与面板脚本 VM、队列/同步/确认替身，无真实 UI、Worker、提交或清理。事件与输入快照见 coverage，待总控终审。
+
+- MCP Agent 契约合成回归 3/3，exit 0；内存假授权及生命周期回调，无真实授权、Agent、SSH、tmux 或迁移。事件与输入快照见 coverage，待总控终审。
