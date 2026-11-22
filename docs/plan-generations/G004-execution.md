@@ -155,3 +155,5 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 受控消费者验证：formalJob原文件5/5（提取函数的本地fixture，未真实训练/连接）exit0；中立LocalApiClient原文件精确前四项4/4，localApi取消/总预算原项1/1（合成监听、保留fixture）exit0；windowScope的dispose会删除发现记录，未运行该项，复用既有中立路由/隔离证据与机械导入审阅，未测其全文件。上述客户端使用失败编译仍产出的目标文件，不冒类型编译通过。日志TEMP/g004-{formal-consumer,local-client-consumer,local-api-consumer}-20261122-terra.log。
 
 规划原文件精确用例首0/1 exit1（独立盘面对账仍要求50已退休路径）；修为对获批50项反向断言、对所有其他文件保持覆盖断言，重验1/1 exit0。日志TEMP/g004-runner-planning[-fix]-20261122-terra.log。完整runner/acceptance含未授权删除分支，未重跑；原安全断言保留。
+
+完整39项删除前命令被自动执行策略在进程创建前拒绝（CreateProcess Rejected: blocked by policy，未提供更具体原因）；命令未启动，39文件均未删除。禁止改路径或工具绕过，已向总控升级；不影响保留的原确认，删除尚未完成。
