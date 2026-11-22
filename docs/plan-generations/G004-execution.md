@@ -32,7 +32,7 @@ T2中立MCP版本解析器假对象1/1 exit0，`g004-r519-t2-resolver-missing-ff
 
 T3查询上下文与RPC/结构化输出支持迁出，真实queryProject并发及假RPC2/2 exit0；首1/2 exit1因替身用普通Error冒充业务错误，日志 `g004-r519-t3-support-first-ff08.log`、`g004-r519-t3-support-final-ff08.log`。其余消费者待迁。
 
-T3补项目路径读取，限定实际查询上下文，不退回cwd；源码查询6/6 exit0，`g004-r519-t3-data-first-ff08.log`，新读取器待消费者切换。
+T3补项目路径读取及结构化精简，限定查询上下文、不退回cwd；源码查询8/8 exit0，`g004-r519-t3-compact-first-ff08.log`，消费者待切换。
 
 T4迁出MCP解析、结果、指标和比较；真实查询配合成数据与旧消费者逐值对照，0/中文/特殊键/排行/缺参5/5 exit0，`g004-r519-t4-compare-final-ff08.log`；真实Worker未测。
 

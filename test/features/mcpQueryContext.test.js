@@ -74,6 +74,12 @@ test('query runtime parsers retain existing training and identity semantics',()=
  for(const yaml of ['', 'training:\n  max_epoch: 10\n', 'max_epochs: 0\n'])assert.equal(current.trainingMaxEpochFromYaml(yaml),old.trainingMaxEpochFromYaml(yaml));
 });
 
+test('query compact output preserves the existing structured view',()=>{
+ const old=require('../../src/cli/format.ts'),current=require('../../src/mcp/query/Compact.ts');
+ const payload={id:'x',status:'running',zero:0,raw:{secret:'fixture'},rows:[{id:'a',status:'failed',recentLogs:['x']}]};
+ assert.deepEqual(current.compactJsonValue(payload),old.compactJsonValue(payload));
+});
+
 test('neutral query support requires context and preserves optional RPC semantics',async()=>{
  assert.throws(()=>support.emit({}),/MCP_QUERY_CONTEXT_REQUIRED/);
  assert.throws(()=>support.callApi('status'),/MCP_QUERY_CONTEXT_REQUIRED/);
