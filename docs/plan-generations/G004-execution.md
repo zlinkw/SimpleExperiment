@@ -79,3 +79,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 planOutputReplacementHost 原文件 7/7、exit0（`%TEMP%/g004-520-output-replacement-host-20261123.log`，先查不存在）；假确认、Worker 和清理服务，删除仅为内存 Set 操作，无真实删除或 UI，待总控审定。
 
 - 520 后 gpuHistoryMixedGranularityScatterRepro 原文件 9/9、exit0（`%TEMP%/g004-520-gpu-history-scatter-20261123.log`，先查不存在）；合成 GPU 样本、假画布与 VM，无真实 GPU、Worker 或 UI，待总控审定。
+
+- 520 后 gpuSampleCarryChannel 原文件 5/5、exit0（`%TEMP%/g004-520-gpu-sample-carry-channel-20261123.log`，先查不存在）；合成样本、假传输与 VM，无网络或真实 GPU/Worker，待总控审定。
