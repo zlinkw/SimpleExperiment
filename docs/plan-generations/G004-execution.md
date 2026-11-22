@@ -55,3 +55,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 总控审核 formalJobPreflightProgress/Structure/Environment 各1/1、Failure/Rejections 各1/1、Api 7/7，均 exit0，原预算和指定变体不变；仅提取函数及自建夹具，自建 probe 的取消/看门狗已结算。api-environment 实际执行本机解释器 shell/loader 探针，若已装 torch 可 CPU import；邻近只读检查未发现 torch，该缺席未冻结；启动前三个 NVJITLINK/Conda 变量未设置，不接科研 Conda、不训练。Python 3.14.6/PyYAML 6.0.3 为邻近观测，旧工具链未知。managed preflight 保留合成 owner/持久锁/CSV，proof 夹具改自建文件字节和 mtime。
 
 误运行按需 serverQueueDispatch 14/14 exit0，保留事件及日志，eligible=false，不计 active；模拟队列/GPU/派发及 VM，未触真实资源。runner vsce 的未知 bin 为预期拒绝并保留日志；cleanupIndexInvalidation 的源码覆盖环境变量邻近检查未设置。其他原始事实见上述 Git 和 coverage。
+
+workerTelemetryApiContract 8/8 exit0：假 fetch、VM 面板函数及 Python AST 提取能力，读取现有构建 runtime；无真实 Worker、网络、UI 或删除。原始事件、日志及输入见 coverage，待总控终审。
