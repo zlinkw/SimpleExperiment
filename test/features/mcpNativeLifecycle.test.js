@@ -113,3 +113,49 @@ test("native lifecycle never borrows metadata from another Worker, workflow or o
   applyNativeJobLifecycle(rows, { lifecycleProtocol: 2, stateSource: "active_query", projectId: "project-a", jobLifecycle: [{ ...fact, projectId: "project-b" }] });
   assert.equal(rows.size, 0);
 });
+
+test("actual tasks.list reports a cold Worker query failure without revoking its saved completion", async () => {
+  const ts = require("typescript"), vm = require("node:vm");
+  const Q = require("../../src/features/DistributedPlanQueue.ts"), V = require("../../src/features/VerifiedCompletion.ts");
+  const source = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8"), ast = ts.createSourceFile("host.ts", source, ts.ScriptTarget.Latest, true);
+  let arrow;
+  function visit(node) { if (ts.isPropertyAssignment(node) && node.name.getText(ast) === '"tasks.list"' && ts.isArrowFunction(node.initializer)) arrow = node.initializer; ts.forEachChild(node, visit); }
+  visit(ast); assert.ok(arrow);
+  const code = ts.transpileModule("function make(){return " + arrow.getText(ast) + ";} make;", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const make = vm.runInNewContext(code, { DistributedPlanQueue: Q, DistributedSchedulingPolicy: { PROGRESS_FRESHNESS_MS: 5000 }, UiCommandCancelled: Error });
+  const projectRoot = path.join(os.tmpdir(), "native-query-project"), projectId = Q.canonicalProjectId(projectRoot), verifiedAt = "2026-10-30T00:00:00.000Z";
+  const job = { index: 0, workerId: "worker-a", commandId: "command-a", lifecycleProtocol: 2, outputDir: "work_dirs/a", status: "completed", completionState: "verified", exitCode: 0 };
+  const plan = { id: "workflow-a", projectId, planFile: "plans/a.yaml", jobs: [job] };
+  job.verifiedCompletion = { schemaVersion: 1, identity: V.completionIdentity(plan, job), verifiedAt, exitCode: 0 };
+  let current = true, queueReads = 0, queries = 0;
+  const host = { captureProjectContext: () => ({ root: projectRoot }), projectContextIsCurrent: () => current, buildState: () => ({}),
+    enabledWorkerConfigs: () => [{ id: "worker-a" }], readWorkerTaskSnapshot: async () => { queries++; return { workerId: "worker-a", tasks: [], error: "cold connection failed" }; },
+    loadDistributedQueue: async selectedRoot => { assert.equal(selectedRoot, projectRoot); queueReads++; return { schemaVersion: 1, plans: [plan] }; } };
+  const call = target => make.call(target)({}, null, { signal: new AbortController().signal });
+  const cold = await call(host), fact = cold.jobLifecycle[0];
+  assert.equal(fact.status, "completed"); assert.equal(fact.successful, true);
+  assert.equal(fact.verifiedCompletion.verifiedAt, verifiedAt);
+  assert.equal(fact.queryState, "unknown", "missing capabilities do not prove this round observed the completed job");
+  assert.match(fact.queryError, /cold connection failed/);
+  const before = queries, noTarget = await call({ ...host, enabledWorkerConfigs: () => [] });
+  assert.equal(queries, before); assert.equal(noTarget.jobLifecycle[0].queryState, "not_queried");
+  assert.equal(noTarget.jobLifecycle[0].successful, true);
+  const at = new Date().toISOString();
+  const observed = await call({ ...host, readWorkerTaskSnapshot: async () => ({ workerId: "worker-a", capabilities: { taskLifecycle: 2 }, queryComplete: true,
+    controlIncomplete: true, diagnosticsPending: true, fetchedAt: at, generatedAt: at,
+    tasks: [{ projectId, commandId: job.commandId, outputDir: job.outputDir, observation: { projectId, commandId: job.commandId, workerId: job.workerId, lifecycleProtocol: 2, observedAt: at,
+      tmux: { windowId: "@1", paneId: "%1", dead: true, exitCode: 0 }, result: { runId: job.commandId, status: "completed", present: true, verified: true, artifactsComplete: true, exitCode: 0 },
+      runtimeDiagnostics: { schemaVersion: 1, commandId: job.commandId, runId: job.commandId, state: "clear", count: 0, scanComplete: true } } }] }) });
+  assert.equal(observed.jobLifecycle[0].queryState, "observed"); assert.equal(observed.jobLifecycle[0].queryError, "");
+  assert.equal(observed.jobLifecycle[0].verifiedCompletion.verifiedAt, verifiedAt, "a new query does not refresh the original proof time");
+  const completeSnapshot = observed.workerTasks[0];
+  const partial = await call({ ...host, readWorkerTaskSnapshot: async () => ({ ...completeSnapshot, queryComplete: false }) });
+  assert.equal(partial.jobLifecycle[0].queryState, "unknown", "an incomplete Worker query still stays unknown");
+  const ownFailure = await call({ ...host, readWorkerTaskSnapshot: async () => ({ ...completeSnapshot,
+    tasks: completeSnapshot.tasks.map(task => ({ ...task, observation: { ...task.observation, executionQueryError: 'this task query failed' } })) }) });
+  assert.equal(ownFailure.jobLifecycle[0].queryState, "unknown");
+  assert.match(ownFailure.jobLifecycle[0].queryError, /this task query failed/);
+  const previousReads = queueReads;
+  await assert.rejects(call({ ...host, readWorkerTaskSnapshot: async () => { current = false; return { workerId: "worker-a", tasks: [] }; } }), /项目已切换/);
+  assert.equal(queueReads, previousReads, "a changed workspace never reads the new project's queue");
+});
