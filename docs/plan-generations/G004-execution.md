@@ -79,3 +79,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 - 旧执行会话结束后归档使 rollout 移至 archived_sessions；曾短暂解除归档以保护现有引用，现已重新归档。coverage 中该会话 42 处路径更新为实际位置，session_meta 身份及 35 项有摘要的命令/输出事件原字节 SHA 均核一致；未改原事件或重跑测试。
 
 - 520 后 panelWebviewScriptHealth 原文件 13/13、exit0（`%TEMP%/g004-520-panel-webview-script-20261123.log`，先查不存在）；源渲染器经 TypeScript 转译、假 DOM/VM，未操作真实 UI 或 Worker。原事件、当前依赖和 Node 已登记，待总控审定。
+
+- 520 后 planCleanupPanelBridge 原文件 19/19、exit0（`%TEMP%/g004-520-plan-cleanup-panel-bridge-20261123.log`，先查不存在）；VM 假 DOM、预览和确认/执行回调，未打开真实 UI、删除文件或连接 Worker。原事件与实际依赖已登记，待总控审定。
