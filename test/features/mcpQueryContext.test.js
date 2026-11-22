@@ -27,6 +27,7 @@ test('MCP result_parse uses content-selected preset and preserves zero',async()=
 
 test('MCP result list, show and export retain the established structured business output',async()=>{
  const old=require('../../src/cli/commands/result.ts');
+ const oldMetric=require('../../src/cli/commands/metric.ts');
  const inputs=[{planFile:'plans/p.yaml',workerId:'worker-a',runId:'same',completionState:'verified',aggregationState:'eligible',
    dimensions:{seed:0,dataset:'合成,"A"',fold:'line\n1'},metrics:{AP:0,AUPRC:0.5},sourceFiles:[{path:'result.csv'}]},
   {planFile:'plans/p.yaml',workerId:'worker-a',runId:'same',completionState:'verified',aggregationState:'eligible',
@@ -37,8 +38,18 @@ test('MCP result list, show and export retain the established structured busines
  assert.equal(rows.length,2);assert.notEqual(rows[0].id,rows[1].id);assert.equal(rows[0].value,0);
  assert.deepEqual(await queryProject('fixture',rpc,'result_show',{id:rows[0].id}),await previous(()=>old.resultShow(rows[0].id,{json:true})));
  for(const format of ['json','csv'])assert.deepEqual(await queryProject('fixture',rpc,'result_export',{id:rows[0].id,format}),await previous(()=>old.resultExport(rows[0].id,{json:true,format})));
+ assert.deepEqual(await queryProject('fixture',rpc,'metric_list',{}),await previous(()=>oldMetric.metricList({json:true})));
+ assert.deepEqual(await queryProject('fixture',rpc,'metric_show',{id:rows[0].id}),await previous(()=>oldMetric.metricShow(rows[0].id,{json:true})));
  await assert.rejects(queryProject('fixture',rpc,'result_show',{id:'same'}),/AMBIGUOUS/);
  await assert.rejects(queryProject('fixture',async()=>({source:'old'}),'result_list',{}),/RESULT_QUERY_UNVERIFIED/);
+});
+
+test('MCP metric leaderboard preserves the known loss direction',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-rank-'));fs.writeFileSync(path.join(root,'metrics.csv'),'experimentId,runKey,loss\nfirst,group,0.8\nsecond,group,0.2\n','utf8');
+ const result=await queryProject(root,async()=>{throw Error('unexpected RPC')},'metric_leaderboard',{file:'metrics.csv',primary:'loss'});
+ assert.equal(result.board[0].bestExperimentId,'second');
+ const {numericMetrics}=require('../../src/mcp/query/Metrics.ts'),special=numericMetrics({metrics:JSON.parse('{"__proto__":0,"constructor":"2","blank":""}')});
+ assert.equal(special.__proto__,0);assert.equal(special.constructor,2);assert.equal(Object.hasOwn(special,'blank'),false);
 });
 
 test('neutral query support requires context and preserves optional RPC semantics',async()=>{
