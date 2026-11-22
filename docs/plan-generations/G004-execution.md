@@ -69,3 +69,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 - 519 job 87：真实逻辑配合内存会话/假确认/假关闭回调，动态提取的 Host 方法与 5a3 一致，编译闭包及原测试未变；原passed/0/tree confirmed，旧Node/TS实际版本未知。仅作假 tmux 场景候选，不代表真实窗口关闭，待总控审。
 
 - 520 后 refreshOperationRecordExpiry 11/11、exit0（`%TEMP%/g004-520-refresh-operation-expiry-20261123.log`，先查不存在）；VM 假端口/内存操作，Agent 源仅作文本读取，不执行 Python/真实 Worker。
+
+- 520 后 workflowWorkspaceBinding 2/2、exit0（`%TEMP%/g004-520-workflow-workspace-binding-20261123.log`，先查不存在）；使用独立合成中文临时目录并保留，另用假身份探针，无删除。一次只读候选列表脚本因缺 eligible 字段 KeyError，未写文件，改用可选字段成功。
