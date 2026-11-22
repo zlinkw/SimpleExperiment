@@ -114,3 +114,5 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 
 综合生命周期逐项映射补现MCP证据：同值PLAN的config字段及历史INFO/ERROR结构经真实queryProject合成数据通过；mcpQueryContext单文件18/18 exit0，日志TEMP/g004-mcp-config-log-20261122-terra.log。diagnose旧同fixture细节、history及真实Worker仍按候选边界处理。
 同一新fixture补failed/OOM诊断证据后再验18/18 exit0，日志TEMP/g004-mcp-diagnose-20261122-terra.log；前次18/18及原限制保留。
+
+静态对账test/cli下49个测试文件与302个顶层test行均已索引，无未索引文件或行；外部新发现派发项补逐项候选说明。此对账不证明行为等价。

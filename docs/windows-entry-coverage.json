@@ -163,7 +163,7 @@
     ],
     "candidateChanges": {
       "scope": "以下为只读生成的未应用候选，不改变旧测试、超时、矩阵或原文件；完整退役/删除仍须一次审批。",
-      "externalCases": [
+      "externalCases": [{"source":"test/api/localApi.test.js:259","candidateAction":"候选在同文件合并diff中退休旧CLI派发用例，保留其他LocalApiServer测试。","evidenceAndRemaining":"mcpTaskDispatch 5/5经真实Gateway/Host假端口核工作流、作业选择、Worker/GPU与授权；旧子进程stdout/confirm参数属于CLI外壳，未真实派发。"},
         {
           "source": "test/features/publicCliAliases.test.js:12",
           "candidateAction": "已就地更新公开面契约；保留现用例及矩阵。",
