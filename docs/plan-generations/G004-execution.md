@@ -89,7 +89,7 @@ U04排查基线HEAD=origin/master `b7c0b42c27227a8ec49d42d1f21346900a274ae4`、t
 
 版本审核13/13、缓存及同步页4/4和3/3 exit0；U04-01夹具首失败、U04-02延期，见4a80c627及coverage；无真实删除。
 
-本登记上限12000字符、90%时语义归并；原完整逐项记录保留于 Git 10c0689e:docs/plan-generations/G004-execution.md，U04中途记录另见4a80c627同路径，项目计划与代次索引为总控独占。执行范围为本人日常单机最多两个项目，不做多项目压力、无入口参数突变或新锁队列；保护真实Worker、训练、消费项目、共享配置、原窗口、未保存文档及全部夹具。源码、旧dist、已安装版本及远端效果分开记录。
+登记上限12000、90%时归并；完整旧记录在Git 10c0689e及4a80c627同路径。范围单机最多两个项目；保护真实Worker、训练、消费项目、共享配置、原窗口及夹具。源码、旧dist、安装及远端效果分记。
 
 既有G004/U01–U02原始细节及首失败在 Git `10c0689e:docs/plan-generations/G004-execution.md`，U03/516在 `b7c0b42c` 同文件及计划，历史数字不作当前按钮分母。A组首0/3含缺VS Code夹具，修夹具仍0/3、修逻辑3/3、限定实际入口4/4；空seed/cases和reset首失败后修复。MCP43/43、旧断言修后15/15；build首并发中止exit1、夹具6/7→7/7，最终回执 `simple_cluster/reports/test-workflow/2026-11-21T04-18-18-128Z-69044-build/run.json` 为285/285、10门禁、并发1、按需未跑6。唯一旧锁经本人精确授权删除。
 
@@ -109,3 +109,5 @@ B1/B2/B3 39项分组修复、各项受控结果和首失败详见 Git `c37827c8:
 T7收包策略：排除旧业务CLI及依赖它的旧MCP启动器，要求独立MCP启动器、resolver、服务及客户端；packageContentPolicy 12/12、mcpEntry 3/3均exit0，尚未实际打包。
 
 T7矩阵：19个已定向验过的MCP迁移、连接和收包测试加入build/check:full/package/smoke，四profile只读规划各19项独占、均非按需；原项目全树输入指纹保持，旧项未减。test/features及acceptance原glob也涵盖新项。B1未纳入上述显式组，仍未运行验证且是交付阻断。训练进度旧文件误重写但内容已恢复，复验9/9 exit0；生成命令首引号错误exit1未写入。
+
+MCP Worker历史生命周期迁测前4项实际queryProject配合独立本机合成API/Worker夹具，4/4 exit0（chunk 252e84），覆盖运行、完成、失败、停止、产物和日志身份；原CLI用例保留，后4项待逐项迁测。新增测试已列四个显式交付profile。
