@@ -6,9 +6,9 @@
 
 519指标语义合并，两次各0/1 exit1，`g004-519-metric-identity-ff08.log`、`g004-519-metric-collision-ff08.log`。A4保留语义及显式别名；CSV/JSON、预览、schema、0/空6/6 exit0，`g004-r519-a4-metric-final-ff08.log`。未写真实项目。
 
-R519 A5按输入列选择默认长宽预设，保留显式和自定义预设；解析器/CLI及MCP目录各8/8 exit0，日志 `g004-r519-a5-parser-final-ff08.log`、`g004-r519-a5-mcp-ff08.log`，未调用Worker。
+R519 A5解析器/CLI及MCP目录各8/8；原日志见Git `59041060:docs/plan-generations/G004-execution.md`。
 
-R519 A6历史结果读错/坏JSON反馈原因，缺失仍允许；内存fs联验1/1 exit0，同目录 `g004-r519-a6-history-final-ff08.log`，未调用Worker。
+R519 A6历史读取反馈1/1；原日志见Git `59041060:docs/plan-generations/G004-execution.md`。
 
 R519 B2选择等待保存及错误可见；动作46/46、迁移13/13、上下文20/20 exit0，首44/45因夹具缺依赖exit1；原日志见Git `ff1e0051:docs/plan-generations/G004-execution.md`。
 
@@ -16,7 +16,7 @@ R519 B3手动刷新/重连失败可见，后台容错保留；假对象4/4、低
 
 R519 B4调试包反馈假对象1/1，原日志见Git `52dd844c:docs/plan-generations/G004-execution.md`，未实际下载。
 
-R519 C1修复14项API本地路由，保留确认、资源租约及业务门禁；真实入口配假handler 47/47 exit0，同目录 `g004-r519-c1-actions-first-ff08.log`，未执行远端动作。
+R519 C1 API本地路由47/47；原日志见Git `59041060:docs/plan-generations/G004-execution.md`。
 
 R519 C2配置作用域修正，源码48/48、内存49/49 exit0；日志见Git `52dd844c:docs/plan-generations/G004-execution.md`。
 
@@ -34,7 +34,7 @@ T3上下文/支持迁出2/2；首1/2替身错误类型失败，日志及细节�
 
 T3项目读取及精简8/8，原日志见Git 3cbd380e同文件。
 
-T4迁出MCP解析、结果、指标和比较；真实查询配合成数据与旧消费者逐值对照，0/中文/特殊键/排行/缺参5/5 exit0，`g004-r519-t4-compare-final-ff08.log`；真实Worker未测。
+T4结果/指标/比较查询对照5/5；原日志见Git `59041060:docs/plan-generations/G004-execution.md`。
 
 T5提取runtime及实验查询，保留既有结构化输出；12项真实queryProject配假RPC与旧消费者对照，含空结果/失败9/9 exit0，`g004-r519-t5-experiment-complete-ff08.log`；补默认精简输出对照后同文件9/9 exit0；未请求Worker，日志等消费者待迁。
 
@@ -197,3 +197,5 @@ MCP服务器配置保存核模拟人工审核、profile及激活参数，假后�
 MCP下载范围及handoff核精确Worker、配置参数与撤权，假后端11/11 exit0；未写真实配置。
 
 另10个重复函数体关联原项及边界，辅助实现可能不同，旧测试保留；登记压缩前两次超阈值断言exit1未写。
+
+补发现旧录制Runner外部2项测试：checkpoint及正式PLAN保护须保留；coverage列差异，未运行。登记前两次超阈值断言exit1未写。

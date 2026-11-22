@@ -1,7 +1,7 @@
 {
   "version": "0.5.512",
   "g004ExternalCliReferences": {
-    "scope": "test/cli之外旧CLI源码/产物静态引用导航；顶层导入的全部test逐项列出，保留旧测试，不把引用或名称当替代证据。",
+    "scope": "test/cli之外旧CLI源码/产物及录制Runner静态引用导航；相关test逐项列出，保留旧测试，不把引用或名称当替代证据。",
     "baseline": "0d5cae5686bfacb04ccb203d6cba7deea68b6ebf",
     "cases": [
       {
@@ -147,6 +147,18 @@
         "name": "history reports unreadable or malformed sources and still permits missing paths",
         "status": "pending_review",
         "boundary": "旧CLI history无新增MCP工具；历史只读错误保护与适用消费者待裁决。"
+      },
+      {
+        "source": "test/evidenceTooling.test.js:20",
+        "name": "simpleex run creates standard run directory and metrics summary from stdout",
+        "status": "retired_runner_contract_pending_review",
+        "boundary": "原测试调用仅旧CLI引用的ExperimentRunner真实启动子进程并落盘，产品公开入口已退役；拟撤销录制运行行为须统一裁决。该文件顶层导入Runner，同文件checkpoint独立测试必须保留并转移导入，未运行。"
+      },
+      {
+        "source": "test/features/formalJobExecution.test.js:29",
+        "name": "arbitrary recorded CLI commands cannot bypass formal PLAN admission in a research project",
+        "status": "retired_runner_guard_pending_review",
+        "boundary": "旧Runner拒绝研究项目绕过正式PLAN的保护；产品侧执行入口及其PLAN授权须单独映射验证，不能只因CLI退役删除安全断言。该文件其余Scheduler、结果和重试测试均保留；未运行。"
       }
     ],
     "supportReferences": [
