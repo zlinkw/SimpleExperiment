@@ -30,7 +30,7 @@ T1实例发现/RPC与错误类型移至中立API位置，Server/面板/分支调
 
 T2中立MCP版本解析器假对象1/1 exit0，`g004-r519-t2-resolver-missing-ff08.log`。新启动器/安装器仅写MCP入口，假进程及隔离目录2/2 exit0，首1/2 exit1因测试原位sort改了对照数组，日志 `g004-r519-t2-entry-first-ff08.log`、`g004-r519-t2-entry-final-ff08.log`；生产入口尚未切换。
 
-T3查询上下文与RPC/结构化输出支持迁出，真实queryProject并发及假RPC2/2 exit0；首1/2 exit1因替身用普通Error冒充业务错误，日志 `g004-r519-t3-support-first-ff08.log`、`g004-r519-t3-support-final-ff08.log`。其余消费者待迁。
+T3上下文/支持迁出2/2；首1/2替身错误类型失败，日志及细节见Git 064f2221同文件。
 
 T3补项目路径读取及结构化精简，限定查询上下文、不退回cwd；源码查询8/8 exit0，`g004-r519-t3-compact-first-ff08.log`，消费者待切换。
 
@@ -169,3 +169,5 @@ MCP当前结果身份重排不变、歧义拒绝及诊断日志排除，queryPro
 派发审核期间MCP授权/Worker变化在真实宿主复核，拒绝派发并释放预留；假端口5/5、无MCP上下文的队列14/14均exit0。
 
 原Windows工作流四项Host源码身份/预检/回执断言迁中立绑定，假宿主4/4；原混合文件及CLI部分保留。
+
+MCP预检经实际Gateway及Host假端口核原任务身份、能力拒绝、操作ID与精确取消，2/2 exit0；未访问Worker，旧CLI外层行为待审。
