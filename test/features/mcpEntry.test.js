@@ -10,6 +10,10 @@ test('published and installed entry is the independent MCP launcher',()=>{
  assert.match(installer,/installMcpShim/);assert.doesNotMatch(installer,/installCliShim/);
  const ignores=fs.readFileSync(path.join(root,'.vscodeignore'),'utf8');
  for(const name of ['dist/cli.js','dist/cli.legacy.js','dist/runCli.js','dist/cli/**','bin/simpleex.cjs','bin/simpleex-mcp.cjs'])assert.ok(ignores.split(/\r?\n/).includes(name),name);
+ for(const file of ['scripts/verify-vsix-runtime.js','scripts/write-panel-build-manifest.js']){
+  const source=fs.readFileSync(path.join(root,file),'utf8');
+  for(const entry of ['dist/mcp/server.cjs','dist/api/LocalApiClient.js'])assert.ok(source.includes(entry),file+' '+entry);
+ }
 });
 
 test('MCP installation writes only its own entries and preserves unrelated CLI files',()=>{
