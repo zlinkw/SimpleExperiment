@@ -150,7 +150,7 @@ MCP查询身份补充活跃项非空及候选上界，4/4 exit0（9ccf3f）；�
 
 独立MCP resolver接中立客户端及合成Host，运行版本切换、身份/工作区/发现变化2/2 exit0；未测真实Host。
 
-MCP action_catalog动态表/缺方法无回退，Gateway假Host 1/1 exit0；旧CLI错误包装待审。
+MCP action_catalog动态表/缺方法无回退，固定命名动作不接受任意invoke，Gateway假Host 1/1 exit0；旧CLI错误包装、帮助及零HTTP断言待审。
 
 Agent MCP经实际Gateway/Host核精确目标、撤权及迁移digest，假Agent 2/2 exit0；未访问Worker。
 
