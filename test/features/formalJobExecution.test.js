@@ -26,19 +26,6 @@ test('real Scheduler and Agent message admission, writer conflicts, checkpoint h
   assert.equal(JSON.parse(proc.stdout.trim()).ok, true);
 });
 
-test('arbitrary recorded CLI commands cannot bypass formal PLAN admission in a research project', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'simple-formal-cli-'));
-  fs.mkdirSync(path.join(root, 'experiments/plans'), { recursive: true });
-  assert.throws(() => require('../../dist/features/ExperimentRunner').runRecordedExperiment({ cwd: root, name: 'fixture',
-    command: ['must-never-start'] }), /FORMAL_PLAN_REQUIRED/);
-  assert.equal(fs.existsSync(path.join(root, 'experiments/runs')), false);
-  const registryOnly = fs.mkdtempSync(path.join(os.tmpdir(), 'simple-formal-registry-'));
-  fs.mkdirSync(path.join(registryOnly, 'experiments'));
-  fs.writeFileSync(path.join(registryOnly, 'experiments/results_fixture.csv'), 'metric,value\n', 'utf8');
-  assert.throws(() => require('../../dist/features/ExperimentRunner').runRecordedExperiment({ cwd: registryOnly,
-    name: 'fixture', command: ['must-never-start'] }), /FORMAL_PLAN_REQUIRED/);
-});
-
 test('formal output review delegates to exact replacement and never opens an unsafe legacy overwrite dialog', async () => {
   const source = fs.readFileSync(path.join(__dirname, '../../dist/extension/legacy.js'), 'utf8');
   const start = source.indexOf('    async confirmPlanExistingOutputsFromValidation(');

@@ -1094,39 +1094,7 @@ const canonicalIdentity = file => {
   if (process.platform === "win32") real = real.toLowerCase();
   return real.split(path.sep).join("/");
 };
-function canonicalPlan(manifest, entryName) {
-  const entry = manifest.entries[entryName];
-  if (!entry || entry.aliasOf) throw new Error(`canonicalPlan: entry missing/alias: ${entryName}`);
-  const full = (entry.phases || {}).fullCheck;
-  const requested = [];
-  const expandDomain = (name, chain) => {
-    if (chain.slice(1, -1).includes(name)) throw new Error(`script cycle: ${chain.join(" -> ")} -> ${name}`); // 真循环 fail closed；合法菱形复用允许（与受审契约一致）
-    const body = (manifest.domains[name] || {}).sourceScript;
-    if (typeof body !== "string") throw new Error(`canonicalPlan: domain missing: ${name}`);
-    for (const raw of body.split(" && ")) {
-      const step = raw.trim();
-      if (!step) continue;
-      const npm = /^npm run ([a-zA-Z0-9:_-]+)$/.exec(step);
-      if (npm) { if (manifest.domains[npm[1]]) expandDomain(npm[1], [...chain, name]); continue; } // 非 domain 引用 = gate，不产 job
-      const t = /^node --test (.+)$/.exec(step);
-      if (t) {
-        const { argv, files } = canonicalTokenize(t[1]);
-        for (const f of files) {
-          if (f.includes("*")) for (const hit of canonicalGlob(f)) requested.push({ file: hit, argv: [...argv] });
-          else requested.push({ file: f, argv: [...argv] });
-        }
-        continue;
-      }
-      if (/^(node|npm) /.test(step)) continue; // manifest 定义的 node/npm 前缀 step = 规范的非 job 产出门（gate/prereq hoist）；此处不解析其内容、不宣称任意 node/npm 已安全
-      throw new Error(`canonicalPlan: unrecognized step shape in ${name}: ${step}`);
-    }
-  };
-  if (full) {
-    for (const d of full.domains || []) expandDomain(d, [entryName]);
-    for (const x of full.extraFiles || []) requested.push({ file: x.file, argv: [...x.argv] });
-    for (const g of full.globs || []) for (const p of g.patterns) for (const hit of canonicalGlob(p)) requested.push({ file: hit, argv: [...g.argv] });
-  }
-  const approvedCliRetirements = new Set([
+const approvedCliRetirements = new Set([
   "test/cli/manualDispatch.test.js",
   "test/cli/simpleCli.test.js",
   "test/cli/simpleCliActionsCatalog.test.js",
@@ -1178,6 +1146,39 @@ function canonicalPlan(manifest, entryName) {
   "test/cli/workerRunObservationMerge.test.js",
   "test/features/resultHistoryReadErrors.test.js",
 ]);
+
+function canonicalPlan(manifest, entryName) {
+  const entry = manifest.entries[entryName];
+  if (!entry || entry.aliasOf) throw new Error(`canonicalPlan: entry missing/alias: ${entryName}`);
+  const full = (entry.phases || {}).fullCheck;
+  const requested = [];
+  const expandDomain = (name, chain) => {
+    if (chain.slice(1, -1).includes(name)) throw new Error(`script cycle: ${chain.join(" -> ")} -> ${name}`); // 真循环 fail closed；合法菱形复用允许（与受审契约一致）
+    const body = (manifest.domains[name] || {}).sourceScript;
+    if (typeof body !== "string") throw new Error(`canonicalPlan: domain missing: ${name}`);
+    for (const raw of body.split(" && ")) {
+      const step = raw.trim();
+      if (!step) continue;
+      const npm = /^npm run ([a-zA-Z0-9:_-]+)$/.exec(step);
+      if (npm) { if (manifest.domains[npm[1]]) expandDomain(npm[1], [...chain, name]); continue; } // 非 domain 引用 = gate，不产 job
+      const t = /^node --test (.+)$/.exec(step);
+      if (t) {
+        const { argv, files } = canonicalTokenize(t[1]);
+        for (const f of files) {
+          if (f.includes("*")) for (const hit of canonicalGlob(f)) requested.push({ file: hit, argv: [...argv] });
+          else requested.push({ file: f, argv: [...argv] });
+        }
+        continue;
+      }
+      if (/^(node|npm) /.test(step)) continue; // manifest 定义的 node/npm 前缀 step = 规范的非 job 产出门（gate/prereq hoist）；此处不解析其内容、不宣称任意 node/npm 已安全
+      throw new Error(`canonicalPlan: unrecognized step shape in ${name}: ${step}`);
+    }
+  };
+  if (full) {
+    for (const d of full.domains || []) expandDomain(d, [entryName]);
+    for (const x of full.extraFiles || []) requested.push({ file: x.file, argv: [...x.argv] });
+    for (const g of full.globs || []) for (const p of g.patterns) for (const hit of canonicalGlob(p)) requested.push({ file: hit, argv: [...g.argv] });
+  }
   const expanded = requested.filter(job => !approvedCliRetirements.has(job.file)).flatMap(job => {
     if (!(manifest.caseGroups || []).includes(job.file)) return [job];
     // Independent lexical oracle: these two suites register literal top-level test names.
@@ -1296,7 +1297,10 @@ test("runner: real-repo plan reconciles with an independently expanded manifest 
   const testPlan = planOf("test"); // 盘上覆盖同样按完整计划集判定：按需延后仍属覆盖，不得误报成盘上文件脱离覆盖
   const testJobs = [...testPlan.jobs, ...testPlan.onDemandJobs];
   const testFileSet = new Set(testJobs.map(j => j.file));
-  for (const f of disk) assert.ok(testFileSet.has(f), `disk test file dropped from test-entry coverage: ${f}`);
+  for (const f of disk) {
+    if (approvedCliRetirements.has(f)) assert.ok(!testFileSet.has(f), `retired CLI test still scheduled: ${f}`);
+    else assert.ok(testFileSet.has(f), `disk test file dropped from test-entry coverage: ${f}`);
+  }
   for (const j of testJobs) assert.ok(fs.existsSync(path.join(REPO, j.file)), `planned file not on disk: ${j.file}`); // 幽灵检查一并覆盖按需侧（只增强不削弱）
   // 分类分区守恒（每个 job 恰属 independent/exclusive 之一侧；总数已由上方集合对账绑定规范展开）。
   assert.equal(pkg.independent + pkg.exclusive, pkg.jobs, "independent+exclusive must partition the planned jobs exactly");

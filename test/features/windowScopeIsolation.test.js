@@ -126,7 +126,7 @@ test('real Experiment APIs refuse cross-window and changed-workspace RPCs before
  }finally{await api.dispose();}
 });
 test('CLI default cannot mutate a foreign window, and explicit workspace routing ignores the overwritten alias',async()=>{
- const {LocalApiServer}=require('../../dist/api/LocalApiServer'),{callPluginRpc}=require('../../dist/cli/LocalApiClient');
+ const {LocalApiServer}=require('../../dist/api/LocalApiServer'),{callPluginRpc}=require('../../dist/api/LocalApiClient');
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'simple-window-scope-')),dir=path.join(root,'SimpleExperiment');fs.mkdirSync(dir);
  const names=['APPDATA','SIMPLE_EXPERIMENT_API_FILE','SIMPLE_CLI_INSTANCE_ID'],saved=Object.fromEntries(names.map(n=>[n,process.env[n]]));
  process.env.APPDATA=root;delete process.env.SIMPLE_EXPERIMENT_API_FILE;delete process.env.SIMPLE_CLI_INSTANCE_ID;

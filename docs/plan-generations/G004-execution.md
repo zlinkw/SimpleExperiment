@@ -151,3 +151,7 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 删除前只读预查39项目标均存在、常规文件、跟踪状态干净，祖先及终项无reparse；TypeScript解析当前项目的静态import/export，删除集合外对候选引用0。此非最终预检，混合消费者验证及集中build顺序待总控裁决，未删除任何目标。
 
 按总控精确放行运行tsc-cached一次：input-drift、incremental、TS7.0.2，exit2；71个emit使部分受跟踪dist变dirty，保留不stage、不恢复，日志TEMP/g004-tsc-central-predelete-20261122-terra.log。错误为旧CLI导出缺失及MCP ProjectGateway参数类型stopRunning；旧CLI在获批删除集合，MCP修正params字典类型后实际Gateway派发5/5 exit0。尚未重新编译，删除使输入变化后再验；首次失败未抹去。
+
+受控消费者验证：formalJob原文件5/5（提取函数的本地fixture，未真实训练/连接）exit0；中立LocalApiClient原文件精确前四项4/4，localApi取消/总预算原项1/1（合成监听、保留fixture）exit0；windowScope的dispose会删除发现记录，未运行该项，复用既有中立路由/隔离证据与机械导入审阅，未测其全文件。上述客户端使用失败编译仍产出的目标文件，不冒类型编译通过。日志TEMP/g004-{formal-consumer,local-client-consumer,local-api-consumer}-20261122-terra.log。
+
+规划原文件精确用例首0/1 exit1（独立盘面对账仍要求50已退休路径）；修为对获批50项反向断言、对所有其他文件保持覆盖断言，重验1/1 exit0。日志TEMP/g004-runner-planning[-fix]-20261122-terra.log。完整runner/acceptance含未授权删除分支，未重跑；原安全断言保留。

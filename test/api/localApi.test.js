@@ -1,15 +1,11 @@
 const assert = require("node:assert/strict");
-const { execFile, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { promisify } = require("node:util");
 const { readSource } = require("../_helpers/sourceReader");
-
-const execFileAsync = promisify(execFile);
 
 test('prepare refreshes health after runtime deployment instead of reusing a pre-deployment failure', async () => {
   const ts = require('typescript');
@@ -37,24 +33,6 @@ test('prepare refreshes health after runtime deployment instead of reusing a pre
   };
   assert.equal((await prepare.call(host, { confirm: true })).test.rows[0].status, 'ok');
 });
-
-function runCli(args, extraEnv = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, args, {
-      env: { ...process.env, ...extraEnv }, timeout:10000, windowsHide:true,
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
-  });
-}
 
 const root = path.resolve(__dirname, "../..");
 const { LocalApiServer, confirmationRequired, loopbackRequest, parseRemoteAddress } = require("../../dist/api/LocalApiServer.js");
@@ -223,95 +201,6 @@ test("SSE stream is bounded and terminates after the event cap", async () => {
     });
     assert.equal(response.status, 200);
     assert.equal((response.text.match(/^id: /gm) || []).length, 2);
-  } finally {
-    await f.cleanup();
-  }
-});
-
-test("simpleex CLI reads the discovery file", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-cli-test-"));
-  try {
-    const discoveryPath = path.join(dir, "api.json");
-    fs.writeFileSync(discoveryPath, `${JSON.stringify({
-      schemaVersion: 1,
-      name: "SimpleExperiment",
-      baseUrl: "http://127.0.0.1:19765",
-      port: 19765,
-      token: "test-token",
-      pid: 123,
-    })}\n`, "utf8");
-    process.env.SIMPLE_EXPERIMENT_API_FILE = discoveryPath;
-    const { readApiDiscovery } = require("../../dist/cli.js");
-    const discovery = readApiDiscovery();
-    assert.equal(discovery.port, 19765);
-    assert.equal(discovery.token, "test-token");
-  } finally {
-    delete process.env.SIMPLE_EXPERIMENT_API_FILE;
-    // FIXTURE POLICY: zero cleanup — retained for audit instead of rmSync (2026-10-23 rework).
-    console.log(`[fixtures retained, no cleanup] ${dir}`);
-  }
-});
-
-// The revoked `simpleex api` passthrough and `simpleex self-check` are replaced by named
-// commands plus `simpleex doctor` (user decision 2026-10-23). These migrated tests keep the
-// same intent: a named command must reach the live listener through the unified transport,
-// and doctor must report missing discovery honestly instead of faking success.
-test("simpleex named command reaches the live listener through the unified transport", async () => {
-  const f = await startServer(
-    { status: async () => ({ ok: true, mode: "cli" }), "tasks.dispatch": async (params) => ({ ok: true, echo: params }) },
-    { name: "SimpleExperiment" },
-  );
-  try {
-    const { stdout } = await execFileAsync(process.execPath, [
-      path.join(root, "dist", "cli.js"), "task", "dispatch",
-      "--workflow", "wf-1", "--jobs", "0,2", "--worker", "w-a", "--gpu", "0", "--confirm", "--json",
-    ], {
-      encoding: "utf8",
-      env: { ...process.env, SIMPLE_EXPERIMENT_API_FILE: path.join(f.root, "api.json") },
-    });
-    const parsed = JSON.parse(stdout);
-    assert.equal(parsed.ok, true);
-    assert.equal(parsed.echo.confirm, true, "the confirm flag must reach the server-side handler");
-    assert.deepEqual(parsed.echo.indices, [0, 2]);
-    assert.equal(parsed.echo.workflowId, "wf-1");
-  } finally {
-    await f.cleanup();
-  }
-});
-
-test("simpleex doctor reports missing discovery and listener", async () => {
-  const missing = path.join(os.tmpdir(), `simple-experiment-doctor-${process.pid}-${Date.now()}.json`);
-  const result = await runCli([path.join(root, "dist", "cli.js"), "doctor", "--json"], {
-    SIMPLE_EXPERIMENT_API_FILE: missing,
-    SIMPLE_SFTP_API_FILE: `${missing}.sftp`,
-  });
-  assert.equal(result.code, 2, result.stderr || "");
-  const parsed = JSON.parse(result.stdout);
-  assert.equal(parsed.ok, false);
-  const experiment = parsed.plugins.find((row) => row.discoveryPath === missing);
-  assert.ok(experiment, "doctor must report the experiment plugin row");
-  assert.equal(experiment.ok, false);
-  assert.equal(experiment.instanceId, null);
-  assert.ok(experiment.checks.some((item) => item.name === "discovery" && !item.ok && /discovery not found/i.test(item.detail)));
-});
-
-test("simpleex doctor passes with live listener", async () => {
-  const f = await startServer({ status: async () => ({ ok: true }) }, { name: "SimpleExperiment" });
-  try {
-    const result = await runCli([path.join(root, "dist", "cli.js"), "doctor", "--json"], {
-      SIMPLE_EXPERIMENT_API_FILE: path.join(f.root, "api.json"),
-      SIMPLE_SFTP_API_FILE: path.join(f.root, "absent-sftp-api.json"),
-    });
-    const parsed = JSON.parse(result.stdout);
-    const experiment = parsed.plugins.find((row) => row.discoveryPath === path.join(f.root, "api.json"));
-    assert.ok(experiment, "doctor must report the experiment plugin row");
-    assert.equal(experiment.ok, true, `live experiment plugin must pass: ${JSON.stringify(experiment)}`);
-    assert.ok(experiment.checks.every((item) => item.ok));
-    assert.equal(experiment.version, "0.3.0-test");
-    // The SFTP plugin is deliberately not running here: doctor must not claim overall success
-    // on a partial handshake, so the aggregate exit stays ENV(2).
-    assert.equal(parsed.ok, false);
-    assert.equal(result.code, 2, result.stderr || "");
   } finally {
     await f.cleanup();
   }
@@ -703,7 +592,7 @@ test("multi-window: per-instance discovery records coexist and workspace routing
   const workspaceB = path.join(dir, "wsB");
   process.env.SIMPLE_EXPERIMENT_API_FILE = discoveryPath;
   try {
-    const client = require("../../dist/cli/LocalApiClient.js");
+    const client = require("../../dist/api/LocalApiClient.js");
     const serverA = new LocalApiServer({
       name: "SimpleExperiment", version: "0.5.409-test", preferredPort: await freePort(),
       discoveryPath, workspace: workspaceA, methods: { status: async () => ({ ok: true }) },
@@ -809,7 +698,7 @@ test("multi-window: per-instance discovery records coexist and workspace routing
 });
 
 test('workspace routing cancellation and total deadline refuse partial uniqueness and retain instance records',async()=>{
-  const client=require('../../dist/cli/LocalApiClient.js'),saved=process.env.SIMPLE_EXPERIMENT_API_FILE;
+  const client=require('../../dist/api/LocalApiClient.js'),saved=process.env.SIMPLE_EXPERIMENT_API_FILE;
   for(const mode of ['deadline','cancel']){
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'simple-instance-budget-')),workspace=path.join(dir,'workspace'),instances=path.join(dir,'instances'),abort=new AbortController(),requests=[],progress=[];
     fs.mkdirSync(instances);process.env.SIMPLE_EXPERIMENT_API_FILE=path.join(dir,'api.json');
@@ -845,7 +734,7 @@ test("instance enumeration retains history and resolves a live window beyond the
   process.env.SIMPLE_EXPERIMENT_API_FILE = discoveryPath;
   let server;
   try {
-    const client = require("../../dist/cli/LocalApiClient.js");
+    const client = require("../../dist/api/LocalApiClient.js");
     const instDir = path.join(dir, "instances");
     fs.mkdirSync(instDir, { recursive: true });
     for (let i = 0; i < 257; i++) {
@@ -881,7 +770,7 @@ test("实例握手预算：候选超过16条整体先拒，绝不部分握手后
   const workspace = path.join(dir, "ws");
   process.env.SIMPLE_EXPERIMENT_API_FILE = discoveryPath;
   try {
-    const client = require("../../dist/cli/LocalApiClient.js");
+    const client = require("../../dist/api/LocalApiClient.js");
     const instDir = path.join(dir, "instances");
     fs.mkdirSync(instDir, { recursive: true });
     for (let i = 0; i < 17; i++) {

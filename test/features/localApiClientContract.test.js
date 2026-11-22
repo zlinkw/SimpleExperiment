@@ -4,7 +4,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { callLocalRpc, validateDiscovery, readLocalDiscovery, requestLocalJson, pluginDiscoveryPath } = require('../../dist/cli/LocalApiClient');
+const { callLocalRpc, validateDiscovery, readLocalDiscovery, requestLocalJson, pluginDiscoveryPath } = require('../../dist/api/LocalApiClient');
 async function fixture(t) {
   const calls = [], state = { contract: { schemaVersion: 1, rpc: 'json-rpc-2.0', methods: ['status'] }, result: { jsonrpc: '2.0', id: 1, result: { ok: true } } };
   const server = http.createServer((req, res) => { calls.push(req.url); assert.equal(req.headers.authorization, 'Bearer fixture');
