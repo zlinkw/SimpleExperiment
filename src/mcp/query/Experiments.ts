@@ -53,7 +53,9 @@ export interface NativeWorkflowSummary {
     recovery_conflict: boolean;
 }
 
+export const localArtifactRecord = Symbol("localArtifactRecord");
 export interface ExperimentRow {
+    [localArtifactRecord]?: Record<string, unknown>;
     id: string;
     type: ExperimentKind;
     name: string;
@@ -696,6 +698,7 @@ function mergeExperimentRow(byId: Map<string, ExperimentRow>, row: ExperimentRow
         return;
     }
     const merged: ExperimentRow = { ...prev };
+    if (row[localArtifactRecord]) merged[localArtifactRecord] = row[localArtifactRecord];
     const incomingRank = sourceRank(row.source);
     const currentRank = sourceRank(prev.source);
     for (const [key, value] of Object.entries(row)) {
@@ -890,6 +893,8 @@ function loadLocalExperiments(): ExperimentRow[] {
                 tmux: firstString(record, ["tmuxSession", "tmux"]),
                 finished_at: firstString(record, ["finished_at", "finishedAt"]),
                 parent_id: firstString(record, ["parent_id", "parentId", "workflowId", "workflow_id"]),
+                ...((record.endpoint === "local" || (!record.endpoint && record.type !== "worker_run" && !firstString(record, ["worker_id", "workerId"])))
+                    ? { [localArtifactRecord]: record } : {}),
                 raw: record,
             }));
         }
@@ -934,6 +939,7 @@ function loadWorkerRunHistory(): ExperimentRow[] {
             updated: firstString(env, ["finishedAt"]) || firstString(manifest, ["generatedAt"]),
             finished_at: firstString(env, ["finishedAt"]),
             tmux: firstString(record, ["tmuxSession", "tmux"]),
+            [localArtifactRecord]: { hub_job_dir: full },
             raw: { ...record, hub_job_dir: full, outputDir: full, stdout: path.join(full, "stdout.log") },
         }));
     }

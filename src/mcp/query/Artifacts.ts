@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { callApi, optionalApi, businessError, emit } from "./Support";
 import { fileExists, projectRoot, readJsonFile } from "./ProjectData";
-import { loadExperiments, pickExperiment, type ExperimentRow } from "./Experiments";
+import { loadExperiments, localArtifactRecord, pickExperiment, type ExperimentRow } from "./Experiments";
 
 export async function artifactList(experimentId: string): Promise<number> {
   emit((await listArtifacts(experimentId)).map(({ local: _local, ...row }) => row));
@@ -87,9 +87,11 @@ async function listArtifacts(experimentId: string, knownExperiments?: Experiment
     return rows;
   }
   const outputDir = experiment?.raw ? String(experiment.raw.hub_job_dir || experiment.raw.outputDir || experiment.raw.runDir || runDirFromLog(experiment.raw.stdout) || "") : "";
+  const localRecord = experiment?.[localArtifactRecord];
+  const localOutputDir = localRecord ? String(localRecord.hub_job_dir || localRecord.outputDir || localRecord.runDir || runDirFromLog(localRecord.stdout) || "") : "";
   const rows: Array<{ id: string; path: string; size: string; local?: string }> = [];
-  if (outputDir && (experiment?.source === "history" || experiment?.raw?.endpoint === "local")) {
-    const abs = localArtifactPath(outputDir);
+  if (localOutputDir) {
+    const abs = localArtifactPath(localOutputDir);
     if (fileExists(abs)) {
       const manifest = readJsonFile<{ files?: Array<{ path?: string; size?: number }> }>(localArtifactPath(path.join(abs, "artifact_manifest.json")), {});
       const files = Array.isArray(manifest.files) && manifest.files.length

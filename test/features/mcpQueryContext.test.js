@@ -121,9 +121,9 @@ test('MCP artifact queries retain paths, identities and failures',async()=>{
  fs.writeFileSync(path.join(root,'output','result.txt'),'result','utf8');
  fs.mkdirSync(path.join(root,'empty'));
  fs.writeFileSync(path.join(root,'simple_cluster','experiment_index.json'),JSON.stringify([
-  {id:'local-run',type:'workflow',outputDir:'output',endpoint:'local'},
-  {id:'worker:1',type:'workflow',outputDir:'output',endpoint:'local'},
-  {id:'worker:2',type:'workflow',outputDir:'empty',endpoint:'local'}
+  {id:'local-run',type:'workflow',outputDir:'output'},
+  {id:'worker:1',type:'workflow',outputDir:'output'},
+  {id:'worker:2',type:'workflow',outputDir:'empty'}
  ]),'utf8');
  const rpc=async method=>{
   if(method==='tasks.list')return {tasks:[{id:'run-a',status:'running',name:'trial'}]};
@@ -149,16 +149,20 @@ test('MCP local artifacts cannot inspect files outside the current project',asyn
  fs.writeFileSync(path.join(outside,'secret.txt'),'synthetic external fixture','utf8');
  fs.writeFileSync(path.join(root,'zero.txt'),'','utf8');fs.mkdirSync(path.join(root,'simple_cluster'));
  fs.mkdirSync(path.join(root,'output'));fs.symlinkSync(outside,path.join(root,'link'),'junction');
- let results=[];const index=rows=>fs.writeFileSync(path.join(root,'simple_cluster','experiment_index.json'),JSON.stringify(rows),'utf8');
- const rpc=async method=>{if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};
+ let results=[],workerTasks=[];const index=rows=>fs.writeFileSync(path.join(root,'simple_cluster','experiment_index.json'),JSON.stringify(rows),'utf8');
+ const rpc=async method=>{if(method==='tasks.list')return {tasks:[],workerTasks};if(method==='operations.list')return {records:[]};
   if(method==='state.get')return {value:{workerTunnels:[]}};if(method==='results.list')return {source:'active_query',summary:{current:true,results}};
   throw Error('unexpected RPC '+method)};
- index([{id:'local:run',type:'workflow',outputDir:'output',endpoint:'local'}]);
+ index([{id:'local:run',type:'workflow',outputDir:'output'}]);
  assert.equal((await queryProject(root,rpc,'artifact_inspect',{id:'zero.txt'})).size,0);
  assert.equal((await queryProject(root,rpc,'artifact_inspect',{id:path.join(root,'zero.txt')})).size,0);
  fs.writeFileSync(path.join(root,'output','empty.txt'),'','utf8');
  fs.writeFileSync(path.join(root,'output','artifact_manifest.json'),JSON.stringify({files:[{path:'empty.txt',size:0}]}),'utf8');
  assert.equal((await queryProject(root,rpc,'artifact_inspect',{id:'local:run:empty.txt'})).size,0);
+ const historyDir=path.join(root,'experiments','runs','local-history');fs.mkdirSync(historyDir,{recursive:true});
+ fs.writeFileSync(path.join(historyDir,'empty.txt'),'','utf8');
+ fs.writeFileSync(path.join(historyDir,'artifact_manifest.json'),JSON.stringify({files:[{path:'empty.txt',size:0}]}),'utf8');
+ assert.equal((await queryProject(root,rpc,'artifact_inspect',{id:'local-history:empty.txt'})).size,0);
  for(const id of [path.join(outside,'secret.txt'),'../outside/secret.txt','link/secret.txt'])
   await assert.rejects(queryProject(root,rpc,'artifact_inspect',{id}),/ARTIFACT_PATH_OUTSIDE_PROJECT/);
  fs.writeFileSync(path.join(root,'output','artifact_manifest.json'),JSON.stringify({files:[{path:'../../outside/secret.txt'}]}),'utf8');
@@ -166,7 +170,7 @@ test('MCP local artifacts cannot inspect files outside the current project',asyn
  fs.writeFileSync(path.join(root,'output','artifact_manifest.json'),JSON.stringify({files:[]}), 'utf8');
  fs.symlinkSync(outside,path.join(root,'output','nested-link'),'junction');
  await assert.rejects(queryProject(root,rpc,'artifact_list',{id:'local:run'}),/ARTIFACT_PATH_OUTSIDE_PROJECT/);
- index([{id:'local:run',type:'workflow',outputDir:'link',endpoint:'local'}]);
+ index([{id:'local:run',type:'workflow',outputDir:'link'}]);
  await assert.rejects(queryProject(root,rpc,'artifact_list',{id:'local:run'}),/ARTIFACT_PATH_OUTSIDE_PROJECT/);
  index([{id:'remote-fact',type:'workflow'}]);
  results=[{workflowId:'remote-fact',sourceFiles:[{path:path.join(outside,'secret.txt'),size:8}]}];
@@ -184,6 +188,10 @@ test('MCP local artifacts cannot inspect files outside the current project',asyn
  results=[{runId:'legacy-run',sourceFiles:[{path:'remote-run/metrics.csv',size:5,endpoint:'worker'}]}];
  const legacy=await queryProject(root,rpc,'artifact_list',{id:'legacy-run'});
  assert.deepEqual(legacy,[{id:'legacy-run:remote-run/metrics.csv',path:'remote-run/metrics.csv',size:'5'}]);
+ workerTasks=[{workerId:'worker',tasks:[{commandId:'history-run',status:'completed',outputDir:'output'}]}];
+ results=[{runId:'history-run',sourceFiles:[{path:'output/empty.txt',size:9,endpoint:'worker'}]}];
+ const history=await queryProject(root,rpc,'artifact_inspect',{id:'history-run:output/empty.txt'});
+ assert.equal(history.size,'9');assert.equal(history.hash,'');assert.equal(history.mtime,'');
 });
 
 test('MCP remote artifacts retain the precise run and reject unverified or foreign files',async()=>{

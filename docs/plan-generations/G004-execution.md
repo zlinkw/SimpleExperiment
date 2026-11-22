@@ -157,3 +157,5 @@ CLI 302项逐条拟动作及每文件当前计划来源、矩阵候选列coverag
 真实CleanupFileApi补无效token、非法类型与跨项目token拒绝，Gateway/Host及内存引擎5/5 exit0；跨项目直接调用引擎，未操作真实Worker或磁盘清理。旧CLI其余usage边界仍待审。
 
 中立客户端SFTP槽位分别遇错误发现名称与错误capabilities均拒绝且零RPC，合成回环3/3 exit0；旧CLI退出码未迁。
+
+产物兼容返修：恢复原索引无endpoint夹具，首15/17 exit1（本地结果空及manifest找不到）；按本地索引、runs目录的内部来源事实保存独立路径，非本地Worker索引/历史不猜节点，修后17/17 exit0，含原索引、零字节、内根/链接、远端同名和历史。未build或访问Worker。
