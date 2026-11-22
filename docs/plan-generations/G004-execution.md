@@ -49,3 +49,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 本段逐项原文及失败详情保留于 Git `7d91ba1b:docs/plan-generations/G004-execution.md`，各项真实原事件、日志及输入见 coverage。formalJobRejectedRecovery 5/5、gpuWorkerSnapshotRecovery 13/13、agentPreparationLifecycle 10/10 均 exit0，使用内存/VM/假端口，无真实 Worker、GPU、Agent、SSH、网络或 UI。branchProjectRegistry 的 sanitizeGitEnv、normalizeGithubTarget、五项 UI、C5-R6、C4 preview/create、C3 假执行器、C4-R3 revalidate 与 C5 未知结果各精确 pattern 1/1 exit0，模拟执行器及账本，无真实 Git、网络、PR 或 UI；其余 pattern 未覆盖。均待总控终审。
 
 登记时字符串替换误处理 $' 造成临时 JSON 错误并 planner exit1，已按 HEAD 恢复再登记；一次只读查询错误 exit1。normalize 的真实反斜杠命令被旧 validator 误拒，补顶层依赖时曾误加 coverage 自身造成 drift，均已修正并保留原事件；历史 mcpTaskDispatch 的 here-string 后换行命令亦遭误拒，未重跑产品。runner 原精确 pattern 在有实际修正后分别 1/1 exit0：escaped-command、native-parser 18.155 秒、parser-numeric 18.299 秒、parser-root 18.250 秒，日志均 TEMP/g004-520-runner-<名称>-20261123.log。native parser 只解析 stdin 不执行，根 EndBlock 限制排除未调用函数。首次批解析 planner OOM exit1，修为按 rollout 分组；数字常量初版误拒后修正。七项旧删锁测试安全函数未改、原来源与未知工具链保留，未重跑删除。当前 planner 缺口以实际重算为准。
+
+- stopRoutingAndResultParseDedup 单文件 12/12、exit0；VM、隔离夹具及假 Worker/SFTP，无真实 Worker、网络、UI 或活动结果，夹具保留。证据见 coverage，待总控终审。
