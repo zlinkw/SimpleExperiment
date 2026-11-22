@@ -24,7 +24,7 @@ test("leaderboard excludes missing, blank and boolean values while retaining zer
 });
 
 test("result export retains null and does not create a numeric raw value for it", async () => {
-  const text = fs.readFileSync(require("node:path").join(__dirname, "../../src/cli/commands/result.ts"), "utf8");
+  const text = fs.readFileSync(require("node:path").join(__dirname, "../../src/mcp/query/Results.ts"), "utf8");
   const tree = ts.createSourceFile("result.ts", text, ts.ScriptTarget.ES2022, true);
   const declaration = tree.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "resultExport");
   const script = ts.transpileModule(`${declaration.getText(tree).replace(/^export /, "")}\nresultExport`,
@@ -33,7 +33,7 @@ test("result export retains null and does not create a numeric raw value for it"
   const match = { id: "r", metrics: { loss: null }, record: { resultId: "r", status: "parsed", suite: "demo",
     dimensions: {}, metrics: { loss: { value: null } } } };
   const resultExport = vm.runInNewContext(script, { loadResults: async () => [match], selectResult: rows => rows[0],
-    buildResultLeaderboard, exportPaperTable: () => "", writeJson: value => { receipt = value; } });
+    buildResultLeaderboard, exportPaperTable: () => "", emit: value => { receipt = value; } });
   assert.equal(await resultExport("r", { json: true }), 0);
   const result = JSON.parse(receipt.content);
   assert.equal(result.metrics.loss, null);
@@ -41,25 +41,25 @@ test("result export retains null and does not create a numeric raw value for it"
   assert.equal(result.rows[0].bestResultId, undefined);
 });
 
-test("CLI metric extraction and comparison retain only actual special keys", async () => {
-  const sourceFile = name => fs.readFileSync(require("node:path").join(__dirname, `../../src/cli/commands/${name}.ts`), "utf8");
+test("MCP metric extraction and comparison retain only actual special keys", async () => {
+  const sourceFile = name => fs.readFileSync(require("node:path").join(__dirname, `../../src/mcp/query/${name}.ts`), "utf8");
   const extract = (name, names) => {
     const tree = ts.createSourceFile(`${name}.ts`, sourceFile(name), ts.ScriptTarget.ES2022, true);
     return names.map(id => tree.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === id).getText(tree).replace(/^export /, "")).join("\n");
   };
   const compile = source => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const numericMetrics = vm.runInNewContext(compile(`${extract("metric", ["numericMetrics", "metricNumber"])}\nnumericMetrics`));
+  const numericMetrics = vm.runInNewContext(compile(`${extract("Metrics", ["numericMetrics"])}\nnumericMetrics`));
   const left = JSON.parse('{"__proto__":0.4,"constructor":2,"accuracy":0.8}');
   const right = JSON.parse('{"__proto__":0.6,"accuracy":0.9}');
   assert.equal(numericMetrics({ metrics: left }).__proto__, 0.4);
   let receipt;
   const rows = [left, right].map((metrics, index) => ({ id: String(index), metrics, record: { metrics: {} } }));
-  const compare = vm.runInNewContext(compile(`${extract("compare", ["compareCommand"])}\ncompareCommand`), {
-    requirePositional: (rest, index) => rest[index], loadResults: async () => rows,
+  const compare = vm.runInNewContext(compile(`${extract("Compare", ["compareResults"])}\ncompareResults`), {
+    loadResults: async () => rows,
     selectResult: (items, id) => items.find(item => item.id === id), numericMetrics,
-    builtInResultPresets: [], LOWER_IS_BETTER: /loss/, writeJson: value => { receipt = value; },
+    builtInResultPresets: [], LOWER_IS_BETTER: /loss/, emit: value => { receipt = value; },
   });
-  assert.equal(await compare(["0", "1"], { json: true }), 0);
+  assert.equal(await compare("0", "1"), 0);
   assert.equal(receipt.metric_difference.__proto__.delta, 0.2);
   assert.equal(Object.hasOwn(receipt.metric_difference, "constructor"), false);
   assert.equal(JSON.parse(JSON.stringify(receipt)).metric_difference.__proto__.delta, 0.2);
