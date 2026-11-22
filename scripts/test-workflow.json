@@ -205,6 +205,7 @@
       {"file":"test/features/resultCsvIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/ui/actionLifecycle.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpLocalApiSafety.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/mcpTransportReceipt.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
@@ -318,6 +319,7 @@
       {"file":"test/features/resultCsvIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/ui/actionLifecycle.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpLocalApiSafety.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/mcpTransportReceipt.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
@@ -410,6 +412,7 @@
       {"file":"test/features/resultCsvIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/ui/actionLifecycle.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpLocalApiSafety.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/mcpTransportReceipt.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
@@ -760,6 +763,7 @@
       {"file":"test/features/resultCsvIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/ui/actionLifecycle.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpLocalApiSafety.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/mcpTransportReceipt.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {

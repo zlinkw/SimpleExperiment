@@ -55,26 +55,26 @@
       {
         "source": "test/features/localApiClientContract.test.js:18",
         "name": "reads live capabilities before each RPC, rejecting unavailable methods and malformed receipts",
-        "status": "pending_review",
-        "boundary": "顶层依赖旧客户端；当前中立客户端已有部分证据，须逐断言核。"
+        "status": "neutral_consumer_covered_original_preserved",
+        "boundary": "原四项测试函数与假HTTP夹具不减断言迁至test/features/mcpLocalApiSafety.test.js，真实中立客户端4/4 exit0；原整文件及第五项真实SimpleSFTP门禁保留未运行。"
       },
       {
         "source": "test/features/localApiClientContract.test.js:25",
         "name": "changed discovery or mismatched capability version cannot POST",
-        "status": "pending_review",
-        "boundary": "顶层依赖旧客户端；当前中立客户端已有部分证据，须逐断言核。"
+        "status": "neutral_consumer_covered_original_preserved",
+        "boundary": "原四项测试函数与假HTTP夹具不减断言迁至test/features/mcpLocalApiSafety.test.js，真实中立客户端4/4 exit0；原整文件及第五项真实SimpleSFTP门禁保留未运行。"
       },
       {
         "source": "test/features/localApiClientContract.test.js:31",
         "name": "legacy Windows workflow routes remain usable without a Mac-specific option field",
-        "status": "pending_review",
-        "boundary": "顶层依赖旧客户端；需核现行Host工作流。"
+        "status": "neutral_consumer_covered_original_preserved",
+        "boundary": "原四项测试函数与假HTTP夹具不减断言迁至test/features/mcpLocalApiSafety.test.js，真实中立客户端4/4 exit0；原整文件及第五项真实SimpleSFTP门禁保留未运行。"
       },
       {
         "source": "test/features/localApiClientContract.test.js:37",
         "name": "loopback/UTF-8/size gates reject external or stopped listeners without leaking secrets",
-        "status": "pending_review",
-        "boundary": "顶层依赖旧客户端；全部输入及敏感值保护须保留。"
+        "status": "neutral_consumer_covered_original_preserved",
+        "boundary": "原四项测试函数与假HTTP夹具不减断言迁至test/features/mcpLocalApiSafety.test.js，真实中立客户端4/4 exit0；原整文件及第五项真实SimpleSFTP门禁保留未运行。"
       },
       {
         "source": "test/features/localApiClientContract.test.js:50",

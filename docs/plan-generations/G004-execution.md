@@ -163,3 +163,5 @@ SFTP实际Gateway/McpHost核精确Worker、清单/目录、内存指标与跨Wor
 MCP实验列表、筛选及终态别名保留旧业务断言，实际queryProject 13/13 exit0；假RPC无Worker。
 
 MCP当前结果身份重排不变、歧义拒绝及诊断日志排除，queryProject 15/15 exit0；CLI history/文件写出差异待审。
+
+旧客户端四项合成契约原断言迁中立API 4/4；原整文件及真实SimpleSFTP门禁保留未测。
