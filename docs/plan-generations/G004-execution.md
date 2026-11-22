@@ -78,7 +78,7 @@ MCP终态身份10/10、结果精确身份及导出1/1、日志与配置1/1、合
 
 518共享连接保存队列失败后可重试且保留旧迁移值；内存测试0/1 exit1→1/1 exit0，TEMP日志 `g004-518-shared-retry-before-ff08.log`、`g004-518-shared-retry-after-ff08.log`。嵌套PowerShell变量展开曾导致解析错误exit1，未启动测试；未改真实连接。原文见Git `48062264:docs/plan-generations/G004-execution.md`。
 
-0.5.518最终交付：源码/tag `20ae86ed32f0baa9106645decb60cf9a299f3518` 已FF同步，[试行Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.518)及隔离下载同SHA `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`，2987002字节。客户端确认Latest483、518/SFTP120不降级；安装一次exit0含DEP0169，磁盘518/SFTP120。第二次package 341/341、13门禁、并发1、锁释放，receipt `simple_cluster/reports/test-workflow/2026-11-22T03-36-44-479Z-33768-package/run.json`；Panel和生成脚本VM、内容策略通过。原运行闭包核验丢输出和退出码未知，总控批准实际ZIP等价325闭包/324面板/371同源检查exit0，不覆盖原未知。首次package失败及补验见下，完整交付见Git `1242c55c:docs/plan-generations/G004-execution.md`。
+0.5.518最终交付：源码/tag `20ae86ed32f0baa9106645decb60cf9a299f3518`，试行Release及下载同SHA `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`；Latest483，518/SFTP120不降级，安装一次exit0含DEP0169。第二次package 341/341、13门禁、并发1、锁释放；原闭包核验输出及退出码未知，总控批准实际ZIP等价325闭包/324面板/371同源检查exit0，不覆盖原未知。完整收据、包身份及失败见Git `1242c55c:docs/plan-generations/G004-execution.md`。
 
 518 精确 `git add` exit1 提示 dist 被忽略；回读状态确认指定13个已跟踪生成文件及8个非生成文件均实际暂存，未强制添加或触碰未跟踪项。
 
@@ -132,7 +132,7 @@ MCP普通结果契约迁至中立实现，8/8 exit0（e1771b），加入交付pr
 
 MCP排行补全列/零值，12/12（024418）；CLI终端断言待裁决。
 
-旧CLI静态测试302项精确位置和同名MCP候选索引写入coverage.g004CliRetirementIndex；同名不代表断言等价；已审86项业务映射、72项逐字重复及12项纯help候选；5项CLI别名/compact/离线历史及4项重复、其余待裁决，不批准退役。首次路径检查转义错误，改按冒号拆分后302/302存在。
+旧CLI静态测试302项精确位置和同名MCP候选索引写入coverage.g004CliRetirementIndex；同名不代表断言等价；已审86项业务映射、72项逐字重复及12项纯help候选；草稿3项部分映射，5项CLI别名/compact/离线历史及4项重复、其余待裁决，不批准退役。首次路径检查转义错误，改按冒号拆分后302/302存在。
 
 健康默认/full视图6/6（f58801）；CLI退出码待裁决。
 
@@ -141,3 +141,5 @@ MCP观察精确窗口、配置下载及终态排除3/3 exit0（b43a82），合�
 MCP查询身份补充活跃项非空及候选上界，4/4 exit0（9ccf3f）；旧CLI进程退出与错误外壳待裁决。
 
 原生生命周期补当前Host查询、未知及完成证据4/4 exit0（aaec9a）；重复用例匹配预期6但实际5，首次脚本exit1未写，按实际5项更新。
+
+草稿现有MCP网关对假Host读、验证、预览和授权review/reject 2/2 exit0；旧force、清理及CLI退出语义差异见coverage，未新造工具或真实操作。
