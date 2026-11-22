@@ -87,3 +87,8 @@ J01仍未修：旧专用Host56788 registry报告missing GIT_CONFIG_VALUE_0；COU
 全部成功后install:latest显式一次，同版跳过、不force/降级，每目标版至多一次；核磁盘/稳定CLI后停止面板，待本人Reload再验新Host。源码/生成包/远端发行/本机安装/实际重载与真实外部未测分别报告；任何失败停对应交付且保留完整真实证据。
 
 本轮集中交付裁决（持久化）：重新核必要反向引用与抽取/VM夹具闭包，已有源码测试有效不机械重跑；确需修旧fixture则保留原断言/日志，仅补真实受影响项。先核未用patch/tag再同步package/lock/runtime并write-agent-runtime稳定输入，dry-run读取当前矩阵/按需与保护恢复；既有runner因运行版本/共享源码变化要求完整同输入passed矩阵时，批准本候选首次package一次，max-parallel1/cancel-stdin，不先独立build。真实失败收完整结算，定向返修；如runner拒绝组合，交具体差距，不自动第二轮或伪receipt。通过后按下述项目原交付规则连续完成，无需再等普通放行：新dist真实消费者/Panel模块及生成scripts VM、10890零命中；实际VSIX身份/平台/README/内容策略/秘密排除/完整运行闭包和同源字节核验，直接沿518已批准实际ZIP等价方法覆盖本轮新增模块及当前完整入口（不硬设325/371旧数量，不重跑已无证据输出的vsce ls）。FFpush/fetch、tag绑定、既有GitHub同字节试行发行及真实远端/下载/更新客户端后一次安装；停止UI待本人Reload。源码通过不等构建/交付通过，新版Host实机仍待重载；原real Worker/4跨项目/89入口限制不变。plan/README精确审核dirty可随下一适用scoped提交，总控此后冻结输入。
+### 519当前发行及客户端补验裁决
+
+运行源码/版本/generated6932321534f3b0c2df3b1983bfede2f88f7b868f已FF同步，v0.5.519真实tag精确绑定；519试行已发布draft=false/prerelease=true，普通Latest483。唯一package回执2026-11-22T06-35-19-310Z-69208-package/run.json为341/341和13 gates exit0、input=end=02a04b0a…f5560f、树confirmed、并发1/锁释放；新dist及3生成scripts VM、实际326闭包/325panel/373同源和376文件内容策略有效，不硬设数量。VSIX2988831字节，SHA256 525e235fe7e380bf3684edf5b8bfd3dd7620badefd964dcdcd671b14c0216b33，真实资产digest/隔离下载/sha一致，尚未安装。
+
+临时g004-519-client-ff08.cjs首次exit1：前四项482见483可升级/519不降级已过，误断言SFTP latest=120，实际118。总控直接核脚本/发行政策/真实两仓Latest和tag：SimpleSFTP权威118，120为已有prerelease且VSIX/sha资产真实存在；是临时断言错误，非产品缺陷。准仅修断言118并明确installed120的updateAvailable=false，保留首失败/真实日志，补一次真实客户端核验及120资产可取得证据；不改产品/权威/包、不重跑package。通过后续原授权install:latest恰一次（519尚未装），磁盘/CLI核对后停UI待本人Reload；失败再按真实事实裁决。plan/README获准精确diff可最终文档提交，检查期间总控冻结输入。
