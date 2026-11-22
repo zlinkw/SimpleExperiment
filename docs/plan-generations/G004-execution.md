@@ -91,3 +91,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 完成任务异源分类合成回归 7/7，exit 0；历史矩阵仅作内存夹具，传输回调为替身、临时目录保留，未访问 Worker 或执行传输、清理、Python receiver。事件与输入快照见 coverage，待总控终审。
 
 - 产物槽位身份合成回归 5/5，exit 0；内存清单和传输替身，临时目录保留，无真实 Worker、传输、清理或 Python receiver。事件与输入快照见 coverage，待总控终审。
+
+- Plan 提交可见预检合成回归 25/25，exit 0；Host 与面板脚本 VM、队列/同步/确认替身，无真实 UI、Worker、提交或清理。事件与输入快照见 coverage，待总控终审。
