@@ -136,7 +136,7 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   fs.writeFileSync(path.join(ws, directJob.file), "direct fixture\n");
   const rollout = path.join(ws, "rollout.jsonl"), callId = "fixture-call";
   const callLine = JSON.stringify({ payload: { type: "custom_tool_call", call_id: callId, input: "node --test test/direct.js" } });
-  const outputLine = JSON.stringify({ payload: { type: "custom_tool_call_output", call_id: callId, output: [{ text: JSON.stringify({ exit_code: 0, output: "ℹ tests 1\nℹ pass 1\nℹ fail 0" }) }] } });
+  const outputLine = JSON.stringify({ payload: { type: "custom_tool_call_output", call_id: callId, output: [{ text: JSON.stringify({ exit_code: 0, output: "ℹ tests 1\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0" }) }] } });
   fs.writeFileSync(rollout, callLine + "\n" + outputLine + "\n");
   const digest = value => crypto.createHash("sha256").update(value).digest("hex");
   const directEvidence = { ...directJob, eligible: true, cwd: ws, treeStatus: "settled_by_direct_execution", rollout, callId, exactCommandLine: "node --test test/direct.js", commandEventSha256: digest(callLine), outputEventSha256: digest(outputLine), review: { decision: "reviewed", scope: "dependency_scoped", reviewedArgv: directJob.argv, dependencies: [directJob.file], snapshotSha256: { [directJob.file]: sha(path.join(ws, directJob.file)) }, externalInputs: [] } };
@@ -189,7 +189,7 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   const wrongDirect = { ...directEvidence, rollout: wrongRollout, exactCommandLine: "node --test --unexpected test/direct.js", commandEventSha256: digest(wrongCall) };
   fs.writeFileSync(wrongArgvPath, JSON.stringify({ g004IncrementalCoverage: { ...coverage, currentTargetedEvidence: [wrongDirect] } }));
   assert.throws(() => runner.verifyG004Aggregate({ ...state, g004CoveragePath: wrongArgvPath, g004CoverageSha256: sha(wrongArgvPath) }), /direct argv mismatch/);
-  for (const incomplete of [{ exit_code: 0, session_id: 123, output: "ℹ pass 1\nℹ fail 0" }, { exit_code: 0, output: "Warning: truncated output\nℹ pass 1\nℹ fail 0" }, { exit_code: 0, output: "ℹ pass 0\nℹ fail 0" }, { exit_code: 0, output: "partial output" }]) {
+  for (const incomplete of [{ exit_code: 0, session_id: 123, output: "ℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0" }, { exit_code: 0, output: "Warning: truncated output\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0" }, { exit_code: 0, output: "ℹ pass 0\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0" }, { exit_code: 0, output: "ℹ pass 1\nℹ fail 0\nℹ cancelled 1\nℹ skipped 0\nℹ todo 0" }, { exit_code: 0, output: "ℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 1\nℹ todo 0" }, { exit_code: 0, output: "partial output" }]) {
     const incompleteLine = JSON.stringify({ payload: { type: "custom_tool_call_output", call_id: callId, output: [{ text: JSON.stringify(incomplete) }] } });
     const incompleteRollout = path.join(ws, "incomplete-rollout.jsonl");
     fs.writeFileSync(incompleteRollout, callLine + "\n" + incompleteLine + "\n");
