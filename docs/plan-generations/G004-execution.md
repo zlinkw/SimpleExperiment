@@ -20,7 +20,7 @@ R519 C1 API本地路由47/47；原日志见Git `59041060:docs/plan-generations/G
 
 R519 C2作用域修正见Git `3f4a165c:docs/plan-generations/G004-execution.md`。
 
-R519 C3异步Git命令4/4；首3/4因测试误判exit1，原日志见Git `52dd844c:docs/plan-generations/G004-execution.md`。
+R519 C3首测失败与补验见Git `404aa6cf:docs/plan-generations/G004-execution.md`。
 
 R519 C4旧CLI参数曾在进入shim前被解释管道，exit255；对照exit0，TEMP夹具 `g004-c4-cmd-fixture-1a624cb400094bdca5c67bf46b5f57c9`。用户现退役业务CLI，不更改结果ID。
 
@@ -223,3 +223,5 @@ MCP Agent观察入口拒绝调用者token及未知字段，假Host仅收到固�
 外部6项同步状态分类，旧测试未退役。
 
 旧入口源码、脚本、模板、清单及测试反向引用核对见coverage；未删目标。登记两次超阈值断言未写。
+
+产物补测：合成远端绝对路径作为元数据保留，不读项目外文件；查询17/17 exit0。

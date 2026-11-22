@@ -149,9 +149,9 @@ test('MCP local artifacts cannot inspect files outside the current project',asyn
  fs.writeFileSync(path.join(outside,'secret.txt'),'synthetic external fixture','utf8');
  fs.writeFileSync(path.join(root,'zero.txt'),'','utf8');fs.mkdirSync(path.join(root,'simple_cluster'));
  fs.mkdirSync(path.join(root,'output'));fs.symlinkSync(outside,path.join(root,'link'),'junction');
- const index=rows=>fs.writeFileSync(path.join(root,'simple_cluster','experiment_index.json'),JSON.stringify(rows),'utf8');
+ let results=[];const index=rows=>fs.writeFileSync(path.join(root,'simple_cluster','experiment_index.json'),JSON.stringify(rows),'utf8');
  const rpc=async method=>{if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};
-  if(method==='state.get')return {value:{workerTunnels:[]}};if(method==='results.list')return {source:'active_query',summary:{current:true,results:[]}};
+  if(method==='state.get')return {value:{workerTunnels:[]}};if(method==='results.list')return {source:'active_query',summary:{current:true,results}};
   throw Error('unexpected RPC '+method)};
  index([{id:'local:run',type:'workflow',outputDir:'output'}]);
  assert.equal((await queryProject(root,rpc,'artifact_inspect',{id:'zero.txt'})).size,0);
@@ -168,6 +168,10 @@ test('MCP local artifacts cannot inspect files outside the current project',asyn
  await assert.rejects(queryProject(root,rpc,'artifact_list',{id:'local:run'}),/ARTIFACT_PATH_OUTSIDE_PROJECT/);
  index([{id:'local:run',type:'workflow',outputDir:'link'}]);
  await assert.rejects(queryProject(root,rpc,'artifact_list',{id:'local:run'}),/ARTIFACT_PATH_OUTSIDE_PROJECT/);
+ index([{id:'remote-fact',type:'workflow'}]);
+ results=[{workflowId:'remote-fact',sourceFiles:[{path:path.join(outside,'secret.txt'),size:8}]}];
+ const remote=await queryProject(root,rpc,'artifact_inspect',{id:'remote-fact:'+path.join(outside,'secret.txt')});
+ assert.equal(remote.size,'8');assert.equal(remote.hash,'');assert.equal(remote.mtime,'');
 });
 
 test('MCP remote artifacts retain the precise run and reject unverified or foreign files',async()=>{
