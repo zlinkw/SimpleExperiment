@@ -8,7 +8,7 @@ try{Module._load=function(id,...args){return id==='vscode'?vscode:original.call(
 function fixture({failureMethod}={}){
  const workers=[{id:'w1',host:'host1',port:22,user:'user',remotePath:'/project/one'},{id:'w2',host:'host2',port:22,user:'user',remotePath:'/project/two'}],calls=[];
  const grant=createProjectAuthorization(root);grant.workers=workers.map(({id,host,port,user,remotePath})=>({id,host,port,user,projectRoot:remotePath}));
- const methods=['sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.observeBatch'];
+ const methods=['sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.observeBatch','target.update'];
  const host={context:{workspaceState:{get:()=>grant}},refreshSharedConnectionSettings(){},workerCodeSyncTargets:()=>workers,createLocalApiMethods:()=>({}),
   readSimpleSftpCapabilities:async()=>({methods}),sftpServerOptions:row=>({...row}),simpleSftpApiCall:async(method,params)=>{calls.push({method,params});if(method===failureMethod)throw Error('远端项目清单无效。');return method==='transfers.reconcile'?{status:'notFound',settled:false}:method==='transfers.cancel'?{status:'cancelling'}:{ok:true}}};
  return {gateway:mcpGateway(host),calls,grant,workers};
@@ -61,6 +61,20 @@ test('MCP SFTP preserves backend inventory refusal',async()=>{
  const f=fixture({failureMethod:'sync.projectInventory'});
  await assert.rejects(f.gateway.call('sftp_inventory',{workerId:'w1'}),/远端项目清单无效/);
  assert.deepEqual(f.calls.map(row=>row.method),['sync.projectInventory']);
+});
+
+test('MCP target update requires human approval before forwarding a scoped patch',async()=>{
+ const f=fixture(),old=vscode.window.showWarningMessage;let answer;
+ vscode.window.showWarningMessage=async()=>answer;
+ try{
+  await assert.rejects(f.gateway.call('sftp_target_update',{patch:{host:'gpu1'}}),/USER_APPROVAL_REQUIRED/);
+  assert.equal(f.calls.length,0);
+  answer='确认执行';await f.gateway.call('sftp_target_update',{patch:{host:'gpu1'}});
+  assert.equal(f.calls[0].method,'target.update');assert.deepEqual(f.calls[0].params.patch,{host:'gpu1'});
+  assert.equal(f.calls[0].params.localPath,root);assert.equal(f.calls[0].params.confirm,true);assert.equal(f.calls[0].params.pathConfirmed,true);
+  await assert.rejects(f.gateway.call('sftp_target_update',{patch:{unknown:'x'}}),/Unknown/);
+  assert.equal(f.calls.length,1);
+ }finally{vscode.window.showWarningMessage=old}
 });
 
 test('MCP SFTP transfers preserve both targets and project authorization',async()=>{
