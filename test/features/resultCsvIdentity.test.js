@@ -131,13 +131,13 @@ test("automatic selection reaches wide, long and JSON through parser and factory
 
 test("local result command selects from actual contents and rejects unknown explicit presets", () => {
   const vm = require("node:vm"), path = require("node:path");
-  const text = fs.readFileSync(path.join(__dirname, "../../src/cli/commands/result.ts"), "utf8");
+  const text = fs.readFileSync(path.join(__dirname, "../../src/mcp/query/ResultParse.ts"), "utf8");
   const ast = ts.createSourceFile("result.ts", text, ts.ScriptTarget.ES2022, true);
   const node = ast.statements.find(item => ts.isFunctionDeclaration(item) && item.name?.text === "resultParse");
   let input = "run_key,AP,AUPRC\nr,0,0.2\n", output;
   const context = { fs: { existsSync: () => true, readFileSync: () => input }, path,
     builtInResultPresets: Results.builtInResultPresets, selectResultPreset: Results.selectResultPreset,
-    parseResultFile: Results.parseResultFile, usageError: msg => Error(msg), businessError: msg => Error(msg), writeJson: rows => { output = rows; } };
+    parseResultFile: Results.parseResultFile, usageError: msg => Error(msg), businessError: msg => Error(msg), emit: rows => { output = rows; } };
   const run = vm.runInNewContext(ts.transpileModule(node.getText(ast).replace(/^export /, "") + "\nresultParse", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
   assert.equal(run({ file: "results.csv" }), 0);
   assert.equal(output[0].metrics.AP.value, 0);

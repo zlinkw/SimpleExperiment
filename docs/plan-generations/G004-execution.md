@@ -104,7 +104,7 @@ U04逐项证据见Git f72d0066及coverage：43项中单项目39、跨项目02/05
 最终逻辑母集300：界面279（限定204、延期75），独立命令21（限定7、延期14）；限定211、延期89。合成GPU/TMUX/端点和资源导航证据及探针首语法失败见Git fd58a7c7同文件与coverage；真实Worker、剪贴板、网络未测。
 
 B1/B2/B3 39项分组修复、各项受控结果和首失败详见 Git `c37827c8:docs/plan-generations/G004-execution.md`，不将受控结果扩称真实Worker通过；U04-30特殊键、日志导航首12/13及后13/13证据见 `eab27339` 同路径。4跨项目与89入口未开放。
-0.5.517历史原材见 Git `871ea78e:docs/plan-generations/G004-execution.md` 及89498eff：首package 337/341 exit1、stdin关闭取消失败，修夹具后341/341及13门禁通过；生成脚本首转义错误和日志导航首12/13均保留。试行Release绑定a7d2a727、VSIX SHA256 2fa2ecb3e0d890d47653ee8b7f5ffe29317c22d692659ae4cd8d34336a6989e5，安装一次exit0；Latest仍483。旧时未重载以随后518实机记录为准。
+0.5.517原材见Git 871ea78e及89498eff同文件：首package 337/341 exit1、stdin关闭取消失败，修夹具后341/341及13门禁通过；生成脚本首转义错误、导航12/13保留。试行版a7d2a727，安装一次exit0，Latest仍483；重载以随后518为准。
 
 T7收包策略：排除旧业务CLI及依赖它的旧MCP启动器，要求独立MCP启动器、resolver、服务及客户端；packageContentPolicy 12/12、mcpEntry 3/3均exit0，尚未实际打包。
 
@@ -125,3 +125,5 @@ MCP普通结果契约8项已切换中立实现，保留资源拒绝、零值、�
 新MCP Worker生命周期迁测去除遗留CLI测试依赖，4/4 exit0（4864b3）。中立客户端错误身份检查亦脱离CLI，首0/1 exit1（7ff115：普通校验错误误认CliError），按真实契约修正后1/1 exit0（2491a4）。
 
 缺失指标、null导出及特殊键比较改核MCP实现，3/3 exit0（2c5e04），已列四交付profile。
+
+结果CSV身份与宽长格式/显式预设断言切换至MCP解析，8/8 exit0（368f81），纳入四交付profile。

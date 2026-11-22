@@ -194,6 +194,7 @@
       {"file":"test/features/mcpOrdinaryResultContracts.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/planMatrixEmptyValues.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/resultMissingMetric.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/resultCsvIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
@@ -296,6 +297,7 @@
       {"file":"test/features/mcpOrdinaryResultContracts.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/planMatrixEmptyValues.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/resultMissingMetric.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/resultCsvIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
@@ -377,6 +379,7 @@
       {"file":"test/features/mcpOrdinaryResultContracts.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/planMatrixEmptyValues.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/resultMissingMetric.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/resultCsvIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
@@ -716,6 +719,7 @@
       {"file":"test/features/mcpOrdinaryResultContracts.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/planMatrixEmptyValues.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/resultMissingMetric.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/resultCsvIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
