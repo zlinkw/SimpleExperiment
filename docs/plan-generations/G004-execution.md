@@ -158,3 +158,5 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 首轮diff --check发现候选evidenceTooling末尾多余空行exit2，已去除，未改断言。
 
 获批迁移Windows工作流消费者，原文件4/4 exit0；localApi及formalJob候选已应用、语法通过，分别待新build后的dist/api客户端与受限Python夹具验证，暂不提交或声称通过。
+
+获批两旧CLI helper保留路径并退役、sourceReader移旧门面别名；额外发现无人调用的SFTP transfer helper仍引用退役helper，改为直接读取Node内置模块以保持其自身可用，四文件语法通过。两个中立客户端导入候选已应用但新dist缺失，待build后运行原消费者，暂不提交。

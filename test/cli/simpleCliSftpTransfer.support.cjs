@@ -5,7 +5,7 @@
 // (requireApiConfirmation builds requires dynamically; serverToServer*/fpsync use fixed pairs;
 // deleteOnly/scope receipts follow the real return shapes). No real transfers ever run here.
 // FIXTURE POLICY: zero cleanup. Every fixture lives under a unique retained run directory.
-const { fs, http, os, path } = require("./simpleCli.support.cjs");
+const fs = require("node:fs"), http = require("node:http"), os = require("node:os"), path = require("node:path");
 
 const TOKEN = "transfer-batch-token";
 const PID = 4321;

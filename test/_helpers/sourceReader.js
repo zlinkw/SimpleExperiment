@@ -18,7 +18,6 @@ const ROOT = path.join(__dirname, "../..");
 /** 门面路径 → 实际实现路径（相对仓库根，正斜杠） */
 const IMPLEMENTATION_OF = {
   "src/api/LocalApiServer.ts": "src/api/LocalApiServer.legacy.ts",
-  "src/cli.ts": "src/cli.legacy.ts",
   "src/clusterAgentRuntime.ts": "src/clusterAgentRuntime.legacy.ts",
   "src/clusterSchedulerRuntime.ts": "src/clusterSchedulerRuntime.legacy.ts",
   "src/core/HostOperationLease.ts": "src/core/HostOperationLease.legacy.ts",
