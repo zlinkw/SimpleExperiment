@@ -35,3 +35,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 登记过程真实非测试失败保留于 `afb3ec5c`：Python 只读查询误取 zlib 内建路径、JSON 登记标记空格/数组格式、sourceJob 与 eligible 缺字段的脚本错误、隐私登记误选未完成 call、tmux 历史复用因 package 版本变化而停写；均未覆盖有效记录。原 compile exit2、B1 失败/20秒 timeout、policy 拒绝、runner oracle 首失败和其余失败详见前文及 Git，不被后续通过抹除。
 
 当前 361 active、6 onDemand；增量计划仍有未审缺口，具体计数以当前 planner 为准。manualTmuxAdmission 会访问实际 WSL/tmux，planIsolatedReviewBoundaries/Lifecycle 涉及未授权 rename，不运行；其它 Python 子进程先核实际调用与精确授权。最终版本和 runner 稳定后，规划测试原精确 pattern 按原 20 秒一次补验，final dry-run 与完整包交总控审核；总控开放前不得 full package/安装/发行。保护 26 个已生成 dirty dist、历史 VSIX sha、全部夹具与现场，禁止操作真实 Worker/服务器/SSH/tmux/GPU/用户授权配置；真实 UI、active results、跨项目和远端功能仍未测。
+
+- 520 后 pairedUpdateTransaction 原文件 8/8、exit0（`%TEMP%/g004-520-paired-update-transaction-20261123.log`，先查不存在）；内存日志及假下载安装/重载，无真实安装、网络或用户状态修改。执行前漏查 job 33 已有有效历史候选，造成不必要重复；保留新日志与事件但不选作覆盖，原历史证据不变。
