@@ -63,3 +63,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 metricAliasRebuildWorkflow 6/6 exit0：假 Worker/SFTP 与合成指标，Python AST 提取；自建项目实际写入 CSV、Markdown 和原子状态并保留，无真实结果、训练、网络或删除。证据见 coverage，待总控终审。
 
 multiFormatOutputContract 1/1 exit0：Python 抽取计划和结果函数，自建合成项目、结果及脚本保留；无完整 runtime、真实 Worker/科研结果、网络、训练或删除。证据见 coverage，待总控终审。
+
+freshResultRuntime 1/1 exit0：Python 抽取收集函数，实际读写自建合成指标与清单，仅 stat 合成权重，夹具保留；无完整 runtime、真实 Worker/结果、网络或删除。证据见 coverage，待总控终审。
