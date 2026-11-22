@@ -49,3 +49,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 2026-11-23：formalJobRejectedRecovery 单文件 5/5、exit 0；内存队列、渲染字符串、VM 和模拟确认/Worker/SFTP/派发，无真实界面、Worker、GPU、网络或作业。证据见 coverage，待总控终审。
 
 - 2026-11-23：gpuWorkerSnapshotRecovery 单文件 13/13、exit 0；内存客户端、模拟 GPU、fetch 和 SSE 流，无真实 GPU、Worker 或网络。证据见 coverage，待总控终审。
+
+- 2026-11-23：agentPreparationLifecycle 单文件 10/10、exit 0；VM 和模拟 VS Code/SFTP、生命周期、fetch、SSH 别名，仅本地读 runtime 字节；无真实 Agent/Worker、SSH、tmux、上传或网络，不证明真实生命周期。证据见 coverage，待总控终审。
