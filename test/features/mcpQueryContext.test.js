@@ -14,6 +14,8 @@ test('concurrent MCP project queries keep RPC and structured output isolated',as
   if(method==='gpu.list')return {};if(method==='server.testAll')return {rows:[]};throw Error('unexpected '+method)};
  const [a,b]=await Promise.all([queryProject('C:/one',make('one'),'server_list',{}),queryProject('C:/two',make('two'),'server_list',{})]);
  assert.equal(a[0].id,'one');assert.equal(b[0].id,'two');assert.equal(calls.length,6);assert.equal(process.cwd(),cwd);
+ let old;const {serverCommand}=require('../../src/cli/commands/server.ts');
+ await neutral.businessContext.run({root:'C:/one',rpc:make('one'),emit:value=>{old=value}},()=>serverCommand('list',[],{json:true}));assert.deepEqual(a,old);
  assert.equal(neutral.businessContext.getStore(),undefined);
 });
 
