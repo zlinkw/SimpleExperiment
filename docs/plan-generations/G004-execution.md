@@ -71,3 +71,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 2026-11-23：prequeueRecallLifecycle 单文件 9/9、exit 0；VM、内存队列、模拟 Worker 回调及渲染字符串，未连接真实 Worker、网络或界面。证据及输入闭包见 coverage；待总控终审。
 
 - 2026-11-23：planRunReplacement 单文件 17/17、exit 0；内存集合、模拟 SFTP 和 VM 弹窗，无真实删除、重命名、网络、Worker 或界面；不证明实际删除安全。证据及输入闭包见 coverage；待总控终审。
+
+- 2026-11-23：workerFpsyncTaskLabel 单文件 3/3、exit 0；VM 与模拟 SFTP 回调使用 5001 个合成名称，未进行真实传输或连接 Worker。证据及输入闭包见 coverage；待总控终审。
