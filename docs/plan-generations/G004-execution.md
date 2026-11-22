@@ -61,3 +61,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 resultMissingMetric 原文件 3/3、exit0（`%TEMP%/g004-520-result-missing-metric-20261123.log`，先查不存在）；合成结果、VM 查询与假读写端口，无真实结果或文件写入，待总控审定。
 
 - 520 后 resultCsvIdentity 原文件 8/8、exit0（`%TEMP%/g004-520-result-csv-identity-20261123.log`，先查不存在）；合成 CSV/JSON 与 VM 假文件系统，无真实结果或写入，待总控审定。
+
+- 520 后 mcpPreflightContract 原文件 2/2、exit0（`%TEMP%/g004-520-mcp-preflight-contract-20261123.log`，先查不存在）；VM 假授权和 Worker 回调，无真实授权、Worker、预检或取消，待总控审定。
