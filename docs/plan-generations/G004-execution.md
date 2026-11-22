@@ -47,3 +47,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 gpuSubmittedJobOwnership 原文件 8/8、exit0（`%TEMP%/g004-520-gpu-job-ownership-20261123.log`，先查不存在）；合成进程与 GPU 快照、宿主和面板 VM，无真实进程、GPU、Worker 或 UI，待总控审定。
 
 - 520 后 autoFallbackWideReadGuard 原文件 6/6、exit0（`%TEMP%/g004-520-auto-fallback-wide-read-20261123.log`，先查不存在）；合成队列、VM 宿主与假请求端口，无网络或真实 Worker、tmux、结果，待总控审定。
+
+- 520 后 workerPreparationPipeline 原文件 8/8、exit0（`%TEMP%/g004-520-worker-preparation-pipeline-20261123.log`，先查不存在）；VM 与假发现、授权、请求、清理和 Worker 端口，无真实网络、凭据、Worker、传输或删除，待总控审定。
