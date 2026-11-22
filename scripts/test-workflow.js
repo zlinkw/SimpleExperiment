@@ -982,6 +982,25 @@ function verifyG004ExternalInputs(review, file) {
   for (const input of review.externalInputs) if (!path.isAbsolute(input.path) || sha256Fresh(input.path) !== input.sha256) throw new Error("G004 external input drift: " + input.path);
 }
 
+function g004CompiledInput(root, rel) {
+  if (typeof rel !== "string" || !rel.startsWith("dist/") || rel.includes("\\") || rel.split("/").some(part => !part || part === "." || part === "..")) throw new Error("G004 invalid compiled input: " + rel);
+  const abs = path.resolve(root, rel), within = path.relative(path.join(root, "dist"), abs);
+  if (!within || within.startsWith(".." + path.sep) || path.isAbsolute(within)) throw new Error("G004 compiled input outside dist: " + rel);
+  return abs;
+}
+
+function verifyG004CompiledInputs(root, plan, coverage, inherited) {
+  const key = j => JSON.stringify([j.identity, j.argv]), accepted = new Set(inherited.map(key));
+  const reviewed = new Map(coverage.jobs.map(j => [key(j), j]));
+  for (const job of plan.jobs.filter(j => !accepted.has(key(j)))) {
+    for (const rel of reviewed.get(key(job)).executionReview.compiledInputs) {
+      const abs = g004CompiledInput(root, rel);
+      const within = path.relative(fs.realpathSync(path.join(root, "dist")), fs.realpathSync(abs));
+      if (!within || within.startsWith(".." + path.sep) || path.isAbsolute(within) || fs.lstatSync(abs).isSymbolicLink() || !fs.statSync(abs).isFile()) throw new Error("G004 compiled input is not a confined file: " + rel);
+    }
+  }
+}
+
 // G004 仅接受既有覆盖清单中经逐项审定的旧记录；此函数不改变旧 receipt。
 function inspectG004LegacyEvidence(root, plan, coverage) {
   const sourcePath = coverage.sourceReceipt;
@@ -1074,7 +1093,8 @@ function planG004Execution(root, plan, coverage) {
   if (blocked.length) throw new Error(`G004 requires reviewed execution or inherited evidence for ${blocked.length} job(s); first: ${blocked[0].file}`);
   for (const job of plan.jobs.filter(j => !inheritedKeys.has(key(j)))) {
     const review = reviewed.get(key(job)).executionReview, files = Object.entries(review.snapshotSha256 || {});
-    if (!files.length || !Object.hasOwn(review.snapshotSha256, job.file) || !Array.isArray(review.dependencies) || review.dependencies.length !== files.length || new Set(review.dependencies).size !== files.length || review.dependencies.some(dep => !Object.hasOwn(review.snapshotSha256, dep)) || !Array.isArray(review.externalTools)) throw new Error("G004 fresh dependency review incomplete: " + job.file);
+    if (!files.length || !Object.hasOwn(review.snapshotSha256, job.file) || !Array.isArray(review.dependencies) || review.dependencies.length !== files.length || new Set(review.dependencies).size !== files.length || review.dependencies.some(dep => !Object.hasOwn(review.snapshotSha256, dep)) || !Array.isArray(review.externalTools) || !Array.isArray(review.compiledInputs) || new Set(review.compiledInputs).size !== review.compiledInputs.length) throw new Error("G004 fresh dependency review incomplete: " + job.file);
+    for (const rel of review.compiledInputs) g004CompiledInput(root, rel);
     for (const [rel, expected] of files) {
       const abs = path.resolve(root, rel), within = path.relative(root, abs);
       if (!within || within.startsWith(".." + path.sep) || path.isAbsolute(within) || sha256Fresh(abs) !== expected) throw new Error("G004 fresh dependency drift: " + rel);
@@ -1093,6 +1113,7 @@ function verifyG004Aggregate(state) {
   const expectedSource = path.join(state.root, "simple_cluster", "reports", "test-workflow", "2026-11-22T06-35-19-310Z-69208-package", "run.json");
   if (!coverage || path.resolve(coverage.sourceReceipt) !== expectedSource) throw new Error("G004 source receipt changed");
   const current = planG004Execution(state.root, state.plan, coverage);
+  verifyG004CompiledInputs(state.root, state.plan, coverage, current);
   const key = j => JSON.stringify([j.identity, j.argv]);
   const old = new Map(current.map(j => [key(j), j]));
   if (old.size !== current.length) throw new Error("G004 conflicting inherited evidence");
@@ -1392,7 +1413,10 @@ async function main() {
     }
 
     if (plan.phases.fullCheck) {
-      if (state.g004Inherited) state.g004TestArtifact = artifactFingerprint(opts.root);
+      if (state.g004Inherited) {
+        verifyG004CompiledInputs(opts.root, plan, JSON.parse(fs.readFileSync(state.g004CoveragePath, "utf8")).g004IncrementalCoverage, state.g004Inherited);
+        state.g004TestArtifact = artifactFingerprint(opts.root);
+      }
       const spec = plan.phases.fullCheck;
       const t0 = nowMono();
       for (const gate of spec.domainGates || []) { const r = await runGate(state, gate); if (!r.passed) return await writeReceiptAndRelease(1); if (state.cancelled) break; }
@@ -1450,7 +1474,7 @@ function writeAcceptanceReport(root, receipt) {
   process.stdout.write(`[acceptance] overall=${receipt.overall} report=${path.join(dir, "latest.md")} logs=${receipt.logDir}\n`);
 }
 
-module.exports = { planEntry, planHash, jobIdentity, expandGlobPattern, resolveStepCommand, validateReceiptForAssemble, inspectG004LegacyEvidence, planG004Execution, uncoveredG004Jobs, verifyG004Aggregate, validateG004ReceiptForAssemble, inputFingerprint, verifyNoNpmHooks, sha256File, sha256Fresh,
+module.exports = { planEntry, planHash, jobIdentity, expandGlobPattern, resolveStepCommand, validateReceiptForAssemble, inspectG004LegacyEvidence, planG004Execution, uncoveredG004Jobs, verifyG004CompiledInputs, verifyG004Aggregate, validateG004ReceiptForAssemble, inputFingerprint, verifyNoNpmHooks, sha256File, sha256Fresh,
   ownerProcessAlive, readLockOwner, classifyStaleLock, deleteOwnedLockChild, collectLockEvidence, lockFingerprint,
   verifyLockDeletionTarget, confirmLockDeletion, showLockDeletionDialog, LOCK_DELETE_CONFIRMATIONS, STALE_LOCK_CONFIRM_AGE_MS, OWNER_WRITE_GRACE_MS };
 

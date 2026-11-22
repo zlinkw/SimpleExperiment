@@ -149,10 +149,15 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   const plan = { jobs: [job, freshJob, directJob], onDemandJobs: [], requiredGates: ["gate"], prereq: [], phases: { compile: { gates: [{ cmd: "gate" }] }, assemble: { gates: [{ cmd: "gate" }] } }, selection: { strategyVersion: "fixture", selectionHash: "selection" } };
   const plannedCoverage = { ...coverage, jobs: [row, { ...freshJob, eligible: false }, { ...directJob, eligible: false }] };
   assert.throws(() => runner.planG004Execution(ws, plan, plannedCoverage), /requires reviewed execution/);
-  const approvedFresh = { ...freshJob, eligible: false, executionApproved: true, executionReview: { decision: "reviewed", effects: "fixture only", dependencies: [freshJob.file], snapshotSha256: { [freshJob.file]: sha(path.join(ws, freshJob.file)) }, externalTools: [] } };
+  const approvedFresh = { ...freshJob, eligible: false, executionApproved: true, executionReview: { decision: "reviewed", effects: "fixture only", dependencies: [freshJob.file], snapshotSha256: { [freshJob.file]: sha(path.join(ws, freshJob.file)) }, externalTools: [], compiledInputs: ["dist/output.js"] } };
   coverage.jobs = [row, approvedFresh, { ...directJob, eligible: false }];
   const acceptedPlan = runner.planG004Execution(ws, plan, coverage);
   assert.equal(acceptedPlan.length, 2);
+  assert.throws(() => runner.verifyG004CompiledInputs(ws, plan, coverage, acceptedPlan), /ENOENT/);
+  fs.mkdirSync(path.join(ws, "dist"), { recursive: true });
+  fs.writeFileSync(path.join(ws, "dist", "output.js"), "compiled fixture\n");
+  assert.doesNotThrow(() => runner.verifyG004CompiledInputs(ws, plan, coverage, acceptedPlan));
+  assert.throws(() => runner.planG004Execution(ws, plan, { ...coverage, jobs: [row, { ...approvedFresh, executionReview: { ...approvedFresh.executionReview, compiledInputs: ["dist/../escape.js"] } }, { ...directJob, eligible: false }] }), /invalid compiled input/);
   assert.deepEqual(runner.uncoveredG004Jobs(plan.jobs, acceptedPlan), [freshJob]);
   const deferredPlan = { ...plan, jobs: [job, directJob], onDemandJobs: [{ file: freshJob.file, argv: freshJob.argv, status: "on_demand_not_run" }] };
   assert.equal(runner.planG004Execution(ws, deferredPlan, coverage).length, 2, "on-demand jobs stay in the inventory without being counted as passed");
