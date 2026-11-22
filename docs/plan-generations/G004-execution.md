@@ -162,3 +162,5 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 获批删除39项之第29–35项：src/cli/commands/server.ts, src/cli/data.ts, src/cli/errors.ts, src/cli/format.ts, src/cli/help.ts, src/cli/index.ts, src/cli/parse.ts；全批预检后逐项在直接父目录核身份并以明确相对叶名删除，确认不存在。
 
 获批删除39项之第36–39项：src/cli/plugins.ts, src/cli/runtime.ts, src/features/ExperimentRunner.ts, src/runCli.ts；全批预检后逐项在直接父目录核身份并以明确相对叶名删除，确认不存在。
+
+获批39个源码文件均按完整预检、直接父目录和精确叶名逐项删除并核不存在，分6组同步至fd593cca；原始策略拒绝仍保留，修正只读Get-Item Force后执行成功。删除改变输入后tsc-cached TS7.0.2 previous-failed rebuild，391输入、emit 2、exit0，日志TEMP/g004-tsc-after-cli-removal-20261123-terra.log；首exit2及71 emit不抹去。18个tracked dist仍dirty，未stage/恢复；非完整build/package。
