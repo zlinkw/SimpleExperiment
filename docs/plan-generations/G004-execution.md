@@ -71,3 +71,5 @@ codeSyncProofWaiter 6/6 exit0：假客户端、Python AST 提取与自建文件�
 planJobDeleteRequeue 7/7 exit0：清理执行器及 Worker 回调均为假，写入并保留自建计划夹具；没有实际删除、远端或真实 UI，模拟结果不能证明真实删除安全。证据见 coverage，待总控终审。
 
 agentStartupFastPath 1/1 exit0：仅启动前缀及假依赖、假调度、假采样，禁止清理；无完整 runtime、真实 Worker、服务或网络。证据见 coverage，待总控终审。
+
+agentTmuxPolicy 6/6 exit0：命令文本、假配置更新及 Python 抽取函数；自建临时 settings/日志与脚本保留，子进程环境变更局限夹具；无真实 tmux、Worker、用户配置或删除。证据见 coverage，待总控终审。
