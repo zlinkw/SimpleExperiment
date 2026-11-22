@@ -67,6 +67,10 @@ export function mcpGateway(host: any): ProjectGateway {
         const { workerId, sourceWorkerId, destinationWorkerId, ...params } = args;
         if (method === "sync.projectInventory" && params.includeHashes === true && !params.paths?.length)
           throw Error("MCP_HASH_PATHS_REQUIRED: 请指定要核验内容的项目内路径。");
+        if (method === "sync.downloadPaths" && (!params.paths.length || params.paths.some((value: string) => {
+          const normalized = path.posix.normalize(value.trim().replace(/\\/g, "/")).replace(/\/+$/, "");
+          return normalized === "." || normalized === "";
+        }))) throw Error("MCP_PROJECT_PATH_REQUIRED: 请指定项目内文件或子目录，不能下载整个项目根目录。");
         const target = (id: string) => {
           const row = host.workerCodeSyncTargets().find((worker: any) => worker.id === id);
           if (!row) throw Error("MCP_WORKER_UNKNOWN: " + id);

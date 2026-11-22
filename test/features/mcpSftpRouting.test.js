@@ -152,6 +152,13 @@ test('MCP Worker directory and batch variants retain targets and authorization',
  assert.equal(f.calls.length,before);
 });
 
+test('MCP exact-path downloads cannot select the project root',async()=>{
+ const f=fixture();
+ for(const paths of [[],[''],['.'],['./'],['/'],['work/..']])
+  await assert.rejects(f.gateway.call('sftp_download_paths',{workerId:'w1',paths}),/MCP_PROJECT_PATH_REQUIRED/);
+ assert.equal(f.calls.length,0);
+});
+
 test('MCP file uploads bind exact workspace paths',async()=>{
  const f=fixture(),file=path.join(root,'fixture-upload.txt');fs.writeFileSync(file,'fixture','utf8');
  await f.gateway.call('sftp_upload_files',{workerId:'w1',files:['fixture-upload.txt']});
