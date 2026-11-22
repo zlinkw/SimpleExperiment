@@ -221,3 +221,5 @@ Windows工作流混合文件形成未应用diff，仅移旧CLI三项及专用fix
 旧CLI项目状态/根/PLAN/缺Host/服务器及控制方法六项形成两份未应用diff；现Gateway/中立客户端业务证据保留，旧聚合、离线回退、argv与确认外壳差异单列。两份git apply --check exit0，其他测试及helper不动。
 
 草稿、PLAN清理和中立入口各补未应用候选。草稿与入口两份同文件diff直接拼接首次git apply --check各exit1，因上下文重叠；已按原文件合并为每文件一份，分别5项/9项合并diff均exit0。原测试未改，双确认和现业务证据保留。
+
+稳定入口及综合生命周期各形成未应用diff；前者映射现MCP resolver与shim保护，后者原history、retry、batch、dry-run/check及artifact下载等差异仍须逐断言裁决，不能认定等价。两份git apply --check exit0。
