@@ -42,6 +42,7 @@ export function mcpGateway(host: any): ProjectGateway {
     if (worker && !isDeepStrictEqual(worker, currentWorkers(host).find(row => row.id === worker.id))) throw Error("MCP_WORKER_TARGET_CHANGED");
     if (["files.cleanup.execute", "files.cleanup.settle"].includes(method)) mcpInvocation.getStore()?.permission("sync");
     return host.simpleSftpApiCall(method, { ...params, node, consumerRoot: root,
+      ...(method === "files.cleanup.observeBatch" && params.readConcurrency === undefined ? { readConcurrency: 1 } : {}),
       ...(method === "files.cleanup.preview" && params.action === "delete" ? { authorizationMode: "confirmed_paths" } : {}) });
   };
   return new ProjectGateway({ root: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "",

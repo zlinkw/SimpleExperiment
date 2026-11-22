@@ -74,9 +74,9 @@ MCP终态、结果、日志及合成观察通过，原文见Git `8249eb4d:docs/p
 
 518时持久化身份及未识别状态原始调查见 `89498eff:docs/plan-generations/G004-execution.md`；其旧workspaceState引导标记描述只适用于当时运行源码，519已按规范项目根存入同profile globalState。不能借其他profile值或虚构已识别，518未含后续持久化源码修复；四跨项目与89旧延期范围未开放。
 
-518项目本地状态返修：损坏或拒绝读取不再当作不存在并覆盖，离线导入/清除保存失败恢复原值；内存测试7/8 exit1→9/9及补验9/9 exit0，TEMP日志 `g004-518-state-read-before-ff08.log`、`g004-518-state-read-after-ff08.log`、`g004-518-state-read-final-ff08.log`。未修改真实旧文件；详细原文见Git `48062264:docs/plan-generations/G004-execution.md`。
+518本地状态首7/8 exit1后两次9/9，原日志及边界见Git `35056314:docs/plan-generations/G004-execution.md`。
 
-518共享连接保存队列失败后可重试且保留旧迁移值；内存测试0/1 exit1→1/1 exit0，TEMP日志 `g004-518-shared-retry-before-ff08.log`、`g004-518-shared-retry-after-ff08.log`。嵌套PowerShell变量展开曾导致解析错误exit1，未启动测试；未改真实连接。原文见Git `48062264:docs/plan-generations/G004-execution.md`。
+518共享连接首0/1 exit1→1/1，脚本解析首错见Git `35056314:docs/plan-generations/G004-execution.md`。
 
 0.5.518试行包、341/341及13门禁、安装一次和历史失败见Git 1242c55c同文件；原闭包核验输出及退出码未知，实际ZIP等价检查exit0，不覆盖原未知。
 
@@ -176,7 +176,7 @@ MCP远端产物精确身份/越界拒绝、结果缺参/缺文件及主指标方
 
 MCP GPU观测与任务分别保留Worker/GPU0/command并显式传播失败，Gateway假Host 5/5；UI精确导航为既有局部证据，未新造自动匹配视图。
 
-中立客户端保留258记录、定位末尾假监听、双活拒绝/精确pin及缺失发现错误，单文件8/8 exit0；原LocalApiServer生成/关闭未重跑。
+中立客户端258记录/绑定8/8，见Git `35056314:docs/plan-generations/G004-execution.md`。
 
 MCP PLAN永久删除预览补界面同用confirmed_paths；假Host 6/6 exit0，未生成确认或操作真实文件，后续双页及路径保护不变。
 
@@ -204,7 +204,7 @@ MCP下载范围及handoff核精确Worker、配置参数与撤权，假后端11/1
 
 产物路径越界首16/17 exit1后17/17；细节见Git `97607ab8:docs/plan-generations/G004-execution.md`。
 
-SimpleSFTP 0.2.120现有UI创建项目源码链核实，未实点。清理引擎状态保存使用真实rename，当前仅允许transport/activity/lease替身且禁真实移动；无法证明纯替身隔离，四项未启动，详见coverage。
+SimpleSFTP UI创建项目及隔离前判断见Git `35056314:docs/plan-generations/G004-execution.md`。
 
 中立错误模块移除无消费者的CLI JSON包装/成功码，保留错误分类和码；连接3/3、MCP查询17/17 exit0。
 
@@ -227,3 +227,5 @@ MCP Agent观察入口拒绝调用者token及未知字段，假Host仅收到固�
 产物补测：合成远端绝对路径作为元数据保留，不读项目外文件；查询17/17 exit0。
 
 产物节点：同名本地/Worker首16/17 exit1误读本机；按明确本地/Worker/未知分流，旧远端outputDir不作本地，补验17/17。合成本地夹具显式声明endpoint，原断言保留；登记前两次超阈值未写，无Worker。
+
+真实CleanupFileApi+MCP Gateway/Host：首1/4 exit1，move目标字段缺失及观察并发缺省不符引擎；修后4/4、路由11/11、官方客户端10/10 exit0。状态存储/传输/活动/租约纯内存，未真实移动删除或访问Worker，不证明磁盘持久化；新测试显式SIMPLE_TEST_SFTP_ROOT及输入指纹待入矩阵。登记首超阈值未写。

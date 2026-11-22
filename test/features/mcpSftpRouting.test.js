@@ -51,6 +51,7 @@ test('MCP file observation preserves frozen per-target and root identities',asyn
  assert.deepEqual(schema.properties.targets.items.properties.inode.type,['string','number']);
  await f.gateway.call('file_cleanup_observe_batch',{location:'worker',workerId:'w1',observationId:'obs-9',rootIdentity:{dev:'42:1',ino:'9'},targets:[target]});
  const call=f.calls.at(-1);assert.equal(call.method,'files.cleanup.observeBatch');assert.deepEqual(call.params.targets,[target]);
+ assert.equal(call.params.readConcurrency,1);
  assert.deepEqual(call.params.rootIdentity,{dev:'42:1',ino:'9'});assert.equal(call.params.consumerRoot,root);assert.equal(call.params.node.id,'w1');
  assert.ok(!Object.hasOwn(call.params,'confirm'));
  const before=f.calls.length;

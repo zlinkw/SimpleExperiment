@@ -118,12 +118,14 @@ export const PROJECT_TOOLS: ProjectTool[] = [
   tool("cleanup_restore_preview", "plans.cleanup.restore", "Preview restoration from the original cleanup operation", operation, ["operationId"]),
   tool("cleanup_execute", "plans.cleanup.execute", "Execute the existing cleanup request after the required human path confirmations", operation, ["operationId"], "sync"),
   tool("file_cleanup_preview", "files.cleanup.preview", "Freeze exact file targets for human review; does not delete or confirm", {
-    ...fileNode, action: { type: "string", enum: ["move", "delete", "restore", "isolate"] }, targets: { type: "array", items: fileTarget },
+    ...fileNode, action: { type: "string", enum: ["move", "delete", "restore", "isolate"] }, targets: { type: "array", items: {
+      ...fileTarget, properties: { ...fileTarget.properties, destination: text("Exact project-relative destination"), archiveBatch: text("Exact archive batch identity") },
+    } },
   }, ["location", "action", "targets"], undefined, undefined, "sftp"),
   tool("file_cleanup_inspect", "files.cleanup.inspect", "Observe one exact project file target", { ...fileNode, target: fileTarget, presenceOnly: boolean, allowMissing: boolean }, ["location", "target"], undefined, undefined, "sftp"),
   tool("file_cleanup_observe_batch", "files.cleanup.observeBatch", "Actively observe a batch of exact project paths without deleting them", {
     ...fileNode, observationId: text("Identity of this observation round"), rootIdentity: object,
-    readConcurrency: { type: "integer" }, targets: { type: "array", items: { ...fileTarget, properties: { ...fileTarget.properties,
+    readConcurrency: { type: "integer", description: "Use 1 or 2 concurrent reads; defaults to 1" }, targets: { type: "array", items: { ...fileTarget, properties: { ...fileTarget.properties,
       key: text("Stable identity of this observation target"), backendToken: text("Original preview token, if observing a frozen request"), backendIndex: integer,
       backendDigest: text("Original frozen backend digest"), device: { type: ["string", "number"], description: "Original device identity" }, inode: { type: ["string", "number"], description: "Original inode identity" },
       isolationRelativePath: text("Original preview isolation path"), fingerprint: text("Original preview content identity"),
