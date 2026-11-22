@@ -3,57 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const http = require('node:http');
 const vm = require('node:vm');
 const ts = require('typescript');
-const { requestWorkflowRun } = require('../../dist/cli/WorkflowRun');
 const binding = require('../../dist/features/WorkflowWorkspaceBinding');
-async function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'Win PLAN 中文 ')), other = path.join(root, 'other'); fs.mkdirSync(other);
-  const planFile = 'experiments/plans/计划 A.yaml'; fs.mkdirSync(path.dirname(path.join(root, planFile)), { recursive: true }); fs.writeFileSync(path.join(root, planFile), 'name: fixture\n', 'utf8');
-  const version = require('../../package.json').version, startedAt = new Date().toISOString(), pid = process.pid;
-  const calls = [], state = { workspace: root, blocked: false, wrongPlan: false, switch: false, runBlocked: false };
-  const server = http.createServer((req, res) => {
-    if (req.url === '/api/v1/capabilities') { res.end(JSON.stringify({ name: 'SimpleExperiment', version, instanceId: `${pid}:${startedAt}`, schemaVersion: 1, rpc: 'json-rpc-2.0', methods: ['status', 'workflow.plan', 'workflow.run'],
-      methodOptions: { 'workflow.plan': { workspaceIdentityRechecked: true }, 'workflow.run': { workspaceIdentityRechecked: true } } })); return; }
-    const chunks = []; req.on('data', c => chunks.push(c)); req.on('end', () => {
-      const body = JSON.parse(Buffer.concat(chunks)); calls.push(body); let result;
-      if (body.method === 'status') result = { workspace: state.workspace };
-      if (body.method === 'workflow.plan') { result = { ok: !state.blocked, ready: !state.blocked, plan: { planFile: state.wrongPlan ? 'wrong.yaml' : planFile }, nextAction: 'server.testAll' }; if (state.switch) state.workspace = other; }
-      if (body.method === 'workflow.run') {
-        if (state.switch) state.workspace = other;
-        result = state.runBlocked || state.blocked || state.workspace !== body.params.workspace ? { ok: false, started: false }
-          : { ok: true, started: true, plan: { planFile: state.wrongPlan ? 'wrong.yaml' : planFile }, operationId: 'mock-op', status: 'waiting_confirmation', confirmation: 'vscode_modal' };
-      }
-      res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }));
-    });
-  });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const file = path.join(root, 'api.json'); fs.writeFileSync(file, JSON.stringify({ name: 'SimpleExperiment', version, pid, startedAt, baseUrl: 'http://127.0.0.1:' + server.address().port, token: 'fixture' }), 'utf8');
-  const previous = process.env.SIMPLE_EXPERIMENT_API_FILE; process.env.SIMPLE_EXPERIMENT_API_FILE = file;
-  t.after(() => { if (previous === undefined) delete process.env.SIMPLE_EXPERIMENT_API_FILE; else process.env.SIMPLE_EXPERIMENT_API_FILE = previous; server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); });
-  return { root, other, planFile, calls, state };
-}
-test('compiled Windows CLI verifies the actual workspace and accurately reports a request awaiting approval', async t => {
-  const f = await fixture(t), out = await requestWorkflowRun(f.root, f.planFile, {});
-  assert.equal(out.code, 0); assert.equal(out.payload.requested, true); assert.equal(out.payload.submitted, false); assert.equal(out.payload.confirmation, 'vscode_modal');
-  assert.deepEqual(f.calls.map(c => c.method), ['status', 'workflow.run']);
-  assert.equal(f.calls.at(-1).params.workspace, fs.realpathSync.native(f.root));
-});
-test('wrong workspace/PLAN, changed workspace, blocked route and seed override cannot request a run', async t => {
-  const f = await fixture(t);
-  f.state.workspace = f.other; await assert.rejects(requestWorkflowRun(f.root, f.planFile, {}), /differs/); assert.equal(f.calls.length, 1);
-  f.state.workspace = f.root; f.state.wrongPlan = true; await assert.rejects(requestWorkflowRun(f.root, f.planFile, { dryRun: true }), /different Plan/);
-  f.state.wrongPlan = false; f.state.switch = true; assert.equal((await requestWorkflowRun(f.root, f.planFile, {})).code, 3);
-  f.state.switch = false; f.state.workspace = f.root; f.state.blocked = true; assert.equal((await requestWorkflowRun(f.root, f.planFile, {})).code, 3);
-  await assert.rejects(requestWorkflowRun(f.root, f.planFile, { seed: '42' }), /seed/);
-  assert.ok(f.calls.filter(c => c.method === 'workflow.run').every(c => c.params.workspace === fs.realpathSync.native(f.root)));
-});
-test('dry-run/check are read-only route checks; blocked run never reports submitted', async t => {
-  const f = await fixture(t); await requestWorkflowRun(f.root, f.planFile, { dryRun: true }); await requestWorkflowRun(f.root, f.planFile, { check: true });
-  assert.ok(!f.calls.some(c => c.method === 'workflow.run'));
-  f.state.runBlocked = true; const out = await requestWorkflowRun(f.root, f.planFile, {}); assert.equal(out.code, 3); assert.equal(out.payload.requested, false); assert.equal(out.payload.submitted, false);
-});
 function hostFixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'Win workflow host-')), other = path.join(root, 'other'); fs.mkdirSync(other);
   const source = fs.readFileSync(path.join(__dirname, '../../src/extension/legacy.ts'), 'utf8'), ast = ts.createSourceFile('legacy.ts', source, ts.ScriptTarget.Latest, true);

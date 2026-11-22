@@ -156,3 +156,5 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 获批迁移指标、证据工具和旧history读取外部消费者；指标原文件3/3、证据工具1/1定向通过，history原文件保留空占位并node --check通过，旧CLI history明确退休，现MCP结果证据见coverage。
 
 首轮diff --check发现候选evidenceTooling末尾多余空行exit2，已去除，未改断言。
+
+获批迁移Windows工作流消费者，原文件4/4 exit0；localApi及formalJob候选已应用、语法通过，分别待新build后的dist/api客户端与受限Python夹具验证，暂不提交或声称通过。
