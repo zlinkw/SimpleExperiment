@@ -73,3 +73,5 @@ Windows工作流混合文件形成未应用diff，仅移旧CLI三项及专用fix
 草稿、PLAN清理和中立入口各补未应用候选。草稿与入口两份同文件diff直接拼接首次git apply --check各exit1，因上下文重叠；已按原文件合并为每文件一份，分别5项/9项合并diff均exit0。原测试未改，双确认和现业务证据保留。
 
 稳定入口及综合生命周期各形成未应用diff；前者映射现MCP resolver与shim保护，后者原history、retry、batch、dry-run/check及artifact下载等差异仍须逐断言裁决，不能认定等价。两份git apply --check exit0。
+
+终态身份及训练进度两份整文件候选经原/MCP源码diff对照：分别保留10/10、9/9中立断言，旧overallTrainingPercent别名单列；两份未应用diff git apply --check exit0，直接job与glob仍须最终精确调整及批准。
