@@ -75,3 +75,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 当前 runner 变更后 planner 已正常完成证据核读并报告 367 active、0 onDemand、216 缺口；先前 361/6 随受影响选择重算变化，不代表通过。核验器源码和新增断言及依赖重核待总控终审。
 
 - 总控审出未调用函数的 named block 也会被误当顶层；已改为 parsed 根 EndBlock 实例匹配，并将负例组合覆盖函数及引号伪命令。原精确 pattern 一次返修 1/1 exit0、18.250 秒，TEMP/g004-520-runner-parser-root-20261123.log；七项历史安全测试函数未变，仅更新当前输入快照。上一提交后实际 planner 为 361 active、6 onDemand、212 缺口，最终以新提交后重算为准。
+
+- branchProjectRegistry 的注册、提交及状态比较三个 UI 精确 pattern 各 1/1、exit 0；VM 与模拟项目、服务和 RPC，无真实 UI、Git 写入或网络；不覆盖其他 pattern。事件与输入见 coverage，待总控终审。
