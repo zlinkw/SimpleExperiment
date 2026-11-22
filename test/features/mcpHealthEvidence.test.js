@@ -51,3 +51,60 @@ test('MCP health distinguishes active and successful retries from the failed att
  assert.equal((await query('summary')).recent_failures[0].id,old.global_job_id);
  const inspect=await query('inspect',{id:old.global_job_id});assert.deepEqual(inspect.health,{status:'error',reason:'failed_recent'});assert.equal(inspect.alerts.recent_failure,true);
 });
+
+test("stalled uses Worker output activity before CLI observation time", () => {
+  const { isStalled } = require("../../src/mcp/query/Experiments.ts");
+  const now = Date.parse("2026-09-24T12:00:00Z");
+  assert.equal(isStalled({ status: "running", updated: "2026-09-24T10:00:00Z", raw: { runtimeActivityAt: "2026-09-24T11:45:00Z" } }, now), false);
+  assert.equal(isStalled({ status: "running", updated: "2026-09-24T11:59:59Z", raw: { runtimeActivityAt: "2026-09-24T11:20:00Z" } }, now), true);
+  assert.equal(isStalled({ status: "success", updated: "2020-01-01T00:00:00Z", raw: { runtimeActivityAt: "2020-01-01T00:00:00Z" } }, now), false);
+  assert.equal(isStalled({ status: "running", updated: "2026-09-24T11:20:00Z", raw: {} }, now), true);
+});
+
+
+test("aggregate workflow failures do not duplicate their worker failures", () => {
+  const { classifyRecentFailures, buildHealthSummary } = require("../../src/mcp/query/Experiments.ts");
+  const now = Date.parse("2026-09-23T11:00:00Z");
+  const workflow = { id: "wf-1", type: "workflow", status: "failed", status_source: "aggregate", plan: "p.yaml", updated: "2026-09-23T10:00:00Z" };
+  const worker = { id: "worker-1", type: "worker_run", parent_id: "wf-1", status: "failed", plan: "p.yaml", updated: "2026-09-23T10:05:00Z" };
+  assert.deepEqual(classifyRecentFailures([workflow, worker], now).unresolved, [worker]);
+  assert.deepEqual(buildHealthSummary([workflow, worker], now), { status: "error", reason: "failed_recent" });
+  assert.deepEqual(classifyRecentFailures([workflow], now).unresolved, [workflow]);
+  assert.deepEqual(buildHealthSummary([workflow], now), { status: "error", reason: "failed_recent" });
+});
+
+
+test("independent scheduler workflow failures remain in recent failures", () => {
+  const { classifyRecentFailures, buildHealthSummary } = require("../../src/mcp/query/Experiments.ts");
+  const now = Date.parse("2026-09-23T11:00:00Z");
+  for (const status_source of ["scheduler", "unknown"]) {
+    const workflow = { id: "wf-scheduler-failed", type: "workflow", status: "failed", status_source, plan: "p.yaml", updated: "2026-09-23T10:00:00Z" };
+    assert.deepEqual(classifyRecentFailures([workflow], now).unresolved, [workflow]);
+    assert.deepEqual(buildHealthSummary([workflow], now), { status: "error", reason: "failed_recent" });
+  }
+});
+
+
+test("recent worker failures use only the latest matching attempt", () => {
+  const { classifyRecentFailures, buildHealthSummary, recentFailureRecoveryState } = require("../../src/mcp/query/Experiments.ts");
+  const now = Date.parse("2026-09-23T11:00:00Z");
+  const failure = { id: "old", type: "worker_run", plan: "plans\\p.yaml", experiment_case: "A", seed: "42", status: "failed", updated: "2026-09-23T10:00:00Z" };
+  const retry = { id: "new", type: "worker_run", plan: "plans/p.yaml", experiment_case: "A", seed: "42", status: "running", created: "2026-09-23T10:05:00Z", updated: "2026-09-23T10:06:00Z" };
+  const classify = (rows) => classifyRecentFailures(rows, now);
+  assert.equal(recentFailureRecoveryState(failure, [failure, retry], now), "running_retry");
+  assert.deepEqual(classify([failure, retry]).unresolved, []);
+  assert.deepEqual(classify([failure, retry]).running_retry, [failure]);
+  assert.deepEqual(buildHealthSummary([failure, retry], now), { status: "warning", reason: "failed_recent" });
+  const success = { ...retry, status: "success" };
+  assert.deepEqual(classify([failure, success]).resolved, [failure]);
+  assert.deepEqual(buildHealthSummary([failure, success], now), { status: "healthy", reason: "" });
+  const failedAgain = { ...retry, id: "newest", status: "failed", created: "2026-09-23T10:10:00Z", updated: "2026-09-23T10:11:00Z" };
+  assert.equal(recentFailureRecoveryState(failure, [failure, success, failedAgain], now), "unresolved");
+  assert.equal(classify([failure, success, failedAgain]).unresolved.length, 2);
+  for (const changed of [{ seed: "43" }, { experiment_case: "B" }, { plan: "plans/other.yaml" }]) {
+    assert.equal(recentFailureRecoveryState(failure, [failure, { ...retry, ...changed }], now), "unresolved");
+  }
+  for (const missing of [{ experiment_case: "" }, { seed: "" }]) {
+    assert.equal(recentFailureRecoveryState({ ...failure, ...missing }, [{ ...failure, ...missing }, retry], now), "unresolved");
+  }
+});
