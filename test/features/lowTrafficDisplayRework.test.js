@@ -138,7 +138,7 @@ test("r3: a guarded display closure is not an outage, a real connection loss sti
 });
 
 test("r3: the host does not publish tunnel_unavailable for a guarded closure and still reports a real failure", async () => {
-  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason)")];
+  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason, throwOnFailure = false)")];
   const fixture = hostFixture(members);
   const { host, calls } = fixture;
   host.isRealtimeMode = () => true;
@@ -192,7 +192,7 @@ test("r4: pause, resume and a client reset converge the strategy on the current 
   const resetBody = legacyMethod(source, "resetClient()");
   assert.match(resetBody, /this\.applyTrafficScheduling\(\);/, "a client reset must re-apply cadence and guard");
   assert.match(resetBody, /this\.displayReadInFlight\.clear\(\);/, "a reset must not let a new round join an older display read");
-  assert.match(legacyMethod(source, "ensureRealtimeConnected(_reason)"), /this\.applyTrafficScheduling\(\);/,
+  assert.match(legacyMethod(source, "ensureRealtimeConnected(_reason, throwOnFailure = false)"), /this\.applyTrafficScheduling\(\);/,
     "the connection path must converge the strategy on fresh evidence");
 });
 
@@ -382,7 +382,7 @@ test("r6: the confirmed receipt drives both the label and the next click target,
 test("r3/b1: a real outage keeps its attribution through guard, loss, repeated policy, connect and host ensure", async () => {
   const multi = new MultiEndpointRealtimeClient([endpoint("w1")], () => new RequestBudget());
   const child = [...multi.clients.values()][0];
-  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason)")];
+  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason, throwOnFailure = false)")];
   const fixture = hostFixture(members);
   const { host } = fixture;
   host.isRealtimeMode = () => true;
@@ -434,7 +434,7 @@ test("r3/b1: a real outage keeps its attribution through guard, loss, repeated p
 test("r3/b1: a hard authentication failure stays a manual-reconnect outage through repeated policy and ensure", async () => {
   const multi = new MultiEndpointRealtimeClient([endpoint("w1")], () => new RequestBudget());
   const child = [...multi.clients.values()][0];
-  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason)")];
+  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason, throwOnFailure = false)")];
   const fixture = hostFixture(members);
   const { host } = fixture;
   host.isRealtimeMode = () => true;
@@ -549,7 +549,7 @@ test("r3/b1: a real loss keeps its attribution through pause, repeated policy an
   for (const [reason, hard] of [["socket hang up", false], ["HTTP 401 Unauthorized", true]]) {
     const multi = new MultiEndpointRealtimeClient([endpoint("w1")], () => new RequestBudget());
     const child = [...multi.clients.values()][0];
-    const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason)")];
+    const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason, throwOnFailure = false)")];
     const fixture = hostFixture(members);
     const { host } = fixture;
     host.isRealtimeMode = () => true;
@@ -611,7 +611,7 @@ test("r3/b1: a failure during a never-succeeded connecting handshake keeps its a
   const child = new RealtimeTunnelClient(endpoint("w1"), hangingBudget);
   multi.clients.clear();
   multi.clients.set("w1", child);
-  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason)")];
+  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason, throwOnFailure = false)")];
   const fixture = hostFixture(members);
   const { host } = fixture;
   host.isRealtimeMode = () => true;
@@ -654,7 +654,7 @@ test("r3/b1: a failure during a never-succeeded connecting handshake keeps its a
 test("r3/b1 reverse: a guard closure without any fault evidence is never reported as an outage", async () => {
   const multi = new MultiEndpointRealtimeClient([endpoint("w1")], () => new RequestBudget());
   const child = [...multi.clients.values()][0];
-  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason)")];
+  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason, throwOnFailure = false)")];
   const fixture = hostFixture(members);
   const { host } = fixture;
   host.isRealtimeMode = () => true;

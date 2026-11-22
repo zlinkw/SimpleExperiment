@@ -597,7 +597,7 @@ test("§20.4 A01-A18: 十八行动作按行判定，含 S/A 通配与幂等重�
 
 // ---------- §20.7 continuous chains ----------
 function hostOver(multi) {
-  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason)")];
+  const members = [legacyMethod(source, "effectiveTrafficPolicy()"), legacyMethod(source, "ensureRealtimeConnected(_reason, throwOnFailure = false)")];
   const host = hostFixture(members).host;
   host.isRealtimeMode = () => true;
   host.client = { connect: async () => { await multi.connect(); }, diagnostics: () => multi.diagnostics() };

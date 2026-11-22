@@ -5751,13 +5751,17 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             throw error;
         }
     }
-    async ensureRealtimeConnected(_reason) {
+    async ensureRealtimeConnected(_reason, throwOnFailure = false) {
         const generation = this.projectContextGeneration;
         const client = this.client;
-        if (!this.isRealtimeMode())
+        if (!this.isRealtimeMode()) {
+            if (throwOnFailure) throw new Error("当前为离线模式，无法恢复实时连接。");
             return;
-        if (this.budget.isPaused())
+        }
+        if (this.budget.isPaused()) {
+            if (throwOnFailure) throw new Error("网络活动仍处于暂停状态，无法恢复实时连接。");
             return;
+        }
         try {
             await client.connect(undefined, { manual: ["resume stream", "resume network", "xshell launched", "xshell launched all", "xshell sessions launched", "tunnel test ok"].includes(_reason) });
             if (generation !== this.projectContextGeneration || client !== this.client)
@@ -5785,11 +5789,18 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                     message: "tunnel_unavailable",
                 };
             }
+            if (unavailable && !displayGuarded && throwOnFailure)
+                throw new Error("实时连接不可用，请检查已配置的端点。");
         }
         catch (error) {
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
+            if (throwOnFailure) {
+                this.applyTrafficScheduling();
+                this.postState();
+                throw error;
+            }
         }
         // Converge the applied strategy (queue/progress cadence + A-class guard) on the fresh
         // connection evidence, so a resume/config path cannot leave the client on a stale policy.
@@ -6485,7 +6496,7 @@ return this.testTunnel(true);
         const generation = this.projectContextGeneration;
         const client = this.client;
         if (this.effectiveConnectionMode() === "offline_import")
-            return;
+            throw new Error("离线模式无法重启实时流。");
         try {
             await client.reconnect("manual restart");
             if (generation !== this.projectContextGeneration || client !== this.client)
@@ -6496,6 +6507,8 @@ return this.testTunnel(true);
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
+            this.postState();
+            throw error;
         }
         this.postState();
     }
@@ -6537,7 +6550,7 @@ return this.testTunnel(true);
         this.budget.resume();
         this.client.resume();
         this.applyTrafficScheduling();
-        await this.ensureRealtimeConnected("resume network");
+        await this.ensureRealtimeConnected("resume network", true);
         this.postState();
     }
     async refreshPendingWorkerOperations() {
@@ -6701,8 +6714,7 @@ return this.testTunnel(true);
         const generation = this.projectContextGeneration;
         const client = this.client;
         if (this.effectiveConnectionMode() === "offline_import") {
-            void vscode.window.showInformationMessage("离线模式无法刷新实时 GPU 状态。");
-            return;
+            throw new Error("离线模式无法刷新实时 GPU 状态。");
         }
         try {
             await client.getGpu();
@@ -6717,6 +6729,8 @@ return this.testTunnel(true);
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
+            this.postState();
+            throw error;
         }
         if (generation === this.projectContextGeneration && client === this.client)
             this.postState();
@@ -6803,8 +6817,7 @@ return this.testTunnel(true);
         const generation = this.projectContextGeneration;
         const client = this.client;
         if (this.effectiveConnectionMode() === "offline_import") {
-            void vscode.window.showInformationMessage("离线模式无法刷新实时调度状态。");
-            return;
+            throw new Error("离线模式无法刷新实时调度状态。");
         }
         try {
             await client.getScheduler();
@@ -6816,6 +6829,8 @@ return this.testTunnel(true);
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
+            this.postState();
+            throw error;
         }
         if (generation === this.projectContextGeneration && client === this.client)
             this.postState();
@@ -6824,7 +6839,7 @@ return this.testTunnel(true);
         const generation = this.projectContextGeneration;
         const client = this.client;
         if (this.effectiveConnectionMode() === "offline_import")
-            return;
+            throw new Error("离线模式无法刷新实时轨迹。");
         try {
             await client.getTraces();
             if (generation !== this.projectContextGeneration || client !== this.client)
@@ -6835,6 +6850,8 @@ return this.testTunnel(true);
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
+            this.postState();
+            throw error;
         }
         if (generation === this.projectContextGeneration && client === this.client)
             this.postState();
@@ -7214,7 +7231,7 @@ return this.testTunnel(true);
                 await this.pauseAllNetworkActivity();
                 break;
             case "resumeNetwork":
-                this.resumeNetwork();
+                await this.resumeNetwork();
                 break;
             case "snapshot":
                 await this.manualSnapshot();
@@ -21106,7 +21123,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             await this.clearOfflineImport();
             if (!isCurrent())
                 return false;
-            await this.ensureRealtimeConnected("resume from project onboarding");
+            await this.ensureRealtimeConnected("resume from project onboarding", true);
             if (!isCurrent())
                 return false;
             this.postState(true);

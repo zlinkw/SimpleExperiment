@@ -12,6 +12,8 @@ R519 A6历史结果两份索引、目录和文件的读错/坏JSON反馈路径�
 
 R519 B2选择API等待持久化、失败可见并拒绝跨项目成功回执；PLAN已写入后的状态失败明确提示。真实入口配内存替身：动作46/46、迁移13/13、上下文20/20 exit0，日志同目录 `g004-r519-b2-actions-complete-ff08.log`、`g004-r519-b2-migration-ff08.log`、`g004-r519-b2-context-ff08.log`。动作首44/45 exit1因A5源码抽取夹具缺`selectResultPreset`，已补真实依赖，`g004-r519-b2-actions-first-ff08.log`。
 
+R519 B3手动刷新/重连离线或失败回报原动作，恢复等待实际连接；后台容错和低流量正常关闭语义保留。真实方法配假transport/UI状态4/4、低流量16/16、关闭决策14/14 exit0；同目录 `g004-r519-b3-network-final-ff08.log`、`g004-r519-b3-traffic-ff08.log`、`g004-r519-b3-closure-ff08.log`，未联系Worker。
+
 用户反复识别未完成并提供截图；519同窗请求与识别租约冲突，不能认定锁死。本地识别原不记完成，假确认和PLAN首0/1 exit1，同目录 `g004-519-bootstrap-recognition-ff08.log`。R519 B1确认有效PLAN并保存单根识别、立即投影，准备独立、不探Worker。空任务/取消/读写错/缺根与多根2/2、快速流程9/9、上下文20/20、命令3/3、持久化3/3、投影6/6均exit0；日志同目录 `g004-r519-b1-` 前缀加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 后接 `-ff08.log`。未重放点击、清锁或改真实标记。
 
 519本机历史CLI合成列表、详情及CSV导出通过；精确ID经cmd传递失败。Git hook读拒绝及不完整标记可能损伤原脚本，原受控失败与invoke错路由见coverage；R519 A3仅缺失视为空，读错及标记不完整均保留原文件，源码配假fs及启动消费者3/3 exit0，日志同上目录 `g004-r519-a3-git-hook-ff08.log`。300/137/45/167母集重叠，不相加。
@@ -22,7 +24,7 @@ R519 B2选择API等待持久化、失败可见并拒绝跨项目成功回执；P
 
 519 交付前准备：实核远端无 `v0.5.519` tag，GitHub Release 查询 404/exit1（不存在）；package、lock 两处及 runtime 均同步 0.5.519，`write-agent-runtime` exit0。反向消费者预检发现 actionLifecycle 的 state API 抽取夹具缺新识别事实读取依赖，仅接入真实模块和本机假根，原定向断言 1/1 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-persistence-state-fixture-ff08.log`。package dry-run exit0：341 作业均独占、旧候选20组均因 runner-or-manifest-change 恢复、按需0、max1；新项目识别单文件的3/3另按已记录定向证据保留。查询 lock 版本时 PowerShell `ConvertFrom-Json` 未加 `-AsHashTable` 对空键报错，后以 UTF8 原文核实；一次 `rg` 的 Windows 通配路径格式无效，均非产品失败。
 
-项目识别记忆：当前 profile 的 globalState 按单一规范项目根保存引导完成与提示事实；启动时迁移当前单根旧 workspaceState，旧值保留并标记其归属根，目标已存在包括显式 reset 时不被旧值复活；本窗口切换项目后不借用原旧值。原成功入口及 state.get/list/set/reset、首次提示和面板共用该值，false/reset 抑制旧状态及派生完成；无根/多根不借第一目录保存，授权/连接不搬迁。显式写等待本窗口启动迁移结束，迁移失败不清旧值可重试；不同根/profile隔离。真实源码加合成 Memento/真实 API、提示及面板消费者，新增单文件首次 0/2 exit1（目标模块尚未实现），修后 3/3 exit0，补规范根、启动期间显式写及不同根隔离后最终 3/3 exit0；`firstRunSetupPrompt` 1/1、受影响 bootstrap/migration 10/10 exit0。日志 `C:/Users/ZLK/AppData/Local/Temp/g004-518-onboarding-before-ff08.log`、`g004-518-onboarding-isolation-ff08.log`、`g004-518-onboarding-prompt-final-ff08.log`、`g004-518-onboarding-bootstrap-final-ff08.log`（后三者同目录）。未修改真实工作区标记或重载，源码未构建安装。
+项目识别记忆：globalState按规范单根保存事实，旧workspaceState迁移保留根归属；false/reset、不同项目/profile及无根多根隔离，不搬授权/连接。显式写等待迁移，失败不清旧值可重试；API、提示和面板同源。真实源码配Memento单文件首0/2 exit1（模块未实现），补规范根/启动写/不同根后3/3，`firstRunSetupPrompt` 1/1、bootstrap/migration 10/10均exit0；日志同目录 `g004-518-onboarding-before-ff08.log`、`g004-518-onboarding-isolation-ff08.log`、`g004-518-onboarding-prompt-final-ff08.log`、`g004-518-onboarding-bootstrap-final-ff08.log`。当时未改真实标记或重载，后续状态以顶部为准。
 
 项目明确清除状态修复：离线包/布局项目文件为 null 或 cleared 时，旧 workspace 残留值不会再次迁入；缺文件仍可迁移，已有有效项目值优先，坏 JSON/EACCES 保留旧值并报告，旧键清除失败后重试也不复活。真实读取及迁移方法配合内存存储首 9/10 exit1、修后 10/10 exit0，补已有值优先后 10/10 exit0；日志 `C:/Users/ZLK/AppData/Local/Temp/g004-518-cleared-before-ff08.log`、`C:/Users/ZLK/AppData/Local/Temp/g004-518-cleared-after-ff08.log`、`C:/Users/ZLK/AppData/Local/Temp/g004-518-cleared-final-ff08.log`。未清除真实数据，尚未构建或安装。
 
