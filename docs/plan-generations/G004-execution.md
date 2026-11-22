@@ -73,3 +73,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 总控审核 taskLifecycle 和 workerProgressResults 各 13/13、exit0；AST 抽函数、合成观察与 VM，前者保留合成 manifest/CSV/weight，后者假 tmux/fs 且线程已 join；无完整 runtime、真实 Worker/tmux/GPU/训练或删除。证据见 coverage，待总控终审。
 
 - syncScopeOperationIndex 单文件 4/4、exit0；假 Worker/SFTP 和合成索引，独立临时夹具内真实原子状态写入并保留，无真实 Worker、传输、UI 或永久删除。证据见 coverage，待总控终审。
+
+- syncScopeLocalIndex 3/3、cleanupIndexInvalidation 8/8，均 exit0；独立夹具内合成文件和原子索引写入、假 SFTP，夹具保留，无真实 Worker/传输/UI/永久删除。后者源码环境覆盖邻近检查未设置；证据见 coverage，待总控终审。
