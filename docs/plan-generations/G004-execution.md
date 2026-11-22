@@ -85,7 +85,7 @@ MCP终态身份10/10、结果精确身份及导出1/1、日志与配置1/1、合
 518首包339/341 exit1、前10门禁通过、并行峰1及锁释放；mcpProject夹具修后43/43、serverQuota夹具修后10/10，均exit0。原回执与完整首失败、补验见Git `1242c55c:docs/plan-generations/G004-execution.md`；未改真实权限/Worker。
 
 U54–U56首失败与补验见Git eab27339同路径；help不支持exit1、CLI默认绑定不符exit2未重放。
-U04排查基线HEAD=origin/master `b7c0b42c27227a8ec49d42d1f21346900a274ae4`、tracked clean；原材料在Git `48062264:docs/plan-generations/G004-execution.md` 和coverage。factory缺四项门禁回退legacy，恢复页VM 5/5 exit0；未重载、写剪贴板或访问服务器。旧静态脚本不能代表完整母集；后续源码见1ff64a81及下文，旧执行聊天已归档。
+U04原排查及factory门禁、恢复页VM证据见Git `48062264:docs/plan-generations/G004-execution.md`及coverage；未重载或访问服务器。
 
 版本13/13、缓存同步4/4与3/3；U04-01首失败和02延期见4a80c627及coverage，无真实删除。
 
@@ -132,7 +132,7 @@ MCP普通结果契约迁至中立实现，8/8 exit0（e1771b），加入交付pr
 
 MCP排行补全列/零值，12/12（024418）；CLI终端断言待裁决。
 
-旧CLI静态测试302项精确位置和同名MCP候选索引写入coverage.g004CliRetirementIndex；同名不代表断言等价；已审89项业务映射、72项逐字重复及12项纯help候选；草稿3项部分映射，5项CLI别名/compact/离线历史及4项重复、其余待裁决，不批准退役。首次路径检查转义错误，改按冒号拆分后302/302存在。
+旧CLI静态测试302项精确位置和同名MCP候选索引写入coverage.g004CliRetirementIndex；同名不代表断言等价；已审92项业务映射、72项逐字重复及12项纯help候选；另14项函数体重复但依赖及业务仍待审；草稿3项部分映射，5项CLI别名/compact/离线历史及4项重复、其余待裁决，不批准退役。首次路径检查转义错误，改按冒号拆分后302/302存在。
 
 健康默认/full视图6/6（f58801）；CLI退出码待裁决。
 
