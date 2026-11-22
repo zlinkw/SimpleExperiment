@@ -63,3 +63,5 @@ manualWorkerRefresh 7/7 exit0：VM 假回调及 Python AST 提取；自建临时
 preflightDispatchRejection 6/6 exit0：Python 抽取函数、临时合成计划与 checkpoint，假队列、RPC 及 VM；夹具保留，禁止实际 GPU/tmux/进程派发，无真实 Worker、训练、网络或删除。证据见 coverage，待总控终审。
 
 hubRetirement 1/1 exit0：AST 单函数、内存事件接收及入口早期拒绝，无完整 runtime 执行、真实 Worker、服务、GPU、网络或文件写入；证据见 coverage，待总控终审。
+
+nativeResultManifest 2/2 exit0：抽取函数与保留的自建合成产物及清单，包含自建文件改写；PYTHON 环境变量未设置，无完整 runtime、真实 Worker、训练、网络或删除。证据见 coverage，待总控终审。
