@@ -61,3 +61,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 调度契约合成回归 3/3，exit 0；Host VM 与假设置/计时器，无真实 Scheduler、Worker 或网络。事件与输入快照见 coverage，待总控终审。
 
 - 分布式 Plan 提交路由合成回归 7/7，exit 0；内存队列和假 GPU、预检、提交回调，无真实 Worker、GPU、提交或网络。事件与输入快照见 coverage，待总控终审。
+
+- 2026-11-23：distributedQueueStartup 单文件 8/8、exit 0；模拟队列、隧道探测和 Worker 回调，未连接真实 Worker、网络或 UI。证据及输入闭包见 coverage；待总控终审。
