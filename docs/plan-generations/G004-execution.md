@@ -24,7 +24,7 @@ R519 C3五个Git命令返回Promise，假对象4/4 exit0；首3/4 exit1为测试
 
 R519 C4旧CLI参数曾在进入shim前被解释管道，exit255；对照exit0，TEMP夹具 `g004-c4-cmd-fixture-1a624cb400094bdca5c67bf46b5f57c9`。用户现退役业务CLI，不更改结果ID。
 
-B1末尾通知租约返修先验：原方法未释放的断言失败；新增夹具未恢复通知替身致后续用例超时20秒、单文件exit1，已停止不重试，日志 `g004-r519-b1-lease-before-ff08.log`；非真实Host操作。
+B1末尾通知租约返修先验：原方法未释放的断言失败；新增夹具未恢复通知替身致后续用例超时20秒、单文件exit1，已停止不重试，日志 `g004-r519-b1-lease-before-ff08.log`；非真实Host操作。异步通知及夹具清理候选未运行验证，待总控裁决。
 
 T1实例发现/RPC与错误类型移至中立API位置，Server/面板/分支调用接入；假回环1/1 exit0，首0/1 exit1因误以为旧unavailable是CliError，日志 `g004-r519-t1-client-first-ff08.log`、`g004-r519-t1-client-final-ff08.log`，未连接真实实例。
 
@@ -50,6 +50,8 @@ T7公开入口与安装改为独立MCP，排除旧CLI包内容；入口3/3、内
 
 T7主指南改用界面/MCP；配置文档保留旧CLI历史并标明退役。
 
+MCP训练进度、健康、失败告警、详情、树摘要、查询schema、原生生命周期、活动快照及已存运行迁测分别9/9、6/6、6/6、6/6、8/8、4/4、3/3、6/6、4/4 exit0；告警首exit1为TS加载器顺序错误，调整后通过（chunk 9a5c16/a38600）。资源拒绝和产物精确归属补验11/11；旧测试保留，CLI专用/剩余断言尚待映射裁决。
+
 519识别未完成及同窗冲突不能认定锁死；原识别不记完成首0/1 exit1，`g004-519-bootstrap-recognition-ff08.log`。B1保存PLAN及识别事实；假对象2/2、快速9/9、上下文20/20、命令3/3、持久化3/3、投影6/6 exit0；日志 `g004-r519-b1-` 加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 及 `-ff08.log`。未改真实标记。
 
 519历史CLI合成查询通过、精确ID经cmd失败，详见coverage。A3 Git hook读错及标记不完整保留原文件，假fs及启动消费者3/3 exit0，`g004-r519-a3-git-hook-ff08.log`。300/137/45/167母集重叠，不相加。
@@ -68,9 +70,9 @@ T7主指南改用界面/MCP；配置文档保留旧CLI历史并标明退役。
 
 518时持久化身份及未识别状态原始调查见 `89498eff:docs/plan-generations/G004-execution.md`；其旧workspaceState引导标记描述只适用于当时运行源码，519已按规范项目根存入同profile globalState。不能借其他profile值或虚构已识别，518未含后续持久化源码修复；四跨项目与89旧延期范围未开放。
 
-518 项目本地状态返修：PLAN/任务选择、离线包和布局读取原来把损坏或拒绝访问当作不存在，旧状态迁移可能覆盖原文件并清除旧值；现区分文件不存在与读取/格式错误，错误带路径上报并阻止迁移和覆盖，修复文件后可重试。离线导入/清除保存失败不清旧值，恢复当前包并传播错误。真实源码/内存存储单文件回归首轮 7/8 exit1，增加失败恢复后 9/9 exit0，补充格式及 EACCES/ENOENT 后 9/9 exit0；日志分别为 `C:/Users/ZLK/AppData/Local/Temp/g004-518-state-read-before-ff08.log`、`C:/Users/ZLK/AppData/Local/Temp/g004-518-state-read-after-ff08.log`、`C:/Users/ZLK/AppData/Local/Temp/g004-518-state-read-final-ff08.log`。未修改真实项目旧文件或执行真实恢复，修复尚未构建或安装。
+518项目本地状态返修：损坏或拒绝读取不再当作不存在并覆盖，离线导入/清除保存失败恢复原值；内存测试7/8 exit1→9/9及补验9/9 exit0，TEMP日志 `g004-518-state-read-before-ff08.log`、`g004-518-state-read-after-ff08.log`、`g004-518-state-read-final-ff08.log`。未修改真实旧文件；详细原文见Git `48062264:docs/plan-generations/G004-execution.md`。
 
-518 持久化返修：共享连接迁移或保存失败后，原 Promise 队列一直保持拒绝，后续显式保存无法重试；现在前次失败仍向原调用者报告，下一次保存可重新写入，旧迁移值保留。真实源码的内存存储回归覆盖迁移失败及普通保存失败、重试与重新构造消费者读回；定向单文件首轮 0/1 exit1、修后 1/1 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-518-shared-retry-before-ff08.log`、`C:/Users/ZLK/AppData/Local/Temp/g004-518-shared-retry-after-ff08.log`。先前嵌套 PowerShell 命令因变量被外层展开产生解析错误 exit1，未启动测试；未修改真实共享连接，修复尚未构建或安装。
+518共享连接保存队列失败后可重试且保留旧迁移值；内存测试0/1 exit1→1/1 exit0，TEMP日志 `g004-518-shared-retry-before-ff08.log`、`g004-518-shared-retry-after-ff08.log`。嵌套PowerShell变量展开曾导致解析错误exit1，未启动测试；未改真实连接。原文见Git `48062264:docs/plan-generations/G004-execution.md`。
 
 0.5.518 最终交付：源码与生成物 `20ae86ed32f0baa9106645decb60cf9a299f3518` 已 FF 同步，远端 tag 同提交；[试行 Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.518) 为 prerelease，VSIX 2987002 字节、SHA256 `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`，隔离下载包与精确同名 sha 一致。真实更新客户端确认普通 Latest 仍为 0.5.483、518 与 SFTP 0.2.120 不降级。`npm run install:latest` 一次 exit0，带 DEP0169 warning；磁盘为 518/SFTP 0.2.120，稳定入口存在。此前待裁决及未发行状态已由本段取代，原失败保留。该段交付时尚待重载；其后实际 Host 与本人授权以顶部 518 验收段为准。
 
