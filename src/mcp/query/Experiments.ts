@@ -1,0 +1,2061 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { callApi, optionalApi, businessError, emit } from "./Support";
+import { EXPERIMENT_INDEX_REL, RUNS_DIR, fileExists, readJsonFile, readTail, readTextFile, resolveProjectPath } from "./ProjectData";
+import { matchesRuntime, nestedYamlValue, observeRunningExperiments, readWorkerTaskConfig, RuntimeObservation, trainingMaxEpochFromYaml } from "./Runtime";
+import { compactJsonValue } from "./Compact";
+import { loadResults, ResultRow } from "./Results";
+import { parsePlanSummary } from "../../features/PlanBuilder";
+type QueryFlags={json:boolean;compactJson:boolean;full:boolean;status?:string;type?:string;limit?:number};
+const writeJson=(value:unknown,compact=false)=>emit(compact?compactJsonValue(value):value);
+
+export type ExperimentKind = "workflow" | "worker_run";
+
+export type PublicStatus = "pending" | "queued" | "running" | "success" | "failed" | "cancelled" | "unknown";
+
+export type HealthStatus = "healthy" | "warning" | "error" | "stalled" | "unknown";
+
+export interface NativeJobState {
+    lifecycle_protocol: 2;
+    project_id: string;
+    workflow_id: string;
+    index: number;
+    command_id: string;
+    worker_id: string;
+    output_dir: string;
+    result_csv: string;
+    execution_state: string;
+    result_state: string;
+    completion_state: string;
+    successful: boolean;
+    exit_code?: number;
+    verified_at: string;
+    observed_at: string;
+    queried_at: string;
+    query_state: string;
+    query_error: string;
+    sync_state: string;
+    sync_checked_at: string;
+    sync_error: string;
+    stop_requested: boolean;
+    expected_job_count: number;
+    recovery_missing_count: number;
+    recovery_conflict: boolean;
+}
+
+export interface NativeWorkflowSummary {
+    workflow_id: string;
+    expected_count: number;
+    observed_count: number;
+    verified_count: number;
+    missing_count: number;
+    query_unknown_count: number;
+    recovery_conflict: boolean;
+}
+
+export interface ExperimentRow {
+    id: string;
+    type: ExperimentKind;
+    name: string;
+    status: string;
+    created: string;
+    updated: string;
+    started_at: string;
+    finished_at: string;
+    plan: string;
+    run_id: string;
+    worker_id: string;
+    host: string;
+    tmux: string;
+    stage: string;
+    progress: RuntimeObservation["progress"];
+    gpu: RuntimeObservation["gpu"] | null;
+    parent_id: string;
+    health_status: HealthStatus;
+    health_reason: string;
+    missing_progress: boolean;
+    status_source: "aggregate" | "scheduler" | "worker" | "log" | "unknown" | "native_lifecycle";
+    native_state?: NativeJobState;
+    native_summary?: NativeWorkflowSummary;
+    experiment_case: string;
+    model: string;
+    dataset: string;
+    seed: string;
+    lifecycle: "running" | "finished" | "failed" | "cancelled" | "";
+    source: "experiment_index" | "history" | "runtime_observation";
+    raw?: Record<string, unknown>;
+}
+
+export interface ExperimentRuntimeSnapshot {
+    id: string;
+    type: ExperimentKind;
+    status: string;
+    health_status: HealthStatus;
+    worker: string;
+    gpu: string;
+    stage: string;
+    plan: string;
+    progress: Record<string, unknown> | null;
+    updated_at: string;
+    native_state?: NativeJobState;
+    native_summary?: NativeWorkflowSummary;
+}
+
+export interface RuntimeSnapshotContext {
+    row: ExperimentRow;
+    snapshot_time: string;
+    snapshot_id: string;
+}
+
+const AGENT_SCHEMA_VERSION = "1";
+
+interface CommandSnapshot {
+    snapshot_id: string;
+    snapshot_time: string;
+    runtime_version: string;
+    runtime_source: "experiment_index" | "history" | "runtime_observation";
+}
+
+function createCommandSnapshot(runtimeVersion = "", runtimeSource: CommandSnapshot["runtime_source"] = "experiment_index"): CommandSnapshot {
+    return { snapshot_id: String(Date.now()), snapshot_time: new Date().toISOString(), runtime_version: runtimeVersion, runtime_source: runtimeSource };
+}
+
+function snapshotSource(rows: ExperimentRow[]): CommandSnapshot["runtime_source"] {
+    if (rows.some((row) => row.source === "runtime_observation"))
+        return "runtime_observation";
+    if (rows.some((row) => row.source === "history"))
+        return "history";
+    return "experiment_index";
+}
+
+interface ExperimentOverviewSnapshot {
+    rows: ExperimentRow[];
+    snapshot_time: string;
+}
+
+async function createExperimentOverviewSnapshot(): Promise<ExperimentOverviewSnapshot> {
+    return { rows: await loadExperiments(), snapshot_time: new Date().toISOString() };
+}
+
+function alertDetailsFor(flags: {
+    missing_progress: boolean;
+    stalled: boolean;
+    recent_failure: boolean;
+}, health?: HealthPayload, recovery?: ReturnType<typeof classifyRecentFailures>): Array<{
+    type: string;
+    message: string;
+}> {
+    return [
+        flags.missing_progress ? { type: "missing_progress", message: "training experiment has not produced progress within the startup grace period" } : null,
+        flags.stalled ? { type: "stalled", message: "experiment output has not changed for 30 minutes" } : null,
+        flags.recent_failure ? { type: "recent_failure", message: recovery && health
+                ? recentFailureAlertMessage(recovery, health)
+                : health?.status === "warning" && health.reason === "failed_recent"
+                    ? "recent failure has a newer running retry"
+                    : health?.status === "error" || !health
+                        ? "recent failure has no newer successful or running recovery"
+                        : "experiment failed within the last 24 hours" } : null,
+    ].filter((item): item is {
+        type: string;
+        message: string;
+    } => item !== null).slice(0, 10)
+        .map((item) => ({ ...item, message: item.message.slice(0, 300) }));
+}
+
+async function createRuntimeSnapshot(id: string): Promise<RuntimeSnapshotContext> {
+    // snapshot_id identifies this one command invocation, not a snapshot shared across commands.
+    return {
+        row: await resolveExperimentReference(id),
+        snapshot_time: new Date().toISOString(),
+        snapshot_id: String(Date.now()),
+    };
+}
+
+export interface LogRecord {
+    timestamp: string;
+    level: string;
+    message: string;
+}
+
+const RECENT_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const MISSING_PROGRESS_TIMEOUT_MS = 10 * 60 * 1000;
+
+const STALLED_TIMEOUT_MS = 30 * 60 * 1000;
+
+export async function experimentList(flags: QueryFlags): Promise<number> {
+    const rows = await loadExperiments();
+    const status = String(flags.status || "").trim().toLowerCase();
+    const type = String(flags.type || "").trim();
+    let filtered = rows;
+    if (status)
+        filtered = filtered.filter((row) => row.status.toLowerCase() === status);
+    if (type)
+        filtered = filtered.filter((row) => row.type === type);
+    if (typeof flags.limit === "number")
+        filtered = filtered.slice(0, flags.limit);
+    const view = filtered.map((row) => publicExperiment(row, row.type === "workflow" ? childRuns(row, rows) : []));
+    writeJson(view, flags.compactJson || !flags.full);
+    return 0;
+}
+
+export async function experimentSummary(flags: QueryFlags): Promise<number> {
+    const payload = buildExperimentSummary(await loadExperiments());
+    writeJson(payload, flags.compactJson);
+    return 0;
+}
+
+function buildExperimentSummary(rows: ExperimentRow[], now = Date.now()): Record<string, unknown> {
+    const workerRuns = rows.filter((row) => row.type === "worker_run");
+    const runningRuns = workerRuns.filter((row) => row.status === "running");
+    return {
+        running_count: runningRuns.length,
+        failed_count: workerRuns.filter((row) => row.status === "failed").length,
+        success_count: workerRuns.filter((row) => row.status === "success").length,
+        workflows: rows.filter((row) => row.type === "workflow").length,
+        active_workers: Array.from(new Set(runningRuns.map((row) => row.worker_id).filter(Boolean))),
+        gpu_usage: runningRuns.filter((row) => row.gpu?.id).map((row) => ({ id: row.id, worker: row.worker_id, gpu: row.gpu?.id || "" })),
+        stalled_experiments: rows.filter((row) => row.health_status === "stalled").map((row) => row.id),
+        recent_failures: buildRecentFailureHistory(rows, 5, now),
+    };
+}
+
+function buildRecentFailureHistory(rows: ExperimentRow[], limit = 5, now = Date.now()): Array<Record<string, unknown>> {
+    const recovery = classifyRecentFailures(rows, now);
+    return [
+        ...sortByUpdatedDesc(recovery.unresolved),
+        ...sortByUpdatedDesc(recovery.running_retry),
+        ...sortByUpdatedDesc(recovery.resolved),
+    ].slice(0, limit).map(failureRow);
+}
+
+function buildExperimentAlerts(rows: ExperimentRow[], failedLimit = 10, now = Date.now()): {
+    failed_recent: Array<Record<string, unknown>>;
+    stalled: Array<Record<string, unknown>>;
+    missing_progress: Array<Record<string, unknown>>;
+} {
+    const recovery = classifyRecentFailures(rows, now);
+    return {
+        failed_recent: [
+            ...sortByUpdatedDesc(recovery.unresolved),
+            ...sortByUpdatedDesc(recovery.running_retry),
+        ].slice(0, failedLimit).map(failureRow),
+        stalled: rows.filter((row) => row.health_status === "stalled").map(failureRow),
+        missing_progress: rows.filter((row) => isMissingProgress(row, now)).map(failureRow),
+    };
+}
+
+export function isRecentFailure(row: Pick<ExperimentRow, "status" | "updated" | "finished_at">, now = Date.now(), windowMs = RECENT_FAILURE_WINDOW_MS): boolean {
+    if (row.status !== "failed")
+        return false;
+    const stamp = Date.parse(row.updated || row.finished_at || "");
+    if (!Number.isFinite(stamp))
+        return false;
+    const age = now - stamp;
+    return age >= 0 && age <= windowMs;
+}
+
+function workerAttemptKey(row: ExperimentRow): string {
+    if (row.type !== "worker_run")
+        return "";
+    const plan = String(row.plan || "").trim().replace(/\\/g, "/");
+    const experimentCase = String(row.experiment_case || "").trim();
+    const seed = String(row.seed || "").trim();
+    return plan && experimentCase && seed ? JSON.stringify([plan, experimentCase, seed]) : "";
+}
+
+function attemptStartedAt(row: ExperimentRow): number {
+    return Date.parse(row.created || row.started_at || row.updated || "");
+}
+
+function attemptFinishedAt(row: ExperimentRow): number {
+    return Date.parse(row.finished_at || row.updated || row.created || "");
+}
+
+type RecentFailureRecovery = "unresolved" | "running_retry" | "resolved";
+
+export function recentFailureRecoveryState(failure: ExperimentRow, rows: ExperimentRow[], now = Date.now()): RecentFailureRecovery {
+    if (!isRecentFailure(failure, now))
+        return "resolved";
+    const key = workerAttemptKey(failure);
+    const failureTime = attemptFinishedAt(failure);
+    if (!key || !Number.isFinite(failureTime))
+        return "unresolved";
+    let latest: ExperimentRow | undefined;
+    let latestStart = failureTime;
+    for (const candidate of rows) {
+        if (candidate.id === failure.id || workerAttemptKey(candidate) !== key)
+            continue;
+        const started = attemptStartedAt(candidate);
+        if (started > latestStart) {
+            latest = candidate;
+            latestStart = started;
+        }
+    }
+    if (latest?.status === "success")
+        return "resolved";
+    if (latest?.status === "running")
+        return "running_retry";
+    return "unresolved";
+}
+
+function isAggregateWorkflowFailureDuplicate(row: ExperimentRow, rows: ExperimentRow[]): boolean {
+    return row.type === "workflow"
+        && row.status_source === "aggregate"
+        && rows.some((child) => child.type === "worker_run" && child.parent_id === row.id);
+}
+
+export function classifyRecentFailures(rows: ExperimentRow[], now = Date.now()): Record<RecentFailureRecovery, ExperimentRow[]> {
+    const result: Record<RecentFailureRecovery, ExperimentRow[]> = { unresolved: [], running_retry: [], resolved: [] };
+    for (const row of rows) {
+        if (isAggregateWorkflowFailureDuplicate(row, rows))
+            continue;
+        if (isRecentFailure(row, now))
+            result[recentFailureRecoveryState(row, rows, now)].push(row);
+    }
+    return result;
+}
+
+function failureIdentityCount(rows: ExperimentRow[]): number {
+    return new Set(rows.map((row) => workerAttemptKey(row) || `id:${row.id}`)).size;
+}
+
+function recentFailureAlertMessage(recovery: ReturnType<typeof classifyRecentFailures>, health: HealthPayload): string {
+    const runningIdentities = failureIdentityCount(recovery.running_retry);
+    if (health.status === "error") {
+        const unresolvedIdentities = failureIdentityCount(recovery.unresolved);
+        return `${unresolvedIdentities} unresolved experiment ${unresolvedIdentities === 1 ? "identity" : "identities"} across ${recovery.unresolved.length} recent failed attempts; ${runningIdentities} experiment ${runningIdentities === 1 ? "identity has" : "identities have"} newer running retries`;
+    }
+    if (health.status === "warning" && health.reason === "failed_recent") {
+        return `${runningIdentities} experiment ${runningIdentities === 1 ? "identity has" : "identities have"} newer running retries; no unresolved recent failure remains`;
+    }
+    return "experiment failed within the last 24 hours";
+}
+
+function expectsTrainingProgress(stage: string): boolean {
+    const normalized = String(stage || "").trim().toLowerCase().replace(/-/g, "_");
+    return normalized === "run" || normalized === "train" || normalized === "train_test";
+}
+
+function firstValidTimestamp(...values: string[]): number {
+    for (const value of values) {
+        const timestamp = Date.parse(value || "");
+        if (Number.isFinite(timestamp))
+            return timestamp;
+    }
+    return NaN;
+}
+
+export function isMissingProgress(row: Pick<ExperimentRow, "type" | "status" | "stage" | "progress" | "created" | "started_at" | "updated">, now = Date.now(), timeoutMs = MISSING_PROGRESS_TIMEOUT_MS): boolean {
+    if (row.type !== "worker_run" || row.status !== "running" || !expectsTrainingProgress(row.stage) || row.progress)
+        return false;
+    const started = firstValidTimestamp(row.started_at, row.created, row.updated);
+    if (!Number.isFinite(started))
+        return false;
+    const age = now - started;
+    return age >= 0 && age > timeoutMs;
+}
+
+function alertLevel(status: HealthPayload["status"]): "ok" | "warning" | "error" {
+    return status === "healthy" ? "ok" : status;
+}
+
+export interface HealthPayload {
+    status: "healthy" | "warning" | "error";
+    reason: string;
+}
+
+export function buildHealthSummary(rows: ExperimentRow[], now = Date.now()): HealthPayload {
+    const failures = classifyRecentFailures(rows, now);
+    if (failures.unresolved.length > 0)
+        return { status: "error", reason: "failed_recent" };
+    if (rows.some((row) => row.health_status === "stalled"))
+        return { status: "warning", reason: "stalled" };
+    if (rows.some((row) => isMissingProgress(row, now)))
+        return { status: "warning", reason: "missing_progress" };
+    if (rows.some(row => row.native_state && row.health_status === "warning" || row.native_summary && (row.native_summary.query_unknown_count > 0 || row.native_summary.missing_count > 0 || row.native_summary.recovery_conflict)))
+        return { status: "warning", reason: "native_query_unknown" };
+    if (failures.running_retry.length > 0)
+        return { status: "warning", reason: "failed_recent" };
+    return { status: "healthy", reason: "" };
+}
+
+export function loadActiveExperiments(rows: ExperimentRow[]): ExperimentRow[] {
+    const running = rows.filter((row) => row.status === "running");
+    const workflows = rows.filter((row) => row.type === "workflow" && childRuns(row, rows).some((child) => child.status === "running"));
+    return Array.from(new Map([...running, ...workflows].map((row) => [row.id, row])).values());
+}
+
+function idObject(id: string): {
+    id: string;
+} | undefined {
+    return id ? { id } : undefined;
+}
+
+function buildRuntimeSnapshot(row: ExperimentRow): ExperimentRuntimeSnapshot {
+    return {
+        id: row.id,
+        type: row.type,
+        status: row.status,
+        health_status: row.health_status,
+        worker: row.worker_id,
+        gpu: row.gpu?.id || "",
+        stage: row.stage,
+        plan: row.plan,
+        progress: pickProgress(row.progress, row.updated) || null,
+        updated_at: toIso(row.updated),
+        ...(row.native_state ? { native_state: row.native_state } : {}),
+        ...(row.native_summary ? { native_summary: row.native_summary } : {}),
+    };
+}
+
+function runtimeSnapshotPayload(context: RuntimeSnapshotContext): Record<string, unknown> {
+    const snapshot = buildRuntimeSnapshot(context.row);
+    return {
+        snapshot_id: context.snapshot_id,
+        snapshot_time: context.snapshot_time,
+        id: snapshot.id,
+        type: snapshot.type,
+        status: snapshot.status,
+        health_status: snapshot.health_status,
+        plan: snapshot.plan,
+        worker: idObject(snapshot.worker) || null,
+        gpu: idObject(snapshot.gpu) || null,
+        stage: snapshot.stage,
+        progress: snapshot.progress,
+        updated_at: snapshot.updated_at || "",
+        runtime_version: snapshot.updated_at || "",
+        observation_source: context.row.native_state || context.row.native_summary ? "active_query" : "legacy_or_history",
+        ...(snapshot.native_state ? { native_state: snapshot.native_state } : {}),
+        ...(snapshot.native_summary ? { native_summary: snapshot.native_summary } : {}),
+    };
+}
+
+function staleSeconds(updatedAt: string, now = Date.now()): number | null {
+    const stamp = Date.parse(updatedAt);
+    if (!Number.isFinite(stamp))
+        return null;
+    return Math.max(0, Math.round((now - stamp) / 1000));
+}
+
+function failureRow(row: ExperimentRow): Record<string, unknown> {
+    return keep({ id: row.id, status: row.status, plan: row.plan, worker: row.worker_id, gpu: row.gpu?.id || "", stage: row.stage, health_status: row.health_status, updated_at: row.updated });
+}
+
+function sortByUpdatedDesc(rows: ExperimentRow[]): ExperimentRow[] {
+    const stamp = (row: ExperimentRow) => row.updated || row.finished_at || row.created;
+    return [...rows].sort((left, right) => stamp(right).localeCompare(stamp(left)));
+}
+
+export async function experimentActive(flags: QueryFlags): Promise<number> {
+    const rows = loadActiveExperiments(await loadExperiments());
+    const body = buildActivePayload(rows, flags.full);
+    const snapshot = createCommandSnapshot(toIso(rows.map((row) => row.updated).sort().at(-1) || ""), snapshotSource(rows));
+    const payload = { schema_version: AGENT_SCHEMA_VERSION, snapshot, ...body };
+    writeJson(payload, false);
+    return 0;
+}
+
+function buildActivePayload(rows: ExperimentRow[], full: boolean): Record<string, unknown> {
+    const built = {
+        active_count: rows.length,
+        workflows: rows.filter((row) => row.type === "workflow").map((row) => publicExperiment(row)),
+        runs: rows.filter((row) => row.type === "worker_run").map((row) => publicExperiment(row)),
+    };
+    return full ? built : activeCompactPayload(built);
+}
+
+function activeCompactPayload(full: {
+    active_count: number;
+    workflows: Array<Record<string, unknown>>;
+    runs: Array<Record<string, unknown>>;
+}): Record<string, unknown> {
+    return {
+        active_count: full.active_count,
+        workflows: full.workflows.map((row) => ({ ...keep({ id: row.id, status: row.status, plan: row.plan, worker: pickId(row.worker), tmux: row.tmux }), ...(row.native_summary ? { observation_source: "active_query", native_summary: row.native_summary } : {}) })),
+        runs: full.runs.map((row) => ({ ...keep({ id: row.id, experiment_case: row.experiment_case, stage: row.stage, seed: row.seed }), worker: pickId(row.worker) || null, gpu: pickId(row.gpu) || null, progress: pickProgress(row.progress, String(row.updated || "")) || null, updated_at: toIso(String(row.updated || "")), ...(row.native_state ? { observation_source: "active_query", status: row.status, native_state: row.native_state } : {}) })),
+    };
+}
+
+function keep(source: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(Object.entries(source).filter(([, value]) => value !== undefined && value !== null && value !== ""));
+}
+
+function pickId(value: unknown): {
+    id: string;
+} | undefined {
+    const id = value && typeof value === "object" ? String((value as {
+        id?: unknown;
+    }).id || "") : "";
+    return id ? { id } : undefined;
+}
+
+function pickProgress(value: unknown, updatedAt = ""): Record<string, unknown> | undefined {
+    if (!value || typeof value !== "object")
+        return undefined;
+    const source = value as Record<string, unknown>;
+    const numberOrNull = (key: string) => {
+        const parsed = Number(source[key]);
+        return Number.isFinite(parsed) ? parsed : null;
+    };
+    return {
+        epoch: numberOrNull("epoch"),
+        max_epoch: numberOrNull("max_epoch"),
+        percent: numberOrNull("percent"),
+        loss: numberOrNull("loss"),
+        updated_at: toIso(updatedAt),
+    };
+}
+
+function toIso(value: string): string {
+    const text = String(value || "").trim();
+    if (!text)
+        return "";
+    const parsed = Date.parse(text);
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : text;
+}
+
+export function experimentTreeRoots(rows: ExperimentRow[]): ExperimentRow[] {
+    const workflowIds = new Set(rows.filter((row) => row.type === "workflow").map((row) => row.id));
+    return rows.filter((row) => {
+        if (row.type === "workflow")
+            return true;
+        if (row.type !== "worker_run")
+            return false;
+        return !row.parent_id || !workflowIds.has(row.parent_id);
+    });
+}
+
+export async function experimentTree(flags: QueryFlags): Promise<number> {
+    const rows = await loadExperiments();
+    const roots = experimentTreeRoots(rows);
+    const payload = roots.map((row) => treeNode(row, rows));
+    writeJson(payload, flags.compactJson);
+    return 0;
+}
+
+export async function experimentStatus(id: string, flags: QueryFlags): Promise<number> {
+    const context = await createRuntimeSnapshot(id);
+    const needsLogs = flags.full;
+    const recentLogs = needsLogs ? await recentLogsFor(context.row) : "";
+    const rows = needsLogs ? await loadExperiments() : [];
+    const full = statusPayload(context.row, rows, recentLogs);
+    const payload = !flags.full ? runtimeSnapshotPayload(context) : full;
+    writeJson(payload, false);
+    return 0;
+}
+
+export async function experimentOverview(flags: QueryFlags): Promise<number> {
+    const context = await createExperimentOverviewSnapshot();
+    const rows = context.rows;
+    const now = Date.now();
+    const body = {
+        summary: buildExperimentSummary(rows, now),
+        active: buildActivePayload(loadActiveExperiments(rows), false),
+        alerts: buildExperimentAlerts(rows, flags.full ? 10 : 3, now),
+        health: buildHealthSummary(rows, now),
+    };
+    const snapshot = { ...createCommandSnapshot(toIso(rows.map((row) => row.updated).sort().at(-1) || ""), snapshotSource(rows)), snapshot_time: context.snapshot_time };
+    const payload = { schema_version: AGENT_SCHEMA_VERSION, snapshot, ...body };
+    writeJson(payload, false);
+    return 0;
+}
+
+export async function experimentHealth(flags: QueryFlags): Promise<number> {
+    const rows = await loadExperiments();
+    const now = Date.now();
+    const recovery = classifyRecentFailures(rows, now);
+    const alerts = buildExperimentAlerts(rows, 5, now);
+    const alertFlags = {
+        missing_progress: alerts.missing_progress.length > 0,
+        stalled: alerts.stalled.length > 0,
+        recent_failure: recovery.unresolved.length > 0 || recovery.running_retry.length > 0,
+    };
+    const command = createCommandSnapshot(toIso(rows.map((row) => row.updated).sort().at(-1) || ""), snapshotSource(rows));
+    const judged = buildHealthSummary(rows, now);
+    const body = {
+        health: { ...judged, alert_level: alertLevel(judged.status) },
+        alerts: { ...alertFlags, alert_details: alertDetailsFor(alertFlags, judged, recovery) },
+    };
+    const payload = { schema_version: AGENT_SCHEMA_VERSION, snapshot: command, ...body };
+    writeJson(payload, false);
+    return 0;
+}
+
+export async function experimentInspect(id: string, flags: QueryFlags): Promise<number> {
+    const context = await createRuntimeSnapshot(id);
+    const row = context.row;
+    const records = parseLogRecords(await recentLogsFor(row));
+    const reason = diagnoseReasons(row.status, records.map((item) => item.message));
+    const snapshot = runtimeSnapshotPayload(context);
+    const alerts = buildExperimentAlerts([row]);
+    const alertFlags = {
+        missing_progress: alerts.missing_progress.length > 0,
+        stalled: alerts.stalled.length > 0,
+        recent_failure: alerts.failed_recent.length > 0,
+    };
+    const payload = {
+        schema_version: AGENT_SCHEMA_VERSION,
+        snapshot: { snapshot_id: snapshot.snapshot_id, snapshot_time: snapshot.snapshot_time, runtime_version: snapshot.runtime_version, runtime_source: row.source || "experiment_index" },
+        summary: { id: snapshot.id, type: snapshot.type, status: snapshot.status, health_status: snapshot.health_status, experiment_case: row.experiment_case, seed: row.seed },
+        status: {
+            id: snapshot.id,
+            type: snapshot.type,
+            status: snapshot.status,
+            health_status: snapshot.health_status,
+            plan: snapshot.plan,
+            worker: snapshot.worker,
+            gpu: snapshot.gpu,
+            stage: snapshot.stage,
+            updated_at: snapshot.updated_at,
+            ...(snapshot.native_state ? { native_state: snapshot.native_state } : {}),
+            ...(snapshot.native_summary ? { native_summary: snapshot.native_summary } : {}),
+        },
+        progress: snapshot.progress,
+        health: buildHealthSummary([row]),
+        diagnosis: {
+            reason,
+            suggestions: diagnosisSuggestions(reason),
+            latest_message: findLatestTrainingMessage(records),
+            stale_seconds: staleSeconds(experimentActivityAt(row) || String(snapshot.updated_at || "")),
+            ...(row.status === "failed" ? { failure_context: { last_error: lastErrorMessage(records), stage: snapshot.stage, worker: snapshot.worker } } : {}),
+            ...(flags.full ? { evidence: trimMessages(records.map((item) => item.message), 20, 200) } : {}),
+        },
+        alerts: { ...alertFlags, alert_details: alertDetailsFor(alertFlags) },
+    };
+    writeJson(payload, false);
+    return 0;
+}
+
+export async function experimentMonitor(id: string, flags: QueryFlags): Promise<number> {
+    const emit = async () => {
+        const context = await createRuntimeSnapshot(id);
+        const records = parseLogRecords(await recentLogsFor(context.row));
+        const full = { ...monitorPayload(context.row, ""), recentLogs: trimMessages(records.map((item) => item.message), 20, 200) };
+        const payload = flags.full ? full : monitorCompactPayload(context, records);
+        writeJson(payload, false);
+    };
+    await emit();
+    return 0;
+}
+
+export async function experimentDiagnose(id: string, flags: QueryFlags): Promise<number> {
+    const context = await createRuntimeSnapshot(id);
+    const row = context.row;
+    const records = parseLogRecords(await recentLogsFor(row));
+    const evidence = trimMessages(records.map((item) => item.message), 20, 200);
+    const reason = diagnoseReasons(row.status, records.map((item) => item.message));
+    const snapshot = runtimeSnapshotPayload(context);
+    const base = {
+        ...snapshot,
+        reason,
+        last_stage: snapshot.stage,
+        suggestions: diagnosisSuggestions(reason),
+    };
+    const payload = flags.full ? { ...base, evidence } : base;
+    writeJson(payload, false);
+    return 0;
+}
+
+export async function experimentConfig(id: string, flags: QueryFlags): Promise<number> {
+    const loaded = await loadExperimentDetail(id);
+    const payload = await configPayload(loaded.match);
+    writeJson(payload, flags.compactJson);
+    return 0;
+}
+
+export async function experimentResults(id: string, flags: QueryFlags): Promise<number> {
+    const loaded = await loadExperimentDetail(id);
+    const allResults = await loadResults();
+    let rows = allResults.filter((row) => loaded ? resultMatchesExperiment(row, loaded.match) : row.id === id || row.experimentId === id || row.runKey === id);
+    if (rows.length === 0 && loaded && loaded.match.type === "worker_run" && loaded.match.status === "success") {
+        const config = await configPayload(loaded.match);
+        const experimentName = yamlValue(String(config.yaml || ""), "experiment_name");
+        if (experimentName) {
+            rows = allResults.filter((row) => resultMatchesSuccessfulWorkerIdentity(row, loaded.match, experimentName));
+        }
+    }
+    const metrics = Object.fromEntries(rows.map((row) => [row.id, row.metrics]));
+    const output_paths = Array.from(new Set(rows.flatMap((row) => row.outputFiles))).filter(Boolean);
+    const payload = {
+        experiment_id: loaded?.match.id || id,
+        source: "active_query", current: true,
+        result_ids: rows.map((row) => row.id),
+        metrics,
+        output_paths,
+        reason: rows.length ? "" : "no results recorded for this experiment",
+    };
+    writeJson(payload, flags.compactJson);
+    return 0;
+}
+
+function mergeExperimentRow(byId: Map<string, ExperimentRow>, row: ExperimentRow): void {
+    const prev = byId.get(row.id);
+    if (!prev) {
+        byId.set(row.id, row);
+        return;
+    }
+    const merged: ExperimentRow = { ...prev };
+    const incomingRank = sourceRank(row.source);
+    const currentRank = sourceRank(prev.source);
+    for (const [key, value] of Object.entries(row)) {
+        if (key === "raw" || key === "type" || value === undefined || value === null || value === "")
+            continue;
+        if (key === "status" && value === "unknown" && prev.status && prev.status !== "unknown")
+            continue;
+        if (incomingRank < currentRank && merged[key as keyof ExperimentRow])
+            continue;
+        (merged as unknown as Record<string, unknown>)[key] = value;
+    }
+    if (incomingRank >= currentRank || !prev.type)
+        merged.type = row.type;
+    merged.raw = { ...(prev.raw || {}), ...(row.raw || {}) };
+    merged.lifecycle = lifecycleOf(merged.status);
+    byId.set(row.id, merged);
+}
+
+function sourceRank(source: ExperimentRow["source"]): number {
+    if (source === "runtime_observation")
+        return 3;
+    if (source === "history")
+        return 2;
+    return 1;
+}
+
+export async function loadExperiments(): Promise<ExperimentRow[]> {
+    const byId = new Map<string, ExperimentRow>();
+    for (const row of loadLocalExperiments())
+        mergeExperimentRow(byId, row);
+    const remote = await loadRemoteExperiments();
+    const retained = retainedWorkerRuns(remote.rows, remote.unavailableWorkers);
+    for (const row of remote.rows)
+        if (row.source !== "history")
+            mergeExperimentRow(byId, row);
+    for (const row of loadWorkerRunHistory())
+        mergeExperimentRow(byId, row);
+    for (const row of [...remote.rows, ...retained]) {
+        if (row.source !== "history")
+            continue;
+        if (remote.unavailableWorkers.includes(row.worker_id) && byId.get(row.id)?.source === "history")
+            continue;
+        mergeExperimentRow(byId, row);
+    }
+    await applyRuntimeObservations(byId);
+    applyNativeJobLifecycle(byId, remote.native);
+    const rows = Array.from(byId.values());
+    backfillWorkflowParents(rows);
+    try {
+        rememberWorkerRuns(resolveProjectPath(path.join(...WORKER_TASK_CACHE_DIR)), rows.filter((row) => row.type === "worker_run" && row.source === "history" && Boolean(row.parent_id)));
+    }
+    catch { /* Preserve the existing optional history cache behavior. */ }
+    for (const row of rows)
+        applyWorkflowAggregate(row, rows);
+    for (const row of rows) {
+        row.missing_progress = isMissingProgress(row);
+    }
+    const healthNow = Date.now();
+    for (const row of rows)
+        applyHealth(row, healthNow);
+    return rows.sort((a, b) => String(b.updated).localeCompare(String(a.updated)));
+}
+
+export async function applyRuntimeObservations(byId: Map<string, ExperimentRow>, observed?: RuntimeObservation[]): Promise<void> {
+    observed ??= await observeRunningExperiments();
+    const used = new Set<RuntimeObservation>();
+    const workerRows = Array.from(byId.values()).filter((row) => row.type === "worker_run");
+    const applyMatch = (row: ExperimentRow, item: RuntimeObservation): void => {
+        used.add(item);
+        applyObservationFields(row, item);
+        if (!row.parent_id) {
+            const parent = parentWorkflow(item, byId);
+            if (parent)
+                row.parent_id = parent.id;
+        }
+    };
+    const consumeExactMatch = (row: ExperimentRow, match: RuntimeObservation): void => {
+        if (isTerminalWorkerHistory(row)) {
+            used.add(match);
+            row.raw = { ...(row.raw || {}), runtimeRunId: match.run_id, workerTaskId: row.id };
+        }
+        else {
+            applyMatch(row, match);
+        }
+    };
+    for (const row of workerRows) {
+        const match = observed.find((item) => !used.has(item) && item.worker_task?.id === row.id);
+        if (!match)
+            continue;
+        consumeExactMatch(row, match);
+    }
+    for (const row of workerRows) {
+        const match = observed.find((item) => !used.has(item) && (item.run_id === row.id || (row.run_id && item.run_id === row.run_id)));
+        if (!match)
+            continue;
+        consumeExactMatch(row, match);
+    }
+    const historyRows = workerRows.filter((row) => row.source === "history");
+    for (const row of historyRows.filter(isTerminalWorkerHistory)) {
+        const candidates = observed.filter((item) => !used.has(item) && (!item.worker_task?.id || item.worker_task.id === row.id) && workerHistoryIdentityMatchesRuntime(row, item));
+        if (candidates.length !== 1)
+            continue;
+        const item = candidates[0];
+        if (historyRows.filter((candidate) => workerHistoryIdentityMatchesRuntime(candidate, item)).length !== 1)
+            continue;
+        used.add(item);
+        row.raw = { ...(row.raw || {}), runtimeRunId: item.run_id, workerTaskId: row.id };
+    }
+    for (const row of historyRows.filter((candidate) => candidate.status === "running")) {
+        const candidates = observed.filter((item) => !used.has(item) && (!item.worker_task?.id || item.worker_task.id === row.id) && workerHistoryMatchesRuntime(row, item));
+        if (candidates.length !== 1)
+            continue;
+        const item = candidates[0];
+        if (historyRows.filter((candidate) => workerHistoryIdentityMatchesRuntime(candidate, item)).length !== 1)
+            continue;
+        applyMatch(row, item);
+        row.raw = { ...(row.raw || {}), runtimeRunId: item.run_id, workerTaskId: row.id };
+    }
+    for (const item of observed) {
+        if (used.has(item))
+            continue;
+        const canonicalId = item.worker_task?.id || item.run_id;
+        if (byId.has(canonicalId) || byId.has(item.run_id))
+            continue;
+        const row = runtimeRow(item);
+        const parent = parentWorkflow(item, byId);
+        if (parent)
+            row.parent_id = parent.id;
+        byId.set(row.id, row);
+    }
+}
+
+export function workerHistoryMatchesRuntime(row: ExperimentRow, item: RuntimeObservation): boolean {
+    return row.status === "running" && workerHistoryIdentityMatchesRuntime(row, item);
+}
+
+function isTerminalWorkerHistory(row: ExperimentRow): boolean {
+    return row.type === "worker_run" && row.source === "history" && ["success", "failed", "cancelled"].includes(row.status);
+}
+
+export function workerHistoryIdentityMatchesRuntime(row: ExperimentRow, item: RuntimeObservation): boolean {
+    if (row.type !== "worker_run" || row.source !== "history")
+        return false;
+    const workerId = String(row.worker_id || "").trim();
+    const runtimeWorkerId = String(item.worker?.id || "").trim();
+    if (!workerId || !runtimeWorkerId || workerId !== runtimeWorkerId)
+        return false;
+    const gpuId = String(row.gpu?.id || "").trim();
+    const runtimeGpuId = String(item.gpu?.id || "").trim();
+    if (!gpuId || !runtimeGpuId || gpuId !== runtimeGpuId)
+        return false;
+    for (const [history, runtime] of [
+        [row.plan, item.plan],
+        [row.experiment_case, item.config?.experiment_case],
+        [row.seed, item.config?.seed],
+        [row.tmux, item.tmux?.session],
+    ]) {
+        if (history && runtime && history !== runtime)
+            return false;
+    }
+    const runTimestamp = /^run-(\d{13})$/.exec(String(item.run_id || ""));
+    const historyStart = Date.parse(row.created);
+    const workerStart = Date.parse(item.worker_task?.started_at || "");
+    const runtimeStart = Number.isFinite(workerStart) ? workerStart : (runTimestamp ? Number(runTimestamp[1]) : NaN);
+    return Number.isFinite(historyStart) && Number.isSafeInteger(runtimeStart) && Math.abs(historyStart - runtimeStart) <= 15000;
+}
+
+function loadLocalExperiments(): ExperimentRow[] {
+    const index = readJsonFile<unknown>(resolveProjectPath(EXPERIMENT_INDEX_REL), []);
+    const rows: ExperimentRow[] = [];
+    if (Array.isArray(index)) {
+        for (const item of index) {
+            const record = asRecord(item);
+            const id = firstString(record, ["global_job_id", "run_id", "runId", "id", "experimentId"]) || firstString(record, ["hub_job_dir"]);
+            if (!id)
+                continue;
+            rows.push(blankRuntime({
+                id,
+                ...(record.type === "worker_run" || record.type === "workflow" ? { type: record.type } : {}),
+                name: firstString(record, ["case", "name", "suite"]) || id,
+                status: normalizeStatus(firstString(record, ["status", "state"])),
+                created: firstString(record, ["started_at", "createdAt", "created"]) || "",
+                updated: firstString(record, ["finished_at", "synced_at", "updatedAt", "updated"]) || "",
+                plan: firstString(record, ["plan", "planFile", "plan_file"]),
+                seed: firstString(record, ["seed"]),
+                experiment_case: firstString(record, ["experiment_case", "case"]),
+                stage: firstString(record, ["stage", "stageId", "phase"]),
+                progress: progressValue(record.progress),
+                worker_id: firstString(record, ["worker_id", "workerId"]),
+                gpu: gpuValue(record.gpu),
+                run_id: firstString(record, ["run_id", "runId"]),
+                tmux: firstString(record, ["tmuxSession", "tmux"]),
+                finished_at: firstString(record, ["finished_at", "finishedAt"]),
+                parent_id: firstString(record, ["parent_id", "parentId", "workflowId", "workflow_id"]),
+                raw: record,
+            }));
+        }
+    }
+    return rows;
+}
+
+function loadWorkerRunHistory(): ExperimentRow[] {
+    const runsDir = resolveProjectPath(RUNS_DIR);
+    if (!fileExists(runsDir))
+        return [];
+    const rows: ExperimentRow[] = [];
+    for (const name of fs.readdirSync(runsDir)) {
+        const full = path.join(runsDir, name);
+        try {
+            if (!fs.statSync(full).isDirectory())
+                continue;
+        }
+        catch {
+            continue;
+        }
+        if (!fileExists(path.join(full, "artifact_manifest.json")) && !fileExists(path.join(full, "env_snapshot.json")))
+            continue;
+        const manifest = readJsonFile<Record<string, unknown>>(path.join(full, "artifact_manifest.json"), {});
+        const env = readJsonFile<Record<string, unknown>>(path.join(full, "env_snapshot.json"), {});
+        const record = { ...env, ...manifest };
+        const exitText = manifest.exitCode === undefined || manifest.exitCode === null ? "" : String(manifest.exitCode).trim();
+        rows.push(blankRuntime({
+            id: name,
+            name: firstString(record, ["name"]) || name,
+            status: exitText === "" ? "unknown" : (Number(exitText) === 0 ? "completed" : "failed"),
+            run_id: name,
+            source: "history",
+            plan: firstString(record, ["plan", "planFile", "plan_file"]),
+            worker_id: firstString(record, ["worker_id", "workerId"]),
+            gpu: gpuValue(record.gpu),
+            stage: firstString(record, ["stage", "stageId", "phase"]),
+            experiment_case: firstString(record, ["experiment_case", "case"]),
+            seed: firstString(record, ["seed"]),
+            progress: progressValue(record.progress),
+            created: firstString(env, ["startedAt"]),
+            updated: firstString(env, ["finishedAt"]) || firstString(manifest, ["generatedAt"]),
+            finished_at: firstString(env, ["finishedAt"]),
+            tmux: firstString(record, ["tmuxSession", "tmux"]),
+            raw: { ...record, hub_job_dir: full, outputDir: full, stdout: path.join(full, "stdout.log") },
+        }));
+    }
+    return rows;
+}
+
+async function loadRemoteExperiments(): Promise<{
+    rows: ExperimentRow[];
+    unavailableWorkers: string[];
+    native: unknown;
+}> {
+    const rows: ExperimentRow[] = [];
+    const tasks = await optionalApi("tasks.list");
+    const operations = await optionalApi("operations.list", { limit: 200 });
+    for (const record of collectRecords(tasks, ["experimentTraces", "schedulerStates", "tasks"])) {
+        const id = firstString(record, ["runKey", "run_key", "experimentId", "id", "global_job_id"]);
+        if (!id)
+            continue;
+        rows.push(blankRuntime({
+            id,
+            name: firstString(record, ["name", "case", "experimentName"]) || id,
+            status: normalizeStatus(firstString(record, ["status", "state"])),
+            created: firstString(record, ["startedAt", "createdAt", "started_at"]) || "",
+            updated: firstString(record, ["updatedAt", "finishedAt", "finished_at"]) || "",
+            plan: firstString(record, ["plan", "planFile", "plan_file"]),
+            parent_id: firstString(record, ["parent_id", "parentId", "workflowId", "workflow_id"]),
+            raw: record,
+        }));
+    }
+    for (const record of collectRecords(operations, ["records"])) {
+        const id = firstString(record, ["operationId", "id"]);
+        const action = operationAction(record);
+        if (!id || !experimentLaunchAction(action))
+            continue;
+        rows.push(blankRuntime({
+            id,
+            type: "workflow",
+            source: "history",
+            status_source: "scheduler",
+            name: firstString(record, ["planFile", "planId", "type"]) || id,
+            status: normalizeStatus(firstString(record, ["status", "state"])),
+            created: firstString(record, ["startedAt"]) || "",
+            updated: firstString(record, ["finishedAt", "updatedAt"]) || "",
+            plan: firstString(record, ["planFile", "plan"]),
+            worker_id: firstString(record, ["workerId", "worker_id", "schedulerOwnerWorkerId"]),
+            tmux: firstString(record, ["tmuxSession", "tmux"]),
+            parent_id: firstString(record, ["parent_id", "parentId", "workflowId", "workflow_id"]),
+            raw: { ...record, type: action },
+        }));
+    }
+    const schedulerStates = asRecord(tasks).schedulerStates;
+    if (Array.isArray(schedulerStates)) {
+        for (const item of schedulerStates)
+            rows.push(...workerRunsFromSchedulerState(asRecord(item), rows));
+    }
+    const native = asRecord(tasks);
+    const nativeAuthority = native.lifecycleProtocol === 2 && native.stateSource === "active_query" && Boolean(firstString(native, ["projectId"])) && Array.isArray(native.jobLifecycle);
+    rows.push(...workerRunsFromWorkerTaskSnapshots(native.workerTasks, rows, nativeAuthority));
+    return { rows, unavailableWorkers: unavailableWorkerIds(native.workerTasks), native };
+}
+
+/** Consume the same project-bound merge as the panel. A log/tmux enrichment is
+ * never allowed to overwrite this round's native lifecycle or its durable proof. */
+export function applyNativeJobLifecycle(byId: Map<string, ExperimentRow>, payload: unknown): void {
+    const round = asRecord(payload), projectId = firstString(round, ["projectId"]);
+    if (round.lifecycleProtocol !== 2 || round.stateSource !== "active_query" || !projectId || !Array.isArray(round.jobLifecycle))
+        return;
+    for (const value of round.jobLifecycle) {
+        const fact = asRecord(value), index = fact.index;
+        const workflow = firstString(fact, ["workflowId"]), command = firstString(fact, ["commandId"]), worker = firstString(fact, ["workerId"]);
+        const plan = firstString(fact, ["planFile"]), output = firstString(fact, ["outputDir"]);
+        if (fact.projectId !== projectId || fact.lifecycleProtocol !== 2 || !workflow || !plan || !output || !Number.isInteger(index) || Number(index) < 0
+            || command && !worker || !command && !["pending", "cancelled"].includes(String(fact.status)))
+            continue;
+        const matches = Array.from(byId.values()).filter(row => (row.id === command || row.run_id === command) && command
+            && row.worker_id === worker && (!row.parent_id || row.parent_id === workflow) && (!row.plan || row.plan === plan)
+            && (!row.raw?.outputDir || row.raw.outputDir === output) && (!row.raw?.projectId || row.raw.projectId === projectId)
+            && (!Number.isInteger(row.raw?.index) || row.raw?.index === index) && (!row.raw?.commandId || row.raw.commandId === command)
+            && (!row.raw?.collectionResultCsv || row.raw.collectionResultCsv === firstString(fact, ["collectionResultCsv"])));
+        const previous = matches.length === 1 ? matches[0] : undefined;
+        let id = previous?.id || command || `${workflow}:${index}`;
+        if (!previous && byId.has(id))
+            id = `${workflow}:${index}:${worker}`;
+        const sync = asRecord(fact.artifactSync), proof = asRecord(fact.verifiedCompletion);
+        const resultVerified = fact.resultState === "complete" || (!fact.resultState || fact.resultState === "unknown") && proof.exitCode === 0 && Number.isFinite(Date.parse(firstString(proof, ["verifiedAt"])));
+        const successful = fact.status === "completed" && fact.completionState === "verified" && fact.successful === true && fact.exitCode === 0 && resultVerified;
+        const status = fact.status === "completed" ? (successful ? "success" : "unknown") : publicStatus(String(fact.status || "unknown"));
+        const queryError = firstString(fact, ["queryError", "verificationQueryError", "error"]) || (Array.isArray(fact.observationErrors) ? fact.observationErrors.filter(item => typeof item === "string").join("; ") : "");
+        const native: NativeJobState = {
+            lifecycle_protocol: 2, project_id: projectId, workflow_id: workflow, index: Number(index), command_id: command, worker_id: worker, output_dir: output, result_csv: firstString(fact, ["collectionResultCsv"]),
+            execution_state: firstString(fact, ["executionState"]), result_state: firstString(fact, ["resultState"]), completion_state: firstString(fact, ["completionState"]), successful,
+            ...(Number.isInteger(fact.exitCode) ? { exit_code: Number(fact.exitCode) } : {}),
+            verified_at: successful ? firstString(proof, ["verifiedAt"]) : "", observed_at: firstString(fact, ["lastObservedAt"]), queried_at: firstString(round, ["queriedAt"]),
+            query_state: firstString(fact, ["queryState"]) || (queryError ? "unknown" : !command ? "local_intent" : "unreported"), query_error: queryError,
+            sync_state: firstString(sync, ["state"]), sync_checked_at: firstString(sync, ["checkedAt"]), sync_error: firstString(fact, ["artifactError"]) || firstString(sync, ["error"]),
+            stop_requested: asRecord(fact.stopIntent).commandId === command && asRecord(fact.stopIntent).workerId === worker && Boolean(command),
+            expected_job_count: Number.isInteger(fact.expectedJobCount) && Number(fact.expectedJobCount) > 0 ? Number(fact.expectedJobCount) : 0,
+            recovery_missing_count: Number.isInteger(fact.recoveryMissingCount) && Number(fact.recoveryMissingCount) > 0 ? Number(fact.recoveryMissingCount) : 0,
+            recovery_conflict: Boolean(fact.recoveryConflict),
+        };
+        let parentId = workflow;
+        const parent = byId.get(workflow);
+        if (parent && (parent.type !== "workflow" || parent.plan && parent.plan !== plan))
+            parentId = `${workflow}:native:${projectId}`;
+        if (!byId.has(parentId))
+            byId.set(parentId, blankRuntime({ id: parentId, type: "workflow", name: plan, plan, status: "unknown", source: "runtime_observation", status_source: "native_lifecycle" }));
+        byId.set(id, blankRuntime({ ...previous, id, type: "worker_run", source: "runtime_observation", status_source: "native_lifecycle", status,
+            name: firstString(fact, ["case"]) || previous?.name || command || `${workflow}:${index}`, plan, run_id: command, parent_id: parentId, worker_id: worker,
+            created: firstString(fact, ["enqueuedAt"]) || previous?.created || "", updated: native.observed_at || native.verified_at,
+            finished_at: firstString(fact, ["finishedAt"]) || (successful ? native.verified_at : ""),
+            gpu: fact.gpuId === undefined ? previous?.gpu : { id: String(fact.gpuId), memory: "", utilization: "" },
+            experiment_case: firstString(fact, ["case"]), seed: fact.seed === undefined ? "" : String(fact.seed), native_state: native,
+            raw: { ...(previous?.raw || {}), ...fact },
+        }));
+    }
+}
+
+function unavailableWorkerIds(value: unknown): string[] {
+    if (!Array.isArray(value))
+        return [];
+    return value.flatMap((entry) => {
+        const snapshot = asRecord(entry);
+        const tasks = Array.isArray(snapshot.tasks) ? snapshot.tasks : [];
+        return firstString(snapshot, ["error"]) && tasks.length === 0 ? [firstString(snapshot, ["workerId"])] : [];
+    }).filter(Boolean);
+}
+
+const WORKER_TASK_CACHE_DIR = ["simple_cluster", "tmp", "worker_task_snapshots"];
+
+function retainedWorkerRuns(rows: ExperimentRow[], unavailableWorkers: string[]): ExperimentRow[] {
+    const dir = resolveProjectPath(path.join(...WORKER_TASK_CACHE_DIR));
+    try {
+        rememberWorkerRuns(dir, rows);
+    }
+    catch { /* History cache failure must not break a read-only CLI query. */ }
+    if (!fileExists(dir))
+        return [];
+    const current = new Set(rows.map((row) => row.id));
+    const retained: ExperimentRow[] = [];
+    for (const name of fs.readdirSync(dir)) {
+        if (!name.endsWith(".json"))
+            continue;
+        const cached = readJsonFile<{
+            workerId?: string;
+            rows?: ExperimentRow[];
+        }>(path.join(dir, name), {});
+        for (const item of Array.isArray(cached.rows) ? cached.rows : []) {
+            const row = compactWorkerRun(item);
+            if (!row?.id || current.has(row.id))
+                continue;
+            if (row.status === "running" && Date.now() - Date.parse(row.updated) > 180000)
+                row.status = "unknown";
+            retained.push({ ...row, raw: { snapshotUnavailable: unavailableWorkers.includes(String(cached.workerId || "")) } });
+        }
+    }
+    return retained;
+}
+
+function rememberWorkerRuns(dir: string, rows: ExperimentRow[]): void {
+    const grouped = new Map<string, ExperimentRow[]>();
+    for (const row of rows) {
+        if (row.type !== "worker_run" || !row.worker_id || row.raw?.snapshotUnavailable)
+            continue;
+        const bucket = grouped.get(row.worker_id) || [];
+        bucket.push(row);
+        grouped.set(row.worker_id, bucket);
+    }
+    if (!grouped.size)
+        return;
+    fs.mkdirSync(dir, { recursive: true });
+    for (const [workerId, cached] of grouped) {
+        const safe = workerId.replace(/[^A-Za-z0-9_.-]+/g, "_");
+        const full = path.join(dir, `${safe}.json`);
+        const tmp = `${full}.${process.pid}.tmp`;
+        const previous = readJsonFile<{
+            workerId?: string;
+            rows?: ExperimentRow[];
+        }>(full, {});
+        const merged = new Map<string, ExperimentRow>();
+        if (previous.workerId === workerId)
+            for (const row of Array.isArray(previous.rows) ? previous.rows : []) {
+                const compact = compactWorkerRun(row);
+                if (compact.id)
+                    merged.set(compact.id, compact);
+            }
+        for (const row of cached)
+            merged.set(row.id, compactWorkerRun(row));
+        fs.writeFileSync(tmp, JSON.stringify({ schemaVersion: 1, workerId, rows: [...merged.values()].map(persistedWorkerRun) }), "utf8");
+        fs.renameSync(tmp, full);
+    }
+}
+
+function persistedWorkerRun(row: ExperimentRow): Partial<ExperimentRow> {
+    return {
+        id: row.id, type: "worker_run", status: row.status, plan: row.plan, worker_id: row.worker_id,
+        gpu: row.gpu, stage: row.stage, experiment_case: row.experiment_case, seed: row.seed,
+        progress: row.progress, updated: row.updated, created: row.created, finished_at: row.finished_at,
+        parent_id: row.parent_id, tmux: row.tmux,
+    };
+}
+
+function compactWorkerRun(row: ExperimentRow): ExperimentRow {
+    const source = row.progress && typeof row.progress === "object" ? row.progress as unknown as Record<string, unknown> : {};
+    const progress: Record<string, unknown> = {};
+    for (const key of ["epoch", "max_epoch", "batch", "total_batch", "percent", "loss", "lr", "memory"]) {
+        const value = source[key];
+        if (typeof value === "number" && Number.isFinite(value) || typeof value === "string" && value.length <= 100)
+            progress[key] = value;
+    }
+    return blankRuntime({
+        id: String(row.id || ""), name: String(row.id || ""), type: "worker_run", source: "history",
+        status: String(row.status || "unknown"), plan: String(row.plan || ""), worker_id: String(row.worker_id || ""),
+        gpu: row.gpu?.id ? { id: String(row.gpu.id), memory: "", utilization: "" } : null,
+        stage: String(row.stage || ""), experiment_case: String(row.experiment_case || ""), seed: String(row.seed || ""),
+        progress: Object.keys(progress).length ? progress as unknown as RuntimeObservation["progress"] : null,
+        updated: String(row.updated || ""), created: String(row.created || ""), finished_at: String(row.finished_at || ""),
+        parent_id: String(row.parent_id || ""), tmux: String(row.tmux || ""), run_id: String(row.id || ""),
+    });
+}
+
+function workerRunsFromWorkerTaskSnapshots(value: unknown, workflows: ExperimentRow[], nativeAuthority = false): ExperimentRow[] {
+    if (!Array.isArray(value))
+        return [];
+    const rows: ExperimentRow[] = [];
+    const operations = new Map(workflows.filter((row) => row.type === "workflow").map((row) => [row.id, row]));
+    for (const entry of value) {
+        const snapshot = asRecord(entry);
+        const snapshotError = firstString(snapshot, ["error"]);
+        if (!Array.isArray(snapshot.tasks))
+            continue;
+        if (snapshotError && snapshot.tasks.length === 0)
+            continue;
+        const workerId = firstString(snapshot, ["workerId"]);
+        for (const item of snapshot.tasks) {
+            const task = asRecord(item);
+            if (nativeAuthority && (task.lifecycleProtocol === 2 || asRecord(task.observation).lifecycleProtocol === 2))
+                continue;
+            const operationId = firstString(task, ["operationId"]);
+            const operation = operationId ? operations.get(operationId) : undefined;
+            if (operation) {
+                supplementWorkflow(operation, task, snapshot);
+                continue;
+            }
+            const id = firstString(task, ["runKey", "commandId", "session"]);
+            if (!id)
+                continue;
+            const plan = firstString(task, ["planFile", "plan"]);
+            const rawGpu = task.gpuId ?? task.gpu_id ?? task.gpu;
+            const gpuId = typeof rawGpu === "object" ? firstString(asRecord(rawGpu), ["id"]) : String(rawGpu ?? "").trim();
+            const started = firstString(task, ["startedAt", "started_at"]);
+            const finished = firstString(task, ["finishedAt", "finished_at"]);
+            const status = workerTaskStatus(firstString(task, ["status", "state"]));
+            rows.push(blankRuntime({
+                id,
+                type: "worker_run",
+                source: "history",
+                name: firstString(task, ["experimentCase", "experiment_case", "case"]) || id,
+                status,
+                status_source: "worker",
+                plan,
+                run_id: id,
+                parent_id: firstString(task, ["workflowId", "workflow_id"]) || uniqueWorkflowParent(task, workerId, workflows),
+                worker_id: firstString(task, ["workerId", "worker_id"]) || workerId,
+                gpu: gpuId ? { id: gpuId, memory: "", utilization: "" } : null,
+                tmux: firstString(task, ["tmuxTarget", "tmuxSession", "window"]),
+                stage: firstString(task, ["stage", "phase"]) || (task.debugMode === true ? "debug" : "run"),
+                experiment_case: firstString(task, ["experimentCase", "experiment_case", "case"]),
+                seed: firstString(task, ["seed"]),
+                progress: progressValue(task.progress),
+                created: started,
+                updated: finished || (snapshotError ? "" : firstString(snapshot, ["generatedAt"])) || started,
+                finished_at: finished,
+                raw: { ...task, snapshotError },
+            }));
+        }
+    }
+    return rows;
+}
+
+function supplementWorkflow(row: ExperimentRow, task: Record<string, unknown>, snapshot: Record<string, unknown>): void {
+    row.worker_id ||= firstString(task, ["workerId", "worker_id"]) || firstString(snapshot, ["workerId"]);
+    row.plan ||= firstString(task, ["planFile", "plan"]);
+    row.tmux ||= firstString(task, ["tmuxTarget", "tmuxSession", "window"]);
+    row.raw = { ...(row.raw || {}), workerTask: task };
+}
+
+function uniqueWorkflowParent(task: Record<string, unknown>, workerId: string, workflows: ExperimentRow[]): string {
+    const plan = firstString(task, ["planFile", "plan"]);
+    const startedAt = firstString(task, ["startedAt", "started_at"]);
+    return uniqueWorkflowParentByFields(plan, workerId, startedAt, workflows);
+}
+
+function uniqueWorkflowParentByFields(plan: string, workerId: string, startedAt: string, workflows: ExperimentRow[]): string {
+    const normalizePlan = (value: string): string => String(value || "").trim().replace(/\\/g, "/").replace(/^(?:\.\/)+/, "");
+    const wantedPlan = normalizePlan(plan);
+    const runStart = Date.parse(startedAt);
+    if (!wantedPlan || !Number.isFinite(runStart))
+        return "";
+    const candidates = new Set<string>();
+    for (const row of workflows) {
+        if (row.type !== "workflow" || !row.id || normalizePlan(row.plan) !== wantedPlan)
+            continue;
+        if (workerId && row.worker_id && row.worker_id !== workerId)
+            continue;
+        const workflowStart = Date.parse(row.created);
+        if (!Number.isFinite(workflowStart) || runStart < workflowStart - 5000)
+            continue;
+        if (!["running", "pending", "queued"].includes(row.status)) {
+            if (row.status === "unknown" && !row.finished_at)
+                continue;
+            const workflowEnd = Date.parse(row.finished_at || row.updated);
+            if (!Number.isFinite(workflowEnd) || runStart > workflowEnd + 5000)
+                continue;
+        }
+        candidates.add(row.id);
+    }
+    return candidates.size === 1 ? candidates.values().next().value || "" : "";
+}
+
+export function backfillWorkflowParents(rows: ExperimentRow[]): void {
+    const workflows = rows.filter((row) => row.type === "workflow");
+    for (const row of rows) {
+        if (row.type !== "worker_run" || row.parent_id)
+            continue;
+        const parent = uniqueWorkflowParentByFields(row.plan, row.worker_id, row.started_at || row.created, workflows);
+        if (parent)
+            row.parent_id = parent;
+    }
+}
+
+const EXPERIMENT_LAUNCH_ACTIONS = new Set(["run-plan", "workflow-run", "reproduce-plan"]);
+
+function operationAction(record: Record<string, unknown>): string {
+    return firstString(record, ["type", "action"]).trim().toLowerCase();
+}
+
+function experimentLaunchAction(action: string): boolean {
+    return EXPERIMENT_LAUNCH_ACTIONS.has(action);
+}
+
+function workerTaskStatus(value: string): PublicStatus {
+    const status = value.trim().toLowerCase();
+    if (["running", "pending", "queued", "starting"].includes(status))
+        return "running";
+    if (["completed", "success", "succeeded", "normal_completed"].includes(status))
+        return "success";
+    if (["failed", "error"].includes(status))
+        return "failed";
+    if (["stopped", "cancelled", "interrupted", "manual_interrupted_completed"].includes(status))
+        return "cancelled";
+    return "unknown";
+}
+
+function workerRunsFromSchedulerState(state: Record<string, unknown>, workflows: ExperimentRow[]): ExperimentRow[] {
+    const plan = firstString(state, ["planFile", "plan_file", "plan"]);
+    const schedulerSession = firstString(state, ["scheduler_session", "schedulerSession"]);
+    const exactParents = workflows.filter((row) => row.type === "workflow" && schedulerSession && row.tmux === schedulerSession);
+    const planParents = workflows.filter((row) => row.type === "workflow" && plan && row.plan === plan);
+    const parentId = firstString(state, ["workflowId", "workflow_id", "operationId", "operation_id"])
+        || (exactParents.length === 1 ? exactParents[0].id : planParents.length === 1 ? planParents[0].id : "");
+    const buckets: Array<[
+        string,
+        string
+    ]> = [
+        ["running_experiments", "running"],
+        ["testing_experiments", "running"],
+        ["completed_experiments", "success"],
+        ["failed_experiments", "failed"],
+        ["stopped_experiments", "cancelled"],
+    ];
+    const rows: ExperimentRow[] = [];
+    for (const [bucket, status] of buckets) {
+        const entries = state[bucket];
+        if (!Array.isArray(entries))
+            continue;
+        for (const value of entries) {
+            const record = asRecord(value);
+            const id = firstString(record, ["session", "runKey", "run_key", "commandId"]);
+            if (!id)
+                continue;
+            const gpuId = firstString(record, ["gpu_id", "gpuId"]);
+            const stopped = Boolean(record.manualInterrupted || record.manualStopType || record.stop_reason);
+            const rowStatus = stopped ? "cancelled" : status;
+            rows.push(blankRuntime({
+                id,
+                type: "worker_run",
+                source: "history",
+                name: firstString(record, ["experiment_case", "case"]) || id,
+                status: rowStatus,
+                status_source: "scheduler",
+                plan: firstString(record, ["planFile", "plan_file", "plan"]) || plan,
+                run_id: id,
+                parent_id: firstString(record, ["parent_id", "workflowId", "workflow_id"]) || parentId,
+                worker_id: firstString(record, ["worker_id", "workerId"]),
+                gpu: gpuId ? { id: gpuId, memory: "", utilization: "" } : null,
+                tmux: firstString(record, ["tmuxTarget", "tmuxSession", "window"]),
+                stage: firstString(record, ["stage", "phase"]) || (bucket === "testing_experiments" ? "test" : "run"),
+                experiment_case: firstString(record, ["experiment_case", "case"]),
+                seed: firstString(record, ["seed"]),
+                progress: progressValue(record.progress),
+                created: firstString(record, ["started_at", "startedAt"]),
+                updated: firstString(record, ["finished_at", "finishedAt", "updated_at", "updatedAt"])
+                    || firstString(state, ["updated_at", "generatedAt"]),
+                finished_at: firstString(record, ["finished_at", "finishedAt"]),
+                raw: record,
+            }));
+        }
+    }
+    return rows;
+}
+
+function progressValue(value: unknown): RuntimeObservation["progress"] {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        return null;
+    return value as RuntimeObservation["progress"];
+}
+
+function gpuValue(value: unknown): RuntimeObservation["gpu"] | null {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        return null;
+    const id = String((value as {
+        id?: unknown;
+    }).id || "");
+    return id ? { id, memory: "", utilization: "" } : null;
+}
+
+function blankRuntime(row: Partial<ExperimentRow> & Pick<ExperimentRow, "id" | "name" | "status">): ExperimentRow {
+    const created = row.created || "";
+    return {
+        type: experimentKind(row.id, row),
+        plan: "",
+        run_id: "",
+        worker_id: "",
+        host: "",
+        tmux: "",
+        stage: "",
+        progress: null,
+        gpu: null,
+        parent_id: "",
+        created,
+        updated: "",
+        started_at: created,
+        finished_at: "",
+        health_status: "unknown",
+        health_reason: "",
+        status_source: "unknown",
+        missing_progress: false,
+        experiment_case: "",
+        model: "",
+        dataset: "",
+        seed: "",
+        source: "experiment_index",
+        ...row,
+        status: publicStatus(row.status),
+        lifecycle: lifecycleOf(publicStatus(row.status)),
+    };
+}
+
+function runtimeFields(item: RuntimeObservation, row: ExperimentRow): Partial<ExperimentRow> {
+    return {
+        status: "running",
+        status_source: "worker",
+        source: "runtime_observation",
+        name: row.name || item.plan,
+        plan: item.plan || row.plan,
+        run_id: item.run_id,
+        worker_id: item.worker.id,
+        host: item.worker.host,
+        tmux: item.tmux.window,
+        stage: item.stage || row.stage,
+        progress: item.progress,
+        gpu: item.gpu,
+        experiment_case: item.config.experiment_case || row.experiment_case,
+        seed: item.config.seed || row.seed,
+        model: item.config.model || row.model,
+        dataset: item.config.dataset || row.dataset,
+        created: row.created || item.worker_task?.started_at || "",
+        started_at: row.started_at || row.created || item.worker_task?.started_at || "",
+        updated: item.updated_at,
+        raw: {
+            ...(row.raw || {}),
+            runtimeLog: item.log,
+            tmux: item.tmux,
+            worker: item.worker,
+            config_path: item.config.path || row.raw?.config_path || "",
+            runtimeRunId: item.run_id,
+            ...(item.worker_task?.id ? { workerTaskId: item.worker_task.id } : {}),
+            runtimeActivityAt: item.worker_task?.log_updated_at || firstString(row.raw || {}, ["runtimeActivityAt"]) || "",
+        },
+    };
+}
+
+export function applyObservationFields(row: ExperimentRow, item: RuntimeObservation): ExperimentRow {
+    Object.assign(row, runtimeFields(item, row));
+    row.lifecycle = lifecycleOf(row.status);
+    return row;
+}
+
+export function runtimeRow(item: RuntimeObservation): ExperimentRow {
+    const canonicalId = item.worker_task?.id || item.run_id;
+    const base = blankRuntime({ id: canonicalId, name: item.plan || canonicalId, status: "running", type: "worker_run" });
+    const fields = runtimeFields(item, base);
+    return blankRuntime({
+        ...base,
+        ...fields,
+        id: canonicalId,
+        type: "worker_run",
+        name: String(fields.name || canonicalId),
+        status: "running",
+    });
+}
+
+function publicExperiment(row: ExperimentRow, children: ExperimentRow[] = []): Record<string, unknown> {
+    const started = row.started_at || row.created || "";
+    const finished = row.finished_at || (["success", "failed", "cancelled"].includes(row.status) ? row.updated : "");
+    const linked = children.length ? children : [];
+    return {
+        id: row.id,
+        type: row.type,
+        parent_id: row.parent_id,
+        children: linked.map((child) => publicExperiment(child)),
+        children_count: row.type === "workflow" ? linked.length : undefined,
+        name: row.name,
+        plan: row.plan,
+        created_at: row.created,
+        started_at: started,
+        finished_at: finished,
+        duration: durationSeconds(started, finished),
+        status: row.status,
+        status_source: row.status_source || "unknown",
+        observation_source: row.native_state || row.native_summary ? "active_query" : "legacy_or_history",
+        aggregate_status: row.type === "workflow" ? aggregateStatus(linked) : undefined,
+        health_status: row.health_status,
+        health_reason: row.health_reason,
+        run_id: row.run_id,
+        worker: { id: row.worker_id, host: row.host },
+        worker_id: row.worker_id,
+        host: row.host,
+        tmux: row.tmux,
+        stage: row.stage,
+        experiment_case: row.experiment_case,
+        seed: row.seed,
+        model: row.model,
+        dataset: row.dataset,
+        progress: row.progress,
+        gpu: row.gpu,
+        created: row.created,
+        updated: row.updated,
+        ...(row.native_state ? { native_state: row.native_state } : {}),
+        ...(row.native_summary ? { native_summary: row.native_summary } : {}),
+    };
+}
+
+function experimentKind(id: string, row: Partial<ExperimentRow>): ExperimentKind {
+    if (row.type === "workflow" || row.type === "worker_run")
+        return row.type;
+    if (/^(?:run-\d+|(?:run|tst|dbg)\d+-\d+-\d+)$/.test(id)
+        || /^(?:run-\d+|(?:run|tst|dbg)\d+-\d+-\d+)$/.test(String(row.run_id || "")))
+        return "worker_run";
+    if (row.progress || row.raw?.runtimeLog)
+        return "worker_run";
+    const source = operationAction(row.raw || {});
+    if (experimentLaunchAction(source))
+        return "workflow";
+    if (/^(?:run|tst|dbg)\d+-/.test(id))
+        return "worker_run";
+    return "workflow";
+}
+
+function parentWorkflow(item: RuntimeObservation, rows: Map<string, ExperimentRow>): ExperimentRow | undefined {
+    const candidates = Array.from(rows.values()).filter((row) => row.type === "workflow" && row.plan === item.plan);
+    return candidates.find((row) => !["success", "failed", "cancelled"].includes(row.status));
+}
+
+function childRuns(parent: ExperimentRow, rows: ExperimentRow[]): ExperimentRow[] {
+    const children = rows.filter((row) => row.type === "worker_run" && row.parent_id === parent.id);
+    const native = children.filter(row => row.native_state);
+    return native.length ? native : children;
+}
+
+function aggregateStatus(children: ExperimentRow[]): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const child of children)
+        counts[child.status] = (counts[child.status] || 0) + 1;
+    return { running: counts.running || 0, failed: counts.failed || 0, success: counts.success || 0, ...counts };
+}
+
+function applyWorkflowAggregate(row: ExperimentRow, rows: ExperimentRow[]): void {
+    if (row.type !== "workflow")
+        return;
+    const children = childRuns(row, rows);
+    if (!children.length)
+        return;
+    const native = children.filter(child => child.native_state);
+    if (native.length) {
+        const indices = new Set(native.map(child => child.native_state!.index));
+        const expected = Math.max(indices.size, ...native.map(child => child.native_state!.expected_job_count));
+        const missing = Math.max(expected - indices.size, ...native.map(child => child.native_state!.recovery_missing_count));
+        const conflict = indices.size !== native.length || native.some(child => child.native_state!.recovery_conflict);
+        row.native_summary = { workflow_id: native[0].native_state!.workflow_id, expected_count: expected, observed_count: indices.size,
+            verified_count: native.filter(child => child.native_state!.successful).length, missing_count: missing,
+            query_unknown_count: native.filter(child => ["unknown", "not_queried", "unreported"].includes(child.native_state!.query_state)).length, recovery_conflict: conflict };
+        row.status = missing || conflict ? "unknown" : native.some(child => child.status === "failed") ? "failed"
+            : native.some(child => child.status === "unknown") ? "unknown" : native.some(child => child.status === "running") ? "running"
+                : native.some(child => child.status === "queued") ? "queued" : native.some(child => child.status === "pending") ? "pending"
+                    : native.every(child => child.status === "success") ? "success" : native.every(child => child.status === "cancelled") ? "cancelled" : "unknown";
+        row.status_source = "native_lifecycle";
+        row.source = "runtime_observation";
+        row.lifecycle = lifecycleOf(row.status);
+        row.updated = native.map(child => child.updated).filter(Boolean).sort().at(-1) || "";
+        row.finished_at = row.status === "success" ? native.map(child => child.finished_at).filter(Boolean).sort().at(-1) || "" : "";
+        return;
+    }
+    if (children.some((child) => child.status === "failed"))
+        row.status = "failed";
+    else if (children.some((child) => child.status === "running"))
+        row.status = "running";
+    else if (children.every((child) => child.status === "success"))
+        row.status = "success";
+    row.status_source = "aggregate";
+    const newest = children.map((child) => child.updated).filter(Boolean).sort().at(-1) || "";
+    if (newest && newest > row.updated)
+        row.updated = newest;
+}
+
+function collectRecords(value: unknown, keys: string[]): Array<Record<string, unknown>> {
+    if (!value)
+        return [];
+    if (Array.isArray(value))
+        return value.map(asRecord);
+    const record = asRecord(value);
+    const out: Array<Record<string, unknown>> = [];
+    for (const key of keys) {
+        const item = record[key];
+        if (Array.isArray(item))
+            out.push(...item.map(asRecord));
+        else if (item && typeof item === "object") {
+            for (const [id, nested] of Object.entries(item as Record<string, unknown>)) {
+                out.push({ id, ...asRecord(nested) });
+            }
+        }
+    }
+    if (record.operations && typeof record.operations === "object" && !Array.isArray(record.operations)) {
+        for (const [id, nested] of Object.entries(record.operations as Record<string, unknown>)) {
+            out.push({ operationId: id, ...asRecord(nested) });
+        }
+    }
+    return out;
+}
+
+function extractLiveLog(live: unknown, id: string): string {
+    if (!live)
+        return "";
+    const record = asRecord(live);
+    const output = asRecord(record.output);
+    const declared = firstString(record, ["runKey", "run_key"]) || firstString(output, ["runKey", "run_key"]);
+    if (typeof record.text === "string" && declared === id)
+        return record.text;
+    const rows = Array.isArray(record.rows) ? record.rows : Array.isArray(record.logs) ? record.logs : [];
+    const matches = rows.map(asRecord).filter((row) => liveRowMatches(row, id));
+    if (matches.length !== 1)
+        return "";
+    return firstString(matches[0], ["text", "tail", "output", "log"]);
+}
+
+function liveRowMatches(row: Record<string, unknown>, id: string): boolean {
+    const key = firstString(row, ["runKey", "run_key", "id", "key"]);
+    return key === id;
+}
+
+export function lifecycleOf(status: string): ExperimentRow["lifecycle"] {
+    if (status === "running")
+        return "running";
+    if (status === "failed")
+        return "failed";
+    if (status === "cancelled")
+        return "cancelled";
+    if (status === "success")
+        return "finished";
+    return "";
+}
+
+function publicStatus(value: string): PublicStatus {
+    const text = String(value || "").trim().toLowerCase();
+    if (!text)
+        return "unknown";
+    if (["fail", "failed", "error", "parse_failed", "completed_with_errors"].includes(text))
+        return "failed";
+    if (["run", "running", "active"].includes(text))
+        return "running";
+    if (["complete", "completed", "succeeded", "success", "archived", "normal_completed"].includes(text))
+        return "success";
+    if (["queue", "queued", "waiting", "waiting_confirmation"].includes(text))
+        return "queued";
+    if (["pending", "created", "planned"].includes(text))
+        return "pending";
+    if (["cancel", "cancelled", "canceled", "stopped", "interrupted", "manual_interrupted_completed"].includes(text))
+        return "cancelled";
+    if (["pending", "queued", "running", "success", "failed", "cancelled", "unknown"].includes(text))
+        return text as PublicStatus;
+    return "unknown";
+}
+
+function normalizeStatus(value: string): string {
+    return publicStatus(value);
+}
+
+function firstString(record: Record<string, unknown>, keys: string[]): string {
+    for (const key of keys) {
+        const value = record[key];
+        if (value === null || value === undefined)
+            continue;
+        const text = String(value).trim();
+        if (text)
+            return text;
+    }
+    return "";
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+const DIAGNOSIS_PATTERNS: Array<{
+    reason: string;
+    pattern: RegExp;
+}> = [
+    { reason: "missing dependency", pattern: /ModuleNotFoundError|No module named|ImportError:.*(?:required|install)|cannot import name/i },
+    { reason: "cuda out of memory", pattern: /cuda out of memory|out of memory|oom/i },
+    { reason: "missing file", pattern: /no such file|file not found|filenotfound|missing file/i },
+    { reason: "config error", pattern: /config(?:uration)? error|invalid config|yaml(?:.+)error/i },
+    { reason: "nan loss", pattern: /\bnan\b|loss[:=]\s*nan/i },
+];
+
+function diagnosisSuggestions(reasons: string[]): string[] {
+    const messages: Record<string, string> = {
+        "missing dependency": "verify the configured conda environment and install the missing project dependency before retrying",
+        "cuda out of memory": "reduce GPU memory usage or batch size before retrying",
+        "missing file": "verify the referenced file paths on the target worker",
+        "config error": "validate the plan and experiment configuration before retrying",
+        "nan loss": "inspect numerical stability, data values, and optimization settings before retrying",
+    };
+    return [...new Set(reasons.map((reason) => messages[reason]).filter((message): message is string => Boolean(message)))].slice(0, 5).map((message) => message.slice(0, 200));
+}
+
+async function resolveExperimentReference(value: string): Promise<ExperimentRow> {
+    const rows = await loadExperiments();
+    const wanted = String(value || "").trim();
+    const best = pickExperiment(rows, wanted);
+    if (best)
+        return best;
+    throw businessError(`experiment not found: ${wanted}`, JSON.stringify({
+        requested: wanted,
+        searched_sources: ["current_rows", "runtime_history", "experiment_index", "runtime_observation"],
+        candidates: rows.slice(0, 5).map((row) => row.id),
+    }));
+}
+
+export function pickExperiment(rows: ExperimentRow[], wanted: string): ExperimentRow | undefined {
+    const exact = rows.filter(row => row.id === wanted);
+    const matches = exact.length ? exact : rows.filter(row => referenceRank(row, wanted) > 0);
+    if (matches.length > 1)
+        throw businessError("EXPERIMENT_SELECTION_AMBIGUOUS：存在多个匹配的实验，请使用精确实验 ID。", JSON.stringify({ requested: wanted, candidates: matches.map(row => row.id) }));
+    return matches[0];
+}
+
+function referenceRank(row: ExperimentRow, wanted: string): number {
+    if (!wanted)
+        return 0;
+    if (row.id === wanted)
+        return 1;
+    if (row.run_id === wanted)
+        return 2;
+    if (String((row.raw || {}).runtimeRunId || "") === wanted)
+        return 3;
+    if (row.name === wanted)
+        return 4;
+    if (String((row.raw || {}).id || "") === wanted)
+        return 5;
+    if (row.tmux === wanted)
+        return 6;
+    return 0;
+}
+
+async function recentLogsFor(match: ExperimentRow): Promise<string> {
+    const raw = match.raw || {};
+    if (String(raw.runtimeLog || "").trim())
+        return String(raw.runtimeLog);
+    const logPath = firstString(raw, ["hub_console_log", "log_path", "logPath", "stdout"])
+        || firstString(asRecord(raw.runtimeDiagnostics || asRecord(raw.observation).runtimeDiagnostics), ["logPath"]);
+    if (logPath && match.worker_id) {
+        const remote = await optionalApi("live.output", { runKey: logPath, workerId: match.worker_id });
+        const remoteText = extractLiveLog(remote, logPath);
+        if (remoteText)
+            return remoteText;
+    }
+    for (const candidate of new Set([match.run_id, match.id].filter(Boolean))) {
+        const live = await optionalApi("live.output", { runKey: candidate, workerId: match.worker_id });
+        const liveText = extractLiveLog(live, candidate);
+        if (liveText)
+            return liveText;
+    }
+    if (logPath) {
+        const absolutePath = path.isAbsolute(logPath) ? logPath : resolveProjectPath(logPath);
+        if (fileExists(absolutePath))
+            return readTail(absolutePath, 200);
+    }
+    return "";
+}
+
+async function loadExperimentDetail(id: string): Promise<{
+    match: ExperimentRow;
+    rows: ExperimentRow[];
+    recentLogs: string;
+}> {
+    const rows = await loadExperiments();
+    const match = pickExperiment(rows, id);
+    if (!match)
+        throw businessError(`experiment not found: ${id}`);
+    return { match, rows, recentLogs: await recentLogsFor(match) };
+}
+
+function statusPayload(match: ExperimentRow, rows: ExperimentRow[], recentLogs: string): Record<string, unknown> {
+    const raw = match.raw || {};
+    const outputDir = firstString(raw, ["hub_job_dir", "outputDir", "output_dir", "runDir", "native_job_dir", "worker_job_dir"]);
+    const children = match.type === "workflow" ? childRuns(match, rows) : [];
+    return {
+        ...publicExperiment(match, children),
+        worker: { id: match.worker_id, host: match.host },
+        stage: match.stage || firstString(raw, ["stage", "stageId", "phase", "completion_type"]) || match.status,
+        node: match.worker_id || firstString(raw, ["worker_host", "worker_id", "workerId", "server", "node"]) || "",
+        recentLogs,
+        error: firstString(raw, ["error", "sync_error", "message"]) || "",
+        outputDir: outputDir || "",
+        updated_at: match.updated,
+    };
+}
+
+function monitorPayload(match: ExperimentRow, recentLogs: string): Record<string, unknown> {
+    const progress = match.progress;
+    return {
+        id: match.id,
+        status: match.status,
+        stage: match.stage,
+        epoch: progress?.epoch ?? null,
+        batch: progress?.batch ?? null,
+        loss: progress?.loss ?? null,
+        gpu: match.gpu,
+        recentLogs,
+        updated_at: match.updated,
+    };
+}
+
+function monitorCompactPayload(context: RuntimeSnapshotContext, records: LogRecord[]): Record<string, unknown> {
+    const snapshot = runtimeSnapshotPayload(context);
+    return {
+        ...snapshot,
+        latest_message: findLatestTrainingMessage(records),
+    };
+}
+
+function lastErrorMessage(records: LogRecord[]): string {
+    const error = [...records].reverse().find((row) => row.level === "ERROR" || /error|exception|traceback/i.test(row.message));
+    return (error?.message || "").slice(0, 300);
+}
+
+export function findLatestTrainingMessage(records: LogRecord[]): string {
+    const scored = extractTrainingMessages(records).map((message) => ({ message, score: scoreTrainingMessage(message) }));
+    const best = scored.reduce<{
+        message: string;
+        score: number;
+    } | undefined>((top, item) => top && top.score > item.score ? top : item, undefined);
+    return (best && best.score > 0 ? best.message : "").slice(0, 300);
+}
+
+export function extractTrainingMessages(records: LogRecord[]): string[] {
+    return records
+        .map((row) => row.message)
+        .filter((message) => !/yaml|config|python\s+-m|encoder|dataset|cut_lr:|gate_l2:/i.test(message))
+        .filter((message) => isValidTrainingMessage(message))
+        .filter((message) => /loss\s+[0-9]|epoch\s+[0-9]|batch\s+[0-9]/i.test(message));
+}
+
+export function isValidTrainingMessage(message: string): boolean {
+    const text = String(message || "");
+    if (!text.trim())
+        return false;
+    if (/loss\s+(--|null|nan)/i.test(text))
+        return false;
+    if (/(^|[^A-Za-z])N\/A([^A-Za-z]|$)/i.test(text))
+        return false;
+    return true;
+}
+
+export function scoreTrainingMessage(message: string): number {
+    const text = String(message || "");
+    let score = 0;
+    if (/loss/i.test(text))
+        score += 10;
+    if (/epoch/i.test(text))
+        score += 8;
+    if (/batch/i.test(text))
+        score += 8;
+    if (/auc/i.test(text))
+        score += 6;
+    if (/accuracy/i.test(text))
+        score += 6;
+    if (/progress/i.test(text))
+        score += 5;
+    if (/\blr\b/i.test(text))
+        score += 2;
+    if (/显存/.test(text))
+        score += 1;
+    if (/\bdice\b/i.test(text))
+        score += 6;
+    if (/yaml|config|python\s+-m|encoder|dataset/i.test(text))
+        score -= 20;
+    return score;
+}
+
+export function trimMessages(messages: string[], limit: number, maxLength: number): string[] {
+    return messages.filter(Boolean).slice(-limit).map((message) => message.slice(0, maxLength));
+}
+
+function treeNode(row: ExperimentRow, rows: ExperimentRow[]): Record<string, unknown> {
+    const children = row.type === "workflow" ? childRuns(row, rows) : [];
+    return {
+        id: row.id,
+        type: row.type,
+        stage: row.stage,
+        status: row.status,
+        status_source: row.status_source || "unknown",
+        children_count: row.type === "workflow" ? children.length : undefined,
+        aggregate_status: row.type === "workflow" ? aggregateStatus(children) : undefined,
+        children: children.map((child) => treeNode(child, [])),
+    };
+}
+
+export function diagnoseReasons(status: string, evidence: string[]): string[] {
+    if (status !== "failed")
+        return [];
+    const found = DIAGNOSIS_PATTERNS.filter((item) => evidence.some((line) => item.pattern.test(line))).map((item) => item.reason);
+    return found.length ? found : ["unknown"];
+}
+
+export function parseLogRecords(text: string): LogRecord[] {
+    return String(text || "").replace(/\r\n/g, "\n").split("\n").filter((line) => line.trim()).map((line) => {
+        const timestamp = line.match(/^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)/)?.[1] || "";
+        const rawLevel = line.match(/\b(ERROR|WARNING|WARN|INFO|DEBUG|CRITICAL)\b/i)?.[1].toUpperCase() || "";
+        const level = rawLevel === "WARN" ? "WARNING" : rawLevel;
+        return { timestamp, level, message: line.trim() };
+    });
+}
+
+export async function logRecordsForExperiment(id: string): Promise<LogRecord[] | null> {
+    const rows = await loadExperiments();
+    const match = pickExperiment(rows, id);
+    if (!match)
+        return null;
+    const raw = match.raw || {};
+    const logPath = firstString(raw, ["hub_console_log", "log_path", "logPath", "stdout"])
+        || firstString(asRecord(raw.runtimeDiagnostics || asRecord(raw.observation).runtimeDiagnostics), ["logPath"]);
+    if (match.worker_id) {
+        const runKey = logPath || match.run_id || match.id;
+        return parseLogRecords(extractLiveLog(await callApi("live.output", { runKey, workerId: match.worker_id }), runKey));
+    }
+    if (logPath) {
+        const absolute = path.isAbsolute(logPath) ? logPath : resolveProjectPath(logPath);
+        if (fileExists(absolute))
+            return parseLogRecords(readTextFile(absolute));
+    }
+    return parseLogRecords(await recentLogsFor(match));
+}
+
+async function configPayload(match: ExperimentRow): Promise<Record<string, unknown>> {
+    const raw = match.raw || {};
+    const hintedConfigPath = firstString(raw, ["config_path", "configPath", "config", "base_config", "baseConfig"]);
+    let configPath = hintedConfigPath;
+    let yaml = "";
+    if (match.type === "worker_run" && match.worker_id) {
+        const remote = await readWorkerTaskConfig(match.worker_id, match.id, hintedConfigPath, firstString(raw, ["logPath", "log_path"]));
+        if (remote.config_path)
+            configPath = remote.config_path;
+        if (remote.yaml)
+            yaml = remote.yaml;
+    }
+    if (!yaml && hintedConfigPath) {
+        const absolute = resolveProjectPath(hintedConfigPath);
+        if (fileExists(absolute))
+            yaml = readTextFile(absolute);
+    }
+    if (!configPath)
+        configPath = match.plan;
+    if (!yaml && configPath === match.plan && configPath) {
+        const absolute = resolveProjectPath(configPath);
+        if (fileExists(absolute))
+            yaml = readTextFile(absolute);
+    }
+    const summary = yaml ? parsePlanSummary(yaml) : null;
+    const maxEpoch = trainingMaxEpochFromYaml(yaml);
+    return {
+        id: match.id,
+        config_path: configPath,
+        yaml,
+        experiment_case: match.experiment_case || firstString(raw, ["case", "experiment_case"]) || yamlValue(yaml, "case"),
+        seed: match.seed || firstString(raw, ["seed"]) || summary?.seeds?.[0] || "",
+        dataset: match.dataset || firstString(raw, ["dataset", "data"]) || nestedYamlValue(yaml, "data", "dataset") || yamlValue(yaml, "dataset"),
+        model: match.model || firstString(raw, ["model"]) || nestedYamlValue(yaml, "model", "name") || nestedYamlValue(yaml, "model", "joint_encoder") || yamlValue(yaml, "model"),
+        optimizer: firstString(raw, ["optimizer"]) || nestedYamlValue(yaml, "optimizer", "name") || yamlValue(yaml, "optimizer"),
+        batch_size: nestedYamlValue(yaml, "train", "batch_size") || firstString(raw, ["batch_size", "batchSize"]) || yamlValue(yaml, "batch_size"),
+        epoch: maxEpoch !== null ? String(maxEpoch) : firstString(raw, ["epoch", "epochs", "max_epoch"]) || yamlValue(yaml, "epoch") || yamlValue(yaml, "epochs"),
+    };
+}
+
+function resultMatchesExperiment(result: ResultRow, match: ExperimentRow): boolean {
+    const ids = new Set([match.id, match.run_id, match.name].filter(Boolean));
+    return ids.has(result.id) || ids.has(result.experimentId) || ids.has(result.runKey);
+}
+
+function normalizedSeed(value: unknown): string {
+    const text = String(value ?? "").trim();
+    if (!text)
+        return "";
+    const numeric = Number(text);
+    return Number.isFinite(numeric) ? String(numeric) : text;
+}
+
+function resultMatchesSuccessfulWorkerIdentity(result: ResultRow, match: ExperimentRow, experimentName: string): boolean {
+    if (!experimentName || result.experimentId !== experimentName)
+        return false;
+    const record = asRecord(result.record);
+    const provenance = asRecord(record.provenance);
+    const dimensions = asRecord(record.dimensions);
+    const resultPlan = firstString(record, ["planFile", "plan"]) || firstString(provenance, ["planFile", "plan"]);
+    if (resultPlan && match.plan && !planMatches(resultPlan, match.plan))
+        return false;
+    const resultWorker = firstString(record, ["workerId", "worker_id", "resultOwnerWorkerId"])
+        || firstString(provenance, ["workerId", "worker_id", "resultOwnerWorkerId"]);
+    if (resultWorker && match.worker_id && resultWorker !== match.worker_id)
+        return false;
+    const resultCase = firstString(dimensions, ["case"]);
+    if (resultCase && resultCase !== match.experiment_case)
+        return false;
+    const resultSeed = normalizedSeed(dimensions.seed);
+    if (resultSeed && resultSeed !== normalizedSeed(match.seed))
+        return false;
+    return true;
+}
+
+function planMatches(value: string, needle: string): boolean {
+    const left = value.replace(/\\/g, "/");
+    return Boolean(left) && (left === needle || left.endsWith(`/${needle}`) || needle.endsWith(`/${left}`) || path.basename(left) === path.basename(needle));
+}
+
+function durationSeconds(started: string, finished: string): number | null {
+    const start = Date.parse(started);
+    const end = Date.parse(finished);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start)
+        return null;
+    return Math.round((end - start) / 1000);
+}
+
+function yamlValue(yaml: string, key: string): string {
+    const match = String(yaml || "").match(new RegExp(`^\\s*${key}\\s*:\\s*([^#\\n]+)`, "im"));
+    return match ? match[1].trim().replace(/^['"]|['"]$/g, "") : "";
+}
+
+function experimentActivityAt(row: Pick<ExperimentRow, "updated" | "raw">): string {
+    return firstString(row.raw || {}, ["runtimeActivityAt"]) || row.updated || "";
+}
+
+export function isStalled(row: Pick<ExperimentRow, "status" | "updated" | "raw">, now = Date.now(), timeoutMs = STALLED_TIMEOUT_MS): boolean {
+    if (row.status !== "running")
+        return false;
+    const stamp = Date.parse(experimentActivityAt(row));
+    if (!Number.isFinite(stamp))
+        return false;
+    const age = now - stamp;
+    return age >= 0 && age > timeoutMs;
+}
+
+function applyHealth(row: ExperimentRow, now = Date.now()): void {
+    const raw = row.raw || {};
+    if (row.native_summary) {
+        const summary = row.native_summary;
+        row.health_status = row.status === "failed" ? "error" : summary.query_unknown_count || summary.missing_count || summary.recovery_conflict || row.status === "unknown" ? "warning" : "healthy";
+        row.health_reason = row.status === "failed" ? "status_failed" : row.health_status === "warning" ? "native_query_unknown" : "";
+        return;
+    }
+    if (row.native_state) {
+        const native = row.native_state;
+        const queryUnknown = ["unknown", "not_queried", "unreported"].includes(native.query_state);
+        row.health_status = row.status === "failed" ? "error" : queryUnknown || native.query_error || native.sync_error || row.status === "unknown" ? "warning" : "healthy";
+        row.health_reason = native.query_error || native.sync_error || (queryUnknown ? "native_query_" + native.query_state : row.status === "unknown" ? "native_completion_unverified" : row.status === "failed" ? "status_failed" : "");
+        return;
+    }
+    const stale = isStalled(row, now);
+    const errorText = row.status === "running" ? "" : firstString(raw, ["error", "sync_error"]);
+    if (row.status === "failed" || errorText) {
+        row.health_status = "error";
+        row.health_reason = errorText || "status_failed";
+    }
+    else if (stale) {
+        row.health_status = "stalled";
+        row.health_reason = "not_updated_for_30min";
+    }
+    else if (row.status === "running") {
+        row.health_status = "healthy";
+        row.health_reason = "";
+    }
+    else if (row.status === "unknown") {
+        row.health_status = "unknown";
+        row.health_reason = "";
+    }
+    else {
+        row.health_status = "healthy";
+        row.health_reason = "";
+    }
+    if (!row.seed)
+        row.seed = firstString(raw, ["seed"]);
+    if (!row.finished_at)
+        row.finished_at = firstString(raw, ["finished_at", "finishedAt"]);
+    if (!row.started_at)
+        row.started_at = row.created || firstString(raw, ["started_at", "startedAt"]);
+}

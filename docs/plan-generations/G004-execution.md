@@ -36,7 +36,7 @@ T3补项目路径读取及结构化精简，限定查询上下文、不退回cwd
 
 T4迁出MCP解析、结果、指标和比较；真实查询配合成数据与旧消费者逐值对照，0/中文/特殊键/排行/缺参5/5 exit0，`g004-r519-t4-compare-final-ff08.log`；真实Worker未测。
 
-T5提取查询所需runtime观察及解析函数，纯解析对照7/7 exit0，`g004-r519-t5-runtime-first-ff08.log`；查询消费者未切换，未请求Worker。
+T5提取runtime及实验查询，保留既有结构化输出；12项真实queryProject配假RPC与旧消费者对照，含空结果/失败9/9 exit0，`g004-r519-t5-experiment-complete-ff08.log`；补默认精简输出对照后同文件9/9 exit0；未请求Worker，日志等消费者待迁。
 
 T6迁出server_list及PLAN构建/矩阵，真实查询假RPC与旧消费者对照、空矩阵/seed0 6/6 exit0，`g004-r519-t6-plans-first-ff08.log`；未查询真实服务器。
 

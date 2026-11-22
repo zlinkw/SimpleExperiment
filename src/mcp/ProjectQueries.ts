@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { businessContext } from "./query/ExecutionContext";
-import * as experiments from "../cli/commands/experiment";
+import * as experiments from "./query/Experiments";
 import { resultList, resultShow, resultExport } from "./query/Results";
 import { resultParse } from "./query/ResultParse";
 import { metricList, metricShow, metricLeaderboard } from "./query/Metrics";

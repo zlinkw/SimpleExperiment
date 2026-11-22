@@ -80,6 +80,29 @@ test('query compact output preserves the existing structured view',()=>{
  assert.deepEqual(current.compactJsonValue(payload),old.compactJsonValue(payload));
 });
 
+test('MCP experiment views retain real query behavior with project-bound RPC',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-experiment-')),old=require('../../src/cli/commands/experiment.ts');
+ const rpc=async method=>{
+  if(method==='tasks.list')return {tasks:[{id:'run-a',status:'running',name:'trial',startedAt:'2026-01-01'}]};
+  if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};
+  if(method==='results.list')return {source:'active_query',summary:{current:true,results:[]}};
+  if(method==='live.output')return {text:'INFO synthetic log'};
+  throw Error('unexpected RPC '+method);
+ };
+ async function previous(fn){let value;await neutral.businessContext.run({root,rpc,emit:x=>{value=x}},fn);return value}
+ const flags={json:true,full:true,compactJson:false};
+ assert.deepEqual(await queryProject(root,rpc,'experiment_list',{full:true}),await previous(()=>old.experimentList(flags)));
+ assert.deepEqual(await queryProject(root,rpc,'experiment_summary',{full:true}),await previous(()=>old.experimentSummary(flags)));
+ assert.deepEqual(await queryProject(root,rpc,'experiment_results',{id:'run-a',full:true}),await previous(()=>old.experimentResults('run-a',flags)));
+ assert.deepEqual(await queryProject(root,rpc,'experiment_list',{}),await previous(()=>old.experimentList({json:true,full:false})));
+ const normalized=value=>JSON.parse(JSON.stringify(value,(key,item)=>['snapshot_id','snapshot_time'].includes(key)?undefined:item));
+ for(const [name,fn,needsId] of [['active','experimentActive',false],['tree','experimentTree',false],['status','experimentStatus',true],['overview','experimentOverview',false],['health','experimentHealth',false],['inspect','experimentInspect',true],['monitor','experimentMonitor',true],['diagnose','experimentDiagnose',true],['config','experimentConfig',true]]){
+  const actual=await queryProject(root,rpc,'experiment_'+name,{id:'run-a',full:true});
+  const expected=await previous(()=>needsId?old[fn]('run-a',flags):old[fn](flags));assert.deepEqual(normalized(actual),normalized(expected),name);
+ }
+ await assert.rejects(queryProject(root,rpc,'experiment_results',{id:'missing'}),/not found/i);
+});
+
 test('neutral query support requires context and preserves optional RPC semantics',async()=>{
  assert.throws(()=>support.emit({}),/MCP_QUERY_CONTEXT_REQUIRED/);
  assert.throws(()=>support.callApi('status'),/MCP_QUERY_CONTEXT_REQUIRED/);
