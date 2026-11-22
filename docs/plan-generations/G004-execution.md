@@ -46,42 +46,6 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 本段压缩前逐项命令范围和边界见 Git `806d47d2:docs/plan-generations/G004-execution.md`，原始事件及输入快照见 coverage。520 后单文件均 exit0：freshResults 10/10、syncScopeTree 6/6、syncScopeMetadata 12/12、syncScopeBatch 8/8、projectRootMap 14/14、syncScopeTransferBatch 8/8、windowsWorkflowContract 4/4、schedulerContract 3/3、distributedPlanSubmissionRouting 7/7、distributedQueueStartup 8/8、distributedQueueStartupMirrors 6/6、distributedQueueStartupRecovery 7/7、prequeueRecallLifecycle 9/9、planRunReplacement 17/17、workerFpsyncTaskLabel 3/3、workflowPanelNavigation 7/7、draftCleanupConfirmation 3/3、inspectorWorkflowDensity 3/3。均为内存、隔离夹具、VM 或假回调；临时夹具保留，未操作真实 Worker、GPU、网络传输、UI、用户授权、删除或重命名，模拟删除不证明真实删除安全；均待总控终审。
 
-- 2026-11-23：formalJobRejectedRecovery 单文件 5/5、exit 0；内存队列、渲染字符串、VM 和模拟确认/Worker/SFTP/派发，无真实界面、Worker、GPU、网络或作业。证据见 coverage，待总控终审。
+本段逐项原文及失败详情保留于 Git `7d91ba1b:docs/plan-generations/G004-execution.md`，各项真实原事件、日志及输入见 coverage。formalJobRejectedRecovery 5/5、gpuWorkerSnapshotRecovery 13/13、agentPreparationLifecycle 10/10 均 exit0，使用内存/VM/假端口，无真实 Worker、GPU、Agent、SSH、网络或 UI。branchProjectRegistry 的 sanitizeGitEnv、normalizeGithubTarget、五项 UI、C5-R6、C4 preview/create、C3 假执行器、C4-R3 revalidate 与 C5 未知结果各精确 pattern 1/1 exit0，模拟执行器及账本，无真实 Git、网络、PR 或 UI；其余 pattern 未覆盖。均待总控终审。
 
-- 2026-11-23：gpuWorkerSnapshotRecovery 单文件 13/13、exit 0；内存客户端、模拟 GPU、fetch 和 SSE 流，无真实 GPU、Worker 或网络。证据见 coverage，待总控终审。
-
-- 2026-11-23：agentPreparationLifecycle 单文件 10/10、exit 0；VM 和模拟 VS Code/SFTP、生命周期、fetch、SSH 别名，仅本地读 runtime 字节；无真实 Agent/Worker、SSH、tmux、上传或网络，不证明真实生命周期。证据见 coverage，待总控终审。
-
-- 2026-11-23：branchProjectRegistry 的 sanitizeGitEnv 精确 pattern 1/1、exit 0；仅合成环境对象，无 Git 子进程或文件变更；不覆盖同文件其他 pattern。证据见 coverage，待总控终审。
-
-- 登记此精确 pattern 时首次使用字符串替换将 `$'` 当作替换语法，造成 coverage 临时 JSON 格式错误，planner exit 1；以当前 HEAD 的原文件字节为基底、回调插入同一真实结果后重新核验，未改变历史记录。另一次只读查询误访问无 argv 的记录并 exit 1。
-
-- 2026-11-23：branchProjectRegistry 的 normalizeGithubTarget 精确 pattern 1/1、exit 0，纯字符串无 Git 或网络；重审发现前一 sanitizeGitEnv 行遗漏本文件后段顶层 require，已补全共同输入快照，不改变结果。均不覆盖其他 pattern，待总控终审。
-
-- normalizeGithubTarget 精确 pattern 含反斜杠，exec 工具事件中的 JS 字符串对其转义；当前 validator 直接比较原始 input 导致 direct execution record drift。该 1/1 真实结果暂设 eligible=false、未计覆盖，已向总控提出有界解码修正；另一次只读诊断误将 JS 事件当 JSON 解析 exit 1。
-
-- 补齐顶层闭包时登记脚本自身读取 coverage，误把该登记文件纳入两行快照，planner 报 direct dependency drift；已排除登记脚本自身输入并重核实际测试闭包。
-
-- 2026-11-23：runner 定向原 pattern `G004 reviewed legacy evidence preserves origin and refuses drift` 1/1、exit 0，TEMP/g004-520-runner-escaped-command-20261123.log；覆盖工具事件中 JSON 字符串反斜杠与引号解码，以及不同参数、非命令文本和动态表达式拒绝。原 normalizeGithubTarget 1/1 真实证据恢复候选，无重跑产品测试；现有其他门禁和失败保留，待总控终审。
-
-- runner 定向修复仅触及 direct 事件核验及独立 G004 用例，七项历史删锁 pattern 及安全函数未改；逐行更新当前依赖快照，原历史来源、未知工具链、真实删除边界不变。一次登记脚本因误判 JSON 行格式 exit 1、无写入，随后修正。
-
-- runner 初版边界误拒历史 mcpTaskDispatch 的 here-string 后换行真实命令；保留 planner 拒绝，不重跑产品项。总控批准修正及一次原预算复验：固定 pwsh7 原生 Parser 只解析 stdin 的受限 cmd 字面量、不执行；原精确 pattern 1/1 exit0，TEMP/g004-520-runner-native-parser-20261123.log，18.155 秒，保留原先 1/1。覆盖换行、分号、here-string/普通引号/注释伪命令和不同 argv；七项历史删锁原场景不变，更新依赖快照。
-
-- 全量 planner 首次采用批解析时 Node 堆上限 OOM、exit 1；原因是逐条重复保留巨大 rollout 分割结果，已改每个实际 rollout 一次筛选 call_id，不改变原事件或其 SHA。失败输出见当前会话原始事件；针对修正继续核验。
-
-- planner 修复后发现 PowerShell 将 20000 解析为数字常量，初版仅接受字符串导致 direct drift；允许静态常量并补原 case 数字断言，精确 pattern 再验 1/1 exit0、18.299 秒，TEMP/g004-520-runner-parser-numeric-20261123.log；未改变原预算或重跑产品项。
-
-- 当前 runner 变更后 planner 已正常完成证据核读并报告 367 active、0 onDemand、216 缺口；先前 361/6 随受影响选择重算变化，不代表通过。核验器源码和新增断言及依赖重核待总控终审。
-
-- 总控审出未调用函数的 named block 也会被误当顶层；已改为 parsed 根 EndBlock 实例匹配，并将负例组合覆盖函数及引号伪命令。原精确 pattern 一次返修 1/1 exit0、18.250 秒，TEMP/g004-520-runner-parser-root-20261123.log；七项历史安全测试函数未变，仅更新当前输入快照。上一提交后实际 planner 为 361 active、6 onDemand、212 缺口，最终以新提交后重算为准。
-
-- branchProjectRegistry 的注册、提交及状态比较三个 UI 精确 pattern 各 1/1、exit 0；VM 与模拟项目、服务和 RPC，无真实 UI、Git 写入或网络；不覆盖其他 pattern。事件与输入见 coverage，待总控终审。
-
-- branchProjectRegistry 的 HEAD 绑定、打开及撤销登记两个 UI 精确 pattern 各 1/1、exit 0；VM 和模拟身份、注册及 VS Code 回调，无真实界面、Git、登记写入或网络；不覆盖其他 pattern。证据见 coverage，待总控终审。
-
-- branchProjectRegistry 的 C5-R6 只读恢复精确 pattern 1/1、exit 0；模拟 gh 和内存账本，无真实 GitHub、网络、合并或文件变更；不覆盖其他 pattern。证据见 coverage，待总控终审。
-
-- branchProjectRegistry 的 C4 preview/create 两个精确 pattern 各 1/1、exit 0；Git/gh 执行器及账本均为模拟，无真实 Git、推送、PR 或网络；不覆盖其他 pattern。证据见 coverage，待总控终审。
-
-- branchProjectRegistry 的 C3 假执行器和 C4-R3 revalidate 两个精确 pattern 各 1/1、exit 0；模拟 Git 和内存账本，无真实 Git、网络或 UI；证据见 coverage，待总控终审。
+登记时字符串替换误处理 $' 造成临时 JSON 错误并 planner exit1，已按 HEAD 恢复再登记；一次只读查询错误 exit1。normalize 的真实反斜杠命令被旧 validator 误拒，补顶层依赖时曾误加 coverage 自身造成 drift，均已修正并保留原事件；历史 mcpTaskDispatch 的 here-string 后换行命令亦遭误拒，未重跑产品。runner 原精确 pattern 在有实际修正后分别 1/1 exit0：escaped-command、native-parser 18.155 秒、parser-numeric 18.299 秒、parser-root 18.250 秒，日志均 TEMP/g004-520-runner-<名称>-20261123.log。native parser 只解析 stdin 不执行，根 EndBlock 限制排除未调用函数。首次批解析 planner OOM exit1，修为按 rollout 分组；数字常量初版误拒后修正。七项旧删锁测试安全函数未改、原来源与未知工具链保留，未重跑删除。当前 planner 缺口以实际重算为准。
