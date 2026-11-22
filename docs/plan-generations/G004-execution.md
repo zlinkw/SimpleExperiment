@@ -67,3 +67,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - runner case grouping 原精确 pattern 1/1、exit0；合成源码与参数展开、夹具保留，无子进程或真实删除，不覆盖其他 pattern。证据见 coverage，待总控终审。
 
 - 总控批准 projectManagedPreflight、preflightStages 各 3/3、exit0；抽取函数与假端口，前者保留合成 owner/锁/CSV，后者对自建 wrapper 改字节和 mtime，夹具保留；无完整 runtime、真实 Worker/tmux/GPU/训练或删除。证据见 coverage，待总控终审。
+
+- runner vsce metadata 原精确 pattern 1/1、exit0；合成及现装 bin 元数据解析，未知 bin 的预期拒绝原样留日志；无 vsce 子进程、打包、安装或删除，夹具保留。证据见 coverage，待总控终审。
