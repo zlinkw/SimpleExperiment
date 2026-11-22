@@ -47,3 +47,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 本段压缩前逐项命令范围和边界见 Git `806d47d2:docs/plan-generations/G004-execution.md`，原始事件及输入快照见 coverage。520 后单文件均 exit0：freshResults 10/10、syncScopeTree 6/6、syncScopeMetadata 12/12、syncScopeBatch 8/8、projectRootMap 14/14、syncScopeTransferBatch 8/8、windowsWorkflowContract 4/4、schedulerContract 3/3、distributedPlanSubmissionRouting 7/7、distributedQueueStartup 8/8、distributedQueueStartupMirrors 6/6、distributedQueueStartupRecovery 7/7、prequeueRecallLifecycle 9/9、planRunReplacement 17/17、workerFpsyncTaskLabel 3/3、workflowPanelNavigation 7/7、draftCleanupConfirmation 3/3、inspectorWorkflowDensity 3/3。均为内存、隔离夹具、VM 或假回调；临时夹具保留，未操作真实 Worker、GPU、网络传输、UI、用户授权、删除或重命名，模拟删除不证明真实删除安全；均待总控终审。
 
 - 2026-11-23：formalJobRejectedRecovery 单文件 5/5、exit 0；内存队列、渲染字符串、VM 和模拟确认/Worker/SFTP/派发，无真实界面、Worker、GPU、网络或作业。证据见 coverage，待总控终审。
+
+- 2026-11-23：gpuWorkerSnapshotRecovery 单文件 13/13、exit 0；内存客户端、模拟 GPU、fetch 和 SSE 流，无真实 GPU、Worker 或网络。证据见 coverage，待总控终审。
