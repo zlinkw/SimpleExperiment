@@ -79,3 +79,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - branchProjectRegistry 的注册、提交及状态比较三个 UI 精确 pattern 各 1/1、exit 0；VM 与模拟项目、服务和 RPC，无真实 UI、Git 写入或网络；不覆盖其他 pattern。事件与输入见 coverage，待总控终审。
 
 - branchProjectRegistry 的 HEAD 绑定、打开及撤销登记两个 UI 精确 pattern 各 1/1、exit 0；VM 和模拟身份、注册及 VS Code 回调，无真实界面、Git、登记写入或网络；不覆盖其他 pattern。证据见 coverage，待总控终审。
+
+- branchProjectRegistry 的 C5-R6 只读恢复精确 pattern 1/1、exit 0；模拟 gh 和内存账本，无真实 GitHub、网络、合并或文件变更；不覆盖其他 pattern。证据见 coverage，待总控终审。
