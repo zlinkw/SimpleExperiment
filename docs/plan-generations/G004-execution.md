@@ -71,3 +71,5 @@ direct证据无论使用原工具输出还是单独原日志，均要求非空�
 路由源码后续发生修改，原mcpSftpRouting按原单文件预算补验17/17 exit0，TEMP/g004-520-mcp-sftp-routing-20261123.log；McpHost使用合成workspace、内存grant及假SFTP端口与假审批，仅保留合成上传文件，没有真实传输、授权变更或删除。原call和当前依赖冻结，待总控审。
 
 ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与fafa1738逐字相同、fixture未变；后续类型注解、未调用的cleanup preview schema和只用sha256Text的runtime版本变化不影响所测调用。SDK InMemoryTransport及其历史安装闭包仍未判，候选不计通过。当前入口阻断333项。
+
+伴随源隐私原文件首用正斜杠绝对路径未满足Windows规范化校验，0/1 exit1，TEMP/g004-520-mcp-sftp-privacy-20261123.log；改为同一已核伴随目录的反斜杠规范路径后1/1 exit0，TEMP/g004-520-mcp-sftp-privacy-pathfix-20261123.log。仅读实际0.2.120的package/extension并提取publicServerRecord，合成密钥及假API，未读取真实凭据或改配置；伴随源及Node字节冻结，待总控审。登记脚本第一次误选自身未完成call导致断言exit1、未写文件，改选实际call后成功。
