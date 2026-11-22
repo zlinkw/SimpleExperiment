@@ -62,7 +62,7 @@ MCP终态身份10/10、结果精确身份及导出1/1、日志与配置1/1、合
 
 519发行：源码/tag `6932321534f3b0c2df3b1983bfede2f88f7b868f`，[试行Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.519)与下载同SHA、Latest483。ReleaseClient首验误期待SFTP Latest120（实际118）exit1，修后exit0，`g004-519-client-after-ff08.log`。唯一安装exit0含DEP0169，`g004-519-install-ff08.log`。实机见顶部。
 
-519唯一package exit0，341/341、13门禁、进程树结束、峰1、按需0及锁释放；输入=end `02a04b0a7ed920361e852dea0e41d4740114b1cefbb1aabb8ab2c4bd71f5560f`，日志 `g004-519-package-ff08.log`，回执 `simple_cluster/reports/test-workflow/2026-11-22T06-35-19-310Z-69208-package/run.json`。新dist识别/Panel/生成脚本VM通过、10890零命中；VSIX闭包326/同源373及内容策略通过。包2,988,831字节，SHA256 `525e235fe7e380bf3684edf5b8bfd3dd7620badefd964dcdcd671b14c0216b33`；完整原文及预检路径误写见Git `48062264:docs/plan-generations/G004-execution.md`。
+519唯一package 341/341、13门禁及闭包验证通过，包SHA256 `525e235fe7e380bf3684edf5b8bfd3dd7620badefd964dcdcd671b14c0216b33`；完整日志、回执和预检路径误写见Git `0aa6b27c:docs/plan-generations/G004-execution.md`。
 
 519交付预检及工具误用见Git `48062264:docs/plan-generations/G004-execution.md`；dry-run exit0，341独占、按需0、max1。
 
@@ -181,3 +181,7 @@ MCP GPU观测与任务分别保留Worker/GPU0/command并显式传播失败，Gat
 MCP PLAN永久删除预览补界面同用confirmed_paths；假Host 6/6 exit0，未生成确认或操作真实文件，后续双页及路径保护不变。
 
 MCP只读观察身份含字符串/数值公开schema，假后端7/7及官方客户端7/7 exit0；登记编辑首断言未匹配exit1未写入，已按实际原文更新。未修改真实文件或共享配置。
+
+Git同步：0aa6b27c普通push exit0，首次fetch exit1（TLS unexpected eof）；经总控单次恢复裁决，核master/HEAD/origin/upstream后fetch exit0，HEAD、origin/master及FETCH_HEAD均为0aa6b27cc0c7f05b46a155486b23cbdb8318b8e0。
+
+旧CLI剩余19项逐项记录业务断言、既有证据及真实缺口；源审不冒测试通过，不删原用例。
