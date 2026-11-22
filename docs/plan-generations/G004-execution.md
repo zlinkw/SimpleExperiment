@@ -1,10 +1,18 @@
 # G004 执行登记
 
+518 重载后实际单项目验收（当前部分通过，待总控复核）：live discovery/health/status 证明 Host PID 76852、版本 0.5.518、唯一专用根 `C:/Users/ZLK/AppData/Local/Temp/simpleex-normal-ui-g003-20261116-a7c39e2f`、offline_import、低流量 enabled/effective；本人统一项目 grant 已真实存在，5类权限、无 Worker 授权快照。此窗口属于默认 profile，当前配置5台/启用1台，不能当作旧零 Worker 隔离 profile；未执行服务器、健康、隧道、任务、Agent 或共享设置操作。原进口状态启动时已恢复，但不同 profile 不能作为升级清空配置的证据。
+
+U54 两个公开 `invoke` 成功返回，selectPlan 选既有合成 PLAN 后恢复 `experiments/plans/ui_u01_empty_515.yaml`，selectExperiment 选/取消合成任务；实际 state 与 `simple_cluster/ui/plan_selection.json`、`task_selection.json` 读回一致。U55 真实 MCP `configuration_get/set` 将项目 `simpleExperiment.resultCsvDir` 临时设为 `experiments/results/synthetic`，state 与 `.vscode/settings.json` 读回后恢复 `experiments/results`；授权生效不代表已调用全部权限。`result_parse` 和 `metric_leaderboard` 经当前 live catalog、mcp.call 读取已有合成 CSV，分别返回两行/两组，保留 DSC=0、accuracy=0、带逗号标识和空值；没有连接 Worker。主动 results.list/result_export 会触发启用 Worker，依本轮边界未测；原本地 UI 导出及受控消费者旧证按原范围保留。
+
+U56 先核实时流已断开、本机 distributedPlans 空，直接调用链的在线同步、可用性推送和结果重试均无本轮 Worker 请求；通过公开 `invoke offline` 打开实际文件选择框，选择新建并保留的合成包 `g004_0518_offline_preview_zero_ff08.json`，返回 exit0。实际面板显示 2/2、该文件来源、中文及引号、空 seed 和 AP=0，标明未核实且不作为完成证据；未制造旧主动查询错误，不能声称其错误分支已重新实测。随后同入口选择原 `offline-fixture.json` 恢复内容并显示 2/2，返回 exit0；重导使导入时间更新，不声称字节级原状态恢复。首次不可访问的离屏元素、文件框控件索引和一次坐标校验失败均未执行输入；经重新观察后完成。517 已有效的 PLAN 生成/取消、空矩阵/0、结果表和日志证据复用，不冒充本轮重测。
+
+持久化身份核对：项目选择/离线包/布局在项目 `simple_cluster/ui`，项目结果目录在 `.vscode/settings.json`；共享连接在当前 VS Code profile 的 globalState，项目授权及引导标记在当前 profile 的 workspaceState，均非扩展安装目录或运行 PID/token。当前验收根实际没有 `experiments/simple_project.yaml`，且本 profile 引导完成标记为 false，故显示“项目配置待识别”；缺文件与换 profile 可解释本次画面，不能证明用户其他项目升级后未丢配置，也不能将其他 profile 数据复制或自动标为已识别。项目识别完成标记只在 workspaceState、已有 adapter 文件才参与本地识别；同根不同 workspace 载入与升级丢失的用户原现场尚未复现，应由总控审定其恢复方案。518 实机不含本轮源码持久化返修，单项目仍未最终通过，4跨项目与89延期未开放。
+
 518 项目本地状态返修：PLAN/任务选择、离线包和布局读取原来把损坏或拒绝访问当作不存在，旧状态迁移可能覆盖原文件并清除旧值；现区分文件不存在与读取/格式错误，错误带路径上报并阻止迁移和覆盖，修复文件后可重试。离线导入/清除保存失败不清旧值，恢复当前包并传播错误。真实源码/内存存储单文件回归首轮 7/8 exit1，增加失败恢复后 9/9 exit0，补充格式及 EACCES/ENOENT 后 9/9 exit0；日志分别为 `C:/Users/ZLK/AppData/Local/Temp/g004-518-state-read-before-ff08.log`、`C:/Users/ZLK/AppData/Local/Temp/g004-518-state-read-after-ff08.log`、`C:/Users/ZLK/AppData/Local/Temp/g004-518-state-read-final-ff08.log`。未修改真实项目旧文件或执行真实恢复，修复尚未构建或安装。
 
 518 持久化返修：共享连接迁移或保存失败后，原 Promise 队列一直保持拒绝，后续显式保存无法重试；现在前次失败仍向原调用者报告，下一次保存可重新写入，旧迁移值保留。真实源码的内存存储回归覆盖迁移失败及普通保存失败、重试与重新构造消费者读回；定向单文件首轮 0/1 exit1、修后 1/1 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-518-shared-retry-before-ff08.log`、`C:/Users/ZLK/AppData/Local/Temp/g004-518-shared-retry-after-ff08.log`。先前嵌套 PowerShell 命令因变量被外层展开产生解析错误 exit1，未启动测试；未修改真实共享连接，修复尚未构建或安装。
 
-0.5.518 最终交付：源码与生成物 `20ae86ed32f0baa9106645decb60cf9a299f3518` 已 FF 同步，远端 tag 同提交；[试行 Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.518) 为 prerelease，VSIX 2987002 字节、SHA256 `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`，隔离下载包与精确同名 sha 一致。真实更新客户端确认普通 Latest 仍为 0.5.483、518 与 SFTP 0.2.120 不降级。`npm run install:latest` 一次 exit0，带 DEP0169 warning；磁盘为 518/SFTP 0.2.120，稳定入口存在。此前待裁决及未发行状态已由本段取代，原失败保留。须由本人重载专用隔离窗口并亲点“管理 AI 项目授权→授权当前项目”；518 Host 交互及授权链尚未实机通过。
+0.5.518 最终交付：源码与生成物 `20ae86ed32f0baa9106645decb60cf9a299f3518` 已 FF 同步，远端 tag 同提交；[试行 Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.518) 为 prerelease，VSIX 2987002 字节、SHA256 `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`，隔离下载包与精确同名 sha 一致。真实更新客户端确认普通 Latest 仍为 0.5.483、518 与 SFTP 0.2.120 不降级。`npm run install:latest` 一次 exit0，带 DEP0169 warning；磁盘为 518/SFTP 0.2.120，稳定入口存在。此前待裁决及未发行状态已由本段取代，原失败保留。该段交付时尚待重载；其后实际 Host 与本人授权以顶部 518 验收段为准。
 
 0.5.518 第二次 package exit0，341/341、13 gates、并发1、锁释放，receipt `simple_cluster/reports/test-workflow/2026-11-22T03-36-44-479Z-33768-package/run.json`；VSIX 2987002字节 SHA256 `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`。真实 Panel 模块及2个生成脚本 VM、实际 VSIX 内容策略验证均 exit0；运行闭包核验进程自然结束但工具丢失输出及退出码，状态未知。总控批准等价实际 ZIP 核验：325闭包、324面板文件均存在，371运行文件与构建输出逐字节摘要一致，身份/version/engine正确，exit0；原未知不覆盖。
 
@@ -12,30 +20,7 @@
 
 0.5.518 首次 package exit1：341 项中339通过、2失败，前10门禁通过，maxParallel/maxObserved=1、锁已释放，未进入 post/assemble；完整 `simple_cluster/reports/test-workflow/2026-11-22T03-16-49-272Z-80576-package/run.json`。mcpProject 41/43：旧授权夹具与当前 Worker 共用可变对象，无法模拟历史快照；改用副本后实际新 dist 43/43 exit0（`C:/Users/ZLK/AppData/Local/Temp/g004-518-mcp-project-after-ff08.log`）。serverQuotaPersistence 9/10：源码抽取夹具缺 `mcpInvocation`，接入真实模块后10/10 exit0（`C:/Users/ZLK/AppData/Local/Temp/g004-518-worker-quota-after-ff08.log`）。两项仅改测试夹具，首失败日志见该 run 的 job 日志；待总控裁决组装/重跑，未发行、安装或修改真实权限/Worker。
 
-U04-56：隔离517导入成功但结果区优先旧主动查询报告，未展示新离线摘要。源码将 bundle 的结果经现有30行/字段压缩单独传为只读预览，明确归属/版本未核，不改变当前 PLAN 完成/归档证据；离线预览时结果区不把旧同步报告当本次结果，实时视图保留真实报告。真实源生成的 HTML 内脚本 VM 编译及定向 `node --test --test-force-exit --test-timeout 20000 test/features/resultsSummaryWebviewCache.test.js` 首次8/8 exit0；补充真实指标压缩和异 PLAN 预览后8/8 exit0，完整后一轮日志 `C:/Users/ZLK/AppData/Local/Temp/g004-56-offline-preview-ff08.log`。原517仍未包含修复，未 build、安装或新版实机验收。
-
-U56 源审返修：非对象离线行显示行号及错误、保留其余行；指标和维度压缩保留 `__proto__`、`constructor` 与零值。上述单文件增加真实压缩及生成脚本消费断言，修前 7/8 exit1（null 读取 experimentId），修后 8/8 exit0；完整日志分别为 `C:/Users/ZLK/AppData/Local/Temp/g004-56-edge-before-ff08.log` 和 `C:/Users/ZLK/AppData/Local/Temp/g004-56-edge-after-ff08.log`。
-
-补齐既有 final_results 与 pending_review_records 消费，显式空 results 不回退；同文件8/8 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-56-alias-final-ff08.log`。
-
-517 隔离离线导入及原合成包恢复证据见 Git `20ae86ed:docs/plan-generations/G004-execution.md`；当时结果区未展示导入摘要，已确认为 U56。`node scripts/test-workflow.js --help` exit1（runner 不支持该选项），非产品失败。
-
-U04-55：本人授权当前项目不选 Worker 或范围；新 grant 无 Worker 绑定，旧 grant 保留原约束直到本人重授。设置可修改已禁用 Worker 的 enabled，执行入口仍限启用目标。真实源码及内存回归两轮45/45 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-55-project-grant-first-ff08.log` 和 `C:/Users/ZLK/AppData/Local/Temp/g004-55-project-grant-final-ff08.log`；完整证据见 Git `20ae86ed:docs/plan-generations/G004-execution.md`。未操作真实授权、共享 Worker 或远端，518 实机复验待重载。
-
-517 隔离实例 MCP 本地业务补证：实际 discovery/health 为 Host 22928、0.5.517、专用根，live catalog 中 result_parse/metric_leaderboard 无权限要求，真实 mcp.call 未拒绝。原 synthetic/final.csv 按默认长表解析返回空数组；新建并保留 `experiments/results/synthetic/g004_0517_mcp_long_ff08.csv` 与 `g004_0517_mcp_metrics_ff08.csv`，前者解析两行结果，保留带逗号 run key、DSC=0，跳过空 HD95；后者排行两组，保留 accuracy=0 与引号内逗号，空 loss 不计指标，另一组 accuracy=0.8/loss=0.4。此证修正此前“所有 MCP 解析未测”的记载；result_export 等 results 权限链及新授权版本实机仍未测。
-
-U04-55 旧窄方案：517 零 Worker 无法授权，非用户未操作；首43/44 exit1、修后44/44 exit0，日志及完整记录见 Git `156f060b`；后被本人新裁决替换。未操作真实权限或 Worker。
-
-U04-54 原 B3 局部返修：已装 0.5.517 的 `selectPlan` 实机失败保留；同属公开目录和 uiActionCommands 的 `selectExperiment` 也无 actionCommandMap 映射。源码 `invokeApi` 在原授权及确认之后将两项转回既有 `handleMessageCore` 本地选择分支，远端动作路径和确认不变。`node --test --test-force-exit --test-timeout 20000 test/ui/actionLifecycle.test.js` 首次 42/43 exit 1（两个选择未到本地 handler），修后 43/43 exit 0；完整日志分别为 `C:/Users/ZLK/AppData/Local/Temp/g004-54-action-before-ff08.log` 和 `C:/Users/ZLK/AppData/Local/Temp/g004-54-action-after-ff08.log`。测试使用真实 invoke/消息路由和内存 handler，覆盖未公开/缺命令拒绝、远端动作确认及原路由；未运行真实任务。修复仅源码，未 build、打包、安装或实机重验。
-
-0.5.517 重载后隔离实机：专用项目原有离线包、无 `.vscode/sftp.json`；普通共享配置有启用 Worker，源码激活后自动版本探测，未在普通 profile 启动或请求 Worker。经总控裁决新建并保留 `C:/Users/ZLK/AppData/Local/Temp/g004-vscode-0517-acceptance-20261122-ff08`，仅启用已安装 SimpleExperiment/SimpleSFTP、允许既有公开 GitHub 更新检查和自然发现注册。首次误禁必需 SimpleSFTP 导致业务插件未激活；仅关闭隔离窗口后正确重开。真实 Host PID 22928、父进程 77780，health/capabilities 版本 0.5.517、专用项目根，offline_import、启用 Worker 0；界面打开低流量并由 state 读回 enabled/effective=true。SimpleSFTP 状态读取既有共享服务器配置，但本项目无 SFTP 连接配置；未连接服务器。原共享 profile 自动探测问题未执行、未修复。
-
-实际 UI 选择 `ui_u01_cases_515.yaml` 显示 2×2=4；`plans.list` 刷新后原空 cases 为 0 且 seed 0 保留。启动最初 state 曾返回旧缓存空 cases jobCount=2，刷新变 0，不把旧缓存当当前结果。新增并保留 `experiments/plans/g004_0517_acceptance_ff08.yaml`，API `savePlan` 写入后原文、空行和 seed 0 读回，空 cases 为 0。向导实际生成并保留 `experiments/plans/guided_plan.yaml`，1 case/1 seed、合成路径，仅生成未运行；再次生成时 UI Esc，API 返回 USER_CANCELLED。结果目录 `experiments/results` 临时改为 `experiments/results/synthetic`、读回并恢复原值。空计划保存请求返回明确缺参错误。
-
-实际失败：`actions.list` 声明 `selectPlan`，`invoke` 同名返回 -32000「未知或未放行的动作：selectPlan」；UI 已恢复原选择 `ui_u01_empty_515.yaml`。offline_import 下 `results.list` 返回 active_query 空结果、memoryRequests=0、无法核实 PLAN，之后面板显示本轮查询失败而不是原离线摘要；不将该观察扩称根因或修复。隔离 profile 的 `mcp.authorization` 返回 null，未取得 configuration-only；未操作权限设置、未绕过，MCP 解析/导出尚未测。离线结果导入解析及相关剩余修复验证未完成；无真实 Worker/训练、删除、再安装、构建或发行。
-
-补充：本地已有合成结果表在 UI 显示 synthetic 总表 2 行、2 方法；通过 `invoke splitProjectResultTable` 按 AP 拆分，预先确认新目录不存在，新建并保留 `experiments/results/synthetic/by_AP/0.11.csv` 与 `0.44.csv`，回读列和值正确，UI 显示生成 2 张子表。UI 取消全部拆分值后生成，显示「请选择 1 至 100 个拆表值」错误；点击查看日志，输出通道显示时间、操作及错误。随后 UI 选择 dataset 的 synthetic 值，确认新目录不存在后生成并保留 `experiments/results/synthetic/by_dataset/synthetic.csv`，成功提示及回读两行正确。此为本地既有表拆分，不代表 MCP 结果导出。`selectPlan` 必要调用链核对：`actions.list` 使用 `API_EXECUTABLE_COMMANDS`；`invokeApi` 将其归入 `uiActionCommands`，`runActionCommandCore` 依 `actionCommandMap` 拒绝缺项，未到 `handleMessageCore` 的 `selectPlanFromUi`；属实际入口矛盾候选，未修。`results.list` 是主动核实与汇总，不作为读取离线摘要的替代。
-
+U54–U56 517实机及源修完整原始记录见 Git `eab27339:docs/plan-generations/G004-execution.md`：U54原517调用失败，源回归42/43→43/43；U55旧窄方案43/44→44/44，按本人新裁决替换后45/45两轮；U56原离线摘要不可见，预览8/8，坏行首次7/8 exit1、修后8/8，补别名8/8。517本地PLAN/向导/结果拆表/取消及MCP解析旧证、隔离profile启用0和全部日志均保留原记录；518当前重测以本登记顶部为准。`node scripts/test-workflow.js --help` exit1为不支持该选项；CLI默认绑定不符exit2未重放。
 U04排查阶段基线HEAD及origin/master为b7c0b42c27227a8ec49d42d1f21346900a274ae4，开始时tracked clean；计划由总控独占。legacy、辅助页和MCP入口证据见coverage.g004U04RemainingInventory；旧静态脚本不能代表完整母集。factory实际输出缺四项门禁并回退legacy；恢复页VM消息5/5 exit0，未实际重载或写剪贴板。当时按钮总数及剩余未知，排查阶段未改产品、构建、安装或访问服务器；后续三批源码包见1ff64a81及下文。旧执行聊天已归档。
 
 版本审核13/13、缓存及同步页4/4和3/3 exit0；U04-01首夹具失败、U04-02跨项目延期，完整细节见4a80c627及coverage；无真实删除。
@@ -54,28 +39,7 @@ U04逐项调查、原始退出码与受控证据保留于 Git f72d0066 的本登
 关键失败保留：日志导航目标文件12/13 exit1（夹具缺setNativeTitle），另行VM补测3/3 exit0（首次夹具缺nativeTitleMutationVersion exit1）；U04-03首次假错误类型不符exit1后修正；U04-10完整对象比较因时间戳不同exit1，业务字段比较exit0；CLI --version API_WORKSPACE_MISMATCH exit2。U04-51的yaml及js-yaml模块均缺失各exit1；其他夹具和整理脚本首次失败见原记录及coverage。原失败不被后续通过覆盖。
 最终逻辑母集300项：界面279（限定结论204、延期75），独立VSCode命令21（限定结论7、延期14）；合计限定结论211、剩余89均延期。GPU两合成行合并/打散及假持久化、TMUX三种合成导航和all筛选、端点清单假编辑器正常/错误均exit0；真实Worker、剪贴板、网络未测。资源导航6精确/2回退exit0，首次探针语法错误exit1未写。13项旧工具证据适用边界及全部映射见coverage.logicalActionCensus，实际控件实例数未知。
 
-B1 U04-25/26受控检查7/7、20/20 exit0，详见 Git `c37827c8:docs/plan-generations/G004-execution.md`；未操作实际 VS Code 状态。
-
-B1 U04-49/50、28、32完整修复及定向结果保留于 Git `c37827c8:docs/plan-generations/G004-execution.md`；49/50 首次1/2 exit1（夹具沿用长表预设），修正预设后2/2 exit0。
-
-B1 U04-29/30/31及19/21汇总链证据见 Git `c37827c8:docs/plan-generations/G004-execution.md`；对应合成和替身回归3/3、21/21、10/10、1/1 exit0。
-
-B1 U04-21其余链内存回归5/5、4/4、3/3 exit0，详见 Git `c37827c8:docs/plan-generations/G004-execution.md`。
-
-B1 U04-22/45 的实现及22/22、1/1、4/4 exit0证据见 Git `c37827c8:docs/plan-generations/G004-execution.md`；无真实迁移或配置写入。
-
-B2 U04-13/15/17、16、39/51、24/38 的实现与5/5、6/6、1/1、1/1 exit0合成检查见 Git `c37827c8:docs/plan-generations/G004-execution.md`；未访问或保存真实 PLAN。
-
-B2 U04-47/52/53及12/37/46受控检查3/3、4/4 exit0，详见 Git `c37827c8:docs/plan-generations/G004-execution.md`；无真实报告、剪贴板、草稿或历史操作。
-
-B2 U04-27/48 合成回归4/4 exit0，无真实归档或网络；详情见 Git `c37827c8:docs/plan-generations/G004-execution.md`。
-
-B2 U04-23及B3 U04-03/04/11、10/14、18、09的14/14、4/4、6/6、5/5、8/8、42/42、5/5受控回归及完整实现见 Git `c37827c8:docs/plan-generations/G004-execution.md`；无真实Worker查询或派发。
-
-B3 U04-01/08 两处TS转译 exit0；完整实现见 Git `c37827c8:docs/plan-generations/G004-execution.md`。未重放平台拦截、授权撤销或Agent生命周期专项；4项跨项目和89项入口延期。
-
-首次源审返修：U04-30只过滤平面行的维度，显式metrics桶保留seed、epoch、0及特殊自有键；metricLeaderboardInput 5/5 exit0。日志导航夹具加载真实setNativeTitle及初始状态，原套件在既有516 dist上13/13 exit0；原12/13 exit1和另行3/3补测保留，新生成脚本尚待集中构建后门禁。
-
+B1/B2/B3 39项分组修复、各项受控结果和首失败详见 Git `c37827c8:docs/plan-generations/G004-execution.md`，不将受控结果扩称真实Worker通过；U04-30特殊键、日志导航首12/13及后13/13证据见 `eab27339` 同路径。4跨项目与89入口未开放。
 0.5.517首轮package exit1，337/341作业通过、4失败，10前置门禁通过，输入与结束指纹一致，锁已释放；未执行post/assemble。完整日志及receipt见`simple_cluster/reports/test-workflow/2026-11-21T14-48-56-521Z-480-package/run.json`。合作取消因执行会话stdin已关闭失败，原runner自然结算。四处仅修现有测试断言/夹具：MCP 42/43→43/43，CLI 18/19→19/19，历史取消12/13→13/13，Agent夹具9/10→首补后9/10（VM跨realm对象原型比较差异）→标准库克隆归一后10/10；均保留真实退出码及业务断言。未改产品源码、依赖或运行配置；原337项证据与补测分别记录，runner不接受失败receipt或改变后的输入直接组装，待总控决定门禁。
 
 总控授权后第二次package exit0，341/341、13门禁通过，实际并发1、按需0、锁释放，输入与结束指纹相同；receipt `simple_cluster/reports/test-workflow/2026-11-21T15-08-06-325Z-28880-package/run.json`。生成0.5.517 VSIX大小2986729、SHA256 `2fa2ecb3e0d890d47653ee8b7f5ffe29317c22d692659ae4cd8d34336a6989e5`；身份simple-local.simple-experiment，universal包由更新客户端识别为Windows兼容，engine ^1.100.0；ZIP中370项dist/bin/vendor与本机相同，禁止项路径检查无命中。Panel模块及3个生成脚本VM通过；首个VM命令转义错误exit1后修正exit0；业务src/dist搜索10890无命中（rg exit1）。日志导航不在本次package矩阵，另对新dist定向13/13 exit0；首轮12/13及旧dist补测保留。上述打包核验时发行安装尚未完成，最终状态如下。
