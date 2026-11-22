@@ -41,7 +41,7 @@ test("unreadable project state blocks migration and replacement until it can be 
     assert.equal(writes, 1);
     writes = 0;
   }
-  const bootstrap = method("async bootstrapProjectLocalUiState", "captureProjectContext", [], []).bootstrapProjectLocalUiState;
+  const bootstrap = method("async bootstrapProjectLocalUiState", "captureProjectContext", ["migrateOnboardingFacts", "projectOnboardingRoot"], [async () => {}, () => "C:/synthetic"]).bootstrapProjectLocalUiState;
   let migrated = 0;
   const host = { captureProjectContext: () => ({ root: "C:/synthetic" }), projectContextIsCurrent: () => true,
     migrateLegacyProjectUiStateFromVsCode: async () => { migrated++; } };

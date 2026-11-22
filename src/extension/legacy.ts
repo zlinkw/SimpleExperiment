@@ -1,6 +1,7 @@
 // @ts-nocheck
 import * as vscode from "vscode";
 import { mcpGateway, mcpOperations, manageAiAuthorization } from "./McpHost";
+import { hasOnboardingFact, readOnboardingFact, writeOnboardingFact, migrateOnboardingFacts } from "../core/ProjectOnboardingState";
 import { runPlanStopClearBatch, planStopBatchSignature } from "./PlanStopClearBatchHost";
 import { analyzeRuntimeLog, runtimeLogAnalysisMessage } from "./RuntimeLogAnalysisHost";
 import { runAllPlans, runSelectedPlans } from "./SelectedPlanBatchHost";
@@ -399,8 +400,8 @@ const API_STATE_KEYS = {
     uiProjectLayout: { store: "workspace", label: "项目面板布局", writable: true },
     uiProjectActions: { store: "workspace", label: "项目固定操作", writable: true },
     firstRunSetupPrompt: { store: "global", label: "首次运行提示版本", writable: true },
-    projectOnboardingPrompt: { store: "workspace", label: "项目引导提示版本", writable: true },
-    projectOnboardingCompleted: { store: "workspace", label: "项目引导完成标记", writable: true },
+    projectOnboardingPrompt: { store: "global", label: "项目引导提示版本（按项目根隔离）", writable: true },
+    projectOnboardingCompleted: { store: "global", label: "项目引导完成标记（按项目根隔离）", writable: true },
     legacySftpNoticeShown: { store: "global", label: "旧 SFTP 插件提示", writable: true },
     pendingWorkspaceContinuation: { store: "global", label: "待续工作区操作", writable: false },
     migrationShown: { store: "global", label: "旧配置迁移提示", writable: true },
@@ -3463,6 +3464,8 @@ export class RealtimeTunnelPanelProvider {
         if (!meta || !stateKey)
             throw new Error(`未知 SimpleExperiment 状态：${name}`);
         if (name === "setupConfig" || name === "tunnelConfig") return readProjectConnectionValue(this.context, workspaceRoot(), stateKey);
+        if (name === "projectOnboardingPrompt" || name === "projectOnboardingCompleted")
+            return readOnboardingFact(this.context, projectOnboardingRoot(), name, this.projectContextGeneration === 0);
         return meta.store === "global" ? this.context.globalState.get(stateKey) : this.context.workspaceState.get(stateKey);
     }
     async apiStateList() {
@@ -3512,6 +3515,11 @@ export class RealtimeTunnelPanelProvider {
         const projectContext = this.captureProjectContext();
         if (key === "setupConfig" || key === "tunnelConfig")
             await saveProjectConnectionValues(this.context, projectContext.root, { [stateKey]: value });
+        else if (key === "projectOnboardingPrompt" || key === "projectOnboardingCompleted") {
+            await this.projectBootstrapPromise;
+            if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；项目引导状态未更新。");
+            await writeOnboardingFact(this.context, projectOnboardingRoot(), key, value);
+        }
         else if (meta.store === "global")
             await this.context.globalState.update(stateKey, value);
         else
@@ -3548,6 +3556,11 @@ export class RealtimeTunnelPanelProvider {
         const projectContext = this.captureProjectContext();
         if (key === "setupConfig" || key === "tunnelConfig")
             await saveProjectConnectionValues(this.context, projectContext.root, { [stateKey]: undefined });
+        else if (key === "projectOnboardingPrompt" || key === "projectOnboardingCompleted") {
+            await this.projectBootstrapPromise;
+            if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；项目引导状态未重置。");
+            await writeOnboardingFact(this.context, projectOnboardingRoot(), key, undefined);
+        }
         else if (meta.store === "global")
             await this.context.globalState.update(stateKey, undefined);
         else
@@ -4604,6 +4617,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
     }
     async bootstrapProjectLocalUiState() {
         const projectContext = this.captureProjectContext();
+        if (projectContext.generation === 0) await migrateOnboardingFacts(this.context, projectOnboardingRoot());
         await Promise.all([
             this.loadProjectPlanSelectionState(),
             this.loadProjectTaskSelectionState(),
@@ -5804,20 +5818,24 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         const serverSetupComplete = initialServerSetupComplete(this.setupConfig, false);
         const enabledWorkerCount = this.enabledWorkerConfigs().length;
         if (serverSetupComplete && simpleSftp.ready && enabledWorkerCount > 0) {
-            if (this.projectLocallyRecognized()) return;
-            const root = workspaceRoot();
+            const completed = this.apiStateValue("projectOnboardingCompleted");
+            const explicitlyReset = hasOnboardingFact(this.context, projectOnboardingRoot(), "projectOnboardingCompleted") && completed === undefined;
+            if (completed === true || (completed !== false && !explicitlyReset && this.projectLocallyRecognized())) return;
+            const root = projectOnboardingRoot();
             if (!root)
                 return;
-            const projectPromptShown = Number(this.context.workspaceState.get(keys.projectOnboardingPrompt, 0));
+            const projectPromptShown = Number(this.apiStateValue("projectOnboardingPrompt") || 0);
             if (projectPromptShown >= 1)
                 return;
+            const projectContext = this.captureProjectContext();
             const choice = await vscode.window.showWarningMessage(`SimpleExperiment 已就绪，当前项目为 ${path.basename(root)}，但尚未完成工作区识别。识别后，首次上传前会再次确认本地与远端预期位置。`, { modal: true }, "识别工作区", "打开面板", "不再提示");
+            if (!this.projectContextIsCurrent(projectContext)) return;
             if (choice === "识别工作区")
                 await this.bootstrapProjectFromUi();
             else if (choice === "打开面板")
                 await vscode.commands.executeCommand(`${viewId}.focus`);
             else if (choice === "不再提示")
-                await this.context.workspaceState.update(keys.projectOnboardingPrompt, 1);
+                await writeOnboardingFact(this.context, root, "projectOnboardingPrompt", 1);
             return;
         }
         if (simpleSftp.ready && legacySftp.installed && !this.context.globalState.get(keys.legacySftpNoticeShown)) {
@@ -5862,11 +5880,12 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             if (projectContext && !this.projectContextIsCurrent(projectContext))
                 throw new UiCommandCancelled("工作区已切换，识别完成标记已取消。");
         };
+        await this.projectBootstrapPromise;
         assertCurrent();
         if (projectContext?.root || workspaceRoot()) {
-            await this.context.workspaceState.update(keys.projectOnboardingCompleted, true);
+            await writeOnboardingFact(this.context, projectOnboardingRoot(), "projectOnboardingCompleted", true);
             assertCurrent();
-            await this.context.workspaceState.update(keys.projectOnboardingPrompt, 1);
+            await writeOnboardingFact(this.context, projectOnboardingRoot(), "projectOnboardingPrompt", 1);
             assertCurrent();
         }
     }
@@ -27509,16 +27528,18 @@ return "历史服务器";
         const integrations = { simpleSftp: simpleSftpIntegrationReadiness() };
         const workspace = workspaceContextForWebview();
         const topology = this.projectTopologyAssessment();
+        const onboardingCompleted = this.apiStateValue("projectOnboardingCompleted");
+        const onboardingStored = hasOnboardingFact(this.context, projectOnboardingRoot(), "projectOnboardingCompleted");
+        const onboardingExplicitlyIncomplete = onboardingCompleted === false || (onboardingStored && onboardingCompleted === undefined);
         const projectOnboarding = projectOnboardingStateForWebview({
             workspace,
             topology,
             setup: this.setupConfig,
-            recognized: this.projectLocallyRecognized(),
+            recognized: !onboardingExplicitlyIncomplete && this.projectLocallyRecognized(),
             workerProbes: this.lastWorkerProbes,
             simpleSftp: integrations.simpleSftp,
-            promptShown: this.context.workspaceState.get(keys.projectOnboardingPrompt, 0),
-            completed: this.context.workspaceState.get(keys.projectOnboardingCompleted, false) === true
-                || projectOnboardingCompletedFromCodeSync(this.lastCodeSyncState, false),
+            promptShown: this.apiStateValue("projectOnboardingPrompt") || 0,
+            completed: onboardingCompleted === true || (!onboardingExplicitlyIncomplete && projectOnboardingCompletedFromCodeSync(this.lastCodeSyncState, false)),
         });
         const resultRoot = workspaceRoot();
         const projectAdapterRules = pluginProjectAdapterRules(resultRoot || "");
@@ -39525,6 +39546,12 @@ function workspaceRoot() {
     catch {
         return undefined;
     }
+}
+function projectOnboardingRoot() {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!Array.isArray(folders) || folders.length !== 1) return undefined;
+    const root = workspaceRoot();
+    return root ? localPathKey(root) : undefined;
 }
 function currentHostOperationLeaseContext() {
     if (process.platform !== "win32")

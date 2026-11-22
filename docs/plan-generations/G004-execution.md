@@ -1,5 +1,7 @@
 # G004 执行登记
 
+项目识别记忆：当前 profile 的 globalState 按单一规范项目根保存引导完成与提示事实；启动时迁移当前单根旧 workspaceState，旧值保留并标记其归属根，目标已存在包括显式 reset 时不被旧值复活；本窗口切换项目后不借用原旧值。原成功入口及 state.get/list/set/reset、首次提示和面板共用该值，false/reset 抑制旧状态及派生完成；无根/多根不借第一目录保存，授权/连接不搬迁。显式写等待本窗口启动迁移结束，迁移失败不清旧值可重试；不同根/profile隔离。真实源码加合成 Memento/真实 API、提示及面板消费者，新增单文件首次 0/2 exit1（目标模块尚未实现），修后 3/3 exit0，补规范根、启动期间显式写及不同根隔离后最终 3/3 exit0；`firstRunSetupPrompt` 1/1、受影响 bootstrap/migration 10/10 exit0。日志 `C:/Users/ZLK/AppData/Local/Temp/g004-518-onboarding-before-ff08.log`、`g004-518-onboarding-isolation-ff08.log`、`g004-518-onboarding-prompt-final-ff08.log`、`g004-518-onboarding-bootstrap-final-ff08.log`（后三者同目录）。未修改真实工作区标记或重载，源码未构建安装。
+
 项目明确清除状态修复：离线包/布局项目文件为 null 或 cleared 时，旧 workspace 残留值不会再次迁入；缺文件仍可迁移，已有有效项目值优先，坏 JSON/EACCES 保留旧值并报告，旧键清除失败后重试也不复活。真实读取及迁移方法配合内存存储首 9/10 exit1、修后 10/10 exit0，补已有值优先后 10/10 exit0；日志 `C:/Users/ZLK/AppData/Local/Temp/g004-518-cleared-before-ff08.log`、`C:/Users/ZLK/AppData/Local/Temp/g004-518-cleared-after-ff08.log`、`C:/Users/ZLK/AppData/Local/Temp/g004-518-cleared-final-ff08.log`。未清除真实数据，尚未构建或安装。
 
 518 重载后实际单项目验收（当前部分通过，待总控复核）：live discovery/health/status 证明 Host PID 76852、版本 0.5.518、唯一专用根 `C:/Users/ZLK/AppData/Local/Temp/simpleex-normal-ui-g003-20261116-a7c39e2f`、offline_import、低流量 enabled/effective；本人统一项目 grant 已真实存在，5类权限、无 Worker 授权快照。此窗口属于默认 profile，当前配置5台/启用1台，不能当作旧零 Worker 隔离 profile；未执行服务器、健康、隧道、任务、Agent 或共享设置操作。原进口状态启动时已恢复，但不同 profile 不能作为升级清空配置的证据。

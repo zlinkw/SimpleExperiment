@@ -49,8 +49,8 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   assert.match(source, /serverSetupComplete && simpleSftp\.ready && enabledWorkerCount > 0/);
   const readyFlow = promptFlow.slice(promptFlow.indexOf("if (serverSetupComplete"), promptFlow.indexOf("const needsSftp"));
   assert.match(readyFlow, /if \(!root\)\s*return;/);
-  assert.match(readyFlow, /workspaceState\.get\(keys\.projectOnboardingPrompt/);
-  assert.match(readyFlow, /workspaceState\.update\(keys\.projectOnboardingPrompt, 1\)/);
+  assert.match(readyFlow, /apiStateValue\("projectOnboardingPrompt"\)/);
+  assert.match(readyFlow, /writeOnboardingFact\(this\.context, root, "projectOnboardingPrompt", 1\)/);
   assert.doesNotMatch(readyFlow, /globalState\.update\(keys\.firstRunSetupPrompt/);
   const workspaceChange = source.slice(source.indexOf("handleWorkspaceFoldersChanged()"), source.indexOf("resetProjectContextInMemory()"));
   assert.match(workspaceChange, /reloadProjectContextAfterWorkspaceChange\(\)\)[\s\S]{0,120}showFirstRunSetupPromptOnce\(\)/);
@@ -71,7 +71,7 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   assert.match(source, /afterSftp = simpleSftpIntegrationReadiness\(\)/);
   assert.match(source, /async markProjectOnboardingComplete\(projectContext\)/);
   assert.match(source, /projectContext && !this\.projectContextIsCurrent\(projectContext\)/);
-  assert.match(source, /workspaceState\.update\(keys\.projectOnboardingCompleted, true\)/);
+  assert.match(source, /writeOnboardingFact\(this\.context, projectOnboardingRoot\(\), "projectOnboardingCompleted", true\)/);
   assert.match(source, /await this\.markProjectOnboardingComplete\(projectContext\)/);
   assert.doesNotMatch(source, /needsSftpOnly/);
   assert.match(source, /"打开服务器设置", "打开配置说明", "不再提示"/);
