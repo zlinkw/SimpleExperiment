@@ -63,3 +63,5 @@ gpuSampleCarryRealChain 3/3、syncScopeAgentIndex 8/8、operationRetirement 5/5�
 runtimeLogAnalysisHost 19/19 exit0：VM 假 Worker、清理与界面，自建源文件保留；无真实删除、界面或网络。原日志和事件见 coverage，待总控终审。
 
 接替后误重跑已有继承候选 job 204：planTerminalStatusRecovery 原文件 9/9、exit0，纯合成状态，日志 `%TEMP%/g004-520-plan-terminal-status-recovery-20261123-successor.log`；planner 发现继承与新 direct 冲突，保留新事件及日志但设 eligible=false，继续使用原 job 204 证据，不掩盖重复。归档旧执行会话后核其 session_meta 与 138 条 eligible 事件双 SHA，139 处引用仅修正实际归档路径，提交 `9a69240b`；未重跑或改写原事件。
+
+distributedPlanExecutionMode 10/10 exit0：VM 假 Worker 与 Python 函数提取，队列、tmux、文件和恢复证据均为替身或内存；自建根保留，无真实 Worker、训练、GPU、网络、tmux 或删除。原事件及依赖见 coverage，待总控终审；planner 154 项待核。
