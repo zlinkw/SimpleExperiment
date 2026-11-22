@@ -124,9 +124,10 @@ test('MCP experiment references preserve aliases and missing identity detail',as
  for(const name of ['status','monitor','diagnose'])assert.equal((await queryProject(dir,rpc,'experiment_'+name,{id:'run-9001'})).id,'exp-1',name);
  await assert.rejects(queryProject(dir,rpc,'experiment_inspect',{id:'does-not-exist'}),error=>{
   assert.equal(error.code,'BUSINESS');const detail=JSON.parse(error.detail);
-  assert.equal(detail.requested,'does-not-exist');assert.deepEqual(detail.candidates,['exp-1','exp-2']);return true;
+  assert.equal(detail.requested,'does-not-exist');assert.deepEqual(detail.candidates,['exp-1','exp-2']);assert.ok(detail.candidates.length<=5);return true;
  });
  const active=await queryProject(dir,rpc,'experiment_active',{});
+ assert.ok(active.runs.length>0);
  for(const run of active.runs)assert.equal((await queryProject(dir,rpc,'experiment_inspect',{id:run.id})).summary.id,run.id);
  await assert.rejects(queryProject(dir,rpc,'experiment_inspect',{id:'run-000'}),error=>{
   const detail=JSON.parse(error.detail);assert.equal(detail.requested,'run-000');
