@@ -179,3 +179,5 @@ MCP GPU观测与任务分别保留Worker/GPU0/command并显式传播失败，Gat
 中立客户端保留258记录、定位末尾假监听及双活拒绝/精确pin，单文件8/8 exit0；原LocalApiServer生成/关闭未重跑。
 
 MCP PLAN永久删除预览补界面同用confirmed_paths；假Host 6/6 exit0，未生成确认或操作真实文件，后续双页及路径保护不变。
+
+MCP批量只读观察补目标key、后端digest及设备/inode身份，Gateway/McpHost假后端4/4 exit0；无确认或真实文件操作。

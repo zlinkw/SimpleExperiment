@@ -54,6 +54,11 @@ export class ProjectGateway {
     validateToolArguments(tool.inputSchema, argumentsValue);
     const args = argumentsValue as Record<string, any>;
     if (tool.name === "task_dispatch") validateDispatch(args);
+    if (tool.name === "file_cleanup_observe_batch") for (const target of args.targets) for (const key of ["device", "inode"]) {
+      const value = target[key];
+      if (value !== undefined && typeof value !== "string" && !(typeof value === "number" && Number.isFinite(value)))
+        throw Error("MCP_OBSERVATION_IDENTITY_INVALID: " + key);
+    }
     if (args.location === "worker" && !args.workerId || args.location === "local" && args.workerId) throw Error("MCP_FILE_NODE_REQUIRED");
     const grant = this.ports.store.get<ProjectAuthorization>(AUTHORIZATION_KEY);
     const needsWorkers = tool.permission || tool.additionalPermissions?.length || args.serverIds || args.workerId || args.sourceWorkerId;

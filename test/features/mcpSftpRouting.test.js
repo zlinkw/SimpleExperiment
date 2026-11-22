@@ -8,7 +8,7 @@ try{Module._load=function(id,...args){return id==='vscode'?vscode:original.call(
 function fixture(){
  const workers=[{id:'w1',host:'host1',port:22,user:'user',remotePath:'/project/one'},{id:'w2',host:'host2',port:22,user:'user',remotePath:'/project/two'}],calls=[];
  const grant=createProjectAuthorization(root);grant.workers=workers.map(({id,host,port,user,remotePath})=>({id,host,port,user,projectRoot:remotePath}));
- const methods=['sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','transfers.list','transfers.reconcile','transfers.cancel'];
+ const methods=['sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.observeBatch'];
  const host={context:{workspaceState:{get:()=>grant}},refreshSharedConnectionSettings(){},workerCodeSyncTargets:()=>workers,createLocalApiMethods:()=>({}),
   readSimpleSftpCapabilities:async()=>({methods}),sftpServerOptions:row=>({...row}),simpleSftpApiCall:async(method,params)=>{calls.push({method,params});return method==='transfers.reconcile'?{status:'notFound',settled:false}:method==='transfers.cancel'?{status:'cancelling'}:{ok:true}}};
  return {gateway:mcpGateway(host),calls,grant,workers};
@@ -42,6 +42,19 @@ test('MCP transfer receipts retain unknown and cancelling states without retryin
  assert.deepEqual(f.calls.map(row=>row.method),['transfers.list','transfers.reconcile','transfers.cancel']);
  f.grant.permissions=[];await assert.rejects(f.gateway.call('sftp_transfer_cancel',{operationId:'op-9',transferId:'t-1'}),/AUTHORIZATION_REQUIRED/);
  assert.equal(f.calls.length,3);
+});
+
+test('MCP file observation preserves frozen per-target and root identities',async()=>{
+ const f=fixture(),target={key:'k1',relativePath:'work_dirs/run1/out',type:'directory',backendToken:'b'.repeat(48),backendIndex:3,
+  backendDigest:'digest',device:'42:1',inode:9,isolationRelativePath:'work_dirs/run1/.isolated-out'};
+ await f.gateway.call('file_cleanup_observe_batch',{location:'worker',workerId:'w1',observationId:'obs-9',rootIdentity:{dev:'42:1',ino:'9'},targets:[target]});
+ const call=f.calls.at(-1);assert.equal(call.method,'files.cleanup.observeBatch');assert.deepEqual(call.params.targets,[target]);
+ assert.deepEqual(call.params.rootIdentity,{dev:'42:1',ino:'9'});assert.equal(call.params.consumerRoot,root);assert.equal(call.params.node.id,'w1');
+ assert.ok(!Object.hasOwn(call.params,'confirm'));
+ const before=f.calls.length;
+ await assert.rejects(f.gateway.call('file_cleanup_observe_batch',{location:'worker',workerId:'w1',observationId:'obs-9',targets:[{relativePath:'x',type:'file',key:7}]}),/must be string/);
+ await assert.rejects(f.gateway.call('file_cleanup_observe_batch',{location:'worker',workerId:'w1',observationId:'obs-9',targets:[{...target,inode:{}}]}),/OBSERVATION_IDENTITY_INVALID/);
+ assert.equal(f.calls.length,before);
 });
 
 test('MCP SFTP transfers preserve both targets and project authorization',async()=>{

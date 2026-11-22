@@ -124,7 +124,8 @@ export const PROJECT_TOOLS: ProjectTool[] = [
   tool("file_cleanup_observe_batch", "files.cleanup.observeBatch", "Actively observe a batch of exact project paths without deleting them", {
     ...fileNode, observationId: text("Identity of this observation round"), rootIdentity: object,
     readConcurrency: { type: "integer" }, targets: { type: "array", items: { ...fileTarget, properties: { ...fileTarget.properties,
-      backendToken: text("Original preview token, if observing a frozen request"), backendIndex: integer,
+      key: text("Stable identity of this observation target"), backendToken: text("Original preview token, if observing a frozen request"), backendIndex: integer,
+      backendDigest: text("Original frozen backend digest"), device: { description: "Original device identity, string or number" }, inode: { description: "Original inode identity, string or number" },
       isolationRelativePath: text("Original preview isolation path"), fingerprint: text("Original preview content identity"),
     } } },
   }, ["location", "observationId", "targets"], undefined, undefined, "sftp"),
