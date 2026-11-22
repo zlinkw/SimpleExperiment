@@ -49,3 +49,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 旧job63、65、179原passed/0/tree confirmed和原日志，按实际VM假宿主/内存状态及纯SHA-256调用重新审定为执行者候选；相关源码切片或模块相对5a3不变，锁定TS版本及integrity相同，旧精确Node/架构/实际TS安装未知，邻近版本仅佐证。现时依赖已冻结，未证明真实UI、停止、传输或Worker，待总控审核；当前规划361执行＋6按需，326项未审阻断。
 
 旧job33/100/169按实际内存journal与假安装回调、假Worker派发端口、纯内存合并规划审定候选；最终compile后列出的test/dist及相关源码相对5a3均无变化且不属原dirty集合。原passed/0/confirmed和日志保留，旧Node精确值未知，不代表真实安装、派发或传输，待总控审；当前323项未审阻断。
+
+旧job45/155/195按实际假宿主队列、内存产物观察与完成确认调用审定候选；测试及相关TS闭包相对5a3无变化且不属原dirty集合，时钟用相对测试值，TS锁定版本/integrity一致。原passed/0/confirmed及日志保留，旧Node和实际旧TS安装未知，未证明真实Worker、停止或文件操作；当前320项未审阻断。
