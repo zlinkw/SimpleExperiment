@@ -18,7 +18,7 @@ R519 B4调试包缺失、取消和失败不冒成功；假UI/传输/文件1/1 ex
 
 R519 C1修复14项API本地路由，保留确认、资源租约及业务门禁；真实入口配假handler 47/47 exit0，同目录 `g004-r519-c1-actions-first-ff08.log`，未执行远端动作。
 
-R519 C2明确设置范围及准备副作用，global写入不误落项目；源码/目录48/48、真实set/reset配内存配置49/49 exit0，日志 `g004-r519-c2-actions-first-ff08.log`、`g004-r519-c2-consumers-ff08.log`，未改真实设置。
+R519 C2设置global不误落项目；源码48/48、内存配置49/49 exit0，`g004-r519-c2-actions-first-ff08.log`、`g004-r519-c2-consumers-ff08.log`，未改真实设置。
 
 R519 C3五个Git命令返回Promise，假对象4/4 exit0；首3/4 exit1为测试误判注册顺序，日志 `g004-r519-c3-git-first-ff08.log`、`g004-r519-c3-git-final-ff08.log`，未动真实hook或发布。
 
@@ -31,6 +31,8 @@ T1实例发现/RPC与错误类型移至中立API位置，Server/面板/分支调
 T2中立MCP版本解析器假对象1/1 exit0，`g004-r519-t2-resolver-missing-ff08.log`。新启动器/安装器仅写MCP入口，假进程及隔离目录2/2 exit0，首1/2 exit1因测试原位sort改了对照数组，日志 `g004-r519-t2-entry-first-ff08.log`、`g004-r519-t2-entry-final-ff08.log`；生产入口尚未切换。
 
 T3查询上下文与RPC/结构化输出支持迁出，真实queryProject并发及假RPC2/2 exit0；首1/2 exit1因替身用普通Error冒充业务错误，日志 `g004-r519-t3-support-first-ff08.log`、`g004-r519-t3-support-final-ff08.log`。其余消费者待迁。
+
+T4首子组迁出MCP result_parse，真实查询配合成CSV、0及错误3/3 exit0，`g004-r519-t4-parse-first-ff08.log`，未调用Worker。
 
 519识别未完成及同窗冲突不能认定锁死；原识别不记完成首0/1 exit1，`g004-519-bootstrap-recognition-ff08.log`。B1保存PLAN及识别事实；假对象2/2、快速9/9、上下文20/20、命令3/3、持久化3/3、投影6/6 exit0；日志 `g004-r519-b1-` 加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 及 `-ff08.log`。未改真实标记。
 
@@ -46,11 +48,7 @@ T3查询上下文与RPC/结构化输出支持迁出，真实queryProject并发�
 
 项目清除状态修复：null/cleared旧值不复活，坏JSON/EACCES报告。内存存储首9/10 exit1、修后及补验各10/10 exit0；TEMP日志 `g004-518-cleared-before-ff08.log`、`g004-518-cleared-after-ff08.log`、`g004-518-cleared-final-ff08.log`。未清真实数据；原文见Git `48062264:docs/plan-generations/G004-execution.md`。
 
-518 重载后实际单项目验收（当前部分通过，待总控复核）：live discovery/health/status 证明 Host PID 76852、版本 0.5.518、唯一专用根 `C:/Users/ZLK/AppData/Local/Temp/simpleex-normal-ui-g003-20261116-a7c39e2f`、offline_import、低流量 enabled/effective；本人统一项目 grant 已真实存在，5类权限、无 Worker 授权快照。此窗口属于默认 profile，当前配置5台/启用1台，不能当作旧零 Worker 隔离 profile；未执行服务器、健康、隧道、任务、Agent 或共享设置操作。原进口状态启动时已恢复，但不同 profile 不能作为升级清空配置的证据。
-
-U54 两个公开 `invoke` 成功返回，selectPlan 选既有合成 PLAN 后恢复 `experiments/plans/ui_u01_empty_515.yaml`，selectExperiment 选/取消合成任务；实际 state 与 `simple_cluster/ui/plan_selection.json`、`task_selection.json` 读回一致。U55 真实 MCP `configuration_get/set` 将项目 `simpleExperiment.resultCsvDir` 临时设为 `experiments/results/synthetic`，state 与 `.vscode/settings.json` 读回后恢复 `experiments/results`；授权生效不代表已调用全部权限。`result_parse` 和 `metric_leaderboard` 经当前 live catalog、mcp.call 读取已有合成 CSV，分别返回两行/两组，保留 DSC=0、accuracy=0、带逗号标识和空值；没有连接 Worker。主动 results.list/result_export 会触发启用 Worker，依本轮边界未测；原本地 UI 导出及受控消费者旧证按原范围保留。
-
-U56 518实测离线合成包导入及恢复原包均exit0，面板显示2/2、来源、中文、引号、空seed及AP=0并标未核实；重导更新导入时间，旧主动查询错误未重演。导入前已核实时流断开及直接触发链不发Worker请求；首次离屏元素、文件框索引和坐标校验失败未输入。完整证据见 `89498eff:docs/plan-generations/G004-execution.md`，517原有效PLAN/结果/日志证据按原范围复用。
+518重载验收：默认profile专用根Host 0.5.518、offline_import、低流量、本人grant及5配置/1启用均实核，未操作Worker。U54公开选择和持久化读回、U55配置保存恢复及MCP合成解析/排行通过；主动results.list/result_export需访问Worker，本轮未测。U56离线包导入/恢复exit0，面板显示2/2及0/中文/引号/空值并标未核实；首次离屏元素、文件框索引和坐标校验失败未输入。完整原证据见 `89498eff:docs/plan-generations/G004-execution.md`，517旧证仅按原范围复用。
 
 518时持久化身份及未识别状态原始调查见 `89498eff:docs/plan-generations/G004-execution.md`；其旧workspaceState引导标记描述只适用于当时运行源码，519已按规范项目根存入同profile globalState。不能借其他profile值或虚构已识别，518未含后续持久化源码修复；四跨项目与89旧延期范围未开放。
 
