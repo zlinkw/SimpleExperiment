@@ -122,7 +122,7 @@ MCP普通结果8/8，见Git `c0465f0f:docs/plan-generations/G004-execution.md`�
 
 同PLAN不同运行身份及终态不复活，MCP中立测试14/14（937804）；原测试保留。
 
-新MCP Worker生命周期迁测去除遗留CLI测试依赖，4/4 exit0（4864b3）。中立客户端错误身份检查亦脱离CLI，首0/1 exit1（7ff115：普通校验错误误认CliError），按真实契约修正后1/1 exit0（2491a4）。
+MCP Worker生命周期无旧CLI依赖4/4；中立错误首0/1 exit1后1/1，详见Git `cc50ceea:docs/plan-generations/G004-execution.md`。
 
 缺失指标、null导出及特殊键比较改核MCP实现，3/3 exit0（2c5e04），已列四交付profile。
 
@@ -217,3 +217,5 @@ MCP查询去除无消费者CLI json/compact开关，默认精简及full语义保
 旧Runner导入仅移至原录制测试内部，同文件checkpoint断言保留；旧dist完整文件2/2 exit0，合成stdout、无Worker；测试及源码未删。
 
 MCP Agent观察入口拒绝调用者token及未知字段，假Host仅收到固定字段；网关10/10 exit0，不代表后端返回内容已脱敏或真实Agent已测。
+
+外部旧CLI待审6项补Host/中立消费者映射及退役差异，旧断言保留；登记首超阈值断言未写。

@@ -14,7 +14,7 @@
         "source": "test/api/localApi.test.js:231",
         "name": "simpleex CLI reads the discovery file",
         "status": "pending_review",
-        "boundary": "旧CLI发现入口，须区分中立客户端与CLI包装。"
+        "boundary": "旧CLI直接读取允许缺version/startedAt的发现内容；中立客户端真实握手与工作区绑定由localApiClientSource 3/3合成回环验证，新resolver要求完整身份，旧宽松读取与CLI包装拟退役，不称原输入等价。"
       },
       {
         "source": "test/api/localApi.test.js:282",
@@ -26,7 +26,7 @@
         "source": "test/api/localApi.test.js:298",
         "name": "simpleex doctor passes with live listener",
         "status": "pending_review",
-        "boundary": "旧doctor CLI；不得连接真实插件重放。"
+        "boundary": "localApiClientSource 3/3核单个合成Host能力/身份/版本，mcpLocalApiSafety 8/8核两插件缺失发现；旧doctor双插件联合报告及退出码拟退役，未连真实插件。"
       },
       {
         "source": "test/api/localApi.test.js:699",
@@ -86,19 +86,19 @@
         "source": "test/features/windowsWorkflowContract.test.js:37",
         "name": "compiled Windows CLI verifies the actual workspace and accurately reports a request awaiting approval",
         "status": "pending_review",
-        "boundary": "顶层依赖旧WorkflowRun；工作区及审批业务断言待迁。"
+        "boundary": "mcpWorkflowHostSafety 4/4实际Host源码假端口核工作区和回执不是完成，mcpProjectOpsContract 10/10核Gateway PLAN/授权；旧CLI waiting_confirmation呈现及退出码拟退役，原文件保留。"
       },
       {
         "source": "test/features/windowsWorkflowContract.test.js:43",
         "name": "wrong workspace/PLAN, changed workspace, blocked route and seed override cannot request a run",
         "status": "pending_review",
-        "boundary": "顶层依赖旧WorkflowRun；隔离及禁止绕过仍需覆盖。"
+        "boundary": "mcpWorkflowHostSafety 4/4核实际Host错误项目、切换和活动PLAN拒绝；mcpProjectOpsContract 10/10核未提供PLAN/任意command拒绝。旧CLI错误PLAN、seed及dry-run入口差异单列，原用例保留。"
       },
       {
         "source": "test/features/windowsWorkflowContract.test.js:52",
         "name": "dry-run/check are read-only route checks; blocked run never reports submitted",
         "status": "pending_review",
-        "boundary": "顶层依赖旧WorkflowRun；区分CLI独有dry-run与Host预检。"
+        "boundary": "mcpWorkflowHostSafety 4/4核实际Host route ready/blocked与请求身份；plan_matrix仅结构预览，MCP真实准备/校验有同步副作用，旧CLI dry-run/check形式拟退役，不能宣称零写入。"
       },
       {
         "source": "test/features/windowsWorkflowContract.test.js:79",
@@ -146,7 +146,7 @@
         "source": "test/features/resultHistoryReadErrors.test.js:8",
         "name": "history reports unreadable or malformed sources and still permits missing paths",
         "status": "pending_review",
-        "boundary": "旧CLI history无新增MCP工具；历史只读错误保护与适用消费者待裁决。"
+        "boundary": "原项仅旧CLI history文件读取错误和缺失行为；history入口经裁决退役、不新增MCP history，既有结果目录和原用例保留；活跃MCP results查询失败不得回退，mcpQueryContext 17/17合成验证。"
       },
       {
         "source": "test/evidenceTooling.test.js:20",
