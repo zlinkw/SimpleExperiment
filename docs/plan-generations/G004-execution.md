@@ -75,3 +75,5 @@ planRunRecovery 7/7 exit0：VM 假对话和 UI，自建恢复状态保留；无�
 误重跑已有继承候选 job 179：jobArtifactSyncIdentity 7/7 exit0，纯函数；新事件和日志保留但 eligible=false，继承原证据。planner 原报证据冲突，排除重复后须重核；两次误跑原因是执行前未同时核 jobs 的 eligible，后续先核原候选再执行。
 
 nativePlanRetry 6/6 exit0：提取函数及 HTTP 分支，假 tmux、合成清单和内存队列；无真实 Worker、网络、tmux、删除或进程管理。原事件及依赖见 coverage，待总控终审；planner 150 项待核。
+
+completedJobArtifactRootBinding 7/7 exit0：VM 编译方法、假探测和传输，自建根保留；无真实 Worker、网络、传输或删除。原事件与依赖见 coverage，待总控终审；planner 149 项待核。
