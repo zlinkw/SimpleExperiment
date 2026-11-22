@@ -44,7 +44,7 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 520 另有多项合成、VM 及假端口定向结果；逐项数量、日志、保留夹具及边界见 Git `b6f86b14:docs/plan-generations/G004-execution.md` 和 coverage。两项独立 loopback 凭据和安装为夹具，junction 保留；未操作真实 Worker、Agent、GPU、SSH、tmux、授权、传输、清理、活动结果或 UI，均待总控终审。
 
-本段压缩前逐项命令范围和边界见 Git `806d47d2:docs/plan-generations/G004-execution.md`，原始事件及输入快照见 coverage。520 后单文件均 exit0：freshResults 10/10、syncScopeTree 6/6、syncScopeMetadata 12/12、syncScopeBatch 8/8、projectRootMap 14/14、syncScopeTransferBatch 8/8、windowsWorkflowContract 4/4、schedulerContract 3/3、distributedPlanSubmissionRouting 7/7、distributedQueueStartup 8/8、distributedQueueStartupMirrors 6/6、distributedQueueStartupRecovery 7/7、prequeueRecallLifecycle 9/9、planRunReplacement 17/17、workerFpsyncTaskLabel 3/3、workflowPanelNavigation 7/7、draftCleanupConfirmation 3/3、inspectorWorkflowDensity 3/3。均为内存、隔离夹具、VM 或假回调；临时夹具保留，未操作真实 Worker、GPU、网络传输、UI、用户授权、删除或重命名，模拟删除不证明真实删除安全；均待总控终审。
+520 后 freshResults、syncScopeTree/Metadata/Batch/TransferBatch、projectRootMap、windowsWorkflowContract、schedulerContract、distributedPlanSubmissionRouting、distributedQueueStartup 及 Mirrors/Recovery、prequeueRecallLifecycle、planRunReplacement、workerFpsyncTaskLabel、workflowPanelNavigation、draftCleanupConfirmation、inspectorWorkflowDensity 原文件均 exit0；逐项数量、命令和边界见 Git `806d47d2:docs/plan-generations/G004-execution.md` 及 coverage。均为内存、隔离夹具、VM 或假回调；夹具保留，无真实 Worker、GPU、网络传输、UI、用户授权、删除或重命名，模拟删除不证明安全，待总控终审。
 
 本段逐项原文及失败详情保留于 Git `7d91ba1b:docs/plan-generations/G004-execution.md`，各项真实原事件、日志及输入见 coverage。formalJobRejectedRecovery 5/5、gpuWorkerSnapshotRecovery 13/13、agentPreparationLifecycle 10/10 均 exit0，使用内存/VM/假端口，无真实 Worker、GPU、Agent、SSH、网络或 UI。branchProjectRegistry 的 sanitizeGitEnv、normalizeGithubTarget、五项 UI、C5-R6、C4 preview/create、C3 假执行器、C4-R3 revalidate 与 C5 未知结果各精确 pattern 1/1 exit0，模拟执行器及账本，无真实 Git、网络、PR 或 UI；其余 pattern 未覆盖。均待总控终审。
 
@@ -65,3 +65,5 @@ runtimeLogAnalysisHost 19/19 exit0：VM 假 Worker、清理与界面，自建源
 接替后误重跑已有继承候选 job 204：planTerminalStatusRecovery 原文件 9/9、exit0，纯合成状态，日志 `%TEMP%/g004-520-plan-terminal-status-recovery-20261123-successor.log`；planner 发现继承与新 direct 冲突，保留新事件及日志但设 eligible=false，继续使用原 job 204 证据，不掩盖重复。归档旧执行会话后核其 session_meta 与 138 条 eligible 事件双 SHA，139 处引用仅修正实际归档路径，提交 `9a69240b`；未重跑或改写原事件。
 
 distributedPlanExecutionMode 10/10 exit0：VM 假 Worker 与 Python 函数提取，队列、tmux、文件和恢复证据均为替身或内存；自建根保留，无真实 Worker、训练、GPU、网络、tmux 或删除。原事件及依赖见 coverage，待总控终审；planner 154 项待核。
+
+taskQueryWideReadRealChain 3/3 exit0：仅提取查询函数，以假清单、日志和 tmux 输入验证查询边界；脚本保留，无真实 Worker、网络、tmux 或删除。原事件及依赖见 coverage，待总控终审。
