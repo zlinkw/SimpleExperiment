@@ -46,7 +46,7 @@ function physicalWorkerFixture() {
 }
 
 test("runtime observations resolve to experiment rows", () => {
-  const { runtimeRow, lifecycleOf, applyObservationFields } = require("../../src/mcp/query/Experiments.ts");
+  const { runtimeRow, lifecycleOf, applyObservationFields, pickExperiment } = require("../../src/mcp/query/Experiments.ts");
   const observation = {
     run_id: "run-9001",
     plan: "plan.yaml",
@@ -61,6 +61,8 @@ test("runtime observations resolve to experiment rows", () => {
     updated_at: "2026-03-01T00:00:00Z",
   };
   const row = runtimeRow(observation);
+  assert.equal(pickExperiment([row], "run-9001"), row);
+  assert.equal(pickExperiment([row], "simple:3"), row);
   assert.equal(row.id, "run-9001");
   assert.equal(row.type, "worker_run");
   assert.equal(row.status, "running");
@@ -86,7 +88,7 @@ test("runtime observations resolve to experiment rows", () => {
 });
 
 test("runtime row prefers direct Worker task id over tmux runtime alias", () => {
-  const { runtimeRow, applyObservationFields } = require("../../src/mcp/query/Experiments.ts");
+  const { runtimeRow, applyObservationFields, pickExperiment } = require("../../src/mcp/query/Experiments.ts");
   const observation = {
     run_id: "run-1790241627897", plan: "experiments/plans/comparison/corim.yaml", status: "running",
     worker: { id: "nwpu2", host: "" }, tmux: { session: "zlk-gpu-1", window: "zlk-gpu-1:2", pane: "zlk-gpu-1:2.0" },
@@ -96,6 +98,8 @@ test("runtime row prefers direct Worker task id over tmux runtime alias", () => 
     log: "", updated_at: "2026-09-24T09:21:00Z",
   };
   const row = runtimeRow(observation);
+  assert.equal(pickExperiment([row], "run6-600294-437"), row);
+  assert.equal(pickExperiment([row], "run-1790241627897"), row);
   assert.equal(row.id, "run6-600294-437");
   assert.equal(row.run_id, "run-1790241627897");
   assert.equal(row.created, "2026-09-24T09:20:27Z");
