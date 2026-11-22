@@ -105,3 +105,5 @@ Worker运行与观察合并、旧清理引擎三份未应用diff分别绑定现�
 项目CLI、控制和草稿三份部分候选合并为各自完整文件diff，逐项关联全部原索引及未决边界，取代旧部分diff；三份git apply --check exit0，逐断言审核和退休仍未批准。
 
 PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件diff，逐项关联全部原索引和未决边界；三份git apply --check exit0，未退休。
+
+完整假设矩阵候选取代六项示例：50个精确文件保留glob发现，13旧直接job拟替换为17项MCP测试、worker-mode移旧派发项，清除旧分类并同步独立规划/磁盘对账及状态说明；五文件合并git apply --check exit0，17项集合充分性和所有退休仍须复核批准。两份CLI专用helper形成未应用diff，仅所有消费者获准迁出后才可审；fixture未动。
