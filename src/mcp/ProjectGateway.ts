@@ -90,6 +90,7 @@ export class ProjectGateway {
     const cleanup = tool.method.startsWith("plans.cleanup.") || tool.method.startsWith("files.cleanup.");
     const params = { ...args, ...((tool.permission || tool.requiresUserApproval) && !cleanup ? { confirm: true } : {}),
       ...(tool.method === "project.prepare" ? { startSessions: true } : {}),
+      ...(tool.method === "plans.cleanup.preview" && args.action === "delete" ? { authorizationMode: "confirmed_paths" } : {}),
       ...(tool.method.startsWith("workflow.") ? { workspace: this.ports.root() } : {}),
       ...(tool.method === "operations.list" ? { filtered: true } : {}),
       ...(tool.method === "invoke" ? { command: tool.action } : {}),

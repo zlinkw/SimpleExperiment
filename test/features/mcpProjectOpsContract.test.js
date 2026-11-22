@@ -89,3 +89,16 @@ test('MCP GPU and task observations retain Worker, GPU zero and command identiti
  await assert.rejects(gateway.call('task_list',{}),/task observation failed/);
  assert.deepEqual(calls,['gpu','tasks','gpu','tasks']);
 });
+
+test('MCP PLAN delete previews use the same confirmed-path mode as the human review',async()=>{
+ const root=path.resolve(__dirname,'../..'),calls=[];
+ const gateway=new ProjectGateway({root:()=>root,workers:()=>[],store:{get:()=>undefined},methods:()=>({
+  'plans.cleanup.preview':async params=>{calls.push(params);return {token:'preview-only'}}
+ })});
+ assert.deepEqual(await gateway.call('cleanup_preview',{planFile:'plans/p.yaml',action:'delete'}),{token:'preview-only'});
+ assert.deepEqual(calls[0],{planFile:'plans/p.yaml',action:'delete',authorizationMode:'confirmed_paths'});
+ await gateway.call('cleanup_preview',{planFile:'plans/p.yaml',action:'move'});
+ assert.deepEqual(calls[1],{planFile:'plans/p.yaml',action:'move'});
+ await assert.rejects(gateway.call('cleanup_preview',{planFile:'plans/p.yaml',action:'delete',confirm:true}),/Unknown/);
+ assert.equal(calls.length,2);
+});
