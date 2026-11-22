@@ -12,7 +12,7 @@ export interface AuthorizationStore {
   update(key: string, value: unknown): Thenable<void> | Promise<void>;
 }
 export function createProjectAuthorization(root: string, workers: AuthorizedWorker[], permissions: Permission[]): ProjectAuthorization {
-  if (!workers.length || workers.some(worker => !worker.id || !worker.host || !worker.projectRoot)) throw Error("MCP_AUTHORIZATION_TARGET_REQUIRED");
+  if ((!workers.length && permissions.some(permission => permission !== "configuration")) || workers.some(worker => !worker.id || !worker.host || !worker.projectRoot)) throw Error("MCP_AUTHORIZATION_TARGET_REQUIRED");
   return { workspace: probeWorkspace(root), workers: structuredClone(workers), permissions: [...permissions], grantedAt: new Date().toISOString() };
 }
 export function assertProjectAuthorization(grant: ProjectAuthorization | undefined, root: string, workers: AuthorizedWorker[], permission: Permission): void {

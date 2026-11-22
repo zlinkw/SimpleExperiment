@@ -119,12 +119,14 @@ export async function manageAiAuthorization(host: any): Promise<void> {
     void vscode.window.showInformationMessage("已撤销当前项目的 AI 写操作授权。");
     return;
   }
-  const workers = await vscode.window.showQuickPick(currentWorkers(host).map(worker => ({ label: worker.id,
+  const availableWorkers = currentWorkers(host);
+  const workers = availableWorkers.length ? await vscode.window.showQuickPick(availableWorkers.map(worker => ({ label: worker.id,
     description: `${worker.user}@${worker.host}:${worker.port} ${worker.projectRoot}`, worker })),
-  { title: "选择 AI 可操作的 Worker", canPickMany: true, ignoreFocusOut: true });
-  if (!workers?.length) return;
+  { title: "选择 AI 可操作的 Worker", canPickMany: true, ignoreFocusOut: true }) : [];
+  if (!workers || availableWorkers.length && !workers.length) return;
   const names = { experiment: "启动、派发和停止实验", sync: "文件同步", agents: "Agent 部署、升级和重启", configuration: "项目配置与草稿", results: "结果收集与汇总" };
-  const permissions = await vscode.window.showQuickPick(PERMISSIONS.map(permission => ({ label: names[permission], permission, picked: true })),
+  const availablePermissions = workers.length ? PERMISSIONS : PERMISSIONS.filter(permission => permission === "configuration");
+  const permissions = await vscode.window.showQuickPick(availablePermissions.map(permission => ({ label: names[permission], permission, picked: true })),
     { title: "选择 AI 可自主执行的项目操作", canPickMany: true, ignoreFocusOut: true });
   if (!permissions?.length) return;
   if (root !== vscode.workspace.workspaceFolders?.[0]?.uri.fsPath) throw Error("MCP_WORKSPACE_CHANGED");
