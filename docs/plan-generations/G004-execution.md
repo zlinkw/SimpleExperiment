@@ -219,3 +219,5 @@ Windows工作流混合文件形成未应用diff，仅移旧CLI三项及专用fix
 外部依赖补发现localApi.test.js:259旧CLI派发测试，外部导航由26增至27；现派发业务有Gateway/Host假端口5/5。该文件形成包含四处中立导入与四个旧CLI用例的合并未应用diff，取代原单独importDiff（不可叠加），其余LocalApiServer断言保留；git apply --check exit0，原文件未运行。
 
 旧CLI项目状态/根/PLAN/缺Host/服务器及控制方法六项形成两份未应用diff；现Gateway/中立客户端业务证据保留，旧聚合、离线回退、argv与确认外壳差异单列。两份git apply --check exit0，其他测试及helper不动。
+
+草稿、PLAN清理和中立入口各补未应用候选。草稿与入口两份同文件diff直接拼接首次git apply --check各exit1，因上下文重叠；已按原文件合并为每文件一份，分别5项/9项合并diff均exit0。原测试未改，双确认和现业务证据保留。
