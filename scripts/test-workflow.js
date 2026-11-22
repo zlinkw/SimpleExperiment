@@ -1018,7 +1018,7 @@ function inspectG004DirectEvidence(root, plan, coverage) {
   const accepted = [], seen = new Set();
   for (const row of (coverage.currentTargetedEvidence || []).filter(j => j.eligible === true)) {
     const k = key(row), job = planned.get(k);
-    if (!job || job.file !== row.file || seen.has(k) || row.treeStatus !== "settled_by_direct_execution" || !row.review || !row.review.decision || !row.review.snapshotSha256 || row.review.scope !== "dependency_scoped") throw new Error("G004 direct evidence not reviewed for this plan: " + row.file);
+    if (!job || job.file !== row.file || seen.has(k) || !row.cwd || path.resolve(row.cwd) !== root || row.treeStatus !== "settled_by_direct_execution" || !row.review || !row.review.decision || !row.review.snapshotSha256 || row.review.scope !== "dependency_scoped") throw new Error("G004 direct evidence not reviewed for this plan: " + row.file);
     seen.add(k);
     const events = fs.readFileSync(row.rollout, "utf8").split("\n").filter(line => line.includes(row.callId)).map(line => ({ line, event: JSON.parse(line) })).filter(x => x.event.payload && x.event.payload.call_id === row.callId);
     const calls = events.filter(x => x.event.payload.type === "custom_tool_call"), outputs = events.filter(x => x.event.payload.type === "custom_tool_call_output");
@@ -1031,7 +1031,7 @@ function inspectG004DirectEvidence(root, plan, coverage) {
     if (JSON.stringify(actualArgv) !== JSON.stringify(job.argv)) throw new Error("G004 direct argv mismatch: " + row.file);
     const blocks = output.event.payload.output;
     const toolResult = Array.isArray(blocks) && blocks.map(b => { try { return JSON.parse(b.text); } catch { return null; } }).find(v => v && v.exit_code === 0 && !v.session_id && typeof v.output === "string");
-    const completeOutput = toolResult && !/Warning: truncated output/i.test(toolResult.output) && /(?:ℹ|#)\s*fail\s+0\b/.test(toolResult.output);
+    const completeOutput = toolResult && !/Warning: truncated output/i.test(toolResult.output) && /(?:ℹ|#)\s*pass\s+[1-9]\d*\b/.test(toolResult.output) && /(?:ℹ|#)\s*fail\s+0\b/.test(toolResult.output);
     const retainedLog = row.log && row.logSha256 && sha256Fresh(row.log) === row.logSha256;
     if (!toolResult || (row.log || row.logSha256 ? !retainedLog : !completeOutput)) throw new Error("G004 direct execution did not settle successfully: " + row.file);
     const deps = Object.entries(row.review.snapshotSha256);
