@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const { readSource } = require("../_helpers/sourceReader");
 require('../_helpers/registerTsRequire');
-const { pickExperiment } = require('../../src/mcp/query/Experiments.ts');
+const { pickExperiment, localArtifactRecord } = require('../../src/mcp/query/Experiments.ts');
 
 function extractFunction(source, name) {
   const start = source.indexOf(`function ${name}(`);
@@ -603,7 +603,7 @@ test("local artifact IDs distinguish same-named files in different directories",
   const ast=ts.createSourceFile('artifact.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),names=['listArtifacts','findArtifact'],methods=[];
   const visit=node=>{if(ts.isFunctionDeclaration(node)&&names.includes(node.name?.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
   const root=path.resolve('artifact-fixture'),output=path.join(root,'run');let files=[{path:'a/metrics.csv',size:1},{path:'b/metrics.csv',size:2}];
-  const sandbox={path,pickExperiment,fs:{statSync:()=>({size:5})},loadExperiments:async()=>[{id:'run1',raw:{outputDir:output}}],fileExists:()=>true,projectRoot:()=>root,
+  const sandbox={path,pickExperiment,localArtifactRecord,localArtifactPath:p=>path.resolve(p),fs:{statSync:()=>({size:5})},loadExperiments:async()=>[{id:'run1',raw:{outputDir:output},[localArtifactRecord]:{outputDir:output}}],fileExists:()=>true,projectRoot:()=>root,
     resolveProjectPath:p=>path.join(root,p),readJsonFile:()=>({files}),optionalApi:async()=>undefined,asRecord:x=>x||{},businessError:(message)=>new Error(message)};
   vm.runInNewContext(ts.transpileModule(methods.join('\n')+';this.list=listArtifacts;this.find=findArtifact;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
   const rows=await sandbox.list('run1');assert.notEqual(rows[0].id,rows[1].id);
@@ -615,7 +615,7 @@ test("artifact list and detail preserve colon-bearing historical experiment iden
   const ts=require('typescript'),root=path.resolve('artifact-fixture'),output=path.join(root,'run');
   const source=fs.readFileSync(path.resolve(__dirname,'../../src/mcp/query/Artifacts.ts'),'utf8'),experimentSource=fs.readFileSync(path.resolve(__dirname,'../../src/mcp/query/Experiments.ts'),'utf8');
   const functions=(text,names)=>{const ast=ts.createSourceFile('source.ts',text,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),found=[];const visit=node=>{if(ts.isFunctionDeclaration(node)&&names.includes(node.name?.getText(ast)))found.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);return found.join('\n')};
-  const sandbox={path,pickExperiment,EXPERIMENT_INDEX_REL:'index.json',projectRoot:()=>root,resolveProjectPath:p=>path.join(root,p),asRecord:x=>x||{},
+  const sandbox={path,pickExperiment,localArtifactRecord,localArtifactPath:p=>path.resolve(p),EXPERIMENT_INDEX_REL:'index.json',projectRoot:()=>root,resolveProjectPath:p=>path.join(root,p),asRecord:x=>x||{},
     readJsonFile:file=>file.endsWith('index.json')?[{global_job_id:'workflow:3',hub_job_dir:output,case:'case-a'}]:{files:[{path:'a/metrics.csv',size:1}]},
     firstString:(obj,keys)=>String(keys.map(key=>obj[key]).find(value=>value!==undefined)||''),blankRuntime:x=>x,normalizeStatus:x=>x,progressValue:()=>undefined,gpuValue:()=>undefined,
     fs:{statSync:()=>({size:1})},fileExists:()=>true,optionalApi:async()=>undefined,businessError:message=>new Error(message)};
@@ -629,7 +629,7 @@ test("result artifact IDs can be resolved through their owning experiment", asyn
   const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/mcp/query/Artifacts.ts'),'utf8');
   const ast=ts.createSourceFile('artifact.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),names=['listArtifacts','findArtifact'],methods=[];
   const visit=node=>{if(ts.isFunctionDeclaration(node)&&names.includes(node.name?.getText(ast)))methods.push(node.getText(ast));ts.forEachChild(node,visit)};visit(ast);
-  const sandbox={path,pickExperiment,fs:{statSync:()=>({size:5})},loadExperiments:async()=>[{id:'run1',plan:'plan1'}],fileExists:()=>false,projectRoot:()=>path.resolve('fixture'),resolveProjectPath:p=>path.resolve('fixture',p),
+  const sandbox={path,pickExperiment,localArtifactRecord,fs:{statSync:()=>({size:5})},loadExperiments:async()=>[{id:'run1',plan:'plan1'}],fileExists:()=>false,projectRoot:()=>path.resolve('fixture'),resolveProjectPath:p=>path.resolve('fixture',p),
     optionalApi:async(_method,params)=>params.planFile==='plan1'?{results:[{resultId:'result1',sourceFiles:[{path:'nested/metrics.csv',size:0}]}]}:undefined,
     asRecord:x=>x||{},businessError:message=>new Error(message)};
   vm.runInNewContext(ts.transpileModule(methods.join('\n')+';this.list=listArtifacts;this.find=findArtifact;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
