@@ -57,3 +57,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 误运行按需 serverQueueDispatch 14/14 exit0，保留事件及日志，eligible=false，不计 active；模拟队列/GPU/派发及 VM，未触真实资源。runner vsce 的未知 bin 为预期拒绝并保留日志；cleanupIndexInvalidation 的源码覆盖环境变量邻近检查未设置。其他原始事实见上述 Git 和 coverage。
 
 近期逐项原文见 Git `c04f2dd7:docs/plan-generations/G004-execution.md`，原事件和输入见 coverage。新增已登记测试包括 Worker 能力、刷新、预检拒绝、Hub 退役、结果清单/解析/收集、代码证明、合成重排、Agent 启动/命名、结构缓存、运行日志、假 GPU、派发新鲜度、任务身份与指标别名，均各自 exit0，精确数量及实际效果见该 Git 与 coverage。自建夹具保留，包含原子状态写入及日志轮转；Python 仅提取函数或启动前缀，原测试规模及断言不变；无完整 runtime、真实 Worker/GPU/tmux、训练、服务、网络、用户配置或删除。模拟删除不证明真实删除安全。各项待总控终审。
+
+gpuSampleCarryRealChain 3/3 exit0：串行 Python 函数提取、假采样和 inventory，夹具线程 join，脚本保留；无真实 GPU/nvidia-smi、Worker、tmux 或网络。证据见 coverage，待总控终审。
