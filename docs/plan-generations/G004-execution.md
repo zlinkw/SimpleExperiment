@@ -153,3 +153,5 @@ MCP Agent观察入口拒绝调用者token及未知字段，假Host仅收到固�
 补列旧仓内simpleex-mcp包装为第38项：其依赖旧CLI resolver及旧安装器/测试；新MCP启动器与用户全局shim保留，当前不删。
 
 CLI 302项逐条拟动作及每文件当前计划来源、矩阵候选列coverage；尚未批准或应用任何退役，存在边界缺口者继续保留。只读planner未运行测试、B1或build。
+
+真实CleanupFileApi补无效token、非法类型与跨项目token拒绝，Gateway/Host及内存引擎5/5 exit0；跨项目直接调用引擎，未操作真实Worker或磁盘清理。旧CLI其余usage边界仍待审。

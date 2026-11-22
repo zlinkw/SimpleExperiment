@@ -89,3 +89,13 @@ test('observations bind frozen target and root identities',async()=>{
  assert.match(JSON.stringify(await observe({...target,relativePath:'data/other.csv'},rootIdentity)),/TOKEN_TARGET_MISMATCH/);
  assert.match(JSON.stringify(await observe(target,{dev:'99:9',ino:'1'})),/TOKEN_NODE_MISMATCH/);
 });
+
+test('cleanup rejects invalid tokens, target types, and cross-project reuse',async()=>{
+ const f=fixture();
+ await assert.rejects(f.gateway.call('file_cleanup_status',{...node,token:'z'.repeat(48)}),/INVALID_TOKEN/);
+ await assert.rejects(preview(f,[{relativePath:'data/x',type:'symlink'}]));
+ assert.equal(f.actions.length,0);
+ const row=await preview(f,[{relativePath:'data/x.csv',type:'file'}]);
+ await assert.rejects(f.engine.status({token:row.token,consumerRoot:path.join(base,'other-project')}),/CONSUMER_ROOT_MISMATCH/);
+ assert.equal(f.deleteCalls,0);
+});
