@@ -51,6 +51,18 @@ test('MCP project operations retain authorization, receipts and observed failure
  await assert.rejects(gateway.call('project_bootstrap',{planFile:'p.yaml',confirm:true}),/Unknown/);
 });
 
+test('MCP formal execution requires a PLAN and cannot accept an arbitrary command',async()=>{
+ const root=path.resolve(__dirname,'../..'),grant=createProjectAuthorization(root),calls=[];
+ const methods={'workflow.run':async params=>{calls.push(params);return {status:'accepted',operationId:'fixture'}}};
+ const gateway=new ProjectGateway({root:()=>root,workers:()=>[],store:{get:()=>grant},methods:()=>methods});
+ await assert.rejects(gateway.call('plan_run',{command:['must-never-start']}),/Unknown|planFile is required/);
+ await assert.rejects(gateway.call('plan_run',{planFile:'plans/p.yaml',command:['must-never-start']}),/Unknown/);
+ assert.equal(calls.length,0);
+ const result=await gateway.call('plan_run',{planFile:'plans/p.yaml'});
+ assert.equal(result.status,'accepted');assert.equal(calls[0].planFile,'plans/p.yaml');
+ assert.equal(calls[0].workspace,root);assert.equal(calls[0].confirm,true);assert.ok(!('command' in calls[0]));
+});
+
 test('MCP PLAN validation forwards host success and in-band failure',async()=>{
  const root=path.resolve(__dirname,'../..'),calls=[],grant=createProjectAuthorization(root);
  const gateway=new ProjectGateway({root:()=>root,workers:()=>[],store:{get:()=>grant},methods:()=>({

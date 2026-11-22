@@ -66,9 +66,9 @@ MCP终态、结果、日志及合成观察通过，原文见Git `8249eb4d:docs/p
 
 519交付预检及工具误用见Git `48062264:docs/plan-generations/G004-execution.md`；dry-run exit0，341独占、按需0、max1。
 
-项目识别记忆：globalState单根保存及隔离，API/面板同源。Memento首0/2 exit1、修后3/3，提示1/1、迁移10/10 exit0；日志 `g004-518-onboarding-before-ff08.log`、`g004-518-onboarding-isolation-ff08.log`、`g004-518-onboarding-prompt-final-ff08.log`、`g004-518-onboarding-bootstrap-final-ff08.log`。未改真实标记，原文见Git `48062264:docs/plan-generations/G004-execution.md`。
+项目识别记忆隔离及Memento首0/2 exit1后补验通过，原日志见Git `2551787c:docs/plan-generations/G004-execution.md`；未改真实标记。
 
-项目清除状态修复：null/cleared旧值不复活，坏JSON/EACCES报告。内存存储首9/10 exit1、修后及补验各10/10 exit0；TEMP日志 `g004-518-cleared-before-ff08.log`、`g004-518-cleared-after-ff08.log`、`g004-518-cleared-final-ff08.log`。未清真实数据；原文见Git `48062264:docs/plan-generations/G004-execution.md`。
+项目清除状态失败不复活旧值，首9/10 exit1后两次10/10；原日志见Git `2551787c:docs/plan-generations/G004-execution.md`，未清真实数据。
 
 518专用根重载、U54–U56及实机边界详见Git `8249eb4d:docs/plan-generations/G004-execution.md`；active results未测。
 
@@ -110,7 +110,7 @@ T7收包策略及入口证据见Git bc739fa0；未实际打包。
 
 T7已定向MCP测试纳入四交付profile，规划确认独占；原glob亦涵盖，旧项未减。B1仍未验并阻断交付。早期矩阵及生成命令引号错误见Git 871ea78e及后续记录。
 
-MCP Worker生命周期4/4、限流3/3，旧无API历史回退未迁；原日志见Git `c0465f0f:docs/plan-generations/G004-execution.md`。
+MCP生命周期及旧历史边界见Git `2551787c:docs/plan-generations/G004-execution.md`。
 
 mcpQueryContext脱离CLI，原业务11/11；首两次10/11 exit1及修后详见Git `8249eb4d:docs/plan-generations/G004-execution.md`。
 
@@ -118,7 +118,7 @@ MCP普通结果8/8，见Git `c0465f0f:docs/plan-generations/G004-execution.md`�
 
 空PLAN矩阵MCP断言1/1（b4464e）；纳入交付profile。
 
-原mcpProject并发项目与结果查询改用新MCP源码和上下文，保留隔离/导出/越界断言；43/43 exit0（6e2b10），其余大部分仍针对旧dist，不能代表新包。
+原mcpProject并发查询43/43；其余多为旧dist，详见Git `2551787c:docs/plan-generations/G004-execution.md`。
 
 同PLAN不同运行身份及终态不复活，MCP中立测试14/14（937804）；原测试保留。
 
@@ -209,3 +209,5 @@ SimpleSFTP 0.2.120现有UI创建项目源码链核实，未实点。清理引擎
 中立错误模块移除无消费者的CLI JSON包装/成功码，保留错误分类和码；连接3/3、MCP查询17/17 exit0。
 
 MCP查询去除无消费者CLI json/compact开关，默认精简及full语义保留；17/17 exit0。登记首次超阈值断言未写。
+
+正式PLAN替代候选：Gateway缺PLAN及任意command拒绝且零Host调用，合法PLAN绑定授权和工作区；假Host 9/9 exit0，旧安全项保留。登记前两次超阈值断言未写。

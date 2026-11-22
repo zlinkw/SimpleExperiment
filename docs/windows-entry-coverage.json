@@ -158,7 +158,7 @@
         "source": "test/features/formalJobExecution.test.js:29",
         "name": "arbitrary recorded CLI commands cannot bypass formal PLAN admission in a research project",
         "status": "retired_runner_guard_pending_review",
-        "boundary": "旧Runner拒绝研究项目绕过正式PLAN的保护；产品侧执行入口及其PLAN授权须单独映射验证，不能只因CLI退役删除安全断言。该文件其余Scheduler、结果和重试测试均保留；未运行。"
+        "boundary": "原Runner在研究标记或results CSV存在时拒绝任意命令。候选替代：package.bin仅MCP（publicCliAliases 1/1），真实Gateway plan_run缺PLAN或带command拒绝且零Host调用、有效PLAN绑定工作区/授权（mcpProjectOpsContract 9/9假Host）；实际Host apiWorkflowRun调用apiWorkflowPlan检查ready后才产生操作。旧Runner项及同文件Scheduler、结果/重试仍保留，Host完整正式准入另依原受控证据，不称真实派发。"
       }
     ],
     "supportReferences": [
