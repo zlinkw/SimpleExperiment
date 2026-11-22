@@ -73,3 +73,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 - 520 后 workflowWorkspaceBinding 2/2、exit0（`%TEMP%/g004-520-workflow-workspace-binding-20261123.log`，先查不存在）；使用独立合成中文临时目录并保留，另用假身份探针，无删除。一次只读候选列表脚本因缺 eligible 字段 KeyError，未写文件，改用可选字段成功。
 
 - 经总控核准现有完整 mcpProject 合成回归，520 编译后 43/43、exit0（`%TEMP%/g004-520-mcp-project-contract-20261123.log`，先查不存在）；假授权/Agent/Worker 回调、独立合成工作区及回环/stdio，客户端与服务按原 finally 关闭。动态 legacy 源、现行 SDK/TS 加载闭包及 stdio bundle 已绑定，未执行真实授权变更、Agent、Worker或删除。
+
+- 520 后 staticEntrypointProbe 1/1、xshellSessionPatcher 2/2，exit0（`%TEMP%/g004-520-static-entry-probe-20261123.log`、`%TEMP%/g004-520-xshell-synthetic-patch-20261123.log`，先查不存在）；前者只读取合成脚本不启动 Python，后者只修改并备份自建合成 xsh，夹具保留。
