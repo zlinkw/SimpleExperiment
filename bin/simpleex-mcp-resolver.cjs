@@ -1,4 +1,5 @@
 "use strict";
+// SIMPLEEX_STABLE_ENTRY_V1
 const fs=require("node:fs"),path=require("node:path"),os=require("node:os");
 
 function option(argv,name){

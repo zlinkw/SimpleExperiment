@@ -28,7 +28,7 @@ B1末尾通知租约返修先验：原方法未释放的断言失败；新增夹
 
 T1实例发现/RPC与错误类型移至中立API位置，Server/面板/分支调用接入；假回环1/1 exit0，首0/1 exit1因误以为旧unavailable是CliError，日志 `g004-r519-t1-client-first-ff08.log`、`g004-r519-t1-client-final-ff08.log`，未连接真实实例。
 
-T2首子组新增中立MCP版本解析器，模拟重载、错身份、取消及缺入口1/1 exit0，日志 `g004-r519-t2-resolver-missing-ff08.log`；入口尚未切换，旧CLI未删除。
+T2中立MCP版本解析器假对象1/1 exit0，`g004-r519-t2-resolver-missing-ff08.log`。新启动器/安装器仅写MCP入口，假进程及隔离目录2/2 exit0，首1/2 exit1因测试原位sort改了对照数组，日志 `g004-r519-t2-entry-first-ff08.log`、`g004-r519-t2-entry-final-ff08.log`；生产入口尚未切换。
 
 用户提供识别未完成截图；519同窗租约冲突不能认定锁死。原本地识别不记完成，首0/1 exit1，`g004-519-bootstrap-recognition-ff08.log`。R519 B1保存有效PLAN及识别事实，准备独立；空任务/取消/错误2/2、快速流程9/9、上下文20/20、命令3/3、持久化3/3、投影6/6均exit0；日志 `g004-r519-b1-` 加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 及 `-ff08.log`。未重放或改真实标记。
 
@@ -40,7 +40,7 @@ T2首子组新增中立MCP版本解析器，模拟重载、错身份、取消及
 
 519交付预检及工具误用见Git `48062264:docs/plan-generations/G004-execution.md`；dry-run exit0，341独占、按需0、max1。
 
-项目识别记忆：globalState按规范单根保存，旧值迁移、false/reset及项目/profile隔离；API、提示和面板同源。真实源码配Memento首0/2 exit1（模块未实现），修后3/3，提示1/1、迁移10/10均exit0；日志 `g004-518-onboarding-before-ff08.log`、`g004-518-onboarding-isolation-ff08.log`、`g004-518-onboarding-prompt-final-ff08.log`、`g004-518-onboarding-bootstrap-final-ff08.log`。未改真实标记，完整原文见Git `48062264:docs/plan-generations/G004-execution.md`。
+项目识别记忆：globalState单根保存及隔离，API/面板同源。Memento首0/2 exit1、修后3/3，提示1/1、迁移10/10 exit0；日志 `g004-518-onboarding-before-ff08.log`、`g004-518-onboarding-isolation-ff08.log`、`g004-518-onboarding-prompt-final-ff08.log`、`g004-518-onboarding-bootstrap-final-ff08.log`。未改真实标记，原文见Git `48062264:docs/plan-generations/G004-execution.md`。
 
 项目清除状态修复：null/cleared旧值不复活，坏JSON/EACCES报告。内存存储首9/10 exit1、修后及补验各10/10 exit0；TEMP日志 `g004-518-cleared-before-ff08.log`、`g004-518-cleared-after-ff08.log`、`g004-518-cleared-final-ff08.log`。未清真实数据；原文见Git `48062264:docs/plan-generations/G004-execution.md`。
 
