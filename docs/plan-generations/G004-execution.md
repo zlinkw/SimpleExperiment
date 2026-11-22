@@ -122,3 +122,5 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 获批退休旧CLI PLAN清理、SFTP同步和统一入口测试，保留文件路径；对应MCP业务及旧外壳差异沿用coverage证据，三文件node --check通过，未真实清理或传输。
 
 获批退休旧CLI测试 test/cli/simpleCli.test.js, test/cli/simpleCliControl.test.js, test/cli/simpleCliDraft.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
+
+获批退休旧CLI测试 test/cli/simpleCliHistoryViews.test.js, test/cli/simpleCliQuerySchema.test.js, test/cli/manualDispatch.test.js；路径保留，node --check通过，业务证据和已退休外壳差异见coverage；未访问真实Worker。
