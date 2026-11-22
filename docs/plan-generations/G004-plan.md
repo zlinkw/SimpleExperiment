@@ -1,6 +1,6 @@
 # G004 重要功能、按钮与MCP深查
 
-## 当前目标 U04 重载后先验0.5.517单项目，再续延期
+## 当前目标 U04 单项目验收返修已交付518，待本人重载续验
 
 2026-11-22用户已确认重载，先核517实际运行身份和单项目功能，通过后处理延期。39项单项目修复已源审并试行交付，源/包/发行/安装证据见最终交付确认。有限逻辑300项，211有受限证据或缺陷、89延期，4跨项目问题保留，不冒全部通过；U01–U03的20项修复及有效证据复用。
 
@@ -80,7 +80,7 @@ A/B已FF同步bc0cc61c/c37827c8，54/55源审有效；56上述精确别名补验
 
 518首package 2026-11-22T03-16-49-272Z-80576 exit1：339/341、10前置gate通过、input=end=68ab3b42…ceecfe8，实际峰1、341树结束确认、锁释放，无post/VSIX。两项仅fixture修正：mcpProject旧grant误共享可变target引用41/43→复制后43/43；serverQuota缺mcpInvocation绑定9/10→真实模块后10/10，原断言/产品未改。首失败及补验日志在execution。组装器拒failed/输入变化，final禁only/reuse、check:full也带compile/matrix，不能组合339+补验；总控核具体门禁后特批本候选第二次package一次，复用518缓存/产物、不另build/递版、不改runner或伪receipt。再失败具体裁决，不自动第三轮；不作为纯补测通用全跑许可。
 
-518第二package 2026-11-22T03-36-44-479Z-33768-package/run.json已通过341/341和13门禁exit0，input=end=3cb70f7f…10745，锁释放；实际VSIX 2987002字节、SHA256 703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624。Panel模块及2生成script VM、manifest 377项/leak0/missing0/readme0已证。独立verify-vsix-runtime进程自然结束，但工具丢stdout/exit，状态未知，不冒通过；既有package gates不含完整闭包。总控批准对同一实际ZIP等价核验：复用collectLocalRuntimeClosure及相同main/bin、存在的spawn候选、MCP资源、panel manifest和内容策略，规范extension/路径，逐一覆盖并比较运行文件与本机构建字节；包版本/Runtime版本/平台/README/秘密排除沿既有门禁。无需重跑vsce ls、package或测试，不改验证器/超时/receipt；缺项或不一致即停对应交付。通过后继续原FF源码/版本/generated提交、同字节试行发布/远端下载及实际客户端核验、一次安装后停UI待本人Reload；不自动授或操作Worker。
+518最终交付总控一致性核验通过：源码/版本/generated提交20ae86ed32f0baa9106645decb60cf9a299f3518=origin/master，v0.5.518远端tag精确绑定；第二package 2026-11-22T03-36-44-479Z-33768-package/run.json为341/341、13门禁exit0、input=end=3cb70f7f…10745、并发1和锁释放。Panel模块及2生成script VM、377项ZIP内容策略通过；独立verify-vsix-runtime因工具丢stdout/exit仍未知，未重跑或冒通过，按批准等价验法实际ZIP的325运行闭包/324面板文件齐全、371运行文件与构建同源，exit0。试行Release https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.518 为draft=false/prerelease=true/latest=false，VSIX 2987002字节，SHA256 703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624；本机/远端digest/隔离实际下载和精确文件名sha一致。真实客户端482仍见483、518/SFTP120不降级；Latest实际仍483。install:latest恰一次exit0含DEP0169 warning，总控只读code列表确认518/SFTP120及稳定CLI入口存在；停止面板，需本人Reload目标隔离窗口，再本人点管理AI→授权当前项目（不选Worker/范围）。新版54/55/56运行交付通过，实机交互和授权链尚未通过；不自动授权、真实Worker/服务器仍禁，4跨项目/89入口延期不开放。首包339/341、fixture补验及git add忽略dist的exit1均保留execution。
 
 ## 0.5.517 最终交付确认
 

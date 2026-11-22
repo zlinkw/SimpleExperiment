@@ -1,5 +1,7 @@
 # G004 执行登记
 
+0.5.518 最终交付：源码与生成物 `20ae86ed32f0baa9106645decb60cf9a299f3518` 已 FF 同步，远端 tag 同提交；[试行 Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.518) 为 prerelease，VSIX 2987002 字节、SHA256 `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`，隔离下载包与精确同名 sha 一致。真实更新客户端确认普通 Latest 仍为 0.5.483、518 与 SFTP 0.2.120 不降级。`npm run install:latest` 一次 exit0，带 DEP0169 warning；磁盘为 518/SFTP 0.2.120，稳定入口存在。此前待裁决及未发行状态已由本段取代，原失败保留。须由本人重载专用隔离窗口并亲点“管理 AI 项目授权→授权当前项目”；518 Host 交互及授权链尚未实机通过。
+
 0.5.518 第二次 package exit0，341/341、13 gates、并发1、锁释放，receipt `simple_cluster/reports/test-workflow/2026-11-22T03-36-44-479Z-33768-package/run.json`；VSIX 2987002字节 SHA256 `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`。真实 Panel 模块及2个生成脚本 VM、实际 VSIX 内容策略验证均 exit0；运行闭包核验进程自然结束但工具丢失输出及退出码，状态未知。总控批准等价实际 ZIP 核验：325闭包、324面板文件均存在，371运行文件与构建输出逐字节摘要一致，身份/version/engine正确，exit0；原未知不覆盖。
 
 518 精确 `git add` exit1 提示 dist 被忽略；回读状态确认指定13个已跟踪生成文件及8个非生成文件均实际暂存，未强制添加或触碰未跟踪项。
@@ -12,9 +14,9 @@ U56 源审返修：非对象离线行显示行号及错误、保留其余行；�
 
 补齐既有 final_results 与 pending_review_records 消费，显式空 results 不回退；同文件8/8 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-56-alias-final-ff08.log`。
 
-517 离线导入：专用零 Worker 窗口实际选择原 synthetic `offline-fixture.json`，`invoke offline` exit0，持久包读回两行 AP 0.11/0.44；原包缺 PLAN 归属/版本时选中 PLAN 的摘要被门禁隐藏。新建并保留 `g004_0517_offline_scoped_ff08.json`，明确 synthetic、display-only、未运行，将当前空 PLAN 及实际 revision 作为合成显示身份；再次经实际文件选择导入后，state `__offlineImport=true`、两行及 AP 均正确。随后用相同入口恢复原合成包并核持久 source/两行；导入更新时间变化，原输入未覆盖。结果区仍显示之前主动查询失败提示及既有两行表，计划卡未证明显示此次摘要，界面展示语义待总控裁决，不冒通过。准备查工具帮助 `node scripts/test-workflow.js --help` 实际 exit1，因 runner 不支持该选项；未启动测试或打包，随后只读源码确认参数。
+517 隔离离线导入及原合成包恢复证据见 Git `20ae86ed:docs/plan-generations/G004-execution.md`；当时结果区未展示导入摘要，已确认为 U56。`node scripts/test-workflow.js --help` exit1（runner 不支持该选项），非产品失败。
 
-U04-55 后续用户裁决替换此前零 Worker 仅配置方案：本人选择授权当前项目即授现有全部操作类别，不选 Worker 或范围；新 grant 不存 Worker，旧细分/绑定 grant 保留旧约束直到本人重授。设置入口 `worker_configure` 可选已禁用的已配置 Worker 并修改/读回 enabled，执行入口仍限启用目标；共享设置提示其影响所有项目。真实源码转译及内存 UI/store/Gateway/配置保存回归 `node --test --test-force-exit --test-timeout 20000 test/ui/actionLifecycle.test.js` 首轮45/45 exit0；补充保存前目标重核及变更夹具后45/45 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-55-project-grant-first-ff08.log` 与 `C:/Users/ZLK/AppData/Local/Temp/g004-55-project-grant-final-ff08.log`；旧窄方案的首失败和通过记录保留于下段。未操作真实授权、共享 Worker 或远端；旧 dist 测试文件同步了新签名，未以旧 dist 测新源码；尚未 build、安装、实机复验。
+U04-55：本人授权当前项目不选 Worker 或范围；新 grant 无 Worker 绑定，旧 grant 保留原约束直到本人重授。设置可修改已禁用 Worker 的 enabled，执行入口仍限启用目标。真实源码及内存回归两轮45/45 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-55-project-grant-first-ff08.log` 和 `C:/Users/ZLK/AppData/Local/Temp/g004-55-project-grant-final-ff08.log`；完整证据见 Git `20ae86ed:docs/plan-generations/G004-execution.md`。未操作真实授权、共享 Worker 或远端，518 实机复验待重载。
 
 517 隔离实例 MCP 本地业务补证：实际 discovery/health 为 Host 22928、0.5.517、专用根，live catalog 中 result_parse/metric_leaderboard 无权限要求，真实 mcp.call 未拒绝。原 synthetic/final.csv 按默认长表解析返回空数组；新建并保留 `experiments/results/synthetic/g004_0517_mcp_long_ff08.csv` 与 `g004_0517_mcp_metrics_ff08.csv`，前者解析两行结果，保留带逗号 run key、DSC=0，跳过空 HD95；后者排行两组，保留 accuracy=0 与引号内逗号，空 loss 不计指标，另一组 accuracy=0.8/loss=0.4。此证修正此前“所有 MCP 解析未测”的记载；result_export 等 results 权限链及新授权版本实机仍未测。
 
