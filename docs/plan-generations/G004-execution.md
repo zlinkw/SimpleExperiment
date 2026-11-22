@@ -61,3 +61,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 - 520 后 prepareAgentsProgressWatchdog 1/1、globalConfigPersistence 2/2，exit0（`%TEMP%/g004-520-watchdog-source-20261123.log`、`%TEMP%/g004-520-global-config-source-20261123.log`，均先查不存在）；只解析源码/内存 HTML，无真实 Agent、窗口或配置写入。
 
 - 520 后 outputIsolationRecovery 8/8、exit0（`%TEMP%/g004-520-output-isolation-recovery-20261123.log`，先查不存在）：真实恢复逻辑仅接假队列、假文件存在性与假审核端口；未查询真实文件或执行清理。
+
+- 520 后 panelMessageDispatch 21/21、exit0；工具输出因长度截断，完整原日志 `%TEMP%/g004-520-panel-message-dispatch-20261123.log`（先查不存在）。生产消息处理切片使用假宿主/假窗口，不打开实际 UI、不改 Worker 配置、不执行删除。
