@@ -30,16 +30,34 @@ test("release acceptance command has an executable report workflow", () => {
   const planOpts = { only: [], domains: [], root };
   const idOf = j => `${j.file} ${JSON.stringify(j.argv || [])}`;
   const accPlan = runner.planEntry(path.join(root, "scripts", "test-workflow.json"), manifest, root, "acceptance", planOpts);
-  const accIds = new Set(accPlan.jobs.map(idOf));
+  const completePlan = plan => {
+    const ids = new Set();
+    for (const j of plan.jobs) {
+      const id = idOf(j);
+      assert.ok(!ids.has(id), `duplicate executed job ${id}`);
+      ids.add(id);
+    }
+    for (const j of plan.onDemandJobs) {
+      const id = idOf(j);
+      assert.equal(j.status, "on_demand_not_run", `deferred job must remain unrun ${id}`);
+      assert.ok(!ids.has(id), `duplicate or overlapping deferred job ${id}`);
+      ids.add(id);
+    }
+    assert.ok(ids.size > 0, "complete plan must not be empty");
+    assert.equal(ids.size, plan.dedup.uniqueRuns, "executed and deferred jobs must cover the full deduplicated plan");
+    return [...plan.jobs, ...plan.onDemandJobs];
+  };
+  const accJobs = completePlan(accPlan);
+  const accIds = new Set(accJobs.map(idOf));
   const buildPlan = runner.planEntry(path.join(root, "scripts", "test-workflow.json"), manifest, root, "build", planOpts);
-  for (const j of buildPlan.jobs) assert.ok(accIds.has(idOf(j)), `acceptance union missing build-domain job ${idOf(j)}`);
+  for (const j of completePlan(buildPlan)) assert.ok(accIds.has(idOf(j)), `acceptance union missing build-domain job ${idOf(j)}`);
 
   // 旧: runNpm("unit tests", ["test"]) 与 runNpm("feature regression tests", ["run","test:features"])。
   // 新: 盘上全部 *.test.js（unit 面=原 npm test glob 对象）与全部 test/features 文件都在 acceptance
   // 作业并集内（不缩水棘轮；原断言保证这三步在，新断言保证覆盖文件一个不少）。
   const disk = [];
   (function walk(d) { for (const n of fs.readdirSync(d)) { const f = path.join(d, n); if (fs.statSync(f).isDirectory()) walk(f); else if (n.endsWith(".test.js")) disk.push(path.relative(root, f).split(path.sep).join("/")); } })(path.join(root, "test"));
-  const accFiles = new Set(accPlan.jobs.map(j => j.file));
+  const accFiles = new Set(accJobs.map(j => j.file));
   const approvedCliRetirements = new Set([
   "test/cli/manualDispatch.test.js",
   "test/cli/simpleCli.test.js",
@@ -139,5 +157,5 @@ test("release acceptance command has an executable report workflow", () => {
     const md = fs.readFileSync(path.join(dir, "latest.md"), "utf8");
     assert.match(md, /overall=passed/);
     assert.match(md, /full logs: /, "markdown report must cite complete logs");
-  } finally { fs.rmSync(ws, { recursive: true, force: true }); }
+  } finally { console.log(`[fixture retained] ${ws}`); }
 });

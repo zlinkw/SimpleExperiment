@@ -164,3 +164,5 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 获批删除39项之第36–39项：src/cli/plugins.ts, src/cli/runtime.ts, src/features/ExperimentRunner.ts, src/runCli.ts；全批预检后逐项在直接父目录核身份并以明确相对叶名删除，确认不存在。
 
 获批39个源码文件均按完整预检、直接父目录和精确叶名逐项删除并核不存在，分6组同步至fd593cca；原始策略拒绝仍保留，修正只读Get-Item Force后执行成功。删除改变输入后tsc-cached TS7.0.2 previous-failed rebuild，391输入、emit 2、exit0，日志TEMP/g004-tsc-after-cli-removal-20261123-terra.log；首exit2及71 emit不抹去。18个tracked dist仍dirty，未stage/恢复；非完整build/package。
+
+packageContentPolicy保留自建夹具后原文件12/12 exit0，日志TEMP/g004-package-content-retain-20261123.log；releaseAcceptance保留夹具首0/1 exit1（遗漏按需文件），改为已执行∪按需未运行的完整计划并保留去重、不交叉、50退休与覆盖断言，获准原20秒复验1/1 exit0，日志TEMP/g004-release-acceptance[-ondemand-fix]-20261123.log。未改真实删锁安全逻辑或断言，沿用519原receipt逐项job264/265/267/268/269/271/274旧版证据，不能当当前完整receipt；完整package未跑。

@@ -435,6 +435,6 @@ test("自建临时工作副本里的 clean_dir 假暂存文件：忽略判定与
     assert.ok(output.includes("clean_dir/manifest.md"), "必须按路径点名暂存文件");
     assert.ok(!output.includes(FIXTURE_SENTINEL), "诊断只含路径与类别，不得回显暂存内容");
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    console.log(`[fixture retained] ${dir}`);
   }
 });
