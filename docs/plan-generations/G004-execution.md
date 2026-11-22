@@ -10,13 +10,15 @@ R519 A5按输入列选择默认长宽预设，JSON、显式预设和自定义预
 
 R519 A6历史结果两份索引、目录和文件的读错/坏JSON反馈路径及原因，缺失仍允许；内存fs联验读取消费者1/1 exit0，同目录 `g004-r519-a6-history-final-ff08.log`，未调用真实Worker。
 
+R519 B2选择API等待持久化、失败可见并拒绝跨项目成功回执；PLAN已写入后的状态失败明确提示。真实入口配内存替身：动作46/46、迁移13/13、上下文20/20 exit0，日志同目录 `g004-r519-b2-actions-complete-ff08.log`、`g004-r519-b2-migration-ff08.log`、`g004-r519-b2-context-ff08.log`。动作首44/45 exit1因A5源码抽取夹具缺`selectResultPreset`，已补真实依赖，`g004-r519-b2-actions-first-ff08.log`。
+
 用户反复识别未完成并提供截图；519同窗请求与识别租约冲突，不能认定锁死。本地识别原不记完成，假确认和PLAN首0/1 exit1，同目录 `g004-519-bootstrap-recognition-ff08.log`。R519 B1确认有效PLAN并保存单根识别、立即投影，准备独立、不探Worker。空任务/取消/读写错/缺根与多根2/2、快速流程9/9、上下文20/20、命令3/3、持久化3/3、投影6/6均exit0；日志同目录 `g004-r519-b1-` 前缀加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 后接 `-ff08.log`。未重放点击、清锁或改真实标记。
 
 519本机历史CLI合成列表、详情及CSV导出通过；精确ID经cmd传递失败。Git hook读拒绝及不完整标记可能损伤原脚本，原受控失败与invoke错路由见coverage；R519 A3仅缺失视为空，读错及标记不完整均保留原文件，源码配假fs及启动消费者3/3 exit0，日志同上目录 `g004-r519-a3-git-hook-ff08.log`。300/137/45/167母集重叠，不相加。
 
 519发行：源码/tag `6932321534f3b0c2df3b1983bfede2f88f7b868f`，[试行Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.519)与隔离下载同SHA，Latest483。ReleaseClient首验误期待SFTP Latest120（实际118）exit1，修后exit0：482见483、519及已装SFTP120均不降级，120试行资产存在；同目录 `g004-519-client-after-ff08.log`。唯一install:latest exit0含DEP0169，磁盘/列表519、SFTP120及稳定入口已核，同目录 `g004-519-install-ff08.log`。重载后实机以顶部为准。
 
-519 候选包完成：本次唯一 package exit0，341/341、13/13 门禁通过，所有子树 confirmed、最大并行1、按需未跑0，输入与结束指纹均 `02a04b0a7ed920361e852dea0e41d4740114b1cefbb1aabb8ab2c4bd71f5560f`，锁已释放；原始日志 `C:/Users/ZLK/AppData/Local/Temp/g004-519-package-ff08.log`，回执 `simple_cluster/reports/test-workflow/2026-11-22T06-35-19-310Z-69208-package/run.json`。新 dist 的项目识别内存消费者、Panel 模块及实际生成的3段脚本 VM 均 exit0，src/dist 的 10890 零命中；实际 VSIX 325 项面板清单、326 项本地闭包和373项运行文件逐字节通过，376文件内容策略及 README 通过。VSIX 为 2,988,831 字节，SHA256 `525e235fe7e380bf3684edf5b8bfd3dd7620badefd964dcdcd671b14c0216b33`；正式发布、安装和重载后实机状态以随后实际结果为准。预检读取时一次误写面板测试路径 exit1，后按实际路径读取，不影响产品或测试。
+519唯一package exit0，341/341、13门禁、进程树结束、并行峰1、按需0及锁释放；输入=end `02a04b0a7ed920361e852dea0e41d4740114b1cefbb1aabb8ab2c4bd71f5560f`，日志同目录 `g004-519-package-ff08.log`，回执 `simple_cluster/reports/test-workflow/2026-11-22T06-35-19-310Z-69208-package/run.json`。新dist识别内存消费者、Panel和3段生成脚本VM exit0、10890零命中；VSIX面板325/闭包326/同源373项及376文件内容策略、README通过。包2,988,831字节，SHA256 `525e235fe7e380bf3684edf5b8bfd3dd7620badefd964dcdcd671b14c0216b33`；发行及实机状态以顶部为准。预检一次误写面板测试路径exit1，后按实际路径读取。
 
 519 交付前准备：实核远端无 `v0.5.519` tag，GitHub Release 查询 404/exit1（不存在）；package、lock 两处及 runtime 均同步 0.5.519，`write-agent-runtime` exit0。反向消费者预检发现 actionLifecycle 的 state API 抽取夹具缺新识别事实读取依赖，仅接入真实模块和本机假根，原定向断言 1/1 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-persistence-state-fixture-ff08.log`。package dry-run exit0：341 作业均独占、旧候选20组均因 runner-or-manifest-change 恢复、按需0、max1；新项目识别单文件的3/3另按已记录定向证据保留。查询 lock 版本时 PowerShell `ConvertFrom-Json` 未加 `-AsHashTable` 对空键报错，后以 UTF8 原文核实；一次 `rg` 的 Windows 通配路径格式无效，均非产品失败。
 
@@ -45,13 +47,13 @@ U56 518实测离线合成包导入及恢复原包均exit0，面板显示2/2、�
 0.5.518首包339/341 exit1、前10门禁通过、并行峰1及锁释放，原回执 `simple_cluster/reports/test-workflow/2026-11-22T03-16-49-272Z-80576-package/run.json`。mcpProject 41/43因夹具共用对象，复制后43/43；serverQuota 9/10因夹具缺`mcpInvocation`，修后10/10，均exit0；补验日志同上临时目录 `g004-518-mcp-project-after-ff08.log`、`g004-518-worker-quota-after-ff08.log`。仅修夹具，后续发行状态见顶部，未动真实权限/Worker。
 
 U54–U56 517实机及源修原始记录见 Git `eab27339:docs/plan-generations/G004-execution.md`：U54调用失败、42/43→43/43；U55旧方案43/44→44/44，新裁决45/45两轮；U56离线摘要不可见、预览8/8，坏行7/8 exit1→8/8，补别名8/8。517本地PLAN/向导/结果拆表/取消、MCP解析及隔离profile零Worker的日志均在原记录。`node scripts/test-workflow.js --help` exit1因不支持；CLI默认绑定不符exit2未重放。
-U04排查阶段基线HEAD及origin/master为b7c0b42c27227a8ec49d42d1f21346900a274ae4，开始时tracked clean；计划由总控独占。legacy、辅助页和MCP入口证据见coverage.g004U04RemainingInventory；旧静态脚本不能代表完整母集。factory实际输出缺四项门禁并回退legacy；恢复页VM消息5/5 exit0，未实际重载或写剪贴板。当时按钮总数及剩余未知，排查阶段未改产品、构建、安装或访问服务器；后续三批源码包见1ff64a81及下文。旧执行聊天已归档。
+U04排查基线HEAD=origin/master `b7c0b42c27227a8ec49d42d1f21346900a274ae4`、tracked clean；原材料在Git `48062264:docs/plan-generations/G004-execution.md` 和coverage。factory缺四项门禁回退legacy，恢复页VM 5/5 exit0；未重载、写剪贴板或访问服务器。旧静态脚本不能代表完整母集；后续源码见1ff64a81及下文，旧执行聊天已归档。
 
-版本审核13/13、缓存及同步页4/4和3/3 exit0；U04-01首夹具失败、U04-02跨项目延期，完整细节见4a80c627及coverage；无真实删除。
+版本审核13/13、缓存及同步页4/4和3/3 exit0；U04-01夹具首失败、U04-02延期，见4a80c627及coverage；无真实删除。
 
 本登记上限12000字符、90%时语义归并；原完整逐项记录保留于 Git 10c0689e:docs/plan-generations/G004-execution.md，U04中途记录另见4a80c627同路径，项目计划与代次索引为总控独占。执行范围为本人日常单机最多两个项目，不做多项目压力、无入口参数突变或新锁队列；保护真实Worker、训练、消费项目、共享配置、原窗口、未保存文档及全部夹具。源码、旧dist、已安装版本及远端效果分开记录。
 
-既有G004、U01–U02细节及首次失败保留于 Git `10c0689e:docs/plan-generations/G004-execution.md`，U03及0.5.516记录保留于 `b7c0b42c:docs/plan-generations/G004-execution.md` 和 G004-plan；不把历史测试、修复数当当前按钮分母。原12项受控验证中，A组先0/3含缺VS Code夹具，修后原范围仍0/3、修逻辑后3/3、排除无入口内部参数突变后4/4；日志、空seed/cases及配置reset首次失败后修复。MCP43/43、experimentPlatform旧断言修正后15/15；build先被并发中止exit1，后夹具6/7失败、修后7/7，最终回执 `simple_cluster/reports/test-workflow/2026-11-21T04-18-18-128Z-69044-build/run.json` 为285任务/10门禁通过、并发1，6项按需未运行。唯一旧锁文件经本人精确授权删除，未扩大清理。
+既有G004/U01–U02原始细节及首失败在 Git `10c0689e:docs/plan-generations/G004-execution.md`，U03/516在 `b7c0b42c` 同文件及计划，历史数字不作当前按钮分母。A组首0/3含缺VS Code夹具，修夹具仍0/3、修逻辑3/3、限定实际入口4/4；空seed/cases和reset首失败后修复。MCP43/43、旧断言修后15/15；build首并发中止exit1、夹具6/7→7/7，最终回执 `simple_cluster/reports/test-workflow/2026-11-21T04-18-18-128Z-69044-build/run.json` 为285/285、10门禁、并发1、按需未跑6。唯一旧锁经本人精确授权删除。
 
 0.5.514/515安装、发行及实际失败见10c0689e与G004-plan，Latest仍0.5.483。
 

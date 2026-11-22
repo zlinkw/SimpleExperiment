@@ -7254,7 +7254,7 @@ return this.testTunnel(true);
                 await this.importOffline();
                 break;
             case "selectPlan":
-                this.selectPlanFromUi(message);
+                await this.selectPlanFromUi(message);
                 break;
             case "openPlan":
                 await this.openWorkspacePlanFromUi(message);
@@ -7371,7 +7371,7 @@ return this.testTunnel(true);
                 await this.chooseResultCsvDirFromUi();
                 break;
             case "selectExperiment":
-                this.selectExperimentFromUi(message);
+                await this.selectExperimentFromUi(message);
                 break;
             case "clearLegacyTasks":
                 await this.clearLegacyTasksFromUi(message);
@@ -19853,8 +19853,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 this.localPlanMetadataKey = key;
                 this.localPlanMetadataFullRefresh = true;
                 void this.refreshDraftPlans().catch(() => undefined);
-                void this.persistProjectPlanSelectionState().catch(() => undefined);
-                void this.persistProjectLocalPlanMetadataState().catch(() => undefined);
+                await this.persistProjectPlanSelectionState();
+                await this.persistProjectLocalPlanMetadataState();
             }
             catch (error) {
                 if (generation === this.projectContextGeneration && root === workspaceRoot()) {
@@ -19911,10 +19911,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         this.reconcileProjectPlanSelection(nextPlans);
         this.localPlanMetadataUpdatedAt = Date.now();
         this.localPlanMetadataActionUpdatedAt = Date.now();
-        void this.persistProjectLocalPlanMetadataState().catch(() => undefined);
+        await this.persistProjectLocalPlanMetadataState();
         this.localPlanMetadataKey = key;
         this.localPlanMetadataFullRefresh = false;
-        void this.persistProjectPlanSelectionState().catch(() => undefined);
+        await this.persistProjectPlanSelectionState();
     }
     async openWorkspacePlanFromUi(message) {
         const generation = this.projectContextGeneration;
@@ -19932,7 +19932,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const relativePlan = path.relative(path.resolve(root, planDirSafe()), path.resolve(root, file)).replace(/\\/g, "/");
         if (!relativePlan || relativePlan === ".." || relativePlan.startsWith("../") || path.isAbsolute(relativePlan) || !/\.ya?ml$/i.test(relativePlan))
             return;
-        this.selectPlanFromUi({ planFile: file, planId: file });
+        await this.selectPlanFromUi({ planFile: file, planId: file });
     }
 
     async refreshDraftPlans(force = false) {
@@ -20263,13 +20263,17 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         await writeWorkspaceTextWithBackup(fullPath, ensurePlanPurposeHeader(text, path.basename(file)), assertCurrent);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
-        await this.refreshLocalPlanMetadata({ post: false, force: true });
-        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-            return;
-        this.planFileInput = file;
-        this.selectedPlanId = file;
-        this.refreshExperimentTracesProjectionForCurrentInterest();
-        void this.persistProjectPlanSelectionState().catch(() => undefined);
+        try {
+            await this.refreshLocalPlanMetadata({ post: false, force: true });
+            if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+                return;
+            this.planFileInput = file;
+            this.selectedPlanId = file;
+            this.refreshExperimentTracesProjectionForCurrentInterest();
+            await this.persistProjectPlanSelectionState();
+        } catch (error) {
+            throw new Error(`Plan 文件已保存，但项目状态未能保存或刷新：${errorMessage(error)}`, { cause: error });
+        }
         if (generation === this.projectContextGeneration && root === workspaceRoot())
             this.postState();
     }
@@ -20607,10 +20611,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (this.selectedPlanId === file)
             this.selectedPlanId = undefined;
         this.refreshExperimentTracesProjectionForCurrentInterest();
-        await this.refreshLocalPlanMetadata({ post: false, force: true });
-        if (!isCurrent())
-            return;
-        void this.persistProjectPlanSelectionState().catch(() => undefined);
+        try {
+            await this.refreshLocalPlanMetadata({ post: false, force: true });
+            if (!isCurrent()) return;
+            await this.persistProjectPlanSelectionState();
+        } catch (error) {
+            throw new Error(`Plan 归档包已创建，但项目状态未能保存或刷新：${errorMessage(error)}`, { cause: error });
+        }
+        if (!isCurrent()) return;
         this.postState();
         void vscode.window.showInformationMessage(`Plan 归档包已创建：${archivedRelative}`);
     }
@@ -20935,13 +20943,17 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         await atomicWriteText(fullPath, text);
         if (!this.projectContextIsCurrent(projectContext))
             return;
-        await this.refreshLocalPlanMetadata({ post: false, force: true });
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        this.planFileInput = relative;
-        this.selectedPlanId = relative;
-        this.refreshExperimentTracesProjectionForCurrentInterest();
-        void this.persistProjectPlanSelectionState().catch(() => undefined);
+        try {
+            await this.refreshLocalPlanMetadata({ post: false, force: true });
+            if (!this.projectContextIsCurrent(projectContext)) return;
+            this.planFileInput = relative;
+            this.selectedPlanId = relative;
+            this.refreshExperimentTracesProjectionForCurrentInterest();
+            await this.persistProjectPlanSelectionState();
+        } catch (error) {
+            throw new Error(`Plan 文件已生成，但项目状态未能保存或刷新：${errorMessage(error)}`, { cause: error });
+        }
+        if (!this.projectContextIsCurrent(projectContext)) return;
         this.postState();
         this.queuePlanScopedResultParse("生成计划模板", relative, relative);
         if (openAfterCreate && this.projectContextIsCurrent(projectContext))
@@ -21601,7 +21613,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         });
         this.postState();
     }
-    selectPlanFromUi(message) {
+    async selectPlanFromUi(message) {
+        const projectContext = this.captureProjectContext();
         const planFile = stringField(message, "planFile");
         const planId = stringField(message, "planId") || planFile;
         const resolvedPlanFile = this.resolveSelectedPlanFile(planFile || planId || "");
@@ -21611,16 +21624,23 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         this.selectedPlanId = nextPlanId;
         this.planFileInput = nextPlanFile;
         if (changed) this.refreshExperimentTracesProjectionForCurrentInterest();
-        void this.persistProjectPlanSelectionState().catch((error) => {
-            this.recordActionError({ command: "selectPlan", message: `保存计划选择失败：${errorMessage(error)}` });
-            this.postState();
-        });
         this.ensureSelectedPlanFileWatchers(changed ? "切换计划" : "选择计划");
         this.postState();
         if (changed)
             this.queuePlanScopedResultParse("切换计划", nextPlanFile, nextPlanId);
+        try { await this.persistProjectPlanSelectionState(); }
+        catch (error) {
+            if (this.projectContextIsCurrent(projectContext)) {
+                this.recordActionError({ command: "selectPlan", message: `保存计划选择失败：${errorMessage(error)}` });
+                this.postState();
+            }
+            throw error;
+        }
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new UiCommandCancelled("工作区已切换；请在原项目核查计划选择保存结果。");
     }
-    selectExperimentFromUi(message) {
+    async selectExperimentFromUi(message) {
+        const projectContext = this.captureProjectContext();
         const taskUiKey = usableSelectionKey(stringField(message, "taskUiKey"));
         const runKey = usableSelectionKey(stringField(message, "runKey"));
         const messageExperimentId = usableSelectionKey(stringField(message, "experimentId"));
@@ -21661,11 +21681,17 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 this.selectedArchiveKeys.delete(archiveKey);
         }
         this.markTaskSelectionChanged();
-        void this.persistProjectTaskSelectionState().catch((error) => {
-            this.recordActionError({ command: "selectExperiment", message: `保存任务选择失败：${errorMessage(error)}` });
-            this.postState();
-        });
         this.postState();
+        try { await this.persistProjectTaskSelectionState(); }
+        catch (error) {
+            if (this.projectContextIsCurrent(projectContext)) {
+                this.recordActionError({ command: "selectExperiment", message: `保存任务选择失败：${errorMessage(error)}` });
+                this.postState();
+            }
+            throw error;
+        }
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new UiCommandCancelled("工作区已切换；请在原项目核查任务选择保存结果。");
     }
     async clearLegacyTasksFromUi(message) {
         const selectedLegacy = stringArrayField(message, "selectedLegacyTaskUiKeys");

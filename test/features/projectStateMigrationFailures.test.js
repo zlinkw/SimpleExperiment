@@ -225,15 +225,15 @@ test("migration preserves an already loaded project value", async () => {
 });
 
 test("selection write failures are reported while the current selection stays visible", async () => {
-  const select = method("selectPlanFromUi", "selectExperimentFromUi", ["stringField", "errorMessage"],
+  const select = method("async selectPlanFromUi", "async selectExperimentFromUi", ["stringField", "errorMessage"],
     [(message, key) => message[key] || "", error => error.message]).selectPlanFromUi;
   const errors = [];
-  const host = { resolveSelectedPlanFile: x => x, refreshExperimentTracesProjectionForCurrentInterest() {},
+  const host = { captureProjectContext: () => ({}), projectContextIsCurrent: () => true,
+    resolveSelectedPlanFile: x => x, refreshExperimentTracesProjectionForCurrentInterest() {},
     persistProjectPlanSelectionState: async () => { throw new Error("disk full"); },
     ensureSelectedPlanFileWatchers() {}, postState() {}, queuePlanScopedResultParse() {},
     recordActionError: error => errors.push(error) };
-  select.call(host, { planFile: "plan.yaml" });
-  await new Promise(resolve => setImmediate(resolve));
+  await assert.rejects(select.call(host, { planFile: "plan.yaml" }), /disk full/);
   assert.equal(host.planFileInput, "plan.yaml");
   assert.match(errors[0].message, /disk full/);
 });

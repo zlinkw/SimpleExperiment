@@ -371,21 +371,31 @@ test("API selection commands reach local handlers while remote confirmation rema
   const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS), methods={}, declarations={};
   const wanted=new Set(['uiActionCommands','SAFE_WEBVIEW_COMMANDS','API_INTERNAL_COMMANDS','API_EXECUTABLE_COMMANDS']);
-  const visit=node=>{if(ts.isMethodDeclaration(node)&&['invokeApi','handleMessageCore'].includes(node.name.getText(ast)))methods[node.name.getText(ast)]=node.getText(ast);
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&['invokeApi','handleMessageCore','selectPlanFromUi','selectExperimentFromUi'].includes(node.name.getText(ast)))methods[node.name.getText(ast)]=node.getText(ast);
     if(ts.isVariableStatement(node)) for(const d of node.declarationList.declarations) if(wanted.has(d.name.getText(ast))) declarations[d.name.getText(ast)]=node.getText(ast);
     ts.forEachChild(node,visit)};visit(ast);
   for(const key of wanted) assert.ok(declarations[key],key);
   const sandbox={PLAN_PREFLIGHT_COMMANDS:new Set(),API_PARAMETERIZED_CONNECTION_COMMANDS:new Set(),API_CONFIRM_COMMANDS:new Set(['runPlan']),
-    stringField:(p,k)=>p[k]||'',booleanField:(p,k)=>Boolean(p[k]),confirmationRequired:()=>new Error('CONFIRM_REQUIRED')};
-  const code=[...wanted].map(key=>declarations[key]).join('\n')+'\nclass Host {'+methods.invokeApi+'\n'+methods.handleMessageCore+'};this.Host=Host;';
+    stringField:(p,k)=>p[k]||'',boolField:(p,k,f)=>p[k]===undefined?f:p[k],usableSelectionKey:x=>x,errorMessage:e=>e.message,UiCommandCancelled:Error,
+    booleanField:(p,k)=>Boolean(p[k]),confirmationRequired:()=>new Error('CONFIRM_REQUIRED')};
+  const code=[...wanted].map(key=>declarations[key]).join('\n')+'\nclass Host {'+Object.values(methods).join('\n')+'};this.Host=Host;';
   vm.runInNewContext(ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
-  const host=new sandbox.Host(), selected=[], remote=[];
+  const host=new sandbox.Host(), remote=[], errors=[];
   host.extensionRuntimeVersionState=()=>({reloadRequired:false});host.panelLifecycleState='ready';
-  host.selectPlanFromUi=m=>selected.push(['plan',m.planFile]);host.selectExperimentFromUi=m=>selected.push(['experiment',m.runKey]);
+  let current=true;Object.assign(host,{captureProjectContext:()=>({root:'fixture'}),projectContextIsCurrent:()=>current,
+    selectedTaskUiKeys:new Set(),selectedRunKeys:new Set(),selectedExperimentIds:new Set(),selectedArchiveKeys:new Set(),
+    resolveSelectedPlanFile:x=>x,refreshExperimentTracesProjectionForCurrentInterest(){},ensureSelectedPlanFileWatchers(){},postState(){},
+    queuePlanScopedResultParse(){},markTaskSelectionChanged(){},recordActionError:e=>errors.push(e)});
+  let release;host.persistProjectPlanSelectionState=()=>new Promise(resolve=>{release=resolve});host.persistProjectTaskSelectionState=async()=>{};
   host.withSafeTransferRetry=async(_command,_message,fn)=>fn();host.runActionCommand=async(command,message)=>remote.push([command,message.confirm]);
-  await host.invokeApi({command:'selectPlan',planFile:'plans/a.yaml'});
+  let finished=false;const pending=host.invokeApi({command:'selectPlan',planFile:'plans/a.yaml'}).then(()=>{finished=true});
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(finished,false);release();await pending;
   await host.invokeApi({command:'selectExperiment',runKey:'run-a'});
-  assert.deepEqual(selected,[['plan','plans/a.yaml'],['experiment','run-a']]);
+  assert.equal(host.planFileInput,'plans/a.yaml');assert.equal(host.selectedRunKeys.has('run-a'),true);
+  const switched=host.invokeApi({command:'selectPlan',planFile:'plans/b.yaml'});await new Promise(resolve=>setImmediate(resolve));current=false;release();
+  await assert.rejects(switched,/工作区已切换/);current=true;
+  host.persistProjectTaskSelectionState=async()=>{throw Error('disk full')};
+  await assert.rejects(host.invokeApi({command:'selectExperiment',runKey:'run-b'}),/disk full/);assert.match(errors[0].message,/disk full/);
   await assert.rejects(host.invokeApi({}),/invoke.command is required/);
   await assert.rejects(host.invokeApi({command:'invented'}),/not exposed/);
   await assert.rejects(host.invokeApi({command:'runPlan'}),/CONFIRM_REQUIRED/);assert.equal(remote.length,0);
@@ -483,6 +493,20 @@ test("PLAN save surfaces write failure after preserving the prior content", asyn
   await assert.rejects(sandbox.save(path.join(root,'plan.yaml'),'new'),/write failed/);assert.equal(previous,'old');assert.deepEqual(calls,['old']);
 });
 
+test("PLAN save reports that the file was written if selection persistence fails", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='savePlanFromUi')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  let writes=0;const root=path.resolve('fixture-project'),sandbox={path,workspaceRoot:()=>root,stringField:(m,k)=>m[k]||'',
+    fs:{mkdir:async()=>{}},safeWorkspacePlanPath:()=>path.join(root,'plan.yaml'),planDirSafe:()=>'',ensurePlanPurposeHeader:text=>text,
+    writeWorkspaceTextWithBackup:async()=>{writes++},errorMessage:e=>e.message,UiCommandCancelled:Error};
+  vm.runInNewContext(ts.transpileModule('class Host {'+method+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const host=new sandbox.Host();Object.assign(host,{projectContextGeneration:1,refreshLocalPlanMetadata:async()=>{},
+    refreshExperimentTracesProjectionForCurrentInterest(){},persistProjectPlanSelectionState:async()=>{throw Error('disk full')},postState(){}});
+  await assert.rejects(host.savePlanFromUi({file:'plan.yaml',text:'suite: demo'}),/Plan 文件已保存.*disk full/);
+  assert.equal(writes,1);
+});
+
 test("opening a PLAN propagates failure without changing selection", async () => {
   const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
@@ -569,7 +593,7 @@ test("result parsing recognizes uppercase JSON file extensions", () => {
   const ast=ts.createSourceFile('result.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
   const visit=node=>{if(ts.isFunctionDeclaration(node)&&node.name?.getText(ast)==='resultParse')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
   let parsedType,output;const sandbox={path,fs:{existsSync:()=>true,readFileSync:()=>'{"experiment_id":"e","metrics":{"accuracy":0.9}}'},builtInResultPresets:results.builtInResultPresets,
-    parseResultFile:(content,file,preset)=>{parsedType=file.type;return results.parseResultFile(content,file,preset)},writeJson:value=>{output=value}};
+    selectResultPreset:results.selectResultPreset,parseResultFile:(content,file,preset)=>{parsedType=file.type;return results.parseResultFile(content,file,preset)},writeJson:value=>{output=value}};
   vm.runInNewContext(ts.transpileModule(method.replace(/^export /,'')+';this.parse=resultParse;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
   assert.equal(sandbox.parse({file:'metrics.JSON'}),0);assert.equal(parsedType,'json');assert.equal(output[0].metrics.accuracy.value,0.9);
 });
