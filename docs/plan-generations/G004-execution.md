@@ -57,3 +57,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 同步传输分组合成回归 8/8，exit 0；清单及 VSCode、上传、SFTP 和删除均为替身，无真实 UI、Worker、传输或删除。事件与输入快照见 coverage，待总控终审。
 
 - Windows 工作流契约合成回归 4/4，exit 0；Host VM、假回调和保留的临时目录，无真实 UI、Worker 或提交。事件与输入快照见 coverage，待总控终审。
+
+- 调度契约合成回归 3/3，exit 0；Host VM 与假设置/计时器，无真实 Scheduler、Worker 或网络。事件与输入快照见 coverage，待总控终审。
