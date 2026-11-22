@@ -53,3 +53,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - stopRoutingAndResultParseDedup 单文件 12/12、exit0；VM、隔离夹具及假 Worker/SFTP，无真实 Worker、网络、UI 或活动结果，夹具保留。证据见 coverage，待总控终审。
 
 - 误运行按需 serverQueueDispatch 单文件 14/14、exit0；未先核当前计划为 onDemand，保留实际结果但不计 active，eligible=false；内存队列、合成 GPU 数据及模拟派发/审核，面板脚本为 VM，无真实 GPU、Worker、派发、网络或 UI。证据见 coverage，待总控终审。
+
+- parallelPlanSubmission 单文件 12/12、exit0；合成 PLAN、隔离夹具与模拟预检、同步及派发，夹具保留；无真实 Worker、GPU、网络、删除或重命名。证据见 coverage，待总控终审。
