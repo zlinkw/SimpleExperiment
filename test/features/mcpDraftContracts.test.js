@@ -5,11 +5,12 @@ require('../_helpers/registerTsRequire');
 const { ProjectGateway } = require('../../src/mcp/ProjectGateway.ts');
 const { createProjectAuthorization } = require('../../src/mcp/ProjectAuthorization.ts');
 
-function fixture() {
+function fixture({ failure } = {}) {
   const root = path.resolve(__dirname, '../..'), calls = [];
   let grant = createProjectAuthorization(root);
   const methods = Object.fromEntries(['drafts.list', 'drafts.cleanupCandidates', 'drafts.validate', 'drafts.promotionPreview', 'drafts.review', 'drafts.reject'].map(method => [method, async params => {
     calls.push({ method, params });
+    if (failure && params.force === true) throw Error('draft refresh failed');
     if (method === 'drafts.list') return { enabled: true, drafts: [{ draftPlanPath: 'tmp/plan/old-a.yaml' }] };
     if (method === 'drafts.cleanupCandidates') return { candidates: [{ path: 'tmp/plan/old-a.yaml' }, { path: 'tmp/plan/old-b.yaml' }] };
     if (method === 'drafts.validate') return params.draftPlanPath.endsWith('broken.yaml')
@@ -29,9 +30,15 @@ test('draft reads preserve candidate, validation and promotion results', async (
   const { gateway, calls } = fixture();
   assert.equal((await gateway.call('draft_list', {})).enabled, true);
   assert.deepEqual(calls.at(-1), { method: 'drafts.list', params: {} });
+  await gateway.call('draft_list', { force: true });
+  assert.deepEqual(calls.at(-1), { method: 'drafts.list', params: { force: true } });
   const candidates = await gateway.call('draft_cleanup_candidates', {});
   assert.deepEqual(candidates.candidates.map(row => row.path), ['tmp/plan/old-a.yaml', 'tmp/plan/old-b.yaml']);
   assert.deepEqual(calls.at(-1), { method: 'drafts.cleanupCandidates', params: {} });
+  await gateway.call('draft_cleanup_candidates', { force: false });
+  assert.deepEqual(calls.at(-1), { method: 'drafts.cleanupCandidates', params: { force: false } });
+  await gateway.call('draft_cleanup_candidates', { force: true });
+  assert.deepEqual(calls.at(-1), { method: 'drafts.cleanupCandidates', params: { force: true } });
   const validated = await gateway.call('draft_validate', { draftPlanPath: 'tmp/plan/old-a.yaml' });
   assert.equal(validated.status, 'validated');
   assert.deepEqual(calls.at(-1).params, { draftPlanPath: 'tmp/plan/old-a.yaml' });
@@ -46,7 +53,14 @@ test('draft reads preserve candidate, validation and promotion results', async (
   const before = calls.length;
   await assert.rejects(gateway.call('draft_validate', {}), /draftPlanPath is required/);
   await assert.rejects(gateway.call('draft_list', { unexpected: true }), /Unknown/);
+  await assert.rejects(gateway.call('draft_list', { force: 'true' }), /must be boolean/);
   assert.equal(calls.length, before);
+});
+
+test('draft refresh errors propagate through the gateway', async () => {
+  const { gateway } = fixture({ failure: true });
+  for (const name of ['draft_list', 'draft_cleanup_candidates'])
+    await assert.rejects(gateway.call(name, { force: true }), /draft refresh failed/);
 });
 
 test('draft review and reject use exact inputs and require the current project grant', async () => {
