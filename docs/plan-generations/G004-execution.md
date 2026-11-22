@@ -36,7 +36,7 @@ T3项目读取及精简8/8，原日志见Git 3cbd380e同文件。
 
 T4结果/指标/比较查询对照5/5；原日志见Git `59041060:docs/plan-generations/G004-execution.md`。
 
-T5提取runtime及实验查询，保留既有结构化输出；12项真实queryProject配假RPC与旧消费者对照，含空结果/失败9/9 exit0，`g004-r519-t5-experiment-complete-ff08.log`；补默认精简输出对照后同文件9/9 exit0；未请求Worker，日志等消费者待迁。
+T5 runtime/实验查询12项与旧消费者对照9/9，精简对照补验9/9；日志见Git `a202db2a:docs/plan-generations/G004-execution.md`，未访问Worker。
 
 T5日志全部/尾部及缺失实验9/9，原文见Git c9b4892b同文件；无Worker。
 
@@ -50,9 +50,9 @@ T7入口3/3、内容策略12/12；见Git bc739fa0同文件，尚未构建或安�
 
 T7主指南改界面/MCP，旧CLI历史已标明。
 
-MCP迁测原记录见Git e9501015同文件：训练、健康、告警、详情、树、schema、生命周期、快照及已存运行均通过；告警首TS加载失败exit1后6/6（9a5c16/a38600）。资源拒绝及产物补验11/11；旧测试保留待裁决。
+MCP训练、健康等迁测及告警首TS加载失败exit1→6/6见Git `a202db2a:docs/plan-generations/G004-execution.md`；旧测试保留。
 
-运行身份迁测首6/8 exit1（旧CLI专属resolveRuntimeObservation未迁出），移除新测试中该旧助手调用后8/8、补捕获后13/13 exit0（chunk ee595e/7f85ac/105c6d）；此两旧用例仅部分迁覆，MCP引用选择另见mcpQuerySchema。树摘要补活跃查询后9/9，旧CLI的compact-json组合未迁；旧断言及矩阵未改。
+运行身份迁测首6/8 exit1（旧CLI助手未迁），修测试后8/8、补捕获13/13；chunk及范围见Git `a202db2a:docs/plan-generations/G004-execution.md`。
 
 MCP终态身份10/10、结果精确身份及导出1/1、日志与配置1/1、合成本机端点的运行观察1/1 exit0；后者不是真实Worker。包排除旧runner并补动态MCP闭包清单，入口3/3、策略12/12 exit0，尚无实际VSIX验证。
 
@@ -199,3 +199,5 @@ MCP下载范围及handoff核精确Worker、配置参数与撤权，假后端11/1
 另10个重复函数体关联原项及边界，辅助实现可能不同，旧测试保留；登记压缩前两次超阈值断言exit1未写。
 
 补发现旧录制Runner外部2项测试：checkpoint及正式PLAN保护须保留；coverage列差异，未运行。登记前两次超阈值断言exit1未写。
+
+源审返修可选RPC：真实Gateway假Host首7/8 exit1（普通拒绝被吞），修改后8/8；真实未声明方法首7/8 exit1（TypeError），明确-32601后8/8。共享消费mcpQueryContext首14/16 exit1（夹具缺operations/live.output），补真实空响应后16/16；WorkerLifecycle 4/4、mcpProject 43/43 exit0（后者部分旧dist），未测真实Worker。保留失败原工具输出，未build。

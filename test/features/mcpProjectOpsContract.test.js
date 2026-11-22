@@ -3,6 +3,32 @@ require('../_helpers/registerTsRequire');
 const {ProjectGateway}=require('../../src/mcp/ProjectGateway.ts');
 const {createProjectAuthorization}=require('../../src/mcp/ProjectAuthorization.ts');
 
+test('MCP optional observations expose real host refusals and connection errors',async()=>{
+ const fs=require('node:fs'),os=require('node:os');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-query-error-'));
+ const grant=createProjectAuthorization(root);let failing='',failure;
+ const names=['tasks.list','operations.list','state.get','gpu.list','status','server.testAll','results.list'];
+ const methods=Object.fromEntries(names.map(name=>[name,async()=>{
+  if(name===failing)throw failure;
+  if(name==='tasks.list')return {tasks:[]};if(name==='operations.list')return {records:[]};
+  if(name==='state.get')return {value:{workerTunnels:[]}};if(name==='gpu.list')return {};
+  if(name==='status')return {topology:{workers:[]}};if(name==='server.testAll')return {rows:[]};
+  return {source:'active_query',summary:{current:true,results:[]}};
+ }]));
+ const gateway=new ProjectGateway({root:()=>root,workers:()=>[],store:{get:()=>grant},methods:()=>methods});
+ for(const [tool,args,method,error] of [
+  ['experiment_list',{},'tasks.list',Error('host permission denied')],
+  ['experiment_list',{},'operations.list',Object.assign(Error('project cancelled'),{apiCode:-32000})],
+  ['resource_available',{},'gpu.list',Error('connection reset')],
+  ['server_list',{},'status',Object.assign(Error('host refused'),{apiCode:-32001})],
+  ['artifact_list',{id:'missing'},'results.list',Error('result observation failed')],
+ ]){failing=method;failure=error;await assert.rejects(gateway.call(tool,args),new RegExp(error.message));}
+ failing='operations.list';failure=Object.assign(Error('method not found'),{apiCode:-32601});
+ assert.ok(Array.isArray(await gateway.call('experiment_list',{})));
+ delete methods['operations.list'];
+ assert.ok(Array.isArray(await gateway.call('experiment_list',{})));
+});
+
 test('MCP project operations retain authorization, receipts and observed failures',async()=>{
  const root=path.resolve(__dirname,'../..'),calls=[],grant=createProjectAuthorization(root);
  const methods={

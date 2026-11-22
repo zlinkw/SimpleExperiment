@@ -74,7 +74,11 @@ export class ProjectGateway {
     if (tool.method === "mcp.authorization") return { workspace: root, authorization: grant || null, userCommand: "simpleExperiment.manageAiAuthorization" };
     if (tool.method === "mcp.sftpConnection") return this.sftpConnection();
     if (tool.method === "mcp.fileReview") return this.ports.reviewFiles!(args);
-    if (tool.method === "mcp.query") return queryProject(root, async (method, params) => this.ports.methods()[method](params, undefined, context), tool.action!, args);
+    if (tool.method === "mcp.query") return queryProject(root, async (method, params) => {
+      const methods = this.ports.methods();
+      if (!Object.hasOwn(methods, method)) throw Object.assign(new Error("Method not found: " + method), { apiCode: -32601 });
+      return methods[method](params, undefined, context);
+    }, tool.action!, args);
     const scopedWorkers = () => {
       const workers = this.ports.workers(tool.name === "worker_configure");
       const ids = args.location === "local" ? [] : args.serverIds || (args.workerId ? [args.workerId] : args.sourceWorkerId

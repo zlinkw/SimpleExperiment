@@ -1,4 +1,3 @@
-import { asCliError } from "../../api/LocalApiErrors";
 import { businessContext, BusinessContext } from "./ExecutionContext";
 export { businessError, envError, usageError } from "../../api/LocalApiErrors";
 
@@ -14,10 +13,8 @@ export async function optionalApi(method: string, params: Record<string, unknown
   const context = queryContext();
   try { return await context.rpc(method, params); }
   catch (error) {
-    if (Number((error as { apiCode?: number }).apiCode) === -32601) return null;
-    const mapped = asCliError(error, 4);
-    if (mapped.exitCode === 4 || mapped.exitCode === 2) return null;
-    throw mapped;
+    if (Number((error as { apiCode?: number } | null | undefined)?.apiCode) === -32601) return null;
+    throw error;
   }
 }
 export function emit(value: unknown): void { queryContext().emit(value); }

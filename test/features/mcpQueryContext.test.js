@@ -150,6 +150,8 @@ test('MCP remote artifacts retain the precise run and reject unverified or forei
   planFile,outputDir:'work_dirs/'+name,status:'completed',executionState:'exited',resultState:'complete',completionState:'verified',successful:true,exitCode:0}));
  const rpc=async(method,params)=>{
   if(method==='tasks.list')return {lifecycleProtocol:2,stateSource:'active_query',projectId:'p',jobLifecycle:facts,workerTasks:[]};
+  if(method==='operations.list')return {records:[]};
+  if(method==='state.get')return {value:{workerTunnels:[]}};
   if(method==='mcp.call'){
    requests.push(params);assert.equal(params.tool,'sftp_inventory');assert.equal(params.arguments.workerId,'worker');
    if(!current)throw Error('inventory unavailable');
@@ -214,7 +216,7 @@ test('neutral query support requires context and preserves optional RPC semantic
 
 test('MCP experiment list preserves filtering, limit and canonical terminal aliases',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-list-')),dir=path.join(root,'simple_cluster');fs.mkdirSync(dir);
- const rpc=async method=>{if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};throw Error('unexpected RPC '+method)};
+ const rpc=async method=>{if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};if(method==='live.output')return {};throw Error('unexpected RPC '+method)};
  fs.writeFileSync(path.join(dir,'experiment_index.json'),JSON.stringify([
   {global_job_id:'exp-ok',case:'baseline',status:'completed',started_at:'2026-01-01T00:00:00Z',finished_at:'2026-01-01T01:00:00Z'},
   {global_job_id:'exp-bad',case:'ablation',status:'failed',started_at:'2026-01-02T00:00:00Z',finished_at:'2026-01-02T01:00:00Z'}]),'utf8');
