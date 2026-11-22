@@ -125,14 +125,21 @@ test('MCP PLAN list waits for the real host metadata refresh',async()=>{
  const source=fs.readFileSync(path.join(root,'src/extension/legacy.ts'),'utf8');
  const start=source.indexOf('"plans.list": async'),end=source.indexOf('"results.list":',start);
  assert.ok(start>=0&&end>start);
+ const parserStart=source.indexOf('function parseLocalPlanText('),parserEnd=source.indexOf('function ensurePlanPurposeHeader(',parserStart);
+ assert.ok(parserStart>=0&&parserEnd>parserStart);
+ const parse=new Function('PlanBuilder_1','path','sha256Text',source.slice(parserStart,parserEnd)+';return parseLocalPlanText;')(
+  require('../../src/features/PlanBuilder.ts'),path,require('../../src/runtime/RuntimeManifest.ts').sha256Text);
+ const planFile='experiments/plans/baseline.yaml',yaml=fs.readFileSync(path.join(root,'test/cli/fixtures/valid-plan.yaml'),'utf8');
  const host={localPlanMetadata:{planDir:'old',plans:['old']},refreshLocalPlanMetadata:async()=>{
-  host.localPlanMetadata={planDir:'experiments/plans',plans:[{name:'baseline',path:'experiments/plans/baseline.yaml',status:'ready',validation:'valid'}]};
+  host.localPlanMetadata={planDir:'experiments/plans',plans:[parse(planFile,yaml)]};
  }};
  const methods=new Function('return function(){return ({'+source.slice(start,end)+'});};')().call(host);
  const gateway=new ProjectGateway({root:()=>root,workers:()=>[],store:{get:()=>undefined},methods:()=>methods});
  const result=await gateway.call('plan_list',{});
  assert.equal(result.planDir,'experiments/plans');assert.equal(result.source,'local_metadata');
  assert.deepEqual(result.plans,host.localPlanMetadata.plans);assert.deepEqual(result.archivedPlans,[]);
+ assert.equal(result.plans[0].planFile,planFile);assert.equal(result.plans[0].name,'baseline.yaml');
+ assert.equal(result.plans[0].status,'ready');assert.equal(result.plans[0].planContractOk,true);
 });
 
 test('MCP GPU and task observations retain Worker, GPU zero and command identities',async()=>{

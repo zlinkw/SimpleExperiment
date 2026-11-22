@@ -191,3 +191,5 @@ SFTP配置移除仅用假人工提示/假后端核取消不调用、审批后精
 伴随0.2.120服务器公开字段真实函数经MCP Gateway/Host假端口核模拟凭据不回显：首0/1 exit1（夹具缺capabilities），补后1/1 exit0；未读真实配置。测试纳四profile，指纹绑定明确伴随extension.js。
 
 伴随公开字段测试四profile只读计划各1项、20秒；合成extension字节变化使输入指纹变化，均exit0；未运行整矩阵。
+
+PLAN列表保留原valid-plan输入，实际Host摘要解析与Gateway字段/状态/契约联验11/11 exit0；刷新为假端口，旧CLI字段外壳差异未冒等价。
