@@ -76,4 +76,6 @@ test('neutral query support requires context and preserves optional RPC semantic
   if(method==='denied')throw support.businessError('denied');return {zero:0};
  }},async()=>{assert.equal(await support.optionalApi('missing'),null);await assert.rejects(support.optionalApi('denied'),/denied/);support.emit(await support.callApi('status'))});
  assert.deepEqual(output,{zero:0});
+ const data=require('../../src/mcp/query/ProjectData.ts');assert.throws(()=>data.projectRoot(),/MCP_QUERY_CONTEXT_REQUIRED/);
+ await neutral.businessContext.run({root:'C:/synthetic',emit(){},rpc:async()=>{}},async()=>assert.equal(data.resolveProjectPath('plans'),path.resolve('C:/synthetic','plans')));
 });
