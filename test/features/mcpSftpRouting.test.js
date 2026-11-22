@@ -8,9 +8,9 @@ try{Module._load=function(id,...args){return id==='vscode'?vscode:original.call(
 function fixture(){
  const workers=[{id:'w1',host:'host1',port:22,user:'user',remotePath:'/project/one'},{id:'w2',host:'host2',port:22,user:'user',remotePath:'/project/two'}],calls=[];
  const grant=createProjectAuthorization(root);grant.workers=workers.map(({id,host,port,user,remotePath})=>({id,host,port,user,projectRoot:remotePath}));
- const methods=['sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync'];
+ const methods=['sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','transfers.list','transfers.reconcile','transfers.cancel'];
  const host={context:{workspaceState:{get:()=>grant}},refreshSharedConnectionSettings(){},workerCodeSyncTargets:()=>workers,createLocalApiMethods:()=>({}),
-  readSimpleSftpCapabilities:async()=>({methods}),sftpServerOptions:row=>({...row}),simpleSftpApiCall:async(method,params)=>{calls.push({method,params});return {ok:true}}};
+  readSimpleSftpCapabilities:async()=>({methods}),sftpServerOptions:row=>({...row}),simpleSftpApiCall:async(method,params)=>{calls.push({method,params});return method==='transfers.reconcile'?{status:'notFound',settled:false}:method==='transfers.cancel'?{status:'cancelling'}:{ok:true}}};
  return {gateway:mcpGateway(host),calls,grant,workers};
 }
 
@@ -29,6 +29,19 @@ test('MCP SFTP inventory routes the exact Worker and refuses unscoped hashes',as
  await f.gateway.call('sftp_file_stats',{workerId:'w1',paths:['work/a']});assert.deepEqual(f.calls.at(-1).params.paths,['work/a']);
  await f.gateway.call('sftp_remote_directories',{workerId:'w1',relativePath:'sub'});assert.equal(f.calls.at(-1).params.remotePath,'/project/one/sub');
  const count=f.calls.length;await assert.rejects(f.gateway.call('sftp_remote_directories',{workerId:'w1',relativePath:'../escape'}),/MCP_PROJECT_DIRECTORY_REQUIRED/);assert.equal(f.calls.length,count);
+});
+
+test('MCP transfer receipts retain unknown and cancelling states without retrying',async()=>{
+ const f=fixture();assert.equal((await f.gateway.call('sftp_transfers',{})).ok,true);
+ const unknown=await f.gateway.call('sftp_transfer_reconcile',{operationId:'op-9',operationInstanceId:'instance-1'});
+ assert.deepEqual(unknown,{status:'notFound',settled:false});
+ assert.equal(f.calls.at(-1).params.operationId,'op-9');assert.equal(f.calls.at(-1).params.operationInstanceId,'instance-1');
+ const cancelled=await f.gateway.call('sftp_transfer_cancel',{operationId:'op-9',transferId:'t-1',reason:'test'});
+ assert.deepEqual(cancelled,{status:'cancelling'});assert.equal(f.calls.at(-1).method,'transfers.cancel');
+ assert.equal(f.calls.at(-1).params.transferId,'t-1');assert.equal(f.calls.at(-1).params.reason,'test');
+ assert.deepEqual(f.calls.map(row=>row.method),['transfers.list','transfers.reconcile','transfers.cancel']);
+ f.grant.permissions=[];await assert.rejects(f.gateway.call('sftp_transfer_cancel',{operationId:'op-9',transferId:'t-1'}),/AUTHORIZATION_REQUIRED/);
+ assert.equal(f.calls.length,3);
 });
 
 test('MCP SFTP transfers preserve both targets and project authorization',async()=>{

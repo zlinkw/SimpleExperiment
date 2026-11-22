@@ -32,7 +32,7 @@ T2中立MCP版本解析器假对象1/1 exit0，`g004-r519-t2-resolver-missing-ff
 
 T3上下文/支持迁出2/2；首1/2替身错误类型失败，日志及细节见Git 064f2221同文件。
 
-T3补项目路径读取及结构化精简，限定查询上下文、不退回cwd；源码查询8/8 exit0，`g004-r519-t3-compact-first-ff08.log`，消费者待切换。
+T3项目读取及精简8/8，原日志见Git 3cbd380e同文件。
 
 T4迁出MCP解析、结果、指标和比较；真实查询配合成数据与旧消费者逐值对照，0/中文/特殊键/排行/缺参5/5 exit0，`g004-r519-t4-compare-final-ff08.log`；真实Worker未测。
 
@@ -158,7 +158,7 @@ MCP项目准备/识别授权、原回执及失败重读经假Host 1/1；旧CLI�
 
 公开入口旧测试依裁决改为MCP契约1/1；误用Delete File使测试瞬时缺失，已立即同路径恢复，未git rm，旧版见Git 0d5cae56。旧CLI目录外24项引用列coverage，实机限制保留。
 
-SFTP实际Gateway/McpHost核精确Worker、清单/目录、内存指标与跨Worker授权，假后端2/2 exit0；旧CLI选项差异见coverage。
+SFTP实际Gateway/McpHost核精确Worker、清单/目录、内存指标、授权及原样转发未知/取消中回执，假后端3/3 exit0；旧CLI选项差异见coverage。
 
 MCP实验列表、筛选及终态别名保留旧业务断言，实际queryProject 13/13 exit0；假RPC无Worker。
 
