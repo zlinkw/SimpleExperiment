@@ -132,7 +132,7 @@ MCP Worker生命周期无旧CLI依赖4/4；中立错误首0/1 exit1后1/1，详�
 
 MCP排行补全列/零值，12/12（024418）；CLI终端断言待裁决。
 
-旧CLI静态测试302项精确位置和同名MCP候选索引写入coverage.g004CliRetirementIndex；同名不代表断言等价；已审95项业务映射、75项逐字重复及12项纯help候选；另10项函数体重复但业务仍待审；草稿3项部分映射，CLI别名/compact/离线历史及其重复项、其余差异待裁决，不批准退役。首次路径检查转义错误，改按冒号拆分后302/302存在。
+旧CLI 302项索引及初期分类见Git `97607ab8:docs/plan-generations/G004-execution.md`；原测试未退役。
 
 健康默认/full视图6/6（f58801）；CLI退出码待裁决。
 
@@ -170,7 +170,7 @@ MCP当前结果身份重排不变、歧义拒绝及诊断日志排除，queryPro
 
 原Windows工作流四项Host源码身份/预检/回执断言迁中立绑定，假宿主4/4；原混合文件及CLI部分保留。
 
-MCP预检经实际Gateway及Host假端口核原任务身份、能力拒绝、操作ID与精确取消，2/2 exit0；未访问Worker，旧CLI外层行为待审。
+MCP预检Gateway/Host假端口2/2，旧CLI差异见Git `97607ab8:docs/plan-generations/G004-execution.md`。
 
 MCP远端产物精确身份/越界拒绝、结果缺参/缺文件及主指标方向：新增缺文件断言首14/16 exit1（实际ENOENT而非not found），更正后16/16及方向补验16/16 exit0；假RPC无Worker。
 
@@ -202,7 +202,7 @@ MCP下载范围及handoff核精确Worker、配置参数与撤权，假后端11/1
 
 源审返修可选RPC：真实Gateway假Host首7/8 exit1（普通拒绝被吞），修改后8/8；真实未声明方法首7/8 exit1（TypeError），明确-32601后8/8。共享消费mcpQueryContext首14/16 exit1（夹具缺operations/live.output），补真实空响应后16/16；WorkerLifecycle 4/4、mcpProject 43/43 exit0（后者部分旧dist），未测真实Worker。保留失败原工具输出，未build。
 
-源审产物路径：合成根首16/17 exit1（绝对外部路径可读）；本地目录、manifest和递归逐层校验项目根及链接，修后及补绝对路径、0字节、冒号ID和嵌套链接各17/17 exit0，远端契约保留。未读用户外部文件、未build；登记压缩首断言exit1未写。
+产物路径越界首16/17 exit1后17/17；细节见Git `97607ab8:docs/plan-generations/G004-execution.md`。
 
 SimpleSFTP 0.2.120现有UI创建项目源码链核实，未实点。清理引擎状态保存使用真实rename，当前仅允许transport/activity/lease替身且禁真实移动；无法证明纯替身隔离，四项未启动，详见coverage。
 
@@ -212,7 +212,7 @@ MCP查询去除无消费者CLI json/compact开关，默认精简及full语义保
 
 正式PLAN替代候选：Gateway缺PLAN及任意command拒绝且零Host调用，合法PLAN绑定授权和工作区；假Host 9/9 exit0，旧安全项保留。登记前两次超阈值断言未写。
 
-旧CLI候选发现37个仓内普通文件，规范根、父目录、当前clean和引用风险逐项列coverage；均未获删除许可且依赖未清，用户全局shim等不列。首脚本误期望36个触发断言exit1未写，重核37后记录。
+旧CLI候选37文件及计数误判exit1见Git `97607ab8:docs/plan-generations/G004-execution.md`，未删。
 
 旧Runner导入仅移至原录制测试内部，同文件checkpoint断言保留；旧dist完整文件2/2 exit0，合成stdout、无Worker；测试及源码未删。
 
@@ -225,3 +225,5 @@ MCP Agent观察入口拒绝调用者token及未知字段，假Host仅收到固�
 旧入口源码、脚本、模板、清单及测试反向引用核对见coverage；未删目标。登记两次超阈值断言未写。
 
 产物补测：合成远端绝对路径作为元数据保留，不读项目外文件；查询17/17 exit0。
+
+产物节点：同名本地/Worker首16/17 exit1误读本机；按明确本地/Worker/未知分流，旧远端outputDir不作本地，补验17/17。合成本地夹具显式声明endpoint，原断言保留；登记前两次超阈值未写，无Worker。

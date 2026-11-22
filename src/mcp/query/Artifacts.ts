@@ -88,7 +88,7 @@ async function listArtifacts(experimentId: string, knownExperiments?: Experiment
   }
   const outputDir = experiment?.raw ? String(experiment.raw.hub_job_dir || experiment.raw.outputDir || experiment.raw.runDir || runDirFromLog(experiment.raw.stdout) || "") : "";
   const rows: Array<{ id: string; path: string; size: string; local?: string }> = [];
-  if (outputDir) {
+  if (outputDir && (experiment?.source === "history" || experiment?.raw?.endpoint === "local")) {
     const abs = localArtifactPath(outputDir);
     if (fileExists(abs)) {
       const manifest = readJsonFile<{ files?: Array<{ path?: string; size?: number }> }>(localArtifactPath(path.join(abs, "artifact_manifest.json")), {});
@@ -121,7 +121,8 @@ async function listArtifacts(experimentId: string, knownExperiments?: Experiment
         const normalized = filePath.replace(/\\/g, "/"), output = outputDir.replace(/\\/g, "/").replace(/\/+$/, "");
         if (!output || normalized !== output && !normalized.startsWith(output + "/")) continue;
       }
-      rows.push({ id: `${experimentId}:${filePath}`, path: filePath, size: String(file.size ?? "") });
+      rows.push({ id: `${experimentId}:${filePath}`, path: filePath, size: String(file.size ?? ""),
+        ...(file.endpoint === "local" ? { local: localArtifactPath(filePath) } : {}) });
     }
   }
   return rows;
@@ -140,9 +141,8 @@ async function findArtifact(id: string): Promise<{ path: string; size?: string; 
   const match = matches[0];
   if (match) {
     if (match.workerId) return match;
-    const candidate = match.local || path.resolve(projectRoot(), match.path);
-    if (!match.local && !inside(path.resolve(projectRoot()), candidate)) return match;
-    const abs = localArtifactPath(candidate);
+    if (!match.local) return match;
+    const abs = localArtifactPath(match.local);
     const local = fileExists(abs) ? abs : undefined;
     return { path: match.path, size: local ? String(fs.statSync(local).size) : match.size, local };
   }
