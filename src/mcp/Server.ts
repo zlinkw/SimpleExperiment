@@ -1,7 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { callPluginRpc, resolveInstanceByWorkspace, preflightPluginAt, assertInstancePin } from "../cli/LocalApiClient";
+import { callPluginRpc, resolveInstanceByWorkspace, preflightPluginAt, assertInstancePin } from "../api/LocalApiClient";
 import type { ProjectTool } from "./ToolCatalog";
 
 export async function startMcpServer(argv = process.argv.slice(2)): Promise<void> {

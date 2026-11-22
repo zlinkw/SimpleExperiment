@@ -1,4 +1,4 @@
-import { callPluginRpc, resolveInstanceByWorkspace } from "../cli/LocalApiClient";
+import { callPluginRpc, resolveInstanceByWorkspace } from "../api/LocalApiClient";
 
 /**
  * 块C：管理窗口把 PLAN 选择/提交/进度路由到目标分支实例。路由只走 A 块已验证的

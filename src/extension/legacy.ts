@@ -180,7 +180,7 @@ import * as BranchPullRequest from "../project/BranchPullRequest";
 import * as UnifiedDispatchAdmission from "../project/UnifiedDispatchAdmission";
 import * as DispatchHandoffGate from "../features/DispatchHandoffGate";
 import { readGitIdentity as readGitIdentityProbe } from "../project/GitIdentityProbe";
-import { listPluginInstances, preflightPluginAt } from "../cli/LocalApiClient";
+import { listPluginInstances, preflightPluginAt } from "../api/LocalApiClient";
 import RenamedExtensionStateMigration_1 = require("../config/RenamedExtensionStateMigration");
 import RemoteRootPolicyPrefill_1 = require("../config/RemoteRootPolicyPrefill");
 import PanelBuildIdentity_1 = require("../features/PanelBuildIdentity");
