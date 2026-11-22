@@ -62,24 +62,8 @@ direct证据无论使用原工具输出还是单独原日志，均要求非空�
 
 候选资格并行只读查询中，Python元数据读取与code.cmd列已安装扩展可能短暂重叠；实读code.cmd确认Electron以ELECTRON_RUN_AS_NODE模式执行，故按唯一Node/Python约束记录为潜在并发违规，两者均为只读非测试且无安装。后续串行。一次只读版本回读因PowerShell引号解析失败未启动Python、未写文件；改here-string后成功。
 
-0.5.520最终编译后，原mcpLocalApiSafety单文件按20秒验证8/8 exit0，TEMP/g004-520-mcp-local-api-20261123.log；只使用自建临时发现记录、回环合成HTTP、合成凭据，关闭监听并保留fixture，无子进程、真实发现/Worker/删除。直接执行原call、完整日志、节点二进制及TS/实际源码闭包已写currentTargetedEvidence，按direct结算，不造runner tree confirmed；待总控最终审核。当前真实规划361执行＋6按需，10项旧证加此项direct被识别，仍有350项未具备审核依据，入口拒绝启动package。
+最近直接验证与历史证据的完整逐项依据保留在Git `14c77f5e:docs/plan-generations/G004-execution.md` 和coverage。0.5.520 compile后原文件：mcpLocalApiSafety 8/8（TEMP/g004-520-mcp-local-api-20261123.log）、mcpEntry 3/3（TEMP/g004-520-mcp-entry-20261123.log）、packageContentPolicy 12/12（TEMP/g004-520-package-content-20261123.log，原有串行Python 3.14.6、合成zip及fixture保留）、mcpTrainingProgress 9/9（TEMP/g004-520-mcp-training-progress-20261123.log）、mcpRuntimeCapture 3/3（TEMP/g004-520-mcp-runtime-capture-20261123.log）、mcpTerminalIdentity 10/10（TEMP/g004-520-mcp-terminal-identity-20261123.log）、mcpOrdinaryResultContracts 8/8（TEMP/g004-520-mcp-ordinary-contracts-20261123.log），均exit0；仅自建合成文件/回环服务或内存替身，无实际Worker/删除。原call、日志及当前依赖已冻结待总控审，不冒runner tree confirmed。一次Python工具链只读查询误取内建zlib.__file__ exit1，另一次JSON登记脚本因标记空格断言exit1且未写入，修正后成功，均非测试失败；不冒完整标准库已验证。
 
-原mcpEntry在0.5.520单文件3/3 exit0，TEMP/g004-520-mcp-entry-20261123.log；仅自建临时shim目录和VM假子进程，确认原合成CLI文件不变，未安装全局shim、不删除。原call、完整日志及其读取的package、入口和安装脚本闭包已按direct冻结，待总控审核。当前361执行＋6按需，10项旧证和2项direct可识别，仍有349项未审，package入口按设计拒绝。
+历史直接结果按实际调用/变更审定为候选：InspectSchema对照c8466379、QuerySchema对照aa6138d5；ActiveSnapshot、HistoryViews、HealthEvidence、FailureAlerts对照b5a1cd6e、1242c55c、ef465b02、9f59dded；PersistedRuns、LogsAndConfig、ResultIdentity对照1cfcb557、8ed91051、06a5fc03。原rollout真实exit0及首失败保留，合成RPC/本地项目，无实际Worker；旧精确Node未知，依赖范围及源码差异见coverage，待总控最终审。上次规划361执行＋6按需，335项待审，package入口阻断。
 
-最终compile后的原packageContentPolicy单文件12/12 exit0，TEMP/g004-520-package-content-20261123.log；仅生成并保留合成zip/fixture，串行原生Python子进程按原10秒预算结算，未打包实际VSIX或删除。当前policy/manifest、原call及日志、Node与PATH首个Python 3.14.6二进制及zipfile/json/pathlib入口已按本次直接证据冻结，执行者审定、待总控最终审核，不代表完整标准库或旧工具链已验证。后续只读查询Python模块位置时把内建zlib误当有__file__，该查询exit1但已输出Python版本等事实，不影响测试。当前规划识别10项旧证和3项direct，仍有348项未审，package入口按设计拒绝。
-
-最终compile后的mcpTrainingProgress原文件9/9 exit0，TEMP/g004-520-mcp-training-progress-20261123.log；仅在内存解析合成字符串，未调用同模块Worker网络观察函数，当前直接证据与源码/TS输入已冻结，待总控审。第一次登记脚本因JSON标记空格不符断言exit1、未写文件；修正标记后成功，不涉及测试失败。
-
-同源mcpRuntimeCapture原文件3/3 exit0，TEMP/g004-520-mcp-runtime-capture-20261123.log；所有网络端点均为测试自建回环HTTP及合成RPC响应，finally关闭连接和监听，无真实Worker、删除或子进程。当前直接证据及源码/TS输入已冻结，待总控审。当前规划361执行＋6按需，仍有346项待审，增量入口拒绝package。
-
-mcpTerminalIdentity原文件10/10 exit0，TEMP/g004-520-mcp-terminal-identity-20261123.log；传入合成观察和内存记录，未触发默认网络观察分支或真实Worker。原call及当前依赖冻结，待总控审。
-
-mcpOrdinaryResultContracts原文件8/8 exit0，TEMP/g004-520-mcp-ordinary-contracts-20261123.log；内存数据及注入的假API/文件系统，VM提取实际涉及的Resources、Metrics、Compare、ResultParse、Artifacts源码均纳入依赖，无真实Worker、网络、删除或子进程，待总控审。当前规划仍有344项待审，增量入口拒绝package。
-
-复核原mcpInspectSchema直接证据6/6、真实exit0和无在途会话，测试紧邻c8466379提交；合成项目及空Worker RPC，实际status/inspect等成功调用相对当前源码的变化仅涉及未调用的artifact、旧CLI格式标志、未触发的错误映射及不进入JSON的内部Symbol。原rollout输出与当前依赖快照均保留，旧Node精确版本未知，作为同任务候选待总控审，不重跑；入口识别后仍有343项待审。
-
-同类mcpQuerySchema原直接4/4 exit0；原rollout显示测试前补断言、测试后aa6138d5提交，合成RPC不触发后来变化的RPC失败映射，缺失ID的本地businessError断言保留。按具体实际调用审定旧证与当前依赖，旧精确Node未知，待总控审核，不重跑。
-
-同一查询调用链的ActiveSnapshot、HistoryViews、HealthEvidence、FailureAlerts原直接成功结果，分别对照测试后提交b5a1cd6e、1242c55c、ef465b02、9f59dded及当前具体源码差异；空Worker合成RPC、保留临时夹具，不调用artifact或变更后的RPC失败分支。原stdout、首失败和Node精确版本未知均保留，作为同任务候选待总控审；当前入口仍阻断338项。
-
-同链PersistedRuns、LogsAndConfig、ResultIdentity分别对照测试后提交1cfcb557、8ed91051、06a5fc03，原直接exit0及现调用差异已登记；分别使用合成本地历史、合成日志配置和内存results.list，待总控审。现入口阻断335项。
+新补mcpWorkerHistory原文件3/3 exit0，TEMP/g004-520-mcp-worker-history-20261123.log；自建回环假RPC，测试项目内允许合成历史文件原子rename，保留夹具、关闭监听，无真实Worker或unlink。原call、日志和当前源码/工具链冻结，待总控审；当前入口阻断334项。
