@@ -59,6 +59,13 @@ test('MCP metric leaderboard preserves the known loss direction',async()=>{
  assert.equal(special.__proto__,0);assert.equal(special.constructor,2);assert.equal(Object.hasOwn(special,'blank'),false);
 });
 
+test('MCP leaderboard returns every observed metric column',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-metrics-'));
+ fs.writeFileSync(path.join(root,'metrics.csv'),'runKey,accuracy,loss\na,0.8,\nb,0.9,0.4\n','utf8');
+ const result=await queryProject(root,async()=>{throw Error('unexpected RPC')},'metric_leaderboard',{file:'metrics.csv'});
+ assert.deepEqual(result.metrics,['accuracy','loss']);assert.equal(result.board[1].mean.loss,0.4);
+});
+
 test('MCP plan build and empty matrix retain their established values',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-plan-')),rpc=async()=>{throw Error('unexpected RPC')};
  fs.writeFileSync(path.join(root,'plan.yaml'),'suite: demo\ncases: []\nseeds: [0, 1]\n','utf8');
