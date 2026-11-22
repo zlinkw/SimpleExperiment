@@ -173,3 +173,5 @@ SFTP Worker目录和批量变体经Gateway/Host核源/目标、路径及双Worke
 带Worker旧索引来源未知且无有效远端产物首16/17 exit1（错误返回空列表）；修后明确ARTIFACT_LOCATION_UNVERIFIED并携原身份与声明路径，17/17 exit0。已有远端元数据仍按其来源返回；未访问Worker。
 
 SFTP精确路径下载根目录缺口：Gateway假端口首13/14 exit1（空数组未拒绝），首次修复后13/14 exit1（归一化./仍带尾斜线）；补全根路径判定后14/14 exit0，合法子路径保留。伴随后端允许空串归一为根，现入口阻止；未真实下载。
+
+MCP项目/控制固定工具缺参、Hub旧字段及不存在pause在业务方法前拒绝；真实Gateway假方法11/11 exit0，不声称零握手或真实Worker。

@@ -108,6 +108,18 @@ test('MCP named controls forward scoped parameters and preserve host receipts',a
  assert.equal(calls.length,cases.length);
 });
 
+test('MCP project and control input errors cannot reach business methods',async()=>{
+ const root=path.resolve(__dirname,'../..'),calls=[],grant=createProjectAuthorization(root);
+ const methods=new Proxy({},{get(_target,name){return async params=>{calls.push({name,params});return {ok:true}}}});
+ const gateway=new ProjectGateway({root:()=>root,workers:()=>[],store:{get:()=>grant},methods:()=>methods});
+ for(const [name,args] of [
+  ['plan_validate',{}],['project_bootstrap_operation',{}],['project_prepare',{mode:'hub'}],
+  ['project_bootstrap',{hub:{}}],['tmux_capture',{window:'window:1'}],
+  ['configuration_set',{key:'simpleExperiment.test'}],['flow_update',{}],['experiment_pause',{id:'x'}],
+ ]) await assert.rejects(gateway.call(name,args));
+ assert.deepEqual(calls,[]);
+});
+
 test('MCP PLAN list waits for the real host metadata refresh',async()=>{
  const fs=require('node:fs'),root=path.resolve(__dirname,'../..');
  const source=fs.readFileSync(path.join(root,'src/extension/legacy.ts'),'utf8');
