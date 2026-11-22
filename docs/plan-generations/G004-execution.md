@@ -10,7 +10,7 @@ R519 A5按输入列选择默认长宽预设，保留显式和自定义预设；�
 
 R519 A6历史结果读错/坏JSON反馈原因，缺失仍允许；内存fs联验1/1 exit0，同目录 `g004-r519-a6-history-final-ff08.log`，未调用Worker。
 
-R519 B2选择API等待持久化、失败可见并拒绝跨项目成功回执；PLAN已写入后的状态失败明确提示。真实入口配内存替身：动作46/46、迁移13/13、上下文20/20 exit0，日志同目录 `g004-r519-b2-actions-complete-ff08.log`、`g004-r519-b2-migration-ff08.log`、`g004-r519-b2-context-ff08.log`。动作首44/45 exit1因A5源码抽取夹具缺`selectResultPreset`，已补真实依赖，`g004-r519-b2-actions-first-ff08.log`。
+R519 B2选择等待保存并反馈跨项目/持久化失败；已写PLAN失败明确提示。假对象动作46/46、迁移13/13、上下文20/20 exit0，日志 `g004-r519-b2-actions-complete-ff08.log`、`g004-r519-b2-migration-ff08.log`、`g004-r519-b2-context-ff08.log`。首44/45 exit1因抽取夹具缺`selectResultPreset`，已补依赖，`g004-r519-b2-actions-first-ff08.log`。
 
 R519 B3手动刷新/重连失败回报原动作，保留后台容错和低流量语义。假transport/UI状态4/4、低流量16/16、关闭决策14/14 exit0；日志 `g004-r519-b3-network-final-ff08.log`、`g004-r519-b3-traffic-ff08.log`、`g004-r519-b3-closure-ff08.log`，未联系Worker。
 
@@ -20,7 +20,11 @@ R519 C1修复14项API本地路由，保留确认、资源租约及业务门禁�
 
 R519 C2明确设置范围及准备副作用，global写入不误落项目；源码/目录48/48、真实set/reset配内存配置49/49 exit0，日志 `g004-r519-c2-actions-first-ff08.log`、`g004-r519-c2-consumers-ff08.log`，未改真实设置。
 
-R519 C3五个Git命令返回异步结果，假UI/提供者4/4 exit0；首3/4 exit1为测试误判同步和发布的注册顺序，日志同目录 `g004-r519-c3-git-first-ff08.log`、`g004-r519-c3-git-final-ff08.log`，未操作真实Git hook或发布。
+R519 C3五个Git命令返回Promise，假对象4/4 exit0；首3/4 exit1为测试误判注册顺序，日志 `g004-r519-c3-git-first-ff08.log`、`g004-r519-c3-git-final-ff08.log`，未动真实hook或发布。
+
+R519 C4旧CLI参数曾在进入shim前被解释管道，exit255；对照exit0，TEMP夹具 `g004-c4-cmd-fixture-1a624cb400094bdca5c67bf46b5f57c9`。用户现退役业务CLI，不更改结果ID。
+
+B1末尾通知租约返修先验：原方法未释放的断言失败；新增夹具未恢复通知替身致后续用例超时20秒、单文件exit1，已停止不重试，日志 `g004-r519-b1-lease-before-ff08.log`；非真实Host操作。
 
 用户反复识别未完成并提供截图；519同窗请求与识别租约冲突，不能认定锁死。本地识别原不记完成，假确认和PLAN首0/1 exit1，同目录 `g004-519-bootstrap-recognition-ff08.log`。R519 B1确认有效PLAN并保存单根识别、立即投影，准备独立、不探Worker。空任务/取消/读写错/缺根与多根2/2、快速流程9/9、上下文20/20、命令3/3、持久化3/3、投影6/6均exit0；日志同目录 `g004-r519-b1-` 前缀加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 后接 `-ff08.log`。未重放点击、清锁或改真实标记。
 
@@ -28,13 +32,13 @@ R519 C3五个Git命令返回异步结果，假UI/提供者4/4 exit0；首3/4 exi
 
 519发行：源码/tag `6932321534f3b0c2df3b1983bfede2f88f7b868f`，[试行Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.519)与隔离下载同SHA，Latest483。ReleaseClient首验误期待SFTP Latest120（实际118）exit1，修后exit0：482见483、519及已装SFTP120均不降级，120试行资产存在；同目录 `g004-519-client-after-ff08.log`。唯一install:latest exit0含DEP0169，磁盘/列表519、SFTP120及稳定入口已核，同目录 `g004-519-install-ff08.log`。重载后实机以顶部为准。
 
-519唯一package exit0，341/341、13门禁、进程树结束、并行峰1、按需0及锁释放；输入=end `02a04b0a7ed920361e852dea0e41d4740114b1cefbb1aabb8ab2c4bd71f5560f`，日志同目录 `g004-519-package-ff08.log`，回执 `simple_cluster/reports/test-workflow/2026-11-22T06-35-19-310Z-69208-package/run.json`。新dist识别内存消费者、Panel和3段生成脚本VM exit0、10890零命中；VSIX面板325/闭包326/同源373项及376文件内容策略、README通过。包2,988,831字节，SHA256 `525e235fe7e380bf3684edf5b8bfd3dd7620badefd964dcdcd671b14c0216b33`；发行及实机状态以顶部为准。预检一次误写面板测试路径exit1，后按实际路径读取。
+519唯一package exit0，341/341、13门禁、进程树结束、峰1、按需0及锁释放；输入=end `02a04b0a7ed920361e852dea0e41d4740114b1cefbb1aabb8ab2c4bd71f5560f`，日志 `g004-519-package-ff08.log`，回执 `simple_cluster/reports/test-workflow/2026-11-22T06-35-19-310Z-69208-package/run.json`。新dist识别/Panel/生成脚本VM通过、10890零命中；VSIX闭包326/同源373及内容策略通过。包2,988,831字节，SHA256 `525e235fe7e380bf3684edf5b8bfd3dd7620badefd964dcdcd671b14c0216b33`；完整原文及预检路径误写见Git `48062264:docs/plan-generations/G004-execution.md`。
 
-519交付预检细节及工具误用记录见 Git `48062264:docs/plan-generations/G004-execution.md`；dry-run exit0，341独占、按需0、max1，识别单文件3/3另留。
+519交付预检及工具误用见Git `48062264:docs/plan-generations/G004-execution.md`；dry-run exit0，341独占、按需0、max1。
 
-项目识别记忆：globalState按规范单根保存事实，旧workspaceState迁移保留根归属；false/reset、不同项目/profile及无根多根隔离，不搬授权/连接。显式写等待迁移，失败不清旧值可重试；API、提示和面板同源。真实源码配Memento单文件首0/2 exit1（模块未实现），补规范根/启动写/不同根后3/3，`firstRunSetupPrompt` 1/1、bootstrap/migration 10/10均exit0；日志同目录 `g004-518-onboarding-before-ff08.log`、`g004-518-onboarding-isolation-ff08.log`、`g004-518-onboarding-prompt-final-ff08.log`、`g004-518-onboarding-bootstrap-final-ff08.log`。当时未改真实标记或重载，后续状态以顶部为准。
+项目识别记忆：globalState按规范单根保存，旧值迁移、false/reset及项目/profile隔离；API、提示和面板同源。真实源码配Memento首0/2 exit1（模块未实现），修后3/3，提示1/1、迁移10/10均exit0；日志 `g004-518-onboarding-before-ff08.log`、`g004-518-onboarding-isolation-ff08.log`、`g004-518-onboarding-prompt-final-ff08.log`、`g004-518-onboarding-bootstrap-final-ff08.log`。未改真实标记，完整原文见Git `48062264:docs/plan-generations/G004-execution.md`。
 
-项目明确清除状态修复：离线包/布局项目文件为 null 或 cleared 时，旧 workspace 残留值不会再次迁入；缺文件仍可迁移，已有有效项目值优先，坏 JSON/EACCES 保留旧值并报告，旧键清除失败后重试也不复活。真实读取及迁移方法配合内存存储首 9/10 exit1、修后 10/10 exit0，补已有值优先后 10/10 exit0；日志 `C:/Users/ZLK/AppData/Local/Temp/g004-518-cleared-before-ff08.log`、`C:/Users/ZLK/AppData/Local/Temp/g004-518-cleared-after-ff08.log`、`C:/Users/ZLK/AppData/Local/Temp/g004-518-cleared-final-ff08.log`。未清除真实数据，尚未构建或安装。
+项目明确清除状态修复：离线包/布局为null或cleared时旧值不复活，缺文件仍迁移，坏JSON/EACCES保留并报告。内存存储首9/10 exit1、修后及补已有值优先各10/10 exit0；系统TEMP日志 `g004-518-cleared-before-ff08.log`、`g004-518-cleared-after-ff08.log`、`g004-518-cleared-final-ff08.log`。未清除真实数据；完整原文见Git `48062264:docs/plan-generations/G004-execution.md`。
 
 518 重载后实际单项目验收（当前部分通过，待总控复核）：live discovery/health/status 证明 Host PID 76852、版本 0.5.518、唯一专用根 `C:/Users/ZLK/AppData/Local/Temp/simpleex-normal-ui-g003-20261116-a7c39e2f`、offline_import、低流量 enabled/effective；本人统一项目 grant 已真实存在，5类权限、无 Worker 授权快照。此窗口属于默认 profile，当前配置5台/启用1台，不能当作旧零 Worker 隔离 profile；未执行服务器、健康、隧道、任务、Agent 或共享设置操作。原进口状态启动时已恢复，但不同 profile 不能作为升级清空配置的证据。
 

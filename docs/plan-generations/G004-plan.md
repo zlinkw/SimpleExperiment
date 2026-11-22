@@ -1,6 +1,6 @@
 # G004 重要功能、按钮与MCP深查
 
-## 当前目标：519单项目完整调查已交包，统一修完再集中交付
+## 当前目标：统一完成单项目返修及CLI退役，仅保留UI/MCP
 
 2026-11-22用户确认519已重载、未重配重授；要求复用已查证据，一次查清单项目全部按钮/功能/MCP，尤其配置和工作区识别保留、识别流程及资源冲突，不逐项停下来或发版，单项目正常后再处理延期项。本轮仍属G004验收返修，一个完整业务批次，内部按≤3强相关问题、≤8非生成源/测试/文档文件逐组验证和scoped FF提交；不是一个巨型提交，也不重开原已完成的39项三批。
 
@@ -39,7 +39,7 @@
 | C1 公开invoke完整路由 | 14项本地handler而无远端actionMap：downloadDebugBundle/openAuditTail/publishGithub/syncGithub/overwriteGithub/uploadProjectToWorkers/distributeCodeToWorkers/deployLatestAgent/configureDownloadScope/configureCodeSyncIncludes/configureServerSyncScope/clearLegacyTasks/clearOperations/abortScheduler，须可到各自原本地消费者，不再误入未知远端map。保留API_EXECUTABLE allowlist、确认/权限、业务版本门禁、对应项目资源租约和withSafeTransferRetry；不能简单直调Core绕过原保护，远端map仍走原路径。54两选择及更新专门分支正确保留，Hub明确退役不恢复。14项源集合与替身转接逐项核，代表纯本地成功/错误/取消、危险未确认不进入、远端map仍透传；不实际Git/删除/Agent。 |
 | C2 设置公开契约 | configuration_set/reset补齐受支持global范围及真实apiConfigUpdateTarget对应目标，显式global不因resource scope误落WorkspaceFolder；保留projectAdapterRules必须workspaceFolder及敏感键/已声明键限制，不写真实全局设置。worker_configure仅其workerId描述允许已配置disabled目标，其余执行工具仍仅enabled。configuration_get/list读VSCode原始配置是现有契约，不把它直接换成有效共享Worker配置；必要说明与state_value setupConfig/worker_configure返回的有效值区别，当前readback候选不计已确认数据丢失。MCP bootstrap说明实际已确认准备副作用也在本组对齐，无额外真实权限操作。 |
 | C3 Git命令Promise | GitBackupSetup三个配置/状态命令及两个GitHub命令注册器返回原异步handler结果，调用者能等待并接收失败，既有用户提示/确认/目标不改。核未决Promise、拒绝/取消及正常转接，不真实Git备份或发布。 |
-| C4 稳定CLI参数 | 先精确定位PowerShell→cmd→稳定launcher在哪层解释合法结果ID竖线，再修公开Windows稳定入口，让正常使用工具返回的精确ID可正确选择/导出且真实退出码保留；同名多行不能靠唯一实验名绕过。优先现有cmd/ps1/launcher能力，不新增编译器、原生EXE或通用shell转义框架，不仅要求用户换shell/手编码。若平台先于shim解析而需改ID契约或引入新入口，先形成精确可审替代/兼容选择交总控裁决，其他组继续；原ID不能无声失效，合法引号/中文/空/0按实际支持边界保留，不做危险输入专项。 |
+| C4 旧CLI参数问题停止修复 | 用户最新明确退役全部业务CLI，仅保留UI和MCP；本组不再做ID编码、shell兼容、新EXE或新CLI功能。首exit255与进入shim前已解析的证据保留为退役前事实，不改结果ID/底层科研记录。MCP启动器及当前共享消费者按下一节迁出依赖后保留。 |
 
 表中明确缺陷按各根因处理，14个错路由/多个别名不冒14个独立问题；worker-config-readback仅语义待判不算失败。正常独立重复点击的租约冲突不作锁死修复；当前原首次操作未知及全部真实外部效果保留。每组将实际文件数、根因/入口、首失败、修后真实退出码和scoped提交写execution/coverage，维护一份母集；不用新报告、重复统计器或新编号覆盖已撤回项。
 
@@ -76,3 +76,27 @@ J01仍未修：旧Host GIT_CONFIG_COUNT10/KEY全有/VALUE0和5缺，工具空值
 禁止真实服务器/Worker/SSH/健康版本/准备同步/任务查询派发停止/清理/Agent部署，当前统一grant不是本轮实机外部测试授权；共享Worker配置/授权不改、不自动切模式/重载/新profile、不抢稿件或原VSCode输入。startup公开GitHub更新检查及自然发现注册是先前明确允许例外，不扩大Worker请求。仅专用合成根本地必要操作，真实GPU7所有任务日志产物、/root/autodl-tmp/zlk/MultiModal、原Agent tmux/隧道保护；MM final.md、Generic Untitled-1、Response to Reviewers.tex等未保存稿件不得reload/close/抢输入。D:/GitRepo/SimpleMcpAcceptance只读，cleanup_20261111.txt、所有新旧fixtures/temp/约60未跟踪旧VSIX摘要保留，不删搬清理或stage无关。
 
 全局同一时间一个node/python检查，先目标单文件node --test --test-force-exit --test-timeout 20000，20秒不退停止不重试、不改生产求绿；Python只函数/import提取、不完整import/exec agent/scheduler、不长python-c，spawnSync≤10000/windowsHide/status0。正常失败可定位必要修法后按真实新输入验证，首失败/日志保留；工具等待不改测试期限。原删除双确认/安全根/直接父目录/./子项保护不弱化，不授权真实删除，若审删除逻辑先读safe-delete-paths。普通Windows原仓非Pi/自制容器，origin https://github.com/zlinkw/SimpleExperiment.git ，master追踪origin/master；禁止amend/reset/rebase/merge/force/改remote。全局UTF8/Pwsh7按最新AGENTS；plan上限18000/90%=16200，execution12000/90%=10800，集中语义压缩保留失败/未知及Git证据。当前全计划语义压缩替代早先调查期文案，旧完整已提交计划89498eff及执行/coverage原材料保留，不另建报告。
+
+## 用户新范围：退役业务CLI，仅UI与MCP
+
+本节优先于前文C4及后续交付对simpleex业务CLI入口的旧要求。用户明确CLI完全弃用，源码可删除；保留MCP连接必需的stdio启动器simpleex-mcp，解除其对业务CLI resolver的依赖，不能误删MCP。总控只读确认ProjectQueries直接导入src/cli的业务函数/ExecutionContext，Server与legacy依赖LocalApiClient，MCP launcher借simpleex resolver选CLI版本路径；当前MCP不是已独立替代实现，不能先删目录。用户指令授权必要移出共享业务/连接模块、退役公开业务CLI入口和更新实际构建/安装/收包/文档，不授权丢失已有MCP工具或更改结果身份、输出语义、授权/确认/实例绑定、真实远端效果。
+
+原唯一执行者先一次核清精确依赖闭包、保留/迁移/纯CLI候选、构建与测试消费者及≤8文件内部组，形成具体原材料；不继续C4参数修复。源码与测试物理删除先不做，按safe-delete-paths/manual-cleanup-only形成精确绝对路径/类型/父目录/引用风险候选；当前广义源码可删没有唯一定位全部路径。需删除时在共享迁移和可审修改完成后一次交确认，不能直接rm src/cli或删测试/旧安装产物。旧CLI测试的业务断言迁到真实MCP消费者验证，不能以退役UI形式为由自动缩减仍适用正确性覆盖；纯CLI专属测试的退役具体列明、按测试生命周期裁决，不直接停跑求绿。
+
+没有精确删除许可前可保留原源码待移除，不将其重新分发为运行入口；所有真实用户全局simpleex文件/旧安装目录保持原状，未来安装仅配置MCP连接必需入口，不借此清理用户系统文件。MCP启动参数属于连接协议，不提供人工业务CLI子命令。必要最小共用逻辑迁出后，公开bin/打包清单不再暴露业务CLI，不能只是换路径继续保留argv调度/终端渲染接口或让MCP启动依赖dist/cli.js。先交一次完整依赖与迁移方案，随后连续实施；13个已验源码组不因CLI退役盲目回滚。真实Worker、原稿、授权、共享配置、删除、单检查与Git边界不变；最终统一源审/集中交付仍未开放。
+R519源修中间审核：A1–A6/B1–B4/C1–C3已分组提交（b4ccc6e3至8c8c874c，另4caddba6配置消费者），源码未构建发行。总控读实际diff，B1最后已持久化/postState后仍await仅供“打开实验准备”的完成通知，外层识别资源租约会继续被该可选通知Promise占用；这不是旧现场首操作已查实死锁，而是当前新流程可达的非必要等待。补真实bootstrap+租约+未决末尾通知的受控覆盖，完成通知改为不延迟本地操作结算，用户后续选择导航仍核原项目且错误可见；初始确认/选PLAN仍等待，不加锁超时/自动清理。其余组源审有效部分复用，最终MCP迁出消费者后再核完整包，不因本点重跑全部。
+### CLI迁出方案源审通过：T1–T6连续实施，公开面与删除分开
+
+执行只读依赖方案已核，原MCP是进程内结构化调用，不是子进程转CLI；静态闭包20文件包含LocalApiClient/ExecutionContext/WorkflowRun/api/data/errors/format/parse/runtime及11个commands模块，不能整体搬dispatcher或先删。总控核实际resolver、Server/ProjectQueries及收包脚本，批准最小迁出，保留当前137工具输入/输出、合法值、错误、项目隔离、实例握手、授权/确认、文件安全和真实Worker边界。结果ID保持不变，MCP不新增history或其它工具凑旧CLI功能。
+
+| 迁移组 | 实施与检查 |
+| --- | --- |
+| T1 共用连接 | LocalApiClient及必要错误类型迁到src/api中立位置；Server、legacy、src/project/BranchPlanDispatch和真实连接测试同步，保留绑定/身份/无重试契约。 |
+| T2 MCP启动 | 独立MCP resolver直接选已握手Host对应版本dist/mcp/server.cjs，不再借业务CLI文件；bin/simpleex-mcp及安装仅服务MCP，保留多安装/错窗/重载/缺入口/取消/真实退出码测试。 |
+| T3 查询基础 | 将实际context/RPC/文件读取/错误/结构化输出移至src/mcp/query等已有领域下，保留AsyncLocalStorage隔离；内部emit可复用，不暴露stdout终端渲染、argv调度或无上下文业务CLI回退。 |
+| T4 结果查询 | result/metric/compare必要业务及映射迁出，带上A4/A5修复；真实queryProject/ProjectGateway假RPC核长宽JSON、指标身份、0/空、原结果ID及错误。 |
+| T5 实验查询 | experiment/log及runtime/WorkflowRun确实需要的业务子集迁出；原active/health/inspect/log身份、失败与隔离断言保留，不复制无MCP消费者的启动/dispatch入口。 |
+| T6 其余查询 | artifact/server/resource/plan矩阵与生成及确需control/planCleanup子集，schema→网关→真实业务结果核对，原保护不变；只迁可达出口，不移整目录保旧CLI。 |
+| T7 公开面 | T1–T6及替代覆盖完备后改bin/install/manifest/VSIX闭包/收包/必要指南，仅发布UI/MCP；编译/打包不得吃旧dist/cli残留。旧CLI专属测试拟退役逐test给原断言→替代/撤销依据与当前矩阵差异，审核前不删/skip/停跑、不降覆盖或超时。 |
+
+原CLI文件在共享引用移完后列精确绝对路径/类型/直接父目录/风险；此前六个候选及其它文件都不自动删除。先完成非删除迁移和可审改动，最后依删除技能一次询精确批次；旧安装目录和全局用户shim不在范围，不删任何fixture/资产。无必要新依赖/编译器/通用框架。每组源/测试/文档≤8，必要时拆子组；先独立提交本轮plan/README/execution精确文档检查点再改产品，保持唯一写者FF同步。源修/迁移完整包后统一复审，build/dist/递版/package/安装仍未开放；不得以无原生hidden宿主为由冒称新UI实点通过。
