@@ -81,3 +81,5 @@ mcpOrdinaryResultContracts原文件8/8 exit0，TEMP/g004-520-mcp-ordinary-contra
 同类mcpQuerySchema原直接4/4 exit0；原rollout显示测试前补断言、测试后aa6138d5提交，合成RPC不触发后来变化的RPC失败映射，缺失ID的本地businessError断言保留。按具体实际调用审定旧证与当前依赖，旧精确Node未知，待总控审核，不重跑。
 
 同一查询调用链的ActiveSnapshot、HistoryViews、HealthEvidence、FailureAlerts原直接成功结果，分别对照测试后提交b5a1cd6e、1242c55c、ef465b02、9f59dded及当前具体源码差异；空Worker合成RPC、保留临时夹具，不调用artifact或变更后的RPC失败分支。原stdout、首失败和Node精确版本未知均保留，作为同任务候选待总控审；当前入口仍阻断338项。
+
+同链PersistedRuns、LogsAndConfig、ResultIdentity分别对照测试后提交1cfcb557、8ed91051、06a5fc03，原直接exit0及现调用差异已登记；分别使用合成本地历史、合成日志配置和内存results.list，待总控审。现入口阻断335项。
