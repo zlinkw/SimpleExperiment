@@ -47,6 +47,10 @@ dist/runtime/__pycache__/**
 dist/runtime/.python-dependencies/**
 # The standalone SDK entry is bundled with its dependencies and notices.
 dist/mcp/Server.js
+dist/cli.js
+dist/cli/**
+bin/simpleex.cjs
+bin/simpleex-mcp.cjs
 # Build inputs are embedded in the deployed Python scripts; retain the license.
 vendor/python/PyYAML-6.0.3.zip
 vendor/python/dependencies.lock.json

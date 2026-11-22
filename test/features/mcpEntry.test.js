@@ -1,6 +1,17 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),vm=require('node:vm');
 const {installMcpShim}=require('../../scripts/install-mcp-shim');
 
+test('published and installed entry is the independent MCP launcher',()=>{
+ const root=path.join(__dirname,'../..'),pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
+ const lock=JSON.parse(fs.readFileSync(path.join(root,'package-lock.json'),'utf8'));
+ assert.deepEqual(pkg.bin,{'simpleex-mcp':'./bin/mcp-launch.cjs'});
+ assert.deepEqual(lock.packages[''].bin,{'simpleex-mcp':'bin/mcp-launch.cjs'});
+ const installer=fs.readFileSync(path.join(root,'scripts/install-latest.js'),'utf8');
+ assert.match(installer,/installMcpShim/);assert.doesNotMatch(installer,/installCliShim/);
+ const ignores=fs.readFileSync(path.join(root,'.vscodeignore'),'utf8');
+ for(const name of ['dist/cli.js','dist/cli/**','bin/simpleex.cjs','bin/simpleex-mcp.cjs'])assert.ok(ignores.split(/\r?\n/).includes(name),name);
+});
+
 test('MCP installation writes only its own entries and preserves unrelated CLI files',()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-shim-')),old=path.join(dir,'simpleex.cmd');fs.writeFileSync(old,'user content','utf8');
  const first=installMcpShim(dir);assert.deepEqual([...first.files].sort(),['simpleex-mcp','simpleex-mcp.cmd','simpleex-mcp.ps1','simpleex-mcp-launcher.cjs','simpleex-mcp-resolver.cjs'].sort());

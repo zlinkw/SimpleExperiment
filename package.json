@@ -69,8 +69,7 @@
   ],
   "main": "./dist/updates/Bootstrap.js",
   "bin": {
-    "simpleex": "./bin/simpleex.cjs",
-    "simpleex-mcp": "./bin/simpleex-mcp.cjs"
+    "simpleex-mcp": "./bin/mcp-launch.cjs"
   },
   "contributes": {
     "commands": [

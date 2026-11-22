@@ -38,8 +38,8 @@ async function main() {
   else if (outcome.status === "skip") console.log(`${outcome.version} 已安装，跳过重复安装。`);
   else console.log(`[install-latest] installed ${outcome.version} successfully`);
   if (!dryRun) {
-    const { installCliShim, commandDirectory } = require("./install-cli-shim");
-    console.log(JSON.stringify(installCliShim(commandDirectory())));
+    const { installMcpShim, commandDirectory } = require("./install-mcp-shim");
+    console.log(JSON.stringify(installMcpShim(commandDirectory())));
   }
 }
 
