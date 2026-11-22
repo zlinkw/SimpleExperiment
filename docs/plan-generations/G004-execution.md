@@ -57,3 +57,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 - 520 后 agentFirstRunPreparationWorkflow 3/3、exit0（`%TEMP%/g004-520-agent-first-run-source-20261123.log`，先查不存在）：只检查源码/文档和合成配置归一化，未准备或启动 Agent、打开 UI、访问 Worker。
 
 - 520 后 planRunRerunIntent 14/14、exit0（`%TEMP%/g004-520-plan-rerun-intent-20261123.log`，先查不存在）；纯内存重跑选择、状态及 hold 归一化与源码断言，没有实际重跑、队列写入、Worker 或删除。
+
+- 520 后 prepareAgentsProgressWatchdog 1/1、globalConfigPersistence 2/2，exit0（`%TEMP%/g004-520-watchdog-source-20261123.log`、`%TEMP%/g004-520-global-config-source-20261123.log`，均先查不存在）；只解析源码/内存 HTML，无真实 Agent、窗口或配置写入。
