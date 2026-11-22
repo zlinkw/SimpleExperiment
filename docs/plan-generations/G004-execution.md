@@ -71,3 +71,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 resultDatasetHierarchy 原文件 14/14、exit0（`%TEMP%/g004-520-result-dataset-hierarchy-20261123.log`，先查不存在）；合成结果目录、渲染与假 DOM VM，无真实数据、UI 或 Worker，待总控审定。
 
 - Setup guide 合成回归 12/12，exit 0；临时夹具保留，VSCode 和外链调用为替身，无真实 UI/网络。事件、日志和依赖快照见 coverage，待总控终审。
+
+- Local API 客户端合成回归 3/3，exit 0；隔离 loopback 和假凭据，临时夹具保留，未接触真实授权或插件实例。事件、日志和输入快照见 coverage，待总控终审。
