@@ -82,7 +82,7 @@ MCP终态身份10/10、结果精确身份及导出1/1、日志与配置1/1、合
 
 518 git add exit1因dist忽略，回读确认13个已跟踪生成文件及8个非生成文件实际暂存，未强制添加。
 
-0.5.518首包339/341 exit1、前10门禁通过、并行峰1及锁释放，原回执 `simple_cluster/reports/test-workflow/2026-11-22T03-16-49-272Z-80576-package/run.json`。mcpProject 41/43因夹具共用对象，复制后43/43；serverQuota 9/10因夹具缺`mcpInvocation`，修后10/10，均exit0；补验日志同上临时目录 `g004-518-mcp-project-after-ff08.log`、`g004-518-worker-quota-after-ff08.log`。仅修夹具，后续发行状态见顶部，未动真实权限/Worker。
+518首包339/341 exit1、前10门禁通过、并行峰1及锁释放；mcpProject夹具修后43/43、serverQuota夹具修后10/10，均exit0。原回执与完整首失败、补验见Git `1242c55c:docs/plan-generations/G004-execution.md`；未改真实权限/Worker。
 
 U54–U56原日志见Git eab27339同路径：U54 42/43→43/43；U55 43/44→44/44、新裁决45/45两轮；U56预览8/8、坏行7/8 exit1→8/8及别名8/8。help不支持exit1，CLI默认绑定不符exit2未重放。
 U04排查基线HEAD=origin/master `b7c0b42c27227a8ec49d42d1f21346900a274ae4`、tracked clean；原材料在Git `48062264:docs/plan-generations/G004-execution.md` 和coverage。factory缺四项门禁回退legacy，恢复页VM 5/5 exit0；未重载、写剪贴板或访问服务器。旧静态脚本不能代表完整母集；后续源码见1ff64a81及下文，旧执行聊天已归档。
@@ -147,3 +147,5 @@ MCP查询身份补充活跃项非空及候选上界，4/4 exit0（9ccf3f）；�
 手动派发MCP补自动GPU、精确停止及PLAN/all配额；真实Gateway/宿主假端口4/4 exit0，多Worker授权和坏输入拒绝通过。首0/3因fixture根不存在，次1/3因fixture箭头this错误；修夹具通过，无真实派发。草稿清理实际UI方法与确认状态机、API三因素用内存替身3/3 exit0，未实点或移动。
 
 中立连接合成Host核身份、槽位、工作区及发现变化2/2；原真实回执、不重发与时限分类断言迁中立客户端3/3，均exit0；CLI退出/展示未迁。
+
+独立MCP resolver接中立客户端及合成Host，运行版本切换、身份/工作区/发现变化2/2 exit0；未测真实Host。
