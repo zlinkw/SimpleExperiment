@@ -51,3 +51,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 workerPreparationPipeline 原文件 8/8、exit0（`%TEMP%/g004-520-worker-preparation-pipeline-20261123.log`，先查不存在）；VM 与假发现、授权、请求、清理和 Worker 端口，无真实网络、凭据、Worker、传输或删除，待总控审定。
 
 - 520 后 simpleSftpCapabilityOncePerLaunch 原文件 13/13、exit0（`%TEMP%/g004-520-sftp-capability-launch-20261123.log`，先查不存在）；VM 假发现、凭据、请求与 RPC，无真实 API、授权、网络、UI 或变更，待总控审定。
+
+- 520 后 failedJobRecovery 原文件 13/13、exit0（`%TEMP%/g004-520-failed-job-recovery-20261123.log`，先查不存在）；合成队列和假停止、召回、Worker 与存储，无真实 Worker、停止、删除或授权变更，待总控审定。
