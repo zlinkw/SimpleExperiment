@@ -38,48 +38,6 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 - 520 后 pairedUpdateTransaction 原文件 8/8、exit0（`%TEMP%/g004-520-paired-update-transaction-20261123.log`，先查不存在）；内存日志及假下载安装/重载，无真实安装、网络或用户状态修改。执行前漏查 job 33 已有有效历史候选，造成不必要重复；保留新日志与事件但不选作覆盖，原历史证据不变。
 
-- 520 后 distributedQueueCacheStability 原文件 19/19、exit0（`%TEMP%/g004-520-distributed-queue-cache-20261123.log`，先查不存在）；真实队列逻辑配合内存文件系统，未写真实队列或操作 Worker，待总控审定。
+本段压缩前逐项日志路径、边界及结果见 Git `f18078f9:docs/plan-generations/G004-execution.md`；每项原始事件及依赖快照见 coverage。以下 520 原文件均真实 exit0：distributedQueueCacheStability 19/19、terminalPlanHistory 7/7、parallelPlanStopClear 11/11、planBatchCodeSyncOnce 8/8、selectedPlanBatch 14/14、distributedSchedulingModes 7/7、projectWorkspaceChangeIsolation 20/20、prequeueRecallBulkSync 3/3、gpuMemoryScheduling 9/9、logicalPlanProgress 4/4、planArtifactSyncStatus 16/16、progressEvidenceFreshness 20/20、planNoticeLayout 5/5、resultCommandPhaseRouting 3/3、planOperationNoticeLifecycle 22/22、workerCodeVersionIsolation 10/10、executionPlanListProgressLagRepro 4/4、executionCompactOverview 54/54、planOutputReplacementHost 7/7、gpuHistoryMixedGranularityScatterRepro 9/9、gpuSampleCarryChannel 5/5、completedJobAutoRecheckSuppression 17/17；均为合成状态、假端口、源码或 VM，夹具保留，不代表真实 UI、Worker、GPU、网络、传输或永久删除；outputReplacement 的删除仅为内存 Set。各项待总控审定。
 
-- 520 后 terminalPlanHistory 原文件 7/7、exit0（`%TEMP%/g004-520-terminal-plan-history-20261123.log`，先查不存在）；VM/假操作，写入并保留自建 checkpoint 夹具，未触及真实历史、Worker 或删除，待总控审定。
-
-- 520 后 parallelPlanStopClear 原文件 11/11、exit0（`%TEMP%/g004-520-parallel-plan-stop-20261123.log`，先查不存在）；VM、内存队列及假确认/Worker/tmux 回调，无真实停止或删除，待总控审定。
-
-- 520 后 planBatchCodeSyncOnce 原文件 8/8、exit0（`%TEMP%/g004-520-plan-batch-code-sync-20261123.log`，先查不存在）；自建 PLAN 夹具保留，假同步/派发回调，无真实 Worker 或传输，待总控审定。
-
-- 520 后 dispatchWake 原文件 4/4、exit0（`%TEMP%/g004-520-dispatch-wake-20261123.log`，先查不存在）；VM 与合成队列/Worker/GPU 观察，未连接真实 Worker 或 GPU。该项在当前计划为 onDemand，执行前漏核计划导致不必要运行；本次直接结果保留，不计入 active 覆盖；计划仍标记 on_demand_not_run。
-
-- 520 后 selectedPlanBatch 原文件 14/14、exit0（`%TEMP%/g004-520-selected-plan-batch-20261123.log`，先查不存在）；假队列/Worker/停止回调与 HTML VM，无真实 UI 或 Worker，待总控审定。
-
-- 520 后 distributedSchedulingModes 原文件 7/7、exit0（`%TEMP%/g004-520-distributed-scheduling-modes-20261123.log`，先查不存在）；纯合成内存队列和调度，无真实 Worker 或 GPU，待总控审定。
-
-- 520 后 projectWorkspaceChangeIsolation 原文件 20/20、exit0（`%TEMP%/g004-520-workspace-change-isolation-20261123.log`，先查不存在）；源码/文档断言和假文件端口，无实际工作区切换或删除，待总控审定。
-
-- 520 后 prequeueRecallBulkSync 原文件 3/3、exit0（`%TEMP%/g004-520-prequeue-recall-bulk-20261123.log`，先查不存在）；VM 假 Worker 读取及源码断言，无真实 Worker 或文件修改，待总控审定。
-
-- 520 后 gpuMemoryScheduling 原文件 9/9、exit0（`%TEMP%/g004-520-gpu-memory-scheduling-20261123.log`，先查不存在）；合成 GPU 数据、假 Worker 与配置、渲染脚本 VM，无真实 GPU、Worker 或 UI，待总控审定。
-
-- 520 后 logicalPlanProgress 原文件 4/4、exit0（`%TEMP%/g004-520-logical-plan-progress-20261123.log`，先查不存在）；合成内存计划及产物状态，无真实 Worker、结果或文件修改，待总控审定。
-
-- 520 后 planArtifactSyncStatus 原文件 16/16、exit0（`%TEMP%/g004-520-plan-artifact-sync-status-20261123.log`，先查不存在）；合成计划与清单、假 Worker 读取，无真实 Worker、结果、传输或删除，待总控审定。
-
-- 520 后 progressEvidenceFreshness 原文件 20/20、exit0（`%TEMP%/g004-520-progress-evidence-freshness-20261123.log`，先查不存在）；合成观察、假客户端与 VM，无网络、真实 Worker、结果或文件修改，待总控审定。
-
-- 520 后 planNoticeLayout 原文件 5/5、exit0（`%TEMP%/g004-520-plan-notice-layout-20261123.log`，先查不存在）；HTML、假 DOM 与 VM 计时和消息，无真实 UI、tmux 或 Worker，待总控审定。
-
-- 520 后 resultCommandPhaseRouting 原文件 3/3、exit0（`%TEMP%/g004-520-result-command-phase-20261123.log`，先查不存在）；渲染 HTML、假 DOM 和 VM 操作，无真实 UI、结果或 Worker，待总控审定。
-
-- 520 后 planOperationNoticeLifecycle 原文件 22/22、exit0（`%TEMP%/g004-520-plan-operation-notice-20261123.log`，先查不存在）；VM 假通知、日志与动作端口，无真实 UI、Worker、传输或删除，待总控审定。
-
-- 520 后 workerCodeVersionIsolation 原文件 10/10、exit0（`%TEMP%/g004-520-worker-code-version-isolation-20261123.log`，先查不存在）；VM 宿主、合成队列与假 Worker 回调，无真实 Worker、写入或传输，待总控审定。
-
-- 520 后 executionPlanListProgressLagRepro 原文件 4/4、exit0（`%TEMP%/g004-520-plan-progress-lag-20261123.log`，先查不存在）；渲染脚本、合成计划和 VM 假 DOM，无真实 UI 或 Worker，待总控审定。
-
-- 520 后 executionCompactOverview 原文件 54/54、exit0（`%TEMP%/g004-520-execution-compact-overview-20261123.log`，先查不存在）；渲染源码、假 DOM/动作回调与合成状态，无真实 UI、Worker、停止或清理，待总控审定。
-
-- 520 后 planOutputReplacementHost 原文件 7/7、exit0（`%TEMP%/g004-520-output-replacement-host-20261123.log`，先查不存在）；假确认、Worker 和清理服务，删除仅为内存 Set 操作，无真实删除或 UI，待总控审定。
-
-- 520 后 gpuHistoryMixedGranularityScatterRepro 原文件 9/9、exit0（`%TEMP%/g004-520-gpu-history-scatter-20261123.log`，先查不存在）；合成 GPU 样本、假画布与 VM，无真实 GPU、Worker 或 UI，待总控审定。
-
-- 520 后 gpuSampleCarryChannel 原文件 5/5、exit0（`%TEMP%/g004-520-gpu-sample-carry-channel-20261123.log`，先查不存在）；合成样本、假传输与 VM，无网络或真实 GPU/Worker，待总控审定。
-
-- 520 后 completedJobAutoRecheckSuppression 原文件 17/17、exit0（`%TEMP%/g004-520-completed-auto-recheck-20261123.log`，先查不存在）；合成完成状态、假 Worker 传输与 VM，无真实 Worker、tmux、结果或清理，待总控审定。
+误运行按需 dispatchWake 原文件 4/4 exit0，合成队列与假观察；保留日志及直接结果，不计 active，计划仍为 on_demand_not_run。
