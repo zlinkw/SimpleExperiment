@@ -67,3 +67,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 - 519 job 97 拓扑纯函数及 package 实际读取字段复核无变化；job 98 当前原文件 4/4、exit0（`%TEMP%/g004-520-worker-routing-20261123.log`，先查不存在），VM/假配置无真实 Worker、配置修改或删除。均待总控审定。
 
 - 520 编译后 manualDispatchHost 原文件 11/11、exit0（`%TEMP%/g004-520-manual-dispatch-host-20261123.log`，先查不存在）；当前真实编译 Host 配合假 Worker、队列、派发及停止回调，未触及真实服务器/GPU/文件删除。
+
+- 520 后 agentProjectRootReadinessWorkflow 5/5、projectCodeSyncState 7/7，均 exit0；VM 与合成数据，后者只写并保留独立合成夹具，不调用 unlink/真实 Worker。日志分别 `%TEMP%/g004-520-agent-root-readiness-20261123.log`、`%TEMP%/g004-520-code-sync-state-20261123.log`，路径先查不存在。
