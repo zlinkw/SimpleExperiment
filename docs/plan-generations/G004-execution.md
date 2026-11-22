@@ -61,3 +61,5 @@ workerTelemetryApiContract 8/8 exit0：假 fetch、VM 面板函数及 Python AST
 manualWorkerRefresh 7/7 exit0：VM 假回调及 Python AST 提取；自建临时日志实际原子替换以验证轮转，夹具保留，原有读取量断言未变；无真实 Worker、网络或 UI。原始事件与输入见 coverage，待总控终审。
 
 preflightDispatchRejection 6/6 exit0：Python 抽取函数、临时合成计划与 checkpoint，假队列、RPC 及 VM；夹具保留，禁止实际 GPU/tmux/进程派发，无真实 Worker、训练、网络或删除。证据见 coverage，待总控终审。
+
+hubRetirement 1/1 exit0：AST 单函数、内存事件接收及入口早期拒绝，无完整 runtime 执行、真实 Worker、服务、GPU、网络或文件写入；证据见 coverage，待总控终审。
