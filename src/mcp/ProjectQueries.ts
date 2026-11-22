@@ -10,7 +10,7 @@ import { queryLogs } from "./query/Logs";
 import { artifactList, artifactInspect } from "../cli/commands/artifact";
 import { planBuild, planMatrix } from "./query/Plans";
 import { serverList } from "./query/Servers";
-import { resourceCommand } from "../cli/commands/resource";
+import { resourceAvailable } from "./query/Resources";
 
 /** Reuse structured business results before CLI rendering, with an isolated project and API context. */
 export async function queryProject(root: string, rpc: (method: string, params: Record<string, unknown>) => Promise<unknown>,
@@ -41,7 +41,7 @@ export async function queryProject(root: string, rpc: (method: string, params: R
     result_compare: () => compareResults(args.left, args.right),
     experiment_log: () => queryLogs(args.id, args.lines),
     artifact_list: () => artifactList(args.id, flags), artifact_inspect: () => artifactInspect(args.id, flags),
-    resource_available: () => resourceCommand("available", [], flags), server_list: () => serverList(),
+    resource_available: () => resourceAvailable(), server_list: () => serverList(),
     plan_matrix: () => planMatrix(args.planFile), plan_build: () => planBuild(flags),
   };
   if (!handlers[name]) throw Error("MCP_QUERY_UNKNOWN: " + name);

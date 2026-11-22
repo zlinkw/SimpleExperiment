@@ -74,6 +74,19 @@ test('query runtime parsers retain existing training and identity semantics',()=
  for(const yaml of ['', 'training:\n  max_epoch: 10\n', 'max_epochs: 0\n'])assert.equal(current.trainingMaxEpochFromYaml(yaml),old.trainingMaxEpochFromYaml(yaml));
 });
 
+test('MCP resource availability preserves the prior structured query',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-resource-'));
+ const rpc=async method=>{
+  if(method==='gpu.list')return {gpu:{workerA:{gpus:[{index:0,utilizationPercent:0,processCount:0},{index:1,processCount:2}]}}};
+  if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};
+  if(method==='state.get')return {value:{workerTunnels:[]}};throw Error('unexpected RPC '+method);
+ };
+ let previous;const old=require('../../src/cli/commands/resource.ts');
+ await neutral.businessContext.run({root,rpc,emit:value=>{previous=value}},()=>old.resourceCommand('available',[],{json:true}));
+ assert.deepEqual(await queryProject(root,rpc,'resource_available',{}),previous);
+ assert.equal(previous[0].available,'true');assert.equal(previous[1].reason,'process_present');
+});
+
 test('query compact output preserves the existing structured view',()=>{
  const old=require('../../src/cli/format.ts'),current=require('../../src/mcp/query/Compact.ts');
  const payload={id:'x',status:'running',zero:0,raw:{secret:'fixture'},rows:[{id:'a',status:'failed',recentLogs:['x']}]};
