@@ -170,6 +170,7 @@
   },
   "g004CliRemovalCandidates": {
     "scope": "仅仓库内旧业务CLI源码候选；均有依赖或测试裁决未完成，当前没有获准删除项。禁止删除已安装全局shim、目录、旧dist、测试和资产。",
+    "dependencyAudit": "项目源码排除候选自身后仅src/runCli.ts引用旧CLI入口，已纳入候选；src/mcp、src/api和src/templates未发现旧业务入口依赖。tsconfig全量include及scripts/test-workflow.json旧dist输入与旧测试矩阵仍保留；sourceReader、metricLeaderboardInput、resultHistoryReadErrors、evidenceTooling及formalJobExecution实际依赖旧源码/产物。package.bin是新MCP入口；.vscodeignore及package-content-policy排除旧入口，mcpEntry和packageContentPolicy相应断言是排除规则而非运行依赖；panelBuildManifest的旧路径是合成夹具。scripts/install-cli-shim旧安装器及bin/simpleex均列候选；仓内旧MCP launcher和现MCP resolver保留，不动任何用户全局shim。",
     "items": [
       {"path":"D:/GitRepo/MCP/zlk-cluster-orchestrator/bin/simpleex.cjs","type":"file","safetyRoot":"D:/GitRepo/MCP/zlk-cluster-orchestrator","parent":"D:/GitRepo/MCP/zlk-cluster-orchestrator/bin","trackedDirty":false,"referenceRisk":"旧仓库安装器及测试引用；不含已安装全局shim。","discoveredAt":"2026-11-22T13:40:19+00:00","deletionReady":false},
       {"path":"D:/GitRepo/MCP/zlk-cluster-orchestrator/scripts/install-cli-shim.js","type":"file","safetyRoot":"D:/GitRepo/MCP/zlk-cluster-orchestrator","parent":"D:/GitRepo/MCP/zlk-cluster-orchestrator/scripts","trackedDirty":false,"referenceRisk":"旧仓库安装器与旧launcher/安装测试互引；现行MCP安装器保留。","discoveredAt":"2026-11-22T13:40:19+00:00","deletionReady":false},

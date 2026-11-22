@@ -18,7 +18,7 @@ R519 B4调试包反馈假对象1/1，原日志见Git `52dd844c:docs/plan-generat
 
 R519 C1 API本地路由47/47；原日志见Git `59041060:docs/plan-generations/G004-execution.md`。
 
-R519 C2配置作用域修正，源码48/48、内存49/49 exit0；日志见Git `52dd844c:docs/plan-generations/G004-execution.md`。
+R519 C2作用域修正见Git `3f4a165c:docs/plan-generations/G004-execution.md`。
 
 R519 C3异步Git命令4/4；首3/4因测试误判exit1，原日志见Git `52dd844c:docs/plan-generations/G004-execution.md`。
 
@@ -108,15 +108,15 @@ B1/B2/B3的39项与首失败见Git c37827c8及eab27339同路径；不扩称真�
 
 T7收包策略及入口证据见Git bc739fa0；未实际打包。
 
-T7已定向MCP测试纳入四交付profile，规划确认独占；原glob亦涵盖，旧项未减。B1仍未验并阻断交付。早期矩阵及生成命令引号错误见Git 871ea78e及后续记录。
+T7测试入四profile，B1未验阻断；失败见Git `3f4a165c:docs/plan-generations/G004-execution.md`。
 
 MCP生命周期证据见Git `7803f938:docs/plan-generations/G004-execution.md`。
 
 mcpQueryContext脱离CLI，原业务11/11；首两次10/11 exit1及修后详见Git `8249eb4d:docs/plan-generations/G004-execution.md`。
 
-MCP普通结果8/8，见Git `c0465f0f:docs/plan-generations/G004-execution.md`。
+MCP普通结果8/8，已入profile。
 
-空PLAN矩阵MCP断言1/1（b4464e）；纳入交付profile。
+空PLAN矩阵MCP 1/1，已入profile。
 
 原mcpProject并发查询43/43；其余多为旧dist，详见Git `2551787c:docs/plan-generations/G004-execution.md`。
 
@@ -221,3 +221,5 @@ MCP Agent观察入口拒绝调用者token及未知字段，假Host仅收到固�
 外部旧CLI待审6项补Host/中立消费者映射及退役差异，旧断言保留；登记首超阈值断言未写。
 
 外部6项同步状态分类，旧测试未退役。
+
+旧入口源码、脚本、模板、清单及测试反向引用核对见coverage；未删目标。登记两次超阈值断言未写。
