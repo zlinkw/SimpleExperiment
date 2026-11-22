@@ -50,32 +50,8 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 登记时字符串替换误处理 $' 造成临时 JSON 错误并 planner exit1，已按 HEAD 恢复再登记；一次只读查询错误 exit1。normalize 的真实反斜杠命令被旧 validator 误拒，补顶层依赖时曾误加 coverage 自身造成 drift，均已修正并保留原事件；历史 mcpTaskDispatch 的 here-string 后换行命令亦遭误拒，未重跑产品。runner 原精确 pattern 在有实际修正后分别 1/1 exit0：escaped-command、native-parser 18.155 秒、parser-numeric 18.299 秒、parser-root 18.250 秒，日志均 TEMP/g004-520-runner-<名称>-20261123.log。native parser 只解析 stdin 不执行，根 EndBlock 限制排除未调用函数。首次批解析 planner OOM exit1，修为按 rollout 分组；数字常量初版误拒后修正。七项旧删锁测试安全函数未改、原来源与未知工具链保留，未重跑删除。当前 planner 缺口以实际重算为准。
 
-- stopRoutingAndResultParseDedup 单文件 12/12、exit0；VM、隔离夹具及假 Worker/SFTP，无真实 Worker、网络、UI 或活动结果，夹具保留。证据见 coverage，待总控终审。
+本段逐项原文及命令见 Git `50c2a865:docs/plan-generations/G004-execution.md`，原事件和依赖见 coverage。520 合成验证均 exit0：stopRoutingAndResultParseDedup 12/12、parallelPlanSubmission 12/12、failedJobCleanup 5/5、pairedUpdatePackage 2/2、projectManagedPreflight 与 preflightStages 各3/3、taskLifecycle 与 workerProgressResults 各13/13、taskProgressStability 10/10、progressDiagnosticsQueue 9/9、syncScopeOperationIndex 4/4、syncScopeLocalIndex 3/3、cleanupIndexInvalidation 8/8、projectFileIndex 15/15；runner case grouping 和 vsce metadata 精确 pattern 各1/1。内存/VM/假端口与独立临时夹具保留；索引实际原子写入限夹具；合成包不是实际产品打包。没有真实 Worker/tmux/GPU/训练/网络/UI/永久删除；各项待总控终审。
 
-- 误运行按需 serverQueueDispatch 单文件 14/14、exit0；未先核当前计划为 onDemand，保留实际结果但不计 active，eligible=false；内存队列、合成 GPU 数据及模拟派发/审核，面板脚本为 VM，无真实 GPU、Worker、派发、网络或 UI。证据见 coverage，待总控终审。
+总控审核 formalJobPreflightProgress/Structure/Environment 各1/1、Failure/Rejections 各1/1、Api 7/7，均 exit0，原预算和指定变体不变；仅提取函数及自建夹具，自建 probe 的取消/看门狗已结算。api-environment 实际执行本机解释器 shell/loader 探针，若已装 torch 可 CPU import；邻近只读检查未发现 torch，该缺席未冻结；启动前三个 NVJITLINK/Conda 变量未设置，不接科研 Conda、不训练。Python 3.14.6/PyYAML 6.0.3 为邻近观测，旧工具链未知。managed preflight 保留合成 owner/持久锁/CSV，proof 夹具改自建文件字节和 mtime。
 
-- parallelPlanSubmission 单文件 12/12、exit0；合成 PLAN、隔离夹具与模拟预检、同步及派发，夹具保留；无真实 Worker、GPU、网络、删除或重命名。证据见 coverage，待总控终审。
-
-- failedJobCleanup 单文件 5/5、exit0；合成清理候选与内存队列、隔离 PLAN/config 夹具保留，无真实删除、重命名、Worker、网络或 UI。证据见 coverage，待总控终审。
-
-- 总控审核批准的 formalJobPreflightProgress、Structure、Environment 三个原文件各 1/1、exit0；分别仅 grow、fast/pad/duplicate、no-environment，原 20 秒预算及 Python 10 秒约束未改。仅抽取函数和独立合成夹具，子进程已结算、夹具保留；无完整 runtime 执行、真实 Worker/tmux/GPU/训练或删除。Python 3.14.6/PyYAML 6.0.3 为邻近观测，精确旧工具链未知；证据见 coverage，待总控终审。
-
-- pairedUpdatePackage 单文件 2/2、exit0；手工合成 ZIP、假下载和保留的独立夹具，未构建实际产品包、安装、联网或删除。证据见 coverage，待总控终审。
-
-- 总控批准 formalJobPreflightFailure 1/1、Rejections 1/1、Api 7/7，均 exit0、原预算；仅指定变体，子进程结算断言通过，临时夹具保留。取消/看门狗只作用自建 probe；Api 的 api-environment 实际执行本机解释器 shell/loader 探针，若已装 torch 可 CPU import；邻近只读检查当前 torch 不存在，该缺席未冻结，不接科研 Conda、不训练。启动前 NVJITLINK/Conda 三变量未设置，无真实 Worker/tmux/GPU、远端 API 或删除。证据见 coverage，待总控终审。
-
-- runner case grouping 原精确 pattern 1/1、exit0；合成源码与参数展开、夹具保留，无子进程或真实删除，不覆盖其他 pattern。证据见 coverage，待总控终审。
-
-- 总控批准 projectManagedPreflight、preflightStages 各 3/3、exit0；抽取函数与假端口，前者保留合成 owner/锁/CSV，后者对自建 wrapper 改字节和 mtime，夹具保留；无完整 runtime、真实 Worker/tmux/GPU/训练或删除。证据见 coverage，待总控终审。
-
-- runner vsce metadata 原精确 pattern 1/1、exit0；合成及现装 bin 元数据解析，未知 bin 的预期拒绝原样留日志；无 vsce 子进程、打包、安装或删除，夹具保留。证据见 coverage，待总控终审。
-
-- 总控审核 taskLifecycle 和 workerProgressResults 各 13/13、exit0；AST 抽函数、合成观察与 VM，前者保留合成 manifest/CSV/weight，后者假 tmux/fs 且线程已 join；无完整 runtime、真实 Worker/tmux/GPU/训练或删除。证据见 coverage，待总控终审。
-
-- syncScopeOperationIndex 单文件 4/4、exit0；假 Worker/SFTP 和合成索引，独立临时夹具内真实原子状态写入并保留，无真实 Worker、传输、UI 或永久删除。证据见 coverage，待总控终审。
-
-- syncScopeLocalIndex 3/3、cleanupIndexInvalidation 8/8，均 exit0；独立夹具内合成文件和原子索引写入、假 SFTP，夹具保留，无真实 Worker/传输/UI/永久删除。后者源码环境覆盖邻近检查未设置；证据见 coverage，待总控终审。
-
-- projectFileIndex 单文件 15/15、exit0；独立夹具内合成索引与原子写入、假 SFTP/清理回调，夹具保留；无真实 Worker、网络、UI 或永久删除。证据见 coverage，待总控终审。
-
-- taskProgressStability 10/10、exit0；两个 Python 夹具抽取查询函数并模拟 tmux，其余 VM/假 Worker，无真实 Worker/tmux/GPU/网络或文件修改。证据见 coverage，待总控终审。
+误运行按需 serverQueueDispatch 14/14 exit0，保留事件及日志，eligible=false，不计 active；模拟队列/GPU/派发及 VM，未触真实资源。runner vsce 的未知 bin 为预期拒绝并保留日志；cleanupIndexInvalidation 的源码覆盖环境变量邻近检查未设置。其他原始事实见上述 Git 和 coverage。
