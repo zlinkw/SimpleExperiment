@@ -14,13 +14,13 @@ R519 B2选择等待保存及错误可见；动作46/46、迁移13/13、上下文
 
 R519 B3手动刷新/重连失败可见，后台容错保留；假对象4/4、低流量16/16、关闭决策14/14 exit0，原日志见Git `7ade1100:docs/plan-generations/G004-execution.md`。
 
-R519 B4调试包缺失、取消和失败不冒成功；假UI/传输/文件1/1 exit0，`g004-r519-b4-debug-first-ff08.log`，无实际下载。
+R519 B4调试包反馈假对象1/1，原日志见Git `52dd844c:docs/plan-generations/G004-execution.md`，未实际下载。
 
 R519 C1修复14项API本地路由，保留确认、资源租约及业务门禁；真实入口配假handler 47/47 exit0，同目录 `g004-r519-c1-actions-first-ff08.log`，未执行远端动作。
 
-R519 C2设置global不误落项目；源码48/48、内存配置49/49 exit0，`g004-r519-c2-actions-first-ff08.log`、`g004-r519-c2-consumers-ff08.log`，未改真实设置。
+R519 C2配置作用域修正，源码48/48、内存49/49 exit0；日志见Git `52dd844c:docs/plan-generations/G004-execution.md`。
 
-R519 C3五个Git命令返回Promise，假对象4/4 exit0；首3/4 exit1为测试误判注册顺序，日志 `g004-r519-c3-git-first-ff08.log`、`g004-r519-c3-git-final-ff08.log`，未动真实hook或发布。
+R519 C3异步Git命令4/4；首3/4因测试误判exit1，原日志见Git `52dd844c:docs/plan-generations/G004-execution.md`。
 
 R519 C4旧CLI参数曾在进入shim前被解释管道，exit255；对照exit0，TEMP夹具 `g004-c4-cmd-fixture-1a624cb400094bdca5c67bf46b5f57c9`。用户现退役业务CLI，不更改结果ID。
 
@@ -195,3 +195,5 @@ MCP workspace上传核现有范围manifest、禁止裁剪和撤权拒绝，假�
 MCP服务器配置保存核模拟人工审核、profile及激活参数，假后端10/10 exit0；未改真实配置。
 
 MCP下载范围及handoff核精确Worker、配置参数与撤权，假后端11/11 exit0；未写真实配置。
+
+另10个重复函数体关联原项及边界，辅助实现可能不同，旧测试保留；登记压缩前两次超阈值断言exit1未写。
