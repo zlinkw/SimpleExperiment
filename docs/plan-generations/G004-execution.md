@@ -65,3 +65,5 @@ syncScopeAgentIndex 8/8 exit0：VM 假隧道、Python 索引与提取的假请�
 operationRetirement 5/5 exit0：Python 抽取函数处理内存状态，VM 假 Worker 与自建进度文件改写并保留；无完整 runtime、真实 Worker/GPU、网络或文件删除。证据见 coverage，待总控终审。
 
 planIsolatedBatchLedger 5/5 exit0：真实账本原子替换仅作自建临时状态发布，隔离条目为合成，夹具保留；无真实隔离、Worker、网络或删除，不证明真实删除安全。证据见 coverage，待总控终审。
+
+planIsolatedBatchLedgerDispatch 5/5 exit0：合成派发观察与自建账本原子状态发布，夹具保留；无真实 Worker、隔离、网络或删除。证据见 coverage，待总控终审。
