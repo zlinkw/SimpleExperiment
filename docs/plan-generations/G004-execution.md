@@ -163,3 +163,5 @@ CLI 302项逐条拟动作及每文件当前计划来源、矩阵候选列coverag
 SFTP当前传输工具缺参、多余字段在业务方法前拒绝，真实Gateway假端口12/12 exit0；不承诺零capabilities、不连接Worker。
 
 中立客户端失效默认发现下依据工作区选择真实合成监听实例，实际RPC只到目标且身份固定；歧义拒绝保留，8/8 exit0，未连接真实Host。
+
+SFTP Worker目录和批量变体经Gateway/Host核源/目标、路径及双Worker授权，与fpsync共13/13 exit0；后端路径和确认边界仅只读源码，未真实传输。
