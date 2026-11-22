@@ -3,6 +3,7 @@ require('../_helpers/registerTsRequire');
 const {queryProject}=require('../../src/mcp/ProjectQueries.ts');
 const neutral=require('../../src/mcp/query/ExecutionContext.ts');
 const existing=require('../../src/cli/ExecutionContext.ts');
+const support=require('../../src/mcp/query/Support.ts');
 
 test('concurrent MCP project queries keep RPC and structured output isolated',async()=>{
  assert.equal(neutral.businessContext,existing.businessContext);
@@ -13,4 +14,14 @@ test('concurrent MCP project queries keep RPC and structured output isolated',as
  const [a,b]=await Promise.all([queryProject('C:/one',make('one'),'server_list',{}),queryProject('C:/two',make('two'),'server_list',{})]);
  assert.equal(a[0].id,'one');assert.equal(b[0].id,'two');assert.equal(calls.length,6);assert.equal(process.cwd(),cwd);
  assert.equal(neutral.businessContext.getStore(),undefined);
+});
+
+test('neutral query support requires context and preserves optional RPC semantics',async()=>{
+ assert.throws(()=>support.emit({}),/MCP_QUERY_CONTEXT_REQUIRED/);
+ assert.throws(()=>support.callApi('status'),/MCP_QUERY_CONTEXT_REQUIRED/);
+ let output;await neutral.businessContext.run({root:'fixture',emit:value=>{output=value},rpc:async method=>{
+  if(method==='missing')throw Object.assign(Error('missing'),{apiCode:-32601});
+  if(method==='denied')throw support.businessError('denied');return {zero:0};
+ }},async()=>{assert.equal(await support.optionalApi('missing'),null);await assert.rejects(support.optionalApi('denied'),/denied/);support.emit(await support.callApi('status'))});
+ assert.deepEqual(output,{zero:0});
 });

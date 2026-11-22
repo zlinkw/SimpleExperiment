@@ -1,6 +1,6 @@
 # G004 执行登记
 
-519重载：专用根默认profile实测519 PID29888，离线、低流量、5配置/1启用、PLAN、任务选择、结果目录、离线包和授权保持；识别原值和现值均未完成。默认发现曾指向稿件且未调用；宽CSV及指标问题见coverage。流程读错可致覆盖，合成存储首1/2 exit1，TEMP日志 `g004-519-flow-real-workflow-ff08.log`，无真实损失。A1读错阻止初始化及覆盖、进度保存失败明确提示；11/11 exit0，`g004-r519-a1-project-state-ff08.log`。其他证据见coverage.g004U04RemainingInventory.g004Reload519LocalAudit。
+519重载：专用根默认profile实测519 PID29888，离线、低流量、5配置/1启用、PLAN、任务选择、结果目录、离线包和授权保持；识别原值与现值均未完成。默认发现曾指向稿件且未调用；流程读错可致覆盖，首1/2 exit1，`g004-519-flow-real-workflow-ff08.log`，无真实损失。A1错误可见、11/11 exit0，`g004-r519-a1-project-state-ff08.log`。细节见coverage.g004U04RemainingInventory.g004Reload519LocalAudit。
 
 布局并行清旧键可能丢值，首0/2 exit1，`g004-519-layout-legacy-failure-ff08.log`，无真实损失证据。A2成功保存后清旧键；状态13/13、布局3/3、上下文20/20 exit0，日志 `g004-r519-a2-project-state-ff08.log`、`g004-r519-a2-layout-ff08.log`、`g004-r519-a2-context-ff08.log`。拓扑假对象3/3 exit0，未动真实设置。
 
@@ -30,7 +30,7 @@ T1实例发现/RPC与错误类型移至中立API位置，Server/面板/分支调
 
 T2中立MCP版本解析器假对象1/1 exit0，`g004-r519-t2-resolver-missing-ff08.log`。新启动器/安装器仅写MCP入口，假进程及隔离目录2/2 exit0，首1/2 exit1因测试原位sort改了对照数组，日志 `g004-r519-t2-entry-first-ff08.log`、`g004-r519-t2-entry-final-ff08.log`；生产入口尚未切换。
 
-T3查询上下文迁出并保留同一个AsyncLocalStorage；真实queryProject并发假RPC隔离1/1 exit0，`g004-r519-t3-context-first-ff08.log`，其余消费者待迁。
+T3查询上下文与RPC/结构化输出支持迁出，真实queryProject并发及假RPC2/2 exit0；首1/2 exit1因替身用普通Error冒充业务错误，日志 `g004-r519-t3-support-first-ff08.log`、`g004-r519-t3-support-final-ff08.log`。其余消费者待迁。
 
 519识别未完成及同窗冲突不能认定锁死；原识别不记完成首0/1 exit1，`g004-519-bootstrap-recognition-ff08.log`。B1保存PLAN及识别事实；假对象2/2、快速9/9、上下文20/20、命令3/3、持久化3/3、投影6/6 exit0；日志 `g004-r519-b1-` 加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 及 `-ff08.log`。未改真实标记。
 
