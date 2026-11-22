@@ -97,3 +97,5 @@ Windows工作流混合文件形成未应用diff，仅移旧CLI三项及专用fix
 三份旧SFTP传输测试形成未应用diff，逐项保留实际Gateway/Host证据与传输、创建、压缩/覆盖及manifest未测差异；git apply --check均exit0，不冒完整等价或真实传输。
 
 Worker运行与观察合并、旧清理引擎三份未应用diff分别绑定现合成Host/中立查询与真实伴随引擎内存5/5；无Host artifact history未迁、真实Worker/文件清理未测。git apply --check均exit0。
+
+手动派发、命名动作、项目操作三份旧CLI整文件候选形成；细粒度prepare、动态动作及旧确认差异仍待裁决，三份git apply --check exit0，未退休。
