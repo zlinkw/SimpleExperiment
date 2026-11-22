@@ -8,7 +8,7 @@ try{Module._load=function(id,...args){return id==='vscode'?vscode:original.call(
 function fixture({failureMethod,responses={}}={}){
  const workers=[{id:'w1',host:'host1',port:22,user:'user',remotePath:'/project/one'},{id:'w2',host:'host2',port:22,user:'user',remotePath:'/project/two'}],calls=[];
  const grant=createProjectAuthorization(root);grant.workers=workers.map(({id,host,port,user,remotePath})=>({id,host,port,user,projectRoot:remotePath}));
- const methods=['status','servers.list','servers.save','sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','sync.serverToServer','sync.serverToServerBatch','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.observeBatch','target.update','upload.files','upload.workspace','downloadScope.configure','handoff.markReady'];
+ const methods=['status','servers.list','servers.save','servers.delete','sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','sync.serverToServer','sync.serverToServerBatch','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.observeBatch','target.update','upload.files','upload.workspace','downloadScope.configure','handoff.markReady'];
  const host={context:{workspaceState:{get:()=>grant}},refreshSharedConnectionSettings(){},workerCodeSyncTargets:()=>workers,createLocalApiMethods:()=>({}),
   readSimpleSftpCapabilities:async()=>({methods}),sftpServerOptions:row=>({...row}),simpleSftpApiCall:async(method,params)=>{calls.push({method,params});if(method===failureMethod)throw Error('远端项目清单无效。');return responses[method]??(method==='transfers.reconcile'?{status:'notFound',settled:false}:method==='transfers.cancel'?{status:'cancelling'}:{ok:true})}};
  return {gateway:mcpGateway(host),calls,grant,workers,host};
@@ -109,6 +109,17 @@ test('MCP server save requires approval and preserves activation and profile',as
   assert.equal(f.calls[0].params.setActive,true);assert.equal(f.calls[0].params.confirm,true);
   await assert.rejects(f.gateway.call('sftp_server_save',{server:{...server,unknown:'x'}}),/Unknown/);
   assert.equal(f.calls.length,1);
+ }finally{vscode.window.showWarningMessage=old}
+});
+
+test('MCP server removal exposes approval cancellation and backend refusal',async()=>{
+ const f=fixture({failureMethod:'servers.delete'}),old=vscode.window.showWarningMessage;let answer;
+ vscode.window.showWarningMessage=async()=>answer;
+ try{
+  await assert.rejects(f.gateway.call('sftp_server_delete',{id:'profile-1'}),/USER_APPROVAL_REQUIRED/);
+  assert.equal(f.calls.length,0);
+  answer='确认执行';await assert.rejects(f.gateway.call('sftp_server_delete',{id:'profile-1'}),/远端项目清单无效/);
+  assert.equal(f.calls.length,1);assert.equal(f.calls[0].params.id,'profile-1');
  }finally{vscode.window.showWarningMessage=old}
 });
 
