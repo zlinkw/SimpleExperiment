@@ -61,3 +61,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 planStructuralValidationCache 5/5 exit0：Python 抽取函数与假文件系统、假调度；VM 宿主及假 GPU/队列，无真实 Worker、Conda、GPU 或网络。证据见 coverage，待总控终审。
 
 runtimeLogDiagnostics 2/2 exit0：Python 抽取函数、确定性时钟及自建日志改写并保留；既有数据规模和断言不变，无完整 runtime、真实 Worker/tmux、网络或删除。证据见 coverage，待总控终审。
+
+freshGpuTelemetry 1/1 exit0：AST 抽取与假采样器，六个夹具线程均 join，自建脚本保留；无真实 GPU、Worker、网络或删除。证据见 coverage，待总控终审。
