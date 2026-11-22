@@ -88,12 +88,12 @@ export const PROJECT_TOOLS: ProjectTool[] = [
   tool("configuration_get", "config.get", "Read one configuration value", { key: configurationKey }, ["key"]),
   tool("configuration_set", "config.set", "Set a workspace configuration value. For simpleExperiment.projectAdapterRules use workspaceFolder; value may contain taskType, primaryMetric, secondaryMetrics, candidateCsv, candidateJson, consoleLogs, textLogs, metricRegex, metricAliases, csvColumnMapping and derivedMetric. Use facts from the current task and output, retain existing mappings, and inspect sync status. Dataset classification uses its separate result workflow.", { key: configurationKey, value: {}, scope: { type: "string", enum: ["workspace", "workspaceFolder"] } }, ["key", "value", "scope"], "configuration"),
   tool("configuration_reset", "config.reset", "Reset a workspace configuration value", { key: configurationKey, scope: { type: "string", enum: ["workspace", "workspaceFolder"] } }, ["key", "scope"], "configuration"),
-  { ...tool("worker_configure", "workers.configure", "Save the selected Worker's globally shared environment and GPU settings; affects every project and requires user approval", {
+  tool("worker_configure", "workers.configure", "Save a configured Worker's globally shared settings; changes affect every project", {
     workerId: task.workerId, patch: { type: "object", properties: {
       condaEnvMode: { type: "string", enum: ["inherit", "system", "path"] }, condaEnv: text("Absolute research environment path"),
-      maxConcurrentGpus: {}, gpuJobsPerCard: integer, gpuMinFreeMemoryGb: { type: "number" }, gpuMaxConcurrentCards: integer,
+      enabled: boolean, maxConcurrentGpus: {}, gpuJobsPerCard: integer, gpuMinFreeMemoryGb: { type: "number" }, gpuMaxConcurrentCards: integer,
     }, additionalProperties: false },
-  }, ["workerId", "patch"], "configuration"), requiresUserApproval: true },
+  }, ["workerId", "patch"], "configuration"),
   tool("flow_get", "flow.get", "Inspect the current workflow steps"),
   tool("flow_update", "flow.update", "Update a workflow step", { step: text("Workflow step"), completed: boolean, blocked: boolean, appliedAt: text("Evidence timestamp") }, ["step"], "configuration"),
   tool("panel_diagnostics", "panel.diagnostics", "Inspect current panel health and render evidence"),

@@ -2714,7 +2714,7 @@ export class RealtimeTunnelPanelProvider {
             "config.reset": async (params) => this.apiConfigReset(params),
             "workers.configure": async (params) => {
                 if (params.confirm !== true) throw confirmationRequired({ operation: "workers.configure", requires: ["confirm"], params });
-                if (!this.enabledWorkerConfigs().some(worker => worker.id === params.workerId)) throw new Error("MCP_WORKER_UNKNOWN");
+                if (!this.setupConfig.workerTunnels.some(worker => worker.id === params.workerId)) throw new Error("MCP_WORKER_UNKNOWN");
                 return this.saveWorkerConfigFromUi({ endpointId: params.workerId, patch: params.patch, apiMode: true });
             },
             "state.list": async () => this.apiStateList(),
@@ -18373,10 +18373,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         });
         const selectedWorker = manual.workerTunnels.find((worker) => worker.id === endpointId);
         await this.ensureXshellSessionLoaded(selectedWorker?.savedSessionPath);
+        if (message.apiMode === true) mcpInvocation.getStore()?.permission("configuration");
         await this.applySetupDraft(this.withImportedXshellFields(manual, sessionPathChanged(currentWorker.savedSessionPath, selectedWorker?.savedSessionPath) ? endpointId : ""), { syncAssignmentsFromFields: true });
         const savedWorker = this.setupConfig.workerTunnels.find((worker) => worker.id === endpointId);
         if (message.apiMode === true) return { ok: true, workerId: endpointId, worker: {
-            condaEnv: savedWorker.condaEnv, localForwardPort: savedWorker.localForwardPort, remoteAgentPort: savedWorker.remoteAgentPort,
+            enabled: savedWorker.enabled !== false, condaEnv: savedWorker.condaEnv, localForwardPort: savedWorker.localForwardPort, remoteAgentPort: savedWorker.remoteAgentPort,
             maxConcurrentGpus: savedWorker.maxConcurrentGpus, gpuJobsPerCard: savedWorker.gpuJobsPerCard,
             gpuMinFreeMemoryGb: savedWorker.gpuMinFreeMemoryGb, gpuMaxConcurrentCards: savedWorker.gpuMaxConcurrentCards,
         } };

@@ -8,10 +8,16 @@ import { AUTHORIZATION_KEY, createProjectAuthorization, type AuthorizedWorker } 
 import { mcpInvocation } from "../mcp/Invocation";
 import { isDeepStrictEqual } from "node:util";
 
-function currentWorkers(host: any): AuthorizedWorker[] {
+function currentWorkers(host: any, includeDisabled = false): AuthorizedWorker[] {
   host.refreshSharedConnectionSettings();
-  return host.workerCodeSyncTargets().map((worker: any) => ({ id: worker.id, host: worker.host,
+  const enabled = host.workerCodeSyncTargets().map((worker: any) => ({ id: worker.id, host: worker.host,
     port: worker.port, user: worker.user, projectRoot: worker.remotePath }));
+  if (!includeDisabled) return enabled;
+  const disabled = host.setupConfig.workerTunnels.filter((worker: any) => worker.enabled === false).map((worker: any) => ({
+    ...worker, host: worker.workerHost || worker.hubHost || worker.transferHost || "", port: worker.workerSshPort || worker.hubSshPort || 22,
+    user: worker.workerUser || worker.hubUser || "", projectRoot: worker.agentProjectDir || "",
+  }));
+  return [...enabled, ...disabled];
 }
 export function mcpOperations(host: any): ProjectMcpOperations {
   return host.projectMcpOperations ||= new ProjectMcpOperations({
@@ -39,7 +45,7 @@ export function mcpGateway(host: any): ProjectGateway {
       ...(method === "files.cleanup.preview" && params.action === "delete" ? { authorizationMode: "confirmed_paths" } : {}) });
   };
   return new ProjectGateway({ root: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "",
-    workers: () => currentWorkers(host), store: host.context.workspaceState, methods: () => host.createLocalApiMethods(),
+    workers: includeDisabled => currentWorkers(host, includeDisabled), store: host.context.workspaceState, methods: () => host.createLocalApiMethods(),
     reviewFiles: async args => {
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "";
       const preview = await scopedFileCall("files.cleanup.status", args);

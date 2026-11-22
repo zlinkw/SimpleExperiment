@@ -1,6 +1,6 @@
 # G004 执行登记
 
-U04-55 用户裁决：本人选择授权当前项目即授现有全部操作类别，不选 Worker 或范围；新 grant 不存 Worker，旧细分/绑定 grant 保留旧约束直到本人重授。最终组合源码及内存 UI/store/Gateway 目标回归45/45 exit0，日志见后续设置组记录。未操作真实授权，尚未 build、安装或实机复验。
+U04-55 后续用户裁决替换此前零 Worker 仅配置方案：本人选择授权当前项目即授现有全部操作类别，不选 Worker 或范围；新 grant 不存 Worker，旧细分/绑定 grant 保留旧约束直到本人重授。设置入口 `worker_configure` 可选已禁用的已配置 Worker 并修改/读回 enabled，执行入口仍限启用目标；共享设置提示其影响所有项目。真实源码转译及内存 UI/store/Gateway/配置保存回归 `node --test --test-force-exit --test-timeout 20000 test/ui/actionLifecycle.test.js` 首轮45/45 exit0；补充保存前目标重核及变更夹具后45/45 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-55-project-grant-first-ff08.log` 与 `C:/Users/ZLK/AppData/Local/Temp/g004-55-project-grant-final-ff08.log`；旧窄方案的首失败和通过记录保留于下段。未操作真实授权、共享 Worker 或远端；旧 dist 测试文件同步了新签名，未以旧 dist 测新源码；尚未 build、安装、实机复验。
 
 517 隔离实例 MCP 本地业务补证：实际 discovery/health 为 Host 22928、0.5.517、专用根，live catalog 中 result_parse/metric_leaderboard 无权限要求，真实 mcp.call 未拒绝。原 synthetic/final.csv 按默认长表解析返回空数组；新建并保留 `experiments/results/synthetic/g004_0517_mcp_long_ff08.csv` 与 `g004_0517_mcp_metrics_ff08.csv`，前者解析两行结果，保留带逗号 run key、DSC=0，跳过空 HD95；后者排行两组，保留 accuracy=0 与引号内逗号，空 loss 不计指标，另一组 accuracy=0.8/loss=0.4。此证修正此前“所有 MCP 解析未测”的记载；result_export 等 results 权限链及新授权版本实机仍未测。
 

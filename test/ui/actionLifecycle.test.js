@@ -427,6 +427,42 @@ test("project authorization grants the project without binding Workers", async (
   assert.equal(calls.length,2);
 });
 
+test("configured disabled Worker can be enabled through the configuration tool", async () => {
+  const ts=require('typescript'),Module=require('node:module');
+  const root=path.resolve(__dirname,'../..'), legacy=fs.readFileSync(path.join(root,'src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',legacy,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),methods={};let route;
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&['saveWorkerConfigFromUi','saveWorkerConfigCore'].includes(node.name.getText(ast)))methods[node.name.getText(ast)]=node.getText(ast);
+    if(ts.isPropertyAssignment(node)&&node.name.getText(ast)==='"workers.configure"')route=node.initializer.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const unchanged=(_patch,_key,value)=>value;
+  const sandbox={stringField:(row,key)=>row[key]||'',recordField:(row,key)=>row[key]||{},confirmationRequired:()=>Error('CONFIRM_REQUIRED'),
+    preservedOptionalStringPatch:unchanged,preservedStringPatch:unchanged,clearableOptionalStringPatch:unchanged,
+    sessionScopedOptionalStringPatch:unchanged,forwardIndexPatch:unchanged,numberPatch:unchanged,autoOrNumberRangePatch:unchanged,optionalNumberRangePatch:unchanged,
+    boolishPatch:(patch,key,value)=>patch[key]===undefined?value:patch[key],assertActualWorkRoot(){},normalizeRemoteWorkRoot:x=>x,
+    sessionPathChanged:()=>false,GpuMemoryScheduling:{memorySchedulingOverrides:()=>({})},GpuQuotaScheduling:{quotaOverrides:()=>({})},
+    XshellTunnelSetup_1:{normalizeXshellSetupConfig:x=>x},mcpInvocation:require('../../src/mcp/Invocation.ts').mcpInvocation};
+  const compiled=ts.transpileModule('class Host {'+Object.values(methods).join('\n')+'\nmakeMethods(){return {"workers.configure":'+route+'}}};this.Host=Host;',
+    {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+  vm.runInNewContext(compiled,sandbox);const host=new sandbox.Host();let grant;
+  const {createProjectAuthorization}=require('../../src/mcp/ProjectAuthorization.ts');grant=createProjectAuthorization(root);
+  host.setupConfig={workerTunnels:[{id:'off',enabled:false,workerHost:'fixture.invalid',workerUser:'fixture',agentProjectDir:'/fixture'}]};
+  host.context={workspaceState:{get:()=>grant}};host.refreshSharedConnectionSettings=()=>{};
+  host.workerCodeSyncTargets=()=>host.setupConfig.workerTunnels.filter(x=>x.enabled!==false).map(x=>({id:x.id,host:x.workerHost,user:x.workerUser,port:22,remotePath:x.agentProjectDir}));
+  host.ensureXshellSessionLoaded=async()=>{};host.withImportedXshellFields=x=>x;host.applySetupDraft=async x=>{host.setupConfig=x};
+  const local=host.makeMethods();host.createLocalApiMethods=()=>({...local,'agents.lifecycle':async()=>{throw Error('unexpected remote action')}});
+  const vscode={workspace:{workspaceFolders:[{uri:{fsPath:root}}]}},sourceFile=path.join(root,'src/extension/McpHost.ts'),exported={};
+  const nativeRequire=Module.createRequire(sourceFile),code=ts.transpileModule(fs.readFileSync(sourceFile,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+  new Function('require','exports',code)(name=>name==='vscode'?vscode:name==='./SftpCleanupReview'?{}:nativeRequire(name),exported);
+  const gateway=exported.mcpGateway(host);
+  await assert.rejects(gateway.call('agent_restart',{serverIds:['off']}),/WORKER_UNKNOWN/);
+  await assert.rejects(gateway.call('worker_configure',{workerId:'unknown',patch:{enabled:true}}),/WORKER_UNKNOWN/);
+  host.ensureXshellSessionLoaded=async()=>{host.setupConfig.workerTunnels[0].workerHost='changed.invalid'};
+  await assert.rejects(gateway.call('worker_configure',{workerId:'off',patch:{enabled:true}}),/WORKER_TARGET_CHANGED/);
+  assert.equal(host.setupConfig.workerTunnels[0].enabled,false);
+  host.setupConfig.workerTunnels[0].workerHost='fixture.invalid';host.ensureXshellSessionLoaded=async()=>{};
+  const result=await gateway.call('worker_configure',{workerId:'off',patch:{enabled:true}});
+  assert.equal(result.ok,true);assert.equal(result.worker.enabled,true);assert.equal(host.setupConfig.workerTunnels[0].enabled,true);
+});
+
 test("PLAN list returns formal and archived metadata separately", async () => {
   const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let arrow;

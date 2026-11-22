@@ -6,7 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 
 export interface ProjectGatewayPorts {
   root(): string;
-  workers(): AuthorizedWorker[];
+  workers(includeDisabled?: boolean): AuthorizedWorker[];
   store: AuthorizationStore;
   methods(): Record<string, (params: Record<string, any>, server?: any, context?: any) => any>;
   sftp?: { methods(): Promise<string[]>; call(method: string, args: Record<string, any>): Promise<unknown> };
@@ -36,7 +36,7 @@ export class ProjectGateway {
     if (args.location === "worker" && !args.workerId || args.location === "local" && args.workerId) throw Error("MCP_FILE_NODE_REQUIRED");
     const grant = this.ports.store.get<ProjectAuthorization>(AUTHORIZATION_KEY);
     const needsWorkers = tool.permission || tool.additionalPermissions?.length || args.serverIds || args.workerId || args.sourceWorkerId;
-    const workers = needsWorkers ? this.ports.workers() : [];
+    const workers = needsWorkers ? this.ports.workers(tool.name === "worker_configure") : [];
     const ids = args.location === "local" ? [] : args.serverIds || (args.workerId ? [args.workerId] : args.sourceWorkerId
       ? [args.sourceWorkerId, args.destinationWorkerId] : workers.map(row => row.id));
     if (ids.some((id: string) => !workers.some(row => row.id === id))) throw Error("MCP_WORKER_UNKNOWN");
@@ -55,7 +55,7 @@ export class ProjectGateway {
     if (tool.method === "mcp.fileReview") return this.ports.reviewFiles!(args);
     if (tool.method === "mcp.query") return queryProject(root, async (method, params) => this.ports.methods()[method](params, undefined, context), tool.action!, args);
     const scopedWorkers = () => {
-      const workers = this.ports.workers();
+      const workers = this.ports.workers(tool.name === "worker_configure");
       const ids = args.location === "local" ? [] : args.serverIds || (args.workerId ? [args.workerId] : args.sourceWorkerId
         ? [args.sourceWorkerId, args.destinationWorkerId] : workers.map(row => row.id));
       if (ids.some((id: string) => !workers.some(row => row.id === id))) throw Error("MCP_WORKER_UNKNOWN");
