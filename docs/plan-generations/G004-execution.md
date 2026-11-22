@@ -6,6 +6,8 @@
 
 519宽CSV的AP与AUPRC、macro/micro/weighted F1合并，两次各0/1 exit1，同目录 `g004-519-metric-identity-ff08.log`、`g004-519-metric-collision-ff08.log`。R519 A4保留语义及显式别名；宽/长CSV、JSON、预览、schema、分割、0/空值单文件最终6/6 exit0，同目录 `g004-r519-a4-metric-final-ff08.log`。选择及PLAN持久化证据见coverage，未写真实项目文件。
 
+R519 A5按输入列选择默认长宽预设，JSON、显式预设和自定义预设保留；真实源码配合成数据的解析器/工厂/CLI单文件8/8，MCP目录消费者8/8，均exit0，日志同目录 `g004-r519-a5-parser-final-ff08.log`、`g004-r519-a5-mcp-ff08.log`，未调用真实Worker。
+
 用户报告反复识别仍未完成并提供截图；519专用实例错误记录显示几次点击与同窗识别租约冲突，不能据此认定锁死。源码中本地识别未写完成标记，唯一生产写入在代码同步完成后；真实识别方法配假确认与已选PLAN、输出门槛未完成时验证应记录本地事实，0/1 exit1，`C:/Users/ZLK/AppData/Local/Temp/g004-519-bootstrap-recognition-ff08.log`。用户截图、实际错误与受控边界见coverage；不重放点击、不清锁、不自动连Worker，统一返修时区分本地识别和运行准备。
 
 519本机历史CLI合成列表、详情及CSV导出通过；精确ID经cmd传递失败。Git hook读拒绝及不完整标记可能损伤原脚本，原受控失败与invoke错路由见coverage；R519 A3仅缺失视为空，读错及标记不完整均保留原文件，源码配假fs及启动消费者3/3 exit0，日志同上目录 `g004-r519-a3-git-hook-ff08.log`。300/137/45/167母集重叠，不相加。
@@ -38,7 +40,7 @@ U56 518实测离线合成包导入及恢复原包均exit0，面板显示2/2、�
 
 518 精确 `git add` exit1 提示 dist 被忽略；回读状态确认指定13个已跟踪生成文件及8个非生成文件均实际暂存，未强制添加或触碰未跟踪项。
 
-0.5.518 首次 package exit1：341 项中339通过、2失败，前10门禁通过，maxParallel/maxObserved=1、锁已释放，未进入 post/assemble；完整 `simple_cluster/reports/test-workflow/2026-11-22T03-16-49-272Z-80576-package/run.json`。mcpProject 41/43：旧授权夹具与当前 Worker 共用可变对象，无法模拟历史快照；改用副本后实际新 dist 43/43 exit0（`C:/Users/ZLK/AppData/Local/Temp/g004-518-mcp-project-after-ff08.log`）。serverQuotaPersistence 9/10：源码抽取夹具缺 `mcpInvocation`，接入真实模块后10/10 exit0（`C:/Users/ZLK/AppData/Local/Temp/g004-518-worker-quota-after-ff08.log`）。两项仅改测试夹具，首失败日志见该 run 的 job 日志；待总控裁决组装/重跑，未发行、安装或修改真实权限/Worker。
+0.5.518首包339/341 exit1、前10门禁通过、并行峰1及锁释放，原回执 `simple_cluster/reports/test-workflow/2026-11-22T03-16-49-272Z-80576-package/run.json`。mcpProject 41/43因夹具共用对象，复制后43/43；serverQuota 9/10因夹具缺`mcpInvocation`，修后10/10，均exit0；补验日志同上临时目录 `g004-518-mcp-project-after-ff08.log`、`g004-518-worker-quota-after-ff08.log`。仅修夹具，后续发行状态见顶部，未动真实权限/Worker。
 
 U54–U56 517实机及源修完整原始记录见 Git `eab27339:docs/plan-generations/G004-execution.md`：U54原517调用失败，源回归42/43→43/43；U55旧窄方案43/44→44/44，按本人新裁决替换后45/45两轮；U56原离线摘要不可见，预览8/8，坏行首次7/8 exit1、修后8/8，补别名8/8。517本地PLAN/向导/结果拆表/取消及MCP解析旧证、隔离profile启用0和全部日志均保留原记录；518当前重测以本登记顶部为准。`node scripts/test-workflow.js --help` exit1为不支持该选项；CLI默认绑定不符exit2未重放。
 U04排查阶段基线HEAD及origin/master为b7c0b42c27227a8ec49d42d1f21346900a274ae4，开始时tracked clean；计划由总控独占。legacy、辅助页和MCP入口证据见coverage.g004U04RemainingInventory；旧静态脚本不能代表完整母集。factory实际输出缺四项门禁并回退legacy；恢复页VM消息5/5 exit0，未实际重载或写剪贴板。当时按钮总数及剩余未知，排查阶段未改产品、构建、安装或访问服务器；后续三批源码包见1ff64a81及下文。旧执行聊天已归档。

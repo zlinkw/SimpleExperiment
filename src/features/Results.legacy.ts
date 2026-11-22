@@ -467,8 +467,22 @@ export const builtInPaperTableTemplates: PaperTableTemplate[] = [
   paperTemplate("noise_robustness_table", "Noise robustness", ["method"], ["noise_level"], ["DSC", "ASD"]),
 ];
 
-export function selectResultPreset(fileName: string, presets: ResultParserPreset[] = builtInResultPresets): ResultParserPreset {
-  return presets.find((item) => item.filePatterns.some((pattern) => globMatch(fileName, pattern))) || presets[0];
+export function selectResultPreset(fileName: string, presets: ResultParserPreset[] = builtInResultPresets, text?: string, parserConfig: ResultParserConfig = {}): ResultParserPreset {
+  const matched = presets.filter((item) => item.filePatterns.some((pattern) => globMatch(fileName, pattern)));
+  const candidates = matched.length ? matched : presets;
+  if (text !== undefined && !/\.json$/i.test(fileName)) {
+    const headers = csvRows(text)[0] || [];
+    if (headers.length) {
+      const long = candidates.find((item) => {
+        const mapping = { ...item.columnMapping, ...parserConfig.columnMapping };
+        return item.format === "long_csv" && headers.includes(mapping.metric || "metric") && headers.includes(mapping.value || "value");
+      });
+      if (long) return long;
+      const wide = candidates.find((item) => item.id === "generic_metric_wide_csv") || candidates.find((item) => item.format === "wide_csv");
+      if (wide) return wide;
+    }
+  }
+  return candidates[0];
 }
 
 export function previewResultParse(text: string, sourceFile: string, preset: ResultParserPreset, parserConfig: ResultParserConfig = {}): ResultParsePreview {

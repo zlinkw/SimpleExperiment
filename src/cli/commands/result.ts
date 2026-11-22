@@ -15,6 +15,7 @@ import {
   builtInResultPresets,
   exportPaperTable,
   parseResultFile,
+  selectResultPreset,
 } from "../../features/Results";
 
 export async function resultCommand(action: string, rest: string[], flags: CliFlags): Promise<number> {
@@ -29,9 +30,10 @@ export async function resultCommand(action: string, rest: string[], flags: CliFl
 export function resultParse(flags: CliFlags): number {
   if (!flags.file) throw usageError("result parse needs --file <result file>");
   if (!fs.existsSync(flags.file)) throw businessError(`result file not found: ${flags.file}`);
-  const preset = flags.preset === undefined ? builtInResultPresets[0] : builtInResultPresets.find((item) => item.id === flags.preset);
+  const text = fs.readFileSync(flags.file, "utf8");
+  const preset = flags.preset === undefined ? selectResultPreset(flags.file, undefined, text) : builtInResultPresets.find((item) => item.id === flags.preset);
   if (!preset) throw usageError(`unknown result preset: ${flags.preset}`);
-  const records = parseResultFile(fs.readFileSync(flags.file, "utf8"), { path: flags.file, type: path.extname(flags.file).toLowerCase() === ".json" ? "json" : "csv", endpoint: "local" }, preset);
+  const records = parseResultFile(text, { path: flags.file, type: path.extname(flags.file).toLowerCase() === ".json" ? "json" : "csv", endpoint: "local" }, preset);
   writeJson(records, flags.compactJson);
   return 0;
 }
@@ -232,12 +234,11 @@ function parseLocalResultFiles(): ExperimentResultRecord[] {
       return [] as string[];
     }
   });
-  const preset = builtInResultPresets[0];
   const out: ExperimentResultRecord[] = [];
   for (const file of files) {
     try {
       const text = fs.readFileSync(file, "utf8");
-      out.push(...parseResultFile(text, { path: file, type: file.endsWith(".json") ? "json" : "csv", endpoint: "local" }, preset));
+      out.push(...parseResultFile(text, { path: file, type: /\.json$/i.test(file) ? "json" : "csv", endpoint: "local" }, selectResultPreset(file, undefined, text)));
     } catch {
       /* skip unreadable result files */
     }

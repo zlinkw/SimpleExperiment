@@ -13,7 +13,8 @@ function tryRequire<T>(id: string): T | undefined {
 }
 
 type ResultsMod = {
-  selectResultPreset?: (fileName: string, presets?: unknown[]) => unknown;
+  selectResultPreset?: (fileName: string, presets?: unknown[], text?: string, parserConfig?: unknown) => unknown;
+  builtInResultPresets?: Array<{ id: string }>;
   previewResultParse?: (text: string, sourceFile: string, preset: unknown, parserConfig: unknown) => unknown;
   previewTextMetricParse?: (text: string, sourceFile: string, opts: unknown) => unknown;
   parseResultFile?: (text: string, sourceFile: unknown, preset: unknown, parserConfig: unknown) => unknown[];
@@ -22,7 +23,7 @@ type ResultsMod = {
 };
 
 type ResultParserMod = {
-  selectPreset?: (fileName: string, presets?: unknown[]) => unknown;
+  selectPreset?: (fileName: string, presets?: unknown[], text?: string, parserConfig?: unknown) => unknown;
   previewParse?: (text: string, sourceFile: string, preset: unknown, parserConfig: unknown) => unknown;
   parseFile?: (text: string, sourceFile: unknown, preset: unknown, parserConfig: unknown) => unknown[];
 };
@@ -46,16 +47,16 @@ class DefaultResultsFactory implements ResultsFactory {
   private readonly opts: ResultsFactoryOptions;
   constructor(opts: ResultsFactoryOptions = {}) { this.opts = opts; }
 
-  selectPreset(fileName: string, presets?: unknown[]): unknown {
+  selectPreset(fileName: string, presets?: unknown[], text?: string, parserConfig?: unknown): unknown {
     const mod = tryRequire<ResultsMod>("../Results");
-    if (mod?.selectResultPreset) return mod.selectResultPreset(fileName, presets);
+    if (mod?.selectResultPreset) return mod.selectResultPreset(fileName, presets, text, parserConfig);
     const pm = tryRequire<ResultParserMod>("../Results/ResultParser");
-    if (pm?.selectPreset) return pm.selectPreset(fileName, presets);
+    if (pm?.selectPreset) return pm.selectPreset(fileName, presets, text, parserConfig);
     throw new Error("结果解析 preset 实现不可用。");
   }
 
   preview(text: string, sourceFile: string, preset?: unknown, parserConfig: unknown = {}): unknown {
-    const effPreset = (preset ?? this.selectPreset(sourceFile)) as Record<string, unknown>;
+    const effPreset = (preset ?? this.selectPreset(sourceFile, undefined, text, parserConfig)) as Record<string, unknown>;
     const mod = tryRequire<ResultsMod>("../Results");
     if (mod?.previewResultParse) return mod.previewResultParse(text, sourceFile, effPreset, parserConfig);
     const pm = tryRequire<ResultParserMod>("../Results/ResultParser");
@@ -70,10 +71,13 @@ class DefaultResultsFactory implements ResultsFactory {
   }
 
   parse(text: string, sourceFile: unknown, preset: unknown, parserConfig: unknown = {}): unknown[] {
+    const name = typeof sourceFile === "string" ? sourceFile : String((sourceFile as Record<string, unknown>)?.path || "results.csv");
+    const effectivePreset = preset ?? this.selectPreset(name, undefined, text, parserConfig);
+    const source = typeof sourceFile === "string" ? { path: sourceFile, type: /\.json$/i.test(name) ? "json" : "csv", endpoint: "local" } : sourceFile;
     const mod = tryRequire<ResultsMod>("../Results");
-    if (mod?.parseResultFile) return mod.parseResultFile(text, sourceFile, preset, parserConfig);
+    if (mod?.parseResultFile) return mod.parseResultFile(text, source, effectivePreset, parserConfig);
     const pm = tryRequire<ResultParserMod>("../Results/ResultParser");
-    if (pm?.parseFile) return pm.parseFile(text, sourceFile, preset, parserConfig);
+    if (pm?.parseFile) return pm.parseFile(text, source, effectivePreset, parserConfig);
     throw new Error("结果文件解析实现不可用。");
   }
 
@@ -90,19 +94,23 @@ class DefaultResultsFactory implements ResultsFactory {
   }
 
   createParser(presetId?: string): { presetId: string; parse: (text: string, sourceFile: unknown, cfg?: unknown) => unknown[]; preview: (text: string, sourceFile: string, cfg?: unknown) => unknown } {
-    const id = presetId ?? this.opts.defaultPresetId ?? "generic_metric_wide_csv";
+    const id = presetId ?? this.opts.defaultPresetId;
+    const getPreset = (name: string, text: string, cfg?: unknown): unknown => {
+      if (!id) return this.selectPreset(name, undefined, text, cfg);
+      const preset = tryRequire<ResultsMod>("../Results")?.builtInResultPresets?.find(item => item.id === id);
+      if (!preset) throw new Error(`未知结果解析预设：${id}`);
+      return preset;
+    };
     return {
-      presetId: id,
+      presetId: id ?? "auto",
       parse: (text: string, sourceFile: unknown, cfg?: unknown) => {
         const name = typeof sourceFile === "string" ? sourceFile : (sourceFile as Record<string, unknown>)?.["path"] as string ?? "results.csv";
-        const preset = this.selectPreset(name) as Record<string, unknown>;
-        const eff = preset["id"] === id ? preset : { ...preset, id };
-        const src = typeof sourceFile === "string" ? { path: sourceFile, type: "csv", endpoint: "local" } : sourceFile;
-        return this.parse(text, src, eff, cfg);
+        const preset = getPreset(name, text, cfg);
+        const src = typeof sourceFile === "string" ? { path: sourceFile, type: /\.json$/i.test(name) ? "json" : "csv", endpoint: "local" } : sourceFile;
+        return this.parse(text, src, preset, cfg);
       },
       preview: (text: string, sourceFile: string, cfg?: unknown) => {
-        const preset = this.selectPreset(sourceFile) as Record<string, unknown>;
-        return this.preview(text, sourceFile, preset["id"] === id ? preset : { ...preset, id }, cfg);
+        return this.preview(text, sourceFile, getPreset(sourceFile, text, cfg), cfg);
       },
     };
   }

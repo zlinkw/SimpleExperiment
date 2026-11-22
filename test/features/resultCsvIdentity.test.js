@@ -103,3 +103,49 @@ test("default metrics retain distinct AP, AUPRC and aggregation identities in wi
   assert.equal(explicit[0].metrics.AUPRC.value, .5);
   assert.equal(Results.normalizeMetricKey("AP", undefined, [{ from: "AP", to: "AUPRC" }]), "AUPRC");
 });
+
+test("automatic selection reaches wide, long and JSON through parser and factory consumers", () => {
+  const { ResultParser } = require("../../src/features/Results/ResultParser.ts");
+  const { createResultsFactory } = require("../../src/features/factories/ResultsFactory.ts");
+  const wideText = "run_key,AP,AUPRC,custom_score\nr,0,0.2,0.7\n";
+  const longText = "run_key,metric,value\nr,AP,0\nr,AUPRC,0.2\n";
+  const jsonText = '{"run_key":"r","metrics":{"AP":0,"AUPRC":0.2}}';
+  const parser = new ResultParser(), factory = createResultsFactory(), factoryParser = factory.createParser();
+  for (const [file, text] of [["results.csv", wideText], ["results.csv", longText], ["results.json", jsonText]]) {
+    for (const records of [parser.parse(text, { path: file }), factory.parse(text, file, undefined), factoryParser.parse(text, file)]) {
+      assert.equal(records.length, 1);
+      assert.equal(records[0].metrics.AP.value, 0);
+      assert.equal(records[0].metrics.AUPRC.value, .2);
+    }
+    assert.equal(factory.preview(text, file).records, 1);
+    assert.equal(parser.preview(text, file).records, 1);
+  }
+  assert.equal(factoryParser.parse(wideText, "results.csv")[0].metrics.custom_score.value, .7);
+  assert.equal(factoryParser.parse("run_key,AP\n", "results.csv").length, 0);
+  const explicit = factory.createParser("classification_long_csv");
+  assert.equal(explicit.parse(wideText, "results.csv").length, 0);
+  assert.throws(() => factory.createParser("missing").parse(wideText, "results.csv"), /未知结果解析预设/);
+  const custom = { ...Results.builtInResultPresets[1], metricColumns: ["custom_score"], metricAliases: { custom_score: "custom" } };
+  assert.equal(factory.parse(wideText, "results.csv", custom)[0].metrics.custom.value, .7);
+});
+
+test("local result command selects from actual contents and rejects unknown explicit presets", () => {
+  const vm = require("node:vm"), path = require("node:path");
+  const text = fs.readFileSync(path.join(__dirname, "../../src/cli/commands/result.ts"), "utf8");
+  const ast = ts.createSourceFile("result.ts", text, ts.ScriptTarget.ES2022, true);
+  const node = ast.statements.find(item => ts.isFunctionDeclaration(item) && item.name?.text === "resultParse");
+  let input = "run_key,AP,AUPRC\nr,0,0.2\n", output;
+  const context = { fs: { existsSync: () => true, readFileSync: () => input }, path,
+    builtInResultPresets: Results.builtInResultPresets, selectResultPreset: Results.selectResultPreset,
+    parseResultFile: Results.parseResultFile, usageError: msg => Error(msg), businessError: msg => Error(msg), writeJson: rows => { output = rows; } };
+  const run = vm.runInNewContext(ts.transpileModule(node.getText(ast).replace(/^export /, "") + "\nresultParse", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
+  assert.equal(run({ file: "results.csv" }), 0);
+  assert.equal(output[0].metrics.AP.value, 0);
+  assert.equal(output[0].metrics.AUPRC.value, .2);
+  input = "run_key,metric,value\nr,AP,0\nr,AUPRC,0.2\n";
+  assert.equal(run({ file: "results.csv" }), 0);
+  assert.equal(output[0].metrics.AP.value, 0);
+  assert.throws(() => run({ file: "results.csv", preset: "missing" }), /unknown result preset/);
+  assert.equal(run({ file: "results.csv", preset: "classification_long_csv" }), 0);
+  assert.equal(output[0].metrics.AUPRC.value, .2);
+});

@@ -12,7 +12,8 @@ function tryRequire<T>(id: string): T | undefined {
 }
 
 type ResultsMod = {
-  selectResultPreset?: (fileName: string, presets?: ResultParserPreset[]) => ResultParserPreset;
+  selectResultPreset?: (fileName: string, presets?: ResultParserPreset[], text?: string, parserConfig?: unknown) => ResultParserPreset;
+  builtInResultPresets?: ResultParserPreset[];
   previewResultParse?: (text: string, sourceFile: string, preset: ResultParserPreset, parserConfig: unknown) => unknown;
   parseResultFile?: (text: string, sourceFile: { path: string; type?: string; endpoint?: string }, preset: ResultParserPreset, parserConfig: unknown) => unknown[];
 };
@@ -32,9 +33,9 @@ function csvRows(text: string): string[][] {
   });
 }
 
-export function selectPreset(fileName: string, presets?: ResultParserPreset[]): ResultParserPreset {
+export function selectPreset(fileName: string, presets?: ResultParserPreset[], text?: string, parserConfig?: unknown): ResultParserPreset {
   const mod = tryRequire<ResultsMod>("../Results");
-  if (mod?.selectResultPreset) return mod.selectResultPreset(fileName, presets);
+  if (mod?.selectResultPreset) return mod.selectResultPreset(fileName, presets, text, parserConfig);
   const builtIn: ResultParserPreset[] = (presets as ResultParserPreset[]) ?? [];
   if (builtIn.length) return builtIn.find((p) => p.filePatterns.some((pat) => globMatch(fileName, pat))) ?? builtIn[0];
   if (/\.json$/i.test(fileName)) return { id: "generic_json", format: "json", filePatterns: ["*.json"], columnMapping: {} };
@@ -66,15 +67,21 @@ export function parseFile(text: string, sourceFile: { path: string; type?: strin
 }
 
 export class ResultParser {
-  private readonly presetId: string;
-  constructor(presetId = "generic_metric_wide_csv") { this.presetId = presetId; }
+  private readonly presetId?: string;
+  constructor(presetId?: string) { this.presetId = presetId; }
+  private effectivePreset(fileName: string, text: string, cfg: unknown): ResultParserPreset {
+    if (!this.presetId) return selectPreset(fileName, undefined, text, cfg);
+    const preset = tryRequire<ResultsMod>("../Results")?.builtInResultPresets?.find(item => item.id === this.presetId);
+    if (!preset) throw new Error(`未知结果解析预设：${this.presetId}`);
+    return preset;
+  }
   select(fileName: string, presets?: ResultParserPreset[]): ResultParserPreset { return selectPreset(fileName, presets); }
   preview(text: string, sourceFile: string, preset?: ResultParserPreset, cfg: unknown = {}): unknown {
-    const eff = preset ?? selectPreset(sourceFile);
+    const eff = preset ?? this.effectivePreset(sourceFile, text, cfg);
     return previewParse(text, sourceFile, eff, cfg);
   }
   parse(text: string, sourceFile: { path: string; type?: string; endpoint?: string }, preset?: ResultParserPreset, cfg: unknown = {}): unknown[] {
-    const eff = preset ?? selectPreset(sourceFile.path);
-    return parseFile(text, sourceFile, eff, cfg);
+    const eff = preset ?? this.effectivePreset(sourceFile.path, text, cfg);
+    return parseFile(text, { ...sourceFile, type: sourceFile.type ?? (/\.json$/i.test(sourceFile.path) ? "json" : "csv") }, eff, cfg);
   }
 }
