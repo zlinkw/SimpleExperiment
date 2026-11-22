@@ -152,7 +152,7 @@ MCP查询身份补充活跃项非空及候选上界，4/4 exit0（9ccf3f）；�
 
 MCP action_catalog动态表/缺方法无回退，固定命名动作不接受任意invoke，Gateway假Host 1/1 exit0；旧CLI错误包装、帮助及零HTTP断言待审。
 
-Agent MCP经实际Gateway/Host核精确目标、撤权及迁移digest，假Agent 2/2 exit0；未访问Worker。
+Agent MCP经实际Gateway/Host核目标、撤权及迁移digest，假Agent首2/3 exit1因测试期待错误文案漏an，修后3/3 exit0；未访问Worker。
 
 MCP项目准备/识别授权、原回执及失败重读、PLAN校验和命名控制假Host及PLAN列表真实Host方法4/4；旧CLI细粒度选项及外壳待审。
 

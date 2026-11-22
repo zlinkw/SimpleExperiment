@@ -32,11 +32,20 @@ test('MCP Agent inspect and authorized mutation preserve explicit target identit
 
 test('MCP migration demands the exact digest before the mock mutation',async()=>{
  const f=fixture();
- for(const migrationDigests of [undefined,{n1:'b'.repeat(64)}]){
+ for(const migrationDigests of [undefined,{n1:'b'.repeat(64)},{n1:''},{n1:'not-a-digest'}]){
   await assert.rejects(f.gateway.call('agent_migrate',{serverIds:['n1'],...(migrationDigests?{migrationDigests}:{})}),e=>e.apiCode===2001&&e.apiData.params.migrationDigests.n1===digest);
  }
  assert.ok(f.calls.every(x=>x.action==='inspect'));
  const result=await f.gateway.call('agent_migrate',{serverIds:['n1'],migrationDigests:{n1:digest}});
  assert.equal(result.results[0].status,'migrated');assert.deepEqual(f.calls.at(-1),{id:'n1',action:'migrate',confirmed:true,echo:digest});
  await assert.rejects(f.gateway.call('agent_migrate',{serverIds:['n1'],confirm:true}),/Unknown/);
+});
+
+test('MCP Agent targets must be explicit and match an enabled Worker',async()=>{
+ const f=fixture();
+ await assert.rejects(f.gateway.call('agent_stop',{}),/serverIds is required/);
+ await assert.rejects(f.gateway.call('agent_stop',{serverIds:[]}),/AGENT_TARGET_REQUIRED/);
+ await assert.rejects(f.gateway.call('agent_stop',{serverIds:['unknown']}),/MCP_WORKER_UNKNOWN/);
+ await assert.rejects(f.gateway.call('agent_migrate',{serverIds:['n1'],migrationDigests:'bad'}),/must be an object/);
+ assert.equal(f.calls.length,0);
 });
