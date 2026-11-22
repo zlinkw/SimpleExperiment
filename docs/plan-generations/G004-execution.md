@@ -85,3 +85,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 - 520 后 completedPlanWorkerMirror 原文件 13/13、exit0（`%TEMP%/g004-520-completed-plan-mirror-20261123.log`，先查不存在）；VM、内存队列及假 SFTP 传输，未连接 Worker 或真实传输/删除。原事件及依赖待总控审定。
 
 - 520 后 requestBudget 原文件 12/12、exit0（`%TEMP%/g004-520-request-budget-20261123.log`，先查不存在）；内存预算和自建回环 HTTP，服务正常关闭，无真实 Worker 或删除。原事件及依赖待总控审定。
+
+- 520 后 pairedUpdateRateLimit 原文件 6/6、exit0（`%TEMP%/g004-520-paired-update-rate-20261123.log`，先查不存在）；假 fetch、VS Code 和内存状态，无真实网络、安装或配置写入。原事件及依赖待总控审定。
