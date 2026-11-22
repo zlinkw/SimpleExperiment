@@ -193,3 +193,5 @@ MCP文件上传Gateway/Host核工作区规范路径、精确Worker及越界拒�
 MCP workspace上传核现有范围manifest、禁止裁剪和撤权拒绝，假后端9/9 exit0；未上传。
 
 MCP服务器配置保存核模拟人工审核、profile及激活参数，假后端10/10 exit0；未改真实配置。
+
+MCP下载范围及handoff核精确Worker、配置参数与撤权，假后端11/11 exit0；未写真实配置。

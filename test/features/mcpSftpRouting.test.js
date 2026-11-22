@@ -8,7 +8,7 @@ try{Module._load=function(id,...args){return id==='vscode'?vscode:original.call(
 function fixture({failureMethod,responses={}}={}){
  const workers=[{id:'w1',host:'host1',port:22,user:'user',remotePath:'/project/one'},{id:'w2',host:'host2',port:22,user:'user',remotePath:'/project/two'}],calls=[];
  const grant=createProjectAuthorization(root);grant.workers=workers.map(({id,host,port,user,remotePath})=>({id,host,port,user,projectRoot:remotePath}));
- const methods=['status','servers.list','servers.save','sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.observeBatch','target.update','upload.files','upload.workspace'];
+ const methods=['status','servers.list','servers.save','sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.observeBatch','target.update','upload.files','upload.workspace','downloadScope.configure','handoff.markReady'];
  const host={context:{workspaceState:{get:()=>grant}},refreshSharedConnectionSettings(){},workerCodeSyncTargets:()=>workers,createLocalApiMethods:()=>({}),
   readSimpleSftpCapabilities:async()=>({methods}),sftpServerOptions:row=>({...row}),simpleSftpApiCall:async(method,params)=>{calls.push({method,params});if(method===failureMethod)throw Error('远端项目清单无效。');return responses[method]??(method==='transfers.reconcile'?{status:'notFound',settled:false}:method==='transfers.cancel'?{status:'cancelling'}:{ok:true})}};
  return {gateway:mcpGateway(host),calls,grant,workers,host};
@@ -138,4 +138,17 @@ test('MCP workspace upload forwards the scoped manifest without pruning',async()
  assert.equal(call.params.server.id,'w1');assert.equal(call.params.pruneManagedFiles,false);assert.equal(call.params.transientManifest,true);
  f.grant.permissions=[];await assert.rejects(f.gateway.call('sftp_upload_workspace',{workerId:'w1'}),/AUTHORIZATION_REQUIRED/);
  assert.equal(f.calls.length,1);
+});
+
+test('MCP scope and handoff remain bound to the authorized Worker',async()=>{
+ const f=fixture();
+ await f.gateway.call('sftp_download_scope',{workerId:'w1',paths:['experiments/results'],extensions:['.csv'],maxFileSizeMB:64});
+ let call=f.calls.at(-1);assert.equal(call.method,'downloadScope.configure');
+ assert.deepEqual(call.params.paths,['experiments/results']);assert.deepEqual(call.params.extensions,['.csv']);
+ assert.equal(call.params.maxFileSizeMB,64);assert.equal(call.params.server.id,'w1');assert.equal(call.params.localPath,root);
+ assert.equal(call.params.confirm,true);assert.equal(call.params.pathConfirmed,true);
+ await f.gateway.call('sftp_handoff',{workerId:'w1'});call=f.calls.at(-1);
+ assert.equal(call.method,'handoff.markReady');assert.equal(call.params.server.id,'w1');assert.equal(call.params.localPath,root);
+ f.grant.permissions=[];await assert.rejects(f.gateway.call('sftp_handoff',{workerId:'w1'}),/AUTHORIZATION_REQUIRED/);
+ assert.equal(f.calls.length,2);
 });
