@@ -51,3 +51,7 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 2026-11-23：gpuWorkerSnapshotRecovery 单文件 13/13、exit 0；内存客户端、模拟 GPU、fetch 和 SSE 流，无真实 GPU、Worker 或网络。证据见 coverage，待总控终审。
 
 - 2026-11-23：agentPreparationLifecycle 单文件 10/10、exit 0；VM 和模拟 VS Code/SFTP、生命周期、fetch、SSH 别名，仅本地读 runtime 字节；无真实 Agent/Worker、SSH、tmux、上传或网络，不证明真实生命周期。证据见 coverage，待总控终审。
+
+- 2026-11-23：branchProjectRegistry 的 sanitizeGitEnv 精确 pattern 1/1、exit 0；仅合成环境对象，无 Git 子进程或文件变更；不覆盖同文件其他 pattern。证据见 coverage，待总控终审。
+
+- 登记此精确 pattern 时首次使用字符串替换将 `$'` 当作替换语法，造成 coverage 临时 JSON 格式错误，planner exit 1；以当前 HEAD 的原文件字节为基底、回调插入同一真实结果后重新核验，未改变历史记录。另一次只读查询误访问无 argv 的记录并 exit 1。
