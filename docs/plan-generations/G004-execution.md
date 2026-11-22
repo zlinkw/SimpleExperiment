@@ -89,3 +89,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - SFTP 进度等待合成回归 16/16，exit 0；fetch 和传输事件为内存替身，无真实 SFTP、网络、清理或 Worker。事件、日志和输入快照见 coverage，待总控终审。
 
 - 完成任务异源分类合成回归 7/7，exit 0；历史矩阵仅作内存夹具，传输回调为替身、临时目录保留，未访问 Worker 或执行传输、清理、Python receiver。事件与输入快照见 coverage，待总控终审。
+
+- 产物槽位身份合成回归 5/5，exit 0；内存清单和传输替身，临时目录保留，无真实 Worker、传输、清理或 Python receiver。事件与输入快照见 coverage，待总控终审。
