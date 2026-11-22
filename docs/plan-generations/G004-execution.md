@@ -59,3 +59,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 近期逐项原文见 Git `71f1f8e3:docs/plan-generations/G004-execution.md`，原事件和输入见 coverage。以下均 exit0：workerTelemetryApiContract 8/8、manualWorkerRefresh 7/7、preflightDispatchRejection 6/6、hubRetirement 1/1、nativeResultManifest 2/2、codeSyncProofWaiter 6/6、planJobDeleteRequeue 7/7、agentStartupFastPath 1/1、agentTmuxPolicy 6/6。使用 VM、假回调及 Python 提取函数或启动前缀；自建夹具和一次日志原子轮转保留，子进程配置限自建夹具。原有时间和读取量断言不变；无真实 Worker、tmux、训练、服务、网络、用户配置或实际删除；模拟删除不证明真实删除安全。各项待总控终审。
 
 近期逐项原文见 Git `f77f0812:docs/plan-generations/G004-execution.md`，原事件和输入见 coverage。以下均 exit0：planStructuralValidationCache 5/5、runtimeLogDiagnostics 2/2、freshGpuTelemetry 1/1、progressDispatchFreshness 9/9、nestedJsonResultParsing 3/3、taskIdentityBoundary 1/1。使用 Python 抽取函数、VM 与假回调；自建日志和结果夹具保留，原有测试规模不变、夹具线程结算；无完整 runtime、真实 Worker/GPU/tmux、网络、UI 或删除。各项待总控终审。
+
+metricAliasRebuildWorkflow 6/6 exit0：假 Worker/SFTP 与合成指标，Python AST 提取；自建项目实际写入 CSV、Markdown 和原子状态并保留，无真实结果、训练、网络或删除。证据见 coverage，待总控终审。
