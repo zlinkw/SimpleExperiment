@@ -85,3 +85,5 @@ Windows工作流混合文件形成未应用diff，仅移旧CLI三项及专用fix
 旧CLI拆分测试1–3形成逐文件未应用diff，逐项引用原索引及边界，不把重复函数体当helper等价；history、旧表面和真实Worker差异仍需裁决。三份git apply --check exit0，现有测试及glob不变。
 
 旧CLI拆分测试4–6各形成未应用精确diff，逐项依索引证据与差异裁决，三份git apply --check exit0；不视为断言等价审核完成。
+
+旧CLI拆分测试7–9形成三份未应用精确diff，逐项沿用索引证据与未决边界；git apply --check均exit0，未退休。
