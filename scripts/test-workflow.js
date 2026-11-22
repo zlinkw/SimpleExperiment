@@ -7,7 +7,8 @@
  *    --max-parallel 不得超过全局上限。
  * #3 job 身份 = realpath（win32 忽略大小写）+argv 矩阵；同文件矩阵行同组互斥；启动前核验 package.json 实际
  *    hook 图，存在任何 pre/post/保留钩子即阻断（npm 自动钩子无法证明不重复执行）。
- * #4 final profile（package/check:full/build/acceptance/smoke）拒绝 --only；测试结果复用整体移除（--reuse-receipt 拒绝）。
+ * #4 final profile（package/check:full/build/acceptance/smoke）拒绝 --only；通用 --reuse-receipt 拒绝。
+ *    G004 增量核验仅接受该任务逐项审定的证据，不改变默认运行。
  * #5 输入/输出 receipt 分离：run.json 独占 wx；last-*.json 仅指针；assemble 按当前计划逐项对账文件矩阵、必要
  *    gates、真实 0 退出、日志存在、输入/环境/工具链与编译产物 hash；运行中输入漂移 ⇒ invalidated 非零。
  * #6 vsce 经已安装 package.json bin 元数据解析为真实 JS + process.execPath（同 npm-command 模式），不猜 .cmd。
@@ -40,7 +41,7 @@ function fail(message, code = 1) {
 }
 
 function parseArgs(argv) {
-  const out = { entry: null, root: ROOT_DEFAULT, manifest: null, maxParallel: null, domains: [], only: [], dryRun: false, reuseRequested: false, receipt: null, receiptOut: null, logDir: null, cancelStdin: false, includeOndemand: [] };
+  const out = { entry: null, root: ROOT_DEFAULT, manifest: null, maxParallel: null, domains: [], only: [], dryRun: false, reuseRequested: false, g004Incremental: false, receipt: null, receiptOut: null, logDir: null, cancelStdin: false, includeOndemand: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--root") out.root = path.resolve(argv[++i]);
@@ -50,6 +51,7 @@ function parseArgs(argv) {
     else if (a === "--only") out.only.push(argv[++i]);
     else if (a === "--dry-run") out.dryRun = true;
     else if (a === "--reuse-receipt") out.reuseRequested = true;
+    else if (a === "--g004-incremental") out.g004Incremental = true;
     else if (a === "--receipt") out.receipt = path.resolve(argv[++i]);
     else if (a === "--receipt-out") out.receiptOut = path.resolve(argv[++i]);
     else if (a === "--log-dir") out.logDir = path.resolve(argv[++i]);
@@ -219,7 +221,7 @@ function planEntry(manifestFile, manifest, root, entryName, opts) {
     return arr.map(cmd => ({ cmd, source: ref === "@compile" ? "compileGates" : phase }));
   };
   const hookProof = verifyNoNpmHooks(root);
-  if (opts.reuseRequested) fail("--reuse-receipt removed by r29 #4: test results are never reused; every run executes fresh.");
+  if (opts.reuseRequested) fail("--reuse-receipt removed by r29 #4: general receipt reuse is not supported.");
   if (entry.final && opts.only.length) fail(`entry ${name} is a final profile: --only filtering is forbidden on final acceptance (r29 #4)`);
   if (entry.requiresDomains && !opts.domains.length) fail(`${name} requires explicit --domains a,b,c (显式影响域)`);
 
@@ -513,6 +515,7 @@ async function runGate(state, gate) {
   const treeConfirmed = result.kill.confirmed;
   const passed = !result.spawnError && !result.timedOut && treeConfirmed && result.exitCode === 0;
   const record = { cmd: gate.cmd, phase: gate.phase, source: gate.source, command: [resolved.command, ...injectedArgs].join(" "), viaPackageBin: resolved.viaPackageBin || null, exitCode: result.exitCode, signal: result.signal || null, spawnError: result.spawnError || null, timedOut: result.timedOut, treeStatus: treeConfirmed ? "confirmed" : "unknown(" + result.kill.method + ":" + (result.kill.detail || "") + ")", passed, startedAt, endedAt: new Date().toISOString(), wallMs, outLog: outFile, errLog: errFile };
+  if (state.g004Inherited && passed) record.logSha256 = { outLog: sha256Fresh(outFile), errLog: sha256Fresh(errFile) };
   state.receipt.gates.push(record);
   process.stdout.write(`[test-workflow] gate ${passed ? "ok" : "FAIL"} exit=${result.exitCode} ${gate.cmd} :: ${outFile}\n`);
   if (!passed) for (const f of [outFile, errFile]) { try { process.stdout.write(`----- ${f} -----\n${fs.readFileSync(f, "utf8")}`); } catch { /* path still reported */ } }
@@ -586,14 +589,23 @@ async function runJob(state, job) {
   const treeConfirmed = result.kill.confirmed;
   const status = state.cancelled ? "cancelled" : result.timedOut ? "timeout" : result.spawnError ? "spawn-error" : result.exitCode === 0 && treeConfirmed ? "passed" : "failed";
   const record = { file: job.file, identity: job.identity, argv: job.argv, sources: job.sources, exclusive: job.classification.exclusive, group: job.classification.group, basis: job.classification.basis, envDir, pid: result.pid, startedAt, endedAt: new Date().toISOString(), wallMs, exitCode: result.exitCode, signal: result.signal || null, spawnError: result.spawnError || null, timedOut: result.timedOut || false, treeStatus: treeConfirmed ? "confirmed" : "unknown(" + result.kill.method + ":" + (result.kill.detail || "") + ")", status, outLog: outFile, errLog: errFile, cpuMs: "not-recorded" };
+  if (state.g004Inherited) {
+    record.origin = "fresh";
+    if (status === "passed") record.logSha256 = { outLog: sha256Fresh(outFile), errLog: sha256Fresh(errFile) };
+  }
   state.receipt.jobs.push(record);
   process.stdout.write(`[test-workflow] job ${status} exit=${result.exitCode} ${job.file}${job.classification.exclusive ? " [exclusive]" : ""} :: ${outFile}\n`);
   if (status !== "passed") for (const f of [outFile, errFile]) { try { process.stdout.write(`----- ${f} -----\n${fs.readFileSync(f, "utf8")}`); } catch { /* keep path */ } }
   return record;
 }
 
+function uncoveredG004Jobs(jobs, accepted) {
+  const inherited = new Set((accepted || []).map(j => JSON.stringify([j.identity, j.argv])));
+  return jobs.filter(j => !inherited.has(JSON.stringify([j.identity, j.argv])));
+}
+
 async function runJobsScheduled(state) {
-  const pending = [...state.plan.jobs];
+  const pending = uncoveredG004Jobs(state.plan.jobs, state.g004Inherited);
   const running = []; // slots: { job, group, promise, settled }
   let maxObserved = 0;
   for (;;) {
@@ -955,7 +967,7 @@ async function acquireLock(state) {
 async function releaseOwnedLock(state) {
   if (!state.processLock) return;
   const confirmed = state.runningJobs.size === 0 && !state.activeGateKill
-    && state.receipt.jobs.every(job => job.treeStatus === "confirmed")
+    && state.receipt.jobs.every(job => job.treeStatus === "confirmed" || (job.origin === "direct" && job.settlement === "settled_by_direct_execution"))
     && state.receipt.gates.every(gate => gate.treeStatus === "confirmed" || gate.treeStatus === "n/a(not-spawned)" || gate.skippedAfterCancel);
   state.lockReleased = await state.processLock.release(confirmed);
   if (state.lockReleased && state.logDir && fs.existsSync(state.logDir))
@@ -964,6 +976,141 @@ async function releaseOwnedLock(state) {
 }
 
 /* ---------------- receipt validation (r29 #5) ---------------- */
+
+// G004 仅接受既有覆盖清单中经逐项审定的旧记录；此函数不改变旧 receipt。
+function inspectG004LegacyEvidence(root, plan, coverage) {
+  const sourcePath = coverage.sourceReceipt;
+  if (sha256Fresh(sourcePath) !== coverage.sourceReceiptSha256) throw new Error("G004 source receipt drift");
+  const source = JSON.parse(fs.readFileSync(sourcePath, "utf8"));
+  if (source.schemaVersion !== 2 || source.entry !== "package" || source.root !== root || source.overall !== "passed" || typeof source.inputFingerprint !== "string" || !source.inputFingerprint || source.inputFingerprint !== source.endFingerprint || typeof source.artifactFingerprint !== "string" || !source.artifactFingerprint || !source.candidate || source.candidate.state !== "validated" || !Array.isArray(source.jobs)) throw new Error("G004 source receipt invalid");
+  const key = j => JSON.stringify([j.identity, j.argv]);
+  const planned = new Map();
+  for (const job of plan.jobs) {
+    const k = key(job);
+    if (planned.has(k)) throw new Error("G004 duplicate planned job");
+    planned.set(k, job);
+  }
+  const seen = new Set(), accepted = [];
+  for (const row of coverage.jobs.filter(j => j.eligible === true)) {
+    const k = key(row), job = planned.get(k);
+    if (!job || seen.has(k) || job.file !== row.file) throw new Error("G004 reviewed job missing or duplicate: " + row.file);
+    seen.add(k);
+    if (row.disposition !== "controller_reviewed_inheritance_candidate" || !row.review || !row.review.decision || !row.review.snapshotSha256 || !row.sourceLogSha256) throw new Error("G004 incomplete review: " + row.file);
+    const original = source.jobs[row.sourceJob - 1];
+    if (!original || key(original) !== k || original.file !== row.file || original.status !== "passed" || original.exitCode !== 0 || original.timedOut || original.signal || original.spawnError || original.treeStatus !== "confirmed") throw new Error("G004 original job invalid: " + row.file);
+    for (const field of ["outLog", "errLog"]) {
+      if (!original[field] || original[field] !== row[field === "outLog" ? "sourceOutLog" : "sourceErrLog"] || sha256Fresh(original[field]) !== row.sourceLogSha256[field]) throw new Error("G004 original log drift: " + row.file);
+    }
+    const deps = Object.entries(row.review.snapshotSha256);
+    if (!deps.length || !Object.hasOwn(row.review.snapshotSha256, row.file) || !Array.isArray(row.review.dependencies) || row.review.dependencies.length !== deps.length || new Set(row.review.dependencies).size !== deps.length || row.review.dependencies.some(dep => !Object.hasOwn(row.review.snapshotSha256, dep))) throw new Error("G004 missing reviewed dependencies: " + row.file);
+    for (const [rel, expected] of deps) {
+      const abs = path.resolve(root, rel), within = path.relative(root, abs);
+      if (!within || within.startsWith(".." + path.sep) || path.isAbsolute(within) || sha256Fresh(abs) !== expected) throw new Error("G004 dependency drift: " + rel);
+    }
+    accepted.push({ file: job.file, identity: job.identity, argv: job.argv, origin: "reused", sourceReceipt: sourcePath, sourceJob: row.sourceJob, sourceInputFingerprint: source.inputFingerprint, sourceEndFingerprint: source.endFingerprint, sourceArtifactFingerprint: source.artifactFingerprint, original });
+  }
+  return accepted;
+}
+
+function inspectG004DirectEvidence(root, plan, coverage) {
+  const key = j => JSON.stringify([j.identity, j.argv]);
+  const planned = new Map(plan.jobs.map(j => [key(j), j]));
+  const accepted = [], seen = new Set();
+  for (const row of (coverage.currentTargetedEvidence || []).filter(j => j.eligible === true)) {
+    const k = key(row), job = planned.get(k);
+    if (!job || job.file !== row.file || seen.has(k) || row.treeStatus !== "settled_by_direct_execution" || !row.review || !row.review.decision || !row.review.snapshotSha256 || row.review.scope !== "dependency_scoped") throw new Error("G004 direct evidence not reviewed for this plan: " + row.file);
+    seen.add(k);
+    const events = fs.readFileSync(row.rollout, "utf8").split("\n").filter(line => line.includes(row.callId)).map(line => ({ line, event: JSON.parse(line) })).filter(x => x.event.payload && x.event.payload.call_id === row.callId);
+    const calls = events.filter(x => x.event.payload.type === "custom_tool_call"), outputs = events.filter(x => x.event.payload.type === "custom_tool_call_output");
+    const call = calls[0], output = outputs[0];
+    const digest = s => crypto.createHash("sha256").update(s, "utf8").digest("hex");
+    if (calls.length !== 1 || outputs.length !== 1 || digest(call.line) !== row.commandEventSha256 || digest(output.line) !== row.outputEventSha256 || !row.exactCommandLine || !String(call.event.payload.input).includes(row.exactCommandLine) || !row.exactCommandLine.includes(row.file) || JSON.stringify(row.review.reviewedArgv) !== JSON.stringify(job.argv)) throw new Error("G004 direct execution record drift: " + row.file);
+    const parts = row.exactCommandLine.match(/'[^']*'|[^\s]+/g) || [];
+    if (parts.join(" ") !== row.exactCommandLine || parts[0] !== "node" || parts[parts.length - 1] !== row.file || parts.some(part => part.startsWith('"'))) throw new Error("G004 unsupported direct command: " + row.file);
+    const actualArgv = parts.slice(1, -1).map(part => part.startsWith("'") && part.endsWith("'") ? part.slice(1, -1) : part);
+    if (JSON.stringify(actualArgv) !== JSON.stringify(job.argv)) throw new Error("G004 direct argv mismatch: " + row.file);
+    const blocks = output.event.payload.output;
+    const toolResult = Array.isArray(blocks) && blocks.map(b => { try { return JSON.parse(b.text); } catch { return null; } }).find(v => v && v.exit_code === 0 && typeof v.output === "string" && v.output.includes("TEST_EXIT=0"));
+    if (!toolResult || sha256Fresh(row.log) !== row.logSha256) throw new Error("G004 direct execution did not settle successfully: " + row.file);
+    const deps = Object.entries(row.review.snapshotSha256);
+    if (!deps.length || !Object.hasOwn(row.review.snapshotSha256, row.file) || !Array.isArray(row.review.dependencies) || row.review.dependencies.length !== deps.length || new Set(row.review.dependencies).size !== deps.length || row.review.dependencies.some(dep => !Object.hasOwn(row.review.snapshotSha256, dep))) throw new Error("G004 direct dependencies missing: " + row.file);
+    for (const [rel, expected] of deps) {
+      const abs = path.resolve(root, rel), within = path.relative(root, abs);
+      if (!within || within.startsWith(".." + path.sep) || path.isAbsolute(within) || sha256Fresh(abs) !== expected) throw new Error("G004 direct dependency drift: " + rel);
+    }
+    accepted.push({ file: job.file, identity: job.identity, argv: job.argv, origin: "direct", status: "passed", exitCode: 0, settlement: row.treeStatus, directEvidence: row });
+  }
+  return accepted;
+}
+
+function planG004Execution(root, plan, coverage) {
+  const expectedSource = path.join(root, "simple_cluster", "reports", "test-workflow", "2026-11-22T06-35-19-310Z-69208-package", "run.json");
+  if (!coverage || path.resolve(coverage.sourceReceipt) !== expectedSource) throw new Error("G004 original receipt does not match this task");
+  const key = j => JSON.stringify([j.identity, j.argv]);
+  const reviewed = new Map(coverage.jobs.map(j => [key(j), j]));
+  if (reviewed.size !== coverage.jobs.length || reviewed.size !== plan.jobs.length || plan.jobs.some(j => !reviewed.has(key(j)) || reviewed.get(key(j)).file !== j.file)) throw new Error("G004 plan and reviewed job identities differ");
+  const inherited = [...inspectG004LegacyEvidence(root, plan, coverage), ...inspectG004DirectEvidence(root, plan, coverage)];
+  const inheritedKeys = new Set(inherited.map(key));
+  if (inheritedKeys.size !== inherited.length) throw new Error("G004 conflicting inherited evidence");
+  const protectedSourceJobs = new Set([264, 265, 267, 268, 269, 271, 274]);
+  const blocked = plan.jobs.filter(j => {
+    const row = reviewed.get(key(j));
+    return !inheritedKeys.has(key(j)) && (protectedSourceJobs.has(row.sourceJob) || row.executionApproved !== true || !row.executionReview || !row.executionReview.decision || !row.executionReview.effects);
+  });
+  if (blocked.length) throw new Error(`G004 requires reviewed execution or inherited evidence for ${blocked.length} job(s); first: ${blocked[0].file}`);
+  for (const job of plan.jobs.filter(j => !inheritedKeys.has(key(j)))) {
+    const review = reviewed.get(key(job)).executionReview, files = Object.entries(review.snapshotSha256 || {});
+    if (!files.length || !Object.hasOwn(review.snapshotSha256, job.file) || !Array.isArray(review.dependencies) || review.dependencies.length !== files.length || new Set(review.dependencies).size !== files.length || review.dependencies.some(dep => !Object.hasOwn(review.snapshotSha256, dep)) || !Array.isArray(review.externalTools)) throw new Error("G004 fresh dependency review incomplete: " + job.file);
+    for (const [rel, expected] of files) {
+      const abs = path.resolve(root, rel), within = path.relative(root, abs);
+      if (!within || within.startsWith(".." + path.sep) || path.isAbsolute(within) || sha256Fresh(abs) !== expected) throw new Error("G004 fresh dependency drift: " + rel);
+    }
+    for (const tool of review.externalTools) if (!path.isAbsolute(tool.path) || sha256Fresh(tool.path) !== tool.sha256) throw new Error("G004 external tool drift: " + tool.path);
+  }
+  return inherited;
+}
+
+function verifyG004Aggregate(state) {
+  if (state.cancelled || sha256Fresh(state.g004CoveragePath) !== state.g004CoverageSha256) throw new Error("G004 cancelled or review inputs drifted");
+  const toolchain = state.receipt.toolchain;
+  if (!toolchain || toolchain.node !== process.version || toolchain.platform !== process.platform || toolchain.arch !== process.arch || toolchain.executable !== process.execPath || toolchain.executableSha256 !== sha256Fresh(process.execPath)) throw new Error("G004 current toolchain drift");
+  if (state.receipt.gates.some(g => !g.passed || g.exitCode !== 0 || g.signal || g.spawnError || g.timedOut || g.treeStatus !== "confirmed" || !g.outLog || !g.errLog || !g.logSha256 || sha256Fresh(g.outLog) !== g.logSha256.outLog || sha256Fresh(g.errLog) !== g.logSha256.errLog)) throw new Error("G004 failed, unsettled or changed gate");
+  const coverage = JSON.parse(fs.readFileSync(state.g004CoveragePath, "utf8")).g004IncrementalCoverage;
+  const expectedSource = path.join(state.root, "simple_cluster", "reports", "test-workflow", "2026-11-22T06-35-19-310Z-69208-package", "run.json");
+  if (!coverage || path.resolve(coverage.sourceReceipt) !== expectedSource) throw new Error("G004 source receipt changed");
+  const current = planG004Execution(state.root, state.plan, coverage);
+  const key = j => JSON.stringify([j.identity, j.argv]);
+  const old = new Map(current.map(j => [key(j), j]));
+  if (old.size !== current.length) throw new Error("G004 conflicting inherited evidence");
+  const rows = new Map();
+  for (const row of state.receipt.jobs) {
+    const k = key(row);
+    if (rows.has(k)) throw new Error("G004 duplicate result");
+    rows.set(k, row);
+  }
+  if (rows.size !== state.plan.jobs.length) throw new Error("G004 missing or extra result");
+  for (const job of state.plan.jobs) {
+    const k = key(job), row = rows.get(k), inherited = old.get(k);
+    if (!row || row.file !== job.file || row.status !== "passed" || row.exitCode !== 0 || row.signal || row.spawnError || row.timedOut) throw new Error("G004 job not settled: " + job.file);
+    if (inherited && inherited.origin === "direct") {
+      if (row.origin !== "direct" || row.settlement !== "settled_by_direct_execution" || row.treeStatus !== undefined || JSON.stringify(row.directEvidence) !== JSON.stringify(inherited.directEvidence)) throw new Error("G004 direct provenance changed: " + job.file);
+    } else if (row.treeStatus !== "confirmed" || !row.outLog || !row.errLog || !fs.existsSync(row.outLog) || !fs.existsSync(row.errLog)) throw new Error("G004 job not settled: " + job.file);
+    if (inherited && inherited.origin === "reused" && (row.origin !== "reused" || row.sourceJob !== inherited.sourceJob || row.sourceReceipt !== inherited.sourceReceipt || row.sourceInputFingerprint !== inherited.sourceInputFingerprint || row.sourceEndFingerprint !== inherited.sourceEndFingerprint || row.sourceArtifactFingerprint !== inherited.sourceArtifactFingerprint || row.outLog !== inherited.original.outLog || row.errLog !== inherited.original.errLog || JSON.stringify(row.original) !== JSON.stringify(inherited.original))) throw new Error("G004 inherited provenance changed: " + job.file);
+    if (!inherited && (row.origin !== "fresh" || !row.logSha256 || sha256Fresh(row.outLog) !== row.logSha256.outLog || sha256Fresh(row.errLog) !== row.logSha256.errLog)) throw new Error("G004 fresh result or log invalid: " + job.file);
+  }
+  const required = ["compile", "lint", "post"].flatMap(phase => ((state.plan.phases[phase] && state.plan.phases[phase].gates) || []).map(g => ({ cmd: g.cmd, phase })));
+  required.push(...((state.plan.phases.fullCheck && state.plan.phases.fullCheck.domainGates) || []).map(g => ({ cmd: g.cmd, phase: "fullCheck" })));
+  required.push(...state.plan.prereq.map(cmd => ({ cmd, phase: "prereq" })));
+  for (const spec of required) {
+    const need = required.filter(g => g.cmd === spec.cmd && g.phase === spec.phase).length;
+    const got = state.receipt.gates.filter(g => g.cmd === spec.cmd && g.phase === spec.phase).length;
+    if (got !== need) throw new Error("G004 gate missing or duplicate: " + spec.phase + " " + spec.cmd);
+  }
+  const permitted = [...required, ...((state.plan.phases.assemble && state.plan.phases.assemble.gates) || []).map(g => ({ cmd: g.cmd, phase: "assemble" }))];
+  for (const gate of state.receipt.gates) if (state.receipt.gates.filter(g => g.cmd === gate.cmd && g.phase === gate.phase).length > permitted.filter(g => g.cmd === gate.cmd && g.phase === gate.phase).length) throw new Error("G004 unexpected or duplicate gate: " + gate.cmd);
+  const direct = current.filter(j => j.origin === "direct").length;
+  return { inherited: current.length - direct, direct, fresh: rows.size - current.length };
+}
 
 function validateReceiptForAssemble(priorPath, entryName, currentPlan, currentFingerprint, currentArtifact) {
   if (!fs.existsSync(priorPath)) return { ok: false, reason: "receipt missing" };
@@ -999,6 +1146,27 @@ function validateReceiptForAssemble(priorPath, entryName, currentPlan, currentFi
   return { ok: true, batchId: r.batchId, jobs: r.jobs.length, gates: r.gates.length };
 }
 
+function validateG004ReceiptForAssemble(priorPath, entryName, currentPlan, currentFingerprint, currentArtifact, root) {
+  try {
+    const r = JSON.parse(fs.readFileSync(priorPath, "utf8"));
+    const coveragePath = path.join(root, "docs", "windows-entry-coverage.json");
+    if (r.schemaVersion !== 3 || r.coverageMode !== "g004-incremental" || entryName !== "package" || r.entry !== entryName || r.overall !== "passed" || r.root !== root) throw new Error("not a passed G004 package credential");
+    if (!r.coverageSource || r.coverageSource.path !== coveragePath || !r.toolchain || r.toolchain.node !== process.version || r.toolchain.platform !== process.platform || r.toolchain.arch !== process.arch || r.toolchain.executable !== process.execPath || r.toolchain.executableSha256 !== sha256Fresh(process.execPath)) throw new Error("G004 review path or current toolchain mismatch");
+    if (r.inputFingerprint !== currentFingerprint || r.endFingerprint !== currentFingerprint || r.artifactFingerprint !== currentArtifact || r.fullCheckPlanHash !== planHash(currentPlan) || !r.candidate || r.candidate.state !== "validated") throw new Error("G004 input, plan, artifact or candidate mismatch");
+    const selProblem = testSelection.decisionMatchesReceipt(r.selection, currentPlan.selection);
+    if (selProblem) throw new Error(selProblem);
+    if (JSON.stringify(r.onDemandJobs) !== JSON.stringify(currentPlan.onDemandJobs)) throw new Error("G004 on-demand jobs differ from current plan");
+    const counts = verifyG004Aggregate({ root, plan: currentPlan, receipt: r, cancelled: false, g004CoveragePath: coveragePath, g004CoverageSha256: r.coverageSource.sha256 });
+    if (JSON.stringify(r.coverageCounts) !== JSON.stringify(counts) || r.launchedCount !== counts.fresh) throw new Error("G004 coverage counts do not match evidence");
+    const assembleGates = (currentPlan.phases.assemble && currentPlan.phases.assemble.gates) || [];
+    for (const gate of assembleGates) {
+      const need = assembleGates.filter(g => g.cmd === gate.cmd).length;
+      if (r.gates.filter(g => g.phase === "assemble" && g.cmd === gate.cmd).length < need) throw new Error("G004 assemble gate missing: " + gate.cmd);
+    }
+    return { ok: true, batchId: r.batchId, jobs: r.jobs.length, gates: r.gates.length, counts };
+  } catch (error) { return { ok: false, reason: "G004 incremental credential refused: " + error.message }; }
+}
+
 /* ---------------- main ---------------- */
 
 async function main() {
@@ -1027,6 +1195,20 @@ async function main() {
     for (const j of plan.jobs) byGroup[j.classification.exclusive ? "exclusive" : "independent"]++;
     console.log(JSON.stringify({ entry: plan.entry, final: plan.final, jobs: plan.jobs.length, independent: byGroup.independent, exclusive: byGroup.exclusive, dedup: plan.dedup, prereq: plan.prereq, phases: Object.keys(plan.phases), hooksVerified: plan.hookProof, selection: plan.selection, onDemandJobs: plan.onDemandJobs }, null, 1));
     return 0;
+  }
+
+  if (opts.g004Incremental) {
+    if (opts.entry !== "package" || path.resolve(opts.root) !== ROOT_DEFAULT || opts.manifest || opts.only.length || opts.domains.length || state.maxParallel !== 1) fail("G004 incremental mode requires this repository's package plan and max-parallel 1");
+    const coveragePath = path.join(opts.root, "docs", "windows-entry-coverage.json");
+    const coverage = JSON.parse(fs.readFileSync(coveragePath, "utf8")).g004IncrementalCoverage;
+    state.g004Inherited = planG004Execution(opts.root, plan, coverage);
+    state.g004CoveragePath = coveragePath;
+    state.g004CoverageSha256 = sha256Fresh(coveragePath);
+    state.receipt.schemaVersion = 3;
+    state.receipt.coverageMode = "g004-incremental";
+    state.receipt.coverageSource = { path: coveragePath, sha256: state.g004CoverageSha256 };
+    state.receipt.toolchain = { node: process.version, platform: process.platform, arch: process.arch, executable: process.execPath, executableSha256: sha256Fresh(process.execPath) };
+    for (const row of state.g004Inherited) state.receipt.jobs.push(row.origin === "direct" ? row : { ...row, status: row.original.status, exitCode: row.original.exitCode, treeStatus: row.original.treeStatus, outLog: row.original.outLog, errLog: row.original.errLog });
   }
 
   const startFingerprint = inputFingerprint(opts.root);
@@ -1074,13 +1256,14 @@ async function main() {
     state.receipt.totalWallMs = totalMs;
     state.receipt.phaseWalls = state.phaseTimes;
     state.receipt.logDir = state.logDir;
-    state.receipt.launchedCount = state.receipt.jobs.length;
+    state.receipt.launchedCount = state.receipt.jobs.filter(j => j.origin !== "reused" && j.origin !== "direct").length;
+    if (state.g004Inherited) state.receipt.coverageCounts = { inherited: state.receipt.jobs.filter(j => j.origin === "reused").length, direct: state.receipt.jobs.filter(j => j.origin === "direct").length, fresh: state.receipt.launchedCount };
     const failed = state.receipt.gates.filter(g => !g.passed && !g.skippedAfterCancel).length + state.receipt.jobs.filter(j => j.status !== "passed").length;
     const skipped = state.receipt.gates.filter(g => g.skippedAfterCancel).length;
     if (state.cancelled || skipped) state.receipt.overall = "cancelled";
     else if (state.refused) state.receipt.overall = "refused";
     else if (endFingerprint !== startFingerprint) state.receipt.overall = "invalidated"; // r29 #5: mid-run drift never yields a passed credential
-    else if (failed) state.receipt.overall = "failed";
+    else if (failed || (state.g004Inherited && code)) state.receipt.overall = "failed";
     else state.receipt.overall = "passed";
     const candidate = { distFingerprint: state.receipt.artifactFingerprint };
     if (state.receipt.gates.some(g => g.phase === "compile" && g.passed) && !state.receipt.gates.some(g => g.phase === "compile" && !g.passed)) candidate.state = "compiled";
@@ -1112,7 +1295,7 @@ async function main() {
       await fsp.writeFile(pointer, JSON.stringify({ pointer: true, batchId, runReceipt: runPath, entry: plan.entry, overall: state.receipt.overall, totalWallMs: state.receipt.totalWallMs, inputFingerprint: startFingerprint, endedAt: state.receipt.endedAt }, null, 1));
     } catch { /* pointer is best-effort */ }
     await releaseOwnedLock(state);
-    if (state.receipt.overall === "passed" && (plan.phases.compile || plan.phases.fullCheck)) {
+    if (state.receipt.overall === "passed" && !state.g004Inherited && (plan.phases.compile || plan.phases.fullCheck)) {
       try { // 完整 compile+fullCheck+package 通过 = 当前闭包状态的新证明，记录进 closure-state（r29 #8 增量核的完成记录）
         // 覆盖范围诚实分级：只有完整打包链证明“全部”；check:full/build 只重验源码与测试。
         const covered = ["package", "acceptance"].includes(plan.entry) ? "all" : "src,test,scripts";
@@ -1122,7 +1305,8 @@ async function main() {
     }
     process.stdout.write(`[test-workflow] entry=${plan.entry} overall=${state.receipt.overall} files=${state.receipt.jobs.length} maxParallel=${state.maxParallel} maxObservedConcurrent=${state.maxConcurrent || 0} dedupRemoved=${plan.dedup.duplicatesRemoved} logDir=${state.logDir}\n`);
     const sel = plan.selection;
-    process.stdout.write(`[test-selection] strategy=${sel.strategyVersion} decision=${sel.selectionHash.slice(0, 16)} 原总文件槽=${plan.dedup.requestedSlots} 去重后文件=${state.receipt.selectionDedupFiles} 组数=${sel.groupCount} 旧候选cap=${sel.oldCandidateCap} 保护恢复=${sel.protectedRestoredCount}${sel.restoredByUserCount ? `+用户恢复${sel.restoredByUserCount}` : ""} 按需静默文件=${sel.onDemandFileCount} 实际执行作业=${sel.executedJobCount}（按需≠通过：${sel.onDemandFileCount} 个文件未运行、不计入结果）\n`);
+    const jobSummary = state.g004Inherited ? `计划作业=${sel.executedJobCount} 本轮启动=${state.receipt.launchedCount} 旧回执继承=${state.receipt.coverageCounts.inherited} 直接证据=${state.receipt.coverageCounts.direct}` : `实际执行作业=${sel.executedJobCount}`;
+    process.stdout.write(`[test-selection] strategy=${sel.strategyVersion} decision=${sel.selectionHash.slice(0, 16)} 原总文件槽=${plan.dedup.requestedSlots} 去重后文件=${state.receipt.selectionDedupFiles} 组数=${sel.groupCount} 旧候选cap=${sel.oldCandidateCap} 保护恢复=${sel.protectedRestoredCount}${sel.restoredByUserCount ? `+用户恢复${sel.restoredByUserCount}` : ""} 按需静默文件=${sel.onDemandFileCount} ${jobSummary}（按需≠通过：${sel.onDemandFileCount} 个文件未运行、不计入结果）\n`);
     if (sel.onDemand.length) process.stdout.write(`[test-selection] 按需清单: ${sel.onDemand.map(g => g.key + "(" + g.files.length + ")").join(", ")} —— 恢复入口: --include-ondemand all 或 组名/文件子串\n`);
     for (const p of state.phaseTimes) process.stdout.write(`[test-workflow] phase ${p.phase} wall=${p.wallMs}ms${p.note ? " " + p.note : ""}\n`);
     process.stdout.write(`[test-workflow] TOTAL wall=${totalMs}ms (monotonic; run.json=${runPath} lockReleased=${state.lockReleased})\n`);
@@ -1161,7 +1345,9 @@ async function main() {
         const sourceEntryName = wanted.find(e => prior.entry === e);
         if (!sourceEntryName) { verdict = { ok: false, reason: `receipt ${priorPath} entry=${prior.entry} not in [${wanted}]` }; continue; }
         const sourcePlan = planEntry(manifestFile.file, manifest, opts.root, sourceEntryName, { domains: [], only: [], root: opts.root, includeOndemand: opts.includeOndemand }); // 恢复入口必须端到端一致：验收时 --include-ondemand all，组装核对同参重算同一决策
-        verdict = validateReceiptForAssemble(priorPath, sourceEntryName, sourcePlan, currentFingerprint, currentArtifact);
+        verdict = prior.schemaVersion === 3 && prior.coverageMode === "g004-incremental"
+          ? validateG004ReceiptForAssemble(priorPath, sourceEntryName, sourcePlan, currentFingerprint, currentArtifact, opts.root)
+          : validateReceiptForAssemble(priorPath, sourceEntryName, sourcePlan, currentFingerprint, currentArtifact);
         verdict.receiptPath = priorPath;
         if (verdict.ok) break;
         refusalReasons.push(`${priorPath}: ${verdict.reason}`);
@@ -1192,6 +1378,7 @@ async function main() {
     }
 
     if (plan.phases.fullCheck) {
+      if (state.g004Inherited) state.g004TestArtifact = artifactFingerprint(opts.root);
       const spec = plan.phases.fullCheck;
       const t0 = nowMono();
       for (const gate of spec.domainGates || []) { const r = await runGate(state, gate); if (!r.passed) return await writeReceiptAndRelease(1); if (state.cancelled) break; }
@@ -1206,9 +1393,19 @@ async function main() {
       const spec = plan.phases[phaseName];
       if (!spec) continue;
       if (state.cancelled) return await writeReceiptAndRelease(1);
+      if (phaseName === "assemble" && state.g004Inherited) {
+        if (inputFingerprint(opts.root) !== startFingerprint || artifactFingerprint(opts.root) !== state.g004TestArtifact) throw new Error("G004 source or tested artifacts changed before assemble");
+        const currentPlan = planEntry(manifestFile.file, manifest, opts.root, opts.entry, opts);
+        if (planHash(currentPlan) !== state.receipt.fullCheckPlanHash || testSelection.decisionMatchesReceipt(plan.selection, currentPlan.selection)) throw new Error("G004 plan or selection drift before assemble");
+        state.receipt.coverageCounts = verifyG004Aggregate(state);
+      }
       const t0 = nowMono();
       for (const gate of spec.gates) { const r = await runGate(state, gate); if (!r.passed) return await writeReceiptAndRelease(1); if (state.cancelled) break; }
       state.phaseTimes.push({ phase: phaseName, wallMs: nowMono() - t0 });
+    }
+    if (state.g004Inherited) {
+      if (artifactFingerprint(opts.root) !== state.g004TestArtifact) throw new Error("G004 tested artifacts changed during assemble");
+      state.receipt.coverageCounts = verifyG004Aggregate(state);
     }
     return await writeReceiptAndRelease(0);
   } catch (error) {
@@ -1239,7 +1436,7 @@ function writeAcceptanceReport(root, receipt) {
   process.stdout.write(`[acceptance] overall=${receipt.overall} report=${path.join(dir, "latest.md")} logs=${receipt.logDir}\n`);
 }
 
-module.exports = { planEntry, planHash, jobIdentity, expandGlobPattern, resolveStepCommand, validateReceiptForAssemble, inputFingerprint, verifyNoNpmHooks, sha256File, sha256Fresh,
+module.exports = { planEntry, planHash, jobIdentity, expandGlobPattern, resolveStepCommand, validateReceiptForAssemble, inspectG004LegacyEvidence, planG004Execution, uncoveredG004Jobs, verifyG004Aggregate, validateG004ReceiptForAssemble, inputFingerprint, verifyNoNpmHooks, sha256File, sha256Fresh,
   ownerProcessAlive, readLockOwner, classifyStaleLock, deleteOwnedLockChild, collectLockEvidence, lockFingerprint,
   verifyLockDeletionTarget, confirmLockDeletion, showLockDeletionDialog, LOCK_DELETE_CONFIRMATIONS, STALE_LOCK_CONFIRM_AGE_MS, OWNER_WRITE_GRACE_MS };
 
