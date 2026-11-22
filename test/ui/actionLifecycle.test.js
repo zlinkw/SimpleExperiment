@@ -444,6 +444,23 @@ test("configuration scope and tool descriptions match the host targets", async (
   assert.match(source,/if \(stringField\(params, "scope"\) !== "workspaceFolder"\) throw new Error\("项目接入配置必须使用 workspaceFolder 范围。"\)/);
 });
 
+test("configuration set and reset use the explicit global target", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),methods={};
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&['apiConfigUpdateTarget','apiConfigSet','apiConfigReset'].includes(node.name.getText(ast)))methods[node.name.getText(ast)]=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  const writes=[],config={update:async(...args)=>writes.push(args)};
+  const vscode={ConfigurationTarget:{Global:1,Workspace:2,WorkspaceFolder:3},Uri:{file:x=>x},workspace:{workspaceFolders:[{}],getConfiguration:()=>config}};
+  const sandbox={vscode,API_CONFIG_NAMESPACE:'simpleExperiment',API_CONFIG_PREFIX:'simpleExperiment.',API_SECRET_CONFIG_KEYS:new Set(),stringField:(p,k)=>p[k]||'',validateApiConfigValue(){},confirmationRequired:()=>Error('CONFIRM_REQUIRED'),assertSingleProjectWorkspace(){}};
+  vm.runInNewContext(ts.transpileModule('class Host {'+Object.values(methods).join('\n')+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  const host=new sandbox.Host();Object.assign(host,{apiConfigDefinition:()=>({schema:{scope:'resource'}}),captureProjectContext:()=>({root:'/project'}),projectContextIsCurrent:()=>true,postState(){},apiConfigValue:()=>false});
+  const args={key:'simpleExperiment.showAdvancedCommands',scope:'global',value:false,confirm:true};
+  assert.equal((await host.apiConfigSet(args)).scope,'global');assert.equal((await host.apiConfigReset(args)).scope,'global');
+  assert.deepEqual(writes,[['showAdvancedCommands',false,1],['showAdvancedCommands',undefined,1]]);
+  await assert.rejects(host.apiConfigSet({...args,key:'simpleExperiment.projectAdapterRules'}),/workspaceFolder/);
+  await assert.rejects(host.apiConfigReset({...args,key:'simpleExperiment.projectAdapterRules'}),/workspaceFolder/);
+  await assert.rejects(host.apiConfigSet({...args,confirm:false}),/CONFIRM_REQUIRED/);assert.equal(writes.length,2);
+});
+
 test("project authorization grants the project without binding Workers", async () => {
   const ts=require('typescript'),Module=require('node:module');
   const root=path.resolve(__dirname,'../..'), sourceFile=path.join(root,'src/extension/McpHost.ts');

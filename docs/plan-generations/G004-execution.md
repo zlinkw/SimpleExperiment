@@ -12,13 +12,13 @@ R519 A6历史结果读错/坏JSON反馈原因，缺失仍允许；内存fs联验
 
 R519 B2选择API等待持久化、失败可见并拒绝跨项目成功回执；PLAN已写入后的状态失败明确提示。真实入口配内存替身：动作46/46、迁移13/13、上下文20/20 exit0，日志同目录 `g004-r519-b2-actions-complete-ff08.log`、`g004-r519-b2-migration-ff08.log`、`g004-r519-b2-context-ff08.log`。动作首44/45 exit1因A5源码抽取夹具缺`selectResultPreset`，已补真实依赖，`g004-r519-b2-actions-first-ff08.log`。
 
-R519 B3手动刷新/重连离线或失败回报原动作，恢复等待实际连接；后台容错和低流量正常关闭语义保留。真实方法配假transport/UI状态4/4、低流量16/16、关闭决策14/14 exit0；同目录 `g004-r519-b3-network-final-ff08.log`、`g004-r519-b3-traffic-ff08.log`、`g004-r519-b3-closure-ff08.log`，未联系Worker。
+R519 B3手动刷新/重连失败回报原动作，保留后台容错和低流量语义。假transport/UI状态4/4、低流量16/16、关闭决策14/14 exit0；日志 `g004-r519-b3-network-final-ff08.log`、`g004-r519-b3-traffic-ff08.log`、`g004-r519-b3-closure-ff08.log`，未联系Worker。
 
 R519 B4调试包缺失、取消和失败不冒成功；假UI/传输/文件1/1 exit0，`g004-r519-b4-debug-first-ff08.log`，无实际下载。
 
 R519 C1修复14项API本地路由，保留确认、资源租约及业务门禁；真实入口配假handler 47/47 exit0，同目录 `g004-r519-c1-actions-first-ff08.log`，未执行远端动作。
 
-R519 C2明确设置范围及准备副作用，global写入不误落项目；源码/目录单文件48/48 exit0，同目录 `g004-r519-c2-actions-first-ff08.log`，未改真实设置。
+R519 C2明确设置范围及准备副作用，global写入不误落项目；源码/目录48/48、真实set/reset配内存配置49/49 exit0，日志 `g004-r519-c2-actions-first-ff08.log`、`g004-r519-c2-consumers-ff08.log`，未改真实设置。
 
 R519 C3五个Git命令返回异步结果，假UI/提供者4/4 exit0；首3/4 exit1为测试误判同步和发布的注册顺序，日志同目录 `g004-r519-c3-git-first-ff08.log`、`g004-r519-c3-git-final-ff08.log`，未操作真实Git hook或发布。
 
