@@ -51,3 +51,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 selectedPlanBatch 原文件 14/14、exit0（`%TEMP%/g004-520-selected-plan-batch-20261123.log`，先查不存在）；假队列/Worker/停止回调与 HTML VM，无真实 UI 或 Worker，待总控审定。
 
 - 520 后 distributedSchedulingModes 原文件 7/7、exit0（`%TEMP%/g004-520-distributed-scheduling-modes-20261123.log`，先查不存在）；纯合成内存队列和调度，无真实 Worker 或 GPU，待总控审定。
+
+- 520 后 projectWorkspaceChangeIsolation 原文件 20/20、exit0（`%TEMP%/g004-520-workspace-change-isolation-20261123.log`，先查不存在）；源码/文档断言和假文件端口，无实际工作区切换或删除，待总控审定。
