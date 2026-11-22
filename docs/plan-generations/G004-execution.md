@@ -81,3 +81,5 @@ Windows工作流混合文件形成未应用diff，仅移旧CLI三项及专用fix
 活跃快照及持久运行记录形成两份整文件未应用diff，分别对应中立生命周期4/4＋快照6/6与持久记录4/4；真实Worker和旧CLI进程未测，联合退休及直接job修改须批准。两份git apply --check exit0。
 
 失败告警、健康证据与inspect schema三份旧文件形成未应用候选，分别关联MCP合成queryProject 6/6、6/6、6/6；告警首加载失败保留旧记录，未测真实Worker/旧进程。三份git apply --check exit0，原文件和矩阵保留。
+
+旧CLI拆分测试1–3形成逐文件未应用diff，逐项引用原索引及边界，不把重复函数体当helper等价；history、旧表面和真实Worker差异仍需裁决。三份git apply --check exit0，现有测试及glob不变。
