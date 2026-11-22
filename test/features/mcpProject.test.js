@@ -135,7 +135,7 @@ test('MCP Worker-to-Worker sync binds both selected authorized targets', async (
   const f = fixture(), sent = [];
   const second = { id: 'worker-b', host: 'second.invalid', port: 22, user: 'research', projectRoot: '/project/second' };
   const workers = [f.worker, second];
-  await f.store.update(AUTHORIZATION_KEY, { ...createProjectAuthorization(f.root), permissions: ['sync'], workers });
+  await f.store.update(AUTHORIZATION_KEY, { ...createProjectAuthorization(f.root), permissions: ['sync'], workers: workers.map(worker => ({ ...worker })) });
   const vscode = { workspace: { workspaceFolders: [{ uri: { fsPath: f.root } }] } };
   const host = { context: { workspaceState: f.store }, createLocalApiMethods: () => f.methods, refreshSharedConnectionSettings() {},
     workerCodeSyncTargets: () => workers.map(worker => ({ ...worker, remotePath: worker.projectRoot })),
@@ -338,7 +338,7 @@ function fixture() {
   const store = { get: () => grant, update: async (key, value) => { assert.equal(key, AUTHORIZATION_KEY); grant = value; } };
   return { root, worker, calls, methods, store,
     gateway: new ProjectGateway({ root: () => root, workers: () => [worker], store, methods: () => methods }),
-    authorize: async permissions => store.update(AUTHORIZATION_KEY, { ...createProjectAuthorization(root), permissions, workers: [worker] }) };
+    authorize: async permissions => store.update(AUTHORIZATION_KEY, { ...createProjectAuthorization(root), permissions, workers: [{ ...worker }] }) };
 }
 test('MCP log reads preserve the exact Worker and remote cursor, including empty responses', async () => {
   const ts = require('typescript');

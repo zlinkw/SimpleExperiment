@@ -1,5 +1,11 @@
 # G004 执行登记
 
+0.5.518 第二次 package exit0，341/341、13 gates、并发1、锁释放，receipt `simple_cluster/reports/test-workflow/2026-11-22T03-36-44-479Z-33768-package/run.json`；VSIX 2987002字节 SHA256 `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`。真实 Panel 模块及2个生成脚本 VM、实际 VSIX 内容策略验证均 exit0；运行闭包核验进程自然结束但工具丢失输出及退出码，状态未知。总控批准等价实际 ZIP 核验：325闭包、324面板文件均存在，371运行文件与构建输出逐字节摘要一致，身份/version/engine正确，exit0；原未知不覆盖。
+
+518 精确 `git add` exit1 提示 dist 被忽略；回读状态确认指定13个已跟踪生成文件及8个非生成文件均实际暂存，未强制添加或触碰未跟踪项。
+
+0.5.518 首次 package exit1：341 项中339通过、2失败，前10门禁通过，maxParallel/maxObserved=1、锁已释放，未进入 post/assemble；完整 `simple_cluster/reports/test-workflow/2026-11-22T03-16-49-272Z-80576-package/run.json`。mcpProject 41/43：旧授权夹具与当前 Worker 共用可变对象，无法模拟历史快照；改用副本后实际新 dist 43/43 exit0（`C:/Users/ZLK/AppData/Local/Temp/g004-518-mcp-project-after-ff08.log`）。serverQuotaPersistence 9/10：源码抽取夹具缺 `mcpInvocation`，接入真实模块后10/10 exit0（`C:/Users/ZLK/AppData/Local/Temp/g004-518-worker-quota-after-ff08.log`）。两项仅改测试夹具，首失败日志见该 run 的 job 日志；待总控裁决组装/重跑，未发行、安装或修改真实权限/Worker。
+
 U04-56：隔离517导入成功但结果区优先旧主动查询报告，未展示新离线摘要。源码将 bundle 的结果经现有30行/字段压缩单独传为只读预览，明确归属/版本未核，不改变当前 PLAN 完成/归档证据；离线预览时结果区不把旧同步报告当本次结果，实时视图保留真实报告。真实源生成的 HTML 内脚本 VM 编译及定向 `node --test --test-force-exit --test-timeout 20000 test/features/resultsSummaryWebviewCache.test.js` 首次8/8 exit0；补充真实指标压缩和异 PLAN 预览后8/8 exit0，完整后一轮日志 `C:/Users/ZLK/AppData/Local/Temp/g004-56-offline-preview-ff08.log`。原517仍未包含修复，未 build、安装或新版实机验收。
 
 U56 源审返修：非对象离线行显示行号及错误、保留其余行；指标和维度压缩保留 `__proto__`、`constructor` 与零值。上述单文件增加真实压缩及生成脚本消费断言，修前 7/8 exit1（null 读取 experimentId），修后 8/8 exit0；完整日志分别为 `C:/Users/ZLK/AppData/Local/Temp/g004-56-edge-before-ff08.log` 和 `C:/Users/ZLK/AppData/Local/Temp/g004-56-edge-after-ff08.log`。
@@ -42,43 +48,25 @@ U04逐项调查、原始退出码与受控证据保留于 Git f72d0066 的本登
 关键失败保留：日志导航目标文件12/13 exit1（夹具缺setNativeTitle），另行VM补测3/3 exit0（首次夹具缺nativeTitleMutationVersion exit1）；U04-03首次假错误类型不符exit1后修正；U04-10完整对象比较因时间戳不同exit1，业务字段比较exit0；CLI --version API_WORKSPACE_MISMATCH exit2。U04-51的yaml及js-yaml模块均缺失各exit1；其他夹具和整理脚本首次失败见原记录及coverage。原失败不被后续通过覆盖。
 最终逻辑母集300项：界面279（限定结论204、延期75），独立VSCode命令21（限定结论7、延期14）；合计限定结论211、剩余89均延期。GPU两合成行合并/打散及假持久化、TMUX三种合成导航和all筛选、端点清单假编辑器正常/错误均exit0；真实Worker、剪贴板、网络未测。资源导航6精确/2回退exit0，首次探针语法错误exit1未写。13项旧工具证据适用边界及全部映射见coverage.logicalActionCensus，实际控件实例数未知。
 
-B1首组 U04-25/26：旧状态写入成功后才清除迁移来源；无项目根目录时保留旧值，同进程失败重试重新写入；选择写失败可见，隐藏任务持久化失败不报成功。内存替身定向检查7/7 exit0，projectWorkspaceChangeIsolation 20/20 exit0；未操作实际VS Code状态。后续组及三批验收仍待完成。
+B1 U04-25/26受控检查7/7、20/20 exit0，详见 Git `c37827c8:docs/plan-generations/G004-execution.md`；未操作实际 VS Code 状态。
 
 B1 U04-49/50、28、32完整修复及定向结果保留于 Git `c37827c8:docs/plan-generations/G004-execution.md`；49/50 首次1/2 exit1（夹具沿用长表预设），修正预设后2/2 exit0。
 
 B1 U04-29/30/31及19/21汇总链证据见 Git `c37827c8:docs/plan-generations/G004-execution.md`；对应合成和替身回归3/3、21/21、10/10、1/1 exit0。
 
-B1 U04-21其余链：结果解析、排行榜、CLI指标提取与比较保留特殊名称，比较只使用自有键。CSV解析5/5、排行4/4、缺值及CLI比较3/3，均exit0；均为内存输入。
+B1 U04-21其余链内存回归5/5、4/4、3/3 exit0，详见 Git `c37827c8:docs/plan-generations/G004-execution.md`。
 
-B1 U04-22：中文数据集、方法、词条和指标保留区分；旧ASCII路径及安全冲突规则保留，Windows设备名拒绝；Python旧索引键可读。projectResultTables 22/22、TS/Python函数对照1/1 exit0，无真实文件迁移或Worker操作。
+B1 U04-22/45 的实现及22/22、1/1、4/4 exit0证据见 Git `c37827c8:docs/plan-generations/G004-execution.md`；无真实迁移或配置写入。
 
-B1 U04-45：先完成可信归属和目录冲突校验，再保存人工映射配置，随后沿用JSON优先和表重生成顺序；写表失败仍可见且配置已保存。受控成功路径及拒绝、失败4/4 exit0，无真实配置或文件写入。B1共13项源码及定向检查完成；尚待后两批和总控最终源审。
+B2 U04-13/15/17、16、39/51、24/38 的实现与5/5、6/6、1/1、1/1 exit0合成检查见 Git `c37827c8:docs/plan-generations/G004-execution.md`；未访问或保存真实 PLAN。
 
-B2 U04-13/15/17：目录缺失与读取失败分开，读取失败不伪装为空PLAN；刷新记录错误、筛选及schema返回错误状态。定向假文件系统与实际方法5/5 exit0；未访问真实PLAN。
+B2 U04-47/52/53及12/37/46受控检查3/3、4/4 exit0，详见 Git `c37827c8:docs/plan-generations/G004-execution.md`；无真实报告、剪贴板、草稿或历史操作。
 
-B2 U04-16：当前及归档PLAN的受限扫描触及文件、目录或深度预算时明确报列表不完整并提示缩小范围；保留原预算，不改变其他扫描。含未超限和各预算替身6/6 exit0。
+B2 U04-27/48 合成回归4/4 exit0，无真实归档或网络；详情见 Git `c37827c8:docs/plan-generations/G004-execution.md`。
 
-B2 U04-39/51：显式空seed及带跨行注释的空cases/experiments计数为0；普通两seed对照正常。真实矩阵函数配合成PLAN及假读取1/1 exit0。
+B2 U04-23及B3 U04-03/04/11、10/14、18、09的14/14、4/4、6/6、5/5、8/8、42/42、5/5受控回归及完整实现见 Git `c37827c8:docs/plan-generations/G004-execution.md`；无真实Worker查询或派发。
 
-B2 U04-24/38：缺文件或正文抛出失败，计划正文不再经通用字符串trim，保留既有生成头及保存路径；假写入检查1/1 exit0，未保存真实PLAN。
-
-B2 U04-47/52/53：模板预览、报告打开/复制和草稿目录只把ENOENT当缺失，其他I/O错误向调用方传播；假文件系统检查3/3 exit0，未操作真实报告、剪贴板或草稿。
-
-B2 U04-12/37/46：目录选择与历史清除取消返回现有取消状态，审计读取错误向状态包装器传播；假对话框及宿主4/4 exit0，无真实配置、历史或审计操作。
-
-B2 U04-27/48：轮询间隔保留小数，其他整数设置保持原有截取；归档不再以本轮失败或未刷新的旧摘要过门禁，离线摘要仍可用。合成配置与宿主替身4/4 exit0，无真实归档或网络。
-
-B2 U04-23：跨数据集引用在没有可访问共享产物时显示暂无，保留有文件时的精确入口。真实生成面板脚本VM语法及受控渲染14/14 exit0；build/dist门禁按授权留待最终源审后集中执行。B2共17项源码及定向检查完成，真实UI未测。
-
-B3 U04-03/04/11：任务查询失败不再当空闲资源；缺结果与空/零指标分开；异步结果schema声明实际experiment_id。真实函数及假业务接口4/4 exit0，无真实Worker查询。
-
-B3 U04-10/14：结果解析与排行榜分别声明实际支持的参数，拒绝静默忽略的参数；日志仅将精确WARN规范为WARNING。参数校验、路由及日志定向测试6/6 exit0；排行榜primary及原有输入回归5/5 exit0，使用合成记录。
-
-B3 U04-18：实验、日志、重试和产物消费者优先精确实验ID，旧简称仅唯一匹配；产物优先完整ID，同一实验内短名仍须唯一。含冒号和Worker身份的合成检查8/8、既有产物调用链42/42 exit0；未访问Worker或真实产物。
-
-B3 U04-09：确认及本地准备后重新读取来源任务快照，唯一精确来源和索引仍为排队才向目标提交；运行、终态、未知和不匹配均阻止。受控替身5/5 exit0，含索引0；未真实查询或派发。
-
-B3 U04-01/08：既有等待后、原调用前重新核对项目、选定目标配置和适用授权；保留原确认及路径保护。两处TS转译语法检查exit0；依收敛边界未重放平台拦截、授权撤销或Agent生命周期专项，未连接真实服务。三批39项源码变更及各组定向检查完成，待总控完整源审与后续集中构建；四项跨项目及89项入口延期不变。
+B3 U04-01/08 两处TS转译 exit0；完整实现见 Git `c37827c8:docs/plan-generations/G004-execution.md`。未重放平台拦截、授权撤销或Agent生命周期专项；4项跨项目和89项入口延期。
 
 首次源审返修：U04-30只过滤平面行的维度，显式metrics桶保留seed、epoch、0及特殊自有键；metricLeaderboardInput 5/5 exit0。日志导航夹具加载真实setNativeTitle及初始状态，原套件在既有516 dist上13/13 exit0；原12/13 exit1和另行3/3补测保留，新生成脚本尚待集中构建后门禁。
 

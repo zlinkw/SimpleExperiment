@@ -1420,7 +1420,7 @@ function renderPanelHtml() {
         <div id="syncChainOverview" data-anchor="settings-chain-overview"></div>
         <div id="syncServerOverview" data-anchor="sync-servers"></div>
         <div class="toolbar" data-anchor="sync-check-actions">
-          <button type="button" data-command="manageAiAuthorization" title="选择当前项目允许 AI 操作的 Worker 和范围；可从这里撤销，授权由本人完成">管理 AI 项目授权</button>
+          <button type="button" data-command="manageAiAuthorization" title="授权或撤销当前项目的 AI 操作，由本人完成">管理 AI 项目授权</button>
           <button type="button" data-command="runCheckStatic" title="运行静态检查，生成项目接入报告&#10;覆盖实验计划结构、输出接口与路径安全&#10;报告写入 simple_cluster/check_reports/&#10;查看报告：到「诊断与自检」卡片点「打开静态检查报告」">检查项目配置</button>
           <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" data-anchor="sync-actions-danger" title="危险操作：用 GitHub 远端覆盖本机工作区&#10;未提交的改动会丢失，执行前会要求确认">从 GitHub 覆盖本机</button>
           <button type="button" data-command="configureCodeSyncIncludes" class="secondary" title="统一查看项目文件树及文件夹汇总状态；在窗口内分别设置本机与 Worker、Worker 与 Worker 的同步范围。">项目同步范围与状态</button>
@@ -5484,7 +5484,7 @@ function renderPanelHtml() {
       if (section === "servers") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations);
       if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.gpuMemorySchedulingPreview, data.tensorboardPort, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.resultOutputConfig, data.detectedProject, data.remoteRootPolicy, data.pluginUpdate);
       if (section === "plans") return refListKey(data.planFileInput, data.selection, data.selectedPlan, data.plans, data.localPlans, data.detectedProject, data.planStatusSummaries, data.projectConfig, data.adapterRules, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.codeSync, data.operations, data.resultsSummary, data.schedulerStates, data.capabilities, data.extensionVersion);
-      if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.resultOutputConfig?.tables, data.resultOutputConfig?.catalog, data.resultOutputConfig?.catalogLoadStatus, data.resultOutputConfig?.catalogLoadError);
+      if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.offlineResultPreview, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.resultOutputConfig?.tables, data.resultOutputConfig?.catalog, data.resultOutputConfig?.catalogLoadStatus, data.resultOutputConfig?.catalogLoadError);
       if (section === "sync") return refListKey(data.topology, data.schedulerConfig, data.codeSync, data.capabilities, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.realtimeDiagnostics);
       if (section === "gpu") return refListKey(data.gpu, data.gpuHistory, data.setup, data.gpuOwnerConfig);
       if (section === "execution" || section === "tasks" || section === "operations") return refListKey(data.schedulerStates, data.distributedPlans, data.deferredPlans, data.planStopClearByFile, data.selection, data.selectedLogRunKey, data.capabilities, data.resultsSummary, data.operations);
@@ -5703,6 +5703,7 @@ function renderPanelHtml() {
           resultCatalogStatus: data.resultOutputConfig?.catalogLoadStatus,
           resultCatalogError: data.resultOutputConfig?.catalogLoadError,
           resultSyncReport: data.resultSyncReport || null,
+          offlineResultPreview: data.offlineResultPreview || null,
           autoParseReadiness: resultAutoParseReadinessForState(data, data.resultsSummary || {}),
 
 
@@ -16652,13 +16653,19 @@ function renderPanelHtml() {
 
     function renderResultSummary(state) {
       const summary = state.resultsSummary || {};
+      const offline = state.offlineResultPreview;
+      const offlineRows = Array.isArray(offline?.results) ? offline.results : [];
+      const offlinePreview = offline ? '<details class="muted" open><summary>离线导入预览 · ' + offlineRows.length + '/' + Number(offline.totalCount || 0) + ' 条</summary><p>仅供查看，归属和版本未核实，不作为当前任务完成证据。</p><p>' + esc(String(offline.source || '离线包')) + ' · ' + esc(String(offline.importedAt || '')) + '</p><table><tbody>' + offlineRows.map(function(row) {
+        if (row.previewError) return '<tr><td colspan="3">' + esc(String(row.previewError)) + '</td></tr>';
+        return '<tr><td>' + esc(String(row.experimentId || row.runKey || row.method || '离线记录')) + '</td><td>' + esc(JSON.stringify(row.dimensions || {})) + '</td><td>' + esc(JSON.stringify(row.metrics || {})) + '</td></tr>';
+      }).join('') + '</tbody></table></details>' : '';
       const unverified = Array.isArray(summary.unverifiedResults) ? summary.unverifiedResults : [];
       const historyPreview = unverified.length ? '<details class="muted"><summary>历史指标归属待核实 · ' + unverified.length + ' 条预览</summary><p>仅显示历史指标，不作为当前 job 完成证明。</p><table><tbody>' + unverified.map(function(row) {
         return '<tr><td>' + esc(String(row.experimentId || '历史记录')) + '</td><td>' + esc(JSON.stringify(row.dimensions || {})) + '</td><td>' + esc(JSON.stringify(row.metrics || {})) + '</td></tr>';
       }).join('') + '</tbody></table></details>' : '';
-      const report = state.resultSyncReport || summary;
+      const report = offline ? {} : state.resultSyncReport || summary;
       const coverage = report.source === "active_query" ? '<div class="notice ' + (report.current && !report.reviewRequired && !(report.missing || []).length ? '' : 'warning') + '"><b>' + (report.current ? '本轮产物可汇总 ' + Number(report.completed || 0) + '/' + Number(report.expected || 0) + ' 个 job · 产物待复核 ' + Number(report.reviewRequired || 0) : '本轮查询失败，现有导出不是本轮结果') + '</b><span class="muted"> · ' + esc(report.observedAt || '') + '</span>' + (report.unobservedDeclarations ? '<div class="muted">另有 ' + Number(report.unobservedDeclarations) + ' 项声明尚未发现运行记录，未纳入本轮汇总分母；查询未知不代表未运行。</div>' : '') + ((report.missing || []).length || (report.skipped || []).length ? '<details><summary>查看缺项与查询原因</summary>' + asArray(report.missing).concat(asArray(report.skipped)).map(function(message) { return '<div>' + esc(String(message)) + '</div>'; }).join('') + '</details>' : '') + '</div>' : '';
-      setHtmlIfChanged("resultSummary", coverage + renderWorkerResultAggregateWarning(summary) + historyPreview + renderResultEvidenceWorkbench(state, summary));
+      setHtmlIfChanged("resultSummary", offlinePreview + coverage + renderWorkerResultAggregateWarning(summary) + historyPreview + renderResultEvidenceWorkbench(offline ? { ...state, resultSyncReport: null } : state, summary));
       if (pendingResultMappingOpen && activeResourceSection === "results") openResultColumnMappingEditor();
     }
 

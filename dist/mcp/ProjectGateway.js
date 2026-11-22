@@ -39,7 +39,7 @@ class ProjectGateway {
             throw Error("MCP_FILE_NODE_REQUIRED");
         const grant = this.ports.store.get(ProjectAuthorization_1.AUTHORIZATION_KEY);
         const needsWorkers = tool.permission || tool.additionalPermissions?.length || args.serverIds || args.workerId || args.sourceWorkerId;
-        const workers = needsWorkers ? this.ports.workers() : [];
+        const workers = needsWorkers ? this.ports.workers(tool.name === "worker_configure") : [];
         const ids = args.location === "local" ? [] : args.serverIds || (args.workerId ? [args.workerId] : args.sourceWorkerId
             ? [args.sourceWorkerId, args.destinationWorkerId] : workers.map(row => row.id));
         if (ids.some((id) => !workers.some(row => row.id === id)))
@@ -64,7 +64,7 @@ class ProjectGateway {
         if (tool.method === "mcp.query")
             return (0, ProjectQueries_1.queryProject)(root, async (method, params) => this.ports.methods()[method](params, undefined, context), tool.action, args);
         const scopedWorkers = () => {
-            const workers = this.ports.workers();
+            const workers = this.ports.workers(tool.name === "worker_configure");
             const ids = args.location === "local" ? [] : args.serverIds || (args.workerId ? [args.workerId] : args.sourceWorkerId
                 ? [args.sourceWorkerId, args.destinationWorkerId] : workers.map(row => row.id));
             if (ids.some((id) => !workers.some(row => row.id === id)))

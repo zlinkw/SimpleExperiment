@@ -45,10 +45,17 @@ const SftpCleanupReview_1 = require("./SftpCleanupReview");
 const ProjectAuthorization_1 = require("../mcp/ProjectAuthorization");
 const Invocation_1 = require("../mcp/Invocation");
 const node_util_1 = require("node:util");
-function currentWorkers(host) {
+function currentWorkers(host, includeDisabled = false) {
     host.refreshSharedConnectionSettings();
-    return host.workerCodeSyncTargets().map((worker) => ({ id: worker.id, host: worker.host,
+    const enabled = host.workerCodeSyncTargets().map((worker) => ({ id: worker.id, host: worker.host,
         port: worker.port, user: worker.user, projectRoot: worker.remotePath }));
+    if (!includeDisabled)
+        return enabled;
+    const disabled = host.setupConfig.workerTunnels.filter((worker) => worker.enabled === false).map((worker) => ({
+        ...worker, host: worker.workerHost || worker.hubHost || worker.transferHost || "", port: worker.workerSshPort || worker.hubSshPort || 22,
+        user: worker.workerUser || worker.hubUser || "", projectRoot: worker.agentProjectDir || "",
+    }));
+    return [...enabled, ...disabled];
 }
 function mcpOperations(host) {
     return host.projectMcpOperations ||= new ProjectOperations_1.ProjectMcpOperations({
@@ -80,7 +87,7 @@ function mcpGateway(host) {
             ...(method === "files.cleanup.preview" && params.action === "delete" ? { authorizationMode: "confirmed_paths" } : {}) });
     };
     return new ProjectGateway_1.ProjectGateway({ root: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "",
-        workers: () => currentWorkers(host), store: host.context.workspaceState, methods: () => host.createLocalApiMethods(),
+        workers: includeDisabled => currentWorkers(host, includeDisabled), store: host.context.workspaceState, methods: () => host.createLocalApiMethods(),
         reviewFiles: async (args) => {
             const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "";
             const preview = await scopedFileCall("files.cleanup.status", args);
@@ -169,19 +176,6 @@ async function manageAiAuthorization(host) {
         void vscode.window.showInformationMessage("已撤销当前项目的 AI 写操作授权。");
         return;
     }
-    const workers = await vscode.window.showQuickPick(currentWorkers(host).map(worker => ({ label: worker.id,
-        description: `${worker.user}@${worker.host}:${worker.port} ${worker.projectRoot}`, worker })), { title: "选择 AI 可操作的 Worker", canPickMany: true, ignoreFocusOut: true });
-    if (!workers?.length)
-        return;
-    const names = { experiment: "启动、派发和停止实验", sync: "文件同步", agents: "Agent 部署、升级和重启", configuration: "项目配置与草稿", results: "结果收集与汇总" };
-    const permissions = await vscode.window.showQuickPick(ProjectAuthorization_1.PERMISSIONS.map(permission => ({ label: names[permission], permission, picked: true })), { title: "选择 AI 可自主执行的项目操作", canPickMany: true, ignoreFocusOut: true });
-    if (!permissions?.length)
-        return;
-    if (root !== vscode.workspace.workspaceFolders?.[0]?.uri.fsPath)
-        throw Error("MCP_WORKSPACE_CHANGED");
-    const current = currentWorkers(host);
-    if (workers.some(row => !current.some(worker => (0, node_util_1.isDeepStrictEqual)(worker, row.worker))))
-        throw Error("MCP_WORKER_TARGET_CHANGED");
-    await host.context.workspaceState.update(ProjectAuthorization_1.AUTHORIZATION_KEY, (0, ProjectAuthorization_1.createProjectAuthorization)(root, workers.map(row => row.worker), permissions.map(row => row.permission)));
+    await host.context.workspaceState.update(ProjectAuthorization_1.AUTHORIZATION_KEY, (0, ProjectAuthorization_1.createProjectAuthorization)(root));
     void vscode.window.showInformationMessage("AI 项目授权已保存，可通过同一命令撤销。永久删除与覆盖清理继续使用路径审核页。");
 }

@@ -24,6 +24,7 @@ function fixture({events=true,interruptStorage=false}={}){
  const helpers=ast.statements.filter(n=>ts.isFunctionDeclaration(n)&&['condaEnvPatch','assertCondaEnvAbsolutePath'].includes(n.name?.text)).map(n=>n.getText(ast)).join('\n');
  const Host=vm.runInNewContext(ts.transpileModule(helpers+'\nclass Host{'+methods+'};Host',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{
   keys,XshellTunnelSetup_1:X,GpuQuotaScheduling:Q,GpuMemoryScheduling:M,ConfigurationSettings_1:require('../../src/tunnel/ConfigurationSettings.ts'),
+  mcpInvocation:require('../../src/mcp/Invocation.ts').mcpInvocation,
   TunnelGateway_1:{normalizeTunnelGatewayConfig:value=>value,xshellTunnelConnectionMode:'xshell_realtime',isRealtimeConnectionMode:()=>true},
   persistedXshellSetupConfig:value=>structuredClone(value),persistedTunnelGatewayConfig:value=>structuredClone(value),nonEmptyWorkerTunnelConfig:value=>value,
   vscode:{ConfigurationTarget:{Global:1},workspace:{getConfiguration:()=>config},window:{showInformationMessage(){},showWarningMessage(){}}},
