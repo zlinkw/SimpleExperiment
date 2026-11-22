@@ -1052,7 +1052,7 @@ $result = @($inputs | ForEach-Object {
   $text = [string]$_; $tokens = $null; $errors = $null
   $ast = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$tokens, [ref]$errors)
   $found = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and
-    $n.Parent.Parent -is [System.Management.Automation.Language.NamedBlockAst] -and $n.GetCommandName() -ceq 'node' -and
+    $n.Parent.Parent -eq $ast.EndBlock -and $n.GetCommandName() -ceq 'node' -and
     @($n.CommandElements | Where-Object { $_ -isnot [System.Management.Automation.Language.ConstantExpressionAst] }).Count -eq 0 }, $true) | ForEach-Object {
       $first = $_.CommandElements[0].Extent.StartOffset; $last = $_.CommandElements[-1].Extent.EndOffset
       $text.Substring($first, $last - $first)

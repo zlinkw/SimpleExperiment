@@ -42,7 +42,7 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 误运行按需 dispatchWake 原文件 4/4 exit0，合成队列与假观察；保留日志及直接结果，不计 active，计划仍为 on_demand_not_run。
 
-本段逐项原文与日志路径保留于 Git `f78bacc8:docs/plan-generations/G004-execution.md`，逐项原始事件、输入快照与边界见 coverage。520 后以下原文件均 exit0：gpuSampleWindowChannel 4/4、gpuSubmittedJobOwnership 8/8、autoFallbackWideReadGuard 6/6、workerPreparationPipeline 8/8、simpleSftpCapabilityOncePerLaunch 13/13、failedJobRecovery 13/13、mcpActionCatalog 1/1、probeConnectionContinuity 3/3、resultMissingMetric 3/3、resultCsvIdentity 8/8、mcpPreflightContract 2/2、planMatrixEmptyValues 1/1、distributedProjectContract 6/6、resultDatasetHierarchy 14/14、setupGuideWithoutBundledDocs 12/12、localApiClientSource 3/3、planOutputGateAlignment 3/3、mcpResolver 2/2、mcpRuntimeIdentity 14/14、mcpTransportReceipt 3/3、mcpDraftContracts 3/3、hubRuntimeRemoval 8/8、sftpProgressWait 16/16、completedJobForeignSourceClassify 7/7、jobArtifactStagedSlotIdentity 5/5、planSubmissionVisiblePreflight 25/25、mcpAgentContract 3/3、mcpWorkflowHostSafety 4/4、mcpQueryContext 18/18。均为合成输入、VM 或假端口；两项独立 loopback 的凭据和安装均为夹具，临时目录及 junction 保留。异源历史矩阵仅为夹具，不联系真实端点；未操作真实 Worker、Agent、GPU、SSH、tmux、授权、传输、清理、活动结果或 UI。均待总控终审。
+520 另有多项合成、VM 及假端口定向结果；逐项数量、日志、保留夹具及边界见 Git `b6f86b14:docs/plan-generations/G004-execution.md` 和 coverage。两项独立 loopback 凭据和安装为夹具，junction 保留；未操作真实 Worker、Agent、GPU、SSH、tmux、授权、传输、清理、活动结果或 UI，均待总控终审。
 
 本段压缩前逐项命令范围和边界见 Git `806d47d2:docs/plan-generations/G004-execution.md`，原始事件及输入快照见 coverage。520 后单文件均 exit0：freshResults 10/10、syncScopeTree 6/6、syncScopeMetadata 12/12、syncScopeBatch 8/8、projectRootMap 14/14、syncScopeTransferBatch 8/8、windowsWorkflowContract 4/4、schedulerContract 3/3、distributedPlanSubmissionRouting 7/7、distributedQueueStartup 8/8、distributedQueueStartupMirrors 6/6、distributedQueueStartupRecovery 7/7、prequeueRecallLifecycle 9/9、planRunReplacement 17/17、workerFpsyncTaskLabel 3/3、workflowPanelNavigation 7/7、draftCleanupConfirmation 3/3、inspectorWorkflowDensity 3/3。均为内存、隔离夹具、VM 或假回调；临时夹具保留，未操作真实 Worker、GPU、网络传输、UI、用户授权、删除或重命名，模拟删除不证明真实删除安全；均待总控终审。
 
@@ -73,3 +73,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - planner 修复后发现 PowerShell 将 20000 解析为数字常量，初版仅接受字符串导致 direct drift；允许静态常量并补原 case 数字断言，精确 pattern 再验 1/1 exit0、18.299 秒，TEMP/g004-520-runner-parser-numeric-20261123.log；未改变原预算或重跑产品项。
 
 - 当前 runner 变更后 planner 已正常完成证据核读并报告 367 active、0 onDemand、216 缺口；先前 361/6 随受影响选择重算变化，不代表通过。核验器源码和新增断言及依赖重核待总控终审。
+
+- 总控审出未调用函数的 named block 也会被误当顶层；已改为 parsed 根 EndBlock 实例匹配，并将负例组合覆盖函数及引号伪命令。原精确 pattern 一次返修 1/1 exit0、18.250 秒，TEMP/g004-520-runner-parser-root-20261123.log；七项历史安全测试函数未变，仅更新当前输入快照。上一提交后实际 planner 为 361 active、6 onDemand、212 缺口，最终以新提交后重算为准。

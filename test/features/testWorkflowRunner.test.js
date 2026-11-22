@@ -220,7 +220,7 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   assert.equal(checkEscaped(wrapped(`@'\nfixture text\n'@ | python -B -\n${exact}\nexit $LASTEXITCODE`)).length, 2);
   assert.throws(() => checkEscaped(wrapped(exact.replace("\\.", "."))), /direct execution record drift/);
   assert.throws(() => checkEscaped(wrapped(`Write-Output '${exact}'`)), /direct execution record drift/);
-  assert.throws(() => checkEscaped(wrapped(`Write-Output "text; ${exact}"`)), /direct execution record drift/);
+  assert.throws(() => checkEscaped(wrapped(`function unused { ${exact} }; Write-Output "text; ${exact}"`)), /direct execution record drift/);
   assert.throws(() => checkEscaped(wrapped(`@'\n${exact}\n'@ | python -B -`)), /direct execution record drift/);
   assert.throws(() => checkEscaped(wrapped(`# ${exact}`)), /direct execution record drift/);
   assert.throws(() => checkEscaped(`const r=await tools.exec_command({cmd:makeCommand()}); ${exact}`), /direct execution record drift/);
