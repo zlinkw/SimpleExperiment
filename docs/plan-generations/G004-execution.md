@@ -65,3 +65,5 @@ preflightDispatchRejection 6/6 exit0：Python 抽取函数、临时合成计划�
 hubRetirement 1/1 exit0：AST 单函数、内存事件接收及入口早期拒绝，无完整 runtime 执行、真实 Worker、服务、GPU、网络或文件写入；证据见 coverage，待总控终审。
 
 nativeResultManifest 2/2 exit0：抽取函数与保留的自建合成产物及清单，包含自建文件改写；PYTHON 环境变量未设置，无完整 runtime、真实 Worker、训练、网络或删除。证据见 coverage，待总控终审。
+
+codeSyncProofWaiter 6/6 exit0：假客户端、Python AST 提取与自建文件，夹具线程完成，原时间断言不变；无完整 runtime、真实 Worker、网络或删除。证据见 coverage，待总控终审。
