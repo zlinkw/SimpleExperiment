@@ -71,3 +71,7 @@ direct证据无论使用原工具输出还是单独原日志，均要求非空�
 最终compile后的mcpTrainingProgress原文件9/9 exit0，TEMP/g004-520-mcp-training-progress-20261123.log；仅在内存解析合成字符串，未调用同模块Worker网络观察函数，当前直接证据与源码/TS输入已冻结，待总控审。第一次登记脚本因JSON标记空格不符断言exit1、未写文件；修正标记后成功，不涉及测试失败。
 
 同源mcpRuntimeCapture原文件3/3 exit0，TEMP/g004-520-mcp-runtime-capture-20261123.log；所有网络端点均为测试自建回环HTTP及合成RPC响应，finally关闭连接和监听，无真实Worker、删除或子进程。当前直接证据及源码/TS输入已冻结，待总控审。当前规划361执行＋6按需，仍有346项待审，增量入口拒绝package。
+
+mcpTerminalIdentity原文件10/10 exit0，TEMP/g004-520-mcp-terminal-identity-20261123.log；传入合成观察和内存记录，未触发默认网络观察分支或真实Worker。原call及当前依赖冻结，待总控审。
+
+mcpOrdinaryResultContracts原文件8/8 exit0，TEMP/g004-520-mcp-ordinary-contracts-20261123.log；内存数据及注入的假API/文件系统，VM提取实际涉及的Resources、Metrics、Compare、ResultParse、Artifacts源码均纳入依赖，无真实Worker、网络、删除或子进程，待总控审。当前规划仍有344项待审，增量入口拒绝package。
