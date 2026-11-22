@@ -93,3 +93,5 @@ Windows工作流混合文件形成未应用diff，仅移旧CLI三项及专用fix
 旧CLI拆分测试13–15形成三份未应用精确diff，逐项沿用索引证据与未决边界；git apply --check均exit0，未退休。
 
 拆分测试16及运行身份/捕获形成三份未应用diff；运行身份前两项旧直接alias断言未逐项迁，保留待裁决，不称等价；三份git apply --check exit0，原文件及矩阵保留。
+
+三份旧SFTP传输测试形成未应用diff，逐项保留实际Gateway/Host证据与传输、创建、压缩/覆盖及manifest未测差异；git apply --check均exit0，不冒完整等价或真实传输。
