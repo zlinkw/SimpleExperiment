@@ -38,7 +38,7 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 - 520 后 pairedUpdateTransaction 原文件 8/8、exit0（`%TEMP%/g004-520-paired-update-transaction-20261123.log`，先查不存在）；内存日志及假下载安装/重载，无真实安装、网络或用户状态修改。执行前漏查 job 33 已有有效历史候选，造成不必要重复；保留新日志与事件但不选作覆盖，原历史证据不变。
 
-本段压缩前逐项日志路径、边界及结果见 Git `f18078f9:docs/plan-generations/G004-execution.md`；每项原始事件及依赖快照见 coverage。以下 520 原文件均真实 exit0：distributedQueueCacheStability 19/19、terminalPlanHistory 7/7、parallelPlanStopClear 11/11、planBatchCodeSyncOnce 8/8、selectedPlanBatch 14/14、distributedSchedulingModes 7/7、projectWorkspaceChangeIsolation 20/20、prequeueRecallBulkSync 3/3、gpuMemoryScheduling 9/9、logicalPlanProgress 4/4、planArtifactSyncStatus 16/16、progressEvidenceFreshness 20/20、planNoticeLayout 5/5、resultCommandPhaseRouting 3/3、planOperationNoticeLifecycle 22/22、workerCodeVersionIsolation 10/10、executionPlanListProgressLagRepro 4/4、executionCompactOverview 54/54、planOutputReplacementHost 7/7、gpuHistoryMixedGranularityScatterRepro 9/9、gpuSampleCarryChannel 5/5、completedJobAutoRecheckSuppression 17/17；均为合成状态、假端口、源码或 VM，夹具保留，不代表真实 UI、Worker、GPU、网络、传输或永久删除；outputReplacement 的删除仅为内存 Set。各项待总控审定。
+520 合成回归的逐项数量、日志、边界见 Git `f18078f9:docs/plan-generations/G004-execution.md` 和 coverage。distributedQueueCacheStability、terminalPlanHistory、parallelPlanStopClear、planBatchCodeSyncOnce、selectedPlanBatch、distributedSchedulingModes、projectWorkspaceChangeIsolation、prequeueRecallBulkSync、gpuMemoryScheduling、logicalPlanProgress、planArtifactSyncStatus、progressEvidenceFreshness、planNoticeLayout、resultCommandPhaseRouting、planOperationNoticeLifecycle、workerCodeVersionIsolation、executionPlanListProgressLagRepro、executionCompactOverview、planOutputReplacementHost、gpuHistoryMixedGranularityScatterRepro、gpuSampleCarryChannel、completedJobAutoRecheckSuppression 均 exit0；合成状态、假端口或 VM，不代表真实 UI、Worker、GPU、网络、传输或删除，模拟删除不证明安全；待总控审定。
 
 误运行按需 dispatchWake 原文件 4/4 exit0，合成队列与假观察；保留日志及直接结果，不计 active，计划仍为 on_demand_not_run。
 
@@ -50,7 +50,7 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 登记时字符串替换误处理 $' 造成临时 JSON 错误并 planner exit1，已按 HEAD 恢复再登记；一次只读查询错误 exit1。normalize 的真实反斜杠命令被旧 validator 误拒，补顶层依赖时曾误加 coverage 自身造成 drift，均已修正并保留原事件；历史 mcpTaskDispatch 的 here-string 后换行命令亦遭误拒，未重跑产品。runner 原精确 pattern 在有实际修正后分别 1/1 exit0：escaped-command、native-parser 18.155 秒、parser-numeric 18.299 秒、parser-root 18.250 秒，日志均 TEMP/g004-520-runner-<名称>-20261123.log。native parser 只解析 stdin 不执行，根 EndBlock 限制排除未调用函数。首次批解析 planner OOM exit1，修为按 rollout 分组；数字常量初版误拒后修正。七项旧删锁测试安全函数未改、原来源与未知工具链保留，未重跑删除。当前 planner 缺口以实际重算为准。
 
-本段逐项原文及命令见 Git `50c2a865:docs/plan-generations/G004-execution.md`，原事件和依赖见 coverage。520 合成验证均 exit0：stopRoutingAndResultParseDedup 12/12、parallelPlanSubmission 12/12、failedJobCleanup 5/5、pairedUpdatePackage 2/2、projectManagedPreflight 与 preflightStages 各3/3、taskLifecycle 与 workerProgressResults 各13/13、taskProgressStability 10/10、progressDiagnosticsQueue 9/9、syncScopeOperationIndex 4/4、syncScopeLocalIndex 3/3、cleanupIndexInvalidation 8/8、projectFileIndex 15/15；runner case grouping 和 vsce metadata 精确 pattern 各1/1。内存/VM/假端口与独立临时夹具保留；索引实际原子写入限夹具；合成包不是实际产品打包。没有真实 Worker/tmux/GPU/训练/网络/UI/永久删除；各项待总控终审。
+520 合成验证 stopRoutingAndResultParseDedup、parallelPlanSubmission、failedJobCleanup、pairedUpdatePackage、projectManagedPreflight、preflightStages、taskLifecycle、workerProgressResults、taskProgressStability、progressDiagnosticsQueue、syncScopeOperationIndex、syncScopeLocalIndex、cleanupIndexInvalidation、projectFileIndex 及 runner case grouping、vsce metadata 精确 pattern 均 exit0；逐项结果见 Git `50c2a865:docs/plan-generations/G004-execution.md` 与 coverage。内存/VM/假端口及自建夹具保留，索引原子写入限夹具，合成包不是产品包；无真实 Worker/tmux/GPU/训练/网络/UI/永久删除，待总控终审。
 
 总控审核 formalJobPreflightProgress/Structure/Environment 各1/1、Failure/Rejections 各1/1、Api 7/7，均 exit0，原预算和指定变体不变；仅提取函数及自建夹具，自建 probe 的取消/看门狗已结算。api-environment 实际执行本机解释器 shell/loader 探针，若已装 torch 可 CPU import；邻近只读检查未发现 torch，该缺席未冻结；启动前三个 NVJITLINK/Conda 变量未设置，不接科研 Conda、不训练。Python 3.14.6/PyYAML 6.0.3 为邻近观测，旧工具链未知。managed preflight 保留合成 owner/持久锁/CSV，proof 夹具改自建文件字节和 mtime。
 
@@ -69,3 +69,5 @@ distributedPlanExecutionMode 10/10 exit0：VM 假 Worker 与 Python 函数提取
 taskQueryWideReadRealChain 3/3 exit0：仅提取查询函数，以假清单、日志和 tmux 输入验证查询边界；脚本保留，无真实 Worker、网络、tmux 或删除。原事件及依赖见 coverage，待总控终审。
 
 planRunHoldClearedChain 3/3 exit0：清理、确认及队列为假回调，状态原子写入自建根并保留；无真实隔离或删除。原事件与依赖见 coverage，待总控终审；planner 152 项待核。
+
+planRunRecovery 7/7 exit0：VM 假对话和 UI，自建恢复状态保留；无真实 UI、Worker、网络或删除。原事件与依赖见 coverage，待总控终审。
