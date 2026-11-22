@@ -55,3 +55,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 projectWorkspaceChangeIsolation 原文件 20/20、exit0（`%TEMP%/g004-520-workspace-change-isolation-20261123.log`，先查不存在）；源码/文档断言和假文件端口，无实际工作区切换或删除，待总控审定。
 
 - 520 后 prequeueRecallBulkSync 原文件 3/3、exit0（`%TEMP%/g004-520-prequeue-recall-bulk-20261123.log`，先查不存在）；VM 假 Worker 读取及源码断言，无真实 Worker 或文件修改，待总控审定。
+
+- 520 后 gpuMemoryScheduling 原文件 9/9、exit0（`%TEMP%/g004-520-gpu-memory-scheduling-20261123.log`，先查不存在）；合成 GPU 数据、假 Worker 与配置、渲染脚本 VM，无真实 GPU、Worker 或 UI，待总控审定。
