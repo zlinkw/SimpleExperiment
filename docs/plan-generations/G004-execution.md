@@ -149,3 +149,5 @@ MCP查询身份补充活跃项非空及候选上界，4/4 exit0（9ccf3f）；�
 中立连接合成Host核身份、槽位、工作区及发现变化2/2；原真实回执、不重发与时限分类断言迁中立客户端3/3，均exit0；CLI退出/展示未迁。
 
 独立MCP resolver接中立客户端及合成Host，运行版本切换、身份/工作区/发现变化2/2 exit0；未测真实Host。
+
+MCP action_catalog动态表/缺方法无回退，Gateway假Host 1/1 exit0；旧CLI错误包装待审。
