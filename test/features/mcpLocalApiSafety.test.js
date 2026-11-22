@@ -116,9 +116,10 @@ test('neutral discovery refuses same-workspace ambiguity and preserves exact ins
  const workspaces={a:path.join(dir,'a'),b:path.join(dir,'b'),c:path.join(dir,'a')};fs.mkdirSync(instances);
  process.env.SIMPLE_EXPERIMENT_API_FILE=path.join(dir,'api.json');
  t.after(()=>{if(prior===undefined)delete process.env.SIMPLE_EXPERIMENT_API_FILE;else process.env.SIMPLE_EXPERIMENT_API_FILE=prior});
- const pids={a:1001,b:1002,c:1003};
+ const pids={a:1001,b:1002,c:1003},rpcTargets=[];
  const server=http.createServer((req,res)=>{const key=String(req.headers.authorization).replace('Bearer secret-','');assert.ok(key in pids);
-  res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:[],name:'SimpleExperiment',version:'1.0.0',instanceId:`${pids[key]}:${startedAt}`,workspace:workspaces[key]}))});
+  if(req.url==='/api/v1/rpc'){rpcTargets.push(key);req.resume();res.end(JSON.stringify({jsonrpc:'2.0',id:1,result:{workspace:workspaces[key]}}));return}
+  res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:['status'],name:'SimpleExperiment',version:'1.0.0',instanceId:`${pids[key]}:${startedAt}`,workspace:workspaces[key]}))});
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>{server.closeAllConnections();return new Promise(resolve=>server.close(resolve))});
  const records={};
  for(const key of ['a','b','c']){const file=path.join(instances,key+'.json');records[key]=JSON.stringify({name:'SimpleExperiment',version:'1.0.0',pid:pids[key],startedAt,
@@ -130,5 +131,9 @@ test('neutral discovery refuses same-workspace ambiguity and preserves exact ins
  await assert.rejects(client.resolveInstanceByWorkspace('experiment',workspaces.a,undefined,opts),/存活实例|可达实例/);
  assert.equal((await client.resolveInstanceByWorkspace('experiment',workspaces.a,`${pids.c}:${startedAt}`,opts)).instanceId,`${pids.c}:${startedAt}`);
  await assert.rejects(client.preflightPluginAt('experiment',path.join(instances,'a.json'),workspaces.b),/工作区/);
+ fs.writeFileSync(process.env.SIMPLE_EXPERIMENT_API_FILE,JSON.stringify({name:'SimpleExperiment',version:'1.0.0',pid:9999,startedAt,workspace:workspaces.a,token:'dead',baseUrl:'http://127.0.0.1:1'}),'utf8');
+ const selected=await client.resolveInstanceByWorkspace('experiment',workspaces.b,undefined,opts);
+ assert.deepEqual(await client.callPluginRpc('experiment','status',{},selected.instanceId,{discoveryPath:selected.discoveryPath,workspace:workspaces.b}),{workspace:workspaces.b});
+ assert.deepEqual(rpcTargets,['b']);
  for(const key of ['a','b','c'])assert.equal(fs.readFileSync(path.join(instances,key+'.json'),'utf8'),records[key]);
 });
