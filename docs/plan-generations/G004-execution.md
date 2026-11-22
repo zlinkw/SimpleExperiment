@@ -191,3 +191,5 @@ Git同步：0aa6b27c普通push exit0，首次fetch exit1（TLS unexpected eof）
 MCP文件上传Gateway/Host核工作区规范路径、精确Worker及越界拒绝，假后端8/8 exit0；未上传。
 
 MCP workspace上传核现有范围manifest、禁止裁剪和撤权拒绝，假后端9/9 exit0；未上传。
+
+MCP服务器配置保存核模拟人工审核、profile及激活参数，假后端10/10 exit0；未改真实配置。
