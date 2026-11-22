@@ -9,12 +9,16 @@ const text = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts
 const ast = ts.createSourceFile("legacy.ts", text, ts.ScriptTarget.ES2022, true);
 const cls = ast.statements.find(n => ts.isClassDeclaration(n) && n.name?.text === "RealtimeTunnelPanelProvider");
 const code = cls.members.find(n => n.name?.getText(ast) === "bootstrapProjectFromUi").getText(ast);
+const leaseCode = cls.members.find(n => n.name?.getText(ast) === "withHostOperationLease").getText(ast);
 class Cancelled extends Error {}
 let choice = "继续", root = "C:/synthetic", single = true;
 const vscode = { window: { showInformationMessage: async () => choice } };
-const Host = vm.runInNewContext(ts.transpileModule(`class Host {${code}}; Host`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText,
+const Host = vm.runInNewContext(ts.transpileModule(`class Host {${code} ${leaseCode}}; Host`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText,
   { vscode, UiCommandCancelled: Cancelled, projectOnboardingRoot: () => single ? root : undefined,
-    assertSingleProjectWorkspace: () => { if (!single) throw Error("multiple roots"); }, samePlanSelection: (a, b) => a === b });
+    assertSingleProjectWorkspace: () => { if (!single) throw Error("multiple roots"); }, samePlanSelection: (a, b) => a === b,
+    ResourceOperationLease_1:{runOutsideResourceLease:fn=>fn()},errorMessage:error=>error.message,
+    currentHostOperationLeaseContext:()=>({workspaceUri:'fixture',hostProjectPath:'C:/synthetic'}),
+    HostOperationLease_1:{HostOperationLeaseConflictError:class extends Error {}},require:()=>({assertBusinessAllowed(){}}),path,console });
 
 function host() {
   const events = [], h = new Host();
@@ -33,6 +37,24 @@ test("local recognition persists and renders an empty-job Plan without a Worker"
   const { h, events } = host();
   await h.bootstrapProjectFromUi();
   assert.deepEqual(events, ["save", "recognized", "render"]);
+});
+
+test("recognition releases its lease while optional completion notification remains open", async () => {
+  root='C:/synthetic';single=true;let resolveNotice,active=false,posted=false;
+  vscode.window.showInformationMessage=async text=>text.startsWith('已识别到')?'继续':new Promise(resolve=>{resolveNotice=resolve});
+  try {
+    const {h,events}=host();h.hostOperationLease={run:async(_options,fn)=>{active=true;try{return await fn()}finally{active=false}}};
+    h.recordActionError=error=>events.push(error.message);h.postState=()=>{events.push('render');posted=true};
+    vscode.window.showErrorMessage=async message=>events.push(message);
+    let finished=false;const pending=h.withHostOperationLease('bootstrapProject','识别',()=>h.bootstrapProjectFromUi()).then(()=>{finished=true});
+    await new Promise(resolve=>setImmediate(resolve));assert.equal(posted,true);assert.equal(finished,true);assert.equal(active,false);assert.deepEqual(events,['save','recognized','render']);
+    h.openPanelAt=async()=>{throw Error('navigation failed')};resolveNotice('打开实验准备');await new Promise(resolve=>setImmediate(resolve));assert.ok(events.some(x=>String(x).includes('navigation failed')));
+    await pending;
+  } finally {
+    if(resolveNotice) resolveNotice(undefined);
+    vscode.window.showInformationMessage=async()=>choice;
+    delete vscode.window.showErrorMessage;
+  }
 });
 
 test("cancellation, missing selection, read and save errors never mark recognition", async () => {

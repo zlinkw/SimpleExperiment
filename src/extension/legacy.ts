@@ -21105,9 +21105,19 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (!this.projectContextIsCurrent(projectContext)) return;
         this.postState();
         if (selectionChanged) this.queueSelectedPlanResultParse("识别工作区切换计划", planFile);
-        const next = await vscode.window.showInformationMessage("本地工作区已识别。运行准备和输出配置可在实验准备中继续检查。", "打开实验准备");
-        if (!this.projectContextIsCurrent(projectContext)) return;
-        if (next === "打开实验准备") await this.openPanelAt("plans", "plans-detected", { userInitiated: true });
+        ResourceOperationLease_1.runOutsideResourceLease(() => {
+            void (async () => {
+                    const next = await vscode.window.showInformationMessage("本地工作区已识别。运行准备和输出配置可在实验准备中继续检查。", "打开实验准备");
+                    if (!this.projectContextIsCurrent(projectContext)) return;
+                    if (next === "打开实验准备") await this.openPanelAt("plans", "plans-detected", { userInitiated: true });
+                })().catch((error) => {
+                    if (!this.projectContextIsCurrent(projectContext)) return;
+                    this.lastError = errorMessage(error);
+                    this.recordActionError({ command: "bootstrapProject", message: this.lastError });
+                    this.postState();
+                    void vscode.window.showErrorMessage(this.lastError);
+                });
+        });
     }
     async handleProjectBootstrapAction(action, context) {
         const projectContext = context?.projectContext || this.captureProjectContext();
