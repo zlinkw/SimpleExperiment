@@ -115,3 +115,5 @@ MCP Worker生命周期迁测：queryProject配独立本机合成API/Worker，4/4
 迁移期mcpQueryContext已脱离全部CLI引用：以旧实现实测结果固定MCP输入、输出、身份和错误断言，实验视图fixture排除动态快照字段；11/11 exit0（0eaa05）。转换时metric及compare的null原型两次10/11 exit1（f7c9b7、2eba9b），修期望后通过；旧CLI测试未动。
 
 MCP普通结果契约8项已切换中立实现，保留资源拒绝、零值、空结果、schema、预设、日志级别、歧义和产物身份断言；8/8 exit0（e1771b），加入四个交付profile。
+
+空PLAN矩阵断言迁至MCP计划实现，空种子/空case及正常矩阵1/1 exit0（b4464e）；纳入交付profile。
