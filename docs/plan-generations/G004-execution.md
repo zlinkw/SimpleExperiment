@@ -71,3 +71,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 planOperationNoticeLifecycle 原文件 22/22、exit0（`%TEMP%/g004-520-plan-operation-notice-20261123.log`，先查不存在）；VM 假通知、日志与动作端口，无真实 UI、Worker、传输或删除，待总控审定。
 
 - 520 后 workerCodeVersionIsolation 原文件 10/10、exit0（`%TEMP%/g004-520-worker-code-version-isolation-20261123.log`，先查不存在）；VM 宿主、合成队列与假 Worker 回调，无真实 Worker、写入或传输，待总控审定。
+
+- 520 后 executionPlanListProgressLagRepro 原文件 4/4、exit0（`%TEMP%/g004-520-plan-progress-lag-20261123.log`，先查不存在）；渲染脚本、合成计划和 VM 假 DOM，无真实 UI 或 Worker，待总控审定。
