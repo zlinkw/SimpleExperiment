@@ -95,6 +95,10 @@ test('MCP experiment views retain real query behavior with project-bound RPC',as
  assert.deepEqual(await queryProject(root,rpc,'experiment_summary',{full:true}),await previous(()=>old.experimentSummary(flags)));
  assert.deepEqual(await queryProject(root,rpc,'experiment_results',{id:'run-a',full:true}),await previous(()=>old.experimentResults('run-a',flags)));
  assert.deepEqual(await queryProject(root,rpc,'experiment_list',{}),await previous(()=>old.experimentList({json:true,full:false})));
+ const oldLogs=require('../../src/cli/commands/log.ts');
+ assert.deepEqual(await queryProject(root,rpc,'experiment_log',{id:'run-a'}),await previous(()=>oldLogs.logShow('run-a',flags)));
+ assert.deepEqual(await queryProject(root,rpc,'experiment_log',{id:'run-a',lines:1}),await previous(()=>oldLogs.logTail('run-a',{...flags,lines:1})));
+ await assert.rejects(queryProject(root,rpc,'experiment_log',{id:'missing'}),/not found/i);
  const normalized=value=>JSON.parse(JSON.stringify(value,(key,item)=>['snapshot_id','snapshot_time'].includes(key)?undefined:item));
  for(const [name,fn,needsId] of [['active','experimentActive',false],['tree','experimentTree',false],['status','experimentStatus',true],['overview','experimentOverview',false],['health','experimentHealth',false],['inspect','experimentInspect',true],['monitor','experimentMonitor',true],['diagnose','experimentDiagnose',true],['config','experimentConfig',true]]){
   const actual=await queryProject(root,rpc,'experiment_'+name,{id:'run-a',full:true});

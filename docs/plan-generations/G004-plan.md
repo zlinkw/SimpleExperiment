@@ -71,7 +71,7 @@ J01仍未修：旧Host GIT_CONFIG_COUNT10/KEY全有/VALUE0和5缺，工具空值
 
 ## 唯一角色、资源及保护
 
-总控《总控·SimpleExperiment G004 集中查修与交付》01a1fdb5-efe6-78c2-ae6c-861ed4028cdc/local，Sol/high，实际default仅记录，独占plan/README和最终审查。执行《执行·SimpleExperiment G004 集中查修与交付 接续》01a1ff08-4031-7410-a937-c2ba34e6730c/local，Terra/high、实际priority仅记录；现原位开放本轮完整源码修复及上述唯一租约。旧档位强制default导致暂停已由用户最新规则/统一脚本解除，双方model/effort match/continue，保留用户界面档位，不索文字确认或自动重置。自然接续只按caveman，旧执行01a1fdb5-ce28已合格交接归档，旧总控/更早角色亦归档；不新建审查者。按全局事件协调发送完整包/需决定阻塞/必要交班，消息默认无回执，不轮询/催局部进度；无独立待办总控合法结束本轮，执行有可做工作不能套用空闲。
+总控《总控·SimpleExperiment G004 集中查修与交付》01a1fdb5-efe6-78c2-ae6c-861ed4028cdc/local，Sol/high，实际default仅记录，独占plan/README和最终审查。执行《执行·SimpleExperiment G004 集中查修与交付 接续》01a202d5-5126-7e32-954f-3761f4630e53/local，Terra/high，实际default仅记录；已实核match/continue、读原派单与现行资料并承接本轮完整源码修复及上述唯一租约。旧执行01a1ff08在10压缩/第五次后峰300409自然接续，已正式释放全部租约、无在途，旧turn completed；新执行已续做未提交T5并执行旧聊天归档，不删除。旧档位强制default导致暂停已由用户最新规则/统一脚本解除，双方model/effort match/continue，保留用户界面档位，不索文字确认或自动重置。自然接续只按caveman，旧执行01a1fdb5-ce28已合格交接归档，旧总控/更早角色亦归档；不新建审查者。按全局事件协调发送完整包/需决定阻塞/必要交班，消息默认无回执，不轮询/催局部进度；无独立待办总控合法结束本轮，执行有可做工作不能套用空闲。
 
 禁止真实服务器/Worker/SSH/健康版本/准备同步/任务查询派发停止/清理/Agent部署，当前统一grant不是本轮实机外部测试授权；共享Worker配置/授权不改、不自动切模式/重载/新profile、不抢稿件或原VSCode输入。startup公开GitHub更新检查及自然发现注册是先前明确允许例外，不扩大Worker请求。仅专用合成根本地必要操作，真实GPU7所有任务日志产物、/root/autodl-tmp/zlk/MultiModal、原Agent tmux/隧道保护；MM final.md、Generic Untitled-1、Response to Reviewers.tex等未保存稿件不得reload/close/抢输入。D:/GitRepo/SimpleMcpAcceptance只读，cleanup_20261111.txt、所有新旧fixtures/temp/约60未跟踪旧VSIX摘要保留，不删搬清理或stage无关。
 

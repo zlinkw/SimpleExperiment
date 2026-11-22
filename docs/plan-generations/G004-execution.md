@@ -38,6 +38,8 @@ T4迁出MCP解析、结果、指标和比较；真实查询配合成数据与旧
 
 T5提取runtime及实验查询，保留既有结构化输出；12项真实queryProject配假RPC与旧消费者对照，含空结果/失败9/9 exit0，`g004-r519-t5-experiment-complete-ff08.log`；补默认精简输出对照后同文件9/9 exit0；未请求Worker，日志等消费者待迁。
 
+T5日志查询迁出；真实queryProject对照旧消费者的全部与尾部记录、缺失实验，单文件9/9 exit0；未联系Worker。
+
 T6迁出server_list及PLAN构建/矩阵，真实查询假RPC与旧消费者对照、空矩阵/seed0 6/6 exit0，`g004-r519-t6-plans-first-ff08.log`；未查询真实服务器。
 
 519识别未完成及同窗冲突不能认定锁死；原识别不记完成首0/1 exit1，`g004-519-bootstrap-recognition-ff08.log`。B1保存PLAN及识别事实；假对象2/2、快速9/9、上下文20/20、命令3/3、持久化3/3、投影6/6 exit0；日志 `g004-r519-b1-` 加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 及 `-ff08.log`。未改真实标记。
