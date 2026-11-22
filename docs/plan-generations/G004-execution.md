@@ -215,3 +215,5 @@ MCP文件预览补原有managed_tmux显式选项，仅允许该值并原样透�
 SFTP混合测试四项未应用diff按现回执、拒绝及实例绑定证据映射；SFTP同窗口绑定不冒充旧CLI显式pin，flag/env优先级及旧取消表面拟退休。git apply --check exit0，混合文件其他测试与矩阵保留。
 
 Windows工作流混合文件形成未应用diff，仅移旧CLI三项及专用fixture，原四项Host断言保留；wrongPlan/seed/dry-run旧外壳差异和现校验可能同步写入明确单列，git apply --check exit0。
+
+外部依赖补发现localApi.test.js:259旧CLI派发测试，外部导航由26增至27；现派发业务有Gateway/Host假端口5/5。该文件形成包含四处中立导入与四个旧CLI用例的合并未应用diff，取代原单独importDiff（不可叠加），其余LocalApiServer断言保留；git apply --check exit0，原文件未运行。
