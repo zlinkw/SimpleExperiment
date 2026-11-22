@@ -188,6 +188,11 @@ test('MCP local artifacts cannot inspect files outside the current project',asyn
  results=[{runId:'legacy-run',sourceFiles:[{path:'remote-run/metrics.csv',size:5,endpoint:'worker'}]}];
  const legacy=await queryProject(root,rpc,'artifact_list',{id:'legacy-run'});
  assert.deepEqual(legacy,[{id:'legacy-run:remote-run/metrics.csv',path:'remote-run/metrics.csv',size:'5'}]);
+ results=[];
+ await assert.rejects(queryProject(root,rpc,'artifact_list',{id:'legacy-run'}),error=>{
+  assert.match(error.message,/ARTIFACT_LOCATION_UNVERIFIED/);
+  assert.deepEqual(JSON.parse(error.detail),{id:'legacy-run',declaredPath:path.join(outside,'remote-run')});return true;
+ });
  workerTasks=[{workerId:'worker',tasks:[{commandId:'history-run',status:'completed',outputDir:'output'}]}];
  results=[{runId:'history-run',sourceFiles:[{path:'output/empty.txt',size:9,endpoint:'worker'}]}];
  const history=await queryProject(root,rpc,'artifact_inspect',{id:'history-run:output/empty.txt'});

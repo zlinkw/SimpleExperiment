@@ -127,6 +127,8 @@ async function listArtifacts(experimentId: string, knownExperiments?: Experiment
         ...(file.endpoint === "local" ? { local: localArtifactPath(filePath) } : {}) });
     }
   }
+  if (!rows.length && outputDir && !localRecord)
+    throw businessError("ARTIFACT_LOCATION_UNVERIFIED：历史产物的位置尚未核实。", JSON.stringify({ id: experimentId, declaredPath: outputDir }));
   return rows;
 }
 
