@@ -23,6 +23,8 @@ test('MCP result_parse uses content-selected preset and preserves zero',async()=
  const result=await queryProject(root,async()=>{throw Error('unexpected RPC')},'result_parse',{file:'metrics.csv'});
  assert.equal(result.length,1);assert.equal(result[0].metrics.accuracy.value,0);assert.equal(result[0].metrics.AP.value,0.75);
  await assert.rejects(queryProject(root,async()=>{},'result_parse',{file:'metrics.csv',preset:'unknown'}),/unknown result preset/);
+ await assert.rejects(queryProject(root,async()=>{},'result_parse',{}),/file/i);
+ await assert.rejects(queryProject(root,async()=>{},'result_parse',{file:'absent.csv'}),{code:'ENOENT'});
 });
 
 test('MCP result list, show and export retain the established structured business output',async()=>{
@@ -64,6 +66,8 @@ test('MCP leaderboard returns every observed metric column',async()=>{
  fs.writeFileSync(path.join(root,'metrics.csv'),'runKey,accuracy,loss\na,0.8,\nb,0.9,0.4\n','utf8');
  const result=await queryProject(root,async()=>{throw Error('unexpected RPC')},'metric_leaderboard',{file:'metrics.csv'});
  assert.deepEqual(result.metrics,['accuracy','loss']);assert.equal(result.board[1].mean.loss,0.4);
+ await assert.rejects(queryProject(root,async()=>{},'metric_leaderboard',{}),/file/i);
+ await assert.rejects(queryProject(root,async()=>{},'metric_leaderboard',{file:'absent.csv'}),{code:'ENOENT'});
 });
 
 test('MCP plan build and empty matrix retain their established values',async()=>{
