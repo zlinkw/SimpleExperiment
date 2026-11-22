@@ -63,6 +63,18 @@ test('MCP formal execution requires a PLAN and cannot accept an arbitrary comman
  assert.equal(calls[0].workspace,root);assert.equal(calls[0].confirm,true);assert.ok(!('command' in calls[0]));
 });
 
+test('MCP Agent observation rejects arbitrary payload and does not echo caller secrets',async()=>{
+ const root=path.resolve(__dirname,'../..'),grant=createProjectAuthorization(root),calls=[];
+ const worker={id:'worker-a',host:'fake',port:22,user:'fake',projectRoot:'/fake'};grant.workers=[worker];
+ const methods={'agents.lifecycle':async params=>{calls.push(params);return {ok:true,action:'inspect',results:[{id:'worker-a',status:'running'}]}}};
+ const gateway=new ProjectGateway({root:()=>root,workers:()=>[worker],store:{get:()=>grant},methods:()=>methods});
+ const secret='fixture-secret-must-not-echo';
+ await assert.rejects(gateway.call('agent_inspect',{serverIds:['worker-a'],agentToken:secret}),/Unknown/);
+ assert.equal(calls.length,0);
+ const result=await gateway.call('agent_inspect',{serverIds:['worker-a']});
+ assert.deepEqual(calls,[{serverIds:['worker-a'],action:'inspect'}]);assert.ok(!JSON.stringify(result).includes(secret));
+});
+
 test('MCP PLAN validation forwards host success and in-band failure',async()=>{
  const root=path.resolve(__dirname,'../..'),calls=[],grant=createProjectAuthorization(root);
  const gateway=new ProjectGateway({root:()=>root,workers:()=>[],store:{get:()=>grant},methods:()=>({

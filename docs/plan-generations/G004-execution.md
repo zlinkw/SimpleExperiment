@@ -215,3 +215,5 @@ MCP查询去除无消费者CLI json/compact开关，默认精简及full语义保
 旧CLI候选发现37个仓内普通文件，规范根、父目录、当前clean和引用风险逐项列coverage；均未获删除许可且依赖未清，用户全局shim等不列。首脚本误期望36个触发断言exit1未写，重核37后记录。
 
 旧Runner导入仅移至原录制测试内部，同文件checkpoint断言保留；旧dist完整文件2/2 exit0，合成stdout、无Worker；测试及源码未删。
+
+MCP Agent观察入口拒绝调用者token及未知字段，假Host仅收到固定字段；网关10/10 exit0，不代表后端返回内容已脱敏或真实Agent已测。
