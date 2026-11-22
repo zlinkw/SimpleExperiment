@@ -75,3 +75,7 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 - 经总控核准现有完整 mcpProject 合成回归，520 编译后 43/43、exit0（`%TEMP%/g004-520-mcp-project-contract-20261123.log`，先查不存在）；假授权/Agent/Worker 回调、独立合成工作区及回环/stdio，客户端与服务按原 finally 关闭。动态 legacy 源、现行 SDK/TS 加载闭包及 stdio bundle 已绑定，未执行真实授权变更、Agent、Worker或删除。
 
 - 520 后 staticEntrypointProbe 1/1、xshellSessionPatcher 2/2，exit0（`%TEMP%/g004-520-static-entry-probe-20261123.log`、`%TEMP%/g004-520-xshell-synthetic-patch-20261123.log`，先查不存在）；前者只读取合成脚本不启动 Python，后者只修改并备份自建合成 xsh，夹具保留。
+
+- 旧执行会话结束后归档使 rollout 移至 archived_sessions；曾短暂解除归档以保护现有引用，现已重新归档。coverage 中该会话 42 处路径更新为实际位置，session_meta 身份及 35 项有摘要的命令/输出事件原字节 SHA 均核一致；未改原事件或重跑测试。
+
+- 520 后 panelWebviewScriptHealth 原文件 13/13、exit0（`%TEMP%/g004-520-panel-webview-script-20261123.log`，先查不存在）；源渲染器经 TypeScript 转译、假 DOM/VM，未操作真实 UI 或 Worker。原事件、当前依赖和 Node 已登记，待总控审定。
