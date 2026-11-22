@@ -10,7 +10,7 @@
 
 ## 角色、租约与保护
 
-总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high/default，已实跑resolved与实际turn均match/continue，独占本计划与README代次索引。旧总控01a1fdb5在7次原生压缩/第五次后峰302384自然交班，完整背景与资格实核后明确释放全部总控租约；旧turn真实完成、已归档不删除，无在途动作。唯一执行01a203b9-5495-7092-bca5-fd5610ca2308/local，Terra/high，现仅持原A–D只读prep/check/record租约：最终package规划与SFTP输入、实际调度临时删除效果、519逐job复用及组合凭据缺口、更新源与空patch。已通知完整包改报现总控，不重派、不索ack。此准备不含产品/Git/build/fulltest/临时删除。其他产品/检查/UI/Git租约已交包释放，待总控依据prep裁决后明确授予唯一执行者。只保留两个角色；service_tier仅记录，不重置用户选择。更早同角色交班事实及原租约见6a2cf63c与execution；接替不扩大权限。
+总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high/default，已实跑resolved与实际turn均match/continue，独占本计划与README代次索引。旧总控01a1fdb5在7次原生压缩/第五次后峰302384自然交班，完整背景与资格实核后明确释放全部总控租约；旧turn真实完成、已归档不删除，无在途动作。唯一执行01a203b9-5495-7092-bca5-fd5610ca2308/local，Terra/high，A–D准备包已完整交收并释放原检查租约。当前授予两测试fixture保留/必要文档修正及定向小验收，再实施用户新批准的既有打包器增量覆盖核验；产品/测试/execution/coverage由其独占，最终递版/build/package/发行/安装仍待总控源审。Git由总控短暂独占两文档同步，随后明确交执行者，不并写。只保留两个角色；service_tier仅记录，不重置用户选择。更早同角色交班事实及原租约见6a2cf63c与execution；接替不扩大权限。
 
 总控无独立待办、仅等完整包/必要决定时按全局事件协调合法结束本轮，不能轮询/催进度；执行者仍有授权可做工作不得套用空闲。必要消息默认无回执。未知在途动作先核归属与结果，不重放。当前原仓是普通Windows工作区，非Pi/自制容器/项目管理器，不触发worktree PR。master追踪origin/master，origin=https://github.com/zlinkw/SimpleExperiment.git；逐组检查diff、UTF8、必要验证后精确stage，普通commit/push/fetch核HEAD一致。remote前进、认证/hooks/同步失败停相关Git升级，不amend/rebase/reset/merge/force/改remote，不stage日志、夹具、无关未跟踪资产。0aa6b27c push后fetch TLS unexpected EOF exit1，经总控精确一次恢复fetch exit0核一致，非通用重试许可。
 
@@ -63,19 +63,13 @@ Artifacts规范本机root/每级目录/manifest/链接，保留相对绝对、�
 
 清理验证允许固定已装SimpleSFTP0.2.120真实CleanupFileApi，经真实Gateway/McpHost、纯内存store/fs与假端口；Map化atomicWriteText/rename/remove可代effects，未知真实fs效果必须拒绝，无实际删除/移动/SSH/live发现、不改伴随源码。实际双确认/一次批次/unknown不重发/token/跨根/type用例由4扩至5须按真实输入验证，不用4/4冒5/5；不冒验state-store磁盘原子持久化。9eff6177 preview destination/archiveBatch及observe默认1、f7b476ba四profile和companion实际输入绑定方向通过。f075abb9实际publicServerRecord+Gateway/Host假端口仅证明合成凭据不回显，首缺capabilities0/1后1/1，package/engine/extension.js实际字节参与指纹；不是实际服务器配置/Agent后端全输出脱敏证明。fafa1738原valid-plan经真实parseLocalPlanText/PlanBuilder再Gateway list，11/11假刷新端口，字段包装差异不冒CLI完全等价。
 
-## 待集中确认的退役、删除与B1复验
+## 已批准退役、删除与B1复验的边界
 
-coverage.g004CliRetirementIndex逐302旧CLI用例，g004ExternalCliReferences目录外26项；名称/函数体重复不证明业务等价。最新分类会随精确证据修正，不用旧46/29/176/51当最终通过；保留迁移断言、旧表面、已迁等价重复、仍受限分别记录。已新增MCP测试纳build/check:full/package/smoke四显式profile，test/test:features/acceptance原glob本就发现；只读规划不等实际运行。
+本节旧候选/待审批全文见Git c08b61af同计划；用户先前已一次明确批准，当前事实以下文“当前收尾”及execution最新尾为准，不恢复旧等待。coverage.g004CliRetirementIndex逐302旧CLI用例、g004ExternalCliReferences最终27外部项、g004CliTestDisposition精确diff保留；按名称/函数重复不得冒业务等价。49旧CLI测试加resultHistoryReadErrors共50路径精确退役，原文件/fixtures/历史保留，glob继续自动发现其他新增文件。原冻结全部文件枚举方案被否决，不复活。
 
-最终交包须给每项适用业务断言的真实消费者与有效证据，以及可直接审核应用的具体候选diff，不只写“待迁移”。混合文件保留Host/PLAN/实例生命周期/训练结果/正式作业/checkpoint/哈希等安全断言，不因目录名整体退休。ExperimentRunner的evidenceTooling录制用例与独立checkpoint已隔开；formalJobExecution旧Runner不能绕过PLAN，候选核当前PLAN准入、任意command拒绝及现Host链，不能连带删其他断言。publicCliAliases旧only-simpleex断言已据本人新公开面授权就地更新1/1，保留文件和覆盖；执行误Delete File后恢复同路径、Git为M、旧0d5cae56和失误保留，之后只原位更新。
+混合消费者保留Host/PLAN/实例/正式作业/checkpoint/归属等断言，13旧job改17当前MCP契约，原CLI便利和已撤销入口不造新功能。Agent旧SFTP专属--file/default-active/token外壳不恢复，公开enabled Worker/allowlist保留，真实后端秘密未测。publicCliAliases曾误Delete File后恢复原路径，Git为M，旧0d5cae56及失误保留；最终按新公开面更新1/1，不能冒整个生命周期已验。
 
-旧测试/默认覆盖/超时在本人批准具体清单前不删、skip、减断言或移任务。原g004CliTestDisposition的冻结全部文件枚举glob方案本次否决：会失去未来新增测试自动发现。准备保留原glob/argv/caseGroups、仅针对获批完整旧CLI路径的最小精确规划排除候选及有界契约，直接sourceScript旧job亦精确对应；不另建通用退休系统，未批准不应用。纯导入机械迁移保留所有断言可准备，不以目录外3个import diff冒全部混合项就绪。Agent旧SFTP专用--file/default-active/agent-token预览/confirm外壳不恢复；当前MCP显式enabled Worker、allowlist与已证凭据边界保留，真实后端秘密未测如实写，不为消除分类重放生命周期/撤权专项或平台拦截。
-
-物理删除须精确清单一次确认。coverage候选现39项均deletionReady=false，已补仓内D:/GitRepo/MCP/zlk-cluster-orchestrator/simpleex.cmd（tracked，真实正文直接node dist/cli.js %*，安全根/直接父均仓库根）。旧CLI入口、共享源码迁出后的专用模块/旧安装器/旧借用MCP包装等需正反依赖清零，包含源码/脚本/模板/tsconfig/manifest/sourceReader/helper/测试/矩阵；不得只grep当前生产进口。保留新MCP launcher/resolver，不删全局shim、已装扩展、原测试/fixtures/历史资产/旧dist。本人与用户最终看到的目标必须完整绝对路径、固定file类型、安全根/直接父/依赖风险；大范围“CLI可删”不是未列路径的精确批次确认。
-
-删除只按manual-cleanup-only/safe-delete-paths：全批只读预检并拒绝dirty tracked/链接或reparse/类型或归属不符/越界/缺失/未清依赖；确认后每项直接父cd并核物理cwd，只Remove-Item -LiteralPath ./直接子名不Force，核目标确实不存在，异常停批。不能git rm或helper当执行器、不归档/移开、不删整目录、不自动删生成旧dist。项目产品删除逻辑仍保留精确路径两页确认、节点/安全根/直接父及./子项规则，受控测试不授权真实删除。
-
-B1待验候选：src/extension/legacy.ts末尾通知放runOutsideResourceLease异步非等待，原项目核对、导航失败记录/actionError/postState可见；初始识别/选择/确认仍等待。test/features/localWorkspaceRecognition.test.js用真实bootstrap+外层lease，finally恢复假UI并结算通知。原首测试断言失败后夹具污染致后续20秒timeout exit1，日志TEMP/g004-r519-b1-lease-before-ff08.log；当前两个文件尚未验证/提交，不准自重跑/换文件/加时或用glob profile绕过。整包齐后一次向本人提出：对改后的原文件按原20秒预算唯一一次定向复验，不真实识别/清锁/Worker，原失败保留。用户“别因一项停整批”不自动豁免P0，其他可做项继续。
+39源码路径精确批准含仓内simpleex.cmd和旧借CLI的MCP包装，不含新launcher/resolver、旧dist、全局shim、安装目录、原测试或临时目录。删除准入与实际成功过程见“当前收尾”；产品删除仍保两页双确认/节点路径类型/根父及./直接子项。B1原首失败后夹具未恢复导致20秒timeout，TEMP/g004-r519-b1-lease-before-ff08.log保留；用户批准改后原文件原20秒唯一复验已3/3，未重放真实识别/清锁/Worker。末尾可选通知脱离外层租约，项目核对及失败记录/postState保留，识别/选择/确认仍等待。
 
 ## 集中交付门禁与历史复用
 
@@ -111,3 +105,11 @@ B1唯一复验3/3；Windows消费者4/4、指标3/3、证据1/1、formalJob原5/
 首次混合大命令CreateProcess blocked by policy、进程未创建，39当时未删，原call_887a6fcce30d45c4a9a7625697e86b55及execution保留。总控发现Get-Item含Force违反safe-delete-paths，未称唯一策略原因；批准同pwsh/同Remove-Item/同39目标一次安全修正，全部去掉Force并拆只读预检、逐组delete-only、另文档/Git，实际成功，不是换工具或权限绕限。
 
 删除后输入改变，单次tsc-cached TS7.0.2 previous-failed rebuild，391输入、emit2、exit0，日志TEMP/g004-tsc-after-cli-removal-20261123-terra.log。18个tracked dist仍dirty，保留不stage/恢复；首exit2/71 emit不抹去。最终源审5886c9e2..97d723e1确认除39删除外仅B1通知脱离租约及Gateway params字典类型，方向通过；最终构建、实际矩阵、包、发行、安装、新Host仍未完成。原临时删除边界不扩，完整runner/acceptance安全用例的旧证适用性与新门禁等原A–D prep完整包后具体裁决；不伪造组合receipt、不因runner表达不足无据全重跑。全部真实Worker/UI/跨项目限制不变。
+
+## 当前决定：最终增量覆盖核验
+
+2026-11-23用户明确批准“允许修改现有打包器，支持本任务增量覆盖核验”，逐项核对仍有效旧结果与本轮补验，保留完整覆盖、原日志、失败阻断，不恢复通用缓存。依据A–D完整包：当前package规划360条实际＋6文件按需，57组/cap34/23保护恢复；50获批退休路径均不调度，未来输入变化重算，数量不冻结。旧519有321同file/argv、39新项，但相同条目不等于依赖仍适用。旧未改删锁函数7项job264/265/267/268/269/271/274只支持原安全行为，可审定继承，不能冒新规划/指纹通过。实际逐项规划与argv见TEMP/g004-final-plan-details-20261123-terra.json，原dry-run exit0见TEMP/g004-final-package-plan-20261123-terra.json。
+
+现runner仅接受同全局输入/产物的单批schema2 passed凭据，不能组合旧有效证据与本轮补验（test-workflow.js:969–1002、1146–1174）。最小扩展必须如实区分继承与本轮执行，绑定本任务冻结输入/平台/工具链/计划、每项identity+argv和可核依赖范围；无可靠适用依据则恢复该项真实执行，不无据全重跑。最终全部required gates/selection/当前产物仍验证，缺失/失败/未知/超时/取消/中途漂移继续阻断；旧日志/input/end不改写，不生成伪fresh receipt。实际实现及有限依赖映射先交总控审，最终编译/版本/package尚未授权开跑。
+
+两测试仅尾部housekeeping rm改保留其新建合成fixture，不改安全断言：packageContentPolicy原文件12/12 exit0；releaseAcceptance首exit1，因jobs-only漏6按需项，原日志TEMP/g004-release-acceptance-retain-20261123.log保留。总控批准完整计划jobs∪onDemandJobs对账、保留50退休反向/非空/不交叉保护，允许修后原文件原20秒额外一次验证，非超时重试；packageContent不重复。原子rename发布自己的合成discovery/registry文件允许，实际dispose不unlink，前误判已纠正；真实APPDATA/用户配置/Worker不触碰。docs/release-delivery.md只将现行CLI入口说明更新MCP。实际临时永久删除仍未授权，完整acceptance及其额外清理用例不跑。
