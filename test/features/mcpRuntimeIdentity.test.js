@@ -214,3 +214,44 @@ test("unknown cached worker row reactivates through exact Worker task id", async
   assert.equal(history.source, "runtime_observation");
   assert.equal(history.run_id, observation.run_id);
 });
+
+test("runtime launch seed survives tmux wrapping with context JSON", () => {
+  const observation = corimObservation(wrappedRuntimeCapture());
+  assert.equal(observation.config.seed, "42");
+  assert.notEqual(observation.config.seed, "422026-09-24");
+  assert.equal(observation.worker.id, "nwpu2");
+  assert.equal(observation.gpu.id, "0");
+  assert.equal(observation.plan, "experiments/plans/comparison/corim.yaml");
+  assert.equal(observation.config.experiment_case, "corim_bus_p100");
+});
+
+test("runtime launch seed reads raw flag when context has no seed", () => {
+  const observation = corimObservation(wrappedRuntimeCapture("43", null, "work_dirs/corim/job_config.yaml"));
+  assert.equal(observation.config.seed, "43");
+});
+
+test("runtime launch rejects a seed token that is not an integer", () => {
+  const observation = corimObservation(wrappedRuntimeCapture("invalid2026-09-24", null, "work_dirs/corim/job_config.yaml"));
+  assert.equal(observation.config.seed, "");
+});
+
+test("runtime capture retains standard epoch evidence before job config download", () => {
+  const observation = corimObservation(`${wrappedRuntimeCapture()}\nEpoch 15: Val Loss = 1.3842, accuracy = 0.6409`);
+  assert.equal(observation.progress.epoch, 15);
+  assert.equal(observation.progress.loss, 1.3842);
+  assert.equal(observation.progress.max_epoch, null);
+  assert.equal(observation.progress.percent, null);
+  assert.equal(observation.config.max_epoch, null);
+});
+
+test("experiment rows distinguish workflow and worker runs", () => {
+  const { parseTrainingProgress } = require("../../src/mcp/query/Runtime.ts");
+  const progress = parseTrainingProgress("epoch 24/300 31% 53/171 0:02:00\n当前 loss 0.2387");
+  assert.equal(progress.epoch, 24);
+  assert.equal(progress.batch, 53);
+  const workflow = { id: "run-plan-1", type: "workflow", plan: "experiments/plans/demo.yaml" };
+  const worker = { id: "run-1789994720003", type: "worker_run", plan: workflow.plan, parent_id: workflow.id, progress };
+  assert.equal(worker.type, "worker_run");
+  assert.notEqual(workflow.type, worker.type);
+  assert.equal(worker.parent_id, workflow.id);
+});
