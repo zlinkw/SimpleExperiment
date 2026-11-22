@@ -75,3 +75,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 2026-11-23：workerFpsyncTaskLabel 单文件 3/3、exit 0；VM 与模拟 SFTP 回调使用 5001 个合成名称，未进行真实传输或连接 Worker。证据及输入闭包见 coverage；待总控终审。
 
 - 2026-11-23：workflowPanelNavigation 单文件 7/7、exit 0；模拟 VS Code 注册与 VM provider/activation，未操作真实界面、授权、Worker 或网络。证据及输入闭包见 coverage；待总控终审。
+
+- 2026-11-23：draftCleanupConfirmation 单文件 3/3、exit 0；模拟 webview 和草稿移动，无真实界面、删除或移动；不证明实际删除安全。证据及输入闭包见 coverage；待总控终审。
