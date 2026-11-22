@@ -65,3 +65,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 总控批准 formalJobPreflightFailure 1/1、Rejections 1/1、Api 7/7，均 exit0、原预算；仅指定变体，子进程结算断言通过，临时夹具保留。取消/看门狗只作用自建 probe；Api 的 api-environment 实际执行本机解释器 shell/loader 探针，若已装 torch 可 CPU import；邻近只读检查当前 torch 不存在，该缺席未冻结，不接科研 Conda、不训练。启动前 NVJITLINK/Conda 三变量未设置，无真实 Worker/tmux/GPU、远端 API 或删除。证据见 coverage，待总控终审。
 
 - runner case grouping 原精确 pattern 1/1、exit0；合成源码与参数展开、夹具保留，无子进程或真实删除，不覆盖其他 pattern。证据见 coverage，待总控终审。
+
+- 总控批准 projectManagedPreflight、preflightStages 各 3/3、exit0；抽取函数与假端口，前者保留合成 owner/锁/CSV，后者对自建 wrapper 改字节和 mtime，夹具保留；无完整 runtime、真实 Worker/tmux/GPU/训练或删除。证据见 coverage，待总控终审。
