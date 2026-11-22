@@ -164,4 +164,4 @@ MCP实验列表、筛选及终态别名保留旧业务断言，实际queryProjec
 
 MCP当前结果身份重排不变、歧义拒绝及诊断日志排除，queryProject 15/15 exit0；CLI history/文件写出差异待审。
 
-旧客户端四项合成契约原断言迁中立API 4/4；原整文件及真实SimpleSFTP门禁保留未测。
+旧客户端四项合成契约、路由取消/期限及候选预算迁中立API 6/6；原整文件及真实SimpleSFTP门禁保留未测。

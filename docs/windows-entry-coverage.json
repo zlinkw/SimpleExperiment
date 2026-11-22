@@ -37,8 +37,8 @@
       {
         "source": "test/api/localApi.test.js:811",
         "name": "workspace routing cancellation and total deadline refuse partial uniqueness and retain instance records",
-        "status": "pending_review",
-        "boundary": "旧客户端取消及总时限；保留原范围不降时限。"
+        "status": "neutral_consumer_covered_original_preserved",
+        "boundary": "原取消/总时限测试函数及假HTTP夹具不减断言迁至中立API；6/6 exit0，历史记录保留。"
       },
       {
         "source": "test/api/localApi.test.js:842",
@@ -49,8 +49,8 @@
       {
         "source": "test/api/localApi.test.js:878",
         "name": "实例握手预算：候选超过16条整体先拒，绝不部分握手后声称唯一或不存在；显式 discoveryPath 照常",
-        "status": "pending_review",
-        "boundary": "旧客户端完整候选预算；不得用部分握手冒充唯一。"
+        "status": "partial_neutral_consumer_covered",
+        "boundary": "中立API核17候选超预算零握手、显式记录可握手且全部保留；原LocalApiServer实际创建实例未覆盖，避免真实文件删除。"
       },
       {
         "source": "test/features/localApiClientContract.test.js:18",
