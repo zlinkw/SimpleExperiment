@@ -38,7 +38,7 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 - 520 后 pairedUpdateTransaction 原文件 8/8、exit0（`%TEMP%/g004-520-paired-update-transaction-20261123.log`，先查不存在）；内存日志及假下载安装/重载，无真实安装、网络或用户状态修改。执行前漏查 job 33 已有有效历史候选，造成不必要重复；保留新日志与事件但不选作覆盖，原历史证据不变。
 
-520 合成回归的逐项数量、日志、边界见 Git `f18078f9:docs/plan-generations/G004-execution.md` 和 coverage。distributedQueueCacheStability、terminalPlanHistory、parallelPlanStopClear、planBatchCodeSyncOnce、selectedPlanBatch、distributedSchedulingModes、projectWorkspaceChangeIsolation、prequeueRecallBulkSync、gpuMemoryScheduling、logicalPlanProgress、planArtifactSyncStatus、progressEvidenceFreshness、planNoticeLayout、resultCommandPhaseRouting、planOperationNoticeLifecycle、workerCodeVersionIsolation、executionPlanListProgressLagRepro、executionCompactOverview、planOutputReplacementHost、gpuHistoryMixedGranularityScatterRepro、gpuSampleCarryChannel、completedJobAutoRecheckSuppression 均 exit0；合成状态、假端口或 VM，不代表真实 UI、Worker、GPU、网络、传输或删除，模拟删除不证明安全；待总控审定。
+520 合成回归逐项名称、数量、日志和边界见 Git `f18078f9:docs/plan-generations/G004-execution.md` 与 coverage，均 exit0；合成状态、假端口或 VM，不代表真实 UI、Worker、GPU、网络、传输或删除，模拟删除不证明安全；待总控审定。
 
 误运行按需 dispatchWake 原文件 4/4 exit0，合成队列与假观察；保留日志及直接结果，不计 active，计划仍为 on_demand_not_run。
 
@@ -73,3 +73,5 @@ planRunHoldClearedChain 3/3 exit0：清理、确认及队列为假回调，状�
 planRunRecovery 7/7 exit0：VM 假对话和 UI，自建恢复状态保留；无真实 UI、Worker、网络或删除。原事件与依赖见 coverage，待总控终审。
 
 误重跑已有继承候选 job 179：jobArtifactSyncIdentity 7/7 exit0，纯函数；新事件和日志保留但 eligible=false，继承原证据。planner 原报证据冲突，排除重复后须重核；两次误跑原因是执行前未同时核 jobs 的 eligible，后续先核原候选再执行。
+
+nativePlanRetry 6/6 exit0：提取函数及 HTTP 分支，假 tmux、合成清单和内存队列；无真实 Worker、网络、tmux、删除或进程管理。原事件及依赖见 coverage，待总控终审；planner 150 项待核。
