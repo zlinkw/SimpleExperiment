@@ -370,7 +370,7 @@ test("action catalog and invoke reject an unexposed command", async () => {
 test("API selection commands reach local handlers while remote confirmation remains required", async () => {
   const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS), methods={}, declarations={};
-  const wanted=new Set(['uiActionCommands','SAFE_WEBVIEW_COMMANDS','API_INTERNAL_COMMANDS','API_EXECUTABLE_COMMANDS']);
+  const wanted=new Set(['uiActionCommands','SAFE_WEBVIEW_COMMANDS','API_INTERNAL_COMMANDS','API_EXECUTABLE_COMMANDS','API_LOCAL_ACTION_COMMANDS']);
   const visit=node=>{if(ts.isMethodDeclaration(node)&&['invokeApi','handleMessageCore','selectPlanFromUi','selectExperimentFromUi'].includes(node.name.getText(ast)))methods[node.name.getText(ast)]=node.getText(ast);
     if(ts.isVariableStatement(node)) for(const d of node.declarationList.declarations) if(wanted.has(d.name.getText(ast))) declarations[d.name.getText(ast)]=node.getText(ast);
     ts.forEachChild(node,visit)};visit(ast);
@@ -400,6 +400,35 @@ test("API selection commands reach local handlers while remote confirmation rema
   await assert.rejects(host.invokeApi({command:'invented'}),/not exposed/);
   await assert.rejects(host.invokeApi({command:'runPlan'}),/CONFIRM_REQUIRED/);assert.equal(remote.length,0);
   await host.invokeApi({command:'runPlan',confirm:true});assert.deepEqual(remote,[['runPlan',true]]);
+});
+
+test("API local actions preserve confirmation, leases and business gate", async () => {
+  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),methods={},decl={};
+  const wanted=new Set(['uiActionCommands','SAFE_WEBVIEW_COMMANDS','API_INTERNAL_COMMANDS','API_EXECUTABLE_COMMANDS','API_LOCAL_ACTION_COMMANDS','hostOperationUiCommands','actionCommandMap','READ_ONLY_HOST_LEASE_UI_COMMANDS']);
+  const funcs=new Set(['hostOperationLeaseActionForUiCommand','readOnlyHostLeaseUiCommand']);
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&['invokeApi','handleMessageCore'].includes(node.name.getText(ast)))methods[node.name.getText(ast)]=node.getText(ast);
+    if(ts.isFunctionDeclaration(node)&&node.name&&funcs.has(node.name.text))decl[node.name.text]=node.getText(ast);
+    if(ts.isVariableStatement(node))for(const d of node.declarationList.declarations)if(wanted.has(d.name.getText(ast)))decl[d.name.getText(ast)]=node.getText(ast);
+    ts.forEachChild(node,visit)};visit(ast);
+  for(const key of [...wanted,...funcs])assert.ok(decl[key],key);
+  const commands={downloadDebugBundle:'downloadDebugBundle',openAuditTail:'openAuditTail',publishGithub:'publishToGitHub',syncGithub:'syncToGitHub',overwriteGithub:'overwriteFromGitHub',uploadProjectToWorkers:'uploadProjectToWorkers',distributeCodeToWorkers:'distributeCodeToWorkers',deployLatestAgent:'deployLatestAgentRuntime',configureDownloadScope:'configureDownloadScope',configureCodeSyncIncludes:'configureCodeSyncIncludes',configureServerSyncScope:'configureServerSyncScope',clearLegacyTasks:'clearLegacyTasksFromUi',clearOperations:'clearOperationHistoryFromUi',abortScheduler:'abortSchedulerFromUi'};
+  let blocked=false,gates=0;const sandbox={PLAN_PREFLIGHT_COMMANDS:new Set(),API_PARAMETERIZED_CONNECTION_COMMANDS:new Set(),API_CONFIRM_COMMANDS:new Set(['runPlan','overwriteGithub']),
+    stringField:(p,k)=>p[k]||'',booleanField:(p,k)=>Boolean(p[k]),confirmationRequired:()=>Error('CONFIRM_REQUIRED'),hostOperationLeaseActionLabel:x=>x,
+    require:name=>{assert.equal(name,'../updates/Bootstrap');return {assertBusinessAllowed(){gates++;if(blocked)throw Error('BUSINESS_BLOCKED')}}}};
+  const code=[...wanted,...funcs].map(key=>decl[key]).join('\n')+'\nclass Host {'+Object.values(methods).join('\n')+'};this.Host=Host;this.localCommands=API_LOCAL_ACTION_COMMANDS;';
+  vm.runInNewContext(ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  assert.deepEqual([...sandbox.localCommands].sort(),Object.keys(commands).sort());
+  const host=new sandbox.Host(),calls=[],leases=[],remote=[];host.extensionRuntimeVersionState=()=>({reloadRequired:false});host.panelLifecycleState='ready';
+  host.withSafeTransferRetry=async(_command,_message,fn)=>fn();host.withHostOperationLease=async(action,_label,fn,options)=>{leases.push([action,options.readOnly]);sandbox.require('../updates/Bootstrap').assertBusinessAllowed();return fn()};
+  host.runActionCommand=async command=>remote.push(command);for(const method of Object.values(commands))host[method]=async()=>calls.push(method);
+  await assert.rejects(host.invokeApi({command:'overwriteGithub'}),/CONFIRM_REQUIRED/);assert.equal(calls.length,0);
+  for(const command of Object.keys(commands))await host.invokeApi({command,confirm:true});
+  assert.deepEqual(calls,Object.values(commands));assert.equal(gates,14);assert.ok(leases.some(x=>x[0]==='publishGithub'));assert.ok(leases.some(x=>x[0]==='configureCodeSyncIncludes'&&x[1]));
+  blocked=true;await assert.rejects(host.invokeApi({command:'openAuditTail',confirm:true}),/BUSINESS_BLOCKED/);assert.equal(calls.length,14);blocked=false;
+  host.downloadDebugBundle=async()=>{throw Error('cancelled')};await assert.rejects(host.invokeApi({command:'downloadDebugBundle',confirm:true}),/cancelled/);
+  await assert.rejects(host.invokeApi({command:'runPlan'}),/CONFIRM_REQUIRED/);await host.invokeApi({command:'runPlan',confirm:true});assert.deepEqual(remote,['runPlan']);
+  await assert.rejects(host.invokeApi({command:'invented'}),/not exposed/);
 });
 
 test("project authorization grants the project without binding Workers", async () => {

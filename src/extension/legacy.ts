@@ -613,6 +613,11 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "submitBranchPlanRun", "refreshBranchRuns", "compareBranchResults", "verifyBranchHeadBinding", "createBranchPr", "mergeBranchPr",
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
+const API_LOCAL_ACTION_COMMANDS = new Set([
+    "downloadDebugBundle", "openAuditTail", "publishGithub", "syncGithub", "overwriteGithub",
+    "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope",
+    "configureCodeSyncIncludes", "configureServerSyncScope", "clearLegacyTasks", "clearOperations", "abortScheduler",
+]);
 const API_INTERNAL_COMMANDS = new Set([
     "manageAiAuthorization",
     "webviewNotice", "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow", "toggleLowTrafficMode",
@@ -4587,6 +4592,15 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         const message = { command, ...params };
         if (command === "selectPlan" || command === "selectExperiment")
             return await this.withSafeTransferRetry(command, message, () => this.handleMessageCore(message, command));
+        if (API_LOCAL_ACTION_COMMANDS.has(command)) {
+            return await this.withSafeTransferRetry(command, message, async () => {
+                const leaseAction = hostOperationLeaseActionForUiCommand(command);
+                if (leaseAction)
+                    return await this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command), { planFile: message.planFile || message.path, readOnly: readOnlyHostLeaseUiCommand(command) });
+                require("../updates/Bootstrap").assertBusinessAllowed();
+                return await this.handleMessageCore(message, command);
+            });
+        }
         if (uiActionCommands.has(command))
             return await this.withSafeTransferRetry(command, message, () => this.runActionCommand(command, message));
         return await this.withSafeTransferRetry(command, message, () => this.handleMessageCore(message, command));
