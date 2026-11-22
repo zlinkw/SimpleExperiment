@@ -58,15 +58,8 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 近期逐项原文见 Git `c04f2dd7:docs/plan-generations/G004-execution.md`，原事件和输入见 coverage。新增已登记测试包括 Worker 能力、刷新、预检拒绝、Hub 退役、结果清单/解析/收集、代码证明、合成重排、Agent 启动/命名、结构缓存、运行日志、假 GPU、派发新鲜度、任务身份与指标别名，均各自 exit0，精确数量及实际效果见该 Git 与 coverage。自建夹具保留，包含原子状态写入及日志轮转；Python 仅提取函数或启动前缀，原测试规模及断言不变；无完整 runtime、真实 Worker/GPU/tmux、训练、服务、网络、用户配置或删除。模拟删除不证明真实删除安全。各项待总控终审。
 
-gpuSampleCarryRealChain 3/3 exit0：串行 Python 函数提取、假采样和 inventory，夹具线程 join，脚本保留；无真实 GPU/nvidia-smi、Worker、tmux 或网络。证据见 coverage，待总控终审。
-
-syncScopeAgentIndex 8/8 exit0：VM 假隧道、Python 索引与提取的假请求处理，删除仅为内存差量标记；自建文件脚本保留，无真实 Worker、网络或删除。证据见 coverage，待总控终审。
-
-operationRetirement 5/5 exit0：Python 抽取函数处理内存状态，VM 假 Worker 与自建进度文件改写并保留；无完整 runtime、真实 Worker/GPU、网络或文件删除。证据见 coverage，待总控终审。
-
-planIsolatedBatchLedger 5/5 exit0：真实账本原子替换仅作自建临时状态发布，隔离条目为合成，夹具保留；无真实隔离、Worker、网络或删除，不证明真实删除安全。证据见 coverage，待总控终审。
-
-planIsolatedBatchLedgerDispatch 5/5 exit0：合成派发观察与自建账本原子状态发布，夹具保留；无真实 Worker、隔离、网络或删除。证据见 coverage，待总控终审。
-
+gpuSampleCarryRealChain 3/3、syncScopeAgentIndex 8/8、operationRetirement 5/5、planIsolatedBatchLedger 与 Dispatch 各5/5，均 exit0；函数提取、假采样/Worker/请求和自建账本状态原子发布，夹具保留；无真实 GPU、Worker、tmux、网络或删除，模拟删除不证明真实安全，详见 coverage。
 
 runtimeLogAnalysisHost 19/19 exit0：VM 假 Worker、清理与界面，自建源文件保留；无真实删除、界面或网络。原日志和事件见 coverage，待总控终审。
+
+接替后误重跑已有继承候选 job 204：planTerminalStatusRecovery 原文件 9/9、exit0，纯合成状态，日志 `%TEMP%/g004-520-plan-terminal-status-recovery-20261123-successor.log`；planner 发现继承与新 direct 冲突，保留新事件及日志但设 eligible=false，继续使用原 job 204 证据，不掩盖重复。归档旧执行会话后核其 session_meta 与 138 条 eligible 事件双 SHA，139 处引用仅修正实际归档路径，提交 `9a69240b`；未重跑或改写原事件。
