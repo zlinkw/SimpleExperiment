@@ -67,3 +67,7 @@ direct证据无论使用原工具输出还是单独原日志，均要求非空�
 原mcpEntry在0.5.520单文件3/3 exit0，TEMP/g004-520-mcp-entry-20261123.log；仅自建临时shim目录和VM假子进程，确认原合成CLI文件不变，未安装全局shim、不删除。原call、完整日志及其读取的package、入口和安装脚本闭包已按direct冻结，待总控审核。当前361执行＋6按需，10项旧证和2项direct可识别，仍有349项未审，package入口按设计拒绝。
 
 最终compile后的原packageContentPolicy单文件12/12 exit0，TEMP/g004-520-package-content-20261123.log；仅生成并保留合成zip/fixture，串行原生Python子进程按原10秒预算结算，未打包实际VSIX或删除。当前policy/manifest、原call及日志、Node与PATH首个Python 3.14.6二进制及zipfile/json/pathlib入口已按本次直接证据冻结，执行者审定、待总控最终审核，不代表完整标准库或旧工具链已验证。后续只读查询Python模块位置时把内建zlib误当有__file__，该查询exit1但已输出Python版本等事实，不影响测试。当前规划识别10项旧证和3项direct，仍有348项未审，package入口按设计拒绝。
+
+最终compile后的mcpTrainingProgress原文件9/9 exit0，TEMP/g004-520-mcp-training-progress-20261123.log；仅在内存解析合成字符串，未调用同模块Worker网络观察函数，当前直接证据与源码/TS输入已冻结，待总控审。第一次登记脚本因JSON标记空格不符断言exit1、未写文件；修正标记后成功，不涉及测试失败。
+
+同源mcpRuntimeCapture原文件3/3 exit0，TEMP/g004-520-mcp-runtime-capture-20261123.log；所有网络端点均为测试自建回环HTTP及合成RPC响应，finally关闭连接和监听，无真实Worker、删除或子进程。当前直接证据及源码/TS输入已冻结，待总控审。当前规划361执行＋6按需，仍有346项待审，增量入口拒绝package。
