@@ -12,6 +12,7 @@ test("unreadable project state blocks migration and replacement until it can be 
     ["PROJECT_TASK_SELECTION_PATH", "readProjectTaskSelectionState", "writeProjectTaskSelectionState"],
     ["PROJECT_OFFLINE_BUNDLE_PATH", "readProjectOfflineBundleState", "writeProjectOfflineBundleState"],
     ["PROJECT_UI_LAYOUT_PATH", "readProjectUiLayoutState", "writeProjectUiLayoutState"],
+    ["PROJECT_FLOW_STATE_PATH", "readProjectFlowState", "writeProjectFlowState"],
   ];
   const declarations = ast.statements.filter(node =>
     ts.isFunctionDeclaration(node) && pairs.some(pair => pair.includes(node.name?.text)) ||
@@ -21,7 +22,7 @@ test("unreadable project state blocks migration and replacement until it can be 
   const fakeFs = { readFile: async () => { if (content instanceof Error) throw content; return content; }, mkdir: async () => {} };
   const helpers = { fs: fakeFs, path: require("node:path"), usableSelectionKey: x => x, mergeRecentPlans: x => x,
     normalizeSelectionList: x => x || [], errorMessage: error => error.message, defaultUiLayout: {}, normalizeUiLayout: x => x,
-    normalizeUiProjectLayoutState: x => x, projectUiLayoutState: x => x,
+    normalizeUiProjectLayoutState: x => x, projectUiLayoutState: x => x, ApiWorkflow_1: { normalizeFlowState: x => x },
     writeAtomicPluginStateJson: async () => { writes++; } };
   const compiled = ts.transpileModule(declarations + "\nreturn {" + pairs.flatMap(x => x.slice(1)).join(",") + "};", {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
@@ -53,8 +54,22 @@ test("unreadable project state blocks migration and replacement until it can be 
   await assert.rejects(bootstrap.call(host), /unreadable/);
   assert.equal(migrated, 0);
   host.loadProjectOfflineBundleState = async () => {};
+  host.loadProjectFlowState = async () => { throw Error("flow unreadable"); };
+  await assert.rejects(bootstrap.call(host), /flow unreadable/);
+  assert.equal(migrated, 0);
+  host.loadProjectFlowState = async () => {};
   await bootstrap.call(host);
   assert.equal(migrated, 1);
+});
+
+test("automatic flow advancement reports an unsaved state without denying earlier effects", async () => {
+  const advance = method("async apiAdvanceFlow", "async persistProjectFlowState", ["ApiWorkflow_1", "errorMessage"],
+    [{ advanceFlowStep: (state, step, patch) => ({ ...state, [step]: patch }) }, e => e.message]).apiAdvanceFlow;
+  const host = { apiFlowState: {}, persistProjectFlowState: async () => { throw Error("disk full"); } };
+  await assert.rejects(advance.call(host, "prepare_agents", { completed: true }), /此前操作可能已执行.*disk full/);
+  assert.equal(host.apiFlowState.prepare_agents.completed, true);
+  host.persistProjectFlowState = async () => {};
+  assert.equal((await advance.call(host, "prepare_agents", { completed: true })).prepare_agents.completed, true);
 });
 
 test("offline import and clear retain the current and legacy values when saving fails", async () => {

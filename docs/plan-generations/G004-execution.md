@@ -1,6 +1,6 @@
 # G004 执行登记
 
-519 重载后的调查进行中：用户打开专用根后，实际health/capabilities/status/state证实默认profile运行519 PID29888，离线、低流量、5配置/1启用、原PLAN/空任务、结果目录、合成离线包及原统一项目授权均读回；项目识别原值及现值均未完成，不能作为已完成状态恢复实机通过。默认发现先前指向稿件项目且未调用。实际本地合成宽CSV预览和无预设MCP解析错误为空，指定宽表预设有两条却改写AP及macro_f1等指标名；同文件排行榜保留原字段，具体证据见coverage。未操作真实Worker或改配置。流程状态读错吞掉可触发后续覆盖：实际519业务消费者配合成存储目标测试1/2 exit1，`C:/Users/ZLK/AppData/Local/Temp/g004-519-flow-real-workflow-ff08.log`；无实际文件损失，风险已通知总控，修复待本批统一审定。其他源码/合成消费者候选、旧证边界与日志见coverage.g004U04RemainingInventory.g004Reload519LocalAudit。
+519 重载调查：专用根默认profile实际运行519 PID29888，离线、低流量、5配置/1启用、原PLAN/空任务、结果目录、合成离线包及统一授权均读回；识别原值与现值均未完成，不能冒充已完成状态恢复。默认发现曾指向稿件且未调用；合成宽CSV无预设解析为空、显式宽表改写AP与macro_f1，排行榜保留原字段，详见coverage；未动真实Worker或配置。流程状态读错可能导致覆盖，真实消费者配合成存储原1/2 exit1，`C:/Users/ZLK/AppData/Local/Temp/g004-519-flow-real-workflow-ff08.log`，无真实文件损失。R519 A1源码修复仅读缺失为默认，损坏/拒绝读阻止初始化及覆盖，自动进度保存失败提示此前操作可能已执行；真实源码配内存存储单文件11/11 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-r519-a1-project-state-ff08.log`。其他证据见coverage.g004U04RemainingInventory.g004Reload519LocalAudit。
 
 布局保存/重置将新项目状态持久化与旧workspace键清除并行执行；迁移失败后若保存也失败，可能先丢旧键。真实方法配内存Memento及合成磁盘失败复现 0/2 exit1，`C:/Users/ZLK/AppData/Local/Temp/g004-519-layout-legacy-failure-ff08.log`；无真实数据损失证据，已通知总控并待统一返修。额外核对保存拓扑的确认、取消及写失败：真实方法配假设置/运行时3/3 exit0，未动实际共享设置或服务器。
 

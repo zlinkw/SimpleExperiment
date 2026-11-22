@@ -4521,7 +4521,12 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
     async apiAdvanceFlow(step, patch) {
         this.apiFlowState = ApiWorkflow_1.advanceFlowStep(this.apiFlowState, step, patch);
         this.apiFlowStateDirty = true;
-        await this.persistProjectFlowState().catch(() => undefined);
+        try {
+            await this.persistProjectFlowState();
+        }
+        catch (error) {
+            throw new Error(`流程进度未保存；此前操作可能已执行，请核查后再重试：${errorMessage(error)}`, { cause: error });
+        }
         return this.apiFlowState;
     }
     async persistProjectFlowState(force = false) {
@@ -4632,7 +4637,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             this.loadProjectLocalPlanMetadataState().catch(() => undefined),
             projectContext.root ? this.loadPlanSyncLedger(projectContext.root).catch(() => undefined) : Promise.resolve(undefined),
             this.refreshCheckStaticReports(projectContext.root).catch(() => undefined),
-            this.loadProjectFlowState().catch(() => undefined),
+            this.loadProjectFlowState(),
             this.refreshLocalSshConfig().catch(() => undefined),
         ]);
         if (!this.projectContextIsCurrent(projectContext))
@@ -29748,15 +29753,19 @@ async function readProjectFlowState(root) {
     try {
         const text = await fs.readFile(fullPath, "utf8");
         const data = JSON.parse(text);
+        if (!data || typeof data !== "object" || Array.isArray(data))
+            throw new Error("项目状态格式无效");
         return ApiWorkflow_1.normalizeFlowState(data);
     }
-    catch {
-        return undefined;
+    catch (error) {
+        if (error?.code === "ENOENT") return undefined;
+        throw new Error(`读取项目状态失败 ${fullPath}: ${errorMessage(error)}`, { cause: error });
     }
 }
 async function writeProjectFlowState(root, state) {
     if (!root)
         return;
+    await readProjectFlowState(root);
     const fullPath = path.join(root, ...PROJECT_FLOW_STATE_PATH.split("/"));
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     const payload = ApiWorkflow_1.normalizeFlowState(state);
