@@ -60,26 +60,6 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 gpuSampleCarryRealChain 3/3、syncScopeAgentIndex 8/8、operationRetirement 5/5、planIsolatedBatchLedger 与 Dispatch 各5/5，均 exit0；函数提取、假采样/Worker/请求和自建账本状态原子发布，夹具保留；无真实 GPU、Worker、tmux、网络或删除，模拟删除不证明真实安全，详见 coverage。
 
-runtimeLogAnalysisHost 19/19 exit0：VM 假 Worker、清理与界面，自建源文件保留；无真实删除、界面或网络。原日志和事件见 coverage，待总控终审。
+接替前 runtimeLogAnalysisHost 19/19 exit0，VM 假 Worker、清理与界面，自建源保留。接替后 distributedPlanExecutionMode 10/10、taskQueryWideReadRealChain 3/3、planRunHoldClearedChain 3/3、planRunRecovery 7/7、nativePlanRetry 6/6、completedJobArtifactRootBinding 7/7、syncScopeStagingIdentityWiring 4/4、planSubmissionStateGuard 26/26、planRunQueryRegression 6/6、planRunSharedSubmission 5/5 均 exit0；均用 VM、Python 函数提取或假 Worker/网络/清理/UI，必要自建状态原子发布并保留，无真实 Worker、GPU、训练、网络、传输、隔离、UI 或删除。逐项精确边界、日志、依赖和原事件见 coverage，待总控终审；planner 145 项待核。
 
-接替后误重跑已有继承候选 job 204：planTerminalStatusRecovery 原文件 9/9、exit0，纯合成状态，日志 `%TEMP%/g004-520-plan-terminal-status-recovery-20261123-successor.log`；planner 发现继承与新 direct 冲突，保留新事件及日志但设 eligible=false，继续使用原 job 204 证据，不掩盖重复。归档旧执行会话后核其 session_meta 与 138 条 eligible 事件双 SHA，139 处引用仅修正实际归档路径，提交 `9a69240b`；未重跑或改写原事件。
-
-distributedPlanExecutionMode 10/10 exit0：VM 假 Worker 与 Python 函数提取，队列、tmux、文件和恢复证据均为替身或内存；自建根保留，无真实 Worker、训练、GPU、网络、tmux 或删除。原事件及依赖见 coverage，待总控终审；planner 154 项待核。
-
-taskQueryWideReadRealChain 3/3 exit0：仅提取查询函数，以假清单、日志和 tmux 输入验证查询边界；脚本保留，无真实 Worker、网络、tmux 或删除。原事件及依赖见 coverage，待总控终审。
-
-planRunHoldClearedChain 3/3 exit0：清理、确认及队列为假回调，状态原子写入自建根并保留；无真实隔离或删除。原事件与依赖见 coverage，待总控终审；planner 152 项待核。
-
-planRunRecovery 7/7 exit0：VM 假对话和 UI，自建恢复状态保留；无真实 UI、Worker、网络或删除。原事件与依赖见 coverage，待总控终审。
-
-误重跑已有继承候选 job 179：jobArtifactSyncIdentity 7/7 exit0，纯函数；新事件和日志保留但 eligible=false，继承原证据。planner 原报证据冲突，排除重复后须重核；两次误跑原因是执行前未同时核 jobs 的 eligible，后续先核原候选再执行。
-
-nativePlanRetry 6/6 exit0：提取函数及 HTTP 分支，假 tmux、合成清单和内存队列；无真实 Worker、网络、tmux、删除或进程管理。原事件及依赖见 coverage，待总控终审；planner 150 项待核。
-
-completedJobArtifactRootBinding 7/7 exit0：VM 编译方法、假探测和传输，自建根保留；无真实 Worker、网络、传输或删除。原事件与依赖见 coverage，待总控终审；planner 149 项待核。
-
-syncScopeStagingIdentityWiring 4/4 exit0：VM 与编译宿主、假 Worker/传输及删除，自建根和原子状态保留；无真实 Worker、网络、传输、UI 或删除。原事件及依赖见 coverage，待总控终审；planner 148 项待核。
-
-planSubmissionStateGuard 26/26 exit0：VM 编译方法、假探测及写入哨兵；无真实 Worker、网络、UI 或文件写入。原事件与依赖见 coverage，待总控终审；planner 147 项待核。
-
-planRunQueryRegression 6/6 exit0：Python 函数提取、VM 假 Worker，自建状态保留；无真实 Worker、网络、UI 或删除。证据见 coverage，待总控终审；planner 146 项待核。
+接替后误重跑已有继承候选 job 204（planTerminalStatusRecovery 9/9）与 job 179（jobArtifactSyncIdentity 7/7），均 exit0；原始事件、日志保留且新记录 eligible=false，继续继承原证据。两次 planner 报证据冲突，排除重复后恢复；后续先核 jobs 和本轮记录再执行。旧执行会话归档后核 session_meta 与 138 条 eligible 事件双 SHA，139 处引用仅修正实际归档路径，提交 `9a69240b`；未重跑或改写原事件。
