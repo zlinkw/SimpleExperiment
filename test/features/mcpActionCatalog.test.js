@@ -14,6 +14,7 @@ test('MCP action catalog forwards the current host table and never invents unava
  for(const tool of PROJECT_TOOLS.filter(row=>row.method==='invoke')){
   assert.ok(tool.action);assert.equal(Object.hasOwn(tool.inputSchema.properties,'command'),false);
  }
+ assert.ok(PROJECT_TOOLS.every(tool=>! /\bCLI\b/i.test(tool.description)));
  await assert.rejects(gateway.call('invoke',{command:'runPlan'}),/MCP_TOOL_UNAVAILABLE/);
  available=false;assert.ok(!(await gateway.catalog()).some(row=>row.name==='action_catalog'));
  await assert.rejects(gateway.call('action_catalog',{}),/MCP_TOOL_UNAVAILABLE/);assert.equal(calls.length,1);

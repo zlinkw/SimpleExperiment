@@ -200,7 +200,7 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     sourceWorkerId: task.workerId, destinationWorkerId: task.workerId, relativePaths: texts("Project-relative file"),
   }, ["sourceWorkerId", "destinationWorkerId", "relativePaths"], "sync", undefined, "sftp"),
   ...["list", "summary", "active", "tree", "overview", "health"].map(action => tool("experiment_" + action, "mcp.query",
-    "Structured CLI business view: experiment " + action, { full: boolean, ...(action === "list" ? {
+    "Structured experiment view: " + action, { full: boolean, ...(action === "list" ? {
       status: text("Exact experiment status filter"), type: { type: "string", enum: ["workflow", "worker_run"] }, limit: integer,
     } : {}) }, [], undefined, "experiment_" + action)),
   ...["status", "inspect", "monitor", "diagnose", "config", "log"].map(action => tool("experiment_" + action, "mcp.query",
@@ -211,16 +211,16 @@ export const PROJECT_TOOLS: ProjectTool[] = [
   tool("result_export", "mcp.query", "Export exact results as structured content; returns content without saving raw metrics locally", {
     id: text("Exact result ID"), format: { type: "string", enum: ["csv", "json"] },
   }, ["id"], "results", "result_export"),
-  tool("result_compare", "mcp.query", "Compare two exact result rows using the same CLI comparison logic", { left: text("Left result ID"), right: text("Right result ID") }, ["left", "right"], "results", "result_compare"),
+  tool("result_compare", "mcp.query", "Compare two exact result rows", { left: text("Left result ID"), right: text("Right result ID") }, ["left", "right"], "results", "result_compare"),
   tool("result_parse", "mcp.query", "Parse an existing project file with an optional parser preset", {
     file: text("Existing project-relative input file"), preset: text("Existing parser preset ID"),
   }, ["file"], undefined, "result_parse"),
   tool("metric_leaderboard", "mcp.query", "Build a leaderboard from an existing project file", {
     file: text("Existing project-relative input file"), primary: text("Primary metric"),
   }, ["file"], undefined, "metric_leaderboard"),
-  ...["artifact_list", "artifact_inspect"].map(name => tool(name, "mcp.query", "Inspect artifact metadata through the shared CLI business view", { id: text("Exact experiment or artifact ID") }, ["id"], "results", name)),
+  ...["artifact_list", "artifact_inspect"].map(name => tool(name, "mcp.query", "Inspect artifact metadata", { id: text("Exact experiment or artifact ID") }, ["id"], "results", name)),
   tool("resource_available", "mcp.query", "Inspect current GPU availability and observed task allocations", {}, [], undefined, "resource_available"),
-  tool("server_list", "mcp.query", "Inspect configured servers through the shared CLI view", {}, [], undefined, "server_list"),
+  tool("server_list", "mcp.query", "Inspect configured servers", {}, [], undefined, "server_list"),
   tool("plan_matrix", "mcp.query", "Preview the saved PLAN's declared case and seed combinations without submitting it", plan, ["planFile"], undefined, "plan_matrix"),
   tool("plan_build", "mcp.query", "Generate PLAN YAML content from explicit seeds; does not save or run it", { suite: text("Suite"), base: text("Project-relative base config"), seeds: texts("Explicit seed") }, ["suite", "base", "seeds"], undefined, "plan_build"),
 ];
