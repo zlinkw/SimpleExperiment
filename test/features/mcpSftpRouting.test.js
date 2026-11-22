@@ -5,12 +5,12 @@ const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-sftp-gateway-'));
 const vscode={workspace:{workspaceFolders:[{uri:{fsPath:root}}]},window:{}};
 const original=Module._load;let mcpGateway;
 try{Module._load=function(id,...args){return id==='vscode'?vscode:original.call(this,id,...args)};({mcpGateway}=require('../../src/extension/McpHost.ts'))}finally{Module._load=original}
-function fixture({failureMethod}={}){
+function fixture({failureMethod,responses={}}={}){
  const workers=[{id:'w1',host:'host1',port:22,user:'user',remotePath:'/project/one'},{id:'w2',host:'host2',port:22,user:'user',remotePath:'/project/two'}],calls=[];
  const grant=createProjectAuthorization(root);grant.workers=workers.map(({id,host,port,user,remotePath})=>({id,host,port,user,projectRoot:remotePath}));
- const methods=['sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.observeBatch','target.update'];
+ const methods=['status','servers.list','sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.observeBatch','target.update'];
  const host={context:{workspaceState:{get:()=>grant}},refreshSharedConnectionSettings(){},workerCodeSyncTargets:()=>workers,createLocalApiMethods:()=>({}),
-  readSimpleSftpCapabilities:async()=>({methods}),sftpServerOptions:row=>({...row}),simpleSftpApiCall:async(method,params)=>{calls.push({method,params});if(method===failureMethod)throw Error('远端项目清单无效。');return method==='transfers.reconcile'?{status:'notFound',settled:false}:method==='transfers.cancel'?{status:'cancelling'}:{ok:true}}};
+  readSimpleSftpCapabilities:async()=>({methods}),sftpServerOptions:row=>({...row}),simpleSftpApiCall:async(method,params)=>{calls.push({method,params});if(method===failureMethod)throw Error('远端项目清单无效。');return responses[method]??(method==='transfers.reconcile'?{status:'notFound',settled:false}:method==='transfers.cancel'?{status:'cancelling'}:{ok:true})}};
  return {gateway:mcpGateway(host),calls,grant,workers};
 }
 
@@ -61,6 +61,13 @@ test('MCP SFTP preserves backend inventory refusal',async()=>{
  const f=fixture({failureMethod:'sync.projectInventory'});
  await assert.rejects(f.gateway.call('sftp_inventory',{workerId:'w1'}),/远端项目清单无效/);
  assert.deepEqual(f.calls.map(row=>row.method),['sync.projectInventory']);
+});
+
+test('MCP SFTP status and server list preserve only observed metadata',async()=>{
+ const status={ok:true,serverConfigFile:'C:/fixture/servers.json'},servers={ok:true,activeServerId:'s1',servers:[{id:'s1',label:'gpu1'}]};
+ const f=fixture({responses:{status,'servers.list':servers}});
+ assert.deepEqual(await f.gateway.call('sftp_status',{}),status);assert.deepEqual(await f.gateway.call('sftp_servers',{}),servers);
+ const missing=fixture({responses:{status:{ok:true}}});assert.deepEqual(await missing.gateway.call('sftp_status',{}),{ok:true});
 });
 
 test('MCP target update requires human approval before forwarding a scoped patch',async()=>{

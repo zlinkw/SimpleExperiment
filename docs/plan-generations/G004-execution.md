@@ -180,4 +180,4 @@ MCP GPU观测与任务分别保留Worker/GPU0/command并显式传播失败，Gat
 
 MCP PLAN永久删除预览补界面同用confirmed_paths；假Host 6/6 exit0，未生成确认或操作真实文件，后续双页及路径保护不变。
 
-MCP只读观察身份、清单错误与目标更新假对话授权经Gateway/McpHost假后端6/6 exit0；未修改真实文件或共享配置。
+MCP只读观察身份、状态/服务器、清单错误与目标更新假对话授权经Gateway/McpHost假后端7/7 exit0；未修改真实文件或共享配置。
