@@ -61,3 +61,5 @@ ProjectOps候选补核动态读取的legacy计划解析和plans.list片段与faf
 - 520 后 MCP native job 状态观察 4/4、exit 0（`%TEMP%/g004-520-mcp-native-observation-20261123.log`）：当前 tasks.list 代码在 VM 使用合成队列与假 Worker 查询；保留合成文件，无真实 Worker、Agent 生命周期动作或删除。覆盖绑定动态提取的 legacy 源及编译器，待总控审定。
 
 - 数据错误：运行 mcpWorkerLifecycle 4/4、exit 0 时误覆盖 mcpWorkerHistory 3/3 的 `%TEMP%/g004-520-mcp-worker-history-20261123.log`（旧 SHA256 `f2b5a80a81824b94b6a35fb3b0134f544a871b89119e70b3479ff5f93bb94f3f`）；旧文件未恢复。已核原 call `call_88b68b75a83c458c814a7109e11212d6` 的完整命令、cwd、exit0、无 live session、3/3 且其余为0及无截断，按总控裁决仅用其原 rollout 事件，当前同名日志只属新的 4/4。后续新日志先核路径不存在。两项均为合成 Worker 观察，未执行真实 Agent/Worker。
+
+- 520 编译后 serverPlanQueueRecovery 4/4、pulledTaskControl 5/5，均 exit0；前者读取源码并用合成内存队列，后者用假客户端及原定时器，无真实 Worker/停止/删除。日志 `%TEMP%/g004-520-server-queue-recovery-20261123.log`、`%TEMP%/g004-520-pulled-task-control-20261123.log`；均先确认路径不存在。
