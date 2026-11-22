@@ -83,3 +83,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - branchProjectRegistry 的 C5-R6 只读恢复精确 pattern 1/1、exit 0；模拟 gh 和内存账本，无真实 GitHub、网络、合并或文件变更；不覆盖其他 pattern。证据见 coverage，待总控终审。
 
 - branchProjectRegistry 的 C4 preview/create 两个精确 pattern 各 1/1、exit 0；Git/gh 执行器及账本均为模拟，无真实 Git、推送、PR 或网络；不覆盖其他 pattern。证据见 coverage，待总控终审。
+
+- branchProjectRegistry 的 C3 假执行器和 C4-R3 revalidate 两个精确 pattern 各 1/1、exit 0；模拟 Git 和内存账本，无真实 Git、网络或 UI；证据见 coverage，待总控终审。
