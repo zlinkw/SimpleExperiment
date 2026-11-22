@@ -8,7 +8,7 @@ try{Module._load=function(id,...args){return id==='vscode'?vscode:original.call(
 function fixture({failureMethod,responses={}}={}){
  const workers=[{id:'w1',host:'host1',port:22,user:'user',remotePath:'/project/one'},{id:'w2',host:'host2',port:22,user:'user',remotePath:'/project/two'}],calls=[];
  const grant=createProjectAuthorization(root);grant.workers=workers.map(({id,host,port,user,remotePath})=>({id,host,port,user,projectRoot:remotePath}));
- const methods=['status','servers.list','sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.observeBatch','target.update'];
+ const methods=['status','servers.list','sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.planLogPaths','sync.projectFileStats','remote.listDirs','sync.fromRemote','sync.downloadPaths','sync.downloadMappedPaths','sync.serverToServerFpsync','transfers.list','transfers.reconcile','transfers.cancel','files.cleanup.observeBatch','target.update','upload.files','upload.workspace'];
  const host={context:{workspaceState:{get:()=>grant}},refreshSharedConnectionSettings(){},workerCodeSyncTargets:()=>workers,createLocalApiMethods:()=>({}),
   readSimpleSftpCapabilities:async()=>({methods}),sftpServerOptions:row=>({...row}),simpleSftpApiCall:async(method,params)=>{calls.push({method,params});if(method===failureMethod)throw Error('远端项目清单无效。');return responses[method]??(method==='transfers.reconcile'?{status:'notFound',settled:false}:method==='transfers.cancel'?{status:'cancelling'}:{ok:true})}};
  return {gateway:mcpGateway(host),calls,grant,workers};
@@ -101,4 +101,15 @@ test('MCP SFTP transfers preserve both targets and project authorization',async(
  f.grant.workers=f.grant.workers.filter(row=>row.id!=='w2');const before=f.calls.length;
  await assert.rejects(f.gateway.call('sftp_worker_sync',{sourceWorkerId:'w1',destinationWorkerId:'w2',paths:['work_dirs/run']}),/WORKER_NOT_AUTHORIZED/);assert.equal(f.calls.length,before);
  f.grant.permissions=[];await assert.rejects(f.gateway.call('sftp_from_remote',{workerId:'w1'}),/AUTHORIZATION_REQUIRED/);assert.equal(f.calls.length,before);
+});
+
+test('MCP file uploads bind exact workspace paths',async()=>{
+ const f=fixture(),file=path.join(root,'fixture-upload.txt');fs.writeFileSync(file,'fixture','utf8');
+ await f.gateway.call('sftp_upload_files',{workerId:'w1',files:['fixture-upload.txt']});
+ let call=f.calls.at(-1);assert.equal(call.method,'upload.files');
+ assert.deepEqual(call.params.files,[{localPath:file,remoteName:'fixture-upload.txt'}]);
+ assert.equal(call.params.server.id,'w1');assert.equal(call.params.localBase,root);
+ const before=f.calls.length;
+ await assert.rejects(f.gateway.call('sftp_upload_files',{workerId:'w1',files:['../outside']}),/MCP_PROJECT_FILE_REQUIRED/);
+ assert.equal(f.calls.length,before);
 });

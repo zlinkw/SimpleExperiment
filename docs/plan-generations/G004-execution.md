@@ -12,7 +12,7 @@ R519 A6历史结果读错/坏JSON反馈原因，缺失仍允许；内存fs联验
 
 R519 B2选择等待保存并反馈跨项目/持久化失败；已写PLAN失败明确提示。假对象动作46/46、迁移13/13、上下文20/20 exit0，日志 `g004-r519-b2-actions-complete-ff08.log`、`g004-r519-b2-migration-ff08.log`、`g004-r519-b2-context-ff08.log`。首44/45 exit1因抽取夹具缺`selectResultPreset`，已补依赖，`g004-r519-b2-actions-first-ff08.log`。
 
-R519 B3手动刷新/重连失败可见，后台容错保留。假对象4/4、低流量16/16、关闭决策14/14 exit0；日志 `g004-r519-b3-network-final-ff08.log`、`g004-r519-b3-traffic-ff08.log`、`g004-r519-b3-closure-ff08.log`。
+R519 B3手动刷新/重连失败可见，后台容错保留；假对象4/4、低流量16/16、关闭决策14/14 exit0，原日志见Git `7ade1100:docs/plan-generations/G004-execution.md`。
 
 R519 B4调试包缺失、取消和失败不冒成功；假UI/传输/文件1/1 exit0，`g004-r519-b4-debug-first-ff08.log`，无实际下载。
 
@@ -187,3 +187,5 @@ Git同步：0aa6b27c普通push exit0，首次fetch exit1（TLS unexpected eof）
 旧CLI剩余19项逐项记录业务断言、既有证据及真实缺口；源审不冒测试通过，不删原用例。
 
 中立客户端SFTP发现覆盖及默认路径补验，单文件3/3 exit0；未连接真实服务。
+
+MCP文件上传Gateway/Host核工作区规范路径、精确Worker及越界拒绝，假后端8/8 exit0；未上传。
