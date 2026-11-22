@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { callApi } from "../api";
 import { createHash } from "node:crypto";
-import { RESULT_REGISTRY_LOCAL_REL, RESULT_REGISTRY_REL, readJsonFile, resolveProjectPath } from "../data";
+import { RESULT_REGISTRY_LOCAL_REL, RESULT_REGISTRY_REL, resolveProjectPath } from "../data";
 import { isDiagnosticWorkerResult } from "../runtime";
 import { businessError, usageError } from "../errors";
 import { block, table, writeJson, writeText } from "../format";
@@ -164,7 +164,7 @@ export async function loadResults(flags: { history?: boolean } = {}): Promise<Re
   if(flags.history){
     process.stderr.write("历史结果：仅查看本机旧记录，未核实服务器当前状态；不能作为本轮查询结果。\n");
     for (const rel of [RESULT_REGISTRY_REL, RESULT_REGISTRY_LOCAL_REL])
-      records.push(...extractRecords(readJsonFile<unknown>(resolveProjectPath(rel), null)));
+      records.push(...extractRecords(readHistoryRegistry(resolveProjectPath(rel))));
     records.push(...parseLocalResultFiles());
   }else{
     const remote:any=await callApi("results.list", {});
@@ -223,6 +223,15 @@ function extractRecords(value: unknown): ExperimentResultRecord[] {
   return [];
 }
 
+function readHistoryRegistry(file: string): unknown {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw businessError(`历史结果索引读取失败 ${file}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 function parseLocalResultFiles(): ExperimentResultRecord[] {
   const files = [
     resolveProjectPath("experiments", "results"),
@@ -230,8 +239,9 @@ function parseLocalResultFiles(): ExperimentResultRecord[] {
   ].flatMap((dir) => {
     try {
       return fs.readdirSync(dir).filter((name) => /\.(csv|json)$/i.test(name) && !/result_registry/i.test(name) && name.toLowerCase() !== LATEST_RESULT_FILE).map((name) => path.join(dir, name));
-    } catch {
-      return [] as string[];
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [] as string[];
+      throw businessError(`历史结果目录读取失败 ${dir}: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
   const out: ExperimentResultRecord[] = [];
@@ -239,8 +249,9 @@ function parseLocalResultFiles(): ExperimentResultRecord[] {
     try {
       const text = fs.readFileSync(file, "utf8");
       out.push(...parseResultFile(text, { path: file, type: /\.json$/i.test(file) ? "json" : "csv", endpoint: "local" }, selectResultPreset(file, undefined, text)));
-    } catch {
-      /* skip unreadable result files */
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw businessError(`历史结果文件读取或解析失败 ${file}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   return out;

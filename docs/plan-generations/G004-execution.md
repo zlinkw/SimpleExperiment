@@ -8,11 +8,13 @@
 
 R519 A5按输入列选择默认长宽预设，JSON、显式预设和自定义预设保留；真实源码配合成数据的解析器/工厂/CLI单文件8/8，MCP目录消费者8/8，均exit0，日志同目录 `g004-r519-a5-parser-final-ff08.log`、`g004-r519-a5-mcp-ff08.log`，未调用真实Worker。
 
+R519 A6历史结果两份索引、目录和文件的读错/坏JSON反馈路径及原因，缺失仍允许；内存fs联验读取消费者1/1 exit0，同目录 `g004-r519-a6-history-final-ff08.log`，未调用真实Worker。
+
 用户报告反复识别仍未完成并提供截图；519专用实例错误记录显示几次点击与同窗识别租约冲突，不能据此认定锁死。源码中本地识别未写完成标记，唯一生产写入在代码同步完成后；真实识别方法配假确认与已选PLAN、输出门槛未完成时验证应记录本地事实，0/1 exit1，`C:/Users/ZLK/AppData/Local/Temp/g004-519-bootstrap-recognition-ff08.log`。用户截图、实际错误与受控边界见coverage；不重放点击、不清锁、不自动连Worker，统一返修时区分本地识别和运行准备。
 
 519本机历史CLI合成列表、详情及CSV导出通过；精确ID经cmd传递失败。Git hook读拒绝及不完整标记可能损伤原脚本，原受控失败与invoke错路由见coverage；R519 A3仅缺失视为空，读错及标记不完整均保留原文件，源码配假fs及启动消费者3/3 exit0，日志同上目录 `g004-r519-a3-git-hook-ff08.log`。300/137/45/167母集重叠，不相加。
 
-519 发行安装：源码/tag `6932321534f3b0c2df3b1983bfede2f88f7b868f`，试行 Release `https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.519`，远端与隔离下载同包同 SHA；正式 Latest 483。真实 ReleaseClient 首次因核验脚本误期待 SFTP Latest 120（实际118）exit1，修正后 exit0：482可见483、519和已装 SFTP120均不降级；120试行资产存在。日志 `C:/Users/ZLK/AppData/Local/Temp/g004-519-client-after-ff08.log`。唯一 install:latest exit0，含 Node DEP0169 warning；磁盘及列表519、SFTP120及两个稳定入口已核，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-519-install-ff08.log`。新版 Host 及持久化尚待本人重载后实机验收。
+519发行：源码/tag `6932321534f3b0c2df3b1983bfede2f88f7b868f`，[试行Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.519)与隔离下载同SHA，Latest483。ReleaseClient首验误期待SFTP Latest120（实际118）exit1，修后exit0：482见483、519及已装SFTP120均不降级，120试行资产存在；同目录 `g004-519-client-after-ff08.log`。唯一install:latest exit0含DEP0169，磁盘/列表519、SFTP120及稳定入口已核，同目录 `g004-519-install-ff08.log`。重载后实机以顶部为准。
 
 519 候选包完成：本次唯一 package exit0，341/341、13/13 门禁通过，所有子树 confirmed、最大并行1、按需未跑0，输入与结束指纹均 `02a04b0a7ed920361e852dea0e41d4740114b1cefbb1aabb8ab2c4bd71f5560f`，锁已释放；原始日志 `C:/Users/ZLK/AppData/Local/Temp/g004-519-package-ff08.log`，回执 `simple_cluster/reports/test-workflow/2026-11-22T06-35-19-310Z-69208-package/run.json`。新 dist 的项目识别内存消费者、Panel 模块及实际生成的3段脚本 VM 均 exit0，src/dist 的 10890 零命中；实际 VSIX 325 项面板清单、326 项本地闭包和373项运行文件逐字节通过，376文件内容策略及 README 通过。VSIX 为 2,988,831 字节，SHA256 `525e235fe7e380bf3684edf5b8bfd3dd7620badefd964dcdcd671b14c0216b33`；正式发布、安装和重载后实机状态以随后实际结果为准。预检读取时一次误写面板测试路径 exit1，后按实际路径读取，不影响产品或测试。
 
