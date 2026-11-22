@@ -52,6 +52,8 @@ T7主指南改用界面/MCP；配置文档保留旧CLI历史并标明退役。
 
 MCP训练进度、健康、失败告警、详情、树摘要、查询schema、原生生命周期、活动快照及已存运行迁测分别9/9、6/6、6/6、6/6、8/8、4/4、3/3、6/6、4/4 exit0；告警首exit1为TS加载器顺序错误，调整后通过（chunk 9a5c16/a38600）。资源拒绝和产物精确归属补验11/11；旧测试保留，CLI专用/剩余断言尚待映射裁决。
 
+运行身份迁测首6/8 exit1（旧CLI专属resolveRuntimeObservation未迁出），移除新测试中该旧助手调用后8/8 exit0（chunk ee595e/7f85ac）；此两旧用例仅部分迁覆，旧断言及矩阵未改，MCP引用选择另见mcpQuerySchema。
+
 519识别未完成及同窗冲突不能认定锁死；原识别不记完成首0/1 exit1，`g004-519-bootstrap-recognition-ff08.log`。B1保存PLAN及识别事实；假对象2/2、快速9/9、上下文20/20、命令3/3、持久化3/3、投影6/6 exit0；日志 `g004-r519-b1-` 加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 及 `-ff08.log`。未改真实标记。
 
 519历史CLI合成查询通过、精确ID经cmd失败，详见coverage。A3 Git hook读错及标记不完整保留原文件，假fs及启动消费者3/3 exit0，`g004-r519-a3-git-hook-ff08.log`。300/137/45/167母集重叠，不相加。
