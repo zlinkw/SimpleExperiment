@@ -6,7 +6,7 @@ import { matchesRuntime, nestedYamlValue, observeRunningExperiments, readWorkerT
 import { compactJsonValue } from "./Compact";
 import { loadResults, ResultRow } from "./Results";
 import { parsePlanSummary } from "../../features/PlanBuilder";
-type QueryFlags={json:boolean;compactJson:boolean;full:boolean;status?:string;type?:string;limit?:number};
+type QueryFlags={full:boolean;status?:string;type?:string;limit?:number};
 const writeJson=(value:unknown,compact=false)=>emit(compact?compactJsonValue(value):value);
 
 export type ExperimentKind = "workflow" | "worker_run";
@@ -195,13 +195,13 @@ export async function experimentList(flags: QueryFlags): Promise<number> {
     if (typeof flags.limit === "number")
         filtered = filtered.slice(0, flags.limit);
     const view = filtered.map((row) => publicExperiment(row, row.type === "workflow" ? childRuns(row, rows) : []));
-    writeJson(view, flags.compactJson || !flags.full);
+    writeJson(view, !flags.full);
     return 0;
 }
 
 export async function experimentSummary(flags: QueryFlags): Promise<number> {
     const payload = buildExperimentSummary(await loadExperiments());
-    writeJson(payload, flags.compactJson);
+    writeJson(payload);
     return 0;
 }
 
@@ -530,7 +530,7 @@ export async function experimentTree(flags: QueryFlags): Promise<number> {
     const rows = await loadExperiments();
     const roots = experimentTreeRoots(rows);
     const payload = roots.map((row) => treeNode(row, rows));
-    writeJson(payload, flags.compactJson);
+    writeJson(payload);
     return 0;
 }
 
@@ -660,7 +660,7 @@ export async function experimentDiagnose(id: string, flags: QueryFlags): Promise
 export async function experimentConfig(id: string, flags: QueryFlags): Promise<number> {
     const loaded = await loadExperimentDetail(id);
     const payload = await configPayload(loaded.match);
-    writeJson(payload, flags.compactJson);
+    writeJson(payload);
     return 0;
 }
 
@@ -685,7 +685,7 @@ export async function experimentResults(id: string, flags: QueryFlags): Promise<
         output_paths,
         reason: rows.length ? "" : "no results recorded for this experiment",
     };
-    writeJson(payload, flags.compactJson);
+    writeJson(payload);
     return 0;
 }
 

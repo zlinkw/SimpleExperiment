@@ -110,11 +110,11 @@ T7收包策略及入口证据见Git bc739fa0；未实际打包。
 
 T7已定向MCP测试纳入四交付profile，规划确认独占；原glob亦涵盖，旧项未减。B1仍未验并阻断交付。早期矩阵及生成命令引号错误见Git 871ea78e及后续记录。
 
-MCP Worker生命周期迁测：queryProject配独立本机合成API/Worker，4/4 exit0（chunk 252e84）；限流、来源和父级3/3 exit0（702b10）；旧8项的无API离线历史剩1项属CLI专有回退，MCP仍需Host、不新造history，原用例保留待裁决。两新测试纳入四个交付profile。
+MCP Worker生命周期4/4、限流3/3，旧无API历史回退未迁；原日志见Git `c0465f0f:docs/plan-generations/G004-execution.md`。
 
 mcpQueryContext脱离CLI，原业务11/11；首两次10/11 exit1及修后详见Git `8249eb4d:docs/plan-generations/G004-execution.md`。
 
-MCP普通结果契约8/8，原文见Git `8393c772:docs/plan-generations/G004-execution.md`。
+MCP普通结果8/8，见Git `c0465f0f:docs/plan-generations/G004-execution.md`。
 
 空PLAN矩阵MCP断言1/1（b4464e）；纳入交付profile。
 
@@ -207,3 +207,5 @@ MCP下载范围及handoff核精确Worker、配置参数与撤权，假后端11/1
 SimpleSFTP 0.2.120现有UI创建项目源码链核实，未实点。清理引擎状态保存使用真实rename，当前仅允许transport/activity/lease替身且禁真实移动；无法证明纯替身隔离，四项未启动，详见coverage。
 
 中立错误模块移除无消费者的CLI JSON包装/成功码，保留错误分类和码；连接3/3、MCP查询17/17 exit0。
+
+MCP查询去除无消费者CLI json/compact开关，默认精简及full语义保留；17/17 exit0。登记首次超阈值断言未写。

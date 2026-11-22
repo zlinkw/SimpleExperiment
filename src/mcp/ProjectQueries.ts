@@ -12,10 +12,10 @@ import { planBuild, planMatrix } from "./query/Plans";
 import { serverList } from "./query/Servers";
 import { resourceAvailable } from "./query/Resources";
 
-/** Reuse structured business results before CLI rendering, with an isolated project and API context. */
+/** Query structured business results with an isolated project and API context. */
 export async function queryProject(root: string, rpc: (method: string, params: Record<string, unknown>) => Promise<unknown>,
   name: string, args: Record<string, any>): Promise<unknown> {
-  const flags: any = { json: true, full: args.full === true,
+  const flags: any = { full: args.full === true,
     ...(args.status ? { status: args.status } : {}), ...(args.type ? { type: args.type } : {}), ...(args.limit !== undefined ? { limit: args.limit } : {}),
     ...(args.format ? { format: args.format } : {}),
     ...(args.primary ? { primary: args.primary } : {}),
