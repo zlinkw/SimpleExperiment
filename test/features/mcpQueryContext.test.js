@@ -87,6 +87,29 @@ test('MCP resource availability preserves the prior structured query',async()=>{
  assert.equal(previous[0].available,'true');assert.equal(previous[1].reason,'process_present');
 });
 
+test('MCP artifact queries retain paths, identities and failures',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-artifact-'));
+ fs.writeFileSync(path.join(root,'sample.txt'),'artifact data','utf8');
+ fs.mkdirSync(path.join(root,'simple_cluster'));
+ fs.mkdirSync(path.join(root,'output'));
+ fs.writeFileSync(path.join(root,'output','result.txt'),'result','utf8');
+ fs.writeFileSync(path.join(root,'simple_cluster','experiment_index.json'),JSON.stringify([{id:'local-run',type:'workflow',outputDir:'output'}]),'utf8');
+ const rpc=async method=>{
+  if(method==='tasks.list')return {tasks:[{id:'run-a',status:'running',name:'trial'}]};
+  if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};
+  if(method==='results.list')return {source:'active_query',summary:{current:true,results:[]}};
+  throw Error('unexpected RPC '+method);
+ };
+ const old=require('../../src/cli/commands/artifact.ts');
+ async function previous(fn){let value;await neutral.businessContext.run({root,rpc,emit:x=>{value=x}},fn);return value}
+ assert.deepEqual(await queryProject(root,rpc,'artifact_list',{id:'run-a'}),await previous(()=>old.artifactList('run-a',{json:true})));
+ const listed=await queryProject(root,rpc,'artifact_list',{id:'local-run'});
+ assert.deepEqual(listed,await previous(()=>old.artifactList('local-run',{json:true})));
+ assert.equal(listed[0].id,'local-run:result.txt');
+ assert.deepEqual(await queryProject(root,rpc,'artifact_inspect',{id:'sample.txt'}),await previous(()=>old.artifactInspect('sample.txt',{json:true})));
+ await assert.rejects(queryProject(root,rpc,'artifact_inspect',{id:'missing'}),/not found/i);
+});
+
 test('query compact output preserves the existing structured view',()=>{
  const old=require('../../src/cli/format.ts'),current=require('../../src/mcp/query/Compact.ts');
  const payload={id:'x',status:'running',zero:0,raw:{secret:'fixture'},rows:[{id:'a',status:'failed',recentLogs:['x']}]};

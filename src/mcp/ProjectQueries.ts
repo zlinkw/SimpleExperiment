@@ -7,7 +7,7 @@ import { resultParse } from "./query/ResultParse";
 import { metricList, metricShow, metricLeaderboard } from "./query/Metrics";
 import { compareResults } from "./query/Compare";
 import { queryLogs } from "./query/Logs";
-import { artifactList, artifactInspect } from "../cli/commands/artifact";
+import { artifactList, artifactInspect } from "./query/Artifacts";
 import { planBuild, planMatrix } from "./query/Plans";
 import { serverList } from "./query/Servers";
 import { resourceAvailable } from "./query/Resources";
@@ -40,7 +40,7 @@ export async function queryProject(root: string, rpc: (method: string, params: R
     metric_list: () => metricList(), metric_show: () => metricShow(args.id), metric_leaderboard: () => metricLeaderboard(flags),
     result_compare: () => compareResults(args.left, args.right),
     experiment_log: () => queryLogs(args.id, args.lines),
-    artifact_list: () => artifactList(args.id, flags), artifact_inspect: () => artifactInspect(args.id, flags),
+    artifact_list: () => artifactList(args.id), artifact_inspect: () => artifactInspect(args.id),
     resource_available: () => resourceAvailable(), server_list: () => serverList(),
     plan_matrix: () => planMatrix(args.planFile), plan_build: () => planBuild(flags),
   };
