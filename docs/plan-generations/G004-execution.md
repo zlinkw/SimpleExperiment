@@ -98,7 +98,7 @@ U01–U03首失败、旧测试及锁授权见Git 10c0689e、b7c0b42c同文件；
 U01/U02/U03分别2/8/10项已修；U03末轮42/42 exit0。J01宿主缺GIT_CONFIG_VALUE_0/5且传递未知；simpleex --version绑定不符exit2。完整记录见b7c0b42c及计划。
 
 516首package 340/341 exit1，修后22/22及341/341；安装一次，时未确认Reload，见b7c0b42c。
-U04逐项证据见Git f72d0066及coverage：43项中单项目39、跨项目02/05/06/07延期；20、33–36、40–44撤回。未重放安全拦截项或操作真实Worker、任务、删除和窗口。
+U04逐项证据见Git f72d0066及coverage：43项中单项目39、跨项目4延期；撤回10项，未重放真实Worker、任务、删除和窗口。
 
 旧关键失败保留于Git b3c3926c同文件及coverage：日志导航12/13、VM首夹具失败、U04-03假错误类型、U04-10时间戳比较、CLI绑定不符与yaml依赖缺失；后续通过不覆盖首失败。
 最终逻辑母集300：界面279（限定204、延期75），独立命令21（限定7、延期14）；限定211、延期89。合成GPU/TMUX/端点和资源导航证据及探针首语法失败见Git fd58a7c7同文件与coverage；真实Worker、剪贴板、网络未测。
@@ -157,3 +157,5 @@ Agent MCP经实际Gateway/Host核精确目标、撤权及迁移digest，假Agent
 MCP项目准备/识别授权、原回执及失败重读经假Host 1/1；旧CLI细粒度选项未暴露，待审。
 
 公开入口旧测试依裁决改为MCP契约1/1；误用Delete File使测试瞬时缺失，已立即同路径恢复，未git rm，旧版见Git 0d5cae56。旧CLI目录外24项引用列coverage，实机限制保留。
+
+SFTP实际Gateway/McpHost核精确Worker、清单/目录、内存指标与跨Worker授权，假后端2/2 exit0；旧CLI选项差异见coverage。
