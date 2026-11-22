@@ -25,6 +25,14 @@ test('MCP health and inspect use Worker output activity to identify a stalled ru
  assert.deepEqual(inspect.health,{status:'warning',reason:'stalled'});
  assert.equal(inspect.alerts.stalled,true);assert.ok(inspect.diagnosis.stale_seconds>=30*60);
  assert.equal(inspect.status.updated_at,updated);
+ const normalHealth=await queryProject(root,rpc,'experiment_health',{});
+ assert.equal(normalHealth.health.status,'warning');assert.equal(normalHealth.health.reason,'stalled');
+ assert.equal(normalHealth.alerts.stalled,true);assert.equal(normalHealth.alerts.missing_progress,false);
+ assert.match(normalHealth.alerts.alert_details.find(item=>item.type==='stalled').message,/output has not changed/);
+ assert.deepEqual((await queryProject(root,rpc,'experiment_overview',{})).alerts.stalled.map(row=>row.id),['run-stalled']);
+ const normalInspect=await queryProject(root,rpc,'experiment_inspect',{id:'run-stalled'});
+ assert.deepEqual(normalInspect.health,{status:'warning',reason:'stalled'});assert.equal(normalInspect.alerts.stalled,true);
+ assert.ok(normalInspect.diagnosis.stale_seconds>=30*60);assert.equal(normalInspect.status.updated_at,updated);
 });
 
 test('MCP health distinguishes active and successful retries from the failed attempt',async()=>{
@@ -38,18 +46,29 @@ test('MCP health distinguishes active and successful retries from the failed att
   if(method==='state.get')return {value:{workerTunnels:[]}};throw Error('unexpected RPC '+method);
  };
  const query=(name,args={})=>queryProject(root,rpc,'experiment_'+name,{...args,full:true});
+ const normal=(name,args={})=>queryProject(root,rpc,'experiment_'+name,args);
  const health=await query('health');assert.deepEqual(health.health,{status:'warning',reason:'failed_recent',alert_level:'warning'});
  assert.equal(health.alerts.recent_failure,true);
  assert.match(health.alerts.alert_details.find(item=>item.type==='recent_failure').message,/1 experiment identity has newer running retries/);
  const overview=await query('overview');assert.equal(overview.alerts.failed_recent[0].id,old.global_job_id);
  assert.deepEqual(overview.health,{status:'warning',reason:'failed_recent'});
  assert.deepEqual((await query('inspect',{id:old.global_job_id})).health,{status:'error',reason:'failed_recent'});
+ const normalHealth=await normal('health');assert.deepEqual(normalHealth.health,{status:'warning',reason:'failed_recent',alert_level:'warning'});
+ assert.equal(normalHealth.alerts.recent_failure,true);
+ assert.match(normalHealth.alerts.alert_details.find(item=>item.type==='recent_failure').message,/1 experiment identity has newer running retries/);
+ const normalOverview=await normal('overview');assert.equal(normalOverview.alerts.failed_recent[0].id,old.global_job_id);
+ assert.deepEqual(normalOverview.health,{status:'warning',reason:'failed_recent'});
+ assert.deepEqual((await normal('inspect',{id:old.global_job_id})).health,{status:'error',reason:'failed_recent'});
  fs.writeFileSync(index,JSON.stringify([old,{...newer,status:'success'}]),'utf8');
  const success=await query('health');assert.deepEqual(success.health,{status:'healthy',reason:'',alert_level:'ok'});assert.equal(success.alerts.recent_failure,false);
  const after=await query('overview');assert.deepEqual(after.alerts.failed_recent,[]);
  assert.equal(after.summary.recent_failures[0].id,old.global_job_id);assert.deepEqual(after.health,{status:'healthy',reason:''});
  assert.equal((await query('summary')).recent_failures[0].id,old.global_job_id);
  const inspect=await query('inspect',{id:old.global_job_id});assert.deepEqual(inspect.health,{status:'error',reason:'failed_recent'});assert.equal(inspect.alerts.recent_failure,true);
+ const normalSuccess=await normal('health');assert.deepEqual(normalSuccess.health,{status:'healthy',reason:'',alert_level:'ok'});assert.equal(normalSuccess.alerts.recent_failure,false);
+ const normalAfter=await normal('overview');assert.deepEqual(normalAfter.alerts.failed_recent,[]);assert.equal(normalAfter.summary.recent_failures[0].id,old.global_job_id);
+ assert.deepEqual(normalAfter.health,{status:'healthy',reason:''});assert.equal((await normal('summary')).recent_failures[0].id,old.global_job_id);
+ const normalOld=await normal('inspect',{id:old.global_job_id});assert.deepEqual(normalOld.health,{status:'error',reason:'failed_recent'});assert.equal(normalOld.alerts.recent_failure,true);
 });
 
 test("stalled uses Worker output activity before CLI observation time", () => {
