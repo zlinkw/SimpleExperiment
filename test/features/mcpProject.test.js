@@ -669,14 +669,15 @@ test('official MCP client discovers tools and calls the host gateway using struc
   } finally { await client.close(); await server.close(); }
 });
 
-test('shared CLI views isolate concurrent projects and return objects before terminal rendering', async () => {
-  const { queryProject } = require('../../dist/mcp/ProjectQueries.js');
+test('MCP views isolate concurrent projects and return structured objects', async () => {
+  require('../_helpers/registerTsRequire');
+  const { queryProject } = require('../../src/mcp/ProjectQueries.ts');
   const a = fixture(), b = fixture();
   function rpc(root, metric) {
     return async (method, params) => {
       assert.equal(method, 'results.list');
       await new Promise(resolve => setImmediate(resolve));
-      assert.equal(require('../../dist/cli/data.js').projectRoot(), root);
+      assert.equal(require('../../src/mcp/query/ProjectData.ts').projectRoot(), root);
       return { source: 'active_query', summary: { current: true, observedAt: '2026-11-11T00:00:00Z', results: [{
         planFile: 'plans/demo.yaml', workerId: 'worker-a', runId: 'run-1', completionState: 'verified', aggregationState: 'eligible',
         metrics: { [metric]: 0.5 }, dimensions: { seed: 42 }, sourceFiles: [{ path: 'work_dirs/demo/metrics.csv' }],
