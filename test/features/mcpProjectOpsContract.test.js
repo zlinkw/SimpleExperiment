@@ -39,3 +39,21 @@ test('MCP PLAN validation forwards host success and in-band failure',async()=>{
  grant.permissions=[];await assert.rejects(gateway.call('plan_validate',{planFile:'experiments/plans/valid.yaml'}),/AUTHORIZATION_REQUIRED/);
  assert.equal(calls.length,2);
 });
+
+test('MCP named controls forward scoped parameters and preserve host receipts',async()=>{
+ const root=path.resolve(__dirname,'../..'),calls=[],grant=createProjectAuthorization(root);
+ const worker={id:'worker-a',host:'fake',port:22,user:'fake',projectRoot:'/fake'};grant.workers=[worker];
+ const names=['config.get','config.set','state.reset','state','tmux.capture','gpu.history','panel.diagnostics'];
+ const methods=Object.fromEntries(names.map(method=>[method,async params=>{calls.push({method,params});return {ok:true,method,params}}]));
+ const gateway=new ProjectGateway({root:()=>root,workers:()=>[worker],store:{get:()=>grant},methods:()=>methods,approve:async()=>true});
+ const cases=[
+  ['configuration_get',{key:'simpleExperiment.test'},'config.get',{key:'simpleExperiment.test'}],
+  ['configuration_set',{key:'simpleExperiment.test',value:{a:[1]},scope:'workspace'},'config.set',{key:'simpleExperiment.test',value:{a:[1]},scope:'workspace',confirm:true}],
+  ['state_reset',{key:'selection'},'state.reset',{key:'selection',confirm:true}],
+  ['project_state',{detail:'full'},'state',{detail:'full'}],
+  ['tmux_capture',{workerId:'worker-a',window:'window:3'},'tmux.capture',{workerId:'worker-a',window:'window:3'}],
+  ['gpu_history',{},'gpu.history',{}],['panel_diagnostics',{},'panel.diagnostics',{}],
+ ];
+ for(const [tool,args,method,params] of cases){const result=await gateway.call(tool,args);assert.equal(result.method,method);assert.deepEqual(result.params,params)}
+ assert.equal(calls.length,cases.length);
+});
