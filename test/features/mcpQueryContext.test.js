@@ -28,6 +28,7 @@ test('MCP result_parse uses content-selected preset and preserves zero',async()=
 test('MCP result list, show and export retain the established structured business output',async()=>{
  const old=require('../../src/cli/commands/result.ts');
  const oldMetric=require('../../src/cli/commands/metric.ts');
+ const oldCompare=require('../../src/cli/commands/compare.ts');
  const inputs=[{planFile:'plans/p.yaml',workerId:'worker-a',runId:'same',completionState:'verified',aggregationState:'eligible',
    dimensions:{seed:0,dataset:'合成,"A"',fold:'line\n1'},metrics:{AP:0,AUPRC:0.5},sourceFiles:[{path:'result.csv'}]},
   {planFile:'plans/p.yaml',workerId:'worker-a',runId:'same',completionState:'verified',aggregationState:'eligible',
@@ -40,6 +41,8 @@ test('MCP result list, show and export retain the established structured busines
  for(const format of ['json','csv'])assert.deepEqual(await queryProject('fixture',rpc,'result_export',{id:rows[0].id,format}),await previous(()=>old.resultExport(rows[0].id,{json:true,format})));
  assert.deepEqual(await queryProject('fixture',rpc,'metric_list',{}),await previous(()=>oldMetric.metricList({json:true})));
  assert.deepEqual(await queryProject('fixture',rpc,'metric_show',{id:rows[0].id}),await previous(()=>oldMetric.metricShow(rows[0].id,{json:true})));
+ assert.deepEqual(await queryProject('fixture',rpc,'result_compare',{left:rows[0].id,right:rows[1].id}),await previous(()=>oldCompare.compareCommand([rows[0].id,rows[1].id],{json:true})));
+ await assert.rejects(queryProject('fixture',rpc,'result_compare',{left:'',right:rows[1].id}),/missing first experiment id/);
  await assert.rejects(queryProject('fixture',rpc,'result_show',{id:'same'}),/AMBIGUOUS/);
  await assert.rejects(queryProject('fixture',async()=>({source:'old'}),'result_list',{}),/RESULT_QUERY_UNVERIFIED/);
 });

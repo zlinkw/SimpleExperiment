@@ -5,7 +5,7 @@ import * as experiments from "../cli/commands/experiment";
 import { resultList, resultShow, resultExport } from "./query/Results";
 import { resultParse } from "./query/ResultParse";
 import { metricList, metricShow, metricLeaderboard } from "./query/Metrics";
-import { compareCommand } from "../cli/commands/compare";
+import { compareResults } from "./query/Compare";
 import { logShow, logTail } from "../cli/commands/log";
 import { artifactList, artifactInspect } from "../cli/commands/artifact";
 import { planBuild, planMatrix } from "../cli/commands/plan";
@@ -38,7 +38,7 @@ export async function queryProject(root: string, rpc: (method: string, params: R
     result_list: () => resultList(), result_show: () => resultShow(args.id), result_export: () => resultExport(args.id, flags),
     result_parse: () => resultParse(flags),
     metric_list: () => metricList(), metric_show: () => metricShow(args.id), metric_leaderboard: () => metricLeaderboard(flags),
-    result_compare: () => compareCommand([args.left, args.right], flags),
+    result_compare: () => compareResults(args.left, args.right),
     experiment_log: () => args.lines === undefined ? logShow(args.id, flags) : logTail(args.id, flags),
     artifact_list: () => artifactList(args.id, flags), artifact_inspect: () => artifactInspect(args.id, flags),
     resource_available: () => resourceCommand("available", [], flags), server_list: () => serverCommand("list", [], flags),
