@@ -38,9 +38,9 @@ T4迁出MCP解析、结果、指标和比较；真实查询配合成数据与旧
 
 T5提取runtime及实验查询，保留既有结构化输出；12项真实queryProject配假RPC与旧消费者对照，含空结果/失败9/9 exit0，`g004-r519-t5-experiment-complete-ff08.log`；补默认精简输出对照后同文件9/9 exit0；未请求Worker，日志等消费者待迁。
 
-T5日志查询迁出；真实queryProject对照旧消费者的全部与尾部记录、缺失实验，单文件9/9 exit0；未联系Worker。
+T5日志全部/尾部及缺失实验9/9，原文见Git c9b4892b同文件；无Worker。
 
-T6迁出server_list及PLAN构建/矩阵，真实查询假RPC与旧消费者对照、空矩阵/seed0 6/6 exit0，`g004-r519-t6-plans-first-ff08.log`；未查询真实服务器。
+T6服务器及PLAN构建/矩阵6/6；原日志见Git c9b4892b同文件，未查真实服务器。
 
 T6资源可用查询迁出；真实queryProject假RPC对照旧消费者，GPU零利用及进程占用保持，单文件10/10 exit0；未查询真实Worker。
 
@@ -171,3 +171,5 @@ MCP当前结果身份重排不变、歧义拒绝及诊断日志排除，queryPro
 原Windows工作流四项Host源码身份/预检/回执断言迁中立绑定，假宿主4/4；原混合文件及CLI部分保留。
 
 MCP预检经实际Gateway及Host假端口核原任务身份、能力拒绝、操作ID与精确取消，2/2 exit0；未访问Worker，旧CLI外层行为待审。
+
+MCP远端产物保留PLAN及精确运行身份、清单/hash和未核实/越界/查询失败拒绝；真实queryProject假RPC 16/16 exit0，无Worker。
