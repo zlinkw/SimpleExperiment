@@ -26,89 +26,7 @@ R519 C4旧CLI参数曾在进入shim前被解释管道，exit255；对照exit0，
 
 B1末尾通知租约返修先验：原方法未释放的断言失败；新增夹具未恢复通知替身致后续用例超时20秒、单文件exit1，已停止不重试，日志 `g004-r519-b1-lease-before-ff08.log`；非真实Host操作。异步通知及夹具清理候选未运行验证，待总控裁决。
 
-T1连接迁中立API；首0/1错误类型误判后1/1，日志见Git 4429ad05同文件，未连接真实实例。
-
-T2解析1/1、入口2/2；首1/2夹具sort改对照，失败/补验日志见Git 9c7591df同文件。
-
-T3上下文/支持迁出2/2；首1/2替身错误类型失败，日志及细节见Git 064f2221同文件。
-
-T3项目读取及精简8/8，原日志见Git 3cbd380e同文件。
-
-T4结果/指标/比较查询对照5/5；原日志见Git `59041060:docs/plan-generations/G004-execution.md`。
-
-T5 runtime/实验查询12项与旧消费者对照9/9，精简对照补验9/9；日志见Git `a202db2a:docs/plan-generations/G004-execution.md`，未访问Worker。
-
-T5日志全部/尾部及缺失实验9/9，原文见Git c9b4892b同文件；无Worker。
-
-T6服务器及PLAN构建/矩阵6/6；原日志见Git c9b4892b同文件，未查真实服务器。
-
-T6资源可用查询迁出；真实queryProject假RPC对照旧消费者，GPU零利用及进程占用保持，单文件10/10 exit0；未查询真实Worker。
-
-T6产物列表/检查11/11；原文见Git bc739fa0同文件，未查真实Worker。
-
-T7入口3/3、内容策略12/12；见Git bc739fa0同文件，尚未构建或安装。
-
-T7主指南改界面/MCP，旧CLI历史已标明。
-
-MCP训练、健康等迁测及告警首TS加载失败exit1→6/6见Git `a202db2a:docs/plan-generations/G004-execution.md`；旧测试保留。
-
-运行身份迁测首6/8 exit1（旧CLI助手未迁），修测试后8/8、补捕获13/13；chunk及范围见Git `a202db2a:docs/plan-generations/G004-execution.md`。
-
-MCP终态、结果、日志及合成观察通过，原文见Git `8249eb4d:docs/plan-generations/G004-execution.md`，无真实Worker。
-
-519识别未完成及同窗冲突不能认定锁死；原识别不记完成首0/1 exit1，`g004-519-bootstrap-recognition-ff08.log`。B1保存PLAN及识别事实；假对象2/2、快速9/9、上下文20/20、命令3/3、持久化3/3、投影6/6 exit0；日志 `g004-r519-b1-` 加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 及 `-ff08.log`。未改真实标记。
-
-519 CLI查询及A3记录见Git `8249eb4d:docs/plan-generations/G004-execution.md`；母集重叠不相加。
-
-519发行：源码/tag `6932321534f3b0c2df3b1983bfede2f88f7b868f`，[试行Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.519)与下载同SHA、Latest483。ReleaseClient首验误期待SFTP Latest120（实际118）exit1，修后exit0，`g004-519-client-after-ff08.log`。唯一安装exit0含DEP0169，`g004-519-install-ff08.log`。实机见顶部。
-
-519唯一package 341/341、13门禁及闭包验证通过，包SHA256 `525e235fe7e380bf3684edf5b8bfd3dd7620badefd964dcdcd671b14c0216b33`；完整日志、回执和预检路径误写见Git `0aa6b27c:docs/plan-generations/G004-execution.md`。
-
-519交付预检及工具误用见Git `48062264:docs/plan-generations/G004-execution.md`；dry-run exit0，341独占、按需0、max1。
-
-项目识别记忆隔离及Memento首0/2 exit1后补验通过，原日志见Git `2551787c:docs/plan-generations/G004-execution.md`；未改真实标记。
-
-项目清除状态失败不复活旧值，首9/10 exit1后两次10/10；原日志见Git `2551787c:docs/plan-generations/G004-execution.md`，未清真实数据。
-
-518专用根重载、U54–U56及实机边界详见Git `8249eb4d:docs/plan-generations/G004-execution.md`；active results未测。
-
-518时持久化身份及未识别状态原始调查见 `89498eff:docs/plan-generations/G004-execution.md`；其旧workspaceState引导标记描述只适用于当时运行源码，519已按规范项目根存入同profile globalState。不能借其他profile值或虚构已识别，518未含后续持久化源码修复；四跨项目与89旧延期范围未开放。
-
-518本地状态首7/8 exit1后两次9/9，原日志及边界见Git `35056314:docs/plan-generations/G004-execution.md`。
-
-518共享连接首0/1 exit1→1/1，脚本解析首错见Git `35056314:docs/plan-generations/G004-execution.md`。
-
-0.5.518试行包、341/341及13门禁、安装一次和历史失败见Git 1242c55c同文件；原闭包核验输出及退出码未知，实际ZIP等价检查exit0，不覆盖原未知。
-
-518 git add exit1因dist忽略，回读确认13个已跟踪生成文件及8个非生成文件实际暂存，未强制添加。
-
-518首包339/341 exit1、前10门禁通过、并行峰1及锁释放；mcpProject夹具修后43/43、serverQuota夹具修后10/10，均exit0。原回执与完整首失败、补验见Git `1242c55c:docs/plan-generations/G004-execution.md`；未改真实权限/Worker。
-
-U54–U56首失败与补验见Git eab27339同路径；help不支持exit1、CLI默认绑定不符exit2未重放。
-U04原排查及factory门禁、恢复页VM证据见Git `48062264:docs/plan-generations/G004-execution.md`及coverage；未重载或访问服务器。
-
-版本13/13、缓存同步4/4与3/3；U04-01首失败和02延期见4a80c627及coverage，无真实删除。
-
-登记上限12000、90%归并；旧记录见Git 10c0689e及4a80c627。保护Worker、训练、消费项目、共享配置、窗口及夹具；源码、旧dist、安装和远端分记。
-
-U01–U03首失败、旧测试及锁授权见Git 10c0689e、b7c0b42c同文件；历史数字非当前按钮分母。
-
-0.5.514/515安装、发行及实际失败见10c0689e与G004-plan，Latest仍0.5.483。
-
-U01/U02/U03分别2/8/10项已修；U03末轮42/42 exit0。J01宿主缺GIT_CONFIG_VALUE_0/5且传递未知；simpleex --version绑定不符exit2。完整记录见b7c0b42c及计划。
-
-516首package 340/341 exit1，修后22/22及341/341；安装一次，时未确认Reload，见b7c0b42c。
-U04逐项证据见Git f72d0066及coverage：43项中单项目39、跨项目4延期；撤回10项，未重放真实Worker、任务、删除和窗口。
-
-旧关键失败保留于Git b3c3926c同文件及coverage：日志导航12/13、VM首夹具失败、U04-03假错误类型、U04-10时间戳比较、CLI绑定不符与yaml依赖缺失；后续通过不覆盖首失败。
-最终逻辑母集300：界面279（限定204、延期75），独立命令21（限定7、延期14）；限定211、延期89。合成GPU/TMUX/端点和资源导航证据及探针首语法失败见Git fd58a7c7同文件与coverage；真实Worker、剪贴板、网络未测。
-
-B1/B2/B3的39项与首失败见Git c37827c8及eab27339同路径；不扩称真实Worker通过，4跨项目与89入口未开放。
-0.5.517首package 337/341 exit1、修后341/341及13门禁、安装一次；首失败/源码/tag/试行包及证据见Git 871ea78e、89498eff同文件。Latest仍483。
-
-T7收包策略及入口证据见Git bc739fa0；未实际打包。
-
-T7测试入四profile，B1未验阻断；失败见Git `3f4a165c:docs/plan-generations/G004-execution.md`。
+T1–T7迁移及阶段检查、真实失败与日志详见Git `32d16ac4:docs/plan-generations/G004-execution.md`；原测试和证据保留。
 
 MCP生命周期证据见Git `7803f938:docs/plan-generations/G004-execution.md`。
 
@@ -233,3 +151,5 @@ MCP Agent观察入口拒绝调用者token及未知字段，假Host仅收到固�
 真实清理引擎测试纳入build/check:full/package/smoke四profile，计划各一次且20秒；输入指纹绑定显式SIMPLE_TEST_SFTP_ROOT及package/engine字节，合成更改验证exit0。计划首断言漏--test exit1，修正后四项exit0；只读计划未启动矩阵或B1。
 
 补列旧仓内simpleex-mcp包装为第38项：其依赖旧CLI resolver及旧安装器/测试；新MCP启动器与用户全局shim保留，当前不删。
+
+CLI 302项逐条拟动作及每文件当前计划来源、矩阵候选列coverage；尚未批准或应用任何退役，存在边界缺口者继续保留。只读planner未运行测试、B1或build。
