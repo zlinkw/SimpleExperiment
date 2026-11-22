@@ -167,7 +167,7 @@ test("configured single-project workspaces keep onboarding visible until explici
   assert.match(missingWorker.detail, /至少一个启用的执行 Worker/);
 });
 
-test("quick project onboarding completes safe Plan and output setup in one flow", () => {
+test("quick project onboarding records local recognition before separate run preparation", () => {
   assert.match(extension, /case "bootstrapProject":\s*await this\.bootstrapProjectFromUi\(\)/);
   assert.match(extension, /async bootstrapProjectFromUi\(\)/);
   assert.match(extension, /async pickProjectBootstrapPlan\(plans\)/);
@@ -185,18 +185,13 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   assert.match(extension, /title: "选择新 Plan 使用的配置"/);
   assert.match(extension, /if \(list\.length <= 1\)/);
   assert.match(extension, /if \(!plans\.length\) \{\s*await this\.generatePlanGuideFromUi\(false\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return;\s*await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);/);
-  assert.match(extension, /const gateDiagnostics = projectOutputGateDiagnostics\(project, selected\)/);
   const bootstrapGenerationStart = extension.indexOf("async bootstrapProjectFromUi()");
   const bootstrapGenerationEnd = extension.indexOf("async handleProjectBootstrapAction", bootstrapGenerationStart);
   assert.doesNotMatch(extension.slice(bootstrapGenerationStart, bootstrapGenerationEnd), /generateOutputAdapterFromUi\(/);
-  assert.match(extension, /return projectBootstrapCompletion\(/);
-  assert.match(extension, /adapterConfig: project\.adapterConfig/);
-  assert.match(extension, /offlineBundleActive: Boolean\(this\.offlineBundle\)/);
-  assert.match(extension, /outputGateNextLabel: gateDiagnostics\.nextLabel/);
-  assert.match(extension, /activeRun: activePlanRunEvidence\(state, planFile, selected\)/);
-  assert.match(extension, /activeRun,/);
-  assert.match(extension, /await this\.testTunnel\(false\)/);
-  assert.match(extension, /handleProjectBootstrapAction\(next, \{/);
+  const localBootstrap = extension.slice(bootstrapGenerationStart, bootstrapGenerationEnd);
+  assert.match(localBootstrap, /await this\.markProjectOnboardingComplete\(projectContext\)/);
+  assert.match(localBootstrap, /本地工作区已识别/);
+  assert.doesNotMatch(localBootstrap, /await this\.testTunnel\(false\)/);
   assert.match(extension, /next === "准备 Agent 并启动"[\s\S]{0,100}this\.prepareAgentsForFirstRun\(false\)/);
   assert.match(extension, /next === "打开服务器设置"[\s\S]{0,100}openPanelAt\("settings", "settings-servers", \{ userInitiated: true \}\)/);
   assert.doesNotMatch(extension, /next === "开始一键配置"/);
@@ -207,16 +202,6 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   assert.match(extension, /next === "查看运行进度"[\s\S]{0,100}openPanelAt\("execution", "execution-operations", \{ userInitiated: true \}\)/);
   assert.match(extension, /next === "查看提交进度"[\s\S]{0,120}openPanelAt\("operations", "operations-list", \{ userInitiated: true \}\)/);
   assert.match(extension, /next === "校验并提交运行"[\s\S]{0,180}this\.runActionCommand\("runPlan"/);
-  assert.match(extension, /const currentCompletion = \(\) => \{/);
-  assert.match(extension, /const NEW_PROJECT_INFRASTRUCTURE_MAX_STEPS = 3/);
-  assert.match(extension, /for \(let step = 0; step < NEW_PROJECT_INFRASTRUCTURE_MAX_STEPS; step \+= 1\)/);
-  assert.match(extension, /const PROJECT_BOOTSTRAP_MAX_STEPS = 8/);
-  assert.match(extension, /for \(let step = 0; step < PROJECT_BOOTSTRAP_MAX_STEPS; step \+= 1\)/);
-  assert.match(extension, /const seenCompletions = new Set\(\)/);
-  assert.match(extension, /seenCompletions\.has\(completionKey\)[\s\S]{0,100}stopAtProjectPanel\(completion\)/);
-  assert.match(extension, /await stopAtProjectPanel\(currentCompletion\(\)\)/);
-  assert.match(extension, /const continueFlow = await this\.handleProjectBootstrapAction\(next, \{/);
-  assert.match(extension, /if \(!continueFlow\)\s*return/);
   assert.match(extension, /async addWorkerConfigFromUi\(showMessage = true\)[\s\S]{0,2200}return true/);
   assert.match(extension, /async assertPlanLocalConfigFiles\(body\)/);
   assert.match(extension, /当前 Plan 引用的配置文件不存在/);
@@ -225,8 +210,8 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   const bootstrapStart = extension.indexOf("async bootstrapProjectFromUi()");
   const bootstrapEnd = extension.indexOf("async generateOutputAdapterFromUi()", bootstrapStart);
   const bootstrap = extension.slice(bootstrapStart, bootstrapEnd);
-  assert.equal([...bootstrap.matchAll(/await this\.handleProjectBootstrapAction\(/g)].length, 2);
-  assert.ok(bootstrap.indexOf("const next = completion.action") < bootstrap.indexOf("handleProjectBootstrapAction(next"));
+  assert.ok(bootstrap.indexOf("await this.persistProjectPlanSelectionState()") < bootstrap.indexOf("await this.markProjectOnboardingComplete(projectContext)"));
+  assert.doesNotMatch(bootstrap, /await this\.handleProjectBootstrapAction\(/);
   assert.doesNotMatch(bootstrap, /gateDiagnostics = projectOutputGateDiagnostics\(project, selected\);\s*}\s*if \(planFile\)\s*await openWorkspaceFile\(planFile\)/);
   const planGuideStart = extension.indexOf("async generatePlanGuideFromUi(");
   const planGuideEnd = extension.indexOf("async pickGuidedPlanEntry(", planGuideStart);

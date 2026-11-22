@@ -334,11 +334,12 @@ test("project onboarding cannot continue after its workspace is replaced", () =>
   const bootstrap = methodBody("async bootstrapProjectFromUi", "async handleProjectBootstrapAction");
   const action = methodBody("async handleProjectBootstrapAction", "async generateOutputAdapterFromUi");
   assert.match(bootstrap, /const projectContext = this\.captureProjectContext\(\);\s*const root = projectContext\.root/);
-  assert.ok([...bootstrap.matchAll(/projectContextIsCurrent\(projectContext\)/g)].length >= 15);
+  assert.ok([...bootstrap.matchAll(/projectContextIsCurrent\(projectContext\)/g)].length >= 7);
   assert.match(bootstrap, /await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
   assert.match(bootstrap, /const selected = await this\.pickProjectBootstrapPlan\(plans\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
   assert.match(bootstrap, /await this\.persistProjectPlanSelectionState\(\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
-  assert.match(bootstrap, /await this\.testTunnel\(false\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.match(bootstrap, /await this\.markProjectOnboardingComplete\(projectContext\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.doesNotMatch(bootstrap, /await this\.testTunnel\(false\)/);
   assert.match(action, /const projectContext = context\?\.projectContext \|\| this\.captureProjectContext\(\)/);
   assert.match(action, /openWorkspaceFileForProjectContext\(context\.planFile, projectContext\)/);
   assert.match(action, /openWorkspaceFileForProjectContext\(context\.adapterConfig, projectContext\)/);

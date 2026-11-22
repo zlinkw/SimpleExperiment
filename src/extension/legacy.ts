@@ -21017,70 +21017,19 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             return;
         }
         assertSingleProjectWorkspace("识别工作区");
+        if (!projectOnboardingRoot()) throw new Error("无法确定单一工作区身份，工作区识别未完成。");
         await this.refreshLocalPlanMetadata({ post: false, force: true });
         if (!this.projectContextIsCurrent(projectContext))
             return;
         let plans = this.localPlanMetadata.plans || [];
-        // 3D：hasExistingProjectState 改为磁盘扫描（plans/*.yaml + simple_cluster/ui），避免内存 selectedPlanId 误判“非空”
-        const hasExistingOnDisk = (() => {
-            try {
-                const fsSync = require("fs");
-                const plansDir = path.join(root, "experiments", "plans");
-                const hasPlans = fsSync.existsSync(plansDir) && fsSync.readdirSync(plansDir).some((f: string) => f.endsWith(".yaml") || f.endsWith(".yml"));
-                const hasUi = fsSync.existsSync(path.join(root, "simple_cluster"));
-                return hasPlans || hasUi;
-            } catch { return false; }
-        })();
-        const initialProjectState = Boolean(hasExistingOnDisk || this.localPlanMetadata.error);
-        // 检测到已有时不直接阻断，弹出双按钮供用户选择（3D）
-        // 检测到已有 Plan 时仅做信息提示：Plan 属于项目资产，插件只负责识别与管理，
-        // 不提供任何删除入口（原「清空并接入」会删除 experiments/plans/*.yaml 与 simple_cluster/ui/*.json）
-        if (hasExistingOnDisk && plans.length > 0) {
+        if (plans.length > 0) {
             const pick = await vscode.window.showInformationMessage(`已识别到 ${plans.length} 个 Plan，将纳入管理并继续。`, "继续", "查看现有");
             if (!this.projectContextIsCurrent(projectContext)) return;
             if (pick === "查看现有") {
                 await this.openPanelAt("plans", "plans-detected", { userInitiated: true });
                 return;
             }
-            // 关闭通知或按 ESC：视为取消，不做任何改动
-            if (pick !== "继续")
-                return;
-        }
-        for (let step = 0; step < NEW_PROJECT_INFRASTRUCTURE_MAX_STEPS; step += 1) {
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            const prerequisite = projectBootstrapNewProjectPrerequisite({
-                planCount: plans.length,
-                hasExistingProjectState: initialProjectState,
-                simpleSftp: simpleSftpIntegrationReadiness(),
-                setupComplete: initialServerSetupComplete(this.setupConfig, false),
-                workerCount: this.enabledWorkerConfigs().length,
-            });
-            if (!prerequisite)
-                break;
-            const next = await vscode.window.showInformationMessage(prerequisite.message, prerequisite.action, "稍后");
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            const continueFlow = await this.handleProjectBootstrapAction(next, { projectContext });
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            if (!continueFlow)
-                return;
-        }
-        const remainingPrerequisite = projectBootstrapNewProjectPrerequisite({
-            planCount: plans.length,
-            hasExistingProjectState: initialProjectState,
-            simpleSftp: simpleSftpIntegrationReadiness(),
-            setupComplete: initialServerSetupComplete(this.setupConfig, false),
-            workerCount: this.enabledWorkerConfigs().length,
-        });
-        if (remainingPrerequisite) {
-            const open = await vscode.window.showWarningMessage(`新工作区识别仍停留在基础设施配置：${remainingPrerequisite.message}`, "打开服务器设置", "稍后");
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            if (open === "打开服务器设置")
-                await this.openPanelAt("settings", "settings-servers", { userInitiated: true });
-            return;
+            if (pick !== "继续") throw new UiCommandCancelled("工作区识别已取消。");
         }
         if (!plans.length) {
             await this.generatePlanGuideFromUi(false);
@@ -21097,6 +21046,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (!this.projectContextIsCurrent(projectContext))
             return;
         const planFile = String(selected?.planFile || selected?.file || selected?.planId || "");
+        if (!planFile) throw new Error("未选择有效的项目 Plan，工作区识别未完成。");
         const selectionChanged = Boolean(planFile) && (!samePlanSelection(this.planFileInput || "", planFile) || !samePlanSelection(this.selectedPlanId || "", selected?.planId || planFile));
         if (planFile) {
             this.planFileInput = planFile;
@@ -21106,108 +21056,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (!this.projectContextIsCurrent(projectContext))
                 return;
         }
-        const project = this.localPlanMetadata.detectedProject || {};
-        const gateDiagnostics = projectOutputGateDiagnostics(project, selected);
-        const finalGateReason = projectOutputGateReason(project, selected);
-        const simpleSftp = simpleSftpIntegrationReadiness();
-        const enabledWorkers = this.enabledWorkerConfigs();
-        const currentRunState = () => {
-            const state = this.buildPlanRuntimeEvidenceState();
-            return {
-                activeRun: activePlanRunEvidence(state, planFile, selected),
-                finishedRun: projectBootstrapFinishedRunOutcome(state, selected),
-            };
-        };
-        const initialRunState = currentRunState();
-        const endpointReadiness = projectBootstrapEndpointReadiness({
-            hubRequired: false,
-            hubStatus: this.lastProbe?.status || this.lastHealth?.state,
-            hubSchedulerDependencies: this.lastProbe?.schedulerDependencies,
-            workers: enabledWorkers.map((worker) => ({
-                label: worker.displayName || worker.id,
-                status: this.lastWorkerProbes[worker.id]?.status,
-                schedulerDependencies: this.lastWorkerProbes[worker.id]?.schedulerDependencies,
-            })),
-        });
-        if (projectBootstrapShouldProbeEndpoints({
-            outputGateReason: finalGateReason,
-            realtimeMode: this.isRealtimeMode(),
-            setupComplete: initialServerSetupComplete(this.setupConfig, false),
-            workerCount: enabledWorkers.length,
-            simpleSftpReady: simpleSftp.ready,
-            activeRun: initialRunState.activeRun,
-            finishedRun: initialRunState.finishedRun,
-            endpointsReady: projectBootstrapEndpointProbeReusable(endpointReadiness, this.lastFullEndpointProbeAt),
-        })) {
-            await this.testTunnel(false);
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-        }
+        await this.markProjectOnboardingComplete(projectContext);
+        if (!this.projectContextIsCurrent(projectContext)) return;
         this.postState();
-        if (selectionChanged)
-            this.queueSelectedPlanResultParse("识别工作区切换计划", planFile);
-        const currentCompletion = () => {
-            const currentWorkers = this.enabledWorkerConfigs();
-            const { activeRun, finishedRun } = currentRunState();
-            return projectBootstrapCompletion({
-                outputGateReason: finalGateReason,
-                outputGateNextLabel: gateDiagnostics.nextLabel,
-                adapterConfig: project.adapterConfig,
-                realtimeMode: this.isRealtimeMode(),
-                offlineBundleActive: Boolean(this.offlineBundle),
-                setupComplete: initialServerSetupComplete(this.setupConfig, false),
-                simpleSftp,
-                hubStatus: this.lastProbe?.status || this.lastHealth?.state,
-                hubSchedulerDependencies: this.lastProbe?.schedulerDependencies,
-                workers: currentWorkers.map((worker) => ({
-                    label: worker.displayName || worker.id,
-                    status: this.lastWorkerProbes[worker.id]?.status,
-                    schedulerDependencies: this.lastWorkerProbes[worker.id]?.schedulerDependencies,
-                })),
-                activeRun,
-                finishedRun,
-            });
-        };
-        const seenCompletions = new Set();
-        const stopAtProjectPanel = async (completion) => {
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            const open = await vscode.window.showWarningMessage(`工作区识别仍停留在当前步骤：${completion.message}`, "打开实验准备", "稍后");
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            if (open === "打开实验准备")
-                await this.openPanelAt("plans", "plans-detected", { userInitiated: true });
-        };
-        for (let step = 0; step < PROJECT_BOOTSTRAP_MAX_STEPS; step += 1) {
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            const completion = currentCompletion();
-            const completionKey = JSON.stringify([completion.state, completion.action, completion.secondaryAction, completion.message]);
-            if (seenCompletions.has(completionKey)) {
-                await stopAtProjectPanel(completion);
-                return;
-            }
-            seenCompletions.add(completionKey);
-            const completionActions = [completion.action, completion.secondaryAction, "稍后"].filter((action, index, items) => action && items.indexOf(action) === index);
-            const next = completionActions.length
-                ? await vscode.window.showInformationMessage(completion.message, ...completionActions)
-                : await vscode.window.showInformationMessage(completion.message);
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            const continueFlow = await this.handleProjectBootstrapAction(next, {
-                projectContext,
-                planFile,
-                planId: selected?.planId || planFile,
-                adapterConfig: project.adapterConfig,
-            });
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            if (!continueFlow)
-                return;
-        }
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        await stopAtProjectPanel(currentCompletion());
+        if (selectionChanged) this.queueSelectedPlanResultParse("识别工作区切换计划", planFile);
+        const next = await vscode.window.showInformationMessage("本地工作区已识别。运行准备和输出配置可在实验准备中继续检查。", "打开实验准备");
+        if (!this.projectContextIsCurrent(projectContext)) return;
+        if (next === "打开实验准备") await this.openPanelAt("plans", "plans-detected", { userInitiated: true });
     }
     async handleProjectBootstrapAction(action, context) {
         const projectContext = context?.projectContext || this.captureProjectContext();
@@ -33566,10 +33421,10 @@ function projectOnboardingStateForWebview(options) {
         : mismatchedWorker
             ? `${mismatchedWorker.displayName || mismatchedWorker.id} ${mismatchedProbe.tcpOpen === true ? "隧道已连通，" : ""}Agent 当前属于 ${mismatchedProbe.projectRoot}；本项目需要 ${mismatchedProbe.expectedProjectRoot}。请部署本项目 Agent，或为同时使用的项目配置独立隧道端口。`
         : completed
-            ? `当前项目 ${projectName} 已完成接入。`
+            ? `当前项目 ${projectName} 的本地工作区已识别；运行准备状态请另行查看。`
             : projectReady
-                ? `当前项目 ${projectName} 尚未完成接入；点击“识别工作区”继续。`
-                : `当前项目 ${projectName} 尚未完成接入；先补全：${missingItems.join("、")}，然后点击“识别工作区”。`;
+                ? `当前项目 ${projectName} 尚未识别；点击“识别工作区”继续。`
+                : `当前项目 ${projectName} 尚未识别；可先识别工作区。运行准备还需：${missingItems.join("、")}。`;
     const value = {
         required: hasProject && (!completed || Boolean(mismatchedWorker)),
         title: mismatchedWorker ? "Worker Agent 项目不匹配" : "项目配置待识别",
