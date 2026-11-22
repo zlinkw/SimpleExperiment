@@ -1037,19 +1037,65 @@ function inspectG004LegacyEvidence(root, plan, coverage) {
   return accepted;
 }
 
+function g004RecordedCommands(inputs) {
+  const commands = inputs.map(input => {
+    if (input.startsWith("node ")) return input;
+    const match = /^\s*const\s+\w+\s*=\s*await\s+tools\.exec_command\(\{\s*cmd\s*:\s*("(?:\\.|[^"\\])*")\s*[,}]/.exec(input);
+    if (!match) return null;
+    try { return JSON.parse(match[1]); } catch { return null; }
+  });
+  const parser = `
+[Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$inputs = ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd()) -NoEnumerate
+$result = @($inputs | ForEach-Object {
+  if ($null -eq $_) { return @{ commands = @(); error = 'unsupported wrapper' } }
+  $text = [string]$_; $tokens = $null; $errors = $null
+  $ast = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$tokens, [ref]$errors)
+  $found = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and
+    $n.Parent.Parent -is [System.Management.Automation.Language.NamedBlockAst] -and $n.GetCommandName() -ceq 'node' -and
+    @($n.CommandElements | Where-Object { $_ -isnot [System.Management.Automation.Language.ConstantExpressionAst] }).Count -eq 0 }, $true) | ForEach-Object {
+      $first = $_.CommandElements[0].Extent.StartOffset; $last = $_.CommandElements[-1].Extent.EndOffset
+      $text.Substring($first, $last - $first)
+    })
+  @{ commands = $found; error = if ($errors.Count) { ($errors | ForEach-Object Message) -join '; ' } else { '' } }
+})
+ConvertTo-Json -InputObject $result -Compress -Depth 5
+`;
+  const parsed = spawnSync(process.platform === "win32" ? "pwsh.exe" : "pwsh", ["-NoProfile", "-NonInteractive", "-Command", parser],
+    { input: JSON.stringify(commands), encoding: "utf8", windowsHide: true, timeout: 10000 });
+  if (parsed.status !== 0) throw new Error("G004 command parser failed: " + (parsed.stderr || parsed.error || parsed.status));
+  return JSON.parse(parsed.stdout);
+}
+
 function inspectG004DirectEvidence(root, plan, coverage) {
   const key = j => JSON.stringify([j.identity, j.argv]);
   const planned = new Map(plan.jobs.map(j => [key(j), j]));
   const accepted = [], seen = new Set();
-  for (const row of (coverage.currentTargetedEvidence || []).filter(j => j.eligible === true)) {
+  const rows = (coverage.currentTargetedEvidence || []).filter(j => j.eligible === true);
+  const grouped = new Map();
+  for (const row of rows) {
+    if (!grouped.has(row.rollout)) grouped.set(row.rollout, new Map());
+    grouped.get(row.rollout).set(row.callId, []);
+  }
+  for (const [rollout, ids] of grouped) {
+    for (const line of fs.readFileSync(rollout, "utf8").split("\n")) {
+      const match = /"call_id":"([^"]+)"/.exec(line);
+      if (!match || !ids.has(match[1])) continue;
+      const event = JSON.parse(line);
+      if (event.payload && event.payload.call_id === match[1]) ids.get(match[1]).push({ line, event });
+    }
+  }
+  const eventSets = rows.map(row => grouped.get(row.rollout).get(row.callId));
+  const parsedCommands = rows.length ? g004RecordedCommands(eventSets.map(events => String(events.find(x => x.event.payload.type === "custom_tool_call")?.event.payload.input || ""))) : [];
+  for (const [index, row] of rows.entries()) {
     const k = key(row), job = planned.get(k);
     if (!job || job.file !== row.file || seen.has(k) || !row.cwd || path.resolve(row.cwd) !== root || row.treeStatus !== "settled_by_direct_execution" || !row.review || !row.review.decision || !row.review.snapshotSha256 || row.review.scope !== "dependency_scoped") throw new Error("G004 direct evidence not reviewed for this plan: " + row.file);
     seen.add(k);
-    const events = fs.readFileSync(row.rollout, "utf8").split("\n").filter(line => line.includes(row.callId)).map(line => ({ line, event: JSON.parse(line) })).filter(x => x.event.payload && x.event.payload.call_id === row.callId);
+    const events = eventSets[index];
     const calls = events.filter(x => x.event.payload.type === "custom_tool_call"), outputs = events.filter(x => x.event.payload.type === "custom_tool_call_output");
     const call = calls[0], output = outputs[0];
     const digest = s => crypto.createHash("sha256").update(s, "utf8").digest("hex");
-    if (calls.length !== 1 || outputs.length !== 1 || digest(call.line) !== row.commandEventSha256 || digest(output.line) !== row.outputEventSha256 || !row.exactCommandLine || !String(call.event.payload.input).includes(row.exactCommandLine) || !row.exactCommandLine.includes(row.file) || JSON.stringify(row.review.reviewedArgv) !== JSON.stringify(job.argv)) throw new Error("G004 direct execution record drift: " + row.file);
+    if (calls.length !== 1 || outputs.length !== 1 || digest(call.line) !== row.commandEventSha256 || digest(output.line) !== row.outputEventSha256 || !row.exactCommandLine || parsedCommands[index].error || !parsedCommands[index].commands.includes(row.exactCommandLine) || !row.exactCommandLine.includes(row.file) || JSON.stringify(row.review.reviewedArgv) !== JSON.stringify(job.argv)) throw new Error("G004 direct execution record drift: " + row.file);
     const parts = row.exactCommandLine.match(/'[^']*'|[^\s]+/g) || [];
     if (parts.join(" ") !== row.exactCommandLine || parts[0] !== "node" || parts[parts.length - 1] !== row.file || parts.some(part => part.startsWith('"'))) throw new Error("G004 unsupported direct command: " + row.file);
     const actualArgv = parts.slice(1, -1).map(part => part.startsWith("'") && part.endsWith("'") ? part.slice(1, -1) : part);

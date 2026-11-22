@@ -26,7 +26,7 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 完整逐项原文保留于 Git `afb3ec5c:docs/plan-generations/G004-execution.md`；coverage 保存每项原命令、退出码、日志、依赖快照、假端口边界和历史证据来源。所有下列候选均待总控审定，不代表真实 Worker、真实清理、用户授权或新 UI 已验。原 519 精确 Node/架构未知，不以邻近版本冒充。原 test/fixture 与失败均保留。
 
-520 编译后单文件 exit0：mcpLocalApiSafety 8/8、mcpEntry 3/3、packageContentPolicy 12/12、mcpTrainingProgress 9/9、mcpRuntimeCapture 3/3、mcpTerminalIdentity 10/10、mcpOrdinaryResultContracts 8/8、mcpSftpRouting 17/17、mcpWorkerObservation 1/1、mcpCleanupEngineContract 5/5、extensionUpdates 7/7、mcpNativeObservation 4/4、serverPlanQueueRecovery 4/4、pulledTaskControl 5/5、workerRouting 4/4、manualDispatchHost 11/11、agentProjectRootReadiness 5/5、projectCodeSyncState 7/7、agentFirstRun 3/3、planRunRerunIntent 14/14、prepareAgentsProgressWatchdog 1/1、globalConfigPersistence 2/2、outputIsolationRecovery 8/8、panelMessageDispatch 21/21、tmuxOtherSessionsDisclosure 19/19、refreshOperationRecordExpiry 11/11、workflowWorkspaceBinding 2/2、staticEntrypointProbe 1/1、xshellSessionPatcher 2/2、panelWebviewScriptHealth 13/13、planCleanupPanelBridge 19/19、completedPlanWorkerMirror 13/13、requestBudget 12/12、pairedUpdateRateLimit 6/6、pairedUpdateClient 5/5。各自真实日志和来源见 coverage，均为合成对象、假服务或受限源码/VM；涉及的合成夹具保留，未操作真实服务器、用户授权、UI 或永久删除。packageContentPolicy 使用现有串行 Python 子进程生成合成 zip；不推广 Python 授权。
+520 编译后多项定向合成验证均 exit0，逐项数量、日志和边界保留于 Git `ae5b7746:docs/plan-generations/G004-execution.md` 及 coverage；不代表真实 Worker、网络、用户授权、界面或删除通过。
 
 总控专门核准现有完整 mcpProject 合成回归，520 后 43/43 exit0：假授权/Agent/Worker、独立合成工作区及回环/stdio，客户端与服务按原 finally 关闭；不代表真实生命周期或撤权专项。伴随隐私首轮路径规范化失败 0/1，修后 1/1；WorkerObservation 与 CleanupEngine 用假 RPC/内存 fs/store，不代表真实持久化/清理。历史 direct 候选 InspectSchema、QuerySchema、ActiveSnapshot、HistoryViews、HealthEvidence、FailureAlerts、PersistedRuns、LogsAndConfig、ResultIdentity 及 MCP dispatch 的调用链与原具体基线见 coverage 和 `14c77f5e`；519 job 38、87、97、99 属指定假输入或纯函数历史候选，具体条件见 coverage。ProjectOps 的历史 SDK 安装闭包仍不明，不能算通过或擅跑受限专项。
 
@@ -55,3 +55,21 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 2026-11-23：branchProjectRegistry 的 sanitizeGitEnv 精确 pattern 1/1、exit 0；仅合成环境对象，无 Git 子进程或文件变更；不覆盖同文件其他 pattern。证据见 coverage，待总控终审。
 
 - 登记此精确 pattern 时首次使用字符串替换将 `$'` 当作替换语法，造成 coverage 临时 JSON 格式错误，planner exit 1；以当前 HEAD 的原文件字节为基底、回调插入同一真实结果后重新核验，未改变历史记录。另一次只读查询误访问无 argv 的记录并 exit 1。
+
+- 2026-11-23：branchProjectRegistry 的 normalizeGithubTarget 精确 pattern 1/1、exit 0，纯字符串无 Git 或网络；重审发现前一 sanitizeGitEnv 行遗漏本文件后段顶层 require，已补全共同输入快照，不改变结果。均不覆盖其他 pattern，待总控终审。
+
+- normalizeGithubTarget 精确 pattern 含反斜杠，exec 工具事件中的 JS 字符串对其转义；当前 validator 直接比较原始 input 导致 direct execution record drift。该 1/1 真实结果暂设 eligible=false、未计覆盖，已向总控提出有界解码修正；另一次只读诊断误将 JS 事件当 JSON 解析 exit 1。
+
+- 补齐顶层闭包时登记脚本自身读取 coverage，误把该登记文件纳入两行快照，planner 报 direct dependency drift；已排除登记脚本自身输入并重核实际测试闭包。
+
+- 2026-11-23：runner 定向原 pattern `G004 reviewed legacy evidence preserves origin and refuses drift` 1/1、exit 0，TEMP/g004-520-runner-escaped-command-20261123.log；覆盖工具事件中 JSON 字符串反斜杠与引号解码，以及不同参数、非命令文本和动态表达式拒绝。原 normalizeGithubTarget 1/1 真实证据恢复候选，无重跑产品测试；现有其他门禁和失败保留，待总控终审。
+
+- runner 定向修复仅触及 direct 事件核验及独立 G004 用例，七项历史删锁 pattern 及安全函数未改；逐行更新当前依赖快照，原历史来源、未知工具链、真实删除边界不变。一次登记脚本因误判 JSON 行格式 exit 1、无写入，随后修正。
+
+- runner 初版边界误拒历史 mcpTaskDispatch 的 here-string 后换行真实命令；保留 planner 拒绝，不重跑产品项。总控批准修正及一次原预算复验：固定 pwsh7 原生 Parser 只解析 stdin 的受限 cmd 字面量、不执行；原精确 pattern 1/1 exit0，TEMP/g004-520-runner-native-parser-20261123.log，18.155 秒，保留原先 1/1。覆盖换行、分号、here-string/普通引号/注释伪命令和不同 argv；七项历史删锁原场景不变，更新依赖快照。
+
+- 全量 planner 首次采用批解析时 Node 堆上限 OOM、exit 1；原因是逐条重复保留巨大 rollout 分割结果，已改每个实际 rollout 一次筛选 call_id，不改变原事件或其 SHA。失败输出见当前会话原始事件；针对修正继续核验。
+
+- planner 修复后发现 PowerShell 将 20000 解析为数字常量，初版仅接受字符串导致 direct drift；允许静态常量并补原 case 数字断言，精确 pattern 再验 1/1 exit0、18.299 秒，TEMP/g004-520-runner-parser-numeric-20261123.log；未改变原预算或重跑产品项。
+
+- 当前 runner 变更后 planner 已正常完成证据核读并报告 367 active、0 onDemand、216 缺口；先前 361/6 随受影响选择重算变化，不代表通过。核验器源码和新增断言及依赖重核待总控终审。

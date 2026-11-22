@@ -204,6 +204,28 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
     fs.writeFileSync(wrongArgvPath, JSON.stringify({ g004IncrementalCoverage: { ...coverage, currentTargetedEvidence: [incompleteDirect] } }));
     assert.throws(() => runner.verifyG004Aggregate({ ...state, g004CoveragePath: wrongArgvPath, g004CoverageSha256: sha(wrongArgvPath) }), /direct execution did not settle successfully/);
   }
+  const pattern = "^literal\\.name$", escapedJob = { ...directJob, argv: ["--test", "--test-timeout", "20000", "--test-name-pattern", pattern] };
+  const exact = `node --test --test-timeout 20000 --test-name-pattern '${pattern}' ${directJob.file}`;
+  const escapedPlan = { ...plan, jobs: [job, escapedJob] };
+  const escapedCoverage = { ...coverage, jobs: [row, { ...escapedJob, eligible: false }] };
+  const wrapped = command => `const r=await tools.exec_command({cmd:${JSON.stringify(command)},shell:"pwsh.exe"});text(JSON.stringify(r))`;
+  const checkEscaped = (input, command = exact) => {
+    const line = JSON.stringify({ payload: { type: "custom_tool_call", call_id: callId, input } });
+    fs.writeFileSync(wrongRollout, line + "\n" + outputLine + "\n");
+    const evidence = { ...directEvidence, ...escapedJob, rollout: wrongRollout, exactCommandLine: command,
+      commandEventSha256: digest(line), review: { ...directEvidence.review, reviewedArgv: escapedJob.argv } };
+    return runner.planG004Execution(ws, escapedPlan, { ...escapedCoverage, currentTargetedEvidence: [evidence] });
+  };
+  assert.equal(checkEscaped(wrapped(`$note="quoted"; ${exact} 2>&1 | Tee-Object -FilePath log`)).length, 2);
+  assert.equal(checkEscaped(wrapped(`@'\nfixture text\n'@ | python -B -\n${exact}\nexit $LASTEXITCODE`)).length, 2);
+  assert.throws(() => checkEscaped(wrapped(exact.replace("\\.", "."))), /direct execution record drift/);
+  assert.throws(() => checkEscaped(wrapped(`Write-Output '${exact}'`)), /direct execution record drift/);
+  assert.throws(() => checkEscaped(wrapped(`Write-Output "text; ${exact}"`)), /direct execution record drift/);
+  assert.throws(() => checkEscaped(wrapped(`@'\n${exact}\n'@ | python -B -`)), /direct execution record drift/);
+  assert.throws(() => checkEscaped(wrapped(`# ${exact}`)), /direct execution record drift/);
+  assert.throws(() => checkEscaped(`const r=await tools.exec_command({cmd:makeCommand()}); ${exact}`), /direct execution record drift/);
+  const different = exact.replace("literal\\.name", "other\\.name");
+  assert.throws(() => checkEscaped(wrapped(different), different), /direct argv mismatch/);
   const compositePath = path.join(ws, "composite.json");
   const composite = { ...state.receipt, schemaVersion: 3, coverageMode: "g004-incremental", entry: "package", overall: "passed", root: ws,
     coverageSource: { path: coveragePath, sha256: sha(coveragePath) }, toolchain,
