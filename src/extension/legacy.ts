@@ -4605,12 +4605,12 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
     async bootstrapProjectLocalUiState() {
         const projectContext = this.captureProjectContext();
         await Promise.all([
-            this.loadProjectPlanSelectionState().catch(() => undefined),
-            this.loadProjectTaskSelectionState().catch(() => undefined),
-            this.loadProjectOfflineBundleState().catch(() => undefined),
+            this.loadProjectPlanSelectionState(),
+            this.loadProjectTaskSelectionState(),
+            this.loadProjectOfflineBundleState(),
             this.loadProjectActionErrorsState().catch(() => undefined),
             this.loadProjectPanelLifecycleDiagnosticsState().catch(() => undefined),
-            this.loadProjectUiLayoutState().catch(() => undefined),
+            this.loadProjectUiLayoutState(),
             this.loadProjectDebugBundleState().catch(() => undefined),
             this.loadProjectCodeSyncState().catch(() => undefined),
             this.loadProjectRemotePathConfirmationsState().catch(() => undefined),
@@ -4975,10 +4975,18 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
     async clearOfflineImport() {
         if (!this.offlineBundle)
             return;
+        const projectContext = this.captureProjectContext();
+        const previous = this.offlineBundle;
         this.offlineBundle = undefined;
+        try {
+            await this.persistProjectOfflineBundleState();
+        } catch (error) {
+            if (this.projectContextIsCurrent(projectContext)) this.offlineBundle = previous;
+            throw error;
+        }
+        if (!this.projectContextIsCurrent(projectContext)) return;
         this.applyOfflineResultsSummaryFromBundle(undefined);
         this.refreshExperimentTracesProjectionForCurrentInterest();
-        await this.persistProjectOfflineBundleState().catch(() => undefined);
         await this.context.workspaceState.update(keys.offlineBundle, undefined);
     }
     async loadProjectPlanSelectionState() {
@@ -6860,11 +6868,18 @@ return this.testTunnel(true);
         await this.pauseRealtimeStream();
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
+        const previous = this.offlineBundle;
         this.offlineBundle = result.bundle;
+        try {
+            await this.persistProjectOfflineBundleState();
+        } catch (error) {
+            if (generation === this.projectContextGeneration && root === workspaceRoot()) this.offlineBundle = previous;
+            throw error;
+        }
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot()) return;
         this.refreshExperimentTracesProjectionForCurrentInterest();
         this.mergeRecentPlansFromRuntime(result.bundle?.snapshot);
         this.applyOfflineResultsSummaryFromBundle(result.bundle);
-        await this.persistProjectOfflineBundleState().catch(() => undefined);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
         await this.context.workspaceState.update(keys.offlineBundle, undefined);
@@ -29669,8 +29684,8 @@ async function readProjectPlanSelectionState(root) {
     try {
         const text = await fs.readFile(fullPath, "utf8");
         const data = JSON.parse(text);
-        if (!data || typeof data !== "object")
-            return undefined;
+        if (!data || typeof data !== "object" || Array.isArray(data))
+            throw new Error("项目状态格式无效");
         return {
             selectedPlanId: usableSelectionKey(String(data.selectedPlanId || data.selected_plan_id || "")),
             planFileInput: usableSelectionKey(String(data.planFileInput || data.plan_file || data.planFile || "")),
@@ -29678,13 +29693,15 @@ async function readProjectPlanSelectionState(root) {
             updatedAt: String(data.updatedAt || data.updated_at || ""),
         };
     }
-    catch {
-        return undefined;
+    catch (error) {
+        if (error?.code === "ENOENT") return undefined;
+        throw new Error(`读取项目状态失败 ${fullPath}: ${errorMessage(error)}`, { cause: error });
     }
 }
 async function writeProjectPlanSelectionState(root, state) {
     if (!root)
         return;
+    await readProjectPlanSelectionState(root);
     const fullPath = path.join(root, ...PROJECT_PLAN_SELECTION_PATH.split("/"));
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     const payload = {
@@ -29729,8 +29746,8 @@ async function readProjectTaskSelectionState(root) {
     try {
         const text = await fs.readFile(fullPath, "utf8");
         const data = JSON.parse(text);
-        if (!data || typeof data !== "object")
-            return undefined;
+        if (!data || typeof data !== "object" || Array.isArray(data))
+            throw new Error("项目状态格式无效");
         return {
             selectedExperimentIds: normalizeSelectionList(data.selectedExperimentIds || data.selected_experiment_ids),
             selectedRunKeys: normalizeSelectionList(data.selectedRunKeys || data.selected_run_keys),
@@ -29742,13 +29759,15 @@ async function readProjectTaskSelectionState(root) {
             updatedAt: String(data.updatedAt || data.updated_at || ""),
         };
     }
-    catch {
-        return undefined;
+    catch (error) {
+        if (error?.code === "ENOENT") return undefined;
+        throw new Error(`读取项目状态失败 ${fullPath}: ${errorMessage(error)}`, { cause: error });
     }
 }
 async function writeProjectTaskSelectionState(root, state) {
     if (!root)
         return;
+    await readProjectTaskSelectionState(root);
     const fullPath = path.join(root, ...PROJECT_TASK_SELECTION_PATH.split("/"));
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     const selectedRunKeys = normalizeSelectionList(state?.selectedRunKeys);
@@ -29774,8 +29793,9 @@ async function readProjectOfflineBundleState(root) {
     try {
         const text = await fs.readFile(fullPath, "utf8");
         const data = JSON.parse(text);
-        if (!data || typeof data !== "object")
-            return undefined;
+        if (data === null) return undefined;
+        if (typeof data !== "object" || Array.isArray(data))
+            throw new Error("项目状态格式无效");
         if (data.cleared === true)
             return undefined;
         if (data.bundle && typeof data.bundle === "object")
@@ -29784,13 +29804,15 @@ async function readProjectOfflineBundleState(root) {
             return data;
         return undefined;
     }
-    catch {
-        return undefined;
+    catch (error) {
+        if (error?.code === "ENOENT") return undefined;
+        throw new Error(`读取项目状态失败 ${fullPath}: ${errorMessage(error)}`, { cause: error });
     }
 }
 async function writeProjectOfflineBundleState(root, bundle) {
     if (!root)
         return;
+    await readProjectOfflineBundleState(root);
     const fullPath = path.join(root, ...PROJECT_OFFLINE_BUNDLE_PATH.split("/"));
     if (!bundle) {
         await writeAtomicPluginStateJson(fullPath, null);
@@ -30023,20 +30045,23 @@ async function readProjectUiLayoutState(root) {
     try {
         const text = await fs.readFile(fullPath, "utf8");
         const data = JSON.parse(text);
-        if (!data || typeof data !== "object")
-            return undefined;
+        if (data === null) return undefined;
+        if (typeof data !== "object" || Array.isArray(data))
+            throw new Error("项目状态格式无效");
         if (data.cleared === true)
             return undefined;
         const raw = data.layout && typeof data.layout === "object" ? data.layout : data;
         return normalizeUiProjectLayoutState(raw, defaultUiLayout);
     }
-    catch {
-        return undefined;
+    catch (error) {
+        if (error?.code === "ENOENT") return undefined;
+        throw new Error(`读取项目状态失败 ${fullPath}: ${errorMessage(error)}`, { cause: error });
     }
 }
 async function writeProjectUiLayoutState(root, layout) {
     if (!root)
         return;
+    await readProjectUiLayoutState(root);
     const fullPath = path.join(root, ...PROJECT_UI_LAYOUT_PATH.split("/"));
     if (!layout) {
         await writeAtomicPluginStateJson(fullPath, null);

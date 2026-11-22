@@ -3,6 +3,84 @@ const test = require("node:test");
 const { readSource } = require("../_helpers/sourceReader");
 
 const source = readSource("src/extension.ts");
+
+test("unreadable project state blocks migration and replacement until it can be read", async () => {
+  const ts = require("typescript");
+  const ast = ts.createSourceFile("legacy.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const pairs = [
+    ["PROJECT_PLAN_SELECTION_PATH", "readProjectPlanSelectionState", "writeProjectPlanSelectionState"],
+    ["PROJECT_TASK_SELECTION_PATH", "readProjectTaskSelectionState", "writeProjectTaskSelectionState"],
+    ["PROJECT_OFFLINE_BUNDLE_PATH", "readProjectOfflineBundleState", "writeProjectOfflineBundleState"],
+    ["PROJECT_UI_LAYOUT_PATH", "readProjectUiLayoutState", "writeProjectUiLayoutState"],
+  ];
+  const declarations = ast.statements.filter(node =>
+    ts.isFunctionDeclaration(node) && pairs.some(pair => pair.includes(node.name?.text)) ||
+    ts.isVariableStatement(node) && node.declarationList.declarations.some(d => pairs.some(pair => pair[0] === d.name.getText(ast)))
+  ).map(node => node.getText(ast)).join("\n");
+  let content = "{broken", writes = 0;
+  const fakeFs = { readFile: async () => { if (content instanceof Error) throw content; return content; }, mkdir: async () => {} };
+  const helpers = { fs: fakeFs, path: require("node:path"), usableSelectionKey: x => x, mergeRecentPlans: x => x,
+    normalizeSelectionList: x => x || [], errorMessage: error => error.message, defaultUiLayout: {}, normalizeUiLayout: x => x,
+    normalizeUiProjectLayoutState: x => x, projectUiLayoutState: x => x,
+    writeAtomicPluginStateJson: async () => { writes++; } };
+  const compiled = ts.transpileModule(declarations + "\nreturn {" + pairs.flatMap(x => x.slice(1)).join(",") + "};", {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const api = new Function(...Object.keys(helpers), compiled)(...Object.values(helpers));
+  for (const [, read, write] of pairs) {
+    for (content of ["{broken", "42", "[]", Object.assign(Error("access denied"), { code: "EACCES" })]) {
+      await assert.rejects(api[read]("C:/synthetic"), /读取项目状态失败/);
+      await assert.rejects(api[write]("C:/synthetic", {}), /读取项目状态失败/);
+      assert.equal(writes, 0);
+    }
+    content = Object.assign(Error("missing"), { code: "ENOENT" });
+    assert.equal(await api[read]("C:/synthetic"), undefined);
+    content = "{}";
+    await api[read]("C:/synthetic");
+    await api[write]("C:/synthetic", {});
+    assert.equal(writes, 1);
+    writes = 0;
+  }
+  const bootstrap = method("async bootstrapProjectLocalUiState", "captureProjectContext", [], []).bootstrapProjectLocalUiState;
+  let migrated = 0;
+  const host = { captureProjectContext: () => ({ root: "C:/synthetic" }), projectContextIsCurrent: () => true,
+    migrateLegacyProjectUiStateFromVsCode: async () => { migrated++; } };
+  for (const name of ["loadProjectPlanSelectionState", "loadProjectTaskSelectionState", "loadProjectOfflineBundleState",
+    "loadProjectActionErrorsState", "loadProjectPanelLifecycleDiagnosticsState", "loadProjectUiLayoutState", "loadProjectDebugBundleState",
+    "loadProjectCodeSyncState", "loadProjectRemotePathConfirmationsState", "loadProjectLocalOperationsState",
+    "loadProjectLocalPlanMetadataState", "loadPlanSyncLedger", "refreshCheckStaticReports", "loadProjectFlowState", "refreshLocalSshConfig"]) host[name] = async () => {};
+  host.loadProjectOfflineBundleState = async () => { throw Error("unreadable"); };
+  await assert.rejects(bootstrap.call(host), /unreadable/);
+  assert.equal(migrated, 0);
+  host.loadProjectOfflineBundleState = async () => {};
+  await bootstrap.call(host);
+  assert.equal(migrated, 1);
+});
+
+test("offline import and clear retain the current and legacy values when saving fails", async () => {
+  const old = { value: "old" }, replacement = { value: "new" };
+  let legacyClears = 0, reset = 0, rendered = 0;
+  const common = () => ({ projectContextGeneration: 1, offlineBundle: old,
+    captureProjectContext: () => ({ root: "C:/synthetic" }), projectContextIsCurrent: () => true,
+    pauseRealtimeStream: async () => {}, persistProjectOfflineBundleState: async () => { throw Error("disk full"); },
+    context: { workspaceState: { update: async () => { legacyClears++; } } },
+    refreshExperimentTracesProjectionForCurrentInterest() {}, mergeRecentPlansFromRuntime() {},
+    applyOfflineResultsSummaryFromBundle() { rendered++; }, resetClient() { reset++; }, postState() {} });
+  const picker = { window: { showQuickPick: async () => ({ kind: "file" }),
+    showOpenDialog: async () => [{ fsPath: "C:/synthetic.json" }] } };
+  const importer = method("async importOffline", "async handleMessage", ["workspaceRoot", "vscode", "OfflineImport_1", "keys"],
+    [() => "C:/synthetic", picker, { importOfflineBundle: async () => ({ ok: true, bundle: replacement }) }, keys]).importOffline;
+  const host = common();
+  await assert.rejects(importer.call(host), /disk full/);
+  assert.equal(host.offlineBundle, old);
+  const clear = method("async clearOfflineImport", "async loadProjectPlanSelectionState", ["keys"], [keys]).clearOfflineImport;
+  const clearing = common();
+  await assert.rejects(clear.call(clearing), /disk full/);
+  assert.equal(clearing.offlineBundle, old);
+  assert.equal(legacyClears, 0);
+  assert.equal(reset, 0);
+  assert.equal(rendered, 0);
+});
 function method(start, end, dependencies, values) {
   const from = source.indexOf(`    ${start}(`);
   const to = source.indexOf(`    ${end}(`, from + 1);
