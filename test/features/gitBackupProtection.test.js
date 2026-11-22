@@ -63,3 +63,18 @@ test("automatic startup propagates inspection and installation failures for visi
   await assert.rejects(setup.maybeAutoInstallGitBackup({ subscriptions: { push() {} } }), /write denied/);
   assert.equal(installed, 1);
 });
+
+test("registered backup and GitHub commands return their asynchronous results", async () => {
+  const handlers=new Map();let release;
+  const vscode={workspace:{workspaceFolders:[{uri:{fsPath:'C:/synthetic'}}],getConfiguration:()=>({get:(_key,fallback)=>fallback})},
+    window:{showInformationMessage:()=>new Promise(resolve=>{release=resolve})},commands:{registerCommand:(id,fn)=>{handlers.set(id,fn);return {}}}};
+  const backup={inspectGitBackup:()=>({isGitRepo:true,hasRemote:true,hookInstalled:true,repoRoot:'C:/synthetic',remoteName:'origin'})};
+  const setup=load('src/extension/GitBackupSetup.ts',{vscode,'../features/GitBackup':backup}),context={subscriptions:[]};
+  const backupIds=setup.registerGitBackupCommands(context);assert.equal(backupIds.length,3);
+  for(const id of [backupIds[0],backupIds[2]]){let finished=false;const pending=handlers.get(id)().then(()=>{finished=true});await new Promise(resolve=>setImmediate(resolve));assert.equal(finished,false);release('取消');await pending;assert.equal(finished,true)}
+  await assert.rejects(handlers.get(backupIds[1])(),/uninstallBackupHook/);
+  const provider={publishToGitHub:()=>new Promise(resolve=>{release=resolve}),syncToGitHub:async()=>{throw Error('sync failed')}};
+  const githubIds=setup.registerGitHubSyncCommands(context,provider);assert.equal(githubIds.length,2);
+  let finished=false;const pending=handlers.get(githubIds[1])().then(()=>{finished=true});await new Promise(resolve=>setImmediate(resolve));assert.equal(finished,false);release('done');assert.equal(await pending,undefined);
+  await assert.rejects(handlers.get(githubIds[0])(),/sync failed/);
+});

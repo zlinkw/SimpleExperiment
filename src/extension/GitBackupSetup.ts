@@ -332,7 +332,7 @@ export function registerGitBackupCommands(context: ExtensionContextLike): string
   if (!vscode) return [];
 
   const bind = (id: string, handler: () => Promise<void> | void): void => {
-    context.subscriptions.push(vscode.commands.registerCommand(id, () => void handler()));
+    context.subscriptions.push(vscode.commands.registerCommand(id, () => handler()));
   };
 
   bind(CMD_SETUP, setupGitBackupCommand);
@@ -361,7 +361,7 @@ export function registerGitHubSyncCommands(
     if (typeof fn !== "function") return;
     context.subscriptions.push(
       vscode.commands.registerCommand(id, () =>
-        void (fn as (...args: unknown[]) => unknown).apply(provider, [])
+        (fn as (...args: unknown[]) => unknown).apply(provider, [])
       )
     );
     registered.push(id);

@@ -6,9 +6,9 @@
 
 519宽CSV的AP与AUPRC、macro/micro/weighted F1合并，两次各0/1 exit1，同目录 `g004-519-metric-identity-ff08.log`、`g004-519-metric-collision-ff08.log`。R519 A4保留语义及显式别名；宽/长CSV、JSON、预览、schema、分割、0/空值单文件最终6/6 exit0，同目录 `g004-r519-a4-metric-final-ff08.log`。选择及PLAN持久化证据见coverage，未写真实项目文件。
 
-R519 A5按输入列选择默认长宽预设，JSON、显式预设和自定义预设保留；真实源码配合成数据的解析器/工厂/CLI单文件8/8，MCP目录消费者8/8，均exit0，日志同目录 `g004-r519-a5-parser-final-ff08.log`、`g004-r519-a5-mcp-ff08.log`，未调用真实Worker。
+R519 A5按输入列选择默认长宽预设，保留显式和自定义预设；解析器/CLI及MCP目录各8/8 exit0，日志 `g004-r519-a5-parser-final-ff08.log`、`g004-r519-a5-mcp-ff08.log`，未调用Worker。
 
-R519 A6历史结果两份索引、目录和文件的读错/坏JSON反馈路径及原因，缺失仍允许；内存fs联验读取消费者1/1 exit0，同目录 `g004-r519-a6-history-final-ff08.log`，未调用真实Worker。
+R519 A6历史结果读错/坏JSON反馈原因，缺失仍允许；内存fs联验1/1 exit0，同目录 `g004-r519-a6-history-final-ff08.log`，未调用Worker。
 
 R519 B2选择API等待持久化、失败可见并拒绝跨项目成功回执；PLAN已写入后的状态失败明确提示。真实入口配内存替身：动作46/46、迁移13/13、上下文20/20 exit0，日志同目录 `g004-r519-b2-actions-complete-ff08.log`、`g004-r519-b2-migration-ff08.log`、`g004-r519-b2-context-ff08.log`。动作首44/45 exit1因A5源码抽取夹具缺`selectResultPreset`，已补真实依赖，`g004-r519-b2-actions-first-ff08.log`。
 
@@ -19,6 +19,8 @@ R519 B4调试包缺失、取消和失败不冒成功；假UI/传输/文件1/1 ex
 R519 C1修复14项API本地路由，保留确认、资源租约及业务门禁；真实入口配假handler 47/47 exit0，同目录 `g004-r519-c1-actions-first-ff08.log`，未执行远端动作。
 
 R519 C2明确设置范围及准备副作用，global写入不误落项目；源码/目录单文件48/48 exit0，同目录 `g004-r519-c2-actions-first-ff08.log`，未改真实设置。
+
+R519 C3五个Git命令返回异步结果，假UI/提供者4/4 exit0；首3/4 exit1为测试误判同步和发布的注册顺序，日志同目录 `g004-r519-c3-git-first-ff08.log`、`g004-r519-c3-git-final-ff08.log`，未操作真实Git hook或发布。
 
 用户反复识别未完成并提供截图；519同窗请求与识别租约冲突，不能认定锁死。本地识别原不记完成，假确认和PLAN首0/1 exit1，同目录 `g004-519-bootstrap-recognition-ff08.log`。R519 B1确认有效PLAN并保存单根识别、立即投影，准备独立、不探Worker。空任务/取消/读写错/缺根与多根2/2、快速流程9/9、上下文20/20、命令3/3、持久化3/3、投影6/6均exit0；日志同目录 `g004-r519-b1-` 前缀加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 后接 `-ff08.log`。未重放点击、清锁或改真实标记。
 
