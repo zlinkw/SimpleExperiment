@@ -85,6 +85,10 @@ test('MCP resource availability preserves the prior structured query',async()=>{
  await neutral.businessContext.run({root,rpc,emit:value=>{previous=value}},()=>old.resourceCommand('available',[],{json:true}));
  assert.deepEqual(await queryProject(root,rpc,'resource_available',{}),previous);
  assert.equal(previous[0].available,'true');assert.equal(previous[1].reason,'process_present');
+ await assert.rejects(queryProject(root,async method=>{
+  if(method==='tasks.list')throw support.businessError('task query rejected');
+  return rpc(method);
+ },'resource_available',{}),/task query rejected/);
 });
 
 test('MCP artifact queries retain paths, identities and failures',async()=>{
@@ -93,7 +97,12 @@ test('MCP artifact queries retain paths, identities and failures',async()=>{
  fs.mkdirSync(path.join(root,'simple_cluster'));
  fs.mkdirSync(path.join(root,'output'));
  fs.writeFileSync(path.join(root,'output','result.txt'),'result','utf8');
- fs.writeFileSync(path.join(root,'simple_cluster','experiment_index.json'),JSON.stringify([{id:'local-run',type:'workflow',outputDir:'output'}]),'utf8');
+ fs.mkdirSync(path.join(root,'empty'));
+ fs.writeFileSync(path.join(root,'simple_cluster','experiment_index.json'),JSON.stringify([
+  {id:'local-run',type:'workflow',outputDir:'output'},
+  {id:'worker:1',type:'workflow',outputDir:'output'},
+  {id:'worker:2',type:'workflow',outputDir:'empty'}
+ ]),'utf8');
  const rpc=async method=>{
   if(method==='tasks.list')return {tasks:[{id:'run-a',status:'running',name:'trial'}]};
   if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};
@@ -108,6 +117,8 @@ test('MCP artifact queries retain paths, identities and failures',async()=>{
  assert.equal(listed[0].id,'local-run:result.txt');
  assert.deepEqual(await queryProject(root,rpc,'artifact_inspect',{id:'sample.txt'}),await previous(()=>old.artifactInspect('sample.txt',{json:true})));
  await assert.rejects(queryProject(root,rpc,'artifact_inspect',{id:'missing'}),/not found/i);
+ assert.equal((await queryProject(root,rpc,'artifact_inspect',{id:'worker:1:result.txt'})).file,'output/result.txt');
+ await assert.rejects(queryProject(root,rpc,'artifact_inspect',{id:'worker:2:result.txt'}),/not found/i);
 });
 
 test('query compact output preserves the existing structured view',()=>{
