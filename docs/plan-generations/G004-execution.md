@@ -77,3 +77,5 @@ Windows工作流混合文件形成未应用diff，仅移旧CLI三项及专用fix
 终态身份及训练进度两份整文件候选经原/MCP源码diff对照：分别保留10/10、9/9中立断言，旧overallTrainingPercent别名单列；两份未应用diff git apply --check exit0，直接job与glob仍须最终精确调整及批准。
 
 候选整体可应用性检查25份联合git apply --check exit0，排除已被合并取代的localApi导入diff；修正同文件草稿旧候选残留及来源误归属。更新JSON状态首脚本因原对象为多行格式断言exit1未写，按真实格式修正后UTF8解析通过。此检查不表示候选已批准、测试已退役或最终矩阵完整。
+
+活跃快照及持久运行记录形成两份整文件未应用diff，分别对应中立生命周期4/4＋快照6/6与持久记录4/4；真实Worker和旧CLI进程未测，联合退休及直接job修改须批准。两份git apply --check exit0。
