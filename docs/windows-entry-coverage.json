@@ -103,26 +103,26 @@
       {
         "source": "test/features/windowsWorkflowContract.test.js:79",
         "name": "actual Host API refuses mismatched/switched workspace and active PLAN before creating an orphan operation",
-        "status": "pending_review",
-        "boundary": "顶层依赖旧WorkflowRun；实际Host契约不可随入口退役。"
+        "status": "host_consumer_covered_original_preserved",
+        "boundary": "原Host测试函数和替身不减断言迁至test/features/mcpWorkflowHostSafety.test.js，读取当前源方法及中立workspace绑定4/4 exit0；原混合文件与CLI入口3项保留。"
       },
       {
         "source": "test/features/windowsWorkflowContract.test.js:85",
         "name": "ready workflow preflight has no blocker and blocked preflight retains its actual reason",
-        "status": "pending_review",
-        "boundary": "顶层依赖旧WorkflowRun；实际Host预检须保留。"
+        "status": "host_consumer_covered_original_preserved",
+        "boundary": "原Host测试函数和替身不减断言迁至test/features/mcpWorkflowHostSafety.test.js，读取当前源方法及中立workspace绑定4/4 exit0；原混合文件与CLI入口3项保留。"
       },
       {
         "source": "test/features/windowsWorkflowContract.test.js:97",
         "name": "workflow request finishes against its current same-project records and the exact child request",
-        "status": "pending_review",
-        "boundary": "顶层依赖旧WorkflowRun；操作身份须保留。"
+        "status": "host_consumer_covered_original_preserved",
+        "boundary": "原Host测试函数和替身不减断言迁至test/features/mcpWorkflowHostSafety.test.js，读取当前源方法及中立workspace绑定4/4 exit0；原混合文件与CLI入口3项保留。"
       },
       {
         "source": "test/features/windowsWorkflowContract.test.js:120",
         "name": "operation merge settles only the exact completed local child without presenting an experiment completion",
-        "status": "pending_review",
-        "boundary": "顶层依赖旧WorkflowRun；操作终态与实验完成须区分。"
+        "status": "host_consumer_covered_original_preserved",
+        "boundary": "原Host测试函数和替身不减断言迁至test/features/mcpWorkflowHostSafety.test.js，读取当前源方法及中立workspace绑定4/4 exit0；原混合文件与CLI入口3项保留。"
       },
       {
         "source": "test/features/windowScopeIsolation.test.js:128",
