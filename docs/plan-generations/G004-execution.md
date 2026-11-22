@@ -67,3 +67,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 planMatrixEmptyValues 原文件 1/1、exit0（`%TEMP%/g004-520-plan-matrix-empty-20261123.log`，先查不存在）；合成 YAML 与 VM 假文件系统，无真实计划或写入，待总控审定。
 
 - 520 后 distributedProjectContract 原文件 6/6、exit0（`%TEMP%/g004-520-distributed-project-contract-20261123.log`，先查不存在）；合成契约、YAML 与 VM，无真实项目、Worker 或文件写入，待总控审定。
+
+- 520 后 resultDatasetHierarchy 原文件 14/14、exit0（`%TEMP%/g004-520-result-dataset-hierarchy-20261123.log`，先查不存在）；合成结果目录、渲染与假 DOM VM，无真实数据、UI 或 Worker，待总控审定。
