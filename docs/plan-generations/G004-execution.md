@@ -108,7 +108,7 @@ B1/B2/B3的39项与首失败见Git c37827c8及eab27339同路径；不扩称真�
 
 T7收包排除旧CLI，要求独立MCP闭包；policy 12/12、入口3/3 exit0，未实际打包。
 
-T7矩阵：19个已定向验过的MCP迁移、连接和收包测试加入build/check:full/package/smoke，四profile只读规划各19项独占、均非按需；原项目全树输入指纹保持，旧项未减。test/features及acceptance原glob也涵盖新项。B1未纳入上述显式组，仍未运行验证且是交付阻断。训练进度旧文件误重写但内容已恢复，复验9/9 exit0；生成命令首引号错误exit1未写入。
+T7已定向MCP测试纳入四交付profile，规划确认独占；原glob亦涵盖，旧项未减。B1仍未验并阻断交付。早期矩阵及生成命令引号错误见Git 871ea78e及后续记录。
 
 MCP Worker生命周期迁测：queryProject配独立本机合成API/Worker，4/4 exit0（chunk 252e84）；限流、来源和父级3/3 exit0（702b10）；旧8项的无API离线历史剩1项属CLI专有回退，MCP仍需Host、不新造history，原用例保留待裁决。两新测试纳入四个交付profile。
 
@@ -165,3 +165,5 @@ MCP实验列表、筛选及终态别名保留旧业务断言，实际queryProjec
 MCP当前结果身份重排不变、歧义拒绝及诊断日志排除，queryProject 15/15 exit0；CLI history/文件写出差异待审。
 
 旧客户端四项合成契约、路由取消/期限及候选预算迁中立API 6/6；原整文件及真实SimpleSFTP门禁保留未测。
+
+派发审核期间MCP授权/Worker变化在真实宿主复核，拒绝派发并释放预留；假端口5/5、无MCP上下文的队列14/14均exit0。

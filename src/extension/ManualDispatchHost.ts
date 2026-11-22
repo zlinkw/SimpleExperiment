@@ -4,6 +4,7 @@ import { dispatchManualJobs, dispatchReadyManualJobs, ManualDispatchRequest, Man
 import { stopPulledTask } from "../features/PulledTaskControl";
 import { PlanRunHost } from "./PlanRunHost";
 import { supportsPlanCodeScope, verifyWorkerPlanSource, verifyLocalPlanSource } from "./PlanCodeScopeHost";
+import { mcpInvocation } from "../mcp/Invocation";
 
 export class ManualDispatchHost {
   private static readonly selections = new WeakMap<object, Set<string>>();
@@ -57,7 +58,9 @@ export class ManualDispatchHost {
     if(!selections){selections=new Set();ManualDispatchHost.selections.set(h,selections);}
     const key=this.root+"\0"+workflowId;if(h.manualDispatchInFlight.has(key)||selections.has(key))throw Error("这批任务正在处理，请勿重复点击。");
     if(h.manualDispatchInFlight.has(this.root+"\0server-queue"))throw Error("剩余 job 正在按配额派发服务器队列，请等待本批结果。");
-    const ports=this.ports();let acquired=false;
+    const ports=this.ports(), assertCurrent=ports.assertCurrent;
+    ports.assertCurrent=()=>{assertCurrent();mcpInvocation.getStore()?.permission("experiment");};
+    let acquired=false;
     selections.add(key);
     try {
     let workerId=String(params.workerId||""),gpuId=params.gpuId===undefined?"":String(params.gpuId),gpuSelection=params.gpuSelection;

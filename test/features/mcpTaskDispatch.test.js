@@ -25,7 +25,7 @@ function fixture(){
  const dispatch=new Function('ManualDispatchHost','ServerQueueHost','workspaceRoot','confirmationRequired','host',`return (function(){ return (${expression}); }).call(host)`)(ManualDispatchHost,ServerQueueHost,()=>root,()=>Error('confirmation required'),h);
  let grant=createProjectAuthorization(root);grant.workers=[{id:'w',host:'host',port:22,user:'user',projectRoot:'/project'}];
  const gateway=new ProjectGateway({root:()=>root,workers:()=>[grant.workers[0]],store:{get:()=>grant},methods:()=>({'tasks.dispatch':dispatch})});
- return {h,gateway,sent,get queue(){return queue},set queue(value){queue=value},revoke:()=>{grant.permissions=[]}};
+ return {h,gateway,sent,get queue(){return queue},set queue(value){queue=value},revoke:()=>{grant.permissions=[]},changeTarget:()=>{grant.workers[0]={...grant.workers[0],host:'changed'}}};
 }
 
 test('gateway dispatches automatic and explicit GPUs through the actual manual host',async()=>{
@@ -66,6 +66,18 @@ test('stop-then-dispatch requires the exact original command and explicit intent
   const result=await f.gateway.call('task_dispatch',{...base,expectedCommands:{0:'original'},stopRunning:true});
   assert.equal(result.status,'submitted');assert.deepEqual(events,['stop:original:w','review']);assert.equal(f.sent.length,1);
  }finally{ManualDispatchHost.prototype.review=oldReview;ManualDispatchHost.prototype.ports=oldPorts}
+});
+
+test('grant or target changes during review stop manual and quota submission',async()=>{
+ const old=ManualDispatchHost.prototype.review;
+ try{
+  for(const args of [{workflowId:'p',indices:[0],workerId:'w',gpuId:'0'},{distribution:'quota_remaining',all:true}])for(const mode of ['revoke','target']){
+   const f=fixture();ManualDispatchHost.prototype.review=async()=>{if(mode==='revoke')f.revoke();else f.changeTarget();return true};
+   await assert.rejects(f.gateway.call('task_dispatch',args),/AUTHORIZATION_REQUIRED|WORKER_TARGET_CHANGED/);
+   assert.equal(f.sent.length,0);assert.equal(f.h.manualDispatchInFlight.size,0);
+   assert.ok(f.queue.plans[0].jobs.every(job=>!job.manualDispatch));
+  }
+ }finally{ManualDispatchHost.prototype.review=old}
 });
 
 test('gateway rejects ambiguous scope and malformed dispatch before host side effects',async()=>{

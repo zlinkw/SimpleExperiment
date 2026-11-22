@@ -4,6 +4,7 @@ import { remainingQueueJobs, serverQueueCards, quotaQueuePlacements } from "../f
 import { ManualDispatchHost } from "./ManualDispatchHost";
 import { quotaSettings } from "../features/GpuQuotaScheduling";
 import { outputIsolationNotice } from "../features/DistributedPlanQueue";
+import { mcpInvocation } from "../mcp/Invocation";
 
 /** An explicit button freezes remaining jobs; no PLAN-wide persistent prequeue switch. */
 export class ServerQueueHost {
@@ -15,7 +16,7 @@ export class ServerQueueHost {
     if (ids && !ids.length) throw Error("请选择 PLAN 或明确指定全部剩余 job。");
     const targets=()=>JSON.stringify([h.workerActionTargets(),h.schedulerSettings(),h.enabledWorkerConfigs().map((w:any)=>[w.id,w.gpuJobsPerCard,w.gpuCardOverrides,w.gpuMaxConcurrentCards])]);
     const binding=targets(), key=this.root+"\0server-queue", reserved:any[]=[];
-    const current=()=>{if(!h.projectContextIsCurrent(context)||context.root!==this.root||vscode.workspace.workspaceFolders?.[0]?.uri.fsPath!==this.root||targets()!==binding||h.distributedPlanStopEpoch!==epoch)throw Error("项目、GPU 配额或连接已变化，未继续派发服务器队列。");};
+    const current=()=>{if(!h.projectContextIsCurrent(context)||context.root!==this.root||vscode.workspace.workspaceFolders?.[0]?.uri.fsPath!==this.root||targets()!==binding||h.distributedPlanStopEpoch!==epoch)throw Error("项目、GPU 配额或连接已变化，未继续派发服务器队列。");mcpInvocation.getStore()?.permission("experiment");};
     if(h.manualDispatchInFlight.size||h.manualDispatchReviewKeys?.size)throw Error("已有手动派发或产物审核正在处理，请等待本批结果。");
     h.manualDispatchInFlight.add(key);
     const batchId=randomUUID();let reservedOnDisk=false;
