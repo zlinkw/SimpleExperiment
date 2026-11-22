@@ -201,3 +201,5 @@ PLAN列表保留原valid-plan输入，实际Host摘要解析与Gateway字段/状
 候选补充：仓内simpleex.cmd列第39个精确文件，未删除；修正矩阵保留glob未来发现、仅拟精确排除的裁决，Agent旧SFTP专属生命周期拟退休而真实后端秘密输出未测。旧动作目录4项形成未应用diff并关联MCP Gateway现有1/1业务证据，CLI错误与无握手不冒等价；git apply --check字节输入exit0，原文件/矩阵不变。
 
 旧CLI LegacyRemoval五项形成未应用diff，PLAN/榜单/结果错误与现MCP query分别对照，旧默认参数、帮助和退出码单列；git apply --check字节输入exit0，原文件与矩阵保留。
+
+外部混合测试补三份未应用diff：离线history旧入口、录制Runner及正式准入旧Runner断言；现MCP活跃结果与PLAN边界、checkpoint及其余Scheduler断言保留，真实派发未测。三份git apply --check字节输入均exit0，原测试与矩阵不变。
