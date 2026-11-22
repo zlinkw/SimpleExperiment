@@ -67,3 +67,6 @@ operationRetirement 5/5 exit0：Python 抽取函数处理内存状态，VM 假 W
 planIsolatedBatchLedger 5/5 exit0：真实账本原子替换仅作自建临时状态发布，隔离条目为合成，夹具保留；无真实隔离、Worker、网络或删除，不证明真实删除安全。证据见 coverage，待总控终审。
 
 planIsolatedBatchLedgerDispatch 5/5 exit0：合成派发观察与自建账本原子状态发布，夹具保留；无真实 Worker、隔离、网络或删除。证据见 coverage，待总控终审。
+
+
+runtimeLogAnalysisHost 19/19 exit0：VM 假 Worker、清理与界面，自建源文件保留；无真实删除、界面或网络。原日志和事件见 coverage，待总控终审。
