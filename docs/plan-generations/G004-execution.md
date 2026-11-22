@@ -44,38 +44,4 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 本段逐项原文与日志路径保留于 Git `f78bacc8:docs/plan-generations/G004-execution.md`，逐项原始事件、输入快照与边界见 coverage。520 后以下原文件均 exit0：gpuSampleWindowChannel 4/4、gpuSubmittedJobOwnership 8/8、autoFallbackWideReadGuard 6/6、workerPreparationPipeline 8/8、simpleSftpCapabilityOncePerLaunch 13/13、failedJobRecovery 13/13、mcpActionCatalog 1/1、probeConnectionContinuity 3/3、resultMissingMetric 3/3、resultCsvIdentity 8/8、mcpPreflightContract 2/2、planMatrixEmptyValues 1/1、distributedProjectContract 6/6、resultDatasetHierarchy 14/14、setupGuideWithoutBundledDocs 12/12、localApiClientSource 3/3、planOutputGateAlignment 3/3、mcpResolver 2/2、mcpRuntimeIdentity 14/14、mcpTransportReceipt 3/3、mcpDraftContracts 3/3、hubRuntimeRemoval 8/8、sftpProgressWait 16/16、completedJobForeignSourceClassify 7/7、jobArtifactStagedSlotIdentity 5/5、planSubmissionVisiblePreflight 25/25、mcpAgentContract 3/3、mcpWorkflowHostSafety 4/4、mcpQueryContext 18/18。均为合成输入、VM 或假端口；两项独立 loopback 的凭据和安装均为夹具，临时目录及 junction 保留。异源历史矩阵仅为夹具，不联系真实端点；未操作真实 Worker、Agent、GPU、SSH、tmux、授权、传输、清理、活动结果或 UI。均待总控终审。
 
-- 新鲜结果合成回归 10/10，exit 0；内存清单与接收替身，无真实 Worker、网络或活动结果。事件与输入快照见 coverage，待总控终审。
-
-- 同步范围树合成回归 6/6，exit 0；假 VSCode 面板、DOM VM 和删除消息替身，无真实 UI、Worker 或删除。事件与输入快照见 coverage，待总控终审。
-
-- 同步范围元数据原有回归 12/12，exit 0；含 130 个合成文件、假端点，临时夹具保留，无真实 Worker 或传输。事件与输入快照见 coverage，待总控终审。
-
-- 同步范围批处理合成回归 8/8，exit 0；假回调和面板 VM，删除失败仅为模拟，无真实删除或 Worker。事件与输入快照见 coverage，待总控终审。
-
-- 项目根映射合成回归 14/14，exit 0；临时项目清单及 Host VM，清理仅分类，夹具保留，无真实 Worker、传输或删除。事件与输入快照见 coverage，待总控终审。
-
-- 同步传输分组合成回归 8/8，exit 0；清单及 VSCode、上传、SFTP 和删除均为替身，无真实 UI、Worker、传输或删除。事件与输入快照见 coverage，待总控终审。
-
-- Windows 工作流契约合成回归 4/4，exit 0；Host VM、假回调和保留的临时目录，无真实 UI、Worker 或提交。事件与输入快照见 coverage，待总控终审。
-
-- 调度契约合成回归 3/3，exit 0；Host VM 与假设置/计时器，无真实 Scheduler、Worker 或网络。事件与输入快照见 coverage，待总控终审。
-
-- 分布式 Plan 提交路由合成回归 7/7，exit 0；内存队列和假 GPU、预检、提交回调，无真实 Worker、GPU、提交或网络。事件与输入快照见 coverage，待总控终审。
-
-- 2026-11-23：distributedQueueStartup 单文件 8/8、exit 0；模拟队列、隧道探测和 Worker 回调，未连接真实 Worker、网络或 UI。证据及输入闭包见 coverage；待总控终审。
-
-- 2026-11-23：distributedQueueStartupMirrors 单文件 6/6、exit 0；VM 与模拟回调验证镜像冲突和重启围栏，未操作真实 Worker、网络、文件覆盖或 GPU。证据及输入闭包见 coverage；待总控终审。
-
-- 2026-11-23：distributedQueueStartupRecovery 单文件 7/7、exit 0；VM tick、内存队列及模拟 Worker/GPU 回调，未触及真实 Worker、GPU、网络或作业。证据及输入闭包见 coverage；待总控终审。
-
-- 2026-11-23：prequeueRecallLifecycle 单文件 9/9、exit 0；VM、内存队列、模拟 Worker 回调及渲染字符串，未连接真实 Worker、网络或界面。证据及输入闭包见 coverage；待总控终审。
-
-- 2026-11-23：planRunReplacement 单文件 17/17、exit 0；内存集合、模拟 SFTP 和 VM 弹窗，无真实删除、重命名、网络、Worker 或界面；不证明实际删除安全。证据及输入闭包见 coverage；待总控终审。
-
-- 2026-11-23：workerFpsyncTaskLabel 单文件 3/3、exit 0；VM 与模拟 SFTP 回调使用 5001 个合成名称，未进行真实传输或连接 Worker。证据及输入闭包见 coverage；待总控终审。
-
-- 2026-11-23：workflowPanelNavigation 单文件 7/7、exit 0；模拟 VS Code 注册与 VM provider/activation，未操作真实界面、授权、Worker 或网络。证据及输入闭包见 coverage；待总控终审。
-
-- 2026-11-23：draftCleanupConfirmation 单文件 3/3、exit 0；模拟 webview 和草稿移动，无真实界面、删除或移动；不证明实际删除安全。证据及输入闭包见 coverage；待总控终审。
-
-- 2026-11-23：inspectorWorkflowDensity 单文件 3/3、exit 0；渲染 HTML、parse5 和 VM 模拟 DOM，无真实界面或 Worker。证据及 ESM 输入闭包见 coverage；待总控终审。
+本段压缩前逐项命令范围和边界见 Git `806d47d2:docs/plan-generations/G004-execution.md`，原始事件及输入快照见 coverage。520 后单文件均 exit0：freshResults 10/10、syncScopeTree 6/6、syncScopeMetadata 12/12、syncScopeBatch 8/8、projectRootMap 14/14、syncScopeTransferBatch 8/8、windowsWorkflowContract 4/4、schedulerContract 3/3、distributedPlanSubmissionRouting 7/7、distributedQueueStartup 8/8、distributedQueueStartupMirrors 6/6、distributedQueueStartupRecovery 7/7、prequeueRecallLifecycle 9/9、planRunReplacement 17/17、workerFpsyncTaskLabel 3/3、workflowPanelNavigation 7/7、draftCleanupConfirmation 3/3、inspectorWorkflowDensity 3/3。均为内存、隔离夹具、VM 或假回调；临时夹具保留，未操作真实 Worker、GPU、网络传输、UI、用户授权、删除或重命名，模拟删除不证明真实删除安全；均待总控终审。
