@@ -110,7 +110,7 @@ T7收包策略及入口证据见Git bc739fa0；未实际打包。
 
 T7已定向MCP测试纳入四交付profile，规划确认独占；原glob亦涵盖，旧项未减。B1仍未验并阻断交付。早期矩阵及生成命令引号错误见Git 871ea78e及后续记录。
 
-MCP生命周期及旧历史边界见Git `2551787c:docs/plan-generations/G004-execution.md`。
+MCP生命周期证据见Git `7803f938:docs/plan-generations/G004-execution.md`。
 
 mcpQueryContext脱离CLI，原业务11/11；首两次10/11 exit1及修后详见Git `8249eb4d:docs/plan-generations/G004-execution.md`。
 
@@ -219,3 +219,5 @@ MCP查询去除无消费者CLI json/compact开关，默认精简及full语义保
 MCP Agent观察入口拒绝调用者token及未知字段，假Host仅收到固定字段；网关10/10 exit0，不代表后端返回内容已脱敏或真实Agent已测。
 
 外部旧CLI待审6项补Host/中立消费者映射及退役差异，旧断言保留；登记首超阈值断言未写。
+
+外部6项同步状态分类，旧测试未退役。
