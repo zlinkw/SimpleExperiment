@@ -110,3 +110,26 @@ test("agent json schema version 1 stays frozen", async () => {
   assert.equal(failed.diagnosis.failure_context.stage, "run");
   assert.deepEqual(failed.diagnosis.failure_context.worker, { id: "worker-a" });
 });
+
+test('MCP experiment references preserve aliases and missing identity detail',async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-reference-'));
+ writeProject(dir,{'simple_cluster/experiment_index.json':JSON.stringify([
+  {global_job_id:'exp-1',run_id:'run-9001',runtimeRunId:'run-stale-alias',id:'raw-1',case:'case-a',tmux:'simple:run-9001',type:'run',status:'running',stage:'run',updated:new Date().toISOString()},
+  {global_job_id:'exp-2',type:'run',status:'success',stage:'run',updated:'2026-01-01T00:00:00Z'}
+ ])});
+ const rpc=async method=>{if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};throw Error('unexpected RPC '+method)};
+ for(const id of ['exp-1','run-9001','run-stale-alias','case-a','raw-1','simple:run-9001']){
+  const result=await queryProject(dir,rpc,'experiment_inspect',{id});assert.equal(result.summary.id,'exp-1',id);
+ }
+ for(const name of ['status','monitor','diagnose'])assert.equal((await queryProject(dir,rpc,'experiment_'+name,{id:'run-9001'})).id,'exp-1',name);
+ await assert.rejects(queryProject(dir,rpc,'experiment_inspect',{id:'does-not-exist'}),error=>{
+  assert.equal(error.code,'BUSINESS');const detail=JSON.parse(error.detail);
+  assert.equal(detail.requested,'does-not-exist');assert.deepEqual(detail.candidates,['exp-1','exp-2']);return true;
+ });
+ const active=await queryProject(dir,rpc,'experiment_active',{});
+ for(const run of active.runs)assert.equal((await queryProject(dir,rpc,'experiment_inspect',{id:run.id})).summary.id,run.id);
+ await assert.rejects(queryProject(dir,rpc,'experiment_inspect',{id:'run-000'}),error=>{
+  const detail=JSON.parse(error.detail);assert.equal(detail.requested,'run-000');
+  assert.deepEqual(detail.searched_sources,['current_rows','runtime_history','experiment_index','runtime_observation']);assert.ok(detail.candidates.length<=5);return true;
+ });
+});
