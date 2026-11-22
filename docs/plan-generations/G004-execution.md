@@ -30,11 +30,13 @@ T1实例发现/RPC与错误类型移至中立API位置，Server/面板/分支调
 
 T2中立MCP版本解析器假对象1/1 exit0，`g004-r519-t2-resolver-missing-ff08.log`。新启动器/安装器仅写MCP入口，假进程及隔离目录2/2 exit0，首1/2 exit1因测试原位sort改了对照数组，日志 `g004-r519-t2-entry-first-ff08.log`、`g004-r519-t2-entry-final-ff08.log`；生产入口尚未切换。
 
-用户提供识别未完成截图；519同窗租约冲突不能认定锁死。原本地识别不记完成，首0/1 exit1，`g004-519-bootstrap-recognition-ff08.log`。R519 B1保存有效PLAN及识别事实，准备独立；空任务/取消/错误2/2、快速流程9/9、上下文20/20、命令3/3、持久化3/3、投影6/6均exit0；日志 `g004-r519-b1-` 加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 及 `-ff08.log`。未重放或改真实标记。
+T3查询上下文迁出并保留同一个AsyncLocalStorage；真实queryProject并发假RPC隔离1/1 exit0，`g004-r519-t3-context-first-ff08.log`，其余消费者待迁。
 
-519本机历史CLI合成列表、详情及CSV导出通过；精确ID经cmd传递失败。Git hook读拒绝及不完整标记可能损伤原脚本，原受控失败与invoke错路由见coverage；R519 A3仅缺失视为空，读错及标记不完整均保留原文件，源码配假fs及启动消费者3/3 exit0，日志同上目录 `g004-r519-a3-git-hook-ff08.log`。300/137/45/167母集重叠，不相加。
+519识别未完成及同窗冲突不能认定锁死；原识别不记完成首0/1 exit1，`g004-519-bootstrap-recognition-ff08.log`。B1保存PLAN及识别事实；假对象2/2、快速9/9、上下文20/20、命令3/3、持久化3/3、投影6/6 exit0；日志 `g004-r519-b1-` 加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 及 `-ff08.log`。未改真实标记。
 
-519发行：源码/tag `6932321534f3b0c2df3b1983bfede2f88f7b868f`，[试行Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.519)与隔离下载同SHA、Latest483。ReleaseClient首验误期待SFTP Latest120（实际118）exit1，修后exit0、不降级，`g004-519-client-after-ff08.log`。唯一安装exit0含DEP0169，519/SFTP120及入口已核，`g004-519-install-ff08.log`。实机以顶部为准。
+519历史CLI合成查询通过、精确ID经cmd失败，详见coverage。A3 Git hook读错及标记不完整保留原文件，假fs及启动消费者3/3 exit0，`g004-r519-a3-git-hook-ff08.log`。300/137/45/167母集重叠，不相加。
+
+519发行：源码/tag `6932321534f3b0c2df3b1983bfede2f88f7b868f`，[试行Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.519)与下载同SHA、Latest483。ReleaseClient首验误期待SFTP Latest120（实际118）exit1，修后exit0，`g004-519-client-after-ff08.log`。唯一安装exit0含DEP0169，`g004-519-install-ff08.log`。实机见顶部。
 
 519唯一package exit0，341/341、13门禁、进程树结束、峰1、按需0及锁释放；输入=end `02a04b0a7ed920361e852dea0e41d4740114b1cefbb1aabb8ab2c4bd71f5560f`，日志 `g004-519-package-ff08.log`，回执 `simple_cluster/reports/test-workflow/2026-11-22T06-35-19-310Z-69208-package/run.json`。新dist识别/Panel/生成脚本VM通过、10890零命中；VSIX闭包326/同源373及内容策略通过。包2,988,831字节，SHA256 `525e235fe7e380bf3684edf5b8bfd3dd7620badefd964dcdcd671b14c0216b33`；完整原文及预检路径误写见Git `48062264:docs/plan-generations/G004-execution.md`。
 
