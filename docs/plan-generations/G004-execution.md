@@ -59,3 +59,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 gpuMemoryScheduling 原文件 9/9、exit0（`%TEMP%/g004-520-gpu-memory-scheduling-20261123.log`，先查不存在）；合成 GPU 数据、假 Worker 与配置、渲染脚本 VM，无真实 GPU、Worker 或 UI，待总控审定。
 
 - 520 后 logicalPlanProgress 原文件 4/4、exit0（`%TEMP%/g004-520-logical-plan-progress-20261123.log`，先查不存在）；合成内存计划及产物状态，无真实 Worker、结果或文件修改，待总控审定。
+
+- 520 后 planArtifactSyncStatus 原文件 16/16、exit0（`%TEMP%/g004-520-plan-artifact-sync-status-20261123.log`，先查不存在）；合成计划与清单、假 Worker 读取，无真实 Worker、结果、传输或删除，待总控审定。
