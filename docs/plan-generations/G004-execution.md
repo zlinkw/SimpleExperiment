@@ -78,7 +78,7 @@ MCP终态身份10/10、结果精确身份及导出1/1、日志与配置1/1、合
 
 518共享连接保存队列失败后可重试且保留旧迁移值；内存测试0/1 exit1→1/1 exit0，TEMP日志 `g004-518-shared-retry-before-ff08.log`、`g004-518-shared-retry-after-ff08.log`。嵌套PowerShell变量展开曾导致解析错误exit1，未启动测试；未改真实连接。原文见Git `48062264:docs/plan-generations/G004-execution.md`。
 
-0.5.518试行Release及下载同SHA `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`；Latest483，安装一次exit0含DEP0169。第二次package 341/341、13门禁、并发1、锁释放；原闭包核验输出及退出码未知，总控批准实际ZIP等价检查exit0，不覆盖原未知。完整源码、收据及失败见Git `1242c55c:docs/plan-generations/G004-execution.md`。
+0.5.518试行包、341/341及13门禁、安装一次和历史失败见Git 1242c55c同文件；原闭包核验输出及退出码未知，实际ZIP等价检查exit0，不覆盖原未知。
 
 518 git add exit1因dist忽略，回读确认13个已跟踪生成文件及8个非生成文件实际暂存，未强制添加。
 
@@ -132,7 +132,7 @@ MCP普通结果契约迁至中立实现，8/8 exit0（e1771b），加入交付pr
 
 MCP排行补全列/零值，12/12（024418）；CLI终端断言待裁决。
 
-旧CLI静态测试302项精确位置和同名MCP候选索引写入coverage.g004CliRetirementIndex；同名不代表断言等价；已审94项业务映射、74项逐字重复及12项纯help候选；另12项函数体重复但业务仍待审；草稿3项部分映射，5项CLI别名/compact/离线历史及4项重复、其余待裁决，不批准退役。首次路径检查转义错误，改按冒号拆分后302/302存在。
+旧CLI静态测试302项精确位置和同名MCP候选索引写入coverage.g004CliRetirementIndex；同名不代表断言等价；已审95项业务映射、75项逐字重复及12项纯help候选；另10项函数体重复但业务仍待审；草稿3项部分映射，CLI别名/compact/离线历史及其重复项、其余差异待裁决，不批准退役。首次路径检查转义错误，改按冒号拆分后302/302存在。
 
 健康默认/full视图6/6（f58801）；CLI退出码待裁决。
 
@@ -161,3 +161,5 @@ MCP项目准备/识别授权、原回执及失败重读经假Host 1/1；旧CLI�
 SFTP实际Gateway/McpHost核精确Worker、清单/目录、内存指标与跨Worker授权，假后端2/2 exit0；旧CLI选项差异见coverage。
 
 MCP实验列表、筛选及终态别名保留旧业务断言，实际queryProject 13/13 exit0；假RPC无Worker。
+
+MCP当前结果身份重排不变、歧义拒绝及诊断日志排除，queryProject 15/15 exit0；CLI history/文件写出差异待审。

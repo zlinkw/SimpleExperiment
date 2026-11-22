@@ -202,3 +202,32 @@ test('MCP experiment list preserves filtering, limit and canonical terminal alia
  const unknown=await queryProject(root,rpc,'experiment_list',{status:'unknown'});assert.equal(unknown.some(row=>['wf-interrupted','run-manual-stop'].includes(row.id)),false);
  const inspected=await queryProject(root,rpc,'experiment_inspect',{id:'wf-interrupted'});assert.equal(inspected.summary.status,'cancelled');
 });
+
+test('MCP active result identities survive order changes and never fall back to history',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-result-identity-')),history=path.join(root,'simple_cluster','results');fs.mkdirSync(history,{recursive:true});
+ fs.writeFileSync(path.join(history,'result_registry.json'),JSON.stringify({records:[{resultId:'stale',experimentId:'old',metrics:{auc:{value:1}},sourceFiles:[]}]}),'utf8');
+ const make=(workerId,runId,seed,protocol)=>({planFile:'plans/p.yaml',workerId,runId,workflowId:'p',revision:'r',codeFingerprint:'hash',dimensions:{case:'baseline',seed,eval_protocol:protocol,dataset:'bus'},metrics:{auc:0.8+seed/100},sourceFiles:[{path:'work/'+runId}],completionState:'verified',aggregationState:'eligible'});
+ let records=[make('a','run-0',0,'clean'),make('a','run-0',1,'clean'),make('a','run-0',0,'shift'),make('b','run-0',0,'clean')],current=true;
+ const rpc=async method=>{assert.equal(method,'results.list');return {source:'active_query',results:records.slice(0,1),summary:{current,observedAt:'2026-10-30T00:00:00Z',results:records}}};
+ const rows=await queryProject(root,rpc,'result_list',{});assert.equal(rows.length,4);assert.equal(new Set(rows.map(row=>row.id)).size,4);assert.ok(rows.every(row=>row.current&&row.source==='active_query'));
+ records.reverse();assert.deepEqual((await queryProject(root,rpc,'result_list',{})).map(row=>row.id).sort(),rows.map(row=>row.id).sort());
+ const id=rows[0].id;await assert.rejects(queryProject(root,rpc,'metric_show',{id:'run-0'}),/AMBIGUOUS/);
+ await assert.rejects(queryProject(root,rpc,'result_compare',{left:'run-0',right:id}),/AMBIGUOUS/);
+ await assert.rejects(queryProject(root,rpc,'result_compare',{left:id,right:'run-0'}),/AMBIGUOUS/);
+ assert.equal((await queryProject(root,rpc,'metric_show',{id})).auc,0.8);
+ const compared=await queryProject(root,rpc,'result_compare',{left:id,right:rows[1].id});assert.equal(compared.left,id);
+ const detail=await queryProject(root,rpc,'result_show',{id});assert.equal(detail.seed,0);assert.equal(detail.metrics.auc,0.8);assert.equal(detail.current,true);
+ const exported=await queryProject(root,rpc,'result_export',{id,format:'json'});assert.equal(exported.current,true);assert.equal(JSON.parse(exported.content).metrics.auc,0.8);assert.equal(JSON.parse(exported.content).rows.length,1);
+ records=[make('a','unique-command',0,'clean')];assert.equal((await queryProject(root,rpc,'result_show',{id:'unique-command'})).experimentId,'unique-command');
+ assert.equal((await queryProject(root,rpc,'metric_show',{id:'unique-command'})).auc,0.8);
+ await assert.rejects(queryProject(root,rpc,'metric_show',{id:'missing'}),/result not found: missing/);
+ assert.match((await queryProject(root,rpc,'result_compare',{left:'missing',right:'unique-command'})).reason,/no results recorded for missing/);
+ current=false;await assert.rejects(queryProject(root,rpc,'result_export',{id,format:'json'}),/RESULT_QUERY_UNVERIFIED/);
+ await assert.rejects(queryProject(root,async()=>{throw Error('connection reset')},'result_list',{}),/connection reset/);
+});
+
+test('MCP active results exclude diagnostic-only log rows',async()=>{
+ const record={resultId:'worker-result-1',experimentId:'suite/baseline/seed_7',runKey:'run',status:'parsed',metrics:{accuracy:{value:0.91}},dimensions:{seed:7},primaryMetric:'accuracy',sourceFiles:[{path:'experiments/results/demo.csv',type:'csv',endpoint:'worker'}]};
+ const calls=[];const rpc=async method=>{calls.push(method);assert.equal(method,'results.list');return {source:'active_query',summary:{current:true,observedAt:'2026-10-30T00:00:00Z'},results:[record,{...record,resultId:'worker-stderr-row0',sourceFiles:[{path:'work_dirs/demo/stderr.log',type:'text',endpoint:'worker'}]}]}};
+ const rows=await queryProject('fixture',rpc,'result_list',{});assert.equal(rows.length,1);assert.equal(rows[0].experimentId,'suite/baseline/seed_7');assert.equal(rows[0].value,0.91);assert.equal(rows[0].source,'active_query');assert.equal(rows[0].current,true);assert.deepEqual(calls,['results.list']);
+});
