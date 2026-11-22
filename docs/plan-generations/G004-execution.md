@@ -57,3 +57,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 误运行按需 serverQueueDispatch 14/14 exit0，保留事件及日志，eligible=false，不计 active；模拟队列/GPU/派发及 VM，未触真实资源。runner vsce 的未知 bin 为预期拒绝并保留日志；cleanupIndexInvalidation 的源码覆盖环境变量邻近检查未设置。其他原始事实见上述 Git 和 coverage。
 
 近期逐项原文见 Git `71f1f8e3:docs/plan-generations/G004-execution.md`，原事件和输入见 coverage。以下均 exit0：workerTelemetryApiContract 8/8、manualWorkerRefresh 7/7、preflightDispatchRejection 6/6、hubRetirement 1/1、nativeResultManifest 2/2、codeSyncProofWaiter 6/6、planJobDeleteRequeue 7/7、agentStartupFastPath 1/1、agentTmuxPolicy 6/6。使用 VM、假回调及 Python 提取函数或启动前缀；自建夹具和一次日志原子轮转保留，子进程配置限自建夹具。原有时间和读取量断言不变；无真实 Worker、tmux、训练、服务、网络、用户配置或实际删除；模拟删除不证明真实删除安全。各项待总控终审。
+
+planStructuralValidationCache 5/5 exit0：Python 抽取函数与假文件系统、假调度；VM 宿主及假 GPU/队列，无真实 Worker、Conda、GPU 或网络。证据见 coverage，待总控终审。
