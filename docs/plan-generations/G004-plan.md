@@ -71,7 +71,7 @@ coverage.g004CliRetirementIndex逐302旧CLI用例，g004ExternalCliReferences目
 
 旧测试/默认覆盖/超时在本人批准具体清单前不删、skip、减断言或移任务。原g004CliTestDisposition的冻结全部文件枚举glob方案本次否决：会失去未来新增测试自动发现。准备保留原glob/argv/caseGroups、仅针对获批完整旧CLI路径的最小精确规划排除候选及有界契约，直接sourceScript旧job亦精确对应；不另建通用退休系统，未批准不应用。纯导入机械迁移保留所有断言可准备，不以目录外3个import diff冒全部混合项就绪。Agent旧SFTP专用--file/default-active/agent-token预览/confirm外壳不恢复；当前MCP显式enabled Worker、allowlist与已证凭据边界保留，真实后端秘密未测如实写，不为消除分类重放生命周期/撤权专项或平台拦截。
 
-物理删除须精确清单一次确认。当前coverage候选38项均deletionReady=false；本次发现还漏仓内D:/GitRepo/MCP/zlk-cluster-orchestrator/simpleex.cmd（tracked，真实正文直接node dist/cli.js %*），要求补为精确file，安全根/直接父均仓库根。旧CLI入口、共享源码迁出后的专用模块/旧安装器/旧借用MCP包装等需正反依赖清零，包含源码/脚本/模板/tsconfig/manifest/sourceReader/helper/测试/矩阵；不得只grep当前生产进口。保留新MCP launcher/resolver，不删全局shim、已装扩展、原测试/fixtures/历史资产/旧dist。本人与用户最终看到的目标必须完整绝对路径、固定file类型、安全根/直接父/依赖风险；大范围“CLI可删”不是未列路径的精确批次确认。
+物理删除须精确清单一次确认。coverage候选现39项均deletionReady=false，已补仓内D:/GitRepo/MCP/zlk-cluster-orchestrator/simpleex.cmd（tracked，真实正文直接node dist/cli.js %*，安全根/直接父均仓库根）。旧CLI入口、共享源码迁出后的专用模块/旧安装器/旧借用MCP包装等需正反依赖清零，包含源码/脚本/模板/tsconfig/manifest/sourceReader/helper/测试/矩阵；不得只grep当前生产进口。保留新MCP launcher/resolver，不删全局shim、已装扩展、原测试/fixtures/历史资产/旧dist。本人与用户最终看到的目标必须完整绝对路径、固定file类型、安全根/直接父/依赖风险；大范围“CLI可删”不是未列路径的精确批次确认。
 
 删除只按manual-cleanup-only/safe-delete-paths：全批只读预检并拒绝dirty tracked/链接或reparse/类型或归属不符/越界/缺失/未清依赖；确认后每项直接父cd并核物理cwd，只Remove-Item -LiteralPath ./直接子名不Force，核目标确实不存在，异常停批。不能git rm或helper当执行器、不归档/移开、不删整目录、不自动删生成旧dist。项目产品删除逻辑仍保留精确路径两页确认、节点/安全根/直接父及./子项规则，受控测试不授权真实删除。
 
@@ -94,3 +94,14 @@ B1待验候选：src/extension/legacy.ts末尾通知放runOutsideResourceLease�
 518首339/341 exit1，两fixture43/43及10/10后特批341/341+13；独立runtime核验exit丢失未知，以实际ZIP等价325/324/371裁决，不冒原命令通过。517首337/341 exit1/stdin closed取消失败，四定向43/43、19/19、13/13、10/10（Agent补首9/10跨realm）后特批341/341+13。日志原12/13与独立VM3/3及首夹具失败、旧/新dist13/13分别保留。516首340/341→22/22→特批341/341；vsce ls30秒ETIMEDOUT exit1不重跑、actualZIP等价及首./归一假缺保留。514坏60位sha、旧并发中止/BUILD_LOCK_UNSETTLED、其它历史失败及用尽owner精确删除许可按原Git/日志保留，不作通用豁免。原U01/U02计划4edd1da5、执行10c0689e/b7c0b42c/f72d0066/c37827c8/eab27339/4bde7f49/89498eff可取回。
 
 J01未修：Host GIT_CONFIG_COUNT10/KEY全有，VALUE0和5缺、传递环节未知；不sanitize/注入/改全局Git或重启稿件。旧CLI --version API_WORKSPACE_MISMATCH exit2不重放。平台旧systemError cybersecurity risk触发未公开，无Daybreak/扫描/重放或换工具模型聊天绕限，自然接替与绕限无关。所有原失败/未测/真实未知不能被新局部通过覆盖。
+## 0ee444be完整候选包复审与一次集中确认
+
+执行者01a203b9交齐本轮授权内可做工作，HEAD=origin/master/FETCH_HEAD=0ee444bef20581c3367cc0b20cd60b8872430a9d，已释放全部执行/检查/Git/受限UI租约且无在途。总控接回最终审查，不自动开启真实外部或跨项目。B1两文件仍dirty、未验证/提交；其余tracked clean，未构建/递版/发行/安装。
+
+e4fd93ed的file_cleanup_preview显式managed_tmux、缺省不变/非法值拒绝，真实Gateway/Host假后端17/17；c9b2dd99现runtimeRow/pickExperiment别名与精确身份14/14；ca8d012b同值PLAN配置、INFO/ERROR和failed/OOM诊断18/18，均限定合成输入。源审通过其当前业务方向，旧函数observation与现row输出不同，不能据此称整个CLI接口等价。
+
+当前49个test/cli文件302个顶层用例均有精确未应用候选diff，目录外补localApi:259为27项；61份联合git apply --check exit0只是补丁可应用，非行为通过。旧helper两份及目录外合并/导入候选在原文件处理；checkpoint、正式PLAN/实例/安全等适用断言保留。综合生命周期与stable entry三项原“保留迁移”按assertionMap拆分：当前结构化查询/身份/日志/配置/诊断/shim保护已有对应证据；无Host history、旧CLI自动绑定/默认目标/终端/exit/dry-run等专属行为作为退休申请，不冒称未迁差异已等价。真实Worker/主动结果/传输/Agent后端输出与原生UI未测边界保留。
+
+矩阵五文件候选仅精确过滤49个旧CLI文件及resultHistoryReadErrors共50文件，保留glob未来发现、其他argv/caseGroups和20秒；13个旧cli-contract直接job改列17个现MCP契约，worker-mode移旧manualDispatch，移除已退役测试的旧分类并同步独立规划/磁盘对账。当前全部未应用，不能以候选已通过宣称默认覆盖已变或MCP全集已通过；获准后必须按实际变更定向验及规划核对，不强求保持旧341作业数。
+
+总控只读预检39个精确file：当前全存在、均非dirty、根/直接父匹配、祖先及终项无reparse，问题0；不等删除授权或届时身份核验。用户一次确认范围为：①coverage.g004CliRemovalCandidates的39个完整绝对路径，测试/构建依赖迁清且最终预检后才删；②0ee444be基线的302旧CLI用例及27外部项中明确退休/替代/机械迁移的精确候选、上述矩阵与两helper变更，保留不相关断言/夹具/历史；③改后原localWorkspaceRecognition单文件原20秒预算唯一一次定向复验，保留原超时失败，不改时限/换文件/实机复现。任何未批准项不擅自从测试和门禁移除。确认后连续完成获准分组与必要验证，最终统一源码/构建/试行发行/一次安装交付；授权依然不含真实服务器或跨项目。
