@@ -178,3 +178,27 @@ test('neutral query support requires context and preserves optional RPC semantic
  const data=require('../../src/mcp/query/ProjectData.ts');assert.throws(()=>data.projectRoot(),/MCP_QUERY_CONTEXT_REQUIRED/);
  await neutral.businessContext.run({root:'C:/synthetic',emit(){},rpc:async()=>{}},async()=>assert.equal(data.resolveProjectPath('plans'),path.resolve('C:/synthetic','plans')));
 });
+
+test('MCP experiment list preserves filtering, limit and canonical terminal aliases',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-list-')),dir=path.join(root,'simple_cluster');fs.mkdirSync(dir);
+ const rpc=async method=>{if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};throw Error('unexpected RPC '+method)};
+ fs.writeFileSync(path.join(dir,'experiment_index.json'),JSON.stringify([
+  {global_job_id:'exp-ok',case:'baseline',status:'completed',started_at:'2026-01-01T00:00:00Z',finished_at:'2026-01-01T01:00:00Z'},
+  {global_job_id:'exp-bad',case:'ablation',status:'failed',started_at:'2026-01-02T00:00:00Z',finished_at:'2026-01-02T01:00:00Z'}]),'utf8');
+ const rows=await queryProject(root,rpc,'experiment_list',{full:true});assert.equal(rows.length,2);
+ for(const row of rows)for(const key of ['id','name','status','created','updated'])assert.ok(key in row,key);
+ assert.equal((await queryProject(root,rpc,'experiment_list',{status:'failed',full:true})).length,1);
+ assert.equal((await queryProject(root,rpc,'experiment_list',{limit:1})).length,1);
+ const detail=await queryProject(root,rpc,'experiment_status',{id:'exp-bad',full:true});assert.equal(detail.status,'failed');
+ for(const key of ['stage','node','recentLogs','error','outputDir'])assert.ok(key in detail,key);
+ fs.writeFileSync(path.join(dir,'experiment_index.json'),JSON.stringify([
+  {global_job_id:'wf-interrupted',type:'workflow',status:'interrupted'},
+  {global_job_id:'wf-completed-errors',type:'workflow',status:'completed_with_errors'},
+  {global_job_id:'run-normal',type:'worker_run',status:'normal_completed'},
+  {global_job_id:'run-manual-stop',type:'worker_run',status:'manual_interrupted_completed'}]),'utf8');
+ const terminal=await queryProject(root,rpc,'experiment_list',{full:true}),statuses=Object.fromEntries(terminal.map(row=>[row.id,row.status]));
+ assert.equal(statuses['wf-interrupted'],'cancelled');assert.equal(statuses['wf-completed-errors'],'failed');assert.equal(statuses['run-normal'],'success');assert.equal(statuses['run-manual-stop'],'cancelled');
+ const cancelled=await queryProject(root,rpc,'experiment_list',{status:'cancelled'});assert.deepEqual(cancelled.map(row=>row.id).sort(),['run-manual-stop','wf-interrupted']);
+ const unknown=await queryProject(root,rpc,'experiment_list',{status:'unknown'});assert.equal(unknown.some(row=>['wf-interrupted','run-manual-stop'].includes(row.id)),false);
+ const inspected=await queryProject(root,rpc,'experiment_inspect',{id:'wf-interrupted'});assert.equal(inspected.summary.status,'cancelled');
+});
