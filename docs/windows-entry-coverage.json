@@ -43,8 +43,8 @@
       {
         "source": "test/api/localApi.test.js:842",
         "name": "instance enumeration retains history and resolves a live window beyond the former record cap",
-        "status": "pending_review",
-        "boundary": "旧客户端实例枚举；历史记录保留。"
+        "status": "partial_neutral_consumer_covered",
+        "boundary": "test/features/mcpLocalApiSafety.test.js 中立客户端与假回环监听7/7 exit0：258条历史不截断、选到末尾存活记录且不清理；原LocalApiServer生成/关闭行为未运行，原文件保留。"
       },
       {
         "source": "test/api/localApi.test.js:878",

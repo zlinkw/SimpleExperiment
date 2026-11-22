@@ -90,3 +90,20 @@ test('instance handshake budget refuses incomplete uniqueness before probing and
  const file=path.join(instances,'0.json'),result=await client.preflightPluginAt('experiment',file,workspace);assert.equal(result.instanceId,`1:${startedAt}`);assert.equal(calls,1);
  assert.equal(fs.readdirSync(instances).length,17);
 });
+
+test('instance discovery retains older records and finds a live window beyond the former cap',async t=>{
+ const client=require('../../src/api/LocalApiClient.ts'),dir=fs.mkdtempSync(path.join(os.tmpdir(),'g004-instance-history-'));
+ const workspace=path.join(dir,'workspace'),instances=path.join(dir,'instances'),prior=process.env.SIMPLE_EXPERIMENT_API_FILE;
+ fs.mkdirSync(instances);process.env.SIMPLE_EXPERIMENT_API_FILE=path.join(dir,'api.json');
+ t.after(()=>{if(prior===undefined)delete process.env.SIMPLE_EXPERIMENT_API_FILE;else process.env.SIMPLE_EXPERIMENT_API_FILE=prior});
+ const startedAt='2026-01-01T00:00:00.000Z',pid=4242;
+ const server=http.createServer((req,res)=>{assert.equal(req.url,'/api/v1/capabilities');res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:[],name:'SimpleExperiment',version:'1.0.0',instanceId:`${pid}:${startedAt}`,workspace}))});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>{server.closeAllConnections();return new Promise(resolve=>server.close(resolve))});
+ const record={name:'SimpleExperiment',version:'1.0.0',pid:1,startedAt,workspace,token:'fixture',baseUrl:'http://127.0.0.1:1',status:'stopped'};
+ for(let i=0;i<257;i++)fs.writeFileSync(path.join(instances,`${String(i).padStart(4,'0')}.json`),JSON.stringify(record),'utf8');
+ fs.writeFileSync(path.join(instances,'zz-live.json'),JSON.stringify({...record,pid,baseUrl:`http://127.0.0.1:${server.address().port}`,status:'running'}),'utf8');
+ const listing=client.listPluginInstances('experiment');assert.equal(listing.rows.length,258);assert.equal(listing.truncated,false);
+ const live=listing.rows.find(row=>row.pid===pid);assert.ok(live);assert.ok(listing.rows.indexOf(live)>=257);
+ const resolved=await client.resolveInstanceByWorkspace('experiment',workspace,undefined,{processMayExist:id=>id===pid});
+ assert.equal(resolved.instanceId,live.instanceId);assert.equal(fs.readdirSync(instances).length,258);
+});
