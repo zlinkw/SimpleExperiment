@@ -61,3 +61,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 近期逐项原文见 Git `f77f0812:docs/plan-generations/G004-execution.md`，原事件和输入见 coverage。以下均 exit0：planStructuralValidationCache 5/5、runtimeLogDiagnostics 2/2、freshGpuTelemetry 1/1、progressDispatchFreshness 9/9、nestedJsonResultParsing 3/3、taskIdentityBoundary 1/1。使用 Python 抽取函数、VM 与假回调；自建日志和结果夹具保留，原有测试规模不变、夹具线程结算；无完整 runtime、真实 Worker/GPU/tmux、网络、UI 或删除。各项待总控终审。
 
 metricAliasRebuildWorkflow 6/6 exit0：假 Worker/SFTP 与合成指标，Python AST 提取；自建项目实际写入 CSV、Markdown 和原子状态并保留，无真实结果、训练、网络或删除。证据见 coverage，待总控终审。
+
+multiFormatOutputContract 1/1 exit0：Python 抽取计划和结果函数，自建合成项目、结果及脚本保留；无完整 runtime、真实 Worker/科研结果、网络、训练或删除。证据见 coverage，待总控终审。
