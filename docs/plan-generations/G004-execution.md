@@ -77,3 +77,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - syncScopeLocalIndex 3/3、cleanupIndexInvalidation 8/8，均 exit0；独立夹具内合成文件和原子索引写入、假 SFTP，夹具保留，无真实 Worker/传输/UI/永久删除。后者源码环境覆盖邻近检查未设置；证据见 coverage，待总控终审。
 
 - projectFileIndex 单文件 15/15、exit0；独立夹具内合成索引与原子写入、假 SFTP/清理回调，夹具保留；无真实 Worker、网络、UI 或永久删除。证据见 coverage，待总控终审。
+
+- taskProgressStability 10/10、exit0；两个 Python 夹具抽取查询函数并模拟 tmux，其余 VM/假 Worker，无真实 Worker/tmux/GPU/网络或文件修改。证据见 coverage，待总控终审。
