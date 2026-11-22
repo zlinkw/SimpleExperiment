@@ -161,6 +161,165 @@
         "boundary": "原Runner在研究标记或results CSV存在时拒绝任意命令。候选替代：package.bin仅MCP（publicCliAliases 1/1），真实Gateway plan_run缺PLAN或带command拒绝且零Host调用、有效PLAN绑定工作区/授权（mcpProjectOpsContract 9/9假Host）；实际Host apiWorkflowRun调用apiWorkflowPlan检查ready后才产生操作。旧Runner项及同文件Scheduler、结果/重试仍保留，Host完整正式准入另依原受控证据，不称真实派发。"
       }
     ],
+    "candidateChanges": {
+      "scope": "以下为只读生成的未应用候选，不改变旧测试、超时、矩阵或原文件；完整退役/删除仍须一次审批。",
+      "externalCases": [
+        {
+          "source": "test/features/publicCliAliases.test.js:12",
+          "candidateAction": "已就地更新公开面契约；保留现用例及矩阵。",
+          "evidenceAndRemaining": "旧断言见Git 0d5cae56同路径；现仅MCP入口与现行指南，定向1/1；mcpEntry 3/3互补。"
+        },
+        {
+          "source": "test/api/localApi.test.js:231",
+          "candidateAction": "保留适用业务边界并迁向下列现消费者；逐项复核未覆盖部分，旧CLI展示/参数只作为独立退休候选。",
+          "evidenceAndRemaining": "旧CLI直接读取允许缺version/startedAt的发现内容；中立客户端真实握手与工作区绑定由localApiClientSource 3/3合成回环验证，新resolver要求完整身份，旧宽松读取与CLI包装拟退役，不称原输入等价。"
+        },
+        {
+          "source": "test/api/localApi.test.js:282",
+          "candidateAction": "保留适用业务边界并迁向下列现消费者；逐项复核未覆盖部分，旧CLI展示/参数只作为独立退休候选。",
+          "evidenceAndRemaining": "中立客户端缺失发现文件对两插件明确失败，8/8 exit0；旧doctor聚合输出与退出码未迁。"
+        },
+        {
+          "source": "test/api/localApi.test.js:298",
+          "candidateAction": "保留适用业务边界并迁向下列现消费者；逐项复核未覆盖部分，旧CLI展示/参数只作为独立退休候选。",
+          "evidenceAndRemaining": "localApiClientSource 3/3核单个合成Host能力/身份/版本，mcpLocalApiSafety 8/8核两插件缺失发现；旧doctor双插件联合报告及退出码拟退役，未连真实插件。"
+        },
+        {
+          "source": "test/api/localApi.test.js:699",
+          "candidateAction": "保留适用业务边界并迁向下列现消费者；逐项复核未覆盖部分，旧CLI展示/参数只作为独立退休候选。",
+          "evidenceAndRemaining": "中立客户端假回环8/8 exit0核多工作区、双活拒绝、实例pin、跨工作区拒绝、token不泄露及记录保留；原LocalApiServer实例生成/关闭和陈旧存活检测未完整重跑。"
+        },
+        {
+          "source": "test/api/localApi.test.js:811",
+          "candidateAction": "保留原业务断言；候选切换现中立消费者导入或在原文件就地迁移，验证后仅经批准退休已有等价重复项。",
+          "evidenceAndRemaining": "原取消/总时限测试函数及假HTTP夹具不减断言迁至中立API；6/6 exit0，历史记录保留。"
+        },
+        {
+          "source": "test/api/localApi.test.js:842",
+          "candidateAction": "保留适用业务边界并迁向下列现消费者；逐项复核未覆盖部分，旧CLI展示/参数只作为独立退休候选。",
+          "evidenceAndRemaining": "test/features/mcpLocalApiSafety.test.js 中立客户端与假回环监听7/7 exit0：258条历史不截断、选到末尾存活记录且不清理；原LocalApiServer生成/关闭行为未运行，原文件保留。"
+        },
+        {
+          "source": "test/api/localApi.test.js:878",
+          "candidateAction": "保留适用业务边界并迁向下列现消费者；逐项复核未覆盖部分，旧CLI展示/参数只作为独立退休候选。",
+          "evidenceAndRemaining": "中立API核17候选超预算零握手、显式记录可握手且全部保留；原LocalApiServer实际创建实例未覆盖，避免真实文件删除。"
+        },
+        {
+          "source": "test/features/localApiClientContract.test.js:18",
+          "candidateAction": "保留原业务断言；候选切换现中立消费者导入或在原文件就地迁移，验证后仅经批准退休已有等价重复项。",
+          "evidenceAndRemaining": "原四项测试函数与假HTTP夹具不减断言迁至test/features/mcpLocalApiSafety.test.js，真实中立客户端4/4 exit0；原整文件及第五项真实SimpleSFTP门禁保留未运行。"
+        },
+        {
+          "source": "test/features/localApiClientContract.test.js:25",
+          "candidateAction": "保留原业务断言；候选切换现中立消费者导入或在原文件就地迁移，验证后仅经批准退休已有等价重复项。",
+          "evidenceAndRemaining": "原四项测试函数与假HTTP夹具不减断言迁至test/features/mcpLocalApiSafety.test.js，真实中立客户端4/4 exit0；原整文件及第五项真实SimpleSFTP门禁保留未运行。"
+        },
+        {
+          "source": "test/features/localApiClientContract.test.js:31",
+          "candidateAction": "保留原业务断言；候选切换现中立消费者导入或在原文件就地迁移，验证后仅经批准退休已有等价重复项。",
+          "evidenceAndRemaining": "原四项测试函数与假HTTP夹具不减断言迁至test/features/mcpLocalApiSafety.test.js，真实中立客户端4/4 exit0；原整文件及第五项真实SimpleSFTP门禁保留未运行。"
+        },
+        {
+          "source": "test/features/localApiClientContract.test.js:37",
+          "candidateAction": "保留原业务断言；候选切换现中立消费者导入或在原文件就地迁移，验证后仅经批准退休已有等价重复项。",
+          "evidenceAndRemaining": "原四项测试函数与假HTTP夹具不减断言迁至test/features/mcpLocalApiSafety.test.js，真实中立客户端4/4 exit0；原整文件及第五项真实SimpleSFTP门禁保留未运行。"
+        },
+        {
+          "source": "test/features/localApiClientContract.test.js:50",
+          "candidateAction": "保留真实SimpleSFTP门禁与其断言；现场授权和复验前标未测。",
+          "evidenceAndRemaining": "会探测真实SimpleSFTP，当前无实机授权，不运行或冒通过。"
+        },
+        {
+          "source": "test/features/windowsWorkflowContract.test.js:37",
+          "candidateAction": "保留适用业务边界并迁向下列现消费者；逐项复核未覆盖部分，旧CLI展示/参数只作为独立退休候选。",
+          "evidenceAndRemaining": "mcpWorkflowHostSafety 4/4实际Host源码假端口核工作区和回执不是完成，mcpProjectOpsContract 10/10核Gateway PLAN/授权；旧CLI waiting_confirmation呈现及退出码拟退役，原文件保留。"
+        },
+        {
+          "source": "test/features/windowsWorkflowContract.test.js:43",
+          "candidateAction": "保留适用业务边界并迁向下列现消费者；逐项复核未覆盖部分，旧CLI展示/参数只作为独立退休候选。",
+          "evidenceAndRemaining": "mcpWorkflowHostSafety 4/4核实际Host错误项目、切换和活动PLAN拒绝；mcpProjectOpsContract 10/10核未提供PLAN/任意command拒绝。旧CLI错误PLAN、seed及dry-run入口差异单列，原用例保留。"
+        },
+        {
+          "source": "test/features/windowsWorkflowContract.test.js:52",
+          "candidateAction": "保留适用业务边界并迁向下列现消费者；逐项复核未覆盖部分，旧CLI展示/参数只作为独立退休候选。",
+          "evidenceAndRemaining": "mcpWorkflowHostSafety 4/4核实际Host route ready/blocked与请求身份；plan_matrix仅结构预览，MCP真实准备/校验有同步副作用，旧CLI dry-run/check形式拟退役，不能宣称零写入。"
+        },
+        {
+          "source": "test/features/windowsWorkflowContract.test.js:79",
+          "candidateAction": "保留原业务断言；候选切换现中立消费者导入或在原文件就地迁移，验证后仅经批准退休已有等价重复项。",
+          "evidenceAndRemaining": "原Host测试函数和替身不减断言迁至test/features/mcpWorkflowHostSafety.test.js，读取当前源方法及中立workspace绑定4/4 exit0；原混合文件与CLI入口3项保留。"
+        },
+        {
+          "source": "test/features/windowsWorkflowContract.test.js:85",
+          "candidateAction": "保留原业务断言；候选切换现中立消费者导入或在原文件就地迁移，验证后仅经批准退休已有等价重复项。",
+          "evidenceAndRemaining": "原Host测试函数和替身不减断言迁至test/features/mcpWorkflowHostSafety.test.js，读取当前源方法及中立workspace绑定4/4 exit0；原混合文件与CLI入口3项保留。"
+        },
+        {
+          "source": "test/features/windowsWorkflowContract.test.js:97",
+          "candidateAction": "保留原业务断言；候选切换现中立消费者导入或在原文件就地迁移，验证后仅经批准退休已有等价重复项。",
+          "evidenceAndRemaining": "原Host测试函数和替身不减断言迁至test/features/mcpWorkflowHostSafety.test.js，读取当前源方法及中立workspace绑定4/4 exit0；原混合文件与CLI入口3项保留。"
+        },
+        {
+          "source": "test/features/windowsWorkflowContract.test.js:120",
+          "candidateAction": "保留原业务断言；候选切换现中立消费者导入或在原文件就地迁移，验证后仅经批准退休已有等价重复项。",
+          "evidenceAndRemaining": "原Host测试函数和替身不减断言迁至test/features/mcpWorkflowHostSafety.test.js，读取当前源方法及中立workspace绑定4/4 exit0；原混合文件与CLI入口3项保留。"
+        },
+        {
+          "source": "test/features/windowScopeIsolation.test.js:128",
+          "candidateAction": "保留适用业务边界并迁向下列现消费者；逐项复核未覆盖部分，旧CLI展示/参数只作为独立退休候选。",
+          "evidenceAndRemaining": "中立客户端假回环8/8核精确工作区、同根双活拒绝和pin；旧LocalApiServer别名覆盖/关闭会清理发现文件，本轮未运行，未证明真实别名删除行为。"
+        },
+        {
+          "source": "test/features/metricLeaderboardInput.test.js:34",
+          "candidateAction": "保留适用业务边界并迁向下列现消费者；逐项复核未覆盖部分，旧CLI展示/参数只作为独立退休候选。",
+          "evidenceAndRemaining": "真实queryProject 16/16保留同数据JSON全部指标列和值；旧CLI文本渲染断言未迁，原文件保留待审。"
+        },
+        {
+          "source": "test/features/metricLeaderboardInput.test.js:64",
+          "candidateAction": "保留原业务断言；候选切换现中立消费者导入或在原文件就地迁移，验证后仅经批准退休已有等价重复项。",
+          "evidenceAndRemaining": "真实queryProject使用相同accuracy数据及primary选b，16/16 exit0；旧CLI返回码断言及文件保留待审。"
+        },
+        {
+          "source": "test/features/resultHistoryReadErrors.test.js:8",
+          "candidateAction": "候选退休该旧CLI专属test；同文件其他测试和文件保留，未获批准不应用。",
+          "evidenceAndRemaining": "原项仅旧CLI history文件读取错误和缺失行为；history入口经裁决退役、不新增MCP history，既有结果目录和原用例保留；活跃MCP results查询失败不得回退，mcpQueryContext 17/17合成验证。"
+        },
+        {
+          "source": "test/evidenceTooling.test.js:20",
+          "candidateAction": "候选退休该旧CLI专属test；同文件其他测试和文件保留，未获批准不应用。",
+          "evidenceAndRemaining": "原测试调用仅旧CLI引用的ExperimentRunner真实启动子进程并落盘，产品公开入口已退役；拟撤销录制运行行为须统一裁决。已将Runner导入移至原录制test，checkpoint独立测试保持；完整文件2/2 exit0，原录制断言仍在，未批准退役。"
+        },
+        {
+          "source": "test/features/formalJobExecution.test.js:29",
+          "candidateAction": "保留原Runner测试，候选改核现PLAN准入及任意command拒绝；正式Host保护链逐断言复核后再申请退休旧专属部分。",
+          "evidenceAndRemaining": "原Runner在研究标记或results CSV存在时拒绝任意命令。候选替代：package.bin仅MCP（publicCliAliases 1/1），真实Gateway plan_run缺PLAN或带command拒绝且零Host调用、有效PLAN绑定工作区/授权（mcpProjectOpsContract 9/9假Host）；实际Host apiWorkflowRun调用apiWorkflowPlan检查ready后才产生操作。旧Runner项及同文件Scheduler、结果/重试仍保留，Host完整正式准入另依原受控证据，不称真实派发。"
+        }
+      ],
+      "importDiffs": [
+        {
+          "file": "test/api/localApi.test.js",
+          "diff": "--- a/test/api/localApi.test.js\n+++ b/test/api/localApi.test.js\n@@ -704,5 +704,5 @@\n   process.env.SIMPLE_EXPERIMENT_API_FILE = discoveryPath;\n   try {\n-    const client = require(\"../../dist/cli/LocalApiClient.js\");\n+    const client = require(\"../../dist/api/LocalApiClient.js\");\n     const serverA = new LocalApiServer({\n       name: \"SimpleExperiment\", version: \"0.5.409-test\", preferredPort: await freePort(),\n@@ -810,5 +810,5 @@\n \n test('workspace routing cancellation and total deadline refuse partial uniqueness and retain instance records',async()=>{\n-  const client=require('../../dist/cli/LocalApiClient.js'),saved=process.env.SIMPLE_EXPERIMENT_API_FILE;\n+  const client=require('../../dist/api/LocalApiClient.js'),saved=process.env.SIMPLE_EXPERIMENT_API_FILE;\n   for(const mode of ['deadline','cancel']){\n     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'simple-instance-budget-')),workspace=path.join(dir,'workspace'),instances=path.join(dir,'instances'),abort=new AbortController(),requests=[],progress=[];\n@@ -846,5 +846,5 @@\n   let server;\n   try {\n-    const client = require(\"../../dist/cli/LocalApiClient.js\");\n+    const client = require(\"../../dist/api/LocalApiClient.js\");\n     const instDir = path.join(dir, \"instances\");\n     fs.mkdirSync(instDir, { recursive: true });\n@@ -882,5 +882,5 @@\n   process.env.SIMPLE_EXPERIMENT_API_FILE = discoveryPath;\n   try {\n-    const client = require(\"../../dist/cli/LocalApiClient.js\");\n+    const client = require(\"../../dist/api/LocalApiClient.js\");\n     const instDir = path.join(dir, \"instances\");\n     fs.mkdirSync(instDir, { recursive: true });\n",
+          "status": "仅候选，未应用",
+          "verification": "需先编译中立模块；按原20秒单文件验证。涉及真实宿主、删除或窗口的原测试仍受现场授权约束，不得以假端点冒通过。",
+          "remaining": "仅迁客户端导入；本文件其他旧CLI、真实宿主或实例生命周期引用及断言均保留，不能据此删除源码。"
+        },
+        {
+          "file": "test/features/localApiClientContract.test.js",
+          "diff": "--- a/test/features/localApiClientContract.test.js\n+++ b/test/features/localApiClientContract.test.js\n@@ -5,5 +5,5 @@\n const path = require('node:path');\n const os = require('node:os');\n-const { callLocalRpc, validateDiscovery, readLocalDiscovery, requestLocalJson, pluginDiscoveryPath } = require('../../dist/cli/LocalApiClient');\n+const { callLocalRpc, validateDiscovery, readLocalDiscovery, requestLocalJson, pluginDiscoveryPath } = require('../../dist/api/LocalApiClient');\n async function fixture(t) {\n   const calls = [], state = { contract: { schemaVersion: 1, rpc: 'json-rpc-2.0', methods: ['status'] }, result: { jsonrpc: '2.0', id: 1, result: { ok: true } } };\n",
+          "status": "仅候选，未应用",
+          "verification": "需先编译中立模块；按原20秒单文件验证。涉及真实宿主、删除或窗口的原测试仍受现场授权约束，不得以假端点冒通过。",
+          "remaining": "仅迁客户端导入；本文件其他旧CLI、真实宿主或实例生命周期引用及断言均保留，不能据此删除源码。"
+        },
+        {
+          "file": "test/features/windowScopeIsolation.test.js",
+          "diff": "--- a/test/features/windowScopeIsolation.test.js\n+++ b/test/features/windowScopeIsolation.test.js\n@@ -127,5 +127,5 @@\n });\n test('CLI default cannot mutate a foreign window, and explicit workspace routing ignores the overwritten alias',async()=>{\n- const {LocalApiServer}=require('../../dist/api/LocalApiServer'),{callPluginRpc}=require('../../dist/cli/LocalApiClient');\n+ const {LocalApiServer}=require('../../dist/api/LocalApiServer'),{callPluginRpc}=require('../../dist/api/LocalApiClient');\n  const root=fs.mkdtempSync(path.join(os.tmpdir(),'simple-window-scope-')),dir=path.join(root,'SimpleExperiment');fs.mkdirSync(dir);\n  const names=['APPDATA','SIMPLE_EXPERIMENT_API_FILE','SIMPLE_CLI_INSTANCE_ID'],saved=Object.fromEntries(names.map(n=>[n,process.env[n]]));\n",
+          "status": "仅候选，未应用",
+          "verification": "需先编译中立模块；按原20秒单文件验证。涉及真实宿主、删除或窗口的原测试仍受现场授权约束，不得以假端点冒通过。",
+          "remaining": "仅迁客户端导入；本文件其他旧CLI、真实宿主或实例生命周期引用及断言均保留，不能据此删除源码。"
+        }
+      ],
+      "otherMixedCases": "涉及Runner、旧WorkflowRun、CLI文本或history的混合函数不能仅替换import；保留所有适用Host/PLAN/结果及真实门禁断言，按各source与evidenceAndRemaining逐项迁移并实测后再形成具体替换diff。"
+    },
     "supportReferences": [
       "test/_helpers/sourceReader.js:21 旧src/cli别名；仅在不再有消费者时待裁决。"
     ],
