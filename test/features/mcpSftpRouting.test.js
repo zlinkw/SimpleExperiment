@@ -119,6 +119,23 @@ test('MCP SFTP transfers preserve both targets and project authorization',async(
  f.grant.permissions=[];await assert.rejects(f.gateway.call('sftp_from_remote',{workerId:'w1'}),/AUTHORIZATION_REQUIRED/);assert.equal(f.calls.length,before);
 });
 
+test('MCP transfer tools reject missing and extra fields before business calls',async()=>{
+ const f=fixture();
+ for(const [name,args] of [
+  ['sftp_from_remote',{}],
+  ['sftp_download_paths',{workerId:'w1'}],
+  ['sftp_download_mapped',{workerId:'w1'}],
+  ['sftp_upload_files',{workerId:'w1'}],
+  ['sftp_upload_workspace',{}],
+  ['sftp_worker_sync',{sourceWorkerId:'w1',paths:['work']}],
+  ['sftp_worker_sync',{sourceWorkerId:'w1',destinationWorkerId:'w2'}],
+  ['sftp_download_scope',{paths:['work']}],
+  ['sftp_handoff',{}],
+  ['sftp_handoff',{workerId:'w1',unexpected:true}],
+ ]) await assert.rejects(f.gateway.call(name,args));
+ assert.equal(f.calls.length,0);
+});
+
 test('MCP file uploads bind exact workspace paths',async()=>{
  const f=fixture(),file=path.join(root,'fixture-upload.txt');fs.writeFileSync(file,'fixture','utf8');
  await f.gateway.call('sftp_upload_files',{workerId:'w1',files:['fixture-upload.txt']});
