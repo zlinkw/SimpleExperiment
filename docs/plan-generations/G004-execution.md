@@ -97,3 +97,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - MCP Agent 契约合成回归 3/3，exit 0；内存假授权及生命周期回调，无真实授权、Agent、SSH、tmux 或迁移。事件与输入快照见 coverage，待总控终审。
 
 - MCP 工作流宿主合成回归 4/4，exit 0；Host VM 和假工作流回调、临时目录保留，无真实 UI、Worker 或提交。事件与输入快照见 coverage，待总控终审。
+
+- MCP 查询上下文合成回归 18/18，exit 0；临时文件及 junction 边界、假 RPC，夹具保留；未查询真实项目、活动结果或 Worker。事件与输入快照见 coverage，待总控终审。
