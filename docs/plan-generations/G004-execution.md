@@ -54,6 +54,8 @@ MCP训练进度、健康、失败告警、详情、树摘要、查询schema、�
 
 运行身份迁测首6/8 exit1（旧CLI专属resolveRuntimeObservation未迁出），移除新测试中该旧助手调用后8/8、补捕获后13/13 exit0（chunk ee595e/7f85ac/105c6d）；此两旧用例仅部分迁覆，MCP引用选择另见mcpQuerySchema。树摘要补活跃查询后9/9，旧CLI的compact-json组合未迁；旧断言及矩阵未改。
 
+MCP终态身份10/10、结果精确身份及导出1/1、日志与配置1/1、合成本机端点的运行观察1/1 exit0；后者不是真实Worker。包排除旧runner并补动态MCP闭包清单，入口3/3、策略12/12 exit0，尚无实际VSIX验证。
+
 519识别未完成及同窗冲突不能认定锁死；原识别不记完成首0/1 exit1，`g004-519-bootstrap-recognition-ff08.log`。B1保存PLAN及识别事实；假对象2/2、快速9/9、上下文20/20、命令3/3、持久化3/3、投影6/6 exit0；日志 `g004-r519-b1-` 加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 及 `-ff08.log`。未改真实标记。
 
 519历史CLI合成查询通过、精确ID经cmd失败，详见coverage。A3 Git hook读错及标记不完整保留原文件，假fs及启动消费者3/3 exit0，`g004-r519-a3-git-hook-ff08.log`。300/137/45/167母集重叠，不相加。
@@ -76,9 +78,7 @@ MCP训练进度、健康、失败告警、详情、树摘要、查询schema、�
 
 518共享连接保存队列失败后可重试且保留旧迁移值；内存测试0/1 exit1→1/1 exit0，TEMP日志 `g004-518-shared-retry-before-ff08.log`、`g004-518-shared-retry-after-ff08.log`。嵌套PowerShell变量展开曾导致解析错误exit1，未启动测试；未改真实连接。原文见Git `48062264:docs/plan-generations/G004-execution.md`。
 
-0.5.518 最终交付：源码与生成物 `20ae86ed32f0baa9106645decb60cf9a299f3518` 已 FF 同步，远端 tag 同提交；[试行 Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.518) 为 prerelease，VSIX 2987002 字节、SHA256 `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`，隔离下载包与精确同名 sha 一致。真实更新客户端确认普通 Latest 仍为 0.5.483、518 与 SFTP 0.2.120 不降级。`npm run install:latest` 一次 exit0，带 DEP0169 warning；磁盘为 518/SFTP 0.2.120，稳定入口存在。此前待裁决及未发行状态已由本段取代，原失败保留。该段交付时尚待重载；其后实际 Host 与本人授权以顶部 518 验收段为准。
-
-0.5.518 第二次 package exit0，341/341、13 gates、并发1、锁释放，receipt `simple_cluster/reports/test-workflow/2026-11-22T03-36-44-479Z-33768-package/run.json`；VSIX 2987002字节 SHA256 `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`。真实 Panel 模块及2个生成脚本 VM、实际 VSIX 内容策略验证均 exit0；运行闭包核验进程自然结束但工具丢失输出及退出码，状态未知。总控批准等价实际 ZIP 核验：325闭包、324面板文件均存在，371运行文件与构建输出逐字节摘要一致，身份/version/engine正确，exit0；原未知不覆盖。
+0.5.518最终交付：源码/tag `20ae86ed32f0baa9106645decb60cf9a299f3518` 已FF同步，[试行Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.518)及隔离下载同SHA `703d5ae27781921294ff5eeb0bb7355ec7db8581390b73549420a564045e5624`，2987002字节。客户端确认Latest483、518/SFTP120不降级；安装一次exit0含DEP0169，磁盘518/SFTP120。第二次package 341/341、13门禁、并发1、锁释放，receipt `simple_cluster/reports/test-workflow/2026-11-22T03-36-44-479Z-33768-package/run.json`；Panel和生成脚本VM、内容策略通过。原运行闭包核验丢输出和退出码未知，总控批准实际ZIP等价325闭包/324面板/371同源检查exit0，不覆盖原未知。首次package失败及补验见下，完整交付见Git `1242c55c:docs/plan-generations/G004-execution.md`。
 
 518 精确 `git add` exit1 提示 dist 被忽略；回读状态确认指定13个已跟踪生成文件及8个非生成文件均实际暂存，未强制添加或触碰未跟踪项。
 
