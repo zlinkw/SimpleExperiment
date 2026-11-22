@@ -57,3 +57,18 @@ test('MCP named controls forward scoped parameters and preserve host receipts',a
  for(const [tool,args,method,params] of cases){const result=await gateway.call(tool,args);assert.equal(result.method,method);assert.deepEqual(result.params,params)}
  assert.equal(calls.length,cases.length);
 });
+
+test('MCP PLAN list waits for the real host metadata refresh',async()=>{
+ const fs=require('node:fs'),root=path.resolve(__dirname,'../..');
+ const source=fs.readFileSync(path.join(root,'src/extension/legacy.ts'),'utf8');
+ const start=source.indexOf('"plans.list": async'),end=source.indexOf('"results.list":',start);
+ assert.ok(start>=0&&end>start);
+ const host={localPlanMetadata:{planDir:'old',plans:['old']},refreshLocalPlanMetadata:async()=>{
+  host.localPlanMetadata={planDir:'experiments/plans',plans:[{name:'baseline',path:'experiments/plans/baseline.yaml',status:'ready',validation:'valid'}]};
+ }};
+ const methods=new Function('return function(){return ({'+source.slice(start,end)+'});};')().call(host);
+ const gateway=new ProjectGateway({root:()=>root,workers:()=>[],store:{get:()=>undefined},methods:()=>methods});
+ const result=await gateway.call('plan_list',{});
+ assert.equal(result.planDir,'experiments/plans');assert.equal(result.source,'local_metadata');
+ assert.deepEqual(result.plans,host.localPlanMetadata.plans);assert.deepEqual(result.archivedPlans,[]);
+});
