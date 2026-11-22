@@ -75,3 +75,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 executionPlanListProgressLagRepro 原文件 4/4、exit0（`%TEMP%/g004-520-plan-progress-lag-20261123.log`，先查不存在）；渲染脚本、合成计划和 VM 假 DOM，无真实 UI 或 Worker，待总控审定。
 
 - 520 后 executionCompactOverview 原文件 54/54、exit0（`%TEMP%/g004-520-execution-compact-overview-20261123.log`，先查不存在）；渲染源码、假 DOM/动作回调与合成状态，无真实 UI、Worker、停止或清理，待总控审定。
+
+- 520 后 planOutputReplacementHost 原文件 7/7、exit0（`%TEMP%/g004-520-output-replacement-host-20261123.log`，先查不存在）；假确认、Worker 和清理服务，删除仅为内存 Set 操作，无真实删除或 UI，待总控审定。
