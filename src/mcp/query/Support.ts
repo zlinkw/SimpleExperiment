@@ -1,5 +1,5 @@
 import { businessContext, BusinessContext } from "./ExecutionContext";
-export { businessError, envError, usageError } from "../../api/LocalApiErrors";
+export { businessError, usageError } from "../../api/LocalApiErrors";
 
 export function queryContext(): BusinessContext {
   const context = businessContext.getStore();

@@ -180,7 +180,7 @@ MCP GPU观测与任务分别保留Worker/GPU0/command并显式传播失败，Gat
 
 MCP PLAN永久删除预览补界面同用confirmed_paths；假Host 6/6 exit0，未生成确认或操作真实文件，后续双页及路径保护不变。
 
-MCP只读观察身份含字符串/数值公开schema，假后端7/7及官方客户端7/7 exit0；登记编辑首断言未匹配exit1未写入，已按实际原文更新。未修改真实文件或共享配置。
+MCP观察身份schema及官方客户端各7/7；登记编辑首断言exit1未写，详见Git `bf51cffc:docs/plan-generations/G004-execution.md`。
 
 Git同步：0aa6b27c普通push exit0，首次fetch exit1（TLS unexpected eof）；经总控单次恢复裁决，核master/HEAD/origin/upstream后fetch exit0，HEAD、origin/master及FETCH_HEAD均为0aa6b27cc0c7f05b46a155486b23cbdb8318b8e0。
 
@@ -205,3 +205,5 @@ MCP下载范围及handoff核精确Worker、配置参数与撤权，假后端11/1
 源审产物路径：合成根首16/17 exit1（绝对外部路径可读）；本地目录、manifest和递归逐层校验项目根及链接，修后及补绝对路径、0字节、冒号ID和嵌套链接各17/17 exit0，远端契约保留。未读用户外部文件、未build；登记压缩首断言exit1未写。
 
 SimpleSFTP 0.2.120现有UI创建项目源码链核实，未实点。清理引擎状态保存使用真实rename，当前仅允许transport/activity/lease替身且禁真实移动；无法证明纯替身隔离，四项未启动，详见coverage。
+
+中立错误模块移除无消费者的CLI JSON包装/成功码，保留错误分类和码；连接3/3、MCP查询17/17 exit0。

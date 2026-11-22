@@ -1,4 +1,3 @@
-export const EXIT_OK = 0;
 export const EXIT_USAGE = 1;
 export const EXIT_ENV = 2;
 export const EXIT_BUSINESS = 3;
@@ -34,23 +33,6 @@ export function businessError(message: string, detail = ""): CliError {
 
 export function networkError(message: string, detail = ""): CliError {
   return new CliError(EXIT_NETWORK, "NETWORK", message, detail);
-}
-
-export function jsonErrorBody(error: CliError): { success: false; error: { code: string; message: string; detail: unknown } } {
-  return {
-    success: false,
-    error: {
-      code: error.code,
-      message: error.message,
-      detail: parseDetail(error.detail || ""),
-    },
-  };
-}
-
-function parseDetail(value: string): unknown {
-  const text = String(value || "");
-  if (!text.startsWith("{")) return text;
-  try { return JSON.parse(text) as unknown; } catch { return text; }
 }
 
 export function asCliError(error: unknown, fallback: Exclude<CliExitCode, 0> = EXIT_BUSINESS): CliError {
