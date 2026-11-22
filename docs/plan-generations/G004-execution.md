@@ -67,3 +67,5 @@ runtimeLogAnalysisHost 19/19 exit0：VM 假 Worker、清理与界面，自建源
 distributedPlanExecutionMode 10/10 exit0：VM 假 Worker 与 Python 函数提取，队列、tmux、文件和恢复证据均为替身或内存；自建根保留，无真实 Worker、训练、GPU、网络、tmux 或删除。原事件及依赖见 coverage，待总控终审；planner 154 项待核。
 
 taskQueryWideReadRealChain 3/3 exit0：仅提取查询函数，以假清单、日志和 tmux 输入验证查询边界；脚本保留，无真实 Worker、网络、tmux 或删除。原事件及依赖见 coverage，待总控终审。
+
+planRunHoldClearedChain 3/3 exit0：清理、确认及队列为假回调，状态原子写入自建根并保留；无真实隔离或删除。原事件与依赖见 coverage，待总控终审；planner 152 项待核。
