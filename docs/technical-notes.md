@@ -907,7 +907,9 @@ Plan 工作台与项目入口读取同一个当前 Plan 运行时契约状态。
 - `config_snapshot.yaml`：本次实验实际配置快照。
 - `artifact_manifest.json`：产物清单。checkpoint、权重、大数据不默认下载到本机，只在 manifest 中记录。
 
-### 手动实验运行记录器
+### 手动实验运行记录器（历史）
+
+以下记录旧版行为，业务 CLI 和 recorded-run 入口现已退役；当前操作使用插件界面或 MCP 工具，本节不作为当前使用指南。
 
 未通过 Hub scheduler 启动的手动实验也可以进入证据链。使用统一命令 `simpleex run`：
 

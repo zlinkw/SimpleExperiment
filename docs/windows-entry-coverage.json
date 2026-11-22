@@ -1,5 +1,161 @@
 {
   "version": "0.5.512",
+  "g004ExternalCliReferences": {
+    "scope": "test/cli之外旧CLI源码/产物静态引用导航；顶层导入的全部test逐项列出，保留旧测试，不把引用或名称当替代证据。",
+    "baseline": "0d5cae5686bfacb04ccb203d6cba7deea68b6ebf",
+    "cases": [
+      {
+        "source": "test/features/publicCliAliases.test.js:12",
+        "name": "simpleex is the only published command and keeps recorded runs",
+        "status": "replaced_authorized_cli_surface_contract",
+        "boundary": "旧断言见Git 0d5cae56同路径；现仅MCP入口与现行指南，定向1/1；mcpEntry 3/3互补。"
+      },
+      {
+        "source": "test/api/localApi.test.js:231",
+        "name": "simpleex CLI reads the discovery file",
+        "status": "pending_review",
+        "boundary": "旧CLI发现入口，须区分中立客户端与CLI包装。"
+      },
+      {
+        "source": "test/api/localApi.test.js:282",
+        "name": "simpleex doctor reports missing discovery and listener",
+        "status": "pending_review",
+        "boundary": "旧doctor CLI；错误语义及替代入口待逐项核。"
+      },
+      {
+        "source": "test/api/localApi.test.js:298",
+        "name": "simpleex doctor passes with live listener",
+        "status": "pending_review",
+        "boundary": "旧doctor CLI；不得连接真实插件重放。"
+      },
+      {
+        "source": "test/api/localApi.test.js:699",
+        "name": "multi-window: per-instance discovery records coexist and workspace routing refuses ambiguity without leaking tokens",
+        "status": "pending_review",
+        "boundary": "旧LocalApiClient依赖；真实项目不可触碰，须隔离替身核对。"
+      },
+      {
+        "source": "test/api/localApi.test.js:811",
+        "name": "workspace routing cancellation and total deadline refuse partial uniqueness and retain instance records",
+        "status": "pending_review",
+        "boundary": "旧客户端取消及总时限；保留原范围不降时限。"
+      },
+      {
+        "source": "test/api/localApi.test.js:842",
+        "name": "instance enumeration retains history and resolves a live window beyond the former record cap",
+        "status": "pending_review",
+        "boundary": "旧客户端实例枚举；历史记录保留。"
+      },
+      {
+        "source": "test/api/localApi.test.js:878",
+        "name": "实例握手预算：候选超过16条整体先拒，绝不部分握手后声称唯一或不存在；显式 discoveryPath 照常",
+        "status": "pending_review",
+        "boundary": "旧客户端完整候选预算；不得用部分握手冒充唯一。"
+      },
+      {
+        "source": "test/features/localApiClientContract.test.js:18",
+        "name": "reads live capabilities before each RPC, rejecting unavailable methods and malformed receipts",
+        "status": "pending_review",
+        "boundary": "顶层依赖旧客户端；当前中立客户端已有部分证据，须逐断言核。"
+      },
+      {
+        "source": "test/features/localApiClientContract.test.js:25",
+        "name": "changed discovery or mismatched capability version cannot POST",
+        "status": "pending_review",
+        "boundary": "顶层依赖旧客户端；当前中立客户端已有部分证据，须逐断言核。"
+      },
+      {
+        "source": "test/features/localApiClientContract.test.js:31",
+        "name": "legacy Windows workflow routes remain usable without a Mac-specific option field",
+        "status": "pending_review",
+        "boundary": "顶层依赖旧客户端；需核现行Host工作流。"
+      },
+      {
+        "source": "test/features/localApiClientContract.test.js:37",
+        "name": "loopback/UTF-8/size gates reject external or stopped listeners without leaking secrets",
+        "status": "pending_review",
+        "boundary": "顶层依赖旧客户端；全部输入及敏感值保护须保留。"
+      },
+      {
+        "source": "test/features/localApiClientContract.test.js:50",
+        "name": "real SimpleSFTP startup gate agrees with the real listener and refuses an all-OK stub",
+        "status": "protected_real_host_not_run",
+        "boundary": "会探测真实SimpleSFTP，当前无实机授权，不运行或冒通过。"
+      },
+      {
+        "source": "test/features/windowsWorkflowContract.test.js:37",
+        "name": "compiled Windows CLI verifies the actual workspace and accurately reports a request awaiting approval",
+        "status": "pending_review",
+        "boundary": "顶层依赖旧WorkflowRun；工作区及审批业务断言待迁。"
+      },
+      {
+        "source": "test/features/windowsWorkflowContract.test.js:43",
+        "name": "wrong workspace/PLAN, changed workspace, blocked route and seed override cannot request a run",
+        "status": "pending_review",
+        "boundary": "顶层依赖旧WorkflowRun；隔离及禁止绕过仍需覆盖。"
+      },
+      {
+        "source": "test/features/windowsWorkflowContract.test.js:52",
+        "name": "dry-run/check are read-only route checks; blocked run never reports submitted",
+        "status": "pending_review",
+        "boundary": "顶层依赖旧WorkflowRun；区分CLI独有dry-run与Host预检。"
+      },
+      {
+        "source": "test/features/windowsWorkflowContract.test.js:79",
+        "name": "actual Host API refuses mismatched/switched workspace and active PLAN before creating an orphan operation",
+        "status": "pending_review",
+        "boundary": "顶层依赖旧WorkflowRun；实际Host契约不可随入口退役。"
+      },
+      {
+        "source": "test/features/windowsWorkflowContract.test.js:85",
+        "name": "ready workflow preflight has no blocker and blocked preflight retains its actual reason",
+        "status": "pending_review",
+        "boundary": "顶层依赖旧WorkflowRun；实际Host预检须保留。"
+      },
+      {
+        "source": "test/features/windowsWorkflowContract.test.js:97",
+        "name": "workflow request finishes against its current same-project records and the exact child request",
+        "status": "pending_review",
+        "boundary": "顶层依赖旧WorkflowRun；操作身份须保留。"
+      },
+      {
+        "source": "test/features/windowsWorkflowContract.test.js:120",
+        "name": "operation merge settles only the exact completed local child without presenting an experiment completion",
+        "status": "pending_review",
+        "boundary": "顶层依赖旧WorkflowRun；操作终态与实验完成须区分。"
+      },
+      {
+        "source": "test/features/windowScopeIsolation.test.js:128",
+        "name": "CLI default cannot mutate a foreign window, and explicit workspace routing ignores the overwritten alias",
+        "status": "protected_discovery_cleanup_not_run",
+        "boundary": "旧客户端及LocalApiServer关闭会清理发现文件；本轮禁真实删除，不能直接重试。"
+      },
+      {
+        "source": "test/features/metricLeaderboardInput.test.js:34",
+        "name": "CLI outputs the stable union of all actual metric columns",
+        "status": "pending_review",
+        "boundary": "旧终端输出依赖，MCP指标列已有独立证据；逐断言及CLI文本区别待审。"
+      },
+      {
+        "source": "test/features/metricLeaderboardInput.test.js:64",
+        "name": "the supported primary option selects the best result using its direction",
+        "status": "pending_review",
+        "boundary": "旧指标CLI依赖；MCP方向已有独立证据，逐断言待审。"
+      },
+      {
+        "source": "test/features/resultHistoryReadErrors.test.js:8",
+        "name": "history reports unreadable or malformed sources and still permits missing paths",
+        "status": "pending_review",
+        "boundary": "旧CLI history无新增MCP工具；历史只读错误保护与适用消费者待裁决。"
+      }
+    ],
+    "supportReferences": [
+      "test/_helpers/sourceReader.js:21 旧src/cli别名；仅在不再有消费者时待裁决。"
+    ],
+    "nonDependencies": [
+      "mcpEntry/packageContentPolicy/panelBuildManifest为禁止旧产物的负向断言；mcpNativeLifecycle的runCli为本地queryProject测试替身。"
+    ]
+  },
   "g004CliRetirementIndex": {
     "scope": "旧CLI静态test调用导航索引；原测试保留运行。相同名称仅供定位，不证明断言、实际消费者或覆盖等价。每项须逐断言核对并记录证据或专属撤销依据后统一裁决；未列入本索引的非test调用及其它目录引用另查。",
     "baseline": "e950101568878abd832b4ee5c2e605923836487b",

@@ -155,3 +155,5 @@ MCP action_catalog动态表/缺方法无回退，Gateway假Host 1/1 exit0；旧C
 Agent MCP经实际Gateway/Host核精确目标、撤权及迁移digest，假Agent 2/2 exit0；未访问Worker。
 
 MCP项目准备/识别授权、原回执及失败重读经假Host 1/1；旧CLI细粒度选项未暴露，待审。
+
+公开入口旧测试依裁决改为MCP契约1/1；误用Delete File使测试瞬时缺失，已立即同路径恢复，未git rm，旧版见Git 0d5cae56。旧CLI目录外24项引用列coverage，实机限制保留。
