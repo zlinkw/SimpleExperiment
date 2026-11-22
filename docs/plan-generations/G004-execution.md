@@ -56,20 +56,4 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 误运行按需 serverQueueDispatch 14/14 exit0，保留事件及日志，eligible=false，不计 active；模拟队列/GPU/派发及 VM，未触真实资源。runner vsce 的未知 bin 为预期拒绝并保留日志；cleanupIndexInvalidation 的源码覆盖环境变量邻近检查未设置。其他原始事实见上述 Git 和 coverage。
 
-workerTelemetryApiContract 8/8 exit0：假 fetch、VM 面板函数及 Python AST 提取能力，读取现有构建 runtime；无真实 Worker、网络、UI 或删除。原始事件、日志及输入见 coverage，待总控终审。
-
-manualWorkerRefresh 7/7 exit0：VM 假回调及 Python AST 提取；自建临时日志实际原子替换以验证轮转，夹具保留，原有读取量断言未变；无真实 Worker、网络或 UI。原始事件与输入见 coverage，待总控终审。
-
-preflightDispatchRejection 6/6 exit0：Python 抽取函数、临时合成计划与 checkpoint，假队列、RPC 及 VM；夹具保留，禁止实际 GPU/tmux/进程派发，无真实 Worker、训练、网络或删除。证据见 coverage，待总控终审。
-
-hubRetirement 1/1 exit0：AST 单函数、内存事件接收及入口早期拒绝，无完整 runtime 执行、真实 Worker、服务、GPU、网络或文件写入；证据见 coverage，待总控终审。
-
-nativeResultManifest 2/2 exit0：抽取函数与保留的自建合成产物及清单，包含自建文件改写；PYTHON 环境变量未设置，无完整 runtime、真实 Worker、训练、网络或删除。证据见 coverage，待总控终审。
-
-codeSyncProofWaiter 6/6 exit0：假客户端、Python AST 提取与自建文件，夹具线程完成，原时间断言不变；无完整 runtime、真实 Worker、网络或删除。证据见 coverage，待总控终审。
-
-planJobDeleteRequeue 7/7 exit0：清理执行器及 Worker 回调均为假，写入并保留自建计划夹具；没有实际删除、远端或真实 UI，模拟结果不能证明真实删除安全。证据见 coverage，待总控终审。
-
-agentStartupFastPath 1/1 exit0：仅启动前缀及假依赖、假调度、假采样，禁止清理；无完整 runtime、真实 Worker、服务或网络。证据见 coverage，待总控终审。
-
-agentTmuxPolicy 6/6 exit0：命令文本、假配置更新及 Python 抽取函数；自建临时 settings/日志与脚本保留，子进程环境变更局限夹具；无真实 tmux、Worker、用户配置或删除。证据见 coverage，待总控终审。
+近期逐项原文见 Git `71f1f8e3:docs/plan-generations/G004-execution.md`，原事件和输入见 coverage。以下均 exit0：workerTelemetryApiContract 8/8、manualWorkerRefresh 7/7、preflightDispatchRejection 6/6、hubRetirement 1/1、nativeResultManifest 2/2、codeSyncProofWaiter 6/6、planJobDeleteRequeue 7/7、agentStartupFastPath 1/1、agentTmuxPolicy 6/6。使用 VM、假回调及 Python 提取函数或启动前缀；自建夹具和一次日志原子轮转保留，子进程配置限自建夹具。原有时间和读取量断言不变；无真实 Worker、tmux、训练、服务、网络、用户配置或实际删除；模拟删除不证明真实删除安全。各项待总控终审。
