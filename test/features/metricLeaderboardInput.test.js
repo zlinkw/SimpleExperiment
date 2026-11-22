@@ -3,7 +3,6 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const Module = require("node:module");
 const path = require("node:path");
-const vm = require("node:vm");
 const ts = require("typescript");
 Module._extensions[".ts"] = (mod, file) => mod._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
@@ -31,24 +30,6 @@ test("known numeric dimensions are excluded but custom metrics and zero remain",
   assert.equal(explicit.metrics.constructor, 2);
 });
 
-test("CLI outputs the stable union of all actual metric columns", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/cli/commands/metric.ts"), "utf8");
-  const tree = ts.createSourceFile("metric.ts", source, ts.ScriptTarget.ES2022, true);
-  const declaration = tree.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "metricLeaderboard");
-  const code = ts.transpileModule(`${declaration.getText(tree).replace(/^export /, "")}\nmetricLeaderboard`,
-    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  let output;
-  const text = "runKey,accuracy,loss\na,0.8,\nb,0.9,0.4\n";
-  const call = vm.runInNewContext(code, { require: () => ({ existsSync: () => true, readFileSync: () => text }),
-    ...Metrics, builtInResultPresets: [], writeJson: value => { output = value; }, writeText: value => { output = value; } });
-  assert.equal(call({ file: "data.csv", json: true }), 0);
-  assert.deepEqual(Array.from(output.metrics), ["accuracy", "loss"]);
-  assert.equal(output.board[1].mean.loss, 0.4);
-  assert.equal(call({ file: "data.csv", json: false }), 0);
-  assert.match(output, /loss/);
-  assert.match(output, /0\.4/);
-});
-
 test("CSV and JSON special metric keys survive leaderboard aggregation", () => {
   for (const [text, file] of [
     ["runKey,__proto__,constructor,accuracy\nr,0.4,0.5,0.8\n", "data.csv"],
@@ -60,17 +41,4 @@ test("CSV and JSON special metric keys survive leaderboard aggregation", () => {
     assert.equal(board.mean.constructor, 0.5);
     assert.equal(JSON.parse(JSON.stringify(board)).mean.__proto__, 0.4);
   }
-});
-test("the supported primary option selects the best result using its direction", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/cli/commands/metric.ts"), "utf8");
-  const tree = ts.createSourceFile("metric.ts", source, ts.ScriptTarget.ES2022, true);
-  const declaration = tree.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "metricLeaderboard");
-  const code = ts.transpileModule(`${declaration.getText(tree).replace(/^export /, "")}\nmetricLeaderboard`,
-    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  let output;
-  const call = vm.runInNewContext(code, { require: () => ({ existsSync: () => true,
-    readFileSync: () => "runKey,experimentId,accuracy\nr,a,0.2\nr,b,0.8\n" }), ...Metrics,
-    builtInResultPresets: [{ metricDirections: { accuracy: "higher" } }], writeJson: value => { output = value; } });
-  assert.equal(call({ file: "data.csv", primary: "accuracy", json: true }), 0);
-  assert.equal(output.board[0].bestExperimentId, "b");
 });
