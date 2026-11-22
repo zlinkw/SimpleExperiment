@@ -63,3 +63,7 @@ direct证据无论使用原工具输出还是单独原日志，均要求非空�
 候选资格并行只读查询中，Python元数据读取与code.cmd列已安装扩展可能短暂重叠；实读code.cmd确认Electron以ELECTRON_RUN_AS_NODE模式执行，故按唯一Node/Python约束记录为潜在并发违规，两者均为只读非测试且无安装。后续串行。一次只读版本回读因PowerShell引号解析失败未启动Python、未写文件；改here-string后成功。
 
 0.5.520最终编译后，原mcpLocalApiSafety单文件按20秒验证8/8 exit0，TEMP/g004-520-mcp-local-api-20261123.log；只使用自建临时发现记录、回环合成HTTP、合成凭据，关闭监听并保留fixture，无子进程、真实发现/Worker/删除。直接执行原call、完整日志、节点二进制及TS/实际源码闭包已写currentTargetedEvidence，按direct结算，不造runner tree confirmed；待总控最终审核。当前真实规划361执行＋6按需，10项旧证加此项direct被识别，仍有350项未具备审核依据，入口拒绝启动package。
+
+原mcpEntry在0.5.520单文件3/3 exit0，TEMP/g004-520-mcp-entry-20261123.log；仅自建临时shim目录和VM假子进程，确认原合成CLI文件不变，未安装全局shim、不删除。原call、完整日志及其读取的package、入口和安装脚本闭包已按direct冻结，待总控审核。当前361执行＋6按需，10项旧证和2项direct可识别，仍有349项未审，package入口按设计拒绝。
+
+最终compile后的原packageContentPolicy单文件12/12 exit0，TEMP/g004-520-package-content-20261123.log；仅生成并保留合成zip/fixture，串行原生Python子进程按原10秒预算结算，未打包实际VSIX或删除。当前policy/manifest、原call及日志、Node与PATH首个Python 3.14.6二进制及zipfile/json/pathlib入口已按本次直接证据冻结，执行者审定、待总控最终审核，不代表完整标准库或旧工具链已验证。后续只读查询Python模块位置时把内建zlib误当有__file__，该查询exit1但已输出Python版本等事实，不影响测试。当前规划识别10项旧证和3项direct，仍有348项未审，package入口按设计拒绝。
