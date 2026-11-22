@@ -1,10 +1,10 @@
 # G004 执行登记
 
-519重载：专用根默认profile实测519 PID29888，离线、低流量、5配置/1启用、PLAN、任务选择、结果目录、离线包和授权保持；识别原值与现值均未完成。默认发现曾指向稿件且未调用；宽CSV无预设解析为空、指定预设改写AP及macro_f1，详见coverage。流程读错可能覆盖，合成存储原1/2 exit1，`C:/Users/ZLK/AppData/Local/Temp/g004-519-flow-real-workflow-ff08.log`，无真实损失。R519 A1仅读缺失为默认，其他读错阻止初始化及覆盖，进度保存失败提示此前操作可能已执行；合成存储11/11 exit0，日志同目录 `g004-r519-a1-project-state-ff08.log`。其他证据见coverage.g004U04RemainingInventory.g004Reload519LocalAudit。
+519重载：专用根默认profile实测519 PID29888，离线、低流量、5配置/1启用、PLAN、任务选择、结果目录、离线包和授权保持；识别原值和现值均未完成。默认发现曾指向稿件且未调用；宽CSV及指标问题见coverage。流程读错可致覆盖，合成存储首1/2 exit1，TEMP日志 `g004-519-flow-real-workflow-ff08.log`，无真实损失。A1读错阻止初始化及覆盖、进度保存失败明确提示；11/11 exit0，`g004-r519-a1-project-state-ff08.log`。其他证据见coverage.g004U04RemainingInventory.g004Reload519LocalAudit。
 
-布局并行清旧键可能丢值，内存存储首0/2 exit1，日志同上目录 `g004-519-layout-legacy-failure-ff08.log`，无真实损失证据。R519 A2改为成功保存且根匹配后清旧键；项目状态13/13、布局3/3、上下文20/20均exit0，日志同目录 `g004-r519-a2-project-state-ff08.log`、`g004-r519-a2-layout-ff08.log`、`g004-r519-a2-context-ff08.log`。拓扑确认/取消/写失败假对象3/3 exit0，未动真实设置或服务器。
+布局并行清旧键可能丢值，首0/2 exit1，`g004-519-layout-legacy-failure-ff08.log`，无真实损失证据。A2成功保存后清旧键；状态13/13、布局3/3、上下文20/20 exit0，日志 `g004-r519-a2-project-state-ff08.log`、`g004-r519-a2-layout-ff08.log`、`g004-r519-a2-context-ff08.log`。拓扑假对象3/3 exit0，未动真实设置。
 
-519宽CSV的AP与AUPRC、macro/micro/weighted F1合并，两次各0/1 exit1，同目录 `g004-519-metric-identity-ff08.log`、`g004-519-metric-collision-ff08.log`。R519 A4保留语义及显式别名；宽/长CSV、JSON、预览、schema、分割、0/空值单文件最终6/6 exit0，同目录 `g004-r519-a4-metric-final-ff08.log`。选择及PLAN持久化证据见coverage，未写真实项目文件。
+519指标语义合并，两次各0/1 exit1，`g004-519-metric-identity-ff08.log`、`g004-519-metric-collision-ff08.log`。A4保留语义及显式别名；CSV/JSON、预览、schema、0/空6/6 exit0，`g004-r519-a4-metric-final-ff08.log`。未写真实项目。
 
 R519 A5按输入列选择默认长宽预设，保留显式和自定义预设；解析器/CLI及MCP目录各8/8 exit0，日志 `g004-r519-a5-parser-final-ff08.log`、`g004-r519-a5-mcp-ff08.log`，未调用Worker。
 
@@ -27,6 +27,8 @@ R519 C4旧CLI参数曾在进入shim前被解释管道，exit255；对照exit0，
 B1末尾通知租约返修先验：原方法未释放的断言失败；新增夹具未恢复通知替身致后续用例超时20秒、单文件exit1，已停止不重试，日志 `g004-r519-b1-lease-before-ff08.log`；非真实Host操作。
 
 T1实例发现/RPC与错误类型移至中立API位置，Server/面板/分支调用接入；假回环1/1 exit0，首0/1 exit1因误以为旧unavailable是CliError，日志 `g004-r519-t1-client-first-ff08.log`、`g004-r519-t1-client-final-ff08.log`，未连接真实实例。
+
+T2首子组新增中立MCP版本解析器，模拟重载、错身份、取消及缺入口1/1 exit0，日志 `g004-r519-t2-resolver-missing-ff08.log`；入口尚未切换，旧CLI未删除。
 
 用户提供识别未完成截图；519同窗租约冲突不能认定锁死。原本地识别不记完成，首0/1 exit1，`g004-519-bootstrap-recognition-ff08.log`。R519 B1保存有效PLAN及识别事实，准备独立；空任务/取消/错误2/2、快速流程9/9、上下文20/20、命令3/3、持久化3/3、投影6/6均exit0；日志 `g004-r519-b1-` 加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 及 `-ff08.log`。未重放或改真实标记。
 
