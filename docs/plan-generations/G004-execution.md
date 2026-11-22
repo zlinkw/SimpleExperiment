@@ -104,6 +104,8 @@ U04逐项调查、原始退出码与受控证据保留于 Git f72d0066 的本登
 最终逻辑母集300项：界面279（限定结论204、延期75），独立VSCode命令21（限定结论7、延期14）；合计限定结论211、剩余89均延期。GPU两合成行合并/打散及假持久化、TMUX三种合成导航和all筛选、端点清单假编辑器正常/错误均exit0；真实Worker、剪贴板、网络未测。资源导航6精确/2回退exit0，首次探针语法错误exit1未写。13项旧工具证据适用边界及全部映射见coverage.logicalActionCensus，实际控件实例数未知。
 
 B1/B2/B3 39项分组修复、各项受控结果和首失败详见 Git `c37827c8:docs/plan-generations/G004-execution.md`，不将受控结果扩称真实Worker通过；U04-30特殊键、日志导航首12/13及后13/13证据见 `eab27339` 同路径。4跨项目与89入口未开放。
-0.5.517历史完整交付与原日志见 Git `89498eff:docs/plan-generations/G004-execution.md`：首package 337/341 exit1、合作取消因stdin关闭失败，四处仅修测试后补验通过，Agent夹具额外首补失败；第二次341/341、13门禁通过。生成脚本VM首命令转义错误exit1后通过，日志导航首12/13后13/13；其余闭包/同源、远端下载及客户端证据和退出码保留原登记。[试行Release](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.517)绑定 `a7d2a7275c5d9ea455c2e369cdddaa8e33a198e2`，VSIX SHA256 `2fa2ecb3e0d890d47653ee8b7f5ffe29317c22d692659ae4cd8d34336a6989e5`；一次安装exit0含DEP0169，Latest仍483。旧时未重载状态以随后518实机记录为准；J01和CLI错绑仍未解决。
+0.5.517历史原材见 Git `871ea78e:docs/plan-generations/G004-execution.md` 及89498eff：首package 337/341 exit1、stdin关闭取消失败，修夹具后341/341及13门禁通过；生成脚本首转义错误和日志导航首12/13均保留。试行Release绑定a7d2a727、VSIX SHA256 2fa2ecb3e0d890d47653ee8b7f5ffe29317c22d692659ae4cd8d34336a6989e5，安装一次exit0；Latest仍483。旧时未重载以随后518实机记录为准。
 
 T7收包策略：排除旧业务CLI及依赖它的旧MCP启动器，要求独立MCP启动器、resolver、服务及客户端；packageContentPolicy 12/12、mcpEntry 3/3均exit0，尚未实际打包。
+
+T7矩阵：19个已定向验过的MCP迁移、连接和收包测试加入build/check:full/package/smoke，四profile只读规划各19项独占、均非按需；原项目全树输入指纹保持，旧项未减。test/features及acceptance原glob也涵盖新项。B1未纳入上述显式组，仍未运行验证且是交付阻断。训练进度旧文件误重写但内容已恢复，复验9/9 exit0；生成命令首引号错误exit1未写入。

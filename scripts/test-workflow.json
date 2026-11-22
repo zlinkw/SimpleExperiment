@@ -172,6 +172,25 @@
       "test:host-lease"
      ],
      "extraFiles": [
+      {"file":"test/features/mcpActiveSnapshot.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpEntry.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpFailureAlerts.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpHealthEvidence.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpHistoryViews.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpInspectSchema.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpLogsAndConfig.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpNativeLifecycle.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpPersistedRuns.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpQueryContext.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpQuerySchema.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpResolver.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpResultIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpRuntimeIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpTerminalIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpTrainingProgress.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpWorkerObservation.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
        "file": "test/features/gpuMemoryBudget.test.js",
        "argv": [
@@ -250,6 +269,25 @@
       "test:local-stop-control"
      ],
      "extraFiles": [
+      {"file":"test/features/mcpActiveSnapshot.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpEntry.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpFailureAlerts.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpHealthEvidence.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpHistoryViews.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpInspectSchema.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpLogsAndConfig.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpNativeLifecycle.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpPersistedRuns.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpQueryContext.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpQuerySchema.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpResolver.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpResultIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpRuntimeIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpTerminalIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpTrainingProgress.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpWorkerObservation.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
        "file": "test/features/testWorkflowRunner.test.js",
        "argv": [
@@ -307,6 +345,25 @@
       "test:local-stop-control"
      ],
      "extraFiles": [
+      {"file":"test/features/mcpActiveSnapshot.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpEntry.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpFailureAlerts.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpHealthEvidence.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpHistoryViews.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpInspectSchema.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpLogsAndConfig.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpNativeLifecycle.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpPersistedRuns.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpQueryContext.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpQuerySchema.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpResolver.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpResultIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpRuntimeIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpTerminalIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpTrainingProgress.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpWorkerObservation.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
        "file": "test/features/testWorkflowRunner.test.js",
        "argv": [
@@ -622,6 +679,25 @@
       "test:local-stop-control"
      ],
      "extraFiles": [
+      {"file":"test/features/mcpActiveSnapshot.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpEntry.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpFailureAlerts.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpHealthEvidence.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpHistoryViews.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpInspectSchema.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpLogsAndConfig.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpNativeLifecycle.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpPersistedRuns.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpQueryContext.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpQuerySchema.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpResolver.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpResultIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpRuntimeIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpTerminalIdentity.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpTrainingProgress.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/mcpWorkerObservation.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/localApiClientSource.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
+      {"file":"test/features/packageContentPolicy.test.js","argv":["--test-force-exit","--test-timeout","20000"],"source":"g004-mcp-migration"},
       {
        "file": "test/features/testWorkflowRunner.test.js",
        "argv": [
