@@ -248,8 +248,60 @@ function planEntry(manifestFile, manifest, root, entryName, opts) {
   }
   if (full) phases.fullCheck.domainGates = acc.gates.map(g => ({ ...g, phase: "fullCheck" }));
 
+  const retiredCliTests = new Set([
+  "test/cli/manualDispatch.test.js",
+  "test/cli/simpleCli.test.js",
+  "test/cli/simpleCliActionsCatalog.test.js",
+  "test/cli/simpleCliActiveSnapshot.test.js",
+  "test/cli/simpleCliAgentsLifecycle.test.js",
+  "test/cli/simpleCliCommands1.test.js",
+  "test/cli/simpleCliCommands10.test.js",
+  "test/cli/simpleCliCommands11.test.js",
+  "test/cli/simpleCliCommands12.test.js",
+  "test/cli/simpleCliCommands13.test.js",
+  "test/cli/simpleCliCommands14.test.js",
+  "test/cli/simpleCliCommands15.test.js",
+  "test/cli/simpleCliCommands16.test.js",
+  "test/cli/simpleCliCommands2.test.js",
+  "test/cli/simpleCliCommands3.test.js",
+  "test/cli/simpleCliCommands4.test.js",
+  "test/cli/simpleCliCommands5.test.js",
+  "test/cli/simpleCliCommands6.test.js",
+  "test/cli/simpleCliCommands7.test.js",
+  "test/cli/simpleCliCommands8.test.js",
+  "test/cli/simpleCliCommands9.test.js",
+  "test/cli/simpleCliControl.test.js",
+  "test/cli/simpleCliDraft.test.js",
+  "test/cli/simpleCliFailureAlerts.test.js",
+  "test/cli/simpleCliHealthEvidence.test.js",
+  "test/cli/simpleCliHistoryViews.test.js",
+  "test/cli/simpleCliInspectSchema.test.js",
+  "test/cli/simpleCliLegacyRemoval.test.js",
+  "test/cli/simpleCliLifecycleCommands.test.js",
+  "test/cli/simpleCliNamedActions.test.js",
+  "test/cli/simpleCliPersistedHistory.test.js",
+  "test/cli/simpleCliPlanCleanup.test.js",
+  "test/cli/simpleCliPreflight.test.js",
+  "test/cli/simpleCliProjectOps.test.js",
+  "test/cli/simpleCliQuerySchema.test.js",
+  "test/cli/simpleCliRuntimeCapture.test.js",
+  "test/cli/simpleCliRuntimeIdentity.test.js",
+  "test/cli/simpleCliSftpCleanupAgents.test.js",
+  "test/cli/simpleCliSftpCleanupEngine.test.js",
+  "test/cli/simpleCliSftpSync.test.js",
+  "test/cli/simpleCliSftpTransfer.test.js",
+  "test/cli/simpleCliSftpTransferMapped.test.js",
+  "test/cli/simpleCliSftpTransferServer.test.js",
+  "test/cli/simpleCliStableEntry.test.js",
+  "test/cli/simpleCliTerminalIdentity.test.js",
+  "test/cli/simpleCliTrainingProgress.test.js",
+  "test/cli/simpleCliUnifiedEntry.test.js",
+  "test/cli/workerRunLifecycle.test.js",
+  "test/cli/workerRunObservationMerge.test.js",
+  "test/features/resultHistoryReadErrors.test.js",
+]);
   const byKey = new Map();
-  const expandedJobs = require("./test-case-groups").expandCaseGroups(root, acc.jobs, manifest.caseGroups, manifest.boundedNodeTests === true);
+  const expandedJobs = require("./test-case-groups").expandCaseGroups(root, acc.jobs.filter(job => !retiredCliTests.has(job.file)), manifest.caseGroups, manifest.boundedNodeTests === true);
   for (const j of expandedJobs) {
     const identity = jobIdentity(root, j.file);
     const key = identity + "\u0000" + j.argv.join("\u0000");

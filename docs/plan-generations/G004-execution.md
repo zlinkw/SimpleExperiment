@@ -160,3 +160,5 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 获批迁移Windows工作流消费者，原文件4/4 exit0；localApi及formalJob候选已应用、语法通过，分别待新build后的dist/api客户端与受限Python夹具验证，暂不提交或声称通过。
 
 获批两旧CLI helper保留路径并退役、sourceReader移旧门面别名；额外发现无人调用的SFTP transfer helper仍引用退役helper，改为直接读取Node内置模块以保持其自身可用，四文件语法通过。两个中立客户端导入候选已应用但新dist缺失，待build后运行原消费者，暂不提交。
+
+获批矩阵按50个精确旧路径排除，保留原glob及其余argv/caseGroups，13旧直接job替为17现MCP job；真实planEntry只读检查50项排除、17项、原glob与非退休文件发现均通过，五文件语法/JSON及diff检查通过。完整testWorkflowRunner和releaseAcceptanceWorkflow含真实目录删除与多子进程，按当前禁真实删除边界未运行；非全矩阵或build。
