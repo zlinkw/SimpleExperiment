@@ -63,3 +63,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 - 520 后 resultCsvIdentity 原文件 8/8、exit0（`%TEMP%/g004-520-result-csv-identity-20261123.log`，先查不存在）；合成 CSV/JSON 与 VM 假文件系统，无真实结果或写入，待总控审定。
 
 - 520 后 mcpPreflightContract 原文件 2/2、exit0（`%TEMP%/g004-520-mcp-preflight-contract-20261123.log`，先查不存在）；VM 假授权和 Worker 回调，无真实授权、Worker、预检或取消，待总控审定。
+
+- 520 后 planMatrixEmptyValues 原文件 1/1、exit0（`%TEMP%/g004-520-plan-matrix-empty-20261123.log`，先查不存在）；合成 YAML 与 VM 假文件系统，无真实计划或写入，待总控审定。
