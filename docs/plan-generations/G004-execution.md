@@ -154,3 +154,5 @@ PLAN清理、SFTP同步和统一入口部分候选合并为各自完整文件dif
 获批删除39项之第1–7项：simpleex.cmd, bin/simpleex-mcp.cjs, bin/simpleex.cjs, scripts/install-cli-shim.js, src/cli.legacy.ts, src/cli.ts, src/cli/ExecutionContext.ts；事先全批预检及内容身份记录，逐项在直接父目录用明确相对叶名删除并确认不存在；修正命令无Force，先前策略拒绝保留。
 
 获批删除39项之第8–14项：src/cli/LocalApiClient.ts, src/cli/WorkflowRun.ts, src/cli/api.ts, src/cli/commands/action.ts, src/cli/commands/actionsCatalog.ts, src/cli/commands/agentsLifecycle.ts, src/cli/commands/artifact.ts；全批预检后逐项在直接父目录核身份并以明确相对叶名删除，确认不存在。
+
+获批删除39项之第15–21项：src/cli/commands/compare.ts, src/cli/commands/control.ts, src/cli/commands/draft.ts, src/cli/commands/experiment.ts, src/cli/commands/gpu.ts, src/cli/commands/index.ts, src/cli/commands/log.ts；全批预检后逐项在直接父目录核身份并以明确相对叶名删除，确认不存在。
