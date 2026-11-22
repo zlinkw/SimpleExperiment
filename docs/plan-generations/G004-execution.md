@@ -114,7 +114,7 @@ MCP Worker生命周期迁测：queryProject配独立本机合成API/Worker，4/4
 
 mcpQueryContext脱离CLI，原业务11/11；首两次10/11 exit1及修后详见Git `8249eb4d:docs/plan-generations/G004-execution.md`。
 
-MCP普通结果契约迁至中立实现，8/8 exit0（e1771b），加入交付profile。
+MCP普通结果契约8/8，原文见Git `8393c772:docs/plan-generations/G004-execution.md`。
 
 空PLAN矩阵MCP断言1/1（b4464e）；纳入交付profile。
 
@@ -203,3 +203,5 @@ MCP下载范围及handoff核精确Worker、配置参数与撤权，假后端11/1
 源审返修可选RPC：真实Gateway假Host首7/8 exit1（普通拒绝被吞），修改后8/8；真实未声明方法首7/8 exit1（TypeError），明确-32601后8/8。共享消费mcpQueryContext首14/16 exit1（夹具缺operations/live.output），补真实空响应后16/16；WorkerLifecycle 4/4、mcpProject 43/43 exit0（后者部分旧dist），未测真实Worker。保留失败原工具输出，未build。
 
 源审产物路径：合成根首16/17 exit1（绝对外部路径可读）；本地目录、manifest和递归逐层校验项目根及链接，修后及补绝对路径、0字节、冒号ID和嵌套链接各17/17 exit0，远端契约保留。未读用户外部文件、未build；登记压缩首断言exit1未写。
+
+SimpleSFTP 0.2.120现有UI创建项目源码链核实，未实点。清理引擎状态保存使用真实rename，当前仅允许transport/activity/lease替身且禁真实移动；无法证明纯替身隔离，四项未启动，详见coverage。
