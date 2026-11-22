@@ -5,6 +5,20 @@ require('../_helpers/registerTsRequire');
 const client=require('../../src/api/LocalApiClient.ts');
 const {CliError,asCliError}=require('../../src/api/LocalApiErrors.ts');
 
+test('neutral discovery uses the SFTP override or canonical plugin path',()=>{
+  const path=require('node:path'),os=require('node:os');
+  const original=process.env.SIMPLE_SFTP_API_FILE;
+  try{
+    process.env.SIMPLE_SFTP_API_FILE=path.join(os.tmpdir(),'fixture-sftp-api.json');
+    assert.equal(client.pluginDiscoveryPath('sftp'),process.env.SIMPLE_SFTP_API_FILE);
+    delete process.env.SIMPLE_SFTP_API_FILE;
+    assert.equal(client.pluginDiscoveryPath('sftp'),path.join(process.env.APPDATA||path.join(os.homedir(),'AppData','Roaming'),'SimpleSFTP','api.json'));
+  }finally{
+    if(original===undefined)delete process.env.SIMPLE_SFTP_API_FILE;
+    else process.env.SIMPLE_SFTP_API_FILE=original;
+  }
+});
+
 test('neutral client preserves live capability checks and error identity',async t=>{
   const calls=[],server=http.createServer((req,res)=>{calls.push(req.url);req.resume();
     if(req.url==='/api/v1/capabilities')res.end(JSON.stringify({schemaVersion:1,rpc:'json-rpc-2.0',methods:['status']}));

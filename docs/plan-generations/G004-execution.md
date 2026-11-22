@@ -185,3 +185,5 @@ MCP只读观察身份含字符串/数值公开schema，假后端7/7及官方客�
 Git同步：0aa6b27c普通push exit0，首次fetch exit1（TLS unexpected eof）；经总控单次恢复裁决，核master/HEAD/origin/upstream后fetch exit0，HEAD、origin/master及FETCH_HEAD均为0aa6b27cc0c7f05b46a155486b23cbdb8318b8e0。
 
 旧CLI剩余19项逐项记录业务断言、既有证据及真实缺口；源审不冒测试通过，不删原用例。
+
+中立客户端SFTP发现覆盖及默认路径补验，单文件3/3 exit0；未连接真实服务。
