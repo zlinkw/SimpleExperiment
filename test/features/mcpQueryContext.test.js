@@ -68,6 +68,12 @@ test('MCP plan build and empty matrix retain their established values',async()=>
  await assert.rejects(queryProject(root,rpc,'plan_build',{seeds:[0,0]}),/duplicates/);
 });
 
+test('query runtime parsers retain existing training and identity semantics',()=>{
+ const old=require('../../src/cli/runtime.ts'),current=require('../../src/mcp/query/Runtime.ts');
+ for(const text of ['', 'Epoch 2/5 loss=0.1', 'Epoch [3/10] loss: 0.4'])assert.deepEqual(current.parseTrainingProgress(text),old.parseTrainingProgress(text));
+ for(const yaml of ['', 'training:\n  max_epoch: 10\n', 'max_epochs: 0\n'])assert.equal(current.trainingMaxEpochFromYaml(yaml),old.trainingMaxEpochFromYaml(yaml));
+});
+
 test('neutral query support requires context and preserves optional RPC semantics',async()=>{
  assert.throws(()=>support.emit({}),/MCP_QUERY_CONTEXT_REQUIRED/);
  assert.throws(()=>support.callApi('status'),/MCP_QUERY_CONTEXT_REQUIRED/);
