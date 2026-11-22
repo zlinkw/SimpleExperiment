@@ -46,4 +46,4 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 
 - 520 后 planBatchCodeSyncOnce 原文件 8/8、exit0（`%TEMP%/g004-520-plan-batch-code-sync-20261123.log`，先查不存在）；自建 PLAN 夹具保留，假同步/派发回调，无真实 Worker 或传输，待总控审定。
 
-- 520 后 dispatchWake 原文件 4/4、exit0（`%TEMP%/g004-520-dispatch-wake-20261123.log`，先查不存在）；VM 与合成队列/Worker/GPU 观察，未连接真实 Worker 或 GPU，待总控审定。
+- 520 后 dispatchWake 原文件 4/4、exit0（`%TEMP%/g004-520-dispatch-wake-20261123.log`，先查不存在）；VM 与合成队列/Worker/GPU 观察，未连接真实 Worker 或 GPU。该项在当前计划为 onDemand，执行前漏核计划导致不必要运行；本次直接结果保留，不计入 active 覆盖；计划仍标记 on_demand_not_run。
