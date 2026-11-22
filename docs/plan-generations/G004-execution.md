@@ -79,3 +79,5 @@ nativePlanRetry 6/6 exit0：提取函数及 HTTP 分支，假 tmux、合成清�
 completedJobArtifactRootBinding 7/7 exit0：VM 编译方法、假探测和传输，自建根保留；无真实 Worker、网络、传输或删除。原事件与依赖见 coverage，待总控终审；planner 149 项待核。
 
 syncScopeStagingIdentityWiring 4/4 exit0：VM 与编译宿主、假 Worker/传输及删除，自建根和原子状态保留；无真实 Worker、网络、传输、UI 或删除。原事件及依赖见 coverage，待总控终审；planner 148 项待核。
+
+planSubmissionStateGuard 26/26 exit0：VM 编译方法、假探测及写入哨兵；无真实 Worker、网络、UI 或文件写入。原事件与依赖见 coverage，待总控终审；planner 147 项待核。
