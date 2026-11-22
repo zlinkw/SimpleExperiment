@@ -94,3 +94,5 @@ T1连接：LocalApiClient/必要errors及Server、legacy、BranchPlanDispatch同
 ExperimentRunner另有evidenceTooling checkpoint受顶层导入影响、formalJobExecution旧runner防绕过项。独立checkpoint和正式PLAN/调度/产物/哈希保护继续；旧runner项形成现契约测试候选，不连带删安全断言。退休路径有界正反依赖对账包含源码/脚本/模板/manifest/helper/测试；全包给精确绝对路径、file类型、安全根/直接父目录/剩余引用和测试替代退役清单，一次确认前不删/skip。
 
 B1可达通知等待与旧首操作未知分开：runOutsideResourceLease内异步末尾通知、原项目导航/错误可见的候选源方向接受但未验。原localWorkspaceRecognition夹具首失败后污染替身致后续20秒timeout exit1（g004-r519-b1-lease-before-ff08.log），finally候选未运行。不得重跑/改限时/换文件绕过；全包齐后提出该改后文件原20秒单次复验例外申请，不报passed。0aa6b27c push后fetch TLS exit1、总控单次恢复fetch exit0核远端一致，非测试重跑许可。
+
+返修包404aa6cf/97607ab8复审：8249eb4d错误传播和c0465f0f/2551787c无消费者CLI代码移除方向通过；Artifacts尚需按sourceFiles.endpoint/Worker身份分流，不能把相对远端路径与同名本地文件混成一份或本机hash冒远端。允许必要合成碰撞回归，不查真实Worker。清理引擎验证现允许固定真实CleanupFileApi注入纯内存状态存储/fs效果（含Map化atomicWriteText、rename/remove），真实状态机/原4边界保留；所有未知真实fs效果拒绝，不实际改伴随源码、移动/删除文件或live发现，且不冒验了state-store原子持久化。旧bin/simpleex-mcp.cjs仍依赖旧CLI resolver，候选37漏它；只有当前独立mcp-launch及resolver必保留，旧借用包装无消费者则列精确待删。302测试下一包须逐项给拟保留迁覆/旧表面退休/等价替代退休/仍缺边界及原glob/矩阵具体改法，未应用前不删/skip。B1仍未准重跑。

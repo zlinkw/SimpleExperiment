@@ -315,6 +315,11 @@ function hashTree(root, dirs, looseFiles) {
 function inputFingerprint(root) {
   const h = crypto.createHash("sha256");
   h.update(hashTree(root, ["src", "scripts", "test", "bin", "vendor"], ["package.json", "package-lock.json", "tsconfig.json", ".vscodeignore"]));
+  const companionRoot = process.env.SIMPLE_TEST_SFTP_ROOT;
+  if (companionRoot) {
+    h.update(`|cleanup-engine:${path.resolve(companionRoot)}`);
+    for (const name of ["package.json", "cleanup-file-api.js"]) h.update(`|${name}:`).update(sha256Fresh(path.join(companionRoot, name)));
+  }
   h.update(`|${process.version}|${process.platform}|${process.arch}`);
   return h.digest("hex");
 }

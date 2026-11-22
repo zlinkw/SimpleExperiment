@@ -229,3 +229,5 @@ MCP Agent观察入口拒绝调用者token及未知字段，假Host仅收到固�
 产物节点：同名本地/Worker首16/17 exit1误读本机；按明确本地/Worker/未知分流，旧远端outputDir不作本地，补验17/17。合成本地夹具显式声明endpoint，原断言保留；登记前两次超阈值未写，无Worker。
 
 真实CleanupFileApi+MCP Gateway/Host：首1/4 exit1，move目标字段缺失及观察并发缺省不符引擎；修后4/4、路由11/11、官方客户端10/10 exit0。状态存储/传输/活动/租约纯内存，未真实移动删除或访问Worker，不证明磁盘持久化；新测试显式SIMPLE_TEST_SFTP_ROOT及输入指纹待入矩阵。登记首超阈值未写。
+
+真实清理引擎测试纳入build/check:full/package/smoke四profile，计划各一次且20秒；输入指纹绑定显式SIMPLE_TEST_SFTP_ROOT及package/engine字节，合成更改验证exit0。计划首断言漏--test exit1，修正后四项exit0；只读计划未启动矩阵或B1。
