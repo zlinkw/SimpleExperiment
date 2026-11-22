@@ -114,7 +114,7 @@ MCP Worker生命周期迁测：queryProject配独立本机合成API/Worker，4/4
 
 迁移期mcpQueryContext已脱离全部CLI引用：以旧实现实测结果固定MCP输入、输出、身份和错误断言，实验视图fixture排除动态快照字段；11/11 exit0（0eaa05）。转换时metric及compare的null原型两次10/11 exit1（f7c9b7、2eba9b），修期望后通过；旧CLI测试未动。
 
-MCP普通结果契约8项已切换中立实现，保留资源拒绝、零值、空结果、schema、预设、日志级别、歧义和产物身份断言；8/8 exit0（e1771b），加入四个交付profile。
+MCP普通结果契约迁至中立实现，8/8 exit0（e1771b），加入交付profile。
 
 空PLAN矩阵断言迁至MCP计划实现，空种子/空case及正常矩阵1/1 exit0（b4464e）；纳入交付profile。
 
@@ -128,10 +128,12 @@ MCP普通结果契约8项已切换中立实现，保留资源拒绝、零值、�
 
 结果CSV身份与宽长格式/显式预设断言切换至MCP解析，8/8 exit0（368f81），纳入四交付profile。
 
-动作回归中的产物/结果测试改读MCP实现，含同名歧义、冒号身份、Worker归属和大写JSON；假对象动作49/49 exit0（af772e），纳入四交付profile。
+动作产物/结果断言改读MCP，假对象49/49（af772e）；纳入交付profile。
 
 MCP排行实际消费者补全指标列联合与零值数据，mcpQueryContext 12/12 exit0（024418）；旧CLI人类终端文本断言保留待裁决。
 
-旧CLI静态测试302项精确位置和同名MCP候选索引写入coverage.g004CliRetirementIndex；同名不代表断言等价；已审62项业务映射；5项CLI别名/compact/离线历史及其余项目待核裁决，不批准退役。首次路径检查转义错误，改按冒号拆分后302/302存在。
+旧CLI静态测试302项精确位置和同名MCP候选索引写入coverage.g004CliRetirementIndex；同名不代表断言等价；已审70项业务映射；5项CLI别名/compact/离线历史及其余项目待核裁决，不批准退役。首次路径检查转义错误，改按冒号拆分后302/302存在。
 
 健康详情默认与full视图均覆盖停滞及重试事实，6/6 exit0（f58801）；CLI退出码另待裁决。
+
+MCP观察精确窗口、配置下载及终态排除3/3 exit0（b43a82），合成回环端点；原8项运行捕获业务断言已映射，未测真实Worker。
