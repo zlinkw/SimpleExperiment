@@ -127,8 +127,8 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   fs.writeFileSync(failedReceipt, JSON.stringify({ schemaVersion: 2, entry: "package", root: ws, overall: "passed", inputFingerprint: "historical", endFingerprint: "historical", artifactFingerprint: "historical-artifact", candidate: { state: "validated" }, jobs: [{ ...original, status: "failed", exitCode: 1 }] }));
   assert.throws(() => inspect({ ...coverage, sourceReceipt: failedReceipt, sourceReceiptSha256: sha(failedReceipt) }), /original job invalid/);
   const inherited = { ...accepted[0], status: "passed", exitCode: 0, treeStatus: "confirmed", outLog, errLog };
-  const freshJob = { file: "test/fresh.js", identity: "fresh-identity", argv: ["--test"] };
-  fs.writeFileSync(path.join(ws, freshJob.file), "fresh fixture\n");
+  fs.writeFileSync(path.join(ws, "test/fresh.js"), "fresh fixture\n");
+  const freshJob = { file: "test/fresh.js", identity: runner.jobIdentity(ws, "test/fresh.js"), argv: ["--test"] };
   const fresh = { ...freshJob, origin: "fresh", status: "passed", exitCode: 0, treeStatus: "confirmed", outLog, errLog, logSha256: { outLog: sha(outLog), errLog: sha(errLog) } };
   const directJob = { file: "test/direct.js", identity: "direct-identity", argv: ["--test"] };
   fs.writeFileSync(path.join(ws, directJob.file), "direct fixture\n");
@@ -152,6 +152,10 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   const acceptedPlan = runner.planG004Execution(ws, plan, coverage);
   assert.equal(acceptedPlan.length, 2);
   assert.deepEqual(runner.uncoveredG004Jobs(plan.jobs, acceptedPlan), [freshJob]);
+  const deferredPlan = { ...plan, jobs: [job, directJob], onDemandJobs: [{ file: freshJob.file, argv: freshJob.argv, status: "on_demand_not_run" }] };
+  assert.equal(runner.planG004Execution(ws, deferredPlan, coverage).length, 2, "on-demand jobs stay in the inventory without being counted as passed");
+  assert.deepEqual(runner.uncoveredG004Jobs(deferredPlan.jobs, acceptedPlan), []);
+  assert.throws(() => runner.planG004Execution(ws, { ...plan, onDemandJobs: deferredPlan.onDemandJobs }, coverage), /plan and reviewed job identities differ/);
   assert.deepEqual(runner.uncoveredG004Jobs(plan.jobs, undefined), plan.jobs);
   assert.throws(() => runner.planG004Execution(ws, plan, { ...plannedCoverage, jobs: [row, { ...approvedFresh, executionReview: { decision: "reviewed", effects: "fixture" } }, { ...directJob, eligible: false }] }), /fresh dependency review incomplete/);
   assert.throws(() => runner.planG004Execution(ws, plan, { ...plannedCoverage, jobs: [row, { ...approvedFresh, sourceJob: 264 }, { ...directJob, eligible: false }] }), /requires reviewed execution/);

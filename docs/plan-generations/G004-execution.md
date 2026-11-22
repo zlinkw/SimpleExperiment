@@ -21,3 +21,5 @@ T1–T7中立API/MCP迁移、逐项旧CLI差异、所有合成测试及原失败
 无删除的原runner文件新增精确pattern夹具逐步自验均exit0；最终本批TEMP/g004-incremental-review-final-20261123.log 1/1，原20秒；日志中--reuse-receipt ERROR为预期拒绝断言，合成fixture保留；覆盖原回执及直接证据/新跑区分、旧通用复用拒绝、未知/失败/重复/缺项/门禁与输入/产物变化拒绝。当前树规划独立对账TEMP/g004-runner-incremental-plan-20261123.log 1/1；后续HEAD变化必须按上段重验。只读实际计划入口检查按现有未审状态拒绝剩余364项，未启动package。一次准备证据脚本误将不在package计划的B1映射成package项而StopIteration，未写文件；已核B1为独立证据。一次只读合并检查中node --check与Python JSON解析并发约0.3秒，违反本批唯一Node/Python进程约束；两者均非测试且无写入，之后检查串行。之前保留的所有日志与失败均不得覆盖。
 
 当前还需完成逐job源/夹具/真实效果及工具链适用分类，形成最终可审证据与可执行边界；待总控审核后才进入最终编译、版本、package、发行和安装，任何不明/不允许的临时删除或Worker/UI效果不执行。总控独占plan/README；唯一执行者独占本批源码/测试/coverage/execution及scoped Git。当前18个dirty dist、旧安装/shim、用户资产和历史报告继续保护。
+
+增量入口首批提交548a8b73后，只读实际规划为361执行＋6按需；修改runner时恢复为367＋0。覆盖清单现在按执行∪按需完整身份核对，按需项不计通过、不启动，避免提交导致选择变化时错误拒绝；当在途项和按需重叠或清单不一致时仍拒绝。新增同一原用例的合成按需断言首0/1 exit1（夹具身份非规范realpath），修正夹具为真实规范身份后1/1 exit0，原20秒；日志TEMP/g004-ondemand-inventory[-fix]-20261123.log保留。真实当前dirty计划只读核367＋0、364未审阻断；未运行package。formalJob 5/5完整定向原始call和日志、确定的测试/提取器、生成dist及Python/YAML待核边界已补入coverage，仍为未批准候选，不能当本轮package通过。

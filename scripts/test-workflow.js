@@ -1048,8 +1048,12 @@ function planG004Execution(root, plan, coverage) {
   if (!coverage || path.resolve(coverage.sourceReceipt) !== expectedSource) throw new Error("G004 original receipt does not match this task");
   const key = j => JSON.stringify([j.identity, j.argv]);
   const reviewed = new Map(coverage.jobs.map(j => [key(j), j]));
-  if (reviewed.size !== coverage.jobs.length || reviewed.size !== plan.jobs.length || plan.jobs.some(j => !reviewed.has(key(j)) || reviewed.get(key(j)).file !== j.file)) throw new Error("G004 plan and reviewed job identities differ");
-  const inherited = [...inspectG004LegacyEvidence(root, plan, coverage), ...inspectG004DirectEvidence(root, plan, coverage)];
+  const deferred = plan.onDemandJobs.map(j => ({ ...j, identity: jobIdentity(root, j.file) }));
+  const all = [...plan.jobs, ...deferred], allKeys = new Set(all.map(key));
+  if (reviewed.size !== coverage.jobs.length || allKeys.size !== all.length || reviewed.size !== all.length || all.some(j => !reviewed.has(key(j)) || reviewed.get(key(j)).file !== j.file)) throw new Error("G004 plan and reviewed job identities differ");
+  const active = new Set(plan.jobs.map(key));
+  const activeCoverage = { ...coverage, jobs: coverage.jobs.filter(j => active.has(key(j))), currentTargetedEvidence: (coverage.currentTargetedEvidence || []).filter(j => active.has(key(j))) };
+  const inherited = [...inspectG004LegacyEvidence(root, plan, activeCoverage), ...inspectG004DirectEvidence(root, plan, activeCoverage)];
   const inheritedKeys = new Set(inherited.map(key));
   if (inheritedKeys.size !== inherited.length) throw new Error("G004 conflicting inherited evidence");
   const protectedSourceJobs = new Set([264, 265, 267, 268, 269, 271, 274]);
