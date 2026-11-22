@@ -89,9 +89,62 @@ function method(start, end, dependencies, values) {
 }
 
 const keys = { hiddenLegacyTaskUiKeys: "hidden", offlineBundle: "offline", uiProjectLayout: "layout", uiProjectActions: "actions" };
+test("explicitly cleared project offline and layout states do not revive old workspace values", async () => {
+  const ts = require("typescript"), path = require("node:path");
+  const ast = ts.createSourceFile("legacy.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const names = ["PROJECT_OFFLINE_BUNDLE_PATH", "PROJECT_UI_LAYOUT_PATH", "readProjectOfflineBundleState", "readProjectUiLayoutState"];
+  const code = ast.statements.filter(n => ts.isFunctionDeclaration(n) && names.includes(n.name?.text) ||
+    ts.isVariableStatement(n) && n.declarationList.declarations.some(d => names.includes(d.name.getText(ast))))
+    .map(n => n.getText(ast)).join("\n");
+  let content = "null", persisted = [];
+  const fs = { readFile: async () => { if (content instanceof Error) throw content; return content; } };
+  const compiled = ts.transpileModule(code + "\nreturn {readProjectOfflineBundleState,readProjectUiLayoutState};", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const api = new Function("fs", "path", "errorMessage", "normalizeUiProjectLayoutState", "defaultUiLayout", compiled)(fs, path, e => e.message, x => x, {});
+  const runMigrate = method("async migrateLegacyProjectUiStateFromVsCode", "effectiveConnectionMode",
+    ["keys", "stringArrayConfig", "uniqueStrings", "normalizeUiProjectLayoutState", "defaultUiLayout", "readProjectOfflineBundleState", "readProjectUiLayoutState"],
+    [keys, x => x, x => [...new Set(x)], x => x, {}, api.readProjectOfflineBundleState, api.readProjectUiLayoutState]).migrateLegacyProjectUiStateFromVsCode;
+  for (const value of ["null", '{"cleared":true}', '{"bundle":{"value":"new-offline"},"layout":{"value":"new-layout"}}', Object.assign(Error("missing"), { code: "ENOENT" })]) {
+    content = value; persisted = [];
+    const old = new Map([["offline", { value: "old-offline" }], ["layout", { value: "old-layout" }]]);
+    const store = { get: (key, fallback) => old.has(key) ? old.get(key) : fallback, update: async key => { old.delete(key); } };
+    const host = { context: { workspaceState: store, globalState: { get: (_, fallback) => fallback } },
+      captureProjectContext: () => ({ root: "C:/synthetic" }), projectContextIsCurrent: () => true,
+      readCurrentProjectState: async reader => ({ current: true, value: await reader("C:/synthetic") }),
+      persistProjectOfflineBundleState: async () => persisted.push("offline"), persistProjectUiLayoutState: async () => persisted.push("layout") };
+    await runMigrate.call(host);
+    assert.deepEqual(persisted, value instanceof Error || value.includes("new-offline") ? ["offline", "layout"] : []);
+    if (typeof value === "string" && value.includes("new-offline")) {
+      assert.equal(host.offlineBundle.value, "new-offline");
+      assert.equal(host.projectUiLayout.value, "new-layout");
+    }
+    assert.equal(old.size, 0);
+  }
+  for (const bad of ["{broken", Object.assign(Error("denied"), { code: "EACCES" })]) {
+    content = bad;
+    const old = new Map([["offline", { value: "old" }]]);
+    const host = { context: { workspaceState: { get: (key, fallback) => old.has(key) ? old.get(key) : fallback,
+      update: async key => { old.delete(key); } }, globalState: { get: (_, fallback) => fallback } },
+      captureProjectContext: () => ({ root: "C:/synthetic" }), projectContextIsCurrent: () => true,
+      readCurrentProjectState: async reader => ({ current: true, value: await reader("C:/synthetic") }) };
+    await assert.rejects(runMigrate.call(host), /读取项目状态失败/);
+    assert.equal(old.has("offline"), true);
+  }
+  content = "null"; persisted = [];
+  const old = new Map([["offline", { value: "old" }]]); let fail = true;
+  const host = { context: { workspaceState: { get: (key, fallback) => old.has(key) ? old.get(key) : fallback,
+    update: async key => { if (fail) { fail = false; throw Error("clear failed"); } old.delete(key); } },
+    globalState: { get: (_, fallback) => fallback } }, captureProjectContext: () => ({ root: "C:/synthetic" }),
+    projectContextIsCurrent: () => true, readCurrentProjectState: async reader => ({ current: true, value: await reader("C:/synthetic") }),
+    persistProjectOfflineBundleState: async () => persisted.push("offline") };
+  await assert.rejects(runMigrate.call(host), /clear failed/);
+  assert.equal(old.has("offline"), true);
+  await runMigrate.call(host);
+  assert.deepEqual(persisted, []);
+  assert.equal(old.size, 0);
+});
 const migrate = method("async migrateLegacyProjectUiStateFromVsCode", "effectiveConnectionMode",
-  ["keys", "stringArrayConfig", "uniqueStrings", "normalizeUiProjectLayoutState", "defaultUiLayout"],
-  [keys, x => x, x => [...new Set(x)], x => x, {}]).migrateLegacyProjectUiStateFromVsCode;
+  ["keys", "stringArrayConfig", "uniqueStrings", "normalizeUiProjectLayoutState", "defaultUiLayout", "readProjectOfflineBundleState", "readProjectUiLayoutState"],
+  [keys, x => x, x => [...new Set(x)], x => x, {}, () => undefined, () => undefined]).migrateLegacyProjectUiStateFromVsCode;
 
 for (const kind of ["hidden", "offline", "layout"]) {
   test(`${kind} migration keeps the old copy after a failed write and retries in the same process`, async () => {
@@ -103,6 +156,7 @@ for (const kind of ["hidden", "offline", "layout"]) {
     const persist = async () => { if (++attempts === 1) throw new Error("write failed"); };
     const host = { context: { workspaceState: store(workspace), globalState: store(new Map()) },
       captureProjectContext: () => ({ root: "project" }), projectContextIsCurrent: () => true,
+      readCurrentProjectState: async () => ({ current: true, value: undefined }),
       hiddenLegacyTaskUiKeys: new Set(), persistProjectTaskSelectionState: persist,
       persistProjectOfflineBundleState: persist, persistProjectUiLayoutState: persist };
     await assert.rejects(migrate.call(host), /write failed/);
@@ -125,6 +179,7 @@ test("migration preserves an already loaded project value", async () => {
     update: async key => { workspace.delete(key); } };
   const host = { context: { workspaceState: store, globalState: { get: (_, fallback) => fallback } },
     captureProjectContext: () => ({ root: "project" }), projectContextIsCurrent: () => true,
+    readCurrentProjectState: async () => ({ current: true, value: undefined }),
     offlineBundle: { value: "current offline" }, projectUiLayout: { value: "current layout" },
     persistProjectOfflineBundleState: async () => persisted.push(host.offlineBundle),
     persistProjectUiLayoutState: async () => persisted.push(host.projectUiLayout) };

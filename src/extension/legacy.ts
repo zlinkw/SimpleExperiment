@@ -4895,9 +4895,12 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         }
         const legacyOffline = this.context.workspaceState.get(keys.offlineBundle);
         if (legacyOffline) {
-            if (!this.offlineBundle)
-                this.offlineBundle = legacyOffline;
-            await this.persistProjectOfflineBundleState();
+            const loaded = await this.readCurrentProjectState(root => readProjectOfflineBundleState(root, true));
+            if (!loaded.current) return;
+            if (loaded.value !== null) {
+                if (!this.offlineBundle) this.offlineBundle = loaded.value || legacyOffline;
+                await this.persistProjectOfflineBundleState();
+            }
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             await this.context.workspaceState.update(keys.offlineBundle, undefined);
@@ -4907,9 +4910,12 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         const legacyLayout = this.context.workspaceState.get(keys.uiProjectLayout)
             || this.context.workspaceState.get(keys.uiProjectActions);
         if (legacyLayout && typeof legacyLayout === "object") {
-            if (!this.projectUiLayout)
-                this.projectUiLayout = normalizeUiProjectLayoutState(legacyLayout, defaultUiLayout);
-            await this.persistProjectUiLayoutState();
+            const loaded = await this.readCurrentProjectState(root => readProjectUiLayoutState(root, true));
+            if (!loaded.current) return;
+            if (loaded.value !== null) {
+                if (!this.projectUiLayout) this.projectUiLayout = loaded.value || normalizeUiProjectLayoutState(legacyLayout, defaultUiLayout);
+                await this.persistProjectUiLayoutState();
+            }
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             await this.context.workspaceState.update(keys.uiProjectLayout, undefined);
@@ -29786,18 +29792,18 @@ async function writeProjectTaskSelectionState(root, state) {
     await writeAtomicPluginStateJson(fullPath, payload);
 }
 const PROJECT_OFFLINE_BUNDLE_PATH = "simple_cluster/ui/offline_bundle.json";
-async function readProjectOfflineBundleState(root) {
+async function readProjectOfflineBundleState(root, includeCleared = false) {
     if (!root)
         return undefined;
     const fullPath = path.join(root, ...PROJECT_OFFLINE_BUNDLE_PATH.split("/"));
     try {
         const text = await fs.readFile(fullPath, "utf8");
         const data = JSON.parse(text);
-        if (data === null) return undefined;
+        if (data === null) return includeCleared ? null : undefined;
         if (typeof data !== "object" || Array.isArray(data))
             throw new Error("项目状态格式无效");
         if (data.cleared === true)
-            return undefined;
+            return includeCleared ? null : undefined;
         if (data.bundle && typeof data.bundle === "object")
             return data.bundle;
         if (data.snapshot || data.lastImportedAt || data.schemaVersion)
@@ -30038,18 +30044,18 @@ async function writeProjectPanelLifecycleDiagnosticsState(root, events) {
     await writeAtomicPluginStateJson(fullPath, { schemaVersion: 1, updatedAt: new Date().toISOString(), events: rows });
 }
 const PROJECT_UI_LAYOUT_PATH = "simple_cluster/ui/ui_layout.json";
-async function readProjectUiLayoutState(root) {
+async function readProjectUiLayoutState(root, includeCleared = false) {
     if (!root)
         return undefined;
     const fullPath = path.join(root, ...PROJECT_UI_LAYOUT_PATH.split("/"));
     try {
         const text = await fs.readFile(fullPath, "utf8");
         const data = JSON.parse(text);
-        if (data === null) return undefined;
+        if (data === null) return includeCleared ? null : undefined;
         if (typeof data !== "object" || Array.isArray(data))
             throw new Error("项目状态格式无效");
         if (data.cleared === true)
-            return undefined;
+            return includeCleared ? null : undefined;
         const raw = data.layout && typeof data.layout === "object" ? data.layout : data;
         return normalizeUiProjectLayoutState(raw, defaultUiLayout);
     }
