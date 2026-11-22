@@ -75,3 +75,7 @@ direct证据无论使用原工具输出还是单独原日志，均要求非空�
 mcpTerminalIdentity原文件10/10 exit0，TEMP/g004-520-mcp-terminal-identity-20261123.log；传入合成观察和内存记录，未触发默认网络观察分支或真实Worker。原call及当前依赖冻结，待总控审。
 
 mcpOrdinaryResultContracts原文件8/8 exit0，TEMP/g004-520-mcp-ordinary-contracts-20261123.log；内存数据及注入的假API/文件系统，VM提取实际涉及的Resources、Metrics、Compare、ResultParse、Artifacts源码均纳入依赖，无真实Worker、网络、删除或子进程，待总控审。当前规划仍有344项待审，增量入口拒绝package。
+
+复核原mcpInspectSchema直接证据6/6、真实exit0和无在途会话，测试紧邻c8466379提交；合成项目及空Worker RPC，实际status/inspect等成功调用相对当前源码的变化仅涉及未调用的artifact、旧CLI格式标志、未触发的错误映射及不进入JSON的内部Symbol。原rollout输出与当前依赖快照均保留，旧Node精确版本未知，作为同任务候选待总控审，不重跑；入口识别后仍有343项待审。
+
+同类mcpQuerySchema原直接4/4 exit0；原rollout显示测试前补断言、测试后aa6138d5提交，合成RPC不触发后来变化的RPC失败映射，缺失ID的本地businessError断言保留。按具体实际调用审定旧证与当前依赖，旧精确Node未知，待总控审核，不重跑。
