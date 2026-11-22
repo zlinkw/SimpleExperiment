@@ -22553,18 +22553,16 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const client = this.client;
         const pathFromOps = this.debugBundlePath || findDebugBundlePath(this.localOperations) || findDebugBundlePath(this.lastRealtimeState?.operations);
         if (!pathFromOps) {
-            this.recordActionError({ command: "downloadDebugBundle", message: "未找到调试包", suggestion: "请先创建调试包，等待操作完成后再下载。" });
-            this.postState();
-            return;
+            throw new Error("未找到调试包；请先创建调试包，等待操作完成后再下载。");
         }
         const picked = await vscode.window.showSaveDialog({
             title: "保存调试包",
             defaultUri: vscode.Uri.file(path.join(root || process.cwd(), path.basename(pathFromOps))),
         });
         if (!picked)
-            return;
+            throw new UiCommandCancelled("已取消调试包下载。");
         if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
-            return;
+            throw new UiCommandCancelled("工作区或连接已切换，调试包下载已取消。");
         try {
             if (!root)
                 throw new Error("请先打开当前实验项目，才能把调试包暂存到项目内再复制到所选位置。");
@@ -22615,14 +22613,17 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 await fs.copyFile(stagingPath, picked.fsPath);
             }, this.hostOperationLease, root);
             if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
-                return;
+                throw new UiCommandCancelled("工作区或连接已切换；请核查调试包是否已保存。");
             this.lastError = undefined;
         }
         catch (error) {
             if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
-                return;
+                throw new UiCommandCancelled("工作区或连接已切换；请核查调试包是否已保存。");
+            if (isUiCommandCancelled(error)) throw error;
             this.lastError = userFacingFileError(error);
             this.recordActionError({ command: "downloadDebugBundle", message: this.lastError, suggestion: actionErrorSuggestion(this.lastError) });
+            this.postState();
+            throw new Error(this.lastError, { cause: error });
         }
         if (generation === this.projectContextGeneration && root === workspaceRoot() && client === this.client)
             this.postState();

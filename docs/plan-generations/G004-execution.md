@@ -14,6 +14,8 @@ R519 B2选择API等待持久化、失败可见并拒绝跨项目成功回执；P
 
 R519 B3手动刷新/重连离线或失败回报原动作，恢复等待实际连接；后台容错和低流量正常关闭语义保留。真实方法配假transport/UI状态4/4、低流量16/16、关闭决策14/14 exit0；同目录 `g004-r519-b3-network-final-ff08.log`、`g004-r519-b3-traffic-ff08.log`、`g004-r519-b3-closure-ff08.log`，未联系Worker。
 
+R519 B4调试包缺失、取消、下载或复制失败与成功分别反馈；真实状态包装配假UI/传输/文件1/1 exit0，同目录 `g004-r519-b4-debug-first-ff08.log`，无实际文件下载。
+
 用户反复识别未完成并提供截图；519同窗请求与识别租约冲突，不能认定锁死。本地识别原不记完成，假确认和PLAN首0/1 exit1，同目录 `g004-519-bootstrap-recognition-ff08.log`。R519 B1确认有效PLAN并保存单根识别、立即投影，准备独立、不探Worker。空任务/取消/读写错/缺根与多根2/2、快速流程9/9、上下文20/20、命令3/3、持久化3/3、投影6/6均exit0；日志同目录 `g004-r519-b1-` 前缀加 `recognition`、`quick-first`、`context`、`command`、`persistence`、`projection` 后接 `-ff08.log`。未重放点击、清锁或改真实标记。
 
 519本机历史CLI合成列表、详情及CSV导出通过；精确ID经cmd传递失败。Git hook读拒绝及不完整标记可能损伤原脚本，原受控失败与invoke错路由见coverage；R519 A3仅缺失视为空，读错及标记不完整均保留原文件，源码配假fs及启动消费者3/3 exit0，日志同上目录 `g004-r519-a3-git-hook-ff08.log`。300/137/45/167母集重叠，不相加。
@@ -22,7 +24,7 @@ R519 B3手动刷新/重连离线或失败回报原动作，恢复等待实际连
 
 519唯一package exit0，341/341、13门禁、进程树结束、并行峰1、按需0及锁释放；输入=end `02a04b0a7ed920361e852dea0e41d4740114b1cefbb1aabb8ab2c4bd71f5560f`，日志同目录 `g004-519-package-ff08.log`，回执 `simple_cluster/reports/test-workflow/2026-11-22T06-35-19-310Z-69208-package/run.json`。新dist识别内存消费者、Panel和3段生成脚本VM exit0、10890零命中；VSIX面板325/闭包326/同源373项及376文件内容策略、README通过。包2,988,831字节，SHA256 `525e235fe7e380bf3684edf5b8bfd3dd7620badefd964dcdcd671b14c0216b33`；发行及实机状态以顶部为准。预检一次误写面板测试路径exit1，后按实际路径读取。
 
-519 交付前准备：实核远端无 `v0.5.519` tag，GitHub Release 查询 404/exit1（不存在）；package、lock 两处及 runtime 均同步 0.5.519，`write-agent-runtime` exit0。反向消费者预检发现 actionLifecycle 的 state API 抽取夹具缺新识别事实读取依赖，仅接入真实模块和本机假根，原定向断言 1/1 exit0，日志 `C:/Users/ZLK/AppData/Local/Temp/g004-persistence-state-fixture-ff08.log`。package dry-run exit0：341 作业均独占、旧候选20组均因 runner-or-manifest-change 恢复、按需0、max1；新项目识别单文件的3/3另按已记录定向证据保留。查询 lock 版本时 PowerShell `ConvertFrom-Json` 未加 `-AsHashTable` 对空键报错，后以 UTF8 原文核实；一次 `rg` 的 Windows 通配路径格式无效，均非产品失败。
+519交付预检：远端无 `v0.5.519` tag，Release查询404/exit1；package/lock/runtime同步519、`write-agent-runtime` exit0。actionLifecycle抽取夹具补真实识别依赖后1/1 exit0，同目录 `g004-persistence-state-fixture-ff08.log`。package dry-run exit0：341独占、20组因runner-or-manifest-change恢复、按需0、max1；识别单文件3/3另留。PowerShell `ConvertFrom-Json`未加`-AsHashTable`对空键报错，后读UTF8原文；一次`rg` Windows通配路径无效，均非产品失败。
 
 项目识别记忆：globalState按规范单根保存事实，旧workspaceState迁移保留根归属；false/reset、不同项目/profile及无根多根隔离，不搬授权/连接。显式写等待迁移，失败不清旧值可重试；API、提示和面板同源。真实源码配Memento单文件首0/2 exit1（模块未实现），补规范根/启动写/不同根后3/3，`firstRunSetupPrompt` 1/1、bootstrap/migration 10/10均exit0；日志同目录 `g004-518-onboarding-before-ff08.log`、`g004-518-onboarding-isolation-ff08.log`、`g004-518-onboarding-prompt-final-ff08.log`、`g004-518-onboarding-bootstrap-final-ff08.log`。当时未改真实标记或重载，后续状态以顶部为准。
 
