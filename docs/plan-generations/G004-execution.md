@@ -33,9 +33,7 @@ Git覆盖审核候选冻结项目并在后续效果前复核，假端v2 3/3、v1
 
 原setupWorkDirectoryWorkflow静态消费者夹具仍要求已退役Hub文案；按当前Worker唯一入口更新等价检查后，纯源码文件 `%TEMP%/g004-sftp-profile-original-consumer-v3-20261123.{out,err}.log` 3/3 exit0。它不执行Agent、项目配置或Worker操作，也不证明外部效果。
 
-调度设置先校验全组再更新；假配置及原消费者2/2、4/4、配额1/1 exit0，日志 `%TEMP%/g004-scheduler-{config-validation,settings-consumer,quota-consumer}-20261123.{out,err}.log`。未改真实设置，异步失败仍可能部分写入、不称回滚；未build。
-
-Worker配置删除确认后重核快照，变更需重确认；假配置2/2及原消费者精确1/1 exit0，日志 `%TEMP%/g004-worker-config-{confirm,consumer}-20261123.{out,err}.log`；未修改真实Worker或共享配置，未build。
+调度配置与Worker删除确认均经假配置及原消费者定向验证；同步与详细日志见 `d766909a:docs/plan-generations/G004-execution.md`，未触真实设置、Worker或共享配置。异步保存可能部分写入，不宣称回滚。
 
 资源树tmux文案和Panel探针待build及真实内嵌脚本VM；隧道脚本与离线导入项目围栏各假端2/2，Agent按钮缺endpointId拒绝假端1/1，原日志见33b70559；未触真实脚本、网络或Agent。
 
@@ -49,7 +47,7 @@ Worker配置删除确认后重核快照，变更需重确认；假配置2/2及�
 
 ae39752c至bab13011相关修复已源审；日志仅按原输入复用，未做真实外部效果。
 
-总控指出v3仍按旧setup根显示而实际目标由agentProjectDir决定；改为同一mappedDownloadServerForSource实际根用于确认和下载。v4假端提取真实目标解析链，`%TEMP%/g004-archive-copy-fence-v4-20261123.{out,err}.log` 2/2 exit0；原consumer精确项 `%TEMP%/g004-archive-copy-consumer-v1-20261123.{out,err}.log` 1/1 exit0，私有fixture保留。总控已源审，同步 b61c0e09；显式invoke兼容入口，默认UI过滤，未build或访问真实Worker。
+归档复制显示与下载统一使用实际映射根，v4假端2/2及原消费者精确1/1 exit0，源码同步 `b61c0e09`；原日志及边界见 `d766909a:docs/plan-generations/G004-execution.md`。
 
 失败job重排入口原来读队列等待期间切项目后仍可按新上下文继续；现绑定并复核原项目。真实switch代码假队列 `%TEMP%/g004-recall-failed-project-v1-20261123.{out,err}.log` 1/1 exit0；仅假端，未运行Worker。
 
@@ -88,3 +86,6 @@ send原消费者经效果审的精确选择依次1/1、2/2、1/1、2/2、2/2，�
 
 
 替换隔离E批绑定原调用方至预览、确认、实际隔离发送和索引发布；原已接受回执先保存，同ID观察串行，过期调用者不取消其他观察。假端 `%TEMP%/g004-plan-cleanup-context-v1-20261124.{out,err}.log` 8/8、exit0，真实源码/内存fake，不证明真实删除或生产持久化CAS；非managed及fast delete/restore/history未宣称通用caller闭包。源码经总控审并推送fetch一致 `16ade9d3f488ef4dc9e639736ed980ee04afaeb8`，仍未build。最终冻结后按既有runner原单文件fresh一次，旧Process包装不伪装direct。索引补丁生成v1因检查误识别hunk头写前exit1，v2正常check/apply；保留原现场，未改Git历史。coverage两次branch行选择写前exit1（路径错、匹配17而非11），限定currentTargetedEvidence后11行成功；只读rg通配与不存在脚本错误亦无产品影响。
+
+
+草稿整体退役漏口F：取消metadata后台reconcile，旧API/invoke/UI拒绝并从现行MCP目录移除6项；历史文件、数据与旧测试事实保留。原mcpDraftContracts当前拒绝契约假端5/5、exit0，日志 `%TEMP%/g004-draft-retirement-v1-20261124.{out,err}.log`；源码5文件已审并同步 `94a9a0c1`。mcpProject单项待新dist；当前catalog131是源码事实，不改520历史。受影响mcpActionCatalog等价假表更新后1/1、exit0，日志 `%TEMP%/g004-mcp-action-retired-v1-20261124.{out,err}.log`，同步 `88b351a6`。两次Process包装结果非ordinary direct，最终按原单文件runner fresh候选，未构建；临时draftRetirementBoundary文件保留未登记。原旧draft三case对应退役目录、RPC拒绝及路径/grant零效果，不伪称旧行为继续通过。一次只读rg误取不存在test/mcp路径exit2；runner证据AST误定位及本记录首压缩超阈值均写前exit1，无产品/Git影响。
