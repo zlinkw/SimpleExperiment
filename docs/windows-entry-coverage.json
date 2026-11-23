@@ -13492,6 +13492,7 @@
         },
         {
           "id": "navigation:gpu:gpu-summary",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"当前资源树声明该section与anchor，共用导航与interest路径；g003CNavigationAdditional记录该项旧空态实窗定位。","boundary":"仅旧现场导航，不证明对象数据、刷新或远端效果；当前Panel候选待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13547,6 +13548,7 @@
         },
         {
           "id": "navigation:plans:branch-projects",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"当前资源树声明该section与anchor，共用导航与interest路径；g003CNavigationAdditional记录该项旧空态实窗定位。","boundary":"仅旧现场导航，不证明对象数据、刷新或远端效果；当前Panel候选待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13586,6 +13588,7 @@
         },
         {
           "id": "navigation:results:results-summary",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"当前资源树声明该section与anchor，共用导航与interest路径；g003CNavigationAdditional记录该项旧空态实窗定位。","boundary":"仅旧现场导航，不证明对象数据、刷新或远端效果；当前Panel候选待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13593,6 +13596,7 @@
         },
         {
           "id": "navigation:sync:settings-chain-overview",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"当前资源树声明该section与anchor，共用导航与interest路径；g003CNavigationAdditional记录该项旧空态实窗定位。","boundary":"仅旧现场导航，不证明对象数据、刷新或远端效果；当前Panel候选待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13608,6 +13612,7 @@
         },
         {
           "id": "navigation:diagnostics:diagnostics-targets",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"当前资源树声明该section与anchor，共用导航与interest路径；g003CNavigationAdditional记录该项旧空态实窗定位。","boundary":"仅旧现场导航，不证明对象数据、刷新或远端效果；当前Panel候选待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13615,6 +13620,7 @@
         },
         {
           "id": "navigation:diagnostics:diagnostics-audit",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"当前诊断树声明该anchor并走共同导航；g003CurrentDiagnosticTreeRetest记录该项旧实窗定位。","boundary":"旧实窗仅导航，未刷新审计、连接Worker或检测端口；当前Panel候选待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13622,6 +13628,7 @@
         },
         {
           "id": "navigation:diagnostics:diagnostics-errors",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"当前诊断树声明该anchor并走共同导航；g003CurrentDiagnosticTreeRetest记录该项旧实窗定位。","boundary":"旧实窗仅导航，未刷新审计、连接Worker或检测端口；当前Panel候选待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13629,6 +13636,7 @@
         },
         {
           "id": "navigation:diagnostics:diagnostics-worker-telemetry",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"当前诊断树声明该anchor并走共同导航；g003CurrentDiagnosticTreeRetest记录该项旧实窗定位。","boundary":"旧实窗仅导航，未刷新审计、连接Worker或检测端口；当前Panel候选待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13636,6 +13644,7 @@
         },
         {
           "id": "navigation:diagnostics:diagnostics-ports",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"当前诊断树声明该anchor并走共同导航；g003CurrentDiagnosticTreeRetest记录该项旧实窗定位。","boundary":"旧实窗仅导航，未刷新审计、连接Worker或检测端口；当前Panel候选待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13643,6 +13652,7 @@
         },
         {
           "id": "navigation:diagnostics:diagnostics-conflicts",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"当前诊断树声明该anchor并走共同导航；g003CurrentDiagnosticTreeRetest记录该项旧实窗定位。","boundary":"旧实窗仅导航，未刷新审计、连接Worker或检测端口；当前Panel候选待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13650,6 +13660,7 @@
         },
         {
           "id": "navigation:diagnostics:diagnostics-capabilities",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"当前诊断树声明该anchor并走共同导航；g003CurrentDiagnosticTreeRetest记录该项旧实窗定位。","boundary":"旧实窗仅导航，未刷新审计、连接Worker或检测端口；当前Panel候选待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13657,6 +13668,7 @@
         },
         {
           "id": "navigation:diagnostics:diagnostics-json",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"当前诊断树声明该anchor并走共同导航；g003CurrentDiagnosticTreeRetest记录该项旧实窗定位。","boundary":"旧实窗仅导航，未刷新审计、连接Worker或检测端口；当前Panel候选待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -14678,6 +14690,7 @@
         },
         {
           "name": "simpleExperiment.generateXshellTunnelScript",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"命令进入保存对话框，返回后重核项目及Worker隧道参数；原消费者假写入器覆盖正常/取消/切换，整文件2/2。","boundary":"未写真实脚本或启动隧道；待构建。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.generateXshellTunnelScript]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",

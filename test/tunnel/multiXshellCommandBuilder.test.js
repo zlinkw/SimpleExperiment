@@ -9,14 +9,19 @@ test('script entry handles empty, invalid, cancelled and configured Worker choic
   const vm = require('node:vm'), ts = require('typescript'), path = require('node:path');
   const { readSource } = require('../_helpers/sourceReader');
   const method = require('../_helpers/legacyMethod')(readSource('src/extension.ts'), 'generateTunnelScript(');
-  for (const mode of ['empty', 'invalid', 'cancel', 'single-bat', 'single-ps1', 'multi-bat', 'multi-ps1']) {
+  for (const mode of ['empty', 'invalid', 'cancel', 'single-bat', 'single-ps1', 'multi-bat', 'multi-ps1', 'changed-project', 'changed-worker']) {
     const writes = [], notices = [], calls = [];
+    let current = true;
     const workers = mode === 'empty' ? [] : [{ id: 'w1', config: { host: 'first.example', port: 24567 } },
       ...(mode.startsWith('multi') ? [{ id: 'w2', config: { host: 'second.example', port: 24568 } }] : [])];
     const ext = mode.endsWith('ps1') ? 'ps1' : 'bat';
     const vscode = { Uri: { file: fsPath => ({ fsPath }) }, window: {
       showErrorMessage: message => notices.push(message),
-      showSaveDialog: async () => mode === 'cancel' ? undefined : { fsPath: `C:/fixture/output.${ext}` },
+      showSaveDialog: async () => {
+        if (mode === 'changed-project') current = false;
+        if (mode === 'changed-worker') workers[0].config.host = 'changed.example';
+        return mode === 'cancel' ? undefined : { fsPath: `C:/fixture/output.${ext}` };
+      },
     } };
     const builder = {};
     for (const name of ['generateXshellStartAllPs1Script', 'generateXshellPs1Script', 'generateXshellStartAllBatScript', 'generateXshellBatScript'])
@@ -28,6 +33,11 @@ test('script entry handles empty, invalid, cancelled and configured Worker choic
       TunnelEndpointRegistry_1: { buildTunnelEndpointRegistry: () => ({ endpoints: workers.map(item => ({ ...item, enabled: true })) }) },
       XshellTunnelCommandBuilder_1: builder });
     const host = new Host(); host.tunnelLaunchItems = () => workers; host.setupConfig = {}; host.lastWorkerProbes = {};
+    host.captureProjectContext = () => 'project'; host.projectContextIsCurrent = () => current;
+    if (mode.startsWith('changed')) {
+      await assert.rejects(host.generateTunnelScript(), /项目或 Worker 隧道配置已变化/);
+      assert.equal(writes.length, 0); assert.equal(calls.length, 0); continue;
+    }
     await host.generateTunnelScript();
     if (['empty', 'invalid', 'cancel'].includes(mode)) {
       assert.equal(writes.length, 0, mode); assert.equal(calls.length, 0, mode);

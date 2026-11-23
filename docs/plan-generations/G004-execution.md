@@ -104,3 +104,5 @@ Git覆盖审核等待状态或写入期间切换项目时，现于后续fetch、
 删除Worker配置确认等待期间，同ID配置可被替换；现重核被确认的配置快照，变更则要求重确认，原取消及只移除所选项不变。真实方法配假配置 `%TEMP%/g004-worker-config-confirm-20261123.{out,err}.log` 2/2，原消费者精确case `%TEMP%/g004-worker-config-consumer-20261123.{out,err}.log` 1/1，均exit0；未修改真实Worker或共享配置，未build。
 
 资源树tmux总览和等待占位的点击只导航并上报section interest，并不直接调用刷新；源码候选将提示改为使用刷新按钮，未触发真实tmux查询。该文案在Panel源内，与健康探针组一起等待原build及真实内嵌脚本VM门禁，未提交。
+
+生成隧道脚本原先选择保存位置等待期间可能混合旧Worker和新项目/配置；现保留原保存入口并在生成前核项目和实际Worker隧道参数。原真实方法假对话框/假写入器及命令构造 `%TEMP%/g004-tunnel-script-identity-20261123.{out,err}.log` 2/2 exit0，包括切项目/配置无写入；未写真实脚本、启动隧道或访问服务器，待build。

@@ -6892,7 +6892,10 @@ return this.testTunnel(true);
             this.postState();
     }
     async generateTunnelScript() {
-        const item = this.tunnelLaunchItems()[0];
+        const projectContext = this.captureProjectContext();
+        const launchItems = this.tunnelLaunchItems();
+        const launchIdentity = JSON.stringify(launchItems);
+        const item = launchItems[0];
         if (!item) {
             void vscode.window.showErrorMessage("没有启用的 Worker，请先配置并启用 Worker 隧道。");
             return;
@@ -6910,6 +6913,8 @@ return this.testTunnel(true);
         });
         if (!target)
             return;
+        if (!this.projectContextIsCurrent(projectContext) || JSON.stringify(this.tunnelLaunchItems()) !== launchIdentity)
+            throw new Error("项目或 Worker 隧道配置已变化，请重新生成脚本。");
         const endpoints = (0, TunnelEndpointRegistry_1.buildTunnelEndpointRegistry)(this.setupConfig, this.lastWorkerProbes).endpoints.filter((endpoint) => endpoint.enabled);
         const text = target.fsPath.toLowerCase().endsWith(".ps1")
             ? (endpoints.length > 1 ? (0, XshellTunnelCommandBuilder_1.generateXshellStartAllPs1Script)(this.setupConfig, endpoints) : (0, XshellTunnelCommandBuilder_1.generateXshellPs1Script)(hubConfig))
