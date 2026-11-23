@@ -17,6 +17,7 @@ test("local result previews select CSV format from actual columns", async () => 
     "empty.csv": "dataset,method\nsynthetic,a\n",
     "mixed.csv": "dataset,method,AP\nsynthetic,a,\nsynthetic,b,0.44\n",
     "result.json": '{"results":[{"dimensions":{"method":"a"},"metrics":{"AP":0.11}}]}',
+    "mapped.csv": "dataset,method,measure,amount\nsynthetic,a,average_precision,0\n",
   };
   const source = ts.createSourceFile("extension.ts", extension, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   let fn;
@@ -31,7 +32,7 @@ test("local result previews select CSV format from actual columns", async () => 
     errorMessage: (error) => String(error.message || error), Date };
   vm.createContext(sandbox);
   vm.runInContext(`${fn.getText(source)}\nthis.preview = previewLocalResultFiles;`, sandbox);
-  const rows = await sandbox.preview("fixture", Object.keys(files), { csvColumnMapping: { dataset: "dataset", method: "method", seed: "seed" } });
+  const rows = await sandbox.preview("fixture", Object.keys(files).filter((file) => file !== "mapped.csv"), { csvColumnMapping: { dataset: "dataset", method: "method", seed: "seed" } });
   assert.equal(rows[0].format, "wide_csv");
   assert.equal(rows[0].records, 2);
   assert.deepEqual(Array.from(rows[0].sampleMetrics).sort(), ["AP", "macro_f1"]);
@@ -43,6 +44,16 @@ test("local result previews select CSV format from actual columns", async () => 
   assert.deepEqual(Array.from(rows[3].sampleMetrics), ["AP"]);
   assert.equal(rows[4].format, "json");
   assert.equal(rows[4].records, 1);
+  const [mapped] = await sandbox.preview("fixture", ["mapped.csv"], {
+    csvColumnMapping: { dataset: "dataset", method: "method", metric: "measure", value: "amount" },
+    metricAliases: { average_precision: "AP" },
+  });
+  assert.equal(mapped.format, "long_csv");
+  assert.equal(mapped.records, 1);
+  assert.deepEqual(Array.from(mapped.sampleMetrics), ["AP"]);
+  const config = { columnMapping: { dataset: "dataset", method: "method", metric: "measure", value: "amount" } };
+  const preset = { ...Results.selectResultPreset("mapped.csv", undefined, files["mapped.csv"], config), metricAliases: { average_precision: "AP" } };
+  assert.equal(Results.previewResultParse(files["mapped.csv"], "mapped.csv", preset, config).sampleMetrics.AP.value, 0);
 });
 
 function extractFunction(name) {

@@ -94,3 +94,5 @@ job 289 为唯一 fresh，最终 package 内原精确 pattern 1/1 exit0，wall 4
 专用根原 `synthetic/final.csv` 是合法宽格式，两行含 AP/macro_f1/weighted_f1；原项目预览仅按文件名选 long preset，误报缺 metric/value、0 records。同一原字节用现有表头选择 wide preset 实际得到2 records。现预览选择时传已有文本及列映射，宽/长/JSON按现有选择契约处理；预览只把含指标的解析记录计作有效，避免只有维度的行误报成功，并允许首行无指标、后行有指标。未改原文件或底层解析结果。
 
 源级局部调用链的宽/长/JSON、空指标及混合行回归最终6/6、exit0、827.5419ms；原日志 `%TEMP%/g004-preview-formats-complete-20261123.out.log`/`.err.log`。首次测试夹具 AST 搜索不到函数，5/6 exit1；修夹具后第二次发现仅维度行被误判成功，5/6 exit1；均保留 `%TEMP%/g004-preview-format-20261123.*.log`、`g004-preview-format-repair-20261123.*.log`。中间回归6/6见 `g004-preview-metrics-20261123.*.log`。原520包和实际Host仍为旧实现，未冒称已部署。
+
+后补显式 metric/value 列映射、alias 及零值验证，原单文件 6/6 exit0、799.2334ms，日志 `%TEMP%/g004-preview-mapping-zero-20261123.*.log`。
