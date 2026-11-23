@@ -4,7 +4,7 @@
 
 ## 当前目标与边界
 
-G004 人工审定的增量覆盖按 identity+argv 复用适用的历史、直接和本轮证据，并冻结真实计划、gates、产物与输入；当前 361 active、6 onDemand，planner 仍缺 57 项，尚未通过，所有候选待总控最终审核。源码稳定后对原规划测试精确 pattern 按原 20 秒预算补验一次，执行 final dry-run 并向总控提交完整包；总控终审并另行开放前禁止 full build/package、安装和发行。0.5.520 只是候选，不能冒充已打包。
+G004 人工审定的增量覆盖按 identity+argv 复用适用的历史、直接和本轮证据，并冻结真实计划、gates、产物与输入；当前 361 active、6 onDemand，planner 仍缺 42 项，尚未通过，所有候选待总控最终审核。源码稳定后对原规划测试精确 pattern 按原 20 秒预算补验一次，执行 final dry-run 并向总控提交完整包；总控终审并另行开放前禁止 full build/package、安装和发行。0.5.520 只是候选，不能冒充已打包。
 
 当前不触碰真实 Worker、服务器、SSH、tmux、GPU、用户授权配置或真实 UI；真实 Worker、传输/清理、active results、跨项目和新 UI 未测。保留 26 个 tracked dirty dist、历史 VSIX sha、全部夹具及现场，不 stage 或清理。模拟删除/缺失不证明真实永久删除安全。总控批准既有夹具只在自建 temp 范围内 rename 到 clean_dir 并保留字节的模拟；真实删除、真实 WSL/tmux/GPU 与完整 runtime import/exec 仍不执行。具体安全测试、原精确权限与进一步裁决见 coverage 和历史原文。
 
@@ -22,7 +22,7 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 
 ## 审定证据和真实效果
 
-历史 job 187/189/240、七项删锁 264/265/267/268/269/271/274 已由总控人工继承；原 passed/0/tree confirmed 和日志保留，精确旧 Node/架构未知，不称本轮真实删除通过。总控另批准 runner 旧 default job 255–263、266、270、272、273、275–287、290、291 共 28 项逐 identity+argv 继承：旧 body/fixture 未变，新增 G004 分支不作用其输入，输入指纹改动不改变原场景比较行为；原日志和当前依赖冻结，未知旧 Node/架构不补造，不覆盖新 G004 或 job 289。
+历史 job 187/189/240、七项删锁 264/265/267/268/269/271/274 已由总控人工继承；原 passed/0/tree confirmed 和日志保留，精确旧 Node/架构未知，不称本轮真实删除通过。总控另批准 runner 旧 default job 255–263、266、270、272、273、275–283、285–287、290、291 共 27 项逐 identity+argv 继承：旧 body/fixture 未变，新增 G004 分支不作用其输入，输入指纹改动不改变原场景比较行为；原日志和当前依赖冻结，未知旧 Node/架构不补造，不覆盖新 G004 或 job 289。原先包含的 job 284 经总控复核原日志总耗时 20119.841ms，超过 20 秒，已撤回继承，不重跑；原历史 passed/0/tree 保留。
 
 总控审定 Git 旧场景中 job 300–308、313、315–323 共 19 项可继承：原 test 与其加载的 project/feature 闭包相对 `5a3ca8f6` 无 diff，改动的 BranchPlanDispatch import 非这些 pattern 调用；原私人临时 Git 夹具、原 passed/0/tree 和日志保留，当前依赖冻结，历史 Node、架构及 Git 版本未知。另外 job 325、331、332、334–339 共 9 项，Git/PR 闭包相同；后六项 UI 夹具提取的九个 legacy 方法与旧源逐 AST 文本相同，其余 legacy 变化不在测试方法内。原 receipt 和日志保留，历史 Node/Git/TypeScript 未知。本轮未重跑 Git 夹具，也不冒充真实 GitHub 或远端 Worker 验证；其他 pattern 继续逐项审定。
 
@@ -32,7 +32,7 @@ formalJobPreflightProgress/Structure/Environment 各 1/1、Failure/Rejections �
 
 接替后合成回归 distributedPlanExecutionMode 10/10、taskQueryWideReadRealChain 3/3、planRunHoldClearedChain 3/3、planRunRecovery 7/7、nativePlanRetry 6/6、completedJobArtifactRootBinding 7/7、syncScopeStagingIdentityWiring 4/4、planSubmissionStateGuard 26/26、planRunQueryRegression 6/6、planRunSharedSubmission 5/5、planBatchDispatchFirst 14/14、rerunTransferBusyAttribution 21/21、rerunIsolateEngineContract 6/6、cleanupMissingTargets 11/11、formalJobExecution 5/5、completedJobLatestSync 32/32、planStopClear 39/39、syncScopeDelete 14/14、syncScopeWorkerAuthority 10/10、cleanupActivity 2/2、localIndexSharedIdentity 3/3、localCodeManifestCache 5/5、currentSubmissionTruth 8/8、planPreflightProgressSpeed 20/20、tmuxCloseRuntime 1/1 均 exit0。采用函数提取、VM、假请求和自建状态；tmuxCloseRuntime 用假 subprocess/timer，syncScopeDelete 只检查生成脚本与替身，preflight 保留原 40 文件计时断言；无真实 Worker、tmux、网络、UI 或删除。完整依赖/原始事件见 coverage；均待总控终审。
 
-旧执行会话结束后受支持工具归档并核 session_meta、138 条 eligible 原事件双 SHA，139 处仅修实际归档路径（`9a69240b`），未搬删原 rollout 或重跑。此前旧会话归档修复另核 35 项事件、42 处路径，未改事件。当前 planner 57 项待核；须按具体调用链及源证继续，不得把未知或未测写成通过。
+旧执行会话结束后受支持工具归档并核 session_meta、138 条 eligible 原事件双 SHA，139 处仅修实际归档路径（`9a69240b`），未搬删原 rollout 或重跑。此前旧会话归档修复另核 35 项事件、42 处路径，未改事件。当前 planner 42 项待核；须按具体调用链及源证继续，不得把未知或未测写成通过。
 
 planCleanup 原文件 33/33 exit0；SFTP/UI 为替身，API 未监听，两个自建 PLAN/config 文件在 temp 根内 rename 到 clean_dir 并保留；模拟缺失不证明真实删除安全。原日志、事件与依赖见 coverage，待总控终审。
 
@@ -59,3 +59,17 @@ planJobDeleteRequeueCoverage 29/29、Production 9/9 exit0；隔离租约和自�
 remoteResultInspectionWorkflow 15/15 exit0；测试自建 localhost 随机监听返回 HTTP 413 后关闭，临时租约保留；Worker/UI 为替身，未做真实远程传输。原日志及依赖见 coverage，待总控终审。
 
 resultCollectionPerformance 11/11 exit0；原 48 job/51 表合成规模及断言未改，子 shell 禁用 baseline；假 Worker/SFTP，临时文件、硬链接及锁监听限 fixture，监听已关闭。日志及依赖见 coverage，待总控终审。
+
+freshResultHost 26/26 exit0、10.091 秒；输出跨 exec 和同 session 的 write_stdin 两个原事件，完整日志保留。为验证该真实续接格式而改 runner 后，原 G004 精确 pattern 单次在 20.008 秒仍未退出，立即发 Ctrl-C；续接显示 1/1 exit0、总耗时 20.389 秒，因超时不算通过。经用户明确批准一次例外，修正同 session 链校验并在测试内复用相同静态解析输入后，原 20 秒预算复验 1/1 exit0、7.513 秒；原超时和日志保留。续接必须逐事件核 SHA、顺序、同 session、最终退出和完整日志。日志为 `%TEMP%/g004-520-fresh-result-host-20261123-successor.log`、`%TEMP%/g004-520-continuation-validator-20261123.log`、`%TEMP%/g004-520-continuation-validator-approved-retest-20261123.log`。
+
+总控逐项审定旧 shell job 21–24 可继承：原测试、fixture 和提取闭包相对 `5a3ca8f6` 未变，当前两份构建 Python 仅版本常量不同且断言不比较版本；原记录均 passed/0/tree confirmed，日志及当前依赖已冻结。旧 Node、架构、Python、Git Bash 和 WSL 精确版本未知；本轮未重跑 WSL、进程组或真实 Worker/Conda。四项已登记，待未验 runner 批解除后核 planner 并同步。
+
+总控另审定旧 job 76–78 三个 tmuxTaskLifecycle 精确 pattern 和 job 93 gpuMemoryAdmission 可继承：测试、fixture、提取闭包未变，版本常量不参与断言；原记录均 passed/0/tree confirmed，日志和当前依赖冻结。旧 Node、架构、Python、WSL、tmux 精确版本未知；旧私有 socket、CPU probe、合成 GPU 不证明当前真实 tmux/GPU 或 Worker，本轮未重跑。
+
+总控审定旧 job 94、95、103 按精确 identity+argv 继承：相关测试、fixture 及运行闭包未变，manualLaunch 提取的两个方法相对 `5a3ca8f6` 经 AST 文本对比相同，版本常量不影响断言；原记录分别 2/2、11/11、1/1 且 passed/0/tree confirmed，日志与当前依赖冻结。旧工具链、WSL 和 tmux 版本未知，不证明当前硬件、科研环境或 Agent 升级效果，本轮未重跑。
+
+只读比较 automaticScopeContent 依赖时，`git show` 经 Node 默认 1 MiB 缓冲触发 ENOBUFS，子进程 SIGTERM，无仓库或远端写入；总控核旧 blob 2588951 字节后允许 3 MiB 读取，重读成功，提取的 `refreshSyncScopeMetadata` 方法旧新 AST 文本相同。该项仍待完整闭包审定，不因此计入覆盖。
+
+总控审定旧 job 220 gpuCollectorRealTmux、293 gpuMemoryBudget 可继承：原记录 4/4、14/14，passed/0/tree confirmed；对应 fixture 和业务闭包未变，运行版本按同一运行时比较，原日志与当前依赖冻结。旧 Node/Python/WSL/tmux 等版本未知，不代表当前设备验证。旧 job 219 gpuCollectorFrame 虽为 11/11、exit0，其原 stdout 总耗时 20857.309ms 超过当前整文件 20 秒限额；不继承、不重跑，保留为精确缺口。
+
+总控审定旧 job 228、230、231 租约测试及 36、37 配对更新测试可继承，相关源/构建闭包及提取片段未变，原日志与当前依赖冻结。本轮未做真实 Worker、UI、删除、进程扫描或更新操作。旧 37 实际为 40 pass、1 项非 win32 平台 skip，不能表述为 41/41；历史工具链未知。

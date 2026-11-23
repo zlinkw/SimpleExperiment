@@ -1076,13 +1076,15 @@ function inspectG004DirectEvidence(root, plan, coverage) {
   for (const row of rows) {
     if (!grouped.has(row.rollout)) grouped.set(row.rollout, new Map());
     grouped.get(row.rollout).set(row.callId, []);
+    if (row.continuations !== undefined && !Array.isArray(row.continuations)) throw new Error("G004 invalid direct continuation: " + row.file);
+    for (const continuation of row.continuations || []) grouped.get(row.rollout).set(continuation.callId, []);
   }
   for (const [rollout, ids] of grouped) {
-    for (const line of fs.readFileSync(rollout, "utf8").split("\n")) {
+    for (const [position, line] of fs.readFileSync(rollout, "utf8").split("\n").entries()) {
       const match = /"call_id":"([^"]+)"/.exec(line);
       if (!match || !ids.has(match[1])) continue;
       const event = JSON.parse(line);
-      if (event.payload && event.payload.call_id === match[1]) ids.get(match[1]).push({ line, event });
+      if (event.payload && event.payload.call_id === match[1]) ids.get(match[1]).push({ line, event, position });
     }
   }
   const eventSets = rows.map(row => grouped.get(row.rollout).get(row.callId));
@@ -1100,12 +1102,24 @@ function inspectG004DirectEvidence(root, plan, coverage) {
     if (parts.join(" ") !== row.exactCommandLine || parts[0] !== "node" || parts[parts.length - 1] !== row.file || parts.some(part => part.startsWith('"'))) throw new Error("G004 unsupported direct command: " + row.file);
     const actualArgv = parts.slice(1, -1).map(part => part.startsWith("'") && part.endsWith("'") ? part.slice(1, -1) : part);
     if (JSON.stringify(actualArgv) !== JSON.stringify(job.argv)) throw new Error("G004 direct argv mismatch: " + row.file);
-    const blocks = output.event.payload.output;
-    const toolResult = Array.isArray(blocks) && blocks.map(b => { try { return JSON.parse(b.text); } catch { return null; } }).find(v => v && v.exit_code === 0 && !v.session_id && typeof v.output === "string");
+    const resultOf = event => Array.isArray(event.event.payload.output) && event.event.payload.output.map(b => { try { return JSON.parse(b.text); } catch { return null; } }).find(v => v && typeof v.output === "string");
+    let toolResult = resultOf(output), previous = output.position;
+    const continuations = row.continuations || [];
+    const initialSession = toolResult && toolResult.session_id;
+    if (!Array.isArray(continuations)) throw new Error("G004 invalid direct continuation: " + row.file);
+    for (const continuation of continuations) {
+      const linked = grouped.get(row.rollout).get(continuation.callId) || [];
+      const requests = linked.filter(x => x.event.payload.type === "custom_tool_call"), responses = linked.filter(x => x.event.payload.type === "custom_tool_call_output");
+      const request = requests[0], response = responses[0];
+      const input = request && /^\s*const\s+(\w+)\s*=\s*await\s+tools\.write_stdin\(\{session_id:(\d+),chars:"",yield_time_ms:\d+\}\);\s*text\(JSON\.stringify\(\1\)\)\s*$/.exec(request.event.payload.input);
+      if (!toolResult || !Number.isSafeInteger(initialSession) || toolResult.session_id !== initialSession || toolResult.exit_code !== undefined || requests.length !== 1 || responses.length !== 1 || !input || Number(input[2]) !== initialSession || request.position <= previous || response.position <= request.position || digest(request.line) !== continuation.commandEventSha256 || digest(response.line) !== continuation.outputEventSha256) throw new Error("G004 invalid direct continuation: " + row.file);
+      toolResult = resultOf(response);
+      previous = response.position;
+    }
     const completeTestOutput = output => !/Warning: truncated output/i.test(output) && /(?:ℹ|#)\s*pass\s+[1-9]\d*\b/.test(output) && ["fail", "cancelled", "skipped", "todo"].every(name => new RegExp(`(?:ℹ|#)\\s*${name}\\s+0\\b`).test(output));
     const completeOutput = toolResult && completeTestOutput(toolResult.output);
     const retainedLog = row.log && row.logSha256 && sha256Fresh(row.log) === row.logSha256 && completeTestOutput(fs.readFileSync(row.log, "utf8"));
-    if (!toolResult || (row.log || row.logSha256 ? !retainedLog : !completeOutput)) throw new Error("G004 direct execution did not settle successfully: " + row.file);
+    if (!toolResult || toolResult.exit_code !== 0 || toolResult.session_id || (continuations.length && !retainedLog) || (row.log || row.logSha256 ? !retainedLog : !completeOutput)) throw new Error("G004 direct execution did not settle successfully: " + row.file);
     const deps = Object.entries(row.review.snapshotSha256);
     if (!deps.length || !Object.hasOwn(row.review.snapshotSha256, row.file) || !Array.isArray(row.review.dependencies) || row.review.dependencies.length !== deps.length || new Set(row.review.dependencies).size !== deps.length || row.review.dependencies.some(dep => !Object.hasOwn(row.review.snapshotSha256, dep))) throw new Error("G004 direct dependencies missing: " + row.file);
     for (const [rel, expected] of deps) {

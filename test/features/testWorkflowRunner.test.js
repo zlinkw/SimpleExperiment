@@ -94,6 +94,32 @@ const baseManifest = (ws, entries, parallelFiles, exclusive = {}) => ({
 });
 
 test("runner: G004 reviewed legacy evidence preserves origin and refuses drift", t => {
+  // Reuse only the actual static parser stdout for identical inputs in this case.
+  const Module = require("node:module"), childProcess = require("node:child_process");
+  const originalLoad = Module._load, originalModule = require.cache[RUNNER], parserResults = new Map();
+  let runner;
+  try {
+    Module._load = function(request, parent, isMain) {
+      const loaded = originalLoad.call(this, request, parent, isMain);
+      if (request !== "node:child_process" || parent.filename !== RUNNER) return loaded;
+      return { ...loaded, spawnSync(file, args, options) {
+        if (!/^pwsh(?:\.exe)?$/i.test(file) || args[0] !== "-NoProfile" || args[1] !== "-NonInteractive" || args[2] !== "-Command" || !args[3].includes("[System.Management.Automation.Language.Parser]::ParseInput") || typeof options.input !== "string") return childProcess.spawnSync(file, args, options);
+        const key = JSON.stringify([file, args, options.input]);
+        if (!parserResults.has(key)) {
+          const result = childProcess.spawnSync(file, args, options);
+          if (result.status !== 0) return result;
+          parserResults.set(key, result);
+        }
+        return parserResults.get(key);
+      } };
+    };
+    delete require.cache[RUNNER];
+    runner = require(RUNNER);
+  } finally {
+    Module._load = originalLoad;
+    require.cache[RUNNER] = originalModule;
+  }
+  t.after(() => parserResults.clear());
   const ws = makeWorkspace(t), file = "test/source.js";
   const manifest = { entries: { fin: { final: true, phases: {} } }, domains: {} };
   assert.throws(() => runner.planEntry(path.join(ws, "manifest.json"), manifest, ws, "fin", { root: ws, only: [], domains: [], reuseRequested: true }), /removed by r29 #4/);
@@ -204,6 +230,27 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
     fs.writeFileSync(wrongArgvPath, JSON.stringify({ g004IncrementalCoverage: { ...coverage, currentTargetedEvidence: [incompleteDirect] } }));
     assert.throws(() => runner.verifyG004Aggregate({ ...state, g004CoveragePath: wrongArgvPath, g004CoverageSha256: sha(wrongArgvPath) }), /direct execution did not settle successfully/);
   }
+  const continuedRollout = path.join(ws, "continued-rollout.jsonl"), retainedLog = path.join(ws, "continued.log");
+  fs.writeFileSync(retainedLog, "ℹ tests 1\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\n");
+  const continuedOutput = JSON.stringify({ payload: { type: "custom_tool_call_output", call_id: callId, output: [{ text: JSON.stringify({ session_id: 123, output: "partial" }) }] } });
+  const checkContinuation = (session, result, omitOutput = false, intermediate) => {
+    const continuationId = "fixture-continuation";
+    const firstId = "fixture-first-continuation";
+    const firstRequest = JSON.stringify({ payload: { type: "custom_tool_call", call_id: firstId, input: 'const r=await tools.write_stdin({session_id:123,chars:"",yield_time_ms:1000});text(JSON.stringify(r))' } });
+    const firstResponse = JSON.stringify({ payload: { type: "custom_tool_call_output", call_id: firstId, output: [{ text: JSON.stringify(intermediate) }] } });
+    const request = JSON.stringify({ payload: { type: "custom_tool_call", call_id: continuationId, input: `const r=await tools.write_stdin({session_id:${session},chars:"",yield_time_ms:1000});text(JSON.stringify(r))` } });
+    const response = JSON.stringify({ payload: { type: "custom_tool_call_output", call_id: continuationId, output: [{ text: JSON.stringify(result) }] } });
+    fs.writeFileSync(continuedRollout, [callLine, continuedOutput, ...(intermediate ? [firstRequest, firstResponse] : []), request, ...(omitOutput ? [] : [response])].join("\n") + "\n");
+    const evidence = { ...directEvidence, rollout: continuedRollout, outputEventSha256: digest(continuedOutput), log: retainedLog, logSha256: sha(retainedLog), continuations: [...(intermediate ? [{ callId: firstId, commandEventSha256: digest(firstRequest), outputEventSha256: digest(firstResponse) }] : []), { callId: continuationId, commandEventSha256: digest(request), outputEventSha256: digest(response) }] };
+    return runner.planG004Execution(ws, plan, { ...coverage, currentTargetedEvidence: [evidence] });
+  };
+  assert.equal(checkContinuation(123, { exit_code: 0, output: "complete" }).length, 2);
+  assert.equal(checkContinuation(123, { exit_code: 0, output: "complete" }, false, { session_id: 123, output: "partial" }).length, 2);
+  assert.throws(() => checkContinuation(124, { exit_code: 0, output: "complete" }, false, { session_id: 124, output: "partial" }), /invalid direct continuation/);
+  assert.throws(() => checkContinuation(123, { session_id: 123, output: "still running" }), /did not settle/);
+  assert.throws(() => checkContinuation(124, { exit_code: 0, output: "complete" }), /invalid direct continuation/);
+  assert.throws(() => checkContinuation(123, { exit_code: 1, output: "failed" }), /did not settle/);
+  assert.throws(() => checkContinuation(123, { exit_code: 0, output: "complete" }, true), /invalid direct continuation/);
   const pattern = "^literal\\.name$", escapedJob = { ...directJob, argv: ["--test", "--test-timeout", "20000", "--test-name-pattern", pattern] };
   const exact = `node --test --test-timeout 20000 --test-name-pattern '${pattern}' ${directJob.file}`;
   const escapedPlan = { ...plan, jobs: [job, escapedJob] };
