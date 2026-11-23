@@ -165,8 +165,8 @@ file_cleanup_preview/inspect/observe_batch 的节点、项目和配套观察契�
 
 plan_run按workflow_submission接受边界修正前置权限复核；普通MCP/UI正路径1/1 exit0，`%TEMP%/g004-workflow-accept-normal-20261123.*.log`。误将入队作为接受的推断撤回；无撤权专项、真实Worker，详情见coverage。
 
-file_cleanup_status/check/verify按原token、节点及观察可能落账的行为核源码，未查询真实目标；见coverage。
-
-file_cleanup_review/execute/settle按源码核人工确认、原请求身份与未知回执；未打开审核页或触真实文件，见coverage。
+file_cleanup状态、审核与执行6项详见coverage及 `df29de92:docs/plan-generations/G004-execution.md`；未操作真实目标。
 
 sftp_worker_sync/directory/batch按两个Worker、路径与配套消费者核源码；未执行真实传输，见coverage。
+
+sftp_server_import/download_scope/download_mapped的授权、保存范围及内存指标边界见coverage，未改配置或传输。

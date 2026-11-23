@@ -11687,6 +11687,7 @@
         },
         {
           "name": "sftp_server_import",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"Gateway要求本地本人批准；配套从SSH配置导入共享服务器并可能设初始活动项，属于共享配置写入。","boundary":"仅源码；未打开确认、读取个人SSH配置或修改服务器目录。"},
           "method": "servers.importSshConfig",
           "oldEvidence": "projectTools[name=sftp_server_import]",
           "scope": "companion_proxy_real_downstream_scoped",
@@ -11776,6 +11777,7 @@
         },
         {
           "name": "sftp_download_scope",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"需sync项目授权，按明确Worker保存路径、扩展名及大小配置；原假Host范围路由3/3日志 %TEMP%/g004-519-download-scope-ff08.log。","boundary":"未修改真实范围或读取服务器；缺省范围用于下载时的行为另有待裁定缺口。"},
           "method": "downloadScope.configure",
           "oldEvidence": "projectTools[name=sftp_download_scope]",
           "scope": "companion_proxy_real_downstream_scoped",
@@ -11809,6 +11811,7 @@
         },
         {
           "name": "sftp_download_mapped",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"要求sync项目授权及workerId和每条路径、字节数、SHA256；Host强制memoryOnly与metricsOnly，配套对大小、指标类型及摘要核验。","boundary":"源码及原假代理范围；未读真实Worker指标或传输。"},
           "method": "sync.downloadMappedPaths",
           "oldEvidence": "projectTools[name=sftp_download_mapped]",
           "scope": "companion_proxy_real_downstream_scoped",
