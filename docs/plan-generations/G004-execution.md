@@ -134,3 +134,5 @@ MCP诊断取消在await查询后可能在授权或项目、Worker变化后仍发
 结果表打开原在等待catalog后才读取目录，目录变化可把旧索引和新目录混用；候选固定目录、在异步读取及发布前复核。与自动匹配同一受控文件8/8 exit0 %TEMP%/g004-result-mapping-open-guard-20261123.*.log，覆盖切目录时不写不打开及Markdown精确选择；无真实文件/编辑器，候选待build。
 
 日志历史实际仅显示最多50行，五处按钮原提示“完整日志”不准确；候选更正为“日志尾部”，保留独立完整日志入口，待Panel build。未请求真实日志。
+
+配套包历史证据进一步核对：agentLifecycle 与 agentPythonResolution 的测试、agent-lifecycle.js及其读取的Python源从119到当前28087f3无变化；120汇总分别记1及12通过，但逐项原日志缺失，历史工具链及执行细节不补造。当前未运行Agent、Python解析或WSL。
