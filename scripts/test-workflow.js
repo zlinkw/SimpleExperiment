@@ -1040,6 +1040,10 @@ function inspectG004LegacyEvidence(root, plan, coverage) {
 function g004RecordedCommands(inputs) {
   const commands = inputs.map(input => {
     if (input.startsWith("node ")) return input;
+    const literal = /^\s*const\s+([A-Za-z_$][\w$]*)\s*=\s*("(?:\\.|[^"\\])*");\s*text\(await tools\.exec_command\(\{\1,workdir:"(?:\\.|[^"\\])*",yield_time_ms:\d+,max_output_tokens:\d+\}\)\)\s*$/.exec(input);
+    if (literal) {
+      try { return JSON.parse(literal[2]); } catch { return null; }
+    }
     const match = /^\s*const\s+\w+\s*=\s*await\s+tools\.exec_command\(\{\s*cmd\s*:\s*("(?:\\.|[^"\\])*")\s*[,}]/.exec(input);
     if (!match) return null;
     try { return JSON.parse(match[1]); } catch { return null; }

@@ -80,3 +80,5 @@ resultCandidateMetadataExclusion 4/4 exit0；仅将 Python TemporaryDirectory �
 总控审定旧 job 005/030/031 继承原 Windows 记录，分别为 9/9、1/1、0 pass/1 skip；031 原平台跳过不证明 POSIX 功能。固定端口及双 fork 仅历史，本轮未重跑；旧工具链未知，原日志与当前依赖已冻结。
 
 总控审定旧 job 041/165/233：041 原 5/5 仅证明隔离 APPDATA 的 SFTP 发现文件缺失分支和假全成功拒绝；165 原 5 pass/1 skip，未验证 Linux inotify；233 原 3/3，D:/project 是 VM 身份，自建 temp 保存队列。旧工具链未知，不重跑。
+
+本轮 mcpProjectOpsContract 11/11、windowScopeIsolation 8/8 均 exit0；后者发现文件环境限自建夹具，均无真实 Worker 或 SFTP。原事件采用静态字面量命令变量包装，旧 G004 核验器不识别；经总控裁决仅增加该完整包装的静态识别及反例，不执行 JavaScript。原精确 G004 pattern 单次复验 1/1 exit0，8.662 秒，日志 `%TEMP%/g004-520-static-wrapper-retest-20261123.log`；业务测试未重跑，原事件与日志保留。

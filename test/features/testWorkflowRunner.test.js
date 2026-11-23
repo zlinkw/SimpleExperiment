@@ -265,6 +265,12 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   };
   assert.equal(checkEscaped(wrapped(`$note="quoted"; ${exact} 2>&1 | Tee-Object -FilePath log`)).length, 2);
   assert.equal(checkEscaped(wrapped(`@'\nfixture text\n'@ | python -B -\n${exact}\nexit $LASTEXITCODE`)).length, 2);
+  const literalWrapped = command => `const cmd=${JSON.stringify(command)};text(await tools.exec_command({cmd,workdir:"D:/fixture",yield_time_ms:1000,max_output_tokens:3000}))`;
+  assert.equal(checkEscaped(literalWrapped(`${exact} 2>&1 | Tee-Object -FilePath log; exit $LASTEXITCODE`)).length, 2);
+  assert.equal(checkEscaped(literalWrapped(`$env:APPDATA='fixture'; ${exact} 2>&1 | Tee-Object -FilePath log; exit $LASTEXITCODE`)).length, 2);
+  assert.throws(() => checkEscaped(literalWrapped(exact).replace(';text(', ';cmd="changed";text(')), /direct execution record drift/);
+  assert.throws(() => checkEscaped(literalWrapped(exact).replace(JSON.stringify(exact), 'makeCommand()')), /direct execution record drift/);
+  assert.throws(() => checkEscaped(literalWrapped(exact).replace('{cmd,workdir:', '{cmd,cmd:"other",workdir:')), /direct execution record drift/);
   assert.throws(() => checkEscaped(wrapped(exact.replace("\\.", "."))), /direct execution record drift/);
   assert.throws(() => checkEscaped(wrapped(`Write-Output '${exact}'`)), /direct execution record drift/);
   assert.throws(() => checkEscaped(wrapped(`function unused { ${exact} }; Write-Output "text; ${exact}"`)), /direct execution record drift/);
