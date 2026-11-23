@@ -12016,6 +12016,7 @@
         },
         {
           "name": "artifact_list",
+          "currentReview": {"status":"synthetic_scoped_external_effect_restricted","evidence":"results授权后按项目任务身份关联本地产物或精确Worker声明路径；源审路径越界和未核实清单拒绝。原假RPC及合成文件18/18 exit0 %TEMP%/g004-520-mcp-query-context-20261123.log，含本地路径、错误、远端越界和失败。","boundary":"本轮未查询真实任务、活动结果或Worker；合成库存不证明实际产物。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=artifact_list]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -12024,6 +12025,7 @@
         },
         {
           "name": "artifact_inspect",
+          "currentReview": {"status":"synthetic_scoped_external_effect_restricted","evidence":"results授权后查精确ID，歧义报错，本地检查真实路径边界、返回大小时间和文件哈希；Worker按精确声明路径请求清单。原假RPC及合成文件18/18 exit0 %TEMP%/g004-520-mcp-query-context-20261123.log，含零值、越界、远端失败。","boundary":"未对真实文件计算哈希或查询真实Worker、任务及活动结果。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=artifact_inspect]",
           "scope": "local_gateway_plus_worker_effect_restricted",

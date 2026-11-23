@@ -79,13 +79,7 @@ CSV宽/长/JSON回归6/6 `%TEMP%/g004-preview-formats-complete-20261123.*.log`�
 
 停止候选保留显式Worker供人工重试；12/12 exit0 `%TEMP%/g004-stop-ui-identity-20261123.*.log`，Panel未构建部署。
 
-SFTP server activate/save/delete源码及假后端范围见coverage；后两项复用17/17 `%TEMP%/g004-520-mcp-sftp-routing-20261123.log`，无真实配置变更或删除。
-
-`sftp_download_paths` 原接受绝对路径并被下游误解释为相对路径；现拒绝绝对、盘符及越界输入。关联上传范围和授权见coverage；假后端17/17 exit0 `%TEMP%/g004-mcp-download-path-validation-20261123.*.log`，无真实传输。一次压缩补丁未匹配、写前退出；原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
-
-SFTP tree、tree_state、inventory源码及假端口范围见coverage；三只读工具未声明权限类别，仅绑定Worker/项目，未访问真实Worker或计算远端哈希。
-
-SFTP file_stats/plan_logs仅源码和假端证据。remote_directories原无条件附确认且缺授权，现按sync授权、根内目标和调用前快照复核；假Gateway/Host 18/18 `%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log`，已装120确认函数VM 3/3 `%TEMP%/g004-sftp120-confirmation-vm-20261123.log`，无真实grant或远端操作。一次压缩补丁未匹配未写入，原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
+SFTP服务器配置、下载路径、tree/inventory、file_stats、plan_logs及remote_directories逐ID事实、假后端日志、失败及授权边界见coverage和 `49e1cebd:docs/plan-generations/G004-execution.md`；未访问真实Worker、改grant或传输/删除。
 
 静态报告路径及错误VM 3/3 exit0，`%TEMP%/g004-report-read-errors-20261123.*.log`；成功打开/复制未实测。
 
@@ -146,3 +140,5 @@ log_read遇无效空响应原可退回模糊匹配缓存，现明确报错；分
 TensorBoard四个MCP入口的目标、授权及终态按源码逐项复核，详见coverage；未启动、查询或停止真实服务。
 
 tmux_list/capture源码和假Gateway路由证据范围见coverage；未访问真实Worker、窗口或日志。
+
+artifact_list/inspect项目边界、精确身份和本地及假远端证据逐ID见coverage；未查询真实任务、活动结果或Worker。
