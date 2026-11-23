@@ -140,12 +140,13 @@ test('operation log actions keep exact identity, nested evidence and full-file p
     ts.forEachChild(node, visit);
   }
   visit(ast); assert.equal(methods.length, names.size); assert.ok(redact);
-  const notices = [], documents = [], picks = [], reads = [];
+  const notices = [], documents = [], picks = [], reads = [], copied = [];
+  let choose = async () => undefined, copyError;
   const context = vm.createContext({
     vscode: {window: {showInformationMessage: text => notices.push(text),
-      showQuickPick: async (items, options) => {picks.push({items, options});}, showTextDocument: async doc => documents.push(doc)},
-      workspace: {openTextDocument: async doc => doc}, env: {clipboard: {writeText: async () => assert.fail('no row selected')}}},
-    normalizeRemoteResultInspectionPath: value => value.startsWith('work_dirs/') ? value : '',
+      showQuickPick: async (items, options) => {picks.push({items, options}); return choose(items);}, showTextDocument: async doc => documents.push(doc)},
+      workspace: {openTextDocument: async doc => doc}, env: {clipboard: {writeText: async text => {if (copyError) throw copyError; copied.push(text);}}}},
+    normalizeRemoteResultInspectionPath: value => value.startsWith('work_dirs/') ? value : '', UiCommandCancelled: Error,
   });
   const code = ts.transpileModule(redact + '\nthis.Host = class {\n' + methods.join('\n') + '\n};',
     {compilerOptions: {target: ts.ScriptTarget.ES2022}}).outputText;
@@ -161,6 +162,19 @@ test('operation log actions keep exact identity, nested evidence and full-file p
   assert.match(picks[0].options.title, /exact/);
   assert.equal(picks[0].items.length, 3); assert.match(picks[0].items[1].detail, /已脱敏/);
   assert.doesNotMatch(JSON.stringify(picks), /secret-value|WRONG LOG/);
+  assert.deepEqual(copied, [], 'cancelling the picker copies nothing');
+  choose = async items => items[1]; await host.showLogHistoryFromUi({operationId: 'exact'});
+  assert.deepEqual(copied, [picks[1].items[1].detail]);
+  copyError = new Error('clipboard failed');
+  await assert.rejects(host.showLogHistoryFromUi({operationId: 'exact'}), /clipboard failed/); copyError = undefined;
+  let resolvePick; choose = () => new Promise(resolve => {resolvePick = resolve;});
+  const pendingPick = host.showLogHistoryFromUi({operationId: 'exact'});
+  current = false; resolvePick({detail: 'old-project-log'});
+  await assert.rejects(pendingPick, /项目已切换/);
+  assert.equal(copied.length, 1, 'a stale selection cannot reach the clipboard'); current = true;
+  const cancelledPick = host.showLogHistoryFromUi({operationId: 'exact'});
+  current = false; resolvePick(undefined); await cancelledPick;
+  assert.equal(copied.length, 1, 'cancelling after a switch remains a no-op'); current = true;
   await host.openFullLogFromUi({operationId: 'exact'});
   assert.equal(reads[0].batch.workerId, 'worker-a'); assert.equal(reads[0].batch.entries[0].remotePath, 'work_dirs/one/train.log');
   assert.equal(reads[0].scope.resultInspection, true);

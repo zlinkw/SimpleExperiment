@@ -25667,6 +25667,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         return { operationId: String(row.operationId || row.id), tail: redactSensitiveText(tail), logPath, workerId };
     }
     async showLogHistoryFromUi(message: any) {
+        const context = this.captureProjectContext();
         const source = this.operationLogSource(message);
         const raw = source.tail.trim();
         if (!raw) {
@@ -25675,7 +25676,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         }
         const lines = raw.split(/\r?\n/).slice(-50);
         const picked = await vscode.window.showQuickPick(lines.map((l, i) => ({ label: `${String(i+1).padStart(2,"0")}: ${l.slice(0,120)}`, description: l.length>120 ? l.slice(0,200) : "", detail: l })), { title: `${source.operationId} · 日志尾部 ${lines.length} 条（最多50）`, placeHolder: "选择一行复制；完整文件请使用本条“打开完整日志”" });
-        if (picked) await vscode.env.clipboard.writeText(String((picked as any).detail || (picked as any).label || ""));
+        if (picked) {
+            if (!this.projectContextIsCurrent(context)) throw new UiCommandCancelled("项目已切换，未复制日志。");
+            await vscode.env.clipboard.writeText(String((picked as any).detail || (picked as any).label || ""));
+        }
     }
     async openFullLogFromUi(message: any) {
         const context = this.captureProjectContext();

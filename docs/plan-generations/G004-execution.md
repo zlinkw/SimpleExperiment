@@ -41,11 +41,7 @@ SFTP共享配置读取和发布围栏假端v1 3/3、v2 4/4、v3 5/5及消费者1
 
 召回路径的排队判定、Scheduler互斥与原请求身份核实已源审并同步 `9412b48c`；Host假端v11 16/16、Python抽函数v2 1/1、原消费者精确项均exit0。旧协议消费者v1 4/5失败及v2/v3修正、所有原日志和未知回执限制详见 `d766909a:docs/plan-generations/G004-execution.md`；不重发未知请求，未运行真实Worker或build。
 
-提交取消与恢复入口等待中切项目可能继续写旧回执或用新根释放claim；绑定原项目并在发布前重核，假端 `%TEMP%/g004-plan-submission-project-v2-20261123.{out,err}.log` 3/3 exit0，writer闭包修正v3精确项1/1 exit0。已写回执不回滚，未访问真实项目或claim；源码已同步 7659b4b9、b2b25d81，未build。
-
-归档复制绑定项目及实际映射根，v2/v4各2/2、原消费者1/1；首v1 0/2因缺makeOpId，日志与 `ae39752c` 至 `bab13011` 已审修复见 `d766909a`，最终同步 `b61c0e09`，无真实Worker/SFTP。
-
-失败job重排绑定原项目，假队列 `%TEMP%/g004-recall-failed-project-v1-20261123.{out,err}.log` 1/1 exit0，已同步 `e8bc27fe`，未运行Worker。2026-11-23执行角色正式释放、结束归档并接替；新Terra/high/default match/continue，指针及裁决 `43efb031`，受保护dirty及旧资产不动。
+提交取消/恢复、归档复制及失败job重排均已按原项目与身份做发布边界；源码提交、假端结果、首失败、角色交接和限制见 `79d2d2ad:docs/plan-generations/G004-execution.md` 及coverage，未访问真实Worker或删除。
 
 停止请求原先发送后迟到可能修改新项目状态，且200ms延迟保存可在切换时丢失意图。当前候选固定原项目/client，在发送前等待原有localOperations持久化队列排干并复核，保存失败或切换零POST；已发结果未知不重发、不清新项目缓存。纯VM假端 `%TEMP%/g004-stop-context-v4-20261123.{out,err}.log` 14/14 exit0；v2首13/14 exit1为夹具reply尚未初始化，显式等待假POST后v3 14/14，后补single-flight竞态得v4。无真实Worker或跨项目效果；待当前build。
 
@@ -100,3 +96,5 @@ SFTP能力描述旧断言修为过期只读/永久双确认；精确case call_f4
 报告项目切换：真实两入口与context opener假端新full5/5、原报告错误精确1/1均literal direct exit0，call/完整输出与源码摘要见coverage；仅读源码和fake FS/editor/clipboard，已发效果不冒撤销，新dist未build。新identity首次误插jobs而非currentTargetedEvidence，登记脚本写前exit1后已移至正确数组；未改旧证。总控plan归并首14919未达自设14500写前assert失败，后成功，无额外文件。
 
 报告批首次零上下文暂存误落其他方法，索引AST核对失败，未提交；只撤自己legacy暂存，改三段带上下文补丁后五方法索引/工作树AST相同。首脚本误判应为两段，写前退出，改三段成功；工作树未受影响。
+
+日志选择绑定原项目：picker返回后有选择才核context，再复制脱敏行；切项目取消无效果，已发复制不冒撤回。原workflowPanelNavigation full7 literal direct call_f0a6c935cf0c42d4a8007e67c38da8e5 7/7、exit0/no session/skip0，日志从原事件事后提取；旧full7降历史。仅fake picker/clipboard和旧dist消费者，不冒新编译/真实窗口/Worker。总控对41、报告5与错误1仅更新legacy当前适用d4→bab，原运行f6/d4快照及事件不改。
