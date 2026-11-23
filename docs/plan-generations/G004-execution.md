@@ -87,3 +87,6 @@ TensorBoard将发送、等待、返回、链接及延后复制绑定原项目/Wo
 结果汇总生产候选：context/client绑定手动和自动发布、同owner共享及异owner等待原请求，旧timer和错误不污染新项目，catalog等待后重核；已发布文件不冒撤回。新focused原full4 call_f6ca9fc55c6d4d168d84c6636f65424b 4/4、1122.7508ms、literal exit0/no session/skip0；事后日志、事件与执行输入见coverage。私有TEMP真实写PLAN/表格、staging rename/flush和named-pipe协调，fixture保留；无真实Worker/删除/Python。输出事件SHA首次消息手抄caf0错误，原事件复核纠正为cb0，未改原事件。只读rg使用Windows通配一次失败，改用glob后成功。旧overview待新dist，不冒完整结果域/新build；总控仅六组已审旧证legacy适用更新，原执行快照保留。
 
 本地catalog捕获原项目与结果目录，lease及读取后核验，目录变化不得启动旧重建；过期context不得取消当前catalog Worker或改状态，读后仅原key可发布错误。新focused原full4 call_c84463999af64496a68c104bb60753ae 4/4、1370.5293ms、literal exit0/no session/skip0，事件及事后日志见coverage；真实方法AST配内存fake，无真实线程、文件写、远端或删除。总控内存逆转两方法cc61→0613，仅八组已审旧证更新legacy当前适用，原运行快照保留；大文件和新dist未跑。
+
+自动恢复：同项目已有自动请求若controller已取消，不复用其取消回执；未取消查询及manual读者可继续共享，已无reader时新读等待旧请求收尾。原full3 call_ae84ba2175884c8eaa70ec5d7be6727f 3/3、628.5799ms、literal exit0/no session/skip0，真实服务实例配fake collect/deferred；无真实文件写/Worker/网络/删除/Python。总控仅按该分支实际输入审核旧resultCollectionProjectContext full4的ResultHost适用736d→8506，保旧执行快照，非重跑或新dist。
+总控计划首次写后16255触发90%阈值校验exit1且误报低于阈值；执行者暂停暂存，待总控语义压缩至15787并UTF8复读通过后继续。

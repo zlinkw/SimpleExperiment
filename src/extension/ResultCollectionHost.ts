@@ -44,7 +44,8 @@ export class ResultCollectionHost {
   refreshAutomatic(): Promise<any> {
     if (!this.automaticAllowed()) return Promise.resolve(undefined);
     const context = this.h.captureProjectContext(), client = this.h.client;
-    if (this.automaticRequest && this.automaticContext && this.h.projectContextIsCurrent(this.automaticContext.context)
+    if (this.automaticRequest && this.automaticController && !this.automaticController.signal.aborted
+        && this.automaticContext && this.h.projectContextIsCurrent(this.automaticContext.context)
         && this.automaticContext.client === client) return this.automaticRequest;
     const controller = new AbortController(); this.automaticController = controller;
     this.automaticContext = { context, client };
