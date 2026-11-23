@@ -13,7 +13,7 @@ test('MCP health and inspect use Worker output activity to identify a stalled ru
  }]),'utf8');
  const rpc=async method=>{
   if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};
-  if(method==='state.get')return {value:{workerTunnels:[]}};throw Error('unexpected RPC '+method);
+  if(method==='state.get')return {value:{workerTunnels:[]}};if(method==='live.output')throw Object.assign(Error('method not found'),{apiCode:-32601});throw Error('unexpected RPC '+method);
  };
  const health=await queryProject(root,rpc,'experiment_health',{full:true});
  assert.equal(health.health.status,'warning');assert.equal(health.health.reason,'stalled');
@@ -43,7 +43,7 @@ test('MCP health distinguishes active and successful retries from the failed att
  fs.writeFileSync(index,JSON.stringify([old,newer]),'utf8');
  const rpc=async method=>{
   if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};
-  if(method==='state.get')return {value:{workerTunnels:[]}};throw Error('unexpected RPC '+method);
+  if(method==='state.get')return {value:{workerTunnels:[]}};if(method==='live.output')throw Object.assign(Error('method not found'),{apiCode:-32601});throw Error('unexpected RPC '+method);
  };
  const query=(name,args={})=>queryProject(root,rpc,'experiment_'+name,{...args,full:true});
  const normal=(name,args={})=>queryProject(root,rpc,'experiment_'+name,args);

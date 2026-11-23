@@ -4,7 +4,7 @@ const {queryProject}=require('../../src/mcp/ProjectQueries.ts');
 const FAILURE_KEYS=['id','status','health_status','updated_at'];
 function writeProject(root,files){for(const [name,body] of Object.entries(files)){const target=path.join(root,name);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,body,'utf8')}}
 async function queryFixture(args,{cwd}){
- const rpc=async method=>{if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};throw Error('unexpected RPC '+method)};
+ const rpc=async method=>{if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};if(method==='live.output')throw Object.assign(Error('method not found'),{apiCode:-32601});throw Error('unexpected RPC '+method)};
  const name='experiment_'+args[1],id=args[2]&&!args[2].startsWith('--')?args[2]:undefined;
  return {code:0,stdout:JSON.stringify(await queryProject(cwd,rpc,name,{id,full:args.includes('--full')}))};
 }

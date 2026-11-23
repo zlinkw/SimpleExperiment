@@ -11,7 +11,7 @@ test('MCP log and config queries retain local evidence and the requested tail',a
   plan:'experiments/plans/p.yaml',seed:42,stdout:'experiments/runs/run-one/stdout.log'}]));
  const rpc=async method=>{
   if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};
-  if(method==='state.get')return {value:{workerTunnels:[]}};throw Error('unexpected RPC '+method);
+  if(method==='state.get')return {value:{workerTunnels:[]}};if(method==='live.output')throw Object.assign(Error('method not found'),{apiCode:-32601});throw Error('unexpected RPC '+method);
  };
  const log=await queryProject(root,rpc,'experiment_log',{id:'run-one'});
  assert.deepEqual(log.map(row=>row.level),['WARNING','WARNING','ERROR']);assert.equal(log[1].message,'WARNING second');
