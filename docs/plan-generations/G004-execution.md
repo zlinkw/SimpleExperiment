@@ -186,3 +186,5 @@ MCP下载按本人授权要求选定Worker有效已存范围，配套b3da0b5；�
 plans/execution/results主导航逐ID核属性、区块状态与滚动链，未冒充本轮实点；见coverage。
 
 sync/gpu/tmux主导航按属性和显示链核源码，未操作真实GPU、tmux或同步；见coverage。
+
+诊断、设置主导航及返回工作区状态恢复按源码逐ID核对；未点击用户窗口或改配置。

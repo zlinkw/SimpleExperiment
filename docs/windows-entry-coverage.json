@@ -13192,6 +13192,7 @@
         },
         {
           "id": "noncommand:data-main-view=workspace",
+          "currentReview": {"status":"source_scoped","evidence":"关闭设置按上次工作区section/anchor恢复主视图并重新渲染、滚动；不保存配置。","boundary":"仅源码核对，未实机点击或改共享配置。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-main-view=workspace]",
           "oldStatus": "concluded_scoped",
@@ -13397,6 +13398,7 @@
         },
         {
           "id": "navigation:diagnostics:diagnostics",
+          "currentReview": {"status":"source_scoped","evidence":"诊断树节点通过统一section/anchor导航，更新显示兴趣、活动区及滚动目标。","boundary":"仅源码核对，未实机点击或改共享配置。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; PanelHtml.legacy.ts:3219,3789,6665,8389,9060",
           "oldStatus": "concluded_scoped",
@@ -13404,6 +13406,7 @@
         },
         {
           "id": "navigation:settings:settings",
+          "currentReview": {"status":"source_scoped","evidence":"设置节点通过同一导航进入settings主视图，保留此前工作区section/anchor。","boundary":"仅源码核对，未实机点击或改共享配置。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; PanelHtml.legacy.ts:3219,3789,6665,8389,9060",
           "oldStatus": "concluded_scoped",
