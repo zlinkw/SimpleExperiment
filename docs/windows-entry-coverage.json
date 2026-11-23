@@ -11355,6 +11355,7 @@
         {
           "name": "draft_promotion_preview",
           "method": "drafts.promotionPreview",
+          "currentReview": {"status":"source_and_fake_scoped","evidence":"Gateway只读预览经当前项目草稿记录及状态、成功debug校验后构造预览；复用 %TEMP%/g004-520-mcp-draft-contracts-20261123.log 3/3 与 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log 49/49。","boundary":"历史本地debug指标读取仅受控证据；未查询真实活动结果或写草稿。"},
           "oldEvidence": "projectTools[name=draft_promotion_preview]",
           "scope": "single_project_local_or_mixed",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
@@ -12525,7 +12526,7 @@
         },
         {
           "id": "panel:reviewDraft:1",
-          "currentReview": {"status":"fixed_scoped","evidence":"UI复用同一apiDraftReview，保留项目切换、实际状态和写后刷新失败提示；方法VM与假写入 %TEMP%/g004-draft-partial-write-final-20261123.*.log。","boundary":"无真实草稿或UI实点。"},
+          "currentReview": {"status":"fixed_scoped","evidence":"兼容宿主路由复用同一apiDraftReview，保留项目切换、实际状态和写后刷新失败提示；方法VM与假写入 %TEMP%/g004-draft-partial-write-final-20261123.*.log。","boundary":"默认草稿渲染已停用，历史自定义保存可能使用兼容路由；无真实草稿或UI实点。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=reviewDraft]",
           "oldStatus": "concluded_scoped",
@@ -12533,6 +12534,7 @@
         },
         {
           "id": "panel:promoteDraft:1",
+          "currentReview": {"status":"retired_scoped","evidence":"默认renderDraftPlanSection为空，renderDraftCards无调用；兼容宿主路由明确抛DRAFT_PROMOTION_RETIRED，复用 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log 49/49。","boundary":"历史自定义保存可能呈现兼容入口；未实际提升或写草稿。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=promoteDraft]",
           "oldStatus": "concluded_scoped",
@@ -12540,7 +12542,7 @@
         },
         {
           "id": "panel:rejectDraft:1",
-          "currentReview": {"status":"fixed_scoped","evidence":"UI复用同一apiDraftReject，写后刷新失败不会报完成；方法VM与假写入 %TEMP%/g004-draft-partial-write-final-20261123.*.log。","boundary":"无真实草稿或UI实点。"},
+          "currentReview": {"status":"fixed_scoped","evidence":"兼容宿主路由复用同一apiDraftReject，写后刷新失败不会报完成；方法VM与假写入 %TEMP%/g004-draft-partial-write-final-20261123.*.log。","boundary":"默认草稿渲染已停用，历史自定义保存可能使用兼容路由；无真实草稿或UI实点。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=rejectDraft]",
           "oldStatus": "concluded_scoped",
@@ -14916,6 +14918,7 @@
         {
           "name": "promoteDraft",
           "route": "handleMessageCore_case",
+          "currentReview": {"status":"retired_scoped","evidence":"invokeApi容许兼容命令进入handleMessageCore，promoteDraftFromUi明确抛DRAFT_PROMOTION_RETIRED；原API方法受控断言见 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log。","boundary":"未进行真实提升或写草稿。"},
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
         {

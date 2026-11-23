@@ -83,7 +83,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 ## 停止路由候选
 
-两个实际面板入口经 `abortSchedulerFromUi`/`stopExperimentRouted` 原会在归属不明时猜首 Worker，并在 remaining 非空时自动 force 重发、提前落终态。候选要求明确 Worker 或精确 operationId/Plan 的一致本地归属；显式无效或冲突不发送，无本地记录但有明确 Worker 与身份保留远端原命令/窗口核验。先登记本地停止意图并排队持久化；只发一次，未知、remaining 或未确认活动保留记录和意图，不清缓存或置终态；真实确认才按原范围结束。未访问真实 Worker 或 Agent。原 stop VM 文件最终10/10 exit0、3562ms，`%TEMP%/g004-stop-routing-terminal-20261123.*.log`；相关消费者12/12 exit0，`%TEMP%/g004-stop-consumers-terminal-20261123.*.log`。早期成功日志 `g004-stop-routing-successor`、`g004-stop-routing-pending`、`g004-stop-routing-plan`、`g004-stop-routing-final` 均保留。源候选与探针共用 Host 文件，待分离暂存；用户界面包仍旧520。
+停止路由原猜首Worker、未知时force重发及提前落终态；已按精确归属、单次请求和未知保留意图修复，完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。VM 10/10及消费者12/12 exit0，日志 `%TEMP%/g004-stop-routing-terminal-20261123.*.log`、`g004-stop-consumers-terminal-20261123.*.log`；早期 successor/pending/plan/final 原日志保留，未访问真实Worker或Agent。
 
 接替期间另有只读 Windows glob 两次失败、覆盖记录内存断言一次写前失败（外层后续命令显示0）、git-show 默认缓冲不足一次，均未改产品；后者提高只读缓冲后成功。PowerShell 嵌套引号一次解析失败，未执行 rg；随后改用 pwsh7 直接执行。
 
@@ -104,3 +104,5 @@ SFTP file_stats/plan_logs按schema、Worker路由及已装后端路径/Plan校�
 逐位置检查静态报告打开两处与复制一处、相应invoke及命令别名；Host路径及缺失/权限错误的真实方法VM回归3/3 exit0，`%TEMP%/g004-report-read-errors-20261123.*.log`。成功打开/复制和链接目标未实测，不操作真实剪贴板。
 
 草稿审核/拒绝写入后若刷新抛错或保存错误，原UI及拒绝API可能报完成；现UI复用项目绑定API，明确报告“已写入但刷新失败”，不自动重发。方法VM/假写入6/6 exit0 `%TEMP%/g004-draft-partial-write-final-20261123.*.log`，原生命周期49/49 exit0 `%TEMP%/g004-draft-action-lifecycle-final-20261123.*.log`；夹具补齐真实Host已有状态，无真实草稿写入。
+
+草稿提升预览按项目、草稿状态和成功debug校验，复用受控证据；提升本身明确退役。默认草稿渲染已停用，历史自定义保存仍可能经兼容路由进入；审核/拒绝的近期修复是宿主兼容路由，非实际UI点击。各ID范围与日志见coverage，未查询活动结果或写真实草稿。
