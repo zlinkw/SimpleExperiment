@@ -115,7 +115,7 @@ Experiment增量证据逐job核验、方法切片及日志保留于 coverage 和
 
 runner job 257/258、260/261/262 按identity/argv和原日志复核，各1/1、stderr空、receipt exit0；未重跑。259原stdout pass0/skip1，Windows跳过POSIX符号链接，exit0不能证明该行为，未冻结新输入。新源码使部分旧快照再次漂移，须按实际函数复核。
 
-结果目录浏览/保存/映射、复制、高级设置及SFTP服务器/目标/确认重置逐ID审查，证据及外部效果限制见coverage；未改配置、剪贴板或共享确认。
+结果目录、复制、高级设置及SFTP服务器/目标/确认重置逐ID审查见coverage；未改配置或共享确认。
 
 MCP诊断取消在await查询后可能在授权或项目、Worker变化后仍发送；现发送前重核，假Gateway/Host 3/3 %TEMP%/g004-preflight-cancel-auth-final-20261123.*.log，原Host精确1/1 %TEMP%/g004-preflight-host-cancel-exact-20261123.*.log，均exit0。首模式未匹配任何用例的exit0保留 g004-preflight-host-cancel-20261123.*.log，不算验证。384f6d5f已同步、待build；无真实Worker。
 
@@ -142,3 +142,5 @@ MCP resource_available 原将明确过期、离线或degraded的缓存GPU状态�
 日志分析查询跨await切项目后原可继续刷新新项目快照；现查询后和快照后复核原项目。假Worker切换1/1 `%TEMP%/g004-analysis-project-change-20261123.*.log`，原身份及拒绝2/2 `%TEMP%/g004-analysis-existing-20261123.*.log`，均exit0；未查询真实Worker/任务/日志，待build。只读检查错误tag、路径及引号各失败，文档补丁首稿未匹配，均未改产品。
 
 log_read遇无效空响应原可退回模糊匹配缓存，现明确报错；分页、空结果、无效响应及错误假Gateway/Worker 1/1 exit0 `%TEMP%/g004-log-read-invalid-20261123.*.log`，未查询真实日志，待build。
+
+TensorBoard四个MCP入口的目标、授权及终态按源码逐项复核，详见coverage；未启动、查询或停止真实服务。

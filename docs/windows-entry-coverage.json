@@ -11151,6 +11151,7 @@
         },
         {
           "name": "tensorboard_status",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"目录要求明确Worker；Host校验启用Worker、隧道和项目根，调用项目服务状态，未确认时抛错。","boundary":"只审源码及既有假Gateway测试内容；未访问真实服务或Worker。"},
           "method": "tensorboard.status",
           "oldEvidence": "projectTools[name=tensorboard_status]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11159,6 +11160,7 @@
         },
         {
           "name": "tensorboard_start",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"Gateway要求experiment项目授权及明确Worker；Host发项目服务启动，检查completed、监听和代理，失败可见；每次启动发送前复核grant。","boundary":"只审源码及既有假Gateway测试内容；未启动真实TensorBoard、Agent或Worker。"},
           "method": "tensorboard.start",
           "oldEvidence": "projectTools[name=tensorboard_start]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11167,6 +11169,7 @@
         },
         {
           "name": "tensorboard_stop",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"Gateway要求experiment项目授权及明确Worker；Host发当前项目服务停止，并要求completed且running=false，每次发送前复核grant。","boundary":"只审源码及既有假Gateway测试内容；未停止真实窗口或服务。"},
           "method": "tensorboard.stop",
           "oldEvidence": "projectTools[name=tensorboard_stop]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11175,6 +11178,7 @@
         },
         {
           "name": "tensorboard_viewer",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"校验目标Worker，启动本地API并复核原项目后生成限定工作区和Worker的链接；schema只接受scalars/native。","boundary":"源码审阅；本轮未启动viewer或本地服务，也未访问Worker。"},
           "method": "tensorboard.viewer",
           "oldEvidence": "projectTools[name=tensorboard_viewer]",
           "scope": "local_gateway_plus_worker_effect_restricted",
