@@ -11470,6 +11470,7 @@
         },
         {
           "name": "cleanup_resume",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"复用execute及sync项目授权，按operationId恢复现有确认；已完成返回原结果，独立隔离删除的暂停或已发请求拒绝重发。","boundary":"仅源码，确认状态、目标和实际执行均未现场验证。"},
           "method": "plans.cleanup.resume",
           "oldEvidence": "projectTools[name=cleanup_resume]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11478,6 +11479,7 @@
         },
         {
           "name": "cleanup_restore_preview",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"仅原move操作可产生恢复预览，读取完成历史并核后端内容指纹和inode，无已核实目标时报错。","boundary":"status与后端预览可能观察远端；未访问真实路径、确认或恢复。"},
           "method": "plans.cleanup.restore",
           "oldEvidence": "projectTools[name=cleanup_restore_preview]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11486,6 +11488,7 @@
         },
         {
           "name": "cleanup_execute",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"要求sync授权，Gateway不注入确认因子；服务核验原预览及确认次数，删除两次、其他一次，核目标后逐项执行并保存回执。","boundary":"仅源码；未确认、执行、删除或查询真实目标，不能把受理认作完成。"},
           "method": "plans.cleanup.execute",
           "oldEvidence": "projectTools[name=cleanup_execute]",
           "scope": "cleanup_or_agent_lifecycle_restricted",

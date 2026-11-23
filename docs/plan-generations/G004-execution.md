@@ -162,3 +162,5 @@ Agent inspect/ensure/stop/restart/migrate逐入口核身份、授权、确认及
 cleanup_list/status/cancel按源码区分本地列表、可能观察并写状态、暂停意图；未调用真实清理或路径查询，见coverage。
 
 cleanup_preview/continue/recheck 的PLAN范围、续建条件及可能的观察/状态写入按源码记录于coverage；未访问真实路径或执行清理。
+
+cleanup_resume/execute/restore_preview 的确认、续接与回执边界按源码记录于coverage，未触实际目标。
