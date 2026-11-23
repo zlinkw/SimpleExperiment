@@ -12557,6 +12557,7 @@
         },
         {
           "id": "panel:saveSchedulerConfig:1",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"Host先校验完整调度参数再启动配置写入，真实方法假配置2/2、原设置消费4/4及配额消费1/1。","boundary":"未更改真实全局设置；异步写入失败不具回滚保证，待构建。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=saveSchedulerConfig]",
           "oldStatus": "concluded_scoped",

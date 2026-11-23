@@ -18426,18 +18426,18 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         const settings = this.schedulerSettings();
         const updates = [
-            ...Object.entries(GpuQuotaScheduling.quotaSettings({ ...settings, ...patch })).map(([key, value]) => config.update("scheduler." + key, value, vscode.ConfigurationTarget.Global)),
-            config.update("scheduler.dispatchMode", "local_idle", vscode.ConfigurationTarget.Global),
-            config.update("scheduler.pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 5, 3600, true), vscode.ConfigurationTarget.Global),
-            config.update("scheduler.jitterSeconds", numberRangePatch(patch, "jitterSeconds", settings.jitterSeconds, 0, 1800), vscode.ConfigurationTarget.Global),
-            config.update("scheduler.workerStatusTtlSeconds", numberRangePatch(patch, "workerStatusTtlSeconds", settings.workerStatusTtlSeconds, 10, 7200), vscode.ConfigurationTarget.Global),
-            config.update("scheduler.localAvailabilityPushSeconds", numberRangePatch(patch, "localAvailabilityPushSeconds", settings.localAvailabilityPushSeconds, 5, 3600), vscode.ConfigurationTarget.Global),
-            config.update("scheduler.workerAvailabilityPushSeconds", numberRangePatch(patch, "workerAvailabilityPushSeconds", settings.workerAvailabilityPushSeconds, 5, 3600), vscode.ConfigurationTarget.Global),
-            config.update("scheduler.operationEventMaxDelayMs", numberRangePatch(patch, "operationEventMaxDelayMs", settings.operationEventMaxDelayMs, 100, 10000), vscode.ConfigurationTarget.Global),
-            config.update("scheduler.workerActionMinIntervalMs", numberRangePatch(patch, "workerActionMinIntervalMs", settings.workerActionMinIntervalMs, 200, 60000), vscode.ConfigurationTarget.Global),
-            config.update("scheduler.workerActionMaxConcurrent", numberRangePatch(patch, "workerActionMaxConcurrent", settings.workerActionMaxConcurrent, 1, 16), vscode.ConfigurationTarget.Global),
+            ...Object.entries(GpuQuotaScheduling.quotaSettings({ ...settings, ...patch })),
+            ["dispatchMode", "local_idle"],
+            ["pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 5, 3600, true)],
+            ["jitterSeconds", numberRangePatch(patch, "jitterSeconds", settings.jitterSeconds, 0, 1800)],
+            ["workerStatusTtlSeconds", numberRangePatch(patch, "workerStatusTtlSeconds", settings.workerStatusTtlSeconds, 10, 7200)],
+            ["localAvailabilityPushSeconds", numberRangePatch(patch, "localAvailabilityPushSeconds", settings.localAvailabilityPushSeconds, 5, 3600)],
+            ["workerAvailabilityPushSeconds", numberRangePatch(patch, "workerAvailabilityPushSeconds", settings.workerAvailabilityPushSeconds, 5, 3600)],
+            ["operationEventMaxDelayMs", numberRangePatch(patch, "operationEventMaxDelayMs", settings.operationEventMaxDelayMs, 100, 10000)],
+            ["workerActionMinIntervalMs", numberRangePatch(patch, "workerActionMinIntervalMs", settings.workerActionMinIntervalMs, 200, 60000)],
+            ["workerActionMaxConcurrent", numberRangePatch(patch, "workerActionMaxConcurrent", settings.workerActionMaxConcurrent, 1, 16)],
         ];
-        await Promise.all(updates);
+        await Promise.all(updates.map(([key, value]) => config.update("scheduler." + key, value, vscode.ConfigurationTarget.Global)));
         this.startAvailabilityPushLoop();
         this.postState();
         void vscode.window.showInformationMessage("调度与上报策略已保存。");

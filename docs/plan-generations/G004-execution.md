@@ -98,3 +98,5 @@ Git覆盖审核等待状态或写入期间切换项目时，现于后续fetch、
 补核同一共享文件可由另一窗口修改，发布前比对本次原始文本；变化则报错保留对方更新。假端 `%TEMP%/g004-sftp-profile-fence-v3-20261123.{out,err}.log` 5/5 exit0，原消费单项 `%TEMP%/g004-sftp-profile-consumer-v2-20261123.{out,err}.log` 1/1 exit0。只保证发布前可观察到的变化会停止，不称检查与系统rename不可分割；未读写真实共享文件。
 
 原setupWorkDirectoryWorkflow静态消费者夹具仍要求已退役Hub文案；按当前Worker唯一入口更新等价检查后，纯源码文件 `%TEMP%/g004-sftp-profile-original-consumer-v3-20261123.{out,err}.log` 3/3 exit0。它不执行Agent、项目配置或Worker操作，也不证明外部效果。
+
+调度设置原先边构造数组边调用config.update，后续字段校验失败时前面的全局设置可能已写；现先计算并校验整组再启动原更新。真实Host方法配假配置 `%TEMP%/g004-scheduler-config-validation-20261123.{out,err}.log` 2/2、原设置消费者 `%TEMP%/g004-scheduler-settings-consumer-20261123.{out,err}.log` 4/4、配额精确case `%TEMP%/g004-scheduler-quota-consumer-20261123.{out,err}.log` 1/1，均exit0。未修改真实设置；若实际update异步失败，已发生的其他更新仍可能保留，不称事务回滚；未build。
