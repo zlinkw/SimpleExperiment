@@ -153,7 +153,7 @@ result_compare按左右身份、数值与方向复核，原假RPC及缺失歧义
 
 project_connect授权与目标围栏修复、假对象结果及原日志见 `5c832048:docs/plan-generations/G004-execution.md`；未启动真实SSH或改grant，待build。
 
-server_test源码范围见coverage，未真实探测。原runner只读dry-run当前build选择316个作业、compile/fullCheck、0 onDemand；受源码变更影响，旧direct 144、legacy 59及fresh 1条快照存在至少一处漂移（含计划外及可能重叠），须逐调用链核适用，不是已运行/通过数；不批量刷新哈希，不启动矩阵。
+server_test源码与增量build只读规划及快照漂移记录见 `72640e5f:docs/plan-generations/G004-execution.md`；未真实探测或运行矩阵。
 
 Plan验证的项目与授权边界修复、假Host及原消费者结果和完整日志名见 `0acec74b:docs/plan-generations/G004-execution.md`；未启动真实同步或Worker，待build。
 
@@ -166,3 +166,5 @@ file_cleanup_preview/inspect/observe_batch 的节点、项目和配套观察契�
 plan_run按workflow_submission接受边界修正前置权限复核；普通MCP/UI正路径1/1 exit0，`%TEMP%/g004-workflow-accept-normal-20261123.*.log`。误将入队作为接受的推断撤回；无撤权专项、真实Worker，详情见coverage。
 
 file_cleanup_status/check/verify按原token、节点及观察可能落账的行为核源码，未查询真实目标；见coverage。
+
+file_cleanup_review/execute/settle按源码核人工确认、原请求身份与未知回执；未打开审核页或触真实文件，见coverage。

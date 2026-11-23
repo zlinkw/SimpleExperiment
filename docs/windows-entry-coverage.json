@@ -11525,6 +11525,7 @@
         },
         {
           "name": "file_cleanup_review",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"仅打开当前项目本地路径审核；页面按原token/digest/节点核对，并由本人逐次确认，删除须两次；页面不自动执行。","boundary":"源码审阅；未打开用户窗口、确认或操作真实路径。"},
           "method": "mcp.fileReview",
           "oldEvidence": "projectTools[name=file_cleanup_review]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11560,6 +11561,7 @@
         },
         {
           "name": "file_cleanup_execute",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"要求sync授权；Host复核项目、节点与token，配套核digest及存储的确认次数，已完成目标不重复执行；未知删除回执不得盲目重发。","boundary":"源码审阅；未确认或执行真实文件操作。"},
           "method": "files.cleanup.execute",
           "oldEvidence": "projectTools[name=file_cleanup_execute]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11568,6 +11570,7 @@
         },
         {
           "name": "file_cleanup_settle",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"要求sync授权与原token/digest/index；配套按已完成、执行中、待处理及删除未知状态核查，返回真实回执或未确认。","boundary":"源码审阅；可能观察并写入操作事实，未调用真实操作或路径。"},
           "method": "files.cleanup.settle",
           "oldEvidence": "projectTools[name=file_cleanup_settle]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
