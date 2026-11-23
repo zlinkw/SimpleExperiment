@@ -110,3 +110,5 @@ Git覆盖审核等待状态或写入期间切换项目时，现于后续fetch、
 离线导入成功读取后原先先暂停实时流再检查项目，切项目期间可能暂停新项目；现读取后、暂停前先核原generation和root。原方法假导入及保存失败两项 `%TEMP%/g004-offline-import-project-20261123.{out,err}.log` 2/2 exit0；未导入真实文件、断开真实网络或写项目状态，待build。
 
 Agent端点按钮缺endpointId时原代码回退字符串hub，现明确拒绝并要求选择Worker；有ID仍传现有精确目标过滤。真实路由方法假部署 `%TEMP%/g004-agent-endpoint-explicit-20261123.{out,err}.log` 1/1 exit0；未启动或连接Agent，待build。
+
+只读规划器在47a1681d脏树列出build 316 job、compile/fullCheck、0按需（`%TEMP%/g004-build-plan-47a1681d-20261123.out.log`，exit0），后续HEAD已变，selection不可沿用。后续只读调用planG004Execution exit1，首拒`src/extension/legacy.ts`依赖漂移；按当前活跃identity+argv及eligible历史/直接条目只读比对，legacy有138条记录、PlanCleanup 64、Panel 23等记录摘要不同，条目可能多重依赖且互相重叠。该数量只识别需逐闭包复核，不能证明全部失效或允许批量重绑；未运行build矩阵、未改snapshot。旧MCP query改动包含项目路径核验与离线遥测处理，真实语义须按每个消费者审，已退役CLI不能复活。

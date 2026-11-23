@@ -13885,6 +13885,7 @@
         },
         {
           "id": "aux:src/extension/PlanCleanupPanel.ts:preview",
+          "currentReview": {"status":"source_and_prior_scoped","evidence":"发preview或changeMode，delete使用confirmed_paths并传选中Plan/job；失败通过面板错误显示。 原证见auxiliaryButtonActions及confirmationPayloadVariants。","boundary":"本轮未真实删除或访问Worker；0275a980受控证据与未知终态限制见G004-execution，当前产物待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/PlanCleanupPanel.ts,line=142,name=preview]",
           "oldStatus": "concluded_scoped",
@@ -13892,6 +13893,7 @@
         },
         {
           "id": "aux:src/extension/PlanCleanupPanel.ts:load",
+          "currentReview": {"status":"source_and_prior_scoped","evidence":"按选中operationId读status，核job或隔离原ID范围后显示。 原证见auxiliaryButtonActions及confirmationPayloadVariants。","boundary":"本轮未真实删除或访问Worker；0275a980受控证据与未知终态限制见G004-execution，当前产物待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/PlanCleanupPanel.ts,line=143,name=load]",
           "oldStatus": "concluded_scoped",
@@ -13899,6 +13901,7 @@
         },
         {
           "id": "aux:src/extension/PlanCleanupPanel.ts:confirm:1",
+          "currentReview": {"status":"source_and_prior_scoped","evidence":"移走phase1交token、digest和精确目标给service；不借删除双确认的旧证声称本分支已动态通过。 原证见auxiliaryButtonActions及confirmationPayloadVariants。","boundary":"本轮未真实删除或访问Worker；0275a980受控证据与未知终态限制见G004-execution，当前产物待build。"},
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/PlanCleanupPanel.ts,line=144,name=confirm]; confirmationPayloadVariants",
           "oldStatus": "deferred",
@@ -13906,6 +13909,7 @@
         },
         {
           "id": "aux:src/extension/PlanCleanupPanel.ts:confirm:2",
+          "currentReview": {"status":"source_and_prior_scoped","evidence":"删除phase1交token、digest及完整精确目标；原假服务bridge覆盖phase1。 原证见auxiliaryButtonActions及confirmationPayloadVariants。","boundary":"本轮未真实删除或访问Worker；0275a980受控证据与未知终态限制见G004-execution，当前产物待build。"},
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/PlanCleanupPanel.ts,line=144,name=confirm]; confirmationPayloadVariants",
           "oldStatus": "deferred",
@@ -13913,6 +13917,7 @@
         },
         {
           "id": "aux:src/extension/PlanCleanupPanel.ts:confirm:3",
+          "currentReview": {"status":"source_and_prior_scoped","evidence":"删除phase2沿相同精确目标提交；原假服务bridge验证两阶段一致且确认本身不执行。 原证见auxiliaryButtonActions及confirmationPayloadVariants。","boundary":"本轮未真实删除或访问Worker；0275a980受控证据与未知终态限制见G004-execution，当前产物待build。"},
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/PlanCleanupPanel.ts,line=144,name=confirm]; confirmationPayloadVariants",
           "oldStatus": "deferred",
@@ -13920,6 +13925,7 @@
         },
         {
           "id": "aux:src/extension/PlanCleanupPanel.ts:execute",
+          "currentReview": {"status":"source_and_prior_scoped","evidence":"需要已确认operationId，经Host.execute；隔离永久删除按0275a980持久准入与回执收敛。 原证见auxiliaryButtonActions及confirmationPayloadVariants。","boundary":"本轮未真实删除或访问Worker；0275a980受控证据与未知终态限制见G004-execution，当前产物待build。"},
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/PlanCleanupPanel.ts,line=144,name=execute]",
           "oldStatus": "deferred",
@@ -13927,6 +13933,7 @@
         },
         {
           "id": "aux:src/extension/PlanCleanupPanel.ts:cancel",
+          "currentReview": {"status":"source_and_prior_scoped","evidence":"要求operationId后请求service.cancel；隔离审核记录对应状态。 原证见auxiliaryButtonActions及confirmationPayloadVariants。","boundary":"本轮未真实删除或访问Worker；0275a980受控证据与未知终态限制见G004-execution，当前产物待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/PlanCleanupPanel.ts,line=144,name=cancel]",
           "oldStatus": "concluded_scoped",
@@ -13934,6 +13941,7 @@
         },
         {
           "id": "aux:src/extension/PlanCleanupPanel.ts:recheck",
+          "currentReview": {"status":"source_and_prior_scoped","evidence":"隔离审核先观察原请求，普通路径逐远端节点recheck，再读status；不以缺失伪造终态。 原证见auxiliaryButtonActions及confirmationPayloadVariants。","boundary":"本轮未真实删除或访问Worker；0275a980受控证据与未知终态限制见G004-execution，当前产物待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/PlanCleanupPanel.ts,line=145,name=recheck]",
           "oldStatus": "concluded_scoped",
@@ -13941,6 +13949,7 @@
         },
         {
           "id": "aux:src/extension/PlanCleanupPanel.ts:continue",
+          "currentReview": {"status":"source_scoped","evidence":"要求原operationId，service.continuePreview生成新预览；不直接执行。","boundary":"普通移走/恢复保留原规则，未触及真实文件。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/PlanCleanupPanel.ts,line=145,name=continue]",
           "oldStatus": "concluded_scoped",
@@ -13948,6 +13957,7 @@
         },
         {
           "id": "aux:src/extension/PlanCleanupPanel.ts:resume",
+          "currentReview": {"status":"source_scoped","evidence":"需要operationId并走Host.execute，隔离独立审核不允许resume消息。","boundary":"未真实执行或证明未知执行器已退出。"},
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/PlanCleanupPanel.ts,line=145,name=resume]",
           "oldStatus": "deferred",
@@ -13955,6 +13965,7 @@
         },
         {
           "id": "aux:src/extension/PlanCleanupPanel.ts:restore",
+          "currentReview": {"status":"source_scoped","evidence":"需要原operationId，service.restorePreview生成恢复预览；隔离独立审核不开放该消息。","boundary":"未执行真实恢复，普通恢复身份规则不变。"},
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/PlanCleanupPanel.ts,line=145,name=restore]",
           "oldStatus": "deferred",
@@ -13962,6 +13973,7 @@
         },
         {
           "id": "aux:src/extension/PlanCleanupPanel.ts:deleteIso",
+          "currentReview": {"status":"source_and_prior_scoped","evidence":"从原隔离ID生成永久删除预览并加入允许的token，后续仍走双确认。 原证见auxiliaryButtonActions及confirmationPayloadVariants。","boundary":"本轮未真实删除或访问Worker；0275a980受控证据与未知终态限制见G004-execution，当前产物待build。"},
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/PlanCleanupPanel.ts,line=145,name=deleteIso]",
           "oldStatus": "deferred",
