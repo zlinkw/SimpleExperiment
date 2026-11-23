@@ -44,6 +44,7 @@ test("clearTmuxTaskTabs status keeps the real success and partial-failure text",
   const statuses = [];
   const sandbox = {
     statuses,
+    captureProjectContext: () => ({ root: "/fixture" }), projectContextIsCurrent: () => true,
     OperationOutcome_1: require("../../dist/core/OperationOutcome.js"),
     tmuxClearTaskTabsInFlight: false,
     clearOutcome: "已关闭 2/2 个任务标签。",

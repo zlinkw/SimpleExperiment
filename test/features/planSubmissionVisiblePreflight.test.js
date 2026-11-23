@@ -320,6 +320,8 @@ test("29 source-changed submission completes through the UI command wrapper with
     new Set(["runPlan", "reproducePlan"]),
   );
   const host = commandHost();
+  host.captureProjectContext = () => ({ root: "/fixture" });
+  host.projectContextIsCurrent = () => true;
   mountOldPlan(host);
   const statuses = [];
   host.view = { webview: { postMessage: async (payload) => statuses.push(payload) } };

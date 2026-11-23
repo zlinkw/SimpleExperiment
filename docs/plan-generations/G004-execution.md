@@ -17,7 +17,7 @@
 
 停止路由候选按精确Worker/command停止并保留unknown意图，假端12/12及首失败见 `cd66811a`；渲染和结果候选仍未build、未安装。草稿和业务CLI已退役，旧记录仅历史事实。
 
-缓存、Plan恢复、Git绑定及SFTP取消/交接/下载范围的提交、原验证、失败和限制见8f04bd1f及coverage；本地缓存不能证明未知执行器结束。旧119/120日志与工具链缺口未消除；旧316项规划过期，Agent旧证仅按已审精确依赖适用。
+缓存、Plan恢复、Git绑定及SFTP取消/交接/下载范围的原验证、失败和限制见8f04bd1f及coverage；未知执行器未确认结束，旧119/120日志与工具链缺口仍在，旧316项规划过期。
 
 输出模板项目围栏 `fedd8bc9`/`7dfd6db5` 假端4/4；首2/3失败及审核页5个确认变体见历史记录 `d70e1b40`/`3a916416`。未build或真实删除。
 
@@ -25,9 +25,9 @@
 
 服务器队列/手动派发/替换、传输/同步/后台清理及Git覆盖围栏已按原项目和身份审定，假端结果、首失败、日志与非真实效果完整见 `60c8b277:docs/plan-generations/G004-execution.md` 及coverage；包装非direct，final fresh和新dist消费者仍待批准。
 
-配置读取、Worker删除确认、setupWorkDirectory及隧道/离线入口假端验证、原日志、失败与限制见 `17692f55:docs/plan-generations/G004-execution.md` 及coverage；配置检查与rename非原子，异步保存可能部分写入，无真实Worker或配置效果。Panel仍待build及真实脚本VM。总控plan首次16267触发写前断言、后缩短并复读的事实保同历史。
+配置读取、Worker删除确认及隧道/离线入口假端原验证、失败和限制见 `17692f55:docs/plan-generations/G004-execution.md` 及coverage；配置检查与rename非原子，异步保存可能部分写入，无真实Worker或配置效果。Panel仍待build及真实脚本VM，plan阈值首失败保同历史。
 
-47a1681d旧build规划316项、0按需，日志 `%TEMP%/g004-build-plan-47a1681d-20261123.out.log` exit0；planG004Execution首拒legacy漂移exit1。legacy 138、PlanCleanup 64、Panel 23为重叠的依赖漂移导航，不能批量重绑或判通过；逐闭包核旧MCP查询，CLI保持退役。
+47a1681d旧build规划316项exit0，执行规划首拒legacy漂移exit1；依赖漂移为重叠导航，不能批量重绑或判通过。原日志、细分计数见 `c8912955:docs/plan-generations/G004-execution.md`。
 
 召回路径的排队判定、Scheduler互斥与原请求身份核实已源审并同步 `9412b48c`；Host假端v11 16/16、Python抽函数v2 1/1、原消费者精确项均exit0。旧协议消费者v1 4/5失败及v2/v3修正、所有原日志和未知回执限制详见 `d766909a:docs/plan-generations/G004-execution.md`；不重发未知请求，未运行真实Worker或build。
 
@@ -86,3 +86,7 @@ UI状态funnel准备批三fixture只补项目context接口，原断言不变；a
 UI状态funnel和PLAN通知候选按原项目绑定晚到状态及延后交互，过期只留原事实日志；无明确PLAN终态记unknown，原key进度仍释放。原full8 call_4605148c8afb4006ba83b3543fbd4c06 8/8、2734.9677ms、literal exit0/no session/skip0；五真实方法AST配fake工作/UI/定时器，无真实任务/网络/写文件，事件与事后日志见coverage。新fixture四域登记待与生产同批；其余源码及新dist消费者尚需补接口和审查，不冒完整UI或新build通过。
 
 第二准备批四fixture补原context接口，whitelist full9、runtime精确2、selected精确2、SFTP能力精确1，均literal exit0/no session/skip0，完整事件/argv、未提交ca1d执行输入与事后日志见coverage；假端、无真Worker/网络/文件写，不冒其他case或新dist。三旧完整fixture身份因测试变化降历史。TS静态枚举证选项不匹配祖先、SIMPLE_RETRY_BASELINE未设置；首只读rg引号触发PowerShell ParserError，纠正后枚举成功。总控计划首候选16466写前exit1，压缩后阈值通过；非测试失败。
+
+第三准备批四fixture仅补context接口；tmux full1、stop精确2、preflight精确1均literal exit0/no session/skip0，原事件、实际ca1d输入与事后日志见coverage。stop含真实私有TEMP结果写、flush/rename及named-pipe，fixture保留；Worker/SFTP为fake。Speed仅node --check exit0，未运行性能case；其原正确性case待新dist精确运行。preflight首补丁落入相似host，在任何测试前发现并移至正确fixture；不冒其他case或新dist通过。
+
+Speed实测工作树23f48e15，索引LF归一后121b3e83，归一文本相同；非同字节。coverage首次JSON全量格式化已发现并按HEAD原格式修复，第一次脚本因空格格式假设退出1且未写入，纠正后精确更新。

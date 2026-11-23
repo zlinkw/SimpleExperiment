@@ -634,6 +634,7 @@ test("plan command status stays pending past 45 and 150 seconds until the real r
   const statuses = [];
   let resolveWork;
   const host = {
+    captureProjectContext: () => ({ root: "/fixture" }), projectContextIsCurrent: () => true,
     uiCommandWatchdogMs: runner.uiCommandWatchdogMs,
     postUiCommandStatus(_id, status, command, message) { statuses.push({ status, command, message }); },
     finishPlanSubmissionProgress() { throw new Error("plan progress must stay open"); },

@@ -297,6 +297,7 @@ test("runActionCommand executes the default action branch and returns its result
   vm.runInContext(`const methods = { ${method} };\nthis.runActionCommand = methods.runActionCommand;`, context);
   let leased = 0;
   const provider = {
+    captureProjectContext: () => ({ root: "/fixture" }), projectContextIsCurrent: () => true,
     async runActionCommandLeased(command, message) {
       leased += 1;
       return { ok: true, command, message };
