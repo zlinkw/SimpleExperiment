@@ -102,3 +102,5 @@ Git覆盖审核等待状态或写入期间切换项目时，现于后续fetch、
 调度设置原先边构造数组边调用config.update，后续字段校验失败时前面的全局设置可能已写；现先计算并校验整组再启动原更新。真实Host方法配假配置 `%TEMP%/g004-scheduler-config-validation-20261123.{out,err}.log` 2/2、原设置消费者 `%TEMP%/g004-scheduler-settings-consumer-20261123.{out,err}.log` 4/4、配额精确case `%TEMP%/g004-scheduler-quota-consumer-20261123.{out,err}.log` 1/1，均exit0。未修改真实设置；若实际update异步失败，已发生的其他更新仍可能保留，不称事务回滚；未build。
 
 删除Worker配置确认等待期间，同ID配置可被替换；现重核被确认的配置快照，变更则要求重确认，原取消及只移除所选项不变。真实方法配假配置 `%TEMP%/g004-worker-config-confirm-20261123.{out,err}.log` 2/2，原消费者精确case `%TEMP%/g004-worker-config-consumer-20261123.{out,err}.log` 1/1，均exit0；未修改真实Worker或共享配置，未build。
+
+资源树tmux总览和等待占位的点击只导航并上报section interest，并不直接调用刷新；源码候选将提示改为使用刷新按钮，未触发真实tmux查询。该文案在Panel源内，与健康探针组一起等待原build及真实内嵌脚本VM门禁，未提交。

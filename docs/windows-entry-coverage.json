@@ -13499,6 +13499,7 @@
         },
         {
           "id": "navigation:tmux:tmux-overview",
+          "currentReview": {"status":"source_scoped_pending_panel_build","evidence":"资源树点击只调用导航与section interest，并非刷新；Panel候选已将提示改为使用刷新按钮。","boundary":"未实际查询tmux；Panel变更待完整build与脚本VM。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13514,6 +13515,7 @@
         },
         {
           "id": "navigation:tmux:tmux-example-pane",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"无会话时生成示例导航，复用g003CurrentTmuxPlaceholderNavigation实窗空态点击。","boundary":"仅导航占位，示例不是实际Worker或窗格，未查询远端。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
