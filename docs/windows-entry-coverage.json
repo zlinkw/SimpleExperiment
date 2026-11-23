@@ -11126,6 +11126,7 @@
         },
         {
           "name": "log_read",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"MCP绑定Worker、runKey及非负since，Host直接读取并保留远端offset；无效空响应原可能回退到模糊匹配的旧缓存，现报错。假Gateway/Worker原方法1/1 exit0：%TEMP%/g004-log-read-invalid-20261123.*.log，覆盖分页、空结果、无效响应及错误。","boundary":"未查询真实Worker或日志；源码待构建。"},
           "method": "live.output",
           "oldEvidence": "projectTools[name=log_read]",
           "scope": "local_gateway_plus_worker_effect_restricted",

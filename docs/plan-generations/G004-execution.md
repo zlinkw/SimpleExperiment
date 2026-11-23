@@ -99,7 +99,7 @@ MCP task_stop 在登记意图期间若撤销授权或更改Worker配置，原实
 
 SFTP传输观察/取消的假后端18/18 `%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log` 仅证明透传；后续核已装120发现取消按operationId更新账本、却可按不相属transferId选另一传输，静态可达缺陷已升级总控，未修或实际取消。三次只读rg路径猜错/Windows通配符失败未改产品。
 
-旧attempt文案只在非declared验证返回且存在产物时进入；当前scheduler验证固定declared、新作业拒绝非declared，当前分支先走PlanRunHost.replace。旧/异常Agent仍可能触发遗留提示，未证实际创建或恢复机制。另一次只读Windows glob失败无产品修改。
+旧attempt文案仅旧/异常Agent可能触发，当前declared路径先走PlanRunHost.replace；未证创建或恢复机制，原分析见 `0f6ea82b:docs/plan-generations/G004-execution.md`。只读glob失败无产品修改。
 
 task_list只复核当前项目归并、取消及unknown源码，禁止真实任务查询，退役CLI证据不冒充现行MCP通过；task_dispatch复用同任务假Gateway 5/5及假Host 11/11，未触真实派发、GPU或Worker。边界见coverage。
 
@@ -125,7 +125,7 @@ MCP诊断取消在await查询后可能在授权或项目、Worker变化后仍发
 
 结果规则保存、映射保存及运行前同步过去未向已有逐Worker循环传项目上下文，切项目后可能继续向剩余Worker发送；155d0593绑定原项目，同步后再核项目才刷新。假Worker受控检查1/1、两类真实方法VM 1/1、调用链断言2/2 exit0，日志 %TEMP%/g004-adapter-sync-boundary-20261123.*.log、g004-adapter-ui-project-switch-final-20261123.*.log、g004-adapter-ui-bindings-20261123.*.log。首次VM夹具语法失败exit1见 g004-adapter-ui-project-switch-20261123.*.log；未访问真实Worker或写真实配置，待build。
 
-结果区“自动匹配”当前只读 latest 本机结果并刷新，autoRecoverableCount恒0，仍声称自动恢复；首次拟改仅刷新及VM 1/1见 %TEMP%/g004-result-classification-refresh-20261123.*.log，但该方案会缩减现有入口承诺，已撤回、不计修复通过。继续审当前可信数据与已保存映射，不恢复旧registry；未改真实结果。
+结果区原自动匹配无实际恢复；首次拟改仅刷新会缩减入口承诺，已撤回、不计通过，VM日志见 `0f6ea82b:docs/plan-generations/G004-execution.md`。不恢复旧registry；未改真实结果。
 
 自动匹配现有候选使用当前导出中未分配PLAN的唯一单值已保存映射，复用现有结果分区写入器并检查项目、目录与映射未变化；多值或归一化重复映射不猜测，不读旧registry。内存真实Host/写入方法7/7 exit0 %TEMP%/g004-auto-dataset-mapping-guarded-20261123.*.log，含指标不变、冲突、改配置与写失败；旧dist消费者断言已适配但须构建后验证。Panel/Host/测试候选未提交、未build、未动真实结果，仍须源审与原P0门禁。
 
@@ -137,6 +137,8 @@ MCP诊断取消在await查询后可能在授权或项目、Worker变化后仍发
 
 MCP resource_available 原将明确过期、离线或degraded的缓存GPU状态按空闲判可用；现返回unknown。真实查询方法配假RPC 1/1 `%TEMP%/g004-resource-stale-gateway-20261123.*.log`，源码函数1/1 `%TEMP%/g004-resource-degraded-20261123.*.log`，均exit0；首次补丁未匹配、未写入。缺状态或只有旧时间戳仍不能证明新鲜；未查询真实GPU、任务或Worker，待构建。
 
-诊断复制、操作日志、面板恢复三个命令及配置说明入口的注册和Host消费者逐ID源码复核；真实剪贴板、窗口和重新识别均未操作，原证和边界见coverage。
+诊断复制、操作日志、面板恢复和配置说明逐ID源码复核，边界见coverage；未操作真实剪贴板、窗口或重新识别。
 
 日志分析查询跨await切项目后原可继续刷新新项目快照；现查询后和快照后复核原项目。假Worker切换1/1 `%TEMP%/g004-analysis-project-change-20261123.*.log`，原身份及拒绝2/2 `%TEMP%/g004-analysis-existing-20261123.*.log`，均exit0；未查询真实Worker/任务/日志，待build。只读检查错误tag、路径及引号各失败，文档补丁首稿未匹配，均未改产品。
+
+log_read遇无效空响应原可退回模糊匹配缓存，现明确报错；分页、空结果、无效响应及错误假Gateway/Worker 1/1 exit0 `%TEMP%/g004-log-read-invalid-20261123.*.log`，未查询真实日志，待build。

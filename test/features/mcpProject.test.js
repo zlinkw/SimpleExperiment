@@ -391,6 +391,8 @@ test('MCP log reads preserve the exact Worker and remote cursor, including empty
   assert.equal(empty.offset, 12);
   const schema = PROJECT_TOOLS.find(tool => tool.name === 'log_read').outputSchema;
   assert.equal(new (require('@modelcontextprotocol/sdk/validation/ajv').AjvJsonSchemaValidator)().getValidator(schema)(empty).valid, true);
+  response = null;
+  await assert.rejects(f.gateway.call('log_read', { workerId: 'worker-a', runKey: 'run-1', since: 12 }), /日志响应无效/);
   failure = Error('Worker unavailable');
   await assert.rejects(f.gateway.call('log_read', { workerId: 'worker-a', runKey: 'run-1', since: 12 }), /Worker unavailable/);
 });

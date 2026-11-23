@@ -3229,6 +3229,7 @@ export class RealtimeTunnelPanelProvider {
             ? await this.client.getLiveOutput(runKey, since, this.resolveWorkerEndpointId(workerId) || workerId || undefined, { userInitiated: true, signal })
             : undefined;
         signal?.throwIfAborted();
+        if (runKey && (!direct || typeof direct !== "object")) throw new Error("Worker 返回的日志响应无效，未使用缓存替代。");
         if (direct && typeof direct === "object") {
             const directText = [direct.text, direct.output, direct.tail].find((value) => typeof value === "string");
             if (directText !== undefined) {
