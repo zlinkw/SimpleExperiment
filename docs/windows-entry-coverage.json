@@ -11250,6 +11250,7 @@
         },
         {
           "name": "state_set",
+          "currentReview": {"status": "source_scoped", "evidence": "ToolCatalog approvalTool→Gateway授权和用户确认→Host apiStateSet。", "boundary": "只接受声明可写键，校验并写相应存储，项目切换错误可见；本轮未改变真实状态，未覆盖全部键。"},
           "method": "state.set",
           "oldEvidence": "projectTools[name=state_set]",
           "scope": "single_project_local_or_mixed",
@@ -11258,6 +11259,7 @@
         },
         {
           "name": "state_reset",
+          "currentReview": {"status": "synthetic_scoped", "evidence": "%TEMP%/g004-520-mcp-project-ops-successor-20261123.log 原11/11 exit0，含selection/reset替身调用；另核Host apiStateReset。", "boundary": "Gateway要求用户确认，Host限制可写键并按作用域重置；本轮未真实重置，未验全部状态键。"},
           "method": "state.reset",
           "oldEvidence": "projectTools[name=state_reset]",
           "scope": "single_project_local_or_mixed",
@@ -11308,6 +11310,7 @@
         },
         {
           "name": "flow_update",
+          "currentReview": {"status": "source_scoped", "evidence": "ToolCatalog→Gateway配置权限→Host apiFlowUpdate源码；原MCP输入契约合成测试覆盖空参数拒绝。", "boundary": "completed与blocked不可同时为true，持久化后核项目上下文；本轮未写真实流程，未覆盖所有步骤。"},
           "method": "flow.update",
           "oldEvidence": "projectTools[name=flow_update]",
           "scope": "single_project_local_or_mixed",
