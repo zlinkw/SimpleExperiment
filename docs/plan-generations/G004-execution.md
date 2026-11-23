@@ -82,3 +82,4 @@ SE候选在隔离前复用同lease状态冻结身份，审核入口允许原请�
 
 总控审准SFTP两原单文件：apiBackpressure与apiUploadProgress顺序各4/4、exit0、stderr空，日志 `%TEMP%/g004-sftp-api-{backpressure,upload-progress}-v1-20261124.{out,err}.log`，原调用和依赖登记coverage；假SSE及假上传子进程，无真实监听/SSH/传输。只读查rollout时额外指定不存在的11/24日期目录导致rg exit2，实际11/23 rollout命中有效，无写入。
 当前3c132bdc及dirty源码只读展开仍build 317/package 369、前者为后者子集；逐身份对比有154个build identity含至少一条旧证依赖漂移（旧receipt记录22、direct记录132，数目可重叠），仅为待核导航，非失败或通过数。已按真实闭包续核租约、槽索引、Worker准备、结果状态和共享作用域等证据，旧compiled仍须新编译门禁；未启动build。
+projectCodeSyncState旧VM直接执行新增TS类型语法导致只读语法检查SyntaxError；按总控批准以现有TypeScript先转换再运行，原测试单文件 `%TEMP%/g004-project-code-sync-state-v1-20261124.log` 实际7/7、exit0，私有fixture保留，未触unlink/Worker/真实配置。原旧7/7证据保留，新direct按实际事件与依赖登记，单identity只读规划验收通过；修正已普通推送fetch一致6bcc43dce912f7778d86010b84edeb13a689ec5b，不冒dist验证。
