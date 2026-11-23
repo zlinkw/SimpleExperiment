@@ -17048,13 +17048,13 @@ var StdioServerTransport = class {
   }
 };
 
-// src/cli/LocalApiClient.ts
+// src/api/LocalApiClient.ts
 var fs = __toESM(require("node:fs"));
 var http = __toESM(require("node:http"));
 var os = __toESM(require("node:os"));
 var path = __toESM(require("node:path"));
 
-// src/cli/errors.ts
+// src/api/LocalApiErrors.ts
 var EXIT_ENV = 2;
 var EXIT_BUSINESS = 3;
 var EXIT_NETWORK = 4;
@@ -17090,7 +17090,7 @@ function asCliError(error2, fallback = EXIT_BUSINESS) {
   return new CliError(fallback, code || "ERROR", message, code);
 }
 
-// src/cli/LocalApiClient.ts
+// src/api/LocalApiClient.ts
 var DISCOVERY_LIMIT = 65536;
 var REQUEST_LIMIT = 4 * 1024 * 1024;
 function validateDiscovery(value) {

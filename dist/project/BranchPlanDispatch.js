@@ -6,7 +6,7 @@ exports.listBranchPlans = listBranchPlans;
 exports.previewBranchRun = previewBranchRun;
 exports.submitBranchRun = submitBranchRun;
 exports.branchRunProgress = branchRunProgress;
-const LocalApiClient_1 = require("../cli/LocalApiClient");
+const LocalApiClient_1 = require("../api/LocalApiClient");
 /** 唯一存活实例解析：歧义/离线/超预算一律如实抛错（继承 LocalApiClient 的拒绝语义）。 */
 async function resolveBranchRoute(workspace) {
     const row = await (0, LocalApiClient_1.resolveInstanceByWorkspace)("experiment", workspace);

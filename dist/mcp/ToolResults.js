@@ -94,7 +94,8 @@ assign(["task_stop"], object({ ok: boolean, workerId: string, commandId: string,
     completionSource: string, nextTool: string }, ["ok", "workerId", "commandId", "workflowId"]));
 assign(["plan_stop"], object({ ok: boolean, stopped: number, matchedOperations: strings, terminatedSessions: strings, terminatedPids: array(number),
     remainingActiveEvidence: array(object()), reconciledOperations: strings }, ["ok"]));
-assign(["task_dispatch"], object({ ok: boolean, workflowId: string, indices: array(number), jobs: array(object()), results: array(object()) }));
+assign(["task_dispatch"], object({ ok: boolean, status: string, message: string, workflowId: string, indices: array(number),
+    fallbackToAutomatic: boolean, allocations: array(object()), jobs: array(object()), results: array(object()) }));
 assign(["task_preflight", "task_preflight_status", "task_preflight_cancel"], object({ ...operation, action: string, commandId: string,
     result: value, payload: object(), progress: value, message: string }));
 assign(["task_analyze"], object({ commandId: string, workerId: string, status: string, executionState: string, resultState: string,

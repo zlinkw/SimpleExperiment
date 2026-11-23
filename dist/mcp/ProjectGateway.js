@@ -6,6 +6,25 @@ const ProjectAuthorization_1 = require("./ProjectAuthorization");
 const ProjectQueries_1 = require("./ProjectQueries");
 const Invocation_1 = require("./Invocation");
 const node_util_1 = require("node:util");
+function validateDispatch(args) {
+    const nonempty = (value) => typeof value === "string" && !!value.trim();
+    if (args.distribution === "quota_remaining") {
+        const ids = args.workflowIds;
+        if (ids !== undefined && (!ids.length || ids.some((id) => !nonempty(id))) || args.workflowId !== undefined && !nonempty(args.workflowId)
+            || args.all === true && (args.workflowId !== undefined || ids !== undefined)
+            || args.all !== true && args.workflowId === undefined && ids === undefined
+            || ["indices", "workerId", "gpuId", "gpuSelection", "stopRunning", "expectedCommands"].some(key => Object.hasOwn(args, key)))
+            throw Error("MCP_DISPATCH_SCOPE_INVALID: select explicit PLANs or all remaining jobs without a Worker or GPU");
+        return;
+    }
+    if (!nonempty(args.workflowId) || !nonempty(args.workerId) || !Array.isArray(args.indices) || !args.indices.length
+        || args.indices.some((index) => !Number.isSafeInteger(index) || index < 0)
+        || ["workflowIds", "all"].some(key => Object.hasOwn(args, key))
+        || (args.gpuSelection === "automatic" ? args.gpuId !== undefined : !nonempty(args.gpuId)))
+        throw Error("MCP_DISPATCH_SELECTION_INVALID: select jobs, a Worker and either a GPU or automatic selection");
+    if (args.expectedCommands !== undefined && Object.values(args.expectedCommands).some(value => typeof value !== "string"))
+        throw Error("MCP_DISPATCH_EXPECTED_COMMANDS_INVALID");
+}
 class ProjectGateway {
     ports;
     constructor(ports) {
@@ -35,6 +54,8 @@ class ProjectGateway {
             throw Error("MCP_TOOL_UNAVAILABLE: " + name);
         (0, ToolCatalog_1.validateToolArguments)(tool.inputSchema, argumentsValue);
         const args = argumentsValue;
+        if (tool.name === "task_dispatch")
+            validateDispatch(args);
         if (args.location === "worker" && !args.workerId || args.location === "local" && args.workerId)
             throw Error("MCP_FILE_NODE_REQUIRED");
         const grant = this.ports.store.get(ProjectAuthorization_1.AUTHORIZATION_KEY);
@@ -62,7 +83,12 @@ class ProjectGateway {
         if (tool.method === "mcp.fileReview")
             return this.ports.reviewFiles(args);
         if (tool.method === "mcp.query")
-            return (0, ProjectQueries_1.queryProject)(root, async (method, params) => this.ports.methods()[method](params, undefined, context), tool.action, args);
+            return (0, ProjectQueries_1.queryProject)(root, async (method, params) => {
+                const methods = this.ports.methods();
+                if (!Object.hasOwn(methods, method))
+                    throw Object.assign(new Error("Method not found: " + method), { apiCode: -32601 });
+                return methods[method](params, undefined, context);
+            }, tool.action, args);
         const scopedWorkers = () => {
             const workers = this.ports.workers(tool.name === "worker_configure");
             const ids = args.location === "local" ? [] : args.serverIds || (args.workerId ? [args.workerId] : args.sourceWorkerId
@@ -81,10 +107,13 @@ class ProjectGateway {
         const cleanup = tool.method.startsWith("plans.cleanup.") || tool.method.startsWith("files.cleanup.");
         const params = { ...args, ...((tool.permission || tool.requiresUserApproval) && !cleanup ? { confirm: true } : {}),
             ...(tool.method === "project.prepare" ? { startSessions: true } : {}),
+            ...(tool.method === "plans.cleanup.preview" && args.action === "delete" ? { authorizationMode: "confirmed_paths" } : {}),
             ...(tool.method.startsWith("workflow.") ? { workspace: this.ports.root() } : {}),
             ...(tool.method === "operations.list" ? { filtered: true } : {}),
             ...(tool.method === "invoke" ? { command: tool.action } : {}),
             ...(tool.method === "agents.lifecycle" ? { action: tool.action || "inspect" } : {}) };
+        if (tool.name === "task_dispatch" && params.stopRunning !== true)
+            delete params.stopRunning;
         const invocation = {
             permission: permission => {
                 if (root !== this.ports.root())

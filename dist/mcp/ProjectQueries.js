@@ -36,19 +36,20 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.queryProject = queryProject;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const ExecutionContext_1 = require("../cli/ExecutionContext");
-const experiments = __importStar(require("../cli/commands/experiment"));
-const result_1 = require("../cli/commands/result");
-const metric_1 = require("../cli/commands/metric");
-const compare_1 = require("../cli/commands/compare");
-const log_1 = require("../cli/commands/log");
-const artifact_1 = require("../cli/commands/artifact");
-const plan_1 = require("../cli/commands/plan");
-const server_1 = require("../cli/commands/server");
-const resource_1 = require("../cli/commands/resource");
-/** Reuse structured business results before CLI rendering, with an isolated project and API context. */
+const ExecutionContext_1 = require("./query/ExecutionContext");
+const experiments = __importStar(require("./query/Experiments"));
+const Results_1 = require("./query/Results");
+const ResultParse_1 = require("./query/ResultParse");
+const Metrics_1 = require("./query/Metrics");
+const Compare_1 = require("./query/Compare");
+const Logs_1 = require("./query/Logs");
+const Artifacts_1 = require("./query/Artifacts");
+const Plans_1 = require("./query/Plans");
+const Servers_1 = require("./query/Servers");
+const Resources_1 = require("./query/Resources");
+/** Query structured business results with an isolated project and API context. */
 async function queryProject(root, rpc, name, args) {
-    const flags = { json: true, full: args.full === true,
+    const flags = { full: args.full === true,
         ...(args.status ? { status: args.status } : {}), ...(args.type ? { type: args.type } : {}), ...(args.limit !== undefined ? { limit: args.limit } : {}),
         ...(args.format ? { format: args.format } : {}),
         ...(args.primary ? { primary: args.primary } : {}),
@@ -70,14 +71,14 @@ async function queryProject(root, rpc, name, args) {
         experiment_health: () => experiments.experimentHealth(flags), experiment_inspect: () => experiments.experimentInspect(args.id, flags),
         experiment_monitor: () => experiments.experimentMonitor(args.id, flags), experiment_diagnose: () => experiments.experimentDiagnose(args.id, flags),
         experiment_config: () => experiments.experimentConfig(args.id, flags), experiment_results: () => experiments.experimentResults(args.id, flags),
-        result_list: () => (0, result_1.resultList)(flags), result_show: () => (0, result_1.resultShow)(args.id, flags), result_export: () => (0, result_1.resultExport)(args.id, flags),
-        result_parse: () => (0, result_1.resultParse)(flags),
-        metric_list: () => (0, metric_1.metricList)(flags), metric_show: () => (0, metric_1.metricShow)(args.id, flags), metric_leaderboard: () => (0, metric_1.metricLeaderboard)(flags),
-        result_compare: () => (0, compare_1.compareCommand)([args.left, args.right], flags),
-        experiment_log: () => args.lines === undefined ? (0, log_1.logShow)(args.id, flags) : (0, log_1.logTail)(args.id, flags),
-        artifact_list: () => (0, artifact_1.artifactList)(args.id, flags), artifact_inspect: () => (0, artifact_1.artifactInspect)(args.id, flags),
-        resource_available: () => (0, resource_1.resourceCommand)("available", [], flags), server_list: () => (0, server_1.serverCommand)("list", [], flags),
-        plan_matrix: () => (0, plan_1.planMatrix)(args.planFile, flags), plan_build: () => (0, plan_1.planBuild)(flags),
+        result_list: () => (0, Results_1.resultList)(), result_show: () => (0, Results_1.resultShow)(args.id), result_export: () => (0, Results_1.resultExport)(args.id, flags),
+        result_parse: () => (0, ResultParse_1.resultParse)(flags),
+        metric_list: () => (0, Metrics_1.metricList)(), metric_show: () => (0, Metrics_1.metricShow)(args.id), metric_leaderboard: () => (0, Metrics_1.metricLeaderboard)(flags),
+        result_compare: () => (0, Compare_1.compareResults)(args.left, args.right),
+        experiment_log: () => (0, Logs_1.queryLogs)(args.id, args.lines),
+        artifact_list: () => (0, Artifacts_1.artifactList)(args.id), artifact_inspect: () => (0, Artifacts_1.artifactInspect)(args.id),
+        resource_available: () => (0, Resources_1.resourceAvailable)(), server_list: () => (0, Servers_1.serverList)(),
+        plan_matrix: () => (0, Plans_1.planMatrix)(args.planFile), plan_build: () => (0, Plans_1.planBuild)(flags),
     };
     if (!handlers[name])
         throw Error("MCP_QUERY_UNKNOWN: " + name);

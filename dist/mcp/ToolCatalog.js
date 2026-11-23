@@ -33,7 +33,7 @@ exports.PROJECT_TOOLS = [
     tool("project_instances", "projects.instances", "Inspect known project windows; each call still uses its bound live instance"),
     tool("project_connect", "invoke", "Start the configured enabled Workers' background tunnels", {}, [], "agents", "startAllConnections"),
     tool("project_prepare", "project.prepare", "Prepare the current project and configured enabled Workers", {}, [], "agents"),
-    tool("project_bootstrap", "project.bootstrap", "Recognize the current project using existing project defaults", plan, [], "configuration"),
+    tool("project_bootstrap", "project.bootstrap", "Recognize and prepare the current project; after confirmation this may connect to and prepare enabled Workers", plan, [], "configuration"),
     tool("project_bootstrap_operation", "project.bootstrap.operation", "Query project bootstrap", operation, ["operationId"]),
     tool("plan_list", "plans.list", "List current and archived PLANs"),
     tool("plan_preflight", "workflow.plan", "Run the complete PLAN preflight, including required synchronization and directory creation", plan, ["planFile"], "experiment"),
@@ -48,7 +48,12 @@ exports.PROJECT_TOOLS = [
         workerId: task.workerId, ...plan, ...operation,
         manualStopType: { type: "string", enum: ["manual_stop_bad_code_or_no_effect", "manual_stop_converged"] },
     }, ["workerId", "planFile", "operationId", "manualStopType"], "experiment", "stopExperiment"),
-    tool("task_dispatch", "tasks.dispatch", "Dispatch selected queued job indices to a configured Worker and GPU", { workflowId: text("Existing workflow ID"), indices: { type: "array", items: integer }, workerId: task.workerId, gpuId: text("GPU ID") }, ["workflowId", "indices", "workerId", "gpuId"], "experiment"),
+    tool("task_dispatch", "tasks.dispatch", "Dispatch selected jobs to one Worker or freeze remaining jobs within a PLAN scope for quota allocation. Selected jobs require workflowId, nonempty indices, workerId and gpuId, unless gpuSelection is automatic. quota_remaining requires workflowId and/or workflowIds, or all=true, without job or GPU selection.", {
+        workflowId: text("Existing workflow ID"), workflowIds: texts("Existing workflow IDs for quota allocation"), all: { ...boolean, description: "Select all remaining PLANs for quota allocation" },
+        distribution: { type: "string", enum: ["explicit_gpu", "quota_remaining"] }, indices: { type: "array", items: integer, description: "Nonnegative job indices for selected-job dispatch" },
+        workerId: task.workerId, gpuId: text("GPU ID; omit for automatic selection"), gpuSelection: { type: "string", enum: ["automatic", "specific"] },
+        stopRunning: { ...boolean, description: "Explicitly request stopping selected running jobs before dispatch" }, expectedCommands: { ...object, description: "Original command IDs keyed by job index for exact stop review" },
+    }, [], "experiment"),
     tool("task_preflight", "tasks.preflight", "Read-only preflight of one existing Worker task", { ...task, environmentOnly: boolean, completedOutputVerify: boolean }, ["workerId", "commandId"]),
     tool("task_preflight_status", "tasks.preflight.status", "Observe the original task preflight", { workerId: task.workerId, ...operation }, ["workerId", "operationId"]),
     tool("task_preflight_cancel", "tasks.preflight.cancel", "Cancel an existing read-only preflight", { workerId: task.workerId, ...operation }, ["workerId", "operationId"], "experiment"),
@@ -76,11 +81,11 @@ exports.PROJECT_TOOLS = [
     tool("state_value", "state.get", "Read one plugin state value", { key: text("Declared state key") }, ["key"]),
     approvalTool("state_set", "state.set", "Change an explicitly declared writable plugin state key", { key: text("Declared writable state key"), value: {} }, ["key", "value"], "experiment"),
     approvalTool("state_reset", "state.reset", "Reset an explicitly declared writable plugin state key", { key: text("Declared writable state key") }, ["key"], "experiment"),
-    tool("configuration_get", "config.get", "Read one configuration value", { key: configurationKey }, ["key"]),
-    tool("configuration_set", "config.set", "Set a workspace configuration value. For simpleExperiment.projectAdapterRules use workspaceFolder; value may contain taskType, primaryMetric, secondaryMetrics, candidateCsv, candidateJson, consoleLogs, textLogs, metricRegex, metricAliases, csvColumnMapping and derivedMetric. Use facts from the current task and output, retain existing mappings, and inspect sync status. Dataset classification uses its separate result workflow.", { key: configurationKey, value: {}, scope: { type: "string", enum: ["workspace", "workspaceFolder"] } }, ["key", "value", "scope"], "configuration"),
-    tool("configuration_reset", "config.reset", "Reset a workspace configuration value", { key: configurationKey, scope: { type: "string", enum: ["workspace", "workspaceFolder"] } }, ["key", "scope"], "configuration"),
+    tool("configuration_get", "config.get", "Read a VS Code configuration value; effective shared Worker settings are available through state_value setupConfig", { key: configurationKey }, ["key"]),
+    tool("configuration_set", "config.set", "Set a global, workspace or workspaceFolder configuration value. For simpleExperiment.projectAdapterRules use workspaceFolder; value may contain taskType, primaryMetric, secondaryMetrics, candidateCsv, candidateJson, consoleLogs, textLogs, metricRegex, metricAliases, csvColumnMapping and derivedMetric. Use facts from the current task and output, retain existing mappings, and inspect sync status. Dataset classification uses its separate result workflow.", { key: configurationKey, value: {}, scope: { type: "string", enum: ["global", "workspace", "workspaceFolder"] } }, ["key", "value", "scope"], "configuration"),
+    tool("configuration_reset", "config.reset", "Reset a global, workspace or workspaceFolder configuration value; projectAdapterRules requires workspaceFolder", { key: configurationKey, scope: { type: "string", enum: ["global", "workspace", "workspaceFolder"] } }, ["key", "scope"], "configuration"),
     tool("worker_configure", "workers.configure", "Save a configured Worker's globally shared settings; changes affect every project", {
-        workerId: task.workerId, patch: { type: "object", properties: {
+        workerId: text("Configured Worker ID, including a disabled Worker"), patch: { type: "object", properties: {
                 condaEnvMode: { type: "string", enum: ["inherit", "system", "path"] }, condaEnv: text("Absolute research environment path"),
                 enabled: boolean, maxConcurrentGpus: {}, gpuJobsPerCard: integer, gpuMinFreeMemoryGb: { type: "number" }, gpuMaxConcurrentCards: integer,
             }, additionalProperties: false },
@@ -88,12 +93,12 @@ exports.PROJECT_TOOLS = [
     tool("flow_get", "flow.get", "Inspect the current workflow steps"),
     tool("flow_update", "flow.update", "Update a workflow step", { step: text("Workflow step"), completed: boolean, blocked: boolean, appliedAt: text("Evidence timestamp") }, ["step"], "configuration"),
     tool("panel_diagnostics", "panel.diagnostics", "Inspect current panel health and render evidence"),
-    tool("draft_list", "drafts.list", "List existing experiment drafts"),
+    tool("draft_list", "drafts.list", "List existing experiment drafts", { force: boolean }),
     tool("draft_validate", "drafts.validate", "Validate a draft", { draftPlanPath: text("Project-relative draft PLAN path") }, ["draftPlanPath"]),
     tool("draft_promotion_preview", "drafts.promotionPreview", "Read historical promotion evidence; promotion itself is retired", { draftPlanPath: text("Project-relative draft PLAN path") }, ["draftPlanPath"]),
     tool("draft_review", "drafts.review", "Record a draft review", { draftPlanPath: text("Project-relative draft PLAN path"), reviewedBy: text("Reviewer") }, ["draftPlanPath"], "configuration"),
     tool("draft_reject", "drafts.reject", "Reject a draft without deleting its files", { draftPlanPath: text("Project-relative draft PLAN path"), reviewedBy: text("Reviewer") }, ["draftPlanPath"], "configuration"),
-    tool("draft_cleanup_candidates", "drafts.cleanupCandidates", "Preview draft cleanup candidates"),
+    tool("draft_cleanup_candidates", "drafts.cleanupCandidates", "Preview draft cleanup candidates", { force: boolean }),
     tool("cleanup_list", "plans.cleanup.list", "List existing protected cleanup requests"),
     tool("cleanup_status", "plans.cleanup.status", "Observe an existing cleanup request", operation, ["operationId"]),
     tool("cleanup_preview", "plans.cleanup.preview", "Build a protected path preview for user review", { ...plan, action: { type: "string", enum: ["move", "delete", "isolate"] }, verifiedOnly: boolean }, ["planFile"]),
@@ -104,13 +109,17 @@ exports.PROJECT_TOOLS = [
     tool("cleanup_restore_preview", "plans.cleanup.restore", "Preview restoration from the original cleanup operation", operation, ["operationId"]),
     tool("cleanup_execute", "plans.cleanup.execute", "Execute the existing cleanup request after the required human path confirmations", operation, ["operationId"], "sync"),
     tool("file_cleanup_preview", "files.cleanup.preview", "Freeze exact file targets for human review; does not delete or confirm", {
-        ...fileNode, action: { type: "string", enum: ["move", "delete", "restore", "isolate"] }, targets: { type: "array", items: fileTarget },
+        ...fileNode, action: { type: "string", enum: ["move", "delete", "restore", "isolate"] },
+        observationMode: { type: "string", enum: ["managed_tmux"], description: "Use managed tmux observation for this preview" }, targets: { type: "array", items: {
+                ...fileTarget, properties: { ...fileTarget.properties, destination: text("Exact project-relative destination"), archiveBatch: text("Exact archive batch identity") },
+            } },
     }, ["location", "action", "targets"], undefined, undefined, "sftp"),
     tool("file_cleanup_inspect", "files.cleanup.inspect", "Observe one exact project file target", { ...fileNode, target: fileTarget, presenceOnly: boolean, allowMissing: boolean }, ["location", "target"], undefined, undefined, "sftp"),
     tool("file_cleanup_observe_batch", "files.cleanup.observeBatch", "Actively observe a batch of exact project paths without deleting them", {
         ...fileNode, observationId: text("Identity of this observation round"), rootIdentity: object,
-        readConcurrency: { type: "integer" }, targets: { type: "array", items: { ...fileTarget, properties: { ...fileTarget.properties,
-                    backendToken: text("Original preview token, if observing a frozen request"), backendIndex: integer,
+        readConcurrency: { type: "integer", description: "Use 1 or 2 concurrent reads; defaults to 1" }, targets: { type: "array", items: { ...fileTarget, properties: { ...fileTarget.properties,
+                    key: text("Stable identity of this observation target"), backendToken: text("Original preview token, if observing a frozen request"), backendIndex: integer,
+                    backendDigest: text("Original frozen backend digest"), device: { type: ["string", "number"], description: "Original device identity" }, inode: { type: ["string", "number"], description: "Original inode identity" },
                     isolationRelativePath: text("Original preview isolation path"), fingerprint: text("Original preview content identity"),
                 } } },
     }, ["location", "observationId", "targets"], undefined, undefined, "sftp"),
@@ -184,7 +193,7 @@ exports.PROJECT_TOOLS = [
     tool("sftp_worker_batch", "sync.serverToServerBatch", "Sync an explicit project file batch between configured Workers", {
         sourceWorkerId: task.workerId, destinationWorkerId: task.workerId, relativePaths: texts("Project-relative file"),
     }, ["sourceWorkerId", "destinationWorkerId", "relativePaths"], "sync", undefined, "sftp"),
-    ...["list", "summary", "active", "tree", "overview", "health"].map(action => tool("experiment_" + action, "mcp.query", "Structured CLI business view: experiment " + action, { full: boolean, ...(action === "list" ? {
+    ...["list", "summary", "active", "tree", "overview", "health"].map(action => tool("experiment_" + action, "mcp.query", "Structured experiment view: " + action, { full: boolean, ...(action === "list" ? {
             status: text("Exact experiment status filter"), type: { type: "string", enum: ["workflow", "worker_run"] }, limit: integer,
         } : {}) }, [], undefined, "experiment_" + action)),
     ...["status", "inspect", "monitor", "diagnose", "config", "log"].map(action => tool("experiment_" + action, "mcp.query", "Structured one-shot experiment " + action + "; never starts a background watch" + (action === "log" ? "; remote output is limited to the last 256 KiB by the Worker" : ""), { id: text("Exact experiment or command ID"), full: boolean, ...(action === "log" ? { lines: integer } : {}) }, ["id"], undefined, "experiment_" + action)),
@@ -193,21 +202,25 @@ exports.PROJECT_TOOLS = [
     tool("result_export", "mcp.query", "Export exact results as structured content; returns content without saving raw metrics locally", {
         id: text("Exact result ID"), format: { type: "string", enum: ["csv", "json"] },
     }, ["id"], "results", "result_export"),
-    tool("result_compare", "mcp.query", "Compare two exact result rows using the same CLI comparison logic", { left: text("Left result ID"), right: text("Right result ID") }, ["left", "right"], "results", "result_compare"),
+    tool("result_compare", "mcp.query", "Compare two exact result rows", { left: text("Left result ID"), right: text("Right result ID") }, ["left", "right"], "results", "result_compare"),
     tool("result_parse", "mcp.query", "Parse an existing project file with an optional parser preset", {
         file: text("Existing project-relative input file"), preset: text("Existing parser preset ID"),
     }, ["file"], undefined, "result_parse"),
     tool("metric_leaderboard", "mcp.query", "Build a leaderboard from an existing project file", {
         file: text("Existing project-relative input file"), primary: text("Primary metric"),
     }, ["file"], undefined, "metric_leaderboard"),
-    ...["artifact_list", "artifact_inspect"].map(name => tool(name, "mcp.query", "Inspect artifact metadata through the shared CLI business view", { id: text("Exact experiment or artifact ID") }, ["id"], "results", name)),
+    ...["artifact_list", "artifact_inspect"].map(name => tool(name, "mcp.query", "Inspect artifact metadata", { id: text("Exact experiment or artifact ID") }, ["id"], "results", name)),
     tool("resource_available", "mcp.query", "Inspect current GPU availability and observed task allocations", {}, [], undefined, "resource_available"),
-    tool("server_list", "mcp.query", "Inspect configured servers through the shared CLI view", {}, [], undefined, "server_list"),
+    tool("server_list", "mcp.query", "Inspect configured servers", {}, [], undefined, "server_list"),
     tool("plan_matrix", "mcp.query", "Preview the saved PLAN's declared case and seed combinations without submitting it", plan, ["planFile"], undefined, "plan_matrix"),
     tool("plan_build", "mcp.query", "Generate PLAN YAML content from explicit seeds; does not save or run it", { suite: text("Suite"), base: text("Project-relative base config"), seeds: texts("Explicit seed") }, ["suite", "base", "seeds"], undefined, "plan_build"),
 ];
 function validateToolArguments(schema, value, location = "arguments") {
-    if (schema.type === "object") {
+    if (Array.isArray(schema.type)) {
+        if (!schema.type.some(type => typeof value === type && (type !== "number" || Number.isFinite(value))))
+            throw Error(location + " must be " + schema.type.join(" or "));
+    }
+    else if (schema.type === "object") {
         if (!value || typeof value !== "object" || Array.isArray(value))
             throw Error(location + " must be an object");
         const row = value;
