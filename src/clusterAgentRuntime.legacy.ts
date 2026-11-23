@@ -235,6 +235,9 @@ ACTION_PATHS = [
     "/api/actions/clearCache",
     "/api/actions/preview-cache-cleanup",
     "/api/actions/delete-cache-candidates",
+    "/api/actions/delete-confirmed-cache-candidates",
+    "/api/actions/check-confirmed-cache-candidates",
+    "/api/actions/query-confirmed-cache-cleanup",
 ]
 ACTION_ROUTES = set(ACTION_PATHS)
 WORKER_COMMAND_QUEUE = {}
@@ -9876,6 +9879,7 @@ def create_debug_bundle_action(root, include_results=False, plan=None):
 
 INACTIVITY_ACTIONS = {}
 LIVE_CLEANUP_ACTIONS = {}
+CACHE_CLEANUP_RECEIPTS = {}
 INACTIVITY_ACTIONS_LOCK = threading.Lock()
 INACTIVITY_ACTION_CONTEXT = threading.local()
 
@@ -11554,16 +11558,32 @@ def cache_cleanup_candidates(root):
                     continue
     return sorted(candidates, key=lambda item: item["path"])
 
-def cache_delete_exact_file(root, relative_path, expected_token, batch=None):
+def cache_delete_exact_file(root, relative_path, expected_token, batch=None, confirmed_paths=False):
     root_real = os.path.realpath(root)
+    if confirmed_paths and (os.path.islink(root) or os.path.abspath(root) != root_real or not os.path.isdir(root_real)):
+        raise ValueError("PARENT_CD_FAILED: 项目根目录不可用或包含链接")
     parts = str(relative_path or "").split("/")
     if not parts or any(part in ("", ".", "..") for part in parts) or not (parts[0] == "tmp" or parts[0] == "simple_cluster" and len(parts) > 1 and parts[1] in ("tmp", "console_logs", "tmux_logs")):
         raise ValueError("缓存路径超出允许范围")
+    if confirmed_paths:
+        protected = ("tensorboard", "tb_log", "checkpoint", "weight", "model_cache", "dataset")
+        name = parts[-1]
+        dry_run = bool(re.fullmatch(r"dry-run-workers-[0-9a-f]{24}\.json", name))
+        scheduler_state = relative_path.startswith("simple_cluster/tmp/cluster_scheduler/") and relative_path.endswith("_state.json")
+        if any("\\" in part or any(marker in part.lower() for marker in protected) for part in parts) or (os.path.splitext(name)[1].lower() not in (".log", ".tmp", ".bak", ".part") and not dry_run and not scheduler_state):
+            raise ValueError("缓存路径不属于允许的文件类别")
     full_path = os.path.join(root_real, *parts)
     parent = os.path.dirname(full_path)
     leaf = os.path.basename(full_path)
     if not leaf or leaf in (".", "..") or "/" in leaf or "\\" in leaf or os.path.realpath(parent) != parent or os.path.commonpath((root_real, parent)) != root_real or parent == root_real:
         raise ValueError("PARENT_CD_FAILED: 父目录校验失败")
+    if confirmed_paths:
+        if not os.path.isdir(parent) or os.stat(parent).st_dev != os.stat(root_real).st_dev:
+            raise ValueError("PARENT_CD_FAILED: 父目录不可用或跨设备")
+        try:
+            os.lstat(full_path)
+        except FileNotFoundError:
+            return False
     if os.path.islink(full_path) or not os.path.isfile(full_path):
         raise ValueError(f"候选已变化：{relative_path}")
     file_stat = os.stat(full_path, follow_symlinks=False)
@@ -11587,7 +11607,7 @@ def cache_delete_exact_file(root, relative_path, expected_token, batch=None):
         stamp += f".{file_stat.st_mtime_ns % 1_000_000_000:09d} +0000"
         signature = f"{file_stat.st_dev}|{file_stat.st_ino}|{file_stat.st_size}|{file_stat.st_nlink}|{stamp}"
         batch.append((parent, leaf, signature))
-        return
+        return True
     script = 'cd -- "$1" || exit 41; [ "$(pwd -P)" = "$1" ] || exit 42; [ -f "./$2" ] && [ ! -L "./$2" ] || exit 43; rm -- "./$2"'
     completed = subprocess.run(["/bin/sh", "-c", script, "cache-delete", parent, leaf], cwd=parent, capture_output=True, text=True, timeout=30)
     if completed.returncode != 0:
@@ -11660,6 +11680,39 @@ def handle_action(root, action, payload, operation_id, op_id):
                 return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "status": "completed",
                         "planOutputs": [inspect_plan_output_retirement(root, value) for value in paths]}
             return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "status": "completed", "candidates": cache_cleanup_candidates(root), "retentionDays": 7}
+        except Exception as exc:
+            return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "status": "failed", "message": str(exc)}
+    if action == "query-confirmed-cache-cleanup":
+        worker_id = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "").strip()
+        target_id = str(payload.get("targetOperationId") or "").strip()
+        if not worker_id or payload.get("workerId") != worker_id or not target_id:
+            return {"status": "unknown", "message": "无法核实原请求的节点身份"}
+        key = (os.path.abspath(root), target_id)
+        with INACTIVITY_ACTIONS_LOCK:
+            live = LIVE_CLEANUP_ACTIONS.get(key)
+            state = "live" if live and live.get("action") == "delete-confirmed-cache-candidates" else CACHE_CLEANUP_RECEIPTS.get(key, "unknown")
+        return {"status": state, "workerId": worker_id, "targetOperationId": target_id}
+    if action in ("check-confirmed-cache-candidates", "delete-confirmed-cache-candidates"):
+        try:
+            selected = payload.get("candidates")
+            if payload.get("authorizationMode") != "confirmed_paths" or payload.get("confirm") is not True or payload.get("pathConfirmed") is not True or not isinstance(selected, list) or not selected:
+                raise ValueError("CONFIRM_REQUIRED: 必须逐项确认完整路径并二次确认")
+            worker_id = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "").strip()
+            if not worker_id or payload.get("workerId") != worker_id:
+                raise ValueError("WORKER_IDENTITY_MISMATCH")
+            if len(selected) > 2000 or any(not isinstance(row, dict) or row.get("type") != "file" or not isinstance(row.get("path"), str) or not isinstance(row.get("token"), str) or not row["token"] for row in selected) or len({row["path"] for row in selected}) != len(selected):
+                raise ValueError("缓存候选包含重复或无效路径")
+            bindings, deleted, absent = [], [], []
+            for row in selected:
+                if cache_delete_exact_file(root, row["path"], row["token"], batch=bindings, confirmed_paths=True):
+                    deleted.append(row["path"])
+                else:
+                    absent.append(row["path"])
+            if action == "check-confirmed-cache-candidates":
+                return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "status": "completed", "authorizationMode": "confirmed_paths", "workerId": worker_id, "root": os.path.realpath(root), "candidates": selected, "absent": absent}
+            cache_delete_confirmed_batch(bindings)
+            append_event(root, {"type": "cache_cleanup_completed", "operationId": operation_id, "payload": {"deletedCount": len(deleted)}})
+            return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "operationId": operation_id, "workerId": worker_id, "status": "completed", "deletedCount": len(deleted), "absent": absent}
         except Exception as exc:
             return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "status": "failed", "message": str(exc)}
     if action == "delete-cache-candidates":
@@ -12473,9 +12526,26 @@ def tracked_cleanup_action(root, action, payload, operation_id, op_id):
     key = (os.path.abspath(root), str(operation_id))
     entry = {"operationId": operation_id, "action": action, "payload": payload}
     with INACTIVITY_ACTIONS_LOCK:
+        if key in LIVE_CLEANUP_ACTIONS or (action == "delete-confirmed-cache-candidates" and key in CACHE_CLEANUP_RECEIPTS):
+            return {"status": "failed", "message": "原清理请求已存在，不能重复发送"}
+        if action in ("delete-cache-candidates", "delete-confirmed-cache-candidates", "check-confirmed-cache-candidates"):
+            candidates = payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
+            paths = {row.get("path") for row in candidates if isinstance(row, dict)}
+            for (directory, _), other in LIVE_CLEANUP_ACTIONS.items():
+                if directory != key[0] or other.get("action") not in ("delete-cache-candidates", "delete-confirmed-cache-candidates"):
+                    continue
+                other_candidates = other.get("payload", {}).get("candidates")
+                other_paths = {row.get("path") for row in other_candidates if isinstance(row, dict)} if isinstance(other_candidates, list) else set()
+                if paths & other_paths:
+                    return {"status": "rejected", "notStarted": True, "operationId": operation_id,
+                            "workerId": str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or ""), "message": "相同路径的清理仍在执行"}
         LIVE_CLEANUP_ACTIONS[key] = entry
     try:
-        return handle_action(root, action, payload, operation_id, op_id)
+        result = handle_action(root, action, payload, operation_id, op_id)
+        if action == "delete-confirmed-cache-candidates":
+            with INACTIVITY_ACTIONS_LOCK:
+                CACHE_CLEANUP_RECEIPTS[key] = "settled" if result.get("status") == "completed" else "unknown"
+        return result
     finally:
         with INACTIVITY_ACTIONS_LOCK:
             if LIVE_CLEANUP_ACTIONS.get(key) is entry:
@@ -14694,7 +14764,7 @@ def serve_http(args):
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
                 if route == "/api/tensorboard/service":
                     worker_action = "get-tensorboard-status"
-                if route not in ("/api/actions/save-result-policy", "/api/actions/finalize-worker-operation", "/api/actions/start-worker-task", "/api/actions/preflight-worker-task", "/api/actions/register-code-sync-proof", "/api/actions/rebuild-distributed-results", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/actions/preview-cache-cleanup", "/api/actions/delete-cache-candidates", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
+                if route not in ("/api/actions/save-result-policy", "/api/actions/finalize-worker-operation", "/api/actions/start-worker-task", "/api/actions/preflight-worker-task", "/api/actions/register-code-sync-proof", "/api/actions/rebuild-distributed-results", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/actions/preview-cache-cleanup", "/api/actions/delete-cache-candidates", "/api/actions/delete-confirmed-cache-candidates", "/api/actions/check-confirmed-cache-candidates", "/api/actions/query-confirmed-cache-cleanup", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(urlparse(self.path))
@@ -15073,7 +15143,7 @@ def serve_http(args):
             if action in ("validate-plan", "dry-run-plan", "preflight-worker-task", "rebuild-distributed-results") or (action == "preview-cache-cleanup" and ("planOutputPaths" in payload or "observePaths" in payload)) or (action == "archive-worker-artifacts" and payload.get("quarantineFailedAttempt") is True):
                 worker = (selected_worker_id(payload) or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker") if mode == "worker_telemetry" and action in ("validate-plan", "dry-run-plan", "preflight-worker-task") else ""
                 return self.send_json(start_inactivity_action(root, action, payload, operation_id, op_id, worker), status=202)
-            if action not in ("preview-cache-cleanup", "delete-cache-candidates"):
+            if action not in ("preview-cache-cleanup", "delete-cache-candidates", "delete-confirmed-cache-candidates", "check-confirmed-cache-candidates", "query-confirmed-cache-cleanup"):
                 append_event(root, {"type": "operation_started", "operationId": operation_id, "payload": {"action": action, "opId": op_id, **action_operation_fields(payload)}})
             release_worker_action = None
             try:

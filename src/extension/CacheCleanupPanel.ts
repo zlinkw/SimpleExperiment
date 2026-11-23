@@ -6,10 +6,11 @@ import { spawn } from "node:child_process";
 import { isStaleRetentionRow, retentionOwnership, RetentionIndex } from "../features/PluginLogRetention";
 
 type Candidate = { path: string; fullPath: string; type: "file"; bytes: number; modifiedAt: number; purpose: string; token: string; workerId: string; retentionStale?: boolean; previewOnly?: boolean };
-type Endpoint = { id: string; role: string };
+type Endpoint = { id: string; role: string; identity?: string; nodeIdentity?: string };
 type WorkerScan = { id: string; count: number; bytes: number; status: "loading" | "ready" | "unavailable"; error?: string };
 type BlockedRow = { path: string; reason: string; workers: string[]; planFile: string };
-type CleanupContext = { client: any; endpoints: Endpoint[]; localRoot?: string; generation: number; reviewPlanOutputs?: () => Promise<void>; retentionIndex?: () => Promise<RetentionIndex>; retentionHolds?: () => Promise<string[]>; retentionBlocked?: () => Promise<BlockedRow[]>; withRetentionLease?: (work: (lease: any) => Promise<void>) => Promise<void> };
+type CleanupContext = { client: any; endpoints: Endpoint[]; localRoot?: string; generation: number; cleanupState: (root: string, mode: string, rows?: PendingCleanup[]) => Promise<PendingCleanup[]>; reviewPlanOutputs?: () => Promise<void>; retentionIndex?: () => Promise<RetentionIndex>; retentionHolds?: () => Promise<string[]>; retentionBlocked?: () => Promise<BlockedRow[]>; withRetentionLease?: (work: (lease: any) => Promise<void>) => Promise<void> };
+type PendingCleanup = { root: string; workerId: string; endpointIdentity?: string; nodeIdentity?: string; operationId: string; paths: string[]; settled: boolean };
 
 // A blocked admission names the exact leaving generations that hold an incoming run out of the
 // two-generation window; the review must surface them as confirmed-cleanup candidates, otherwise
@@ -27,32 +28,23 @@ function retentionRowHeld(row: Candidate, retention: RetentionIndex | undefined,
   return holds.has(`${stale.planFile}|${stale.taskKey}`);
 }
 function applyRetention(rows: Candidate[], retention: RetentionIndex | undefined, holds: Set<string> | undefined, blocked: Map<string, BlockedRow>): Candidate[] {
-  const out: Candidate[] = [];
-  for (const row of rows) {
-    const blockedRow = blocked.get(row.path);
-    if (blockedRow && holds !== undefined && blockedRow.workers.includes(row.workerId)
-      && ![...holds].some(key => blockedRow.planFile && key.startsWith(blockedRow.planFile + "|"))) {
-      out.push({ ...row, retentionStale: true, previewOnly: undefined, purpose: blockedPurpose(blockedRow) }); continue;
-    }
+  return rows.map(row => {
     const ownership = retention ? retentionOwnership(retention, row.path) : "unknown-manifest";
-    if (ownership === "protected") continue;
-    if (ownership === "stale") {
-      if (retentionRowHeld(row, retention, holds)) out.push({ ...row, previewOnly: true, purpose: "在途提交的两代保留声明正持有该代际（仅预览，确认清理不可选中）" });
-      else out.push(row);
-      continue;
-    }
-    if (ownership === "unowned" || ownership === "unknown-manifest") { out.push({ ...row, previewOnly: true, purpose: "受管前缀内但归属清单无法指认其代际（仅预览，不会删除）" }); continue; }
-    if (row.path.startsWith("simple_cluster/tmp/backups/") && row.path.endsWith(".bak")) out.push(row);
-    else out.push({ ...row, previewOnly: true, purpose: "未声明代际的旧缓存（仅预览，请通过精确路径清理入口审核）" });
-  }
-  return out;
+    const blockedRow = blocked.get(row.path);
+    const notes = [row.purpose, `保留归属：${ownership}`];
+    if (blockedRow) notes.push(blockedPurpose(blockedRow));
+    if (holds === undefined) notes.push("在途保留声明不可读取");
+    else if (retentionRowHeld(row, retention, holds)) notes.push("在途提交声明保留此代际");
+    else if (holds.size) notes.push("存在在途保留声明，具体关联需核对");
+    return { ...row, previewOnly: undefined, purpose: notes.join("；") };
+  });
 }
 
 const html = (nonce: string) => `<!doctype html><html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'"><style>
 body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);padding:18px;line-height:1.5}h1{font-size:20px}p{color:var(--vscode-descriptionForeground)}button{color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:0;padding:7px 12px;cursor:pointer;margin-right:8px}button:disabled{opacity:.5;cursor:default}.secondary{background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground)}.summary{padding:12px;background:var(--vscode-editorWidget-background);margin:12px 0}.group{border:1px solid var(--vscode-panel-border);margin:10px 0}.group>summary{padding:9px;cursor:pointer;font-weight:bold}.rows{padding:4px 12px 12px}.row{display:flex;gap:9px;align-items:flex-start;padding:6px;border-top:1px solid var(--vscode-panel-border)}.row span{min-width:0;overflow-wrap:anywhere}.meta{color:var(--vscode-descriptionForeground)}.path{font-family:var(--vscode-editor-font-family);font-size:12px}.warning{color:var(--vscode-errorForeground)}#review{border:2px solid var(--vscode-errorForeground);padding:12px;margin-top:15px}#reviewPaths{max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--vscode-editor-background);padding:10px}#status{margin:12px 0;white-space:pre-wrap;overflow-wrap:anywhere}
-</style></head><body><h1>缓存回收审核</h1><p>下方按“当前运行＋上一次运行”审核受管日志；归属不明的旧文件仅供预览。Worker 有活动任务时不列候选；结果、权重、TensorBoard、原始测试结果表和机器状态保留。Plan 历史产物通过单独入口按代码版本审核。按本机或服务器的目录分组审核，勾选目录会选中其中展示的文件。</p><button id="planOutputs" class="secondary">Plan 历史产物审核</button><button id="refresh" class="secondary">刷新候选</button><button id="selectAll" class="secondary">全选候选</button><button id="deselectAll" class="secondary">清空选择</button><div id="summary" class="summary">正在读取…</div><div id="tree"></div><button id="reviewButton" disabled>审核所选路径</button><div id="review" hidden><h2>确认完整路径</h2><p id="reviewHint"></p><div id="reviewPaths"></div><button id="confirmButton">确认这些完整路径</button><button id="cancelButton" class="secondary">返回</button></div><div id="status" role="status"></div><script nonce="${nonce}">
+</style></head><body><h1>缓存回收审核</h1><p>请核对每个缓存文件的完整路径和保留提示；两次确认后按所选路径删除。结果、权重、TensorBoard、原始测试结果表和机器状态不在本入口范围。Plan 历史产物通过单独入口审核。清理结果未知时请先重新核实；未确认原执行器结束前不能重复删除。</p><button id="planOutputs" class="secondary">Plan 历史产物审核</button><button id="refresh" class="secondary">刷新候选</button><button id="recheckPending" class="secondary">重新核实未完成清理</button><button id="selectAll" class="secondary">全选候选</button><button id="deselectAll" class="secondary">清空选择</button><div id="summary" class="summary">正在读取…</div><div id="tree"></div><button id="reviewButton" disabled>审核所选路径</button><div id="review" hidden><h2>确认完整路径</h2><p id="reviewHint"></p><div id="reviewPaths"></div><button id="confirmButton">确认这些完整路径</button><button id="cancelButton" class="secondary">返回</button></div><div id="status" role="status"></div><script nonce="${nonce}">
 const vscode=acquireVsCodeApi();let rows=[],stage=0,reviewKeys=[],scanning=false;const tree=document.getElementById('tree'),summary=document.getElementById('summary'),status=document.getElementById('status'),review=document.getElementById('review');
-document.getElementById('planOutputs').onclick=()=>vscode.postMessage({type:'planOutputs'});
+document.getElementById('planOutputs').onclick=()=>vscode.postMessage({type:'planOutputs'});document.getElementById('recheckPending').onclick=()=>vscode.postMessage({type:'recheckPending'});
 function selected(){return Array.from(document.querySelectorAll('input[data-key]:checked')).map(x=>x.dataset.key)}
 function updateButton(){document.getElementById('reviewButton').disabled=scanning||!selected().length;document.getElementById('refresh').disabled=scanning;document.getElementById('selectAll').disabled=scanning;document.getElementById('deselectAll').disabled=scanning}
 function render(scans){tree.replaceChildren();const groups=new Map();for(const row of rows){const folder=row.path.slice(0,row.path.lastIndexOf('/'))||'.',key=row.workerId+'|'+folder;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row)}for(const [key,items] of groups){const d=document.createElement('details');d.className='group';const s=document.createElement('summary');const box=document.createElement('input');box.type='checkbox';box.title='勾选此目录内列出的候选文件';box.addEventListener('click',e=>e.stopPropagation());box.addEventListener('change',()=>{for(const c of d.querySelectorAll('input[data-key]'))if(!c.disabled)c.checked=box.checked;updateButton()});s.append(box,' '+items[0].workerId+' · '+items[0].path.slice(0,items[0].path.lastIndexOf('/'))+' · '+items.length+' 个候选 · '+items[0].purpose);d.append(s);const list=document.createElement('div');list.className='rows';for(const row of items){const wrap=document.createElement('label');wrap.className='row';const check=document.createElement('input');check.type='checkbox';if(row.previewOnly)check.disabled=true;else check.dataset.key=row.workerId+'|'+row.path;check.addEventListener('change',()=>{box.checked=Array.from(d.querySelectorAll('input[data-key]')).filter(x=>!x.disabled).every(x=>x.checked);updateButton()});const content=document.createElement('span');const name=document.createElement('div');name.className='path';name.textContent=row.fullPath;const meta=document.createElement('div');meta.className='meta';meta.textContent=(row.bytes/1048576).toFixed(2)+' MB · '+new Date(row.modifiedAt*1000).toLocaleString('zh-CN',{hour12:false})+' · '+row.purpose;content.append(name,meta);wrap.append(check,content);list.append(wrap)}d.append(list);tree.append(d)}summary.textContent=rows.length+' 个候选 · '+(rows.reduce((n,r)=>n+r.bytes,0)/1048576).toFixed(2)+' MB'+String.fromCharCode(10)+(scans||[]).map(s=>s.id+'：'+(s.status==='loading'?'正在读取…':s.error?'未完成 · '+s.error:s.count+' 个候选（含仅预览） · '+(s.bytes/1048576).toFixed(2)+' MB')).join(String.fromCharCode(10));summary.style.whiteSpace='pre-wrap';updateButton()}
@@ -96,7 +88,7 @@ function realPathSync(value: string): string {
   return require("node:fs").realpathSync(value);
 }
 
-async function localCandidates(root: string, signal?: AbortSignal, retention?: RetentionIndex, blocked?: Map<string, BlockedRow>): Promise<Candidate[]> {
+async function localCandidates(root: string, signal?: AbortSignal, retention?: RetentionIndex): Promise<Candidate[]> {
   signal?.throwIfAborted();
   const rootInfo = await fs.lstat(root);
   if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) throw new Error("本机项目根目录不是普通目录；已停止扫描。");
@@ -132,35 +124,8 @@ async function localCandidates(root: string, signal?: AbortSignal, retention?: R
           if (!entry.isFile() || protectedName(entry.name) || (!candidateExtensions.has(path.extname(entry.name).toLowerCase()) && !dryRun && !schedulerState)) continue;
           const stat = await fs.lstat(full, { bigint: true });
           if (stat.dev !== BigInt(rootDevice) || stat.nlink !== 1n || schedulerState && stat.size > 2n * 1024n * 1024n) continue;
-          // Managed logs/caches are strictly version-based. Protected generations (current,
-          // previous, active) never become candidates and the legacy 7-day cutoff must never
-          // reach them; managed-but-unowned files are listed read-only. Only unmanaged legacy
-          // junk keeps the historical 7-day rule.
           const token = candidateIdentity(relative, stat);
-          const blockedCopy = blocked?.get(relative);
-          if (blockedCopy && blockedCopy.workers.includes("local")) {
-            rows.push({ workerId: "local", path: relative, fullPath: full, type: "file",
-              bytes: Number(stat.size), modifiedAt: Number(stat.mtimeMs) / 1000,
-              purpose: blockedPurpose(blockedCopy), token, retentionStale: true });
-            continue;
-          }
           const ownership = retention ? retentionOwnership(retention, relative) : "unknown-manifest";
-          if (ownership === "protected") {
-            // Version-based blocking evidence outranks the queue's current-window view: the file
-            // physically holds an incoming run, so it is exactly what confirmed cleanup must offer.
-            const blockedRow = blocked?.get(relative);
-            if (!blockedRow) continue;
-            rows.push({ workerId: "local", path: relative, fullPath: full, type: "file", bytes: Number(stat.size), modifiedAt: Number(stat.mtimeMs) / 1000, purpose: blockedPurpose(blockedRow), token, retentionStale: true });
-            if (rows.length > MAX_CLEANUP_CANDIDATES) throw new Error(`本机候选文件超过 ${MAX_CLEANUP_CANDIDATES} 个，请缩小审核范围`);
-            continue;
-          }
-          if (ownership === "unowned" || ownership === "unknown-manifest") {
-            rows.push({ workerId: "local", path: relative, fullPath: full, type: "file", bytes: Number(stat.size), modifiedAt: Number(stat.mtimeMs) / 1000,
-              purpose: ownership === "unknown-manifest" ? "受管前缀但缺少保留清单，无法判定两代归属（仅预览，不会删除）" : "受管前缀内但不属于任何已知代际的归属清单（仅预览，不会删除）",
-              token, previewOnly: true });
-            if (rows.length > MAX_CLEANUP_CANDIDATES) throw new Error(`本机候选文件超过 ${MAX_CLEANUP_CANDIDATES} 个，请缩小审核范围`);
-            continue;
-          }
           const staleRetention = ownership === "stale" ? isStaleRetentionRow(retention!, relative) : undefined;
           // Backup history copies are version-bound ("original + at most one"), never age-bound:
           // they are offered as confirmed-cleanup candidates immediately, because refusing new
@@ -181,51 +146,84 @@ async function localCandidates(root: string, signal?: AbortSignal, retention?: R
   return rows;
 }
 
-async function deleteLocalCandidates(root: string, rows: Candidate[], skipped: string[], workerId: string): Promise<void> {
+async function deleteLocalCandidates(root: string, rows: Candidate[], skipped: string[], workerId: string, preflightOnly = false, onExecutorExit?: () => void, onExecutorStart?: () => void): Promise<void> {
   const rootInfo = await fs.lstat(root).catch((error: Error) => { throw new Error(`PARENT_CD_FAILED：无法核验本机项目根目录：${error.message}`); });
   if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) throw new Error("PARENT_CD_FAILED：本机项目根目录不是普通目录。");
   const realRoot = await fs.realpath(root).catch((error: Error) => { throw new Error(`PARENT_CD_FAILED：无法解析本机项目根目录：${error.message}`); });
-  type Entry = { i: number; parent: string; leaf: string; size: string; ticks: string };
+  const normalizedRoot = path.resolve(root);
+  if ((process.platform === "win32" ? realRoot.toLowerCase() !== normalizedRoot.toLowerCase() : realRoot !== normalizedRoot))
+    throw new Error("PARENT_CD_FAILED：项目根目录包含链接或已变化。");
+  type Entry = { i: number; parent: string; leaf: string; dev: string; ino: string; links: string; size: string; ticks: string };
   const entries: Entry[] = [];
   for (const [index, row] of rows.entries()) {
-    if (row.previewOnly) { skipped.push(`${workerId} · ${row.path}（仅预览项不允许删除）`); continue; }
     try {
       const parts = row.path.split("/");
+      if (row.type !== "file") throw new Error("缓存目标类型已变化");
       const allowedRoot = parts[0] === "tmp"
         || parts[0] === "simple_cluster" && ["tmp", "console_logs", "tmux_logs"].includes(parts[1]);
       if (parts.some(part => !part || part === "." || part === "..") || !allowedRoot) throw new Error("缓存路径超出允许范围");
       const full = path.join(realRoot, ...parts);
-      const stat = await fs.lstat(full, { bigint: true });
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1n || candidateIdentity(row.path, stat) !== row.token) throw new Error(`本机候选已变化：${row.path}`);
+      if (path.normalize(row.fullPath) !== full) throw new Error("审核路径与实际目标不一致");
       const parent = path.dirname(full);
       const leaf = path.basename(full);
       const parentInfo = await fs.lstat(parent).catch((error: Error) => { throw new Error(`PARENT_CD_FAILED：无法核验目标父目录：${error.message}`); });
       const parentReal = await fs.realpath(parent).catch((error: Error) => { throw new Error(`PARENT_CD_FAILED：无法解析目标父目录：${error.message}`); });
       const parentRelative = path.relative(realRoot, parentReal);
       if (!leaf || leaf === "." || leaf === ".." || leaf.includes("/") || leaf.includes("\\")
-        || !parentInfo.isDirectory() || parentInfo.isSymbolicLink() || parentInfo.dev !== Number(stat.dev)
+        || !parentInfo.isDirectory() || parentInfo.isSymbolicLink() || parentInfo.dev !== rootInfo.dev
         || parentReal !== parent || parentRelative === ".." || parentRelative.startsWith(`..${path.sep}`) || path.isAbsolute(parentRelative)) throw new Error("PARENT_CD_FAILED");
+      let stat;
+      try { stat = await fs.lstat(full, { bigint: true }); }
+      catch (error: any) {
+        if (error?.code === "ENOENT") { skipped.push(`${workerId} · ${row.path}（已确认不存在）`); continue; }
+        throw error;
+      }
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.dev !== BigInt(rootInfo.dev) || stat.nlink !== 1n || candidateIdentity(row.path, stat) !== row.token) throw new Error(`本机候选已变化：${row.path}`);
       const modifiedTicks = (621355968000000000n + stat.mtimeNs / 100n).toString();
-      entries.push({ i: index, parent, leaf, size: String(stat.size), ticks: modifiedTicks });
-    } catch (error) { skipped.push(`${workerId} · ${row.path}（${String(error && (error as Error).message || error).slice(0, 80)}）`); }
+      entries.push({ i: index, parent, leaf, dev: String(stat.dev), ino: String(stat.ino), links: String(stat.nlink), size: String(stat.size), ticks: modifiedTicks });
+    } catch (error) { throw new Error(`${workerId} · ${row.path}：${String(error && (error as Error).message || error)}`, { cause: error }); }
   }
-  if (!entries.length) return;
+  if (preflightOnly || !entries.length) return;
   // ONE guarded executor invocation per confirmed batch: every entry keeps the full per-target
   // discipline (cd to the verified parent, physical-pwd check, "./"+leaf, reparse/type/size/mtime
   // re-verification) inside the executor; deletions are never issued as one spawn per file.
   const payload = JSON.stringify({ root: realRoot, items: entries });
-  const script = `$ErrorActionPreference='Stop'; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $batch=ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd()); $safeRoot=[string]$batch.root; $items=$batch.items; foreach ($it in $items) { try { $walk=Get-Item -LiteralPath $it.parent -Force -ErrorAction Stop; while ($walk) { if (($walk.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'PARENT_CD_FAILED' }; if ([string]::Equals($walk.FullName,$safeRoot,[StringComparison]::OrdinalIgnoreCase)) { break }; $walk=$walk.Parent }; if (-not $walk) { throw 'PARENT_CD_FAILED' }; Set-Location -LiteralPath $it.parent -ErrorAction Stop; $cwd=[IO.Path]::GetFullPath((Get-Location).ProviderPath); if (-not [string]::Equals($cwd,$it.parent,[StringComparison]::OrdinalIgnoreCase)) { throw 'PARENT_CD_FAILED' }; $target=Get-Item -LiteralPath ('./'+$it.leaf) -Force -ErrorAction Stop; if ((($target.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) -or $target -isnot [IO.FileInfo] -or $target.LinkType -eq 'HardLink') { throw 'TARGET_CHANGED' }; if ($target.Length -ne [long]$it.size -or $target.LastWriteTimeUtc.Ticks -ne [long]$it.ticks) { throw 'TARGET_CHANGED' }; Remove-Item -LiteralPath ('./'+$it.leaf) -Force -ErrorAction Stop; if (Test-Path -LiteralPath ('./'+$it.leaf)) { throw 'TARGET_REMAINS' }; Write-Output ('OK:'+$it.i) } catch { Write-Output ('ERR:'+$it.i); throw } }`;
+  const identityType = String.raw`using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class CacheFileIdentity {
+  [StructLayout(LayoutKind.Sequential)] struct FT { public uint Low, High; }
+  [StructLayout(LayoutKind.Sequential)] struct Info { public uint Attributes; public FT Created, Accessed, Written; public uint Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow; }
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern SafeFileHandle CreateFile(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetFileInformationByHandle(SafeFileHandle handle, out Info info);
+  public static string[] Read(string name) {
+    using (var handle = CreateFile(name, 0x80, 7, IntPtr.Zero, 3, 0x00200000, IntPtr.Zero)) {
+      if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
+      Info info; if (!GetFileInformationByHandle(handle, out info)) throw new Win32Exception(Marshal.GetLastWin32Error());
+      ulong index = ((ulong)info.IndexHigh << 32) | info.IndexLow;
+      ulong size = ((ulong)info.SizeHigh << 32) | info.SizeLow;
+      ulong written = (((ulong)info.Written.High << 32) | info.Written.Low) + 504911232000000000UL;
+      return new[] { info.Volume.ToString(), index.ToString(), info.Links.ToString(), size.ToString(), written.ToString(), info.Attributes.ToString() };
+    }
+  }
+}`;
+  const script = `$ErrorActionPreference='Stop'; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); Add-Type -TypeDefinition '${identityType}'; $batch=ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd()); $safeRoot=[string]$batch.root; $items=$batch.items; foreach ($it in $items) { try { $walk=Get-Item -LiteralPath $it.parent -ErrorAction Stop; while ($walk) { if (($walk.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'PARENT_CD_FAILED' }; if ([string]::Equals($walk.FullName,$safeRoot,[StringComparison]::OrdinalIgnoreCase)) { break }; $walk=$walk.Parent }; if (-not $walk) { throw 'PARENT_CD_FAILED' }; Set-Location -LiteralPath $it.parent -ErrorAction Stop; $cwd=[IO.Path]::GetFullPath((Get-Location).ProviderPath); if (-not [string]::Equals($cwd,$it.parent,[StringComparison]::OrdinalIgnoreCase)) { throw 'PARENT_CD_FAILED' }; [Environment]::CurrentDirectory=$cwd; if (-not [string]::Equals([Environment]::CurrentDirectory,$cwd,[StringComparison]::OrdinalIgnoreCase)) { throw 'PARENT_CD_FAILED' }; $target=Get-Item -LiteralPath ('./'+$it.leaf) -ErrorAction Stop; if ((($target.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) -or $target -isnot [IO.FileInfo] -or $target.LinkType -eq 'HardLink') { throw 'TARGET_CHANGED' }; $id=[CacheFileIdentity]::Read('./'+$it.leaf); if (($id[5] -as [uint32]) -band 0x410) { throw 'TARGET_CHANGED' }; if ($id[0] -ne [string]$it.dev -or $id[1] -ne [string]$it.ino -or $id[2] -ne [string]$it.links -or $id[3] -ne [string]$it.size -or $id[4] -ne [string]$it.ticks) { throw 'TARGET_CHANGED' }; Remove-Item -LiteralPath ('./'+$it.leaf) -ErrorAction Stop; if (Test-Path -LiteralPath ('./'+$it.leaf)) { throw 'TARGET_REMAINS' }; Write-Output ('OK:'+$it.i) } catch { Write-Output ('ERR:'+$it.i); throw } }`;
   const encoded = Buffer.from(script, "utf16le").toString("base64");
   const outcomes = await new Promise<Map<number, boolean>>((resolve, reject) => {
     const child = spawn("pwsh.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], { cwd: realRoot, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
-    child.stdin.on("error", reject);
+    onExecutorStart?.();
+    let inputError: Error | undefined;
+    child.stdin.on("error", error => { inputError = error; });
     child.stdin.end(payload, "utf8");
     let out = "";
     let error = "";
     child.stdout.on("data", data => { out += String(data); });
     child.stderr.on("data", data => { error = (error + String(data)).slice(-500); });
-    child.on("error", spawnError => reject(new Error(`PARENT_CD_FAILED：无法在已核验工作目录启动批量删除程序：${String(spawnError)}`)));
+    child.on("error", spawnError => { onExecutorExit?.(); reject(new Error(`PARENT_CD_FAILED：无法在已核验工作目录启动批量删除程序：${String(spawnError)}`)); });
     child.on("exit", code => {
+      onExecutorExit?.();
+      if (inputError) { reject(inputError); return; }
       if (code !== 0) { reject(new Error(error || "PARENT_CD_FAILED：批次已停止，请刷新核对已执行路径。")); return; }
       const map = new Map<number, boolean>();
       for (const line of out.split(/\r?\n/)) {
@@ -287,7 +285,14 @@ export function openCacheCleanupPanel(contextProvider: () => CleanupContext, onD
   const post = (message: any) => { if (!disposed) void panel.webview.postMessage(message); };
   const contextMatches = (context?: CleanupContext) => {
     const latest = contextProvider();
-    return Boolean(context && context.client === latest.client && context.generation === latest.generation && context.localRoot === latest.localRoot);
+    return Boolean(context && context.client === latest.client && context.generation === latest.generation && context.localRoot === latest.localRoot
+      && JSON.stringify(context.endpoints) === JSON.stringify(latest.endpoints));
+  };
+  const pendingContextMatches = (context: CleanupContext, row: PendingCleanup) => {
+    const latest = contextProvider();
+    const endpoint = latest.endpoints.find(item => item.id === row.workerId && item.role === "worker");
+    return context.client === latest.client && context.generation === latest.generation && context.localRoot === latest.localRoot
+      && endpoint?.identity === row.endpointIdentity && Boolean(endpoint);
   };
   const invalidateReview = () => { current.clear(); reviewedKeys = []; approvalStage = 0; loadedContext = undefined; };
   const refresh = async (contextChanged = false) => {
@@ -303,10 +308,9 @@ export function openCacheCleanupPanel(contextProvider: () => CleanupContext, onD
     try {
       const context = { ...contextProvider() };
       const endpoints = context.endpoints.filter(e => e.role === "worker");
-      // Two-generation retention derives from the persisted queue facts; if unavailable, fall back to the legacy scan.
-      let retention: RetentionIndex = { rows: [], byPath: new Map(), staleSessions: new Set(), protectedSessions: new Set(), ownedPaths: new Set(), caseInsensitive: process.platform === "win32" };
+      let retention: RetentionIndex | undefined;
       if (context.retentionIndex) {
-        try { retention = (await context.retentionIndex()) || retention; } catch { /* keep empty index */ }
+        try { retention = await context.retentionIndex(); } catch { retention = undefined; }
       }
       let holds: Set<string> | undefined;
       try { holds = context.retentionHolds ? new Set(await context.retentionHolds()) : undefined; } catch { holds = undefined; }
@@ -337,7 +341,7 @@ export function openCacheCleanupPanel(contextProvider: () => CleanupContext, onD
         publish();
       };
       await Promise.all([
-        ...(context.localRoot ? [readSource("本机", "local", async () => applyRetention(await localCandidates(context.localRoot!, abort.signal, retention, blocked), retention, holds, blocked))] : []),
+        ...(context.localRoot ? [readSource("本机", "local", async () => applyRetention(await localCandidates(context.localRoot!, abort.signal, retention), retention, holds, blocked))] : []),
         ...endpoints.map(e => readSource(e.id, e.id, async () => applyRetention(completedCleanupCandidates(await context.client.postWorkerAction(e.id, "preview-cache-cleanup", { opId: `cache-preview-${Date.now()}-${e.id}` }, { signal: abort.signal })), retention, holds, blocked))),
       ]);
       if (isCurrent()) { loadedContext = context; busy = false; publish(); }
@@ -353,6 +357,33 @@ export function openCacheCleanupPanel(contextProvider: () => CleanupContext, onD
   panel.onDidDispose(() => { disposed = true; scanGeneration++; scanAbort?.abort(); invalidateReview(); contextSubscription?.dispose(); messageSubscription.dispose(); });
   const messageSubscription = panel.webview.onDidReceiveMessage(async message => {
     if (disposed) return;
+    if (message?.type === "recheckPending") {
+      if (busy || deleting) { post({ type: "error", message: "当前操作尚未结束，请稍后核实。" }); return; }
+      const context = contextProvider();
+      busy = true;
+      try {
+        if (!context.localRoot) throw new Error("当前项目根目录不可用");
+        const pending = (await context.cleanupState(context.localRoot, "list")).filter(row => !row.settled);
+        if (!pending.length) { post({ type: "error", message: "当前项目没有待核清理。" }); return; }
+        const notes: string[] = [];
+        for (const row of pending) {
+          if (row.workerId === "local") { notes.push("本机：原执行器结束状态未知，不能重复删除"); continue; }
+          const endpoint = context.endpoints.find(item => item.id === row.workerId && item.role === "worker");
+          if (!endpoint || endpoint.identity !== row.endpointIdentity || !pendingContextMatches(context, row)) { notes.push(`${row.workerId}：节点已变化，原请求仍未知`); continue; }
+          try {
+            const result: any = await context.client.postWorkerAction(row.workerId, "query-confirmed-cache-cleanup", {
+              opId: `cache-query-${crypto.randomBytes(12).toString("hex")}`, workerId: row.workerId, targetOperationId: row.operationId,
+            });
+            if (!pendingContextMatches(context, row) || disposed) throw new Error("项目或节点已变化");
+            if (result?.workerId !== row.workerId || result.targetOperationId !== row.operationId) throw new Error("响应身份不一致");
+            if (result.status === "settled") { await context.cleanupState(context.localRoot, "settle", [row]); notes.push(`${row.workerId}：原清理已结束，请刷新路径状态`); }
+            else notes.push(`${row.workerId}：${result.status === "live" ? "原清理仍在执行" : "原清理结果未知"}`);
+          } catch (error) { notes.push(`${row.workerId}：本轮核实失败，原请求仍未知（${cleanupReadError(error)}）`); }
+        }
+        post({ type: "error", message: notes.join("；") });
+      } catch (error) { post({ type: "error", message: cleanupReadError(error) }); } finally { busy = false; }
+      return;
+    }
     if (message?.type === "planOutputs") {
       if (deleting) { post({ type: "error", message: "当前清理尚未结束，请稍后审核 Plan 历史产物。" }); return; }
       const context = contextProvider();
@@ -386,84 +417,80 @@ export function openCacheCleanupPanel(contextProvider: () => CleanupContext, onD
     deleting = true;
     approvalStage = 0;
     let deletionAttempted = false;
+    const completedNodes: string[] = [];
+    let reserved: PendingCleanup[] = [];
+    const started = new Set<string>();
     try {
       const skipped: string[] = [];
-      const executeReviewedBatch = async (lease: any) => {
-      await lease.assertHeld();
-      // Fresh protection facts, fetched once for this confirmed batch, fail-closed on every error.
-      let freshIndex: RetentionIndex | undefined;
-      let freshHolds: Set<string> | undefined;
-      let freshBlocked = new Map<string, BlockedRow>();
-      try { freshIndex = context.retentionIndex ? await context.retentionIndex() : undefined; } catch { freshIndex = undefined; }
-      try { freshHolds = context.retentionHolds ? new Set(await context.retentionHolds()) : undefined; } catch { freshHolds = undefined; }
-      try { freshBlocked = new Map(((context.retentionBlocked ? await context.retentionBlocked() : undefined) || []).map(row => [row.path, row])); } catch { freshBlocked = new Map(); }
-      const retentionStillDeletable = (row: Candidate): string | undefined => {
-        if (row.previewOnly) return "仅预览归属";
-        if (row.path.startsWith("simple_cluster/tmp/backups/") && row.path.endsWith(".bak"))
-          return freshHolds === undefined ? "保留声明无法读取，保守不删" : undefined;
-        if (freshBlocked.has(row.path) && freshHolds !== undefined) {
-          const blocked = freshBlocked.get(row.path)!;
-          if (!blocked.workers.includes(row.workerId)) return "该节点不属于待退出代";
-          if ([...freshHolds].some(key => blocked.planFile && key.startsWith(blocked.planFile + "|"))) return "在途提交已声明保留";
-          return undefined;
-        }
-        const ownership = freshIndex ? retentionOwnership(freshIndex, row.path) : "unknown-manifest";
-        if (row.retentionStale) {
-          if (!freshIndex) return "保留清单无法重算，保守不删";
-          if (ownership !== "stale") return "重算后已受保护或归属未知";
-          if (retentionRowHeld(row, freshIndex, freshHolds)) return "在途提交已声明保留";
-          return undefined;
-        }
-        if (ownership === "protected") return "重算后已受保护";
-        if (ownership === "unowned" || ownership === "unknown-manifest") return "重算后归属未知";
-        return undefined;
-      };
+      if (!context.localRoot) throw new Error("当前项目根目录不可用，请重新审核");
       const byWorker = new Map<string, Candidate[]>();
       for (const key of keys) { const row = current.get(key)!; if (!byWorker.has(row.workerId)) byWorker.set(row.workerId, []); byWorker.get(row.workerId)!.push(row); }
+      const proposed = [...byWorker].map(([workerId, rows]) => ({ root: context.localRoot!, workerId,
+        endpointIdentity: context.endpoints.find(item => item.id === workerId && item.role === "worker")?.identity,
+        nodeIdentity: context.endpoints.find(item => item.id === workerId && item.role === "worker")?.nodeIdentity,
+        operationId: `cache-delete-${crypto.randomBytes(12).toString("hex")}`, paths: rows.map(row => row.path), settled: false }));
+      await context.cleanupState(context.localRoot, "reserve", proposed);
+      reserved = proposed;
+      const readyByWorker = new Map<string, Candidate[]>();
       for (const [workerId, rows] of byWorker) {
+        if (disposed || !contextMatches(context)) throw new Error("连接或项目已变化，请重新审核");
+        if (workerId === "local") {
+          if (!context.localRoot) throw new Error("本机项目根目录已失效");
+          await deleteLocalCandidates(context.localRoot, rows, [], workerId, true);
+          readyByWorker.set(workerId, rows);
+        } else {
+          const candidates = rows.map(row => ({ path: row.path, type: row.type, token: row.token }));
+          const checkId = `cache-check-${crypto.randomBytes(12).toString("hex")}`;
+          const check: any = await context.client.postWorkerAction(workerId, "check-confirmed-cache-candidates", { opId: checkId, workerId, candidates, confirm: true, pathConfirmed: true, authorizationMode: "confirmed_paths" });
+          if (!contextMatches(context) || disposed) throw new Error("连接或项目已变化，请重新审核");
+          if (check?.status !== "completed" || check.opId !== checkId || check.authorizationMode !== "confirmed_paths" || check.workerId !== workerId
+            || typeof check.root !== "string" || !path.posix.isAbsolute(check.root) || check.root === "/"
+            || JSON.stringify(check.candidates) !== JSON.stringify(candidates) || !Array.isArray(check.absent)
+            || new Set(check.absent).size !== check.absent.length || check.absent.some((item: unknown) => !rows.some(row => row.path === item))
+            || rows.some(row => path.posix.join(check.root, row.path) !== row.fullPath))
+            throw new Error(`${workerId}：无法核实所选节点和精确路径，请刷新后重新审核`);
+          for (const missing of check.absent) skipped.push(`${workerId} · ${missing}（已确认不存在）`);
+          readyByWorker.set(workerId, rows.filter(row => !check.absent.includes(row.path)));
+        }
+      }
+      for (const [workerId, rows] of readyByWorker) {
         if (disposed || !contextMatches(context)) throw new Error("连接或项目已变化，已停止后续删除，请重新审核");
+        if (!rows.length) continue;
+        const pending = reserved.find(row => row.workerId === workerId)!;
         post({ type: "busy", message: `正在删除 ${workerId} 的 ${rows.length} 个已确认路径…` });
         if (workerId === "local") {
           if (!context.localRoot) throw new Error("本机项目根目录已失效");
           deletionAttempted = true;
-          // Recompute protection immediately before deletion, fail-closed: if the retention index
-          // or the claims store cannot be recomputed, stale/blocked rows are NOT deletable — an
-          // unknown state never means "no protection".
-          const deletable: Candidate[] = [];
-          for (const row of rows) {
-            if (disposed || !contextMatches(context)) throw new Error("连接或项目已变化，已停止后续删除，请重新审核");
-            const why = retentionStillDeletable(row);
-            if (why) skipped.push(`${workerId} · ${row.path}（${why}）`);
-            else deletable.push(row);
-          }
-          if (deletable.length) { await lease.assertHeld(); await deleteLocalCandidates(context.localRoot, deletable, skipped, workerId); }
+          started.add(pending.operationId);
+          let launched = false, exited = false;
+          try { await deleteLocalCandidates(context.localRoot, rows, skipped, workerId, false, () => { exited = true; }, () => { launched = true; }); exited = true; }
+          finally { if (!launched || exited) await context.cleanupState(context.localRoot, "settle", [pending]); }
         } else {
           deletionAttempted = true;
-          let kept = rows;
-          try {
-            const recheck: any = await context.client.postWorkerAction(workerId, "preview-cache-cleanup", { opId: `cache-recheck-${Date.now()}-${workerId}` });
-            const fresh = new Set(completedCleanupCandidates(recheck).map((row: any) => `${row.path}\0${row.token}`));
-            for (const row of rows) if (!fresh.has(`${row.path}\0${row.token}`)) skipped.push(`${workerId} · ${row.path}（重算预览后已受保护、被引用或已变化）`);
-            kept = rows.filter(row => fresh.has(`${row.path}\0${row.token}`));
-          } catch { /* 重算预览不可用：按保守策略整台本轮不删除 */ skipped.push(`${workerId}：重算预览失败，本轮不删除任何路径`); kept = []; }
-          // The token recheck proves "still the same file"; the retention recheck proves "still
-          // deletable under the current window, claims and blocked-admission facts".
-          kept = kept.filter(row => { const why = retentionStillDeletable(row); if (why) skipped.push(`${workerId} · ${row.path}（${why}）`); return !why; });
-          if (!kept.length) continue;
-          const result: any = await context.client.postWorkerAction(workerId, "delete-cache-candidates", { opId: `cache-delete-${Date.now()}-${workerId}`, candidates: kept.map(row => ({ path: row.path, token: row.token })), confirm: true, pathConfirmed: true });
-          if (result?.status !== "completed") throw new Error(`${workerId}: ${String(result?.message || "删除尚未确认完成，请刷新候选核对；不会自动重发删除。")}`);
+          const operationId = pending.operationId;
+          started.add(operationId);
+          const result: any = await context.client.postWorkerAction(workerId, "delete-confirmed-cache-candidates", { opId: operationId, operationId, workerId, candidates: rows.map(row => ({ path: row.path, type: row.type, token: row.token })), confirm: true, pathConfirmed: true, authorizationMode: "confirmed_paths" });
+          if (result?.status === "rejected" && result.notStarted === true && result.operationId === operationId && result.workerId === workerId) {
+            await context.cleanupState(context.localRoot!, "settle", [pending]);
+            throw new Error(`${workerId}：${String(result.message || "原清理仍在执行")}`);
+          }
+          if (result?.status !== "completed" || result.operationId !== operationId || result.workerId !== workerId
+            || !Array.isArray(result.absent) || new Set(result.absent).size !== result.absent.length
+            || result.absent.some((item: unknown) => !rows.some(row => row.path === item))
+            || !Number.isInteger(result.deletedCount) || result.deletedCount + result.absent.length !== rows.length)
+            throw new Error(`${workerId}: ${String(result?.message || "删除尚未确认完成，请重新核实；不会自动重发删除。")}`);
+          await context.cleanupState(context.localRoot!, "settle", [pending]);
+          for (const missing of result.absent || []) skipped.push(`${workerId} · ${missing}（已确认不存在）`);
         }
+        completedNodes.push(workerId);
       }
-      };
-      if (!context.withRetentionLease) throw new Error("缓存删除缺少跨窗口租约，已停止。");
-      await context.withRetentionLease(executeReviewedBatch);
-      if (skipped.length) post({ type: "error", message: `已跳过 ${skipped.length} 个重算后新受保护、被引用或已变化的路径：${skipped.slice(0, 3).join("；")}${skipped.length > 3 ? "…" : ""}` });
       busy = false;
       deleting = false;
       refreshPending = false;
       await refresh();
+      if (skipped.length) post({ type: "error", message: `以下路径已不存在：${skipped.join("；")}` });
     } catch (error) {
-      const message = String(error);
+      const message = `${String(error)}${completedNodes.length ? `；已完成节点：${completedNodes.join("、")}；其余目标未确认，请先核查后再操作` : ""}`;
       if (deletionAttempted) {
         busy = false;
         deleting = false;
@@ -472,7 +499,13 @@ export function openCacheCleanupPanel(contextProvider: () => CleanupContext, onD
       }
       post({ type: "error", message, busy: false });
     }
-    finally { busy = false; deleting = false; if (refreshPending) { refreshPending = false; await refresh(); } }
+    finally {
+      if (context.localRoot && reserved.length) {
+        try { await context.cleanupState(context.localRoot, "settle", reserved.filter(row => !started.has(row.operationId))); }
+        catch (error) { post({ type: "error", message: `未发送的清理记录保存失败：${cleanupReadError(error)}` }); }
+      }
+      busy = false; deleting = false; if (refreshPending) { refreshPending = false; await refresh(); }
+    }
   });
   panel.webview.html = html(crypto.randomBytes(16).toString("base64"));
 }

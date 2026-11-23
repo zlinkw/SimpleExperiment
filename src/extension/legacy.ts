@@ -5421,8 +5421,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 const operations = this.localOperations;
                 this.localOperationsDirty = false;
                 if (projectContext.root) {
-                    const file = path.join(projectContext.root, ...PROJECT_LOCAL_OPERATIONS_PATH.split("/"));
-                    await this.withPluginStateFileLease(projectContext.root, file, "project-state-local-operations", "保存本地操作记录", () => writeProjectLocalOperationsState(projectContext.root, operations));
+                    await this.withLocalOperationsLease(projectContext.root, lease => writeProjectLocalOperationsState(projectContext.root, operations, () => lease.assertHeld()));
                 }
             }
         })()
@@ -21825,12 +21824,50 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         await this.persistProjectTaskSelectionState();
         void vscode.window.showInformationMessage(`已从本机面板隐藏 ${taskUiKeys.length} 条旧任务残留；未删除任何远端文件。`);
     }
+    async withLocalOperationsLease(root, work) {
+        if (!this.hostOperationLease) throw new Error("无法安全保存本地操作状态");
+        const file = path.join(root, ...PROJECT_LOCAL_OPERATIONS_PATH.split("/"));
+        const lease = await this.hostOperationLease.acquire({ pluginId: "simple-local.simple-experiment", workspaceUri: String(root),
+            hostProjectPath: root, actionType: "project-state-local-operations", actionLabel: "保存本地操作记录", waitForConflict: true,
+            resources: [{ server: "local", project: path.dirname(file), target: file }] });
+        try { const result = await work(lease); await lease.assertHeld(); return result; }
+        finally { await lease.release(); }
+    }
+    async cacheCleanupState(root, mode, rows = []) {
+        if (!root || !this.hostOperationLease) throw new Error("无法安全保存清理请求");
+        const file = path.join(root, ...PROJECT_LOCAL_OPERATIONS_PATH.split("/"));
+        return this.withLocalOperationsLease(root, async lease => {
+            const state = await readLocalOperationsEnvelope(root);
+            const pending = state.pendingCacheCleanups;
+            if (mode === "list") return Object.values(pending);
+            if (mode === "reserve") {
+                for (const row of rows) {
+                    if (pending[row.operationId] || Object.values(pending).some((old: any) => !old.settled
+                        && (old.workerId === row.workerId || row.nodeIdentity && old.nodeIdentity === row.nodeIdentity)
+                        && row.paths.some(value => old.paths.includes(value))))
+                        throw new Error(`${row.workerId}：原清理请求结果未知，请先重新核实，不能重复发送`);
+                }
+                for (const row of rows) pending[row.operationId] = row;
+            } else if (mode === "settle") {
+                for (const row of rows) if (pending[row.operationId]) pending[row.operationId] = { operationId: row.operationId, settled: true };
+            } else throw new Error("清理请求操作无效");
+            await fs.mkdir(path.dirname(file), { recursive: true });
+            await atomicWriteText(file, JSON.stringify({ schemaVersion: 1, updatedAt: new Date().toISOString(), operations: state.operations, pendingCacheCleanups: pending }, null, 2) + "\n", { beforeRename: () => lease.assertHeld() });
+            return Object.values(pending);
+        });
+    }
     async clearCacheFromUi() {
         openCacheCleanupPanel(() => ({
             client: this.client,
-            endpoints: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, role: "worker" })),
+            endpoints: this.realtimeEndpoints().filter(endpoint => endpoint.role === "worker").map(endpoint => {
+                const worker = this.enabledWorkerConfigs().find(item => item.id === endpoint.id);
+                const target = { server: endpoint.resourceServer, remoteRoot: endpoint.resourceProjectRoot, user: worker?.user || worker?.workerUser || "" };
+                return { id: endpoint.id, role: "worker", nodeIdentity: JSON.stringify(target),
+                    identity: JSON.stringify({ ...target, localHost: endpoint.localHost, localPort: endpoint.localPort }) };
+            }),
             localRoot: workspaceRoot(),
             generation: this.projectContextGeneration,
+            cleanupState: (root, mode, rows) => this.cacheCleanupState(root, mode, rows),
             retentionIndex: async () => {
                 const empty = { rows: [], byPath: new Map(), staleSessions: new Set(), protectedSessions: new Set(), ownedPaths: new Set(), caseInsensitive: process.platform === "win32" };
                 const root = workspaceRoot();
@@ -30395,37 +30432,49 @@ function normalizeLocalOperationsState(value) {
 async function readProjectLocalOperationsState(root) {
     if (!root)
         return undefined;
+    const data = await readLocalOperationsEnvelope(root);
+    return normalizeLocalOperationsState(data.operations);
+}
+async function readLocalOperationsEnvelope(root) {
     const fullPath = path.join(root, ...PROJECT_LOCAL_OPERATIONS_PATH.split("/"));
+    let data;
     try {
         const text = await fs.readFile(fullPath, "utf8");
-        const data = JSON.parse(text);
-        if (!data || typeof data !== "object")
-            return undefined;
-        const raw = data.operations && typeof data.operations === "object" && !Array.isArray(data.operations)
-            ? data.operations
-            : data;
-        return normalizeLocalOperationsState(raw);
+        data = JSON.parse(text);
     }
-    catch {
-        return undefined;
+    catch (error) {
+        if (error?.code === "ENOENT") return { operations: {}, pendingCacheCleanups: {} };
+        throw error;
     }
+    if (data === null) return { operations: {}, pendingCacheCleanups: {} };
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("本地操作状态格式无效");
+    const wrapped = Object.prototype.hasOwnProperty.call(data, "operations") || Object.prototype.hasOwnProperty.call(data, "pendingCacheCleanups");
+    const operations = wrapped ? data.operations : data;
+    const pendingCacheCleanups = wrapped ? (data.pendingCacheCleanups ?? {}) : {};
+    if (!operations || typeof operations !== "object" || Array.isArray(operations) || !pendingCacheCleanups || typeof pendingCacheCleanups !== "object" || Array.isArray(pendingCacheCleanups))
+        throw new Error("本地操作状态格式无效");
+    for (const [key, row] of Object.entries(pendingCacheCleanups) as [string, any][]) {
+        if (!row || typeof row !== "object" || Array.isArray(row) || row.operationId !== key || typeof row.settled !== "boolean"
+            || (!row.settled && (!samePath(row.root || "", root) || typeof row.workerId !== "string" || !row.workerId
+                || !Array.isArray(row.paths) || !row.paths.length || row.paths.some(value => typeof value !== "string" || !value))))
+            throw new Error("清理请求状态格式无效");
+    }
+    return { operations, pendingCacheCleanups };
 }
-async function writeProjectLocalOperationsState(root, operations) {
+async function writeProjectLocalOperationsState(root, operations, beforeRename?) {
     if (!root)
         return;
     const fullPath = path.join(root, ...PROJECT_LOCAL_OPERATIONS_PATH.split("/"));
-    const normalized = normalizeLocalOperationsState(operations);
-    if (!normalized) {
-        await writeAtomicPluginStateJson(fullPath, null);
-        return;
-    }
+    const previous = await readLocalOperationsEnvelope(root);
+    const normalized = normalizeLocalOperationsState(operations) || {};
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     const payload = {
         schemaVersion: 1,
         updatedAt: new Date().toISOString(),
         operations: normalized,
+        pendingCacheCleanups: previous.pendingCacheCleanups,
     };
-    await writeAtomicPluginStateJson(fullPath, payload);
+    await atomicWriteText(fullPath, `${JSON.stringify(payload, null, 2)}\n`, { beforeRename });
 }
 function normalizeLocalPlanMetadataState(value) {
     if (!value || typeof value !== "object" || Array.isArray(value))

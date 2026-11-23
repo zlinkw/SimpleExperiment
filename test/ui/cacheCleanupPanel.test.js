@@ -7,8 +7,7 @@ const ts = require("typescript");
 
 const candidate = { path: "simple_cluster/tmp/tmux_logs/old.log", fullPath: "/project/simple_cluster/tmp/tmux_logs/old.log", type: "file", bytes: 12, modifiedAt: 1, purpose: "运行日志", token: "stable" };
 const retentionModule = require("../../dist/features/PluginLogRetention.js");
-// The production panel context always carries the recomputable two-generation manifest plus the
-// live admission holds/blocked rows; without them every managed row is fail-closed preview-only.
+// Retention and admission facts are displayed as context for the confirmed paths.
 const staleIndexFor = logPath => retentionModule.retentionIndex({ schemaVersion: 1, plans: [
   { id: "r1", planFile: "p.yaml", enqueuedAt: "2026-10-01T10:00:00Z", jobs: [{ index: 0, case: "c", seed: 1, attempt: 0, status: "completed", logPath }] },
   { id: "r2", planFile: "p.yaml", enqueuedAt: "2026-10-02T10:00:00Z", jobs: [{ index: 0, case: "c", seed: 1, attempt: 0, status: "completed", logPath: "simple_cluster/tmp/kept-mid.log" }] },
@@ -17,7 +16,25 @@ const staleIndexFor = logPath => retentionModule.retentionIndex({ schemaVersion:
 const openAdmission = { retentionHolds: async () => [], retentionBlocked: async () => [],
   withRetentionLease: async work => work({ assertHeld: async () => undefined }) };
 function deferred() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
+function spawnRetainingFixture(root, args) {
+  const argv = [...args[1]], encoded = argv.indexOf("-EncodedCommand") + 1;
+  const original = Buffer.from(argv[encoded], "base64").toString("utf16le");
+  const action = "Remove-Item -LiteralPath ('./'+$it.leaf) -ErrorAction Stop";
+  assert.ok(original.includes(action));
+  assert.doesNotMatch(original, /-Force\b/);
+  const quote = value => "'" + String(value).replaceAll("'", "''") + "'";
+  const helper = path.join(__dirname, "../_helpers/retainFixtureTarget.cjs");
+  const replacement = "& " + quote(process.execPath) + " " + quote(helper) + " " + quote(root) + " $target.FullName file; if ($LASTEXITCODE -ne 0) { throw 'FIXTURE_RETAIN_FAILED' }";
+  argv[encoded] = Buffer.from(original.replace(action, replacement), "utf16le").toString("base64");
+  return require("node:child_process").spawn(args[0], argv, args[2]);
+}
 function loadPanel(context) {
+  const pending = new Map();
+  context.cleanupState ||= async (_root, mode, rows = []) => {
+    if (mode === "reserve") for (const row of rows) pending.set(row.operationId, row);
+    if (mode === "settle") for (const row of rows) pending.set(row.operationId, { operationId: row.operationId, settled: true });
+    return [...pending.values()];
+  };
   let handler, dispose, contextChanged, html = "";
   const messages = [], actions = [];
   const webview = { set html(value) { html = value; }, postMessage(value) { messages.push(value); return Promise.resolve(true); },
@@ -28,6 +45,7 @@ function loadPanel(context) {
   const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
   vm.runInNewContext(compiled, { require: id => id === "vscode" ? vscode
     : id === "../features/PluginLogRetention" ? require("../../dist/features/PluginLogRetention.js")
+    : id === "node:fs/promises" && context.fsStub ? context.fsStub
     : id === "node:child_process" && context.childProcessStub ? context.childProcessStub
     : require(id), module, exports: module.exports, Buffer, process, console, AbortController });
   module.exports.openCacheCleanupPanel(() => context, callback => { contextChanged = callback; return { dispose() { contextChanged = undefined; } }; });
@@ -36,8 +54,14 @@ function loadPanel(context) {
 
 test("cache review requires two path confirmations before sending a delete action", async () => {
   const actions = [];
-  const client = { async postWorkerAction(workerId, action) { actions.push(action); return action === "preview-cache-cleanup" ? { status: "completed", candidates: [candidate] } : { status: "completed", deletedCount: 1 }; } };
-  const panel = loadPanel({ client, endpoints: [{ id: "worker-a", role: "worker" }], generation: 1,
+  const client = { async postWorkerAction(workerId, action, body) {
+    actions.push(action);
+    if (action === "preview-cache-cleanup") return { status: "completed", candidates: [candidate] };
+    if (action === "check-confirmed-cache-candidates") return { status: "completed", opId: body.opId, authorizationMode: "confirmed_paths", workerId, root: "/project", candidates: body.candidates, absent: [] };
+    return { status: "completed", workerId, operationId: body.operationId, deletedCount: 1, absent: [] };
+  } };
+  const fsStub = { async lstat() { throw Object.assign(new Error("synthetic root"), { code: "ENOENT" }); } };
+  const panel = loadPanel({ client, endpoints: [{ id: "worker-a", role: "worker" }], generation: 1, localRoot: "C:/synthetic-root", fsStub,
     retentionIndex: async () => staleIndexFor(candidate.path), ...openAdmission });
   const { source, messages } = panel;
   const handler = panel.message;
@@ -59,10 +83,10 @@ test("cache review requires two path confirmations before sending a delete actio
   await handler({ type: "confirmSecond", keys });
   await handler({ type: "review", keys });
   await handler({ type: "confirmSecond", keys });
-  assert.equal(actions.filter(item => item === "delete-cache-candidates").length, 0);
+  assert.equal(actions.filter(item => item === "delete-confirmed-cache-candidates").length, 0);
   await handler({ type: "confirmFirst", keys });
   await handler({ type: "confirmSecond", keys });
-  assert.equal(actions.filter(item => item === "delete-cache-candidates").length, 1);
+  assert.equal(actions.filter(item => item === "delete-confirmed-cache-candidates").length, 1);
   panel.close();
 });
 
@@ -136,7 +160,7 @@ test("project changes invalidate approved paths and closing the panel cancels pr
   const pending = deferred();
   const context = { generation: 1, endpoints: [{ id: "worker-a", role: "worker" }], client: {
     async postWorkerAction(_id, action, _body, options) {
-      if (action === "delete-cache-candidates") { deletes++; return { status: "completed" }; }
+      if (action === "delete-confirmed-cache-candidates") { deletes++; return { status: "completed" }; }
       signal = options?.signal;
       return { status: "completed", candidates: [candidate] };
     }
@@ -162,17 +186,18 @@ test("project changes invalidate approved paths and closing the panel cancels pr
 test("invalid candidate paths and interrupted deletions never become successful empty cleanup", async () => {
   let deletes = 0;
   let invalid = true;
-  const panel = loadPanel({ generation: 1, endpoints: [{ id: "worker-a", role: "worker" }],
+  const panel = loadPanel({ generation: 1, localRoot: "C:/synthetic-root", fsStub: { async lstat() { throw Object.assign(new Error("synthetic root"), { code: "ENOENT" }); } }, endpoints: [{ id: "worker-a", role: "worker" }],
     retentionIndex: async () => staleIndexFor(candidate.path), ...openAdmission, client: {
-    async postWorkerAction(_id, action) {
-      if (action === "delete-cache-candidates") { deletes++; return { status: "pending" }; }
+    async postWorkerAction(_id, action, body) {
+      if (action === "delete-confirmed-cache-candidates") { deletes++; return { status: "pending" }; }
+      if (action === "check-confirmed-cache-candidates") return { status: "completed", opId: body.opId, authorizationMode: "confirmed_paths", workerId: "worker-a", root: "/project", candidates: body.candidates, absent: [] };
       return { status: "completed", candidates: [{ ...candidate, path: invalid ? "tmp/../protected.log" : candidate.path }] };
     }
   } });
   await panel.message({ type: "refresh" });
   const invalidResult = panel.messages.filter(m => m.type === "data").at(-1);
   assert.equal(invalidResult.rows.length, 0);
-  assert.equal(invalidResult.scans[0].status, "unavailable");
+  assert.equal(invalidResult.scans.find(row => row.id === "worker-a").status, "unavailable");
   invalid = false;
   await panel.message({ type: "refresh" });
   const keys = ["worker-a|simple_cluster/tmp/tmux_logs/old.log"];
@@ -186,7 +211,7 @@ test("invalid candidate paths and interrupted deletions never become successful 
   panel.close();
 });
 
-test("unowned managed files stay preview-only and protection is recomputed before deletion", async () => {
+test("retention facts remain visible while confirmed exact paths can be deleted", async () => {
   const os = require("node:os");
   const retention = require("../../dist/features/PluginLogRetention.js");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "se-panel-protect-"));
@@ -227,7 +252,7 @@ test("unowned managed files stay preview-only and protection is recomputed befor
         const script = Buffer.from(String(args[args.indexOf("-EncodedCommand") + 1]), "base64").toString("utf16le");
         if (!/Set-Location -LiteralPath \$it\.parent/.test(script)
           || !/Remove-Item -LiteralPath \('\.\/'\+\$it\.leaf\)/.test(script)
-          || !/\$target\.Length -ne \[long\]\$it\.size/.test(script)) throw new Error("unexpected script");
+          || !/\$id\[3\] -ne \[string\]\$it\.size/.test(script)) throw new Error("unexpected script");
         assert.match(script, /\[Console\]::In\.ReadToEnd\(\)/);
         const entries = JSON.parse(input).items;
         for (const entry of entries) {
@@ -251,7 +276,7 @@ test("unowned managed files stay preview-only and protection is recomputed befor
   } };
   const executor = process.platform === "win32" ? { spawn(...args) {
     spawns++;
-    return require("../_helpers/retainFixtureTarget.cjs").spawnGuarded(root, args);
+    return spawnRetainingFixture(root, args);
   } } : childProcessStub;
   const context = { generation: 1, endpoints: [], client: {}, localRoot: root, retentionIndex: async () => currentIndex,
     ...openAdmission, childProcessStub: executor };
@@ -260,29 +285,18 @@ test("unowned managed files stay preview-only and protection is recomputed befor
   const data = panel.messages.filter(m => m.type === "data").at(-1);
   const byPath = new Map(data.rows.map(row => [String(row.path), row]));
   assert.equal(byPath.get("simple_cluster/tmp/tmux_logs/stale.log")?.previewOnly, undefined);
-  assert.equal(byPath.get("simple_cluster/tmp/tmux_logs/orphan.log")?.previewOnly, true);
-  assert.match(String(byPath.get("simple_cluster/tmp/tmux_logs/orphan.log")?.purpose || ""), /仅预览|不会删除/);
-  // Protected generations are never listed, and a read-only scan never writes.
-  assert.equal(byPath.has("simple_cluster/tmp/tmux_logs/kept.log"), false);
+  assert.equal(byPath.get("simple_cluster/tmp/tmux_logs/orphan.log")?.previewOnly, undefined);
+  assert.match(String(byPath.get("simple_cluster/tmp/tmux_logs/orphan.log")?.purpose || ""), /保留归属/);
+  assert.equal(byPath.has("simple_cluster/tmp/tmux_logs/kept.log"), true);
   assert.equal(fs.readFileSync(path.join(logDir, "orphan.log"), "utf8"), "unowned managed file");
-  // The delete guard refuses an unowned preview-only row on all three stages.
+  // An unconfirmed selection never deletes the file.
   const orphanKeys = ["local|simple_cluster/tmp/tmux_logs/orphan.log"];
   await panel.message({ type: "review", keys: orphanKeys });
   await panel.message({ type: "confirmFirst", keys: orphanKeys });
-  await panel.message({ type: "confirmSecond", keys: orphanKeys });
   assert.equal(fs.existsSync(path.join(logDir, "orphan.log")), true);
-  assert.ok(panel.messages.some(m => m.type === "error" && /已跳过/.test(m.message) && /仅预览归属/.test(m.message)));
-  // New reference AFTER the preview: recomputed protection skips the row at execution time.
+  // A changed retention classification remains a warning, not a block on the exact confirmed path.
   currentIndex = retention.retentionIndex(queueNewest, { caseInsensitive: true });
   const staleKeys = ["local|simple_cluster/tmp/tmux_logs/stale.log"];
-  await panel.message({ type: "review", keys: staleKeys });
-  await panel.message({ type: "confirmFirst", keys: staleKeys });
-  await panel.message({ type: "confirmSecond", keys: staleKeys });
-  assert.equal(fs.existsSync(path.join(logDir, "stale.log")), true);
-  assert.ok(panel.messages.some(m => m.type === "error" && /已跳过/.test(m.message)));
-  // Genuinely stale rows still delete through the confirmed two-step flow.
-  currentIndex = retention.retentionIndex(queueStale, { caseInsensitive: true });
-  await panel.message({ type: "refresh" });
   await panel.message({ type: "review", keys: staleKeys });
   await panel.message({ type: "confirmFirst", keys: staleKeys });
   await panel.message({ type: "confirmSecond", keys: staleKeys });
@@ -295,7 +309,7 @@ test("unowned managed files stay preview-only and protection is recomputed befor
   panel.close();
 });
 
-test("local scan deletes only exact-path facts and previews ambiguous console names regardless of age", async () => {
+test("local scan shows exact-path and ambiguous retention facts regardless of age", async () => {
   const os = require("node:os");
   const retention = require("../../dist/features/PluginLogRetention.js");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "se-panel-retention-"));
@@ -307,8 +321,7 @@ test("local scan deletes only exact-path facts and previews ambiguous console na
   fs.writeFileSync(path.join(logDir, "command-new.log"), "current generation");
   fs.writeFileSync(path.join(consoleDir, "exp-0__case-c__seed-1__worker-w__gpu-0__status-done__session-sess-old.log"), "old console");
   fs.writeFileSync(path.join(consoleDir, "exp-0__case-c__seed-1__worker-w__gpu-0__status-done__session-sess-c.log"), "retained console");
-  // Everything is 30 days old: the removed 7-day cutoff must not hide stale rows, and retained
-  // generations must stay protected by ownership, not by age.
+  // Age does not hide any of the reviewed files.
   const old = new Date(Date.now() - 30 * 24 * 3600 * 1000);
   for (const file of [path.join(logDir, "command-old1.log"), path.join(logDir, "command-new.log"),
     path.join(consoleDir, "exp-0__case-c__seed-1__worker-w__gpu-0__status-done__session-sess-old.log"),
@@ -326,15 +339,13 @@ test("local scan deletes only exact-path facts and previews ambiguous console na
   await panel.message({ type: "refresh" });
   const data = panel.messages.filter(m => m.type === "data").at(-1);
   const paths = data.rows.map(row => String(row.path)).sort().join(",");
-  // The shared per-plan scheduler log stays reference-counted (c3/c4 are retained), so only the two
-  // owned stale files surface from this fixture.
-  assert.equal(paths, "simple_cluster/console_logs/p/exp-0__case-c__seed-1__worker-w__gpu-0__status-done__session-sess-old.log,simple_cluster/tmp/tmux_logs/command-old1.log");
+  assert.equal(paths, "simple_cluster/console_logs/p/exp-0__case-c__seed-1__worker-w__gpu-0__status-done__session-sess-c.log,simple_cluster/console_logs/p/exp-0__case-c__seed-1__worker-w__gpu-0__status-done__session-sess-old.log,simple_cluster/tmp/tmux_logs/command-new.log,simple_cluster/tmp/tmux_logs/command-old1.log");
   const exact = data.rows.find(row => row.path.endsWith("command-old1.log"));
   const ambiguous = data.rows.find(row => row.path.includes("console_logs/"));
   assert.equal(exact.retentionStale, true);
-  assert.equal(ambiguous.previewOnly, true);
+  assert.equal(ambiguous.previewOnly, undefined);
   assert.match(exact.purpose, /两代保留窗口/);
-  assert.match(ambiguous.purpose, /仅预览|不会删除/);
+  assert.match(ambiguous.purpose, /保留归属/);
   panel.close();
 });
 
@@ -367,6 +378,13 @@ test("production blocked provider exposes local-only leaving logs and releases a
   host.retentionBlockedWindows = new Map([["p.yaml", []]]);
   host.loadPlanOutputRetentionQueue = async () => queue;
   host.enabledWorkerConfigs = () => [{ id: "w1" }];
+  host.realtimeEndpoints = () => [{ id: "w1", role: "worker", localHost: "127.0.0.1", localPort: 1, resourceServer: "fixture:22", resourceProjectRoot: "/fixture" }];
+  const pending = new Map();
+  host.cacheCleanupState = async (_root, mode, rows = []) => {
+    if (mode === "reserve") for (const row of rows) pending.set(row.operationId, row);
+    if (mode === "settle") for (const row of rows) pending.set(row.operationId, { operationId: row.operationId, settled: true });
+    return [...pending.values()];
+  };
   host.projectContextGeneration = 1;
   host.cacheCleanupContextChanged = { event() {} };
   host.hostOperationLease = { acquire: async () => ({ assertHeld: async () => {}, release: async () => {} }) };
@@ -392,7 +410,7 @@ test("production blocked provider exposes local-only leaving logs and releases a
   let spawns = 0;
   context.childProcessStub = { spawn(...args) {
     spawns++;
-    if (process.platform === "win32") return require("../_helpers/retainFixtureTarget.cjs").spawnGuarded(root, args);
+    if (process.platform === "win32") return spawnRetainingFixture(root, args);
     // Linux has no PowerShell. Preserve exact fixture files outside the active path; Windows
     // acceptance executes the real production PowerShell program against the same test.
     const child = new (require("node:events").EventEmitter)();
@@ -423,14 +441,13 @@ test("production blocked provider exposes local-only leaving logs and releases a
       taskKeys: [decision.pending[0].taskKey], pid: process.pid, hostNonce: "foreign-window" }] }));
     await panel.message({ type: "refresh" });
     const heldRows = panel.messages.filter(m => m.type === "data").at(-1).rows;
-    assert.equal(heldRows.some(row => row.path === oldPath && !row.previewOnly), false, "live claims prevent selection");
+    assert.equal(heldRows.some(row => row.path === oldPath && !row.previewOnly), true, "claims are shown without blocking selection");
     fs.writeFileSync(claims, JSON.stringify({ claims: [] }));
     await panel.message({ type: "refresh" });
     const rows = panel.messages.filter(m => m.type === "data").at(-1).rows;
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].path, oldPath);
-    assert.equal(rows[0].workerId, "local");
-    assert.equal(rows[0].previewOnly, undefined);
+    const selected = rows.find(row => row.path === oldPath);
+    assert.equal(selected.workerId, "local");
+    assert.equal(selected.previewOnly, undefined);
     await panel.message({ type: "review", keys });
     await panel.message({ type: "confirmFirst", keys });
     assert.equal(fs.existsSync(path.join(root, oldPath)), true);

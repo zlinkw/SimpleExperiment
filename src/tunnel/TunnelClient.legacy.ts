@@ -17,7 +17,7 @@ export const tunnelActions = [
   "rebuild-distributed-results",
   "configure-gpu-quota",
   "start-tensorboard", "stop-tensorboard", "get-tensorboard-status",
-  "preview-cache-cleanup", "delete-cache-candidates",
+  "preview-cache-cleanup", "delete-cache-candidates", "delete-confirmed-cache-candidates", "check-confirmed-cache-candidates", "query-confirmed-cache-cleanup",
 ] as const;
 
 export type TunnelAction = typeof tunnelActions[number];

@@ -425,7 +425,7 @@ const request=(body&&typeof body==="object"?body:{}) as any;
 
   async postWorkerAction<T>(workerId: string, action: TunnelAction, body: unknown, options: { signal?: AbortSignal } = {}): Promise<T> {
     const isCacheClearWorker = String(action || "").trim().toLowerCase().replace(/[-_]/g, "") === "clearcache";
-    if (!isCacheClearWorker && action !== "preview-cache-cleanup" && action !== "delete-cache-candidates" && !isWorkerTelemetryAction(action) && !isWorkerLocalSchedulerRequest(action, body) && !isWorkerOwnedResultRequest(action, body)) {
+    if (!isCacheClearWorker && action !== "preview-cache-cleanup" && action !== "delete-cache-candidates" && action !== "delete-confirmed-cache-candidates" && action !== "check-confirmed-cache-candidates" && action !== "query-confirmed-cache-cleanup" && !isWorkerTelemetryAction(action) && !isWorkerLocalSchedulerRequest(action, body) && !isWorkerOwnedResultRequest(action, body)) {
       throw new Error(`Worker Agent action not allowed: ${action}`);
     }
     const client = this.clients.get(workerId);
