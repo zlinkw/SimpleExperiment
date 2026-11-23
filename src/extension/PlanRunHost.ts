@@ -68,7 +68,8 @@ export class PlanRunHost {
     const value = { root: this.root, operationId: id, input: safeInput, recovery: body.runRecovery || {}, replacement: body.runReplacement || {} };
     // Cleanup preview tokens are opaque approvals; server credentials never enter the input.
     if (value.input.options) { delete value.input.options.workers; delete value.input.options.agentToken; delete value.input.options.env; }
-    await atomicWriteText(this.file(id), JSON.stringify(value), { beforeRename: options?.assertCurrent ? async () => options.assertCurrent!() : undefined });
+    const assertCurrent = options?.assertCurrent;
+    await atomicWriteText(this.file(id), JSON.stringify(value), { beforeRename: assertCurrent ? async () => assertCurrent() : undefined });
   }
   /** Hold key normalization: empty CSV "" and undefined are equivalent, matching the declaration-key write path. */
   static holdOutputKey(output: unknown, csv: unknown): string {
