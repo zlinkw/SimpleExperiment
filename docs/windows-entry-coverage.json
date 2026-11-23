@@ -14037,112 +14037,128 @@
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeTree.ts,line=155,name=refresh]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"Current handler requests selected root refresh with a cancellable read; historical source-family evidence is scoped and actual Worker query remains restricted.","boundary":"Limited to identified fake inputs and reviewed local route; no real Worker, transfer, shared configuration or deletion. Build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeTree.ts:compare",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeTree.ts,line=155,name=compare]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"prior_controlled_local_ui","evidence":"Historical syncScopeTree.test.js:97 fake DOM sent refresh for current root.","boundary":"Original fake DOM or VM input only; no real sync, Worker or file deletion. Build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeTree.ts:nextConflict",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeTree.ts,line=155,name=nextConflict]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"prior_controlled_local_ui","evidence":"Historical syncScopeTree.test.js:199 fake DOM expanded ancestors and scrolled to the selected conflict.","boundary":"Original fake DOM or VM input only; no real sync, Worker or file deletion. Build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeTree.ts:showSame",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeTree.ts,line=155,name=showSame]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"prior_controlled_local_ui","evidence":"Historical syncScopeDeletionRefresh.test.js:225 checked visibility without changing transfer scope.","boundary":"Original fake DOM or VM input only; no real sync, Worker or file deletion. Build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeTree.ts:filterIssues",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeTree.ts,line=155,name=filterIssues]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"prior_controlled_local_ui","evidence":"Historical syncScopeDeletionRefresh.test.js:225 checked issue-row filtering in VM.","boundary":"Original fake DOM or VM input only; no real sync, Worker or file deletion. Build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeTree.ts:clearIssueFilter",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeTree.ts,line=155,name=clearIssueFilter]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"prior_controlled_local_ui","evidence":"Historical syncScopeDeletionRefresh.test.js:228 checked filter clearing.","boundary":"Original fake DOM or VM input only; no real sync, Worker or file deletion. Build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeTree.ts:selectFiltered",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeTree.ts,line=155,name=selectFiltered]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"prior_controlled_local_ui","evidence":"Historical syncScopeDeletionRefresh.test.js:251 selected an uncertain file in filtered results.","boundary":"Original fake DOM or VM input only; no real sync, Worker or file deletion. Build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeTree.ts:unselectFiltered",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeTree.ts,line=155,name=unselectFiltered]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"prior_controlled_local_ui","evidence":"2026-11-21 rendered script and fake DOM checked select/unselect filtered and issue signature, 3/3 exit0.","boundary":"Original fake DOM or VM input only; no real sync, Worker or file deletion. Build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeTree.ts:operationSelection",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeTree.ts,line=155,name=operationSelection]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"Historical syncScopeDeletionRefresh.test.js:100 covered fake exact-path operation request; current host dispatches via selected root callback. Remote effects remain restricted.","boundary":"Limited to identified fake inputs and reviewed local route; no real Worker, transfer, shared configuration or deletion. Build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeTree.ts:editScope",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeTree.ts,line=155,name=editScope]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"Historical syncScopeTree.test.js:238 used fake local root selection and nested exclusion; current producer opens local scope selection.","boundary":"Limited to identified fake inputs and reviewed local route; no real Worker, transfer, shared configuration or deletion. Build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeTree.ts:save",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeTree.ts,line=155,name=save]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"Historical syncScopeTree.test.js:32 used a mock save callback. Current host uses captured project/client write lease, rejects in-flight mutations, normalizes selected paths before config update. No real configuration written.","boundary":"Limited to identified fake inputs and reviewed local route; no real Worker, transfer, shared configuration or deletion. Build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeTree.ts:batchSync",
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeTree.ts,line=155,name=batchSync]",
           "oldStatus": "deferred",
-          "scope": "external_cleanup_or_lifecycle_restricted"
+          "scope": "external_cleanup_or_lifecycle_restricted",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"Historical syncScopeBatch.test.js:131 generated a fake exact batch request. Current host validates selected/excluded relative paths and calls root batch; no real transfer.","boundary":"Limited to identified fake inputs and reviewed local route; no real Worker, transfer, shared configuration or deletion. Build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeTree.ts:batchDelete",
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeTree.ts,line=155,name=batchDelete]",
           "oldStatus": "deferred",
-          "scope": "external_cleanup_or_lifecycle_restricted"
+          "scope": "external_cleanup_or_lifecycle_restricted",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"Historical syncScopeDeletionRefresh.test.js:87 generated fake exact row/batch requests. Current host validates relative paths and calls root batch; downstream permanent deletion was not executed.","boundary":"Limited to identified fake inputs and reviewed local route; no real Worker, transfer, shared configuration or deletion. Build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeConfirmation.ts:cancel",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeConfirmation.ts,line=24,name=cancel]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"prior_controlled_confirmation","evidence":"Historical syncScopeConfirmation 2/2 exit0 covers close/cancel and no confirmation.","boundary":"Only prior fake confirmation or mocked run input. No real cleanup, Worker or current panel click; source build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeConfirmation.ts:confirm",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeConfirmation.ts,line=24,name=confirm]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"prior_controlled_confirmation","evidence":"Historical syncScopeConfirmation 2/2 exit0 covers two confirmations displaying full paths.","boundary":"Only prior fake confirmation or mocked run input. No real cleanup, Worker or current panel click; source build remains pending."}
         },
         {
           "id": "aux:src/features/SyncScopeConfirmation.ts:continue",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/features/SyncScopeConfirmation.ts,line=97,name=continue]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"prior_controlled_confirmation","evidence":"Prior planVersionComparison 13/13 exit0 uses mocked runs and checks selected run IDs plus latest/active/unverified/duplicate rejection.","boundary":"Only prior fake confirmation or mocked run input. No real cleanup, Worker or current panel click; source build remains pending."}
         },
         {
           "id": "tree:toggle directory",
