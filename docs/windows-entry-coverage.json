@@ -12273,6 +12273,7 @@
         },
         {
           "id": "panel:openLastCheckStaticReport:1",
+          "currentReview": {"status":"source_scoped_partial","evidence":"固定按钮不传报告名，Host选当前项目 latest，检查文件后经工作区编辑器打开；缺失/权限错误的实际方法VM回归 %TEMP%/g004-report-read-errors-20261123.*.log 3/3 exit0。","boundary":"本轮未实点或验证成功打开；仅词法工作区路径，链接目标未实测。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=openLastCheckStaticReport]; panelPayloadReconciliation[command=openLastCheckStaticReport]",
           "oldStatus": "concluded_scoped",
@@ -12280,6 +12281,7 @@
         },
         {
           "id": "panel:openLastCheckStaticReport:2",
+          "currentReview": {"status":"source_scoped_partial","evidence":"报告列表按钮传文件名，Host取basename并限制check-static-*.md、定位项目报告目录；缺失/权限错误VM回归 %TEMP%/g004-report-read-errors-20261123.*.log。","boundary":"本轮未实点具体报告或验证成功打开；链接目标未实测。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=openLastCheckStaticReport]; panelPayloadReconciliation[command=openLastCheckStaticReport]",
           "oldStatus": "concluded_scoped",
@@ -12287,6 +12289,7 @@
         },
         {
           "id": "panel:copyLastCheckStaticReport:1",
+          "currentReview": {"status":"source_scoped_partial","evidence":"固定按钮选择项目latest并按UTF-8读到VS Code剪贴板；缺失/权限错误VM回归 %TEMP%/g004-report-read-errors-20261123.*.log。","boundary":"本轮未触真实剪贴板、未验证成功复制；链接目标未实测。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=copyLastCheckStaticReport]",
           "oldStatus": "concluded_scoped",
@@ -14443,6 +14446,7 @@
         },
         {
           "name": "simpleExperiment.openLastCheckStaticReport",
+          "currentReview": {"status":"source_scoped_partial","evidence":"注册别名无参调用当前provider的openLastCheckStaticReportFromUi，默认latest；缺失/权限错误假文件回归 %TEMP%/g004-report-read-errors-20261123.*.log。","boundary":"未运行真实命令或打开报告；provider缺失时原可选链无动作。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.openLastCheckStaticReport]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14450,6 +14454,7 @@
         },
         {
           "name": "simpleExperiment.copyLastCheckStaticReport",
+          "currentReview": {"status":"source_scoped_partial","evidence":"注册别名无参调用当前provider的copyLastCheckStaticReportFromUi；缺失/权限错误假文件回归 %TEMP%/g004-report-read-errors-20261123.*.log。","boundary":"未运行真实命令或更改剪贴板；provider缺失时原可选链无动作。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.copyLastCheckStaticReport]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14646,6 +14651,7 @@
         },
         {
           "name": "copyLastCheckStaticReport",
+          "currentReview": {"status":"source_scoped_partial","evidence":"invokeApi经handleMessageCore调用copyLastCheckStaticReportFromUi；错误回归 %TEMP%/g004-report-read-errors-20261123.*.log。","boundary":"仅源码及假文件错误；未操作真实剪贴板或运行中窗口。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -14832,6 +14838,7 @@
         },
         {
           "name": "openLastCheckStaticReport",
+          "currentReview": {"status":"source_scoped_partial","evidence":"invokeApi经handleMessageCore传report/file/name至openLastCheckStaticReportFromUi；错误回归 %TEMP%/g004-report-read-errors-20261123.*.log。","boundary":"仅源码及假文件错误；未打开真实报告。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },

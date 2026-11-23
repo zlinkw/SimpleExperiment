@@ -18,7 +18,7 @@ G004 按 identity+argv 冻结增量证据；最终 package 已通过：361 activ
 
 runner 增量开发曾有 OOM、解析误拒、临时 JSON 错误、依赖 drift 及旧 mcpWorkerHistory 日志被覆盖；原事件、已修状态与不重跑裁决见 `8ed64825:docs/plan-generations/G004-execution.md`。
 
-actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测试夹具接入真实共享 symbol 和局部路径替身后整文件 49/49 exit0，失败事件、完整日志及失败 eligible=false 均保留。接替后误重复已继承 job 204（9/9）和 179（7/7），误运行 onDemand serverQuotaPersistence（10/10）；另此前误运行 serverQueueDispatch（14/14）、dispatchWake（4/4）和重复 pairedUpdateTransaction（8/8）。事件和日志均保留，新记录不计活动覆盖；后续同时核活动计划及历史/直接证据。
+actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204/179及误跑onDemand等记录、完整失败与日志见 `170fd06e:docs/plan-generations/G004-execution.md`，误运行不计活动覆盖。
 
 ## 审定证据和真实效果
 
@@ -100,3 +100,5 @@ SFTP server activate/save/delete 逐工具复核 schema、人工 modal 和同根
 SFTP tree、tree_state、inventory逐项核Gateway、Host与已装SFTP路径检查；原假端口回归复用上条日志。此三只读工具当前不声明权限类别，只绑定配置Worker/项目；未访问真实Worker或计算远端哈希，范围不足见coverage。
 
 SFTP file_stats/plan_logs按schema、Worker路由及已装后端路径/Plan校验复核，仅假端证据。remote_directories原无条件附confirm/pathConfirmed且缺授权，已按总控裁决改为sync项目授权、根内精确目标及调用前项目/Worker快照复核；假Gateway/Host 18/18 exit0，`%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log`。已装120确认函数仅提取VM核缺失/部分/完整因子3/3，`%TEMP%/g004-sftp120-confirmation-vm-20261123.log`。未改真实grant或访问远端。一次压缩补丁未匹配、未写入。
+
+逐位置检查静态报告打开两处与复制一处、相应invoke及命令别名；Host路径及缺失/权限错误的真实方法VM回归3/3 exit0，`%TEMP%/g004-report-read-errors-20261123.*.log`。成功打开/复制和链接目标未实测，不操作真实剪贴板。
