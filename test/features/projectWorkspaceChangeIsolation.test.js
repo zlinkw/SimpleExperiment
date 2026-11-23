@@ -370,6 +370,31 @@ test("output adapter stops its current file write when the project changes durin
   assert.deepEqual(calls, ["mkdir"]);
 });
 
+test("workspace file publication rechecks the project immediately before rename", async () => {
+  const vm = require("node:vm");
+  const start = source.indexOf("async function writeWorkspaceTextWithBackup(");
+  const end = source.indexOf("// Backups are plugin-owned", start);
+  assert.ok(start > 0 && end > start);
+  const root = path.resolve("adapter-fixture"), calls = [];
+  let current = true;
+  const context = {
+    path, workspaceRoot: () => root,
+    fs: { mkdir: async () => {}, readFile: async () => { const error = new Error("missing"); error.code = "ENOENT"; throw error; } },
+    atomicWriteText: async (_file, _text, options) => {
+      calls.push("staged");
+      current = false;
+      await options.beforeRename();
+      calls.push("published");
+    },
+  };
+  vm.createContext(context);
+  vm.runInContext(source.slice(start, end) + ";this.save = writeWorkspaceTextWithBackup;", context);
+  await assert.rejects(context.save(path.join(root, "output.py"), "fixture", () => {
+    if (!current) throw new Error("workspace changed");
+  }), /workspace changed/);
+  assert.deepEqual(calls, ["staged"]);
+});
+
 test("project adapter rule saves cannot continue in a replacement workspace", () => {
   const save = methodBody("async saveProjectAdapterRulesFromUi", "async loadProjectAdapterTemplateFiles");
   assert.match(save, /const projectContext = this\.captureProjectContext\(\)/);

@@ -12991,7 +12991,7 @@
           "reference": "g004U04RemainingInventory.panelCommandActions[name=generateOutputAdapter]",
           "oldStatus": "concluded_scoped",
           "scope": "single_project_local_or_mixed",
-          "currentReview": {"status":"source_fixed_pending_build","evidence":"Preview only treats ENOENT as absent. The per-file writer now receives the captured-project assertion at each awaited file boundary; fake writer test and original project-fence assertion are 2/2 exit0 in %TEMP%/g004-output-adapter-project-fence-v2-20261123.out.log. First run 2/3 exit1 retained: old static assertion could not span the longer inline callback, moved callback without weakening it.","boundary":"No real project or paper file written; completed earlier writes are not rolled back. Current source candidate is not built or installed."}
+          "currentReview": {"status":"source_fixed_pending_build","evidence":"Preview only treats ENOENT as absent. The per-file writer now receives the captured-project assertion at each awaited file boundary; fake writer, pre-publication guard and original Plan/project-fence assertions are 4/4 exit0 in %TEMP%/g004-output-adapter-project-fence-v3-20261123.out.log; prior focused v2 was 2/2. First run 2/3 exit1 retained: old static assertion could not span the longer inline callback, moved callback without weakening it.","boundary":"No real project or paper file written; completed earlier writes are not rolled back. Current source candidate is not built or installed."}
         },
         {
           "id": "panel:retryExperiment:1",

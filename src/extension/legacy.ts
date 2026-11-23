@@ -37152,7 +37152,7 @@ async function writeWorkspaceTextWithBackup(fullPath, text, assertCurrent = () =
         assertCurrent();
     }
     assertCurrent();
-    await atomicWriteText(fullPath, text);
+    await atomicWriteText(fullPath, text, { beforeRename: async () => assertCurrent() });
     assertCurrent();
     return { fullPath, relative, status: previous === undefined ? "created" : "updated", backupPath };
 }
