@@ -10506,6 +10506,7 @@
         },
         {
           "id": "panel:syncGithub:1",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"0a1eb56f；精确项目仓库、stage/commit/push与切项目保护，假Git 6/6；未操作真实产品Git或Worker。"},
           "oldReference": "g004U04RemainingInventory.panelCommandActions[name=syncGithub]",
           "scope": "local_evidence_in_519_overlay_external_effects_only_as_noted",
           "boundary": "以本覆盖表519同名证据为准；不推断真实外部效果"
@@ -11364,7 +11365,7 @@
         },
         {
           "name": "draft_list",
-          "currentReview": {"status": "live_scoped", "version": "0.5.520", "log": "%TEMP%/g004-520-mcp-local-readonly-20261123.json", "boundary": "无参数返回0草稿和0清理候选；不证明创建或删除。", "evidence": "同根45080实例，稳定MCP SDK调用成功，launcher exit0；仅本次输入。"},
+          "currentReview": {"status":"retired","historicalStatus":"live_scoped","applicability":"草稿机制已退役；以下仅为历史兼容事实，不计入当前功能通过。", "version": "0.5.520", "log": "%TEMP%/g004-520-mcp-local-readonly-20261123.json", "boundary": "无参数返回0草稿和0清理候选；不证明创建或删除。", "evidence": "同根45080实例，稳定MCP SDK调用成功，launcher exit0；仅本次输入。"},
           "method": "drafts.list",
           "oldEvidence": "projectTools[name=draft_list]",
           "scope": "single_project_local_or_mixed",
@@ -11375,7 +11376,7 @@
           "name": "draft_validate",
           "method": "drafts.validate",
           "oldEvidence": "projectTools[name=draft_validate]",
-          "currentReview": {"status":"mock_scoped","evidence":"Gateway校验精确草稿路径并由Host读取当前项目记录与引用；原Gateway假端3/3 %TEMP%/g004-520-mcp-draft-contracts-20261123.log，真实方法身份验证见 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log。","boundary":"当前专用根无草稿；未写或验证真实草稿。"},
+          "currentReview": {"status":"retired","historicalStatus":"mock_scoped","applicability":"草稿机制已退役；以下仅为历史兼容事实，不计入当前功能通过。","evidence":"Gateway校验精确草稿路径并由Host读取当前项目记录与引用；原Gateway假端3/3 %TEMP%/g004-520-mcp-draft-contracts-20261123.log，真实方法身份验证见 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log。","boundary":"当前专用根无草稿；未写或验证真实草稿。"},
           "scope": "single_project_local_or_mixed",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "按原消费者及本轮证据各自条件判断，不等于所有参数或环境通过。"
@@ -11383,7 +11384,7 @@
         {
           "name": "draft_promotion_preview",
           "method": "drafts.promotionPreview",
-          "currentReview": {"status":"source_and_fake_scoped","evidence":"Gateway只读预览经当前项目草稿记录及状态、成功debug校验后构造预览；复用 %TEMP%/g004-520-mcp-draft-contracts-20261123.log 3/3 与 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log 49/49。","boundary":"历史本地debug指标读取仅受控证据；未查询真实活动结果或写草稿。"},
+          "currentReview": {"status":"retired","historicalStatus":"source_and_fake_scoped","applicability":"草稿机制已退役；以下仅为历史兼容事实，不计入当前功能通过。","evidence":"Gateway只读预览经当前项目草稿记录及状态、成功debug校验后构造预览；复用 %TEMP%/g004-520-mcp-draft-contracts-20261123.log 3/3 与 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log 49/49。","boundary":"历史本地debug指标读取仅受控证据；未查询真实活动结果或写草稿。"},
           "oldEvidence": "projectTools[name=draft_promotion_preview]",
           "scope": "single_project_local_or_mixed",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
@@ -11393,7 +11394,7 @@
           "name": "draft_review",
           "method": "drafts.review",
           "oldEvidence": "projectTools[name=draft_review]",
-          "currentReview": {"status":"fixed_scoped","evidence":"Gateway要求当前项目configuration授权；Host原精确写入后刷新异常未说明部分已写，现明确传回。真实方法VM与假写入6/6 %TEMP%/g004-draft-partial-write-final-20261123.*.log；生命周期49/49 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log。","boundary":"仅假项目与假写入；未修改真实草稿。"},
+          "currentReview": {"status":"retired","historicalStatus":"fixed_scoped","applicability":"草稿机制已退役；以下仅为历史兼容事实，不计入当前功能通过。","evidence":"Gateway要求当前项目configuration授权；Host原精确写入后刷新异常未说明部分已写，现明确传回。真实方法VM与假写入6/6 %TEMP%/g004-draft-partial-write-final-20261123.*.log；生命周期49/49 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log。","boundary":"仅假项目与假写入；未修改真实草稿。"},
           "scope": "single_project_local_or_mixed",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "按原消费者及本轮证据各自条件判断，不等于所有参数或环境通过。"
@@ -11402,14 +11403,14 @@
           "name": "draft_reject",
           "method": "drafts.reject",
           "oldEvidence": "projectTools[name=draft_reject]",
-          "currentReview": {"status":"fixed_scoped","evidence":"Gateway要求当前项目configuration授权；Host修复写入后刷新记录错误或抛异常时假成功，明确提示已写。真实方法假写入6/6 %TEMP%/g004-draft-partial-write-final-20261123.*.log；生命周期49/49 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log。","boundary":"仅假项目与假写入；未修改真实草稿。"},
+          "currentReview": {"status":"retired","historicalStatus":"fixed_scoped","applicability":"草稿机制已退役；以下仅为历史兼容事实，不计入当前功能通过。","evidence":"Gateway要求当前项目configuration授权；Host修复写入后刷新记录错误或抛异常时假成功，明确提示已写。真实方法假写入6/6 %TEMP%/g004-draft-partial-write-final-20261123.*.log；生命周期49/49 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log。","boundary":"仅假项目与假写入；未修改真实草稿。"},
           "scope": "single_project_local_or_mixed",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "按原消费者及本轮证据各自条件判断，不等于所有参数或环境通过。"
         },
         {
           "name": "draft_cleanup_candidates",
-          "currentReview": {"status": "live_scoped", "version": "0.5.520", "log": "%TEMP%/g004-520-mcp-local-readonly-20261123.json", "boundary": "无参数返回0候选；源代码确认当前缺目录时提前返回，未执行删除。", "evidence": "同根45080实例，稳定MCP SDK调用成功，launcher exit0；仅本次输入。"},
+          "currentReview": {"status":"retired","historicalStatus":"live_scoped","applicability":"草稿机制已退役；以下仅为历史兼容事实，不计入当前功能通过。", "version": "0.5.520", "log": "%TEMP%/g004-520-mcp-local-readonly-20261123.json", "boundary": "无参数返回0候选；源代码确认当前缺目录时提前返回，未执行删除。", "evidence": "同根45080实例，稳定MCP SDK调用成功，launcher exit0；仅本次输入。"},
           "method": "drafts.cleanupCandidates",
           "oldEvidence": "projectTools[name=draft_cleanup_candidates]",
           "scope": "single_project_local_or_mixed",
@@ -12209,6 +12210,7 @@
         },
         {
           "id": "panel:publishGithub:1",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"0a1eb56f；精确项目仓库、stage/commit/push与切项目保护，假Git 6/6；未操作真实产品Git或Worker。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=publishGithub]",
           "oldStatus": "concluded_scoped",
@@ -14332,6 +14334,7 @@
         },
         {
           "name": "simpleExperiment.syncToGitHub",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"0a1eb56f；精确项目仓库、stage/commit/push与切项目保护，假Git 6/6；未操作真实产品Git或Worker。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.syncToGitHub]",
           "currentEvidence": "newCandidates[git-palette-command-unawaited]；setup/remove另见git-backup-hook-unreadable及incomplete-marker按各自触发条件",
@@ -14339,6 +14342,7 @@
         },
         {
           "name": "simpleExperiment.publishToGitHub",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"0a1eb56f；精确项目仓库、stage/commit/push与切项目保护，假Git 6/6；未操作真实产品Git或Worker。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.publishToGitHub]",
           "currentEvidence": "newCandidates[git-palette-command-unawaited]；setup/remove另见git-backup-hook-unreadable及incomplete-marker按各自触发条件",
@@ -14346,6 +14350,7 @@
         },
         {
           "name": "simpleExperiment.setupGitBackup",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"0a1eb56f；精确项目仓库，等待确认后重核目标；假fs/UI 5/5，未操作真实hook或远端。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.setupGitBackup]",
           "currentEvidence": "newCandidates[git-palette-command-unawaited]；setup/remove另见git-backup-hook-unreadable及incomplete-marker按各自触发条件",
@@ -14353,6 +14358,7 @@
         },
         {
           "name": "simpleExperiment.removeGitBackup",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"0a1eb56f；精确项目仓库，等待确认后重核目标；假fs/UI 5/5，未操作真实hook或远端。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.removeGitBackup]",
           "currentEvidence": "newCandidates[git-palette-command-unawaited]；setup/remove另见git-backup-hook-unreadable及incomplete-marker按各自触发条件",
@@ -14360,6 +14366,7 @@
         },
         {
           "name": "simpleExperiment.showGitBackupStatus",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"0a1eb56f；精确项目仓库，等待确认后重核目标；假fs/UI 5/5，未操作真实hook或远端。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.showGitBackupStatus]",
           "currentEvidence": "newCandidates[git-palette-command-unawaited]；setup/remove另见git-backup-hook-unreadable及incomplete-marker按各自触发条件",
@@ -15079,7 +15086,7 @@
         },
         {
           "name": "publishGithub",
-          "route": "local_handler_misdirected_to_remote_map",
+          "route": "api_local_action_then_handleMessageCore",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
         {
@@ -15476,7 +15483,7 @@
         },
         {
           "name": "syncGithub",
-          "route": "local_handler_misdirected_to_remote_map",
+          "route": "api_local_action_then_handleMessageCore",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
         {

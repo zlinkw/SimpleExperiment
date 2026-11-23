@@ -83,6 +83,17 @@ test("backup refuses a parent repository and a changed workspace", async () => {
   assert.equal(writes, 0);
 });
 
+test("backup refuses a changed remote after its access check", async () => {
+  let reads = 0, writes = 0;
+  const vscode = { workspace: { workspaceFolders: [{ uri: { fsPath: "C:/synthetic" } }],
+    getConfiguration: () => ({ get: (_key, fallback) => fallback }) }, window: {} };
+  const backup = { inspectGitBackup: () => ({ isGitRepo: true, hasRemote: true, repoRoot: "C:/synthetic", hookPath: "C:/synthetic/.git/hooks/post-commit", remoteName: "origin", remoteUrl: ++reads === 1 ? "https://first" : "https://second" }),
+    checkRemoteAccess: () => ({ ok: true }), installBackupHook() { writes++; } };
+  const setup = load("src/extension/GitBackupSetup.ts", { vscode, "../features/GitBackup": backup });
+  await assert.rejects(setup.maybeAutoInstallGitBackup({ subscriptions: [] }), /远端已变化/);
+  assert.equal(writes, 0);
+});
+
 test("registered backup and GitHub commands return their asynchronous results", async () => {
   const handlers=new Map();let release;
   const vscode={workspace:{workspaceFolders:[{uri:{fsPath:'C:/synthetic'}}],getConfiguration:()=>({get:(_key,fallback)=>fallback})},

@@ -137,10 +137,16 @@ openXshell、testAll、snapshot入口按实际源码分别核确认、Worker、�
 
 clearOperations四个原ID分别核Plan、全部、选中、单项路由与确认；当前invoke走本机处理，旧远程误路由分类不适用，未改真实历史。
 
-缓存持久化候选：同一local_operations.json和文件lease预留完整批次，旧快照保留未决记录，真实执行未知不重发；坏JSON/EACCES拒绝覆盖，原ID明确结束后清路径。Host重启丢本机退出证据则继续unknown；无真实删除或Worker。新旧Agent同路径LIVE互斥和预检已补。假存储/执行器及Windows只读身份 %TEMP%/g004-cache-persistent-v5-20261123.log 11/11 exit0（含启动前失败结清与已启动未退出保留）；v2 9/10 exit1为测试在refresh后才注入错误回调，调整顺序后v3/v4通过。候选待源审和build，非已交付。
+缓存持久化候选：同一local_operations.json和文件lease预留完整批次，旧快照保留未决记录，真实执行未知不重发；坏JSON/EACCES拒绝覆盖，原ID明确结束后清路径。Host重启丢本机退出证据则继续unknown；无真实删除或Worker。新旧Agent同路径LIVE互斥和预检已补。假存储/执行器及Windows只读身份 %TEMP%/g004-cache-persistent-v6-20261123.log 11/11 exit0（含启动前失败结清与已启动未退出保留）；v2 9/10 exit1为测试在refresh后才注入错误回调，调整顺序后v3/v4通过。候选待源审和build，非已交付。
 
 Git当前项目仓库绑定候选：仅精确仓库stage/commit/push，项目切换不继续后续效果，已发commit可能完成如实提示；Git溯源写入前复核项目。假Git/写入 %TEMP%/g004-git-project-binding-v2-20261123.log 6/6 exit0，未操作真实产品Git；候选待审。
 
 六个草稿MCP原证保留，仅标retired历史兼容，不计现行通过；coverage JSON及UTF8复读有效，首文本替换count7中止未写。
 
 Git自动备份入口源审发现嵌套工作区会向父仓库安装hook，且等待远端确认时项目可能切换；候选仅接受当前项目精确仓库，并在安装前重核仓库、hook与remote，原异步返回/原hook保护保留。假fs/假UI %TEMP%/g004-git-backup-boundary-20261123.log 5/5 exit0；未触真实hook或远端，候选待构建。
+
+Git绑定与自动备份修复已按审定hunk提交 0a1eb56f 并普通push/fetch一致；上述测试不证明真实外部效果。六个草稿工具为退役历史，非通过数；两个Git面板及五个命令别名适用状态见coverage，原invoke误分类已按本机实际分支纠正。
+
+Git备份确认期间若同名remote的URL改变，现阻止安装；假fs/UI增量 %TEMP%/g004-git-backup-boundary-v2-20261123.log 6/6 exit0，候选待同步与build。
+
+缓存存储旧raw-map、包装和null兼容及错误类型拒绝：%TEMP%/g004-cache-storage-compat-20261123.log 定向1/1 exit0；同一物理目标的不同Worker别名也阻止重叠请求。

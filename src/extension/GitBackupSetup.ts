@@ -197,7 +197,8 @@ async function applyBackup(
 
   if (!isWorkspaceRepository(vscode, inspection)) throw new Error("项目或 Git 仓库已变化，未修改自动备份。");
   const current = inspectGitBackup(resolveWorkspaceRoot(vscode), config.remote);
-  if (!isWorkspaceRepository(vscode, current) || !sameRoot(current.hookPath, inspection.hookPath) || current.remoteName !== inspection.remoteName)
+  if (!isWorkspaceRepository(vscode, current) || !sameRoot(current.hookPath, inspection.hookPath)
+      || current.remoteName !== inspection.remoteName || current.remoteUrl !== inspection.remoteUrl)
     throw new Error("Git 仓库或远端已变化，未修改自动备份。");
 
   const result = installBackupHook(inspection.repoRoot, inspection.remoteName);
