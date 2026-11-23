@@ -45,23 +45,9 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 520唯一安装 exit0，安装日志 `%TEMP%/g004-520-install-20261123.log` 保留DEP0169警告；原安装/重载及shim字节证据见 `86e35b7b:docs/plan-generations/G004-execution.md`，当前源码未装。
 
-## 520 重载后单项目只读验收
+## 520 单项目界面及只读验收
 
-专用窗口重载后核实 520 PID45080、startedAt `2026-11-23T05:41:49.812Z`、loopback 19769，SFTP 0.2.120 同 PID/根已激活；默认稿件窗口未调用。原 preflight、health 和 OpenAPI 详情见 `52946c4d:docs/plan-generations/G004-execution.md`。
-
-真实MCP tools/list返回137项，项目授权、目录、面板、状态与单键只读成功；原响应 `%TEMP%/g004-520-live-mcp-20261123.json`、`g004-520-live-mcp-state-20261123.json`，完整事实见 `52946c4d:docs/plan-generations/G004-execution.md`；未调用Worker或跨项目。
-
-本人新控制许可前，面板 diagnostics 报 ready、运行/安装均 520、无 section failures，但 heartbeat 标记 document-hidden、render health unknown；这不是可见 UI 验收。现有 Computer Use 工具可枚举窗口，但其窗口读取流程和 silent-ui-screenshot 禁止仅为截图使用 Computer Use，且未找到项目现成非激活捕获入口，未切焦点、未截图或操作界面。真实 UI、Worker、远端及跨项目仍未测。
-
-## 用户授权后的真实界面与识别
-
-用户先授权只读快照，后明确允许直接控制电脑；总控激活专用 VS Code 窗口 87954600 并观察真实 520 面板，同根、原 PLAN、低流量开，Worker/GPU/tmux 显示未查询或未核实。计划搜索 `ui_u01_empty_515` 后仅一个匹配、批量选中0、当前 PLAN 不变，随后清空搜索。资源树导航 element 146 点击因坐标越窗失败，未成功操作；随后用滚动条回顶部。
-
-总控一次工作区识别发现5个Plan；首次坐标未选中继续，期间stalled不能判定死锁，原继续按钮实际点击后识别成功。Escape退出侧栏最大化后已恢复；未改adapter、PLAN、Worker或授权。完整原事件ID及截图位置见 `49e1cebd:docs/plan-generations/G004-execution.md` 与总控rollout，未重跑识别。
-
-45080实例识别后MCP回onboarding=true、520/offline_import，panel ready但render probe pending；operation_list空不能证明锁释放。响应 `%TEMP%/g004-520-after-ui-recognition-20261123.json`，exit0；未再次识别/清锁，真实Worker及远端未测。
-
-最终记录压缩首稿计算10940触发Python assert、写入前退出，文件未更改；外层因随后命令显示exit0，不当作Python成功。扩大语义压缩后UTF8写回及diff检查通过。总控审原MCP响应的exit0/isError=false及同实例识别true，本地验收完成，render探针未知/非标准CSV/Worker与跨项目等受限如上，不重打包、重装或后台保活。
+520专用窗口PID45080、根及SFTP同实例身份和识别后的真实UI/MCP只读证据、初次坐标失败、恢复及日志见 0a662506:docs/plan-generations/G004-execution.md 和coverage；默认稿件未调用，低流量保留、onboarding=true，Worker/GPU/tmux未查询。初始probe pending不是已通过；未真实传输、清理或跨项目。文档压缩两次写前超限失败及恢复保留于原记录。
 
 ## 当前预览修复与探针调查
 
@@ -123,20 +109,18 @@ task_list只复核当前项目归并、取消及unknown源码，禁止真实任�
 
 配套mappedBatchDownload取消消费者1/1 `%TEMP%/g004-sftp-cancel-mapped-consumer-20261123.*.log`，SSH为替身。旧119现存56条日志的测试文件及通过数与120一致，另13条缺原日志、120逐项目录为空，闭包待核。
 
-Experiment构建对账：pluginLogRetention及cacheCleanupPanel的受测retention/backup/inspection源码片段与1e91d0d4逐段一致、其余依赖字节不变，复用原15/15及10/10，更新两条该次输入；不重跑旧清理替身。并非全部build依赖已对账。
+Experiment增量证据逐job核验、方法切片及日志保留于 coverage 和 0a662506:docs/plan-generations/G004-execution.md；此前 runner 255/256 等原证不等于当前 build。固定 actionLifecycle 包装已按原事件、原日志和外层退出核验，首轮和负例各1/1，历史草稿断言仅为既有事实。source变化须逐项复核，不能批量改快照。
 
-hostOperationLeaseIntegration及automaticScopeContent受测方法等与1e91d0d4一致，其余依赖不变，复用4/4、8/8。配套120 tag为2284921，原package汇总69文件466通过，`%TEMP%/run-YUG9Ru`现为空；119与120间6文件变化须逐项审，不能冒充当前全量通过。一次只读tag引号错误及旧日志路径不存在未改产品。
+配套SFTP 28087f3 已同步；取消身份8/8、结算3/3、两个各1/1受控消费者与 verify-runtime 23文件exit0及初次2/4失败的日志见coverage和旧记录。120历史包汇总69文件466通过，逐文件原目录现空；119现存56条对应日志、另13条缺逐项原日志，闭包待审；未打包安装发布新版本。
 
-planCodeScope及remoteResultInspectionWorkflow受测片段与1e91d0d4一致、其他依赖不变，复用12/12、15/15，不重跑替身。
+## 当前补充调查
 
-syncScopeDeletionRefresh七个受测方法/函数与旧源码一致，planCleanupReconnect所查禁止调用仍不存在，其余依赖不变；复用33/33、13/13夹具旧证，不重跑清理。配套仓只读查远端tag/release及本地资产，120已占、119/120为试行、118为稳定，查询时121尚无同名tag/包；未递版或创建资产。
+runner job 257/258、260/261/262 按identity/argv和原日志复核，各1/1、stderr空、receipt exit0；未重跑。259原stdout pass0/skip1，Windows跳过POSIX符号链接，exit0不能证明该行为，未冻结新输入。新源码使部分旧快照再次漂移，须按实际函数复核。
 
-任务、日志及Plan选择核身份/持久化、项目切换和错误反馈，复用原假宿主证据，未操作真实选择或Worker日志；见coverage。一次压缩补丁未匹配未写入。
+结果目录浏览/保存/映射、复制、高级设置及SFTP服务器/目标/确认重置逐ID审查，证据及外部效果限制见coverage；未改配置、剪贴板或共享确认。
 
-planBatchPhysicalPipeline及planRunRecovery受测队列写入/租约和确认/恢复方法与1e91d0d4一致，其余依赖不变，复用2/2、7/7夹具旧证，未重跑清理。
+MCP诊断取消在await查询后可能在授权或项目、Worker变化后仍发送；现发送前重核，假Gateway/Host 3/3 %TEMP%/g004-preflight-cancel-auth-final-20261123.*.log，原Host精确1/1 %TEMP%/g004-preflight-host-cancel-exact-20261123.*.log，均exit0。首模式未匹配任何用例的exit0保留 g004-preflight-host-cancel-20261123.*.log，不算验证。384f6d5f已同步、待build；无真实Worker。
 
-SFTP配置set/reset核schema、项目上下文与人工确认转发，复用旧假对话/后端9/9；不改真实全局配置。增量build对现有包装执行日志的接纳缺口已交总控，未重放退役草稿测试。
+打开Plan时项目可在异步文件检查期间切换；现复用项目绑定打开器，定向3/3 exit0 %TEMP%/g004-open-plan-project-guard-20261123.*.log，6b4e5651已同步、待build；未打开真实编辑器或其他项目。
 
-总控审通过固定G004包装核验；原pattern首次1/1及补充负例1/1 exit0，日志 `%TEMP%/g004-wrapped-evidence-runner-first-20261123.*.log`、`g004-wrapped-evidence-runner-final-20261123.*.log`，runner commit `95a01388`。已核原49/49内层状态、原外层83065 exit0、事件与双日志SHA；当前闭包六项变化均在该次执行前，原旧证保留并改非当前，草稿断言仅历史事实。整体build尚未运行。
-
-runner历史255/256按各自identity/argv复核：39个原用例中仅G004 case变化，runner新改限显式G004路径，其余依赖不变；保留原已审历史证据及未知工具链，不重跑性能测试。其余历史作业仍待各自对账。
+本轮只读glob一次失败、git show因Node默认缓冲ENOBUFS失败后只读成功；coverage写入脚本两次及本执行登记压缩首稿均写前报错，无文件写入。
