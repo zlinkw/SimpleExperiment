@@ -31,11 +31,11 @@
 
 召回路径原身份和排队围栏已同步 `9412b48c`；原验证、首失败、日志及未知回执限制见 `d766909a:docs/plan-generations/G004-execution.md`，不重发未知请求，未运行真实Worker或build。
 
-提交取消/恢复、归档复制及失败job重排均已按原项目与身份做发布边界；源码提交、假端结果、首失败、角色交接和限制见 `79d2d2ad:docs/plan-generations/G004-execution.md` 及coverage，未访问真实Worker或删除。
+提交取消/恢复、归档复制及失败job重排的原验证、首失败与限制见 `79d2d2ad:docs/plan-generations/G004-execution.md` 及coverage，无真实Worker或删除。
 
 停止请求原先发送后迟到可能修改新项目状态，且200ms延迟保存可在切换时丢失意图。当前候选固定原项目/client，在发送前等待原有localOperations持久化队列排干并复核，保存失败或切换零POST；已发结果未知不重发、不清新项目缓存。纯VM假端 `%TEMP%/g004-stop-context-v4-20261123.{out,err}.log` 14/14 exit0；v2首13/14 exit1为夹具reply尚未初始化，显式等待假POST后v3 14/14，后补single-flight竞态得v4。无真实Worker或跨项目效果；待当前build。
 
-可用性与重排/源码查询围栏：可用性绑定原项目、保存前后保护B并保A已写事实，真实save假端v2 1/1、精确3/3，源码702acec8；重排与PlanCodeScope原client/lane围栏 `dde958c5`，假查询1/1、精确重排5/5，旧v1/v2及旧Production/Coverage未跑保留；详细原日志/首失败/路径和索引补丁错误见 `fe1da3ef:docs/plan-generations/G004-execution.md` 和coverage。无真实Worker/删除或build。43efb031旧316项规划exit0但执行规划首拒legacy漂移exit1，旧日志及误通配路径见同记录；后续实际重规划，SFTP 73项旧日志缺口仍在。
+可用性、重排及源码查询围栏的原验证、首失败、日志和未跑项见 `fe1da3ef:docs/plan-generations/G004-execution.md` 及coverage；无真实Worker/删除/build。旧规划及SFTP 73项日志缺口保同历史。
 
 已同步的SFTP假端、MCP源码消费者、派发及交接记录和实际首失败/未知，完整原文保留 f064e6e9:docs/plan-generations/G004-execution.md 与coverage；执行类型、原日志与适用范围不扩大。旧执行chat因八条原rollout引用保持未归档，失败归档已撤回。草稿退役不恢复，15项最终fresh和新dist消费者未运行。
 
@@ -96,3 +96,5 @@ Speed实测工作树23f48e15，索引LF归一后121b3e83，归一文本相同；
 第五准备批PanelMessageDispatch及PlanStopClear从真实dist提取退役命令常量并补原context接口；两文件node --check exit0，原权限/取消/停止断言保留，未运行旧dist。新dist后按已准full21及stop-clear精确1执行，非已完成编译或真实面板验证。
 
 UI funnel生产批仅五方法及focused/四域注册同步；原full8实际运行树legacy ca1d，索引仅五方法的候选84e7，不冒同一whole或新编译。新旧项目进度始终释放且迟到提示绑定原项目，未知PLAN仅记录事实；首事件与fake效果见coverage。列表/slot/Panel仍待各自门禁。
+
+总控仅准三条direct的847→ca1d、七条及四nested的8536/9918→ca1d依赖适用，原运行快照、日志和限制保coverage；不重跑或扩其他行。原patch逆转复原847；另复原9918时两次重复子串及一次纯删除hunk脚本退出1，均内存无写，改精确方法及原行逆转得9918。总控截断输出及嵌套重名匹配无效未作依据；coverage首匹配两行与nested首脚本语法错误均写前exit1，纠正后成功。总控plan扩写16226写前exit1，归并后阈值通过，非测试失败。
