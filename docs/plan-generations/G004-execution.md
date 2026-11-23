@@ -137,13 +137,7 @@ log_read无效响应修复及TensorBoard、tmux、artifact逐ID源码和有限�
 
 配套120→28087f3的api-server、清理实现和11个测试字节未变；原120汇总通过数、119差异和未存逐项日志详见 `f02bb042:docs/plan-generations/G004-execution.md`。其中cleanupExecuteSelfBusy使用假传输控制器，不调用transfers.cancel；api仅列举该方法。工具链未知，未执行真实清理/WSL，打包覆盖待审收。
 
-experiment_list/summary/tree按输入合并、过滤与树结构逐项复核，假RPC历史覆盖和未调用真实任务的限制见coverage。
-
-experiment_active/overview/health按源及原合成观察/告警证据逐项复核，真实活动查询仍受限，见coverage。
-
-实验历史路径边界修复与假RPC、消费者结果和完整日志见 `c7e26c95:docs/plan-generations/G004-execution.md`；未读真实用户文件或Worker，待build。
-
-result_compare按左右身份、数值与方向复核，原假RPC及缺失歧义证据见coverage；未查询真实活动结果。
+实验入口、历史路径修复与结果对比的原假RPC、日志和真实活动查询限制见coverage及 `0be66569:docs/plan-generations/G004-execution.md`；未读真实用户文件或Worker，待build。
 
 project_connect授权与目标围栏修复、假对象结果及原日志见 `5c832048:docs/plan-generations/G004-execution.md`；未启动真实SSH或改grant，待build。
 
@@ -166,3 +160,5 @@ openXshell、testAll、snapshot入口按实际源码分别核确认、Worker、�
 缓存确认路径候选未提交：同批全节点只读预核、原请求未知不自动重发、本机文件ID与路径保护见待审源码；`%TEMP%/g004-cache-confirmed-preflight-v15-20261123.log` 8/8 exit0（含只读Windows身份及假执行器），`g004-cache-original-selected-v2-20261123.log` 原单文件两项2/2 exit0。首次Windows时间基准错误 `%TEMP%/g004-cache-confirmed-preflight-v7-20261123.log` 5/6 exit1，修后通过；原文件另含实际临时fixture改动，未全跑。未执行真实删除或Worker，跨Extension Host的本机并发与重启后未知记录仍待审。
 
 当前HEAD 9271a7ec、脏树只读build规划316项，selectionHash `7db4b499442fed600a06741b61d7d4970ca6d1864b694579bb39005f3efb2893`；compile/fullCheck均未运行，该选择非构建通过，后续HEAD或输入变化重算。
+
+clearOperations四个原ID分别核Plan、全部、选中、单项路由与确认；当前invoke走本机处理，旧远程误路由分类不适用，未改真实历史。

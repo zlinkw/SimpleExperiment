@@ -12696,6 +12696,7 @@
         },
         {
           "id": "panel:clearOperations:1",
+          "currentReview": {"status":"prior_scoped_and_source_review","evidence":"Plan历史按钮传planFile；Host要求本人确认，在workspaceState写该Plan cutoff，运行状态和远端产物保留；复用原executionHistoryControls受控结果。","boundary":"源码与原假宿主，不是本轮实点或真实持久化。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=clearOperations]; panelPayloadReconciliation[command=clearOperations]",
           "oldStatus": "concluded_scoped",
@@ -12703,6 +12704,7 @@
         },
         {
           "id": "panel:clearOperations:2",
+          "currentReview": {"status":"prior_scoped_and_source_review","evidence":"全部历史按钮走无planFile分支，确认后只写本机all cutoff；取消抛UiCommandCancelled，切换项目不写入。","boundary":"原假宿主确认/取消2/2及当前源码；未点击或改用户状态。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=clearOperations]; panelPayloadReconciliation[command=clearOperations]",
           "oldStatus": "concluded_scoped",
@@ -12710,6 +12712,7 @@
         },
         {
           "id": "panel:clearOperations:3",
+          "currentReview": {"status":"prior_scoped_and_source_review","evidence":"选中操作传operationIds；Host先核可隐藏终态或结果待确认，提示未知不代表远端结束，确认后重新核状态再写本机隐藏列表。","boundary":"复用原假状态和确认结果；未查询或修改真实任务。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=clearOperations]; panelPayloadReconciliation[command=clearOperations]",
           "oldStatus": "concluded_scoped",
@@ -12717,6 +12720,7 @@
         },
         {
           "id": "panel:clearOperations:4",
+          "currentReview": {"status":"prior_scoped_and_source_review","evidence":"单行传operationId，复用同一精确ID校验、确认及确认后复核；活动记录拒绝，远端审计和产物保留。","boundary":"复用原单行生成与假宿主证据；未真实操作。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=clearOperations]; panelPayloadReconciliation[command=clearOperations]",
           "oldStatus": "concluded_scoped",
@@ -14741,6 +14745,7 @@
         },
         {
           "name": "clearOperations",
+          "currentReview": {"status":"source_scoped","evidence":"当前invokeApi的API_LOCAL_ACTION_COMMANDS显式包含clearOperations，走handleMessageCore并等待本机隐藏历史处理；旧route分类不再描述当前路由。目标、确认和二次核状态见四个panel条目。","boundary":"未通过真实API改变项目状态；原假宿主测试适用范围不扩大。"},
           "route": "local_handler_misdirected_to_remote_map",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
