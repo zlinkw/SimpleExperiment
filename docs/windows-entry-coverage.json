@@ -12275,6 +12275,7 @@
         },
         {
           "id": "panel:runPlan:1",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"当前按钮使用选中Plan，经runPlan提交；复用0.5.491历史实点，原记录及适用边界见panelCommandActions。","boundary":"历史点击不是本轮提交；当前真实Worker及任务运行受限。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=runPlan]; panelPayloadReconciliation[command=runPlan]",
           "oldStatus": "concluded_scoped",
@@ -12282,6 +12283,7 @@
         },
         {
           "id": "panel:runPlan:2",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"当前行按钮传明确planFile；复用0.5.516 currentSubmissionTruth 对actionBody显式planFile及嵌套options一致的假宿主断言。","boundary":"仅原请求体输入，不代表当前真实运行或所有分支。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=runPlan]; panelPayloadReconciliation[command=runPlan]",
           "oldStatus": "concluded_scoped",
@@ -12289,6 +12291,7 @@
         },
         {
           "id": "panel:runAllPlans:1",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"所选按钮发送selectionOnly及选中的planFiles，Host路由runSelectedPlans；复用0.5.510实窗选中单PLAN预览后取消及原合成批次去重确认。","boundary":"旧记录未发新任务，本轮未访问Worker；本轮隔离提示源码变化不改变该选择路由。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=runAllPlans]; panelPayloadReconciliation[command=runAllPlans]",
           "oldStatus": "concluded_scoped",
@@ -12296,6 +12299,7 @@
         },
         {
           "id": "panel:runAllPlans:2",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"全部入口路由runAllPlans并保留汇总确认；0.5.512历史仅两项隔离PLAN运行完成，原记录及假宿主去重证据见panelPayloadReconciliation。","boundary":"历史任务不代表本轮现场；未执行新的任务或Worker效果。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=runAllPlans]; panelPayloadReconciliation[command=runAllPlans]",
           "oldStatus": "concluded_scoped",
