@@ -1,10 +1,10 @@
 # G004 执行登记
 
-压缩前完整执行事实见 Git `f36cb6a3:docs/plan-generations/G004-execution.md`；更早全文历史在 Git `18dd5614:docs/plan-generations/G004-execution.md`，更早 T1–T7、逐项命令和失败分别见 `1e91d0d4`、`32d16ac4`、`48f7e339`、`67f67de4`、`c04f2dd7`；原 receipt、日志、事件、输入与逐项边界以 `docs/windows-entry-coverage.json` 为准。本次为达到 12000 字符上限的 90% 阈值而整体语义压缩；历史授权、失败、未测与现场不因压缩消失。
+本轮压缩前完整执行事实见 Git `cb44bd81:docs/plan-generations/G004-execution.md`；此前完整事实见 Git `f36cb6a3:docs/plan-generations/G004-execution.md`；更早全文历史在 Git `18dd5614:docs/plan-generations/G004-execution.md`，更早 T1–T7、逐项命令和失败分别见 `1e91d0d4`、`32d16ac4`、`48f7e339`、`67f67de4`、`c04f2dd7`；原 receipt、日志、事件、输入与逐项边界以 `docs/windows-entry-coverage.json` 为准。本次为达到 12000 字符上限的 90% 阈值而整体语义压缩；历史授权、失败、未测与现场不因压缩消失。
 
 ## 当前目标与边界
 
-G004 人工审定的增量覆盖按 identity+argv 复用适用的历史、直接和本轮证据，并冻结真实计划、gates、产物与输入；当前 361 active、6 onDemand，planner 仍缺 3 项，尚未通过，所有候选待总控最终审核。源码稳定后对原规划测试精确 pattern 按原 20 秒预算补验一次，执行 final dry-run 并向总控提交完整包；总控终审并另行开放前禁止 full build/package、安装和发行。0.5.520 只是候选，不能冒充已打包。
+G004 人工审定的增量覆盖按 identity+argv 复用适用的历史、直接和本轮证据，并冻结真实计划、gates、产物与输入；当前 361 active、6 onDemand，planner 仍有 2 项未决和 1 项待运行，尚未通过，所有候选待总控最终审核。源码稳定后对原规划测试精确 pattern 按原 20 秒预算补验一次，执行 final dry-run 并向总控提交完整包；总控终审并另行开放前禁止 full build/package、安装和发行。0.5.520 只是候选，不能冒充已打包。
 
 当前不触碰真实 Worker、服务器、SSH、tmux、GPU、用户授权配置或真实 UI；真实 Worker、传输/清理、active results、跨项目和新 UI 未测。保留 26 个 tracked dirty dist、历史 VSIX sha、全部夹具及现场，不 stage 或清理。模拟删除/缺失不证明真实永久删除安全。总控批准既有夹具只在自建 temp 范围内 rename 到 clean_dir 并保留字节的模拟；真实删除、真实 WSL/tmux/GPU 与完整 runtime import/exec 仍不执行。具体安全测试、原精确权限与进一步裁决见 coverage 和历史原文。
 
@@ -32,7 +32,7 @@ formalJobPreflightProgress/Structure/Environment 各 1/1、Failure/Rejections �
 
 接替后合成回归 distributedPlanExecutionMode 10/10、taskQueryWideReadRealChain 3/3、planRunHoldClearedChain 3/3、planRunRecovery 7/7、nativePlanRetry 6/6、completedJobArtifactRootBinding 7/7、syncScopeStagingIdentityWiring 4/4、planSubmissionStateGuard 26/26、planRunQueryRegression 6/6、planRunSharedSubmission 5/5、planBatchDispatchFirst 14/14、rerunTransferBusyAttribution 21/21、rerunIsolateEngineContract 6/6、cleanupMissingTargets 11/11、formalJobExecution 5/5、completedJobLatestSync 32/32、planStopClear 39/39、syncScopeDelete 14/14、syncScopeWorkerAuthority 10/10、cleanupActivity 2/2、localIndexSharedIdentity 3/3、localCodeManifestCache 5/5、currentSubmissionTruth 8/8、planPreflightProgressSpeed 20/20、tmuxCloseRuntime 1/1 均 exit0。采用函数提取、VM、假请求和自建状态；tmuxCloseRuntime 用假 subprocess/timer，syncScopeDelete 只检查生成脚本与替身，preflight 保留原 40 文件计时断言；无真实 Worker、tmux、网络、UI 或删除。完整依赖/原始事件见 coverage；均待总控终审。
 
-旧执行会话结束后受支持工具归档并核 session_meta、138 条 eligible 原事件双 SHA，139 处仅修实际归档路径（`9a69240b`），未搬删原 rollout 或重跑。此前旧会话归档修复另核 35 项事件、42 处路径，未改事件。当前 planner 3 项待核；须按具体调用链及源证继续，不得把未知或未测写成通过。
+旧执行会话结束后受支持工具归档并核 session_meta、138 条 eligible 原事件双 SHA，139 处仅修实际归档路径（`9a69240b`），未搬删原 rollout 或重跑。此前旧会话归档修复另核 35 项事件、42 处路径，未改事件。当前 planner 2 项未决、1 项待运行；须按具体调用链及源证继续，不得把未知或未测写成通过。
 
 
 接替后 planCleanup、planCleanupReconnect、planIsolatedReview/Lifecycle/Boundaries、planBatchPhysicalPipeline、localMetadataChanges、syncScopeDeletionRefresh、tmuxCloseHttp、resultSyncFailureVisibility、clearedOutputReplacement、manifestCleanup、planJobDeleteRequeueCoverage/Production、remoteResultInspectionWorkflow 和 resultCollectionPerformance 的原单项合成结果、数量、模拟删除及网络等精确边界保留在 coverage 和 `f36cb6a3:docs/plan-generations/G004-execution.md`；自建 fixture 保留，未证明真实删除、Worker 或 UI。
@@ -51,25 +51,8 @@ freshResultHost 26/26 exit0、10.091 秒；输出跨 exec 和同 session 的 wri
 
 总控审定旧 job 228、230、231 租约测试及 36、37 配对更新测试可继承，相关源/构建闭包及提取片段未变，原日志与当前依赖冻结。本轮未做真实 Worker、UI、删除、进程扫描或更新操作。旧 37 实际为 40 pass、1 项非 win32 平台 skip，不能表述为 41/41；历史工具链未知。
 
-automaticScopeContent 8/8 exit0；Host 为 VM 提取，Worker/index 为替身，子 Node 顺序执行夹具哈希持久化探针；LOCALAPPDATA 指向新建并保留的临时夹具，仅写自建文件和原子状态，不触碰真实 Worker、UI 或用户数据。原日志、事件和依赖见 coverage，待总控终审。
 
-tunnelClient 13/13 exit0；仅自建随机端口回环 HTTP 服务器并关闭，Python 限时提取响应写入函数，Worker 响应为替身；无真实远端或用户状态。原日志、事件及依赖见 coverage，待总控终审。
-
-latestResultExportDarwinLock 7/7 exit0；Windows 上以替身验证平台分支和锁目录判断，并在自建临时目录运行；macOS 原生 O_EXLOCK 与 POSIX 权限效果未测。此前错误称该项为 onDemand，复核真实 planEntry 确认其精确 identity+argv 属 active，现更正并登记原单次证据，未重跑。日志、事件及依赖见 coverage，待总控终审。
-
-hostOperationLeaseIntegration 4/4 exit0；Host 方法为 VM 提取，界面和授权为替身，租约仅写自建隔离路径；没有真实连接、Worker、UI 或删除。原日志、事件及依赖见 coverage，待总控终审。
-
-planCodeScope 12/12 exit0；Python 限时执行独立 scope 模块并仅提取单个 Agent/native 函数，项目输入均为保留的自建夹具，网络请求为替身；未执行真实 Worker、训练、UI 或删除。原日志、事件及依赖见 coverage，待总控终审。
-
-cacheCleanupPanel 10/10 exit0；面板为 VM 替身，守卫后的 pwsh 子进程调用 retainFixtureTarget 将自建目标移入夹具 clean_dir 并保留字节，不是真实永久删除；无真实 Worker、网络或 UI。原日志、事件及依赖见 coverage，待总控终审。
-
-metricsDownloadEndToEnd 18/18 exit0；VS Code、Worker 和 SFTP 为替身，项目文件为自建临时夹具，结果目录使用 worker thread；无真实远端数据、用户 UI、训练或删除。原日志、事件及依赖见 coverage，待总控终审。
-
-pluginLogRetention 15/15 exit0；VM 提取、假 Worker 与自建夹具，缺失目标由 retainFixtureTarget 移入 clean_dir 保留字节，两代发布均保留内容；无真实永久删除、Worker 或 UI。原日志、事件及依赖见 coverage，待总控终审。
-
-resourceLeaseCompatibility 1/1 exit0；显式读取兄弟 SimpleSFTP 的三个依赖并冻结，本仓与兄弟实现仅在自建临时租约根模拟共享违规；无真实 Worker、UI 或永久删除。原日志、事件及依赖见 coverage，待总控终审。
-
-resultCandidateMetadataExclusion 4/4 exit0；仅将 Python TemporaryDirectory 自动扫尾改为保留新建 mkdtemp，原业务断言不变；限时 Python 只执行提取函数，不运行完整 runtime。无真实 Worker、UI 或永久删除；日志与依赖见 coverage。
+automaticScopeContent 8/8、tunnelClient 13/13、latestResultExportDarwinLock 7/7、hostOperationLeaseIntegration 4/4、planCodeScope 12/12、cacheCleanupPanel 10/10、metricsDownloadEndToEnd 18/18、pluginLogRetention 15/15、resourceLeaseCompatibility 1/1 和 resultCandidateMetadataExclusion 4/4 均为本轮限定合成回归，原日志、事件、依赖和真实效果边界见 coverage 与 `cb44bd81:docs/plan-generations/G004-execution.md`；此前 latestResultExport 被误称 onDemand，已更正为 active，未重跑。
 
 总控审定旧 job 232 gitOverwrite 可继承，原 4/4、exit0/tree confirmed、11.600 秒，私有本地 Git 夹具和假删除回调，当前闭包与原日志冻结。旧 Node/架构/Git 未知；当前夹具缺 git-dir/common-dir/index 前置核实，未获准重跑，不代表真实用户仓库覆盖或删除已验证。
 
@@ -92,3 +75,7 @@ resultCandidateMetadataExclusion 4/4 exit0；仅将 Python TemporaryDirectory �
 总控审定旧 226/227/252 原记录分别 1/1、2/2、3/3；227 未证明可选 0.5.325 复现，252 隔离 tmux 为历史证据，未做当前 WSL、真实 Worker 或训练。
 
 总控审定旧 141/340/341：141 原 25/25，仅历史合成调度；340 原 34/34 含已授权退休的 4 个 CLI 项，仅继承现存 30 项；341 原 15/15 仅旧隔离 Git 与双 Node。均未重跑，旧工具链未知。
+
+job 289 已按总控裁决登记唯一 future fresh：原精确 pattern 在最终 package 内执行一次，外层 20 秒不延长；仅读仓库测试/清单/Git 元数据并由子 Node 跑 package dry-run，真实 HEAD/selection 启动冻结、assemble 前复核。当前未执行；219/284 超时历史例外仍待用户决定，未继承、不重跑。
+
+当前只读 package dry-run exit0：361 active、6 onDemand、hook zero；该次 selection 随后提交会变化，最终运行必须重算。规划器对现有覆盖核验后明确剩 219/284 两项阻断；289 的 10 项依赖、两项工具摘要和空 compiledInputs 已独立核对，仍待实际执行。
