@@ -10918,6 +10918,7 @@
         },
         {
           "name": "project_registry",
+          "currentReview": {"status": "source_scoped_external_restricted", "evidence": "ToolCatalog→Host projects.registry→BranchProjectService.verifyAll源码。", "boundary": "verifyAll读取登记的全部祖先和分支并查询Git，涉及跨项目；本轮未调用、未核真实注册结果。"},
           "method": "projects.registry",
           "oldEvidence": "projectTools[name=project_registry]",
           "scope": "single_project_local_or_mixed",
@@ -10926,6 +10927,7 @@
         },
         {
           "name": "project_instances",
+          "currentReview": {"status": "source_scoped_external_restricted", "evidence": "ToolCatalog→Host projects.instances→listPluginInstances源码。", "boundary": "枚举登记的项目窗口并返回脱敏投影，仍需独立实时preflight确认；涉及其他项目，本轮未调用。"},
           "method": "projects.instances",
           "oldEvidence": "projectTools[name=project_instances]",
           "scope": "single_project_local_or_mixed",
@@ -11081,6 +11083,7 @@
         },
         {
           "name": "operation_get",
+          "currentReview": {"status": "synthetic_scoped", "evidence": "%TEMP%/g004-520-mcp-project-contract-20261123.log 原43/43 exit0，含receipt嵌套状态、持久化及回取；源码 ProjectMcpOperations.status。", "boundary": "工具先授权并校验ID；状态与结果分开，重载后结果可不可用；合成结果不证明真实任务完成，本轮未查询活动任务。"},
           "method": "mcp.operation",
           "oldEvidence": "projectTools[name=operation_get]",
           "scope": "single_project_local_or_mixed",
