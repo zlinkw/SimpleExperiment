@@ -15151,6 +15151,7 @@
         },
         {
           "name": "runPlan",
+          "currentReview": {"status":"partial_source_fixed_pending_build","evidence":"已审原项目接入规则同步边界：保存接入规则、保存列映射及运行前同步均传原项目上下文给Worker循环，项目切换时停止剩余同步；两类保存同步后再核项目才刷新元数据。","boundary":"仅此调用链缺口，非该入口其他功能均已审；假Worker同步 %TEMP%/g004-adapter-sync-boundary-20261123.*.log 1/1、真实方法VM %TEMP%/g004-adapter-ui-project-switch-final-20261123.*.log 1/1、定向源码/绑定检查 g004-adapter-ui-bindings-20261123.*.log 2/2，均exit0；首次VM夹具语法失败 g004-adapter-ui-project-switch-20261123.*.log 保留。未访问真实Worker、项目或配置，待build。"},
           "route": "action_command_or_results_special",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -15166,6 +15167,7 @@
         },
         {
           "name": "saveProjectAdapterRules",
+          "currentReview": {"status":"partial_source_fixed_pending_build","evidence":"已审原项目接入规则同步边界：保存接入规则、保存列映射及运行前同步均传原项目上下文给Worker循环，项目切换时停止剩余同步；两类保存同步后再核项目才刷新元数据。","boundary":"仅此调用链缺口，非该入口其他功能均已审；假Worker同步 %TEMP%/g004-adapter-sync-boundary-20261123.*.log 1/1、真实方法VM %TEMP%/g004-adapter-ui-project-switch-final-20261123.*.log 1/1、定向源码/绑定检查 g004-adapter-ui-bindings-20261123.*.log 2/2，均exit0；首次VM夹具语法失败 g004-adapter-ui-project-switch-20261123.*.log 保留。未访问真实Worker、项目或配置，待build。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -15176,6 +15178,7 @@
         },
         {
           "name": "saveResultColumnMapping",
+          "currentReview": {"status":"partial_source_fixed_pending_build","evidence":"已审原项目接入规则同步边界：保存接入规则、保存列映射及运行前同步均传原项目上下文给Worker循环，项目切换时停止剩余同步；两类保存同步后再核项目才刷新元数据。","boundary":"仅此调用链缺口，非该入口其他功能均已审；假Worker同步 %TEMP%/g004-adapter-sync-boundary-20261123.*.log 1/1、真实方法VM %TEMP%/g004-adapter-ui-project-switch-final-20261123.*.log 1/1、定向源码/绑定检查 g004-adapter-ui-bindings-20261123.*.log 2/2，均exit0；首次VM夹具语法失败 g004-adapter-ui-project-switch-20261123.*.log 保留。未访问真实Worker、项目或配置，待build。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },

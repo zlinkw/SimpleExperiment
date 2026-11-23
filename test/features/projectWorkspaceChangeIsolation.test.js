@@ -347,8 +347,16 @@ test("project adapter rule saves cannot continue in a replacement workspace", ()
   assert.match(save, /const root = projectContext\.root/);
   assert.ok([...save.matchAll(/projectContextIsCurrent\(projectContext\)/g)].length >= 2);
   assert.match(save, /await config\.update\("projectAdapterRules", patch, vscode\.ConfigurationTarget\.WorkspaceFolder\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
-  assert.match(save, /await this\.syncProjectAdapterRulesToAgents\(patch\)/);
+  assert.match(save, /await this\.syncProjectAdapterRulesToAgents\(patch, \(\) => this\.projectContextIsCurrent\(projectContext\)\)/);
+  assert.match(save, /await this\.syncProjectAdapterRulesToAgents\(patch,[\s\S]*?if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return;\s*await this\.refreshLocalPlanMetadata/);
   assert.match(save, /await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+});
+
+test("result mapping and run submission bind adapter synchronization to the originating project", () => {
+  const save = methodBody("async saveResultColumnMappingFromUi", "async syncProjectAdapterRulesToAgents");
+  assert.match(save, /syncProjectAdapterRulesToAgents\(rules, \(\) => this\.projectContextIsCurrent\(context\)\)/);
+  assert.match(save, /syncProjectAdapterRulesToAgents\(rules,[\s\S]*?if \(!this\.projectContextIsCurrent\(context\)\)\s*return;\s*await this\.refreshLocalPlanMetadata/);
+  assert.match(source, /const syncContext = this\.captureProjectContext\(\);[\s\S]{0,300}syncProjectAdapterRulesToAgents\(rules, \(\) => this\.projectContextIsCurrent\(syncContext\)\)/);
 });
 
 test("project onboarding cannot continue after its workspace is replaced", () => {

@@ -7951,9 +7951,11 @@ return this.testTunnel(true);
         assertSingleProjectWorkspace("远端实验操作");
         if (["runPlan", "reproducePlan", "parseResults"].includes(command)) {
             const root = workspaceRoot();
+            const syncContext = this.captureProjectContext();
             const rules = root ? pluginProjectAdapterRules(root) : {};
             if (Object.keys(rules).length) {
-                const errors = await (batch ? batch.once("adapter-rules", () => this.syncProjectAdapterRulesToAgents(rules)) : this.syncProjectAdapterRulesToAgents(rules));
+                const sync = () => this.syncProjectAdapterRulesToAgents(rules, () => this.projectContextIsCurrent(syncContext));
+                const errors = await (batch ? batch.once("adapter-rules", sync) : sync());
                 assertWorkflowCurrent();
                 if (errors.length)
                     throw new Error(`插件接入规则尚未同步到 Agent：${errors.join("；")}。请检查隧道和 Agent 版本。`);
@@ -21385,7 +21387,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         await config.update("projectAdapterRules", patch, vscode.ConfigurationTarget.WorkspaceFolder);
         if (!this.projectContextIsCurrent(projectContext))
             return;
-        const syncErrors = await this.syncProjectAdapterRulesToAgents(patch);
+        const syncErrors = await this.syncProjectAdapterRulesToAgents(patch, () => this.projectContextIsCurrent(projectContext));
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         await this.refreshLocalPlanMetadata({ post: false, force: true });
         if (!this.projectContextIsCurrent(projectContext))
             return;
@@ -21466,7 +21470,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         await vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(context.root)).update("projectAdapterRules", rules, vscode.ConfigurationTarget.WorkspaceFolder);
         if (!this.projectContextIsCurrent(context))
             return;
-        const syncErrors = await this.syncProjectAdapterRulesToAgents(rules);
+        const syncErrors = await this.syncProjectAdapterRulesToAgents(rules, () => this.projectContextIsCurrent(context));
+        if (!this.projectContextIsCurrent(context))
+            return;
         await this.refreshLocalPlanMetadata({ post: false, force: true });
         if (!this.projectContextIsCurrent(context))
             return;

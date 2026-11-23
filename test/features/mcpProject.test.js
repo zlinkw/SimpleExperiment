@@ -229,6 +229,11 @@ test('Agent policy synchronization accepts only completed Worker responses', asy
   assert.equal('planDatasetMapping' in calls[0].body.options.projectAdapterRules, false);
   await assert.rejects(sync.call(host, {}, () => false), /停止同步/);
   assert.equal(calls.length, 3);
+  let current = true;
+  host.enabledWorkerConfigs = () => [{ id: 'worker-a' }, { id: 'worker-b' }];
+  host.postTensorboardAction = async id => { calls.push({ id }); current = false; return { status: 'completed' }; };
+  await assert.rejects(sync.call(host, {}, () => current), /停止同步/);
+  assert.deepEqual(calls.slice(3).map(call => call.id), ['worker-a']);
   host.enabledWorkerConfigs = () => [];
   assert.match((await sync.call(host, {}))[0], /没有启用/);
 });
@@ -239,6 +244,29 @@ test('adapter configuration stops on mismatched readback or workspace switch', a
     await assert.rejects(f.call({ primaryMetric: 'AP' }), /回读|切换|多个工作区/);
     assert.deepEqual(f.events, []);
     assert.deepEqual(f.values['/two'], {});
+  }
+});
+
+test('UI adapter and mapping saves stop before the next Worker when the project changes', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '../../src/extension/legacy.ts'), 'utf8');
+  const slice = (start, end) => source.slice(source.indexOf('    async ' + start + '('), source.indexOf('    async ' + end + '('));
+  const methods = [slice('saveProjectAdapterRulesFromUi', 'autoMatchPlanDatasetsFromUi'),
+    slice('saveResultColumnMappingFromUi', 'syncProjectAdapterRulesToAgents'),
+    slice('syncProjectAdapterRulesToAgents', 'loadProjectAdapterTemplateFiles')].join(',');
+  const sandbox = { recordField: (message, key) => message[key] || {}, normalizeProjectAdapterRulesPatch: patch => ({ ...patch }),
+    pluginProjectAdapterRules: () => ({}), uniqueStrings: rows => [...new Set(rows)], errorMessage: error => error.message,
+    vscode: { Uri: { file: value => value }, ConfigurationTarget: { WorkspaceFolder: 1 },
+      workspace: { getConfiguration: () => ({ update: async () => {} }) } } };
+  for (const name of ['saveProjectAdapterRulesFromUi', 'saveResultColumnMappingFromUi']) {
+    const host = vm.runInNewContext(`({${methods}})`, sandbox), calls = [];
+    let current = true, refreshed = false;
+    Object.assign(host, { captureProjectContext: () => ({ root: '/fixture' }), projectContextIsCurrent: () => current,
+      isRealtimeMode: () => true, projectTopologyAssessment: () => ({}), enabledWorkerConfigs: () => [{ id: 'a' }, { id: 'b' }],
+      postTensorboardAction: async id => { calls.push(id); current = false; return { status: 'completed' }; },
+      refreshLocalPlanMetadata: async () => { refreshed = true; } });
+    await assert.rejects(host[name]({ patch: {} }), /项目已切换/);
+    assert.deepEqual(calls, ['a']);
+    assert.equal(refreshed, false);
   }
 });
 
