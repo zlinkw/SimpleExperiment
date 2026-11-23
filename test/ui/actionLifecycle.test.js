@@ -724,7 +724,12 @@ test("local operation persistence is dirty-gated, single-flight, and project-sco
   assert.match(queue, /this\.localOperationsPersistPromise \|\| !this\.localOperationsDirty/);
   assert.match(queue, /const projectContext = this\.captureProjectContext\(\)/);
   assert.match(queue, /while \(this\.localOperationsDirty && this\.projectContextIsCurrent\(projectContext\)\)/);
-  assert.match(queue, /this\.localOperationsDirty = false;[\s\S]*?await this\.withPluginStateFileLease\(projectContext\.root, file, "project-state-local-operations", "保存本地操作记录", \(\) => writeProjectLocalOperationsState\(projectContext\.root, operations\)\)/);
+  assert.match(queue, /this\.localOperationsDirty = false;[\s\S]*?await this\.withLocalOperationsLease\(projectContext\.root, lease => writeProjectLocalOperationsState\(projectContext\.root, operations, \(\) => lease\.assertHeld\(\)\)\)/);
+  const lease = source.match(/async withLocalOperationsLease\(root, work\)[\s\S]*?async clearCacheFromUi/)?.[0] || "";
+  assert.match(lease, /hostOperationLease\.acquire\([\s\S]*?actionType: "project-state-local-operations"[\s\S]*?target: file/);
+  assert.match(lease, /finally \{ await lease\.release\(\); \}/);
+  assert.match(lease, /beforeRename: \(\) => lease\.assertHeld\(\)/);
+  assert.match(source, /async function writeProjectLocalOperationsState\(root, operations, beforeRename\?\)[\s\S]*?atomicWriteText\(fullPath,[\s\S]*?\{ beforeRename \}/);
   assert.match(queue, /if \(this\.projectContextIsCurrent\(projectContext\)\)\s*this\.localOperationsDirty = true/);
   assert.match(queue, /this\.localOperationsPersistPromise === persistence/);
   assert.match(queue, /!failed \|\| !this\.projectContextIsCurrent\(projectContext\)/);

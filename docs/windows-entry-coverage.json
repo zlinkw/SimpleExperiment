@@ -12140,6 +12140,7 @@
         },
         {
           "id": "panel:clearCache:1",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"7845afea：双确认全节点预核、原ID未决持久化、发布前lease核验；假存储/端口11/11及原消费者2/2+3/3。","boundary":"未真实删除或Worker；重启后本机执行器未证退出保持unknown，lease核验与OS发布非绝对原子。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=clearCache]",
           "oldStatus": "concluded_scoped",
@@ -12683,6 +12684,7 @@
         },
         {
           "id": "panel:restoreArchivedPlan:1",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"0b6b4b4e：当前项目路径、独立版本、确认与恢复消费者按假fs原6/6审；仅读取失败中ENOENT记缺失，EACCES等可见。","boundary":"未恢复真实Plan或用户文件，资源清理未触及。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=restoreArchivedPlan]",
           "oldStatus": "concluded_scoped",
@@ -14742,6 +14744,7 @@
         },
         {
           "name": "clearCache",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"7845afea：双确认全节点预核、原ID未决持久化、发布前lease核验；假存储/端口11/11及原消费者2/2+3/3。","boundary":"未真实删除或Worker；重启后本机执行器未证退出保持unknown，lease核验与OS发布非绝对原子。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -15211,6 +15214,7 @@
         },
         {
           "name": "restoreArchivedPlan",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"0b6b4b4e：当前项目路径、独立版本、确认与恢复消费者按假fs原6/6审；仅读取失败中ENOENT记缺失，EACCES等可见。","boundary":"未恢复真实Plan或用户文件，资源清理未触及。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },

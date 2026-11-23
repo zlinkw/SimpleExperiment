@@ -146,3 +146,5 @@ Git备份确认期间若同名remote的URL改变，现阻止安装；假fs/UI增
 缓存handle与原子发布围栏：%TEMP%/g004-cache-fenced-v1-20261123.log 11/11、g004-cache-atomic-fence-20261123.log 1/1 exit0；actionLifecycle仅非草稿持久化单项 g004-local-operation-fence-consumer-v2-20261123.log 1/1 exit0，首验0/1 exit1因新正则漏TS可选参数问号，原日志保留。
 
 Plan恢复stat仅ENOENT计缺失，其他错误可见；假fs原消费者 %TEMP%/g004-plan-restore-read-error-20261123.log 6/6 exit0，候选待构建，未操作真实文件。
+
+缓存8文件 7845afea 已push/fetch一致，原可替换执行器的三项消费者 %TEMP%/g004-cache-original-selected-final-20261123.log 3/3 exit0；仅私有fixture保留式替身，未永久删除或连接Worker。actionLifecycle仅非草稿持久化单项补验保原断言。Plan恢复源修 0b6b4b4e 已同步，6/6中EACCES注入仅配置分支，其他三分支同式源码核验。

@@ -88,6 +88,12 @@ SFTP本仓现行问题：remote.listDirs移除无条件confirm/pathConfirmed，1
 
 工作流授权：源审已收窄。先前把未enqueue当未接受的推断撤回；apiWorkflowRun在准备前即记录并返回started:true/workflow_submission。本次只在路由/active await与最终workspace核后、创建新workflow记录前重核当前experiment/sync/agents；已有operationId resume保持原语义。三文件候选/普通MCP和无invocation正路径1/1源审通过；不插共享WorkerPreparation/后续同步/PlanRunReplacement/savequeue/tick/回执，不新增caller权限登记或宣称撤销自动停止已接受工作。docs/mcp-integration授权段改统一五类，不恢复Worker绑定。旧撤权专项不重放。
 
+Git项目边界：0a1eb56f及82e3093b已普通FF同步。primaryGitRepository只选项目同根仓库；repo.add代替全局stageAll，原projectContext贯穿准备、提交、推送/首次发布及Worker分支，提交期间切换明确原提交可能已发生，不继续新效果；provenance读取后核原根再写。假Git6/6。自动备份拒绝父仓库，等待后复核同根、hook、远端名及URL，假hook先5/5后6/6；总控已读源码和断言，未操作消费项目真实Git/hook。
+
+缓存审核按本人现行confirmed_paths裁决修候选，尚未提交/build：归属、claim、保留窗口只提示；保原双确认、固定类型、节点/完整路径、根/直接父/./叶名、链接与文件身份校验。全节点只读预核后才逐节点实际执行，后续变化停止并如实报告已完成部分；旧Agent拒绝新具名路由，不试探旧删除接口。Windows原pwsh执行器移除全部Force，最终只读GetFileInformationByHandle与Node bigint身份核对；Agent新旧删除和只读预检均拒绝同路径真实LIVE，不用历史任务状态阻断。local_operations.json中独立pendingCacheCleanups不进入普通compact：同文件lease下完整批次预留成功才出站，普通快照保留磁盘未决项，坏JSON/非ENOENT读错不伪空；只保必要节点/目标身份，不存整份Worker配置或认证。Host重建只查原请求，目标变化不转发新节点；未启动可结清、已启动未证exit保持unknown，已证结束去路径/token/目标细节。Agent重启空LIVE、锁TTL/Owner消失、文件不存在均不证明旧执行器结束。本机Host重启后暂无旧pwsh结束观察接口，仍unknown/不重发，查询失败结束本轮busy而可再次主动核实。
+
+缓存原8/8和选定2/2为当时证据；持久化v4 10/10、启动/退出与别名增量v6 11/11、旧存储格式1/1均exit0，首FILETIME 5/6和持久化夹具注入时序9/10失败保留。总控源审确认上述方向，发现原cacheCleanupPanel夹具缺新cleanupState，已要求假存储补齐后原20秒精确两项补验，其他含实际fixture效果的用例不自动全跑。另实际lease.run只在回调后assertHeld，迟到写需在local_operations两个写路径取得原handle并接已有atomicWriteText.beforeRename，普通脏标记/单飞/项目围栏保留；不改全局锁/TTL/其他状态文件，不称检查至OS rename间隙为绝对原子。该发布前围栏及纯假存储回归仍待执行者交包，故缓存组尚未完整放行。
+
 P0 build实际npm run build包含完整测试域，不能因build批准自动跑禁区。已批准现有G004 incremental扩build/package固定本仓单并发：build按实际identity+argv为已审全包集合子集，package仍集合相等；build不是assemble凭证，结束重核输入/产物/计划/选择和完整aggregate，普通入口不变。当前最近实核build316/package367、onDemand0是当时dirty树规划，不沿520的361/6；任何新HEAD/输入必须重算。legacy138/Panel23/Results31依赖快照漂移有交叠，逐真实提取闭包审核，不能批量换摘要/全重跑。未启动当前build，待有效覆盖收敛和总控裁决；Panel模块与真实render脚本VM、10890等原P0保持。
 
 G004 direct新增固定已发生actionLifecycle包装兼容，仅原call_1d2d9eeb8125469fb2a0cc35b13b7ee9+同session83065续接call_37e5dbdf374a4045843c5d100cd1a685。核原全文/事件SHA/双日志SHA、child status0无signal及outer实际exit0，不eval原脚本或伪tree confirmed；49/49原9.349秒包含草稿只作历史事实，不重跑。原G004 pattern首次1/1 9.89秒，补纯内存拒绝断言另获原20秒一次，最新结果见execution；不因包装支持豁免当前依赖漂移。所有首失败/超时和未知仍保留。
