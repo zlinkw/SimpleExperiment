@@ -11209,6 +11209,7 @@
         },
         {
           "name": "agent_inspect",
+          "currentReview": {"status":"synthetic_scoped_external_effect_restricted","evidence":"明确serverIds并绑定配置Worker；Host按目标逐项inspect，核项目/配置未变化。原假Gateway/生命周期3/3 exit0 %TEMP%/g004-520-mcp-agent-contract-20261123.log 含两目标和非法参数。","boundary":"未访问真实Agent、SSH或tmux，假inspect不证明当前服务状态。"},
           "method": "agents.lifecycle",
           "oldEvidence": "projectTools[name=agent_inspect]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11217,6 +11218,7 @@
         },
         {
           "name": "agent_ensure",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"agents授权及serverIds绑定；Host逐目标核项目/配置及授权，调用ensure并按实际结果返回，要求匹配已部署runtime。","boundary":"仅源码和同入口假授权证据；未准备、部署或启动真实Agent。"},
           "method": "agents.lifecycle",
           "oldEvidence": "projectTools[name=agent_ensure]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11225,6 +11227,7 @@
         },
         {
           "name": "agent_stop",
+          "currentReview": {"status":"synthetic_scoped_external_effect_restricted","evidence":"agents授权及serverIds绑定，逐目标复核项目/配置与授权；假Gateway/生命周期3/3 exit0 %TEMP%/g004-520-mcp-agent-contract-20261123.log 含精确目标和撤权拒绝。","boundary":"未停止真实Agent或tmux窗口；假回执不证明远端结束。"},
           "method": "agents.lifecycle",
           "oldEvidence": "projectTools[name=agent_stop]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11233,6 +11236,7 @@
         },
         {
           "name": "agent_restart",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"agents授权及serverIds绑定；Host逐目标复核项目/配置和授权后调用restart，要求部署runtime。","boundary":"仅源码与同入口假授权证据；未重启真实Agent或窗口。"},
           "method": "agents.lifecycle",
           "oldEvidence": "projectTools[name=agent_restart]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11241,6 +11245,7 @@
         },
         {
           "name": "agent_migrate",
+          "currentReview": {"status":"synthetic_scoped_external_effect_restricted","evidence":"agents授权及serverIds绑定；先逐目标inspect，仅legacy可预览迁移，必须回传精确digest且调用前复核配置/授权。原假Gateway/生命周期3/3 exit0 %TEMP%/g004-520-mcp-agent-contract-20261123.log 覆盖缺失/错误digest和合法假迁移。","boundary":"未执行真实迁移、Agent、SSH或tmux；原用户任务未授权这些效果。"},
           "method": "agents.lifecycle",
           "oldEvidence": "projectTools[name=agent_migrate]",
           "scope": "cleanup_or_agent_lifecycle_restricted",

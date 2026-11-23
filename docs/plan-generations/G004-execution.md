@@ -107,7 +107,7 @@ Experiment增量证据逐job核验、方法切片及日志保留于 coverage 和
 
 ## 当前补充调查
 
-runner job 257/258、260/261/262 按identity/argv和原日志复核，各1/1、stderr空、receipt exit0；未重跑。259原stdout pass0/skip1，Windows跳过POSIX符号链接，exit0不能证明该行为，未冻结新输入。新源码使部分旧快照再次漂移，须按实际函数复核。
+runner 257/258、260/261/262原日志各1/1；259为Windows跳过POSIX符号链接，不算通过；原事件和逐项细节见 `6019d151:docs/plan-generations/G004-execution.md`。新源码须复核旧快照。
 
 结果目录、复制、高级设置及SFTP服务器/目标/确认重置逐ID审查见coverage；未改配置或共享确认。
 
@@ -127,7 +127,7 @@ MCP诊断取消发送前重核授权及身份；假Gateway/Host 3/3、Host 1/1 e
 
 配套agentLifecycle及agentPythonResolution相关测试与源从119到28087f3无变化；120汇总1及12通过但原日志缺失，工具链未知，见 `0f6ea82b:docs/plan-generations/G004-execution.md`；未运行Agent或WSL。
 
-MCP resource_available 原将明确过期、离线或degraded的缓存GPU状态按空闲判可用；现返回unknown。真实查询方法配假RPC 1/1 `%TEMP%/g004-resource-stale-gateway-20261123.*.log`，源码函数1/1 `%TEMP%/g004-resource-degraded-20261123.*.log`，均exit0；首次补丁未匹配、未写入。缺状态或只有旧时间戳仍不能证明新鲜；未查询真实GPU、任务或Worker，待构建。
+MCP resource_available对明确过期、离线或degraded缓存改返回unknown；假RPC及源码函数各1/1、首次补丁未匹配和新鲜度缺口见 `1ec62029:docs/plan-generations/G004-execution.md`。未查询真实GPU、任务或Worker，待构建。
 
 诊断复制、操作日志、面板恢复和配置说明逐ID源码复核，边界见coverage；未操作真实剪贴板、窗口或重新识别。
 
@@ -156,3 +156,5 @@ project_connect在异步隧道准备期间撤销MCP授权原仍可能启动；�
 server_test源码范围见coverage，未真实探测。原runner只读dry-run当前build选择316个作业、compile/fullCheck、0 onDemand；受源码变更影响，旧direct 144、legacy 59及fresh 1条快照存在至少一处漂移（含计划外及可能重叠），须逐调用链核适用，不是已运行/通过数；不批量刷新哈希，不启动矩阵。
 
 Plan验证在异步刷新后原可能继续使用切换后的项目状态，授权撤销也可能跨同步等待；现绑定原项目，并在同步的实际等待边界及远端预检前复核调用方授权。假Host围栏2/2、原多Worker路由1/1、准备切项目1/1均exit0，日志 `%TEMP%/g004-plan-validation-sync-fence-20261123.*.log`、`g004-plan-validation-worker-routing-20261123.*.log`、`g004-plan-validation-prepare-switch-20261123.*.log`；先前验证初版1/1日志保留 `g004-plan-validation-auth-project-20261123.*.log`。未启动真实同步或Worker，待build。
+
+Agent inspect/ensure/stop/restart/migrate逐入口核身份、授权、确认及假生命周期证据，见coverage；未执行真实Agent、迁移、SSH或tmux。
