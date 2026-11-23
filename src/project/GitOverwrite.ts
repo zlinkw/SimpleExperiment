@@ -90,10 +90,12 @@ export async function assertGitOverwriteCurrent(preview: GitOverwritePreview, ru
   for (const [file, identity] of Object.entries(preview.identities))
     if (await fileIdentity(await filePath(preview.root, file)) !== identity) throw Error("GIT_OVERWRITE_CHANGED: " + file);
 }
-export async function executeGitOverwrite(preview: GitOverwritePreview, call: FileCall, run = runGitBinary): Promise<void> {
+export async function executeGitOverwrite(preview: GitOverwritePreview, call: FileCall, run = runGitBinary, assertCurrent = () => {}): Promise<void> {
   await assertGitOverwriteCurrent(preview, run);
+  assertCurrent();
   if (preview.cleanup) {
     const current = await call("files.cleanup.status", { token: preview.cleanup.token, consumerRoot: preview.root });
+    assertCurrent();
     if (current.digest !== preview.cleanup.digest || current.confirmations !== 2) throw Error("CONFIRM_REQUIRED");
     await call("files.cleanup.execute", { token: current.token, digest: current.digest, index: 0, consumerRoot: preview.root });
     for (const relative of preview.deletes) {
@@ -104,11 +106,14 @@ export async function executeGitOverwrite(preview: GitOverwritePreview, call: Fi
   }
   // read-tree changes only Git's index; checkout-index writes the reviewed files.
   // All removals use the existing exact-path, parent-verified cleanup engine.
+  assertCurrent();
   await git(preview.root, ["read-tree", preview.target], run);
   if (preview.writes.length) {
+    assertCurrent();
     const written = await run(["checkout-index", "--force", "-z", "--stdin"], preview.root, preview.writes.join("\0") + "\0");
     if (written.code !== 0) throw Error("GIT_OVERWRITE_WRITE_FAILED: " + written.stderr);
   }
   await git(preview.root, ["diff", "--quiet", "--no-ext-diff", preview.target, "--"], run);
+  assertCurrent();
   await git(preview.root, ["update-ref", preview.branch, preview.target, preview.head], run);
 }

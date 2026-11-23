@@ -4,7 +4,11 @@ import { previewGitOverwrite, assertGitOverwriteCurrent, executeGitOverwrite } f
 import { UiCommandCancelled } from "../core/UiCommandCancelled";
 
 export async function reviewGitOverwrite(root: string, call: (method: string, params: Record<string, any>) => Promise<any>): Promise<void> {
+  const assertWorkspace = () => {
+    if (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath !== root) throw Error("WORKSPACE_CHANGED：项目已变化；已执行的操作保留，请重新审核。");
+  };
   const preview = await previewGitOverwrite(root, call);
+  assertWorkspace();
   const panel = vscode.window.createWebviewPanel("simpleExperiment.gitOverwriteReview", "Git 工作区覆盖审核", vscode.ViewColumn.Active, { enableScripts: true });
   const nonce = randomBytes(16).toString("hex");
   const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!));
@@ -14,19 +18,22 @@ export async function reviewGitOverwrite(root: string, call: (method: string, pa
       if (busy || settled || message?.type !== "confirm" || message.phase !== phase + 1 || phase >= 2) return;
       busy = true;
       try {
-        if (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath !== root) throw Error("WORKSPACE_CHANGED");
+        assertWorkspace();
         await assertGitOverwriteCurrent(preview);
+        assertWorkspace();
         if (preview.cleanup) {
           const current = await call("files.cleanup.status", { token: preview.cleanup.token, consumerRoot: preview.root });
+          assertWorkspace();
           if (current.digest !== preview.cleanup.digest || current.confirmations !== phase) throw Error("CLEANUP_TARGET_CHANGED");
           await call("files.cleanup.confirm", { token: current.token, digest: current.digest, phase: phase + 1, confirm: true, consumerRoot: preview.root,
             exactTargets: current.targets.filter((target: any) => !target.missing).map((target: any) => target.absolutePath) });
+          assertWorkspace();
         }
         if (disposed) throw new UiCommandCancelled("Git 覆盖审核已关闭，未执行覆盖。");
         phase++;
         await panel.webview.postMessage({ type: "phase", phase });
         if (phase === 2) {
-          await executeGitOverwrite(preview, call);
+          await executeGitOverwrite(preview, call, undefined, assertWorkspace);
           settled = true;
           await panel.webview.postMessage({ type: "complete" });
           resolve();

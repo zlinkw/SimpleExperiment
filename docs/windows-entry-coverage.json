@@ -13967,7 +13967,7 @@
         },
         {
           "id": "aux:src/extension/GitOverwriteReview.ts:confirm:1",
-          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"test/features/gitOverwrite.test.js 的 Git review requires two ordered human phases 旧受控用例检查首次确认、未执行与错误阶段；审核页及该测试自 f66d3694 未变。","boundary":"假 Git/文件接口；旧实窗仅到预览后取消，未实际覆盖。"},
+          "currentReview": {"status":"source_and_fake_scoped","evidence":"旧 gitOverwrite.test.js 假端检查首次确认及错误阶段；本轮补项目切换围栏，g004-git-overwrite-project-v1-20261123.out.log 2/2 exit0，等待状态后切项目不确认。","boundary":"仅假 Git/文件接口；旧实窗只预览后取消，未实际覆盖。"},
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/GitOverwriteReview.ts,line=46,name=confirm]; confirmationPayloadVariants",
           "oldStatus": "deferred",
@@ -13975,7 +13975,7 @@
         },
         {
           "id": "aux:src/extension/GitOverwriteReview.ts:confirm:2",
-          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"同一旧受控用例检查第二次确认后调用假 execute、完整路径与取消；当前审核页和测试自 f66d3694 未变。","boundary":"假执行回调不证明真实 Git 覆盖或文件删除；这些效果未触及。"},
+          "currentReview": {"status":"source_and_fake_scoped","evidence":"旧受控用例覆盖第二次确认与假 execute；本轮假 Git/文件方法2/2核实项目切换不启动后续删除或写入。","boundary":"不证明真实 Git 覆盖或文件删除；这些效果未触及。"},
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/GitOverwriteReview.ts,line=46,name=confirm]; confirmationPayloadVariants",
           "oldStatus": "deferred",
