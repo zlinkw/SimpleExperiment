@@ -11107,6 +11107,7 @@
         },
         {
           "name": "gpu_status",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"空参数经Gateway到 gpu.list；Host buildState 组合当前快照与缓存的GPU历史，并标注连接来源。","boundary":"只审源码；本轮禁止GPU、任务和真实Worker查询，未调用该MCP。缓存缺失或旧值不证明服务器当前状态。"},
           "method": "gpu.list",
           "oldEvidence": "projectTools[name=gpu_status]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11115,6 +11116,7 @@
         },
         {
           "name": "gpu_history",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"空参数经Gateway到 gpu.history，返回内存GPU历史快照或空对象。","boundary":"只审源码；本轮禁止GPU、任务和真实Worker查询，未调用该MCP。缓存缺失或旧值不证明服务器当前状态。"},
           "method": "gpu.history",
           "oldEvidence": "projectTools[name=gpu_history]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -12030,6 +12032,7 @@
         },
         {
           "name": "server_list",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"项目query汇总status、gpu.list及 server.testAll(refresh:false)；后者不主动testTunnel，按已启用Worker配置及已有探测状态构造，缺失显示unknown。","boundary":"只审源码；本轮禁止GPU、任务和真实Worker查询，未调用该MCP。缓存缺失或旧值不证明服务器当前状态。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=server_list]",
           "scope": "local_gateway_plus_worker_effect_restricted",
