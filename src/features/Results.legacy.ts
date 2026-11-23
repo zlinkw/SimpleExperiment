@@ -490,7 +490,8 @@ export function previewResultParse(text: string, sourceFile: string, preset: Res
   const rows = isJson ? [] : csvRows(text);
   const headers = isJson ? jsonPreviewColumns(text) : rows[0] || [];
   const missingRequiredColumns = isJson ? [] : (preset.requiredColumns || []).filter((column) => !headers.includes(column));
-  const records = parseResultFile(text, { path: sourceFile, type: isJson ? "json" : "csv", endpoint: "local" }, preset, parserConfig);
+  const records = parseResultFile(text, { path: sourceFile, type: isJson ? "json" : "csv", endpoint: "local" }, preset, parserConfig)
+    .filter((record) => Object.keys(record.metrics).length > 0);
   const inputWarnings = isJson ? [] : resultInputWarnings(rows.slice(1), headers, preset, parserConfig);
   return {
     presetId: preset.id,

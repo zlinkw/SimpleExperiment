@@ -36536,8 +36536,8 @@ async function previewLocalResultFiles(root, files, adapterRules) {
                 continue;
             }
             const text = await readUtf8Preview(fullPath, maxPreviewBytes);
-            const preset = { ...(0, Results_1.selectResultPreset)(file), metricAliases: adapterRules?.metricAliases };
             const parserConfig = Object.keys(adapterRules?.csvColumnMapping || {}).length ? { columnMapping: adapterRules?.csvColumnMapping } : {};
+            const preset = { ...(0, Results_1.selectResultPreset)(file, undefined, text, parserConfig), metricAliases: adapterRules?.metricAliases };
             const preview = (0, Results_1.previewResultParse)(text, file, preset, parserConfig);
             previews.push({
                 file,

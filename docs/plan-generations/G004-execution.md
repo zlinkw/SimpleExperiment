@@ -26,9 +26,7 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 
 旧 Git 和 UI 夹具的逐项历史适用性、闭包、原 receipt 与未知工具链见 coverage 和 `6f829e1d:docs/plan-generations/G004-execution.md`；本轮未重跑夹具，不证明真实远端或 Worker。
 
-520 后合成验证的逐项名称、数量、日志与输入详见 `afb3ec5c`、`ae5b7746`、`f18078f9`、`b6f86b14`、`806d47d2`、`7d91ba1b`、`50c2a865`、`c04f2dd7` 和 coverage，均仅按各项真实边界报告。专门核准的 mcpProject 43/43 使用假授权/Agent/Worker、独立工作区和回环/stdio，不代表真实生命周期/撤权；ProjectOps 历史 SDK 闭包仍未知。SFTP CleanupFileApi 的 5/5 为内存 store/fs 与假端口，不证实际持久化或删除；公开字段合成凭据不证真实后端秘密输出。
-
-formalJobPreflight 原单项合成结果和本机解释器探针边界保留于 coverage 与 `6f829e1d:docs/plan-generations/G004-execution.md`；未训练或接科研 Conda。
+520 合成验证逐项名称、输入、数量、边界和原失败见 coverage 与 `9d5cae9f:docs/plan-generations/G004-execution.md`；只在原真实效果范围内适用。
 
 接替后合成回归的逐项名称、数量、日志和真实效果边界见 coverage 与 `6f14818d:docs/plan-generations/G004-execution.md`；仅按原函数提取、VM、替身与夹具范围复用，未证明真实 Worker、tmux、网络、UI 或删除。
 
@@ -37,7 +35,7 @@ formalJobPreflight 原单项合成结果和本机解释器探针边界保留于 
 
 接替后 planCleanup、planCleanupReconnect、planIsolatedReview/Lifecycle/Boundaries、planBatchPhysicalPipeline、localMetadataChanges、syncScopeDeletionRefresh、tmuxCloseHttp、resultSyncFailureVisibility、clearedOutputReplacement、manifestCleanup、planJobDeleteRequeueCoverage/Production、remoteResultInspectionWorkflow 和 resultCollectionPerformance 的原单项合成结果、数量、模拟删除及网络等精确边界保留在 coverage 和 `f36cb6a3:docs/plan-generations/G004-execution.md`；自建 fixture 保留，未证明真实删除、Worker 或 UI。
 
-freshResultHost 26/26 exit0、10.091 秒；输出跨 exec 和同 session 的 write_stdin 两个原事件，完整日志保留。为验证该真实续接格式而改 runner 后，原 G004 精确 pattern 单次在 20.008 秒仍未退出，立即发 Ctrl-C；续接显示 1/1 exit0、总耗时 20.389 秒，因超时不算通过。经用户明确批准一次例外，修正同 session 链校验并在测试内复用相同静态解析输入后，原 20 秒预算复验 1/1 exit0、7.513 秒；原超时和日志保留。续接必须逐事件核 SHA、顺序、同 session、最终退出和完整日志。日志为 `%TEMP%/g004-520-fresh-result-host-20261123-successor.log`、`%TEMP%/g004-520-continuation-validator-20261123.log`、`%TEMP%/g004-520-continuation-validator-approved-retest-20261123.log`。
+freshResultHost 26/26 原日志跨 exec/write_stdin 同 session；续接验证曾在 20.389 秒退出而超时，经用户许可修复后原限额复验 1/1、7.513 秒。原日志/事件、超时与复验详情见 `9d5cae9f:docs/plan-generations/G004-execution.md`，不抹去失败。
 
 旧 shell、tmux、GPU 和租约历史逐项适用性、原计数与日志见 coverage 及 `f66d3694:docs/plan-generations/G004-execution.md`。工具链未知照实保留；旧 37 为 40 pass/1 skip；219 原 11/11 但 20857.309ms，经用户批准仅本任务历史继承，不称当前硬件验证。只读旧 blob 比较曾 ENOBUFS，调整读取缓冲后成功，原事件保留。
 
@@ -90,3 +88,9 @@ job 289 为唯一 fresh，最终 package 内原精确 pattern 1/1 exit0，wall 4
 同一 45080 实例经真实稳定 MCP 只读回 `projectOnboardingCompleted=true`、status 520/offline_import；panel ready，heartbeat documentHidden=false、render health unknown（probe pending）、section failures 空。operation_list 返回 total 0，不能单独证明锁释放。新增完整响应 `%TEMP%/g004-520-after-ui-recognition-20261123.json`，launcher exit0、stderr空；未再次识别或清锁。真实 Worker、SSH、Agent、GPU、tmux、训练、删除和跨项目仍未测。
 
 最终记录压缩首稿计算10940触发Python assert、写入前退出，文件未更改；外层因随后命令显示exit0，不当作Python成功。扩大语义压缩后UTF8写回及diff检查通过。总控审原MCP响应的exit0/isError=false及同实例识别true，本地验收完成，render探针未知/非标准CSV/Worker与跨项目等受限如上，不重打包、重装或后台保活。
+
+## 当前预览修复与探针调查
+
+专用根原 `synthetic/final.csv` 是合法宽格式，两行含 AP/macro_f1/weighted_f1；原项目预览仅按文件名选 long preset，误报缺 metric/value、0 records。同一原字节用现有表头选择 wide preset 实际得到2 records。现预览选择时传已有文本及列映射，宽/长/JSON按现有选择契约处理；预览只把含指标的解析记录计作有效，避免只有维度的行误报成功，并允许首行无指标、后行有指标。未改原文件或底层解析结果。
+
+源级局部调用链的宽/长/JSON、空指标及混合行回归最终6/6、exit0、827.5419ms；原日志 `%TEMP%/g004-preview-formats-complete-20261123.out.log`/`.err.log`。首次测试夹具 AST 搜索不到函数，5/6 exit1；修夹具后第二次发现仅维度行被误判成功，5/6 exit1；均保留 `%TEMP%/g004-preview-format-20261123.*.log`、`g004-preview-format-repair-20261123.*.log`。中间回归6/6见 `g004-preview-metrics-20261123.*.log`。原520包和实际Host仍为旧实现，未冒称已部署。

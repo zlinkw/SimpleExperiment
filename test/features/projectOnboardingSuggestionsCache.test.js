@@ -4,8 +4,46 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 const { readSource } = require("../_helpers/sourceReader");
+const ts = require("typescript");
+require("../_helpers/registerTsRequire");
+const Results = require("../../src/features/Results.legacy.ts");
 
 const extension = readSource("src/extension.ts");
+
+test("local result previews select CSV format from actual columns", async () => {
+  const files = {
+    "wide.csv": "dataset,method,seed,AP,macro_f1\nsynthetic,a,42,0.11,0.22\nsynthetic,b,42,0.44,0.55\n",
+    "long.csv": "dataset,method,metric,value\nsynthetic,a,AP,0.11\n",
+    "empty.csv": "dataset,method\nsynthetic,a\n",
+    "mixed.csv": "dataset,method,AP\nsynthetic,a,\nsynthetic,b,0.44\n",
+    "result.json": '{"results":[{"dimensions":{"method":"a"},"metrics":{"AP":0.11}}]}',
+  };
+  const source = ts.createSourceFile("extension.ts", extension, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  let fn;
+  function find(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "previewLocalResultFiles") fn = node;
+    else ts.forEachChild(node, find);
+  }
+  find(source);
+  assert.ok(fn, "local preview function exists");
+  const sandbox = { path, fs: { stat: async () => ({ size: 100 }) }, Results_1: Results,
+    resultPreviewTargets: (values) => values, readUtf8Preview: async (file) => files[path.basename(file)],
+    errorMessage: (error) => String(error.message || error), Date };
+  vm.createContext(sandbox);
+  vm.runInContext(`${fn.getText(source)}\nthis.preview = previewLocalResultFiles;`, sandbox);
+  const rows = await sandbox.preview("fixture", Object.keys(files), { csvColumnMapping: { dataset: "dataset", method: "method", seed: "seed" } });
+  assert.equal(rows[0].format, "wide_csv");
+  assert.equal(rows[0].records, 2);
+  assert.deepEqual(Array.from(rows[0].sampleMetrics).sort(), ["AP", "macro_f1"]);
+  assert.equal(rows[1].format, "long_csv");
+  assert.equal(rows[1].records, 1);
+  assert.equal(rows[2].parseable, false);
+  assert.equal(rows[3].parseable, true);
+  assert.equal(rows[3].records, 1);
+  assert.deepEqual(Array.from(rows[3].sampleMetrics), ["AP"]);
+  assert.equal(rows[4].format, "json");
+  assert.equal(rows[4].records, 1);
+});
 
 function extractFunction(name) {
   const start = extension.indexOf(`function ${name}(`);
