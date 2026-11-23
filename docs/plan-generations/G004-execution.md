@@ -85,4 +85,10 @@ SFTP `28087f3`、`d4ed002`、`b3da0b5` 分别修取消归属、交接目标和�
 
 输出模板生成项目绑定及发布前fence `fedd8bc9`/`7dfd6db5` 已同步并经总控源审，假端4/4 exit0，首2/3失败及原因见压缩前记录；未build。审核页5个确认变体逐ID受限证据见 `3a916416`，实际删除/覆盖未执行。
 
-当前隔离永久删除候选仍未提交：去历史队列资格门禁，原ID及后端逐组发送状态持久化，同锁防重复；旧未知不得因文件缺失抹除，已发组仅真实对应回执可结清。纯内存真实方法 `%TEMP%/g004-isolated-confirmed-v9-20261123.{out,err}.log` 11/11 exit0，前v1至v8各自真实结果保留；共享缓存原消费者 `%TEMP%/g004-isolated-cache-consumer-v1-20261123.{out,err}.log` 1/1 exit0。原fixture含rename未执行；跨Host崩溃后原发起者未证结束保持unknown，旧版已完全抹除的身份不能恢复。候选待总控源审，不称构建、部署或真实效果通过。
+隔离永久删除源码 `0275a980` 已同步：去历史队列资格门禁，原ID及后端逐组发送状态持久化，同锁防重复；旧未知不得因文件缺失抹除，已发组仅真实对应回执可结清。纯内存真实方法 `%TEMP%/g004-isolated-confirmed-v9-20261123.{out,err}.log` 11/11 exit0，前v1至v8各自真实结果保留；共享缓存原消费者 `%TEMP%/g004-isolated-cache-consumer-v1-20261123.{out,err}.log` 1/1 exit0。原fixture含rename未执行；跨Host崩溃后原发起者未证结束保持unknown，旧版已完全抹除的身份不能恢复。不称构建、部署或真实效果通过。
+
+裸PlanCleanup内部消费者使用真实后端completion receipt判定，不因缺Host钩子假成功；`%TEMP%/g004-isolated-confirmed-v11-20261123.{out,err}.log` 12/12 exit0，含完整真实service配内存fs/后端的完成及丢回执。首次v10 11/12 exit1，因测试把apiData.code按message匹配，修断言后复验；原日志保留。共享缓存当前单项 `%TEMP%/g004-isolated-cache-consumer-v2-20261123.{out,err}.log` 1/1 exit0。原 planRunIsolateRerun 精确case的fixture已更新真实协议字段，原断言保留、尚未执行，待实际新build产物后按总控批准原20秒验一次；其他旧fixture/oracle也未运行。
+
+Git覆盖审核等待状态或写入期间切换项目时，现于每个后续删除、暂存索引写、工作文件写和引用更新前检查原项目，已发生的操作如实保留。真实方法配假VS Code/Git/文件端 `%TEMP%/g004-git-overwrite-project-v1-20261123.{out,err}.log` 2/2 exit0；未运行真实Git覆盖、删除或跨项目操作，源码待build。
+
+总控更新plan时首次候选16267字符触发写前断言退出1，外层后续diff-check显示0；文件未写。缩短后16183字符并UTF8复读通过，原事实保留。
