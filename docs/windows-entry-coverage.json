@@ -13373,6 +13373,7 @@
         },
         {
           "id": "navigation:sync:sync",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"资源树section/anchor=sync，点击统一更新活动区、section兴趣及滚动目标；展示依靠当前已有状态。","boundary":"源码核对；未查询真实GPU、tmux、同步或点击实机。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; PanelHtml.legacy.ts:3219,3789,6665,8389,9060",
           "oldStatus": "concluded_scoped",
@@ -13380,6 +13381,7 @@
         },
         {
           "id": "navigation:gpu:gpu",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"资源树section/anchor=gpu，点击统一更新活动区、section兴趣及滚动目标；展示依靠当前已有状态。","boundary":"源码核对；未查询真实GPU、tmux、同步或点击实机。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; PanelHtml.legacy.ts:3219,3789,6665,8389,9060",
           "oldStatus": "concluded_scoped",
@@ -13387,6 +13389,7 @@
         },
         {
           "id": "navigation:tmux:tmux",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"资源树section/anchor=tmux，点击统一更新活动区、section兴趣及滚动目标；展示依靠当前已有状态。","boundary":"源码核对；未查询真实GPU、tmux、同步或点击实机。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; PanelHtml.legacy.ts:3219,3789,6665,8389,9060",
           "oldStatus": "concluded_scoped",
