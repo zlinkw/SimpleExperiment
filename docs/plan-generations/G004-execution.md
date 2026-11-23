@@ -113,7 +113,7 @@ runner job 257/258、260/261/262 按identity/argv和原日志复核，各1/1、s
 
 MCP诊断取消发送前重核授权及身份；假Gateway/Host 3/3、Host 1/1 exit0，首模式零用例不算验证；完整日志见 `d1d816d2:docs/plan-generations/G004-execution.md`。384f6d5f已同步待build，无真实Worker。
 
-打开Plan时项目可在异步文件检查期间切换；现复用项目绑定打开器，定向3/3 exit0 %TEMP%/g004-open-plan-project-guard-20261123.*.log，6b4e5651已同步、待build；未打开真实编辑器或其他项目。
+打开Plan项目绑定修复 `6b4e5651` 已同步待build；假编辑器3/3及边界见 `6019d151:docs/plan-generations/G004-execution.md`，未打开真实编辑器。
 
 只读glob与git show缓冲失败及coverage脚本、压缩首稿失败均未写入，详见 `0f6ea82b:docs/plan-generations/G004-execution.md`。
 
@@ -121,11 +121,9 @@ MCP诊断取消发送前重核授权及身份；假Gateway/Host 3/3、Host 1/1 e
 
 结果区原自动匹配无实际恢复；首次拟改仅刷新会缩减入口承诺，已撤回、不计通过，VM日志见 `0f6ea82b:docs/plan-generations/G004-execution.md`。不恢复旧registry；未改真实结果。
 
-自动匹配现有候选使用当前导出中未分配PLAN的唯一单值已保存映射，复用现有结果分区写入器并检查项目、目录与映射未变化；多值或归一化重复映射不猜测，不读旧registry。内存真实Host/写入方法7/7 exit0 %TEMP%/g004-auto-dataset-mapping-guarded-20261123.*.log，含指标不变、冲突、改配置与写失败；旧dist消费者断言已适配但须构建后验证。Panel/Host/测试候选未提交、未build、未动真实结果，仍须源审与原P0门禁。
+自动匹配候选仅应用当前未分配PLAN唯一单值已保存映射、不读旧registry；结果表打开固定并复核目录。假Host/真实写入方法8/8 exit0，原日志及先前7/7、旧dist消费者待验证细节见 `6019d151:docs/plan-generations/G004-execution.md`。候选未提交、未build、未动真实结果，待源审及P0门禁。
 
-结果表打开原在等待catalog后才读取目录，目录变化可把旧索引和新目录混用；候选固定目录、在异步读取及发布前复核。与自动匹配同一受控文件8/8 exit0 %TEMP%/g004-result-mapping-open-guard-20261123.*.log，覆盖切目录时不写不打开及Markdown精确选择；无真实文件/编辑器，候选待build。
-
-日志历史实际仅显示最多50行，五处按钮原提示“完整日志”不准确；候选更正为“日志尾部”，保留独立完整日志入口，待Panel build。未请求真实日志。
+日志历史最多50行，五处提示候选改为“日志尾部”，保留完整日志入口；未请求真实日志，待build。
 
 配套agentLifecycle及agentPythonResolution相关测试与源从119到28087f3无变化；120汇总1及12通过但原日志缺失，工具链未知，见 `0f6ea82b:docs/plan-generations/G004-execution.md`；未运行Agent或WSL。
 
@@ -156,3 +154,5 @@ result_compare按左右身份、数值与方向复核，原假RPC及缺失歧义
 project_connect在异步隧道准备期间撤销MCP授权原仍可能启动；现复核授权及目标，逐端点回调复核。假manager原目标/确认及撤权4/4 `%TEMP%/g004-tunnel-grant-recheck-20261123.*.log`，回调1/1 `%TEMP%/g004-tunnel-grant-callback-20261123.*.log`，均exit0；只读Windows glob失败未改产品，未启动真实SSH或改grant，待build。
 
 server_test源码范围见coverage，未真实探测。原runner只读dry-run当前build选择316个作业、compile/fullCheck、0 onDemand；受源码变更影响，旧direct 144、legacy 59及fresh 1条快照存在至少一处漂移（含计划外及可能重叠），须逐调用链核适用，不是已运行/通过数；不批量刷新哈希，不启动矩阵。
+
+Plan验证在异步刷新后原可能继续使用切换后的项目状态，授权撤销也可能跨同步等待；现绑定原项目，并在同步的实际等待边界及远端预检前复核调用方授权。假Host围栏2/2、原多Worker路由1/1、准备切项目1/1均exit0，日志 `%TEMP%/g004-plan-validation-sync-fence-20261123.*.log`、`g004-plan-validation-worker-routing-20261123.*.log`、`g004-plan-validation-prepare-switch-20261123.*.log`；先前验证初版1/1日志保留 `g004-plan-validation-auth-project-20261123.*.log`。未启动真实同步或Worker，待build。

@@ -10982,6 +10982,7 @@
         },
         {
           "name": "plan_preflight",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"workflow.plan绑定当前项目并走apiPlanValidate；异步元数据后复核项目，同步前及远端预检前复核experiment授权，代码同步沿原项目及调用方检查执行。假Host同步围栏2/2、Worker路由1/1及准备切项目1/1 exit0；日志见plan_validate。","boundary":"完整预检包含同步及目录创建；未运行真实Worker、SSH或写入，待build。"},
           "method": "workflow.plan",
           "oldEvidence": "projectTools[name=plan_preflight]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -10990,6 +10991,7 @@
         },
         {
           "name": "plan_validate",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"Gateway要求experiment授权及Plan身份；Host元数据和本地探针后复核项目，代码同步及预检发送前复核授权。假Host同步围栏2/2 %TEMP%/g004-plan-validation-sync-fence-20261123.*.log，Worker路由1/1 g004-plan-validation-worker-routing-20261123.*.log，准备切项目1/1 g004-plan-validation-prepare-switch-20261123.*.log，均exit0。","boundary":"未触真实Worker或执行真实同步；调用中授权变化后已发生的外部效果不能撤销，源码待build。"},
           "method": "plan.validate",
           "oldEvidence": "projectTools[name=plan_validate]",
           "scope": "local_gateway_plus_worker_effect_restricted",

@@ -3997,6 +3997,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
             }),
         ]);
+        WorkflowBinding.assertWorkflowContext(binding, workspaceRoot(), this.projectContextGeneration, bindingGeneration);
         const plan = this.apiResolveSelectedPlan(params);
         if (__root && await fs.stat(path.join(__root, "experiments", "simple_project.yaml")).then((stat) => stat.isFile()).catch(() => false)) {
             // 探查默认指令是否可执行，仅失败时提示（附尾部日志，经脱敏与换行固化）
@@ -4019,6 +4020,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 if (msg.includes("默认指令执行失败")) throw e;
             }
         }
+        WorkflowBinding.assertWorkflowContext(binding, workspaceRoot(), this.projectContextGeneration, bindingGeneration);
         const topology = this.projectTopologyAssessment();
         const missing = ApiWorkflow_1.structuredMissingInventory({
             workspace: workspaceRoot() || "",
@@ -4071,8 +4073,10 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 await this.ensureWorkerPoolPlanTarget(body, body.planFile);
                 this.assertPlanSchedulerAgentReady("validatePlan", body);
                 WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
+                mcpInvocation.getStore()?.permission("experiment");
                 await this.ensureWorkerCodeReadyForPlanCheck(body);
                 WorkflowBinding.assertWorkflowContext(binding, workspaceRoot(), this.projectContextGeneration, bindingGeneration);
+                mcpInvocation.getStore()?.permission("experiment");
                 const result = await this.runPlanPreflight(body, "API 计划", { recordTiming: (key, ms) => { timing[key] = ms; } });
                 validation = planValidationFromResult(result);
                 if (!validation?.ok) throw new Error("远端结构校验未返回成功结果");
@@ -12134,11 +12138,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         return crypto.createHash("sha256").update(inputs).digest("hex");
     }
     async ensureWorkerCodeReadyForPlanCheck(body, reportStage = (_text: string) => {}) {
+const projectContext=this.captureProjectContext();
 reportStage("正在准备校验所需代码…");
  await this.prepareSftpTargets("ensureWorkerCodeReadyForPlanCheck", "simpleSftp.uploadWorkspace");
+ if(!this.projectContextIsCurrent(projectContext))throw new UiCommandCancelled("工作区已切换，Plan 校验代码同步已取消。");
  this.assertPlanTopologyReady("Plan 校验");const selected=this.planSchedulerWorkerId(body);
  const targets=this.workerCodeSyncTargets().sort((a,b)=>Number(b.id===selected)-Number(a.id===selected));
- const synced=await this.syncCodeTargets(targets,"plan-check",{hashCompare:true,progressReport:reportStage});
+ const synced=await this.syncCodeTargets(targets,"plan-check",{projectContext,hashCompare:true,progressReport:reportStage,assertCurrent:()=>mcpInvocation.getStore()?.permission("experiment")});
  if(synced?.length&&!synced.some(t=>t.id===selected))this.stampWorkerPoolManualTarget(body,synced[0].id);
 }
     /** 交接 gate 与 tick 阶段账本。状态只存于本模块的纯结构，经既有状态/错误通道上报，不新增文件与定时器。 */
@@ -13239,6 +13245,7 @@ reportStage("正在准备校验所需代码…");
         let assertMachineStateBindingsCurrent = () => { };
         const assertCurrentInner = () => {
             assertRetryRequestCurrent();
+            options.assertCurrent?.();
             if (projectContext && !this.projectContextIsCurrent(projectContext))
                 throw new UiCommandCancelled("工作区已切换，代码同步已取消。");
         };

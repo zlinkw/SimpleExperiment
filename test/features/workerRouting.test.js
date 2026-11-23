@@ -4,10 +4,15 @@ const cls=ast.statements.find(n=>ts.isClassDeclaration(n)&&n.name?.text==='Realt
 function host(names,globals={}){const code='class Host{'+cls.members.filter(n=>names.includes(n.name?.getText(ast))).map(n=>n.getText(ast)).join('\n')+'};Host;';
  return new(vm.runInNewContext(ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,globals))();}
 test('actual preflight synchronizes every Worker and never consults the old Hub target',async()=>{
- const h=host(['ensureWorkerCodeReadyForPlanCheck']);let sync;
- Object.assign(h,{prepareSftpTargets:async()=>{},assertPlanTopologyReady:()=>({mode:'worker_pool'}),planSchedulerWorkerId:()=> 'b',
-  workerCodeSyncTargets:()=>[{id:'a'},{id:'b'}],syncCodeTargets:async targets=>{sync=targets;return targets},stampWorkerPoolManualTarget(){throw Error('unexpected fallback')},hubCodeSyncTarget(){throw Error('Hub contacted')}});
+ const h=host(['ensureWorkerCodeReadyForPlanCheck'],{mcpInvocation:{getStore:()=>({permission:scope=>assert.equal(scope,'experiment')})},UiCommandCancelled:class extends Error{}});let sync;const projectContext={root:'project'};
+ Object.assign(h,{captureProjectContext:()=>projectContext,projectContextIsCurrent:value=>value===projectContext,prepareSftpTargets:async()=>{},assertPlanTopologyReady:()=>({mode:'worker_pool'}),planSchedulerWorkerId:()=> 'b',
+  workerCodeSyncTargets:()=>[{id:'a'},{id:'b'}],syncCodeTargets:async (targets,_scope,options)=>{assert.strictEqual(options.projectContext,projectContext);options.assertCurrent();sync=targets;return targets},stampWorkerPoolManualTarget(){throw Error('unexpected fallback')},hubCodeSyncTarget(){throw Error('Hub contacted')}});
  await h.ensureWorkerCodeReadyForPlanCheck({});assert.deepEqual(Array.from(sync,x=>x.id),['b','a']);
+});
+test('preflight code sync stops when the project changes during preparation',async()=>{
+ const h=host(['ensureWorkerCodeReadyForPlanCheck'],{UiCommandCancelled:class extends Error{}});let current=true,syncs=0;const context={root:'project'};
+ Object.assign(h,{captureProjectContext:()=>context,projectContextIsCurrent:()=>current,prepareSftpTargets:async()=>{current=false},syncCodeTargets:async()=>syncs++});
+ await assert.rejects(h.ensureWorkerCodeReadyForPlanCheck({}),/工作区已切换/);assert.equal(syncs,0);
 });
 test('retired Hub API requests reject but saved Hub modes migrate to the Worker inventory',()=>{
  const h=host(['apiPrepareTopology','apiTopologyAssessmentForConfig'],{TopologyMode_1:require('../../dist/features/TopologyMode'),topologyModeLabel:()=> 'Worker 模式'});

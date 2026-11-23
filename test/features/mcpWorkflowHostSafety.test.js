@@ -30,6 +30,38 @@ test('actual Host API refuses mismatched/switched workspace and active PLAN befo
   const f = hostFixture(); f.state.active = true; const out = await f.p.apiWorkflowRun({}); assert.equal(out.started, false); assert.deepEqual(Object.keys(f.p.localOperations), []);
 });
 
+test('PLAN validation fences project changes and revoked authorization before sync or preflight',async()=>{
+ for(const mode of ['switch_metadata','revoke_pool','revoke_sync','success']){
+  const f=hostFixture();let granted=true,syncs=0,preflights=0;
+  const member=f.ast.statements.find(n=>ts.isClassDeclaration(n)&&n.name?.text==='RealtimeTunnelPanelProvider').members.find(n=>n.name?.getText(f.ast)==='apiPlanValidate');
+  const Provider=vm.runInNewContext(ts.transpileModule('class Provider {'+member.getText(f.ast)+'}; Provider;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{
+   WorkflowBinding:binding,workspaceRoot:()=>f.state.root,fs:{stat:async()=>{throw Error('missing fixture marker')}},path,
+   ApiWorkflow_1:{structuredMissingInventory:()=>[]},projectOutputGateDiagnostics:()=>({rows:[]}),simpleSftpIntegrationReadiness:()=>({ready:true}),
+   mcpInvocation:{getStore:()=>({permission:scope=>{assert.equal(scope,'experiment');if(!granted)throw Error('AUTHORIZATION_REVOKED');}})},
+   errorMessage:e=>e.message,planValidationFromResult:result=>result.validation
+  });
+  const p=new Provider();Object.assign(p,{projectContextGeneration:1,localPlanMetadata:{},setupConfig:{},lastWorkerProbes:{},apiFlowState:{},
+   ensureRemoteAgentVersionConsistent:async()=>{},refreshLocalPlanMetadataForAction:async()=>{if(mode==='switch_metadata')f.state.root=f.other},
+   apiResolveSelectedPlan:()=>({planFile:'p.yaml'}),projectTopologyAssessment:()=>({}),agentRuntimeDirs:()=>({workDir:'/fake'}),enabledWorkerConfigs:()=>[],
+   stampPlanRevision:()=>{},assertPlanLocalConfigFiles:async()=>{},ensureWorkerPoolPlanTarget:async()=>{if(mode==='revoke_pool')granted=false},
+   assertPlanSchedulerAgentReady:()=>{},ensureWorkerCodeReadyForPlanCheck:async()=>{syncs++;if(mode==='revoke_sync')granted=false},
+   runPlanPreflight:async()=>{preflights++;return {validation:{ok:true}}},apiPublicTopology:value=>value});
+  if(mode==='switch_metadata')await assert.rejects(p.apiPlanValidate({}),/工作区已变化/);
+  else {const result=await p.apiPlanValidate({});assert.equal(result.ok,mode==='success');if(mode!=='success')assert.match(result.missing[0].reason,/AUTHORIZATION_REVOKED/);}
+  assert.equal(syncs,mode==='revoke_sync'||mode==='success'?1:0);assert.equal(preflights,mode==='success'?1:0);
+ }
+});
+
+test('plan code synchronization checks the caller fence after waiting for handoff',async()=>{
+ const f=hostFixture(),member=f.ast.statements.find(n=>ts.isClassDeclaration(n)&&n.name?.text==='RealtimeTunnelPanelProvider').members.find(n=>n.name?.getText(f.ast)==='syncCodeTargets');
+ const Provider=vm.runInNewContext(ts.transpileModule('class Provider {'+member.getText(f.ast)+'}; Provider;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
+  {workspaceRoot:()=>f.root,assertRetryRequestCurrent:()=>{},UiCommandCancelled:class extends Error{}});
+ const p=new Provider();let contacted=0;Object.assign(p,{boundedPromise:async()=>({safe:true}),projectContextIsCurrent:()=>true,
+  ensureSftpManagerCommand:async()=>{contacted++}});
+ await assert.rejects(p.syncCodeTargets([{id:'worker'}],'plan-check',{projectContext:{root:f.root},assertCurrent:()=>{throw Error('AUTHORIZATION_REVOKED')}}),/AUTHORIZATION_REVOKED/);
+ assert.equal(contacted,0);assert.equal(p.codeSyncInFlight,0);
+});
+
 test('ready workflow preflight has no blocker and blocked preflight retains its actual reason', async () => {
   const f = hostFixture(), p = f.p;
   Object.assign(p, { apiWorkflowPlan: f.proto.apiWorkflowPlan, projectContextGeneration: 1, localPlanMetadata: { plans: [{ planFile: 'a.yaml' }] },
