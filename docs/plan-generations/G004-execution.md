@@ -133,13 +133,7 @@ MCP resource_available对明确过期、离线或degraded缓存改返回unknown�
 
 日志分析项目切换修复、假Worker验证及失败记录见 `e7b3483e:docs/plan-generations/G004-execution.md`；未查询真实Worker，待build。
 
-log_read遇无效空响应原可退回模糊匹配缓存，现明确报错；分页、空结果、无效响应及错误假Gateway/Worker 1/1 exit0 `%TEMP%/g004-log-read-invalid-20261123.*.log`，未查询真实日志，待build。
-
-TensorBoard四个MCP入口的目标、授权及终态按源码逐项复核，详见coverage；未启动、查询或停止真实服务。
-
-tmux_list/capture源码和假Gateway路由证据范围见coverage；未访问真实Worker、窗口或日志。
-
-artifact_list/inspect项目边界、精确身份和本地及假远端证据逐ID见coverage；未查询真实任务、活动结果或Worker。
+log_read无效响应修复及TensorBoard、tmux、artifact逐ID源码和有限假对象证据见coverage，压缩前明细见 `9271a7ec:docs/plan-generations/G004-execution.md`；未查询真实Worker、任务、日志或活动结果，待build。
 
 配套120→28087f3的api-server、清理实现和11个测试字节未变；原120汇总通过数、119差异和未存逐项日志详见 `f02bb042:docs/plan-generations/G004-execution.md`。其中cleanupExecuteSelfBusy使用假传输控制器，不调用transfers.cancel；api仅列举该方法。工具链未知，未执行真实清理/WSL，打包覆盖待审收。
 
@@ -168,3 +162,7 @@ MCP下载按本人授权要求选定Worker有效已存范围，配套b3da0b5；�
 配套b3da0b5后的受影响原消费者：explicitScopedDownload原单文件1/1及workspaceIntegration原单文件4/4均exit0，分别记录 `%TEMP%/g004-sftp-explicit-scope-consumer-20261123.log`、`%TEMP%/g004-sftp-workspace-consumer-20261123.log`。前者为显式范围纯内存与源码契约，后者为假工作区与静态顺序检查；均不证明真实传输、覆盖或删除，不能代替剩余打包覆盖审查。
 
 openXshell、testAll、snapshot入口按实际源码分别核确认、Worker、离线及状态反馈；本轮未启动会话、切模式或查询真实任务/GPU，详见coverage。
+
+缓存确认路径候选未提交：同批全节点只读预核、原请求未知不自动重发、本机文件ID与路径保护见待审源码；`%TEMP%/g004-cache-confirmed-preflight-v15-20261123.log` 8/8 exit0（含只读Windows身份及假执行器），`g004-cache-original-selected-v2-20261123.log` 原单文件两项2/2 exit0。首次Windows时间基准错误 `%TEMP%/g004-cache-confirmed-preflight-v7-20261123.log` 5/6 exit1，修后通过；原文件另含实际临时fixture改动，未全跑。未执行真实删除或Worker，跨Extension Host的本机并发与重启后未知记录仍待审。
+
+当前HEAD 9271a7ec、脏树只读build规划316项，selectionHash `7db4b499442fed600a06741b61d7d4970ca6d1864b694579bb39005f3efb2893`；compile/fullCheck均未运行，该选择非构建通过，后续HEAD或输入变化重算。
