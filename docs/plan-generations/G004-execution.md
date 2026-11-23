@@ -24,11 +24,7 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 
 历史 job 187/189/240、七项删锁 264/265/267/268/269/271/274 已由总控人工继承；原 passed/0/tree confirmed 和日志保留，精确旧 Node/架构未知，不称本轮真实删除通过。总控另批准 runner 旧 default job 255–263、266、270、272、273、275–283、285–287、290、291 共 27 项逐 identity+argv 继承：旧 body/fixture 未变，新增 G004 分支不作用其输入，输入指纹改动不改变原场景比较行为；原日志和当前依赖冻结，未知旧 Node/架构不补造，不覆盖新 G004 或 job 289。原先包含的 job 284 经总控复核原日志总耗时 20119.841ms，超过 20 秒，后经用户明确批准仅本任务历史继承，不重跑；原历史 passed/0/tree 保留。
 
-旧 Git 和 UI 夹具的逐项历史适用性、闭包、原 receipt 与未知工具链见 coverage 和 `6f829e1d:docs/plan-generations/G004-execution.md`；本轮未重跑夹具，不证明真实远端或 Worker。
-
-520 合成验证逐项名称、输入、数量、边界和原失败见 coverage 与 `9d5cae9f:docs/plan-generations/G004-execution.md`；只在原真实效果范围内适用。
-
-接替后合成回归的逐项名称、数量、日志和真实效果边界见 coverage 与 `6f14818d:docs/plan-generations/G004-execution.md`；仅按原函数提取、VM、替身与夹具范围复用，未证明真实 Worker、tmux、网络、UI 或删除。
+旧 Git/UI 夹具、520 与接替后合成验证的逐项输入、结果、失败、工具链和边界见 coverage 与 `6f829e1d`、`9d5cae9f`、`6f14818d` 的本文件；不扩大原证范围或冒称真实 Worker/tmux/删除通过。
 
 旧执行会话结束后受支持工具归档并核 session_meta、138 条 eligible 原事件双 SHA，139 处仅修实际归档路径（`9a69240b`），未搬删原 rollout 或重跑。此前旧会话归档修复另核 35 项事件、42 处路径，未改事件。当时 1 项待运行；最终结果见下文，不得把未知或未测写成通过。
 
@@ -36,8 +32,6 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 接替后 planCleanup、planCleanupReconnect、planIsolatedReview/Lifecycle/Boundaries、planBatchPhysicalPipeline、localMetadataChanges、syncScopeDeletionRefresh、tmuxCloseHttp、resultSyncFailureVisibility、clearedOutputReplacement、manifestCleanup、planJobDeleteRequeueCoverage/Production、remoteResultInspectionWorkflow、resultCollectionPerformance 与 freshResultHost 的精确结果、数量和边界见 coverage 与 Git `6afb2ed0:docs/plan-generations/G004-execution.md`。这些是替身/夹具，未证明真实删除、Worker 或 UI；freshResultHost 续接验证曾 20.389 秒超时，用户许可修复后原限额复验 1/1、7.513 秒，原日志和事件保留。旧shell/tmux/GPU/租约、automaticScopeContent等10项与旧job005/030/031、041/111/149/154/165/232/233/296/298逐项证据、skip和未知工具链同样见该版本及coverage，不重跑。
 
 本轮 mcpProjectOpsContract 11/11、windowScopeIsolation 8/8 均 exit0，仅自建夹具，无真实 Worker 或 SFTP。静态命令包装识别修复及反例的原 G004 pattern 复验 1/1 exit0、8.662秒，日志 `%TEMP%/g004-520-static-wrapper-retest-20261123.log`；业务测试未重跑，原事件与日志保留，详见 `c2c60767:docs/plan-generations/G004-execution.md`。
-
-核验器仅改 G004 证据解析；39 个旧 case 的逐 AST 对账及两条真实直接事件见 `c2c60767:docs/plan-generations/G004-execution.md`。
 
 总控审定旧67/68/69、91/222/225、226/227/252、141/340/341按各自受限历史范围继承，旧工具链或69根字节未知，未重跑或证明真实WSL/tmux/Worker；340仅继承现存30项。219/284原超时及用户例外、289唯一fresh原20秒1/1 exit0、4508ms均保留，精确计数及日志见Git `6afb2ed0:docs/plan-generations/G004-execution.md`。
 
@@ -92,3 +86,5 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 两个实际面板入口经 `abortSchedulerFromUi`/`stopExperimentRouted` 原会在归属不明时猜首 Worker，并在 remaining 非空时自动 force 重发、提前落终态。候选要求明确 Worker 或精确 operationId/Plan 的一致本地归属；显式无效或冲突不发送，无本地记录但有明确 Worker 与身份保留远端原命令/窗口核验。先登记本地停止意图并排队持久化；只发一次，未知、remaining 或未确认活动保留记录和意图，不清缓存或置终态；真实确认才按原范围结束。未访问真实 Worker 或 Agent。原 stop VM 文件最终10/10 exit0、3562ms，`%TEMP%/g004-stop-routing-terminal-20261123.*.log`；相关消费者12/12 exit0，`%TEMP%/g004-stop-consumers-terminal-20261123.*.log`。早期成功日志 `g004-stop-routing-successor`、`g004-stop-routing-pending`、`g004-stop-routing-plan`、`g004-stop-routing-final` 均保留。源候选与探针共用 Host 文件，待分离暂存；用户界面包仍旧520。
 
 接替期间另有只读 Windows glob 两次失败、覆盖记录内存断言一次写前失败（外层后续命令显示0）、git-show 默认缓冲不足一次，均未改产品；后者提高只读缓冲后成功。PowerShell 嵌套引号一次解析失败，未执行 rg；随后改用 pwsh7 直接执行。
+
+停止组已按隔离 Host hunks 提交并同步 `fb874de2`。随后逆向消费者发现 UI 状态包装会把未确认的普通返回默认显示 completed；当前候选改为明确抛错，Plan 停止去掉无关全局选择，按钮携带已知 Worker 并修正“远端任务不受影响”的错误提示。原单文件11/11、消费者12/12均exit0，日志 `%TEMP%/g004-stop-ui-outcome-current-20261123.*.log`、`%TEMP%/g004-stop-consumers-outcome-current-20261123.*.log`；仅假客户端/源码，未触真实任务。新 Panel 改动仍待完整 build 与真实脚本 VM 门禁和总控源审，不部署或提交 Panel。

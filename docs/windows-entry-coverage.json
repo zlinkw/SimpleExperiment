@@ -11029,6 +11029,11 @@
         },
         {
           "name": "plan_stop",
+          "currentReview": {
+            "status": "reviewed_scoped_remote_restricted",
+            "evidence": "ToolCatalog 要求 workerId、planFile、operationId、manualStopType 与 experiment 权限，经 invoke/stopExperiment 进入 Host；局部受控回归见 %TEMP%/g004-stop-consumers-outcome-current-20261123.*.log 与 g004-stop-ui-outcome-current-20261123.*.log。",
+            "boundary": "只核目录及Host局部调用链；原任务窗口与真实 Worker 未操作。当前未确认反馈修正在源码候选，未部署520。"
+          },
           "method": "invoke",
           "oldEvidence": "projectTools[name=plan_stop]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -12596,6 +12601,11 @@
         },
         {
           "id": "panel:stopExperiment:1",
+          "currentReview": {
+            "status": "reviewed_scoped_remote_restricted",
+            "evidence": "操作行 commandId 经 stopProjectTask；Plan 操作经 actionBody 和 stopExperimentRouted，按精确 Worker 与 Plan/operationId 处理。受控证据 %TEMP%/g004-stop-consumers-outcome-current-20261123.*.log。",
+            "boundary": "真实 Worker、任务和 tmux 未操作；按钮 Worker 传递及未确认错误反馈为尚未构建的候选。"
+          },
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=stopExperiment]",
           "oldStatus": "concluded_scoped",
@@ -12694,6 +12704,11 @@
         },
         {
           "id": "panel:abortScheduler:1",
+          "currentReview": {
+            "status": "fixed_scoped_pending_panel_build",
+            "evidence": "Host修复 fb874de2；当前候选另修 UI/API 未确认状态与按钮身份/文案。真实方法 VM 假客户端 11/11，%TEMP%/g004-stop-ui-outcome-current-20261123.*.log；相关消费者12/12，%TEMP%/g004-stop-consumers-outcome-current-20261123.*.log。",
+            "boundary": "面板两位置均先确认，按 operationId/Plan 和明确 Worker 路由；只发一次，未知保留意图、不报成功。Panel 候选未构建部署；未调用真实 Worker、Agent 或任务。"
+          },
           "disposition": "local_partial_evidence_real_effect_restricted",
           "reference": "panelCommandActions[abortScheduler]: current protocol 2 inactive boundary only",
           "oldStatus": "deferred",
@@ -14464,6 +14479,11 @@
       "invokeRouteSourceIndex": [
         {
           "name": "abortScheduler",
+          "currentReview": {
+            "status": "source_scoped_pending_panel_build",
+            "evidence": "invokeApi 的 API_LOCAL_ACTION_COMMANDS 经 confirm、租约及 handleMessageCore 进入同一 abortSchedulerFromUi；当前候选将未确认抛错而非默认 completed。Host与假客户端证据见 panel:abortScheduler:1。",
+            "boundary": "静态调用链及受控 Host 回归；真实 API 停止请求和真实 Worker 均未执行，Panel 候选未构建。"
+          },
           "route": "local_handler_misdirected_to_remote_map",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -15227,6 +15247,11 @@
         },
         {
           "name": "stopExperiment",
+          "currentReview": {
+            "status": "source_scoped_remote_restricted",
+            "evidence": "invokeApi 经确认和 action command；commandId 走 stopProjectTask，Plan/operationId 走 stopExperimentRouted。当前候选使未确认结果显式失败，避免 UI 默认 completed。",
+            "boundary": "静态调用链与假客户端，未执行真实停止；候选未部署。"
+          },
           "route": "action_command_or_results_special",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
