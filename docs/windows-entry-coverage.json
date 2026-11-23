@@ -13040,6 +13040,7 @@
         },
         {
           "id": "noncommand:id=planBatchSelectVisible",
+          "currentReview": {"status":"controlled_scoped","evidence":"点击先用当前workspace和已知Plan集合清理选择，再加入本轮筛选可见文件；刷新选择界面及按钮状态，隐藏的已有选择保留。","boundary":"复用 %TEMP%/g004-520-selected-plan-batch-20261123.log 14/14 中生成脚本VM对筛选、隐藏选择、清空和切工作区的受控断言；当前Panel相关选择逻辑未改，本轮未实点这两个按钮或运行计划。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=id=planBatchSelectVisible]",
           "oldStatus": "concluded_scoped",
@@ -13047,6 +13048,7 @@
         },
         {
           "id": "noncommand:id=planBatchClear",
+          "currentReview": {"status":"controlled_scoped","evidence":"点击清空本地批量选择，再刷新界面及按钮状态，不更改单个当前PLAN。","boundary":"复用 %TEMP%/g004-520-selected-plan-batch-20261123.log 14/14 中生成脚本VM对筛选、隐藏选择、清空和切工作区的受控断言；当前Panel相关选择逻辑未改，本轮未实点这两个按钮或运行计划。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=id=planBatchClear]",
           "oldStatus": "concluded_scoped",
