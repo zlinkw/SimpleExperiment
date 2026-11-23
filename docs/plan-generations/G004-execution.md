@@ -126,3 +126,5 @@ MCP诊断取消在await查询后可能在授权或项目、Worker变化后仍发
 本轮只读glob一次失败、git show因Node默认缓冲ENOBUFS失败后只读成功；coverage写入脚本两次及本执行登记压缩首稿均写前报错，无文件写入。
 
 结果规则保存、映射保存及运行前同步过去未向已有逐Worker循环传项目上下文，切项目后可能继续向剩余Worker发送；155d0593绑定原项目，同步后再核项目才刷新。假Worker受控检查1/1、两类真实方法VM 1/1、调用链断言2/2 exit0，日志 %TEMP%/g004-adapter-sync-boundary-20261123.*.log、g004-adapter-ui-project-switch-final-20261123.*.log、g004-adapter-ui-bindings-20261123.*.log。首次VM夹具语法失败exit1见 g004-adapter-ui-project-switch-20261123.*.log；未访问真实Worker或写真实配置，待build。
+
+结果区旧“自动匹配”入口当前只读取 latest 本机结果并刷新，autoRecoverableCount恒0，却声称从旧registry自动恢复；候选保留入口并将按钮与结果提示改为实际“刷新结果分类”，不恢复旧registry或新增旧机制。真实Host方法VM与面板文案 1/1 exit0 %TEMP%/g004-result-classification-refresh-20261123.*.log；源码/测试仍待当前Panel build及审查，未改真实结果。

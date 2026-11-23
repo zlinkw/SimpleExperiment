@@ -12816,6 +12816,7 @@
         },
         {
           "id": "panel:autoMatchPlanDatasets:1",
+          "currentReview": {"status":"source_fixed_pending_panel_build","evidence":"当前catalog只读取最新本机导出，autoRecoverableCount恒0，此入口原只刷新视图，却声称从旧registry自动恢复；现保留命令并改文案为刷新本机结果分类，不恢复旧registry或新增自动匹配。","boundary":"%TEMP%/g004-result-classification-refresh-20261123.*.log 真实Host方法VM及面板文案1/1 exit0；当前Panel/Host候选未提交、未build，未操作真实结果。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=autoMatchPlanDatasets]",
           "oldStatus": "concluded_scoped",
@@ -12823,6 +12824,7 @@
         },
         {
           "id": "panel:applyPlanDatasetMapping:1",
+          "currentReview": {"status":"source_scoped","evidence":"从当前未分配列表验证PLAN和数据集，拒绝可信数据集覆盖及目录冲突；在绑定项目的写入路径保存映射并重新分区已有汇总，刷新失败保留原错误。","boundary":"源码和 resultMappingRecovery 等受控测试源码审阅；本轮未运行该写入分支、未写真实结果或配置，实际失败和中间状态不假定通过。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=applyPlanDatasetMapping]",
           "oldStatus": "concluded_scoped",
@@ -14565,6 +14567,7 @@
         },
         {
           "name": "applyPlanDatasetMapping",
+          "currentReview": {"status":"source_scoped","evidence":"从当前未分配列表验证PLAN和数据集，拒绝可信数据集覆盖及目录冲突；在绑定项目的写入路径保存映射并重新分区已有汇总，刷新失败保留原错误。","boundary":"源码和 resultMappingRecovery 等受控测试源码审阅；本轮未运行该写入分支、未写真实结果或配置，实际失败和中间状态不假定通过。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -14585,6 +14588,7 @@
         },
         {
           "name": "autoMatchPlanDatasets",
+          "currentReview": {"status":"source_fixed_pending_panel_build","evidence":"当前catalog只读取最新本机导出，autoRecoverableCount恒0，此入口原只刷新视图，却声称从旧registry自动恢复；现保留命令并改文案为刷新本机结果分类，不恢复旧registry或新增自动匹配。","boundary":"%TEMP%/g004-result-classification-refresh-20261123.*.log 真实Host方法VM及面板文案1/1 exit0；当前Panel/Host候选未提交、未build，未操作真实结果。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
