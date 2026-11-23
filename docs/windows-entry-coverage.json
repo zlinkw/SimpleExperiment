@@ -13830,28 +13830,32 @@
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/ui/PanelRecoveryHtml.ts,line=6,name=reload]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_controlled_producer_host_source","evidence":"2026-11-21 recovery HTML in-memory transpile/VM click 4/4 and reload-required 1/1; current producer sends reloadPanel and current host case routes it.","boundary":"No actual window reload, clipboard write or current panel click. Candidate remains unbuilt."}
         },
         {
           "id": "aux:src/ui/PanelRecoveryHtml.ts:low-effects",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/ui/PanelRecoveryHtml.ts,line=6,name=low-effects]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_controlled_producer_host_source","evidence":"2026-11-21 recovery HTML in-memory transpile/VM click 4/4 and reload-required 1/1; current producer sends reloadPanelLowEffects and current host case routes it.","boundary":"No actual window reload, clipboard write or current panel click. Candidate remains unbuilt."}
         },
         {
           "id": "aux:src/ui/PanelRecoveryHtml.ts:reload-window",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/ui/PanelRecoveryHtml.ts,line=6,name=reload-window]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"prior_controlled_producer_host_source","evidence":"2026-11-21 recovery HTML in-memory transpile/VM click 4/4 and reload-required 1/1; current producer sends reloadWindow and current host case routes it.","boundary":"No actual window reload, clipboard write or current panel click. Candidate remains unbuilt."}
         },
         {
           "id": "aux:src/ui/PanelRecoveryHtml.ts:copy",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/ui/PanelRecoveryHtml.ts,line=6,name=copy]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_controlled_producer_host_source","evidence":"2026-11-21 recovery HTML in-memory transpile/VM click 4/4 and reload-required 1/1; current producer sends copyPanelDiagnostics and current host case routes it.","boundary":"No actual window reload, clipboard write or current panel click. Candidate remains unbuilt."}
         },
         {
           "id": "aux:src/extension/PlanCleanupPanel.ts:preview",
@@ -13977,49 +13981,56 @@
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/CacheCleanupPanel.ts,line=53,name=planOutputs]",
           "oldStatus": "deferred",
-          "scope": "external_cleanup_or_lifecycle_restricted"
+          "scope": "external_cleanup_or_lifecycle_restricted",
+          "currentReview": {"status":"source_and_controlled_scoped","evidence":"Prior 2026-11-21 fake handler 4/4 invoked the Plan output review callback; current handler refuses while deleting and uses current provider. No Plan output cleanup executed.","boundary":"Original fake clients, local private fixture or source only; no real Worker or permanent deletion. Cached unknown after Host restart remains unknown until original executor end is proved; new source remains unbuilt."}
         },
         {
           "id": "aux:src/extension/CacheCleanupPanel.ts:refresh",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/CacheCleanupPanel.ts,line=53,name=refresh]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"source_and_controlled_scoped","evidence":"Current handler refreshes current project/client; old source-family evidence applies within its original fake inputs. New recheckPending control, absent from the original 300 census, observes the original pending request; g004-cache-fenced-v1 11/11 includes unknown-only observation and no replay.","boundary":"Original fake clients, local private fixture or source only; no real Worker or permanent deletion. Cached unknown after Host restart remains unknown until original executor end is proved; new source remains unbuilt."}
         },
         {
           "id": "aux:src/extension/CacheCleanupPanel.ts:selectAll",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/CacheCleanupPanel.ts,line=53,name=selectAll]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"source_and_controlled_scoped","evidence":"Prior fake layout 4/4 checked selection excludes preview-only rows; current handler selects enabled candidate inputs.","boundary":"Original fake clients, local private fixture or source only; no real Worker or permanent deletion. Cached unknown after Host restart remains unknown until original executor end is proved; new source remains unbuilt."}
         },
         {
           "id": "aux:src/extension/CacheCleanupPanel.ts:deselectAll",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/CacheCleanupPanel.ts,line=53,name=deselectAll]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"source_and_controlled_scoped","evidence":"Prior fake layout 4/4 checked clearing selected keys; current handler clears enabled candidate inputs.","boundary":"Original fake clients, local private fixture or source only; no real Worker or permanent deletion. Cached unknown after Host restart remains unknown until original executor end is proved; new source remains unbuilt."}
         },
         {
           "id": "aux:src/extension/CacheCleanupPanel.ts:reviewButton",
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/CacheCleanupPanel.ts,line=53,name=reviewButton]",
           "oldStatus": "deferred",
-          "scope": "external_cleanup_or_lifecycle_restricted"
+          "scope": "external_cleanup_or_lifecycle_restricted",
+          "currentReview": {"status":"source_and_controlled_scoped","evidence":"Current review freezes valid selected keys and context; g004-cache-original-selected-v3 2/2 and g004-cache-fenced-v1 11/11 cover fake confirmation and whole-batch preflight.","boundary":"Original fake clients, local private fixture or source only; no real Worker or permanent deletion. Cached unknown after Host restart remains unknown until original executor end is proved; new source remains unbuilt."}
         },
         {
           "id": "aux:src/extension/CacheCleanupPanel.ts:confirmButton",
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/CacheCleanupPanel.ts,line=53,name=confirmButton]",
           "oldStatus": "deferred",
-          "scope": "external_cleanup_or_lifecycle_restricted"
+          "scope": "external_cleanup_or_lifecycle_restricted",
+          "currentReview": {"status":"source_and_controlled_scoped","evidence":"Current two stages require identical reviewed keys, then reserve and preflight before any executor. g004-cache-original-selected-v3 2/2 and g004-cache-fenced-v1 11/11 cover fake endpoints, unknown and local preflight.","boundary":"Original fake clients, local private fixture or source only; no real Worker or permanent deletion. Cached unknown after Host restart remains unknown until original executor end is proved; new source remains unbuilt."}
         },
         {
           "id": "aux:src/extension/CacheCleanupPanel.ts:cancelButton",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/CacheCleanupPanel.ts,line=53,name=cancelButton]",
           "oldStatus": "concluded_scoped",
-          "scope": "external_security_or_shared_settings_restricted"
+          "scope": "external_security_or_shared_settings_restricted",
+          "currentReview": {"status":"source_and_controlled_scoped","evidence":"Prior fake layout 4/4 confirmed cancel prevents fake delete; current handler clears review keys and stage.","boundary":"Original fake clients, local private fixture or source only; no real Worker or permanent deletion. Cached unknown after Host restart remains unknown until original executor end is proved; new source remains unbuilt."}
         },
         {
           "id": "aux:src/features/SyncScopeTree.ts:refresh",
@@ -14393,6 +14404,7 @@
           "scope": "external_cleanup_or_lifecycle_restricted"
         }
       ],
+      "postCensusAdditionalActions": [{"id":"aux:src/extension/CacheCleanupPanel.ts:recheckPending","status":"source_and_controlled_scoped","evidence":"Added after the original 300-unit census. Current handler observes the original request without resending deletion; g004-cache-fenced-v1-20261123.log 11/11 covers live/unknown recheck and settled cleanup in fake storage and fake endpoints.","boundary":"No actual Worker or permanent deletion; host restart cannot prove a lost local executor has stopped, so original request remains unknown and is not replayed. Source is not built."}],
       "actionUnitScopeIndexNote": "同一入口只计一次，current_defect为该行原调查时的历史结论；新增 currentReview 记录随后具体修复及范围，未登记者仍待核。prior_scoped_evidence仅表示旧资料可按输入/版本/条件引用，并非所有当前运行条件通过。跨项目、真实Worker、破坏性操作和Agent生命周期仍受限制；动态实例总数未知。新确认问题数不等于受影响入口数。已保存但原300无独立ID的selectPlan/saveUiLayout/restart面板条件别名在savedCommandReconciliation及相关问题记录，不能凭现可接收而虚构新ID。 scope是本轮可执行边界分组：single_project_local_or_mixed含本地或可选择本地输入的动作，仍按每项原条件判断；external_security_or_shared_settings_restricted只限制相应真实效果，部分本地预览或假对象证据仍可复用；不同组不是通过/失败数。",
       "commandAliasScopeIndex": [
         {
