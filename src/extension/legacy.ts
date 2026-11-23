@@ -7583,6 +7583,8 @@ return this.testTunnel(true);
         }
     }
     private async withUiCommandStatus(clientActionId, command, message, work) {
+        const projectContext = this.captureProjectContext();
+        const isCurrent = () => this.projectContextIsCurrent(projectContext);
         // r4 (task ui-plan-gpu-progress-20261024 返修): the four artifact-sync operations bypass
         // runActionCommand entirely (handleMessageCore → withManualResultSync → artifactSyncFromUi),
         // so their ONE Notification per operation opens/closes in this real funnel. The tone and
@@ -7601,6 +7603,12 @@ return this.testTunnel(true);
             const isLocalTrigger = localCommandReleasesAfterTrigger(command);
             const guardedWork = work()
                 .then(async (value) => {
+                if (!isCurrent() && PLAN_SUBMISSION_COMMANDS.has(command)) {
+                    const status = String(value?.status || "").toLowerCase();
+                    return ["completed", "failed", "cancelled", "submitted"].includes(status)
+                        ? { status, message: String(value?.message || status) }
+                        : { status: "unknown", message: "项目已切换，原提交结果尚未确认。" };
+                }
                 if (["syncPendingPlanArtifacts", "rebuildProjectResultTables", "syncAllResultArtifacts"].includes(command)) {
                     const outcome = resultSyncCommandOutcome(value);
                     if (outcome) return outcome;
@@ -7610,7 +7618,7 @@ return this.testTunnel(true);
                     return { status: value.cancelled && !detail ? "cancelled" : "failed",
                         message: `结果文件同步 ${value.cancelled ? "已取消后续批次" : "未完整完成"}：成功 ${Number(value.completed || 0)}/${Number(value.selected || 0)}，失败 ${Array.isArray(value.failures) ? value.failures.length : 0}${detail ? `。${detail}` : ""}` };
                 }
-                const submission = PLAN_SUBMISSION_COMMANDS.has(command)
+                const submission = isCurrent() && PLAN_SUBMISSION_COMMANDS.has(command)
                     ? this.localOperations?.[this.planSubmissionOperationId(message)] : undefined;
                 if (submission?.status === "failed") return { status: "failed", message: submission.message || "计划未提交。" };
                 if (["dispatchJobs", "queueRemainingJobs", "recheckOutputIsolation"].includes(command) && value?.status === "blocked")
@@ -7648,6 +7656,10 @@ return this.testTunnel(true);
             });
             const result: any = await guardedWork;
             noticeOutcome = result;
+            if (!isCurrent()) {
+                this.logOperationFact(`[${clientActionId}] ${command} ${result.status}：${String(result.message || "")}`);
+                return;
+            }
             const operationOutcome = OperationOutcome_1.operationOutcomeFor(result.error, result.status);
             const resultDetails = result.resultSync ? { resultSync: result.resultSync } : {};
             let statusPosted = false;
@@ -7660,7 +7672,7 @@ return this.testTunnel(true);
                 if (!supersededResultRequest && !clearedSelectionWait && !artifactNoticeKey && !PLAN_SUBMISSION_COMMANDS.has(command)
                     && !["validatePlan", "dryRunPlan", "runAllPlans"].includes(command)) {
                     try { void vscode.window.showInformationMessage(result.message || "已取消", "查看日志")
-                        .then(choice => { if (choice === "查看日志") this.showOperationLogFromUi(); }).catch(() => undefined); } catch {}
+                        .then(choice => { if (choice === "查看日志" && isCurrent()) this.showOperationLogFromUi(); }).catch(() => undefined); } catch {}
                 }
                 const alreadyExplained = String(result.message || "").includes("未提交");
                 if (!alreadyExplained && !clearedSelectionWait) {
@@ -7682,7 +7694,7 @@ return this.testTunnel(true);
                     // Failure feedback is not a destructive-action confirmation.
                     // Plan/artifact operations already close their own native notice.
                     void vscode.window.showErrorMessage(`${hostOperationLeaseActionLabel(command) || command}未完成：${compactSensitiveText(result.message || "操作失败，请检查连接与产物校验记录。", 4000)}`, "查看日志")
-                        .then(choice => { if (choice === "查看日志") this.showOperationLogFromUi(); }).catch(() => undefined);
+                        .then(choice => { if (choice === "查看日志" && isCurrent()) this.showOperationLogFromUi(); }).catch(() => undefined);
                 }
             }
             if (result.status === "completed" && result.resultSync?.partial && !result.notificationShown)
@@ -7695,7 +7707,7 @@ return this.testTunnel(true);
                 const tone = outcome.status === "completed" && !outcome.resultSync?.partial ? "succeeded"
                     : outcome.status === "cancelled" ? "cancelled" : "failed";
                 this.finishOperationProgressNotice(artifactNoticeKey, tone, String(outcome.message || "") || "产物同步已结束。",
-                    outcome.error?.code === "SELECTED_JOB_CLEARED" ? { silent: true } : undefined);
+                    { silent: !isCurrent() || outcome.error?.code === "SELECTED_JOB_CLEARED" });
             }
         }
     }
@@ -7795,6 +7807,8 @@ return this.testTunnel(true);
     }
     planSubmissionBatchFor(message) { return planSubmissionBatchFor(message); }
     async runActionCommand(command, message) {
+        const projectContext = this.captureProjectContext();
+        const isCurrent = () => this.projectContextIsCurrent(projectContext);
         require("../updates/Bootstrap").assertBusinessAllowed();
         if (RESULT_PARSE_COMMANDS.has(command)) return this.rebuildProjectResultTablesFromUi({ title: "更新结果汇总" });
         // One VS Code Notification per operation for the plan-running / experiment
@@ -7812,6 +7826,7 @@ return this.testTunnel(true);
                 this.beginPlanSubmissionProgress(message, this.actionBody(message));
                 this.reportPlanStage(message, "已收到校验并提交运行，正在准备计划与插件接入规则…");
                 await new Promise((resolve) => setTimeout(resolve, 0));
+                if (!isCurrent()) throw new UiCommandCancelled("项目已切换，原提交尚未开始。");
             }
             let result;
             if (!PLAN_SUBMISSION_COMMANDS.has(command)) {
@@ -7824,10 +7839,18 @@ return this.testTunnel(true);
                 try { result = await this.runActionCommandLeased(command, message); }
                 finally { this.planRetryInFlight.delete(key); }
             }
-            if (noticeKey) this.finishOperationProgressNotice(noticeKey, this.submissionNoticeTone(message, result), this.submissionNoticeText(message, result));
+            if (noticeKey) {
+                if (isCurrent()) this.finishOperationProgressNotice(noticeKey, this.submissionNoticeTone(message, result), this.submissionNoticeText(message, result));
+                else {
+                    const status = String(result?.status || "");
+                    const text = ["completed", "failed", "cancelled", "submitted"].includes(status)
+                        ? `${status}：${String(result?.message || status)}` : "项目已切换，原操作结果尚未确认。";
+                    this.finishOperationProgressNotice(noticeKey, "cancelled", text, { silent: true });
+                }
+            }
             return result;
         } catch (error) {
-            if (PLAN_SUBMISSION_COMMANDS.has(command) && !isUiCommandRemotePending(error)) {
+            if (isCurrent() && PLAN_SUBMISSION_COMMANDS.has(command) && !isUiCommandRemotePending(error)) {
                 const submission = this.localOperations[this.planSubmissionOperationId(message)];
                 if (submission && !["succeeded", "failed", "cancelled", "queued"].includes(String(submission.status)))
                     this.finishPlanSubmissionProgress(message, isUiCommandCancelled(error) ? "cancelled" : "failed", errorMessage(error));
@@ -7835,7 +7858,7 @@ return this.testTunnel(true);
             if (noticeKey) {
                 const cancelled = error instanceof UiCommandCancelled;
                 this.finishOperationProgressNotice(noticeKey, cancelled ? "cancelled" : "failed",
-                    error instanceof Error ? error.message : String(error));
+                    error instanceof Error ? error.message : String(error), { silent: !isCurrent() });
             }
             throw error;
         }
@@ -8252,11 +8275,13 @@ return this.testTunnel(true);
     beginOperationProgressNotice(command, message) {
         const key = this.operationNoticeKey(message);
         if (!key || this.operationNoticeSessions.has(key)) return;
+        const projectContext = this.captureProjectContext();
+        const isCurrent = () => this.projectContextIsCurrent(projectContext);
         const planFile = String(message?.planFile || message?.planId || message?.selectedPlanId || "").trim();
         const title = `${OPERATION_NOTICE_TITLES[command] || command}${planFile ? `：${planFile}` : ""}`;
         let resolveDone;
         const done = new Promise((resolve) => { resolveDone = resolve; });
-        const session = { title, progress: undefined, reports: [], closed: false, done, finishResolve: resolveDone };
+        const session = { title, progress: undefined, reports: [], closed: false, done, finishResolve: resolveDone, isCurrent };
         this.operationNoticeSessions.set(key, session);
         // One notification for the whole operation. The completion promise and the
         // bounded stage buffer exist BEFORE the host may invoke the withProgress callback:
@@ -8303,12 +8328,14 @@ return this.testTunnel(true);
         }
         const label = `SimpleExperiment ${session.title}${text ? `：${text}` : "已完成。"}`;
         this.logOperationFact(label);
-        // r46 A：仅跳过终态弹窗（session 删除、done 释放与完整日志照旧）；只由身份失效清退等待这一条通路使用。
-        if (options?.silent) return;
+        // 过期或清退仅静默终态；原会话释放、完整日志和回调的项目检查仍保留。
+        const isCurrent = session.isCurrent;
+        if (options?.silent || !isCurrent()) return;
         const viewLog = "查看日志", openPanel = "打开面板";
         const prompt = tone === "succeeded" ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
         void Promise.resolve(prompt.call(vscode.window, label, viewLog, openPanel))
             .then((choice) => {
+                if (!isCurrent()) return;
                 if (choice === viewLog) this.showOperationLogFromUi();
                 else if (choice === openPanel) return this.openPanelAt("execution");
             }).catch(error => this.logOperationFact(`原生通知操作失败：${String(error?.message || error)}`));
@@ -21076,6 +21103,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         void vscode.window.showInformationMessage(`Plan 已恢复为独立版本 v${planVersion}：${restoredFile}；输出使用 ${outputNamespace} 命名空间，结果写入独立 Plan 范围。已恢复配置 ${restoredConfigs} 个、环境清单 ${restoredEnvironmentFiles.length} 个、参数资料 ${restoredParameterFiles.length} 个；缺失配置 ${missingConfigs} 个、环境清单 ${missingEnvironmentFiles} 个、参数资料 ${missingParameterFiles} 个。已自动切换到 Plan 工作台，可先检查恢复内容，再执行“校验并提交运行”。`);
     }
     async runAllPlansFromUi(message = {}) {
+        const projectContext = this.captureProjectContext();
         // One Notification for the whole batch; per-plan submisions route into it
         // through parentClientActionId instead of opening their own.
         const parentKey = this.operationNoticeKey(message) || `run-all-${Date.now()}`;
@@ -21085,7 +21113,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const result = await runAllPlans(this, noticeMessage);
             const status = String(result?.status || "").toLowerCase();
             const tone = status === "cancelled" ? "cancelled" : status === "failed" ? "failed" : "succeeded";
-            this.finishOperationProgressNotice(parentKey, tone, String(result?.message || ""));
+            const text = !this.projectContextIsCurrent(projectContext) && !status
+                ? "项目已切换，原批量操作结果尚未确认。" : String(result?.message || status || "");
+            this.finishOperationProgressNotice(parentKey, tone, text);
             return result;
         } catch (error) {
             this.finishOperationProgressNotice(parentKey, error instanceof UiCommandCancelled ? "cancelled" : "failed",

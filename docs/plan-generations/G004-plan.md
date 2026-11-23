@@ -94,7 +94,7 @@ SFTP api末静态case校正槽cap 0/2/0及禁止auto-expiry caller，stagedSlotL
 
 新dist datasetResultCatalog仅 ^active writer, catalog, opening and splitting bind dataset keys and the configured root$ 原20秒一次。root核完整case/scenario/top-level/writer/catalog链：私有TEMP真PLAN/JSON/CSV/MD/拆表写、flush/rename及Windows named-pipe开闭，fixture保留；Worker/SFTP/UI假端，无真项目/网络/删除，不跑stress全file/另一plan_file case，source fake不冒新dist。
 
-共用UI五方法已审：funnel/PLAN action/direct runAll守原context，失效PLAN无明确返回只记unknown、明确事实保；yield后未发先拒。begin绑定原session owner，finish先释放/完整日志，再按必有session.isCurrent静默/通知及守延后回调，无外部覆盖/可选绕过。4605148c literal8/8、2734.9677ms、exit0/no session/skip0，root核7075/a408原事件、legacy ca1d/test ac725及事后日志92af；真实五方法AST＋fake work/UI/Map/timer/deferred，无真任务/网络/FS写/新dist。四域同identity登记；必要消费者准备未齐，生产6file/build/提交仍关闭，列表P0另保。
+共用UI五方法已审：funnel/PLAN action/direct runAll守原context，失效PLAN无明确返回只记unknown、明确事实保；yield后未发先拒。begin绑定原session owner，finish先释放/完整日志，再按必有session.isCurrent静默/通知及守延后回调，无外部覆盖/可选绕过。4605148c literal8/8、2734.9677ms、exit0/no session/skip0，root核7075/a408原事件、legacy ca1d/test ac725及事后日志92af；真实五方法AST＋fake work/UI/Map/timer/deferred，无真任务/网络/FS写/新dist。必要消费者五批准备齐，root核0fc30三HEAD/index与两批范围；准生产6file（仅五方法、新test、四域manifest、三docs）scoped同步，索引五AST/测试须与4605148c实测同，不夹其它legacy/列表/Panel/slot。源输入ca1d含别候选，索引whole另记，不冒newdist/treeconfirmed；build仍关闭。
 
 首组8062f5c0同步/root三HEAD/index实核：action两VM/debug/manual补context，jobUnavailable原有不动。29f28a31正向41/dc97c8a2全1/de97cfa0全4均literal exit0/no session/skip0，root核原事件/事后日志3950/f129/a5bb、test a196/b078/6b5f。实测legacy77c5→仅yield847c，逆转精确同，仅三行适用、原77c保，后续owner/runAll未桥接；action其余43依赖同，Panel8af7/fixture/legacy为实际输入。3test+三docs兼容旧HEAD，未夹生产/保护。
 
@@ -102,6 +102,6 @@ SFTP api末静态case校正槽cap 0/2/0及禁止auto-expiry caller，stagedSlotL
 
 第三准备组ac15 tmux全1/e8b6 stop精确2/7e5f preflight精确1均literal exit0/no session/skip0，root核六原事件与事后日志cdf6/7382/8752、实际legacy ca1d及仅context接口diff，01e4dae1已同步/root三HEAD/index及7file范围实核；后两不冒full。stop collection为既有私有TEMP真PLAN及结果发布/rename/flush/named-pipe、fake Worker/SFTP，fixture保，无删除/真项目。Speed文件624–683为pending正确性而非性能门限修改，仅补固定context，原时间/断言不动；新dist后仅该精确case，现不跑。四fixture+三docs7file先核事件再同步；Notice/ResultSync和混合Panel/StopClear另批。
 
-第四组Notice三host/ResultSync首三context-session hunk已源审，root核eddc/db8f nodecheck exit0，准2test+三docs5file scoped同步；ResultSync槽hunk不夹，索引独立核语法/范围。第五组PanelMessageDispatch/StopClear仅真实RETIRE slice与context，root核24725两nodecheck exit0，另2test+三docs5file准同步。均非旧dist行为通过，原旧full漂移保历史；新dist后Notice full、ResultSync原full、Panel全21及StopClear原outcome精确1各20秒一次。
+第四组Notice三host/ResultSync首三context-session hunk已源审，root核eddc/db8f nodecheck exit0，fdcfb03a五file已同步，ResultSync索引a252仅三hunk且nodecheck0、槽未夹。第五组PanelMessageDispatch/StopClear仅真实RETIRE slice与context，root核24725两nodecheck exit0，0fc30c95四file已同步（plan无变化不空改）。均非旧dist行为通过，原旧full漂移保历史；新dist后Notice full、ResultSync原full、Panel全21及StopClear原outcome精确1各20秒一次。
 
 终点路线：现行入口/增量证据收敛→真实最小build及批准的新dist消费者→实查新patch同步package/lock/runtime/write-agent-runtime→单次package max1核exit/gates/input=end/selection/artifact/lock/P0/包闭包秘密README/平台版本SHA→scoped源/生成物FF同步、receipt保原HEAD→immutable试行tag及VSIX/UTF8 sha资产，prerelease=true/latest=false，核远端digest/隔离下载/真实更新客户端不降级权威→每目标版install:latest一次，无force/降级、同版skip→核安装/MCP入口后停面板等用户Reload→专用根新Host真实安全本地UI/MCP→统一交付。root审完整包再给精确验证/同步决定；母集区分已审/未审/外部受限，不复活退役。源码、包、Release、安装、Host/远端状态分开，不部署Agent，不把fake冒真Worker；整项达终点才结案，局部问题不停止其它授权工作。

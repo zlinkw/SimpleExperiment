@@ -85,7 +85,7 @@ UI状态funnel准备批三fixture只补项目context接口，原断言不变；a
 
 UI状态funnel和PLAN通知候选按原项目绑定晚到状态及延后交互，过期只留原事实日志；无明确PLAN终态记unknown，原key进度仍释放。原full8 call_4605148c8afb4006ba83b3543fbd4c06 8/8、2734.9677ms、literal exit0/no session/skip0；五真实方法AST配fake工作/UI/定时器，无真实任务/网络/写文件，事件与事后日志见coverage。新fixture四域登记待与生产同批；其余源码及新dist消费者尚需补接口和审查，不冒完整UI或新build通过。
 
-第二准备批四fixture补原context接口，whitelist full9、runtime精确2、selected精确2、SFTP能力精确1，均literal exit0/no session/skip0，完整事件/argv、未提交ca1d执行输入与事后日志见coverage；假端、无真Worker/网络/文件写，不冒其他case或新dist。三旧完整fixture身份因测试变化降历史。TS静态枚举证选项不匹配祖先、SIMPLE_RETRY_BASELINE未设置；首只读rg引号触发PowerShell ParserError，纠正后枚举成功。总控计划首候选16466写前exit1，压缩后阈值通过；非测试失败。
+第二准备批whitelist full9、runtime精确2、selected精确2、SFTP能力精确1均literal exit0，实际输入、假端限制、事件、旧证及首只读错误见 `01e4dae1:docs/plan-generations/G004-execution.md` 和coverage，不冒新dist。
 
 第三准备批四fixture仅补context接口；tmux full1、stop精确2、preflight精确1均literal exit0/no session/skip0，原事件、实际ca1d输入与事后日志见coverage。stop含真实私有TEMP结果写、flush/rename及named-pipe，fixture保留；Worker/SFTP为fake。Speed仅node --check exit0，未运行性能case；其原正确性case待新dist精确运行。preflight首补丁落入相似host，在任何测试前发现并移至正确fixture；不冒其他case或新dist通过。
 
@@ -94,3 +94,5 @@ Speed实测工作树23f48e15，索引LF归一后121b3e83，归一文本相同；
 第四准备批Notice三处host与ResultSync前三处fixture/session接口补齐；node --check各exit0，未运行旧dist。ResultSync其他槽逻辑保留工作树不纳本批；新dist后Notice全文件与ResultSync既有全文件范围才可执行，后者含私有目录真实写/rename。只读git rev-parse首次未引用upstream触发PowerShell ParserError exit1，引用后确认三HEAD及upstream一致，非Git变更失败。
 
 第五准备批PanelMessageDispatch及PlanStopClear从真实dist提取退役命令常量并补原context接口；两文件node --check exit0，原权限/取消/停止断言保留，未运行旧dist。新dist后按已准full21及stop-clear精确1执行，非已完成编译或真实面板验证。
+
+UI funnel生产批仅五方法及focused/四域注册同步；原full8实际运行树legacy ca1d，索引仅五方法的候选84e7，不冒同一whole或新编译。新旧项目进度始终释放且迟到提示绑定原项目，未知PLAN仅记录事实；首事件与fake效果见coverage。列表/slot/Panel仍待各自门禁。
