@@ -25066,10 +25066,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         }
     }
     // check-static 最新报告：simple_cluster 下属路径属排除前缀（plan 扫描跳过），此处不做排除校验，
-    // 仅经 safeWorkspaceChildPath 做 .. 逃逸拒绝后复用 openWorkspaceFile 打开。
+    // 经 safeWorkspaceChildPath 拒绝 .. 逃逸后，复用绑定原项目上下文的文件打开方法。
     // 支持带参：sync 卡报告区可点击文件名（message.report/message.file/message.name），经 allowlist 校验后打开对应报告。
     async openLastCheckStaticReportFromUi(message) {
-        const root = workspaceRoot();
+        const context = this.captureProjectContext();
+        const root = context.root;
         if (!root)
             throw new Error("需要先打开工作区。");
         const raw = message && (message.report || message.file || message.name);
@@ -25085,12 +25086,16 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (error?.code === "ENOENT") return undefined;
             throw error;
         });
+        if (!this.projectContextIsCurrent(context))
+            throw new UiCommandCancelled("项目已切换，静态检查报告操作已停止。");
         if (!stat || !stat.isFile())
             throw new Error(`静态检查报告不存在：${rel}（即 ${CHECK_STATIC_REPORT_REL_PATH}），请先运行 npm run check:static（failed 自动落盘，passed 加 --write-md/--report-md）。`);
-        await openWorkspaceFile(rel);
+        if (!await this.openWorkspaceFileForProjectContext(rel, context))
+            throw new UiCommandCancelled("项目已切换，静态检查报告操作已停止。");
     }
     async copyLastCheckStaticReportFromUi() {
-        const root = workspaceRoot();
+        const context = this.captureProjectContext();
+        const root = context.root;
         if (!root)
             throw new Error("需要先打开工作区。");
         const rel = CHECK_STATIC_REPORT_REL_PATH;
@@ -25099,10 +25104,15 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (error?.code === "ENOENT") return undefined;
             throw error;
         });
+        if (!this.projectContextIsCurrent(context))
+            throw new UiCommandCancelled("项目已切换，未复制静态检查报告。");
         if (!stat || !stat.isFile())
             throw new Error(`静态检查报告不存在：${rel}（即 ${CHECK_STATIC_REPORT_REL_PATH}），请先运行 npm run check:static（failed 自动落盘，passed 加 --write-md/--report-md）。`);
         const text = await fs.readFile(full, "utf8");
+        if (!this.projectContextIsCurrent(context))
+            throw new UiCommandCancelled("项目已切换，未复制静态检查报告。");
         await vscode.env.clipboard.writeText(text);
+        if (!this.projectContextIsCurrent(context)) return;
         void vscode.window.showInformationMessage(`已复制静态检查报告（${rel}，${text.length} 字符）`);
     }
     async runCheckStaticFromUi() {

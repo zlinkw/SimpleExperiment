@@ -62,8 +62,7 @@ SFTP cleanupExplicitTarget经总控效果审查后原单文件VM假端1/1、exit
 send原消费者经效果审的精确选择依次1/1、2/2、1/1、2/2、2/2，均exit0且无超时，日志 `%TEMP%/g004-send-{handoff,truth,identity,proof,native}-v1-20261124.{out,err}.log`；仅源码VM/假端，非整文件或新dist。sync上传、后台清理及实际SFTP发送围栏已源审；后续源码变化不自动继承旧测试。
 
 
-草稿整体退役漏口F：取消metadata后台reconcile，旧API/invoke/UI拒绝并从现行MCP目录移除6项；历史文件、数据与旧测试事实保留。原mcpDraftContracts当前拒绝契约假端5/5、exit0，日志 `%TEMP%/g004-draft-retirement-v1-20261124.{out,err}.log`；源码5文件已审并同步 `94a9a0c1`。mcpProject单项待新dist；当前catalog131是源码事实，不改520历史。受影响mcpActionCatalog等价假表更新后1/1、exit0，日志 `%TEMP%/g004-mcp-action-retired-v1-20261124.{out,err}.log`，同步 `88b351a6`。两次Process包装结果非ordinary direct，最终按原单文件runner fresh候选，未构建；临时draftRetirementBoundary文件保留未登记。原旧draft三case对应退役目录、RPC拒绝及路径/grant零效果，不伪称旧行为继续通过。一次只读rg误取不存在test/mcp路径exit2；runner证据AST误定位及本记录首压缩超阈值均写前exit1，无产品/Git影响。
-
+草稿退役F及反向消费者：源码94a9a0c1/88b351a6，历史路径与失败保留；退役拒绝假端5/5、catalog 1/1均Process包装，最终runner及新dist项另待，临时draftRetirementBoundary不stage。原日志、已退役旧测试限制及只读/写前失败见 `385b94d5:docs/plan-generations/G004-execution.md` 与coverage，不恢复草稿业务。
 
 派发消费者夹具绑定原项目context：manualLaunchMessage独立同步 `1b3d44a7`；gpuMemory、gpuQuota各原精确1/1 exit0，日志 `%TEMP%/g004-manual-context-{memory,quota}-v1-20261124.{out,err}.log`。原4文件全量旧证仅按审定闭包条件适用，未新跑WSL或整个GPU文件。workerPreparationPipeline两处等价夹具同步 `2213f8d6`，原完整8/8 exit0，日志 `%TEMP%/g004-worker-preparation-context-v1-20261124.{out,err}.log`；均内存fake/Process包装，最终runner同身份fresh按批准候选，未执行真实Worker或新dist。
 
@@ -97,3 +96,7 @@ actionLifecycle三个源码VM夹具漏抽F退役常量，候选仅提取真实�
 actionLifecycle首次负向筛选因Node匹配祖先文件而误跑49项、47通过2失败及8项退役case，真实call_bd25aac30e03459c87c7f59af19b211c、exit1及原输出保coverage；总控明确筛选责任。修两fake并用已审正向pattern，literal direct call_dfd352dfc6be420a825781de13c474b7 41/41、exit0、无skip/session，八旧业务未运行；旧dist消费者仍旧编译。两日志均从原事件事后提取，旧49 wrapper降历史，精确输入及SHA保coverage。
 
 SFTP能力描述旧断言修为过期只读/永久双确认；精确case call_f4cf3bcdf3f941bfa0585d02a22b2cd2 1/1 exit0，无SSH/删除/监听。两测试文件已scoped同步953fba2a，三HEAD一致；非完整api文件或新包。compression旧119七case仅条件适用，其余两项及73文件整体不冒通过，日志与条件见coverage。
+
+报告项目切换：真实两入口与context opener假端新full5/5、原报告错误精确1/1均literal direct exit0，call/完整输出与源码摘要见coverage；仅读源码和fake FS/editor/clipboard，已发效果不冒撤销，新dist未build。新identity首次误插jobs而非currentTargetedEvidence，登记脚本写前exit1后已移至正确数组；未改旧证。总控plan归并首14919未达自设14500写前assert失败，后成功，无额外文件。
+
+报告批首次零上下文暂存误落其他方法，索引AST核对失败，未提交；只撤自己legacy暂存，改三段带上下文补丁后五方法索引/工作树AST相同。首脚本误判应为两段，写前退出，改三段成功；工作树未受影响。

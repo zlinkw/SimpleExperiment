@@ -32,10 +32,11 @@ test("report opening and copying keep permission errors distinct from missing fi
   const globals = { workspaceRoot: () => "project", safeWorkspaceChildPath: (_root, file) => file,
     CHECK_STATIC_REPORT_REL_PATH: "simple_cluster/check_reports/check-static-latest.md", CHECK_STATIC_REPORT_DIR_REL: "simple_cluster/check_reports",
     fs: { stat: async () => { throw failure(code); } } };
+  const host = { captureProjectContext: () => ({ root: "project" }), projectContextIsCurrent: () => true };
   for (const name of ["openLastCheckStaticReportFromUi", "copyLastCheckStaticReportFromUi"]) {
     const run = vm.runInNewContext(extract(name, true), globals);
-    code = "EACCES"; await assert.rejects(run.call({}, { report: "check-static-test.md" }), /EACCES/);
-    code = "ENOENT"; await assert.rejects(run.call({}, {}), /报告不存在/);
+    code = "EACCES"; await assert.rejects(run.call(host, { report: "check-static-test.md" }), /EACCES/);
+    code = "ENOENT"; await assert.rejects(run.call(host, {}), /报告不存在/);
   }
 });
 

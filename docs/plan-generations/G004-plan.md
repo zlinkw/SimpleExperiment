@@ -52,37 +52,21 @@ CLI精确删除首拒/成功、B1 timeout后特批唯一3/3、TS7.0.2/emit、通
 
 ## 当前修复状态与完整包审查
 
-CSV4d7df6d2/8ed64825修预览映射/0/空metrics，6/6及两次5/6保。render真实RAF回原heartbeat ACK、Host pending保stalled；特批offscreen修后13/13、Host6/6，原11/13/unknown/隐藏代次/消息写次数保6117fd49/execution。Panel尚无新P0build/render VM，不提交或冒UI通过。
+完整负责链/精确case、文件数、耗时和首失败取385b94d5/60c8b277前版本本节、6117fd49/execution，不重开审计或冒所有独立caller已闭合。CSV4d7df6d2/8ed64825修映射/0/空metrics，6/6及两次5/6保；render真实RAF回原heartbeat ACK、Host pending保stalled，特批offscreen修后13/13/Host6/6，原11/13/unknown/隐藏代次/消息写次数保。Panel无新P0build/render VM，不提交/冒UI通过。
 
-停止固定原project/client和明确归属，do/while排干localOperations再核；失败零POST、unknown留stopIntent仅原ID查，不猜Worker/force重发/触B。召回9412b48c仅queued，互斥RPC/能力/原ID取消围栏及完整proof/窗口消失，旧端拒绝、不stop回退。原12/12、v4 14/14、v2 13/14/v3旧输入、Host16/16/Python抽函数假tmux1/1均保execution；未真停止/build。
+停止固定原project/client/明确归属，do/while排干localOperations再核；失败零POST、unknown留stopIntent仅原ID查，不猜Worker/force重发/触B。召回9412b48c仅queued，互斥RPC/能力/原ID围栏/完整proof/窗口消失，旧端拒绝、不stop回退。原12/12、v4 14/14、v2 13/14/v3旧输入、Host16/16/Python抽函数假tmux1/1保，无真停止/build。缓存7845afea/隔离0275a980按confirmed_paths去历史资格，保节点/根父/./叶名/固定类型指纹/链接/双确认；同文件lease/beforeRename及reserve/admit/receipt/close/settle防重，TTL/缺文件/owner消失不证退出，旧pwsh/身份遗失仍unknown，不称OS原子。原缓存11/StateStore1/消费者2+3、隔离v11 12+1/首v10 11/12假端保；新dist仅原Map case，禁整world。
 
-缓存7845afea/隔离0275a980按confirmed_paths去历史资格，保节点/根父/./叶名/固定类型指纹/链接/双确认。同文件lease/beforeRename、reserve/admit/原IDreceipt/close/settle防重；缺文件/TTL/owner消失不证退出，Host重启旧pwsh无完成接口及旧身份遗失仍unknown，不称OS原子。原缓存11/StateStore1/消费者2+3、隔离v11 12+1/首v10 11/12假端证据保6117fd49/execution。未build，新dist仅原Map case，禁整world。
+暂存槽去隐式永久删/自动expiry：reserve原source/token/node/root/paths，隔离后parent preview及两次完整永久路径确认，admit→原token delete→matching receipt ack/close/settle。unsent可再审、prePOST失效unadmit、已发unknown仅原status，ended/openfalse可续settle；expiry只读发现能力0/2，无自动隔离/确认/删除。SFTP1ed12173假auth3/expiry3/batch精确10已审同步；SE真实方法＋fake v4 10/10未提交，stagedSlotDeleteReview/test/manifest须同源码批，禁缺文件HEAD。固定包装13284446不任意eval/不冒最终锚定argv，无真效果/5000项。
 
-暂存槽去隐式永久删/自动expiry：reserve原source/token/node/root/paths，隔离后parent preview及两次完整永久路径确认，admit→原token delete→matching receipt ack/close/settle。unsent可再审、prePOST失效unadmit、已尝试unknown仅原status，ended/openfalse可续settle。自动expiry只读发现，能力0/2，无自动隔离/确认/删除。SFTP1ed12173已源审同步，假auth3/expiry3/batch精确10通过；SE真实方法＋fake后端v4 10/10未提交。stagedSlotDeleteReview/test/manifest必须随源码同批，禁缺文件HEAD。历史固定包装13284446不任意eval，未锚定1/1不冒最终argv；详情execution，无真效果/5000项。
+相邻Git/Plan恢复/模板/提交取消恢复/共享配置/整组校验/Worker删除重核/动态endpoint已审组取cee2e38d/execution，不冒真实Git/Worker/删除/build。接受点workflow_submission started:true，非enqueue；只接受前重核experiment/sync/agents，已有op resume不改，已接受任务不因撤权取消，不插共享WorkerPreparation/tick/新caller账本，旧拒专项不重放，五类授权不绑Worker。
 
-相邻Git同根备份/覆盖/archive、Plan恢复仅ENOENT、模板发布前原项目围栏、提交取消恢复/失败重排、共享SFTP config/整组校验/Worker删除重核/动态endpoint等已审同步组，精确提交与首失败见cee2e38d本段及execution；只按原闭包/日志适用，不重跑或冒真实产品Git/Worker/删除/build。
+MCP170fd06e取消remote.listDirs无条件confirm，保sync授权/精确根/合法相对路径，Gateway18+VM3。SFTP cancel28087f3核双ID/instance/await后原controller/归属/settled，8+settlement3/首2/4保；handoff d4ed002同目标确认/上传/marker，MCP upload:true，不写sftp.json；b3da0b5在效果前拒坏saved scope，保UI/API默认全量及paths/filter，3+Gateway1+范围1+workspace4。均fake，冻结请求不检测对端后变，待新包。JobAvailability702acec8/e8edf782守mkdir/beforeRename/原recall，A成功不发布/tickB、observer原root筛，v2 save内存1+可用性精确3/首manifest失败保；retry/PlanCodeScope dde958c5/8f04bd1f守原身份/lane，helper1+重排5；Production/Coverage只签名未跑，ProjectFileIndex共享signal/reset先abort保。
 
-工作流接受点是本机workflow_submission started:true，不是enqueue；只在接受前重核experiment/sync/agents，已有op resume不改。已接受工作不因撤权自动取消，不插共享WorkerPreparation/后续效果/tick，不新增caller授权账本，旧拒专项不重放。五类文档不恢复Worker绑定。
+A传输874afe1a、B同步d468b90a、C后台清理095a1fb8、D1替换9ddfea37、D2六fake eab4c1f4、D3手动5ca4c0ca、E清理16ade9d3已源审FF同步，未夹slot/Panel/stop/result/六dist。原context/client/targets、reservation batchId/自有finally，A事实先保存、不发布/tickB；能力等待/实际POST/可证notStarted重发前守caller，只有零POST标sftpNotStarted。tails实际出队/逐cancel、上传回调/索引baseline/等待/finally守原集合，无caller契约不变、不取消合法共享读；autoDelete逐迁移/status/未发组/空父发送守caller。E observing(id)排队读/普通共享、失败不取消下一轮，Context fake8/8、506.8637ms/Process子外0未走generic；generic只明确notStarted回pending，unknown executing。全部首竞态/丢事实/缺AbortController/warmProof及其它失败保原证；不冒fastdelete/restore/history全caller闭合/整文件/真Worker。
 
-MCP170fd06e取消remote.listDirs无条件confirm，保sync授权/精确Worker根/合法相对路径，Gateway18+VM3。SFTP cancel28087f3核双ID/instance及await后原controller/归属/settled，8+settlement3、首2/4留。handoff d4ed002同目标确认/上传/marker，MCP upload:true，不写sftp.json；b3da0b5在效果前拒坏saved scope，UI/API默认全量与paths/filter保，3+Gateway1+范围1+workspace4。均假端，冻结请求不检测对端后变，未真传输/取消/部署，待新包；原证execution。
+D消费者manualLaunchMessage仅context接口，配额/三消息保，memory/quota精确各1/helper1b3d44a7；workerPreparation取消文案/末context，8/8、2213f8d6同步。94/95/103仅已审分支，无WSL/Worker；saveSchedulerConfig同合法输入等效非字节同，包装非ordinary direct。新dist仅manualDispatchHost full11、distributedPlanExecutionMode前三validated模式及五隔离原精确case，不整world。
 
-JobAvailability702acec8/e8edf782守mkdir/beforeRename/原recall，A成功不发布/tickB、observer原root筛，不称OS原子；v2 save内存1+可用性精确3，首manifest失败保。retry/PlanCodeScope dde958c5/8f04bd1f守原身份/lane发送，helper1+重排5；Production/Coverage只签名未跑。ProjectFileIndex共享signal/reset先abort保；完整闭包/首失败取6117fd49/execution。
-
-派发/替换当前源审方向：原context/client/targets、reservation batchId及finally自有集合，A成功事实不发布/tickB；send在consent前捕原身份，隔离回执先保存，lane/对话道实际出队校验，metadata主读取与持久化后分别守发布边界。PlanRun connectionKey保实际目标语义；健康probe不换client不取消manual，实际resetClient/端点更改取消。共享已受理A固定client/精确身份只读可收尾，回调不发布B，不全局取消或中止其他合法订阅。
-
-A传输874afe1a、B同步d468b90a、C后台清理095a1fb8、D1替换9ddfea37、D2六fake eab4c1f4、D3手动队列5ca4c0ca已源审FF同步/核三HEAD/index，未夹slot/Panel/stop/result/六dist。原caller贯通同步租约/实际出队tails/逐cancel/上传回调proof；accepted先存原ID再挡未发，能力等待/POST/可证notStarted重发前核，只有零POST可标sftpNotStarted。索引baseline/等待/finally守原集合，不抹A回执/触B/增旁路；无caller契约不变。autoDelete逐迁移/status/未发组/空父发送守caller，保双确认与路径安全。完整负责链、文件数、各精确case/耗时及首失败取6117fd49/execution。
-
-A–D原20秒仅假端/静态精确证据，均真实exit0无timeout；dispatch正则/v2缺AbortController、codeSync缺warmProof首失败及夹具纠错全部保6117fd49/execution。旧v1/v2输入区分，不冒整文件、真Worker或当前整链。
-
-待新dist必做许可不变：manualDispatchHost原11项单文件一次；distributedPlanExecutionMode仅前三种validated mode精确case；更早resultSync/slot及五隔离消费者照原精确限额。当前未compile，不跑旧dist冒当前源码；D源码VM/静态验证与最终编译消费者是独立状态。
-
-D反向夹具manualLaunchMessage仅原context接口，配额/三消息保，memory/quota精确各1、helper1b3d44a7；workerPreparation仅取消文案/末context，8/8，2213f8d6已同步。包装双exit0/耗时/日志见6117fd49/execution；94/95/103仅已审分支，无WSL/Worker。saveSchedulerConfig同合法输入等效非字节同，包装非ordinary direct。
-
-MCP旧证纠错：recentLogsFor先live.output，7夹具generic错误不继承，撤回6错误依据保历史。fake仅此能力抛-32601，其它RPC仍throw，原断言不减；7文件38项exit0/8d356e69，QuerySchema4/4、696.2524ms/b11a66a3已同步核三HEAD。无生产/网络/删除；Native非full list/status白名单不变。JS循环实际通过不冒ordinary direct，Active/Query literal可接入。
-
-F反向消费者缺真实RETIRED_DRAFT_COMMANDS已补：四source夹具仅抽真实常量、原断言保，debug1/manualNetwork4/jobUnavailable10/whitelist9均literal direct exit0，565c2b20普通同步三HEAD一致。panelMessageDispatch及planStopClear仍为两新dist候选，未编译；准新compile后前者原21项单文件、后者仅^handleMessage posts the real stop-clear outcome for failed, cancelled, and completed$原20秒一次。完整模块加载的resultCatalog无该缺口。projectCodeSyncState精确16bbee为当前0df10641夹具7/7，不是已撤回94d9的d287；两VM片段与702acec8及其parent相同，仅更新已审legacy适用，不新增第16fresh。交接文档6117fd49；旧执行归档导致原rollout路径缺失后已立即反归档恢复，保8条引用原路径/字节，旧chat暂不归档，失败及撤回留execution。
-
-E七文件16ade9d3已审同步未夹slot；caller贯通隔离预览/确认/预检/status/实际SFTP、Manifest原client/索引。observing(id)排队后读/普通共享、失败不取消下一轮，A receipt先save；首竞态/丢事实返修保。Context v1 fake8/8、506.8637ms/Process子外0/stderr空，未走generic hunk；generic只明确notStarted回pending，未知executing。非全部fastdelete/restore/history闭合，world/build受限；详情6117fd49/3f4b9925/execution。
+MCP recentLogs纠错：先live.output，7夹具generic错误不继承，撤回6错误依据保历史；fake仅此抛-32601，其它RPC仍throw，断言保。7文件38项exit0/8d356e69、QuerySchema4/4/696.2524ms/b11a66a3同步三HEAD核实，无生产/网络/删除；Native非full白名单不变，JS循环非ordinary direct。F四source夹具真实RETIRED_DRAFT_COMMANDS已补，debug1/manualNetwork4/jobUnavailable10/whitelist9 literal exit0、565c2b20同步，resultCatalog完整模块无该缺口。panelMessageDispatch full21/planStopClear精确outcome仅新compile后20秒一次。projectCodeSyncState为16bbee/current0df10641的7/7，非撤回94d9/d287；两VM与702及parent同，只更新legacy适用、不加fresh。旧执行归档曾破坏8引用，已反归档恢复原路径/字节，不盲归档。
 
 ## 增量构建、最终路线与终点
 
@@ -110,4 +94,6 @@ SFTP api末静态case校正槽cap 0/2/0及禁止auto-expiry caller，stagedSlotL
 
 最终稳定HEAD/输入后，planning289原精确pattern唯一fresh一次，新runner仅锚定 ^runner: G004 staged slot fixed wrapper evidence$ finalfresh。新dist后resultSyncFailureVisibility及jobArtifactStagedSlotIdentity原20秒各单文件一次；五旧隔离消费者仅指定case不整world。F的mcpProject仅锚定 ^routine cleanup queries need no extra Codex prompt$ 新dist后20秒一次：私有mkdtemp保留/假端/配置生成读新目录，无网络删除；适配断言随F提交不冒当前已验。Panel须真build＋模块/真实渲染脚本VM/node-c、10890零命中，未经门禁不提交。其余动态先审效果。
 
-下一动作：唯一执行持续查修现行单项目入口，当前完整包由总控核真实diff/负责链/反向消费者及fake效果后一次给精确验证与scoped同步决定；母集精确区分当前已审、未审、仅外部受限，不复活退役。逐项收敛SE/SFTP增量证据→实际最小build及批准的新dist消费者→确定新patch同步package/lock/runtime/稳定write-agent-runtime→单次集中package max1并核actual exit/gates/input=end/selection/artifact/lock/P0/包闭包秘密README/平台版本SHA→scoped源及生成物FF同步，诚实保receipt原HEAD绑定→immutable试行tag/prerelease=true/latest=false、精确VSIX/UTF8 sha资产/远端digest隔离下载/真实更新客户端不降级权威→每目标版install:latest一次，无force/降级，同版skip→核安装/MCP入口后停面板等用户Reload→专用根新Host身份下真实安全本地UI/MCP验收→统一交付。源码push、包、Release、安装、Host/远端部署各状态独立；不部署Agent，不把本地fake通过冒真实Worker完成。整项达此终点才结案，局部问题不停止其他授权工作。
+报告批：openLastCheckStaticReport:1/:2、copyLastCheckStaticReport:1已源审补原projectContext及既有opener，copy在stat/read后、发clipboard前守原身份，已发后只挡B通知，不称撤回/原子；合法报告名/EACCES/EIO/ENOENT保。新focused真实五方法AST＋内存FS/editor/clipboard，2f3e0e72 full5/5、656.1133ms；旧错误夹具3f7f31a8精确1/1、663.5093ms，均literal exit0/no session/skip0，root亲核原事件/日志SHA，四Draft未运行。fake stat缺isDirectory在跑前源审纠正，首文案不冒未打开；两方法+旁注/两test/manifest四新注册及三文档准scoped批（7files），其余legacy/slot/Panel/六dist不夹。未新build/实机，当前待真实Git。task_list真实接线＋0f150d/d8e465旧证足够本地契约，不加重复测试/冒单链或真Worker；随必要批登记。SE385b94d5三HEAD root已核；direct日志%TEMP%误路径改真实绝对、原字节/SHA不变，随本批同步。
+
+终点路线：现行入口/增量证据收敛→真实最小build及批准的新dist消费者→实查新patch同步package/lock/runtime/write-agent-runtime→单次package max1核exit/gates/input=end/selection/artifact/lock/P0/包闭包秘密README/平台版本SHA→scoped源/生成物FF同步、receipt保原HEAD→immutable试行tag及VSIX/UTF8 sha资产，prerelease=true/latest=false，核远端digest/隔离下载/真实更新客户端不降级权威→每目标版install:latest一次，无force/降级、同版skip→核安装/MCP入口后停面板等用户Reload→专用根新Host真实安全本地UI/MCP→统一交付。root审完整包再给精确验证/同步决定；母集区分已审/未审/外部受限，不复活退役。源码、包、Release、安装、Host/远端状态分开，不部署Agent，不把fake冒真Worker；整项达终点才结案，局部问题不停止其它授权工作。
