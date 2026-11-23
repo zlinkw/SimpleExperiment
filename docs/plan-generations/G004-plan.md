@@ -12,7 +12,7 @@
 
 总控无独立待办、只等完整包/必要决定时按全局事件协调合法空闲，不循环wait/催进度；执行者有可做工作继续。消息只用于完整阶段包、真实阻断、当前决定和交班/租约，不索纯ack。未知在途先核归属和结果，不重放。
 
-原仓普通Windows工作区，不是Pi/自制容器/项目管理器。master→origin/master，origin=https://github.com/zlinkw/SimpleExperiment.git。已获准的配套仓为D:/GitRepo/MCP/simple-sftp，当前仅取消归属及handoff两项最小修复，不能扩成配套全功能排查。两仓Git严格串行；每组≤3强相关问题/≤8非生成文件，核diff/UTF8/必要检查后scoped普通commit/push/fetch，核HEAD等于上游。不amend/rebase/reset/merge/force/换remote，不stage日志、fixture、旧VSIX摘要或其他无关资产。remote前进/认证/hooks/同步失败停相关Git升级。0aa6b27c后fetch TLS unexpected EOF首exit1及总控一次恢复fetch exit0是精确历史，不是通用重试许可。
+原仓普通Windows工作区，不是Pi/自制容器/项目管理器。master→origin/master，origin=https://github.com/zlinkw/SimpleExperiment.git。配套仓为D:/GitRepo/MCP/simple-sftp；本人最新明确“后续都允许修改SFTP插件的代码”“不需要再向我询问了”，本轮现行UI/MCP相关配套缺陷及必要消费者/回归/试行交付可直接修，不再逐项索跨仓许可。不是另起配套全功能审计或新增功能，全部真实效果/删除/特殊测试禁区仍在。两仓Git严格串行；每组≤3强相关问题/≤8非生成文件，核diff/UTF8/必要检查后scoped普通commit/push/fetch，核HEAD等于上游。不amend/rebase/reset/merge/force/换remote，不stage日志、fixture、旧VSIX摘要或其他无关资产。remote前进/认证/hooks/同步失败停相关Git升级。0aa6b27c后fetch TLS unexpected EOF首exit1及总控一次恢复fetch exit0是精确历史，不是通用重试许可。
 
 禁止实际Worker/服务器/SSH/健康版本探测/准备同步/远端任务或结果查询派发停止/Agent部署/真实传输和取消/永久删除/跨项目效果。项目grant不是本次真实效果许可。共享Worker配置及本人授权不改；不自动切模式/reload/关闭/新profile。本人已许可直接电脑控制，仅专用验收窗口和安全本地交互，不控制稿件窗或抢其输入/剪贴板。startup公开GitHub检查及自然发现注册保留原例外。
 
@@ -84,7 +84,7 @@ render：30秒Host心跳/15秒webview健康期使每次先pending。候选在真
 
 SFTP本仓现行问题：remote.listDirs移除无条件confirm/pathConfirmed，170fd06e用现有项目sync授权/精确Worker根路径而非新modal，fakeGatewayHost18/18+120确认函数VM3/3，未访问服务器；download_paths拒绝绝对/drive/越界输入，保支持相对路径。树/元数据/静态报告等已审项见coverage，不用旧测试全绿冒真实效果。
 
-配套两项本人明确批准：① transfer.cancel A/B错配可能写A取消B。28087f3已同步，仅extension.js和新test/transferCancelIdentity.test.js，写账本前核双ID/instance，等待持久化后重核原控制器/归属、settled原对象；不丢transferId扩大取消、不query-then-cancel冒原子。首2/4失败保留，最终8/8与原settlement3/3均exit0；总控源审通过，另原transferRecovery精确单case和verify-runtime获准，是否已执行见execution。② handoff当前MCP指定Worker被项目config替换，且公开“上传并标记”实际未upload；本人已明确批准两仓最小修复，确认/上传/marker同一指定目标，MCP显式upload:true，原UI/API仅标记仍支持，不写用户sftp.json。均未部署，不执行真实传输/取消。下一空patch实核，统一回归/包/试行/一次安装，不提Latest118、不单项打断Host。当前sftp_from_remote缺失/空/坏scope退根目录tar的静态发现只待核最小负责边界及范围，未获配套新增写入许可，未读取用户scope或下载。
+配套当前修复及持续授权：① transfer.cancel A/B错配可能写A取消B。28087f3已同步，仅extension.js和新test/transferCancelIdentity.test.js，写账本前核双ID/instance，等待持久化后重核原控制器/归属、settled原对象；不丢transferId扩大取消、不query-then-cancel冒原子。首2/4失败保留，最终8/8与原settlement3/3均exit0；总控源审通过，另原transferRecovery精确单case和verify-runtime获准，是否已执行见execution。② handoff当前MCP指定Worker被项目config替换，且公开“上传并标记”实际未upload；本人已明确批准两仓最小修复，确认/上传/marker同一指定目标，MCP显式upload:true，原UI/API仅标记仍支持，不写用户sftp.json。均未部署，不执行真实传输/取消。下一空patch实核，统一回归/包/试行/一次安装，不提Latest118、不单项打断Host。③ 本人已批准sftp_from_remote最小修复，并扩大后续相关SFTP代码授权：此MCP入口缺失/空/坏JSON/读取失败的saved scope应在任何marker查询/SSH/download前明确拒绝，不退根目录tar；原UI/直接API默认全量和显式paths语义保留，合法原范围/filters不削，不读取用户scope或真实下载。当前待实现及小验收，不能再记为待本人跨仓许可。
 
 工作流授权：源审已收窄。先前把未enqueue当未接受的推断撤回；apiWorkflowRun在准备前即记录并返回started:true/workflow_submission。本次只在路由/active await与最终workspace核后、创建新workflow记录前重核当前experiment/sync/agents；已有operationId resume保持原语义。三文件候选/普通MCP和无invocation正路径1/1源审通过；不插共享WorkerPreparation/后续同步/PlanRunReplacement/savequeue/tick/回执，不新增caller权限登记或宣称撤销自动停止已接受工作。docs/mcp-integration授权段改统一五类，不恢复Worker绑定。旧撤权专项不重放。
 
