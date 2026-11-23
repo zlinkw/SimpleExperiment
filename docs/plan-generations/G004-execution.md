@@ -6,9 +6,11 @@
 
 禁止真实Worker、SSH、服务器、tmux、GPU、传输、删除、active results和跨项目；当前仅授权假端和指定单项目本地检查。保护六项旧dirty dist、历史资产和夹具。业务CLI及整个草稿机制已退役，不恢复；39旧源码删除和同步见 `0ff5b277`，旧dist和全局shim保留。原361 active为125历史、235直接、1新运行，6 onDemand未运行；219/284本任务历史超时例外不扩至未来20秒。
 
-520构建绑定 `f66d3694`、13 gates通过，包2919747字节及SHA256 `aaf19107996beae86674b16b6c25f110551e74fb70a6bd545c88d334c9b2cdba`；闭包/Panel/10890通过、20生成物同步、6旧dirty保留。试行tag指向 `7bf49ba84802df56821b098b440b289d3d3eb61e`，非Latest，远端资产一致；唯一安装exit0及DEP0169、shim见 `86e35b7b`。520专用窗口只读UI/MCP、识别及首坐标失败见 `0a662506` 和coverage；未查Worker/GPU/tmux。后续源码未build或部署，520不证明现状。
+520历史交付：构建f66d3694、13 gates通过，包2919747字节/SHA256 aaf19107996beae86674b16b6c25f110551e74fb70a6bd545c88d334c9b2cdba；试行tag绑定7bf49ba8、非Latest，远端资产一致，安装一次exit0及DEP0169；闭包/Panel/10890、专用窗口只读UI/MCP及首坐标失败见 `cee2e38d:docs/plan-generations/G004-execution.md`、`86e35b7b`/`0a662506`和coverage。未查Worker/GPU/tmux；后续源码未build或部署。B1首失败及20秒timeout、TS首exit2、删除policy拒绝、runner OOM/漂移/旧日志覆盖、各夹具失败及恢复、fetch TLS失败及误重复/按需误运行原证据见 `43efb031`；误运行不计覆盖，历史工具链/skip及文件缺口未知。
 
-B1首次失败与20秒timeout、TS首exit2、删除首policy拒绝进程未启、runner OOM/依赖drift/旧日志覆盖、各夹具失败及恢复、fetch TLS失败与恢复、直接作业误重复及onDemand误运行均保留于 `43efb031` 所列具体历史版本与日志，误运行不计覆盖。mcpProjectOps 11/11、windowScope 8/8及freshResultHost特批原限额复验1/1的边界见同记录。历史工具链、skip及文件缺口仍为未知，不冒通过。
+首次新编译后仅按已准原20秒运行resultSyncFailureVisibility、jobArtifactStagedSlotIdentity及planRunIsolateRerun精确项；stage review已注册既有域，v4测试后stop改动不在提取方法内。固定历史Process包装验证器13284446已审，未锚定1/1不冒最终锚定argv；原317/369规划过期，未build。原事件/旧hash未知与日志 `g004-runner-stage-wrapper-v1-20261123.log` 见 `cee2e38d:docs/plan-generations/G004-execution.md` 和coverage。
+
+替换隔离E批 `16ade9d3` 原caller贯通预览/确认/发送/索引，A回执先保存且同ID观察串行；VM假端 `g004-plan-cleanup-context-v1-20261124.{out,err}.log` 8/8 exit0，不证真实删除/CAS或非managed、fast delete/restore/history通用闭包；最终按既有runner fresh。原索引补丁v1误识别hunk头及coverage两次行选择均写前exit1，v2及限定current后成功，另只读rg错误；细节见 `cee2e38d:docs/plan-generations/G004-execution.md`。
 
 合法宽CSV误选long导致0记录，预览现传原文与映射、仅统计有指标记录，显式metric/value、alias和0值原6/6 exit0，日志 `%TEMP%/g004-preview-mapping-zero-20261123.*.log`；首失败见 `18f587b2`。真实RAF同心跳ACK与Host停滞保护候选原11/13失败，修复并按本人批准修夹具后13/13，Host 6/6；日志 `g004-render-probe`、`g004-render-full-current`、`g004-render-host-progress`，均在TEMP且保留。仍须当前build及实际render脚本VM，旧316 job规划已过期。
 ## 当前补充调查
@@ -51,11 +53,6 @@ SFTP共享配置读取和发布围栏假端v1 3/3、v2 4/4、v3 5/5及消费者1
 
 43efb031旧build规划316项/0按需exit0，真实planG004Execution因legacy漂移exit1；两日志 `%TEMP%/g004-build-plan-43efb031-slot-20261123.{out,err}.log` 与 `g004-build-plan-evidence-43efb031-20261123.{out,err}.log` 保留，旧计划不代表当前build。SFTP 73项旧日志及闭包未齐。一次rg脚本通配路径错误未写文件。
 
-2026-11-23：总控批准首次新编译后原20秒各运行一次 resultSyncFailureVisibility 与 jobArtifactStagedSlotIdentity；当前仍未build。stage review已加入既有latest-artifacts域；当前只读规划build 317、package 369，build为package子集，新runner case仅在package。原stage v4测试后仅stop do/while改动不在其两项提取方法；覆盖登记当前适用冻结、原事件及测试时整文件hash未知。固定历史Process包装验证器及纯内存定向case `%TEMP%/g004-runner-stage-wrapper-v1-20261123.log` 1/1 exit0，已审并普通推送fetch一致 `13284446377496a930658112d9a1ab7d3750c6fd`。该次case的未锚定pattern与最终package规划的锚定argv不同；后者仅登记最终冻结后的fresh候选，不冒称已跑。未运行build或部署。
-证据整理中两次内存编辑脚本分别因查找格式不符和字符串替换中的 `$` 展开退出非零，均在写文件前退出；修正为精确对象及回调替换后UTF-8 JSON解析/diff检查通过，未触业务或运行测试。
-旧317项规划及SFTP 42项闭包审核仅为条件适用候选，余证据和旧工具链未知；不能凭dry-run放行。
-原ID续核：树目录展开、问题过滤、详情展开、根标签、表格展开与运行确认取消6项，复用原假端/receipt并核源码未变；未运行真实任务或删除。五次只读统计/证据整理脚本分别因空值、旧格式假设、AST路径错误、git show输出超默认缓冲、对象标记格式不匹配退出非零，均写入前退出；修正后JSON解析及diff检查通过。
-
 总控审准SFTP两原单文件：apiBackpressure与apiUploadProgress顺序各4/4、exit0、stderr空，日志 `%TEMP%/g004-sftp-api-{backpressure,upload-progress}-v1-20261124.{out,err}.log`，原调用和依赖登记coverage；假SSE及假上传子进程，无真实监听/SSH/传输。只读查rollout时额外指定不存在的11/24日期目录导致rg exit2，实际11/23 rollout命中有效，无写入。
 3c132bdc旧规划及154个重叠依赖漂移导航详见 `d70e1b40:docs/plan-generations/G004-execution.md`；均非当前build或通过。
 projectCodeSyncState旧VM直接执行新增TS类型语法导致只读语法检查SyntaxError；按总控批准以现有TypeScript先转换再运行，原测试单文件 `%TEMP%/g004-project-code-sync-state-v1-20261124.log` 实际7/7、exit0，私有fixture保留，未触unlink/Worker/真实配置。原旧7/7证据保留，新direct按实际事件与依赖登记，单identity只读规划验收通过；修正已普通推送fetch一致6bcc43dce912f7778d86010b84edeb13a689ec5b，不冒dist验证。
@@ -70,9 +67,6 @@ SFTP cleanupExplicitTarget经总控效果审查后原单文件VM假端1/1、exit
 send原消费者经效果审的精确选择依次1/1、2/2、1/1、2/2、2/2，均exit0且无超时，日志 `%TEMP%/g004-send-{handoff,truth,identity,proof,native}-v1-20261124.{out,err}.log`；仅源码VM/假端，非整文件或新dist。sync上传、后台清理及实际SFTP发送围栏已源审；后续源码变化不自动继承旧测试。
 
 
-替换隔离E批绑定原调用方至预览、确认、实际隔离发送和索引发布；原已接受回执先保存，同ID观察串行，过期调用者不取消其他观察。假端 `%TEMP%/g004-plan-cleanup-context-v1-20261124.{out,err}.log` 8/8、exit0，真实源码/内存fake，不证明真实删除或生产持久化CAS；非managed及fast delete/restore/history未宣称通用caller闭包。源码经总控审并推送fetch一致 `16ade9d3f488ef4dc9e639736ed980ee04afaeb8`，仍未build。最终冻结后按既有runner原单文件fresh一次，旧Process包装不伪装direct。索引补丁生成v1因检查误识别hunk头写前exit1，v2正常check/apply；保留原现场，未改Git历史。coverage两次branch行选择写前exit1（路径错、匹配17而非11），限定currentTargetedEvidence后11行成功；只读rg通配与不存在脚本错误亦无产品影响。
-
-
 草稿整体退役漏口F：取消metadata后台reconcile，旧API/invoke/UI拒绝并从现行MCP目录移除6项；历史文件、数据与旧测试事实保留。原mcpDraftContracts当前拒绝契约假端5/5、exit0，日志 `%TEMP%/g004-draft-retirement-v1-20261124.{out,err}.log`；源码5文件已审并同步 `94a9a0c1`。mcpProject单项待新dist；当前catalog131是源码事实，不改520历史。受影响mcpActionCatalog等价假表更新后1/1、exit0，日志 `%TEMP%/g004-mcp-action-retired-v1-20261124.{out,err}.log`，同步 `88b351a6`。两次Process包装结果非ordinary direct，最终按原单文件runner fresh候选，未构建；临时draftRetirementBoundary文件保留未登记。原旧draft三case对应退役目录、RPC拒绝及路径/grant零效果，不伪称旧行为继续通过。一次只读rg误取不存在test/mcp路径exit2；runner证据AST误定位及本记录首压缩超阈值均写前exit1，无产品/Git影响。
 
 
@@ -84,3 +78,9 @@ MCP旧证撤回：总控漏核optionalApi的live.output错误分支，Active/Per
 
 
 接替：旧执行实核turn结束并已释放，先归档后发现原rollout路径失效（coverage八引用；读ENOENT exit1），立即反归档恢复原路径及事件，旧chat保持未归档；不得改绑或重算证据。新Terra/high/default match/continue，总控唯一指针已更新。panelMessageDispatch真实常量slice候选首次因误判CRLF写前assert退出1，按原LF修正未测试；另五同因消费者待补并交审。coverage更新脚本两次因末行JSON带数组结束符解析失败，均写前退出；修正后五旧direct仅按审定闭包更新legacy适用摘要，保原事件和限制。projectCodeSyncState新16bbee 7/7为literal direct、fixture 0df10641，旧d287属于已撤回94d9；维持15最终fresh。
+
+草稿退役常量反向夹具：四源码消费者已审并同步 `565c2b20`，原文件串行literal direct分别debug 1/1、manualNetwork 4/4、jobUnavailable 10/10、whitelist 9/9，均exit0无skip/timeout；call及精确输入输出见本会话rollout，TEMP/g004-retired-fixture-{debug,network,unavailable,whitelist}-v1-20261124.log为运行后从真实事件提取的完整stdout，非运行时实时落盘。仅VM/假端，非真实Worker、persist或UI。panelMessageDispatch与planStopClear新dist候选未测；planStopClear首patch误放另case，运行前diff发现移回。
+
+MCP完整identity源码假端literal direct：dispatch 5/5、SFTP routing 20/20、ordinary results 8/8、preflight 3/3，均exit0无skip/timeout；原call及输入见coverage，TEMP/g004-mcp-*-direct-v1-20261124.log为事后从原事件提取stdout，未真实访问Worker/传输/授权。旧四行降历史。登记时首次误匹配历史与current两行写前退出1，限定current后成功。
+
+SFTP mappedBatchDownload仅一个wrapper内存拒绝case经总控审旧119日志及实际闭包有条件继承，工具链未知/120逐项日志缺，余24项未审；未运行真实传输。比较首因仓内缺TypeScript报MODULE_NOT_FOUND，随后借现有TS；首CRLF未归一误报差异，归一后相同。本记录归并首脚本因段首空行断言exit1、写前停止，修正后写入。
