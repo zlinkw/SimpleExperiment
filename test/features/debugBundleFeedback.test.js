@@ -22,7 +22,8 @@ const context = { path, process, vscode, UiCommandCancelled: Cancelled, isUiComm
   uniqueStrings: x => [...new Set(x)], safeWorkspaceChildPath: (_root, relative) => relative, pluginCopyIncomingRelative: x => x + ".incoming",
   withPluginCopySlotLock: async (_slot, work) => work({}), admitPluginCopySlot: async () => {}, publishPluginCopySlot: async () => {},
   RESULT_ARTIFACT_MAX_BYTES: 1, fs: { mkdir: async () => {}, copyFile: async () => { if (copyError) throw Error("copy failed"); copies++; } } };
-const Host = vm.runInNewContext(ts.transpileModule(`class Host {${code}}; Host`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
+const retired = ast.statements.find(n => ts.isVariableStatement(n) && n.declarationList.declarations.some(d => d.name.getText(ast) === "RETIRED_DRAFT_COMMANDS")).getText(ast);
+const Host = vm.runInNewContext(ts.transpileModule(`${retired}\nclass Host {${code}}; Host`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
 function fixture() {
   const h = new Host(), statuses = [];
   Object.assign(h, { projectContextGeneration: 1, client: {}, panelLifecycleState: "ready", localOperations: {},

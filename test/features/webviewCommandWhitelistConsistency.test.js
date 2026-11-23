@@ -55,6 +55,7 @@ test("literal messages emitted by specialized click handlers pass the safety gat
 test("training recovery click reaches the Host dispatcher with its exact target and status channel", async () => {
   const gate = block(extension, "const SAFE_WEBVIEW_COMMANDS = new Set([", "]);" ) + "]);\n"
     + block(extension, "const uiActionCommands = new Set<WebviewActionCommand>([", "]);" ).replace("Set<WebviewActionCommand>", "Set") + "]);\n"
+    + block(extension, "const RETIRED_DRAFT_COMMANDS = ", "const API_EXECUTABLE_COMMANDS")
     + block(extension, "function getSafeCommand(message)", "const hostOperationUiCommands");
   const handler = block(extension, "    async handleMessage(message)", "    async handleMessageCore(");
   const dispatch = vm.runInNewContext(gate + '\n({' + handler + '})', {
@@ -77,7 +78,7 @@ test("training recovery click reaches the Host dispatcher with its exact target 
 test("training recovery reports real completion, cancellation and rejected evidence to the correlated button", async () => {
   const methods = block(extension, "    async handleMessageCore(", "    private async withUiCommandStatus(")
     + block(extension, "    private async withUiCommandStatus(", "    uiCommandWatchdogMs(").replace("private async", "async");
-  const compiled = ts.transpileModule("const subject = {" + methods + "};", {
+  const compiled = ts.transpileModule(block(extension, "const RETIRED_DRAFT_COMMANDS = ", "const API_EXECUTABLE_COMMANDS") + "\nconst subject = {" + methods + "};", {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText;
   const statuses = [], notices = [], errors = [];

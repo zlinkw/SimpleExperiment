@@ -14,7 +14,8 @@ const context = { PLAN_SUBMISSION_COMMANDS: new Set(), localCommandReleasesAfter
   getSafeCommand: m => m.command, booleanField: () => false, isUiCommandRemotePending: () => false, isUiCommandCancelled: () => false,
   errorMessage: e => e.message, actionErrorSuggestion: () => "", hostOperationLeaseActionLabel: c => c, compactSensitiveText: x => x,
   OperationOutcome_1: { operationOutcomeFor: () => ({}) }, vscode: { window: { showErrorMessage: async () => undefined } } };
-const Host = vm.runInNewContext(ts.transpileModule(`class Host {${code}}; Host`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
+const retired = ast.statements.find(n => ts.isVariableStatement(n) && n.declarationList.declarations.some(d => d.name.getText(ast) === "RETIRED_DRAFT_COMMANDS")).getText(ast);
+const Host = vm.runInNewContext(ts.transpileModule(`${retired}\nclass Host {${code}}; Host`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
 
 function fixture() {
   const statuses = [], h = new Host();

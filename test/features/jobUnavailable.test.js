@@ -198,7 +198,9 @@ test("real Host dispatch reports completion, cancellation and rejected ownership
   const coreStart = source.indexOf("    async handleMessageCore("), statusStart = source.indexOf("    private async withUiCommandStatus(");
   const end = source.indexOf("    uiCommandWatchdogMs(", statusStart);
   assert.ok(coreStart > 0 && statusStart > coreStart && end > statusStart);
-  const code = ts.transpileModule("const subject = {" + source.slice(coreStart, end).replace("private async", "async") + "};", {
+  const retiredStart = source.indexOf("const RETIRED_DRAFT_COMMANDS = "), retiredEnd = source.indexOf("const API_EXECUTABLE_COMMANDS", retiredStart);
+  assert.ok(retiredStart >= 0 && retiredEnd > retiredStart);
+  const code = ts.transpileModule(source.slice(retiredStart, retiredEnd) + "\nconst subject = {" + source.slice(coreStart, end).replace("private async", "async") + "};", {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
   for (const scenario of ["complete", "cancel", "reject"]) {
     const f = hostFixture(), statuses = [], errors = [];
