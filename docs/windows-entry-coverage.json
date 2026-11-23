@@ -11434,6 +11434,7 @@
         },
         {
           "name": "cleanup_preview",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"按PLAN声明及当前节点产生有时限预览；delete通过Gateway限定confirmed_paths，预览不代表两次确认或执行。","boundary":"仅源码，未运行真实路径扫描；reuseToken的状态更新不在此MCP schema中。"},
           "method": "plans.cleanup.preview",
           "oldEvidence": "projectTools[name=cleanup_preview]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11442,6 +11443,7 @@
         },
         {
           "name": "cleanup_continue",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"以operationId读取原状态并基于原PLAN、动作及授权模式续建预览；已继续、恢复、忙碌的记录拒绝。","boundary":"status可能观察远端并更新记录；未调用真实清理或路径。"},
           "method": "plans.cleanup.continue",
           "oldEvidence": "projectTools[name=cleanup_continue]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11450,6 +11452,7 @@
         },
         {
           "name": "cleanup_recheck",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"按nodeId逐条观察未完成操作，保留节点身份和查询未知；可保存nodeChecks与status。","boundary":"仅源码，远端观察并非实际执行；未调用真实节点或修改清理记录。"},
           "method": "plans.cleanup.recheck",
           "oldEvidence": "projectTools[name=cleanup_recheck]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
