@@ -13349,6 +13349,7 @@
         },
         {
           "id": "navigation:plans:plans",
+          "currentReview": {"status":"source_scoped","evidence":"资源树产出section/anchor=plans，点击走navigateToResourceTarget，更新活动区、展开祖先并滚动；按需刷新对应显示。","boundary":"源码核对；不等于该条本轮实机点击，不触远端。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; PanelHtml.legacy.ts:3219,3789,6665,8389,9060",
           "oldStatus": "concluded_scoped",
@@ -13356,6 +13357,7 @@
         },
         {
           "id": "navigation:execution:execution",
+          "currentReview": {"status":"source_scoped","evidence":"资源树产出section/anchor=execution，点击走navigateToResourceTarget，更新活动区、展开祖先并滚动；按需刷新对应显示。","boundary":"源码核对；不等于该条本轮实机点击，不触远端。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; PanelHtml.legacy.ts:3219,3789,6665,8389,9060",
           "oldStatus": "concluded_scoped",
@@ -13363,6 +13365,7 @@
         },
         {
           "id": "navigation:results:results",
+          "currentReview": {"status":"source_scoped","evidence":"资源树产出section/anchor=results，点击走navigateToResourceTarget，更新活动区、展开祖先并滚动；按需刷新对应显示。","boundary":"源码核对；不等于该条本轮实机点击，不触远端。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; PanelHtml.legacy.ts:3219,3789,6665,8389,9060",
           "oldStatus": "concluded_scoped",

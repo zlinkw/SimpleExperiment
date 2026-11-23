@@ -182,3 +182,5 @@ MCP下载按本人授权要求选定Worker有效已存范围，配套b3da0b5；�
 结果拆表入口及可见词条全选/取消逐ID核当前界面与Host校验，未写真实结果；见coverage。
 
 结果映射打开、共享产物定位、拆表提交及invoke按源码逐ID核对，未读写真实结果；见coverage。
+
+plans/execution/results主导航逐ID核属性、区块状态与滚动链，未冒充本轮实点；见coverage。
