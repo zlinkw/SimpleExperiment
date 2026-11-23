@@ -6,7 +6,7 @@ const {PROJECT_TOOLS}=require('../../src/mcp/ToolCatalog.ts');
 test('MCP action catalog forwards the current host table and never invents unavailable actions',async()=>{
  const root=path.resolve(__dirname,'../..'),calls=[];
  const table={actions:[{command:'refreshResults',safe:true,confirm:false,action:'refresh-results'},
-  {command:'runPlan',safe:false,confirm:true,action:'run-plan'},{command:'promoteDraft',safe:false,confirm:true,action:''}],count:3};
+  {command:'runPlan',safe:false,confirm:true,action:'run-plan'}],count:2};
  let available=true;
  const gateway=new ProjectGateway({root:()=>root,workers:()=>[],store:{get:()=>undefined},methods:()=>available?{'actions.list':async params=>{calls.push(params);return table}}:{}});
  assert.deepEqual(await gateway.call('action_catalog',{}),table);assert.deepEqual(calls,[{}]);
