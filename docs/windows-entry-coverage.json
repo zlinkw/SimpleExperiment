@@ -9877,6 +9877,7 @@
     "boundary": "这是修复问题数而非按钮总数。旧515不含修复；未构建、安装或实测服务器/Worker。分支Git环境缺VALUE_0/5仍未恢复，listWorktrees截短branch字段但现有用户消费者只用path，未计修复。总控审查、统一构建及试行交付待完成。"
   },
   "g004U04RemainingInventory": {
+    "g004SftpPackageEvidence": {"scope":"当前serial顶层73文件；下列历史来源与局部补测不等于全部通过或允许发行。","source120":"D:\\GitRepo\\MCP\\simple-sftp\\package-0.2.120.log","old120RawDirectory":"%TEMP%/run-YUG9Ru 当前为空；69项原汇总466，原子进程级结果与工具链待核","old119":"56逐文件日志现存且各pass计数与120汇总一致；另13缺逐项原日志，工具链未知；日志与原提交闭包仍须逐项审","sourceDelta":"v0.2.120→b3da0b5包含取消、交接、下载范围；1ed1217新增人工双确认及自动过期只读，逐函数依赖仍须审核。","files":[{"file":"test/agentLifecycle.test.js","summary120":1,"old119Log":null,"review":"agent-lifecycle.js transport，119→当前源和测试未变；120汇总1，原逐项日志缺失、工具链未知，不能视为当前完整通过。"},{"file":"test/agentPythonResolution.test.js","summary120":12,"old119Log":null,"review":"agent-lifecycle.js及shell/Python解析，119→当前源和测试未变；120汇总12，原逐项日志缺失，禁止为补证启动真实Agent或WSL。"},{"file":"test/api.test.js","summary120":23,"old119Log":null,"review":"api-server.js和extension API描述；119→120新增host scoped download及其消费者，120→当前取消/交接相关入口又变化；120汇总23但原逐项日志缺失，119不能代表此完整闭包。"},{"file":"test/apiBackpressure.test.js","summary120":4,"old119Log":null,"review":"api-server.js SSE背压；119→120 api-server变化，当前尚须按实际SSE函数闭包与原事件核适用；120汇总4、原逐项日志缺失。"},{"file":"test/apiUploadProgress.test.js","summary120":4,"old119Log":null,"review":"提取runUploadWithProgress、withTransferCapacity、runLocalTarUpload；119→当前三函数换行归一文本相同，120汇总4、原逐项日志缺失；依赖及原工具链未证明。"},{"file":"test/batchDeleteApi.test.js","summary120":24,"old119Log":null,"review":"本轮新增真实parent preview及两次确认，原10个假transport安全case直接10/10；旧24汇总缺逐项日志，未运行5000项或真实删除。","direct":"%TEMP%/g004-sftp-batch-parent-v1-20261123.{out,err}.log 10/10 exit0，仅精确10项"},{"file":"test/chunkedTrimGuard.test.js","summary120":1,"old119Log":null,"review":"cleanup-files.py静态切片，源及测试自119不变；汇总1、原逐项日志缺失，不运行删除。"},{"file":"test/cleanupChunkedDelete.test.js","summary120":1,"old119Log":null,"review":"cleanup-files.py中断删除行为，源及测试自119不变；汇总1、原逐项日志缺失，不运行真实删除。"},{"file":"test/cleanupConsumerRoot.test.js","summary120":13,"old119Log":null,"review":"cleanup-file-api.js及extension会话和上传状态；本轮改动不在这些具名函数，仍须逐依赖核验；汇总13、原逐项日志缺失。"},{"file":"test/cleanupExecuteSelfBusy.test.js","summary120":8,"old119Log":null,"review":"cleanup活动守卫及createLocalApiMethods假端；本轮修改同一API映射的取消和交接分支，不自动认全文件适用；汇总8、原逐项日志缺失。"},{"file":"test/cleanupExplicitTarget.test.js","summary120":1,"old119Log":null,"review":"提取精确cleanup transport并调用cleanup-file-api；本轮不改该路径，汇总1、原逐项日志缺失。"},{"file":"test/cleanupFiles.test.js","summary120":18,"old119Log":null,"review":"cleanup-files.py、cleanup-file-api与extension路径/只读片段，含真实fixture操作；汇总18、原逐项日志缺失，禁止整文件重跑或自动认安全效果已验。"},{"file":"test/cleanupHandle.test.js","summary120":1,"old119Log":null,"review":"cleanup-files.py句柄观测；源及测试自119不变，汇总1、原逐项日志缺失，不执行进程扫描。"},{"file":"test/cleanupLargeInventory.test.js","summary120":3,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-cleanupLargeInventory.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/cleanupManaged.test.js","summary120":5,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-cleanupManaged.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/cleanupObserveBatch.test.js","summary120":16,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-cleanupObserveBatch.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/cleanupPreviewCapacity.test.js","summary120":1,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-cleanupPreviewCapacity.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/cleanupReadObserverAdmission.test.js","summary120":11,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-cleanupReadObserverAdmission.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/cleanupStatusScale.test.js","summary120":10,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-cleanupStatusScale.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/compressedWorkerBatch.test.js","summary120":3,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-compressedWorkerBatch.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/compressionNegotiation.test.js","summary120":9,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-compressionNegotiation.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/compressionPolicy.test.js","summary120":6,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-compressionPolicy.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/confirmedPathDelete.test.js","summary120":5,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-confirmedPathDelete.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/contentIdentity.test.js","summary120":1,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-contentIdentity.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/downloadScope.test.js","summary120":3,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-downloadScope.test.js.log","review":"原测试提取范围辅助代码并调用Python/tar fixture，本轮readTargetDownloadScope同块变化但其默认调用与新增required分支不同；119日志和120汇总仅历史，需核具体闭包，不重跑该真实子进程。"},{"file":"test/downloadScopePaths.test.js","summary120":2,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-downloadScopePaths.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/explicitScopedDownload.test.js","summary120":1,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-explicitScopedDownload.test.js.log","direct":"%TEMP%/g004-sftp-explicit-scope-consumer-20261123.log 1/1 exit0","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/fastDeleteGuard.test.js","summary120":2,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-fastDeleteGuard.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/formalJobCleanupOwner.test.js","summary120":5,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-formalJobCleanupOwner.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/handoffMarkerPlacement.test.js","summary120":8,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-handoffMarkerPlacement.test.js.log","review":"提取标记路径和读写脚本函数及假SSH；对119→当前10个标记相关函数做换行归一文本比较，标记路径/读写函数未变；保留119原文件日志及120汇总，仍须核全部测试分支与工具链，不能视为完整现行通过。"},{"file":"test/handoffTargetIdentity.test.js","newSince120":true,"direct":"%TEMP%/g004-sftp-handoff-target-20261123.{out,err}.log 4/4 exit0","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/hashCacheBenchmark.test.js","summary120":13,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-hashCacheBenchmark.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/hostOperationLease.test.js","summary120":9,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-hostOperationLease.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/installPolicy.test.js","summary120":2,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-installPolicy.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/inventoryScopeTransport.test.js","summary120":2,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-inventoryScopeTransport.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/isolateBusyFailClosedGate.test.js","summary120":9,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-isolateBusyFailClosedGate.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/localStagingContainment.test.js","summary120":2,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-localStagingContainment.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/localTransferExit.test.js","summary120":9,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-localTransferExit.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/mappedBatchDownload.test.js","summary120":26,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-mappedBatchDownload.test.js.log","direct":"%TEMP%/g004-sftp-cancel-mapped-consumer-20261123.{out,err}.log 精确单项1/1，不覆盖全文件","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/metadataTreeRead.test.js","summary120":11,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-metadataTreeRead.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/nestedRepositoryDelete.test.js","summary120":4,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-nestedRepositoryDelete.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/packedSyncProgress.test.js","summary120":8,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-packedSyncProgress.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/pairedUpdateDrain.test.js","summary120":2,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-pairedUpdateDrain.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/persistentEvents.test.js","summary120":2,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-persistentEvents.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/planIsolate.test.js","summary120":13,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-planIsolate.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/planIsolateBusyWindow.test.js","summary120":1,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-planIsolateBusyWindow.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/planIsolateWindow.test.js","summary120":1,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-planIsolateWindow.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/publicBranding.test.js","summary120":2,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-publicBranding.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/quickAccess.test.js","summary120":6,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-quickAccess.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/remoteFileProgress.test.js","summary120":1,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-remoteFileProgress.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/rootChildrenCleanup.test.js","summary120":3,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-rootChildrenCleanup.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/runtimeBootstrapGuard.test.js","summary120":1,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-runtimeBootstrapGuard.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/savedDownloadScope.test.js","newSince120":true,"direct":"%TEMP%/g004-sftp-saved-scope-20261123.{out,err}.log 3/3 exit0","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/serverToServerSync.test.js","summary120":13,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-serverToServerSync.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/stagedSlotDeleteAuthorization.test.js","newSince120":true,"direct":"%TEMP%/g004-sftp-slot-auth-v5-20261123.{out,err}.log 3/3 exit0","review":"纯内存假端；校验双确认、来源/根/目标/过期与未知不重发，未实际删除。"},{"file":"test/stagedSlotLifecycle.test.js","summary120":11,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-stagedSlotLifecycle.test.js.log","review":"自动过期仅只读发现；本轮3个假端case直接3/3，余含真实WSL/Python未运行；旧119日志仅历史。","direct":"%TEMP%/g004-sftp-slot-readonly-v1-20261123.{out,err}.log 3/3 exit0，仅精确3项"},{"file":"test/stagedTarReceive.test.js","summary120":7,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-stagedTarReceive.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/targetResolution.test.js","summary120":6,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-targetResolution.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/testSerialFailureMetadata.test.js","summary120":3,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-testSerialFailureMetadata.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/testSerialLogIdentity.test.js","summary120":6,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-testSerialLogIdentity.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/testSerialOutputPreservation.test.js","summary120":3,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-testSerialOutputPreservation.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/transferBusySnapshot.test.js","summary120":11,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-transferBusySnapshot.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/transferCancelIdentity.test.js","newSince120":true,"direct":"%TEMP%/g004-sftp-cancel-identity-final2-20261123.{out,err}.log 8/8 exit0","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/transferCapacity.test.js","summary120":3,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-transferCapacity.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/transferErrors.test.js","summary120":5,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-transferErrors.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/transferInactivity.test.js","summary120":7,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-transferInactivity.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/transferMetadata.test.js","summary120":4,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-transferMetadata.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/transferProgressAccuracy.test.js","summary120":6,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-transferProgressAccuracy.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/transferRecovery.test.js","summary120":32,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-transferRecovery.test.js.log","direct":"%TEMP%/g004-sftp-cancel-consumer-20261123.{out,err}.log 精确单项1/1，不覆盖全文件","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/transferSettlement.test.js","summary120":3,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-transferSettlement.test.js.log","direct":"%TEMP%/g004-sftp-cancel-settlement-final-20261123.{out,err}.log 3/3 exit0","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/uploadPlan.test.js","summary120":8,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-uploadPlan.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/workspaceIntegration.test.js","summary120":4,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-workspaceIntegration.test.js.log","direct":"%TEMP%/g004-sftp-workspace-consumer-20261123.log 4/4 exit0","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"},{"file":"test/workspacePathMapper.test.js","summary120":5,"old119Log":"D:\\GitRepo\\MCP\\simple-sftp\\remaining-0.2.119-workspacePathMapper.test.js.log","review":"逐函数依赖和旧证适用性待审；不能仅凭文件名或汇总当作当前通过"}]},
     "g004Reload519LocalAudit": {
       "status": "in_progress",
       "savedCommandReconciliation": {
@@ -12718,7 +12719,7 @@
           "reference": "g004U04RemainingInventory.panelCommandActions[name=clearLegacyTasks]",
           "oldStatus": "concluded_scoped",
           "scope": "external_security_or_shared_settings_restricted"
-        },
+        ,"currentReview":{"status":"source_scoped","evidence":"UI入口收集所选旧任务界面key并仅加入本机隐藏集合，清空相应选择后保存项目选择；不调用Worker删除。","boundary":"源码核查；未运行实际界面或写真实项目选择，不把任意key作为远端任务身份。"}},
         {
           "id": "panel:manualTracesSnapshot:1",
           "currentReview": {"status": "fixed_scoped", "commits": "60b1e8a7", "evidence": "离线及失败不再冒 completed；合成4/4，未查询真实轨迹。", "history": "原 current_defect 与不利证据保留，不表示其余参数或真实外部效果通过。"},
@@ -12807,14 +12808,14 @@
           "reference": "panelCommandActions[recallPlanToLocalQueue]: prequeueRecallLifecycle.test.js:87,120,165,293 fake outcomes",
           "oldStatus": "deferred",
           "scope": "external_cleanup_or_lifecycle_restricted"
-        },
+        ,"currentReview":{"status":"source_and_fake_scoped","evidence":"行级仅排队召回；9412b48c 冻结项目及任务、Scheduler 具名证明和原ID只查；假端Host v11 16/16、Scheduler v2 1/1。","boundary":"未build、部署或实际Worker；已发送未知请求不重发，受限结果不冒通过。"}},
         {
           "id": "panel:recallPlanToLocalQueue:2",
           "disposition": "local_partial_evidence_real_effect_restricted",
           "reference": "panelCommandActions[recallPlanToLocalQueue]: prequeueRecallLifecycle.test.js:87,120,165,293 fake outcomes",
           "oldStatus": "deferred",
           "scope": "external_cleanup_or_lifecycle_restricted"
-        },
+        ,"currentReview":{"status":"source_and_fake_scoped","evidence":"整Plan过滤排队、保留本机pending和完成任务，旧协议受限另提示；9412b48c 假端Host v11 16/16。","boundary":"未build、部署或实际Worker；已发送未知请求不重发，受限结果不冒通过。"}},
         {
           "id": "panel:recheckOutputIsolation:1",
           "disposition": "local_partial_evidence_real_effect_restricted",
@@ -12835,7 +12836,7 @@
           "reference": "g004U04RemainingInventory.panelCommandActions[name=releaseJobStageBlockSlots]",
           "oldStatus": "concluded_scoped",
           "scope": "external_security_or_shared_settings_restricted"
-        },
+        ,"currentReview":{"status":"fix_in_progress","evidence":"SE候选隔离后永久删除另经完整路径两次确认，复用同lease原请求防重；SFTP源码1ed1217，原假端安全case及状态恢复测试见execution。","boundary":"候选未build或安装；未知delete-fast回执仅原ID查询、不重发，目标缺失不证明执行器结束；未执行真实Worker/删除。"}},
         {
           "id": "panel:stopAndClearPlan:1",
           "disposition": "prior_scoped_evidence",
@@ -12896,14 +12897,14 @@
           "reference": "g004U04RemainingInventory.panelCommandActions[name=retryPlanSubmission]",
           "oldStatus": "concluded_scoped",
           "scope": "external_security_or_shared_settings_restricted"
-        },
+        ,"currentReview":{"status":"source_and_fake_scoped","evidence":"7659b4b9 读取恢复记录后核原项目再启动；假端project-v2 3/3。","boundary":"未build、部署或实际Worker；已发送未知请求不重发，受限结果不冒通过。"}},
         {
           "id": "panel:cancelPlanSubmission:1",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=cancelPlanSubmission]",
           "oldStatus": "concluded_scoped",
           "scope": "external_security_or_shared_settings_restricted"
-        },
+        ,"currentReview":{"status":"source_and_fake_scoped","evidence":"7659b4b9 固定原项目并在回执发布前核验；已保存效果不回滚，假端project-v2 3/3。","boundary":"未build、部署或实际Worker；已发送未知请求不重发，受限结果不冒通过。"}},
         {
           "id": "panel:showLogHistory:1",
           "currentReview": {"status":"controlled_scoped_pending_panel_build","evidence":"按operationId及可选Plan唯一定位记录，读取脱敏尾部最多50行；未记录尾部提示，用户选行后复制。 五处按钮原提示“完整日志”与实际最多50行不符，候选更正为“日志尾部”；独立完整日志入口保留。","boundary":"原假宿主工作流日志 g004-520-workflow-navigation-20261123.log 的相关范围；未读取真实任务日志或写真实剪贴板。 提示文案待Panel build/VM，未安装。"},
@@ -14859,7 +14860,7 @@
           "name": "answerRunConfirmation",
           "route": "handleMessageCore_early_if",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
-        },
+        ,"currentReview":{"status":"source_scoped","evidence":"RunConfirmation.answer 只接受当前pending的随机requestId及未禁用选项，答复一次后清空；源码审核，未操作实际确认窗。"}},
         {
           "name": "applyPlanDatasetMapping",
           "currentReview": {"status":"controlled_scoped","evidence":"从当前未分配列表验证PLAN和数据集，拒绝覆盖可信数据集与路径冲突，使用绑定项目的结果写入器保存映射并重新分区本地已有汇总；失败传播。","boundary":"g004-auto-dataset-mapping-guarded-20261123.*.log 中内存写入方法核对已有映射保护、冲突及表写失败后的配置/汇总状态；无真实结果或配置写入。"},
@@ -14880,7 +14881,7 @@
           "name": "archivePlanCopy",
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
-        },
+        ,"currentReview":{"status":"source_scoped","evidence":"b61c0e09 项目/Worker目标等待后复核，确认和下载均用真实mapped根；v4假端2/2、原消费者精确项1/1，真实Worker及传输未执行。"}},
         {
           "name": "autoMatchPlanDatasets",
           "currentReview": {"status":"source_candidate_pending_panel_build","evidence":"保留自动匹配：从当前最新导出中只对仍未分配的PLAN读取项目已保存的唯一单数据集映射，按现有结果写入器重新分区；项目、结果目录或保存映射变化时中止。含多个值、名称归一后重复的映射不猜测；不读取或恢复旧registry。","boundary":"候选未提交、未build；%TEMP%/g004-auto-dataset-mapping-guarded-20261123.*.log 单文件7/7 exit0，假内存真实Host和结果写入方法覆盖自动应用、保留指标、冲突、配置变化和原写失败；旧dist消费者的项目切换断言已适配但待build后验证。早先仅刷新候选已撤回，日志不算通过；未访问真实结果。"},
@@ -14896,7 +14897,7 @@
           "name": "cancelPlanSubmission",
           "route": "handleMessageCore_early_if",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
-        },
+        ,"currentReview":{"status":"source_scoped","evidence":"7659b4b9 固定原项目、回执发布前重核，已保存结果不回滚；假端3/3。"}},
         {
           "name": "checkPluginUpdates",
           "currentReview": {"status":"source_and_prior_evidence_scoped","evidence":"面板、普通invoke及命令面板均进入配套更新检查；运行中检查合并，主Bootstrap先处理原未完成事务，再查询两插件稳定Release并发布状态；请求失败可见，限流标记未知，安装为独立动作。invoke的manual由输入决定。","boundary":"复用 g004-520-extension-updates-20261123.log 7/7 合成版本及旧实际更新客户端对520/483/118不降级证据；本轮未发起检查或安装。检查可更新本机通知及事务状态，不能称纯只读；旧fallback分支不代表活动Bootstrap。"},
@@ -14931,7 +14932,7 @@
           "name": "clearLegacyTasks",
           "route": "local_handler_misdirected_to_remote_map",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
-        },
+        ,"currentReview":{"status":"source_scoped","evidence":"UI入口收集所选旧任务界面key并仅加入本机隐藏集合，清空相应选择后保存项目选择；不调用Worker删除。","boundary":"源码核查；未运行实际界面或写真实项目选择，不把任意key作为远端任务身份。"}},
         {
           "name": "clearOperations",
           "currentReview": {"status":"source_scoped","evidence":"当前invokeApi的API_LOCAL_ACTION_COMMANDS显式包含clearOperations，走handleMessageCore并等待本机隐藏历史处理；旧route分类不再描述当前路由。目标、确认和二次核状态见四个panel条目。","boundary":"未通过真实API改变项目状态；原假宿主测试适用范围不扩大。"},
@@ -15315,7 +15316,7 @@
           "name": "recallPlanToLocalQueue",
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
-        },
+        ,"currentReview":{"status":"source_scoped","evidence":"9412b48c 按排队任务与原请求身份处理，本机及旧协议边界见execution；假端Host16/16、Scheduler1/1，真实Worker未验。"}},
         {
           "name": "recheckOutputIsolation",
           "route": "handleMessageCore_case",
@@ -15381,7 +15382,7 @@
           "name": "releaseJobStageBlockSlots",
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
-        },
+        ,"currentReview":{"status":"fix_in_progress","evidence":"SE候选隔离后永久删除另经完整路径两次确认，复用同lease原请求防重；SFTP源码1ed1217，原假端安全case及状态恢复测试见execution。","boundary":"候选未build或安装；未知delete-fast回执仅原ID查询、不重发，目标缺失不证明执行器结束；未执行真实Worker/删除。"}},
         {
           "name": "repairPorts",
           "route": "handleMessageCore_case",
@@ -15447,7 +15448,7 @@
           "name": "retryPlanSubmission",
           "route": "handleMessageCore_early_if",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
-        },
+        ,"currentReview":{"status":"source_scoped","evidence":"7659b4b9 恢复读取后核原项目，后台原提交边界不变；假端3/3。"}},
         {
           "name": "reviewDraft",
           "currentReview": {"status":"retired_historical","boundary":"用户明确整个草稿机制已退役，以下仅历史兼容事实，不作为现行能力：用户明确整个草稿机制已退役；旧入口与证据仅历史事实，不作为现行能力、通过数或继续维护的依据。"},

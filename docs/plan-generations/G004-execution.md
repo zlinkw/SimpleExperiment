@@ -1,76 +1,16 @@
 # G004 执行登记
 
-压缩前事实及更早原材料引用见 `6f829e1d:docs/plan-generations/G004-execution.md`。逐项receipt/日志/事件/输入见coverage；历史授权、失败、未知和现场保留。本文件cap12000/90%=10800。
+本文件cap12000/90%=10800。压缩前完整登记及逐项历史引用见 `43efb031:docs/plan-generations/G004-execution.md`，更早见 `6f829e1d`；原日志、失败、未知、现场与批准均保留，coverage记录逐ID证据。历史结果不覆盖变化后的源码。
 
-## 当前目标与边界
+## 当前边界与历史交付
 
-G004 按 identity+argv 冻结增量证据；最终 package 已通过：361 active（125 历史、235 直接、1 新运行）、6 onDemand 未运行。用户批准 219/284 的本任务历史超时例外，原时长分别 20857.309/20119.841ms，不重跑、不放宽未来 20 秒。
+禁止真实Worker、SSH、服务器、tmux、GPU、传输、删除、active results和跨项目；当前仅授权假端和指定单项目本地检查。保护六项旧dirty dist、历史资产和夹具。业务CLI及整个草稿机制已退役，不恢复；39旧源码删除和同步见 `0ff5b277`，旧dist和全局shim保留。原361 active为125历史、235直接、1新运行，6 onDemand未运行；219/284本任务历史超时例外不扩至未来20秒。
 
-不触碰真实 Worker、服务器、SSH、tmux、GPU 或用户配置；新阶段仅授权不抢焦点的现有单项目 UI 检查。真实传输/清理、active results与跨项目未测；本次实际本地UI范围见末节。模拟缺失不证明永久删除。原 26 个脏 dist 中，仅包内 20 项已验证并获准同步，其他 6 项、历史资产及夹具保留。
+0.5.520构建绑定 `f66d3694`，13 gates exit0，包2919747字节、SHA256 `aaf19107996beae86674b16b6c25f110551e74fb70a6bd545c88d334c9b2cdba`，闭包、Panel及10890检查通过；20生成物已同步，6旧dirty保留。试行tag v0.5.520指向 `7bf49ba84802df56821b098b440b289d3d3eb61e`，prerelease且非Latest，远端资产及隔离下载一致。唯一安装exit0、DEP0169警告；安装与shim见 `86e35b7b`。专用窗口520 UI/MCP只读及识别证据、首坐标失败和范围见 `0a662506`、coverage；未查Worker/GPU/tmux。当前后续源码未build、部署或安装，不能沿用520包证明。
 
-519重载识别false且缺adapter，未重配重授；341/341及安装为旧版。本人明确业务CLI整体退役，只留UI/MCP；39旧源码已按授权删除并同步，原dist排除而不清理、全局shim不动，仅保留simpleex-mcp。精确范围及六组提交见 `0ff5b277:docs/plan-generations/G004-execution.md`，不得恢复CLI或重放删除。
+B1首次失败与20秒timeout、TS首exit2、删除首policy拒绝进程未启、runner OOM/依赖drift/旧日志覆盖、各夹具失败及恢复、fetch TLS失败与恢复、直接作业误重复及onDemand误运行均保留于 `43efb031` 所列具体历史版本与日志，误运行不计覆盖。mcpProjectOps 11/11、windowScope 8/8及freshResultHost特批原限额复验1/1的边界见同记录。历史工具链、skip及文件缺口仍为未知，不冒通过。
 
-## 候选、失败与复验
-
-0.5.520 原 compile 8/8 gates exit0/tree confirmed、input=end，receipt `simple_cluster/reports/test-workflow/2026-11-22T18-17-42-383Z-84032-compile/run.json`；Panel模块及三真实script VM通过。生成物保留；该旧证不覆盖当前源码。原完整日志、10890搜索和只读进程短暂重叠及引号失败见 `fc571512:docs/plan-generations/G004-execution.md`。
-
-不利结果保留：B1原失败及20秒timeout后用户准单次复验3/3；tsc首exit2；大删除首遭policy拒、进程未创建；规划、releaseAcceptance、隐私、Worker索引、下载根路径、中立RPC原失败后各自复验，以及CRLF两次失败、fetch TLS失败和恢复，精确结果和日志见 `faffeffc:docs/plan-generations/G004-execution.md`。
-
-runner 增量开发曾有 OOM、解析误拒、临时 JSON 错误、依赖 drift 及旧 mcpWorkerHistory 日志被覆盖；原事件、已修状态与不重跑裁决见 `8ed64825:docs/plan-generations/G004-execution.md`。
-
-actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204/179及误跑onDemand等记录、完整失败与日志见 `170fd06e:docs/plan-generations/G004-execution.md`，误运行不计活动覆盖。
-
-## 审定证据和真实效果
-
-历史job及删锁、runner逐identity+argv审定继承，原日志、未知工具链及284超时例外保留，精确名单见 `52946c4d:docs/plan-generations/G004-execution.md`；不称本轮删除通过或覆盖新G004/289。
-
-旧 Git/UI 夹具、520 与接替后合成验证的逐项输入、结果、失败、工具链和边界见 coverage 与 `6f829e1d`、`9d5cae9f`、`6f14818d` 的本文件；不扩大原证范围或冒称真实 Worker/tmux/删除通过。
-
-旧会话归档后核 session_meta 及原事件，仅修引用路径（`9a69240b` 等），未搬删或重跑；两次逐项数量与待运行结果见 `981fa853:docs/plan-generations/G004-execution.md`。
-
-
-接替后清理、隔离、同步、tmux、结果及freshResultHost替身检查逐项证据与边界见coverage及 `6afb2ed0:docs/plan-generations/G004-execution.md`，未证明真实删除、Worker或UI。freshResultHost曾20.389秒超时，用户许可修复后原限额复验1/1、7.513秒，原日志保留；旧shell/tmux/GPU等及各job的skip、未知工具链同见该版本，不重跑。
-
-本轮mcpProjectOpsContract 11/11、windowScopeIsolation 8/8及命令包装1/1均exit0；夹具日志见 `c2c60767:docs/plan-generations/G004-execution.md`。
-
-旧67/68/69、91/222/225、226/227/252、141/340/341有限继承，工具链或69根字节未知、340仅现存30项；219/284超时例外与289唯一fresh保留，详见 `6afb2ed0:docs/plan-generations/G004-execution.md`，未证真实外部效果。
-
-历史 dry-run、219/284 用户例外、外层期限修复和脏树 planner 拒绝的逐项细节及原日志保留于 `c2c60767:docs/plan-generations/G004-execution.md`。旧选择不代表当前 build；未运行 planner 拒绝的三项。
-
-## 最终打包与生成物同步
-
-原520 package构建 `f66d3694`，13 gates exit0，包2919747字节、SHA256 `aaf19107996beae86674b16b6c25f110551e74fb70a6bd545c88d334c9b2cdba`；闭包/Panel/10890通过，20生成物分组提交，6旧脏文件保留。首git add exit1但已暂存7项，总控审后提交；完整receipt与原事实见 `49e1cebd:docs/plan-generations/G004-execution.md`，旧包不覆盖后续源码。
-
-试行 Release `v0.5.520` 已发布，`prerelease=true`、`draft=false`，远端 tag 指向 `7bf49ba84802df56821b098b440b289d3d3eb61e`；VSIX 与同名 SHA256 资产已上传，隔离下载的 SHA256 与已验证包一致，manifest 校验 exit0。实际 ReleaseClient 核实 0.5.482 可见权威 0.5.483、0.5.520 不降级，SFTP 0.2.120 不降至权威 0.2.118。
-
-520唯一安装 exit0，安装日志 `%TEMP%/g004-520-install-20261123.log` 保留DEP0169警告；原安装/重载及shim字节证据见 `86e35b7b:docs/plan-generations/G004-execution.md`，当前源码未装。
-
-## 520 单项目界面及只读验收
-
-520专用窗口PID45080、根及SFTP同实例身份和识别后的真实UI/MCP只读证据、初次坐标失败、恢复及日志见 0a662506:docs/plan-generations/G004-execution.md 和coverage；默认稿件未调用，低流量保留、onboarding=true，Worker/GPU/tmux未查询。初始probe pending不是已通过；未真实传输、清理或跨项目。文档压缩两次写前超限失败及恢复保留于原记录。
-
-## 当前预览修复与探针调查
-
-原 `synthetic/final.csv` 合法宽表两行因只按文件名选long误报0；现预览传文本及列映射，并只计含指标记录，保留后行有值场景。原文件及底层解析不变，细节见 `e9ed2a97:docs/plan-generations/G004-execution.md`。
-
-CSV宽/长/JSON原回归及两次首失败日志见 `18f587b2:docs/plan-generations/G004-execution.md`；520仍旧实现。
-
-后补显式 metric/value 列映射、alias 及零值验证，原单文件 6/6 exit0、799.2334ms，日志 `%TEMP%/g004-preview-mapping-zero-20261123.*.log`。
-
-旧母集11缺陷逐ID对账；原失败保留，未审及外部效果不冒通过，实际窗口范围见coverage。
-
-## 当前探针及构建门禁
-
-探针补真实RAF同ID ACK及hidden/generation保护，Host保留pending前停滞计数；原11/13 exit1，修协议和经本人批准的offscreen夹具后13/13及Host 6/6 exit0。日志 `%TEMP%/g004-render-full-current-20261123.*.log`、`g004-render-host-progress-20261123.*.log`；首失败 `g004-render-probe-20261123.*.log` 保留，未构建部署。
-
-原build含禁止重跑场景，未启动；增量build保留原门禁、assemble仅package。先前规划316/367、按需0非构建通过；G004 pattern 1/1日志 `%TEMP%/g004-build-incremental-runner-20261123.*.log`、`g004-build-incremental-aggregate-20261123.*.log`，runner `6afb2ed0`。planner拒绝依赖漂移，需逐项对账及总控审定；总控只读路径/glob错误未触产品，原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
-
-旧执行会话归档后核实60条direct的122个原事件哈希和session身份，仅修coverage路径。新增7项同根520 MCP只读与plan_list合成证据见coverage，真实Worker和跨项目未测；压缩前两稿11639、11331字符均写前断言退出。
-
-## 停止路由及旧证
-
-停止精确Worker与未知保留意图候选、假端12/12、首次失败及未部署状态见 `cd66811a:docs/plan-generations/G004-execution.md` 和coverage；未访问真实Worker。SFTP 28087f3取消归属、假handler8/8及首2/4失败与旧119/120原日志缺口亦见该版本，未真实取消。草稿全机制退役，旧测试/兼容记录仅历史事实，不恢复。旧attempt提示仅旧或异常响应可达；当前declared路径无证创建attempt。所有旧glob/引号/压缩/探测失败保留该版本，未改产品。
-
+合法宽CSV误选long导致0记录，预览现传原文与映射、仅统计有指标记录，显式metric/value、alias和0值原6/6 exit0，日志 `%TEMP%/g004-preview-mapping-zero-20261123.*.log`；首失败见 `18f587b2`。真实RAF同心跳ACK与Host停滞保护候选原11/13失败，修复并按本人批准修夹具后13/13，Host 6/6；日志 `g004-render-probe`、`g004-render-full-current`、`g004-render-host-progress`，均在TEMP且保留。仍须当前build及实际render脚本VM，旧316 job规划已过期。
 ## 当前补充调查
 
 压缩前完整逐项、首失败、日志、真实限制及历史状态保留在 `7dfd6db5:docs/plan-generations/G004-execution.md`；当时的候选/HEAD为历史，以下是当前事实。旧资料不可代替新源码构建。
@@ -115,8 +55,22 @@ Agent端点按钮缺endpointId时原代码回退字符串hub，现明确拒绝�
 
 召回路径原缺陷：Panel声明只召回排队job，但旧协议2整Plan分支遍历全部job；旧returnPulledJobToLocal可把运行/完成job改pending并清原事实。确认后重读也未在首写/首停前核冻结job的Worker与command；后台processDistributedRecall在unknown后可能自动重复发送停止。原prequeueRecallLifecycle旧oracle期望同ID重发，不能当现行授权。候选增加Scheduler互斥内具名排队召回、取消围栏参与准入，旧端不走普通停止回退；旧协议未知请求不重发。纯假端Python抽函数 `%TEMP%/g004-queued-recall-scheduler-v1-20261123.{out,err}.log` 1/1、Host及持久队列 `%TEMP%/g004-queued-recall-host-v7-20261123.{out,err}.log` 12/12，均exit0；无真实Worker。原观察只看到取消围栏，不能区分普通停止；现候选在Scheduler窗口option记录原请求pending/completed并核完整身份后主动观察，Host纯假端v11 16/16及Python两函数假端v2 1/1均exit0；旧证明写失败和kill失败保持unknown。原native消费者三个精确case各1/1 exit0；旧协议消费者首v1 4/5 exit1因夹具仍假定已拒绝的项目提升，v2用显式已提升队列保留原projection断言后该case 1/1，v3新增原请求ID核对1/1，完整日志保留。源码已源审并同步 9412b48c，未build。
 
-提交取消与恢复入口等待中切项目可能继续写旧回执或用新根释放claim；候选绑定原项目并在发布前重核，假端 `%TEMP%/g004-plan-submission-project-v2-20261123.{out,err}.log` 3/3 exit0。已写回执不回滚，未访问真实项目或claim；源码已源审并同步 7659b4b9，未build。
+提交取消与恢复入口等待中切项目可能继续写旧回执或用新根释放claim；绑定原项目并在发布前重核，假端 `%TEMP%/g004-plan-submission-project-v2-20261123.{out,err}.log` 3/3 exit0，writer闭包修正v3精确项1/1 exit0。已写回执不回滚，未访问真实项目或claim；源码已同步 7659b4b9、b2b25d81，未build。
 
-轻量归档复制可能在等待确认或远端回应期间切项目/Worker后继续新发送或下载；候选冻结项目与目标并在后续效果前重核，保留已发生的副本。真实方法假端 `%TEMP%/g004-archive-copy-fence-v2-20261123.{out,err}.log` 2/2 exit0；首v1 0/2 exit1为夹具缺makeOpId，原日志保留。未访问Worker、SFTP或真实文件；候选未提交、未build。
+轻量归档复制可能在等待确认或远端回应期间切项目/Worker后继续新发送或下载；冻结项目与目标并在后续效果前重核，保留已发生的副本。假端v2 2/2 exit0；首v1 0/2 exit1为夹具缺makeOpId，原日志保留。未访问Worker或真实SFTP。
 
 总控对 ae39752c 至 bab13011 的共享SFTP配置、调度设置、Worker确认、隧道脚本、离线导入、端点及Git预览修复已完成源码复核；此前各定向日志按其原输入复用，真实外部效果仍未执行。
+
+总控指出v3仍按旧setup根显示而实际目标由agentProjectDir决定；改为同一mappedDownloadServerForSource实际根用于确认和下载。v4假端提取真实目标解析链，`%TEMP%/g004-archive-copy-fence-v4-20261123.{out,err}.log` 2/2 exit0；原consumer精确项 `%TEMP%/g004-archive-copy-consumer-v1-20261123.{out,err}.log` 1/1 exit0，私有fixture保留。总控已源审，同步 b61c0e09；显式invoke兼容入口，默认UI过滤，未build或访问真实Worker。
+
+失败job重排入口原来读队列等待期间切项目后仍可按新上下文继续；现绑定并复核原项目。真实switch代码假队列 `%TEMP%/g004-recall-failed-project-v1-20261123.{out,err}.log` 1/1 exit0；仅假端，未运行Worker。
+
+失败job重排项目围栏已同步 `e8bc27fe`。2026-11-23执行角色自然接替：旧会话已正式释放且结束归档，新执行Terra/high match/continue，实际default；唯一指针及裁决已由总控同步 `43efb031`。两仓受保护dirty及旧日志/资产不动。
+
+停止请求原先发送后迟到可能修改新项目状态，且200ms延迟保存可在切换时丢失意图。当前候选固定原项目/client，在发送前等待原有localOperations持久化队列排干并复核，保存失败或切换零POST；已发结果未知不重发、不清新项目缓存。纯VM假端 `%TEMP%/g004-stop-context-v4-20261123.{out,err}.log` 14/14 exit0；v2首13/14 exit1为夹具reply尚未初始化，显式等待假POST后v3 14/14，后补single-flight竞态得v4。无真实Worker或跨项目效果；待当前build。
+
+暂存槽：人工隔离后永久删除另经完整路径双确认；自动过期只做当前identity/lane只读发现，提示人工。SFTP新请求验证实际parent双确认、节点/根、原token与目标及有效期；旧未知不因目标缺失认定结束。`%TEMP%/g004-sftp-slot-auth-v5-20261123.{out,err}.log` 3/3、原假回收三case旧v1 3/3、原batchDelete精确10个假transport安全case `%TEMP%/g004-sftp-batch-parent-v1-20261123.{out,err}.log` 10/10均exit0；未运行5000项或真实删除。删除发送只同步返回receipt；丢回执后无已证原执行器结束查询，保留unknown供原token查询、不重发，目标不存在不等于结束。
+
+SE候选在隔离前复用同lease状态冻结身份，审核入口允许原请求核查，双确认后admit再发送；已证发送前失效unadmit，已发送未知保留，持久ended重建后settle。真实state方法+假存储/假端 `%TEMP%/g004-stage-review-v4-20261123.{out,err}.log` 10/10 exit0，包括两Host冲突、重启、取消及项目漂移；SFTP源码经总控源审、node --check与UTF8/diff检查后普通推送并fetch一致 `1ed121738969d8ec5a79693910e4463e993ecff8`；SE候选未提交。两者均未build、安装或实际远端执行。原resultSync消费者已按新链调整但需新dist，含真实临时fixture rename及保留行为，尚未运行或获本次具体效果裁决。一次误在SFTP cwd只读SE路径exit1，无写入；另一处误路径rg亦未触产品。
+
+当前43efb031+dirty候选只读build规划 `%TEMP%/g004-build-plan-43efb031-slot-20261123.{out,err}.log` exit0、316 job/0按需/全exclusive；dry-run早于G004证据校验，不代表可构建。同一plan真实只读 `planG004Execution` `%TEMP%/g004-build-plan-evidence-43efb031-20261123.{out,err}.log` exit1，首拒legacy依赖漂移。两原slot消费者在build，新增review测试不在该专用域，普通test:features glob会纳入；需决议其build登记并逐项审核依赖，不批量改hash。SFTP serial当前实际73文件，13旧逐项日志缺及其余闭包待审，不冒全量通过。一次rg使用PowerShell未展开的脚本通配报路径错误，未写文件。
