@@ -104,7 +104,7 @@ export class PlanRunHost {
     return { queue: next, missing: [...wanted].filter(key => !matched.has(key) && !cleared.has(key)) };
   }
 
-  async replace(plan: any, body: any, validation: any) {
+  async replace(plan: any, body: any, validation: any, assertCallerCurrent?: () => void) {
     // Old direct-overwrite inputs never survive a failed or cancelled isolation review.
     // The only launch authorization is the completed exact-path replacement flow.
     body.overwrite = false; body.overwriteExisting = false;
@@ -117,6 +117,7 @@ export class PlanRunHost {
       [row.id, row.host, row.port, row.user, row.project_dir, row.local_agent_url, row.agent_runtime_dir, row.conda_env])]);
     const connection = connectionKey();
     const assertCurrent = () => {
+      assertCallerCurrent?.();
       if (context.root !== this.root || !h.projectContextIsCurrent(context) || connectionKey() !== connection)
         throw Error("工作区或服务器连接配置已变化，未继续运行。");
     };
@@ -125,9 +126,12 @@ export class PlanRunHost {
     body.planFile = planFile;
     const sourcePlan = { ...plan, projectId: plan?.projectId || canonicalProjectId(this.root), planFile: body.planFile,
       revision: body.planRevision, codeFingerprint: plan?.codeFingerprint || h.lastCodeSyncState?.fingerprint };
-    const sourceSignal = h.distributedSubmissionAborts?.get(body.submissionOperationIdLocal)?.signal;
+    assertCurrent();
+    const submissionSignal = h.distributedSubmissionAborts?.get(body.submissionOperationIdLocal)?.signal;
+    const sourceSignal = submissionSignal && context.signal ? AbortSignal.any([submissionSignal, context.signal]) : submissionSignal || context.signal;
     const executionSource = body.executionSource || await resolvePlanExecutionSource(h, sourcePlan, sourceSignal);
-    if (executionSource) { await verifyLocalPlanSource(this.root, executionSource, h.projectFileObservationIndex?.()); body.executionSource = executionSource; }
+    assertCurrent();
+    if (executionSource) { await verifyLocalPlanSource(this.root, executionSource, h.projectFileObservationIndex?.()); assertCurrent(); body.executionSource = executionSource; }
     const expectedFingerprint = executionSource?.digest || h.lastCodeSyncState?.fingerprint || "";
     body.runReplacement ||= {};
     // A launch-ready subset cannot prove other servers' outputs absent. Query
@@ -136,7 +140,11 @@ export class PlanRunHost {
       const declarations = jobs.map((job: any) => ({ ...job, mode: validation.execution_mode }));
       const snapshots = await Promise.all(h.workerActionTargets().map(async (worker: any) => {
         try {
-          const snapshot = await h.readWorkerTaskSnapshot(worker.id, { fresh: true, inventoryOnly: true, declarations, signal: AbortSignal.timeout(15000) });
+          assertCurrent();
+          const timeout = AbortSignal.timeout(15000);
+          const signal = context.signal ? AbortSignal.any([context.signal, timeout]) : timeout;
+          const snapshot = await h.readWorkerTaskSnapshot(worker.id, { fresh: true, inventoryOnly: true, declarations, signal });
+          assertCurrent();
           if (!snapshot || snapshot.queryComplete !== true || snapshot.error || snapshot.pending)
             throw Error(snapshot?.error || "查询未完成");
           if ((snapshot.declaredResults || []).some((row: any) => row.error)) throw Error("声明产物查询失败");
@@ -144,7 +152,7 @@ export class PlanRunHost {
             Number(row.index) === Number(job.index) && row.outputDir === job.output_dir && row.collectionResultCsv === job.result_csv)))
             throw Error("声明产物查询不完整");
           return snapshot;
-        } catch (error: any) { throw Error(worker.id + "：产物状态未核实；未生成删除清单。" + String(error.message || error)); }
+        } catch (error: any) { assertCurrent(); throw Error(worker.id + "：产物状态未核实；未生成删除清单。" + String(error.message || error)); }
       }));
       assertCurrent();
       body.workerSubmissionSnapshots = snapshots;
@@ -194,13 +202,16 @@ export class PlanRunHost {
         // Isolation still requires the complete batch check. Ordinary launch can
         // already use ready Workers while the remaining servers prepare.
         await body.awaitWorkerPreparationLocal?.();
-        const current = { ...body }; await h.refreshLocalPlanMetadataForAction(current); h.stampPlanRevision(current);
-        if (executionSource) await verifyLocalPlanSource(this.root, executionSource, h.projectFileObservationIndex?.());
-        const fingerprint = executionSource?.digest || await h.localDistributedCodeFingerprint(this.root);
+        assertCurrent();
+        const current = { ...body }; await h.refreshLocalPlanMetadataForAction(current, { assertCurrent }); assertCurrent(); h.stampPlanRevision(current);
+        if (executionSource) { await verifyLocalPlanSource(this.root, executionSource, h.projectFileObservationIndex?.()); assertCurrent(); }
+        const fingerprint = executionSource?.digest || await h.localDistributedCodeFingerprint(this.root, context.signal, assertCurrent);
+        assertCurrent();
         if (current.planRevision !== body.planRevision || fingerprint !== (executionSource ? expectedFingerprint : h.lastCodeSyncState?.fingerprint)
           || runReplacementKey(body.planFile, body.planRevision, fingerprint, jobs, currentNodes()) !== key)
           throw Error("PLAN、代码或服务器配置已变化，请重新运行并确认路径；未移动文件或提交任务。");
-        await h.assertPlanSubmissionWorkers(body, { validation });
+        await h.assertPlanSubmissionWorkers(body, { validation }, assertCurrent, context.signal);
+        assertCurrent();
       },
       progress: (text: string) => body.reportPlanStageLocal?.(text),
       // 批路径注入批次对话道；单 PLAN 提交没有批次道，保持原语义直接执行。
@@ -209,12 +220,15 @@ export class PlanRunHost {
       isolation: body.isolationGateLocal,
       hold: async (selected: any[]) => {
         // 归一化匹配后核实每个已确认目标都在队列声明中；真实不匹配显式失败且不写队列，禁止静默漏 retired。
-        await h.saveDistributedQueue(this.root, undefined, { artifactMutation: true, mutateLatest: (queue: any) => {
+        assertCurrent();
+        const isCurrent = () => { try { assertCurrent(); return true; } catch { return false; } };
+        await h.saveDistributedQueue(this.root, undefined, { artifactMutation: true, projectContextCurrent: isCurrent, recallAssertCurrent: assertCurrent, mutateLatest: (queue: any) => {
           const next = PlanRunHost.normalizeHoldTargets(selected, queue, body.planFile, canonicalProjectId(this.root));
           if (next.missing.length) throw Error("HOLD_TARGET_NOT_FOUND：已确认的产物路径未在当前队列声明中找到（" + next.missing.length
             + " 项），队列未改动；请刷新后重新确认范围。");
           return next.queue;
         } });
+        assertCurrent();
       },
     }, body.runReplacement, body.planFile, jobs, [...completed], key);
     body.existingOutputChoice = result.choice;

@@ -14383,13 +14383,16 @@ this.assertPlanTopologyReady("Plan 调度");
     distributedProjectContract() {
         return normalizeDistributedProjectContract(this.localPlanMetadata.detectedProject?.adapterRules?.distributed || {});
     }
-    async localDistributedCodeFingerprint(root, signal?: AbortSignal) {
+    async localDistributedCodeFingerprint(root, signal?: AbortSignal, assertCurrent?: () => void) {
+        assertCurrent?.();
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
+        assertCurrent?.();
         const includePaths = config.get<string[]>("codeSync.includePaths", []);
         const scopePaths = ConfigurationSettings_1.explicitConfigurationValue<string[] | undefined>(config, "codeSync.scopePaths", undefined);
         const built = await buildLocalCodeManifest(root, includePaths, scopePaths,
             { machineStateGuard: this.localMachineStateGuard(root), cacheFile: this.localCodeManifestCacheFile(root), signal, executionOnly: true });
+        assertCurrent?.();
         const manifest = PlanCodeScopeHost.runSourceManifest(filterHeldFiles(built, holds));
         const fingerprint = fingerprintFromManifest(manifest);
         this.pendingPlanSubmissionManifest = { key: this.planSubmissionManifestKey(root, includePaths, scopePaths, holds),
@@ -15716,11 +15719,13 @@ this.assertPlanTopologyReady("Plan 调度");
         // telemetry timeout cannot erase it between validation and enqueue.
         return probes;
     }
-    async assertPlanSubmissionWorkers(body, validated) {
+    async assertPlanSubmissionWorkers(body, validated, assertCurrent?: () => void, signal?: AbortSignal) {
+        assertCurrent?.();
         if (this.taskLifecycleProtocol !== 2) return;
         const live = body.workerPreparationPendingLocal && this.workerPreparation?.root === workspaceRoot() ? this.workerPreparation : undefined;
         const targets = this.workerActionTargets().filter(target => !live || live.preparation.ready.has(target.id));
         const probes = await this.submissionWorkerProbes(targets);
+        assertCurrent?.();
         this.assertExecutionWorkersReady(targets, probes);
         this.assertExecutionCondaEnvReady(targets);
         const incompatible = targets.filter(target => probes[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
@@ -15731,10 +15736,12 @@ this.assertPlanTopologyReady("Plan 调度");
         const validation = planValidationFromResult(validated);
         const declarations = (validation?.jobs || []).map(job => ({ ...job, mode: validation.execution_mode }));
         const snapshots = await Promise.all(targets.map(async worker => {
-            try { return await this.readWorkerTaskSnapshot(worker.id, { fresh: true, inventoryOnly: true, declarations,
-                signal: AbortSignal.timeout(8000) }); }
-            catch (error) { return { workerId: worker.id, error: errorMessage(error) }; }
+            try { assertCurrent?.(); const timeout = AbortSignal.timeout(8000);
+                return await this.readWorkerTaskSnapshot(worker.id, { fresh: true, inventoryOnly: true, declarations,
+                    signal: signal ? AbortSignal.any([signal, timeout]) : timeout }); }
+            catch (error) { assertCurrent?.(); return { workerId: worker.id, error: errorMessage(error) }; }
         }));
+        assertCurrent?.();
         // r82：占用核查豁免是显式决定=用户跳过 ∪ 隔离阻断（本轮不派发故不核查其启动观测），
         // 不再是"清空排除表"的副作用；阻断源只认隔离流程的结构化 blocked（runReplacement.blocked）。
         const skip = new Set(body.distributedSkipJobIndices || []);
@@ -20088,6 +20095,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             this.postState();
     }
     async refreshLocalPlanMetadataForAction(body, options = {}) {
+        options.assertCurrent?.();
         const root = workspaceRoot();
         const dir = planDirSafe();
         const generation = this.projectContextGeneration;
@@ -20098,6 +20106,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (this.localPlanMetadataRefreshPromise) {
             await this.localPlanMetadataRefreshPromise;
         }
+        options.assertCurrent?.();
         const key = `${root}::${dir}`;
         const planFile = usableSelectionKey(String(body?.planFile || body?.options?.planFile || body?.selectedPlanId || ""));
         const actionRecent = this.localPlanMetadataActionUpdatedAt &&
@@ -20114,6 +20123,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         ]);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
+        options.assertCurrent?.();
         const nextPlans = selectedPlan ? upsertLocalPlanSummary(plans, selectedPlan) : plans;
         this.localPlanMetadata = {
             planDir: dir,
@@ -20126,6 +20136,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         this.localPlanMetadataUpdatedAt = Date.now();
         this.localPlanMetadataActionUpdatedAt = Date.now();
         await this.persistProjectLocalPlanMetadataState();
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot()) return;
+        options.assertCurrent?.();
         this.localPlanMetadataKey = key;
         this.localPlanMetadataFullRefresh = false;
         await this.persistProjectPlanSelectionState();
