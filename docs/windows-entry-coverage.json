@@ -13343,14 +13343,16 @@
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-section-retry]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_controlled_ui","evidence":"Historical panelWebviewScriptHealth:80-103 used a synthetic section failure and retried with latest state; current error renderer binds retry to renderSectionIfVisible with lastState and force.","boundary":"Synthetic failure or layout only; no real VS Code fault or layout mutation. New Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-collapse-section",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-collapse-section]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_controlled_ui","evidence":"2026-11-21 rendered handler and fake layout checked section collapse/expand, saved state and rerender on expansion, 4/4 exit0; current producer and handler retain section identity.","boundary":"Synthetic failure or layout only; no real VS Code fault or layout mutation. New Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-inspector-move=up",
@@ -13499,7 +13501,8 @@
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_fake_navigation_scoped","evidence":"Previous fake-DOM resolveResourceScrollTarget checked fallback to tmux section for the placeholder.","boundary":"Original synthetic DOM or identity only; no current real panel click or Worker/tmux query. New Panel candidate remains unbuilt."}
         },
         {
           "id": "navigation:tmux:tmux-example-pane",
@@ -13568,7 +13571,8 @@
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_fake_navigation_scoped","evidence":"Previous fake-DOM resolveResourceScrollTarget checked fallback to execution section.","boundary":"Original synthetic DOM or identity only; no current real panel click or Worker/tmux query. New Panel candidate remains unbuilt."}
         },
         {
           "id": "navigation:results:results-summary",
@@ -13589,7 +13593,8 @@
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_fake_navigation_scoped","evidence":"Previous fake-DOM resolveResourceScrollTarget checked sync-actions exact anchor.","boundary":"Original synthetic DOM or identity only; no current real panel click or Worker/tmux query. New Panel candidate remains unbuilt."}
         },
         {
           "id": "navigation:diagnostics:diagnostics-targets",
@@ -13652,35 +13657,40 @@
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_fake_navigation_scoped","evidence":"Previous fake-DOM resolveResourceScrollTarget checked this exact anchor.","boundary":"Original synthetic DOM or identity only; no current real panel click or Worker/tmux query. New Panel candidate remains unbuilt."}
         },
         {
           "id": "navigation:settings:settings-servers",
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_fake_navigation_scoped","evidence":"Previous fake-DOM resolveResourceScrollTarget checked this exact anchor.","boundary":"Original synthetic DOM or identity only; no current real panel click or Worker/tmux query. New Panel candidate remains unbuilt."}
         },
         {
           "id": "navigation:tmux:tmux-session-{id}",
           "disposition": "prior_scoped_evidence",
           "reference": "PanelHtml.legacy.ts:8652-8681; nonCommandButtonCandidates[name=data-section-target]; logicalActionCensus.localScopeReview.tmuxNavigation",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_fake_navigation_scoped","evidence":"Prior tmuxTreeObjects and navigateToResourceTarget fake session/window/pane traversal checked the session anchor.","boundary":"Original synthetic DOM or identity only; no current real panel click or Worker/tmux query. New Panel candidate remains unbuilt."}
         },
         {
           "id": "navigation:tmux:tmux-window-{id}",
           "disposition": "prior_scoped_evidence",
           "reference": "PanelHtml.legacy.ts:8652-8681; nonCommandButtonCandidates[name=data-section-target]; logicalActionCensus.localScopeReview.tmuxNavigation",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_fake_navigation_scoped","evidence":"Prior tmuxTreeObjects and navigateToResourceTarget fake session/window/pane traversal checked the window anchor.","boundary":"Original synthetic DOM or identity only; no current real panel click or Worker/tmux query. New Panel candidate remains unbuilt."}
         },
         {
           "id": "navigation:tmux:tmux-pane-{id}",
           "disposition": "prior_scoped_evidence",
           "reference": "PanelHtml.legacy.ts:8652-8681; nonCommandButtonCandidates[name=data-section-target]; logicalActionCensus.localScopeReview.tmuxNavigation",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_fake_navigation_scoped","evidence":"Prior tmuxTreeObjects and navigateToResourceTarget fake session/window/pane traversal checked the pane anchor.","boundary":"Original synthetic DOM or identity only; no current real panel click or Worker/tmux query. New Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-drawer-pin=inspector",
