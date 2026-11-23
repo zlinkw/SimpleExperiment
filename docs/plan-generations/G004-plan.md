@@ -10,7 +10,7 @@
 
 ## 角色、租约与保护
 
-总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high/default，resolved与实际turn已实核match/continue，独占本计划/README。唯一执行01a20584-8cbd-7383-8626-4997e9d2dacc/local，Terra/high/priority，资格实核后承接；本轮包、发行、安装已交完整包且释放scoped Git，无在途。上一阶段已交包释放全部租约。总控同步本次完整范围后，将产品/本地API-MCP-UI/必要测试、execution-coverage及scoped Git租约一次交原执行者；总控保留plan/README及最终独立审查，不并发操作目标实例。只保留两角色，不另建验收者；service_tier仅记录。旧总控01a1fdb5及旧执行01a203b9/01a204cc均按caveman自然阈值完整交班并归档不删除，真实峰值/资格/租约与基线详见Git 7bf49ba8同计划、6a2cf63c和execution；接替不重置任务/许可或有效证据。
+总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high/default，resolved与实际turn已实核match/continue，独占本计划/README。唯一执行01a2070f-26ea-7cb2-a4f5-d715d3b51d15/local，Terra/high/priority，实际资格match/continue；旧执行01a20584自然阈值六次压缩/第五次后峰300187，完整交班且正式释放全部租约，无在途。新执行先读完整原材料，总控本次指针同步后明确信息中释放Git及业务租约；本轮包、发行、安装已交完整包且释放scoped Git，无在途。上一阶段已交包释放全部租约。总控同步本次完整范围后，将产品/本地API-MCP-UI/必要测试、execution-coverage及scoped Git租约一次交原执行者；总控保留plan/README及最终独立审查，不并发操作目标实例。只保留两角色，不另建验收者；service_tier仅记录。旧总控01a1fdb5及旧执行01a203b9/01a204cc均按caveman自然阈值完整交班并归档不删除，真实峰值/资格/租约与基线详见Git 7bf49ba8同计划、6a2cf63c和execution；接替不重置任务/许可或有效证据。
 
 总控无独立待办、仅等完整包/必要决定时按全局事件协调合法结束本轮，不能轮询/催进度；执行者仍有授权可做工作不得套用空闲。必要消息默认无回执。未知在途动作先核归属与结果，不重放。当前原仓是普通Windows工作区，非Pi/自制容器/项目管理器，不触发worktree PR。master追踪origin/master，origin=https://github.com/zlinkw/SimpleExperiment.git；逐组检查diff、UTF8、必要验证后精确stage，普通commit/push/fetch核HEAD一致。remote前进、认证/hooks/同步失败停相关Git升级，不amend/rebase/reset/merge/force/改remote，不stage日志、夹具、无关未跟踪资产。0aa6b27c push后fetch TLS unexpected EOF exit1，经总控精确一次恢复fetch exit0核一致，非通用重试许可。
 
@@ -115,3 +115,5 @@ B1真实流程只点识别一次。源码核确认同当前PLAN仅本机扫描/�
 同时从原300逻辑ID、137工具、167 invoke与45命令的现有索引逐项对账，复用已经有效的producer→consumer/参数/权限/错误/终态及定向证据；旧confirmed_defect与519字段须按已交修复更新适用状态。明确哪些是源码尚未审、条件证据缺失、仅真实外部效果未运行，不能把范围分类/schema存在/测试文件通过等同每项已审，也不能只做前两项就结束完整阶段。对仍未审单项目入口连续查必要调用链，补能安全执行的实际本地UI/MCP或有依据的受控消费者检查；外部受限入口仍可审本地路由，禁止执行真实Worker或跨项目效果。处置与证据只更新既有coverage行/字段和execution，不新建tracker/报告，不重复已成立检查。
 
 每组≤3强相关问题/≤8非生成文件，保留首失败、原20秒期限和全部删除/共享配置边界；本人电脑控制授权持续限专用窗口及安全本地交互，不控制稿件窗。完成所有授权内可做调查/修复及必要回归后交完整包：逐母集当前已审/未审/受限的精确差异、两根因、源diff/消费者/日志/实际退出、剩余明确缺口。普通局部失败不停止整批；需新增权限只暂停相关效果并继续其余。源审后才决定必要编译/新版本集中试行交付，不能提前重装520或更改不可变包/tag。
+
+本次执行角色自然接替基线a17e151f：CSV修复4d7df6d2及映射/0值8ed64825、旧11缺陷逐ID适用对账a17e151f已同步；PanelHtml/panelRenderHealth/panelUnknownHealthRecovery及coverage脏修改保留，未编译/提交该UI批。真实ACK同ID补报与旧offscreen夹具/最终字段断言的具体待决定见执行交班，offscreen仍等待本人确认，不能以接替代批准。其余未审入口继续，不重放CSV回归或真实识别；原520仍运行旧实现。
