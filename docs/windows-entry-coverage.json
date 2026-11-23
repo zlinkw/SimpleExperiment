@@ -12333,6 +12333,7 @@
         },
         {
           "id": "panel:copyText:1",
+          "currentReview": {"status":"source_scoped","evidence":"普通按钮携带 text，经 handleMessageCore 到 copyTextFromUi；空内容警告，否则写剪贴板并提示。附着命令是另一分支：须已启用 Worker、精确窗口 ID 和主动查询后的身份核验，随后只复制命令。","boundary":"普通文本复用 g004-520-setup-guide-20261123.log 12/12 中假 VS Code 剪贴板用例，当前相关方法与 f66d3694 相同；未写真实剪贴板，未查询真实 tmux/Worker。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=copyText]",
           "oldStatus": "concluded_scoped",
@@ -12348,6 +12349,7 @@
         },
         {
           "id": "panel:openAdvancedCommandsSetting:1",
+          "currentReview": {"status":"source_scoped","evidence":"面板按钮经 handleMessageCore 调用 VS Code openSettings，定位 simpleExperiment.showAdvancedCommands；该入口只打开设置界面。","boundary":"当前调用链及 commandPaletteClarity 断言源码审阅；未在真实窗口打开或更改设置，也未将测试源码视为本轮通过。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=openAdvancedCommandsSetting]",
           "oldStatus": "concluded_scoped",
@@ -14687,6 +14689,7 @@
         },
         {
           "name": "copyText",
+          "currentReview": {"status":"source_scoped","evidence":"invokeApi 普通 handleMessageCore 分支；普通按钮携带 text，经 handleMessageCore 到 copyTextFromUi；空内容警告，否则写剪贴板并提示。附着命令是另一分支：须已启用 Worker、精确窗口 ID 和主动查询后的身份核验，随后只复制命令。","boundary":"普通文本复用 g004-520-setup-guide-20261123.log 12/12 中假 VS Code 剪贴板用例，当前相关方法与 f66d3694 相同；未写真实剪贴板，未查询真实 tmux/Worker。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -14844,6 +14847,7 @@
         },
         {
           "name": "openAdvancedCommandsSetting",
+          "currentReview": {"status":"source_scoped","evidence":"invokeApi 普通 handleMessageCore 分支；面板按钮经 handleMessageCore 调用 VS Code openSettings，定位 simpleExperiment.showAdvancedCommands；该入口只打开设置界面。","boundary":"当前调用链及 commandPaletteClarity 断言源码审阅；未在真实窗口打开或更改设置，也未将测试源码视为本轮通过。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
