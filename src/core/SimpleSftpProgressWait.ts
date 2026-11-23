@@ -176,15 +176,17 @@ export async function callSftpWithProgress(
   method: string, params: Record<string, any>,
   discover: (method: string) => Promise<SimpleSftpDiscovery>,
   onProgress?: (snapshot: SimpleSftpProgress) => void,
+  assertCurrent?: () => void,
 ): Promise<any> {
-  assertRetryRequestCurrent();
+  try { assertRetryRequestCurrent(); } catch (error) { if (error && typeof error === "object") (error as any).sftpNotStarted = true; throw error; }
   const scopedSignal = retryRequestSignal();
   if (scopedSignal) params = { ...params, signal: params.signal ? AbortSignal.any([params.signal, scopedSignal]) : scopedSignal };
   const discovery = await discover(method);
+  try { assertCurrent?.(); } catch (error) { if (error && typeof error === "object") (error as any).sftpNotStarted = true; throw error; }
   if (method === "sync.projectInventory" && params.metadataOnly === true && discovery.methodOptions?.[method]?.metadataOnly !== 1)
     throw new Error("SimpleSFTP 当前实例不支持递归文件信息；请更新并重载，未发送内容哈希请求。");
   const { endpoint, headers } = discovery;
-  assertRetryRequestCurrent();
+  try { assertRetryRequestCurrent(); } catch (error) { if (error && typeof error === "object") (error as any).sftpNotStarted = true; throw error; }
   const operationId = `sftp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const cleanupOperation = method.startsWith("files.cleanup.");
   const metadataRead = ["sync.projectInventory", "sync.projectTree", "sync.projectTreeState", "sync.projectFileStats",
@@ -341,6 +343,10 @@ export async function callSftpWithProgress(
         _requestKey: sftpRequestKey(method, serializable),
       } });
     const sendOperation = async () => {
+      try { assertCurrent?.(); } catch (error) {
+        if ((!operationSent || operationNotStarted) && error && typeof error === "object") (error as any).sftpNotStarted = true;
+        throw error;
+      }
       try {
         operationSent = true;
         operationNotStarted = false;

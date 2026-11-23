@@ -24121,8 +24121,12 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             assertPaths(this.localMachineStateGuard(request.localPath || workspaceRoot()), fileOperationIndexPaths(request, true));
         }
     }
-    async simpleSftpApiCall(method, params, timeoutMs = 0, onProgress?, cleanupObservation?: { source: any; relativePath: string }) {
-        assertRetryRequestCurrent();
+    async simpleSftpApiCall(method, params, timeoutMs = 0, onProgress?, cleanupObservation?: { source: any; relativePath: string }, assertCurrent?: () => void) {
+        try { assertRetryRequestCurrent(); } catch (error) { if (error && typeof error === "object") (error as any).sftpNotStarted = true; throw error; }
+        const assertBeforeDiscovery = () => { try { assertCurrent?.(); } catch (error) {
+            if (error && typeof error === "object") (error as any).sftpNotStarted = true; throw error;
+        } };
+        assertBeforeDiscovery();
         if (method === "files.cleanup.preview" || method === "files.cleanup.execute") {
             const settings = vscode.workspace.getConfiguration("simpleExperiment");
             const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.remoteTmuxSessionPrefix || "simple");
@@ -24139,11 +24143,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             : request.node?.kind === "local" ? undefined : request.source || request.server || request.node;
         const index = query && this.projectFileObservationIndex?.(observationSource);
         const load = () => callSftpWithProgress(method, request, async (name) => {
+            assertBeforeDiscovery();
             if (workspaceRoot() !== requestRoot) throw new Error("SFTP_WORKSPACE_MISMATCH：项目已变化，未转交请求。");
             const capability = await this.simpleSftpCapability(name);
+            assertBeforeDiscovery();
             if (workspaceRoot() !== requestRoot) throw new Error("SFTP_WORKSPACE_MISMATCH：项目已变化，未转交请求。");
             return capability;
-        }, onProgress);
+        }, onProgress, assertCurrent);
         if (index) {
             const client = this.client, root = workspaceRoot();
             for (let attempt = 0; ; attempt++) {
@@ -24168,14 +24174,17 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const mutation = /^(sync\.(?:serverToServerFpsync|download|upload)|upload\.|files\.cleanup\.execute|files\.(?:delete|move|write|mkdir|rename))/.test(method)
             && !(method === "sync.downloadMappedPaths" && request.memoryOnly === true);
         if (mutation) this.assertTransferRootSafety(method, request);
-        if (mutation) await this.refreshProjectFileIndexesBeforeOperation?.(method, request);
+        if (mutation) {
+            await this.refreshProjectFileIndexesBeforeOperation?.(method, request, "before-operation", assertCurrent);
+            assertBeforeDiscovery();
+        }
         // Cleanup's transport request is token-only. Keep its known endpoint/path
         // here, outside the RPC, rather than invalidating every Worker and subtree.
         const mutationIndex = method === "files.cleanup.execute" && cleanupObservation
             ? this.projectFileObservationIndex?.(cleanupObservation.source) : undefined;
         const changedPaths = mutationIndex ? [safeSyncPath(cleanupObservation!.relativePath)] : fileOperationIndexPaths(request);
         const invalidate = reason => mutationIndex ? mutationIndex.invalidate(reason, changedPaths) : this.invalidateProjectFileIndexes?.(reason, changedPaths);
-        if (mutation) await invalidate("文件写入或清理开始：" + method);
+        if (mutation) { await invalidate("文件写入或清理开始：" + method); assertBeforeDiscovery(); }
         try {
             return await load();
         } catch (error) {
@@ -24183,8 +24192,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             this.invalidateSimpleSftpCapabilityAfterFailure(error, capLaunchAtStart);
             throw error;
         } finally { if (mutation) {
-            await invalidate("文件写入或清理结束，需重新查询：" + method);
-            await this.refreshProjectFileIndexesBeforeOperation?.(method, request, "after-operation");
+            const callerStillCurrent = () => { try { assertCurrent?.(); return true; } catch { return false; } };
+            if (callerStillCurrent()) await invalidate("文件写入或清理结束，需重新查询：" + method);
+            if (callerStillCurrent()) await this.refreshProjectFileIndexesBeforeOperation?.(method, request, "after-operation", assertCurrent);
         } }
     }
     projectFileObservationIndex(source?) {
@@ -24211,7 +24221,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async invalidateProjectFileIndexes(reason, paths?) {
         await Promise.all([...(this.projectFileIndexes || [])].map(index => index.invalidate(reason, paths)));
     }
-    async refreshProjectFileIndexesBeforeOperation(method, request, phase = "before-operation") {
+    async refreshProjectFileIndexesBeforeOperation(method, request, phase = "before-operation", assertCurrent?: () => void) {
+        assertCurrent?.();
         const root = workspaceRoot();
         if (!root) return;
         const paths = fileOperationIndexPaths(request), localPaths = fileOperationIndexPaths(request, true);
@@ -24233,15 +24244,18 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             seen.add(index.file);
             // Legacy shallow mode cannot resolve arbitrary nested scopePaths. Preserve its full coverage.
             const legacyRead = async () => {
+                assertCurrent?.();
                 const batches = paths.length ? Array.from({ length: Math.ceil(paths.length / 5000) }, (_, n) => paths.slice(n * 5000, (n + 1) * 5000)) : [[]];
                 for (const scopePaths of batches) {
                     const queryMethod = scopePaths.length ? "sync.projectInventory" : "sync.projectTree";
                     const params = { source, relativePath: ".", ...(scopePaths.length ? { scopePaths, metadataOnly: true, recursive: true } : {}) };
                     await index.read({ ...sftpFileIndexQuery(queryMethod, params), binding: { purpose: phase, operation: method } }, async () => {
+                        assertCurrent?.();
                         const capability = await this.simpleSftpCapability(queryMethod);
+                        assertCurrent?.();
                         if (scopePaths.length && capability.methodOptions?.[queryMethod]?.metadataOnly !== 1)
                             throw Error("FILE_INDEX_METADATA_CAPABILITY_REQUIRED");
-                        return callSftpWithProgress(queryMethod, params, name => this.simpleSftpCapability(name));
+                        return callSftpWithProgress(queryMethod, params, name => this.simpleSftpCapability(name), undefined, assertCurrent);
                     });
                 }
             };
@@ -24253,10 +24267,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     // Reuse an established native baseline, never implicitly build a global index for
                     // a small standalone transfer or a filesystem that requires full reconciliation.
                     const saved = await index.readBaseline();
+                    assertCurrent?.();
                     if (!paths.length || saved?.acceleration?.mode !== "native-directory-deltas") { await legacyRead(); return; }
                     const reader = new SyncScopeAgentIndexReader(async (query, options) => {
+                        assertCurrent?.();
                         if (workspaceRoot() !== root || this.client !== client) throw new Error("SCOPE_INDEX_WORKSPACE_CHANGED");
                         const value = await client.getWorkerSyncScopeIndex(workerId, { ...query, projectRoot: source.remotePath }, options);
+                        assertCurrent?.();
                         if (workspaceRoot() !== root || this.client !== client) throw new Error("SCOPE_INDEX_WORKSPACE_CHANGED");
                         if (!value?.projectRoot || value.requestedProjectRoot !== source.remotePath) throw new Error("SCOPE_INDEX_PROJECT_MISMATCH");
                         return value;
@@ -24264,6 +24281,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     try {
                         await reader.inventory("file-operation:" + crypto.randomUUID(), undefined, undefined, { purpose: phase, operation: method });
                     } catch (error) {
+                        assertCurrent?.();
                         if (scopeIndexUnsupported(error)) { await legacyRead(); return; }
                         // A failed live query is unknown, never an empty inventory or an accepted saved cursor.
                         await index.read({ method: "agent.metadata", metadataOnly: true, recursive: true,
