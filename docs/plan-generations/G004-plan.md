@@ -8,7 +8,7 @@
 
 ## 唯一角色、租约与保护
 
-总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续4》01a2097a-adcb-79d0-8f41-03248c4dda31/local，resolved/turn均Sol/high/default、match/continue。旧总控01a2040c在10次压缩、第五次后峰300413自然交班，明确释放plan/README/最终审查，无在途；新总控已完整读交班，核旧turn completed/idle及coverage/execution/scripts无旧rollout引用后归档成功，未改证据。更早交权见43efb031/e8bc27fe；tier只记录，轮换不重置任务/授权。
+总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续5》01a209ee-098a-7d91-8c44-c6242f9970bd/local，resolved/turn均Sol/high/default、match/continue，已完整读取交班及必要原材料。旧总控01a2097a在6次压缩、第五次后峰301183自然交班，明确释放plan/README/最终审查，无在途；已核其turn completed/idle，归档前须核原rollout引用安全。更早01a2040c已安全归档，交权见87120df3/43efb031/e8bc27fe；tier只记录，轮换不重置任务/授权。
 
 唯一执行现为01a209da-8e0d-7381-b4e5-e2d6c9c8d768/local，Terra/high/default、resolved/turn match/continue，已完整读材料并实核两仓。旧01a208e7在7次压缩、第五次后峰300656自然交班，明确释放全部产品/测试/execution/coverage及两仓串行Git、无在途；总控更新本指针后同范围独占移交新执行。总控仍只持plan/README、协调/最终审查。不索普通ack/重派/加代理；依全局事件协调，总控无独立待办且仅等完整包时角色空闲，执行有工作继续。旧turn完成及rollout引用安全核后才归档不删，路径不能伪造成新证据。
 

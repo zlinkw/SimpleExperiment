@@ -15,4 +15,4 @@ G001已验收交付，无活动待决或未交接事项，退出日常三代窗�
 现任总控独占维护本索引；新独立需求依据总控批准的计划登记。最多保留最近三代必要身份；容量不足时先检查最老代状态和交接，不能安全腾位就暂停登记并报告总控。轮换本身不授权删除，保护与删除规则见全局技能 `C:/Users/ZLK/.codex/skills/multi-session-implementation/references/lifecycle.md` 和项目适用规则。长期踩坑独立保留于 [大踩坑](../major-pitfalls.md)。
 
 
-当前采用《总控·SimpleExperiment G004 集中查修与交付》兼最终验收＋唯一 Terra 完整实现及小验收；总控接续4（01a2097a）已实核Sol/high并完整接管，旧接续3交权后核turn完成和证据路径再归档。唯一Terra按自然阈值同角色接替，现任01a209da已实核Terra/high及完整背景，旧01a208e7明确释放全部租约、无在途；当前唯一指针及保护见计划，旧turn完成和证据路径核后才归档。有效覆盖沿用，原独立验收由总控接管，不另建角色。历史R09–R15分工见G003-plan.md；内部步骤不另建代次。通用接续仅引用C:/Users/ZLK/.agents/skills/caveman/SKILL.md，不另定阈值。
+当前采用《总控·SimpleExperiment G004 集中查修与交付》兼最终验收＋唯一 Terra 完整实现及小验收；总控接续5（01a209ee）已实核Sol/high并完整接管，旧接续4明确交权、turn已完成，证据路径安全核后才归档。唯一Terra按自然阈值同角色接替，现任01a209da已实核Terra/high及完整背景，旧01a208e7明确释放全部租约、无在途；当前唯一指针及保护见计划，旧执行因原rollout被引用暂不归档。有效覆盖沿用，原独立验收由总控接管，不另建角色。历史R09–R15分工见G003-plan.md；内部步骤不另建代次。通用接续仅引用C:/Users/ZLK/.agents/skills/caveman/SKILL.md，不另定阈值。
