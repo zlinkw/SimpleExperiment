@@ -51,18 +51,15 @@ SFTP共享配置读取和发布围栏假端v1 3/3、v2 4/4、v3 5/5及消费者1
 
 停止请求原先发送后迟到可能修改新项目状态，且200ms延迟保存可在切换时丢失意图。当前候选固定原项目/client，在发送前等待原有localOperations持久化队列排干并复核，保存失败或切换零POST；已发结果未知不重发、不清新项目缓存。纯VM假端 `%TEMP%/g004-stop-context-v4-20261123.{out,err}.log` 14/14 exit0；v2首13/14 exit1为夹具reply尚未初始化，显式等待假POST后v3 14/14，后补single-flight竞态得v4。无真实Worker或跨项目效果；待当前build。
 
-43efb031旧build规划316项/0按需exit0，真实planG004Execution因legacy漂移exit1；两日志 `%TEMP%/g004-build-plan-43efb031-slot-20261123.{out,err}.log` 与 `g004-build-plan-evidence-43efb031-20261123.{out,err}.log` 保留，旧计划不代表当前build。SFTP 73项旧日志及闭包未齐。一次rg脚本通配路径错误未写文件。
+可用性与重排/源码查询围栏：可用性绑定原项目、保存前后保护B并保A已写事实，真实save假端v2 1/1、精确3/3，源码702acec8；重排与PlanCodeScope原client/lane围栏 `dde958c5`，假查询1/1、精确重排5/5，旧v1/v2及旧Production/Coverage未跑保留；详细原日志/首失败/路径和索引补丁错误见 `fe1da3ef:docs/plan-generations/G004-execution.md` 和coverage。无真实Worker/删除或build。43efb031旧316项规划exit0但执行规划首拒legacy漂移exit1，旧日志及误通配路径见同记录；后续实际重规划，SFTP 73项旧日志缺口仍在。
 
 总控审准SFTP两原单文件：apiBackpressure与apiUploadProgress顺序各4/4、exit0、stderr空，日志 `%TEMP%/g004-sftp-api-{backpressure,upload-progress}-v1-20261124.{out,err}.log`，原调用和依赖登记coverage；假SSE及假上传子进程，无真实监听/SSH/传输。只读查rollout时额外指定不存在的11/24日期目录导致rg exit2，实际11/23 rollout命中有效，无写入。
 3c132bdc旧规划及154个重叠依赖漂移导航详见 `d70e1b40:docs/plan-generations/G004-execution.md`；均非当前build或通过。
 projectCodeSyncState旧VM直接执行新增TS类型语法导致只读语法检查SyntaxError；按总控批准以现有TypeScript先转换再运行，原测试单文件 `%TEMP%/g004-project-code-sync-state-v1-20261124.log` 实际7/7、exit0，私有fixture保留，未触unlink/Worker/真实配置。原旧7/7证据保留，新direct按实际事件与依赖登记，单identity只读规划验收通过；修正已普通推送fetch一致6bcc43dce912f7778d86010b84edeb13a689ec5b，不冒dist验证。
 只读整理曲线入口时首次按紧凑JSON对象查找而原文件为缩进格式，脚本写前退出非零；修正后JSON解析通过，未触产品。曲线入口沿用原507专用窗口历史点击与当前源码闭包，未启动viewer或查询Worker。
-任务可用性入口发现等待队列、输入及写盘期间切项目可能继续旧client读取或把A队列缓存发布到B并触发B调度；候选复用原上下文和已有beforeRename围栏，A成功后变化保留已写事实并显示partial、不刷新/tickB。真实save方法+内存存储v2 `%TEMP%/g004-job-availability-save-v2-20261124.log` 1/1，原可用性文件选中3项v2 `%TEMP%/g004-job-availability-context-v2-20261124.log` 3/3均exit0；v1两日志各1/1、3/3保留。总控源审通过，所需legacy五hunk及本组文件已普通推送并fetch一致702acec84e95c540a7abbdd5128a16e8f10be1e6；混合文件其余候选仍未build/提交，不冒真实Worker或跨项目。两次rg误传PowerShell通配符exit1，另一次日志提取因JSON转义格式未匹配写前退出；均无产品写入，修正后结果如上。
-JobAvailability源码/夹具及精确manifest已审并同步；原v1补丁缺上下文check exit1、index空，v2正常check/apply，详细失败与日志见 `d70e1b40:docs/plan-generations/G004-execution.md`。
 
 SFTP cleanupExplicitTarget经总控效果审查后原单文件VM假端1/1、exit0，日志 `%TEMP%/g004-sftp-explicit-target-v1-20261124.log`、事件及依赖见coverage；未执行Python/SSH/网络/删除，旧120单项日志及工具链仍缺。
 
-重排项目/client及源码查询排队发送围栏经总控源审并同步 `dde958c5`；假查询 `%TEMP%/g004-plan-source-client-v1-20261124.log` 1/1（call_b6f46d70a51a450c80cdb956c852b0bf）、重排精确五项 `%TEMP%/g004-requeue-context-v3-20261124.log` 5/5（call_53a2ad914c394a96988a26aac48ef2ad）均exit0；v1 3/3及v2 5/5只对应旧输入，源审两次因新边界暂缓；未运行旧Production/Coverage整文件，未实际删除、访问Worker或build。
 
 send原消费者经效果审的精确选择依次1/1、2/2、1/1、2/2、2/2，均exit0且无超时，日志 `%TEMP%/g004-send-{handoff,truth,identity,proof,native}-v1-20261124.{out,err}.log`；仅源码VM/假端，非整文件或新dist。sync上传、后台清理及实际SFTP发送围栏已源审；后续源码变化不自动继承旧测试。
 
@@ -86,3 +83,9 @@ MCP完整identity源码假端literal direct：dispatch 5/5、SFTP routing 20/20�
 SFTP mappedBatchDownload仅一个wrapper内存拒绝case经总控审旧119日志及实际闭包有条件继承，工具链未知/120逐项日志缺，余24项未审；未运行真实传输。比较首因仓内缺TypeScript报MODULE_NOT_FOUND，随后借现有TS；首CRLF未归一误报差异，归一后相同。本记录归并首脚本因段首空行断言exit1、写前停止，修正后写入。
 
 总控接续5审定：SFTP旧119再按当前闭包有条件继承mapped脚本文本一项及transferRecovery只读九项/静态两项；均假端或静态，无真实进程/SSH/Python，旧工具链未知、120逐项日志缺，余项仍未审。SE三旧direct只更新实际漂移依赖适用摘要，保原call及旧dist限制。总控只读定位三次误路径已纠正，无写入。
+
+SFTP transferRecovery按总控审定登记31项119旧case条件适用及修后精确cancel Process包装1/1，非一次新full32；旧Python census确曾运行子Python、版本未知，无真实Worker。更新末尾首次因匹配多余句点写前失败，精确定位后写入；inventory比较首CRLF误报及误猜函数不存在均已纠正。
+
+SFTP mapped旧119额外九个内存case经总控完整闭包审核条件继承；fake stream/SSH子进程，不执行真实SSH/Python，历史共享配置只读且内容未冻。旧119余15历史case待审（其中取消已有修后精确补验）。只读定位transfer-busy-snapshot误路径及反序slice、safe-delete技能旧别名不存在均已纠正，无写入或删除。
+
+SFTP mapped旧119额外14个磁盘case只按逐项条件继承；历史确有私有staging写/fsync/rename/覆盖、sibling/junction及原时限断言，真实ResourceOperationLeaseManager还读写默认LOCALAPPDATA全局registry/sidecar、可能rename并process.kill(pid,0)探活，旧registry/共享配置/Node未知；本轮未运行、探活或清理。当前25个119旧case条件适用；剩余API取消经总控审定以修后Process包装call_e7c0bc121a874a1e8ca944a8d8ac2f8c精确1/1替代旧项，误重复call_0b905653bef64d51a297010510609f33保事实不增覆盖。假child、operationId-only，原完整test输入与Node/config/registry未知；25旧项加1修后是条件组合，非新full26。历史cleanupMappedStagingFiles只保留存在partial；原事件和详细限制见coverage。压缩首脚本误按段首选择而断言退出，写前未变。
