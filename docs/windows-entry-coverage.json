@@ -14442,6 +14442,7 @@
         },
         {
           "name": "simpleExperiment.installPluginUpdates",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"Bootstrap注册独立安装命令；已有计划或检查后核组件版本，不需更新即返回，需更新时显示版本、包地址和摘要并等待明确安装确认。复用0.5.501已是最新的实窗命令证据。","boundary":"旧证只覆盖无需安装；本轮未下载、安装或重载，实际更新事务不由此证明。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.installPluginUpdates]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14489,6 +14490,7 @@
         },
         {
           "name": "simpleExperiment.openPanel",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"实际注册命令调用当前viewId.focus；复用0.5.492命令面板实窗打开面板记录。","boundary":"旧实窗不证明当前候选Panel脚本通过构建或安装。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.openPanel]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14496,6 +14498,7 @@
         },
         {
           "name": "simpleExperiment.manageAiAuthorization",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"命令进入授权选择器；取消不写入，选择后先核工作区未切换，再写或撤销当前项目授权并刷新状态。复用0.5.496打开后取消的实窗记录。","boundary":"本轮未修改真实授权；旧预览不证明真实授权或撤销效果。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.manageAiAuthorization]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14527,6 +14530,7 @@
         },
         {
           "name": "simpleExperiment.quickSetup",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"命令经Host租约进入quickSetup；配置读取错误不再静默覆盖，项目切换后不再发布配置或启动后续动作，假文件端4/4及原消费单项1/1；旧0.5.498实窗目标检查可复用。","boundary":"旧证未启动Agent；本轮未写真实共享配置或访问Worker，候选待源码复核及构建。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.quickSetup]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",

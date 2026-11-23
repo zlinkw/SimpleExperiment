@@ -5961,8 +5961,10 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         return false;
     }
     async quickSetup(showAgentCompletion = true) {
+        const projectContext = workspaceRoot() ? this.captureProjectContext() : undefined;
         if (!await this.ensureSimpleSftpReadyForSetup("一键配置"))
             return false;
+        if (projectContext && !this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；一键配置未继续。");
         const hubRequired = false;
         let missingServerSetup = serverSetupMissingItems(this.setupConfig, hubRequired);
         if (missingServerSetup.length) {
@@ -5985,8 +5987,13 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
     }
     async completeQuickSetupAfterWorkspace(showAgentCompletion = true) {
         assertSingleProjectWorkspace("一键配置");
+        const projectContext = this.captureProjectContext();
+        const assertCurrent = () => {
+            if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；一键配置的后续操作未执行。");
+        };
         if (!await this.ensureSimpleSftpReadyForSetup("一键配置续接"))
             return false;
+        assertCurrent();
         const missingServerSetup = serverSetupMissingItems(this.setupConfig, false);
         if (missingServerSetup.length) {
             const open = await vscode.window.showWarningMessage(`一键配置续接已停止：服务器配置缺少 ${missingServerSetup.join("、")}。尚未生成当前项目 SimpleSFTP 目标或准备 Agent。`, "打开服务器设置", "稍后");
@@ -5999,12 +6006,14 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             void vscode.window.showWarningMessage("当前尚无启用的 Worker。请在“设置 > 服务器”添加并启用执行服务器。");
             if (!enabledWorkers.length) {
                 const hubProfileResult = await this.writeSftpManagerServerProfiles();
+                assertCurrent();
                 this.postState();
                 void vscode.window.showInformationMessage(`连接配置已保存，当前项目有 ${hubProfileResult.targetCount} 个 SimpleSFTP 目标；添加并启用 Worker 后才能准备 Agent 和提交实验。`);
                 return false;
             }
         }
         const profileResult = await this.writeSftpManagerServerProfiles();
+        assertCurrent();
         const topology = this.projectTopologyAssessment();
         const expectedTargets = enabledWorkers.length;
         if (profileResult.targetCount < expectedTargets) {
@@ -6025,6 +6034,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         const profileSummary = `已生成 ${profileResult.targetCount} 个当前项目 SimpleSFTP 目标。`;
         const environmentSummary = executionEnvironmentLabel(this.setupConfig.condaEnv);
         const next = await vscode.window.showInformationMessage(`Xshell 会话和服务器项目父目录已保存。执行环境：${environmentSummary}。${profileSummary} 首次使用建议一次完成 Agent 部署、自启动命令、会话启动和连接检测。`, "准备 Agent 并启动", "仅启动会话", "只检测", "稍后");
+        assertCurrent();
         let agentsReady = false;
         if (next === "准备 Agent 并启动")
             agentsReady = await this.prepareAgentsForFirstRun(showAgentCompletion);
@@ -13983,6 +13993,10 @@ reportStage("正在准备校验所需代码…");
     }
     async writeSftpManagerServerProfiles(targetIds) {
         this.assertTopologyActualWorkRoots("写入 SimpleSFTP 服务器配置");
+        const projectContext = this.captureProjectContext();
+        const assertCurrent = () => {
+            if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；SimpleSFTP 服务器配置未更新。");
+        };
         const requestedIds = new Set((Array.isArray(targetIds) ? targetIds : []).map((item) => String(item || "").trim()).filter(Boolean));
         const targets = this.sftpSharedTargets().filter((target) => !requestedIds.size || requestedIds.has(target.id));
         const dir = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleSFTP", "server-profiles");
@@ -13993,9 +14007,12 @@ reportStage("正在准备校验所需代码…");
         try {
             existing = JSON.parse(await fs.readFile(file, "utf8"));
         }
-        catch {
-            existing = {};
+        catch (error: any) {
+            if (error?.code !== "ENOENT") throw error;
         }
+        if (!existing || typeof existing !== "object" || Array.isArray(existing) || (existing.servers !== undefined && !Array.isArray(existing.servers)))
+            throw new Error(`SimpleSFTP 服务器配置格式无效：${file}`);
+        assertCurrent();
         const preserved = Array.isArray(existing.servers) ? existing.servers.filter((item) => {
             const id = typeof item === "object" && item ? String(item.id || "") : "";
             return id && !targets.some((target) => target.id === id);
@@ -14027,6 +14044,7 @@ reportStage("正在准备校验所需代码…");
             ? existingActiveServerId
             : (targets.find((target) => target.role === "hub") || targets[0])?.id || "";
         await fs.mkdir(dir, { recursive: true });
+        assertCurrent();
         const payload = `${JSON.stringify({
             version: 1,
             updatedAt: new Date().toISOString(),
@@ -14034,7 +14052,7 @@ reportStage("正在准备校验所需代码…");
             activeServerId,
             servers,
         }, null, 2)}\n`;
-        await atomicWriteText(file, payload);
+        await atomicWriteText(file, payload, { beforeRename: async () => assertCurrent() });
         return { targetCount: targets.length, file };
     }
     sftpSharedTargets() {

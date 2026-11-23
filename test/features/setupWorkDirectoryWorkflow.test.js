@@ -25,7 +25,7 @@ test("quick setup writes current-project profiles to the public SimpleSFTP locat
   assert.match(source, /targets\.some\(\(target\) => target\.id === existingActiveServerId\)/);
   assert.match(source, /source: "simple-experiment"/);
   assert.match(source, /updatedBy: "simple-experiment"/);
-  assert.match(source, /await atomicWriteText\(file, payload\)/);
+  assert.match(source, /await atomicWriteText\(file, payload, \{ beforeRename: async \(\) => assertCurrent\(\) \}\)/);
   assert.match(source, /const profileResult = await this\.writeSftpManagerServerProfiles\(\)/);
   assert.match(source, /已生成 \$\{profileResult\.targetCount\} 个当前项目 SimpleSFTP 目标/);
 });
@@ -58,7 +58,7 @@ test("quick setup resolves Xshell and Worker blockers before Agent preparation",
   assert.match(flow, /open === "选择项目并继续"[\s\S]{0,150}openWorkspaceFolderForContinuation\("一键配置", "quickSetup"/);
   assert.match(source, /async completeQuickSetupAfterWorkspace\(showAgentCompletion = true\)/);
   assert.match(source, /pending\.action === "quickSetup"[\s\S]{0,150}completeQuickSetupAfterWorkspace/);
-  assert.match(source, /completeQuickSetupAfterWorkspace[\s\S]{0,220}ensureSimpleSftpReadyForSetup\("一键配置续接"\)/);
+  assert.match(source, /completeQuickSetupAfterWorkspace[\s\S]{0,500}ensureSimpleSftpReadyForSetup\("一键配置续接"\)/);
   assert.match(source, /一键配置续接已停止：服务器配置缺少/);
   assert.match(source, /尚未生成当前项目 SimpleSFTP 目标或准备 Agent/);
   const blockers = flow.slice(flow.indexOf("const preparationBlockers ="), flow.indexOf("const profileSummary ="));
