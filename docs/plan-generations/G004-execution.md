@@ -157,21 +157,7 @@ server_test源码与增量build只读规划及快照漂移记录见 `72640e5f:do
 
 Plan验证的项目与授权边界修复、假Host及原消费者结果和完整日志名见 `0acec74b:docs/plan-generations/G004-execution.md`；未启动真实同步或Worker，待build。
 
-Agent inspect/ensure/stop/restart/migrate逐入口核身份、授权、确认及假生命周期证据，见coverage；未执行真实Agent、迁移、SSH或tmux。
-
-PLAN清理9项的列表、预览、观察、确认、执行和恢复边界见coverage；先前逐组记录见 `b8b7e155:docs/plan-generations/G004-execution.md`。未触真实路径或清理。
-
-file_cleanup预览及观察边界见coverage；未观察真实文件。
-
-plan_run接受边界修正和普通MCP/UI 1/1原日志见 `4f8cb760:docs/plan-generations/G004-execution.md`；无撤权专项及真实Worker。
-
-file_cleanup状态、审核与执行6项详见coverage及 `df29de92:docs/plan-generations/G004-execution.md`；未操作真实目标。
-
-sftp_worker_sync/directory/batch按两个Worker、路径与配套消费者核源码；未执行真实传输，见coverage。
-
-配套配置与内存指标入口见coverage及 `ffcbb390:docs/plan-generations/G004-execution.md`；未改真实配置。
-
-result_collect按选定PLAN与整批发布、原任务归属和内存读取核源码；未查真实任务或写结果，见coverage。
+Agent、PLAN及file_cleanup、SFTP Worker和结果收集的逐入口证据与限制见coverage；完整压缩前记录见 `10072f76:docs/plan-generations/G004-execution.md`。未执行真实Agent、Worker、传输、路径清理或结果查询。plan_run接受边界修正及普通正路径日志见 `4f8cb760:docs/plan-generations/G004-execution.md`；无撤权专项。
 
 handoff按用户批准修复选定Worker确认、上传和标记，SFTP d4ed002，假消费者4/4与1/1 exit0；日志及限制见coverage，未真实传输或更新安装。
 
@@ -180,3 +166,5 @@ MCP下载按本人授权要求选定Worker有效已存范围，配套b3da0b5；�
 面板Agent入口、结果拆表与映射、主导航及执行导航逐ID源码核对和限制见coverage；完整压缩前记录见 `2a4cc440:docs/plan-generations/G004-execution.md`。异常操作无独立锚时回退执行区，不自动过滤；未操作真实Worker、GPU、tmux、结果、用户窗口或PLAN。
 
 配套b3da0b5后的受影响原消费者：explicitScopedDownload原单文件1/1及workspaceIntegration原单文件4/4均exit0，分别记录 `%TEMP%/g004-sftp-explicit-scope-consumer-20261123.log`、`%TEMP%/g004-sftp-workspace-consumer-20261123.log`。前者为显式范围纯内存与源码契约，后者为假工作区与静态顺序检查；均不证明真实传输、覆盖或删除，不能代替剩余打包覆盖审查。
+
+openXshell、testAll、snapshot入口按实际源码分别核确认、Worker、离线及状态反馈；本轮未启动会话、切模式或查询真实任务/GPU，详见coverage。

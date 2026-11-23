@@ -12201,6 +12201,7 @@
         },
         {
           "id": "panel:openXshell:1",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"按钮路由openAllXshellSessions；刷新会话库后仅取选定启用Worker有savedSessionPath的项，按路径去重，显示具体会话并要求本人确认后启动；空列表警告。","boundary":"源码复核；本轮未启动Xshell或接触服务器。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=openXshell]",
           "oldStatus": "concluded_scoped",
@@ -12215,6 +12216,7 @@
         },
         {
           "id": "panel:testAll:1",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"按钮testTunnel(true)清离线状态后按当前拓扑逐Worker探测，allSettled分别保留失败信息，项目代次和client变化不写回旧结果；invoke默认apiServerTestAll，uiMode=true走按钮路线。","boundary":"源码复核；未改变真实模式、配置或探测Worker；API行ok表示调用成功，不表示每台健康。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=testAll]",
           "oldStatus": "concluded_scoped",
@@ -12230,6 +12232,7 @@
         },
         {
           "id": "panel:snapshot:1",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"manualSnapshot先刷新本地识别；离线模式只给本地结果及错误，协议2按当前Worker刷新任务、原操作和GPU并报告未知，项目代次/client/root变化不写回旧状态。","boundary":"源码复核；未本轮点击或查询真实任务/GPU，协议2成功后可能触发原队列tick。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=snapshot]",
           "oldStatus": "concluded_scoped",
