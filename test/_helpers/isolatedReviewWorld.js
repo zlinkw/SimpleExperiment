@@ -36,7 +36,7 @@ async function world(options={}){
    const x=safeTarget(destination),token=crypto.randomBytes(24).toString('hex'),fp=fingerprint(destination);
    const targets=[{relativePath:destination,destination,type:'directory',absolutePath:path.join(root,destination),missing:!x,fingerprint:fp,
     device:x?String(x.st.dev):undefined,inode:x?String(x.st.ino):undefined,size:x?.st.size}];
-   const rec={token,digest:cleanupDigest(targets),relative:destination,fingerprint:fp,confirmations:0,targets};backends.set(token,rec);
+   const rec={token,digest:cleanupDigest(targets),operationId:'cleanup-'+token,relative:destination,fingerprint:fp,confirmations:0,targets};backends.set(token,rec);
    return {...status(rec),rootIdentity:badRoot?{path:root,inode:'changed'}:rootIdentity(),safety:{confirmedPathDeletion:1,entryIdentityBind:1,batchedFastDelete:1,directoryTreeIsolateDelete:1,isolationRenameNoReplace:1,fastDeleteBatchLimit:5000,registeredIsolationDeletion:1,subtreeSingleWriter:options.noWriter?undefined:1}};
   }
   if(method==='files.cleanup.observeBatch')return {ok:true,observationId:params.observationId,rootIdentity:rootIdentity(),capabilities:{batchCleanupObservation:1},
@@ -48,7 +48,7 @@ async function world(options={}){
   if(method==='files.cleanup.verify')return status(rec);
   if(method==='files.cleanup.execute'){stats.executions++;enterExecution();if(hold)await hold;assert.equal(rec.confirmations,2);assert.equal(params.digest,rec.digest);
    assert.equal(fingerprint(destination),rec.fingerprint);if(busyExecute)throw Object.assign(Error('OPERATION_BUSY'),{apiData:{code:'OPERATION_BUSY'}});
-   if(unknownExecute){rec.unknown=true;return {status:'unknown'};}removeRegistered(destination);return status(rec);}
+   if(unknownExecute){rec.unknown=true;return {status:'unknown'};}removeRegistered(destination);rec.batchReceipt={operationId:rec.operationId,action:'delete-fast',phase:'completed'};return {...status(rec),receipt:rec.batchReceipt};}
   throw Error('UNEXPECTED_METHOD '+method);
  }
  let queue=Q.enqueuePlan(Q.emptyDistributedQueue(),{projectId:Q.canonicalProjectId(root),planFile:'p.yaml',revision:'r',codeFingerprint:'f',executionMode:'train',
@@ -72,7 +72,9 @@ async function world(options={}){
  const vscode={workspace:{workspaceFolders:[{uri:{fsPath:root}}],textDocuments:[]},window:{createWebviewPanel:()=>panel,showQuickPick:async items=>items[0],showInformationMessage:async value=>{infos.push(value);}},ViewColumn:{Active:1}};
  const panelModule=load(path.resolve(__dirname,'../../src/extension/PlanCleanupPanel.ts'),{vscode});
  const hostModule=load(path.resolve(__dirname,'../../src/extension/PlanCleanupHost.ts'),{vscode,'./PlanCleanupPanel':panelModule});
+ const pendingDeletes=new Map();
  const underlying={context:{globalStorageUri:{fsPath:storage}},isolatedReplacementLedgerFileLocal:()=>ledger,loadDistributedQueue:async()=>clone(queue),
+  isolatedDeleteState:async(_root,mode,entry,check)=>{if(mode==='get')return pendingDeletes.get(entry.originalId);if(mode==='reserve'){const old=pendingDeletes.get(entry.originalId);if(old&&!old.settled)throw Error('ISOLATED_DELETE_QUERY_REQUIRED');await check(old);pendingDeletes.set(entry.originalId,clone(entry));return;}const old=pendingDeletes.get(entry.originalId);if(mode==='admit'||mode==='ack'){const group=old.groups.find(row=>row.token===entry.token);group.state=mode==='admit'?'admitted':'ended';group.operationId=entry.operationId;return;}if(mode==='close'){old.open=false;return;}if(mode==='settle'){pendingDeletes.set(entry.originalId,{originalId:entry.originalId,reviewId:entry.reviewId,settled:true});return;}throw Error('unexpected state mode');},
   saveDistributedQueue:async()=>{stats.queueWrites++;throw Error('independent deletion must not write the queue');},simpleSftpApiCall:backend,postState(){},
   withHostOperationLease:async()=>{stats.leaseCalls++;throw Error('independent deletion must not lock the entire project');},
   assertArtifactSyncPathsIdle:(_root,paths)=>assert.ok(paths.every(p=>p===destination))};
@@ -83,7 +85,7 @@ async function world(options={}){
   approve:async preview=>{for(const phase of [1,2])await host.service.confirm({token:preview.token,digest:preview.digest,phase,confirm:true,exactTargets:preview.rows.filter(r=>r.disposition==='delete').map(r=>r.node.id+':'+r.absolutePath)});},
   audit:async()=> (await L.loadIsolatedBatchLedger(ledger))[0].reviews||[],
   setBusyPreview:v=>{busyPreview=v;},setBusyExecute:v=>{busyExecute=v;},setUnknownExecute:v=>{unknownExecute=v;},setBadRoot:v=>{badRoot=v;},
-  setHold:p=>{hold=p;},finish:()=>{removeRegistered(destination);for(const rec of backends.values())rec.unknown=false;},
+  setHold:p=>{hold=p;},finish:()=>{removeRegistered(destination);for(const rec of backends.values()){rec.unknown=false;rec.batchReceipt={operationId:rec.operationId,action:'delete-fast',phase:'completed'};}},
  };
 }
 module.exports={world};

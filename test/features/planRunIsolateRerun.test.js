@@ -106,10 +106,10 @@ async function backendFixture(options={}){
         const fingerprint=sources.get(row.relativePath);if(!fingerprint)throw Object.assign(Error('MISSING_TARGET'),{code:'MISSING_TARGET'});
         return{...row,absolutePath:params.node.root+'/'+row.relativePath,fingerprint,device:'1',inode:row.relativePath,size:10,inventory:[]};});
       const token=cleanupDigest([params.node.id,targets,calls.length]).slice(0,48);
-      const record={token,digest:cleanupDigest(targets),rootIdentity:{path:params.node.root},targets,confirmations:0,action:params.action,node:params.node,completed:new Set(),started:new Set(),executorExit:null};
+      const record={token,digest:cleanupDigest(targets),operationId:'cleanup-'+token,rootIdentity:{path:params.node.root},targets,confirmations:0,action:params.action,node:params.node,completed:new Set(),started:new Set(),executorExit:null};
       // 与 B 9ca51e1d 一致：只有确认路径删除回包携带批量快删安全标志，隔离仍走隔离能力。
       records.set(token,record);return clone({...record,safety:{...isolateFlags(),...(params.action==='delete'?{entryIdentityBind:1,batchedFastDelete:1,directoryTreeIsolateDelete:1,isolationRenameNoReplace:1,fastDeleteBatchLimit:5000}:{})},confirmations:0});}
-    if(method==='files.cleanup.inspect')return{target:{type:params.target.type,absolutePath:params.node.root+'/'+params.target.relativePath,missing:!sources.has(params.target.relativePath)}};
+    if(method==='files.cleanup.inspect')return{ok:true,rootIdentity:{path:params.node.root},executorsChecked:true,executors:[],target:{type:params.target.type,absolutePath:params.node.root+'/'+params.target.relativePath,missing:!sources.has(params.target.relativePath)}};
     // r87 块3：批量只读观察 v1.10 合同（与 isolatedReviewWorld 参考实现同形）——按 key 逐项回真实源状态。
     // r90：observeBatch 请求不带 token，必须放在下方"逐 token 记录"公共守卫之前，否则被误判为未知令牌。
     if(method==='files.cleanup.observeBatch')return{ok:true,observationId:params.observationId,rootIdentity:{path:params.node.root},capabilities:{batchCleanupObservation:1},
@@ -151,7 +151,7 @@ async function backendFixture(options={}){
           return{...shape,receipt:options.receiptBad?variantReceipt(target,options.receiptBad):completionReceipt(target)};}}
       else{// 与 B 快删链一致：一次 execute 事务性处理整批已确认目标，不按 index 逐条执行。
         row.started||=new Set();for(const [index,target] of row.targets.entries()){if(row.completed.has(index))continue;sources.delete(target.relativePath);row.started.add(index);row.completed.add(index);}}
-      return{ok:true};}
+      return row.action==='delete'?{ok:true,receipt:{operationId:row.operationId,action:'delete-fast',phase:'completed'}}:{ok:true};}
     // r87 块4 / r98 B2：后台清隔离副本入口——SE 只交 token+冻结摘要+目标绑定；插件端语义逐字仿真：
     // 单 token、index 不得重复（cleanup-file-api.js :1095+ 的 TARGET_BINDINGS_MISMATCH），绑定必须等于该
     // token 台账内该 index 的登记；跨 token 借用（别的节点/别的分块的目标混进来）会在这两条断言处暴露。

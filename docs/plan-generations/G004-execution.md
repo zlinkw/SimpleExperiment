@@ -66,37 +66,12 @@ TensorBoard将发送、等待、返回、链接及延后复制绑定原项目/Wo
 
 本地catalog捕获原项目与结果目录，lease及读取后核验，目录变化不得启动旧重建；过期context不得取消当前catalog Worker或改状态，读后仅原key可发布错误。新focused原full4 call_c84463999af64496a68c104bb60753ae 4/4、1370.5293ms、literal exit0/no session/skip0，事件及事后日志见coverage；真实方法AST配内存fake，无真实线程、文件写、远端或删除。总控内存逆转两方法cc61→0613，仅八组已审旧证更新legacy当前适用，原运行快照保留；大文件和新dist未跑。
 
-自动恢复：同项目已有自动请求若controller已取消，不复用其取消回执；未取消查询及manual读者可继续共享，已无reader时新读等待旧请求收尾。原full3 call_ae84ba2175884c8eaa70ec5d7be6727f 3/3、628.5799ms、literal exit0/no session/skip0，真实服务实例配fake collect/deferred；无真实文件写/Worker/网络/删除/Python。总控仅按该分支实际输入审核旧resultCollectionProjectContext full4的ResultHost适用736d→8506，保旧执行快照，非重跑或新dist。
-总控计划首次写后16255触发90%阈值校验exit1且误报低于阈值；执行者暂停暂存，待总控语义压缩至15787并UTF8复读通过后继续。
-
-静态检查core等待列表与stat后复核原root/signal，旧项目晚到不发当前界面；报告stat只将ENOENT当缺失，当前EACCES/EIO保原错。focused原full4 call_02d1cf7181be4a938e5f10c317074c5f 4/4、1821.6334ms、literal exit0/no session/skip0；真实core AST配fake执行/FS/UI，不运行真实检查或写文件。原事件、实际输入及事后日志见coverage；总控仅准九组旧证legacy适用cc61→9918，保原运行快照。总控首次按错误事件类型只读筛选无匹配exit1，后以call_id核原事件；非测试失败或通过。
-
-报告列表候选区分ENOENT与读取失败，保旧列表并显示可能过期及原错误；原context过期不发布。Host sync revision、Panel依赖和渲染model均包含列表与错误，文案改为更新latest并保留其他报告。full4 call_78d5f309ce324377b0df4e399b728c4d 4/4、1252.6868ms、literal exit0/no session/skip0；真实方法及Panel函数源码VM配fake，未执行真实检查/文件写，非外层模板真实渲染。事件及事后日志见coverage；三项许可先暂停以补渲染依赖，未运行或重试。首事后事件提取命令引号错误SyntaxError exit1，纠正后取得原事件；只读误通配os123和总控两误路径os2均已纠正。压缩本登记时PowerShell反引号使引用首字节误为控制字符，UTF8复读发现并立即纠正，原历史不变。此组与四域manifest保候选，Panel完整build及真实render VM/10890门禁前不得提交。
-
-结果拆表候选按原项目和结果目录守等待、逐目标及beforeRename，stat仅ENOENT视为不存在；已写文件与可能staging不撤回。full4 call_1ac40222d8f345ad8fcf881d98a7c1b6 4/4、1665.8815ms、literal exit0/no session/skip0；真实方法AST配fake catalog、FS、确认与writer，未运行真实StateStore/文件写/Worker，非批量原子或新dist。实际输入含未提交报告列表候选；原事件及事后日志见coverage。总控首次误猜两个源码路径os2，改真实StateStore和results路径核负责链。
-
-拆表8b6cd237首次push TLS EOF exit1，停Git升级；总控批准精确一次ls-remote/push/fetch恢复成功，三HEAD一致。原首失败和边界见 `01e4dae1:docs/plan-generations/G004-execution.md`，非通用重试许可。
-
-拆表新dist消费者仅原dataset精确case一次；私有TEMP真实写入、flush/rename与named-pipe，fixture保留，未运行。精确pattern及plan阈值首失败见 `01e4dae1:docs/plan-generations/G004-execution.md`。
-
-UI状态funnel准备批三fixture只补项目context接口，原断言不变；action正向41 call_29f28a31a4924c71ac8b3ac4c949216c 41/41、debug call_dc97c8a2dae041138e626008cc0275de 1/1、manual call_de97cfa059ce431a94756b2a177ded93 4/4，均literal exit0/no session/skip0，原事件和事后日志见coverage。运行时legacy 77c含尚未提交funnel/列表候选，之后生产已变；旧dist及fake限制保留，未执行退役草稿。coverage登记首两次误匹配重复call历史行而写前退出1，按精确callId筛选后成功。只读rg误用PowerShell大括号触发ParserError，改真实目录查询。总控计划首次16221触发阈值exit1且误报通过，归并后严格复读通过；非测试失败。实际funnel/PLAN通知候选及其他反向消费者尚未全部审核或同步。
-
-总控仅对上述三direct审核yield guard差异，当前legacy适用77c→847c，原77c执行快照和各事件保留；旧三identity仅历史。计划再写首16213触发阈值exit1，首压缩patch原文不符写前失败，纠正后严格复读通过，均非测试失败。
-
-UI状态funnel和PLAN通知候选按原项目绑定晚到状态及延后交互，过期只留原事实日志；无明确PLAN终态记unknown，原key进度仍释放。原full8 call_4605148c8afb4006ba83b3543fbd4c06 8/8、2734.9677ms、literal exit0/no session/skip0；五真实方法AST配fake工作/UI/定时器，无真实任务/网络/写文件，事件与事后日志见coverage。新fixture四域登记待与生产同批；其余源码及新dist消费者尚需补接口和审查，不冒完整UI或新build通过。
-
-第二准备批whitelist full9、runtime精确2、selected精确2、SFTP能力精确1均literal exit0，实际输入、假端限制、事件、旧证及首只读错误见 `01e4dae1:docs/plan-generations/G004-execution.md` 和coverage，不冒新dist。
-
-第三准备批四fixture仅补context接口；tmux full1、stop精确2、preflight精确1均literal exit0/no session/skip0，原事件、实际ca1d输入与事后日志见coverage。stop含真实私有TEMP结果写、flush/rename及named-pipe，fixture保留；Worker/SFTP为fake。Speed仅node --check exit0，未运行性能case；其原正确性case待新dist精确运行。preflight首补丁落入相似host，在任何测试前发现并移至正确fixture；不冒其他case或新dist通过。
-
-Speed实测工作树23f48e15，索引LF归一后121b3e83，归一文本相同；非同字节。coverage首次JSON全量格式化已发现并按HEAD原格式修复，第一次脚本因空格格式假设退出1且未写入，纠正后精确更新。
-
-第四准备批Notice三处host与ResultSync前三处fixture/session接口补齐；node --check各exit0，未运行旧dist。ResultSync其他槽逻辑保留工作树不纳本批；新dist后Notice全文件与ResultSync既有全文件范围才可执行，后者含私有目录真实写/rename。只读git rev-parse首次未引用upstream触发PowerShell ParserError exit1，引用后确认三HEAD及upstream一致，非Git变更失败。
-
-第五准备批PanelMessageDispatch及PlanStopClear从真实dist提取退役命令常量并补原context接口；两文件node --check exit0，原权限/取消/停止断言保留，未运行旧dist。新dist后按已准full21及stop-clear精确1执行，非已完成编译或真实面板验证。
-
-UI funnel生产批仅五方法及focused/四域注册同步；原full8实际运行树legacy ca1d，索引仅五方法的候选84e7，不冒同一whole或新编译。新旧项目进度始终释放且迟到提示绑定原项目，未知PLAN仅记录事实；首事件与fake效果见coverage。列表/slot/Panel仍待各自门禁。
-
-总控仅准三条direct的847→ca1d、七条及四nested的8536/9918→ca1d依赖适用，原运行快照、日志和限制保coverage；不重跑或扩其他行。原patch逆转复原847；另复原9918时两次重复子串及一次纯删除hunk脚本退出1，均内存无写，改精确方法及原行逆转得9918。总控截断输出及嵌套重名匹配无效未作依据；coverage首匹配两行与nested首脚本语法错误均写前exit1，纠正后成功。总控plan扩写16226写前exit1，归并后阈值通过，非测试失败。
+自动恢复、静态检查、报告列表、拆表、UI状态funnel及五准备批的完整原事件/输入/失败/未知/真实fixture效果、旧证适用裁决均保留于 `4c0cd04e:docs/plan-generations/G004-execution.md` 和coverage；列表/Panel仍待真实build/render，未冒新dist。拆表8b6首次push TLS EOF后仅经总控特批一次ls-remote/push/fetch恢复，非通用重试。
 
 结果表打开绑定原目录和项目；仅同case纳测试，自动映射/Panel候选保留。归档e467原Process子status0/signalnull、原8/8，单case按原449/695逐字闭包条件适用；Node与运行时test SHA未知、外层exit未单列，非新运行或full5通过。索引test语法通过，真实原事件、摘要和fake效果见coverage，真实editor/新dist未验。
+
+隔离消费者准备：helper及四个受影响测试仅做静态接口核对和各一次node --check，均exit0，未运行测试。fixture会在私有TEMP真实写入、将目标rename至同fixture的clean_dir并写MANIFEST，内容保留；回执和pending为替身，不证明真实删除。旧sourceJob 111及Review/Lifecycle/Boundaries三个旧full direct的测试或共享helper已变化，当前eligible降false，历史输出和原快照保留；五个精确case不能替代full，原pattern待原事件核实。helper未模拟unadmit及close的uncertain字段，不能外推异常链。首次Node命令引号错误触发SyntaxError并导致PowerShell后续词语识别错误，exit1、未写入；改用pwsh显式UTF8后四行唯一身份更新并JSON解析成功。只读rg误用Windows通配os123，另一次归档单行过长输出截断，均未作为证据；ResultSync与JobArtifact两个候选node --check各exit0，未运行旧dist。
+
+准备批暂存前严格复读plan为16221，超过16200阈值，校验exit1；index空且未提交，已交总控压缩后复核。execution压缩保留历史原文于4c0cd04e。
+
+总控按原串复核并压缩plan至14732；先前Python通用换行读取少计CRLF导致16116误报，真实16221及校验失败保留。ResultSync call_99b32aa72ff7478a9a66d8c47027901f与JobArtifact call_c10cd507702c4d40917ea66e9e9e9a06因fixture及能力源码变化仅降旧full当前eligible，原事件/日志/输入保留；新dist后各原full许可尚未执行。两fixture依赖新协议，与旧HEAD不兼容，须与三源码、Panel、新slot test及manifest完整同批，先通过真实compile、许可内消费者与Panel P0门禁；不可提前声称测试或产品通过。

@@ -71,10 +71,10 @@ test('真实 producer 链：真 enqueuePlan→真 commit 方法→真 mergeDurab
   assert.notEqual(regen.plans[0].jobs[0].nativeStartProof,runningJob.nativeStartProof,'旧 command 的证明不得迁移到新代际');
 });
 
-test('a 隔离前失败 + b 成功：a→void、b 只到 awaiting_dispatch、批次永不合格；随后 0 字节损坏也原样保留',async()=>{
+test('a 隔离前失败 + b 成功：旧派发资格保留，已登记目标仍可审核；0 字节损坏原样保留',async()=>{
   const ledgerFile=tmpFile('ledger.json');
   const report=await runBatch(batchFixture({ledgerFile,statuses:{'plans/a.yaml':'throw'}}));
-  assert.match(report.message,/存在失败\/取消\/结果未知或派发未核实的项，本批整体不浮出隔离区删除审核/);
+  assert.match(report.message,/旧产物的隔离引用已登记/);
   assert.doesNotMatch(report.message,/已核实远端派发/);
   const batches=await ledger.loadIsolatedBatchLedger(ledgerFile);
   assert.equal(batches.length,1);assert.equal(batches[0].plans.length,2,'初始集合完整：隔离前失败的 a 也在账本内');
@@ -87,22 +87,22 @@ test('a 隔离前失败 + b 成功：a→void、b 只到 awaiting_dispatch、批
   assert.equal(fs.statSync(ledgerFile).size,0,'0 字节损坏保留');
 });
 
-test('真实入口：初始全选一次冻结（含无隔离 PLAN）、别名去重、unknown 未准入、账本故障提交不受阻',async()=>{
+test('真实入口：初始集合冻结、别名去重、已登记目标可审核、账本故障提交不受阻',async()=>{
   const ledgerFile=tmpFile('ledger.json');
   const report=await runBatch(batchFixture({ledgerFile,statuses:{'plans/b.yaml':'plain'}}));
   const batches=await ledger.loadIsolatedBatchLedger(ledgerFile);
   assert.equal(batches[0].plans.length,2,'无隔离旧产物的 PLAN 同样在初始集合');
   assert.ok(batches[0].plans.every(plan=>plan.state==='awaiting_dispatch'));
   assert.equal(ledger.eligibleIsolatedReviews(batches,'/proj').length,0);
-  assert.match(report.message,/等待已登记状态轮询核实远端派发/);
-  assert.match(report.message,/本机入队不等于已启动/);
+  assert.match(report.message,/旧产物的隔离引用已登记/);
+  assert.match(report.message,/须经独立审核入口逐项核对并两次确认/);
   const file2=tmpFile('ledger2.json');
   await runBatch(batchFixture({ledgerFile:file2}),['plans/a.yaml','plans/a.yaml']);
   assert.equal((await ledger.loadIsolatedBatchLedger(file2))[0].plans.length,1);
   const file3=tmpFile('ledger3.json');
   const report3=await runBatch(batchFixture({ledgerFile:file3,statuses:{'plans/b.yaml':'unknown'}}));
   assert.equal((await ledger.loadIsolatedBatchLedger(file3))[0].plans.find(plan=>plan.planFile==='plans/b.yaml').state,'unknown');
-  assert.match(report3.message,/本批整体不浮出隔离区删除审核/);
+  assert.match(report3.message,/旧产物的隔离引用已登记/);
   const dir=tmpFile('not-a-dir');fs.writeFileSync(dir,'x');
   const report4=await runBatch(batchFixture({ledgerFile:path.join(dir,'ledger.json')}));
   assert.equal(report4.rows.filter(row=>row.status==='succeeded').length,2,'账本故障不阻断正常提交');
