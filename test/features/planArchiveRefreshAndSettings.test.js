@@ -53,7 +53,7 @@ test("failed result collection reports this attempt's error", async () => {
   const refresh = compile(`({${extract("refreshResultsSummary", true)}}).refreshResultsSummary`, {
     resultCollectionHost: () => ({ update: async () => { throw new Error("read failed"); } }), errorMessage: error => error.message,
   });
-  const host = { effectiveConnectionMode: () => "online", recordActionError() {}, postState() {} };
+  const host = { effectiveConnectionMode: () => "online", captureProjectContext: () => ({}), projectContextIsCurrent: () => true, recordActionError() {}, postState() {} };
   const result = await refresh.call(host);
   assert.equal(result.ok, false); assert.equal(result.reason, "read failed");
 });

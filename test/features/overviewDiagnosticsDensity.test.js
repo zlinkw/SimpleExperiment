@@ -18,7 +18,7 @@ test("explicit result refresh uses current Worker collection without stale dirty
   const calls = [], updates = [];
   const refresh = new Function('ResultCollectionHost_1', 'errorMessage', 'return ({' + method + '}).refreshResultsSummary;')(
     {resultCollectionHost: owner => ({update: async (...args) => {updates.push({owner,args});}})}, error => error.message);
-  const owner = {effectiveConnectionMode: () => 'worker_pool', postState: () => calls.push('post'),
+  const owner = {effectiveConnectionMode: () => 'worker_pool', captureProjectContext: () => ({}), projectContextIsCurrent: () => true, postState: () => calls.push('post'),
     recordActionError: error => assert.fail(error.message), lastError: 'previous',
     shouldRefreshResultsSummaryForDirtyPlan: () => assert.fail('dirty cache cannot narrow actual collection')};
   await refresh.call(owner, 'experiments/plans/a.yaml');

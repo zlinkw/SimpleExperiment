@@ -93,3 +93,5 @@ TensorBoard将发送、等待、返回、链接及延后复制绑定原项目/Wo
 
 本批带上下文索引补丁脚本首次把实际七段误计为六段，写前断言exit1，无文件或索引变化；复核后按七段生成并逐方法核验。
 索引只读AST核验首次因Node默认stdout缓冲不足出现ENOBUFS、git show被终止，未修改索引；增大读取缓冲后重新核验。
+
+结果汇总围栏准备批：planArchiveRefreshAndSettings精确错误case call_69ee9ab99b47429485ca328ca73adc73 1/1、614.1091ms、literal exit0/no session/skip0；真实方法AST取尚未提交候选，fake update抛原错误，日志从原事件事后提取。overview旧dist消费者只做node --check exit0，待新dist后精确回归，不冒实际效果。新focused/manifest与生产候选仍未提交或运行；manifest首次误以sourceScript全文查找而写前断言退出1，核实际四个结构化entries后登记，保原slot脏项。
