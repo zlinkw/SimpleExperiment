@@ -19,17 +19,15 @@ B1首次失败与20秒timeout、TS首exit2、删除首policy拒绝进程未启�
 
 缓存、Plan恢复、Git绑定及SFTP取消/交接/下载范围的提交、原验证、失败和限制见8f04bd1f及coverage；本地缓存不能证明未知执行器结束。旧119/120日志与工具链缺口未消除；旧316项规划过期，Agent旧证仅按已审精确依赖适用。
 
-输出模板生成项目绑定及发布前fence `fedd8bc9`/`7dfd6db5` 已同步并经总控源审，假端4/4 exit0，首2/3失败及原因见压缩前记录；未build。审核页5个确认变体逐ID受限证据见 `3a916416`，实际删除/覆盖未执行。
+输出模板项目围栏 `fedd8bc9`/`7dfd6db5` 假端4/4；首2/3失败及审核页5个确认变体见历史记录 `d70e1b40`/`3a916416`。未build或真实删除。
 
 隔离永久删除 `0275a980` 仅原身份/回执结清，丢回执不因文件缺失认结束；跨Host未知与旧版已抹身份限制保留。假service v9 11/11、v11 12/12及缓存消费者v1/v2各1/1 exit0；v10首11/12因错误码断言失败，v1至v10原日志见8f04bd1f及coverage。无真实删除或build；planRunIsolateRerun仅已准精确case待新dist，其他fixture未跑。
 
-Git覆盖审核候选冻结项目并在后续效果前复核，假端v2 3/3、v1 2/2均exit0；日志及精确边界见33b70559，未执行真实覆盖或删除。
+Git覆盖项目围栏假端v2 3/3、v1 2/2；日志与边界见 `33b70559`，无真实覆盖或删除。
 
 总控更新plan时首次候选16267字符触发写前断言退出1，外层后续diff-check显示0；文件未写。缩短后16183字符并UTF8复读通过，原事实保留。
 
-共享SFTP配置读取/项目切换围栏：仅ENOENT视为缺省，坏格式及其他错误可见；假端v2 4/4、v1 3/3均exit0，原日志见33b70559；未触真实共享配置或Worker。
-
-共享文件发布前另比对原始文本；v3假端5/5及原消费单项v2 1/1 exit0，原日志见33b70559。发布前检查与系统rename非不可分割事务。
+SFTP共享配置读取和发布围栏假端v1 3/3、v2 4/4、v3 5/5及消费者1/1，原日志见 `33b70559`。仅ENOENT作缺省，发布前比对文本；检查与rename非不可分割事务，未触真实配置或Worker。
 
 原setupWorkDirectoryWorkflow静态消费者夹具仍要求已退役Hub文案；按当前Worker唯一入口更新等价检查后，纯源码文件 `%TEMP%/g004-sftp-profile-original-consumer-v3-20261123.{out,err}.log` 3/3 exit0。它不执行Agent、项目配置或Worker操作，也不证明外部效果。
 
@@ -43,15 +41,9 @@ Git覆盖审核候选冻结项目并在后续效果前复核，假端v2 3/3、v1
 
 提交取消与恢复入口等待中切项目可能继续写旧回执或用新根释放claim；绑定原项目并在发布前重核，假端 `%TEMP%/g004-plan-submission-project-v2-20261123.{out,err}.log` 3/3 exit0，writer闭包修正v3精确项1/1 exit0。已写回执不回滚，未访问真实项目或claim；源码已同步 7659b4b9、b2b25d81，未build。
 
-归档复制项目/目标围栏假端v2 2/2；首v1 0/2 exit1因夹具缺makeOpId，原日志见33b70559，未访问Worker或真实SFTP。
+归档复制绑定项目及实际映射根，v2/v4各2/2、原消费者1/1；首v1 0/2因缺makeOpId，日志与 `ae39752c` 至 `bab13011` 已审修复见 `d766909a`，最终同步 `b61c0e09`，无真实Worker/SFTP。
 
-ae39752c至bab13011相关修复已源审；日志仅按原输入复用，未做真实外部效果。
-
-归档复制显示与下载统一使用实际映射根，v4假端2/2及原消费者精确1/1 exit0，源码同步 `b61c0e09`；原日志及边界见 `d766909a:docs/plan-generations/G004-execution.md`。
-
-失败job重排入口原来读队列等待期间切项目后仍可按新上下文继续；现绑定并复核原项目。真实switch代码假队列 `%TEMP%/g004-recall-failed-project-v1-20261123.{out,err}.log` 1/1 exit0；仅假端，未运行Worker。
-
-失败job重排项目围栏已同步 `e8bc27fe`。2026-11-23执行角色自然接替：旧会话已正式释放且结束归档，新执行Terra/high match/continue，实际default；唯一指针及裁决已由总控同步 `43efb031`。两仓受保护dirty及旧日志/资产不动。
+失败job重排绑定原项目，假队列 `%TEMP%/g004-recall-failed-project-v1-20261123.{out,err}.log` 1/1 exit0，已同步 `e8bc27fe`，未运行Worker。2026-11-23执行角色正式释放、结束归档并接替；新Terra/high/default match/continue，指针及裁决 `43efb031`，受保护dirty及旧资产不动。
 
 停止请求原先发送后迟到可能修改新项目状态，且200ms延迟保存可在切换时丢失意图。当前候选固定原项目/client，在发送前等待原有localOperations持久化队列排干并复核，保存失败或切换零POST；已发结果未知不重发、不清新项目缓存。纯VM假端 `%TEMP%/g004-stop-context-v4-20261123.{out,err}.log` 14/14 exit0；v2首13/14 exit1为夹具reply尚未初始化，显式等待假POST后v3 14/14，后补single-flight竞态得v4。无真实Worker或跨项目效果；待当前build。
 
@@ -67,12 +59,11 @@ SE候选在隔离前复用同lease状态冻结身份，审核入口允许原请�
 原ID续核：树目录展开、问题过滤、详情展开、根标签、表格展开与运行确认取消6项，复用原假端/receipt并核源码未变；未运行真实任务或删除。五次只读统计/证据整理脚本分别因空值、旧格式假设、AST路径错误、git show输出超默认缓冲、对象标记格式不匹配退出非零，均写入前退出；修正后JSON解析及diff检查通过。
 
 总控审准SFTP两原单文件：apiBackpressure与apiUploadProgress顺序各4/4、exit0、stderr空，日志 `%TEMP%/g004-sftp-api-{backpressure,upload-progress}-v1-20261124.{out,err}.log`，原调用和依赖登记coverage；假SSE及假上传子进程，无真实监听/SSH/传输。只读查rollout时额外指定不存在的11/24日期目录导致rg exit2，实际11/23 rollout命中有效，无写入。
-当前3c132bdc及dirty源码只读展开仍build 317/package 369、前者为后者子集；逐身份对比有154个build identity含至少一条旧证依赖漂移（旧receipt记录22、direct记录132，数目可重叠），仅为待核导航，非失败或通过数。已按真实闭包续核租约、槽索引、Worker准备、结果状态和共享作用域等证据，旧compiled仍须新编译门禁；未启动build。
+3c132bdc旧规划及154个重叠依赖漂移导航详见 `d70e1b40:docs/plan-generations/G004-execution.md`；均非当前build或通过。
 projectCodeSyncState旧VM直接执行新增TS类型语法导致只读语法检查SyntaxError；按总控批准以现有TypeScript先转换再运行，原测试单文件 `%TEMP%/g004-project-code-sync-state-v1-20261124.log` 实际7/7、exit0，私有fixture保留，未触unlink/Worker/真实配置。原旧7/7证据保留，新direct按实际事件与依赖登记，单identity只读规划验收通过；修正已普通推送fetch一致6bcc43dce912f7778d86010b84edeb13a689ec5b，不冒dist验证。
 只读整理曲线入口时首次按紧凑JSON对象查找而原文件为缩进格式，脚本写前退出非零；修正后JSON解析通过，未触产品。曲线入口沿用原507专用窗口历史点击与当前源码闭包，未启动viewer或查询Worker。
 任务可用性入口发现等待队列、输入及写盘期间切项目可能继续旧client读取或把A队列缓存发布到B并触发B调度；候选复用原上下文和已有beforeRename围栏，A成功后变化保留已写事实并显示partial、不刷新/tickB。真实save方法+内存存储v2 `%TEMP%/g004-job-availability-save-v2-20261124.log` 1/1，原可用性文件选中3项v2 `%TEMP%/g004-job-availability-context-v2-20261124.log` 3/3均exit0；v1两日志各1/1、3/3保留。总控源审通过，所需legacy五hunk及本组文件已普通推送并fetch一致702acec84e95c540a7abbdd5128a16e8f10be1e6；混合文件其余候选仍未build/提交，不冒真实Worker或跨项目。两次rg误传PowerShell通配符exit1，另一次日志提取因JSON转义格式未匹配写前退出；均无产品写入，修正后结果如上。
-总控核当前JobAvailability四文件及v2通过，允许既有manifest纳入新单项并按legacy精确hunk同步；完整dirty规划build 318/package 370、build为子集，均0按需；当前新单项原事件单identity规划验收通过。总控批准manifest仅从HEAD插入本组单项；原slot测试登记留待其源码同批，完整dirty规划不代表中间HEAD矩阵；未启动build/发行。总控一次只读误取旧StateStore路径exit1，改由rg定位真实路径，无写入。
-索引分hunk预检 `git apply --cached --check %TEMP%/g004-job-availability-index-v1-20261124.patch` exit1：manifest第118行patch不适用，index前后均空、未提交；old行与index逐字一致，无上下文可能为原因但未证实。按规则停止并升级；总控核出缺上下文后准许生成三行上下文v2，正常cached check及apply均exit0，v1及所有现场保留，无reset/force。
+JobAvailability源码/夹具及精确manifest已审并同步；原v1补丁缺上下文check exit1、index空，v2正常check/apply，详细失败与日志见 `d70e1b40:docs/plan-generations/G004-execution.md`。
 
 SFTP cleanupExplicitTarget经总控效果审查后原单文件VM假端1/1、exit0，日志 `%TEMP%/g004-sftp-explicit-target-v1-20261124.log`、事件及依赖见coverage；未执行Python/SSH/网络/删除，旧120单项日志及工具链仍缺。
 
@@ -89,3 +80,8 @@ send原消费者经效果审的精确选择依次1/1、2/2、1/1、2/2、2/2，�
 
 
 草稿整体退役漏口F：取消metadata后台reconcile，旧API/invoke/UI拒绝并从现行MCP目录移除6项；历史文件、数据与旧测试事实保留。原mcpDraftContracts当前拒绝契约假端5/5、exit0，日志 `%TEMP%/g004-draft-retirement-v1-20261124.{out,err}.log`；源码5文件已审并同步 `94a9a0c1`。mcpProject单项待新dist；当前catalog131是源码事实，不改520历史。受影响mcpActionCatalog等价假表更新后1/1、exit0，日志 `%TEMP%/g004-mcp-action-retired-v1-20261124.{out,err}.log`，同步 `88b351a6`。两次Process包装结果非ordinary direct，最终按原单文件runner fresh候选，未构建；临时draftRetirementBoundary文件保留未登记。原旧draft三case对应退役目录、RPC拒绝及路径/grant零效果，不伪称旧行为继续通过。一次只读rg误取不存在test/mcp路径exit2；runner证据AST误定位及本记录首压缩超阈值均写前exit1，无产品/Git影响。
+
+
+派发消费者夹具绑定原项目context：manualLaunchMessage独立同步 `1b3d44a7`；gpuMemory、gpuQuota各原精确1/1 exit0，日志 `%TEMP%/g004-manual-context-{memory,quota}-v1-20261124.{out,err}.log`。原4文件全量旧证仅按审定闭包条件适用，未新跑WSL或整个GPU文件。workerPreparationPipeline两处等价夹具同步 `2213f8d6`，原完整8/8 exit0，日志 `%TEMP%/g004-worker-preparation-context-v1-20261124.{out,err}.log`；均内存fake/Process包装，最终runner同身份fresh按批准候选，未执行真实Worker或新dist。
+
+证据登记一次因误写 SimpleSftpProgressWait 路径在写前退出1；核实际 `src/core` 后修正，JSON解析通过，未改业务文件。

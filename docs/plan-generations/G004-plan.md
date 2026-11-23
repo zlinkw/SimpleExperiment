@@ -80,13 +80,15 @@ MCP配套170fd06e：remote.listDirs不无条件confirm，保sync授权/精确Wor
 
 待新dist必做许可不变：manualDispatchHost原11项单文件一次；distributedPlanExecutionMode仅前三种validated mode精确case；更早resultSync/slot及五隔离消费者照原精确限额。当前未compile，不跑旧dist冒当前源码；D源码VM/静态验证与最终编译消费者是独立状态。
 
+D反向夹具补齐：manualLaunchMessage仅加固定原context/signal/current接口，原GPU配额及三消息不变；memory/quota原锚定各1/1、661.0485/698.2994ms，包装子/外exit0。helper 1b3d44a7；workerPreparation仅原取消文案匹配及末项原context，8/8、3342.686ms、双exit0，2213f8d6已普通同步并实核三HEAD相等/index空。日志TEMP/g004-manual-context-{memory,quota}-v1与g004-worker-preparation-context-v1-20261124，原完整身份及94/95/103仅按已审分支适用，无WSL/真实Worker；saveSchedulerConfig为同合法输入等效、非字节相同。包装不冒ordinary direct。
+
 E替换隔离五产品已源审：原caller贯通预览/确认/预检/状态/隔离实际SFTP、Manifest原client与索引发布；无共享可变guard/新账本/锁。首候选status并发覆盖及首check先guard丢事实已返修：原observing(id)串行、排队后读，普通无guard共享，某caller失败不取消下一合法调用；原A完成回执先save再挡后续。TEMP/g004-plan-cleanup-context-v1-20261124.out.log为8/8、506.8637ms、子/外exit0、stderr空，纯内存save/SFTP/fs与源码VM。generic仅明确sftpNotStarted回pending，8case未走该hunk；已发未知保executing。五产品+新test+manifest共7文件16ade9d3已普通同步，Host原slot未夹；文档3f4b9925后实核HEAD=origin/master=FETCH_HEAD、index空。未声称fastdelete/restore/完整history及全部独立删除通用caller闭合；真实效果/world/build仍禁。
 
 ## 增量构建、最终路线与终点
 
 P0 npm run build含完整测试域，不能以build批准隐式跑禁区。现有G004入口固定本仓max1，build按identity＋argv为已审package严格子集，package仍集合相等；build不是assemble凭证。095a1fb8＋当时dirty只读规划322build/374package、0按需、missing0，仅导航；旧318/370不沿用，D/E/登记变化后须重算。planG004Execution首拒legacy漂移exit1仍真；逐实际提取函数/消费者闭包消解历史依赖，不批替hash/便宜全重跑。compiledInputs须真实新compile后冻结，不拿源码VM冒dist。
 
-sftpCaller/planRun/codeSync/isolatedAutoDelete/planCleanup ContextFence五新identity及F的mcpDraftContracts/mcpActionCatalog包装输出不满足ordinary direct，亦非历史stage固定wrapper；planCodeScope旧full12+新增精确1/1不冒当前full13。最终相关源码/fixture冻结后，这八全文件按原argv/20秒经既有runner fresh各一次、max1，现在不运行。planCodeScope仅保留私有fixture/Python抽函数10000ms，原mocktimer阈值不改。原call/进程exit/timeout/日志/失败保类型，不冒direct/treeconfirmed或新增通用解析器；同输入package复用真实fresh。
+sftpCaller/planRun/codeSync/isolatedAutoDelete/planCleanup ContextFence五新identity、F的mcpDraftContracts/mcpActionCatalog及workerPreparation包装输出不满足ordinary direct，亦非历史stage固定wrapper；planCodeScope旧full12+新增精确1/1不冒当前full13。最终相关源码/fixture冻结后，这九全文件按原argv/20秒经既有runner fresh各一次、max1，现在不运行。planCodeScope仅保留私有fixture/Python抽函数10000ms，原mocktimer阈值不改。原call/进程exit/timeout/日志/失败保类型，不冒direct/treeconfirmed或新增通用解析器；同输入package复用真实fresh。
 
 runner旧证据：1e91d0d4原38 test body及共享helper与现40逐AST相同；35旧eligible sourceJobs255..287/290/291各pattern仍唯一同case，及direct af4ee4a9/0ebf2208两精确项仅test文件/runner依赖变化，默认非G004路径已审适用，允许更新该两依赖basis，不改原call/退出/工具链unknown及219/284历史例外，不扩至新case。e467ce4d旧G004 unit8746ms不继承：当前277行新增build子集/package严格集合断言，效果仅保留合成workspace/日志/事件、mock deadline及PowerShell静态Parser，wrapper只假fs/VM，不执行事件/Python。准最终冻结后原锚定 ^runner: G004 reviewed legacy evidence preserves origin and refuses drift$ 20秒fresh一次，与289/fixed-stage独立。
 
