@@ -67,43 +67,9 @@ CSV宽/长/JSON原回归及两次首失败日志见 `18f587b2:docs/plan-generati
 
 旧执行会话归档后核实60条direct的122个原事件哈希和session身份，仅修coverage路径。新增7项同根520 MCP只读与plan_list合成证据见coverage，真实Worker和跨项目未测；压缩前两稿11639、11331字符均写前断言退出。
 
-## 停止路由候选
+## 停止路由及旧证
 
-停止路由归属与未知保留修复、原假端验证和失败日志见 `c728502f:docs/plan-generations/G004-execution.md`；未访问Worker。
-
-接替期间只读glob两次、覆盖记录写前断言、git-show缓冲及PowerShell引号各一次失败，均未改产品；详见 `49e1cebd:docs/plan-generations/G004-execution.md`。
-
-停止UI未知状态及目标候选、假端验证与原日志见 `a1a638d1:docs/plan-generations/G004-execution.md`；Panel未build。
-
-同根45080 SFTP本地状态与配置只读成功；target.show缺配置及首身份检查失败、敏感日志与边界见 `49e1cebd:docs/plan-generations/G004-execution.md`。未改配置或访问远端。
-
-停止候选保留显式Worker，假端12/12及完整日志见 `0acec74b:docs/plan-generations/G004-execution.md`；Panel未构建部署。
-
-SFTP服务器配置、下载路径、tree/inventory、file_stats、plan_logs及remote_directories逐ID事实、假后端日志、失败及授权边界见coverage和 `49e1cebd:docs/plan-generations/G004-execution.md`；未访问真实Worker、改grant或传输/删除。
-
-静态报告路径及错误VM 3/3 exit0，`%TEMP%/g004-report-read-errors-20261123.*.log`；成功打开/复制未实测。
-
-草稿兼容路由此前误入范围，写后刷新失败修复及假写6/6、生命周期49/49日志见 `%TEMP%/g004-draft-partial-write-final-20261123.*.log`、`g004-draft-action-lifecycle-final-20261123.*.log`；无真实写入，完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
-
-草稿机制已退役；先前仅检查预览及兼容路由，未真实写入，详见coverage。
-
-本人指出草稿机制已退役，停止新调查、验证和实现；旧母集/兼容入口不代表当前功能，不删除文件。
-
-MCP task_stop发送前重核授权和Worker快照、未知保留意图；假Gateway/Host 3/3及首两次exit1复现原日志见 `d1d816d2:docs/plan-generations/G004-execution.md`。未访问真实Worker。
-
-SFTP传输观察/取消的假后端18/18 `%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log` 仅证明透传；后续核已装120发现取消按operationId更新账本、却可按不相属transferId选另一传输，静态可达缺陷当时升级总控；后由配套28087f3修复，未实际取消。三次只读rg路径猜错/Windows通配符失败未改产品。
-
-旧attempt文案仅旧/异常Agent可能触发，当前declared路径先走PlanRunHost.replace；未证创建或恢复机制，原分析见 `0f6ea82b:docs/plan-generations/G004-execution.md`。只读glob失败无产品修改。
-
-task_list只复核当前项目归并、取消及unknown源码，禁止真实任务查询，退役CLI证据不冒充现行MCP通过；task_dispatch复用同任务假Gateway 5/5及假Host 11/11，未触真实派发、GPU或Worker。边界见coverage。
-
-本人授权配套SFTP取消身份最小修复及试行交付；源码 `28087f3` 已同步，假handler 8/8、原结算3/3及首2/4失败原日志见 `f02bb042:docs/plan-generations/G004-execution.md`。已装120仍有缺陷，未操作真实传输；压缩补丁曾未匹配、未写入。
-
-配套源diff已审通过；两个消费者各1/1、verify-runtime核23文件exit0，原日志及119/120证据缺口见 `0f6ea82b:docs/plan-generations/G004-execution.md`；SSH为替身。
-
-Experiment增量证据逐job核验、方法切片及日志保留于 coverage 和 0a662506:docs/plan-generations/G004-execution.md；此前 runner 255/256 等原证不等于当前 build。固定 actionLifecycle 包装已按原事件、原日志和外层退出核验，首轮和负例各1/1，历史草稿断言仅为既有事实。source变化须逐项复核，不能批量改快照。
-
-配套120历史包汇总69文件466通过，逐文件原目录现空；119现存56条对应日志、另13条缺逐项原日志，闭包待审；未打包安装发布新版本。
+停止精确Worker与未知保留意图候选、假端12/12、首次失败及未部署状态见 `cd66811a:docs/plan-generations/G004-execution.md` 和coverage；未访问真实Worker。SFTP 28087f3取消归属、假handler8/8及首2/4失败与旧119/120原日志缺口亦见该版本，未真实取消。草稿全机制退役，旧测试/兼容记录仅历史事实，不恢复。旧attempt提示仅旧或异常响应可达；当前declared路径无证创建attempt。所有旧glob/引号/压缩/探测失败保留该版本，未改产品。
 
 ## 当前补充调查
 
@@ -148,3 +114,11 @@ Git备份确认期间若同名remote的URL改变，现阻止安装；假fs/UI增
 Plan恢复stat仅ENOENT计缺失，其他错误可见；假fs原消费者 %TEMP%/g004-plan-restore-read-error-20261123.log 6/6 exit0，候选待构建，未操作真实文件。
 
 缓存8文件 7845afea 已push/fetch一致，原可替换执行器的三项消费者 %TEMP%/g004-cache-original-selected-final-20261123.log 3/3 exit0；仅私有fixture保留式替身，未永久删除或连接Worker。actionLifecycle仅非草稿持久化单项补验保原断言。Plan恢复源修 0b6b4b4e 已同步，6/6中EACCES注入仅配置分支，其他三分支同式源码核验。
+
+当前HEAD cd66811a只读build规划316任务、0按需、selectionHash cae1fe025e6fc80c5426fc1c679ee20d5edf0f5f1c6df61d337a65c0bd40703d；%TEMP%/g004-build-plan-cd66811-20261123.log exit0。增量证据规划 %TEMP%/g004-build-evidence-plan-cd66811-20261123.log exit1，首拒src/clusterAgentRuntime.legacy.ts依赖漂移；未运行编译或矩阵，不能当build通过。
+
+按当前调用逐项复审旧direct：pluginLogRetention 15/15原日志未重跑，现行retention、admission、backup、下载slot及路径切片与1e91d0d4字节相同且其余依赖不变；automaticScopeContent原8/8的真实提取方法未变；hostOperationLeaseIntegration原4/4的提取方法、命令集合和标签切片未变。逐项旧全文SHA及适用依据保留coverage；不把其他漂移项批量冻结。跨项目14个面板及对应invoke仅标范围外，未执行、不计通过。
+
+总控对Agent漂移仅该依赖维度核24旧sourceJob与14 direct：f66d3694原SHA af809d70…，当前4cd5364e…；实际选取函数/分支不入新缓存逻辑，精确原日志/工具链限制保留coverage。31原Windows skip仍非POSIX通过，219历史超时例外不扩张；227只核serve中旧依赖分支。未运行Agent/Python测试，其他依赖及新compiled runtime未获证明。首次模板AST因未展开插值解析失败，仅只读分析，修正后成功。
+
+Agent单依赖更新后只读增量规划 %TEMP%/g004-build-evidence-after-agent-review-20261123.log exit1，下一首拒legacy源漂移；未编译或执行矩阵。
