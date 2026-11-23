@@ -12002,6 +12002,7 @@
         },
         {
           "name": "result_compare",
+          "currentReview": {"status":"synthetic_scoped_external_effect_restricted","evidence":"loadResults主动查询结果，精确选择左右ID、数值同名指标求差，方向一致才判改善或退化；缺失及歧义显式返回原因或错误。原假RPC合成指标含零值、歧义和缺失18/18 exit0 %TEMP%/g004-520-mcp-query-context-20261123.log。","boundary":"未调用真实活动结果或Worker；旧CLI历史证据不作为MCP实机通过。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=result_compare]",
           "scope": "local_gateway_plus_worker_effect_restricted",

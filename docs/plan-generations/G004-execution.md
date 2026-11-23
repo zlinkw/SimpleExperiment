@@ -150,3 +150,5 @@ experiment_list/summary/tree按输入合并、过滤与树结构逐项复核，�
 experiment_active/overview/health按源及原合成观察/告警证据逐项复核，真实活动查询仍受限，见coverage。
 
 实验历史日志、诊断和配置原可从记录指向项目外本地文件；现复用产物路径规范及实际路径边界，项目外、父目录和junction拒绝。假RPC路径1/1 `%TEMP%/g004-experiment-path-boundary-20261123.*.log`，原本地、假远端产物及合法历史消费者4/4 `%TEMP%/g004-experiment-path-consumers-20261123.*.log`，均exit0；未读取真实用户文件或查询Worker，待build。
+
+result_compare按左右身份、数值与方向复核，原假RPC及缺失歧义证据见coverage；未查询真实活动结果。
