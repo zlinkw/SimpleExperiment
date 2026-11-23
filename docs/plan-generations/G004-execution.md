@@ -69,7 +69,7 @@ CSV宽/长/JSON回归6/6 `%TEMP%/g004-preview-formats-complete-20261123.*.log`�
 
 ## 停止路由候选
 
-停止路由原猜首Worker、未知时force重发及提前落终态；已修精确归属、单次请求与保留意图，VM 10/10及消费者12/12 exit0，日志 `%TEMP%/g004-stop-routing-terminal-20261123.*.log`、`g004-stop-consumers-terminal-20261123.*.log`；早期日志保留，无真实Worker，原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
+停止路由归属与未知保留修复、原假端验证和失败日志见 `c728502f:docs/plan-generations/G004-execution.md`；未访问Worker。
 
 接替期间只读glob两次、覆盖记录写前断言、git-show缓冲及PowerShell引号各一次失败，均未改产品；详见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
@@ -176,3 +176,5 @@ result_collect按选定PLAN与整批发布、原任务归属和内存读取核�
 handoff按用户批准修复选定Worker确认、上传和标记，SFTP d4ed002，假消费者4/4与1/1 exit0；日志及限制见coverage，未真实传输或更新安装。
 
 MCP下载按本人授权要求选定Worker有效已存范围，配套b3da0b5；假fs/传输3/3、假Gateway1/1 exit0，日志及真实效果限制见coverage，未安装。
+
+面板verifyAgentVersion/prepareAgents/startAll及对应invoke路线按旧实点适用和当前源码分别核对，未实测远端；见coverage。

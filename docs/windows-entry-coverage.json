@@ -12131,6 +12131,7 @@
         },
         {
           "id": "panel:verifyAgentVersion:1",
+          "currentReview": {"status":"historical_scoped_external_effect_restricted","evidence":"面板发送verifyAgentVersion，Host走手动版本核对并显示各Worker异常；0.5.492历史点击只证明当时版本提示。","boundary":"未访问本轮真实Worker或校验远端版本。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=verifyAgentVersion]",
           "oldStatus": "concluded_scoped",
@@ -12184,6 +12185,7 @@
         },
         {
           "id": "panel:prepareAgents:1",
+          "currentReview": {"status":"historical_scoped_external_effect_restricted","evidence":"面板发送prepareAgents，Host核项目、目标、SFTP并要求精确远端确认，再部署与验证；复用0.5.500历史有限实点。","boundary":"未部署、连接Worker或改共享配置；历史点击不代表当前环境就绪。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=prepareAgents]",
           "oldStatus": "concluded_scoped",
@@ -12191,6 +12193,7 @@
         },
         {
           "id": "panel:startAll:1",
+          "currentReview": {"status":"historical_scoped_external_effect_restricted","evidence":"面板startAll映射后台隧道，按当前enabled Worker和项目/配置绑定，人工确认并区分已监听、待确认、失败。","boundary":"仅源审及旧0.5.498历史点击；本轮未启动SSH，历史地址不作为默认。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=startAll]",
           "oldStatus": "concluded_scoped",
@@ -15034,6 +15037,7 @@
         },
         {
           "name": "prepareAgents",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"转发Agent准备，保留本人确认和准确Worker目标；本轮无部署。"},
           "route": "invoke_conditional_api_or_ui",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。",
           "conditions": "默认apiProjectPrepare；uiMode=true且无structured/apiMode/parameterized时进入handleMessageCore"
@@ -15359,6 +15363,7 @@
         },
         {
           "name": "startAll",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"转发已启用Worker后台隧道，原确认和异常状态保留；本轮无SSH。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -15478,6 +15483,7 @@
         },
         {
           "name": "verifyAgentVersion",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"转发手动版本核对；本轮不探测远端。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
