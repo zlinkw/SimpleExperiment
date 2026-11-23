@@ -10937,6 +10937,7 @@
         },
         {
           "name": "project_connect",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"Gateway要求agents授权，API核拓扑并从有效授权传确认，后台启动固定项目和启用Worker配置；异步准备及逐Worker启动前现复核授权。假manager定向4/4和撤权回调1/1 exit0，日志 %TEMP%/g004-tunnel-grant-recheck-20261123.*.log、g004-tunnel-grant-callback-20261123.*.log。","boundary":"未启动真实SSH、Worker或更改grant；已启动的结果不假称撤销，源码待build。"},
           "method": "invoke",
           "oldEvidence": "projectTools[name=project_connect]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -12568,6 +12569,7 @@
         },
         {
           "id": "panel:startAllConnections:1",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"面板走同一后台隧道管理器并要求本人确认，异步后校验项目和端点；原假manager相关4/4 exit0见g004-tunnel-grant-recheck-20261123日志。","boundary":"未打开真实SSH或Worker；授权重核仅MCP调用有项目grant上下文，UI保留原本人确认。"},
           "disposition": "local_partial_evidence_real_effect_restricted",
           "reference": "launchAliasesPriorEvidence: partial fake-manager routing, no SSH or Agent",
           "oldStatus": "deferred",
@@ -15327,6 +15329,7 @@
         {
           "name": "startAllConnections",
           "route": "invoke_conditional_api_or_ui",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"API分支预览并要求确认，进入按项目、目标快照固定的后台管理器；项目授权在异步准备和后续每端点边界复核。假manager 4/4及回调1/1 exit0，见project_connect条目。","boundary":"未启动真实SSH或改grant；UI分支仍由本人确认，未build。"},
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。",
           "conditions": "默认apiStartAllConnections；uiMode=true且无structured/apiMode/parameterized时进入handleMessageCore"
         },

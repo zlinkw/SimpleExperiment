@@ -6336,6 +6336,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const endpoints = items.map(BackgroundSshTunnels_1.backgroundTunnelEndpoint);
         const identity = JSON.stringify([endpoints, this.tunnelConfig.token]);
         const assertCurrent = () => {
+            mcpInvocation.getStore()?.permission("agents");
             if (!this.projectContextIsCurrent(projectContext) || projectContext.signal.aborted
                 || identity !== JSON.stringify([AgentRuntimeScope_1.selectAgentRuntimeTargets(this.tunnelLaunchItems(), serverIds).map(BackgroundSshTunnels_1.backgroundTunnelEndpoint), this.tunnelConfig.token]))
                 throw new UiCommandCancelled("服务器配置或工作区已变化，旧后台连接请求已取消，请重新启动。");

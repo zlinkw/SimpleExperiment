@@ -10,7 +10,7 @@ const transport = require('../../dist/tunnel/BackgroundSshTunnels');
 function methods(names, globals = {}) {
   const code = ts.transpileModule('class Host {' + names.map(name => legacyMethod(source, name+'(')).join('\n') + '} this.Host = Host;',
     { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
-  const context = { ...globals }; vm.createContext(context); vm.runInContext(code, context); return context.Host.prototype;
+  const context = { mcpInvocation: { getStore: () => undefined }, ...globals }; vm.createContext(context); vm.runInContext(code, context); return context.Host.prototype;
 }
 const item = (id = 'w1') => ({ id, role: 'worker', config: { hubHost: id+'.example.org', hubUser:'science',hubSshPort:2222,
   localForwardHost:'localhost',localForwardPort:29001,remoteAgentHost:'worker.internal',remoteAgentPort:29201 } });
@@ -134,6 +134,29 @@ test('confirmation cannot start an endpoint changed or disabled while the modal 
       currentTunnelLaunchBlockers:()=>[],tunnelLaunchItems:()=>entries,tunnelConfig:{},backgroundTunnels:()=>{spawns++;assert.fail('stale request reached manager');}};
     await assert.rejects(proto.startBackgroundTunnels.call(host),/已变化/);assert.equal(spawns,0);
   }
+});
+
+test('MCP tunnel start rechecks authorization after async preparation', async () => {
+  let granted=true,managerCalls=0;
+  const proto=methods(['startBackgroundTunnels'],{BackgroundSshTunnels_1:transport,UiCommandCancelled:class extends Error{},
+    AgentRuntimeScope_1:{selectAgentRuntimeTargets:rows=>rows},mcpInvocation:{getStore:()=>({permission:scope=>{assert.equal(scope,'agents');if(!granted)throw Error('AUTHORIZATION_REVOKED');}})}});
+  const host={captureProjectContext:()=>({signal:new AbortController().signal}),projectContextIsCurrent:()=>true,
+    syncXshellConfigBeforeNetwork:async()=>{granted=false;},currentTunnelLaunchBlockers:()=>[],tunnelLaunchItems:()=>[item()],tunnelConfig:{},
+    backgroundTunnels:()=>{managerCalls++;assert.fail('revoked request must not start or stop tunnels');}};
+  await assert.rejects(proto.startBackgroundTunnels.call(host,false,false),/AUTHORIZATION_REVOKED/);
+  assert.equal(managerCalls,0);
+});
+
+test('MCP tunnel launch callback stops later endpoints after authorization changes', async () => {
+  let granted=true,launched=0;
+  const proto=methods(['startBackgroundTunnels'],{BackgroundSshTunnels_1:transport,UiCommandCancelled:class extends Error{},
+    AgentRuntimeScope_1:{selectAgentRuntimeTargets:rows=>rows},mcpInvocation:{getStore:()=>({permission:()=>{if(!granted)throw Error('AUTHORIZATION_REVOKED');}})},
+    vscode:{ProgressLocation:{Notification:1},window:{withProgress:async(_opts,work)=>work({report(){}})}}});
+  const host={captureProjectContext:()=>({signal:new AbortController().signal}),projectContextIsCurrent:()=>true,
+    syncXshellConfigBeforeNetwork:async()=>{},currentTunnelLaunchBlockers:()=>[],tunnelLaunchItems:()=>[item()],tunnelConfig:{},enabledWorkerConfigs:()=>[{id:'w1'}],
+    backgroundTunnels:()=>({running:()=>[],launchAll:async(_endpoints,options)=>{options.assertCurrent();launched++;granted=false;options.assertCurrent();}})};
+  await assert.rejects(proto.startBackgroundTunnels.call(host,false,false),/AUTHORIZATION_REVOKED/);
+  assert.equal(launched,1);
 });
 
 test('background start and old command aliases use the background manager without Xshell', async () => {

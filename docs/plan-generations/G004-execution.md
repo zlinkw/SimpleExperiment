@@ -143,7 +143,7 @@ tmux_list/capture源码和假Gateway路由证据范围见coverage；未访问真
 
 artifact_list/inspect项目边界、精确身份和本地及假远端证据逐ID见coverage；未查询真实任务、活动结果或Worker。
 
-配套120→28087f3中api-server、cleanup-file-api/cleanup-files和以下11个测试均字节未变；120包汇总分别 api 23、apiBackpressure 4、apiUploadProgress 4、batchDeleteApi 24、chunkedTrimGuard 1、cleanupChunkedDelete 1、cleanupConsumerRoot 13、cleanupExecuteSelfBusy 8、cleanupExplicitTarget 1、cleanupFiles 18、cleanupHandle 1通过，但各自原日志缺失。119→当前除api新增下载Host入口相关用例外，上述测试和清理实现未变；其中cleanupExecuteSelfBusy使用假传输控制器，不调用transfers.cancel；api仅列举该方法。汇总不补造具体断言、工具链或逐项运行证据；本次不执行真实清理/WSL，打包覆盖仍待总控审收。
+配套120→28087f3的api-server、清理实现和11个测试字节未变；原120汇总通过数、119差异和未存逐项日志详见 `f02bb042:docs/plan-generations/G004-execution.md`。其中cleanupExecuteSelfBusy使用假传输控制器，不调用transfers.cancel；api仅列举该方法。工具链未知，未执行真实清理/WSL，打包覆盖待审收。
 
 experiment_list/summary/tree按输入合并、过滤与树结构逐项复核，假RPC历史覆盖和未调用真实任务的限制见coverage。
 
@@ -152,3 +152,5 @@ experiment_active/overview/health按源及原合成观察/告警证据逐项复�
 实验历史日志、诊断和配置原可从记录指向项目外本地文件；现复用产物路径规范及实际路径边界，项目外、父目录和junction拒绝。假RPC路径1/1 `%TEMP%/g004-experiment-path-boundary-20261123.*.log`，原本地、假远端产物及合法历史消费者4/4 `%TEMP%/g004-experiment-path-consumers-20261123.*.log`，均exit0；未读取真实用户文件或查询Worker，待build。
 
 result_compare按左右身份、数值与方向复核，原假RPC及缺失歧义证据见coverage；未查询真实活动结果。
+
+project_connect在异步隧道准备期间撤销MCP授权原仍可能启动；现复核授权及目标，逐端点回调复核。假manager原目标/确认及撤权4/4 `%TEMP%/g004-tunnel-grant-recheck-20261123.*.log`，回调1/1 `%TEMP%/g004-tunnel-grant-callback-20261123.*.log`，均exit0；只读Windows glob失败未改产品，未启动真实SSH或改grant，待build。
