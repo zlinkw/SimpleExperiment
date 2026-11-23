@@ -4,6 +4,7 @@ const fs = require('node:fs'), path = require('node:path'), vm = require('node:v
 require('../_helpers/registerTsRequire');
 const { ProjectGateway } = require('../../src/mcp/ProjectGateway.ts');
 const { createProjectAuthorization } = require('../../src/mcp/ProjectAuthorization.ts');
+const { mcpInvocation } = require('../../src/mcp/Invocation.ts');
 const root = path.resolve(__dirname, '../..');
 const source = fs.readFileSync(path.join(root, 'src/extension/legacy.ts'), 'utf8');
 const ast = ts.createSourceFile('legacy.ts', source, ts.ScriptTarget.Latest, true);
@@ -12,7 +13,8 @@ const member = cls.members.find(n => n.name?.getText(ast) === 'apiTaskPreflight'
 const code = ts.transpileModule('class Provider {' + member + '}; Provider;', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 
 function fixture() {
-  const Provider = vm.runInNewContext(code, { workspaceRoot: () => root, makeOpId: () => 'formal-preflight-op-1',
+  const state = { root };
+  const Provider = vm.runInNewContext(code, { workspaceRoot: () => state.root, makeOpId: () => 'formal-preflight-op-1', mcpInvocation,
     stringField: (params, key) => String(params[key] || ''), DistributedPlanQueue: { canonicalProjectId: () => 'project' } });
   const row = { workerId: 'worker', projectId: 'project', commandId: 'cmd-7', status: 'failed', neverStarted: true, neverStartedEvidence: 'formal_preflight_rejected' };
   const posts = [], reads = [], host = new Provider(), signal = new AbortController().signal;
@@ -27,7 +29,7 @@ function fixture() {
   const grant = createProjectAuthorization(root); grant.workers = [worker];
   const methods = Object.fromEntries([['tasks.preflight','start'], ['tasks.preflight.status','status'], ['tasks.preflight.cancel','cancel']]
     .map(([method, action]) => [method, params => host.apiTaskPreflight(params, action, signal)]));
-  return { gateway: new ProjectGateway({ root: () => root, workers: () => [worker], store: { get: () => grant }, methods: () => methods }), posts, reads, host, row };
+  return { gateway: new ProjectGateway({ root: () => state.root, workers: () => [worker], store: { get: () => grant }, methods: () => methods }), posts, reads, host, row, state, worker, grant };
 }
 
 test('MCP preflight preserves exact task identity and existing capability refusals', async () => {
@@ -47,6 +49,22 @@ test('MCP preflight preserves exact task identity and existing capability refusa
   f.row.neverStarted = false;
   await assert.rejects(f.gateway.call('task_preflight', { workerId: 'worker', commandId: 'cmd-7' }), /REQUIRES_NEVER_STARTED/);
   assert.equal(f.posts.length, 2);
+});
+
+test('MCP preflight cancellation rechecks project, grant and worker after the operation lookup', async () => {
+  const args = { workerId: 'worker', operationId: 'formal-preflight-op-1' };
+  for (const change of [
+    f => { f.grant.permissions = []; },
+    f => { f.worker.host = 'changed'; },
+    f => { f.state.root = path.join(root, 'other-project'); },
+    f => { f.host.client = {}; },
+    f => { f.host.workerActionTargets = () => []; },
+  ]) {
+    const f = fixture();
+    f.host.client.getWorkerOperation = async () => { change(f); return { action: 'preflight-worker-task' }; };
+    await assert.rejects(f.gateway.call('task_preflight_cancel', args), /MCP_AUTHORIZATION_REQUIRED|MCP_WORKER_TARGET_CHANGED|FORMAL_JOB_PREFLIGHT_PROJECT_CHANGED|FORMAL_JOB_PREFLIGHT_WORKER_REQUIRED/);
+    assert.equal(f.posts.length, 0);
+  }
 });
 
 test('MCP preflight status and cancellation validate operation identity', async () => {

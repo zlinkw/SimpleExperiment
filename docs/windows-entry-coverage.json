@@ -11054,6 +11054,7 @@
         },
         {
           "name": "task_preflight",
+          "currentReview": {"status":"controlled_source_scoped","evidence":"Gateway schema requires Worker and command; Host refreshes capability, confirms fresh task belongs to current project/Worker, checks lifecycle and feature flags before posting dedicated diagnostic.","boundary":"受控假 Worker 测试 g004-preflight-cancel-auth-final-20261123.out.log 的现有 start 分支；未访问真实 Worker、任务或科研环境。"},
           "method": "tasks.preflight",
           "oldEvidence": "projectTools[name=task_preflight]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11062,6 +11063,7 @@
         },
         {
           "name": "task_preflight_status",
+          "currentReview": {"status":"controlled_source_scoped","evidence":"Gateway schema requires Worker and preflight operation; Host validates operation identifier and action, then rechecks project/client after awaited lookup before returning.","boundary":"同日志假后端校验；真实 Worker 查询未执行。"},
           "method": "tasks.preflight.status",
           "oldEvidence": "projectTools[name=task_preflight_status]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11070,6 +11072,7 @@
         },
         {
           "name": "task_preflight_cancel",
+          "currentReview": {"status":"source_fixed_pending_build","evidence":"Gateway requires experiment grant and Worker; Host validates exact diagnostic operation then rechecks project/client and MCP experiment grant plus frozen Worker after lookup, before sending a single diagnostic cancellation.","boundary":"源码修复待本阶段 build；g004-preflight-cancel-auth-final-20261123.out.log 3/3 exit0 覆盖撤权、Worker 及项目/client 漂移零发送；g004-preflight-host-cancel-exact-20261123.out.log 原 Host 用例 1/1 exit0。首次 g004-preflight-host-cancel-20261123.out.log 选择模式未匹配任何用例，exit0 不算验证。无真实取消。"},
           "method": "tasks.preflight.cancel",
           "oldEvidence": "projectTools[name=task_preflight_cancel]",
           "scope": "local_gateway_plus_worker_effect_restricted",

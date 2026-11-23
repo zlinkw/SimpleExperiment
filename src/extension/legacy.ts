@@ -18741,7 +18741,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const operation: any = await client.getWorkerOperation(workerId, operationId);
             if ((operation?.action || operation?.payload?.action) !== "preflight-worker-task") throw new Error("FORMAL_JOB_PREFLIGHT_OPERATION_MISMATCH");
             signal.throwIfAborted();
-            return action === "status" ? operation : client.postWorkerAction(workerId, "preflight-worker-task",
+            if (workspaceRoot() !== root || this.client !== client) throw new Error("FORMAL_JOB_PREFLIGHT_PROJECT_CHANGED");
+            if (!this.workerActionTargets().some(worker => worker.id === workerId)) throw new Error("FORMAL_JOB_PREFLIGHT_WORKER_REQUIRED");
+            if (action === "status") return operation;
+            mcpInvocation.getStore()?.permission("experiment");
+            return client.postWorkerAction(workerId, "preflight-worker-task",
                 { opId: makeOpId("cancel-preflight"), targetPreflightOperationId: operationId, workerId }, { signal });
         }
         const commandId = stringField(params, "commandId");

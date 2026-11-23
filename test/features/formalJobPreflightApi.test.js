@@ -12,7 +12,7 @@ const cls = ast.statements.find(n => ts.isClassDeclaration(n) && n.name?.text ==
 const member = cls.members.find(n => n.name?.getText(ast) === 'apiTaskPreflight').getText(ast);
 const code = ts.transpileModule('class Provider {' + member + '}; Provider;', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 function fixture() {
-  const Provider = vm.runInNewContext(code, { workspaceRoot: () => root, makeOpId: () => 'formal-preflight-diagnostic',
+  const Provider = vm.runInNewContext(code, { workspaceRoot: () => root, makeOpId: () => 'formal-preflight-diagnostic', mcpInvocation: { getStore: () => undefined },
     stringField: (params, key) => String(params[key] || ''), DistributedPlanQueue: { canonicalProjectId: () => 'project' } });
   const row = { workerId: 'worker', projectId: 'project', commandId: 'original-command', workflowId: 'original-workflow',
     globalJobId: 'original-workflow:5', experimentIndex: 5, planRevision: 'original-revision', codeFingerprint: 'original-code',
