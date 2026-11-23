@@ -11674,7 +11674,7 @@
         {
           "name": "sftp_transfer_cancel",
           "method": "transfers.cancel",
-          "currentReview": {"status":"source_and_fake_scoped","evidence":"Gateway要求sync授权，传原operationId及可选instance/transferId，不自动再发；假后端cancelling与撤权拒绝复用 %TEMP%/g004-mcp-remote-directories-auth-20261123.*.log。","boundary":"下游实际归属核对和异步取消结果未验；未触真实传输。"},
+          "currentReview": {"status":"current_defect","evidence":"Gateway要求sync授权，传原operationId及可选instance/transferId；假后端仅验透传 %TEMP%/g004-mcp-remote-directories-auth-20261123.*.log。已装SimpleSFTP 0.2.120 extension.js:4758-4789 先更新operationId账本，再优先按transferId独立选目标，二者不一致可取消另一传输；已向总控升级跨仓修复边界。","boundary":"静态可达，未进行真实取消或访问传输；未修复，不能称身份安全通过。"},
           "oldEvidence": "projectTools[name=sftp_transfer_cancel]",
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",

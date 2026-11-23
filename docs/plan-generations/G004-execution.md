@@ -8,7 +8,7 @@ G004 按 identity+argv 冻结增量证据；最终 package 已通过：361 activ
 
 不触碰真实 Worker、服务器、SSH、tmux、GPU 或用户配置；新阶段仅授权不抢焦点的现有单项目 UI 检查。真实传输/清理、active results与跨项目未测；本次实际本地UI范围见末节。模拟缺失不证明永久删除。原 26 个脏 dist 中，仅包内 20 项已验证并获准同步，其他 6 项、历史资产及夹具保留。
 
-519 重载后识别false且缺adapter，未重配重授；其341/341、13门禁和试行安装均为旧版。用户批准旧CLI迁移及39旧源码删除的精确范围、六组提交与证据见 `0ff5b277:docs/plan-generations/G004-execution.md` 和coverage；不重复删除，不冒业务等价。
+519重载识别false且缺adapter，未重配重授；341/341及安装为旧版。本人明确业务CLI整体退役，只留UI/MCP；39旧源码已按授权删除并同步，原dist排除而不清理、全局shim不动，仅保留simpleex-mcp。精确范围及六组提交见 `0ff5b277:docs/plan-generations/G004-execution.md`，不得恢复CLI或重放删除。
 
 ## 候选、失败与复验
 
@@ -77,7 +77,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 探针候选真实RAF完成后补同一 heartbeat ACK，hidden/generation保护保留；Host对probe-pending保留上次渲染序号和停滞计数。原完整文件11/13 exit1，真实ACK协议及经用户明确批准的offscreen旧夹具修正后13/13 exit0，日志 `%TEMP%/g004-render-full-current-20261123.*.log`；真实进度模块与同ID双ACK、计数及timer的Host文件6/6 exit0，日志 `%TEMP%/g004-render-host-progress-20261123.*.log`。原首失败 `%TEMP%/g004-render-probe-20261123.*.log` 保留；源修未构建或部署。
 
-原 `npm run build` 实际包含全量测试域与禁止重跑的删除场景，因此未启动。总控审定按原任务增量证据机制支持build子集：原全部compile/fullCheck、身份、失败、产物与选择门禁不缩，assemble凭据仍仅package。当前脏树只读规划build 316、package 367、build无新增identity，按需0；这不是原520包361/6或构建通过。G004原pattern在新增子集、缺项、错entry及aggregate断言后1/1 exit0，原日志 `%TEMP%/g004-build-incremental-runner-20261123.*.log` 与 `%TEMP%/g004-build-incremental-aggregate-20261123.*.log`，runner两文件commit `6afb2ed0` 已推送。首只读planner因 `src/extension/legacy.ts` 依赖漂移拒绝；仍需逐项适用对账与总控审定调度，不能批改摘要或执行禁区。总控两次只读路径猜错/Windows glob错误未触产品。
+原build含全量域及禁止重跑删除场景，未启动；总控审定增量支持build且不缩原门禁，assemble仅package。先前脏树只读规划build 316/package 367、按需0，不等于旧520包361/6或构建通过。G004 pattern 1/1 exit0，日志 `%TEMP%/g004-build-incremental-runner-20261123.*.log`、`g004-build-incremental-aggregate-20261123.*.log`，runner提交 `6afb2ed0`。planner因legacy依赖漂移拒绝，需逐项对账及总控审定调度；不改摘要或跑禁区。总控两次只读路径/glob错误未触产品；原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
 旧执行会话归档后核实60条direct的122个原事件哈希和session身份，仅修coverage路径。新增7项同根520 MCP只读与plan_list合成证据见coverage，真实Worker和跨项目未测；压缩前两稿11639、11331字符均写前断言退出。
 
@@ -111,4 +111,6 @@ SFTP file_stats/plan_logs按schema、Worker路由及已装后端路径/Plan校�
 
 MCP task_stop 在登记意图期间若撤销授权或更改Worker配置，原实现仍可发送停止；现发送前重核experiment授权及快照，未知保留意图。假Gateway/Host 3/3 exit0 `%TEMP%/g004-task-stop-auth-complete-20261123.*.log`；首次夹具不存在路径ENOENT及随后实际缺少拒绝的复现均exit1，分别保留 `g004-task-stop-auth-first`、`g004-task-stop-auth-repro` 日志。未访问真实Worker。
 
-SFTP传输观察与取消分别核原操作身份、授权及未知/取消中转发，复用假后端18/18 `%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log`；实际归属核对和传输终态未验。三次只读rg路径猜错/Windows通配符失败未改产品。
+SFTP传输观察/取消的假后端18/18 `%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log` 仅证明透传；后续核已装120发现取消按operationId更新账本、却可按不相属transferId选另一传输，静态可达缺陷已升级总控，未修或实际取消。三次只读rg路径猜错/Windows通配符失败未改产品。
+
+总控指出 `legacy.ts:8812` 旧attempt文案与当前规则冲突，待核实际生产条件；不得凭文案声称创建或恢复旧机制。
