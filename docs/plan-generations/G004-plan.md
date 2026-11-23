@@ -82,13 +82,13 @@ D1→D2→D3已精确串行同步：9ddfea37、eab4c1f4、5ca4c0ca，总控实�
 
 待新dist必做许可不变：manualDispatchHost原11项单文件一次；distributedPlanExecutionMode仅前三种validated mode精确case；更早resultSync/slot及五隔离消费者照原精确限额。当前未compile，不跑旧dist冒当前源码；D源码VM/静态验证与最终编译消费者是独立状态。
 
-紧接D的新E批仍待完整源包/效果审，不夹D也不阻断其独立同步：PlanRunHost→cleanup.execute先等migration/status/tick，再进service.execute/executeManaged内的revalidate/save，最终isolate RPC未承接原caller；preview/confirm/preflight及empty-parent准备/确认也直达共享service。需查真实负责链，将原caller最小贯通未发操作、元数据/索引发布；不把guard放共享可变Host/service字段、不新建服务/账本/锁、不取消已受理工作或丢原A回执。本次D只证明lane/source/发布围栏，不声称隔离全链闭合。真实隔离/删除和旧world禁跑；build/发行仍未开放。
+E替换隔离负责链五产品文件已源审：原caller贯通预览/确认/预检/状态/隔离实际SFTP、Manifest原client与索引发布；不放共享可变guard、不新账本/锁。首候选status独立observe有并发覆盖风险、首check完成回显先guard丢事实，返修后复用原observing(id)串行、排队后读记录，普通无guard共享原读，某caller失败不取消下一合法调用；原A完成回执先save再挡后续。TEMP/g004-plan-cleanup-context-v1-20261124.out.log为8/8、506.8637ms、子/外exit0、stderr空，纯内存save/SFTP/fs及源码VM。其后generic仅明确sftpNotStarted回pending，8case未走该hunk；已发未知保executing。已准五产品+新test+manifest≤7文件精确同步，尚待Git回包；Host原slot不夹。未声称fastdelete/restore/完整history及全部独立删除通用caller闭合；真实效果/world/build仍禁。
 
 ## 增量构建、最终路线与终点
 
 P0 npm run build含完整测试域，不能以build批准隐式跑禁区。现有G004入口固定本仓max1，build按identity＋argv为已审package严格子集，package仍集合相等；build不是assemble凭证。095a1fb8＋当时dirty只读规划322build/374package、0按需、missing0，仅导航；旧318/370不沿用，D/E/登记变化后须重算。planG004Execution首拒legacy漂移exit1仍真；逐实际提取函数/消费者闭包消解历史依赖，不批替hash/便宜全重跑。compiledInputs须真实新compile后冻结，不拿源码VM冒dist。
 
-四新identity（sftpCaller/planRun/codeSync/isolatedAutoDelete ContextFence）的真实ProcessStartInfo包装日志不满足ordinary direct解析，亦不在历史stage固定wrapper契约内。裁决最终相关源码/fixture冻结、源效果复核后，各按原全文件argv/20秒经既有runner fresh一次、max1，收敛这一必要证据缺口；现在仅准登记候选，未开build/package。原包装call/进程exit/timeout/日志与失败保类型，不冒direct/treeconfirmed，不加通用解析器；fresh真实通过后package同输入复用，不再重复。
+sftpCaller/planRun/codeSync/isolatedAutoDelete/planCleanup ContextFence五新identity的真实ProcessStartInfo包装日志不满足ordinary direct，亦不属历史stage固定wrapper；planCodeScope旧full12与新增精确1/1不能冒当前full13。裁决最终相关源码/fixture冻结与效果复核后，这六项按原全文件argv/20秒经既有runner fresh各一次、max1，现在仅登记候选，未开build/package。planCodeScope仅私有保留fixture、Python抽函数/10000ms，原mocktimer阈值不改。原call/进程exit/timeout/日志与失败保类型，不冒direct/treeconfirmed、不加通用解析器；真实fresh同输入package复用，不重复。
 
 Agent旧af809d70→当前4cd5364e那次差异仅552函数/类中的cache_delete_exact_file/handle_action/tracked_cleanup_action/serve_http及ACTION_PATHS/新CACHE_CLEANUP_RECEIPTS；runtime/RemoteResourcePrefix/ResultLayout导入未改。总控已按真实分支审的24旧job及14 direct仅更新该Agent依赖的适用判断；原31 Windows skip、68外部JS未知、219历史超时/工具链unknown保留，不批签所有依赖/新缓存能力。第一次未展开String.raw插值AST失败是只读工具错误，不产品语法证据。
 

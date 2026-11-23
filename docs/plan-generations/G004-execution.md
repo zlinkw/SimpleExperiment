@@ -41,7 +41,7 @@ Worker配置删除确认后重核快照，变更需重确认；假配置2/2及�
 
 47a1681d旧build规划316项、0按需，日志 `%TEMP%/g004-build-plan-47a1681d-20261123.out.log` exit0；planG004Execution首拒legacy漂移exit1。legacy 138、PlanCleanup 64、Panel 23为重叠的依赖漂移导航，不能批量重绑或判通过；逐闭包核旧MCP查询，CLI保持退役。
 
-召回路径原缺陷：Panel声明只召回排队job，但旧协议2整Plan分支遍历全部job；旧returnPulledJobToLocal可把运行/完成job改pending并清原事实。确认后重读也未在首写/首停前核冻结job的Worker与command；后台processDistributedRecall在unknown后可能自动重复发送停止。原prequeueRecallLifecycle旧oracle期望同ID重发，不能当现行授权。候选增加Scheduler互斥内具名排队召回、取消围栏参与准入，旧端不走普通停止回退；旧协议未知请求不重发。纯假端Python抽函数 `%TEMP%/g004-queued-recall-scheduler-v1-20261123.{out,err}.log` 1/1、Host及持久队列 `%TEMP%/g004-queued-recall-host-v7-20261123.{out,err}.log` 12/12，均exit0；无真实Worker。原观察只看到取消围栏，不能区分普通停止；现候选在Scheduler窗口option记录原请求pending/completed并核完整身份后主动观察，Host纯假端v11 16/16及Python两函数假端v2 1/1均exit0；旧证明写失败和kill失败保持unknown。原native消费者三个精确case各1/1 exit0；旧协议消费者首v1 4/5 exit1因夹具仍假定已拒绝的项目提升，v2用显式已提升队列保留原projection断言后该case 1/1，v3新增原请求ID核对1/1，完整日志保留。源码已源审并同步 9412b48c，未build。
+召回路径的排队判定、Scheduler互斥与原请求身份核实已源审并同步 `9412b48c`；Host假端v11 16/16、Python抽函数v2 1/1、原消费者精确项均exit0。旧协议消费者v1 4/5失败及v2/v3修正、所有原日志和未知回执限制详见 `d766909a:docs/plan-generations/G004-execution.md`；不重发未知请求，未运行真实Worker或build。
 
 提交取消与恢复入口等待中切项目可能继续写旧回执或用新根释放claim；绑定原项目并在发布前重核，假端 `%TEMP%/g004-plan-submission-project-v2-20261123.{out,err}.log` 3/3 exit0，writer闭包修正v3精确项1/1 exit0。已写回执不回滚，未访问真实项目或claim；源码已同步 7659b4b9、b2b25d81，未build。
 
@@ -85,3 +85,6 @@ SFTP cleanupExplicitTarget经总控效果审查后原单文件VM假端1/1、exit
 send原消费者经效果审的精确选择依次1/1、2/2、1/1、2/2、2/2，均exit0且无超时，日志 `%TEMP%/g004-send-{handoff,truth,identity,proof,native}-v1-20261124.{out,err}.log`；仅源码VM/假端，非整文件或新dist。sync上传、后台清理及实际SFTP发送围栏已源审；后续源码变化不自动继承旧测试。
 
 获准假端：isolated2/2、profile5/5、upload结构v2 1/1、code sync v2 2/2、SFTP caller最终v2 3/3，均exit0未超时，日志 `%TEMP%/g004-{isolated-context-v1,profile-fence-v1,upload-branches-v2,code-sync-context-v2,sftp-caller-context-v2}-20261124.{out,err}.log`；code sync首v1因fake缺rememberCodeSyncWarmProof为1/2 exit1，修后通过；upload结构v1及SFTP caller v1只属旧输入。prepare/path消费者各精确2/2 exit0，日志 `%TEMP%/g004-{preparation-consumer,path-consumer}-v1-20261124.{out,err}.log`。源审后传输、同步、清理、替换、fixture、派发六批依次普通推送并fetch一致874afe1a、d468b90a、095a1fb8、9ddfea37、eab4c1f4、5ca4c0ca。四新测试包装非runner direct，最终冻结后各按既有runner fresh一次；manual11及mode3待新dist，未build/实际外部效果。一次误写pwsh可执行名exit1、两次rg通配符误用exit1/2，均未写入。
+
+
+替换隔离E批绑定原调用方至预览、确认、实际隔离发送和索引发布；原已接受回执先保存，同ID观察串行，过期调用者不取消其他观察。假端 `%TEMP%/g004-plan-cleanup-context-v1-20261124.{out,err}.log` 8/8、exit0，真实源码/内存fake，不证明真实删除或生产持久化CAS；非managed及fast delete/restore/history未宣称通用caller闭包。源码经总控审并推送fetch一致 `16ade9d3f488ef4dc9e639736ed980ee04afaeb8`，仍未build。最终冻结后按既有runner原单文件fresh一次，旧Process包装不伪装direct。索引补丁生成v1因检查误识别hunk头写前exit1，v2正常check/apply；保留原现场，未改Git历史。coverage两次branch行选择写前exit1（路径错、匹配17而非11），限定currentTargetedEvidence后11行成功；只读rg通配与不存在脚本错误亦无产品影响。
