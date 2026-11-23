@@ -67,7 +67,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 原 `synthetic/final.csv` 合法宽表两行因只按文件名选long误报0；现预览传文本及列映射，并只计含指标记录，保留后行有值场景。原文件及底层解析不变，细节见 `e9ed2a97:docs/plan-generations/G004-execution.md`。
 
-源级局部调用链的宽/长/JSON、空指标及混合行回归最终6/6、exit0、827.5419ms；原日志 `%TEMP%/g004-preview-formats-complete-20261123.out.log`/`.err.log`。首次测试夹具 AST 搜索不到函数，5/6 exit1；修夹具后第二次发现仅维度行被误判成功，5/6 exit1；均保留 `%TEMP%/g004-preview-format-20261123.*.log`、`g004-preview-format-repair-20261123.*.log`。中间回归6/6见 `g004-preview-metrics-20261123.*.log`。原520包和实际Host仍为旧实现，未冒称已部署。
+CSV宽/长/JSON及空指标回归6/6 exit0 `%TEMP%/g004-preview-formats-complete-20261123.*.log`；首夹具失败及维度误判各5/6 exit1，分别留 `g004-preview-format-20261123.*.log`、`g004-preview-format-repair-20261123.*.log`，中间6/6留 `g004-preview-metrics-20261123.*.log`。520 Host仍旧实现；完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
 后补显式 metric/value 列映射、alias 及零值验证，原单文件 6/6 exit0、799.2334ms，日志 `%TEMP%/g004-preview-mapping-zero-20261123.*.log`。
 
@@ -122,3 +122,5 @@ task_list只复核当前项目归并、取消及unknown源码，禁止真实任�
 总控已审通过配套源diff；原transferRecovery精确消费者1/1 exit0 `%TEMP%/g004-sftp-cancel-consumer-20261123.*.log`，verify-runtime exit0且核23文件 `%TEMP%/g004-sftp-verify-runtime-20261123.*.log`。未递版、组装或安装；package原全套尚须逐证据核可复用范围并审收。
 
 Experiment构建对账：pluginLogRetention及cacheCleanupPanel的受测retention/backup/inspection源码片段与1e91d0d4逐段一致、其余依赖字节不变，复用原15/15及10/10，更新两条该次输入；不重跑旧清理替身。并非全部build依赖已对账。
+
+继续核hostOperationLeaseIntegration及automaticScopeContent：受测租约方法/命令集/标签或refreshSyncScopeMetadata与1e91d0d4一致，其余记录依赖不变，分别复用原4/4、8/8。配套仓120 tag对应修复前基线2284921，原package汇总69文件466通过，但原 `%TEMP%/run-YUG9Ru` 目录现为空；119另有56条同名日志，版本间6文件变化需逐项审依赖，不能冒充当前全量通过。一次只读PowerShell tag引号错误及旧日志路径不存在未改产品。
