@@ -1,12 +1,12 @@
 # G004 执行登记
 
-本轮压缩前完整执行事实见 Git `f66d3694:docs/plan-generations/G004-execution.md`；更早完整事实见 Git `cb44bd81:docs/plan-generations/G004-execution.md`；此前完整事实见 Git `f36cb6a3:docs/plan-generations/G004-execution.md`；更早全文历史在 Git `18dd5614:docs/plan-generations/G004-execution.md`，更早 T1–T7、逐项命令和失败分别见 `1e91d0d4`、`32d16ac4`、`48f7e339`、`67f67de4`、`c04f2dd7`；原 receipt、日志、事件、输入与逐项边界以 `docs/windows-entry-coverage.json` 为准。本次为达到 12000 字符上限的 90% 阈值而整体语义压缩；历史授权、失败、未测与现场不因压缩消失。
+本轮压缩前完整执行事实见 Git `6f14818d:docs/plan-generations/G004-execution.md`；更早完整事实见 Git `f66d3694:docs/plan-generations/G004-execution.md`；更早完整事实见 Git `cb44bd81:docs/plan-generations/G004-execution.md`；此前完整事实见 Git `f36cb6a3:docs/plan-generations/G004-execution.md`；更早全文历史在 Git `18dd5614:docs/plan-generations/G004-execution.md`，更早 T1–T7、逐项命令和失败分别见 `1e91d0d4`、`32d16ac4`、`48f7e339`、`67f67de4`、`c04f2dd7`；原 receipt、日志、事件、输入与逐项边界以 `docs/windows-entry-coverage.json` 为准。本次为达到 12000 字符上限的 90% 阈值而整体语义压缩；历史授权、失败、未测与现场不因压缩消失。
 
 ## 当前目标与边界
 
 G004 按 identity+argv 冻结增量证据；最终 package 已通过：361 active（125 历史、235 直接、1 新运行）、6 onDemand 未运行。用户批准 219/284 的本任务历史超时例外，原时长分别 20857.309/20119.841ms，不重跑、不放宽未来 20 秒。
 
-不触碰真实 Worker、服务器、SSH、tmux、GPU、用户配置或真实 UI；真实传输/清理、active results、跨项目和新 UI 未测。模拟缺失不证明永久删除。原 26 个脏 dist 中，仅包内 20 项已验证并获准同步，其他 6 项、历史资产及夹具保留。
+不触碰真实 Worker、服务器、SSH、tmux、GPU 或用户配置；新阶段仅授权不抢焦点的现有单项目 UI 检查。真实传输/清理、active results、跨项目和新 UI 未测。模拟缺失不证明永久删除。原 26 个脏 dist 中，仅包内 20 项已验证并获准同步，其他 6 项、历史资产及夹具保留。
 
 519 专用根重载后项目识别 false→false、缺 adapter，未重配重授；不能称现场完成状态丢失。519 的 341/341、13 gates、试行包及一次安装/Reload 属旧版本，不证明新源码或新 Host。用户曾批准 49 份旧 CLI 测试迁移、50 精确旧路径排除、39 旧源码删除和 B1 单次复验；原旧测试与 Git 历史保留，302 索引和 27 外部引用见 coverage，退休差异不冒业务等价。39 源码经逐项安全预检及直接父目录验证删除，六组提交 `690be905`、`4d003cdc`、`b7d6ce0b`、`3382fcbd`、`4a43d1fc`、`fd593cca`；不重复删除。
 
@@ -30,7 +30,7 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 
 formalJobPreflightProgress/Structure/Environment 各 1/1、Failure/Rejections 各 1/1、Api 7/7 为总控审核的函数提取及自建夹具；api-environment 实际启动本机解释器 shell/loader 探针，已装 torch 时可能 CPU import，邻近检查未发现 torch 且未冻结该缺席；启动前三个 NVJITLINK/Conda 变量未设置，未接科研 Conda、未训练。Python 3.14.6/PyYAML 6.0.3 为邻近观测，旧工具链未知。
 
-接替后合成回归 distributedPlanExecutionMode 10/10、taskQueryWideReadRealChain 3/3、planRunHoldClearedChain 3/3、planRunRecovery 7/7、nativePlanRetry 6/6、completedJobArtifactRootBinding 7/7、syncScopeStagingIdentityWiring 4/4、planSubmissionStateGuard 26/26、planRunQueryRegression 6/6、planRunSharedSubmission 5/5、planBatchDispatchFirst 14/14、rerunTransferBusyAttribution 21/21、rerunIsolateEngineContract 6/6、cleanupMissingTargets 11/11、formalJobExecution 5/5、completedJobLatestSync 32/32、planStopClear 39/39、syncScopeDelete 14/14、syncScopeWorkerAuthority 10/10、cleanupActivity 2/2、localIndexSharedIdentity 3/3、localCodeManifestCache 5/5、currentSubmissionTruth 8/8、planPreflightProgressSpeed 20/20、tmuxCloseRuntime 1/1 均 exit0。采用函数提取、VM、假请求和自建状态；tmuxCloseRuntime 用假 subprocess/timer，syncScopeDelete 只检查生成脚本与替身，preflight 保留原 40 文件计时断言；无真实 Worker、tmux、网络、UI 或删除。完整依赖/原始事件见 coverage；均待总控终审。
+接替后合成回归的逐项名称、数量、日志和真实效果边界见 coverage 与 `6f14818d:docs/plan-generations/G004-execution.md`；仅按原函数提取、VM、替身与夹具范围复用，未证明真实 Worker、tmux、网络、UI 或删除。
 
 旧执行会话结束后受支持工具归档并核 session_meta、138 条 eligible 原事件双 SHA，139 处仅修实际归档路径（`9a69240b`），未搬删原 rollout 或重跑。此前旧会话归档修复另核 35 项事件、42 处路径，未改事件。当时 1 项待运行；最终结果见下文，不得把未知或未测写成通过。
 
@@ -80,3 +80,11 @@ job 289 为唯一 fresh，最终 package 内原精确 pattern 1/1 exit0，wall 4
 试行 Release `v0.5.520` 已发布，`prerelease=true`、`draft=false`，远端 tag 指向 `7bf49ba84802df56821b098b440b289d3d3eb61e`；VSIX 与同名 SHA256 资产已上传，隔离下载的 SHA256 与已验证包一致，manifest 校验 exit0。实际 ReleaseClient 核实 0.5.482 可见权威 0.5.483、0.5.520 不降级，SFTP 0.2.120 不降至权威 0.2.118。
 
 安装前为 0.5.519，唯一一次 `npm run install:latest` exit0，磁盘和 VS Code 扩展列表均为 `simple-local.simple-experiment` 0.5.520；安装日志 `%TEMP%/g004-520-install-20261123.log` 保留 Node DEP0169 警告。稳定 MCP shim 的 launcher/resolver 与安装包文件字节一致，包内 server 目标存在；未连接运行中的面板验证动态解析。用户本人执行 Developer: Reload Window 后才可进行界面验收。
+
+## 520 重载后单项目只读验收
+
+首次按专用根枚举发现记录时无 520；默认 520 是稿件窗口，未调用。用户在专用项目窗口重载后，匹配记录为 SimpleExperiment 0.5.520、PID 45080、startedAt `2026-11-23T05:41:49.812Z`、loopback 19769；真实 preflight、health 和 OpenAPI 核实同一版本、实例和单项目根。SimpleSFTP 0.2.120 同 PID、同项目已激活，独立 loopback capabilities/health 握手确认；因此本轮 MCP catalog 中的伴随插件能力读取未触发未知激活。
+
+通过已安装稳定 launcher/resolver，真实 SDK stdio 握手及 tools/list 返回 137 项；本地只读 project_authorization、action_catalog、panel_diagnostics、project_status、state_value（低流量、onboarding、setup）和 project_state 均返回成功，两次 launcher 均 exit0/stderr 空。完整响应在 `%TEMP%/g004-520-live-mcp-20261123.json` 和 `%TEMP%/g004-520-live-mcp-state-20261123.json`；未调用 Worker 或跨项目方法。实际 167 action、五类 grant 无 workers 字段，offline_import、低流量 enabled/effective、5 Worker 配置中1启用、原 PLAN `experiments/plans/ui_u01_empty_515.yaml`、空任务选择、`experiments/results`、离线两条合成结果均读回；onboarding 仍 false，不能称丢失完成状态。检测预览的 synthetic/final.csv 未解析出标准记录，原信息保留，不冒充结果通过。
+
+面板 diagnostics 报 ready、运行/安装均 520、无 section failures，但 heartbeat 标记 document-hidden、render health unknown；这不是可见 UI 验收。现有 Computer Use 工具可枚举窗口，但其窗口读取流程和 silent-ui-screenshot 禁止仅为截图使用 Computer Use，且未找到项目现成非激活捕获入口，未切焦点、未截图或操作界面。真实 UI、Worker、远端及跨项目仍未测。
