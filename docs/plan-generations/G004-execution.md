@@ -128,3 +128,5 @@ MCP诊断取消在await查询后可能在授权或项目、Worker变化后仍发
 结果规则保存、映射保存及运行前同步过去未向已有逐Worker循环传项目上下文，切项目后可能继续向剩余Worker发送；155d0593绑定原项目，同步后再核项目才刷新。假Worker受控检查1/1、两类真实方法VM 1/1、调用链断言2/2 exit0，日志 %TEMP%/g004-adapter-sync-boundary-20261123.*.log、g004-adapter-ui-project-switch-final-20261123.*.log、g004-adapter-ui-bindings-20261123.*.log。首次VM夹具语法失败exit1见 g004-adapter-ui-project-switch-20261123.*.log；未访问真实Worker或写真实配置，待build。
 
 结果区“自动匹配”当前只读 latest 本机结果并刷新，autoRecoverableCount恒0，仍声称自动恢复；首次拟改仅刷新及VM 1/1见 %TEMP%/g004-result-classification-refresh-20261123.*.log，但该方案会缩减现有入口承诺，已撤回、不计修复通过。继续审当前可信数据与已保存映射，不恢复旧registry；未改真实结果。
+
+自动匹配现有候选使用当前导出中未分配PLAN的唯一单值已保存映射，复用现有结果分区写入器并检查项目、目录与映射未变化；多值或归一化重复映射不猜测，不读旧registry。内存真实Host/写入方法7/7 exit0 %TEMP%/g004-auto-dataset-mapping-guarded-20261123.*.log，含指标不变、冲突、改配置与写失败；旧dist消费者断言已适配但须构建后验证。Panel/Host/测试候选未提交、未build、未动真实结果，仍须源审与原P0门禁。

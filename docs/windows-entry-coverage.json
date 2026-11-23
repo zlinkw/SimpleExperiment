@@ -12816,7 +12816,7 @@
         },
         {
           "id": "panel:autoMatchPlanDatasets:1",
-          "currentReview": {"status":"current_defect_investigation","evidence":"当前catalog只读最新本机导出，autoRecoverableCount恒0；该入口原仅刷新视图，却声称自动恢复。保留现有自动匹配入口，继续核对可信当前数据及已保存映射，不恢复旧registry。","boundary":"曾试拟改成仅刷新并作VM 1/1，但这会缩减现有功能承诺；候选已撤回，该日志不计修复通过。尚未实施完整修复、build或触碰真实结果。"},
+          "currentReview": {"status":"source_candidate_pending_panel_build","evidence":"保留自动匹配：从当前最新导出中只对仍未分配的PLAN读取项目已保存的唯一单数据集映射，按现有结果写入器重新分区；项目、结果目录或保存映射变化时中止。含多个值、名称归一后重复的映射不猜测；不读取或恢复旧registry。","boundary":"候选未提交、未build；%TEMP%/g004-auto-dataset-mapping-guarded-20261123.*.log 单文件7/7 exit0，假内存真实Host和结果写入方法覆盖自动应用、保留指标、冲突、配置变化和原写失败；旧dist消费者的项目切换断言已适配但待build后验证。早先仅刷新候选已撤回，日志不算通过；未访问真实结果。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=autoMatchPlanDatasets]",
           "oldStatus": "concluded_scoped",
@@ -12824,7 +12824,7 @@
         },
         {
           "id": "panel:applyPlanDatasetMapping:1",
-          "currentReview": {"status":"source_scoped","evidence":"从当前未分配列表验证PLAN和数据集，拒绝可信数据集覆盖及目录冲突；在绑定项目的写入路径保存映射并重新分区已有汇总，刷新失败保留原错误。","boundary":"源码和 resultMappingRecovery 等受控测试源码审阅；本轮未运行该写入分支、未写真实结果或配置，实际失败和中间状态不假定通过。"},
+          "currentReview": {"status":"controlled_scoped","evidence":"从当前未分配列表验证PLAN和数据集，拒绝覆盖可信数据集与路径冲突，使用绑定项目的结果写入器保存映射并重新分区本地已有汇总；失败传播。","boundary":"g004-auto-dataset-mapping-guarded-20261123.*.log 中内存写入方法核对已有映射保护、冲突及表写失败后的配置/汇总状态；无真实结果或配置写入。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=applyPlanDatasetMapping]",
           "oldStatus": "concluded_scoped",
@@ -14567,7 +14567,7 @@
         },
         {
           "name": "applyPlanDatasetMapping",
-          "currentReview": {"status":"source_scoped","evidence":"从当前未分配列表验证PLAN和数据集，拒绝可信数据集覆盖及目录冲突；在绑定项目的写入路径保存映射并重新分区已有汇总，刷新失败保留原错误。","boundary":"源码和 resultMappingRecovery 等受控测试源码审阅；本轮未运行该写入分支、未写真实结果或配置，实际失败和中间状态不假定通过。"},
+          "currentReview": {"status":"controlled_scoped","evidence":"从当前未分配列表验证PLAN和数据集，拒绝覆盖可信数据集与路径冲突，使用绑定项目的结果写入器保存映射并重新分区本地已有汇总；失败传播。","boundary":"g004-auto-dataset-mapping-guarded-20261123.*.log 中内存写入方法核对已有映射保护、冲突及表写失败后的配置/汇总状态；无真实结果或配置写入。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -14588,7 +14588,7 @@
         },
         {
           "name": "autoMatchPlanDatasets",
-          "currentReview": {"status":"current_defect_investigation","evidence":"当前catalog只读最新本机导出，autoRecoverableCount恒0；该入口原仅刷新视图，却声称自动恢复。保留现有自动匹配入口，继续核对可信当前数据及已保存映射，不恢复旧registry。","boundary":"曾试拟改成仅刷新并作VM 1/1，但这会缩减现有功能承诺；候选已撤回，该日志不计修复通过。尚未实施完整修复、build或触碰真实结果。"},
+          "currentReview": {"status":"source_candidate_pending_panel_build","evidence":"保留自动匹配：从当前最新导出中只对仍未分配的PLAN读取项目已保存的唯一单数据集映射，按现有结果写入器重新分区；项目、结果目录或保存映射变化时中止。含多个值、名称归一后重复的映射不猜测；不读取或恢复旧registry。","boundary":"候选未提交、未build；%TEMP%/g004-auto-dataset-mapping-guarded-20261123.*.log 单文件7/7 exit0，假内存真实Host和结果写入方法覆盖自动应用、保留指标、冲突、配置变化和原写失败；旧dist消费者的项目切换断言已适配但待build后验证。早先仅刷新候选已撤回，日志不算通过；未访问真实结果。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
