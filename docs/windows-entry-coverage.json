@@ -11787,6 +11787,7 @@
         },
         {
           "name": "sftp_handoff",
+          "currentReview": {"status":"fixed_scoped_external_effect_restricted","evidence":"原配套忽略所选Worker并仅读项目sftp.json，且MCP未请求上传；SFTP d4ed002以明确目标贯穿确认、上传与marker，MCP指定upload:true并复核sync。真实方法/假传输4/4及假Gateway1/1 exit0，日志 %TEMP%/g004-sftp-handoff-port-20261123.*.log 和 g004-mcp-handoff-upload-20261123.*.log。","boundary":"未真实传输或写标记，安装版未更新；对端后改Worker配置不可由已接受单向请求实时获知，不宣称已检测。"},
           "method": "handoff.markReady",
           "oldEvidence": "projectTools[name=sftp_handoff]",
           "scope": "companion_proxy_real_downstream_scoped",

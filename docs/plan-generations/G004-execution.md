@@ -131,7 +131,7 @@ MCP resource_available对明确过期、离线或degraded缓存改返回unknown�
 
 诊断复制、操作日志、面板恢复和配置说明逐ID源码复核，边界见coverage；未操作真实剪贴板、窗口或重新识别。
 
-日志分析查询跨await切项目后原可继续刷新新项目快照；现查询后和快照后复核原项目。假Worker切换1/1 `%TEMP%/g004-analysis-project-change-20261123.*.log`，原身份及拒绝2/2 `%TEMP%/g004-analysis-existing-20261123.*.log`，均exit0；未查询真实Worker/任务/日志，待build。只读检查错误tag、路径及引号各失败，文档补丁首稿未匹配，均未改产品。
+日志分析项目切换修复、假Worker验证及失败记录见 `e7b3483e:docs/plan-generations/G004-execution.md`；未查询真实Worker，待build。
 
 log_read遇无效空响应原可退回模糊匹配缓存，现明确报错；分页、空结果、无效响应及错误假Gateway/Worker 1/1 exit0 `%TEMP%/g004-log-read-invalid-20261123.*.log`，未查询真实日志，待build。
 
@@ -172,3 +172,5 @@ sftp_worker_sync/directory/batch按两个Worker、路径与配套消费者核源
 sftp_server_import/download_scope/download_mapped的授权、保存范围及内存指标边界见coverage，未改配置或传输。
 
 result_collect按选定PLAN与整批发布、原任务归属和内存读取核源码；未查真实任务或写结果，见coverage。
+
+handoff按用户批准修复选定Worker确认、上传和标记，SFTP d4ed002，假消费者4/4与1/1 exit0；日志及限制见coverage，未真实传输或更新安装。

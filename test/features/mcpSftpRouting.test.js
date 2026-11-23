@@ -239,6 +239,13 @@ test('MCP workspace upload forwards the scoped manifest without pruning',async()
  assert.equal(f.calls.length,1);
 });
 
+test('MCP handoff requests upload to the selected Worker',async()=>{
+ const f=fixture();await f.gateway.call('sftp_handoff',{workerId:'w1'});
+ const call=f.calls.at(-1);assert.equal(call.method,'handoff.markReady');
+ assert.equal(call.params.server.id,'w1');assert.equal(call.params.localPath,root);
+ assert.equal(call.params.upload,true);assert.equal(call.params.confirm,true);assert.equal(call.params.pathConfirmed,true);
+});
+
 test('MCP scope and handoff remain bound to the authorized Worker',async()=>{
  const f=fixture();
  await f.gateway.call('sftp_download_scope',{workerId:'w1',paths:['experiments/results'],extensions:['.csv'],maxFileSizeMB:64});
