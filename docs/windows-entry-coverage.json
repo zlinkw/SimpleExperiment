@@ -11610,6 +11610,7 @@
           "name": "sftp_server_activate",
           "method": "servers.setActive",
           "oldEvidence": "projectTools[name=sftp_server_activate]",
+          "currentReview": {"status":"source_scoped_effect_restricted","evidence":"ToolCatalog要求精确id，ProjectGateway 校验schema并经 VS Code 人工modal批准后传confirm，McpHost绑定当前工作区再代理。","boundary":"此入口未实调；全局活动服务器不变，未连接Worker。"},
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "已记录假SFTP代理和授权边界；真实SFTP文件/服务器效果未测。"
@@ -11618,6 +11619,7 @@
           "name": "sftp_server_save",
           "method": "servers.save",
           "oldEvidence": "projectTools[name=sftp_server_save]",
+          "currentReview": {"status":"mock_scoped_effect_restricted","evidence":"ToolCatalog限制profile字段；ProjectGateway人工批准及McpHost透传，原假对话/后端证据 %TEMP%/g004-520-mcp-sftp-routing-20261123.log 17/17 exit0，覆盖取消、确认、setActive及额外字段拒绝。","boundary":"不修改真实共享服务器配置；未连接Worker。"},
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "已记录假SFTP代理和授权边界；真实SFTP文件/服务器效果未测。"
@@ -11626,6 +11628,7 @@
           "name": "sftp_server_delete",
           "method": "servers.delete",
           "oldEvidence": "projectTools[name=sftp_server_delete]",
+          "currentReview": {"status":"mock_scoped_effect_restricted","evidence":"精确id经schema、VS Code人工批准和同根代理；原假对话/后端证据 %TEMP%/g004-520-mcp-sftp-routing-20261123.log 17/17 exit0，取消不调用且后端拒绝向上传递。","boundary":"只审配置记录入口，不删除任何真实记录或文件。"},
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "已记录假SFTP代理和授权边界；真实SFTP文件/服务器效果未测。"

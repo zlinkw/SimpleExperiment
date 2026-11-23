@@ -26,7 +26,7 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 
 旧 Git/UI 夹具、520 与接替后合成验证的逐项输入、结果、失败、工具链和边界见 coverage 与 `6f829e1d`、`9d5cae9f`、`6f14818d` 的本文件；不扩大原证范围或冒称真实 Worker/tmux/删除通过。
 
-旧执行会话结束后受支持工具归档并核 session_meta、138 条 eligible 原事件双 SHA，139 处仅修实际归档路径（`9a69240b`），未搬删原 rollout 或重跑。此前旧会话归档修复另核 35 项事件、42 处路径，未改事件。当时 1 项待运行；最终结果见下文，不得把未知或未测写成通过。
+旧会话归档后核 session_meta 及原事件，仅修引用路径（`9a69240b` 等），未搬删或重跑；两次逐项数量与待运行结果见 `981fa853:docs/plan-generations/G004-execution.md`。
 
 
 接替后 planCleanup、planCleanupReconnect、planIsolatedReview/Lifecycle/Boundaries、planBatchPhysicalPipeline、localMetadataChanges、syncScopeDeletionRefresh、tmuxCloseHttp、resultSyncFailureVisibility、clearedOutputReplacement、manifestCleanup、planJobDeleteRequeueCoverage/Production、remoteResultInspectionWorkflow、resultCollectionPerformance 与 freshResultHost 的精确结果、数量和边界见 coverage 与 Git `6afb2ed0:docs/plan-generations/G004-execution.md`。这些是替身/夹具，未证明真实删除、Worker 或 UI；freshResultHost 续接验证曾 20.389 秒超时，用户许可修复后原限额复验 1/1、7.513 秒，原日志和事件保留。旧shell/tmux/GPU/租约、automaticScopeContent等10项与旧job005/030/031、041/111/149/154/165/232/233/296/298逐项证据、skip和未知工具链同样见该版本及coverage，不重跑。
@@ -79,7 +79,7 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 
 原 `npm run build` 实际包含全量测试域与禁止重跑的删除场景，因此未启动。总控审定按原任务增量证据机制支持build子集：原全部compile/fullCheck、身份、失败、产物与选择门禁不缩，assemble凭据仍仅package。当前脏树只读规划build 316、package 367、build无新增identity，按需0；这不是原520包361/6或构建通过。G004原pattern在新增子集、缺项、错entry及aggregate断言后1/1 exit0，原日志 `%TEMP%/g004-build-incremental-runner-20261123.*.log` 与 `%TEMP%/g004-build-incremental-aggregate-20261123.*.log`，runner两文件commit `6afb2ed0` 已推送。首只读planner因 `src/extension/legacy.ts` 依赖漂移拒绝；仍需逐项适用对账与总控审定调度，不能批改摘要或执行禁区。总控两次只读路径猜错/Windows glob错误未触产品。
 
-旧执行会话已结束并归档；其60条direct记录的122个原事件哈希及session身份核实一致，仅更新coverage中精确rollout路径，原日志不移动或删除。新增7个真实同根520 MCP只读结果与plan_list合成局部证据见coverage；未扩大到其他参数、真实Worker或跨项目。全部单项目母集调查仍在进行。执行记录压缩前两稿分别11639、11331字符触发assert，均写入前退出，原文件未变。
+旧执行会话归档后核实60条direct的122个原事件哈希和session身份，仅修coverage路径。新增7项同根520 MCP只读与plan_list合成证据见coverage，真实Worker和跨项目未测；压缩前两稿11639、11331字符均写前断言退出。
 
 ## 停止路由候选
 
@@ -92,3 +92,5 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 本轮重核同根45080的两个健康、capabilities及OpenAPI后，稳定MCP调用同窗SFTP：status、transfers空列表、config.list及config.get单键成功；target.show 因本工作区无 `.vscode/sftp.json` 返回 -32000，未更改配置。launcher进程exit0、stderr空；外层因该实际错误exit1，完整响应 `%TEMP%/g004-520-sftp-local-successor-20261123.json` 含敏感配置不公开。第一次健康身份检查错误地要求 health 返回 instanceId，exit1；随后用 health PID与capabilities实例身份/根联合核实成功，未触真实远端。一次只读 Windows glob 报错和一次压缩补丁未匹配均未改产品。
 
 停止候选补保留显式远端 Worker 归属供后续人工重试；原单文件新12/12 exit0、3140ms，`%TEMP%/g004-stop-ui-identity-20261123.*.log`。源码候选及 Panel 未构建部署。
+
+SFTP server activate/save/delete 逐工具复核 schema、人工 modal 和同根代理；后两项仅复用原假对话/后端17/17日志 `%TEMP%/g004-520-mcp-sftp-routing-20261123.log`，activate仅源码。未变更服务器配置或删除任何真实记录。
