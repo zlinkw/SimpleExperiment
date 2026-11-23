@@ -13473,6 +13473,7 @@
         },
         {
           "id": "navigation:execution:execution-operations",
+          "currentReview": {"status":"source_scoped","evidence":"操作列表目标落在executionPlanList对应锚。","boundary":"仅源码与既有锚解析证据；未查询真实任务或本轮实点。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13480,6 +13481,7 @@
         },
         {
           "id": "navigation:execution:execution-failed",
+          "currentReview": {"status":"source_scoped","evidence":"异常操作当前没有单独锚，统一解析回退execution区；该导航不自动启用失败筛选。","boundary":"仅源码与既有锚解析证据；未查询真实任务或本轮实点。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13487,6 +13489,7 @@
         },
         {
           "id": "navigation:execution:execution-plan-runs",
+          "currentReview": {"status":"source_scoped","evidence":"运行进度目标落在包围计划列表的对应锚。","boundary":"仅源码与既有锚解析证据；未查询真实任务或本轮实点。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
