@@ -13020,6 +13020,7 @@
         },
         {
           "id": "noncommand:id=panelBootstrapCopy",
+          "currentReview": {"status":"source_scoped_pending_panel_build","evidence":"bootstrap脚本通信建立后点击发送 copyPanelDiagnostics；Host 序列化面板诊断到剪贴板并提示其中可能包含本机路径和版本。获取VS Code通道失败时禁用按钮。","boundary":"源码审阅与既有消息/脚本受控测试；未操作真实剪贴板，诊断内容不对外输出。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=id=panelBootstrapCopy]",
           "oldStatus": "concluded_scoped",
@@ -13027,6 +13028,7 @@
         },
         {
           "id": "noncommand:id=initialStateRetry",
+          "currentReview": {"status":"source_scoped_pending_panel_build","evidence":"点击重发 webviewReady 与当前文档身份，显示读取状态；8秒仍未收到则显示重试，收到初始状态后清定时器和busy。Host在维护或需重载状态拒绝重建状态，其余恢复心跳并发布状态。","boundary":"复用 g004-520-panel-message-dispatch-20261123.log 21/21 及 g004-520-panel-webview-script-20261123.log 既有假宿主/脚本范围；本轮未点击该按钮或刷新真实窗口，当前Panel改动待构建。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=id=initialStateRetry]",
           "oldStatus": "concluded_scoped",
