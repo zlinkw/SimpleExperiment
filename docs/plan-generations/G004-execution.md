@@ -39,7 +39,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 ## 最终打包与生成物同步
 
-原520 package构建 `f66d3694`，receipt `simple_cluster/reports/test-workflow/2026-11-23T02-45-43-277Z-10816-package/run.json`，13 gates exit0；包2919747字节，SHA256 `aaf19107996beae86674b16b6c25f110551e74fb70a6bd545c88d334c9b2cdba`。闭包、Panel及10890检查通过；20个生成物分组提交，6个旧脏文件保留。首git add exit1但7个已跟踪项实际暂存，总控审后提交；完整事实见 `49e1cebd:docs/plan-generations/G004-execution.md`，旧包不覆盖后续源码。
+原520 package构建 `f66d3694`，13 gates exit0，包2919747字节、SHA256 `aaf19107996beae86674b16b6c25f110551e74fb70a6bd545c88d334c9b2cdba`；闭包/Panel/10890通过，20生成物分组提交，6旧脏文件保留。首git add exit1但已暂存7项，总控审后提交；完整receipt与原事实见 `49e1cebd:docs/plan-generations/G004-execution.md`，旧包不覆盖后续源码。
 
 试行 Release `v0.5.520` 已发布，`prerelease=true`、`draft=false`，远端 tag 指向 `7bf49ba84802df56821b098b440b289d3d3eb61e`；VSIX 与同名 SHA256 资产已上传，隔离下载的 SHA256 与已验证包一致，manifest 校验 exit0。实际 ReleaseClient 核实 0.5.482 可见权威 0.5.483、0.5.520 不降级，SFTP 0.2.120 不降至权威 0.2.118。
 
@@ -67,7 +67,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 原 `synthetic/final.csv` 合法宽表两行因只按文件名选long误报0；现预览传文本及列映射，并只计含指标记录，保留后行有值场景。原文件及底层解析不变，细节见 `e9ed2a97:docs/plan-generations/G004-execution.md`。
 
-CSV宽/长/JSON及空指标回归6/6 exit0 `%TEMP%/g004-preview-formats-complete-20261123.*.log`；首夹具失败及维度误判各5/6 exit1，分别留 `g004-preview-format-20261123.*.log`、`g004-preview-format-repair-20261123.*.log`，中间6/6留 `g004-preview-metrics-20261123.*.log`。520 Host仍旧实现；完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
+CSV宽/长/JSON回归6/6 `%TEMP%/g004-preview-formats-complete-20261123.*.log`；首夹具及维度误判各5/6 exit1，原日志和中间6/6见 `49e1cebd:docs/plan-generations/G004-execution.md`。520 Host仍旧实现。
 
 后补显式 metric/value 列映射、alias 及零值验证，原单文件 6/6 exit0、799.2334ms，日志 `%TEMP%/g004-preview-mapping-zero-20261123.*.log`。
 
@@ -77,7 +77,7 @@ CSV宽/长/JSON及空指标回归6/6 exit0 `%TEMP%/g004-preview-formats-complete
 
 探针补真实RAF同ID ACK及hidden/generation保护，Host保留pending前停滞计数；原11/13 exit1，修协议和经本人批准的offscreen夹具后13/13及Host 6/6 exit0。日志 `%TEMP%/g004-render-full-current-20261123.*.log`、`g004-render-host-progress-20261123.*.log`；首失败 `g004-render-probe-20261123.*.log` 保留，未构建部署。
 
-原build含全量域及禁止重跑删除场景，未启动；总控审定增量支持build且不缩原门禁，assemble仅package。先前脏树只读规划build 316/package 367、按需0，不等于旧520包361/6或构建通过。G004 pattern 1/1 exit0，日志 `%TEMP%/g004-build-incremental-runner-20261123.*.log`、`g004-build-incremental-aggregate-20261123.*.log`，runner提交 `6afb2ed0`。planner因legacy依赖漂移拒绝，需逐项对账及总控审定调度；不改摘要或跑禁区。总控两次只读路径/glob错误未触产品；原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
+原build含禁止重跑场景，未启动；增量build保留原门禁、assemble仅package。先前规划316/367、按需0非构建通过；G004 pattern 1/1日志 `%TEMP%/g004-build-incremental-runner-20261123.*.log`、`g004-build-incremental-aggregate-20261123.*.log`，runner `6afb2ed0`。planner拒绝依赖漂移，需逐项对账及总控审定；总控只读路径/glob错误未触产品，原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
 旧执行会话归档后核实60条direct的122个原事件哈希和session身份，仅修coverage路径。新增7项同根520 MCP只读与plan_list合成证据见coverage，真实Worker和跨项目未测；压缩前两稿11639、11331字符均写前断言退出。
 
@@ -136,3 +136,5 @@ syncScopeDeletionRefresh七个受测方法/函数与旧源码一致，planCleanu
 planBatchPhysicalPipeline及planRunRecovery受测队列写入/租约和确认/恢复方法与1e91d0d4一致，其余依赖不变，复用2/2、7/7夹具旧证，未重跑清理。
 
 SFTP配置set/reset核schema、项目上下文与人工确认转发，复用旧假对话/后端9/9；不改真实全局配置。增量build对现有包装执行日志的接纳缺口已交总控，未重放退役草稿测试。
+
+总控审通过固定G004包装核验；原pattern首次1/1及补充负例1/1 exit0，日志 `%TEMP%/g004-wrapped-evidence-runner-first-20261123.*.log`、`g004-wrapped-evidence-runner-final-20261123.*.log`，runner commit `95a01388`。已核原49/49内层状态、原外层83065 exit0、事件与双日志SHA；当前闭包六项变化均在该次执行前，原旧证保留并改非当前，草稿断言仅历史事实。整体build尚未运行。
