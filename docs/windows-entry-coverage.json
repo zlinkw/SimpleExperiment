@@ -12001,6 +12001,7 @@
       "actionUnitScopeIndex": [
         {
           "id": "panel:toggleLowTrafficMode:1",
+          "currentReview": {"status": "reviewed_scoped", "evidence": "历史0.5.491实点见manual-acceptance-checklist；%TEMP%/g004-520-panel-message-dispatch-20261123.log、g004-520-panel-webview-script-20261123.log为受控测试；520本机MCP仅读当前启用。", "boundary": "UI根据已确认状态和requestId发送目标，Host校验布尔值、串行持久化、失败还原并回执；本轮未再实点或修改全局偏好。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=toggleLowTrafficMode]",
           "oldStatus": "concluded_scoped",
@@ -12022,6 +12023,7 @@
         },
         {
           "id": "panel:openSetupGuide:1",
+          "currentReview": {"status": "reviewed_scoped", "evidence": "历史0.5.492实点见manual-acceptance-checklist；%TEMP%/g004-520-setup-guide-20261123.log为合成证据。", "boundary": "按钮经Host打开配置说明，已识别项目不重启引导；未识别时引导可进入设置、选工作区或识别；本轮未重新点击或触发识别。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=openSetupGuide]",
           "oldStatus": "concluded_scoped",
@@ -12036,6 +12038,7 @@
         },
         {
           "id": "panel:runCheckStatic:1",
+          "currentReview": {"status": "reviewed_scoped", "evidence": "历史0.5.500实点，check-static-latest报告通过、6个计划；原位置证据见panelCommandActions。", "boundary": "按钮经Host共享单个在途请求；脚本运行、工作区/取消检查、报告存在核验后可打开或复制。本轮未重新执行检查或写报告。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=runCheckStatic]",
           "oldStatus": "concluded_scoped",
