@@ -4,7 +4,7 @@
 
 ## 当前目标与边界
 
-G004 人工审定的增量覆盖按 identity+argv 复用适用的历史、直接和本轮证据，并冻结真实计划、gates、产物与输入；当前 361 active、6 onDemand，planner 仍缺 82 项，尚未通过，所有候选待总控最终审核。源码稳定后对原规划测试精确 pattern 按原 20 秒预算补验一次，执行 final dry-run 并向总控提交完整包；总控终审并另行开放前禁止 full build/package、安装和发行。0.5.520 只是候选，不能冒充已打包。
+G004 人工审定的增量覆盖按 identity+argv 复用适用的历史、直接和本轮证据，并冻结真实计划、gates、产物与输入；当前 361 active、6 onDemand，planner 仍缺 73 项，尚未通过，所有候选待总控最终审核。源码稳定后对原规划测试精确 pattern 按原 20 秒预算补验一次，执行 final dry-run 并向总控提交完整包；总控终审并另行开放前禁止 full build/package、安装和发行。0.5.520 只是候选，不能冒充已打包。
 
 当前不触碰真实 Worker、服务器、SSH、tmux、GPU、用户授权配置或真实 UI；真实 Worker、传输/清理、active results、跨项目和新 UI 未测。保留 26 个 tracked dirty dist、历史 VSIX sha、全部夹具及现场，不 stage 或清理。模拟删除/缺失不证明真实永久删除安全。总控批准既有夹具只在自建 temp 范围内 rename 到 clean_dir 并保留字节的模拟；真实删除、真实 WSL/tmux/GPU 与完整 runtime import/exec 仍不执行。具体安全测试、原精确权限与进一步裁决见 coverage 和历史原文。
 
@@ -24,7 +24,7 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 
 历史 job 187/189/240、七项删锁 264/265/267/268/269/271/274 已由总控人工继承；原 passed/0/tree confirmed 和日志保留，精确旧 Node/架构未知，不称本轮真实删除通过。总控另批准 runner 旧 default job 255–263、266、270、272、273、275–287、290、291 共 28 项逐 identity+argv 继承：旧 body/fixture 未变，新增 G004 分支不作用其输入，输入指纹改动不改变原场景比较行为；原日志和当前依赖冻结，未知旧 Node/架构不补造，不覆盖新 G004 或 job 289。
 
-总控审定 Git 旧场景中 job 300–308、313、315–323 共 19 项可继承：原 test 与其加载的 project/feature 闭包相对 `5a3ca8f6` 无 diff，改动的 BranchPlanDispatch import 非这些 pattern 调用；原私人临时 Git 夹具、原 passed/0/tree 和日志保留，当前依赖冻结，历史 Node、架构及 Git 版本未知。本轮未重跑 Git 夹具，也不冒充真实 GitHub 或远端 Worker 验证；其他 pattern 继续逐项审定。
+总控审定 Git 旧场景中 job 300–308、313、315–323 共 19 项可继承：原 test 与其加载的 project/feature 闭包相对 `5a3ca8f6` 无 diff，改动的 BranchPlanDispatch import 非这些 pattern 调用；原私人临时 Git 夹具、原 passed/0/tree 和日志保留，当前依赖冻结，历史 Node、架构及 Git 版本未知。另外 job 325、331、332、334–339 共 9 项，Git/PR 闭包相同；后六项 UI 夹具提取的九个 legacy 方法与旧源逐 AST 文本相同，其余 legacy 变化不在测试方法内。原 receipt 和日志保留，历史 Node/Git/TypeScript 未知。本轮未重跑 Git 夹具，也不冒充真实 GitHub 或远端 Worker 验证；其他 pattern 继续逐项审定。
 
 520 后合成验证的逐项名称、数量、日志与输入详见 `afb3ec5c`、`ae5b7746`、`f18078f9`、`b6f86b14`、`806d47d2`、`7d91ba1b`、`50c2a865`、`c04f2dd7` 和 coverage，均仅按各项真实边界报告。专门核准的 mcpProject 43/43 使用假授权/Agent/Worker、独立工作区和回环/stdio，不代表真实生命周期/撤权；ProjectOps 历史 SDK 闭包仍未知。SFTP CleanupFileApi 的 5/5 为内存 store/fs 与假端口，不证实际持久化或删除；公开字段合成凭据不证真实后端秘密输出。
 
@@ -32,4 +32,4 @@ formalJobPreflightProgress/Structure/Environment 各 1/1、Failure/Rejections �
 
 接替后合成回归 distributedPlanExecutionMode 10/10、taskQueryWideReadRealChain 3/3、planRunHoldClearedChain 3/3、planRunRecovery 7/7、nativePlanRetry 6/6、completedJobArtifactRootBinding 7/7、syncScopeStagingIdentityWiring 4/4、planSubmissionStateGuard 26/26、planRunQueryRegression 6/6、planRunSharedSubmission 5/5、planBatchDispatchFirst 14/14、rerunTransferBusyAttribution 21/21、rerunIsolateEngineContract 6/6、cleanupMissingTargets 11/11、formalJobExecution 5/5、completedJobLatestSync 32/32、planStopClear 39/39、syncScopeDelete 14/14、syncScopeWorkerAuthority 10/10、cleanupActivity 2/2、localIndexSharedIdentity 3/3、localCodeManifestCache 5/5、currentSubmissionTruth 8/8、planPreflightProgressSpeed 20/20、tmuxCloseRuntime 1/1 均 exit0。采用函数提取、VM、假请求和自建状态；tmuxCloseRuntime 用假 subprocess/timer，syncScopeDelete 只检查生成脚本与替身，preflight 保留原 40 文件计时断言；无真实 Worker、tmux、网络、UI 或删除。完整依赖/原始事件见 coverage；均待总控终审。
 
-旧执行会话结束后受支持工具归档并核 session_meta、138 条 eligible 原事件双 SHA，139 处仅修实际归档路径（`9a69240b`），未搬删原 rollout 或重跑。此前旧会话归档修复另核 35 项事件、42 处路径，未改事件。当前 planner 82 项待核；须按具体调用链及源证继续，不得把未知或未测写成通过。
+旧执行会话结束后受支持工具归档并核 session_meta、138 条 eligible 原事件双 SHA，139 处仅修实际归档路径（`9a69240b`），未搬删原 rollout 或重跑。此前旧会话归档修复另核 35 项事件、42 处路径，未改事件。当前 planner 73 项待核；须按具体调用链及源证继续，不得把未知或未测写成通过。
