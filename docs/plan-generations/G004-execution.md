@@ -67,7 +67,7 @@ automaticScopeContent 8/8、tunnelClient 13/13、latestResultExportDarwinLock 7/
 
 job 289 为唯一 fresh，最终 package 内原精确 pattern 1/1 exit0，wall 4508ms、tree confirmed，20 秒限制未延长。219/284 按用户明确的本任务历史例外继承、不重跑。
 
-当前只读 package dry-run exit0：361 active、6 onDemand、hook zero；该次 selection 随后提交会变化，最终运行必须重算。当时规划器对现有覆盖核验后明确剩 219/284 两项阻断（后获用户明确例外）；289 的 10 项依赖、两项工具摘要和空 compiledInputs 已独立核对，仍待实际执行。
+此前只读 package dry-run exit0：361 active、6 onDemand、hook zero；该次 selection 随后提交会变化，最终运行必须重算。当时规划器对现有覆盖核验后明确剩 219/284 两项阻断（后获用户明确例外）；289 的 10 项依赖、两项工具摘要和空 compiledInputs 已独立核对，当时尚待执行，最终结果见下文。
 
 用户明确批准 219/284 仅本任务历史功能覆盖，原日志分别 20857.309ms、20119.841ms 及 passed/0/tree 保留，不重跑、不放宽未来 20 秒。发现 G004 原 outer timeout 额外加 killGrace，已将 G004 fresh 外层截止改为原测试 timeout；超时后的树结算仍保留，若迟到 exit0 也记录 timeout；普通 profile 原行为不变。原 G004 精确 pattern 单次 1/1 exit0、8746.1323ms，测试替身覆盖两种期限、超时和迟到成功；日志 %TEMP%/g004-520-deadline-verification-20261123.log。39 注册 case 相对补丁前仅 G004 case 改变，历史默认 runner 不走新期限分支。
 
@@ -76,3 +76,7 @@ job 289 为唯一 fresh，最终 package 内原精确 pattern 1/1 exit0，wall 4
 ## 最终打包与生成物同步
 
 原 package 在构建 HEAD `f66d36946ade4b911a75636d6f2fc1f28c65111b` 完成，receipt `simple_cluster/reports/test-workflow/2026-11-23T02-45-43-277Z-10816-package/run.json`，13 gates exit0、input=end、并发 1、锁释放；原 selection 保持该构建 HEAD，不冒称适用于后续提交。包 `simple-experiment-0.5.520.vsix` 2919747 字节，SHA256 `aaf19107996beae86674b16b6c25f110551e74fb70a6bd545c88d334c9b2cdba`；manifest、运行闭包、实际 ZIP/磁盘、Panel 三个脚本与 10890 检查通过。20 个包内生成物经逐字节核验后分组提交 `fea89fbd`、`18cd5836`、`120b9384`，6 个不入包的脏文件保留。首组普通 git add 返回 exit1（dist ignore 提示）但实际7个已跟踪文件均已暂存；总控核验 index 后批准直接提交，后两组使用精确 tracked update，未 force。
+
+试行 Release `v0.5.520` 已发布，`prerelease=true`、`draft=false`，远端 tag 指向 `7bf49ba84802df56821b098b440b289d3d3eb61e`；VSIX 与同名 SHA256 资产已上传，隔离下载的 SHA256 与已验证包一致，manifest 校验 exit0。实际 ReleaseClient 核实 0.5.482 可见权威 0.5.483、0.5.520 不降级，SFTP 0.2.120 不降至权威 0.2.118。
+
+安装前为 0.5.519，唯一一次 `npm run install:latest` exit0，磁盘和 VS Code 扩展列表均为 `simple-local.simple-experiment` 0.5.520；安装日志 `%TEMP%/g004-520-install-20261123.log` 保留 Node DEP0169 警告。稳定 MCP shim 的 launcher/resolver 与安装包文件字节一致，包内 server 目标存在；未连接运行中的面板验证动态解析。用户本人执行 Developer: Reload Window 后才可进行界面验收。

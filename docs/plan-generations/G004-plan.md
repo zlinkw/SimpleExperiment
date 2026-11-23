@@ -4,13 +4,13 @@
 
 2026-11-22用户最新要求：复用已查证据，把剩余单项目界面、按钮、功能及MCP逻辑一次查清修完；先迁出MCP共用逻辑，再彻底退役业务CLI入口/专用代码。所有可独立完成的源码、必要消费者、测试和文档先做到可审，最后集中列出确需本人确认的精确删除、测试退役/替代及复验事项，再统一验收交付。不得因单项发现或普通测试失败停整批，不逐项发版；单项目正常后才处理跨项目延期。这是原G004一个完整业务批次，内部每组≤3强相关问题、≤8非生成源/测试/文档文件，验证后scoped FF提交，不把完整目标缩成一组或巨型提交。
 
-当前安装运行基线0.5.519，source/tag6932321534f3b0c2df3b1983bfede2f88f7b868f。39文件删除/测试迁移、B1原文件唯一复验3/3及删除后TS检查已完成。候选已递0.5.520，write-agent-runtime及compile均exit0，8/8 gates、input=end、Panel模块/实际3段脚本VM与10890门禁通过，原receipt见execution；这不是全测试/完整build或单项目通过。当前收敛增量覆盖，尚未package/发行/安装新版本。必要回报仅完整阶段包、需当前决定的阻塞/数据风险和交班，普通修正写execution/coverage，不索纯回执。
+本轮0.5.520源码、最终增量package、试行发布及一次安装已完成。原构建HEAD f66d36946ade4b911a75636d6f2fc1f28c65111b；发布tag/源码提交7bf49ba84802df56821b098b440b289d3d3eb61e；磁盘已装520，运行中Host未重载，不能称已运行520或新UI通过。39文件删除/获批测试迁移、B1唯一3/3和所有规定门禁已完成；361项覆盖按125历史＋235原direct＋1fresh记录，6按需未跑，2历史超时按本人精确例外保留。待本人Developer: Reload Window后续新Host/UI验收；真实Worker、跨项目及原受限效果未测，不宣称G004所有按钮/外部功能已通过。
 
 本计划集中语义压缩于30a5d6e0后；完整此前计划可从Git 30a5d6e0同路径读取，原调查/修法/失败不被抹除。进一步原材料见59041060、89498eff同计划及下列现行证据；不另建tracker或重复报告。plan cap18000/90%=16200，execution cap12000/90%=10800；接近阈值整体压缩，保留未决与真实失败。
 
 ## 角色、租约与保护
 
-总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high/default，已实跑resolved与实际turn均match/continue，独占本计划与README代次索引。旧总控01a1fdb5在7次原生压缩/第五次后峰302384自然交班，完整背景与资格实核后明确释放全部总控租约；旧turn真实完成、已归档不删除，无在途动作。唯一执行现为01a20584-8cbd-7383-8626-4997e9d2dacc/local，Terra/high/priority，resolved/实际turn均match/continue。前执行01a204cc在第六次原生压缩/第五次后峰300836自然接替，基线2c0adc31、无在途并正式释放全部执行租约；接替者只读补全完整背景后承接，原155待核不当通过。原执行01a203b9在第六次原生压缩/第五次后峰300055自然接替，完整交班并明确释放产品/测试/execution/coverage、唯一检查和scoped Git，无在途动作。新角色只读补全必要背景后承接，旧turn完成后由新角色核实归档不删除；总控本次两文档指针同步结束即明确释放短暂Git租约给新执行，不并写。现授权包含最终520候选compile、受影响合成回归及增量覆盖审定准备；最终package仍须完整覆盖包交总控审后开放，发行/安装按原连续交付边界执行。只保留两个角色；service_tier仅记录，不重置用户选择。更早同角色交班事实及原租约见6a2cf63c与execution；接替不扩大权限。
+总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high/default，resolved与实际turn已实核match/continue，独占本计划/README。唯一执行01a20584-8cbd-7383-8626-4997e9d2dacc/local，Terra/high/priority，资格实核后承接；本轮包、发行、安装已交完整包且释放scoped Git，无在途。现总控仅最终文档同步，执行停止UI等待本人重载。只保留两角色，不另建验收者；service_tier仅记录。旧总控01a1fdb5及旧执行01a203b9/01a204cc均按caveman自然阈值完整交班并归档不删除，真实峰值/资格/租约与基线详见Git 7bf49ba8同计划、6a2cf63c和execution；接替不重置任务/许可或有效证据。
 
 总控无独立待办、仅等完整包/必要决定时按全局事件协调合法结束本轮，不能轮询/催进度；执行者仍有授权可做工作不得套用空闲。必要消息默认无回执。未知在途动作先核归属与结果，不重放。当前原仓是普通Windows工作区，非Pi/自制容器/项目管理器，不触发worktree PR。master追踪origin/master，origin=https://github.com/zlinkw/SimpleExperiment.git；逐组检查diff、UTF8、必要验证后精确stage，普通commit/push/fetch核HEAD一致。remote前进、认证/hooks/同步失败停相关Git升级，不amend/rebase/reset/merge/force/改remote，不stage日志、夹具、无关未跟踪资产。0aa6b27c push后fetch TLS unexpected EOF exit1，经总控精确一次恢复fetch exit0核一致，非通用重试许可。
 
@@ -79,24 +79,22 @@ Artifacts规范本机root/每级目录/manifest/链接，保留相对绝对、�
 
 必要真实界面遵循silent-ui-screenshot整个宿主/交互/截图不抢焦点；当前未证hidden/offscreen非激活原生操作能力，不能用假DOM/静态HTML冒实际UI，也不因隔离profile或hidden console就新开可见Electron。复用实际用户截图/旧有效实点；确有新UI缺口给最小方案和限制，不造产品capture框架。临时截图TEMP/CodexUiCaptures/ui-32hex.png，无精确删除许可保留。
 
-历史有效证据索引：U01/U02/U03的2+8+10=20修复交516，非按钮总数。U04原43=39单项目交517+02/05/06/07跨项目4延期；撤回20、33–36、40–44共10项，原39分组13/17/9见895038f2与coverage，01/08不重放授权/Agent专项。U44人工映射排除正确，U45仅配置恢复。54选择417634df首42/43后43/43；55统一授权bc0cc61c/c37827c8 45/45两轮、旧grant不扩；56离线预览895038f2首坏行7/8后8/8。518真实选择/设置/离线导入恢复两行、517 PLAN/结果/日志旧实点按未变条件复用。
+历史有效证据索引：U01–03修复20交516，非按钮数；U04原43=39单项目交517＋02/05/06/07跨项目4延期，撤回20/33–36/40–44共10项。原39分组13/17/9、U44/U45/54/55/56的首失败/修正/配置授权及旧UI实点见895038f2、Git 7bf49ba8同计划与coverage；只按未变条件复用，不重放01/08授权/Agent专项，不把跨项目延期或旧CLI成功当新MCP/Worker通过。
 
-519持久化f6c3339f首0/1后1/1；eab27339 7/8后9/9及9/9；19234b6a 9/10后10/10及10/10；5a3ca8f6未实现0/2后3/3、提示1/1、迁移10/10。旧无根workspaceState首次迁移来源和owner写前中断歧义仍未知，不跨profile搬权限连接，不拿历史事实冒当前就绪。
+519持久化/提示/迁移的首失败及改后证据完整见Git 7bf49ba8同计划、f6c3339f/eab27339/19234b6a/5a3ca8f6及coverage，不再逐轮列重复计数。旧无根workspaceState首次迁移来源和owner写前中断歧义仍未知，不跨profile搬权限连接、不拿历史事实冒当前就绪。
 
-519已发布https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.519 ，source/tag6932321534f3b0c2df3b1983bfede2f88f7b868f，prerelease/draft=false/Latest483；VSIX2988831字节、SHA525e235fe7e380bf3684edf5b8bfd3dd7620badefd964dcdcd671b14c0216b33，远端与TEMP/g004-519-download-ff08下载一致。唯一package 2026-11-22T06-35-19-310Z-69208-package/run.json：341/341、13门禁exit0，输入=结束/并发1/树confirmed/锁释放/按需0，模块+3script VM、326/325/373/376闭包及10890零命中。客户端首误SFTP Latest120、实118 exit1，修临时预期后exit0；482见483，519/SFTP120不降级；安装一次exit0含DEP0169，用户已Reload。此旧receipt不代本轮迁出新矩阵。
+519原试行发行/唯一安装及本人Reload已完成，source/tag6932321534f3b0c2df3b1983bfede2f88f7b868f。其唯一341项/13门禁receipt、VSIX身份/SHA/下载、原VM/闭包/客户端误预期SFTP Latest120而实118的首exit1与修后exit0，完整见Git 7bf49ba8同计划及coverage。519旧包/资产/日志保留，不代本轮迁出新矩阵；219/284超20秒事实以本轮本人精确例外处理，不回写原记录。
 
-518首339/341 exit1，两fixture43/43及10/10后特批341/341+13；独立runtime核验exit丢失未知，以实际ZIP等价325/324/371裁决，不冒原命令通过。517首337/341 exit1/stdin closed取消失败，四定向43/43、19/19、13/13、10/10（Agent补首9/10跨realm）后特批341/341+13。日志原12/13与独立VM3/3及首夹具失败、旧/新dist13/13分别保留。516首340/341→22/22→特批341/341；vsce ls30秒ETIMEDOUT exit1不重跑、actualZIP等价及首./归一假缺保留。514坏60位sha、旧并发中止/BUILD_LOCK_UNSETTLED、其它历史失败及用尽owner精确删除许可按原Git/日志保留，不作通用豁免。原U01/U02计划4edd1da5、执行10c0689e/b7c0b42c/f72d0066/c37827c8/eab27339/4bde7f49/89498eff可取回。
+516/517/518原首包失败、特批全包、独立VM/WSL失败及退出未知、514坏SHA/并发中止、用尽的owner精确删除许可等完整证据保留在Git 7bf49ba8同计划及现execution/coverage，不重跑求绿或扩为通用豁免。vsce ls30秒ETIMEDOUT原exit1以实际ZIP等价裁决、原独立runtime核验退出未知不能记原命令通过；首夹具及路径归一假缺均留原日志。更早原计划4edd1da5与执行10c0689e/b7c0b42c/f72d0066/c37827c8/eab27339/4bde7f49/89498eff可取回。
 
 J01未修：Host GIT_CONFIG_COUNT10/KEY全有，VALUE0和5缺、传递环节未知；不sanitize/注入/改全局Git或重启稿件。旧CLI --version API_WORKSPACE_MISMATCH exit2不重放。平台旧systemError cybersecurity risk触发未公开，无Daybreak/扫描/重放或换工具模型聊天绕限，自然接替与绕限无关。所有原失败/未测/真实未知不能被新局部通过覆盖。
 ## 当前收尾：集中批准后连续实施
 
-完整候选基线0ee444bef20581c3367cc0b20cd60b8872430a9d，审核5886c9e2；完整审批、39路径与过程可从Git 11c076f8、97d723e1及cb44bd81同计划和现execution/coverage读取。用户已明确“同意1、2、3，按清单执行，保留必要业务和安全检查，复用有效证据，完成后统一验收交付，不要再因局部问题停下整批任务。”不恢复历史待审批，不扩删除目标/远端效果，不以局部失败停全部独立工作。
+完整审批/39路径/迁移及失败过程见基线0ee444be、审核5886c9e2、Git 11c076f8/97d723e1/cb44bd81/7bf49ba8同计划和现execution/coverage。本人“同意1、2、3，按清单执行…复用有效证据…统一验收交付，不要再因局部问题停下整批任务”已实际执行，不恢复旧待审批，不扩删除/远端效果。
 
-精确39文件已实际删除并推送：690be905、4d003cdc、b7d6ce0b、3382fcbd、4a43d1fc、fd593cca六组及97d723e1登记；完整集合与批准基线一致，全部tracked clean普通file、根/全部祖先/直父无reparse；逐项直父cd/物理cwd/类型/内容身份后仅Remove-Item ./精确叶名、无Force，39/39核不存在。不含目录、旧dist、全局shim、测试/fixture/临时文件。首次大命令CreateProcess blocked by policy未启进程，原call_887a6fcce30d45c4a9a7625697e86b55保留；后去掉只读Get-Item的Force并拆预检/delete-only/文档Git，实际成功，不断言唯一平台原因、不换工具权限绕限。
+39普通tracked clean文件经全集预检与批准集合一致、根/祖先/直父无reparse，逐项直父cd及物理cwd/类型/内容身份后仅Remove-Item ./精确叶名、无Force，六组提交及97d723e1核39/39不存在；不含目录/旧dist/全局shim/测试/临时文件。首次call_887a6fcce30d45c4a9a7625697e86b55 CreateProcess blocked by policy未启进程，原失败保留；去掉只读Get-Item的Force、拆预检/delete-only/文档Git后成功，不断言唯一拒因，不换工具权限绕限。
 
-49旧CLI文件302顶层用例、27外部引用、精确50退休路径、13旧job→17MCP与两helper迁移均已实施；原测试路径/fixture/历史保留，其他glob自动发现、argv/caseGroups/20秒不缩。B1唯一特批复验3/3；Windows消费者4/4、指标3/3、checkpoint1/1、formalJob5/5、中立客户端前四项4/4、取消预算1/1、dispatch5/5均原exit0。规划oracle首0/1要求已退役50路径，修后1/1保留；不能代最终HEAD规划。
-
-首次tsc-cached TS7.0.2 input-drift exit2/71emit，旧CLI出口及Gateway params类型错误真实保留；233f31d3字典类型修正，dispatch5/5。39删除后新输入一次TS previous-failed rebuild、391输入/emit2/exit0，日志TEMP/g004-tsc-after-cli-removal-20261123-terra.log；首次日志TEMP/g004-tsc-central-predelete-20261122-terra.log不抹去。后0.5.520同步package/lock根与entry/runtime并稳定write-agent-runtime，compile实过8/8 gates、输入=结束，receipt simple_cluster/reports/test-workflow/2026-11-22T18-17-42-383Z-84032-compile/run.json；Panel模块和实际3段scripts VM、10890零命中通过。这些不等于最终package、安装或新Host通过。26 tracked dist dirty为已授权emit/生成，未stage/恢复；最终交付源及生成文件须精确审查后分组同步。
+49旧CLI文件302顶层测试、27外部引用、50精确退休路径、13旧job→17MCP及两helper均已实施，原文件/fixture/历史保留，其他glob/argv/caseGroups/20秒不缩。B1唯一特批3/3，消费者等原定向exit0记录见coverage；规划首0/1修后1/1是历史，最终289另见下。首tsc TS7.0.2 input-drift exit2/71emit及Gateway字典类型修正233f31d3保留；39删除后391输入/emit2/exit0。原两日志TEMP/g004-tsc-central-predelete-20261122-terra.log与g004-tsc-after-cli-removal-20261123-terra.log不覆盖。520稳定runtime/compile8 gates及最终package分别留原receipt；不以compile或源码修复冒新Host/UI或所有单项目功能通过。
 
 ## 当前决定：最终增量覆盖核验
 
@@ -104,10 +102,20 @@ J01未修：Host GIT_CONFIG_COUNT10/KEY全有，VALUE0和5缺、传递环节未�
 
 阶段源码基线cb44bd81406445719519f42c44ac329aa6d4d38b=origin/master=FETCH_HEAD。实际planEntry为361 active＋6 onDemand；123历史人工继承、235原direct已被planner逐项接受，3未覆盖，不冻结未来数量。6按需未运行、不计通过；历史031为0pass/1skip、165为5pass/1skip、37为40pass/1skip；340原34项只继承当前保留30项，4CLI项按既有批准退休。68原parity证明选定Python核心及JS两个拒绝边界，非原JS全文件身份；69原外部py根/字节未记录，按本任务人工推断适用，原未知保留，不自动扩用。7旧删锁job264/265/267/268/269/271/274仅继承未改安全逻辑，不当前执行真实删除。
 
-仅剩：旧job219 gpuCollectorFrame，原11/11、exit0/tree，但20857.309ms；旧job284 assemble逐项凭据，原passed/0/tree，但20119.841ms。两者均超过20秒，原记录完整保留。2026-11-23用户明确批准仅作为本任务历史功能覆盖，可据此登记人工继承；不重跑、不扩大未来20秒限制，不改原duration/退出码/tree状态。第三项job289为real-repo plan独立对账原精确pattern，待最终源码与HEAD稳定后原20秒一次；为避免登记提交改变selectionHash，不先直跑再提交/重复跑，准备为最终package内唯一fresh项，由该运行冻结真实HEAD/selection并在assemble前复核。当前总控源审已完成，用户已明确继续最终打包、试行发布和一次安装、最后统一交付；先登记两项精确例外并同步、重算最终计划与依赖，全部对账通过后开放一次集中package及原定交付，不减任何门禁。
+收尾时原三项缺口：旧job219 gpuCollectorFrame，原11/11、exit0/tree，但20857.309ms；旧job284 assemble逐项凭据，原passed/0/tree，但20119.841ms。两者均超过20秒，原记录完整保留。2026-11-23用户明确批准仅作为本任务历史功能覆盖，可据此登记人工继承；不重跑、不扩大未来20秒限制，不改原duration/退出码/tree状态。第三项job289为real-repo plan独立对账原精确pattern，已在最终package内按原20秒唯一fresh运行一次；未先直跑再登记或重复跑，运行冻结真实构建HEAD/selection并在assemble前复核。总控源审后已按本人授权登记两项例外并完成下列最终package/试行/安装，未减门禁。
 
 packageContentPolicy尾部扫尾改保留fixture，原12/12；releaseAcceptance首exit1因jobs-only漏按需，保留首日志，修为jobs∪onDemand/精确50退休反向/非空不交叉后获准1/1。resultCandidateMetadataExclusion仅TemporaryDirectory→保留mkdtemp，原4/4，全部业务断言保留。真实dispose写自身stopped discovery并关闭server、不unlink，旧误判已纠正。完整acceptance额外真实临时删除未获准，未运行。
 
 新mcpProjectOpsContract11/11、隔离windowScopeIsolation8/8均exit0；原事件/日志完整。工具包装兼容仅固定JSON字面量到相邻exec调用，不eval/动态JS，不伪造原事件。续接链固定初始session，原请求/响应SHA/顺序/最终exit0/完整日志都核。首G004扩展20.389s虽输出1/1/exit0仍作超时无效，用户精确特批修后原20秒1/1、7.513s；之后新真实静态包装兼容单次1/1、8661.6398ms，acf338a1，业务两文件未重跑。前39个test注册AST比仅G004 case变化；未改runner各旧pattern依赖审定重冻。ENOBUFS/只读引号错误、原规划/按需夹具失败、误跑及被覆盖独立日志均在execution/coverage保留；丢失mcpWorkerHistory独立log仅取原完整rollout，不伪恢复。
 
-本轮准备基线e427edc199521517d0dec403dfff01ee978b723e与上游一致，execution已整体压缩至9898字，压缩前完整记录见cb44bd81。总控现持短暂Git租约更新本人最新裁决/README，随后一次完整派单释放给唯一执行01a20584，连续完成登记、package、试行发行及一次安装；只在真实阻断需决定时交包，不索普通回执。不另建报告。最后源审/实际dry-run、完整package/gates/lock/receipt、VSIX/远端试行/真实更新客户端/一次安装按前述交付门禁连续执行；0.5.520尚未package/发行/安装，单项目UI、真实Worker及跨项目未测不能写通过。
+## 0.5.520最终交付事实
+
+原package receipt为simple_cluster/reports/test-workflow/2026-11-23T02-45-43-277Z-10816-package/run.json，构建HEAD f66d36946ade4b911a75636d6f2fc1f28c65111b，schema3 overall passed/exit0；361 active=125历史+235direct+1fresh，6按需未跑，13 gates exit0/tree confirmed、并发1、锁释放；289原pattern1/1、wall4508ms。input=end 671cae51922efc87cbf36ae62c2303aae2584d4596b108b9e3a1ebc095191511；artifact db7fcf773c3322fee515630f1606df02325aebe2ea57f9e80ddaef697432666e；selection 937767f019d502935d1c2ee358f51c629a2c63a221c66bdf184e65035bd762a5永久绑定原构建HEAD，不改写为发布提交、未重组装/重测。
+
+同一VSIX simple-experiment-0.5.520.vsix，2919747字节，SHA256 aaf19107996beae86674b16b6c25f110551e74fb70a6bd545c88d334c9b2cdba；publisher/name simple-local.simple-experiment，engine ^1.100.0/universal。实际ZIP359项、354运行路径与磁盘一致、308闭包齐全，manifest/秘密/README及Panel模块+3真实render scripts VM、10890零命中通过。20包内生成物逐字核ZIP/磁盘/index后fea89fbd/18cd5836/120b9384同步，发布HEAD 7bf49ba84802df56821b098b440b289d3d3eb61e；源码输入/整dist/包字节未改变，仅提交已有验证内容。6个不入包dirty（旧CLI三项/ResultParser/ResultsFactory/mcpServer）及所有旧资产保留。首git add exit1提示dist ignore但7个tracked已暂存，总控核精确index=包后沿用提交；后用精确tracked update，无force/改ignore。
+
+https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.520 实际prerelease=true/draft=false/latest=false，远端git refs tag直接指向7bf49ba8；VSIX与UTF8同名sha两资产名称/大小/digest、隔离下载及manifest一致。实际ReleaseClient确认482可见483、520不降级、SFTP120不降118；权威Latest483/118实测不变。总控本机无local tag，首次git rev-parse v0.5.520^{}报unknown revision（组合命令后续只读使外层exit0），该查询不算通过；后真实GitHub refs API核tag commit，不创建本地tag或force。
+
+唯一npm run install:latest exit0，TEMP/g004-520-install-20261123.log，安装前519/无520，安装后code与磁盘package.json均520，保留DEP0169 warning。simpleex-mcp.cmd→稳定launcher/resolver与已装bin字节相同，520 dist/mcp/server.cjs存在；未运行动态resolver连接旧Host，未使用退役simpleex查版本。安装后停止面板操作，用户须本人Developer: Reload Window。真实Worker/SSH/Agent/tmux/GPU/训练/永久删除、新UI均未验；未自动部署Agent。交付阶段完成，UI及原外部/跨项目延期保留，不能以本包覆盖总数冒所有真实功能通过。
+
+执行完整收包及原失败保存在现execution/coverage、cb44bd81等原Git历史；无新增报告。总控仅同步本计划/README与执行者补齐的实际交付记录；该文档提交不改变已发布不可变tag/VSIX，也不触发再build/package/安装。后续仅根据本人重载/真实反馈接续适用工作，不后台保活或自动重放。
