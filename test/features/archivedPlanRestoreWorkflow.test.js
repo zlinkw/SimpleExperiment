@@ -24,11 +24,11 @@ function restoreWorld(stem='demo') {
   files.set(path.join(bundleDir,'archive_manifest.json'),JSON.stringify({schemaVersion:5,originalPlanFile:`experiments/plans/${stem}.yaml`,configs:['model.yaml'],environment:[],parameters:{}}));
   files.set(path.join(bundleDir,'configs/model.yaml'),'model: original\n');
   const v1=path.join(root,`experiments/plans/_restored/${stem}__v1.yaml`); files.set(v1,'existing version');
-  let current=true,answer='确认恢复独立版本', switchAt='';
+  let current=true,answer='确认恢复独立版本', switchAt='', statFailure='';
   const memoryFs={constants:fs.constants,
     readFile:async file=>{if(!files.has(file))throw Object.assign(Error('missing'),{code:'ENOENT'});return files.get(file);},
     access:async file=>{if(!files.has(file))throw Object.assign(Error('missing'),{code:'ENOENT'});},
-    stat:async file=>{if(!files.has(file))throw Object.assign(Error('missing'),{code:'ENOENT'});return {isFile:()=>true};},
+    stat:async file=>{if(file===statFailure)throw Object.assign(Error('access denied'),{code:'EACCES'});if(!files.has(file))throw Object.assign(Error('missing'),{code:'ENOENT'});return {isFile:()=>true};},
     lstat:async file=>{if(!files.has(file)&&![...files.keys()].some(name=>name.startsWith(file+path.sep)))throw Object.assign(Error('missing'),{code:'ENOENT'});return {isFile:()=>true};},
     mkdir:async file=>{events.push(['mkdir',file]);},
     copyFile:async (from,to,flags=0)=>{events.push(['copy',from,to]);if((flags&fs.constants.COPYFILE_EXCL)&&files.has(to))throw Object.assign(Error('already exists'),{code:'EEXIST'});files.set(to,files.get(from));if(switchAt==='copy')current=false;},
@@ -47,8 +47,15 @@ function restoreWorld(stem='demo') {
   const h=new Host(); Object.assign(h,{captureProjectContext:()=>({root}),projectContextIsCurrent:()=>current,
     refreshExperimentTracesProjectionForCurrentInterest(){},refreshLocalPlanMetadata:async()=>{events.push(['metadata']);if(switchAt==='metadata')current=false;},
     persistProjectPlanSelectionState:async()=>events.push(['persist',h.selectedPlanId]),postState:()=>events.push(['state'])});
-  return {h,root,archive,sourceFile,bundleDir,v1,files,events,setAnswer:value=>answer=value,switchAt:value=>switchAt=value};
+  return {h,root,archive,sourceFile,bundleDir,v1,files,events,setAnswer:value=>answer=value,switchAt:value=>switchAt=value,failStat:value=>statFailure=value};
 }
+
+test('restore reports unreadable archived assets instead of treating them as missing',async()=>{
+  const f=restoreWorld(); f.failStat(path.join(f.bundleDir,'configs/model.yaml'));
+  await assert.rejects(f.h.restoreArchivedPlanFromUi({file:f.archive}),/access denied/);
+  assert.equal(f.events.some(row=>row[0]==='write'),false);
+  assert.equal(f.files.get(f.v1),'existing version');
+});
 
 test('restore uses a new version and actual restoration functions without changing the archive',async()=>{
   const f=restoreWorld(), archiveBefore=f.files.get(f.sourceFile);

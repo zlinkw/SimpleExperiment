@@ -20805,7 +20805,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         for (const relative of configBundleFiles) {
             const configSource = safeArchiveBundleChildPath(path.join(bundleDir, "configs"), relative);
             const configTarget = safeWorkspaceChildPath(root, path.posix.join(restoredAssetRoot, "configs", relative));
-            const stat = await fs.stat(configSource).catch(() => undefined);
+            const stat = await fs.stat(configSource).catch((error: any) => { if (error?.code === "ENOENT") return undefined; throw error; });
             assertCurrent();
             if (!stat?.isFile()) {
                 missingConfigs += 1;
@@ -20825,7 +20825,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         for (const relative of environmentFiles) {
             const environmentSource = safeArchiveBundleChildPath(path.join(bundleDir, "environment"), relative);
             const environmentTarget = safeWorkspaceChildPath(root, path.posix.join(restoredAssetRoot, "environment", relative));
-            const stat = await fs.stat(environmentSource).catch(() => undefined);
+            const stat = await fs.stat(environmentSource).catch((error: any) => { if (error?.code === "ENOENT") return undefined; throw error; });
             assertCurrent();
             if (!stat?.isFile()) {
                 missingEnvironmentFiles += 1;
@@ -20845,7 +20845,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (parameterSnapshotFile) {
             const parameterSource = safeArchiveBundleChildPath(bundleDir, parameterSnapshotFile);
             const parameterTarget = safeWorkspaceChildPath(root, path.posix.join(restoredParameterDir, "cli_parameters.json"));
-            const stat = await fs.stat(parameterSource).catch(() => undefined);
+            const stat = await fs.stat(parameterSource).catch((error: any) => { if (error?.code === "ENOENT") return undefined; throw error; });
             assertCurrent();
             if (stat?.isFile()) {
                 await fs.mkdir(path.dirname(parameterTarget), { recursive: true });
@@ -20861,7 +20861,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         for (const relative of parameterEntryScripts) {
             const parameterSource = safeArchiveBundleChildPath(path.join(bundleDir, "parameters", "entries"), relative);
             const parameterTarget = safeWorkspaceChildPath(root, path.posix.join(restoredParameterDir, "entries", relative));
-            const stat = await fs.stat(parameterSource).catch(() => undefined);
+            const stat = await fs.stat(parameterSource).catch((error: any) => { if (error?.code === "ENOENT") return undefined; throw error; });
             assertCurrent();
             if (!stat?.isFile()) {
                 missingParameterFiles += 1;

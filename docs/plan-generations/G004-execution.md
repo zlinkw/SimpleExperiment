@@ -109,17 +109,7 @@ Experiment增量证据逐job核验、方法切片及日志保留于 coverage 和
 
 此前逐入口、原日志与未通过项详见 `bcda04ad:docs/plan-generations/G004-execution.md` 与coverage：runner 257/258、260—262通过、259仅跳过；无关glob、缓冲、脚本及压缩尝试失败未写入。打开Plan、结果规则/映射/同步、日志分析、MCP诊断授权与资源新鲜度的定向修复和假消费者证据均按原记录适用，待build；未连接真实Worker。自动匹配、日志尾部及面板候选仍未提交，需P0 build；原首失败和被撤回的缩范围方案保留原Git记录。历史草稿调查和断言仅为已退役功能的事实，不作为当前功能。配套119/120旧测试逐日志缺口及工具链未知仍未消除。
 
-配套120→28087f3的api-server、清理实现和11个测试字节未变；原120汇总通过数、119差异和未存逐项日志详见 `f02bb042:docs/plan-generations/G004-execution.md`。其中cleanupExecuteSelfBusy使用假传输控制器，不调用transfers.cancel；api仅列举该方法。工具链未知，未执行真实清理/WSL，打包覆盖待审收。
-
-实验入口、历史路径修复与结果对比的原假RPC、日志和真实活动查询限制见coverage及 `0be66569:docs/plan-generations/G004-execution.md`；未读真实用户文件或Worker，待build。
-
-project_connect授权与目标围栏修复、假对象结果及原日志见 `5c832048:docs/plan-generations/G004-execution.md`；未启动真实SSH或改grant，待build。
-
-server_test源码与增量build只读规划及快照漂移记录见 `72640e5f:docs/plan-generations/G004-execution.md`；未真实探测或运行矩阵。
-
-Plan验证的项目与授权边界修复、假Host及原消费者结果和完整日志名见 `0acec74b:docs/plan-generations/G004-execution.md`；未启动真实同步或Worker，待build。
-
-Agent、PLAN及file_cleanup、SFTP Worker和结果收集的逐入口证据与限制见coverage；完整压缩前记录见 `10072f76:docs/plan-generations/G004-execution.md`。未执行真实Agent、Worker、传输、路径清理或结果查询。plan_run接受边界修正及普通正路径日志见 `4f8cb760:docs/plan-generations/G004-execution.md`；无撤权专项。
+配套120→28087f3旧源码/11测试未变、历史日志和工具链缺口，及实验、项目连接、Plan验证与server_test的已审调用链详见 `82e3093b:docs/plan-generations/G004-execution.md` 和coverage；无真实Agent、Worker、结果查询或传输，增量build待审。
 
 handoff按用户批准修复选定Worker确认、上传和标记，SFTP d4ed002，假消费者4/4与1/1 exit0；日志及限制见coverage，未真实传输或更新安装。
 
@@ -137,7 +127,7 @@ openXshell、testAll、snapshot入口按实际源码分别核确认、Worker、�
 
 clearOperations四个原ID分别核Plan、全部、选中、单项路由与确认；当前invoke走本机处理，旧远程误路由分类不适用，未改真实历史。
 
-缓存持久化候选：同一local_operations.json和文件lease预留完整批次，旧快照保留未决记录，真实执行未知不重发；坏JSON/EACCES拒绝覆盖，原ID明确结束后清路径。Host重启丢本机退出证据则继续unknown；无真实删除或Worker。新旧Agent同路径LIVE互斥和预检已补。假存储/执行器及Windows只读身份 %TEMP%/g004-cache-persistent-v6-20261123.log 11/11 exit0（含启动前失败结清与已启动未退出保留）；v2 9/10 exit1为测试在refresh后才注入错误回调，调整顺序后v3/v4通过。候选待源审和build，非已交付。
+缓存持久化候选：同一local_operations.json和文件lease预留完整批次，旧快照保留未决记录，真实执行未知不重发；坏JSON/EACCES拒绝覆盖，原ID明确结束后清路径。Host重启丢本机退出证据则继续unknown；无真实删除或Worker。新旧Agent同路径LIVE互斥和预检已补。假存储/执行器及Windows只读身份 %TEMP%/g004-cache-persistent-v7-20261123.log 11/11 exit0（含启动前失败结清与已启动未退出保留）；v2 9/10 exit1为测试在refresh后才注入错误回调，调整顺序后v3/v4通过。候选待源审和build，非已交付。
 
 Git当前项目仓库绑定候选：仅精确仓库stage/commit/push，项目切换不继续后续效果，已发commit可能完成如实提示；Git溯源写入前复核项目。假Git/写入 %TEMP%/g004-git-project-binding-v2-20261123.log 6/6 exit0，未操作真实产品Git；候选待审。
 
@@ -150,3 +140,9 @@ Git绑定与自动备份修复已按审定hunk提交 0a1eb56f 并普通push/fetc
 Git备份确认期间若同名remote的URL改变，现阻止安装；假fs/UI增量 %TEMP%/g004-git-backup-boundary-v2-20261123.log 6/6 exit0，候选待同步与build。
 
 缓存存储旧raw-map、包装和null兼容及错误类型拒绝：%TEMP%/g004-cache-storage-compat-20261123.log 定向1/1 exit0；同一物理目标的不同Worker别名也阻止重叠请求。
+
+原缓存双确认与失败处理消费者在补合成存储后 %TEMP%/g004-cache-original-selected-v3-20261123.log 定向2/2 exit0，未运行其他真实fixture用例。原文件lease仅在回调后确认；候选现于原子rename前核handle，待源审；该检查与OS调用并非不可分割。
+
+缓存handle与原子发布围栏：%TEMP%/g004-cache-fenced-v1-20261123.log 11/11、g004-cache-atomic-fence-20261123.log 1/1 exit0；actionLifecycle仅非草稿持久化单项 g004-local-operation-fence-consumer-v2-20261123.log 1/1 exit0，首验0/1 exit1因新正则漏TS可选参数问号，原日志保留。
+
+Plan恢复stat仅ENOENT计缺失，其他错误可见；假fs原消费者 %TEMP%/g004-plan-restore-read-error-20261123.log 6/6 exit0，候选待构建，未操作真实文件。
