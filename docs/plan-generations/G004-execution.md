@@ -64,4 +64,4 @@ gpuSampleCarryRealChain 3/3、syncScopeAgentIndex 8/8、operationRetirement 5/5�
 
 接替后误重跑已有继承候选 job 204（planTerminalStatusRecovery 9/9）与 job 179（jobArtifactSyncIdentity 7/7），又误执行按需 serverQuotaPersistence 10/10，均 exit0；原始事件、日志保留且新记录 eligible=false，不计活动覆盖。两次 planner 报证据冲突，排除重复后恢复；后续同时核活动计划、jobs 和本轮记录再执行。旧执行会话归档后核 session_meta 与 138 条 eligible 事件双 SHA，139 处引用仅修正实际归档路径，提交 `9a69240b`；未重跑或改写原事件。
 
-actionLifecycle 首次 46/49、exit1：三个产物身份测试提取调用链时缺少 `localArtifactRecord`。夹具接入真实共享 symbol 和局部路径替身后，原文件完整复验 49/49、exit0；两次原事件与完整日志保留，工具展示有截断，失败记录 eligible=false。planStopClear 39/39、syncScopeDelete 14/14、syncScopeWorkerAuthority 10/10 均 exit0；Agent 函数提取、假 tmux/网络/UI/删除，仅生成并检查删除脚本，自建索引和逻辑租约状态保留，未执行真实界面、Worker、tmux 或删除，模拟结果不证明真实删除安全；planner 135 项待核。
+actionLifecycle 首次 46/49、exit1：三个产物身份测试提取调用链时缺少 `localArtifactRecord`。夹具接入真实共享 symbol 和局部路径替身后，原文件完整复验 49/49、exit0；两次原事件与完整日志保留，工具展示有截断，失败记录 eligible=false。planStopClear 39/39、syncScopeDelete 14/14、syncScopeWorkerAuthority 10/10、cleanupActivity 2/2 均 exit0；Agent 函数提取、假 tmux/网络/UI/删除，仅生成并检查删除脚本，自建索引和逻辑租约状态保留，未执行真实界面、Worker、tmux 或删除，模拟结果不证明真实删除安全；planner 134 项待核。
