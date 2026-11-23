@@ -11277,6 +11277,7 @@
         },
         {
           "name": "configuration_set",
+          "currentReview": {"status": "synthetic_scoped", "evidence": "%TEMP%/g004-520-mcp-project-ops-successor-20261123.log 原11/11 exit0，Gateway配置参数和确认传递使用Host替身。", "boundary": "需configuration授权，Host按schema验证；projectAdapterRules限workspaceFolder并校验映射。本轮未修改实际配置或同步Worker。"},
           "method": "config.set",
           "oldEvidence": "projectTools[name=configuration_set]",
           "scope": "single_project_local_or_mixed",
@@ -11285,6 +11286,7 @@
         },
         {
           "name": "configuration_reset",
+          "currentReview": {"status": "source_scoped", "evidence": "ToolCatalog→Gateway→Host apiConfigReset源码。", "boundary": "需configuration授权并限制配置键及作用域；本轮未重置真实配置，需条件证据覆盖各作用域。"},
           "method": "config.reset",
           "oldEvidence": "projectTools[name=configuration_reset]",
           "scope": "single_project_local_or_mixed",
@@ -11293,6 +11295,7 @@
         },
         {
           "name": "worker_configure",
+          "currentReview": {"status": "source_scoped_external_restricted", "evidence": "ToolCatalog→Gateway→Host workers.configure源码。", "boundary": "需configuration授权，允许已配置的禁用Worker并校验ID；写入共享Worker设置影响各项目，本轮未执行。"},
           "method": "workers.configure",
           "oldEvidence": "projectTools[name=worker_configure]",
           "scope": "single_project_local_or_mixed",
