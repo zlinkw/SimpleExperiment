@@ -12802,6 +12802,7 @@
         },
         {
           "id": "panel:openLocalResultTable:1",
+          "currentReview": {"status":"source_candidate_pending_build","evidence":"CSV/Markdown按钮以tableKey和format匹配当前目录catalog，不采用自由文件路径；按项目与原结果目录核导出、经原写入器更新表格再打开。产物按钮只接受catalog中的artifactKey。候选在异步catalog或导出读取期间目录/项目变化时停止，写入器也使用同一上下文检查。","boundary":"%TEMP%/g004-result-mapping-open-guard-20261123.*.log 单文件8/8 exit0，含假异步catalog和导出期间切目录、保留原路径及Markdown选择；无真实文件或编辑器操作。源码未提交、待build；产物按钮依现有catalog，未实测外部文件。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=openLocalResultTable]; panelPayloadReconciliation[command=openLocalResultTable]",
           "oldStatus": "concluded_scoped",
@@ -12809,6 +12810,7 @@
         },
         {
           "id": "panel:openLocalResultTable:2",
+          "currentReview": {"status":"source_candidate_pending_build","evidence":"CSV/Markdown按钮以tableKey和format匹配当前目录catalog，不采用自由文件路径；按项目与原结果目录核导出、经原写入器更新表格再打开。产物按钮只接受catalog中的artifactKey。候选在异步catalog或导出读取期间目录/项目变化时停止，写入器也使用同一上下文检查。","boundary":"%TEMP%/g004-result-mapping-open-guard-20261123.*.log 单文件8/8 exit0，含假异步catalog和导出期间切目录、保留原路径及Markdown选择；无真实文件或编辑器操作。源码未提交、待build；产物按钮依现有catalog，未实测外部文件。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=openLocalResultTable]; panelPayloadReconciliation[command=openLocalResultTable]",
           "oldStatus": "concluded_scoped",
@@ -14892,6 +14894,7 @@
         },
         {
           "name": "openLocalResultTable",
+          "currentReview": {"status":"source_candidate_pending_build","evidence":"CSV/Markdown按钮以tableKey和format匹配当前目录catalog，不采用自由文件路径；按项目与原结果目录核导出、经原写入器更新表格再打开。产物按钮只接受catalog中的artifactKey。候选在异步catalog或导出读取期间目录/项目变化时停止，写入器也使用同一上下文检查。","boundary":"%TEMP%/g004-result-mapping-open-guard-20261123.*.log 单文件8/8 exit0，含假异步catalog和导出期间切目录、保留原路径及Markdown选择；无真实文件或编辑器操作。源码未提交、待build；产物按钮依现有catalog，未实测外部文件。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },

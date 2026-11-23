@@ -130,3 +130,5 @@ MCP诊断取消在await查询后可能在授权或项目、Worker变化后仍发
 结果区“自动匹配”当前只读 latest 本机结果并刷新，autoRecoverableCount恒0，仍声称自动恢复；首次拟改仅刷新及VM 1/1见 %TEMP%/g004-result-classification-refresh-20261123.*.log，但该方案会缩减现有入口承诺，已撤回、不计修复通过。继续审当前可信数据与已保存映射，不恢复旧registry；未改真实结果。
 
 自动匹配现有候选使用当前导出中未分配PLAN的唯一单值已保存映射，复用现有结果分区写入器并检查项目、目录与映射未变化；多值或归一化重复映射不猜测，不读旧registry。内存真实Host/写入方法7/7 exit0 %TEMP%/g004-auto-dataset-mapping-guarded-20261123.*.log，含指标不变、冲突、改配置与写失败；旧dist消费者断言已适配但须构建后验证。Panel/Host/测试候选未提交、未build、未动真实结果，仍须源审与原P0门禁。
+
+结果表打开原在等待catalog后才读取目录，目录变化可把旧索引和新目录混用；候选固定目录、在异步读取及发布前复核。与自动匹配同一受控文件8/8 exit0 %TEMP%/g004-result-mapping-open-guard-20261123.*.log，覆盖切目录时不写不打开及Markdown精确选择；无真实文件/编辑器，候选待build。
