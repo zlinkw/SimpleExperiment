@@ -32,9 +32,7 @@ Hub执行拓扑退役，旧字段仅格式兼容、明确拒绝及GitHub名称�
 
 ## 不可变历史与520交付证据
 
-R519原20修复及U04原43中39单项目已交520，02/05/06/07跨项目延期。C4 CLI撤销、selectExperiment不可达推断撤回，invoke等待持久化成立。520 MCP同进程query＋ALS/root/RPC/emit，bin仅simpleex-mcp，无业务CLI/cwd/stdout回退；optionalApi仅-32601可空，Artifacts未知保ARTIFACT_LOCATION_UNVERIFIED，PLAN预检同步/目录/job0/停止确认不减。SFTP120 Gateway/Host5/5仅内存。完整实现/原失败/许可取6117fd49/execution，不恢复旧待办。
-
-CLI精确删除首拒/成功、B1 timeout后特批唯一3/3、TS7.0.2/emit、通知脱lease/识别等待等取6117fd49、0ee444be/0ff5b277/97d723e1；不是当前build。publicCliAliases误删已恢复；514坏SHA、vsce ls超时ZIP裁决、runtime退出/无根owner未知、两次process-owner许可用尽保execution。J01 Git VALUE0/5传播未知，禁sanitize/globalGit/重启稿件；旧cybersecurity拒因未知，不重放或换工具模型绕限。
+520已交R519原20修复/U04原39单项目，02/05/06/07跨项目延期；完整实现、C4/不可达误判纠正、原失败/特批/删除/TS/通知、514坏SHA及ZIP裁决取6117fd49/execution、0ee444be/0ff5b277/97d723e1，不恢复旧待办或冒当前build。MCP同进程query＋ALS/root/RPC/emit、bin仅simpleex-mcp；optionalApi仅-32601可空，Artifacts未知保原码，PLAN预检/同步/job0/停止确认不减；SFTP120内存5/5非真Worker。publicCliAliases已恢复，旧owner未知与两次process-owner许可用尽保；J01 VALUE0/5未知，禁sanitize/globalGit/重启稿件，旧cybersecurity拒绝不重放/绕限。
 
 用户批准本任务有效旧结果＋当前补验逐identity/argv增量核验，非通用cache。schema3保原receipt/direct/fresh、事件/日志SHA、真实退出及依赖/工具链/输入/选择/产物/gates；旧工具链/dirty字节unknown仅逐项人工适用，不伪known。031原0pass/1skip、165为5pass/1skip、37为40pass/1skip，340原34继承现30而4CLI退休；68仅Python核心及JS两拒绝边界，69外部根/字节未知；264/265/267/268/269/271/274仅继承未改安全逻辑不重跑。219的20857.309ms与284的20119.841ms仅用户精确本任务历史例外，不扩未来20秒。误重复/按需误跑不计覆盖，OOM/ENOBUFS/引号/规划/旧日志覆盖保留，不伪恢复日志。
 
@@ -48,7 +46,7 @@ CLI精确删除首拒/成功、B1 timeout后特批唯一3/3、TS7.0.2/emit、通
 
 专用UI根C:/Users/ZLK/AppData/Local/Temp/simpleex-normal-ui-g003-20261116-a7c39e2f。520当时PID45080/instance45080:2026-11-23T05:41:49.812Z、SE19769/SFTP120同根19767已核，重用须重发现；默认API曾属稿件窗禁碰。稳定launcher/resolver+真SDK两次520握手137tools/action167及安全本地只读通过，原敏感TEMP/g004-520-live-mcp*.json仅本机。
 
-520 offline_import/lowTraffic、5配置1启用/五类grant无workers、原ui_u01_empty_515.yaml及offline两结果行跨519→520保；onboarding实点true，无重授/重配。四RESOURCE_CONFLICT只证lease活跃，不凭operations空清锁重放。专用窗遵两UI技能，原图/越窗/首点击失败/stalled/通知识别/布局恢复见6117fd49及原事件，不删截图。TEMP/g004-520-after-ui-recognition-20261123.json仅证520/onboarding=true/panel ready-visible/sectionFailures空；renderprobe unknown、任务/GPU/tmux/输出未核。合法wide误选long得0、generic_wide得2的旧错误判断已撤回并修产品。
+520专用窗配置/原yaml/两结果行及onboarding=true保，完整原图/越窗/失败/stalled/布局与通知证据取6117fd49/execution，不删截图/重授重配。四RESOURCE_CONFLICT仅证lease活跃，不凭operations空清锁重放。原after-ui-recognition JSON只证520/ready-visible/sectionFailures空，renderprobe unknown、任务/GPU/tmux/输出未核；wide误选long判断已撤回修复。新UI仍遵两技能及专用根，不冒旧UI证明新版本。
 
 ## 当前修复状态与完整包审查
 
@@ -64,9 +62,9 @@ MCP170fd06e取消remote.listDirs无条件confirm，保sync授权/精确根/合�
 
 A传输874afe1a、B同步d468b90a、C后台清理095a1fb8、D1替换9ddfea37、D2六fake eab4c1f4、D3手动5ca4c0ca、E清理16ade9d3已源审FF同步，未夹slot/Panel/stop/result/六dist。原context/client/targets、reservation batchId/自有finally，A事实先保存、不发布/tickB；能力等待/实际POST/可证notStarted重发前守caller，只有零POST标sftpNotStarted。tails实际出队/逐cancel、上传回调/索引baseline/等待/finally守原集合，无caller契约不变、不取消合法共享读；autoDelete逐迁移/status/未发组/空父发送守caller。E observing(id)排队读/普通共享、失败不取消下一轮，Context fake8/8、506.8637ms/Process子外0未走generic；generic只明确notStarted回pending，unknown executing。全部首竞态/丢事实/缺AbortController/warmProof及其它失败保原证；不冒fastdelete/restore/history全caller闭合/整文件/真Worker。
 
-D消费者manualLaunchMessage仅context接口，配额/三消息保，memory/quota精确各1/helper1b3d44a7；workerPreparation取消文案/末context，8/8、2213f8d6同步。94/95/103仅已审分支，无WSL/Worker；saveSchedulerConfig同合法输入等效非字节同，包装非ordinary direct。新dist仅manualDispatchHost full11、distributedPlanExecutionMode前三validated模式及五隔离原精确case，不整world。
+D消费者完整输入/原证取f064e6e9本节/execution：manualLaunchMessage保配额/三消息、memory/quota各1/helper；workerPreparation8/8、2213f8d6同步。94/95/103仅已审分支无WSL/Worker，saveSchedulerConfig合法输入等效非字节同/包装非direct。新dist仅manualDispatchHost full11、distributedPlanExecutionMode前三validated及五隔离原精确case，不整world。
 
-MCP recentLogs纠错：先live.output，7夹具generic错误不继承，撤回6错误依据保历史；fake仅此抛-32601，其它RPC仍throw，断言保。7文件38项exit0/8d356e69、QuerySchema4/4/696.2524ms/b11a66a3同步三HEAD核实，无生产/网络/删除；Native非full白名单不变，JS循环非ordinary direct。F四source夹具真实RETIRED_DRAFT_COMMANDS已补，debug1/manualNetwork4/jobUnavailable10/whitelist9 literal exit0、565c2b20同步，resultCatalog完整模块无该缺口。panelMessageDispatch full21/planStopClear精确outcome仅新compile后20秒一次。projectCodeSyncState为16bbee/current0df10641的7/7，非撤回94d9/d287；两VM与702及parent同，只更新legacy适用、不加fresh。旧执行归档曾破坏8引用，已反归档恢复原路径/字节，不盲归档。
+MCP recentLogs必须先live.output，7旧generic fake不继承、撤回6错误依据保历史；仅该RPC抛-32601，其它意外仍throw。38项8d356e69/Query4 b11a66a3原证取f064e6e9/execution，均假端，JS循环非ordinary direct，Native非full白名单保。F真实常量四fixture补后24 literal通过/565c同步，resultCatalog模块无缺口；panelMessageDispatch21/planStopClear精确outcome仅新compile后20秒一次。projectCodeSyncState为16bbee/current0df的7/7非94d9/d287，两VM与702及parent同，仅legacy适用更新。旧执行归档破8引用已恢复原路径/字节，不盲归档。
 
 ## 增量构建、最终路线与终点
 
@@ -74,15 +72,15 @@ P0 npm run build含完整测试域，不能以build批准隐式跑禁区。现�
 
 sftpCaller/planRun/codeSync/isolatedAutoDelete/planCleanup ContextFence五新identity、F的mcpDraftContracts/mcpActionCatalog及workerPreparation包装不满足ordinary direct；planCodeScope旧full12+新增精确1不冒当前full13。另Persisted/Health/Failure/Inspect/History/LogsConfig六次虽逐项真实exec_command通过，但JS循环模板不合现有direct解析，保原事件不扩解析器。最终源码/fixture冻结后共十五全文件按原argv/20秒经既有runner fresh各一次、max1，现在不运行；Active/QuerySchema为顶层literal cmd，可按原direct接入，不增fresh。planCodeScope私有fixture保留/Python抽函数10000ms、原mocktimer不改。原call/exit/timeout/日志/失败保类型，不冒direct/treeconfirmed；同输入package复用真实fresh。
 
-runner旧35锚定jobs255..287/290/291＋direct af4ee4a9/0ebf2208，原1e91的38body/helper与现40逐AST相同，仅两依赖按默认非G004闭包适用，保原call/工具链unknown/219与284历史例外。旧G004 unit e467ce4d不继承changed body；当前277行效果仅合成workspace/日志/事件、mock deadline/PowerShell静态Parser、假fs/VM，无事件执行/Python。最终冻结仅锚定 ^runner: G004 reviewed legacy evidence preserves origin and refuses drift$ 原20秒fresh一次，与289/fixed-stage独立；完整比较依据见6117fd49/execution。
+runner旧35锚定255..287/290/291＋af4ee4a9/0ebf2208的AST闭包/两依赖适用及工具链未知/219、284历史例外取f064e6e9本节、6117fd49/execution。e467旧G004 changed body不继承；当前unit仅合成workspace/日志/事件、假fs/VM/mock deadline/PowerShell静态Parser，不执行事件/Python。最终仅 ^runner: G004 reviewed legacy evidence preserves origin and refuses drift$ 原20秒fresh一次，与289/fixed-stage独立。
 
-Agent旧af809d70→当前4cd5364e差异限定清理四方法/常量，runtime等import未改；已审24旧job+14direct仅该依赖适用。原31Windows skip、68外部JS未知、219历史超时/工具链unknown及首AST插值读取失败保6117fd49/execution，不批签其它依赖/新能力。
+Agent af809d70→4cd5364e仅清理四方法/常量、imports不变，24旧job+14direct仅该依赖适用；31skip/68未知/219特例/工具链及首错取6117fd49/execution，不批签其它依赖/新能力。
 
-SFTP当前73文件证据未齐：120原69/466仅aggregate、逐日志目录空，119有56日志13缺，Node/Python/WSLunknown。已审补验apiBackpressure4/4、apiUploadProgress4/4、cleanupExplicitTarget1/1均exit0，分别假SSE/假spawn/VM假SSH；最后仅生成Python字符串未启动Python。旧逐闭包适用不由新单项合成完整包通过。原日志、真实退出和未测保留。
+SFTP73文件证未齐：120的69/466仅aggregate/逐日志空，119有56日志13缺，Node/Python/WSLunknown。apiBackpressure4、apiUploadProgress4、cleanupExplicitTarget1 exit0，分别假SSE/spawn/VM SSH，末项仅生成Python字符串未运行；原证取f064e6e9/execution，逐闭包/单项不合成全包通过，真实退出及未测保留。
 
 接续5旧证完整闭包/逐case/首错及更正取4e60c06e之前本节、17692f55/55b48068/60c8b277/execution/coverage，不重开。SE08cc4/82198/ceb04仅已审1e91依赖条件适用，部分旧dist。SFTP Recovery31旧119＋修后d24f Process1、mapped25旧119＋修后e7c0 Process1，子外0/signalnull，重复0b905不加覆盖，非新full32/26；operationId假端不外推双ID/await换身份。census历史真spawn mock proc/锁Python，非当前Python/Linux。mapped历史disk14/API取消真私有写/覆盖/rename/junction及默认LOCALAPPDATA资源lease/sidecar/可能登记rename/pid0，非零机器状态；Resource非Legacy unlink/保partial，registry/config未知，旧3s/5s非当前证明。Errors5/Inactivity7及compression119第1/2/3/4/5/6/8七case条件适用；unref/dispose timer/5911纠错保，压缩fake截获无真SSH/传输/registry，7槽变更/9真实lease未继承。120逐日志缺/73包未齐、test/工具链/共享环境未知，不冒当前运行/性能/full；无新测试/删除。
 
-actionLifecycle385b94d5已同步，完整常量/夹具/选择/原证取4e60c06e之前本节及execution。旧49漂移ineligible；root误准负向pattern命中祖先，bd25aac3实际47pass/2fail/49、6906.2753ms、exit1，8退役误执行保。实核Node testMatchesPattern递归祖先后用正向41/排8、父名不匹配；真实常量三处/PLAN三计数/retired-error与原断言保。dfd352df literal41/41、5226.5596ms、exit0/no session/skip0、未跑8旧case，root亲核事件/SHA；旧dist/core/OperationOutcome不冒新compile，build/15fresh门禁不变。
+actionLifecycle385b94d5已同步，完整常量/夹具/argv/原证取4e60c06e本节/execution。旧49漂移ineligible；root误准负向pattern命中祖先，bd25实际49中47pass/2fail、exit1、8退役误执行保。核Node递归祖先后正向选41/排8、父名不匹配；真实常量/PLAN计数/retired-error及原断言保。dfd352 literal41/41 exit0/no session/skip0，root亲核；旧dist不冒新compile，最终门禁不变。
 
 SFTP api末静态case校正槽cap 0/2/0及禁止auto-expiry caller，stagedSlotLifecycle只改只读发现注释/default不改；root完整源审/亲核f4cf3b精确1/1、147.3703ms、exit0/no session/skip0，无listener/SSH/Python/删除。两测试file953fba2a普通同步，root实核三HEAD/空index/tracked clean；不是api全file或WSL生命周期/新包通过。
 
@@ -94,10 +92,14 @@ TensorBoard36e58fb8已同步/root三HEAD及空index实核；完整链/模式/首
 
 结果发布准备17692f55/生产60657928已同步/root三HEAD及index实核；完整链/原证/耗时取4e60c06e本节/execution/coverage。summary/自动timer/catalog/通知守原context/client，同owner共享/B等待A、旧finally不清B，again消费后不重复查询，manual保。69ee精确1及f6ca full4均literal exit0/no session/skip0，root亲核；运行legacy0613/Host736d/test2e78，output cb0及误抄caf0纠正保。case3真实私有TEMP PLAN/JSON/CSV/MD flush/rename及named-pipe关闭，其余fake，无真Worker/SFTP/Python/删除/新dist/完整域。两批5/7files未夹保护；overview仅nodecheck待新dist精确回归。仅已审legacy适用61bc→0613，原快照保，不批签其它ResultHost；原协议/时间/A事实及最终门禁不变。
 
-本地目录批4e60c06e已同步，root实核三HEAD/index空：两方法在lease/read/返回后守原context/目录、catalog任何共享状态改动前拒stale，catch守原key防旧目录/映射/代错误覆盖B，正常读错显式。c8446399 full4/4、1370.5293ms、literal exit0/no session/skip0，root亲核原事件/事后日志4d463383及legacycc61/testc6aa305c；真实两方法AST＋内存fake lease/read/regenerate/catalog/Worker，仅源码读/VM，无真线程/文件写/网络。四域manifest/newfile同HEAD共6files，slot/其它legacy/六dist未夹。cc61内存仅还原两方法精确回0613，仅已审八组旧证该legacy适用更新、原运行快照保，不批签panelCache/fullfile或其它依赖。不跑旧大file/stress/真项目/导出/删除，不加client门禁/时间/查询，collect/map原契约/已写A事实及最终门禁不变。
+本地目录4e60c06e已同步/root三HEAD及空index实核；完整源审/原证取该commit本节/execution。两方法在lease/read/返回及catalog共享修改前守原context/目录，catch守原key，正常错误可见。c844 full4/4 literal exit0/no session/skip0，root亲核；legacycc61/testc6aa，真实AST＋fake，仅源码读/VM，无真线程/写/网络。6files四域注册同HEAD、保护未夹；仅逆转两方法回0613、八组已审legacy适用更新，原快照保，不批签panelCache/其它依赖。无大file/stress/真项目/删除/新client门禁/时间/查询，原契约/A事实及最终门禁保。
 
-自动恢复daffe414已同步，root三HEAD/index及6file范围实核。同owner共享排除缺controller/已abort自动promise，沿原update合法共享或待旧读结束再读，保manual，不改模式持久化/取消undefined/时间/重试。ae84ba21 full3/3、628.5799ms、literal exit0/no session/skip0，root亲核事件/事后日志d9ca4460与Host8506/test7560031a；真实实例＋fake collect/deferred，无文件写/网络/Worker/删除/Python。四域manifest/newfile同HEAD、保护未夹。8506仅逆转refreshAutomatic精确回736d，仅f6ca full4该Host适用更新、原736d快照保：三case未调自动，另一自动controller未abort；不批签其它依赖/新dist，不重跑旧full4。计划写后16255校验失败/误报、执行暂停及压缩15787纠正保execution，最终门禁不变。
+自动恢复daffe414已同步/root三HEAD/index及6file实核；完整链/原证/计划16255失败误报及压缩纠正取该commit本节/execution。同owner排除已abort自动promise，沿原update共享或待旧读，保manual/取消undefined/持久化/时间/重试。ae84 full3/3 literal exit0/no session/skip0，root亲核，Host8506/test7560，真实实例＋fake collect/deferred无真文件/网络/Worker/删除/Python。四域注册同HEAD、保护未夹；仅逆转refreshAutomatic回736d、f6ca该Host适用更新，原快照保，不批签其它依赖/新dist/重跑旧full4，最终门禁不变。
 
-静态检查批准同步：core列表/stat等待后守原root/signal，stat仅ENOENT缺省，当前EACCES/EIO保原错、旧stat失败不向B发布，不冒检查未执行。02d1cf71 literal full4/4、1821.6334ms、exit0/no session/skip0，root亲核原事件381791de/59358591及事后日志d919d0ad，legacy99187afa/testb3047d41；真实core AST＋fake检查/FS/UI，无真检查/进程/文件写/项目。仅逆转core即精确回原dirty cc61，准已审九组旧证的该legacy适用更新，逐call清单见execution，原运行快照保，不批签其它依赖/新dist。6file含四域manifest/newfile同HEAD、保护不夹；原时间/重试/列表后台吞错不改，最终门禁不变。
+静态检查f064e6e9已同步/root三HEAD及空index实核：core列表/stat等待后守原root/signal，stat仅ENOENT缺省，当前EACCES/EIO保原错、旧stat失败不向B发布，不冒检查未执行。02d1cf71 literal full4/4、1821.6334ms、exit0/no session/skip0，root亲核原事件381791de/59358591及事后日志d919d0ad，legacy99187afa/testb3047d41；真实core AST＋fake检查/FS/UI，无真检查/进程/文件写/项目。仅逆转core即精确回原dirty cc61，仅已审九组该legacy适用更新，逐call清单见execution，原快照保，不批签其它依赖/新dist。6file含四域manifest/newfile同HEAD、保护未夹，原时间/重试/列表后台吞错及最终门禁不变。
+
+报告列表候选回归已核、待P0：局部error贯通reset/buildState/Panel及sync三层依赖，失败保cache/抛原错/转义提示可能旧，ENOENT清错、generation/root拒迟到，修latest文案。未跑3case暂停后重开78d5f309 literal4/4、1252.6868ms、exit0/no session/skip0，root核314d/ee8b事件与事后日志c740、testf446/legacy4bff/Panel8af7，完整SHA/首提取SyntaxError取execution。真实方法AST/render-key-model slice＋fake FS/UI/helper，Host字段静态锚定，无真检查/进程/文件写/外层模板/真实tracker/实机；factory缺握手回落legacy，不扩SyncSection。四域同identity，7files完整保留至最终真实build/render VM/node-c/10890再提交，不拆UI链；build/提交未开放，保护不夹，新漂移逐消费者审。
+
+拆表批准同步：固定原context/directory守等待/逐目标/beforeRename/终态，stat仅ENOENT缺省、权限/IO原错，原writer/时间不改。1ac40222 literal full4/4、1665.8815ms、exit0/no session/skip0，root亲核06f8/854e事件及事后日志6cb0，legacy853630cb/test567141fb；真实split AST＋fake路径/FS/splitter/确认/writer hook，无真StateStore/FS/Worker/删除，不冒批量原子/撤销已写A/staging。仅内存逆转split即精确4bff，准78d5列表full4该legacy适用4bff→8536，原执行快照保；此前九组还受未审列表/reset/buildState变化，不批签。独立6files仅split/newtest/四注册/三docs，索引方法/测试须同实测，四域同identity；不夹待P0列表/Panel/slot/六dist，不自动跑旧dataset大file。
 
 终点路线：现行入口/增量证据收敛→真实最小build及批准的新dist消费者→实查新patch同步package/lock/runtime/write-agent-runtime→单次package max1核exit/gates/input=end/selection/artifact/lock/P0/包闭包秘密README/平台版本SHA→scoped源/生成物FF同步、receipt保原HEAD→immutable试行tag及VSIX/UTF8 sha资产，prerelease=true/latest=false，核远端digest/隔离下载/真实更新客户端不降级权威→每目标版install:latest一次，无force/降级、同版skip→核安装/MCP入口后停面板等用户Reload→专用根新Host真实安全本地UI/MCP→统一交付。root审完整包再给精确验证/同步决定；母集区分已审/未审/外部受限，不复活退役。源码、包、Release、安装、Host/远端状态分开，不部署Agent，不把fake冒真Worker；整项达终点才结案，局部问题不停止其它授权工作。

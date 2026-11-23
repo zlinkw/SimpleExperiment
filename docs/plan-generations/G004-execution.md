@@ -37,27 +37,7 @@
 
 可用性与重排/源码查询围栏：可用性绑定原项目、保存前后保护B并保A已写事实，真实save假端v2 1/1、精确3/3，源码702acec8；重排与PlanCodeScope原client/lane围栏 `dde958c5`，假查询1/1、精确重排5/5，旧v1/v2及旧Production/Coverage未跑保留；详细原日志/首失败/路径和索引补丁错误见 `fe1da3ef:docs/plan-generations/G004-execution.md` 和coverage。无真实Worker/删除或build。43efb031旧316项规划exit0但执行规划首拒legacy漂移exit1，旧日志及误通配路径见同记录；后续实际重规划，SFTP 73项旧日志缺口仍在。
 
-总控审准SFTP两原单文件：apiBackpressure与apiUploadProgress顺序各4/4、exit0、stderr空，日志 `%TEMP%/g004-sftp-api-{backpressure,upload-progress}-v1-20261124.{out,err}.log`，原调用和依赖登记coverage；假SSE及假上传子进程，无真实监听/SSH/传输。只读查rollout时额外指定不存在的11/24日期目录导致rg exit2，实际11/23 rollout命中有效，无写入。
-3c132bdc旧规划及154个重叠依赖漂移导航详见 `d70e1b40:docs/plan-generations/G004-execution.md`；均非当前build或通过。
-projectCodeSyncState旧VM直接执行新增TS类型语法导致只读语法检查SyntaxError；按总控批准以现有TypeScript先转换再运行，原测试单文件 `%TEMP%/g004-project-code-sync-state-v1-20261124.log` 实际7/7、exit0，私有fixture保留，未触unlink/Worker/真实配置。原旧7/7证据保留，新direct按实际事件与依赖登记，单identity只读规划验收通过；修正已普通推送fetch一致6bcc43dce912f7778d86010b84edeb13a689ec5b，不冒dist验证。
-只读整理曲线入口时首次按紧凑JSON对象查找而原文件为缩进格式，脚本写前退出非零；修正后JSON解析通过，未触产品。曲线入口沿用原507专用窗口历史点击与当前源码闭包，未启动viewer或查询Worker。
-
-SFTP cleanupExplicitTarget经总控效果审查后原单文件VM假端1/1、exit0，日志 `%TEMP%/g004-sftp-explicit-target-v1-20261124.log`、事件及依赖见coverage；未执行Python/SSH/网络/删除，旧120单项日志及工具链仍缺。
-
-
-send原消费者经效果审的精确选择依次1/1、2/2、1/1、2/2、2/2，均exit0且无超时，日志 `%TEMP%/g004-send-{handoff,truth,identity,proof,native}-v1-20261124.{out,err}.log`；仅源码VM/假端，非整文件或新dist。sync上传、后台清理及实际SFTP发送围栏已源审；后续源码变化不自动继承旧测试。
-
-
-草稿退役F及反向消费者：源码94a9a0c1/88b351a6，历史路径与失败保留；退役拒绝假端5/5、catalog 1/1均Process包装，最终runner及新dist项另待，临时draftRetirementBoundary不stage。原日志、已退役旧测试限制及只读/写前失败见 `385b94d5:docs/plan-generations/G004-execution.md` 与coverage，不恢复草稿业务。
-
-派发context假端、workerPreparation及MCP optionalApi夹具修正的精确结果、原日志和首失败见 `60657928:docs/plan-generations/G004-execution.md` 及coverage；原旧direct撤回保历史，六项真实串行循环非parser支持direct，最终需各fresh。未触真实Worker/WSL/网络或新dist；写前路径、选行及压缩失败仍保原记录。
-
-
-接替：旧执行实核turn结束并已释放，先归档后发现原rollout路径失效（coverage八引用；读ENOENT exit1），立即反归档恢复原路径及事件，旧chat保持未归档；不得改绑或重算证据。新Terra/high/default match/continue，总控唯一指针已更新。panelMessageDispatch真实常量slice候选首次因误判CRLF写前assert退出1，按原LF修正未测试；另五同因消费者待补并交审。coverage更新脚本两次因末行JSON带数组结束符解析失败，均写前退出；修正后五旧direct仅按审定闭包更新legacy适用摘要，保原事件和限制。projectCodeSyncState新16bbee 7/7为literal direct、fixture 0df10641，旧d287属于已撤回94d9；维持15最终fresh。
-
-草稿退役常量反向夹具：四源码消费者已审并同步 `565c2b20`，原文件串行literal direct分别debug 1/1、manualNetwork 4/4、jobUnavailable 10/10、whitelist 9/9，均exit0无skip/timeout；call及精确输入输出见本会话rollout，TEMP/g004-retired-fixture-{debug,network,unavailable,whitelist}-v1-20261124.log为运行后从真实事件提取的完整stdout，非运行时实时落盘。仅VM/假端，非真实Worker、persist或UI。panelMessageDispatch与planStopClear新dist候选未测；planStopClear首patch误放另case，运行前diff发现移回。
-
-MCP完整identity源码假端literal direct：dispatch 5/5、SFTP routing 20/20、ordinary results 8/8、preflight 3/3，均exit0无skip/timeout；原call及输入见coverage，TEMP/g004-mcp-*-direct-v1-20261124.log为事后从原事件提取stdout，未真实访问Worker/传输/授权。旧四行降历史。登记时首次误匹配历史与current两行写前退出1，限定current后成功。
+已同步的SFTP假端、MCP源码消费者、派发及交接记录和实际首失败/未知，完整原文保留 f064e6e9:docs/plan-generations/G004-execution.md 与coverage；执行类型、原日志与适用范围不扩大。旧执行chat因八条原rollout引用保持未归档，失败归档已撤回。草稿退役不恢复，15项最终fresh和新dist消费者未运行。
 
 SFTP旧证逐case条件适用：transferRecovery 31旧119加修后cancel Process 1项、mapped 25旧119加修后cancel Process 1项，均非新full文件；transferErrors五项、transferInactivity七项及compression七项各限原case。旧Python census曾运行子Python；mapped磁盘case曾私有写入/rename及真实默认registry/sidecar和pid0探活，旧工具链/配置/registry未知、120逐项日志缺。本轮不重跑、不触实际远端或机器状态；详细原call/首失败/误路径/CRLF误判和纠正见 `55b48068:docs/plan-generations/G004-execution.md` 及coverage。
 
@@ -90,3 +70,7 @@ TensorBoard将发送、等待、返回、链接及延后复制绑定原项目/Wo
 总控计划首次写后16255触发90%阈值校验exit1且误报低于阈值；执行者暂停暂存，待总控语义压缩至15787并UTF8复读通过后继续。
 
 静态检查core等待列表与stat后复核原root/signal，旧项目晚到不发当前界面；报告stat只将ENOENT当缺失，当前EACCES/EIO保原错。focused原full4 call_02d1cf7181be4a938e5f10c317074c5f 4/4、1821.6334ms、literal exit0/no session/skip0；真实core AST配fake执行/FS/UI，不运行真实检查或写文件。原事件、实际输入及事后日志见coverage；总控仅准九组旧证legacy适用cc61→9918，保原运行快照。总控首次按错误事件类型只读筛选无匹配exit1，后以call_id核原事件；非测试失败或通过。
+
+报告列表候选区分ENOENT与读取失败，保旧列表并显示可能过期及原错误；原context过期不发布。Host sync revision、Panel依赖和渲染model均包含列表与错误，文案改为更新latest并保留其他报告。full4 call_78d5f309ce324377b0df4e399b728c4d 4/4、1252.6868ms、literal exit0/no session/skip0；真实方法及Panel函数源码VM配fake，未执行真实检查/文件写，非外层模板真实渲染。事件及事后日志见coverage；三项许可先暂停以补渲染依赖，未运行或重试。首事后事件提取命令引号错误SyntaxError exit1，纠正后取得原事件；只读误通配os123和总控两误路径os2均已纠正。压缩本登记时PowerShell反引号使引用首字节误为控制字符，UTF8复读发现并立即纠正，原历史不变。此组与四域manifest保候选，Panel完整build及真实render VM/10890门禁前不得提交。
+
+结果拆表候选按原项目和结果目录守等待、逐目标及beforeRename，stat仅ENOENT视为不存在；已写文件与可能staging不撤回。full4 call_1ac40222d8f345ad8fcf881d98a7c1b6 4/4、1665.8815ms、literal exit0/no session/skip0；真实方法AST配fake catalog、FS、确认与writer，未运行真实StateStore/文件写/Worker，非批量原子或新dist。实际输入含未提交报告列表候选；原事件及事后日志见coverage。总控首次误猜两个源码路径os2，改真实StateStore和results路径核负责链。

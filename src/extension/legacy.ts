@@ -24586,29 +24586,44 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async splitProjectResultTableFromUi(message) {
         const context = this.captureProjectContext();
         if (!context.root) throw new Error("请先打开当前实验项目。");
+        const directory = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR;
+        const assertCurrent = () => {
+            if (!this.projectContextIsCurrent(context) || (this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) !== directory)
+                throw new UiCommandCancelled("项目或结果目录已变化，拆表已停止。");
+        };
         const key = String(message?.tableKey || "");
-        const table = (await this.readProjectResultTableCatalog(context.root)).find((row) => row.tableKey === key);
+        const tables = await this.readProjectResultTableCatalog(context.root, directory);
+        assertCurrent();
+        const table = tables.find((row) => row.tableKey === key);
         if (!table) throw new Error("请先选择已生成的总表或方法表。");
         const field = String(message?.splitField || "");
         const values = Array.isArray(message?.splitValues) ? message.splitValues.map(String) : [];
         const columns = Array.isArray(message?.keepColumns) ? message.keepColumns.map(String) : [];
         if (!table.header.includes(field) || values.some((value) => !table.values[field]?.includes(value))) throw new Error("拆表列或词条不属于所选表格。");
         const source = await fs.readFile(safeWorkspaceChildPath(context.root, table.path), "utf8");
+        assertCurrent();
         const outputs = ProjectResultTables.splitCsvByValues(source, field, values, columns);
         const folder = ProjectResultTables.safeTableName(field);
         const paths = Object.keys(outputs).map((value) => path.posix.join(path.posix.dirname(table.path), "by_" + folder, ProjectResultTables.safeTableName(value || "empty") + ".csv"));
         if (new Set(paths.map((item) => item.toLowerCase())).size !== paths.length) throw new Error("拆表词条对应同名文件，请调整选择。");
         const targets = await Promise.all(paths.map((relative) => safeResultOutputPath(context.root, relative)));
-        const existing = (await Promise.all(targets.map((target) => fs.stat(target).then(() => true).catch(() => false)))).filter(Boolean).length;
+        assertCurrent();
+        const existing = (await Promise.all(targets.map((target) => fs.stat(target).then(() => true).catch((error) => {
+            if (error?.code === "ENOENT") return false;
+            throw error;
+        })))).filter(Boolean).length;
+        assertCurrent();
         if (existing) {
             const answer = await vscode.window.showWarningMessage("将生成 " + targets.length + " 张子表，其中 " + existing + " 张已有同名文件。目标目录：" + path.posix.join(path.posix.dirname(table.path), "by_" + folder), { modal: true }, "覆盖已有子表");
+            assertCurrent();
             if (answer !== "覆盖已有子表") throw new UiCommandCancelled("拆表已取消，文件未改变。");
         }
-        if (!this.projectContextIsCurrent(context)) return;
         for (const [index, value] of Object.keys(outputs).entries()) {
+            assertCurrent();
             const target = targets[index];
-            await atomicWriteText(target, outputs[value]);
+            await atomicWriteText(target, outputs[value], { beforeRename: async () => assertCurrent() });
         }
+        assertCurrent();
         this.invalidateResultCatalogCache("splitProjectResultTable");
         void vscode.window.showInformationMessage("已生成 " + paths.length + " 张子表，目录：" + path.posix.join(path.posix.dirname(table.path), "by_" + folder));
     }
