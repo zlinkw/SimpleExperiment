@@ -12816,7 +12816,7 @@
         },
         {
           "id": "panel:autoMatchPlanDatasets:1",
-          "currentReview": {"status":"source_fixed_pending_panel_build","evidence":"当前catalog只读取最新本机导出，autoRecoverableCount恒0，此入口原只刷新视图，却声称从旧registry自动恢复；现保留命令并改文案为刷新本机结果分类，不恢复旧registry或新增自动匹配。","boundary":"%TEMP%/g004-result-classification-refresh-20261123.*.log 真实Host方法VM及面板文案1/1 exit0；当前Panel/Host候选未提交、未build，未操作真实结果。"},
+          "currentReview": {"status":"current_defect_investigation","evidence":"当前catalog只读最新本机导出，autoRecoverableCount恒0；该入口原仅刷新视图，却声称自动恢复。保留现有自动匹配入口，继续核对可信当前数据及已保存映射，不恢复旧registry。","boundary":"曾试拟改成仅刷新并作VM 1/1，但这会缩减现有功能承诺；候选已撤回，该日志不计修复通过。尚未实施完整修复、build或触碰真实结果。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=autoMatchPlanDatasets]",
           "oldStatus": "concluded_scoped",
@@ -14588,7 +14588,7 @@
         },
         {
           "name": "autoMatchPlanDatasets",
-          "currentReview": {"status":"source_fixed_pending_panel_build","evidence":"当前catalog只读取最新本机导出，autoRecoverableCount恒0，此入口原只刷新视图，却声称从旧registry自动恢复；现保留命令并改文案为刷新本机结果分类，不恢复旧registry或新增自动匹配。","boundary":"%TEMP%/g004-result-classification-refresh-20261123.*.log 真实Host方法VM及面板文案1/1 exit0；当前Panel/Host候选未提交、未build，未操作真实结果。"},
+          "currentReview": {"status":"current_defect_investigation","evidence":"当前catalog只读最新本机导出，autoRecoverableCount恒0；该入口原仅刷新视图，却声称自动恢复。保留现有自动匹配入口，继续核对可信当前数据及已保存映射，不恢复旧registry。","boundary":"曾试拟改成仅刷新并作VM 1/1，但这会缩减现有功能承诺；候选已撤回，该日志不计修复通过。尚未实施完整修复、build或触碰真实结果。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
