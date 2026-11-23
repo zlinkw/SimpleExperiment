@@ -89,7 +89,7 @@ CSV宽/长/JSON及空指标回归6/6 exit0 `%TEMP%/g004-preview-formats-complete
 
 停止组已同步 `fb874de2`；其后修UI把未知误报completed、Plan停止附无关选择和Worker标识/提示，11/11及消费者12/12 exit0 `%TEMP%/g004-stop-ui-outcome-current-20261123.*.log`、`g004-stop-consumers-outcome-current-20261123.*.log`。仅假客户端；Panel仍待build/VM及总控审，不部署或提交。完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
-同根45080 SFTP status、空transfers、配置list/get成功；target.show缺 `.vscode/sftp.json` 返回-32000，launcher exit0而外层exit1，敏感响应 `%TEMP%/g004-520-sftp-local-successor-20261123.json` 不公开。首身份检查误要求health的instanceId而exit1，后用PID/capabilities实例与根核实；未改配置或访问远端。只读glob及压缩补丁各一次失败未改产品，完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
+同根45080 SFTP status、空transfers、配置list/get成功；target.show缺配置返回-32000，launcher exit0、外层exit1，敏感响应 `%TEMP%/g004-520-sftp-local-successor-20261123.json` 不公开。首身份检查误读health而exit1，后以PID/capabilities核实；未改配置或访问远端。只读glob及压缩补丁失败未改产品，原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
 停止候选保留显式Worker供人工重试；12/12 exit0 `%TEMP%/g004-stop-ui-identity-20261123.*.log`，Panel未构建部署。
 
@@ -127,6 +127,8 @@ Experiment构建对账：pluginLogRetention及cacheCleanupPanel的受测retentio
 
 hostOperationLeaseIntegration及automaticScopeContent受测方法等与1e91d0d4一致，其余依赖不变，复用4/4、8/8。配套120 tag为2284921，原package汇总69文件466通过，`%TEMP%/run-YUG9Ru`现为空；119与120间6文件变化须逐项审，不能冒充当前全量通过。一次只读tag引号错误及旧日志路径不存在未改产品。
 
-planCodeScope及remoteResultInspectionWorkflow所测源码片段与1e91d0d4一致，其余依赖不变，复用12/12、15/15受控旧证，不重跑Python或远端替身。
+planCodeScope及remoteResultInspectionWorkflow受测片段与1e91d0d4一致、其他依赖不变，复用12/12、15/15，不重跑替身。
 
 syncScopeDeletionRefresh七个受测方法/函数与旧源码一致，planCleanupReconnect所查禁止调用仍不存在，其余依赖不变；复用33/33、13/13夹具旧证，不重跑清理。配套仓只读查远端tag/release及本地资产，120已占、119/120为试行、118为稳定，查询时121尚无同名tag/包；未递版或创建资产。
+
+任务、日志及Plan选择核身份/持久化、项目切换和错误反馈，复用原假宿主证据，未操作真实选择或Worker日志；见coverage。一次压缩补丁未匹配未写入。

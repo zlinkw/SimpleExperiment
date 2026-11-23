@@ -12562,6 +12562,7 @@
         },
         {
           "id": "panel:selectLogRunKey:1",
+          "currentReview": {"status":"source_and_fake_scoped","evidence":"当前任务/失败日志入口传runKey及Worker；Host存精确选择并主动读取，空key不查询；复用原2/2选择及4/4假读取记录。","boundary":"未查询真实Worker日志或当前窗口点击。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=selectLogRunKey]",
           "oldStatus": "concluded_scoped",
@@ -12598,6 +12599,7 @@
         },
         {
           "id": "panel:selectExperiment:1",
+          "currentReview": {"status":"fixed_scoped","evidence":"当前任务复选消息绑定task/run/experiment/archive身份，Host更新项目选择并等待持久化，失败可见；复用原身份3/3及 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log 中选择调用回归。","boundary":"假宿主/存储；未实点当前窗口或查询真实任务。"},
           "disposition": "prior_scoped_evidence",
           "reference": "logicalActionCensus.units[id=panel:selectExperiment:1]; API early completion is separate invokePlanSelectionCompletion",
           "oldStatus": "concluded_scoped",
@@ -15179,16 +15181,19 @@
         {
           "name": "selectExperiment",
           "route": "invoke_special",
+          "currentReview": {"status":"fake_scoped","evidence":"invokeApi直接等待项目绑定选择及持久化；现有生命周期受控用例覆盖精确run、写失败及错误提示，%TEMP%/g004-draft-action-lifecycle-final-20261123.*.log。","boundary":"未操作真实任务或真实项目选择。"},
           "evidence": "518 actual invoke and 519 synthetic persistence issue"
         },
         {
           "name": "selectLogRunKey",
           "route": "handleMessageCore_case",
+          "currentReview": {"status":"source_and_fake_scoped","evidence":"存精确runKey及Worker，再以userInitiated读取，旧受控2/2消息及4/4假客户端错误/空key范围复用。","boundary":"未读真实Worker日志。"},
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
         {
           "name": "selectPlan",
           "route": "invoke_special",
+          "currentReview": {"status":"fake_scoped","evidence":"invokeApi等待项目选择写入，并在项目切换时拒绝；现有生命周期假宿主回归 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log。","boundary":"未变更真实选择或查询结果。"},
           "evidence": "518 actual invoke and 519 synthetic persistence issue"
         },
         {
