@@ -29,6 +29,14 @@
 
 总控另审MCP taskDispatch、preflight、nativeLifecycle三direct，仅legacy适用f6a9→ca1d：三个实际方法与提取边界对385b按LF归一相同，其他依赖及Node匹配。原假授权、队列、目标与私有索引限制保留，不扩recentLogs，不证明真实Worker或新dist。
 
+只读候选sourceJob293定位时，首次Windows通配报os123，改用明确文件；AST首把emptyDistributedQueue误当函数而报缺失exit1，改核唯一变量声明后比较。均未写文件或运行测试，未将缺失当相等。
+
+总控另审核distributedProjectContract、planArtifactSyncStatus、gpuMemoryScheduling、terminalPlanHistory、completedPlanWorkerMirror、globalConfigPersistence、serverPlanQueueRecovery、windowScopeIsolation、jobAvailabilityContext九direct，仅legacy适用f6a9→ca1d；38个实际Provider成员、两辅助函数及相关静态断言与385b按LF归一相同，其余登记依赖/Node匹配。原私有TEMP artifact、loopback、虚拟inventory、旧dist render、fake FS及未触达权限分支等各自限制保留；多文件首输出截断已定向补读，未新运行测试或真Worker。
+
+总控定向审sourceJob220/293，仅四项TS依赖按实际旧dist collector及预算fixture闭包更新当前适用，原摘要与原日志保coverage。原220 4/4、293 14/14包含历史隔离WSL/tmux、私有文件及精确窗口关闭，工具链未知，未证明当前环境/真实GPU。本次未运行Python/WSL；总控首次误猜测试路径ENOENT、日志脚本KeyError及TAP格式筛选无结果均纠正，非新测试。
+
 隔离受影响case由总控另行逐case审定，只准真实compile后各原20秒正向pattern一次、串行，未运行，不将精确项冒成原full或替代新身份：Review的`^初选 PLAN 未到原生启动边界仍可审核已登记的精确隔离目标$`及`^新 command 换代不阻止已确认的精确隔离目标$`；Lifecycle的`^页面关闭与未知回执独立留痕，迟到完成核实后退出列表$`；ledger的`^a 隔离前失败 \+ b 成功：旧派发资格保留，已登记目标仍可审核；0 字节损坏原样保留$`及`^真实入口：初始集合冻结、别名去重、已登记目标可审核、账本故障提交不受阻$`。前三项私有TEMP写账本并真实rename保留，后两项私有账本写和零字节损坏保留；均为fake Worker/后端，未运行或真实删除。
 
 rerun仅准`^permanent deletion only ever targets registered clean-batch paths; a same-name new output at the original path is never touched$`新compile后一次：真实私有TEMP状态JSON/staging/rename，目标操作为内存Map，未访问真Worker/删除，fixture保留。只读定位首次错误Windows通配os123已纠正，未执行测试；原五旧pattern未找到，不冒历史授权。
+
+总控审sourceJob65/187/232/240：仅登记指定legacy、Panel或两GitOverwrite源的当前适用；保原摘要、旧dist、工具链未知与私有Git/fake清理边界，不冒新运行或新渲染。首次按错误JSON空格假设定位抛ValueError于写入前，随后按实际行格式纠正；只读误猜coverage路径及jobs层级分别os2/KeyError，均非测试。
