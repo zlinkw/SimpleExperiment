@@ -29,7 +29,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 旧会话归档后核 session_meta 及原事件，仅修引用路径（`9a69240b` 等），未搬删或重跑；两次逐项数量与待运行结果见 `981fa853:docs/plan-generations/G004-execution.md`。
 
 
-接替后 planCleanup、planCleanupReconnect、planIsolatedReview/Lifecycle/Boundaries、planBatchPhysicalPipeline、localMetadataChanges、syncScopeDeletionRefresh、tmuxCloseHttp、resultSyncFailureVisibility、clearedOutputReplacement、manifestCleanup、planJobDeleteRequeueCoverage/Production、remoteResultInspectionWorkflow、resultCollectionPerformance 与 freshResultHost 的精确结果、数量和边界见 coverage 与 Git `6afb2ed0:docs/plan-generations/G004-execution.md`。这些是替身/夹具，未证明真实删除、Worker 或 UI；freshResultHost 续接验证曾 20.389 秒超时，用户许可修复后原限额复验 1/1、7.513 秒，原日志和事件保留。旧shell/tmux/GPU/租约、automaticScopeContent等10项与旧job005/030/031、041/111/149/154/165/232/233/296/298逐项证据、skip和未知工具链同样见该版本及coverage，不重跑。
+接替后清理、隔离、同步、tmux、结果及freshResultHost替身检查逐项证据与边界见coverage及 `6afb2ed0:docs/plan-generations/G004-execution.md`，未证明真实删除、Worker或UI。freshResultHost曾20.389秒超时，用户许可修复后原限额复验1/1、7.513秒，原日志保留；旧shell/tmux/GPU等及各job的skip、未知工具链同见该版本，不重跑。
 
 本轮 mcpProjectOpsContract 11/11、windowScopeIsolation 8/8 及静态命令包装 pattern 1/1均exit0；仅夹具，无真实Worker。原日志和详情见 `c2c60767:docs/plan-generations/G004-execution.md`。
 
@@ -75,7 +75,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 ## 当前探针及构建门禁
 
-探针候选真实RAF完成后补同一 heartbeat ACK，hidden/generation保护保留；Host对probe-pending保留上次渲染序号和停滞计数。原完整文件11/13 exit1，真实ACK协议及经用户明确批准的offscreen旧夹具修正后13/13 exit0，日志 `%TEMP%/g004-render-full-current-20261123.*.log`；真实进度模块与同ID双ACK、计数及timer的Host文件6/6 exit0，日志 `%TEMP%/g004-render-host-progress-20261123.*.log`。原首失败 `%TEMP%/g004-render-probe-20261123.*.log` 保留；源修未构建或部署。
+探针补真实RAF同ID ACK及hidden/generation保护，Host保留pending前停滞计数；原11/13 exit1，修协议和经本人批准的offscreen夹具后13/13及Host 6/6 exit0。日志 `%TEMP%/g004-render-full-current-20261123.*.log`、`g004-render-host-progress-20261123.*.log`；首失败 `g004-render-probe-20261123.*.log` 保留，未构建部署。
 
 原build含全量域及禁止重跑删除场景，未启动；总控审定增量支持build且不缩原门禁，assemble仅package。先前脏树只读规划build 316/package 367、按需0，不等于旧520包361/6或构建通过。G004 pattern 1/1 exit0，日志 `%TEMP%/g004-build-incremental-runner-20261123.*.log`、`g004-build-incremental-aggregate-20261123.*.log`，runner提交 `6afb2ed0`。planner因legacy依赖漂移拒绝，需逐项对账及总控审定调度；不改摘要或跑禁区。总控两次只读路径/glob错误未触产品；原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
@@ -87,7 +87,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 接替期间另有只读 Windows glob 两次失败、覆盖记录内存断言一次写前失败（外层后续命令显示0）、git-show 默认缓冲不足一次，均未改产品；后者提高只读缓冲后成功。PowerShell 嵌套引号一次解析失败，未执行 rg；随后改用 pwsh7 直接执行。
 
-停止组已按隔离 Host hunks 提交并同步 `fb874de2`。随后逆向消费者发现 UI 状态包装会把未确认的普通返回默认显示 completed；当前候选改为明确抛错，Plan 停止去掉无关全局选择，按钮携带已知 Worker 并修正“远端任务不受影响”的错误提示。原单文件11/11、消费者12/12均exit0，日志 `%TEMP%/g004-stop-ui-outcome-current-20261123.*.log`、`%TEMP%/g004-stop-consumers-outcome-current-20261123.*.log`；仅假客户端/源码，未触真实任务。新 Panel 改动仍待完整 build 与真实脚本 VM 门禁和总控源审，不部署或提交 Panel。
+停止组已同步 `fb874de2`；其后修UI把未知误报completed、Plan停止附无关选择和Worker标识/提示，11/11及消费者12/12 exit0 `%TEMP%/g004-stop-ui-outcome-current-20261123.*.log`、`g004-stop-consumers-outcome-current-20261123.*.log`。仅假客户端；Panel仍待build/VM及总控审，不部署或提交。完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
 同根45080 SFTP status、空transfers、配置list/get成功；target.show缺 `.vscode/sftp.json` 返回-32000，launcher exit0而外层exit1，敏感响应 `%TEMP%/g004-520-sftp-local-successor-20261123.json` 不公开。首身份检查误要求health的instanceId而exit1，后用PID/capabilities实例与根核实；未改配置或访问远端。只读glob及压缩补丁各一次失败未改产品，完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
@@ -99,7 +99,7 @@ SFTP server activate/save/delete源码及假后端范围见coverage；后两项�
 
 SFTP tree、tree_state、inventory源码及假端口范围见coverage；三只读工具未声明权限类别，仅绑定Worker/项目，未访问真实Worker或计算远端哈希。
 
-SFTP file_stats/plan_logs按schema、Worker路由及已装后端路径/Plan校验复核，仅假端证据。remote_directories原无条件附confirm/pathConfirmed且缺授权，已按总控裁决改为sync项目授权、根内精确目标及调用前项目/Worker快照复核；假Gateway/Host 18/18 exit0，`%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log`。已装120确认函数仅提取VM核缺失/部分/完整因子3/3，`%TEMP%/g004-sftp120-confirmation-vm-20261123.log`。未改真实grant或访问远端。一次压缩补丁未匹配、未写入。
+SFTP file_stats/plan_logs仅源码和假端证据。remote_directories原无条件附确认且缺授权，现按sync授权、根内目标和调用前快照复核；假Gateway/Host 18/18 `%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log`，已装120确认函数VM 3/3 `%TEMP%/g004-sftp120-confirmation-vm-20261123.log`，无真实grant或远端操作。一次压缩补丁未匹配未写入，原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
 静态报告打开两处、复制一处及对应invoke/命令别名：路径与错误VM 3/3 exit0，`%TEMP%/g004-report-read-errors-20261123.*.log`；成功打开/复制及链接目标未实测。
 
@@ -113,4 +113,8 @@ MCP task_stop 在登记意图期间若撤销授权或更改Worker配置，原实
 
 SFTP传输观察/取消的假后端18/18 `%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log` 仅证明透传；后续核已装120发现取消按operationId更新账本、却可按不相属transferId选另一传输，静态可达缺陷已升级总控，未修或实际取消。三次只读rg路径猜错/Windows通配符失败未改产品。
 
-总控指出 `legacy.ts:8812` 旧attempt文案与当前规则冲突，待核实际生产条件；不得凭文案声称创建或恢复旧机制。
+旧attempt文案只在非declared验证返回且存在产物时进入；当前scheduler验证固定declared、新作业拒绝非declared，当前分支先走PlanRunHost.replace。旧/异常Agent仍可能触发遗留提示，未证实际创建或恢复机制。另一次只读Windows glob失败无产品修改。
+
+task_list只复核当前项目归并、取消及unknown源码，禁止真实任务查询，退役CLI证据不冒充现行MCP通过；task_dispatch复用同任务假Gateway 5/5及假Host 11/11，未触真实派发、GPU或Worker。边界见coverage。
+
+本人已精确授权配套 simple-sftp 仓最小修复取消身份及试行交付；先核该仓规则、版本及Git，审前不构建/安装，不操作真实传输。一次执行文档压缩补丁未匹配、未写入。
