@@ -12072,6 +12072,7 @@
         },
         {
           "id": "panel:bootstrapProject:1",
+          "currentReview": {"status": "fixed_scoped", "commits": "c973e9f5,77ac6d78", "evidence": "取消显式 UiCommandCancelled；本地识别/确认与租约释放使用真实520专用窗口证据；其他错误分支按原合成证据。", "history": "原 current_defect 与不利证据保留，不表示其余参数或真实外部效果通过。"},
           "disposition": "current_defect",
           "reference": "localRecognitionFailure; bootstrapCancellationStatus",
           "oldStatus": "concluded_scoped",
@@ -12191,6 +12192,7 @@
         },
         {
           "id": "panel:manualGpuSnapshot:1",
+          "currentReview": {"status": "fixed_scoped", "commits": "60b1e8a7", "evidence": "离线及失败不再冒 completed；合成4/4，仅本地反馈，未查询真实GPU。", "history": "原 current_defect 与不利证据保留，不表示其余参数或真实外部效果通过。"},
           "disposition": "current_defect",
           "reference": "newCandidates[manual-refresh-status]",
           "oldStatus": "concluded_scoped",
@@ -12198,6 +12200,7 @@
         },
         {
           "id": "panel:manualSchedulerSnapshot:1",
+          "currentReview": {"status": "fixed_scoped", "commits": "60b1e8a7", "evidence": "离线及失败不再冒 completed；合成4/4，未查询真实调度。", "history": "原 current_defect 与不利证据保留，不表示其余参数或真实外部效果通过。"},
           "disposition": "current_defect",
           "reference": "newCandidates[manual-refresh-status]",
           "oldStatus": "concluded_scoped",
@@ -12254,6 +12257,7 @@
         },
         {
           "id": "panel:resetUiLayout:1",
+          "currentReview": {"status": "fixed_scoped", "commits": "0f5ece5c", "evidence": "项目布局保存成功后才清旧键；原失败注入回归，未改真实布局配置。", "history": "原 current_defect 与不利证据保留，不表示其余参数或真实外部效果通过。"},
           "disposition": "current_defect",
           "reference": "layoutLegacyFailure",
           "oldStatus": "concluded_scoped",
@@ -12499,6 +12503,7 @@
         },
         {
           "id": "panel:manualTracesSnapshot:1",
+          "currentReview": {"status": "fixed_scoped", "commits": "60b1e8a7", "evidence": "离线及失败不再冒 completed；合成4/4，未查询真实轨迹。", "history": "原 current_defect 与不利证据保留，不表示其余参数或真实外部效果通过。"},
           "disposition": "current_defect",
           "reference": "newCandidates[manual-refresh-status]",
           "oldStatus": "deferred",
@@ -12821,6 +12826,7 @@
         },
         {
           "id": "panel:downloadDebugBundle:1",
+          "currentReview": {"status": "fixed_scoped", "commits": "9d6a3916", "evidence": "缺包及取消不再冒成功；使用原合成回归，未下载真实调试包。", "history": "原 current_defect 与不利证据保留，不表示其余参数或真实外部效果通过。"},
           "disposition": "current_defect",
           "reference": "additionalLocalChecks[downloadDebugBundle]: synthetic missing bundle reports completed",
           "oldStatus": "deferred",
@@ -12849,6 +12855,7 @@
         },
         {
           "id": "panel:resumeNetwork:1",
+          "currentReview": {"status": "fixed_scoped", "commits": "60b1e8a7", "evidence": "显式 await 并传播连接失败；合成4/4，未实际重连Worker。", "history": "原 current_defect 与不利证据保留，不表示其余参数或真实外部效果通过。"},
           "disposition": "current_defect",
           "reference": "newCandidates[resume-network-unawaited]",
           "oldStatus": "deferred",
@@ -13927,6 +13934,7 @@
         },
         {
           "id": "dynamic:conditional saved savePlan",
+          "currentReview": {"status": "fixed_scoped", "commits": "51f0e689", "evidence": "文件已写后选择保存或刷新失败明确报告已保存文件与状态失败；原受控回归，不复写真实PLAN。", "history": "原 current_defect 与不利证据保留，不表示其余参数或真实外部效果通过。"},
           "disposition": "current_defect",
           "reference": "savePlanSelectionFailure",
           "oldStatus": "concluded_scoped",
@@ -13934,6 +13942,7 @@
         },
         {
           "id": "vscode:simpleExperiment.setupGitBackup",
+          "currentReview": {"status": "fixed_scoped", "commits": "42609fd3,8c8c874c", "evidence": "读取失败/标记不完整保留旧hook，命令返回异步结果；假fs和假UI回归，未操作真实hook。", "history": "原 current_defect 与不利证据保留，不表示其余参数或真实外部效果通过。"},
           "disposition": "current_defect",
           "reference": "newCandidates[git-palette-command-unawaited,git-backup-hook-unreadable,git-backup-hook-incomplete-marker]",
           "oldStatus": "deferred",
@@ -13941,6 +13950,7 @@
         },
         {
           "id": "vscode:simpleExperiment.removeGitBackup",
+          "currentReview": {"status": "fixed_scoped", "commits": "42609fd3,8c8c874c", "evidence": "读取失败/标记不完整保留旧hook，命令返回异步结果；假fs和假UI回归，未操作真实hook。", "history": "原 current_defect 与不利证据保留，不表示其余参数或真实外部效果通过。"},
           "disposition": "current_defect",
           "reference": "newCandidates[git-palette-command-unawaited,git-backup-hook-unreadable,git-backup-hook-incomplete-marker]",
           "oldStatus": "deferred",
@@ -13948,6 +13958,7 @@
         },
         {
           "id": "vscode:simpleExperiment.showGitBackupStatus",
+          "currentReview": {"status": "fixed_scoped", "commits": "8c8c874c", "evidence": "命令返回异步结果；假UI/提供者回归，不代表真实仓库hook验收。", "history": "原 current_defect 与不利证据保留，不表示其余参数或真实外部效果通过。"},
           "disposition": "current_defect",
           "reference": "newCandidates[git-palette-command-unawaited]",
           "oldStatus": "deferred",
@@ -14080,7 +14091,7 @@
           "scope": "external_cleanup_or_lifecycle_restricted"
         }
       ],
-      "actionUnitScopeIndexNote": "同一入口只计一次，current_defect指本轮限定触发条件下存在问题，不代表该入口所有操作均坏；prior_scoped_evidence仅表示旧资料可按输入/版本/条件引用，并非所有当前运行条件通过。跨项目、真实Worker、破坏性操作和Agent生命周期仍受限制；动态实例总数未知。新确认问题数不等于受影响入口数。已保存但原300无独立ID的selectPlan/saveUiLayout/restart面板条件别名在savedCommandReconciliation及相关问题记录，不能凭现可接收而虚构新ID。 scope是本轮可执行边界分组：single_project_local_or_mixed含本地或可选择本地输入的动作，仍按每项原条件判断；external_security_or_shared_settings_restricted只限制相应真实效果，部分本地预览或假对象证据仍可复用；不同组不是通过/失败数。",
+      "actionUnitScopeIndexNote": "同一入口只计一次，current_defect为该行原调查时的历史结论；新增 currentReview 记录随后具体修复及范围，未登记者仍待核。prior_scoped_evidence仅表示旧资料可按输入/版本/条件引用，并非所有当前运行条件通过。跨项目、真实Worker、破坏性操作和Agent生命周期仍受限制；动态实例总数未知。新确认问题数不等于受影响入口数。已保存但原300无独立ID的selectPlan/saveUiLayout/restart面板条件别名在savedCommandReconciliation及相关问题记录，不能凭现可接收而虚构新ID。 scope是本轮可执行边界分组：single_project_local_or_mixed含本地或可选择本地输入的动作，仍按每项原条件判断；external_security_or_shared_settings_restricted只限制相应真实效果，部分本地预览或假对象证据仍可复用；不同组不是通过/失败数。",
       "commandAliasScopeIndex": [
         {
           "name": "simpleExperiment.checkPluginUpdates",
