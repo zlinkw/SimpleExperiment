@@ -42,3 +42,5 @@ rerun仅准`^permanent deletion only ever targets registered clean-batch paths; 
 总控审sourceJob65/187/232/240：仅登记指定legacy、Panel或两GitOverwrite源的当前适用；保原摘要、旧dist、工具链未知与私有Git/fake清理边界，不冒新运行或新渲染。首次按错误JSON空格假设定位抛ValueError于写入前，随后按实际行格式纠正；只读误猜coverage路径及jobs层级分别os2/KeyError，均非测试。
 
 总控审三direct f65bb/ae4dad/d508d各一项源依赖适用，保旧Python、fakeDOM及旧dist范围，未新运行。审sourceJob149的8个未执行TS漂移及实际九项dist闭包，补列三个当前字节与pre-run 5a3相同但运行时未单独冻结的dist，不冒运行时已知；原私有TEMP/fork IPC/CAS/utimes及可能自有child SIGTERM仅历史。总控首次相对模块解析误判与未登记snapshot断言exit1均纠正，非测试。
+
+总控审sourceJob252九项依赖当前条件适用，含未读取的ledger Lifecycle测试文件本身；保原f735快照、历史隔离WSL/tmux socket和精确窗口关闭，不冒当前运行或完整ledger通过。总控复核482ad7首两次结构化脚本字段假设错误exit1，第三次按真实字段核对通过，非测试。

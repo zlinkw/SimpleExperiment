@@ -96,4 +96,10 @@ eac486ad仅14身份legacy当前适用→ca1d：direct29f28/dc97/de97；七行1ac
 
 剩余批界：列表7files、自动映射7、停止6、render health7均含各自Panel完整责任hunk，保持P0真build/实际render脚本VM/node-c/10890门禁；旧source/Process结果仅逐输入审适用，不冒当前full/compile。暂存槽8file完整代码批：legacy、PlanCleanupHost、JobArtifactSyncIdentity、Panel、新stagedSlotDeleteReview、ResultSync及JobArtifact消费者、manifest；后两测试依赖新0/2协议不能先交旧HEAD。plan/execution/coverage按现有三文档前后集中登记验证/实际commit，不挤掉测试或注册、不超8；两旧full direct99b32/c10cd亦降当前资格，原证保。五隔离helper/tests先静态8file准备（5+三docs），接口兼容已核，fake不覆盖unadmit/uncertain异常链；sourceJob111及direct33/34/35因test/helper漂移仅降旧full当前资格，原证保留，无full新许可。ResultSync/JobArtifact随上述槽代码同批，保新dist后各full一次许可；隔离精确pattern原文未证，待原证或新的逐case裁决，不猜、不执行。Panel混合hunk精确选择，静态列表/slot不能提前交半链；最终冻结/15fresh/3runner/build尚未开放。
 
+当前裁决取代上文“待找五pattern”：旧授权全文未找到，现已按实际源码批准新编译后六个精确case（Review2、Lifecycle1、ledger2、Map1，完整正向pattern及效果见2d6796e执行记录）。Review/Lifecycle/Boundaries/ledger四完整身份仍缺现行证据，已向用户明确申请各full一次扩大原精确范围，尚无答复；不按时间或预选项开跑。若获准四full，不再重复其内五精确；Map仍仅该单项，不开32项。四full及最终freeze/build均未开放。
+
+旧证逐闭包适用已随2d6796e、6d94e43e、f3115114、482ad7b6、180db759文档批普通同步；每条原运行快照、事件、argv、工具链未知及旧dist/假端/私有FS效果保留，不冒新跑。149补三项实际dist闭包仅据pre-run5a3ca8f6与当前字节相同，原执行未逐项冻结事实保留。原eligible漂移表只作导航，不能据行数认剩余fresh或覆盖比例；按当前manifest的identity+argv逐项决定。
+
+结果同目标client重建兼容性新增为后续最小完整批：原resultCollectionPerformance正确性case在getWorkerTasks返回前换同目标client，collect新增对象相等检查会误拒；现行常规probe已不reset，不能称健康探测必然触发。核createClient/realtimeEndpoints及SFTP读取producer，拟复用完整运输/执行与Agent通道身份允许等价重建；保root/generation/signal、真实endpoint/token/目标变化拒旧发布，collect与refreshResultsSummary/rebuild通知同链，automatic/update对象owner分流保留。候选先源/效果审，禁改原断言求绿、运行性能full或扩重试；freshResultHost等真实实例消费者不能直接批签SHA。
+
 终点路线：当前证据与完整候选收敛→真实增量build/批准newdist消费者→实查新patch同步package/lock/runtime→单次package max1核真实exit/gates/input=end/selection/artifact/lock/P0/包闭包秘密README/平台SHA→scoped FF同步并保receipt原HEAD→immutable试行tag/VSIX/UTF8 sha，prerelease=true/latest=false，核远端digest/隔离下载/真实更新客户端不降级→每目标版install:latest一次→核磁盘/MCP后停面板等用户Reload→专用新Host安全UI/MCP→统一交付。各状态分开，不部署Agent/复活退役/把fake冒真Worker，局部不阻整批，达终点才结案。
