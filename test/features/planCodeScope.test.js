@@ -22,6 +22,31 @@ test('different Plan source checks share a per-Worker read lane and cancelled qu
  release();await first;await cancelled;
  assert.deepEqual(before,['plans/p.yaml']);assert.deepEqual(calls,['plans/p.yaml']);
 });
+test('queued and in-flight source reads stay bound to their original client and context',async()=>{
+ for(const mode of ['client-queued','abort-queued','client-inflight']){
+  const f=fixture(),controller=new AbortController(),calls=[];let release;
+  const held=new Promise(resolve=>release=resolve);
+  f.host.client.getWorkerPlanCodeScope=async(_worker,q)=>{calls.push(q.planFile);await held;
+   const manifest={[q.planFile]:{size:4,sha256:q.planRevision}};
+   return {ok:true,compatible:true,readOnly:true,...q,executionSource:{manifest,digest:H.planExecutionSourceDigest(manifest)}};};
+  const first=H.resolvePlanExecutionSource(f.host,f.plan);const firstResult=first.catch(error=>error);
+  await new Promise(setImmediate);
+  let second,secondResult;
+  if(mode!=='client-inflight'){
+   second=H.resolvePlanExecutionSource(f.host,{...f.plan,id:'next',planFile:'plans/next.yaml'},controller.signal);
+   secondResult=second.catch(error=>error);await new Promise(setImmediate);
+  }
+  const newDiagnostics={};
+  if(mode==='abort-queued')controller.abort();
+  else {f.host.client={getWorkerPlanCodeScope:async()=>{throw Error('new client called');}};f.host.planCodeScopeDiagnostics=newDiagnostics;}
+  release();const firstValue=await firstResult;
+  if(secondResult)assert.ok(await secondResult instanceof Error);
+  if(mode==='client-inflight')assert.ok(firstValue instanceof Error);
+  else if(mode==='abort-queued')assert.ok(!(firstValue instanceof Error));
+  assert.deepEqual(calls,['plans/p.yaml']);
+  if(mode!=='abort-queued')assert.deepEqual(newDiagnostics,{});
+ }
+});
 test('a queued Plan source check keeps its network deadline until actual request admission',async t=>{
  const {RequestBudget,defaultRequestBudgetConfig}=require('../../src/tunnel/RequestBudget.ts');
  const {HttpTunnelClient}=require('../../src/tunnel/TunnelClient.ts');

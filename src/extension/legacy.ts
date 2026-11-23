@@ -17342,8 +17342,9 @@ this.assertPlanTopologyReady("Plan 调度");
         const client = this.client;
         const targets = () => JSON.stringify(this.workerActionTargets().map(row => [row.id,row.host,row.port,row.user,row.project_dir,row.local_agent_url,row.agent_runtime_dir,row.conda_env]));
         const targetKey = targets();
-        const isCurrent = () => this.projectContextIsCurrent(projectContext) && targets() === targetKey;
+        const isCurrent = () => this.projectContextIsCurrent(projectContext) && this.client === client && targets() === targetKey;
         const queue = await this.loadDistributedQueue(root);
+        if (!isCurrent()) return { status: "cancelled", message: "项目或服务器连接已变化，未重新排队任务。" };
         const plan = queue.plans.find((row) => row.id === String(message.planId || ""));
         const job = plan?.jobs.find((row) => row.index === Number(message.jobIndex));
         if (!plan || !job || !job.workerId || !job.commandId || !["failed", "unknown"].includes(job.status)
@@ -17352,7 +17353,7 @@ this.assertPlanTopologyReady("Plan 调度");
         if (String(message.commandId || "") !== job.commandId)
             throw new Error("任务 commandId 已变化；请刷新原 job 后重新确认，未重排。");
         if (plan.resultPathPolicy !== "declared") throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：保留权重和日志，旧 attempt 不会恢复执行。");
-        if (job.lifecycleProtocol === 2) return this.retryPulledJob(plan, job, root, isCurrent, message.runtimeAnomalyRerun === true);
+        if (job.lifecycleProtocol === 2) return this.retryPulledJob(plan, job, root, isCurrent, message.runtimeAnomalyRerun === true, projectContext.signal);
         if (job.cleanup?.state === "partial" || job.cleanup?.pendingNodes?.length)
             throw new Error("FAILED_JOB_CLEANUP_PENDING：该 job 尚有节点未完成人工清理审核；请先核对全部回执，未重排。");
         const fresh: any = await client.getWorkerTasks(job.workerId);
@@ -17367,54 +17368,71 @@ this.assertPlanTopologyReady("Plan 调度");
             if (!sourceRow) throw new Error("原 Worker 配置不可用，未重排。");
             const inventory = await this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(sourceRow),
                 relativePath: ".", scopePaths: [job.outputDir, ...(job.collectionResultCsv ? [job.collectionResultCsv] : [])] });
+            if (!isCurrent()) return { status: "cancelled", message: "项目或服务器连接已变化，未重新排队任务。" };
             if (!inventory?.files) throw new Error("FAILED_JOB_INVENTORY_UNVERIFIED：原 Worker 产物清单未核实，未重排。");
             if (Object.keys(inventory.unverifiedFiles || {}).length
                 || Object.keys(inventory.files).some(file => file !== job.outputDir + "/.formal_job.lock")) {
                 const files = [...Object.keys(inventory.files), ...Object.keys(inventory.unverifiedFiles || {})];
                 const answer = await vscode.window.showWarningMessage(`正式 job 仍有遗留文件，尚未重新排队：${plan.planFile} / ${job.case} / seed ${job.seed}\nWorker ${job.workerId}：${job.outputDir}\n${files.slice(0, 8).join("\n")}${files.length > 8 ? "\n另有 " + (files.length - 8) + " 项" : ""}\n可打开仅针对这个失败 job 的只读预览。移入 clean_dir 或删除均需另行确认；PLAN、源配置和其他 job 保留。`, { modal: true }, "审核遗留文件");
-                if (answer === "审核遗留文件" && isCurrent()) {
-                    const current = await this.loadDistributedQueue(root);
-                    const currentPlan = current.plans.find(row => row.id === plan.id);
-                    const currentJob = currentPlan?.jobs.find(row => row.index === job.index);
-                    if (!currentPlan || !currentJob || !DistributedPlanQueue.remoteTaskMatchesJob(currentPlan, currentJob, task))
-                        throw new Error("任务身份在审核期间已变化；未打开清理预览。");
-                    await this.planCleanupHost().openJob(plan.planFile, { workflowId: plan.id, index: job.index, commandId: job.commandId });
-                }
+                if (!isCurrent()) return { status: "cancelled", message: "项目或服务器连接已变化，未打开清理预览。" };
+                if (answer !== "审核遗留文件") return { status: "cancelled", message: "已取消审核遗留文件，原队列未改变。" };
+                const current = await this.loadDistributedQueue(root);
+                if (!isCurrent()) return { status: "cancelled", message: "项目或服务器连接已变化，未打开清理预览。" };
+                const currentPlan = current.plans.find(row => row.id === plan.id);
+                const currentJob = currentPlan?.jobs.find(row => row.index === job.index);
+                if (!currentPlan || !currentJob || !DistributedPlanQueue.remoteTaskMatchesJob(currentPlan, currentJob, task))
+                    throw new Error("任务身份在审核期间已变化；未打开清理预览。");
+                await this.planCleanupHost().openJob(plan.planFile, { workflowId: plan.id, index: job.index, commandId: job.commandId });
                 return { status: "blocked", code: "FORMAL_JOB_CONFLICT", message: "未提交重新排队；遗留文件仍受保护，审核清理后再重排。当前队列未改变。" };
             }
             const answer = await vscode.window.showWarningMessage(`重新排队正式 job：${plan.planFile} / ${job.case} / seed ${job.seed}\n目录 ${job.outputDir}\n已确认原任务停止、输出为空。`, { modal: true }, "重新排队");
-            if (answer !== "重新排队" || !isCurrent()) return;
+            if (answer !== "重新排队") return { status: "cancelled", message: "已取消重新排队，原队列未改变。" };
+            if (!isCurrent()) return { status: "cancelled", message: "项目或服务器连接已变化，未重新排队任务。" };
             const latest = await this.loadDistributedQueue(root);
             const latestPlan = latest.plans.find(row => row.id === plan.id);
             const latestJob = latestPlan?.jobs.find(row => row.index === job.index);
             if (!isCurrent() || !latestPlan || !latestJob || !DistributedPlanQueue.remoteTaskMatchesJob(latestPlan, latestJob, task))
                 throw new Error("任务身份在核验或确认期间已变化；未重排。");
-            await this.saveDistributedQueue(root, DistributedPlanQueue.retryVerifiedJob(latest, plan.id, job.index, makeOpId("job-command")));
+            await this.saveDistributedQueue(root, DistributedPlanQueue.retryVerifiedJob(latest, plan.id, job.index, makeOpId("job-command")), {
+                projectContextCurrent: isCurrent,
+                recallAssertCurrent: () => { if (!isCurrent()) throw new Error("项目或服务器连接已变化，未重新排队任务。"); },
+            });
+            if (!isCurrent()) return { status: "partial", message: "原项目的 job 已重新排队；项目或服务器连接已变化，请返回原项目核查。" };
             await this.tickDistributedQueue();
             return;
         }
     }
-    async retryPulledJob(plan, job, root, isCurrent, anomalyOnly = false) {
+    async retryPulledJob(plan, job, root, isCurrent, anomalyOnly = false, signal?: AbortSignal) {
+        const assertCurrent = () => {
+            if (!isCurrent()) throw new UiCommandCancelled("项目或服务器连接已变化，停止后续清理和重排；已发生的操作请返回原项目核查。");
+        };
         const currentPlan = await fs.readFile(path.join(root, plan.planFile), "utf8");
+        assertCurrent();
         let sourceChange = crypto.createHash("sha256").update(currentPlan, "utf8").digest("hex") !== plan.revision ? "PLAN 声明已变化" : "";
         if (!sourceChange) {
-            const originalSource = await PlanCodeScopeHost.resolvePlanExecutionSource(this, plan);
+            let originalSource;
+            try { originalSource = await PlanCodeScopeHost.resolvePlanExecutionSource(this, { ...plan }, signal); }
+            catch (error) { assertCurrent(); throw error; }
+            assertCurrent();
+            if (originalSource) plan.executionSource = originalSource;
             if (originalSource) try { await PlanCodeScopeHost.verifyLocalPlanSource(root, originalSource, this.projectFileObservationIndex?.()); }
             catch (error) {
+                assertCurrent();
                 // A changed input is a user decision, not proof of task failure.
                 // Unknown ownership, unsafe paths and invalid baselines still fail closed.
                 if (!String(error.message || error).startsWith("PLAN_SOURCE_CHANGED:") && error.code !== "ENOENT") throw error;
                 sourceChange = String(error.message || error);
             }
+            assertCurrent();
         }
         // 返修（2026-10-21）P0：单 job「删除并重新排队」只支持原绑定源码的同卡重排——
         // 本入口的功能边界：源码/PLAN 变化时不停止、不删除、不重排、不新建卡片、不改兄弟 job 执行来源。
         // （卡片 revision/codeFingerprint 由整个 PLAN 共享；变源码重跑使用 PLAN 级入口。）
         if (sourceChange) return { status: "blocked", code: "SOURCE_CHANGED_UNSUPPORTED",
             message: "此入口只支持原绑定源码的单 job 同卡重新排队：" + sourceChange + "。未停止、未删除、未重排任何任务，也不会新建卡片或改写其他 job 的执行来源；变源码后的重跑请使用 PLAN 级重跑入口。" };
-        if (!isCurrent()) return;
+        assertCurrent();
         const { state, task } = await PulledTaskControl.queryTask(this.client, plan, job);
-        if (!isCurrent()) return;
+        assertCurrent();
         if (["running", "starting", "queued"].includes(state.execution))
             throw new Error("所选任务仍在服务器排队或运行；请先中止或明确召回。");
         if (anomalyOnly && (!["completed", "failed"].includes(state.status)
@@ -17475,6 +17493,7 @@ this.assertPlanTopologyReady("Plan 调度");
         };
         const fenceOriginalIdentity = async (stage: string) => {
             const queueNow = await this.loadDistributedQueue(root);
+            assertCurrent();
             const cardNow = queueNow.plans.find((row: any) => row.id === plan.id);
             const drift = selectedIdentityDrift(cardNow, cardNow?.jobs.find((row: any) => row.index === job.index));
             if (drift.length)
@@ -17482,17 +17501,18 @@ this.assertPlanTopologyReady("Plan 调度");
         };
         try {
         await fenceOriginalIdentity("停止之前");
-        if (!isCurrent()) return;
+        assertCurrent();
         // Fence the exact original request before removing its outputs.
         // A lost old POST must not start while the user confirms a new run.
         await PulledTaskControl.stopPulledTask(this.client, plan, job, makeOpId("requeue-job"));
-        if (!isCurrent()) return;
+        assertCurrent();
         // 返修（2026-10-22 父裁决）P0：stopPulledTask 只看 cancelled&&!tmux，其 completed 返回不是充分停止证明；
         // 停止过程中转未知/报错同样不得继续。停止围栏之后立即用当前查询核实阶段 2 强证明：
         // 无任何 queryError（错误优先）且旧 command 确已取消、窗口已释放。
         // 执行查询完成边界（2026-10-22 父口径）：queryTask 只要求完成 execution 状态；若返回 result，
         // 仍必须属于原 commandId 且 identityMatches===true，否则错身份/错终态照常拒绝；缺少 result 本身不拒绝。
         const stoppedTask = await PulledTaskControl.queryTask(this.client, plan, job);
+        assertCurrent();
         const stoppedObservation = (stoppedTask.task && stoppedTask.task.observation) || {};
         const stoppedFailure = queryFailureOf(stoppedObservation);
         if (stoppedFailure.length)
@@ -17502,16 +17522,18 @@ this.assertPlanTopologyReady("Plan 调度");
             || (stoppedObservation.result !== undefined && !resultNeutral(stoppedObservation.result)))
             throw new Error("TASK_TERMINATION_UNVERIFIED：停止后复查缺少旧任务已取消且窗口释放的强证明（"
                 + describeObservation(stoppedObservation) + "）；未删除文件，未重新排队。");
-        if (!isCurrent()) return;
+        assertCurrent();
         await fenceOriginalIdentity("停止与删除之间");
         const body: any = { planFile: plan.planFile, planRevision: plan.revision, options: {}, workerSubmissionSnapshots: [], runReplacement: {} };
         const validation = { execution_mode: plan.executionMode, jobs: [{ index: job.index, case: job.case, seed: job.seed,
             output_dir: job.outputDir, result_csv: job.collectionResultCsv, checkpoint_source: job.checkpointSource }] };
         await this.assertPlanSubmissionWorkers(body, { validation });
+        assertCurrent();
         const cleanup = this.planCleanupHost();
         const previewParams = { planFile: plan.planFile, action: "delete", verifiedOnly: false,
             job: { workflowId: plan.id, index: job.index, commandId: job.commandId } };
         const listed = await cleanup.service.preview(previewParams);
+        assertCurrent();
         // 返修（2026-10-21）P0：「没有 delete 行」不等于「已删除」。以原 job 绑定的声明产物路径 × 预览覆盖的
         // 全部物理节点形成完整预期集合；blockers、unverified、protected（除非由同集合内已证明父目标/物理别名
         // 覆盖）、缺项、空 rows 一律拒绝入队。absence 只认本轮逐目标后端 stat 证明（服务在预览时写 absent）。
@@ -17613,6 +17635,7 @@ this.assertPlanTopologyReady("Plan 调度");
             return actionable;
         };
         const actionable = await assertFullCoverage(listed, "删除前");
+        assertCurrent();
         const deletable = actionable.filter((row: any) => row.disposition === "delete" && row.missing !== true);
         let deletedNow = false;
         if (deletable.length) {
@@ -17630,6 +17653,7 @@ this.assertPlanTopologyReady("Plan 调度");
             const frozenSnapshot = sessionSnapshot(listed);
             const assertFreshSession = async (stage: string) => {
                 const fresh: any = await cleanup.service.preview(previewParams);
+                assertCurrent();
                 if (!fresh || fresh.action !== "delete" || sessionSnapshot(fresh) !== frozenSnapshot)
                     throw new Error("旧清理会话已失效：" + stage + "重新预览的精确目标/声明路径/动作与已通过证据的审核快照不一致；未删除文件，未重新排队。");
                 const drift: string[] = [];
@@ -17662,6 +17686,7 @@ this.assertPlanTopologyReady("Plan 调度");
             await fenceOriginalIdentity("执行前");
             await assertFreshSession("执行前");
             const done = await cleanup.execute(listed.token);
+            assertCurrent();
             // 执行回执必须与原审核会话的 token/动作/摘要一一对应，结果范围还须与冻结审核范围一致；
             // 空 rows、目标遗漏、动作或完成态不符都不得被当作全量 path_absence——
             // 每个删除目标都要有 completed + path_absence 回执。
@@ -17699,9 +17724,10 @@ this.assertPlanTopologyReady("Plan 调度");
             // 入队前由服务再走一遍逐目标 inspect（requireAbsent：delete 行不算覆盖），
             // 并按冻结节点集合核验范围未缩未漂移；缺行由 verifyDeclaredTargets 逐目标真实 stat 兜底。
             const recheck = await cleanup.service.preview(previewParams);
+            assertCurrent();
             await assertFullCoverage(recheck, "删除后", true);
         }
-        if (!isCurrent()) return;
+        assertCurrent();
         // 返修（2026-10-22 父裁决·阶段 2）P0：重新排队 commit 本身也必须携带当前 worker 强取消证据——
         // 写盘前重新查询：错误优先（任何 queryError/executionQueryError/resultQueryError 即未知，提交失败），
         // 再要求旧 command 确已取消且窗口释放（cancelled===true、tmux===null、result 中性/匹配终态）；
@@ -17711,8 +17737,10 @@ this.assertPlanTopologyReady("Plan 调度");
             const finalTask = await PulledTaskControl.queryTask(this.client, plan, job);
             finalObservation = (finalTask.task && finalTask.task.observation) || {};
         } catch (error) {
+            assertCurrent();
             throw new Error("远端状态未知，未重新排队：" + errorMessage(error) + "；队列保留原任务状态，请稍后主动刷新后重试。");
         }
+        assertCurrent();
         const finalQueryFailure = queryFailureOf(finalObservation);
         if (finalQueryFailure.length)
             throw new Error("远端状态未知，未重新排队：提交前 worker 复查报出查询错误（" + finalQueryFailure.join("、")
@@ -17721,7 +17749,8 @@ this.assertPlanTopologyReady("Plan 调度");
             throw new Error("远端状态未知，未重新排队：提交前 worker 复查缺少旧任务已取消且窗口释放的强证明（"
                 + describeObservation(finalObservation)
                 + "）；队列保留原任务状态，请稍后主动刷新后重试；文件不会重复删除。");
-        await this.saveDistributedQueue(root, undefined, { controlMutation: true, mutateLatest: (latest) => {
+        await this.saveDistributedQueue(root, undefined, { controlMutation: true, projectContextCurrent: isCurrent,
+            recallAssertCurrent: assertCurrent, mutateLatest: (latest) => {
             if (!isCurrent()) throw new Error("工作区或服务器连接已变化，未重新派发。");
             const current = latest.plans.find(row => row.id === plan.id);
             // 写盘临界区内用同一同步函数复核原选中身份（commandId/revision/codeFingerprint/outputDir/
@@ -17735,6 +17764,7 @@ this.assertPlanTopologyReady("Plan 调度");
             if (body.executionSource) current.executionSource = body.executionSource;
             return PulledTaskControl.returnPulledJobToLocal(latest, plan.id, job.index, job.commandId);
         } });
+        if (!isCurrent()) return { status: "partial", message: "原项目的 job 已重新排队；项目或服务器连接已变化，请返回原项目核查。" };
         this.postState?.();
         // The local intent is already committed. Dispatch is a separate phase;
         // an older/failing tick cannot turn this successful requeue into failure.

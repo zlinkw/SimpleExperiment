@@ -12797,6 +12797,7 @@
         },
         {
           "id": "panel:retryDistributedJob:1",
+          "currentReview": {"status":"source_reviewed_build_pending","evidence":"原项目/client和实际源码查询排队发送边界已补；假端源码查询v1 1/1、重排选中五项v3 5/5，真实事件及日志见execution，旧v1/v2只对应当时输入。","boundary":"未运行真实Worker、删除或跨项目；现有新源码待总控终审、build及真实面板验收。"},
           "disposition": "local_partial_evidence_real_effect_restricted",
           "reference": "panelCommandActions[retryDistributedJob]: runtimeLogAnalysisHost.test.js:222, local requeue acknowledgement only",
           "oldStatus": "deferred",
@@ -12804,6 +12805,7 @@
         },
         {
           "id": "panel:retryDistributedJob:2",
+          "currentReview": {"status":"source_reviewed_build_pending","evidence":"原项目/client和实际源码查询排队发送边界已补；假端源码查询v1 1/1、重排选中五项v3 5/5，真实事件及日志见execution，旧v1/v2只对应当时输入。","boundary":"未运行真实Worker、删除或跨项目；现有新源码待总控终审、build及真实面板验收。"},
           "disposition": "local_partial_evidence_real_effect_restricted",
           "reference": "panelCommandActions[retryDistributedJob]: runtimeLogAnalysisHost.test.js:222, local requeue acknowledgement only",
           "oldStatus": "deferred",

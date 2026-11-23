@@ -21,10 +21,10 @@ function extractMethodBody(source,name){
   return source.slice(i+1,end);
 }
 const legacySource=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
-const retryBody=ts.transpileModule(extractMethodBody(legacySource,'async retryPulledJob(plan, job, root, isCurrent, anomalyOnly = false) {'),
+const retryBody=ts.transpileModule(extractMethodBody(legacySource,'async retryPulledJob(plan, job, root, isCurrent, anomalyOnly = false, signal?: AbortSignal) {'),
   {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
 const makeRetry=new Function('fs','path','crypto','PlanCodeScopeHost','PulledTaskControl','vscode','UiCommandCancelled','makeOpId','errorMessage','PlanRunHost','confirmSyncScopePaths',
-  'return async function (plan, job, root, isCurrent, anomalyOnly = false) {'+retryBody+'};');
+  'return async function (plan, job, root, isCurrent, anomalyOnly = false, signal) {'+retryBody+'};');
 class UiCommandCancelled extends Error {}
 const ast=ts.createSourceFile('host.ts',legacySource,ts.ScriptTarget.Latest,true);
 function legacyMethods(names,globals={}){let cls;function visit(n){if(ts.isClassDeclaration(n)&&n.name?.text==='RealtimeTunnelPanelProvider')cls=n;ts.forEachChild(n,visit)}visit(ast);

@@ -20,13 +20,13 @@ function extractMethodBody(source,name){
 }
 const ts=require('typescript');// 与 confirmedFastDeleteWiring 等既有套件同法：提取真实方法体后经 transpileModule 原样执行（仅去类型，逻辑零改写）。
 const legacySource=fsNode.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
-const retryBody=ts.transpileModule(extractMethodBody(legacySource,'async retryPulledJob(plan, job, root, isCurrent, anomalyOnly = false) {'),
+const retryBody=ts.transpileModule(extractMethodBody(legacySource,'async retryPulledJob(plan, job, root, isCurrent, anomalyOnly = false, signal?: AbortSignal) {'),
   {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
 const makeRetry=new Function('fs','path','crypto','PlanCodeScopeHost','PulledTaskControl','vscode','UiCommandCancelled','makeOpId','errorMessage','PlanRunHost','confirmSyncScopePaths',
-  'return async function (plan, job, root, isCurrent, anomalyOnly = false) {'+retryBody+'};');
+  'return async function (plan, job, root, isCurrent, anomalyOnly = false, signal) {'+retryBody+'};');
 
 class UiCommandCancelled extends Error {}
-function makeWorld({answers=['确认删除（1/2）','永久删除（2/2）'],deleteMode='ok',saveError=null,queueJobCommandId='cmd-old'}={}){
+function makeWorld({answers=['确认删除（1/2）','永久删除（2/2）'],deleteMode='ok',saveError=null,queueJobCommandId='cmd-old',readPlan=fs.readFile}={}){
   const root=fsNode.mkdtempSync(path.join(os.tmpdir(),'se-job-delereq-'));
   const planFile='plans/a.yaml';fsNode.mkdirSync(path.join(root,'plans'),{recursive:true});
   const text='mode: train\n';fsNode.writeFileSync(path.join(root,planFile),text);
@@ -86,14 +86,95 @@ function makeWorld({answers=['确认删除（1/2）','永久删除（2/2）'],de
     body:{throw Error('MUST_NOT_RENAME_ISOLATE');}}};
   const reviews=[];
   const reviewAnswers=require('../_helpers/pathReviewAnswers.cjs')(vscode.window);
-  const retry=makeRetry(fs,path,crypto,{resolvePlanExecutionSource:async()=>undefined,verifyLocalPlanSource:async()=>{}},
+  const retry=makeRetry({readFile:readPlan},path,crypto,{resolvePlanExecutionSource:async()=>undefined,verifyLocalPlanSource:async()=>{}},
     PulledTaskControl,vscode,UiCommandCancelled,()=>'op-'+Math.random(),String,PlanRunHostProbe,
     async(...args)=>{reviews.push(args);return reviewAnswers(...args);});
   const plan={id:'plan-a',projectId:'p-1',planFile,revision,codeFingerprint:'fp-1',executionMode:'train',jobs:JSON.parse(JSON.stringify(jobs)),planJobCount:2};
-  return {root,plan,planFile,host,client,queue:()=>queue,writes,isolateProbes,cleanupCalls,deleteMode:mode=>{deleteMode=mode;},
+  return {root,plan,planFile,host,client,cleanupHost,queue:()=>queue,writes,isolateProbes,cleanupCalls,deleteMode:mode=>{deleteMode=mode;},
     reviews,deletedCount:()=>deleteExecutions,setPreviewGate:promise=>{inPreviewGate=promise;},previewEntered,
     retry:isCurrent=>retry.call(host,plan,plan.jobs[0],root,isCurrent??(()=>true))};
 }
+
+test('retry entry stops before Worker reads when the project or client changes during queue load',async()=>{
+  const tree=ts.createSourceFile('host.ts',legacySource,ts.ScriptTarget.Latest,true);let member;
+  function visit(node){if(ts.isMethodDeclaration(node)&&node.name.getText(tree)==='retryDistributedJobFromUi')member=node;ts.forEachChild(node,visit);}visit(tree);
+  assert.ok(member);
+  const Host=require('node:vm').runInNewContext(ts.transpileModule('class Host{'+member.getText(tree)+'};Host',
+    {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{workspaceRoot:()=>'/fixture-a'});
+  for(const change of ['project','client']){
+    const host=new Host(),context={root:'/fixture-a'};let current=true,reads=0;
+    Object.assign(host,{client:{getWorkerTasks:async()=>{reads++;throw Error('must not read Worker');}},
+      captureProjectContext:()=>context,projectContextIsCurrent:()=>current,workerActionTargets:()=>[],
+      loadDistributedQueue:async()=>{if(change==='project')current=false;else host.client={};return {plans:[]};}});
+    const result=await host.retryDistributedJobFromUi({});assert.equal(result.status,'cancelled');assert.equal(reads,0);
+  }
+});
+
+test('legacy retry stops after inventory or review queue reload changes project',async()=>{
+  const tree=ts.createSourceFile('host.ts',legacySource,ts.ScriptTarget.Latest,true);let member;
+  function visit(node){if(ts.isMethodDeclaration(node)&&node.name.getText(tree)==='retryDistributedJobFromUi')member=node;ts.forEachChild(node,visit);}visit(tree);
+  const job={index:0,workerId:'w1',commandId:'cmd',status:'failed',outputDir:'work_dirs/a'};
+  const plan={id:'p',planFile:'plans/a',resultPathPolicy:'declared',jobs:[job]};
+  for(const stage of ['inventory','reload','cancel']){
+    let current=true,loads=0,dialogs=0,opens=0;
+    const sandbox={workspaceRoot:()=>'/fixture-a',DistributedPlanQueue:{remoteTaskMatchesJob:()=>true},
+      vscode:{window:{showWarningMessage:async()=>{dialogs++;return stage==='cancel'?undefined:'审核遗留文件';}}}};
+    const Host=require('node:vm').runInNewContext(ts.transpileModule('class Host{'+member.getText(tree)+'};Host',
+      {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+    const host=new Host();Object.assign(host,{client:{getWorkerTasks:async()=>({tasks:[{commandId:'cmd',status:'failed',exitCode:1}]})},
+      captureProjectContext:()=>({root:'/fixture-a'}),projectContextIsCurrent:()=>current,workerActionTargets:()=>[],
+      loadDistributedQueue:async()=>{if(++loads===2&&stage==='reload')current=false;return {plans:[plan]};},
+      workerCodeSyncTargets:()=>[{id:'w1'}],sftpServerOptions:()=>({}),
+      simpleSftpApiCall:async()=>{if(stage==='inventory')current=false;return {files:stage==='cancel'?{}:{'work_dirs/a/file':{}}};},
+      planCleanupHost:()=>({openJob:async()=>{opens++;}})});
+    const result=await host.retryDistributedJobFromUi({planId:'p',jobIndex:0,commandId:'cmd'});
+    assert.equal(result.status,'cancelled');assert.equal(dialogs,stage==='inventory'?0:1);assert.equal(opens,0);
+  }
+});
+
+test('retry holds original context at each cleanup preview and after the queue save',async()=>{
+  let readCurrent=true;
+  const reading=makeWorld({readPlan:async(...args)=>{const result=await fs.readFile(...args);readCurrent=false;return result;}});
+  await assert.rejects(()=>reading.retry(()=>readCurrent),/连接已变化/);
+  assert.equal(reading.client.posted.length,0);assert.equal(reading.cleanupCalls.length,0);assert.equal(reading.writes.length,0);
+  const queried=makeWorld();let queryCurrent=true;const query=queried.client.getWorkerTasks;
+  queried.client.getWorkerTasks=async(...args)=>{const result=await query(...args);queryCurrent=false;return result;};
+  await assert.rejects(()=>queried.retry(()=>queryCurrent),/连接已变化/);
+  assert.equal(queried.client.posted.length,0);assert.equal(queried.cleanupCalls.length,0);assert.equal(queried.writes.length,0);
+  for(const stopAt of [1,2,3,4]){
+    const world=makeWorld();let current=true,count=0;
+    const preview=world.cleanupHost.service.preview;
+    world.cleanupHost.service.preview=async(...args)=>{const value=await preview(...args);if(++count===stopAt)current=false;return value;};
+    await assert.rejects(()=>world.retry(()=>current),/连接已变化/);
+    assert.equal(world.deletedCount(),0);assert.equal(world.writes.length,0);
+    const confirmations=world.cleanupCalls.filter(row=>row.kind==='confirm').map(row=>row.phase);
+    assert.deepEqual(confirmations,stopAt===4?[1,2]:stopAt===3?[1]:[]);
+    assert.ok(!world.cleanupCalls.some(row=>row.kind==='tick'));
+  }
+  const saved=makeWorld();let current=true;const save=saved.host.saveDistributedQueue;
+  saved.host.saveDistributedQueue=async(...args)=>{await save(...args);current=false;};
+  const result=await saved.retry(()=>current);
+  assert.equal(result.status,'partial');assert.match(result.message,/原项目.*已重新排队/);
+  assert.equal(saved.deletedCount(),1);assert.equal(saved.writes.length,1);
+  assert.ok(!saved.cleanupCalls.some(row=>row.kind==='tick'));
+});
+
+test('retry stops after deletion or its readback if the project changes',async()=>{
+  for(const stage of ['execute','readback']){
+    const world=makeWorld();let current=true;
+    if(stage==='execute'){
+      const execute=world.cleanupHost.execute;
+      world.cleanupHost.execute=async(...args)=>{const result=await execute(...args);current=false;return result;};
+    }else{
+      const preview=world.cleanupHost.service.preview;let count=0;
+      world.cleanupHost.service.preview=async(...args)=>{const result=await preview(...args);if(++count===5)current=false;return result;};
+    }
+    await assert.rejects(()=>world.retry(()=>current),/连接已变化/);
+    assert.equal(world.deletedCount(),1);assert.equal(world.writes.length,0);
+    assert.equal(world.cleanupCalls.filter(row=>row.kind==='preview').length,stage==='execute'?4:5);
+    assert.ok(!world.cleanupCalls.some(row=>row.kind==='tick'));
+  }
+});
 
 test('删除并重新排队：两次确认→永久删除核实 path_absence→原卡同 job 入队等待调度；绝不 rename 隔离、不直接启动',async()=>{
   const world=makeWorld();
