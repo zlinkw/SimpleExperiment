@@ -4,7 +4,7 @@
 
 ## 当前目标与边界
 
-G004 人工审定的增量覆盖按 identity+argv 复用适用的历史、直接和本轮证据，并冻结真实计划、gates、产物与输入；当前 361 active、6 onDemand，planner 仍缺 9 项，尚未通过，所有候选待总控最终审核。源码稳定后对原规划测试精确 pattern 按原 20 秒预算补验一次，执行 final dry-run 并向总控提交完整包；总控终审并另行开放前禁止 full build/package、安装和发行。0.5.520 只是候选，不能冒充已打包。
+G004 人工审定的增量覆盖按 identity+argv 复用适用的历史、直接和本轮证据，并冻结真实计划、gates、产物与输入；当前 361 active、6 onDemand，planner 仍缺 6 项，尚未通过，所有候选待总控最终审核。源码稳定后对原规划测试精确 pattern 按原 20 秒预算补验一次，执行 final dry-run 并向总控提交完整包；总控终审并另行开放前禁止 full build/package、安装和发行。0.5.520 只是候选，不能冒充已打包。
 
 当前不触碰真实 Worker、服务器、SSH、tmux、GPU、用户授权配置或真实 UI；真实 Worker、传输/清理、active results、跨项目和新 UI 未测。保留 26 个 tracked dirty dist、历史 VSIX sha、全部夹具及现场，不 stage 或清理。模拟删除/缺失不证明真实永久删除安全。总控批准既有夹具只在自建 temp 范围内 rename 到 clean_dir 并保留字节的模拟；真实删除、真实 WSL/tmux/GPU 与完整 runtime import/exec 仍不执行。具体安全测试、原精确权限与进一步裁决见 coverage 和历史原文。
 
@@ -32,7 +32,7 @@ formalJobPreflightProgress/Structure/Environment 各 1/1、Failure/Rejections �
 
 接替后合成回归 distributedPlanExecutionMode 10/10、taskQueryWideReadRealChain 3/3、planRunHoldClearedChain 3/3、planRunRecovery 7/7、nativePlanRetry 6/6、completedJobArtifactRootBinding 7/7、syncScopeStagingIdentityWiring 4/4、planSubmissionStateGuard 26/26、planRunQueryRegression 6/6、planRunSharedSubmission 5/5、planBatchDispatchFirst 14/14、rerunTransferBusyAttribution 21/21、rerunIsolateEngineContract 6/6、cleanupMissingTargets 11/11、formalJobExecution 5/5、completedJobLatestSync 32/32、planStopClear 39/39、syncScopeDelete 14/14、syncScopeWorkerAuthority 10/10、cleanupActivity 2/2、localIndexSharedIdentity 3/3、localCodeManifestCache 5/5、currentSubmissionTruth 8/8、planPreflightProgressSpeed 20/20、tmuxCloseRuntime 1/1 均 exit0。采用函数提取、VM、假请求和自建状态；tmuxCloseRuntime 用假 subprocess/timer，syncScopeDelete 只检查生成脚本与替身，preflight 保留原 40 文件计时断言；无真实 Worker、tmux、网络、UI 或删除。完整依赖/原始事件见 coverage；均待总控终审。
 
-旧执行会话结束后受支持工具归档并核 session_meta、138 条 eligible 原事件双 SHA，139 处仅修实际归档路径（`9a69240b`），未搬删原 rollout 或重跑。此前旧会话归档修复另核 35 项事件、42 处路径，未改事件。当前 planner 9 项待核；须按具体调用链及源证继续，不得把未知或未测写成通过。
+旧执行会话结束后受支持工具归档并核 session_meta、138 条 eligible 原事件双 SHA，139 处仅修实际归档路径（`9a69240b`），未搬删原 rollout 或重跑。此前旧会话归档修复另核 35 项事件、42 处路径，未改事件。当前 planner 6 项待核；须按具体调用链及源证继续，不得把未知或未测写成通过。
 
 
 接替后 planCleanup、planCleanupReconnect、planIsolatedReview/Lifecycle/Boundaries、planBatchPhysicalPipeline、localMetadataChanges、syncScopeDeletionRefresh、tmuxCloseHttp、resultSyncFailureVisibility、clearedOutputReplacement、manifestCleanup、planJobDeleteRequeueCoverage/Production、remoteResultInspectionWorkflow 和 resultCollectionPerformance 的原单项合成结果、数量、模拟删除及网络等精确边界保留在 coverage 和 `f36cb6a3:docs/plan-generations/G004-execution.md`；自建 fixture 保留，未证明真实删除、Worker 或 UI。
@@ -88,3 +88,5 @@ resultCandidateMetadataExclusion 4/4 exit0；仅将 Python TemporaryDirectory �
 总控批准旧 67/68/69 历史继承；68 原 parity 证明所选 Python 核心，69 所选根与原字节未记录，仅按同任务历史与相邻 parity 人工推断，未排除当时临时更改或覆盖。真实 WSL/tmux/Agent 本轮未执行。
 
 总控审定旧 91/222/225 原记录分别 1/1、1/1、6/6，仅为隔离 tmux、合成 CPU 与源验证夹具历史；未知旧工具链，本轮未重跑或验证真实 Worker。
+
+总控审定旧 226/227/252 原记录分别 1/1、2/2、3/3；227 未证明可选 0.5.325 复现，252 隔离 tmux 为历史证据，未做当前 WSL、真实 Worker 或训练。
