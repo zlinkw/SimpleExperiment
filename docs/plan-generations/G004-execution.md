@@ -22,7 +22,7 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 
 ## 审定证据和真实效果
 
-历史 job 187/189/240、七项删锁 264/265/267/268/269/271/274 已由总控人工继承；原 passed/0/tree confirmed 和日志保留，精确旧 Node/架构未知，不称本轮真实删除通过。总控另批准 runner 旧 default job 255–263、266、270、272、273、275–283、285–287、290、291 共 27 项逐 identity+argv 继承：旧 body/fixture 未变，新增 G004 分支不作用其输入，输入指纹改动不改变原场景比较行为；原日志和当前依赖冻结，未知旧 Node/架构不补造，不覆盖新 G004 或 job 289。原先包含的 job 284 经总控复核原日志总耗时 20119.841ms，超过 20 秒，后经用户明确批准仅本任务历史继承，不重跑；原历史 passed/0/tree 保留。
+总控审定历史 job 187/189/240、删锁 264/265/267/268/269/271/274 及 runner 27 项逐 identity+argv 继承，原日志和未知旧工具链保留；不称本轮删除通过，不覆盖新 G004 或289。284原20119.841ms超时仅本任务获用户例外，不重跑；精确名单和原审理由见 `52946c4d:docs/plan-generations/G004-execution.md`。
 
 旧 Git/UI 夹具、520 与接替后合成验证的逐项输入、结果、失败、工具链和边界见 coverage 与 `6f829e1d`、`9d5cae9f`、`6f14818d` 的本文件；不扩大原证范围或冒称真实 Worker/tmux/删除通过。
 
@@ -47,9 +47,9 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 
 ## 520 重载后单项目只读验收
 
-首次按专用根枚举发现记录时无 520；默认 520 是稿件窗口，未调用。用户在专用项目窗口重载后，匹配记录为 SimpleExperiment 0.5.520、PID 45080、startedAt `2026-11-23T05:41:49.812Z`、loopback 19769；真实 preflight、health 和 OpenAPI 核实同一版本、实例和单项目根。SimpleSFTP 0.2.120 同 PID、同项目已激活，独立 loopback capabilities/health 握手确认；因此本轮 MCP catalog 中的伴随插件能力读取未触发未知激活。
+专用窗口重载后核实 520 PID45080、startedAt `2026-11-23T05:41:49.812Z`、loopback 19769，SFTP 0.2.120 同 PID/根已激活；默认稿件窗口未调用。原 preflight、health 和 OpenAPI 详情见 `52946c4d:docs/plan-generations/G004-execution.md`。
 
-通过已安装稳定 launcher/resolver，真实 SDK stdio 握手及 tools/list 返回 137 项；本地只读 project_authorization、action_catalog、panel_diagnostics、project_status、state_value（低流量、onboarding、setup）和 project_state 均返回成功，两次 launcher 均 exit0/stderr 空。完整响应在 `%TEMP%/g004-520-live-mcp-20261123.json` 和 `%TEMP%/g004-520-live-mcp-state-20261123.json`；未调用 Worker 或跨项目方法。实际 167 action、五类 grant 无 workers 字段，offline_import、低流量 enabled/effective、5 Worker 配置中1启用、原 PLAN `experiments/plans/ui_u01_empty_515.yaml`、空任务选择、`experiments/results`、离线两条合成结果均读回；onboarding 仍 false，不能称丢失完成状态。检测预览的 synthetic/final.csv 未解析出标准记录，原信息保留，不冒充结果通过。
+稳定 MCP SDK 真实 tools/list 返回137项；project_authorization、action_catalog、panel_diagnostics、project_status、state_value 和 project_state 只读成功，launcher exit0/stderr空；完整响应及当时的状态、空任务选择、CSV失败见 `%TEMP%/g004-520-live-mcp-20261123.json`、`g004-520-live-mcp-state-20261123.json` 和 `52946c4d:docs/plan-generations/G004-execution.md`。未调用 Worker 或跨项目方法。
 
 本人新控制许可前，面板 diagnostics 报 ready、运行/安装均 520、无 section failures，但 heartbeat 标记 document-hidden、render health unknown；这不是可见 UI 验收。现有 Computer Use 工具可枚举窗口，但其窗口读取流程和 silent-ui-screenshot 禁止仅为截图使用 Computer Use，且未找到项目现成非激活捕获入口，未切焦点、未截图或操作界面。真实 UI、Worker、远端及跨项目仍未测。
 
@@ -88,3 +88,7 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 接替期间另有只读 Windows glob 两次失败、覆盖记录内存断言一次写前失败（外层后续命令显示0）、git-show 默认缓冲不足一次，均未改产品；后者提高只读缓冲后成功。PowerShell 嵌套引号一次解析失败，未执行 rg；随后改用 pwsh7 直接执行。
 
 停止组已按隔离 Host hunks 提交并同步 `fb874de2`。随后逆向消费者发现 UI 状态包装会把未确认的普通返回默认显示 completed；当前候选改为明确抛错，Plan 停止去掉无关全局选择，按钮携带已知 Worker 并修正“远端任务不受影响”的错误提示。原单文件11/11、消费者12/12均exit0，日志 `%TEMP%/g004-stop-ui-outcome-current-20261123.*.log`、`%TEMP%/g004-stop-consumers-outcome-current-20261123.*.log`；仅假客户端/源码，未触真实任务。新 Panel 改动仍待完整 build 与真实脚本 VM 门禁和总控源审，不部署或提交 Panel。
+
+本轮重核同根45080的两个健康、capabilities及OpenAPI后，稳定MCP调用同窗SFTP：status、transfers空列表、config.list及config.get单键成功；target.show 因本工作区无 `.vscode/sftp.json` 返回 -32000，未更改配置。launcher进程exit0、stderr空；外层因该实际错误exit1，完整响应 `%TEMP%/g004-520-sftp-local-successor-20261123.json` 含敏感配置不公开。第一次健康身份检查错误地要求 health 返回 instanceId，exit1；随后用 health PID与capabilities实例身份/根联合核实成功，未触真实远端。一次只读 Windows glob 报错和一次压缩补丁未匹配均未改产品。
+
+停止候选补保留显式远端 Worker 归属供后续人工重试；原单文件新12/12 exit0、3140ms，`%TEMP%/g004-stop-ui-identity-20261123.*.log`。源码候选及 Panel 未构建部署。

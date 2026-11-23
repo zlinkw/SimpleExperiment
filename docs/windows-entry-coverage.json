@@ -11532,6 +11532,7 @@
           "name": "sftp_status",
           "method": "status",
           "oldEvidence": "projectTools[name=sftp_status]",
+          "currentReview": {"status":"live_scoped","evidence":"同根45080的520经稳定MCP调用同窗SFTP 0.2.120，响应ok；%TEMP%/g004-520-sftp-local-successor-20261123.json。","boundary":"仅本机伴随服务状态，不证明远端连接。"},
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "已记录假SFTP代理和授权边界；真实SFTP文件/服务器效果未测。"
@@ -11557,6 +11558,7 @@
           "name": "sftp_target",
           "method": "target.show",
           "oldEvidence": "projectTools[name=sftp_target]",
+          "currentReview": {"status":"condition_missing","evidence":"同根稳定MCP实调返回 isError、code -32000：当前工作区无可用 .vscode/sftp.json；完整结果见 %TEMP%/g004-520-sftp-local-successor-20261123.json。","boundary":"未配置目标、未连接服务器，未修改配置；不能称目标查询成功。"},
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "已记录假SFTP代理和授权边界；真实SFTP文件/服务器效果未测。"
@@ -11565,6 +11567,7 @@
           "name": "sftp_transfers",
           "method": "transfers.list",
           "oldEvidence": "projectTools[name=sftp_transfers]",
+          "currentReview": {"status":"live_scoped","evidence":"同窗稳定MCP返回ok、transfers为空；%TEMP%/g004-520-sftp-local-successor-20261123.json。","boundary":"仅本窗当时的空列表，不证明其他时间的传输终态。"},
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "已记录假SFTP代理和授权边界；真实SFTP文件/服务器效果未测。"
@@ -11573,6 +11576,7 @@
           "name": "sftp_configuration_list",
           "method": "config.list",
           "oldEvidence": "projectTools[name=sftp_configuration_list]",
+          "currentReview": {"status":"live_scoped","evidence":"同窗稳定MCP配置列表成功；%TEMP%/g004-520-sftp-local-successor-20261123.json 含敏感配置，不公开内容。","boundary":"只读当前配置，不修改共享设置。"},
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "已记录假SFTP代理和授权边界；真实SFTP文件/服务器效果未测。"
@@ -11581,6 +11585,7 @@
           "name": "sftp_configuration_get",
           "method": "config.get",
           "oldEvidence": "projectTools[name=sftp_configuration_get]",
+          "currentReview": {"status":"live_scoped","evidence":"同窗稳定MCP读取 simpleSftp.uploadCancellable 成功；%TEMP%/g004-520-sftp-local-successor-20261123.json。","boundary":"仅该键和当前环境；不修改共享设置。"},
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "已记录假SFTP代理和授权边界；真实SFTP文件/服务器效果未测。"
