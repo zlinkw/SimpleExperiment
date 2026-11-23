@@ -77,4 +77,5 @@ SE候选在隔离前复用同lease状态冻结身份，审核入口允许原请�
 
 2026-11-23：总控批准首次新编译后原20秒各运行一次 resultSyncFailureVisibility 与 jobArtifactStagedSlotIdentity；当前仍未build。stage review已加入既有latest-artifacts域；当前只读规划build 317、package 369，build为package子集，新runner case仅在package。原stage v4测试后仅stop do/while改动不在其两项提取方法；覆盖登记当前适用冻结、原事件及测试时整文件hash未知。固定历史Process包装验证器及纯内存定向case `%TEMP%/g004-runner-stage-wrapper-v1-20261123.log` 1/1 exit0，已审并普通推送fetch一致 `13284446377496a930658112d9a1ab7d3750c6fd`。该次case的未锚定pattern与最终package规划的锚定argv不同；后者仅登记最终冻结后的fresh候选，不冒称已跑。未运行build或部署。
 证据整理中两次内存编辑脚本分别因查找格式不符和字符串替换中的 `$` 展开退出非零，均在写文件前退出；修正为精确对象及回调替换后UTF-8 JSON解析/diff检查通过，未触业务或运行测试。
-当前build规划317项均有身份登记；按既有摘要只读比对发现多项旧证依赖漂移，不能仅凭dry-run放行。已按实际读取闭包及原历史证据逐项核对租约、分支与部分预检条目，冻结现行适用值；其余仍待审。SFTP另核旧日志中租约、容量、路径、元数据、压缩与serial runner等16项具名闭包；旧工具链未知，均为有条件继承候选而非新运行。
+当前build规划317项均有身份登记；按既有摘要只读比对发现多项旧证依赖漂移，不能仅凭dry-run放行。已按实际读取闭包及原历史证据逐项核对租约、分支与部分预检条目，冻结现行适用值；其余仍待审。SFTP另核旧日志中租约、容量、路径、元数据、压缩与serial runner等42项具名闭包；旧工具链未知，均为有条件继承候选而非新运行。
+原ID续核：树目录展开、问题过滤、详情展开、根标签、表格展开与运行确认取消6项，复用原假端/receipt并核源码未变；未运行真实任务或删除。五次只读统计/证据整理脚本分别因空值、旧格式假设、AST路径错误、git show输出超默认缓冲、对象标记格式不匹配退出非零，均写入前退出；修正后JSON解析及diff检查通过。
