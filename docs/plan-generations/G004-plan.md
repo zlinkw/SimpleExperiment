@@ -4,13 +4,13 @@
 
 2026-11-22用户最新要求：复用已查证据，把剩余单项目界面、按钮、功能及MCP逻辑一次查清修完；先迁出MCP共用逻辑，再彻底退役业务CLI入口/专用代码。所有可独立完成的源码、必要消费者、测试和文档先做到可审，最后集中列出确需本人确认的精确删除、测试退役/替代及复验事项，再统一验收交付。不得因单项发现或普通测试失败停整批，不逐项发版；单项目正常后才处理跨项目延期。这是原G004一个完整业务批次，内部每组≤3强相关问题、≤8非生成源/测试/文档文件，验证后scoped FF提交，不把完整目标缩成一组或巨型提交。
 
-本轮0.5.520源码、最终增量package、试行发布及一次安装已完成，精确凭据见末节。2026-11-23本人已报告重载，明确继续新版本单项目界面与MCP验收、复用有效证据，真实Worker及跨项目限制不变，完成后统一汇报。专用520 Host与真实稳定MCP已实核，安全本地只读调用通过；本人随后允许原生快照及直接控制电脑，总控已做实际面板/计划筛选及本地识别，新增MCP事实已读回true，本阶段规定的安全本地验收完成，最终结果及受限项见末节。不重复build/package/安装。
+0.5.520交付及上一阶段限定本地验收已完成，事实与限制见末节。2026-11-23本人最新要求继续查清render探针unknown、CSV预览未解析，确有问题修完，并继续未排查按钮、功能和MCP；复用有效证据，真实Worker与跨项目限制不变，完成后统一汇报。当前整项G004继续活动，不把上一阶段少量实点、目录137或package361项当全部功能调查结案。
 
 本计划集中语义压缩于30a5d6e0后；完整此前计划可从Git 30a5d6e0同路径读取，原调查/修法/失败不被抹除。进一步原材料见59041060、89498eff同计划及下列现行证据；不另建tracker或重复报告。plan cap18000/90%=16200，execution cap12000/90%=10800；接近阈值整体压缩，保留未决与真实失败。
 
 ## 角色、租约与保护
 
-总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high/default，resolved与实际turn已实核match/continue，独占本计划/README。唯一执行01a20584-8cbd-7383-8626-4997e9d2dacc/local，Terra/high/priority，资格实核后承接；本轮包、发行、安装已交完整包且释放scoped Git，无在途。执行已交6f829e1d及最终读回完整包，全部API/MCP/UI/检查租约释放，无在途；总控独占最终文档核验与scoped Git同步，结束后两角色空闲，不后台保活。只保留两角色，不另建验收者；service_tier仅记录。旧总控01a1fdb5及旧执行01a203b9/01a204cc均按caveman自然阈值完整交班并归档不删除，真实峰值/资格/租约与基线详见Git 7bf49ba8同计划、6a2cf63c和execution；接替不重置任务/许可或有效证据。
+总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high/default，resolved与实际turn已实核match/continue，独占本计划/README。唯一执行01a20584-8cbd-7383-8626-4997e9d2dacc/local，Terra/high/priority，资格实核后承接；本轮包、发行、安装已交完整包且释放scoped Git，无在途。上一阶段已交包释放全部租约。总控同步本次完整范围后，将产品/本地API-MCP-UI/必要测试、execution-coverage及scoped Git租约一次交原执行者；总控保留plan/README及最终独立审查，不并发操作目标实例。只保留两角色，不另建验收者；service_tier仅记录。旧总控01a1fdb5及旧执行01a203b9/01a204cc均按caveman自然阈值完整交班并归档不删除，真实峰值/资格/租约与基线详见Git 7bf49ba8同计划、6a2cf63c和execution；接替不重置任务/许可或有效证据。
 
 总控无独立待办、仅等完整包/必要决定时按全局事件协调合法结束本轮，不能轮询/催进度；执行者仍有授权可做工作不得套用空闲。必要消息默认无回执。未知在途动作先核归属与结果，不重放。当前原仓是普通Windows工作区，非Pi/自制容器/项目管理器，不触发worktree PR。master追踪origin/master，origin=https://github.com/zlinkw/SimpleExperiment.git；逐组检查diff、UTF8、必要验证后精确stage，普通commit/push/fetch核HEAD一致。remote前进、认证/hooks/同步失败停相关Git升级，不amend/rebase/reset/merge/force/改remote，不stage日志、夹具、无关未跟踪资产。0aa6b27c push后fetch TLS unexpected EOF exit1，经总控精确一次恢复fetch exit0核一致，非通用重试许可。
 
@@ -107,3 +107,11 @@ https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.520 实际prereleas
 B1真实流程只点识别一次。源码核确认同当前PLAN仅本机扫描/持久化，不触Worker/不改变选择触发结果查询。出现5个Plan确认通知；首坐标点击未选中“继续”，通知收进通知中心、流程仍等本人选择，期间真实出现stalled提示，保留不算死锁。总控从实际通知树选element755“继续”后立即显示“本地工作区已识别”，黄色未识别横幅消失、识别按钮恢复；末尾可选“打开实验准备”通知未点击即完成，验证通知不再占外层租约。没有生成adapter/PLAN或变更Worker/grant。Escape退出通知同时退出辅助侧栏最大化，随后按实际控件998恢复原全宽面板；未改编辑器文件。最终同一45080实例经稳定MCP实际读回projectOnboardingCompleted=true、status520/offline_import，launcher exit0/stderr空；panel ready、documentHidden=false、sectionFailures空，但render-health-probe-pending仍unknown，不冒探针通过。operation_list total0不单独证明锁释放；原完整响应TEMP/g004-520-after-ui-recognition-20261123.json。结合真实按钮恢复和最终通知未点击时的完成事实核本地识别，不重跑原合成3/3、不再次识别/清锁。
 
 本次验收结论：专用520 Host、真实稳定MCP握手/137工具目录、经审定本地只读调用、配置授权保留及实际面板/计划筛选/本地识别均在上述范围通过。复用361既有覆盖，不称137工具或全部物理按钮都实点。synthetic/final.csv当前不符合标准指标列、预览未解析；render health探针未知均保留。真实Worker、SSH/Agent/GPU/tmux/训练/永久删除/跨项目及原受限功能未验，J01未修；不因本地验收提升Latest或再安装。本阶段无需本人再次重载。
+
+## 当前连续阶段：两项根因与剩余功能闭环
+
+基线419187fe。唯一Terra先复用真实520日志及当前源码，查render-health-probe-pending的创建/调度/执行/可见性/上报/Host接收链，区分合法暂态与长期不结算；查专用synthetic/final.csv原始字节、标准/宽表/自定义解析契约、当前选择与检测预览调用链，不能先将输入不合规或程序错误定论。用最小可验证反馈区分具体原因，确有缺陷则在原支持契约内修复并验证受影响消费者，不把unknown改成假ok或把坏输入静默变空成功。
+
+同时从原300逻辑ID、137工具、167 invoke与45命令的现有索引逐项对账，复用已经有效的producer→consumer/参数/权限/错误/终态及定向证据；旧confirmed_defect与519字段须按已交修复更新适用状态。明确哪些是源码尚未审、条件证据缺失、仅真实外部效果未运行，不能把范围分类/schema存在/测试文件通过等同每项已审，也不能只做前两项就结束完整阶段。对仍未审单项目入口连续查必要调用链，补能安全执行的实际本地UI/MCP或有依据的受控消费者检查；外部受限入口仍可审本地路由，禁止执行真实Worker或跨项目效果。处置与证据只更新既有coverage行/字段和execution，不新建tracker/报告，不重复已成立检查。
+
+每组≤3强相关问题/≤8非生成文件，保留首失败、原20秒期限和全部删除/共享配置边界；本人电脑控制授权持续限专用窗口及安全本地交互，不控制稿件窗。完成所有授权内可做调查/修复及必要回归后交完整包：逐母集当前已审/未审/受限的精确差异、两根因、源diff/消费者/日志/实际退出、剩余明确缺口。普通局部失败不停止整批；需新增权限只暂停相关效果并继续其余。源审后才决定必要编译/新版本集中试行交付，不能提前重装520或更改不可变包/tag。
