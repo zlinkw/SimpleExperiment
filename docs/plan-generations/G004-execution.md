@@ -89,15 +89,15 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 停止组已按隔离 Host hunks 提交并同步 `fb874de2`。随后逆向消费者发现 UI 状态包装会把未确认的普通返回默认显示 completed；当前候选改为明确抛错，Plan 停止去掉无关全局选择，按钮携带已知 Worker 并修正“远端任务不受影响”的错误提示。原单文件11/11、消费者12/12均exit0，日志 `%TEMP%/g004-stop-ui-outcome-current-20261123.*.log`、`%TEMP%/g004-stop-consumers-outcome-current-20261123.*.log`；仅假客户端/源码，未触真实任务。新 Panel 改动仍待完整 build 与真实脚本 VM 门禁和总控源审，不部署或提交 Panel。
 
-本轮重核同根45080的两个健康、capabilities及OpenAPI后，稳定MCP调用同窗SFTP：status、transfers空列表、config.list及config.get单键成功；target.show 因本工作区无 `.vscode/sftp.json` 返回 -32000，未更改配置。launcher进程exit0、stderr空；外层因该实际错误exit1，完整响应 `%TEMP%/g004-520-sftp-local-successor-20261123.json` 含敏感配置不公开。第一次健康身份检查错误地要求 health 返回 instanceId，exit1；随后用 health PID与capabilities实例身份/根联合核实成功，未触真实远端。一次只读 Windows glob 报错和一次压缩补丁未匹配均未改产品。
+同根45080 SFTP status、空transfers、配置list/get成功；target.show缺 `.vscode/sftp.json` 返回-32000，launcher exit0而外层exit1，敏感响应 `%TEMP%/g004-520-sftp-local-successor-20261123.json` 不公开。首身份检查误要求health的instanceId而exit1，后用PID/capabilities实例与根核实；未改配置或访问远端。只读glob及压缩补丁各一次失败未改产品，完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
-停止候选补保留显式远端 Worker 归属供后续人工重试；原单文件新12/12 exit0、3140ms，`%TEMP%/g004-stop-ui-identity-20261123.*.log`。源码候选及 Panel 未构建部署。
+停止候选保留显式Worker供人工重试；12/12 exit0 `%TEMP%/g004-stop-ui-identity-20261123.*.log`，Panel未构建部署。
 
-SFTP server activate/save/delete 逐工具复核 schema、人工 modal 和同根代理；后两项仅复用原假对话/后端17/17日志 `%TEMP%/g004-520-mcp-sftp-routing-20261123.log`，activate仅源码。未变更服务器配置或删除任何真实记录。
+SFTP server activate/save/delete源码及假后端范围见coverage；后两项复用17/17 `%TEMP%/g004-520-mcp-sftp-routing-20261123.log`，无真实配置变更或删除。
 
 复核 `sftp_download_paths` 时发现 Host 原接受绝对路径，下游会剥前导斜杠改解释为项目相对路径；现于公开输入边界拒绝绝对、盘符及越界路径，后端原路径限制不变。关联 upload_files/workspace 的范围、授权和假后端逐项记录在coverage。原单文件17/17 exit0、816ms，日志 `%TEMP%/g004-mcp-download-path-validation-20261123.*.log`，仅自建夹具，未连接真实Worker或传输。一次压缩补丁未匹配、写前退出。
 
-SFTP tree、tree_state、inventory逐项核Gateway、Host与已装SFTP路径检查；原假端口回归复用上条日志。此三只读工具当前不声明权限类别，只绑定配置Worker/项目；未访问真实Worker或计算远端哈希，范围不足见coverage。
+SFTP tree、tree_state、inventory源码及假端口范围见coverage；三只读工具未声明权限类别，仅绑定Worker/项目，未访问真实Worker或计算远端哈希。
 
 SFTP file_stats/plan_logs按schema、Worker路由及已装后端路径/Plan校验复核，仅假端证据。remote_directories原无条件附confirm/pathConfirmed且缺授权，已按总控裁决改为sync项目授权、根内精确目标及调用前项目/Worker快照复核；假Gateway/Host 18/18 exit0，`%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log`。已装120确认函数仅提取VM核缺失/部分/完整因子3/3，`%TEMP%/g004-sftp120-confirmation-vm-20261123.log`。未改真实grant或访问远端。一次压缩补丁未匹配、未写入。
 
@@ -106,3 +106,7 @@ SFTP file_stats/plan_logs按schema、Worker路由及已装后端路径/Plan校�
 草稿审核/拒绝写入后若刷新抛错或保存错误，原UI及拒绝API可能报完成；现UI复用项目绑定API，明确报告“已写入但刷新失败”，不自动重发。方法VM/假写入6/6 exit0 `%TEMP%/g004-draft-partial-write-final-20261123.*.log`，原生命周期49/49 exit0 `%TEMP%/g004-draft-action-lifecycle-final-20261123.*.log`；夹具补齐真实Host已有状态，无真实草稿写入。
 
 草稿提升预览按项目、草稿状态和成功debug校验，复用受控证据；提升本身明确退役。默认草稿渲染已停用，历史自定义保存仍可能经兼容路由进入；审核/拒绝的近期修复是宿主兼容路由，非实际UI点击。各ID范围与日志见coverage，未查询活动结果或写真实草稿。
+
+用户指出草稿机制已移除，立即停止草稿相关新调查、验证和实现；前述检查源自旧母集及保留兼容入口，不能当作当前功能。范围由总控统一裁决，不删除文件。
+
+MCP task_stop 在登记意图期间若撤销授权或更改Worker配置，原实现仍可发送停止；现发送前重核experiment授权及快照，未知保留意图。假Gateway/Host 3/3 exit0 `%TEMP%/g004-task-stop-auth-complete-20261123.*.log`；首次夹具不存在路径ENOENT及随后实际缺少拒绝的复现均exit1，分别保留 `g004-task-stop-auth-first`、`g004-task-stop-auth-repro` 日志。未访问真实Worker。

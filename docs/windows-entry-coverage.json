@@ -11022,6 +11022,7 @@
         {
           "name": "task_stop",
           "method": "tasks.stop",
+          "currentReview": {"status":"fixed_scoped","evidence":"Gateway要求experiment授权与精确Worker/command；本地队列登记停止意图后立即重核项目授权及Worker快照再发送。假Gateway/Host覆盖撤权、目标/项目漂移、缺授权和成功，3/3 exit0，%TEMP%/g004-task-stop-auth-complete-20261123.*.log；原精确任务及其它任务保留受控证据见projectTools。","boundary":"不访问真实Worker；远端窗口确认和中断后的状态仍依实际执行器，非真实停止通过。"},
           "oldEvidence": "projectTools[name=task_stop]",
           "scope": "local_gateway_plus_worker_effect_restricted",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",

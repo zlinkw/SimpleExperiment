@@ -1,4 +1,5 @@
 import { canonicalProjectId, confirmRetainedTaskStop } from "../features/DistributedPlanQueue";
+import { mcpInvocation } from "../mcp/Invocation";
 
 /** Exact job control shares the UI stop implementation and its persisted cancellation intent. */
 export async function stopProjectTask(host: any, root: string, params: Record<string, any>): Promise<unknown> {
@@ -17,6 +18,7 @@ export async function stopProjectTask(host: any, root: string, params: Record<st
     return { ...queue };
   } });
   if (!host.projectContextIsCurrent(context)) throw Error("MCP_WORKSPACE_CHANGED");
+  mcpInvocation.getStore()?.permission("experiment");
   const result = await host.stopDistributedJobForClear(selected!.plan, selected!.job, true);
   await host.saveDistributedQueue(root, undefined, { controlMutation: true, mutateLatest: (queue: any) => {
     if (!host.projectContextIsCurrent(context)) throw Error("MCP_WORKSPACE_CHANGED");
