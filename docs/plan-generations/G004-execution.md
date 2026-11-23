@@ -142,3 +142,5 @@ TensorBoard四个MCP入口的目标、授权及终态按源码逐项复核，详
 tmux_list/capture源码和假Gateway路由证据范围见coverage；未访问真实Worker、窗口或日志。
 
 artifact_list/inspect项目边界、精确身份和本地及假远端证据逐ID见coverage；未查询真实任务、活动结果或Worker。
+
+配套120→28087f3中api-server、cleanup-file-api/cleanup-files和以下11个测试均字节未变；120包汇总分别 api 23、apiBackpressure 4、apiUploadProgress 4、batchDeleteApi 24、chunkedTrimGuard 1、cleanupChunkedDelete 1、cleanupConsumerRoot 13、cleanupExecuteSelfBusy 8、cleanupExplicitTarget 1、cleanupFiles 18、cleanupHandle 1通过，但各自原日志缺失。119→当前除api新增下载Host入口相关用例外，上述测试和清理实现未变；其中cleanupExecuteSelfBusy使用假传输控制器，不调用transfers.cancel；api仅列举该方法。汇总不补造具体断言、工具链或逐项运行证据；本次不执行真实清理/WSL，打包覆盖仍待总控审收。
