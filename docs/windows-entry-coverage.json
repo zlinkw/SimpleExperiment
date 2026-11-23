@@ -11778,7 +11778,7 @@
         },
         {
           "name": "sftp_download_scope",
-          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"需sync项目授权，按明确Worker保存路径、扩展名及大小配置；原假Host范围路由3/3日志 %TEMP%/g004-519-download-scope-ff08.log。","boundary":"未修改真实范围或读取服务器；缺省范围用于下载时的行为另有待裁定缺口。"},
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"需sync项目授权，按明确Worker保存路径、扩展名及大小配置；原假Host范围路由3/3日志 %TEMP%/g004-519-download-scope-ff08.log。","boundary":"未修改真实范围或读取服务器；缺省范围下载缺口已按用户批准修复，见sftp_from_remote。"},
           "method": "downloadScope.configure",
           "oldEvidence": "projectTools[name=sftp_download_scope]",
           "scope": "companion_proxy_real_downstream_scoped",
@@ -11796,6 +11796,7 @@
         },
         {
           "name": "sftp_from_remote",
+          "currentReview": {"status":"fixed_scoped_external_effect_restricted","evidence":"原缺失/空/坏已保存范围退为tar整个项目；MCP要求选定Worker有效已存范围并重核sync，SFTP b3da0b5在任何远端查询前严格读取并冻结原过滤条件。真实方法假fs/假传输3/3、假Gateway1/1 exit0：%TEMP%/g004-sftp-saved-scope-20261123.*.log、g004-mcp-saved-scope-20261123.*.log。","boundary":"未读取真实用户scope或进行SSH/传输；普通UI及不要求严格范围的API保持原语义，待build及试行交付。"},
           "method": "sync.fromRemote",
           "oldEvidence": "projectTools[name=sftp_from_remote]",
           "scope": "companion_proxy_real_downstream_scoped",

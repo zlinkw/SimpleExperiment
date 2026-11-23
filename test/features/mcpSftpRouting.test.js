@@ -239,6 +239,13 @@ test('MCP workspace upload forwards the scoped manifest without pruning',async()
  assert.equal(f.calls.length,1);
 });
 
+test('MCP remote download requests the selected saved scope',async()=>{
+ const f=fixture();await f.gateway.call('sftp_from_remote',{workerId:'w1'});
+ const call=f.calls.at(-1);assert.equal(call.method,'sync.fromRemote');
+ assert.equal(call.params.server.id,'w1');assert.equal(call.params.localPath,root);
+ assert.equal(call.params.requireSavedScope,true);assert.equal(call.params.confirm,true);assert.equal(call.params.pathConfirmed,true);
+});
+
 test('MCP handoff requests upload to the selected Worker',async()=>{
  const f=fixture();await f.gateway.call('sftp_handoff',{workerId:'w1'});
  const call=f.calls.at(-1);assert.equal(call.method,'handoff.markReady');
