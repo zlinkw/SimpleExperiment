@@ -40,7 +40,7 @@ R519 A1–A6/B1–B4/C1–C3、U01–03的20修复及U04原43中39单项目已�
 
 用户批准本任务有效旧结果＋当前补验逐identity/argv增量核验，非通用cache。schema3保原receipt/direct/fresh、事件/日志SHA、真实退出及依赖/工具链/输入/选择/产物/gates；旧工具链/dirty字节unknown仅逐项人工适用，不伪known。031原0pass/1skip、165为5pass/1skip、37为40pass/1skip，340原34继承现30而4CLI退休；68仅Python核心及JS两拒绝边界，69外部根/字节未知；264/265/267/268/269/271/274仅继承未改安全逻辑不重跑。219的20857.309ms与284的20119.841ms仅用户精确本任务历史例外，不扩未来20秒。误重复/按需误跑不计覆盖，OOM/ENOBUFS/引号/规划/旧日志覆盖保留，不伪恢复日志。
 
-520 receipt simple_cluster/reports/test-workflow/2026-11-23T02-45-43-277Z-10816-package/run.json永久绑定build f66d36946ade4b911a75636d6f2fc1f28c65111b，overall passed/exit0；361 active=125历史＋235direct＋fresh289，6按需未跑，13 gates exit0/tree confirmed、input=end、max1/锁释放。fresh289原pattern唯一1/1/wall4508ms；完整input/artifact/selection不改绑后续HEAD。packageContentPolicy保fixture12/12，releaseAcceptance首漏onDemand exit1后特批修1/1，resultCandidateMetadataExclusion仅保留mkdtemp4/4；额外真实temp删除的完整acceptance未获准未跑。mcpProjectOps11/11、windowScope8/8、续接原20.389s虽exit0仍超时无效，特批1/1 7.513s、静态固定包装acf338a1另1/1 8661.6398ms均保原边界。
+520 receipt simple_cluster/reports/test-workflow/2026-11-23T02-45-43-277Z-10816-package/run.json永久绑定build f66d36946ade4b911a75636d6f2fc1f28c65111b，passed/exit0；361 active=125历史＋235direct＋fresh289，6按需未跑，13 gates exit0/tree confirmed、input=end、max1/锁释放；289原pattern唯一1/1/wall4508ms。input/artifact/selection不改绑后续HEAD。包内容/发布首失败及修正、仅保留fixture的metadata4/4、MCP11/11和scope8/8、超时20.389s无效及两次精确特批原边界取c8d1d2ac本段与execution；额外真实temp删除的完整acceptance仍未获准未跑，不扩例外。
 
 520 VSIX2919747字节，SHA256 aaf19107996beae86674b16b6c25f110551e74fb70a6bd545c88d334c9b2cdba，simple-local.simple-experiment、^1.100.0/universal。ZIP/运行闭包/秘密/README、Panel模块及3真实脚本VM、10890零命中已核；20生成物fea89fbd/18cd5836/120b9384同步，首add ignore exit1但7tracked暂存，核后提交，后精确tracked update；六dirty保留。
 
@@ -82,13 +82,15 @@ MCP配套170fd06e：remote.listDirs不无条件confirm，保sync授权/精确Wor
 
 D反向夹具补齐：manualLaunchMessage仅加固定原context/signal/current接口，原GPU配额及三消息不变；memory/quota原锚定各1/1、661.0485/698.2994ms，包装子/外exit0。helper 1b3d44a7；workerPreparation仅原取消文案匹配及末项原context，8/8、3342.686ms、双exit0，2213f8d6已普通同步并实核三HEAD相等/index空。日志TEMP/g004-manual-context-{memory,quota}-v1与g004-worker-preparation-context-v1-20261124，原完整身份及94/95/103仅按已审分支适用，无WSL/真实Worker；saveSchedulerConfig为同合法输入等效、非字节相同。包装不冒ordinary direct。
 
+MCP旧证更正：总控漏核recentLogsFor先调用live.output，原7夹具把未实现能力抛普通错误，不能继承；撤回6项错误适用依据，旧输出保历史。仅给该fake明确-32601、其它意外RPC仍throw，原断言不减。七文件38项exit0并同步8d356e69；QuerySchema另两fake同因4/4、696.2524ms、exit0，单文件b11a66a3同步，三HEAD已实核。无生产修改/网络/删除；Native仅list/status非full不触该分支，保持原rpc白名单。原事件解析见下，不能把真实通过冒不合格式的ordinary direct。
+
 E替换隔离五产品已源审：原caller贯通预览/确认/预检/状态/隔离实际SFTP、Manifest原client与索引发布；无共享可变guard/新账本/锁。首候选status并发覆盖及首check先guard丢事实已返修：原observing(id)串行、排队后读，普通无guard共享，某caller失败不取消下一合法调用；原A完成回执先save再挡后续。TEMP/g004-plan-cleanup-context-v1-20261124.out.log为8/8、506.8637ms、子/外exit0、stderr空，纯内存save/SFTP/fs与源码VM。generic仅明确sftpNotStarted回pending，8case未走该hunk；已发未知保executing。五产品+新test+manifest共7文件16ade9d3已普通同步，Host原slot未夹；文档3f4b9925后实核HEAD=origin/master=FETCH_HEAD、index空。未声称fastdelete/restore/完整history及全部独立删除通用caller闭合；真实效果/world/build仍禁。
 
 ## 增量构建、最终路线与终点
 
 P0 npm run build含完整测试域，不能以build批准隐式跑禁区。现有G004入口固定本仓max1，build按identity＋argv为已审package严格子集，package仍集合相等；build不是assemble凭证。095a1fb8＋当时dirty只读规划322build/374package、0按需、missing0，仅导航；旧318/370不沿用，D/E/登记变化后须重算。planG004Execution首拒legacy漂移exit1仍真；逐实际提取函数/消费者闭包消解历史依赖，不批替hash/便宜全重跑。compiledInputs须真实新compile后冻结，不拿源码VM冒dist。
 
-sftpCaller/planRun/codeSync/isolatedAutoDelete/planCleanup ContextFence五新identity、F的mcpDraftContracts/mcpActionCatalog及workerPreparation包装输出不满足ordinary direct，亦非历史stage固定wrapper；planCodeScope旧full12+新增精确1/1不冒当前full13。最终相关源码/fixture冻结后，这九全文件按原argv/20秒经既有runner fresh各一次、max1，现在不运行。planCodeScope仅保留私有fixture/Python抽函数10000ms，原mocktimer阈值不改。原call/进程exit/timeout/日志/失败保类型，不冒direct/treeconfirmed或新增通用解析器；同输入package复用真实fresh。
+sftpCaller/planRun/codeSync/isolatedAutoDelete/planCleanup ContextFence五新identity、F的mcpDraftContracts/mcpActionCatalog及workerPreparation包装不满足ordinary direct；planCodeScope旧full12+新增精确1不冒当前full13。另Persisted/Health/Failure/Inspect/History/LogsConfig六次虽逐项真实exec_command通过，但JS循环模板不合现有direct解析，保原事件不扩解析器。最终源码/fixture冻结后共十五全文件按原argv/20秒经既有runner fresh各一次、max1，现在不运行；Active/QuerySchema为顶层literal cmd，可按原direct接入，不增fresh。planCodeScope私有fixture保留/Python抽函数10000ms、原mocktimer不改。原call/exit/timeout/日志/失败保类型，不冒direct/treeconfirmed；同输入package复用真实fresh。
 
 runner旧证据：1e91d0d4原38 test body及共享helper与现40逐AST相同；35旧eligible sourceJobs255..287/290/291各pattern仍唯一同case，及direct af4ee4a9/0ebf2208两精确项仅test文件/runner依赖变化，默认非G004路径已审适用，允许更新该两依赖basis，不改原call/退出/工具链unknown及219/284历史例外，不扩至新case。e467ce4d旧G004 unit8746ms不继承：当前277行新增build子集/package严格集合断言，效果仅保留合成workspace/日志/事件、mock deadline及PowerShell静态Parser，wrapper只假fs/VM，不执行事件/Python。准最终冻结后原锚定 ^runner: G004 reviewed legacy evidence preserves origin and refuses drift$ 20秒fresh一次，与289/fixed-stage独立。
 

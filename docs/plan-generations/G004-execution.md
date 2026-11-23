@@ -55,7 +55,7 @@ SE候选在隔离前复用同lease状态冻结身份，审核入口允许原请�
 
 2026-11-23：总控批准首次新编译后原20秒各运行一次 resultSyncFailureVisibility 与 jobArtifactStagedSlotIdentity；当前仍未build。stage review已加入既有latest-artifacts域；当前只读规划build 317、package 369，build为package子集，新runner case仅在package。原stage v4测试后仅stop do/while改动不在其两项提取方法；覆盖登记当前适用冻结、原事件及测试时整文件hash未知。固定历史Process包装验证器及纯内存定向case `%TEMP%/g004-runner-stage-wrapper-v1-20261123.log` 1/1 exit0，已审并普通推送fetch一致 `13284446377496a930658112d9a1ab7d3750c6fd`。该次case的未锚定pattern与最终package规划的锚定argv不同；后者仅登记最终冻结后的fresh候选，不冒称已跑。未运行build或部署。
 证据整理中两次内存编辑脚本分别因查找格式不符和字符串替换中的 `$` 展开退出非零，均在写文件前退出；修正为精确对象及回调替换后UTF-8 JSON解析/diff检查通过，未触业务或运行测试。
-当前build规划317项均有身份登记；按既有摘要只读比对发现多项旧证依赖漂移，不能仅凭dry-run放行。已按实际读取闭包及原历史证据逐项核对租约、分支与部分预检条目，冻结现行适用值；其余仍待审。SFTP另核旧日志中租约、容量、路径、元数据、压缩与serial runner等42项具名闭包；旧工具链未知，均为有条件继承候选而非新运行。
+旧317项规划及SFTP 42项闭包审核仅为条件适用候选，余证据和旧工具链未知；不能凭dry-run放行。
 原ID续核：树目录展开、问题过滤、详情展开、根标签、表格展开与运行确认取消6项，复用原假端/receipt并核源码未变；未运行真实任务或删除。五次只读统计/证据整理脚本分别因空值、旧格式假设、AST路径错误、git show输出超默认缓冲、对象标记格式不匹配退出非零，均写入前退出；修正后JSON解析及diff检查通过。
 
 总控审准SFTP两原单文件：apiBackpressure与apiUploadProgress顺序各4/4、exit0、stderr空，日志 `%TEMP%/g004-sftp-api-{backpressure,upload-progress}-v1-20261124.{out,err}.log`，原调用和依赖登记coverage；假SSE及假上传子进程，无真实监听/SSH/传输。只读查rollout时额外指定不存在的11/24日期目录导致rg exit2，实际11/23 rollout命中有效，无写入。
@@ -85,3 +85,5 @@ send原消费者经效果审的精确选择依次1/1、2/2、1/1、2/2、2/2，�
 派发消费者夹具绑定原项目context：manualLaunchMessage独立同步 `1b3d44a7`；gpuMemory、gpuQuota各原精确1/1 exit0，日志 `%TEMP%/g004-manual-context-{memory,quota}-v1-20261124.{out,err}.log`。原4文件全量旧证仅按审定闭包条件适用，未新跑WSL或整个GPU文件。workerPreparationPipeline两处等价夹具同步 `2213f8d6`，原完整8/8 exit0，日志 `%TEMP%/g004-worker-preparation-context-v1-20261124.{out,err}.log`；均内存fake/Process包装，最终runner同身份fresh按批准候选，未执行真实Worker或新dist。
 
 证据登记一次因误写 SimpleSftpProgressWait 路径在写前退出1；核实际 `src/core` 后修正，JSON解析通过，未改业务文件。
+
+MCP旧证撤回：总控漏核optionalApi的live.output错误分支，Active/Persisted/Health/Failure/Inspect/History/LogsConfig及QuerySchema旧direct降历史ineligible，原call/日志保留。fake仅对live.output返回-32601，七原单文件依次6/4/6/6/6/9/1项通过、同步 `8d356e69`，QuerySchema 4/4同步 `b11a66a3`，均exit0且无真实网络/Worker/删除。Active与Query为literal direct；六项串行循环调用真实通过但parser不支持，最终冻结后各runner fresh一次。选行两次重复匹配、对象路径及PowerShell花括号错误，另本记录压缩两候选触阈值10806/10823，均写前失败，已纠正。
